@@ -62,6 +62,15 @@ cost:
       duration_minutes: 35
       recorded_at: 2026-06-13
       notes: "subagent; cost not separately reported"
+    - cycle: build
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_input: null
+      tokens_output: null
+      estimated_usd: null
+      duration_minutes: 20
+      recorded_at: 2026-06-13
+      notes: "subagent; cost not separately reported"
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -512,28 +521,71 @@ cargo fmt --check                   # formatting gate (CI); `cargo fmt` to fix
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
+- **Branch:** `feat/spec-002-canonical-image-type-and-load`
+- **PR (if applicable):** see timeline (opened on jysf/crustyimg)
+- **All acceptance criteria met?** yes
+- **`image` feature configuration chosen:** `image = { version = "=0.25.10",
+  default-features = false, features = ["png", "jpeg", "gif", "bmp", "tiff",
+  "ico"] }` — default features OFF, only the pure-Rust core MVP formats
+  (DEC-004). No `avif`/`mozjpeg`/native features. `thiserror = "=2.0.18"`. Both
+  pinned to exact patch versions. `cargo tree --depth 1` shows exactly two
+  direct deps (`image`, `thiserror`) and no native codec crate
+  (ravif/mozjpeg/libaom/dav1d absent).
+- **EXIF/ICC capture approach (DEC-003, capture-only):** raw byte-scanning of
+  the container, NOT parsing. JPEG: walk the marker segments and copy the
+  payload of the first APP1 (`FF E1`) segment starting with `Exif\0\0` into
+  `MetadataBundle.exif`; ICC is best-effort from the first APP2 (`FF E2`)
+  `ICC_PROFILE\0` segment. PNG: copy the raw `eXIf` chunk data into `exif` and
+  the `iCCP` chunk data into `icc`. Bytes are stored verbatim; nothing is
+  parsed/validated/interpreted. When no segment is present the bundle is empty
+  and `Image::metadata()` returns `None`. The EXIF-bearing fixture is a
+  generated gradient JPEG with a hand-spliced minimal valid APP1/`Exif\0\0`
+  segment (II*\0 + zero-entry IFD); the test asserts only that capture detected
+  it, never its contents.
 - **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
+  - None. `image`/`thiserror` are pre-justified by DEC-002/DEC-004/DEC-007;
+    no other crate was added (no `tempfile`, no separate EXIF parser).
 - **Deviations from spec:**
-  - [list]
+  - None material. `Image::load` reads the file via `std::fs::read` (mapping
+    `io::Error` → `ImageError::Io`) then routes through `from_bytes`, rather
+    than `ImageReader::open(...).with_guessed_format()`. This is functionally
+    equivalent for the acceptance tests, keeps a single decode+capture code
+    path, and lets the metadata byte-scan see the full container for both the
+    path and bytes entries. `from_reader` likewise reads to end then delegates.
+  - Added two non-required-but-useful public accessors not enumerated in the
+    spec's signature list: `Image::pixels(&self) -> &DynamicImage` (downstream
+    operations in SPEC-003 will need pixel access) — covered by a unit test to
+    keep `every-public-fn-tested` true.
 - **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - Multi-chunk JPEG ICC reassembly and broader-format metadata capture are
+    deferred to the metadata lane (STAGE-004), as the spec scopes. No new
+    backlog spec needed now.
 
 ### Build-phase reflection (3 questions, short answers)
 
 Process-focused: how did the build go? What friction did the spec create?
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — Very little. The one genuine fork was the EXIF-capture route: the spec
+   offered both JPEG-APP1-splice and PNG-eXIf fixtures and said "pick the one
+   your capture reads." I implemented capture for both formats and chose the
+   JPEG APP1 fixture for the acceptance test, which removed the ambiguity but
+   took a moment to decide. The exact `ColorType` API surface for deriving
+   `bit_depth` (`bits_per_pixel()`/`channel_count()`) was the only thing I had
+   to confirm against the crate rather than the spec.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — No. The constraint set was complete and accurate for the paths touched.
+   The dependency note pre-clearing `image`/`thiserror` (so no DEC churn) was
+   especially helpful and prevented a needless DEC.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Write the JPEG/PNG segment-walking helpers test-first as pure unit tests
+   in `src/image` before wiring them into `capture()`, rather than relying on
+   the integration fixture to exercise them — the marker-walk logic (standalone
+   vs length-bearing markers, SOS bail-out) is the fiddliest part and deserves
+   isolated coverage. I added a plain-PNG `capture()` unit test but could have
+   gone further on the JPEG walker.
 
 ---
 
