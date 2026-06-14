@@ -7,7 +7,7 @@
 task:
   id: SPEC-005
   type: story                      # epic | story | task | bug | chore
-  cycle: verify                    # frame | design | build | verify | ship
+  cycle: ship                      # frame | design | build | verify | ship
   blocked: false
   priority: medium
   complexity: M                    # S | M | L  (L means split it)
@@ -74,10 +74,28 @@ cost:
       duration_minutes: 35
       recorded_at: 2026-06-14
       notes: "subagent; cost not separately reported"
+    - cycle: verify
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_input: null
+      tokens_output: null
+      estimated_usd: null
+      duration_minutes: 25
+      recorded_at: 2026-06-14
+      notes: "subagent; read-only review (traversal bypass-probing); cost not separately reported"
+    - cycle: ship
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_input: null
+      tokens_output: null
+      estimated_usd: null
+      duration_minutes: 5
+      recorded_at: 2026-06-14
+      notes: "orchestrator; cost not separately reported"
   totals:
     tokens_total: 0
     estimated_usd: 0
-    session_count: 0
+    session_count: 4
 ---
 
 # SPEC-005: Sink output abstraction
@@ -557,10 +575,19 @@ than expanding this spec:
 from the process-focused build reflection above.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — The optional-dependency + cargo-feature pattern (viuer behind `display`)
+   worked cleanly and kept the default build/CI light — reuse it for any future
+   heavy/native dep (mozjpeg, AVIF). The build prompt could have pre-noted the
+   `image::ImageFormat` non_exhaustive wildcard + `viuer::print` return type to
+   save the Sonnet builder a clippy round-trip.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — No change. DEC-011 held. `untrusted-input-hardening` proved its worth — verify
+   bypass-probed the traversal guard. One forward note: CI currently builds only the
+   default feature set; STAGE-006 should add a `--features display` CI job so the
+   feature-gated path stays green on all OSes.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — No new spec. A `--features display` CI job is captured for STAGE-006; the
+   metadata preserve-on-encode (carry the captured bundle through the Sink) is
+   already owned by STAGE-004.

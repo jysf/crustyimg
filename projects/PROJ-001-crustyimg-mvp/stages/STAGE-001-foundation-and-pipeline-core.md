@@ -102,11 +102,11 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 - [x] SPEC-002 (shipped on 2026-06-13) — Canonical `Image` type + load/decode + capture metadata bundle at load (for DEC-003 preserve policy) + error types + native-generated test fixtures [M] — PR #2
 - [x] SPEC-003 (shipped on 2026-06-14) — `Operation` trait + `Pipeline` (decode once → ordered ops → result) [M] — PR #3
 - [x] SPEC-004 (shipped on 2026-06-14) — `Source` abstraction (single file / glob / dir / stdin → ordered inputs) [M] — PR #4
-- [ ] SPEC-005 (build) — `Sink` abstraction (file / dir+name-template / stdout / viuer display) [M]
+- [x] SPEC-005 (shipped on 2026-06-14) — `Sink` abstraction (file / dir+name-template / stdout / viuer display) [M] — PR #5
 - [ ] SPEC-006 (design) — `Recipe` TOML (de)serialization + operation registry (round-trip) [M]
 - [ ] SPEC-007 (design) — clap subcommand skeleton + global args, dispatch into pipeline [M]
 
-**Count:** 4 shipped / 0 active / 3 pending
+**Count:** 5 shipped / 0 active / 2 pending
 
 > Backlog refined after PROJECT DESIGN: former SPEC-004 (Source+Sink) split
 > into SPEC-004 (Source) and SPEC-005 (Sink) — Sink folds viuer display +
