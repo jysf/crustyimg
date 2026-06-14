@@ -1,0 +1,19 @@
+[package]
+name = "crustyimg"
+version = "0.1.0"
+edition = "2021"
+description = "A fast Rust CLI to view and transform images."
+license = "MIT OR Apache-2.0"
+
+[lib]
+name = "crustyimg"
+path = "src/lib.rs"
+
+[[bin]]
+name = "crustyimg"
+path = "src/main.rs"
+
+# Intentionally empty: this scaffold is std-only (SPEC-001). Runtime crates
+# (clap, image, thiserror, anyhow, …) arrive with the specs that use them,
+# each behind its own DEC (no-new-top-level-deps-without-decision).
+[dependencies]

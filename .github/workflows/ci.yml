@@ -1,0 +1,40 @@
+name: CI
+
+# Enforces the build/test/clippy/fmt gates on the three-OS matrix (DEC-009).
+# No secrets are used (constraint no-secrets-in-code).
+on:
+  push:
+  pull_request:
+
+jobs:
+  check:
+    name: build / test / clippy / fmt
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install stable toolchain (clippy + rustfmt)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Build
+        run: cargo build --verbose
+
+      - name: Test
+        run: cargo test --verbose
+
+      - name: Clippy (warnings as errors)
+        run: cargo clippy -- -D warnings
+
+      - name: Rustfmt (check only)
+        run: cargo fmt --check
+
+# Follow-up: a `--features mozjpeg` job (DEC-009) is deferred until the codec
+# feature exists (DEC-004). No codec dependency is present yet, so there is no
+# feature to build here; this lands with the spec that introduces it.
