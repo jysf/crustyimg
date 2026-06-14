@@ -3,10 +3,13 @@
 //! The library root. SPEC-001 shipped the std-only scaffold (`version()`);
 //! SPEC-002 adds the canonical pixel core: typed [`error`]s and the [`image`]
 //! module (the `Image` model + load/decode + metadata capture, DEC-002/003).
-//! Further modules (`operation`, `pipeline`, …) land in later specs.
+//! SPEC-003 adds the [`operation`] trait + concrete ops and the [`pipeline`]
+//! executor (decode-once fold, DEC-002).
 
 pub mod error;
 pub mod image;
+pub mod operation;
+pub mod pipeline;
 
 /// Returns the crate's semantic version (from `Cargo.toml`).
 pub fn version() -> &'static str {
