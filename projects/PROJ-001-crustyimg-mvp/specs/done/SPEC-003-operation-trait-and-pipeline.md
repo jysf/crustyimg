@@ -7,7 +7,7 @@
 task:
   id: SPEC-003
   type: story                      # epic | story | task | bug | chore
-  cycle: verify                    # frame | design | build | verify | ship
+  cycle: ship                      # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: M                    # S | M | L  (L means split it)
@@ -69,10 +69,28 @@ cost:
       duration_minutes: 25
       recorded_at: 2026-06-14
       notes: "subagent; cost not separately reported"
+    - cycle: verify
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_input: null
+      tokens_output: null
+      estimated_usd: null
+      duration_minutes: 15
+      recorded_at: 2026-06-14
+      notes: "subagent; read-only review; cost not separately reported"
+    - cycle: ship
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_input: null
+      tokens_output: null
+      estimated_usd: null
+      duration_minutes: 5
+      recorded_at: 2026-06-14
+      notes: "orchestrator; cost not separately reported"
   totals:
     tokens_total: 0
     estimated_usd: 0
-    session_count: 0
+    session_count: 4
 ---
 
 # SPEC-003: Operation trait and Pipeline
@@ -592,10 +610,18 @@ Process-focused: how did the build go? What friction did the spec create?
 from the process-focused build reflection above.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — First spec built on Sonnet 4.6 — the highly prescriptive build prompt
+   (exact signatures, exact test names, hard rules) was the key; it passed
+   Opus verify with no punch list. Keep build prompts that prescriptive when
+   routing builds to Sonnet.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — No DEC/constraint change from the pipeline itself. But this spec made the
+   security gap concrete: `Image::load` still has no decode limits, and the
+   pipeline now runs untrusted-input ops — both belong in the planned STAGE-006
+   hardening pass (added to the plan this session).
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — The added `Image::with_pixels`/`from_parts` constructors are the seam every
+   real transform (SPEC resize/crop/filters) will use; no new spec needed — they're
+   covered. Decode limits are tracked in STAGE-006, not a separate near-term spec.
