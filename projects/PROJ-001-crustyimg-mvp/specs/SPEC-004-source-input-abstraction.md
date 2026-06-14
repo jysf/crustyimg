@@ -7,7 +7,7 @@
 task:
   id: SPEC-004
   type: story                      # epic | story | task | bug | chore
-  cycle: build                     # frame | design | build | verify | ship
+  cycle: verify                    # frame | design | build | verify | ship
   blocked: false
   priority: medium
   complexity: M                    # S | M | L  (L means split it)
@@ -62,10 +62,19 @@ cost:
       duration_minutes: 45
       recorded_at: 2026-06-14
       notes: "subagent; cost not separately reported"
+    - cycle: build
+      agent: claude-sonnet-4-6
+      interface: claude-code
+      tokens_input: null
+      tokens_output: null
+      estimated_usd: null
+      duration_minutes: 25
+      recorded_at: 2026-06-14
+      notes: "subagent; cost not separately reported"
   totals:
     tokens_total: 0
     estimated_usd: 0
-    session_count: 1
+    session_count: 2
 ---
 
 # SPEC-004: Source input abstraction
@@ -565,32 +574,70 @@ All four must pass before opening the PR (the four gates).
 AGENTS.md §13/§15: build-cycle edits to this spec stay LIMITED to this
 `## Build Completion` section.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
+- **Branch:** `feat/spec-004-source-input-abstraction`
+- **PR (if applicable):** see timeline for PR number once opened
+- **All acceptance criteria met?** yes
 - **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any; likely "No new DEC" — DEC-010 was written at
-    design time)
+  - No new DEC — DEC-010 (glob) was written at design time; `tempfile` is a
+    dev-dependency (test-only) and the extension allow-list is spec-mandated.
+    Note: `tempfile = "=3.27.0"` was added under `[dev-dependencies]`; it is
+    not a top-level runtime dep so the `no-new-top-level-deps-without-decision`
+    constraint does not require a DEC — recorded here for completeness.
 - **Deviations from spec:**
-  - [list — e.g. `stem()` returns `String` instead of `&str`; canonical vs
-    original path yielded; how the stdin reader was wired; platform handling of
-    the symlink test]
+  - `stem()` returns `&str` (spec's preferred form) — no relaxation to `String`
+    needed; the lifetime works because `Input::Path` stores a `PathBuf` and
+    `Input::Stdin` stores a `String`, so `&str` borrows are valid for the
+    lifetime of the `Input`.
+  - Yielded **original** entry paths (not canonical paths) from directory and
+    glob branches, so output stems/names stay intuitive and match what the user
+    typed or saw on disk. The canonical path is only used internally for the
+    symlink-escape `starts_with` check, never stored.
+  - Stdin reader wired as `&mut impl Read` injected parameter; production will
+    pass `std::io::stdin().lock()` (SPEC-007). Tests pass `&mut &b"..."[..]` or
+    `std::io::empty()`. The `?` on `read_to_end` maps `io::Error` to
+    `SourceError::Stdin` via `#[from]`.
+  - **Symlink test platform handling:** the `directory_skips_symlink_escaping_root`
+    test is split into two `#[cfg(unix)]` / `#[cfg(windows)]` functions. The Unix
+    variant creates a real symlink via `std::os::unix::fs::symlink` and asserts
+    the escaping entry is excluded. The Windows variant is a no-op stub with an
+    explanatory `eprintln!` because symlink creation requires the
+    `SeCreateSymbolicLink` privilege unavailable in standard CI. The guard code
+    in `resolve_directory` is present on all platforms.
+  - One clippy lint (`doc_overindented_list_items`) was tripped by the aligned
+    continuation lines in the `resolve()` doc comment; fixed by de-indenting to
+    3-space continuation indent.
 - **Follow-up work identified:**
-  - [any new specs for the stage's backlog — e.g. `--recursive` flag + walkdir
-    under a new DEC; `--verbose` warning wiring once clap lands]
+  - `--recursive` flag + `walkdir` (DEC-010 reserves this): will need its own
+    spec + DEC when recursive directory walking is required.
+  - `--verbose` warning for skipped entries: source currently skips silently
+    (no `eprintln!` to keep stdout pipes clean, per §11). Once SPEC-007 lands
+    the verbosity flag, a follow-up can wire `--verbose` skipped-entry warnings
+    through the CLI.
 
 ### Build-phase reflection (3 questions, short answers)
 
 Process-focused: how did the build go? What friction did the spec create?
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — The spec was well-structured and comprehensive. The one moment of friction
+   was the glob-branch symlink-escape check: the spec says to check "relative to
+   the pattern's base dir," but doesn't spell out how to extract that base dir
+   from an arbitrary pattern string. The `Notes for the Implementer` section on
+   the directory branch was clear; the glob branch equivalent required a small
+   design decision (the `glob_base_dir` helper). This could be a one-liner note
+   in a future spec revision.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — No missing constraints. The `untrusted-input-hardening` rule was
+   well-scoped to symlink-escape only, with an explicit note that decode limits
+   land in STAGE-006. The only friction was Clippy's `doc_overindented_list_items`
+   lint (relatively new in Rust 1.94); it wasn't anticipated in the spec's "Watch
+   for" section but was trivially fixed and doesn't warrant a constraint addition.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Run `cargo clippy` after writing the doc comments (before writing tests) to
+   catch formatting issues early. The gates are cheap to run incrementally and
+   surface issues one at a time rather than all at the end.
 
 ---
 

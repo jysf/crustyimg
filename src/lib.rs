@@ -5,11 +5,14 @@
 //! module (the `Image` model + load/decode + metadata capture, DEC-002/003).
 //! SPEC-003 adds the [`operation`] trait + concrete ops and the [`pipeline`]
 //! executor (decode-once fold, DEC-002).
+//! SPEC-004 adds the [`source`] module: CLI-argument → ordered [`source::Input`]
+//! list (single file / glob / directory / stdin), with symlink-escape hardening.
 
 pub mod error;
 pub mod image;
 pub mod operation;
 pub mod pipeline;
+pub mod source;
 
 /// Returns the crate's semantic version (from `Cargo.toml`).
 pub fn version() -> &'static str {
