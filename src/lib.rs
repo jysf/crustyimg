@@ -1,8 +1,12 @@
 //! crustyimg — a fast Rust CLI to view and transform images.
 //!
-//! This is the SPEC-001 scaffold: a minimal library root exposing the
-//! package version. The pixel core (`image`, `operation`, `pipeline`, …)
-//! lands in later specs (DEC-002); keep this tiny.
+//! The library root. SPEC-001 shipped the std-only scaffold (`version()`);
+//! SPEC-002 adds the canonical pixel core: typed [`error`]s and the [`image`]
+//! module (the `Image` model + load/decode + metadata capture, DEC-002/003).
+//! Further modules (`operation`, `pipeline`, …) land in later specs.
+
+pub mod error;
+pub mod image;
 
 /// Returns the crate's semantic version (from `Cargo.toml`).
 pub fn version() -> &'static str {

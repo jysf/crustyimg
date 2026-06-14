@@ -1,0 +1,81 @@
+//! Shared, native-generated image fixtures for the integration tests.
+//!
+//! Fixtures are synthesized in memory with the `image` crate's pure-Rust
+//! encoders — no ImageMagick, no committed binary fixtures (AGENTS.md §12).
+//! `.unwrap()` here is idiomatic test setup (the `no-unwrap` constraint is
+//! scoped to `src/**`).
+
+use std::io::Cursor;
+
+use image::{DynamicImage, ImageFormat, RgbImage, RgbaImage};
+
+/// Encode a solid-color `RgbImage` to PNG bytes.
+pub fn solid_png(w: u32, h: u32, rgb: [u8; 3]) -> Vec<u8> {
+    let img = RgbImage::from_pixel(w, h, image::Rgb(rgb));
+    encode(DynamicImage::ImageRgb8(img), ImageFormat::Png)
+}
+
+/// Encode a horizontal-gradient `RgbImage` to JPEG bytes.
+pub fn gradient_jpeg(w: u32, h: u32) -> Vec<u8> {
+    let mut img = RgbImage::new(w, h);
+    for (x, _y, px) in img.enumerate_pixels_mut() {
+        let v = if w > 1 {
+            ((x * 255) / (w - 1)) as u8
+        } else {
+            0
+        };
+        *px = image::Rgb([v, v, v]);
+    }
+    encode(DynamicImage::ImageRgb8(img), ImageFormat::Jpeg)
+}
+
+/// Encode an `RgbaImage` (with an alpha channel) to PNG bytes.
+pub fn rgba_png(w: u32, h: u32) -> Vec<u8> {
+    let img = RgbaImage::from_pixel(w, h, image::Rgba([10, 20, 30, 128]));
+    encode(DynamicImage::ImageRgba8(img), ImageFormat::Png)
+}
+
+/// Produce JPEG bytes carrying a minimal, valid EXIF APP1 segment.
+///
+/// Starts from a generated gradient JPEG and splices an APP1 segment
+/// (`0xFF 0xE1`, 2-byte big-endian length, `Exif\0\0`, then a tiny
+/// little-endian TIFF header with a zero-entry IFD) right after SOI
+/// (`0xFF 0xD8`). The capture path only needs to *detect and record* the
+/// `Exif\0\0` segment; the EXIF contents are not asserted.
+pub fn jpeg_with_exif(w: u32, h: u32) -> Vec<u8> {
+    let base = gradient_jpeg(w, h);
+    // base[0..2] is SOI (FF D8).
+    assert_eq!(
+        &base[0..2],
+        &[0xFF, 0xD8],
+        "generated JPEG must start with SOI"
+    );
+
+    // EXIF payload: "Exif\0\0" + minimal little-endian TIFF (II*\0, IFD at
+    // offset 8, zero entries, next-IFD offset 0).
+    let mut payload: Vec<u8> = Vec::new();
+    payload.extend_from_slice(b"Exif\0\0");
+    payload.extend_from_slice(b"II"); // little-endian
+    payload.extend_from_slice(&[0x2A, 0x00]); // 42
+    payload.extend_from_slice(&[0x08, 0x00, 0x00, 0x00]); // IFD offset = 8
+    payload.extend_from_slice(&[0x00, 0x00]); // 0 IFD entries
+    payload.extend_from_slice(&[0x00, 0x00, 0x00, 0x00]); // next IFD = 0
+
+    // APP1 segment length includes the 2 length bytes themselves.
+    let seg_len = (payload.len() + 2) as u16;
+
+    let mut out: Vec<u8> = Vec::with_capacity(base.len() + payload.len() + 4);
+    out.extend_from_slice(&base[0..2]); // SOI
+    out.push(0xFF);
+    out.push(0xE1); // APP1 marker
+    out.extend_from_slice(&seg_len.to_be_bytes());
+    out.extend_from_slice(&payload);
+    out.extend_from_slice(&base[2..]); // rest of the JPEG
+    out
+}
+
+fn encode(img: DynamicImage, format: ImageFormat) -> Vec<u8> {
+    let mut out = Cursor::new(Vec::new());
+    img.write_to(&mut out, format).unwrap();
+    out.into_inner()
+}
