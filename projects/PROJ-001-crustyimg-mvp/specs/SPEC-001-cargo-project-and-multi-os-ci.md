@@ -352,7 +352,7 @@ cargo fmt --check                   # formatting gate (CI); `cargo fmt` to fix
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
 - **Branch:** `feat/spec-001-cargo-project-and-multi-os-ci`
-- **PR (if applicable):** #PR_NUMBER — PR_URL
+- **PR (if applicable):** #1 — https://github.com/jysf/crustyimg/pull/1
 - **All acceptance criteria met?** yes
 - **New decisions emitted:**
   - None — the scaffold stayed std-only (empty `[dependencies]`), so no
