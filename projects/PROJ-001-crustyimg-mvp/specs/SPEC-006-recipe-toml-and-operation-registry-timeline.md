@@ -8,6 +8,6 @@ Cycle prompts live in `prompts/SPEC-006-<cycle>.md`.
 ## Instructions
 
 - [x] **design** — completed 2026-06-14
-- [ ] **build** — prompt: `prompts/SPEC-006-build.md`
+- [x] **build** — PR #6 merged 2026-06-14; all 85 tests pass, four gates green
 - [ ] **verify** — prompt: pending (waiting on build)
 - [ ] **ship** — prompt: pending (waiting on verify)

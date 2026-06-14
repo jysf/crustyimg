@@ -1,9 +1,9 @@
 //! The `Operation` trait and its first two concrete implementations (DEC-002).
 //!
 //! Layering: this module depends only on `crate::image`, `std`, `thiserror`,
-//! and `::image` types. It must NOT touch `clap`, `recipe`, `source`, `sink`,
-//! `std::fs`, `std::path`, or any terminal types. Ops are pure in-memory
-//! transforms (constraint `decode-once-no-per-op-disk`).
+//! `serde`, and `::image` types. It must NOT touch `clap`, `recipe`, `source`,
+//! `sink`, `std::fs`, `std::path`, or any terminal types. Ops are pure
+//! in-memory transforms (constraint `decode-once-no-per-op-disk`).
 //!
 //! # Module / crate name collision
 //!
@@ -11,22 +11,68 @@
 //! pixel-library crate, the same convention as `src/image/mod.rs`.
 
 use ::image::DynamicImage;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use thiserror::Error;
 
 use crate::image::Image;
 
+pub mod registry;
+pub use registry::{OperationRegistry, RegistryError};
+
 // ─── OperationParams ────────────────────────────────────────────────────────
 
-/// Operation parameters — a dependency-free placeholder for SPEC-003.
+/// Operation parameters (SPEC-006, widened from the SPEC-003 placeholder).
 ///
-/// SPEC-006 will widen this to a serde/TOML value when the recipe layer
-/// and its `toml`/`serde` dependencies arrive. Parameterless operations
-/// (`Identity`, `Invert`) return `OperationParams::None`. Keeping this as
-/// a local enum now prevents `operation/` from depending on `toml`/`serde`.
+/// Parameterless operations (`Identity`, `Invert`) return
+/// `OperationParams::None`. The `None` variant is kept so SPEC-003's three
+/// tests that assert `== OperationParams::None` compile and pass unchanged.
+///
+/// # Serde representation
+///
+/// `OperationParams::None` must serialize to **zero keys** when flattened
+/// into a `[[step]]` TOML table via `#[serde(flatten)]` on `RecipeStep`.
+/// A standard `#[serde(untagged)]` on a unit variant would produce `null`
+/// in JSON and is unreliable in TOML. Instead we hand-write the impls:
+/// - `Serialize`: `None` → empty map (no keys emitted).
+/// - `Deserialize`: empty/absent map → `None`.
+///
+/// This guarantees `[[step]]\nop = "invert"` with no stray keys.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OperationParams {
     /// The operation takes no parameters.
     None,
+}
+
+impl Serialize for OperationParams {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeMap;
+        // `None` → empty map; future param variants can add their keys here.
+        match self {
+            OperationParams::None => serializer.serialize_map(Some(0))?.end(),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for OperationParams {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        use std::collections::HashMap;
+        // Deserialize into a generic map; if it is empty (or absent keys)
+        // we produce `None`. Non-empty maps will be handled by future param
+        // variants that own their own typed deserialization (DEC-005).
+        let map: HashMap<String, toml::Value> = HashMap::deserialize(deserializer)?;
+        if map.is_empty() {
+            Ok(OperationParams::None)
+        } else {
+            // Unknown param keys for a parameterless op. Surface the unknown
+            // key rather than silently ignoring it. This path is reached only
+            // when future param variants are partially wired — returning None
+            // here would silently drop data, which is worse than an error.
+            Err(serde::de::Error::custom(format!(
+                "unexpected parameter keys for a parameterless operation: {:?}",
+                map.keys().collect::<Vec<_>>()
+            )))
+        }
+    }
 }
 
 // ─── OperationError ─────────────────────────────────────────────────────────

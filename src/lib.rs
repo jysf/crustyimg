@@ -10,11 +10,14 @@
 //! SPEC-005 adds the [`sink`] module: encode a final [`image::Image`] to file /
 //! dir+name-template / stdout / terminal display, with traversal + overwrite
 //! hardening (DEC-002, DEC-004, DEC-007, DEC-011).
+//! SPEC-006 adds the [`recipe`] module: TOML recipe (de)serialization +
+//! operation registry; the keystone of "tune once, replay across many" (DEC-005).
 
 pub mod error;
 pub mod image;
 pub mod operation;
 pub mod pipeline;
+pub mod recipe;
 pub mod sink;
 pub mod source;
 

@@ -7,7 +7,7 @@
 task:
   id: SPEC-006
   type: story                      # epic | story | task | bug | chore
-  cycle: build                     # frame | design | build | verify | ship
+  cycle: verify                    # frame | design | build | verify | ship
   blocked: false
   priority: medium
   complexity: M                    # S | M | L  (L means split it)
@@ -62,6 +62,14 @@ cost:
       tokens_total: null
       estimated_usd: null
       duration_minutes: 45
+      recorded_at: 2026-06-14
+      notes: "subagent; cost not separately reported"
+    - cycle: build
+      agent: claude-sonnet-4-6
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: 30
       recorded_at: 2026-06-14
       notes: "subagent; cost not separately reported"
   totals:
@@ -468,28 +476,28 @@ necessary during build, create a new spec rather than expanding this one.
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
+- **Branch:** `feat/spec-006-recipe-toml-and-operation-registry`
+- **PR (if applicable):** opened after commit (see timeline)
+- **All acceptance criteria met?** yes
 - **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
+  - No new DEC — `serde` + `toml` pre-justified by DEC-005.
 - **Deviations from spec:**
-  - [list]
+  - None. All test names, signatures, and module layout implemented exactly as specified.
 - **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - None beyond what is already in the backlog (SPEC-007 clap skeleton, STAGE-004 metadata lane, STAGE-005 CLI recipe apply).
 
 ### Build-phase reflection (3 questions, short answers)
 
 Process-focused: how did the build go? What friction did the spec create?
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — Nothing was genuinely unclear. The spec's "trickiest things" section correctly identified the empty-params flatten as the main hazard and provided two concrete implementation options. The `Debug` trait not being on `Box<dyn Operation>` / `Pipeline` caused a minor compile error in the `{:?}` format arg in one test assertion, but that was trivial to fix.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — No missing constraints. The `no-unwrap-on-recoverable-paths` and `untrusted-input-hardening` constraints were both directly applied as typed errors on all three error paths (malformed TOML, bad version, unknown op). The spec was well-calibrated.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Write a quick smoke test for the `OperationParams` serde impl in isolation (just serialize/deserialize to JSON or a TOML value directly) before wiring the whole `RecipeStep` flatten, to fail faster on the empty-map contract. The spec recommends this and it's good advice.
 
 ---
 
