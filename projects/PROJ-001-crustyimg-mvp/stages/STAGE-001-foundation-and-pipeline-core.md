@@ -101,7 +101,7 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 - [x] SPEC-001 (shipped on 2026-06-13) — Cargo project + multi-OS CI + clippy/fmt + smoke test [S] — PR #1
 - [x] SPEC-002 (shipped on 2026-06-13) — Canonical `Image` type + load/decode + capture metadata bundle at load (for DEC-003 preserve policy) + error types + native-generated test fixtures [M] — PR #2
 - [x] SPEC-003 (shipped on 2026-06-14) — `Operation` trait + `Pipeline` (decode once → ordered ops → result) [M] — PR #3
-- [ ] SPEC-004 (design) — `Source` abstraction (single file / glob / dir / stdin → ordered inputs) [M]
+- [ ] SPEC-004 (build) — `Source` abstraction (single file / glob / dir / stdin → ordered inputs) [M]
 - [ ] SPEC-005 (design) — `Sink` abstraction (file / dir+name-template / stdout / viuer display) [M]
 - [ ] SPEC-006 (design) — `Recipe` TOML (de)serialization + operation registry (round-trip) [M]
 - [ ] SPEC-007 (design) — clap subcommand skeleton + global args, dispatch into pipeline [M]
