@@ -102,6 +102,38 @@ impl Image {
         &self.pixels
     }
 
+    /// Build an `Image` from already-decoded pixels, carrying through the
+    /// source format and metadata bundle.
+    ///
+    /// Used by `Operation` impls (SPEC-003+) to return a transformed image
+    /// without re-decoding (decode-once, DEC-002). Operations that have no
+    /// access to the originating `Image` value (e.g. because they consumed
+    /// it via `with_pixels`) can call this directly.
+    pub fn from_parts(
+        pixels: DynamicImage,
+        source_format: ImageFormat,
+        metadata: Option<MetadataBundle>,
+    ) -> Image {
+        Image {
+            pixels,
+            source_format,
+            metadata,
+        }
+    }
+
+    /// Replace this image's pixels, preserving `source_format` and `metadata`.
+    ///
+    /// The ergonomic path for `Operation` impls: consume `self` and return a
+    /// new `Image` with transformed pixels and the original metadata lane
+    /// intact (DEC-002/DEC-003). Avoids cloning the metadata bundle.
+    pub fn with_pixels(self, pixels: DynamicImage) -> Image {
+        Image {
+            pixels,
+            source_format: self.source_format,
+            metadata: self.metadata,
+        }
+    }
+
     /// A read-only inspection snapshot of this image.
     pub fn info(&self) -> ImageInfo {
         let color_type = self.pixels.color();
@@ -396,5 +428,39 @@ mod tests {
         assert_eq!(img.source_format(), ImageFormat::Png);
         assert!(img.metadata().is_none());
         assert_eq!(img.pixels().width(), 7);
+    }
+
+    #[test]
+    fn from_parts_carries_format_and_metadata() {
+        // Build a 2×2 RGBA image, wrap it via from_parts, confirm accessors.
+        let buf = RgbaImage::from_pixel(2, 2, ::image::Rgba([10, 20, 30, 255]));
+        let dyn_img = DynamicImage::ImageRgba8(buf);
+        let meta = MetadataBundle {
+            exif: Some(vec![1, 2, 3]),
+            icc: None,
+        };
+        let img = Image::from_parts(dyn_img, ImageFormat::Png, Some(meta.clone()));
+        assert_eq!(img.width(), 2);
+        assert_eq!(img.height(), 2);
+        assert_eq!(img.source_format(), ImageFormat::Png);
+        assert_eq!(img.metadata().unwrap().exif, meta.exif);
+    }
+
+    #[test]
+    fn with_pixels_replaces_pixels_and_preserves_metadata() {
+        // Build original image via from_bytes so metadata is captured.
+        let png = solid_png(4, 4, [5, 6, 7]);
+        let original = Image::from_bytes(&png).unwrap();
+        let format = original.source_format();
+
+        // Replace pixels with a smaller 2×2 RGBA buffer.
+        let new_buf = RgbaImage::from_pixel(2, 2, ::image::Rgba([200, 100, 50, 128]));
+        let new_dyn = DynamicImage::ImageRgba8(new_buf);
+        let replaced = original.with_pixels(new_dyn);
+
+        // Dimensions reflect the new pixels; format is preserved.
+        assert_eq!(replaced.width(), 2);
+        assert_eq!(replaced.height(), 2);
+        assert_eq!(replaced.source_format(), format);
     }
 }

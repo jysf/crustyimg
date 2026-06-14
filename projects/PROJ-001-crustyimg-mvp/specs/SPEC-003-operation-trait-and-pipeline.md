@@ -7,7 +7,7 @@
 task:
   id: SPEC-003
   type: story                      # epic | story | task | bug | chore
-  cycle: build                     # frame | design | build | verify | ship
+  cycle: verify                    # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: M                    # S | M | L  (L means split it)
@@ -59,6 +59,15 @@ cost:
       estimated_usd: null
       duration_minutes: 40
       recorded_at: 2026-06-13
+      notes: "subagent; cost not separately reported"
+    - cycle: build
+      agent: claude-sonnet-4-6
+      interface: claude-code
+      tokens_input: null
+      tokens_output: null
+      estimated_usd: null
+      duration_minutes: 25
+      recorded_at: 2026-06-14
       notes: "subagent; cost not separately reported"
   totals:
     tokens_total: 0
@@ -513,30 +522,67 @@ zero-dependency option in Notes instead.
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
-- **Constructor choice:** (`with_pixels` vs `from_parts`-only) and why
-- **No-disk-IO guard:** (how the structural test was implemented)
+- **Branch:** `feat/spec-003-operation-trait-and-pipeline`
+- **PR (if applicable):** #3 — https://github.com/jysf/crustyimg/pull/3
+- **All acceptance criteria met?** yes
+- **Constructor choice:** Both `from_parts` and `with_pixels` were implemented.
+  `with_pixels(self, DynamicImage) -> Image` is the ergonomic path used by
+  `Invert::apply` — it consumes the input `Image` and replaces only its pixels,
+  carrying `source_format` + `metadata` through without any clone. `from_parts`
+  is the lower-level constructor used in tests (and available to future ops that
+  need to manufacture an `Image` without an existing one to consume). Providing
+  both avoids any ambiguity; the spec explicitly listed both and preferred
+  `with_pixels` for ops, which matches usage here.
+- **No-disk-IO guard:** Two-stage heuristic:
+  1. Split each source file on `#[cfg(test)]` and take only the text before that
+     marker (the library code). This isolates the non-test code in both
+     `src/operation/mod.rs` and `src/pipeline/mod.rs`, which each have a single
+     `#[cfg(test)] mod tests` block at the end.
+  2. Filter out all comment lines (lines whose trimmed prefix is `//`) before
+     checking for the forbidden tokens. This is necessary because both module
+     doc-comment headers (`//!`) mention `std::fs`/`std::path` to *document* the
+     constraint — the heuristic must not fire on those. Documented in the
+     integration test (`tests/pipeline.rs` §`operation_and_pipeline_sources_do_no_disk_io`).
 - **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any; likely "No new DEC")
+  - No new DEC. `image`/`thiserror` are pre-justified by DEC-002/DEC-007;
+    `Image::from_parts`/`with_pixels` and `OperationParams::None` are
+    spec-mandated additive changes.
 - **Deviations from spec:**
-  - [list]
+  - None. `OperationParams` is a local `enum` (not `toml::Value`), exactly as
+    the "Notes for the Implementer" specifies. The structural guard strips
+    comment lines in addition to splitting on `#[cfg(test)]`; this is the
+    "brittle heuristic" fallback the spec explicitly sanctions and asks to be
+    documented here.
 - **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - None beyond the existing SPEC-004 through SPEC-007 backlog items.
 
 ### Build-phase reflection (3 questions, short answers)
 
 Process-focused: how did the build go? What friction did the spec create?
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — The structural guard heuristic for `operation_and_pipeline_sources_do_no_disk_io`
+   was underspecified at first glance: the spec mentions two options (split on
+   `#[cfg(test)]` vs. exclude test lines) but does not foreground the subtlety
+   that module doc comments (`//!`) will also contain the forbidden tokens.
+   The first implementation caught fire on `//! … std::fs …` in the doc header.
+   The fix (filter comment lines) is natural but took one iteration. The spec
+   does note "this heuristic may prove brittle" and authorizes the comment-strip
+   approach — so it was handled correctly, but a note in the spec that doc
+   comments are the likely first failure mode would have saved that iteration.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — All relevant constraints were listed. One minor gap: the spec says
+   "`with_pixels` is preferred" for ops but doesn't explicitly say whether
+   `from_parts` is also required. Implementing both (as the Notes section
+   implies) is the right call and needed no judgment call, but the sentence
+   could be clearer.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Read the structural-guard test description more carefully before writing it,
+   specifically noting the doc-comment pitfall. Everything else was
+   straightforward: the trait/pipeline design was fully prescribed, the
+   `OperationParams` enum was clear, and the `Invert` pixel loop was simple.
 
 ---
 
