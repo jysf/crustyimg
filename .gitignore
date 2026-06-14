@@ -19,6 +19,9 @@ out/
 .next/
 .turbo/
 
+# Rust
+/target
+
 # IDE
 .vscode/
 .idea/

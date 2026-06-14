@@ -7,7 +7,7 @@
 task:
   id: SPEC-001
   type: story                      # epic | story | task | bug | chore
-  cycle: build                     # frame | design | build | verify | ship
+  cycle: verify  # frame | design | build | verify | ship
   blocked: false
   priority: medium
   complexity: S                    # S | M | L  (L means split it)
@@ -61,6 +61,15 @@ cost:
       tokens_output: null
       estimated_usd: null
       duration_minutes: 25
+      recorded_at: 2026-06-13
+      notes: "subagent; cost not separately reported"
+    - cycle: build
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_input: null
+      tokens_output: null
+      estimated_usd: null
+      duration_minutes: 15
       recorded_at: 2026-06-13
       notes: "subagent; cost not separately reported"
   totals:
@@ -342,28 +351,44 @@ cargo fmt --check                   # formatting gate (CI); `cargo fmt` to fix
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
+- **Branch:** `feat/spec-001-cargo-project-and-multi-os-ci`
+- **PR (if applicable):** #1 — https://github.com/jysf/crustyimg/pull/1
+- **All acceptance criteria met?** yes
 - **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
+  - None — the scaffold stayed std-only (empty `[dependencies]`), so no
+    dependency-justifying DEC was required.
 - **Deviations from spec:**
-  - [list]
+  - `Cargo.lock` is committed (not in spec's Outputs list). Standard practice
+    for a binary crate (reproducible CI builds); `.gitignore` ignores `/target`
+    only, as specified.
+  - The repo already had a root `.gitignore`; rather than overwrite it I added
+    a `# Rust` / `/target` entry, satisfying the "ignore `/target`" output.
 - **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - Add a `--features mozjpeg` CI job (DEC-009) once a codec feature exists
+    (introduced with the spec that adds the native-codec dependency).
+  - No new stage-backlog specs; SPEC-002..007 already cover the planned work.
 
 ### Build-phase reflection (3 questions, short answers)
 
 Process-focused: how did the build go? What friction did the spec create?
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — Nothing material. `Cargo.lock` handling was the only judgment call the
+   spec left implicit (its Outputs list neither includes nor excludes it); I
+   committed it per binary-crate convention. The `## Failing Tests` were
+   precise enough to implement directly.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — No. The applicable constraints (`clippy-fmt-clean`,
+   `no-new-top-level-deps-without-decision`, `no-async-runtime`, etc.) covered
+   everything. Worth noting that `no-unwrap-on-recoverable-paths` is scoped to
+   `src/**`, which is correct — the smoke test's `.expect()` calls are in
+   `tests/` and are idiomatic for test setup, so no conflict arose.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Run `cargo fmt` (not just `--check`) before the first gate pass; my
+   initial `tests/smoke.rs` had a multi-line `assert!` that rustfmt collapsed,
+   costing one extra format round-trip. Minor.
 
 ---
 
