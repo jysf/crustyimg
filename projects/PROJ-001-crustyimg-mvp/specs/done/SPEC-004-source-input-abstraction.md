@@ -7,7 +7,7 @@
 task:
   id: SPEC-004
   type: story                      # epic | story | task | bug | chore
-  cycle: verify                    # frame | design | build | verify | ship
+  cycle: ship                      # frame | design | build | verify | ship
   blocked: false
   priority: medium
   complexity: M                    # S | M | L  (L means split it)
@@ -71,10 +71,28 @@ cost:
       duration_minutes: 25
       recorded_at: 2026-06-14
       notes: "subagent; cost not separately reported"
+    - cycle: verify
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_input: null
+      tokens_output: null
+      estimated_usd: null
+      duration_minutes: 20
+      recorded_at: 2026-06-14
+      notes: "subagent; read-only review; cost not separately reported"
+    - cycle: ship
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_input: null
+      tokens_output: null
+      estimated_usd: null
+      duration_minutes: 5
+      recorded_at: 2026-06-14
+      notes: "orchestrator; cost not separately reported"
   totals:
     tokens_total: 0
     estimated_usd: 0
-    session_count: 2
+    session_count: 4
 ---
 
 # SPEC-004: Source input abstraction
@@ -647,10 +665,18 @@ Process-focused: how did the build go? What friction did the spec create?
 from the process-focused build reflection above.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — The Source design correctly applied the new `untrusted-input-hardening`
+   constraint up front (symlink canonicalization), and Opus verify empirically
+   probed it — that "build security in, then adversarially verify it" loop is
+   worth repeating for every untrusted-input spec (Sink, Recipe).
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — No change needed. DEC-010 (glob; std for dirs, no walkdir) held up. Verify
+   found one defensive-coding gap (glob escape-check gated on `if let Some(root)`,
+   effectively unreachable) — tracked as a STAGE-006 hardening item, not a
+   decision change.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — No new spec. The glob escape-check tightening + a `--recursive` directory
+   option are already captured (STAGE-006 hardening and the PROJ-002+ backlog
+   respectively).
