@@ -8,6 +8,6 @@ Cycle prompts live in `prompts/SPEC-005-<cycle>.md`.
 ## Instructions
 
 - [x] **design** — completed 2026-06-14
-- [ ] **build** — prompt: `prompts/SPEC-005-build.md`
+- [~] **build** — prompt: `prompts/SPEC-005-build.md`
 - [ ] **verify** — prompt: pending (waiting on build)
 - [ ] **ship** — prompt: pending (waiting on verify)
