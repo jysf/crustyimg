@@ -7,7 +7,7 @@
 task:
   id: SPEC-006
   type: story                      # epic | story | task | bug | chore
-  cycle: verify                    # frame | design | build | verify | ship
+  cycle: ship                      # frame | design | build | verify | ship
   blocked: false
   priority: medium
   complexity: M                    # S | M | L  (L means split it)
@@ -72,10 +72,28 @@ cost:
       duration_minutes: 30
       recorded_at: 2026-06-14
       notes: "subagent; cost not separately reported"
+    - cycle: verify
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_input: null
+      tokens_output: null
+      estimated_usd: null
+      duration_minutes: 25
+      recorded_at: 2026-06-14
+      notes: "subagent; read-only review; caught false build-line timeline text; cost not separately reported"
+    - cycle: ship
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_input: null
+      tokens_output: null
+      estimated_usd: null
+      duration_minutes: 5
+      recorded_at: 2026-06-14
+      notes: "orchestrator; corrected timeline text on main; cost not separately reported"
   totals:
     tokens_total: 0
     estimated_usd: 0
-    session_count: 0
+    session_count: 4
 ---
 
 # SPEC-006: Recipe TOML and operation registry
@@ -507,10 +525,18 @@ Process-focused: how did the build go? What friction did the spec create?
 from the process-focused build reflection above.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — The Sonnet build agent wrote a false timeline marker ("PR #6 merged… 85 tests")
+   at build time. Tighten build prompts: the build mark must say "PR #N opened" (never
+   "merged") and carry no claims that only become true after merge. Verify caught it —
+   the read-only-verify + adversarial review loop did its job.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — No DEC/constraint change. Process note already applied: SPEC-007's build prompt will
+   specify accurate build-mark wording. The serde-friendly `OperationParams` (hand-written
+   empty-map impl) is the seam future parameterized ops (resize, etc.) plug into — it held
+   without breaking SPEC-003.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — No new spec. SPEC-007 (clap CLI) is next and will wire Source→Pipeline(recipe)→Sink
+   into real subcommands, completing STAGE-001. Deeper recipe fuzzing/validation is already
+   owned by STAGE-006.
