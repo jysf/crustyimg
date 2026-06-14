@@ -107,3 +107,11 @@ constraints:
     added_by: human
     added_at: 2026-04-19
     rationale: "Keeps review loop tractable and traceable."
+
+  - id: ergonomic-defaults
+    rule: "Common single-image operations must work as one short command with sensible defaults (no required boilerplate flags); added complexity scales via recipes and batch, never by burdening the simple case."
+    severity: warning
+    paths: ["src/cli/**", "docs/api-contract.md"]
+    added_by: human
+    added_at: 2026-06-13
+    rationale: "Product principle: easy for quick, small tasks AND able to support complex, repeatable workflows. Raised by the user 2026-06-13."

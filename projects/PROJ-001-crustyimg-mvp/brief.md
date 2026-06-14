@@ -72,6 +72,10 @@ the foundation for a "wide and interesting feature set" over later waves.
   selectively cleaned, and basic tags set.
 - Multi-OS CI is green; `cargo test`, `clippy`, and `fmt --check` pass.
 - The binary is installable from a release artifact.
+- **Ergonomics:** common single-image tasks are one short command with
+  sensible defaults (e.g. `crustyimg resize photo.jpg --max 800`); added
+  power comes from recipes + batch, never from burdening the simple case
+  (constraint `ergonomic-defaults`).
 
 ## Scope
 
@@ -95,6 +99,11 @@ the foundation for a "wide and interesting feature set" over later waves.
 - `open` in external app (Preview/browser).
 - Interactive TUI editor.
 - ICC color conversion, placeholder fetch from public APIs.
+- **Geometry extras — `crop` (rect / gravity / center / aspect), `rotate`,
+  `flip`/`flop`, `trim`, `pad`** — explicitly on the roadmap but deferred to
+  a near-term follow-up wave (see "Enables"). `crop` is the lead item.
+  Already cataloged in `docs/feature-exploration.md` (Geometry); each is just
+  another `Operation`, so they drop in without architectural change.
 
 ## Stage Plan
 
@@ -118,6 +127,9 @@ Format: `- [status] STAGE-ID — one-line summary`
 - Reference only: the original prototype in sibling `crustimg/` (not built upon).
 
 ### Enables
+- Near-term follow-up wave — **geometry extras** (`crop` first, then
+  `rotate`, `flip`/`flop`, `trim`, `pad`): high-value, low-complexity
+  `Operation`s that slot straight into the pipeline and recipes.
 - Future projects: effects/filters catalog, WebP/AVIF, `open`/external,
   `compare`/SSIM, color/tone suite, and a recipe-driven TUI editor — all
   additive on the `Operation` + recipe architecture this project lays down.
