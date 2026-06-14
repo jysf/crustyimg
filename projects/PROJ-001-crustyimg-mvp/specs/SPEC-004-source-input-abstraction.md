@@ -575,7 +575,7 @@ AGENTS.md §13/§15: build-cycle edits to this spec stay LIMITED to this
 `## Build Completion` section.*
 
 - **Branch:** `feat/spec-004-source-input-abstraction`
-- **PR (if applicable):** see timeline for PR number once opened
+- **PR (if applicable):** #4 — https://github.com/jysf/crustyimg/pull/4
 - **All acceptance criteria met?** yes
 - **New decisions emitted:**
   - No new DEC — DEC-010 (glob) was written at design time; `tempfile` is a
