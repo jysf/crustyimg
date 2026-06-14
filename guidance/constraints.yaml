@@ -108,6 +108,14 @@ constraints:
     added_at: 2026-04-19
     rationale: "Keeps review loop tractable and traceable."
 
+  - id: untrusted-input-hardening
+    rule: "Code handling untrusted input must be hardened: image decode sets resource limits (image::Limits — bound dimensions/allocation, no decompression bombs); output sinks reject name-template/path values that escape the target dir and don't overwrite without --yes; directory sources do not follow symlinks out of the tree; recipes validate version and reject unknown operations. Surface failures as typed errors, never panics."
+    severity: warning
+    paths: ["src/image/**", "src/sink/**", "src/source/**", "src/recipe/**"]
+    added_by: human
+    added_at: 2026-06-14
+    rationale: "Untrusted images/recipes/paths are the primary risk (SECURITY.md threat model). Harden as built; the full assessment + cargo-audit + traversal tests land in STAGE-006."
+
   - id: ergonomic-defaults
     rule: "Common single-image operations must work as one short command with sensible defaults (no required boilerplate flags); added complexity scales via recipes and batch, never by burdening the simple case."
     severity: warning

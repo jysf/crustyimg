@@ -72,6 +72,9 @@ the foundation for a "wide and interesting feature set" over later waves.
   selectively cleaned, and basic tags set.
 - Multi-OS CI is green; `cargo test`, `clippy`, and `fmt --check` pass.
 - The binary is installable from a release artifact.
+- **Security:** passes a hardening/security assessment before ship — decode
+  limits set, output path-traversal safe, `cargo audit` clean, recipes
+  validated (constraint `untrusted-input-hardening`; STAGE-006).
 - **Ergonomics:** common single-image tasks are one short command with
   sensible defaults (e.g. `crustyimg resize photo.jpg --max 800`); added
   power comes from recipes + batch, never from burdening the simple case
@@ -89,6 +92,9 @@ the foundation for a "wide and interesting feature set" over later waves.
   the metadata lane (`strip`, `clean --gps`, `set` tags, `copy-metadata`).
 - STAGE-005 — Batch & recipes: `edit` (one-shot multi-op), `--save-recipe`,
   `apply --recipe <glob/dir>` with rayon parallelism + progress.
+- STAGE-006 — Hardening & security assessment (MVP exit gate): decode limits,
+  path/symlink-traversal tests, `cargo audit`/`deny` in CI, recipe validation,
+  a threat-model verification pass against SECURITY.md.
 - Core formats now (JPEG/PNG/GIF/BMP/TIFF/ICO/etc.).
 
 ### Explicitly out of scope
@@ -114,8 +120,9 @@ Format: `- [status] STAGE-ID — one-line summary`
 - [ ] STAGE-003 (pending) — Transform & output: `resize`, `shrink`, `thumbnail`, `convert`, `auto-orient`
 - [ ] STAGE-004 (pending) — Compose & metadata: `watermark`; `strip`/`clean --gps`/`set`/`copy-metadata`
 - [ ] STAGE-005 (pending) — Batch & recipes: `edit`, `--save-recipe`, `apply` (parallel + progress)
+- [ ] STAGE-006 (pending) — Hardening & security assessment (MVP exit gate): decode limits, traversal tests, cargo-audit in CI, recipe validation, threat-model pass
 
-**Count:** 0 shipped / 1 active / 4 pending
+**Count:** 0 shipped / 1 active / 5 pending
 
 ## Dependencies
 
