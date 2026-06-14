@@ -7,7 +7,7 @@
 task:
   id: SPEC-002
   type: story                      # epic | story | task | bug | chore
-  cycle: build                     # frame | design | build | verify | ship
+  cycle: ship                      # frame | design | build | verify | ship
   blocked: false
   priority: medium
   complexity: M                    # S | M | L  (L means split it)
@@ -71,10 +71,28 @@ cost:
       duration_minutes: 20
       recorded_at: 2026-06-13
       notes: "subagent; cost not separately reported"
+    - cycle: verify
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_input: null
+      tokens_output: null
+      estimated_usd: null
+      duration_minutes: 15
+      recorded_at: 2026-06-13
+      notes: "subagent; read-only review; cost not separately reported"
+    - cycle: ship
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_input: null
+      tokens_output: null
+      estimated_usd: null
+      duration_minutes: 5
+      recorded_at: 2026-06-13
+      notes: "orchestrator; cost not separately reported"
   totals:
     tokens_total: 0
     estimated_usd: 0
-    session_count: 0
+    session_count: 4
 ---
 
 # SPEC-002: canonical Image type and load
@@ -595,10 +613,19 @@ Process-focused: how did the build go? What friction did the spec create?
 from the process-focused build reflection above.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — The read-only verify model worked: no branch/main divergence this time
+   (contrast SPEC-001). Keep verify side-effect-free and apply all bookkeeping
+   on `main` at ship — adopt this for every remaining spec.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — No. The `image`/`thiserror` deps validated DEC-002/004/007 in practice;
+   pure-Rust tree confirmed (no native codecs). The build agent's `Image::pixels`
+   accessor and the `load`→`from_bytes` route are reasonable and tested; no
+   decision change. One forward note: the JPEG marker-walk (EXIF capture) is the
+   fiddliest code — STAGE-004's metadata specs should add direct unit coverage
+   of multi-segment / edge-case containers.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — No new spec. Multi-chunk ICC reassembly and broader-format metadata are
+   already owned by STAGE-004; SPEC-003 (Operation + Pipeline) is next and will
+   consume `Image::pixels`.
