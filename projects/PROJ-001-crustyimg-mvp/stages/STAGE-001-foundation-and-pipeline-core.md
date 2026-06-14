@@ -103,7 +103,7 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 - [x] SPEC-003 (shipped on 2026-06-14) — `Operation` trait + `Pipeline` (decode once → ordered ops → result) [M] — PR #3
 - [x] SPEC-004 (shipped on 2026-06-14) — `Source` abstraction (single file / glob / dir / stdin → ordered inputs) [M] — PR #4
 - [x] SPEC-005 (shipped on 2026-06-14) — `Sink` abstraction (file / dir+name-template / stdout / viuer display) [M] — PR #5
-- [ ] SPEC-006 (design) — `Recipe` TOML (de)serialization + operation registry (round-trip) [M]
+- [ ] SPEC-006 (build) — `Recipe` TOML (de)serialization + operation registry (round-trip) [M]
 - [ ] SPEC-007 (design) — clap subcommand skeleton + global args, dispatch into pipeline [M]
 
 **Count:** 5 shipped / 0 active / 2 pending
