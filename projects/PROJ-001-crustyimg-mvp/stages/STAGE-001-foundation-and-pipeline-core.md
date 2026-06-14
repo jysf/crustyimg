@@ -98,7 +98,7 @@ This is the foundation, so it is first.
 
 Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
-- [ ] SPEC-001 (build) — Cargo project + multi-OS CI + clippy/fmt + smoke test [S]
+- [x] SPEC-001 (shipped on 2026-06-13) — Cargo project + multi-OS CI + clippy/fmt + smoke test [S] — PR #1
 - [ ] SPEC-002 (design) — Canonical `Image` type + load/decode + capture metadata bundle at load (for DEC-003 preserve policy) + error types + native-generated test fixtures [M]
 - [ ] SPEC-003 (design) — `Operation` trait + `Pipeline` (decode once → ordered ops → result) [M]
 - [ ] SPEC-004 (design) — `Source` abstraction (single file / glob / dir / stdin → ordered inputs) [M]
@@ -106,7 +106,7 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 - [ ] SPEC-006 (design) — `Recipe` TOML (de)serialization + operation registry (round-trip) [M]
 - [ ] SPEC-007 (design) — clap subcommand skeleton + global args, dispatch into pipeline [M]
 
-**Count:** 0 shipped / 0 active / 7 pending
+**Count:** 1 shipped / 0 active / 6 pending
 
 > Backlog refined after PROJECT DESIGN: former SPEC-004 (Source+Sink) split
 > into SPEC-004 (Source) and SPEC-005 (Sink) — Sink folds viuer display +

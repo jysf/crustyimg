@@ -7,7 +7,7 @@
 task:
   id: SPEC-001
   type: story                      # epic | story | task | bug | chore
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: medium
   complexity: S                    # S | M | L  (L means split it)
@@ -72,10 +72,28 @@ cost:
       duration_minutes: 15
       recorded_at: 2026-06-13
       notes: "subagent; cost not separately reported"
+    - cycle: verify
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_input: null
+      tokens_output: null
+      estimated_usd: null
+      duration_minutes: 20
+      recorded_at: 2026-06-13
+      notes: "subagent; cost not separately reported"
+    - cycle: ship
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_input: null
+      tokens_output: null
+      estimated_usd: null
+      duration_minutes: 5
+      recorded_at: 2026-06-13
+      notes: "subagent; cost not separately reported"
   totals:
     tokens_total: 0
     estimated_usd: 0
-    session_count: 0
+    session_count: 4
 ---
 
 # SPEC-001: cargo project and multi-OS CI
@@ -398,12 +416,23 @@ Process-focused: how did the build go? What friction did the spec create?
 from the process-focused build reflection above.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Keep all post-build bookkeeping on `main`. This cycle the verify agent
+   edited the spec/timeline on the local feature branch while the build's
+   copies merged via the PR, forcing a stash → fast-forward → pop at ship.
+   Next time, verify should review the PR diff from a clean `main` checkout
+   and write its marks/ship-prompt on `main`, so ship is a clean
+   fast-forward with no divergence.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — No DEC or constraint change. One small process note worth adding to
+   AGENTS.md §13: state explicitly that verify/ship bookkeeping edits land
+   on `main`, not the feature branch. The scaffold validated DEC-004/006/007/009
+   in practice (pure-Rust empty-deps build is green on all three OSes).
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — No new spec. The deferred `--features mozjpeg` CI job (DEC-009) lands
+   with the spec that first introduces a native-codec dependency (a later
+   project), not STAGE-001. SPEC-002..007 already cover the planned
+   foundation work.
 </content>
 </invoke>

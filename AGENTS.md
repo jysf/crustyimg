@@ -348,6 +348,12 @@ DECs are stable; specs come and go. DECs don't reciprocally list specs.
 - **One spec per branch, one PR per branch** (constraint `one-spec-per-pr`).
 - **Design/specs commit to `main` directly** (no PR — they are the contract
   the build branches off). **Build work goes through a PR.**
+- **Verify + ship bookkeeping lands on `main`, not the feature branch.** The
+  feature branch carries only the build's code + the spec's `## Build
+  Completion`. Verify/ship edits (timeline marks, ship prompt, reflections,
+  cost totals, stage backlog, archiving to `done/`) are made on `main` after
+  the PR merges — so ship is a clean fast-forward with no spec-file
+  divergence between the branch and `main`. (Lesson from SPEC-001 ship.)
 - **Commits:** Conventional Commits — `<type>(<scope>): <summary>`. Types:
   `feat`, `fix`, `docs`, `refactor`, `test`, `chore`, `perf`, `ci`. Scope is
   the module/area (e.g. `feat(pipeline): fold ordered ops over Image`,
