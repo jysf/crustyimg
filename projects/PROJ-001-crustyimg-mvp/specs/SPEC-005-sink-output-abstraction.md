@@ -7,7 +7,7 @@
 task:
   id: SPEC-005
   type: story                      # epic | story | task | bug | chore
-  cycle: build                     # frame | design | build | verify | ship
+  cycle: verify                    # frame | design | build | verify | ship
   blocked: false
   priority: medium
   complexity: M                    # S | M | L  (L means split it)
@@ -64,6 +64,14 @@ cost:
       tokens_total: null
       estimated_usd: null
       duration_minutes: 45
+      recorded_at: 2026-06-14
+      notes: "subagent; cost not separately reported"
+    - cycle: build
+      agent: claude-sonnet-4-6
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: 35
       recorded_at: 2026-06-14
       notes: "subagent; cost not separately reported"
   totals:
@@ -500,26 +508,46 @@ than expanding this spec:
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
+- **Branch:** `feat/spec-005-sink-output-abstraction`
+- **PR (if applicable):** see PR opened after this commit
+- **All acceptance criteria met?** yes
 - **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any; DEC-011 already exists — do not duplicate)
+  - No new DEC — DEC-011 (viuer + `display` feature) was written at design time.
 - **Deviations from spec:**
-  - [list]
+  - `viuer::print` returns `Result<(u32, u32), _>` not `Result<(), _>`; added
+    `.map(|_| ())` to discard the terminal-dimensions return value and match the
+    `-> Result<(), SinkError>` signature. Not a spec deviation — the spec said
+    "map any viuer error to SinkError::Display"; the return-type adaptation is
+    an obvious implementation detail.
+  - `ImageFormat::Pcx` is deprecated in `image` 0.25; removed it from the
+    `extension_for_format` match arms (folded into the `_ => "bin"` fallback).
+    No functional impact on the DEC-004 core set.
 - **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - CI job that builds `--features display` on all three OSes (per DEC-011
+    "Consequences — Negative"; flagged there as a STAGE-001/006 follow-up).
 
 ### Build-phase reflection (3 questions, short answers)
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — The `viuer::print` return type (`Result<(u32, u32), _>`) is not documented
+   in the spec's notes; the build prompt says "map any viuer error" but the
+   success-value discard needed one extra `.map(|_| ())` that clippy flagged
+   only under `--features display`. Minor but worth noting for future display
+   integrations: document the return type of the render function.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — The `ImageFormat` enum in `image` 0.25 is `non_exhaustive`, which forces
+   a `_ => ...` wildcard arm in `extension_for_format`. The spec lists the six
+   core variants but doesn't mention that exhaustive matching is impossible;
+   a brief note in the Implementation Context would have saved a clippy
+   investigation about why the `Pcx` deprecation warning appeared.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Write the `#[cfg(feature = "display")]` block as a single expression from
+   the start (avoiding the `return Ok(());` clippy lint), and run
+   `cargo clippy --features display` as the very first clippy invocation since
+   the feature-gated code path isn't exercised by the default build. Both are
+   easy to miss in a first pass.
 
 ---
 

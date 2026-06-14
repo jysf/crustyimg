@@ -7,11 +7,15 @@
 //! executor (decode-once fold, DEC-002).
 //! SPEC-004 adds the [`source`] module: CLI-argument → ordered [`source::Input`]
 //! list (single file / glob / directory / stdin), with symlink-escape hardening.
+//! SPEC-005 adds the [`sink`] module: encode a final [`image::Image`] to file /
+//! dir+name-template / stdout / terminal display, with traversal + overwrite
+//! hardening (DEC-002, DEC-004, DEC-007, DEC-011).
 
 pub mod error;
 pub mod image;
 pub mod operation;
 pub mod pipeline;
+pub mod sink;
 pub mod source;
 
 /// Returns the crate's semantic version (from `Cargo.toml`).
