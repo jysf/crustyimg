@@ -1,0 +1,44 @@
+# .repo-context.yaml
+# Describes the APP (the repo itself). Persists across all projects run
+# against this app. Forward-compatible with ContextCore's ProjectContext CRD.
+#
+# Projects (waves of work against this app) live in ./projects/<id>/ and
+# each has its own brief.md.
+
+apiVersion: contextcore.io/v2
+kind: RepoContext
+
+metadata:
+  repo:
+    id: crustyimg                      # short kebab-case identifier for the app
+    name: "crustyimg"                  # human-readable name
+    purpose: "A fast Rust CLI for viewing and transforming images, single or in batch via reusable recipes."
+    url: "github.com/jysf/crustyimg"
+
+  business:
+    criticality: medium               # critical | high | medium | low
+    owner: my-team                    # REPLACE
+    contacts:
+      - "[REPLACE: email or slack channel]"
+
+spec:
+  stack:
+    language: "rust (edition 2021, stable)"
+    runtime: "native binary (no async runtime; rayon for batch parallelism)"
+    framework: "clap 4 (derive subcommands) CLI; image 0.25 pixel core; viuer terminal display"
+    database: "none (no persistent store; recipes are user-authored TOML files)"
+    hosting: "distributed as a release artifact (GitHub Releases; brew / crates.io)"
+
+  # Standard paths; do not change without also updating AGENTS.md.
+  paths:
+    agents_md: ./AGENTS.md
+    docs: ./docs
+    guidance: ./guidance
+    decisions: ./decisions
+    projects: ./projects
+    templates: ./projects/_templates
+
+  observability:
+    sampling: null                    # Used if you adopt ContextCore.
+    alert_routing: null               # REPLACE: e.g., "#my-team-oncall"
+    runbook_base: null                # REPLACE: e.g., "./runbooks/"

@@ -1,0 +1,109 @@
+# guidance/constraints.yaml
+# Repo-level rules that all agents (and humans) working in this repo
+# must follow. Maps to ContextCore agentGuidance.constraints.
+#
+# Every constraint MUST have:
+#   - id: stable kebab-case identifier
+#   - rule: one sentence
+#   - severity: blocking | warning | advisory
+#   - paths: glob list (use ["**"] for repo-wide)
+#   - added_by: human | claude | <agent-id>
+#   - added_at: YYYY-MM-DD
+#   - rationale: why (link to DEC-XXX preferred)
+
+constraints:
+  - id: no-secrets-in-code
+    rule: "Never commit API keys, tokens, passwords, or credentials. Use environment variables referenced via .env.example."
+    severity: blocking
+    paths: ["**"]
+    added_by: human
+    added_at: 2026-04-19
+    rationale: "Baseline security hygiene."
+
+  - id: single-image-library
+    rule: "Use exactly one pixel image library (`image`) wrapped by the canonical `Image` type. Do not add a second pixel/image-processing library (e.g. photon-rs)."
+    severity: blocking
+    paths: ["src/**", "Cargo.toml"]
+    added_by: claude
+    added_at: 2026-06-13
+    rationale: "Two image libraries was the prototype's root failure. See DEC-002."
+
+  - id: decode-once-no-per-op-disk
+    rule: "The pipeline decodes an image once and applies all Operations in memory. Operations must not read from or write to disk; no per-operation disk round-trips."
+    severity: blocking
+    paths: ["src/operation/**", "src/pipeline/**"]
+    added_by: claude
+    added_at: 2026-06-13
+    rationale: "The prototype re-read each file per op. Decode-once is the architecture. See DEC-002."
+
+  - id: metadata-not-via-pixel-encode
+    rule: "Metadata edits (strip/clean/set/copy-metadata) must use the container lane and must NOT route through the pixel decode/encode path."
+    severity: blocking
+    paths: ["src/metadata/**", "src/sink/**"]
+    added_by: claude
+    added_at: 2026-06-13
+    rationale: "Re-encoding to edit metadata is slow and lossy. Two-lane separation. See DEC-003."
+
+  - id: pure-rust-codecs-default
+    rule: "Default builds use only pure-Rust codec crates. Any native-dependency codec (mozjpeg, rexiv2, libavif) must sit behind an off-by-default cargo feature."
+    severity: blocking
+    paths: ["Cargo.toml", "src/image/**", "src/sink/**"]
+    added_by: claude
+    added_at: 2026-06-13
+    rationale: "Trivial multi-OS CI depends on zero system deps by default. See DEC-004."
+
+  - id: no-async-runtime
+    rule: "Do not add an async runtime (tokio/async-std) or make the core async. Batch parallelism uses rayon."
+    severity: blocking
+    paths: ["Cargo.toml", "src/**"]
+    added_by: claude
+    added_at: 2026-06-13
+    rationale: "Work is CPU-bound; startup must be instant. The prototype's unused tokio is gone. See DEC-006."
+
+  - id: no-unwrap-on-recoverable-paths
+    rule: "No unwrap()/expect()/panic!() on recoverable paths in library code. Return typed errors (thiserror); map to anyhow context + exit codes only at the binary boundary."
+    severity: blocking
+    paths: ["src/**"]
+    added_by: claude
+    added_at: 2026-06-13
+    rationale: "The prototype panicked on file I/O. See DEC-007."
+
+  - id: clippy-fmt-clean
+    rule: "Code must pass `cargo clippy -- -D warnings` and `cargo fmt --check`. No dead code; delete rather than comment out."
+    severity: blocking
+    paths: ["src/**", "tests/**"]
+    added_by: claude
+    added_at: 2026-06-13
+    rationale: "The prototype shipped dead/commented modules and warnings. Lint clean from spec one."
+
+  - id: every-public-fn-tested
+    rule: "Every new public function gets at least one test (unit in #[cfg(test)] or integration under tests/)."
+    severity: warning
+    paths: ["src/**"]
+    added_by: claude
+    added_at: 2026-06-13
+    rationale: "Tests from spec one; the prototype had zero. See AGENTS.md §12."
+
+  - id: test-before-implementation
+    rule: "Failing tests are written as part of the spec during design. Implementation makes those tests pass. Do not skip this order."
+    severity: blocking
+    paths: ["**"]
+    added_by: human
+    added_at: 2026-04-19
+    rationale: "TDD discipline; provides automatic verification of acceptance criteria."
+
+  - id: no-new-top-level-deps-without-decision
+    rule: "Do not add a new top-level dependency (package.json, pyproject.toml, etc.) without first emitting a DEC-XXX file justifying the choice."
+    severity: warning
+    paths: ["package.json", "pyproject.toml", "Cargo.toml", "go.mod"]
+    added_by: claude
+    added_at: 2026-04-19
+    rationale: "Dependencies are forever. Force deliberation."
+
+  - id: one-spec-per-pr
+    rule: "Each PR must reference exactly one SPEC-XXX in its description. Bundled changes are rejected."
+    severity: blocking
+    paths: ["**"]
+    added_by: human
+    added_at: 2026-04-19
+    rationale: "Keeps review loop tractable and traceable."

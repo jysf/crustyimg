@@ -1,60 +1,55 @@
 # Security
 
-This policy covers this template repository **and any repository
-generated from it** — the scripts, the `justfile`, and the conventions
-are shared, so the security model is the same downstream.
+`crustyimg` is a local-first command-line tool: it reads image files,
+transforms them in memory, and writes outputs. No server, no network at
+runtime, no secret handling beyond keeping secrets out of git. The realistic
+risks come from processing untrusted inputs and from the spec-driven,
+agent-run workflow this repo uses.
 
 ## Threat model
 
-This is local-first developer tooling. There is no server, no network
-calls, no deserialization, and no secret handling beyond keeping secrets
-out of git. The realistic risks are:
+1. **Untrusted image inputs.** Image decoders parse attacker-controllable
+   binary data. A malformed or hostile file could trigger a panic, excessive
+   memory/CPU (decompression bombs — `image` exposes dimension/byte limits we
+   should set), or a decoder bug. Mitigations: decode through the single
+   `image` stack (DEC-002), bound resource use, never `unwrap()`/`expect()`
+   on decode paths (constraint `no-unwrap-on-recoverable-paths`, DEC-007),
+   and surface failures as typed errors mapped to non-zero exit codes rather
+   than crashes.
+2. **Untrusted recipes.** A recipe is a TOML file describing an operation
+   chain. Treat a recipe from outside your team as untrusted: it can only
+   express registered operations (no code execution), but validate the
+   `version` field and reject unknown operations rather than guessing.
+3. **Path traversal on output.** Batch output uses name templates
+   (`{stem}_web.{ext}`) into `--out-dir`. Templates must not contain path
+   separators that escape `--out-dir`, and the tool must not overwrite an
+   existing file without `--yes`. Inputs are read-only unless explicitly
+   targeted as output.
+4. **Metadata leakage / privacy.** Image metadata can contain GPS location,
+   device serials, and personal info. The default-preserve policy (DEC-003)
+   **drops GPS** on pixel-lane encodes unless `--keep-gps`; `clean --gps` and
+   `strip` exist precisely for privacy. Don't silently retain location data.
+5. **Untrusted repo content + agents.** This workflow is driven by coding
+   agents that read specs/decisions/briefs and run commands. Treat content
+   originating outside your team (a pasted issue, an external brief) as
+   untrusted — it can attempt prompt injection. Review what an agent
+   proposes to run before letting it run.
+6. **Secrets in git.** `.gitignore` excludes `.env*`, `*.pem`, `*.key`, and
+   `guidance/constraints.yaml` makes "no committed credentials" a blocking
+   rule (`no-secrets-in-code`). `crustyimg` itself needs no secrets.
 
-1. **Untrusted arguments.** Commands like `just new-spec "<title>"` take
-   free-form strings and substitute them into files. User input is
-   escaped before substitution (see `sed_escape_replacement` in
-   `scripts/_lib.sh`); cycle values are allowlisted; titles are
-   slugified for filenames so they can't traverse paths.
-2. **Untrusted repo content + agents.** This template is designed to be
-   driven by coding agents (Claude Code, and in the `claude-plus-agents`
-   variant a separate implementer). Agents **read** specs, decisions,
-   briefs, and handoffs, and they **run** `just` commands. Treat any of
-   that content as untrusted *if it originates outside your team* — a
-   pasted issue, an external brief, a dependency's README. Malicious
-   text can attempt prompt injection (steering the agent) or can be
-   passed verbatim into a command. Review what an agent proposes to run.
-3. **Secrets in git.** The shipped `.gitignore` excludes `.env*`,
-   `*.pem`, and `*.key`, and the `no-secrets-in-code` constraint in
-   `guidance/constraints.yaml` makes "no committed credentials" a
-   blocking rule. Keep secrets in environment variables referenced via
-   `.env.example`.
+## Good habits
 
-## What has been hardened
-
-- **Substitution injection (v5.8).** `new-spec` / `new-stage` route
-  user-supplied titles and the repo id through `sed_escape_replacement`
-  before `sed` substitution, so a title containing `|`, `&`, or `\`
-  cannot corrupt the command or reach GNU sed's `s///e` execute flag.
-- **Input validation.** `advance-cycle` allowlists cycle values;
-  `archive-spec` resolves IDs against existing files and uses `awk`
-  (data, never `eval`).
-- **No CI attack surface.** There are no GitHub Actions workflows, so
-  there is no `pull_request_target` / script-injection class to manage.
-  If you add workflows, scope `permissions` minimally and never
-  interpolate `${{ github.event.* }}` into a `run:` block.
-
-## Known, accepted low-severity items
-
-- **Report rendering.** `just report-daily` / `report-weekly` embed spec
-  titles and content into fenced markdown. A title containing a code
-  fence can break out of the block in the generated report. This is
-  cosmetic and local; reports are not executed.
+- Set decode limits and don't trust input dimensions.
+- Keep the `no-secrets-in-code` and `no-unwrap-on-recoverable-paths`
+  constraints enabled.
+- When wiring CI (GitHub Actions, DEC-009), scope `permissions` minimally
+  and never interpolate `${{ github.event.* }}` into a `run:` block.
+- Don't paste untrusted text into a brief/spec and then have an agent act on
+  it unreviewed.
 
 ## Reporting a vulnerability
 
-If you find a security issue in the template's scripts or conventions,
-please report it privately: open a **GitHub Security Advisory**
-(repository → **Security** → **Report a vulnerability**) rather than a
-public issue. If advisories aren't available, open an issue that
-describes the impact without a working exploit and we'll coordinate a
-fix. There is no bounty; thank-yous are sincere.
+Replace this with the project's process. For now: open a private security
+advisory (or private issue) describing impact without a public exploit, and
+coordinate a fix before disclosure.

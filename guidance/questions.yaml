@@ -1,0 +1,46 @@
+# guidance/questions.yaml
+# Open questions under active investigation. Agents can see what we're
+# still figuring out and avoid re-deriving answers in isolation.
+#
+# Every question MUST have:
+#   - id: stable kebab-case identifier
+#   - question: the question in one sentence
+#   - priority: critical | high | medium | low
+#   - status: open | investigating | answered
+#   - raised_by: human | claude | <agent-id>
+#   - raised_at: YYYY-MM-DD
+#   - assigned_to: null | <agent-id> | <human>
+#
+# When a question is answered, either:
+#   (a) update status to "answered" and link to the DEC-XXX that records the answer, or
+#   (b) delete the question if it was resolved without a formal decision.
+
+questions:
+  - id: resize-backend-api-stability
+    question: "Does fast_image_resize's current API integrate cleanly at the DynamicImage boundary, with acceptable conversion overhead and filter-parity vs image::imageops?"
+    priority: medium
+    status: open
+    raised_by: claude
+    raised_at: 2026-06-13
+    assigned_to: null
+    notes: |
+      Records the residual risk behind DEC-008 (confidence 0.75). The
+      Resize operation boundary localizes any swap, so this is a
+      build-time verification (benchmark + SSIM/tolerance test against the
+      imageops reference), not a blocker. Resolve during STAGE-003 build;
+      close by updating DEC-008 confidence or falling back to
+      image::imageops.
+
+  - id: metadata-icc-coverage
+    question: "Can the pure-Rust container crates (img-parts / little_exif) reliably preserve ICC + orientation + copyright and selectively drop GPS across all core formats (JPEG/PNG/TIFF), without rexiv2?"
+    priority: high
+    status: open
+    raised_by: claude
+    raised_at: 2026-06-13
+    assigned_to: null
+    notes: |
+      Records the residual risk behind DEC-003 (confidence 0.8) — the
+      riskiest part of the MVP per PROJ-001 risks_to_thesis. Resolve during
+      STAGE-004 build with byte/tag-level tests per format. If pure-Rust
+      coverage is inadequate, promote the optional `rexiv2` feature or
+      narrow the default-preserve set; update DEC-003 either way.
