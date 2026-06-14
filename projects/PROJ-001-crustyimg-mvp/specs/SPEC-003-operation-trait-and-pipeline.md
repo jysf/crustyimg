@@ -523,7 +523,7 @@ zero-dependency option in Notes instead.
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
 - **Branch:** `feat/spec-003-operation-trait-and-pipeline`
-- **PR (if applicable):** opened (see timeline for PR number)
+- **PR (if applicable):** #3 — https://github.com/jysf/crustyimg/pull/3
 - **All acceptance criteria met?** yes
 - **Constructor choice:** Both `from_parts` and `with_pixels` were implemented.
   `with_pixels(self, DynamicImage) -> Image` is the ergonomic path used by
