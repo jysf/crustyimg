@@ -98,7 +98,7 @@ This is the foundation, so it is first.
 
 Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
-- [ ] SPEC-001 (design) — Cargo project + multi-OS CI + clippy/fmt + smoke test [S]
+- [ ] SPEC-001 (build) — Cargo project + multi-OS CI + clippy/fmt + smoke test [S]
 - [ ] SPEC-002 (design) — Canonical `Image` type + load/decode + capture metadata bundle at load (for DEC-003 preserve policy) + error types + native-generated test fixtures [M]
 - [ ] SPEC-003 (design) — `Operation` trait + `Pipeline` (decode once → ordered ops → result) [M]
 - [ ] SPEC-004 (design) — `Source` abstraction (single file / glob / dir / stdin → ordered inputs) [M]
