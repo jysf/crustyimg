@@ -120,14 +120,14 @@ the foundation for a "wide and interesting feature set" over later waves.
 Format: `- [status] STAGE-ID — one-line summary`
 
 - [x] STAGE-001 (shipped on 2026-06-14) — Foundation: CI, image model, Operation trait, pipeline, recipe + source/sink (7 specs, PRs #1-#7)
-- [ ] STAGE-002 (pending) — View & info (read-only): `view`, `info` (+ `--exif`)
+- [x] STAGE-002 (shipped on 2026-06-15) — View & info (read-only): `view`, `info` (+ `--exif`, `--json`) (2 specs, PRs #8-#9; DEC-013)
 - [ ] STAGE-003 (pending) — Transform & output: `resize`, `shrink`, `thumbnail`, `convert`, `auto-orient`
 - [ ] STAGE-004 (pending) — Compose & metadata: `watermark`; `strip`/`clean --gps`/`set`/`copy-metadata`
 - [ ] STAGE-005 (pending) — Batch & recipes: `edit`, `--save-recipe`, `apply` (parallel + progress)
 - [ ] STAGE-006 (pending) — Hardening & security assessment: decode limits, traversal tests, cargo-audit in CI, recipe validation, threat-model pass
 - [ ] STAGE-007 (pending) — Release & distribution (MVP exit gate): Cargo metadata + CHANGELOG/tags, cargo-dist release pipeline, Homebrew tap, optional crates.io, README/install polish
 
-**Count:** 1 shipped / 0 active / 6 pending
+**Count:** 2 shipped / 0 active / 5 pending
 
 ## Dependencies
 

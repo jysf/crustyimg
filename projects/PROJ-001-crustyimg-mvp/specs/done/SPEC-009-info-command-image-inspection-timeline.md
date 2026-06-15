@@ -19,3 +19,16 @@ Cycle prompts live in `prompts/SPEC-009-<cycle>.md`.
   `format_label`/`color_type_label`/`read_exif_tags`/`write_json`/`print_human`;
   wrote integration tests in `tests/cli.rs` + new `tests/info_exif.rs`; wrote
   unit tests in `src/cli/mod.rs`.
+- [x] **verify** — ✅ APPROVED (read-only, Opus) at commit `b19134f`. Re-ran all 4
+  gates cold: green (111 tests). Independently PROVED `info --json` parses (real
+  binary → `python3 json.load`), stderr empty on success, and `escape_json`
+  round-trips a path containing `"` and `\`. Confirmed kamadak-exif always-on +
+  pure-Rust (only transitive `mutate_once`, no native dep), `serde_json` dev-only,
+  pixel core untouched, no new CliError variant, exif graceful on no-EXIF. 6/6 CI
+  checks green. One non-blocking nit (dead_code under the stricter
+  `clippy --all-targets`, not the project gate) → spun off as a background chore.
+  2026-06-15.
+- [x] **ship** — Merged PR #9 (squash) → main on 2026-06-15 (merge `ab646c3`).
+  Cost: 4 sessions, $null (design/verify/ship Opus, build Sonnet 4.6 — subagent
+  numerics null). Archived to done/. **Completes STAGE-002 (2/2): `view` + `info`
+  shipped.**

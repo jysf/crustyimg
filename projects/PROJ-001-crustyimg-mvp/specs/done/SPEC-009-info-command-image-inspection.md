@@ -7,7 +7,7 @@
 task:
   id: SPEC-009
   type: story                      # epic | story | task | bug | chore
-  cycle: verify                    # frame | design | build | verify | ship
+  cycle: ship                      # frame | design | build | verify | ship
   blocked: false
   priority: medium
   complexity: M                    # S | M | L  (L means split it)
@@ -60,10 +60,26 @@ cost:
       duration_minutes: 25
       recorded_at: 2026-06-14
       notes: "subagent; cost not separately reported"
+    - cycle: verify
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: 30
+      recorded_at: 2026-06-15
+      notes: "verify cycle, Opus read-only subagent; re-ran 4 gates + proved --json parses on real binary"
+    - cycle: ship
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: 5
+      recorded_at: 2026-06-15
+      notes: "orchestrator ship bookkeeping on main (merge + archive by hand); also closes STAGE-002"
   totals:
     tokens_total: 0
     estimated_usd: 0
-    session_count: 0
+    session_count: 4
 ---
 
 # SPEC-009: info command image inspection
@@ -556,10 +572,24 @@ Process-focused: how did the build go? What friction did the spec create?
 from the process-focused build reflection above.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Nothing on process — pushing the design commit to `origin/main` before the
+   build agent branched (the SPEC-008 lesson) kept this PR clean: design landed
+   as its own commit, the build squash didn't fold it in, and local `main`
+   fast-forwarded with no reset. On the spec itself: the hand-rolled `write_json`
+   was the one tedious part; it was correct (verify proved escaping round-trips),
+   but if a second command needs JSON, promoting `serde_json` to a runtime dep
+   via a small DEC would beat hand-rolling a second emitter.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — No template/constraint change. AGENTS §5 pre-names `kamadak-exif 0.6`; the
+   actual pin is `=0.6.1` (DEC-013) — a one-word §5 refresh is optional polish,
+   not required (§5 already says exact pins live in Cargo.toml). DEC-013 is the
+   durable record.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — No new STAGE-002 spec (the stage is complete). Two tracked items surfaced,
+   both correctly out of scope: (a) a `clippy --all-targets` cleanliness chore in
+   `tests/common/mod.rs` (a `#![allow(dead_code)]`), flagged as a background task;
+   (b) if `--json` spreads to more commands, promote `serde_json` to a runtime dep.
+   STAGE-003 (`resize`/`thumbnail`/`shrink`/`convert`/`auto-orient`) is the next
+   wave and needs no new framing.

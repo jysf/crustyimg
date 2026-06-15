@@ -5,7 +5,7 @@
 
 stage:
   id: STAGE-002                     # stable, zero-padded within the project
-  status: active                    # proposed | active | shipped | cancelled | on_hold
+  status: shipped                   # proposed | active | shipped | cancelled | on_hold
   priority: high                    # critical | high | medium | low
   target_complete: null             # optional: YYYY-MM-DD
 
@@ -15,7 +15,7 @@ repo:
   id: crustyimg
 
 created_at: 2026-06-14
-shipped_at: null
+shipped_at: 2026-06-15
 
 # What part of the project's value thesis this stage advances.
 value_contribution:
@@ -84,9 +84,9 @@ structured-output convention later commands reuse.
 Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
 - [x] SPEC-008 (shipped 2026-06-15, PR #8) — `view` command: terminal display via viuer, fit-to-terminal default + `--width`/`--height`, non-tty refusal (exit 5)
-- [ ] SPEC-009 (design) — `info` command: dimensions/format/bytes/color-type/bit-depth/alpha/ICC+EXIF-presence, `--exif` read (kamadak-exif, DEC-013), `--json` structured output
+- [x] SPEC-009 (shipped 2026-06-15, PR #9) — `info` command: dimensions/format/file-size/color-type/bit-depth/alpha/ICC+EXIF-presence, `--exif` read (kamadak-exif, DEC-013), `--json` structured output
 
-**Count:** 1 shipped / 1 active / 0 pending
+**Count:** 2 shipped / 0 active / 0 pending
 
 ## Design Notes
 
@@ -113,13 +113,36 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
 ## Stage-Level Reflection
 
-*Filled in when status moves to shipped. Run Prompt 1c (Stage Ship) in
-FIRST_SESSION_PROMPTS.md to draft this.*
+*Filled at ship, 2026-06-15.*
 
-- **Did we deliver the outcome in "What This Stage Is"?** <yes/no + notes>
-- **How many specs did it actually take?** <number vs. plan>
-- **What changed between starting and shipping?** <one sentence>
+- **Did we deliver the outcome in "What This Stage Is"?** Yes. Both read-only
+  commands are real and tested end-to-end on real images: `view` renders via the
+  viuer display Sink (fit-to-terminal default, `--width`/`--height`, non-tty
+  refusal at exit 5, behind the `display` feature); `info` reports
+  dimensions/format/file-size/color-type/bit-depth/alpha/ICC+EXIF presence, dumps
+  EXIF read-only (`--exif`, kamadak-exif), and emits machine-readable `--json`
+  (stdout-only, `jq`-clean). The Source → load → Sink path is proven on real files
+  with no pixel mutation, exactly as scoped. 111 tests green, 3-OS CI.
+- **How many specs did it actually take?** 2 (SPEC-008 `view`, SPEC-009 `info`) —
+  exactly as planned. SPEC-008 was complexity S, SPEC-009 M.
+- **What changed between starting and shipping?** One new top-level dependency
+  entered the graph — `kamadak-exif` (DEC-013), added always-on (not feature-gated
+  like viuer) because it's pure-Rust and EXIF read is core to `info`. The `--json`
+  output also established the structured-output convention (machine→stdout,
+  diagnostics→stderr) that STAGE-003+ commands reuse.
 - **Lessons that should update AGENTS.md, templates, or constraints?**
-  - <one-line updates>
+  - Orchestration process lesson (not a doc change): push the design commit to
+    `origin/main` BEFORE the build agent branches, or the build PR's squash folds
+    the design artifacts in and local `main` needs a reset. Applied from SPEC-009
+    onward; kept in orchestrator memory.
+  - AGENTS §5 pre-names crate majors; the actual pins live in `Cargo.toml`
+    (viuer `=0.11.0`, kamadak-exif `=0.6.1`). Optional polish to sync §5 patches;
+    not required.
 - **Should any spec-level reflections be promoted to stage-level lessons?**
-  - <one-line items>
+  - The display/feature-gate vs always-on call is now a clear, reusable pattern:
+    feature-gate a dep only when its transitive tree is heavy (viuer/DEC-011);
+    add pure-Rust lightweight deps always-on (kamadak-exif/DEC-013). Both DECs
+    record the reasoning.
+  - `--json` hand-rolled emitter worked but is the natural breakpoint: if a second
+    command needs JSON, promote `serde_json` to a runtime dep via a small DEC
+    rather than hand-rolling a second emitter (noted in SPEC-009 reflection).
