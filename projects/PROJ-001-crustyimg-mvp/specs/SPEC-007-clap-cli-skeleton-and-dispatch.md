@@ -485,7 +485,7 @@ expanding this one.
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
 - **Branch:** `feat/spec-007-clap-cli-skeleton-and-dispatch`
-- **PR (if applicable):** PR opened — number and URL filled in once pushed (see timeline).
+- **PR (if applicable):** PR #7 opened — https://github.com/jysf/crustyimg/pull/7
 - **All acceptance criteria met?** yes
 - **Gates:**
   - `cargo build` — PASS
