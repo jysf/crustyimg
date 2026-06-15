@@ -7,7 +7,7 @@
 task:
   id: SPEC-010
   type: story                      # epic | story | task | bug | chore
-  cycle: verify                    # frame | design | build | verify | ship
+  cycle: ship                      # frame | design | build | verify | ship
   blocked: false
   priority: medium
   complexity: M                    # S | M | L  (L means split it)
@@ -59,11 +59,27 @@ cost:
       estimated_usd: null
       duration_minutes: 25
       recorded_at: 2026-06-15
-      notes: "subagent; cost not separately reported"
+      notes: "subagent; cost not separately reported. Verify follow-up (same Sonnet build line): made Resize::apply total — 12 invariant unwraps → typed errors."
+    - cycle: verify
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: 30
+      recorded_at: 2026-06-15
+      notes: "verify cycle, Opus read-only subagent; re-ran 4 gates cold, proved params round-trip, flagged invariant-unwrap nit (fixed before merge)"
+    - cycle: ship
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: 5
+      recorded_at: 2026-06-15
+      notes: "orchestrator ship bookkeeping on main (merge PR #11 + archive by hand)"
   totals:
     tokens_total: 0
     estimated_usd: 0
-    session_count: 1
+    session_count: 4
 ---
 
 # SPEC-010: resize operation and operation params mechanism
@@ -698,10 +714,26 @@ Process-focused: how did the build go? What friction did the spec create?
 from the process-focused build reflection above.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Two process lessons, both about a shared working directory. (a) A background
+   "chore" session (the user's `--all-targets` cleanup) checked out its own branch
+   in the SAME working directory, so my SPEC-010 design commit landed on the chore
+   branch instead of `main`; I recovered by cherry-picking it onto `main` and
+   resetting the chore branch. Cheap fix, but next time I'd run the build/design in
+   an isolated worktree when a background task is active in the repo. (b) The build
+   prompt should state "derive `Debug` on new public types and don't `{:?}`-format
+   non-Debug types" — the build hit two compile cycles on that. Add it to the build
+   prompt boilerplate.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — The `no-unwrap-on-recoverable-paths` constraint targets *recoverable* paths;
+   verify correctly judged the invariant unwraps compliant, but the spec's stricter
+   "no unwrap in src/" prose is the bar this codebase actually holds — worth making
+   that the explicit standard (invariant violations return typed errors, never
+   `unwrap`/`unreachable!`). We enforced it here via a pre-merge fix. No template
+   change required; DEC-014 is the durable params-mechanism record future ops follow.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — SPEC-011 (`resize` CLI command + multi-input `--out-dir` fan-out) is already
+   the next backlog item and depends on this; it needs no new framing. The
+   `Resize` constructor is now the template for the remaining STAGE-003 ops
+   (thumbnail/shrink reuse the same params mechanism + backend). No new spec.
