@@ -7,7 +7,7 @@
 task:
   id: SPEC-007
   type: story                      # epic | story | task | bug | chore
-  cycle: build                     # frame | design | build | verify | ship
+  cycle: verify                    # frame | design | build | verify | ship
   blocked: false
   priority: medium
   complexity: M                    # S | M | L  (L means split it)
@@ -53,6 +53,14 @@ cost:
   sessions:
     - cycle: design
       agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: 45
+      recorded_at: 2026-06-14
+      notes: "subagent; cost not separately reported"
+    - cycle: build
+      agent: claude-sonnet-4-6
       interface: claude-code
       tokens_total: null
       estimated_usd: null
@@ -476,28 +484,54 @@ expanding this one.
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
+- **Branch:** `feat/spec-007-clap-cli-skeleton-and-dispatch`
+- **PR (if applicable):** PR #7 opened — https://github.com/jysf/crustyimg/pull/7
+- **All acceptance criteria met?** yes
+- **Gates:**
+  - `cargo build` — PASS
+  - `cargo test` — PASS (97 tests, 10 suites, all green; SPEC-001..006 suite intact)
+  - `cargo clippy --all-targets -- -D warnings` — PASS (0 errors, 0 warnings)
+  - `cargo fmt --check` — PASS
 - **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
+  - No new DEC during build — DEC-012 written during design justifies `clap = 4.6.1`.
 - **Deviations from spec:**
-  - [list]
+  - `clap` resolved to 4.6.1 (not 4.5.x as the spec estimated); pinned exactly as `=4.6.1`.
+  - Added a `CliError::RecipeIo(std::io::Error)` variant to correctly map the recipe-file
+    read I/O error to exit 3 without colliding with `SourceError::Stdin`'s `#[from] io::Error`
+    (which would cause a conflicting `From` impl). This is a clean, minimal extension to the
+    exit-code mapping — no new DEC needed, consistent with DEC-007.
+  - Global args marked `global = true` on each `#[arg]` to allow them to appear after the
+    subcommand name (the spec snippet shows the flatten pattern; `global = true` is the correct
+    clap 4 mechanism to propagate flattened args into subcommand contexts).
 - **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - STAGE-002: `view` and `info` real implementations.
+  - STAGE-003: `resize`, `thumbnail`, `shrink`, `convert`, `auto-orient`.
+  - STAGE-004: `watermark`, `strip`, `clean`, `set`, `copy-metadata`.
+  - STAGE-005: `edit`, `apply` batch fan-out + parallel + progress.
 
 ### Build-phase reflection (3 questions, short answers)
 
 Process-focused: how did the build go? What friction did the spec create?
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — The spec's `GlobalArgs` snippet did not mention `global = true`, which is required in
+   clap 4 for flattened args to be recognized after the subcommand. The unit test caught this
+   immediately (clap returned "unknown argument -o" for `apply ... -o out.png`), but it took
+   one compile-fix cycle to identify the root cause. A note in the spec about `global = true`
+   would have prevented this.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — The `#[from] std::io::Error` collision between `CliError::Image(ImageError::Io)` and a
+   potential `CliError::RecipeIo` was not called out. The spec says "map io err → exit 3" for
+   the recipe file read, but both `ImageError::Io` and a bare `io::Error` variant would need
+   `#[from] io::Error`, which conflicts. Adding a distinct `CliError::RecipeIo(io::Error)` variant
+   (mapping to exit 3) was the clean solution; the spec could have noted this explicitly.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Read the clap 4 docs on `global` args before writing the `GlobalArgs` struct, and add
+   the `global = true` attribute from the start. Also run `cargo test -- cli` first (just
+   the new CLI unit tests) before running the full suite, to tighten the feedback loop on
+   the clap integration.
 
 ---
 
