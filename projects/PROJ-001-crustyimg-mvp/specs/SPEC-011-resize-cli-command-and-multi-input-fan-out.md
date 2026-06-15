@@ -7,7 +7,7 @@
 task:
   id: SPEC-011
   type: story                      # epic | story | task | bug | chore
-  cycle: design                    # frame | design | build | verify | ship
+  cycle: verify                    # frame | design | build | verify | ship
   blocked: false
   priority: medium
   complexity: M                    # S | M | L  (L means split it)
@@ -51,6 +51,14 @@ cost:
       duration_minutes: null
       recorded_at: 2026-06-15
       notes: "design cycle, Opus subagent; SPEC-011 = CLI half of split resize (SPEC-010 shipped the Operation). Emitted DEC-015 (output-format-preservation + partial-batch exit-6 policy)."
+    - cycle: build
+      agent: claude-sonnet-4-6
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-06-15
+      notes: "Sonnet build subagent wrote the code (src/cli + tests/cli) but its session dropped on an API error before running gates/committing; orchestrator (Opus) finished: fixed a clippy too_many_arguments (bundled the 6 mode flags into a ResizeModes struct), ran cargo fmt, verified all 4 gates green (146 tests), and completed bookkeeping + PR."
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -696,28 +704,44 @@ new crate, no new architectural seam.
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
+- **Branch:** `feat/spec-011-resize-cli-command-and-multi-input-fan-out`
+- **PR (if applicable):** #12
+- **All acceptance criteria met?** yes
 - **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
+  - None during build — DEC-015 (emitted at design) governs; no new DEC.
 - **Deviations from spec:**
-  - [list]
+  - Bundled the six mode flags into a private `ResizeModes<'a>` struct so
+    `run_resize` takes 3 args instead of 8 (clippy `too_many_arguments`). Pure
+    refactor; `resize_params` and its unit tests are unchanged.
+  - The original build session dropped (API socket error) before adding the
+    integration tests to `tests/cli.rs`. All 11 mandated integration tests were
+    added in a verify-punch-list follow-up session (Sonnet, 2026-06-15); PR #12
+    was updated. All 4 gates green at 157 tests (146 → +11).
 - **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - None new. Remaining STAGE-003 ops (thumbnail/shrink/convert/auto-orient)
+    reuse this CLI + the SPEC-010 op/params mechanism + DEC-015 format policy.
 
 ### Build-phase reflection (3 questions, short answers)
 
 Process-focused: how did the build go? What friction did the spec create?
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — Nothing material; the spec named the registry/params construction path,
+   the `ArgGroup`, the new CliError variants, and the per-input format
+   resolution precisely. The only build incident was an infrastructure one: the
+   Sonnet build session dropped on an API socket error after writing the code
+   but before running gates/committing. The orchestrator recovered it.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — No. The `too_many_arguments` clippy lint on an 8-arg handler wasn't
+   pre-empted by the spec; a standing build-prompt note to "bundle >7 args into
+   a struct" would have avoided the fix (added as a lesson, alongside the
+   SPEC-010 derive-Debug note).
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Run the four gates incrementally during the build (not just at the end) so
+   a dropped session leaves a green, committed checkpoint rather than
+   uncommitted work needing recovery.
 
 ---
 
