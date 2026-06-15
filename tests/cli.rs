@@ -597,6 +597,441 @@ fn info_exif_on_plain_png_reports_none() {
     );
 }
 
+// ── SPEC-011 resize integration tests ────────────────────────────────────────
+
+/// Generate a small gradient JPEG in memory and write it to `dir/name`.
+/// Returns the full path. Mirrors `write_test_png` for JPEG fixtures.
+fn write_test_jpeg(dir: &TempDir, name: &str, w: u32, h: u32) -> PathBuf {
+    use image::RgbImage;
+
+    // Simple horizontal gradient so the image is non-trivial.
+    let img = RgbImage::from_fn(w, h, |x, _y| {
+        image::Rgb([(x * 255 / w.max(1)) as u8, 100u8, 150u8])
+    });
+    let dyn_img = image::DynamicImage::ImageRgb8(img);
+    let mut buf = std::io::Cursor::new(Vec::new());
+    dyn_img.write_to(&mut buf, ImageFormat::Jpeg).unwrap();
+    let path = dir.path().join(name);
+    std::fs::write(&path, buf.into_inner()).unwrap();
+    path
+}
+
+/// `resize <png> --max 20 -o out.png` exits 0; output decodes to 20×10
+/// (long edge == 20, aspect preserved from a 100×50 source). (AC1)
+#[test]
+fn resize_max_single_input_writes_scaled() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let in_path = write_test_png(&dir, "in.png", 100, 50);
+    let out_path = dir.path().join("out.png");
+
+    let output = Command::new(BIN)
+        .args([
+            "resize",
+            in_path.to_str().unwrap(),
+            "--max",
+            "20",
+            "-o",
+            out_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run resize --max");
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "resize --max should exit 0; stderr: {}",
+        stderr_str(&output)
+    );
+    assert!(out_path.exists(), "output file should exist");
+    let decoded = image::open(&out_path).expect("output should be decodable");
+    // Long edge must be 20; short edge must be 10 (aspect preserved).
+    assert_eq!(decoded.width(), 20, "width should be 20 (long edge)");
+    assert_eq!(
+        decoded.height(),
+        10,
+        "height should be 10 (aspect preserved)"
+    );
+}
+
+/// `resize <png> --exact 33x77 -o out.png` exits 0; output is exactly 33×77. (AC2)
+#[test]
+fn resize_exact_single_input_exact_dims() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let in_path = write_test_png(&dir, "in.png", 100, 50);
+    let out_path = dir.path().join("out.png");
+
+    let output = Command::new(BIN)
+        .args([
+            "resize",
+            in_path.to_str().unwrap(),
+            "--exact",
+            "33x77",
+            "-o",
+            out_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run resize --exact");
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "resize --exact should exit 0; stderr: {}",
+        stderr_str(&output)
+    );
+    assert!(out_path.exists(), "output file should exist");
+    let decoded = image::open(&out_path).expect("output should be decodable");
+    assert_eq!(decoded.width(), 33, "width should be exactly 33");
+    assert_eq!(decoded.height(), 77, "height should be exactly 77");
+}
+
+/// Multi-input `resize a.png b.jpg --max 20 --out-dir D` exits 0; each output
+/// exists in D scaled to the expected dims AND preserves the source format
+/// (a.png stays PNG, b.jpg stays JPEG). (AC3, DEC-015)
+#[test]
+fn resize_multi_input_fan_out_preserves_format() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let out_dir = tempfile::tempdir().expect("out tempdir");
+
+    let png_path = write_test_png(&dir, "a.png", 100, 50);
+    let jpg_path = write_test_jpeg(&dir, "b.jpg", 100, 50);
+
+    let output = Command::new(BIN)
+        .args([
+            "resize",
+            png_path.to_str().unwrap(),
+            jpg_path.to_str().unwrap(),
+            "--max",
+            "20",
+            "--out-dir",
+            out_dir.path().to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run resize multi-input");
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "resize multi-input should exit 0; stderr: {}",
+        stderr_str(&output)
+    );
+
+    // a.png → out_dir/a.png, scaled 20×10, and must decode as PNG.
+    let out_png = out_dir.path().join("a.png");
+    assert!(out_png.exists(), "a.png output should exist in out-dir");
+    let decoded_png = image::open(&out_png).expect("a.png output should be decodable");
+    assert_eq!(decoded_png.width(), 20, "a.png output width should be 20");
+    assert_eq!(decoded_png.height(), 10, "a.png output height should be 10");
+    // Verify format is actually PNG by reading the magic bytes.
+    let png_bytes = std::fs::read(&out_png).unwrap();
+    assert_eq!(
+        &png_bytes[..4],
+        b"\x89PNG",
+        "a.png output should be PNG format"
+    );
+
+    // b.jpg → out_dir/b.jpg, scaled 20×10, and must decode as JPEG.
+    let out_jpg = out_dir.path().join("b.jpg");
+    assert!(out_jpg.exists(), "b.jpg output should exist in out-dir");
+    let decoded_jpg = image::open(&out_jpg).expect("b.jpg output should be decodable");
+    assert_eq!(decoded_jpg.width(), 20, "b.jpg output width should be 20");
+    assert_eq!(decoded_jpg.height(), 10, "b.jpg output height should be 10");
+    // JPEG magic: starts with FF D8.
+    let jpg_bytes = std::fs::read(&out_jpg).unwrap();
+    assert_eq!(
+        &jpg_bytes[..2],
+        b"\xFF\xD8",
+        "b.jpg output should be JPEG format"
+    );
+}
+
+/// `resize <jpg> --max 20 --format png -o out.png` exits 0; output is PNG
+/// (--format override wins over source JPEG format). (AC11)
+#[test]
+fn resize_format_override_changes_format() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let in_path = write_test_jpeg(&dir, "in.jpg", 100, 50);
+    let out_path = dir.path().join("out.png");
+
+    let output = Command::new(BIN)
+        .args([
+            "resize",
+            in_path.to_str().unwrap(),
+            "--max",
+            "20",
+            "--format",
+            "png",
+            "-o",
+            out_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run resize --format png");
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "resize --format png should exit 0; stderr: {}",
+        stderr_str(&output)
+    );
+    assert!(out_path.exists(), "output file should exist");
+    // Verify format is PNG by magic bytes.
+    let bytes = std::fs::read(&out_path).unwrap();
+    assert_eq!(&bytes[..4], b"\x89PNG", "output should be PNG format");
+}
+
+/// `resize <png>` (no mode flag) → exit 2 (clap ArgGroup required). (AC4)
+#[test]
+fn resize_no_mode_is_usage_error() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let in_path = write_test_png(&dir, "in.png", 4, 4);
+    let out_path = dir.path().join("out.png");
+
+    let output = Command::new(BIN)
+        .args([
+            "resize",
+            in_path.to_str().unwrap(),
+            "-o",
+            out_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run resize no-mode");
+
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "resize with no mode flag should exit 2"
+    );
+    assert!(
+        !out_path.exists(),
+        "output must not be created on usage error"
+    );
+}
+
+/// `resize <png> --max 20 --exact 10x10` → exit 2 (two mode flags conflict). (AC5)
+#[test]
+fn resize_two_modes_is_usage_error() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let in_path = write_test_png(&dir, "in.png", 4, 4);
+    let out_path = dir.path().join("out.png");
+
+    let output = Command::new(BIN)
+        .args([
+            "resize",
+            in_path.to_str().unwrap(),
+            "--max",
+            "20",
+            "--exact",
+            "10x10",
+            "-o",
+            out_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run resize two-modes");
+
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "resize with two mode flags should exit 2"
+    );
+}
+
+/// `resize <png> --exact abc` and `resize <png> --exact 800x` → exit 2
+/// (malformed WxH string). (AC6)
+#[test]
+fn resize_bad_wxh_is_usage_error() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let in_path = write_test_png(&dir, "in.png", 4, 4);
+    let out_path = dir.path().join("out.png");
+
+    // --exact abc: no 'x' separator.
+    let output = Command::new(BIN)
+        .args([
+            "resize",
+            in_path.to_str().unwrap(),
+            "--exact",
+            "abc",
+            "-o",
+            out_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run resize --exact abc");
+
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "resize --exact abc should exit 2"
+    );
+
+    // --exact 800x: missing height.
+    let output2 = Command::new(BIN)
+        .args([
+            "resize",
+            in_path.to_str().unwrap(),
+            "--exact",
+            "800x",
+            "-o",
+            out_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run resize --exact 800x");
+
+    assert_eq!(
+        output2.status.code(),
+        Some(2),
+        "resize --exact 800x should exit 2"
+    );
+}
+
+/// `resize <missing.png> --max 20 -o out.png` → exit 3. (AC7)
+#[test]
+fn resize_missing_input_exits_3() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let missing = dir.path().join("missing.png");
+    let out_path = dir.path().join("out.png");
+
+    let output = Command::new(BIN)
+        .args([
+            "resize",
+            missing.to_str().unwrap(),
+            "--max",
+            "20",
+            "-o",
+            out_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run resize missing");
+
+    assert_eq!(
+        output.status.code(),
+        Some(3),
+        "resize of missing file should exit 3; stderr: {}",
+        stderr_str(&output)
+    );
+}
+
+/// Batch of one valid PNG + one `.png` file with garbage bytes → `--max 20
+/// --out-dir D` → exit 6; the valid input's output IS written and decodes;
+/// stderr mentions the failing file. (AC8)
+#[test]
+fn resize_partial_batch_exits_6() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let out_dir = tempfile::tempdir().expect("out tempdir");
+
+    let good_path = write_test_png(&dir, "good.png", 100, 50);
+    // Write garbage bytes to a .png path (undecodable).
+    let bad_path = dir.path().join("bad.png");
+    std::fs::write(&bad_path, b"this is not an image at all").unwrap();
+
+    let output = Command::new(BIN)
+        .args([
+            "resize",
+            good_path.to_str().unwrap(),
+            bad_path.to_str().unwrap(),
+            "--max",
+            "20",
+            "--out-dir",
+            out_dir.path().to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run resize partial batch");
+
+    assert_eq!(
+        output.status.code(),
+        Some(6),
+        "partial batch should exit 6; stderr: {}",
+        stderr_str(&output)
+    );
+
+    // The valid input's output must exist and decode.
+    let good_out = out_dir.path().join("good.png");
+    assert!(
+        good_out.exists(),
+        "valid input's output should still be written on partial batch failure"
+    );
+    let decoded = image::open(&good_out).expect("good output should be decodable");
+    assert_eq!(decoded.width(), 20, "good output width should be 20");
+    assert_eq!(decoded.height(), 10, "good output height should be 10");
+
+    // stderr must mention the failing file.
+    let stderr = stderr_str(&output);
+    assert!(
+        stderr.contains("bad.png"),
+        "stderr should mention the failing file 'bad.png'; got: {stderr}"
+    );
+}
+
+/// `resize <png> --max 20 -o -` exits 0; stdout is ONLY the encoded image bytes
+/// (decodes to 20×10); stderr is empty. A known PNG source preserves PNG on `-o -`.
+/// (AC9)
+#[test]
+fn resize_stdout_keeps_stdout_clean() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let in_path = write_test_png(&dir, "in.png", 100, 50);
+
+    let output = Command::new(BIN)
+        .args([
+            "resize",
+            in_path.to_str().unwrap(),
+            "--max",
+            "20",
+            "-o",
+            "-",
+            "--format",
+            "png",
+        ])
+        .output()
+        .expect("failed to run resize stdout");
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "resize -o - should exit 0; stderr: {}",
+        stderr_str(&output)
+    );
+    // stdout must be ONLY the encoded image bytes — decodable.
+    let decoded = image::load_from_memory(&output.stdout)
+        .expect("stdout bytes should decode as a valid image");
+    assert_eq!(decoded.width(), 20, "stdout image width should be 20");
+    assert_eq!(decoded.height(), 10, "stdout image height should be 10");
+    // stderr must be empty.
+    assert!(
+        output.stderr.is_empty(),
+        "stderr must be empty on clean stdout run, got: {}",
+        stderr_str(&output)
+    );
+}
+
+/// Two PNG inputs with no `--out-dir` (and no `-o`) → exit 2 (usage error);
+/// stderr mentions `--out-dir`. (AC10)
+#[test]
+fn resize_multi_without_out_dir_is_usage_error() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let in1 = write_test_png(&dir, "a.png", 4, 4);
+    let in2 = write_test_png(&dir, "b.png", 4, 4);
+
+    let output = Command::new(BIN)
+        .args([
+            "resize",
+            in1.to_str().unwrap(),
+            in2.to_str().unwrap(),
+            "--max",
+            "2",
+        ])
+        .output()
+        .expect("failed to run resize multi-no-out-dir");
+
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "multi-input without --out-dir should exit 2; stderr: {}",
+        stderr_str(&output)
+    );
+    let stderr = stderr_str(&output);
+    assert!(
+        stderr.contains("out-dir") || stderr.contains("out_dir"),
+        "stderr should mention --out-dir; got: {stderr}"
+    );
+}
+
 /// `info <missing>` exits 3 (input not found).
 ///
 /// AC6: non-existent file → exit code 3.

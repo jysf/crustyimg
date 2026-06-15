@@ -713,6 +713,10 @@ new crate, no new architectural seam.
   - Bundled the six mode flags into a private `ResizeModes<'a>` struct so
     `run_resize` takes 3 args instead of 8 (clippy `too_many_arguments`). Pure
     refactor; `resize_params` and its unit tests are unchanged.
+  - The original build session dropped (API socket error) before adding the
+    integration tests to `tests/cli.rs`. All 11 mandated integration tests were
+    added in a verify-punch-list follow-up session (Sonnet, 2026-06-15); PR #12
+    was updated. All 4 gates green at 157 tests (146 → +11).
 - **Follow-up work identified:**
   - None new. Remaining STAGE-003 ops (thumbnail/shrink/convert/auto-orient)
     reuse this CLI + the SPEC-010 op/params mechanism + DEC-015 format policy.
