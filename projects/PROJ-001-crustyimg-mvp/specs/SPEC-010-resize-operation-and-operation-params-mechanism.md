@@ -663,7 +663,7 @@ let result = img.with_pixels(image::DynamicImage::ImageRgba8(out));
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
 - **Branch:** `feat/spec-010-resize-operation-and-operation-params-mechanism`
-- **PR (if applicable):** PR #8 opened
+- **PR (if applicable):** PR #11 opened
 - **All acceptance criteria met?** yes — all 12 AC green; 136 tests pass; all four gates pass
 - **New decisions emitted:**
   - None (DEC-014 and DEC-008 already covered this spec; no new DEC created)
