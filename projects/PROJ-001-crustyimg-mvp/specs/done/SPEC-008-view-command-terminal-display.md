@@ -7,7 +7,7 @@
 task:
   id: SPEC-008
   type: story                      # epic | story | task | bug | chore
-  cycle: verify                    # frame | design | build | verify | ship
+  cycle: ship                      # frame | design | build | verify | ship
   blocked: false
   priority: medium
   complexity: S                    # S | M | L  (L means split it)
@@ -58,10 +58,26 @@ cost:
       duration_minutes: 25
       recorded_at: 2026-06-14
       notes: "subagent; cost not separately reported"
+    - cycle: verify
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: 35
+      recorded_at: 2026-06-15
+      notes: "verify cycle, Opus read-only subagent; re-ran all 6 gates cold"
+    - cycle: ship
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: 5
+      recorded_at: 2026-06-15
+      notes: "orchestrator ship bookkeeping on main (merge + archive by hand)"
   totals:
     tokens_total: 0
     estimated_usd: 0
-    session_count: 0
+    session_count: 4
 ---
 
 # SPEC-008: view command terminal display
@@ -396,10 +412,22 @@ Process-focused: how did the build go? What friction did the spec create?
 from the process-focused build reflection above.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Push the design commit to `origin/main` immediately after committing it,
+   BEFORE the build agent branches. This cycle the design commit stayed local
+   and unpushed, so the build branch (based on it) folded the design artifacts
+   into PR #8's squash. End state on `main` is correct, but design + build
+   landed as one squash commit rather than the intended separate design-direct-
+   to-main + build-PR split. Harmless here; push-after-design avoids it.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — No. DEC-011 anticipated this exactly ("a `view` command will need the
+   feature on to actually render — STAGE-002 must account for that"), and it
+   did. The spec template and constraints held up. The reusable lesson is a
+   process one (push design before build branches), not a doc change.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — SPEC-009 (`info`) is already the next STAGE-002 backlog item and needs no
+   new framing. One nice-to-have surfaced but is correctly out of scope: a CI
+   job that builds `--features display` so the viuer path can't bit-rot between
+   manual gate runs (DEC-011 flagged this as a STAGE-001/006 follow-up). Worth a
+   tracked item, not a STAGE-002 spec.
