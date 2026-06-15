@@ -7,7 +7,7 @@
 task:
   id: SPEC-010
   type: story                      # epic | story | task | bug | chore
-  cycle: design                    # frame | design | build | verify | ship
+  cycle: verify                    # frame | design | build | verify | ship
   blocked: false
   priority: medium
   complexity: M                    # S | M | L  (L means split it)
@@ -52,6 +52,14 @@ cost:
       duration_minutes: null
       recorded_at: 2026-06-15
       notes: "design cycle, Opus subagent; SPEC-010 = library half of split resize"
+    - cycle: build
+      agent: claude-sonnet-4-6
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: 25
+      recorded_at: 2026-06-15
+      notes: "subagent; cost not separately reported"
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -654,28 +662,33 @@ let result = img.with_pixels(image::DynamicImage::ImageRgba8(out));
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
+- **Branch:** `feat/spec-010-resize-operation-and-operation-params-mechanism`
+- **PR (if applicable):** PR #11 opened
+- **All acceptance criteria met?** yes — all 12 AC green; 136 tests pass; all four gates pass
 - **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
+  - None (DEC-014 and DEC-008 already covered this spec; no new DEC created)
 - **Deviations from spec:**
-  - [list]
+  - `Resize` required `#[derive(Debug)]` (not listed in spec) because test `assert!` format strings used `{result:?}` where `Result<Resize, RegistryError>` needed Debug. Added it; `Resize` is pub so this is a non-breaking additive change consistent with the existing `Debug` derive on all other op types.
+  - Test format strings for `Box<dyn Operation>` and `Pipeline` (which do not impl Debug) dropped the `{result:?}` suffix — converted to plain string messages. No behavioral change.
+  - `cargo fmt` reformatted `from_params` method chains and `build_pipeline` closure. The logical code is identical; only line-breaking changed.
+  - **CLI untouched:** confirmed `CliError::Recipe(_) => 1` in `src/cli/mod.rs` covers `RecipeError::InvalidOperation` generically. No `src/cli/` edits were made or needed.
+- **Parity tolerance:** mean per-channel abs diff measured at well under 2.0 in practice (tolerance set at ≤ 6.0 per spec; commented in the test).
 - **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - SPEC-011 (already planned): `resize` CLI command + `WxH`-string arg parsing + multi-input `--out-dir` fan-out.
+- **Verify follow-up:** made `Resize::apply` total — replaced all 12 invariant `.unwrap()` calls (across all 6 mode arms + the `Fill` crop section) with `ok_or_else(|| OperationError::Apply { … })?`; no new tests needed (paths unreachable by construction via private `from_params`). All 136 tests still pass; all four gates green.
 
 ### Build-phase reflection (3 questions, short answers)
 
 Process-focused: how did the build go? What friction did the spec create?
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — The spec never mentioned that `Resize` (being a `pub struct`) needed `#[derive(Debug)]` for `{result:?}` in test assertions, and that `Box<dyn Operation>` does not impl Debug (so `Result<Box<dyn Operation>, _>` can't use `{:?}`). A note in the "Gotchas" section covering Debug requirements on new pub structs and the Debug limitation of `Box<dyn Operation>` would have saved two compile-then-fix cycles.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — The `no-unwrap-on-recoverable-paths` constraint was well covered. However there was no explicit note about which types need `#[derive(Debug)]` for the test assertions the spec itself prescribes. For public structs produced by operations, adding Debug (or at minimum noting the limitation) should be a standing convention.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Derive `Debug` on `Resize` proactively (it's standard for all types in the codebase) before writing test assertions. Also, write the integration-test format strings without `{:?}` for types known not to impl Debug (`Box<dyn Operation>`, `Pipeline`) from the start rather than discovering it at compile time.
 
 ---
 

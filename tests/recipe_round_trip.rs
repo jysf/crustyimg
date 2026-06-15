@@ -1,6 +1,8 @@
 //! Integration tests for the recipe TOML round-trip and operation registry
-//! (SPEC-006). Exercises the public crate API; no disk I/O beyond the in-memory
-//! fixture images constructed here.
+//! (SPEC-006, SPEC-010). Exercises the public crate API; no disk I/O beyond
+//! the in-memory fixture images constructed here.
+
+use std::collections::BTreeMap;
 
 use ::image::{DynamicImage, ImageFormat, RgbaImage};
 
@@ -74,12 +76,12 @@ fn registry_resolves_builtins_by_name() {
     let registry = OperationRegistry::with_builtins();
 
     let identity_op = registry
-        .build("identity", &OperationParams::None)
+        .build("identity", &OperationParams::empty())
         .expect("build('identity') should succeed");
     assert_eq!(identity_op.name(), "identity");
 
     let invert_op = registry
-        .build("invert", &OperationParams::None)
+        .build("invert", &OperationParams::empty())
         .expect("build('invert') should succeed");
     assert_eq!(invert_op.name(), "invert");
 }
@@ -140,11 +142,11 @@ fn recipe_drives_pipeline_same_as_direct() {
         steps: vec![
             RecipeStep {
                 op: "invert".to_owned(),
-                params: OperationParams::None,
+                params: OperationParams::empty(),
             },
             RecipeStep {
                 op: "invert".to_owned(),
-                params: OperationParams::None,
+                params: OperationParams::empty(),
             },
         ],
     };
@@ -168,5 +170,72 @@ fn recipe_drives_pipeline_same_as_direct() {
         recipe_result.pixels().to_rgba8().into_raw(),
         direct_result.pixels().to_rgba8().into_raw(),
         "recipe-driven and hand-built [invert, invert] pipelines must produce identical pixels"
+    );
+}
+
+// ─── SPEC-010 integration tests ──────────────────────────────────────────────
+
+#[test]
+fn resize_recipe_round_trips() {
+    // Build a Recipe with one resize step: mode="max", width=1200, NO height.
+    // This mirrors docs/data-model.md's worked step.
+    let mut params_map = BTreeMap::new();
+    params_map.insert("mode".to_owned(), toml::Value::String("max".into()));
+    params_map.insert("width".to_owned(), toml::Value::Integer(1200));
+    let params = OperationParams::from_map(params_map);
+
+    let original = Recipe {
+        version: SUPPORTED_VERSION.to_owned(),
+        name: None,
+        description: None,
+        steps: vec![RecipeStep {
+            op: "resize".to_owned(),
+            params,
+        }],
+    };
+
+    // Serialize to TOML and verify content.
+    let toml_str = original.to_toml().expect("to_toml should succeed");
+    assert!(
+        toml_str.contains("op = \"resize\""),
+        "TOML must contain op = \"resize\", got:\n{toml_str}"
+    );
+    assert!(
+        toml_str.contains("mode = \"max\""),
+        "TOML must contain mode = \"max\", got:\n{toml_str}"
+    );
+    assert!(
+        toml_str.contains("width = 1200"),
+        "TOML must contain width = 1200, got:\n{toml_str}"
+    );
+    assert!(
+        !toml_str.contains("height"),
+        "TOML must NOT contain 'height' for max mode, got:\n{toml_str}"
+    );
+
+    // Round-trip via from_toml.
+    let reloaded = Recipe::from_toml(&toml_str).expect("from_toml should succeed");
+    assert_eq!(
+        original, reloaded,
+        "resize recipe must round-trip through TOML via PartialEq"
+    );
+}
+
+#[test]
+fn resize_invalid_params_is_invalid_operation() {
+    // A resize step missing 'mode': from_toml succeeds (parse-valid),
+    // but build_pipeline must return RecipeError::InvalidOperation (NOT UnknownOperation).
+    let toml_str = "version = \"1\"\n\n[[step]]\nop = \"resize\"\nwidth = 100\n";
+    let recipe = Recipe::from_toml(toml_str).expect("parse should succeed");
+
+    let registry = OperationRegistry::with_builtins();
+    let result = recipe.build_pipeline(&registry);
+
+    assert!(
+        matches!(
+            &result,
+            Err(RecipeError::InvalidOperation { name, .. }) if name == "resize"
+        ),
+        "expected RecipeError::InvalidOperation {{ name: \"resize\" }}"
     );
 }
