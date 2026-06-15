@@ -101,7 +101,7 @@ mod tests {
         }
 
         fn params(&self) -> OperationParams {
-            OperationParams::None
+            OperationParams::empty()
         }
 
         fn apply(&self, img: Image) -> Result<Image, OperationError> {
@@ -122,7 +122,7 @@ mod tests {
         }
 
         fn params(&self) -> OperationParams {
-            OperationParams::None
+            OperationParams::empty()
         }
 
         fn apply(&self, _img: Image) -> Result<Image, OperationError> {
