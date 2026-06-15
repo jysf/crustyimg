@@ -12,9 +12,10 @@ Cycle prompts live in `prompts/SPEC-009-<cycle>.md`.
   Acceptance Criteria, Failing Tests, Implementation Context, Notes); emitted
   **DEC-013** (kamadak-exif always-on, read-only); clarified the `info` entry in
   `docs/api-contract.md`. Build prompt at `prompts/SPEC-009-build.md`.
-- [ ] **build** — make the failing tests pass on branch
-  `feat/spec-009-info-command-image-inspection`. Add `kamadak-exif = "=0.6.1"`
-  (always-on) + `serde_json` dev-dep; replace the `info` stub with `run_info` +
-  the DTOs + `format_label`/`color_type_label`/`read_exif_tags`/`write_json`/
-  `print_human`; write the integration + unit tests. Run the four standard gates
-  (NO `--features display`). See `prompts/SPEC-009-build.md`.
+- [x] **build** — PR #9 opened 2026-06-14. Made all failing tests pass; 111 tests
+  green; all four gates clean (cargo build, cargo test, clippy -D warnings, fmt
+  --check). Added `kamadak-exif = "=0.6.1"` (DEC-013) + `serde_json` dev-dep;
+  replaced info stub with `run_info` + `InfoReport`/`ExifTag` DTOs +
+  `format_label`/`color_type_label`/`read_exif_tags`/`write_json`/`print_human`;
+  wrote integration tests in `tests/cli.rs` + new `tests/info_exif.rs`; wrote
+  unit tests in `src/cli/mod.rs`.

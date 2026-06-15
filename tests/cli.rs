@@ -427,3 +427,190 @@ fn apply_bad_recipe_version_exits_1() {
         stderr_str(&output)
     );
 }
+
+// ── SPEC-009 info tests ───────────────────────────────────────────────────────
+
+/// `info <png>` exits 0 and reports core facts on stdout (human output).
+///
+/// AC1: dimensions (8x8), format label (png), color-type label (rgb8), and
+/// both an `icc` and an `exif` presence line appear on stdout; stderr is empty.
+#[test]
+fn info_human_output_reports_core_facts() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let png = write_test_png(&dir, "info_human.png", 8, 8);
+
+    let output = Command::new(BIN)
+        .args(["info", png.to_str().unwrap()])
+        .output()
+        .expect("failed to run info");
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "info should exit 0; stderr: {}",
+        stderr_str(&output)
+    );
+    let stdout = stdout_str(&output).to_ascii_lowercase();
+    assert!(
+        stdout.contains("8x8"),
+        "stdout should contain '8x8': {stdout}"
+    );
+    assert!(
+        stdout.contains("png"),
+        "stdout should contain 'png': {stdout}"
+    );
+    assert!(
+        stdout.contains("rgb8"),
+        "stdout should contain 'rgb8': {stdout}"
+    );
+    assert!(
+        stdout.contains("icc"),
+        "stdout should contain 'icc': {stdout}"
+    );
+    assert!(
+        stdout.contains("exif"),
+        "stdout should contain 'exif': {stdout}"
+    );
+    assert!(
+        output.stderr.is_empty(),
+        "stderr must be empty on success, got: {}",
+        stderr_str(&output)
+    );
+}
+
+/// `info --json <png>` exits 0; stdout is valid JSON with all documented fields.
+///
+/// AC2: single JSON object; width/height/format/color_type/bit_depth/has_alpha/
+/// has_icc/has_exif are correct; file_size_bytes > 0; decoded_bytes > 0;
+/// the `exif` key is absent (no --exif); stderr is empty.
+#[test]
+fn info_json_is_parseable_and_complete() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let png = write_test_png(&dir, "info_json.png", 8, 8);
+
+    let output = Command::new(BIN)
+        .args(["info", "--json", png.to_str().unwrap()])
+        .output()
+        .expect("failed to run info --json");
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "info --json should exit 0; stderr: {}",
+        stderr_str(&output)
+    );
+    assert!(
+        output.stderr.is_empty(),
+        "stderr must be empty on --json success, got: {}",
+        stderr_str(&output)
+    );
+
+    let obj: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("stdout must parse as JSON");
+    assert!(obj.is_object(), "JSON output must be an object");
+    assert_eq!(obj["width"], 8u64, "width must be 8");
+    assert_eq!(obj["height"], 8u64, "height must be 8");
+    assert_eq!(obj["format"], "png", "format must be 'png'");
+    assert_eq!(obj["color_type"], "rgb8", "color_type must be 'rgb8'");
+    assert_eq!(obj["bit_depth"], 8u64, "bit_depth must be 8");
+    assert_eq!(obj["has_alpha"], false, "has_alpha must be false");
+    assert_eq!(obj["has_icc"], false, "has_icc must be false");
+    assert_eq!(obj["has_exif"], false, "has_exif must be false");
+    assert!(
+        obj["file_size_bytes"].as_u64().unwrap_or(0) > 0,
+        "file_size_bytes must be > 0"
+    );
+    assert!(
+        obj["decoded_bytes"].as_u64().unwrap_or(0) > 0,
+        "decoded_bytes must be > 0"
+    );
+    assert!(
+        obj.get("exif").is_none(),
+        "exif key must be absent when --exif not passed"
+    );
+}
+
+/// `info --json --exif <plain png>` exits 0; `exif` is an empty array.
+///
+/// AC3: no EXIF in the PNG → empty array (not an error); has_exif is false.
+#[test]
+fn info_json_exif_empty_array_on_plain_png() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let png = write_test_png(&dir, "info_json_exif.png", 8, 8);
+
+    let output = Command::new(BIN)
+        .args(["info", "--json", "--exif", png.to_str().unwrap()])
+        .output()
+        .expect("failed to run info --json --exif");
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "info --json --exif on plain PNG should exit 0; stderr: {}",
+        stderr_str(&output)
+    );
+
+    let obj: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("stdout must parse as JSON");
+    assert!(
+        obj["exif"].as_array().unwrap().is_empty(),
+        "exif must be an empty array for a plain PNG"
+    );
+    assert_eq!(
+        obj["has_exif"], false,
+        "has_exif must be false for plain PNG"
+    );
+}
+
+/// `info --exif <plain png>` (no --json) exits 0 and reports no EXIF gracefully.
+///
+/// AC5: stdout contains "exif" and indicates absence ("no" or "(none)").
+#[test]
+fn info_exif_on_plain_png_reports_none() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let png = write_test_png(&dir, "info_exif_none.png", 8, 8);
+
+    let output = Command::new(BIN)
+        .args(["info", "--exif", png.to_str().unwrap()])
+        .output()
+        .expect("failed to run info --exif on plain PNG");
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "info --exif on plain PNG should exit 0; stderr: {}",
+        stderr_str(&output)
+    );
+    let stdout = stdout_str(&output).to_ascii_lowercase();
+    assert!(
+        stdout.contains("exif"),
+        "stdout should contain 'exif': {stdout}"
+    );
+    // Must indicate absence: "exif: no" line OR "(none)" in the tag block.
+    let has_no = stdout.contains("exif:       no") || stdout.contains("(none)");
+    assert!(
+        has_no,
+        "stdout should indicate no EXIF ('no' on exif line or '(none)'): {stdout}"
+    );
+}
+
+/// `info <missing>` exits 3 (input not found).
+///
+/// AC6: non-existent file → exit code 3.
+#[test]
+fn info_missing_input_exits_3() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let missing = dir.path().join("nope.png");
+
+    let output = Command::new(BIN)
+        .args(["info", missing.to_str().unwrap()])
+        .output()
+        .expect("failed to run info on missing file");
+
+    assert_eq!(
+        output.status.code(),
+        Some(3),
+        "info on missing file should exit 3; stderr: {}",
+        stderr_str(&output)
+    );
+}

@@ -15,6 +15,7 @@
 //! SPEC-007 adds the [`cli`] module: the clap subcommand surface + dispatch +
 //! exit-code mapping (DEC-012, DEC-007).
 
+use std::io::Cursor;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
@@ -328,7 +329,7 @@ fn dispatch(cli: &Cli) -> Result<(), CliError> {
             width,
             height,
         } => run_view(input, *width, *height, &cli.global),
-        Commands::Info { .. } => Err(CliError::NotImplemented("info")),
+        Commands::Info { input, exif, json } => run_info(input, *exif, *json, &cli.global),
         Commands::Resize { .. } => Err(CliError::NotImplemented("resize")),
         Commands::Thumbnail { .. } => Err(CliError::NotImplemented("thumbnail")),
         Commands::Shrink { .. } => Err(CliError::NotImplemented("shrink")),
@@ -502,6 +503,253 @@ fn resolve_format(fmt: Option<&str>) -> Result<Option<::image::ImageFormat>, Cli
     }
 }
 
+// ── Info command ─────────────────────────────────────────────────────────────
+
+/// CLI-local, serde-serializable inspection report (NOT the pixel-core
+/// `ImageInfo`, which is not Serialize and holds non-Serialize `image::` types).
+/// Built from `ImageInfo` + the file-size-on-disk + the optional EXIF dump.
+#[derive(Debug, Clone, serde::Serialize)]
+struct InfoReport {
+    /// Input path as given (or "-" for stdin).
+    input: String,
+    width: u32,
+    height: u32,
+    /// Stable lowercase format label, e.g. "png", "jpeg".
+    format: String,
+    /// Encoded file size on disk in bytes (NOT the decoded buffer length).
+    file_size_bytes: u64,
+    /// Decoded in-memory pixel-buffer length in bytes (distinct from file size).
+    decoded_bytes: u64,
+    /// Stable lowercase color-type label, e.g. "rgb8", "rgba8", "l8".
+    color_type: String,
+    /// Bits per channel (8, 16, …).
+    bit_depth: u8,
+    has_alpha: bool,
+    has_icc: bool,
+    has_exif: bool,
+    /// Present only when --exif is passed: the read EXIF tags (possibly empty).
+    /// Omitted entirely (serde `skip_serializing_if`) when --exif is absent.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    exif: Option<Vec<ExifTag>>,
+}
+
+/// One EXIF tag rendered for output (read-only; kamadak-exif, DEC-013).
+#[derive(Debug, Clone, serde::Serialize)]
+struct ExifTag {
+    /// Tag name, e.g. "Make", "Orientation" (kamadak-exif's Tag Display).
+    tag: String,
+    /// Which IFD the tag came from, e.g. "primary", "thumbnail" (IFD Display).
+    ifd: String,
+    /// Human-readable value via Field::display_value().with_unit(&exif).
+    value: String,
+}
+
+/// Map an `image::ImageFormat` to a stable lowercase label for output.
+/// Free fn so it is directly unit-testable; no panic on any variant.
+fn format_label(fmt: ::image::ImageFormat) -> String {
+    match fmt {
+        ::image::ImageFormat::Png => "png".to_owned(),
+        ::image::ImageFormat::Jpeg => "jpeg".to_owned(),
+        ::image::ImageFormat::Gif => "gif".to_owned(),
+        ::image::ImageFormat::Bmp => "bmp".to_owned(),
+        ::image::ImageFormat::Tiff => "tiff".to_owned(),
+        ::image::ImageFormat::Ico => "ico".to_owned(),
+        // Non-exhaustive: stable lowercase fallback for any other variant.
+        _ => format!("{fmt:?}").to_ascii_lowercase(),
+    }
+}
+
+/// Map an `image::ColorType` to a stable lowercase label, e.g. "rgb8".
+/// Free fn; unit-testable; no panic on any variant.
+fn color_type_label(ct: ::image::ColorType) -> String {
+    match ct {
+        ::image::ColorType::Rgb8 => "rgb8".to_owned(),
+        ::image::ColorType::Rgba8 => "rgba8".to_owned(),
+        ::image::ColorType::L8 => "l8".to_owned(),
+        ::image::ColorType::La8 => "la8".to_owned(),
+        ::image::ColorType::Rgb16 => "rgb16".to_owned(),
+        ::image::ColorType::Rgba16 => "rgba16".to_owned(),
+        ::image::ColorType::L16 => "l16".to_owned(),
+        ::image::ColorType::La16 => "la16".to_owned(),
+        ::image::ColorType::Rgb32F => "rgb32f".to_owned(),
+        ::image::ColorType::Rgba32F => "rgba32f".to_owned(),
+        // Non-exhaustive: stable lowercase fallback for any other variant.
+        _ => format!("{ct:?}").to_ascii_lowercase(),
+    }
+}
+
+/// Read EXIF tags from full container bytes (read-only, DEC-013). Returns an
+/// empty Vec when there is NO EXIF (`exif::Error::NotFound`) or the EXIF is
+/// malformed/unreadable — "no EXIF" is NOT an error. Never panics.
+fn read_exif_tags(bytes: &[u8]) -> Vec<ExifTag> {
+    match exif::Reader::new().read_from_container(&mut Cursor::new(bytes)) {
+        Ok(exif) => exif
+            .fields()
+            .map(|f| ExifTag {
+                tag: f.tag.to_string(),
+                ifd: f.ifd_num.to_string(),
+                value: f.display_value().with_unit(&exif).to_string(),
+            })
+            .collect(),
+        // NotFound OR malformed → "no EXIF", not an error.
+        Err(_) => Vec::new(),
+    }
+}
+
+/// Escape a string value for inclusion in a hand-rolled JSON object.
+///
+/// `"` → `\"`, `\` → `\\`, control chars < 0x20 → `\u00XX`.
+fn escape_json(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for ch in s.chars() {
+        match ch {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            c if (c as u32) < 0x20 => {
+                out.push_str(&format!("\\u{:04X}", c as u32));
+            }
+            c => out.push(c),
+        }
+    }
+    out
+}
+
+/// Emit the `InfoReport` as a single-line JSON object to `out`.
+///
+/// Hand-rolled (no serde_json runtime dep) following the locked schema table
+/// in the spec. Escapes all string values. Propagates I/O errors via `?`.
+fn write_json(report: &InfoReport, out: &mut impl std::io::Write) -> std::io::Result<()> {
+    write!(
+        out,
+        "{{\"input\":\"{}\",\"width\":{},\"height\":{},\"format\":\"{}\",\
+         \"file_size_bytes\":{},\"decoded_bytes\":{},\"color_type\":\"{}\",\
+         \"bit_depth\":{},\"has_alpha\":{},\"has_icc\":{},\"has_exif\":{}",
+        escape_json(&report.input),
+        report.width,
+        report.height,
+        escape_json(&report.format),
+        report.file_size_bytes,
+        report.decoded_bytes,
+        escape_json(&report.color_type),
+        report.bit_depth,
+        report.has_alpha,
+        report.has_icc,
+        report.has_exif,
+    )?;
+    // Emit `exif` key only when --exif was passed.
+    if let Some(ref tags) = report.exif {
+        write!(out, ",\"exif\":[")?;
+        for (i, tag) in tags.iter().enumerate() {
+            if i > 0 {
+                write!(out, ",")?;
+            }
+            write!(
+                out,
+                "{{\"tag\":\"{}\",\"ifd\":\"{}\",\"value\":\"{}\"}}",
+                escape_json(&tag.tag),
+                escape_json(&tag.ifd),
+                escape_json(&tag.value),
+            )?;
+        }
+        write!(out, "]")?;
+    }
+    writeln!(out, "}}")
+}
+
+/// Print the `InfoReport` as human-readable labeled lines to `out`.
+///
+/// The exact label wording satisfies the spec's assertable substrings:
+/// the `{w}x{h}` form, the format label, the color-type label, and the
+/// ICC/EXIF presence words.
+fn print_human(report: &InfoReport, out: &mut impl std::io::Write) -> std::io::Result<()> {
+    writeln!(out, "input:      {}", report.input)?;
+    writeln!(out, "dimensions: {}x{}", report.width, report.height)?;
+    writeln!(out, "format:     {}", report.format)?;
+    writeln!(out, "file size:  {} bytes", report.file_size_bytes)?;
+    writeln!(out, "color type: {}", report.color_type)?;
+    writeln!(out, "bit depth:  {}", report.bit_depth)?;
+    writeln!(
+        out,
+        "alpha:      {}",
+        if report.has_alpha { "yes" } else { "no" }
+    )?;
+    writeln!(
+        out,
+        "icc:        {}",
+        if report.has_icc { "yes" } else { "no" }
+    )?;
+    writeln!(
+        out,
+        "exif:       {}",
+        if report.has_exif { "yes" } else { "no" }
+    )?;
+    // Emit EXIF tag dump only when --exif was passed.
+    if let Some(ref tags) = report.exif {
+        if tags.is_empty() {
+            writeln!(out, "exif tags:  (none)")?;
+        } else {
+            writeln!(out, "exif tags:")?;
+            for tag in tags {
+                writeln!(out, "  {}: {}", tag.tag, tag.value)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// The `info` path: resolve the first input, load the image and its raw
+/// bytes (one read), build the report, and print human text or JSON to
+/// stdout. Single-image: resolves the FIRST input on a directory/glob.
+fn run_info(input: &str, exif: bool, json: bool, _global: &GlobalArgs) -> Result<(), CliError> {
+    let resolved = source::resolve(input, &mut std::io::stdin().lock())?;
+    let first = resolved
+        .into_iter()
+        .next()
+        .ok_or(CliError::Source(SourceError::NotFound(input.to_owned())))?;
+
+    // Read the raw bytes ONCE: they give the file size, the decoded
+    // image, and the EXIF source. (For a path, std::fs::read io-error
+    // maps to ImageError::Io → exit 3, consistent with Image::load.)
+    let (raw, label): (Vec<u8>, String) = match &first {
+        crate::source::Input::Path(p) => {
+            let bytes = std::fs::read(p).map_err(ImageError::Io)?;
+            (bytes, p.display().to_string())
+        }
+        crate::source::Input::Stdin { bytes, .. } => (bytes.clone(), "-".to_owned()),
+    };
+    let img = Image::from_bytes(&raw)?;
+    let info = img.info();
+
+    let exif_tags = if exif {
+        Some(read_exif_tags(&raw))
+    } else {
+        None
+    };
+
+    let report = InfoReport {
+        input: label,
+        width: info.width,
+        height: info.height,
+        format: format_label(info.format),
+        file_size_bytes: raw.len() as u64,
+        decoded_bytes: info.byte_len,
+        color_type: color_type_label(info.color_type),
+        bit_depth: info.bit_depth,
+        has_alpha: info.has_alpha,
+        has_icc: info.has_icc,
+        has_exif: info.has_exif,
+        exif: exif_tags,
+    };
+
+    let mut out = std::io::stdout().lock();
+    if json {
+        write_json(&report, &mut out).map_err(crate::sink::SinkError::Io)?;
+    } else {
+        print_human(&report, &mut out).map_err(crate::sink::SinkError::Io)?;
+    }
+    Ok(())
+}
+
 // ── Unit tests ────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -627,6 +875,134 @@ mod tests {
             ))
             .code(),
             3
+        );
+    }
+
+    // ── format_label_maps_core_formats ───────────────────────────────────────
+
+    #[test]
+    fn format_label_maps_core_formats() {
+        assert_eq!(format_label(::image::ImageFormat::Png), "png");
+        assert_eq!(format_label(::image::ImageFormat::Jpeg), "jpeg");
+        assert_eq!(format_label(::image::ImageFormat::Gif), "gif");
+        assert_eq!(format_label(::image::ImageFormat::Bmp), "bmp");
+        assert_eq!(format_label(::image::ImageFormat::Tiff), "tiff");
+        assert_eq!(format_label(::image::ImageFormat::Ico), "ico");
+    }
+
+    // ── color_type_label_maps_color_types ────────────────────────────────────
+
+    #[test]
+    fn color_type_label_maps_color_types() {
+        assert_eq!(color_type_label(::image::ColorType::Rgb8), "rgb8");
+        assert_eq!(color_type_label(::image::ColorType::Rgba8), "rgba8");
+        assert_eq!(color_type_label(::image::ColorType::L8), "l8");
+        assert_eq!(color_type_label(::image::ColorType::Rgb16), "rgb16");
+    }
+
+    // ── read_exif_tags_graceful_on_no_exif ───────────────────────────────────
+
+    #[test]
+    fn read_exif_tags_graceful_on_no_exif() {
+        use ::image::{DynamicImage, ImageFormat, RgbImage};
+        use std::io::Cursor;
+
+        // Empty bytes: no EXIF, no panic.
+        assert!(read_exif_tags(&[]).is_empty());
+
+        // Garbage bytes: no EXIF, no panic.
+        assert!(read_exif_tags(b"not an image").is_empty());
+
+        // Plain PNG (no EXIF segment): empty result.
+        let img = RgbImage::from_pixel(4, 4, ::image::Rgb([1u8, 2, 3]));
+        let mut buf = Cursor::new(Vec::new());
+        DynamicImage::ImageRgb8(img)
+            .write_to(&mut buf, ImageFormat::Png)
+            .unwrap();
+        let png_bytes = buf.into_inner();
+        assert!(read_exif_tags(&png_bytes).is_empty());
+
+        // Build a minimal JPEG with a synthetic EXIF APP1 (zero-entry IFD).
+        // We replicate the fixture logic inline since unit tests can't reach tests/common.
+        let base_jpeg = {
+            let jimg = RgbImage::from_pixel(4, 4, ::image::Rgb([128u8, 64, 32]));
+            let mut jbuf = Cursor::new(Vec::new());
+            DynamicImage::ImageRgb8(jimg)
+                .write_to(&mut jbuf, ImageFormat::Jpeg)
+                .unwrap();
+            jbuf.into_inner()
+        };
+        let mut payload: Vec<u8> = Vec::new();
+        payload.extend_from_slice(b"Exif\0\0");
+        payload.extend_from_slice(b"II");
+        payload.extend_from_slice(&[0x2A, 0x00]);
+        payload.extend_from_slice(&[0x08, 0x00, 0x00, 0x00]);
+        payload.extend_from_slice(&[0x00, 0x00]); // 0 IFD entries
+        payload.extend_from_slice(&[0x00, 0x00, 0x00, 0x00]);
+        let seg_len = (payload.len() + 2) as u16;
+        let mut jpeg_with_exif: Vec<u8> = Vec::new();
+        jpeg_with_exif.extend_from_slice(&base_jpeg[0..2]); // SOI
+        jpeg_with_exif.push(0xFF);
+        jpeg_with_exif.push(0xE1);
+        jpeg_with_exif.extend_from_slice(&seg_len.to_be_bytes());
+        jpeg_with_exif.extend_from_slice(&payload);
+        jpeg_with_exif.extend_from_slice(&base_jpeg[2..]);
+
+        // read_exif_tags must return without panicking (len >= 0).
+        let tags = read_exif_tags(&jpeg_with_exif);
+        // The zero-entry IFD may yield 0 tags — that is correct.
+        let _ = tags;
+    }
+
+    // ── info_report_serializes_fields ────────────────────────────────────────
+
+    #[test]
+    fn info_report_serializes_fields() {
+        // No --exif: the "exif" key must be absent.
+        let report = InfoReport {
+            input: "test.png".to_owned(),
+            width: 8,
+            height: 8,
+            format: "png".to_owned(),
+            file_size_bytes: 200,
+            decoded_bytes: 192,
+            color_type: "rgb8".to_owned(),
+            bit_depth: 8,
+            has_alpha: false,
+            has_icc: false,
+            has_exif: false,
+            exif: None,
+        };
+        let val = serde_json::to_value(&report).unwrap();
+        assert_eq!(val["width"], 8u64);
+        assert_eq!(val["height"], 8u64);
+        assert_eq!(val["format"], "png");
+        assert_eq!(val["color_type"], "rgb8");
+        assert_eq!(val["bit_depth"], 8u64);
+        assert_eq!(val["has_alpha"], false);
+        assert_eq!(val["has_icc"], false);
+        assert_eq!(val["has_exif"], false);
+        assert_eq!(val["file_size_bytes"], 200u64);
+        assert_eq!(val["decoded_bytes"], 192u64);
+        // exif key must be absent when None.
+        assert!(
+            val.get("exif").is_none(),
+            "exif key must be absent when exif: None"
+        );
+
+        // With --exif and empty Vec: the "exif" key must be present as an empty array.
+        let report_with_exif = InfoReport {
+            exif: Some(vec![]),
+            ..report
+        };
+        let val2 = serde_json::to_value(&report_with_exif).unwrap();
+        assert!(
+            val2.get("exif").is_some(),
+            "exif key must be present when exif: Some(_)"
+        );
+        assert!(
+            val2["exif"].as_array().unwrap().is_empty(),
+            "exif must be an empty array"
         );
     }
 }

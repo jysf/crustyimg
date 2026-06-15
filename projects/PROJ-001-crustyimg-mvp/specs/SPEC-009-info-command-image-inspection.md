@@ -7,7 +7,7 @@
 task:
   id: SPEC-009
   type: story                      # epic | story | task | bug | chore
-  cycle: design                    # frame | design | build | verify | ship
+  cycle: verify                    # frame | design | build | verify | ship
   blocked: false
   priority: medium
   complexity: M                    # S | M | L  (L means split it)
@@ -52,6 +52,14 @@ cost:
       duration_minutes: null
       recorded_at: 2026-06-15
       notes: "design cycle, Opus subagent"
+    - cycle: build
+      agent: claude-sonnet-4-6
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: 25
+      recorded_at: 2026-06-14
+      notes: "subagent; cost not separately reported"
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -516,28 +524,29 @@ this one:
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
+- **Branch:** `feat/spec-009-info-command-image-inspection`
+- **PR (if applicable):** PR #9 opened
+- **All acceptance criteria met?** yes — AC1–AC11 all pass; 111 tests green; all four gates clean.
 - **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
+  - No new DEC. DEC-013 (kamadak-exif, always-on) was already committed to main during design.
 - **Deviations from spec:**
-  - [list]
+  - B7 stdout-write-error choice: stdout write failures are routed through the existing `SinkError::Io(#[from] std::io::Error)` variant as specified. `SinkError::Io` is the variant name — no deviation from the spec's guidance. Confirmed `CliError::Sink(_) => 5` covers it and `exit_code_mapping_is_total` stays unchanged.
+  - `serde_json` dev-dep version `=1.0.150` was added as specified; no runtime dep added.
 - **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - None from this spec. STAGE-002 is now complete (SPEC-008 view + SPEC-009 info).
 
 ### Build-phase reflection (3 questions, short answers)
 
 Process-focused: how did the build go? What friction did the spec create?
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — Nothing material. The spec was highly prescriptive: it gave exact function signatures, the `run_info` body, the `escape_json` helper requirement, and the wiring for stdout-write errors through `SinkError::Io`. The only lookup needed was verifying `SinkError::Io` was the actual variant name in `src/sink/mod.rs` — it was.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — No missing constraints or decisions. DEC-013 covered kamadak-exif. The `serde_json` dev-dep situation was called out clearly. The EXIF-presence-vs-tag-dump distinction (AC4) was explained precisely in the Notes section and avoided what would have been an easy mistake (asserting tags when the fixture has a zero-entry IFD).
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Nothing significant. The read-all-files-first discipline paid off: understanding `ImageInfo.byte_len` vs file size before coding prevented a subtle field confusion. The hand-rolled `write_json` is slightly tedious but the spec's reasoning (no serde_json runtime dep) is sound and the implementation is total and easy to verify.
 
 ---
 
