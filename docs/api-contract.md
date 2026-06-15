@@ -89,7 +89,10 @@ command: resolves the first input on a directory/glob. "byte size" is the
 
 #### `resize <INPUT...> --max N | --exact WxH | --percent P | --fit WxH | --fill WxH | --cover WxH`  *(S3)*
 Resize using the SIMD backend (DEC-008). Mutually exclusive modes. Multi-
-input + `--out-dir` for batch.
+input + `--out-dir` for batch. `--cover` scales to cover the box (aspect
+kept, may upscale, no crop); `--fill` is `--cover` **then** a center-crop to
+exactly the box (i.e. fill = cover + center-crop). `--max`/`--fit` never
+upscale.
 
 #### `thumbnail <INPUT...> [--size N] [--square]`  *(S3)*
 Convenience resize to a small bounded size; `--square` center-crops.

@@ -5,7 +5,7 @@
 
 stage:
   id: STAGE-003                     # stable, zero-padded within the project
-  status: proposed                  # proposed | active | shipped | cancelled | on_hold
+  status: active                    # proposed | active | shipped | cancelled | on_hold
   priority: high                    # critical | high | medium | low
   target_complete: null             # optional: YYYY-MM-DD
 
@@ -90,13 +90,19 @@ batch story later.
 
 Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
-- [ ] (not yet written) — `resize` command/Operation: max/exact/percent/fit/fill/cover via fast_image_resize SIMD backend (DEC-008), parity-tested
+- [ ] SPEC-010 (design) — `resize` **Operation** + the operation-params mechanism (DEC-014): max/exact/percent/fit/fill/cover via fast_image_resize SIMD backend (DEC-008), registry-registered, parity-tested — library only (recipe-usable)
+- [ ] SPEC-011 (not yet written) — `resize` **CLI command** + multi-input `--out-dir` fan-out (sequential, no rayon); depends on SPEC-010
 - [ ] (not yet written) — `thumbnail` command: bounded small resize + `--square` center-crop
 - [ ] (not yet written) — `shrink` command: resize + real quality encode + metadata strip (web-prep workhorse, honors `--keep-gps`)
 - [ ] (not yet written) — `convert` command: re-encode across core formats (JPEG/PNG/GIF/BMP/TIFF/ICO), exit 4 for unbuilt codecs (DEC-004)
 - [ ] (not yet written) — `auto-orient` command/Operation: apply EXIF orientation to pixels then clear the orientation tag
 
-**Count:** 0 shipped / 0 active / 5 pending
+**Count:** 0 shipped / 1 active / 5 pending
+
+> **Note (2026-06-15):** `resize` was split into SPEC-010 (library: operation +
+> the first parameterized-op params mechanism, DEC-014) and SPEC-011 (CLI +
+> fan-out) — the original single `resize` backlog item assessed as complexity L
+> (AGENTS §8). The split falls on the library↔CLI layering boundary.
 
 ## Design Notes
 
