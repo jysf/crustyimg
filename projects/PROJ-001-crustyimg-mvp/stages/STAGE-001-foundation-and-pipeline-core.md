@@ -5,7 +5,7 @@
 
 stage:
   id: STAGE-001                     # stable, zero-padded within the project
-  status: active                    # proposed | active | shipped | cancelled | on_hold
+  status: shipped                   # proposed | active | shipped | cancelled | on_hold
   priority: high                    # critical | high | medium | low
   target_complete: null             # optional: YYYY-MM-DD
 
@@ -15,7 +15,7 @@ repo:
   id: crustyimg
 
 created_at: 2026-06-13
-shipped_at: null
+shipped_at: 2026-06-14
 
 # What part of the project's value thesis this stage advances.
 value_contribution:
@@ -104,9 +104,9 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 - [x] SPEC-004 (shipped on 2026-06-14) — `Source` abstraction (single file / glob / dir / stdin → ordered inputs) [M] — PR #4
 - [x] SPEC-005 (shipped on 2026-06-14) — `Sink` abstraction (file / dir+name-template / stdout / viuer display) [M] — PR #5
 - [x] SPEC-006 (shipped on 2026-06-14) — `Recipe` TOML (de)serialization + operation registry (round-trip) [M] — PR #6
-- [ ] SPEC-007 (build) — clap subcommand skeleton + global args, dispatch into pipeline [M]
+- [x] SPEC-007 (shipped on 2026-06-14) — clap subcommand skeleton + global args, dispatch into pipeline [M] — PR #7
 
-**Count:** 6 shipped / 0 active / 1 pending
+**Count:** 7 shipped / 0 active / 0 pending — ✅ STAGE COMPLETE
 
 > Backlog refined after PROJECT DESIGN: former SPEC-004 (Source+Sink) split
 > into SPEC-004 (Source) and SPEC-005 (Sink) — Sink folds viuer display +
@@ -142,13 +142,38 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
 ## Stage-Level Reflection
 
-*Filled in when status moves to shipped. Run Prompt 1c (Stage Ship) in
-FIRST_SESSION_PROMPTS.md to draft this.*
+*Shipped 2026-06-14.*
 
-- **Did we deliver the outcome in "What This Stage Is"?** <yes/no + notes>
-- **How many specs did it actually take?** <number vs. plan>
-- **What changed between starting and shipping?** <one sentence>
+- **Did we deliver the outcome in "What This Stage Is"?** **Yes.** `crustyimg` is a
+  runnable Rust binary with a real clap subcommand interface over the full
+  `Source → Image::load → Pipeline(+Recipe) → Sink` spine — decode-once, single
+  image library, no async. A recipe drives the whole chain end-to-end through the
+  CLI (`apply --recipe`). Green 3-OS CI with clippy/fmt enforced; ~97 tests. The
+  architecture the prototype lacked is proven, with zero real image ops shipped (by design).
+
+- **How many specs did it actually take?** **7** (SPEC-001..007), exactly as planned
+  after the SPEC-004 split (Source/Sink) decided during project design. No scope creep.
+
+- **What changed between starting and shipping?** We adopted a build-on-Sonnet /
+  design+verify-on-Opus split (SPEC-003 onward) that cut cost with no loss of
+  correctness, and hardened the orchestration: verify is read-only, all
+  build/verify/ship bookkeeping lands on `main`, and security was added to the plan
+  mid-stage (the `untrusted-input-hardening` constraint + a STAGE-006 gate).
+
 - **Lessons that should update AGENTS.md, templates, or constraints?**
-  - <one-line updates>
+  - Already applied: §13 "verify/ship bookkeeping on main, not the branch"; build
+    prompts must use accurate build-mark wording (no "merged" at build time — caught
+    on SPEC-006, fixed by SPEC-007).
+  - `just advance-cycle`/`archive-spec` mis-glob when a spec has multiple `SPEC-NNN*`
+    files; we do ship bookkeeping by hand. Worth fixing the scripts (deferred).
+
 - **Should any spec-level reflections be promoted to stage-level lessons?**
-  - <one-line items>
+  - "Build security in during the build, then adversarially verify it" (SPEC-004/005
+    traversal guards, empirically bypass-probed) — adopt for every untrusted-input spec.
+  - Prescriptive build prompts are what make Sonnet builds pass Opus verify first time.
+
+- **DECs emitted this stage:** DEC-010 (glob source), DEC-011 (viuer behind `display`
+  feature), DEC-012 (clap) — on top of the project-design DEC-002..009.
+
+- **Follow-ups carried forward:** decode limits, glob escape-check tightening, recipe
+  fuzzing, `cargo audit`/`deny`, `--features display` CI job → all owned by STAGE-006.

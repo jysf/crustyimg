@@ -115,14 +115,14 @@ the foundation for a "wide and interesting feature set" over later waves.
 
 Format: `- [status] STAGE-ID — one-line summary`
 
-- [ ] STAGE-001 (active) — Foundation: CI, image model, Operation trait, pipeline, recipe + source/sink
+- [x] STAGE-001 (shipped on 2026-06-14) — Foundation: CI, image model, Operation trait, pipeline, recipe + source/sink (7 specs, PRs #1-#7)
 - [ ] STAGE-002 (pending) — View & info (read-only): `view`, `info` (+ `--exif`)
 - [ ] STAGE-003 (pending) — Transform & output: `resize`, `shrink`, `thumbnail`, `convert`, `auto-orient`
 - [ ] STAGE-004 (pending) — Compose & metadata: `watermark`; `strip`/`clean --gps`/`set`/`copy-metadata`
 - [ ] STAGE-005 (pending) — Batch & recipes: `edit`, `--save-recipe`, `apply` (parallel + progress)
 - [ ] STAGE-006 (pending) — Hardening & security assessment (MVP exit gate): decode limits, traversal tests, cargo-audit in CI, recipe validation, threat-model pass
 
-**Count:** 0 shipped / 1 active / 5 pending
+**Count:** 1 shipped / 0 active / 5 pending
 
 ## Dependencies
 

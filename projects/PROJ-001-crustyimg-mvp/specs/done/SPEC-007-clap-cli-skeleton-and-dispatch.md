@@ -7,7 +7,7 @@
 task:
   id: SPEC-007
   type: story                      # epic | story | task | bug | chore
-  cycle: verify                    # frame | design | build | verify | ship
+  cycle: ship                      # frame | design | build | verify | ship
   blocked: false
   priority: medium
   complexity: M                    # S | M | L  (L means split it)
@@ -67,10 +67,28 @@ cost:
       duration_minutes: 45
       recorded_at: 2026-06-14
       notes: "subagent; cost not separately reported"
+    - cycle: verify
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_input: null
+      tokens_output: null
+      estimated_usd: null
+      duration_minutes: 25
+      recorded_at: 2026-06-14
+      notes: "subagent; read-only review; confirmed apply is genuinely end-to-end; cost not separately reported"
+    - cycle: ship
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_input: null
+      tokens_output: null
+      estimated_usd: null
+      duration_minutes: 5
+      recorded_at: 2026-06-14
+      notes: "orchestrator; completes STAGE-001; cost not separately reported"
   totals:
     tokens_total: 0
     estimated_usd: 0
-    session_count: 0
+    session_count: 4
 ---
 
 # SPEC-007: clap CLI skeleton and dispatch
@@ -541,10 +559,18 @@ Process-focused: how did the build go? What friction did the spec create?
 from the process-focused build reflection above.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — The accurate-bookkeeping instruction in the build prompt worked — this build's
+   timeline marker stated only build-time facts (no "merged" overclaim), unlike SPEC-006.
+   Keep that instruction in every build prompt. The two Sonnet build-prompt gaps (clap
+   `global = true` on flattened args; the `io::Error` `#[from]` collision needing a
+   `RecipeIo` variant) are worth pre-noting in any future clap/error spec.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — No DEC/constraint change. SPEC-007 completes STAGE-001 and validates the whole
+   architecture end-to-end (a recipe drives Source→load→Pipeline→Sink through the real CLI).
+   The 13 stub commands are the contract STAGE-002..005 fill in.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — No new spec. STAGE-001 is done; next is STAGE-002 (`view`/`info`) — the first stub
+   commands to become real. A `--features display` CI job and the SPEC-004 glob escape-check
+   tightening remain captured in STAGE-006.
