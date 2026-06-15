@@ -675,6 +675,7 @@ let result = img.with_pixels(image::DynamicImage::ImageRgba8(out));
 - **Parity tolerance:** mean per-channel abs diff measured at well under 2.0 in practice (tolerance set at ≤ 6.0 per spec; commented in the test).
 - **Follow-up work identified:**
   - SPEC-011 (already planned): `resize` CLI command + `WxH`-string arg parsing + multi-input `--out-dir` fan-out.
+- **Verify follow-up:** made `Resize::apply` total — replaced all 12 invariant `.unwrap()` calls (across all 6 mode arms + the `Fill` crop section) with `ok_or_else(|| OperationError::Apply { … })?`; no new tests needed (paths unreachable by construction via private `from_params`). All 136 tests still pass; all four gates green.
 
 ### Build-phase reflection (3 questions, short answers)
 

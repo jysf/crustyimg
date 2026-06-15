@@ -397,7 +397,10 @@ impl Operation for Resize {
         let (tw, th) = match self.mode {
             ResizeMode::Max => {
                 // s = min(N / max(w, h), 1.0) — never upscale.
-                let n = self.width.unwrap() as f64;
+                let n = self.width.ok_or_else(|| OperationError::Apply {
+                    op: "resize",
+                    reason: "internal: resize mode 'max' requires width".into(),
+                })? as f64;
                 let longest = w.max(h) as f64;
                 let s = (n / longest).min(1.0);
                 let tw = ((w as f64 * s).round() as u32).max(1);
@@ -406,19 +409,37 @@ impl Operation for Resize {
             }
             ResizeMode::Exact => {
                 // Force exactly W×H; aspect ignored.
-                (self.width.unwrap(), self.height.unwrap())
+                let tw = self.width.ok_or_else(|| OperationError::Apply {
+                    op: "resize",
+                    reason: "internal: resize mode 'exact' requires width".into(),
+                })?;
+                let th = self.height.ok_or_else(|| OperationError::Apply {
+                    op: "resize",
+                    reason: "internal: resize mode 'exact' requires height".into(),
+                })?;
+                (tw, th)
             }
             ResizeMode::Percent => {
                 // tw = round(w · P/100), th = round(h · P/100).
-                let p = self.percent.unwrap() as f64 / 100.0;
+                let p = self.percent.ok_or_else(|| OperationError::Apply {
+                    op: "resize",
+                    reason: "internal: resize mode 'percent' requires percent".into(),
+                })? as f64
+                    / 100.0;
                 let tw = ((w as f64 * p).round() as u32).max(1);
                 let th = ((h as f64 * p).round() as u32).max(1);
                 (tw, th)
             }
             ResizeMode::Fit => {
                 // s = min(W/w, H/h, 1.0) — fit inside, never upscale.
-                let cap_w = self.width.unwrap() as f64;
-                let cap_h = self.height.unwrap() as f64;
+                let cap_w = self.width.ok_or_else(|| OperationError::Apply {
+                    op: "resize",
+                    reason: "internal: resize mode 'fit' requires width".into(),
+                })? as f64;
+                let cap_h = self.height.ok_or_else(|| OperationError::Apply {
+                    op: "resize",
+                    reason: "internal: resize mode 'fit' requires height".into(),
+                })? as f64;
                 let s = (cap_w / w as f64).min(cap_h / h as f64).min(1.0);
                 let tw = ((w as f64 * s).round() as u32).max(1);
                 let th = ((h as f64 * s).round() as u32).max(1);
@@ -426,8 +447,14 @@ impl Operation for Resize {
             }
             ResizeMode::Cover => {
                 // s = max(W/w, H/h) — cover the box, may upscale, no crop.
-                let cap_w = self.width.unwrap() as f64;
-                let cap_h = self.height.unwrap() as f64;
+                let cap_w = self.width.ok_or_else(|| OperationError::Apply {
+                    op: "resize",
+                    reason: "internal: resize mode 'cover' requires width".into(),
+                })? as f64;
+                let cap_h = self.height.ok_or_else(|| OperationError::Apply {
+                    op: "resize",
+                    reason: "internal: resize mode 'cover' requires height".into(),
+                })? as f64;
                 let s = (cap_w / w as f64).max(cap_h / h as f64);
                 let tw = ((w as f64 * s).round() as u32).max(1);
                 let th = ((h as f64 * s).round() as u32).max(1);
@@ -435,8 +462,14 @@ impl Operation for Resize {
             }
             ResizeMode::Fill => {
                 // Compute the cover dims (resize to, then we crop below).
-                let cap_w = self.width.unwrap() as f64;
-                let cap_h = self.height.unwrap() as f64;
+                let cap_w = self.width.ok_or_else(|| OperationError::Apply {
+                    op: "resize",
+                    reason: "internal: resize mode 'fill' requires width".into(),
+                })? as f64;
+                let cap_h = self.height.ok_or_else(|| OperationError::Apply {
+                    op: "resize",
+                    reason: "internal: resize mode 'fill' requires height".into(),
+                })? as f64;
                 let s = (cap_w / w as f64).max(cap_h / h as f64);
                 let tw = ((w as f64 * s).round() as u32).max(1);
                 let th = ((h as f64 * s).round() as u32).max(1);
@@ -504,8 +537,14 @@ impl Operation for Resize {
 
         // ── For fill: center-crop to the exact target W×H ───────────────────
         if self.mode == ResizeMode::Fill {
-            let target_w = self.width.unwrap();
-            let target_h = self.height.unwrap();
+            let target_w = self.width.ok_or_else(|| OperationError::Apply {
+                op: "resize",
+                reason: "internal: resize mode 'fill' requires width for crop".into(),
+            })?;
+            let target_h = self.height.ok_or_else(|| OperationError::Apply {
+                op: "resize",
+                reason: "internal: resize mode 'fill' requires height for crop".into(),
+            })?;
             // rw/rh are the cover dims (dw/dh from the resize above).
             let rw = dw;
             let rh = dh;
