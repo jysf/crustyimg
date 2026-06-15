@@ -323,7 +323,11 @@ fn dispatch(cli: &Cli) -> Result<(), CliError> {
     match &cli.command {
         Commands::Apply { recipe, inputs } => run_apply(recipe, inputs, &cli.global),
 
-        Commands::View { .. } => Err(CliError::NotImplemented("view")),
+        Commands::View {
+            input,
+            width,
+            height,
+        } => run_view(input, *width, *height, &cli.global),
         Commands::Info { .. } => Err(CliError::NotImplemented("info")),
         Commands::Resize { .. } => Err(CliError::NotImplemented("resize")),
         Commands::Thumbnail { .. } => Err(CliError::NotImplemented("thumbnail")),
@@ -399,6 +403,39 @@ fn run_apply(recipe_path: &str, inputs: &[String], global: &GlobalArgs) -> Resul
         &mut std::io::stdout().lock(),
     )?;
 
+    Ok(())
+}
+
+/// The `view` path: resolve the single input, load the image, and render it
+/// via the display Sink. Resolves the FIRST input when a directory/glob yields
+/// many (single-image command). A non-tty stdout refuses with
+/// `SinkError::NotATty` → exit 5.
+fn run_view(
+    input: &str,
+    width: Option<u32>,
+    height: Option<u32>,
+    _global: &GlobalArgs,
+) -> Result<(), CliError> {
+    let resolved = source::resolve(input, &mut std::io::stdin().lock())?;
+    let first = resolved
+        .into_iter()
+        .next()
+        .ok_or(CliError::Source(SourceError::NotFound(input.to_owned())))?;
+    let img = match &first {
+        crate::source::Input::Path(p) => Image::load(p)?,
+        crate::source::Input::Stdin { bytes, .. } => Image::from_bytes(bytes)?,
+    };
+    let sink = Sink::Display { width, height };
+    let sink_input = SinkInput {
+        stem: first.stem(),
+        path: first.path(),
+    };
+    sink.write(
+        &img,
+        &sink_input,
+        Overwrite::Forbid,
+        &mut std::io::stdout().lock(),
+    )?;
     Ok(())
 }
 

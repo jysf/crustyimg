@@ -302,6 +302,104 @@ fn apply_missing_input_exits_3() {
     );
 }
 
+// ── SPEC-008 view tests ───────────────────────────────────────────────────────
+
+/// `view <png>` with a piped (non-tty) stdout exits 5 and reports a
+/// terminal/tty requirement on stderr; stdout must be empty (no image bytes).
+#[test]
+fn view_non_tty_refuses_exit_5() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let png = write_test_png(&dir, "view_input.png", 4, 4);
+
+    let output = Command::new(BIN)
+        .args(["view", png.to_str().unwrap()])
+        .output()
+        .expect("failed to run view");
+
+    assert_eq!(
+        output.status.code(),
+        Some(5),
+        "view on non-tty should exit 5; stderr: {}",
+        stderr_str(&output)
+    );
+    let stderr = stderr_str(&output).to_ascii_lowercase();
+    assert!(
+        stderr.contains("tty") || stderr.contains("terminal"),
+        "stderr should mention tty or terminal requirement, got: {stderr}"
+    );
+    assert!(
+        output.stdout.is_empty(),
+        "stdout must be empty — no image bytes should leak on non-tty"
+    );
+}
+
+/// `view <missing>` exits 3 (input not found).
+#[test]
+fn view_missing_input_exits_3() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let missing = dir.path().join("nope.png");
+
+    let output = Command::new(BIN)
+        .args(["view", missing.to_str().unwrap()])
+        .output()
+        .expect("failed to run view missing");
+
+    assert_eq!(
+        output.status.code(),
+        Some(3),
+        "view of missing file should exit 3; stderr: {}",
+        stderr_str(&output)
+    );
+}
+
+/// `view <dir>` resolves the first image in the directory and reaches the
+/// non-tty refusal (exit 5). This pins the MVP "display the first resolved
+/// input" decision and confirms no panic / usage error on a directory input.
+#[test]
+fn view_directory_uses_first_input() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    // Write exactly one PNG into the dir so source::resolve finds it.
+    write_test_png(&dir, "only.png", 4, 4);
+
+    let output = Command::new(BIN)
+        .args(["view", dir.path().to_str().unwrap()])
+        .output()
+        .expect("failed to run view on directory");
+
+    assert_eq!(
+        output.status.code(),
+        Some(5),
+        "view on directory should resolve first image and exit 5 on non-tty; \
+         stderr: {}",
+        stderr_str(&output)
+    );
+}
+
+/// `view --width 80 <png>` parses --width and, under non-tty, still exits 5.
+/// Proves the flag is wired into the Sink without changing the tty-refusal behavior.
+#[test]
+fn view_width_flag_still_refuses_non_tty() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let png = write_test_png(&dir, "sized.png", 4, 4);
+
+    let output = Command::new(BIN)
+        .args(["view", "--width", "80", png.to_str().unwrap()])
+        .output()
+        .expect("failed to run view --width");
+
+    assert_eq!(
+        output.status.code(),
+        Some(5),
+        "view --width on non-tty should exit 5; stderr: {}",
+        stderr_str(&output)
+    );
+    let stderr = stderr_str(&output).to_ascii_lowercase();
+    assert!(
+        stderr.contains("tty") || stderr.contains("terminal"),
+        "stderr should mention tty or terminal requirement, got: {stderr}"
+    );
+}
+
 /// `apply` with a recipe whose version is not "1" exits 1 (generic runtime error).
 #[test]
 fn apply_bad_recipe_version_exits_1() {
