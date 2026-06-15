@@ -12,7 +12,10 @@
 //! hardening (DEC-002, DEC-004, DEC-007, DEC-011).
 //! SPEC-006 adds the [`recipe`] module: TOML recipe (de)serialization +
 //! operation registry; the keystone of "tune once, replay across many" (DEC-005).
+//! SPEC-007 adds the [`cli`] module: the clap subcommand surface + dispatch +
+//! exit-code mapping (DEC-012, DEC-007).
 
+pub mod cli;
 pub mod error;
 pub mod image;
 pub mod operation;
