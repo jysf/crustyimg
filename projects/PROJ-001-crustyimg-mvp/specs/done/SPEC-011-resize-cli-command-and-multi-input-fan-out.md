@@ -7,7 +7,7 @@
 task:
   id: SPEC-011
   type: story                      # epic | story | task | bug | chore
-  cycle: verify                    # frame | design | build | verify | ship
+  cycle: ship                      # frame | design | build | verify | ship
   blocked: false
   priority: medium
   complexity: M                    # S | M | L  (L means split it)
@@ -58,11 +58,27 @@ cost:
       estimated_usd: null
       duration_minutes: null
       recorded_at: 2026-06-15
-      notes: "Sonnet build subagent wrote the code (src/cli + tests/cli) but its session dropped on an API error before running gates/committing; orchestrator (Opus) finished: fixed a clippy too_many_arguments (bundled the 6 mode flags into a ResizeModes struct), ran cargo fmt, verified all 4 gates green (146 tests), and completed bookkeeping + PR."
+      notes: "Sonnet build subagent wrote the code (src/cli + tests/cli) but its session dropped on an API error before running gates/committing; orchestrator (Opus) finished: fixed a clippy too_many_arguments (bundled the 6 mode flags into a ResizeModes struct), ran cargo fmt, verified all 4 gates green (146 tests), and completed bookkeeping + PR. The Failing-Tests integration suite was missed in recovery and added during the verify punch list (see verify session)."
+    - cycle: verify
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-06-15
+      notes: "verify cycle, Opus read-only subagent. Proved all 11 ACs by hand; ⚠ PUNCH LIST — the spec's integration tests were never written (the dropped build + recovery only added unit tests). Sonnet follow-up added the 11 resize_* integration tests (157 tests total); re-confirmed green + CI 6/6. Then ✅."
+    - cycle: ship
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-06-15
+      notes: "orchestrator ship bookkeeping on main (merged PR #12 squash 183c0c2; branch updated with main + CI re-validated rather than admin-bypassing branch protection; archive by hand)."
   totals:
     tokens_total: 0
     estimated_usd: 0
-    session_count: 0
+    session_count: 4
 ---
 
 # SPEC-011: resize cli command and multi input fan-out
@@ -751,10 +767,24 @@ Process-focused: how did the build go? What friction did the spec create?
 from the process-focused build reflection above.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Have build agents run gates and commit INCREMENTALLY, not just at the end.
+   This build's Sonnet session dropped on an API error after writing code but
+   before gates/commit; the orchestrator recovered it but missed that the
+   spec's integration-test suite was never written (the unit tests passed, so
+   "gates green" was true but incomplete). A green committed checkpoint after
+   each chunk would have made the gap obvious. The cold verify caught it — which
+   is exactly why the read-only verify cycle exists; it paid for itself here.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — Worth adding to the build-prompt boilerplate: an explicit end-of-build
+   checklist item "confirm EVERY test named in the spec's `## Failing Tests`
+   exists and runs" — a test COUNT alone (146 passing) doesn't prove the
+   prescribed tests are present. No constraint/DEC change; DEC-015 holds.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — No new spec. SPEC-011 completes the `resize` feature (op in SPEC-010 +
+   CLI here). The remaining STAGE-003 commands — `thumbnail`, `shrink`,
+   `convert`, `auto-orient` — reuse this exact CLI fan-out + the DEC-015 format
+   policy + the SPEC-010 op/params mechanism, so they need no new framing. The
+   pre-existing `clippy --all-targets` dead-code debt (flagged by verify) is
+   addressed by the open chore PR #10.
