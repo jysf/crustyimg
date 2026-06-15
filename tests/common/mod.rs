@@ -4,6 +4,13 @@
 //! encoders — no ImageMagick, no committed binary fixtures (AGENTS.md §12).
 //! `.unwrap()` here is idiomatic test setup (the `no-unwrap` constraint is
 //! scoped to `src/**`).
+//!
+//! `#![allow(dead_code)]`: this module is included via `mod common;` by
+//! multiple integration-test crates, and not every crate uses every fixture
+//! (e.g. `tests/info_exif.rs` uses only `jpeg_with_exif`). Each crate's
+//! dead-code analysis runs independently, so unused-in-that-crate helpers
+//! would otherwise warn under `--all-targets`.
+#![allow(dead_code)]
 
 use std::io::Cursor;
 
