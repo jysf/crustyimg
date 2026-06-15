@@ -76,9 +76,14 @@ fits to terminal by default. Resolves the first input when given a
 directory/glob (single-image command).
 
 #### `info <INPUT> [--exif] [--json]`  *(S2)*
-Print dimensions, format, byte size, color type, bit depth, alpha, and
-ICC/EXIF presence. `--exif` dumps EXIF tags (read via `kamadak-exif`).
-`--json` emits machine-readable output to stdout.
+Print dimensions, format, **file size on disk** (bytes), color type, bit
+depth, alpha, and ICC/EXIF presence. `--exif` dumps EXIF tags read-only (via
+`kamadak-exif`, DEC-013); an image with no EXIF reports "no EXIF" and exits 0
+(not an error). `--json` emits machine-readable JSON to **stdout** (all
+diagnostics on stderr, so `info --json | jq` stays clean). Single-image
+command: resolves the first input on a directory/glob. "byte size" is the
+**encoded file size on disk**, not the decoded in-memory pixel buffer length
+(the latter, if surfaced, is a distinct `decoded_bytes` field).
 
 ### Geometry / transform
 

@@ -84,9 +84,9 @@ structured-output convention later commands reuse.
 Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
 - [x] SPEC-008 (shipped 2026-06-15, PR #8) — `view` command: terminal display via viuer, fit-to-terminal default + `--width`/`--height`, non-tty refusal (exit 5)
-- [ ] (not yet written) — `info` command: dimensions/format/bytes/color-type/bit-depth/alpha/ICC+EXIF-presence, `--exif` read (kamadak-exif), `--json` structured output
+- [ ] SPEC-009 (design) — `info` command: dimensions/format/bytes/color-type/bit-depth/alpha/ICC+EXIF-presence, `--exif` read (kamadak-exif, DEC-013), `--json` structured output
 
-**Count:** 1 shipped / 0 active / 1 pending
+**Count:** 1 shipped / 1 active / 0 pending
 
 ## Design Notes
 
