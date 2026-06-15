@@ -11,6 +11,96 @@ default:
     @just --list
 
 # ----------------------------------------------------------------------------
+# APP DEVELOPMENT (cargo)  —  build / run / test / lint the crustyimg binary
+#
+# These wrap the exact commands in AGENTS.md §6. `view` needs the optional
+# `display` feature (viuer, DEC-011) to actually render — use the *-display
+# recipes for that.
+# ----------------------------------------------------------------------------
+
+# Debug build
+build:
+    cargo build
+
+# Optimized release build → target/release/crustyimg
+build-release:
+    cargo build --release
+
+# Build with terminal display compiled in (so `view` can render) (DEC-011)
+build-display:
+    cargo build --features display
+
+# Run the CLI (debug). Usage: just run info photo.jpg  /  just run resize p.jpg --max 800 -o o.png
+run *ARGS:
+    cargo run --quiet -- {{ARGS}}
+
+# Run the optimized binary. Usage: just run-release resize p.jpg --max 800 -o o.png
+run-release *ARGS:
+    cargo run --release --quiet -- {{ARGS}}
+
+# Run with terminal display on — required for `view`. Usage: just view photo.png
+run-display *ARGS:
+    cargo run --features display --quiet -- {{ARGS}}
+
+# Convenience: view an image in the terminal (builds with the display feature)
+view IMAGE *ARGS:
+    cargo run --features display --quiet -- view {{IMAGE}} {{ARGS}}
+
+# Run all tests (unit + integration)
+test:
+    cargo test
+
+# Run a single test or module. Usage: just test-one resize_parity
+test-one NAME:
+    cargo test {{NAME}}
+
+# Lint with clippy, warnings as errors (the CI gate, AGENTS §6)
+lint:
+    cargo clippy -- -D warnings
+
+# Lint including all test/bench targets (stricter; what CI gates once #10 lands)
+lint-all:
+    cargo clippy --all-targets -- -D warnings
+
+# Format all code in place
+fmt:
+    cargo fmt
+
+# Check formatting without modifying (the CI gate)
+fmt-check:
+    cargo fmt --check
+
+# Run every gate the way CI does: fmt-check + clippy + build + test
+check: fmt-check lint build test
+    @echo "✓ all gates passed"
+
+# Gates with the display feature compiled in (keeps the viuer path green, DEC-011)
+check-display:
+    cargo fmt --check
+    cargo clippy --features display -- -D warnings
+    cargo build --features display
+
+# cargo-audit over the dependency tree (security advisories; install: cargo install cargo-audit)
+audit:
+    cargo audit
+
+# Build and open the crate's API docs
+doc:
+    cargo doc --no-deps --open
+
+# Remove build artifacts (target/)
+clean-build:
+    cargo clean
+
+# Install crustyimg to ~/.cargo/bin (lean — no terminal display)
+install:
+    cargo install --path .
+
+# Install with terminal display so `view` renders (pulls viuer, DEC-011)
+install-display:
+    cargo install --path . --features display
+
+# ----------------------------------------------------------------------------
 # ONE-TIME SETUP
 # ----------------------------------------------------------------------------
 
@@ -147,6 +237,7 @@ info:
 # Run the template's end-to-end happy-path tests (uses a temp dir).
 # Intended for template maintainers, not end users. Works from the
 # pre-init template root only — after `just init` runs, variants/ is
-# gone and this test would fail at the first check.
-test:
+# gone and this test would fail at the first check. (Renamed from `test`
+# so the canonical `just test` runs the app's `cargo test`.)
+template-test:
     @./scripts/test.sh
