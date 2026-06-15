@@ -59,10 +59,15 @@ pub enum Sink {
     /// Write encoded bytes to stdout (`-o -`). `format` must be `Some` (there
     /// is no path to infer from) — `None` is [`SinkError::UnknownFormat`].
     Stdout { format: Option<ImageFormat> },
-    /// Render in the terminal via viuer (behind the `display` cargo feature,
-    /// DEC-011). Refuses with [`SinkError::NotATty`] on a non-tty regardless
-    /// of whether the feature is enabled.
-    Display,
+    /// Render in the terminal via viuer (behind the `display` cargo
+    /// feature, DEC-011). Refuses with [`SinkError::NotATty`] on a
+    /// non-tty regardless of whether the feature is enabled.
+    /// `width`/`height` are optional sizing hints (`None`/`None` =
+    /// fit to terminal, viuer's default).
+    Display {
+        width: Option<u32>,
+        height: Option<u32>,
+    },
 }
 
 /// Whether overwriting an existing destination file is permitted (`--yes`).
@@ -346,7 +351,7 @@ impl Sink {
                 Ok(())
             }
 
-            Sink::Display => {
+            Sink::Display { width, height } => {
                 // NotATty check is always first, feature-independent.
                 if !std::io::stdout().is_terminal() {
                     return Err(SinkError::NotATty);
@@ -359,7 +364,10 @@ impl Sink {
                 // compiled away), so we use a single cfg-selected expression.
                 #[cfg(feature = "display")]
                 {
+                    // The match binds &Option<u32>, so deref to pass Option<u32>.
                     let conf = viuer::Config {
+                        width: *width,
+                        height: *height,
                         use_kitty: true,
                         use_iterm: true,
                         ..Default::default()
@@ -370,6 +378,9 @@ impl Sink {
                 }
                 #[cfg(not(feature = "display"))]
                 {
+                    // Silence unused-variable warning in the feature-off build;
+                    // the feature-on build above actively uses both fields.
+                    let _ = (width, height);
                     // When built without the feature, inform the caller rather
                     // than silently succeeding.
                     Err(SinkError::Display(

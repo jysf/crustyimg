@@ -7,7 +7,7 @@
 task:
   id: SPEC-008
   type: story                      # epic | story | task | bug | chore
-  cycle: design                    # frame | design | build | verify | ship
+  cycle: verify                    # frame | design | build | verify | ship
   blocked: false
   priority: medium
   complexity: S                    # S | M | L  (L means split it)
@@ -50,6 +50,14 @@ cost:
       duration_minutes: 40
       recorded_at: 2026-06-14
       notes: "design cycle, Opus subagent"
+    - cycle: build
+      agent: claude-sonnet-4-6
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: 25
+      recorded_at: 2026-06-14
+      notes: "subagent; cost not separately reported"
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -346,28 +354,39 @@ expanding this one.
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
+- **Branch:** `feat/spec-008-view-command-terminal-display`
+- **PR (if applicable):** PR #8 opened
+- **All acceptance criteria met?** yes
 - **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
+  - No new DEC during build — DEC-011/DEC-012/DEC-007 already govern this.
 - **Deviations from spec:**
-  - [list]
+  - None. All changes were implemented exactly as specified.
 - **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - The `info` command (the other STAGE-002 backlog item) is the natural next spec.
 
 ### Build-phase reflection (3 questions, short answers)
 
 Process-focused: how did the build go? What friction did the spec create?
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — Nothing was unclear. The spec was exceptionally precise: it named the exact
+   variant shape, the exact `run_view` signature, the exact dispatch line, the
+   exact clippy silence pattern (`let _ = (width, height)` in the feature-off
+   block), and the exact four test names with their assertions. This was one of
+   the smoothest builds in the session — no ambiguity required resolution.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — No missing constraint. The `cargo fmt` reformatting of the `Sink::Display {
+   width, height }` match arm was a minor mechanical step (rustfmt expands
+   multi-field struct patterns to multi-line), but this is covered by the existing
+   `clippy-fmt-clean` constraint and the spec already anticipated it.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Nothing substantive. The spec's "Notes for the Implementer" section gave
+   exactly the right level of guidance — enough to write the code directly without
+   experimentation, but not so prescriptive that it felt like copy-paste. The
+   pattern of running `cargo fmt` as a fix step (gate 4) rather than hand-matching
+   rustfmt's style is correct and efficient.
 
 ---
 

@@ -307,9 +307,12 @@ fn display_sink_refuses_non_tty() {
     let si = sink_input("photo");
     let mut discard = Vec::<u8>::new();
 
-    let err = Sink::Display
-        .write(&img, &si, Overwrite::Forbid, &mut discard)
-        .unwrap_err();
+    let err = Sink::Display {
+        width: None,
+        height: None,
+    }
+    .write(&img, &si, Overwrite::Forbid, &mut discard)
+    .unwrap_err();
     assert!(matches!(err, SinkError::NotATty), "got: {err:?}");
 }
 
