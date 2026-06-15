@@ -23,8 +23,9 @@ use clap::{Args, Parser, Subcommand};
 
 use crate::error::ImageError;
 use crate::image::Image;
-use crate::operation::OperationError;
-use crate::operation::OperationRegistry;
+use crate::operation::RegistryError;
+use crate::operation::{OperationError, OperationParams, OperationRegistry};
+use crate::pipeline::Pipeline;
 use crate::recipe::{Recipe, RecipeError};
 use crate::sink::{Overwrite, Sink, SinkError, SinkInput};
 use crate::source::{self, SourceError};
@@ -117,6 +118,9 @@ pub enum Commands {
     },
 
     /// Resize one or more images (STAGE-003).
+    #[command(group = clap::ArgGroup::new("mode")
+        .required(true)
+        .args(["max", "exact", "percent", "fit", "fill", "cover"]))]
     Resize {
         inputs: Vec<String>,
         #[arg(long)]
@@ -259,6 +263,17 @@ pub enum CliError {
     /// Recipe file I/O error (reading the recipe path itself).
     #[error("could not read recipe file")]
     RecipeIo(std::io::Error),
+
+    /// One or more inputs in a multi-input batch failed (others may have
+    /// succeeded). A per-failure summary is printed to stderr before this is
+    /// returned. (api-contract exit code 6.)
+    #[error("{failed} of {total} inputs failed")]
+    PartialBatch { failed: usize, total: usize },
+
+    /// A usage error detected at runtime (malformed WxH, multi-input without
+    /// --out-dir). Mirrors clap's exit 2. Diagnostics go to stderr.
+    #[error("{0}")]
+    Usage(String),
 }
 
 impl CliError {
@@ -267,10 +282,11 @@ impl CliError {
     /// | Code | Meaning |
     /// |------|---------|
     /// | 1 | Generic runtime error |
-    /// | 2 | Usage error (clap owns this; not returned here) |
+    /// | 2 | Usage error (clap owns this; also returned by Usage/InvalidPattern) |
     /// | 3 | Input not found / unreadable |
     /// | 4 | Unsupported or undeterminable format |
     /// | 5 | Output write failed / refused |
+    /// | 6 | Partial batch failure (multi-input; some/all inputs failed) |
     pub fn code(&self) -> u8 {
         match self {
             // Source errors
@@ -292,6 +308,10 @@ impl CliError {
             CliError::NotImplemented(_) => 1,
             // Recipe file read I/O → input not found / unreadable
             CliError::RecipeIo(_) => 3,
+            // Partial batch failure → 6 (DEC-015)
+            CliError::PartialBatch { .. } => 6,
+            // Runtime usage error → 2 (mirrors clap)
+            CliError::Usage(_) => 2,
         }
     }
 }
@@ -330,7 +350,26 @@ fn dispatch(cli: &Cli) -> Result<(), CliError> {
             height,
         } => run_view(input, *width, *height, &cli.global),
         Commands::Info { input, exif, json } => run_info(input, *exif, *json, &cli.global),
-        Commands::Resize { .. } => Err(CliError::NotImplemented("resize")),
+        Commands::Resize {
+            inputs,
+            max,
+            exact,
+            percent,
+            fit,
+            fill,
+            cover,
+        } => run_resize(
+            inputs,
+            &ResizeModes {
+                max: *max,
+                exact: exact.as_deref(),
+                percent: *percent,
+                fit: fit.as_deref(),
+                fill: fill.as_deref(),
+                cover: cover.as_deref(),
+            },
+            &cli.global,
+        ),
         Commands::Thumbnail { .. } => Err(CliError::NotImplemented("thumbnail")),
         Commands::Shrink { .. } => Err(CliError::NotImplemented("shrink")),
         Commands::Convert { .. } => Err(CliError::NotImplemented("convert")),
@@ -750,6 +789,346 @@ fn run_info(input: &str, exif: bool, json: bool, _global: &GlobalArgs) -> Result
     Ok(())
 }
 
+// ── Resize helpers ────────────────────────────────────────────────────────────
+
+/// Parse a `WxH` dimension string (e.g. "800x600") into (width, height).
+///
+/// Both parts must be positive integers separated by a single ASCII 'x'
+/// (case-insensitive: 'x' or 'X'). A malformed string (no separator,
+/// extra separator, empty part, non-integer, zero, negative, overflow)
+/// is a typed usage error → `CliError::Usage` (`code()` == 2).
+fn parse_wxh(s: &str) -> Result<(u32, u32), CliError> {
+    // Find the single 'x' or 'X' separator.
+    let sep_pos = s
+        .char_indices()
+        .filter(|(_, c)| *c == 'x' || *c == 'X')
+        .collect::<Vec<_>>();
+
+    if sep_pos.len() != 1 {
+        return Err(CliError::Usage(format!(
+            "invalid WxH '{s}': expected exactly one 'x' separator"
+        )));
+    }
+
+    let idx = sep_pos[0].0;
+    let w_str = &s[..idx];
+    let h_str = &s[idx + 1..];
+
+    if w_str.is_empty() || h_str.is_empty() {
+        return Err(CliError::Usage(format!(
+            "invalid WxH '{s}': width and height must be non-empty"
+        )));
+    }
+
+    let w: u32 = w_str.parse::<u32>().map_err(|_| {
+        CliError::Usage(format!(
+            "invalid WxH '{s}': width '{w_str}' is not a positive integer"
+        ))
+    })?;
+    let h: u32 = h_str.parse::<u32>().map_err(|_| {
+        CliError::Usage(format!(
+            "invalid WxH '{s}': height '{h_str}' is not a positive integer"
+        ))
+    })?;
+
+    if w == 0 {
+        return Err(CliError::Usage(format!(
+            "invalid WxH '{s}': width must be > 0"
+        )));
+    }
+    if h == 0 {
+        return Err(CliError::Usage(format!(
+            "invalid WxH '{s}': height must be > 0"
+        )));
+    }
+
+    Ok((w, h))
+}
+
+/// Map the active resize mode flag to the `OperationParams` the registry's
+/// "resize" constructor expects (SPEC-010 PINNED schema).
+///
+/// Exactly one flag is set (clap's ArgGroup guarantees it). WxH strings are
+/// parsed via `parse_wxh`. Dim-range validation is the op's job.
+fn resize_params(
+    max: Option<u32>,
+    exact: Option<&str>,
+    percent: Option<f32>,
+    fit: Option<&str>,
+    fill: Option<&str>,
+    cover: Option<&str>,
+) -> Result<OperationParams, CliError> {
+    use std::collections::BTreeMap;
+
+    let mut map: BTreeMap<String, toml::Value> = BTreeMap::new();
+
+    if let Some(n) = max {
+        map.insert("mode".into(), toml::Value::String("max".into()));
+        map.insert("width".into(), toml::Value::Integer(n as i64));
+        return Ok(OperationParams::from_map(map));
+    }
+
+    if let Some(s) = exact {
+        let (w, h) = parse_wxh(s)?;
+        map.insert("mode".into(), toml::Value::String("exact".into()));
+        map.insert("width".into(), toml::Value::Integer(w as i64));
+        map.insert("height".into(), toml::Value::Integer(h as i64));
+        return Ok(OperationParams::from_map(map));
+    }
+
+    if let Some(p) = percent {
+        map.insert("mode".into(), toml::Value::String("percent".into()));
+        map.insert("percent".into(), toml::Value::Float(p as f64));
+        return Ok(OperationParams::from_map(map));
+    }
+
+    if let Some(s) = fit {
+        let (w, h) = parse_wxh(s)?;
+        map.insert("mode".into(), toml::Value::String("fit".into()));
+        map.insert("width".into(), toml::Value::Integer(w as i64));
+        map.insert("height".into(), toml::Value::Integer(h as i64));
+        return Ok(OperationParams::from_map(map));
+    }
+
+    if let Some(s) = fill {
+        let (w, h) = parse_wxh(s)?;
+        map.insert("mode".into(), toml::Value::String("fill".into()));
+        map.insert("width".into(), toml::Value::Integer(w as i64));
+        map.insert("height".into(), toml::Value::Integer(h as i64));
+        return Ok(OperationParams::from_map(map));
+    }
+
+    if let Some(s) = cover {
+        let (w, h) = parse_wxh(s)?;
+        map.insert("mode".into(), toml::Value::String("cover".into()));
+        map.insert("width".into(), toml::Value::Integer(w as i64));
+        map.insert("height".into(), toml::Value::Integer(h as i64));
+        return Ok(OperationParams::from_map(map));
+    }
+
+    // Defensive: clap ArgGroup guarantees exactly one flag is set.
+    Err(CliError::Usage(
+        "resize requires exactly one mode flag (--max, --exact, --percent, --fit, --fill, --cover)"
+            .into(),
+    ))
+}
+
+/// Decide the output `ImageFormat` for one input (DEC-015):
+///   1. `--format FMT`       → that format (force; FMT via resolve_format).
+///   2. else `-o <path>` ext → inferred from the path extension.
+///   3. else                 → PRESERVE the input's source_format().
+///
+/// An unrecognized `--format` is a typed `SinkError` (exit 4) surfaced via
+/// `resolve_format`. An unrecognized `-o` extension is `SinkError` (exit 4).
+fn output_format_for(
+    global: &GlobalArgs,
+    output_path: Option<&Path>,
+    source_format: ::image::ImageFormat,
+) -> Result<::image::ImageFormat, CliError> {
+    // 1. Explicit --format wins.
+    if let Some(fmt) = resolve_format(global.format.as_deref())? {
+        return Ok(fmt);
+    }
+
+    // 2. -o <path> extension.
+    if let Some(path) = output_path {
+        if let Ok(fmt) = crate::sink::format_from_extension(path) {
+            return Ok(fmt);
+        }
+        // If extension is unrecognized, fall through to source format
+        // rather than erroring — consistent with single-input behavior.
+    }
+
+    // 3. Preserve source format.
+    Ok(source_format)
+}
+
+// ── resize handler ─────────────────────────────────────────────────────────────
+
+/// The six mutually-exclusive resize-mode flags, bundled so `run_resize` stays
+/// within clippy's argument-count limit and the mode set travels as one value.
+/// clap's `ArgGroup` guarantees exactly one is `Some` (usage error → exit 2).
+struct ResizeModes<'a> {
+    max: Option<u32>,
+    exact: Option<&'a str>,
+    percent: Option<f32>,
+    fit: Option<&'a str>,
+    fill: Option<&'a str>,
+    cover: Option<&'a str>,
+}
+
+/// Wire the `resize` subcommand: parse flags, build op via registry, fan-out.
+///
+/// Single-input: uses the `-o`/`-o -`/`--out-dir` sink from global flags.
+/// Multi-input: requires `--out-dir`; fan-out is SEQUENTIAL (no rayon, DEC-006).
+/// Partial failures in multi-input → continue + print to stderr + exit 6 (DEC-015).
+fn run_resize(
+    inputs: &[String],
+    modes: &ResizeModes<'_>,
+    global: &GlobalArgs,
+) -> Result<(), CliError> {
+    // Step 1: build OperationParams from the active flag.
+    let params = resize_params(
+        modes.max,
+        modes.exact,
+        modes.percent,
+        modes.fit,
+        modes.fill,
+        modes.cover,
+    )?;
+
+    // Step 2: build the op via the registry (same path as recipes, DEC-014).
+    // RegistryError → CliError::Usage (exit 2): dim/param rejections are usage errors.
+    let op = OperationRegistry::with_builtins()
+        .build("resize", &params)
+        .map_err(|e| match e {
+            RegistryError::InvalidParams { reason, .. } => CliError::Usage(reason),
+            RegistryError::Unknown { name } => {
+                CliError::Usage(format!("unknown operation '{name}'"))
+            }
+        })?;
+
+    // Build the pipeline with this single op (builder-style: push consumes self).
+    let pipeline = Pipeline::new().push(op);
+
+    // Step 3: resolve every input arg, flattening into one Vec<Input>.
+    // Resolution errors (missing path / empty glob) are hard errors (exit 3/2),
+    // NOT partial-batch (exit 6). Partial-batch applies only to per-input
+    // load/run/write failures AFTER successful resolution.
+    let mut all: Vec<crate::source::Input> = Vec::new();
+    let mut stdin_lock = std::io::stdin().lock();
+    for arg in inputs {
+        let resolved = source::resolve(arg, &mut stdin_lock)?;
+        all.extend(resolved);
+    }
+
+    if all.is_empty() {
+        let joined = inputs.join(" ");
+        return Err(CliError::Source(SourceError::NotFound(joined)));
+    }
+
+    let overwrite = if global.yes {
+        Overwrite::Allow
+    } else {
+        Overwrite::Forbid
+    };
+
+    // Step 4: single vs. multi by the FLATTENED resolved count.
+    if all.len() == 1 {
+        let input = &all[0];
+        let img = match input {
+            crate::source::Input::Path(p) => Image::load(p)?,
+            crate::source::Input::Stdin { bytes, .. } => Image::from_bytes(bytes)?,
+        };
+
+        let out_img = pipeline.run(img.clone())?;
+
+        // Resolve per-input output format (DEC-015).
+        let output_path = global.output.as_ref().map(|s| Path::new(s.as_str()));
+        let fmt = output_format_for(global, output_path, img.source_format())?;
+
+        // Build the sink with the resolved format.
+        let sink = if let Some(ref out) = global.output {
+            if out == "-" {
+                Sink::Stdout { format: Some(fmt) }
+            } else {
+                Sink::File {
+                    path: PathBuf::from(out),
+                    format: Some(fmt),
+                }
+            }
+        } else if let Some(ref dir) = global.out_dir {
+            let template = global
+                .name_template
+                .clone()
+                .unwrap_or_else(|| "{stem}.{ext}".to_owned());
+            Sink::Dir {
+                dir: PathBuf::from(dir),
+                template,
+                format: Some(fmt),
+            }
+        } else {
+            // No output flag: default to stdout (format preserved).
+            Sink::Stdout { format: Some(fmt) }
+        };
+
+        let sink_input = SinkInput {
+            stem: input.stem(),
+            path: input.path(),
+        };
+        sink.write(
+            &out_img,
+            &sink_input,
+            overwrite,
+            &mut std::io::stdout().lock(),
+        )?;
+    } else {
+        // Multi-input: require --out-dir.
+        let out_dir = global
+            .out_dir
+            .as_ref()
+            .ok_or_else(|| CliError::Usage("multiple inputs require --out-dir".into()))?;
+
+        let template = global
+            .name_template
+            .clone()
+            .unwrap_or_else(|| "{stem}.{ext}".to_owned());
+
+        let total = all.len();
+        let mut failed: usize = 0;
+
+        for input in &all {
+            // Label for error messages.
+            let label = match input {
+                crate::source::Input::Path(p) => p.display().to_string(),
+                crate::source::Input::Stdin { stem, .. } => stem.clone(),
+            };
+
+            // Load, run, resolve format, build sink, write — catch per-input errors.
+            let result = (|| -> Result<(), CliError> {
+                let img = match input {
+                    crate::source::Input::Path(p) => Image::load(p)?,
+                    crate::source::Input::Stdin { bytes, .. } => Image::from_bytes(bytes)?,
+                };
+
+                let out_img = pipeline.run(img.clone())?;
+
+                // Per-input format resolution (DEC-015): no -o path in fan-out.
+                let fmt = output_format_for(global, None, img.source_format())?;
+
+                let sink = Sink::Dir {
+                    dir: PathBuf::from(out_dir),
+                    template: template.clone(),
+                    format: Some(fmt),
+                };
+
+                let sink_input = SinkInput {
+                    stem: input.stem(),
+                    path: input.path(),
+                };
+                sink.write(
+                    &out_img,
+                    &sink_input,
+                    overwrite,
+                    &mut std::io::stdout().lock(),
+                )?;
+                Ok(())
+            })();
+
+            if let Err(e) = result {
+                eprintln!("error: {label}: {e}");
+                failed += 1;
+            }
+        }
+
+        if failed > 0 {
+            return Err(CliError::PartialBatch { failed, total });
+        }
+    }
+
+    Ok(())
+}
+
 // ── Unit tests ────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -876,6 +1255,19 @@ mod tests {
             .code(),
             3
         );
+
+        // PartialBatch → 6 (DEC-015).
+        assert_eq!(
+            CliError::PartialBatch {
+                failed: 1,
+                total: 3
+            }
+            .code(),
+            6
+        );
+
+        // Usage → 2 (mirrors clap exit 2).
+        assert_eq!(CliError::Usage("bad".into()).code(), 2);
     }
 
     // ── format_label_maps_core_formats ───────────────────────────────────────
@@ -1003,6 +1395,159 @@ mod tests {
         assert!(
             val2["exif"].as_array().unwrap().is_empty(),
             "exif must be an empty array"
+        );
+    }
+
+    // ── parse_wxh tests ───────────────────────────────────────────────────────
+
+    #[test]
+    fn parse_wxh_parses_valid() {
+        assert_eq!(parse_wxh("800x600").unwrap(), (800, 600));
+        // Uppercase X accepted.
+        assert_eq!(parse_wxh("1920X1080").unwrap(), (1920, 1080));
+    }
+
+    #[test]
+    fn parse_wxh_rejects_malformed() {
+        let bad = [
+            "abc",
+            "800x",
+            "x600",
+            "800",
+            "800x600x1",
+            "0x10",
+            "800x0",
+            "-1x10",
+            "",
+        ];
+        for s in bad {
+            let result = parse_wxh(s);
+            assert!(result.is_err(), "expected Err for '{s}', got Ok");
+            assert_eq!(
+                result.unwrap_err().code(),
+                2,
+                "parse_wxh error for '{s}' should have code 2"
+            );
+        }
+    }
+
+    // ── resize_params tests ───────────────────────────────────────────────────
+
+    #[test]
+    fn resize_params_max_minimal() {
+        let p = resize_params(Some(20), None, None, None, None, None).unwrap();
+        assert_eq!(p.get_str("mode"), Some("max"));
+        assert_eq!(p.get_u32("width"), Some(20));
+        // Must NOT have height or percent.
+        assert!(
+            p.get_u32("height").is_none(),
+            "max mode must not have height"
+        );
+        assert!(
+            p.get_f32("percent").is_none(),
+            "max mode must not have percent"
+        );
+    }
+
+    #[test]
+    fn resize_params_exact_has_both_dims() {
+        let p = resize_params(None, Some("33x77"), None, None, None, None).unwrap();
+        assert_eq!(p.get_str("mode"), Some("exact"));
+        assert_eq!(p.get_u32("width"), Some(33));
+        assert_eq!(p.get_u32("height"), Some(77));
+    }
+
+    #[test]
+    fn resize_params_percent() {
+        let p = resize_params(None, None, Some(50.0), None, None, None).unwrap();
+        assert_eq!(p.get_str("mode"), Some("percent"));
+        // get_f32 accepts Float TOML values.
+        let pct = p.get_f32("percent").expect("percent key must be present");
+        assert!((pct - 50.0).abs() < 0.001, "percent value mismatch: {pct}");
+    }
+
+    #[test]
+    fn resize_params_fit_fill_cover() {
+        for (mode, flag_fit, flag_fill, flag_cover) in [
+            ("fit", Some("40x40"), None, None),
+            ("fill", None, Some("40x40"), None),
+            ("cover", None, None, Some("40x40")),
+        ] {
+            let p = resize_params(None, None, None, flag_fit, flag_fill, flag_cover).unwrap();
+            assert_eq!(p.get_str("mode"), Some(mode), "mode mismatch for {mode}");
+            assert_eq!(p.get_u32("width"), Some(40), "width mismatch for {mode}");
+            assert_eq!(p.get_u32("height"), Some(40), "height mismatch for {mode}");
+        }
+    }
+
+    #[test]
+    fn resize_params_bad_wxh_is_usage() {
+        let result = resize_params(None, Some("nope"), None, None, None, None);
+        assert!(result.is_err(), "malformed WxH should be an error");
+        assert_eq!(
+            result.unwrap_err().code(),
+            2,
+            "malformed WxH should be code 2"
+        );
+    }
+
+    // ── output_format_for tests ───────────────────────────────────────────────
+
+    fn make_global(format: Option<&str>) -> GlobalArgs {
+        GlobalArgs {
+            output: None,
+            out_dir: None,
+            name_template: None,
+            jobs: None,
+            format: format.map(|s| s.to_owned()),
+            quality: None,
+            verbose: 0,
+            quiet: false,
+            yes: false,
+            keep_gps: false,
+        }
+    }
+
+    #[test]
+    fn output_format_for_format_flag_wins() {
+        let global = make_global(Some("png"));
+        let result = output_format_for(
+            &global,
+            Some(Path::new("/x/a.jpg")),
+            ::image::ImageFormat::Jpeg,
+        )
+        .unwrap();
+        assert_eq!(
+            result,
+            ::image::ImageFormat::Png,
+            "--format png must win over .jpg path and Jpeg source"
+        );
+    }
+
+    #[test]
+    fn output_format_for_path_ext() {
+        let global = make_global(None);
+        let result = output_format_for(
+            &global,
+            Some(Path::new("/x/a.png")),
+            ::image::ImageFormat::Jpeg,
+        )
+        .unwrap();
+        assert_eq!(
+            result,
+            ::image::ImageFormat::Png,
+            ".png path ext should override Jpeg source"
+        );
+    }
+
+    #[test]
+    fn output_format_for_preserves_source() {
+        let global = make_global(None);
+        let result = output_format_for(&global, None, ::image::ImageFormat::Jpeg).unwrap();
+        assert_eq!(
+            result,
+            ::image::ImageFormat::Jpeg,
+            "source format should be preserved when no override"
         );
     }
 }

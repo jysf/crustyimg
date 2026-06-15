@@ -238,8 +238,11 @@ fn apply_to_stdout_keeps_stdout_clean() {
     assert_eq!(decoded.height(), 4);
 }
 
-/// A stub command (here `resize`) exits 1 and writes "not yet implemented"
+/// A stub command (here `thumbnail`) exits 1 and writes "not yet implemented"
 /// to stderr; no output file is created.
+///
+/// (resize is now real; this test was updated to drive `thumbnail` instead —
+/// SPEC-011.)
 #[test]
 fn stub_command_returns_not_implemented() {
     let dir = tempfile::tempdir().expect("tempdir");
@@ -248,15 +251,15 @@ fn stub_command_returns_not_implemented() {
 
     let output = Command::new(BIN)
         .args([
-            "resize",
+            "thumbnail",
             in_path.to_str().unwrap(),
-            "--max",
-            "800",
+            "--size",
+            "64",
             "-o",
             out_path.to_str().unwrap(),
         ])
         .output()
-        .expect("failed to run resize");
+        .expect("failed to run thumbnail");
 
     assert_eq!(output.status.code(), Some(1), "stub command should exit 1");
     assert!(
