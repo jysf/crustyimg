@@ -70,8 +70,10 @@ codes and prints a friendly `anyhow`-formatted message to stderr (DEC-007).
 ### Inspect / view
 
 #### `view <INPUT> [--width N] [--height N]`  *(S2; smoke stub in S1)*
-Display an image in the terminal via `viuer`. Requires a tty. Optional
-sizing fits to terminal by default.
+Display an image in the terminal via `viuer`. Requires a tty — a non-tty
+stdout refuses with exit code **5** (`SinkError::NotATty`). Optional sizing
+fits to terminal by default. Resolves the first input when given a
+directory/glob (single-image command).
 
 #### `info <INPUT> [--exif] [--json]`  *(S2)*
 Print dimensions, format, byte size, color type, bit depth, alpha, and

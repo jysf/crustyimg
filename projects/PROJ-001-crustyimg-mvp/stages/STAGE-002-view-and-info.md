@@ -5,7 +5,7 @@
 
 stage:
   id: STAGE-002                     # stable, zero-padded within the project
-  status: proposed                  # proposed | active | shipped | cancelled | on_hold
+  status: active                    # proposed | active | shipped | cancelled | on_hold
   priority: high                    # critical | high | medium | low
   target_complete: null             # optional: YYYY-MM-DD
 
@@ -83,10 +83,10 @@ structured-output convention later commands reuse.
 
 Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
-- [ ] (not yet written) — `view` command: terminal display via viuer, fit-to-terminal default + `--width`/`--height`, non-tty refusal
+- [ ] SPEC-008 (design) — `view` command: terminal display via viuer, fit-to-terminal default + `--width`/`--height`, non-tty refusal
 - [ ] (not yet written) — `info` command: dimensions/format/bytes/color-type/bit-depth/alpha/ICC+EXIF-presence, `--exif` read (kamadak-exif), `--json` structured output
 
-**Count:** 0 shipped / 0 active / 2 pending
+**Count:** 0 shipped / 1 active / 1 pending
 
 ## Design Notes
 
