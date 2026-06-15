@@ -92,9 +92,13 @@ the foundation for a "wide and interesting feature set" over later waves.
   the metadata lane (`strip`, `clean --gps`, `set` tags, `copy-metadata`).
 - STAGE-005 — Batch & recipes: `edit` (one-shot multi-op), `--save-recipe`,
   `apply --recipe <glob/dir>` with rayon parallelism + progress.
-- STAGE-006 — Hardening & security assessment (MVP exit gate): decode limits,
+- STAGE-006 — Hardening & security assessment: decode limits,
   path/symlink-traversal tests, `cargo audit`/`deny` in CI, recipe validation,
   a threat-model verification pass against SECURITY.md.
+- STAGE-007 — Release & distribution (MVP exit gate): Cargo.toml publish
+  metadata + license, CHANGELOG/semver/tags, a cargo-dist release pipeline
+  (cross-platform binaries → GitHub Releases), a Homebrew tap, optional
+  crates.io publish, and README/install/usage polish.
 - Core formats now (JPEG/PNG/GIF/BMP/TIFF/ICO/etc.).
 
 ### Explicitly out of scope
@@ -120,9 +124,10 @@ Format: `- [status] STAGE-ID — one-line summary`
 - [ ] STAGE-003 (pending) — Transform & output: `resize`, `shrink`, `thumbnail`, `convert`, `auto-orient`
 - [ ] STAGE-004 (pending) — Compose & metadata: `watermark`; `strip`/`clean --gps`/`set`/`copy-metadata`
 - [ ] STAGE-005 (pending) — Batch & recipes: `edit`, `--save-recipe`, `apply` (parallel + progress)
-- [ ] STAGE-006 (pending) — Hardening & security assessment (MVP exit gate): decode limits, traversal tests, cargo-audit in CI, recipe validation, threat-model pass
+- [ ] STAGE-006 (pending) — Hardening & security assessment: decode limits, traversal tests, cargo-audit in CI, recipe validation, threat-model pass
+- [ ] STAGE-007 (pending) — Release & distribution (MVP exit gate): Cargo metadata + CHANGELOG/tags, cargo-dist release pipeline, Homebrew tap, optional crates.io, README/install polish
 
-**Count:** 1 shipped / 0 active / 5 pending
+**Count:** 1 shipped / 0 active / 6 pending
 
 ## Dependencies
 
