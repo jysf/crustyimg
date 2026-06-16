@@ -370,7 +370,11 @@ fn dispatch(cli: &Cli) -> Result<(), CliError> {
             },
             &cli.global,
         ),
-        Commands::Thumbnail { .. } => Err(CliError::NotImplemented("thumbnail")),
+        Commands::Thumbnail {
+            inputs,
+            size,
+            square,
+        } => run_thumbnail(inputs, *size, *square, &cli.global),
         Commands::Shrink { .. } => Err(CliError::NotImplemented("shrink")),
         Commands::Convert { .. } => Err(CliError::NotImplemented("convert")),
         Commands::AutoOrient { .. } => Err(CliError::NotImplemented("auto-orient")),
@@ -991,7 +995,27 @@ fn run_resize(
     // Build the pipeline with this single op (builder-style: push consumes self).
     let pipeline = Pipeline::new().push(op);
 
-    // Step 3: resolve every input arg, flattening into one Vec<Input>.
+    run_pixel_op(pipeline, inputs, global)
+}
+
+// ── Shared pixel-op fan-out helper ───────────────────────────────────────────
+
+/// Run a built single-op `Pipeline` over one-or-many resolved inputs and
+/// write the outputs — the shared CLI fan-out for pixel commands (DEC-015).
+///
+/// - Resolves every `inputs` arg via `source::resolve`, flattening to one
+///   `Vec<Input>`; a resolution error (missing path / empty glob) is a HARD
+///   error (exit 3/2), NOT partial-batch; an empty result → `NotFound` (exit 3).
+/// - 1 input: single `-o`/`-o -`/`--out-dir` sink, per-input format via
+///   `output_format_for`; a failure keeps its natural code (3/1/4/5).
+/// - More than 1 input: REQUIRE `--out-dir` (else `CliError::Usage`, exit 2);
+///   sequential fan-out; per-input failures collected + stderr + exit 6 (DEC-015).
+fn run_pixel_op(
+    pipeline: Pipeline,
+    inputs: &[String],
+    global: &GlobalArgs,
+) -> Result<(), CliError> {
+    // Resolve every input arg, flattening into one Vec<Input>.
     // Resolution errors (missing path / empty glob) are hard errors (exit 3/2),
     // NOT partial-batch (exit 6). Partial-batch applies only to per-input
     // load/run/write failures AFTER successful resolution.
@@ -1013,7 +1037,7 @@ fn run_resize(
         Overwrite::Forbid
     };
 
-    // Step 4: single vs. multi by the FLATTENED resolved count.
+    // Single vs. multi by the FLATTENED resolved count.
     if all.len() == 1 {
         let input = &all[0];
         let img = match input {
@@ -1127,6 +1151,67 @@ fn run_resize(
     }
 
     Ok(())
+}
+
+// ── thumbnail helpers ─────────────────────────────────────────────────────────
+
+/// The default long-edge bound when `--size` is omitted.
+const DEFAULT_THUMBNAIL_SIZE: u32 = 256;
+
+/// Map thumbnail args to the `Resize` OperationParams the registry expects
+/// (SPEC-010's PINNED schema). `thumbnail` is a convenience over `resize`:
+///
+/// - `--square` → resize `fill` N×N  (cover + center-crop to exactly N×N)
+/// - else       → resize `max`  N     (bound the long edge to N, no upscale)
+///
+/// `size` defaults to `DEFAULT_THUMBNAIL_SIZE` (256). Infallible: the mapping
+/// is total; the op validates the dims.
+fn thumbnail_params(size: Option<u32>, square: bool) -> OperationParams {
+    use std::collections::BTreeMap;
+
+    let n = size.unwrap_or(DEFAULT_THUMBNAIL_SIZE);
+    let mut map: BTreeMap<String, toml::Value> = BTreeMap::new();
+
+    if square {
+        map.insert("mode".into(), toml::Value::String("fill".into()));
+        map.insert("width".into(), toml::Value::Integer(n as i64));
+        map.insert("height".into(), toml::Value::Integer(n as i64));
+    } else {
+        map.insert("mode".into(), toml::Value::String("max".into()));
+        map.insert("width".into(), toml::Value::Integer(n as i64));
+    }
+
+    OperationParams::from_map(map)
+}
+
+// ── thumbnail handler ─────────────────────────────────────────────────────────
+
+/// Wire the `thumbnail` subcommand: map `(size, square)` to `Resize` params,
+/// build the op via the registry, and delegate to `run_pixel_op` for the
+/// full multi-input fan-out (DEC-015).
+///
+/// - `--size N` (default 256) bounds the longest edge to N, aspect preserved.
+/// - `--square` produces an exactly N×N output via cover+center-crop (`fill`).
+/// - `--size 0` → op rejects width 0 → `CliError::Usage` (exit 2).
+fn run_thumbnail(
+    inputs: &[String],
+    size: Option<u32>,
+    square: bool,
+    global: &GlobalArgs,
+) -> Result<(), CliError> {
+    let params = thumbnail_params(size, square);
+
+    let op = OperationRegistry::with_builtins()
+        .build("resize", &params)
+        .map_err(|e| match e {
+            RegistryError::InvalidParams { reason, .. } => CliError::Usage(reason),
+            RegistryError::Unknown { name } => {
+                CliError::Usage(format!("unknown operation '{name}'"))
+            }
+        })?;
+
+    let pipeline = Pipeline::new().push(op);
+    run_pixel_op(pipeline, inputs, global)
 }
 
 // ── Unit tests ────────────────────────────────────────────────────────────────
@@ -1549,5 +1634,45 @@ mod tests {
             ::image::ImageFormat::Jpeg,
             "source format should be preserved when no override"
         );
+    }
+
+    // ── thumbnail_params tests ────────────────────────────────────────────────
+
+    #[test]
+    fn thumbnail_params_max_default() {
+        let p = thumbnail_params(None, false);
+        assert_eq!(p.get_str("mode"), Some("max"));
+        assert_eq!(p.get_u32("width"), Some(256));
+        assert!(
+            p.get_u32("height").is_none(),
+            "max mode must not have height"
+        );
+    }
+
+    #[test]
+    fn thumbnail_params_max_sized() {
+        let p = thumbnail_params(Some(64), false);
+        assert_eq!(p.get_str("mode"), Some("max"));
+        assert_eq!(p.get_u32("width"), Some(64));
+        assert!(
+            p.get_u32("height").is_none(),
+            "max mode must not have height"
+        );
+    }
+
+    #[test]
+    fn thumbnail_params_square_default() {
+        let p = thumbnail_params(None, true);
+        assert_eq!(p.get_str("mode"), Some("fill"));
+        assert_eq!(p.get_u32("width"), Some(256));
+        assert_eq!(p.get_u32("height"), Some(256));
+    }
+
+    #[test]
+    fn thumbnail_params_square_sized() {
+        let p = thumbnail_params(Some(64), true);
+        assert_eq!(p.get_str("mode"), Some("fill"));
+        assert_eq!(p.get_u32("width"), Some(64));
+        assert_eq!(p.get_u32("height"), Some(64));
     }
 }
