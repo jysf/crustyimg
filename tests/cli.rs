@@ -238,11 +238,11 @@ fn apply_to_stdout_keeps_stdout_clean() {
     assert_eq!(decoded.height(), 4);
 }
 
-/// A stub command (here `thumbnail`) exits 1 and writes "not yet implemented"
+/// A stub command (here `shrink`) exits 1 and writes "not yet implemented"
 /// to stderr; no output file is created.
 ///
-/// (resize is now real; this test was updated to drive `thumbnail` instead —
-/// SPEC-011.)
+/// (resize is now real — SPEC-011; thumbnail is now real — SPEC-012;
+/// repointed to `shrink` which remains a stub.)
 #[test]
 fn stub_command_returns_not_implemented() {
     let dir = tempfile::tempdir().expect("tempdir");
@@ -251,15 +251,15 @@ fn stub_command_returns_not_implemented() {
 
     let output = Command::new(BIN)
         .args([
-            "thumbnail",
+            "shrink",
             in_path.to_str().unwrap(),
-            "--size",
+            "--max",
             "64",
             "-o",
             out_path.to_str().unwrap(),
         ])
         .output()
-        .expect("failed to run thumbnail");
+        .expect("failed to run shrink");
 
     assert_eq!(output.status.code(), Some(1), "stub command should exit 1");
     assert!(
@@ -1050,5 +1050,378 @@ fn info_missing_input_exits_3() {
         Some(3),
         "info on missing file should exit 3; stderr: {}",
         stderr_str(&output)
+    );
+}
+
+// ── SPEC-012 thumbnail integration tests ─────────────────────────────────────
+
+/// `thumbnail <png>` (no `--size`) exits 0; the long edge == 256 (default),
+/// aspect preserved. Source: 1000×500 → 256×128. (AC1)
+#[test]
+fn thumbnail_default_size_bounds_long_edge() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let in_path = write_test_png(&dir, "in.png", 1000, 500);
+    let out_path = dir.path().join("out.png");
+
+    let output = Command::new(BIN)
+        .args([
+            "thumbnail",
+            in_path.to_str().unwrap(),
+            "-o",
+            out_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run thumbnail default size");
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "thumbnail (no --size) should exit 0; stderr: {}",
+        stderr_str(&output)
+    );
+    assert!(out_path.exists(), "output file should exist");
+    let decoded = image::open(&out_path).expect("output should be decodable");
+    assert_eq!(decoded.width(), 256, "long edge should be 256 (default)");
+    assert_eq!(
+        decoded.height(),
+        128,
+        "short edge should be 128 (aspect preserved)"
+    );
+}
+
+/// `thumbnail <png> --size 64` exits 0; long edge == 64, aspect preserved.
+/// Source: 100×50 → 64×32. (AC2)
+#[test]
+fn thumbnail_size_bounds_long_edge() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let in_path = write_test_png(&dir, "in.png", 100, 50);
+    let out_path = dir.path().join("out.png");
+
+    let output = Command::new(BIN)
+        .args([
+            "thumbnail",
+            in_path.to_str().unwrap(),
+            "--size",
+            "64",
+            "-o",
+            out_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run thumbnail --size 64");
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "thumbnail --size 64 should exit 0; stderr: {}",
+        stderr_str(&output)
+    );
+    assert!(out_path.exists(), "output file should exist");
+    let decoded = image::open(&out_path).expect("output should be decodable");
+    assert_eq!(decoded.width(), 64, "long edge should be 64");
+    assert_eq!(
+        decoded.height(),
+        32,
+        "short edge should be 32 (aspect preserved)"
+    );
+}
+
+/// `thumbnail <png> --size 64 --square` exits 0; output is exactly 64×64
+/// (cover + center-crop). Source: 100×50. (AC3)
+#[test]
+fn thumbnail_square_is_exact_square() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let in_path = write_test_png(&dir, "in.png", 100, 50);
+    let out_path = dir.path().join("out.png");
+
+    let output = Command::new(BIN)
+        .args([
+            "thumbnail",
+            in_path.to_str().unwrap(),
+            "--size",
+            "64",
+            "--square",
+            "-o",
+            out_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run thumbnail --square");
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "thumbnail --size 64 --square should exit 0; stderr: {}",
+        stderr_str(&output)
+    );
+    assert!(out_path.exists(), "output file should exist");
+    let decoded = image::open(&out_path).expect("output should be decodable");
+    assert_eq!(decoded.width(), 64, "square output must be exactly 64 wide");
+    assert_eq!(
+        decoded.height(),
+        64,
+        "square output must be exactly 64 tall"
+    );
+}
+
+/// `thumbnail` does NOT upscale: a 40×30 source with `--size 64` stays 40×30. (AC4)
+#[test]
+fn thumbnail_does_not_upscale() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let in_path = write_test_png(&dir, "in.png", 40, 30);
+    let out_path = dir.path().join("out.png");
+
+    let output = Command::new(BIN)
+        .args([
+            "thumbnail",
+            in_path.to_str().unwrap(),
+            "--size",
+            "64",
+            "-o",
+            out_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run thumbnail no-upscale");
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "thumbnail (no upscale) should exit 0; stderr: {}",
+        stderr_str(&output)
+    );
+    assert!(out_path.exists(), "output file should exist");
+    let decoded = image::open(&out_path).expect("output should be decodable");
+    assert_eq!(decoded.width(), 40, "width must stay 40 (no upscale)");
+    assert_eq!(decoded.height(), 30, "height must stay 30 (no upscale)");
+}
+
+/// Multi-input fan-out: `thumbnail a.png b.jpg --size 64 --out-dir D` exits 0;
+/// a.png stays PNG, b.jpg stays JPEG (format preserved, DEC-015). (AC5)
+#[test]
+fn thumbnail_multi_input_fan_out_preserves_format() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let out_dir = tempfile::tempdir().expect("out tempdir");
+
+    let png_path = write_test_png(&dir, "a.png", 100, 50);
+    let jpg_path = write_test_jpeg(&dir, "b.jpg", 100, 50);
+
+    let output = Command::new(BIN)
+        .args([
+            "thumbnail",
+            png_path.to_str().unwrap(),
+            jpg_path.to_str().unwrap(),
+            "--size",
+            "64",
+            "--out-dir",
+            out_dir.path().to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run thumbnail multi-input");
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "thumbnail multi-input should exit 0; stderr: {}",
+        stderr_str(&output)
+    );
+
+    // a.png → out_dir/a.png, scaled 64×32, must be PNG.
+    let out_png = out_dir.path().join("a.png");
+    assert!(out_png.exists(), "a.png output should exist in out-dir");
+    let decoded_png = image::open(&out_png).expect("a.png output should be decodable");
+    assert_eq!(decoded_png.width(), 64, "a.png output width should be 64");
+    assert_eq!(decoded_png.height(), 32, "a.png output height should be 32");
+    let png_bytes = std::fs::read(&out_png).unwrap();
+    assert_eq!(
+        &png_bytes[..4],
+        b"\x89PNG",
+        "a.png output should be PNG format"
+    );
+
+    // b.jpg → out_dir/b.jpg, scaled 64×32, must be JPEG.
+    let out_jpg = out_dir.path().join("b.jpg");
+    assert!(out_jpg.exists(), "b.jpg output should exist in out-dir");
+    let decoded_jpg = image::open(&out_jpg).expect("b.jpg output should be decodable");
+    assert_eq!(decoded_jpg.width(), 64, "b.jpg output width should be 64");
+    assert_eq!(decoded_jpg.height(), 32, "b.jpg output height should be 32");
+    let jpg_bytes = std::fs::read(&out_jpg).unwrap();
+    assert_eq!(
+        &jpg_bytes[..2],
+        b"\xFF\xD8",
+        "b.jpg output should be JPEG format"
+    );
+}
+
+/// `thumbnail <missing.png> --size 64 -o out` → exit 3. (AC6)
+#[test]
+fn thumbnail_missing_input_exits_3() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let missing = dir.path().join("missing.png");
+    let out_path = dir.path().join("out.png");
+
+    let output = Command::new(BIN)
+        .args([
+            "thumbnail",
+            missing.to_str().unwrap(),
+            "--size",
+            "64",
+            "-o",
+            out_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run thumbnail missing");
+
+    assert_eq!(
+        output.status.code(),
+        Some(3),
+        "thumbnail of missing file should exit 3; stderr: {}",
+        stderr_str(&output)
+    );
+    assert!(!out_path.exists(), "no output should be created");
+}
+
+/// Two PNG inputs with no `--out-dir` → exit 2; stderr mentions `--out-dir`. (AC7)
+#[test]
+fn thumbnail_multi_without_out_dir_is_usage_error() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let in1 = write_test_png(&dir, "a.png", 4, 4);
+    let in2 = write_test_png(&dir, "b.png", 4, 4);
+
+    let output = Command::new(BIN)
+        .args([
+            "thumbnail",
+            in1.to_str().unwrap(),
+            in2.to_str().unwrap(),
+            "--size",
+            "2",
+        ])
+        .output()
+        .expect("failed to run thumbnail multi-no-out-dir");
+
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "thumbnail multi without --out-dir should exit 2; stderr: {}",
+        stderr_str(&output)
+    );
+    let stderr = stderr_str(&output);
+    assert!(
+        stderr.contains("out-dir") || stderr.contains("out_dir"),
+        "stderr should mention --out-dir; got: {stderr}"
+    );
+}
+
+/// `thumbnail <png> --size 64 -o -` exits 0; stdout is ONLY encoded image
+/// bytes (decodes, long edge == 64); stderr is empty. (AC8)
+#[test]
+fn thumbnail_stdout_keeps_stdout_clean() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let in_path = write_test_png(&dir, "in.png", 100, 50);
+
+    let output = Command::new(BIN)
+        .args([
+            "thumbnail",
+            in_path.to_str().unwrap(),
+            "--size",
+            "64",
+            "-o",
+            "-",
+            "--format",
+            "png",
+        ])
+        .output()
+        .expect("failed to run thumbnail stdout");
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "thumbnail -o - should exit 0; stderr: {}",
+        stderr_str(&output)
+    );
+    let decoded = image::load_from_memory(&output.stdout)
+        .expect("stdout bytes should decode as a valid image");
+    assert_eq!(decoded.width(), 64, "stdout image width should be 64");
+    assert_eq!(decoded.height(), 32, "stdout image height should be 32");
+    assert!(
+        output.stderr.is_empty(),
+        "stderr must be empty on clean stdout run, got: {}",
+        stderr_str(&output)
+    );
+}
+
+/// Partial batch: one valid PNG + one garbage-bytes `.png` → `--size 64
+/// --out-dir D` → exit 6; valid output written; stderr names the failure. (AC9)
+#[test]
+fn thumbnail_partial_batch_exits_6() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let out_dir = tempfile::tempdir().expect("out tempdir");
+
+    let good_path = write_test_png(&dir, "good.png", 100, 50);
+    let bad_path = dir.path().join("bad.png");
+    std::fs::write(&bad_path, b"this is not an image at all").unwrap();
+
+    let output = Command::new(BIN)
+        .args([
+            "thumbnail",
+            good_path.to_str().unwrap(),
+            bad_path.to_str().unwrap(),
+            "--size",
+            "64",
+            "--out-dir",
+            out_dir.path().to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run thumbnail partial batch");
+
+    assert_eq!(
+        output.status.code(),
+        Some(6),
+        "partial batch should exit 6; stderr: {}",
+        stderr_str(&output)
+    );
+
+    // Valid input's output must exist and decode.
+    let good_out = out_dir.path().join("good.png");
+    assert!(
+        good_out.exists(),
+        "valid input's output should still be written on partial batch failure"
+    );
+    let decoded = image::open(&good_out).expect("good output should be decodable");
+    assert_eq!(decoded.width(), 64, "good output width should be 64");
+    assert_eq!(decoded.height(), 32, "good output height should be 32");
+
+    let stderr = stderr_str(&output);
+    assert!(
+        stderr.contains("bad.png"),
+        "stderr should mention the failing file 'bad.png'; got: {stderr}"
+    );
+}
+
+/// `thumbnail <png> --size 0` → exit 2 (op rejects width 0 → `Usage`). (AC10)
+#[test]
+fn thumbnail_size_zero_is_usage_error() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let in_path = write_test_png(&dir, "in.png", 100, 50);
+    let out_path = dir.path().join("out.png");
+
+    let output = Command::new(BIN)
+        .args([
+            "thumbnail",
+            in_path.to_str().unwrap(),
+            "--size",
+            "0",
+            "-o",
+            out_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run thumbnail --size 0");
+
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "thumbnail --size 0 should exit 2; stderr: {}",
+        stderr_str(&output)
+    );
+    assert!(
+        !out_path.exists(),
+        "no output should be created on usage error"
     );
 }
