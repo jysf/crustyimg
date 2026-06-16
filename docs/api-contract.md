@@ -108,7 +108,17 @@ and exits **6**; a single-input failure keeps its natural code (3/1/4/5).
 encode is the `shrink`/`convert` story.
 
 #### `thumbnail <INPUT...> [--size N] [--square]`  *(S3)*
-Convenience resize to a small bounded size; `--square` center-crops.
+Convenience resize to a small bounded size — a thin wrapper over `resize`.
+`--size N` bounds the **longest edge to N** (aspect preserved, **never
+upscaled**) — i.e. `resize --max N`. `--size` defaults to **256** when omitted.
+`--square` makes the output **exactly N×N** by covering then **center-cropping**
+— i.e. `resize --fill NxN`. Multi-input + `--out-dir` for batch (SEQUENTIAL, no
+parallelism until STAGE-005). **Output format** defaults to **preserving the
+input's source format** (`--format` / `-o` extension override; DEC-015);
+**metadata is dropped** on the re-encode (pixel lane; DEC-003). **Batch
+failures:** any per-input failure writes the successes, prints a per-file summary
+to stderr, and exits **6**; a single-input failure keeps its natural code
+(3/1/4/5). `-q/--quality` is not honored (encoder default); `--size 0` → exit 2.
 
 #### `shrink <INPUT...> [--max N] [-q Q]`  *(S3)*
 Optimize-for-web: resize (default max long edge) + real quality encode +

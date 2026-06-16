@@ -92,7 +92,7 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
 - [x] SPEC-010 (shipped 2026-06-15, PR #11) — `resize` **Operation** + the operation-params mechanism (DEC-014): max/exact/percent/fit/fill/cover via fast_image_resize SIMD backend (DEC-008), registry-registered, parity-tested — library only (recipe-usable)
 - [x] SPEC-011 (shipped 2026-06-15, PR #12) — `resize` **CLI command** + multi-input `--out-dir` fan-out (sequential, no rayon); preserve-source-format default + partial-batch exit 6 (DEC-015); depends on SPEC-010
-- [ ] (not yet written) — `thumbnail` command: bounded small resize + `--square` center-crop
+- [ ] SPEC-012 (design) — `thumbnail` command: bounded small resize (default 256) + `--square` center-crop; thin wrapper over the `resize` op via a shared `run_pixel_op` fan-out helper (no new op/DEC)
 - [ ] (not yet written) — `shrink` command: resize + real quality encode + metadata strip (web-prep workhorse, honors `--keep-gps`)
 - [ ] (not yet written) — `convert` command: re-encode across core formats (JPEG/PNG/GIF/BMP/TIFF/ICO), exit 4 for unbuilt codecs (DEC-004)
 - [ ] (not yet written) — `auto-orient` command/Operation: apply EXIF orientation to pixels then clear the orientation tag
