@@ -12,7 +12,7 @@ Cycle prompts live in `prompts/SPEC-015-<cycle>.md`.
   **DEC-017** emitted (ops may READ the captured MetadataBundle to drive a pixel
   transform; auto-orient uses image's native Orientation, no kamadak-exif).
   Authored by the orchestrator (Opus), 2026-06-15.
-- [x] **build** — PR #15 opened. `AutoOrient` op + `orientation_from_exif_segment`
+- [x] **build** — PR #16 opened. `AutoOrient` op + `orientation_from_exif_segment`
   helper + registry entry + `run_auto_orient` CLI + `jpeg_with_orientation` fixture;
   all named Failing Tests pass; 206/206 tests green; 4 gates clean.
   Implemented by claude-sonnet-4-6, 2026-06-15.

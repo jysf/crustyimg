@@ -387,7 +387,7 @@ stay green (run the FULL suite).
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
 - **Branch:** `feat/spec-015-auto-orient-command-and-operation-bake-exif-orientation-into-pixels`
-- **PR (if applicable):** #15 (see timeline for exact URL)
+- **PR (if applicable):** #16 — https://github.com/jysf/crustyimg/pull/16
 - **All acceptance criteria met?** yes
 - **New decisions emitted:**
   - No new DEC during build — DEC-017 already governs.
