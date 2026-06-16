@@ -238,34 +238,22 @@ fn apply_to_stdout_keeps_stdout_clean() {
     assert_eq!(decoded.height(), 4);
 }
 
-/// A stub command (here `shrink`) exits 1 and writes "not yet implemented"
+/// A stub command (here `convert`) exits 1 and writes "not yet implemented"
 /// to stderr; no output file is created.
 ///
 /// (resize is now real — SPEC-011; thumbnail is now real — SPEC-012;
-/// repointed to `shrink` which remains a stub.)
+/// shrink is now real — SPEC-013; repointed to `convert` which remains a stub.)
 #[test]
 fn stub_command_returns_not_implemented() {
     let dir = tempfile::tempdir().expect("tempdir");
     let in_path = write_test_png(&dir, "in.png", 4, 4);
-    let out_path = dir.path().join("out.png");
 
     let output = Command::new(BIN)
-        .args([
-            "shrink",
-            in_path.to_str().unwrap(),
-            "--max",
-            "64",
-            "-o",
-            out_path.to_str().unwrap(),
-        ])
+        .args(["convert", in_path.to_str().unwrap(), "--format", "png"])
         .output()
-        .expect("failed to run shrink");
+        .expect("failed to run convert");
 
     assert_eq!(output.status.code(), Some(1), "stub command should exit 1");
-    assert!(
-        !out_path.exists(),
-        "stub command must not create an output file"
-    );
     let stderr = stderr_str(&output);
     assert!(
         stderr.to_ascii_lowercase().contains("not yet implemented"),
@@ -1423,5 +1411,336 @@ fn thumbnail_size_zero_is_usage_error() {
     assert!(
         !out_path.exists(),
         "no output should be created on usage error"
+    );
+}
+
+// ── SPEC-013 shrink integration tests ─────────────────────────────────────────
+
+/// `shrink <jpg>` (no flags) resizes long edge to DEFAULT_SHRINK_MAX (1600) and
+/// writes a file smaller than the original.
+///
+/// Source: 2000×1000 JPEG → long edge == 1600, smaller file. (AC1)
+#[test]
+fn shrink_defaults_bound_long_edge_and_shrink_file() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let in_path = write_test_jpeg(&dir, "in.jpg", 2000, 1000);
+    let out_path = dir.path().join("out.jpg");
+
+    let in_size = std::fs::metadata(&in_path).unwrap().len();
+
+    let output = Command::new(BIN)
+        .args([
+            "shrink",
+            in_path.to_str().unwrap(),
+            "-o",
+            out_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run shrink");
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "shrink (no flags) should exit 0; stderr: {}",
+        stderr_str(&output)
+    );
+    assert!(out_path.exists(), "output file should exist");
+
+    let decoded = image::open(&out_path).expect("output should be decodable");
+    // Long edge (width) must be exactly 1600.
+    assert_eq!(
+        decoded.width(),
+        1600,
+        "long edge should be 1600 (DEFAULT_SHRINK_MAX)"
+    );
+    assert_eq!(
+        decoded.height(),
+        800,
+        "short edge should be 800 (aspect preserved)"
+    );
+
+    let out_size = std::fs::metadata(&out_path).unwrap().len();
+    assert!(
+        out_size < in_size,
+        "output ({out_size} bytes) should be smaller than input ({in_size} bytes)"
+    );
+}
+
+/// `shrink <jpg> --max 100` on a 200×100 JPEG → long edge == 100, short edge == 50. (AC2)
+#[test]
+fn shrink_max_bounds_long_edge() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let in_path = write_test_jpeg(&dir, "in.jpg", 200, 100);
+    let out_path = dir.path().join("out.jpg");
+
+    let output = Command::new(BIN)
+        .args([
+            "shrink",
+            in_path.to_str().unwrap(),
+            "--max",
+            "100",
+            "-o",
+            out_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run shrink --max");
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "shrink --max 100 should exit 0; stderr: {}",
+        stderr_str(&output)
+    );
+    assert!(out_path.exists(), "output file should exist");
+
+    let decoded = image::open(&out_path).expect("output should be decodable");
+    assert_eq!(decoded.width(), 100, "long edge should be 100");
+    assert_eq!(
+        decoded.height(),
+        50,
+        "short edge should be 50 (aspect preserved)"
+    );
+}
+
+/// Same JPEG at `-q 20` vs `-q 90`: low-quality output smaller; same dims. (AC3)
+#[test]
+fn shrink_quality_lower_is_smaller() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let in_path = write_test_jpeg(&dir, "in.jpg", 400, 200);
+    let out_lo = dir.path().join("lo.jpg");
+    let out_hi = dir.path().join("hi.jpg");
+
+    // Low quality.
+    let lo_out = Command::new(BIN)
+        .args([
+            "shrink",
+            in_path.to_str().unwrap(),
+            "--max",
+            "200",
+            "-q",
+            "20",
+            "-o",
+            out_lo.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run shrink -q 20");
+
+    assert_eq!(
+        lo_out.status.code(),
+        Some(0),
+        "shrink -q 20 should exit 0; stderr: {}",
+        stderr_str(&lo_out)
+    );
+
+    // High quality.
+    let hi_out = Command::new(BIN)
+        .args([
+            "shrink",
+            in_path.to_str().unwrap(),
+            "--max",
+            "200",
+            "-q",
+            "90",
+            "-o",
+            out_hi.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run shrink -q 90");
+
+    assert_eq!(
+        hi_out.status.code(),
+        Some(0),
+        "shrink -q 90 should exit 0; stderr: {}",
+        stderr_str(&hi_out)
+    );
+
+    let lo_size = std::fs::metadata(&out_lo).unwrap().len();
+    let hi_size = std::fs::metadata(&out_hi).unwrap().len();
+    assert!(
+        lo_size < hi_size,
+        "low quality ({lo_size} bytes) should be smaller than high quality ({hi_size} bytes)"
+    );
+
+    // Both must decode at the same dimensions.
+    let lo_img = image::open(&out_lo).expect("lo output should be decodable");
+    let hi_img = image::open(&out_hi).expect("hi output should be decodable");
+    assert_eq!(lo_img.width(), hi_img.width(), "widths must match");
+    assert_eq!(lo_img.height(), hi_img.height(), "heights must match");
+}
+
+/// `shrink <png> --max 100 -q 10` → PNG output, exit 0, quality ignored. (AC4)
+#[test]
+fn shrink_png_preserves_format_quality_ignored() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let in_path = write_test_png(&dir, "in.png", 200, 100);
+    let out_path = dir.path().join("out.png");
+
+    let output = Command::new(BIN)
+        .args([
+            "shrink",
+            in_path.to_str().unwrap(),
+            "--max",
+            "100",
+            "-q",
+            "10",
+            "-o",
+            out_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run shrink on PNG");
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "shrink on PNG should exit 0; stderr: {}",
+        stderr_str(&output)
+    );
+    assert!(out_path.exists(), "output file should exist");
+
+    // Output must be PNG (magic bytes).
+    let bytes = std::fs::read(&out_path).unwrap();
+    assert_eq!(&bytes[..4], b"\x89PNG", "output should be PNG format");
+
+    let decoded = image::open(&out_path).expect("output should be decodable");
+    assert_eq!(decoded.width(), 100, "long edge should be 100");
+}
+
+/// `shrink a.png b.jpg --max 64 --out-dir D` → exit 0; each keeps source format. (AC5)
+#[test]
+fn shrink_multi_input_fan_out_preserves_format() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let out_dir = tempfile::tempdir().expect("out tempdir");
+
+    let png_path = write_test_png(&dir, "a.png", 200, 100);
+    let jpg_path = write_test_jpeg(&dir, "b.jpg", 200, 100);
+
+    let output = Command::new(BIN)
+        .args([
+            "shrink",
+            png_path.to_str().unwrap(),
+            jpg_path.to_str().unwrap(),
+            "--max",
+            "64",
+            "--out-dir",
+            out_dir.path().to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run shrink multi-input");
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "shrink multi-input should exit 0; stderr: {}",
+        stderr_str(&output)
+    );
+
+    // a.png → out_dir/a.png, scaled to ≤ 64 on long edge, must be PNG.
+    let out_png = out_dir.path().join("a.png");
+    assert!(out_png.exists(), "a.png output should exist in out-dir");
+    let png_bytes = std::fs::read(&out_png).unwrap();
+    assert_eq!(
+        &png_bytes[..4],
+        b"\x89PNG",
+        "a.png output should be PNG format"
+    );
+    let decoded_png = image::open(&out_png).expect("a.png output should be decodable");
+    assert!(decoded_png.width() <= 64, "a.png long edge should be ≤ 64");
+
+    // b.jpg → out_dir/b.jpg, scaled to ≤ 64 on long edge, must be JPEG.
+    let out_jpg = out_dir.path().join("b.jpg");
+    assert!(out_jpg.exists(), "b.jpg output should exist in out-dir");
+    let jpg_bytes = std::fs::read(&out_jpg).unwrap();
+    assert_eq!(
+        &jpg_bytes[..2],
+        b"\xFF\xD8",
+        "b.jpg output should be JPEG format"
+    );
+    let decoded_jpg = image::open(&out_jpg).expect("b.jpg output should be decodable");
+    assert!(decoded_jpg.width() <= 64, "b.jpg long edge should be ≤ 64");
+}
+
+/// `shrink <missing>` → exit 3. (AC6)
+#[test]
+fn shrink_missing_input_exits_3() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let missing = dir.path().join("nope.jpg");
+
+    let output = Command::new(BIN)
+        .args(["shrink", missing.to_str().unwrap()])
+        .output()
+        .expect("failed to run shrink missing");
+
+    assert_eq!(
+        output.status.code(),
+        Some(3),
+        "shrink of missing file should exit 3; stderr: {}",
+        stderr_str(&output)
+    );
+}
+
+/// Two inputs with no `--out-dir` → exit 2; stderr mentions `--out-dir`. (AC7)
+#[test]
+fn shrink_multi_without_out_dir_is_usage_error() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let in1 = write_test_jpeg(&dir, "a.jpg", 4, 4);
+    let in2 = write_test_jpeg(&dir, "b.jpg", 4, 4);
+
+    let output = Command::new(BIN)
+        .args(["shrink", in1.to_str().unwrap(), in2.to_str().unwrap()])
+        .output()
+        .expect("failed to run shrink multi-no-out-dir");
+
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "shrink multi without --out-dir should exit 2; stderr: {}",
+        stderr_str(&output)
+    );
+    let stderr = stderr_str(&output);
+    assert!(
+        stderr.contains("out-dir") || stderr.contains("out_dir"),
+        "stderr should mention --out-dir; got: {stderr}"
+    );
+}
+
+/// `shrink <jpg> --max 64 -o -` → exit 0; stdout is the encoded image; stderr empty. (AC8)
+#[test]
+fn shrink_stdout_keeps_stdout_clean() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let in_path = write_test_jpeg(&dir, "in.jpg", 200, 100);
+
+    let output = Command::new(BIN)
+        .args([
+            "shrink",
+            in_path.to_str().unwrap(),
+            "--max",
+            "64",
+            "-o",
+            "-",
+        ])
+        .output()
+        .expect("failed to run shrink stdout");
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "shrink -o - should exit 0; stderr: {}",
+        stderr_str(&output)
+    );
+
+    // stdout must be ONLY the encoded image bytes — decodable.
+    let decoded = image::load_from_memory(&output.stdout)
+        .expect("stdout bytes should decode as a valid image");
+    assert!(
+        decoded.width() <= 64,
+        "stdout image width should be ≤ 64, got {}",
+        decoded.width()
+    );
+
+    // stderr must be empty.
+    assert!(
+        output.stderr.is_empty(),
+        "stderr must be empty on clean stdout run, got: {}",
+        stderr_str(&output)
     );
 }

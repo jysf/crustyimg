@@ -7,7 +7,7 @@
 task:
   id: SPEC-013
   type: story                      # epic | story | task | bug | chore
-  cycle: design                    # frame | design | build | verify | ship
+  cycle: verify                    # frame | design | build | verify | ship
   blocked: false
   priority: medium
   complexity: M                    # S | M | L  (L means split it)
@@ -48,6 +48,14 @@ cost:
       duration_minutes: null
       recorded_at: 2026-06-15
       notes: "design cycle authored by the ORCHESTRATOR (Opus) directly, after two consecutive design-subagent sessions dropped on API socket errors. Emitted DEC-016 (encode quality policy). Complexity M (first library/Sink change in STAGE-003 — quality-aware encode)."
+    - cycle: build
+      agent: claude-sonnet-4-6
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-06-15
+      notes: "Build cycle: quality-aware encode in sink, run_shrink, 8 integration tests + 2 unit tests. All gates green (181 tests pass). encode_to_bytes made pub for integration test access."
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -318,26 +326,27 @@ decode outputs with `image::open`/`image::load_from_memory`).
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
+- **Branch:** `feat/spec-013-shrink-command-web-prep-resize-quality-encode-strip`
+- **PR (if applicable):** #14 https://github.com/jysf/crustyimg/pull/14
+- **All acceptance criteria met?** yes
 - **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
+  - No new DEC during build — DEC-016 already governs.
 - **Deviations from spec:**
-  - [list]
+  - `encode_to_bytes` made `pub` (not `pub(crate)`) to allow access from the integration test crate (`tests/sink.rs`). The spec describes it as a "private helper" but the prescribed tests call it directly. Making it `pub` is the minimal change that satisfies both the test requirement and the `every-public-fn-tested` constraint.
 - **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - SPEC-014 (`convert`) will reuse the quality plumbing from this spec per DEC-016.
+  - STAGE-004: `--keep-gps` wiring for `shrink`.
 
 ### Build-phase reflection (3 questions, short answers)
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — The visibility of `encode_to_bytes` was ambiguous: the spec described it as a private helper but the test section requires calling it directly from an integration test file (which is a separate crate). The spec's `## Notes for the Implementer` section says to verify the `write_with_encoder` API path — that was clear but required checking that `DynamicImage::write_with_encoder` exists in image 0.25.10 (it does).
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — The `encode_to_bytes` visibility gap: the constraints list `every-public-fn-tested` but the function was originally private. The spec should have noted that the prescribed unit tests in `tests/sink.rs` require it to be `pub` (or suggested an alternative like testing through `Sink::Stdout`).
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Run `cargo fmt` before each commit rather than after clippy (it saves one round-trip). Also would read `tests/sink.rs` more carefully first to understand the full list of `sink.write` call sites before starting edits, rather than grepping after.
 
 ---
 

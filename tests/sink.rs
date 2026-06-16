@@ -12,8 +12,8 @@ use std::path::Path;
 use ::image::{DynamicImage, ImageFormat, RgbImage};
 use crustyimg::image::Image;
 use crustyimg::sink::{
-    expand_template, extension_for_format, format_from_extension, safe_join, Overwrite, Sink,
-    SinkError, SinkInput,
+    encode_to_bytes, expand_template, extension_for_format, format_from_extension, safe_join,
+    Overwrite, Sink, SinkError, SinkInput,
 };
 
 // ── In-memory fixture helper ──────────────────────────────────────────────────
@@ -54,6 +54,7 @@ fn file_sink_writes_readable_image() {
         &img,
         &sink_input("out"),
         Overwrite::Forbid,
+        None,
         &mut std::io::sink(),
     )
     .unwrap();
@@ -76,7 +77,7 @@ fn format_inferred_from_extension_jpeg_and_png() {
         path: jpg_path.clone(),
         format: None,
     }
-    .write(&img, &si, Overwrite::Forbid, &mut std::io::sink())
+    .write(&img, &si, Overwrite::Forbid, None, &mut std::io::sink())
     .unwrap();
 
     // Write PNG
@@ -85,7 +86,7 @@ fn format_inferred_from_extension_jpeg_and_png() {
         path: png_path.clone(),
         format: None,
     }
-    .write(&img, &si, Overwrite::Forbid, &mut std::io::sink())
+    .write(&img, &si, Overwrite::Forbid, None, &mut std::io::sink())
     .unwrap();
 
     // Verify formats.
@@ -114,7 +115,7 @@ fn explicit_format_overrides_missing_extension() {
         path: out_path.clone(),
         format: Some(ImageFormat::Png),
     }
-    .write(&img, &si, Overwrite::Forbid, &mut std::io::sink())
+    .write(&img, &si, Overwrite::Forbid, None, &mut std::io::sink())
     .unwrap();
     let loaded = Image::load(&out_path).unwrap();
     assert_eq!(loaded.source_format(), ImageFormat::Png);
@@ -125,7 +126,7 @@ fn explicit_format_overrides_missing_extension() {
         path: out_no_ext,
         format: None,
     }
-    .write(&img, &si, Overwrite::Forbid, &mut std::io::sink())
+    .write(&img, &si, Overwrite::Forbid, None, &mut std::io::sink())
     .unwrap_err();
     assert!(matches!(err, SinkError::UnknownFormat), "got: {err:?}");
 }
@@ -143,6 +144,7 @@ fn unsupported_extension_is_typed_error() {
         &img,
         &sink_input("out"),
         Overwrite::Forbid,
+        None,
         &mut std::io::sink(),
     )
     .unwrap_err();
@@ -166,7 +168,7 @@ fn dir_sink_expands_name_template() {
         template: "{stem}_web.{ext}".into(),
         format: Some(ImageFormat::Png),
     }
-    .write(&img, &si, Overwrite::Forbid, &mut std::io::sink())
+    .write(&img, &si, Overwrite::Forbid, None, &mut std::io::sink())
     .unwrap();
 
     let expected = tmp.path().join("photo_web.png");
@@ -197,7 +199,7 @@ fn stdout_sink_writes_only_encoded_bytes() {
     Sink::Stdout {
         format: Some(ImageFormat::Png),
     }
-    .write(&img, &si, Overwrite::Forbid, &mut buf)
+    .write(&img, &si, Overwrite::Forbid, None, &mut buf)
     .unwrap();
 
     // The captured bytes must decode as a PNG.
@@ -212,7 +214,7 @@ fn stdout_sink_writes_only_encoded_bytes() {
     Sink::Stdout {
         format: Some(ImageFormat::Png),
     }
-    .write(&img, &si, Overwrite::Forbid, &mut expected_buf)
+    .write(&img, &si, Overwrite::Forbid, None, &mut expected_buf)
     .unwrap();
     assert_eq!(
         buf.len(),
@@ -223,7 +225,7 @@ fn stdout_sink_writes_only_encoded_bytes() {
     // None format → UnknownFormat.
     let mut discard = Vec::<u8>::new();
     let err = Sink::Stdout { format: None }
-        .write(&img, &si, Overwrite::Forbid, &mut discard)
+        .write(&img, &si, Overwrite::Forbid, None, &mut discard)
         .unwrap_err();
     assert!(matches!(err, SinkError::UnknownFormat), "got: {err:?}");
 }
@@ -243,7 +245,7 @@ fn overwrite_guard_forbids_then_allows() {
         path: out_path.clone(),
         format: None,
     }
-    .write(&img, &si, Overwrite::Forbid, &mut std::io::sink())
+    .write(&img, &si, Overwrite::Forbid, None, &mut std::io::sink())
     .unwrap_err();
     assert!(matches!(err, SinkError::AlreadyExists(_)), "got: {err:?}");
     // File must still be the placeholder (not truncated).
@@ -254,7 +256,7 @@ fn overwrite_guard_forbids_then_allows() {
         path: out_path.clone(),
         format: None,
     }
-    .write(&img, &si, Overwrite::Allow, &mut std::io::sink())
+    .write(&img, &si, Overwrite::Allow, None, &mut std::io::sink())
     .unwrap();
     let loaded = Image::load(&out_path).unwrap();
     assert_eq!(loaded.source_format(), ImageFormat::Png);
@@ -272,7 +274,7 @@ fn dir_sink_rejects_traversal_template() {
         template: "../{stem}.{ext}".into(),
         format: Some(ImageFormat::Png),
     }
-    .write(&img, &si, Overwrite::Forbid, &mut std::io::sink())
+    .write(&img, &si, Overwrite::Forbid, None, &mut std::io::sink())
     .unwrap_err();
     assert!(matches!(err, SinkError::Traversal(_)), "got: {err:?}");
 
@@ -293,7 +295,7 @@ fn missing_out_dir_is_typed_not_panic() {
         template: "{stem}.{ext}".into(),
         format: Some(ImageFormat::Png),
     }
-    .write(&img, &si, Overwrite::Forbid, &mut std::io::sink());
+    .write(&img, &si, Overwrite::Forbid, None, &mut std::io::sink());
 
     // Must be an Err (any SinkError variant); must NOT panic.
     assert!(result.is_err(), "expected Err for missing dir, got Ok");
@@ -311,9 +313,64 @@ fn display_sink_refuses_non_tty() {
         width: None,
         height: None,
     }
-    .write(&img, &si, Overwrite::Forbid, &mut discard)
+    .write(&img, &si, Overwrite::Forbid, None, &mut discard)
     .unwrap_err();
     assert!(matches!(err, SinkError::NotATty), "got: {err:?}");
+}
+
+// ── SPEC-013 quality-aware encode tests ──────────────────────────────────────
+
+/// Encode the same DynamicImage to JPEG at low quality (20) vs high quality
+/// (90) and assert:
+/// - the low-quality byte length < high-quality byte length
+/// - both decode to the same dimensions
+#[test]
+fn encode_jpeg_quality_lower_is_smaller() {
+    // 200×100 horizontal gradient gives the JPEG encoder something to work with.
+    let img = Image::from_bytes(&make_jpeg_bytes(200, 100)).unwrap();
+
+    let lo = encode_to_bytes(&img, ImageFormat::Jpeg, Some(20)).unwrap();
+    let hi = encode_to_bytes(&img, ImageFormat::Jpeg, Some(90)).unwrap();
+
+    assert!(
+        lo.len() < hi.len(),
+        "low quality ({} bytes) should be smaller than high quality ({} bytes)",
+        lo.len(),
+        hi.len()
+    );
+
+    // Both must decode to the same dimensions.
+    let lo_img = ::image::load_from_memory(&lo).unwrap();
+    let hi_img = ::image::load_from_memory(&hi).unwrap();
+    assert_eq!(lo_img.width(), hi_img.width(), "width must match");
+    assert_eq!(lo_img.height(), hi_img.height(), "height must match");
+}
+
+/// Encode a PNG at Some(10) and None: output must be byte-identical
+/// (quality is ignored for lossless formats, DEC-016).
+#[test]
+fn encode_png_ignores_quality() {
+    let img = make_image();
+
+    let with_q = encode_to_bytes(&img, ImageFormat::Png, Some(10)).unwrap();
+    let no_q = encode_to_bytes(&img, ImageFormat::Png, None).unwrap();
+
+    assert_eq!(
+        with_q, no_q,
+        "PNG encode at Some(10) and None must be byte-identical"
+    );
+}
+
+/// Encode a gradient JPEG image to JPEG bytes (for encode unit tests).
+fn make_jpeg_bytes(w: u32, h: u32) -> Vec<u8> {
+    let img = RgbImage::from_fn(w, h, |x, _y| {
+        ::image::Rgb([(x * 255 / w.max(1)) as u8, 100u8, 150u8])
+    });
+    let mut out = Cursor::new(Vec::new());
+    DynamicImage::ImageRgb8(img)
+        .write_to(&mut out, ImageFormat::Jpeg)
+        .unwrap();
+    out.into_inner()
 }
 
 // ── Helper round-trips ────────────────────────────────────────────────────────
