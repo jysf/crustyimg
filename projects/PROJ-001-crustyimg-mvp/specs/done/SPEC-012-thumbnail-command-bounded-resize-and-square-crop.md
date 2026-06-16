@@ -7,7 +7,7 @@
 task:
   id: SPEC-012
   type: story                      # epic | story | task | bug | chore
-  cycle: verify                    # frame | design | build | verify | ship
+  cycle: ship                      # frame | design | build | verify | ship
   blocked: false
   priority: medium
   complexity: S                    # S | M | L  (L means split it)
@@ -58,11 +58,27 @@ cost:
       estimated_usd: null
       duration_minutes: 25
       recorded_at: 2026-06-15
-      notes: "subagent; cost not separately reported"
+      notes: "subagent; cost not separately reported. Clean first-pass build — incremental commits + an explicit test-existence checklist (SPEC-011 lessons) applied; --all-targets gate green."
+    - cycle: verify
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-06-15
+      notes: "verify cycle, Opus read-only subagent. ✅ APPROVED, no punch list. Confirmed run_pixel_op refactor byte-for-byte faithful (all resize_* tests green), thumbnail semantics hands-on (256×128 default, 64×64 square, JPEG preserved, --size 0→exit 2, no upscale), DEC-015 inherited, all 14 tests present, --all-targets + CI 6/6 green."
+    - cycle: ship
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-06-15
+      notes: "orchestrator ship bookkeeping on main (merged PR #13 squash 95e664f; clean merge, no branch-protection issue; archive by hand)."
   totals:
     tokens_total: 0
     estimated_usd: 0
-    session_count: 0
+    session_count: 4
 ---
 
 # SPEC-012: thumbnail command bounded resize and square crop
@@ -661,12 +677,22 @@ Process-focused: how did the build go? What friction did the spec create?
 from the process-focused build reflection above.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Nothing — this was the smoothest cycle of STAGE-003. The build-prompt
+   lessons banked from SPEC-010/011 (commit incrementally, confirm every named
+   test exists, `--all-targets` gate, derive Debug) produced a clean first-pass
+   build and a no-punch-list verify. The "thumbnail = thin wrapper over resize"
+   insight kept it complexity S and avoided a redundant Operation.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — No. DEC-015 already declared it governs every STAGE-003 fan-out command,
+   and thumbnail inherited it for free via the new shared `run_pixel_op` helper —
+   exactly as intended. No new DEC, no constraint change.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — No new spec. The `run_pixel_op` shared helper is now the reuse seam for the
+   remaining STAGE-003 commands: `shrink` (resize + quality encode + strip),
+   `convert` (re-encode), `auto-orient` (EXIF orientation → pixels). `shrink`
+   and `convert` will extend it with quality-aware / format-targeted encoding;
+   they need fresh specs but no new framing.
 </content>
 </invoke>
