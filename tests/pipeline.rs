@@ -1,12 +1,14 @@
 //! Integration tests for the `Pipeline` executor and `Operation` trait
-//! (SPEC-003). Exercises only public crate exports.
+//! (SPEC-003, SPEC-010). Exercises only public crate exports.
 //!
 //! Fixtures are built natively from `::image::RgbaImage::from_fn` —
 //! no committed binary files, no ImageMagick shell-out (AGENTS.md §12).
 
+use std::collections::BTreeMap;
+
 use ::image::{DynamicImage, ImageFormat, RgbaImage};
 use crustyimg::image::Image;
-use crustyimg::operation::{Identity, Invert};
+use crustyimg::operation::{Identity, Invert, OperationParams, Resize};
 use crustyimg::pipeline::Pipeline;
 
 // ─── fixture helper ─────────────────────────────────────────────────────────
@@ -136,4 +138,23 @@ fn identity_op_leaves_pixels_and_format_intact() {
     let result = Pipeline::new().push(Box::new(Identity)).run(img).unwrap();
     assert_eq!(result.pixels().to_rgba8().into_raw(), original_raw);
     assert_eq!(result.source_format(), original_format);
+}
+
+#[test]
+fn resize_runs_through_pipeline() {
+    // Push a Resize (exact 8×8) into a Pipeline over a 16×16 fixture → 8×8.
+    let params = OperationParams::from_map({
+        let mut m = BTreeMap::new();
+        m.insert("mode".to_owned(), toml::Value::String("exact".into()));
+        m.insert("width".to_owned(), toml::Value::Integer(8));
+        m.insert("height".to_owned(), toml::Value::Integer(8));
+        m
+    });
+    let op = Resize::from_params(&params).expect("from_params should succeed for exact 8×8");
+    let img = make_image(16, 16);
+
+    let result = Pipeline::new().push(Box::new(op)).run(img).unwrap();
+
+    assert_eq!(result.pixels().width(), 8, "output width must be 8");
+    assert_eq!(result.pixels().height(), 8, "output height must be 8");
 }

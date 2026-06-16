@@ -186,6 +186,29 @@ crustyimg apply --recipe web.toml "photos/*.jpg" \
     --out-dir optimized/ --name-template "{stem}_web.{ext}" --jobs 8
 ```
 
+### `resize` step param keys (PINNED — SPEC-010 / DEC-014)
+
+The `resize` op carries a required `mode` plus per-mode dimension keys, as
+flat integer/float values in the `[[step]]` table (parsed via the
+`OperationParams` accessors — **not** a `"WxH"` string; that string form is a
+CLI concern, SPEC-011). `params()` emits **only** the keys the mode uses, so
+the step round-trips minimally (e.g. `max` records `mode` + `width`, with
+`height` absent).
+
+| `mode` | Required keys | Meaning |
+|---|---|---|
+| `max` | `width` (= long-edge cap N) | longest edge ≤ N; never upscale |
+| `exact` | `width`, `height` | force exactly W×H; aspect ignored |
+| `percent` | `percent` (P) | scale both dims by P/100 |
+| `fit` | `width`, `height` | fit inside W×H (aspect kept); never upscale |
+| `cover` | `width`, `height` | cover W×H (aspect kept; may upscale); no crop |
+| `fill` | `width`, `height` | `cover` then center-crop to exactly W×H |
+
+A missing/unknown `mode`, a missing required key, a wrong-typed key, or a
+non-positive value is a typed error at recipe build time
+(`RecipeError::InvalidOperation`, via `RegistryError::InvalidParams`) — not a
+silent skip and not `UnknownOperation`.
+
 ### Round-trip guarantee (DEC-005)
 
 `load(save(recipe)) == recipe`: serializing a recipe to TOML and reading it

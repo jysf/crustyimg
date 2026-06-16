@@ -88,8 +88,24 @@ command: resolves the first input on a directory/glob. "byte size" is the
 ### Geometry / transform
 
 #### `resize <INPUT...> --max N | --exact WxH | --percent P | --fit WxH | --fill WxH | --cover WxH`  *(S3)*
-Resize using the SIMD backend (DEC-008). Mutually exclusive modes. Multi-
-input + `--out-dir` for batch.
+Resize using the SIMD backend (DEC-008). Mutually exclusive modes (exactly
+one required; zero or two → exit **2**). Multi-input + `--out-dir` for batch
+(SEQUENTIAL, no parallelism until STAGE-005). `--cover` scales to cover the
+box (aspect kept, may upscale, no crop); `--fill` is `--cover` **then** a
+center-crop to exactly the box (i.e. fill = cover + center-crop). `--max`/
+`--fit` never upscale.
+
+**Output format:** defaults to **preserving the input's source format** —
+`resize a.jpg --max 800 --out-dir web/` writes `web/a.jpg`, not `web/a.png`.
+`--format FMT` forces a format; an `-o <path>` extension also decides
+(precedence: `--format` > `-o` extension > preserve source). (DEC-015.)
+**Metadata** (EXIF/ICC/orientation) is **dropped** on the resize re-encode —
+the pixel lane does not carry container metadata; that is the STAGE-004
+container lane (DEC-003). **Batch failures:** a multi-input batch with any
+per-input failure writes the successes, prints a per-file summary to stderr,
+and exits **6**; a single-input failure keeps its natural code (3/1/4/5).
+`-q/--quality` is not yet honored by `resize` (encoder default); quality-aware
+encode is the `shrink`/`convert` story.
 
 #### `thumbnail <INPUT...> [--size N] [--square]`  *(S3)*
 Convenience resize to a small bounded size; `--square` center-crops.

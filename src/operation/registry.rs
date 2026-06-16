@@ -13,16 +13,16 @@ use std::collections::HashMap;
 
 use thiserror::Error;
 
-use super::{Identity, Invert, Operation, OperationParams};
+use super::{Identity, Invert, Operation, OperationParams, Resize};
 
 // ─── Constructor type alias ─────────────────────────────────────────────────
 
 /// A plain function-pointer constructor: given params, produce a boxed op.
 ///
-/// A `fn` pointer is sufficient for the built-in parameterless ops
-/// (`Identity`, `Invert`). Later-stage ops that need params read them from
-/// `&OperationParams` inside their constructor. The uniform signature keeps
-/// the registry type simple and avoids dynamic dispatch on closures.
+/// A `fn` pointer is sufficient for all built-in ops. Later-stage ops that
+/// need params read them from `&OperationParams` inside their constructor.
+/// The uniform signature keeps the registry type simple and avoids dynamic
+/// dispatch on closures.
 pub type Constructor = fn(&OperationParams) -> Result<Box<dyn Operation>, RegistryError>;
 
 // ─── RegistryError ──────────────────────────────────────────────────────────
@@ -30,8 +30,8 @@ pub type Constructor = fn(&OperationParams) -> Result<Box<dyn Operation>, Regist
 /// Errors that can occur when resolving an operation name via the registry.
 ///
 /// Typed and matchable; mirrors the `SinkError` / `ImageError` pattern
-/// (DEC-007). The binary maps these to `RecipeError::UnknownOperation` at the
-/// recipe layer boundary.
+/// (DEC-007). The binary maps these to `RecipeError` variants at the recipe
+/// layer boundary.
 #[derive(Debug, Error)]
 pub enum RegistryError {
     /// No constructor registered under this name.
@@ -40,6 +40,15 @@ pub enum RegistryError {
         /// The name that was not found in the registry.
         name: String,
     },
+
+    /// A constructor rejected its params (wrong/missing/out-of-range).
+    #[error("invalid params for operation '{op}': {reason}")]
+    InvalidParams {
+        /// The stable registry key for the operation.
+        op: &'static str,
+        /// Human-readable reason the params were rejected.
+        reason: String,
+    },
 }
 
 // ─── OperationRegistry ──────────────────────────────────────────────────────
@@ -47,10 +56,10 @@ pub enum RegistryError {
 /// Maps operation names to constructor functions (DEC-005).
 ///
 /// Constructed via [`OperationRegistry::new`] (empty) or
-/// [`OperationRegistry::with_builtins`] (pre-populated with `identity` and
-/// `invert`). New operations call [`OperationRegistry::register`] to add
-/// themselves — without touching the recipe parser (the whole point of the
-/// registry seam).
+/// [`OperationRegistry::with_builtins`] (pre-populated with `identity`,
+/// `invert`, and `resize`). New operations call
+/// [`OperationRegistry::register`] to add themselves — without touching the
+/// recipe parser (the whole point of the registry seam).
 pub struct OperationRegistry {
     map: HashMap<&'static str, Constructor>,
 }
@@ -64,11 +73,12 @@ impl OperationRegistry {
     }
 
     /// Create a registry pre-populated with the built-in operations:
-    /// `"identity"` and `"invert"` (SPEC-003).
+    /// `"identity"`, `"invert"` (SPEC-003), and `"resize"` (SPEC-010).
     pub fn with_builtins() -> Self {
         let mut reg = Self::new();
         reg.register("identity", |_params| Ok(Box::new(Identity)));
         reg.register("invert", |_params| Ok(Box::new(Invert)));
+        reg.register("resize", |p| Ok(Box::new(Resize::from_params(p)?)));
         reg
     }
 
@@ -90,7 +100,8 @@ impl OperationRegistry {
     /// constructor and the supplied `params`.
     ///
     /// Returns [`RegistryError::Unknown`] if `name` is not registered.
-    /// Never panics on a missing name.
+    /// Returns [`RegistryError::InvalidParams`] if the constructor rejects
+    /// the params. Never panics on a missing name.
     pub fn build(
         &self,
         name: &str,
@@ -116,6 +127,8 @@ impl Default for OperationRegistry {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
     use super::*;
     use crate::operation::OperationParams;
 
@@ -131,9 +144,15 @@ mod tests {
     }
 
     #[test]
+    fn with_builtins_contains_resize() {
+        let reg = OperationRegistry::with_builtins();
+        assert!(reg.contains("resize"), "expected 'resize' to be registered");
+    }
+
+    #[test]
     fn build_unknown_returns_typed_error() {
         let reg = OperationRegistry::with_builtins();
-        let result = reg.build("bogus", &OperationParams::None);
+        let result = reg.build("bogus", &OperationParams::empty());
         assert!(
             matches!(result, Err(RegistryError::Unknown { ref name }) if name == "bogus"),
             "expected RegistryError::Unknown {{ name: \"bogus\" }}"
@@ -151,7 +170,7 @@ mod tests {
             }
 
             fn params(&self) -> OperationParams {
-                OperationParams::None
+                OperationParams::empty()
             }
 
             fn apply(
@@ -166,8 +185,37 @@ mod tests {
         reg.register("sentinel", |_p| Ok(Box::new(Sentinel)));
 
         let op = reg
-            .build("sentinel", &OperationParams::None)
+            .build("sentinel", &OperationParams::empty())
             .expect("sentinel should build successfully");
         assert_eq!(op.name(), "sentinel");
+    }
+
+    #[test]
+    fn build_resize_with_valid_params() {
+        let reg = OperationRegistry::with_builtins();
+        let params = OperationParams::from_map({
+            let mut m = BTreeMap::new();
+            m.insert("mode".to_owned(), toml::Value::String("max".into()));
+            m.insert("width".to_owned(), toml::Value::Integer(64));
+            m
+        });
+        let op = reg
+            .build("resize", &params)
+            .expect("build('resize', {mode='max',width=64}) should succeed");
+        assert_eq!(op.name(), "resize");
+    }
+
+    #[test]
+    fn build_resize_invalid_params_is_typed() {
+        // empty params → missing mode → InvalidParams
+        let reg = OperationRegistry::with_builtins();
+        let result = reg.build("resize", &OperationParams::empty());
+        assert!(
+            matches!(
+                result,
+                Err(RegistryError::InvalidParams { op: "resize", .. })
+            ),
+            "expected InvalidParams for resize with empty params"
+        );
     }
 }

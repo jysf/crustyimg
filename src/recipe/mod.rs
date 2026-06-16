@@ -22,6 +22,7 @@
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+use crate::operation::registry::RegistryError;
 use crate::operation::{Operation, OperationParams, OperationRegistry};
 use crate::pipeline::Pipeline;
 
@@ -59,6 +60,18 @@ pub enum RecipeError {
     UnknownOperation {
         /// The op name that had no constructor in the registry.
         name: String,
+    },
+
+    /// An op name resolved but its params were invalid (DEC-014).
+    ///
+    /// Distinct from `UnknownOperation` so callers can distinguish a typo in the
+    /// op name from a valid op name with bad params.
+    #[error("invalid operation '{name}': {reason}")]
+    InvalidOperation {
+        /// The op name that resolved but whose params were rejected.
+        name: String,
+        /// Human-readable reason the params were rejected.
+        reason: String,
     },
 
     /// The TOML text could not be parsed.
@@ -184,11 +197,15 @@ impl Recipe {
     pub fn build_pipeline(&self, registry: &OperationRegistry) -> Result<Pipeline, RecipeError> {
         let mut pipeline = Pipeline::new();
         for step in &self.steps {
-            let op = registry.build(&step.op, &step.params).map_err(|_| {
-                RecipeError::UnknownOperation {
-                    name: step.op.clone(),
-                }
-            })?;
+            let op = registry
+                .build(&step.op, &step.params)
+                .map_err(|e| match e {
+                    RegistryError::Unknown { name } => RecipeError::UnknownOperation { name },
+                    RegistryError::InvalidParams { op, reason } => RecipeError::InvalidOperation {
+                        name: op.to_owned(),
+                        reason,
+                    },
+                })?;
             pipeline = pipeline.push(op);
         }
         Ok(pipeline)
