@@ -617,7 +617,7 @@ they live in this spec + the api-contract, not a DEC. **No DEC-016 emitted.**
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
 - **Branch:** `feat/spec-012-thumbnail-command-bounded-resize-and-square-crop`
-- **PR (if applicable):** PR opened (number TBD — see timeline)
+- **PR (if applicable):** PR #13 opened — https://github.com/jysf/crustyimg/pull/13
 - **All acceptance criteria met?** yes
 - **New decisions emitted:**
   - None — thumbnail reuses DEC-015/014/012/008/010/007/003 (see "Why no new DEC")
