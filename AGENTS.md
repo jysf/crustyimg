@@ -118,7 +118,7 @@ Reports aggregate cost by cycle, by interface, by spec, and by stage.
 - **Testing:** `cargo test` — unit tests in `#[cfg(test)]` modules,
   integration tests under `tests/`, native-generated image fixtures
   (no shell-out to ImageMagick).
-- **Linter / Formatter:** `cargo clippy -- -D warnings`, `cargo fmt`.
+- **Linter / Formatter:** `cargo clippy --all-targets -- -D warnings`, `cargo fmt`.
 - **Hosting:** release artifacts (GitHub Releases); target brew / crates.io.
 - **CI:** GitHub Actions, three-OS matrix (Linux/macOS/Windows) (DEC-009).
 
@@ -146,7 +146,7 @@ cargo test                          # all tests (unit + integration)
 cargo test <name>                   # single test or module, e.g. `cargo test recipe_round_trip`
 
 # lint / format ("typecheck" = clippy; Rust type-checks as part of build)
-cargo clippy -- -D warnings         # lint, warnings are errors
+cargo clippy --all-targets -- -D warnings         # lint, warnings are errors
 cargo fmt --check                   # formatting gate (CI); `cargo fmt` to fix
 
 # native-codec feature build (off by default)
@@ -309,7 +309,7 @@ DECs are stable; specs come and go. DECs don't reciprocally list specs.
   output to stdout. No `tokio`/async (constraint `no-async-runtime`).
 - **Comments:** Explain *why*, not *what*.
 - **No dead code.** Delete, don't comment out. Code must pass
-  `cargo clippy -- -D warnings` and `cargo fmt --check` (constraint
+  `cargo clippy --all-targets -- -D warnings` and `cargo fmt --check` (constraint
   `clippy-fmt-clean`).
 - **Diagrams:** author them as Mermaid fenced blocks in markdown
   (`/docs/`, `/decisions/`, specs) so they render on GitHub and you can

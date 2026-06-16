@@ -69,7 +69,7 @@ constraints:
     rationale: "The prototype panicked on file I/O. See DEC-007."
 
   - id: clippy-fmt-clean
-    rule: "Code must pass `cargo clippy -- -D warnings` and `cargo fmt --check`. No dead code; delete rather than comment out."
+    rule: "Code must pass `cargo clippy --all-targets -- -D warnings` and `cargo fmt --check`. No dead code; delete rather than comment out."
     severity: blocking
     paths: ["src/**", "tests/**"]
     added_by: claude
