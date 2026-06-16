@@ -121,13 +121,13 @@ Format: `- [status] STAGE-ID — one-line summary`
 
 - [x] STAGE-001 (shipped on 2026-06-14) — Foundation: CI, image model, Operation trait, pipeline, recipe + source/sink (7 specs, PRs #1-#7)
 - [x] STAGE-002 (shipped on 2026-06-15) — View & info (read-only): `view`, `info` (+ `--exif`, `--json`) (2 specs, PRs #8-#9; DEC-013)
-- [ ] STAGE-003 (pending) — Transform & output: `resize`, `shrink`, `thumbnail`, `convert`, `auto-orient`
+- [x] STAGE-003 (shipped on 2026-06-15) — Transform & output: `resize`, `thumbnail`, `shrink`, `convert`, `auto-orient` (6 specs SPEC-010–015, PRs #11–#16; DEC-014/015/016/017)
 - [ ] STAGE-004 (pending) — Compose & metadata: `watermark`; `strip`/`clean --gps`/`set`/`copy-metadata`
 - [ ] STAGE-005 (pending) — Batch & recipes: `edit`, `--save-recipe`, `apply` (parallel + progress)
 - [ ] STAGE-006 (pending) — Hardening & security assessment: decode limits, traversal tests, cargo-audit in CI, recipe validation, threat-model pass
 - [ ] STAGE-007 (pending) — Release & distribution (MVP exit gate): Cargo metadata + CHANGELOG/tags, cargo-dist release pipeline, Homebrew tap, optional crates.io, README/install polish
 
-**Count:** 2 shipped / 0 active / 5 pending
+**Count:** 3 shipped / 0 active / 4 pending
 
 ## Dependencies
 

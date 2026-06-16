@@ -5,7 +5,7 @@
 
 stage:
   id: STAGE-003                     # stable, zero-padded within the project
-  status: active                    # proposed | active | shipped | cancelled | on_hold
+  status: shipped                   # proposed | active | shipped | cancelled | on_hold
   priority: high                    # critical | high | medium | low
   target_complete: null             # optional: YYYY-MM-DD
 
@@ -15,7 +15,7 @@ repo:
   id: crustyimg
 
 created_at: 2026-06-14
-shipped_at: null
+shipped_at: 2026-06-15
 
 # What part of the project's value thesis this stage advances.
 value_contribution:
@@ -131,13 +131,44 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
 ## Stage-Level Reflection
 
-*Filled in when status moves to shipped. Run Prompt 1c (Stage Ship) in
-FIRST_SESSION_PROMPTS.md to draft this.*
+*Filled in 2026-06-15 at stage ship (all 6 specs shipped).*
 
-- **Did we deliver the outcome in "What This Stage Is"?** <yes/no + notes>
-- **How many specs did it actually take?** <number vs. plan>
-- **What changed between starting and shipping?** <one sentence>
+- **Did we deliver the outcome in "What This Stage Is"?** **Yes.** All five
+  everyday single-image web-prep commands work as one short command and are
+  tested + 3-OS-CI-green: `resize` (six modes on the `fast_image_resize` SIMD
+  backend, parity-tested), `thumbnail` (`--size` bound + `--square` center-crop),
+  `shrink` (resize + quality-aware JPEG encode + metadata drop), `convert`
+  (forced-format re-encode across the core formats, exit 4 for unbuilt codecs),
+  and `auto-orient` (bakes EXIF orientation into pixels and clears the tag). The
+  pixel core now mutates pixels and writes real encodes end to end — the "routine
+  prep is faster than a GUI" half of the thesis is true for single-image use.
+- **How many specs did it actually take?** **6** (SPEC-010 … SPEC-015) vs. the 5
+  planned backlog items — `resize` was split into SPEC-010 (the `Resize`
+  Operation + the DEC-014 operation-params mechanism) and SPEC-011 (the CLI +
+  multi-input fan-out) because the combined item assessed as complexity L on the
+  library↔CLI layering boundary. Every other command was one spec.
+- **What changed between starting and shipping?** The stage grew a reusable
+  spine — DEC-014 (op-params), DEC-015 (source-format preserve + partial-batch
+  exit 6), DEC-016 (quality encode), DEC-017 (ops may read metadata) and the
+  shared `run_pixel_op` fan-out (now carrying `quality` + `forced_format`) — so
+  each later command (`thumbnail`/`shrink`/`convert`/`auto-orient`) landed as a
+  thin, prescriptive build on top of it rather than bespoke plumbing.
 - **Lessons that should update AGENTS.md, templates, or constraints?**
-  - <one-line updates>
+  - None require an edit. The mid-stage CI change (clippy → `cargo clippy
+    --all-targets -- -D warnings`) was already folded into AGENTS §5/§6/§11 and
+    the `clippy-fmt-clean` constraint before this stage's builds.
+  - Process lesson worth carrying forward (already proven across SPEC-013/014/015,
+    not a doc change): the architect verifying the exact upstream crate API during
+    **design** (e.g. `JpegEncoder::new_with_quality`, `image`'s
+    `Orientation::from_exif_chunk`/`apply_orientation`, the convert `--format`
+    clap-shadow, the exit-4-up-front semantics) turned every build into a
+    zero-deviation Sonnet pass. De-risking in design > discovering in build.
 - **Should any spec-level reflections be promoted to stage-level lessons?**
-  - <one-line items>
+  - From SPEC-014: when a command's output format is *forced and global to the
+    invocation*, resolve it **once up front** so a capability error (unbuilt
+    codec → exit 4) doesn't masquerade as a per-input partial-batch failure
+    (exit 6). General to any future forced-format command.
+  - From SPEC-015: when an Operation needs metadata, check whether the pixel
+    library (`image`) already exposes the exact reader before reaching for the
+    dedicated metadata crate — it kept `auto-orient` inside the op module's
+    `::image` surface (DEC-017). General to future metadata-driven ops.
