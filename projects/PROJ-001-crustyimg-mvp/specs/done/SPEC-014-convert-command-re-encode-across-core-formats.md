@@ -7,7 +7,7 @@
 task:
   id: SPEC-014
   type: story                      # epic | story | task | bug | chore
-  cycle: verify                    # frame | design | build | verify | ship
+  cycle: ship                      # frame | design | build | verify | ship
   blocked: false
   priority: medium
   complexity: S                    # S | M | L  (L means split it)
@@ -57,10 +57,26 @@ cost:
       duration_minutes: null
       recorded_at: 2026-06-15
       notes: "Fresh session build. Added forced_format param to run_pixel_op, wired run_convert, dispatched Commands::Convert. All 11 spec integration tests + repointed stub test pass (192 total). No new DEC — reuses DEC-004/015/016. Zero deviations from spec."
+    - cycle: verify
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-06-15
+      notes: "Verify cycle, Opus read-only subagent. ✅ APPROVED, no punch list. Independently grepped + read all 12 named tests; confirmed convert_unbuilt_codec_multi_input_exits_4_not_6 pins exactly Some(4) (up-front-resolution correctness), the format-override test asserts GIF8 magic bytes, the quality test uses a gradient source. Ran the full suite on the branch (192 pass), clippy --all-targets + fmt clean, CI 6/6 (3-OS). Confirmed run_pixel_op's forced_format wired in both arms, output_format_for + tests unchanged, no new dep/op/CliError/Sink/DEC."
+    - cycle: ship
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-06-15
+      notes: "Orchestrator ship bookkeeping on main (merged PR #15 squash bdd89f5; MERGEABLE/CLEAN, no update-branch needed; archive by hand per the just-glob caveat)."
   totals:
     tokens_total: 0
     estimated_usd: 0
-    session_count: 0
+    session_count: 4
 ---
 
 # SPEC-014: convert command — re-encode across core formats
@@ -387,12 +403,27 @@ Process-focused: how did the build go? What friction did the spec create?
 from the process-focused build reflection above.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Little. The "scout the exact APIs in design" approach paid off twice: verifying
+   that the convert-local `--format` shadows the global one (so the build reads from
+   the variant, not `global.format`) and that an unbuilt codec must be resolved
+   up front (single exit 4, not a per-input exit 6) turned the build into a clean,
+   zero-deviation pass. The one durable lesson: when a command's output format is
+   *forced and global to the invocation*, resolve it before the fan-out so a
+   capability error doesn't masquerade as a partial-batch failure.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — No. `convert` reused DEC-004 (exit 4), DEC-015 (format precedence + exit 6),
+   and DEC-016 (quality) cleanly with no new DEC. The `run_pixel_op` fan-out now
+   carries both `quality` and `forced_format`, so `auto-orient` (SPEC-015)
+   inherits both.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — Only the already-planned SPEC-015 (`auto-orient`), the last STAGE-003 command —
+   a new `AutoOrient` Operation that bakes EXIF orientation into pixels. (Design
+   note for it: `image` 0.25.10 has `Orientation::from_exif_chunk` +
+   `DynamicImage::apply_orientation`, so it can stay within the operation module's
+   `::image` surface and needs no kamadak-exif.) Beyond that, `--keep-gps` /
+   selective metadata preserve for `shrink`/`convert` remains a tracked STAGE-004
+   container-lane item.
 </content>
 </invoke>
