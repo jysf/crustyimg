@@ -7,7 +7,7 @@
 task:
   id: SPEC-013
   type: story                      # epic | story | task | bug | chore
-  cycle: verify                    # frame | design | build | verify | ship
+  cycle: ship                      # frame | design | build | verify | ship
   blocked: false
   priority: medium
   complexity: M                    # S | M | L  (L means split it)
@@ -56,10 +56,26 @@ cost:
       duration_minutes: null
       recorded_at: 2026-06-15
       notes: "Build cycle: quality-aware encode in sink, run_shrink, 8 integration tests + 2 unit tests. All gates green (181 tests pass). encode_to_bytes made pub for integration test access."
+    - cycle: verify
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-06-15
+      notes: "verify cycle, Opus read-only subagent. ✅ APPROVED, no punch list. Proved the quality knob hands-on (JPEG -q 20 → 1507 bytes vs -q 90 → 3611 bytes; PNG ignores quality; default bounds 1600 + smaller file); confirmed resize/thumbnail unchanged (21 tests), quality threaded through all sink.write callers, DEC-016 conformance, --all-targets + CI 6/6. Ruled the encode_to_bytes-pub deviation a non-issue (consistent with the module's 4 existing pub helpers)."
+    - cycle: ship
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-06-15
+      notes: "orchestrator ship bookkeeping on main (merged PR #14 squash 48bc5fc; clean merge; archive by hand)."
   totals:
     tokens_total: 0
     estimated_usd: 0
-    session_count: 0
+    session_count: 4
 ---
 
 # SPEC-013: shrink command — web-prep resize + quality encode + strip
@@ -355,10 +371,23 @@ decode outputs with `image::open`/`image::load_from_memory`).
 *Appended during the **ship** cycle.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — The design was authored by the orchestrator directly after two design
+   subagents dropped on API socket errors. That worked (clean build + clean
+   verify), but it's a fallback — when the API is flaky, a fresh-agent design
+   still produces better-isolated rigor. One small spec wart: I labeled the
+   `tests/sink.rs` tests "UNIT", which pushed `encode_to_bytes` to `pub`; either
+   call them integration tests (they are — separate crate) or place them inline.
+   Verify ruled it a non-issue (the module's sibling helpers are already pub),
+   so no harm, but the spec wording could be tighter.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — No. DEC-016 cleanly governs the quality policy and `convert` (SPEC-014)
+   will reuse the exact `quality` plumbing. The `run_pixel_op` shared helper now
+   carries `quality` too, so convert/auto-orient inherit it.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — No new spec beyond the planned `convert` (SPEC-014) and `auto-orient`
+   (SPEC-015). `convert` is the natural next: it reuses this spec's quality
+   encode + DEC-016 + DEC-015 format handling, adding a required `--format`
+   target (and exit 4 for unbuilt codecs, DEC-004). `--keep-gps`/selective
+   metadata preserve remains a tracked STAGE-004 item (the container lane).

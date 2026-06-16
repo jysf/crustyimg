@@ -93,11 +93,11 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 - [x] SPEC-010 (shipped 2026-06-15, PR #11) — `resize` **Operation** + the operation-params mechanism (DEC-014): max/exact/percent/fit/fill/cover via fast_image_resize SIMD backend (DEC-008), registry-registered, parity-tested — library only (recipe-usable)
 - [x] SPEC-011 (shipped 2026-06-15, PR #12) — `resize` **CLI command** + multi-input `--out-dir` fan-out (sequential, no rayon); preserve-source-format default + partial-batch exit 6 (DEC-015); depends on SPEC-010
 - [x] SPEC-012 (shipped 2026-06-15, PR #13) — `thumbnail` command: bounded small resize (default 256) + `--square` center-crop; thin wrapper over the `resize` op via a shared `run_pixel_op` fan-out helper (no new op/DEC)
-- [ ] SPEC-013 (design) — `shrink` command: resize to default max 1600 + quality-aware encode (default 80, DEC-016) + metadata drop (web-prep workhorse); adds the quality-encode path to the Sink; `--keep-gps`/selective preserve deferred to STAGE-004
+- [x] SPEC-013 (shipped 2026-06-15, PR #14) — `shrink` command: resize to default max 1600 + quality-aware encode (default 80, DEC-016) + metadata drop (web-prep workhorse); added the quality-encode path to the Sink; `--keep-gps`/selective preserve deferred to STAGE-004
 - [ ] (not yet written) — `convert` command: re-encode across core formats (JPEG/PNG/GIF/BMP/TIFF/ICO), exit 4 for unbuilt codecs (DEC-004)
 - [ ] (not yet written) — `auto-orient` command/Operation: apply EXIF orientation to pixels then clear the orientation tag
 
-**Count:** 3 shipped / 0 active / 3 pending
+**Count:** 4 shipped / 0 active / 2 pending
 
 > **Note (2026-06-15):** `resize` was split into SPEC-010 (library: operation +
 > the first parameterized-op params mechanism, DEC-014) and SPEC-011 (CLI +
