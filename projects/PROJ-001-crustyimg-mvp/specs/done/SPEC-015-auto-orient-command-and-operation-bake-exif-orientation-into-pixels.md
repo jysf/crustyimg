@@ -48,23 +48,23 @@ cost:
       estimated_usd: null
       duration_minutes: null
       recorded_at: 2026-06-15
-      notes: "Design authored by the ORCHESTRATOR (Opus) directly (proven path from SPEC-013/014). Verified the image 0.25.10 orientation API (Orientation::from_exif_chunk parses a raw TIFF chunk; DynamicImage::apply_orientation; decode() does NOT auto-apply) and the exact 1-entry-IFD fixture byte layout. Emitted DEC-017 (operations may READ the captured MetadataBundle to drive a pixel transform; auto-orient uses image's native Orientation, no kamadak-exif). Complexity M (first metadata-reading Operation + a new registry entry + a new EXIF fixture)."
+      notes: "Design authored by the ORCHESTRATOR (Opus) directly (proven path from SPEC-013/014). Verified the image 0.25.10 orientation API (Orientation::from_exif_chunk parses a raw TIFF chunk; DynamicImage::apply_orientation; decode() does NOT auto-apply) and the exact 1-entry-IFD fixture byte layout. Emitted DEC-017 (operations may READ the captured MetadataBundle to drive a pixel transform; auto-orient uses image's native Orientation, no kamadak-exif). Complexity M (first metadata-reading Operation + a new registry entry + a new EXIF fixture). [orchestrator main-loop cycle — tokens/usd not separately metered; totals cover the metered build+verify subagents only.]"
     - cycle: build
       agent: claude-sonnet-4-6
       interface: claude-code
-      tokens_total: null
-      estimated_usd: null
-      duration_minutes: null
+      tokens_total: 140465
+      estimated_usd: 0.76
+      duration_minutes: 26
       recorded_at: 2026-06-15
-      notes: "AutoOrient op + orientation_from_exif_segment helper + registry entry + run_auto_orient CLI + jpeg_with_orientation fixture + 7 unit + 9 integration tests (5 new auto-orient + repoint stub + 2 registry). All 4 gates pass; 206/206 tests green."
+      notes: "AutoOrient op + orientation_from_exif_segment helper + registry entry + run_auto_orient CLI + jpeg_with_orientation fixture + 7 unit + 9 integration tests (5 new auto-orient + repoint stub + 2 registry). All 4 gates pass; 206/206 tests green. [cost: 140,465 harness-reported subagent tokens, ~26 min wall-clock; est_usd at Sonnet 4.6 list rates ($3/$15 per MTok), ~80/20 input/output, no cache discount — order-of-magnitude (single combined token metric).]"
     - cycle: verify
       agent: claude-opus-4-8
       interface: claude-code
-      tokens_total: null
-      estimated_usd: null
-      duration_minutes: null
+      tokens_total: 76108
+      estimated_usd: 0.69
+      duration_minutes: 26
       recorded_at: 2026-06-15
-      notes: "Verify cycle, Opus read-only subagent. ✅ APPROVED, no punch list. Independently grepped + read all 15 named tests; confirmed the dual assertions (auto_orient_rotate90_swaps_dims pins dims 2×4 AND metadata().is_none(); the CLI test pins rotated dims AND has_exif:false). Grepped the operation module — no kamadak-exif/exif-crate usage. Hands-on end-to-end: a real orientation-6 JPEG went 6×3 has_exif:true → 3×6 has_exif:false, exit 0. Confirmed bundle-drop (from_parts, not with_pixels), DEC-017/003 conformance, no new dep/CliError/image/sink/DEC change, CI 6/6 (3-OS)."
+      notes: "Verify cycle, Opus read-only subagent. ✅ APPROVED, no punch list. Independently grepped + read all 15 named tests; confirmed the dual assertions (auto_orient_rotate90_swaps_dims pins dims 2×4 AND metadata().is_none(); the CLI test pins rotated dims AND has_exif:false). Grepped the operation module — no kamadak-exif/exif-crate usage. Hands-on end-to-end: a real orientation-6 JPEG went 6×3 has_exif:true → 3×6 has_exif:false, exit 0. Confirmed bundle-drop (from_parts, not with_pixels), DEC-017/003 conformance, no new dep/CliError/image/sink/DEC change, CI 6/6 (3-OS). [cost: 76,108 harness-reported subagent tokens, ~26 min wall-clock; est_usd at Opus 4.8 list rates ($5/$25 per MTok), ~80/20 input/output, no cache discount — order-of-magnitude.]"
     - cycle: ship
       agent: claude-opus-4-8
       interface: claude-code
@@ -72,10 +72,14 @@ cost:
       estimated_usd: null
       duration_minutes: null
       recorded_at: 2026-06-15
-      notes: "Orchestrator ship bookkeeping on main (merged PR #16 squash e0fe1ff; MERGEABLE/CLEAN, no update-branch needed; archive by hand). Last STAGE-003 spec → triggers the STAGE-003 stage ship."
+      notes: "Orchestrator ship bookkeeping on main (merged PR #16 squash e0fe1ff; MERGEABLE/CLEAN, no update-branch needed; archive by hand). Last STAGE-003 spec → triggers the STAGE-003 stage ship. [orchestrator main-loop cycle — tokens/usd not separately metered.]"
   totals:
-    tokens_total: 0
-    estimated_usd: 0
+    # tokens_total + estimated_usd cover the metered build+verify subagents only;
+    # the design+ship cycles were orchestrator main-loop work, not separately
+    # metered. estimated_usd is order-of-magnitude (list rates, ~80/20 in/out, no
+    # cache discount; harness reports a single combined token metric).
+    tokens_total: 216573
+    estimated_usd: 1.45
     session_count: 4
 ---
 

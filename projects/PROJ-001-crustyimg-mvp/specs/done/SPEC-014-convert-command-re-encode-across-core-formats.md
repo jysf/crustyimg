@@ -48,23 +48,23 @@ cost:
       estimated_usd: null
       duration_minutes: null
       recorded_at: 2026-06-15
-      notes: "Design authored by the ORCHESTRATOR (Opus) directly (the proven path from SPEC-013). Verified the convert clap surface (the convert-local required --format shadows the global --format), the image 0.25.10 / kamadak-exif APIs, and the exit-4-up-front semantics. No new DEC — reuses DEC-004/015/016. Complexity S (CLI-only; no new Operation, no library/Sink change beyond threading a forced-format option through run_pixel_op)."
+      notes: "Design authored by the ORCHESTRATOR (Opus) directly (the proven path from SPEC-013). Verified the convert clap surface (the convert-local required --format shadows the global --format), the image 0.25.10 / kamadak-exif APIs, and the exit-4-up-front semantics. No new DEC — reuses DEC-004/015/016. Complexity S (CLI-only; no new Operation, no library/Sink change beyond threading a forced-format option through run_pixel_op). [orchestrator main-loop cycle — tokens/usd not separately metered; totals cover the metered build+verify subagents only.]"
     - cycle: build
       agent: claude-sonnet-4-6
       interface: claude-code
-      tokens_total: null
-      estimated_usd: null
-      duration_minutes: null
+      tokens_total: 130653
+      estimated_usd: 0.71
+      duration_minutes: 22
       recorded_at: 2026-06-15
-      notes: "Fresh session build. Added forced_format param to run_pixel_op, wired run_convert, dispatched Commands::Convert. All 11 spec integration tests + repointed stub test pass (192 total). No new DEC — reuses DEC-004/015/016. Zero deviations from spec."
+      notes: "Fresh session build. Added forced_format param to run_pixel_op, wired run_convert, dispatched Commands::Convert. All 11 spec integration tests + repointed stub test pass (192 total). No new DEC — reuses DEC-004/015/016. Zero deviations from spec. [cost: 130,653 harness-reported subagent tokens, ~22 min wall-clock; est_usd at Sonnet 4.6 list rates ($3/$15 per MTok), ~80/20 input/output, no cache discount — order-of-magnitude (single combined token metric).]"
     - cycle: verify
       agent: claude-opus-4-8
       interface: claude-code
-      tokens_total: null
-      estimated_usd: null
-      duration_minutes: null
+      tokens_total: 70488
+      estimated_usd: 0.63
+      duration_minutes: 14
       recorded_at: 2026-06-15
-      notes: "Verify cycle, Opus read-only subagent. ✅ APPROVED, no punch list. Independently grepped + read all 12 named tests; confirmed convert_unbuilt_codec_multi_input_exits_4_not_6 pins exactly Some(4) (up-front-resolution correctness), the format-override test asserts GIF8 magic bytes, the quality test uses a gradient source. Ran the full suite on the branch (192 pass), clippy --all-targets + fmt clean, CI 6/6 (3-OS). Confirmed run_pixel_op's forced_format wired in both arms, output_format_for + tests unchanged, no new dep/op/CliError/Sink/DEC."
+      notes: "Verify cycle, Opus read-only subagent. ✅ APPROVED, no punch list. Independently grepped + read all 12 named tests; confirmed convert_unbuilt_codec_multi_input_exits_4_not_6 pins exactly Some(4) (up-front-resolution correctness), the format-override test asserts GIF8 magic bytes, the quality test uses a gradient source. Ran the full suite on the branch (192 pass), clippy --all-targets + fmt clean, CI 6/6 (3-OS). Confirmed run_pixel_op's forced_format wired in both arms, output_format_for + tests unchanged, no new dep/op/CliError/Sink/DEC. [cost: 70,488 harness-reported subagent tokens, ~14 min wall-clock; est_usd at Opus 4.8 list rates ($5/$25 per MTok), ~80/20 input/output, no cache discount — order-of-magnitude.]"
     - cycle: ship
       agent: claude-opus-4-8
       interface: claude-code
@@ -72,10 +72,14 @@ cost:
       estimated_usd: null
       duration_minutes: null
       recorded_at: 2026-06-15
-      notes: "Orchestrator ship bookkeeping on main (merged PR #15 squash bdd89f5; MERGEABLE/CLEAN, no update-branch needed; archive by hand per the just-glob caveat)."
+      notes: "Orchestrator ship bookkeeping on main (merged PR #15 squash bdd89f5; MERGEABLE/CLEAN, no update-branch needed; archive by hand per the just-glob caveat). [orchestrator main-loop cycle — tokens/usd not separately metered.]"
   totals:
-    tokens_total: 0
-    estimated_usd: 0
+    # tokens_total + estimated_usd cover the metered build+verify subagents only;
+    # the design+ship cycles were orchestrator main-loop work, not separately
+    # metered. estimated_usd is order-of-magnitude (list rates, ~80/20 in/out, no
+    # cache discount; harness reports a single combined token metric).
+    tokens_total: 201141
+    estimated_usd: 1.34
     session_count: 4
 ---
 
