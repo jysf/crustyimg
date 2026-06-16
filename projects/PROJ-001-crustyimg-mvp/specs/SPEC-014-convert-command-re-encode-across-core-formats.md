@@ -357,7 +357,7 @@ codes via `output.status.code()`; decode outputs with
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
 - **Branch:** `feat/spec-014-convert-command-re-encode-across-core-formats`
-- **PR (if applicable):** opened (see timeline)
+- **PR (if applicable):** PR #15 opened — https://github.com/jysf/crustyimg/pull/15
 - **All acceptance criteria met?** yes
 - **New decisions emitted:**
   - No new DEC during build — convert reuses DEC-004/015/016
