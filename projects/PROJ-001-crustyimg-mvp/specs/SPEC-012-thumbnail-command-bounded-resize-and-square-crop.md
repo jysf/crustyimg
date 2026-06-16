@@ -7,7 +7,7 @@
 task:
   id: SPEC-012
   type: story                      # epic | story | task | bug | chore
-  cycle: design                    # frame | design | build | verify | ship
+  cycle: verify                    # frame | design | build | verify | ship
   blocked: false
   priority: medium
   complexity: S                    # S | M | L  (L means split it)
@@ -51,6 +51,14 @@ cost:
       duration_minutes: null
       recorded_at: 2026-06-15
       notes: "design cycle, Opus subagent. Confirmed thumbnail needs NO new Operation — `--square` maps to resize `fill` (cover+center-crop, shipped SPEC-010), plain maps to resize `max`. Specified a `run_pixel_op` shared fan-out helper extracted from SPEC-011's `run_resize` (both call it), the `(size,square)`→OperationParams mapper, default --size 256. No new DEC (reuses DEC-015/014/012/008/010/007/003). Complexity S."
+    - cycle: build
+      agent: claude-sonnet-4-6
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: 25
+      recorded_at: 2026-06-15
+      notes: "subagent; cost not separately reported"
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -608,28 +616,42 @@ they live in this spec + the api-contract, not a DEC. **No DEC-016 emitted.**
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
+- **Branch:** `feat/spec-012-thumbnail-command-bounded-resize-and-square-crop`
+- **PR (if applicable):** PR opened (number TBD — see timeline)
+- **All acceptance criteria met?** yes
 - **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
+  - None — thumbnail reuses DEC-015/014/012/008/010/007/003 (see "Why no new DEC")
 - **Deviations from spec:**
-  - [list]
+  - None. Library modules (`src/operation/`, `src/sink/`, `src/source/`, `src/image/`,
+    `src/pipeline/`) were NOT modified (confirmed). `exit_code_mapping_is_total` was NOT
+    changed. No new `CliError` variant added. No new dependency. The `run_pixel_op`
+    refactor is behavior-preserving: all existing `resize_*` integration tests and
+    `resize_params_*`/`output_format_for_*` unit tests stay green.
 - **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - None beyond the already-planned STAGE-003 specs (shrink, convert, auto-orient)
+    which will also reuse `run_pixel_op`.
 
 ### Build-phase reflection (3 questions, short answers)
 
 Process-focused: how did the build go? What friction did the spec create?
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — Nothing materially unclear. The spec was prescriptive about `run_pixel_op`'s
+   exact body (byte-for-byte relocation from `run_resize`). The only friction was
+   clippy doc-comment lint on the `/// - >1 inputs →` bullet (the leading `>` was
+   interpreted as a blockquote continuation); fixed by rephrasing the multi-input
+   bullet without the `>` character.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — No missing constraint. The `clippy::doc_lazy_continuation` lint for doc comments
+   with `>` is caught by `--all-targets` and worth a standing note, but it's covered
+   by the existing `clippy-fmt-clean` constraint. No new decision warranted.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Run `cargo fmt` immediately after each edit rather than discovering fmt failures
+   at the gate step. The logic was straightforward (the spec was correctly prescriptive);
+   the only rework was formatting. Incremental commits after each gate would catch this
+   earlier.
 
 ---
 
