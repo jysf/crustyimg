@@ -155,8 +155,19 @@ so even a multi-input convert to an unbuilt codec is a single exit 4, **not** a
 partial-batch exit 6. WebP output is fast-follow; AVIF is feature-gated.
 
 #### `auto-orient <INPUT...>`  *(S3)*
-Apply EXIF orientation to pixels, then clear the orientation tag. Fixes the
-most common silent rotation bug.
+Apply the EXIF orientation to pixels, then clear the tag — fixes the most common
+silent rotation bug (a portrait photo stored sideways with an Orientation tag).
+A new recipe-usable `Operation` (`auto-orient`) that **reads** the EXIF
+orientation captured at load (DEC-003/DEC-017) and bakes the corresponding
+rotation/flip into the pixels via the `image` crate's native `Orientation`; the
+pixel-lane re-encode then drops the (now-satisfied) tag inherently. An image with
+**no EXIF, no orientation tag, or orientation 1** is a **no-op** (exit 0, not an
+error). Output **preserves the input's source format** (`--format` / `-o`
+extension override; DEC-015); other metadata is dropped on the re-encode (pixel
+lane; DEC-003). Multi-input `--out-dir` fan-out (sequential; partial failure →
+exit 6; missing input → 3; multi-input without `--out-dir` → 2). Capture
+currently covers JPEG/PNG; for formats without EXIF capture `auto-orient` is a
+safe no-op.
 
 ### Compositing
 
