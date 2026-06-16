@@ -327,7 +327,7 @@ decode outputs with `image::open`/`image::load_from_memory`).
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
 - **Branch:** `feat/spec-013-shrink-command-web-prep-resize-quality-encode-strip`
-- **PR (if applicable):** TBD (opened after this edit)
+- **PR (if applicable):** #14 https://github.com/jysf/crustyimg/pull/14
 - **All acceptance criteria met?** yes
 - **New decisions emitted:**
   - No new DEC during build — DEC-016 already governs.
