@@ -285,6 +285,8 @@ impl Sink {
     /// - `input` provides the naming context for [`Sink::Dir`] templates.
     /// - `overwrite` controls the overwrite guard for [`Sink::File`] and
     ///   [`Sink::Dir`] (stdout and display never check this).
+    /// - `quality` is an optional encode quality (0–100). Applied to JPEG
+    ///   output only; ignored for lossless formats (DEC-016).
     /// - `out` receives the encoded bytes for [`Sink::Stdout`] ONLY. The
     ///   injected writer exists so tests can capture bytes without touching
     ///   real stdout. Diagnostics never go to `out`.
@@ -293,6 +295,7 @@ impl Sink {
         img: &Image,
         input: &SinkInput<'_>,
         overwrite: Overwrite,
+        quality: Option<u8>,
         out: &mut dyn Write,
     ) -> Result<(), SinkError> {
         match self {
@@ -305,7 +308,7 @@ impl Sink {
                 // Overwrite guard: check before opening (never truncate then error).
                 guard_overwrite(path, overwrite)?;
                 // Encode to bytes, then write to a BufWriter<File>.
-                let bytes = encode_to_bytes(img, fmt)?;
+                let bytes = encode_to_bytes(img, fmt, quality)?;
                 let file = OpenOptions::new()
                     .write(true)
                     .create(true)
@@ -330,7 +333,7 @@ impl Sink {
                 // Overwrite guard.
                 guard_overwrite(&full_path, overwrite)?;
                 // Encode and write.
-                let bytes = encode_to_bytes(img, fmt)?;
+                let bytes = encode_to_bytes(img, fmt, quality)?;
                 let file = OpenOptions::new()
                     .write(true)
                     .create(true)
@@ -346,12 +349,14 @@ impl Sink {
                 let fmt = format.ok_or(SinkError::UnknownFormat)?;
                 // Encode to bytes and write ONLY the encoded bytes to `out`.
                 // No diagnostic output goes here.
-                let bytes = encode_to_bytes(img, fmt)?;
+                let bytes = encode_to_bytes(img, fmt, quality)?;
                 out.write_all(&bytes)?;
                 Ok(())
             }
 
             Sink::Display { width, height } => {
+                // quality is intentionally ignored for terminal display (DEC-016).
+                let _ = quality;
                 // NotATty check is always first, feature-independent.
                 if !std::io::stdout().is_terminal() {
                     return Err(SinkError::NotATty);
@@ -394,13 +399,38 @@ impl Sink {
 
 // ── Private helpers ───────────────────────────────────────────────────────────
 
-/// Encode `img` pixels to a `Vec<u8>` in `format`.
+/// Encode `img` pixels to a `Vec<u8>` in `format`, optionally at a specific
+/// quality level.
 ///
 /// Uses an in-memory `Cursor<Vec<u8>>` as the writer so all encoders have the
 /// `Write + Seek` bound they may require. The resulting bytes are then written
 /// to the actual destination (file or `out`) by the caller.
-fn encode_to_bytes(img: &Image, format: ImageFormat) -> Result<Vec<u8>, SinkError> {
+///
+/// When `format == ImageFormat::Jpeg` and `quality == Some(q)`, the JPEG is
+/// encoded via `JpegEncoder::new_with_quality` with `q` clamped to `1..=100`
+/// (DEC-016). For all other `(format, quality)` combinations, `quality` is
+/// ignored and the default `write_to` path is used (lossless formats have no
+/// 0–100 quality knob).
+pub fn encode_to_bytes(
+    img: &Image,
+    format: ImageFormat,
+    quality: Option<u8>,
+) -> Result<Vec<u8>, SinkError> {
     let mut cursor = Cursor::new(Vec::new());
+
+    if format == ImageFormat::Jpeg {
+        if let Some(q) = quality {
+            // Clamp to 1..=100 (JPEG quality range; avoids surprising values).
+            let q = q.clamp(1, 100);
+            let encoder = ::image::codecs::jpeg::JpegEncoder::new_with_quality(&mut cursor, q);
+            img.pixels()
+                .write_with_encoder(encoder)
+                .map_err(|e| SinkError::Encode(e.to_string()))?;
+            return Ok(cursor.into_inner());
+        }
+    }
+
+    // All other (format, quality) cases: use the default write_to path.
     img.pixels()
         .write_to(&mut cursor, format)
         .map_err(|e| SinkError::Encode(e.to_string()))?;

@@ -375,7 +375,7 @@ fn dispatch(cli: &Cli) -> Result<(), CliError> {
             size,
             square,
         } => run_thumbnail(inputs, *size, *square, &cli.global),
-        Commands::Shrink { .. } => Err(CliError::NotImplemented("shrink")),
+        Commands::Shrink { inputs, max } => run_shrink(inputs, *max, &cli.global),
         Commands::Convert { .. } => Err(CliError::NotImplemented("convert")),
         Commands::AutoOrient { .. } => Err(CliError::NotImplemented("auto-orient")),
         Commands::Watermark { .. } => Err(CliError::NotImplemented("watermark")),
@@ -444,6 +444,7 @@ fn run_apply(recipe_path: &str, inputs: &[String], global: &GlobalArgs) -> Resul
         &out_img,
         &sink_input,
         overwrite,
+        global.quality,
         &mut std::io::stdout().lock(),
     )?;
 
@@ -478,6 +479,7 @@ fn run_view(
         &img,
         &sink_input,
         Overwrite::Forbid,
+        None,
         &mut std::io::stdout().lock(),
     )?;
     Ok(())
@@ -995,7 +997,7 @@ fn run_resize(
     // Build the pipeline with this single op (builder-style: push consumes self).
     let pipeline = Pipeline::new().push(op);
 
-    run_pixel_op(pipeline, inputs, global)
+    run_pixel_op(pipeline, inputs, global, global.quality)
 }
 
 // ── Shared pixel-op fan-out helper ───────────────────────────────────────────
@@ -1010,10 +1012,12 @@ fn run_resize(
 ///   `output_format_for`; a failure keeps its natural code (3/1/4/5).
 /// - More than 1 input: REQUIRE `--out-dir` (else `CliError::Usage`, exit 2);
 ///   sequential fan-out; per-input failures collected + stderr + exit 6 (DEC-015).
+/// - `quality` is threaded to every `sink.write` call (DEC-016).
 fn run_pixel_op(
     pipeline: Pipeline,
     inputs: &[String],
     global: &GlobalArgs,
+    quality: Option<u8>,
 ) -> Result<(), CliError> {
     // Resolve every input arg, flattening into one Vec<Input>.
     // Resolution errors (missing path / empty glob) are hard errors (exit 3/2),
@@ -1084,6 +1088,7 @@ fn run_pixel_op(
             &out_img,
             &sink_input,
             overwrite,
+            quality,
             &mut std::io::stdout().lock(),
         )?;
     } else {
@@ -1134,6 +1139,7 @@ fn run_pixel_op(
                     &out_img,
                     &sink_input,
                     overwrite,
+                    quality,
                     &mut std::io::stdout().lock(),
                 )?;
                 Ok(())
@@ -1211,7 +1217,57 @@ fn run_thumbnail(
         })?;
 
     let pipeline = Pipeline::new().push(op);
-    run_pixel_op(pipeline, inputs, global)
+    run_pixel_op(pipeline, inputs, global, global.quality)
+}
+
+// ── shrink helpers ────────────────────────────────────────────────────────────
+
+/// The default long-edge bound when `--max` is omitted for `shrink`.
+const DEFAULT_SHRINK_MAX: u32 = 1600;
+
+/// The default JPEG encode quality when `-q` is omitted for `shrink` (DEC-016).
+const DEFAULT_SHRINK_QUALITY: u8 = 80;
+
+/// Map shrink's `max` arg to the `Resize` OperationParams the registry expects
+/// (SPEC-010's PINNED schema). `shrink` always uses `mode=max` to bound the
+/// long edge; `max` defaults to `DEFAULT_SHRINK_MAX`. Infallible — the mapping
+/// is total; the op validates the dim.
+fn shrink_params(max: u32) -> OperationParams {
+    use std::collections::BTreeMap;
+
+    let mut map: BTreeMap<String, toml::Value> = BTreeMap::new();
+    map.insert("mode".into(), toml::Value::String("max".into()));
+    map.insert("width".into(), toml::Value::Integer(max as i64));
+    OperationParams::from_map(map)
+}
+
+// ── shrink handler ────────────────────────────────────────────────────────────
+
+/// Wire the `shrink` subcommand: resize to a long-edge bound + quality-aware
+/// JPEG encode + inherent metadata drop (from the pixel-lane re-encode).
+///
+/// - `--max N` (default 1600) bounds the longest edge to N (no upscale via the
+///   `resize max` mode).
+/// - `-q Q` (default 80) sets the JPEG encode quality; ignored for lossless
+///   formats (DEC-016).
+/// - Multi-input fan-out and partial-batch exit 6 are inherited via
+///   `run_pixel_op` (DEC-015).
+fn run_shrink(inputs: &[String], max: Option<u32>, global: &GlobalArgs) -> Result<(), CliError> {
+    let effective_max = max.unwrap_or(DEFAULT_SHRINK_MAX);
+    let params = shrink_params(effective_max);
+
+    let op = OperationRegistry::with_builtins()
+        .build("resize", &params)
+        .map_err(|e| match e {
+            RegistryError::InvalidParams { reason, .. } => CliError::Usage(reason),
+            RegistryError::Unknown { name } => {
+                CliError::Usage(format!("unknown operation '{name}'"))
+            }
+        })?;
+
+    let pipeline = Pipeline::new().push(op);
+    let effective_quality = Some(global.quality.unwrap_or(DEFAULT_SHRINK_QUALITY));
+    run_pixel_op(pipeline, inputs, global, effective_quality)
 }
 
 // ── Unit tests ────────────────────────────────────────────────────────────────
