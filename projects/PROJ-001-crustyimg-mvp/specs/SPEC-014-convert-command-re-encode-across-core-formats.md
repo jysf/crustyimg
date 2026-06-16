@@ -7,7 +7,7 @@
 task:
   id: SPEC-014
   type: story                      # epic | story | task | bug | chore
-  cycle: design                    # frame | design | build | verify | ship
+  cycle: verify                    # frame | design | build | verify | ship
   blocked: false
   priority: medium
   complexity: S                    # S | M | L  (L means split it)
@@ -49,6 +49,14 @@ cost:
       duration_minutes: null
       recorded_at: 2026-06-15
       notes: "Design authored by the ORCHESTRATOR (Opus) directly (the proven path from SPEC-013). Verified the convert clap surface (the convert-local required --format shadows the global --format), the image 0.25.10 / kamadak-exif APIs, and the exit-4-up-front semantics. No new DEC — reuses DEC-004/015/016. Complexity S (CLI-only; no new Operation, no library/Sink change beyond threading a forced-format option through run_pixel_op)."
+    - cycle: build
+      agent: claude-sonnet-4-6
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-06-15
+      notes: "Fresh session build. Added forced_format param to run_pixel_op, wired run_convert, dispatched Commands::Convert. All 11 spec integration tests + repointed stub test pass (192 total). No new DEC — reuses DEC-004/015/016. Zero deviations from spec."
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -348,28 +356,28 @@ codes via `output.status.code()`; decode outputs with
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
+- **Branch:** `feat/spec-014-convert-command-re-encode-across-core-formats`
+- **PR (if applicable):** PR #15 opened — https://github.com/jysf/crustyimg/pull/15
+- **All acceptance criteria met?** yes
 - **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
+  - No new DEC during build — convert reuses DEC-004/015/016
 - **Deviations from spec:**
-  - [list]
+  - None. All outputs implemented exactly as specified.
 - **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - SPEC-015 (`auto-orient`) is the remaining STAGE-003 stub; `stub_command_returns_not_implemented` now points to it.
 
 ### Build-phase reflection (3 questions, short answers)
 
 Process-focused: how did the build go? What friction did the spec create?
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — Nothing was unclear. The spec's implementation sketch (`run_convert` body, `forced_format` threading in both `run_pixel_op` arms) was precise and complete. The "GREP to be exhaustive" reminder in the build prompt was useful to ensure all four call sites were updated.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — No. DEC-004 (exit-4 up-front), DEC-015 (fan-out), and DEC-016 (quality threading) covered every code path. The spec's note that `global.format` is `None` inside the `convert` subcommand was the one sharp edge — without it a reader might try to read from `global.format`.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Nothing material. The incremental commit discipline (implementation first, then tests) allowed a clean recovery point. The spec's fixture note ("use gradient_jpeg, not solid_png" for the quality test) was correct and worth following literally.
 
 ---
 

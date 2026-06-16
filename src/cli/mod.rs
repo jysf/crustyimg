@@ -376,7 +376,7 @@ fn dispatch(cli: &Cli) -> Result<(), CliError> {
             square,
         } => run_thumbnail(inputs, *size, *square, &cli.global),
         Commands::Shrink { inputs, max } => run_shrink(inputs, *max, &cli.global),
-        Commands::Convert { .. } => Err(CliError::NotImplemented("convert")),
+        Commands::Convert { inputs, format } => run_convert(inputs, format, &cli.global),
         Commands::AutoOrient { .. } => Err(CliError::NotImplemented("auto-orient")),
         Commands::Watermark { .. } => Err(CliError::NotImplemented("watermark")),
         Commands::Strip { .. } => Err(CliError::NotImplemented("strip")),
@@ -997,7 +997,7 @@ fn run_resize(
     // Build the pipeline with this single op (builder-style: push consumes self).
     let pipeline = Pipeline::new().push(op);
 
-    run_pixel_op(pipeline, inputs, global, global.quality)
+    run_pixel_op(pipeline, inputs, global, global.quality, None)
 }
 
 // ── Shared pixel-op fan-out helper ───────────────────────────────────────────
@@ -1013,11 +1013,14 @@ fn run_resize(
 /// - More than 1 input: REQUIRE `--out-dir` (else `CliError::Usage`, exit 2);
 ///   sequential fan-out; per-input failures collected + stderr + exit 6 (DEC-015).
 /// - `quality` is threaded to every `sink.write` call (DEC-016).
+/// - `forced_format`: when `Some(fmt)`, override the per-input `output_format_for`
+///   resolution with `fmt` for EVERY input. Used by `run_convert` (DEC-015 / SPEC-014).
 fn run_pixel_op(
     pipeline: Pipeline,
     inputs: &[String],
     global: &GlobalArgs,
     quality: Option<u8>,
+    forced_format: Option<::image::ImageFormat>,
 ) -> Result<(), CliError> {
     // Resolve every input arg, flattening into one Vec<Input>.
     // Resolution errors (missing path / empty glob) are hard errors (exit 3/2),
@@ -1051,9 +1054,12 @@ fn run_pixel_op(
 
         let out_img = pipeline.run(img.clone())?;
 
-        // Resolve per-input output format (DEC-015).
+        // Resolve per-input output format (DEC-015): forced_format wins if Some.
         let output_path = global.output.as_ref().map(|s| Path::new(s.as_str()));
-        let fmt = output_format_for(global, output_path, img.source_format())?;
+        let fmt = match forced_format {
+            Some(f) => f,
+            None => output_format_for(global, output_path, img.source_format())?,
+        };
 
         // Build the sink with the resolved format.
         let sink = if let Some(ref out) = global.output {
@@ -1122,8 +1128,11 @@ fn run_pixel_op(
 
                 let out_img = pipeline.run(img.clone())?;
 
-                // Per-input format resolution (DEC-015): no -o path in fan-out.
-                let fmt = output_format_for(global, None, img.source_format())?;
+                // Per-input format resolution (DEC-015): forced_format wins if Some; no -o path in fan-out.
+                let fmt = match forced_format {
+                    Some(f) => f,
+                    None => output_format_for(global, None, img.source_format())?,
+                };
 
                 let sink = Sink::Dir {
                     dir: PathBuf::from(out_dir),
@@ -1217,7 +1226,7 @@ fn run_thumbnail(
         })?;
 
     let pipeline = Pipeline::new().push(op);
-    run_pixel_op(pipeline, inputs, global, global.quality)
+    run_pixel_op(pipeline, inputs, global, global.quality, None)
 }
 
 // ── shrink helpers ────────────────────────────────────────────────────────────
@@ -1267,7 +1276,34 @@ fn run_shrink(inputs: &[String], max: Option<u32>, global: &GlobalArgs) -> Resul
 
     let pipeline = Pipeline::new().push(op);
     let effective_quality = Some(global.quality.unwrap_or(DEFAULT_SHRINK_QUALITY));
-    run_pixel_op(pipeline, inputs, global, effective_quality)
+    run_pixel_op(pipeline, inputs, global, effective_quality, None)
+}
+
+// ── convert handler ───────────────────────────────────────────────────────────
+
+/// Wire the `convert` subcommand: resolve the REQUIRED target format ONCE up
+/// front (exit 4 for unsupported/unbuilt codec — DEC-004), then pure re-encode
+/// every input to that format via an empty `Pipeline` (no-op pixel transform)
+/// and the shared `run_pixel_op` fan-out with `forced_format` (DEC-015 / SPEC-014).
+///
+/// Quality threading: pass `global.quality` as-is; `convert` has NO forced
+/// default (only `shrink` defaults quality to 80, per DEC-016).
+///
+/// NOTE: the convert-local `--format` arg shadows the global `--format`, so
+/// `global.format` is `None` inside `convert`; read the target from `format: &str`.
+fn run_convert(inputs: &[String], format: &str, global: &GlobalArgs) -> Result<(), CliError> {
+    // Resolve the REQUIRED target format ONCE, up front.
+    // An unsupported/unbuilt codec (e.g. avif, webp) → SinkError → exit 4 (DEC-004),
+    // BEFORE any input is loaded — so a multi-input convert to an unbuilt codec
+    // is a single exit 4, never a per-input partial-batch exit 6.
+    let fmt = resolve_format(Some(format))?
+        .ok_or_else(|| CliError::Usage("convert requires a target --format".into()))?;
+
+    // Pure re-encode: an empty pipeline returns the pixels unchanged.
+    let pipeline = Pipeline::new();
+
+    // Force `fmt` for every input; thread global.quality (no forced default).
+    run_pixel_op(pipeline, inputs, global, global.quality, Some(fmt))
 }
 
 // ── Unit tests ────────────────────────────────────────────────────────────────

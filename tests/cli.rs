@@ -238,20 +238,21 @@ fn apply_to_stdout_keeps_stdout_clean() {
     assert_eq!(decoded.height(), 4);
 }
 
-/// A stub command (here `convert`) exits 1 and writes "not yet implemented"
+/// A stub command (here `auto-orient`) exits 1 and writes "not yet implemented"
 /// to stderr; no output file is created.
 ///
 /// (resize is now real — SPEC-011; thumbnail is now real — SPEC-012;
-/// shrink is now real — SPEC-013; repointed to `convert` which remains a stub.)
+/// shrink is now real — SPEC-013; convert is now real — SPEC-014;
+/// repointed to `auto-orient` which remains a stub per SPEC-015.)
 #[test]
 fn stub_command_returns_not_implemented() {
     let dir = tempfile::tempdir().expect("tempdir");
     let in_path = write_test_png(&dir, "in.png", 4, 4);
 
     let output = Command::new(BIN)
-        .args(["convert", in_path.to_str().unwrap(), "--format", "png"])
+        .args(["auto-orient", in_path.to_str().unwrap()])
         .output()
-        .expect("failed to run convert");
+        .expect("failed to run auto-orient");
 
     assert_eq!(output.status.code(), Some(1), "stub command should exit 1");
     let stderr = stderr_str(&output);
@@ -1737,6 +1738,442 @@ fn shrink_stdout_keeps_stdout_clean() {
         decoded.width()
     );
 
+    // stderr must be empty.
+    assert!(
+        output.stderr.is_empty(),
+        "stderr must be empty on clean stdout run, got: {}",
+        stderr_str(&output)
+    );
+}
+
+// ── SPEC-014 convert integration tests ───────────────────────────────────────
+
+/// `convert <png> --format jpg -o out.jpg` → exit 0; output is JPEG (FF D8 magic),
+/// decodes, and dims are preserved. (AC1)
+#[test]
+fn convert_png_to_jpeg_changes_format() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let in_path = write_test_png(&dir, "in.png", 40, 30);
+    let out_path = dir.path().join("out.jpg");
+
+    let output = Command::new(BIN)
+        .args([
+            "convert",
+            in_path.to_str().unwrap(),
+            "--format",
+            "jpg",
+            "-o",
+            out_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run convert png→jpg");
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "convert png→jpg should exit 0; stderr: {}",
+        stderr_str(&output)
+    );
+    assert!(out_path.exists(), "output file should exist");
+    let bytes = std::fs::read(&out_path).unwrap();
+    assert_eq!(
+        &bytes[..2],
+        b"\xFF\xD8",
+        "output should be JPEG (FF D8 magic)"
+    );
+    let decoded = image::load_from_memory(&bytes).expect("output should be decodable");
+    assert_eq!(decoded.width(), 40, "width must be preserved (40)");
+    assert_eq!(decoded.height(), 30, "height must be preserved (30)");
+}
+
+/// `convert <jpg> --format png -o out.png` → exit 0; output is PNG, decodes at
+/// original dims. (AC2)
+#[test]
+fn convert_jpeg_to_png_changes_format() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let in_path = write_test_jpeg(&dir, "in.jpg", 32, 16);
+    let out_path = dir.path().join("out.png");
+
+    let output = Command::new(BIN)
+        .args([
+            "convert",
+            in_path.to_str().unwrap(),
+            "--format",
+            "png",
+            "-o",
+            out_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run convert jpg→png");
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "convert jpg→png should exit 0; stderr: {}",
+        stderr_str(&output)
+    );
+    assert!(out_path.exists(), "output file should exist");
+    let bytes = std::fs::read(&out_path).unwrap();
+    assert_eq!(
+        &bytes[..8],
+        b"\x89PNG\r\n\x1a\n",
+        "output should be PNG (8-byte PNG signature)"
+    );
+    let decoded = image::load_from_memory(&bytes).expect("output should be decodable");
+    assert_eq!(decoded.width(), 32, "width must be 32");
+    assert_eq!(decoded.height(), 16, "height must be 16");
+}
+
+/// `convert <png> --format gif -o out.png` → exit 0; output is actually GIF
+/// (`GIF8` magic) even though the `-o` extension is `.png`. Forced `--format`
+/// overrides the output extension. (AC3)
+#[test]
+fn convert_format_overrides_output_extension() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let in_path = write_test_png(&dir, "in.png", 8, 8);
+    // Intentionally use a `.png` output path but request GIF format.
+    let out_path = dir.path().join("out.png");
+
+    let output = Command::new(BIN)
+        .args([
+            "convert",
+            in_path.to_str().unwrap(),
+            "--format",
+            "gif",
+            "-o",
+            out_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run convert --format gif -o out.png");
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "convert --format gif should exit 0; stderr: {}",
+        stderr_str(&output)
+    );
+    assert!(out_path.exists(), "output file should exist");
+    let bytes = std::fs::read(&out_path).unwrap();
+    // GIF magic: "GIF8" (either GIF87a or GIF89a).
+    assert_eq!(
+        &bytes[..4],
+        b"GIF8",
+        "--format gif must win over .png extension (output must be GIF)"
+    );
+}
+
+/// `convert <png> --format avif` → exit 4 (codec not built, DEC-004);
+/// `convert <png> --format webp` → exit 4 (fast-follow not wired). (AC4)
+#[test]
+fn convert_unbuilt_codec_exits_4() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let in_path = write_test_png(&dir, "in.png", 4, 4);
+    let out_path = dir.path().join("out.avif");
+
+    // AVIF — not built.
+    let avif_out = Command::new(BIN)
+        .args([
+            "convert",
+            in_path.to_str().unwrap(),
+            "--format",
+            "avif",
+            "-o",
+            out_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run convert --format avif");
+
+    assert_eq!(
+        avif_out.status.code(),
+        Some(4),
+        "convert --format avif should exit 4 (unbuilt codec); stderr: {}",
+        stderr_str(&avif_out)
+    );
+
+    // WebP — fast-follow, not wired.
+    let webp_out_path = dir.path().join("out.webp");
+    let webp_out = Command::new(BIN)
+        .args([
+            "convert",
+            in_path.to_str().unwrap(),
+            "--format",
+            "webp",
+            "-o",
+            webp_out_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run convert --format webp");
+
+    assert_eq!(
+        webp_out.status.code(),
+        Some(4),
+        "convert --format webp should exit 4 (fast-follow not wired); stderr: {}",
+        stderr_str(&webp_out)
+    );
+}
+
+/// Multi-input convert to an unbuilt codec → exit 4 (NOT 6), because the target
+/// codec is resolved up front before the per-input fan-out. (AC5)
+#[test]
+fn convert_unbuilt_codec_multi_input_exits_4_not_6() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let out_dir = tempfile::tempdir().expect("out tempdir");
+
+    let a = write_test_png(&dir, "a.png", 4, 4);
+    let b = write_test_png(&dir, "b.png", 4, 4);
+
+    let output = Command::new(BIN)
+        .args([
+            "convert",
+            a.to_str().unwrap(),
+            b.to_str().unwrap(),
+            "--format",
+            "avif",
+            "--out-dir",
+            out_dir.path().to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run convert multi-input --format avif");
+
+    // Must be exit 4 (codec failure resolved up front), NOT 6 (partial batch).
+    assert_eq!(
+        output.status.code(),
+        Some(4),
+        "multi-input convert to unbuilt codec must exit 4 (not 6); stderr: {}",
+        stderr_str(&output)
+    );
+}
+
+/// `convert a.png b.png --format jpg --out-dir D` → exit 0; D/a.jpg and D/b.jpg
+/// both exist and are JPEG. (AC6)
+#[test]
+fn convert_multi_input_fan_out() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let out_dir = tempfile::tempdir().expect("out tempdir");
+
+    let a = write_test_png(&dir, "a.png", 20, 10);
+    let b = write_test_png(&dir, "b.png", 20, 10);
+
+    let output = Command::new(BIN)
+        .args([
+            "convert",
+            a.to_str().unwrap(),
+            b.to_str().unwrap(),
+            "--format",
+            "jpg",
+            "--out-dir",
+            out_dir.path().to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run convert multi-input fan-out");
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "convert multi-input should exit 0; stderr: {}",
+        stderr_str(&output)
+    );
+
+    // D/a.jpg must exist and be JPEG.
+    let out_a = out_dir.path().join("a.jpg");
+    assert!(out_a.exists(), "D/a.jpg should exist");
+    let a_bytes = std::fs::read(&out_a).unwrap();
+    assert_eq!(&a_bytes[..2], b"\xFF\xD8", "D/a.jpg should be JPEG format");
+
+    // D/b.jpg must exist and be JPEG.
+    let out_b = out_dir.path().join("b.jpg");
+    assert!(out_b.exists(), "D/b.jpg should exist");
+    let b_bytes = std::fs::read(&out_b).unwrap();
+    assert_eq!(&b_bytes[..2], b"\xFF\xD8", "D/b.jpg should be JPEG format");
+}
+
+/// Same gradient source at `-q 20` vs `-q 90`: low-quality JPEG output is smaller;
+/// both decode to the same dims. Uses a gradient source so quality affects size. (AC7)
+#[test]
+fn convert_quality_lower_is_smaller() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    // Use the gradient JPEG fixture (multi-color detail so quality matters).
+    let in_path = write_test_jpeg(&dir, "in.jpg", 200, 100);
+    let out_lo = dir.path().join("lo.jpg");
+    let out_hi = dir.path().join("hi.jpg");
+
+    // Low quality.
+    let lo_out = Command::new(BIN)
+        .args([
+            "convert",
+            in_path.to_str().unwrap(),
+            "--format",
+            "jpg",
+            "-q",
+            "20",
+            "-o",
+            out_lo.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run convert -q 20");
+
+    assert_eq!(
+        lo_out.status.code(),
+        Some(0),
+        "convert -q 20 should exit 0; stderr: {}",
+        stderr_str(&lo_out)
+    );
+
+    // High quality.
+    let hi_out = Command::new(BIN)
+        .args([
+            "convert",
+            in_path.to_str().unwrap(),
+            "--format",
+            "jpg",
+            "-q",
+            "90",
+            "-o",
+            out_hi.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run convert -q 90");
+
+    assert_eq!(
+        hi_out.status.code(),
+        Some(0),
+        "convert -q 90 should exit 0; stderr: {}",
+        stderr_str(&hi_out)
+    );
+
+    let lo_size = std::fs::metadata(&out_lo).unwrap().len();
+    let hi_size = std::fs::metadata(&out_hi).unwrap().len();
+    assert!(
+        lo_size < hi_size,
+        "low quality ({lo_size} bytes) should be smaller than high quality ({hi_size} bytes)"
+    );
+
+    // Both must decode at the same dims.
+    let lo_img = image::open(&out_lo).expect("lo output should be decodable");
+    let hi_img = image::open(&out_hi).expect("hi output should be decodable");
+    assert_eq!(lo_img.width(), hi_img.width(), "widths must match");
+    assert_eq!(lo_img.height(), hi_img.height(), "heights must match");
+}
+
+/// `convert <missing> --format png` → exit 3 (input not found). (AC8)
+#[test]
+fn convert_missing_input_exits_3() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let missing = dir.path().join("no_such.png");
+    let out_path = dir.path().join("out.png");
+
+    let output = Command::new(BIN)
+        .args([
+            "convert",
+            missing.to_str().unwrap(),
+            "--format",
+            "png",
+            "-o",
+            out_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run convert missing");
+
+    assert_eq!(
+        output.status.code(),
+        Some(3),
+        "convert with missing input should exit 3; stderr: {}",
+        stderr_str(&output)
+    );
+}
+
+/// Two inputs with no `--out-dir` and `--format png` → exit 2; stderr mentions
+/// `--out-dir`. (AC9)
+#[test]
+fn convert_multi_without_out_dir_is_usage_error() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let in1 = write_test_png(&dir, "a.png", 4, 4);
+    let in2 = write_test_png(&dir, "b.png", 4, 4);
+
+    let output = Command::new(BIN)
+        .args([
+            "convert",
+            in1.to_str().unwrap(),
+            in2.to_str().unwrap(),
+            "--format",
+            "png",
+        ])
+        .output()
+        .expect("failed to run convert multi without --out-dir");
+
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "convert multi without --out-dir should exit 2; stderr: {}",
+        stderr_str(&output)
+    );
+    let stderr = stderr_str(&output);
+    assert!(
+        stderr.contains("out-dir") || stderr.contains("out_dir"),
+        "stderr should mention --out-dir; got: {stderr}"
+    );
+}
+
+/// `convert <png>` with NO `--format` → exit 2 (clap required-arg error); stderr
+/// mentions `--format`. (AC10)
+#[test]
+fn convert_requires_format_flag() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let in_path = write_test_png(&dir, "in.png", 4, 4);
+
+    let output = Command::new(BIN)
+        .args(["convert", in_path.to_str().unwrap()])
+        .output()
+        .expect("failed to run convert without --format");
+
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "convert without --format should exit 2 (clap required); stderr: {}",
+        stderr_str(&output)
+    );
+    let stderr = stderr_str(&output);
+    assert!(
+        stderr.contains("--format") || stderr.contains("format"),
+        "stderr should mention --format; got: {stderr}"
+    );
+}
+
+/// `convert <png> --format jpg -o -` → exit 0; stdout decodes as JPEG; stderr
+/// empty. (AC11)
+#[test]
+fn convert_stdout_keeps_stdout_clean() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let in_path = write_test_png(&dir, "in.png", 20, 10);
+
+    let output = Command::new(BIN)
+        .args([
+            "convert",
+            in_path.to_str().unwrap(),
+            "--format",
+            "jpg",
+            "-o",
+            "-",
+        ])
+        .output()
+        .expect("failed to run convert to stdout");
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "convert -o - should exit 0; stderr: {}",
+        stderr_str(&output)
+    );
+    // stdout must be ONLY the encoded JPEG bytes.
+    assert_eq!(
+        &output.stdout[..2],
+        b"\xFF\xD8",
+        "stdout must begin with JPEG magic (FF D8)"
+    );
+    let decoded = image::load_from_memory(&output.stdout)
+        .expect("stdout bytes should decode as a valid JPEG image");
+    assert_eq!(decoded.width(), 20, "decoded width should be 20");
+    assert_eq!(decoded.height(), 10, "decoded height should be 10");
     // stderr must be empty.
     assert!(
         output.stderr.is_empty(),
