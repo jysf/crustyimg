@@ -136,8 +136,23 @@ pixel lane carries no container metadata); selective preservation and
 failure → exit 6; missing input → 3; multi-input without `--out-dir` → 2).
 
 #### `convert <INPUT...> --format FMT [-q Q]`  *(S3)*
-Re-encode to another core format (JPEG/PNG/GIF/BMP/TIFF/ICO). WebP is
-fast-follow; AVIF is feature-gated (exit 4 if not built — DEC-004).
+Re-encode to another core format (JPEG/PNG/GIF/BMP/TIFF/ICO) — a **pure
+re-encode** (decode once, no pixel transform). `--format` is **required**
+(omitted → exit **2**, clap) and **forces** the output format for every input,
+overriding both the DEC-015 source-preserve default and any `-o <path>`
+extension (precedence: `--format` > `-o` ext > preserve source; here `--format`
+is always present, so it wins). `-q/--quality` is threaded to the encoder where
+the format supports it (JPEG; **ignored** for lossless formats — DEC-016); unlike
+`shrink`, `convert` forces **no** default quality (encoder default unless `-q`).
+**Metadata is dropped** on the re-encode (pixel lane; DEC-003). Multi-input
+`--out-dir` fan-out (sequential; output names take the target `{ext}`); a
+per-input **load/write** failure writes the successes, prints a per-file summary
+to stderr, and exits **6** (DEC-015); a single-input failure keeps its natural
+code (3/1/5); multi-input without `--out-dir` → exit **2**; missing input → exit
+**3**. An **unsupported or unbuilt target codec** (e.g. AVIF without the feature,
+or WebP which is fast-follow) → exit **4** (DEC-004) — resolved **once up front**,
+so even a multi-input convert to an unbuilt codec is a single exit 4, **not** a
+partial-batch exit 6. WebP output is fast-follow; AVIF is feature-gated.
 
 #### `auto-orient <INPUT...>`  *(S3)*
 Apply EXIF orientation to pixels, then clear the orientation tag. Fixes the
