@@ -377,7 +377,7 @@ fn dispatch(cli: &Cli) -> Result<(), CliError> {
         } => run_thumbnail(inputs, *size, *square, &cli.global),
         Commands::Shrink { inputs, max } => run_shrink(inputs, *max, &cli.global),
         Commands::Convert { inputs, format } => run_convert(inputs, format, &cli.global),
-        Commands::AutoOrient { .. } => Err(CliError::NotImplemented("auto-orient")),
+        Commands::AutoOrient { inputs } => run_auto_orient(inputs, &cli.global),
         Commands::Watermark { .. } => Err(CliError::NotImplemented("watermark")),
         Commands::Strip { .. } => Err(CliError::NotImplemented("strip")),
         Commands::Clean { .. } => Err(CliError::NotImplemented("clean")),
@@ -1277,6 +1277,30 @@ fn run_shrink(inputs: &[String], max: Option<u32>, global: &GlobalArgs) -> Resul
     let pipeline = Pipeline::new().push(op);
     let effective_quality = Some(global.quality.unwrap_or(DEFAULT_SHRINK_QUALITY));
     run_pixel_op(pipeline, inputs, global, effective_quality, None)
+}
+
+// ── auto-orient handler ───────────────────────────────────────────────────────
+
+/// Wire the `auto-orient` subcommand: build the `AutoOrient` op via the
+/// registry and delegate to `run_pixel_op` for the full multi-input fan-out.
+///
+/// The op is parameterless; no forced format (source format is preserved);
+/// quality is threaded from `global.quality` with no forced default (DEC-016).
+/// Images with no EXIF, no orientation tag, or orientation 1 are returned
+/// unchanged (no-op, exit 0 — not an error). After baking, the metadata bundle
+/// is dropped by the op itself (DEC-017).
+fn run_auto_orient(inputs: &[String], global: &GlobalArgs) -> Result<(), CliError> {
+    let op = OperationRegistry::with_builtins()
+        .build("auto-orient", &OperationParams::empty())
+        .map_err(|e| match e {
+            RegistryError::InvalidParams { reason, .. } => CliError::Usage(reason),
+            RegistryError::Unknown { name } => {
+                CliError::Usage(format!("unknown operation '{name}'"))
+            }
+        })?;
+
+    let pipeline = Pipeline::new().push(op);
+    run_pixel_op(pipeline, inputs, global, global.quality, None)
 }
 
 // ── convert handler ───────────────────────────────────────────────────────────

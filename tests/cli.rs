@@ -13,6 +13,8 @@ use std::process::Command;
 use image::{DynamicImage, ImageFormat, RgbImage};
 use tempfile::TempDir;
 
+mod common;
+
 /// Path to the compiled binary, provided by Cargo.
 const BIN: &str = env!("CARGO_BIN_EXE_crustyimg");
 
@@ -238,27 +240,235 @@ fn apply_to_stdout_keeps_stdout_clean() {
     assert_eq!(decoded.height(), 4);
 }
 
-/// A stub command (here `auto-orient`) exits 1 and writes "not yet implemented"
+/// A stub command (here `watermark`) exits 1 and writes "not yet implemented"
 /// to stderr; no output file is created.
 ///
 /// (resize is now real — SPEC-011; thumbnail is now real — SPEC-012;
 /// shrink is now real — SPEC-013; convert is now real — SPEC-014;
-/// repointed to `auto-orient` which remains a stub per SPEC-015.)
+/// auto-orient is now real — SPEC-015; repointed to `watermark` which is a
+/// STAGE-004 stub.)
 #[test]
 fn stub_command_returns_not_implemented() {
     let dir = tempfile::tempdir().expect("tempdir");
     let in_path = write_test_png(&dir, "in.png", 4, 4);
 
     let output = Command::new(BIN)
-        .args(["auto-orient", in_path.to_str().unwrap()])
+        .args([
+            "watermark",
+            in_path.to_str().unwrap(),
+            "--image",
+            in_path.to_str().unwrap(),
+        ])
         .output()
-        .expect("failed to run auto-orient");
+        .expect("failed to run watermark");
 
     assert_eq!(output.status.code(), Some(1), "stub command should exit 1");
     let stderr = stderr_str(&output);
     assert!(
         stderr.to_ascii_lowercase().contains("not yet implemented"),
         "stderr should contain 'not yet implemented', got: {stderr}"
+    );
+}
+
+// ── SPEC-015 auto-orient integration tests ────────────────────────────────────
+
+/// `auto-orient` on a JPEG with Orientation=6 rotates the pixels (4×2 →
+/// 2×4) and the re-encoded output carries no EXIF (`info --json` reports
+/// `"has_exif":false`).
+#[test]
+fn auto_orient_cli_rotates_and_clears_tag() {
+    let dir = tempfile::tempdir().expect("tempdir");
+
+    // Write a 4×2 JPEG with Orientation=6 (Rotate90).
+    let jpg_bytes = common::jpeg_with_orientation(4, 2, 6);
+    let in_path = dir.path().join("in.jpg");
+    std::fs::write(&in_path, &jpg_bytes).unwrap();
+
+    let out_path = dir.path().join("out.jpg");
+
+    // Run auto-orient.
+    let output = Command::new(BIN)
+        .args([
+            "auto-orient",
+            in_path.to_str().unwrap(),
+            "-o",
+            out_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run auto-orient");
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "auto-orient should exit 0; stderr: {}",
+        stderr_str(&output)
+    );
+
+    // Verify output dimensions are rotated: 4×2 → 2×4.
+    let decoded = image::open(&out_path).expect("output should be a decodable JPEG");
+    assert_eq!(
+        decoded.width(),
+        2,
+        "auto-orient rotate90: width should be 2"
+    );
+    assert_eq!(
+        decoded.height(),
+        4,
+        "auto-orient rotate90: height should be 4"
+    );
+
+    // Run `info --json` on the output and assert has_exif:false.
+    let info_output = Command::new(BIN)
+        .args(["info", out_path.to_str().unwrap(), "--json"])
+        .output()
+        .expect("failed to run info");
+
+    let info_stdout = stdout_str(&info_output);
+    assert!(
+        info_stdout.contains("\"has_exif\":false"),
+        "output JPEG should have no EXIF after auto-orient; got: {info_stdout}"
+    );
+}
+
+/// `auto-orient` on a plain PNG (no EXIF) exits 0 with unchanged dimensions.
+#[test]
+fn auto_orient_cli_noop_without_exif() {
+    let dir = tempfile::tempdir().expect("tempdir");
+
+    let png_bytes = common::solid_png(8, 4, [100, 150, 200]);
+    let in_path = dir.path().join("in.png");
+    std::fs::write(&in_path, &png_bytes).unwrap();
+
+    let out_path = dir.path().join("out.png");
+
+    let output = Command::new(BIN)
+        .args([
+            "auto-orient",
+            in_path.to_str().unwrap(),
+            "-o",
+            out_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run auto-orient noop");
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "auto-orient on no-EXIF PNG should exit 0; stderr: {}",
+        stderr_str(&output)
+    );
+
+    let decoded = image::open(&out_path).expect("output should be decodable");
+    assert_eq!(decoded.width(), 8, "no-op auto-orient: width unchanged");
+    assert_eq!(decoded.height(), 4, "no-op auto-orient: height unchanged");
+}
+
+/// Multi-input `auto-orient` with `--out-dir` rotates all inputs and writes
+/// them as JPEG files to the output directory.
+#[test]
+fn auto_orient_cli_multi_input_fan_out() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let out_dir = dir.path().join("out");
+    std::fs::create_dir(&out_dir).unwrap();
+
+    // Two 4×2 JPEGs with Orientation=6.
+    let jpg_bytes = common::jpeg_with_orientation(4, 2, 6);
+    let in_a = dir.path().join("a.jpg");
+    let in_b = dir.path().join("b.jpg");
+    std::fs::write(&in_a, &jpg_bytes).unwrap();
+    std::fs::write(&in_b, &jpg_bytes).unwrap();
+
+    let output = Command::new(BIN)
+        .args([
+            "auto-orient",
+            in_a.to_str().unwrap(),
+            in_b.to_str().unwrap(),
+            "--out-dir",
+            out_dir.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run auto-orient multi");
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "auto-orient multi-input should exit 0; stderr: {}",
+        stderr_str(&output)
+    );
+
+    // Both outputs should be 2×4 JPEG.
+    for name in &["a.jpg", "b.jpg"] {
+        let out_path = out_dir.join(name);
+        assert!(out_path.exists(), "{name} should exist in out-dir");
+        let decoded = image::open(&out_path).expect("output should be decodable");
+        assert_eq!(
+            decoded.width(),
+            2,
+            "{name}: width should be 2 after rotate90"
+        );
+        assert_eq!(
+            decoded.height(),
+            4,
+            "{name}: height should be 4 after rotate90"
+        );
+    }
+}
+
+/// `auto-orient` with a missing input file exits 3.
+#[test]
+fn auto_orient_cli_missing_input_exits_3() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let missing = dir.path().join("nope.jpg");
+    let out_path = dir.path().join("out.jpg");
+
+    let output = Command::new(BIN)
+        .args([
+            "auto-orient",
+            missing.to_str().unwrap(),
+            "-o",
+            out_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run auto-orient with missing input");
+
+    assert_eq!(
+        output.status.code(),
+        Some(3),
+        "auto-orient with missing input should exit 3"
+    );
+}
+
+/// `auto-orient` with multiple inputs but no `--out-dir` exits 2 and the
+/// stderr mentions `out-dir`.
+#[test]
+fn auto_orient_cli_multi_without_out_dir_is_usage_error() {
+    let dir = tempfile::tempdir().expect("tempdir");
+
+    let jpg_bytes = common::jpeg_with_orientation(4, 2, 6);
+    let in_a = dir.path().join("a.jpg");
+    let in_b = dir.path().join("b.jpg");
+    std::fs::write(&in_a, &jpg_bytes).unwrap();
+    std::fs::write(&in_b, &jpg_bytes).unwrap();
+
+    let output = Command::new(BIN)
+        .args([
+            "auto-orient",
+            in_a.to_str().unwrap(),
+            in_b.to_str().unwrap(),
+            // No --out-dir
+        ])
+        .output()
+        .expect("failed to run auto-orient without out-dir");
+
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "auto-orient multi without --out-dir should exit 2"
+    );
+    let stderr = stderr_str(&output);
+    assert!(
+        stderr.to_ascii_lowercase().contains("out-dir"),
+        "stderr should mention 'out-dir'; got: {stderr}"
     );
 }
 

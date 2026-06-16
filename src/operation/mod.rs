@@ -559,6 +559,72 @@ impl Operation for Resize {
     }
 }
 
+// ─── AutoOrient ─────────────────────────────────────────────────────────────
+
+/// Bake the EXIF orientation tag into the pixels, then drop the metadata
+/// bundle so the now-stale tag does not propagate (DEC-017).
+///
+/// Reads the raw EXIF segment from the `Image`'s captured [`MetadataBundle`],
+/// extracts the orientation via `image`'s native
+/// `Orientation::from_exif_chunk`, applies the corresponding
+/// rotation/flip with `DynamicImage::apply_orientation`, and returns a new
+/// `Image` with **no** metadata bundle (`None`). Images with no EXIF, no
+/// orientation tag, or orientation 1 (`NoTransforms`) are returned unchanged
+/// (no-op, exit 0 — not an error).
+///
+/// The operation module depends only on `::image`; NO `kamadak-exif`
+/// (constraint `single-image-library`, DEC-013, DEC-017).
+#[derive(Debug)]
+pub struct AutoOrient;
+
+impl Operation for AutoOrient {
+    fn name(&self) -> &'static str {
+        "auto-orient"
+    }
+
+    fn params(&self) -> OperationParams {
+        OperationParams::empty()
+    }
+
+    fn apply(&self, img: Image) -> Result<Image, OperationError> {
+        let orientation = img
+            .metadata()
+            .and_then(|m| m.exif.as_deref())
+            .and_then(orientation_from_exif_segment);
+
+        match orientation {
+            // No EXIF, no tag, or orientation 1 — return unchanged (no-op).
+            None | Some(::image::metadata::Orientation::NoTransforms) => Ok(img),
+            Some(o) => {
+                // Clone the pixel buffer, apply the rotation/flip in-place,
+                // then return a new Image with NO metadata bundle (DEC-017):
+                // the orientation tag is now stale; dropping the bundle is
+                // the correct, future-proof choice.
+                let mut pixels = img.pixels().clone();
+                pixels.apply_orientation(o);
+                let fmt = img.source_format();
+                Ok(Image::from_parts(pixels, fmt, None))
+            }
+        }
+    }
+}
+
+/// Extract an `image::metadata::Orientation` from a raw EXIF segment.
+///
+/// Accepts both JPEG-style (with a leading `"Exif\0\0"` signature) and
+/// PNG-style (bare TIFF, no prefix) segments. Strips the six-byte
+/// `b"Exif\0\0"` prefix when present, then delegates to
+/// `Orientation::from_exif_chunk`, which parses the raw TIFF chunk.
+///
+/// Returns `None` on any parse failure (missing tag, malformed bytes, empty
+/// slice) — never panics. Directly unit-testable as a free fn.
+fn orientation_from_exif_segment(exif: &[u8]) -> Option<::image::metadata::Orientation> {
+    // Strip the JPEG APP1 "Exif\0\0" signature if present; PNG eXIf chunks
+    // are already bare TIFF, so no stripping is needed for those.
+    let tiff = exif.strip_prefix(b"Exif\0\0").unwrap_or(exif);
+    ::image::metadata::Orientation::from_exif_chunk(tiff)
+}
+
 // ─── Tests ──────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -993,5 +1059,199 @@ mod tests {
     #[test]
     fn invert_params_still_zero_keys() {
         assert!(Invert.params().is_empty());
+    }
+
+    // ── SPEC-015 AutoOrient unit tests ────────────────────────────────────────
+
+    use crate::image::MetadataBundle;
+
+    /// Build a minimal little-endian TIFF chunk with a single Orientation
+    /// entry (tag 0x0112, type SHORT, count 1, value = `orientation`).
+    /// This is the format `Orientation::from_exif_chunk` expects.
+    fn tiff_orientation_chunk(orientation: u8) -> Vec<u8> {
+        let mut bytes: Vec<u8> = Vec::new();
+        bytes.extend_from_slice(&[0x49, 0x49]); // "II" — little-endian
+        bytes.extend_from_slice(&[0x2A, 0x00]); // TIFF magic = 42
+        bytes.extend_from_slice(&[0x08, 0x00, 0x00, 0x00]); // IFD offset = 8
+        bytes.extend_from_slice(&[0x01, 0x00]); // entry count = 1
+        bytes.extend_from_slice(&[0x12, 0x01]); // tag 0x0112 = Orientation
+        bytes.extend_from_slice(&[0x03, 0x00]); // type 3 = SHORT
+        bytes.extend_from_slice(&[0x01, 0x00, 0x00, 0x00]); // count = 1
+        bytes.push(orientation);
+        bytes.push(0x00); // value padding
+        bytes.extend_from_slice(&[0x00, 0x00]); // value padding (SHORT is 2 bytes, stored in 4-byte value field)
+        bytes.extend_from_slice(&[0x00, 0x00, 0x00, 0x00]); // next-IFD offset = 0
+        bytes
+    }
+
+    /// Build a JPEG-style EXIF bundle (prefixed with `b"Exif\0\0"`).
+    fn jpeg_exif_bundle(orientation: u8) -> MetadataBundle {
+        let mut exif_bytes: Vec<u8> = Vec::new();
+        exif_bytes.extend_from_slice(b"Exif\0\0");
+        exif_bytes.extend(tiff_orientation_chunk(orientation));
+        MetadataBundle {
+            exif: Some(exif_bytes),
+            icc: None,
+        }
+    }
+
+    /// Build a PNG-style EXIF bundle (bare TIFF, no prefix).
+    fn png_exif_bundle(orientation: u8) -> MetadataBundle {
+        MetadataBundle {
+            exif: Some(tiff_orientation_chunk(orientation)),
+            icc: None,
+        }
+    }
+
+    #[test]
+    fn auto_orient_name_and_params_stable() {
+        assert_eq!(AutoOrient.name(), "auto-orient");
+        assert_eq!(AutoOrient.params(), OperationParams::empty());
+    }
+
+    #[test]
+    fn auto_orient_noop_without_metadata() {
+        // A 4×2 image with no metadata → apply returns 4×2 unchanged.
+        let img = make_image(4, 2, |x, y| [(x * 20) as u8, (y * 20) as u8, 50, 255]);
+        let result = AutoOrient.apply(img).unwrap();
+        assert_eq!(result.pixels().width(), 4);
+        assert_eq!(result.pixels().height(), 2);
+    }
+
+    #[test]
+    fn auto_orient_noop_on_orientation_1() {
+        // Orientation 1 = NoTransforms → dims unchanged.
+        let buf = RgbaImage::from_fn(4, 2, |x, y| {
+            ::image::Rgba([(x * 20) as u8, (y * 40) as u8, 50, 255])
+        });
+        let img = Image::from_parts(
+            DynamicImage::ImageRgba8(buf),
+            ImageFormat::Jpeg,
+            Some(jpeg_exif_bundle(1)),
+        );
+        let result = AutoOrient.apply(img).unwrap();
+        assert_eq!(result.pixels().width(), 4);
+        assert_eq!(result.pixels().height(), 2);
+    }
+
+    #[test]
+    fn auto_orient_rotate90_swaps_dims() {
+        // Orientation 6 = Rotate90 (EXIF 6 → image::Orientation::Rotate90).
+        // A 4×2 image → after rotation: 2×4.
+        // Also asserts the metadata bundle is dropped (DEC-017).
+        let buf = RgbaImage::from_fn(4, 2, |x, y| {
+            ::image::Rgba([(x * 20) as u8, (y * 40) as u8, 50, 255])
+        });
+        let img = Image::from_parts(
+            DynamicImage::ImageRgba8(buf),
+            ImageFormat::Jpeg,
+            Some(jpeg_exif_bundle(6)),
+        );
+        let result = AutoOrient.apply(img).unwrap();
+        assert_eq!(
+            result.pixels().width(),
+            2,
+            "width should swap to 2 after rotate90"
+        );
+        assert_eq!(
+            result.pixels().height(),
+            4,
+            "height should swap to 4 after rotate90"
+        );
+        assert!(
+            result.metadata().is_none(),
+            "metadata bundle must be dropped after baking orientation (DEC-017)"
+        );
+    }
+
+    #[test]
+    fn auto_orient_reads_png_style_exif_chunk() {
+        // Bare TIFF (no Exif\0\0 prefix), orientation 6 → 4×2 becomes 2×4.
+        let buf = RgbaImage::from_fn(4, 2, |x, y| {
+            ::image::Rgba([(x * 20) as u8, (y * 40) as u8, 50, 255])
+        });
+        let img = Image::from_parts(
+            DynamicImage::ImageRgba8(buf),
+            ImageFormat::Png,
+            Some(png_exif_bundle(6)),
+        );
+        let result = AutoOrient.apply(img).unwrap();
+        assert_eq!(
+            result.pixels().width(),
+            2,
+            "width should swap to 2 after rotate90 with bare TIFF"
+        );
+        assert_eq!(
+            result.pixels().height(),
+            4,
+            "height should swap to 4 after rotate90 with bare TIFF"
+        );
+    }
+
+    #[test]
+    fn auto_orient_flip_horizontal_moves_pixels() {
+        // Orientation 2 = FlipHorizontal: a 2×1 image with left=red, right=blue
+        // → after flip, col 0 = blue, col 1 = red. Dims unchanged (2×1).
+        let buf = RgbaImage::from_fn(2, 1, |x, _y| {
+            if x == 0 {
+                ::image::Rgba([255, 0, 0, 255]) // red on left
+            } else {
+                ::image::Rgba([0, 0, 255, 255]) // blue on right
+            }
+        });
+        let img = Image::from_parts(
+            DynamicImage::ImageRgba8(buf),
+            ImageFormat::Jpeg,
+            Some(jpeg_exif_bundle(2)),
+        );
+        let result = AutoOrient.apply(img).unwrap();
+        assert_eq!(result.pixels().width(), 2, "width unchanged after flip");
+        assert_eq!(result.pixels().height(), 1, "height unchanged after flip");
+
+        let out = result.pixels().to_rgba8();
+        let col0 = out.get_pixel(0, 0);
+        let col1 = out.get_pixel(1, 0);
+        // After flip: left should now be blue (was right), right should be red (was left).
+        assert_eq!(col0.0, [0, 0, 255, 255], "col 0 should be blue after flip");
+        assert_eq!(col1.0, [255, 0, 0, 255], "col 1 should be red after flip");
+    }
+
+    #[test]
+    fn orientation_from_exif_segment_prefixed_and_bare() {
+        use ::image::metadata::Orientation;
+
+        let tiff = tiff_orientation_chunk(6);
+
+        // Prefixed (JPEG APP1 style).
+        let mut prefixed = Vec::new();
+        prefixed.extend_from_slice(b"Exif\0\0");
+        prefixed.extend_from_slice(&tiff);
+        let result_prefixed = orientation_from_exif_segment(&prefixed);
+        assert_eq!(
+            result_prefixed,
+            Some(Orientation::Rotate90),
+            "prefixed orientation-6 should parse as Rotate90"
+        );
+
+        // Bare (PNG eXIf style).
+        let result_bare = orientation_from_exif_segment(&tiff);
+        assert_eq!(
+            result_bare,
+            Some(Orientation::Rotate90),
+            "bare orientation-6 should parse as Rotate90"
+        );
+
+        // Garbage bytes → None.
+        let garbage = b"this is not a tiff";
+        assert!(
+            orientation_from_exif_segment(garbage).is_none(),
+            "garbage bytes should return None"
+        );
+
+        // Empty slice → None.
+        assert!(
+            orientation_from_exif_segment(&[]).is_none(),
+            "empty slice should return None"
+        );
     }
 }

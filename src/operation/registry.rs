@@ -13,7 +13,7 @@ use std::collections::HashMap;
 
 use thiserror::Error;
 
-use super::{Identity, Invert, Operation, OperationParams, Resize};
+use super::{AutoOrient, Identity, Invert, Operation, OperationParams, Resize};
 
 // ─── Constructor type alias ─────────────────────────────────────────────────
 
@@ -73,12 +73,14 @@ impl OperationRegistry {
     }
 
     /// Create a registry pre-populated with the built-in operations:
-    /// `"identity"`, `"invert"` (SPEC-003), and `"resize"` (SPEC-010).
+    /// `"identity"`, `"invert"` (SPEC-003), `"resize"` (SPEC-010), and
+    /// `"auto-orient"` (SPEC-015).
     pub fn with_builtins() -> Self {
         let mut reg = Self::new();
         reg.register("identity", |_params| Ok(Box::new(Identity)));
         reg.register("invert", |_params| Ok(Box::new(Invert)));
         reg.register("resize", |p| Ok(Box::new(Resize::from_params(p)?)));
+        reg.register("auto-orient", |_params| Ok(Box::new(AutoOrient)));
         reg
     }
 
@@ -217,5 +219,25 @@ mod tests {
             ),
             "expected InvalidParams for resize with empty params"
         );
+    }
+
+    // ── SPEC-015 registry tests ───────────────────────────────────────────────
+
+    #[test]
+    fn with_builtins_contains_auto_orient() {
+        let reg = OperationRegistry::with_builtins();
+        assert!(
+            reg.contains("auto-orient"),
+            "expected 'auto-orient' to be registered in with_builtins"
+        );
+    }
+
+    #[test]
+    fn build_auto_orient() {
+        let reg = OperationRegistry::with_builtins();
+        let op = reg
+            .build("auto-orient", &OperationParams::empty())
+            .expect("build('auto-orient', empty) should succeed");
+        assert_eq!(op.name(), "auto-orient");
     }
 }

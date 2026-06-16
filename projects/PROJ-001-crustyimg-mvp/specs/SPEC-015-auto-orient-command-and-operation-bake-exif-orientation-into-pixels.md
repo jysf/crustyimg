@@ -7,7 +7,7 @@
 task:
   id: SPEC-015
   type: story                      # epic | story | task | bug | chore
-  cycle: design                    # frame | design | build | verify | ship
+  cycle: verify                    # frame | design | build | verify | ship
   blocked: false
   priority: medium
   complexity: M                    # S | M | L  (L means split it)
@@ -49,6 +49,14 @@ cost:
       duration_minutes: null
       recorded_at: 2026-06-15
       notes: "Design authored by the ORCHESTRATOR (Opus) directly (proven path from SPEC-013/014). Verified the image 0.25.10 orientation API (Orientation::from_exif_chunk parses a raw TIFF chunk; DynamicImage::apply_orientation; decode() does NOT auto-apply) and the exact 1-entry-IFD fixture byte layout. Emitted DEC-017 (operations may READ the captured MetadataBundle to drive a pixel transform; auto-orient uses image's native Orientation, no kamadak-exif). Complexity M (first metadata-reading Operation + a new registry entry + a new EXIF fixture)."
+    - cycle: build
+      agent: claude-sonnet-4-6
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-06-15
+      notes: "AutoOrient op + orientation_from_exif_segment helper + registry entry + run_auto_orient CLI + jpeg_with_orientation fixture + 7 unit + 9 integration tests (5 new auto-orient + repoint stub + 2 registry). All 4 gates pass; 206/206 tests green."
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -378,28 +386,29 @@ stay green (run the FULL suite).
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
+- **Branch:** `feat/spec-015-auto-orient-command-and-operation-bake-exif-orientation-into-pixels`
+- **PR (if applicable):** #16 — https://github.com/jysf/crustyimg/pull/16
+- **All acceptance criteria met?** yes
 - **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
+  - No new DEC during build — DEC-017 already governs.
 - **Deviations from spec:**
-  - [list]
+  - None. The `orientation_from_exif_segment` helper, the `AutoOrient::apply` body, `run_auto_orient`, the fixture byte layout, and all named tests follow the spec exactly.
 - **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - Selective metadata preserve across `auto-orient` (keep non-orientation tags): STAGE-004 container lane.
+  - Extend EXIF capture to TIFF/BMP/GIF/ICO: STAGE-004.
 
 ### Build-phase reflection (3 questions, short answers)
 
 Process-focused: how did the build go? What friction did the spec create?
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — Nothing significant. The spec was unusually precise: exact TIFF bytes, the `from_parts(…, None)` vs `with_pixels` distinction, the `strip_prefix` helper shape, and the two-step `info --json` verification for the integration test were all spelled out. Rustfmt's trailing-comment alignment (aligning a standalone comment to the inline comments in the block above) caused a minor delay — removed the offending comment to keep fmt happy.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — The `mod common;` pattern for `tests/cli.rs` (vs other integration test files that already had it) wasn't mentioned, but was trivial to sort out by reading the other test files.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Run `cargo fmt` immediately after each file edit rather than after all edits; the formatter's comment-alignment behavior surfaced mid-gate and required an extra round-trip.
 
 ---
 
