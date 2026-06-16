@@ -104,8 +104,10 @@ the pixel lane does not carry container metadata; that is the STAGE-004
 container lane (DEC-003). **Batch failures:** a multi-input batch with any
 per-input failure writes the successes, prints a per-file summary to stderr,
 and exits **6**; a single-input failure keeps its natural code (3/1/4/5).
-`-q/--quality` is not yet honored by `resize` (encoder default); quality-aware
-encode is the `shrink`/`convert` story.
+`-q/--quality` is threaded to the encoder where the format supports it (JPEG;
+ignored for lossless formats — DEC-016); `resize` forces no default quality
+(the encoder default unless `-q` is given). `shrink` is the command with a
+quality default.
 
 #### `thumbnail <INPUT...> [--size N] [--square]`  *(S3)*
 Convenience resize to a small bounded size — a thin wrapper over `resize`.
@@ -121,8 +123,17 @@ to stderr, and exits **6**; a single-input failure keeps its natural code
 (3/1/4/5). `-q/--quality` is not honored (encoder default); `--size 0` → exit 2.
 
 #### `shrink <INPUT...> [--max N] [-q Q]`  *(S3)*
-Optimize-for-web: resize (default max long edge) + real quality encode +
-strip metadata (respecting `--keep-gps`). The headline web-prep command.
+Optimize-for-web: resize to a default long-edge bound + a real quality-aware
+encode + drop metadata. The headline web-prep command. `--max` defaults to
+**1600** (long edge, aspect preserved, never upscaled); `-q/--quality` defaults
+to **80** and maps to **JPEG** quality — it is **ignored for lossless formats**
+(PNG/GIF/BMP/TIFF/ICO), which re-encode unchanged (DEC-016). Output **preserves
+the input's source format** (`--format` / `-o` extension override; DEC-015) — a
+JPEG stays JPEG, a PNG stays PNG. **Metadata is dropped** on the re-encode (the
+pixel lane carries no container metadata); selective preservation and
+`--keep-gps` are the STAGE-004 container lane and are **not yet active for
+`shrink`** (DEC-003). Multi-input `--out-dir` fan-out (sequential; partial
+failure → exit 6; missing input → 3; multi-input without `--out-dir` → 2).
 
 #### `convert <INPUT...> --format FMT [-q Q]`  *(S3)*
 Re-encode to another core format (JPEG/PNG/GIF/BMP/TIFF/ICO). WebP is
