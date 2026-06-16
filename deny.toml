@@ -1,0 +1,45 @@
+# cargo-deny — license policy enforcement (DEC-018).
+#
+# crustyimg is distributed under `MIT OR Apache-2.0` (permissive) so the binary
+# stays widely embeddable, including in closed-source/commercial products. To
+# keep that promise, every dependency must carry a permissive (or an explicitly
+# excepted) license. Any GPL/AGPL — or any license not in `allow` and not
+# excepted — fails `cargo deny check licenses` (and the CI `licenses` job).
+#
+# This is the mechanical enforcement of constraint `no-agpl-default-deps`.
+# Run locally with `just deny`.
+
+[graph]
+# Evaluate the FULL feature graph (incl. the optional `display` feature, DEC-011)
+# so a copyleft dependency cannot slip in behind a feature flag unnoticed.
+all-features = true
+
+[licenses]
+# Permissive SPDX licenses present in — or acceptable for — the dependency tree.
+# Each `OR` expression a crate declares is satisfied if ANY listed id is allowed.
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "Zlib",
+    "0BSD",
+    "Unlicense",
+    "Unicode-3.0",
+]
+
+# Per-crate exceptions: a license OUTSIDE `allow`, knowingly accepted for ONE
+# named crate. Everything else still fails — including any NEW GPL/AGPL/LGPL dep.
+#
+#   ansi_colours (LGPL-3.0-or-later): pulled in ONLY by `viuer` behind the
+#   optional `display` feature (DEC-011), for ANSI color conversion in the
+#   `view` terminal-display path. LGPL is weak copyleft — it does NOT relicense
+#   crustyimg the way GPL/AGPL would. Accepted for the display build only.
+#   Revisit if the `view`/viuer path is reworked or display becomes default.
+exceptions = [
+    { name = "ansi_colours", allow = ["LGPL-3.0-or-later"] },
+]
+
+# Require high confidence when matching a license file's text to an SPDX id.
+confidence-threshold = 0.9
