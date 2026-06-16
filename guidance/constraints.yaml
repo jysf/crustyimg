@@ -123,3 +123,11 @@ constraints:
     added_by: human
     added_at: 2026-06-13
     rationale: "Product principle: easy for quick, small tasks AND able to support complex, repeatable workflows. Raised by the user 2026-06-13."
+
+  - id: no-agpl-default-deps
+    rule: "Dependencies must carry a permissive license (MIT / Apache-2.0 / BSD-2/3-Clause / Zlib / 0BSD / Unlicense / Unicode-3.0). No GPL or AGPL dependencies; LGPL only via a documented per-crate cargo-deny exception. Enforced by `cargo deny check licenses` (deny.toml) in CI and via `just deny`."
+    severity: blocking
+    paths: ["Cargo.toml", "deny.toml"]
+    added_by: claude
+    added_at: 2026-06-16
+    rationale: "crustyimg is `MIT OR Apache-2.0` (permissive) so the statically-linked binary stays widely embeddable, incl. in closed-source/commercial products; an AGPL/GPL dep would relicense the whole binary. Rules out gifski / jpegli-rs / imagequant as defaults. See DEC-018."

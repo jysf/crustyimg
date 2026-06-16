@@ -84,6 +84,11 @@ check-display:
 audit:
     cargo audit
 
+# Enforce the permissive license policy over the dependency tree (DEC-018;
+# install: cargo install cargo-deny). Same check the CI `licenses` job runs.
+deny:
+    cargo deny check licenses
+
 # Build and open the crate's API docs
 doc:
     cargo doc --no-deps --open

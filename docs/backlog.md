@@ -94,3 +94,14 @@ encode). Worth doing, clearly later.
   `cargo audit` in CI) — new `Operation`s are pure pixel transforms and add
   little new surface; network fetch (Picsum/Unsplash) and native codecs are
   the ones that would warrant fresh threat-model review and a DEC.
+- **Permissive in-house `Display` sink (drop viuer + ansi_colours)** — S–M, near
+  term. viuer pulls `ansi_colours` (LGPL-3.0-or-later), the only copyleft dep in
+  the tree (optional `display` feature; accepted today via a documented
+  `cargo-deny` exception, DEC-018). Replace with a thin permissive sink: emit the
+  **Kitty graphics** + **iTerm2 inline** protocols directly (base64-PNG escape
+  sequences), **`icy_sixel`** (MIT/Apache) for Sixel, and a **truecolor
+  half-block** fallback (24-bit `▄`, no ANSI-256 quantization → no `ansi_colours`
+  needed). Removes the last copyleft, stays dependency-light, makes the "100%
+  permissive" claim literally true, and revisits DEC-011. `ratatui-image` (MIT,
+  multi-protocol) is the right display lib for the *later* ratatui TUI editor, not
+  for the one-shot `view`.
