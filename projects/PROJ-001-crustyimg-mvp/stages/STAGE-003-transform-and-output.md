@@ -95,9 +95,9 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 - [x] SPEC-012 (shipped 2026-06-15, PR #13) — `thumbnail` command: bounded small resize (default 256) + `--square` center-crop; thin wrapper over the `resize` op via a shared `run_pixel_op` fan-out helper (no new op/DEC)
 - [x] SPEC-013 (shipped 2026-06-15, PR #14) — `shrink` command: resize to default max 1600 + quality-aware encode (default 80, DEC-016) + metadata drop (web-prep workhorse); added the quality-encode path to the Sink; `--keep-gps`/selective preserve deferred to STAGE-004
 - [x] SPEC-014 (shipped 2026-06-15, PR #15) — `convert` command: re-encode across core formats (JPEG/PNG/GIF/BMP/TIFF/ICO), `--format` required + forced; exit 4 for unbuilt codecs resolved up front (DEC-004), reuses the DEC-016 quality knob + DEC-015 fan-out; CLI-only, no new op/DEC
-- [~] SPEC-015 (design) — `auto-orient` command/Operation: a new registry-registered `AutoOrient` op that reads the captured EXIF orientation (DEC-017, image's native `Orientation`, no kamadak-exif) and bakes the rotation/flip into pixels; the re-encode clears the tag; reuses the `run_pixel_op` fan-out; no-op when no/identity orientation
+- [x] SPEC-015 (shipped 2026-06-15, PR #16) — `auto-orient` command/Operation: a new registry-registered `AutoOrient` op that reads the captured EXIF orientation (DEC-017, image's native `Orientation`, no kamadak-exif) and bakes the rotation/flip into pixels; the re-encode clears the tag; reuses the `run_pixel_op` fan-out; no-op when no/identity orientation
 
-**Count:** 5 shipped / 1 active / 0 pending
+**Count:** 6 shipped / 0 active / 0 pending
 
 > **Note (2026-06-15):** `resize` was split into SPEC-010 (library: operation +
 > the first parameterized-op params mechanism, DEC-014) and SPEC-011 (CLI +

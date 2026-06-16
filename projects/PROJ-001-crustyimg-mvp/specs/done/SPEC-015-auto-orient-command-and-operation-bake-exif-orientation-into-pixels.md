@@ -7,7 +7,7 @@
 task:
   id: SPEC-015
   type: story                      # epic | story | task | bug | chore
-  cycle: verify                    # frame | design | build | verify | ship
+  cycle: ship                      # frame | design | build | verify | ship
   blocked: false
   priority: medium
   complexity: M                    # S | M | L  (L means split it)
@@ -57,10 +57,26 @@ cost:
       duration_minutes: null
       recorded_at: 2026-06-15
       notes: "AutoOrient op + orientation_from_exif_segment helper + registry entry + run_auto_orient CLI + jpeg_with_orientation fixture + 7 unit + 9 integration tests (5 new auto-orient + repoint stub + 2 registry). All 4 gates pass; 206/206 tests green."
+    - cycle: verify
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-06-15
+      notes: "Verify cycle, Opus read-only subagent. ✅ APPROVED, no punch list. Independently grepped + read all 15 named tests; confirmed the dual assertions (auto_orient_rotate90_swaps_dims pins dims 2×4 AND metadata().is_none(); the CLI test pins rotated dims AND has_exif:false). Grepped the operation module — no kamadak-exif/exif-crate usage. Hands-on end-to-end: a real orientation-6 JPEG went 6×3 has_exif:true → 3×6 has_exif:false, exit 0. Confirmed bundle-drop (from_parts, not with_pixels), DEC-017/003 conformance, no new dep/CliError/image/sink/DEC change, CI 6/6 (3-OS)."
+    - cycle: ship
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-06-15
+      notes: "Orchestrator ship bookkeeping on main (merged PR #16 squash e0fe1ff; MERGEABLE/CLEAN, no update-branch needed; archive by hand). Last STAGE-003 spec → triggers the STAGE-003 stage ship."
   totals:
     tokens_total: 0
     estimated_usd: 0
-    session_count: 0
+    session_count: 4
 ---
 
 # SPEC-015: auto-orient command and operation — bake EXIF orientation into pixels
@@ -418,11 +434,27 @@ Process-focused: how did the build go? What friction did the spec create?
 from the process-focused build reflection above.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Little. Verifying the `image` 0.25.10 orientation API in design (that
+   `Orientation::from_exif_chunk` parses a raw TIFF chunk, `apply_orientation`
+   exists, and `decode()` does NOT auto-orient) was what let `auto-orient` stay
+   inside the operation module's `::image` surface and skip kamadak-exif — a
+   cleaner, lower-risk op than the handoff's first sketch (which assumed
+   kamadak-exif). The durable lesson: when an op needs to read metadata, check
+   whether the pixel library already exposes the exact reader before reaching for
+   the dedicated metadata crate.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — No. DEC-017 cleanly captures the new pattern (ops may READ the captured
+   `MetadataBundle` to drive a pixel transform, never edit) and clarifies the
+   DEC-003 boundary. When STAGE-004 adds metadata preservation, `auto-orient`
+   will need to selectively clear only the orientation tag rather than dropping
+   the whole bundle — DEC-017's Validation section already flags this.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — No new spec. This is the last STAGE-003 command — the stage ships now.
+   The tracked STAGE-004 items remain: the container metadata lane
+   (`strip`/`clean --gps`/`set`/`copy-metadata`), `--keep-gps`/selective
+   preserve for `shrink`/`convert`/`auto-orient`, EXIF capture for more source
+   formats (which would extend `auto-orient`'s coverage for free), and
+   `watermark`.
 </content>

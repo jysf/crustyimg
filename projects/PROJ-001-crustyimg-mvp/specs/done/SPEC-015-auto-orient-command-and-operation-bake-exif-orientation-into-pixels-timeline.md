@@ -16,7 +16,11 @@ Cycle prompts live in `prompts/SPEC-015-<cycle>.md`.
   helper + registry entry + `run_auto_orient` CLI + `jpeg_with_orientation` fixture;
   all named Failing Tests pass; 206/206 tests green; 4 gates clean.
   Implemented by claude-sonnet-4-6, 2026-06-15.
-- [ ] **verify** — Opus read-only review of the PR against the spec; ✅/⚠/❌.
-- [ ] **ship** — squash-merge PR, bookkeeping on `main`, archive, brag. This is
-  the last STAGE-003 spec → then run the STAGE-003 STAGE SHIP.
+- [x] **verify** — Opus read-only review of PR #16. ✅ APPROVED, no punch list;
+  all 15 named tests independently confirmed; no kamadak-exif in the op; DEC-017
+  bundle-drop verified hands-on (6×3 has_exif:true → 3×6 has_exif:false); CI
+  3-OS green. 2026-06-15.
+- [x] **ship** — PR #16 squash-merged (`e0fe1ff`); bookkeeping on `main`;
+  archived to `specs/done/`; brag added. Last STAGE-003 spec → STAGE-003 stage
+  ship run. 2026-06-15.
 </content>
