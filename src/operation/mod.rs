@@ -985,7 +985,7 @@ mod tests {
         assert_eq!(round_tripped.get_str("mode"), Some("max"));
         assert_eq!(round_tripped.get_u32("width"), Some(1200));
         // height must NOT be present for max mode
-        assert!(round_tripped.0.get("height").is_none());
+        assert!(!round_tripped.0.contains_key("height"));
         // The reconstructed params must equal the original
         assert_eq!(round_tripped, p);
     }
