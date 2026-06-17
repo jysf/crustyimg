@@ -7,7 +7,7 @@
 task:
   id: SPEC-016
   type: story                      # epic | story | task | bug | chore
-  cycle: verify                    # frame | design | build | verify | ship
+  cycle: ship                      # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: M                    # S | M | L  (L means split it)
@@ -56,15 +56,31 @@ cost:
     - cycle: build
       agent: claude-opus-4-8
       interface: claude-code
+      tokens_total: 400000
+      estimated_usd: 3.60
+      duration_minutes: null
+      recorded_at: 2026-06-16
+      notes: "ORDER-OF-MAGNITUDE ESTIMATE (no clean per-cycle metering). Build executed by the ORCHESTRATOR (Opus) in the main loop as the sanctioned fallback after the dispatched Sonnet 4.6 BACKGROUND subagent could not obtain Bash permission (it consumed ~106.9k tokens and did zero work — excluded here). The real build was main-loop work (read ~15 files incl. the 1795-line cli twice, wrote the 381-line src/quality module + CLI wiring + ~300 lines of tests, ran ~30 build/test/git iterations), so it cannot be cleanly metered; ~400k is a session-scale estimate (refine with /cost). usd at Opus 4.8 blended ~80/20 list ($9/MTok). Implemented `prompts/SPEC-016-build.md`: src/quality (SSIMULACRA2 metric + generic search) + ssimulacra2 0.5.1 dep + shrink --target/--ssim + tests. All 5 gates green; PR #18."
+    - cycle: verify
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 511070
+      estimated_usd: 4.60
+      duration_minutes: null
+      recorded_at: 2026-06-16
+      notes: "REAL metered figure: independent code-review (orchestration model's verify) ran as 7 parallel finder subagents whose Agent-result token counts sum to 511,070 (76086+75223+83438+74683+70617+62000+69023); the orchestrator's main-loop synthesis on top is not separately metered. usd at Opus 4.8 blended ~80/20 list ($9/MTok). Verdict: no correctness bugs; surfaced + applied 3 quality fixes (dead memoization removed, encoder cross-ref comment, unmet-target stderr warning + test). This was an ORCHESTRATOR-run verify (same session as design+build — subagent Bash blocked), not a fully independent fresh session."
+    - cycle: ship
+      agent: claude-opus-4-8
+      interface: claude-code
       tokens_total: null
       estimated_usd: null
       duration_minutes: null
       recorded_at: 2026-06-16
-      notes: "Build executed by the ORCHESTRATOR (Opus) as the sanctioned fallback after the dispatched Sonnet 4.6 background subagent could not obtain Bash permission in its non-interactive context (did zero work). Implemented `prompts/SPEC-016-build.md` literally: new src/quality module (SSIMULACRA2 metric + generic quality search) + ssimulacra2 0.5.1 default dep + shrink --target/--ssim wiring + 14 tests. All 5 gates green (build · test 220 · clippy --all-targets · fmt · just deny); no deny.toml change needed. PR #18."
+      notes: "Orchestrator main-loop ship bookkeeping on main after the PR #18 squash-merge (585b6f9) — not separately metered (null per the cost-tracking policy for main-loop cycles)."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 911070
+    estimated_usd: 8.20
+    session_count: 4
 ---
 
 # SPEC-016: perceptual auto-quality — shrink to a visual target
@@ -573,10 +589,32 @@ via `output.status.code()`; decode outputs with `image::load_from_memory`).
 *Appended during the **ship** cycle.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Two process things. (a) The Sonnet build subagent was dispatched in the
+   BACKGROUND and silently failed — background subagents can't obtain Bash
+   permission non-interactively. Dispatch Bash-dependent cycles in the foreground
+   or run them directly (saved as an auto-memory). (b) Because design, build, and
+   verify all then ran in one orchestrator session, the verify wasn't a fresh
+   independent pass — I compensated with a 7-agent code-review, which caught 3 real
+   quality issues, but a clean-room verify session is still preferable when the
+   environment allows it. The de-risking that worked again: pinning the exact
+   `ssimulacra2` API in design → the module compiled and its tests passed first try.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — No code/DEC changes. One cost-process wrinkle worth flagging: the new
+   `cost-captured-per-cycle` constraint + `just cost-audit` assume build/verify run
+   as METERED subagents, but here they ran in the main loop (subagent blocked), so
+   build's `tokens_total` is a labeled order-of-magnitude estimate, not a clean
+   `subagent_tokens` read. The audit passes (positive numbers), and the verify
+   figure IS real (summed finder subagents), but the template/doc could note the
+   "ran-in-main-loop build" case explicitly (today it only contemplates
+   subagent-metered build or `/cost`).
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — No new spec beyond the planned STAGE-008 backlog. The natural next is
+   **SPEC-017 (`--max-size <KB>` byte budget)**, which reuses `search_jpeg_quality`
+   directly (the generic scorer-injected search was built for exactly this). The
+   review also noted, for when **SPEC-018/019 (AVIF/WebP)** land: generalize the
+   JPEG-only guard in `resolve_effective_quality` and the JPEG-named search
+   entry-points (`search_jpeg_quality`/`score_jpeg_at`) so the format boundary
+   isn't special-cased in three places. Both are tracked in the stage backlog and
+   the PR #18 review notes; no separate spec needed yet.
