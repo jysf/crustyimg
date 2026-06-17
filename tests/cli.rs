@@ -2072,8 +2072,9 @@ fn convert_format_overrides_output_extension() {
     );
 }
 
-/// `convert <png> --format avif` → exit 4 (codec not built, DEC-004);
-/// `convert <png> --format webp` → exit 4 (fast-follow not wired). (AC4)
+/// `convert <png> --format avif` → exit 4 (codec not built, DEC-004) without the
+/// feature. (WebP is no longer an unbuilt codec — it is a pure-Rust default since
+/// SPEC-019; see `convert_to_webp_produces_lossless_webp`.) (AC4)
 #[test]
 fn convert_unbuilt_codec_exits_4() {
     let dir = tempfile::tempdir().expect("tempdir");
@@ -2102,27 +2103,6 @@ fn convert_unbuilt_codec_exits_4() {
         Some(expected_avif),
         "convert --format avif expected exit {expected_avif}; stderr: {}",
         stderr_str(&avif_out)
-    );
-
-    // WebP — fast-follow, not wired (unrecognized extension → exit 4 in both builds).
-    let webp_out_path = dir.path().join("out.webp");
-    let webp_out = Command::new(BIN)
-        .args([
-            "convert",
-            in_path.to_str().unwrap(),
-            "--format",
-            "webp",
-            "-o",
-            webp_out_path.to_str().unwrap(),
-        ])
-        .output()
-        .expect("failed to run convert --format webp");
-
-    assert_eq!(
-        webp_out.status.code(),
-        Some(4),
-        "convert --format webp should exit 4 (fast-follow not wired); stderr: {}",
-        stderr_str(&webp_out)
     );
 }
 
@@ -2158,6 +2138,164 @@ fn convert_unbuilt_codec_multi_input_exits_4_not_6() {
         Some(expected),
         "multi-input convert to avif expected exit {expected} (never partial-batch 6); stderr: {}",
         stderr_str(&output)
+    );
+}
+
+// ── SPEC-019: WebP (lossless output + decode) ───────────────────────────────────
+
+/// `convert <png> --format webp -o out.webp` → exit 0; output magic-detects as
+/// WebP AND round-trips losslessly (decoded pixels exactly equal the source).
+#[test]
+fn convert_to_webp_produces_lossless_webp() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    // Solid-color source so a lossless round-trip is bit-exact.
+    let in_path = write_test_png(&dir, "in.png", 8, 6);
+    let out_path = dir.path().join("out.webp");
+
+    let output = Command::new(BIN)
+        .args([
+            "convert",
+            in_path.to_str().unwrap(),
+            "--format",
+            "webp",
+            "-o",
+            out_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run convert --format webp");
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "convert --format webp should exit 0; stderr: {}",
+        stderr_str(&output)
+    );
+    let bytes = std::fs::read(&out_path).expect("WebP output file");
+    assert_eq!(
+        image::guess_format(&bytes).expect("guess format"),
+        ImageFormat::WebP,
+        "output should be WebP"
+    );
+    // Lossless: decode the output and confirm dims + exact pixels vs the source.
+    let decoded = image::load_from_memory(&bytes)
+        .expect("decode webp")
+        .to_rgb8();
+    assert_eq!(decoded.dimensions(), (8, 6), "dims must be preserved");
+    let src = image::open(&in_path).expect("open source").to_rgb8();
+    assert_eq!(
+        decoded.as_raw(),
+        src.as_raw(),
+        "lossless WebP must round-trip pixels exactly"
+    );
+}
+
+/// `.webp` is a readable INPUT: convert a lossless-WebP fixture to PNG → exit 0;
+/// output is PNG at the source dimensions. (Proves WebP decode works by default.)
+#[test]
+fn webp_input_decodes() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let in_path = dir.path().join("in.webp");
+    std::fs::write(&in_path, common::webp_lossless(10, 7)).unwrap();
+    let out_path = dir.path().join("out.png");
+
+    let output = Command::new(BIN)
+        .args([
+            "convert",
+            in_path.to_str().unwrap(),
+            "--format",
+            "png",
+            "-o",
+            out_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run convert <webp> --format png");
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "convert from .webp input should exit 0; stderr: {}",
+        stderr_str(&output)
+    );
+    let bytes = std::fs::read(&out_path).expect("PNG output file");
+    assert_eq!(
+        image::guess_format(&bytes).expect("guess format"),
+        ImageFormat::Png,
+        "output should be PNG"
+    );
+    let decoded = image::load_from_memory(&bytes).expect("decode png");
+    assert_eq!(
+        (decoded.width(), decoded.height()),
+        (10, 7),
+        "dims from the .webp input must be preserved"
+    );
+}
+
+/// `shrink <jpg> -o out.webp` → exit 0; output is WebP (lossless; the `-o`
+/// extension drives the format, DEC-015).
+#[test]
+fn shrink_to_webp_output() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let in_path = dir.path().join("in.jpg");
+    std::fs::write(&in_path, common::detailed_jpeg(48, 32)).unwrap();
+    let out_path = dir.path().join("out.webp");
+
+    let output = Command::new(BIN)
+        .args([
+            "shrink",
+            in_path.to_str().unwrap(),
+            "-o",
+            out_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run shrink -o out.webp");
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "shrink to .webp should exit 0; stderr: {}",
+        stderr_str(&output)
+    );
+    let bytes = std::fs::read(&out_path).expect("WebP output file");
+    assert_eq!(
+        image::guess_format(&bytes).expect("guess format"),
+        ImageFormat::WebP,
+        "output should be WebP"
+    );
+}
+
+/// `-q` is ignored for (lossless) WebP output, like PNG (DEC-016): the command
+/// still succeeds and produces WebP — the quality value has no effect.
+#[test]
+fn webp_quality_is_ignored() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let in_path = write_test_png(&dir, "in.png", 8, 8);
+    let out_path = dir.path().join("out.webp");
+
+    let output = Command::new(BIN)
+        .args([
+            "convert",
+            in_path.to_str().unwrap(),
+            "--format",
+            "webp",
+            "-q",
+            "50",
+            "-o",
+            out_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run convert --format webp -q 50");
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "-q on lossless WebP should be ignored, not an error; stderr: {}",
+        stderr_str(&output)
+    );
+    let bytes = std::fs::read(&out_path).expect("WebP output file");
+    assert_eq!(
+        image::guess_format(&bytes).expect("guess format"),
+        ImageFormat::WebP,
+        "output should be WebP"
     );
 }
 

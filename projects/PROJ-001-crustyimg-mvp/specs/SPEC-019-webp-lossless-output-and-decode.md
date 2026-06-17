@@ -4,7 +4,7 @@
 task:
   id: SPEC-019
   type: story                      # epic | story | task | bug | chore
-  cycle: design                    # frame | design | build | verify | ship
+  cycle: verify                    # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: S                    # S | M | L  (L means split it)
@@ -47,6 +47,14 @@ cost:
       duration_minutes: null
       recorded_at: 2026-06-17
       notes: "Design authored by the ORCHESTRATOR (Opus) directly. Verified empirically (the 'pin the dep in design' discipline, extended to the decode path): `image` 0.25.10 `webp` feature → `image-webp` 0.2.4 (MIT/Apache) builds PURE-RUST with no nasm/system deps; it DECODES lossy+lossless but ENCODES lossless only (image docs: 'for lossy, use libwebp'); `cargo deny check licenses` is GREEN with NO new exception when `webp` is enabled. `DynamicImage::write_to(_, WebP)` routes to `WebPEncoder::new_lossless`, so lossless encode needs no special sink arm. Emitted DEC-021 (WebP lossless+decode as a pure-Rust default; lossy deferred to SPEC-020/DEC-022)."
+    - cycle: build
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 130000     # ORDER-OF-MAGNITUDE estimate — build ran in the orchestrator main loop (background subagents can't get Bash here); small spec (one feature line + one match arm + tests)
+      estimated_usd: 1.15      # ~130k @ Opus 4.8 list ($5/$25 per MTok, ~80/20 in/out) — order of magnitude
+      duration_minutes: null
+      recorded_at: 2026-06-17
+      notes: "Built in the main loop (background subagents can't get Bash here), tokens are a labeled order-of-magnitude estimate. Added `webp` to the default image features + the format_from_extension arm; lossless encode + decode came for free (write_to / ImageReader). Tests: unit + 4 integration (lossless round-trip, .webp input, shrink→webp, -q ignored). Dropped the webp branch from convert_unbuilt_codec_exits_4. Default + avif builds green; just deny green with NO new exception."
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -271,26 +279,39 @@ normal `cargo test` (no feature gate). Verifying WebP output uses
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
+- **Branch:** `feat/spec-019-webp-lossless-output-and-decode`
+- **PR (if applicable):** *(opened during build — see timeline)*
+- **All acceptance criteria met?** yes — `format_from_extension_recognizes_webp`,
+  `convert_to_webp_produces_lossless_webp` (guess_format==WebP + bit-exact
+  round-trip), `webp_input_decodes`, `shrink_to_webp_output`, `webp_quality_is_ignored`
+  all pass; `convert_unbuilt_codec_exits_4` webp branch dropped (avif kept). Default
+  suite + all 5 gates green; the `avif` feature build also green; `just deny` green
+  with NO new exception.
 - **New decisions emitted:**
-  - `DEC-021` — WebP lossless + decode as a pure-Rust default [authored in design]
+  - `DEC-021` — WebP lossless + decode as a pure-Rust default [authored in design].
 - **Deviations from spec:**
-  - [list]
+  - None. The spec's prediction held exactly: only `Cargo.toml` (one feature) +
+    `format_from_extension` (one arm) needed changing; lossless encode (via
+    `write_to`) and `.webp` decode (via `ImageReader`) required no code.
 - **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - **SPEC-020 (lossy WebP via `webp-lossy`/libwebp)** — already in the STAGE-008
+    backlog; it makes `-q`/`--target`/`--ssim`/`--max-size` drive WebP (both searches,
+    since the pure-Rust decoder already exists).
 
 ### Build-phase reflection (3 questions, short answers)
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — Nothing. The design's empirical verification (write_to routes to the lossless
+   encoder; decode is feature-driven) meant the build was almost purely additive — a
+   feature flag, an extension arm, and tests.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — No. Splitting lossy (SPEC-020) out kept this spec free of the `single-image-library`
+   / C-dep tensions, so the applicable constraints were exactly the listed ones.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Nothing material. The design-time `write_to(_, WebP)` spike is what made this a
+   one-line-of-real-code spec; doing that probe in design (not build) was the win.
 
 ---
 

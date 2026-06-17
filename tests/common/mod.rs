@@ -176,6 +176,14 @@ pub fn detailed_png(w: u32, h: u32) -> Vec<u8> {
     )
 }
 
+/// Encode a small solid-color `RgbImage` to LOSSLESS WebP bytes (SPEC-019
+/// fixture). WebP is a default format; `write_to(_, WebP)` uses the pure-Rust
+/// lossless encoder. Used to exercise the `.webp` decode (INPUT) path.
+pub fn webp_lossless(w: u32, h: u32) -> Vec<u8> {
+    let img = RgbImage::from_pixel(w, h, image::Rgb([20, 130, 200]));
+    encode(DynamicImage::ImageRgb8(img), ImageFormat::WebP)
+}
+
 fn encode(img: DynamicImage, format: ImageFormat) -> Vec<u8> {
     let mut out = Cursor::new(Vec::new());
     img.write_to(&mut out, format).unwrap();

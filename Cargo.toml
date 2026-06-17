@@ -16,12 +16,17 @@ path = "src/main.rs"
 # Runtime crates arrive with the specs that use them. SPEC-002 adds the first
 # two: `image` (the single pixel library, DEC-002) and `thiserror` (typed
 # library errors, DEC-007). Both are pre-justified by their DECs — no new DEC.
-# `image` is pinned to the pure-Rust core formats only (DEC-004,
+# `image` is pinned to the pure-Rust formats only (DEC-004,
 # `pure-rust-codecs-default`): default features off, no avif/mozjpeg/native.
+# `webp` (SPEC-019, DEC-021) is included in the default set — it is pure-Rust
+# (`image-webp`, MIT/Apache, no nasm/system libs): WebP DECODE (lossy+lossless)
+# + LOSSLESS WebP encode. Lossy WebP encode (libwebp, a C dep) is the separate
+# off-by-default `webp-lossy` feature (SPEC-020). The off-by-default `avif`
+# feature (SPEC-018, DEC-020) adds AVIF output via `image/avif`.
 # SPEC-005 adds `viuer` as an optional dep behind the `display` feature
 # (DEC-011). Default builds stay viuer-free; `--features display` enables it.
 [dependencies]
-image = { version = "=0.25.10", default-features = false, features = ["png", "jpeg", "gif", "bmp", "tiff", "ico"] }
+image = { version = "=0.25.10", default-features = false, features = ["png", "jpeg", "gif", "bmp", "tiff", "ico", "webp"] }
 fast_image_resize = { version = "=5.5.0", features = ["image"] }
 thiserror = "=2.0.18"
 glob = "=0.3.3"

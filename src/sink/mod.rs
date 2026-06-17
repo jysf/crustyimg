@@ -183,6 +183,11 @@ pub fn format_from_extension(path: &Path) -> Result<ImageFormat, SinkError> {
         "bmp" => Ok(ImageFormat::Bmp),
         "tif" | "tiff" => Ok(ImageFormat::Tiff),
         "ico" => Ok(ImageFormat::Ico),
+        // WebP is a pure-Rust DEFAULT format (SPEC-019, DEC-021): decode (input)
+        // + lossless encode. The lossless encode is reached via the default
+        // `write_to` path in `encode_to_bytes` (no special arm). Lossy WebP
+        // encode is the off-by-default `webp-lossy` feature (SPEC-020).
+        "webp" => Ok(ImageFormat::WebP),
         // AVIF is recognized as a format REGARDLESS of the `avif` feature, so an
         // `.avif`/`--format avif` request resolves to a clear "codec not built"
         // error (exit 4) when the feature is off — not a vague "unsupported
@@ -671,6 +676,16 @@ mod tests {
         assert_eq!(
             format_from_extension(Path::new("x.avif")).unwrap(),
             ImageFormat::Avif
+        );
+    }
+
+    /// WebP is a recognized output format (SPEC-019). It is built by default, so
+    /// the lossless encode path (`write_to`) handles it without a `CodecNotBuilt`.
+    #[test]
+    fn format_from_extension_recognizes_webp() {
+        assert_eq!(
+            format_from_extension(Path::new("x.webp")).unwrap(),
+            ImageFormat::WebP
         );
     }
 
