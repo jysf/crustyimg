@@ -39,9 +39,17 @@ kamadak-exif = "=0.6.1"
 # BSD-2-Clause (permissive — DEC-018). A metric crate only (no decode/encode/
 # resize), so it does not violate `single-image-library`.
 ssimulacra2 = "=0.5.1"
+# Lossy WebP encode (SPEC-020, DEC-022) behind the off-by-default `webp-lossy`
+# feature. `webp` (MIT/Apache) → `libwebp-sys` (MIT) → VENDORED libwebp (BSD-3),
+# compiled with `cc` — the project's FIRST C dependency, strictly opt-in (the
+# default build stays pure-Rust). default-features off so we use the raw
+# `from_rgba`/`from_rgb` encoders, NOT the webp crate's `image` feature (which
+# would pull a second `image` crate). `just deny` stays green with no exception.
+webp = { version = "=0.3.1", optional = true, default-features = false }
 
 [features]
 display = ["dep:viuer"]
+webp-lossy = ["dep:webp"]
 # AVIF output behind an off-by-default feature (SPEC-018, DEC-020). The codec
 # arrives via the `image` crate's own `avif` feature → `ravif` → `rav1e` (pure
 # Rust, no nasm/system libs), so this adds NO new top-level dep. Kept gated for
