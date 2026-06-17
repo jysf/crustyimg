@@ -30,6 +30,10 @@ toml = "=0.8.23"
 viuer = { version = "=0.11.0", optional = true }
 clap = { version = "=4.6.1", features = ["derive"] }
 kamadak-exif = "=0.6.1"
+# Perceptual quality metric for auto-quality (SPEC-016, DEC-019). Pure-Rust,
+# BSD-2-Clause (permissive — DEC-018). A metric crate only (no decode/encode/
+# resize), so it does not violate `single-image-library`.
+ssimulacra2 = "=0.5.1"
 
 [features]
 display = ["dep:viuer"]

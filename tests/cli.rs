@@ -2391,3 +2391,314 @@ fn convert_stdout_keeps_stdout_clean() {
         stderr_str(&output)
     );
 }
+
+// ── SPEC-016: perceptual auto-quality (`shrink --target` / `--ssim`) ───────────
+
+/// Write raw fixture bytes to `dir/name` and return the path.
+fn write_bytes(dir: &TempDir, name: &str, bytes: &[u8]) -> PathBuf {
+    let path = dir.path().join(name);
+    std::fs::write(&path, bytes).unwrap();
+    path
+}
+
+/// `shrink --target visually-lossless` produces a valid JPEG at the input dims.
+#[test]
+fn shrink_target_visually_lossless_produces_valid_jpeg() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let in_path = write_bytes(&dir, "in.jpg", &common::detailed_jpeg(160, 160));
+    let out_path = dir.path().join("out.jpg");
+
+    let output = Command::new(BIN)
+        .args([
+            "shrink",
+            in_path.to_str().unwrap(),
+            "--target",
+            "visually-lossless",
+            "-o",
+            out_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run shrink --target");
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "shrink --target should exit 0; stderr: {}",
+        stderr_str(&output)
+    );
+    let bytes = std::fs::read(&out_path).expect("output file should exist");
+    assert_eq!(
+        image::guess_format(&bytes).expect("guess format"),
+        ImageFormat::Jpeg,
+        "output should be a JPEG"
+    );
+    let decoded = image::load_from_memory(&bytes).expect("output should decode");
+    // Default --max is 1600, so a 160×160 input is not downscaled.
+    assert_eq!(decoded.width(), 160, "width preserved");
+    assert_eq!(decoded.height(), 160, "height preserved");
+}
+
+/// A lower `--ssim` target yields a smaller file than a higher one (same input).
+#[test]
+fn shrink_lower_ssim_target_is_smaller_file() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let in_path = write_bytes(&dir, "in.jpg", &common::detailed_jpeg(160, 160));
+    let lo_path = dir.path().join("lo.jpg");
+    let hi_path = dir.path().join("hi.jpg");
+
+    for (score, out) in [("50", &lo_path), ("95", &hi_path)] {
+        let output = Command::new(BIN)
+            .args([
+                "shrink",
+                in_path.to_str().unwrap(),
+                "--ssim",
+                score,
+                "-o",
+                out.to_str().unwrap(),
+            ])
+            .output()
+            .expect("failed to run shrink --ssim");
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "shrink --ssim {score} should exit 0; stderr: {}",
+            stderr_str(&output)
+        );
+    }
+
+    let lo_len = std::fs::metadata(&lo_path).unwrap().len();
+    let hi_len = std::fs::metadata(&hi_path).unwrap().len();
+    assert!(
+        lo_len < hi_len,
+        "--ssim 50 file ({lo_len} bytes) should be smaller than --ssim 95 file ({hi_len} bytes)"
+    );
+}
+
+/// `--target` and `--ssim` together is a usage error (clap conflict) → exit 2.
+#[test]
+fn shrink_target_and_ssim_conflict_exits_2() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let in_path = write_bytes(&dir, "in.jpg", &common::detailed_jpeg(128, 128));
+    let out_path = dir.path().join("out.jpg");
+
+    let output = Command::new(BIN)
+        .args([
+            "shrink",
+            in_path.to_str().unwrap(),
+            "--target",
+            "high",
+            "--ssim",
+            "80",
+            "-o",
+            out_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run shrink");
+
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "--target + --ssim should exit 2; stderr: {}",
+        stderr_str(&output)
+    );
+}
+
+/// `--ssim` outside 0..=100 is a usage error → exit 2.
+#[test]
+fn shrink_ssim_out_of_range_exits_2() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let in_path = write_bytes(&dir, "in.jpg", &common::detailed_jpeg(128, 128));
+    let out_path = dir.path().join("out.jpg");
+
+    let output = Command::new(BIN)
+        .args([
+            "shrink",
+            in_path.to_str().unwrap(),
+            "--ssim",
+            "150",
+            "-o",
+            out_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run shrink");
+
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "--ssim 150 should exit 2; stderr: {}",
+        stderr_str(&output)
+    );
+    assert!(
+        stderr_str(&output).to_lowercase().contains("ssim"),
+        "stderr should mention ssim, got: {}",
+        stderr_str(&output)
+    );
+}
+
+/// `-q` combined with an auto target is a usage error → exit 2.
+#[test]
+fn shrink_quality_and_target_conflict_exits_2() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let in_path = write_bytes(&dir, "in.jpg", &common::detailed_jpeg(128, 128));
+    let out_path = dir.path().join("out.jpg");
+
+    let output = Command::new(BIN)
+        .args([
+            "shrink",
+            in_path.to_str().unwrap(),
+            "-q",
+            "80",
+            "--target",
+            "high",
+            "-o",
+            out_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run shrink");
+
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "-q + --target should exit 2; stderr: {}",
+        stderr_str(&output)
+    );
+    assert!(
+        stderr_str(&output).to_lowercase().contains("quality")
+            || stderr_str(&output).to_lowercase().contains("target"),
+        "stderr should mention the quality/target conflict, got: {}",
+        stderr_str(&output)
+    );
+}
+
+/// A non-JPEG output ignores `--target` (no error, output stays PNG).
+#[test]
+fn shrink_target_non_jpeg_is_ignored() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let in_path = write_bytes(&dir, "in.png", &common::detailed_png(120, 120));
+    let out_path = dir.path().join("out.png");
+
+    let output = Command::new(BIN)
+        .args([
+            "shrink",
+            in_path.to_str().unwrap(),
+            "--target",
+            "visually-lossless",
+            "-o",
+            out_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run shrink --target on png");
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "shrink --target on a PNG should exit 0 (target ignored); stderr: {}",
+        stderr_str(&output)
+    );
+    let bytes = std::fs::read(&out_path).expect("output file should exist");
+    assert_eq!(
+        image::guess_format(&bytes).expect("guess format"),
+        ImageFormat::Png,
+        "output should still be a PNG"
+    );
+}
+
+/// `--target` runs the per-image search across a multi-input fan-out.
+#[test]
+fn shrink_target_multi_input_fan_out() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let a = write_bytes(&dir, "a.jpg", &common::detailed_jpeg(128, 128));
+    let b = write_bytes(&dir, "b.jpg", &common::detailed_jpeg(144, 112));
+    let out_dir = dir.path().join("out");
+    std::fs::create_dir(&out_dir).unwrap();
+
+    let output = Command::new(BIN)
+        .args([
+            "shrink",
+            a.to_str().unwrap(),
+            b.to_str().unwrap(),
+            "--target",
+            "high",
+            "--out-dir",
+            out_dir.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run shrink --target multi");
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "multi-input shrink --target should exit 0; stderr: {}",
+        stderr_str(&output)
+    );
+    for name in ["a.jpg", "b.jpg"] {
+        let bytes = std::fs::read(out_dir.join(name)).expect("output should exist");
+        assert_eq!(
+            image::guess_format(&bytes).expect("guess format"),
+            ImageFormat::Jpeg,
+            "{name} should be a JPEG"
+        );
+    }
+}
+
+/// A deterministic high-frequency pseudo-noise JPEG. Unlike the smooth
+/// `detailed_*` fixtures, JPEG cannot reproduce this even at quality 100, so an
+/// SSIMULACRA2 target near 100 is genuinely unreachable — exactly what the
+/// best-effort/warning path needs.
+fn noisy_jpeg(w: u32, h: u32) -> Vec<u8> {
+    let mut img = RgbImage::new(w, h);
+    for (x, y, px) in img.enumerate_pixels_mut() {
+        let n = x
+            .wrapping_mul(2_654_435_761)
+            .wrapping_add(y.wrapping_mul(40_503))
+            ^ x.wrapping_mul(y).wrapping_add(0x9E37_79B9);
+        *px = image::Rgb([
+            (n & 0xFF) as u8,
+            ((n >> 8) & 0xFF) as u8,
+            ((n >> 16) & 0xFF) as u8,
+        ]);
+    }
+    let mut buf = Cursor::new(Vec::new());
+    DynamicImage::ImageRgb8(img)
+        .write_to(&mut buf, ImageFormat::Jpeg)
+        .unwrap();
+    buf.into_inner()
+}
+
+/// An unreachable perceptual target (`--ssim 100` on a high-frequency image,
+/// which a lossy JPEG round-trip cannot reach) still succeeds (best-effort) but
+/// warns on stderr.
+#[test]
+fn shrink_unreachable_target_warns_best_effort() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let in_path = write_bytes(&dir, "in.jpg", &noisy_jpeg(96, 96));
+    let out_path = dir.path().join("out.jpg");
+
+    let output = Command::new(BIN)
+        .args([
+            "shrink",
+            in_path.to_str().unwrap(),
+            "--ssim",
+            "100",
+            "-o",
+            out_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run shrink --ssim 100");
+
+    // Best-effort: the command still succeeds and writes a file.
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "unreachable target should still exit 0 (best effort); stderr: {}",
+        stderr_str(&output)
+    );
+    assert!(out_path.exists(), "output file should still be written");
+    // ...but it must warn that the target was not met.
+    let err = stderr_str(&output).to_lowercase();
+    assert!(
+        err.contains("could not reach") || err.contains("best effort"),
+        "expected an unmet-target warning on stderr, got: {}",
+        stderr_str(&output)
+    );
+}

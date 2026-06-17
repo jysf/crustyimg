@@ -14,12 +14,15 @@
 //! operation registry; the keystone of "tune once, replay across many" (DEC-005).
 //! SPEC-007 adds the [`cli`] module: the clap subcommand surface + dispatch +
 //! exit-code mapping (DEC-012, DEC-007).
+//! SPEC-016 adds the [`quality`] module: the SSIMULACRA2 perceptual metric + a
+//! generic JPEG-quality binary search powering `shrink`'s auto-quality (DEC-019).
 
 pub mod cli;
 pub mod error;
 pub mod image;
 pub mod operation;
 pub mod pipeline;
+pub mod quality;
 pub mod recipe;
 pub mod sink;
 pub mod source;
