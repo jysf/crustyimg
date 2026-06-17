@@ -183,11 +183,16 @@ build keeps AVIF output at exit 4 with a "rebuild with --features avif" hint. **
 input (decode) is not supported** (output-only v1; reading an `.avif` fails). **WebP**
 is a **pure-Rust DEFAULT format** (SPEC-019, DEC-021): `.webp` reads as INPUT (lossy +
 lossless) everywhere, and `--format webp` / `-o x.webp` write **lossless** WebP
-(smaller than PNG). Lossless WebP has no quality knob, so `-q`/`--max-size`/`--target`
-are **ignored** for WebP output (like PNG, DEC-016); **lossy** WebP encode is the
-off-by-default `webp-lossy` feature (libwebp, SPEC-020). `--max-size <SIZE>` (SPEC-017) auto-tunes the
-quality to fit a byte budget for any **lossy-quality target** — **JPEG**, or **AVIF**
-with the feature (mutually exclusive with `-q` → exit 2; a lossless target ignores it
+(smaller than PNG). In the DEFAULT build lossless WebP has no quality knob, so
+`-q`/`--max-size`/`--target` are **ignored** for WebP output (like PNG, DEC-016). With
+the off-by-default **`webp-lossy`** feature (libwebp, SPEC-020/DEC-022) WebP gains a
+quality knob: a WebP output is encoded **lossy** when a quality is set — an explicit
+`-q`, or one chosen by `--max-size`/`--target`/`--ssim` — and stays **lossless** for a
+bare `convert --format webp`. (Because the WebP decoder ships by default, BOTH the
+byte-budget AND the perceptual searches drive WebP — the AVIF contrast.) `--max-size
+<SIZE>` (SPEC-017) auto-tunes the quality to fit a byte budget for any **lossy-quality
+target** — **JPEG**, **AVIF** (`--features avif`), or **WebP** (`--features webp-lossy`)
+(mutually exclusive with `-q` → exit 2; a target with no quality knob ignores it
 with a warning); see `shrink` for the size-unit and best-effort semantics. (The
 perceptual `--target`/`--ssim` auto-quality is `shrink`-only and, for AVIF, falls
 back to the encoder default with a warning because it needs an AVIF decoder — use
