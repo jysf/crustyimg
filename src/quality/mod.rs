@@ -282,25 +282,40 @@ where
 
 // ── Lossy-format seam ─────────────────────────────────────────────────────────
 
-/// Extension predicate: whether an output format has an encoder quality knob the
-/// auto-quality searches can drive (`--target`/`--ssim`, `--max-size`).
+/// Extension predicates: which auto-quality search an output format supports.
 ///
-/// This is the **single seam** the CLI guard (`resolve_effective_quality`) and the
-/// per-format candidate encode ([`encode_candidate_bytes`]) both read. JPEG is the
-/// only lossy format today; when AVIF/WebP lossy output lands (SPEC-018/019), add
-/// the variant here AND its encode arm in `encode_candidate_bytes` — those two
-/// places are the whole change.
+/// There are **two** distinct capabilities, because the two searches need
+/// different things from a format:
+/// - The **byte-budget** search (`--max-size`, SPEC-017) only ENCODES candidates
+///   and measures their length — it needs an encoder quality knob.
+/// - The **perceptual** search (`--target`/`--ssim`, SPEC-016) encodes a
+///   candidate AND **decodes it back** to score the round-trip with SSIMULACRA2 —
+///   it needs both an encoder knob and a DECODER.
+///
+/// AVIF (SPEC-018) is the case that forces the split: with `--features avif` it
+/// has an encoder quality knob (so the byte-budget search works) but **no decoder
+/// is built** (AVIF decode needs `dav1d`/`avif-native`, deferred — DEC-020), so
+/// the perceptual search cannot score AVIF round-trips. JPEG has both.
+///
+/// These are the **single seams** the CLI guard (`resolve_effective_quality`) and
+/// the per-format candidate encode ([`encode_candidate_bytes`]) read. When a new
+/// lossy format lands, set the right predicate(s) here AND add its encode arm in
+/// `encode_candidate_bytes` — that is the whole change.
 pub trait LossyFormat {
-    /// `true` iff the auto-quality search supports driving a quality knob for this
-    /// format.
+    /// `true` iff the **byte-budget** search can drive a quality knob for this
+    /// format (encode-only; no decoder required).
     fn supports_lossy_quality(self) -> bool;
+
+    /// `true` iff the **perceptual** search can score this format — it has both a
+    /// quality knob AND a built-in decoder to round-trip candidates through.
+    fn supports_perceptual_quality(self) -> bool;
 }
 
 impl LossyFormat for ImageFormat {
     fn supports_lossy_quality(self) -> bool {
-        // AVIF joins JPEG as a lossy-quality format only when the `avif` feature
-        // is built (SPEC-018, DEC-020); without it, AVIF output exits 4 before a
-        // search is ever attempted (DEC-004), so it must report `false` here.
+        // AVIF joins JPEG as a byte-budget-drivable format only when the `avif`
+        // feature is built (SPEC-018, DEC-020); without it, AVIF output exits 4
+        // before a search is ever attempted (DEC-004), so it reports `false`.
         #[cfg(feature = "avif")]
         {
             matches!(self, ImageFormat::Jpeg | ImageFormat::Avif)
@@ -309,6 +324,14 @@ impl LossyFormat for ImageFormat {
         {
             matches!(self, ImageFormat::Jpeg)
         }
+    }
+
+    fn supports_perceptual_quality(self) -> bool {
+        // JPEG only: the perceptual search must DECODE each candidate to score it.
+        // AVIF is output-only in v1 (no decoder built — DEC-020), so perceptual
+        // AVIF is deferred WITH AVIF decode even when the `avif` feature is on.
+        // (No `#[cfg]` needed: AVIF is excluded in both builds.)
+        matches!(self, ImageFormat::Jpeg)
     }
 }
 

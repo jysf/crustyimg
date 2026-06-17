@@ -1101,20 +1101,21 @@ fn fmt_bytes(n: u64) -> String {
 /// Resolve the effective encode quality for ONE output (SPEC-016 / SPEC-017).
 ///
 /// - No `auto` mode → return the fixed `quality` unchanged (today's behavior).
-/// - `Perceptual` + a lossy-quality format → run the SSIMULACRA2 search; warn
-///   (unless `--quiet`) if the target was unreachable (best-effort highest
+/// - `Perceptual` + a perceptually-scorable format → run the SSIMULACRA2 search;
+///   warn (unless `--quiet`) if the target was unreachable (best-effort highest
 ///   quality / largest file).
-/// - `SizeBudget` + a lossy-quality format → run the byte-budget search; warn
-///   (unless `--quiet`) if even minimum quality exceeds the budget (best-effort
-///   smallest file).
+/// - `SizeBudget` + a byte-budget-drivable format → run the byte-budget search;
+///   warn (unless `--quiet`) if even minimum quality exceeds the budget
+///   (best-effort smallest file).
+/// - `Perceptual` + a format with a knob but NO decoder (AVIF, output-only —
+///   DEC-020) → cannot score round-trips; warn and use the encoder default.
 /// - any auto mode + a format without a quality knob → ignore it (encoder
-///   default); a `SizeBudget` on such a format additionally warns that a byte
-///   budget needs a lossy format. (Mirrors how `-q` is ignored for lossless
-///   formats, DEC-016.)
+///   default); a `SizeBudget` on such a format additionally warns. (Mirrors how
+///   `-q` is ignored for lossless formats, DEC-016.)
 ///
-/// Which formats support the search is the single seam
-/// [`LossyFormat::supports_lossy_quality`] — JPEG today; AVIF/WebP land in
-/// SPEC-018/019, at which point this guard generalizes with no change here.
+/// The two seams are [`LossyFormat::supports_lossy_quality`] (byte budget;
+/// JPEG + AVIF-with-feature) and [`LossyFormat::supports_perceptual_quality`]
+/// (perceptual; JPEG only — AVIF perceptual defers with AVIF decode, DEC-020).
 ///
 /// `label` names the input in the warnings.
 fn resolve_effective_quality(
@@ -1126,8 +1127,9 @@ fn resolve_effective_quality(
     label: &str,
 ) -> Result<Option<u8>, CliError> {
     let supports_lossy = fmt.supports_lossy_quality();
+    let supports_perceptual = fmt.supports_perceptual_quality();
     match auto {
-        Some(AutoQuality::Perceptual(cfg)) if supports_lossy => {
+        Some(AutoQuality::Perceptual(cfg)) if supports_perceptual => {
             let choice = quality::auto_quality(out_img.pixels(), fmt, cfg)?;
             if !choice.met_target && !global.quiet {
                 eprintln!(
@@ -1159,12 +1161,29 @@ fn resolve_effective_quality(
             }
             Ok(Some(choice.quality))
         }
-        // Format without a quality knob: no byte-budget search exists for it yet.
+        // Perceptual target on a format with a knob but no decoder (AVIF): the
+        // SSIMULACRA2 search must decode each candidate to score it, and AVIF
+        // decode is not built (output-only v1, DEC-020). Fall back to the encoder
+        // default and warn so the silent downgrade is visible; --max-size still
+        // works on AVIF (encode-only).
+        Some(AutoQuality::Perceptual(_)) if supports_lossy => {
+            if !global.quiet {
+                eprintln!(
+                    "warning: {label}: --target/--ssim need to decode the re-encoded \
+                     image to score it, but no {} decoder is built; wrote it at the \
+                     encoder default quality (use --max-size for a byte budget)",
+                    format_label(fmt)
+                );
+            }
+            Ok(None)
+        }
+        // Format without a quality knob: no byte-budget search applies.
         Some(AutoQuality::SizeBudget(_)) => {
             if !global.quiet {
                 eprintln!(
-                    "warning: {label}: --max-size currently supports only JPEG output; \
-                     {} was left at encoder default",
+                    "warning: {label}: --max-size needs a lossy-quality output \
+                     format (e.g. JPEG, or AVIF with --features avif); {} was left \
+                     at encoder default",
                     format_label(fmt)
                 );
             }

@@ -2278,9 +2278,13 @@ fn shrink_to_avif_output() {
     );
 }
 
-/// FEATURE build: perceptual auto-quality drives AVIF. Uses `shrink --target
-/// high` (the `--target`/`--ssim` flags are shrink-only, SPEC-016; `convert`
-/// carries only `--max-size`), producing AVIF via the SSIMULACRA2 search.
+/// FEATURE build: a perceptual target (`--target`) on AVIF degrades GRACEFULLY.
+/// The SSIMULACRA2 search must DECODE each candidate to score it, but AVIF decode
+/// is not built (output-only v1, DEC-020) — so the run still succeeds (exit 0),
+/// writes valid AVIF at the encoder default, and warns that perceptual targeting
+/// needs a decoder. (Byte-budget AVIF, which is encode-only, works — see
+/// `avif_max_size_fits`.) Uses `shrink` because `--target`/`--ssim` are
+/// shrink-only flags (SPEC-016); `convert` carries only `--max-size`.
 #[cfg(feature = "avif")]
 #[test]
 fn avif_target_high() {
@@ -2304,14 +2308,19 @@ fn avif_target_high() {
     assert_eq!(
         output.status.code(),
         Some(0),
-        "shrink --target high to .avif (feature) should exit 0; stderr: {}",
+        "shrink --target high to .avif (feature) should exit 0 (graceful fallback); stderr: {}",
         stderr_str(&output)
     );
     let bytes = std::fs::read(&out_path).expect("AVIF output file");
     assert_eq!(
         image::guess_format(&bytes).expect("guess format"),
         ImageFormat::Avif,
-        "auto-quality output should be AVIF"
+        "output should be AVIF (written at encoder default)"
+    );
+    let stderr = stderr_str(&output);
+    assert!(
+        stderr.contains("decoder") || stderr.contains("--max-size"),
+        "stderr should warn that perceptual AVIF needs a decoder; got: {stderr}"
     );
 }
 
