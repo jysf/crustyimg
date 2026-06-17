@@ -363,13 +363,15 @@ fi
     fi
     echo ""
 
-    # Missing-cost shipped specs
+    # Shipped specs missing real build/verify cost data (not just entries).
     missing_cost_shipped=()
     for f in "${SHIPPED_FILES[@]:-}"; do
         [ -n "$f" ] || continue
-        sc=$(count_cost_sessions "$f")
-        if [ "$sc" = "0" ]; then
-            missing_cost_shipped+=("$(basename "$f" .md)")
+        name=$(basename "$f" .md)
+        if is_grandfathered_cost "$name"; then continue; fi
+        missing=$(spec_missing_cost_cycles "$f")
+        if [ -n "$missing" ]; then
+            missing_cost_shipped+=("${name} (${missing})")
         fi
     done
     if [ "${#missing_cost_shipped[@]}" -gt 0 ]; then
