@@ -137,6 +137,31 @@ if [ "$found_stale" = "false" ]; then
 fi
 echo ""
 
+# --- Specs missing cost data (shipped, non-grandfathered) ---
+echo "${BOLD}Specs missing cost data${RESET}"
+echo "  ${DIM}(shipped specs whose build/verify cycles lack tokens_total — run just cost-audit)${RESET}"
+found_missing_cost=false
+for f in $(find_all_specs "$ACTIVE_PROJECT_DIR"); do
+    case "$f" in *-timeline.md) continue ;; esac
+    name=$(basename "$f" .md)
+    shipped=0
+    case "$f" in
+        */specs/done/*) shipped=1 ;;
+        *) if [ "$(get_spec_cycle "$f")" = "ship" ]; then shipped=1; fi ;;
+    esac
+    [ "$shipped" = "1" ] || continue
+    if is_grandfathered_cost "$name"; then continue; fi
+    missing=$(spec_missing_cost_cycles "$f")
+    if [ -n "$missing" ]; then
+        printf "  %-44s  missing: %s\n" "$name" "$missing"
+        found_missing_cost=true
+    fi
+done
+if [ "$found_missing_cost" = "false" ]; then
+    echo "  ${DIM}(none)${RESET}"
+fi
+echo ""
+
 # --- Summary counts ---
 total_specs=$(find "${ACTIVE_PROJECT_DIR}/specs" -name "SPEC-*.md" 2>/dev/null | wc -l | tr -d ' ')
 shipped_specs=$(find "${ACTIVE_PROJECT_DIR}/specs/done" -name "SPEC-*.md" 2>/dev/null | wc -l | tr -d ' ')

@@ -131,3 +131,11 @@ constraints:
     added_by: claude
     added_at: 2026-06-16
     rationale: "crustyimg is `MIT OR Apache-2.0` (permissive) so the statically-linked binary stays widely embeddable, incl. in closed-source/commercial products; an AGPL/GPL dep would relicense the whole binary. Rules out gifski / jpegli-rs / imagequant as defaults. See DEC-018."
+
+  - id: cost-captured-per-cycle
+    rule: "Every shipped spec must record a real `tokens_total` on its metered cycles (build, verify) in `cost.sessions` — the orchestrator fills it from the Agent result's subagent_tokens (or `/cost`) at ship. Only un-metered main-loop cycles (design, ship) may be null-with-note. Enforced by `just cost-audit` (CI job `cost-data`)."
+    severity: warning
+    paths: ["projects/**/specs/**"]
+    added_by: claude
+    added_at: 2026-06-16
+    rationale: "Cost tracking was structurally present but empty for SPEC-001–013 (all null) because documentation alone was skippable. A check makes it stick — same pattern as the license gate. See AGENTS.md §4 and docs/cost-tracking.md."
