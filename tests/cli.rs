@@ -2640,3 +2640,65 @@ fn shrink_target_multi_input_fan_out() {
         );
     }
 }
+
+/// A deterministic high-frequency pseudo-noise JPEG. Unlike the smooth
+/// `detailed_*` fixtures, JPEG cannot reproduce this even at quality 100, so an
+/// SSIMULACRA2 target near 100 is genuinely unreachable — exactly what the
+/// best-effort/warning path needs.
+fn noisy_jpeg(w: u32, h: u32) -> Vec<u8> {
+    let mut img = RgbImage::new(w, h);
+    for (x, y, px) in img.enumerate_pixels_mut() {
+        let n = x
+            .wrapping_mul(2_654_435_761)
+            .wrapping_add(y.wrapping_mul(40_503))
+            ^ x.wrapping_mul(y).wrapping_add(0x9E37_79B9);
+        *px = image::Rgb([
+            (n & 0xFF) as u8,
+            ((n >> 8) & 0xFF) as u8,
+            ((n >> 16) & 0xFF) as u8,
+        ]);
+    }
+    let mut buf = Cursor::new(Vec::new());
+    DynamicImage::ImageRgb8(img)
+        .write_to(&mut buf, ImageFormat::Jpeg)
+        .unwrap();
+    buf.into_inner()
+}
+
+/// An unreachable perceptual target (`--ssim 100` on a high-frequency image,
+/// which a lossy JPEG round-trip cannot reach) still succeeds (best-effort) but
+/// warns on stderr.
+#[test]
+fn shrink_unreachable_target_warns_best_effort() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let in_path = write_bytes(&dir, "in.jpg", &noisy_jpeg(96, 96));
+    let out_path = dir.path().join("out.jpg");
+
+    let output = Command::new(BIN)
+        .args([
+            "shrink",
+            in_path.to_str().unwrap(),
+            "--ssim",
+            "100",
+            "-o",
+            out_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run shrink --ssim 100");
+
+    // Best-effort: the command still succeeds and writes a file.
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "unreachable target should still exit 0 (best effort); stderr: {}",
+        stderr_str(&output)
+    );
+    assert!(out_path.exists(), "output file should still be written");
+    // ...but it must warn that the target was not met.
+    let err = stderr_str(&output).to_lowercase();
+    assert!(
+        err.contains("could not reach") || err.contains("best effort"),
+        "expected an unmet-target warning on stderr, got: {}",
+        stderr_str(&output)
+    );
+}
