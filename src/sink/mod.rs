@@ -525,6 +525,24 @@ pub fn encode_to_bytes(
         }
     }
 
+    // WebP: LOSSY when a quality is set AND the `webp-lossy` feature is built
+    // (SPEC-020, DEC-022) — via libwebp. Otherwise (no feature, or no quality)
+    // fall through to the default `write_to` path, which writes LOSSLESS WebP
+    // (SPEC-019). This encode MUST stay identical to
+    // `crate::quality::encode_candidate_bytes`'s WebP arm so the auto-quality /
+    // byte-budget search probes match the bytes written here (DEC-019/DEC-020).
+    #[cfg(feature = "webp-lossy")]
+    if format == ImageFormat::WebP {
+        if let Some(q) = quality {
+            let rgba = img.pixels().to_rgba8();
+            let (w, h) = rgba.dimensions();
+            let encoder = ::webp::Encoder::from_rgba(rgba.as_raw(), w, h);
+            let memory = encoder.encode(q.clamp(1, 100) as f32);
+            return Ok(memory.to_vec());
+        }
+        // quality == None → lossless (fall through to write_to below).
+    }
+
     // All other (format, quality) cases: use the default write_to path.
     img.pixels()
         .write_to(&mut cursor, format)
