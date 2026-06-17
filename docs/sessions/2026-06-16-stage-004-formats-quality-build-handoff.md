@@ -148,43 +148,6 @@ Then `just new-spec "perceptual auto-quality shrink to a visual target" STAGE-00
 - Build prompts must still: confirm every test named in the spec's `## Failing
   Tests` exists; commit incrementally; derive `Debug` on new public types.
 
-## Cost capture — NEW standing process (this was silently broken)
-
-An audit (2026-06-16) found cost tracking was structurally present but **empty**:
-SPEC-001–013 all have `null`/`0` token + USD numerics (only SPEC-014/015 carry
-real numbers, backfilled by hand). The build prompts had been instructing "append
-a cost session with **null numerics**" — so reports aggregated to ~$0. The real
-data was available all along in each `Agent` tool result. Fix it from here:
-
-- **Do NOT write `null` numerics for build/verify cycles.** When you dispatch a
-  build or verify subagent, the `Agent` result returns `subagent_tokens` and
-  `duration_ms` — **capture both.** (If you build/verify directly instead of via a
-  subagent, run `/cost` at the end and use that.)
-- **At ship (the orchestrator's by-hand bookkeeping),** write each metered cycle's
-  `cost.sessions` entry with the real values: `tokens_total` = `subagent_tokens`;
-  `duration_minutes` = `round(duration_ms/60000)`; `estimated_usd` = tokens ×
-  list rate (Opus 4.8 $5/$25, Sonnet 4.6 $3/$15 per MTok) — apply a stated mix
-  (the SPEC-014/015 entries used ~80/20 input/output at list rates, no cache
-  discount) and add a one-line note that it's an order-of-magnitude estimate
-  (the harness reports a single combined token metric, no I/O split). Mirror the
-  exact note style already in `specs/done/SPEC-014-…md` / `SPEC-015-…md`.
-- **Design/ship cycles** are orchestrator main-loop work with no clean per-cycle
-  metering — leave their numerics `null` with a "main-loop, not separately
-  metered" note (as in SPEC-014/015).
-- **Compute `cost.totals`** at ship: `tokens_total` = sum of the metered cycles
-  (use `0`, not `null`, for the placeholder), `estimated_usd` = sum,
-  `session_count` = 4. (Reports skip null numerics in sums but count
-  `session_count`.)
-- **Remove the "null numerics" line** from any build/verify prompt you write —
-  replace it with "append your cost session; the orchestrator will fill the real
-  tokens/usd/duration from the Agent result at ship." Don't copy the old wording
-  from the SPEC-013/014 build prompts verbatim.
-- `just report-weekly` already aggregates this (by spec / cycle / interface, plus
-  total + avg-per-spec + top cost drivers + a "shipped without cost data" flag) —
-  so once entries carry real numbers, the report becomes meaningful with no
-  further work. SPEC-001–013 stay unmetered history (real numbers aren't
-  recoverable; leave null or mark any fill as a labeled estimate).
-
 ## First action
 
 1. Scaffold STAGE-004 (Modern Formats & Quality) per "Scaffolding" above; commit
