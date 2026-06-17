@@ -275,28 +275,38 @@ where
     )
 }
 
-// ── Production wiring (real JPEG round-trip scoring) ──────────────────────────
+// ── Production wiring (real JPEG candidate encoding) ──────────────────────────
 
-/// Encode `reference` to JPEG at `quality`, decode it back, and score the
-/// round-trip against `reference` — the real per-quality scorer the search uses.
-fn score_jpeg_at(reference: &DynamicImage, quality: u8) -> Result<f64, QualityError> {
-    // IMPORTANT: this candidate encode MUST stay byte-for-byte equivalent to the
-    // production write path `crate::sink::encode_to_bytes` (DEC-016) — same
-    // `JpegEncoder::new_with_quality` + `1..=100` clamp. The search scores round-
-    // trips through THIS encoder, but `shrink` writes the file through
-    // `encode_to_bytes`; if the two ever diverge (e.g. a switch to a progressive/
-    // optimized JPEG encoder), the binary-searched "lowest quality clearing the
-    // target" would no longer describe the bytes actually emitted, silently
-    // breaking the perceptual guarantee. Layering forbids `quality` depending on
-    // `sink`, so they are kept in sync by this contract, not by a shared call.
+/// Encode `reference` to JPEG at `quality.clamp(1, 100)` and return the bytes —
+/// the shared candidate encode behind both production probes (`score_jpeg_at`
+/// decodes + scores it; `jpeg_size_at` measures its length).
+///
+/// IMPORTANT: this MUST stay byte-for-byte equivalent to the production write
+/// path `crate::sink::encode_to_bytes` (DEC-016) — same `JpegEncoder::
+/// new_with_quality` + `1..=100` clamp. The searches optimize the bytes THIS
+/// produces, but `shrink`/`convert` write the file through `encode_to_bytes`; if
+/// the two ever diverge (e.g. a switch to a progressive/optimized JPEG encoder),
+/// the searched quality would no longer describe the bytes actually emitted,
+/// silently breaking the perceptual / byte-budget guarantee. Layering forbids
+/// `quality` depending on `sink`, so they are kept in sync by this contract, not
+/// by a shared call.
+fn encode_jpeg_bytes(reference: &DynamicImage, quality: u8) -> Result<Vec<u8>, QualityError> {
     let q = quality.clamp(1, 100);
     let mut cursor = Cursor::new(Vec::new());
     let encoder = ::image::codecs::jpeg::JpegEncoder::new_with_quality(&mut cursor, q);
     reference
         .write_with_encoder(encoder)
         .map_err(|e| QualityError::Encode(e.to_string()))?;
-    let decoded = ::image::load_from_memory(&cursor.into_inner())
-        .map_err(|e| QualityError::Encode(e.to_string()))?;
+    Ok(cursor.into_inner())
+}
+
+/// Encode `reference` to JPEG at `quality`, decode it back, and score the
+/// round-trip against `reference` — the real per-quality scorer the perceptual
+/// search uses.
+fn score_jpeg_at(reference: &DynamicImage, quality: u8) -> Result<f64, QualityError> {
+    let bytes = encode_jpeg_bytes(reference, quality)?;
+    let decoded =
+        ::image::load_from_memory(&bytes).map_err(|e| QualityError::Encode(e.to_string()))?;
     score(reference, &decoded)
 }
 
@@ -312,20 +322,9 @@ pub fn auto_jpeg_quality(
 /// Encode `reference` to JPEG at `quality` and return the encoded byte length —
 /// the per-quality probe for the byte-budget search (SPEC-017). Unlike
 /// `score_jpeg_at`, this does NOT decode or score: the size search only needs the
-/// encoded length.
+/// encoded length (it shares the exact encode via `encode_jpeg_bytes`).
 fn jpeg_size_at(reference: &DynamicImage, quality: u8) -> Result<u64, QualityError> {
-    // Same `JpegEncoder::new_with_quality` + `1..=100` clamp as
-    // `crate::sink::encode_to_bytes` / `score_jpeg_at` (DEC-016) — the probed size
-    // MUST equal the size of the bytes the sink ultimately writes, or the budget
-    // search would optimize a different encoder than the one that produces the
-    // output. Keep these three in sync.
-    let q = quality.clamp(1, 100);
-    let mut cursor = Cursor::new(Vec::new());
-    let encoder = ::image::codecs::jpeg::JpegEncoder::new_with_quality(&mut cursor, q);
-    reference
-        .write_with_encoder(encoder)
-        .map_err(|e| QualityError::Encode(e.to_string()))?;
-    Ok(cursor.into_inner().len() as u64)
+    Ok(encode_jpeg_bytes(reference, quality)?.len() as u64)
 }
 
 /// Find the highest JPEG quality whose encoded size is ≤ `budget_bytes` for

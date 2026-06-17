@@ -1132,22 +1132,30 @@ fn resolve_effective_quality(
         Some(AutoQuality::SizeBudget(budget)) if is_jpeg => {
             let choice = quality::auto_jpeg_under_size(out_img.pixels(), *budget)?;
             if !choice.met_target && !global.quiet {
+                // `choice.score` carries the achieved smallest size; guard the rare
+                // case where the search returns a fallback whose metric is unknown
+                // (NaN) so the message never reads a bogus "0 B".
+                let smallest = if choice.score.is_finite() {
+                    fmt_bytes(choice.score as u64)
+                } else {
+                    "the smallest available size".to_owned()
+                };
                 eprintln!(
                     "warning: {label}: could not meet the {} budget (smallest is {} at \
                      quality {}); dimension reduction not yet supported",
                     fmt_bytes(*budget),
-                    fmt_bytes(choice.score as u64),
+                    smallest,
                     choice.quality
                 );
             }
             Ok(Some(choice.quality))
         }
-        // Non-JPEG output: the quality search can't reach a byte budget.
+        // Non-JPEG output: no quality-based size search exists for this format yet.
         Some(AutoQuality::SizeBudget(_)) => {
             if !global.quiet {
                 eprintln!(
-                    "warning: {label}: --max-size needs a lossy output format (JPEG); \
-                     {} is lossless and was left at encoder default",
+                    "warning: {label}: --max-size currently supports only JPEG output; \
+                     {} was left at encoder default",
                     format_label(fmt)
                 );
             }
@@ -1429,6 +1437,25 @@ fn shrink_params(max: u32) -> OperationParams {
 
 // ── shrink handler ────────────────────────────────────────────────────────────
 
+/// Reject combining a fixed `-q/--quality` with an auto-quality mode — they are
+/// mutually exclusive (one pins a quality, the other searches for it). `-q` is a
+/// GLOBAL arg, so this can't be expressed as a clap `conflicts_with` against the
+/// subcommand args; both `shrink` and `convert` enforce it here at runtime
+/// (`CliError::Usage`, exit 2).
+fn reject_quality_with_auto(
+    auto: &Option<AutoQuality>,
+    global: &GlobalArgs,
+) -> Result<(), CliError> {
+    if auto.is_some() && global.quality.is_some() {
+        return Err(CliError::Usage(
+            "-q/--quality cannot be combined with --target/--ssim/--max-size \
+             (they auto-tune quality)"
+                .into(),
+        ));
+    }
+    Ok(())
+}
+
 /// Resolve `shrink`'s auto-quality target from `--target`/`--ssim` (SPEC-016).
 ///
 /// Returns `Ok(None)` when neither flag is set (fixed-quality behavior). A
@@ -1538,12 +1565,8 @@ fn run_shrink(
         }
     };
 
-    // `-q` pins a quality; the auto modes search for one. Reject both.
-    if auto.is_some() && global.quality.is_some() {
-        return Err(CliError::Usage(
-            "-q/--quality cannot be combined with --target/--ssim/--max-size (they auto-tune quality)".into(),
-        ));
-    }
+    // `-q` pins a quality; the auto modes search for one — reject combining them.
+    reject_quality_with_auto(&auto, global)?;
 
     let effective_max = max.unwrap_or(DEFAULT_SHRINK_MAX);
     let params = shrink_params(effective_max);
@@ -1626,11 +1649,7 @@ fn run_convert(
         Some(sz) => Some(AutoQuality::SizeBudget(parse_size(sz)?)),
         None => None,
     };
-    if auto.is_some() && global.quality.is_some() {
-        return Err(CliError::Usage(
-            "-q/--quality cannot be combined with --max-size (it auto-tunes quality)".into(),
-        ));
-    }
+    reject_quality_with_auto(&auto, global)?;
     // With a byte budget, the per-input search supplies the quality (pass None).
     let fixed_quality = if auto.is_some() { None } else { global.quality };
 
