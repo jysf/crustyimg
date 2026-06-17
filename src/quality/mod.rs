@@ -697,4 +697,55 @@ mod tests {
             large.quality
         );
     }
+
+    // ── SPEC-020: lossy WebP (feature-gated) ──────────────────────────────────
+
+    /// With `webp-lossy`, WebP supports BOTH searches — byte-budget AND perceptual
+    /// (the pure-Rust decoder ships by default, so round-trips can be scored). This
+    /// is the contrast with AVIF (perceptual-unsupported).
+    #[cfg(feature = "webp-lossy")]
+    #[test]
+    fn webp_supports_lossy_and_perceptual() {
+        assert!(
+            ImageFormat::WebP.supports_lossy_quality(),
+            "WebP must support the byte-budget search under --features webp-lossy"
+        );
+        assert!(
+            ImageFormat::WebP.supports_perceptual_quality(),
+            "WebP must support the perceptual search (it has a decoder) under --features webp-lossy"
+        );
+    }
+
+    /// The byte-budget search drives lossy WebP, monotone in the budget.
+    #[cfg(feature = "webp-lossy")]
+    #[test]
+    fn auto_under_size_webp_is_monotone() {
+        let img = detailed_rgb(96, 96);
+        let small =
+            auto_under_size(&img, ImageFormat::WebP, 1_000).expect("small-budget WebP search");
+        let large =
+            auto_under_size(&img, ImageFormat::WebP, 8_000).expect("large-budget WebP search");
+        assert!(
+            small.quality <= large.quality,
+            "smaller budget should pick a lower-or-equal WebP quality: 1000B q={} vs 8000B q={}",
+            small.quality,
+            large.quality
+        );
+    }
+
+    /// The PERCEPTUAL search works on WebP — `auto_quality` encodes a lossy WebP
+    /// candidate, DECODES it (the decoder is built), and scores it. This is what
+    /// AVIF cannot do (no decoder). Proves the round-trip path, not just a number.
+    #[cfg(feature = "webp-lossy")]
+    #[test]
+    fn auto_quality_webp_succeeds() {
+        let img = detailed_rgb(96, 96);
+        let choice = auto_quality(&img, ImageFormat::WebP, &SearchConfig::for_target(70.0))
+            .expect("perceptual WebP search must succeed (decode + score)");
+        assert!(
+            (MIN_SEARCH_QUALITY..=MAX_SEARCH_QUALITY).contains(&choice.quality),
+            "chosen quality {} must be in range",
+            choice.quality
+        );
+    }
 }

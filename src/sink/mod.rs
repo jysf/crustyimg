@@ -707,8 +707,8 @@ mod tests {
         );
     }
 
-    /// Build a structured image whose AVIF size responds to the quality knob.
-    #[cfg(feature = "avif")]
+    /// Build a structured image whose lossy size responds to the quality knob.
+    #[cfg(any(feature = "avif", feature = "webp-lossy"))]
     fn detailed_image(w: u32, h: u32) -> Image {
         use ::image::{DynamicImage, RgbImage};
         let mut img = RgbImage::new(w, h);
@@ -746,6 +746,33 @@ mod tests {
             ::image::guess_format(&high).unwrap(),
             ImageFormat::Avif,
             "q90 output should be AVIF"
+        );
+        assert!(
+            low.len() < high.len(),
+            "lower quality should produce fewer bytes: q30={} q90={}",
+            low.len(),
+            high.len()
+        );
+    }
+
+    /// With the feature on, a WebP encode WITH a quality is lossy and the knob
+    /// works: q30 is smaller than q90, and both magic-detect as WebP.
+    #[cfg(feature = "webp-lossy")]
+    #[test]
+    fn encode_webp_lossy_respects_quality() {
+        let img = detailed_image(96, 96);
+        let low = encode_to_bytes(&img, ImageFormat::WebP, Some(30)).expect("encode q30");
+        let high = encode_to_bytes(&img, ImageFormat::WebP, Some(90)).expect("encode q90");
+
+        assert_eq!(
+            ::image::guess_format(&low).unwrap(),
+            ImageFormat::WebP,
+            "q30 output should be WebP"
+        );
+        assert_eq!(
+            ::image::guess_format(&high).unwrap(),
+            ImageFormat::WebP,
+            "q90 output should be WebP"
         );
         assert!(
             low.len() < high.len(),
