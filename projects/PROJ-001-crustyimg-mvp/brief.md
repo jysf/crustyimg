@@ -122,12 +122,20 @@ Format: `- [status] STAGE-ID — one-line summary`
 - [x] STAGE-001 (shipped on 2026-06-14) — Foundation: CI, image model, Operation trait, pipeline, recipe + source/sink (7 specs, PRs #1-#7)
 - [x] STAGE-002 (shipped on 2026-06-15) — View & info (read-only): `view`, `info` (+ `--exif`, `--json`) (2 specs, PRs #8-#9; DEC-013)
 - [x] STAGE-003 (shipped on 2026-06-15) — Transform & output: `resize`, `thumbnail`, `shrink`, `convert`, `auto-orient` (6 specs SPEC-010–015, PRs #11–#16; DEC-014/015/016/017)
+- [~] STAGE-008 (active) — **Modern formats & quality** (the differentiator wave): perceptual auto-quality (`shrink --target`/`--ssim` via SSIMULACRA2), `--max-size` byte budget, AVIF (feature-gated), WebP. *Re-prioritized 2026-06-16 to run here, right after STAGE-003 (Option B). Numeric id ≠ execution order — see the stage file's sequencing note.*
 - [ ] STAGE-004 (pending) — Compose & metadata: `watermark`; `strip`/`clean --gps`/`set`/`copy-metadata`
 - [ ] STAGE-005 (pending) — Batch & recipes: `edit`, `--save-recipe`, `apply` (parallel + progress)
 - [ ] STAGE-006 (pending) — Hardening & security assessment: decode limits, traversal tests, cargo-audit in CI, recipe validation, threat-model pass
 - [ ] STAGE-007 (pending) — Release & distribution (MVP exit gate): Cargo metadata + CHANGELOG/tags, cargo-dist release pipeline, Homebrew tap, optional crates.io, README/install polish
 
-**Count:** 3 shipped / 0 active / 4 pending
+**Count:** 3 shipped / 1 active / 4 pending
+
+> **Roadmap re-prioritization (2026-06-16).** STAGE-008 (Modern formats &
+> quality) was inserted ahead of the originally-planned STAGE-004–007 as the
+> differentiator core ("set the look, not the number" + modern formats), per the
+> 2026-06-16 decision handoff (Option B, user-chosen). It carries the next free
+> numeric id but executes in the position shown above; STAGE-004–007 keep their
+> ids and slide later. **Drive order by stage status/priority, not by number.**
 
 ## Dependencies
 
