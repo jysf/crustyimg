@@ -296,12 +296,12 @@ sum_cost_tokens_for_spec() {
         in_cost && /^[a-zA-Z_]/ { in_cost = 0 }
         in_cost && /^  sessions:/ { in_sessions = 1; next }
         in_cost && in_sessions && /^  [a-zA-Z_]/ { in_sessions = 0 }
-        in_sessions && /^      tokens_input:/ {
-            v = $2; if (v ~ /^[0-9]+$/) total += v
-        }
-        in_sessions && /^      tokens_output:/ {
-            v = $2; if (v ~ /^[0-9]+$/) total += v
-        }
+        # Schema is a single combined tokens_total per session (the harness
+        # reports one number). Legacy tokens_input/_output are still summed
+        # if a session happens to use them (forward-compat).
+        in_sessions && /^      tokens_total:/  { v = $2; if (v ~ /^[0-9]+$/) total += v }
+        in_sessions && /^      tokens_input:/  { v = $2; if (v ~ /^[0-9]+$/) total += v }
+        in_sessions && /^      tokens_output:/ { v = $2; if (v ~ /^[0-9]+$/) total += v }
         END { print total+0 }
     ' "$file"
 }
@@ -356,6 +356,55 @@ count_cost_sessions() {
         in_sessions && /^    - cycle:/ { count++ }
         END { print count+0 }
     ' "$file"
+}
+
+# --- Cost-capture audit helpers (AGENTS.md §4; docs/cost-tracking.md) ----
+#
+# Specs that predate the cost-capture process; real per-cycle token counts
+# are unrecoverable, so the audit skips them. PROJECT-SPECIFIC — in a fresh
+# template instance this list is EMPTY (override via the env var if needed).
+COST_AUDIT_GRANDFATHERED="${COST_AUDIT_GRANDFATHERED:-SPEC-001 SPEC-002 SPEC-003 SPEC-004 SPEC-005 SPEC-006 SPEC-007 SPEC-008 SPEC-009 SPEC-010 SPEC-011 SPEC-012 SPEC-013}"
+
+# True if a spec is grandfathered out of the cost audit. Accepts either a
+# bare id ("SPEC-014") or a full file stem ("SPEC-014-some-slug") and matches
+# on the SPEC-NNN id prefix.
+is_grandfathered_cost() {
+    local rest="${1#SPEC-}"
+    local id="SPEC-${rest%%-*}"
+    case " ${COST_AUDIT_GRANDFATHERED} " in
+        *" $id "*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+# Print the tokens_total recorded for one cycle's cost session.
+# Empty if that cycle is absent or its tokens_total is null/missing.
+cycle_tokens_total() {
+    local file="$1" want="$2"
+    awk -v want="$want" '
+        /^---$/ { fm = !fm; next }
+        !fm { next }
+        /^cost:/ { in_cost = 1; next }
+        in_cost && /^[a-zA-Z_]/ { in_cost = 0 }
+        in_cost && /^  sessions:/ { in_s = 1; next }
+        in_cost && in_s && /^  [a-zA-Z_]/ { in_s = 0 }
+        in_s && /^    - cycle:/ { cur = $3 }
+        in_s && cur == want && /^      tokens_total:/ { print $2; exit }
+    ' "$file"
+}
+
+# Echo the build/verify cycles of a spec that lack a positive tokens_total.
+# Empty output = cost fully recorded. (design/ship are orchestrator main-loop
+# cycles and may legitimately be null — they are not checked.)
+spec_missing_cost_cycles() {
+    local file="$1" out="" c t
+    for c in build verify; do
+        t=$(cycle_tokens_total "$file" "$c")
+        case "$t" in
+            ''|null|0) out="${out} ${c}" ;;
+        esac
+    done
+    echo "${out# }"
 }
 
 # Extract value_link from a spec's front-matter. Empty string if null

@@ -89,6 +89,11 @@ audit:
 deny:
     cargo deny check licenses
 
+# Fail if any shipped spec is missing real build/verify cost data
+# (AGENTS.md §4 / docs/cost-tracking.md). Same check the CI `cost-data` job runs.
+cost-audit:
+    @./scripts/cost-audit.sh
+
 # Build and open the crate's API docs
 doc:
     cargo doc --no-deps --open

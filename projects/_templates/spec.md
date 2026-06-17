@@ -35,9 +35,12 @@ value_link: null
 
 # Self-reported AI cost per cycle. Each cycle (design, build, verify,
 # ship) appends one entry to sessions[]. Totals are computed at ship.
-# Null numeric fields are fine (e.g. claude.ai web sessions); reports
-# skip them in sums but count them in session_count. Examples of
-# interface: claude-code | claude-ai | api | ollama | other.
+# Record a REAL tokens_total for metered cycles (build/verify): the
+# orchestrator fills it from the Agent result's subagent_tokens at ship
+# (or /cost interactively). Only un-metered cycles (design/ship main-loop)
+# may be null-with-note. `just cost-audit` enforces this on shipped specs.
+# See AGENTS.md §4 and docs/cost-tracking.md. interface: claude-code |
+# claude-ai | api | ollama | other.
 cost:
   sessions: []
   totals:
