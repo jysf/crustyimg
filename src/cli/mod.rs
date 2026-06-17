@@ -26,6 +26,7 @@ use crate::image::Image;
 use crate::operation::RegistryError;
 use crate::operation::{OperationError, OperationParams, OperationRegistry};
 use crate::pipeline::Pipeline;
+use crate::quality::{self, QualityError, SearchConfig};
 use crate::recipe::{Recipe, RecipeError};
 use crate::sink::{Overwrite, Sink, SinkError, SinkInput};
 use crate::source::{self, SourceError};
@@ -93,6 +94,32 @@ pub struct GlobalArgs {
     pub keep_gps: bool,
 }
 
+/// A perceptual auto-quality preset for `shrink --target` (SPEC-016, DEC-019).
+///
+/// Each preset maps to a target SSIMULACRA2 score (higher = closer to the
+/// original). clap renders the variants in kebab-case on the command line:
+/// `visually-lossless`, `high`, `medium`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
+pub enum QualityTarget {
+    /// Indistinguishable from the original under normal viewing (score ≈ 90).
+    VisuallyLossless,
+    /// High quality; artifacts not noticeable at normal viewing (score ≈ 70).
+    High,
+    /// Medium quality; artifacts visible on close inspection (score ≈ 50).
+    Medium,
+}
+
+impl QualityTarget {
+    /// The target SSIMULACRA2 score this preset aims for (DEC-019 anchors).
+    fn target_score(self) -> f64 {
+        match self {
+            QualityTarget::VisuallyLossless => 90.0,
+            QualityTarget::High => 70.0,
+            QualityTarget::Medium => 50.0,
+        }
+    }
+}
+
 /// The full MVP subcommand surface from `docs/api-contract.md`.
 ///
 /// Each variant carries that command's documented positional and named args.
@@ -147,10 +174,18 @@ pub enum Commands {
     },
 
     /// Optimize-for-web: resize + quality encode + strip metadata (STAGE-003).
+    /// `--target`/`--ssim` auto-tune the JPEG quality to a perceptual target
+    /// (SPEC-016, DEC-019).
     Shrink {
         inputs: Vec<String>,
         #[arg(long)]
         max: Option<u32>,
+        /// Auto-tune the JPEG quality to a perceptual preset (SSIMULACRA2).
+        #[arg(long, value_enum)]
+        target: Option<QualityTarget>,
+        /// Auto-tune the JPEG quality to a specific SSIMULACRA2 score (0-100).
+        #[arg(long, conflicts_with = "target")]
+        ssim: Option<f64>,
     },
 
     /// Re-encode to another core format (STAGE-003).
@@ -274,6 +309,11 @@ pub enum CliError {
     /// --out-dir). Mirrors clap's exit 2. Diagnostics go to stderr.
     #[error("{0}")]
     Usage(String),
+
+    /// A perceptual scoring / quality-search failure (SPEC-016). Generic runtime
+    /// error → exit 1.
+    #[error(transparent)]
+    Quality(#[from] QualityError),
 }
 
 impl CliError {
@@ -312,6 +352,8 @@ impl CliError {
             CliError::PartialBatch { .. } => 6,
             // Runtime usage error → 2 (mirrors clap)
             CliError::Usage(_) => 2,
+            // Perceptual scoring / quality-search failure → 1 (generic runtime)
+            CliError::Quality(_) => 1,
         }
     }
 }
@@ -375,7 +417,12 @@ fn dispatch(cli: &Cli) -> Result<(), CliError> {
             size,
             square,
         } => run_thumbnail(inputs, *size, *square, &cli.global),
-        Commands::Shrink { inputs, max } => run_shrink(inputs, *max, &cli.global),
+        Commands::Shrink {
+            inputs,
+            max,
+            target,
+            ssim,
+        } => run_shrink(inputs, *max, *target, *ssim, &cli.global),
         Commands::Convert { inputs, format } => run_convert(inputs, format, &cli.global),
         Commands::AutoOrient { inputs } => run_auto_orient(inputs, &cli.global),
         Commands::Watermark { .. } => Err(CliError::NotImplemented("watermark")),
@@ -997,7 +1044,30 @@ fn run_resize(
     // Build the pipeline with this single op (builder-style: push consumes self).
     let pipeline = Pipeline::new().push(op);
 
-    run_pixel_op(pipeline, inputs, global, global.quality, None)
+    run_pixel_op(pipeline, inputs, global, global.quality, None, None)
+}
+
+/// Resolve the effective encode quality for ONE output (SPEC-016 / DEC-019).
+///
+/// - No `auto` target → return the fixed `quality` unchanged (today's behavior).
+/// - `auto` target AND a JPEG output → run the perceptual quality search on the
+///   output pixels and return the chosen quality.
+/// - `auto` target but a NON-JPEG output → ignore the target (encoder default),
+///   mirroring how `-q` is ignored for lossless formats (DEC-016).
+fn resolve_effective_quality(
+    quality: Option<u8>,
+    auto: &Option<SearchConfig>,
+    fmt: ::image::ImageFormat,
+    out_img: &Image,
+) -> Result<Option<u8>, CliError> {
+    match auto {
+        Some(cfg) if fmt == ::image::ImageFormat::Jpeg => {
+            let choice = quality::auto_jpeg_quality(out_img.pixels(), cfg)?;
+            Ok(Some(choice.quality))
+        }
+        Some(_) => Ok(None),
+        None => Ok(quality),
+    }
 }
 
 // ── Shared pixel-op fan-out helper ───────────────────────────────────────────
@@ -1015,12 +1085,16 @@ fn run_resize(
 /// - `quality` is threaded to every `sink.write` call (DEC-016).
 /// - `forced_format`: when `Some(fmt)`, override the per-input `output_format_for`
 ///   resolution with `fmt` for EVERY input. Used by `run_convert` (DEC-015 / SPEC-014).
+/// - `auto`: when `Some(cfg)`, run the perceptual quality search per-input on the
+///   output pixels (JPEG outputs only; ignored for other formats) instead of using
+///   the fixed `quality`. Used by `run_shrink --target`/`--ssim` (SPEC-016 / DEC-019).
 fn run_pixel_op(
     pipeline: Pipeline,
     inputs: &[String],
     global: &GlobalArgs,
     quality: Option<u8>,
     forced_format: Option<::image::ImageFormat>,
+    auto: Option<SearchConfig>,
 ) -> Result<(), CliError> {
     // Resolve every input arg, flattening into one Vec<Input>.
     // Resolution errors (missing path / empty glob) are hard errors (exit 3/2),
@@ -1086,6 +1160,9 @@ fn run_pixel_op(
             Sink::Stdout { format: Some(fmt) }
         };
 
+        // Resolve the effective quality (auto-quality search for JPEG, else fixed).
+        let effective_quality = resolve_effective_quality(quality, &auto, fmt, &out_img)?;
+
         let sink_input = SinkInput {
             stem: input.stem(),
             path: input.path(),
@@ -1094,7 +1171,7 @@ fn run_pixel_op(
             &out_img,
             &sink_input,
             overwrite,
-            quality,
+            effective_quality,
             &mut std::io::stdout().lock(),
         )?;
     } else {
@@ -1140,6 +1217,10 @@ fn run_pixel_op(
                     format: Some(fmt),
                 };
 
+                // Per-input effective quality (auto-quality search for JPEG, else
+                // fixed). A scoring failure here is a per-input failure → exit 6.
+                let effective_quality = resolve_effective_quality(quality, &auto, fmt, &out_img)?;
+
                 let sink_input = SinkInput {
                     stem: input.stem(),
                     path: input.path(),
@@ -1148,7 +1229,7 @@ fn run_pixel_op(
                     &out_img,
                     &sink_input,
                     overwrite,
-                    quality,
+                    effective_quality,
                     &mut std::io::stdout().lock(),
                 )?;
                 Ok(())
@@ -1226,7 +1307,7 @@ fn run_thumbnail(
         })?;
 
     let pipeline = Pipeline::new().push(op);
-    run_pixel_op(pipeline, inputs, global, global.quality, None)
+    run_pixel_op(pipeline, inputs, global, global.quality, None, None)
 }
 
 // ── shrink helpers ────────────────────────────────────────────────────────────
@@ -1252,16 +1333,63 @@ fn shrink_params(max: u32) -> OperationParams {
 
 // ── shrink handler ────────────────────────────────────────────────────────────
 
+/// Resolve `shrink`'s auto-quality target from `--target`/`--ssim` (SPEC-016).
+///
+/// Returns `Ok(None)` when neither flag is set (fixed-quality behavior). A
+/// `--ssim` score outside `0.0..=100.0` is a usage error (exit 2). `--target`
+/// and `--ssim` together are rejected by clap (`conflicts_with`) before this is
+/// reached; the `(Some, Some)` arm is a defensive fallback.
+fn shrink_auto_config(
+    target: Option<QualityTarget>,
+    ssim: Option<f64>,
+) -> Result<Option<SearchConfig>, CliError> {
+    match (target, ssim) {
+        (Some(_), Some(_)) => Err(CliError::Usage(
+            "--target and --ssim are mutually exclusive".into(),
+        )),
+        (Some(t), None) => Ok(Some(SearchConfig::for_target(t.target_score()))),
+        (None, Some(s)) => {
+            if !(0.0..=100.0).contains(&s) {
+                return Err(CliError::Usage(format!(
+                    "--ssim must be a score in 0..=100, got {s}"
+                )));
+            }
+            Ok(Some(SearchConfig::for_target(s)))
+        }
+        (None, None) => Ok(None),
+    }
+}
+
 /// Wire the `shrink` subcommand: resize to a long-edge bound + quality-aware
 /// JPEG encode + inherent metadata drop (from the pixel-lane re-encode).
 ///
 /// - `--max N` (default 1600) bounds the longest edge to N (no upscale via the
 ///   `resize max` mode).
-/// - `-q Q` (default 80) sets the JPEG encode quality; ignored for lossless
-///   formats (DEC-016).
+/// - `--target <preset>` / `--ssim <score>` auto-tune the JPEG quality to a
+///   perceptual SSIMULACRA2 target (SPEC-016 / DEC-019): the fan-out
+///   binary-searches the lowest quality clearing the target, per input. Opt-in;
+///   mutually exclusive with each other and with `-q`. Ignored for non-JPEG
+///   outputs (encoder default), mirroring `-q` on lossless formats.
+/// - `-q Q` (default 80, only when no auto target) sets the JPEG encode quality;
+///   ignored for lossless formats (DEC-016).
 /// - Multi-input fan-out and partial-batch exit 6 are inherited via
 ///   `run_pixel_op` (DEC-015).
-fn run_shrink(inputs: &[String], max: Option<u32>, global: &GlobalArgs) -> Result<(), CliError> {
+fn run_shrink(
+    inputs: &[String],
+    max: Option<u32>,
+    target: Option<QualityTarget>,
+    ssim: Option<f64>,
+    global: &GlobalArgs,
+) -> Result<(), CliError> {
+    let auto = shrink_auto_config(target, ssim)?;
+
+    // `-q` pins a quality; `--target`/`--ssim` searches for one. Reject both.
+    if auto.is_some() && global.quality.is_some() {
+        return Err(CliError::Usage(
+            "-q/--quality cannot be combined with --target/--ssim (they auto-tune quality)".into(),
+        ));
+    }
+
     let effective_max = max.unwrap_or(DEFAULT_SHRINK_MAX);
     let params = shrink_params(effective_max);
 
@@ -1275,8 +1403,14 @@ fn run_shrink(inputs: &[String], max: Option<u32>, global: &GlobalArgs) -> Resul
         })?;
 
     let pipeline = Pipeline::new().push(op);
-    let effective_quality = Some(global.quality.unwrap_or(DEFAULT_SHRINK_QUALITY));
-    run_pixel_op(pipeline, inputs, global, effective_quality, None)
+    // With an auto target, the per-input search supplies the quality (pass None as
+    // the fixed quality). Without it, keep today's fixed default (80).
+    let fixed_quality = if auto.is_some() {
+        None
+    } else {
+        Some(global.quality.unwrap_or(DEFAULT_SHRINK_QUALITY))
+    };
+    run_pixel_op(pipeline, inputs, global, fixed_quality, None, auto)
 }
 
 // ── auto-orient handler ───────────────────────────────────────────────────────
@@ -1300,7 +1434,7 @@ fn run_auto_orient(inputs: &[String], global: &GlobalArgs) -> Result<(), CliErro
         })?;
 
     let pipeline = Pipeline::new().push(op);
-    run_pixel_op(pipeline, inputs, global, global.quality, None)
+    run_pixel_op(pipeline, inputs, global, global.quality, None, None)
 }
 
 // ── convert handler ───────────────────────────────────────────────────────────
@@ -1327,7 +1461,7 @@ fn run_convert(inputs: &[String], format: &str, global: &GlobalArgs) -> Result<(
     let pipeline = Pipeline::new();
 
     // Force `fmt` for every input; thread global.quality (no forced default).
-    run_pixel_op(pipeline, inputs, global, global.quality, Some(fmt))
+    run_pixel_op(pipeline, inputs, global, global.quality, Some(fmt), None)
 }
 
 // ── Unit tests ────────────────────────────────────────────────────────────────
@@ -1469,6 +1603,12 @@ mod tests {
 
         // Usage → 2 (mirrors clap exit 2).
         assert_eq!(CliError::Usage("bad".into()).code(), 2);
+
+        // Quality (scoring/search failure) → 1 (generic runtime).
+        assert_eq!(
+            CliError::Quality(QualityError::Score("scoring failed".into())).code(),
+            1
+        );
     }
 
     // ── format_label_maps_core_formats ───────────────────────────────────────

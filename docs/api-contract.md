@@ -122,7 +122,22 @@ failures:** any per-input failure writes the successes, prints a per-file summar
 to stderr, and exits **6**; a single-input failure keeps its natural code
 (3/1/4/5). `-q/--quality` is not honored (encoder default); `--size 0` → exit 2.
 
-#### `shrink <INPUT...> [--max N] [-q Q]`  *(S3)*
+#### `shrink <INPUT...> [--max N] [-q Q] [--target visually-lossless|high|medium | --ssim 0-100]`  *(S3; `--target`/`--ssim` S8/SPEC-016)*
+**Perceptual auto-quality** (SPEC-016, DEC-019): `--target
+<visually-lossless|high|medium>` / `--ssim <0-100>` auto-tune the **JPEG** encode
+quality to a perceptual **SSIMULACRA2** target — the command binary-searches the
+**lowest** quality whose decoded round-trip scores at/above the target (capped at
+8 in-memory candidate evaluations; the original is still decoded once, DEC-002).
+The presets map to SSIMULACRA2 scores (visually-lossless ≈ 90, high ≈ 70, medium ≈
+50; tunable). `--target`, `--ssim`, and `-q` are **mutually exclusive** (you either
+pin a quality or search for one → exit **2** if combined; `--ssim` outside 0–100 →
+exit **2**). It is **opt-in**: without `--target`/`--ssim`, `shrink` uses the fixed
+default quality (80, below). For a **non-JPEG** output format the target is
+**ignored** (encoder default), mirroring `-q` on lossless formats (DEC-016). If the
+target is unreachable even at quality 100, `shrink` emits the highest-quality encode
+(best-effort). A scoring failure (e.g. a pathologically tiny image) is a typed error
+(single-input exit **1**; one input in a batch → exit **6**).
+
 Optimize-for-web: resize to a default long-edge bound + a real quality-aware
 encode + drop metadata. The headline web-prep command. `--max` defaults to
 **1600** (long edge, aspect preserved, never upscaled); `-q/--quality` defaults

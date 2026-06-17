@@ -136,6 +136,46 @@ pub fn jpeg_with_orientation(w: u32, h: u32, orientation: u8) -> Vec<u8> {
     out
 }
 
+/// Build a DETERMINISTIC, STRUCTURED RGB image: a smooth gradient plus a mild
+/// 8px checker texture (SPEC-016 / DEC-019 auto-quality fixture).
+///
+/// The structure is deliberate. A flat gradient or solid color JPEG-compresses
+/// near-losslessly (score ~100 at every quality), so a perceptual search would
+/// always pick the minimum quality. Pure high-frequency noise is the opposite
+/// failure — JPEG can't reach a high score on it even at quality 100, so distinct
+/// targets collapse to the same output. The gradient-dominated image with a mild
+/// checker degrades cleanly at low quality yet reaches a high score at high
+/// quality, giving the search real, monotone signal.
+fn detailed_rgb(w: u32, h: u32) -> RgbImage {
+    let mut img = RgbImage::new(w, h);
+    for (x, y, px) in img.enumerate_pixels_mut() {
+        let gx = (x * 255 / w.max(1)) as i32;
+        let gy = (y * 255 / h.max(1)) as i32;
+        let tex = if ((x / 8) + (y / 8)) % 2 == 0 { 30 } else { 0 };
+        let r = (gx + tex).clamp(0, 255) as u8;
+        let g = (gy + tex).clamp(0, 255) as u8;
+        let b = ((gx + gy) / 2).clamp(0, 255) as u8;
+        *px = image::Rgb([r, g, b]);
+    }
+    img
+}
+
+/// Encode the structured `detailed_rgb` pattern to JPEG bytes (SPEC-016 fixture).
+pub fn detailed_jpeg(w: u32, h: u32) -> Vec<u8> {
+    encode(
+        DynamicImage::ImageRgb8(detailed_rgb(w, h)),
+        ImageFormat::Jpeg,
+    )
+}
+
+/// Encode the structured `detailed_rgb` pattern to PNG bytes (SPEC-016 fixture).
+pub fn detailed_png(w: u32, h: u32) -> Vec<u8> {
+    encode(
+        DynamicImage::ImageRgb8(detailed_rgb(w, h)),
+        ImageFormat::Png,
+    )
+}
+
 fn encode(img: DynamicImage, format: ImageFormat) -> Vec<u8> {
     let mut out = Cursor::new(Vec::new());
     img.write_to(&mut out, format).unwrap();
