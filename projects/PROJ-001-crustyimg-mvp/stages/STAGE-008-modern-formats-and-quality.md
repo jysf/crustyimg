@@ -140,11 +140,12 @@ Ordered by recommended execution (flagship first); drive by status, not number.
 Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
 - [x] SPEC-016 (shipped 2026-06-16, PR #18) — **perceptual auto-quality (FLAGSHIP):** `shrink --target visually-lossless` / `--ssim <N>` — binary-search the JPEG quality against an SSIMULACRA2 score; lowest quality clearing the target; capped iterations; default JPEG path; one permissive dep (`ssimulacra2`, DEC-019). New `src/quality/` module (metric + generic scorer-injected search reused by SPEC-017+); opt-in; unmet-target best-effort + warning
-- [ ] (not yet written) SPEC-017 — **`--max-size <KB>` byte budget** on `shrink`/`convert`: iteratively reduce quality (then, as a fallback, dimensions) until the encoded output ≤ the budget; reuses the SPEC-016 search machinery; pure-Rust, default-buildable (likely no new DEC)
+- [ ] SPEC-017 (design) — **`--max-size <SIZE>` byte budget** on `shrink`/`convert`: binary-search the JPEG quality for the highest output ≤ the budget (the SPEC-016 search inverted, via a shared `search_threshold` core); **quality-only v1** (user-confirmed) — lossless/infeasible → best-effort + warning; pure-Rust, no new dep, no new DEC (DEC-019 dual)
+- [ ] (not yet written) SPEC-NNN — **`--max-size` dimension-reduction fallback** (the deferred half of SPEC-017): when quality alone can't hit the budget (a lossless output, or even min quality too big), progressively downscale dimensions until it fits; makes `--max-size` work for PNG and very-small budgets. Reuses the shipped `Resize` op + the byte-budget search
 - [ ] (not yet written) SPEC-018 — **AVIF output (feature-gated `avif`):** wire `ravif` behind an off-by-default `avif` feature (exit 4 without it, DEC-004); expose the rav1e speed knob; `--features avif` CI job; new dep `ravif` → DEC-020 (revisit DEC-004 gating)
 - [ ] (not yet written) SPEC-019 — **WebP output:** lossless WebP via the pure-Rust `image`/`image-webp` backend (default-able); lossy WebP only behind a feature-gated libwebp (`webp-lossy`) OR deferred with a documented reason — decide in the spec's DEC
 
-**Count:** 1 shipped / 0 active / 3 pending
+**Count:** 1 shipped / 1 active / 3 pending
 
 > The flagship (SPEC-016) is the differentiator AND the most self-contained
 > (default JPEG, one permissive dep), so it leads. (SPEC-017) reuses its search;
