@@ -65,6 +65,11 @@ get_spec_ship_date() {
     ' "$1"
 }
 
+# Compact token count for display: 201141 -> 201k, 950 -> 950.
+fmt_tok() {
+    if [ "$1" -ge 1000 ]; then echo "$(( $1 / 1000 ))k"; else echo "$1"; fi
+}
+
 # ---------------------------------------------------------------------
 # Parse scope flags.
 # ---------------------------------------------------------------------
@@ -103,8 +108,11 @@ SHIPPED=0
 INFLIGHT=0
 NOTWRITTEN=0
 STAGES=0
+GRAND_USD="0.00"
+GRAND_TOK=0
 
 print_stage() {
+    local STAGE_USD="0.00" STAGE_TOK=0
     project_dir="$1"
     stage_file="$2"
     stage_base=$(basename "$stage_file" .md)
@@ -126,19 +134,29 @@ print_stage() {
         sid=$(basename "$sf" | sed -E 's/^(SPEC-[0-9]+).*/\1/')
         cyc=$(get_spec_cycle "$sf"); [ -n "$cyc" ] || cyc="?"
         cx=$(get_spec_complexity "$sf"); [ -n "$cx" ] || cx="?"
+        u=$(sum_cost_usd_for_spec "$sf"); t=$(sum_cost_tokens_for_spec "$sf")
+        STAGE_USD=$(awk -v a="$STAGE_USD" -v b="$u" 'BEGIN{printf "%.2f", a+b}')
+        STAGE_TOK=$((STAGE_TOK + t))
+        GRAND_USD=$(awk -v a="$GRAND_USD" -v b="$u" 'BEGIN{printf "%.2f", a+b}')
+        GRAND_TOK=$((GRAND_TOK + t))
+        if [ "$u" = "0.00" ] && [ "$t" -eq 0 ]; then costcol="—"; else costcol="\$${u}  $(fmt_tok "$t")"; fi
         case "$sf" in
             */done/*)
                 sdate=$(get_spec_ship_date "$sf")
                 [ -n "$sdate" ] || sdate="$shipped"
                 [ -n "$sdate" ] || sdate="—"
-                printf "    %-10s  ${GREEN}%-8s${RESET}  %-12s  %s\n" "$sid" "shipped" "$sdate" "$cx"
+                printf "    %-10s  ${GREEN}%-8s${RESET}  %-12s  %-3s  %s\n" "$sid" "shipped" "$sdate" "$cx" "$costcol"
                 SHIPPED=$((SHIPPED + 1)) ;;
             *)
-                printf "    %-10s  %-8s  %-12s  %s\n" "$sid" "$cyc" "—" "$cx"
+                printf "    %-10s  %-8s  %-12s  %-3s  %s\n" "$sid" "$cyc" "—" "$cx" "$costcol"
                 INFLIGHT=$((INFLIGHT + 1)) ;;
         esac
         any=1
     done < <(find_all_specs "$project_dir" | sort)
+
+    if [ "$STAGE_TOK" -gt 0 ] || [ "$STAGE_USD" != "0.00" ]; then
+        printf "    ${DIM}stage cost: \$%s · %s${RESET}\n" "$STAGE_USD" "$(fmt_tok "$STAGE_TOK")"
+    fi
 
     # Un-promoted "(not yet written)" backlog bullets in this stage.
     notwritten=$(grep -cE '^- \[[ x~?]\] \(not yet written\)' "$stage_file" 2>/dev/null || true)
@@ -159,7 +177,7 @@ case "$SCOPE" in
 esac
 
 printf "${BOLD}Specs by stage — %s${RESET}\n" "$scope_label"
-printf "${DIM}columns: spec · status · ship date · complexity${RESET}\n"
+printf "${DIM}columns: spec · status · ship date · complexity · cost (usd · tokens)${RESET}\n"
 
 for proj in "${PROJECTS[@]}"; do
     project_dir="${REPO_ROOT}/projects/${proj}"
@@ -178,3 +196,5 @@ done
 
 printf "\n${BOLD}Totals:${RESET} %d shipped · %d in flight · %d not yet written  ${DIM}(%d stage(s), %d project(s))${RESET}\n" \
     "$SHIPPED" "$INFLIGHT" "$NOTWRITTEN" "$STAGES" "${#PROJECTS[@]}"
+printf "${BOLD}Recorded cost:${RESET} \$%s · %s tokens  ${DIM}(only cycles with real numbers — see just cost-audit)${RESET}\n" \
+    "$GRAND_USD" "$GRAND_TOK"

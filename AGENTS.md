@@ -495,7 +495,7 @@ Stage Ship prompt.
 ## 16. Session Hygiene (claude-only specific)
 
 Because one agent plays multiple roles, context contamination is a real
-risk. Four habits keep it at bay:
+risk. Five habits keep it at bay:
 
 1. **New session per cycle where possible.** Especially design → build
    and build → verify.
@@ -504,6 +504,13 @@ risk. Four habits keep it at bay:
 3. **Weekly review is non-optional.** Without a second agent pushing
    back, drift compounds silently. Run `just weekly-review`.
 4. **Honest confidence values on decisions.** See Section 17.
+5. **One git worktree per concurrent session.** If more than one session
+   works on this repo at once, each MUST run in its own `git worktree`,
+   not the shared checkout — two agents writing one working tree corrupt
+   each other (a parallel build once clobbered an uncommitted edit and a
+   commit landed on the wrong branch). `git worktree add <path> <branch>`,
+   work there, commit + push, then `git worktree remove`. Always check
+   `git branch --show-current` before any commit.
 
 ---
 
