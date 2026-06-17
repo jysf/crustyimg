@@ -4,7 +4,7 @@
 task:
   id: SPEC-018
   type: story                      # epic | story | task | bug | chore
-  cycle: verify                    # frame | design | build | verify | ship
+  cycle: ship                      # frame | design | build | verify | ship  (shipped 2026-06-17, PR #21)
   blocked: false
   priority: high
   complexity: M                    # S | M | L  (L means split it)
@@ -50,15 +50,31 @@ cost:
     - cycle: build
       agent: claude-opus-4-8
       interface: claude-code
-      tokens_total: null       # main-loop (orchestrator-direct, subagent Bash blocked here); order-of-magnitude estimate filled at ship
+      tokens_total: 450000     # ORDER-OF-MAGNITUDE estimate — build ran in the orchestrator main loop (background subagents can't get Bash in this env), so no clean per-cycle metering; see note
+      estimated_usd: 4.05      # ~450k @ Opus 4.8 list ($5/$25 per MTok, ~80/20 in/out, no cache discount) — order of magnitude
+      duration_minutes: null
+      recorded_at: 2026-06-17
+      notes: "Built in the main loop (background subagents can't get Bash in this env), so tokens are a labeled order-of-magnitude estimate, not metered. Implemented the avif feature, scoped deny exception, sink AVIF encode + CodecNotBuilt/ensure_codec_built, quality AVIF arm, CLI exit-4, CI avif job. Build-time finding: perceptual AVIF needs a decoder (deferred) — split the LossyFormat seam; only the byte-budget search drives AVIF. Both builds green; just deny green."
+    - cycle: verify
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 250000     # ORDER-OF-MAGNITUDE estimate — 5 read-only /code-review finder subagents (Explore) over the 521-line diff + sources; the Agent results didn't surface token counts in this env
+      estimated_usd: 2.25      # ~250k @ Opus 4.8 list ($5/$25 per MTok, ~80/20 in/out) — order of magnitude
+      duration_minutes: null
+      recorded_at: 2026-06-17
+      notes: "Independent medium /code-review: 7 finder angles (5 Explore subagents) + targeted empirical verification. 1 actionable finding (multi-input shrink/resize→AVIF without the feature exits 6 not 4 — low-severity consistency gap, tracked in STAGE-008 backlog); refuted the rest. Token total is a labeled estimate (no clean subagent metering surfaced here)."
+    - cycle: ship
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null       # orchestrator main-loop bookkeeping — legitimately null (AGENTS §4)
       estimated_usd: null
       duration_minutes: null
-      recorded_at: 2026-06-16
-      notes: "Built in the main loop (background subagents can't get Bash in this env). Implemented the avif feature, scoped deny exception, sink AVIF encode + CodecNotBuilt/ensure_codec_built, quality AVIF arm, CLI exit-4, CI avif job. Build-time finding: perceptual AVIF needs a decoder (deferred) — split the LossyFormat seam; only the byte-budget search drives AVIF. Both builds green; just deny green."
+      recorded_at: 2026-06-17
+      notes: "Ship bookkeeping on main (merge dance + archive): orchestrator main-loop, not separately metered."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 700000     # sum of non-null sessions (build 450k + verify 250k); design/ship are main-loop (null → counted as 0)
+    estimated_usd: 6.30
+    session_count: 4
 ---
 
 # SPEC-018: AVIF output behind a feature-gated `ravif` codec
@@ -413,10 +429,25 @@ feature-build tests are `#[cfg(feature = "avif")]` (compiled + run only under
 *Appended during the **ship** cycle.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Extend the "verify the dep empirically in design" discipline to the **metric
+   path**, not just build/license. The whole perceptual-AVIF correction came from a
+   dependency the design didn't probe: SSIMULACRA2 scoring needs to *decode* the
+   re-encoded candidate, and AVIF (encode-only) can't. A 3-line design spike
+   (`encode AVIF → load_from_memory`) would have caught it before the spec claimed
+   both searches work, instead of at `cargo test --features avif`.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — DEC-020 was amended in place (perceptual deferral + the seam split). The
+   broader lesson worth a constraint/checklist note: **any feature-gated codec must
+   have an up-front `ensure_codec_built` check on every multi-input path** to keep
+   the DEC-004 "single exit 4, not partial-batch 6" guarantee — today only `convert`
+   does it (the tracked consistency gap). The `LossyFormat` seam is now two
+   predicates (encode-only vs encode+decode); WebP (SPEC-019, has a Rust decoder)
+   will set both `true` and fit cleanly.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — Three, recorded in the STAGE-008 backlog: (a) **AVIF decode** behind its own
+   feature (unblocks `.avif` input *and* perceptual AVIF); (b) the **AVIF `--speed`
+   knob** (thread speed through both the sink encode and the search probe); (c) the
+   **up-front codec check** for `shrink`/`resize`/`thumbnail`/`auto-orient` to make
+   their multi-input unbuilt-codec exit code match `convert` (single exit 4).

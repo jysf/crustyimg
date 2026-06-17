@@ -142,10 +142,15 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 - [x] SPEC-016 (shipped 2026-06-16, PR #18) — **perceptual auto-quality (FLAGSHIP):** `shrink --target visually-lossless` / `--ssim <N>` — binary-search the JPEG quality against an SSIMULACRA2 score; lowest quality clearing the target; capped iterations; default JPEG path; one permissive dep (`ssimulacra2`, DEC-019). New `src/quality/` module (metric + generic scorer-injected search reused by SPEC-017+); opt-in; unmet-target best-effort + warning
 - [x] SPEC-017 (shipped 2026-06-16, PR #20) — **`--max-size <SIZE>` byte budget** on `shrink`/`convert`: binary-search the quality for the highest output ≤ the budget (the SPEC-016 search inverted, via a shared `search_threshold` core); **quality-only v1** — lossless/infeasible → best-effort + warning; no new dep, no new DEC (DEC-019 dual). Also made the search **format-agnostic** (`LossyFormat` trait + `encode_candidate_bytes`) so AVIF/WebP slot in via one encode arm
 - [ ] (not yet written) SPEC-NNN — **`--max-size` dimension-reduction fallback** (the deferred half of SPEC-017): when quality alone can't hit the budget (a lossless output, or even min quality too big), progressively downscale dimensions until it fits; makes `--max-size` work for PNG and very-small budgets. Reuses the shipped `Resize` op + the byte-budget search
-- [ ] SPEC-018 (design) — **AVIF output (feature-gated `avif`):** wire `ravif` via `image/avif` behind an off-by-default `avif` feature (exit 4 without it, `CodecNotBuilt`, DEC-004); auto-quality + `--max-size` drive AVIF for free (SPEC-017 payoff); `--features avif` CI job; **DEC-020** (verified pure-Rust/no-nasm + a scoped `libfuzzer-sys` deny exception). Output-only v1 (decode + `--speed` deferred)
+- [x] SPEC-018 (shipped 2026-06-17, PR #21) — **AVIF output (feature-gated `avif`):** `ravif` via `image/avif` behind an off-by-default `avif` feature (exit 4 without it, `CodecNotBuilt`/`ensure_codec_built`, DEC-004); `--features avif` CI job; **DEC-020** (pure-Rust/no-nasm + a scoped `libfuzzer-sys` deny exception). **Build-time correction:** only the `--max-size` byte budget drives AVIF for free; the perceptual `--target`/`--ssim` search needs an AVIF decoder (deferred) → split the `LossyFormat` seam, graceful fallback. Output-only v1 (decode + `--speed` deferred)
 - [ ] (not yet written) SPEC-019 — **WebP output:** lossless WebP via the pure-Rust `image`/`image-webp` backend (default-able); lossy WebP only behind a feature-gated libwebp (`webp-lossy`) OR deferred with a documented reason — decide in the spec's DEC
 
-**Count:** 2 shipped / 1 active / 2 pending
+**Count:** 3 shipped / 0 active / 2 pending
+
+> **STAGE-008 follow-ups identified during SPEC-018 build/verify (write as specs when picked up):**
+> - **AVIF decode** (`dav1d`/`avif-native`, a C dep) behind its own feature — unblocks `.avif` INPUT *and* perceptual AVIF (`--target`/`--ssim`).
+> - **AVIF `--speed` knob** (thread speed through the sink encode + the search probe so probed and written bytes agree).
+> - **Up-front codec check for `shrink`/`resize`/`thumbnail`/`auto-orient`** — multi-input forced to an unbuilt AVIF currently exits 6 (partial-batch) rather than a single exit 4 like `convert` (single-input is already exit 4). Low-severity consistency gap (verify finding, PR #21).
 
 > The flagship (SPEC-016) is the differentiator AND the most self-contained
 > (default JPEG, one permissive dep), so it leads. (SPEC-017) reuses its search;
