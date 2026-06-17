@@ -4,7 +4,7 @@
 task:
   id: SPEC-019
   type: story                      # epic | story | task | bug | chore
-  cycle: verify                    # frame | design | build | verify | ship
+  cycle: ship                      # frame | design | build | verify | ship  (shipped 2026-06-17, PR #22)
   blocked: false
   priority: high
   complexity: S                    # S | M | L  (L means split it)
@@ -55,10 +55,26 @@ cost:
       duration_minutes: null
       recorded_at: 2026-06-17
       notes: "Built in the main loop (background subagents can't get Bash here), tokens are a labeled order-of-magnitude estimate. Added `webp` to the default image features + the format_from_extension arm; lossless encode + decode came for free (write_to / ImageReader). Tests: unit + 4 integration (lossless round-trip, .webp input, shrink→webp, -q ignored). Dropped the webp branch from convert_unbuilt_codec_exits_4. Default + avif builds green; just deny green with NO new exception."
+    - cycle: verify
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 60000      # ORDER-OF-MAGNITUDE estimate — ONE focused read-only review subagent (Explore) over the small diff + empirical CI checks; proportionate to a one-arm change (not the full 7-angle fan-out)
+      estimated_usd: 0.54      # ~60k @ Opus 4.8 list ($5/$25 per MTok, ~80/20 in/out) — order of magnitude
+      duration_minutes: null
+      recorded_at: 2026-06-17
+      notes: "Independent focused review (1 Explore subagent, proportionate to the tiny additive diff) + CI. Found 2 stale-comment nits (fixed, pushed); no correctness issues. Token total is a labeled estimate (no clean subagent metering surfaced here)."
+    - cycle: ship
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null       # orchestrator main-loop bookkeeping — legitimately null (AGENTS §4)
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-06-17
+      notes: "Ship bookkeeping on main (merge dance + archive): orchestrator main-loop, not separately metered."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 190000     # sum of non-null sessions (build 130k + verify 60k); design/ship are main-loop (null → 0)
+    estimated_usd: 1.69
+    session_count: 4
 ---
 
 # SPEC-019: WebP lossless output + WebP decode (input), pure-Rust default
@@ -320,10 +336,23 @@ normal `cargo test` (no feature gate). Verifying WebP output uses
 *Appended during the **ship** cycle.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Nothing material — this is the model of a well-split spec. The key move was in
+   design: a `write_to(_, WebP)` + `load_from_memory` spike confirmed lossless encode
+   and decode were both free, and that lossy needed a C dep, *before* writing the
+   spec. That turned the build into a one-feature-line + one-match-arm change with
+   zero deviations. Verify was scaled to match (one focused reviewer, not a full
+   fan-out) — right-sizing the review to the diff is worth doing deliberately.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — No. DEC-021 captured the capability-profile reasoning (decode + lossless encode
+   pure-Rust; lossy → libwebp). The AVIF-vs-WebP contrast (encoder-no-decoder vs
+   decoder-no-lossy-encoder) is now documented across DEC-020/DEC-021 and the
+   perceptual-search memory, which should keep future codec specs honest.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — **SPEC-020 (lossy WebP via `webp-lossy`/libwebp)** — in the STAGE-008 backlog;
+   designing it next. It introduces the project's first C dependency, so it needs its
+   own DEC (DEC-022) and the full design-time dep verification (which libwebp crate,
+   license, does it vendor/build with `cc`, CI C-toolchain, `single-image-library`
+   framing). Once it lands, both auto-quality searches drive WebP (the decoder
+   already exists from this spec).
