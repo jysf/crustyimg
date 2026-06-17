@@ -7,7 +7,7 @@
 task:
   id: SPEC-016
   type: story                      # epic | story | task | bug | chore
-  cycle: design                    # frame | design | build | verify | ship
+  cycle: verify                    # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: M                    # S | M | L  (L means split it)
@@ -53,6 +53,14 @@ cost:
       duration_minutes: null
       recorded_at: 2026-06-16
       notes: "Design authored by the ORCHESTRATOR (Opus) directly (established pattern from SPEC-013/014/015 — full repo context already loaded; de-risk the upstream crate API in design). Verified the exact `ssimulacra2` 0.5.1 API (compute_frame_ssimulacra2 + Rgb::new + TransferCharacteristic::SRGB / ColorPrimaries::BT709) against docs.rs. Emitted DEC-019 (ssimulacra2 + metric/threshold/search policy). Complexity M (new `src/quality` module + first permissive metric dep + CLI surface on `shrink`)."
+    - cycle: build
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-06-16
+      notes: "Build executed by the ORCHESTRATOR (Opus) as the sanctioned fallback after the dispatched Sonnet 4.6 background subagent could not obtain Bash permission in its non-interactive context (did zero work). Implemented `prompts/SPEC-016-build.md` literally: new src/quality module (SSIMULACRA2 metric + generic quality search) + ssimulacra2 0.5.1 default dep + shrink --target/--ssim wiring + 14 tests. All 5 gates green (build · test 220 · clippy --all-targets · fmt · just deny); no deny.toml change needed. PR #18."
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -511,26 +519,52 @@ via `output.status.code()`; decode outputs with `image::load_from_memory`).
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
+- **Branch:** `feat/spec-016-perceptual-auto-quality-shrink-to-a-visual-target`
+- **PR (if applicable):** #18 https://github.com/jysf/crustyimg/pull/18
+- **All acceptance criteria met?** yes — all 14 named tests (7 unit in
+  `src/quality`, 7 integration in `tests/cli.rs`) pass; full suite 220 tests green.
 - **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
+  - No new DEC during build — DEC-019 (authored in design) governs.
 - **Deviations from spec:**
-  - [list]
+  - None functional. The dep tree did NOT require any `deny.toml` change —
+    `ssimulacra2` 0.5.1 and its full transitive tree (yuvxyb, moxcms, av-data,
+    v_frame, rayon, …) are all already-allowlisted permissive licenses; `just deny`
+    is green untouched.
+  - Process note (not a spec deviation): this build cycle was executed by the
+    ORCHESTRATOR (Opus) directly, NOT a fresh Sonnet 4.6 session — the dispatched
+    Sonnet background subagent could not obtain Bash permission in its
+    non-interactive context and did zero work, so the orchestrator ran the build as
+    the sanctioned fallback (AGENTS gotcha: finish the build yourself on a subagent
+    drop). Implementation followed `prompts/SPEC-016-build.md` literally.
 - **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - SPEC-017 (`--max-size <KB>` byte budget) reuses `search_jpeg_quality` directly.
+  - SPEC-018/019 (AVIF/WebP) generalize the encoder-agnostic search onto the new
+    formats; `resolve_effective_quality` will extend past the JPEG-only guard then.
+  - Possible niceties (own small specs): a `--strict` mode that errors on an
+    unreachable target (today: best-effort `met_target=false`), and a `--json`
+    report of the chosen quality/score/iterations.
 
 ### Build-phase reflection (3 questions, short answers)
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — Nothing material. The spec pinned the exact `ssimulacra2` API
+   (`compute_frame_ssimulacra2` + `Rgb::new` + `TransferCharacteristic::SRGB` /
+   `ColorPrimaries::BT709`) and the binary-search sketch, so the module compiled
+   and its 7 unit tests passed on the first real run. The structured-fixture
+   guidance (gradient + 8px checker, neither flat nor pure noise) was the one
+   subtle thing the spec rightly called out — it is exactly what makes the
+   monotonicity assertions hold.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — No. The relevant set (`no-agpl-default-deps` + the `just deny` gate,
+   `single-image-library` with the explicit "a metric crate is not a second pixel
+   library" carve-out, `decode-once`) was all listed and load-bearing.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Validate the new dependency + `just deny` BEFORE writing any module code (I
+   did this here — add dep → `cargo build` → `just deny` → then write the module),
+   which de-risks the whole spec in the first two minutes. Worth making the default
+   order for any spec that adds a dep.
 
 ---
 
