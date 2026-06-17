@@ -387,7 +387,8 @@ fn encode_candidate_bytes(
             Ok(cursor.into_inner())
         }
         // Only lossy formats reach here (the CLI guards on `supports_lossy_quality`).
-        // WebP lossy encoding lands in SPEC-019.
+        // Lossless WebP (SPEC-019) has no quality knob, so it never reaches here;
+        // lossy WebP encoding lands in SPEC-020 (libwebp, the `webp-lossy` feature).
         other => Err(QualityError::Encode(format!(
             "no auto-quality encoder for {other:?} (not a lossy quality format)"
         ))),

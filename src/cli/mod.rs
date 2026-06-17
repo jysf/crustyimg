@@ -1674,8 +1674,8 @@ fn run_convert(
     // Fail UP FRONT for a recognized-but-feature-gated codec that is not built
     // (e.g. AVIF without `--features avif`): a single exit 4 (DEC-004) before any
     // input is loaded, so a multi-input convert is never a partial-batch exit 6.
-    // (Unbuilt codecs whose extension is unrecognized — e.g. WebP today — already
-    // fail at `resolve_format` above with UnsupportedExtension → exit 4.)
+    // (An unrecognized extension already fails at `resolve_format` above with
+    // UnsupportedExtension → exit 4.)
     crate::sink::ensure_codec_built(fmt).map_err(CliError::Sink)?;
 
     // Optional byte budget (--max-size). `-q` pins a quality, --max-size searches
