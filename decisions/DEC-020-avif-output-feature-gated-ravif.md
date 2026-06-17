@@ -48,9 +48,19 @@ crustyimg gains **AVIF output** behind an **off-by-default `avif` cargo feature*
 **`ravif`** (→ `rav1e`). The **default build is unchanged** — pure-Rust core
 formats only, AVIF output **exits 4** ("codec not built", DEC-004). A `--features
 avif` build encodes AVIF in `convert`/`shrink` (and via `-o x.avif`), with `-q`
-→ AVIF quality and — for free, thanks to the SPEC-017 format-agnostic search —
-`--target`/`--ssim` (SPEC-016) and `--max-size` (SPEC-017) driving the AVIF
-quality knob.
+→ AVIF quality and — thanks to the SPEC-017 format-agnostic search — the
+**`--max-size` byte budget (SPEC-017)** driving the AVIF quality knob for free.
+
+> **Build-time correction (SPEC-018).** The original draft claimed the
+> *perceptual* `--target`/`--ssim` search (SPEC-016) would also drive AVIF for
+> free. It does **not**: that search must DECODE each candidate to score the
+> round-trip with SSIMULACRA2, and AVIF **decode is not built** (output-only v1 —
+> point 3 below). Only the **byte-budget** search (`--max-size`, encode-only)
+> works on AVIF today. A perceptual target on an AVIF output degrades gracefully
+> (writes AVIF at the encoder default + a warning). Perceptual AVIF defers WITH
+> AVIF decode. The quality seam is therefore split into two predicates:
+> `supports_lossy_quality` (byte budget) and `supports_perceptual_quality`
+> (perceptual).
 
 Specifics:
 1. **Feature-gated even though it is pure-Rust.** `ravif`/`rav1e` build with **no
@@ -86,8 +96,9 @@ and byte-budget quality core, and SPEC-017 deliberately made the auto-quality se
 **format-agnostic** (`LossyFormat::supports_lossy_quality` + a per-format
 `encode_candidate_bytes` arm). AVIF is the first modern OUTPUT format to plug into
 that seam: it is typically **30–50% smaller than JPEG at equal quality**, and once
-its encode arm exists, perceptual + byte-budget targeting work on it with no search
-changes.
+its encode arm exists, the **byte-budget** search works on it with no search changes
+(the encode-only probe). The perceptual search needs a decoder it does not have —
+see the build-time correction above.
 
 The codec choice was constrained by DEC-018 (no AGPL/GPL defaults) and DEC-004
 (pure-Rust default, native codecs feature-gated). The research/verification
@@ -139,8 +150,10 @@ nasm. The handoff pre-scoped this as "SPEC-018 → adopt ravif; keep feature-gat
 
 Right if: the default build is byte-unchanged and `convert --format avif` exits 4
 with a "--features avif" hint; a `--features avif` build produces valid AVIF
-(`image::guess_format == Avif`) for `convert`/`shrink`, honors `-q`, and lets
-`--target`/`--ssim`/`--max-size` drive AVIF; `cargo deny check licenses` is green
+(`image::guess_format == Avif`) for `convert`/`shrink`, honors `-q`, lets
+`--max-size` drive AVIF (and a `--target`/`--ssim` perceptual request on AVIF
+falls back to the encoder default with a warning, since decode is deferred);
+`cargo deny check licenses` is green
 with only the scoped `libfuzzer-sys` exception; the `--features avif` build needs no
 nasm/system libs. Revisit if: a `--speed` knob is wanted (thread speed through the
 encode + the search probe); AVIF decode is needed (then weigh `dav1d`/`avif-native`

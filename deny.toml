@@ -37,8 +37,16 @@ allow = [
 #   `view` terminal-display path. LGPL is weak copyleft — it does NOT relicense
 #   crustyimg the way GPL/AGPL would. Accepted for the display build only.
 #   Revisit if the `view`/viuer path is reworked or display becomes default.
+#   libfuzzer-sys ((MIT OR Apache-2.0) AND NCSA): a FUZZ-ONLY transitive of
+#   `rav1e`, pulled into the graph ONLY when the optional `avif` feature is on
+#   (SPEC-018, DEC-020). It is NOT part of the shipped `--features avif` binary
+#   (`cargo tree -e normal --features avif` shows no libfuzzer-sys). NCSA is a
+#   permissive, OSI/FSF-approved BSD-style license. We allow it for this one
+#   crate rather than adding NCSA to the global `allow` list, keeping the
+#   surface minimal (the same discipline as the ansi_colours exception above).
 exceptions = [
     { name = "ansi_colours", allow = ["LGPL-3.0-or-later"] },
+    { name = "libfuzzer-sys", allow = ["NCSA"] },
 ]
 
 # Require high confidence when matching a license file's text to an SPDX id.

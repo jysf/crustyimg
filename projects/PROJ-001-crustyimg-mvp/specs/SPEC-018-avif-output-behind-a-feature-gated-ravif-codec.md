@@ -4,7 +4,7 @@
 task:
   id: SPEC-018
   type: story                      # epic | story | task | bug | chore
-  cycle: design                    # frame | design | build | verify | ship
+  cycle: verify                    # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: M                    # S | M | L  (L means split it)
@@ -35,7 +35,7 @@ references:
     - untrusted-input-hardening
   related_specs: [SPEC-017, SPEC-016, SPEC-014, SPEC-005, SPEC-013]
 
-value_link: "Delivers the first MODERN output format — `convert --format avif` / `shrink -o x.avif` produce AVIF (typically 30-50% smaller than JPEG at equal quality), behind an off-by-default `avif` feature. The format-agnostic search (SPEC-017) makes auto-quality AND `--max-size` work on AVIF for free — the differentiator's payoff."
+value_link: "Delivers the first MODERN output format — `convert --format avif` / `shrink -o x.avif` produce AVIF (typically 30-50% smaller than JPEG at equal quality), behind an off-by-default `avif` feature. The format-agnostic search (SPEC-017) makes the `--max-size` byte budget work on AVIF for free — the differentiator's payoff. (The perceptual `--target`/`--ssim` search defers with AVIF decode — it must decode candidates to score them; build-time finding, see DEC-020.)"
 
 cost:
   sessions:
@@ -47,6 +47,14 @@ cost:
       duration_minutes: null
       recorded_at: 2026-06-16
       notes: "Design authored by the ORCHESTRATOR (Opus) directly. Verified empirically (the SPEC-016 'pin the dep in design' discipline): `image/avif` → `ravif` builds PURE-RUST with no nasm/system deps (clean build, nasm absent); the dep tree is permissive in the shipped binary — the only non-allowlisted license (NCSA via `libfuzzer-sys`) is a FUZZ-only transitive of `rav1e` NOT present in `--features avif` (cargo-deny all-features pulls it). Pinned `AvifEncoder::new_with_speed_quality(w, speed 1-10, quality 1-100)`. Emitted DEC-020 (adopt ravif feature-gated; the deny exception; output-only v1)."
+    - cycle: build
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null       # main-loop (orchestrator-direct, subagent Bash blocked here); order-of-magnitude estimate filled at ship
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-06-16
+      notes: "Built in the main loop (background subagents can't get Bash in this env). Implemented the avif feature, scoped deny exception, sink AVIF encode + CodecNotBuilt/ensure_codec_built, quality AVIF arm, CLI exit-4, CI avif job. Build-time finding: perceptual AVIF needs a decoder (deferred) — split the LossyFormat seam; only the byte-budget search drives AVIF. Both builds green; just deny green."
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -71,9 +79,13 @@ feature** so the default binary stays pure-Rust + zero-system-deps, and a
   (~18 MB, ~431k SLoC, slow at high quality). Keeping it behind an opt-in feature
   preserves the default build's fast compile, small binary, and instant install.
 - **The payoff of SPEC-017's generalization:** because the auto-quality search is
-  now **format-agnostic** (`LossyFormat::supports_lossy_quality` + the per-format
-  `encode_candidate_bytes` arm), `--target`/`--ssim` (SPEC-016) AND `--max-size`
-  (SPEC-017) work on AVIF the moment its encode arm is added — **no search changes**.
+  now **format-agnostic** (`LossyFormat` + the per-format `encode_candidate_bytes`
+  arm), the **`--max-size` byte budget (SPEC-017)** works on AVIF the moment its
+  encode arm is added — **no search changes**. (Build-time correction: the
+  *perceptual* `--target`/`--ssim` search (SPEC-016) does NOT, because it must
+  DECODE each candidate to score it and AVIF decode is deferred — see DEC-020. It
+  degrades gracefully to the encoder default + a warning. The seam is split into
+  `supports_lossy_quality` and `supports_perceptual_quality`.)
 - **Scope: AVIF OUTPUT only.** Decoding an `.avif` INPUT needs `dav1d` (C, the
   `avif-native` feature) and is **deferred** (documented). So `convert in.avif
   --format png` is out of scope; `convert in.jpg --format avif` is in.
@@ -196,8 +208,9 @@ Each maps to a test. Tests split into **default-build** (run always) and
   `convert_to_avif_produces_avif` (cfg avif)
 - [ ] **Feature build:** `shrink <jpg> -o out.avif -q 50` → exit 0; output AVIF. →
   `shrink_to_avif_output` (cfg avif)
-- [ ] **Feature build:** `convert <png> --format avif --target high` → exit 0;
-  output AVIF (auto-quality drove AVIF). → `avif_target_high` (cfg avif)
+- [ ] **Feature build:** `shrink <png> --target high -o out.avif` → exit 0;
+  output AVIF written at the encoder default + a warning (perceptual AVIF defers
+  with decode — build-time correction). → `avif_target_high` (cfg avif)
 - [ ] **Feature build:** `convert <png> --format avif --max-size 4KB` → exit 0;
   output AVIF ≤ 4KB (byte budget drove AVIF). → `avif_max_size_fits` (cfg avif)
 - [ ] **Feature build:** unit — `quality::auto_under_size(img, ImageFormat::Avif, ..)`
@@ -233,8 +246,11 @@ feature-build tests are `#[cfg(feature = "avif")]` (compiled + run only under
     --format avif -o out.avif` → exit 0; `image::guess_format(&bytes) == Avif`.
   - `#[cfg(feature = "avif")] shrink_to_avif_output` — `shrink <jpg> -o out.avif
     -q 50` → exit 0; AVIF output.
-  - `#[cfg(feature = "avif")] avif_target_high` — `convert <png> --format avif
-    --target high -o out.avif` → exit 0; AVIF output (auto-quality on AVIF).
+  - `#[cfg(feature = "avif")] avif_target_high` — `shrink <png> --target high -o
+    out.avif` → exit 0; AVIF output (at encoder default) + a warning that
+    perceptual AVIF needs a decoder. (`--target`/`--ssim` are shrink-only flags,
+    SPEC-016; convert carries only `--max-size`. Build-time correction: perceptual
+    AVIF degrades gracefully — it cannot score without an AVIF decoder.)
   - `#[cfg(feature = "avif")] avif_max_size_fits` — `convert <detailed png> --format
     avif --max-size 4KB -o out.avif` → exit 0; AVIF, `len <= 4000`.
 
@@ -333,26 +349,62 @@ feature-build tests are `#[cfg(feature = "avif")]` (compiled + run only under
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
+- **Branch:** `feat/spec-018-avif-output-behind-a-feature-gated-ravif-codec`
+- **PR (if applicable):** *(opened during build — see timeline)*
+- **All acceptance criteria met?** yes — with one corrected (avif_target_high, see
+  deviations). All 5 default gates AND `cargo build/test/clippy --features avif`
+  AND `just deny` (with the scoped `libfuzzer-sys` exception) pass; 109 lib +
+  84 cli tests green under `--features avif`.
 - **New decisions emitted:**
-  - `DEC-020` — adopt ravif (feature-gated AVIF) [authored in design]
+  - `DEC-020` — adopt ravif (feature-gated AVIF) [authored in design; **amended at
+    build time** to correct the perceptual-search claim — see below].
 - **Deviations from spec:**
-  - [list]
+  1. **Perceptual AVIF deferred (the headline finding).** The spec + DEC-020 claimed
+     `--target`/`--ssim` (perceptual) AND `--max-size` (byte budget) would drive
+     AVIF "for free." The perceptual search must DECODE each candidate to score it
+     with SSIMULACRA2, and AVIF **decode is not built** (output-only v1), so it
+     cannot score AVIF. Only the **byte-budget** search (encode-only) works on AVIF.
+     Resolution: split the `LossyFormat` seam into `supports_lossy_quality` (byte
+     budget) and `supports_perceptual_quality` (perceptual); a perceptual target on
+     AVIF degrades gracefully (encoder default + a warning). DEC-020 / api-contract
+     amended accordingly.
+  2. **`ensure_codec_built` added.** Once `.avif`/`--format avif` became a
+     *recognized* extension, `resolve_format` no longer rejected it, so the DEC-004
+     "single exit 4 up front, never partial-batch exit 6" guarantee for multi-input
+     `convert` would have broken. Added `sink::ensure_codec_built(fmt)`, called up
+     front in `run_convert`, to preserve it. (The per-write `encode_to_bytes` guard
+     remains as a backstop for `shrink -o x.avif`.)
+  3. **`avif_target_high` uses `shrink`, not `convert`.** `--target`/`--ssim` are
+     shrink-only flags (SPEC-016); `convert` carries only `--max-size` (SPEC-017).
+     The spec wrote the test as `convert ... --target high`, which is not a valid
+     convert invocation. Rewrote it as `shrink --target high -o out.avif`, and
+     (per deviation 1) it now asserts graceful fallback + a warning.
 - **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - **AVIF decode** (`dav1d`/`avif-native`, a C dep) behind its own feature —
+    unblocks `.avif` INPUT *and* perceptual AVIF (`--target`/`--ssim`).
+  - **`--speed` knob** for AVIF (thread speed through the sink encode + the search
+    probe so probed and written bytes agree).
 
 ### Build-phase reflection (3 questions, short answers)
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — The spec's "auto-quality works on AVIF for free" conflated two searches; only
+   the encode-only byte-budget one actually does. The perceptual search's hidden
+   dependency on a DECODER (to score round-trips) wasn't called out, so the
+   `avif_target_high` test failed at runtime ("Avif is not supported" on decode).
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — The DEC-004 "exit 4 up front for an unbuilt codec" guarantee interacted with
+   making AVIF a *recognized* extension: recognizing it moved the failure from
+   `resolve_format` (up front) to encode time (per-input), which would have turned a
+   multi-input convert into exit 6. Worth an explicit note that any feature-gated
+   codec needs an up-front `ensure_codec_built` check.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — During design, encode a *and decode* probe for any new lossy format to confirm
+   the perceptual round-trip is actually possible before claiming both searches
+   work — the same "verify the dep empirically" discipline, extended to the metric
+   path, not just the build/license path.
 
 ---
 

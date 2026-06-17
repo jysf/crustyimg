@@ -47,6 +47,30 @@ jobs:
         with:
           command: check licenses
 
+  avif:
+    name: avif feature (build / test / clippy)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install stable toolchain (clippy)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      # AVIF output is the off-by-default `avif` feature (SPEC-018, DEC-020):
+      # pure-Rust via ravif/rav1e — no nasm / system libs needed. Single runner
+      # (the default cross-OS matrix above already covers the no-feature build).
+      - name: Build (--features avif)
+        run: cargo build --features avif --verbose
+
+      - name: Test (--features avif)
+        run: cargo test --features avif --verbose
+
+      - name: Clippy (--features avif, warnings as errors)
+        run: cargo clippy --all-targets --features avif -- -D warnings
+
   cost-data:
     name: cost-capture audit
     runs-on: ubuntu-latest

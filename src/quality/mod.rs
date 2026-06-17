@@ -35,6 +35,14 @@ pub const MAX_SEARCH_QUALITY: u8 = 100;
 /// sub-second.
 pub const MAX_SEARCH_ITERS: u8 = 8;
 
+/// The fixed `rav1e` encode speed for AVIF candidates (SPEC-018, DEC-020).
+/// MUST equal `crate::sink::AVIF_SPEED` so a candidate probed here has the same
+/// byte length as the bytes the sink ultimately writes — the cross-sync contract
+/// (layering forbids `quality` depending on `sink`, so the two consts are kept
+/// equal by this comment, not by a shared call). See `encode_candidate_bytes`.
+#[cfg(feature = "avif")]
+const AVIF_SPEED: u8 = 6;
+
 // ── Errors ────────────────────────────────────────────────────────────────────
 
 /// Errors from perceptual scoring or the quality search (DEC-007 style: typed,
@@ -274,22 +282,55 @@ where
 
 // ── Lossy-format seam ─────────────────────────────────────────────────────────
 
-/// Extension predicate: whether an output format has an encoder quality knob the
-/// auto-quality searches can drive (`--target`/`--ssim`, `--max-size`).
+/// Extension predicates: which auto-quality search an output format supports.
 ///
-/// This is the **single seam** the CLI guard (`resolve_effective_quality`) and the
-/// per-format candidate encode ([`encode_candidate_bytes`]) both read. JPEG is the
-/// only lossy format today; when AVIF/WebP lossy output lands (SPEC-018/019), add
-/// the variant here AND its encode arm in `encode_candidate_bytes` — those two
-/// places are the whole change.
+/// There are **two** distinct capabilities, because the two searches need
+/// different things from a format:
+/// - The **byte-budget** search (`--max-size`, SPEC-017) only ENCODES candidates
+///   and measures their length — it needs an encoder quality knob.
+/// - The **perceptual** search (`--target`/`--ssim`, SPEC-016) encodes a
+///   candidate AND **decodes it back** to score the round-trip with SSIMULACRA2 —
+///   it needs both an encoder knob and a DECODER.
+///
+/// AVIF (SPEC-018) is the case that forces the split: with `--features avif` it
+/// has an encoder quality knob (so the byte-budget search works) but **no decoder
+/// is built** (AVIF decode needs `dav1d`/`avif-native`, deferred — DEC-020), so
+/// the perceptual search cannot score AVIF round-trips. JPEG has both.
+///
+/// These are the **single seams** the CLI guard (`resolve_effective_quality`) and
+/// the per-format candidate encode ([`encode_candidate_bytes`]) read. When a new
+/// lossy format lands, set the right predicate(s) here AND add its encode arm in
+/// `encode_candidate_bytes` — that is the whole change.
 pub trait LossyFormat {
-    /// `true` iff the auto-quality search supports driving a quality knob for this
-    /// format.
+    /// `true` iff the **byte-budget** search can drive a quality knob for this
+    /// format (encode-only; no decoder required).
     fn supports_lossy_quality(self) -> bool;
+
+    /// `true` iff the **perceptual** search can score this format — it has both a
+    /// quality knob AND a built-in decoder to round-trip candidates through.
+    fn supports_perceptual_quality(self) -> bool;
 }
 
 impl LossyFormat for ImageFormat {
     fn supports_lossy_quality(self) -> bool {
+        // AVIF joins JPEG as a byte-budget-drivable format only when the `avif`
+        // feature is built (SPEC-018, DEC-020); without it, AVIF output exits 4
+        // before a search is ever attempted (DEC-004), so it reports `false`.
+        #[cfg(feature = "avif")]
+        {
+            matches!(self, ImageFormat::Jpeg | ImageFormat::Avif)
+        }
+        #[cfg(not(feature = "avif"))]
+        {
+            matches!(self, ImageFormat::Jpeg)
+        }
+    }
+
+    fn supports_perceptual_quality(self) -> bool {
+        // JPEG only: the perceptual search must DECODE each candidate to score it.
+        // AVIF is output-only in v1 (no decoder built — DEC-020), so perceptual
+        // AVIF is deferred WITH AVIF decode even when the `avif` feature is on.
+        // (No `#[cfg]` needed: AVIF is excluded in both builds.)
         matches!(self, ImageFormat::Jpeg)
     }
 }
@@ -327,8 +368,26 @@ fn encode_candidate_bytes(
                 .map_err(|e| QualityError::Encode(e.to_string()))?;
             Ok(cursor.into_inner())
         }
+        // AVIF candidate encode (SPEC-018, DEC-020) — IDENTICAL to the sink's
+        // AVIF arm (`crate::sink::encode_to_bytes`): same `AvifEncoder`, same
+        // fixed `AVIF_SPEED`, same `1..=100` clamp. The byte-budget / perceptual
+        // guarantee depends on this probe matching the bytes the sink writes.
+        #[cfg(feature = "avif")]
+        ImageFormat::Avif => {
+            let q = quality.clamp(1, 100);
+            let mut cursor = Cursor::new(Vec::new());
+            let encoder = ::image::codecs::avif::AvifEncoder::new_with_speed_quality(
+                &mut cursor,
+                AVIF_SPEED,
+                q,
+            );
+            reference
+                .write_with_encoder(encoder)
+                .map_err(|e| QualityError::Encode(e.to_string()))?;
+            Ok(cursor.into_inner())
+        }
         // Only lossy formats reach here (the CLI guards on `supports_lossy_quality`).
-        // AVIF/WebP lossy encoding lands in SPEC-018/019.
+        // WebP lossy encoding lands in SPEC-019.
         other => Err(QualityError::Encode(format!(
             "no auto-quality encoder for {other:?} (not a lossy quality format)"
         ))),
@@ -586,5 +645,35 @@ mod tests {
         assert_eq!(cfg.min_quality, 1);
         assert_eq!(cfg.max_quality, 100);
         assert_eq!(cfg.max_iters, 8);
+    }
+
+    // ── SPEC-018: AVIF (feature-gated) ────────────────────────────────────────
+
+    /// With the feature on, AVIF is a lossy-quality format the search can drive.
+    #[cfg(feature = "avif")]
+    #[test]
+    fn avif_supports_lossy_quality() {
+        assert!(
+            ImageFormat::Avif.supports_lossy_quality(),
+            "AVIF must support the lossy-quality search under --features avif"
+        );
+    }
+
+    /// The byte-budget search drives AVIF: a smaller budget picks a lower-or-equal
+    /// quality than a larger budget (the same monotonicity the JPEG search has).
+    #[cfg(feature = "avif")]
+    #[test]
+    fn auto_under_size_avif_is_monotone() {
+        let img = detailed_rgb(96, 96);
+        let small =
+            auto_under_size(&img, ImageFormat::Avif, 1_000).expect("small-budget AVIF search");
+        let large =
+            auto_under_size(&img, ImageFormat::Avif, 8_000).expect("large-budget AVIF search");
+        assert!(
+            small.quality <= large.quality,
+            "smaller budget should pick a lower-or-equal AVIF quality: 1000B q={} vs 8000B q={}",
+            small.quality,
+            large.quality
+        );
     }
 }

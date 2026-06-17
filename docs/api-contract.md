@@ -174,14 +174,20 @@ the format supports it (JPEG; **ignored** for lossless formats — DEC-016); unl
 per-input **load/write** failure writes the successes, prints a per-file summary
 to stderr, and exits **6** (DEC-015); a single-input failure keeps its natural
 code (3/1/5); multi-input without `--out-dir` → exit **2**; missing input → exit
-**3**. An **unsupported or unbuilt target codec** (e.g. AVIF without the feature,
-or WebP which is fast-follow) → exit **4** (DEC-004) — resolved **once up front**,
-so even a multi-input convert to an unbuilt codec is a single exit 4, **not** a
-partial-batch exit 6. WebP output is fast-follow; AVIF is feature-gated.
-`--max-size <SIZE>` (SPEC-017) auto-tunes the quality to fit a byte budget when the
-target `--format` is **JPEG** (mutually exclusive with `-q` → exit 2; a lossless
-target ignores it with a warning); see `shrink` for the size-unit and best-effort
-semantics.
+**3**. An **unsupported or unbuilt target codec** → exit **4** (DEC-004) —
+resolved **once up front**, so even a multi-input convert to an unbuilt codec is a
+single exit 4, **not** a partial-batch exit 6. **AVIF** output is the off-by-default
+`avif` feature (SPEC-018, DEC-020): a `--features avif` build encodes `--format
+avif` (and `-o x.avif`) — pure-Rust via `ravif`, no system deps — while the default
+build keeps AVIF output at exit 4 with a "rebuild with --features avif" hint. **AVIF
+input (decode) is not supported** (output-only v1; reading an `.avif` fails). **WebP**
+output is fast-follow (still exit 4). `--max-size <SIZE>` (SPEC-017) auto-tunes the
+quality to fit a byte budget for any **lossy-quality target** — **JPEG**, or **AVIF**
+with the feature (mutually exclusive with `-q` → exit 2; a lossless target ignores it
+with a warning); see `shrink` for the size-unit and best-effort semantics. (The
+perceptual `--target`/`--ssim` auto-quality is `shrink`-only and, for AVIF, falls
+back to the encoder default with a warning because it needs an AVIF decoder — use
+`--max-size` for an AVIF byte budget.)
 
 #### `auto-orient <INPUT...>`  *(S3)*
 Apply the EXIF orientation to pixels, then clear the tag — fixes the most common
