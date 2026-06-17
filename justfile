@@ -236,6 +236,12 @@ specs-by-stage *FLAGS:
 decisions-audit *FLAGS:
     @./scripts/decisions-audit.sh {{FLAGS}}
 
+# Show the license watchlist: capabilities declined for license reasons (plus
+# non-license capability gaps) with their permissive alternatives / build paths.
+watchlist:
+    @echo "License watchlist (guidance/license-watchlist.yaml) — id · status · what:"
+    @grep -E '^  - id:|^    capability:|^    status:|^    rejected_dependency:|^    deferred_dependency:|^    revisit_trigger:' guidance/license-watchlist.yaml
+
 # ----------------------------------------------------------------------------
 # HELPERS
 # ----------------------------------------------------------------------------

@@ -188,7 +188,8 @@ cargo build --features mozjpeg
 ├── docs/                              # Architecture, data model, API contract
 ├── guidance/                          # Repo-level rules (across all projects)
 │   ├── constraints.yaml
-│   └── questions.yaml
+│   ├── questions.yaml
+│   └── license-watchlist.yaml         # capabilities declined for license (+ gaps)
 ├── decisions/                         # Repo-level DEC-* (across all projects)
 ├── feedback/                          # Downstream user feedback captures
 ├── reports/                           # Daily + weekly report outputs
@@ -532,6 +533,7 @@ Most decisions should land between 0.7 and 0.95. 1.0 only for truly locked choic
 
 - Constraints: `/guidance/constraints.yaml`
 - Open questions: `/guidance/questions.yaml`
+- License watchlist (capabilities declined for license + gaps to revisit): `/guidance/license-watchlist.yaml` (`just watchlist`)
 - Decisions: `/decisions/` (audit with `just decisions-audit`)
 - Recommended (optional) tools: `/guidance/recommended-tools.md`
 - Projects: `/projects/`

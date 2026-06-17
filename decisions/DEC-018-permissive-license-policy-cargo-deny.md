@@ -134,6 +134,10 @@ allowlist).
   `no-new-top-level-deps-without-decision`.
 - Config: `deny.toml`; CI `licenses` job in `.github/workflows/ci.yml`;
   `just deny`.
+- Watchlist: capabilities declined *because of* this policy (with permissive
+  alternatives to find or build, and revisit triggers) are tracked in
+  `/guidance/license-watchlist.yaml` (`just watchlist`) — the "way back" ledger
+  that pairs with this gate.
 - External docs: https://embarkstudios.github.io/cargo-deny/ ,
   https://spdx.org/licenses/ , https://www.gnu.org/licenses/agpl-3.0.html
 - Follow-up: a permissive in-house `Display` sink (Kitty + iTerm2 + `icy_sixel` +

@@ -1,0 +1,122 @@
+# License Watchlist — capabilities we have NOT adopted because of their LICENSE.
+#
+# crustyimg ships under `MIT OR Apache-2.0` and enforces a permissive-only
+# dependency tree (constraint `no-agpl-default-deps`, DEC-018, `just deny`). That
+# rules out some genuinely-useful libraries whose only problem is a copyleft
+# (GPL/AGPL/LGPL) or otherwise non-permissive license. This file is the standing
+# register of those gaps so we can later (a) find a permissive alternative that has
+# since matured, or (b) decide to build one. It is the "what we gave up, and the
+# way back" ledger that pairs with DEC-018's "what we enforce."
+#
+# PROCESS (keep this alive):
+# - Whenever a DEC/spec/review rejects or defers a dependency for LICENSE reasons,
+#   add an entry under `license_blocked` (do NOT silently drop it).
+# - When a permissive alternative is adopted or built, set `status: resolved`, add
+#   `resolved_by:` (the spec/DEC/crate), and keep the row for history.
+# - Revisit on each `revisit_trigger`, and otherwise periodically (e.g. at the
+#   start of a formats/quality stage). `just watchlist` prints the open items.
+# - LGPL is allowed ONLY via a documented per-crate cargo-deny exception
+#   (deny.toml); if we decline an LGPL/other dep rather than except it, record it here.
+#
+# `deferred_non_license` at the bottom tracks capability gaps deferred for OTHER
+# reasons (C-dep, build cost). The primary ask was license, but these are the same
+# kind of "gap to revisit," so they live here too — clearly separated.
+#
+# Fields:
+#   id                     stable kebab-case slug
+#   capability             what the user-facing feature WOULD be
+#   rejected_dependency    the crate/lib we declined (and version family if relevant)
+#   license / license_class the blocker (copyleft | commercial | unverified | ...)
+#   reason                 why it is blocked for us specifically
+#   status                 no-permissive-alternative | partial-alternative |
+#                          alternative-available | needs-verification | resolved
+#   current_fallback       what crustyimg does today instead
+#   permissive_alternatives candidate crates/approaches (permissive) to evaluate
+#   build_candidate        a sketch of building it ourselves, with rough effort
+#   revisit_trigger        the condition that should make us re-open this
+#   related                DECs / constraints / specs
+#   confidence             how sure we are about the license claim (verify if low)
+
+license_blocked:
+  - id: high-quality-gif-quantization
+    capability: "Animated/again GIF output with high-quality color quantization + dithering (far smaller / better-looking GIFs than a naive palette)."
+    rejected_dependency: gifski
+    license: AGPL-3.0-or-later (dual-licensed with a paid commercial option)
+    license_class: copyleft
+    reason: "AGPL would relicense the whole statically-linked binary; incompatible with our MIT/Apache embeddable promise. A commercial license defeats the open default."
+    status: no-permissive-alternative
+    current_fallback: "the `image` crate's built-in GIF encoder (works; basic palette, no advanced dithering)."
+    permissive_alternatives:
+      - "color_quant (MIT/Apache) — NeuQuant, already a transitive of `image`; modest quality."
+      - "exoquant / imagequant-free forks — evaluate license + quality."
+    build_candidate: "A permissive Wu or median-cut quantizer + Floyd–Steinberg dithering in a small `src/quantize` module (medium effort; reuses our pixel core). Would also serve indexed-PNG."
+    revisit_trigger: "We add a real GIF/animation feature, OR a permissive high-quality quantizer matures."
+    related: [DEC-018, DEC-004, no-agpl-default-deps]
+    confidence: high
+
+  - id: lossy-palette-quantization
+    capability: "pngquant-style lossy color quantization — large size wins for indexed PNG (and GIF) at near-identical quality."
+    rejected_dependency: imagequant (libimagequant)
+    license: GPL-3.0-or-later (dual-licensed commercial)
+    license_class: copyleft
+    reason: "GPL relicenses the binary; not embeddable. Commercial license defeats the open default."
+    status: no-permissive-alternative
+    current_fallback: "none — crustyimg writes full-color PNG; no lossy/indexed PNG path yet."
+    permissive_alternatives:
+      - "color_quant (MIT/Apache) for the palette step; permissive but lower quality than libimagequant."
+    build_candidate: "Same `src/quantize` module as above (median-cut/Wu + dithering); the single biggest permissive 'PNG gets much smaller' lever we could own outright."
+    revisit_trigger: "We add an indexed/lossy-PNG output, OR build the quantizer."
+    related: [DEC-018, DEC-004, no-agpl-default-deps]
+    confidence: high
+
+  - id: lgpl-free-terminal-display
+    capability: "Terminal image display (the `view` command) WITHOUT an LGPL dependency."
+    rejected_dependency: "ansi_colours (LGPL-3.0-or-later), pulled by viuer behind the optional `display` feature"
+    license: LGPL-3.0-or-later
+    license_class: weak-copyleft
+    reason: "We currently ALLOW it via a documented per-crate cargo-deny exception (DEC-018), but only for the opt-in `display` build. We'd rather not carry any copyleft at all; an in-house sink removes the exception."
+    status: alternative-available
+    current_fallback: "viuer behind `--features display` (carries the ansi_colours LGPL exception)."
+    permissive_alternatives:
+      - "Build a permissive in-house Display sink: Kitty + iTerm2 graphics protocols + `icy_sixel` (MIT) + truecolor half-block fallback — drops viuer AND ansi_colours."
+    build_candidate: "The in-house Display sink above (medium effort) — already tracked in docs/backlog.md and as a DEC-018 follow-up."
+    revisit_trigger: "When the `view`/display path is reworked, or we want a zero-copyleft all-features build."
+    related: [DEC-018, DEC-011]
+    confidence: high
+
+  - id: jpegli-encode
+    capability: "jpegli JPEG encoding — meaningfully smaller JPEGs at equal quality than the baseline encoder, while staying decodable everywhere."
+    rejected_dependency: jpegli-rs (and other jpegli bindings)
+    license: "UNVERIFIED — jpegli upstream lives in libjxl, which is BSD-3-Clause (permissive); the Rust binding's own license AND whether it's a C dep need confirming. The `no-agpl-default-deps` rationale lists jpegli-rs, but the upstream looks permissive — this may actually be a C-DEP deferral, not a license one."
+    license_class: unverified
+    reason: "Listed as ruled-out in constraints, but the license claim is not confirmed; resolve before relying on it either way."
+    status: needs-verification
+    current_fallback: "the `image` crate's baseline JPEG encoder (DEC-016 `-q`)."
+    permissive_alternatives:
+      - "If jpegli upstream is permissive: a maintained pure-Rust or vendored-C binding behind an off-by-default feature (the AVIF/libwebp pattern)."
+      - "zune-jpeg / other permissive encoders — evaluate quality."
+    build_candidate: "n/a until the license question is answered."
+    revisit_trigger: "Before any JPEG-quality spec; verify the actual license of jpegli-rs and reclassify (license-blocked vs c-dep-deferred vs adoptable)."
+    related: [DEC-016, DEC-018, no-agpl-default-deps]
+    confidence: low
+
+# ── Deferred for NON-license reasons (capability gaps, same revisit goal) ──────────
+deferred_non_license:
+  - id: avif-decode
+    capability: "Reading `.avif` INPUT, and perceptual auto-quality (--target/--ssim) on AVIF output."
+    deferred_dependency: dav1d (via image's `avif-native`) — permissive but a C system dep
+    reason: "C/system dep contradicts the pure-Rust, zero-system-deps default (DEC-020). AVIF is output-only v1; perceptual AVIF needs this decoder."
+    status: deferred
+    revisit_trigger: "Demand for .avif input or perceptual AVIF; then weigh a vendored/feature-gated dav1d like webp-lossy."
+    related: [DEC-020, SPEC-018]
+    confidence: high
+
+  - id: mozjpeg-encode
+    capability: "mozjpeg JPEG encoding — smaller JPEGs (trellis quantization)."
+    deferred_dependency: mozjpeg (via mozjpeg-sys)
+    license: "permissive (BSD-3 / IJG) — NOT a license blocker"
+    reason: "C dep / build cost; deferred behind a potential future feature, not declined on license."
+    status: deferred
+    revisit_trigger: "A JPEG-quality spec; adopt behind an off-by-default feature (the webp-lossy/libwebp pattern in DEC-022)."
+    related: [DEC-016, DEC-022]
+    confidence: high
