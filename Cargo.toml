@@ -37,6 +37,13 @@ ssimulacra2 = "=0.5.1"
 
 [features]
 display = ["dep:viuer"]
+# AVIF output behind an off-by-default feature (SPEC-018, DEC-020). The codec
+# arrives via the `image` crate's own `avif` feature → `ravif` → `rav1e` (pure
+# Rust, no nasm/system libs), so this adds NO new top-level dep. Kept gated for
+# compile time / binary size / encode speed; the default build keeps AVIF output
+# at exit 4 (DEC-004). `just deny` stays green via the scoped `libfuzzer-sys`
+# exception in deny.toml.
+avif = ["image/avif"]
 
 [dev-dependencies]
 tempfile = "=3.27.0"
