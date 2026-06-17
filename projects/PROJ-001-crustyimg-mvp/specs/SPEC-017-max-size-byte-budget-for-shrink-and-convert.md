@@ -4,7 +4,7 @@
 task:
   id: SPEC-017
   type: story                      # epic | story | task | bug | chore
-  cycle: design                    # frame | design | build | verify | ship
+  cycle: verify                    # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: M                    # S | M | L  (L means split it)
@@ -46,6 +46,14 @@ cost:
       duration_minutes: null
       recorded_at: 2026-06-16
       notes: "Design authored by the ORCHESTRATOR (Opus) directly (SPEC-013/014/015/016 pattern). Scope confirmed with the user: quality-only v1 (dimension-reduction fallback deferred to a follow-up). Reuses the shipped SPEC-016 `src/quality` search via a generic monotone-threshold core (also addresses the SPEC-016 review's 'generalize the search' altitude note). No new DEC — the byte-budget policy is an extension of DEC-019, recorded here."
+    - cycle: build
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-06-16
+      notes: "Build executed by the ORCHESTRATOR (Opus) directly in the main loop (the background-subagent-Bash limitation from SPEC-016 still applies). null numerics here — the orchestrator records a real-ish figure at ship (main-loop work has no clean per-cycle metering; /cost). Implemented `prompts/SPEC-017-build.md`: the `search_threshold` refactor (SPEC-016 tests preserved) + `search_jpeg_under_size`/`auto_jpeg_under_size`/`jpeg_size_at` + `AutoQuality` enum + `parse_size`/`fmt_bytes` + `--max-size` on shrink/convert. 17 new tests; full suite 238 green; all 5 gates pass. PR #20."
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -371,26 +379,52 @@ Written during **design**, made to pass during **build**. Unit tests in
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
+- **Branch:** `feat/spec-017-max-size-byte-budget-for-shrink-and-convert`
+- **PR (if applicable):** #20 https://github.com/jysf/crustyimg/pull/20
+- **All acceptance criteria met?** yes — all 17 named tests (5 quality unit, 3 cli
+  unit, 9 integration) pass; full suite 238 green; the SPEC-016 `quality::tests`
+  stayed green through the `search_threshold` refactor.
 - **New decisions emitted:**
-  - `DEC-NNN` — <title> (or "No new DEC")
+  - No new DEC — DEC-019 governs (the byte-budget search is its dual).
 - **Deviations from spec:**
-  - [list]
+  - **Generalized beyond the spec's `*_jpeg_*` API (post-review enhancement).** The
+    spec named the entry points `search_jpeg_quality`/`auto_jpeg_quality`/
+    `search_jpeg_under_size`/`auto_jpeg_under_size`. Acting on the code-review's
+    altitude note (the search is format-agnostic but was JPEG-named/JPEG-guarded),
+    they were renamed `search_quality`/`auto_quality`/`search_under_size`/
+    `auto_under_size` and now take a target `fmt`; a `LossyFormat::supports_lossy_quality()`
+    predicate (JPEG-only today) replaces the `== Jpeg` guard, and a
+    format-dispatched `encode_candidate_bytes` is the single place an AVIF/WebP
+    encode arm gets added (SPEC-018/019). Behavior is unchanged for JPEG (all tests
+    green); the change is purely the seam for the next specs. The `search_threshold`
+    core still preserves SPEC-016 behavior exactly.
+  - Process note (not a spec deviation): the build cycle was run by the
+    ORCHESTRATOR (Opus) directly, not a fresh Sonnet subagent — the same
+    background-subagent-Bash limitation seen on SPEC-016.
 - **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - The deferred **`--max-size` dimension-reduction fallback** is already a tracked
+    STAGE-008 backlog item (makes `--max-size` work for PNG and very-small budgets).
+  - When AVIF/WebP land (SPEC-018/019), `resolve_effective_quality`'s JPEG-only
+    guard and the `jpeg`-named search entry-points generalize onto them.
 
 ### Build-phase reflection (3 questions, short answers)
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — Nothing material. The `search_threshold(probe, cfg, accept, prefer_lower)`
+   contract and the `prefer_lower` loop semantics were spelled out, so the
+   refactor landed with the SPEC-016 tests green on the first run, and the size
+   search (which needs no decode/score) fell straight out of it.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — No. Reusing the shipped search + the `auto` hook meant the relevant decisions
+   (DEC-019/016/015) were already the right set; no new dependency, so `just deny`
+   stayed green untouched.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Nothing notable. Refactoring the shared core FIRST (and re-running the
+   SPEC-016 tests before adding the size search) made the "don't regress the
+   flagship" risk a non-issue — worth keeping as the order for any
+   reuse-by-generalization spec.
 
 ---
 

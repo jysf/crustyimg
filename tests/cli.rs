@@ -2702,3 +2702,292 @@ fn shrink_unreachable_target_warns_best_effort() {
         stderr_str(&output)
     );
 }
+
+// ── SPEC-017: --max-size byte budget (shrink + convert) ────────────────────────
+
+/// `shrink --max-size <feasible>` produces a JPEG within the budget.
+#[test]
+fn shrink_max_size_fits_budget() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let in_path = write_bytes(&dir, "in.jpg", &common::detailed_jpeg(160, 160));
+    let out_path = dir.path().join("out.jpg");
+
+    let output = Command::new(BIN)
+        .args([
+            "shrink",
+            in_path.to_str().unwrap(),
+            "--max-size",
+            "6KB",
+            "-o",
+            out_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run shrink --max-size");
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "shrink --max-size should exit 0; stderr: {}",
+        stderr_str(&output)
+    );
+    let bytes = std::fs::read(&out_path).expect("output should exist");
+    assert_eq!(
+        image::guess_format(&bytes).expect("guess format"),
+        ImageFormat::Jpeg,
+        "output should be a JPEG"
+    );
+    assert!(
+        bytes.len() as u64 <= 6000,
+        "output ({} bytes) should fit the 6KB budget",
+        bytes.len()
+    );
+}
+
+/// A larger budget yields a larger-or-equal file than a smaller budget.
+#[test]
+fn shrink_max_size_larger_budget_not_smaller() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let in_path = write_bytes(&dir, "in.jpg", &common::detailed_jpeg(160, 160));
+    let small = dir.path().join("small.jpg");
+    let large = dir.path().join("large.jpg");
+
+    for (budget, out) in [("4KB", &small), ("12KB", &large)] {
+        let output = Command::new(BIN)
+            .args([
+                "shrink",
+                in_path.to_str().unwrap(),
+                "--max-size",
+                budget,
+                "-o",
+                out.to_str().unwrap(),
+            ])
+            .output()
+            .expect("failed to run shrink --max-size");
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "shrink --max-size {budget} should exit 0; stderr: {}",
+            stderr_str(&output)
+        );
+    }
+
+    let small_len = std::fs::metadata(&small).unwrap().len();
+    let large_len = std::fs::metadata(&large).unwrap().len();
+    assert!(
+        small_len <= large_len,
+        "4KB-budget output ({small_len}) should be <= 12KB-budget output ({large_len})"
+    );
+}
+
+/// `--max-size` conflicts with `--target` → exit 2 (clap).
+#[test]
+fn shrink_max_size_conflicts_with_target_exits_2() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let in_path = write_bytes(&dir, "in.jpg", &common::detailed_jpeg(128, 128));
+    let output = Command::new(BIN)
+        .args([
+            "shrink",
+            in_path.to_str().unwrap(),
+            "--max-size",
+            "5KB",
+            "--target",
+            "high",
+            "-o",
+            dir.path().join("o.jpg").to_str().unwrap(),
+        ])
+        .output()
+        .expect("run");
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "stderr: {}",
+        stderr_str(&output)
+    );
+}
+
+/// `--max-size` conflicts with `--ssim` → exit 2 (clap).
+#[test]
+fn shrink_max_size_conflicts_with_ssim_exits_2() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let in_path = write_bytes(&dir, "in.jpg", &common::detailed_jpeg(128, 128));
+    let output = Command::new(BIN)
+        .args([
+            "shrink",
+            in_path.to_str().unwrap(),
+            "--max-size",
+            "5KB",
+            "--ssim",
+            "90",
+            "-o",
+            dir.path().join("o.jpg").to_str().unwrap(),
+        ])
+        .output()
+        .expect("run");
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "stderr: {}",
+        stderr_str(&output)
+    );
+}
+
+/// `--max-size` conflicts with `-q` → exit 2 (runtime usage).
+#[test]
+fn shrink_max_size_conflicts_with_quality_exits_2() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let in_path = write_bytes(&dir, "in.jpg", &common::detailed_jpeg(128, 128));
+    let output = Command::new(BIN)
+        .args([
+            "shrink",
+            in_path.to_str().unwrap(),
+            "--max-size",
+            "5KB",
+            "-q",
+            "80",
+            "-o",
+            dir.path().join("o.jpg").to_str().unwrap(),
+        ])
+        .output()
+        .expect("run");
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "stderr: {}",
+        stderr_str(&output)
+    );
+}
+
+/// An infeasibly tiny budget still succeeds (best-effort smallest) but warns.
+#[test]
+fn shrink_max_size_infeasible_warns() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let in_path = write_bytes(&dir, "in.jpg", &common::detailed_jpeg(160, 160));
+    let out_path = dir.path().join("out.jpg");
+    let output = Command::new(BIN)
+        .args([
+            "shrink",
+            in_path.to_str().unwrap(),
+            "--max-size",
+            "200", // 200 bytes — below even quality-1
+            "-o",
+            out_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("run");
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "infeasible budget should still exit 0 (best effort); stderr: {}",
+        stderr_str(&output)
+    );
+    assert!(out_path.exists(), "output should still be written");
+    let err = stderr_str(&output).to_lowercase();
+    assert!(
+        err.contains("budget") || err.contains("could not"),
+        "expected an unmet-budget warning, got: {}",
+        stderr_str(&output)
+    );
+}
+
+/// `--max-size` on a lossless (PNG) output warns and leaves it at encoder default.
+#[test]
+fn shrink_max_size_non_jpeg_warns() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let in_path = write_bytes(&dir, "in.png", &common::detailed_png(120, 120));
+    let out_path = dir.path().join("out.png");
+    let output = Command::new(BIN)
+        .args([
+            "shrink",
+            in_path.to_str().unwrap(),
+            "--max-size",
+            "1KB",
+            "-o",
+            out_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("run");
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "shrink --max-size on a PNG should exit 0; stderr: {}",
+        stderr_str(&output)
+    );
+    let bytes = std::fs::read(&out_path).expect("output should exist");
+    assert_eq!(
+        image::guess_format(&bytes).expect("guess format"),
+        ImageFormat::Png,
+        "output should still be PNG"
+    );
+    let err = stderr_str(&output).to_lowercase();
+    assert!(
+        err.contains("lossy") || err.contains("lossless") || err.contains("max-size"),
+        "expected a lossless-format warning, got: {}",
+        stderr_str(&output)
+    );
+}
+
+/// `convert --format jpeg --max-size <feasible>` fits the budget.
+#[test]
+fn convert_max_size_to_jpeg_fits() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let in_path = write_bytes(&dir, "in.png", &common::detailed_png(160, 160));
+    let out_path = dir.path().join("out.jpg");
+    let output = Command::new(BIN)
+        .args([
+            "convert",
+            in_path.to_str().unwrap(),
+            "--format",
+            "jpeg",
+            "--max-size",
+            "6KB",
+            "-o",
+            out_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("run");
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "convert --max-size should exit 0; stderr: {}",
+        stderr_str(&output)
+    );
+    let bytes = std::fs::read(&out_path).expect("output should exist");
+    assert_eq!(
+        image::guess_format(&bytes).expect("guess format"),
+        ImageFormat::Jpeg,
+        "output should be a JPEG"
+    );
+    assert!(
+        bytes.len() as u64 <= 6000,
+        "output ({} bytes) should fit the 6KB budget",
+        bytes.len()
+    );
+}
+
+/// `convert --max-size … -q …` → exit 2 (runtime usage).
+#[test]
+fn convert_max_size_conflicts_with_quality_exits_2() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let in_path = write_bytes(&dir, "in.png", &common::detailed_png(128, 128));
+    let output = Command::new(BIN)
+        .args([
+            "convert",
+            in_path.to_str().unwrap(),
+            "--format",
+            "jpeg",
+            "--max-size",
+            "6KB",
+            "-q",
+            "80",
+            "-o",
+            dir.path().join("o.jpg").to_str().unwrap(),
+        ])
+        .output()
+        .expect("run");
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "stderr: {}",
+        stderr_str(&output)
+    );
+}

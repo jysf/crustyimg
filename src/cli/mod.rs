@@ -26,7 +26,7 @@ use crate::image::Image;
 use crate::operation::RegistryError;
 use crate::operation::{OperationError, OperationParams, OperationRegistry};
 use crate::pipeline::Pipeline;
-use crate::quality::{self, QualityError, SearchConfig};
+use crate::quality::{self, LossyFormat, QualityError, SearchConfig};
 use crate::recipe::{Recipe, RecipeError};
 use crate::sink::{Overwrite, Sink, SinkError, SinkInput};
 use crate::source::{self, SourceError};
@@ -120,6 +120,21 @@ impl QualityTarget {
     }
 }
 
+/// An opt-in auto-quality mode for `shrink`/`convert`: the encoder quality is
+/// searched per output instead of fixed (SPEC-016 / SPEC-017). Both modes run
+/// only for a format with a lossy quality knob (JPEG today; ignored otherwise,
+/// DEC-019) — see [`LossyFormat::supports_lossy_quality`]. The search lives in
+/// `crate::quality`.
+#[derive(Debug, Clone)]
+pub enum AutoQuality {
+    /// Lowest quality whose decoded round-trip scores ≥ the SSIMULACRA2 target
+    /// (`--target`/`--ssim`, SPEC-016).
+    Perceptual(SearchConfig),
+    /// Highest quality whose encoded size ≤ the byte budget (`--max-size`,
+    /// SPEC-017). The `u64` is the budget in bytes.
+    SizeBudget(u64),
+}
+
 /// The full MVP subcommand surface from `docs/api-contract.md`.
 ///
 /// Each variant carries that command's documented positional and named args.
@@ -186,6 +201,10 @@ pub enum Commands {
         /// Auto-tune the JPEG quality to a specific SSIMULACRA2 score (0-100).
         #[arg(long, conflicts_with = "target")]
         ssim: Option<f64>,
+        /// Auto-tune the JPEG quality to fit a byte budget, e.g. `200KB`
+        /// (SPEC-017).
+        #[arg(long, value_name = "SIZE", conflicts_with_all = ["target", "ssim"])]
+        max_size: Option<String>,
     },
 
     /// Re-encode to another core format (STAGE-003).
@@ -194,6 +213,10 @@ pub enum Commands {
         /// Target format (required for this command).
         #[arg(long)]
         format: String,
+        /// Auto-tune the JPEG quality to fit a byte budget, e.g. `200KB`
+        /// (SPEC-017; JPEG target only).
+        #[arg(long, value_name = "SIZE")]
+        max_size: Option<String>,
     },
 
     /// Apply EXIF orientation to pixels, then clear the orientation tag (STAGE-003).
@@ -422,8 +445,20 @@ fn dispatch(cli: &Cli) -> Result<(), CliError> {
             max,
             target,
             ssim,
-        } => run_shrink(inputs, *max, *target, *ssim, &cli.global),
-        Commands::Convert { inputs, format } => run_convert(inputs, format, &cli.global),
+            max_size,
+        } => run_shrink(
+            inputs,
+            *max,
+            *target,
+            *ssim,
+            max_size.as_deref(),
+            &cli.global,
+        ),
+        Commands::Convert {
+            inputs,
+            format,
+            max_size,
+        } => run_convert(inputs, format, max_size.as_deref(), &cli.global),
         Commands::AutoOrient { inputs } => run_auto_orient(inputs, &cli.global),
         Commands::Watermark { .. } => Err(CliError::NotImplemented("watermark")),
         Commands::Strip { .. } => Err(CliError::NotImplemented("strip")),
@@ -1047,27 +1082,52 @@ fn run_resize(
     run_pixel_op(pipeline, inputs, global, global.quality, None, None)
 }
 
-/// Resolve the effective encode quality for ONE output (SPEC-016 / DEC-019).
+/// Render a byte count as a short human string, e.g. `512 B`, `6.0 KB`, `1.5 MB`
+/// (decimal units, matching `parse_size`). Used in the `--max-size` warnings.
+fn fmt_bytes(n: u64) -> String {
+    const KB: f64 = 1000.0;
+    const MB: f64 = 1_000_000.0;
+    let f = n as f64;
+    if f >= MB {
+        format!("{:.1} MB", f / MB)
+    } else if f >= KB {
+        format!("{:.1} KB", f / KB)
+    } else {
+        format!("{n} B")
+    }
+}
+
+/// Resolve the effective encode quality for ONE output (SPEC-016 / SPEC-017).
 ///
-/// - No `auto` target → return the fixed `quality` unchanged (today's behavior).
-/// - `auto` target AND a JPEG output → run the perceptual quality search on the
-///   output pixels and return the chosen quality. When the target could not be
-///   reached even at the highest quality, warn on stderr (unless `--quiet`) that
-///   the output is a best-effort encode — otherwise the user silently gets the
-///   LARGEST file when they asked to shrink (`label` names the input).
-/// - `auto` target but a NON-JPEG output → ignore the target (encoder default),
-///   mirroring how `-q` is ignored for lossless formats (DEC-016).
+/// - No `auto` mode → return the fixed `quality` unchanged (today's behavior).
+/// - `Perceptual` + a lossy-quality format → run the SSIMULACRA2 search; warn
+///   (unless `--quiet`) if the target was unreachable (best-effort highest
+///   quality / largest file).
+/// - `SizeBudget` + a lossy-quality format → run the byte-budget search; warn
+///   (unless `--quiet`) if even minimum quality exceeds the budget (best-effort
+///   smallest file).
+/// - any auto mode + a format without a quality knob → ignore it (encoder
+///   default); a `SizeBudget` on such a format additionally warns that a byte
+///   budget needs a lossy format. (Mirrors how `-q` is ignored for lossless
+///   formats, DEC-016.)
+///
+/// Which formats support the search is the single seam
+/// [`LossyFormat::supports_lossy_quality`] — JPEG today; AVIF/WebP land in
+/// SPEC-018/019, at which point this guard generalizes with no change here.
+///
+/// `label` names the input in the warnings.
 fn resolve_effective_quality(
     quality: Option<u8>,
-    auto: &Option<SearchConfig>,
+    auto: &Option<AutoQuality>,
     fmt: ::image::ImageFormat,
     out_img: &Image,
     global: &GlobalArgs,
     label: &str,
 ) -> Result<Option<u8>, CliError> {
+    let supports_lossy = fmt.supports_lossy_quality();
     match auto {
-        Some(cfg) if fmt == ::image::ImageFormat::Jpeg => {
-            let choice = quality::auto_jpeg_quality(out_img.pixels(), cfg)?;
+        Some(AutoQuality::Perceptual(cfg)) if supports_lossy => {
+            let choice = quality::auto_quality(out_img.pixels(), fmt, cfg)?;
             if !choice.met_target && !global.quiet {
                 eprintln!(
                     "warning: {label}: could not reach the requested quality target \
@@ -1077,7 +1137,40 @@ fn resolve_effective_quality(
             }
             Ok(Some(choice.quality))
         }
-        Some(_) => Ok(None),
+        Some(AutoQuality::SizeBudget(budget)) if supports_lossy => {
+            let choice = quality::auto_under_size(out_img.pixels(), fmt, *budget)?;
+            if !choice.met_target && !global.quiet {
+                // `choice.score` carries the achieved smallest size; guard the rare
+                // case where the search returns a fallback whose metric is unknown
+                // (NaN) so the message never reads a bogus "0 B".
+                let smallest = if choice.score.is_finite() {
+                    fmt_bytes(choice.score as u64)
+                } else {
+                    "the smallest available size".to_owned()
+                };
+                eprintln!(
+                    "warning: {label}: could not meet the {} budget (smallest is {} at \
+                     quality {}); dimension reduction not yet supported",
+                    fmt_bytes(*budget),
+                    smallest,
+                    choice.quality
+                );
+            }
+            Ok(Some(choice.quality))
+        }
+        // Format without a quality knob: no byte-budget search exists for it yet.
+        Some(AutoQuality::SizeBudget(_)) => {
+            if !global.quiet {
+                eprintln!(
+                    "warning: {label}: --max-size currently supports only JPEG output; \
+                     {} was left at encoder default",
+                    format_label(fmt)
+                );
+            }
+            Ok(None)
+        }
+        // Format without a quality knob: perceptual target ignored (encoder default).
+        Some(AutoQuality::Perceptual(_)) => Ok(None),
         None => Ok(quality),
     }
 }
@@ -1097,16 +1190,17 @@ fn resolve_effective_quality(
 /// - `quality` is threaded to every `sink.write` call (DEC-016).
 /// - `forced_format`: when `Some(fmt)`, override the per-input `output_format_for`
 ///   resolution with `fmt` for EVERY input. Used by `run_convert` (DEC-015 / SPEC-014).
-/// - `auto`: when `Some(cfg)`, run the perceptual quality search per-input on the
-///   output pixels (JPEG outputs only; ignored for other formats) instead of using
-///   the fixed `quality`. Used by `run_shrink --target`/`--ssim` (SPEC-016 / DEC-019).
+/// - `auto`: when `Some(mode)`, search the quality per-input on the output pixels
+///   (JPEG outputs only; ignored for other formats) instead of using the fixed
+///   `quality` — perceptual (`--target`/`--ssim`, SPEC-016) or a byte budget
+///   (`--max-size`, SPEC-017). Used by `run_shrink` and `run_convert`.
 fn run_pixel_op(
     pipeline: Pipeline,
     inputs: &[String],
     global: &GlobalArgs,
     quality: Option<u8>,
     forced_format: Option<::image::ImageFormat>,
-    auto: Option<SearchConfig>,
+    auto: Option<AutoQuality>,
 ) -> Result<(), CliError> {
     // Resolve every input arg, flattening into one Vec<Input>.
     // Resolution errors (missing path / empty glob) are hard errors (exit 3/2),
@@ -1351,6 +1445,25 @@ fn shrink_params(max: u32) -> OperationParams {
 
 // ── shrink handler ────────────────────────────────────────────────────────────
 
+/// Reject combining a fixed `-q/--quality` with an auto-quality mode — they are
+/// mutually exclusive (one pins a quality, the other searches for it). `-q` is a
+/// GLOBAL arg, so this can't be expressed as a clap `conflicts_with` against the
+/// subcommand args; both `shrink` and `convert` enforce it here at runtime
+/// (`CliError::Usage`, exit 2).
+fn reject_quality_with_auto(
+    auto: &Option<AutoQuality>,
+    global: &GlobalArgs,
+) -> Result<(), CliError> {
+    if auto.is_some() && global.quality.is_some() {
+        return Err(CliError::Usage(
+            "-q/--quality cannot be combined with --target/--ssim/--max-size \
+             (they auto-tune quality)"
+                .into(),
+        ));
+    }
+    Ok(())
+}
+
 /// Resolve `shrink`'s auto-quality target from `--target`/`--ssim` (SPEC-016).
 ///
 /// Returns `Ok(None)` when neither flag is set (fixed-quality behavior). A
@@ -1378,17 +1491,63 @@ fn shrink_auto_config(
     }
 }
 
+/// Parse a `--max-size` value into a byte count (SPEC-017).
+///
+/// Accepts an optional decimal number followed by an optional unit suffix
+/// (case-insensitive): none/`B` = bytes, `K`/`KB` = ×1000, `M`/`MB` = ×1_000_000,
+/// `KiB` = ×1024, `MiB` = ×1_048_576. The result must be a positive whole number
+/// of bytes. Empty / non-numeric / zero / negative / overflow / unknown unit → a
+/// typed usage error (`CliError::Usage`, exit 2).
+fn parse_size(s: &str) -> Result<u64, CliError> {
+    let t = s.trim();
+    if t.is_empty() {
+        return Err(CliError::Usage("--max-size must not be empty".into()));
+    }
+    // Split the leading numeric part (digits + a decimal point) from the unit.
+    let split = t
+        .find(|c: char| !(c.is_ascii_digit() || c == '.'))
+        .unwrap_or(t.len());
+    let (num_str, unit_str) = t.split_at(split);
+    let num: f64 = num_str
+        .parse()
+        .map_err(|_| CliError::Usage(format!("invalid --max-size '{s}': not a number")))?;
+    if !(num.is_finite() && num > 0.0) {
+        return Err(CliError::Usage(format!(
+            "invalid --max-size '{s}': must be a positive size"
+        )));
+    }
+    let mult: f64 = match unit_str.trim().to_ascii_lowercase().as_str() {
+        "" | "b" => 1.0,
+        "k" | "kb" => 1_000.0,
+        "m" | "mb" => 1_000_000.0,
+        "kib" => 1_024.0,
+        "mib" => 1_048_576.0,
+        other => {
+            return Err(CliError::Usage(format!(
+                "invalid --max-size '{s}': unknown unit '{other}' (use B/KB/MB/KiB/MiB)"
+            )))
+        }
+    };
+    let bytes = num * mult;
+    if !bytes.is_finite() || bytes < 1.0 || bytes > u64::MAX as f64 {
+        return Err(CliError::Usage(format!(
+            "invalid --max-size '{s}': out of range"
+        )));
+    }
+    Ok(bytes.round() as u64)
+}
+
 /// Wire the `shrink` subcommand: resize to a long-edge bound + quality-aware
 /// JPEG encode + inherent metadata drop (from the pixel-lane re-encode).
 ///
 /// - `--max N` (default 1600) bounds the longest edge to N (no upscale via the
 ///   `resize max` mode).
-/// - `--target <preset>` / `--ssim <score>` auto-tune the JPEG quality to a
-///   perceptual SSIMULACRA2 target (SPEC-016 / DEC-019): the fan-out
-///   binary-searches the lowest quality clearing the target, per input. Opt-in;
-///   mutually exclusive with each other and with `-q`. Ignored for non-JPEG
-///   outputs (encoder default), mirroring `-q` on lossless formats.
-/// - `-q Q` (default 80, only when no auto target) sets the JPEG encode quality;
+/// - `--target <preset>` / `--ssim <score>` / `--max-size <SIZE>` auto-tune the
+///   JPEG quality per input (SPEC-016 / SPEC-017): perceptual (lowest quality
+///   clearing an SSIMULACRA2 target) or a byte budget (highest quality ≤ SIZE).
+///   Opt-in; mutually exclusive with each other and with `-q`. Ignored for
+///   non-JPEG outputs (encoder default), mirroring `-q` on lossless formats.
+/// - `-q Q` (default 80, only when no auto mode) sets the JPEG encode quality;
 ///   ignored for lossless formats (DEC-016).
 /// - Multi-input fan-out and partial-batch exit 6 are inherited via
 ///   `run_pixel_op` (DEC-015).
@@ -1397,16 +1556,25 @@ fn run_shrink(
     max: Option<u32>,
     target: Option<QualityTarget>,
     ssim: Option<f64>,
+    max_size: Option<&str>,
     global: &GlobalArgs,
 ) -> Result<(), CliError> {
-    let auto = shrink_auto_config(target, ssim)?;
+    // Resolve the auto mode: perceptual (--target/--ssim) or byte budget
+    // (--max-size). clap `conflicts_with_all` makes these mutually exclusive; the
+    // `(Some, Some)` arm is a defensive fallback.
+    let auto: Option<AutoQuality> = match (shrink_auto_config(target, ssim)?, max_size) {
+        (Some(cfg), None) => Some(AutoQuality::Perceptual(cfg)),
+        (None, Some(sz)) => Some(AutoQuality::SizeBudget(parse_size(sz)?)),
+        (None, None) => None,
+        (Some(_), Some(_)) => {
+            return Err(CliError::Usage(
+                "--max-size is mutually exclusive with --target/--ssim".into(),
+            ))
+        }
+    };
 
-    // `-q` pins a quality; `--target`/`--ssim` searches for one. Reject both.
-    if auto.is_some() && global.quality.is_some() {
-        return Err(CliError::Usage(
-            "-q/--quality cannot be combined with --target/--ssim (they auto-tune quality)".into(),
-        ));
-    }
+    // `-q` pins a quality; the auto modes search for one — reject combining them.
+    reject_quality_with_auto(&auto, global)?;
 
     let effective_max = max.unwrap_or(DEFAULT_SHRINK_MAX);
     let params = shrink_params(effective_max);
@@ -1463,11 +1631,19 @@ fn run_auto_orient(inputs: &[String], global: &GlobalArgs) -> Result<(), CliErro
 /// and the shared `run_pixel_op` fan-out with `forced_format` (DEC-015 / SPEC-014).
 ///
 /// Quality threading: pass `global.quality` as-is; `convert` has NO forced
-/// default (only `shrink` defaults quality to 80, per DEC-016).
+/// default (only `shrink` defaults quality to 80, per DEC-016). `--max-size`
+/// auto-tunes the JPEG quality to a byte budget (SPEC-017; JPEG target only —
+/// ignored with a warning for a lossless target format); mutually exclusive with
+/// `-q`.
 ///
 /// NOTE: the convert-local `--format` arg shadows the global `--format`, so
 /// `global.format` is `None` inside `convert`; read the target from `format: &str`.
-fn run_convert(inputs: &[String], format: &str, global: &GlobalArgs) -> Result<(), CliError> {
+fn run_convert(
+    inputs: &[String],
+    format: &str,
+    max_size: Option<&str>,
+    global: &GlobalArgs,
+) -> Result<(), CliError> {
     // Resolve the REQUIRED target format ONCE, up front.
     // An unsupported/unbuilt codec (e.g. avif, webp) → SinkError → exit 4 (DEC-004),
     // BEFORE any input is loaded — so a multi-input convert to an unbuilt codec
@@ -1475,11 +1651,21 @@ fn run_convert(inputs: &[String], format: &str, global: &GlobalArgs) -> Result<(
     let fmt = resolve_format(Some(format))?
         .ok_or_else(|| CliError::Usage("convert requires a target --format".into()))?;
 
+    // Optional byte budget (--max-size). `-q` pins a quality, --max-size searches
+    // for one → reject both.
+    let auto: Option<AutoQuality> = match max_size {
+        Some(sz) => Some(AutoQuality::SizeBudget(parse_size(sz)?)),
+        None => None,
+    };
+    reject_quality_with_auto(&auto, global)?;
+    // With a byte budget, the per-input search supplies the quality (pass None).
+    let fixed_quality = if auto.is_some() { None } else { global.quality };
+
     // Pure re-encode: an empty pipeline returns the pixels unchanged.
     let pipeline = Pipeline::new();
 
-    // Force `fmt` for every input; thread global.quality (no forced default).
-    run_pixel_op(pipeline, inputs, global, global.quality, Some(fmt), None)
+    // Force `fmt` for every input; thread the quality / byte-budget search.
+    run_pixel_op(pipeline, inputs, global, fixed_quality, Some(fmt), auto)
 }
 
 // ── Unit tests ────────────────────────────────────────────────────────────────
@@ -1948,5 +2134,40 @@ mod tests {
         assert_eq!(p.get_str("mode"), Some("fill"));
         assert_eq!(p.get_u32("width"), Some(64));
         assert_eq!(p.get_u32("height"), Some(64));
+    }
+
+    // ── SPEC-017: parse_size / fmt_bytes ──────────────────────────────────────
+
+    #[test]
+    fn parse_size_units() {
+        assert_eq!(parse_size("200000").unwrap(), 200_000);
+        assert_eq!(parse_size("200KB").unwrap(), 200_000);
+        assert_eq!(parse_size("200k").unwrap(), 200_000);
+        assert_eq!(parse_size("1.5MB").unwrap(), 1_500_000);
+        assert_eq!(parse_size("1KiB").unwrap(), 1_024);
+        assert_eq!(parse_size("2MiB").unwrap(), 2_097_152);
+        assert_eq!(parse_size("512B").unwrap(), 512);
+        // Whitespace + case tolerance.
+        assert_eq!(parse_size(" 200 kb ").unwrap(), 200_000);
+    }
+
+    #[test]
+    fn parse_size_rejects_junk() {
+        for bad in ["", "abc", "0", "0KB", "-5KB", "12GB", "1.2.3MB", "KB"] {
+            let result = parse_size(bad);
+            assert!(result.is_err(), "expected Err for '{bad}', got Ok");
+            assert_eq!(
+                result.unwrap_err().code(),
+                2,
+                "parse_size error for '{bad}' should be a usage error (code 2)"
+            );
+        }
+    }
+
+    #[test]
+    fn fmt_bytes_renders_units() {
+        assert_eq!(fmt_bytes(512), "512 B");
+        assert_eq!(fmt_bytes(6_000), "6.0 KB");
+        assert_eq!(fmt_bytes(1_500_000), "1.5 MB");
     }
 }

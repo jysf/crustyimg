@@ -138,6 +138,16 @@ target is unreachable even at quality 100, `shrink` emits the highest-quality en
 (best-effort). A scoring failure (e.g. a pathologically tiny image) is a typed error
 (single-input exit **1**; one input in a batch → exit **6**).
 
+**Byte budget** (SPEC-017): `--max-size <SIZE>` (e.g. `200KB`, `1.5MB`, `200000`,
+`64KiB`) auto-tunes the **JPEG** quality to the **highest** quality whose encoded
+output is ≤ the budget (the perceptual search inverted; capped, in-memory). Units
+are decimal (`KB`=1000, `MB`=1e6); `KiB`/`MiB` are binary. Mutually exclusive with
+`--target`/`--ssim`/`-q` (combined → exit **2**; a malformed size → exit **2**). If
+even minimum quality exceeds the budget, `shrink` emits the smallest encode
+(best-effort) and warns (dimension reduction is a future follow-up). For a
+**non-JPEG** output the budget is **ignored** (encoder default) with a warning that
+it needs a lossy format.
+
 Optimize-for-web: resize to a default long-edge bound + a real quality-aware
 encode + drop metadata. The headline web-prep command. `--max` defaults to
 **1600** (long edge, aspect preserved, never upscaled); `-q/--quality` defaults
@@ -168,6 +178,10 @@ code (3/1/5); multi-input without `--out-dir` → exit **2**; missing input → 
 or WebP which is fast-follow) → exit **4** (DEC-004) — resolved **once up front**,
 so even a multi-input convert to an unbuilt codec is a single exit 4, **not** a
 partial-batch exit 6. WebP output is fast-follow; AVIF is feature-gated.
+`--max-size <SIZE>` (SPEC-017) auto-tunes the quality to fit a byte budget when the
+target `--format` is **JPEG** (mutually exclusive with `-q` → exit 2; a lossless
+target ignores it with a warning); see `shrink` for the size-unit and best-effort
+semantics.
 
 #### `auto-orient <INPUT...>`  *(S3)*
 Apply the EXIF orientation to pixels, then clear the tag — fixes the most common
