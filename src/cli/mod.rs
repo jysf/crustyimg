@@ -1051,7 +1051,10 @@ fn run_resize(
 ///
 /// - No `auto` target → return the fixed `quality` unchanged (today's behavior).
 /// - `auto` target AND a JPEG output → run the perceptual quality search on the
-///   output pixels and return the chosen quality.
+///   output pixels and return the chosen quality. When the target could not be
+///   reached even at the highest quality, warn on stderr (unless `--quiet`) that
+///   the output is a best-effort encode — otherwise the user silently gets the
+///   LARGEST file when they asked to shrink (`label` names the input).
 /// - `auto` target but a NON-JPEG output → ignore the target (encoder default),
 ///   mirroring how `-q` is ignored for lossless formats (DEC-016).
 fn resolve_effective_quality(
@@ -1059,10 +1062,19 @@ fn resolve_effective_quality(
     auto: &Option<SearchConfig>,
     fmt: ::image::ImageFormat,
     out_img: &Image,
+    global: &GlobalArgs,
+    label: &str,
 ) -> Result<Option<u8>, CliError> {
     match auto {
         Some(cfg) if fmt == ::image::ImageFormat::Jpeg => {
             let choice = quality::auto_jpeg_quality(out_img.pixels(), cfg)?;
+            if !choice.met_target && !global.quiet {
+                eprintln!(
+                    "warning: {label}: could not reach the requested quality target \
+                     (best effort at quality {}); the output may be larger than expected",
+                    choice.quality
+                );
+            }
             Ok(Some(choice.quality))
         }
         Some(_) => Ok(None),
@@ -1161,7 +1173,12 @@ fn run_pixel_op(
         };
 
         // Resolve the effective quality (auto-quality search for JPEG, else fixed).
-        let effective_quality = resolve_effective_quality(quality, &auto, fmt, &out_img)?;
+        let label = input
+            .path()
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|| input.stem().to_owned());
+        let effective_quality =
+            resolve_effective_quality(quality, &auto, fmt, &out_img, global, &label)?;
 
         let sink_input = SinkInput {
             stem: input.stem(),
@@ -1219,7 +1236,8 @@ fn run_pixel_op(
 
                 // Per-input effective quality (auto-quality search for JPEG, else
                 // fixed). A scoring failure here is a per-input failure → exit 6.
-                let effective_quality = resolve_effective_quality(quality, &auto, fmt, &out_img)?;
+                let effective_quality =
+                    resolve_effective_quality(quality, &auto, fmt, &out_img, global, &label)?;
 
                 let sink_input = SinkInput {
                     stem: input.stem(),

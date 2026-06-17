@@ -19,7 +19,6 @@
 //! decoded once by the pipeline; this module re-encodes/decodes **candidates in
 //! memory only** (capped iteration count, no per-candidate disk — DEC-002).
 
-use std::collections::BTreeMap;
 use std::io::Cursor;
 
 use ::image::DynamicImage;
@@ -145,11 +144,10 @@ pub struct QualityChoice {
 /// score is ≥ `cfg.target`.
 ///
 /// Generic over the per-quality scorer so the loop is deterministically testable
-/// and reusable (DEC-019). Scores are memoized; the search performs at most
-/// `cfg.max_iters` distinct `score_at` calls. If no quality in range meets the
-/// target, returns the best-effort `cfg.max_quality` with `met_target = false`
-/// (never an error for "unreachable target"). A real `score_at` error is
-/// propagated unchanged.
+/// and reusable (DEC-019). The search performs at most `cfg.max_iters`
+/// `score_at` calls. If no quality in range meets the target, returns the
+/// best-effort `cfg.max_quality` with `met_target = false` (never an error for
+/// "unreachable target"). A real `score_at` error is propagated unchanged.
 pub fn search_jpeg_quality<F>(
     mut score_at: F,
     cfg: &SearchConfig,
@@ -161,20 +159,16 @@ where
     let mut hi = cfg.max_quality;
     let mut best: Option<(u8, f64)> = None; // lowest quality meeting the target
     let mut last: (u8, f64) = (cfg.max_quality, f64::NAN); // most recent evaluation
-    let mut cache: BTreeMap<u8, f64> = BTreeMap::new();
     let mut iters: u8 = 0;
 
+    // Standard contiguous binary search: each step excludes `mid` from the
+    // remaining [lo, hi] (lo = mid+1 or hi = mid-1), so no quality is ever
+    // revisited — no memoization is needed. The iteration cap bounds the number
+    // of (expensive) candidate scorings.
     while lo <= hi && iters < cfg.max_iters {
         let mid = lo + (hi - lo) / 2;
-        let s = match cache.get(&mid) {
-            Some(&s) => s,
-            None => {
-                iters += 1;
-                let s = score_at(mid)?;
-                cache.insert(mid, s);
-                s
-            }
-        };
+        iters += 1;
+        let s = score_at(mid)?;
         last = (mid, s);
 
         if s >= cfg.target {
@@ -221,7 +215,15 @@ where
 /// Encode `reference` to JPEG at `quality`, decode it back, and score the
 /// round-trip against `reference` — the real per-quality scorer the search uses.
 fn score_jpeg_at(reference: &DynamicImage, quality: u8) -> Result<f64, QualityError> {
-    // Mirror the DEC-016 JPEG encode path (`encode_to_bytes`): clamp 1..=100.
+    // IMPORTANT: this candidate encode MUST stay byte-for-byte equivalent to the
+    // production write path `crate::sink::encode_to_bytes` (DEC-016) — same
+    // `JpegEncoder::new_with_quality` + `1..=100` clamp. The search scores round-
+    // trips through THIS encoder, but `shrink` writes the file through
+    // `encode_to_bytes`; if the two ever diverge (e.g. a switch to a progressive/
+    // optimized JPEG encoder), the binary-searched "lowest quality clearing the
+    // target" would no longer describe the bytes actually emitted, silently
+    // breaking the perceptual guarantee. Layering forbids `quality` depending on
+    // `sink`, so they are kept in sync by this contract, not by a shared call.
     let q = quality.clamp(1, 100);
     let mut cursor = Cursor::new(Vec::new());
     let encoder = ::image::codecs::jpeg::JpegEncoder::new_with_quality(&mut cursor, q);
