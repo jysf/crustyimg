@@ -2093,14 +2093,18 @@ fn convert_unbuilt_codec_exits_4() {
         .output()
         .expect("failed to run convert --format avif");
 
+    // AVIF exits 4 only when the codec is NOT built; with `--features avif` the
+    // same convert succeeds (exit 0). The dedicated cfg(avif) tests below assert
+    // the success path's AVIF output.
+    let expected_avif = if cfg!(feature = "avif") { 0 } else { 4 };
     assert_eq!(
         avif_out.status.code(),
-        Some(4),
-        "convert --format avif should exit 4 (unbuilt codec); stderr: {}",
+        Some(expected_avif),
+        "convert --format avif expected exit {expected_avif}; stderr: {}",
         stderr_str(&avif_out)
     );
 
-    // WebP — fast-follow, not wired.
+    // WebP — fast-follow, not wired (unrecognized extension → exit 4 in both builds).
     let webp_out_path = dir.path().join("out.webp");
     let webp_out = Command::new(BIN)
         .args([
@@ -2145,12 +2149,212 @@ fn convert_unbuilt_codec_multi_input_exits_4_not_6() {
         .output()
         .expect("failed to run convert multi-input --format avif");
 
-    // Must be exit 4 (codec failure resolved up front), NOT 6 (partial batch).
+    // Without the feature: exit 4 (codec failure resolved UP FRONT via
+    // ensure_codec_built), NOT 6 (partial batch). With `--features avif`: both
+    // inputs convert successfully → exit 0. Either way it must NEVER be 6.
+    let expected = if cfg!(feature = "avif") { 0 } else { 4 };
+    assert_eq!(
+        output.status.code(),
+        Some(expected),
+        "multi-input convert to avif expected exit {expected} (never partial-batch 6); stderr: {}",
+        stderr_str(&output)
+    );
+}
+
+// ── SPEC-018: AVIF output ──────────────────────────────────────────────────────
+
+/// DEFAULT build: `convert <png> --format avif -o out.avif` → exit 4 with a
+/// "rebuild with --features avif" hint (codec recognized but not built, DEC-004).
+/// Gated `not(feature = "avif")`: in the feature build the same convert succeeds,
+/// which the cfg(avif) tests below cover.
+#[cfg(not(feature = "avif"))]
+#[test]
+fn convert_avif_without_feature_exits_4() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let in_path = write_test_png(&dir, "in.png", 8, 8);
+    let out_path = dir.path().join("out.avif");
+
+    let output = Command::new(BIN)
+        .args([
+            "convert",
+            in_path.to_str().unwrap(),
+            "--format",
+            "avif",
+            "-o",
+            out_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run convert --format avif");
+
     assert_eq!(
         output.status.code(),
         Some(4),
-        "multi-input convert to unbuilt codec must exit 4 (not 6); stderr: {}",
+        "convert --format avif (no feature) should exit 4; stderr: {}",
         stderr_str(&output)
+    );
+    let stderr = stderr_str(&output);
+    assert!(
+        stderr.contains("avif"),
+        "stderr should mention the avif codec; got: {stderr}"
+    );
+    assert!(
+        stderr.contains("--features avif"),
+        "stderr should hint `--features avif`; got: {stderr}"
+    );
+    assert!(
+        !out_path.exists(),
+        "no AVIF file should be written on exit 4"
+    );
+}
+
+/// FEATURE build: `convert <png> --format avif -o out.avif` → exit 0; the output
+/// magic-detects as AVIF (decode is NOT built, so we use `guess_format`).
+#[cfg(feature = "avif")]
+#[test]
+fn convert_to_avif_produces_avif() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let in_path = dir.path().join("in.png");
+    std::fs::write(&in_path, common::detailed_png(64, 64)).unwrap();
+    let out_path = dir.path().join("out.avif");
+
+    let output = Command::new(BIN)
+        .args([
+            "convert",
+            in_path.to_str().unwrap(),
+            "--format",
+            "avif",
+            "-o",
+            out_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run convert --format avif");
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "convert --format avif (feature) should exit 0; stderr: {}",
+        stderr_str(&output)
+    );
+    let bytes = std::fs::read(&out_path).expect("AVIF output file");
+    assert_eq!(
+        image::guess_format(&bytes).expect("guess format"),
+        ImageFormat::Avif,
+        "output should be AVIF"
+    );
+}
+
+/// FEATURE build: `shrink <jpg> -o out.avif -q 50` → exit 0; output is AVIF.
+#[cfg(feature = "avif")]
+#[test]
+fn shrink_to_avif_output() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let in_path = dir.path().join("in.jpg");
+    std::fs::write(&in_path, common::detailed_jpeg(64, 64)).unwrap();
+    let out_path = dir.path().join("out.avif");
+
+    let output = Command::new(BIN)
+        .args([
+            "shrink",
+            in_path.to_str().unwrap(),
+            "-o",
+            out_path.to_str().unwrap(),
+            "-q",
+            "50",
+        ])
+        .output()
+        .expect("failed to run shrink -o out.avif");
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "shrink to .avif (feature) should exit 0; stderr: {}",
+        stderr_str(&output)
+    );
+    let bytes = std::fs::read(&out_path).expect("AVIF output file");
+    assert_eq!(
+        image::guess_format(&bytes).expect("guess format"),
+        ImageFormat::Avif,
+        "output should be AVIF"
+    );
+}
+
+/// FEATURE build: perceptual auto-quality drives AVIF. Uses `shrink --target
+/// high` (the `--target`/`--ssim` flags are shrink-only, SPEC-016; `convert`
+/// carries only `--max-size`), producing AVIF via the SSIMULACRA2 search.
+#[cfg(feature = "avif")]
+#[test]
+fn avif_target_high() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let in_path = dir.path().join("in.png");
+    std::fs::write(&in_path, common::detailed_png(64, 64)).unwrap();
+    let out_path = dir.path().join("out.avif");
+
+    let output = Command::new(BIN)
+        .args([
+            "shrink",
+            in_path.to_str().unwrap(),
+            "--target",
+            "high",
+            "-o",
+            out_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run shrink --target high -o out.avif");
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "shrink --target high to .avif (feature) should exit 0; stderr: {}",
+        stderr_str(&output)
+    );
+    let bytes = std::fs::read(&out_path).expect("AVIF output file");
+    assert_eq!(
+        image::guess_format(&bytes).expect("guess format"),
+        ImageFormat::Avif,
+        "auto-quality output should be AVIF"
+    );
+}
+
+/// FEATURE build: `convert <detailed png> --format avif --max-size 4KB` → exit 0;
+/// the byte budget drives the AVIF quality and the output fits (≤ 4000 bytes).
+#[cfg(feature = "avif")]
+#[test]
+fn avif_max_size_fits() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let in_path = dir.path().join("in.png");
+    std::fs::write(&in_path, common::detailed_png(96, 96)).unwrap();
+    let out_path = dir.path().join("out.avif");
+
+    let output = Command::new(BIN)
+        .args([
+            "convert",
+            in_path.to_str().unwrap(),
+            "--format",
+            "avif",
+            "--max-size",
+            "4KB",
+            "-o",
+            out_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run convert --format avif --max-size 4KB");
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "convert --format avif --max-size 4KB should exit 0; stderr: {}",
+        stderr_str(&output)
+    );
+    let bytes = std::fs::read(&out_path).expect("AVIF output file");
+    assert_eq!(
+        image::guess_format(&bytes).expect("guess format"),
+        ImageFormat::Avif,
+        "output should be AVIF"
+    );
+    assert!(
+        bytes.len() <= 4000,
+        "AVIF output should fit the 4KB budget, got {} bytes",
+        bytes.len()
     );
 }
 

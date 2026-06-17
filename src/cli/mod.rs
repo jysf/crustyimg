@@ -363,9 +363,10 @@ impl CliError {
             // Recipe / operation errors → generic runtime error
             CliError::Recipe(_) => 1,
             CliError::Operation(_) => 1,
-            // Sink errors: format errors → 4; everything else → 5
+            // Sink errors: format/codec errors → 4; everything else → 5
             CliError::Sink(SinkError::UnsupportedExtension(_)) => 4,
             CliError::Sink(SinkError::UnknownFormat) => 4,
+            CliError::Sink(SinkError::CodecNotBuilt { .. }) => 4,
             CliError::Sink(_) => 5,
             // Stub commands → generic runtime error
             CliError::NotImplemented(_) => 1,
@@ -1651,6 +1652,13 @@ fn run_convert(
     let fmt = resolve_format(Some(format))?
         .ok_or_else(|| CliError::Usage("convert requires a target --format".into()))?;
 
+    // Fail UP FRONT for a recognized-but-feature-gated codec that is not built
+    // (e.g. AVIF without `--features avif`): a single exit 4 (DEC-004) before any
+    // input is loaded, so a multi-input convert is never a partial-batch exit 6.
+    // (Unbuilt codecs whose extension is unrecognized — e.g. WebP today — already
+    // fail at `resolve_format` above with UnsupportedExtension → exit 4.)
+    crate::sink::ensure_codec_built(fmt).map_err(CliError::Sink)?;
+
     // Optional byte budget (--max-size). `-q` pins a quality, --max-size searches
     // for one → reject both.
     let auto: Option<AutoQuality> = match max_size {
@@ -1777,6 +1785,16 @@ mod tests {
             4
         );
         assert_eq!(CliError::Sink(SinkError::UnknownFormat).code(), 4);
+        // CodecNotBuilt (a recognized but feature-gated codec, e.g. AVIF without
+        // the feature) → exit 4 (DEC-004 / SPEC-018).
+        assert_eq!(
+            CliError::Sink(SinkError::CodecNotBuilt {
+                codec: "avif",
+                feature: "avif"
+            })
+            .code(),
+            4
+        );
         assert_eq!(
             CliError::Sink(SinkError::AlreadyExists("f".into())).code(),
             5

@@ -36,6 +36,23 @@ use ::image::ImageFormat;
 
 use crate::image::Image;
 
+// ── AVIF encode constants (SPEC-018, DEC-020) ─────────────────────────────────
+
+/// The fixed `rav1e` encode speed for AVIF output (1=slowest/best … 10=fastest).
+/// 6 is a balanced default that keeps encodes (and tests) reasonably fast; a
+/// per-invocation `--speed` knob is deferred (DEC-020). It MUST match the speed
+/// used by `crate::quality::encode_candidate_bytes`'s AVIF arm so a probed
+/// candidate's byte length equals the bytes this sink writes (the cross-sync
+/// contract, now covering AVIF as well as JPEG — DEC-016/DEC-019).
+#[cfg(feature = "avif")]
+pub const AVIF_SPEED: u8 = 6;
+
+/// The default AVIF quality (1–100, 100=best) when `-q` is omitted (DEC-020).
+/// AVIF quality numbers are NOT comparable to JPEG's; use `--target`/`--ssim`/
+/// `--max-size` to ask for an outcome rather than a raw number.
+#[cfg(feature = "avif")]
+pub const AVIF_DEFAULT_QUALITY: u8 = 80;
+
 // ── Public types ──────────────────────────────────────────────────────────────
 
 /// Where a final [`Image`] is written. Constructed by the (future) CLI
@@ -120,6 +137,16 @@ pub enum SinkError {
     /// The viuer render call failed (or the `display` feature is not built).
     #[error("terminal display failed: {0}")]
     Display(String),
+
+    /// The requested output format's codec is recognized but was not compiled
+    /// into this build (a feature-gated codec, e.g. AVIF without `--features
+    /// avif`). Maps to exit 4 (DEC-004). The message names the codec and the
+    /// feature to rebuild with.
+    #[error("{codec} support is not built; rebuild with --features {feature}")]
+    CodecNotBuilt {
+        codec: &'static str,
+        feature: &'static str,
+    },
 }
 
 /// The naming context a [`Sink::Dir`] needs from the originating input.
@@ -156,6 +183,12 @@ pub fn format_from_extension(path: &Path) -> Result<ImageFormat, SinkError> {
         "bmp" => Ok(ImageFormat::Bmp),
         "tif" | "tiff" => Ok(ImageFormat::Tiff),
         "ico" => Ok(ImageFormat::Ico),
+        // AVIF is recognized as a format REGARDLESS of the `avif` feature, so an
+        // `.avif`/`--format avif` request resolves to a clear "codec not built"
+        // error (exit 4) when the feature is off — not a vague "unsupported
+        // extension" (SPEC-018, DEC-004/DEC-020). The actual encode is gated in
+        // `encode_to_bytes` / `ensure_codec_built`.
+        "avif" => Ok(ImageFormat::Avif),
         other => Err(SinkError::UnsupportedExtension(other.to_owned())),
     }
 }
@@ -183,6 +216,27 @@ pub fn extension_for_format(format: ImageFormat) -> &'static str {
         ImageFormat::Avif => "avif",
         ImageFormat::Qoi => "qoi",
         _ => "bin",
+    }
+}
+
+/// Verify the encoder for `format` is compiled into this build (DEC-004).
+///
+/// A format whose extension is recognized but whose codec is feature-gated and
+/// OFF (today only AVIF, behind `--features avif`) returns
+/// [`SinkError::CodecNotBuilt`]; every always-built core format returns
+/// `Ok(())`. Callers that resolve the output format UP FRONT — `convert`, which
+/// must fail with a SINGLE exit 4 before any per-input fan-out rather than a
+/// partial-batch exit 6 (DEC-004 / DEC-015) — use this to surface the unbuilt
+/// codec before loading inputs. The per-write `encode_to_bytes` guard is the
+/// belt-and-suspenders backstop for callers that do not pre-check.
+pub fn ensure_codec_built(format: ImageFormat) -> Result<(), SinkError> {
+    match format {
+        #[cfg(not(feature = "avif"))]
+        ImageFormat::Avif => Err(SinkError::CodecNotBuilt {
+            codec: "avif",
+            feature: "avif",
+        }),
+        _ => Ok(()),
     }
 }
 
@@ -434,6 +488,38 @@ pub fn encode_to_bytes(
         }
     }
 
+    if format == ImageFormat::Avif {
+        // AVIF output is feature-gated (SPEC-018, DEC-020). With the feature on,
+        // encode via `ravif` at the fixed AVIF_SPEED and the requested quality
+        // (default 80). This encode MUST stay identical to
+        // `crate::quality::encode_candidate_bytes`'s AVIF arm so the auto-quality
+        // / byte-budget search probes match the bytes written here (DEC-019).
+        #[cfg(feature = "avif")]
+        {
+            let q = quality.unwrap_or(AVIF_DEFAULT_QUALITY).clamp(1, 100);
+            let encoder = ::image::codecs::avif::AvifEncoder::new_with_speed_quality(
+                &mut cursor,
+                AVIF_SPEED,
+                q,
+            );
+            img.pixels()
+                .write_with_encoder(encoder)
+                .map_err(|e| SinkError::Encode(e.to_string()))?;
+            return Ok(cursor.into_inner());
+        }
+        // Without the feature, AVIF output is a clear "codec not built" → exit 4
+        // (DEC-004). `run_convert` resolves the format up front via
+        // `ensure_codec_built`, so this is the belt-and-suspenders path for any
+        // other caller (e.g. `shrink -o x.avif`).
+        #[cfg(not(feature = "avif"))]
+        {
+            return Err(SinkError::CodecNotBuilt {
+                codec: "avif",
+                feature: "avif",
+            });
+        }
+    }
+
     // All other (format, quality) cases: use the default write_to path.
     img.pixels()
         .write_to(&mut cursor, format)
@@ -573,5 +659,66 @@ mod tests {
             safe_join(dir, "/etc/x.png"),
             Err(SinkError::Traversal(_))
         ));
+    }
+
+    // ── AVIF (SPEC-018) ─────────────────────────────────────────────────────
+
+    /// AVIF is recognized as an output format regardless of the feature, so the
+    /// error surfaces as a clear "codec not built" rather than "unsupported
+    /// extension" (DEC-004/DEC-020). Runs in the DEFAULT build.
+    #[test]
+    fn format_from_extension_recognizes_avif() {
+        assert_eq!(
+            format_from_extension(Path::new("x.avif")).unwrap(),
+            ImageFormat::Avif
+        );
+    }
+
+    /// Build a structured image whose AVIF size responds to the quality knob.
+    #[cfg(feature = "avif")]
+    fn detailed_image(w: u32, h: u32) -> Image {
+        use ::image::{DynamicImage, RgbImage};
+        let mut img = RgbImage::new(w, h);
+        for (x, y, px) in img.enumerate_pixels_mut() {
+            let gx = (x * 255 / w.max(1)) as i32;
+            let gy = (y * 255 / h.max(1)) as i32;
+            let tex = if ((x / 8) + (y / 8)) % 2 == 0 { 30 } else { 0 };
+            let r = (gx + tex).clamp(0, 255) as u8;
+            let g = (gy + tex).clamp(0, 255) as u8;
+            let b = ((gx + gy) / 2).clamp(0, 255) as u8;
+            *px = ::image::Rgb([r, g, b]);
+        }
+        let mut buf = Cursor::new(Vec::new());
+        DynamicImage::ImageRgb8(img)
+            .write_to(&mut buf, ImageFormat::Png)
+            .unwrap();
+        Image::from_bytes(&buf.into_inner()).unwrap()
+    }
+
+    /// With the feature on, AVIF encodes valid AVIF bytes and the quality knob
+    /// works: q30 is smaller than q90, and both magic-detect as AVIF.
+    #[cfg(feature = "avif")]
+    #[test]
+    fn encode_avif_respects_quality() {
+        let img = detailed_image(96, 96);
+        let low = encode_to_bytes(&img, ImageFormat::Avif, Some(30)).expect("encode q30");
+        let high = encode_to_bytes(&img, ImageFormat::Avif, Some(90)).expect("encode q90");
+
+        assert_eq!(
+            ::image::guess_format(&low).unwrap(),
+            ImageFormat::Avif,
+            "q30 output should be AVIF"
+        );
+        assert_eq!(
+            ::image::guess_format(&high).unwrap(),
+            ImageFormat::Avif,
+            "q90 output should be AVIF"
+        );
+        assert!(
+            low.len() < high.len(),
+            "lower quality should produce fewer bytes: q30={} q90={}",
+            low.len(),
+            high.len()
+        );
     }
 }

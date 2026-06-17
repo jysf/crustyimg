@@ -35,6 +35,14 @@ pub const MAX_SEARCH_QUALITY: u8 = 100;
 /// sub-second.
 pub const MAX_SEARCH_ITERS: u8 = 8;
 
+/// The fixed `rav1e` encode speed for AVIF candidates (SPEC-018, DEC-020).
+/// MUST equal `crate::sink::AVIF_SPEED` so a candidate probed here has the same
+/// byte length as the bytes the sink ultimately writes — the cross-sync contract
+/// (layering forbids `quality` depending on `sink`, so the two consts are kept
+/// equal by this comment, not by a shared call). See `encode_candidate_bytes`.
+#[cfg(feature = "avif")]
+const AVIF_SPEED: u8 = 6;
+
 // ── Errors ────────────────────────────────────────────────────────────────────
 
 /// Errors from perceptual scoring or the quality search (DEC-007 style: typed,
@@ -290,7 +298,17 @@ pub trait LossyFormat {
 
 impl LossyFormat for ImageFormat {
     fn supports_lossy_quality(self) -> bool {
-        matches!(self, ImageFormat::Jpeg)
+        // AVIF joins JPEG as a lossy-quality format only when the `avif` feature
+        // is built (SPEC-018, DEC-020); without it, AVIF output exits 4 before a
+        // search is ever attempted (DEC-004), so it must report `false` here.
+        #[cfg(feature = "avif")]
+        {
+            matches!(self, ImageFormat::Jpeg | ImageFormat::Avif)
+        }
+        #[cfg(not(feature = "avif"))]
+        {
+            matches!(self, ImageFormat::Jpeg)
+        }
     }
 }
 
@@ -327,8 +345,26 @@ fn encode_candidate_bytes(
                 .map_err(|e| QualityError::Encode(e.to_string()))?;
             Ok(cursor.into_inner())
         }
+        // AVIF candidate encode (SPEC-018, DEC-020) — IDENTICAL to the sink's
+        // AVIF arm (`crate::sink::encode_to_bytes`): same `AvifEncoder`, same
+        // fixed `AVIF_SPEED`, same `1..=100` clamp. The byte-budget / perceptual
+        // guarantee depends on this probe matching the bytes the sink writes.
+        #[cfg(feature = "avif")]
+        ImageFormat::Avif => {
+            let q = quality.clamp(1, 100);
+            let mut cursor = Cursor::new(Vec::new());
+            let encoder = ::image::codecs::avif::AvifEncoder::new_with_speed_quality(
+                &mut cursor,
+                AVIF_SPEED,
+                q,
+            );
+            reference
+                .write_with_encoder(encoder)
+                .map_err(|e| QualityError::Encode(e.to_string()))?;
+            Ok(cursor.into_inner())
+        }
         // Only lossy formats reach here (the CLI guards on `supports_lossy_quality`).
-        // AVIF/WebP lossy encoding lands in SPEC-018/019.
+        // WebP lossy encoding lands in SPEC-019.
         other => Err(QualityError::Encode(format!(
             "no auto-quality encoder for {other:?} (not a lossy quality format)"
         ))),
@@ -586,5 +622,35 @@ mod tests {
         assert_eq!(cfg.min_quality, 1);
         assert_eq!(cfg.max_quality, 100);
         assert_eq!(cfg.max_iters, 8);
+    }
+
+    // ── SPEC-018: AVIF (feature-gated) ────────────────────────────────────────
+
+    /// With the feature on, AVIF is a lossy-quality format the search can drive.
+    #[cfg(feature = "avif")]
+    #[test]
+    fn avif_supports_lossy_quality() {
+        assert!(
+            ImageFormat::Avif.supports_lossy_quality(),
+            "AVIF must support the lossy-quality search under --features avif"
+        );
+    }
+
+    /// The byte-budget search drives AVIF: a smaller budget picks a lower-or-equal
+    /// quality than a larger budget (the same monotonicity the JPEG search has).
+    #[cfg(feature = "avif")]
+    #[test]
+    fn auto_under_size_avif_is_monotone() {
+        let img = detailed_rgb(96, 96);
+        let small =
+            auto_under_size(&img, ImageFormat::Avif, 1_000).expect("small-budget AVIF search");
+        let large =
+            auto_under_size(&img, ImageFormat::Avif, 8_000).expect("large-budget AVIF search");
+        assert!(
+            small.quality <= large.quality,
+            "smaller budget should pick a lower-or-equal AVIF quality: 1000B q={} vs 8000B q={}",
+            small.quality,
+            large.quality
+        );
     }
 }
