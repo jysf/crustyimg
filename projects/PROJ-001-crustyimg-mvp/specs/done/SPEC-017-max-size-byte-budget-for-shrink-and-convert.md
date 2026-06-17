@@ -4,7 +4,7 @@
 task:
   id: SPEC-017
   type: story                      # epic | story | task | bug | chore
-  cycle: verify                    # frame | design | build | verify | ship
+  cycle: ship                      # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: M                    # S | M | L  (L means split it)
@@ -49,15 +49,31 @@ cost:
     - cycle: build
       agent: claude-opus-4-8
       interface: claude-code
+      tokens_total: 350000
+      estimated_usd: 3.15
+      duration_minutes: null
+      recorded_at: 2026-06-16
+      notes: "ORDER-OF-MAGNITUDE ESTIMATE (no clean per-cycle metering). Build executed by the ORCHESTRATOR (Opus) directly in the main loop (background-subagent-Bash limitation from SPEC-016). Smaller than SPEC-016's build (reused the shipped src/quality machinery): the `search_threshold` refactor (SPEC-016 tests preserved) + `search_under_size`/`auto_under_size`/`size_at` + `AutoQuality` enum + `parse_size`/`fmt_bytes` + `--max-size` on shrink/convert; ~350k session-scale estimate, usd at Opus 4.8 blended ~80/20 list ($9/MTok). 17 new tests; full suite 238 green; all 5 gates. PR #20."
+    - cycle: verify
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 511177
+      estimated_usd: 4.60
+      duration_minutes: null
+      recorded_at: 2026-06-16
+      notes: "REAL metered figure: independent code-review (medium effort) ran as 7 finder subagents whose Agent-result token counts sum to 511,177 (65079+63147+67791+90786+69390+92823+62161); orchestrator synthesis on top not separately metered. usd at Opus 4.8 blended ~80/20 list ($9/MTok). Verdict: no correctness bugs (the `search_threshold` refactor provably preserves SPEC-016 behavior; encoder parity exact). Applied 4 cleanups (encode dedup, NaN-guard warning, reworded non-JPEG warning, shared -q conflict helper); the user then landed the format-agnostic generalization (LossyFormat trait) the review's altitude note recommended. Orchestrator-run verify (same session as design+build — subagent Bash blocked)."
+    - cycle: ship
+      agent: claude-opus-4-8
+      interface: claude-code
       tokens_total: null
       estimated_usd: null
       duration_minutes: null
       recorded_at: 2026-06-16
-      notes: "Build executed by the ORCHESTRATOR (Opus) directly in the main loop (the background-subagent-Bash limitation from SPEC-016 still applies). null numerics here — the orchestrator records a real-ish figure at ship (main-loop work has no clean per-cycle metering; /cost). Implemented `prompts/SPEC-017-build.md`: the `search_threshold` refactor (SPEC-016 tests preserved) + `search_jpeg_under_size`/`auto_jpeg_under_size`/`jpeg_size_at` + `AutoQuality` enum + `parse_size`/`fmt_bytes` + `--max-size` on shrink/convert. 17 new tests; full suite 238 green; all 5 gates pass. PR #20."
+      notes: "Orchestrator main-loop ship bookkeeping on main after the PR #20 squash-merge (4b64063) — not separately metered (null per the cost-tracking policy for main-loop cycles)."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 861177
+    estimated_usd: 7.75
+    session_count: 4
 ---
 
 # SPEC-017: `--max-size <SIZE>` byte budget for `shrink` and `convert`
@@ -433,10 +449,24 @@ Written during **design**, made to pass during **build**. Unit tests in
 *Appended during the **ship** cycle.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — The reuse-by-generalization order worked well: refactor the shared core
+   (`search_threshold`) and re-run the SPEC-016 tests BEFORE adding the new search,
+   so "don't regress the flagship" was a non-issue. The notable moment was the
+   review's altitude note (JPEG-named/JPEG-guarded search) — I'd flagged it as
+   "noted, not fixed," but the user landed the generalization (`LossyFormat` trait
+   + format-dispatched `encode_candidate_bytes` + format-agnostic entry points)
+   before merge. Lesson: when a review surfaces a clean seam the very next specs
+   will need (AVIF/WebP here), doing it now is cheap and avoids a later rename — worth
+   defaulting to "fix the seam" rather than "defer" when the next consumer is known.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — No. DEC-019 cleanly governs both searches (the byte-budget is its dual). No
+   new dependency, so the license gate was untouched. The cost-capture process
+   (the same main-loop-build estimate caveat as SPEC-016) applied unchanged.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — The two STAGE-008 follow-ups are already tracked in the backlog: the
+   **`--max-size` dimension-reduction fallback** (makes the budget work for PNG and
+   sub-min-quality budgets) and **AVIF/WebP output** (SPEC-018/019) — the latter now
+   only needs to add an `encode_candidate_bytes` arm + flip `supports_lossy_quality`,
+   since this spec made the search format-agnostic. No new spec to write now.
