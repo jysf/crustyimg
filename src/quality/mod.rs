@@ -9,9 +9,9 @@
 //! 1. [`score`] — the **SSIMULACRA2** perceptual similarity score between a
 //!    reference image and a distorted candidate of the same dimensions (higher =
 //!    more similar; ~100 = visually identical).
-//! 2. [`search_jpeg_quality`] — a **generic binary search** for the lowest JPEG
-//!    encoder quality whose candidate scores at/above a target, plus the
-//!    production wiring [`auto_jpeg_quality`] that scores real JPEG round-trips.
+//! 2. [`search_quality`] — a **generic binary search** for the lowest encoder
+//!    quality whose candidate scores at/above a target, plus the production
+//!    wiring [`auto_quality`] that scores real round-trips for a target format.
 //!
 //! The search is generic over the per-quality scorer (`FnMut(u8) -> Result<f64,
 //! _>`) so it is deterministically unit-testable AND reusable by later specs
@@ -21,7 +21,7 @@
 
 use std::io::Cursor;
 
-use ::image::DynamicImage;
+use ::image::{DynamicImage, ImageFormat};
 use ssimulacra2::{compute_frame_ssimulacra2, ColorPrimaries, Rgb, TransferCharacteristic};
 
 // ── Policy constants (DEC-019) ────────────────────────────────────────────────
@@ -141,8 +141,8 @@ pub struct QualityChoice {
     /// The chosen JPEG encoder quality.
     pub quality: u8,
     /// The search metric at the chosen quality — an SSIMULACRA2 score for a
-    /// perceptual search ([`search_jpeg_quality`]), or the encoded byte size for a
-    /// size-budget search ([`search_jpeg_under_size`]). `NaN` when the constraint
+    /// perceptual search ([`search_quality`]), or the encoded byte size for a
+    /// size-budget search ([`search_under_size`]). `NaN` when the constraint
     /// was unreachable and the best-effort fallback quality was never probed.
     pub score: f64,
     /// How many distinct candidate evaluations the search performed.
@@ -244,10 +244,7 @@ where
 /// Binary-search the integer quality range for the **lowest** quality whose
 /// score is ≥ `cfg.target` (the perceptual search, DEC-019). Generic over the
 /// scorer so it is deterministically testable. See [`search_threshold`].
-pub fn search_jpeg_quality<F>(
-    score_at: F,
-    cfg: &SearchConfig,
-) -> Result<QualityChoice, QualityError>
+pub fn search_quality<F>(score_at: F, cfg: &SearchConfig) -> Result<QualityChoice, QualityError>
 where
     F: FnMut(u8) -> Result<f64, QualityError>,
 {
@@ -259,7 +256,7 @@ where
 /// over the size probe so it is deterministically testable. If even the minimum
 /// quality exceeds the budget, returns the best-effort `min_quality` with
 /// `met_target = false`. See [`search_threshold`].
-pub fn search_jpeg_under_size<F>(
+pub fn search_under_size<F>(
     mut size_at: F,
     budget_bytes: u64,
     cfg: &SearchConfig,
@@ -275,67 +272,109 @@ where
     )
 }
 
-// ── Production wiring (real JPEG candidate encoding) ──────────────────────────
+// ── Lossy-format seam ─────────────────────────────────────────────────────────
 
-/// Encode `reference` to JPEG at `quality.clamp(1, 100)` and return the bytes —
-/// the shared candidate encode behind both production probes (`score_jpeg_at`
-/// decodes + scores it; `jpeg_size_at` measures its length).
+/// Extension predicate: whether an output format has an encoder quality knob the
+/// auto-quality searches can drive (`--target`/`--ssim`, `--max-size`).
 ///
-/// IMPORTANT: this MUST stay byte-for-byte equivalent to the production write
-/// path `crate::sink::encode_to_bytes` (DEC-016) — same `JpegEncoder::
+/// This is the **single seam** the CLI guard (`resolve_effective_quality`) and the
+/// per-format candidate encode ([`encode_candidate_bytes`]) both read. JPEG is the
+/// only lossy format today; when AVIF/WebP lossy output lands (SPEC-018/019), add
+/// the variant here AND its encode arm in `encode_candidate_bytes` — those two
+/// places are the whole change.
+pub trait LossyFormat {
+    /// `true` iff the auto-quality search supports driving a quality knob for this
+    /// format.
+    fn supports_lossy_quality(self) -> bool;
+}
+
+impl LossyFormat for ImageFormat {
+    fn supports_lossy_quality(self) -> bool {
+        matches!(self, ImageFormat::Jpeg)
+    }
+}
+
+// ── Production wiring (real candidate encoding) ───────────────────────────────
+
+/// Encode `reference` to `fmt` at `quality.clamp(1, 100)` and return the bytes —
+/// the shared candidate encode behind both production probes (`score_at` decodes
+/// then scores it; `size_at` measures its length). Only formats for which
+/// [`LossyFormat::supports_lossy_quality`] is `true` are valid; any other format
+/// is a caller bug (the CLI guards on the predicate) and returns a
+/// [`QualityError::Encode`].
+///
+/// IMPORTANT: for JPEG this MUST stay byte-for-byte equivalent to the production
+/// write path `crate::sink::encode_to_bytes` (DEC-016) — same `JpegEncoder::
 /// new_with_quality` + `1..=100` clamp. The searches optimize the bytes THIS
 /// produces, but `shrink`/`convert` write the file through `encode_to_bytes`; if
 /// the two ever diverge (e.g. a switch to a progressive/optimized JPEG encoder),
 /// the searched quality would no longer describe the bytes actually emitted,
 /// silently breaking the perceptual / byte-budget guarantee. Layering forbids
 /// `quality` depending on `sink`, so they are kept in sync by this contract, not
-/// by a shared call.
-fn encode_jpeg_bytes(reference: &DynamicImage, quality: u8) -> Result<Vec<u8>, QualityError> {
-    let q = quality.clamp(1, 100);
-    let mut cursor = Cursor::new(Vec::new());
-    let encoder = ::image::codecs::jpeg::JpegEncoder::new_with_quality(&mut cursor, q);
-    reference
-        .write_with_encoder(encoder)
-        .map_err(|e| QualityError::Encode(e.to_string()))?;
-    Ok(cursor.into_inner())
+/// by a shared call. Each lossy format added here carries the same obligation.
+fn encode_candidate_bytes(
+    reference: &DynamicImage,
+    fmt: ImageFormat,
+    quality: u8,
+) -> Result<Vec<u8>, QualityError> {
+    match fmt {
+        ImageFormat::Jpeg => {
+            let q = quality.clamp(1, 100);
+            let mut cursor = Cursor::new(Vec::new());
+            let encoder = ::image::codecs::jpeg::JpegEncoder::new_with_quality(&mut cursor, q);
+            reference
+                .write_with_encoder(encoder)
+                .map_err(|e| QualityError::Encode(e.to_string()))?;
+            Ok(cursor.into_inner())
+        }
+        // Only lossy formats reach here (the CLI guards on `supports_lossy_quality`).
+        // AVIF/WebP lossy encoding lands in SPEC-018/019.
+        other => Err(QualityError::Encode(format!(
+            "no auto-quality encoder for {other:?} (not a lossy quality format)"
+        ))),
+    }
 }
 
-/// Encode `reference` to JPEG at `quality`, decode it back, and score the
+/// Encode `reference` to `fmt` at `quality`, decode it back, and score the
 /// round-trip against `reference` — the real per-quality scorer the perceptual
 /// search uses.
-fn score_jpeg_at(reference: &DynamicImage, quality: u8) -> Result<f64, QualityError> {
-    let bytes = encode_jpeg_bytes(reference, quality)?;
+fn score_at(reference: &DynamicImage, fmt: ImageFormat, quality: u8) -> Result<f64, QualityError> {
+    let bytes = encode_candidate_bytes(reference, fmt, quality)?;
     let decoded =
         ::image::load_from_memory(&bytes).map_err(|e| QualityError::Encode(e.to_string()))?;
     score(reference, &decoded)
 }
 
-/// Find the lowest JPEG quality whose decoded round-trip scores ≥ `cfg.target`
+/// Find the lowest `fmt` quality whose decoded round-trip scores ≥ `cfg.target`
 /// for `reference` (the production entry point for `shrink`'s auto-quality).
-pub fn auto_jpeg_quality(
+/// `fmt` must satisfy [`LossyFormat::supports_lossy_quality`].
+pub fn auto_quality(
     reference: &DynamicImage,
+    fmt: ImageFormat,
     cfg: &SearchConfig,
 ) -> Result<QualityChoice, QualityError> {
-    search_jpeg_quality(|q| score_jpeg_at(reference, q), cfg)
+    search_quality(|q| score_at(reference, fmt, q), cfg)
 }
 
-/// Encode `reference` to JPEG at `quality` and return the encoded byte length —
+/// Encode `reference` to `fmt` at `quality` and return the encoded byte length —
 /// the per-quality probe for the byte-budget search (SPEC-017). Unlike
-/// `score_jpeg_at`, this does NOT decode or score: the size search only needs the
-/// encoded length (it shares the exact encode via `encode_jpeg_bytes`).
-fn jpeg_size_at(reference: &DynamicImage, quality: u8) -> Result<u64, QualityError> {
-    Ok(encode_jpeg_bytes(reference, quality)?.len() as u64)
+/// `score_at`, this does NOT decode or score: the size search only needs the
+/// encoded length (it shares the exact encode via `encode_candidate_bytes`).
+fn size_at(reference: &DynamicImage, fmt: ImageFormat, quality: u8) -> Result<u64, QualityError> {
+    Ok(encode_candidate_bytes(reference, fmt, quality)?.len() as u64)
 }
 
-/// Find the highest JPEG quality whose encoded size is ≤ `budget_bytes` for
+/// Find the highest `fmt` quality whose encoded size is ≤ `budget_bytes` for
 /// `reference` (the production entry point for `--max-size`, SPEC-017). The
 /// returned [`QualityChoice::score`] carries the achieved encoded size in bytes.
-pub fn auto_jpeg_under_size(
+/// `fmt` must satisfy [`LossyFormat::supports_lossy_quality`].
+pub fn auto_under_size(
     reference: &DynamicImage,
+    fmt: ImageFormat,
     budget_bytes: u64,
 ) -> Result<QualityChoice, QualityError> {
-    search_jpeg_under_size(
-        |q| jpeg_size_at(reference, q),
+    search_under_size(
+        |q| size_at(reference, fmt, q),
         budget_bytes,
         &SearchConfig::for_size_budget(),
     )
@@ -408,7 +447,7 @@ mod tests {
         // Synthetic monotonic scorer: score == quality. Lowest q with q >= 50 is 50.
         let calls = Cell::new(0u8);
         let cfg = SearchConfig::for_target(50.0);
-        let choice = search_jpeg_quality(
+        let choice = search_quality(
             |q| {
                 calls.set(calls.get() + 1);
                 Ok(q as f64)
@@ -436,7 +475,7 @@ mod tests {
     fn search_unreachable_target_is_best_effort() {
         // Scorer always below the target → no quality meets it.
         let cfg = SearchConfig::for_target(90.0);
-        let choice = search_jpeg_quality(|_q| Ok(10.0), &cfg).expect("search should succeed");
+        let choice = search_quality(|_q| Ok(10.0), &cfg).expect("search should succeed");
         assert_eq!(
             choice.quality, MAX_SEARCH_QUALITY,
             "unreachable target → best-effort highest quality"
@@ -447,7 +486,7 @@ mod tests {
     #[test]
     fn search_propagates_scorer_error() {
         let cfg = SearchConfig::for_target(50.0);
-        let result = search_jpeg_quality(|_q| Err(QualityError::Encode("boom".into())), &cfg);
+        let result = search_quality(|_q| Err(QualityError::Encode("boom".into())), &cfg);
         assert!(
             matches!(result, Err(QualityError::Encode(ref m)) if m == "boom"),
             "a scorer error must propagate, got {result:?}"
@@ -455,10 +494,12 @@ mod tests {
     }
 
     #[test]
-    fn auto_jpeg_quality_is_monotone_in_target() {
+    fn auto_quality_is_monotone_in_target() {
         let img = detailed_rgb(96, 96);
-        let lo = auto_jpeg_quality(&img, &SearchConfig::for_target(50.0)).expect("lo search");
-        let hi = auto_jpeg_quality(&img, &SearchConfig::for_target(90.0)).expect("hi search");
+        let lo = auto_quality(&img, ImageFormat::Jpeg, &SearchConfig::for_target(50.0))
+            .expect("lo search");
+        let hi = auto_quality(&img, ImageFormat::Jpeg, &SearchConfig::for_target(90.0))
+            .expect("hi search");
         assert!(
             lo.quality <= hi.quality,
             "lower target should pick a lower-or-equal quality: target50 q={} vs target90 q={}",
@@ -484,7 +525,7 @@ mod tests {
         // q*10 <= 500 is q == 50.
         let calls = Cell::new(0u8);
         let cfg = SearchConfig::for_size_budget();
-        let choice = search_jpeg_under_size(
+        let choice = search_under_size(
             |q| {
                 calls.set(calls.get() + 1);
                 Ok(q as u64 * 10)
@@ -507,8 +548,7 @@ mod tests {
     fn search_under_size_unfittable_is_best_effort() {
         // Every quality exceeds the budget → best effort is the smallest (min q).
         let cfg = SearchConfig::for_size_budget();
-        let choice =
-            search_jpeg_under_size(|_q| Ok(10_000), 100, &cfg).expect("search should succeed");
+        let choice = search_under_size(|_q| Ok(10_000), 100, &cfg).expect("search should succeed");
         assert_eq!(
             choice.quality, MIN_SEARCH_QUALITY,
             "unfittable budget → best-effort lowest quality (smallest file)"
@@ -519,8 +559,7 @@ mod tests {
     #[test]
     fn search_under_size_propagates_error() {
         let cfg = SearchConfig::for_size_budget();
-        let result =
-            search_jpeg_under_size(|_q| Err(QualityError::Encode("boom".into())), 1000, &cfg);
+        let result = search_under_size(|_q| Err(QualityError::Encode("boom".into())), 1000, &cfg);
         assert!(
             matches!(result, Err(QualityError::Encode(ref m)) if m == "boom"),
             "a probe error must propagate, got {result:?}"
@@ -531,8 +570,8 @@ mod tests {
     fn auto_under_size_is_monotone_in_budget() {
         let img = detailed_rgb(96, 96);
         // A small budget forces a lower quality than a large budget.
-        let small = auto_jpeg_under_size(&img, 1_500).expect("small-budget search");
-        let large = auto_jpeg_under_size(&img, 12_000).expect("large-budget search");
+        let small = auto_under_size(&img, ImageFormat::Jpeg, 1_500).expect("small-budget search");
+        let large = auto_under_size(&img, ImageFormat::Jpeg, 12_000).expect("large-budget search");
         assert!(
             small.quality <= large.quality,
             "smaller budget should pick a lower-or-equal quality: 1500B q={} vs 12000B q={}",

@@ -26,7 +26,7 @@ use crate::image::Image;
 use crate::operation::RegistryError;
 use crate::operation::{OperationError, OperationParams, OperationRegistry};
 use crate::pipeline::Pipeline;
-use crate::quality::{self, QualityError, SearchConfig};
+use crate::quality::{self, LossyFormat, QualityError, SearchConfig};
 use crate::recipe::{Recipe, RecipeError};
 use crate::sink::{Overwrite, Sink, SinkError, SinkInput};
 use crate::source::{self, SourceError};
@@ -122,7 +122,8 @@ impl QualityTarget {
 
 /// An opt-in auto-quality mode for `shrink`/`convert`: the encoder quality is
 /// searched per output instead of fixed (SPEC-016 / SPEC-017). Both modes run
-/// only for a JPEG output (ignored otherwise; DEC-019); the search lives in
+/// only for a format with a lossy quality knob (JPEG today; ignored otherwise,
+/// DEC-019) — see [`LossyFormat::supports_lossy_quality`]. The search lives in
 /// `crate::quality`.
 #[derive(Debug, Clone)]
 pub enum AutoQuality {
@@ -1099,13 +1100,20 @@ fn fmt_bytes(n: u64) -> String {
 /// Resolve the effective encode quality for ONE output (SPEC-016 / SPEC-017).
 ///
 /// - No `auto` mode → return the fixed `quality` unchanged (today's behavior).
-/// - `Perceptual` + JPEG → run the SSIMULACRA2 search; warn (unless `--quiet`) if
-///   the target was unreachable (best-effort highest quality / largest file).
-/// - `SizeBudget` + JPEG → run the byte-budget search; warn (unless `--quiet`) if
-///   even minimum quality exceeds the budget (best-effort smallest file).
-/// - any auto mode + NON-JPEG output → ignore it (encoder default); a `SizeBudget`
-///   on a lossless format additionally warns that a byte budget needs a lossy
-///   format. (Mirrors how `-q` is ignored for lossless formats, DEC-016.)
+/// - `Perceptual` + a lossy-quality format → run the SSIMULACRA2 search; warn
+///   (unless `--quiet`) if the target was unreachable (best-effort highest
+///   quality / largest file).
+/// - `SizeBudget` + a lossy-quality format → run the byte-budget search; warn
+///   (unless `--quiet`) if even minimum quality exceeds the budget (best-effort
+///   smallest file).
+/// - any auto mode + a format without a quality knob → ignore it (encoder
+///   default); a `SizeBudget` on such a format additionally warns that a byte
+///   budget needs a lossy format. (Mirrors how `-q` is ignored for lossless
+///   formats, DEC-016.)
+///
+/// Which formats support the search is the single seam
+/// [`LossyFormat::supports_lossy_quality`] — JPEG today; AVIF/WebP land in
+/// SPEC-018/019, at which point this guard generalizes with no change here.
 ///
 /// `label` names the input in the warnings.
 fn resolve_effective_quality(
@@ -1116,10 +1124,10 @@ fn resolve_effective_quality(
     global: &GlobalArgs,
     label: &str,
 ) -> Result<Option<u8>, CliError> {
-    let is_jpeg = fmt == ::image::ImageFormat::Jpeg;
+    let supports_lossy = fmt.supports_lossy_quality();
     match auto {
-        Some(AutoQuality::Perceptual(cfg)) if is_jpeg => {
-            let choice = quality::auto_jpeg_quality(out_img.pixels(), cfg)?;
+        Some(AutoQuality::Perceptual(cfg)) if supports_lossy => {
+            let choice = quality::auto_quality(out_img.pixels(), fmt, cfg)?;
             if !choice.met_target && !global.quiet {
                 eprintln!(
                     "warning: {label}: could not reach the requested quality target \
@@ -1129,8 +1137,8 @@ fn resolve_effective_quality(
             }
             Ok(Some(choice.quality))
         }
-        Some(AutoQuality::SizeBudget(budget)) if is_jpeg => {
-            let choice = quality::auto_jpeg_under_size(out_img.pixels(), *budget)?;
+        Some(AutoQuality::SizeBudget(budget)) if supports_lossy => {
+            let choice = quality::auto_under_size(out_img.pixels(), fmt, *budget)?;
             if !choice.met_target && !global.quiet {
                 // `choice.score` carries the achieved smallest size; guard the rare
                 // case where the search returns a fallback whose metric is unknown
@@ -1150,7 +1158,7 @@ fn resolve_effective_quality(
             }
             Ok(Some(choice.quality))
         }
-        // Non-JPEG output: no quality-based size search exists for this format yet.
+        // Format without a quality knob: no byte-budget search exists for it yet.
         Some(AutoQuality::SizeBudget(_)) => {
             if !global.quiet {
                 eprintln!(
@@ -1161,7 +1169,7 @@ fn resolve_effective_quality(
             }
             Ok(None)
         }
-        // Non-JPEG output: perceptual target ignored (encoder default).
+        // Format without a quality knob: perceptual target ignored (encoder default).
         Some(AutoQuality::Perceptual(_)) => Ok(None),
         None => Ok(quality),
     }

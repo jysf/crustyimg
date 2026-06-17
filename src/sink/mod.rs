@@ -421,9 +421,9 @@ pub fn encode_to_bytes(
     if format == ImageFormat::Jpeg {
         if let Some(q) = quality {
             // Clamp to 1..=100 (JPEG quality range; avoids surprising values).
-            // NOTE: `crate::quality::encode_jpeg_bytes` (the auto-quality / byte-
-            // budget search, SPEC-016/017) re-implements this exact JPEG encode to
-            // probe candidates. Keep the two in sync — see the contract comment
+            // NOTE: `crate::quality::encode_candidate_bytes` (the auto-quality /
+            // byte-budget search, SPEC-016/017) re-implements this exact JPEG encode
+            // to probe candidates. Keep the two in sync — see the contract comment
             // there (DEC-016).
             let q = q.clamp(1, 100);
             let encoder = ::image::codecs::jpeg::JpegEncoder::new_with_quality(&mut cursor, q);
