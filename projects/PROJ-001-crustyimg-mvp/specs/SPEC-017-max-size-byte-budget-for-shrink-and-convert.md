@@ -387,8 +387,17 @@ Written during **design**, made to pass during **build**. Unit tests in
 - **New decisions emitted:**
   - No new DEC — DEC-019 governs (the byte-budget search is its dual).
 - **Deviations from spec:**
-  - None functional. The `search_threshold` refactor preserved `search_jpeg_quality`'s
-    public signature and all SPEC-016 behavior (verified by the unchanged tests).
+  - **Generalized beyond the spec's `*_jpeg_*` API (post-review enhancement).** The
+    spec named the entry points `search_jpeg_quality`/`auto_jpeg_quality`/
+    `search_jpeg_under_size`/`auto_jpeg_under_size`. Acting on the code-review's
+    altitude note (the search is format-agnostic but was JPEG-named/JPEG-guarded),
+    they were renamed `search_quality`/`auto_quality`/`search_under_size`/
+    `auto_under_size` and now take a target `fmt`; a `LossyFormat::supports_lossy_quality()`
+    predicate (JPEG-only today) replaces the `== Jpeg` guard, and a
+    format-dispatched `encode_candidate_bytes` is the single place an AVIF/WebP
+    encode arm gets added (SPEC-018/019). Behavior is unchanged for JPEG (all tests
+    green); the change is purely the seam for the next specs. The `search_threshold`
+    core still preserves SPEC-016 behavior exactly.
   - Process note (not a spec deviation): the build cycle was run by the
     ORCHESTRATOR (Opus) directly, not a fresh Sonnet subagent — the same
     background-subagent-Bash limitation seen on SPEC-016.
