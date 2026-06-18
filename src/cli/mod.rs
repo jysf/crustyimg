@@ -159,6 +159,18 @@ pub enum Commands {
         json: bool,
     },
 
+    /// Perceptual comparison: SSIMULACRA2 score of <b> vs <a> (STAGE-009, DEC-025).
+    /// `--fail-under <N>` exits 7 when the score is below N — a CI visual-regression
+    /// gate. `--json` emits a machine-readable result.
+    Diff {
+        a: String,
+        b: String,
+        #[arg(long, value_name = "N")]
+        fail_under: Option<f64>,
+        #[arg(long)]
+        json: bool,
+    },
+
     /// Resize one or more images (STAGE-003).
     #[command(group = clap::ArgGroup::new("mode")
         .required(true)
@@ -357,6 +369,13 @@ pub enum CliError {
     /// error → exit 1.
     #[error(transparent)]
     Quality(#[from] QualityError),
+
+    /// A check/gate computed successfully but was NOT satisfied — e.g. `diff
+    /// --fail-under` scored below the threshold (SPEC-023, DEC-025). Mapped to exit
+    /// 7, distinct from a runtime error so CI can tell "regression detected" from
+    /// "couldn't run". Reusable by the future EXIF audit-linter.
+    #[error("check not satisfied")]
+    CheckFailed,
 }
 
 impl CliError {
@@ -370,6 +389,7 @@ impl CliError {
     /// | 4 | Unsupported or undeterminable format |
     /// | 5 | Output write failed / refused |
     /// | 6 | Partial batch failure (multi-input; some/all inputs failed) |
+    /// | 7 | A check/gate was not satisfied (e.g. `diff --fail-under`, DEC-025) |
     pub fn code(&self) -> u8 {
         match self {
             // Source errors
@@ -398,6 +418,8 @@ impl CliError {
             CliError::Usage(_) => 2,
             // Perceptual scoring / quality-search failure → 1 (generic runtime)
             CliError::Quality(_) => 1,
+            // A check/gate was not satisfied (diff --fail-under) → 7 (DEC-025)
+            CliError::CheckFailed => 7,
         }
     }
 }
@@ -436,6 +458,12 @@ fn dispatch(cli: &Cli) -> Result<(), CliError> {
             height,
         } => run_view(input, *width, *height, &cli.global),
         Commands::Info { input, exif, json } => run_info(input, *exif, *json, &cli.global),
+        Commands::Diff {
+            a,
+            b,
+            fail_under,
+            json,
+        } => run_diff(a, b, *fail_under, *json, &cli.global),
         Commands::Resize {
             inputs,
             max,
@@ -908,6 +936,100 @@ fn run_info(input: &str, exif: bool, json: bool, _global: &GlobalArgs) -> Result
         write_json(&report, &mut out).map_err(crate::sink::SinkError::Io)?;
     } else {
         print_human(&report, &mut out).map_err(crate::sink::SinkError::Io)?;
+    }
+    Ok(())
+}
+
+// ── diff command (SPEC-023, DEC-025) ──────────────────────────────────────────
+
+/// Whether a `diff` score passes the `--fail-under` gate: a score ≥ the threshold,
+/// or `true` when there is no gate. The single decision the gate exit code keys off.
+fn diff_passes(score: f64, fail_under: Option<f64>) -> bool {
+    fail_under.is_none_or(|t| score >= t)
+}
+
+/// Emit the `diff` result as a single-line JSON object to `out` (hand-rolled, no
+/// serde_json runtime dep — mirrors [`write_json`]). `fail_under` is the number or
+/// the literal `null`; `passed` is a bare bool.
+fn write_diff_json(
+    out: &mut impl std::io::Write,
+    a: &str,
+    b: &str,
+    score: f64,
+    fail_under: Option<f64>,
+    passed: bool,
+) -> std::io::Result<()> {
+    write!(
+        out,
+        "{{\"a\":\"{}\",\"b\":\"{}\",\"score\":{:.4},\"fail_under\":",
+        escape_json(a),
+        escape_json(b),
+        score,
+    )?;
+    match fail_under {
+        Some(t) => write!(out, "{t:.4}")?,
+        None => write!(out, "null")?,
+    }
+    writeln!(out, ",\"passed\":{passed}}}")
+}
+
+/// The `diff` path: load two images, score `b` against `a` with SSIMULACRA2, print
+/// the score (human or `--json`), and apply the `--fail-under` CI gate (DEC-025).
+///
+/// - `--fail-under` outside `0..=100` → usage error (exit 2).
+/// - The two images MUST have equal dimensions (SSIMULACRA2 requires it); a mismatch
+///   is a usage error (exit 2), NOT an implicit resize.
+/// - The score line is printed to stdout BEFORE any gate failure, so CI captures both
+///   the number and the verdict. A failed gate returns [`CliError::CheckFailed`]
+///   (exit 7); the diagnostic goes to stderr (unless `--quiet`).
+fn run_diff(
+    a: &str,
+    b: &str,
+    fail_under: Option<f64>,
+    json: bool,
+    global: &GlobalArgs,
+) -> Result<(), CliError> {
+    use std::io::Write;
+
+    if let Some(t) = fail_under {
+        if !(0.0..=100.0).contains(&t) {
+            return Err(CliError::Usage(format!(
+                "--fail-under must be a score in 0..=100, got {t}"
+            )));
+        }
+    }
+
+    let img_a = Image::load(a)?;
+    let img_b = Image::load(b)?;
+    if img_a.width() != img_b.width() || img_a.height() != img_b.height() {
+        return Err(CliError::Usage(format!(
+            "cannot compare images of different dimensions ({}x{} vs {}x{})",
+            img_a.width(),
+            img_a.height(),
+            img_b.width(),
+            img_b.height()
+        )));
+    }
+
+    let score = quality::score(img_a.pixels(), img_b.pixels())?;
+    let passed = diff_passes(score, fail_under);
+
+    let mut out = std::io::stdout().lock();
+    if json {
+        write_diff_json(&mut out, a, b, score, fail_under, passed)
+            .map_err(crate::sink::SinkError::Io)?;
+    } else {
+        writeln!(out, "ssimulacra2: {score:.4}").map_err(crate::sink::SinkError::Io)?;
+    }
+
+    if !passed {
+        if !global.quiet {
+            eprintln!(
+                "diff: ssimulacra2 {score:.4} is below --fail-under {}",
+                fail_under.unwrap_or(0.0)
+            );
+        }
+        return Err(CliError::CheckFailed);
     }
     Ok(())
 }
@@ -1999,6 +2121,9 @@ mod tests {
             CliError::Quality(QualityError::Score("scoring failed".into())).code(),
             1
         );
+
+        // CheckFailed (diff --fail-under gate not met) → 7 (DEC-025).
+        assert_eq!(CliError::CheckFailed.code(), 7);
     }
 
     // ── format_label_maps_core_formats ───────────────────────────────────────
@@ -2456,5 +2581,37 @@ mod tests {
                 .code(),
             2
         );
+    }
+
+    // ── SPEC-023: diff ────────────────────────────────────────────────────────
+
+    #[test]
+    fn diff_parses_args() {
+        let cli =
+            Cli::try_parse_from(["crustyimg", "diff", "a.png", "b.png", "--fail-under", "90"])
+                .expect("should parse");
+        match &cli.command {
+            Commands::Diff {
+                a,
+                b,
+                fail_under,
+                json,
+            } => {
+                assert_eq!(a, "a.png");
+                assert_eq!(b, "b.png");
+                assert_eq!(*fail_under, Some(90.0));
+                assert!(!*json);
+            }
+            other => panic!("expected Diff variant, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn diff_passes_gate() {
+        assert!(diff_passes(95.0, Some(90.0)), "95 ≥ 90 passes");
+        assert!(!diff_passes(85.0, Some(90.0)), "85 < 90 fails");
+        assert!(diff_passes(12.0, None), "no gate always passes");
+        // Boundary: equal to the threshold passes.
+        assert!(diff_passes(90.0, Some(90.0)), "90 ≥ 90 passes");
     }
 }
