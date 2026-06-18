@@ -460,6 +460,119 @@ pub fn auto_under_size(
     )
 }
 
+// ── Byte-budget fit: quality, then dimension reduction (SPEC-021, DEC-023) ─────
+
+/// The outcome of fitting an image under a byte budget, possibly by downscaling.
+///
+/// `image` is `Some` iff the dimensions were reduced (the caller writes those
+/// pixels instead of the original); `None` means write the original at `quality`.
+#[derive(Debug)]
+pub struct SizeFit {
+    /// The encoder quality to write at (`None` for a lossless format — no knob).
+    pub quality: Option<u8>,
+    /// The downscaled pixels to write, or `None` to keep the original dimensions.
+    pub image: Option<DynamicImage>,
+    /// The achieved encoded size in bytes (of the chosen quality+scale candidate).
+    pub bytes: u64,
+    /// The chosen scale as a percent of the original (`100` = full size).
+    pub scale_percent: u8,
+    /// Whether the budget was actually met (vs. a best-effort smallest result).
+    pub met_budget: bool,
+}
+
+/// Resize `reference` to `pct`% of its dimensions (each dimension clamped to ≥ 1px),
+/// using Lanczos3. `pct == 100` returns an exact-size copy.
+fn resize_to_pct(reference: &DynamicImage, pct: u8) -> DynamicImage {
+    let (w, h) = (reference.width(), reference.height());
+    let scale = pct as f64 / 100.0;
+    let nw = ((w as f64 * scale).round() as u32).max(1);
+    let nh = ((h as f64 * scale).round() as u32).max(1);
+    reference.resize_exact(nw, nh, ::image::imageops::FilterType::Lanczos3)
+}
+
+/// Encode `reference` resized to `pct`% and return the encoded byte length — the
+/// per-scale probe for the dimension search. For a lossy format `quality` is
+/// `Some` and the encode goes through `encode_candidate_bytes` (IDENTICAL to the
+/// sink's lossy write); for a lossless format `quality` is `None` and the encode
+/// uses `write_to(fmt)` (IDENTICAL to the sink's default path). Either way the
+/// bytes measured here equal the bytes the sink writes for the chosen scale.
+fn size_at_scale(
+    reference: &DynamicImage,
+    fmt: ImageFormat,
+    pct: u8,
+    quality: Option<u8>,
+) -> Result<u64, QualityError> {
+    let resized = resize_to_pct(reference, pct);
+    match quality {
+        Some(q) => Ok(encode_candidate_bytes(&resized, fmt, q)?.len() as u64),
+        None => {
+            let mut cursor = Cursor::new(Vec::new());
+            resized
+                .write_to(&mut cursor, fmt)
+                .map_err(|e| QualityError::Encode(e.to_string()))?;
+            Ok(cursor.into_inner().len() as u64)
+        }
+    }
+}
+
+/// Fit `reference` under `budget_bytes` for `fmt`, downscaling dimensions only if
+/// lowering quality cannot (SPEC-021, DEC-023).
+///
+/// - **Lossy format:** run the quality search at full size first; if it meets the
+///   budget, return that (no resize). Otherwise hold quality at the floor
+///   (`MIN_SEARCH_QUALITY`) and search the largest scale that fits.
+/// - **Lossless format:** no quality knob — search the largest scale that fits.
+///
+/// The scale search reuses [`search_under_size`] over a scale-percent `1..=100`
+/// axis (prefer the highest fitting percent; best-effort smallest if none fit). A
+/// chosen percent of `100` means no resize ([`SizeFit::image`] is `None`).
+pub fn fit_under_size(
+    reference: &DynamicImage,
+    fmt: ImageFormat,
+    budget_bytes: u64,
+) -> Result<SizeFit, QualityError> {
+    // Lossy: try quality at full size first.
+    let scale_quality = if fmt.supports_lossy_quality() {
+        let q = auto_under_size(reference, fmt, budget_bytes)?;
+        if q.met_target {
+            return Ok(SizeFit {
+                quality: Some(q.quality),
+                image: None,
+                bytes: q.score as u64,
+                scale_percent: 100,
+                met_budget: true,
+            });
+        }
+        // Even minimum quality overflows → fall back to the scale search, holding
+        // quality at the floor.
+        Some(MIN_SEARCH_QUALITY)
+    } else {
+        // Lossless: no quality knob; the only lever is scale.
+        None
+    };
+
+    // Scale search over percent 1..=100 (the returned `quality` field is the chosen
+    // SCALE PERCENT; `score` is the achieved bytes).
+    let choice = search_under_size(
+        |pct| size_at_scale(reference, fmt, pct, scale_quality),
+        budget_bytes,
+        &SearchConfig::for_size_budget(),
+    )?;
+    let pct = choice.quality;
+    let image = if pct == 100 {
+        None
+    } else {
+        Some(resize_to_pct(reference, pct))
+    };
+    Ok(SizeFit {
+        quality: scale_quality,
+        image,
+        bytes: choice.score as u64,
+        scale_percent: pct,
+        met_budget: choice.met_target,
+    })
+}
+
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -747,5 +860,91 @@ mod tests {
             "chosen quality {} must be in range",
             choice.quality
         );
+    }
+
+    // ── SPEC-021: --max-size dimension-reduction fallback ─────────────────────
+
+    /// A lossless PNG too big at full size for the budget gets DOWNSCALED to fit.
+    #[test]
+    fn fit_under_size_lossless_downscales() {
+        let img = detailed_rgb(128, 128);
+        // Full-size lossless PNG length, to pick a budget below it.
+        let full = {
+            let mut c = Cursor::new(Vec::new());
+            img.write_to(&mut c, ImageFormat::Png).unwrap();
+            c.into_inner().len() as u64
+        };
+        let budget = full / 3;
+        let fit = fit_under_size(&img, ImageFormat::Png, budget).expect("fit");
+        assert!(fit.met_budget, "a moderate budget should be reachable by scaling");
+        assert!(fit.image.is_some(), "lossless must downscale to fit");
+        assert!(fit.scale_percent < 100, "should have scaled down");
+        assert!(
+            fit.bytes <= budget,
+            "achieved {} must be <= budget {budget}",
+            fit.bytes
+        );
+        assert!(fit.quality.is_none(), "lossless has no quality knob");
+    }
+
+    /// A generous budget is met at full size — no resize.
+    #[test]
+    fn fit_under_size_met_at_full_no_resize() {
+        let img = detailed_rgb(128, 128);
+        let fit = fit_under_size(&img, ImageFormat::Png, 10_000_000).expect("fit");
+        assert!(fit.met_budget);
+        assert!(fit.image.is_none(), "a huge budget must not resize");
+        assert_eq!(fit.scale_percent, 100);
+    }
+
+    /// A lossy JPEG whose min-quality full-size encode still overflows scales down.
+    #[test]
+    fn fit_under_size_lossy_scales() {
+        let img = detailed_rgb(128, 128);
+        // Budget below the min-quality full-size JPEG so quality alone can't fit
+        // (every quality is ≥ the q1 size). Use 3/4 so the budget stays above
+        // JPEG's fixed header/table overhead and a modest downscale can reach it.
+        let min_full = size_at(&img, ImageFormat::Jpeg, MIN_SEARCH_QUALITY).unwrap();
+        let budget = min_full * 3 / 4;
+        let fit = fit_under_size(&img, ImageFormat::Jpeg, budget).expect("fit");
+        assert!(fit.image.is_some(), "lossy must scale when quality can't fit");
+        assert!(fit.quality.is_some(), "lossy keeps a quality (held at the floor)");
+        assert!(
+            fit.bytes < min_full,
+            "scaling should reduce size below the full-size min-quality encode: {} vs {min_full}",
+            fit.bytes
+        );
+        // When the search reports success, the achieved size really fits the budget.
+        if fit.met_budget {
+            assert!(fit.bytes <= budget, "met budget but {} > {budget}", fit.bytes);
+        }
+    }
+
+    /// Smaller budget → smaller-or-equal chosen scale (monotone).
+    #[test]
+    fn fit_under_size_scale_is_monotone() {
+        let img = detailed_rgb(128, 128);
+        let full = {
+            let mut c = Cursor::new(Vec::new());
+            img.write_to(&mut c, ImageFormat::Png).unwrap();
+            c.into_inner().len() as u64
+        };
+        let small = fit_under_size(&img, ImageFormat::Png, full / 8).expect("small");
+        let large = fit_under_size(&img, ImageFormat::Png, full / 2).expect("large");
+        assert!(
+            small.scale_percent <= large.scale_percent,
+            "smaller budget should pick a smaller-or-equal scale: {} vs {}",
+            small.scale_percent,
+            large.scale_percent
+        );
+    }
+
+    /// An impossibly small budget → best-effort smallest, no panic.
+    #[test]
+    fn fit_under_size_unfittable_best_effort() {
+        let img = detailed_rgb(128, 128);
+        let fit = fit_under_size(&img, ImageFormat::Png, 1).expect("fit");
+        assert!(!fit.met_budget, "1 byte is unreachable");
+        assert!(fit.image.is_some(), "best effort still returns the smallest pixels");
     }
 }
