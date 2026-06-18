@@ -176,13 +176,17 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
   codec → exit 4 up front. **DEC-026** (HTML emission in-scope; blurhash /
   perceptual-per-variant / batch deferred). Pure composition — no new dependency.
   14 tests (6 unit + 8 integration); 3-OS + feature CI green.
-- [ ] (not yet written) benchmark net — criterion micro-benches + hyperfine CLI
-  wall-clock; equal-quality comparisons gated on SSIMULACRA2. The micro-net may
-  land early as a `chore`.
+- [~] SPEC-025 (design) — **benchmark micro-net (chore):** `criterion` micro-benches
+  over the hot paths (decode/resize/encode/score/pipeline) via `just bench`, + a
+  `just bench-cli` hyperfine wrapper. Dev-dependency only, no shipped-binary impact.
+  **DEC-028** (criterion + the equal-quality principle: every size/speed claim gated
+  on SSIMULACRA2). Cross-tool comparison, quality-per-byte, `BENCHMARKS.md`, and CI
+  bench tracking deferred to later specs.
 
-**Count:** 3 shipped / 0 active / 1+ pending  *(remaining: the benchmark net; +
-deferred follow-ups: a `diff` visual-diff heatmap per DEC-025, a `responsive`
-blurhash placeholder + perceptual-per-variant per DEC-026)*
+**Count:** 3 shipped / 1 active / 0 core pending  *(deferred follow-ups: a `diff`
+visual-diff heatmap per DEC-025; a `responsive` blurhash placeholder +
+perceptual-per-variant per DEC-026; and the later benchmark steps — cross-tool,
+quality-per-byte, BENCHMARKS.md, CI bench tracking — per DEC-028)*
 
 ## Design Notes
 
