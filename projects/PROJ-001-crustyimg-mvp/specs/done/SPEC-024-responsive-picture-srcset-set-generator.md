@@ -7,7 +7,7 @@
 task:
   id: SPEC-024
   type: story                      # epic | story | task | bug | chore
-  cycle: build  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: M                    # S | M | L  (L means split it) — M, upper end
@@ -38,18 +38,42 @@ value_link: "Delivers STAGE-009's web-delivery surface — the responsive <pictu
 
 cost:
   sessions:
-    - cycle: build
+    - cycle: design
       agent: claude-opus-4-8
       interface: claude-code
-      tokens_total: null      # main-loop build (orchestrator-direct); orchestrator fills at ship
+      tokens_total: null
       estimated_usd: null
       duration_minutes: null
       recorded_at: 2026-06-18
-      notes: "responsive command: Commands::Responsive + run_responsive + parse_widths/parse_formats/mime_for_format/responsive_quality/fit_width_params/build_picture_html + 14 tests; composition over resize fit + per-format sink, no new dep. Main-loop build — order-of-magnitude estimate recorded at ship."
+      notes: "main-loop, not separately metered (orchestrator design session)"
+    - cycle: build
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 150000
+      estimated_usd: 1.40
+      duration_minutes: null
+      recorded_at: 2026-06-18
+      notes: "ORDER-OF-MAGNITUDE estimate — main-loop build (not separately metered): Commands::Responsive + run_responsive + 6 helpers + 14 tests + gates (the largest STAGE-009 build). Opus 4.8 list rate ($5/$25 per MTok), ~80/20 in/out, no cache discount."
+    - cycle: verify
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 80000
+      estimated_usd: 0.75
+      duration_minutes: null
+      recorded_at: 2026-06-18
+      notes: "ORDER-OF-MAGNITUDE estimate — independent read-only Explore verify subagent (fit-by-width math + no-upscale/dedup/feature-gate review + gate runs). Opus list rate, ~80/20 in/out."
+    - cycle: ship
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-06-18
+      notes: "main-loop, not separately metered (merge + ship bookkeeping)"
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 230000
+    estimated_usd: 2.15
+    session_count: 4
 ---
 
 # SPEC-024: responsive — <picture>/srcset set generator
@@ -373,8 +397,19 @@ Written during **design**, BEFORE build.
 *Appended during the **ship** cycle. Outcome-focused.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Little. This was the largest STAGE-009 build yet still pure composition — a new
+   command + 6 small helpers + HTML string-building, no new dependency. The one design
+   gap (the `--out-dir` global-flag collision) was caught at build and resolved by
+   reusing the global flag; worth pre-checking the global arg set when adding any
+   fan-out command. The `fit W×BIG` width primitive worked exactly as designed.
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — No template/constraint change. DEC-026 captured the command shape, HTML-in-scope,
+   and the deferrals. Process note (already applied): index-verify before the ship
+   commit ([[verify-git-index-before-ship-commit]]) — and for a new fan-out command,
+   reuse the existing global `--out-dir`/`--format`/`-q` rather than declaring locals.
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — Three live follow-ups, none blocking: (a) **blurhash/thumbhash placeholder** for
+   `responsive` (needs a dep + DEC); (b) **perceptual / `--max-size` per-variant**
+   quality (route each variant through the STAGE-008 `resolve_effective_quality`);
+   (c) the **`diff` visual-diff heatmap** (DEC-025). The remaining un-started
+   STAGE-009 item is the **benchmark net** (criterion + hyperfine).

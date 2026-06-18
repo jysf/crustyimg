@@ -168,19 +168,21 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
   dimension-mismatch = exit 2. **DEC-025** (adds exit 7, reusable by the future EXIF
   audit-linter; defers the visual-diff heatmap). Pure reuse — no new dependency.
   10 tests (2 unit + 8 integration); 3-OS + feature CI green. Zero deviations.
-- [~] SPEC-024 (design) — **responsive `<picture>`/srcset set generator:** one
-  width-scaled variant per (width × format) written as `{stem}-{width}w.{ext}` +
-  a paste-ready `<picture>`/srcset snippet to stdout (`--no-snippet` to suppress).
-  Resizes by target width (the `fit` op), never upscaling, deduped by actual width;
-  `--formats` defaults to source, feature-gated codec → exit 4 up front. **DEC-026**
-  (HTML emission in-scope; blurhash / perceptual-per-variant / batch deferred).
-  No new dependency.
+- [x] SPEC-024 (shipped 2026-06-18, PR #27) — **responsive `<picture>`/srcset set
+  generator:** one width-scaled variant per (width × format) written as
+  `{stem}-{width}w.{ext}` + a paste-ready `<picture>`/srcset snippet to stdout
+  (`--no-snippet` to suppress). Resizes by target width (the `fit` op), never
+  upscaling, deduped by actual width; `--formats` defaults to source, feature-gated
+  codec → exit 4 up front. **DEC-026** (HTML emission in-scope; blurhash /
+  perceptual-per-variant / batch deferred). Pure composition — no new dependency.
+  14 tests (6 unit + 8 integration); 3-OS + feature CI green.
 - [ ] (not yet written) benchmark net — criterion micro-benches + hyperfine CLI
   wall-clock; equal-quality comparisons gated on SSIMULACRA2. The micro-net may
   land early as a `chore`.
 
-**Count:** 2 shipped / 1 active / 1+ pending  *(+ deferred follow-ups: a `diff`
-visual-diff heatmap per DEC-025, and a `responsive` blurhash placeholder per DEC-026)*
+**Count:** 3 shipped / 0 active / 1+ pending  *(remaining: the benchmark net; +
+deferred follow-ups: a `diff` visual-diff heatmap per DEC-025, a `responsive`
+blurhash placeholder + perceptual-per-variant per DEC-026)*
 
 ## Design Notes
 
