@@ -122,13 +122,14 @@ Format: `- [status] STAGE-ID — one-line summary`
 - [x] STAGE-001 (shipped on 2026-06-14) — Foundation: CI, image model, Operation trait, pipeline, recipe + source/sink (7 specs, PRs #1-#7)
 - [x] STAGE-002 (shipped on 2026-06-15) — View & info (read-only): `view`, `info` (+ `--exif`, `--json`) (2 specs, PRs #8-#9; DEC-013)
 - [x] STAGE-003 (shipped on 2026-06-15) — Transform & output: `resize`, `thumbnail`, `shrink`, `convert`, `auto-orient` (6 specs SPEC-010–015, PRs #11–#16; DEC-014/015/016/017)
-- [~] STAGE-008 (active) — **Modern formats & quality** (the differentiator wave): perceptual auto-quality (`shrink --target`/`--ssim` via SSIMULACRA2), `--max-size` byte budget, AVIF (feature-gated), WebP. *Re-prioritized 2026-06-16 to run here, right after STAGE-003 (Option B). Numeric id ≠ execution order — see the stage file's sequencing note.*
-- [ ] STAGE-004 (pending) — Compose & metadata: `watermark`; `strip`/`clean --gps`/`set`/`copy-metadata`
+- [x] STAGE-008 (shipped on 2026-06-17) — **Modern formats & quality** (the differentiator wave): perceptual auto-quality (`shrink --target`/`--ssim` via SSIMULACRA2), `--max-size` byte budget, AVIF (feature-gated), WebP (6 specs SPEC-016–021, PRs #18/#20–#24; DEC-019–023). *Re-prioritized 2026-06-16 to run right after STAGE-003 (Option B). Numeric id ≠ execution order.*
+- [x] STAGE-009 (shipped on 2026-06-18) — **Web-prep power & differentiator surface**: `optimize` (one-button), `diff` (SSIMULACRA2 + `--fail-under` CI gate), `responsive` (`<picture>`/srcset sets), criterion benchmark net (4 specs SPEC-022–025, PRs #25/#26/#27/#29; DEC-024–026/028). *Continued the differentiator wave; runs after STAGE-008. STAGE-004 picked up next.*
+- [ ] STAGE-004 (pending, NEXT) — Compose & metadata: `watermark`; `strip`/`clean --gps`/`set`/`copy-metadata`
 - [ ] STAGE-005 (pending) — Batch & recipes: `edit`, `--save-recipe`, `apply` (parallel + progress)
 - [ ] STAGE-006 (pending) — Hardening & security assessment: decode limits, traversal tests, cargo-audit in CI, recipe validation, threat-model pass
-- [ ] STAGE-007 (pending) — Release & distribution (MVP exit gate): Cargo metadata + CHANGELOG/tags, cargo-dist release pipeline, Homebrew tap, optional crates.io, README/install polish
+- [ ] STAGE-007 (pending) — Release & distribution (MVP exit gate): Cargo metadata + CHANGELOG/tags, cargo-dist release pipeline (full + lean artifacts, DEC-027), Homebrew tap, optional crates.io, README/install polish
 
-**Count:** 3 shipped / 1 active / 4 pending
+**Count:** 5 shipped / 0 active / 4 pending
 
 > **Roadmap re-prioritization (2026-06-16).** STAGE-008 (Modern formats &
 > quality) was inserted ahead of the originally-planned STAGE-004–007 as the

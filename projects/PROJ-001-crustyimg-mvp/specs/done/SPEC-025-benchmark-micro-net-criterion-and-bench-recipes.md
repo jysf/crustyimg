@@ -7,7 +7,7 @@
 task:
   id: SPEC-025
   type: chore                      # epic | story | task | bug | chore
-  cycle: build  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: medium
   complexity: S                    # S | M | L
@@ -35,18 +35,42 @@ value_link: "Delivers STAGE-009's credibility leg — a cheap criterion regressi
 
 cost:
   sessions:
-    - cycle: build
+    - cycle: design
       agent: claude-opus-4-8
       interface: claude-code
-      tokens_total: null      # main-loop build (orchestrator-direct); orchestrator fills at ship
+      tokens_total: null
       estimated_usd: null
       duration_minutes: null
       recorded_at: 2026-06-18
-      notes: "criterion micro-net: benches/pipeline.rs (5 groups) + [[bench]] + criterion dev-dep + just bench/bench-cli; no shipped-code change. Main-loop build — order-of-magnitude estimate recorded at ship."
+      notes: "main-loop, not separately metered (orchestrator design session)"
+    - cycle: build
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 90000
+      estimated_usd: 0.85
+      duration_minutes: null
+      recorded_at: 2026-06-18
+      notes: "ORDER-OF-MAGNITUDE estimate — main-loop build (not separately metered): criterion dev-dep + benches/pipeline.rs (5 groups) + [[bench]] + just bench/bench-cli + gates. Small infra spec. Opus 4.8 list rate ($5/$25 per MTok), ~80/20 in/out."
+    - cycle: verify
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 50000
+      estimated_usd: 0.45
+      duration_minutes: null
+      recorded_at: 2026-06-18
+      notes: "ORDER-OF-MAGNITUDE estimate — independent read-only Explore verify subagent (spec alignment + no-shipped-code-impact + gate runs). Opus list rate, ~80/20 in/out."
+    - cycle: ship
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-06-18
+      notes: "main-loop, not separately metered (merge + ship bookkeeping)"
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 140000
+    estimated_usd: 1.30
+    session_count: 4
 ---
 
 # SPEC-025: benchmark micro-net (criterion) + `just bench` / `just bench-cli`
@@ -270,8 +294,16 @@ fabricate unit tests for the bench harness.
 *Appended during the **ship** cycle. Outcome-focused.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Nothing. Smallest spec of the stage and entirely dev-side; the value is the
+   regression net + the first real numbers (SSIMULACRA2 ~9.8ms vs sub-ms codec paths),
+   which immediately validated where the cost lives. The infra-spec shape (no
+   `## Failing Tests`; verify = `cargo bench --no-run` + `just bench`) worked cleanly
+   and is a good template for future tooling chores.
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — No. DEC-028 holds. Reusable fact confirmed: a bench is a separate crate that can
+   use the package's **normal** deps (image, toml) plus dev-deps — no duplication.
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — The benchmark roadmap's later steps, all deferred per DEC-028: CI bench trend
+   tracking (github-action-benchmark / CodSpeed), cross-tool `bench-compare` +
+   quality-per-byte tables, and `BENCHMARKS.md` publication. None blocking; they're
+   a PROJ-002 "proof & polish" cluster.

@@ -5,7 +5,7 @@
 
 stage:
   id: STAGE-009                     # stable, zero-padded within the project
-  status: active                    # proposed | active | shipped | cancelled | on_hold
+  status: shipped                   # proposed | active | shipped | cancelled | on_hold  (shipped 2026-06-18)
   priority: high                    # critical | high | medium | low
   target_complete: null             # optional: YYYY-MM-DD
 
@@ -15,7 +15,7 @@ repo:
   id: crustyimg
 
 created_at: 2026-06-17
-shipped_at: null
+shipped_at: 2026-06-18
 
 # What part of the project's value thesis this stage advances.
 # If you can't articulate value_contribution, the stage may be
@@ -176,17 +176,18 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
   codec → exit 4 up front. **DEC-026** (HTML emission in-scope; blurhash /
   perceptual-per-variant / batch deferred). Pure composition — no new dependency.
   14 tests (6 unit + 8 integration); 3-OS + feature CI green.
-- [~] SPEC-025 (design) — **benchmark micro-net (chore):** `criterion` micro-benches
-  over the hot paths (decode/resize/encode/score/pipeline) via `just bench`, + a
-  `just bench-cli` hyperfine wrapper. Dev-dependency only, no shipped-binary impact.
-  **DEC-028** (criterion + the equal-quality principle: every size/speed claim gated
-  on SSIMULACRA2). Cross-tool comparison, quality-per-byte, `BENCHMARKS.md`, and CI
-  bench tracking deferred to later specs.
+- [x] SPEC-025 (shipped 2026-06-18, PR #29) — **benchmark micro-net (chore):**
+  `criterion` micro-benches over the hot paths (decode/resize/encode/score/pipeline)
+  via `just bench`, + a `just bench-cli` hyperfine wrapper. Dev-dependency only, no
+  shipped-binary impact. **DEC-028** (criterion + the equal-quality principle: every
+  size/speed claim gated on SSIMULACRA2). First numbers: score ~9.8ms ≫ codec paths
+  (sub-ms). Cross-tool comparison, quality-per-byte, `BENCHMARKS.md`, and CI bench
+  tracking deferred to later specs.
 
-**Count:** 3 shipped / 1 active / 0 core pending  *(deferred follow-ups: a `diff`
-visual-diff heatmap per DEC-025; a `responsive` blurhash placeholder +
-perceptual-per-variant per DEC-026; and the later benchmark steps — cross-tool,
-quality-per-byte, BENCHMARKS.md, CI bench tracking — per DEC-028)*
+**Count:** 4 shipped / 0 active / 0 pending — **STAGE-009 COMPLETE**  *(deferred
+follow-ups, none blocking: a `diff` visual-diff heatmap per DEC-025; a `responsive`
+blurhash placeholder + perceptual-per-variant per DEC-026; and the later benchmark
+steps — cross-tool, quality-per-byte, BENCHMARKS.md, CI bench tracking — per DEC-028)*
 
 ## Design Notes
 
@@ -234,12 +235,38 @@ quality-per-byte, BENCHMARKS.md, CI bench tracking — per DEC-028)*
 
 ## Stage-Level Reflection
 
-*Filled in when status moves to shipped. Run the Stage Ship prompt to draft this.*
+*Filled at stage ship, 2026-06-18.*
 
-- **Did we deliver the outcome in "What This Stage Is"?** <yes/no + notes>
-- **How many specs did it actually take?** <number vs. plan>
-- **What changed between starting and shipping?** <one sentence>
+- **Did we deliver the outcome in "What This Stage Is"?** **Yes.** The STAGE-008
+  engine is now a legible, verifiable, deliverable surface: `optimize` (one-button
+  auto-orient + strip + perceptual visually-lossless, SPEC-022/DEC-024), `diff`
+  (SSIMULACRA2 score + a `--fail-under` CI gate on the new exit code 7,
+  SPEC-023/DEC-025), `responsive` (`<picture>`/srcset width×format set generator,
+  SPEC-024/DEC-026), and a `criterion` benchmark micro-net (SPEC-025/DEC-028). The
+  moat is no longer just an engine — it's a command you run and a number you can trust.
+- **How many specs did it actually take?** **4 specs** (SPEC-022→025), all shipped,
+  matching the plan (optimize → diff → responsive → benchmarks). Each was almost
+  pure composition of the shipped `src/quality` + `src/cli` seams — **zero new
+  runtime dependencies** across the whole stage (criterion is dev-only); the only
+  net-new code was HTML string-building (responsive) and the bench harness.
+- **What changed between starting and shipping?** Two scope refinements landed mid-
+  stage: a mid-stage **display-default flip** (DEC-027) — unrelated to the four specs
+  but surfaced here — and a string of **deliberate deferrals** (diff heatmap,
+  responsive blurhash/perceptual-per-variant, the later benchmark steps) that kept
+  each spec a clean, shippable v1.
 - **Lessons that should update AGENTS.md, templates, or constraints?**
-  - <one-line updates>
+  - **Index-verify before every ship commit.** Editor/linter file-state churn dropped
+    cost edits from two ship commits (SPEC-022/023), turning main's cost-audit red
+    once. Standing fix: re-`git add` after `git mv`, verify `git show :<file>` (the
+    index) AND `HEAD`, and confirm the cost-capture job is green on the main CI run.
+  - **New fan-out commands reuse the global flags** (`--out-dir`/`--format`/`-q`) —
+    declaring locals collides (the SPEC-024 `--out-dir` lesson).
+  - **The infra-spec shape** (no `## Failing Tests`; verify = `cargo bench --no-run` +
+    `just bench`) is a good template for future tooling chores (SPEC-025).
 - **Should any spec-level reflections be promoted to stage-level lessons?**
-  - <one-line items>
+  - The **~96px SSIMULACRA2 floor**: any path that downscales before perceptually
+    scoring must keep the scored image ≥ ~96px (recurred across optimize/diff/
+    responsive). Worth keeping in mind for the deferred perceptual-per-variant work.
+  - The **composition pattern** — clap variant + thin `run_*` handler delegating to
+    `run_pixel_op`/the shipped seams — is how this whole stage stayed dependency-free;
+    keep it as the default for new commands.
