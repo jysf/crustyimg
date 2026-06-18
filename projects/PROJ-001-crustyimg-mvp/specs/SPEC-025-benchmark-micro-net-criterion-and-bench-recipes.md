@@ -7,7 +7,7 @@
 task:
   id: SPEC-025
   type: chore                      # epic | story | task | bug | chore
-  cycle: design                    # frame | design | build | verify | ship
+  cycle: build  # frame | design | build | verify | ship
   blocked: false
   priority: medium
   complexity: S                    # S | M | L
@@ -34,7 +34,15 @@ references:
 value_link: "Delivers STAGE-009's credibility leg — a cheap criterion regression net for the resize/encode/decode/score/pipeline hot paths, and the equal-quality basis every future size/speed claim must rest on."
 
 cost:
-  sessions: []
+  sessions:
+    - cycle: build
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null      # main-loop build (orchestrator-direct); orchestrator fills at ship
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-06-18
+      notes: "criterion micro-net: benches/pipeline.rs (5 groups) + [[bench]] + criterion dev-dep + just bench/bench-cli; no shipped-code change. Main-loop build — order-of-magnitude estimate recorded at ship."
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -219,24 +227,41 @@ fabricate unit tests for the bench harness.
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
+- **Branch:** `feat/spec-025-bench`
+- **PR (if applicable):** (opened during build; number recorded in the timeline)
+- **All acceptance criteria met?** yes — `cargo bench --no-run` compiles the
+  `pipeline` target; `just bench` runs and reports all five groups (measured:
+  decode ~128µs, resize ~163µs, encode_jpeg ~340µs, score ~9.8ms, pipeline ~399µs);
+  `criterion =0.8.2` pinned dev-dep with `[[bench]] harness = false`; default +
+  `--no-default-features` builds/tests, `clippy --all-targets`, `fmt --check`, and
+  `cargo deny check licenses` all stay green (no exception needed for criterion).
 - **New decisions emitted:**
   - `DEC-028` — criterion micro-benches + equal-quality benchmarking principle
-- **Deviations from spec:**
-  - [list]
+    *(authored during design, on `main`)*
+- **Deviations from spec:** none. Infrastructure only — no shipped-code change, no
+  library API change. Used five `bench_function` calls (named decode/resize/
+  encode_jpeg/score/pipeline) in one `criterion_group!` rather than nested groups;
+  `std::hint::black_box` for the loop barriers.
 - **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - CI bench trend tracking (github-action-benchmark / CodSpeed) — deferred (DEC-028).
+  - Cross-tool `bench-compare` + quality-per-byte tables + `BENCHMARKS.md` — later
+    roadmap steps (DEC-028); the `score` bench already shows SSIMULACRA2 (~9.8ms) is
+    the dominant cost, which is the equal-quality basis those will build on.
 
 ### Build-phase reflection (3 questions, short answers)
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — Nothing. The spec pinned the groups, the Cargo.toml `[[bench]]` block, the
+   justfile recipes, and the public APIs; the note that normal deps (`image`/`toml`)
+   are available to bench targets removed the one real uncertainty.
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — No. DEC-028 covered the dep + methodology. Confirmed the useful fact for future
+   bench/test work: a bench is a separate crate that can use the crate's **normal**
+   deps (image, toml) plus dev-deps — no need to duplicate them.
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Nothing of substance. `cargo bench` runs the full ~40s suite; if iteration speed
+   matters later, a `just bench` could pass a shorter measurement time, but the full
+   run is the honest default.
 
 ---
 

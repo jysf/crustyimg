@@ -54,6 +54,18 @@ test:
 test-one NAME:
     cargo test {{NAME}}
 
+# Run the criterion micro-benchmarks: decode/resize/encode/score/pipeline
+# (SPEC-025, DEC-028). Dev-only — not part of the shipped binary.
+bench:
+    cargo bench
+
+# Wall-clock the release binary with hyperfine. Skips cleanly (exit 0) if hyperfine
+# is not installed. Usage: just bench-cli shrink photo.jpg --max 800 -o /tmp/o.jpg
+bench-cli *ARGS:
+    @command -v hyperfine >/dev/null 2>&1 || { echo "hyperfine not installed; skipping (brew install hyperfine)"; exit 0; }
+    cargo build --release
+    hyperfine --warmup 2 './target/release/crustyimg {{ARGS}}'
+
 # Lint with clippy, warnings as errors (the CI gate, AGENTS §6)
 lint:
     cargo clippy -- -D warnings
