@@ -66,6 +66,13 @@ real (STAGE-002..005) and the untrusted-input surfaces are hardened
 - Homebrew tap + formula (mirror the bragfile000 approach).
 - Optional `cargo publish` to crates.io (after confirming the name is free).
 - README install/usage polish; shell completions (+ optional man page).
+- **Dual release artifacts (decide here):** the default full binary ships with
+  `view` (display on by default, DEC-027) for desktop users; ALSO publish a **lean
+  / headless artifact** built `--no-default-features` (no viuer tree, smaller, for
+  CI/servers — the "CI tool that doesn't need view"). The `--no-default-features`
+  build path + its CI `lean` job already exist (DEC-027), so this is a packaging
+  choice, not new code. Decide artifact names (e.g. `crustyimg` vs
+  `crustyimg-headless`) + which channels get which.
 
 ### Explicitly out of scope
 - New image operations/commands; security hardening (STAGE-006).
@@ -81,8 +88,9 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 - [ ] (not yet written) — Homebrew tap + formula (jysf/homebrew-tap), install-from-tap verified
 - [ ] (not yet written) — crates.io publish (`cargo publish`), optional, after name check
 - [ ] (not yet written) — README install/usage rewrite + shell completions (clap-generated) + optional man page
+- [ ] (not yet written) — dual artifacts: publish a lean `--no-default-features` (headless, no-`view`) build alongside the default full binary; pick artifact names + channels (DEC-027 made this a packaging choice, not new code). Future option: actually fork `view` into a separate `crustyimg-view` crate/bin (a later PROJ — only if a real headless/desktop split emerges).
 
-**Count:** 0 shipped / 0 active / 6 pending
+**Count:** 0 shipped / 0 active / 7 pending
 
 ## Design Notes
 
