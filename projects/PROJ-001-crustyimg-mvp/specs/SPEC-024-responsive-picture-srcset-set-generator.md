@@ -7,7 +7,7 @@
 task:
   id: SPEC-024
   type: story                      # epic | story | task | bug | chore
-  cycle: design                    # frame | design | build | verify | ship
+  cycle: build  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: M                    # S | M | L  (L means split it) — M, upper end
@@ -37,7 +37,15 @@ references:
 value_link: "Delivers STAGE-009's web-delivery surface — the responsive <picture>/srcset set a web developer actually ships, generated in one command from the modern-format engine."
 
 cost:
-  sessions: []
+  sessions:
+    - cycle: build
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null      # main-loop build (orchestrator-direct); orchestrator fills at ship
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-06-18
+      notes: "responsive command: Commands::Responsive + run_responsive + parse_widths/parse_formats/mime_for_format/responsive_quality/fit_width_params/build_picture_html + 14 tests; composition over resize fit + per-format sink, no new dep. Main-loop build — order-of-magnitude estimate recorded at ship."
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -320,24 +328,43 @@ Written during **design**, BEFORE build.
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
+- **Branch:** `feat/spec-024-responsive`
+- **PR (if applicable):** (opened during build; number recorded in the timeline)
+- **All acceptance criteria met?** yes — all covered by the 14 new tests (6 unit + 8
+  integration); `cargo build`, `cargo fmt --check`, `cargo clippy --all-targets -- -D
+  warnings`, `cargo test` (0 failed), and `cargo deny check licenses` all green.
 - **New decisions emitted:**
-  - `DEC-026` — responsive command + HTML emission (scope + deferrals)
+  - `DEC-026` — responsive command + HTML emission (scope + deferrals) *(authored
+    during design, on `main`)*
 - **Deviations from spec:**
-  - [list]
+  - **`--out-dir` is the existing GLOBAL flag**, not a new `Responsive`-local arg
+    (the global `--out-dir` already exists and is the established fan-out output
+    mechanism; adding a local one would collide). `run_responsive` reads
+    `global.out_dir` and errors if absent. The unit test asserts `cli.global.out_dir`
+    accordingly. Behavior matches the spec; only the arg's home differs.
+  - Otherwise none: built to the pinned command surface, variant-generation, and HTML
+    rules. Pure composition (resize `fit` op + per-format sink + decode-once); no new
+    dependency, no change to `src/quality`/`src/sink`.
 - **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - **blurhash/thumbhash placeholder** (needs a dep + DEC) — deferred per DEC-026.
+  - **Perceptual / `--max-size` per-variant** quality — route each variant through
+    `resolve_effective_quality` (the STAGE-008 engine) instead of fixed quality.
+  - A `sizes` attribute / art-direction `<source media>` — when users ask.
 
 ### Build-phase reflection (3 questions, short answers)
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — Only the `--out-dir` collision with the global flag, which the spec didn't call
+   out; reusing the global flag was the obvious resolution (noted as a deviation).
+   The `fit W×BIG` width primitive and the no-upscale/dedup rules were pinned
+   precisely, so the variant loop was mechanical.
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — No. DEC-026 + DEC-008/015/016/004/002 covered it. Worth noting for future
+   commands: global `--out-dir`/`--format`/`-q` already exist, so a new fan-out
+   command should reuse them rather than declaring locals (clap rejects the dup).
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Nothing of substance. `build_picture_html` is a pure fn and was easy to unit-test
+   independently of disk I/O — a good pattern to keep for the future HTML/JSON emitters.
 
 ---
 
