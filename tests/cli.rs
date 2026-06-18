@@ -3210,6 +3210,98 @@ fn shrink_unreachable_target_warns_best_effort() {
     );
 }
 
+// ── SPEC-021: --max-size dimension-reduction fallback ───────────────────────────
+
+/// `convert <big detailed png> --format png --max-size 8KB` DOWNSCALES to fit —
+/// lossless PNG has no quality knob, so dimensions are the only lever (the new
+/// capability). Output is PNG, ≤ the budget, smaller than the source, and warns.
+#[test]
+fn convert_png_max_size_downscales() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let in_path = write_bytes(&dir, "in.png", &common::detailed_png(256, 256));
+    let out_path = dir.path().join("out.png");
+
+    let output = Command::new(BIN)
+        .args([
+            "convert",
+            in_path.to_str().unwrap(),
+            "--format",
+            "png",
+            "--max-size",
+            "8KB",
+            "-o",
+            out_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run convert --format png --max-size 8KB");
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "lossless --max-size should exit 0; stderr: {}",
+        stderr_str(&output)
+    );
+    let bytes = std::fs::read(&out_path).expect("PNG output file");
+    assert_eq!(
+        image::guess_format(&bytes).expect("guess format"),
+        ImageFormat::Png,
+        "output should be PNG"
+    );
+    assert!(
+        bytes.len() <= 8000,
+        "PNG output should fit the 8KB budget, got {} bytes",
+        bytes.len()
+    );
+    let decoded = image::load_from_memory(&bytes).expect("decode png");
+    assert!(
+        decoded.width() < 256 && decoded.height() < 256,
+        "output should be downscaled from 256x256, got {}x{}",
+        decoded.width(),
+        decoded.height()
+    );
+    assert!(
+        stderr_str(&output).contains("scal"),
+        "a downscale should warn; stderr: {}",
+        stderr_str(&output)
+    );
+}
+
+/// A budget the full-size output already fits → no downscale (dimensions kept).
+#[test]
+fn max_size_keeps_dims_when_it_fits() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let in_path = write_test_png(&dir, "in.png", 32, 32);
+    let out_path = dir.path().join("out.png");
+
+    let output = Command::new(BIN)
+        .args([
+            "convert",
+            in_path.to_str().unwrap(),
+            "--format",
+            "png",
+            "--max-size",
+            "1MB",
+            "-o",
+            out_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run convert --format png --max-size 1MB");
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "feasible --max-size should exit 0; stderr: {}",
+        stderr_str(&output)
+    );
+    let bytes = std::fs::read(&out_path).expect("PNG output file");
+    let decoded = image::load_from_memory(&bytes).expect("decode png");
+    assert_eq!(
+        (decoded.width(), decoded.height()),
+        (32, 32),
+        "a met budget must not resize"
+    );
+}
+
 // ── SPEC-017: --max-size byte budget (shrink + convert) ────────────────────────
 
 /// `shrink --max-size <feasible>` produces a JPEG within the budget.
@@ -3396,9 +3488,11 @@ fn shrink_max_size_infeasible_warns() {
     );
 }
 
-/// `--max-size` on a lossless (PNG) output warns and leaves it at encoder default.
+/// `--max-size` on a lossless (PNG) output now DOWNSCALES to fit (SPEC-021,
+/// DEC-023) — previously it warned and left the image at full size. With a tiny
+/// budget the 120x120 source is scaled down; output stays PNG and exits 0.
 #[test]
-fn shrink_max_size_non_jpeg_warns() {
+fn shrink_max_size_lossless_downscales() {
     let dir = tempfile::tempdir().expect("tempdir");
     let in_path = write_bytes(&dir, "in.png", &common::detailed_png(120, 120));
     let out_path = dir.path().join("out.png");
@@ -3425,10 +3519,18 @@ fn shrink_max_size_non_jpeg_warns() {
         ImageFormat::Png,
         "output should still be PNG"
     );
+    // A 120x120 detailed PNG is far over 1KB, so the fallback must downscale it.
+    let decoded = image::load_from_memory(&bytes).expect("decode png");
+    assert!(
+        decoded.width() < 120 && decoded.height() < 120,
+        "lossless --max-size should downscale (got {}x{})",
+        decoded.width(),
+        decoded.height()
+    );
     let err = stderr_str(&output).to_lowercase();
     assert!(
-        err.contains("lossy") || err.contains("lossless") || err.contains("max-size"),
-        "expected a lossless-format warning, got: {}",
+        err.contains("scal") || err.contains("budget"),
+        "expected a scaled/budget warning, got: {}",
         stderr_str(&output)
     );
 }

@@ -1098,7 +1098,16 @@ fn fmt_bytes(n: u64) -> String {
     }
 }
 
-/// Resolve the effective encode quality for ONE output (SPEC-016 / SPEC-017).
+/// The encode plan for ONE output: the quality to write at, and an optional
+/// replacement image when `--max-size` had to downscale the dimensions to fit the
+/// byte budget (SPEC-021, DEC-023). `image: None` means write the pipeline's output
+/// unchanged; `Some(_)` means write these (smaller) pixels instead.
+struct EncodePlan {
+    quality: Option<u8>,
+    image: Option<Image>,
+}
+
+/// Resolve the effective encode plan for ONE output (SPEC-016 / SPEC-017 / SPEC-021).
 ///
 /// - No `auto` mode → return the fixed `quality` unchanged (today's behavior).
 /// - `Perceptual` + a perceptually-scorable format → run the SSIMULACRA2 search;
@@ -1125,9 +1134,9 @@ fn resolve_effective_quality(
     out_img: &Image,
     global: &GlobalArgs,
     label: &str,
-) -> Result<Option<u8>, CliError> {
-    let supports_lossy = fmt.supports_lossy_quality();
+) -> Result<EncodePlan, CliError> {
     let supports_perceptual = fmt.supports_perceptual_quality();
+    let supports_lossy = fmt.supports_lossy_quality();
     match auto {
         Some(AutoQuality::Perceptual(cfg)) if supports_perceptual => {
             let choice = quality::auto_quality(out_img.pixels(), fmt, cfg)?;
@@ -1138,28 +1147,47 @@ fn resolve_effective_quality(
                     choice.quality
                 );
             }
-            Ok(Some(choice.quality))
+            Ok(EncodePlan {
+                quality: Some(choice.quality),
+                image: None,
+            })
         }
-        Some(AutoQuality::SizeBudget(budget)) if supports_lossy => {
-            let choice = quality::auto_under_size(out_img.pixels(), fmt, *budget)?;
-            if !choice.met_target && !global.quiet {
-                // `choice.score` carries the achieved smallest size; guard the rare
-                // case where the search returns a fallback whose metric is unknown
-                // (NaN) so the message never reads a bogus "0 B".
-                let smallest = if choice.score.is_finite() {
-                    fmt_bytes(choice.score as u64)
-                } else {
-                    "the smallest available size".to_owned()
-                };
-                eprintln!(
-                    "warning: {label}: could not meet the {} budget (smallest is {} at \
-                     quality {}); dimension reduction not yet supported",
-                    fmt_bytes(*budget),
-                    smallest,
-                    choice.quality
-                );
+        // Byte budget — works for ANY output format now (SPEC-021, DEC-023): for a
+        // lossy format the quality search runs at full size first and only downscales
+        // if even min quality overflows; for a lossless format (PNG, lossless WebP)
+        // it is a pure scale search. A chosen downscale is threaded back as a
+        // replacement image and the user is warned (unless --quiet).
+        Some(AutoQuality::SizeBudget(budget)) => {
+            let fit = quality::fit_under_size(out_img.pixels(), fmt, *budget)?;
+            let image = fit
+                .image
+                .map(|pixels| Image::from_parts(pixels, out_img.source_format(), None));
+            if !global.quiet {
+                if !fit.met_budget {
+                    let smallest = if fit.bytes > 0 {
+                        fmt_bytes(fit.bytes)
+                    } else {
+                        "the smallest available size".to_owned()
+                    };
+                    eprintln!(
+                        "warning: {label}: could not meet the {} budget even at the \
+                         smallest size (best effort {})",
+                        fmt_bytes(*budget),
+                        smallest
+                    );
+                } else if let Some(img) = image.as_ref() {
+                    eprintln!(
+                        "warning: {label}: scaled to {}x{} to fit the {} budget",
+                        img.width(),
+                        img.height(),
+                        fmt_bytes(*budget)
+                    );
+                }
             }
-            Ok(Some(choice.quality))
+            Ok(EncodePlan {
+                quality: fit.quality,
+                image,
+            })
         }
         // Perceptual target on a format with a knob but no decoder (AVIF): the
         // SSIMULACRA2 search must decode each candidate to score it, and AVIF
@@ -1175,23 +1203,20 @@ fn resolve_effective_quality(
                     format_label(fmt)
                 );
             }
-            Ok(None)
-        }
-        // Format without a quality knob: no byte-budget search applies.
-        Some(AutoQuality::SizeBudget(_)) => {
-            if !global.quiet {
-                eprintln!(
-                    "warning: {label}: --max-size needs a lossy-quality output \
-                     format (e.g. JPEG, or AVIF with --features avif); {} was left \
-                     at encoder default",
-                    format_label(fmt)
-                );
-            }
-            Ok(None)
+            Ok(EncodePlan {
+                quality: None,
+                image: None,
+            })
         }
         // Format without a quality knob: perceptual target ignored (encoder default).
-        Some(AutoQuality::Perceptual(_)) => Ok(None),
-        None => Ok(quality),
+        Some(AutoQuality::Perceptual(_)) => Ok(EncodePlan {
+            quality: None,
+            image: None,
+        }),
+        None => Ok(EncodePlan {
+            quality,
+            image: None,
+        }),
     }
 }
 
@@ -1291,18 +1316,19 @@ fn run_pixel_op(
             .path()
             .map(|p| p.display().to_string())
             .unwrap_or_else(|| input.stem().to_owned());
-        let effective_quality =
-            resolve_effective_quality(quality, &auto, fmt, &out_img, global, &label)?;
+        let plan = resolve_effective_quality(quality, &auto, fmt, &out_img, global, &label)?;
+        // A `--max-size` downscale (SPEC-021) replaces the pixels we write.
+        let write_img = plan.image.as_ref().unwrap_or(&out_img);
 
         let sink_input = SinkInput {
             stem: input.stem(),
             path: input.path(),
         };
         sink.write(
-            &out_img,
+            write_img,
             &sink_input,
             overwrite,
-            effective_quality,
+            plan.quality,
             &mut std::io::stdout().lock(),
         )?;
     } else {
@@ -1348,20 +1374,21 @@ fn run_pixel_op(
                     format: Some(fmt),
                 };
 
-                // Per-input effective quality (auto-quality search for JPEG, else
-                // fixed). A scoring failure here is a per-input failure → exit 6.
-                let effective_quality =
+                // Per-input effective plan (auto-quality search + optional
+                // `--max-size` downscale). A failure here is per-input → exit 6.
+                let plan =
                     resolve_effective_quality(quality, &auto, fmt, &out_img, global, &label)?;
+                let write_img = plan.image.as_ref().unwrap_or(&out_img);
 
                 let sink_input = SinkInput {
                     stem: input.stem(),
                     path: input.path(),
                 };
                 sink.write(
-                    &out_img,
+                    write_img,
                     &sink_input,
                     overwrite,
-                    effective_quality,
+                    plan.quality,
                     &mut std::io::stdout().lock(),
                 )?;
                 Ok(())

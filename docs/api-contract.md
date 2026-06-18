@@ -138,15 +138,20 @@ target is unreachable even at quality 100, `shrink` emits the highest-quality en
 (best-effort). A scoring failure (e.g. a pathologically tiny image) is a typed error
 (single-input exit **1**; one input in a batch → exit **6**).
 
-**Byte budget** (SPEC-017): `--max-size <SIZE>` (e.g. `200KB`, `1.5MB`, `200000`,
-`64KiB`) auto-tunes the **JPEG** quality to the **highest** quality whose encoded
-output is ≤ the budget (the perceptual search inverted; capped, in-memory). Units
-are decimal (`KB`=1000, `MB`=1e6); `KiB`/`MiB` are binary. Mutually exclusive with
-`--target`/`--ssim`/`-q` (combined → exit **2**; a malformed size → exit **2**). If
-even minimum quality exceeds the budget, `shrink` emits the smallest encode
-(best-effort) and warns (dimension reduction is a future follow-up). For a
-**non-JPEG** output the budget is **ignored** (encoder default) with a warning that
-it needs a lossy format.
+**Byte budget** (SPEC-017 + SPEC-021): `--max-size <SIZE>` (e.g. `200KB`, `1.5MB`,
+`200000`, `64KiB`) fits the output under the budget. For a **lossy** target
+(JPEG; AVIF/WebP with their features) it first auto-tunes the quality to the
+**highest** quality whose encoded output is ≤ the budget (the perceptual search
+inverted; capped, in-memory). Units are decimal (`KB`=1000, `MB`=1e6); `KiB`/`MiB`
+are binary. Mutually exclusive with `--target`/`--ssim`/`-q` (combined → exit **2**;
+a malformed size → exit **2**). **Dimension-reduction fallback (SPEC-021, DEC-023):**
+when lowering quality alone cannot meet the budget — or for a **lossless** output
+(PNG, lossless WebP, …) which has no quality knob — the output is **progressively
+downscaled** until it fits; a downscale prints a `scaled to WxH` warning (unless
+`--quiet`). So `--max-size` now works for **every** output format and for very small
+budgets; the result is the largest image that fits. If even the smallest size
+doesn't fit, the best-effort smallest is written with a warning. A budget already met
+at full size never resizes.
 
 Optimize-for-web: resize to a default long-edge bound + a real quality-aware
 encode + drop metadata. The headline web-prep command. `--max` defaults to
@@ -190,13 +195,15 @@ quality knob: a WebP output is encoded **lossy** when a quality is set — an ex
 `-q`, or one chosen by `--max-size`/`--target`/`--ssim` — and stays **lossless** for a
 bare `convert --format webp`. (Because the WebP decoder ships by default, BOTH the
 byte-budget AND the perceptual searches drive WebP — the AVIF contrast.) `--max-size
-<SIZE>` (SPEC-017) auto-tunes the quality to fit a byte budget for any **lossy-quality
-target** — **JPEG**, **AVIF** (`--features avif`), or **WebP** (`--features webp-lossy`)
-(mutually exclusive with `-q` → exit 2; a target with no quality knob ignores it
-with a warning); see `shrink` for the size-unit and best-effort semantics. (The
-perceptual `--target`/`--ssim` auto-quality is `shrink`-only and, for AVIF, falls
-back to the encoder default with a warning because it needs an AVIF decoder — use
-`--max-size` for an AVIF byte budget.)
+<SIZE>` (SPEC-017 + SPEC-021) fits the output under a byte budget for **every**
+format: a lossy target (**JPEG**, **AVIF** `--features avif`, **WebP**
+`--features webp-lossy`) lowers quality first, and any target — lossy that still
+overflows, or a **lossless** one (PNG, lossless WebP) — then **downscales dimensions**
+until it fits (DEC-023), warning `scaled to WxH` (unless `--quiet`). Mutually
+exclusive with `-q` → exit 2; see `shrink` for the size-unit and best-effort
+semantics. (The perceptual `--target`/`--ssim` auto-quality is `shrink`-only and, for
+AVIF, falls back to the encoder default with a warning because it needs an AVIF
+decoder — use `--max-size` for an AVIF byte budget.)
 
 #### `auto-orient <INPUT...>`  *(S3)*
 Apply the EXIF orientation to pixels, then clear the tag — fixes the most common
