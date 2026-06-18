@@ -7,7 +7,7 @@
 task:
   id: SPEC-023
   type: story                      # epic | story | task | bug | chore
-  cycle: build                     # frame | design | build | verify | ship
+  cycle: ship                      # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: S                    # S | M | L  (L means split it)
@@ -36,18 +36,42 @@ value_link: "Delivers STAGE-009's verification surface — a perceptual SSIMULAC
 
 cost:
   sessions:
+    - cycle: design
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-06-17
+      notes: "main-loop, not separately metered (orchestrator design session)"
     - cycle: build
       agent: claude-opus-4-8
       interface: claude-code
-      tokens_total: null      # main-loop build (orchestrator-direct); orchestrator fills at ship
+      tokens_total: 120000
+      estimated_usd: 1.10
+      duration_minutes: null
+      recorded_at: 2026-06-18
+      notes: "ORDER-OF-MAGNITUDE estimate — main-loop build (not separately metered): CheckFailed exit-7 + Commands::Diff + run_diff/diff_passes/write_diff_json + 10 tests + gates. Smaller than SPEC-022 (pure reuse, codebase already in context). Opus 4.8 list rate ($5/$25 per MTok), ~80/20 in/out, no cache discount."
+    - cycle: verify
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 70000
+      estimated_usd: 0.65
+      duration_minutes: null
+      recorded_at: 2026-06-18
+      notes: "ORDER-OF-MAGNITUDE estimate — independent read-only Explore verify subagent (exit-7 contract consistency + test coverage + gate runs). Opus list rate, ~80/20 in/out."
+    - cycle: ship
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
       estimated_usd: null
       duration_minutes: null
       recorded_at: 2026-06-18
-      notes: "diff command: CheckFailed exit-7 variant + Commands::Diff + run_diff/diff_passes/write_diff_json + 10 tests; pure reuse of quality::score, no new dep. Main-loop build — order-of-magnitude estimate recorded at ship."
+      notes: "main-loop, not separately metered (merge + ship bookkeeping)"
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 190000
+    estimated_usd: 1.75
+    session_count: 4
 ---
 
 # SPEC-023: diff — perceptual comparison + CI gate
@@ -366,8 +390,20 @@ Written during **design**, BEFORE build.
 *Appended during the **ship** cycle. Outcome-focused.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — The build was clean; the friction was in *ship bookkeeping*, not the code.
+   The SPEC-022 ship commit silently dropped the cost edits (editor/linter
+   file-state churn) and turned main's cost-audit red. For SPEC-023 I verified the
+   git **index** content before every commit (`git show :<file>`) and re-ran
+   `just cost-audit` against the staged tree — that safeguard should be the default
+   for all ship commits going forward.
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — No template/constraint change. DEC-025 cleanly added exit code 7 and the
+   command shape. Process note worth promoting to AGENTS.md: **stage → verify the
+   index → commit → verify HEAD** for ship bookkeeping, because the cost-audit gate
+   only catches a missing-cost spec *after* it lands on main (there's no PR/CI
+   pre-check for a direct-to-main ship commit).
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — Yes: the deferred **visual-diff heatmap** (a highlighted pixel-diff image
+   written to a file), per DEC-025 — the "visual" half of `diff`. It's the next
+   natural `diff` increment but does not block the remaining STAGE-009 specs
+   (responsive sets, benchmark net).

@@ -161,12 +161,13 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
   `src/quality`/`src/sink`. **DEC-024** (defaults + deferral of cross-format
   auto-negotiation, which needs AVIF decode). 16 tests (6 unit + 10 integration);
   3-OS + feature CI green. Build had zero deviations from the spec.
-- [~] SPEC-023 (design) — **`diff` perceptual comparison + CI gate:** prints the
-  SSIMULACRA2 score of `<b>` vs `<a>` (reuses `crate::quality::score`); `--fail-under
-  <N>` exits a new dedicated code **7** ("check not satisfied") for CI
-  visual-regression gating; `--json`; dimension-mismatch = exit 2. **DEC-025** (adds
-  exit 7; defers the visual-diff heatmap to a follow-up). v1 = score + gate + json;
-  the highlighted pixel-diff image is the deferred "visual" half.
+- [x] SPEC-023 (shipped 2026-06-18, PR #26) — **`diff` perceptual comparison + CI
+  gate:** prints the SSIMULACRA2 score of `<b>` vs `<a>` (reuses
+  `crate::quality::score`); `--fail-under <N>` exits a new dedicated code **7**
+  ("check not satisfied") for CI visual-regression gating; `--json`;
+  dimension-mismatch = exit 2. **DEC-025** (adds exit 7, reusable by the future EXIF
+  audit-linter; defers the visual-diff heatmap). Pure reuse — no new dependency.
+  10 tests (2 unit + 8 integration); 3-OS + feature CI green. Zero deviations.
 - [ ] (not yet written) responsive `<picture>`/srcset set generator — multi-width
   × multi-format + a paste-ready HTML snippet; optional blurhash/thumbhash. Opt-in
   HTML emission (a question for design).
@@ -174,7 +175,7 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
   wall-clock; equal-quality comparisons gated on SSIMULACRA2. The micro-net may
   land early as a `chore`.
 
-**Count:** 1 shipped / 1 active / 3+ pending  *(+ a deferred `diff` visual-diff
+**Count:** 2 shipped / 0 active / 2+ pending  *(+ a deferred `diff` visual-diff
 heatmap follow-up, per DEC-025)*
 
 ## Design Notes
