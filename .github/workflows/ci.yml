@@ -71,6 +71,31 @@ jobs:
       - name: Clippy (--features avif, warnings as errors)
         run: cargo clippy --all-targets --features avif -- -D warnings
 
+  webp-lossy:
+    name: webp-lossy feature (build / test / clippy)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install stable toolchain (clippy)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      # Lossy WebP is the off-by-default `webp-lossy` feature (SPEC-020, DEC-022):
+      # the `webp` crate vendors libwebp and builds it with `cc` (preinstalled on
+      # ubuntu runners — no system libwebp install). Single runner (the default
+      # cross-OS matrix above covers the no-feature, pure-Rust build).
+      - name: Build (--features webp-lossy)
+        run: cargo build --features webp-lossy --verbose
+
+      - name: Test (--features webp-lossy)
+        run: cargo test --features webp-lossy --verbose
+
+      - name: Clippy (--features webp-lossy, warnings as errors)
+        run: cargo clippy --all-targets --features webp-lossy -- -D warnings
+
   cost-data:
     name: cost-capture audit
     runs-on: ubuntu-latest

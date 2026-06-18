@@ -2299,6 +2299,162 @@ fn webp_quality_is_ignored() {
     );
 }
 
+// ── SPEC-020: lossy WebP (feature-gated webp-lossy) ─────────────────────────────
+
+/// FEATURE build: `convert <detailed png> --format webp -q 20` is LOSSY and
+/// smaller than the same source as lossless WebP (`convert --format webp`, no -q).
+#[cfg(feature = "webp-lossy")]
+#[test]
+fn convert_to_lossy_webp_is_smaller() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let in_path = dir.path().join("in.png");
+    std::fs::write(&in_path, common::detailed_png(96, 96)).unwrap();
+    let lossy_path = dir.path().join("lossy.webp");
+    let lossless_path = dir.path().join("lossless.webp");
+
+    // Lossy (with -q).
+    let lossy = Command::new(BIN)
+        .args([
+            "convert",
+            in_path.to_str().unwrap(),
+            "--format",
+            "webp",
+            "-q",
+            "20",
+            "-o",
+            lossy_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run convert --format webp -q 20");
+    assert_eq!(
+        lossy.status.code(),
+        Some(0),
+        "lossy convert should exit 0; stderr: {}",
+        stderr_str(&lossy)
+    );
+
+    // Lossless (no -q) — the SPEC-019 default path.
+    let lossless = Command::new(BIN)
+        .args([
+            "convert",
+            in_path.to_str().unwrap(),
+            "--format",
+            "webp",
+            "-o",
+            lossless_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run convert --format webp (lossless)");
+    assert_eq!(
+        lossless.status.code(),
+        Some(0),
+        "lossless convert should exit 0"
+    );
+
+    let lossy_bytes = std::fs::read(&lossy_path).unwrap();
+    let lossless_bytes = std::fs::read(&lossless_path).unwrap();
+    assert_eq!(
+        image::guess_format(&lossy_bytes).expect("guess format"),
+        ImageFormat::WebP,
+        "lossy output should be WebP"
+    );
+    assert_eq!(
+        image::guess_format(&lossless_bytes).expect("guess format"),
+        ImageFormat::WebP,
+        "lossless output should be WebP"
+    );
+    assert!(
+        lossy_bytes.len() < lossless_bytes.len(),
+        "lossy q20 ({}) should be smaller than lossless ({})",
+        lossy_bytes.len(),
+        lossless_bytes.len()
+    );
+}
+
+/// FEATURE build: the PERCEPTUAL search drives WebP — `shrink --target high -o
+/// out.webp` → exit 0, valid WebP, and (unlike AVIF) NO "needs a decoder" warning.
+#[cfg(feature = "webp-lossy")]
+#[test]
+fn webp_target_high() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let in_path = dir.path().join("in.png");
+    std::fs::write(&in_path, common::detailed_png(64, 64)).unwrap();
+    let out_path = dir.path().join("out.webp");
+
+    let output = Command::new(BIN)
+        .args([
+            "shrink",
+            in_path.to_str().unwrap(),
+            "--target",
+            "high",
+            "-o",
+            out_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run shrink --target high -o out.webp");
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "perceptual WebP should exit 0; stderr: {}",
+        stderr_str(&output)
+    );
+    let bytes = std::fs::read(&out_path).expect("WebP output file");
+    assert_eq!(
+        image::guess_format(&bytes).expect("guess format"),
+        ImageFormat::WebP,
+        "output should be WebP"
+    );
+    let stderr = stderr_str(&output);
+    assert!(
+        !stderr.contains("decoder"),
+        "perceptual WebP must NOT warn about a missing decoder (the AVIF contrast); got: {stderr}"
+    );
+}
+
+/// FEATURE build: `convert <detailed png> --format webp --max-size 4KB` → exit 0;
+/// the byte budget drives the lossy WebP quality and the output fits (≤ 4000).
+#[cfg(feature = "webp-lossy")]
+#[test]
+fn webp_max_size_fits() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let in_path = dir.path().join("in.png");
+    std::fs::write(&in_path, common::detailed_png(96, 96)).unwrap();
+    let out_path = dir.path().join("out.webp");
+
+    let output = Command::new(BIN)
+        .args([
+            "convert",
+            in_path.to_str().unwrap(),
+            "--format",
+            "webp",
+            "--max-size",
+            "4KB",
+            "-o",
+            out_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run convert --format webp --max-size 4KB");
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "convert --format webp --max-size 4KB should exit 0; stderr: {}",
+        stderr_str(&output)
+    );
+    let bytes = std::fs::read(&out_path).expect("WebP output file");
+    assert_eq!(
+        image::guess_format(&bytes).expect("guess format"),
+        ImageFormat::WebP,
+        "output should be WebP"
+    );
+    assert!(
+        bytes.len() <= 4000,
+        "WebP output should fit the 4KB budget, got {} bytes",
+        bytes.len()
+    );
+}
+
 // ── SPEC-018: AVIF output ──────────────────────────────────────────────────────
 
 /// DEFAULT build: `convert <png> --format avif -o out.avif` → exit 4 with a

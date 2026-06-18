@@ -4,7 +4,7 @@
 task:
   id: SPEC-020
   type: story                      # epic | story | task | bug | chore
-  cycle: design                    # frame | design | build | verify | ship
+  cycle: verify                    # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: M                    # S | M | L  (L means split it)
@@ -47,6 +47,14 @@ cost:
       duration_minutes: null
       recorded_at: 2026-06-17
       notes: "Design authored by the ORCHESTRATOR (Opus) directly. Verified the dep empirically (the discipline): `webp` 0.3.1 → `libwebp-sys` 0.9.6 builds via `cc` (VENDORED libwebp, clean build, no system lib install); licenses webp MIT/Apache + libwebp-sys MIT + vendored libwebp BSD-3 → `cargo deny check licenses` GREEN with NO new exception (verified with the feature enabled). Pinned `webp::Encoder::from_rgba(&[u8], w, h).encode(quality: f32) -> WebPMemory` (Deref<[u8]>); use from_rgba/from_rgb on to_rgba8()/to_rgb8() bytes (NOT the webp crate's `image` feature → avoids a duplicate image crate). Emitted DEC-022 (lossy WebP via libwebp behind off-by-default `webp-lossy`; first C dep, opt-in; BOTH searches drive WebP since the decoder exists)."
+    - cycle: build
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 220000     # ORDER-OF-MAGNITUDE estimate — build ran in the orchestrator main loop (background subagents can't get Bash here); M spec (dep + two encode arms + predicates + CI + tests across two builds)
+      estimated_usd: 1.98      # ~220k @ Opus 4.8 list ($5/$25 per MTok, ~80/20 in/out) — order of magnitude
+      duration_minutes: null
+      recorded_at: 2026-06-17
+      notes: "Built in the main loop (background subagents can't get Bash here), tokens are a labeled order-of-magnitude estimate. Added the webp optional dep + webp-lossy feature, the sink lossy arm (lossy iff quality set, else lossless fall-through), the identical quality-search arm, BOTH LossyFormat predicates (rewritten as cfg-gated matches), the CI webp-lossy job, and tests. Default/avif/webp-lossy builds all green; just deny green with NO new exception. Skipped the proposed WEBP_DEFAULT_QUALITY const (would be dead code — lossy only runs when a quality is already set)."
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -288,26 +296,48 @@ feature-build tests are `#[cfg(feature = "webp-lossy")]`. WebP output is verifie
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
+- **Branch:** `feat/spec-020-lossy-webp-behind-a-feature-gated-libwebp`
+- **PR (if applicable):** *(opened during build — see timeline)*
+- **All acceptance criteria met?** yes — `encode_webp_lossy_respects_quality`,
+  `webp_supports_lossy_and_perceptual`, `auto_under_size_webp_is_monotone`,
+  `auto_quality_webp_succeeds` (perceptual round-trip), `convert_to_lossy_webp_is_smaller`,
+  `webp_target_high` (no decoder warning), `webp_max_size_fits` all pass; the SPEC-019
+  `webp_quality_is_ignored` still passes in the default build. Default + avif +
+  webp-lossy builds all green; `just deny` green with NO new exception.
 - **New decisions emitted:**
-  - `DEC-022` — lossy WebP via libwebp (feature-gated) [authored in design]
+  - `DEC-022` — lossy WebP via libwebp (feature-gated) [authored in design].
 - **Deviations from spec:**
-  - [list]
+  1. **Dropped the proposed `WEBP_DEFAULT_QUALITY` const.** The lossy arm only runs
+     when `quality.is_some()`, so there is no site that needs a WebP default — adding
+     the const would be dead code (clippy). `convert` has no default; `shrink` supplies
+     80. (Minor; the spec listed it as "used only where a default is needed" — there
+     is no such place.)
+  2. **Rewrote the `LossyFormat` predicates as cfg-gated `match` arms** (instead of
+     stacked `#[cfg]` blocks) so two features (avif, webp-lossy) compose cleanly.
+     Behaviorally identical; just readable. Broadened the sink test's `detailed_image`
+     helper gate to `any(avif, webp-lossy)`.
 - **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - None new. STAGE-008's formats are complete (JPEG/AVIF/WebP); the remaining backlog
+    item is the `--max-size` dimension-reduction fallback. The jpegli-encode license
+    question is parked in `guidance/license-watchlist.yaml` for a future JPEG spec.
 
 ### Build-phase reflection (3 questions, short answers)
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — Nothing. The design's empirical dep probe (build via cc, deny green, pinned
+   `from_rgba(...).encode(q)`) meant the build was mechanical. The one judgment call
+   (no `WEBP_DEFAULT_QUALITY`) was obvious once writing the arm.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — No. `single-image-library` was the one to watch, and feeding `to_rgba8()` bytes to
+   `from_rgba` (not the webp crate's `image` feature) kept it satisfied, exactly as the
+   spec specified.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Nothing material. Splitting WebP into SPEC-019 (pure-Rust) + SPEC-020 (the C dep)
+   paid off: this spec was a clean, isolated layer on top of working WebP wiring, and
+   the first-C-dependency decision got its own DEC and verification rather than being
+   buried in a larger change.
 
 ---
 

@@ -313,25 +313,33 @@ pub trait LossyFormat {
 
 impl LossyFormat for ImageFormat {
     fn supports_lossy_quality(self) -> bool {
-        // AVIF joins JPEG as a byte-budget-drivable format only when the `avif`
-        // feature is built (SPEC-018, DEC-020); without it, AVIF output exits 4
-        // before a search is ever attempted (DEC-004), so it reports `false`.
-        #[cfg(feature = "avif")]
-        {
-            matches!(self, ImageFormat::Jpeg | ImageFormat::Avif)
-        }
-        #[cfg(not(feature = "avif"))]
-        {
-            matches!(self, ImageFormat::Jpeg)
+        // Byte-budget-drivable formats (encode-only; no decoder required). JPEG
+        // always; AVIF with the `avif` feature (SPEC-018); WebP with the
+        // `webp-lossy` feature (SPEC-020). Without a format's feature, its output
+        // is lossless / exit-4 and no search is attempted, so it reports `false`.
+        match self {
+            ImageFormat::Jpeg => true,
+            #[cfg(feature = "avif")]
+            ImageFormat::Avif => true,
+            #[cfg(feature = "webp-lossy")]
+            ImageFormat::WebP => true,
+            _ => false,
         }
     }
 
     fn supports_perceptual_quality(self) -> bool {
-        // JPEG only: the perceptual search must DECODE each candidate to score it.
-        // AVIF is output-only in v1 (no decoder built — DEC-020), so perceptual
-        // AVIF is deferred WITH AVIF decode even when the `avif` feature is on.
-        // (No `#[cfg]` needed: AVIF is excluded in both builds.)
-        matches!(self, ImageFormat::Jpeg)
+        // The perceptual search must DECODE each candidate to score it, so this
+        // needs both an encoder knob AND a built-in decoder. JPEG always. WebP
+        // with `webp-lossy` qualifies because the pure-Rust WebP DECODER ships by
+        // default (SPEC-019). AVIF does NOT (output-only, no decoder — DEC-020),
+        // so it is excluded even with the `avif` feature (perceptual AVIF defers
+        // with AVIF decode).
+        match self {
+            ImageFormat::Jpeg => true,
+            #[cfg(feature = "webp-lossy")]
+            ImageFormat::WebP => true,
+            _ => false,
+        }
     }
 }
 
@@ -386,9 +394,21 @@ fn encode_candidate_bytes(
                 .map_err(|e| QualityError::Encode(e.to_string()))?;
             Ok(cursor.into_inner())
         }
+        // Lossy WebP candidate encode (SPEC-020, DEC-022) — IDENTICAL to the
+        // sink's WebP lossy arm (`crate::sink::encode_to_bytes`): same `from_rgba`
+        // on `to_rgba8()` bytes, same `1..=100` clamp, same `q as f32`. The
+        // byte-budget / perceptual guarantee depends on this probe matching the
+        // bytes the sink writes. (Lossless WebP has no quality knob, so only the
+        // lossy path — behind `webp-lossy` — reaches here.)
+        #[cfg(feature = "webp-lossy")]
+        ImageFormat::WebP => {
+            let q = quality.clamp(1, 100);
+            let rgba = reference.to_rgba8();
+            let (w, h) = rgba.dimensions();
+            let encoder = ::webp::Encoder::from_rgba(rgba.as_raw(), w, h);
+            Ok(encoder.encode(q as f32).to_vec())
+        }
         // Only lossy formats reach here (the CLI guards on `supports_lossy_quality`).
-        // Lossless WebP (SPEC-019) has no quality knob, so it never reaches here;
-        // lossy WebP encoding lands in SPEC-020 (libwebp, the `webp-lossy` feature).
         other => Err(QualityError::Encode(format!(
             "no auto-quality encoder for {other:?} (not a lossy quality format)"
         ))),
@@ -675,6 +695,57 @@ mod tests {
             "smaller budget should pick a lower-or-equal AVIF quality: 1000B q={} vs 8000B q={}",
             small.quality,
             large.quality
+        );
+    }
+
+    // ── SPEC-020: lossy WebP (feature-gated) ──────────────────────────────────
+
+    /// With `webp-lossy`, WebP supports BOTH searches — byte-budget AND perceptual
+    /// (the pure-Rust decoder ships by default, so round-trips can be scored). This
+    /// is the contrast with AVIF (perceptual-unsupported).
+    #[cfg(feature = "webp-lossy")]
+    #[test]
+    fn webp_supports_lossy_and_perceptual() {
+        assert!(
+            ImageFormat::WebP.supports_lossy_quality(),
+            "WebP must support the byte-budget search under --features webp-lossy"
+        );
+        assert!(
+            ImageFormat::WebP.supports_perceptual_quality(),
+            "WebP must support the perceptual search (it has a decoder) under --features webp-lossy"
+        );
+    }
+
+    /// The byte-budget search drives lossy WebP, monotone in the budget.
+    #[cfg(feature = "webp-lossy")]
+    #[test]
+    fn auto_under_size_webp_is_monotone() {
+        let img = detailed_rgb(96, 96);
+        let small =
+            auto_under_size(&img, ImageFormat::WebP, 1_000).expect("small-budget WebP search");
+        let large =
+            auto_under_size(&img, ImageFormat::WebP, 8_000).expect("large-budget WebP search");
+        assert!(
+            small.quality <= large.quality,
+            "smaller budget should pick a lower-or-equal WebP quality: 1000B q={} vs 8000B q={}",
+            small.quality,
+            large.quality
+        );
+    }
+
+    /// The PERCEPTUAL search works on WebP — `auto_quality` encodes a lossy WebP
+    /// candidate, DECODES it (the decoder is built), and scores it. This is what
+    /// AVIF cannot do (no decoder). Proves the round-trip path, not just a number.
+    #[cfg(feature = "webp-lossy")]
+    #[test]
+    fn auto_quality_webp_succeeds() {
+        let img = detailed_rgb(96, 96);
+        let choice = auto_quality(&img, ImageFormat::WebP, &SearchConfig::for_target(70.0))
+            .expect("perceptual WebP search must succeed (decode + score)");
+        assert!(
+            (MIN_SEARCH_QUALITY..=MAX_SEARCH_QUALITY).contains(&choice.quality),
+            "chosen quality {} must be in range",
+            choice.quality
         );
     }
 }
