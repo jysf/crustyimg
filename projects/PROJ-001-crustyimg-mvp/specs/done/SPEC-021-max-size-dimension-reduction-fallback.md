@@ -4,7 +4,7 @@
 task:
   id: SPEC-021
   type: story                      # epic | story | task | bug | chore
-  cycle: verify                    # frame | design | build | verify | ship
+  cycle: ship                      # frame | design | build | verify | ship  (shipped 2026-06-17, PR #24)
   blocked: false
   priority: high
   complexity: M                    # S | M | L  (L means split it)
@@ -51,11 +51,27 @@ cost:
       estimated_usd: 2.16      # ~240k @ Opus 4.8 list ($5/$25 per MTok, ~80/20 in/out) — order of magnitude
       duration_minutes: null
       recorded_at: 2026-06-17
-      notes: "Built in the main loop (background subagents can't get Bash here), tokens are a labeled order-of-magnitude estimate. Added SizeFit + fit_under_size (quality-first then a scale search reusing search_under_size over a scale-percent axis; resize via image Lanczos3); refactored resolve_effective_quality → EncodePlan { quality, image } + the two run_pixel_op call sites; CLI scaled/unmet warnings; docs. Updated one SPEC-017 test (non-jpeg now downscales, not no-op). Default + avif + webp-lossy builds all green."
+      notes: "Built in the main loop (background subagents can't get Bash here), tokens are a labeled order-of-magnitude estimate. Added SizeFit + fit_under_size (quality-first then a scale search reusing search_under_size over a scale-percent axis; resize via image Lanczos3); refactored resolve_effective_quality → EncodePlan { quality, image } + the two run_pixel_op call sites; CLI scaled/unmet warnings; docs. Updated one SPEC-017 test (non-jpeg now downscales, not no-op). Default + avif + webp-lossy builds all green. (One extra CI round-trip: a global cargo fmt reformatted an already-committed file that wasn't re-added — fixed; memory saved.)"
+    - cycle: verify
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 120000     # ORDER-OF-MAGNITUDE estimate — 2 focused read-only review subagents (Explore): EncodePlan threading + cross-sync/fit_under_size; the Agent results didn't surface token counts
+      estimated_usd: 1.08      # ~120k @ Opus 4.8 list ($5/$25 per MTok, ~80/20 in/out) — order of magnitude
+      duration_minutes: null
+      recorded_at: 2026-06-17
+      notes: "Independent review with 2 focused Explore subagents (CLI EncodePlan threading at both call sites + non-budget paths unchanged; fit_under_size cross-sync byte-identity + pct==100-no-resize + floor quality + NaN/panic). Both clean — no findings. + CI green on all 7 jobs (after the fmt fix). Token total is a labeled estimate."
+    - cycle: ship
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null       # orchestrator main-loop bookkeeping — legitimately null (AGENTS §4)
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-06-17
+      notes: "Ship bookkeeping on main (merge dance + archive) + the STAGE-008 stage wrap: orchestrator main-loop, not separately metered."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 360000     # sum of non-null sessions (build 240k + verify 120k); design/ship main-loop (null → 0)
+    estimated_usd: 3.24
+    session_count: 4
 ---
 
 # SPEC-021: `--max-size` dimension-reduction fallback
@@ -313,10 +329,22 @@ the written bytes equal the search's chosen-candidate bytes (assert `len ≤ bud
 *Appended during the **ship** cycle.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Two things. (a) The design-time seam study (resolve_effective_quality →
+   EncodePlan, reuse search_under_size for scale) made the "model change" land cleanly
+   — keep doing that for anything that ripples a return type. (b) The avoidable cost
+   was a CI fmt round-trip: a later global `cargo fmt` reformatted an already-committed
+   file I didn't re-add, so local `cargo fmt --check` passed but CI (on the committed
+   code) failed. Re-add every file `cargo fmt` touches before committing.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — No template change, but the byte-budget mental model is now complete and worth
+   internalizing: `--max-size` has TWO levers (quality, then dimensions) and the
+   cross-sync contract extends to resized candidates (the sink writes the exact pixels
+   the search chose). DEC-023 captures it. The 2D refinement (re-optimize quality at
+   the chosen scale) is the one documented fast-follow.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — None required. STAGE-008's backlog is empty (6 specs shipped). Documented
+   fast-follows live in DEC-023 (2D quality-at-scale; a `--crop` mode) and the
+   license-watchlist (jpegli verification, AVIF decode, etc.) — to be picked up as
+   their own specs/stages when prioritized.

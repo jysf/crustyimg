@@ -5,7 +5,7 @@
 
 stage:
   id: STAGE-008                     # stable, zero-padded within the project
-  status: active                    # proposed | active | shipped | cancelled | on_hold
+  status: shipped                   # proposed | active | shipped | cancelled | on_hold  (shipped 2026-06-17)
   priority: high                    # critical | high | medium | low
   target_complete: null             # optional: YYYY-MM-DD
 
@@ -141,12 +141,12 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
 - [x] SPEC-016 (shipped 2026-06-16, PR #18) — **perceptual auto-quality (FLAGSHIP):** `shrink --target visually-lossless` / `--ssim <N>` — binary-search the JPEG quality against an SSIMULACRA2 score; lowest quality clearing the target; capped iterations; default JPEG path; one permissive dep (`ssimulacra2`, DEC-019). New `src/quality/` module (metric + generic scorer-injected search reused by SPEC-017+); opt-in; unmet-target best-effort + warning
 - [x] SPEC-017 (shipped 2026-06-16, PR #20) — **`--max-size <SIZE>` byte budget** on `shrink`/`convert`: binary-search the quality for the highest output ≤ the budget (the SPEC-016 search inverted, via a shared `search_threshold` core); **quality-only v1** — lossless/infeasible → best-effort + warning; no new dep, no new DEC (DEC-019 dual). Also made the search **format-agnostic** (`LossyFormat` trait + `encode_candidate_bytes`) so AVIF/WebP slot in via one encode arm
-- [~] SPEC-021 (design) — **`--max-size` dimension-reduction fallback** (the deferred half of SPEC-017): when quality alone can't hit the budget (a lossless output, or even min quality too big), downscale dimensions until it fits; makes `--max-size` work for PNG/lossless-WebP and very-small budgets. **DEC-023**: quality-first then a scale search reusing the shipped `search_under_size` (scale-percent axis); resize via `image` Lanczos3 in `src/quality` (NOT the fast_image_resize op — layering); thread the resized image back to the sink (`Image::from_parts`); floor + best-effort + a scaled warning. The last quality-core item before STAGE-008 ships.
+- [x] SPEC-021 (shipped 2026-06-17, PR #24) — **`--max-size` dimension-reduction fallback** (the deferred half of SPEC-017): when quality alone can't hit the budget (a lossless output, or even min quality too big), downscale dimensions until it fits; makes `--max-size` work for PNG/lossless-WebP and very-small budgets. **DEC-023**: quality-first then a scale search reusing the shipped `search_under_size` (scale-percent axis); resize via `image` Lanczos3 in `src/quality`; thread the resized image back to the sink (`Image::from_parts` → `EncodePlan`); floor + best-effort + a scaled warning. The last quality-core item.
 - [x] SPEC-018 (shipped 2026-06-17, PR #21) — **AVIF output (feature-gated `avif`):** `ravif` via `image/avif` behind an off-by-default `avif` feature (exit 4 without it, `CodecNotBuilt`/`ensure_codec_built`, DEC-004); `--features avif` CI job; **DEC-020** (pure-Rust/no-nasm + a scoped `libfuzzer-sys` deny exception). **Build-time correction:** only the `--max-size` byte budget drives AVIF for free; the perceptual `--target`/`--ssim` search needs an AVIF decoder (deferred) → split the `LossyFormat` seam, graceful fallback. Output-only v1 (decode + `--speed` deferred)
 - [x] SPEC-019 (shipped 2026-06-17, PR #22) — **WebP lossless output + WebP decode (input), pure-Rust DEFAULT:** added `webp` to the image default features so `.webp` reads as INPUT everywhere and `convert --format webp` / `-o x.webp` write LOSSLESS WebP (smaller than PNG). All pure-Rust, no system deps, `just deny` green with NO new exception; **DEC-021**. No quality knob → `-q`/auto ignored like PNG (not a `LossyFormat`). The WebP foundation; lossy is SPEC-020. Build had zero deviations (design's empirical probe held: lossless encode via write_to + decode via ImageReader, no code).
 - [x] SPEC-020 (shipped 2026-06-17, PR #23) — **Lossy WebP encode (feature-gated `webp-lossy`):** `webp` crate (→ libwebp-sys → VENDORED libwebp, built via `cc` — the project's FIRST C dep, opt-in) behind an off-by-default `webp-lossy` feature so `convert --format webp -q Q` and the auto-quality searches (`--target`/`--ssim`/`--max-size`) drive WebP. **BOTH** searches work (the pure-Rust decoder from SPEC-019 lets the perceptual search score WebP round-trips — the AVIF contrast). **DEC-022**; lossy-iff-quality selection (bare `convert --format webp` stays lossless). `just deny` green with NO new exception. The smaller-than-JPEG story. Layered cleanly onto SPEC-019.
 
-**Count:** 5 shipped / 1 in design (SPEC-021) / 0 pending
+**Count:** 6 shipped / 0 in flight / 0 pending — **STAGE-008 COMPLETE**
 
 > **STAGE-008 formats are COMPLETE** — JPEG (+ perceptual & byte-budget auto-quality), AVIF (output, feature-gated), WebP (lossless + decode default; lossy feature-gated). Remaining: the `--max-size` dimension-reduction fallback (below) is the last stage item; after it, STAGE-008 can ship.
 
@@ -204,13 +204,37 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
 ## Stage-Level Reflection
 
-*Filled in when status moves to shipped. Run Prompt 1c (Stage Ship) in
-FIRST_SESSION_PROMPTS.md to draft this.*
+*Filled at stage ship, 2026-06-17.*
 
-- **Did we deliver the outcome in "What This Stage Is"?** <yes/no + notes>
-- **How many specs did it actually take?** <number vs. plan>
-- **What changed between starting and shipping?** <one sentence>
+- **Did we deliver the outcome in "What This Stage Is"?** **Yes.** crustyimg now has
+  a perceptual + byte-budget auto-quality core and modern output formats: JPEG with
+  `--target`/`--ssim` (SPEC-016) and `--max-size` (SPEC-017), AVIF output
+  (feature-gated, SPEC-018), WebP lossless + decode (default, SPEC-019) and lossy
+  (feature-gated, SPEC-020), and `--max-size` completed with a dimension fallback so
+  it fits every format (SPEC-021). The "why I'd switch" differentiator — ask for an
+  outcome (a perceptual target or a byte budget), get the smallest file that meets it,
+  in a modern format — is real.
+- **How many specs did it actually take?** **6** (SPEC-016 → SPEC-021). Plan was ~4–5
+  (016/017 + AVIF + WebP, with a dimension-fallback maybe). The extra spec came from
+  **splitting WebP** into lossless+decode (pure-Rust, SPEC-019) and lossy
+  (libwebp/C-dep, SPEC-020) — the right call, which isolated the project's first C
+  dependency in its own DEC + verification.
+- **What changed between starting and shipping?** Two capability profiles that the
+  initial "add the formats" framing missed: AVIF is encode-only (no decoder → only
+  the byte-budget search drives it), and pure-Rust WebP is decode + lossless-encode
+  only (lossy needs libwebp). Both reshaped their specs/DECs at design time.
 - **Lessons that should update AGENTS.md, templates, or constraints?**
-  - <one-line updates>
+  - The **feature-gated-native-codec pattern** is now established (DEC-020 AVIF,
+    DEC-022 libwebp): each gets its own DEC (license + build-cost + constraint
+    tension), an empirical design-time probe (build, `just deny`, pinned API), and a
+    dedicated CI job. Worth referencing as the template for the next native codec.
+  - **Verify the metric path, not just build/license, in design** — the perceptual
+    search needs a *decoder*; AVIF's lack of one was a build-time surprise that should
+    have been a 3-line design spike (now a standing practice).
+  - **License watchlist** (`guidance/license-watchlist.yaml`, `just watchlist`) was
+    added this stage as the standing ledger of capabilities declined for license.
 - **Should any spec-level reflections be promoted to stage-level lessons?**
-  - <one-line items>
+  - The two cross-cutting seams this stage built and must be kept honest: the
+    **`LossyFormat` two-predicate split** (encode-only vs encode+decode) and the
+    **cross-sync contract** (the search probe must encode exactly what the sink
+    writes — now covering JPEG/AVIF/WebP and resized candidates).
