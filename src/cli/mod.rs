@@ -219,6 +219,26 @@ pub enum Commands {
         max_size: Option<String>,
     },
 
+    /// One-button web-good: auto-orient + strip metadata + perceptual re-encode,
+    /// visually-lossless by default, format/size-preserving (STAGE-009, DEC-024).
+    /// `--target`/`--ssim`/`--max-size` override the outcome; `--max` optionally
+    /// bounds the long edge; `-o`/`--format` pick the output format.
+    Optimize {
+        inputs: Vec<String>,
+        /// Optional long-edge bound (no resize by default).
+        #[arg(long)]
+        max: Option<u32>,
+        /// Override the default visually-lossless target with a preset.
+        #[arg(long, value_enum)]
+        target: Option<QualityTarget>,
+        /// Override with a specific SSIMULACRA2 score (0-100).
+        #[arg(long, conflicts_with = "target")]
+        ssim: Option<f64>,
+        /// Re-encode to fit a byte budget instead, e.g. `200KB`.
+        #[arg(long, value_name = "SIZE", conflicts_with_all = ["target", "ssim"])]
+        max_size: Option<String>,
+    },
+
     /// Apply EXIF orientation to pixels, then clear the orientation tag (STAGE-003).
     #[command(name = "auto-orient")]
     AutoOrient { inputs: Vec<String> },
@@ -460,6 +480,20 @@ fn dispatch(cli: &Cli) -> Result<(), CliError> {
             format,
             max_size,
         } => run_convert(inputs, format, max_size.as_deref(), &cli.global),
+        Commands::Optimize {
+            inputs,
+            max,
+            target,
+            ssim,
+            max_size,
+        } => run_optimize(
+            inputs,
+            *max,
+            *target,
+            *ssim,
+            max_size.as_deref(),
+            &cli.global,
+        ),
         Commands::AutoOrient { inputs } => run_auto_orient(inputs, &cli.global),
         Commands::Watermark { .. } => Err(CliError::NotImplemented("watermark")),
         Commands::Strip { .. } => Err(CliError::NotImplemented("strip")),
@@ -1722,6 +1756,94 @@ fn run_convert(
     run_pixel_op(pipeline, inputs, global, fixed_quality, Some(fmt), auto)
 }
 
+// ── optimize handler ──────────────────────────────────────────────────────────
+
+/// Resolve `optimize`'s auto-quality mode (SPEC-022, DEC-024).
+///
+/// Unlike [`shrink_auto_config`], `optimize` is ALWAYS in an auto mode: with no
+/// flag the default is the **visually-lossless** perceptual target (score 90,
+/// `QualityTarget::VisuallyLossless`). `--target`/`--ssim` pick a different
+/// perceptual target; `--max-size` switches to a byte budget. The three are
+/// mutually exclusive — clap enforces it on the subcommand args, so the trailing
+/// `_` arm is a defensive runtime fallback (usage error, exit 2).
+fn optimize_auto_config(
+    target: Option<QualityTarget>,
+    ssim: Option<f64>,
+    max_size: Option<&str>,
+) -> Result<AutoQuality, CliError> {
+    match (target, ssim, max_size) {
+        // Default: visually-lossless perceptual target.
+        (None, None, None) => Ok(AutoQuality::Perceptual(SearchConfig::for_target(
+            QualityTarget::VisuallyLossless.target_score(),
+        ))),
+        (Some(t), None, None) => Ok(AutoQuality::Perceptual(SearchConfig::for_target(
+            t.target_score(),
+        ))),
+        (None, Some(s), None) => {
+            if !(0.0..=100.0).contains(&s) {
+                return Err(CliError::Usage(format!(
+                    "--ssim must be a score in 0..=100, got {s}"
+                )));
+            }
+            Ok(AutoQuality::Perceptual(SearchConfig::for_target(s)))
+        }
+        (None, None, Some(sz)) => Ok(AutoQuality::SizeBudget(parse_size(sz)?)),
+        _ => Err(CliError::Usage(
+            "--target/--ssim/--max-size are mutually exclusive".into(),
+        )),
+    }
+}
+
+/// Wire the `optimize` subcommand: the one-button "web-good" command (DEC-024).
+///
+/// Pipeline (PINNED order): `auto-orient` (bake EXIF orientation, then drop the
+/// metadata bundle — DEC-017) then, iff `--max N`, a `resize max N` long-edge
+/// bound (built like [`shrink_params`]). The output is re-encoded to a perceptual
+/// target (visually-lossless by default) in the input's own format (DEC-015
+/// precedence: `--format` > `-o` ext > preserve source — i.e. `forced_format =
+/// None`). The pixel-lane re-encode drops ALL metadata (privacy incl. GPS); this is
+/// NOT the selective-preserve container lane (DEC-003), which is unbuilt (STAGE-004).
+///
+/// `optimize` always auto-tunes quality, so a fixed `-q` conflicts (exit 2);
+/// `--target`/`--ssim`/`--max-size` are mutually exclusive. Multi-input fan-out +
+/// partial-batch exit 6 are inherited via [`run_pixel_op`] (DEC-015).
+fn run_optimize(
+    inputs: &[String],
+    max: Option<u32>,
+    target: Option<QualityTarget>,
+    ssim: Option<f64>,
+    max_size: Option<&str>,
+    global: &GlobalArgs,
+) -> Result<(), CliError> {
+    let auto = Some(optimize_auto_config(target, ssim, max_size)?);
+    // optimize always auto-tunes quality; a fixed -q conflicts.
+    reject_quality_with_auto(&auto, global)?;
+
+    let registry = OperationRegistry::with_builtins();
+    let map_registry_err = |e| match e {
+        RegistryError::InvalidParams { reason, .. } => CliError::Usage(reason),
+        RegistryError::Unknown { name } => CliError::Usage(format!("unknown operation '{name}'")),
+    };
+
+    // Always auto-orient first so any `--max` bound applies to the visually-correct
+    // dimensions; the op also drops the metadata bundle after baking (DEC-017).
+    let orient = registry
+        .build("auto-orient", &OperationParams::empty())
+        .map_err(map_registry_err)?;
+    let mut pipeline = Pipeline::new().push(orient);
+
+    if let Some(n) = max {
+        let resize = registry
+            .build("resize", &shrink_params(n))
+            .map_err(map_registry_err)?;
+        pipeline = pipeline.push(resize);
+    }
+
+    // No fixed quality and no forced format: the auto mode drives quality, and the
+    // per-input format is preserved / honored from -o/--format (DEC-015).
+    run_pixel_op(pipeline, inputs, global, None, None, auto)
+}
+
 // ── Unit tests ────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -2233,5 +2355,106 @@ mod tests {
         assert_eq!(fmt_bytes(512), "512 B");
         assert_eq!(fmt_bytes(6_000), "6.0 KB");
         assert_eq!(fmt_bytes(1_500_000), "1.5 MB");
+    }
+
+    // ── SPEC-022: optimize ────────────────────────────────────────────────────
+
+    #[test]
+    fn optimize_parses_args() {
+        let cli = Cli::try_parse_from([
+            "crustyimg",
+            "optimize",
+            "a.jpg",
+            "--max",
+            "800",
+            "-o",
+            "out.jpg",
+        ])
+        .expect("should parse");
+        match &cli.command {
+            Commands::Optimize { inputs, max, .. } => {
+                assert_eq!(inputs, &["a.jpg"]);
+                assert_eq!(*max, Some(800));
+            }
+            other => panic!("expected Optimize variant, got {other:?}"),
+        }
+        assert_eq!(cli.global.output.as_deref(), Some("out.jpg"));
+    }
+
+    #[test]
+    fn optimize_default_auto_is_visually_lossless() {
+        match optimize_auto_config(None, None, None).expect("default mode") {
+            AutoQuality::Perceptual(cfg) => assert_eq!(cfg.target, 90.0),
+            other => panic!("expected Perceptual(90), got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn optimize_target_preset_sets_score() {
+        for (t, want) in [
+            (QualityTarget::VisuallyLossless, 90.0),
+            (QualityTarget::High, 70.0),
+            (QualityTarget::Medium, 50.0),
+        ] {
+            match optimize_auto_config(Some(t), None, None).unwrap() {
+                AutoQuality::Perceptual(cfg) => {
+                    assert_eq!(cfg.target, want, "preset {t:?} should map to {want}")
+                }
+                other => panic!("expected Perceptual, got {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn optimize_ssim_sets_and_validates() {
+        match optimize_auto_config(None, Some(85.0), None).unwrap() {
+            AutoQuality::Perceptual(cfg) => assert_eq!(cfg.target, 85.0),
+            other => panic!("expected Perceptual(85), got {other:?}"),
+        }
+        // Out-of-range scores are usage errors (exit 2).
+        assert_eq!(
+            optimize_auto_config(None, Some(150.0), None)
+                .unwrap_err()
+                .code(),
+            2
+        );
+        assert_eq!(
+            optimize_auto_config(None, Some(-1.0), None)
+                .unwrap_err()
+                .code(),
+            2
+        );
+    }
+
+    #[test]
+    fn optimize_max_size_is_size_budget() {
+        match optimize_auto_config(None, None, Some("200KB")).unwrap() {
+            AutoQuality::SizeBudget(b) => assert_eq!(b, 200_000),
+            other => panic!("expected SizeBudget(200000), got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn optimize_conflicting_modes_are_usage() {
+        // Defensive runtime arm behind clap's conflicts_with — every multi-Some
+        // combination is a usage error (exit 2).
+        assert_eq!(
+            optimize_auto_config(Some(QualityTarget::High), None, Some("8KB"))
+                .unwrap_err()
+                .code(),
+            2
+        );
+        assert_eq!(
+            optimize_auto_config(Some(QualityTarget::High), Some(70.0), None)
+                .unwrap_err()
+                .code(),
+            2
+        );
+        assert_eq!(
+            optimize_auto_config(None, Some(70.0), Some("8KB"))
+                .unwrap_err()
+                .code(),
+            2
+        );
     }
 }
