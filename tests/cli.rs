@@ -67,6 +67,7 @@ fn help_lists_all_subcommands() {
     let expected = [
         "view",
         "info",
+        "diff",
         "resize",
         "thumbnail",
         "shrink",
@@ -131,6 +132,7 @@ fn each_subcommand_help_parses() {
     let subcommands = [
         "view",
         "info",
+        "diff",
         "resize",
         "thumbnail",
         "shrink",
@@ -3955,4 +3957,214 @@ fn optimize_multi_without_out_dir_is_usage_error() {
         Some(2),
         "multi-input without --out-dir should exit 2"
     );
+}
+
+// ── SPEC-023: diff (perceptual comparison + CI gate) ───────────────────────────
+
+/// Encode the decoded pixels of `src` to a JPEG at the given quality (test helper
+/// for building a degraded copy of the same dimensions).
+fn jpeg_at_quality(src: &[u8], q: u8) -> Vec<u8> {
+    let img = image::load_from_memory(src).expect("decode src");
+    let mut c = Cursor::new(Vec::new());
+    let enc = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut c, q);
+    img.write_with_encoder(enc).expect("encode jpeg");
+    c.into_inner()
+}
+
+/// Parse the score from a `ssimulacra2: <N>` stdout line.
+fn parse_score(stdout: &str) -> f64 {
+    stdout
+        .lines()
+        .find_map(|l| l.strip_prefix("ssimulacra2:"))
+        .unwrap_or_else(|| panic!("no ssimulacra2 line in stdout:\n{stdout}"))
+        .trim()
+        .parse()
+        .expect("score should parse as f64")
+}
+
+/// `diff a a` (identical) scores near 100 and exits 0.
+#[test]
+fn diff_identical_scores_high() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let a = write_bytes(&dir, "a.png", &common::detailed_png(96, 96));
+
+    let output = Command::new(BIN)
+        .args(["diff", a.to_str().unwrap(), a.to_str().unwrap()])
+        .output()
+        .expect("failed to run diff");
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "diff identical should exit 0; stderr: {}",
+        stderr_str(&output)
+    );
+    let score = parse_score(&stdout_str(&output));
+    assert!(
+        score >= 90.0,
+        "identical images should score ≥ 90, got {score}"
+    );
+}
+
+/// `diff` of an image vs a heavily-degraded copy scores below the identical score
+/// (and below 90), exit 0.
+#[test]
+fn diff_degraded_scores_lower() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let src = common::detailed_png(96, 96);
+    let a = write_bytes(&dir, "a.png", &src);
+    let b = write_bytes(&dir, "b.jpg", &jpeg_at_quality(&src, 5));
+
+    let output = Command::new(BIN)
+        .args(["diff", a.to_str().unwrap(), b.to_str().unwrap()])
+        .output()
+        .expect("failed to run diff");
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "diff should exit 0; stderr: {}",
+        stderr_str(&output)
+    );
+    let score = parse_score(&stdout_str(&output));
+    assert!(
+        score < 90.0,
+        "a quality-5 degraded copy should score below 90, got {score}"
+    );
+}
+
+/// `--fail-under 90` on a below-90 pair exits 7, with the score still on stdout.
+#[test]
+fn diff_fail_under_gate_fails() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let src = common::detailed_png(96, 96);
+    let a = write_bytes(&dir, "a.png", &src);
+    let b = write_bytes(&dir, "b.jpg", &jpeg_at_quality(&src, 5));
+
+    let output = Command::new(BIN)
+        .args([
+            "diff",
+            a.to_str().unwrap(),
+            b.to_str().unwrap(),
+            "--fail-under",
+            "90",
+        ])
+        .output()
+        .expect("failed to run diff --fail-under");
+    assert_eq!(
+        output.status.code(),
+        Some(7),
+        "below-threshold gate should exit 7; stderr: {}",
+        stderr_str(&output)
+    );
+    assert!(
+        stdout_str(&output).contains("ssimulacra2:"),
+        "the score line should still be printed; stdout: {}",
+        stdout_str(&output)
+    );
+}
+
+/// `--fail-under 90` on an at/above-90 pair (identical) exits 0.
+#[test]
+fn diff_fail_under_gate_passes() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let a = write_bytes(&dir, "a.png", &common::detailed_png(96, 96));
+
+    let output = Command::new(BIN)
+        .args([
+            "diff",
+            a.to_str().unwrap(),
+            a.to_str().unwrap(),
+            "--fail-under",
+            "90",
+        ])
+        .output()
+        .expect("failed to run diff --fail-under");
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "identical pair clears the gate; stderr: {}",
+        stderr_str(&output)
+    );
+}
+
+/// `--fail-under` outside 0..=100 is a usage error (exit 2).
+#[test]
+fn diff_fail_under_out_of_range_exits_2() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let a = write_bytes(&dir, "a.png", &common::detailed_png(96, 96));
+
+    let output = Command::new(BIN)
+        .args([
+            "diff",
+            a.to_str().unwrap(),
+            a.to_str().unwrap(),
+            "--fail-under",
+            "150",
+        ])
+        .output()
+        .expect("failed to run diff");
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "--fail-under 150 should exit 2"
+    );
+}
+
+/// Comparing images of different dimensions is a usage error (exit 2).
+#[test]
+fn diff_dimension_mismatch_exits_2() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let a = write_bytes(&dir, "a.png", &common::detailed_png(64, 64));
+    let b = write_bytes(&dir, "b.png", &common::detailed_png(32, 32));
+
+    let output = Command::new(BIN)
+        .args(["diff", a.to_str().unwrap(), b.to_str().unwrap()])
+        .output()
+        .expect("failed to run diff mismatch");
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "dimension mismatch should exit 2; stderr: {}",
+        stderr_str(&output)
+    );
+}
+
+/// `--json` emits a machine-readable object with score + passed.
+#[test]
+fn diff_json_output() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let a = write_bytes(&dir, "a.png", &common::detailed_png(96, 96));
+
+    let output = Command::new(BIN)
+        .args(["diff", a.to_str().unwrap(), a.to_str().unwrap(), "--json"])
+        .output()
+        .expect("failed to run diff --json");
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "diff --json identical should exit 0; stderr: {}",
+        stderr_str(&output)
+    );
+    let stdout = stdout_str(&output);
+    assert!(
+        stdout.contains("\"score\":"),
+        "json should carry score; got: {stdout}"
+    );
+    assert!(
+        stdout.contains("\"passed\":true"),
+        "identical with no gate should be passed:true; got: {stdout}"
+    );
+}
+
+/// A missing input path exits 3.
+#[test]
+fn diff_missing_input_exits_3() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let a = write_bytes(&dir, "a.png", &common::detailed_png(96, 96));
+    let missing = dir.path().join("missing.png");
+
+    let output = Command::new(BIN)
+        .args(["diff", missing.to_str().unwrap(), a.to_str().unwrap()])
+        .output()
+        .expect("failed to run diff missing");
+    assert_eq!(output.status.code(), Some(3), "missing input should exit 3");
 }

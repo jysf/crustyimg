@@ -7,7 +7,7 @@
 task:
   id: SPEC-023
   type: story                      # epic | story | task | bug | chore
-  cycle: design                    # frame | design | build | verify | ship
+  cycle: build                     # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: S                    # S | M | L  (L means split it)
@@ -35,7 +35,15 @@ references:
 value_link: "Delivers STAGE-009's verification surface — a perceptual SSIMULACRA2 comparison with a CI visual-regression gate, reusing the metric the auto-quality engine optimizes against."
 
 cost:
-  sessions: []
+  sessions:
+    - cycle: build
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null      # main-loop build (orchestrator-direct); orchestrator fills at ship
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-06-18
+      notes: "diff command: CheckFailed exit-7 variant + Commands::Diff + run_diff/diff_passes/write_diff_json + 10 tests; pure reuse of quality::score, no new dep. Main-loop build — order-of-magnitude estimate recorded at ship."
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -316,24 +324,40 @@ Written during **design**, BEFORE build.
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
+- **Branch:** `feat/spec-023-diff`
+- **PR (if applicable):** (opened during build; number recorded in the timeline)
+- **All acceptance criteria met?** yes — all covered by the 10 new tests (2 unit + 8
+  integration); `cargo build`, `cargo fmt --check`, `cargo clippy --all-targets -- -D
+  warnings`, `cargo test` (0 failed), and `cargo deny check licenses` all green.
 - **New decisions emitted:**
-  - `DEC-025` — diff command + exit code 7 (check/gate not satisfied) + heatmap deferral
-- **Deviations from spec:**
-  - [list]
+  - `DEC-025` — diff command + exit code 7 (check/gate not satisfied) + heatmap
+    deferral *(authored during design, on `main`)*
+- **Deviations from spec:** none. Built exactly to the pinned command surface;
+  added `CliError::CheckFailed` (exit 7) + extended `exit_code_mapping_is_total`,
+  `Commands::Diff` + `run_diff`/`diff_passes`/`write_diff_json`. Pure reuse of
+  `crate::quality::score`; no new dependency, no change to `src/quality`/`src/sink`.
+  `diff_passes` uses `Option::is_none_or` (clean on the project's toolchain; clippy
+  green).
 - **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - The deferred **visual-diff heatmap** image (per DEC-025) — a future STAGE-009
+    spec; `diff` is the natural host.
+  - `diff` could gain `--json` adoption elsewhere; consistent with a broader
+    machine-readable-output thread (shared with `optimize`).
 
 ### Build-phase reflection (3 questions, short answers)
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — Nothing. The spec pinned the handler/helper shapes, the exit-7 wiring, and the
+   degraded-fixture recipe (q5 JPEG of the same pixels). Like SPEC-022 this was a
+   near-mechanical composition over the shipped metric.
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — No. DEC-025 + DEC-019/007 covered it. The one cross-cutting effect worth noting
+   for reviewers: adding exit 7 touches three places kept in sync (the `code()`
+   match, its doc table, and `docs/api-contract.md`) plus the `exit_code_mapping_is_total`
+   test — the spec called all of them out, so nothing was missed.
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Nothing of substance. The `jpeg_at_quality`/`parse_score` test helpers are small
+   and local; if a third spec needs them they could move to `tests/common`.
 
 ---
 
