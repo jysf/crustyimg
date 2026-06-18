@@ -876,7 +876,10 @@ mod tests {
         };
         let budget = full / 3;
         let fit = fit_under_size(&img, ImageFormat::Png, budget).expect("fit");
-        assert!(fit.met_budget, "a moderate budget should be reachable by scaling");
+        assert!(
+            fit.met_budget,
+            "a moderate budget should be reachable by scaling"
+        );
         assert!(fit.image.is_some(), "lossless must downscale to fit");
         assert!(fit.scale_percent < 100, "should have scaled down");
         assert!(
@@ -907,8 +910,14 @@ mod tests {
         let min_full = size_at(&img, ImageFormat::Jpeg, MIN_SEARCH_QUALITY).unwrap();
         let budget = min_full * 3 / 4;
         let fit = fit_under_size(&img, ImageFormat::Jpeg, budget).expect("fit");
-        assert!(fit.image.is_some(), "lossy must scale when quality can't fit");
-        assert!(fit.quality.is_some(), "lossy keeps a quality (held at the floor)");
+        assert!(
+            fit.image.is_some(),
+            "lossy must scale when quality can't fit"
+        );
+        assert!(
+            fit.quality.is_some(),
+            "lossy keeps a quality (held at the floor)"
+        );
         assert!(
             fit.bytes < min_full,
             "scaling should reduce size below the full-size min-quality encode: {} vs {min_full}",
@@ -916,7 +925,11 @@ mod tests {
         );
         // When the search reports success, the achieved size really fits the budget.
         if fit.met_budget {
-            assert!(fit.bytes <= budget, "met budget but {} > {budget}", fit.bytes);
+            assert!(
+                fit.bytes <= budget,
+                "met budget but {} > {budget}",
+                fit.bytes
+            );
         }
     }
 
@@ -945,6 +958,9 @@ mod tests {
         let img = detailed_rgb(128, 128);
         let fit = fit_under_size(&img, ImageFormat::Png, 1).expect("fit");
         assert!(!fit.met_budget, "1 byte is unreachable");
-        assert!(fit.image.is_some(), "best effort still returns the smallest pixels");
+        assert!(
+            fit.image.is_some(),
+            "best effort still returns the smallest pixels"
+        );
     }
 }
