@@ -251,6 +251,23 @@ pub enum Commands {
         max_size: Option<String>,
     },
 
+    /// Generate a responsive image set: width-scaled variants per format + a
+    /// paste-ready <picture>/srcset snippet on stdout (STAGE-009, DEC-026).
+    /// Uses the global `--out-dir` (created if missing); resizes by target width,
+    /// never upscaling.
+    Responsive {
+        input: String,
+        /// Comma-separated target widths in px, e.g. `320,640,1280`.
+        #[arg(long, value_name = "W1,W2,...")]
+        widths: String,
+        /// Comma-separated output formats (default: the input's format), e.g. `webp,jpeg`.
+        #[arg(long, value_name = "F1,F2,...")]
+        formats: Option<String>,
+        /// Suppress the <picture>/srcset snippet on stdout.
+        #[arg(long)]
+        no_snippet: bool,
+    },
+
     /// Apply EXIF orientation to pixels, then clear the orientation tag (STAGE-003).
     #[command(name = "auto-orient")]
     AutoOrient { inputs: Vec<String> },
@@ -522,6 +539,12 @@ fn dispatch(cli: &Cli) -> Result<(), CliError> {
             max_size.as_deref(),
             &cli.global,
         ),
+        Commands::Responsive {
+            input,
+            widths,
+            formats,
+            no_snippet,
+        } => run_responsive(input, widths, formats.as_deref(), *no_snippet, &cli.global),
         Commands::AutoOrient { inputs } => run_auto_orient(inputs, &cli.global),
         Commands::Watermark { .. } => Err(CliError::NotImplemented("watermark")),
         Commands::Strip { .. } => Err(CliError::NotImplemented("strip")),
@@ -1966,6 +1989,274 @@ fn run_optimize(
     run_pixel_op(pipeline, inputs, global, None, None, auto)
 }
 
+// ── responsive command (SPEC-024, DEC-026) ────────────────────────────────────
+
+/// Parse a comma-separated `--widths` list into sorted, deduped positive widths.
+/// Empty / zero / non-integer entries are a usage error (exit 2).
+fn parse_widths(s: &str) -> Result<Vec<u32>, CliError> {
+    let mut out: Vec<u32> = Vec::new();
+    for part in s.split(',') {
+        let t = part.trim();
+        if t.is_empty() {
+            return Err(CliError::Usage(format!(
+                "invalid --widths '{s}': empty width entry"
+            )));
+        }
+        let w: u32 = t.parse().map_err(|_| {
+            CliError::Usage(format!(
+                "invalid --widths '{s}': '{t}' is not a positive integer"
+            ))
+        })?;
+        if w == 0 {
+            return Err(CliError::Usage(format!(
+                "invalid --widths '{s}': width must be > 0"
+            )));
+        }
+        out.push(w);
+    }
+    if out.is_empty() {
+        return Err(CliError::Usage(
+            "--widths must list at least one width".into(),
+        ));
+    }
+    out.sort_unstable();
+    out.dedup();
+    Ok(out)
+}
+
+/// Resolve `--formats` (a comma list) to ordered `ImageFormat`s, defaulting to the
+/// input's `source` format. An unknown format string is a `SinkError` (exit 4) via
+/// [`resolve_format`], mirroring `convert`.
+fn parse_formats(
+    s: Option<&str>,
+    source: ::image::ImageFormat,
+) -> Result<Vec<::image::ImageFormat>, CliError> {
+    match s {
+        None => Ok(vec![source]),
+        Some(list) => {
+            let mut out = Vec::new();
+            for part in list.split(',') {
+                let t = part.trim();
+                if t.is_empty() {
+                    return Err(CliError::Usage(format!(
+                        "invalid --formats '{list}': empty format entry"
+                    )));
+                }
+                let fmt = resolve_format(Some(t))?
+                    .ok_or_else(|| CliError::Usage("empty --formats entry".into()))?;
+                out.push(fmt);
+            }
+            Ok(out)
+        }
+    }
+}
+
+/// The HTML `type="…"` MIME for an output format.
+fn mime_for_format(fmt: ::image::ImageFormat) -> String {
+    match fmt {
+        ::image::ImageFormat::Jpeg => "image/jpeg".to_owned(),
+        ::image::ImageFormat::Png => "image/png".to_owned(),
+        ::image::ImageFormat::WebP => "image/webp".to_owned(),
+        ::image::ImageFormat::Avif => "image/avif".to_owned(),
+        ::image::ImageFormat::Gif => "image/gif".to_owned(),
+        other => format!("image/{}", crate::sink::extension_for_format(other)),
+    }
+}
+
+/// The default lossy encode quality for a `responsive` variant: an explicit `-q`,
+/// else 80 for a lossy format; `None` (lossless) for formats without a quality knob.
+fn responsive_quality(fmt: ::image::ImageFormat, q: Option<u8>) -> Option<u8> {
+    if fmt.supports_lossy_quality() {
+        Some(q.unwrap_or(DEFAULT_SHRINK_QUALITY))
+    } else {
+        None
+    }
+}
+
+/// Build the resize op params for a width-target `fit` (preserve aspect, no upscale):
+/// `fit W × BIG` where BIG is large enough that width always binds.
+fn fit_width_params(width: u32) -> OperationParams {
+    use std::collections::BTreeMap;
+    let mut map: BTreeMap<String, toml::Value> = BTreeMap::new();
+    map.insert("mode".into(), toml::Value::String("fit".into()));
+    map.insert("width".into(), toml::Value::Integer(width as i64));
+    map.insert("height".into(), toml::Value::Integer(1_000_000));
+    OperationParams::from_map(map)
+}
+
+/// Build the `<picture>`/srcset HTML for the generated variants (pure; unit-tested).
+///
+/// `variants` is one entry per output format (in emission order), each with its
+/// `(actual_width, filename)` rows. A single format emits a bare `<img srcset>`;
+/// multiple formats emit `<picture>` with one `<source>` per format + an `<img>`
+/// fallback (`fallback_file` at `fallback_w`×`fallback_h`).
+fn build_picture_html(
+    variants: &[(::image::ImageFormat, Vec<(u32, String)>)],
+    fallback_file: &str,
+    fallback_w: u32,
+    fallback_h: u32,
+) -> String {
+    fn srcset(rows: &[(u32, String)]) -> String {
+        rows.iter()
+            .map(|(w, f)| format!("{f} {w}w"))
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
+
+    if variants.len() == 1 {
+        format!(
+            "<img srcset=\"{}\" src=\"{fallback_file}\" width=\"{fallback_w}\" height=\"{fallback_h}\" alt=\"\">",
+            srcset(&variants[0].1)
+        )
+    } else {
+        let mut s = String::from("<picture>\n");
+        for (fmt, rows) in variants {
+            s.push_str(&format!(
+                "  <source type=\"{}\" srcset=\"{}\">\n",
+                mime_for_format(*fmt),
+                srcset(rows)
+            ));
+        }
+        s.push_str(&format!(
+            "  <img src=\"{fallback_file}\" width=\"{fallback_w}\" height=\"{fallback_h}\" alt=\"\">\n</picture>"
+        ));
+        s
+    }
+}
+
+/// Wire the `responsive` subcommand (SPEC-024, DEC-026): decode once, write one
+/// width-scaled variant per (width × format) into the global `--out-dir`, and print
+/// a paste-ready `<picture>`/srcset snippet to stdout (unless `--no-snippet`).
+///
+/// Resizes by target WIDTH via the resize `fit` mode (preserve aspect, NEVER
+/// upscale); widths above the source width are skipped with a warning; variants
+/// dedupe by actual width. Output formats default to the input's; a feature-gated
+/// unbuilt codec exits 4 up front (DEC-004), before any file is written.
+fn run_responsive(
+    input: &str,
+    widths: &str,
+    formats: Option<&str>,
+    no_snippet: bool,
+    global: &GlobalArgs,
+) -> Result<(), CliError> {
+    use std::collections::BTreeSet;
+    use std::io::Write;
+
+    let out_dir = global
+        .out_dir
+        .as_ref()
+        .ok_or_else(|| CliError::Usage("responsive requires --out-dir".into()))?;
+
+    let widths = parse_widths(widths)?;
+
+    // Decode ONCE (DEC-002).
+    let img = Image::load(input)?;
+    let src_w = img.width();
+
+    // Resolve formats (default = source) and fail up front for an unbuilt codec.
+    let formats = parse_formats(formats, img.source_format())?;
+    for &fmt in &formats {
+        crate::sink::ensure_codec_built(fmt).map_err(CliError::Sink)?;
+    }
+
+    // Surviving widths: ≤ source width (skip larger — no upscaling).
+    let mut surviving: Vec<u32> = Vec::new();
+    for &w in &widths {
+        if w > src_w {
+            if !global.quiet {
+                eprintln!(
+                    "warning: width {w} exceeds source width {src_w}; skipped (no upscaling)"
+                );
+            }
+        } else {
+            surviving.push(w);
+        }
+    }
+    if surviving.is_empty() {
+        return Err(CliError::Usage(format!(
+            "no requested width is ≤ the source width ({src_w}px); nothing to generate"
+        )));
+    }
+
+    std::fs::create_dir_all(out_dir).map_err(|e| CliError::Sink(SinkError::Io(e)))?;
+
+    let stem = Path::new(input)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("image")
+        .to_owned();
+    let overwrite = if global.yes {
+        Overwrite::Allow
+    } else {
+        Overwrite::Forbid
+    };
+
+    let registry = OperationRegistry::with_builtins();
+    let map_registry_err = |e| match e {
+        RegistryError::InvalidParams { reason, .. } => CliError::Usage(reason),
+        RegistryError::Unknown { name } => CliError::Usage(format!("unknown operation '{name}'")),
+    };
+
+    let mut per_format: Vec<(::image::ImageFormat, Vec<(u32, String)>)> =
+        formats.iter().map(|&f| (f, Vec::new())).collect();
+    let mut seen_widths: BTreeSet<u32> = BTreeSet::new();
+    let mut fallback: (u32, u32) = (0, 0); // (actual_width, actual_height) of the widest variant
+
+    for &w in &surviving {
+        // Resize to width w (preserve aspect, no upscale).
+        let op = registry
+            .build("resize", &fit_width_params(w))
+            .map_err(map_registry_err)?;
+        let pipeline = Pipeline::new().push(op);
+        let out = pipeline.run(img.clone())?;
+        let aw = out.width();
+        let ah = out.height();
+        // Dedupe by actual width (multiple requested widths can clamp to the same).
+        if !seen_widths.insert(aw) {
+            continue;
+        }
+        if aw >= fallback.0 {
+            fallback = (aw, ah);
+        }
+
+        for (i, &fmt) in formats.iter().enumerate() {
+            let ext = crate::sink::extension_for_format(fmt);
+            let name = format!("{stem}-{aw}w.{ext}");
+            let path = crate::sink::safe_join(Path::new(out_dir), &name).map_err(CliError::Sink)?;
+            let sink = Sink::File {
+                path,
+                format: Some(fmt),
+            };
+            let sink_input = SinkInput {
+                stem: &stem,
+                path: Some(Path::new(input)),
+            };
+            // File sink writes to the path; the `out` writer is unused (discard it).
+            sink.write(
+                &out,
+                &sink_input,
+                overwrite,
+                responsive_quality(fmt, global.quality),
+                &mut std::io::sink(),
+            )?;
+            per_format[i].1.push((aw, name));
+        }
+    }
+
+    if !no_snippet {
+        let last_fmt = formats[formats.len() - 1];
+        let fallback_file = format!(
+            "{stem}-{}w.{}",
+            fallback.0,
+            crate::sink::extension_for_format(last_fmt)
+        );
+        let html = build_picture_html(&per_format, &fallback_file, fallback.0, fallback.1);
+        let mut out = std::io::stdout().lock();
+        writeln!(out, "{html}").map_err(crate::sink::SinkError::Io)?;
+    }
+    Ok(())
+}
+
 // ── Unit tests ────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -2613,5 +2904,142 @@ mod tests {
         assert!(diff_passes(12.0, None), "no gate always passes");
         // Boundary: equal to the threshold passes.
         assert!(diff_passes(90.0, Some(90.0)), "90 ≥ 90 passes");
+    }
+
+    // ── SPEC-024: responsive ──────────────────────────────────────────────────
+
+    #[test]
+    fn responsive_parses_args() {
+        let cli = Cli::try_parse_from([
+            "crustyimg",
+            "responsive",
+            "in.jpg",
+            "--widths",
+            "320,640",
+            "--out-dir",
+            "d",
+            "--formats",
+            "webp,jpeg",
+        ])
+        .expect("should parse");
+        match &cli.command {
+            Commands::Responsive {
+                input,
+                widths,
+                formats,
+                no_snippet,
+            } => {
+                assert_eq!(input, "in.jpg");
+                assert_eq!(widths, "320,640");
+                assert_eq!(formats.as_deref(), Some("webp,jpeg"));
+                assert!(!*no_snippet);
+            }
+            other => panic!("expected Responsive variant, got {other:?}"),
+        }
+        // --out-dir is the GLOBAL flag.
+        assert_eq!(cli.global.out_dir.as_deref(), Some("d"));
+    }
+
+    #[test]
+    fn parse_widths_ok_and_dedup_sorted() {
+        assert_eq!(parse_widths("640, 320,640").unwrap(), vec![320, 640]);
+        assert_eq!(parse_widths("100").unwrap(), vec![100]);
+    }
+
+    #[test]
+    fn parse_widths_rejects_junk() {
+        for bad in ["", "0", "abc", "320,0", "-5", "320,,640"] {
+            let r = parse_widths(bad);
+            assert!(r.is_err(), "expected Err for '{bad}'");
+            assert_eq!(r.unwrap_err().code(), 2, "'{bad}' should be a usage error");
+        }
+    }
+
+    #[test]
+    fn parse_formats_defaults_and_resolves() {
+        // None → the source format.
+        assert_eq!(
+            parse_formats(None, ::image::ImageFormat::Jpeg).unwrap(),
+            vec![::image::ImageFormat::Jpeg]
+        );
+        // Explicit list, order preserved.
+        assert_eq!(
+            parse_formats(Some("webp,jpeg"), ::image::ImageFormat::Png).unwrap(),
+            vec![::image::ImageFormat::WebP, ::image::ImageFormat::Jpeg]
+        );
+        // Unknown format → exit 4 (SinkError::UnsupportedExtension via resolve_format).
+        assert_eq!(
+            parse_formats(Some("xyz"), ::image::ImageFormat::Jpeg)
+                .unwrap_err()
+                .code(),
+            4
+        );
+    }
+
+    #[test]
+    fn mime_for_format_maps_core() {
+        assert_eq!(mime_for_format(::image::ImageFormat::Jpeg), "image/jpeg");
+        assert_eq!(mime_for_format(::image::ImageFormat::Png), "image/png");
+        assert_eq!(mime_for_format(::image::ImageFormat::WebP), "image/webp");
+        assert_eq!(mime_for_format(::image::ImageFormat::Avif), "image/avif");
+    }
+
+    #[test]
+    fn build_picture_html_single_vs_multi() {
+        let jpeg_rows = vec![
+            (320u32, "p-320w.jpg".to_owned()),
+            (640u32, "p-640w.jpg".to_owned()),
+        ];
+
+        // Single format → a bare <img srcset>, no <picture>/<source>.
+        let single = build_picture_html(
+            &[(::image::ImageFormat::Jpeg, jpeg_rows.clone())],
+            "p-640w.jpg",
+            640,
+            427,
+        );
+        assert!(
+            single.contains("<img srcset="),
+            "single → bare img: {single}"
+        );
+        assert!(single.contains("p-320w.jpg 320w"), "srcset rows: {single}");
+        assert!(single.contains("640w"), "srcset rows: {single}");
+        assert!(
+            single.contains("src=\"p-640w.jpg\""),
+            "fallback src: {single}"
+        );
+        assert!(single.contains("width=\"640\""), "fallback width: {single}");
+        assert!(
+            !single.contains("<picture>"),
+            "single must not wrap in <picture>"
+        );
+
+        // Multi-format → <picture> with one <source> per format + an <img> fallback.
+        let webp_rows = vec![
+            (320u32, "p-320w.webp".to_owned()),
+            (640u32, "p-640w.webp".to_owned()),
+        ];
+        let multi = build_picture_html(
+            &[
+                (::image::ImageFormat::WebP, webp_rows),
+                (::image::ImageFormat::Jpeg, jpeg_rows),
+            ],
+            "p-640w.jpg",
+            640,
+            427,
+        );
+        assert!(multi.contains("<picture>"), "multi → picture: {multi}");
+        assert!(
+            multi.contains("type=\"image/webp\""),
+            "webp source: {multi}"
+        );
+        assert!(
+            multi.contains("type=\"image/jpeg\""),
+            "jpeg source: {multi}"
+        );
+        assert!(
+            multi.contains("<img src=\"p-640w.jpg\""),
+            "fallback img: {multi}"
+        );
     }
 }

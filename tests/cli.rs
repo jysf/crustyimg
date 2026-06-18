@@ -73,6 +73,7 @@ fn help_lists_all_subcommands() {
         "shrink",
         "convert",
         "optimize",
+        "responsive",
         "auto-orient",
         "watermark",
         "strip",
@@ -138,6 +139,7 @@ fn each_subcommand_help_parses() {
         "shrink",
         "convert",
         "optimize",
+        "responsive",
         "auto-orient",
         "watermark",
         "strip",
@@ -4167,4 +4169,291 @@ fn diff_missing_input_exits_3() {
         .output()
         .expect("failed to run diff missing");
     assert_eq!(output.status.code(), Some(3), "missing input should exit 3");
+}
+
+// ── SPEC-024: responsive (<picture>/srcset set generator) ──────────────────────
+
+/// `responsive --widths 320,640` writes width-scaled JPEG variants + an <img srcset>.
+#[test]
+fn responsive_writes_width_variants() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let in_path = write_bytes(&dir, "in.jpg", &common::detailed_jpeg(800, 600));
+    let out_dir = dir.path().join("dist");
+
+    let output = Command::new(BIN)
+        .args([
+            "responsive",
+            in_path.to_str().unwrap(),
+            "--widths",
+            "320,640",
+            "--out-dir",
+            out_dir.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run responsive");
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "responsive should exit 0; stderr: {}",
+        stderr_str(&output)
+    );
+    for (name, want_w) in [("in-320w.jpg", 320), ("in-640w.jpg", 640)] {
+        let p = out_dir.join(name);
+        assert!(p.exists(), "{name} should exist");
+        let decoded = image::open(&p).expect("variant should decode");
+        assert_eq!(decoded.width(), want_w, "{name} width");
+    }
+    let stdout = stdout_str(&output);
+    assert!(
+        stdout.contains("srcset="),
+        "snippet should have srcset; got: {stdout}"
+    );
+    assert!(
+        stdout.contains("320w") && stdout.contains("640w"),
+        "descriptors: {stdout}"
+    );
+}
+
+/// `--formats webp,jpeg` writes both per width and emits a <picture> block.
+#[test]
+fn responsive_multi_format_emits_picture() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let in_path = write_bytes(&dir, "hero.jpg", &common::detailed_jpeg(800, 600));
+    let out_dir = dir.path().join("dist");
+
+    let output = Command::new(BIN)
+        .args([
+            "responsive",
+            in_path.to_str().unwrap(),
+            "--widths",
+            "320,640",
+            "--formats",
+            "webp,jpeg",
+            "--out-dir",
+            out_dir.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run responsive multi-format");
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "stderr: {}",
+        stderr_str(&output)
+    );
+
+    for name in [
+        "hero-320w.webp",
+        "hero-640w.webp",
+        "hero-320w.jpg",
+        "hero-640w.jpg",
+    ] {
+        assert!(out_dir.join(name).exists(), "{name} should exist");
+    }
+    let stdout = stdout_str(&output);
+    assert!(
+        stdout.contains("<picture>"),
+        "should emit <picture>: {stdout}"
+    );
+    assert!(
+        stdout.contains("type=\"image/webp\""),
+        "webp source: {stdout}"
+    );
+    assert!(
+        stdout.contains("type=\"image/jpeg\""),
+        "jpeg source: {stdout}"
+    );
+    assert!(stdout.contains("<img "), "img fallback: {stdout}");
+}
+
+/// A width greater than the source width is skipped (no upscaling), with a warning.
+#[test]
+fn responsive_no_upscale_skips_wide() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let in_path = write_bytes(&dir, "in.jpg", &common::detailed_jpeg(400, 300));
+    let out_dir = dir.path().join("dist");
+
+    let output = Command::new(BIN)
+        .args([
+            "responsive",
+            in_path.to_str().unwrap(),
+            "--widths",
+            "320,800",
+            "--out-dir",
+            out_dir.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run responsive");
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "stderr: {}",
+        stderr_str(&output)
+    );
+    assert!(
+        out_dir.join("in-320w.jpg").exists(),
+        "320 variant should exist"
+    );
+    assert!(
+        !out_dir.join("in-800w.jpg").exists(),
+        "800 must be skipped (no upscale)"
+    );
+    assert!(
+        stderr_str(&output).contains("800") && stderr_str(&output).to_lowercase().contains("skip"),
+        "should warn about skipping 800; stderr: {}",
+        stderr_str(&output)
+    );
+}
+
+/// If every requested width exceeds the source width → exit 2.
+#[test]
+fn responsive_all_widths_exceed_source_exits_2() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let in_path = write_bytes(&dir, "in.jpg", &common::detailed_jpeg(200, 150));
+    let out_dir = dir.path().join("dist");
+
+    let output = Command::new(BIN)
+        .args([
+            "responsive",
+            in_path.to_str().unwrap(),
+            "--widths",
+            "320,640",
+            "--out-dir",
+            out_dir.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run responsive");
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "all-too-wide should exit 2; stderr: {}",
+        stderr_str(&output)
+    );
+}
+
+/// `--formats avif` without the feature exits 4 before writing anything.
+#[cfg(not(feature = "avif"))]
+#[test]
+fn responsive_avif_without_feature_exits_4() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let in_path = write_bytes(&dir, "in.jpg", &common::detailed_jpeg(800, 600));
+    let out_dir = dir.path().join("dist");
+
+    let output = Command::new(BIN)
+        .args([
+            "responsive",
+            in_path.to_str().unwrap(),
+            "--widths",
+            "320",
+            "--formats",
+            "avif",
+            "--out-dir",
+            out_dir.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run responsive avif");
+    assert_eq!(
+        output.status.code(),
+        Some(4),
+        "avif without feature should exit 4; stderr: {}",
+        stderr_str(&output)
+    );
+    // Nothing should have been written.
+    assert!(
+        !out_dir.join("in-320w.avif").exists(),
+        "no file should be written on the up-front codec failure"
+    );
+}
+
+/// `--no-snippet` suppresses the HTML on stdout but still writes the files.
+#[test]
+fn responsive_no_snippet_suppresses_html() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let in_path = write_bytes(&dir, "in.jpg", &common::detailed_jpeg(800, 600));
+    let out_dir = dir.path().join("dist");
+
+    let output = Command::new(BIN)
+        .args([
+            "responsive",
+            in_path.to_str().unwrap(),
+            "--widths",
+            "320",
+            "--no-snippet",
+            "--out-dir",
+            out_dir.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run responsive --no-snippet");
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "stderr: {}",
+        stderr_str(&output)
+    );
+    assert!(
+        out_dir.join("in-320w.jpg").exists(),
+        "variant still written"
+    );
+    assert!(
+        !stdout_str(&output).contains("srcset"),
+        "stdout should be empty of HTML; got: {}",
+        stdout_str(&output)
+    );
+}
+
+/// `--out-dir` is created if it does not exist.
+#[test]
+fn responsive_creates_out_dir() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let in_path = write_bytes(&dir, "in.jpg", &common::detailed_jpeg(800, 600));
+    let out_dir = dir.path().join("a/b/dist"); // nested, not pre-created
+
+    let output = Command::new(BIN)
+        .args([
+            "responsive",
+            in_path.to_str().unwrap(),
+            "--widths",
+            "320",
+            "--out-dir",
+            out_dir.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run responsive");
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "stderr: {}",
+        stderr_str(&output)
+    );
+    assert!(
+        out_dir.join("in-320w.jpg").exists(),
+        "out-dir should be created"
+    );
+}
+
+/// Malformed `--widths` is a usage error (exit 2).
+#[test]
+fn responsive_malformed_widths_exits_2() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let in_path = write_bytes(&dir, "in.jpg", &common::detailed_jpeg(800, 600));
+    let out_dir = dir.path().join("dist");
+
+    for bad in ["0", "abc"] {
+        let output = Command::new(BIN)
+            .args([
+                "responsive",
+                in_path.to_str().unwrap(),
+                "--widths",
+                bad,
+                "--out-dir",
+                out_dir.to_str().unwrap(),
+            ])
+            .output()
+            .expect("failed to run responsive");
+        assert_eq!(
+            output.status.code(),
+            Some(2),
+            "--widths {bad} should exit 2; stderr: {}",
+            stderr_str(&output)
+        );
+    }
 }
