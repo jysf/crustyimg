@@ -59,6 +59,7 @@ Apply to all subcommands (parsed before/around the subcommand).
 | `4` | Unsupported format / codec not built (e.g. AVIF without the feature). |
 | `5` | Output write failed / refused (exists without `--yes`, traversal). |
 | `6` | Partial batch failure (some inputs failed; summary on stderr). |
+| `7` | A check/gate was not satisfied (e.g. `diff --fail-under` scored below the threshold). Distinct from a runtime error so CI can tell "regression detected" from "couldn't run" (S9/SPEC-023, DEC-025). |
 
 The library returns typed `thiserror` errors; `main` maps them to these
 codes and prints a friendly `anyhow`-formatted message to stderr (DEC-007).
@@ -84,6 +85,16 @@ diagnostics on stderr, so `info --json | jq` stays clean). Single-image
 command: resolves the first input on a directory/glob. "byte size" is the
 **encoded file size on disk**, not the decoded in-memory pixel buffer length
 (the latter, if surfaced, is a distinct `decoded_bytes` field).
+
+#### `diff <A> <B> [--fail-under N] [--json]`  *(S9/SPEC-023; DEC-025)*
+Print the **SSIMULACRA2** perceptual score of `<B>` relative to `<A>` (higher =
+more similar, ~100 = visually identical; reuses the auto-quality metric, DEC-019).
+`--fail-under <0-100>` turns it into a **CI visual-regression gate**: score below
+`N` exits **7** (a distinct "check not satisfied" code), the score line still
+printed to stdout. The two inputs must have **equal dimensions** (else exit **2**;
+no implicit resize). `--json` emits `{"a","b","score","fail_under","passed"}` to
+stdout. (v1 is score + gate only; a highlighted visual-diff heatmap image is a
+deferred follow-up.)
 
 ### Geometry / transform
 
