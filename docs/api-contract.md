@@ -71,10 +71,12 @@ codes and prints a friendly `anyhow`-formatted message to stderr (DEC-007).
 ### Inspect / view
 
 #### `view <INPUT> [--width N] [--height N]`  *(S2; smoke stub in S1)*
-Display an image in the terminal via `viuer`. Requires a tty — a non-tty
-stdout refuses with exit code **5** (`SinkError::NotATty`). Optional sizing
-fits to terminal by default. Resolves the first input when given a
-directory/glob (single-image command).
+Display an image in the terminal via `viuer`. The `display` feature is **on by
+default** (DEC-027), so `view` works out of the box; a headless
+`--no-default-features` build omits it and `view` then reports the rebuild hint
+(exit 5). Requires a tty — a non-tty stdout refuses with exit code **5**
+(`SinkError::NotATty`). Optional sizing fits to terminal by default. Resolves the
+first input when given a directory/glob (single-image command).
 
 #### `info <INPUT> [--exif] [--json]`  *(S2)*
 Print dimensions, format, **file size on disk** (bytes), color type, bit

@@ -123,7 +123,8 @@ Reports aggregate cost by cycle, by interface, by spec, and by stage.
 - **CLI framework:** `clap` 4 (derive, subcommands).
 - **Pixel core:** `image` 0.25 (the single pixel library, DEC-002);
   `fast_image_resize` 5 for the SIMD resize backend (DEC-008).
-- **Terminal display:** `viuer` 0.9.
+- **Terminal display:** `viuer` 0.11, behind the `display` feature which is **on by
+  default** (DEC-027, supersedes DEC-011); headless builds use `--no-default-features`.
 - **Serialization:** `serde` 1 + `toml` 0.8 (recipes, DEC-005).
 - **Errors:** `thiserror` 2 (library) + `anyhow` 1 (binary boundary) (DEC-007).
 - **Sources:** `glob` 0.3, `walkdir` 2. **Batch:** `rayon` 1, `indicatif` 0.17.

@@ -446,9 +446,14 @@ impl Sink {
                     // the feature-on build above actively uses both fields.
                     let _ = (width, height);
                     // When built without the feature, inform the caller rather
-                    // than silently succeeding.
+                    // than silently succeeding. `display` is ON by default
+                    // (DEC-027); this branch is only reached on a deliberate
+                    // `--no-default-features` build, so point at the fix.
                     Err(SinkError::Display(
-                        "built without the `display` feature".into(),
+                        "this binary was built --no-default-features, so terminal \
+                         display is not compiled in; rebuild with the `display` feature \
+                         (e.g. `cargo build --features display` or `just view <image>`)"
+                            .into(),
                     ))
                 }
             }

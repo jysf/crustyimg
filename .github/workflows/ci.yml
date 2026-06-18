@@ -8,6 +8,9 @@ on:
 
 jobs:
   check:
+    # The default build now includes `display` (viuer terminal preview) so the
+    # released binary's `view` works out of the box (DEC-027, supersedes DEC-011).
+    # The `lean` job below covers the headless `--no-default-features` build.
     name: build / test / clippy / fmt
     strategy:
       fail-fast: false
@@ -95,6 +98,30 @@ jobs:
 
       - name: Clippy (--features webp-lossy, warnings as errors)
         run: cargo clippy --all-targets --features webp-lossy -- -D warnings
+
+  lean:
+    name: lean build (--no-default-features)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install stable toolchain (clippy)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      # Display is on by default (DEC-027); this job keeps the headless / server
+      # build (no viuer tree) green so it does not bit-rot — the mirror of the
+      # guarantee DEC-011 used to give the default build.
+      - name: Build (--no-default-features)
+        run: cargo build --no-default-features --verbose
+
+      - name: Test (--no-default-features)
+        run: cargo test --no-default-features --verbose
+
+      - name: Clippy (--no-default-features, warnings as errors)
+        run: cargo clippy --all-targets --no-default-features -- -D warnings
 
   cost-data:
     name: cost-capture audit

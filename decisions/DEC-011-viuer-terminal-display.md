@@ -30,7 +30,7 @@ repo:
 
 created_at: 2026-06-14
 supersedes: null
-superseded_by: null
+superseded_by: DEC-027   # display flipped to ON by default (2026-06-18)
 
 # Path globs this decision governs.
 affected_scope:

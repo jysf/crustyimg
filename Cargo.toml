@@ -48,6 +48,10 @@ ssimulacra2 = "=0.5.1"
 webp = { version = "=0.3.1", optional = true, default-features = false }
 
 [features]
+# `display` (terminal preview via viuer) is ON BY DEFAULT so `view` works out of the
+# box in the released binary — it is a headline command (DEC-027, supersedes DEC-011).
+# Headless/server/CI builds that don't want viuer's tree use `--no-default-features`.
+default = ["display"]
 display = ["dep:viuer"]
 webp-lossy = ["dep:webp"]
 # AVIF output behind an off-by-default feature (SPEC-018, DEC-020). The codec
