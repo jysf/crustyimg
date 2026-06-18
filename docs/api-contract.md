@@ -96,6 +96,18 @@ no implicit resize). `--json` emits `{"a","b","score","fail_under","passed"}` to
 stdout. (v1 is score + gate only; a highlighted visual-diff heatmap image is a
 deferred follow-up.)
 
+#### `responsive <INPUT> --widths W1,W2,… --out-dir DIR [--formats F1,F2,…] [--no-snippet]`  *(S9/SPEC-024; DEC-026)*
+Generate a responsive image set: one width-scaled variant per (width × format),
+written as `{stem}-{width}w.{ext}` into `DIR` (created if missing), plus a
+paste-ready **`<picture>`/srcset** snippet on **stdout** (suppress with
+`--no-snippet`). Resizes **by target width**, preserving aspect, **never upscaling**
+(widths above the source width are skipped with a warning; variants dedupe by actual
+width). `--formats` defaults to the input's format; a feature-gated unbuilt codec
+exits **4** up front (DEC-004). `-q` sets the lossy quality (default 80; ignored for
+lossless). Single input (no glob/batch in v1). Reuses the resize op + per-format
+sink; no new dependency. (blurhash placeholder, perceptual-per-variant, and a
+`sizes` attribute are deferred.)
+
 ### Geometry / transform
 
 #### `resize <INPUT...> --max N | --exact WxH | --percent P | --fit WxH | --fill WxH | --cover WxH`  *(S3)*

@@ -168,15 +168,19 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
   dimension-mismatch = exit 2. **DEC-025** (adds exit 7, reusable by the future EXIF
   audit-linter; defers the visual-diff heatmap). Pure reuse — no new dependency.
   10 tests (2 unit + 8 integration); 3-OS + feature CI green. Zero deviations.
-- [ ] (not yet written) responsive `<picture>`/srcset set generator — multi-width
-  × multi-format + a paste-ready HTML snippet; optional blurhash/thumbhash. Opt-in
-  HTML emission (a question for design).
+- [~] SPEC-024 (design) — **responsive `<picture>`/srcset set generator:** one
+  width-scaled variant per (width × format) written as `{stem}-{width}w.{ext}` +
+  a paste-ready `<picture>`/srcset snippet to stdout (`--no-snippet` to suppress).
+  Resizes by target width (the `fit` op), never upscaling, deduped by actual width;
+  `--formats` defaults to source, feature-gated codec → exit 4 up front. **DEC-026**
+  (HTML emission in-scope; blurhash / perceptual-per-variant / batch deferred).
+  No new dependency.
 - [ ] (not yet written) benchmark net — criterion micro-benches + hyperfine CLI
   wall-clock; equal-quality comparisons gated on SSIMULACRA2. The micro-net may
   land early as a `chore`.
 
-**Count:** 2 shipped / 0 active / 2+ pending  *(+ a deferred `diff` visual-diff
-heatmap follow-up, per DEC-025)*
+**Count:** 2 shipped / 1 active / 1+ pending  *(+ deferred follow-ups: a `diff`
+visual-diff heatmap per DEC-025, and a `responsive` blurhash placeholder per DEC-026)*
 
 ## Design Notes
 
