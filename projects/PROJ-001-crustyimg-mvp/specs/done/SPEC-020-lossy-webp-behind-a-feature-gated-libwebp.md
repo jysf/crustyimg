@@ -4,7 +4,7 @@
 task:
   id: SPEC-020
   type: story                      # epic | story | task | bug | chore
-  cycle: verify                    # frame | design | build | verify | ship
+  cycle: ship                      # frame | design | build | verify | ship  (shipped 2026-06-17, PR #23)
   blocked: false
   priority: high
   complexity: M                    # S | M | L  (L means split it)
@@ -55,10 +55,26 @@ cost:
       duration_minutes: null
       recorded_at: 2026-06-17
       notes: "Built in the main loop (background subagents can't get Bash here), tokens are a labeled order-of-magnitude estimate. Added the webp optional dep + webp-lossy feature, the sink lossy arm (lossy iff quality set, else lossless fall-through), the identical quality-search arm, BOTH LossyFormat predicates (rewritten as cfg-gated matches), the CI webp-lossy job, and tests. Default/avif/webp-lossy builds all green; just deny green with NO new exception. Skipped the proposed WEBP_DEFAULT_QUALITY const (would be dead code — lossy only runs when a quality is already set)."
+    - cycle: verify
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 110000     # ORDER-OF-MAGNITUDE estimate — 2 focused read-only review subagents (Explore): cross-sync/selection + predicates/default-unchanged/single-image-library; the Agent results didn't surface token counts
+      estimated_usd: 0.99      # ~110k @ Opus 4.8 list ($5/$25 per MTok, ~80/20 in/out) — order of magnitude
+      duration_minutes: null
+      recorded_at: 2026-06-17
+      notes: "Independent review with 2 focused Explore subagents (sink↔search cross-sync byte-identity + lossy-iff-quality selection; predicate-rewrite regression + default-build-unchanged + single-image-library). Both clean — no findings. + CI green incl. the webp-lossy job. Token total is a labeled estimate."
+    - cycle: ship
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null       # orchestrator main-loop bookkeeping — legitimately null (AGENTS §4)
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-06-17
+      notes: "Ship bookkeeping on main (merge dance + archive): orchestrator main-loop, not separately metered."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 330000     # sum of non-null sessions (build 220k + verify 110k); design/ship main-loop (null → 0)
+    estimated_usd: 2.97
+    session_count: 4
 ---
 
 # SPEC-020: Lossy WebP encode behind a feature-gated `libwebp` codec
@@ -346,10 +362,22 @@ feature-build tests are `#[cfg(feature = "webp-lossy")]`. WebP output is verifie
 *Appended during the **ship** cycle.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Nothing material. Splitting WebP into SPEC-019 (pure-Rust foundation) and
+   SPEC-020 (the libwebp C dep) was the right call — it isolated the project's first
+   C dependency in its own DEC + verification + CI job, and made this spec a clean
+   layer on already-working WebP wiring. The design-time `cc`-build + `just deny`
+   probe meant zero surprises at build.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — No update needed, but worth noting the pattern is now established: a
+   feature-gated native codec = its own DEC (license + build-cost + any constraint
+   tension) + an empirical design probe (build, deny, pinned API) + a dedicated CI
+   job. AVIF (DEC-020) and lossy WebP (DEC-022) both followed it; the next native
+   codec should too. The `single-image-library` constraint held by feeding raw
+   `to_rgba8()` bytes to an encode-only crate — a reusable tactic.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — Not a new one — STAGE-008's formats are complete (JPEG/AVIF/WebP, lossless +
+   lossy). The remaining stage item is the **`--max-size` dimension-reduction
+   fallback** (already in the backlog); designing it next. The parked jpegli-encode
+   license question stays in `guidance/license-watchlist.yaml` for a future JPEG spec.
