@@ -11,11 +11,11 @@ Cycle prompts live in `prompts/SPEC-022-<cycle>.md`.
   + `## Implementation Context`), emitted DEC-024 (optimize command shape), and
   added the SPEC-022 line to the STAGE-009 backlog. Pure-composition design: no new
   dep, reuses `auto-orient` + `run_pixel_op` + `resolve_effective_quality`.
-- [ ] build — make the `## Failing Tests` pass: add `Commands::Optimize`,
-  `run_optimize`, `optimize_auto_config`, the dispatch arm, and the unit +
-  integration tests. Prompt: `prompts/SPEC-022-build.md`.
-- [ ] verify — independent review: acceptance criteria, no decision drift
-  (`just decisions-audit --changed`), constraints, every named failing test exists,
-  cost session recorded.
-- [ ] ship — PR merge (pause for the user first), reflections, cost totals, archive
-  to `specs/done/`, flip the STAGE-009 backlog line.
+- [x] build (2026-06-17, PR #25) — Opus, main loop. Added `Commands::Optimize`,
+  `run_optimize`, `optimize_auto_config`, dispatch arm + 6 unit + 10 integration
+  tests. Pure composition, no new dep. All gates + 3-OS CI green.
+- [x] verify (2026-06-17) — independent read-only Explore subagent: ✅ APPROVED. All
+  16 named tests present, no DEC-024 drift, no `unwrap` outside tests, pipeline order
+  + reject-quality wiring correct, `cargo test`/clippy/fmt green.
+- [x] ship (2026-06-17, PR #25 squash-merged) — reflections + cost totals filled,
+  STAGE-009 backlog line flipped, archived to `specs/done/`, `just cost-audit` green.

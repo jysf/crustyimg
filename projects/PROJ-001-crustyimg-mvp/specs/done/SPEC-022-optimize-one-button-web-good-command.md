@@ -7,7 +7,7 @@
 task:
   id: SPEC-022
   type: story                      # epic | story | task | bug | chore
-  cycle: build  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: M                    # S | M | L  (L means split it)
@@ -43,18 +43,42 @@ value_link: "Delivers STAGE-009's headline one-button web-good command — the u
 # (null-with-note); build/verify carry a real tokens_total.
 cost:
   sessions:
-    - cycle: build
+    - cycle: design
       agent: claude-opus-4-8
       interface: claude-code
-      tokens_total: null      # main-loop build (orchestrator-direct); fill at ship if metered
+      tokens_total: null
       estimated_usd: null
       duration_minutes: null
       recorded_at: 2026-06-17
-      notes: "optimize command: clap variant + run_optimize + optimize_auto_config + 16 tests; pure composition, no new dep. Main-loop build — order-of-magnitude estimate recorded at ship."
+      notes: "main-loop, not separately metered (orchestrator design session)"
+    - cycle: build
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 220000
+      estimated_usd: 2.00
+      duration_minutes: null
+      recorded_at: 2026-06-17
+      notes: "ORDER-OF-MAGNITUDE estimate — main-loop build (not separately metered): read the cli/quality/sink core + wrote run_optimize/optimize_auto_config + 16 tests + ran gates. Opus 4.8 list rate ($5/$25 per MTok), ~80/20 in/out, no cache discount."
+    - cycle: verify
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 60000
+      estimated_usd: 0.55
+      duration_minutes: null
+      recorded_at: 2026-06-17
+      notes: "ORDER-OF-MAGNITUDE estimate — independent read-only Explore verify subagent (spec/DEC/code review + gate runs). Opus list rate, ~80/20 in/out."
+    - cycle: ship
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-06-17
+      notes: "main-loop, not separately metered (merge + ship bookkeeping)"
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 280000
+    estimated_usd: 2.55
+    session_count: 4
 ---
 
 # SPEC-022: optimize — one-button web-good command
@@ -442,8 +466,22 @@ Written during **design**, BEFORE build. The implementer makes these pass.
 *Appended during the **ship** cycle. Outcome-focused.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Very little. This validated the STAGE-009 thesis that the differentiator
+   surface is mostly composition: a new headline command landed as a clap variant +
+   one thin handler + one config helper, reusing the entire STAGE-008 engine with no
+   new dependency and no change to `src/quality`/`src/sink`. The only judgement that
+   needed pinning up front was keeping every perceptually-scored image ≥ ~96px (the
+   SSIMULACRA2 floor) — worth front-loading again for `diff`/responsive.
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — No template/constraint change. DEC-024 captures the command shape and the
+   deferral of cross-format auto-negotiation. One standing note for the stage: the
+   "perceptual default" means any command that downscales before scoring inherits
+   the ≥96px metric floor — fold this into the `diff`/responsive specs rather than
+   rediscovering it.
 3. **Is there a follow-up spec I should write now before I forget?**
+   — Two, already in the STAGE-009 backlog as future specs: (a) cross-format
+   auto-negotiation for `optimize` (blocked on AVIF decode, per DEC-024); (b) `--json`
+   reporting (in/out bytes, chosen quality, score) — a natural `optimize` add and a
+   broader "machine-readable everywhere" thread. Neither blocks the next STAGE-009
+   spec (`diff`).
    — <answer>
