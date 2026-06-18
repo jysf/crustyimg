@@ -151,14 +151,16 @@ composition and the headline demo); drive by status, not number.
 
 Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
-- [~] SPEC-022 (design) — **`optimize` one-button web-good command (HEADLINE):**
-  a fixed `auto-orient` pipeline (+ optional `--max` long-edge bound) + a **default
-  perceptual visually-lossless** re-encode (SSIMULACRA2), format/size-preserving;
-  strips all metadata (privacy incl. GPS) via the pixel-lane re-encode;
-  `--target`/`--ssim`/`--max-size` override the outcome, `-o`/`--format` pick the
-  output format. Pure composition of the shipped `src/quality` + `run_pixel_op`;
-  one command-shape decision (**DEC-024**: defaults + deferral of cross-format
-  auto-negotiation).
+- [x] SPEC-022 (shipped 2026-06-17, PR #25) — **`optimize` one-button web-good
+  command (HEADLINE):** a fixed `auto-orient` pipeline (+ optional `--max` long-edge
+  bound) + a **default perceptual visually-lossless** re-encode (SSIMULACRA2),
+  format/size-preserving; strips all metadata (privacy incl. GPS) via the pixel-lane
+  re-encode; `--target`/`--ssim`/`--max-size` override the outcome, `-o`/`--format`
+  pick the output format. Pure composition of the shipped `src/quality` +
+  `run_pixel_op` + the `auto-orient` op — **no new dependency**, no change to
+  `src/quality`/`src/sink`. **DEC-024** (defaults + deferral of cross-format
+  auto-negotiation, which needs AVIF decode). 16 tests (6 unit + 10 integration);
+  3-OS + feature CI green. Build had zero deviations from the spec.
 - [ ] (not yet written) `diff` — perceptual SSIMULACRA2 score + visual pixel-diff
   + `--fail-under` CI gate. Reuses `crate::quality::score`; the visual-diff image
   is the new piece.
@@ -169,7 +171,7 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
   wall-clock; equal-quality comparisons gated on SSIMULACRA2. The micro-net may
   land early as a `chore`.
 
-**Count:** 0 shipped / 1 active / 3+ pending
+**Count:** 1 shipped / 0 active / 3+ pending
 
 ## Design Notes
 
