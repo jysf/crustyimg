@@ -71,6 +71,7 @@ fn help_lists_all_subcommands() {
         "thumbnail",
         "shrink",
         "convert",
+        "optimize",
         "auto-orient",
         "watermark",
         "strip",
@@ -134,6 +135,7 @@ fn each_subcommand_help_parses() {
         "thumbnail",
         "shrink",
         "convert",
+        "optimize",
         "auto-orient",
         "watermark",
         "strip",
@@ -3598,5 +3600,359 @@ fn convert_max_size_conflicts_with_quality_exits_2() {
         Some(2),
         "stderr: {}",
         stderr_str(&output)
+    );
+}
+
+// ── SPEC-022: optimize (one-button web-good command) ───────────────────────────
+
+/// `optimize` bakes EXIF orientation into pixels (dims swap on a 90° rotate) AND
+/// strips metadata — the correctness + privacy half of the command.
+#[test]
+fn optimize_reorients_and_strips_metadata() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    // 128×96 JPEG with Orientation=6 (Rotate90) → output should be 96×128.
+    let in_path = write_bytes(&dir, "in.jpg", &common::jpeg_with_orientation(128, 96, 6));
+    let out_path = dir.path().join("out.jpg");
+
+    let output = Command::new(BIN)
+        .args([
+            "optimize",
+            in_path.to_str().unwrap(),
+            "-o",
+            out_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run optimize");
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "optimize should exit 0; stderr: {}",
+        stderr_str(&output)
+    );
+
+    let decoded = image::open(&out_path).expect("output should decode as JPEG");
+    assert_eq!(
+        decoded.width(),
+        96,
+        "rotate90: width should be input height"
+    );
+    assert_eq!(
+        decoded.height(),
+        128,
+        "rotate90: height should be input width"
+    );
+
+    // Metadata stripped: info --json reports has_exif:false.
+    let info = Command::new(BIN)
+        .args(["info", out_path.to_str().unwrap(), "--json"])
+        .output()
+        .expect("failed to run info");
+    assert!(
+        stdout_str(&info).contains("\"has_exif\":false"),
+        "optimize output should carry no EXIF; got: {}",
+        stdout_str(&info)
+    );
+}
+
+/// `optimize` with no flags defaults to a visually-lossless re-encode: a valid
+/// JPEG, smaller than a max-quality encode, with dimensions preserved.
+#[test]
+fn optimize_default_is_smaller_valid_jpeg() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let src = common::detailed_jpeg(96, 96);
+    let in_path = write_bytes(&dir, "in.jpg", &src);
+    let out_path = dir.path().join("out.jpg");
+
+    // Baseline: the same decoded pixels re-encoded at quality 100.
+    let baseline_len = {
+        let img = image::load_from_memory(&src).expect("decode src");
+        let mut c = Cursor::new(Vec::new());
+        let enc = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut c, 100);
+        img.write_with_encoder(enc).expect("encode q100");
+        c.into_inner().len()
+    };
+
+    let output = Command::new(BIN)
+        .args([
+            "optimize",
+            in_path.to_str().unwrap(),
+            "-o",
+            out_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run optimize");
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "optimize should exit 0; stderr: {}",
+        stderr_str(&output)
+    );
+
+    let bytes = std::fs::read(&out_path).expect("output file");
+    assert_eq!(
+        image::guess_format(&bytes).expect("guess format"),
+        ImageFormat::Jpeg,
+        "output should be a JPEG"
+    );
+    assert!(
+        bytes.len() < baseline_len,
+        "visually-lossless output ({} bytes) should be smaller than a q100 encode ({} bytes)",
+        bytes.len(),
+        baseline_len
+    );
+    let decoded = image::load_from_memory(&bytes).expect("decode output");
+    assert_eq!(
+        (decoded.width(), decoded.height()),
+        (96, 96),
+        "dims preserved"
+    );
+}
+
+/// `optimize` preserves the input format and dimensions by default (no resize,
+/// no container change).
+#[test]
+fn optimize_preserves_format_and_dims_by_default() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let in_path = write_bytes(&dir, "in.jpg", &common::detailed_jpeg(128, 96));
+    let out_path = dir.path().join("out.jpg");
+
+    let output = Command::new(BIN)
+        .args([
+            "optimize",
+            in_path.to_str().unwrap(),
+            "-o",
+            out_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run optimize");
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "stderr: {}",
+        stderr_str(&output)
+    );
+
+    let bytes = std::fs::read(&out_path).expect("output file");
+    assert_eq!(
+        image::guess_format(&bytes).expect("guess format"),
+        ImageFormat::Jpeg,
+        "format preserved (JPEG)"
+    );
+    let decoded = image::load_from_memory(&bytes).expect("decode output");
+    assert_eq!(
+        (decoded.width(), decoded.height()),
+        (128, 96),
+        "no default resize"
+    );
+}
+
+/// `optimize --max N` bounds the long edge (the only way it resizes).
+#[test]
+fn optimize_max_bounds_long_edge() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let in_path = write_bytes(&dir, "in.jpg", &common::detailed_jpeg(256, 192));
+    let out_path = dir.path().join("out.jpg");
+
+    let output = Command::new(BIN)
+        .args([
+            "optimize",
+            in_path.to_str().unwrap(),
+            "--max",
+            "128",
+            "-o",
+            out_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run optimize --max");
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "stderr: {}",
+        stderr_str(&output)
+    );
+
+    let decoded = image::open(&out_path).expect("decode output");
+    assert!(
+        decoded.width().max(decoded.height()) <= 128,
+        "long edge should be ≤ 128, got {}x{}",
+        decoded.width(),
+        decoded.height()
+    );
+    assert_eq!(
+        (decoded.width(), decoded.height()),
+        (128, 96),
+        "256x192 bounded to 128 long-edge → 128x96"
+    );
+}
+
+/// `optimize -o out.png` honors the output format; the perceptual target is
+/// silently ignored for the lossless format (no error).
+#[test]
+fn optimize_format_change_to_png() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let in_path = write_bytes(&dir, "in.jpg", &common::detailed_jpeg(128, 96));
+    let out_path = dir.path().join("out.png");
+
+    let output = Command::new(BIN)
+        .args([
+            "optimize",
+            in_path.to_str().unwrap(),
+            "-o",
+            out_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run optimize -o png");
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "optimize to PNG should exit 0 (target ignored for lossless); stderr: {}",
+        stderr_str(&output)
+    );
+    let bytes = std::fs::read(&out_path).expect("output file");
+    assert_eq!(
+        image::guess_format(&bytes).expect("guess format"),
+        ImageFormat::Png,
+        "output should be PNG"
+    );
+}
+
+/// `optimize --max-size <budget>` fits the byte budget (reuses the SPEC-017/021 fit).
+#[test]
+fn optimize_max_size_fits_budget() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let src = common::detailed_jpeg(128, 128);
+    let in_path = write_bytes(&dir, "in.jpg", &src);
+    let out_path = dir.path().join("out.jpg");
+
+    // A budget a third of the q100 size: feasible by lowering quality alone.
+    let baseline_len = {
+        let img = image::load_from_memory(&src).expect("decode src");
+        let mut c = Cursor::new(Vec::new());
+        let enc = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut c, 100);
+        img.write_with_encoder(enc).expect("encode q100");
+        c.into_inner().len()
+    };
+    let budget = (baseline_len / 3).max(1);
+
+    let output = Command::new(BIN)
+        .args([
+            "optimize",
+            in_path.to_str().unwrap(),
+            "--max-size",
+            &format!("{budget}B"),
+            "-o",
+            out_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run optimize --max-size");
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "stderr: {}",
+        stderr_str(&output)
+    );
+
+    let bytes = std::fs::read(&out_path).expect("output file");
+    assert!(
+        bytes.len() <= budget,
+        "output ({} bytes) should fit the {budget}B budget",
+        bytes.len()
+    );
+}
+
+/// A fixed `-q` with `optimize` is a usage error (optimize always auto-tunes).
+#[test]
+fn optimize_quality_flag_is_usage_error() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let in_path = write_bytes(&dir, "in.jpg", &common::detailed_jpeg(96, 96));
+    let out_path = dir.path().join("out.jpg");
+
+    let output = Command::new(BIN)
+        .args([
+            "optimize",
+            in_path.to_str().unwrap(),
+            "-q",
+            "80",
+            "-o",
+            out_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run optimize -q");
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "-q with optimize should exit 2; stderr: {}",
+        stderr_str(&output)
+    );
+}
+
+/// Multi-input `optimize` with `--out-dir` writes every output.
+#[test]
+fn optimize_multi_input_fan_out() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let a = write_bytes(&dir, "a.jpg", &common::detailed_jpeg(96, 96));
+    let b = write_bytes(&dir, "b.jpg", &common::detailed_jpeg(112, 96));
+    let out_dir = dir.path().join("out");
+    std::fs::create_dir(&out_dir).unwrap();
+
+    let output = Command::new(BIN)
+        .args([
+            "optimize",
+            a.to_str().unwrap(),
+            b.to_str().unwrap(),
+            "--out-dir",
+            out_dir.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run optimize multi");
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "stderr: {}",
+        stderr_str(&output)
+    );
+
+    for name in &["a.jpg", "b.jpg"] {
+        assert!(
+            out_dir.join(name).exists(),
+            "{name} should exist in out-dir"
+        );
+    }
+}
+
+/// `optimize` with a missing input exits 3.
+#[test]
+fn optimize_missing_input_exits_3() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let missing = dir.path().join("nope.jpg");
+    let out_path = dir.path().join("out.jpg");
+
+    let output = Command::new(BIN)
+        .args([
+            "optimize",
+            missing.to_str().unwrap(),
+            "-o",
+            out_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run optimize missing");
+    assert_eq!(output.status.code(), Some(3), "missing input should exit 3");
+}
+
+/// Multi-input `optimize` without `--out-dir` is a usage error (exit 2).
+#[test]
+fn optimize_multi_without_out_dir_is_usage_error() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let a = write_bytes(&dir, "a.jpg", &common::detailed_jpeg(96, 96));
+    let b = write_bytes(&dir, "b.jpg", &common::detailed_jpeg(96, 96));
+
+    let output = Command::new(BIN)
+        .args(["optimize", a.to_str().unwrap(), b.to_str().unwrap()])
+        .output()
+        .expect("failed to run optimize multi no out-dir");
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "multi-input without --out-dir should exit 2"
     );
 }

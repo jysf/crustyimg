@@ -7,7 +7,7 @@
 task:
   id: SPEC-022
   type: story                      # epic | story | task | bug | chore
-  cycle: design                    # frame | design | build | verify | ship
+  cycle: build  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: M                    # S | M | L  (L means split it)
@@ -42,7 +42,15 @@ value_link: "Delivers STAGE-009's headline one-button web-good command — the u
 # sessions[]; totals computed at ship. design/ship are main-loop
 # (null-with-note); build/verify carry a real tokens_total.
 cost:
-  sessions: []
+  sessions:
+    - cycle: build
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null      # main-loop build (orchestrator-direct); fill at ship if metered
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-06-17
+      notes: "optimize command: clap variant + run_optimize + optimize_auto_config + 16 tests; pure composition, no new dep. Main-loop build — order-of-magnitude estimate recorded at ship."
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -389,25 +397,43 @@ Written during **design**, BEFORE build. The implementer makes these pass.
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
+- **Branch:** `feat/spec-022-optimize`
+- **PR (if applicable):** (opened during build; number recorded in the timeline)
+- **All acceptance criteria met?** yes — all 10 acceptance criteria covered by the
+  16 new tests (6 unit + 10 integration); `cargo build`, `cargo fmt --check`,
+  `cargo clippy --all-targets -- -D warnings`, `cargo test` (0 failed), and
+  `cargo deny check licenses` all green.
 - **New decisions emitted:**
   - `DEC-024` — optimize command shape (default perceptual visually-lossless +
     auto-orient + strip; format/size-preserving; auto-negotiation deferred)
-- **Deviations from spec:**
-  - [list]
+    *(authored during design, on `main`)*
+- **Deviations from spec:** none. Built exactly to the pinned command surface and
+  pipeline order; pure composition (`auto-orient` op + optional `resize max` +
+  `run_pixel_op` with `auto = Some(Perceptual(visually-lossless))` by default). No
+  new dependency, no change to `src/quality` or `src/sink`.
 - **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - Cross-format auto-negotiation (deferred per DEC-024; needs AVIF decode) — a
+    future STAGE-009 spec.
+  - `optimize` could gain `--json` reporting (what it did: in/out bytes, chosen
+    quality, score) — fits a broader `--json` everywhere effort.
 
 ### Build-phase reflection (3 questions, short answers)
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — Nothing material. The spec pinned the `optimize_auto_config`/`run_optimize`
+   shapes, the pipeline order, and the exact reuse points, so the build was
+   mechanical. The one judgement call made explicit by the design — keeping every
+   perceptually-scored fixture ≥ 96px min dimension (SSIMULACRA2's proven-safe
+   floor in the existing tests) — was already flagged and saved a guessing round.
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — No. DEC-019/017/016/015 plus the cross-sync note covered the reuse surface.
+   Worth recording for the next command: the perceptual default means any fixture
+   that the pipeline downscales (`--max`) must still land ≥ ~96px or the metric can
+   error — the spec anticipated this but it's a standing gotcha for `diff`/responsive.
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Nothing of substance. Possibly compute the q100 byte baselines once in a shared
+   test helper rather than inline in two tests, but inlining kept each test
+   self-contained, which matches the file's style.
 
 ---
 
