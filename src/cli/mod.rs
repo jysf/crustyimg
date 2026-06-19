@@ -339,8 +339,22 @@ pub enum Commands {
     },
 
     /// One-shot multi-op on a single image; optionally saves the recipe (STAGE-005).
+    ///
+    /// Op flags are applied in canonical order regardless of CLI position:
+    /// `auto-orient` → `resize` → `invert`. At least one op flag is required.
     Edit {
         input: String,
+        /// Normalize EXIF orientation to pixels, then clear the tag.
+        #[arg(long)]
+        auto_orient: bool,
+        /// Resize to a max edge of N pixels (canonical order: after auto-orient,
+        /// before invert).
+        #[arg(long, value_name = "N")]
+        resize_max: Option<u32>,
+        /// Invert pixel colors.
+        #[arg(long)]
+        invert: bool,
+        /// Write the op chain as a TOML recipe to FILE after a successful edit.
         #[arg(long)]
         save_recipe: Option<String>,
     },
@@ -618,7 +632,20 @@ fn dispatch(cli: &Cli) -> Result<(), CliError> {
             &cli.global,
         ),
         Commands::CopyMetadata { from, to } => run_copy_metadata(from, to, &cli.global),
-        Commands::Edit { .. } => Err(CliError::NotImplemented("edit")),
+        Commands::Edit {
+            input,
+            auto_orient,
+            resize_max,
+            invert,
+            save_recipe,
+        } => run_edit(
+            input,
+            *auto_orient,
+            *resize_max,
+            *invert,
+            save_recipe.as_deref(),
+            &cli.global,
+        ),
     }
 }
 
@@ -2095,6 +2122,124 @@ fn run_copy_metadata(from: &str, to: &str, global: &GlobalArgs) -> Result<(), Cl
         overwrite,
         &mut std::io::stdout().lock(),
     )?;
+    Ok(())
+}
+
+// ── edit helpers (SPEC-032) ───────────────────────────────────────────────────
+
+/// Build the ordered op list for `edit` from the active op flags (SPEC-032).
+///
+/// Ops are appended in the canonical order regardless of which flags are set:
+///
+/// 1. `auto-orient` (orientation normalization → pixels)
+/// 2. `resize`      (geometry — `--resize-max N`)
+/// 3. `invert`      (color)
+///
+/// Each op is built through `OperationRegistry::with_builtins` (DEC-005) so the
+/// returned ops carry the same `name()` + `params()` that `Recipe::from_ops`
+/// records and `apply` can replay.
+///
+/// Errors:
+/// - Zero flags set → `CliError::Usage` (exit 2).
+/// - `resize` params rejected → `CliError::Usage` (exit 2).
+/// - Any other `RegistryError` (defensive) → `CliError::Usage` (exit 2).
+fn build_edit_ops(
+    auto_orient: bool,
+    resize_max: Option<u32>,
+    invert: bool,
+) -> Result<Vec<Box<dyn crate::operation::Operation>>, CliError> {
+    let registry = OperationRegistry::with_builtins();
+    let mut ops: Vec<Box<dyn crate::operation::Operation>> = Vec::new();
+
+    if auto_orient {
+        let op = registry
+            .build("auto-orient", &OperationParams::empty())
+            .map_err(|e| match e {
+                RegistryError::InvalidParams { reason, .. } => CliError::Usage(reason),
+                RegistryError::Unknown { name } => {
+                    CliError::Usage(format!("unknown operation '{name}'"))
+                }
+            })?;
+        ops.push(op);
+    }
+
+    if let Some(n) = resize_max {
+        let params = resize_params(Some(n), None, None, None, None, None)?;
+        let op = registry.build("resize", &params).map_err(|e| match e {
+            RegistryError::InvalidParams { reason, .. } => CliError::Usage(reason),
+            RegistryError::Unknown { name } => {
+                CliError::Usage(format!("unknown operation '{name}'"))
+            }
+        })?;
+        ops.push(op);
+    }
+
+    if invert {
+        let op = registry
+            .build("invert", &OperationParams::empty())
+            .map_err(|e| match e {
+                RegistryError::InvalidParams { reason, .. } => CliError::Usage(reason),
+                RegistryError::Unknown { name } => {
+                    CliError::Usage(format!("unknown operation '{name}'"))
+                }
+            })?;
+        ops.push(op);
+    }
+
+    if ops.is_empty() {
+        return Err(CliError::Usage(
+            "edit requires at least one operation flag (--auto-orient, --resize-max, --invert)"
+                .into(),
+        ));
+    }
+
+    Ok(ops)
+}
+
+/// Wire the `edit` subcommand: build an ordered op pipeline from the active
+/// flags, run it on `input`, write the result, and — when `--save-recipe` is
+/// given — serialize the op chain to a TOML recipe file (SPEC-032, DEC-005).
+///
+/// Flow (order matters for the round-trip + write-after-success guarantee):
+///
+/// 1. Build the ordered ops via `build_edit_ops` (canonical order; DEC-005).
+/// 2. Capture the recipe object NOW before moving ops into the pipeline:
+///    `Recipe::from_ops(&ops)` borrows `&[Box<dyn Operation>]`; this must
+///    precede the `into_iter().fold` that consumes `ops`.
+/// 3. Fold ops into a `Pipeline`.
+/// 4. Delegate to `run_pixel_op` for the full load→run→sink fan-out (DEC-015).
+/// 5. On success, if `--save-recipe` was given, serialize + write the recipe.
+///    A serialization failure → `CliError::Recipe` (exit 1); an I/O write
+///    failure → `CliError::Sink(SinkError::Io)` (exit 5). An orphan recipe is
+///    never written when the edit itself fails.
+fn run_edit(
+    input: &str,
+    auto_orient: bool,
+    resize_max: Option<u32>,
+    invert: bool,
+    save_recipe: Option<&str>,
+    global: &GlobalArgs,
+) -> Result<(), CliError> {
+    // 1. Build ordered ops (canonical order; fails on zero flags or bad params).
+    let ops = build_edit_ops(auto_orient, resize_max, invert)?;
+
+    // 2. Capture the recipe before consuming ops (from_ops borrows &[Box<dyn Op>]).
+    let recipe = save_recipe.map(|_| Recipe::from_ops(&ops));
+
+    // 3. Fold ops into a Pipeline.
+    let pipeline = ops.into_iter().fold(Pipeline::new(), |p, op| p.push(op));
+
+    // 4. Load → run → sink via the established single/multi fan-out helper.
+    //    `input` is a &str; wrap it in a one-element Vec<String> slice.
+    let input_vec = [input.to_owned()];
+    run_pixel_op(pipeline, &input_vec, global, global.quality, None, None)?;
+
+    // 5. On success, write the recipe file if requested.
+    if let (Some(path), Some(r)) = (save_recipe, recipe) {
+        let toml = r.to_toml()?;
+        std::fs::write(path, toml).map_err(|e| CliError::Sink(SinkError::Io(e)))?;
+    }
+
     Ok(())
 }
 
@@ -3765,6 +3910,68 @@ width = 8
         assert!(
             multi.contains("<img src=\"p-640w.jpg\""),
             "fallback img: {multi}"
+        );
+    }
+
+    // ── SPEC-032: edit + --save-recipe ────────────────────────────────────────
+
+    /// `build_edit_ops` with all three flags set returns ops in the canonical
+    /// order: auto-orient → resize → invert, regardless of arg order.
+    #[test]
+    fn edit_ops_canonical_order() {
+        let ops = build_edit_ops(true, Some(8), true).expect("should succeed");
+        assert_eq!(ops.len(), 3, "expected 3 ops");
+        assert_eq!(ops[0].name(), "auto-orient");
+        assert_eq!(ops[1].name(), "resize");
+        assert_eq!(ops[2].name(), "invert");
+    }
+
+    /// Only resize + invert flags set → two ops in canonical order (no auto-orient).
+    #[test]
+    fn edit_ops_subset_order() {
+        let ops = build_edit_ops(false, Some(8), true).expect("should succeed");
+        assert_eq!(ops.len(), 2, "expected 2 ops");
+        assert_eq!(ops[0].name(), "resize");
+        assert_eq!(ops[1].name(), "invert");
+    }
+
+    /// No flags set → `CliError::Usage` ("requires at least one operation flag").
+    #[test]
+    fn edit_ops_requires_at_least_one() {
+        let result = build_edit_ops(false, None, false);
+        assert!(result.is_err(), "expected Err");
+        // Extract the error without relying on Debug on dyn Operation.
+        let err = result.err().expect("is_err was just confirmed");
+        assert_eq!(err.code(), 2, "usage error must be code 2");
+        assert!(
+            err.to_string()
+                .contains("requires at least one operation flag"),
+            "message must mention 'requires at least one operation flag': {err}"
+        );
+    }
+
+    /// The resize op built by `build_edit_ops(resize_max=Some(16))` carries the
+    /// same params as `run_resize` builds for `--max 16`: `{mode:"max", width:16}`.
+    /// This pins the round-trip equivalence between `edit` and `apply`.
+    #[test]
+    fn edit_ops_resize_params_match_resize_command() {
+        // Build the op via build_edit_ops (edit path).
+        let edit_ops = build_edit_ops(false, Some(16), false).expect("should succeed");
+        assert_eq!(edit_ops.len(), 1);
+        let edit_params = edit_ops[0].params();
+
+        // Build the equivalent op the way run_resize does it (registry path).
+        let resize_params_val =
+            resize_params(Some(16), None, None, None, None, None).expect("resize_params ok");
+        let registry_op = OperationRegistry::with_builtins()
+            .build("resize", &resize_params_val)
+            .expect("build resize ok");
+        let registry_params = registry_op.params();
+
+        // Both must carry identical TOML params.
+        assert_eq!(
+            edit_params, registry_params,
+            "edit resize params must match run_resize params for --max 16"
         );
     }
 }
