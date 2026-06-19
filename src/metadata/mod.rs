@@ -21,7 +21,7 @@
 use ::image::ImageFormat;
 use img_parts::jpeg::Jpeg;
 use img_parts::png::Png;
-use img_parts::Bytes;
+use img_parts::{Bytes, ImageEXIF, ImageICC};
 use little_exif::filetype::FileExtension;
 use little_exif::ifd::ExifTagGroup;
 use little_exif::metadata::Metadata;
@@ -220,6 +220,43 @@ pub fn set_tags(bytes: &[u8], tags: &TagSet) -> Result<Vec<u8>, MetadataError> {
     let mut out = owned.clone();
     md.write_to_vec(&mut out, ext)
         .map_err(|e| MetadataError::Exif(e.to_string()))?;
+    Ok(out)
+}
+
+// ── copy_metadata ─────────────────────────────────────────────────────────────
+
+/// Copy the container **EXIF (APP1) + ICC (APP2)** from `from` (the metadata
+/// donor) onto `to` (the pixel recipient), returning `to`'s rewritten container
+/// bytes with its pixels **preserved exactly** (no re-encode —
+/// `metadata-not-via-pixel-encode`). DST's prior EXIF/ICC are **replaced** by
+/// SRC's; if SRC has none, DST's are cleared (`None` flows straight through the
+/// `img-parts` `ImageEXIF`/`ImageICC` traits).
+///
+/// **JPEG only in v1 (DEC-030):** both `from` and `to` must sniff as JPEG, else
+/// [`MetadataError::UnsupportedFormat`]. PNG `copy-metadata` is deferred because
+/// `little_exif` writes PNG EXIF as a `zTXt` "Raw profile type exif" chunk while
+/// `img-parts` uses the native `eXIf` chunk, so the two can't interoperate.
+pub fn copy_metadata(from: &[u8], to: &[u8]) -> Result<Vec<u8>, MetadataError> {
+    // Both inputs must be JPEG (DEC-030). A clear message names the limitation.
+    if sniff(from)? != Lane::Jpeg || sniff(to)? != Lane::Jpeg {
+        return Err(MetadataError::UnsupportedFormat(
+            "copy-metadata supports JPEG only in v1".to_owned(),
+        ));
+    }
+
+    let src = Jpeg::from_bytes(Bytes::from(from.to_vec()))
+        .map_err(|e| MetadataError::Container(e.to_string()))?;
+    let mut dst = Jpeg::from_bytes(Bytes::from(to.to_vec()))
+        .map_err(|e| MetadataError::Container(e.to_string()))?;
+
+    // Graft SRC's EXIF + ICC onto DST (Option<Bytes> flows through; None clears).
+    dst.set_exif(src.exif());
+    dst.set_icc_profile(src.icc_profile());
+
+    let mut out = Vec::new();
+    dst.encoder()
+        .write_to(&mut out)
+        .map_err(|e| MetadataError::Container(e.to_string()))?;
     Ok(out)
 }
 
@@ -552,6 +589,128 @@ mod tests {
         };
         assert!(matches!(
             set_tags(&bmp, &tags),
+            Err(MetadataError::UnsupportedFormat(_))
+        ));
+    }
+
+    // ── copy_metadata ──────────────────────────────────────────────────────────
+
+    /// A JPEG seeded with a single Copyright tag via `little_exif` (no other
+    /// metadata). Used as the SRC donor / DST baseline in the copy tests.
+    fn jpeg_with_copyright(value: &str) -> Vec<u8> {
+        let mut bytes = base_image(ImageFormat::Jpeg);
+        let mut md = Metadata::new();
+        md.set_tag(ExifTag::Copyright(value.to_string()));
+        md.write_to_vec(&mut bytes, FileExtension::JPEG)
+            .expect("seed JPEG Copyright");
+        bytes
+    }
+
+    /// Inject an ICC profile blob into a JPEG via `img-parts` `set_icc_profile`
+    /// (native, no ImageMagick) and return the rewritten bytes.
+    fn jpeg_with_icc(bytes: &[u8], icc: &[u8]) -> Vec<u8> {
+        let mut jpeg = Jpeg::from_bytes(Bytes::from(bytes.to_vec())).expect("parse jpeg");
+        jpeg.set_icc_profile(Some(Bytes::from(icc.to_vec())));
+        let mut out = Vec::new();
+        jpeg.encoder().write_to(&mut out).expect("encode icc jpeg");
+        out
+    }
+
+    /// Read the Copyright (0x8298) string from a JPEG's EXIF, if present.
+    fn jpeg_copyright(bytes: &[u8]) -> Option<String> {
+        read_generic_string(bytes, FileExtension::JPEG, TAG_COPYRIGHT)
+    }
+
+    #[test]
+    fn copy_metadata_transfers_exif() {
+        let src = jpeg_with_copyright("SRC owner");
+        let dst = base_image(ImageFormat::Jpeg);
+        // Precondition: DST has no Copyright.
+        assert_eq!(jpeg_copyright(&dst), None, "DST should start without EXIF");
+
+        let out = copy_metadata(&src, &dst).expect("copy");
+        assert_eq!(
+            jpeg_copyright(&out).as_deref(),
+            Some("SRC owner"),
+            "out should carry SRC's Copyright"
+        );
+    }
+
+    #[test]
+    fn copy_metadata_transfers_icc() {
+        // A small but valid-shaped ICC blob; img-parts treats it opaquely.
+        let icc: Vec<u8> = (0u8..=255).cycle().take(512).collect();
+        let src = jpeg_with_icc(&base_image(ImageFormat::Jpeg), &icc);
+        let dst = base_image(ImageFormat::Jpeg);
+
+        let out = copy_metadata(&src, &dst).expect("copy");
+        let out_jpeg = Jpeg::from_bytes(Bytes::from(out)).expect("parse out");
+        assert_eq!(
+            out_jpeg.icc_profile().as_deref(),
+            Some(icc.as_slice()),
+            "out should carry SRC's ICC profile"
+        );
+    }
+
+    #[test]
+    fn copy_metadata_preserves_recipient_pixels() {
+        let src = jpeg_with_copyright("SRC owner");
+        let dst = jpeg_with_exif(); // a DIFFERENT pixel buffer is irrelevant; use seeded DST
+        let out = copy_metadata(&src, &dst).expect("copy");
+        // Decoded pixels of out must equal DST's (no re-encode).
+        assert_pixels_equal(&dst, &out);
+    }
+
+    #[test]
+    fn copy_metadata_replaces_recipient_metadata() {
+        let src = jpeg_with_copyright("A");
+        let dst = jpeg_with_copyright("B");
+        assert_eq!(jpeg_copyright(&dst).as_deref(), Some("B"));
+
+        let out = copy_metadata(&src, &dst).expect("copy");
+        assert_eq!(
+            jpeg_copyright(&out).as_deref(),
+            Some("A"),
+            "DST's metadata should be replaced by SRC's"
+        );
+    }
+
+    #[test]
+    fn copy_metadata_src_without_metadata_clears_dst() {
+        // SRC: a plain JPEG with no EXIF/ICC.
+        let src = base_image(ImageFormat::Jpeg);
+        // DST: seeded with both EXIF (Copyright) and an ICC profile.
+        let icc: Vec<u8> = (0u8..=255).cycle().take(256).collect();
+        let dst = jpeg_with_icc(&jpeg_with_copyright("DST owner"), &icc);
+        // Precondition: DST has both.
+        let dst_jpeg = Jpeg::from_bytes(Bytes::from(dst.clone())).expect("parse dst");
+        assert!(dst_jpeg.exif().is_some(), "DST should start with EXIF");
+        assert!(
+            dst_jpeg.icc_profile().is_some(),
+            "DST should start with ICC"
+        );
+
+        let out = copy_metadata(&src, &dst).expect("copy");
+        let out_jpeg = Jpeg::from_bytes(Bytes::from(out)).expect("parse out");
+        assert!(out_jpeg.exif().is_none(), "out EXIF should be cleared");
+        assert!(
+            out_jpeg.icc_profile().is_none(),
+            "out ICC should be cleared"
+        );
+    }
+
+    #[test]
+    fn copy_metadata_unsupported_format_errors() {
+        let jpeg = jpeg_with_copyright("owner");
+        let png = base_image(ImageFormat::Png);
+        // PNG as `to` → unsupported.
+        assert!(matches!(
+            copy_metadata(&jpeg, &png),
+            Err(MetadataError::UnsupportedFormat(_))
+        ));
+        // PNG as `from` → unsupported.
+        assert!(matches!(
+            copy_metadata(&png, &jpeg),
             Err(MetadataError::UnsupportedFormat(_))
         ));
     }

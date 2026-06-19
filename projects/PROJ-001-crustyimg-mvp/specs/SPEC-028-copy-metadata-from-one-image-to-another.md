@@ -7,7 +7,7 @@
 task:
   id: SPEC-028
   type: story                      # epic | story | task | bug | chore
-  cycle: design                    # frame | design | build | verify | ship
+  cycle: build  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: S                    # S | M | L  (L means split it)
@@ -62,6 +62,17 @@ cost:
         verified JPEG EXIF+ICC transfer via img-parts traits (pixels identical)
         AND surfaced the PNG cross-crate EXIF-chunk mismatch → emitted DEC-030
         (copy-metadata JPEG-only v1). No new dep.
+    - cycle: build
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-06-18
+      notes: >
+        copy-metadata: metadata::copy_metadata (img-parts ImageEXIF/ImageICC
+        transfer) + run_copy_metadata (two inputs, single fixed output, in-place
+        behind -y); JPEG-only (DEC-030); no pixel re-encode; no new dep.
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -272,28 +283,43 @@ blob); no ImageMagick.
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
+- **Branch:** `feat/spec-028-copy-metadata`
+- **PR (if applicable):** `feat(metadata): copy-metadata transfer EXIF+ICC (SPEC-028)`
+- **All acceptance criteria met?** yes
 - **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
+  - None — DEC-030 was emitted at design; no new DEC.
 - **Deviations from spec:**
-  - [list]
+  - None. Mirrored DEC-030's probe snippet exactly (`Jpeg::from_bytes` both,
+    `set_exif(src.exif())` / `set_icc_profile(src.icc_profile())`,
+    `encoder().write_to`). `run_copy_metadata` reads each `--from`/`--to` with
+    `std::fs::read` (no glob fan-out), builds the output `Sink` (`-o PATH`→File,
+    `-o -`→Stdout, default→`File { path: <to> }` in place), overwrite from `-y`.
 - **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - PNG `copy-metadata` (the `eXIf`↔`zTXt` bridge deferred by DEC-030) — a
+    well-scoped follow-up spec when PNG EXIF transfer is wanted.
 
 ### Build-phase reflection (3 questions, short answers)
 
 Process-focused: how did the build go? What friction did the spec create?
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — Nothing material. The PINNED lane mechanics + DEC-030's verified snippet
+   made `copy_metadata` essentially transcription. The one small judgement call
+   was the output-extension source for the `Sink` (DST's extension, sniff
+   fallback) — the spec said "`metadata_output_ext` on the DST input, or just
+   `jpg`", and since this handler isn't a fan-out over `source::Input`, I
+   inlined the equivalent ext logic against the `--to` path rather than reusing
+   the `Input`-typed helper.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — No. The referenced set (DEC-003/029/030/007/015) and the four constraints
+   covered the work completely.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Nothing of substance. Possibly factor the shared "preserve the input
+   extension" logic (`metadata_output_ext` vs the inline `--to` version) into one
+   path-or-bytes helper, but the duplication is tiny and the fan-out vs
+   single-path inputs differ enough that keeping them separate reads clearly.
 
 ---
 
