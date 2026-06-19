@@ -455,6 +455,7 @@ impl CliError {
             CliError::Image(ImageError::Io(_)) => 3,
             CliError::Image(ImageError::Decode(_)) => 1,
             CliError::Image(ImageError::UnsupportedFormat) => 4,
+            CliError::Image(ImageError::LimitsExceeded(_)) => 1,
             // Recipe / operation errors → generic runtime error
             CliError::Recipe(_) => 1,
             CliError::Operation(_) => 1,
@@ -3972,6 +3973,19 @@ width = 8
         assert_eq!(
             edit_params, registry_params,
             "edit resize params must match run_resize params for --max 16"
+        );
+    }
+
+    // ── SPEC-033 exit-code mapping for LimitsExceeded ────────────────────────
+
+    /// A `LimitsExceeded` image error must map to exit code 1 (generic runtime
+    /// error, DEC-034 / DEC-007 — same as an ordinary decode failure, distinct
+    /// from format-not-found exit 4 and file-not-found exit 3).
+    #[test]
+    fn limits_exceeded_maps_to_exit_1() {
+        assert_eq!(
+            CliError::Image(ImageError::LimitsExceeded("x".into())).code(),
+            1
         );
     }
 }

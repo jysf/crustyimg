@@ -32,6 +32,11 @@ pub enum ImageError {
     /// the configured pure-Rust codecs can decode.
     #[error("unsupported or undetectable image format")]
     UnsupportedFormat,
+
+    /// The image exceeds the configured decode resource limits (e.g. a dimension
+    /// or allocation cap — DEC-034). The input is rejected before decoding.
+    #[error("image exceeds decode limits: {0}")]
+    LimitsExceeded(String),
 }
 
 /// The crate `Result` alias over [`ImageError`].
@@ -61,5 +66,11 @@ mod tests {
     fn unsupported_format_has_message() {
         let err = ImageError::UnsupportedFormat;
         assert!(!err.to_string().is_empty());
+    }
+
+    #[test]
+    fn limits_exceeded_carries_message() {
+        let err = ImageError::LimitsExceeded("too big".to_string());
+        assert!(err.to_string().contains("too big"));
     }
 }

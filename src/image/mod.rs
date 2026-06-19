@@ -26,6 +26,16 @@ use ::image::{ColorType, DynamicImage, ImageFormat, ImageReader};
 
 use crate::error::{ImageError, Result};
 
+/// Maximum image dimension (width or height) in pixels accepted at decode time
+/// (DEC-034). Any image declaring a dimension above this is rejected with
+/// [`ImageError::LimitsExceeded`] before any pixel data is read.
+const MAX_IMAGE_DIMENSION: u32 = 65_535;
+
+/// Maximum memory that the decoder may allocate for a single image in bytes
+/// (512 MiB, DEC-034). Inputs whose decoded buffer would exceed this cap are
+/// rejected before allocation.
+const MAX_ALLOC_BYTES: u64 = 512 * 1024 * 1024;
+
 /// The one canonical in-memory image model (DEC-002).
 ///
 /// Wraps the decoded pixels, the format detected at load, and an optional raw
@@ -233,17 +243,55 @@ impl MetadataBundle {
     }
 }
 
-/// Detect the format of `bytes` and decode it, mapping failures to typed
-/// errors. Reused by every load entry so detection/decoding is consistent.
-fn decode_with_format(bytes: &[u8]) -> Result<(DynamicImage, ImageFormat)> {
-    let reader = ImageReader::new(Cursor::new(bytes))
+/// Build the production [`::image::Limits`] from the DEC-034 caps:
+/// `MAX_IMAGE_DIMENSION` per dimension and `MAX_ALLOC_BYTES` for allocation.
+///
+/// The struct is `#[non_exhaustive]`, so it must be constructed via
+/// `Limits::default()` with field assignment — a struct literal will not compile.
+fn decode_limits() -> ::image::Limits {
+    let mut limits = ::image::Limits::default();
+    limits.max_image_width = Some(MAX_IMAGE_DIMENSION);
+    limits.max_image_height = Some(MAX_IMAGE_DIMENSION);
+    limits.max_alloc = Some(MAX_ALLOC_BYTES);
+    limits
+}
+
+/// Map an [`::image::ImageError`] from the decoder to a typed [`ImageError`].
+///
+/// A `Limits(_)` variant becomes [`ImageError::LimitsExceeded`]; every other
+/// decode failure becomes [`ImageError::Decode`]. This preserves the invariant
+/// that limits rejections are matchable independently of ordinary decode errors.
+fn map_image_decode_error(e: ::image::ImageError) -> ImageError {
+    match e {
+        ::image::ImageError::Limits(_) => ImageError::LimitsExceeded(e.to_string()),
+        _ => ImageError::Decode(e.to_string()),
+    }
+}
+
+/// Detect the format of `bytes`, apply `limits` to the reader, and decode.
+///
+/// This is the test seam: production code calls it with `decode_limits()`; unit
+/// tests call it with a deliberately small `Limits` to prove enforcement. The
+/// `limits` value is cloned into the reader because [`::image::ImageReader::limits`]
+/// takes ownership and `Limits: Clone`.
+fn decode_with_limits(
+    bytes: &[u8],
+    limits: &::image::Limits,
+) -> Result<(DynamicImage, ImageFormat)> {
+    let mut reader = ImageReader::new(Cursor::new(bytes))
         .with_guessed_format()
         .map_err(ImageError::Io)?;
     let format = reader.format().ok_or(ImageError::UnsupportedFormat)?;
-    let pixels = reader
-        .decode()
-        .map_err(|e| ImageError::Decode(e.to_string()))?;
+    reader.limits(limits.clone());
+    let pixels = reader.decode().map_err(map_image_decode_error)?;
     Ok((pixels, format))
+}
+
+/// Detect the format of `bytes` and decode it with production resource limits
+/// (DEC-034). Reused by every load entry so detection/decoding and limit
+/// enforcement are consistent.
+fn decode_with_format(bytes: &[u8]) -> Result<(DynamicImage, ImageFormat)> {
+    decode_with_limits(bytes, &decode_limits())
 }
 
 /// Bits per channel for a [`ColorType`] (e.g. `Rgb8`/`Rgba8` → 8, `Rgb16` →
@@ -350,6 +398,18 @@ fn scan_png_chunk(bytes: &[u8], chunk_type: &[u8; 4]) -> Option<Vec<u8>> {
 mod tests {
     use super::*;
     use ::image::{RgbImage, RgbaImage};
+
+    /// Encode a real oversized PNG: `RgbImage::new(70_000, 1)` (~210 KB encoded).
+    /// The decoder checks the IHDR dimension before allocating pixel data, so
+    /// this fixture is cheap and never OOMs — it just hits the dimension cap.
+    fn oversized_png() -> Vec<u8> {
+        let img = RgbImage::new(70_000, 1);
+        let mut out = Cursor::new(Vec::new());
+        DynamicImage::ImageRgb8(img)
+            .write_to(&mut out, ImageFormat::Png)
+            .unwrap();
+        out.into_inner()
+    }
 
     /// Encode a solid RGB image to PNG bytes (in-memory fixture).
     fn solid_png(w: u32, h: u32, rgb: [u8; 3]) -> Vec<u8> {
@@ -462,5 +522,101 @@ mod tests {
         assert_eq!(replaced.width(), 2);
         assert_eq!(replaced.height(), 2);
         assert_eq!(replaced.source_format(), format);
+    }
+
+    // ── SPEC-033 decode resource limits tests ────────────────────────────────
+
+    /// A 70 000×1 PNG (width > MAX_IMAGE_DIMENSION=65535) must be rejected with
+    /// `LimitsExceeded`, not a panic, OOM, or plain `Decode` error.
+    #[test]
+    fn oversized_dimension_png_is_limits_exceeded() {
+        let png = oversized_png();
+        let result = Image::from_bytes(&png);
+        assert!(
+            matches!(result, Err(ImageError::LimitsExceeded(_))),
+            "expected LimitsExceeded, got {result:?}"
+        );
+    }
+
+    /// A normal small image must decode successfully under the production limits —
+    /// no regression for realistic images.
+    #[test]
+    fn normal_image_decodes_under_production_limits() {
+        let png = solid_png(64, 64, [128, 64, 32]);
+        let result = decode_with_limits(&png, &decode_limits());
+        assert!(result.is_ok(), "expected Ok, got {result:?}");
+    }
+
+    /// Passing a tiny dimension cap (`max_image_width = Some(1)`) through the
+    /// seam must reject a normal image — proving the limit is enforced, not just
+    /// that the constant happens to be large enough.
+    #[test]
+    fn tiny_dimension_limit_rejects_via_seam() {
+        let png = solid_png(4, 4, [1, 2, 3]);
+        let mut limits = ::image::Limits::default();
+        limits.max_image_width = Some(1);
+        let result = decode_with_limits(&png, &limits);
+        assert!(
+            matches!(result, Err(ImageError::LimitsExceeded(_))),
+            "expected LimitsExceeded, got {result:?}"
+        );
+    }
+
+    /// Passing a tiny allocation cap (`max_alloc = Some(16)`) through the seam
+    /// must reject a 64×64 image whose decoded buffer (~12 288 bytes) far exceeds
+    /// 16 bytes — proving the allocation/`reserve` path, not only dimensions.
+    #[test]
+    fn tiny_alloc_limit_rejects_via_seam() {
+        let png = solid_png(64, 64, [10, 20, 30]);
+        let mut limits = ::image::Limits::default();
+        limits.max_alloc = Some(16);
+        let result = decode_with_limits(&png, &limits);
+        assert!(
+            matches!(result, Err(ImageError::LimitsExceeded(_))),
+            "expected LimitsExceeded, got {result:?}"
+        );
+    }
+
+    /// `map_image_decode_error` must map `::image::ImageError::Limits(_)` to
+    /// `ImageError::LimitsExceeded`, not `Decode`.
+    #[test]
+    fn map_limit_error_to_limits_exceeded() {
+        use ::image::error::{LimitError, LimitErrorKind};
+        let limit_err =
+            ::image::ImageError::Limits(LimitError::from_kind(LimitErrorKind::DimensionError));
+        let mapped = map_image_decode_error(limit_err);
+        assert!(
+            matches!(mapped, ImageError::LimitsExceeded(_)),
+            "expected LimitsExceeded, got {mapped:?}"
+        );
+    }
+
+    /// A truncated PNG (valid signature/IHDR, corrupt/missing IDAT) must return
+    /// `Err(ImageError::Decode(_))`, NOT `LimitsExceeded`. Limits must not mask
+    /// ordinary decode failures.
+    #[test]
+    fn truncated_png_is_decode_not_limits() {
+        // Encode a valid 2×2 PNG then truncate it deeply into the IDAT data.
+        let full = solid_png(2, 2, [1, 2, 3]);
+        // Keep enough for the PNG signature + IHDR (8 + 25 = 33 bytes), then
+        // drop the rest — the decoder sees a recognized PNG with missing IDAT.
+        let truncated = &full[..33.min(full.len())];
+        let result = Image::from_bytes(truncated);
+        assert!(
+            matches!(result, Err(ImageError::Decode(_))),
+            "expected Decode, got {result:?}"
+        );
+    }
+
+    /// `Image::from_reader` must also be bounded by the production limits,
+    /// because it funnels through `from_bytes` → `decode_with_format`.
+    #[test]
+    fn from_reader_is_also_limited() {
+        let png = oversized_png();
+        let result = Image::from_reader(Cursor::new(&png));
+        assert!(
+            matches!(result, Err(ImageError::LimitsExceeded(_))),
+            "expected LimitsExceeded, got {result:?}"
+        );
     }
 }
