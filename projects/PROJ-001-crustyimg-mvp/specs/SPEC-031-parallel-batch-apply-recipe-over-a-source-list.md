@@ -7,7 +7,7 @@
 task:
   id: SPEC-031
   type: story                      # epic | story | task | bug | chore
-  cycle: design                    # frame | design | build | verify | ship
+  cycle: verify  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: M                    # S | M | L  (L means split it)
@@ -63,6 +63,17 @@ cost:
         Added rayon (DEC-006) + indicatif; just deny + lean build green. Key
         design: each rayon task rebuilds its pipeline from the Sync recipe +
         registry (Operation is not Send). First STAGE-005 spec.
+    - cycle: build
+      agent: claude-sonnet-4-6
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-06-19
+      notes: >
+        parallel batch apply --recipe: run_apply rewrite + apply_one worker +
+        rayon (per-task pipeline rebuild, Operation not Send) + indicatif progress
+        + exit-6; reuses SPEC-006 recipe/registry; no new op
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -279,28 +290,33 @@ Written during **design**, BEFORE build. Generate fixtures natively (small PNGs 
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
+- **Branch:** feat/spec-031-apply-batch
+- **PR (if applicable):** opened (see PR title `feat(cli): parallel batch apply --recipe (SPEC-031)`)
+- **All acceptance criteria met?** yes
 - **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
+  - none — DEC-033 was emitted at design
 - **Deviations from spec:**
-  - [list]
+  - none
 - **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - none
 
 ### Build-phase reflection (3 questions, short answers)
 
 Process-focused: how did the build go? What friction did the spec create?
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — The spec said "extract a guard helper for multi-without-out-dir" and I needed to
+   decide whether to use it in both the unit test AND in run_apply itself; the wording
+   was clear once I re-read the Parallel design section carefully.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — Clippy's `doc_lazy_continuation` lint tripped on indented doc-comment continuation
+   lines in multi-bullet lists; worth noting in future specs that continuation lines
+   at 3-space indent look like blockquote continuations to clippy.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Run clippy immediately after writing the doc comments rather than after the full
+   implementation; the lint errors were trivial but required an extra round trip.
 
 ---
 
