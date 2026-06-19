@@ -7,7 +7,7 @@
 task:
   id: SPEC-028
   type: story                      # epic | story | task | bug | chore
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: S                    # S | M | L  (L means split it)
@@ -65,18 +65,41 @@ cost:
     - cycle: build
       agent: claude-opus-4-8
       interface: claude-code
+      tokens_total: 143912
+      estimated_usd: 1.30
+      duration_minutes: 6
+      recorded_at: 2026-06-18
+      notes: >
+        Real metered subagent (foreground Agent; subagent_tokens=143912,
+        duration_ms=342362). estimated_usd at Opus 4.8 list (~80/20 in/out) —
+        order-of-magnitude. copy-metadata: metadata::copy_metadata (img-parts
+        ImageEXIF/ImageICC transfer) + run_copy_metadata (two inputs, single
+        fixed output, in-place behind -y); JPEG-only (DEC-030); no pixel
+        re-encode; no new dep. 10 new tests green.
+    - cycle: verify
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 45000
+      estimated_usd: 0.40
+      duration_minutes: null
+      recorded_at: 2026-06-18
+      notes: >
+        ORDER-OF-MAGNITUDE ESTIMATE (~45k) — read-only Explore subagent (no
+        metered usage block) + orchestrator main-loop gate re-runs (cargo test
+        330 ok / clippy / fmt / deny). Explore verdict: APPROVED, no concerns;
+        confirmed JPEG-only enforcement + the no-pixel-encode invariant.
+    - cycle: ship
+      agent: claude-opus-4-8
+      interface: claude-code
       tokens_total: null
       estimated_usd: null
       duration_minutes: null
       recorded_at: 2026-06-18
-      notes: >
-        copy-metadata: metadata::copy_metadata (img-parts ImageEXIF/ImageICC
-        transfer) + run_copy_metadata (two inputs, single fixed output, in-place
-        behind -y); JPEG-only (DEC-030); no pixel re-encode; no new dep.
+      notes: "Main-loop ship bookkeeping (merge dance + cost totals + reflection + archive); not separately metered."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 188912
+    estimated_usd: 1.70
+    session_count: 4
 ---
 
 # SPEC-028: `copy-metadata` — transfer EXIF + ICC from one image to another
@@ -329,10 +352,25 @@ Process-focused: how did the build go? What friction did the spec create?
 from the process-focused build reflection above.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Nothing about the approach. The design-time probe again earned its keep: it
+   not only confirmed the JPEG transfer path but *caught a silent-failure trap*
+   (PNG EXIF written by our own `set` is invisible to `img-parts`) before a single
+   test was written — turning what would have been a confusing build/verify bug
+   into a clean scoping decision (DEC-030, JPEG-only). Probing the interop seam
+   between two crates, not just one crate's happy path, is the lesson to carry.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — DEC-030 captured the finding and narrowed `metadata-icc-coverage` further
+   (JPEG EXIF+ICC transfer now confirmed; PNG `eXIf`↔`zTXt` bridge still open). No
+   template/constraint change. One small honest wart: coverage is now asymmetric
+   (`strip`/`clean`/`set` do JPEG+PNG, `copy-metadata` JPEG-only) — documented in
+   the api-contract and DEC-030, not worth hiding.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — Two tracked, neither blocking: (a) the **PNG copy-metadata bridge** (decode
+   little_exif's `zTXt` "Raw profile type exif" or do `eXIf`/`zTXt`-aware chunk
+   copy) — revisit per DEC-030; (b) **`watermark`**, the last STAGE-004 spec and the
+   only remaining pixel-lane work (gravity/opacity/scale/tile + text, likely a new
+   font dep needing a DEC). The metadata lane itself is now COMPLETE
+   (strip/clean/set/copy-metadata). No new spec file needed yet — both are on the
+   stage backlog.
