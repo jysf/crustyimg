@@ -11,8 +11,11 @@
 //! pixel-library crate, the same convention as `src/image/mod.rs`.
 
 use std::collections::BTreeMap;
+use std::fmt;
+use std::str::FromStr;
 
-use ::image::DynamicImage;
+use ::image::imageops::{self, FilterType};
+use ::image::{DynamicImage, RgbaImage};
 use serde::ser::SerializeMap;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use thiserror::Error;
@@ -623,6 +626,233 @@ fn orientation_from_exif_segment(exif: &[u8]) -> Option<::image::metadata::Orien
     // are already bare TIFF, so no stripping is needed for those.
     let tiff = exif.strip_prefix(b"Exif\0\0").unwrap_or(exif);
     ::image::metadata::Orientation::from_exif_chunk(tiff)
+}
+
+// ─── Gravity ──────────────────────────────────────────────────────────────────
+
+/// A compass anchor for placing an overlay within a base image.
+///
+/// A shared `operation`-level concept (DEC-031): the placement math lives here
+/// and is reusable by a future `crop` (AGENTS.md §14). `FromStr` parses the nine
+/// lowercase names; `Display` renders them back, so `params()` round-trips.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Gravity {
+    Center,
+    North,
+    South,
+    East,
+    West,
+    NorthEast,
+    NorthWest,
+    SouthEast,
+    SouthWest,
+}
+
+impl FromStr for Gravity {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "center" => Ok(Gravity::Center),
+            "north" => Ok(Gravity::North),
+            "south" => Ok(Gravity::South),
+            "east" => Ok(Gravity::East),
+            "west" => Ok(Gravity::West),
+            "northeast" => Ok(Gravity::NorthEast),
+            "northwest" => Ok(Gravity::NorthWest),
+            "southeast" => Ok(Gravity::SouthEast),
+            "southwest" => Ok(Gravity::SouthWest),
+            other => Err(format!(
+                "unknown gravity '{other}'; expected one of: center, north, south, \
+                 east, west, northeast, northwest, southeast, southwest"
+            )),
+        }
+    }
+}
+
+impl fmt::Display for Gravity {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let s = match self {
+            Gravity::Center => "center",
+            Gravity::North => "north",
+            Gravity::South => "south",
+            Gravity::East => "east",
+            Gravity::West => "west",
+            Gravity::NorthEast => "northeast",
+            Gravity::NorthWest => "northwest",
+            Gravity::SouthEast => "southeast",
+            Gravity::SouthWest => "southwest",
+        };
+        f.write_str(s)
+    }
+}
+
+impl Gravity {
+    /// Compute the top-left `(x, y)` placement of an `ow×oh` overlay over a
+    /// `bw×bh` base at this anchor, inset by `margin` from the anchored edges.
+    ///
+    /// `margin` is ignored for [`Gravity::Center`] (centering has no edge to
+    /// inset from). Offsets saturate at zero so an oversized overlay still
+    /// anchors at the origin rather than wrapping negative; `imageops::overlay`
+    /// then clips any out-of-bounds region (probe-verified, no panic).
+    fn placement(self, bw: u32, bh: u32, ow: u32, oh: u32, margin: u32) -> (i64, i64) {
+        // Horizontal: left / center / right.
+        let x_left = margin;
+        let x_center = (bw.saturating_sub(ow)) / 2;
+        let x_right = bw.saturating_sub(ow).saturating_sub(margin);
+        // Vertical: top / center / bottom.
+        let y_top = margin;
+        let y_center = (bh.saturating_sub(oh)) / 2;
+        let y_bottom = bh.saturating_sub(oh).saturating_sub(margin);
+
+        let (x, y) = match self {
+            Gravity::Center => (x_center, y_center),
+            Gravity::North => (x_center, y_top),
+            Gravity::South => (x_center, y_bottom),
+            Gravity::East => (x_right, y_center),
+            Gravity::West => (x_left, y_center),
+            Gravity::NorthEast => (x_right, y_top),
+            Gravity::NorthWest => (x_left, y_top),
+            Gravity::SouthEast => (x_right, y_bottom),
+            Gravity::SouthWest => (x_left, y_bottom),
+        };
+        (x as i64, y as i64)
+    }
+}
+
+// ─── Watermark ────────────────────────────────────────────────────────────────
+
+/// Composite an overlay image onto each base at a gravity anchor (SPEC-029).
+///
+/// The first `Operation` that composes a **second** image. Per DEC-031 the
+/// overlay is loaded at the IO boundary (`run_watermark` in `src/cli/`) and
+/// handed in as in-memory `DynamicImage` pixels, so `apply()` never touches a
+/// file. The source `overlay_path` is stored purely so `params()` can serialize
+/// it for the future recipe round-trip (STAGE-005).
+///
+/// Compositing uses `image::imageops` only (no new dependency): `overlay`
+/// (source-over alpha), `resize` for `--scale`, and an alpha multiply for
+/// `--opacity`.
+pub struct Watermark {
+    /// The decoded overlay pixels (loaded at the CLI boundary, DEC-031).
+    overlay: DynamicImage,
+    /// The overlay's source path, kept only for `params()` round-trip.
+    overlay_path: String,
+    gravity: Gravity,
+    /// Alpha multiplier in `[0.0, 1.0]` (validated at the CLI).
+    opacity: f32,
+    /// Optional scale: overlay width = `scale × base width` (aspect preserved).
+    scale: Option<f32>,
+    /// Inset in px from the anchored edges (ignored for center / tile).
+    margin: u32,
+    /// Tile the overlay across the whole base (ignores gravity + margin).
+    tile: bool,
+}
+
+impl Watermark {
+    /// Build a `Watermark` from an already-decoded overlay and its placement.
+    ///
+    /// Validation of `opacity`/`scale`/`gravity` happens at the CLI boundary
+    /// (`run_watermark`) before this is called, so the constructor is total.
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        overlay: DynamicImage,
+        overlay_path: String,
+        gravity: Gravity,
+        opacity: f32,
+        scale: Option<f32>,
+        margin: u32,
+        tile: bool,
+    ) -> Self {
+        Watermark {
+            overlay,
+            overlay_path,
+            gravity,
+            opacity,
+            scale,
+            margin,
+            tile,
+        }
+    }
+}
+
+impl Operation for Watermark {
+    fn name(&self) -> &'static str {
+        "watermark"
+    }
+
+    fn params(&self) -> OperationParams {
+        let mut map = BTreeMap::new();
+        map.insert(
+            "image".to_owned(),
+            toml::Value::String(self.overlay_path.clone()),
+        );
+        map.insert(
+            "gravity".to_owned(),
+            toml::Value::String(self.gravity.to_string()),
+        );
+        map.insert(
+            "opacity".to_owned(),
+            toml::Value::Float(self.opacity as f64),
+        );
+        if let Some(s) = self.scale {
+            map.insert("scale".to_owned(), toml::Value::Float(s as f64));
+        }
+        map.insert(
+            "margin".to_owned(),
+            toml::Value::Integer(self.margin as i64),
+        );
+        map.insert("tile".to_owned(), toml::Value::Boolean(self.tile));
+        OperationParams::from_map(map)
+    }
+
+    fn apply(&self, img: Image) -> Result<Image, OperationError> {
+        // Work in RGBA8 (source-over compositing needs an alpha channel).
+        let mut canvas = img.pixels().to_rgba8();
+        let mut ov: RgbaImage = self.overlay.to_rgba8();
+
+        // ── Scale: overlay width = scale × base width (aspect preserved) ──────
+        if let Some(s) = self.scale {
+            let target_w = ((canvas.width() as f32 * s).round() as u32).max(1);
+            // Preserve the overlay's aspect ratio.
+            let (ow, oh) = (ov.width().max(1), ov.height().max(1));
+            let target_h = (((target_w as f32) * (oh as f32) / (ow as f32)).round() as u32).max(1);
+            ov = imageops::resize(&ov, target_w, target_h, FilterType::Lanczos3);
+        }
+
+        // ── Opacity: multiply the overlay's alpha channel ─────────────────────
+        if self.opacity < 1.0 {
+            for px in ov.pixels_mut() {
+                px.0[3] = (px.0[3] as f32 * self.opacity).round() as u8;
+            }
+        }
+
+        // ── Placement ─────────────────────────────────────────────────────────
+        if self.tile {
+            // Tile the overlay to cover the whole base. Edge tiles clip cleanly.
+            let (ow, oh) = (ov.width().max(1), ov.height().max(1));
+            let mut y = 0u32;
+            while y < canvas.height() {
+                let mut x = 0u32;
+                while x < canvas.width() {
+                    imageops::overlay(&mut canvas, &ov, x as i64, y as i64);
+                    x += ow;
+                }
+                y += oh;
+            }
+        } else {
+            let (x, y) = self.gravity.placement(
+                canvas.width(),
+                canvas.height(),
+                ov.width(),
+                ov.height(),
+                self.margin,
+            );
+            imageops::overlay(&mut canvas, &ov, x, y);
+        }
+
+        Ok(img.with_pixels(DynamicImage::ImageRgba8(canvas)))
+    }
 }
 
 // ─── Tests ──────────────────────────────────────────────────────────────────
@@ -1253,5 +1483,227 @@ mod tests {
             orientation_from_exif_segment(&[]).is_none(),
             "empty slice should return None"
         );
+    }
+
+    // ── SPEC-029 Watermark unit tests ─────────────────────────────────────────
+
+    /// Build a solid-color RGBA `DynamicImage` overlay fixture.
+    fn solid_overlay(w: u32, h: u32, rgba: [u8; 4]) -> DynamicImage {
+        DynamicImage::ImageRgba8(RgbaImage::from_pixel(w, h, ::image::Rgba(rgba)))
+    }
+
+    /// Build a `Watermark` op directly from an in-memory overlay (DEC-031).
+    #[allow(clippy::too_many_arguments)]
+    fn watermark(
+        overlay: DynamicImage,
+        gravity: Gravity,
+        opacity: f32,
+        scale: Option<f32>,
+        margin: u32,
+        tile: bool,
+    ) -> Watermark {
+        Watermark::new(
+            overlay,
+            "logo.png".to_owned(),
+            gravity,
+            opacity,
+            scale,
+            margin,
+            tile,
+        )
+    }
+
+    #[test]
+    fn gravity_parse_round_trips() {
+        let names = [
+            "center",
+            "north",
+            "south",
+            "east",
+            "west",
+            "northeast",
+            "northwest",
+            "southeast",
+            "southwest",
+        ];
+        for name in names {
+            let g: Gravity = name.parse().expect("known gravity should parse");
+            assert_eq!(g.to_string(), name, "Display should round-trip {name}");
+        }
+        // Junk → error.
+        assert!(
+            "sideways".parse::<Gravity>().is_err(),
+            "unknown gravity should error"
+        );
+    }
+
+    #[test]
+    fn watermark_southeast_places_overlay() {
+        // 20×20 red base, 4×4 blue overlay, SE, margin 0.
+        let base = make_image(20, 20, |_, _| [255, 0, 0, 255]);
+        let op = watermark(
+            solid_overlay(4, 4, [0, 0, 255, 255]),
+            Gravity::SouthEast,
+            1.0,
+            None,
+            0,
+            false,
+        );
+        let out = op.apply(base).unwrap();
+        let buf = out.pixels().to_rgba8();
+        // Bottom-right corner (18,18) is inside the 4×4 SE block (cols/rows 16..20).
+        assert_eq!(
+            buf.get_pixel(18, 18).0,
+            [0, 0, 255, 255],
+            "SE corner is blue"
+        );
+        // Top-left corner unchanged.
+        assert_eq!(buf.get_pixel(0, 0).0, [255, 0, 0, 255], "NW corner is red");
+    }
+
+    #[test]
+    fn watermark_center_places_overlay() {
+        // 20×20 red base, 4×4 blue overlay, centered.
+        let base = make_image(20, 20, |_, _| [255, 0, 0, 255]);
+        let op = watermark(
+            solid_overlay(4, 4, [0, 0, 255, 255]),
+            Gravity::Center,
+            1.0,
+            None,
+            0,
+            false,
+        );
+        let out = op.apply(base).unwrap();
+        let buf = out.pixels().to_rgba8();
+        // Center pixel (10,10) is inside the centered block (cols 8..12).
+        assert_eq!(buf.get_pixel(10, 10).0, [0, 0, 255, 255], "center is blue");
+        // Corners untouched.
+        assert_eq!(buf.get_pixel(0, 0).0, [255, 0, 0, 255], "NW corner is red");
+        assert_eq!(
+            buf.get_pixel(19, 19).0,
+            [255, 0, 0, 255],
+            "SE corner is red"
+        );
+    }
+
+    #[test]
+    fn watermark_opacity_blends() {
+        // 20×20 red base, 4×4 blue overlay at half opacity → blend in the block.
+        let base = make_image(20, 20, |_, _| [255, 0, 0, 255]);
+        let op = watermark(
+            solid_overlay(4, 4, [0, 0, 255, 255]),
+            Gravity::SouthEast,
+            0.5,
+            None,
+            0,
+            false,
+        );
+        let out = op.apply(base).unwrap();
+        let buf = out.pixels().to_rgba8();
+        let p = buf.get_pixel(18, 18).0;
+        // Neither pure red base nor pure blue overlay: a mix of both channels.
+        assert!(p[0] > 0 && p[0] < 255, "red channel blended: {p:?}");
+        assert!(p[2] > 0 && p[2] < 255, "blue channel blended: {p:?}");
+    }
+
+    #[test]
+    fn watermark_scale_resizes_overlay() {
+        // 20-wide base, 4×4 overlay, scale 0.5 → overlay ~10 px wide.
+        let base = make_image(20, 20, |_, _| [255, 0, 0, 255]);
+        let op = watermark(
+            solid_overlay(4, 4, [0, 0, 255, 255]),
+            Gravity::SouthEast,
+            1.0,
+            Some(0.5),
+            0,
+            false,
+        );
+        let out = op.apply(base).unwrap();
+        let buf = out.pixels().to_rgba8();
+        // The SE block is now ~10×10 (cols 10..20). A pixel at the left edge of
+        // the block (col 11) on the bottom row should be blue — proving the
+        // overlay spans much wider than the original 4 px.
+        assert_eq!(
+            buf.get_pixel(11, 19).0,
+            [0, 0, 255, 255],
+            "scaled overlay spans ~half width"
+        );
+        // And a pixel well left of the block (col 5) stays red.
+        assert_eq!(
+            buf.get_pixel(5, 19).0,
+            [255, 0, 0, 255],
+            "outside block is red"
+        );
+    }
+
+    #[test]
+    fn watermark_margin_offsets_anchor() {
+        // 20×20 base, 4×4 overlay, SE, margin 2 → block shifted 2 px inward.
+        let base = make_image(20, 20, |_, _| [255, 0, 0, 255]);
+        let op = watermark(
+            solid_overlay(4, 4, [0, 0, 255, 255]),
+            Gravity::SouthEast,
+            1.0,
+            None,
+            2,
+            false,
+        );
+        let out = op.apply(base).unwrap();
+        let buf = out.pixels().to_rgba8();
+        // The SE corner pixel reverts to base (margin pushed the overlay inward).
+        assert_eq!(
+            buf.get_pixel(19, 19).0,
+            [255, 0, 0, 255],
+            "corner reverts to base with margin"
+        );
+        // The inset block (cols/rows 14..18) is overlay; (15,15) is blue.
+        assert_eq!(
+            buf.get_pixel(15, 15).0,
+            [0, 0, 255, 255],
+            "inset block is overlay"
+        );
+    }
+
+    #[test]
+    fn watermark_tile_covers_base() {
+        // 20×20 base, 4×4 overlay, tiled → overlay color in far-apart regions.
+        let base = make_image(20, 20, |_, _| [255, 0, 0, 255]);
+        let op = watermark(
+            solid_overlay(4, 4, [0, 0, 255, 255]),
+            Gravity::SouthEast,
+            1.0,
+            None,
+            0,
+            true,
+        );
+        let out = op.apply(base).unwrap();
+        let buf = out.pixels().to_rgba8();
+        // Top-left and bottom-right both carry the overlay color.
+        assert_eq!(buf.get_pixel(0, 0).0, [0, 0, 255, 255], "top-left tiled");
+        assert_eq!(
+            buf.get_pixel(18, 18).0,
+            [0, 0, 255, 255],
+            "bottom-right tiled"
+        );
+    }
+
+    #[test]
+    fn watermark_params_includes_path_and_placement() {
+        let op = watermark(
+            solid_overlay(4, 4, [0, 0, 255, 255]),
+            Gravity::SouthEast,
+            0.5,
+            Some(0.25),
+            3,
+            true,
+        );
+        let p = op.params();
+        assert_eq!(p.get_str("image"), Some("logo.png"));
+        assert_eq!(p.get_str("gravity"), Some("southeast"));
+        assert_eq!(p.get_f32("opacity"), Some(0.5));
+        assert_eq!(p.get_f32("scale"), Some(0.25));
+        assert_eq!(p.get_u32("margin"), Some(3));
+        // `tile` is a bool key; confirm it is present and true.
+        assert_eq!(p.0.get("tile"), Some(&toml::Value::Boolean(true)));
     }
 }

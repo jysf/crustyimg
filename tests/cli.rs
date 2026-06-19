@@ -246,27 +246,22 @@ fn apply_to_stdout_keeps_stdout_clean() {
     assert_eq!(decoded.height(), 4);
 }
 
-/// A stub command (here `watermark`) exits 1 and writes "not yet implemented"
+/// A stub command (here `edit`) exits 1 and writes "not yet implemented"
 /// to stderr; no output file is created.
 ///
 /// (resize is now real — SPEC-011; thumbnail is now real — SPEC-012;
 /// shrink is now real — SPEC-013; convert is now real — SPEC-014;
-/// auto-orient is now real — SPEC-015; repointed to `watermark` which is a
-/// STAGE-004 stub.)
+/// auto-orient is now real — SPEC-015; watermark is now real — SPEC-029;
+/// repointed to `edit` which is a STAGE-005 stub.)
 #[test]
 fn stub_command_returns_not_implemented() {
     let dir = tempfile::tempdir().expect("tempdir");
     let in_path = write_test_png(&dir, "in.png", 4, 4);
 
     let output = Command::new(BIN)
-        .args([
-            "watermark",
-            in_path.to_str().unwrap(),
-            "--image",
-            in_path.to_str().unwrap(),
-        ])
+        .args(["edit", in_path.to_str().unwrap()])
         .output()
-        .expect("failed to run watermark");
+        .expect("failed to run edit");
 
     assert_eq!(output.status.code(), Some(1), "stub command should exit 1");
     let stderr = stderr_str(&output);

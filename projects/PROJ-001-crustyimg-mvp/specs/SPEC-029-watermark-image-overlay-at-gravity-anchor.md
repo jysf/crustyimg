@@ -7,7 +7,7 @@
 task:
   id: SPEC-029
   type: story                      # epic | story | task | bug | chore
-  cycle: design                    # frame | design | build | verify | ship
+  cycle: verify                    # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: M                    # S | M | L  (L means split it)
@@ -62,6 +62,18 @@ cost:
         Operation overlay loaded at the IO boundary); ran a design-time probe
         confirming image::imageops overlay/alpha-opacity/resize/clip primitives
         (no new dep). pixel-lane compositing op.
+    - cycle: build
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-06-18
+      notes: >
+        watermark: Gravity enum (FromStr/Display + placement math) + Watermark
+        Operation (image::imageops overlay/opacity/scale/tile, RGBA8) + run_watermark
+        IO boundary over run_pixel_op; DEC-031; no new dep. 13 named tests
+        (8 unit + 5 integration) green; clippy/fmt/lean-build/deny clean.
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -290,28 +302,46 @@ an in-memory overlay `DynamicImage`.
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
+- **Branch:** `feat/spec-029-watermark`
+- **PR (if applicable):** `feat(operation): watermark image overlay at gravity anchor (SPEC-029)`
+- **All acceptance criteria met?** yes
 - **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
+  - None — DEC-031 was emitted at design and covers the multi-image boundary.
 - **Deviations from spec:**
-  - [list]
+  - None functional. One adjustment to a pre-existing test: `tests/cli.rs`'s
+    `stub_command_returns_not_implemented` was pointed at `watermark` as its
+    sample stub; since `watermark` is now real, it was repointed to `edit`
+    (still a STAGE-005 stub). `tests/cli.rs` subcommand-list tests already
+    listed `watermark` and stayed valid.
 - **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - STAGE-005: wire the recipe loader to resolve `watermark`'s overlay path so
+    it round-trips (the deferred half of DEC-031) and register it in
+    `with_builtins()`.
+  - Text watermark (`ab_glyph` + `imageproc::drawing`) — a separate STAGE-004
+    spec with its own font-dependency DEC.
 
 ### Build-phase reflection (3 questions, short answers)
 
 Process-focused: how did the build go? What friction did the spec create?
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — Nothing material. The PINNED `## Operation mechanics` gave the exact RGBA8
+   flow, gravity math, and `imageops` calls; DEC-031's probe removed all
+   ambiguity about where the overlay loads. The one thing the spec didn't flag
+   was that the existing `stub_command_returns_not_implemented` test used
+   `watermark` as its stub sample and needed repointing.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — No. DEC-031 (boundary), DEC-002 (Operation), DEC-015 (fan-out), DEC-007
+   (typed errors) were all the relevant ones and were referenced. The "don't
+   register in `with_builtins()`" rule was explicit, which prevented the obvious
+   wrong turn.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Nothing significant. The implementation mirrored `Resize` and
+   `run_auto_orient` closely, so the smallest-correct-change path was clear from
+   the start. I'd grep for the spec's command name across `tests/` first to
+   surface stub-sample tests like the one above before building.
 
 ---
 
