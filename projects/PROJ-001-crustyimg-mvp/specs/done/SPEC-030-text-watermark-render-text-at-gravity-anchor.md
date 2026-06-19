@@ -7,7 +7,7 @@
 task:
   id: SPEC-030
   type: story                      # epic | story | task | bug | chore
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: M                    # S | M | L  (L means split it)
@@ -66,18 +66,43 @@ cost:
     - cycle: build
       agent: claude-opus-4-8
       interface: claude-code
+      tokens_total: 121999
+      estimated_usd: 1.10
+      duration_minutes: 12
+      recorded_at: 2026-06-18
+      notes: >
+        Real metered subagent (foreground Agent; subagent_tokens=121999,
+        duration_ms=695285). estimated_usd at Opus 4.8 list (~80/20 in/out) —
+        order-of-magnitude. text watermark: src/text render_text/parse_color
+        (ab_glyph, bundled Go font) + watermark --text mode reusing SPEC-029
+        Watermark compositing; DEC-032; no imageproc. 14 named tests (6 unit +
+        8 integration) green; clippy/fmt/lean-build/deny clean.
+    - cycle: verify
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 50000
+      estimated_usd: 0.45
+      duration_minutes: null
+      recorded_at: 2026-06-18
+      notes: >
+        ORDER-OF-MAGNITUDE ESTIMATE (~50k) — read-only Explore subagent (no
+        metered usage block) + orchestrator main-loop gate re-runs (cargo test
+        357 ok / clippy / fmt / deny / cargo build --no-default-features lean).
+        Explore verdict: APPROVED, no concerns; confirmed no imageproc, the
+        std-trap avoided, no file IO in text/operation, full SPEC-029 reuse,
+        image mode still passing.
+    - cycle: ship
+      agent: claude-opus-4-8
+      interface: claude-code
       tokens_total: null
       estimated_usd: null
       duration_minutes: null
       recorded_at: 2026-06-18
-      notes: >
-        text watermark: src/text render_text/parse_color (ab_glyph, bundled Go
-        font) + watermark --text mode reusing SPEC-029 Watermark compositing;
-        DEC-032; no imageproc.
+      notes: "Main-loop ship bookkeeping (merge dance + cost totals + reflection + archive + STAGE-004 stage-ship); not separately metered."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 171999
+    estimated_usd: 1.55
+    session_count: 4
 ---
 
 # SPEC-030: text watermark render text at gravity anchor
@@ -342,10 +367,28 @@ Process-focused: how did the build go? What friction did the spec create?
 from the process-focused build reflection above.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Very little. The big design win was framing text watermark as "render to an
+   RGBA overlay, then reuse SPEC-029's `Watermark` op" — that turned a potentially
+   large feature into ~230 lines of pure `render_text`/`parse_color` plus CLI
+   wiring, because gravity/opacity/margin/clip/fan-out all came for free. The two
+   probes paid off again: one proved `ab_glyph` on the real Go font (and surfaced
+   the `std`-feature trap before it could bite the lean build), the other killed
+   `imageproc` on sight when its tree showed `sdl2`. Sourcing a clean permissive
+   font (BSD-3 Go, 145 KB) up front and committing it with the design kept the
+   build offline-deterministic.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — No template/constraint change. DEC-032 records the dep + font + the std-trap.
+   This run reinforced the lean-build gate ([[verify-includes-lean-no-default-features-build]]):
+   ab_glyph's `std` is exactly the kind of dep-default that the lean job exists to
+   catch, and both the build prompt and verify ran `cargo build --no-default-features`
+   — it should stay a standing gate. The probe-the-interop-seam habit
+   ([[probe-load-bearing-crates-at-design]]) again caught a cross-crate gotcha.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — STAGE-004 is now COMPLETE (compositing + the full metadata lane). No
+   STAGE-004 follow-up. Two cross-cutting items remain tracked, both for later
+   stages: (a) **recipes** wiring `watermark` round-trip (STAGE-005, the deferred
+   half of DEC-031); (b) richer typography (multi-line/align/stroke) and the PNG
+   `copy-metadata` bridge (DEC-030) — backlog, not urgent. Next session should pick
+   the stage after STAGE-004 by status, per the project brief.

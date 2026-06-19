@@ -5,7 +5,7 @@
 
 stage:
   id: STAGE-004                     # stable, zero-padded within the project
-  status: active                    # proposed | active | shipped | cancelled | on_hold
+  status: shipped                   # proposed | active | shipped | cancelled | on_hold
   priority: high                    # critical | high | medium | low
   target_complete: null             # optional: YYYY-MM-DD
 
@@ -15,7 +15,7 @@ repo:
   id: crustyimg
 
 created_at: 2026-06-14
-shipped_at: null
+shipped_at: 2026-06-18
 
 # What part of the project's value thesis this stage advances.
 value_contribution:
@@ -92,11 +92,11 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
 - [x] SPEC-026 (shipped 2026-06-18, PR #30) — metadata lane v1: `strip` (remove all metadata) + `clean --gps` (remove only location) via container lane, JPEG+PNG, no pixel re-encode (DEC-003, DEC-029)
 - [x] SPEC-029 (shipped 2026-06-18, PR #33) — `watermark` command/Operation: image overlay at gravity anchor (`--opacity`/`--scale`/`--margin`/`--tile`); first multi-image Operation (DEC-031)
-- [design] SPEC-030 (design) — text watermark: `watermark --text` renders a string at a gravity anchor (ab_glyph + bundled BSD-3 Go font, NO imageproc — DEC-032); reuses SPEC-029 `Gravity`/`Watermark` compositing
+- [x] SPEC-030 (shipped 2026-06-18, PR #34) — text watermark: `watermark --text` renders a string at a gravity anchor (ab_glyph + bundled BSD-3 Go font, NO imageproc — DEC-032); reuses SPEC-029 `Gravity`/`Watermark` compositing
 - [x] SPEC-027 (shipped 2026-06-18, PR #31) — `set` command: write EXIF tags (`--artist`/`--copyright`/`--description`) via little_exif, pixels untouched (reuses `run_metadata_lane`)
 - [x] SPEC-028 (shipped 2026-06-18, PR #32) — `copy-metadata` command: copy container EXIF+ICC `--from` one image `--to` another, DST pixels untouched; JPEG-only v1 (DEC-030)
 
-**Count:** 4 shipped / 1 in design / 0 pending  (metadata lane COMPLETE: SPEC-026/027/028; image `watermark` SPEC-029 shipped; SPEC-030 text watermark = the LAST item, in design — when it ships STAGE-004 is complete)
+**Count:** 5 shipped / 0 active / 0 pending  — **STAGE-004 COMPLETE.** Metadata lane (SPEC-026 `strip`+`clean --gps`, SPEC-027 `set`, SPEC-028 `copy-metadata`) + compositing (SPEC-029 image `watermark`, SPEC-030 text `watermark`). Every single-image MVP command now exists.
 
 ## Design Notes
 
@@ -126,13 +126,31 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
 ## Stage-Level Reflection
 
-*Filled in when status moves to shipped. Run Prompt 1c (Stage Ship) in
-FIRST_SESSION_PROMPTS.md to draft this.*
+*Shipped 2026-06-18.*
 
-- **Did we deliver the outcome in "What This Stage Is"?** <yes/no + notes>
-- **How many specs did it actually take?** <number vs. plan>
-- **What changed between starting and shipping?** <one sentence>
+- **Did we deliver the outcome in "What This Stage Is"?** **Yes.** Both halves
+  landed: the container-level **metadata lane** (`strip`, `clean --gps`, `set`,
+  `copy-metadata`) and **compositing** (image `watermark` + text `watermark`). The
+  metadata lane never re-decodes pixels (constraint `metadata-not-via-pixel-encode`
+  held throughout, enforced by decode-equality tests); watermark is the first
+  multi-image `Operation`. Every single-image MVP command now exists.
+- **How many specs did it actually take?** **5** (SPEC-026/027/028/029/030) vs. the
+  6 backlog line-items planned — SPEC-026 bundled `strip` + `clean --gps` into one.
+- **What changed between starting and shipping?** Two scope-narrowings forced by
+  design-time probes — `copy-metadata` became **JPEG-only** (DEC-030: little_exif
+  `zTXt` vs img-parts `eXIf` PNG EXIF mismatch) and text watermark dropped
+  `imageproc` for **ab_glyph-only** (DEC-032: imageproc pulls `sdl2`) — both made the
+  stage *more* honest, not less.
 - **Lessons that should update AGENTS.md, templates, or constraints?**
-  - <one-line updates>
+  - Add `cargo build --no-default-features` (the CI lean build) to the standard
+    build/verify gate list — a dep's default feature (ab_glyph `std`) or a lean-only
+    break otherwise only surfaces on main post-merge.
+  - The **design-time probe** for any load-bearing/unproven external crate is now a
+    proven practice (de-risked DEC-029, and caught silent-failure traps in DEC-030
+    and DEC-032 before tests were written) — worth formalizing in the design cycle.
 - **Should any spec-level reflections be promoted to stage-level lessons?**
-  - <one-line items>
+  - Yes: "probe the **interop seam** between two crates, not just one crate's happy
+    path" (the PNG EXIF chunk mismatch + the ab_glyph `std` trap both lived at seams).
+  - "Render-to-overlay + reuse the existing op" (text watermark reusing the image
+    `Watermark`) — compose new features over the pixel extension point rather than
+    adding parallel code paths.
