@@ -24,10 +24,15 @@ agent-run workflow this repo uses.
    express registered operations (no code execution), but validate the
    `version` field and reject unknown operations rather than guessing.
 3. **Path traversal on output.** Batch output uses name templates
-   (`{stem}_web.{ext}`) into `--out-dir`. Templates must not contain path
-   separators that escape `--out-dir`, and the tool must not overwrite an
-   existing file without `--yes`. Inputs are read-only unless explicitly
-   targeted as output.
+   (`{stem}_web.{ext}`) into `--out-dir`. Mitigations (SPEC-005 + SPEC-034 /
+   DEC-035): `safe_join` rejects an expanded name that is absolute, contains a
+   path separator, or contains `..`; the destination is **refused if it is a
+   symlink** (`SinkError::Traversal`, exit 5) **even with `--yes`**, so a planted
+   symlink in `--out-dir` cannot redirect a write outside it; and the tool does
+   not overwrite an existing file without `--yes`. On input, directory/glob
+   sources are non-recursive (DEC-010) and **skip any entry whose real path
+   escapes the root** (symlink-escape check, always anchored — SPEC-034). Inputs
+   are read-only unless explicitly targeted as output.
 4. **Metadata leakage / privacy.** Image metadata can contain GPS location,
    device serials, and personal info. The default-preserve policy (DEC-003)
    **drops GPS** on pixel-lane encodes unless `--keep-gps`; `clean --gps` and

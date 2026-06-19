@@ -57,7 +57,7 @@ Apply to all subcommands (parsed before/around the subcommand).
 | `2` | Usage error (bad args) — clap's standard code. |
 | `3` | Input not found / unreadable. |
 | `4` | Unsupported format / codec not built (e.g. AVIF without the feature). |
-| `5` | Output write failed / refused (exists without `--yes`, traversal). |
+| `5` | Output write failed / refused (exists without `--yes`; name/path traversal; a symlinked destination, refused even with `--yes` — SPEC-034 / DEC-035). |
 | `6` | Partial batch failure (some inputs failed; summary on stderr). |
 | `7` | A check/gate was not satisfied (e.g. `diff --fail-under` scored below the threshold). Distinct from a runtime error so CI can tell "regression detected" from "couldn't run" (S9/SPEC-023, DEC-025). |
 
