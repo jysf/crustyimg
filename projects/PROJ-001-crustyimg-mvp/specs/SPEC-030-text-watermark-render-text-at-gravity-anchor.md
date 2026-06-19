@@ -7,7 +7,7 @@
 task:
   id: SPEC-030
   type: story                      # epic | story | task | bug | chore
-  cycle: design                    # frame | design | build | verify | ship
+  cycle: verify  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: M                    # S | M | L  (L means split it)
@@ -63,6 +63,17 @@ cost:
         bundled BSD-3 Go font, no imageproc); two design-time probes (ab_glyph
         layout/raster of the Go font; imageproc dep-tree pulls sdl2 → rejected).
         Added ab_glyph + the font asset; just deny + lean build green.
+    - cycle: build
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-06-18
+      notes: >
+        text watermark: src/text render_text/parse_color (ab_glyph, bundled Go
+        font) + watermark --text mode reusing SPEC-029 Watermark compositing;
+        DEC-032; no imageproc.
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -286,28 +297,42 @@ Written during **design**, BEFORE build. Native fixtures; bundled font for unit 
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
+- **Branch:** `feat/spec-030-text-watermark`
+- **PR (if applicable):** `feat(operation): text watermark via ab_glyph (SPEC-030)`
+- **All acceptance criteria met?** yes
 - **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
+  - None — DEC-032 (at design) governs.
 - **Deviations from spec:**
-  - [list]
+  - The new `src/text/mod.rs` lives in its own top-level module (`pub mod text;`)
+    as the spec's Outputs prescribe, NOT under `src/operation/` (DEC-032's prose
+    mentions `operation/` once; the spec's authoritative Outputs/build prompt pin
+    `src/text/`). No file IO either way.
+  - All-whitespace text (no drawable glyphs) renders a 1×1 transparent overlay
+    instead of erroring — a defensive total path; the spec only pins empty → Empty.
 - **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - Multi-line / alignment / stroke / background box / rotation (out of scope here;
+    a later typography spec, per DEC-032 follow-up).
 
 ### Build-phase reflection (3 questions, short answers)
 
 Process-focused: how did the build go? What friction did the spec create?
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — Minor: DEC-032's prose says the render fn "lives in `operation/`", while the
+   spec Outputs + build prompt pin `src/text/`. I followed the build prompt
+   (`src/text/`), which is the authoritative surface. Nothing else was unclear —
+   the PINNED rendering mechanics were precise enough to implement directly.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — No. The `#[allow(clippy::too_many_arguments)]` on `run_watermark` (already
+   present at SPEC-029) had to be re-applied after I rewrote the signature; worth a
+   one-line note that extending an `allow`-ed fn keeps the allow, but not a missing
+   constraint.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Reconcile DEC-032's "operation/" wording with the spec up front to avoid the
+   momentary ambiguity, and lift the `WatermarkSource` bundling struct out earlier
+   (it kept the arg count from growing past the existing allow).
 
 ---
 
