@@ -7,7 +7,7 @@
 task:
   id: SPEC-027
   type: story                      # epic | story | task | bug | chore
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: S                    # S | M | L  (L means split it)
@@ -66,18 +66,40 @@ cost:
     - cycle: build
       agent: claude-opus-4-8
       interface: claude-code
+      tokens_total: 112775
+      estimated_usd: 1.01
+      duration_minutes: 13
+      recorded_at: 2026-06-18
+      notes: >
+        Real metered subagent (foreground Agent; subagent_tokens=112775,
+        duration_ms=786123). estimated_usd at Opus 4.8 list (~80/20 in/out) —
+        order-of-magnitude. set command: metadata::TagSet + set_tags + run_set
+        reusing run_metadata_lane; container lane, no pixel re-encode; no new dep.
+        12 new tests (7 unit, 5 integration) green; fmt/clippy/deny clean.
+    - cycle: verify
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 45000
+      estimated_usd: 0.40
+      duration_minutes: null
+      recorded_at: 2026-06-18
+      notes: >
+        ORDER-OF-MAGNITUDE ESTIMATE (~45k) — read-only Explore subagent (no
+        metered usage block) + orchestrator main-loop gate re-runs (cargo test
+        320 ok / clippy / fmt / deny). Explore verdict: APPROVED, no punch list;
+        confirmed the load-then-set preserve pattern + no-pixel-encode invariant.
+    - cycle: ship
+      agent: claude-opus-4-8
+      interface: claude-code
       tokens_total: null
       estimated_usd: null
       duration_minutes: null
       recorded_at: 2026-06-18
-      notes: >
-        set command: metadata::TagSet + set_tags + run_set reusing
-        run_metadata_lane; container lane, no pixel re-encode; no new dep.
-        12 new tests (7 unit, 5 integration) green; fmt/clippy/deny clean.
+      notes: "Main-loop ship bookkeeping (merge dance + cost totals + reflection + archive); not separately metered."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 157775
+    estimated_usd: 1.41
+    session_count: 4
 ---
 
 # SPEC-027: `set` — write EXIF artist/copyright/description
@@ -320,10 +342,26 @@ Process-focused: how did the build go? What friction did the spec create?
 from the process-focused build reflection above.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Very little — this was the payoff of SPEC-026's investment. Because the
+   lane (`run_metadata_lane` + `Sink::write_bytes` + `MetadataError` + the
+   `sniff`/`Lane` helpers) and native EXIF fixtures already existed, `set` was a
+   near-mechanical add: one transform fn + one handler + 12 tests, built in ~13
+   min / 113k tok (vs SPEC-026's 172k). The one cheap insurance that paid off was
+   a tiny design-time probe for the *new* risk only (does set-then-write PRESERVE
+   existing tags?) rather than re-probing the whole lane.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — No. DEC-029 already covers `little_exif`; no new dep, no new DEC. The
+   `metadata-not-via-pixel-encode` invariant held trivially (the lane never
+   decodes). The build reflection noted the spec pins the write API but not the
+   `little_exif` read-back used in test assertions — minor, not worth a template
+   change.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — One metadata-lane spec remains on the STAGE-004 backlog: **`copy-metadata`**
+   (`--from`/`--to`, transfer a whole container's metadata) — it will reuse the
+   same lane but is a two-input op (read source bytes, graft onto dest), so its
+   handler diverges from the single-stream `run_metadata_lane` fan-out; worth a
+   short design-time probe on the img-parts/little_exif transfer path. After that
+   the metadata lane is complete and STAGE-004 is just `watermark` (pixel-lane).
+   No new spec file needed yet — it's tracked in the stage backlog.
