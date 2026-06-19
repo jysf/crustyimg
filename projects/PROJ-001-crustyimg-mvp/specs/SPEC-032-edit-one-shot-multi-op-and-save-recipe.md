@@ -7,7 +7,7 @@
 task:
   id: SPEC-032
   type: story                      # epic | story | task | bug | chore
-  cycle: build  # frame | design | build | verify | ship
+  cycle: verify  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: S                    # S | M | L  (L means split it)
@@ -49,11 +49,19 @@ value_link: >
 # See AGENTS.md §4 and docs/cost-tracking.md. interface: claude-code |
 # claude-ai | api | ollama | other.
 cost:
-  sessions: []
+  sessions:
+    - cycle: build
+      agent: claude-sonnet-4-6
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-06-19
+      notes: "edit + --save-recipe: clap op flags + run_edit + build_edit_ops (canonical order auto-orient→resize→invert) reusing run_pixel_op + registry + Recipe::from_ops/to_toml; recipe round-trips through apply; no new dep/op"
   totals:
     tokens_total: 0
     estimated_usd: 0
-    session_count: 0
+    session_count: 1
 ---
 
 # SPEC-032: edit one-shot multi-op and save-recipe
@@ -350,28 +358,37 @@ These apply to the paths touched (see `/guidance/constraints.yaml`):
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
+- **Branch:** `feat/spec-032-edit-save-recipe`
+- **PR (if applicable):** opened (see PR for number/URL)
+- **All acceptance criteria met?** yes
 - **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
+  - No new DEC (as expected — composes existing code)
 - **Deviations from spec:**
-  - [list]
+  - Updated `tests/cli.rs` `stub_command_returns_not_implemented` test: now
+    asserts exit 2 + "requires at least one operation flag" (was exit 1 + "not
+    yet implemented"), since `edit` is no longer a stub. The spec noted this
+    test file but did not prescribe the exact update needed.
 - **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - None identified within STAGE-005 scope.
 
 ### Build-phase reflection (3 questions, short answers)
 
 Process-focused: how did the build go? What friction did the spec create?
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — The spec said `run_pixel_op(pipeline, std::slice::from_ref(input), ...)` but
+     `input` in `run_edit` is `&str` while `run_pixel_op` takes `&[String]`. A
+     minor type mismatch requiring `[input.to_owned()]` instead. Trivial to fix,
+     but not called out in the build prompt.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — The stale `stub_command_returns_not_implemented` test in `tests/cli.rs` was
+     not mentioned as needing an update. Adding that to the build prompt would
+     prevent a confusing test failure at the gate step.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Check for stale "not yet implemented" test references before running gates,
+     rather than discovering the failure after all other gates passed.
 
 ---
 

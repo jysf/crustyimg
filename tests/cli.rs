@@ -246,13 +246,13 @@ fn apply_to_stdout_keeps_stdout_clean() {
     assert_eq!(decoded.height(), 4);
 }
 
-/// A stub command (here `edit`) exits 1 and writes "not yet implemented"
-/// to stderr; no output file is created.
+/// `edit` without any op flag exits 2 (usage error: "requires at least one
+/// operation flag"). SPEC-032 wired `edit`; no commands remain as stubs.
 ///
 /// (resize is now real — SPEC-011; thumbnail is now real — SPEC-012;
 /// shrink is now real — SPEC-013; convert is now real — SPEC-014;
 /// auto-orient is now real — SPEC-015; watermark is now real — SPEC-029;
-/// repointed to `edit` which is a STAGE-005 stub.)
+/// edit is now real — SPEC-032.)
 #[test]
 fn stub_command_returns_not_implemented() {
     let dir = tempfile::tempdir().expect("tempdir");
@@ -263,11 +263,15 @@ fn stub_command_returns_not_implemented() {
         .output()
         .expect("failed to run edit");
 
-    assert_eq!(output.status.code(), Some(1), "stub command should exit 1");
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "edit without op flags must exit 2 (usage error)"
+    );
     let stderr = stderr_str(&output);
     assert!(
-        stderr.to_ascii_lowercase().contains("not yet implemented"),
-        "stderr should contain 'not yet implemented', got: {stderr}"
+        stderr.contains("requires at least one operation flag"),
+        "stderr should contain 'requires at least one operation flag', got: {stderr}"
     );
 }
 
