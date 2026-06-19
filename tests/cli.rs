@@ -4456,3 +4456,43 @@ fn responsive_malformed_widths_exits_2() {
         );
     }
 }
+
+// ── SPEC-033 decode resource limits integration test ──────────────────────────
+
+/// Running `crustyimg info` on a 70 000×1 PNG (width > MAX_IMAGE_DIMENSION=65535)
+/// must exit 1 and print a non-empty error to stderr — not panic, not hang, not
+/// OOM, not exit 4 (format) or exit 3 (io). (SPEC-033, DEC-034)
+#[test]
+fn info_on_oversized_image_exits_1_not_panic() {
+    use image::{DynamicImage, RgbImage};
+
+    // Build a real 70 000×1 PNG (~210 KB encoded). `RgbImage::new` creates all
+    // zero pixels; encoding succeeds. The decoder hits MAX_IMAGE_DIMENSION at the
+    // IHDR check before any pixel data is read, so this fixture never OOMs.
+    let img = RgbImage::new(70_000, 1);
+    let mut buf = Cursor::new(Vec::new());
+    DynamicImage::ImageRgb8(img)
+        .write_to(&mut buf, ImageFormat::Png)
+        .expect("encode 70_000×1 PNG");
+
+    let dir = tempfile::tempdir().expect("tempdir");
+    let bomb_path = dir.path().join("bomb.png");
+    std::fs::write(&bomb_path, buf.into_inner()).expect("write bomb.png");
+
+    let output = Command::new(BIN)
+        .args(["info", bomb_path.to_str().unwrap()])
+        .output()
+        .expect("failed to run crustyimg info bomb.png");
+
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "oversized PNG must exit 1 (LimitsExceeded); stderr: {}",
+        stderr_str(&output)
+    );
+    let stderr = stderr_str(&output);
+    assert!(
+        !stderr.is_empty(),
+        "stderr must be non-empty (error message expected)"
+    );
+}

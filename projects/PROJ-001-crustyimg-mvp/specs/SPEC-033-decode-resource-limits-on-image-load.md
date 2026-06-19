@@ -7,7 +7,7 @@
 task:
   id: SPEC-033
   type: story                      # epic | story | task | bug | chore
-  cycle: build                     # frame | design | build | verify | ship
+  cycle: verify                    # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: S                    # S | M | L  (L means split it)
@@ -49,11 +49,19 @@ value_link: >
 # See AGENTS.md §4 and docs/cost-tracking.md. interface: claude-code |
 # claude-ai | api | ollama | other.
 cost:
-  sessions: []
+  sessions:
+    - cycle: build
+      agent: claude-sonnet-4-6
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-06-19
+      notes: "decode resource limits: ImageError::LimitsExceeded + decode_limits()/map_image_decode_error + decode_with_limits seam on the one choke point (decode_with_format); caps 65535/512MiB per DEC-034; reject-not-clamp; exit 1; no new dep"
   totals:
     tokens_total: 0
     estimated_usd: 0
-    session_count: 0
+    session_count: 1
 ---
 
 # SPEC-033: decode resource limits on image load
@@ -283,28 +291,28 @@ CRC forgery, NO large allocation).
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
+- **Branch:** `feat/spec-033-decode-limits`
+- **PR (if applicable):** opened (see PR URL in session notes)
+- **All acceptance criteria met?** yes
 - **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
+  - none (DEC-034 was authored at design)
 - **Deviations from spec:**
-  - [list]
+  - none — implemented exactly as specified
 - **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - Per-run configurability (`--max-pixels` / env override) — deferred by spec to a follow-up
 
 ### Build-phase reflection (3 questions, short answers)
 
 Process-focused: how did the build go? What friction did the spec create?
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — Nothing was unclear. The spec's "Notes for the Implementer" section was precise about the `#[non_exhaustive]` struct construction, the `ImageReader::limits` mutability requirement, and the test seam approach. The build prompt's hard rules matched the spec exactly with no ambiguity.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — No missing constraints. All referenced decisions (DEC-034, DEC-002, DEC-007) were available and directly applicable.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Nothing significant. The one-choke-point approach made the implementation minimal and clean. The test seam (`decode_with_limits`) made the enforcement tests independent of the constant values, which is exactly right.
 
 ---
 
