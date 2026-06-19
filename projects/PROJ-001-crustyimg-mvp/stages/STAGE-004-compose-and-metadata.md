@@ -92,11 +92,11 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
 - [x] SPEC-026 (shipped 2026-06-18, PR #30) — metadata lane v1: `strip` (remove all metadata) + `clean --gps` (remove only location) via container lane, JPEG+PNG, no pixel re-encode (DEC-003, DEC-029)
 - [x] SPEC-029 (shipped 2026-06-18, PR #33) — `watermark` command/Operation: image overlay at gravity anchor (`--opacity`/`--scale`/`--margin`/`--tile`); first multi-image Operation (DEC-031)
-- [ ] (not yet written) — text watermark: render text at a gravity anchor (ab_glyph + imageproc::drawing) — reuses `Gravity` + placement; needs a font-dep DEC
+- [design] SPEC-030 (design) — text watermark: `watermark --text` renders a string at a gravity anchor (ab_glyph + bundled BSD-3 Go font, NO imageproc — DEC-032); reuses SPEC-029 `Gravity`/`Watermark` compositing
 - [x] SPEC-027 (shipped 2026-06-18, PR #31) — `set` command: write EXIF tags (`--artist`/`--copyright`/`--description`) via little_exif, pixels untouched (reuses `run_metadata_lane`)
 - [x] SPEC-028 (shipped 2026-06-18, PR #32) — `copy-metadata` command: copy container EXIF+ICC `--from` one image `--to` another, DST pixels untouched; JPEG-only v1 (DEC-030)
 
-**Count:** 4 shipped / 0 active / 1 pending  (metadata lane COMPLETE: SPEC-026/027/028; image `watermark` SPEC-029 shipped; remaining: text watermark — needs a font-dep DEC)
+**Count:** 4 shipped / 1 in design / 0 pending  (metadata lane COMPLETE: SPEC-026/027/028; image `watermark` SPEC-029 shipped; SPEC-030 text watermark = the LAST item, in design — when it ships STAGE-004 is complete)
 
 ## Design Notes
 

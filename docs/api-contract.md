@@ -256,8 +256,17 @@ overlay alpha; `--scale S` resizes the overlay to `S ×` base width; `--margin M
 insets the anchor; `--tile` repeats the overlay across the whole base (ignores
 gravity/margin). Missing/unreadable `--image` → exit **3**; bad opacity/scale or
 unknown gravity → exit **2**. Standard fan-out (single → stdout/`-o`/`--out-dir`,
-multi → `--out-dir`, per-input failure → exit 6). Text watermark is a separate
-later spec. **Not recipe-round-trippable until STAGE-005** (DEC-031).
+multi → `--out-dir`, per-input failure → exit 6). **Not recipe-round-trippable until
+STAGE-005** (DEC-031).
+
+**Text mode (SPEC-030, DEC-032):** `watermark <INPUT...> --text STRING [--font PATH]
+[--size N] [--color HEX] [--gravity G] [--opacity O] [--margin M]` rasterizes the
+text (via `ab_glyph`) into an overlay composited through the same path. `--image` and
+`--text` are mutually exclusive — exactly one required (neither/both → exit **2**).
+Default font is the **bundled BSD-3 Go font**; `--font PATH` (a TTF/OTF) overrides it
+(missing/unreadable → exit **3**). `--size` (px, default 32; `≤0` → exit 2);
+`--color` (`RRGGBB`/`#RRGGBB`/`RRGGBBAA`, default white; malformed → exit 2). No
+`imageproc` (it pulls sdl2/nalgebra) — DEC-032.
 
 ### Metadata lane *(container-level; no pixel decode — DEC-003)*
 
