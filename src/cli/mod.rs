@@ -393,6 +393,11 @@ pub enum CliError {
     /// "couldn't run". Reusable by the future EXIF audit-linter.
     #[error("check not satisfied")]
     CheckFailed,
+
+    /// A container-lane metadata error (`strip` / `clean --gps`, SPEC-026).
+    /// `UnsupportedFormat` → exit 4; `Container`/`Exif` → exit 1 (DEC-029).
+    #[error(transparent)]
+    Metadata(#[from] crate::metadata::MetadataError),
 }
 
 impl CliError {
@@ -437,6 +442,11 @@ impl CliError {
             CliError::Quality(_) => 1,
             // A check/gate was not satisfied (diff --fail-under) → 7 (DEC-025)
             CliError::CheckFailed => 7,
+            // Container-lane metadata errors (SPEC-026, DEC-029):
+            // unsupported format → 4; container/exif parse/rewrite → 1.
+            CliError::Metadata(crate::metadata::MetadataError::UnsupportedFormat(_)) => 4,
+            CliError::Metadata(crate::metadata::MetadataError::Container(_)) => 1,
+            CliError::Metadata(crate::metadata::MetadataError::Exif(_)) => 1,
         }
     }
 }
@@ -547,8 +557,8 @@ fn dispatch(cli: &Cli) -> Result<(), CliError> {
         } => run_responsive(input, widths, formats.as_deref(), *no_snippet, &cli.global),
         Commands::AutoOrient { inputs } => run_auto_orient(inputs, &cli.global),
         Commands::Watermark { .. } => Err(CliError::NotImplemented("watermark")),
-        Commands::Strip { .. } => Err(CliError::NotImplemented("strip")),
-        Commands::Clean { .. } => Err(CliError::NotImplemented("clean")),
+        Commands::Strip { inputs } => run_strip(inputs, &cli.global),
+        Commands::Clean { inputs, gps } => run_clean(inputs, *gps, &cli.global),
         Commands::Set { .. } => Err(CliError::NotImplemented("set")),
         Commands::CopyMetadata { .. } => Err(CliError::NotImplemented("copy-metadata")),
         Commands::Edit { .. } => Err(CliError::NotImplemented("edit")),
@@ -1585,6 +1595,186 @@ fn run_pixel_op(
     }
 
     Ok(())
+}
+
+// ── Metadata lane (container lane, SPEC-026) ──────────────────────────────────
+
+/// The lowercase extension to preserve for one container-lane input (`{ext}` in
+/// a `--out-dir` template). The format is never transcoded, so we keep the
+/// input's own extension: a path's extension, or — for stdin / a missing
+/// extension — sniff it from the bytes (`jpg`/`png`).
+fn metadata_output_ext(input: &crate::source::Input, bytes: &[u8]) -> String {
+    if let crate::source::Input::Path(p) = input {
+        if let Some(ext) = p.extension().and_then(|e| e.to_str()) {
+            if !ext.is_empty() {
+                return ext.to_ascii_lowercase();
+            }
+        }
+    }
+    // Stdin or no extension: sniff from the bytes (no decode).
+    match ::image::guess_format(bytes) {
+        Ok(::image::ImageFormat::Png) => "png".to_owned(),
+        _ => "jpg".to_owned(),
+    }
+}
+
+/// Read the raw container bytes for one resolved input WITHOUT decoding pixels.
+///
+/// `Input::Path` → `std::fs::read` (an I/O error after `source::resolve` already
+/// confirmed the path maps to exit 3 via [`ImageError::Io`]); `Input::Stdin` →
+/// the already-buffered bytes.
+fn read_raw_bytes(input: &crate::source::Input) -> Result<Vec<u8>, CliError> {
+    match input {
+        crate::source::Input::Path(p) => Ok(std::fs::read(p).map_err(ImageError::Io)?),
+        crate::source::Input::Stdin { bytes, .. } => Ok(bytes.clone()),
+    }
+}
+
+/// The shared container-lane fan-out (SPEC-026), mirroring [`run_pixel_op`] but
+/// reading RAW bytes and transforming via a byte→byte metadata `transform`
+/// (no pixel decode — `metadata-not-via-pixel-encode`).
+///
+/// - Resolves every `inputs` arg via `source::resolve`; a resolution error
+///   (missing path / empty glob) is a HARD error (exit 3/2), not partial-batch.
+/// - 1 input: write to `-o PATH`, else `--out-dir` (templated), else stdout
+///   (raw bytes). A failure keeps its natural code (3/4/5/1).
+/// - More than 1 input: REQUIRE `--out-dir` (else exit 2); per-input failures
+///   print to stderr and yield exit 6 (DEC-015). Format is always preserved.
+fn run_metadata_lane(
+    inputs: &[String],
+    global: &GlobalArgs,
+    transform: impl Fn(&[u8]) -> Result<Vec<u8>, crate::metadata::MetadataError>,
+) -> Result<(), CliError> {
+    // Resolve + flatten every input arg (resolution errors are hard errors).
+    let mut all: Vec<crate::source::Input> = Vec::new();
+    let mut stdin_lock = std::io::stdin().lock();
+    for arg in inputs {
+        let resolved = source::resolve(arg, &mut stdin_lock)?;
+        all.extend(resolved);
+    }
+    if all.is_empty() {
+        return Err(CliError::Source(SourceError::NotFound(inputs.join(" "))));
+    }
+
+    let overwrite = if global.yes {
+        Overwrite::Allow
+    } else {
+        Overwrite::Forbid
+    };
+
+    if all.len() == 1 {
+        let input = &all[0];
+        let raw = read_raw_bytes(input)?;
+        let out_bytes = transform(&raw)?;
+        let ext = metadata_output_ext(input, &raw);
+
+        let sink = if let Some(ref out) = global.output {
+            if out == "-" {
+                Sink::Stdout { format: None }
+            } else {
+                Sink::File {
+                    path: PathBuf::from(out),
+                    format: None,
+                }
+            }
+        } else if let Some(ref dir) = global.out_dir {
+            let template = global
+                .name_template
+                .clone()
+                .unwrap_or_else(|| "{stem}.{ext}".to_owned());
+            Sink::Dir {
+                dir: PathBuf::from(dir),
+                template,
+                format: None,
+            }
+        } else {
+            // No output flag: default to stdout (raw container bytes).
+            Sink::Stdout { format: None }
+        };
+
+        let sink_input = SinkInput {
+            stem: input.stem(),
+            path: input.path(),
+        };
+        sink.write_bytes(
+            &out_bytes,
+            &sink_input,
+            &ext,
+            overwrite,
+            &mut std::io::stdout().lock(),
+        )?;
+    } else {
+        // Multi-input: require --out-dir.
+        let out_dir = global
+            .out_dir
+            .as_ref()
+            .ok_or_else(|| CliError::Usage("multiple inputs require --out-dir".into()))?;
+        let template = global
+            .name_template
+            .clone()
+            .unwrap_or_else(|| "{stem}.{ext}".to_owned());
+
+        let total = all.len();
+        let mut failed: usize = 0;
+
+        for input in &all {
+            let label = match input {
+                crate::source::Input::Path(p) => p.display().to_string(),
+                crate::source::Input::Stdin { stem, .. } => stem.clone(),
+            };
+
+            let result = (|| -> Result<(), CliError> {
+                let raw = read_raw_bytes(input)?;
+                let out_bytes = transform(&raw)?;
+                let ext = metadata_output_ext(input, &raw);
+
+                let sink = Sink::Dir {
+                    dir: PathBuf::from(out_dir),
+                    template: template.clone(),
+                    format: None,
+                };
+                let sink_input = SinkInput {
+                    stem: input.stem(),
+                    path: input.path(),
+                };
+                sink.write_bytes(
+                    &out_bytes,
+                    &sink_input,
+                    &ext,
+                    overwrite,
+                    &mut std::io::stdout().lock(),
+                )?;
+                Ok(())
+            })();
+
+            if let Err(e) = result {
+                eprintln!("error: {label}: {e}");
+                failed += 1;
+            }
+        }
+
+        if failed > 0 {
+            return Err(CliError::PartialBatch { failed, total });
+        }
+    }
+
+    Ok(())
+}
+
+/// Wire `strip`: remove ALL container metadata via the container lane (DEC-003).
+/// Format is preserved; no pixel re-encode (`metadata-not-via-pixel-encode`).
+fn run_strip(inputs: &[String], global: &GlobalArgs) -> Result<(), CliError> {
+    run_metadata_lane(inputs, global, crate::metadata::strip_all)
+}
+
+/// Wire `clean --gps`: remove ONLY GPS/location metadata via the container lane.
+/// `--gps` is required in v1; `clean` without it is a usage error (exit 2),
+/// leaving room for future selective flags.
+fn run_clean(inputs: &[String], gps: bool, global: &GlobalArgs) -> Result<(), CliError> {
+    if !gps {
+        return Err(CliError::Usage("clean requires --gps".into()));
+    }
+    run_metadata_lane(inputs, global, crate::metadata::clean_gps)
 }
 
 // ── thumbnail helpers ─────────────────────────────────────────────────────────

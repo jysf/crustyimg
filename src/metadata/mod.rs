@@ -1,0 +1,355 @@
+//! Container-lane metadata edits (SPEC-026, DEC-003).
+//!
+//! This is the **container lane**: it edits container-level metadata
+//! (EXIF/ICC/XMP/IPTC/comments) by operating on the **raw container bytes** and
+//! never re-decodes or re-encodes pixels. The compressed scan (JPEG) / `IDAT`
+//! (PNG) is carried through verbatim, so decoding the output yields pixels that
+//! are byte-identical to decoding the input — the constraint
+//! `metadata-not-via-pixel-encode` made concrete.
+//!
+//! Division of labor (DEC-003 / DEC-029):
+//! - **`strip_all`** removes *all* user metadata at the segment/chunk level via
+//!   [`img_parts`] (JPEG APP1..APP15 + COM; PNG `eXIf`/`iCCP`/`tEXt`/…).
+//! - **`clean_gps`** removes *only* the GPS IFD at the tag level via
+//!   [`little_exif`], preserving every other tag (orientation, copyright, …).
+//!
+//! The format is sniffed with [`image::guess_format`] (a magic-byte check, no
+//! decode). Only JPEG and PNG are supported in v1; any other format is a
+//! [`MetadataError::UnsupportedFormat`]. The read side stays `kamadak-exif`
+//! elsewhere; this module is the write half.
+
+use ::image::ImageFormat;
+use img_parts::jpeg::Jpeg;
+use img_parts::png::Png;
+use img_parts::Bytes;
+use little_exif::filetype::FileExtension;
+use little_exif::ifd::ExifTagGroup;
+use little_exif::metadata::Metadata;
+
+// ── Errors ────────────────────────────────────────────────────────────────────
+
+/// A container-lane metadata error (DEC-007; typed, no `unwrap`/`panic!` on
+/// recoverable paths). The binary (`src/cli`) maps these to exit codes:
+/// [`MetadataError::UnsupportedFormat`] → 4; [`MetadataError::Container`] /
+/// [`MetadataError::Exif`] → 1.
+#[derive(Debug, thiserror::Error)]
+pub enum MetadataError {
+    /// The detected format is not one the metadata lane supports in v1
+    /// (JPEG + PNG only). Carries a human label for the message.
+    #[error("metadata lane does not support {0} yet")]
+    UnsupportedFormat(String),
+
+    /// A segment/chunk-level parse or rewrite failure (`img-parts`).
+    #[error("container metadata edit failed: {0}")]
+    Container(String),
+
+    /// A tag-level EXIF parse or rewrite failure (`little_exif`), excluding the
+    /// benign "no EXIF" case which [`clean_gps`] treats as a no-op.
+    #[error("EXIF edit failed: {0}")]
+    Exif(String),
+}
+
+// ── Format sniff ──────────────────────────────────────────────────────────────
+
+/// The two container formats the v1 metadata lane handles.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Lane {
+    Jpeg,
+    Png,
+}
+
+/// Sniff the container format from magic bytes (NO pixel decode) and map it to
+/// the supported [`Lane`], or [`MetadataError::UnsupportedFormat`] for anything
+/// outside JPEG/PNG (or undeterminable bytes).
+fn sniff(bytes: &[u8]) -> Result<Lane, MetadataError> {
+    match ::image::guess_format(bytes) {
+        Ok(ImageFormat::Jpeg) => Ok(Lane::Jpeg),
+        Ok(ImageFormat::Png) => Ok(Lane::Png),
+        Ok(other) => Err(MetadataError::UnsupportedFormat(format!("{other:?}"))),
+        Err(_) => Err(MetadataError::UnsupportedFormat("unknown".to_owned())),
+    }
+}
+
+// ── strip_all ─────────────────────────────────────────────────────────────────
+
+/// PNG chunk types that carry user/ancillary metadata and are removed by
+/// [`strip_all`]. Critical/render chunks (`IHDR`, `PLTE`, `IDAT`, `IEND`,
+/// `tRNS`, `gAMA`, `cHRM`, `sRGB`, `bKGD`, `pHYs`) are intentionally kept.
+const PNG_METADATA_CHUNKS: [[u8; 4]; 6] =
+    [*b"eXIf", *b"iCCP", *b"tEXt", *b"zTXt", *b"iTXt", *b"tIME"];
+
+/// Remove **all** container metadata, preserving pixels exactly.
+///
+/// - **JPEG:** drop APP1..APP15 (`0xE1..=0xEF` — EXIF/XMP/ICC/…) and COM
+///   (`0xFE`). APP0/JFIF is structural and kept.
+/// - **PNG:** drop the [`PNG_METADATA_CHUNKS`]; keep critical/render chunks.
+///
+/// Returns the rewritten container bytes. The compressed image data is carried
+/// verbatim — no pixel re-encode (`metadata-not-via-pixel-encode`).
+pub fn strip_all(bytes: &[u8]) -> Result<Vec<u8>, MetadataError> {
+    match sniff(bytes)? {
+        Lane::Jpeg => {
+            let mut jpeg = Jpeg::from_bytes(Bytes::from(bytes.to_vec()))
+                .map_err(|e| MetadataError::Container(e.to_string()))?;
+            // APP1 (EXIF/XMP) .. APP15, plus COM (0xFE). APP0/JFIF kept.
+            for marker in 0xE1u8..=0xEF {
+                jpeg.remove_segments_by_marker(marker);
+            }
+            jpeg.remove_segments_by_marker(0xFE);
+            let mut out = Vec::new();
+            jpeg.encoder()
+                .write_to(&mut out)
+                .map_err(|e| MetadataError::Container(e.to_string()))?;
+            Ok(out)
+        }
+        Lane::Png => {
+            let mut png = Png::from_bytes(Bytes::from(bytes.to_vec()))
+                .map_err(|e| MetadataError::Container(e.to_string()))?;
+            for kind in PNG_METADATA_CHUNKS {
+                png.remove_chunks_by_type(kind);
+            }
+            let mut out = Vec::new();
+            png.encoder()
+                .write_to(&mut out)
+                .map_err(|e| MetadataError::Container(e.to_string()))?;
+            Ok(out)
+        }
+    }
+}
+
+// ── clean_gps ─────────────────────────────────────────────────────────────────
+
+/// The `little_exif` [`FileExtension`] for a [`Lane`] (PNG never re-encodes EXIF
+/// as a `zTXt` chunk — it uses the dedicated `eXIf` chunk).
+fn file_extension(lane: Lane) -> FileExtension {
+    match lane {
+        Lane::Jpeg => FileExtension::JPEG,
+        Lane::Png => FileExtension::PNG {
+            as_zTXt_chunk: false,
+        },
+    }
+}
+
+/// Remove **only** GPS/location metadata, preserving every other tag and the
+/// pixels exactly.
+///
+/// Parses the EXIF with `little_exif`, drops every tag in the GPS IFD, and
+/// writes the result back into a clone of the input bytes. A file with **no
+/// EXIF** is a no-op success: `little_exif` returns an error whose message
+/// contains "No EXIF", which is caught here and the input is returned unchanged
+/// (DEC-029 edge case).
+pub fn clean_gps(bytes: &[u8]) -> Result<Vec<u8>, MetadataError> {
+    let lane = sniff(bytes)?;
+    let ext = file_extension(lane);
+
+    let owned = bytes.to_vec();
+    let mut md = match Metadata::new_from_vec(&owned, ext) {
+        Ok(md) => md,
+        Err(e) => {
+            // "No EXIF data found!" → nothing to clean, byte-faithful no-op.
+            if e.to_string().contains("No EXIF") {
+                return Ok(owned);
+            }
+            return Err(MetadataError::Exif(e.to_string()));
+        }
+    };
+
+    // Collect the GPS IFD's tag ids, then remove each. `get_ifd_mut` creates an
+    // (empty) GPS IFD if none exists — harmless: there is then nothing to drop.
+    let gps_tag_ids: Vec<u16> = md
+        .get_ifd_mut(ExifTagGroup::GPS, 0)
+        .get_tags()
+        .iter()
+        .map(|t| t.as_u16())
+        .collect();
+
+    if !gps_tag_ids.is_empty() {
+        let gps = md.get_ifd_mut(ExifTagGroup::GPS, 0);
+        for id in gps_tag_ids {
+            gps.remove_tag(id);
+        }
+    }
+
+    let mut out = owned.clone();
+    md.write_to_vec(&mut out, ext)
+        .map_err(|e| MetadataError::Exif(e.to_string()))?;
+    Ok(out)
+}
+
+// ── Tests ─────────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ::image::{ImageFormat, RgbImage};
+    use little_exif::exif_tag::ExifTag;
+    use std::io::Cursor;
+
+    /// A small deterministic 16×16 RGB image encoded to `format` bytes (no
+    /// metadata). The gradient gives a non-trivial pixel buffer for the
+    /// decode-equality assertions.
+    fn base_image(format: ImageFormat) -> Vec<u8> {
+        let mut img = RgbImage::new(16, 16);
+        for (x, y, px) in img.enumerate_pixels_mut() {
+            *px = ::image::Rgb([(x * 16) as u8, (y * 16) as u8, ((x + y) * 8) as u8]);
+        }
+        let mut buf = Cursor::new(Vec::new());
+        ::image::DynamicImage::ImageRgb8(img)
+            .write_to(&mut buf, format)
+            .expect("encode base image");
+        buf.into_inner()
+    }
+
+    /// A JPEG seeded with Orientation + Copyright + GPS{Latitude,Longitude}Ref
+    /// via `little_exif` (no ImageMagick). Used to verify selective GPS removal.
+    fn jpeg_with_exif() -> Vec<u8> {
+        let mut bytes = base_image(ImageFormat::Jpeg);
+        let mut md = Metadata::new();
+        md.set_tag(ExifTag::Orientation(vec![1]));
+        md.set_tag(ExifTag::Copyright("crustyimg test".to_string()));
+        md.set_tag(ExifTag::GPSLatitudeRef("N".to_string()));
+        md.set_tag(ExifTag::GPSLongitudeRef("E".to_string()));
+        md.write_to_vec(&mut bytes, FileExtension::JPEG)
+            .expect("seed JPEG EXIF");
+        bytes
+    }
+
+    /// Whether a JPEG byte stream contains any segment with the given marker.
+    fn jpeg_has_marker(bytes: &[u8], marker: u8) -> bool {
+        let jpeg = Jpeg::from_bytes(Bytes::from(bytes.to_vec())).expect("parse jpeg");
+        let present = jpeg.segments_by_marker(marker).next().is_some();
+        present
+    }
+
+    /// Whether a PNG byte stream contains a chunk of the given type.
+    fn png_has_chunk(bytes: &[u8], kind: [u8; 4]) -> bool {
+        let png = Png::from_bytes(Bytes::from(bytes.to_vec())).expect("parse png");
+        let present = png.chunks_by_type(kind).next().is_some();
+        present
+    }
+
+    /// Decode two image byte streams and assert their RGBA pixel buffers match.
+    fn assert_pixels_equal(a: &[u8], b: &[u8]) {
+        let da = ::image::load_from_memory(a).expect("decode a").to_rgba8();
+        let db = ::image::load_from_memory(b).expect("decode b").to_rgba8();
+        assert_eq!(da.dimensions(), db.dimensions(), "dimensions differ");
+        assert_eq!(da.into_raw(), db.into_raw(), "pixel buffers differ");
+    }
+
+    #[test]
+    fn strip_all_jpeg_removes_all_metadata() {
+        let input = jpeg_with_exif();
+        // Precondition: the seeded JPEG actually carries an APP1 (EXIF) segment.
+        assert!(
+            jpeg_has_marker(&input, 0xE1),
+            "fixture should have APP1 EXIF"
+        );
+
+        let out = strip_all(&input).expect("strip");
+
+        // No APP1..APP15 and no COM segments survive.
+        for marker in 0xE1u8..=0xEF {
+            assert!(
+                !jpeg_has_marker(&out, marker),
+                "marker {marker:#x} should be gone"
+            );
+        }
+        assert!(!jpeg_has_marker(&out, 0xFE), "COM should be gone");
+
+        // And little_exif no longer finds any EXIF.
+        let reparse = Metadata::new_from_vec(&out, FileExtension::JPEG);
+        match reparse {
+            Err(e) => assert!(e.to_string().contains("No EXIF"), "got: {e}"),
+            Ok(mut md) => assert!(
+                md.get_ifd_mut(ExifTagGroup::GENERIC, 0)
+                    .get_tags()
+                    .is_empty()
+                    && md.get_ifd_mut(ExifTagGroup::GPS, 0).get_tags().is_empty(),
+                "no tags should remain"
+            ),
+        }
+    }
+
+    #[test]
+    fn strip_all_jpeg_preserves_pixels() {
+        let input = jpeg_with_exif();
+        let out = strip_all(&input).expect("strip");
+        assert_pixels_equal(&input, &out);
+    }
+
+    #[test]
+    fn strip_all_png_removes_metadata_chunks() {
+        // Seed a PNG with a tEXt chunk via img-parts (native, no ImageMagick).
+        let base = base_image(ImageFormat::Png);
+        let mut png = Png::from_bytes(Bytes::from(base)).expect("parse png");
+        let text = img_parts::png::PngChunk::new(
+            [b't', b'E', b'X', b't'],
+            Bytes::from_static(b"Comment\0hi"),
+        );
+        png.chunks_mut().insert(1, text);
+        let mut seeded = Vec::new();
+        png.encoder()
+            .write_to(&mut seeded)
+            .expect("encode seeded png");
+        assert!(png_has_chunk(&seeded, *b"tEXt"), "fixture should have tEXt");
+
+        let out = strip_all(&seeded).expect("strip");
+        assert!(!png_has_chunk(&out, *b"tEXt"), "tEXt should be gone");
+        assert_pixels_equal(&seeded, &out);
+    }
+
+    #[test]
+    fn clean_gps_removes_only_gps() {
+        let input = jpeg_with_exif();
+        let out = clean_gps(&input).expect("clean");
+
+        let mut md = Metadata::new_from_vec(&out, FileExtension::JPEG).expect("reparse");
+        // GPS IFD has no tags left.
+        assert!(
+            md.get_ifd_mut(ExifTagGroup::GPS, 0).get_tags().is_empty(),
+            "GPS tags should be gone"
+        );
+        // Orientation (0x0112) + Copyright (0x8298) survive in the generic IFD.
+        let generic_ids: Vec<u16> = md
+            .get_ifd_mut(ExifTagGroup::GENERIC, 0)
+            .get_tags()
+            .iter()
+            .map(|t| t.as_u16())
+            .collect();
+        assert!(generic_ids.contains(&0x0112), "Orientation should survive");
+        assert!(generic_ids.contains(&0x8298), "Copyright should survive");
+    }
+
+    #[test]
+    fn clean_gps_preserves_pixels() {
+        let input = jpeg_with_exif();
+        let out = clean_gps(&input).expect("clean");
+        assert_pixels_equal(&input, &out);
+    }
+
+    #[test]
+    fn clean_gps_no_exif_is_noop_ok() {
+        // A plain JPEG with no EXIF: clean_gps returns Ok with identical pixels.
+        let input = base_image(ImageFormat::Jpeg);
+        let out = clean_gps(&input).expect("clean no-exif must be Ok");
+        assert_pixels_equal(&input, &out);
+    }
+
+    #[test]
+    fn strip_all_unsupported_format_errors() {
+        let bmp = base_image(ImageFormat::Bmp);
+        assert!(matches!(
+            strip_all(&bmp),
+            Err(MetadataError::UnsupportedFormat(_))
+        ));
+    }
+
+    #[test]
+    fn clean_gps_unsupported_format_errors() {
+        let bmp = base_image(ImageFormat::Bmp);
+        assert!(matches!(
+            clean_gps(&bmp),
+            Err(MetadataError::UnsupportedFormat(_))
+        ));
+    }
+}

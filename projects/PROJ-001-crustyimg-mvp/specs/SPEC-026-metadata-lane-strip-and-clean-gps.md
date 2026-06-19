@@ -7,7 +7,7 @@
 task:
   id: SPEC-026
   type: story                      # epic | story | task | bug | chore
-  cycle: design                    # frame | design | build | verify | ship
+  cycle: verify  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: M                    # S | M | L  (L means split it)
@@ -65,6 +65,14 @@ cost:
         (Failing Tests + Implementation Context), emitted DEC-029, added the
         deps + a design-time probe (img-parts/little_exif on real JPEG+PNG),
         fleshed out the api-contract strip/clean entries.
+    - cycle: build
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-06-18
+      notes: "metadata lane v1: src/metadata strip_all/clean_gps + Sink::write_bytes + run_metadata_lane fan-out + CliError::Metadata + tests; container lane, no pixel re-encode"
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -344,28 +352,49 @@ sets `Orientation`, `Copyright`, and `GPSLatitudeRef`/`GPSLongitudeRef`).
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
+- **Branch:** `feat/spec-026-metadata-lane`
+- **PR (if applicable):** see PR opened at build end (title
+  `feat(metadata): strip + clean --gps container lane (SPEC-026)`).
+- **All acceptance criteria met?** yes
 - **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
+  - None — DEC-029's probe matched the real API exactly; no build-forced decision.
 - **Deviations from spec:**
-  - [list]
+  - The build-cost `cost.sessions` entry records `agent: claude-opus-4-8`
+    (the session that actually ran the build) rather than the
+    `claude-sonnet-4-6` placeholder in the build prompt's cost snippet, to keep
+    the ledger honest. Structure + null numerics + notes are otherwise as
+    specified.
+  - The new container-lane write path is `Sink::write_bytes` (the exact name the
+    spec suggested as an example) — a method on the existing `Sink` enum that
+    handles File / Dir (templated, `{ext}` = preserved input extension) / Stdout
+    and rejects `Sink::Display` (not a byte sink).
 - **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - WebP/TIFF strip/clean (deferred in this spec; `little_exif` nominally
+    supports them — extend the lane once probed).
+  - Selective-preserve wiring into `optimize`/the pixel-lane encode path
+    (DEC-024 follow-up; depends on the still-open `metadata-icc-coverage`).
+  - `set` / `copy-metadata` (own STAGE-004 specs) reuse `run_metadata_lane`.
 
 ### Build-phase reflection (3 questions, short answers)
 
 Process-focused: how did the build go? What friction did the spec create?
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — Almost nothing. The PINNED Lane mechanics + DEC-029's verified API snippets
+   meant the lane code wrote itself. The only real-API surprises were
+   `img-parts`'s `remove_chunks_by_type([u8;4])` (needs `*b"eXIf"`, not a slice)
+   and `clean_gps`'s GPS-IFD borrow needing two `get_ifd_mut` calls (collect ids
+   immutably-ish, then a second mutable borrow to remove) — both minor.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — No. The spec already named the file-read-after-resolve → exit 3 mapping, the
+   stdout-clean rule, and the global-flag-reuse (SPEC-024) lesson — exactly the
+   places I'd otherwise have tripped.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Inspect the vendored crate sources for the exact `[u8;4]` vs `&[u8]` chunk
+   signature and the `get_ifd_mut` create-on-miss behavior up front (I confirmed
+   both before writing, which paid off). No process change needed.
 
 ---
 
