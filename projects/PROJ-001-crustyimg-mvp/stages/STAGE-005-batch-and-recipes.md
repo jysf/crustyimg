@@ -5,7 +5,7 @@
 
 stage:
   id: STAGE-005                     # stable, zero-padded within the project
-  status: active                    # proposed | active | shipped | cancelled | on_hold
+  status: shipped                   # proposed | active | shipped | cancelled | on_hold
   priority: high                    # critical | high | medium | low
   target_complete: null             # optional: YYYY-MM-DD
 
@@ -15,7 +15,7 @@ repo:
   id: crustyimg
 
 created_at: 2026-06-14
-shipped_at: null
+shipped_at: 2026-06-19
 
 # What part of the project's value thesis this stage advances.
 value_contribution:
@@ -91,9 +91,9 @@ honored here.
 Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
 - [x] SPEC-031 (shipped 2026-06-19, PR #35) — `apply --recipe` parallel batch over a Source list (rayon, DEC-006) + indicatif progress (DEC-033) + name-template output + exit-6 partial failure; bundles backlog items #2 (recipe load/validation, reused from SPEC-006) / #3 / #4
-- [ ] SPEC-032 (design 2026-06-19) — `edit` command: one-shot ordered multi-op on a single image from CLI flags (`--auto-orient`/`--resize-max`/`--invert`, canonical order) + `--save-recipe` serializing the chain to a round-trippable TOML recipe (DEC-005); reuses `run_pixel_op` + the registry; no new dep/DEC
+- [x] SPEC-032 (shipped 2026-06-19, PR #36) — `edit` command: one-shot ordered multi-op on a single image from CLI flags (`--auto-orient`/`--resize-max`/`--invert`, canonical order auto-orient→resize→invert) + `--save-recipe` serializing the chain to a round-trippable TOML recipe (DEC-005, byte-equal `edit`↔`apply` pinned by test); reuses `run_pixel_op` + the registry; no new dep/DEC
 
-**Count:** 1 shipped / 1 in design / 0 pending  (SPEC-031 = parallel batch `apply` [bundled backlog #2/#3/#4] shipped; SPEC-032 = `edit` + `--save-recipe` — the recipe-creation half — in design. When it ships STAGE-005 is complete.)
+**Count:** 2 shipped / 0 active / 0 pending  (STAGE-005 COMPLETE. SPEC-031 = parallel batch `apply` [bundled backlog #2/#3/#4]; SPEC-032 = `edit` + `--save-recipe` — the recipe-creation half. "Tune once → save → replay" is now two commands sharing one recipe format.)
 
 ## Design Notes
 
@@ -123,13 +123,48 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
 ## Stage-Level Reflection
 
-*Filled in when status moves to shipped. Run Prompt 1c (Stage Ship) in
-FIRST_SESSION_PROMPTS.md to draft this.*
+*Filled in at ship (2026-06-19).*
 
-- **Did we deliver the outcome in "What This Stage Is"?** <yes/no + notes>
-- **How many specs did it actually take?** <number vs. plan>
-- **What changed between starting and shipping?** <one sentence>
+- **Did we deliver the outcome in "What This Stage Is"?** **Yes.** "Tune an edit
+  once on one image, save it as a recipe, and replay that exact recipe across a
+  whole directory in one parallel command" is now real: `edit … --save-recipe
+  r.toml` (SPEC-032) writes the recipe; `apply --recipe r.toml <inputs…>
+  --out-dir … -j N` (SPEC-031) replays it with rayon parallelism + an indicatif
+  progress bar + exit-6 partial-failure. The round-trip is byte-pinned by a test
+  (`edit` output == `apply`-of-the-saved-recipe output). The `--jobs` placeholder
+  from STAGE-001 is finally honored. The MVP's functional surface is complete.
+- **How many specs did it actually take?** **2** (SPEC-031 replay + SPEC-032
+  create) vs. a notional backlog of ~4 items — because SPEC-031 *bundled* backlog
+  items #2 (recipe load/validation, already shipped in SPEC-006 and reused
+  as-is), #3 (parallel replay), and #4 (batch name-templating) into one coherent
+  command, and SPEC-032 carried `edit` + `--save-recipe` together. Recipe
+  load/validation needed no new spec at all — STAGE-001's registry/recipe
+  round-trip (DEC-005) paid off exactly as designed.
+- **What changed between starting and shipping?** Almost nothing structural — the
+  STAGE-001 foundation (registry round-trip, Source/Sink, `--jobs` placeholder)
+  and the STAGE-003/004 ops were sufficient; the only design tension was the
+  *replay* half (concurrency — `Operation` is not `Send`) which we resolved by
+  rebuilding the pipeline per rayon task from the `Sync` recipe+registry.
 - **Lessons that should update AGENTS.md, templates, or constraints?**
-  - <one-line updates>
+  - No template/constraint change needed. Two deps added (rayon DEC-006,
+    indicatif DEC-033), both pure-Rust/permissive.
+  - **Reinforced:** run the lean (`--no-default-features`) build in BOTH build and
+    verify — CI-only otherwise ([[verify-includes-lean-no-default-features-build]]).
+  - **New, small:** when promoting a clap *stub* to a real command, the
+    stub-list test (`tests/cli.rs`) must be updated — name it in the build prompt.
 - **Should any spec-level reflections be promoted to stage-level lessons?**
-  - <one-line items>
+  - **The load-bearing concurrency invariant:** `Operation: !Send` → each parallel
+    task rebuilds its pipeline from the shared `&recipe` + `&registry`; never share
+    a `Box<dyn Operation>` or one `Pipeline` across threads. Carry into STAGE-006+
+    (if a future op becomes expensive to rebuild, cache or add `Send` bounds).
+  - **The model-split is validated:** build=Sonnet (prescriptive prompt),
+    verify=Opus (independent Explore). Both stage builds ran clean on Sonnet,
+    passed Opus verify with no concerns, at ~40% lower build cost (~$0.60 each).
+  - **Pin the invariant, not just the surface:** both specs landed first-try
+    because the *non-obvious* correctness rule was PINNED in the spec — the
+    rebuild-per-task design (SPEC-031) and the build-via-registry +
+    capture-recipe-before-move round-trip rule (SPEC-032) — rather than left to
+    the build to infer.
+
+**Stage cost (recorded):** SPEC-031 $1.09 / 163k + SPEC-032 $1.10 / 165k =
+**$2.19 · 329k** across 2 shipped specs.

@@ -7,7 +7,7 @@
 task:
   id: SPEC-032
   type: story                      # epic | story | task | bug | chore
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: S                    # S | M | L  (L means split it)
@@ -50,18 +50,69 @@ value_link: >
 # claude-ai | api | ollama | other.
 cost:
   sessions:
-    - cycle: build
-      agent: claude-sonnet-4-6
+    - cycle: design
+      agent: claude-opus-4-8
       interface: claude-code
       tokens_total: null
       estimated_usd: null
       duration_minutes: null
       recorded_at: 2026-06-19
-      notes: "edit + --save-recipe: clap op flags + run_edit + build_edit_ops (canonical order auto-orient→resize→invert) reusing run_pixel_op + registry + Recipe::from_ops/to_toml; recipe round-trips through apply; no new dep/op"
+      notes: >
+        Main-loop orchestrator work, not separately metered. Authored the spec
+        (Command surface + Round-trip guarantee PINNED, Failing Tests,
+        Implementation Context) + the prescriptive Sonnet build prompt. No new
+        crate, no new DEC — composes the shipped registry ops + recipe
+        serialization. Verified the Recipe::from_ops/to_toml + registry
+        round-trip API against SPEC-006 before authoring (no probe needed). Key
+        design: build ops VIA the registry in a canonical order
+        (auto-orient→resize→invert) + capture Recipe::from_ops before the ops
+        move into the pipeline, so the saved recipe replays identically under
+        apply. Last STAGE-005 spec.
+    - cycle: build
+      agent: claude-sonnet-4-6
+      interface: claude-code
+      tokens_total: 110450
+      estimated_usd: 0.60
+      duration_minutes: 6
+      recorded_at: 2026-06-19
+      notes: >
+        Real metered subagent — build on Sonnet 4.6 (model policy: build=Sonnet,
+        verify=Opus). subagent_tokens=110450, duration_ms=333912.
+        estimated_usd at Sonnet list ($3/$15 per MTok, ~80/20 in/out). edit +
+        --save-recipe: clap op flags + run_edit + build_edit_ops (canonical order
+        auto-orient→resize→invert) reusing run_pixel_op + registry +
+        Recipe::from_ops/to_toml; recipe round-trips through apply; no new
+        dep/op. 378 tests green (4 unit + 7 integration new); clippy/fmt/lean/deny
+        clean. One in-scope deviation: updated tests/cli.rs stub-list test (edit
+        no longer a stub → exit 2, not 1).
+    - cycle: verify
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 55000
+      estimated_usd: 0.50
+      duration_minutes: null
+      recorded_at: 2026-06-19
+      notes: >
+        ORDER-OF-MAGNITUDE ESTIMATE (~55k) — read-only Explore subagent on Opus
+        (no metered usage block) + orchestrator main-loop gate re-runs (cargo
+        test 378 ok / clippy / fmt / deny / lean). Explore verdict: APPROVED, no
+        concerns; adversarially validated the DEC-005 round-trip crux (ops built
+        via the registry, Recipe::from_ops captured before the move, byte-equal
+        edit-vs-apply test), canonical/flag-order independence, exit codes
+        (1/3/5), no production unwraps, and scope (no new dep, recipe/registry
+        untouched).
+    - cycle: ship
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-06-19
+      notes: "Main-loop ship bookkeeping (merge dance + cost totals + reflection + archive + STAGE-005 close); not separately metered."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 1
+    tokens_total: 165450
+    estimated_usd: 1.10
+    session_count: 4
 ---
 
 # SPEC-032: edit one-shot multi-op and save-recipe
@@ -398,10 +449,37 @@ Process-focused: how did the build go? What friction did the spec create?
 from the process-focused build reflection above.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Very little. This was the cleanest spec of the stage: it composed only
+   already-shipped pieces (the registry ops + `Recipe::from_ops`/`to_toml` +
+   `run_pixel_op`), so the design was about *wiring and invariants*, not new
+   machinery. The two things that made the build land first-try were (a) pinning
+   the **round-trip invariant** explicitly — "build ops VIA the registry, capture
+   `Recipe::from_ops` BEFORE moving ops into the pipeline" — rather than leaving
+   the build to infer it, and (b) pinning a **canonical op order** so the result
+   is positional-independent (clap can't preserve flag order across heterogeneous
+   flags). The decision to **reuse `run_pixel_op`** wholesale (rather than
+   re-implement load/sink/format) kept the diff small and inherited all the
+   exit-code/format behavior for free. Second clean Sonnet build under the model
+   policy — followed the prescriptive prompt, passed Opus verify with no concerns,
+   ~$0.60.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — No. No new dep, no new DEC (as predicted at design). The
+   `doc_lazy_continuation` clippy note from SPEC-031 was pre-empted in the build
+   prompt and caused no friction. The lean build again ran in both build and
+   verify ([[verify-includes-lean-no-default-features-build]]). One small,
+   reusable lesson worth carrying: when a command is being promoted from a clap
+   *stub* to a real command, the stub-list test (`tests/cli.rs`) needs updating —
+   call that out in the build prompt next time a stub is wired (it was an
+   in-scope deviation here, handled correctly, but predictable).
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — None for STAGE-005 — **this spec completes it** (the MVP functional surface
+   is done). Natural future extensions, all additive and explicitly out of scope
+   here: more `edit` resize modes (`--resize-exact`/`--resize-percent`/fit/fill/
+   cover — each just another flag → the same registry `resize` op);
+   `edit --watermark`/`--text` once the compose ops are registered in
+   `with_builtins` (blocked on DEC-031); and an optional `--recipe-name`/
+   `--recipe-description`. None are needed now. The next stage is **STAGE-006**
+   (hardening & security assessment), for which the recipe/path/edit surfaces are
+   the primary untrusted-input targets.
