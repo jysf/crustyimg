@@ -94,9 +94,9 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 - [ ] (not yet written) — `watermark` command/Operation: image overlay at gravity anchor (`--opacity`/`--scale`/`--margin`/`--tile`)
 - [ ] (not yet written) — text watermark: render text at a gravity anchor (ab_glyph + imageproc::drawing)
 - [x] SPEC-027 (shipped 2026-06-18, PR #31) — `set` command: write EXIF tags (`--artist`/`--copyright`/`--description`) via little_exif, pixels untouched (reuses `run_metadata_lane`)
-- [ ] (not yet written) — `copy-metadata` command: copy container metadata `--from` one image `--to` another, pixels untouched (two-input op; diverges from the single-stream fan-out)
+- [design] SPEC-028 (design) — `copy-metadata` command: copy container EXIF+ICC `--from` one image `--to` another, DST pixels untouched; JPEG-only v1 (DEC-030)
 
-**Count:** 2 shipped / 0 active / 2 pending  (SPEC-026 = `strip` + `clean --gps`; SPEC-027 = `set`; remaining: `copy-metadata`, `watermark`)
+**Count:** 2 shipped / 1 in design / 1 pending  (SPEC-026 = `strip` + `clean --gps`; SPEC-027 = `set`; SPEC-028 = `copy-metadata`; remaining: `watermark`)
 
 ## Design Notes
 

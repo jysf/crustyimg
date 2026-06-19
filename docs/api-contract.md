@@ -278,8 +278,14 @@ block when the input has none. Same fan-out + exit codes as `strip`/`clean`
 (reuses the container lane; single → stdout/`-o`/`--out-dir`, multi → `--out-dir`,
 per-input failure → exit **6**, overwrite refused without `-y`).
 
-#### `copy-metadata --from SRC --to DST`  *(S4)*
-Copy metadata from one image's container to another's. Pixels untouched.
+#### `copy-metadata --from SRC --to DST [-o OUT] [-y]`  *(SPEC-028)*
+Copy SRC's container **EXIF + ICC** onto DST, preserving DST's pixels exactly (no
+re-decode); DST's prior EXIF/ICC are replaced by SRC's. **JPEG only in v1**
+(DEC-030 — `little_exif`/`img-parts` use incompatible PNG EXIF chunks); a non-JPEG
+`--from`/`--to` → exit **4**. Output: `-o PATH`/`-o -` writes the result there
+(DST untouched); with no `-o` it writes **back to DST in place**, which (as an
+overwrite) is refused without `-y` (exit **5**). Single fixed output — not a
+fan-out; XMP/IPTC not transferred.
 
 ### Recipes / batch
 
