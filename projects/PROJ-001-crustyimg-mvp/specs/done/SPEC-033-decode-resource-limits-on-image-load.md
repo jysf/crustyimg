@@ -7,7 +7,7 @@
 task:
   id: SPEC-033
   type: story                      # epic | story | task | bug | chore
-  cycle: verify                    # frame | design | build | verify | ship
+  cycle: ship                      # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: S                    # S | M | L  (L means split it)
@@ -50,18 +50,67 @@ value_link: >
 # claude-ai | api | ollama | other.
 cost:
   sessions:
-    - cycle: build
-      agent: claude-sonnet-4-6
+    - cycle: design
+      agent: claude-opus-4-8
       interface: claude-code
       tokens_total: null
       estimated_usd: null
       duration_minutes: null
       recorded_at: 2026-06-19
-      notes: "decode resource limits: ImageError::LimitsExceeded + decode_limits()/map_image_decode_error + decode_with_limits seam on the one choke point (decode_with_format); caps 65535/512MiB per DEC-034; reject-not-clamp; exit 1; no new dep"
+      notes: >
+        Main-loop orchestrator work, not separately metered. Authored the spec
+        (Limits policy PINNED, Failing Tests, Implementation Context) + DEC-034
+        + the prescriptive Sonnet build prompt. Probed image::Limits /
+        ImageReader::limits / the PNG codec against the vendored crate source
+        ([[probe-load-bearing-crates-at-design]]): confirmed check_dimensions at
+        decoder construction + limits.reserve(total_bytes) at decode enforce the
+        dimension + alloc caps and surface ImageError::Limits — so the
+        70_000×1-PNG fixture is a real, cheap, deterministic bomb (no CRC
+        forgery). Updated SECURITY.md + api-contract. First STAGE-006 spec.
+    - cycle: build
+      agent: claude-sonnet-4-6
+      interface: claude-code
+      tokens_total: 88701
+      estimated_usd: 0.48
+      duration_minutes: 7
+      recorded_at: 2026-06-19
+      notes: >
+        Real metered subagent on Sonnet 4.6. subagent_tokens=88701,
+        duration_ms=396625. estimated_usd at Sonnet list ($3/$15 per MTok,
+        ~80/20). decode resource limits: ImageError::LimitsExceeded +
+        decode_limits()/map_image_decode_error + decode_with_limits seam on the
+        one choke point (decode_with_format); caps 65535/512MiB per DEC-034;
+        reject-not-clamp; exit 1; no new dep. 388 tests green (7 image unit + 1
+        cli + 1 error + 1 integration new); clippy/fmt/lean/deny clean. No
+        deviations.
+    - cycle: verify
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 55000
+      estimated_usd: 0.50
+      duration_minutes: null
+      recorded_at: 2026-06-19
+      notes: >
+        ORDER-OF-MAGNITUDE ESTIMATE (~55k) — read-only Explore subagent on Opus
+        (no metered usage block) + orchestrator main-loop gate re-runs (cargo
+        test 388 ok / clippy / fmt / deny / lean). Explore verdict: APPROVED, no
+        concerns; ran the adversarial choke-point-bypass grep (no production load
+        path bypasses decode_with_format — the other load_from_memory callers
+        score already-decoded refs or are test-only), confirmed caps match
+        DEC-034, the limits-vs-decode error mapping, exit 1, no production
+        unwraps, and the cheap real bomb fixture.
+    - cycle: ship
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-06-19
+      notes: "Main-loop ship bookkeeping (merge dance + cost totals + reflection + archive); not separately metered."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 1
+    tokens_total: 143701
+    estimated_usd: 0.98
+    session_count: 4
 ---
 
 # SPEC-033: decode resource limits on image load
@@ -322,10 +371,30 @@ Process-focused: how did the build go? What friction did the spec create?
 from the process-focused build reflection above.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Little. The design-time **probe paid off again** ([[probe-load-bearing-crates-at-design]]):
+   reading the vendored `image` source confirmed *where* the limit fires
+   (`check_dimensions` at decoder construction + `limits.reserve(total_bytes)` at
+   decode) and that surfaces as `ImageError::Limits` — which let me pin a **real,
+   cheap, deterministic** bomb fixture (`70_000×1` PNG, ~210 KB, rejected at the IHDR
+   before allocating) instead of a forged-CRC blob or a multi-GB allocation. That one
+   probe removed all the flakiness risk a security fixture usually carries. Hardening
+   at the **single decode choke point** (rather than per-command) made the change tiny
+   (one `decode_with_format`) and uniformly correct; the verify agent's
+   bypass-grep confirmed nothing slips around it.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — No template/constraint change. DEC-034 records the policy (caps,
+   reject-not-clamp, typed error, exit 1, set-explicitly). One reusable note for the
+   rest of STAGE-006 (a hardening stage): **pair every "is rejected" test with a
+   "normal input still works" test and a "this OTHER failure mode is NOT mislabeled"
+   test** — here, the truncated-PNG → `Decode` (not `LimitsExceeded`) test is what
+   proves the limit didn't over-trigger. Security specs need the negative space
+   tested, not just the rejection.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — The next STAGE-006 backlog item: **path/symlink traversal hardening across
+   Source and Sink** (tighten the SPEC-004 glob escape-check defensive gap, DEC-010;
+   reject name-templates/paths that escape `--out-dir`, no symlink-out on dir/glob
+   sources) — being designed next. Also a noted additive follow-up from DEC-034: a
+   `--max-pixels`/env **override** to re-admit a legitimately huge image deliberately
+   (out of scope here; only worth building if a real user hits the cap).
