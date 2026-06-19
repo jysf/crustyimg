@@ -7,7 +7,7 @@
 task:
   id: SPEC-029
   type: story                      # epic | story | task | bug | chore
-  cycle: verify                    # frame | design | build | verify | ship
+  cycle: ship                      # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: M                    # S | M | L  (L means split it)
@@ -65,19 +65,43 @@ cost:
     - cycle: build
       agent: claude-opus-4-8
       interface: claude-code
+      tokens_total: 149046
+      estimated_usd: 1.34
+      duration_minutes: 12
+      recorded_at: 2026-06-18
+      notes: >
+        Real metered subagent (foreground Agent; subagent_tokens=149046,
+        duration_ms=746884). estimated_usd at Opus 4.8 list (~80/20 in/out) —
+        order-of-magnitude. watermark: Gravity enum (FromStr/Display + placement
+        math) + Watermark Operation (image::imageops overlay/opacity/scale/tile,
+        RGBA8) + run_watermark IO boundary over run_pixel_op; DEC-031; no new dep.
+        13 named tests (8 unit + 5 integration) green; clippy/fmt/lean-build/deny
+        clean. Repointed a stale NotImplemented stub test from watermark→edit.
+    - cycle: verify
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 50000
+      estimated_usd: 0.45
+      duration_minutes: null
+      recorded_at: 2026-06-18
+      notes: >
+        ORDER-OF-MAGNITUDE ESTIMATE (~50k) — read-only Explore subagent (no
+        metered usage block) + orchestrator main-loop gate re-runs (cargo test
+        343 ok / clippy / fmt / deny / cargo build --no-default-features lean).
+        Explore verdict: APPROVED, no concerns; confirmed the DEC-031 file-IO
+        boundary (no file IO in operation/, not in with_builtins) + compositing.
+    - cycle: ship
+      agent: claude-opus-4-8
+      interface: claude-code
       tokens_total: null
       estimated_usd: null
       duration_minutes: null
       recorded_at: 2026-06-18
-      notes: >
-        watermark: Gravity enum (FromStr/Display + placement math) + Watermark
-        Operation (image::imageops overlay/opacity/scale/tile, RGBA8) + run_watermark
-        IO boundary over run_pixel_op; DEC-031; no new dep. 13 named tests
-        (8 unit + 5 integration) green; clippy/fmt/lean-build/deny clean.
+      notes: "Main-loop ship bookkeeping (merge dance + cost totals + reflection + archive); not separately metered."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 199046
+    estimated_usd: 1.79
+    session_count: 4
 ---
 
 # SPEC-029: `watermark` — image overlay at a gravity anchor
@@ -351,10 +375,26 @@ Process-focused: how did the build go? What friction did the spec create?
 from the process-focused build reflection above.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Little. The interesting work was up front: `watermark` is the first
+   Operation to compose a *second* image, which collided with the "pixel core is
+   file-free" rule (AGENTS.md §11). Resolving that as a design decision (DEC-031 —
+   overlay loaded at the IO boundary, op holds in-memory pixels, registry deferred)
+   *before* the build meant the implementer never had to improvise the architecture.
+   The probe (image::imageops overlay/opacity/scale/tile) was lighter-weight than
+   the metadata-crate probes since `image` is well-known — right-sized to the risk.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — No template/constraint change. DEC-031 captured the multi-image boundary and
+   the STAGE-005 deferral (registry round-trip). This session also added the
+   lean-build gate (`cargo build --no-default-features`) to verify after the
+   SPEC-028 lean flake — and SPEC-029's build prompt + my verify both ran it,
+   catching nothing (good) but closing the gap. Worth folding that gate into the
+   standard build/verify checklist going forward.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — Two tracked on the stage backlog, neither blocking: (a) **text watermark**
+   (`ab_glyph` + `imageproc::drawing`) — the last STAGE-004 item; it needs a
+   font-dependency DEC (likely a feature-gated or default permissive font crate) and
+   reuses `Gravity` + the placement math just built; (b) wiring `watermark` into
+   **recipes** in STAGE-005 (register in `with_builtins`, resolve the overlay path in
+   the recipe loader — the deferred half of DEC-031). No new spec file yet.
