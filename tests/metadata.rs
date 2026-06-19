@@ -420,3 +420,159 @@ fn set_multi_input_fanout_writes_all() {
         );
     }
 }
+
+// ── copy-metadata (SPEC-028, DEC-030) ─────────────────────────────────────────
+
+/// JPEG bytes seeded with a single Copyright tag via `little_exif`.
+fn jpeg_with_copyright(value: &str) -> Vec<u8> {
+    let mut bytes = base_bytes(ImageFormat::Jpeg);
+    let mut md = Metadata::new();
+    md.set_tag(ExifTag::Copyright(value.to_string()));
+    md.write_to_vec(&mut bytes, FileExtension::JPEG).unwrap();
+    bytes
+}
+
+/// Decode `bytes` to an RGBA pixel buffer (for decode-equality assertions).
+fn decode_rgba(bytes: &[u8]) -> Vec<u8> {
+    image::load_from_memory(bytes)
+        .unwrap()
+        .to_rgba8()
+        .into_raw()
+}
+
+#[test]
+fn copy_metadata_to_explicit_output() {
+    let dir = TempDir::new().unwrap();
+    let src = write_fixture(&dir, "src.jpg", &jpeg_with_copyright("SRC owner"));
+    let dst_bytes = base_bytes(ImageFormat::Jpeg);
+    let dst = write_fixture(&dir, "dst.jpg", &dst_bytes);
+    let out = dir.path().join("out.jpg");
+
+    let output = Command::new(BIN)
+        .args([
+            "copy-metadata",
+            "--from",
+            src.to_str().unwrap(),
+            "--to",
+            dst.to_str().unwrap(),
+            "-o",
+            out.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success(), "copy-metadata should exit 0");
+
+    // out carries SRC's Copyright.
+    let out_bytes = std::fs::read(&out).unwrap();
+    assert!(
+        jpeg_has_generic_tag(&out_bytes, TAG_COPYRIGHT),
+        "out should carry SRC's Copyright"
+    );
+
+    // DST on disk is untouched (no EXIF written to it).
+    let dst_after = std::fs::read(&dst).unwrap();
+    assert_eq!(dst_after, dst_bytes, "DST file should be unchanged on disk");
+}
+
+#[test]
+fn copy_metadata_in_place_requires_yes() {
+    let dir = TempDir::new().unwrap();
+    let src = write_fixture(&dir, "src.jpg", &jpeg_with_copyright("SRC owner"));
+    let dst = write_fixture(&dir, "dst.jpg", &base_bytes(ImageFormat::Jpeg));
+
+    // No -o, no -y: in-place overwrite of the existing DST is refused → exit 5.
+    let refused = Command::new(BIN)
+        .args([
+            "copy-metadata",
+            "--from",
+            src.to_str().unwrap(),
+            "--to",
+            dst.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(
+        refused.status.code(),
+        Some(5),
+        "in-place copy without --yes should exit 5"
+    );
+
+    // With -y: overwrites DST in place and DST now carries SRC's Copyright.
+    let allowed = Command::new(BIN)
+        .args([
+            "copy-metadata",
+            "--from",
+            src.to_str().unwrap(),
+            "--to",
+            dst.to_str().unwrap(),
+            "--yes",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        allowed.status.success(),
+        "in-place copy with --yes should exit 0"
+    );
+    let dst_after = std::fs::read(&dst).unwrap();
+    assert!(
+        jpeg_has_generic_tag(&dst_after, TAG_COPYRIGHT),
+        "dst.jpg should now carry SRC's Copyright"
+    );
+}
+
+#[test]
+fn copy_metadata_png_exits_4() {
+    let dir = TempDir::new().unwrap();
+    let src = write_fixture(&dir, "src.jpg", &jpeg_with_copyright("SRC owner"));
+    let dst = write_fixture(&dir, "dst.png", &base_bytes(ImageFormat::Png));
+    let out = dir.path().join("out.png");
+
+    let output = Command::new(BIN)
+        .args([
+            "copy-metadata",
+            "--from",
+            src.to_str().unwrap(),
+            "--to",
+            dst.to_str().unwrap(),
+            "-o",
+            out.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+
+    assert_eq!(
+        output.status.code(),
+        Some(4),
+        "a PNG --to should exit 4 (JPEG-only, DEC-030)"
+    );
+}
+
+#[test]
+fn copy_metadata_preserves_pixels_e2e() {
+    let dir = TempDir::new().unwrap();
+    let src = write_fixture(&dir, "src.jpg", &jpeg_with_copyright("SRC owner"));
+    let dst_bytes = base_bytes(ImageFormat::Jpeg);
+    let dst = write_fixture(&dir, "dst.jpg", &dst_bytes);
+    let pixels_before = decode_rgba(&dst_bytes);
+
+    let output = Command::new(BIN)
+        .args([
+            "copy-metadata",
+            "--from",
+            src.to_str().unwrap(),
+            "--to",
+            dst.to_str().unwrap(),
+            "--yes",
+        ])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "in-place copy should exit 0");
+
+    let dst_after = std::fs::read(&dst).unwrap();
+    assert_eq!(
+        decode_rgba(&dst_after),
+        pixels_before,
+        "DST's decoded pixels should be unchanged after copy"
+    );
+}

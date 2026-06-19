@@ -571,7 +571,7 @@ fn dispatch(cli: &Cli) -> Result<(), CliError> {
             description.clone(),
             &cli.global,
         ),
-        Commands::CopyMetadata { .. } => Err(CliError::NotImplemented("copy-metadata")),
+        Commands::CopyMetadata { from, to } => run_copy_metadata(from, to, &cli.global),
         Commands::Edit { .. } => Err(CliError::NotImplemented("edit")),
     }
 }
@@ -1814,6 +1814,76 @@ fn run_set(
     run_metadata_lane(inputs, global, |bytes| {
         crate::metadata::set_tags(bytes, &tags)
     })
+}
+
+/// Wire `copy-metadata --from SRC --to DST`: graft SRC's container EXIF + ICC
+/// onto DST via the container lane (DEC-003, DEC-030), preserving DST's pixels
+/// exactly (no re-encode, `metadata-not-via-pixel-encode`). JPEG only in v1; a
+/// non-JPEG `--from`/`--to` is a [`MetadataError::UnsupportedFormat`] → exit 4.
+///
+/// This is NOT a fan-out: `--from`/`--to` are each a SINGLE literal path (read
+/// directly with `std::fs::read`, no globbing; a missing/unreadable path → exit
+/// 3). The output is a single fixed target:
+/// - `-o PATH` → write the grafted result there (DST untouched);
+/// - `-o -` → write to stdout (raw bytes);
+/// - default (no `-o`) → write back to DST IN PLACE, which already exists, so it
+///   is refused without `--yes` (exit 5) and overwrites with it.
+fn run_copy_metadata(from: &str, to: &str, global: &GlobalArgs) -> Result<(), CliError> {
+    // Read both inputs directly (no source::resolve glob fan-out). An I/O error
+    // (missing/unreadable path) maps to exit 3 via ImageError::Io.
+    let from_bytes = std::fs::read(from).map_err(ImageError::Io)?;
+    let to_bytes = std::fs::read(to).map_err(ImageError::Io)?;
+
+    let out_bytes = crate::metadata::copy_metadata(&from_bytes, &to_bytes)?;
+
+    // The output extension: DST's own extension, or sniff (format is preserved).
+    let ext = {
+        let p = Path::new(to);
+        match p.extension().and_then(|e| e.to_str()) {
+            Some(e) if !e.is_empty() => e.to_ascii_lowercase(),
+            _ => match ::image::guess_format(&to_bytes) {
+                Ok(::image::ImageFormat::Png) => "png".to_owned(),
+                _ => "jpg".to_owned(),
+            },
+        }
+    };
+
+    // Build the output sink: -o PATH → File, -o - → Stdout, else in-place (DST).
+    let sink = match global.output.as_deref() {
+        Some("-") => Sink::Stdout { format: None },
+        Some(path) => Sink::File {
+            path: PathBuf::from(path),
+            format: None,
+        },
+        None => Sink::File {
+            path: PathBuf::from(to),
+            format: None,
+        },
+    };
+
+    let overwrite = if global.yes {
+        Overwrite::Allow
+    } else {
+        Overwrite::Forbid
+    };
+
+    // `to` is the naming context; stem only matters for Dir sinks (unused here).
+    let to_path = Path::new(to);
+    let sink_input = SinkInput {
+        stem: to_path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("output"),
+        path: Some(to_path),
+    };
+    sink.write_bytes(
+        &out_bytes,
+        &sink_input,
+        &ext,
+        overwrite,
+        &mut std::io::stdout().lock(),
+    )?;
+    Ok(())
 }
 
 // ── thumbnail helpers ─────────────────────────────────────────────────────────
