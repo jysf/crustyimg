@@ -7,7 +7,7 @@
 task:
   id: SPEC-026
   type: story                      # epic | story | task | bug | chore
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: M                    # S | M | L  (L means split it)
@@ -68,15 +68,40 @@ cost:
     - cycle: build
       agent: claude-opus-4-8
       interface: claude-code
+      tokens_total: 172444
+      estimated_usd: 1.55
+      duration_minutes: 50
+      recorded_at: 2026-06-18
+      notes: >
+        Real metered subagent (foreground Agent; subagent_tokens=172444,
+        duration_ms=2989183). estimated_usd at Opus 4.8 list ($5/$25 per MTok,
+        ~80/20 in/out, no cache discount) — order-of-magnitude. metadata lane v1:
+        src/metadata strip_all/clean_gps + Sink::write_bytes + run_metadata_lane
+        fan-out + CliError::Metadata + 16 tests; container lane, no pixel re-encode.
+    - cycle: verify
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 50000
+      estimated_usd: 0.45
+      duration_minutes: null
+      recorded_at: 2026-06-18
+      notes: >
+        ORDER-OF-MAGNITUDE ESTIMATE (~50k) — verify ran as a read-only Explore
+        subagent (no metered usage block returned) plus orchestrator main-loop
+        gate re-runs (cargo test 308 ok / clippy / fmt / deny / decisions-audit).
+        Explore verdict: APPROVED, no punch list. estimated_usd at Opus list.
+    - cycle: ship
+      agent: claude-opus-4-8
+      interface: claude-code
       tokens_total: null
       estimated_usd: null
       duration_minutes: null
       recorded_at: 2026-06-18
-      notes: "metadata lane v1: src/metadata strip_all/clean_gps + Sink::write_bytes + run_metadata_lane fan-out + CliError::Metadata + tests; container lane, no pixel re-encode"
+      notes: "Main-loop ship bookkeeping (merge dance + cost totals + reflection + archive); not separately metered."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 222444
+    estimated_usd: 2.00
+    session_count: 4
 ---
 
 # SPEC-026: metadata lane v1 — `strip` + `clean --gps`
@@ -404,10 +429,24 @@ Process-focused: how did the build go? What friction did the spec create?
 from the process-focused build reflection above.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Almost nothing changed the plan: the design-time probe (running the real
+   `img-parts`/`little_exif` calls on a JPEG + PNG before writing the failing
+   tests) was the single highest-leverage move — it turned the MVP's riskiest
+   assumption (DEC-003, 0.8) into verified fact and let the build mirror exact,
+   compiling snippets. I'd reach for a probe again on any "unproven external
+   crate is load-bearing" spec rather than discovering the API at build time.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — No template/constraint change. DEC-029 already raised confidence to 0.85
+   and recorded the probe; the `metadata-icc-coverage` question was annotated to
+   mark strip/clean PARTIALLY retired (encode-time ICC-preserve + WebP/TIFF still
+   open). The two-lane separation (DEC-003) held cleanly — the metadata lane
+   never touches the pixel pipeline, enforced by decode-equality tests.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — The STAGE-004 backlog already carries `set` + `copy-metadata` (both reuse
+   `run_metadata_lane`) and `watermark`. The two cross-cutting follow-ups to keep
+   visible: (a) **WebP/TIFF** coverage for strip/clean, and (b) the **DEC-024
+   selective-preserve** upgrade to `optimize` (the verifiable-privacy payoff that
+   this lane unlocks). No new spec file needed yet — they're tracked in the stage
+   backlog + `metadata-icc-coverage`.
