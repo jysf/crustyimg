@@ -306,10 +306,19 @@ fan-out; XMP/IPTC not transferred.
 
 ### Recipes / batch
 
-#### `edit <INPUT> [op flags...] [--save-recipe FILE] -o OUT`  *(S5)*
+#### `edit <INPUT> [--auto-orient] [--resize-max N] [--invert] [-o OUT | --out-dir DIR] [--format FMT] [-q Q] [-y] [--save-recipe FILE]`  *(SPEC-032)*
 One-shot multi-op on a single image — the "experiment like an editor" mode.
-Op flags (`--resize-max`, `--unsharp`, `--watermark`, …) build an ordered
-operation list; `--save-recipe` writes that list as a recipe (DEC-005).
+The op flags build an ordered operation list (v1: `--auto-orient`,
+`--resize-max N`, `--invert` — only ops that round-trip through the registry,
+DEC-005). **At least one op flag is required** (else exit 2). Regardless of the
+order the flags are typed, ops apply in a fixed **canonical order: `auto-orient`
+→ `resize` → `invert`** (orientation → geometry → color), so the result — and
+any saved recipe — is deterministic. Output, format, `-q`/`-y` behave as for the
+other pixel commands (`-o`/`-o -`/`--out-dir`; `--format` › `-o` ext › preserve).
+`--save-recipe FILE` serializes the exact op chain to a TOML recipe (DEC-005,
+`version = "1"`) that `apply --recipe FILE` replays identically; a recipe write
+failure exits 5. Watermark/compose ops are not in `edit` yet (need registry
+wiring first, DEC-031).
 
 #### `apply --recipe FILE <INPUT...> [--out-dir DIR] [--name-template T] [-j N]`  *(SPEC-031)*
 Run a saved recipe over one image or a batch. **`rayon`-parallel** across inputs

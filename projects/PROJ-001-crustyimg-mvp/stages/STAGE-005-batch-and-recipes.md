@@ -91,9 +91,9 @@ honored here.
 Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
 - [x] SPEC-031 (shipped 2026-06-19, PR #35) — `apply --recipe` parallel batch over a Source list (rayon, DEC-006) + indicatif progress (DEC-033) + name-template output + exit-6 partial failure; bundles backlog items #2 (recipe load/validation, reused from SPEC-006) / #3 / #4
-- [ ] (not yet written) — `edit` command: one-shot ordered multi-op on a single image from CLI flags + `--save-recipe` (DEC-005)
+- [ ] SPEC-032 (design 2026-06-19) — `edit` command: one-shot ordered multi-op on a single image from CLI flags (`--auto-orient`/`--resize-max`/`--invert`, canonical order) + `--save-recipe` serializing the chain to a round-trippable TOML recipe (DEC-005); reuses `run_pixel_op` + the registry; no new dep/DEC
 
-**Count:** 1 shipped / 0 active / 1 pending  (SPEC-031 = parallel batch `apply` [bundled backlog #2/#3/#4] shipped; remaining: `edit` + `--save-recipe` — the recipe-creation half. When it ships STAGE-005 is complete.)
+**Count:** 1 shipped / 1 in design / 0 pending  (SPEC-031 = parallel batch `apply` [bundled backlog #2/#3/#4] shipped; SPEC-032 = `edit` + `--save-recipe` — the recipe-creation half — in design. When it ships STAGE-005 is complete.)
 
 ## Design Notes
 
