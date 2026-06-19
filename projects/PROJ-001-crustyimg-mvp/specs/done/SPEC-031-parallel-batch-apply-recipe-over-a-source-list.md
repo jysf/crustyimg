@@ -7,7 +7,7 @@
 task:
   id: SPEC-031
   type: story                      # epic | story | task | bug | chore
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: M                    # S | M | L  (L means split it)
@@ -66,18 +66,44 @@ cost:
     - cycle: build
       agent: claude-sonnet-4-6
       interface: claude-code
+      tokens_total: 108469
+      estimated_usd: 0.59
+      duration_minutes: 7
+      recorded_at: 2026-06-19
+      notes: >
+        Real metered subagent — FIRST build on Sonnet 4.6 (new model policy:
+        build=Sonnet, verify=Opus). subagent_tokens=108469, duration_ms=418721.
+        estimated_usd at Sonnet list ($3/$15 per MTok, ~80/20 in/out) — ~40%
+        cheaper than the prior Opus builds. parallel batch apply --recipe:
+        run_apply rewrite + apply_one worker + rayon (per-task pipeline rebuild,
+        Operation not Send) + indicatif progress + exit-6; reuses SPEC-006
+        recipe/registry; no new op. 10 tests green; clippy/fmt/lean/deny clean.
+    - cycle: verify
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 55000
+      estimated_usd: 0.50
+      duration_minutes: null
+      recorded_at: 2026-06-19
+      notes: >
+        ORDER-OF-MAGNITUDE ESTIMATE (~55k) — read-only Explore subagent on Opus
+        (no metered usage block) + orchestrator main-loop gate re-runs (cargo
+        test 367 ok / clippy / fmt / deny / lean). Explore verdict: APPROVED, no
+        concerns; thoroughly validated concurrency correctness (per-task pipeline
+        rebuild, locally-scoped thread pool, no shared Box<dyn Operation>) + exit
+        codes + preserved single-input path.
+    - cycle: ship
+      agent: claude-opus-4-8
+      interface: claude-code
       tokens_total: null
       estimated_usd: null
       duration_minutes: null
       recorded_at: 2026-06-19
-      notes: >
-        parallel batch apply --recipe: run_apply rewrite + apply_one worker +
-        rayon (per-task pipeline rebuild, Operation not Send) + indicatif progress
-        + exit-6; reuses SPEC-006 recipe/registry; no new op
+      notes: "Main-loop ship bookkeeping (merge dance + cost totals + reflection + archive); not separately metered."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 163469
+    estimated_usd: 1.09
+    session_count: 4
 ---
 
 # SPEC-031: parallel batch `apply --recipe` over a source list
@@ -326,10 +352,25 @@ Process-focused: how did the build go? What friction did the spec create?
 from the process-focused build reflection above.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Little. The crux was the `Operation`-is-not-`Send` constraint, and pinning the
+   "rebuild the pipeline per rayon task from the Sync recipe+registry" design in the
+   spec (rather than leaving it to the build) meant the implementer hit it correctly
+   first try — Opus verify confirmed no shared `Box<dyn Operation>`, a locally-scoped
+   thread pool, and no data races. This was also the **first Sonnet build** under the
+   new model policy: it followed the prescriptive prompt cleanly, passed Opus verify
+   with no concerns, and cost ~40% less (~$0.59 vs ~$0.98 on Opus). The split is
+   validated — keep build=Sonnet for prescriptive specs.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — No template/constraint change. DEC-033 (indicatif) + DEC-006 (rayon) cover the
+   deps. Worth noting for STAGE-006: the `Operation: !Send` rebuild-per-task pattern is
+   the load-bearing concurrency invariant — if a future op holds something expensive to
+   rebuild, revisit (cache or add `Send` bounds). The lean-build gate again ran in both
+   build and verify ([[verify-includes-lean-no-default-features-build]]).
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — The remaining STAGE-005 spec: **`edit` + `--save-recipe`** (the recipe-*creation*
+   command — build an op list from CLI flags, run it once, optionally serialize the
+   chain to TOML via the registry). It's the natural pair to this replay command and
+   completes the "tune once → save → replay" loop. Tracked on the stage backlog; no
+   new spec file needed yet. (Watermark-in-recipes stays deferred per DEC-031.)

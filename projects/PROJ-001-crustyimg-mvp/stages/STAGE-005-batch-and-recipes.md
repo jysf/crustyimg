@@ -90,10 +90,10 @@ honored here.
 
 Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
-- [design] SPEC-031 (design) — `apply --recipe` parallel batch over a Source list (rayon, DEC-006) + indicatif progress (DEC-033) + name-template output + exit-6 partial failure; bundles backlog items #2 (recipe load/validation, reused from SPEC-006) / #3 / #4
+- [x] SPEC-031 (shipped 2026-06-19, PR #35) — `apply --recipe` parallel batch over a Source list (rayon, DEC-006) + indicatif progress (DEC-033) + name-template output + exit-6 partial failure; bundles backlog items #2 (recipe load/validation, reused from SPEC-006) / #3 / #4
 - [ ] (not yet written) — `edit` command: one-shot ordered multi-op on a single image from CLI flags + `--save-recipe` (DEC-005)
 
-**Count:** 0 shipped / 1 in design / 1 pending  (SPEC-031 = parallel batch `apply` [bundles backlog #2/#3/#4]; remaining: `edit` + `--save-recipe`. Recipe load/validation already shipped in SPEC-006.)
+**Count:** 1 shipped / 0 active / 1 pending  (SPEC-031 = parallel batch `apply` [bundled backlog #2/#3/#4] shipped; remaining: `edit` + `--save-recipe` — the recipe-creation half. When it ships STAGE-005 is complete.)
 
 ## Design Notes
 
