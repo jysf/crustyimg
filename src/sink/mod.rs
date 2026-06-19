@@ -461,6 +461,71 @@ impl Sink {
     }
 }
 
+// ── Raw-bytes write path (container lane, SPEC-026) ───────────────────────────
+
+impl Sink {
+    /// Write already-encoded container `bytes` verbatim — the **container-lane**
+    /// write path (SPEC-026, DEC-003). Unlike [`Sink::write`], this NEVER
+    /// re-encodes pixels: the bytes are the output of `metadata::strip_all` /
+    /// `clean_gps`, where the format is preserved and the compressed image data
+    /// is carried through untouched (`metadata-not-via-pixel-encode`).
+    ///
+    /// Output shapes (only the file-producing variants are valid here):
+    /// - [`Sink::File`] → write to the explicit path (extension already correct).
+    /// - [`Sink::Dir`] → expand `template` over `input`, using `ext` (the input's
+    ///   own extension, since the format is preserved) for `{ext}`; traversal- and
+    ///   overwrite-guarded exactly like [`Sink::write`].
+    /// - [`Sink::Stdout`] → write the raw bytes to `out` (pipe-friendly default).
+    /// - [`Sink::Display`] → not a byte sink; rejected with [`SinkError::Display`].
+    ///
+    /// `ext` is the lowercase extension string for `{ext}` expansion in a `Dir`
+    /// template (the `format` field of the sink is ignored — the container lane
+    /// preserves the input format). Overwrite is guarded by `overwrite`.
+    pub fn write_bytes(
+        &self,
+        bytes: &[u8],
+        input: &SinkInput<'_>,
+        ext: &str,
+        overwrite: Overwrite,
+        out: &mut dyn Write,
+    ) -> Result<(), SinkError> {
+        match self {
+            Sink::File { path, .. } => {
+                guard_overwrite(path, overwrite)?;
+                let file = OpenOptions::new()
+                    .write(true)
+                    .create(true)
+                    .truncate(true)
+                    .open(path)?;
+                let mut writer = BufWriter::new(file);
+                writer.write_all(bytes)?;
+                Ok(())
+            }
+            Sink::Dir { dir, template, .. } => {
+                let file_name = expand_template(template, input.stem, ext, input.path);
+                let full_path = safe_join(dir, &file_name)?;
+                guard_overwrite(&full_path, overwrite)?;
+                let file = OpenOptions::new()
+                    .write(true)
+                    .create(true)
+                    .truncate(true)
+                    .open(&full_path)?;
+                let mut writer = BufWriter::new(file);
+                writer.write_all(bytes)?;
+                Ok(())
+            }
+            Sink::Stdout { .. } => {
+                out.write_all(bytes)?;
+                Ok(())
+            }
+            Sink::Display { .. } => Err(SinkError::Display(
+                "the metadata lane writes container bytes; terminal display is not a byte sink"
+                    .into(),
+            )),
+        }
+    }
+}
+
 // ── Private helpers ───────────────────────────────────────────────────────────
 
 /// Encode `img` pixels to a `Vec<u8>` in `format`, optionally at a specific
