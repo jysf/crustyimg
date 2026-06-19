@@ -24,7 +24,7 @@ use clap::{Args, Parser, Subcommand};
 use crate::error::ImageError;
 use crate::image::Image;
 use crate::operation::RegistryError;
-use crate::operation::{OperationError, OperationParams, OperationRegistry};
+use crate::operation::{Gravity, OperationError, OperationParams, OperationRegistry, Watermark};
 use crate::pipeline::Pipeline;
 use crate::quality::{self, LossyFormat, QualityError, SearchConfig};
 use crate::recipe::{Recipe, RecipeError};
@@ -556,7 +556,24 @@ fn dispatch(cli: &Cli) -> Result<(), CliError> {
             no_snippet,
         } => run_responsive(input, widths, formats.as_deref(), *no_snippet, &cli.global),
         Commands::AutoOrient { inputs } => run_auto_orient(inputs, &cli.global),
-        Commands::Watermark { .. } => Err(CliError::NotImplemented("watermark")),
+        Commands::Watermark {
+            inputs,
+            image,
+            gravity,
+            opacity,
+            scale,
+            margin,
+            tile,
+        } => run_watermark(
+            inputs,
+            image,
+            gravity.as_deref(),
+            *opacity,
+            *scale,
+            *margin,
+            *tile,
+            &cli.global,
+        ),
         Commands::Strip { inputs } => run_strip(inputs, &cli.global),
         Commands::Clean { inputs, gps } => run_clean(inputs, *gps, &cli.global),
         Commands::Set {
@@ -2145,6 +2162,73 @@ fn run_auto_orient(inputs: &[String], global: &GlobalArgs) -> Result<(), CliErro
         })?;
 
     let pipeline = Pipeline::new().push(op);
+    run_pixel_op(pipeline, inputs, global, global.quality, None, None)
+}
+
+// ── watermark handler (SPEC-029, DEC-031) ─────────────────────────────────────
+
+/// Wire the `watermark` subcommand — the IO boundary for the first multi-image
+/// `Operation` (DEC-031).
+///
+/// The overlay is loaded ONCE here via `Image::load` (a missing/unreadable/
+/// undecodable logo → exit 3) and handed to the op as in-memory pixels, so
+/// `Watermark::apply` never touches a file. `--opacity`/`--scale`/`--gravity`
+/// are validated BEFORE constructing the op (out-of-range → `CliError::Usage`,
+/// exit 2). The op is then run through the standard `run_pixel_op` fan-out
+/// (single → stdout/`-o`/`--out-dir`, multi → `--out-dir`, exit 6 on per-input
+/// failure — DEC-015), reusing the GLOBAL `-o`/`--out-dir`/`-q`/`-y` flags.
+///
+/// `watermark` is NOT registered in `with_builtins()` (recipe round-trip is
+/// STAGE-005, DEC-031), so the op is constructed directly rather than via the
+/// registry.
+#[allow(clippy::too_many_arguments)]
+fn run_watermark(
+    inputs: &[String],
+    image: &str,
+    gravity: Option<&str>,
+    opacity: Option<f32>,
+    scale: Option<f32>,
+    margin: Option<u32>,
+    tile: bool,
+    global: &GlobalArgs,
+) -> Result<(), CliError> {
+    // Load the overlay once at the IO boundary (→ exit 3 on failure, DEC-031).
+    let overlay = Image::load(image)?;
+
+    // Validate placement params BEFORE constructing the op (→ Usage, exit 2).
+    let gravity: Gravity = gravity
+        .unwrap_or("southeast")
+        .parse()
+        .map_err(CliError::Usage)?;
+
+    let opacity = opacity.unwrap_or(1.0);
+    if !(0.0..=1.0).contains(&opacity) {
+        return Err(CliError::Usage(format!(
+            "--opacity must be in 0.0..=1.0, got {opacity}"
+        )));
+    }
+
+    if let Some(s) = scale {
+        if s <= 0.0 {
+            return Err(CliError::Usage(format!("--scale must be > 0, got {s}")));
+        }
+    }
+
+    let margin = margin.unwrap_or(0);
+
+    // Build the op directly (NOT via the registry — DEC-031) with the decoded
+    // overlay pixels; keep the source path for `params()` round-trip.
+    let op = Watermark::new(
+        overlay.pixels().clone(),
+        image.to_owned(),
+        gravity,
+        opacity,
+        scale,
+        margin,
+        tile,
+    );
+
+    let pipeline = Pipeline::new().push(Box::new(op));
     run_pixel_op(pipeline, inputs, global, global.quality, None, None)
 }
 
