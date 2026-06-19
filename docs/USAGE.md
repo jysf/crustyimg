@@ -109,6 +109,62 @@ blocks in markdown (the default — `docs/architecture.md` and
 more — C4 modeling, protocol-level integration tests — see the optional,
 project-level escalations in `guidance/recommended-tools.md`.
 
+## Dogfood the built CLI on your own photos
+
+Everything above is about *driving the template*. This section is about *using
+the tool you are building* — trying the compiled `crustyimg` binary on real
+photos before publishing them to a website.
+
+> **Always work on a copy of your originals.** Commands only touch the explicit
+> output, but a copy is cheap insurance.
+
+```bash
+cargo build --release                        # WebP built-in; binary at target/release/crustyimg
+alias ci="$PWD/target/release/crustyimg"     # AVIF output: add --features avif
+cp -R ~/site/images ~/cimg-test && mkdir -p ~/cimg-out
+```
+
+1. **Smoke-test one photo** — inspect, optimize, verify the quality you gave up:
+   ```bash
+   ci info ~/cimg-test/hero.jpg --exif
+   ci optimize ~/cimg-test/hero.jpg -o ~/cimg-out/hero.jpg   # auto-orient + strip + visually-lossless
+   ci diff ~/cimg-test/hero.jpg ~/cimg-out/hero.jpg          # SSIMULACRA2 score (higher = closer)
+   ```
+
+2. **Tune once → replay the folder** — the recipe round-trip (`edit` captures the
+   chain; `apply` replays it byte-identically across the directory, in parallel):
+   ```bash
+   ci edit ~/cimg-test/hero.jpg --auto-orient --resize-max 1600 \
+      --save-recipe ~/web.toml -o ~/cimg-out/hero.jpg
+   ci apply --recipe ~/web.toml ~/cimg-test/*.jpg --out-dir ~/cimg-out -j 8 -y
+   ```
+
+3. **Batch web-prep to a target or budget** — `optimize`/`shrink` hit a *look* or a
+   *size*, not a guessed number; `convert` re-encodes a whole folder:
+   ```bash
+   ci optimize ~/cimg-test/*.jpg --out-dir ~/cimg-out -j 8 -y
+   ci shrink   ~/cimg-test/*.jpg --max 1600 --target high --out-dir ~/cimg-out -j 8 -y
+   ci shrink   ~/cimg-test/*.jpg --max-size 200KB         --out-dir ~/cimg-out -j 8 -y
+   ci convert  ~/cimg-test/*.jpg --format webp            --out-dir ~/cimg-out -j 8 -y
+   ```
+
+4. **Responsive `<picture>`/srcset for the page** — variant set + a paste-ready
+   snippet on stdout:
+   ```bash
+   ci responsive ~/cimg-test/hero.jpg --widths 480,960,1440 --formats webp,jpeg --out-dir ~/cimg-out
+   ```
+
+5. **Verify before publishing** — quality gate + confirm GPS is gone:
+   ```bash
+   ci diff ~/cimg-test/hero.jpg ~/cimg-out/hero.jpg --fail-under 70
+   ci info ~/cimg-out/hero.jpg --exif | grep -i gps || echo "no GPS — good"
+   ```
+
+Current safety behavior: GPS is dropped by default (`--keep-gps` to retain);
+existing files are not overwritten without `-y` and symlinked output paths are
+refused; multi-input commands need `--out-dir`; absurd-dimension/decode-bomb
+inputs are rejected. Full CLI contract: `docs/api-contract.md`.
+
 ## Pointers
 
 - First-time walkthrough: `GETTING_STARTED.md`
