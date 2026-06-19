@@ -7,7 +7,7 @@
 task:
   id: SPEC-034
   type: story                      # epic | story | task | bug | chore
-  cycle: build                     # frame | design | build | verify | ship
+  cycle: verify  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: M                    # S | M | L  (L means split it)
@@ -49,11 +49,19 @@ value_link: >
 # See AGENTS.md §4 and docs/cost-tracking.md. interface: claude-code |
 # claude-ai | api | ollama | other.
 cost:
-  sessions: []
+  sessions:
+    - cycle: build
+      agent: claude-sonnet-4-6
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-06-19
+      notes: "traversal hardening: reject_symlink_destination on all 4 Sink file arms (reject even with --yes) + glob root cwd-anchor fallback (close root_opt=None bypass); reuse SinkError::Traversal exit 5; std-only, no new dep"
   totals:
     tokens_total: 0
     estimated_usd: 0
-    session_count: 0
+    session_count: 1
 ---
 
 # SPEC-034: path and symlink traversal hardening across source and sink
@@ -283,28 +291,37 @@ cross-platform but the *test* uses Unix symlinks). Fixtures: tiny PNGs via the
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
+- **Branch:** feat/spec-034-traversal-hardening
+- **PR (if applicable):** opened — see PR body
+- **All acceptance criteria met?** yes
 - **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
+  - none (DEC-035 was emitted at design)
 - **Deviations from spec:**
-  - [list]
+  - The `directory_skips_symlink_escaping_root` test canonicalizes both the
+    expected and actual paths before comparing, to handle macOS `/var` →
+    `/private/var` symlink indirection in tempdir paths. This is a test-side
+    adaptation; the production code is unchanged.
 - **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - none
 
 ### Build-phase reflection (3 questions, short answers)
 
 Process-focused: how did the build go? What friction did the spec create?
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — Nothing significant. The prescriptive build prompt was precise. The one
+   subtlety was macOS tempdir symlink indirection (`/var` → `/private/var`)
+   causing a spurious path-equality failure in `directory_skips_symlink_escaping_root`;
+   the fix (canonicalize both sides) was straightforward but not mentioned.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — The macOS tempdir path indirection is a well-known testing pitfall; it could
+   have been noted as "use canonicalize when comparing tempdir paths on macOS" in
+   the Notes for the Implementer. Not blocking, but would save a debug round-trip.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Run the tests on macOS before the first commit to catch the `/private/var`
+   issue immediately. Everything else was smooth.
 
 ---
 
