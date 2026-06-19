@@ -93,10 +93,10 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 - [x] SPEC-026 (shipped 2026-06-18, PR #30) — metadata lane v1: `strip` (remove all metadata) + `clean --gps` (remove only location) via container lane, JPEG+PNG, no pixel re-encode (DEC-003, DEC-029)
 - [ ] (not yet written) — `watermark` command/Operation: image overlay at gravity anchor (`--opacity`/`--scale`/`--margin`/`--tile`)
 - [ ] (not yet written) — text watermark: render text at a gravity anchor (ab_glyph + imageproc::drawing)
-- [ ] (not yet written) — `set` command: write EXIF tags (`--artist`/`--copyright`/`--description`) via little_exif, pixels untouched (reuses `run_metadata_lane`)
+- [design] SPEC-027 (design) — `set` command: write EXIF tags (`--artist`/`--copyright`/`--description`) via little_exif, pixels untouched (reuses `run_metadata_lane`)
 - [ ] (not yet written) — `copy-metadata` command: copy container metadata `--from` one image `--to` another, pixels untouched (reuses `run_metadata_lane`)
 
-**Count:** 1 shipped / 0 active / 4 pending  (SPEC-026 bundled the `strip` + `clean --gps` backlog items)
+**Count:** 1 shipped / 1 in design / 3 pending  (SPEC-026 bundled `strip` + `clean --gps`; SPEC-027 = `set`)
 
 ## Design Notes
 

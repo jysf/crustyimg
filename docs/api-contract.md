@@ -269,8 +269,14 @@ re-decode. **`--gps` is required in v1** (omitted → exit **2**). Same JPEG+PNG
 coverage, fan-out, and exit codes as `strip`. A JPEG with no EXIF is a no-op
 (exit 0).
 
-#### `set <INPUT...> [--artist S] [--copyright S] [--description S]`  *(S4)*
-Write specific EXIF tags (via `little_exif`), pixels untouched.
+#### `set <INPUT...> [--artist S] [--copyright S] [--description S]`  *(SPEC-027)*
+Write the named EXIF tags (Artist/Copyright/ImageDescription) via `little_exif`,
+**preserving all other metadata and the pixels** (no re-decode). At least one tag
+flag is required (none → exit **2**). **v1 covers JPEG + PNG**; other formats →
+exit **4**. Writing overwrites an existing same-tag value and creates a fresh EXIF
+block when the input has none. Same fan-out + exit codes as `strip`/`clean`
+(reuses the container lane; single → stdout/`-o`/`--out-dir`, multi → `--out-dir`,
+per-input failure → exit **6**, overwrite refused without `-y`).
 
 #### `copy-metadata --from SRC --to DST`  *(S4)*
 Copy metadata from one image's container to another's. Pixels untouched.
