@@ -272,20 +272,37 @@ pub enum Commands {
     #[command(name = "auto-orient")]
     AutoOrient { inputs: Vec<String> },
 
-    /// Overlay an image watermark at a gravity anchor (STAGE-004).
+    /// Overlay an image OR text watermark at a gravity anchor (STAGE-004).
+    ///
+    /// Exactly one of `--image` (SPEC-029) or `--text` (SPEC-030) is required;
+    /// they are mutually exclusive. `--scale`/`--tile` are image-only;
+    /// `--font`/`--size`/`--color` are text-only.
     Watermark {
         inputs: Vec<String>,
-        #[arg(long)]
-        image: String,
+        /// Overlay image path (image mode; XOR `--text`).
+        #[arg(long, conflicts_with = "text")]
+        image: Option<String>,
+        /// Text to render (text mode; XOR `--image`).
+        #[arg(long, required_unless_present = "image")]
+        text: Option<String>,
+        /// Font file (TTF/OTF) for `--text`; defaults to the bundled Go font.
+        #[arg(long, conflicts_with = "image")]
+        font: Option<String>,
+        /// Font size in px for `--text` (default 32.0).
+        #[arg(long, conflicts_with = "image")]
+        size: Option<f32>,
+        /// Text color hex (RRGGBB / #RRGGBB / RRGGBBAA) for `--text` (default ffffff).
+        #[arg(long, conflicts_with = "image")]
+        color: Option<String>,
         #[arg(long)]
         gravity: Option<String>,
         #[arg(long)]
         opacity: Option<f32>,
-        #[arg(long)]
+        #[arg(long, conflicts_with = "text")]
         scale: Option<f32>,
         #[arg(long)]
         margin: Option<u32>,
-        #[arg(long)]
+        #[arg(long, conflicts_with = "text")]
         tile: bool,
     },
 
@@ -559,6 +576,10 @@ fn dispatch(cli: &Cli) -> Result<(), CliError> {
         Commands::Watermark {
             inputs,
             image,
+            text,
+            font,
+            size,
+            color,
             gravity,
             opacity,
             scale,
@@ -566,7 +587,13 @@ fn dispatch(cli: &Cli) -> Result<(), CliError> {
             tile,
         } => run_watermark(
             inputs,
-            image,
+            &WatermarkSource {
+                image: image.as_deref(),
+                text: text.as_deref(),
+                font: font.as_deref(),
+                size: *size,
+                color: color.as_deref(),
+            },
             gravity.as_deref(),
             *opacity,
             *scale,
@@ -2182,9 +2209,74 @@ fn run_auto_orient(inputs: &[String], global: &GlobalArgs) -> Result<(), CliErro
 /// STAGE-005, DEC-031), so the op is constructed directly rather than via the
 /// registry.
 #[allow(clippy::too_many_arguments)]
+/// The watermark overlay source: an image path (SPEC-029) OR text + its rendering
+/// flags (SPEC-030). clap enforces `--image` XOR `--text` (exactly one); the other
+/// fields are the text-mode flags. Bundled so `run_watermark` stays within clippy's
+/// argument-count limit and the mode set travels as one value.
+struct WatermarkSource<'a> {
+    image: Option<&'a str>,
+    text: Option<&'a str>,
+    font: Option<&'a str>,
+    size: Option<f32>,
+    color: Option<&'a str>,
+}
+
+/// Map a `text::TextError` to a CLI error. Color/empty/font-parse are usage errors
+/// (exit 2); the `--font` *file* read failure is handled separately at the IO
+/// boundary as an `Image`/IO load error (exit 3).
+fn text_error(e: crate::text::TextError) -> CliError {
+    CliError::Usage(e.to_string())
+}
+
+/// Build the watermark overlay (`DynamicImage`) + its label from the source mode.
+///
+/// - Image mode (`--image PATH`): load the overlay once at the IO boundary
+///   (→ exit 3 on failure, DEC-031); label is the path (for `params()` round-trip).
+/// - Text mode (`--text STR`): read `--font PATH` at the IO boundary (→ exit 3) or
+///   fall back to the bundled font; parse `--color` (default `ffffff`) and `--size`
+///   (default 32.0, `≤0` → exit 2); rasterize via `text::render_text` (pure) into a
+///   transparent RGBA overlay (→ exit 2 on a text error). The label is the text.
+fn watermark_overlay(
+    src: &WatermarkSource<'_>,
+) -> Result<(::image::DynamicImage, String), CliError> {
+    if let Some(image) = src.image {
+        // Image mode: load the overlay once at the IO boundary (DEC-031).
+        let overlay = Image::load(image)?;
+        return Ok((overlay.pixels().clone(), image.to_owned()));
+    }
+
+    // Text mode. clap guarantees `--text` is present when `--image` is not.
+    let text = src.text.unwrap_or("");
+
+    // Load the font at the IO boundary (--font → exit 3) or use the bundled default.
+    let font_owned: Option<Vec<u8>> = match src.font {
+        Some(path) => Some(std::fs::read(path).map_err(ImageError::Io)?),
+        None => None,
+    };
+    let font_bytes: &[u8] = match font_owned.as_deref() {
+        Some(b) => b,
+        None => crate::text::DEFAULT_FONT,
+    };
+
+    // Color (default white) and size (default 32.0; ≤0 → exit 2).
+    let color = match src.color {
+        Some(s) => crate::text::parse_color(s).map_err(text_error)?,
+        None => [255, 255, 255, 255],
+    };
+    let size = src.size.unwrap_or(32.0);
+    if size <= 0.0 {
+        return Err(CliError::Usage(format!("--size must be > 0, got {size}")));
+    }
+
+    // Rasterize the text into a transparent RGBA overlay (pure; no file IO).
+    let rendered = crate::text::render_text(font_bytes, text, size, color).map_err(text_error)?;
+    Ok((::image::DynamicImage::ImageRgba8(rendered), text.to_owned()))
+}
+
+#[allow(clippy::too_many_arguments)]
 fn run_watermark(
     inputs: &[String],
-    image: &str,
+    src: &WatermarkSource<'_>,
     gravity: Option<&str>,
     opacity: Option<f32>,
     scale: Option<f32>,
@@ -2192,8 +2284,8 @@ fn run_watermark(
     tile: bool,
     global: &GlobalArgs,
 ) -> Result<(), CliError> {
-    // Load the overlay once at the IO boundary (→ exit 3 on failure, DEC-031).
-    let overlay = Image::load(image)?;
+    // Build the overlay (image load OR text rasterization) + its label.
+    let (overlay, label) = watermark_overlay(src)?;
 
     // Validate placement params BEFORE constructing the op (→ Usage, exit 2).
     let gravity: Gravity = gravity
@@ -2216,17 +2308,9 @@ fn run_watermark(
 
     let margin = margin.unwrap_or(0);
 
-    // Build the op directly (NOT via the registry — DEC-031) with the decoded
-    // overlay pixels; keep the source path for `params()` round-trip.
-    let op = Watermark::new(
-        overlay.pixels().clone(),
-        image.to_owned(),
-        gravity,
-        opacity,
-        scale,
-        margin,
-        tile,
-    );
+    // Build the op directly (NOT via the registry — DEC-031) with the decoded /
+    // rendered overlay pixels; the text/image label is kept for `params()`.
+    let op = Watermark::new(overlay, label, gravity, opacity, scale, margin, tile);
 
     let pipeline = Pipeline::new().push(Box::new(op));
     run_pixel_op(pipeline, inputs, global, global.quality, None, None)

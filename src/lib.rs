@@ -19,6 +19,9 @@
 //! SPEC-026 adds the [`metadata`] module: the container lane (`strip` +
 //! `clean --gps`), editing container bytes without re-decoding pixels (DEC-003,
 //! DEC-029).
+//! SPEC-030 adds the [`text`] module: pure glyph rasterization (`ab_glyph` +
+//! bundled Go font) that turns a string into a transparent RGBA overlay for
+//! `watermark --text`, then reuses the SPEC-029 compositing path (DEC-032).
 
 pub mod cli;
 pub mod error;
@@ -30,6 +33,7 @@ pub mod quality;
 pub mod recipe;
 pub mod sink;
 pub mod source;
+pub mod text;
 
 /// Returns the crate's semantic version (from `Cargo.toml`).
 pub fn version() -> &'static str {
