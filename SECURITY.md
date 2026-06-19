@@ -10,12 +10,15 @@ agent-run workflow this repo uses.
 
 1. **Untrusted image inputs.** Image decoders parse attacker-controllable
    binary data. A malformed or hostile file could trigger a panic, excessive
-   memory/CPU (decompression bombs — `image` exposes dimension/byte limits we
-   should set), or a decoder bug. Mitigations: decode through the single
-   `image` stack (DEC-002), bound resource use, never `unwrap()`/`expect()`
-   on decode paths (constraint `no-unwrap-on-recoverable-paths`, DEC-007),
-   and surface failures as typed errors mapped to non-zero exit codes rather
-   than crashes.
+   memory/CPU (decompression bombs), or a decoder bug. Mitigations: decode
+   through the single `image` stack (DEC-002); **decode resource limits are set
+   on the canonical load path** (`image::Limits` — `max_image_width`/
+   `max_image_height` = 65 535, `max_alloc` = 512 MiB; SPEC-033 / DEC-034), so
+   an over-dimension or over-allocation input is **rejected with a typed
+   `ImageError::LimitsExceeded` (exit 1), not a panic or OOM**, before pixels
+   are produced; never `unwrap()`/`expect()` on decode paths (constraint
+   `no-unwrap-on-recoverable-paths`, DEC-007); failures surface as typed errors
+   mapped to non-zero exit codes rather than crashes.
 2. **Untrusted recipes.** A recipe is a TOML file describing an operation
    chain. Treat a recipe from outside your team as untrusted: it can only
    express registered operations (no code execution), but validate the
@@ -40,7 +43,9 @@ agent-run workflow this repo uses.
 
 ## Good habits
 
-- Set decode limits and don't trust input dimensions.
+- Decode limits are set on load and input dimensions are not trusted
+  (SPEC-033 / DEC-034); a future `--max-pixels`/env override can re-admit a
+  legitimately huge image deliberately.
 - Keep the `no-secrets-in-code` and `no-unwrap-on-recoverable-paths`
   constraints enabled.
 - When wiring CI (GitHub Actions, DEC-009), scope `permissions` minimally

@@ -5,7 +5,7 @@
 
 stage:
   id: STAGE-006                     # stable, zero-padded within the project
-  status: proposed                  # proposed | active | shipped | cancelled | on_hold
+  status: active                    # proposed | active | shipped | cancelled | on_hold
   priority: high                    # critical | high | medium | low
   target_complete: null             # optional: YYYY-MM-DD
 
@@ -97,13 +97,13 @@ ship"). It adds no new user features — it makes the existing ones safe.
 
 Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
-- [ ] (not yet written) — decode resource limits on `Image::load` (image::Limits: bound dimensions/allocation, reject decompression bombs) — closes a known gap
+- [ ] SPEC-033 (design 2026-06-19) — decode resource limits on the canonical load path (`image::Limits`: per-dimension ≤ 65 535 + alloc ≤ 512 MiB, reject-not-clamp → typed `ImageError::LimitsExceeded`, exit 1) — closes a known decompression-bomb gap; DEC-034; no new dep
 - [ ] (not yet written) — path/symlink traversal hardening + tests across Source and Sink, tightening the SPEC-004 glob escape-check defensive gap (DEC-010)
 - [ ] (not yet written) — security-grade recipe validation: reject unsupported version + unknown operations with typed errors
 - [ ] (not yet written) — `cargo audit` / `cargo deny` wired into CI (dependency-advisory + license/ban gate)
 - [ ] (not yet written) — threat-model verification pass against `SECURITY.md` + `/security-review` on the cumulative diff, findings recorded
 
-**Count:** 0 shipped / 0 active / 5 pending
+**Count:** 0 shipped / 1 in design / 4 pending
 
 ## Design Notes
 

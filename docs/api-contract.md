@@ -53,7 +53,7 @@ Apply to all subcommands (parsed before/around the subcommand).
 | Code | Meaning |
 |---|---|
 | `0` | Success. |
-| `1` | Generic runtime error (decode/encode/op failed). |
+| `1` | Generic runtime error (decode/encode/op failed; includes an input that exceeds decode resource limits — see below). |
 | `2` | Usage error (bad args) — clap's standard code. |
 | `3` | Input not found / unreadable. |
 | `4` | Unsupported format / codec not built (e.g. AVIF without the feature). |
@@ -63,6 +63,14 @@ Apply to all subcommands (parsed before/around the subcommand).
 
 The library returns typed `thiserror` errors; `main` maps them to these
 codes and prints a friendly `anyhow`-formatted message to stderr (DEC-007).
+
+**Decode resource limits (SPEC-033 / DEC-034):** every command that loads an
+image bounds the decoder via `image::Limits` (per-dimension ≤ 65 535, decoded
+allocation ≤ 512 MiB). An input that exceeds either limit (a decompression bomb
+or forged dimensions) is **rejected with a typed error and exit `1`** — never a
+panic or OOM — before pixels are produced. Limits are fixed in v1; a
+`--max-pixels`/env override to re-admit a legitimately huge image is a planned
+follow-up.
 
 ## Subcommand Surface (full MVP)
 
