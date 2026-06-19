@@ -44,3 +44,10 @@ questions:
       STAGE-004 build with byte/tag-level tests per format. If pure-Rust
       coverage is inadequate, promote the optional `rexiv2` feature or
       narrow the default-preserve set; update DEC-003 either way.
+
+      2026-06-18 (SPEC-026 / DEC-029): PARTIALLY retired. A design-time probe
+      verified `strip` (img-parts) + `clean --gps` (little_exif) on real JPEG
+      AND PNG with byte-identical decoded pixels — the metadata-only commands
+      are confirmed for JPEG/PNG. STILL OPEN: (a) encode-time ICC/orientation
+      PRESERVE across the pixel lane (the `optimize` selective-preserve upgrade,
+      DEC-024 follow-up), and (b) TIFF/WebP coverage. Keep open until those land.

@@ -253,11 +253,21 @@ trailing addition within S4.)
 
 ### Metadata lane *(container-level; no pixel decode — DEC-003)*
 
-#### `strip <INPUT...>`  *(S4)*
-Remove all metadata (EXIF/IPTC/XMP/ICC) at the container level.
+#### `strip <INPUT...>`  *(SPEC-026)*
+Remove **all** container metadata (EXIF/IPTC/XMP/ICC) via `img-parts`
+segment/chunk removal — no pixel re-decode (decoded pixels byte-identical).
+**v1 covers JPEG + PNG**; any other format → exit **4**. Fan-out mirrors the
+pixel ops (DEC-015): single input → stdout / `-o` / `--out-dir`; multiple inputs
+require `--out-dir`; a per-input failure in a batch → exit **6**; overwrite refused
+without `-y`. Format is preserved (`-q`/`--format` ignored). A no-metadata input is
+a clean no-op (exit 0).
 
-#### `clean <INPUT...> --gps`  *(S4)*
-Remove only GPS/location metadata; keep the rest. Privacy-focused.
+#### `clean <INPUT...> --gps`  *(SPEC-026)*
+Remove **only** GPS/location metadata via `little_exif` tag removal, preserving
+everything else (orientation, copyright, ICC) — privacy-focused, no pixel
+re-decode. **`--gps` is required in v1** (omitted → exit **2**). Same JPEG+PNG
+coverage, fan-out, and exit codes as `strip`. A JPEG with no EXIF is a no-op
+(exit 0).
 
 #### `set <INPUT...> [--artist S] [--copyright S] [--description S]`  *(S4)*
 Write specific EXIF tags (via `little_exif`), pixels untouched.

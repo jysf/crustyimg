@@ -5,7 +5,7 @@
 
 stage:
   id: STAGE-004                     # stable, zero-padded within the project
-  status: proposed                  # proposed | active | shipped | cancelled | on_hold
+  status: active                    # proposed | active | shipped | cancelled | on_hold
   priority: high                    # critical | high | medium | low
   target_complete: null             # optional: YYYY-MM-DD
 
@@ -90,14 +90,13 @@ recipe should be able to chain a resize, a watermark, and a metadata strip.
 
 Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
+- [design] SPEC-026 (design) — metadata lane v1: `strip` (remove all metadata) + `clean --gps` (remove only location) via container lane, JPEG+PNG, no pixel re-encode (DEC-003, DEC-029)
 - [ ] (not yet written) — `watermark` command/Operation: image overlay at gravity anchor (`--opacity`/`--scale`/`--margin`/`--tile`)
 - [ ] (not yet written) — text watermark: render text at a gravity anchor (ab_glyph + imageproc::drawing)
-- [ ] (not yet written) — `strip` command: remove all metadata (EXIF/IPTC/XMP/ICC) via container lane, no pixel re-encode (DEC-003)
-- [ ] (not yet written) — `clean --gps` command: remove only GPS/location metadata, preserve the rest (privacy)
 - [ ] (not yet written) — `set` command: write EXIF tags (`--artist`/`--copyright`/`--description`) via little_exif, pixels untouched
 - [ ] (not yet written) — `copy-metadata` command: copy container metadata `--from` one image `--to` another, pixels untouched
 
-**Count:** 0 shipped / 0 active / 6 pending
+**Count:** 0 shipped / 1 in design / 4 pending  (SPEC-026 bundles the `strip` + `clean --gps` backlog items)
 
 ## Design Notes
 
