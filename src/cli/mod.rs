@@ -20,6 +20,8 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::{Args, Parser, Subcommand};
+use indicatif::{ProgressBar, ProgressStyle};
+use rayon::prelude::*;
 
 use crate::error::ImageError;
 use crate::image::Image;
@@ -622,64 +624,230 @@ fn dispatch(cli: &Cli) -> Result<(), CliError> {
 
 // ── Real apply path ───────────────────────────────────────────────────────────
 
-/// The single-input `apply` path: recipe → pipeline → source → image → sink.
+/// A known-valid `ProgressStyle` template for the batch progress bar.
 ///
-/// Steps (per spec Notes §step-by-step):
-/// 1. Read recipe text from disk (io error → exit 3 via `CliError::RecipeIo`).
-/// 2. Parse recipe TOML → `Recipe` (`RecipeError` → exit 1).
-/// 3. Build registry and pipeline.
-/// 4. Resolve the first input via `source::resolve` (`SourceError` → exit 3).
-/// 5. Load the image (`ImageError` → exit 3/1/4).
-/// 6. Run the pipeline (`OperationError` → exit 1).
-/// 7. Write via the `Sink` built from global options (`SinkError` → exit 5/4).
-fn run_apply(recipe_path: &str, inputs: &[String], global: &GlobalArgs) -> Result<(), CliError> {
-    // Step 1: read recipe file text (map io error → exit 3).
-    let recipe_text = std::fs::read_to_string(recipe_path).map_err(CliError::RecipeIo)?;
+/// Kept as a const so we can use `.unwrap_or_else(|_| ProgressStyle::default_bar())`
+/// in non-test code rather than an `unwrap` on an arbitrary user-supplied string.
+const BATCH_PROGRESS_TEMPLATE: &str = "{bar:40.cyan/blue} {pos}/{len} {msg}";
 
-    // Step 2: parse recipe TOML.
-    let recipe = Recipe::from_toml(&recipe_text)?;
-
-    // Step 3: build registry and pipeline.
-    let registry = OperationRegistry::with_builtins();
-    let pipeline = recipe.build_pipeline(&registry)?;
-
-    // Step 4: resolve the first positional input.
-    let first_arg = inputs.first().map(|s| s.as_str()).unwrap_or("");
-    let resolved = source::resolve(first_arg, &mut std::io::stdin().lock())?;
-    let input = resolved
-        .into_iter()
-        .next()
-        .ok_or(CliError::Source(SourceError::NotFound(
-            first_arg.to_owned(),
-        )))?;
-
-    // Step 5: load image.
-    let img = match &input {
+/// Apply one input through the recipe and write the result to `out_dir`.
+///
+/// Extracted from `run_apply` so it is unit-testable. Rebuilds the pipeline
+/// from `recipe` + `registry` on every call — `Operation` is NOT `Send`, so
+/// no pipeline may cross a thread boundary (SPEC-031, Parallel design).
+///
+/// - Loads the image from `input`.
+/// - Builds a local pipeline via `recipe.build_pipeline(registry)`.
+/// - Runs the pipeline.
+/// - Writes the result to `Sink::Dir { dir, template, format }`.
+/// - `format`: `None` → preserve the source format.
+fn apply_one(
+    recipe: &Recipe,
+    registry: &OperationRegistry,
+    input: &crate::source::Input,
+    out_dir: &Path,
+    template: &str,
+    overwrite: Overwrite,
+    quality: Option<u8>,
+) -> Result<(), CliError> {
+    // Load.
+    let img = match input {
         crate::source::Input::Path(p) => Image::load(p)?,
         crate::source::Input::Stdin { bytes, .. } => Image::from_bytes(bytes)?,
     };
 
-    // Step 6: run pipeline.
-    let out_img = pipeline.run(img)?;
+    // Build a fresh pipeline (Operation is not Send; each task rebuilds its own).
+    let pipeline = recipe.build_pipeline(registry)?;
 
-    // Step 7: build Sink and write.
-    let sink = build_sink(global)?;
+    // Run.
+    let out_img = pipeline.run(img.clone())?;
+
+    // Preserve the source format (no --format override in batch path v1).
+    let fmt = img.source_format();
+
+    let sink = Sink::Dir {
+        dir: out_dir.to_owned(),
+        template: template.to_owned(),
+        format: Some(fmt),
+    };
+
     let sink_input = SinkInput {
         stem: input.stem(),
         path: input.path(),
     };
+
+    sink.write(
+        &out_img,
+        &sink_input,
+        overwrite,
+        quality,
+        &mut std::io::stdout().lock(),
+    )?;
+
+    Ok(())
+}
+
+/// Guard: multi-input without `--out-dir` is a usage error (exit 2).
+///
+/// Returns `Ok(dir_path)` when `global.out_dir` is `Some`, else `CliError::Usage`.
+fn require_out_dir_for_batch(global: &GlobalArgs) -> Result<&str, CliError> {
+    global
+        .out_dir
+        .as_deref()
+        .ok_or_else(|| CliError::Usage("multiple inputs require --out-dir".into()))
+}
+
+/// The `apply --recipe` path: recipe → batch fan-out via rayon + indicatif.
+///
+/// Single resolved input: preserves the original single-input behavior exactly
+/// (writes to `-o`/`--out-dir`/stdout; no progress bar needed).
+///
+/// Multiple resolved inputs: requires `--out-dir` (else exit 2); replays the
+/// recipe in parallel (rayon, `--jobs`); indicatif progress on stderr (hidden
+/// when `--quiet`); per-input errors → exit 6 on any failure (DEC-015).
+///
+/// The `Operation` trait is NOT `Send`, so each rayon task rebuilds its own
+/// pipeline from the shared `&recipe` + `&registry` (both `Sync`).
+fn run_apply(recipe_path: &str, inputs: &[String], global: &GlobalArgs) -> Result<(), CliError> {
+    // Step 1: read recipe file text (map io error → exit 3).
+    let recipe_text = std::fs::read_to_string(recipe_path).map_err(CliError::RecipeIo)?;
+
+    // Step 2: parse + validate recipe TOML (SPEC-006 reused).
+    let recipe = Recipe::from_toml(&recipe_text)?;
+
+    // Step 3: build registry ONCE; shared via & across rayon tasks (fn ptrs → Sync).
+    let registry = OperationRegistry::with_builtins();
+
+    // Step 4: probe the pipeline now so a bad recipe/op fails BEFORE we touch any
+    // inputs (exit 1 rather than exit 6 per-input).
+    recipe.build_pipeline(&registry)?;
+
+    // Step 5: resolve every positional input via source::resolve, flattening to
+    // one Vec<Input>. Resolution errors (missing path / empty glob) are HARD errors
+    // (exit 3/2), NOT partial-batch.
+    let mut all: Vec<crate::source::Input> = Vec::new();
+    let mut stdin_lock = std::io::stdin().lock();
+    for arg in inputs {
+        let resolved = source::resolve(arg, &mut stdin_lock)?;
+        all.extend(resolved);
+    }
+    if all.is_empty() {
+        let joined = inputs.join(" ");
+        return Err(CliError::Source(SourceError::NotFound(joined)));
+    }
+    drop(stdin_lock);
+
     let overwrite = if global.yes {
         Overwrite::Allow
     } else {
         Overwrite::Forbid
     };
-    sink.write(
-        &out_img,
-        &sink_input,
-        overwrite,
-        global.quality,
-        &mut std::io::stdout().lock(),
-    )?;
+
+    // ── Single-input: preserve existing behavior exactly ─────────────────────
+    if all.len() == 1 {
+        let input = &all[0];
+        let img = match input {
+            crate::source::Input::Path(p) => Image::load(p)?,
+            crate::source::Input::Stdin { bytes, .. } => Image::from_bytes(bytes)?,
+        };
+        let pipeline = recipe.build_pipeline(&registry)?;
+        let out_img = pipeline.run(img)?;
+        let sink = build_sink(global)?;
+        let sink_input = SinkInput {
+            stem: input.stem(),
+            path: input.path(),
+        };
+        sink.write(
+            &out_img,
+            &sink_input,
+            overwrite,
+            global.quality,
+            &mut std::io::stdout().lock(),
+        )?;
+        return Ok(());
+    }
+
+    // ── Multi-input: require --out-dir, parallel fan-out ─────────────────────
+    let out_dir_str = require_out_dir_for_batch(global)?;
+    let out_dir = PathBuf::from(out_dir_str);
+    let template = global
+        .name_template
+        .clone()
+        .unwrap_or_else(|| "{stem}.{ext}".to_owned());
+    let total = all.len();
+
+    // Build indicatif progress bar on stderr (hidden when --quiet or non-TTY).
+    let bar = if global.quiet {
+        ProgressBar::hidden()
+    } else {
+        let pb = ProgressBar::new(total as u64);
+        let style = ProgressStyle::with_template(BATCH_PROGRESS_TEMPLATE)
+            .unwrap_or_else(|_| ProgressStyle::default_bar());
+        pb.set_style(style);
+        pb
+    };
+
+    // Run the batch — with or without a bounded thread pool.
+    let results: Vec<Result<(), CliError>> = if let Some(n) = global.jobs {
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(n)
+            .build()
+            .map_err(|e| CliError::Usage(format!("could not build thread pool: {e}")))?;
+        pool.install(|| {
+            all.par_iter()
+                .map(|input| {
+                    let r = apply_one(
+                        &recipe,
+                        &registry,
+                        input,
+                        &out_dir,
+                        &template,
+                        overwrite,
+                        global.quality,
+                    );
+                    if let Err(ref e) = r {
+                        let label = match input {
+                            crate::source::Input::Path(p) => p.display().to_string(),
+                            crate::source::Input::Stdin { stem, .. } => stem.clone(),
+                        };
+                        eprintln!("error: {label}: {e}");
+                    }
+                    bar.inc(1);
+                    r
+                })
+                .collect()
+        })
+    } else {
+        all.par_iter()
+            .map(|input| {
+                let r = apply_one(
+                    &recipe,
+                    &registry,
+                    input,
+                    &out_dir,
+                    &template,
+                    overwrite,
+                    global.quality,
+                );
+                if let Err(ref e) = r {
+                    let label = match input {
+                        crate::source::Input::Path(p) => p.display().to_string(),
+                        crate::source::Input::Stdin { stem, .. } => stem.clone(),
+                    };
+                    eprintln!("error: {label}: {e}");
+                }
+                bar.inc(1);
+                r
+            })
+            .collect()
+    };
+
+    bar.finish_and_clear();
+
+    let failed = results.iter().filter(|r| r.is_err()).count();
+    if failed > 0 {
+        return Err(CliError::PartialBatch { failed, total });
+    }
 
     Ok(())
 }
@@ -3449,6 +3617,96 @@ mod tests {
         assert_eq!(mime_for_format(::image::ImageFormat::Png), "image/png");
         assert_eq!(mime_for_format(::image::ImageFormat::WebP), "image/webp");
         assert_eq!(mime_for_format(::image::ImageFormat::Avif), "image/avif");
+    }
+
+    // ── SPEC-031: apply batch helpers ─────────────────────────────────────────
+
+    /// Helper: a `GlobalArgs` with NO out_dir.
+    fn global_no_out_dir() -> GlobalArgs {
+        GlobalArgs {
+            output: None,
+            out_dir: None,
+            name_template: None,
+            jobs: None,
+            format: None,
+            quality: None,
+            verbose: 0,
+            quiet: false,
+            yes: true,
+            keep_gps: false,
+        }
+    }
+
+    /// `require_out_dir_for_batch` returns `CliError::Usage` (exit 2) when
+    /// `--out-dir` is absent. (Tests the guard helper directly.)
+    #[test]
+    fn apply_batch_requires_out_dir_for_multi() {
+        let global = global_no_out_dir();
+        let result = require_out_dir_for_batch(&global);
+        assert!(result.is_err(), "expected Usage error");
+        assert_eq!(
+            result.unwrap_err().code(),
+            2,
+            "missing --out-dir must be code 2"
+        );
+    }
+
+    /// `apply_one` on a fixture PNG with a `resize max 8` recipe produces
+    /// an output no larger than 8×8.
+    #[test]
+    fn apply_worker_applies_recipe_to_one() {
+        use std::io::Cursor;
+
+        use image::{DynamicImage, ImageFormat, RgbImage};
+
+        let dir = tempfile::tempdir().unwrap();
+
+        // Write a 32×32 solid PNG.
+        let img = RgbImage::from_pixel(32, 32, image::Rgb([100u8, 150u8, 200u8]));
+        let mut buf = Cursor::new(Vec::new());
+        DynamicImage::ImageRgb8(img)
+            .write_to(&mut buf, ImageFormat::Png)
+            .unwrap();
+        let src_path = dir.path().join("in.png");
+        std::fs::write(&src_path, buf.into_inner()).unwrap();
+
+        // Recipe: resize max 8.
+        let recipe_toml = r#"
+version = "1"
+
+[[step]]
+op = "resize"
+mode = "max"
+width = 8
+"#;
+        let recipe = Recipe::from_toml(recipe_toml).unwrap();
+        let registry = OperationRegistry::with_builtins();
+        let out_dir = dir.path().join("out");
+        std::fs::create_dir_all(&out_dir).unwrap();
+
+        let input = crate::source::Input::Path(src_path.clone());
+        apply_one(
+            &recipe,
+            &registry,
+            &input,
+            &out_dir,
+            "{stem}.{ext}",
+            Overwrite::Allow,
+            None,
+        )
+        .expect("apply_one should succeed");
+
+        let out_path = out_dir.join("in.png");
+        assert!(out_path.exists(), "output file must be created");
+
+        // Verify dimensions are ≤ 8.
+        let out_img = image::open(&out_path).unwrap();
+        assert!(
+            out_img.width() <= 8 && out_img.height() <= 8,
+            "resized image must be ≤ 8×8, got {}×{}",
+            out_img.width(),
+            out_img.height()
+        );
     }
 
     #[test]
