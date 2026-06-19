@@ -5,7 +5,7 @@
 
 stage:
   id: STAGE-005                     # stable, zero-padded within the project
-  status: proposed                  # proposed | active | shipped | cancelled | on_hold
+  status: active                    # proposed | active | shipped | cancelled | on_hold
   priority: high                    # critical | high | medium | low
   target_complete: null             # optional: YYYY-MM-DD
 
@@ -90,12 +90,10 @@ honored here.
 
 Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
+- [design] SPEC-031 (design) — `apply --recipe` parallel batch over a Source list (rayon, DEC-006) + indicatif progress (DEC-033) + name-template output + exit-6 partial failure; bundles backlog items #2 (recipe load/validation, reused from SPEC-006) / #3 / #4
 - [ ] (not yet written) — `edit` command: one-shot ordered multi-op on a single image from CLI flags + `--save-recipe` (DEC-005)
-- [ ] (not yet written) — recipe load + validation: parse TOML, check version, reject unknown ops, round-trip via the registry
-- [ ] (not yet written) — `apply --recipe` command: replay a recipe over a Source list with rayon parallelism (DEC-006) + indicatif progress + partial-failure summary (exit 6)
-- [ ] (not yet written) — output name-templating across a batch (`{stem}_web.{ext}`) wired through the Sink for multi-input runs
 
-**Count:** 0 shipped / 0 active / 4 pending
+**Count:** 0 shipped / 1 in design / 1 pending  (SPEC-031 = parallel batch `apply` [bundles backlog #2/#3/#4]; remaining: `edit` + `--save-recipe`. Recipe load/validation already shipped in SPEC-006.)
 
 ## Design Notes
 

@@ -51,6 +51,14 @@ little_exif = "=0.6.23"
 # (lean build) does not affect ab_glyph's defaults. The default font is the bundled
 # BSD-3 Go font (assets/fonts/Go-Regular.ttf), overridable with `--font PATH`.
 ab_glyph = "=0.2.32"
+# Batch parallelism + progress for `apply --recipe` over a source list (STAGE-005,
+# SPEC-031). `rayon` (data parallelism across inputs) is pre-justified by DEC-006
+# (no async; rayon for batch). `indicatif` (progress bar) is DEC-033. Both pure-Rust,
+# permissive (MIT OR Apache-2.0 / MIT) — `just deny` stays green. Each rayon task
+# rebuilds its own pipeline from the (Sync) recipe + registry, since `Operation` is
+# not `Send` (no Box<dyn Operation> crosses a thread).
+rayon = "=1.12.0"
+indicatif = "=0.18.4"
 # Perceptual quality metric for auto-quality (SPEC-016, DEC-019). Pure-Rust,
 # BSD-2-Clause (permissive — DEC-018). A metric crate only (no decode/encode/
 # resize), so it does not violate `single-image-library`.

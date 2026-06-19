@@ -311,10 +311,17 @@ One-shot multi-op on a single image — the "experiment like an editor" mode.
 Op flags (`--resize-max`, `--unsharp`, `--watermark`, …) build an ordered
 operation list; `--save-recipe` writes that list as a recipe (DEC-005).
 
-#### `apply --recipe FILE <INPUT...> [--out-dir DIR] [--name-template T] [-j N]`  *(S5)*
-Run a saved recipe over one image or a batch. `rayon`-parallel across
-inputs with an `indicatif` progress bar. The proof of the thesis: the same
-recipe tuned on one image runs unchanged across many.
+#### `apply --recipe FILE <INPUT...> [--out-dir DIR] [--name-template T] [-j N]`  *(SPEC-031)*
+Run a saved recipe over one image or a batch. **`rayon`-parallel** across inputs
+(`-j N` bounds workers, DEC-006) with an **`indicatif`** progress bar on stderr
+(DEC-033; suppressed by `--quiet`). Recipe load reuses SPEC-006 validation (bad
+`version` / unknown op → exit 1; recipe file unreadable → exit 3). Single input →
+`-o`/`--out-dir`/stdout as before; **multiple inputs require `--out-dir`** (else exit
+2) and write name-templated outputs (`{stem}.{ext}`, `--name-template` honored). A
+per-input failure is summarized on stderr and exits **6** (others still written). The
+proof of the thesis: the same recipe tuned on one image runs unchanged across many.
+(`Operation` is not `Send`, so each task rebuilds its pipeline from the recipe +
+registry — no async, DEC-006.)
 
 ## Stage Map (summary)
 
