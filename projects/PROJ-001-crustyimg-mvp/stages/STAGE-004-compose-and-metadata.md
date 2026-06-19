@@ -91,12 +91,12 @@ recipe should be able to chain a resize, a watermark, and a metadata strip.
 Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
 - [x] SPEC-026 (shipped 2026-06-18, PR #30) — metadata lane v1: `strip` (remove all metadata) + `clean --gps` (remove only location) via container lane, JPEG+PNG, no pixel re-encode (DEC-003, DEC-029)
-- [ ] (not yet written) — `watermark` command/Operation: image overlay at gravity anchor (`--opacity`/`--scale`/`--margin`/`--tile`)
+- [design] SPEC-029 (design) — `watermark` command/Operation: image overlay at gravity anchor (`--opacity`/`--scale`/`--margin`/`--tile`); first multi-image Operation (DEC-031)
 - [ ] (not yet written) — text watermark: render text at a gravity anchor (ab_glyph + imageproc::drawing)
 - [x] SPEC-027 (shipped 2026-06-18, PR #31) — `set` command: write EXIF tags (`--artist`/`--copyright`/`--description`) via little_exif, pixels untouched (reuses `run_metadata_lane`)
 - [x] SPEC-028 (shipped 2026-06-18, PR #32) — `copy-metadata` command: copy container EXIF+ICC `--from` one image `--to` another, DST pixels untouched; JPEG-only v1 (DEC-030)
 
-**Count:** 3 shipped / 0 active / 1 pending  (metadata lane COMPLETE: `strip`+`clean --gps` (SPEC-026), `set` (SPEC-027), `copy-metadata` (SPEC-028); remaining: `watermark` — the pixel-lane compositing feature)
+**Count:** 3 shipped / 1 in design / 1 pending  (metadata lane COMPLETE: SPEC-026/027/028; SPEC-029 = `watermark` (image overlay) in design; remaining: text watermark)
 
 ## Design Notes
 

@@ -247,9 +247,17 @@ safe no-op.
 
 ### Compositing
 
-#### `watermark <INPUT...> --image LOGO [--gravity G] [--opacity O] [--scale S] [--margin M] [--tile]`  *(S4)*
-Overlay an image watermark at a gravity anchor. (Text watermark is a
-trailing addition within S4.)
+#### `watermark <INPUT...> --image LOGO [--gravity G] [--opacity O] [--scale S] [--margin M] [--tile]`  *(SPEC-029)*
+Overlay an image watermark (`--image`, required) onto each base at a compass
+**gravity** anchor (default `southeast`; `center`/`north`/…/`southwest`). A
+pixel-lane `Operation` (DEC-002) — the first that composes a second image, loaded
+once at the CLI boundary (DEC-031). `--opacity O` (0–1, default 1) scales the
+overlay alpha; `--scale S` resizes the overlay to `S ×` base width; `--margin M`
+insets the anchor; `--tile` repeats the overlay across the whole base (ignores
+gravity/margin). Missing/unreadable `--image` → exit **3**; bad opacity/scale or
+unknown gravity → exit **2**. Standard fan-out (single → stdout/`-o`/`--out-dir`,
+multi → `--out-dir`, per-input failure → exit 6). Text watermark is a separate
+later spec. **Not recipe-round-trippable until STAGE-005** (DEC-031).
 
 ### Metadata lane *(container-level; no pixel decode — DEC-003)*
 
