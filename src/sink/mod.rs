@@ -364,6 +364,8 @@ impl Sink {
                     Some(f) => *f,
                     None => format_from_extension(path)?,
                 };
+                // Symlink-destination guard: reject even with --yes (DEC-035).
+                reject_symlink_destination(path)?;
                 // Overwrite guard: check before opening (never truncate then error).
                 guard_overwrite(path, overwrite)?;
                 // Encode to bytes, then write to a BufWriter<File>.
@@ -389,6 +391,8 @@ impl Sink {
                 // Expand template and build the safe output path.
                 let file_name = expand_template(template, input.stem, ext, input.path);
                 let full_path = safe_join(dir, &file_name)?;
+                // Symlink-destination guard: reject even with --yes (DEC-035).
+                reject_symlink_destination(&full_path)?;
                 // Overwrite guard.
                 guard_overwrite(&full_path, overwrite)?;
                 // Encode and write.
@@ -491,6 +495,8 @@ impl Sink {
     ) -> Result<(), SinkError> {
         match self {
             Sink::File { path, .. } => {
+                // Symlink-destination guard: reject even with --yes (DEC-035).
+                reject_symlink_destination(path)?;
                 guard_overwrite(path, overwrite)?;
                 let file = OpenOptions::new()
                     .write(true)
@@ -504,6 +510,8 @@ impl Sink {
             Sink::Dir { dir, template, .. } => {
                 let file_name = expand_template(template, input.stem, ext, input.path);
                 let full_path = safe_join(dir, &file_name)?;
+                // Symlink-destination guard: reject even with --yes (DEC-035).
+                reject_symlink_destination(&full_path)?;
                 guard_overwrite(&full_path, overwrite)?;
                 let file = OpenOptions::new()
                     .write(true)
@@ -618,6 +626,27 @@ pub fn encode_to_bytes(
         .write_to(&mut cursor, format)
         .map_err(|e| SinkError::Encode(e.to_string()))?;
     Ok(cursor.into_inner())
+}
+
+/// Reject a symlinked output destination (DEC-035, SPEC-034).
+///
+/// Uses [`std::fs::symlink_metadata`], which does **not** follow the final
+/// path component, to detect a symlink *at* `path`. Returns
+/// [`SinkError::Traversal`] if the path is a symlink; returns `Ok(())` for
+/// regular files, directories, and missing paths. A missing path causes
+/// `symlink_metadata` to error, which falls to the `_` arm — that is the
+/// correct behavior (a non-existent destination is safe to create).
+///
+/// Enforced **regardless of `Overwrite`** — `--yes` permits overwriting a
+/// named file, but does not authorize following a link out of the directory
+/// (DEC-035).
+fn reject_symlink_destination(path: &Path) -> Result<(), SinkError> {
+    match std::fs::symlink_metadata(path) {
+        Ok(m) if m.file_type().is_symlink() => {
+            Err(SinkError::Traversal(path.display().to_string()))
+        }
+        _ => Ok(()),
+    }
 }
 
 /// Check the overwrite guard for a File or Dir sink.
@@ -850,5 +879,155 @@ mod tests {
             low.len(),
             high.len()
         );
+    }
+
+    // ── reject_symlink_destination (SPEC-034) ──────────────────────────────
+
+    /// Returns Ok for a non-existent path and for a regular file.
+    #[test]
+    fn reject_symlink_destination_ok_for_regular_and_missing() {
+        let tmp = tempfile::tempdir().unwrap();
+        // Missing path — symlink_metadata errors → Ok.
+        let missing = tmp.path().join("does_not_exist.png");
+        assert!(
+            reject_symlink_destination(&missing).is_ok(),
+            "missing path should be Ok"
+        );
+        // Regular file — not a symlink → Ok.
+        let regular = tmp.path().join("regular.png");
+        std::fs::write(&regular, b"data").unwrap();
+        assert!(
+            reject_symlink_destination(&regular).is_ok(),
+            "regular file should be Ok"
+        );
+    }
+
+    /// A symlink at the path → Traversal error.
+    #[cfg(unix)]
+    #[test]
+    fn reject_symlink_destination_rejects_symlink() {
+        let tmp = tempfile::tempdir().unwrap();
+        let target = tmp.path().join("target.txt");
+        std::fs::write(&target, b"sensitive").unwrap();
+        let link = tmp.path().join("link.png");
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+
+        let result = reject_symlink_destination(&link);
+        assert!(
+            matches!(result, Err(SinkError::Traversal(_))),
+            "symlink should be rejected with Traversal, got: {result:?}"
+        );
+    }
+
+    /// write() on a Sink::File whose path is a symlink → Traversal, even with
+    /// Overwrite::Allow. The symlink's target file is NOT modified.
+    #[cfg(unix)]
+    #[test]
+    fn write_file_through_symlink_is_rejected_even_with_yes() {
+        use crate::image::Image;
+        let tmp = tempfile::tempdir().unwrap();
+        // Create a file outside the sink dir.
+        let outside = tmp.path().join("outside.txt");
+        let original_bytes = b"original contents";
+        std::fs::write(&outside, original_bytes).unwrap();
+        // Plant a symlink inside the sink dir pointing to it.
+        let link = tmp.path().join("link.png");
+        std::os::unix::fs::symlink(&outside, &link).unwrap();
+
+        // Build a tiny 1x1 PNG image.
+        let png_bytes = {
+            let img = ::image::DynamicImage::new_rgb8(1, 1);
+            let mut buf = Cursor::new(Vec::new());
+            img.write_to(&mut buf, ImageFormat::Png).unwrap();
+            buf.into_inner()
+        };
+        let image = Image::from_bytes(&png_bytes).unwrap();
+
+        let sink = Sink::File {
+            path: link.clone(),
+            format: Some(ImageFormat::Png),
+        };
+        let input = SinkInput {
+            stem: "link",
+            path: Some(&link),
+        };
+        let mut out = Vec::new();
+        let result = sink.write(&image, &input, Overwrite::Allow, None, &mut out);
+
+        assert!(
+            matches!(result, Err(SinkError::Traversal(_))),
+            "write through symlink should fail with Traversal, got: {result:?}"
+        );
+        // Outside target must be unmodified.
+        let after = std::fs::read(&outside).unwrap();
+        assert_eq!(after, original_bytes, "outside target must not be modified");
+    }
+
+    /// write_bytes() on a Sink::Dir where the templated name resolves to a
+    /// symlink in the dir → Traversal, even with Overwrite::Allow. Outside
+    /// target unchanged.
+    #[cfg(unix)]
+    #[test]
+    fn write_bytes_dir_through_symlink_is_rejected() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().join("out");
+        std::fs::create_dir(&dir).unwrap();
+
+        // File outside the dir.
+        let outside = tmp.path().join("outside.txt");
+        let original_bytes = b"untouched";
+        std::fs::write(&outside, original_bytes).unwrap();
+
+        // Plant a symlink inside the dir.
+        let link = dir.join("photo.png");
+        std::os::unix::fs::symlink(&outside, &link).unwrap();
+
+        let sink = Sink::Dir {
+            dir: dir.clone(),
+            template: "{stem}.{ext}".into(),
+            format: Some(ImageFormat::Png),
+        };
+        let input = SinkInput {
+            stem: "photo",
+            path: None,
+        };
+        let mut out = Vec::new();
+        let result = sink.write_bytes(b"fakedata", &input, "png", Overwrite::Allow, &mut out);
+
+        assert!(
+            matches!(result, Err(SinkError::Traversal(_))),
+            "write_bytes through symlink should fail with Traversal, got: {result:?}"
+        );
+        // Outside target must be unmodified.
+        let after = std::fs::read(&outside).unwrap();
+        assert_eq!(after, original_bytes, "outside target must not be modified");
+    }
+
+    /// A Sink::Dir write to a plain (non-symlink) destination still succeeds —
+    /// no regression from the symlink guard.
+    #[test]
+    fn write_dir_normal_destination_still_succeeds() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().join("out");
+        std::fs::create_dir(&dir).unwrap();
+
+        let sink = Sink::Dir {
+            dir: dir.clone(),
+            template: "{stem}.{ext}".into(),
+            format: Some(ImageFormat::Png),
+        };
+        let input = SinkInput {
+            stem: "photo",
+            path: None,
+        };
+        let mut out = Vec::new();
+        // write_bytes with Forbid (the destination doesn't exist yet).
+        let result = sink.write_bytes(b"pngdata", &input, "png", Overwrite::Forbid, &mut out);
+        assert!(
+            result.is_ok(),
+            "normal dir write should succeed, got: {result:?}"
+        );
+        let written = dir.join("photo.png");
+        assert!(written.exists(), "output file should exist");
     }
 }

@@ -177,9 +177,15 @@ fn resolve_glob(pattern: &str) -> Result<Vec<Input>, SourceError> {
     // We walk the pattern from the left up to the first glob metachar to find
     // the base dir, then take its parent directory as the anchor.
     let base = glob_base_dir(pattern);
-    // If canonicalize fails (e.g. the base doesn't exist yet) we fall through
-    // without a root guard — the entries themselves will be checked.
-    let root_opt = std::fs::canonicalize(&base).ok();
+    // Anchor the escape check to the glob base, falling back to cwd so the
+    // guard is never bypassed (SPEC-034, DEC-035). `canonicalize(".")` errors
+    // only when cwd itself is inaccessible, which is effectively impossible
+    // in normal operation — in that case root_opt is None and the per-entry
+    // guard is skipped (same as the pre-fix behavior; the situation is already
+    // broken at the OS level).
+    let root_opt = std::fs::canonicalize(&base)
+        .or_else(|_| std::fs::canonicalize("."))
+        .ok();
 
     let mut results: Vec<PathBuf> = Vec::new();
     for entry in paths_iter {
@@ -369,5 +375,129 @@ mod tests {
             }
             Input::Path(_) => panic!("expected Stdin variant"),
         }
+    }
+
+    // ── Traversal hardening tests (SPEC-034) ──────────────────────────────
+
+    /// Helper: write a minimal valid 1×1 PNG to `path`.
+    #[cfg(test)]
+    fn write_tiny_png(path: &std::path::Path) {
+        use std::io::Write;
+        // Minimal 1×1 white PNG (hardcoded bytes — no pixel-crate dependency
+        // in source tests per DEC-002 layering).
+        // Generated offline: ImageFormat::Png 1x1 Rgb8 white.
+        let png: &[u8] = &[
+            0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, // PNG sig
+            0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52, // IHDR len+type
+            0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, // 1x1
+            0x08, 0x02, 0x00, 0x00, 0x00, 0x90, 0x77, 0x53, // 8bpc RGB
+            0xde, 0x00, 0x00, 0x00, 0x0c, 0x49, 0x44, 0x41, // IDAT len+type
+            0x54, 0x08, 0xd7, 0x63, 0xf8, 0xcf, 0xc0, 0x00, // IDAT data
+            0x00, 0x00, 0x02, 0x00, 0x01, 0xe2, 0x21, 0xbc, // IDAT crc
+            0x33, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, // IEND len+type
+            0x44, 0xae, 0x42, 0x60, 0x82, // IEND data+crc
+        ];
+        let mut f = std::fs::File::create(path).unwrap();
+        f.write_all(png).unwrap();
+    }
+
+    /// A glob matching a symlink that points OUTSIDE the glob root skips that
+    /// entry; only in-tree images are yielded. (SPEC-034, DEC-035)
+    #[cfg(unix)]
+    #[test]
+    fn glob_skips_symlink_escaping_root() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("root");
+        std::fs::create_dir(&root).unwrap();
+
+        // An in-tree image.
+        let in_tree = root.join("inTree.png");
+        write_tiny_png(&in_tree);
+
+        // An image OUTSIDE root that a symlink inside root points to.
+        let outside = tmp.path().join("outside.png");
+        write_tiny_png(&outside);
+        let escape_link = root.join("escape.png");
+        std::os::unix::fs::symlink(&outside, &escape_link).unwrap();
+
+        // Build a glob pattern like "<root>/*.png".
+        let pattern = format!("{}/*.png", root.display());
+        let mut reader = std::io::empty();
+        let inputs = resolve(&pattern, &mut reader).unwrap();
+
+        // Only the in-tree image should be yielded.
+        assert_eq!(inputs.len(), 1, "expected 1 input, got: {inputs:?}");
+        match &inputs[0] {
+            Input::Path(p) => assert_eq!(p, &in_tree),
+            other => panic!("expected Path, got {other:?}"),
+        }
+    }
+
+    /// A directory source containing a symlink to a file outside the dir skips
+    /// it; only in-tree images are yielded. (SPEC-034, DEC-035 — reference
+    /// behavior, now explicitly tested.)
+    #[cfg(unix)]
+    #[test]
+    fn directory_skips_symlink_escaping_root() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("root");
+        std::fs::create_dir(&root).unwrap();
+
+        // An in-tree image.
+        let in_tree = root.join("inTree.png");
+        write_tiny_png(&in_tree);
+
+        // An image outside root that a symlink inside root points to.
+        let outside = tmp.path().join("outside.png");
+        write_tiny_png(&outside);
+        let escape_link = root.join("escape.png");
+        std::os::unix::fs::symlink(&outside, &escape_link).unwrap();
+
+        let dir_str = root.to_str().unwrap();
+        let mut reader = std::io::empty();
+        let inputs = resolve(dir_str, &mut reader).unwrap();
+
+        assert_eq!(inputs.len(), 1, "expected 1 input, got: {inputs:?}");
+        match &inputs[0] {
+            // On macOS /var is a symlink to /private/var; canonicalize both
+            // sides to compare stable real paths.
+            Input::Path(p) => assert_eq!(
+                std::fs::canonicalize(p).unwrap(),
+                std::fs::canonicalize(&in_tree).unwrap(),
+            ),
+            other => panic!("expected Path, got {other:?}"),
+        }
+    }
+
+    /// A glob over a dir of plain PNGs resolves all of them (no regression).
+    #[test]
+    fn glob_resolves_all_in_tree_images() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().join("imgs");
+        std::fs::create_dir(&dir).unwrap();
+
+        let a = dir.join("a.png");
+        let b = dir.join("b.png");
+        let c = dir.join("c.png");
+        write_tiny_png(&a);
+        write_tiny_png(&b);
+        write_tiny_png(&c);
+
+        let pattern = format!("{}/*.png", dir.display());
+        let mut reader = std::io::empty();
+        let inputs = resolve(&pattern, &mut reader).unwrap();
+
+        assert_eq!(inputs.len(), 3, "expected 3 inputs, got: {inputs:?}");
+        // Verify sorted order.
+        let paths: Vec<_> = inputs
+            .iter()
+            .map(|i| match i {
+                Input::Path(p) => p.clone(),
+                _ => panic!("expected Path"),
+            })
+            .collect();
+        let mut expected = vec![a, b, c];
+        expected.sort();
+        assert_eq!(paths, expected);
     }
 }
