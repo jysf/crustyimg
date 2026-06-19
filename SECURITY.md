@@ -21,8 +21,14 @@ agent-run workflow this repo uses.
    mapped to non-zero exit codes rather than crashes.
 2. **Untrusted recipes.** A recipe is a TOML file describing an operation
    chain. Treat a recipe from outside your team as untrusted: it can only
-   express registered operations (no code execution), but validate the
-   `version` field and reject unknown operations rather than guessing.
+   express registered operations (no code execution). Mitigations: the loader
+   validates the `version` and rejects unknown operations / invalid params with
+   typed errors (SPEC-006), and **bounds resources** — a recipe text over 64 KiB
+   or with more than 1024 steps is rejected (`RecipeError::TooLarge` /
+   `TooManySteps`, exit 1), and the `apply` read path refuses an over-size recipe
+   *file* before reading it (SPEC-035 / DEC-036). *Known residual:* individual op
+   params are not yet bounded (e.g. a `resize` to enormous dimensions) — tracked
+   for the threat-model pass.
 3. **Path traversal on output.** Batch output uses name templates
    (`{stem}_web.{ext}`) into `--out-dir`. Mitigations (SPEC-005 + SPEC-034 /
    DEC-035): `safe_join` rejects an expanded name that is absolute, contains a

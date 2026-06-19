@@ -72,6 +72,12 @@ panic or OOM — before pixels are produced. Limits are fixed in v1; a
 `--max-pixels`/env override to re-admit a legitimately huge image is a planned
 follow-up.
 
+**Recipe resource limits (SPEC-035 / DEC-036):** `apply --recipe` bounds an
+untrusted recipe — a recipe text over **64 KiB** or with more than **1024 steps**
+is rejected with a typed error (exit `1`), and an over-size recipe *file* is
+refused before it is read into memory. (Op-parameter bounds, e.g. a `resize` to
+enormous dimensions, are a tracked follow-up.)
+
 ## Subcommand Surface (full MVP)
 
 `(Sx)` marks the stage that delivers each command.
