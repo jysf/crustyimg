@@ -176,6 +176,53 @@ pub fn clean_gps(bytes: &[u8]) -> Result<Vec<u8>, MetadataError> {
     Ok(out)
 }
 
+// ── set_tags ──────────────────────────────────────────────────────────────────
+
+/// The attribution tags `set` can write (SPEC-027). Each `Some` is written into
+/// the container EXIF; each `None` is left untouched. All three are STRING tags
+/// in the generic/IFD0 group (`Artist`, `Copyright`, `ImageDescription`).
+#[derive(Debug, Clone, Default)]
+pub struct TagSet {
+    pub artist: Option<String>,
+    pub copyright: Option<String>,
+    pub description: Option<String>,
+}
+
+/// Write the given attribution tags into the container EXIF, **overwriting** any
+/// existing value of the same tag and **preserving** every other tag, segment,
+/// and the pixels exactly (no re-encode — `metadata-not-via-pixel-encode`).
+///
+/// Loads the existing metadata first so other tags survive; a file with **no
+/// EXIF** falls back to a fresh EXIF block carrying just the given tags
+/// (`little_exif` returns an error on parse, caught here). Only JPEG + PNG are
+/// supported in v1; any other format is a [`MetadataError::UnsupportedFormat`].
+pub fn set_tags(bytes: &[u8], tags: &TagSet) -> Result<Vec<u8>, MetadataError> {
+    use little_exif::exif_tag::ExifTag;
+
+    let lane = sniff(bytes)?;
+    let ext = file_extension(lane);
+
+    let owned = bytes.to_vec();
+    // Load-then-set preserves existing tags; the Err branch is the "No EXIF"
+    // fresh-create fallback (probe-verified, DEC-029).
+    let mut md = Metadata::new_from_vec(&owned, ext).unwrap_or_else(|_| Metadata::new());
+
+    if let Some(ref artist) = tags.artist {
+        md.set_tag(ExifTag::Artist(artist.clone()));
+    }
+    if let Some(ref copyright) = tags.copyright {
+        md.set_tag(ExifTag::Copyright(copyright.clone()));
+    }
+    if let Some(ref description) = tags.description {
+        md.set_tag(ExifTag::ImageDescription(description.clone()));
+    }
+
+    let mut out = owned.clone();
+    md.write_to_vec(&mut out, ext)
+        .map_err(|e| MetadataError::Exif(e.to_string()))?;
+    Ok(out)
+}
+
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -349,6 +396,162 @@ mod tests {
         let bmp = base_image(ImageFormat::Bmp);
         assert!(matches!(
             clean_gps(&bmp),
+            Err(MetadataError::UnsupportedFormat(_))
+        ));
+    }
+
+    // ── set_tags ──────────────────────────────────────────────────────────────
+
+    /// Read one generic-IFD STRING tag value by its tag id from container bytes.
+    fn read_generic_string(bytes: &[u8], ext: FileExtension, tag_id: u16) -> Option<String> {
+        let mut md = Metadata::new_from_vec(&bytes.to_vec(), ext).ok()?;
+        md.get_ifd_mut(ExifTagGroup::GENERIC, 0)
+            .get_tags()
+            .iter()
+            .find(|t| t.as_u16() == tag_id)
+            .map(|t| t.value_as_u8_vec(&little_exif::endian::Endian::Little))
+            .map(|raw| {
+                String::from_utf8_lossy(&raw)
+                    .trim_end_matches('\0')
+                    .to_owned()
+            })
+    }
+
+    // Tag ids (IFD0): Artist 0x013B, Copyright 0x8298, ImageDescription 0x010E.
+    const TAG_ARTIST: u16 = 0x013B;
+    const TAG_COPYRIGHT: u16 = 0x8298;
+    const TAG_DESCRIPTION: u16 = 0x010E;
+
+    #[test]
+    fn set_tags_writes_all_three() {
+        let input = base_image(ImageFormat::Jpeg);
+        let tags = TagSet {
+            artist: Some("Jane".to_string()),
+            copyright: Some("2026 Jane".to_string()),
+            description: Some("a test image".to_string()),
+        };
+        let out = set_tags(&input, &tags).expect("set");
+        assert_eq!(
+            read_generic_string(&out, FileExtension::JPEG, TAG_ARTIST).as_deref(),
+            Some("Jane")
+        );
+        assert_eq!(
+            read_generic_string(&out, FileExtension::JPEG, TAG_COPYRIGHT).as_deref(),
+            Some("2026 Jane")
+        );
+        assert_eq!(
+            read_generic_string(&out, FileExtension::JPEG, TAG_DESCRIPTION).as_deref(),
+            Some("a test image")
+        );
+    }
+
+    #[test]
+    fn set_tags_preserves_existing_metadata() {
+        // jpeg_with_exif seeds Orientation + Copyright + GPS refs.
+        let input = jpeg_with_exif();
+        let tags = TagSet {
+            artist: Some("Added".to_string()),
+            ..TagSet::default()
+        };
+        let out = set_tags(&input, &tags).expect("set");
+
+        let mut md = Metadata::new_from_vec(&out, FileExtension::JPEG).expect("reparse");
+        let generic_ids: Vec<u16> = md
+            .get_ifd_mut(ExifTagGroup::GENERIC, 0)
+            .get_tags()
+            .iter()
+            .map(|t| t.as_u16())
+            .collect();
+        assert!(generic_ids.contains(&0x0112), "Orientation should survive");
+        assert!(generic_ids.contains(&TAG_ARTIST), "Artist should be added");
+        // GPS refs survive too.
+        assert!(
+            !md.get_ifd_mut(ExifTagGroup::GPS, 0).get_tags().is_empty(),
+            "GPS tags should survive"
+        );
+    }
+
+    #[test]
+    fn set_tags_overwrites_existing_tag() {
+        // Seed Copyright="OLD".
+        let mut input = base_image(ImageFormat::Jpeg);
+        let mut seed = Metadata::new();
+        seed.set_tag(ExifTag::Copyright("OLD".to_string()));
+        seed.write_to_vec(&mut input, FileExtension::JPEG)
+            .expect("seed");
+        assert_eq!(
+            read_generic_string(&input, FileExtension::JPEG, TAG_COPYRIGHT).as_deref(),
+            Some("OLD")
+        );
+
+        let tags = TagSet {
+            copyright: Some("NEW".to_string()),
+            ..TagSet::default()
+        };
+        let out = set_tags(&input, &tags).expect("set");
+        assert_eq!(
+            read_generic_string(&out, FileExtension::JPEG, TAG_COPYRIGHT).as_deref(),
+            Some("NEW")
+        );
+    }
+
+    #[test]
+    fn set_tags_on_no_exif_creates_them() {
+        let input = base_image(ImageFormat::Jpeg);
+        // Precondition: no EXIF at all.
+        assert!(
+            Metadata::new_from_vec(&input, FileExtension::JPEG).is_err(),
+            "fixture should have no EXIF"
+        );
+        let tags = TagSet {
+            artist: Some("Fresh".to_string()),
+            ..TagSet::default()
+        };
+        let out = set_tags(&input, &tags).expect("set");
+        assert_eq!(
+            read_generic_string(&out, FileExtension::JPEG, TAG_ARTIST).as_deref(),
+            Some("Fresh")
+        );
+    }
+
+    #[test]
+    fn set_tags_preserves_pixels() {
+        let input = jpeg_with_exif();
+        let tags = TagSet {
+            artist: Some("Jane".to_string()),
+            ..TagSet::default()
+        };
+        let out = set_tags(&input, &tags).expect("set");
+        assert_pixels_equal(&input, &out);
+    }
+
+    #[test]
+    fn set_tags_png() {
+        let input = base_image(ImageFormat::Png);
+        let tags = TagSet {
+            copyright: Some("PNG owner".to_string()),
+            ..TagSet::default()
+        };
+        let out = set_tags(&input, &tags).expect("set");
+        let ext = FileExtension::PNG {
+            as_zTXt_chunk: false,
+        };
+        assert_eq!(
+            read_generic_string(&out, ext, TAG_COPYRIGHT).as_deref(),
+            Some("PNG owner")
+        );
+        assert_pixels_equal(&input, &out);
+    }
+
+    #[test]
+    fn set_tags_unsupported_format_errors() {
+        let bmp = base_image(ImageFormat::Bmp);
+        let tags = TagSet {
+            artist: Some("x".to_string()),
+            ..TagSet::default()
+        };
+        assert!(matches!(
+            set_tags(&bmp, &tags),
             Err(MetadataError::UnsupportedFormat(_))
         ));
     }

@@ -559,7 +559,18 @@ fn dispatch(cli: &Cli) -> Result<(), CliError> {
         Commands::Watermark { .. } => Err(CliError::NotImplemented("watermark")),
         Commands::Strip { inputs } => run_strip(inputs, &cli.global),
         Commands::Clean { inputs, gps } => run_clean(inputs, *gps, &cli.global),
-        Commands::Set { .. } => Err(CliError::NotImplemented("set")),
+        Commands::Set {
+            inputs,
+            artist,
+            copyright,
+            description,
+        } => run_set(
+            inputs,
+            artist.clone(),
+            copyright.clone(),
+            description.clone(),
+            &cli.global,
+        ),
         Commands::CopyMetadata { .. } => Err(CliError::NotImplemented("copy-metadata")),
         Commands::Edit { .. } => Err(CliError::NotImplemented("edit")),
     }
@@ -1775,6 +1786,34 @@ fn run_clean(inputs: &[String], gps: bool, global: &GlobalArgs) -> Result<(), Cl
         return Err(CliError::Usage("clean requires --gps".into()));
     }
     run_metadata_lane(inputs, global, crate::metadata::clean_gps)
+}
+
+/// Wire `set`: write the given EXIF attribution tags into the container via the
+/// container lane (DEC-003), preserving every other tag and the pixels exactly
+/// (no re-encode, `metadata-not-via-pixel-encode`).
+///
+/// At least one of `--artist`/`--copyright`/`--description` is required; none is
+/// a usage error (exit 2). Format is preserved; `-q`/`--format` are ignored.
+fn run_set(
+    inputs: &[String],
+    artist: Option<String>,
+    copyright: Option<String>,
+    description: Option<String>,
+    global: &GlobalArgs,
+) -> Result<(), CliError> {
+    if artist.is_none() && copyright.is_none() && description.is_none() {
+        return Err(CliError::Usage(
+            "set requires at least one of --artist/--copyright/--description".into(),
+        ));
+    }
+    let tags = crate::metadata::TagSet {
+        artist,
+        copyright,
+        description,
+    };
+    run_metadata_lane(inputs, global, |bytes| {
+        crate::metadata::set_tags(bytes, &tags)
+    })
 }
 
 // ── thumbnail helpers ─────────────────────────────────────────────────────────

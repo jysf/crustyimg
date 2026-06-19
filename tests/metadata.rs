@@ -68,6 +68,23 @@ fn jpeg_has_exif(bytes: &[u8]) -> bool {
     }
 }
 
+/// Whether a JPEG byte stream carries a generic-IFD tag with the given id.
+fn jpeg_has_generic_tag(bytes: &[u8], tag_id: u16) -> bool {
+    match Metadata::new_from_vec(&bytes.to_vec(), FileExtension::JPEG) {
+        Err(_) => false,
+        Ok(mut md) => md
+            .get_ifd_mut(ExifTagGroup::GENERIC, 0)
+            .get_tags()
+            .iter()
+            .any(|t| t.as_u16() == tag_id),
+    }
+}
+
+// IFD0 tag ids: Artist 0x013B, Copyright 0x8298, Orientation 0x0112.
+const TAG_ARTIST: u16 = 0x013B;
+const TAG_COPYRIGHT: u16 = 0x8298;
+const TAG_ORIENTATION: u16 = 0x0112;
+
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[test]
@@ -273,4 +290,133 @@ fn strip_refuses_overwrite_without_yes() {
         allowed.status.success(),
         "overwrite with --yes should exit 0"
     );
+}
+
+// ── set (SPEC-027) ────────────────────────────────────────────────────────────
+
+#[test]
+fn set_writes_tags_to_output() {
+    let dir = TempDir::new().unwrap();
+    // Plain JPEG with no EXIF: set creates the tags.
+    let input = write_fixture(&dir, "in.jpg", &base_bytes(ImageFormat::Jpeg));
+    let out = dir.path().join("out.jpg");
+
+    let output = Command::new(BIN)
+        .args([
+            "set",
+            input.to_str().unwrap(),
+            "--artist",
+            "Jane",
+            "--copyright",
+            "2026",
+            "-o",
+            out.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success(), "set should exit 0");
+    let bytes = std::fs::read(&out).unwrap();
+    assert!(
+        jpeg_has_generic_tag(&bytes, TAG_ARTIST),
+        "Artist should be written"
+    );
+    assert!(
+        jpeg_has_generic_tag(&bytes, TAG_COPYRIGHT),
+        "Copyright should be written"
+    );
+}
+
+#[test]
+fn set_without_any_flag_exits_2() {
+    let dir = TempDir::new().unwrap();
+    let input = write_fixture(&dir, "in.jpg", &jpeg_with_exif());
+
+    let output = Command::new(BIN)
+        .args(["set", input.to_str().unwrap(), "-o", "-"])
+        .output()
+        .unwrap();
+
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "set with no tag flags should exit 2"
+    );
+}
+
+#[test]
+fn set_preserves_other_metadata() {
+    let dir = TempDir::new().unwrap();
+    // jpeg_with_exif carries Orientation (0x0112).
+    let input = write_fixture(&dir, "in.jpg", &jpeg_with_exif());
+    let out = dir.path().join("out.jpg");
+
+    let output = Command::new(BIN)
+        .args([
+            "set",
+            input.to_str().unwrap(),
+            "--copyright",
+            "X",
+            "-o",
+            out.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success(), "set should exit 0");
+    let bytes = std::fs::read(&out).unwrap();
+    assert!(
+        jpeg_has_generic_tag(&bytes, TAG_ORIENTATION),
+        "Orientation should be preserved"
+    );
+}
+
+#[test]
+fn set_unsupported_format_exits_4() {
+    let dir = TempDir::new().unwrap();
+    let input = write_fixture(&dir, "in.bmp", &base_bytes(ImageFormat::Bmp));
+
+    let output = Command::new(BIN)
+        .args(["set", input.to_str().unwrap(), "--artist", "A", "-o", "-"])
+        .output()
+        .unwrap();
+
+    assert_eq!(
+        output.status.code(),
+        Some(4),
+        "set on a BMP should exit 4 (unsupported format)"
+    );
+}
+
+#[test]
+fn set_multi_input_fanout_writes_all() {
+    let dir = TempDir::new().unwrap();
+    let a = write_fixture(&dir, "a.jpg", &base_bytes(ImageFormat::Jpeg));
+    let b = write_fixture(&dir, "b.jpg", &base_bytes(ImageFormat::Jpeg));
+    let out_dir = TempDir::new().unwrap();
+
+    let output = Command::new(BIN)
+        .args([
+            "set",
+            a.to_str().unwrap(),
+            b.to_str().unwrap(),
+            "--artist",
+            "A",
+            "--out-dir",
+            out_dir.path().to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success(), "fan-out set should exit 0");
+
+    for name in ["a.jpg", "b.jpg"] {
+        let path = out_dir.path().join(name);
+        assert!(path.exists(), "{name} should be written");
+        let bytes = std::fs::read(&path).unwrap();
+        assert!(
+            jpeg_has_generic_tag(&bytes, TAG_ARTIST),
+            "{name} should be tagged with Artist"
+        );
+    }
 }
