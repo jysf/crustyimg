@@ -7,7 +7,7 @@
 task:
   id: SPEC-027
   type: story                      # epic | story | task | bug | chore
-  cycle: design                    # frame | design | build | verify | ship
+  cycle: verify  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: S                    # S | M | L  (L means split it)
@@ -63,6 +63,17 @@ cost:
         lane; ran a design-time probe confirming little_exif set-then-write
         preserves existing tags + the no-EXIF fresh-create fallback (real JPEG).
         No new dep / no new DEC (reuses DEC-029's crates).
+    - cycle: build
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-06-18
+      notes: >
+        set command: metadata::TagSet + set_tags + run_set reusing
+        run_metadata_lane; container lane, no pixel re-encode; no new dep.
+        12 new tests (7 unit, 5 integration) green; fmt/clippy/deny clean.
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -266,28 +277,40 @@ Written during **design**, BEFORE build. Reuse SPEC-026's native fixture helpers
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
+- **Branch:** `feat/spec-027-set-exif-tags`
+- **PR (if applicable):** `feat(metadata): set artist/copyright/description tags (SPEC-027)`
+- **All acceptance criteria met?** yes
 - **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
+  - None (No new DEC — reuses DEC-003, DEC-029, DEC-015, DEC-007).
 - **Deviations from spec:**
-  - [list]
+  - None. Implemented exactly as pinned: `metadata::{TagSet, set_tags}` +
+    `run_set` delegating to `run_metadata_lane` via a capturing closure;
+    load-then-set preserves existing tags; no-EXIF fresh-create fallback.
 - **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - `copy-metadata` (the last metadata-lane spec) remains on the STAGE-004
+    backlog, as noted in this spec's Out-of-scope.
 
 ### Build-phase reflection (3 questions, short answers)
 
 Process-focused: how did the build go? What friction did the spec create?
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — Nothing material. The Lane mechanics were pinned and probe-verified, so the
+   transform fell straight out. The only lookup was the `little_exif` read-back
+   API for the unit tests (`ExifTag::value_as_u8_vec(&Endian)` to assert a
+   written STRING tag's value) — the spec pinned the write side but not the read
+   side used purely in test assertions.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — No. The four referenced decisions and four constraints covered everything;
+   the existing `run_metadata_lane` already encapsulated the fan-out/exit-code
+   semantics (DEC-015), so `set` needed no new rules.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Nothing significant. Mirroring `run_clean`/`run_strip` and reusing the
+   SPEC-026 native fixtures made this a near-mechanical extension; the only
+   judgement call was a small `read_generic_string` test helper for value-level
+   assertions, which I'd write the same way again.
 
 ---
 
