@@ -98,12 +98,12 @@ ship"). It adds no new user features — it makes the existing ones safe.
 Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
 - [x] SPEC-033 (shipped 2026-06-19, PR #37) — decode resource limits on the canonical load path (`image::Limits`: per-dimension ≤ 65 535 + alloc ≤ 512 MiB, reject-not-clamp → typed `ImageError::LimitsExceeded`, exit 1) at the one `decode_with_format` choke point — closes the known decompression-bomb gap; DEC-034; no new dep
-- [ ] SPEC-034 (design 2026-06-19) — path/symlink traversal hardening across Source + Sink: reject a symlinked output destination even under `--yes` (Sink `write`/`write_bytes`) + always-anchor the glob escape-check (close the SPEC-004 `root_opt=None` bypass, DEC-010); DEC-035; no new dep
+- [x] SPEC-034 (shipped 2026-06-19, PR #38) — path/symlink traversal hardening across Source + Sink: reject a symlinked output destination even under `--yes` (Sink `write`/`write_bytes`, all 4 file arms) + always-anchor the glob escape-check (close the SPEC-004 `root_opt=None` bypass, DEC-010); DEC-035; no new dep. (Follow-up surfaced: `edit --save-recipe` raw write is unguarded → fold into the threat-model pass below.)
 - [ ] (not yet written) — security-grade recipe validation: reject unsupported version + unknown operations with typed errors
 - [ ] (not yet written) — `cargo audit` / `cargo deny` wired into CI (dependency-advisory + license/ban gate)
-- [ ] (not yet written) — threat-model verification pass against `SECURITY.md` + `/security-review` on the cumulative diff, findings recorded
+- [ ] (not yet written) — threat-model verification pass against `SECURITY.md` + `/security-review` on the cumulative diff, findings recorded (sweep ALL output write paths, incl. `edit --save-recipe`'s raw `std::fs::write`, for symlink/traversal parity with the Sink — surfaced by SPEC-034 verify)
 
-**Count:** 1 shipped / 1 in design / 3 pending
+**Count:** 2 shipped / 0 active / 3 pending
 
 ## Design Notes
 

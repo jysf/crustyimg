@@ -15,6 +15,13 @@ Cycle prompts live in `prompts/SPEC-034-<cycle>.md`.
   `reject_symlink_destination` helper on all four file-producing arms (reject regardless
   of `--yes`) + a one-line cwd-anchor fallback on the glob root. `std`-only, no new dep.
   Updated SECURITY.md + api-contract. Build prompt at `prompts/SPEC-034-build.md`.
-- [ ] **build** (Sonnet) — make the failing tests pass; see `prompts/SPEC-034-build.md`.
-- [ ] **verify** (Opus, Explore) — independent read-only review + gate re-run (incl. lean).
-- [ ] **ship** — pause for the user before merge.
+- [x] **build** (2026-06-19, Sonnet 4.6) — PR #38; `reject_symlink_destination` on all 4
+  Sink file arms (enforced even with `--yes`) + glob root cwd-anchor fallback. 396 tests
+  green (5 sink + 3 source new, Unix-gated); clippy/fmt/lean/deny clean. One test-only
+  deviation (macOS `/var` canonicalization). subagent tokens=75724 (~$0.41).
+- [x] **verify** (2026-06-19, Opus Explore) — APPROVED, no concerns; adversarial gap-hunt
+  of every write/open path confirmed all 4 arms guarded + not gated behind `--yes`;
+  surfaced the `--save-recipe` raw-write follow-up (deferred to backlog #5). Gates re-run
+  green (396 tests). ~55k est.
+- [x] **ship** (2026-06-19) — squash-merged PR #38 (21ec97b); cost totals + ship reflection
+  + archived to `specs/done/`. STAGE-006 backlog #2 complete.

@@ -7,7 +7,7 @@
 task:
   id: SPEC-034
   type: story                      # epic | story | task | bug | chore
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: M                    # S | M | L  (L means split it)
@@ -50,18 +50,70 @@ value_link: >
 # claude-ai | api | ollama | other.
 cost:
   sessions:
-    - cycle: build
-      agent: claude-sonnet-4-6
+    - cycle: design
+      agent: claude-opus-4-8
       interface: claude-code
       tokens_total: null
       estimated_usd: null
       duration_minutes: null
       recorded_at: 2026-06-19
-      notes: "traversal hardening: reject_symlink_destination on all 4 Sink file arms (reject even with --yes) + glob root cwd-anchor fallback (close root_opt=None bypass); reuse SinkError::Traversal exit 5; std-only, no new dep"
+      notes: >
+        Main-loop orchestrator work, not separately metered. Read Source + Sink
+        end to end, identified the two residual traversal gaps (Sink follows a
+        symlink AT the output destination — reachable under --yes; glob
+        escape-check skipped when the base can't canonicalize), authored the
+        spec (Hardening policy PINNED, Failing Tests, Implementation Context) +
+        DEC-035 + the Sonnet build prompt. Pinned the honest note that the glob
+        bypass is nearly unreachable behaviorally (fix is defense-in-depth; tests
+        pin the escape property). Updated SECURITY.md + api-contract. std-only,
+        no new dep. Second STAGE-006 spec.
+    - cycle: build
+      agent: claude-sonnet-4-6
+      interface: claude-code
+      tokens_total: 75724
+      estimated_usd: 0.41
+      duration_minutes: 6
+      recorded_at: 2026-06-19
+      notes: >
+        Real metered subagent on Sonnet 4.6. subagent_tokens=75724,
+        duration_ms=353263. estimated_usd at Sonnet list ($3/$15 per MTok,
+        ~80/20). traversal hardening: reject_symlink_destination on all 4 Sink
+        file arms (reject even with --yes) + glob root cwd-anchor fallback (close
+        root_opt=None bypass); reuse SinkError::Traversal exit 5; std-only, no
+        new dep. 396 tests green (5 sink + 3 source new, Unix-gated symlink
+        fixtures); clippy/fmt/lean/deny clean. One test-only deviation:
+        directory_skips_symlink_escaping_root canonicalizes both sides for macOS
+        /var→/private/var indirection (production unchanged).
+    - cycle: verify
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 55000
+      estimated_usd: 0.50
+      duration_minutes: null
+      recorded_at: 2026-06-19
+      notes: >
+        ORDER-OF-MAGNITUDE ESTIMATE (~55k) — read-only Explore subagent on Opus
+        (no metered usage block) + orchestrator main-loop gate re-runs (cargo
+        test 396 ok / clippy / fmt / deny / lean). Explore verdict: APPROVED, no
+        concerns; ran an adversarial gap-hunt across every file-write path
+        (OpenOptions/File::create/fs::write/.write_to) — confirmed all 4 Sink
+        arms guarded before open and not gated behind --yes, symlink_metadata
+        semantics correct, glob anchor fix preserves the per-entry check.
+        Surfaced one OUT-OF-SCOPE follow-up: edit --save-recipe writes via raw
+        std::fs::write (not symlink-guarded) — deferred to the threat-model pass
+        (backlog #5).
+    - cycle: ship
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-06-19
+      notes: "Main-loop ship bookkeeping (merge dance + cost totals + reflection + archive); not separately metered."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 1
+    tokens_total: 130724
+    estimated_usd: 0.91
+    session_count: 4
 ---
 
 # SPEC-034: path and symlink traversal hardening across source and sink
@@ -331,10 +383,31 @@ Process-focused: how did the build go? What friction did the spec create?
 from the process-focused build reflection above.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Reading both modules end-to-end *before* writing the spec was what made this
+   land cleanly: it separated the **real, exploitable gap** (Sink follows a
+   symlink at the destination — a `--yes` write-through escape) from the
+   **theoretical one** (the glob `root_opt=None` bypass, nearly unreachable
+   because a non-canonicalizable base matches nothing). Pinning that distinction
+   in the spec (the "honest note") kept the build and verify from chasing an
+   unreachable failing test, and kept the glob change as honest defense-in-depth.
+   Hardening the choke points (4 Sink arms + 1 glob anchor) rather than scattering
+   checks kept the diff small and the verify gap-hunt tractable.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — No template/constraint change. DEC-035 records the policy. Reusable lesson
+   for the rest of STAGE-006: **an adversarial "grep every write/open path"
+   gap-hunt is the highest-value part of verifying a hardening spec** — here it
+   both confirmed completeness AND surfaced the next item (the `--save-recipe`
+   raw-write path). Make that sweep an explicit step in every STAGE-006 verify
+   prompt. Cross-platform test note: symlink fixtures are `#[cfg(unix)]` and a
+   tempdir-escape comparison must canonicalize both sides (macOS
+   `/var`→`/private/var`).
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — Two threads for STAGE-006: (a) **`edit --save-recipe` writes via raw
+   `std::fs::write`** and is NOT symlink-guarded like the Sink now is — a small
+   consistency gap the verify gap-hunt found; fold it into the **threat-model
+   verification pass** (backlog #5), which should sweep all output paths, rather
+   than a standalone spec. (b) The immediate next item is **security-grade recipe
+   validation** (backlog #3) — being designed next. A `--follow-symlinks` opt-in
+   and `O_NOFOLLOW` TOCTOU hardening remain explicitly deferred (DEC-035).
