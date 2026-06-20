@@ -2,7 +2,8 @@
 
 *A living strategy note: what makes crustyimg defensibly different, what's built,
 and what still has to land. Snapshot: 2026-06-19, after STAGE-008 + STAGE-009 +
-STAGE-004 + STAGE-005 — the **MVP functional surface is complete**.*
+STAGE-004 + STAGE-005 + STAGE-006 — the **MVP functional surface AND the hardening
+exit gate are complete; only distribution (STAGE-007) remains.***
 
 ## The one-line claim
 
@@ -38,6 +39,7 @@ flowchart TB
         PRIVACY["🛡️ Verifiable privacy — container-lane metadata<br/>clean --gps · strip · set · copy-metadata (no pixel re-encode)<br/><b>STAGE-004 ✓</b>"]
         REPRO["🔁 Surfaced reproducibility — tune once → save → replay<br/>edit · --save-recipe · parallel apply --recipe<br/><b>STAGE-005 ✓</b>"]
         VERIFY["✅ Verification — claims you can check<br/>diff --fail-under (exit 7) · criterion net · equal-quality rule<br/><b>STAGE-009 ✓ / DEC-028</b>"]
+        TRUST["🔒 Trust & safety — bounded untrusted input<br/>decode/recipe/resize limits · path+symlink guards · cargo-deny CI<br/><b>STAGE-006 ✓ — MVP exit gate</b>"]
     end
 
     subgraph BETS["Structural bets underneath"]
@@ -48,20 +50,19 @@ flowchart TB
 
     subgraph TODO["Still to land"]
         direction TB
-        HARDEN["🔒 Untrusted-input hardening + proof at scale<br/>decode limits · path/recipe hardening · cross-tool BENCHMARKS.md<br/><b>STAGE-006 — next</b>"]
-        DIST["📦 Distribution<br/>release binaries · brew · crates.io<br/><b>STAGE-007</b>"]
+        DIST["📦 Distribution<br/>release binaries · brew · crates.io · proof-at-scale BENCHMARKS.md<br/><b>STAGE-007 — last to 1.0</b>"]
     end
 
     CORE --> BETS
-    CORE --> CLAIM["<b>'Set the look, not the number.'</b><br/>smallest file that meets your intent,<br/>zero system deps"]
-    TODO -.completes the moat.-> CLAIM
+    CORE --> CLAIM["<b>'Set the look, not the number.'</b><br/>smallest file that meets your intent,<br/>zero system deps · safe on untrusted input"]
+    TODO -.the last mile to 1.0.-> CLAIM
 
     classDef done fill:#16351f,stroke:#3fb950,color:#e6edf3;
     classDef todo fill:#3d2a12,stroke:#d29922,color:#e6edf3;
     classDef bet fill:#1c2333,stroke:#388bfd,color:#e6edf3;
     classDef claim fill:#2d1b3d,stroke:#a371f7,color:#e6edf3;
-    class ENGINE,SURFACE,PRIVACY,REPRO,VERIFY done;
-    class HARDEN,DIST todo;
+    class ENGINE,SURFACE,PRIVACY,REPRO,VERIFY,TRUST done;
+    class DIST todo;
     class B1,B2,B3 bet;
     class CLAIM claim;
 ```
@@ -117,6 +118,20 @@ flowchart TB
   Honesty is itself a differentiator in a space full of quality-blind "smaller!"
   claims.
 
+### 6. Trust & safety — safe to run on untrusted input (STAGE-006)
+- **Bounded everything, typed errors, never a panic/OOM.** The MVP exit gate: every
+  untrusted-input surface is bounded and verified — **decode** (`image::Limits`: dims
+  ≤ 65 535, alloc ≤ 512 MiB, DEC-034); **recipes** (text ≤ 64 KiB, ≤ 1024 steps,
+  DEC-036); **resize output** (≤ 512 MiB, decode-symmetric, DEC-038); **paths** (`..`/
+  separator/absolute rejection + symlinked-destination refusal on every output write,
+  always-anchored source escape checks, DEC-035); **supply chain** (CI `cargo deny
+  check advisories bans sources licenses`, DEC-037).
+- **A recorded threat model.** `SECURITY.md` carries a `## Verification` table mapping
+  each of the six threats → its as-built mitigation → the spec/DEC; an adversarial
+  review over the cumulative diff found **no unresolved finding**. This is what lets
+  the tool be pointed at arbitrary, attacker-controlled files — the precondition for
+  shipping it to people you don't control.
+
 ### Structural bets underneath all of it
 - **One static binary, all formats, zero system deps by default.**
 - **Permissive license (MIT/Apache)** — load-bearing: it's why the codecs are
@@ -130,32 +145,36 @@ flowchart TB
 |---|---|---|
 | Verifiable privacy (selective `clean --gps`, container-lane metadata) | **built** (STAGE-004) — GPS/metadata removed with no pixel re-encode; the EXIF **audit-as-linter** command is the remaining piece | STAGE-004 ✓ (audit-linter: later) |
 | Surfaced reproducibility (`edit`/`--save-recipe`/parallel `apply`) | **built** (STAGE-005) — tune-once → save → replay is two commands sharing one byte-stable recipe format | STAGE-005 ✓ |
-| Untrusted-input hardening (decode limits, path/recipe traversal, `cargo-audit`-in-CI) | **not built** — the recipe/path/`edit` surfaces are now the primary attack surface to harden | STAGE-006 — next |
-| Proof at scale (cross-tool + quality-per-byte comparisons, `BENCHMARKS.md`) | only the local micro-net exists | STAGE-006 / later |
-| Distribution (release binaries, brew, crates.io) | not released — *a moat nobody can `brew install` isn't fully real* | STAGE-007 |
+| Untrusted-input hardening (decode/recipe/resize limits, path+symlink guards, cargo-deny-in-CI) | **built** (STAGE-006) — every untrusted surface bounded + a recorded threat-model verification, no unresolved finding | STAGE-006 ✓ |
+| Proof at scale (cross-tool + quality-per-byte comparisons, `BENCHMARKS.md`) | only the local micro-net exists | STAGE-007 / later |
+| Distribution (release binaries, brew, crates.io) | not released — *a moat nobody can `brew install` isn't fully real* | STAGE-007 — last to 1.0 |
 
 ## Net read
 
-The moat is now **built across all four core axes** — outcome-driven quality +
-modern formats (the wedge), web-delivery surface, verifiable privacy, and surfaced
-reproducibility — with a credibility leg (`diff` + equal-quality rule) underneath.
-**The MVP's functional surface is complete.** What remains is *trust and reach*, not
-new capability: **STAGE-006** (hardening + a security assessment of the now-rich
-untrusted-input surface — recipes, paths, decode limits — plus proof-at-scale
-benchmarks) and **STAGE-007** (distribution: release binaries, brew, crates.io).
-A capable tool that can't be safely fed untrusted input and can't be `brew install`ed
-isn't a finished moat — that's the next stage's job.
+The moat is now **built across all five core axes** — outcome-driven quality + modern
+formats (the wedge), web-delivery surface, verifiable privacy, surfaced
+reproducibility, and (now) **trust & safety** — with a credibility leg (`diff` +
+equal-quality rule) underneath. **The MVP's functional surface AND its hardening exit
+gate are complete:** the tool is safe to point at arbitrary, untrusted files. What
+remains is purely *reach*, not capability or safety — **STAGE-007** (distribution:
+release binaries, `brew`, crates.io, plus the proof-at-scale `BENCHMARKS.md`). A
+capable, safe tool that can't be `brew install`ed isn't yet a finished moat — that is
+the last mile to 1.0.
 
 ## Pointers
 
 - Engine: `src/quality/` (the SSIMULACRA2 search + `LossyFormat` seam), `src/sink/`
   (per-format encode). Surface: `src/cli/` (`optimize`/`diff`/`responsive`/`edit`/
   `apply`). Privacy: `src/metadata/` (container-lane). Recipes: `src/recipe/` +
-  `src/operation/registry.rs` (the round-trip seam).
+  `src/operation/registry.rs` (the round-trip seam). Trust: `SECURITY.md` (the
+  threat-model verification table), `deny.toml` + `.github/workflows/ci.yml` (the
+  supply-chain gate).
 - Decisions: DEC-019 (perceptual), DEC-020/021/022 (AVIF/WebP), DEC-023 (size
   fallback), DEC-024 (optimize), DEC-025 (diff + exit 7), DEC-026 (responsive),
   DEC-027 (display default), DEC-028 (benchmarking + equal-quality principle),
   DEC-029/030 (container-lane metadata), DEC-031/032 (watermark overlay + font),
   DEC-005 (recipe round-trip), DEC-006 (rayon, no async), DEC-015 (partial-batch
-  exit 6), DEC-033 (indicatif).
+  exit 6), DEC-033 (indicatif); **hardening: DEC-034 (decode limits), DEC-035
+  (path/symlink), DEC-036 (recipe limits), DEC-037 (supply-chain gate), DEC-038
+  (resize cap).**
 - Roadmap + competitive synthesis: `docs/sessions/2026-06-16-roadmap-and-stage-004-decision-handoff.md`.
