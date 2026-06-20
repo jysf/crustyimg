@@ -7,7 +7,7 @@
 task:
   id: SPEC-040
   type: story                      # epic | story | task | bug | chore
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: medium
   complexity: M                    # S | M | L  (L means split it)
@@ -74,20 +74,47 @@ cost:
     - cycle: build
       agent: claude-sonnet-4-6
       interface: claude-code
+      tokens_total: 113535
+      estimated_usd: 0.61
+      duration_minutes: 11
+      recorded_at: 2026-06-19
+      notes: >
+        Real metered subagent on Sonnet 4.6. subagent_tokens=113535,
+        duration_ms=648351. estimated_usd at Sonnet list ($3/$15 per MTok, ~80/20).
+        code+docs: clap_complete =4.6.5 (DEC-039) + `completions <shell>` subcommand
+        (stdout, 5 shells) with tests/completions.rs (4 tests); README rewritten
+        tool-first (install cargo/release/brew honestly labeled + works-today path,
+        usage quickstart, completions, License corrected to MIT OR Apache-2.0,
+        dev-process relocated below). No tag/publish/tap; no new DEC (DEC-039
+        pre-authored). fmt/clippy/test (415 passed)/lean/deny all green. PR #44.
+    - cycle: verify
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 45000
+      estimated_usd: 0.40
+      duration_minutes: null
+      recorded_at: 2026-06-19
+      notes: >
+        ORDER-OF-MAGNITUDE ESTIMATE (~45k — a heavier review: ran the full gate
+        suite + the built binary, read the diff) — read-only independent Explore
+        subagent on Opus, no usage block to meter. Verdict: APPROVED. Re-ran
+        fmt/clippy/test/lean/deny (all green), exercised all 5 shells (exit 0,
+        non-empty) + bogus shell (exit 2), confirmed the handler is exactly the
+        DEC-039 API, clap_complete is the only new (non-optional) dep, README is
+        honest + tool-first with the License corrected, and NO outward-facing action
+        (no tag/publish/tap/committed completion files). 11/11 acceptance criteria.
+    - cycle: ship
+      agent: claude-opus-4-8
+      interface: claude-code
       tokens_total: null
       estimated_usd: null
       duration_minutes: null
       recorded_at: 2026-06-19
-      notes: >
-        code+docs: clap_complete =4.6.5 (DEC-039) + `completions <shell>` subcommand
-        (stdout, 5 shells) with tests/completions.rs; README rewritten tool-first
-        (install cargo/release/brew honestly labeled + works-today path, usage
-        quickstart, completions, License corrected to MIT OR Apache-2.0, dev-process
-        relocated). No tag/publish/tap. fmt/clippy/test/lean/deny green.
+      notes: "Main-loop ship bookkeeping (merge dance for PR #44 + cost totals + reflection + archive to specs/done/ + stage backlog); not separately metered."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 158535
+    estimated_usd: 1.01
+    session_count: 4
 ---
 
 # SPEC-040: readme rewrite and shell completions
@@ -358,10 +385,29 @@ Process-focused: how did the build go? What friction did the spec create?
 from the process-focused build reflection above.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Little. The decisive call was the design-time probe ([[probe-load-bearing-crates-at-design]]):
+   adding `clap_complete =4.6.5` to a throwaway binary first proved the exact API
+   and the version pin against `clap =4.6.1` and that `deny` stays green, so the
+   build's `run_completions` handler worked first try and the dep choice was already
+   de-risked when the build agent opened the file. Pre-authoring DEC-039 with those
+   verified facts meant the build emitted no new DEC and had nothing to relitigate.
+   Bundling a code addition with a doc rewrite in one spec was the right size (one
+   PR, one merge) because the two halves share the same "make it installable/usable"
+   intent.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — No. The README is now correctly tool-first and the License section matches the
+   `MIT OR Apache-2.0` dual-license reality (SPEC-038/DEC-038) — fixing a stale doc
+   that would have been the crates.io/GitHub landing page. DEC-039 records the
+   subcommand-over-`build.rs` choice and the probe evidence; nothing in
+   AGENTS.md/constraints needs to change.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — The remaining STAGE-007 backlog is all **outward-facing / maintainer-authorized**:
+   **#3** release CI pipeline (cargo-dist + MSRV `rust-version`) — *designing the
+   config + a dry-run is safe; cutting an actual release/tag is not*; **#4** Homebrew
+   tap (`jysf/homebrew-tap`); **#5** `cargo publish`; **#7** dual lean/full artifacts.
+   Recommended next: **#3 (design + dry-run only)**, then pause for maintainer
+   authorization before any real tag/release/tap/publish. `clap_mangen` man page
+   stays deferred (DEC-039 alternatives) — a small later add or folded into #3's
+   packaging.
