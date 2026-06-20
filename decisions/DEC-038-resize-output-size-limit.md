@@ -33,57 +33,64 @@ tags:
   - resource-limits
 ---
 
-# DEC-038: resize output-size limit (upscale-bomb defense)
+# DEC-038: resize output-size limit — tighten for decode symmetry
 
 ## Decision
 
-Bound the **output** of the `resize` operation so a hostile request — via a
-recipe (`apply --recipe`) or the CLI (`resize`/`edit`/`shrink`/`thumbnail`) —
-cannot drive an enormous allocation. In `Resize::apply`, after the target
-dimensions `(tw, th)` are computed (the single point all six modes converge to)
-and **before** the output buffer is allocated, reject if the output would exceed
-an allocation cap:
+**Correction note:** the STAGE-006 threat-model verification pass found that the
+resize upscale-bomb was **already defended** — `Resize::apply` has carried an
+oversize cap since SPEC-010 (`MAX_EDGE = 50_000` per dimension + `MAX_AREA`
+on total pixels, both "untrusted-input-hardening", rejecting before allocation).
+So this DEC does **not** add a new guard; it **tightens the existing one** for
+symmetry with the decode allocation limit:
 
-- **`tw as u64 * th as u64 * 4 > MAX_RESIZE_OUTPUT_BYTES`** → typed
-  `OperationError::Apply { op: "resize", reason: … }` (CLI exit 1). `4` =
-  bytes-per-RGBA8-pixel (the working buffer `Resize::apply` allocates).
-- **`MAX_RESIZE_OUTPUT_BYTES = 512 MiB`** — numerically the **same** cap as the
-  decode allocation limit (DEC-034), so an image cannot be *resized* past the
-  size at which it could be *decoded*. The two limits are deliberately symmetric.
+- **Lower `MAX_AREA` from 256 Mpx → 128 Mpx** (`134_217_728` px). At RGBA8 that is
+  a **512 MiB** output buffer — numerically the **same** cap as the decode
+  allocation limit (DEC-034), so an image cannot be *resized* to a buffer larger
+  than one that could be *decoded*. The two limits are now deliberately symmetric.
+- `MAX_EDGE` (per-dimension sanity, 50 000 px) is kept unchanged.
+- The single area check sits in `Resize::apply` after the `(tw, th)` match (the
+  point all six modes converge to) and **before** any allocation, returning
+  `OperationError::Apply { op: "resize", … }` (CLI exit 1). It covers the
+  upscaling modes (`exact`/`percent`/`cover`/`fill`); `max`/`fit` never upscale.
+  Enforcing at `apply` time (not `from_params`) is required because `percent`/
+  `cover`/`fill` outputs depend on the *input* dimensions, known only at apply.
 
-This covers the modes that can upscale — `exact`, `percent`, `cover`, `fill` —
-and is a no-op for `max`/`fit` (which never upscale). It is enforced at
-**`apply` time**, not in `from_params`, because the dangerous case (`percent`,
-`cover`, `fill`) depends on the *input* dimensions, which only `apply` knows. The
-input itself is already bounded by the decode limit (DEC-034); this closes the
-*output* side.
-
-**Reject, do not clamp.** An over-cap resize is refused with a typed error, not
-silently shrunk — the request is unsatisfiable as written.
+**Reject, do not clamp** — an over-cap resize is refused, not silently shrunk.
+**No new constant is introduced** (an earlier draft of this spec added a redundant
+`MAX_RESIZE_OUTPUT_BYTES`; it was removed in favor of tightening `MAX_AREA`, so
+there is one cap, not three).
 
 ## Context
 
-STAGE-006's recipe-validation work (SPEC-035, DEC-036) bounded recipe *size* and
-*step count*, but explicitly deferred **op-parameter bounds**. The most impactful
-recipe-borne (and CLI-borne) resource vector is `resize`: `Resize::from_params`
-validates `width/height > 0` and `percent > 0` but has **no upper bound**, so
-`resize exact 100000x100000` (≈40 GB) or `resize percent 1000000` is an
-upscale-bomb. The decode limit (DEC-034) bounds inputs, not resize outputs. This
-DEC closes that, the last concrete runtime-hardening gap before the STAGE-006
-threat-model verification pass (SPEC-037).
+STAGE-006's recipe-validation work (SPEC-035, DEC-036) deferred **op-parameter
+bounds** to the threat-model pass (SPEC-037), flagging `resize` as the most
+impactful recipe-/CLI-borne resource vector. On inspection, the verification pass
+found `resize` was **not** an open hole: SPEC-010 introduced `MAX_EDGE`/`MAX_AREA`
+when the op was first built, so `resize exact 100000x100000` or `resize percent
+1000000` was already rejected (`OperationError::Apply`) before allocation. The
+only refinement worth making is **consistency**: the pre-existing area cap allowed
+a ~1 GB output buffer, looser than the decode allocation cap (512 MiB, DEC-034).
+Lowering `MAX_AREA` to the 512 MiB-equivalent makes "what can be resized to" and
+"what can be decoded" share one ceiling — a clean invariant, and an honest outcome
+of the verification (confirm the as-built defense, tighten only where it helps).
 
 ## Alternatives Considered
 
 - **Clamp the output to the cap instead of rejecting** — rejected: silently
   resizing to a different size than asked is surprising; the safe, predictable
   behavior is to refuse an unsatisfiable request (consistent with DEC-034).
-- **Per-dimension cap (e.g. ≤ 65 535/side) instead of an allocation cap** —
-  rejected as the primary guard: 65 535×65 535×4 ≈ 17 GB would still pass a
-  per-dimension check, so the *allocation* cap is the meaningful bomb defense.
-  (A per-side cap could be added too, but the byte cap subsumes the OOM risk.)
+- **Add a new, separate byte cap on top of the existing `MAX_EDGE`/`MAX_AREA`**
+  (the SPEC-037 build's first attempt) — rejected: three overlapping caps with
+  different rationales is confusing. The existing `MAX_AREA` already bounds the
+  allocation; tightening its value to the 512 MiB-equivalent achieves the
+  decode-symmetry with ONE cap and no redundant code.
+- **Leave `MAX_AREA` at 256 Mpx (~1 GB) and call it done** — defensible (resize is
+  already bounded, not OOM-exploitable), but the 512 MiB symmetry with the decode
+  cap is a cheap, clean invariant worth the one-line tightening.
 - **Bound it in `from_params` (parse time)** — insufficient: `percent`/`cover`/
   `fill` outputs depend on the input size, unknown until `apply`. The apply-time
-  check is the one place that covers every mode.
+  check is the one place that covers every mode (which SPEC-010 already chose).
 
 ## Consequences
 

@@ -205,13 +205,6 @@ impl Operation for Invert {
 
 // ─── Resize ─────────────────────────────────────────────────────────────────
 
-/// Maximum allowed resize output buffer in bytes (== the decode alloc cap, DEC-034).
-///
-/// A 512 MiB RGBA buffer cap. Any `(tw, th)` pair whose uncompressed RGBA size
-/// exceeds this is rejected with `OperationError::Apply` before the resize
-/// backend allocates (untrusted-input-hardening, DEC-038).
-const MAX_RESIZE_OUTPUT_BYTES: u64 = 512 * 1024 * 1024;
-
 /// Mode of a Resize operation (the six geometry strategies).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ResizeMode {
@@ -487,22 +480,15 @@ impl Operation for Resize {
             }
         };
 
-        // ── Resize output byte cap (DEC-038, untrusted-input-hardening) ──────
-        // Reject before any resize backend allocates. One check covers all six
-        // modes (including percent/cover/fill whose output dims depend on input).
-        if (tw as u64) * (th as u64) * 4 > MAX_RESIZE_OUTPUT_BYTES {
-            return Err(OperationError::Apply {
-                op: "resize",
-                reason: format!(
-                    "resize output {tw}x{th} exceeds the {MAX_RESIZE_OUTPUT_BYTES} byte limit"
-                ),
-            });
-        }
-
-        // ── Oversize cap (untrusted-input-hardening) ─────────────────────────
-        // For fill, we cap the cover dims (tw, th) before allocating.
+        // ── Oversize cap (untrusted-input-hardening, SPEC-010; tightened SPEC-037) ──
+        // Reject before any resize backend allocates — one check covers all six modes
+        // (including percent/cover/fill, whose output dims depend on the input).
+        // MAX_AREA is the upscale-bomb defense; MAX_EDGE is a per-dimension sanity cap.
         const MAX_EDGE: u32 = 50_000;
-        const MAX_AREA: u64 = 268_435_456; // 256 * 1024 * 1024
+        // 512 MiB RGBA output (== the decode allocation cap, DEC-034/DEC-038): a
+        // resize cannot produce a buffer larger than what decode would accept.
+        // Tightened from 256 Mpx to 128 Mpx for that symmetry (SPEC-037).
+        const MAX_AREA: u64 = 134_217_728; // 128 * 1024 * 1024 px = 512 MiB at RGBA8
 
         if tw > MAX_EDGE || th > MAX_EDGE {
             return Err(OperationError::Apply {
