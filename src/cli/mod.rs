@@ -737,6 +737,16 @@ fn require_out_dir_for_batch(global: &GlobalArgs) -> Result<&str, CliError> {
 /// The `Operation` trait is NOT `Send`, so each rayon task rebuilds its own
 /// pipeline from the shared `&recipe` + `&registry` (both `Sync`).
 fn run_apply(recipe_path: &str, inputs: &[String], global: &GlobalArgs) -> Result<(), CliError> {
+    // Step 0: pre-read file-size guard (DEC-036, SPEC-035). Check on-disk size via
+    // metadata before reading into memory — avoids loading a multi-GB recipe file.
+    let meta = std::fs::metadata(recipe_path).map_err(CliError::RecipeIo)?;
+    if meta.len() > crate::recipe::RECIPE_MAX_BYTES as u64 {
+        return Err(CliError::Recipe(RecipeError::TooLarge {
+            size: meta.len() as usize,
+            max: crate::recipe::RECIPE_MAX_BYTES,
+        }));
+    }
+
     // Step 1: read recipe file text (map io error → exit 3).
     let recipe_text = std::fs::read_to_string(recipe_path).map_err(CliError::RecipeIo)?;
 

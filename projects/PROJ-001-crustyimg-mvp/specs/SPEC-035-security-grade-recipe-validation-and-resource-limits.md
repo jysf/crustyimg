@@ -7,7 +7,7 @@
 task:
   id: SPEC-035
   type: story                      # epic | story | task | bug | chore
-  cycle: build                     # frame | design | build | verify | ship
+  cycle: verify  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: S                    # S | M | L  (L means split it)
@@ -49,11 +49,19 @@ value_link: >
 # See AGENTS.md §4 and docs/cost-tracking.md. interface: claude-code |
 # claude-ai | api | ollama | other.
 cost:
-  sessions: []
+  sessions:
+    - cycle: build
+      agent: claude-sonnet-4-6
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-06-19
+      notes: "recipe resource limits: RECIPE_MAX_BYTES/RECIPE_MAX_STEPS + RecipeError::TooLarge/TooManySteps enforced in from_toml (size before parse, steps after version) + CLI run_apply pre-read metadata guard; reuse Recipe(_) exit 1; std-only, no new dep"
   totals:
     tokens_total: 0
     estimated_usd: 0
-    session_count: 0
+    session_count: 1
 ---
 
 # SPEC-035: security-grade recipe validation and resource limits
@@ -262,28 +270,28 @@ the test — do NOT commit a 64 KiB fixture file).
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
+- **Branch:** `feat/spec-035-recipe-limits`
+- **PR (if applicable):** opened (see PR URL)
+- **All acceptance criteria met?** yes
 - **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
+  - none (DEC-036 was written at design; no new decisions from build)
 - **Deviations from spec:**
-  - [list]
+  - none
 - **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - none beyond what DEC-036 already captures (op-parameter bounds for upscale-bomb, strict TOML parsing)
 
 ### Build-phase reflection (3 questions, short answers)
 
 Process-focused: how did the build go? What friction did the spec create?
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — Nothing significant. The spec was precise: exact const names, exact error variant shapes, exact ordering (size before parse, steps after version). The note that 1025 identity steps ≈ 18 KB (well under 64 KiB) pre-answered the only potential confusion about which gate fires in the many-steps test.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — No. The `CliError::Recipe(_) => 1` coverage was called out explicitly; confirmed it already covers the new variants without a new arm.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Nothing material. The spec was self-contained and the build was straightforward additive work with no surprises.
 
 ---
 
