@@ -96,10 +96,10 @@ check-display:
 audit:
     cargo audit
 
-# Enforce the permissive license policy over the dependency tree (DEC-018;
-# install: cargo install cargo-deny). Same check the CI `licenses` job runs.
+# Full supply-chain gate: advisories + bans + sources + licenses (DEC-037/DEC-018;
+# install: cargo install cargo-deny). Mirrors the CI `supply-chain` job exactly.
 deny:
-    cargo deny check licenses
+    cargo deny check advisories bans sources licenses
 
 # Fail if any shipped spec is missing real build/verify cost data
 # (AGENTS.md §4 / docs/cost-tracking.md). Same check the CI `cost-data` job runs.
