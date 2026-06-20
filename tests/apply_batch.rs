@@ -325,6 +325,77 @@ op = "no_such_op_ever"
     );
 }
 
+// ─── SPEC-035: recipe resource-limit integration tests ───────────────────────
+
+/// A recipe file larger than `RECIPE_MAX_BYTES` must cause the CLI to exit 1
+/// (the CLI pre-read metadata guard fires before `read_to_string`) and write a
+/// non-empty error message to stderr.
+#[test]
+fn apply_oversized_recipe_file_exits_1() {
+    use crustyimg::recipe::RECIPE_MAX_BYTES;
+
+    let dir = TempDir::new().unwrap();
+    // Build a recipe file that exceeds the cap by 1 byte.
+    // '#' makes it TOML-comment content so it would otherwise be valid.
+    let oversized_content = "#".repeat(RECIPE_MAX_BYTES + 1);
+    let recipe_path = write_recipe(&dir, "big.toml", &oversized_content);
+    let img = write_png(&dir, "img.png", 8, 8);
+    let out = dir.path().join("out.png");
+
+    let output = Command::new(BIN)
+        .args([
+            "apply",
+            "--recipe",
+            recipe_path.to_str().unwrap(),
+            img.to_str().unwrap(),
+            "-o",
+            out.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run apply with oversized recipe");
+
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "oversized recipe must exit 1; stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        !output.stderr.is_empty(),
+        "stderr must be non-empty for oversized recipe error"
+    );
+}
+
+/// A normal recipe file (well within `RECIPE_MAX_BYTES`) must still apply
+/// successfully — regression guard for the pre-read change.
+#[test]
+fn apply_normal_recipe_still_works() {
+    let dir = TempDir::new().unwrap();
+    let recipe = write_recipe(&dir, "r.toml", IDENTITY_RECIPE);
+    let img = write_png(&dir, "img.png", 8, 8);
+    let out = dir.path().join("out.png");
+
+    let output = Command::new(BIN)
+        .args([
+            "apply",
+            "--recipe",
+            recipe.to_str().unwrap(),
+            img.to_str().unwrap(),
+            "-o",
+            out.to_str().unwrap(),
+            "-y",
+        ])
+        .output()
+        .expect("failed to run apply with normal recipe");
+
+    assert!(
+        output.status.success(),
+        "normal recipe must exit 0; stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(out.exists(), "output file must exist for normal recipe");
+}
+
 /// `--quiet` run → stdout empty (progress only on stderr / hidden).
 #[test]
 fn apply_batch_quiet_clean_stdout() {

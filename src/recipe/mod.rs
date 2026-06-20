@@ -33,6 +33,23 @@ use crate::pipeline::Pipeline;
 /// `from_toml` rejects any `version` value other than this string.
 pub const SUPPORTED_VERSION: &str = "1";
 
+// ─── Resource limits (DEC-036) ───────────────────────────────────────────────
+
+/// Maximum allowed byte length of a recipe TOML string (64 KiB).
+///
+/// `from_toml` checks `s.len()` against this **before** calling `toml::from_str`
+/// so an oversized string is never parsed (parse-time DoS prevention). The CLI
+/// `run_apply` also checks the on-disk file size via `std::fs::metadata` before
+/// reading the file into memory. Reject only on `>`; equality is accepted.
+pub const RECIPE_MAX_BYTES: usize = 64 * 1024;
+
+/// Maximum allowed number of steps in a recipe (1024).
+///
+/// `from_toml` checks `recipe.steps.len()` after the version check so an
+/// over-version recipe is still `UnsupportedVersion`, not `TooManySteps`.
+/// Reject only on `>`; equality is accepted.
+pub const RECIPE_MAX_STEPS: usize = 1024;
+
 // ─── RecipeError ────────────────────────────────────────────────────────────
 
 /// Errors that can occur while loading, saving, or building a [`Recipe`]
@@ -81,6 +98,30 @@ pub enum RecipeError {
     /// The recipe could not be serialized to TOML.
     #[error("could not serialize recipe to TOML: {0}")]
     Serialize(String),
+
+    /// The recipe text exceeds [`RECIPE_MAX_BYTES`] (checked before parsing).
+    ///
+    /// Prevents parse-time memory/CPU exhaustion from a hostile oversized recipe.
+    /// The CLI also guards file size before `read_to_string` via the same constant.
+    #[error("recipe is too large ({size} bytes; max {max})")]
+    TooLarge {
+        /// The actual byte length of the oversized string.
+        size: usize,
+        /// The cap that was exceeded (`RECIPE_MAX_BYTES`).
+        max: usize,
+    },
+
+    /// The recipe has more than [`RECIPE_MAX_STEPS`] steps (checked after parsing
+    /// and the version check, before pipeline build).
+    ///
+    /// Prevents pipeline-build exhaustion from a recipe with an excessive step count.
+    #[error("recipe has too many steps ({count}; max {max})")]
+    TooManySteps {
+        /// The actual number of steps in the recipe.
+        count: usize,
+        /// The cap that was exceeded (`RECIPE_MAX_STEPS`).
+        max: usize,
+    },
 }
 
 // ─── RecipeStep ─────────────────────────────────────────────────────────────
@@ -168,12 +209,25 @@ impl Recipe {
 
     /// Parse a TOML string into a `Recipe` and validate the `version` field.
     ///
+    /// - String length exceeds [`RECIPE_MAX_BYTES`] → [`RecipeError::TooLarge`]
+    ///   (checked **before** `toml::from_str` to avoid parse-time DoS).
     /// - Malformed TOML → [`RecipeError::Parse`].
     /// - Any `version` other than [`SUPPORTED_VERSION`] → [`RecipeError::UnsupportedVersion`].
+    /// - Step count exceeds [`RECIPE_MAX_STEPS`] → [`RecipeError::TooManySteps`]
+    ///   (checked after the version check so a bad-version recipe is still
+    ///   `UnsupportedVersion`, not `TooManySteps`).
     ///
     /// Op name resolution does **not** happen here; call [`Recipe::build_pipeline`]
     /// to resolve ops through a registry.
     pub fn from_toml(s: &str) -> Result<Recipe, RecipeError> {
+        // Size check BEFORE parsing: reject an oversized string without touching toml::from_str.
+        if s.len() > RECIPE_MAX_BYTES {
+            return Err(RecipeError::TooLarge {
+                size: s.len(),
+                max: RECIPE_MAX_BYTES,
+            });
+        }
+
         let recipe: Recipe = toml::from_str(s).map_err(|e| RecipeError::Parse(e.to_string()))?;
 
         // Version check must occur before op resolution so callers get a clear
@@ -182,6 +236,15 @@ impl Recipe {
             return Err(RecipeError::UnsupportedVersion {
                 found: recipe.version,
                 supported: SUPPORTED_VERSION,
+            });
+        }
+
+        // Step count check AFTER version check: an over-version recipe is UnsupportedVersion,
+        // not TooManySteps.
+        if recipe.steps.len() > RECIPE_MAX_STEPS {
+            return Err(RecipeError::TooManySteps {
+                count: recipe.steps.len(),
+                max: RECIPE_MAX_STEPS,
             });
         }
 
@@ -258,6 +321,115 @@ mod tests {
         assert!(
             pipeline.is_empty(),
             "pipeline built from empty recipe must be empty"
+        );
+    }
+
+    // ─── SPEC-035: resource-limit unit tests ─────────────────────────────────
+
+    /// A string of length `RECIPE_MAX_BYTES + 1` must be rejected as TooLarge
+    /// BEFORE being parsed (so even a TOML-comment-only oversized string fails).
+    #[test]
+    fn from_toml_rejects_oversized_recipe() {
+        // Build a string that exceeds the cap by exactly 1 byte.
+        // Use '#' so it would be valid TOML (a comment), confirming the size
+        // check fires before toml::from_str is called.
+        let oversized = "#".repeat(RECIPE_MAX_BYTES + 1);
+        let result = Recipe::from_toml(&oversized);
+        assert!(
+            matches!(result, Err(RecipeError::TooLarge { size, max })
+                if size == RECIPE_MAX_BYTES + 1 && max == RECIPE_MAX_BYTES),
+            "expected TooLarge, got {result:?}"
+        );
+    }
+
+    /// A valid recipe whose text length is exactly RECIPE_MAX_BYTES must be accepted
+    /// (boundary is inclusive; only `>` is rejected).
+    #[test]
+    fn from_toml_accepts_recipe_at_size_cap() {
+        // Start with a minimal valid recipe and pad it with TOML comments up to
+        // exactly RECIPE_MAX_BYTES. Comments don't affect parsing.
+        let base = "version = \"1\"\n";
+        assert!(
+            base.len() <= RECIPE_MAX_BYTES,
+            "base recipe must not itself exceed the cap"
+        );
+        let padding = "#".repeat(RECIPE_MAX_BYTES - base.len());
+        let at_cap = format!("{base}{padding}");
+        assert_eq!(
+            at_cap.len(),
+            RECIPE_MAX_BYTES,
+            "padded recipe must be exactly RECIPE_MAX_BYTES"
+        );
+        let result = Recipe::from_toml(&at_cap);
+        assert!(
+            result.is_ok(),
+            "recipe at exactly the byte cap must be accepted, got {result:?}"
+        );
+    }
+
+    /// A recipe with RECIPE_MAX_STEPS + 1 identity steps must be rejected as
+    /// TooManySteps. The 1025-step fixture is ~18 KB, well under the 64 KiB byte
+    /// cap, so the step gate — not the size gate — is what fires.
+    #[test]
+    fn from_toml_rejects_too_many_steps() {
+        let n = RECIPE_MAX_STEPS + 1;
+        let step_block = "[[step]]\nop = \"identity\"\n";
+        let toml_str = format!("version = \"1\"\n{}", step_block.repeat(n));
+        // Verify the fixture is under the byte cap (exercises step gate, not size gate).
+        assert!(
+            toml_str.len() <= RECIPE_MAX_BYTES,
+            "step-cap fixture must be under the byte cap; len = {}",
+            toml_str.len()
+        );
+        let result = Recipe::from_toml(&toml_str);
+        assert!(
+            matches!(result, Err(RecipeError::TooManySteps { count, max })
+                if count == n && max == RECIPE_MAX_STEPS),
+            "expected TooManySteps {{ count: {n}, max: {RECIPE_MAX_STEPS} }}, got {result:?}"
+        );
+    }
+
+    /// A recipe with exactly RECIPE_MAX_STEPS identity steps must be accepted
+    /// (boundary is inclusive; only `>` is rejected).
+    #[test]
+    fn from_toml_accepts_recipe_at_step_cap() {
+        let n = RECIPE_MAX_STEPS;
+        let step_block = "[[step]]\nop = \"identity\"\n";
+        let toml_str = format!("version = \"1\"\n{}", step_block.repeat(n));
+        let result = Recipe::from_toml(&toml_str);
+        assert!(
+            result.is_ok(),
+            "recipe at exactly the step cap must be accepted, got {result:?}"
+        );
+    }
+
+    /// A normal small recipe must still load, round-trip, and build its pipeline
+    /// unchanged (no regression to SPEC-006 behavior).
+    #[test]
+    fn from_toml_normal_recipe_still_round_trips() {
+        let toml_str =
+            "version = \"1\"\n\n[[step]]\nop = \"resize\"\nmode = \"max\"\nwidth = 800\n";
+        let recipe = Recipe::from_toml(toml_str).expect("should parse successfully");
+        // Round-trip.
+        let serialized = recipe.to_toml().expect("to_toml should succeed");
+        let reloaded = Recipe::from_toml(&serialized).expect("re-parse should succeed");
+        assert_eq!(recipe, reloaded, "recipe must round-trip through TOML");
+        // Pipeline builds without error.
+        let registry = OperationRegistry::with_builtins();
+        recipe
+            .build_pipeline(&registry)
+            .expect("pipeline build should succeed");
+    }
+
+    /// An unsupported version must still be rejected as UnsupportedVersion even
+    /// after the size/step caps are added (existing behavior unchanged).
+    #[test]
+    fn from_toml_unsupported_version_still_rejected() {
+        let toml_str = "version = \"2\"\n";
+        let result = Recipe::from_toml(toml_str);
+        assert!(
+            matches!(result, Err(RecipeError::UnsupportedVersion { ref found, .. }) if found == "2"),
+            "expected UnsupportedVersion with found=\"2\", got {result:?}"
         );
     }
 }
