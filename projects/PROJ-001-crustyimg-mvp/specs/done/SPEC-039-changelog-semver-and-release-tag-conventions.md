@@ -7,7 +7,7 @@
 task:
   id: SPEC-039
   type: chore                      # epic | story | task | bug | chore
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: S                    # S | M | L  (L means split it)
@@ -46,18 +46,60 @@ value_link: >
 # claude-ai | api | ollama | other.
 cost:
   sessions:
-    - cycle: build
-      agent: claude-sonnet-4-6
+    - cycle: design
+      agent: claude-opus-4-8
       interface: claude-code
       tokens_total: null
       estimated_usd: null
       duration_minutes: null
       recorded_at: 2026-06-19
-      notes: "docs: CHANGELOG.md (Keep a Changelog; 0.1.0 = MVP narrated from moat/api-contract) + RELEASING.md (SemVer 0.x + vX.Y.Z annotated-tag convention + release-cut checklist, publish/tag steps maintainer-authorized) + README pointer; no code/dep/DEC; no tag/publish"
+      notes: >
+        Main-loop orchestrator work, not separately metered. Authored the spec +
+        the Sonnet build prompt for a pure-docs chore (CHANGELOG + RELEASING +
+        README pointer). Pinned: 0.1.0 narrated by capability from docs/moat.md
+        (not a spec dump), version == Cargo.toml, and the outward-facing
+        publish/tag/push steps marked maintainer-authorized; no tag/publish/code.
+        Second STAGE-007 spec.
+    - cycle: build
+      agent: claude-sonnet-4-6
+      interface: claude-code
+      tokens_total: 60757
+      estimated_usd: 0.33
+      duration_minutes: 12
+      recorded_at: 2026-06-19
+      notes: >
+        Real metered subagent on Sonnet 4.6. subagent_tokens=60757,
+        duration_ms=725062. estimated_usd at Sonnet list ($3/$15 per MTok,
+        ~80/20). docs: CHANGELOG.md (Keep a Changelog; 0.1.0 = MVP narrated by
+        capability) + RELEASING.md (SemVer 0.x + vX.Y.Z annotated-tag convention +
+        release-cut checklist, publish/tag steps maintainer-authorized) + README
+        pointer. No code/dep/DEC; no tag/publish; cargo build clean.
+    - cycle: verify
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 30000
+      estimated_usd: 0.27
+      duration_minutes: null
+      recorded_at: 2026-06-19
+      notes: >
+        ORDER-OF-MAGNITUDE ESTIMATE (~30k — a small docs review) — read-only
+        Explore subagent on Opus + checks (git diff --stat, git tag, cargo build).
+        Verdict: APPROVED. Confirmed CHANGELOG reads as a changelog + matches
+        Cargo.toml 0.1.0, RELEASING marks the outward-facing steps
+        maintainer-authorized, README pointer added, and NO tag/publish/code
+        change (diff touches only the three docs + spec).
+    - cycle: ship
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-06-19
+      notes: "Main-loop ship bookkeeping (merge dance + cost totals + reflection + archive); not separately metered."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 1
+    tokens_total: 90757
+    estimated_usd: 0.60
+    session_count: 4
 ---
 
 # SPEC-039: changelog, semver, and release-tag conventions
@@ -247,10 +289,21 @@ Process-focused: how did the build go? What friction did the spec create?
 from the process-focused build reflection above.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Little. For a pure-docs chore the key calls were (a) keeping the build/verify
+   subagent cycle (uniform process + metered cost) even though it's markdown, and
+   (b) pinning the human-readable, capability-grouped CHANGELOG narrative (sourced
+   from `docs/moat.md`) so the build didn't produce a spec-by-spec dump. Marking the
+   release-cut checklist's publish/tag/push steps **maintainer-authorized** in
+   `RELEASING.md` bakes the "outward-facing actions need a human" rule into the
+   process itself — the right place for it.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — No. The maintainer-authorized convention now lives in `RELEASING.md`; future
+   STAGE-007 specs that touch outward-facing steps should reference it.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — The remaining STAGE-007 backlog: the last SAFE item is **#6 README install/usage
+   rewrite + clap shell completions**; the OUTWARD-FACING ones — **#3 release CI
+   pipeline (cargo-dist, + MSRV/`rust-version`)**, **#4 Homebrew tap**, **#5 `cargo
+   publish`**, **#7 dual lean/full artifacts** — each need explicit maintainer
+   authorization at execution. Captured in the session handoff doc.
