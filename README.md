@@ -1,11 +1,139 @@
 # crustyimg
 
-A fast, friendly command-line tool for viewing and transforming images —
-a clean rebuild of an earlier prototype, built spec-driven from the ground up.
+**Tell the tool the outcome you want — a visual quality or a file-size budget,
+in a modern format — and get the smallest file that meets it, from one pure-Rust
+binary with zero system dependencies.** "Set the look, not the number."
 
-This repo uses a spec-driven workflow where Claude plays every role (architect, implementer, reviewer) across different sessions.
+A fast CLI for viewing and transforming images: resize, shrink/optimize-for-web,
+inspect, strip metadata, watermark, and generate responsive image sets — all from
+a single static binary with no system dependencies.
 
-## Hierarchy
+## Install
+
+**Works today:**
+
+```sh
+# From source (always current)
+cargo install --git https://github.com/jysf/crustyimg
+
+# Or clone and build manually
+git clone https://github.com/jysf/crustyimg
+cd crustyimg
+cargo build --release
+# binary: ./target/release/crustyimg
+```
+
+**Once v0.1.0 is published** (see [RELEASING.md](RELEASING.md) for the release checklist):
+
+```sh
+# cargo (crates.io)
+cargo install crustyimg
+
+# Homebrew
+brew install jysf/tap/crustyimg
+
+# Prebuilt binary — download from the GitHub Releases page
+# https://github.com/jysf/crustyimg/releases
+```
+
+### Feature notes
+
+The `view` command (terminal image preview) is **on by default** — a plain
+`cargo install` or release binary includes it. For a headless, smaller binary
+(CI / server / container), build without it:
+
+```sh
+cargo install --git https://github.com/jysf/crustyimg --no-default-features
+```
+
+Two additional codecs are opt-in (compile-time features):
+
+| Feature | What it adds |
+|---|---|
+| `webp-lossy` | Lossy WebP encode (libwebp, C dep) — by default WebP is lossless only |
+| `avif` | AVIF output via ravif (pure Rust, no nasm/system libs) |
+
+Enable with `--features webp-lossy,avif` at build/install time.
+
+## Usage
+
+```sh
+# View an image in the terminal
+crustyimg view photo.jpg
+
+# Inspect dimensions, format, byte size, EXIF presence
+crustyimg info photo.jpg
+crustyimg info photo.jpg --json      # machine-readable JSON to stdout
+
+# Optimize for web: auto-orient + strip metadata + visually-lossless encode
+crustyimg optimize photo.jpg -o out.webp
+
+# Shrink: resize long edge to ≤1200 px, output as WebP
+crustyimg shrink photo.jpg --max 1200 -o out.webp
+
+# Resize a batch to ≤800 px into an output directory
+crustyimg resize *.jpg --max 800 --out-dir web/
+
+# Pipe: read from stdin, write to stdout (all diagnostics go to stderr)
+crustyimg resize - --max 800 -o - < in.jpg > out.jpg
+
+# Perceptual diff: SSIMULACRA2 score of b vs a; exit 7 when below threshold
+crustyimg diff original.jpg compressed.jpg --fail-under 70
+
+# Generate responsive image variants + paste-ready <picture>/srcset snippet
+crustyimg responsive hero.jpg --widths 320,640,1280 --formats webp,jpeg --out-dir web/
+```
+
+Run `crustyimg --help` for the full command surface, or `crustyimg <cmd> --help`
+for per-command options.
+
+## Shell completions
+
+`crustyimg` can generate completion scripts for bash, zsh, fish, powershell, and
+elvish. Pipe the output into your shell's completion directory:
+
+```sh
+# zsh — add to your $fpath
+crustyimg completions zsh > "${fpath[1]}/_crustyimg"
+
+# bash — append to your completions file
+crustyimg completions bash >> ~/.bash_completion
+
+# fish
+crustyimg completions fish > ~/.config/fish/completions/crustyimg.fish
+
+# powershell
+crustyimg completions powershell >> $PROFILE
+
+# elvish
+crustyimg completions elvish >> ~/.config/elvish/lib/completions.elv
+```
+
+Where to install the script is your (or your package manager's) step — the
+command writes the script to stdout only.
+
+## Changelog & releases
+
+- **[CHANGELOG.md](CHANGELOG.md)** — what changed in each version, in
+  [Keep a Changelog](https://keepachangelog.com) format. The `[Unreleased]`
+  section tracks work merged since the last release.
+- **[RELEASING.md](RELEASING.md)** — the versioning policy (SemVer; `0.x` minor
+  bumps may carry breaking CLI changes), the `vX.Y.Z` annotated-tag convention,
+  and the release-cut checklist a maintainer follows to publish a new version.
+
+## License
+
+`crustyimg` is dual-licensed under **MIT OR Apache-2.0** — use whichever suits
+you. See [LICENSE-MIT](LICENSE-MIT) and [LICENSE-APACHE](LICENSE-APACHE).
+
+---
+
+## Developing crustyimg
+
+This repo uses a **spec-driven workflow** where Claude plays every role
+(architect, implementer, reviewer) across separate sessions.
+
+### Hierarchy
 
 ```
 Repo (this app)
@@ -15,15 +143,18 @@ Repo (this app)
               └─ Cycle (Frame → Design → Build → Verify → Ship)
 ```
 
-## Getting started
+### Getting started
 
-**First time?** Read `GETTING_STARTED.md` — it walks you through your first project end-to-end.
+**First time?** Read `GETTING_STARTED.md` — it walks you through the workflow
+end-to-end.
 
-**Daily work?** Run `just --list` to see available commands.
+**Daily work?** Run `just --list` to see available commands, or `just status` to
+see the active project, stage, and specs by cycle.
 
-**Common commands:**
-```bash
-just status                        # See active project, stage, specs by cycle
+### Common `just` commands
+
+```sh
+just status                        # Active project, stage, specs by cycle
 just backlog                       # Spec-grained: what's next in the active stage
 just roadmap                       # Stage-grained: where this project is going
 just new-spec "title" STAGE-001    # Scaffold a new spec
@@ -32,63 +163,30 @@ just archive-spec SPEC-001         # Move a shipped spec to done/
 just weekly-review                 # Print the weekly review prompt
 just report-daily                  # Generate today's daily report
 just report-weekly                 # Generate this week's weekly report
-just daily-status-report           # Snapshot `just status` to reports/daily/<date>-status.md
 ```
 
-## Reports
+### Reports
 
-`just report-daily` and `just report-weekly` generate quantitative
-snapshots under `reports/daily/` and `reports/weekly/` from spec
-front-matter and git log. Daily reports show specs by cycle, value
-thesis, cost activity today, and flags. Weekly reports aggregate
-ships, cycle times, cost by cycle and interface, and value
-advancement. Reports are stand-alone artifacts — re-running
-overwrites, so they're always a current snapshot.
+`just report-daily` and `just report-weekly` generate quantitative snapshots
+under `reports/daily/` and `reports/weekly/` from spec front-matter and git log.
+Reports are stand-alone artifacts — re-running overwrites, so they're always a
+current snapshot.
 
-## Key discipline in this variant
+### Key discipline in this variant
 
-Because Claude plays every role, context contamination is the biggest risk. Four habits keep it at bay:
+Because Claude plays every role, context contamination is the biggest risk. Four
+habits keep it at bay:
 
 1. **New Claude session per cycle** (especially design → build and build → verify)
 2. **The spec file is the source of truth** between sessions — no "as I said earlier"
 3. **Weekly review is non-optional** (`just weekly-review`)
 4. **Honest confidence values** on decisions
 
-See `AGENTS.md` section 15 for the full discipline.
+See `AGENTS.md` section 15 for the full discipline. For full agent conventions,
+read `AGENTS.md`. For the project brief, see
+`projects/PROJ-001-crustyimg-mvp/brief.md`.
 
-## The app itself
-
-> **Project frame (PROJ-001 — crustyimg MVP):**
->
-> - **What:** A Rust CLI that views images directly in the terminal and
->   performs the everyday transformations people actually reach for —
->   resize, shrink/optimize-for-web, thumbnail, strip metadata, inspect
->   info/EXIF — through a clean, composable pipeline with a real
->   subcommand interface.
-> - **For:** Developers and power users who want a fast, scriptable
->   alternative to clicking through a GUI (or memorizing ImageMagick
->   incantations) for routine image work — especially preparing images
->   for the web.
-> - **Why now:** An earlier prototype proved the feature set is useful
->   but accreted into ~1,000 lines of flag-soup with two competing image
->   models, hardcoded output paths, dead modules, and zero tests. A clean
->   rebuild on a single image model + pipeline architecture, with tests
->   and CI from spec one, turns a throwaway prototype into something
->   shippable (brew / crates.io).
-> - **Success:** A user can `crustyimg view`, `info`, `resize`, `shrink`,
->   `thumbnail`, and `strip` real images; each command is tested and
->   green on Linux/macOS/Windows CI; the binary installs cleanly from a
->   release artifact.
->
-> Effects/filters (sepia, grayscale, solarize, pixelize, edge-detect) and
-> integrations (`open` in Preview/browser, batch over a directory) are a
-> deliberate fast-follow — see the stage plan in
-> `projects/PROJ-001-crustyimg-mvp/brief.md`.
-
-- **Run it:** see `AGENTS.md` Section 6 (Commands).
-- **Tests:** `cargo test` (and `cargo clippy` / `cargo fmt --check`).
-
-## Where things live
+### Where things live
 
 | Path | Purpose |
 |---|---|
@@ -104,16 +202,3 @@ See `AGENTS.md` section 15 for the full discipline.
 | `Cargo.toml` | Crate manifest and pinned dependencies |
 | `src/` | The `crustyimg` crate (library modules + `main.rs`) — see `docs/architecture.md` |
 | `tests/` | Integration tests and native-generated image fixtures |
-
-## Changelog & releases
-
-- **[CHANGELOG.md](CHANGELOG.md)** — what changed in each version, in
-  [Keep a Changelog](https://keepachangelog.com) format. The `[Unreleased]`
-  section tracks work merged since the last release.
-- **[RELEASING.md](RELEASING.md)** — the versioning policy (SemVer; `0.x` minor
-  bumps may carry breaking CLI changes), the `vX.Y.Z` annotated-tag convention,
-  and the release-cut checklist a maintainer follows to publish a new version.
-
-## License
-
-Licensed under the Apache License, Version 2.0. See `LICENSE`.

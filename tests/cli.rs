@@ -82,6 +82,7 @@ fn help_lists_all_subcommands() {
         "copy-metadata",
         "edit",
         "apply",
+        "completions",
     ];
     for name in expected {
         assert!(
