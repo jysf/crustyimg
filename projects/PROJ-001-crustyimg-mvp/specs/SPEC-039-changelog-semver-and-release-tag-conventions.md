@@ -7,7 +7,7 @@
 task:
   id: SPEC-039
   type: chore                      # epic | story | task | bug | chore
-  cycle: build                     # frame | design | build | verify | ship
+  cycle: verify  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: S                    # S | M | L  (L means split it)
@@ -45,11 +45,19 @@ value_link: >
 # See AGENTS.md §4 and docs/cost-tracking.md. interface: claude-code |
 # claude-ai | api | ollama | other.
 cost:
-  sessions: []
+  sessions:
+    - cycle: build
+      agent: claude-sonnet-4-6
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-06-19
+      notes: "docs: CHANGELOG.md (Keep a Changelog; 0.1.0 = MVP narrated from moat/api-contract) + RELEASING.md (SemVer 0.x + vX.Y.Z annotated-tag convention + release-cut checklist, publish/tag steps maintainer-authorized) + README pointer; no code/dep/DEC; no tag/publish"
   totals:
     tokens_total: 0
     estimated_usd: 0
-    session_count: 0
+    session_count: 1
 ---
 
 # SPEC-039: changelog, semver, and release-tag conventions
@@ -203,28 +211,33 @@ A docs-only chore — no Rust tests. Verification is by inspection:
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
+- **Branch:** `feat/spec-039-changelog-releasing`
+- **PR (if applicable):** opened — see PR URL in session notes
+- **All acceptance criteria met?** yes
 - **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
+  - none
 - **Deviations from spec:**
-  - [list]
+  - none
 - **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - none beyond the existing STAGE-007 backlog items
 
 ### Build-phase reflection (3 questions, short answers)
 
 Process-focused: how did the build go? What friction did the spec create?
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — Nothing was genuinely unclear. The build prompt and spec were fully aligned; the
+   source material (moat.md + api-contract.md) gave everything needed for a
+   capability-grouped changelog without extra digging.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — No. The "docs only, no tag, no publish" constraint was stated clearly and the
+   gate commands made it easy to verify compliance.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Nothing significant. Reading moat.md first gave a clean capability grouping that
+   translated directly into the `### Added` structure; starting there rather than
+   scanning specs/done/ saved time.
 
 ---
 

@@ -105,6 +105,15 @@ See `AGENTS.md` section 15 for the full discipline.
 | `src/` | The `crustyimg` crate (library modules + `main.rs`) — see `docs/architecture.md` |
 | `tests/` | Integration tests and native-generated image fixtures |
 
+## Changelog & releases
+
+- **[CHANGELOG.md](CHANGELOG.md)** — what changed in each version, in
+  [Keep a Changelog](https://keepachangelog.com) format. The `[Unreleased]`
+  section tracks work merged since the last release.
+- **[RELEASING.md](RELEASING.md)** — the versioning policy (SemVer; `0.x` minor
+  bumps may carry breaking CLI changes), the `vX.Y.Z` annotated-tag convention,
+  and the release-cut checklist a maintainer follows to publish a new version.
+
 ## License
 
 Licensed under the Apache License, Version 2.0. See `LICENSE`.
