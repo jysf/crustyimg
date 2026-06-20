@@ -7,7 +7,7 @@
 task:
   id: SPEC-040
   type: story                      # epic | story | task | bug | chore
-  cycle: design                    # frame | design | build | verify | ship
+  cycle: verify  # frame | design | build | verify | ship
   blocked: false
   priority: medium
   complexity: M                    # S | M | L  (L means split it)
@@ -71,6 +71,19 @@ cost:
         only, lean build must work, README honesty for not-yet-live install channels,
         and the stale Apache-only License line corrected to MIT OR Apache-2.0. No
         tag/publish. Sixth STAGE-007 spec (last safe item).
+    - cycle: build
+      agent: claude-sonnet-4-6
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-06-19
+      notes: >
+        code+docs: clap_complete =4.6.5 (DEC-039) + `completions <shell>` subcommand
+        (stdout, 5 shells) with tests/completions.rs; README rewritten tool-first
+        (install cargo/release/brew honestly labeled + works-today path, usage
+        quickstart, completions, License corrected to MIT OR Apache-2.0, dev-process
+        relocated). No tag/publish/tap. fmt/clippy/test/lean/deny green.
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -308,28 +321,34 @@ via `Command::new(env!("CARGO_BIN_EXE_crustyimg"))` (no `assert_cmd` dep).
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
+- **Branch:** `feat/spec-040-readme-completions`
+- **PR (if applicable):** see PR opened after this commit
+- **All acceptance criteria met?** yes
 - **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
+  - none — DEC-039 was pre-authored by the architect
 - **Deviations from spec:**
-  - [list]
+  - none
 - **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - none within scope; `clap_mangen` man page remains deferred (DEC-039 alternatives)
 
 ### Build-phase reflection (3 questions, short answers)
 
 Process-focused: how did the build go? What friction did the spec create?
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — Nothing materially unclear. The DEC-039 probe-verified API was exact and
+   worked first try. The build prompt's honesty requirements for the README install
+   section were very precise, which reduced ambiguity rather than causing friction.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — No gaps. DEC-012 (clap isolation to src/cli/), DEC-027 (display default-on),
+   DEC-038/SPEC-038 (dual license) were all referenced correctly and the
+   implementation followed them cleanly.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Run `cargo fmt --all` immediately after writing new test files rather than
+   after all code changes, to catch format issues before the first test run (minor).
+   Otherwise the TDD flow (tests first, handler second) was frictionless.
 
 ---
 
