@@ -480,10 +480,15 @@ impl Operation for Resize {
             }
         };
 
-        // ── Oversize cap (untrusted-input-hardening) ─────────────────────────
-        // For fill, we cap the cover dims (tw, th) before allocating.
+        // ── Oversize cap (untrusted-input-hardening, SPEC-010; tightened SPEC-037) ──
+        // Reject before any resize backend allocates — one check covers all six modes
+        // (including percent/cover/fill, whose output dims depend on the input).
+        // MAX_AREA is the upscale-bomb defense; MAX_EDGE is a per-dimension sanity cap.
         const MAX_EDGE: u32 = 50_000;
-        const MAX_AREA: u64 = 268_435_456; // 256 * 1024 * 1024
+        // 512 MiB RGBA output (== the decode allocation cap, DEC-034/DEC-038): a
+        // resize cannot produce a buffer larger than what decode would accept.
+        // Tightened from 256 Mpx to 128 Mpx for that symmetry (SPEC-037).
+        const MAX_AREA: u64 = 134_217_728; // 128 * 1024 * 1024 px = 512 MiB at RGBA8
 
         if tw > MAX_EDGE || th > MAX_EDGE {
             return Err(OperationError::Apply {
@@ -1705,5 +1710,90 @@ mod tests {
         assert_eq!(p.get_u32("margin"), Some(3));
         // `tile` is a bool key; confirm it is present and true.
         assert_eq!(p.0.get("tile"), Some(&toml::Value::Boolean(true)));
+    }
+
+    // ── SPEC-037 unit tests — resize output byte cap (DEC-038) ───────────────
+
+    /// A 2×2 input, `exact 40000x40000` → rejected before allocation.
+    ///
+    /// 40000 × 40000 × 4 bytes ≈ 6.4 GB > 512 MiB cap (DEC-038).
+    /// The guard fires before the resize backend allocates, so this test
+    /// stays cheap — the tiny 2×2 buffer is never enlarged.
+    #[test]
+    fn resize_apply_exact_rejects_oversized_output() {
+        let p = params_from_pairs(&[
+            ("mode", toml::Value::String("exact".into())),
+            ("width", toml::Value::Integer(40_000)),
+            ("height", toml::Value::Integer(40_000)),
+        ]);
+        let op = Resize::from_params(&p).unwrap();
+        let img = make_image(2, 2, |_, _| [128, 64, 32, 255]);
+        let result = op.apply(img);
+        assert!(
+            matches!(result, Err(OperationError::Apply { op: "resize", .. })),
+            "expected Apply error for oversized exact output, got {result:?}"
+        );
+    }
+
+    /// A 100×100 input, `percent 2000000` → rejected before allocation.
+    ///
+    /// Output would be 2 000 000 × 2 000 000 px, far exceeding 512 MiB (DEC-038).
+    /// Confirms the byte cap covers input-dependent modes (percent, cover, fill).
+    #[test]
+    fn resize_apply_percent_rejects_oversized_output() {
+        let p = params_from_pairs(&[
+            ("mode", toml::Value::String("percent".into())),
+            ("percent", toml::Value::Integer(2_000_000)),
+        ]);
+        let op = Resize::from_params(&p).unwrap();
+        let img = make_image(100, 100, |_, _| [10, 20, 30, 255]);
+        let result = op.apply(img);
+        assert!(
+            matches!(result, Err(OperationError::Apply { op: "resize", .. })),
+            "expected Apply error for oversized percent output, got {result:?}"
+        );
+    }
+
+    /// Normal resizes stay below the 512 MiB cap and succeed (regression guard).
+    ///
+    /// Covers `exact 64x64`, `max 32` (no upscale on small input), and
+    /// `percent 50` — all three must return `Ok`.
+    #[test]
+    fn resize_apply_normal_outputs_succeed() {
+        let img = make_image(64, 64, |_, _| [200, 100, 50, 255]);
+
+        // exact 64x64
+        let p_exact = params_from_pairs(&[
+            ("mode", toml::Value::String("exact".into())),
+            ("width", toml::Value::Integer(64)),
+            ("height", toml::Value::Integer(64)),
+        ]);
+        let result_exact = Resize::from_params(&p_exact).unwrap().apply(img.clone());
+        assert!(
+            result_exact.is_ok(),
+            "exact 64x64 must succeed; got {result_exact:?}"
+        );
+
+        // max 32 (small input; does not upscale, outputs 32x32)
+        let p_max = params_from_pairs(&[
+            ("mode", toml::Value::String("max".into())),
+            ("width", toml::Value::Integer(32)),
+        ]);
+        let result_max = Resize::from_params(&p_max).unwrap().apply(img.clone());
+        assert!(
+            result_max.is_ok(),
+            "max 32 must succeed; got {result_max:?}"
+        );
+
+        // percent 50 → 32x32
+        let p_pct = params_from_pairs(&[
+            ("mode", toml::Value::String("percent".into())),
+            ("percent", toml::Value::Integer(50)),
+        ]);
+        let result_pct = Resize::from_params(&p_pct).unwrap().apply(img);
+        assert!(
+            result_pct.is_ok(),
+            "percent 50 must succeed; got {result_pct:?}"
+        );
     }
 }

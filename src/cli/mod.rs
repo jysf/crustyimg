@@ -2247,6 +2247,8 @@ fn run_edit(
 
     // 5. On success, write the recipe file if requested.
     if let (Some(path), Some(r)) = (save_recipe, recipe) {
+        // Guard: refuse to write through a symlink (DEC-035, SPEC-037).
+        crate::sink::reject_symlink_destination(std::path::Path::new(path))?;
         let toml = r.to_toml()?;
         std::fs::write(path, toml).map_err(|e| CliError::Sink(SinkError::Io(e)))?;
     }

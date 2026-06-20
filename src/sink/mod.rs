@@ -640,7 +640,7 @@ pub fn encode_to_bytes(
 /// Enforced **regardless of `Overwrite`** — `--yes` permits overwriting a
 /// named file, but does not authorize following a link out of the directory
 /// (DEC-035).
-fn reject_symlink_destination(path: &Path) -> Result<(), SinkError> {
+pub(crate) fn reject_symlink_destination(path: &Path) -> Result<(), SinkError> {
     match std::fs::symlink_metadata(path) {
         Ok(m) if m.file_type().is_symlink() => {
             Err(SinkError::Traversal(path.display().to_string()))
@@ -1029,5 +1029,45 @@ mod tests {
         );
         let written = dir.join("photo.png");
         assert!(written.exists(), "output file should exist");
+    }
+
+    // ── SPEC-037: pub(crate) visibility of reject_symlink_destination ─────────
+
+    /// Confirms `reject_symlink_destination` is accessible as `pub(crate)` and
+    /// returns `Ok` for a regular file or missing path (SPEC-037 / DEC-035).
+    ///
+    /// The symlink arm is `#[cfg(unix)]`-gated inside the same test.
+    #[test]
+    fn reject_symlink_destination_is_crate_visible() {
+        let tmp = tempfile::tempdir().unwrap();
+
+        // Missing path → Ok (safe to create).
+        let missing = tmp.path().join("not_here.toml");
+        assert!(
+            reject_symlink_destination(&missing).is_ok(),
+            "missing path must be Ok"
+        );
+
+        // Regular file → Ok.
+        let regular = tmp.path().join("regular.toml");
+        std::fs::write(&regular, b"content").unwrap();
+        assert!(
+            reject_symlink_destination(&regular).is_ok(),
+            "regular file must be Ok"
+        );
+
+        // Symlink → Traversal (unix only).
+        #[cfg(unix)]
+        {
+            let target = tmp.path().join("outside.toml");
+            std::fs::write(&target, b"sensitive").unwrap();
+            let link = tmp.path().join("link.toml");
+            std::os::unix::fs::symlink(&target, &link).unwrap();
+            let result = reject_symlink_destination(&link);
+            assert!(
+                matches!(result, Err(SinkError::Traversal(_))),
+                "symlink must be Traversal, got: {result:?}"
+            );
+        }
     }
 }

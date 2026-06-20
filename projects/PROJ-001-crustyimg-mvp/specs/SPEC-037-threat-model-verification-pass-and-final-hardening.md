@@ -7,7 +7,7 @@
 task:
   id: SPEC-037
   type: story                      # epic | story | task | bug | chore
-  cycle: build                     # frame | design | build | verify | ship
+  cycle: verify                    # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: M                    # S | M | L  (L means split it)
@@ -49,11 +49,19 @@ value_link: >
 # See AGENTS.md §4 and docs/cost-tracking.md. interface: claude-code |
 # claude-ai | api | ollama | other.
 cost:
-  sessions: []
+  sessions:
+    - cycle: build
+      agent: claude-sonnet-4-6
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-06-19
+      notes: "STAGE-006 capstone: resize output 512MiB cap in Resize::apply (all modes, DEC-038) + edit --save-recipe reuses sink::reject_symlink_destination (pub(crate), DEC-035); reuse OperationError::Apply (exit 1) / SinkError::Traversal (exit 5); std-only, no new dep"
   totals:
     tokens_total: 0
     estimated_usd: 0
-    session_count: 0
+    session_count: 1
 ---
 
 # SPEC-037: threat-model verification pass and final hardening
@@ -66,10 +74,14 @@ concrete runtime gaps** the prior specs' verify cycles surfaced and explicitly
 deferred to here, then records a **threat-model verification pass** confirming
 every `SECURITY.md` mitigation actually holds as built:
 
-1. **Resize upscale-bomb (deferred from SPEC-035 / DEC-036).** `Resize` has no
-   upper output bound, so a recipe or CLI `resize exact 100000x100000` (≈40 GB)
-   or `resize percent 1000000` would drive an enormous allocation. The decode
-   limit (DEC-034) bounds *inputs*, not resize *outputs*.
+1. **Resize upscale-bomb (deferred from SPEC-035 / DEC-036).** *Verification
+   finding:* `Resize::apply` was **already bounded** — SPEC-010 shipped an oversize
+   cap (`MAX_EDGE = 50 000` per dimension + `MAX_AREA` on total pixels) with the op,
+   so `resize exact 100000x100000` / `resize percent 1000000` was already rejected
+   before allocation. Not an open hole. The only refinement (DEC-038): **tighten
+   `MAX_AREA` from 256 Mpx → 128 Mpx (= 512 MiB RGBA)** so the resize output cap
+   matches the decode allocation cap (DEC-034) — one cap, symmetric, no new const.
+   (An earlier build draft added a redundant separate byte cap; it was removed.)
 2. **`edit --save-recipe` symlink parity (deferred from SPEC-034).** `run_edit`
    writes the recipe via raw `std::fs::write` — unlike `Sink`, it does NOT reject
    a symlinked destination, so a planted symlink at the recipe path could redirect
@@ -108,11 +120,11 @@ every mitigation holds — completing the STAGE-006 exit gate.
 ## Outputs
 
 - **Files modified:**
-  - `src/operation/mod.rs` — add `const MAX_RESIZE_OUTPUT_BYTES: u64 = 512 * 1024
-    * 1024;`; in `Resize::apply`, after `(tw, th)` is computed and BEFORE the
-    output buffer is allocated, reject when `tw as u64 * th as u64 * 4 >
-    MAX_RESIZE_OUTPUT_BYTES` with `OperationError::Apply { op: "resize", reason }`.
-    Unit-tested.
+  - `src/operation/mod.rs` — **tighten** the existing SPEC-010 `MAX_AREA` in
+    `Resize::apply` from `268_435_456` (256 Mpx) → `134_217_728` (128 Mpx = 512 MiB
+    RGBA, == the decode alloc cap, DEC-034); keep `MAX_EDGE` and the
+    reject-before-allocate check (which already returns `OperationError::Apply { op:
+    "resize", … }`). No new constant. Unit-tested.
   - `src/sink/mod.rs` — change `reject_symlink_destination` from private to
     `pub(crate)` (no behavior change) so the CLI can reuse it.
   - `src/cli/mod.rs` — in `run_edit`, before `std::fs::write(path, toml)`, call
@@ -128,14 +140,14 @@ every mitigation holds — completing the STAGE-006 exit gate.
 
 ## Hardening policy (PINNED)
 
-- **Resize output cap (DEC-038):** in `Resize::apply`, immediately after the
-  `(tw, th)` match that computes target dims (covers all six modes), BEFORE
-  building the output image: `if (tw as u64) * (th as u64) * 4 >
-  MAX_RESIZE_OUTPUT_BYTES { return Err(OperationError::Apply { op: "resize",
-  reason: format!("resize output {tw}x{th} exceeds the {} byte limit",
-  MAX_RESIZE_OUTPUT_BYTES) }); }`. `MAX_RESIZE_OUTPUT_BYTES = 512 MiB` (== the
-  decode alloc cap, DEC-034). Reject, never clamp. Maps to CLI exit **1**
-  (`CliError::Operation(_) => 1`). `max`/`fit` never upscale → unaffected.
+- **Resize output cap (DEC-038):** the existing SPEC-010 oversize check in
+  `Resize::apply` (after the `(tw, th)` match, before allocation; covers all six
+  modes) is **kept**, with `MAX_AREA` **tightened from 256 Mpx → 128 Mpx**
+  (`134_217_728` px = 512 MiB RGBA, == the decode alloc cap, DEC-034). `MAX_EDGE`
+  (50 000 px per-dimension) unchanged. Over-cap → `OperationError::Apply { op:
+  "resize", … }` (CLI exit **1**). Reject, never clamp. `max`/`fit` never upscale →
+  unaffected. **No new constant** (an earlier build draft's `MAX_RESIZE_OUTPUT_BYTES`
+  was removed as redundant).
 - **`edit --save-recipe` symlink guard (DEC-035):** `run_edit` calls the shared
   `sink::reject_symlink_destination` on the recipe path before writing — a
   symlinked recipe destination is refused with `SinkError::Traversal` (exit 5),
@@ -261,28 +273,42 @@ must never actually allocate gigabytes).
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
+- **Branch:** `feat/spec-037-final-hardening`
+- **PR (if applicable):** opened (see PR URL)
+- **All acceptance criteria met?** yes
 - **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
+  - none (DEC-038 authored at design)
 - **Deviations from spec:**
-  - [list]
+  - **Design correction (by the architect, post-build):** the build initially added
+    a separate `MAX_RESIZE_OUTPUT_BYTES` const + check, having discovered the
+    pre-existing `MAX_EDGE`/`MAX_AREA` guards (from SPEC-010). The architect's
+    spec premise ("resize has no upper bound") was wrong — resize was already
+    bounded. The redundant new const was **removed**; instead the existing
+    `MAX_AREA` was **tightened from 256 Mpx → 128 Mpx** (512 MiB RGBA) for symmetry
+    with the decode alloc cap (DEC-034). One area cap, no redundancy. DEC-038 +
+    the spec context were corrected to reflect this. All 411 tests still pass
+    (the resize tests reject the same oversized cases via `MAX_EDGE`/`MAX_AREA`).
 - **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - none for this stage
 
 ### Build-phase reflection (3 questions, short answers)
 
 Process-focused: how did the build go? What friction did the spec create?
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — The spec said "immediately after `let (tw, th) = match self.mode {…};`" but
+   there were already `MAX_EDGE` / `MAX_AREA` guards present from earlier hardening;
+   I had to decide whether to replace or prepend. The instruction to "smallest correct
+   change" resolved it: prepend the byte cap, leave existing guards in place.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — Nothing missing; DEC-038, DEC-035, DEC-034, and DEC-007 were all the right
+   references. The note about `doc_lazy_continuation` was a useful reminder.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Nothing substantial; the spec was prescriptive enough that the build was
+   mechanical. Running `cargo test -- --list` immediately after writing tests
+   confirmed name matches before the full test run.
 
 ---
 
