@@ -7,7 +7,7 @@
 task:
   id: SPEC-035
   type: story                      # epic | story | task | bug | chore
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: S                    # S | M | L  (L means split it)
@@ -50,18 +50,64 @@ value_link: >
 # claude-ai | api | ollama | other.
 cost:
   sessions:
-    - cycle: build
-      agent: claude-sonnet-4-6
+    - cycle: design
+      agent: claude-opus-4-8
       interface: claude-code
       tokens_total: null
       estimated_usd: null
       duration_minutes: null
       recorded_at: 2026-06-19
-      notes: "recipe resource limits: RECIPE_MAX_BYTES/RECIPE_MAX_STEPS + RecipeError::TooLarge/TooManySteps enforced in from_toml (size before parse, steps after version) + CLI run_apply pre-read metadata guard; reuse Recipe(_) exit 1; std-only, no new dep"
+      notes: >
+        Main-loop orchestrator work, not separately metered. Read the recipe
+        loader + the resize op; established that the functional validation
+        (version/unknown-op/param) already exists and the real delta is resource
+        bounding. Authored the spec (Limits policy PINNED, Failing Tests,
+        Implementation Context) + DEC-036 + the Sonnet build prompt. Pinned the
+        load-bearing order (size before parse, steps after version) and inclusive
+        boundaries, and recorded the resize-upscale-bomb (op-param bound) as an
+        explicit out-of-scope follow-up. std-only, no new dep. Third STAGE-006 spec.
+    - cycle: build
+      agent: claude-sonnet-4-6
+      interface: claude-code
+      tokens_total: 86548
+      estimated_usd: 0.47
+      duration_minutes: 4
+      recorded_at: 2026-06-19
+      notes: >
+        Real metered subagent on Sonnet 4.6. subagent_tokens=86548,
+        duration_ms=258217. estimated_usd at Sonnet list ($3/$15 per MTok,
+        ~80/20). recipe resource limits: RECIPE_MAX_BYTES/RECIPE_MAX_STEPS +
+        RecipeError::TooLarge/TooManySteps enforced in from_toml (size before
+        parse, steps after version) + CLI run_apply pre-read metadata guard;
+        reuse Recipe(_) exit 1; std-only, no new dep. 404 tests green (6 unit + 2
+        integration new); clippy/fmt/lean/deny clean. No deviations.
+    - cycle: verify
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 55000
+      estimated_usd: 0.50
+      duration_minutes: null
+      recorded_at: 2026-06-19
+      notes: >
+        ORDER-OF-MAGNITUDE ESTIMATE (~55k) — read-only Explore subagent on Opus
+        (no metered usage block) + orchestrator main-loop gate re-runs (cargo
+        test 404 ok / clippy / fmt / deny / lean). Explore verdict: APPROVED, no
+        concerns; verified the caps match DEC-036, the load-bearing check
+        ordering (size→parse, version→steps), inclusive boundaries, the CLI
+        pre-read guard precedes read_to_string, and ran a gap-hunt confirming
+        from_toml is the single load path with no bypass.
+    - cycle: ship
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-06-19
+      notes: "Main-loop ship bookkeeping (merge dance + cost totals + reflection + archive); not separately metered."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 1
+    tokens_total: 141548
+    estimated_usd: 0.97
+    session_count: 4
 ---
 
 # SPEC-035: security-grade recipe validation and resource limits
@@ -301,10 +347,30 @@ Process-focused: how did the build go? What friction did the spec create?
 from the process-focused build reflection above.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Reading the recipe loader AND the resize op before writing the spec is what
+   kept the scope honest: it showed the *functional* validation (version/
+   unknown-op/param) already existed — so "security-grade recipe validation" was
+   really about **resource bounding** — and it surfaced the genuinely scary
+   recipe vector (a `resize exact 100000x100000` upscale bomb) that this spec
+   deliberately does NOT fix (op-param bounds, percent needs apply-time checks,
+   and it spans the CLI resize commands too). Pinning the load-bearing order
+   (size before parse; steps after version) and inclusive boundaries in the spec
+   meant the build hit them first try, and the verify gap-hunt confirmed
+   `from_toml` is the single choke point. Three-for-three clean Sonnet builds this
+   stage at ~$0.45 each.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — No template/constraint change; DEC-036 records the policy. The recurring
+   STAGE-006 pattern is now explicit and worth carrying into the threat-model
+   pass: **harden at the single choke point, reuse the existing typed-error +
+   exit-code mapping, and have verify run an adversarial bypass-grep** — it both
+   proves completeness and keeps surfacing the next item (here, the resize
+   upscale-bomb; on SPEC-034, the `--save-recipe` raw write).
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — Two now-accumulated op/path follow-ups belong to the **threat-model
+   verification pass (backlog #5)**, not standalone specs yet: (a) **op-parameter
+   bounds** — the `resize` upscale bomb (incl. `percent` apply-time) — and (b) the
+   **`edit --save-recipe` raw write** symlink-guard parity (from SPEC-034). The
+   immediate next item is **backlog #4: wire `cargo audit`/`cargo deny` into CI**
+   (a CI/tooling change). Both tracked on the stage backlog.
