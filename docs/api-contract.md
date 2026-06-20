@@ -75,8 +75,12 @@ follow-up.
 **Recipe resource limits (SPEC-035 / DEC-036):** `apply --recipe` bounds an
 untrusted recipe — a recipe text over **64 KiB** or with more than **1024 steps**
 is rejected with a typed error (exit `1`), and an over-size recipe *file* is
-refused before it is read into memory. (Op-parameter bounds, e.g. a `resize` to
-enormous dimensions, are a tracked follow-up.)
+refused before it is read into memory.
+
+**Resize output limit (SPEC-037 / DEC-038):** a `resize` whose output buffer
+would exceed **512 MiB** (≈ the same cap as decode) — an upscale bomb via
+`exact`/`percent`/`cover`/`fill`, from a recipe or the CLI — is rejected with a
+typed error (exit `1`) before allocation. (`max`/`fit` never upscale.)
 
 ## Subcommand Surface (full MVP)
 

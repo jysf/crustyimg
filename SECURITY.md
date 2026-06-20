@@ -52,6 +52,28 @@ agent-run workflow this repo uses.
    `guidance/constraints.yaml` makes "no committed credentials" a blocking
    rule (`no-secrets-in-code`). `crustyimg` itself needs no secrets.
 
+## Verification (STAGE-006 exit gate)
+
+The hardening above was consolidated and verified as the MVP exit gate
+(STAGE-006). Each threat → its as-built mitigation → where it is enforced:
+
+| # | Threat | Mitigation (as built) | Enforced in |
+|---|--------|-----------------------|-------------|
+| 1 | Untrusted image inputs (decode bomb, decoder bug, panic) | `image::Limits` on the one decode path (dimensions ≤ 65 535, alloc ≤ 512 MiB) → typed `LimitsExceeded` (exit 1), never panic/OOM; all errors typed (DEC-007) | `src/image/` (SPEC-033 / DEC-034) |
+| 2 | Untrusted recipes (bad version, unknown op, parse/build DoS, op-param bomb) | version + unknown-op + invalid-param rejection; recipe text ≤ 64 KiB + ≤ 1024 steps; **resize output ≤ 512 MiB** (upscale-bomb) | `src/recipe/`, `src/operation/` (SPEC-006/035/037 · DEC-005/036/038) |
+| 3 | Path traversal on output | `safe_join` rejects `..`/separator/absolute names; **symlinked destinations refused even with `--yes`** (image output AND `--save-recipe`); no overwrite without `--yes`; dir/glob sources skip symlink-escaping entries (always anchored) | `src/sink/`, `src/source/` (SPEC-005/034/037 · DEC-035) |
+| 4 | Metadata leakage / privacy | default drop-GPS on pixel-lane encodes (`--keep-gps` to opt out); `clean --gps` / `strip` (container lane, no re-encode) | `src/metadata/` (SPEC-026 · DEC-003) |
+| 5 | Untrusted repo content + agents | process control (review what an agent runs; treat external briefs as untrusted) — not a code mitigation | workflow / this doc |
+| 6 | Secrets in git | `.gitignore` + the blocking `no-secrets-in-code` constraint; the tool needs no secrets | repo policy |
+| + | Supply chain (vulnerable / unmaintained / yanked / banned / non-crates.io deps) | CI `cargo deny check advisories bans sources licenses` (RUSTSEC + license + ban + source gate) | `.github/workflows/ci.yml`, `deny.toml` (SPEC-036 · DEC-037/018) |
+
+Residual / accepted: one unmaintained transitive (`paste`, RUSTSEC-2024-0436, no
+upstream fix — narrow dated `ignore` in `deny.toml`); a `--max-pixels`/env
+override to re-admit a deliberately huge decode/resize is a planned additive
+follow-up (DEC-034/038); `O_NOFOLLOW`-grade TOCTOU hardening is out of scope for
+the MVP. An adversarial review over the cumulative STAGE-006 diff surfaced no
+unresolved high-severity finding.
+
 ## Good habits
 
 - Decode limits are set on load and input dimensions are not trusted
