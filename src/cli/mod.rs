@@ -19,7 +19,8 @@ use std::io::Cursor;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use clap::{Args, Parser, Subcommand};
+use clap::{Args, CommandFactory, Parser, Subcommand};
+use clap_complete::generate;
 use indicatif::{ProgressBar, ProgressStyle};
 use rayon::prelude::*;
 
@@ -365,6 +366,9 @@ pub enum Commands {
         recipe: String,
         inputs: Vec<String>,
     },
+
+    /// Generate a shell-completion script (bash, zsh, fish, powershell, elvish) to stdout.
+    Completions { shell: clap_complete::Shell },
 }
 
 // ── CliError + exit-code mapping ─────────────────────────────────────────────
@@ -647,7 +651,21 @@ fn dispatch(cli: &Cli) -> Result<(), CliError> {
             save_recipe.as_deref(),
             &cli.global,
         ),
+        Commands::Completions { shell } => run_completions(*shell),
     }
+}
+
+// ── Shell completions ─────────────────────────────────────────────────────────
+
+/// Print a clap-generated completion script for `shell` to stdout (SPEC-040, DEC-039).
+///
+/// Reflects over the full `Cli` command tree so completions stay in sync with
+/// the subcommand surface automatically. Takes no input path and touches no
+/// file system — the user (or a packager) redirects the output.
+fn run_completions(shell: clap_complete::Shell) -> Result<(), CliError> {
+    let mut cmd = Cli::command();
+    generate(shell, &mut cmd, "crustyimg", &mut std::io::stdout());
+    Ok(())
 }
 
 // ── Real apply path ───────────────────────────────────────────────────────────
