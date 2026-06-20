@@ -7,7 +7,7 @@
 task:
   id: SPEC-038
   type: chore                      # epic | story | task | bug | chore
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: S                    # S | M | L  (L means split it)
@@ -48,18 +48,64 @@ value_link: >
 # claude-ai | api | ollama | other.
 cost:
   sessions:
-    - cycle: build
-      agent: claude-sonnet-4-6
+    - cycle: design
+      agent: claude-opus-4-8
       interface: claude-code
       tokens_total: null
       estimated_usd: null
       duration_minutes: null
       recorded_at: 2026-06-19
-      notes: "publish metadata: Cargo.toml repository/homepage/readme/keywords/categories/exclude + LICENSE-MIT/LICENSE-APACHE (git mv LICENSE); verified lean package via cargo package --list (assets font in, scaffolding out) + cargo publish --dry-run; NO publish; no dep/DEC"
+      notes: >
+        Main-loop orchestrator work, not separately metered. Confirmed the
+        crates.io name `crustyimg` is free (read-only API check); inspected
+        Cargo.toml/LICENSE/top-level dirs; authored the spec + the Sonnet build
+        prompt. Key pins: the `exclude` denylist must KEEP `assets/` (the bundled
+        Go font is `include_bytes!`'d) while dropping the scaffolding; valid
+        crates.io category slugs; dual LICENSE-MIT/LICENSE-APACHE; verify via
+        `cargo package`/`--dry-run` with NO publish. First STAGE-007 spec.
+    - cycle: build
+      agent: claude-sonnet-4-6
+      interface: claude-code
+      tokens_total: 55206
+      estimated_usd: 0.30
+      duration_minutes: 29
+      recorded_at: 2026-06-19
+      notes: >
+        Real metered subagent on Sonnet 4.6. subagent_tokens=55206,
+        duration_ms=1758618 (incl. a full `cargo publish --dry-run` build).
+        estimated_usd at Sonnet list ($3/$15 per MTok, ~80/20). publish metadata:
+        Cargo.toml repository/homepage/readme/keywords/categories/exclude +
+        LICENSE-MIT/LICENSE-APACHE (git mv LICENSE); verified lean package via
+        cargo package --list (assets font in, scaffolding out) + cargo publish
+        --dry-run (no upload). 411 tests green; clippy/fmt/lean/deny clean. No
+        dep/DEC. (Used --allow-dirty due to the untracked TESTING-WITH-YOUR-PHOTOS.md
+        — harmless; cargo packs from committed source.)
+    - cycle: verify
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 50000
+      estimated_usd: 0.45
+      duration_minutes: null
+      recorded_at: 2026-06-19
+      notes: >
+        ORDER-OF-MAGNITUDE ESTIMATE (~50k) — read-only Explore subagent on Opus +
+        re-runs (`cargo package --list`, `cargo publish --dry-run`, build, clippy,
+        deny). Verdict: APPROVED. Confirmed the bundled font IS packaged + the
+        scaffolding is excluded, category slugs valid, `license` unchanged, dual
+        LICENSE files match, no `authors`/personal-email, no dep change, and
+        NOTHING was published (dry-run aborted the upload).
+    - cycle: ship
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-06-19
+      notes: "Main-loop ship bookkeeping (merge dance + cost totals + reflection + archive); not separately metered."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 1
+    tokens_total: 105206
+    estimated_usd: 0.75
+    session_count: 4
 ---
 
 # SPEC-038: cargo publish metadata and dual license files
@@ -339,10 +385,28 @@ Process-focused: how did the build go? What friction did the spec create?
 from the process-focused build reflection above.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Little. The one thing that mattered most for a *packaging* spec was making
+   `cargo package --list` the **executable acceptance check** (not Rust tests) and
+   pinning the two failure modes that actually bite: dropping a needed runtime asset
+   (the `include_bytes!`'d font) and shipping the scaffolding. Both were verified by
+   eyeballing the real packed file list, which is the only way to be sure an
+   `exclude` denylist is right. The dual-license-files convention (`LICENSE-MIT` +
+   `LICENSE-APACHE` matching the `license` field) is easy to get subtly wrong; pinning
+   the exact end state avoided a half-migration.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — No template/constraint change; DEC-018 already governs the license. STAGE-007
+   process note: the SAFE release-prep items (metadata, license, README, completions)
+   can run the normal design→build→verify→ship cycle, but the **outward-facing** items
+   (tag-triggered release, Homebrew tap, `cargo publish`) are hard-to-reverse and must
+   pause for explicit user authorization at *execution*, not just at merge — flag that
+   in each of those specs.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — The remaining STAGE-007 backlog (6 items): the SAFE next ones are **#2
+   CHANGELOG + semver + `v0.1.0` tag conventions** and **#6 README install/usage
+   rewrite + shell completions** (continuing now). The OUTWARD-FACING ones —
+   **#3 release CI pipeline (cargo-dist)**, **#4 Homebrew tap**, **#5 `cargo publish`**,
+   **#7 dual lean/full artifacts** — are gated on explicit user go-ahead. MSRV
+   (`rust-version`, deferred here) wants a floor-toolchain CI job; fold into #3 or its
+   own small spec.
