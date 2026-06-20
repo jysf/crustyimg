@@ -7,7 +7,7 @@
 task:
   id: SPEC-036
   type: chore                      # epic | story | task | bug | chore
-  cycle: verify                    # frame | design | build | verify | ship
+  cycle: ship                      # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: S                    # S | M | L  (L means split it)
@@ -49,18 +49,66 @@ value_link: >
 # claude-ai | api | ollama | other.
 cost:
   sessions:
-    - cycle: build
-      agent: claude-sonnet-4-6
+    - cycle: design
+      agent: claude-opus-4-8
       interface: claude-code
       tokens_total: null
       estimated_usd: null
       duration_minutes: null
       recorded_at: 2026-06-19
-      notes: "supply-chain gate: ci.yml cargo-deny command -> check advisories bans sources licenses + deny.toml [advisories]/[bans]/[sources] sections + just deny; cargo-audit consolidated into cargo-deny (DEC-037); no new runtime dep; full check green; RUSTSEC-2024-0436 (paste/unmaintained, no safe upgrade) handled with dated ignore entry"
+      notes: >
+        Main-loop orchestrator work, not separately metered. Read ci.yml /
+        deny.toml / justfile; scoped the gate extension (license-only → full
+        advisories+bans+sources+licenses) + authored the spec + DEC-037 (the
+        cargo-audit-into-cargo-deny consolidation: deny's advisories check reads
+        the same RUSTSEC DB) + the Sonnet build prompt, incl. the findings policy
+        (dep-bump or narrow commented ignore, never a whole-check disable) and a
+        "validate the deny.toml schema against the real tool" note. No new runtime
+        dep; license policy (DEC-018) untouched. Fourth STAGE-006 spec (a chore).
+    - cycle: build
+      agent: claude-sonnet-4-6
+      interface: claude-code
+      tokens_total: 59326
+      estimated_usd: 0.32
+      duration_minutes: 13
+      recorded_at: 2026-06-19
+      notes: >
+        Real metered subagent on Sonnet 4.6. subagent_tokens=59326,
+        duration_ms=8062300 (incl. cargo-deny RUSTSEC fetch + a CI round-trip).
+        estimated_usd at Sonnet list ($3/$15 per MTok, ~80/20). supply-chain
+        gate: ci.yml cargo-deny command -> check advisories bans sources licenses
+        + deny.toml [advisories]/[bans]/[sources] + just deny; cargo-audit
+        consolidated into cargo-deny (DEC-037); no new runtime dep. One real
+        finding handled per policy: RUSTSEC-2024-0436 (paste/unmaintained, no safe
+        upgrade — transitive via little_exif/rav1e) → dated narrow ignore. Fixed an
+        in-flight YAML colon bug in the step name. 16/16 CI green; 404 tests pass.
+    - cycle: verify
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 50000
+      estimated_usd: 0.45
+      duration_minutes: null
+      recorded_at: 2026-06-19
+      notes: >
+        ORDER-OF-MAGNITUDE ESTIMATE (~50k) — read-only Explore subagent on Opus
+        (no metered usage block) + config re-checks. Explore verdict: APPROVED,
+        no concerns; adversarially confirmed the gate is the genuine four-check
+        gate (not weakened), [licenses] is byte-for-byte unchanged, the single
+        RUSTSEC-2024-0436 ignore is narrow + dated + justified (transitive paste,
+        no safe upgrade), no check disabled to pass, no new runtime dep; both
+        old (`check licenses`) and new full checks exit 0.
+    - cycle: ship
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-06-19
+      notes: "Main-loop ship bookkeeping (merge dance + cost totals + reflection + archive); not separately metered."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 1
+    tokens_total: 109326
+    estimated_usd: 0.77
+    session_count: 4
 ---
 
 # SPEC-036: full supply-chain gate (cargo-deny advisories + bans + sources) in CI
@@ -271,10 +319,28 @@ Process-focused: how did the build go? What friction did the spec create?
 from the process-focused build reflection above.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Two things the spec got right that paid off: (a) telling the build to
+   **validate the `deny.toml` schema against the real tool** rather than trusting
+   my example keys — cargo-deny's schema has drifted across versions, and the
+   build adjusted accordingly; (b) a **strict findings policy** (dep-bump or a
+   narrow, dated, commented ignore — never a whole-check disable). A real advisory
+   *did* surface (RUSTSEC-2024-0436, `paste` unmaintained, no upstream fix), and
+   because the policy was pinned, the build handled it correctly (one scoped
+   ignore + revisit trigger) instead of weakening the gate. The honest read: this
+   is the first STAGE-006 item whose value is *ongoing* — the gate will go red on
+   future advisories with no code change, which is the point.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — No template change. DEC-037 records the gate + the cargo-audit
+   consolidation; DEC-018 (licenses) is unchanged. One durable note: a CI step
+   `name:` containing a bare colon broke YAML parsing on first push (the build
+   caught + fixed it) — worth remembering for any future workflow edits. The
+   `paste` ignore in `deny.toml` is now a standing item to clear when
+   `little_exif`/`rav1e` drop it.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — The final STAGE-006 item: **backlog #5 — the threat-model verification pass
+   + `/security-review`** on the cumulative diff, being designed next. It is the
+   stage capstone and absorbs the two tracked op/path follow-ups (the `resize`
+   upscale-bomb op-param bound; the `edit --save-recipe` raw-write symlink-guard
+   parity). After #5 ships, STAGE-006 — the MVP exit gate — is complete.
