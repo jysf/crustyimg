@@ -82,7 +82,7 @@ real (STAGE-002..005) and the untrusted-input surfaces are hardened
 
 Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
-- [ ] (not yet written) — Cargo.toml publish metadata (description/license/repository/keywords/categories) + confirm crates.io name availability
+- [ ] SPEC-038 (design 2026-06-19) — Cargo.toml publish metadata (repository/homepage/readme/keywords/categories + `exclude` to drop scaffolding, keep `assets/`) + dual `LICENSE-MIT`/`LICENSE-APACHE` files; verified by `cargo package --list` / `cargo publish --dry-run` (NO publish). crates.io name `crustyimg` confirmed free. No new dep/DEC.
 - [ ] (not yet written) — CHANGELOG.md + semver policy + `v0.1.0` git tag conventions
 - [ ] (not yet written) — release CI pipeline (cargo-dist): tag → cross-platform binaries + checksums → GitHub Releases
 - [ ] (not yet written) — Homebrew tap + formula (jysf/homebrew-tap), install-from-tap verified
@@ -90,7 +90,7 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 - [ ] (not yet written) — README install/usage rewrite + shell completions (clap-generated) + optional man page
 - [ ] (not yet written) — dual artifacts: publish a lean `--no-default-features` (headless, no-`view`) build alongside the default full binary; pick artifact names + channels (DEC-027 made this a packaging choice, not new code). Future option: actually fork `view` into a separate `crustyimg-view` crate/bin (a later PROJ — only if a real headless/desktop split emerges).
 
-**Count:** 0 shipped / 0 active / 7 pending
+**Count:** 0 shipped / 1 in design / 6 pending
 
 ## Design Notes
 
