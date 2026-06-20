@@ -7,7 +7,7 @@
 task:
   id: SPEC-037
   type: story                      # epic | story | task | bug | chore
-  cycle: build                     # frame | design | build | verify | ship
+  cycle: verify                    # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: M                    # S | M | L  (L means split it)
@@ -49,11 +49,19 @@ value_link: >
 # See AGENTS.md §4 and docs/cost-tracking.md. interface: claude-code |
 # claude-ai | api | ollama | other.
 cost:
-  sessions: []
+  sessions:
+    - cycle: build
+      agent: claude-sonnet-4-6
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-06-19
+      notes: "STAGE-006 capstone: resize output 512MiB cap in Resize::apply (all modes, DEC-038) + edit --save-recipe reuses sink::reject_symlink_destination (pub(crate), DEC-035); reuse OperationError::Apply (exit 1) / SinkError::Traversal (exit 5); std-only, no new dep"
   totals:
     tokens_total: 0
     estimated_usd: 0
-    session_count: 0
+    session_count: 1
 ---
 
 # SPEC-037: threat-model verification pass and final hardening
@@ -261,28 +269,37 @@ must never actually allocate gigabytes).
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
+- **Branch:** `feat/spec-037-final-hardening`
+- **PR (if applicable):** opened (see PR URL)
+- **All acceptance criteria met?** yes
 - **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
+  - none (DEC-038 authored at design)
 - **Deviations from spec:**
-  - [list]
+  - The existing `MAX_EDGE` / `MAX_AREA` checks in `Resize::apply` (already present
+    from a prior hardening pass) are retained unchanged. The new
+    `MAX_RESIZE_OUTPUT_BYTES` guard is inserted immediately after the `(tw, th)`
+    match and fires first, so its semantics are correct. No behavior regression.
 - **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - none for this stage
 
 ### Build-phase reflection (3 questions, short answers)
 
 Process-focused: how did the build go? What friction did the spec create?
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — The spec said "immediately after `let (tw, th) = match self.mode {…};`" but
+   there were already `MAX_EDGE` / `MAX_AREA` guards present from earlier hardening;
+   I had to decide whether to replace or prepend. The instruction to "smallest correct
+   change" resolved it: prepend the byte cap, leave existing guards in place.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — Nothing missing; DEC-038, DEC-035, DEC-034, and DEC-007 were all the right
+   references. The note about `doc_lazy_continuation` was a useful reminder.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Nothing substantial; the spec was prescriptive enough that the build was
+   mechanical. Running `cargo test -- --list` immediately after writing tests
+   confirmed name matches before the full test run.
 
 ---
 

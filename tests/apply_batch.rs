@@ -432,3 +432,54 @@ fn apply_batch_quiet_clean_stdout() {
         String::from_utf8_lossy(&output.stdout)
     );
 }
+
+// ── SPEC-037: resize output byte cap via recipe path (DEC-038) ───────────────
+
+/// `apply --recipe` with a recipe containing `resize exact 50000x50000` exits 1.
+///
+/// The resize output cap (DEC-038) must fire through the recipe path as well as
+/// the CLI path. A tiny input (4×4) + huge target dims ensure the guard rejects
+/// before the resize backend allocates (the test stays cheap / cannot OOM).
+#[test]
+fn apply_recipe_with_oversized_resize_exits_1() {
+    let dir = TempDir::new().unwrap();
+    let input = write_png(&dir, "in.png", 4, 4);
+    let out_dir = dir.path().join("out");
+    std::fs::create_dir(&out_dir).unwrap();
+
+    // Recipe with a resize step whose output exceeds 512 MiB (DEC-038).
+    // 50000 × 50000 × 4 bytes = 10 GB >> 512 MiB.
+    let recipe = write_recipe(
+        &dir,
+        "oversized.toml",
+        r#"
+version = "1"
+
+[[step]]
+op = "resize"
+mode = "exact"
+width = 50000
+height = 50000
+"#,
+    );
+
+    let output = Command::new(BIN)
+        .args([
+            "apply",
+            "--recipe",
+            recipe.to_str().unwrap(),
+            input.to_str().unwrap(),
+            "--out-dir",
+            out_dir.to_str().unwrap(),
+            "-y",
+        ])
+        .output()
+        .expect("failed to run apply --recipe with oversized resize");
+
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "oversized resize via recipe must exit 1; stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}

@@ -297,3 +297,87 @@ fn edit_save_recipe_unwritable_exits_5() {
         String::from_utf8_lossy(&output.stderr)
     );
 }
+
+// ── SPEC-037: --save-recipe symlink guard (DEC-035) ──────────────────────────
+
+/// `edit --save-recipe LINK` where LINK is a symlink → exits 5; target untouched.
+///
+/// A planted symlink at the recipe path is refused (DEC-035). The symlink's
+/// target file must not be modified.
+#[cfg(unix)]
+#[test]
+fn edit_save_recipe_through_symlink_is_rejected() {
+    let dir = TempDir::new().unwrap();
+    let input = write_png(&dir, "in.png", 8, 8);
+    let out = dir.path().join("out.png");
+
+    // Plant a symlink: link.toml → outside.toml
+    let outside = dir.path().join("outside.toml");
+    let sentinel = b"original sentinel bytes";
+    std::fs::write(&outside, sentinel).unwrap();
+    let link = dir.path().join("link.toml");
+    std::os::unix::fs::symlink(&outside, &link).unwrap();
+
+    let output = Command::new(BIN)
+        .args([
+            "edit",
+            input.to_str().unwrap(),
+            "--resize-max",
+            "8",
+            "--save-recipe",
+            link.to_str().unwrap(),
+            "-o",
+            out.to_str().unwrap(),
+            "-y",
+        ])
+        .output()
+        .expect("failed to run edit with symlinked recipe path");
+
+    assert_eq!(
+        output.status.code(),
+        Some(5),
+        "symlinked recipe path must exit 5; stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    // The symlink's target must be untouched.
+    let after = std::fs::read(&outside).unwrap();
+    assert_eq!(
+        after, sentinel,
+        "outside target must not be modified by the refused write"
+    );
+}
+
+/// `edit --save-recipe r.toml` to a plain (non-symlink) path writes the recipe; exit 0.
+///
+/// Regression guard: the symlink guard must not block legitimate recipe saves.
+#[test]
+fn edit_save_recipe_normal_path_still_works() {
+    let dir = TempDir::new().unwrap();
+    let input = write_png(&dir, "in.png", 8, 8);
+    let out = dir.path().join("out.png");
+    let recipe = dir.path().join("r.toml");
+
+    let output = Command::new(BIN)
+        .args([
+            "edit",
+            input.to_str().unwrap(),
+            "--resize-max",
+            "8",
+            "--save-recipe",
+            recipe.to_str().unwrap(),
+            "-o",
+            out.to_str().unwrap(),
+            "-y",
+        ])
+        .output()
+        .expect("failed to run edit with normal recipe path");
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "normal --save-recipe must exit 0; stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(recipe.exists(), "recipe file must be written");
+}
