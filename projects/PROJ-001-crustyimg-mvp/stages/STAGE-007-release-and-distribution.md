@@ -87,10 +87,10 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 - [ ] (not yet written) — release CI pipeline (cargo-dist): tag → cross-platform binaries + checksums → GitHub Releases
 - [ ] (not yet written) — Homebrew tap + formula (jysf/homebrew-tap), install-from-tap verified
 - [ ] (not yet written) — crates.io publish (`cargo publish`), optional, after name check
-- [ ] (not yet written) — README install/usage rewrite + shell completions (clap-generated) + optional man page
+- [~] SPEC-040 (design 2026-06-19) — README install/usage rewrite (tool-first: cargo/release/brew install honestly labeled + works-today path, usage quickstart, License corrected to `MIT OR Apache-2.0`) + clap-generated shell completions via a `completions <shell>` subcommand (`clap_complete`, DEC-039; man page deferred). **Safe — no outward-facing action.**
 - [ ] (not yet written) — dual artifacts: publish a lean `--no-default-features` (headless, no-`view`) build alongside the default full binary; pick artifact names + channels (DEC-027 made this a packaging choice, not new code). Future option: actually fork `view` into a separate `crustyimg-view` crate/bin (a later PROJ — only if a real headless/desktop split emerges).
 
-**Count:** 2 shipped / 0 active / 5 pending  (#1 publish-ready crate, #2 changelog/release docs shipped. Remaining: #6 README/completions [safe]; #3 release pipeline + MSRV, #4 Homebrew tap, #5 cargo publish, #7 dual artifacts [outward-facing — need maintainer authorization].)
+**Count:** 2 shipped / 1 active / 4 pending  (#1 publish-ready crate, #2 changelog/release docs shipped. #6 README/completions [SPEC-040, design done — safe] active. Remaining pending: #3 release pipeline + MSRV, #4 Homebrew tap, #5 cargo publish, #7 dual artifacts [outward-facing — need maintainer authorization].)
 
 ## Design Notes
 
