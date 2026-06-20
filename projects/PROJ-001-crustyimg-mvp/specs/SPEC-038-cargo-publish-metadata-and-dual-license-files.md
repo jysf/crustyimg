@@ -7,7 +7,7 @@
 task:
   id: SPEC-038
   type: chore                      # epic | story | task | bug | chore
-  cycle: build                     # frame | design | build | verify | ship
+  cycle: verify  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: S                    # S | M | L  (L means split it)
@@ -47,11 +47,19 @@ value_link: >
 # See AGENTS.md §4 and docs/cost-tracking.md. interface: claude-code |
 # claude-ai | api | ollama | other.
 cost:
-  sessions: []
+  sessions:
+    - cycle: build
+      agent: claude-sonnet-4-6
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-06-19
+      notes: "publish metadata: Cargo.toml repository/homepage/readme/keywords/categories/exclude + LICENSE-MIT/LICENSE-APACHE (git mv LICENSE); verified lean package via cargo package --list (assets font in, scaffolding out) + cargo publish --dry-run; NO publish; no dep/DEC"
   totals:
     tokens_total: 0
     estimated_usd: 0
-    session_count: 0
+    session_count: 1
 ---
 
 # SPEC-038: cargo publish metadata and dual license files
@@ -218,28 +226,110 @@ not Rust unit tests. (No `#[test]` is added.)
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
+- **Branch:** feat/spec-038-publish-metadata
+- **PR (if applicable):** (see PR opened after advancing cycle)
+- **All acceptance criteria met?** yes
 - **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
+  - none
 - **Deviations from spec:**
-  - [list]
+  - `cargo package --list` required `--allow-dirty` because `TESTING-WITH-YOUR-PHOTOS.md`
+    is untracked in the working tree (intentionally not staged/committed). The flag is
+    safe — it does not affect what cargo packs from the committed source; the untracked
+    file would not appear in a clean-tree `cargo package`.
 - **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - none beyond existing STAGE-007 backlog
+
+### `cargo package --list` output (clean committed set)
+
+```
+.cargo_vcs_info.json
+.gitignore
+.repo-context.yaml
+.variant
+AGENTS.md
+CLAUDE.md
+Cargo.lock
+Cargo.toml
+Cargo.toml.orig
+FIRST_SESSION_PROMPTS.md
+GETTING_STARTED.md
+LICENSE-APACHE
+LICENSE-MIT
+README.md
+SECURITY.md
+TESTING-WITH-YOUR-PHOTOS.md
+assets/fonts/Go-Regular.ttf
+assets/fonts/LICENSE-Go
+assets/fonts/README.md
+benches/pipeline.rs
+deny.toml
+justfile
+src/cli/mod.rs
+src/error.rs
+src/image/mod.rs
+src/lib.rs
+src/main.rs
+src/metadata/mod.rs
+src/operation/mod.rs
+src/operation/registry.rs
+src/pipeline/mod.rs
+src/quality/mod.rs
+src/recipe/mod.rs
+src/sink/mod.rs
+src/source/mod.rs
+src/text/mod.rs
+tests/apply_batch.rs
+tests/cli.rs
+tests/common/mod.rs
+tests/edit.rs
+tests/image_load.rs
+tests/info_exif.rs
+tests/metadata.rs
+tests/pipeline.rs
+tests/recipe_round_trip.rs
+tests/sink.rs
+tests/smoke.rs
+tests/source.rs
+tests/watermark.rs
+```
+
+**Verification:** `assets/fonts/Go-Regular.ttf` PRESENT. `decisions/`, `docs/`,
+`projects/`, `reports/`, `guidance/`, `feedback/`, `scripts/`, `.github/`, `.claude/`
+all ABSENT. `LICENSE-APACHE` and `LICENSE-MIT` both PRESENT.
+
+`cargo publish --dry-run` output: packaged 49 files, 974.0 KiB (266.7 KiB compressed),
+compiled successfully, "aborting upload due to dry run" — no upload occurred.
+
+### Gate results
+
+| Gate | Result |
+|------|--------|
+| `cargo fmt --check` | pass |
+| `cargo clippy --all-targets -- -D warnings` | pass |
+| `cargo test` | pass (411 tests, 15 suites) |
+| `cargo build --no-default-features` | pass |
+| `cargo deny check advisories bans sources licenses` | pass (warnings are pre-existing duplicates) |
+| `cargo package --list` | pass — font in, scaffolding out |
+| `cargo publish --dry-run` | pass — compiled, no upload |
 
 ### Build-phase reflection (3 questions, short answers)
 
 Process-focused: how did the build go? What friction did the spec create?
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — Nothing unclear. The spec was unusually precise: exact field values, exact exclude
+   list, exact license copyright line, exact category slugs. Execution was mechanical.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — The `--allow-dirty` requirement for `cargo package --list` when an untracked file
+   is present in the working tree could be noted as a practical note (it is harmless but
+   surprising). Not a constraint gap — just a minor environmental detail.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Commit before running `cargo package --list` (which I did), and expect `--allow-dirty`
+   when there are untracked files. No changes to the approach — the spec's
+   denylist-over-allowlist guidance for `exclude` is correct and the file set verified
+   cleanly.
 
 ---
 

@@ -4,6 +4,12 @@ version = "0.1.0"
 edition = "2021"
 description = "A fast Rust CLI to view and transform images."
 license = "MIT OR Apache-2.0"
+repository = "https://github.com/jysf/crustyimg"
+homepage = "https://github.com/jysf/crustyimg"
+readme = "README.md"
+keywords = ["image", "cli", "webp", "resize", "optimize"]
+categories = ["command-line-utilities", "multimedia::images"]
+exclude = ["/decisions", "/docs", "/projects", "/reports", "/guidance", "/feedback", "/scripts", "/.github", "/.claude"]
 
 [lib]
 name = "crustyimg"
