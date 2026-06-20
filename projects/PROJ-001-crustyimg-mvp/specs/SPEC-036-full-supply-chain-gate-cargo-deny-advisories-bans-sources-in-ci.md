@@ -7,7 +7,7 @@
 task:
   id: SPEC-036
   type: chore                      # epic | story | task | bug | chore
-  cycle: build                     # frame | design | build | verify | ship
+  cycle: verify                    # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: S                    # S | M | L  (L means split it)
@@ -48,11 +48,19 @@ value_link: >
 # See AGENTS.md §4 and docs/cost-tracking.md. interface: claude-code |
 # claude-ai | api | ollama | other.
 cost:
-  sessions: []
+  sessions:
+    - cycle: build
+      agent: claude-sonnet-4-6
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-06-19
+      notes: "supply-chain gate: ci.yml cargo-deny command -> check advisories bans sources licenses + deny.toml [advisories]/[bans]/[sources] sections + just deny; cargo-audit consolidated into cargo-deny (DEC-037); no new runtime dep; full check green; RUSTSEC-2024-0436 (paste/unmaintained, no safe upgrade) handled with dated ignore entry"
   totals:
     tokens_total: 0
     estimated_usd: 0
-    session_count: 0
+    session_count: 1
 ---
 
 # SPEC-036: full supply-chain gate (cargo-deny advisories + bans + sources) in CI
@@ -219,28 +227,41 @@ This is a CI/config chore — the "tests" are the gate itself, not Rust unit tes
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
+- **Branch:** `feat/spec-036-supply-chain-gate`
+- **PR (if applicable):** opened (see PR URL in session)
+- **All acceptance criteria met?** yes
 - **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
+  - none (DEC-037 was written at design; no new decisions needed)
 - **Deviations from spec:**
-  - [list]
+  - RUSTSEC-2024-0436 (`paste`, unmaintained) surfaced with "no safe upgrade available"; added a narrowly-scoped, commented, dated `ignore` entry per the findings policy. No whole-check disable.
 - **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - Monitor upstream `little_exif` and `rav1e` for dropping `paste`; remove the `ignore` entry when a safe path exists.
+
+### Exact `cargo deny check advisories bans sources licenses` output (clean)
+
+```
+warning[duplicate]: found 2 duplicate entries for crate 'getrandom'
+warning[duplicate]: found 2 duplicate entries for crate 'r-efi'
+warning[duplicate]: found 2 duplicate entries for crate 'wit-bindgen'
+advisories ok, bans ok, licenses ok, sources ok
+```
+
+Exit 0. The three duplicate warnings are expected (transitive version skew from
+`getrandom 0.3/0.4` via `rav1e`/`tempfile`); `multiple-versions = "warn"` keeps
+them visible without blocking the build.
 
 ### Build-phase reflection (3 questions, short answers)
 
 Process-focused: how did the build go? What friction did the spec create?
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — Nothing significant. The note "validate against the real tool" was exactly right — the schema just needed one run to confirm the `ignore` entry format (`{ id = ..., reason = ... }`) and that there were no deprecated keys to fix in this version.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — No missing constraints. The spec correctly anticipated that `paste` (RUSTSEC-2024-0436) might surface and covered the exact handling path (dated `ignore` entry). The duplicate-version warnings for `getrandom`/`r-efi`/`wit-bindgen` could have been mentioned as expected noise, but they didn't block anything.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Run `cargo deny check` before writing any config to see the advisory baseline first, then write the config to match. Saved one round-trip here by running immediately after the first draft, which was fast enough.
 
 ---
 

@@ -1,10 +1,14 @@
-# cargo-deny — license policy enforcement (DEC-018).
+# cargo-deny — full supply-chain policy enforcement (DEC-037, DEC-018).
+#
+# Checks four axes: advisories (RUSTSEC vulnerabilities + unmaintained + yanked),
+# bans (duplicate/blocked crates), sources (only crates.io), licenses (permissive).
+# Run locally with `just deny`.
 #
 # crustyimg is distributed under `MIT OR Apache-2.0` (permissive) so the binary
 # stays widely embeddable, including in closed-source/commercial products. To
 # keep that promise, every dependency must carry a permissive (or an explicitly
 # excepted) license. Any GPL/AGPL — or any license not in `allow` and not
-# excepted — fails `cargo deny check licenses` (and the CI `licenses` job).
+# excepted — fails `cargo deny check licenses` (and the CI supply-chain job).
 #
 # This is the mechanical enforcement of constraint `no-agpl-default-deps`.
 # Run locally with `just deny`.
@@ -51,3 +55,37 @@ exceptions = [
 
 # Require high confidence when matching a license file's text to an SPDX id.
 confidence-threshold = 0.9
+
+# ---------------------------------------------------------------------------
+# SPEC-036: supply-chain sections (DEC-037)
+# ---------------------------------------------------------------------------
+
+[advisories]
+# Deny crates with known RUSTSEC vulnerabilities or unmaintained status.
+# yanked crates are also denied (a yank is a signal the crate should not be used).
+# ignore = [] — any future exception MUST be a commented, dated entry with a
+# one-line reason and revisit trigger (mirrors the [licenses] exceptions discipline).
+yanked = "deny"
+ignore = [
+    # RUSTSEC-2024-0436 — `paste` (dtolnay) is archived/unmaintained.
+    # No safe upgrade exists as of 2026-06-19; it is a transitive dep of
+    # `little_exif` and `rav1e`/`ravif` — upstream must act first.
+    # Revisit when little_exif or rav1e drops the paste dependency, or when
+    # a patch release resolves this advisory.
+    { id = "RUSTSEC-2024-0436", reason = "paste is transitive via little_exif+rav1e; no safe upgrade available 2026-06-19" },
+]
+
+[bans]
+# Warn on multiple versions of the same crate (visibility without breaking the build
+# on unavoidable transitive duplicates). deny/skip are empty; add narrowly-scoped
+# entries here if a specific crate must be blocked or a duplicate version accepted.
+multiple-versions = "warn"
+deny = []
+skip = []
+
+[sources]
+# Only crates.io is an allowed dependency source (DEC-037 / constraint
+# untrusted-input-hardening). A git, path, or alt-registry dep fails CI.
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
