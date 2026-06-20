@@ -7,7 +7,7 @@
 task:
   id: SPEC-037
   type: story                      # epic | story | task | bug | chore
-  cycle: verify                    # frame | design | build | verify | ship
+  cycle: ship                      # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: M                    # S | M | L  (L means split it)
@@ -50,18 +50,67 @@ value_link: >
 # claude-ai | api | ollama | other.
 cost:
   sessions:
-    - cycle: build
-      agent: claude-sonnet-4-6
+    - cycle: design
+      agent: claude-opus-4-8
       interface: claude-code
       tokens_total: null
       estimated_usd: null
       duration_minutes: null
       recorded_at: 2026-06-19
-      notes: "STAGE-006 capstone: resize output 512MiB cap in Resize::apply (all modes, DEC-038) + edit --save-recipe reuses sink::reject_symlink_destination (pub(crate), DEC-035); reuse OperationError::Apply (exit 1) / SinkError::Traversal (exit 5); std-only, no new dep"
+      notes: >
+        Main-loop orchestrator work (incl. a post-build correction). Authored the
+        spec + DEC-038 + the Sonnet build prompt + the SECURITY.md threat-model
+        verification table. IMPORTANT lesson: the design premise "resize has no
+        upper bound" was WRONG — SPEC-010 already shipped MAX_EDGE/MAX_AREA. The
+        threat-model pass (its whole point) caught it; I corrected the spec/DEC and
+        the code directly — dropped the redundant new const the build had added and
+        tightened the existing MAX_AREA 256→128 Mpx (512 MiB RGBA) for decode
+        symmetry (DEC-034). Read only part of Resize::apply at design → missed the
+        guards below; read the WHOLE function next time.
+    - cycle: build
+      agent: claude-sonnet-4-6
+      interface: claude-code
+      tokens_total: 82390
+      estimated_usd: 0.45
+      duration_minutes: 8
+      recorded_at: 2026-06-19
+      notes: >
+        Real metered subagent on Sonnet 4.6. subagent_tokens=82390,
+        duration_ms=461563. estimated_usd at Sonnet list ($3/$15 per MTok,
+        ~80/20). resize cap + edit --save-recipe symlink guard (reuse
+        sink::reject_symlink_destination, pub(crate)). The build correctly
+        DISCOVERED the pre-existing MAX_EDGE/MAX_AREA guards and flagged the
+        overlap (its first attempt added a redundant const, removed in the
+        architect correction). 411 tests green; clippy/fmt/lean/deny clean.
+    - cycle: verify
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 60000
+      estimated_usd: 0.55
+      duration_minutes: null
+      recorded_at: 2026-06-19
+      notes: >
+        ORDER-OF-MAGNITUDE ESTIMATE (~60k — larger because it doubled as the
+        STAGE-006 security review) — read-only Explore subagent on Opus + gate
+        re-runs (cargo test 411 ok / clippy / fmt / deny / lean). Verdict:
+        APPROVED. Part A verified the corrected resize cap (no stray const; MAX_AREA
+        = 134_217_728) + the save-recipe guard; Part B ran an adversarial sweep
+        over the cumulative STAGE-006 surface (decode / paths / recipes / supply
+        chain / error hygiene) — ALL output-write paths guarded, no panics on
+        untrusted paths, every SECURITY.md mitigation confirmed, no unresolved
+        high-severity finding.
+    - cycle: ship
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-06-19
+      notes: "Main-loop ship bookkeeping (merge dance + cost totals + reflection + archive + STAGE-006 close); not separately metered."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 1
+    tokens_total: 142390
+    estimated_usd: 1.00
+    session_count: 4
 ---
 
 # SPEC-037: threat-model verification pass and final hardening
@@ -318,10 +367,29 @@ Process-focused: how did the build go? What friction did the spec create?
 from the process-focused build reflection above.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — **Read the whole function before claiming a gap.** My design premise — "resize
+   has no upper output bound" — was wrong: SPEC-010 shipped `MAX_EDGE`/`MAX_AREA`
+   with the op, and I'd only read `Resize::apply` through the Fill branch, missing
+   the guards below it. The build *discovered* this and flagged the overlap; I
+   corrected (dropped the redundant new const, tightened the existing `MAX_AREA` for
+   decode-symmetry) and rewrote DEC-038 + the spec honestly. The system worked as
+   designed — a verification pass is exactly the place a false premise should die —
+   but I'd have saved a round-trip by reading the full `apply` at design time. For a
+   *verification* spec especially, audit what's already there before asserting a hole.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — No template change. DEC-038 now records the honest outcome (tighten, don't add).
+   The reusable lesson is process: **the verify cycle doubling as the security review
+   was high-value** — Part B's adversarial sweep over the whole cumulative surface
+   (every output-write path, panic-on-untrusted-input grep, each SECURITY.md row) is
+   what makes the exit-gate record trustworthy, and it's worth doing as an explicit
+   cumulative pass at the end of any hardening stage, not just per-spec.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — None for STAGE-006 — **this completes it** (the MVP hardening exit gate). The
+   security review surfaced no unresolved finding. Remaining open items are all
+   deliberate, documented future work, not gaps: a configurable `--max-pixels`/env
+   override (decode + resize, DEC-034/038), `O_NOFOLLOW`-grade TOCTOU hardening, and
+   the standing `paste` advisory `ignore` to clear when upstream drops it. The MVP's
+   functional + hardening surface is now complete; the natural next stage is
+   **STAGE-007 (release & distribution)** — binaries, brew, crates.io.

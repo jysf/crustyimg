@@ -5,7 +5,7 @@
 
 stage:
   id: STAGE-006                     # stable, zero-padded within the project
-  status: active                    # proposed | active | shipped | cancelled | on_hold
+  status: shipped                   # proposed | active | shipped | cancelled | on_hold
   priority: high                    # critical | high | medium | low
   target_complete: null             # optional: YYYY-MM-DD
 
@@ -15,7 +15,7 @@ repo:
   id: crustyimg
 
 created_at: 2026-06-14
-shipped_at: null
+shipped_at: 2026-06-19
 
 # What part of the project's value thesis this stage advances.
 value_contribution:
@@ -101,9 +101,9 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 - [x] SPEC-034 (shipped 2026-06-19, PR #38) — path/symlink traversal hardening across Source + Sink: reject a symlinked output destination even under `--yes` (Sink `write`/`write_bytes`, all 4 file arms) + always-anchor the glob escape-check (close the SPEC-004 `root_opt=None` bypass, DEC-010); DEC-035; no new dep. (Follow-up surfaced: `edit --save-recipe` raw write is unguarded → fold into the threat-model pass below.)
 - [x] SPEC-035 (shipped 2026-06-19, PR #39) — security-grade recipe validation: recipe resource limits (text ≤ 64 KiB, ≤ 1024 steps, typed `RecipeError::TooLarge`/`TooManySteps`, exit 1) at the `from_toml` choke point + a CLI pre-read file-size guard, on top of the existing version/unknown-op rejection; DEC-036; no new dep. (Op-param bounds — e.g. resize upscale bomb — deferred to the threat-model pass.)
 - [x] SPEC-036 (shipped 2026-06-19, PR #40) — extend the CI cargo-deny gate from `check licenses` to the full `check advisories bans sources licenses` (+ `deny.toml` sections + `just deny`); `cargo audit` consolidated into cargo-deny's RUSTSEC advisories check (DEC-037), not a separate job; no new runtime dep. (RUSTSEC-2024-0436 `paste`/unmaintained handled with a dated narrow ignore.)
-- [ ] SPEC-037 (design 2026-06-19) — STAGE-006 capstone: close the last two gaps (resize output ≤ 512 MiB cap in `Resize::apply`, all modes — DEC-038; `edit --save-recipe` symlink-destination guard reusing the Sink's `reject_symlink_destination` — DEC-035) + a `SECURITY.md` threat-model verification pass; the verify cycle doubles as an adversarial security review over the cumulative diff. No new dep.
+- [x] SPEC-037 (shipped 2026-06-19, PR #41) — STAGE-006 capstone: `edit --save-recipe` symlink-destination guard (reuse the Sink's `reject_symlink_destination` — DEC-035) + resize output cap tightened to 512 MiB for decode-symmetry (DEC-038 — *finding:* resize was already bounded by SPEC-010's `MAX_EDGE`/`MAX_AREA`, so this tightens rather than adds) + a `SECURITY.md` threat-model verification table; the verify cycle ran an adversarial security review over the cumulative STAGE-006 surface — **no unresolved finding**. No new dep.
 
-**Count:** 4 shipped / 1 in design / 0 pending  (SPEC-037 = the capstone; when it ships STAGE-006 — the MVP exit gate — is complete.)
+**Count:** 5 shipped / 0 active / 0 pending  (STAGE-006 COMPLETE — the MVP hardening exit gate. SPEC-033 decode limits · SPEC-034 path/symlink · SPEC-035 recipe limits · SPEC-036 supply-chain CI · SPEC-037 capstone + threat-model verification.)
 
 ## Design Notes
 
@@ -138,13 +138,51 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
 ## Stage-Level Reflection
 
-*Filled in when status moves to shipped. Run Prompt 1c (Stage Ship) in
-FIRST_SESSION_PROMPTS.md to draft this.*
+*Filled in at ship (2026-06-19).*
 
-- **Did we deliver the outcome in "What This Stage Is"?** <yes/no + notes>
-- **How many specs did it actually take?** <number vs. plan>
-- **What changed between starting and shipping?** <one sentence>
+- **Did we deliver the outcome in "What This Stage Is"?** **Yes — the MVP exit
+  gate is met.** Every untrusted-input surface is bounded with typed errors (never
+  a panic/OOM) and verified end-to-end: **decode** (`image::Limits` — dims ≤ 65 535,
+  alloc ≤ 512 MiB, SPEC-033); **paths/symlinks** (`safe_join` + symlinked-destination
+  rejection on every output write incl. `--save-recipe`, always-anchored source
+  escape checks, SPEC-034/037); **recipes** (size ≤ 64 KiB + ≤ 1024 steps + the
+  resize output cap, SPEC-035/037); **supply chain** (CI `cargo deny check advisories
+  bans sources licenses`, SPEC-036). A `SECURITY.md` `## Verification` table maps each
+  of the six threats → mitigation → spec/DEC, and an adversarial review over the
+  cumulative diff surfaced **no unresolved high-severity finding**. The MVP is
+  shippable.
+- **How many specs did it actually take?** **5 (SPEC-033…037), exactly the planned
+  backlog** — one per axis (decode, paths, recipes, supply-chain, capstone+verify).
+  No splits or extra specs were needed; the as-built hardening from earlier stages
+  (DEC-010 source guards, SPEC-005 `safe_join`, SPEC-010 resize caps) meant several
+  items were *verify-and-tighten* rather than *build-from-scratch*.
+- **What changed between starting and shipping?** Almost nothing in plan — the
+  surprise was how much was **already hardened as-built**, so the stage was more a
+  *verification* than a *construction* (the resize "bomb" and the recipe-validation
+  baseline were already defended; we tightened/consolidated rather than added).
 - **Lessons that should update AGENTS.md, templates, or constraints?**
-  - <one-line updates>
+  - No template/constraint change. Four security-policy DECs (DEC-034 decode,
+    DEC-035 traversal, DEC-036 recipe, DEC-037 supply-chain, DEC-038 resize) record
+    the limits; one standing item (the `paste` RUSTSEC ignore) to clear upstream.
+  - **Reinforced:** the lean (`--no-default-features`) build + (now) the full
+    `cargo deny check` belong in every verify
+    ([[verify-includes-lean-no-default-features-build]]).
+  - **New, worth promoting:** for a *verification/hardening* spec, **read the whole
+    target function and audit what already exists before asserting a gap** — the
+    SPEC-037 design wrongly assumed resize was unbounded (SPEC-010 had hardened it);
+    the verify pass caught it, but a full read at design would have saved the
+    round-trip.
 - **Should any spec-level reflections be promoted to stage-level lessons?**
-  - <one-line items>
+  - **Harden at the single choke point, reuse the typed-error + exit-code mapping,
+    and make the verify cycle run an adversarial bypass/panic grep** — this pattern
+    (every spec) both proved completeness AND surfaced each next item (the
+    `--save-recipe` raw write, the resize bound). Carry it into any future hardening.
+  - **The verify-as-security-review (cumulative, not just per-spec)** is what makes
+    an exit-gate record trustworthy — run one explicit cumulative adversarial pass at
+    the end of a hardening stage.
+  - **Model split validated across the whole stage:** 5/5 clean Sonnet builds, each
+    cleared by an independent Opus verify, ~$0.32–0.48 per build.
+
+**Stage cost (recorded):** SPEC-033 $0.98/144k + SPEC-034 $0.91/131k + SPEC-035
+$0.97/142k + SPEC-036 $0.77/109k + SPEC-037 $1.00/142k = **$4.63 · 668k** across 5
+shipped specs — the MVP hardening exit gate.
