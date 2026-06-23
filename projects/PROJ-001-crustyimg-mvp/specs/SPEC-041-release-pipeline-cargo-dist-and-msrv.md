@@ -85,9 +85,12 @@ cost:
         ci/release tooling: dist 0.32.0 → dist-workspace.toml (4 targets,
         shell+powershell installers, GH-Releases-only) + generated release.yml
         (PR=plan, tag=publish; no cargo publish / tap) + [profile.dist] (hand-authored,
-        dist 0.32.0 did not auto-inject); rust-version=1.85.0 + msrv CI job
+        dist 0.32.0 did not auto-inject); rust-version=1.89.0 + msrv CI job
         (default+lean); RELEASING.md wording. dist plan dry-run green; fmt/clippy/test
-        /lean/deny green; NO tag/release/publish.
+        /lean/deny green; NO tag/release/publish. (Verify punch list: the msrv job
+        initially declared 1.85.0 went red on CI — true dep floor is 1.89.0, set from
+        `cargo metadata` rust_version max: yuvxyb-math 0.1.1→1.89 via ssimulacra2,
+        image 0.25→1.88, fast_image_resize 5.5→1.87; bumped + re-verified green.)
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -281,12 +284,14 @@ build and re-run in verify:
 - **`dist generate` adds `[profile.dist]` to `Cargo.toml`.** After it runs, re-check
   `cargo fmt`/`cargo build` still pass (the profile is inert for normal builds).
 - **MSRV:** rustup/cargo-msrv are **not** in the local toolchain, so determine the floor
-  via **CI**, not a local bisect. Declare `rust-version = "1.85.0"` (a conservative
-  `0.x` floor for the modern pinned deps) and add an `msrv` job to `ci.yml` that does
-  `dtolnay/rust-toolchain@1.85.0` + `cargo build` + `cargo build --no-default-features`.
-  **The PR's `msrv` job is the verification** — if it goes red (a dep needs newer),
-  raise `rust-version` until green and keep the job's pin equal to it. (Optional: if you
-  can run `cargo msrv find`, use the true minimum instead — but don't block on it.)
+  via **CI**, not a local bisect. Declare `rust-version` and add an `msrv` job to
+  `ci.yml` that does `dtolnay/rust-toolchain@<value>` + `cargo build` + `cargo build
+  --no-default-features`, with the pin equal to `rust-version`. **The PR's `msrv` job is
+  the verification** — if it goes red (a dep needs newer), raise `rust-version` until
+  green. **Resolved at verify: the true floor is `1.89.0`** (max `rust_version` across
+  the pinned tree from `cargo metadata`: `yuvxyb-math 0.1.1`→1.89 via `ssimulacra2`,
+  `image 0.25`→1.88, `fast_image_resize 5.5`→1.87). An initial 1.85.0 guess went red on
+  CI and was bumped to 1.89.0.
 - **Safety is the headline.** After `dist generate`, **verify the generated
   `release.yml` yourself**: confirm `publishing: ${{ !github.event.pull_request }}`,
   that `push:` is filtered to `tags:`, and that there is no `cargo publish` step and no
