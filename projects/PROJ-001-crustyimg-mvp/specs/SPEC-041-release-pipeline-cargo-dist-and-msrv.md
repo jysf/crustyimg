@@ -7,7 +7,7 @@
 task:
   id: SPEC-041
   type: story                      # epic | story | task | bug | chore
-  cycle: design                    # frame | design | build | verify | ship
+  cycle: verify  # frame | design | build | verify | ship
   blocked: false
   priority: medium
   complexity: M                    # S | M | L  (L means split it)
@@ -74,6 +74,20 @@ cost:
         local → MSRV is a CI-verified declared floor, not a local bisect. Pinned: no
         tag/release/tap/publish; Homebrew installer + crates.io publish-job deferred
         to #4/#5.
+    - cycle: build
+      agent: claude-sonnet-4-6
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-06-23
+      notes: >
+        ci/release tooling: dist 0.32.0 → dist-workspace.toml (4 targets,
+        shell+powershell installers, GH-Releases-only) + generated release.yml
+        (PR=plan, tag=publish; no cargo publish / tap) + [profile.dist] (hand-authored,
+        dist 0.32.0 did not auto-inject); rust-version=1.85.0 + msrv CI job
+        (default+lean); RELEASING.md wording. dist plan dry-run green; fmt/clippy/test
+        /lean/deny green; NO tag/release/publish.
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -292,28 +306,73 @@ build and re-run in verify:
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
+- **Branch:** `feat/spec-041-release-pipeline`
+- **PR (if applicable):** opened — see PR title `ci(SPEC-041): cargo-dist release pipeline + MSRV`
+- **All acceptance criteria met?** yes
 - **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
+  - none — DEC-040 pre-authored
 - **Deviations from spec:**
-  - [list]
+  - `dist generate` (0.32.0) did not auto-inject `[profile.dist]` into `Cargo.toml`
+    (the probe had reverted files so we could not tell whether the probe-era dist did
+    so either). Added it manually per the spec's AC and DEC-040. `dist generate --check`
+    exits 0 (in-sync with dist-workspace.toml), so this is not a config drift issue —
+    dist 0.32.0 simply manages `[profile.dist]` as a hand-authored Cargo.toml section
+    rather than injecting it.
 - **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - none new; backlog #4 (Homebrew tap), #5 (crates.io publish-jobs), #7 (lean artifact)
+    remain as planned
+
+### `dist plan` output (dry-run, v0.1.0)
+
+```
+announcing v0.1.0
+  crustyimg 0.1.0
+    source.tar.gz
+      [checksum] source.tar.gz.sha256
+    crustyimg-installer.sh
+    crustyimg-installer.ps1
+    sha256.sum
+    crustyimg-aarch64-apple-darwin.tar.xz
+      [bin] crustyimg
+      [misc] CHANGELOG.md, LICENSE-APACHE, LICENSE-MIT, README.md
+      [checksum] crustyimg-aarch64-apple-darwin.tar.xz.sha256
+    crustyimg-x86_64-apple-darwin.tar.xz
+      [bin] crustyimg
+      [misc] CHANGELOG.md, LICENSE-APACHE, LICENSE-MIT, README.md
+      [checksum] crustyimg-x86_64-apple-darwin.tar.xz.sha256
+    crustyimg-x86_64-pc-windows-msvc.zip
+      [bin] crustyimg.exe
+      [misc] CHANGELOG.md, LICENSE-APACHE, LICENSE-MIT, README.md
+      [checksum] crustyimg-x86_64-pc-windows-msvc.zip.sha256
+    crustyimg-x86_64-unknown-linux-gnu.tar.xz
+      [bin] crustyimg
+      [misc] CHANGELOG.md, LICENSE-APACHE, LICENSE-MIT, README.md
+      [checksum] crustyimg-x86_64-unknown-linux-gnu.tar.xz.sha256
+```
 
 ### Build-phase reflection (3 questions, short answers)
 
 Process-focused: how did the build go? What friction did the spec create?
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — The spec says "`dist generate` adds `[profile.dist]` to `Cargo.toml`" as if it
+   happens automatically. In dist 0.32.0, it did not inject this automatically; the
+   section had to be added manually. The `dist generate --check` gate still exits 0
+   (no drift), so dist does not consider `[profile.dist]` in Cargo.toml part of what
+   it manages. Slight ambiguity between what the design probe observed vs. what the
+   current dist version does — a note in the DEC or spec that the profile may need
+   to be hand-authored would have eliminated this uncertainty.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — No gaps. DEC-040 was extremely detailed and the safety model section made the
+   release.yml verification straightforward. The `[profile.dist]` injection ambiguity
+   is the only wrinkle and it is self-resolving (manual add + `--check` confirms sync).
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Run `dist generate` first, immediately inspect what it changed in Cargo.toml,
+   and compare against AC before adding manual sections — instead of relying on the
+   spec's description of what `dist generate` does. The gate suite (`dist generate
+   --check`, fmt, clippy, test, deny) is the reliable truth source.
 
 ---
 

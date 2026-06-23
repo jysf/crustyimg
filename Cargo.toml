@@ -2,6 +2,7 @@
 name = "crustyimg"
 version = "0.1.0"
 edition = "2021"
+rust-version = "1.85.0"
 description = "A fast Rust CLI to view and transform images."
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/jysf/crustyimg"
@@ -108,3 +109,9 @@ criterion = "=0.8.2"
 [[bench]]
 name = "pipeline"
 harness = false
+
+# Release profile used by cargo-dist (DEC-040). Inherits from release with thin
+# LTO for smaller, faster binaries. Inert for normal `cargo build`/`cargo test`.
+[profile.dist]
+inherits = "release"
+lto = "thin"
