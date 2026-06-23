@@ -7,7 +7,7 @@
 task:
   id: SPEC-041
   type: story                      # epic | story | task | bug | chore
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: medium
   complexity: M                    # S | M | L  (L means split it)
@@ -77,23 +77,56 @@ cost:
     - cycle: build
       agent: claude-sonnet-4-6
       interface: claude-code
+      tokens_total: 69054
+      estimated_usd: 0.37
+      duration_minutes: 14
+      recorded_at: 2026-06-23
+      notes: >
+        Real metered subagent on Sonnet 4.6. subagent_tokens=69054,
+        duration_ms=843200. estimated_usd at Sonnet list ($3/$15 per MTok, ~80/20).
+        ci/release tooling: dist 0.32.0 → dist-workspace.toml (4 targets,
+        shell+powershell installers, GH-Releases-only) + generated release.yml
+        (PR=plan, tag=publish; no cargo publish / tap) + [profile.dist] (hand-authored,
+        dist 0.32.0 did not auto-inject); rust-version + msrv CI job (default+lean);
+        RELEASING.md wording. dist plan dry-run green; fmt/clippy/test/lean/deny green;
+        NO tag/release/publish. PR #45. (MSRV initially 1.85.0; corrected to 1.89.0 at
+        verify — see verify + ship notes.)
+    - cycle: verify
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 50000
+      estimated_usd: 0.45
+      duration_minutes: null
+      recorded_at: 2026-06-23
+      notes: >
+        ORDER-OF-MAGNITUDE ESTIMATE (~50k — a heavy review: re-ran the full gate
+        suite + `dist plan` + `dist generate --check`, read the generated release.yml,
+        and inspected live PR CI) — read-only independent Explore subagent on Opus, no
+        usage block to meter. Verdict: ⚠ PUNCH LIST (1 item) → resolved. Confirmed
+        dist-workspace.toml matches DEC-040, dist plan emits the 4-target artifact set +
+        checksums + installers, the safety model holds (PR=plan, tag=publish, no cargo
+        publish / homebrew / tap), and no outward-facing action. Caught that the msrv
+        job (the CI verification gate) went RED on rust-version 1.85.0 — the true dep
+        floor is higher.
+    - cycle: ship
+      agent: claude-opus-4-8
+      interface: claude-code
       tokens_total: null
       estimated_usd: null
       duration_minutes: null
       recorded_at: 2026-06-23
       notes: >
-        ci/release tooling: dist 0.32.0 → dist-workspace.toml (4 targets,
-        shell+powershell installers, GH-Releases-only) + generated release.yml
-        (PR=plan, tag=publish; no cargo publish / tap) + [profile.dist] (hand-authored,
-        dist 0.32.0 did not auto-inject); rust-version=1.89.0 + msrv CI job
-        (default+lean); RELEASING.md wording. dist plan dry-run green; fmt/clippy/test
-        /lean/deny green; NO tag/release/publish. (Verify punch list: the msrv job
-        initially declared 1.85.0 went red on CI — true dep floor is 1.89.0, set from
-        `cargo metadata` rust_version max: yuvxyb-math 0.1.1→1.89 via ssimulacra2,
-        image 0.25→1.88, fast_image_resize 5.5→1.87; bumped + re-verified green.)
+        Main-loop ship bookkeeping (merge dance for PR #45 + cost totals + reflection +
+        archive + stage backlog); not separately metered. Also did the verify punch-list
+        fix in the main loop: computed the true MSRV floor 1.89.0 from `cargo metadata`
+        rust_version max (yuvxyb-math 0.1.1→1.89 via ssimulacra2, image 0.25→1.88,
+        fast_image_resize 5.5→1.87), bumped rust-version + the msrv job pin, pushed, and
+        confirmed the msrv + release `plan` jobs green on the PR (a transient crates.io
+        HTTP/2 download blip on the avif job was re-run to green) before merge.
   totals:
-    tokens_total: 0
-    estimated_usd: 0
+    tokens_total: 119054
+    estimated_usd: 0.82
+    session_count: 4
     session_count: 0
 ---
 
@@ -387,10 +420,33 @@ Process-focused: how did the build go? What friction did the spec create?
 from the process-focused build reflection above.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — The design-time `dist` probe ([[probe-load-bearing-crates-at-design]] generalized
+   to release tooling) paid off hugely: installing `dist 0.32.0` and running
+   `init`/`generate`/`plan` before writing the spec meant the build had the exact
+   config and — most importantly — let me **verify the safety model** (PR = plan,
+   `v*` tag = publish, no `cargo publish`/tap) at design time, which is the whole risk
+   of an outward-facing stage. The one thing the probe couldn't cover was **MSRV**:
+   with no local rustup, the floor could only be found on CI, so I deliberately made
+   the `msrv` job the verification gate and an initial guess (1.85.0) failed there.
+   Next time I'd compute the floor up front from `cargo metadata` (`max(rust_version)`
+   across the locked tree = 1.89.0) and declare it directly, rather than guess-and-let
+   -CI-correct — the CI loop works but costs a red round. The transient crates.io
+   HTTP/2 blip on the avif job was a good reminder to read *where* a fast CI failure
+   occurs (a network step ≠ a code break) before treating it as real.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — No template change. DEC-040 already captures the cargo-dist choice + the safety
+   model; it intentionally did not hard-pin the MSRV number, which was right — the
+   value (1.89.0) belongs in `Cargo.toml`/CI, now CI-enforced by the `msrv` job. Worth
+   remembering as a reusable lesson: **for a pinned-dep crate, the MSRV floor is
+   `max(rust_version)` from `cargo metadata`, not a guess** — see the new memory.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — The pipeline is now **armed but not fired**. The remaining STAGE-007 backlog is all
+   **outward-facing / [MAINTAINER-AUTHORIZED]** and extends this same cargo-dist config:
+   **#4** Homebrew tap (add a `homebrew` installer + create `jysf/homebrew-tap`), **#5**
+   `cargo publish` (add a crates.io `publish-jobs` entry + token), **#7** dual lean/full
+   artifacts (a second `--no-default-features` build). And the first real **`v0.1.0`
+   tag/release cut** itself is a maintainer-authorized action (RELEASING.md steps 6–8) —
+   not a spec. None should be written/executed without explicit maintainer go-ahead at
+   execution time.
