@@ -7,7 +7,7 @@
 task:
   id: SPEC-041
   type: story                      # epic | story | task | bug | chore
-  cycle: design                    # frame | design | build | verify | ship
+  cycle: verify  # frame | design | build | verify | ship
   blocked: false
   priority: medium
   complexity: M                    # S | M | L  (L means split it)
@@ -74,6 +74,23 @@ cost:
         local → MSRV is a CI-verified declared floor, not a local bisect. Pinned: no
         tag/release/tap/publish; Homebrew installer + crates.io publish-job deferred
         to #4/#5.
+    - cycle: build
+      agent: claude-sonnet-4-6
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-06-23
+      notes: >
+        ci/release tooling: dist 0.32.0 → dist-workspace.toml (4 targets,
+        shell+powershell installers, GH-Releases-only) + generated release.yml
+        (PR=plan, tag=publish; no cargo publish / tap) + [profile.dist] (hand-authored,
+        dist 0.32.0 did not auto-inject); rust-version=1.89.0 + msrv CI job
+        (default+lean); RELEASING.md wording. dist plan dry-run green; fmt/clippy/test
+        /lean/deny green; NO tag/release/publish. (Verify punch list: the msrv job
+        initially declared 1.85.0 went red on CI — true dep floor is 1.89.0, set from
+        `cargo metadata` rust_version max: yuvxyb-math 0.1.1→1.89 via ssimulacra2,
+        image 0.25→1.88, fast_image_resize 5.5→1.87; bumped + re-verified green.)
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -267,12 +284,14 @@ build and re-run in verify:
 - **`dist generate` adds `[profile.dist]` to `Cargo.toml`.** After it runs, re-check
   `cargo fmt`/`cargo build` still pass (the profile is inert for normal builds).
 - **MSRV:** rustup/cargo-msrv are **not** in the local toolchain, so determine the floor
-  via **CI**, not a local bisect. Declare `rust-version = "1.85.0"` (a conservative
-  `0.x` floor for the modern pinned deps) and add an `msrv` job to `ci.yml` that does
-  `dtolnay/rust-toolchain@1.85.0` + `cargo build` + `cargo build --no-default-features`.
-  **The PR's `msrv` job is the verification** — if it goes red (a dep needs newer),
-  raise `rust-version` until green and keep the job's pin equal to it. (Optional: if you
-  can run `cargo msrv find`, use the true minimum instead — but don't block on it.)
+  via **CI**, not a local bisect. Declare `rust-version` and add an `msrv` job to
+  `ci.yml` that does `dtolnay/rust-toolchain@<value>` + `cargo build` + `cargo build
+  --no-default-features`, with the pin equal to `rust-version`. **The PR's `msrv` job is
+  the verification** — if it goes red (a dep needs newer), raise `rust-version` until
+  green. **Resolved at verify: the true floor is `1.89.0`** (max `rust_version` across
+  the pinned tree from `cargo metadata`: `yuvxyb-math 0.1.1`→1.89 via `ssimulacra2`,
+  `image 0.25`→1.88, `fast_image_resize 5.5`→1.87). An initial 1.85.0 guess went red on
+  CI and was bumped to 1.89.0.
 - **Safety is the headline.** After `dist generate`, **verify the generated
   `release.yml` yourself**: confirm `publishing: ${{ !github.event.pull_request }}`,
   that `push:` is filtered to `tags:`, and that there is no `cargo publish` step and no
@@ -292,28 +311,73 @@ build and re-run in verify:
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
+- **Branch:** `feat/spec-041-release-pipeline`
+- **PR (if applicable):** opened — see PR title `ci(SPEC-041): cargo-dist release pipeline + MSRV`
+- **All acceptance criteria met?** yes
 - **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
+  - none — DEC-040 pre-authored
 - **Deviations from spec:**
-  - [list]
+  - `dist generate` (0.32.0) did not auto-inject `[profile.dist]` into `Cargo.toml`
+    (the probe had reverted files so we could not tell whether the probe-era dist did
+    so either). Added it manually per the spec's AC and DEC-040. `dist generate --check`
+    exits 0 (in-sync with dist-workspace.toml), so this is not a config drift issue —
+    dist 0.32.0 simply manages `[profile.dist]` as a hand-authored Cargo.toml section
+    rather than injecting it.
 - **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - none new; backlog #4 (Homebrew tap), #5 (crates.io publish-jobs), #7 (lean artifact)
+    remain as planned
+
+### `dist plan` output (dry-run, v0.1.0)
+
+```
+announcing v0.1.0
+  crustyimg 0.1.0
+    source.tar.gz
+      [checksum] source.tar.gz.sha256
+    crustyimg-installer.sh
+    crustyimg-installer.ps1
+    sha256.sum
+    crustyimg-aarch64-apple-darwin.tar.xz
+      [bin] crustyimg
+      [misc] CHANGELOG.md, LICENSE-APACHE, LICENSE-MIT, README.md
+      [checksum] crustyimg-aarch64-apple-darwin.tar.xz.sha256
+    crustyimg-x86_64-apple-darwin.tar.xz
+      [bin] crustyimg
+      [misc] CHANGELOG.md, LICENSE-APACHE, LICENSE-MIT, README.md
+      [checksum] crustyimg-x86_64-apple-darwin.tar.xz.sha256
+    crustyimg-x86_64-pc-windows-msvc.zip
+      [bin] crustyimg.exe
+      [misc] CHANGELOG.md, LICENSE-APACHE, LICENSE-MIT, README.md
+      [checksum] crustyimg-x86_64-pc-windows-msvc.zip.sha256
+    crustyimg-x86_64-unknown-linux-gnu.tar.xz
+      [bin] crustyimg
+      [misc] CHANGELOG.md, LICENSE-APACHE, LICENSE-MIT, README.md
+      [checksum] crustyimg-x86_64-unknown-linux-gnu.tar.xz.sha256
+```
 
 ### Build-phase reflection (3 questions, short answers)
 
 Process-focused: how did the build go? What friction did the spec create?
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — The spec says "`dist generate` adds `[profile.dist]` to `Cargo.toml`" as if it
+   happens automatically. In dist 0.32.0, it did not inject this automatically; the
+   section had to be added manually. The `dist generate --check` gate still exits 0
+   (no drift), so dist does not consider `[profile.dist]` in Cargo.toml part of what
+   it manages. Slight ambiguity between what the design probe observed vs. what the
+   current dist version does — a note in the DEC or spec that the profile may need
+   to be hand-authored would have eliminated this uncertainty.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — No gaps. DEC-040 was extremely detailed and the safety model section made the
+   release.yml verification straightforward. The `[profile.dist]` injection ambiguity
+   is the only wrinkle and it is self-resolving (manual add + `--check` confirms sync).
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Run `dist generate` first, immediately inspect what it changed in Cargo.toml,
+   and compare against AC before adding manual sections — instead of relying on the
+   spec's description of what `dist generate` does. The gate suite (`dist generate
+   --check`, fmt, clippy, test, deny) is the reliable truth source.
 
 ---
 

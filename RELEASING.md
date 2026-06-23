@@ -17,8 +17,10 @@ While the version is `0.x`:
 
 Releases are marked with **annotated** git tags named `vMAJOR.MINOR.PATCH`
 (e.g. `v0.1.0`). The tag version **must equal** the `version` field in `Cargo.toml`.
-The future release pipeline (backlog #3, cargo-dist) triggers on these tags to
-build and publish release artifacts; do not create bare/lightweight tags.
+The release pipeline (cargo-dist, `dist-workspace.toml`) triggers on these tags
+to build cross-platform binaries, checksummed archives, and shell/powershell
+installers, and creates a GitHub Release automatically; do not create
+bare/lightweight tags.
 
 ## Release-cut checklist
 
@@ -71,11 +73,11 @@ or delegate them.
    ```
    git push origin vX.Y.Z
    ```
-   This push is what the release pipeline (backlog #3) will trigger on to build
-   binaries, publish to crates.io, and create the GitHub Release.
+   The release pipeline triggers on this tag to build cross-platform binaries
+   and create the GitHub Release. (crates.io publish is a separate future step.)
 
-8. **Publish to crates.io** — **[MAINTAINER-AUTHORIZED]** (once the pipeline
-   exists, this step is automated by it; until then, run manually after the tag is
+8. **Publish to crates.io** — **[MAINTAINER-AUTHORIZED]** (a future pipeline step
+   will automate this via `publish-jobs`; until then, run manually after the tag is
    pushed and CI is green on the tag commit):
    ```
    cargo publish
@@ -83,8 +85,9 @@ or delegate them.
 
 ## After the release
 
-- Verify the GitHub Release page was created (once the pipeline exists) or create
-  it manually, pasting the relevant `CHANGELOG.md` section as the release body.
+- Verify the GitHub Release page was created by the pipeline (the release body is
+  auto-generated from `CHANGELOG.md` by cargo-dist), or create it manually if the
+  pipeline did not run.
 - Update any install instructions or `brew` formula if the version is referenced
   there.
 - Open a follow-up commit to start the next development cycle (e.g. bump to the
