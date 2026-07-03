@@ -100,6 +100,22 @@ license_blocked:
     related: [DEC-016, DEC-018, no-agpl-default-deps]
     confidence: low
 
+  - id: heic-heif-decode
+    capability: "Reading `.heic`/`.heif` INPUT (iPhone / modern-camera photos) — decoding to pixels for any command, or best-effort conversion to jpg/png/webp."
+    rejected_dependency: "heic (imazen, docs.rs/heic 0.1.6) — pure-Rust HEIC/HEIF decoder, SIMD, decode-only, #![forbid(unsafe_code)], has resource Limits"
+    license: "AGPL-3.0-only OR LicenseRef-Imazen-Commercial (same vendor + dual-license model as imagequant / imageflow)"
+    license_class: copyleft
+    reason: "AGPL relicenses the statically-linked binary; incompatible with our MIT/Apache promise and `no-agpl-default-deps`; the commercial tier defeats the open default. Cannot be a default dep. Even as an opt-in feature it can NEVER appear in a DISTRIBUTED artifact (cargo-dist release / brew / crates.io) without AGPL-ing that artifact — only a user's own local `--features heic` build is unaffected. Would also need a scoped cargo-deny exception."
+    status: no-permissive-alternative
+    current_fallback: "Pre-convert OUTSIDE crustyimg (macOS `sips`; Linux `heif-convert` from libheif-examples, or `magick`/`vips`) in the pipeline, or shell out at runtime. Invoking an external converter creates NO license obligation (invoking != linking). This is the recommended, good-enough path."
+    permissive_alternatives:
+      - "None permissive for the CODEC: HEVC/H.265 has no permissive pure-Rust decoder. Every Rust route wraps an existing HEVC decoder — `heic` (AGPL), or `libheif-rs` -> system libheif (LGPL-2.1+, allowable only via a per-crate deny exception like ansi_colours, and needs system libheif = a native dep)."
+      - "libheif-rs (LGPL) behind an off-by-default `heic` feature is the most viable IN-TOOL, non-AGPL path, but reintroduces a C system dependency (same 'is it installed' problem as shelling out, just in-process)."
+    build_candidate: "TWO layers. (1) HEIF/ISOBMFF CONTAINER parser — tractable pure-Rust + permissive (a few k lines; reuses TIFF/box-parsing; would also decode AVIF-in-HEIF for free and serve Canon CR3 preview extraction). Worth building on its own merits. (2) The HEVC/H.265 intra DECODER — REJECTED as a from-scratch build: tens of thousands of lines of correctness-critical spec code (CABAC, 35 intra modes, transforms, deblock, SAO), NO permissive prior art to port, extremely hard to make bit-exact + panic-free for untrusted input (re-opens the STAGE-006 attack surface), AND HEVC is patent-encumbered so a permissive SOFTWARE license does NOT clear PATENT exposure (needs legal input, not code). The container parser ALONE does not decode typical iPhone HEICs — those are HEVC."
+    revisit_trigger: "A permissive pure-Rust HEVC decoder appears; OR Imazen offers an LGPL/MPL/permissive tier for `heic`; OR we choose to accept the LGPL libheif-rs opt-in feature (deny exception)."
+    related: [DEC-004, DEC-018, no-agpl-default-deps]
+    confidence: high
+
 # ── Deferred for NON-license reasons (capability gaps, same revisit goal) ──────────
 deferred_non_license:
   - id: avif-decode
