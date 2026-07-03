@@ -68,6 +68,30 @@ suite. Still additive on the same architecture.
 | blurhash / thumbhash | Placeholder hashes for web loading | M | Read-only encode-side output, like `info --json` |
 | placeholder fetch (Picsum / Unsplash) | Pull sample/placeholder images | M | New Source variant (network fetch); note: would be the first network dependency |
 
+### Input formats — camera RAW + HEIC/HEIF
+
+Reading formats crustyimg can't decode today. The `image` decode surface is
+PNG/JPEG/GIF/BMP/TIFF/ICO/WebP (+AVIF behind `--features avif`); these add new
+*input* decode paths. See `guidance/license-watchlist.yaml`
+(`raw-camera-decode`, `heic-heif-decode`) for the full license analysis.
+
+| Item | Value | Complexity | Enabling architecture / notes |
+|---|---|---|---|
+| **RAW → jpg/png (Tier 1: embedded preview)** | Nikon NEF, Canon CR2/CR3, Fuji RAF, Leica DNG/RWL, Sony ARW → basic best-effort convert | **M** | **Permissive, pure-Rust, recommended.** Extract the full-res embedded JPEG (no demosaic). Reuses `kamadak-exif` (TIFF/EXIF IFDs, already a dep) + `image` re-encode; CR3 needs ISOBMFF box parsing (shared with HEIF below). No copyleft/patents. |
+| RAW development (Tier 2: demosaic) | True sensor development (WB + color) — higher quality | L | `rawler` (LGPL-2.1) behind an opt-in `raw` feature + a `cargo-deny` exception (ansi_colours precedent), or a from-scratch demosaic (X-Trans is hard). Overkill for basic conversion. |
+| HEIC/HEIF → jpg/png | iPhone / modern-camera photos | L / n/a | **No permissive in-tool path** — HEVC has no permissive pure-Rust decoder (imazen `heic` = AGPL; `libheif-rs` = LGPL + system libheif; from-scratch HEVC = rejected, scale+patents). **Fallback: pre-convert/shell-out (`sips`/`heif-convert`)** — no license obligation. Settled unless a permissive HEVC decoder appears. |
+
+**Tier-1 RAW spec sketch (the buildable one):** a new decode path that, on a
+recognized RAW extension/magic, locates the largest embedded JPEG preview
+(TIFF `IFD`/`SubIFD` `JPEGInterchangeFormat`/preview tags for NEF/CR2/DNG/RWL/ARW;
+the RAF header's JPEG offset+length for Fuji; the `PRVW`/`THMB` ISOBMFF box for
+Canon CR3), decodes it via `image`, and feeds it into the normal pipeline (so
+`convert`/`shrink`/`thumbnail` all work). Bound it with the existing decode limits
+(STAGE-006). Failure mode when no full-size preview exists → clear exit 4 with a
+"RAW development (Tier 2) not built; only embedded-preview conversion is supported"
+message. Behind a `raw` cargo feature to keep the default lean. A future project
+wave, not PROJ-001.
+
 ---
 
 ## Stretch / PROJ-004+
@@ -94,6 +118,13 @@ encode). Worth doing, clearly later.
   `cargo audit` in CI) — new `Operation`s are pure pixel transforms and add
   little new surface; network fetch (Picsum/Unsplash) and native codecs are
   the ones that would warrant fresh threat-model review and a DEC.
+- **Input formats (RAW / HEIC)** — new *decode* paths, not new `Operation`s. RAW
+  Tier 1 (embedded-preview) is the clean permissive win and the recommended first
+  build; a small **ISOBMFF/box parser** is reusable across Canon CR3 previews AND a
+  future HEIF container. Both are untrusted input → inherit the STAGE-006 hardening
+  (decode limits, no-panic). HEIC's HEVC codec has no permissive path — stays a
+  pre-convert/shell-out story. Full analysis + revisit triggers live in
+  `guidance/license-watchlist.yaml`.
 - **Permissive in-house `Display` sink (drop viuer + ansi_colours)** — S–M, near
   term. viuer pulls `ansi_colours` (LGPL-3.0-or-later), the only copyleft dep in
   the tree (optional `display` feature; accepted today via a documented

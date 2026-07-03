@@ -116,6 +116,21 @@ license_blocked:
     related: [DEC-004, DEC-018, no-agpl-default-deps]
     confidence: high
 
+  - id: raw-camera-decode
+    capability: "Reading camera RAW INPUT (Nikon NEF, Canon CR2/CR3, Fuji RAF, Leica DNG/RWL, Sony ARW, generic DNG) — at minimum best-effort conversion to jpg/png/webp."
+    rejected_dependency: "rawler 0.7.2 (dnglab; actively maintained, pure-Rust) / rawloader 0.37.1 — for full RAW DEVELOPMENT (demosaic + white balance + color matrix)"
+    license: "LGPL-2.1 (both)"
+    license_class: weak-copyleft
+    reason: "LGPL is allowable ONLY behind an off-by-default feature with a documented per-crate cargo-deny exception (the ansi_colours precedent); never the default build. This blocker applies to the HIGH-QUALITY (Tier 2) development path only — NOT to the basic Tier-1 path below."
+    status: alternative-available
+    current_fallback: "none in-tool yet (RAW input unsupported). Externally: the camera's own JPEG, or dcraw/exiftool/libraw."
+    permissive_alternatives:
+      - "TIER 1 — embedded full-res JPEG preview extraction: PERMISSIVE, needs NO RAW crate. Nearly every RAW embeds a full-size JPEG (what the camera screen shows). Parse the TIFF/EXIF IFDs (`kamadak-exif`, ALREADY a dep) — or the ISOBMFF box for Canon CR3 — pull the largest embedded JPEG, re-encode via `image`. Covers Nikon/Canon-CR2/Fuji/Leica/Sony; CR3 needs box parsing (shares tech with a future HEIF container parser). No copyleft, no patents, no demosaic. The recommended 'basic conversion' build."
+    build_candidate: "Tier 1 embedded-preview extractor as a decode/Source path (M, permissive, pure-Rust) — DO THIS FIRST. Tier 2 true development either via `rawler` behind an opt-in `raw` feature + deny exception (LGPL), or a from-scratch demosaic (L; Fuji X-Trans especially hard) — overkill for basic conversion."
+    revisit_trigger: "A RAW-input spec in a future project wave (see docs/backlog.md). Build Tier 1 first; weigh Tier 2/`rawler` only if development-grade quality is wanted."
+    related: [DEC-003, DEC-004, DEC-018]
+    confidence: high
+
 # ── Deferred for NON-license reasons (capability gaps, same revisit goal) ──────────
 deferred_non_license:
   - id: avif-decode
