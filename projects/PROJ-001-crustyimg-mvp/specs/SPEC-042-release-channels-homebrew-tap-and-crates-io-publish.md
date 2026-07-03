@@ -7,7 +7,7 @@
 task:
   id: SPEC-042
   type: story                      # epic | story | task | bug | chore
-  cycle: design                    # frame | design | build | verify | ship
+  cycle: verify  # frame | design | build | verify | ship
   blocked: false
   priority: medium
   complexity: M                    # S | M | L  (L means split it)
@@ -70,9 +70,31 @@ cost:
         (tree clean). Pinned: config-only (arms, fires nothing); both channels trigger
         ONLY on a `v*` tag; #7 deferred; the tap-repo + two secrets + the tag push are
         maintainer-authorized (not in this spec).
+    - cycle: build
+      agent: claude-sonnet-4-6
+      interface: claude-code
+      tokens_total: 35000
+      estimated_usd: 0.19
+      duration_minutes: 3
+      recorded_at: 2026-07-03
+      notes: >
+        PARTIAL-METERED + ESTIMATE. The Sonnet 4.6 build subagent produced the
+        substantive config (dist-workspace.toml += homebrew installer + tap +
+        publish-jobs; regenerated release.yml with publish-homebrew-formula; new
+        tag-only publish-crates.yml) across ~19 tool_uses, then DIED on an "API Error:
+        Overloaded" before the RELEASING.md edit + commit + PR (reported
+        subagent_tokens=467 is only the truncated final message, not representative;
+        ~35k estimated for the config work). The orchestrator (main loop, Opus, not
+        separately metered) VERIFIED the agent's output (dist generate --check in sync,
+        dist plan lists crustyimg.rb, safety greps pass) and COMPLETED the missing
+        pieces: RELEASING.md prerequisites + the spec bookkeeping. NOTE: `cargo deny
+        check advisories` fails on 3 AMBIENT RustSec advisories (quick-xml
+        RUSTSEC-2026-0194/0195 via little_exif; ttf-parser RUSTSEC-2026-0192 via
+        ab_glyph) — pre-existing on main, NOT caused by this spec — to be fixed in a
+        separate supply-chain spec before merge/release. fmt/clippy/lean green.
   totals:
-    tokens_total: 0
-    estimated_usd: 0
+    tokens_total: 35000
+    estimated_usd: 0.19
     session_count: 0
 ---
 
@@ -274,28 +296,46 @@ function). Verification is by dry-run + inspection, run in build and re-run in v
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
+- **Branch:** `feat/spec-042-release-channels`
+- **PR (if applicable):** opened — see session notes (**blocked** on the ambient
+  supply-chain advisory failure below, not on this spec's content)
+- **All acceptance criteria met?** yes for the spec's own scope (config + workflows +
+  RELEASING); the shared `cargo deny check advisories` gate is red for a pre-existing,
+  unrelated reason (see below).
 - **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
+  - none — DEC-041 pre-authored.
 - **Deviations from spec:**
-  - [list]
+  - The Sonnet build subagent died on an "API Error: Overloaded" after writing the
+    config/workflows but before RELEASING.md + commit + PR; the orchestrator verified
+    its output and completed the remaining steps in the main loop.
 - **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - **BLOCKER (separate spec):** `cargo deny check advisories` fails on 3 ambient
+    RustSec advisories present on `main`, unrelated to this spec — quick-xml
+    RUSTSEC-2026-0194 + 0195 (via `little_exif`, which pins `quick-xml ^0.37`, so no
+    upgrade path) and ttf-parser RUSTSEC-2026-0192 (unmaintained, via `ab_glyph`, no
+    fix). A supply-chain advisory-response spec (assess quick-xml reachability + add
+    justified `deny.toml` ignores with revisit triggers) must land and green `main`
+    BEFORE this PR can merge and before `v0.1.0`.
 
 ### Build-phase reflection (3 questions, short answers)
 
 Process-focused: how did the build go? What friction did the spec create?
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — Nothing in the spec. The DEC-041 config was exact and the build produced correct
+   output first try. The friction was external: (a) the build subagent hit an API
+   overload and died mid-cycle, and (b) the `cargo deny` gate turned out to be red for
+   an ambient reason (new advisories) that this spec neither caused nor could fix.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — No. The safety framing (tag-only triggers, no-secrets-in-code, arms-but-fires-
+   nothing) was clear and verifiable by inspection.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Run `cargo deny check advisories` at the START of a release-adjacent build (not
+   just at the gate) so ambient advisory drift is caught before it looks like a build
+   failure. The advisory DB is time-varying, so a green run yesterday can be red today
+   with zero code change — worth a pre-flight check on any spec that touches release.
 
 ---
 
