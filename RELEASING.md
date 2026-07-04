@@ -20,7 +20,29 @@ Releases are marked with **annotated** git tags named `vMAJOR.MINOR.PATCH`
 The release pipeline (cargo-dist, `dist-workspace.toml`) triggers on these tags
 to build cross-platform binaries, checksummed archives, and shell/powershell
 installers, and creates a GitHub Release automatically; do not create
-bare/lightweight tags.
+bare/lightweight tags. Pushing a version tag ALSO (SPEC-042):
+
+- pushes an updated Homebrew formula to the **`jysf/homebrew-tap`** tap
+  (`brew install jysf/tap/crustyimg`), via the cargo-dist `publish-homebrew-formula`
+  job; and
+- **publishes to crates.io** (`cargo publish --locked`) via the separate
+  `.github/workflows/publish-crates.yml` workflow.
+
+## One-time setup (before the first tagged release) — **[MAINTAINER-AUTHORIZED]**
+
+These are prerequisites for the Homebrew + crates.io channels. Do them once, before
+cutting `v0.1.0`; the tag push will fail those jobs if they are missing.
+
+1. **Create the Homebrew tap repo** — a public GitHub repo **`jysf/homebrew-tap`**
+   (the cargo-dist job creates the `Formula/` dir + commits `crustyimg.rb` on release).
+2. **Add repo secrets** to `jysf/crustyimg` (Settings → Secrets and variables → Actions):
+   - **`CARGO_REGISTRY_TOKEN`** — a crates.io API token (crates.io → Account Settings →
+     API Tokens), used by `publish-crates.yml`.
+   - **`HOMEBREW_TAP_TOKEN`** — a GitHub PAT with **write access to `jysf/homebrew-tap`**
+     (a fine-grained PAT scoped to that repo is ideal), used by the cargo-dist homebrew job.
+
+A crates.io publish is **irreversible** — a given version can never be re-published. The
+`cargo publish --dry-run` + full gate suite below are the guard; run them before tagging.
 
 ## Release-cut checklist
 
@@ -73,15 +95,17 @@ or delegate them.
    ```
    git push origin vX.Y.Z
    ```
-   The release pipeline triggers on this tag to build cross-platform binaries
-   and create the GitHub Release. (crates.io publish is a separate future step.)
+   This single push fires all three channels (SPEC-042): the cargo-dist pipeline
+   builds cross-platform binaries + checksums and creates the **GitHub Release**;
+   the `publish-homebrew-formula` job pushes the formula to **`jysf/homebrew-tap`**;
+   and `publish-crates.yml` **publishes to crates.io**. Confirm the one-time setup
+   (tap repo + both secrets, above) is done first.
 
-8. **Publish to crates.io** — **[MAINTAINER-AUTHORIZED]** (a future pipeline step
-   will automate this via `publish-jobs`; until then, run manually after the tag is
-   pushed and CI is green on the tag commit):
-   ```
-   cargo publish
-   ```
+8. **Verify the channels** — after the tag's workflows finish, confirm: the GitHub
+   Release exists with artifacts + checksums; `cargo search crustyimg` shows the new
+   version on crates.io; and `brew install jysf/tap/crustyimg` installs it. If the
+   crates.io job ever needs to be run by hand (e.g. a token issue), the manual
+   fallback is `cargo publish --locked` — **[MAINTAINER-AUTHORIZED]** (irreversible).
 
 ## After the release
 
