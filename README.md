@@ -57,35 +57,133 @@ Enable with `--features webp-lossy,avif` at build/install time.
 
 ## Usage
 
+Run `crustyimg --help` for the full surface, or `crustyimg <cmd> --help` for a
+command's options. Every transform accepts a single file, a glob, a directory, or `-`
+(stdin); see [**Batch & recipes**](#batch--recipes-multiple-files) below to run over many.
+
+### View & inspect
+
 ```sh
-# View an image in the terminal
-crustyimg view photo.jpg
+crustyimg view photo.jpg                     # display in the terminal (viuer)
+crustyimg info photo.jpg                      # dimensions, format, size, color, EXIF/ICC presence
+crustyimg info photo.jpg --exif               # dump EXIF tags
+crustyimg info photo.jpg --json               # machine-readable JSON to stdout
+```
 
-# Inspect dimensions, format, byte size, EXIF presence
-crustyimg info photo.jpg
-crustyimg info photo.jpg --json      # machine-readable JSON to stdout
+### Resize & thumbnail
 
-# Optimize for web: auto-orient + strip metadata + visually-lossless encode
+```sh
+crustyimg resize photo.jpg --max 1200 -o out.jpg   # bound the long edge (never upscales)
+crustyimg resize photo.jpg --exact 800x600 -o out.jpg
+crustyimg resize photo.jpg --percent 50 -o out.jpg
+crustyimg resize photo.jpg --fit 800x800 -o out.jpg    # fit inside, keep aspect
+crustyimg resize photo.jpg --cover 800x800 -o out.jpg  # fill + crop to exactly 800x800
+crustyimg thumbnail photo.jpg --size 200 --square -o thumb.jpg
+```
+
+### Optimize / shrink for web
+
+```sh
+# One-button "make it web-good": auto-orient + strip metadata + visually-lossless re-encode
 crustyimg optimize photo.jpg -o out.webp
 
-# Shrink: resize long edge to ≤1200 px, output as WebP
+# Shrink: resize long edge to ≤1200 px, encode as WebP
 crustyimg shrink photo.jpg --max 1200 -o out.webp
 
-# Resize a batch to ≤800 px into an output directory
-crustyimg resize *.jpg --max 800 --out-dir web/
+# Perceptual auto-quality: smallest file that still clears a visual target (JPEG/WebP)
+crustyimg shrink photo.jpg --max 1600 --target high -o out.jpg
+crustyimg shrink photo.jpg --ssim 85 -o out.jpg
 
-# Pipe: read from stdin, write to stdout (all diagnostics go to stderr)
-crustyimg resize - --max 800 -o - < in.jpg > out.jpg
+# Byte budget: fit under a size, lowering quality then dimensions as needed
+crustyimg shrink photo.jpg --max-size 200KB -o out.jpg
+```
 
-# Perceptual diff: SSIMULACRA2 score of b vs a; exit 7 when below threshold
+### Convert formats
+
+```sh
+crustyimg convert photo.png --format webp -o out.webp   # PNG/JPEG/GIF/BMP/TIFF/ICO/WebP
+crustyimg convert photo.jpg --format webp --max-size 150KB -o out.webp
+crustyimg convert photo.jpg --format avif -o out.avif   # AVIF: needs a build with `--features avif`
+```
+
+### Auto-orient & metadata
+
+```sh
+crustyimg auto-orient photo.jpg -o fixed.jpg     # bake EXIF orientation into pixels, clear the tag
+crustyimg strip photo.jpg -o clean.jpg            # remove ALL metadata (EXIF/IPTC/XMP/ICC)
+crustyimg clean photo.jpg --gps -o nogeo.jpg      # remove only GPS/location, keep the rest
+crustyimg set photo.jpg --artist "Jane Doe" --copyright "© 2026" -o tagged.jpg
+crustyimg copy-metadata --from original.jpg --to edited.jpg   # copy EXIF+ICC between images
+```
+
+> Pixel-lane encodes drop GPS by default; pass `--keep-gps` to retain it.
+
+### Watermark
+
+```sh
+crustyimg watermark photo.jpg --image logo.png --gravity southeast --opacity 0.6 -o out.jpg
+crustyimg watermark photo.jpg --image logo.png --tile --scale 0.1 -o out.jpg
+crustyimg watermark photo.jpg --text "© crustyimg" --size 32 --color FFFFFF -o out.jpg
+```
+
+### Compare (perceptual diff)
+
+```sh
+# SSIMULACRA2 score of b vs a; --fail-under makes it a CI visual-regression gate (exit 7 if below)
 crustyimg diff original.jpg compressed.jpg --fail-under 70
+crustyimg diff a.png b.png --json
+```
 
-# Generate responsive image variants + paste-ready <picture>/srcset snippet
+### Responsive image sets
+
+```sh
+# Width × format variants + a paste-ready <picture>/srcset snippet on stdout
 crustyimg responsive hero.jpg --widths 320,640,1280 --formats webp,jpeg --out-dir web/
 ```
 
-Run `crustyimg --help` for the full command surface, or `crustyimg <cmd> --help`
-for per-command options.
+### Batch & recipes (multiple files)
+
+Pass many inputs (a list, a glob, or a directory) to any transform — multi-input runs
+require `--out-dir`, and `--name-template` controls output names (`{stem}`, `{ext}`):
+
+```sh
+crustyimg shrink *.jpg --max 1200 --out-dir web/                 # a glob
+crustyimg convert photos/ --format webp --out-dir out/           # a whole directory
+crustyimg thumbnail *.png --size 200 --square --out-dir thumbs/
+crustyimg strip *.jpg --out-dir clean/ --name-template "{stem}_clean.{ext}"
+```
+
+For a repeatable multi-step pipeline over a large set, tune it once, save a recipe, then
+replay it **in parallel** (`-j` workers, progress bar):
+
+```sh
+# Tune on one image and save the recipe
+crustyimg edit hero.jpg --auto-orient --resize-max 1600 --save-recipe web.toml
+
+# Replay across a batch, in parallel
+crustyimg apply --recipe web.toml *.jpg \
+  --out-dir out/ --name-template "{stem}_web.{ext}" -j 8
+```
+
+> Per-command fan-outs run sequentially; `apply --recipe` is the parallel path (`-j N`,
+> default = CPU count). A failed input in a batch doesn't abort the rest — the run exits
+> `6` (partial batch) with a stderr summary.
+
+### Piping (stdin / stdout)
+
+```sh
+# `-` reads stdin / writes stdout; all diagnostics stay on stderr so pipes are clean
+crustyimg resize - --max 800 -o - < in.jpg > out.jpg
+cat in.jpg | crustyimg convert - --format webp -o - > out.webp
+```
+
+### Handy global options
+
+`-o/--output` (`-` = stdout) · `--out-dir` · `--name-template` · `-q/--quality` ·
+`--format` · `-j/--jobs` · `-y/--yes` (assume yes to overwrite) · `-Q/--quiet` ·
+`-v/--verbose` · `--keep-gps`. Exit codes: `0` ok, `1` runtime error, `2` usage, `3`
+input not found, `4` unsupported format, `5` output refused, `6` partial batch, `7`
+check failed (e.g. `diff --fail-under`).
 
 ## Shell completions
 
