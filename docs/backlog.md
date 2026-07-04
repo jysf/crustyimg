@@ -18,6 +18,20 @@ new metric, or new UI surface).
 
 ---
 
+## Post-0.1.0 fast-follows — advisory elimination (→ clean 0.2.0)
+
+Agreed at the v0.1.0 cut: ship 0.1.0 with the three accepted `deny.toml` advisory
+ignores (DEC-042, all low-risk/unreachable/documented), then **eliminate them at the
+source** and remove the ignores for a clean 0.2.0. These are the DEC-042 revisit triggers
+made concrete.
+
+| Item | Value | Complexity | Approach (grounded) |
+|---|---|---|---|
+| **Drop `ttf-parser` (RUSTSEC-2026-0192)** — swap `ab_glyph` → **`fontdue`** in `watermark --text` | Removes the unmaintained font dep | **S–M** | `fontdue` 0.9.3 (MIT/Apache/Zlib, pure-Rust, its OWN parser — no ttf-parser, does glyph rasterization). Swap the rasterizer, adapt the glyph API, re-verify watermark-text pixels. Do NOT write our own rasterizer (deep field). Then drop the -0192 ignore. |
+| **Drop `quick-xml` vulns (RUSTSEC-2026-0194/-0195)** — replace `little_exif` with an **in-house EXIF-tag writer** | Removes 2 real (unreachable) vulns + the last XML dep | **M** | No drop-in exists (`nom-exif`/`kamadak-exif` are read-only; `little_exif` was ~the only pure-Rust read+write, DEC-029). Write a minimal binary **TIFF-IFD serializer** for the tags we set (Artist/Copyright/ImageDescription) + selective **GPS-IFD removal**, embedded via `img-parts` segment replacement (already used for `strip`). Binary IFD only → no XMP → no quick-xml. Needs careful byte-order/offset serialization + round-trip tests matching today's `set`/`clean --gps`. Then drop the -0194/-0195 ignores + `little_exif` (revisit DEC-029). |
+
+Both remove `deny.toml` ignores on completion; do the `fontdue` swap first (cheaper), the EXIF writer second (the meatier, higher-value one — kills actual vulnerabilities).
+
 ## PROJ-002 — next wave after MVP
 
 High value, low complexity, all drop into the `Operation` trait + recipe
