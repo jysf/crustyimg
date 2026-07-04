@@ -7,7 +7,7 @@
 task:
   id: SPEC-043
   type: chore                      # epic | story | task | bug | chore
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: S                    # S | M | L  (L means split it)
@@ -68,19 +68,45 @@ cost:
     - cycle: build
       agent: claude-sonnet-4-6
       interface: claude-code
+      tokens_total: 51448
+      estimated_usd: 0.28
+      duration_minutes: 3
+      recorded_at: 2026-07-03
+      notes: >
+        Real metered subagent on Sonnet 4.6. subagent_tokens=51448, duration_ms=174455.
+        estimated_usd at Sonnet list ($3/$15 per MTok, ~80/20). deny.toml: 3 documented
+        advisory ignores (RUSTSEC-2026-0194/-0195 quick-xml via little_exif; -0192
+        ttf-parser via ab_glyph), each with reason + revisit trigger per DEC-042. cargo
+        deny advisories now green; no code/dep change; advisories check still `deny`. PR #47.
+    - cycle: verify
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 52730
+      estimated_usd: 0.47
+      duration_minutes: null
+      recorded_at: 2026-07-03
+      notes: >
+        REAL metered this time — the independent Explore subagent (Opus) returned a usage
+        block: subagent_tokens=52730, duration_ms=683257 (estimated_usd at the blended
+        rate used for prior verify entries). Verdict: APPROVED. Independently scrutinized
+        the SECURITY judgment: re-read src/metadata/mod.rs (little_exif used only via
+        set_tag(Artist/Copyright/ImageDescription) + get_ifd_mut(GPS) — binary EXIF; zero
+        XMP/XML in src), confirmed quick-xml's XML-reader vuln not reached + little_exif
+        0.6.23 pins quick-xml ^0.37 (no upgrade) + STAGE-006 bounds cover the residual;
+        ttf-parser unmaintained/informational, font input controlled. Confirmed deny green,
+        exactly 3 IDs, no `warn` downgrade, deny.toml-only diff, no new DEC. PR #47 CI fully green.
+    - cycle: ship
+      agent: claude-opus-4-8
+      interface: claude-code
       tokens_total: null
       estimated_usd: null
       duration_minutes: null
       recorded_at: 2026-07-03
-      notes: >
-        deny.toml: 3 documented advisory ignores (RUSTSEC-2026-0194/-0195 quick-xml via
-        little_exif; -0192 ttf-parser via ab_glyph), each with reason + revisit trigger
-        per DEC-042. cargo deny advisories now green; no code/dep change; advisories check
-        still `deny`.
+      notes: "Main-loop ship bookkeeping (merge dance for PR #47 + cost totals + reflection + archive); not separately metered. Greened main; unblocks SPEC-042 (#46) + v0.1.0."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 104178
+    estimated_usd: 0.75
+    session_count: 4
 ---
 
 # SPEC-043: supply chain advisory response quickxml ttfparser
@@ -267,10 +293,25 @@ Process-focused: how did the build go? What friction did the spec create?
 from the process-focused build reflection above.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Run `cargo deny check advisories` as a **pre-flight on every push, including
+   doc-only ones** — the failure was ambient (RustSec DB drift, no code change) and had
+   been red on `main` since `5a0660d`; I missed it because I only re-checked the
+   cost/lean jobs on doc pushes. The advisory DB is time-varying, so "green yesterday"
+   ≠ "green today". A cheap `just deny` before any push (or a scheduled CI advisory
+   run) would have caught it days earlier instead of mid-launch. Otherwise the response
+   was right-sized: a reachability assessment + three documented, revisit-tracked
+   ignores, not an over-reaction (no dep churn, no gate downgrade).
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — Consider a small process addition (not blocking): a **scheduled `cargo deny`
+   advisory job** (e.g. daily/weekly cron in CI) so advisory drift is surfaced on its
+   own, decoupled from code pushes — DEC-037's gate only runs on push/PR today. Noted
+   in DEC-042's consequences. No template/constraint change needed now.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — No new spec. The revisit triggers live in `deny.toml` + DEC-042 (drop the
+   `quick-xml` ignores when `little_exif` bumps quick-xml or is replaced; the
+   `ttf-parser` one when `ab_glyph` moves off it). Immediate follow-up is not a spec but
+   the mechanics: **rebase SPEC-042 (#46)** on the now-green `main` so its CI clears,
+   then the `v0.1.0` cut. The optional scheduled-advisory-CI idea (Q2) can be a tiny
+   future chore if drift recurs.
