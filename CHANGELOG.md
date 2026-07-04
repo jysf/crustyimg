@@ -21,7 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [0.1.0] - 2026-06-19
+## [0.1.0] - 2026-07-03
 
 This is the initial MVP release: a single static Rust binary that turns image
 prep from *guess-a-quality-knob* to *declare-an-intent*. Zero system dependencies
@@ -125,6 +125,8 @@ re-decoded, so privacy ops carry no quality cost and no recompression.
 - Typed exit codes: 0 success, 1 runtime error, 2 usage error, 3 input not found,
   4 unsupported format/codec not built, 5 output write refused, 6 partial batch
   failure, 7 check/gate not satisfied.
+- `completions <bash|zsh|fish|powershell|elvish>` — print a clap-generated shell
+  completion script to stdout (e.g. `crustyimg completions zsh > _crustyimg`).
 
 ### Security
 
