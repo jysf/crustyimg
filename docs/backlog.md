@@ -32,6 +32,12 @@ made concrete.
 
 Both remove `deny.toml` ignores on completion; do the `fontdue` swap first (cheaper), the EXIF writer second (the meatier, higher-value one — kills actual vulnerabilities).
 
+**Also (S, UX polish):** the shipped `--help` leaks internal jargon into command
+descriptions — e.g. `view … (STAGE-002; stub in STAGE-001)` (view is no longer a stub),
+plus `STAGE-00X` / `DEC-0XX` references across several subcommands. Clean the clap
+doc-comments in `src/cli/mod.rs` so user-facing help reads for end users (no stage/DEC
+refs, no stale "stub" text). Found during the v0.1.0 install smoke-test.
+
 ## PROJ-002 — next wave after MVP
 
 High value, low complexity, all drop into the `Operation` trait + recipe
