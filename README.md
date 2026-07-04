@@ -57,9 +57,11 @@ Enable with `--features webp-lossy,avif` at build/install time.
 
 ## Usage
 
-Run `crustyimg --help` for the full surface, or `crustyimg <cmd> --help` for a
-command's options. Every transform accepts a single file, a glob, a directory, or `-`
-(stdin); see [**Batch & recipes**](#batch--recipes-multiple-files) below to run over many.
+Handy examples below; the **complete reference** (every command, flag, and exit code)
+is in **[docs/cli-reference.md](docs/cli-reference.md)**. Or run `crustyimg --help` /
+`crustyimg <cmd> --help`. Every transform accepts a single file, a glob, a directory, or
+`-` (stdin); see [**Batch & recipes**](#batch--recipes-multiple-files) below to run over
+many.
 
 ### View & inspect
 
