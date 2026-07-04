@@ -7,7 +7,7 @@
 task:
   id: SPEC-043
   type: chore                      # epic | story | task | bug | chore
-  cycle: design                    # frame | design | build | verify | ship
+  cycle: verify  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: S                    # S | M | L  (L means split it)
@@ -65,6 +65,18 @@ cost:
         upgrade). Authored DEC-042 (risk acceptance + revisit triggers) + the spec +
         the Sonnet build prompt. Fix = 3 documented deny.toml ignore entries (the
         established RUSTSEC-2024-0436/paste pattern). No code change.
+    - cycle: build
+      agent: claude-sonnet-4-6
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-07-03
+      notes: >
+        deny.toml: 3 documented advisory ignores (RUSTSEC-2026-0194/-0195 quick-xml via
+        little_exif; -0192 ttf-parser via ab_glyph), each with reason + revisit trigger
+        per DEC-042. cargo deny advisories now green; no code/dep change; advisories check
+        still `deny`.
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -220,28 +232,32 @@ Config-only supply-chain change — **no Rust tests**. Verification is the gate 
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
+- **Branch:** `fix/spec-043-advisory-ignores`
+- **PR (if applicable):** opened (see PR)
+- **All acceptance criteria met?** yes
 - **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
+  - none — DEC-042 was pre-authored
 - **Deviations from spec:**
-  - [list]
+  - none
 - **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - none (revisit triggers encoded in deny.toml comments)
 
 ### Build-phase reflection (3 questions, short answers)
 
 Process-focused: how did the build go? What friction did the spec create?
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — Nothing was unclear. The spec was unusually prescriptive and complete: the
+   template block in `## Notes for the Implementer` made the deny.toml edit
+   mechanical. The `RUSTSEC-2024-0436`/paste entry provided an exact style target.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — No. DEC-042 already contained all rationale needed for the comments. The
+   pre-authored DEC pattern worked well — no design decisions needed at build time.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Nothing significant. The "confirm failure first, edit, confirm pass" order was
+   correct and the gates ran fast (config-only, no recompile needed for cargo deny).
 
 ---
 
