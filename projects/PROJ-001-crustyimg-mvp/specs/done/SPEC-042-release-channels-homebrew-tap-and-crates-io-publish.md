@@ -7,7 +7,7 @@
 task:
   id: SPEC-042
   type: story                      # epic | story | task | bug | chore
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: medium
   complexity: M                    # S | M | L  (L means split it)
@@ -92,10 +92,36 @@ cost:
         RUSTSEC-2026-0194/0195 via little_exif; ttf-parser RUSTSEC-2026-0192 via
         ab_glyph) — pre-existing on main, NOT caused by this spec — to be fixed in a
         separate supply-chain spec before merge/release. fmt/clippy/lean green.
+    - cycle: verify
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 47613
+      estimated_usd: 0.43
+      duration_minutes: null
+      recorded_at: 2026-07-03
+      notes: >
+        REAL metered — independent Explore subagent (Opus) returned a usage block:
+        subagent_tokens=47613, duration_ms=152925 (estimated_usd at the blended verify
+        rate). Ran AFTER the SPEC-043 rebase. Verdict: APPROVED (11/11 criteria). Verified
+        the homebrew config + regenerated publish-homebrew-formula job (jysf/homebrew-tap +
+        HOMEBREW_TAP_TOKEN), publish-crates.yml is tag-only with no hard-coded token, the
+        release.yml PR-non-publishing gate holds, RELEASING prereqs documented; safety
+        greps clean; PR #46 CI fully green (supply-chain now passing on the rebased base,
+        publish/announce jobs correctly skipping on the PR); diff is config/workflows/
+        RELEASING only, no src/dep/tag/release/tap/secret. Explicitly validated the
+        overload-recovery build was completed correctly.
+    - cycle: ship
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-07-03
+      notes: "Main-loop ship bookkeeping (merge dance for PR #46 + cost totals + reflection + archive + stage backlog #4/#5); not separately metered. Both secrets (CARGO_REGISTRY_TOKEN, HOMEBREW_TAP_TOKEN) + the jysf/homebrew-tap repo confirmed in place — the channels are armed; the v0.1.0 tag is the remaining maintainer-authorized trigger."
   totals:
-    tokens_total: 35000
-    estimated_usd: 0.19
-    session_count: 0
+    tokens_total: 82613
+    estimated_usd: 0.62
+    session_count: 4
 ---
 
 # SPEC-042: release channels homebrew tap and crates io publish
@@ -345,10 +371,24 @@ Process-focused: how did the build go? What friction did the spec create?
 from the process-focused build reflection above.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Two lessons, both about resilience. (1) The build subagent died on an API overload
+   mid-cycle; because the design probe had already pinned the exact config, I could verify
+   its partial output and finish in the main loop rather than restart — a good outcome, but
+   worth dispatching release-adjacent builds so their work is easy to resume/complete if a
+   subagent drops. (2) The `cargo deny` red was ambient (advisory-DB drift) and had been red
+   on `main` for several doc-only pushes I didn't fully re-check — pre-flighting `just deny`
+   on every push (not just gate time) would have surfaced it before it looked like a build
+   failure. Both are captured in the SPEC-043 reflection too.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — No template/constraint change. DEC-041 correctly captured the mechanism split (Homebrew
+   native to cargo-dist; crates.io needs a separate tag workflow) — the probe that found
+   `crates-io` is not a valid `publish-jobs` value saved the build from a dead end. The
+   scheduled-advisory-CI idea (from SPEC-043) is the one worth considering, tracked there.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — Only **#7 (dual lean/full artifact)** remains in the STAGE-007 backlog — deferred to a
+   fast-follow (DEC-041; not a native cargo-dist artifact, needs custom build steps). Not
+   urgent; recorded in `docs/backlog.md`. The immediate next action is not a spec but the
+   maintainer-authorized **`v0.1.0` cut** (RELEASING.md), now fully armed: the pipeline,
+   Homebrew tap + crates.io channels, the tap repo, and both secrets are all in place.
