@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Updated the `fast_image_resize` SIMD resize backend 5.5.0 → 6.0.0 and
+  `indicatif` 0.18.4 → 0.18.6. Resize output and behavior are unchanged
+  (PATCH-003).
+
 ### Deprecated
 
 ### Removed
