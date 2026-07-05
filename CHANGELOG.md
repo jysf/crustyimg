@@ -11,10 +11,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Updated the `fast_image_resize` SIMD resize backend 5.5.0 → 6.0.0 and
-  `indicatif` 0.18.4 → 0.18.6. Resize output and behavior are unchanged
-  (PATCH-003).
-
 ### Deprecated
 
 ### Removed
@@ -22,6 +18,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 ### Security
+
+---
+
+## [0.2.1] - 2026-07-05
+
+Maintenance release: dependency currency + a scheduled advisory audit. No
+user-facing behavior change.
+
+### Changed
+
+- Updated the `fast_image_resize` SIMD resize backend 5.5.0 → 6.0.0 and
+  `indicatif` 0.18.4 → 0.18.6. Resize output and behavior are unchanged
+  (PATCH-003).
+
+### Security
+
+- Added a weekly scheduled `cargo-deny` advisory audit
+  (`.github/workflows/scheduled-audit.yml`) so newly-published RustSec
+  advisories against existing dependencies are caught between commits, not just
+  on push (PATCH-003).
 
 ---
 
@@ -199,7 +215,8 @@ re-decoded, so privacy ops carry no quality cost and no recompression.
 
 ---
 
-[Unreleased]: https://github.com/jysf/crustyimg/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/jysf/crustyimg/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/jysf/crustyimg/releases/tag/v0.2.1
 [0.2.0]: https://github.com/jysf/crustyimg/releases/tag/v0.2.0
 [0.1.1]: https://github.com/jysf/crustyimg/releases/tag/v0.1.1
 [0.1.0]: https://github.com/jysf/crustyimg/releases/tag/v0.1.0
