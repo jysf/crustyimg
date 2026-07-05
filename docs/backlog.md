@@ -23,14 +23,20 @@ new metric, or new UI surface).
 Agreed at the v0.1.0 cut: ship 0.1.0 with the three accepted `deny.toml` advisory
 ignores (DEC-042, all low-risk/unreachable/documented), then **eliminate them at the
 source** and remove the ignores for a clean 0.2.0. These are the DEC-042 revisit triggers
-made concrete.
+made concrete. **Now framed as STAGE-010** (advisory elimination & dependency hygiene).
 
 | Item | Value | Complexity | Approach (grounded) |
 |---|---|---|---|
-| **Drop `ttf-parser` (RUSTSEC-2026-0192)** — swap `ab_glyph` → **`fontdue`** in `watermark --text` | Removes the unmaintained font dep | **S–M** | `fontdue` 0.9.3 (MIT/Apache/Zlib, pure-Rust, its OWN parser — no ttf-parser, does glyph rasterization). Swap the rasterizer, adapt the glyph API, re-verify watermark-text pixels. Do NOT write our own rasterizer (deep field). Then drop the -0192 ignore. |
+| **Drop `ttf-parser` (RUSTSEC-2026-0192)** — swap `ab_glyph` → **`skrifa` + `zeno`** in `watermark --text` — **SPEC-044 (design), DEC-045** | Removes the unmaintained font dep | **M** | ⚠️ **The original `fontdue` plan was a dead end** — a design-time probe found fontdue 0.9.3 *still depends on `ttf-parser` 0.21.1*, and RUSTSEC-2026-0192 is crate-wide (`patched=[]`, `informational=unmaintained`), so it would NOT remove the ignore. Retargeted to the advisory's own recommended alternative: **`skrifa` 0.44** (Google `fontations`, MIT/Apache, `ttf-parser`-free) for outlines/metrics + **`zeno` 0.3.3** (MIT/Apache) for mask rasterization. Probe-verified against the real Go font (ascent/advance/bounds match; `(coverage, Placement)` ≈ ab_glyph's `px_bounds()`+`draw()`). Behavior-preserving; drops pairwise kerning (nil effect — bundled font has no legacy `kern` table). Then delete the -0192 ignore. |
 | **Drop `quick-xml` vulns (RUSTSEC-2026-0194/-0195)** — replace `little_exif` with an **in-house EXIF-tag writer** | Removes 2 real (unreachable) vulns + the last XML dep | **M** | No drop-in exists (`nom-exif`/`kamadak-exif` are read-only; `little_exif` was ~the only pure-Rust read+write, DEC-029). Write a minimal binary **TIFF-IFD serializer** for the tags we set (Artist/Copyright/ImageDescription) + selective **GPS-IFD removal**, embedded via `img-parts` segment replacement (already used for `strip`). Binary IFD only → no XMP → no quick-xml. Needs careful byte-order/offset serialization + round-trip tests matching today's `set`/`clean --gps`. Then drop the -0194/-0195 ignores + `little_exif` (revisit DEC-029). |
 
-Both remove `deny.toml` ignores on completion; do the `fontdue` swap first (cheaper), the EXIF writer second (the meatier, higher-value one — kills actual vulnerabilities).
+Both remove `deny.toml` ignores on completion; do the font swap first (SPEC-044, cheaper), the EXIF writer second (the meatier, higher-value one — kills actual vulnerabilities).
+
+> **Lesson (fontdue dead-end):** the backlog's "fontdue has its OWN parser — no ttf-parser"
+> was outdated; modern fontdue delegates parsing to `ttf-parser`. An *unmaintained* advisory
+> (`patched = []`) is crate-wide, so swapping to a different version of the same crate never
+> clears it — only removing the crate does. Probe the actual dep tree before trusting a
+> "drops dep X" plan. See DEC-045.
 
 **Also (S, UX polish):** the shipped `--help` leaks internal jargon into command
 descriptions — e.g. `view … (STAGE-002; stub in STAGE-001)` (view is no longer a stub),
