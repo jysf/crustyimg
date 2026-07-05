@@ -68,20 +68,12 @@ confidence-threshold = 0.9
 yanked = "deny"
 ignore = [
     # RUSTSEC-2024-0436 — `paste` (dtolnay) is archived/unmaintained.
-    # No safe upgrade exists as of 2026-06-19; it is a transitive dep of
-    # `little_exif` and `rav1e`/`ravif` — upstream must act first.
-    # Revisit when little_exif or rav1e drops the paste dependency, or when
-    # a patch release resolves this advisory.
-    { id = "RUSTSEC-2024-0436", reason = "paste is transitive via little_exif+rav1e; no safe upgrade available 2026-06-19" },
-    # RUSTSEC-2026-0194 / -0195 — quick-xml 0.37.5 (quadratic attr check; NsReader
-    # memory-DoS). Transitive via little_exif (EXIF-write lane, DEC-029). The vuln is in
-    # quick-xml's XML reader (XMP); crustyimg drives little_exif for BINARY EXIF only
-    # and has zero XMP/XML in src, so the path is not reached with untrusted input; inputs
-    # are also bounded (STAGE-006, DEC-034/036/038). No upgrade: little_exif 0.6.23 pins
-    # quick-xml ^0.37. Revisit when little_exif bumps quick-xml (>=0.41) or is replaced.
-    # See DEC-042.
-    { id = "RUSTSEC-2026-0194", reason = "quick-xml XML-reader vuln via little_exif; EXIF-only path, not reached; no upgrade (little_exif pins ^0.37). DEC-042" },
-    { id = "RUSTSEC-2026-0195", reason = "quick-xml NsReader memory-DoS via little_exif; EXIF-only path, not reached; no upgrade (little_exif pins ^0.37). DEC-042" },
+    # No safe upgrade exists as of 2026-07-05; it is a transitive dep reached
+    # ONLY via `rav1e` -> `ravif` -> `image`'s `avif` feature (SPEC-045/DEC-046
+    # dropped little_exif, `paste`'s other former path) — upstream (`rav1e`)
+    # must act first. Revisit when `rav1e` drops the `paste` dependency, or
+    # when a patch release resolves this advisory.
+    { id = "RUSTSEC-2024-0436", reason = "paste is transitive via rav1e/ravif (avif feature); no safe upgrade available 2026-07-05" },
 ]
 
 [bans]

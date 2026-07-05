@@ -7,24 +7,24 @@
 //! are byte-identical to decoding the input — the constraint
 //! `metadata-not-via-pixel-encode` made concrete.
 //!
-//! Division of labor (DEC-003 / DEC-029):
+//! Division of labor (DEC-003 / DEC-046):
 //! - **`strip_all`** removes *all* user metadata at the segment/chunk level via
 //!   [`img_parts`] (JPEG APP1..APP15 + COM; PNG `eXIf`/`iCCP`/`tEXt`/…).
-//! - **`clean_gps`** removes *only* the GPS IFD at the tag level via
-//!   [`little_exif`], preserving every other tag (orientation, copyright, …).
+//! - **`clean_gps`** removes *only* the GPS IFD at the tag level via the
+//!   in-house [`tiff`] writer, preserving every other tag (orientation,
+//!   copyright, …).
 //!
 //! The format is sniffed with [`image::guess_format`] (a magic-byte check, no
 //! decode). Only JPEG and PNG are supported in v1; any other format is a
 //! [`MetadataError::UnsupportedFormat`]. The read side stays `kamadak-exif`
 //! elsewhere; this module is the write half.
 
+mod tiff;
+
 use ::image::ImageFormat;
 use img_parts::jpeg::Jpeg;
 use img_parts::png::Png;
 use img_parts::{Bytes, ImageEXIF, ImageICC};
-use little_exif::filetype::FileExtension;
-use little_exif::ifd::ExifTagGroup;
-use little_exif::metadata::Metadata;
 
 // ── Errors ────────────────────────────────────────────────────────────────────
 
@@ -43,8 +43,9 @@ pub enum MetadataError {
     #[error("container metadata edit failed: {0}")]
     Container(String),
 
-    /// A tag-level EXIF parse or rewrite failure (`little_exif`), excluding the
-    /// benign "no EXIF" case which [`clean_gps`] treats as a no-op.
+    /// A tag-level EXIF parse or rewrite failure (the in-house [`tiff`]
+    /// reader/writer), excluding the benign "no EXIF" case which
+    /// [`clean_gps`] treats as a no-op.
     #[error("EXIF edit failed: {0}")]
     Exif(String),
 }
@@ -119,61 +120,72 @@ pub fn strip_all(bytes: &[u8]) -> Result<Vec<u8>, MetadataError> {
 
 // ── clean_gps ─────────────────────────────────────────────────────────────────
 
-/// The `little_exif` [`FileExtension`] for a [`Lane`] (PNG never re-encodes EXIF
-/// as a `zTXt` chunk — it uses the dedicated `eXIf` chunk).
-fn file_extension(lane: Lane) -> FileExtension {
+/// Read the current TIFF/EXIF block for `lane` out of `bytes` via
+/// `img-parts`. Returns `None` for the benign "no EXIF at all" case, which
+/// callers treat as a no-op / fresh-create fallback rather than an error.
+fn read_exif_block(lane: Lane, bytes: &[u8]) -> Result<Option<Bytes>, MetadataError> {
     match lane {
-        Lane::Jpeg => FileExtension::JPEG,
-        Lane::Png => FileExtension::PNG {
-            as_zTXt_chunk: false,
-        },
+        Lane::Jpeg => {
+            let jpeg = Jpeg::from_bytes(Bytes::from(bytes.to_vec()))
+                .map_err(|e| MetadataError::Container(e.to_string()))?;
+            Ok(jpeg.exif())
+        }
+        Lane::Png => {
+            let png = Png::from_bytes(Bytes::from(bytes.to_vec()))
+                .map_err(|e| MetadataError::Container(e.to_string()))?;
+            Ok(png.exif())
+        }
     }
+}
+
+/// Re-embed `tiff_bytes` as the EXIF block for `lane`, rewriting `bytes`'s
+/// container (JPEG APP1 / PNG `eXIf`) while leaving the pixels untouched.
+fn write_exif_block(
+    lane: Lane,
+    bytes: &[u8],
+    tiff_bytes: Vec<u8>,
+) -> Result<Vec<u8>, MetadataError> {
+    let mut out = Vec::new();
+    match lane {
+        Lane::Jpeg => {
+            let mut jpeg = Jpeg::from_bytes(Bytes::from(bytes.to_vec()))
+                .map_err(|e| MetadataError::Container(e.to_string()))?;
+            jpeg.set_exif(Some(Bytes::from(tiff_bytes)));
+            jpeg.encoder()
+                .write_to(&mut out)
+                .map_err(|e| MetadataError::Container(e.to_string()))?;
+        }
+        Lane::Png => {
+            let mut png = Png::from_bytes(Bytes::from(bytes.to_vec()))
+                .map_err(|e| MetadataError::Container(e.to_string()))?;
+            png.set_exif(Some(Bytes::from(tiff_bytes)));
+            png.encoder()
+                .write_to(&mut out)
+                .map_err(|e| MetadataError::Container(e.to_string()))?;
+        }
+    }
+    Ok(out)
 }
 
 /// Remove **only** GPS/location metadata, preserving every other tag and the
 /// pixels exactly.
 ///
-/// Parses the EXIF with `little_exif`, drops every tag in the GPS IFD, and
-/// writes the result back into a clone of the input bytes. A file with **no
-/// EXIF** is a no-op success: `little_exif` returns an error whose message
-/// contains "No EXIF", which is caught here and the input is returned unchanged
-/// (DEC-029 edge case).
+/// Parses the TIFF/EXIF block with the in-house [`tiff`] reader, drops the
+/// IFD0 GPS pointer entry (orphaning its sub-IFD), and re-embeds the result.
+/// A file with **no EXIF** is a byte-faithful no-op (DEC-029 edge case,
+/// preserved by DEC-046).
 pub fn clean_gps(bytes: &[u8]) -> Result<Vec<u8>, MetadataError> {
     let lane = sniff(bytes)?;
-    let ext = file_extension(lane);
 
-    let owned = bytes.to_vec();
-    let mut md = match Metadata::new_from_vec(&owned, ext) {
-        Ok(md) => md,
-        Err(e) => {
-            // "No EXIF data found!" → nothing to clean, byte-faithful no-op.
-            if e.to_string().contains("No EXIF") {
-                return Ok(owned);
-            }
-            return Err(MetadataError::Exif(e.to_string()));
-        }
+    let Some(exif) = read_exif_block(lane, bytes)? else {
+        return Ok(bytes.to_vec());
     };
 
-    // Collect the GPS IFD's tag ids, then remove each. `get_ifd_mut` creates an
-    // (empty) GPS IFD if none exists — harmless: there is then nothing to drop.
-    let gps_tag_ids: Vec<u16> = md
-        .get_ifd_mut(ExifTagGroup::GPS, 0)
-        .get_tags()
-        .iter()
-        .map(|t| t.as_u16())
-        .collect();
+    let mut parsed = tiff::parse(&exif).map_err(|e| MetadataError::Exif(e.to_string()))?;
+    tiff::remove_gps(&mut parsed.ifd0);
+    let out_tiff = tiff::serialize(&parsed);
 
-    if !gps_tag_ids.is_empty() {
-        let gps = md.get_ifd_mut(ExifTagGroup::GPS, 0);
-        for id in gps_tag_ids {
-            gps.remove_tag(id);
-        }
-    }
-
-    let mut out = owned.clone();
-    md.write_to_vec(&mut out, ext)
-        .map_err(|e| MetadataError::Exif(e.to_string()))?;
-    Ok(out)
+    write_exif_block(lane, bytes, out_tiff)
 }
 
 // ── set_tags ──────────────────────────────────────────────────────────────────
@@ -192,35 +204,32 @@ pub struct TagSet {
 /// existing value of the same tag and **preserving** every other tag, segment,
 /// and the pixels exactly (no re-encode — `metadata-not-via-pixel-encode`).
 ///
-/// Loads the existing metadata first so other tags survive; a file with **no
-/// EXIF** falls back to a fresh EXIF block carrying just the given tags
-/// (`little_exif` returns an error on parse, caught here). Only JPEG + PNG are
+/// Loads the existing TIFF/EXIF block first so other tags survive; a file
+/// with **no EXIF** falls back to a fresh minimal TIFF carrying just the
+/// given tags (DEC-029 edge case, preserved by DEC-046). Only JPEG + PNG are
 /// supported in v1; any other format is a [`MetadataError::UnsupportedFormat`].
 pub fn set_tags(bytes: &[u8], tags: &TagSet) -> Result<Vec<u8>, MetadataError> {
-    use little_exif::exif_tag::ExifTag;
-
     let lane = sniff(bytes)?;
-    let ext = file_extension(lane);
 
-    let owned = bytes.to_vec();
-    // Load-then-set preserves existing tags; the Err branch is the "No EXIF"
-    // fresh-create fallback (probe-verified, DEC-029).
-    let mut md = Metadata::new_from_vec(&owned, ext).unwrap_or_else(|_| Metadata::new());
+    // Load-then-set preserves existing tags; no existing EXIF falls back to
+    // a fresh minimal TIFF (probe-verified, DEC-029/DEC-046).
+    let mut parsed = match read_exif_block(lane, bytes)? {
+        Some(exif) => tiff::parse(&exif).map_err(|e| MetadataError::Exif(e.to_string()))?,
+        None => tiff::minimal(),
+    };
 
+    if let Some(ref description) = tags.description {
+        tiff::set_ascii_tag(&mut parsed.ifd0, tiff::TAG_IMAGE_DESCRIPTION, description);
+    }
     if let Some(ref artist) = tags.artist {
-        md.set_tag(ExifTag::Artist(artist.clone()));
+        tiff::set_ascii_tag(&mut parsed.ifd0, tiff::TAG_ARTIST, artist);
     }
     if let Some(ref copyright) = tags.copyright {
-        md.set_tag(ExifTag::Copyright(copyright.clone()));
-    }
-    if let Some(ref description) = tags.description {
-        md.set_tag(ExifTag::ImageDescription(description.clone()));
+        tiff::set_ascii_tag(&mut parsed.ifd0, tiff::TAG_COPYRIGHT, copyright);
     }
 
-    let mut out = owned.clone();
-    md.write_to_vec(&mut out, ext)
-        .map_err(|e| MetadataError::Exif(e.to_string()))?;
-    Ok(out)
+    let out_tiff = tiff::serialize(&parsed);
+    write_exif_block(lane, bytes, out_tiff)
 }
 
 // ── copy_metadata ─────────────────────────────────────────────────────────────
@@ -264,9 +273,9 @@ pub fn copy_metadata(from: &[u8], to: &[u8]) -> Result<Vec<u8>, MetadataError> {
 
 #[cfg(test)]
 mod tests {
+    use super::tiff::{self, Entry, Ifd};
     use super::*;
     use ::image::{ImageFormat, RgbImage};
-    use little_exif::exif_tag::ExifTag;
     use std::io::Cursor;
 
     /// A small deterministic 16×16 RGB image encoded to `format` bytes (no
@@ -284,18 +293,126 @@ mod tests {
         buf.into_inner()
     }
 
-    /// A JPEG seeded with Orientation + Copyright + GPS{Latitude,Longitude}Ref
-    /// via `little_exif` (no ImageMagick). Used to verify selective GPS removal.
+    // ── Hand-assembled TIFF seeding (no little_exif — the crate is gone,
+    //    DEC-046). Tests build a `tiff::Ifd` tree directly and embed it via
+    //    `img-parts` `set_exif`, mirroring exactly what `set_tags`/`clean_gps`
+    //    do internally, but as an independent seeding path. ──────────────────
+
+    // IFD0 / generic tags used across fixtures.
+    const TAG_ORIENTATION: u16 = 0x0112;
+    const TAG_COPYRIGHT: u16 = tiff::TAG_COPYRIGHT;
+    // ExifIFD sub-tag used to lock sub-IFD preservation.
+    const TAG_EXPOSURE_TIME: u16 = 0x829A;
+    // GPS sub-tags.
+    const TAG_GPS_LAT_REF: u16 = 0x0001;
+    const TAG_GPS_LON_REF: u16 = 0x0003;
+    // IFD1 thumbnail location tags.
+    const TAG_THUMB_OFFSET: u16 = 0x0201;
+    const TAG_THUMB_LENGTH: u16 = 0x0202;
+
+    /// A SHORT (type 3, count 1) entry inlined in the 4-byte value slot.
+    fn short_entry(tag: u16, v: u16) -> Entry {
+        let mut value = vec![0u8; 2];
+        value[0..2].copy_from_slice(&v.to_le_bytes());
+        Entry {
+            tag,
+            ty: 3,
+            count: 1,
+            value,
+            sub: None,
+        }
+    }
+
+    /// A RATIONAL (type 5, count 1) entry — always out-of-line (8 bytes).
+    fn rational_entry(tag: u16, num: u32, den: u32) -> Entry {
+        let mut value = Vec::with_capacity(8);
+        value.extend_from_slice(&num.to_le_bytes());
+        value.extend_from_slice(&den.to_le_bytes());
+        Entry {
+            tag,
+            ty: 5,
+            count: 1,
+            value,
+            sub: None,
+        }
+    }
+
+    /// An ASCII (type 2) entry: UTF-8 bytes + trailing NUL, per TIFF 6.0.
+    fn ascii_entry(tag: u16, text: &str) -> Entry {
+        let mut value = text.as_bytes().to_vec();
+        value.push(0);
+        let count = value.len() as u32;
+        Entry {
+            tag,
+            ty: 2,
+            count,
+            value,
+            sub: None,
+        }
+    }
+
+    /// A pointer entry (ExifIFD/GPS/Interop) carrying a parsed sub-`Ifd`. The
+    /// raw `value` is a placeholder — the serializer recomputes the offset
+    /// from `sub`.
+    fn pointer_entry(tag: u16, sub: Ifd) -> Entry {
+        Entry {
+            tag,
+            ty: 4,
+            count: 1,
+            value: vec![0u8; 4],
+            sub: Some(Box::new(sub)),
+        }
+    }
+
+    /// Build + serialize a TIFF block whose IFD0 is `ifd0`, and embed it as
+    /// `format`'s EXIF via `img-parts` (JPEG APP1 / PNG `eXIf`) on top of a
+    /// fresh [`base_image`]. This is the crate-internal equivalent of what
+    /// `little_exif` used to do for the test fixtures.
+    fn image_with_tiff(format: ImageFormat, ifd0: Ifd) -> Vec<u8> {
+        let tiff = tiff::Tiff { ifd0 };
+        let tiff_bytes = tiff::serialize(&tiff);
+        let base = base_image(format);
+        match format {
+            ImageFormat::Jpeg => {
+                let mut jpeg = Jpeg::from_bytes(Bytes::from(base)).expect("parse jpeg");
+                jpeg.set_exif(Some(Bytes::from(tiff_bytes)));
+                let mut out = Vec::new();
+                jpeg.encoder().write_to(&mut out).expect("encode jpeg");
+                out
+            }
+            ImageFormat::Png => {
+                let mut png = Png::from_bytes(Bytes::from(base)).expect("parse png");
+                png.set_exif(Some(Bytes::from(tiff_bytes)));
+                let mut out = Vec::new();
+                png.encoder().write_to(&mut out).expect("encode png");
+                out
+            }
+            _ => panic!("image_with_tiff only supports Jpeg/Png"),
+        }
+    }
+
+    /// A JPEG seeded with Orientation + Copyright (IFD0) and
+    /// GPS{Latitude,Longitude}Ref (GPS sub-IFD). Used to verify selective GPS
+    /// removal.
     fn jpeg_with_exif() -> Vec<u8> {
-        let mut bytes = base_image(ImageFormat::Jpeg);
-        let mut md = Metadata::new();
-        md.set_tag(ExifTag::Orientation(vec![1]));
-        md.set_tag(ExifTag::Copyright("crustyimg test".to_string()));
-        md.set_tag(ExifTag::GPSLatitudeRef("N".to_string()));
-        md.set_tag(ExifTag::GPSLongitudeRef("E".to_string()));
-        md.write_to_vec(&mut bytes, FileExtension::JPEG)
-            .expect("seed JPEG EXIF");
-        bytes
+        let gps = Ifd {
+            entries: vec![
+                ascii_entry(TAG_GPS_LAT_REF, "N"),
+                ascii_entry(TAG_GPS_LON_REF, "E"),
+            ],
+            next: None,
+            thumbnail: None,
+        };
+        let ifd0 = Ifd {
+            entries: vec![
+                short_entry(TAG_ORIENTATION, 1),
+                ascii_entry(TAG_COPYRIGHT, "crustyimg test"),
+                pointer_entry(tiff::GPS_PTR, gps),
+            ],
+            next: None,
+            thumbnail: None,
+        };
+        image_with_tiff(ImageFormat::Jpeg, ifd0)
     }
 
     /// Whether a JPEG byte stream contains any segment with the given marker.
@@ -320,6 +437,45 @@ mod tests {
         assert_eq!(da.into_raw(), db.into_raw(), "pixel buffers differ");
     }
 
+    // ── kamadak-exif read-back helpers (semantic assertions, not byte-compare;
+    //    per SPEC-045: our TIFF bytes won't match little_exif's, but must be
+    //    semantically equivalent). ─────────────────────────────────────────
+
+    /// Extract the bare TIFF/EXIF block from a JPEG or PNG via `img-parts`,
+    /// or `None` if the container carries no EXIF at all.
+    fn container_exif(bytes: &[u8]) -> Option<Bytes> {
+        match ::image::guess_format(bytes) {
+            Ok(ImageFormat::Jpeg) => Jpeg::from_bytes(Bytes::from(bytes.to_vec())).ok()?.exif(),
+            Ok(ImageFormat::Png) => Png::from_bytes(Bytes::from(bytes.to_vec())).ok()?.exif(),
+            _ => None,
+        }
+    }
+
+    /// Parse a container's EXIF with `kamadak-exif`, or `None` if there is
+    /// none.
+    fn read_exif(bytes: &[u8]) -> Option<exif::Exif> {
+        let tiff = container_exif(bytes)?;
+        exif::Reader::new().read_raw(tiff.to_vec()).ok()
+    }
+
+    /// Read an IFD0 (primary) ASCII field's string value (NUL-trimmed).
+    fn primary_string(exif: &exif::Exif, tag: exif::Tag) -> Option<String> {
+        let field = exif.get_field(tag, exif::In::PRIMARY)?;
+        match &field.value {
+            exif::Value::Ascii(v) => v
+                .first()
+                .map(|b| String::from_utf8_lossy(b).trim_end_matches('\0').to_owned()),
+            _ => None,
+        }
+    }
+
+    // exif crate tag constants used across tests.
+    const TAG_EXIF_ARTIST: exif::Tag = exif::Tag::Artist;
+    const TAG_EXIF_COPYRIGHT: exif::Tag = exif::Tag::Copyright;
+    const TAG_EXIF_DESCRIPTION: exif::Tag = exif::Tag::ImageDescription;
+    const TAG_EXIF_ORIENTATION: exif::Tag = exif::Tag::Orientation;
+    const TAG_EXIF_EXPOSURE_TIME: exif::Tag = exif::Tag::ExposureTime;
+
     #[test]
     fn strip_all_jpeg_removes_all_metadata() {
         let input = jpeg_with_exif();
@@ -340,18 +496,8 @@ mod tests {
         }
         assert!(!jpeg_has_marker(&out, 0xFE), "COM should be gone");
 
-        // And little_exif no longer finds any EXIF.
-        let reparse = Metadata::new_from_vec(&out, FileExtension::JPEG);
-        match reparse {
-            Err(e) => assert!(e.to_string().contains("No EXIF"), "got: {e}"),
-            Ok(mut md) => assert!(
-                md.get_ifd_mut(ExifTagGroup::GENERIC, 0)
-                    .get_tags()
-                    .is_empty()
-                    && md.get_ifd_mut(ExifTagGroup::GPS, 0).get_tags().is_empty(),
-                "no tags should remain"
-            ),
-        }
+        // No EXIF at all should be readable back.
+        assert!(read_exif(&out).is_none(), "no EXIF should remain");
     }
 
     #[test]
@@ -387,21 +533,24 @@ mod tests {
         let input = jpeg_with_exif();
         let out = clean_gps(&input).expect("clean");
 
-        let mut md = Metadata::new_from_vec(&out, FileExtension::JPEG).expect("reparse");
-        // GPS IFD has no tags left.
+        let exif = read_exif(&out).expect("reparse");
+        // GPS IFD has no tags left (the GPS pointer entry itself is dropped).
         assert!(
-            md.get_ifd_mut(ExifTagGroup::GPS, 0).get_tags().is_empty(),
+            exif.get_field(exif::Tag::GPSLatitudeRef, exif::In::PRIMARY)
+                .is_none(),
             "GPS tags should be gone"
         );
-        // Orientation (0x0112) + Copyright (0x8298) survive in the generic IFD.
-        let generic_ids: Vec<u16> = md
-            .get_ifd_mut(ExifTagGroup::GENERIC, 0)
-            .get_tags()
-            .iter()
-            .map(|t| t.as_u16())
-            .collect();
-        assert!(generic_ids.contains(&0x0112), "Orientation should survive");
-        assert!(generic_ids.contains(&0x8298), "Copyright should survive");
+        // Orientation + Copyright survive in IFD0.
+        assert!(
+            exif.get_field(TAG_EXIF_ORIENTATION, exif::In::PRIMARY)
+                .is_some(),
+            "Orientation should survive"
+        );
+        assert_eq!(
+            primary_string(&exif, TAG_EXIF_COPYRIGHT).as_deref(),
+            Some("crustyimg test"),
+            "Copyright should survive"
+        );
     }
 
     #[test]
@@ -416,6 +565,60 @@ mod tests {
         // A plain JPEG with no EXIF: clean_gps returns Ok with identical pixels.
         let input = base_image(ImageFormat::Jpeg);
         let out = clean_gps(&input).expect("clean no-exif must be Ok");
+        assert_pixels_equal(&input, &out);
+    }
+
+    /// `clean_gps_no_exif_is_noop` (SPEC-045 failing test): a no-EXIF input's
+    /// bytes are returned byte-identical, not merely pixel-equal.
+    #[test]
+    fn clean_gps_no_exif_is_noop() {
+        let input = base_image(ImageFormat::Jpeg);
+        let out = clean_gps(&input).expect("clean no-exif must be Ok");
+        assert_eq!(
+            input, out,
+            "no-EXIF clean_gps must be a byte-identical no-op"
+        );
+    }
+
+    /// `clean_gps_removes_only_gps` (SPEC-045 failing test, PNG variant): GPS
+    /// is removed and non-GPS tags (Orientation/Copyright) survive.
+    #[test]
+    fn clean_gps_removes_only_gps_png() {
+        let gps = Ifd {
+            entries: vec![
+                ascii_entry(TAG_GPS_LAT_REF, "N"),
+                ascii_entry(TAG_GPS_LON_REF, "E"),
+            ],
+            next: None,
+            thumbnail: None,
+        };
+        let ifd0 = Ifd {
+            entries: vec![
+                short_entry(TAG_ORIENTATION, 1),
+                ascii_entry(TAG_COPYRIGHT, "png owner"),
+                pointer_entry(tiff::GPS_PTR, gps),
+            ],
+            next: None,
+            thumbnail: None,
+        };
+        let input = image_with_tiff(ImageFormat::Png, ifd0);
+
+        let out = clean_gps(&input).expect("clean");
+        let exif = read_exif(&out).expect("reparse");
+        assert!(
+            exif.get_field(exif::Tag::GPSLatitudeRef, exif::In::PRIMARY)
+                .is_none(),
+            "GPS tags should be gone"
+        );
+        assert!(
+            exif.get_field(TAG_EXIF_ORIENTATION, exif::In::PRIMARY)
+                .is_some(),
+            "Orientation should survive"
+        );
+        assert_eq!(
+            primary_string(&exif, TAG_EXIF_COPYRIGHT).as_deref(),
+            Some("png owner")
+        );
         assert_pixels_equal(&input, &out);
     }
 
@@ -439,26 +642,6 @@ mod tests {
 
     // ── set_tags ──────────────────────────────────────────────────────────────
 
-    /// Read one generic-IFD STRING tag value by its tag id from container bytes.
-    fn read_generic_string(bytes: &[u8], ext: FileExtension, tag_id: u16) -> Option<String> {
-        let mut md = Metadata::new_from_vec(&bytes.to_vec(), ext).ok()?;
-        md.get_ifd_mut(ExifTagGroup::GENERIC, 0)
-            .get_tags()
-            .iter()
-            .find(|t| t.as_u16() == tag_id)
-            .map(|t| t.value_as_u8_vec(&little_exif::endian::Endian::Little))
-            .map(|raw| {
-                String::from_utf8_lossy(&raw)
-                    .trim_end_matches('\0')
-                    .to_owned()
-            })
-    }
-
-    // Tag ids (IFD0): Artist 0x013B, Copyright 0x8298, ImageDescription 0x010E.
-    const TAG_ARTIST: u16 = 0x013B;
-    const TAG_COPYRIGHT: u16 = 0x8298;
-    const TAG_DESCRIPTION: u16 = 0x010E;
-
     #[test]
     fn set_tags_writes_all_three() {
         let input = base_image(ImageFormat::Jpeg);
@@ -468,16 +651,17 @@ mod tests {
             description: Some("a test image".to_string()),
         };
         let out = set_tags(&input, &tags).expect("set");
+        let exif = read_exif(&out).expect("reparse");
         assert_eq!(
-            read_generic_string(&out, FileExtension::JPEG, TAG_ARTIST).as_deref(),
+            primary_string(&exif, TAG_EXIF_ARTIST).as_deref(),
             Some("Jane")
         );
         assert_eq!(
-            read_generic_string(&out, FileExtension::JPEG, TAG_COPYRIGHT).as_deref(),
+            primary_string(&exif, TAG_EXIF_COPYRIGHT).as_deref(),
             Some("2026 Jane")
         );
         assert_eq!(
-            read_generic_string(&out, FileExtension::JPEG, TAG_DESCRIPTION).as_deref(),
+            primary_string(&exif, TAG_EXIF_DESCRIPTION).as_deref(),
             Some("a test image")
         );
     }
@@ -492,18 +676,20 @@ mod tests {
         };
         let out = set_tags(&input, &tags).expect("set");
 
-        let mut md = Metadata::new_from_vec(&out, FileExtension::JPEG).expect("reparse");
-        let generic_ids: Vec<u16> = md
-            .get_ifd_mut(ExifTagGroup::GENERIC, 0)
-            .get_tags()
-            .iter()
-            .map(|t| t.as_u16())
-            .collect();
-        assert!(generic_ids.contains(&0x0112), "Orientation should survive");
-        assert!(generic_ids.contains(&TAG_ARTIST), "Artist should be added");
+        let exif = read_exif(&out).expect("reparse");
+        assert!(
+            exif.get_field(TAG_EXIF_ORIENTATION, exif::In::PRIMARY)
+                .is_some(),
+            "Orientation should survive"
+        );
+        assert_eq!(
+            primary_string(&exif, TAG_EXIF_ARTIST).as_deref(),
+            Some("Added")
+        );
         // GPS refs survive too.
         assert!(
-            !md.get_ifd_mut(ExifTagGroup::GPS, 0).get_tags().is_empty(),
+            exif.get_field(exif::Tag::GPSLatitudeRef, exif::In::PRIMARY)
+                .is_some(),
             "GPS tags should survive"
         );
     }
@@ -511,13 +697,18 @@ mod tests {
     #[test]
     fn set_tags_overwrites_existing_tag() {
         // Seed Copyright="OLD".
-        let mut input = base_image(ImageFormat::Jpeg);
-        let mut seed = Metadata::new();
-        seed.set_tag(ExifTag::Copyright("OLD".to_string()));
-        seed.write_to_vec(&mut input, FileExtension::JPEG)
-            .expect("seed");
+        let ifd0 = Ifd {
+            entries: vec![ascii_entry(TAG_COPYRIGHT, "OLD")],
+            next: None,
+            thumbnail: None,
+        };
+        let input = image_with_tiff(ImageFormat::Jpeg, ifd0);
         assert_eq!(
-            read_generic_string(&input, FileExtension::JPEG, TAG_COPYRIGHT).as_deref(),
+            primary_string(
+                &read_exif(&input).expect("reparse seed"),
+                TAG_EXIF_COPYRIGHT
+            )
+            .as_deref(),
             Some("OLD")
         );
 
@@ -526,8 +717,53 @@ mod tests {
             ..TagSet::default()
         };
         let out = set_tags(&input, &tags).expect("set");
+        let exif = read_exif(&out).expect("reparse");
         assert_eq!(
-            read_generic_string(&out, FileExtension::JPEG, TAG_COPYRIGHT).as_deref(),
+            primary_string(&exif, TAG_EXIF_COPYRIGHT).as_deref(),
+            Some("NEW")
+        );
+    }
+
+    /// `set_overwrites_existing_tag` (SPEC-045 failing test): setting the
+    /// same tag twice with different values leaves exactly ONE IFD0 entry
+    /// for that tag (no duplicate), asserted via the raw parsed `Ifd`.
+    #[test]
+    fn set_overwrites_existing_tag_no_duplicate() {
+        let input = base_image(ImageFormat::Jpeg);
+        let out1 = set_tags(
+            &input,
+            &TagSet {
+                copyright: Some("OLD".to_string()),
+                ..TagSet::default()
+            },
+        )
+        .expect("set 1");
+        let out2 = set_tags(
+            &out1,
+            &TagSet {
+                copyright: Some("NEW".to_string()),
+                ..TagSet::default()
+            },
+        )
+        .expect("set 2");
+
+        let tiff_bytes = container_exif(&out2).expect("exif present");
+        let parsed = tiff::parse(&tiff_bytes).expect("parse");
+        let copyright_entries: Vec<_> = parsed
+            .ifd0
+            .entries
+            .iter()
+            .filter(|e| e.tag == TAG_COPYRIGHT)
+            .collect();
+        assert_eq!(
+            copyright_entries.len(),
+            1,
+            "exactly one Copyright entry, no duplicate"
+        );
+
+        let exif = read_exif(&out2).expect("reparse");
+        assert_eq!(
+            primary_string(&exif, TAG_EXIF_COPYRIGHT).as_deref(),
             Some("NEW")
         );
     }
@@ -536,19 +772,47 @@ mod tests {
     fn set_tags_on_no_exif_creates_them() {
         let input = base_image(ImageFormat::Jpeg);
         // Precondition: no EXIF at all.
-        assert!(
-            Metadata::new_from_vec(&input, FileExtension::JPEG).is_err(),
-            "fixture should have no EXIF"
-        );
+        assert!(read_exif(&input).is_none(), "fixture should have no EXIF");
         let tags = TagSet {
             artist: Some("Fresh".to_string()),
             ..TagSet::default()
         };
         let out = set_tags(&input, &tags).expect("set");
+        let exif = read_exif(&out).expect("reparse");
         assert_eq!(
-            read_generic_string(&out, FileExtension::JPEG, TAG_ARTIST).as_deref(),
+            primary_string(&exif, TAG_EXIF_ARTIST).as_deref(),
             Some("Fresh")
         );
+    }
+
+    /// `set_on_no_exif_creates_minimal` (SPEC-045 failing test, JPEG + PNG):
+    /// setting on a no-EXIF file produces output whose EXIF reads back
+    /// exactly the set tag(s) — nothing more, nothing less than expected.
+    #[test]
+    fn set_on_no_exif_creates_minimal() {
+        for format in [ImageFormat::Jpeg, ImageFormat::Png] {
+            let input = base_image(format);
+            assert!(
+                read_exif(&input).is_none(),
+                "fixture ({format:?}) should have no EXIF"
+            );
+            let tags = TagSet {
+                artist: Some("Solo".to_string()),
+                ..TagSet::default()
+            };
+            let out = set_tags(&input, &tags).expect("set");
+            let exif = read_exif(&out).expect("reparse");
+            assert_eq!(
+                primary_string(&exif, TAG_EXIF_ARTIST).as_deref(),
+                Some("Solo"),
+                "{format:?}: artist should read back"
+            );
+            assert!(
+                primary_string(&exif, TAG_EXIF_COPYRIGHT).is_none(),
+                "{format:?}: copyright was never set"
+            );
+            assert_pixels_equal(&input, &out);
+        }
     }
 
     #[test]
@@ -570,11 +834,9 @@ mod tests {
             ..TagSet::default()
         };
         let out = set_tags(&input, &tags).expect("set");
-        let ext = FileExtension::PNG {
-            as_zTXt_chunk: false,
-        };
+        let exif = read_exif(&out).expect("reparse");
         assert_eq!(
-            read_generic_string(&out, ext, TAG_COPYRIGHT).as_deref(),
+            primary_string(&exif, TAG_EXIF_COPYRIGHT).as_deref(),
             Some("PNG owner")
         );
         assert_pixels_equal(&input, &out);
@@ -593,17 +855,248 @@ mod tests {
         ));
     }
 
+    /// `set_preserves_exififd_subtag` (SPEC-045 failing test): a JPEG whose
+    /// EXIF has an IFD0 tag AND an ExifIFD sub-tag (ExposureTime); after
+    /// `set_tags(.. artist ..)`, Artist is present AND ExposureTime survives
+    /// with the same value — the probe-proven sub-IFD-preservation core.
+    #[test]
+    fn set_preserves_exififd_subtag() {
+        let exif_ifd = Ifd {
+            entries: vec![rational_entry(TAG_EXPOSURE_TIME, 1, 250)],
+            next: None,
+            thumbnail: None,
+        };
+        let ifd0 = Ifd {
+            entries: vec![
+                ascii_entry(TAG_COPYRIGHT, "orig"),
+                pointer_entry(tiff::EXIF_PTR, exif_ifd),
+            ],
+            next: None,
+            thumbnail: None,
+        };
+        let input = image_with_tiff(ImageFormat::Jpeg, ifd0);
+
+        // Precondition: ExposureTime is readable before the edit.
+        let before = read_exif(&input).expect("reparse seed");
+        let exposure_before = before
+            .get_field(TAG_EXIF_EXPOSURE_TIME, exif::In::PRIMARY)
+            .expect("seed should carry ExposureTime")
+            .value
+            .clone();
+
+        let tags = TagSet {
+            artist: Some("Jane".to_string()),
+            ..TagSet::default()
+        };
+        let out = set_tags(&input, &tags).expect("set");
+
+        let exif = read_exif(&out).expect("reparse out");
+        assert_eq!(
+            primary_string(&exif, TAG_EXIF_ARTIST).as_deref(),
+            Some("Jane")
+        );
+        let exposure_after = exif
+            .get_field(TAG_EXIF_EXPOSURE_TIME, exif::In::PRIMARY)
+            .expect("ExposureTime should survive the edit")
+            .value
+            .clone();
+        assert_eq!(
+            format!("{exposure_before:?}"),
+            format!("{exposure_after:?}"),
+            "ExposureTime value should be unchanged"
+        );
+        // Non-GPS/other IFD0 tag also survives.
+        assert_eq!(
+            primary_string(&exif, TAG_EXIF_COPYRIGHT).as_deref(),
+            Some("orig")
+        );
+    }
+
+    /// `set_preserves_ifd1_thumbnail` (SPEC-045 failing test): a JPEG with an
+    /// IFD1 thumbnail; after `set_tags`, the output still contains a
+    /// readable thumbnail (IFD1 `JPEGInterchangeFormat` blob intact).
+    #[test]
+    fn set_preserves_ifd1_thumbnail() {
+        // A tiny valid JPEG to act as the thumbnail blob (decodability is
+        // not required by IFD1 semantics here — we just need bytes that
+        // round-trip and can be located via 0x0201/0x0202).
+        let thumb_bytes = base_image(ImageFormat::Jpeg);
+
+        let ifd1 = Ifd {
+            entries: vec![
+                Entry {
+                    tag: TAG_THUMB_OFFSET,
+                    ty: 4, // LONG — the serializer patches this offset
+                    count: 1,
+                    value: 0u32.to_le_bytes().to_vec(),
+                    sub: None,
+                },
+                Entry {
+                    tag: TAG_THUMB_LENGTH,
+                    ty: 4,
+                    count: 1,
+                    value: (thumb_bytes.len() as u32).to_le_bytes().to_vec(),
+                    sub: None,
+                },
+            ],
+            next: None,
+            thumbnail: Some(thumb_bytes.clone()),
+        };
+        let ifd0 = Ifd {
+            entries: vec![ascii_entry(TAG_COPYRIGHT, "orig")],
+            next: Some(Box::new(ifd1)),
+            thumbnail: None,
+        };
+        let input = image_with_tiff(ImageFormat::Jpeg, ifd0);
+
+        // Precondition: the thumbnail is present + readable before the edit.
+        let tiff_before = container_exif(&input).expect("exif present");
+        let parsed_before = tiff::parse(&tiff_before).expect("parse seed");
+        assert_eq!(
+            parsed_before
+                .ifd0
+                .next
+                .as_ref()
+                .and_then(|n| n.thumbnail.as_ref()),
+            Some(&thumb_bytes),
+            "seed should carry the thumbnail in IFD1"
+        );
+
+        let tags = TagSet {
+            artist: Some("Jane".to_string()),
+            ..TagSet::default()
+        };
+        let out = set_tags(&input, &tags).expect("set");
+
+        let tiff_after = container_exif(&out).expect("exif present after set");
+        let parsed_after = tiff::parse(&tiff_after).expect("parse out");
+        let ifd1_after = parsed_after.ifd0.next.expect("IFD1 should survive");
+        assert_eq!(
+            ifd1_after.thumbnail.as_deref(),
+            Some(thumb_bytes.as_slice()),
+            "thumbnail blob should be intact after set_tags"
+        );
+
+        let exif = read_exif(&out).expect("reparse out");
+        assert_eq!(
+            primary_string(&exif, TAG_EXIF_ARTIST).as_deref(),
+            Some("Jane")
+        );
+    }
+
+    /// `set_and_clean_preserve_pixels` (SPEC-045 failing test): both
+    /// `set_tags` and `clean_gps` preserve pixels exactly, for JPEG + PNG.
+    #[test]
+    fn set_and_clean_preserve_pixels() {
+        for format in [ImageFormat::Jpeg, ImageFormat::Png] {
+            let gps = Ifd {
+                entries: vec![ascii_entry(TAG_GPS_LAT_REF, "N")],
+                next: None,
+                thumbnail: None,
+            };
+            let ifd0 = Ifd {
+                entries: vec![
+                    ascii_entry(TAG_COPYRIGHT, "orig"),
+                    pointer_entry(tiff::GPS_PTR, gps),
+                ],
+                next: None,
+                thumbnail: None,
+            };
+            let input = image_with_tiff(format, ifd0);
+
+            let set_out = set_tags(
+                &input,
+                &TagSet {
+                    artist: Some("Jane".to_string()),
+                    ..TagSet::default()
+                },
+            )
+            .expect("set");
+            assert_pixels_equal(&input, &set_out);
+
+            let clean_out = clean_gps(&input).expect("clean");
+            assert_pixels_equal(&input, &clean_out);
+        }
+    }
+
+    /// `malformed_exif_errors_not_panics` (SPEC-045 failing test): a
+    /// truncated/garbage TIFF block (bad IFD offset, out-of-bounds value
+    /// offset, self-referential sub-IFD pointer) must yield a
+    /// `MetadataError`, never a panic.
+    #[test]
+    fn malformed_exif_errors_not_panics() {
+        // 1. Too short to even hold a header.
+        assert!(tiff::parse(&[0u8; 4]).is_err());
+
+        // 2. Valid header, IFD0 offset points past the end of the buffer.
+        let bad_offset = {
+            let mut buf = vec![b'I', b'I', 42, 0];
+            buf.extend_from_slice(&1_000_000u32.to_le_bytes());
+            buf
+        };
+        assert!(tiff::parse(&bad_offset).is_err());
+
+        // 3. One entry whose out-of-line value offset is out of bounds.
+        let bad_value_offset = {
+            let mut buf = vec![b'I', b'I', 42, 0, 8, 0, 0, 0];
+            buf.extend_from_slice(&1u16.to_le_bytes()); // 1 entry
+            buf.extend_from_slice(&TAG_COPYRIGHT.to_le_bytes()); // tag
+            buf.extend_from_slice(&2u16.to_le_bytes()); // type ASCII
+            buf.extend_from_slice(&100u32.to_le_bytes()); // count (vlen > 4)
+            buf.extend_from_slice(&9_999_999u32.to_le_bytes()); // OOB value offset
+            buf.extend_from_slice(&0u32.to_le_bytes()); // next IFD = none
+            buf
+        };
+        assert!(tiff::parse(&bad_value_offset).is_err());
+
+        // 4. Self-referential sub-IFD: the ExifIFD pointer offset is the
+        //    IFD0 offset itself (a 1-cycle).
+        let cyclic = {
+            let mut buf = vec![b'I', b'I', 42, 0, 8, 0, 0, 0];
+            buf.extend_from_slice(&1u16.to_le_bytes()); // 1 entry
+            buf.extend_from_slice(&tiff::EXIF_PTR.to_le_bytes());
+            buf.extend_from_slice(&4u16.to_le_bytes()); // type LONG
+            buf.extend_from_slice(&1u32.to_le_bytes()); // count 1
+            buf.extend_from_slice(&8u32.to_le_bytes()); // points at IFD0 itself
+            buf.extend_from_slice(&0u32.to_le_bytes()); // next IFD = none
+            buf
+        };
+        assert!(tiff::parse(&cyclic).is_err());
+
+        // And through the public API: set_tags/clean_gps on a container
+        // whose EXIF is one of these malformed blocks must error, not panic.
+        let mut jpeg =
+            Jpeg::from_bytes(Bytes::from(base_image(ImageFormat::Jpeg))).expect("parse jpeg");
+        jpeg.set_exif(Some(Bytes::from(bad_value_offset)));
+        let mut malformed = Vec::new();
+        jpeg.encoder()
+            .write_to(&mut malformed)
+            .expect("encode malformed jpeg");
+
+        assert!(matches!(
+            set_tags(
+                &malformed,
+                &TagSet {
+                    artist: Some("x".to_string()),
+                    ..TagSet::default()
+                }
+            ),
+            Err(MetadataError::Exif(_))
+        ));
+        assert!(matches!(clean_gps(&malformed), Err(MetadataError::Exif(_))));
+    }
+
     // ── copy_metadata ──────────────────────────────────────────────────────────
 
-    /// A JPEG seeded with a single Copyright tag via `little_exif` (no other
-    /// metadata). Used as the SRC donor / DST baseline in the copy tests.
+    /// A JPEG seeded with a single Copyright tag (no other metadata). Used
+    /// as the SRC donor / DST baseline in the copy tests.
     fn jpeg_with_copyright(value: &str) -> Vec<u8> {
-        let mut bytes = base_image(ImageFormat::Jpeg);
-        let mut md = Metadata::new();
-        md.set_tag(ExifTag::Copyright(value.to_string()));
-        md.write_to_vec(&mut bytes, FileExtension::JPEG)
-            .expect("seed JPEG Copyright");
-        bytes
+        let ifd0 = Ifd {
+            entries: vec![ascii_entry(TAG_COPYRIGHT, value)],
+            next: None,
+            thumbnail: None,
+        };
+        image_with_tiff(ImageFormat::Jpeg, ifd0)
     }
 
     /// Inject an ICC profile blob into a JPEG via `img-parts` `set_icc_profile`
@@ -618,7 +1111,8 @@ mod tests {
 
     /// Read the Copyright (0x8298) string from a JPEG's EXIF, if present.
     fn jpeg_copyright(bytes: &[u8]) -> Option<String> {
-        read_generic_string(bytes, FileExtension::JPEG, TAG_COPYRIGHT)
+        let exif = read_exif(bytes)?;
+        primary_string(&exif, TAG_EXIF_COPYRIGHT)
     }
 
     #[test]

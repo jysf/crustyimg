@@ -42,14 +42,16 @@ toml = "=0.8.23"
 viuer = { version = "=0.11.0", optional = true }
 clap = { version = "=4.6.1", features = ["derive"] }
 kamadak-exif = "=0.6.1"
-# Container-lane metadata WRITE crates (DEC-003, DEC-029). Pure-Rust, permissive
-# (both MIT OR Apache-2.0) — `just deny` stays green with no new exception. The read
+# Container-lane metadata WRITE crate (DEC-003, DEC-046). Pure-Rust, permissive
+# (MIT OR Apache-2.0) — `just deny` stays green with no new exception. The read
 # side stays kamadak-exif (read-only). `img-parts` does segment/chunk-level strip +
-# rewrite (JPEG APPn/COM, PNG ancillary chunks) without re-decoding pixels;
-# `little_exif` does tag-level EXIF edits (selective GPS removal). v1 (SPEC-026) =
-# `strip` + `clean --gps` for JPEG + PNG.
+# rewrite (JPEG APPn/COM, PNG ancillary chunks) without re-decoding pixels. Tag-level
+# EXIF edits (`set` / `clean --gps`) are done by an in-house TIFF-IFD reader+writer
+# (`src/metadata/tiff.rs`, SPEC-045/DEC-046) operating on the bare TIFF block
+# `img-parts` exposes — this replaced `little_exif` (dropping quick-xml,
+# RUSTSEC-2026-0194/-0195, and brotli from the tree). v1 (SPEC-026) = `strip` +
+# `clean --gps` for JPEG + PNG.
 img-parts = "=0.4.0"
-little_exif = "=0.6.23"
 # Text-watermark glyph rasterizer (SPEC-030 → SPEC-044, DEC-045). Pure-Rust,
 # MIT OR Apache-2.0, and `ttf-parser`-free (unlike the superseded `ab_glyph`):
 # `skrifa` (Google `fontations`) provides outlines + metrics, `zeno` rasterizes
