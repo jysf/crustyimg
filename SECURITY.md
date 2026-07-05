@@ -19,6 +19,12 @@ agent-run workflow this repo uses.
    are produced; never `unwrap()`/`expect()` on decode paths (constraint
    `no-unwrap-on-recoverable-paths`, DEC-007); failures surface as typed errors
    mapped to non-zero exit codes rather than crashes.
+   **Font parsing (`watermark --text`, as of 0.2.0):** `--font PATH` points the
+   text rasterizer at an arbitrary font file (read at the CLI boundary, then parsed
+   as untrusted bytes). Rasterization is delegated to `skrifa` + `zeno` (Google's
+   maintained `fontations` project — no hand-written font parser); a malformed font
+   returns a typed `TextError::Font` (exit 2), never a panic, and the pixel-composition
+   loop bounds-checks every write (SPEC-044 / DEC-045).
 2. **Untrusted recipes.** A recipe is a TOML file describing an operation
    chain. Treat a recipe from outside your team as untrusted: it can only
    express registered operations (no code execution). Mitigations: the loader
@@ -43,6 +49,18 @@ agent-run workflow this repo uses.
    device serials, and personal info. The default-preserve policy (DEC-003)
    **drops GPS** on pixel-lane encodes unless `--keep-gps`; `clean --gps` and
    `strip` exist precisely for privacy. Don't silently retain location data.
+   **In-house EXIF parsing (as of 0.2.0):** `set` and `clean --gps` now edit EXIF
+   via an **in-house binary TIFF-IFD reader+writer** (`src/metadata/tiff.rs`, SPEC-045 /
+   DEC-046) instead of `little_exif` — which removed `quick-xml` (RUSTSEC-2026-0194/-0195)
+   and `brotli` from the tree, but adds a new untrusted-binary surface: the EXIF block of
+   a user image (possibly malformed/truncated/crafted). Mitigations: every offset/length
+   read is **bounds-checked** (`checked_add`/`checked_mul` → typed `Overflow`/`OutOfBounds`);
+   sub-IFD recursion (ExifIFD/GPS/Interop pointers) and the IFD0→IFD1 chain are
+   **depth-capped** (`MAX_IFD_DEPTH = 8`) **and cycle-guarded** (a visited-offset set), so
+   cyclic/deeply-nested pointers exhaust quickly with a typed error; all parse errors surface
+   as `MetadataError::Exif` (exit 1), **never a panic**; the serializer stays in-bounds
+   (pre-reserved directory + patched offsets). An independent post-v0.1.0 audit confirmed no
+   panic / overflow / unbounded allocation on adversarial input.
 5. **Untrusted repo content + agents.** This workflow is driven by coding
    agents that read specs/decisions/briefs and run commands. Treat content
    originating outside your team (a pasted issue, an external brief) as
@@ -52,27 +70,36 @@ agent-run workflow this repo uses.
    `guidance/constraints.yaml` makes "no committed credentials" a blocking
    rule (`no-secrets-in-code`). `crustyimg` itself needs no secrets.
 
-## Verification (STAGE-006 exit gate)
+## Verification (STAGE-006 exit gate + 0.2.x re-baseline)
 
 The hardening above was consolidated and verified as the MVP exit gate
-(STAGE-006). Each threat → its as-built mitigation → where it is enforced:
+(STAGE-006). It was **re-baselined after v0.1.0** (2026-07-05) by an independent
+security audit over the `v0.1.0..HEAD` diff — covering the new in-house EXIF/TIFF
+parser (SPEC-045) and the `skrifa`+`zeno` font path (SPEC-044) — which returned
+**PASS, no high-severity findings**. Each threat → its as-built mitigation → where
+it is enforced:
 
 | # | Threat | Mitigation (as built) | Enforced in |
 |---|--------|-----------------------|-------------|
 | 1 | Untrusted image inputs (decode bomb, decoder bug, panic) | `image::Limits` on the one decode path (dimensions ≤ 65 535, alloc ≤ 512 MiB) → typed `LimitsExceeded` (exit 1), never panic/OOM; all errors typed (DEC-007) | `src/image/` (SPEC-033 / DEC-034) |
+| 1b | Untrusted **font** input (`--font PATH`) | parsed by `skrifa`+`zeno` (maintained `fontations`, no hand-written font parser) → malformed font is a typed `TextError::Font` (exit 2), never panic; raster composition bounds-checks every write | `src/text/` (SPEC-044 · DEC-045) |
 | 2 | Untrusted recipes (bad version, unknown op, parse/build DoS, op-param bomb) | version + unknown-op + invalid-param rejection; recipe text ≤ 64 KiB + ≤ 1024 steps; **resize output ≤ 512 MiB** (upscale-bomb) | `src/recipe/`, `src/operation/` (SPEC-006/035/037 · DEC-005/036/038) |
 | 3 | Path traversal on output | `safe_join` rejects `..`/separator/absolute names; **symlinked destinations refused even with `--yes`** (image output AND `--save-recipe`); no overwrite without `--yes`; dir/glob sources skip symlink-escaping entries (always anchored) | `src/sink/`, `src/source/` (SPEC-005/034/037 · DEC-035) |
 | 4 | Metadata leakage / privacy | default drop-GPS on pixel-lane encodes (`--keep-gps` to opt out); `clean --gps` / `strip` (container lane, no re-encode) | `src/metadata/` (SPEC-026 · DEC-003) |
+| 4b | In-house **EXIF/TIFF-IFD** parsing (malformed/cyclic EXIF → panic/DoS) | bounds-checked reads (`checked_add`/`checked_mul` → typed `Overflow`/`OutOfBounds`); sub-IFD + IFD1 recursion **depth-capped (`MAX_IFD_DEPTH=8`) and cycle-guarded** (visited-offset set); typed `MetadataError::Exif` (exit 1), never panic; in-bounds serializer. Independent post-v0.1.0 audit: PASS | `src/metadata/tiff.rs` (SPEC-045 · DEC-046) |
 | 5 | Untrusted repo content + agents | process control (review what an agent runs; treat external briefs as untrusted) — not a code mitigation | workflow / this doc |
 | 6 | Secrets in git | `.gitignore` + the blocking `no-secrets-in-code` constraint; the tool needs no secrets | repo policy |
-| + | Supply chain (vulnerable / unmaintained / yanked / banned / non-crates.io deps) | CI `cargo deny check advisories bans sources licenses` (RUSTSEC + license + ban + source gate) | `.github/workflows/ci.yml`, `deny.toml` (SPEC-036 · DEC-037/018) |
+| + | Supply chain (vulnerable / unmaintained / yanked / banned / non-crates.io deps) | CI `cargo deny check advisories bans sources licenses` on every push **+ a weekly scheduled advisory audit** (`scheduled-audit.yml`) for RustSec DB drift; advisory **ignores cut 3 → 1** (0.2.0 removed ttf-parser/-0192 + quick-xml/-0194/-0195 at the source) | `.github/workflows/{ci,scheduled-audit}.yml`, `deny.toml` (SPEC-036/044/045 · DEC-037/018/046) |
 
-Residual / accepted: one unmaintained transitive (`paste`, RUSTSEC-2024-0436, no
-upstream fix — narrow dated `ignore` in `deny.toml`); a `--max-pixels`/env
-override to re-admit a deliberately huge decode/resize is a planned additive
-follow-up (DEC-034/038); `O_NOFOLLOW`-grade TOCTOU hardening is out of scope for
-the MVP. An adversarial review over the cumulative STAGE-006 diff surfaced no
-unresolved high-severity finding.
+Residual / accepted: one unmaintained transitive (`paste`, RUSTSEC-2024-0436) — now
+reached **only via `rav1e` → `ravif` → `image`'s optional `avif` feature** (a build-time
+proc-macro, not in the shipped default binary), no upstream fix; narrow dated `ignore` in
+`deny.toml`, revisit trigger "rav1e drops paste". A `--max-pixels`/env override to re-admit
+a deliberately huge decode/resize is a planned additive follow-up (DEC-034/038); a
+`MAX_THUMBNAIL_BYTES` cap on the EXIF IFD1 thumbnail blob is a noted defensive follow-up
+(not a current vuln — the blob is carried, not decoded); `O_NOFOLLOW`-grade TOCTOU hardening
+is out of scope for the MVP. The STAGE-006 adversarial review **and the 0.2.x post-release
+audit** surfaced no unresolved high-severity finding.
 
 ## Good habits
 
