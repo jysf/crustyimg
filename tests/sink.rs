@@ -284,21 +284,141 @@ fn dir_sink_rejects_traversal_template() {
 }
 
 #[test]
-fn missing_out_dir_is_typed_not_panic() {
+fn missing_out_dir_is_auto_created() {
+    // DEC-044: Sink::Dir now auto-creates the output directory if missing.
+    // This replaces the old `missing_out_dir_is_typed_not_panic` which
+    // expected an error — that behavior was the bug being fixed.
     let tmp = tempfile::tempdir().unwrap();
     let missing = tmp.path().join("does_not_exist");
     let img = make_image();
     let si = sink_input("photo");
 
     let result = Sink::Dir {
-        dir: missing,
+        dir: missing.clone(),
         template: "{stem}.{ext}".into(),
         format: Some(ImageFormat::Png),
     }
     .write(&img, &si, Overwrite::Forbid, None, &mut std::io::sink());
 
-    // Must be an Err (any SinkError variant); must NOT panic.
-    assert!(result.is_err(), "expected Err for missing dir, got Ok");
+    // Must succeed — the dir is created and the file is written.
+    assert!(
+        result.is_ok(),
+        "expected Ok for auto-created dir, got: {result:?}"
+    );
+    assert!(
+        missing.is_dir(),
+        "output directory should exist after write"
+    );
+    assert!(
+        missing.join("photo.png").exists(),
+        "output file should exist"
+    );
+}
+
+// ── PATCH-001: out-dir auto-create tests (DEC-044) ──────────────────────────
+
+#[test]
+fn out_dir_is_created_when_missing() {
+    // Sink::Dir auto-creates a non-existent output directory before writing.
+    let tmp = tempfile::tempdir().unwrap();
+    let out_dir = tmp.path().join("new_out");
+    assert!(!out_dir.exists(), "dir should not exist yet");
+    let img = make_image();
+
+    Sink::Dir {
+        dir: out_dir.clone(),
+        template: "{stem}.{ext}".into(),
+        format: Some(ImageFormat::Png),
+    }
+    .write(
+        &img,
+        &sink_input("photo"),
+        Overwrite::Forbid,
+        None,
+        &mut std::io::sink(),
+    )
+    .unwrap();
+
+    assert!(
+        out_dir.is_dir(),
+        "output directory should have been created"
+    );
+    assert!(
+        out_dir.join("photo.png").exists(),
+        "output file should exist"
+    );
+}
+
+#[test]
+fn out_dir_creates_nested_parents() {
+    // Sink::Dir uses create_dir_all, so nested parents are created too.
+    let tmp = tempfile::tempdir().unwrap();
+    let nested = tmp.path().join("a").join("b").join("c");
+    assert!(!nested.exists(), "nested dir should not exist yet");
+    let img = make_image();
+
+    Sink::Dir {
+        dir: nested.clone(),
+        template: "{stem}.{ext}".into(),
+        format: Some(ImageFormat::Png),
+    }
+    .write(
+        &img,
+        &sink_input("img"),
+        Overwrite::Forbid,
+        None,
+        &mut std::io::sink(),
+    )
+    .unwrap();
+
+    assert!(
+        nested.is_dir(),
+        "nested output directory should have been created"
+    );
+    assert!(nested.join("img.png").exists(), "output file should exist");
+}
+
+#[test]
+fn out_dir_creation_failure_is_typed() {
+    // When a *file* exists at the out-dir path, create_dir_all fails with a
+    // system error. The sink must return SinkError::OutDirCreate (not the
+    // generic SinkError::Io), and it must map to exit 5.
+    let tmp = tempfile::tempdir().unwrap();
+    // Plant a regular file where the out-dir path is expected to be a directory.
+    let file_at_dir_path = tmp.path().join("not_a_dir");
+    std::fs::write(&file_at_dir_path, b"obstacle").unwrap();
+
+    let img = make_image();
+    let err = Sink::Dir {
+        dir: file_at_dir_path.clone(),
+        template: "{stem}.{ext}".into(),
+        format: Some(ImageFormat::Png),
+    }
+    .write(
+        &img,
+        &sink_input("photo"),
+        Overwrite::Forbid,
+        None,
+        &mut std::io::sink(),
+    )
+    .unwrap_err();
+
+    assert!(
+        matches!(err, SinkError::OutDirCreate { .. }),
+        "expected OutDirCreate when a file blocks dir creation, got: {err:?}"
+    );
+    // The error message must name the path.
+    let msg = err.to_string();
+    assert!(
+        msg.contains("could not create output directory"),
+        "error message should mention dir creation, got: {msg}"
+    );
+    // File at the path must be untouched.
+    assert_eq!(
+        std::fs::read(&file_at_dir_path).unwrap(),
+        b"obstacle",
+        "obstacle file must not be modified"
+    );
 }
 
 #[test]

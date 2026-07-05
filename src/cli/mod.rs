@@ -2989,6 +2989,8 @@ fn run_responsive(
         )));
     }
 
+    // NOTE: responsive builds Sink::File paths via safe_join (not Sink::Dir),
+    // so it cannot rely on the Sink::Dir auto-create (DEC-044). Kept explicit.
     std::fs::create_dir_all(out_dir).map_err(|e| CliError::Sink(SinkError::Io(e)))?;
 
     let stem = Path::new(input)

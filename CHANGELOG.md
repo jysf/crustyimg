@@ -17,6 +17,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `--out-dir` now creates the target directory (and parents) if missing,
+  consistently across all batch commands; genuine creation failures return a
+  clear error. Output-name path/symlink guards unchanged (DEC-035).
+
 ### Security
 
 ---
