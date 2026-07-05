@@ -109,16 +109,16 @@ the `RUSTSEC-2026-0192` ignore from `deny.toml`, with **no user-observable chang
 
 ## Acceptance Criteria
 
-- [ ] `cargo tree` shows **no `ttf-parser`** (and no `ab_glyph`/`owned_ttf_parser`).
-- [ ] `deny.toml` has no `RUSTSEC-2026-0192` entry; `just deny`
+- [x] `cargo tree` shows **no `ttf-parser`** (and no `ab_glyph`/`owned_ttf_parser`).
+- [x] `deny.toml` has no `RUSTSEC-2026-0192` entry; `just deny`
       (`cargo deny check advisories bans sources licenses`) **passes**.
-- [ ] `render_text`, `parse_color`, `DEFAULT_FONT`, and `TextError` keep their exact
+- [x] `render_text`, `parse_color`, `DEFAULT_FONT`, and `TextError` keep their exact
       signatures; `run_watermark` in `src/cli/mod.rs` compiles unchanged.
-- [ ] All **existing** `src/text` tests still pass (they are the behavioral regression
+- [x] All **existing** `src/text` tests still pass (they are the behavioral regression
       contract), and the **new** tests below pass.
-- [ ] `watermark --text "© me"` renders legible text at the gravity anchor with
+- [x] `watermark --text "© me"` renders legible text at the gravity anchor with
       `--size`/`--color`/`--opacity`/`--font` behaving as before (manual/verify check).
-- [ ] Both the full build and the **lean** build (`cargo build --no-default-features`)
+- [x] Both the full build and the **lean** build (`cargo build --no-default-features`)
       compile; `cargo fmt --check` and `cargo clippy` are clean.
 
 ## Failing Tests
@@ -273,28 +273,45 @@ zeno) and the coverage encoding (0..1 float closure → 0..=255 byte buffer) cha
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
-- **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
+- **Branch:** `feat/spec-044-skrifa-zeno`
+- **PR (if applicable):** opened against `main` via `gh pr create` (see PR URL reported
+  to the orchestrator).
+- **All acceptance criteria met?** yes
+- **New decisions emitted:** none (DEC-045 was authored at design time; build followed it
+  as written, no deviation requiring a new/amended DEC).
 - **Deviations from spec:**
-  - [list]
+  - None from the probe-verified API. One naming difference from the spec's illustrative
+    snippet: `skrifa::instance::{LocationRef, Size}` were imported directly (not via a
+    `skrifa::prelude` re-export) alongside `skrifa::{FontRef, GlyphId, MetadataProvider}` —
+    same effective calls, just spelled out per `cargo doc`'s actual module layout.
+  - The per-glyph compositing loop iterates the `Vec<u8>` coverage buffer in row-major
+    order explicitly (`coverage[(gy*width+gx)]`) rather than a closure callback (zeno's
+    `Mask::render()` returns a flat buffer, not a `draw(|x,y,cov| ..)` callback like
+    `ab_glyph`'s `OutlineGlyph::draw`) — a mechanical consequence of the new API's shape,
+    not a behavioral deviation.
 - **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - None beyond the stage's existing backlog (EXIF writer, `--help` cleanup — already
+    called out as out-of-scope in the spec).
 
 ### Build-phase reflection (3 questions, short answers)
 
 Process-focused: how did the build go? What friction did the spec create?
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — Nothing significant. The spec's Implementation Context gave probe-verified calls
+   that compiled essentially as written; the only extra step was confirming exact import
+   paths (`skrifa::instance::{LocationRef, Size}` vs. a flatter re-export) by reading the
+   crate source directly, since the spec's snippet used shorthand `use` paths.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — No. DEC-045's kerning-drop rationale and the two-pass layout/composite contract were
+   sufficient; no ambiguity required an undocumented judgment call.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Nothing procedurally different — the probe-first design made this a low-friction,
+   mostly-mechanical swap. If anything, I'd note for future specs of this shape that
+   pre-reading the exact crate source (not just docs.rs prose) for the pen/mask trait
+   signatures paid off immediately and avoided any compile-fix iteration.
 
 ---
 
