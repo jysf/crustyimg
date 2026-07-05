@@ -7,7 +7,7 @@
 task:
   id: SPEC-044
   type: story                      # epic | story | task | bug | chore
-  cycle: design                    # frame | design | build | verify | ship
+  cycle: ship                      # frame | design | build | verify | ship
   blocked: false
   priority: medium
   complexity: M                    # S | M | L  (L means split it)
@@ -42,11 +42,64 @@ value_link: "Removes the unmaintained `ttf-parser` from the tree so STAGE-010 ca
 # See AGENTS.md §4 and docs/cost-tracking.md. interface: claude-code |
 # claude-ai | api | ollama | other.
 cost:
-  sessions: []
+  sessions:
+    - cycle: design
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-07-04
+      notes: >
+        Main-loop orchestrator work, not separately metered. Two design-time probes:
+        (1) disproved the backlog's `fontdue` plan — fontdue 0.9.3 still pulls
+        `ttf-parser 0.21.1` and RUSTSEC-2026-0192 is crate-wide (`patched=[]`), so it
+        would not clear the ignore; (2) verified `skrifa 0.44` + `zeno 0.3.3` on the
+        real Go-Regular (ascent/advance/glyph-bounds match; `(coverage, Placement)`
+        analog of ab_glyph `px_bounds()`+`draw()`). Authored DEC-045, the spec (failing
+        tests + probe-verified implementation context), STAGE-010, and the build prompt.
+    - cycle: build
+      agent: claude-sonnet-5
+      interface: claude-code
+      tokens_total: 113188
+      estimated_usd: 0.62
+      duration_minutes: 27
+      recorded_at: 2026-07-04
+      notes: >
+        Real metered subagent on Sonnet. subagent_tokens=113188, duration_ms=1622668.
+        estimated_usd at Sonnet list (~$3/$15 per MTok, ~80/20). Rewrote `src/text/mod.rs`
+        on skrifa+zeno (y-negating `ZenoPen`, coverage-buffer composite, no kerning);
+        swapped Cargo.toml deps; deleted the `-0192` deny.toml entry; 6 existing + 4 new
+        text tests green; all gates green (`cargo tree` ttf-parser/ab_glyph = 0). PR #49.
+    - cycle: verify
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 59862
+      estimated_usd: 0.53
+      duration_minutes: 4
+      recorded_at: 2026-07-04
+      notes: >
+        Real metered independent Explore subagent on Opus. subagent_tokens=59862,
+        duration_ms=213175. Adversarial review of the rasterization port (y-negation,
+        alpha normalization cov/255*base, buffer indexing, whitespace/bounds union,
+        source-over) + API preservation + hardening + no scope creep; re-ran all gates.
+        VERDICT PASS, no defects. Orchestrator additionally ran a visual old-vs-new
+        pixel A/B (mean channel diff 3.07; legible, same placement) before merge.
+    - cycle: ship
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-07-04
+      notes: >
+        Main-loop orchestrator: squash-merged PR #49 (6d79f1b), ran the ship
+        bookkeeping (cost, timeline, STAGE-010 backlog, archive), confirmed CI green on
+        main. First `deny.toml` ignore eliminated toward the clean 0.2.0.
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 173050
+    estimated_usd: 1.15
+    session_count: 4
 ---
 
 # SPEC-044: swap ab_glyph for skrifa+zeno to drop ttf-parser
@@ -321,10 +374,20 @@ Process-focused: how did the build go? What friction did the spec create?
 from the process-focused build reflection above.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Nothing major. The high-leverage move was probing the *actual dep tree* before
+   trusting the backlog's "fontdue drops ttf-parser" plan — that premise was wrong and
+   would have shipped a rasterizer change for zero advisory benefit. Lesson generalized:
+   for any "swap X to drop dep Y" item, run `cargo tree` on the candidate first. Also
+   worth keeping: the visual old-vs-new pixel A/B closed the one gap that gates/tests
+   couldn't (behavior parity is a claim about pixels, not just bounds/advance math).
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — DEC-032's rasterizer choice is now superseded by DEC-045 (recorded in both). No
+   template/constraint change. The backlog was corrected in-place with the fontdue
+   dead-end lesson. `--help` still leaks `(STAGE-004)` etc. — already tracked as the
+   STAGE-012 jargon-cleanup item (observed again during the visual A/B render).
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — The next STAGE-010 spec is the **in-house TIFF-IFD EXIF writer** (drop `little_exif`
+   → kill RUSTSEC-2026-0194/-0195 + the `paste` -2024-0436 chain), already in the stage
+   backlog. No new spec surfaced from this one.

@@ -28,5 +28,14 @@ Cycle prompts live in `prompts/SPEC-044-<cycle>.md`.
   sources licenses` passes, `cargo tree` shows 0 `ttf-parser` / 0 `ab_glyph`. Manual
   `watermark --text "© me 2026"` check confirmed legible rendering at the gravity
   anchor.
-- [ ] verify — independent Explore subagent (Opus).
-- [ ] ship.
+- [x] verify (2026-07-04) — independent Explore subagent (Opus, 59862 tok, ~4 min).
+  Adversarial review of the rasterization port (y-negation across all path commands,
+  `alpha = round(cov/255 * base_alpha)`, row-major buffer indexing, whitespace/bounds
+  union, source-over keep-larger-alpha) + API preservation + hardening (no new panics on
+  the font-bytes path) + no scope creep; re-ran all gates. VERDICT **PASS**, no defects.
+  Orchestrator also ran a visual old-vs-new pixel A/B (mean channel diff 3.07; legible,
+  same placement — the few-px width delta is the documented kerning drop).
+- [x] ship (2026-07-04) — Opus, main loop. Squash-merged PR #49 → `main` (6d79f1b); all
+  19 PR checks + main CI green. Recorded real cycle tokens; archived the spec; STAGE-010
+  backlog updated (1/2 → SPEC-044 shipped). **First `deny.toml` ignore eliminated**
+  (RUSTSEC-2026-0192 gone; `ttf-parser`/`ab_glyph` out of the tree) toward the clean 0.2.0.

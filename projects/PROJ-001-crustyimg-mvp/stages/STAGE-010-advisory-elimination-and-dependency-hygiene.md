@@ -93,13 +93,13 @@ across two releases, so cutting a clean 0.2.0 at the end of this stage is low-ri
 
 Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
-- [ ] SPEC-044 (design) — swap `ab_glyph` → `skrifa`+`zeno`; drop `ttf-parser`; remove
-  the RUSTSEC-2026-0192 ignore (DEC-045).
+- [x] SPEC-044 (shipped 2026-07-04, PR #49) — swapped `ab_glyph` → `skrifa`+`zeno`;
+  dropped `ttf-parser`; removed the RUSTSEC-2026-0192 ignore (DEC-045).
 - [ ] (not yet written) — in-house TIFF-IFD EXIF writer replacing `little_exif`; remove
   the RUSTSEC-2026-0194/-0195 ignores (+ the `paste` -2024-0436 chain).
 - [ ] (not yet written — PATCH candidate) — `--help` jargon cleanup in `src/cli/mod.rs`.
 
-**Count:** 0 shipped / 1 active / 2 pending
+**Count:** 1 shipped / 0 active / 2 pending
 
 ## Design Notes
 
