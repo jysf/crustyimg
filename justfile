@@ -202,6 +202,11 @@ advance-cycle SPEC_ID NEW_CYCLE:
 archive-spec SPEC_ID:
     @./scripts/archive-spec.sh "{{SPEC_ID}}"
 
+# Prep a release: bump Cargo.toml + refresh Cargo.lock + guard tag==version + CHANGELOG.
+# Does NOT commit/tag/push (maintainer-authorized). Usage: just release 0.1.2
+release VERSION:
+    @./scripts/release.sh "{{VERSION}}"
+
 # Print the Weekly Review prompt with recent activity pre-loaded
 weekly-review:
     @./scripts/weekly-review.sh

@@ -46,11 +46,18 @@ A crates.io publish is **irreversible** — a given version can never be re-publ
 
 ## Release-cut checklist
 
+> **Shortcut:** `just release X.Y.Z` does the mechanical, error-prone parts of steps
+> 1, 3 & 4 — it bumps `Cargo.toml`, refreshes `Cargo.lock`, and **guards that the tag
+> you're about to cut matches the crate version** (the exact check that would have
+> caught the v0.1.1 mis-tag) and that the CHANGELOG has a section for it. It does NOT
+> commit, tag, or push. You still do step 2 (the CHANGELOG markdown roll) by hand.
+
 Work through this list in order. Steps marked **[MAINTAINER-AUTHORIZED]** are
 outward-facing actions that require explicit human authorization — do not automate
 or delegate them.
 
-1. **Update `Cargo.toml`** — bump `version` to the new `MAJOR.MINOR.PATCH`.
+1. **Update `Cargo.toml`** — bump `version` to the new `MAJOR.MINOR.PATCH`. (Or run
+   `just release X.Y.Z`, which also refreshes `Cargo.lock` and runs the guards below.)
 
 2. **Update `CHANGELOG.md`** — move the contents of `## [Unreleased]` into a new
    dated version section:

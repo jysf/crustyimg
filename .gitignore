@@ -5,6 +5,11 @@
 *.pem
 *.key
 
+# Local-only, uncommitted-by-design artifacts (keep the working tree clean so
+# `cargo publish` doesn't need --allow-dirty and releases stay friction-free)
+TESTING-WITH-YOUR-PHOTOS.md
+/reports/
+
 # Dependencies
 node_modules/
 venv/
