@@ -82,12 +82,6 @@ ignore = [
     # See DEC-042.
     { id = "RUSTSEC-2026-0194", reason = "quick-xml XML-reader vuln via little_exif; EXIF-only path, not reached; no upgrade (little_exif pins ^0.37). DEC-042" },
     { id = "RUSTSEC-2026-0195", reason = "quick-xml NsReader memory-DoS via little_exif; EXIF-only path, not reached; no upgrade (little_exif pins ^0.37). DEC-042" },
-    # RUSTSEC-2026-0192 — ttf-parser 0.25.1 unmaintained (author EOL; informational, not
-    # a vuln). Transitive via ab_glyph/owned_ttf_parser (watermark text, DEC-032). Font
-    # input is the bundled BSD Go font or an explicit --font PATH, not untrusted. No fix
-    # exists. Revisit when ab_glyph moves off ttf-parser or it becomes a real vuln.
-    # See DEC-042.
-    { id = "RUSTSEC-2026-0192", reason = "ttf-parser unmaintained (no fix) via ab_glyph; font input is bundled/--font, not untrusted. DEC-042" },
 ]
 
 [bans]

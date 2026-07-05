@@ -50,14 +50,15 @@ kamadak-exif = "=0.6.1"
 # `strip` + `clean --gps` for JPEG + PNG.
 img-parts = "=0.4.0"
 little_exif = "=0.6.23"
-# Text-watermark glyph rasterizer (SPEC-030, DEC-032). Apache-2.0, pure-Rust; pulls
-# only ab_glyph_rasterizer (Apache-2.0) + owned_ttf_parser/ttf-parser (MIT OR
-# Apache-2.0) — `just deny` stays green. NOT imageproc (it drags in sdl2/nalgebra).
-# KEEP default features (the `std` feature): ab_glyph/ttf-parser need std for float
-# math; do NOT set default-features = false. crustyimg's own --no-default-features
-# (lean build) does not affect ab_glyph's defaults. The default font is the bundled
-# BSD-3 Go font (assets/fonts/Go-Regular.ttf), overridable with `--font PATH`.
-ab_glyph = "=0.2.32"
+# Text-watermark glyph rasterizer (SPEC-030 → SPEC-044, DEC-045). Pure-Rust,
+# MIT OR Apache-2.0, and `ttf-parser`-free (unlike the superseded `ab_glyph`):
+# `skrifa` (Google `fontations`) provides outlines + metrics, `zeno` rasterizes
+# the anti-aliased coverage mask. This drops the unmaintained `ttf-parser`
+# transitive from the tree, letting `deny.toml` delete its RUSTSEC-2026-0192
+# ignore. NOT imageproc (it drags in sdl2/nalgebra). The default font is the
+# bundled BSD-3 Go font (assets/fonts/Go-Regular.ttf), overridable with `--font PATH`.
+skrifa = "=0.44.0"
+zeno = "=0.3.3"
 # Batch parallelism + progress for `apply --recipe` over a source list (STAGE-005,
 # SPEC-031). `rayon` (data parallelism across inputs) is pre-justified by DEC-006
 # (no async; rayon for batch). `indicatif` (progress bar) is DEC-033. Both pure-Rust,
