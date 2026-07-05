@@ -101,12 +101,12 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
 - [x] SPEC-044 (shipped 2026-07-04, PR #49) — swapped `ab_glyph` → `skrifa`+`zeno`;
   dropped `ttf-parser`; removed the RUSTSEC-2026-0192 ignore (DEC-045).
-- [ ] SPEC-045 (design) — in-house TIFF-IFD EXIF writer replacing `little_exif`; removes
-  the RUSTSEC-2026-0194/-0195 ignores + `quick-xml`/`brotli` (DEC-046). `paste`/-2024-0436
-  stays (rav1e/avif).
+- [x] SPEC-045 (shipped 2026-07-05, PR #50) — in-house TIFF-IFD EXIF writer replacing
+  `little_exif`; removed the RUSTSEC-2026-0194/-0195 ignores + `quick-xml`/`brotli` (DEC-046).
+  `paste`/-2024-0436 stays (rav1e/avif).
 - [ ] (not yet written — PATCH candidate) — `--help` jargon cleanup in `src/cli/mod.rs`.
 
-**Count:** 1 shipped / 1 active / 1 pending
+**Count:** 2 shipped / 0 active / 1 pending — `deny.toml` down to 1 residual ignore (paste).
 
 ## Design Notes
 

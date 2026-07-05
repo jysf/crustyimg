@@ -7,7 +7,7 @@
 task:
   id: SPEC-045
   type: story                      # epic | story | task | bug | chore
-  cycle: design                    # frame | design | build | verify | ship
+  cycle: ship                      # frame | design | build | verify | ship
   blocked: false
   priority: medium
   complexity: M                    # S | M | L  (L means split it)
@@ -42,11 +42,68 @@ value_link: "Drops `little_exif` → removes quick-xml (RUSTSEC-2026-0194/-0195)
 # See AGENTS.md §4 and docs/cost-tracking.md. interface: claude-code |
 # claude-ai | api | ollama | other.
 cost:
-  sessions: []
+  sessions:
+    - cycle: design
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-07-04
+      notes: >
+        Main-loop orchestrator, not separately metered. Three design-time checks: (1) no
+        upstream shortcut — little_exif 0.6.23 latest, still pins vulnerable quick-xml ^0.37
+        + paste; (2) corrected the backlog — paste (-2024-0436) also via rav1e/ravif/avif
+        and deny is all-features=true, so NOT removable here (maintainer accepted the 1
+        residual); (3) probe-validated the writer core — img-parts .exif() returns bare TIFF,
+        and a generic IFD parse→recurse-subIFD→re-serialize round-tripped a real JPEG
+        (IFD0 + ExifIFD) byte-identical per kamadak-exif. Authored DEC-046, the spec, the
+        build prompt (with the probe skeleton embedded).
+    - cycle: build
+      agent: claude-sonnet-5
+      interface: claude-code
+      tokens_total: 233602
+      estimated_usd: 1.27
+      duration_minutes: 113
+      recorded_at: 2026-07-05
+      notes: >
+        Real metered subagent on Sonnet. subagent_tokens=233602, duration_ms=6805535.
+        estimated_usd at Sonnet list (~$3/$15 per MTok, ~80/20). Wrote src/metadata/tiff.rs
+        (bounds-checked, panic-free parser + normalizing LE serializer; HashSet cycle guard +
+        MAX_IFD_DEPTH=8; relocates sub-IFDs/out-of-line values/IFD1 thumbnail). Re-implemented
+        set_tags/clean_gps on tiff + img-parts; dropped little_exif; deleted -0194/-0195,
+        corrected the -2024-0436 comment. Caught + rebased tests/metadata.rs (also imported
+        little_exif; not in the spec's file list). 8 new tests + suite green; cargo tree
+        little_exif/quick-xml/brotli=0. PR #50.
+    - cycle: verify
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 85526
+      estimated_usd: 0.76
+      duration_minutes: 6
+      recorded_at: 2026-07-05
+      notes: >
+        Real metered independent Explore subagent on Opus. subagent_tokens=85526,
+        duration_ms=377547. Adversarial hardening audit (integer overflow on type_size*count,
+        bounds on every read, depth/cycle guards), round-trip fidelity (sub-IFD + thumbnail +
+        GPS-only removal via kamadak-exif), pixel preservation, no scope creep; re-ran all
+        gates incl. --features avif. VERDICT PASS, no defects. Orchestrator independently
+        confirmed the checked_mul/checked_add arithmetic + tree/tests before merge.
+    - cycle: ship
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-07-05
+      notes: >
+        Main-loop orchestrator: squash-merged PR #50 (cad7be9), ran the ship bookkeeping
+        (cost, timeline, STAGE-010 backlog 2/3, archive), confirmed CI green on main. Two
+        more deny ignores eliminated (quick-xml -0194/-0195); deny.toml now 3→1.
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 319128
+    estimated_usd: 2.03
+    session_count: 4
 ---
 
 # SPEC-045: in-house TIFF-IFD EXIF writer to drop little_exif
@@ -298,10 +355,23 @@ Process-focused: how did the build go? What friction did the spec create?
 from the process-focused build reflection above.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — The two highest-leverage moves both came from *checking the real state before trusting
+   the plan*: (a) confirming little_exif has no fixed release (so in-house was truly
+   required), and (b) probing the **full feature graph** (`deny` is `all-features=true`),
+   which revealed paste survives via rav1e regardless — a premise the backlog got wrong,
+   same as the fontdue case. Generalized rule for advisory work: run `cargo tree -i <dep>`
+   AND check the `[graph]` feature config before claiming a "drops dep X" outcome. The build
+   agent's catch of `tests/metadata.rs` (a little_exif user not in my file list) also argues
+   for grepping the *whole repo* for a dep before writing the spec's file list.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — DEC-029's write-side choice is now amended by DEC-046 (recorded in both). No template
+   change. Worth a possible constraint someday: "an advisory ignore may only be *claimed*
+   removable after verifying the dep has no other path in the all-features graph" — the
+   recurring lesson of this stage. `--help` still leaks `(STAGE-004)` etc. — the STAGE-010
+   jargon-cleanup PATCH remains.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — No new spec. STAGE-010's remaining item is the `--help` jargon cleanup (a PATCH, not a
+   spec). After that, 0.2.0 is ready to cut (`just release 0.2.0`) with a single documented
+   `paste` residual ignore.

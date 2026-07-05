@@ -38,6 +38,16 @@ Cycle prompts live in `prompts/SPEC-045-<cycle>.md`.
   bans sources licenses` green (advisories/bans/licenses/sources all ok). `cargo tree`:
   `little_exif`/`quick-xml`/`brotli` all 0 occurrences; `cargo tree -i paste` shows only the
   `rav1e→ravif→image` path (absent entirely without `--features avif`), confirming DEC-046.
-- [ ] verify — independent Explore subagent (Opus); emphasis on hardening (no-panic on
-  malformed EXIF) + round-trip fidelity (sub-IFD + thumbnail) via kamadak-exif.
-- [ ] ship.
+- [x] verify (2026-07-05) — independent Explore subagent (Opus, 85526 tok, ~6 min).
+  Adversarial hardening audit: every offset/length via `checked_add`/`checked_mul` +
+  bounds-checked `get_slice`; `type_size*count` overflow guarded; depth-cap + HashSet cycle
+  guard; the 4 crafted malformed inputs (short header, OOB IFD0/value offsets, self-cycle)
+  all return `Err`, verified under `RUST_BACKTRACE=full`. Round-trip fidelity (ExifIFD
+  sub-tag + IFD1 thumbnail + GPS-only removal) confirmed via kamadak-exif; pixels bit-equal
+  (JPEG+PNG); no scope creep (API/CLI/strip/copy unchanged; deny only -0194/-0195 removed,
+  -2024-0436 kept). All gates re-run incl. `--features avif`. VERDICT **PASS**, no defects.
+  Orchestrator independently confirmed the checked arithmetic + tree/tests beforehand.
+- [x] ship (2026-07-05) — Opus, main loop. Squash-merged PR #50 → `main` (cad7be9); all 19
+  PR checks + main CI green. Recorded real cycle tokens; archived the spec; STAGE-010 backlog
+  2/3. **Two more `deny.toml` ignores eliminated** (quick-xml -0194/-0195; `little_exif` +
+  `quick-xml` + `brotli` out of the tree). `deny.toml` now 3 → 1 (paste residual only).
