@@ -3,19 +3,21 @@
 //! `std::process::Command` and assert exit codes + output bytes end-to-end.
 //!
 //! Fixtures are generated NATIVELY (no ImageMagick): pixels via the `image`
-//! crate, EXIF (Orientation + Copyright + GPS refs) seeded with `little_exif`.
-//! `.unwrap()` here is idiomatic test setup (the `no-unwrap` constraint is
-//! scoped to `src/**`).
+//! crate; EXIF (Orientation + Copyright + GPS refs) is a hand-assembled
+//! little-endian TIFF block (SPEC-045/DEC-046 — `little_exif` is gone),
+//! embedded via `img-parts` `set_exif`, mirroring `tests/common::
+//! jpeg_with_orientation`'s existing hand-rolled-TIFF style. Read-back
+//! assertions use `kamadak-exif` (the `exif` crate), the project's
+//! read-side dependency. `.unwrap()` here is idiomatic test setup (the
+//! `no-unwrap` constraint is scoped to `src/**`).
 
 use std::io::Cursor;
 use std::path::PathBuf;
 use std::process::Command;
 
 use image::{DynamicImage, ImageFormat, RgbImage};
-use little_exif::exif_tag::ExifTag;
-use little_exif::filetype::FileExtension;
-use little_exif::ifd::ExifTagGroup;
-use little_exif::metadata::Metadata;
+use img_parts::jpeg::Jpeg;
+use img_parts::{Bytes, ImageEXIF};
 use tempfile::TempDir;
 
 /// Path to the compiled binary, provided by Cargo.
@@ -36,16 +38,149 @@ fn base_bytes(format: ImageFormat) -> Vec<u8> {
     buf.into_inner()
 }
 
-/// JPEG bytes seeded with Orientation + Copyright + GPS{Latitude,Longitude}Ref.
+/// Append a TIFF ASCII (type 2) entry — value = UTF-8 bytes + trailing NUL —
+/// to a hand-assembled directory. Values > 4 bytes go out-of-line via
+/// `out_of_line`; the caller patches the offset once the directory's base is
+/// known (see `build_tiff`).
+struct RawEntry {
+    tag: u16,
+    ty: u16,
+    count: u32,
+    /// Inline value (padded to 4 bytes) or, if `out_of_line` is `Some`, a
+    /// placeholder — the real bytes live in `out_of_line`.
+    inline: [u8; 4],
+    out_of_line: Option<Vec<u8>>,
+}
+
+fn ascii_raw(tag: u16, text: &str) -> RawEntry {
+    let mut value = text.as_bytes().to_vec();
+    value.push(0);
+    let count = value.len() as u32;
+    if value.len() <= 4 {
+        let mut inline = [0u8; 4];
+        inline[..value.len()].copy_from_slice(&value);
+        RawEntry {
+            tag,
+            ty: 2,
+            count,
+            inline,
+            out_of_line: None,
+        }
+    } else {
+        RawEntry {
+            tag,
+            ty: 2,
+            count,
+            inline: [0; 4],
+            out_of_line: Some(value),
+        }
+    }
+}
+
+fn short_raw(tag: u16, v: u16) -> RawEntry {
+    let mut inline = [0u8; 4];
+    inline[0..2].copy_from_slice(&v.to_le_bytes());
+    RawEntry {
+        tag,
+        ty: 3,
+        count: 1,
+        inline,
+        out_of_line: None,
+    }
+}
+
+/// Hand-assemble a minimal little-endian TIFF block: a single IFD0 with
+/// `entries` (sorted by tag, per TIFF 6.0), no sub-IFDs, no next-IFD. Mirrors
+/// `tests/common::jpeg_with_orientation`'s existing hand-rolled-TIFF style,
+/// generalized to N entries (this file needs Copyright/Orientation/GPS-ref
+/// combinations `common` doesn't provide).
+fn build_tiff(mut entries: Vec<RawEntry>) -> Vec<u8> {
+    entries.sort_by_key(|e| e.tag);
+    let mut out = vec![b'I', b'I', 0x2A, 0x00, 0x08, 0x00, 0x00, 0x00];
+    out.extend_from_slice(&(entries.len() as u16).to_le_bytes());
+    let dir_start = out.len();
+    out.resize(dir_start + entries.len() * 12 + 4, 0);
+    for (i, e) in entries.iter().enumerate() {
+        let slot = dir_start + i * 12;
+        out[slot..slot + 2].copy_from_slice(&e.tag.to_le_bytes());
+        out[slot + 2..slot + 4].copy_from_slice(&e.ty.to_le_bytes());
+        out[slot + 4..slot + 8].copy_from_slice(&e.count.to_le_bytes());
+        if let Some(value) = &e.out_of_line {
+            let at = out.len() as u32;
+            out.extend_from_slice(value);
+            out[slot + 8..slot + 12].copy_from_slice(&at.to_le_bytes());
+        } else {
+            out[slot + 8..slot + 12].copy_from_slice(&e.inline);
+        }
+    }
+    // next-IFD offset (already zero-initialized) = 0 — no IFD1.
+    out
+}
+
+// IFD0 tag ids: Artist 0x013B, Copyright 0x8298, Orientation 0x0112.
+const TAG_ARTIST: u16 = 0x013B;
+const TAG_COPYRIGHT: u16 = 0x8298;
+const TAG_ORIENTATION: u16 = 0x0112;
+// GPS sub-tags (used inline in the GPS IFD below).
+const TAG_GPS_LAT_REF: u16 = 0x0001;
+const TAG_GPS_LON_REF: u16 = 0x0003;
+const GPS_PTR: u16 = 0x8825;
+
+/// A little-endian TIFF block for a JPEG seeded with Orientation + Copyright
+/// (IFD0) and GPS{Latitude,Longitude}Ref (GPS sub-IFD).
+fn tiff_with_gps() -> Vec<u8> {
+    // Build the GPS sub-IFD first (it must be appended after IFD0 in the
+    // final buffer; we do this by hand since there's no sub-IFD support in
+    // this file's minimal `build_tiff`).
+    let gps_entries = vec![
+        ascii_raw(TAG_GPS_LAT_REF, "N"),
+        ascii_raw(TAG_GPS_LON_REF, "E"),
+    ];
+    let gps_ifd = build_tiff(gps_entries);
+    // `build_tiff` emits a full standalone TIFF (header + IFD); we only want
+    // its IFD bytes (from offset 8 on) to append as a sub-IFD.
+    let gps_ifd_bytes = &gps_ifd[8..];
+
+    let ifd0 = vec![
+        short_raw(TAG_ORIENTATION, 1),
+        ascii_raw(TAG_COPYRIGHT, "crustyimg test"),
+        // Placeholder GPS pointer; patched once we know where the sub-IFD lands.
+        RawEntry {
+            tag: GPS_PTR,
+            ty: 4,
+            count: 1,
+            inline: [0; 4],
+            out_of_line: None,
+        },
+    ];
+    let mut out = build_tiff(ifd0);
+    let gps_at = out.len() as u32;
+    out.extend_from_slice(gps_ifd_bytes);
+
+    // Patch the GPS pointer entry's inline offset slot. IFD0 has 3 entries;
+    // find GPS_PTR's slot by scanning the directory we just built.
+    let count = u16::from_le_bytes([out[8], out[9]]) as usize;
+    let dir_start = 10;
+    for i in 0..count {
+        let slot = dir_start + i * 12;
+        let tag = u16::from_le_bytes([out[slot], out[slot + 1]]);
+        if tag == GPS_PTR {
+            out[slot + 8..slot + 12].copy_from_slice(&gps_at.to_le_bytes());
+            break;
+        }
+    }
+    out
+}
+
+/// JPEG bytes seeded with Orientation + Copyright + GPS{Latitude,Longitude}Ref,
+/// embedded via `img-parts` `set_exif` (bare TIFF, no `Exif\0\0` prefix).
 fn jpeg_with_exif() -> Vec<u8> {
-    let mut bytes = base_bytes(ImageFormat::Jpeg);
-    let mut md = Metadata::new();
-    md.set_tag(ExifTag::Orientation(vec![1]));
-    md.set_tag(ExifTag::Copyright("crustyimg test".to_string()));
-    md.set_tag(ExifTag::GPSLatitudeRef("N".to_string()));
-    md.set_tag(ExifTag::GPSLongitudeRef("E".to_string()));
-    md.write_to_vec(&mut bytes, FileExtension::JPEG).unwrap();
-    bytes
+    let base = base_bytes(ImageFormat::Jpeg);
+    let mut jpeg = Jpeg::from_bytes(Bytes::from(base)).unwrap();
+    jpeg.set_exif(Some(Bytes::from(tiff_with_gps())));
+    let mut out = Vec::new();
+    jpeg.encoder().write_to(&mut out).unwrap();
+    out
 }
 
 /// Write `bytes` to `dir/name` and return the path.
@@ -55,35 +190,58 @@ fn write_fixture(dir: &TempDir, name: &str, bytes: &[u8]) -> PathBuf {
     path
 }
 
-/// Whether a JPEG byte stream still parses any EXIF via `little_exif`.
+/// Extract the bare TIFF/EXIF block from a JPEG via `img-parts`, if any.
+fn jpeg_exif_block(bytes: &[u8]) -> Option<Bytes> {
+    Jpeg::from_bytes(Bytes::from(bytes.to_vec())).ok()?.exif()
+}
+
+/// Whether a JPEG byte stream still carries any readable EXIF fields at all
+/// (`kamadak-exif`) — an empty-but-parseable TIFF counts as "no EXIF" here,
+/// matching `strip_all`'s intent (no tags survive).
 fn jpeg_has_exif(bytes: &[u8]) -> bool {
-    match Metadata::new_from_vec(&bytes.to_vec(), FileExtension::JPEG) {
+    let Some(tiff) = jpeg_exif_block(bytes) else {
+        return false;
+    };
+    match exif::Reader::new().read_raw(tiff.to_vec()) {
+        Ok(parsed) => parsed.fields().len() > 0,
         Err(_) => false,
-        Ok(mut md) => {
-            !md.get_ifd_mut(ExifTagGroup::GENERIC, 0)
-                .get_tags()
-                .is_empty()
-                || !md.get_ifd_mut(ExifTagGroup::GPS, 0).get_tags().is_empty()
-        }
     }
 }
 
-/// Whether a JPEG byte stream carries a generic-IFD tag with the given id.
+/// Whether a JPEG byte stream carries the given (Context-qualified)
+/// `exif::Tag` anywhere in its EXIF. Compares the full `Tag` (context +
+/// number), not just the raw tag id, since GPS/Exif/Interop sub-IFD tag
+/// numbers can collide with IFD0 tag numbers (e.g. GPS 0x0001 vs a
+/// hypothetical generic 0x0001) — a bare-number compare would be a false
+/// positive across contexts, exactly the kind of semantic slip this in-house
+/// writer must not have (SPEC-045).
+fn jpeg_has_tag(bytes: &[u8], tag: exif::Tag) -> bool {
+    let Some(tiff) = jpeg_exif_block(bytes) else {
+        return false;
+    };
+    let Ok(parsed) = exif::Reader::new().read_raw(tiff.to_vec()) else {
+        return false;
+    };
+    let found = parsed.fields().any(|f| f.tag == tag);
+    found
+}
+
+/// Whether a JPEG byte stream carries an IFD0 (primary) tag with the given
+/// raw id. Used only for the two IFD0-only tags this file seeds (Artist,
+/// Copyright) that don't collide with any sub-IFD tag number in these
+/// fixtures.
 fn jpeg_has_generic_tag(bytes: &[u8], tag_id: u16) -> bool {
-    match Metadata::new_from_vec(&bytes.to_vec(), FileExtension::JPEG) {
-        Err(_) => false,
-        Ok(mut md) => md
-            .get_ifd_mut(ExifTagGroup::GENERIC, 0)
-            .get_tags()
-            .iter()
-            .any(|t| t.as_u16() == tag_id),
-    }
+    let Some(tiff) = jpeg_exif_block(bytes) else {
+        return false;
+    };
+    let Ok(parsed) = exif::Reader::new().read_raw(tiff.to_vec()) else {
+        return false;
+    };
+    let found = parsed
+        .fields()
+        .any(|f| f.tag.number() == tag_id && f.ifd_num == exif::In::PRIMARY);
+    found
 }
-
-// IFD0 tag ids: Artist 0x013B, Copyright 0x8298, Orientation 0x0112.
-const TAG_ARTIST: u16 = 0x013B;
-const TAG_COPYRIGHT: u16 = 0x8298;
-const TAG_ORIENTATION: u16 = 0x0112;
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
@@ -124,21 +282,14 @@ fn clean_gps_jpeg_removes_location_keeps_orientation() {
     assert!(output.status.success(), "clean --gps should exit 0");
 
     let cleaned = std::fs::read(&out).unwrap();
-    let mut md = Metadata::new_from_vec(&cleaned, FileExtension::JPEG).unwrap();
     // GPS gone.
     assert!(
-        md.get_ifd_mut(ExifTagGroup::GPS, 0).get_tags().is_empty(),
+        !jpeg_has_tag(&cleaned, exif::Tag::GPSLatitudeRef),
         "GPS tags should be removed"
     );
     // Orientation (0x0112) survives.
-    let generic_ids: Vec<u16> = md
-        .get_ifd_mut(ExifTagGroup::GENERIC, 0)
-        .get_tags()
-        .iter()
-        .map(|t| t.as_u16())
-        .collect();
     assert!(
-        generic_ids.contains(&0x0112),
+        jpeg_has_generic_tag(&cleaned, TAG_ORIENTATION),
         "Orientation should be preserved"
     );
 }
@@ -423,13 +574,15 @@ fn set_multi_input_fanout_writes_all() {
 
 // ── copy-metadata (SPEC-028, DEC-030) ─────────────────────────────────────────
 
-/// JPEG bytes seeded with a single Copyright tag via `little_exif`.
+/// JPEG bytes seeded with a single Copyright tag, embedded via `img-parts`
+/// `set_exif` (no `little_exif` — SPEC-045/DEC-046).
 fn jpeg_with_copyright(value: &str) -> Vec<u8> {
-    let mut bytes = base_bytes(ImageFormat::Jpeg);
-    let mut md = Metadata::new();
-    md.set_tag(ExifTag::Copyright(value.to_string()));
-    md.write_to_vec(&mut bytes, FileExtension::JPEG).unwrap();
-    bytes
+    let tiff = build_tiff(vec![ascii_raw(TAG_COPYRIGHT, value)]);
+    let mut jpeg = Jpeg::from_bytes(Bytes::from(base_bytes(ImageFormat::Jpeg))).unwrap();
+    jpeg.set_exif(Some(Bytes::from(tiff)));
+    let mut out = Vec::new();
+    jpeg.encoder().write_to(&mut out).unwrap();
+    out
 }
 
 /// Decode `bytes` to an RGBA pixel buffer (for decode-equality assertions).

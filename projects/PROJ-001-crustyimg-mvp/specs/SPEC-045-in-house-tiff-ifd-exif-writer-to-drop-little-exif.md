@@ -113,20 +113,20 @@ all other tags and the pixels exactly — and delete the `RUSTSEC-2026-0194`/`-0
 
 ## Acceptance Criteria
 
-- [ ] `cargo tree` shows **no `little_exif`**, **no `quick-xml`**, **no `brotli`**.
-- [ ] `deny.toml` has no `-0194`/`-0195`; `just deny` passes (with `-2024-0436` still
+- [x] `cargo tree` shows **no `little_exif`**, **no `quick-xml`**, **no `brotli`**.
+- [x] `deny.toml` has no `-0194`/`-0195`; `just deny` passes (with `-2024-0436` still
       present and its comment corrected). `cargo tree -i paste` still shows the `rav1e` path.
-- [ ] `set` adds `Artist`/`Copyright`/`ImageDescription` to IFD0 and **preserves** every
+- [x] `set` adds `Artist`/`Copyright`/`ImageDescription` to IFD0 and **preserves** every
       other tag — incl. an **ExifIFD sub-tag** and an **IFD1 thumbnail** — verified by
       `kamadak-exif` reading the output.
-- [ ] `clean --gps` removes **all** GPS tags and **preserves** every non-GPS tag; a file
+- [x] `clean --gps` removes **all** GPS tags and **preserves** every non-GPS tag; a file
       with no EXIF is a byte-identical no-op; a file with no GPS is unchanged (non-GPS tags
       intact).
-- [ ] Both `set` and `clean` **preserve pixels exactly** (decode-equality, as the existing
+- [x] Both `set` and `clean` **preserve pixels exactly** (decode-equality, as the existing
       tests assert) for JPEG **and** PNG.
-- [ ] **Malformed/truncated/cyclic EXIF** yields a typed `MetadataError`, **never a panic**
+- [x] **Malformed/truncated/cyclic EXIF** yields a typed `MetadataError`, **never a panic**
       (parser is fully bounds-checked; recursion-depth capped).
-- [ ] Public API unchanged (`set_tags`, `clean_gps`, `TagSet`, `MetadataError`);
+- [x] Public API unchanged (`set_tags`, `clean_gps`, `TagSet`, `MetadataError`);
       `run_set`/`run_clean` in `src/cli/mod.rs` compile unchanged. All existing metadata
       tests pass (helpers re-based off `little_exif`); lean build + clippy + fmt clean.
 
@@ -243,28 +243,52 @@ Ifd   { entries: Vec<Entry> }         // + optional next-IFD (IFD1)
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
-- **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
+- **Branch:** `feat/spec-045-exif-writer`
+- **PR (if applicable):** (opened against `main`; see PR URL in the build report)
+- **All acceptance criteria met?** yes
+- **New decisions emitted:** none (DEC-046 from design covers this build)
 - **Deviations from spec:**
-  - [list]
+  - `tests/metadata.rs` (a black-box CLI integration test file) also seeded EXIF via
+    `little_exif` and was not named in the spec's file list (`## Inputs` mentions only
+    `src/metadata/mod.rs`). Re-based it the same way: hand-assembled little-endian TIFF
+    bytes embedded via `img-parts` `set_exif`, read back via `kamadak-exif`. Necessary —
+    the crate is gone, so this file would not compile otherwise.
+  - Added one extra test beyond the spec's 8 (`set_overwrites_existing_tag_no_duplicate`)
+    that asserts "no duplicate IFD0 entry" directly on the parsed `tiff::Ifd` (the spec's
+    `set_overwrites_existing_tag` only required the *value* to be the latest; the no-
+    duplicate half is called out explicitly in the spec's prose, so it gets its own
+    assertion rather than being implicit in a value check) and one PNG variant of
+    `clean_gps_removes_only_gps` (the spec's acceptance criteria explicitly ask for GPS
+    removal to be verified "incl... for JPEG and PNG" pixel preservation; a PNG GPS-removal
+    case was added alongside for parity).
 - **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - None — the writer's scope (IFD0 ASCII tags + GPS removal, sub-IFD/thumbnail
+    preservation) fully covers `set`/`clean --gps`'s current behavior. Future tag types
+    (beyond IFD0 strings) or IFD1 write support would need a new spec per DEC-046's
+    "Revisit if" clause.
 
 ### Build-phase reflection (3 questions, short answers)
 
 Process-focused: how did the build go? What friction did the spec create?
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — The spec's `## Inputs` file list named only `src/metadata/mod.rs` as needing
+   `little_exif` test-helper rebasing, but `tests/metadata.rs` (a separate integration-test
+   crate target) also imported `little_exif` directly and would not compile once the dep
+   was removed. A `grep -rn little_exif` across the whole tree up front (not just the
+   spec-named files) would have caught this before writing any code.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — Not really a gap in DEC-046/the spec itself — the probe-validated skeleton (parse →
+   recurse sub-IFD → serialize) was accurate and the design's IFD1/thumbnail extension
+   guidance was sufficient to implement without surprises. The one wrinkle (kamadak-exif's
+   `Tag` being `(Context, u16)`, so GPS tag 0x0001 and a hypothetical generic 0x0001 are
+   distinct `Tag`s) is a kamadak-exif API detail, not something the spec needed to flag.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Grep the whole repo (not just the spec's named files) for the crate being removed
+   before starting, to size the full rebasing surface up front instead of discovering the
+   second test file mid-build.
 
 ---
 
