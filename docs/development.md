@@ -76,3 +76,29 @@ brief, see [`projects/PROJ-001-crustyimg-mvp/brief.md`](../projects/PROJ-001-cru
 | `Cargo.toml` | Crate manifest and pinned dependencies |
 | `src/` | The `crustyimg` crate (library modules + `main.rs`) — see [`docs/architecture.md`](architecture.md) |
 | `tests/` | Integration tests and native-generated image fixtures |
+| `projects/*/patches/` | Lightweight patches — bounded fixes to shipped behavior (see below) |
+
+## Patch lane (lightweight fixes)
+
+For a **bounded fix to already-shipped behavior** (a bug or UX papercut) that adds no new
+feature/command, use a **patch** instead of a full spec + stage (DEC-043). A patch runs a
+collapsed cycle:
+
+```
+patch → verify → ship        (vs. a spec's frame → design → build → verify → ship)
+```
+
+- **patch** — design + build in one pass: write the failing test(s) *and* the fix together.
+- **verify** — kept, and kept **independent** (a different session). This is the quality
+  lever; it is non-negotiable.
+- **ship** — CHANGELOG `[Unreleased] → Fixed` + archive. **No stage bookkeeping.**
+
+What stays: the full gate suite (fmt/clippy/test + lean `--no-default-features` +
+`cargo deny`), a `DEC-*` only when there's a real decision, and index-verify-before-ship.
+What's shed: the separate frame/design cycles and the stage backlog `Count:` bookkeeping.
+
+Patches live in `projects/PROJ-NNN/patches/PATCH-NNN-<slug>.md` (own `PATCH-NNN` number
+sequence; prompts in `patches/prompts/`) and roll into the next release via the CHANGELOG.
+If a change adds a command/flag or needs its own design exploration, it's a **spec**, not
+a patch. See `decisions/DEC-043-patch-lane-lightweight-fixes.md`;
+`PATCH-001` (`--out-dir` auto-create) is the first example.
