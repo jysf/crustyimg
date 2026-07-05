@@ -96,3 +96,20 @@ It also matches real need: crustyimg is now shipped (v0.1.0), so post-release ma
 - **Neutral:** no `just new-patch` helper yet — patch files are hand-created from the
   convention above (a helper is optional future tooling). Documented in
   `docs/development.md`.
+
+## First-use learnings (PATCH-001)
+
+The `--out-dir` auto-create fix was the first patch. It confirmed the lane fits a bounded
+fix well (the collapsed patch pass + independent verify caught a real code detail without
+a full spec). Two refinements for future patch prompts:
+
+- **Hedge "remove/dedupe X" instructions.** PATCH-001's prompt asserted deduping
+  `run_responsive`'s `create_dir_all`; the code didn't match that assumption (it uses
+  `Sink::File`, not `Sink::Dir`), and removal broke tests. The parenthetical escape hatch
+  saved it, but a patch instruction that touches *other* code should be phrased
+  conditionally by default: **"remove X only if the affected command's tests still pass;
+  otherwise leave it with a comment explaining why."**
+- **Independent verify stays independent even when interrupted.** If the verify subagent
+  is stopped mid-run, the orchestrator completes the substantive checks (here: the
+  security-boundary reasoning + guard-tests-unchanged diff + end-to-end) in the main loop
+  before ship — verify is a gate, not a formality.

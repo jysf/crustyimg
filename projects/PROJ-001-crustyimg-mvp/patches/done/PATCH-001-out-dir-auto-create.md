@@ -5,7 +5,7 @@
 patch:
   id: PATCH-001
   type: patch
-  cycle: verify                    # patch | verify | ship
+  cycle: ship                      # patch | verify | ship
   fixes: "`--out-dir` errors with a cryptic message instead of creating the directory"
   complexity: S
   blocked: false
@@ -26,16 +26,44 @@ references:
 # Cost: patch + verify are metered; ship is main-loop (null-with-note).
 cost:
   sessions:
-    - agent: claude-sonnet-4-6
-      role: implementer
-      tokens_in: null
-      tokens_out: null
+    - cycle: patch
+      agent: claude-sonnet-4-6
+      interface: claude-code
+      tokens_total: 94944
+      estimated_usd: 0.51
+      duration_minutes: 9
+      recorded_at: 2026-07-04
+      notes: >
+        Real metered subagent on Sonnet 4.6. subagent_tokens=94944, duration_ms=553581.
+        Collapsed patch pass (design+build in one): SinkError::OutDirCreate + create_dir_all
+        in Sink::Dir write/write_bytes + 5 tests; safe_join / DEC-035 guards untouched.
+        Correctly left run_responsive alone (it uses Sink::File, not Sink::Dir). 419 tests
+        pass; all gates green. PR #48.
+    - cycle: verify
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
       estimated_usd: null
-      date: 2026-07-04
+      duration_minutes: null
+      recorded_at: 2026-07-04
+      notes: >
+        Independent verify STARTED as an Explore subagent but was interrupted mid-run; the
+        orchestrator (main loop, Opus) completed the substantive checks — DEC-035 guard
+        tests byte-unchanged vs main + safe_join untouched; create_dir_all-before-safe_join
+        preserves the boundary; end-to-end (fresh dir → exit 0; file-at-path → typed exit 5).
+        PR #48 CI green (19/19). Main-loop completion, not separately metered.
+    - cycle: ship
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-07-04
+      notes: "Main-loop ship (merge #48 + DEC-043/044 doc corrections + archive to patches/done/); not separately metered."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 1
+    tokens_total: 94944
+    estimated_usd: 0.51
+    session_count: 3
 ---
 
 # PATCH-001: `--out-dir` auto-creates the target directory (safely)
@@ -149,5 +177,18 @@ return a clear error. Output-name path/symlink guards unchanged (DEC-035)." Arch
 
 *Appended during ship.*
 
-1. **What would I do differently?** — <answer>
-2. **Does DEC-043/DEC-044 or a template need updating?** — <answer>
+1. **What would I do differently?**
+   — The lane worked as designed — this is exactly the class of change (a bounded fix to
+   shipped behavior, decision pre-captured in DEC-044) the patch lane exists for, and it
+   cost ~2 metered cycles instead of ~4 with no stage overhead. The only wobble was the
+   verify subagent being interrupted; the orchestrator completed the substantive
+   security checks in the main loop, which is the right fallback (verify is a gate, not a
+   ritual). Next time I'd phrase any "remove/dedupe the other code" instruction
+   conditionally from the start (see below).
+
+2. **Does DEC-043/DEC-044 or a template need updating?**
+   — Both were updated as part of this ship: **DEC-044** got a correction (responsive uses
+   `Sink::File`, keeps its own `create_dir_all`; auto-create is consistent via two
+   mechanisms), and **DEC-043** gained a "First-use learnings" section (hedge
+   "remove/dedupe X" instructions; independent-verify-stays-independent-even-if-interrupted).
+   The `just new-patch` helper remains optional future tooling.

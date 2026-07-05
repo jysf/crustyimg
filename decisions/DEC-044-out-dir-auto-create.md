@@ -39,9 +39,15 @@ tags:
 
 A batch `--out-dir DIR` **creates `DIR` (and parents) if it does not exist**, rather than
 failing. Creation happens in the **`Sink::Dir` write path** (`src/sink/mod.rs`), so every
-batch command — resize/thumbnail/shrink/convert/optimize/auto-orient/watermark/strip/
-clean/set and `apply --recipe` — behaves consistently; `run_responsive`'s existing
-explicit `create_dir_all` is deduplicated into the same path.
+batch command that uses that sink — resize/thumbnail/shrink/convert/optimize/auto-orient/
+watermark/strip/clean/set and `apply --recipe` — behaves consistently.
+
+> **Correction (PATCH-001 finding):** `run_responsive` does **not** use `Sink::Dir` — it
+> builds per-width `Sink::File` paths via a manual `safe_join` loop and has its own
+> `create_dir_all`, which is **kept** (removing it breaks the responsive tests). So the
+> `Sink::Dir` auto-create does not cover `responsive`; responsive is separate-but-
+> consistent (it already auto-created). The net behavior — every batch command auto-
+> creates its `--out-dir` — holds, via two mechanisms rather than one.
 
 - **Safety unchanged:** creating the user's chosen output directory is `mkdir -p`-style
   intent, not a traversal vector — the DEC-035 per-file guard (`safe_join`, which rejects
