@@ -11,10 +11,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- `--help` text now reads for end users: internal stage/spec/decision references
-  and stale "stub"/"placeholder" wording were removed from command and option
-  descriptions (PATCH-002).
-
 ### Deprecated
 
 ### Removed
@@ -22,6 +18,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 ### Security
+
+---
+
+## [0.2.0] - 2026-07-05
+
+Dependency-hygiene release. The advisory-bearing dependencies behind the three
+accepted `deny.toml` ignores were eliminated **at the source** (behavior-preserving
+swaps), and the `--help` text was cleaned up for end users. `cargo deny` now carries
+a single documented residual ignore, down from three.
+
+### Changed
+
+- `--help` text now reads for end users: internal stage/spec/decision references
+  and stale "stub"/"placeholder" wording were removed from command and option
+  descriptions (PATCH-002).
+- Text-watermark glyph rasterization now uses `skrifa` + `zeno` (the Google
+  `fontations` stack) instead of `ab_glyph`. Behavior-preserving — same rendered
+  output, minus legacy `kern`-table kerning (a nil change for the bundled font)
+  (SPEC-044).
+- EXIF writing (`set`, `clean --gps`) now uses an in-house binary TIFF-IFD writer
+  instead of `little_exif`. Behavior-preserving, and the parser is hardened against
+  malformed/untrusted EXIF (bounds-checked, no panics) (SPEC-045).
+
+### Removed
+
+- Dropped the `ab_glyph`, `ttf-parser`, `little_exif`, `quick-xml`, and `brotli`
+  dependencies from the tree.
+
+### Security
+
+- Eliminated three `deny.toml` advisory ignores at the source:
+  **RUSTSEC-2026-0192** (`ttf-parser`, unmaintained) via the `skrifa`+`zeno` swap,
+  and **RUSTSEC-2026-0194** / **-0195** (`quick-xml` memory-DoS) via the in-house
+  EXIF writer. One documented ignore remains — **RUSTSEC-2024-0436** (`paste`, an
+  unmaintained build-time proc-macro reached only via `rav1e`/`avif`; no upstream
+  fix; revisit when `rav1e` drops `paste`).
 
 ---
 
@@ -163,6 +195,7 @@ re-decoded, so privacy ops carry no quality cost and no recompression.
 
 ---
 
-[Unreleased]: https://github.com/jysf/crustyimg/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/jysf/crustyimg/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/jysf/crustyimg/releases/tag/v0.2.0
 [0.1.1]: https://github.com/jysf/crustyimg/releases/tag/v0.1.1
 [0.1.0]: https://github.com/jysf/crustyimg/releases/tag/v0.1.0
