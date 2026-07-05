@@ -5,7 +5,7 @@
 
 stage:
   id: STAGE-010                     # stable, zero-padded within the project
-  status: active                    # proposed | active | shipped | cancelled | on_hold
+  status: shipped                   # proposed | active | shipped | cancelled | on_hold
   priority: medium                  # critical | high | medium | low
   target_complete: null             # optional: YYYY-MM-DD
 
@@ -15,7 +15,7 @@ repo:
   id: crustyimg
 
 created_at: 2026-07-04
-shipped_at: null
+shipped_at: 2026-07-05
 
 # What part of the project's value thesis this stage advances.
 # If you can't articulate value_contribution, the stage may be
@@ -104,9 +104,11 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 - [x] SPEC-045 (shipped 2026-07-05, PR #50) — in-house TIFF-IFD EXIF writer replacing
   `little_exif`; removed the RUSTSEC-2026-0194/-0195 ignores + `quick-xml`/`brotli` (DEC-046).
   `paste`/-2024-0436 stays (rav1e/avif).
-- [ ] (not yet written — PATCH candidate) — `--help` jargon cleanup in `src/cli/mod.rs`.
+- [x] PATCH-002 (shipped 2026-07-05, PR #51) — `--help` jargon cleanup in `src/cli/mod.rs`
+  (DEC-043 patch lane); user-facing help free of stage/spec/DEC refs + stale stub text.
 
-**Count:** 2 shipped / 0 active / 1 pending — `deny.toml` down to 1 residual ignore (paste).
+**Count:** 3 shipped / 0 active / 0 pending — `deny.toml` down to 1 residual ignore (paste).
+Stage complete; 0.2.0 ready to cut.
 
 ## Design Notes
 
@@ -146,10 +148,28 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 *Filled in when status moves to shipped. Run Prompt 1c (Stage Ship) in
 FIRST_SESSION_PROMPTS.md to draft this.*
 
-- **Did we deliver the outcome in "What This Stage Is"?** <yes/no + notes>
-- **How many specs did it actually take?** <number vs. plan>
-- **What changed between starting and shipping?** <one sentence>
+- **Did we deliver the outcome in "What This Stage Is"?** Mostly — with a corrected target.
+  The goal was "zero advisory ignores"; we got to **1** (`paste`/-2024-0436), because that
+  advisory is upstream-blocked via `rav1e`/`avif` and the all-features deny graph — not
+  removable at the source. The three *addressable* ignores (ttf-parser -0192, quick-xml
+  -0194/-0195) were all eliminated, plus `brotli`, and the CLI is user-clean. 3 → 1 is the
+  honest, achievable "near-clean" outcome.
+- **How many specs did it actually take?** 2 specs (SPEC-044, SPEC-045) + 1 patch
+  (PATCH-002) — as planned, no splits.
+- **What changed between starting and shipping?** Both dependency-swap premises in the
+  backlog were wrong (fontdue still pulls ttf-parser; the EXIF writer doesn't remove
+  paste) — caught by design-time dep-graph probes, which reshaped both specs and the stage's
+  success criterion.
 - **Lessons that should update AGENTS.md, templates, or constraints?**
-  - <one-line updates>
+  - Advisory-elimination work needs a standing check: before claiming "drop dep X removes
+    advisory Y", verify the FULL `cargo tree -i --all-features` path AND the advisory's
+    `patched`/`informational` fields AND `deny.toml`'s `[graph]` feature config. Captured in
+    auto-memory + DEC-045/046; worth a one-line constraint if this recurs in PROJ-002.
+  - `just release`'s CHANGELOG guard is only as good as the entries — spec/patch ships must
+    add a CHANGELOG line at ship, not defer to release prep (SPEC-044/045 didn't, needing a
+    backfill at 0.2.0).
 - **Should any spec-level reflections be promoted to stage-level lessons?**
-  - <one-line items>
+  - Yes: "probe the real dep/feature graph before trusting a drop-dep plan" (SPEC-044 +
+    SPEC-045 both) is now the stage's headline lesson.
+  - "Verify the RENDERED artifact, not just the source diff" (PATCH-002: grep actual
+    `--help` output across all subcommands, not the `///` lines).
