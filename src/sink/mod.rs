@@ -147,6 +147,16 @@ pub enum SinkError {
         codec: &'static str,
         feature: &'static str,
     },
+
+    /// `create_dir_all` failed for the output directory (a file exists at the
+    /// path, or permission is denied). Distinct from `Io` so the error message
+    /// clearly names the directory (DEC-044). Maps to exit 5 via the existing
+    /// `CliError::Sink(_) => 5`.
+    #[error("could not create output directory {path}: {source}")]
+    OutDirCreate {
+        path: String,
+        source: std::io::Error,
+    },
 }
 
 /// The naming context a [`Sink::Dir`] needs from the originating input.
@@ -385,6 +395,13 @@ impl Sink {
                 template,
                 format,
             } => {
+                // Auto-create the output directory (and parents) if missing (DEC-044).
+                // Idempotent: harmless if the dir already exists. Runs before
+                // safe_join, which requires the dir to exist for canonicalize.
+                std::fs::create_dir_all(dir).map_err(|e| SinkError::OutDirCreate {
+                    path: dir.display().to_string(),
+                    source: e,
+                })?;
                 // Choose format: explicit override, or default to PNG for dir sinks.
                 let fmt = format.unwrap_or(ImageFormat::Png);
                 let ext = extension_for_format(fmt);
@@ -508,6 +525,11 @@ impl Sink {
                 Ok(())
             }
             Sink::Dir { dir, template, .. } => {
+                // Auto-create the output directory (and parents) if missing (DEC-044).
+                std::fs::create_dir_all(dir).map_err(|e| SinkError::OutDirCreate {
+                    path: dir.display().to_string(),
+                    source: e,
+                })?;
                 let file_name = expand_template(template, input.stem, ext, input.path);
                 let full_path = safe_join(dir, &file_name)?;
                 // Symlink-destination guard: reject even with --yes (DEC-035).

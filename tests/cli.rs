@@ -1258,6 +1258,49 @@ fn info_missing_input_exits_3() {
     );
 }
 
+// ── PATCH-001 out-dir auto-create end-to-end test (DEC-044) ─────────────────
+
+/// `resize <png> --max N --out-dir <fresh-dir>` exits 0 and writes the output
+/// even when `<fresh-dir>` does not exist yet. Previously this exited 5 with
+/// "could not write output"; the Sink::Dir write path now auto-creates the
+/// directory (DEC-044).
+#[test]
+fn batch_out_dir_created_end_to_end() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let in_path = write_test_png(&dir, "photo.png", 80, 40);
+
+    // Point --out-dir at a path that does NOT exist yet.
+    let fresh_out_dir = dir.path().join("patch001_new_dir");
+    assert!(
+        !fresh_out_dir.exists(),
+        "out-dir must not exist before the test"
+    );
+
+    let output = Command::new(BIN)
+        .args([
+            "resize",
+            in_path.to_str().unwrap(),
+            "--max",
+            "20",
+            "--out-dir",
+            fresh_out_dir.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run resize --out-dir <fresh>");
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "resize into a non-existent --out-dir should exit 0; stderr: {}",
+        stderr_str(&output)
+    );
+    assert!(fresh_out_dir.is_dir(), "out-dir should have been created");
+    assert!(
+        fresh_out_dir.join("photo.png").exists(),
+        "output file should exist in the auto-created dir"
+    );
+}
+
 // ── SPEC-012 thumbnail integration tests ─────────────────────────────────────
 
 /// `thumbnail <png>` (no `--size`) exits 0; the long edge == 256 (default),

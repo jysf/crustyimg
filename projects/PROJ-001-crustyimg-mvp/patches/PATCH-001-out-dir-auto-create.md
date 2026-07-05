@@ -5,7 +5,7 @@
 patch:
   id: PATCH-001
   type: patch
-  cycle: patch                     # patch | verify | ship
+  cycle: verify                    # patch | verify | ship
   fixes: "`--out-dir` errors with a cryptic message instead of creating the directory"
   complexity: S
   blocked: false
@@ -25,11 +25,17 @@ references:
 
 # Cost: patch + verify are metered; ship is main-loop (null-with-note).
 cost:
-  sessions: []
+  sessions:
+    - agent: claude-sonnet-4-6
+      role: implementer
+      tokens_in: null
+      tokens_out: null
+      estimated_usd: null
+      date: 2026-07-04
   totals:
     tokens_total: 0
     estimated_usd: 0
-    session_count: 0
+    session_count: 1
 ---
 
 # PATCH-001: `--out-dir` auto-creates the target directory (safely)
@@ -103,17 +109,39 @@ return a clear error. Output-name path/symlink guards unchanged (DEC-035)." Arch
 
 *Filled at the end of the patch pass, before verify.*
 
-- **Branch:**
-- **PR:**
-- **All acceptance criteria met?**
-- **Deviations:**
+- **Branch:** `fix/patch-001-out-dir-auto-create`
+- **PR:** opened via `gh pr create` (see PR URL in session)
+- **All acceptance criteria met?** Yes — `SinkError::OutDirCreate` added;
+  `create_dir_all` in both `Sink::Dir` write paths (`write` and `write_bytes`);
+  responsive's explicit `create_dir_all` kept (it uses `Sink::File` + manual
+  `safe_join`, so `Sink::Dir` auto-create does not cover it — left per the
+  "leave it only if removal changes behavior" parenthetical in the patch);
+  all 5 new tests pass; all 8 DEC-035 guard tests unchanged and pass; all 419
+  tests pass; all gates green.
+- **Deviations:** `run_responsive`'s `create_dir_all` was NOT removed. The patch
+  prompt said to dedupe it because the sink now covers it, but inspection showed
+  `run_responsive` builds `Sink::File` paths via a manual `safe_join` loop (not
+  `Sink::Dir`), so the sink's auto-create does not cover it. Removing it broke
+  all 5 responsive tests. Left it in place with a clarifying comment, per the
+  patch's own parenthetical ("Leave it only if removal changes behavior").
 
 ### Patch reflection (2 questions)
 
 1. **Did the collapsed patch→verify→ship lane fit this change, or did it want a full spec?**
-   — <answer>
+   — The collapsed lane fit well. The fix was genuinely bounded: one new error
+   variant, two `create_dir_all` insertions (in `write` and `write_bytes`), one
+   updated test, and four new tests. Design decisions were already captured in
+   DEC-044. The only surprise (responsive uses `Sink::File` not `Sink::Dir`) was
+   a reading-code discovery, not a design ambiguity — verifying by running tests
+   caught it immediately. A full spec would have been overhead for this scope.
+
 2. **Anything the patch methodology (DEC-043) should adjust after this first use?**
-   — <answer>
+   — The "dedupe" instruction should be hedged with "verify by running the tests
+   for the affected command" rather than stating it as a flat removal. The patch
+   assumed `run_responsive` used `Sink::Dir`; it doesn't. The parenthetical
+   "Leave it only if removal changes behavior" was the right escape hatch and
+   worked, but the primary instruction was overconfident. Future patches should
+   say: "remove if tests pass; otherwise leave with a comment."
 
 ---
 
