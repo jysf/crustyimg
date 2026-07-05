@@ -28,15 +28,24 @@ made concrete. **Now framed as STAGE-010** (advisory elimination & dependency hy
 | Item | Value | Complexity | Approach (grounded) |
 |---|---|---|---|
 | **Drop `ttf-parser` (RUSTSEC-2026-0192)** — swap `ab_glyph` → **`skrifa` + `zeno`** in `watermark --text` — **SPEC-044 (design), DEC-045** | Removes the unmaintained font dep | **M** | ⚠️ **The original `fontdue` plan was a dead end** — a design-time probe found fontdue 0.9.3 *still depends on `ttf-parser` 0.21.1*, and RUSTSEC-2026-0192 is crate-wide (`patched=[]`, `informational=unmaintained`), so it would NOT remove the ignore. Retargeted to the advisory's own recommended alternative: **`skrifa` 0.44** (Google `fontations`, MIT/Apache, `ttf-parser`-free) for outlines/metrics + **`zeno` 0.3.3** (MIT/Apache) for mask rasterization. Probe-verified against the real Go font (ascent/advance/bounds match; `(coverage, Placement)` ≈ ab_glyph's `px_bounds()`+`draw()`). Behavior-preserving; drops pairwise kerning (nil effect — bundled font has no legacy `kern` table). Then delete the -0192 ignore. |
-| **Drop `quick-xml` vulns (RUSTSEC-2026-0194/-0195)** — replace `little_exif` with an **in-house EXIF-tag writer** | Removes 2 real (unreachable) vulns + the last XML dep | **M** | No drop-in exists (`nom-exif`/`kamadak-exif` are read-only; `little_exif` was ~the only pure-Rust read+write, DEC-029). Write a minimal binary **TIFF-IFD serializer** for the tags we set (Artist/Copyright/ImageDescription) + selective **GPS-IFD removal**, embedded via `img-parts` segment replacement (already used for `strip`). Binary IFD only → no XMP → no quick-xml. Needs careful byte-order/offset serialization + round-trip tests matching today's `set`/`clean --gps`. Then drop the -0194/-0195 ignores + `little_exif` (revisit DEC-029). |
+| **Drop `quick-xml` vulns (RUSTSEC-2026-0194/-0195)** — replace `little_exif` with an **in-house EXIF-tag writer** — **SPEC-045 (design), DEC-046** | Removes 2 real (unreachable) vulns + the last XML dep (`quick-xml`) + `brotli` | **M** | No drop-in exists (`nom-exif`/`kamadak-exif` are read-only; `little_exif` was ~the only pure-Rust read+write, DEC-029) — and `little_exif 0.6.23` is latest, still pinning vulnerable `quick-xml ^0.37` (no bump path). Write a minimal binary **TIFF-IFD serializer** for the tags we set (Artist/Copyright/ImageDescription) + selective **GPS-IFD removal**, on the raw TIFF block `img-parts` exposes. **Probe-validated**: a generic IFD parse→recurse-subIFD→re-serialize round-tripped a real JPEG (IFD0 + ExifIFD) byte-identical per `kamadak-exif`. Bounded/panic-free parser (untrusted EXIF). Then drop the -0194/-0195 ignores + `little_exif` (amends DEC-029). ⚠️ Does **NOT** remove `paste`/-2024-0436 — see the residual note below. |
 
-Both remove `deny.toml` ignores on completion; do the font swap first (SPEC-044, cheaper), the EXIF writer second (the meatier, higher-value one — kills actual vulnerabilities).
+Both remove `deny.toml` ignores on completion; do the font swap first (SPEC-044, cheaper), the EXIF writer second (the meatier, higher-value one — kills actual vulnerabilities). **Net after both:** `deny.toml` goes from **3 ignores → 1** (not 0).
 
 > **Lesson (fontdue dead-end):** the backlog's "fontdue has its OWN parser — no ttf-parser"
 > was outdated; modern fontdue delegates parsing to `ttf-parser`. An *unmaintained* advisory
 > (`patched = []`) is crate-wide, so swapping to a different version of the same crate never
 > clears it — only removing the crate does. Probe the actual dep tree before trusting a
 > "drops dep X" plan. See DEC-045.
+
+> **Residual — `paste` (RUSTSEC-2024-0436) stays (DEC-046):** the original plan said the EXIF
+> writer would also drop the `paste` chain. It won't. `paste` reaches the graph via **both**
+> `little_exif` **and** `rav1e`→`ravif`→`image` (the `avif` feature), and `deny.toml` uses
+> `[graph] all-features = true`, so the `rav1e` path keeps `paste` in the evaluated graph.
+> `rav1e 0.8.1` is latest (no fix). So `-2024-0436` (an unmaintained *build-time* proc-macro,
+> the lowest-risk of the four) remains a documented ignore for 0.2.0 — revisit when `rav1e`
+> drops `paste`. Maintainer-accepted 2026-07-04. Same lesson as fontdue: probe the *full*
+> feature graph before claiming a "drops dep X" outcome.
 
 **Also (S, UX polish):** the shipped `--help` leaks internal jargon into command
 descriptions — e.g. `view … (STAGE-002; stub in STAGE-001)` (view is no longer a stub),

@@ -21,11 +21,11 @@ shipped_at: null
 # If you can't articulate value_contribution, the stage may be
 # infrastructure-only — acceptable but flag it.
 value_contribution:
-  advances: "Trust/quality of the shipped tool — a clean `cargo deny` with zero accepted advisory ignores for a credible 0.2.0."
+  advances: "Trust/quality of the shipped tool — a near-clean `cargo deny` (3 of 4 advisory ignores eliminated at the source; 1 upstream-blocked residual) for a credible 0.2.0."
   delivers:
-    - "A 0.2.0 that carries no `deny.toml` advisory exceptions"
-    - "Removal of the unmaintained `ttf-parser` from the dependency tree"
-    - "In-house EXIF-tag writer eliminating the `little_exif` → `quick-xml` vulnerabilities"
+    - "A 0.2.0 down to a single documented advisory ignore (paste/-2024-0436, upstream-blocked via rav1e/avif) from three"
+    - "Removal of the unmaintained `ttf-parser` from the dependency tree (SPEC-044)"
+    - "In-house EXIF-tag writer eliminating the `little_exif` → `quick-xml` vulnerabilities (+ `brotli`)"
     - "User-facing `--help` text free of internal stage/DEC jargon"
   explicitly_does_not:
     - "Add new user-facing image capabilities (that is PROJ-002)"
@@ -58,11 +58,16 @@ across two releases, so cutting a clean 0.2.0 at the end of this stage is low-ri
 
 ## Success Criteria
 
-- `just deny` (`cargo deny check advisories bans sources licenses`) passes with an
-  **empty** `[advisories].ignore` list in `deny.toml`.
-- `ttf-parser` no longer appears in `cargo tree` (RUSTSEC-2026-0192 eliminated).
-- `little_exif` and `quick-xml` no longer appear in `cargo tree` (RUSTSEC-2026-0194/-0195
-  eliminated); `set` / `clean --gps` still round-trip correctly on JPEG + PNG.
+- `just deny` (`cargo deny check advisories bans sources licenses`) passes with the
+  `[advisories].ignore` list down to a **single documented residual** — `RUSTSEC-2024-0436`
+  (`paste`, unmaintained build-time proc-macro, reached via `rav1e`→`ravif`→`image`/`avif`;
+  no upstream fix, so it can't be eliminated at the source here). The other **three** are
+  removed. (Corrected from the original "empty list" goal — see Design Notes: the paste
+  residual.)
+- `ttf-parser` no longer appears in `cargo tree` (RUSTSEC-2026-0192 eliminated — SPEC-044).
+- `little_exif`, `quick-xml`, and `brotli` no longer appear in `cargo tree`
+  (RUSTSEC-2026-0194/-0195 eliminated — SPEC-045); `set` / `clean --gps` still round-trip
+  correctly on JPEG + PNG.
 - `crustyimg <cmd> --help` contains no `STAGE-0XX` / `DEC-0XX` references or stale "stub"
   text.
 - Every change is behavior-preserving: `watermark --text`, `set`, and `clean` produce
@@ -75,9 +80,10 @@ across two releases, so cutting a clean 0.2.0 at the end of this stage is low-ri
 ### In scope
 - **SPEC-044** — swap `ab_glyph` → `skrifa` + `zeno`, dropping `ttf-parser`; remove the
   `-0192` ignore.
-- **In-house EXIF-tag writer** (spec TBD) — replace `little_exif` with a binary TIFF-IFD
-  writer for `set`/`clean --gps` via `img-parts`; remove the `-0194`/`-0195` ignores and
-  the `little_exif`→`quick-xml`→`paste` (-2024-0436) chain.
+- **SPEC-045 — in-house EXIF-tag writer** — replace `little_exif` with a binary TIFF-IFD
+  writer for `set`/`clean --gps` via `img-parts`; removes the `-0194`/`-0195` ignores +
+  `quick-xml` + `brotli`. (Does **not** remove `paste`/-2024-0436 — that also comes via
+  `rav1e`/`avif`; see Design Notes. DEC-046.)
 - **`--help` jargon cleanup** (PATCH or small spec) — strip stage/DEC refs + stale "stub"
   text from the clap doc-comments in `src/cli/mod.rs`.
 - Update DEC-042 / `deny.toml` / `docs/backlog.md` as each exception is eliminated.
@@ -95,11 +101,12 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
 - [x] SPEC-044 (shipped 2026-07-04, PR #49) — swapped `ab_glyph` → `skrifa`+`zeno`;
   dropped `ttf-parser`; removed the RUSTSEC-2026-0192 ignore (DEC-045).
-- [ ] (not yet written) — in-house TIFF-IFD EXIF writer replacing `little_exif`; remove
-  the RUSTSEC-2026-0194/-0195 ignores (+ the `paste` -2024-0436 chain).
+- [ ] SPEC-045 (design) — in-house TIFF-IFD EXIF writer replacing `little_exif`; removes
+  the RUSTSEC-2026-0194/-0195 ignores + `quick-xml`/`brotli` (DEC-046). `paste`/-2024-0436
+  stays (rav1e/avif).
 - [ ] (not yet written — PATCH candidate) — `--help` jargon cleanup in `src/cli/mod.rs`.
 
-**Count:** 1 shipped / 0 active / 2 pending
+**Count:** 1 shipped / 1 active / 1 pending
 
 ## Design Notes
 
