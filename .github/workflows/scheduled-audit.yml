@@ -1,0 +1,28 @@
+name: Scheduled advisory audit
+
+# A weekly `cargo-deny` ADVISORY scan, decoupled from pushes. The RustSec
+# advisory DB drifts: new advisories get published against dependencies we
+# already ship, between commits (RUSTSEC-2026-0192/-0194/-0195 all landed on
+# crustyimg's tree *after* 0.1.0, with no code change on our side). The
+# push-triggered `supply-chain` job in ci.yml only fires on pushes, so a quiet
+# period could hide a freshly-published advisory. This job surfaces that.
+#
+# Only `advisories` is scheduled — bans/licenses/sources can't change without a
+# commit (which the push-triggered job already covers). STAGE-011 / DEC-037.
+on:
+  schedule:
+    - cron: "0 9 * * 1" # Mondays 09:00 UTC
+  workflow_dispatch: {} # allow a manual run from the Actions tab
+
+jobs:
+  advisory-audit:
+    name: cargo-deny advisories (scheduled)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: "cargo-deny (advisories only — RustSec DB drift)"
+        uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check advisories
