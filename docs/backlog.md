@@ -55,6 +55,16 @@ refs, no stale "stub" text). Found during the v0.1.0 install smoke-test.
 
 ## PROJ-002 — next wave after MVP
 
+> **Scoping status (2026-07-05):** PROJ-002 is being framed **research-first**. Before
+> committing the wave, a dedicated research session runs `docs/research/proj-002-scoping-research.md`
+> (survey adjacent-tool demand + the pure-Rust/permissive crate landscape + validate the
+> **"image-asset engine for web workflows"** thesis) → `docs/research/proj-002-findings.md`,
+> which feeds a planning session that writes the `brief.md` + stages. Current bet: **`crop`
+> (+ smart/content-aware crop) ships as 0.3.0** and opens PROJ-002; the web-asset-engine
+> track (placeholders, manifest, favicon/icon sets, palette) is the differentiating thesis
+> under test. Runway: **0.2.1** = PATCH-003 dep bumps + scheduled deny CI (hygiene) →
+> research → **0.3.0** = crop → PROJ-002 build-out.
+
 High value, low complexity, all drop into the `Operation` trait + recipe
 system. **`crop` is the lead item (user-flagged)** — the brief calls out the
 geometry extras as explicitly on the roadmap and deferred to this near-term
