@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `--help` text now reads for end users: internal stage/spec/decision references
+  and stale "stub"/"placeholder" wording were removed from command and option
+  descriptions (PATCH-002).
+
 ### Deprecated
 
 ### Removed

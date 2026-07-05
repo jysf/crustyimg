@@ -68,7 +68,7 @@ pub struct GlobalArgs {
     #[arg(long, global = true)]
     pub name_template: Option<String>,
 
-    /// Parallel workers for batch (placeholder; honored in STAGE-005, DEC-006).
+    /// Number of parallel workers for batch operations.
     #[arg(short = 'j', long, global = true)]
     pub jobs: Option<usize>,
 
@@ -138,13 +138,12 @@ pub enum AutoQuality {
     SizeBudget(u64),
 }
 
-/// The full MVP subcommand surface from `docs/api-contract.md`.
+/// The full subcommand surface (see `docs/cli-reference.md`).
 ///
 /// Each variant carries that command's documented positional and named args.
-/// Stub commands parse their args and return `CliError::NotImplemented`.
 #[derive(Subcommand, Debug)]
 pub enum Commands {
-    /// Display an image in the terminal via viuer (STAGE-002; stub in STAGE-001).
+    /// Display an image in the terminal.
     View {
         input: String,
         #[arg(long)]
@@ -153,7 +152,7 @@ pub enum Commands {
         height: Option<u32>,
     },
 
-    /// Print image info: dimensions, format, byte size, color type, EXIF/ICC (STAGE-002).
+    /// Print image info: dimensions, format, byte size, color type, EXIF/ICC.
     Info {
         input: String,
         #[arg(long)]
@@ -162,7 +161,7 @@ pub enum Commands {
         json: bool,
     },
 
-    /// Perceptual comparison: SSIMULACRA2 score of <b> vs <a> (STAGE-009, DEC-025).
+    /// Perceptual comparison: SSIMULACRA2 score of <b> vs <a>.
     /// `--fail-under <N>` exits 7 when the score is below N — a CI visual-regression
     /// gate. `--json` emits a machine-readable result.
     Diff {
@@ -174,7 +173,7 @@ pub enum Commands {
         json: bool,
     },
 
-    /// Resize one or more images (STAGE-003).
+    /// Resize one or more images.
     #[command(group = clap::ArgGroup::new("mode")
         .required(true)
         .args(["max", "exact", "percent", "fit", "fill", "cover"]))]
@@ -194,7 +193,7 @@ pub enum Commands {
         cover: Option<String>,
     },
 
-    /// Convenience resize to a small bounded size (STAGE-003).
+    /// Convenience resize to a small bounded size.
     Thumbnail {
         inputs: Vec<String>,
         #[arg(long)]
@@ -203,9 +202,8 @@ pub enum Commands {
         square: bool,
     },
 
-    /// Optimize-for-web: resize + quality encode + strip metadata (STAGE-003).
-    /// `--target`/`--ssim` auto-tune the JPEG quality to a perceptual target
-    /// (SPEC-016, DEC-019).
+    /// Optimize-for-web: resize + quality encode + strip metadata.
+    /// `--target`/`--ssim` auto-tune the JPEG quality to a perceptual target.
     Shrink {
         inputs: Vec<String>,
         #[arg(long)]
@@ -216,26 +214,25 @@ pub enum Commands {
         /// Auto-tune the JPEG quality to a specific SSIMULACRA2 score (0-100).
         #[arg(long, conflicts_with = "target")]
         ssim: Option<f64>,
-        /// Auto-tune the JPEG quality to fit a byte budget, e.g. `200KB`
-        /// (SPEC-017).
+        /// Auto-tune the JPEG quality to fit a byte budget, e.g. `200KB`.
         #[arg(long, value_name = "SIZE", conflicts_with_all = ["target", "ssim"])]
         max_size: Option<String>,
     },
 
-    /// Re-encode to another core format (STAGE-003).
+    /// Re-encode to another core format.
     Convert {
         inputs: Vec<String>,
         /// Target format (required for this command).
         #[arg(long)]
         format: String,
         /// Auto-tune the JPEG quality to fit a byte budget, e.g. `200KB`
-        /// (SPEC-017; JPEG target only).
+        /// (JPEG target only).
         #[arg(long, value_name = "SIZE")]
         max_size: Option<String>,
     },
 
     /// One-button web-good: auto-orient + strip metadata + perceptual re-encode,
-    /// visually-lossless by default, format/size-preserving (STAGE-009, DEC-024).
+    /// visually-lossless by default, format/size-preserving.
     /// `--target`/`--ssim`/`--max-size` override the outcome; `--max` optionally
     /// bounds the long edge; `-o`/`--format` pick the output format.
     Optimize {
@@ -255,7 +252,7 @@ pub enum Commands {
     },
 
     /// Generate a responsive image set: width-scaled variants per format + a
-    /// paste-ready <picture>/srcset snippet on stdout (STAGE-009, DEC-026).
+    /// paste-ready <picture>/srcset snippet on stdout.
     /// Uses the global `--out-dir` (created if missing); resizes by target width,
     /// never upscaling.
     Responsive {
@@ -271,13 +268,13 @@ pub enum Commands {
         no_snippet: bool,
     },
 
-    /// Apply EXIF orientation to pixels, then clear the orientation tag (STAGE-003).
+    /// Apply EXIF orientation to pixels, then clear the orientation tag.
     #[command(name = "auto-orient")]
     AutoOrient { inputs: Vec<String> },
 
-    /// Overlay an image OR text watermark at a gravity anchor (STAGE-004).
+    /// Overlay an image OR text watermark at a gravity anchor.
     ///
-    /// Exactly one of `--image` (SPEC-029) or `--text` (SPEC-030) is required;
+    /// Exactly one of `--image` or `--text` is required;
     /// they are mutually exclusive. `--scale`/`--tile` are image-only;
     /// `--font`/`--size`/`--color` are text-only.
     Watermark {
@@ -309,17 +306,17 @@ pub enum Commands {
         tile: bool,
     },
 
-    /// Remove all metadata at the container level (STAGE-004).
+    /// Remove all metadata at the container level.
     Strip { inputs: Vec<String> },
 
-    /// Remove only GPS/location metadata (STAGE-004).
+    /// Remove only GPS/location metadata.
     Clean {
         inputs: Vec<String>,
         #[arg(long)]
         gps: bool,
     },
 
-    /// Write specific EXIF tags; pixels untouched (STAGE-004).
+    /// Write specific EXIF tags; pixels untouched.
     Set {
         inputs: Vec<String>,
         #[arg(long)]
@@ -330,7 +327,7 @@ pub enum Commands {
         description: Option<String>,
     },
 
-    /// Copy metadata from one image's container to another's (STAGE-004).
+    /// Copy metadata from one image's container to another's.
     #[command(name = "copy-metadata")]
     CopyMetadata {
         #[arg(long)]
@@ -339,7 +336,7 @@ pub enum Commands {
         to: String,
     },
 
-    /// One-shot multi-op on a single image; optionally saves the recipe (STAGE-005).
+    /// One-shot multi-op on a single image; optionally saves the recipe.
     ///
     /// Op flags are applied in canonical order regardless of CLI position:
     /// `auto-orient` → `resize` → `invert`. At least one op flag is required.
@@ -360,7 +357,7 @@ pub enum Commands {
         save_recipe: Option<String>,
     },
 
-    /// Run a saved recipe over one image or a batch (STAGE-005; single-input wired here).
+    /// Run a saved recipe over one image or a batch.
     Apply {
         #[arg(long)]
         recipe: String,
