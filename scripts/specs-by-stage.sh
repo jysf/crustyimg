@@ -50,6 +50,27 @@ get_spec_complexity() {
     ' "$1"
 }
 
+# patch.cycle / patch.complexity — patches carry a `patch:` block (DEC-043),
+# not a `task:` block, so they need their own readers.
+get_patch_cycle() {
+    awk '
+        /^---$/ { f = !f; next }
+        !f { exit }
+        /^patch:/ { p = 1; next }
+        p && /^[a-zA-Z_]/ { p = 0 }
+        p && /^[[:space:]]+cycle:/ { print $2; exit }
+    ' "$1"
+}
+get_patch_complexity() {
+    awk '
+        /^---$/ { f = !f; next }
+        !f { exit }
+        /^patch:/ { p = 1; next }
+        p && /^[a-zA-Z_]/ { p = 0 }
+        p && /^[[:space:]]+complexity:/ { print $2; exit }
+    ' "$1"
+}
+
 # recorded_at of the `ship` cost session, if any. Indents match the
 # rest of the cost-session readers in _lib.sh.
 get_spec_ship_date() {
@@ -108,8 +129,46 @@ SHIPPED=0
 INFLIGHT=0
 NOTWRITTEN=0
 STAGES=0
+PATCHES=0
 GRAND_USD="0.00"
 GRAND_TOK=0
+
+# Patches (DEC-043) have no stage, so they get their own per-project section
+# — the flat ledger should still account for every unit of work + its cost.
+print_patches() {
+    project_dir="$1"
+    local rows="" PATCH_USD="0.00" PATCH_TOK=0 any=0
+    while IFS= read -r pf; do
+        [ -f "$pf" ] || continue
+        pid=$(basename "$pf" | sed -E 's/^(PATCH-[0-9]+).*/\1/')
+        cyc=$(get_patch_cycle "$pf"); [ -n "$cyc" ] || cyc="?"
+        cx=$(get_patch_complexity "$pf"); [ -n "$cx" ] || cx="?"
+        u=$(sum_cost_usd_for_spec "$pf"); t=$(sum_cost_tokens_for_spec "$pf")
+        PATCH_USD=$(awk -v a="$PATCH_USD" -v b="$u" 'BEGIN{printf "%.2f", a+b}')
+        PATCH_TOK=$((PATCH_TOK + t))
+        GRAND_USD=$(awk -v a="$GRAND_USD" -v b="$u" 'BEGIN{printf "%.2f", a+b}')
+        GRAND_TOK=$((GRAND_TOK + t))
+        if [ "$u" = "0.00" ] && [ "$t" -eq 0 ]; then costcol="—"; else costcol="\$${u}  $(fmt_tok "$t")"; fi
+        # A patch is "shipped" when it lives under patches/done/ (or cycle: ship).
+        case "$pf" in
+            */done/*)
+                sdate=$(get_spec_ship_date "$pf"); [ -n "$sdate" ] || sdate="—"
+                rows+=$(printf "    %-10s  ${GREEN}%-8s${RESET}  %-12s  %-3s  %s\n" "$pid" "shipped" "$sdate" "$cx" "$costcol")$'\n'
+                SHIPPED=$((SHIPPED + 1)) ;;
+            *)
+                rows+=$(printf "    %-10s  %-8s  %-12s  %-3s  %s\n" "$pid" "$cyc" "—" "$cx" "$costcol")$'\n'
+                INFLIGHT=$((INFLIGHT + 1)) ;;
+        esac
+        PATCHES=$((PATCHES + 1)); any=1
+    done < <(find "${project_dir}/patches" -type f -name 'PATCH-*.md' -not -path '*/prompts/*' 2>/dev/null | sort)
+
+    [ "$any" = 1 ] || return 0
+    printf "  ${BOLD}Patches${RESET}  ${DIM}[no stage — DEC-043]${RESET}\n"
+    printf '%s' "$rows"
+    if [ "$PATCH_TOK" -gt 0 ] || [ "$PATCH_USD" != "0.00" ]; then
+        printf "    ${DIM}patch cost: \$%s · %s${RESET}\n" "$PATCH_USD" "$(fmt_tok "$PATCH_TOK")"
+    fi
+}
 
 print_stage() {
     local STAGE_USD="0.00" STAGE_TOK=0
@@ -192,9 +251,10 @@ for proj in "${PROJECTS[@]}"; do
     if [ "$found_stage" = 0 ]; then
         printf "  ${DIM}(no stages)${RESET}\n"
     fi
+    print_patches "$project_dir"
 done
 
-printf "\n${BOLD}Totals:${RESET} %d shipped · %d in flight · %d not yet written  ${DIM}(%d stage(s), %d project(s))${RESET}\n" \
-    "$SHIPPED" "$INFLIGHT" "$NOTWRITTEN" "$STAGES" "${#PROJECTS[@]}"
+printf "\n${BOLD}Totals:${RESET} %d shipped · %d in flight · %d not yet written  ${DIM}(%d stage(s), %d patch(es), %d project(s))${RESET}\n" \
+    "$SHIPPED" "$INFLIGHT" "$NOTWRITTEN" "$STAGES" "$PATCHES" "${#PROJECTS[@]}"
 printf "${BOLD}Recorded cost:${RESET} \$%s · %s tokens  ${DIM}(only cycles with real numbers — see just cost-audit)${RESET}\n" \
     "$GRAND_USD" "$GRAND_TOK"
