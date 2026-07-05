@@ -17,11 +17,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+### Security
+
+---
+
+## [0.1.1] - 2026-07-04
+
+### Fixed
+
 - `--out-dir` now creates the target directory (and parents) if missing,
   consistently across all batch commands; genuine creation failures return a
   clear error. Output-name path/symlink guards unchanged (DEC-035).
-
-### Security
 
 ---
 
@@ -153,5 +159,6 @@ re-decoded, so privacy ops carry no quality cost and no recompression.
 
 ---
 
-[Unreleased]: https://github.com/jysf/crustyimg/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/jysf/crustyimg/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/jysf/crustyimg/releases/tag/v0.1.1
 [0.1.0]: https://github.com/jysf/crustyimg/releases/tag/v0.1.0
