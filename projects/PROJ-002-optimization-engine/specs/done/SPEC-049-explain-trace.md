@@ -4,7 +4,7 @@
 task:
   id: SPEC-049
   type: story                      # epic | story | task | bug | chore
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: M                    # M | S | L
@@ -31,11 +31,52 @@ value_link: >
   from "smallest file" into "smallest file, with the reasons shown."
 
 cost:
-  sessions: []
+  sessions:
+    - cycle: design
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-07-05
+      notes: >
+        Main-loop orchestrator (PROJ-002 framing session), not separately metered.
+    - cycle: build
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 90000
+      estimated_usd: 0.81
+      duration_minutes: 20
+      recorded_at: 2026-07-06
+      notes: >
+        ESTIMATE — autonomous overnight run in the orchestrator main loop, NOT a metered subagent.
+        Order-of-magnitude (~90k at Opus 4.8 ~80/20 ≈ $0.81). ExplainTrace + renderers in decide.rs
+        (exact-JSON golden + determinism unit tests) + --explain[=json] wiring threaded out of
+        optimize_decide_one + 2 integration tests. Green on default/webp-lossy/lean/avif; no new dep.
+        PR #56.
+    - cycle: verify
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 12000
+      estimated_usd: 0.11
+      duration_minutes: 3
+      recorded_at: 2026-07-06
+      notes: >
+        ESTIMATE — same autonomous run; CI-driven verify, all jobs green on #56, drift clean.
+        Order-of-magnitude (~12k).
+    - cycle: ship
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-07-06
+      notes: >
+        Main-loop ship bookkeeping (also completed STAGE-012 + PROJ-002), not separately metered.
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 102000
+    estimated_usd: 0.92
+    session_count: 4
 ---
 
 # SPEC-049: `--explain` — the auditable decision trace
@@ -242,8 +283,14 @@ Written during **design**, BEFORE build. The renderers are pure over a synthetic
 *Appended during the **ship** cycle.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Nothing substantive. Threading the trace out of the already-computed decision (rather than
+   re-running) kept `--explain` a pure projection. The golden-as-synthetic-unit-test choice avoided
+   3-OS flakiness — worth remembering for any future machine-readable output.
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — No. DEC-049's subset-schema contract is now concrete (`crustyimg.optimize.explain/v1`);
+   PROJ-003 (planner) and PROJ-005 (manifest) extend it additively. The hand-rolled-JSON pattern
+   (no `serde_json`) held, matching `write_diff_json`.
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — No. STAGE-012 and PROJ-002 are complete. The deferred waves (planner→003, lint→004,
+   manifest→005, crop→006) are already scoped in the brief; the `Analysis` layer + `ExplainTrace`
+   are the shared foundation they read.

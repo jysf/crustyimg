@@ -4,7 +4,7 @@
 
 stage:
   id: STAGE-012                     # stable, zero-padded within the project
-  status: active                    # proposed | active | shipped | cancelled | on_hold
+  status: shipped                   # proposed | active | shipped | cancelled | on_hold
   priority: high                    # critical | high | medium | low
   target_complete: null
 
@@ -107,10 +107,11 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 - [x] SPEC-048 (shipped on 2026-07-06) — format auto-decision in `optimize`: `Analysis`-driven
   decision engine (`src/analysis/decide.rs`) + ≤3 shortlist + per-candidate solve over the existing
   SSIMULACRA2 search + winner rule + clear-win guard + `--profile web|docs|preserve`. PR #55 (494eb05).
-- [ ] SPEC-049 (design → build NEXT) — `--explain` trace (features/class/candidates/winner/savings),
-  human + `--explain=json`; the `ExplainTrace` type (schema in DEC-049) reused later as a manifest field
+- [x] SPEC-049 (shipped on 2026-07-06) — `--explain` trace (features/class/candidates/winner/savings),
+  human + `--explain=json`; the `ExplainTrace` type (schema `crustyimg.optimize.explain/v1`, DEC-049)
+  reused later as a manifest field. PR #56 (c87e81e).
 
-**Count:** 1 shipped / 1 in-design / 0 pending
+**Count:** 2 shipped / 0 in-design / 0 pending — **STAGE-012 complete.**
 
 ## Design Notes
 
@@ -149,10 +150,21 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
 ## Stage-Level Reflection
 
-*Filled in when status moves to shipped.*
+*Filled in when status moves to shipped (2026-07-06).*
 
-- **Did we deliver the outcome in "What This Stage Is"?** <yes/no + notes>
-- **How many specs did it actually take?** <number vs. plan>
-- **What changed between starting and shipping?** <one sentence>
+- **Did we deliver the outcome in "What This Stage Is"?** Yes — the PROJ-002 headline ships.
+  `optimize` now auto-decides the output format (the "local f_auto"): it reads the STAGE-011
+  `Analysis`, shortlists ≤3 candidates, solves each through the existing SSIMULACRA2 search, ships
+  the smallest that beats the source (never larger), and prints why. `--profile web|docs|preserve`
+  (preserve = the exact old behaviour) and `--explain[=json]` landed. Verified live: a photographic
+  PNG auto-decides to JPEG at −43% with a clear trace.
+- **How many specs did it actually take?** 2 (SPEC-048 engine + SPEC-049 explain), as planned.
+- **What changed between starting and shipping?** The maintainer added a `FORMAT_SWITCH_THRESHOLD`
+  clear-win guard + an always-on one-line summary (auto-decide is the new default, no back-compat);
+  both were folded into SPEC-048/049. Otherwise on-plan.
 - **Lessons that should update AGENTS.md, templates, or constraints?**
-  - <one-line updates>
+  - None binding. The reusable pattern: build the pure engine (`decide.rs`) + its tests first, then
+    wire the CLI — it made both the L-complexity SPEC-048 and SPEC-049 land with almost no CLI
+    iteration. `sink::encode_to_bytes` as the single authoritative encoder (DEC-016) meant measured
+    bytes == shipped bytes for free. The `decide` module is `sink`-free, so PROJ-003's planner wraps
+    it (one engine, two entry points).

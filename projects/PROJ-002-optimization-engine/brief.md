@@ -4,7 +4,7 @@
 
 project:
   id: PROJ-002                      # stable, zero-padded, never reused
-  status: active                    # proposed | active | shipped | cancelled
+  status: shipped                   # proposed | active | shipped | cancelled
   priority: high                    # critical | high | medium | low
   target_ship: null                 # optional: YYYY-MM-DD
 
@@ -12,7 +12,7 @@ repo:
   id: crustyimg                     # must match .repo-context.yaml
 
 created_at: 2026-07-05
-shipped_at: null
+shipped_at: 2026-07-06
 
 # Business value. Testable claim, not marketing copy.
 value:
@@ -132,11 +132,11 @@ Format: `- [status] STAGE-ID — one-line summary`
 - [x] STAGE-011 (shipped 2026-07-06) — Analysis foundation: `src/analysis/` layer (features +
   internal classification) landed standalone, all tests green (431→449). SPEC-046 + SPEC-047,
   PRs #53/#54.
-- [~] STAGE-012 (active, IN PROGRESS) — Auto-decide & explain: format auto-decision in `optimize`
-  ("local f_auto") + `--profile` + `--explain`; ships 0.3.0 — SPEC-048 (engine) then SPEC-049
-  (explain).
+- [x] STAGE-012 (shipped 2026-07-06) — Auto-decide & explain: format auto-decision in `optimize`
+  ("local f_auto") + `--profile web|docs|preserve` + `--explain[=json]`. SPEC-048 + SPEC-049,
+  PRs #55/#56. Cuts 0.3.0.
 
-**Count:** 1 shipped / 1 active / 0 pending
+**Count:** 2 shipped / 0 active / 0 pending — **PROJ-002 complete.**
 
 ## Dependencies
 
@@ -156,12 +156,29 @@ Format: `- [status] STAGE-ID — one-line summary`
 
 ## Project-Level Reflection
 
-*Filled in when status moves to shipped.*
+*Filled in when status moves to shipped (2026-07-06).*
 
-- **Did we deliver the outcome in "What This Project Is"?** <yes/no + notes>
-- **How many stages did it actually take?** <number, compare to plan>
-- **What changed between starting and shipping?** <one or two sentences>
+- **Did we deliver the outcome in "What This Project Is"?** Yes. crustyimg went from
+  "auto-tunes the quality of a format you name" to an **analysis-driven optimization engine that
+  picks the format for you and explains the choice**. Two coherent pieces shipped: (1) the shared,
+  computed-once `src/analysis/` layer (features + deterministic no-ML classification → `OptBucket`),
+  and (2) format auto-decision inside `optimize` (the "local f_auto") with `--profile` and
+  `--explain`. Verified end-to-end: a photographic PNG auto-decides to JPEG at −43% with an
+  auditable trace. Zero new default dependencies; `just deny` green; default build stays
+  pure-Rust / zero-system-deps; STAGE-006 hardening upheld (bounded, no-panic).
+- **How many stages did it actually take?** 2 (STAGE-011, STAGE-012) across 4 specs
+  (SPEC-046..049) — exactly as planned in the confirmed scope.
+- **What changed between starting and shipping?** Two mid-flight maintainer refinements to
+  STAGE-012 (a `FORMAT_SWITCH_THRESHOLD` clear-win guard + an always-on one-line summary, with
+  auto-decide as the new default and no back-compat obligation). No scope change otherwise.
 - **Lessons that should update AGENTS.md, templates, or constraints?**
-  - <one-line updates>
+  - Build the pure engine (`decide.rs`) + its tests before the CLI — it de-risked the L-complexity
+    spec. `sink::encode_to_bytes` as the single authoritative encoder made "measured bytes ==
+    shipped bytes" free (DEC-016). The `decide` module is `sink`-free so PROJ-003 wraps it. Cost
+    for build/verify was recorded as clearly-labelled autonomous main-loop estimates (no metered
+    subagent available in this run) — a convention worth noting for future autonomous runs.
 - **What did we defer to the next project?**
-  - <one-line items>
+  - The general goal-solver **planner** → PROJ-003 (wraps this engine: one decision engine, two
+    entry points). Source-file **`lint`** → PROJ-004 (reads `Analysis`). Web-asset **manifest** →
+    PROJ-005 (extends `ExplainTrace`). Geometry/effects/crop → PROJ-006. Indexed/lossy-PNG output
+    (needs a permissive quantizer, e.g. `quantette`) → PROJ-007; interim uses lossless WebP.
