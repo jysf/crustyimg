@@ -21,7 +21,7 @@
 
 use std::collections::HashSet;
 
-use ::image::ColorType;
+use ::image::{ColorType, ImageFormat};
 use thiserror::Error;
 
 use crate::image::Image;
@@ -51,6 +51,39 @@ const SAT_LOW_CHROMA_MAX: u8 = 32;
 /// (deterministic, fixed stride) to stay linear-bounded on very large images.
 const EDGE_SAMPLE_CAP: u64 = 4_000_000;
 
+// ── Classification thresholds (SPEC-047, recorded in DEC-047) ────────────────
+// Starting anchors, tuned against the synthetic corpus in the tests. The rule
+// cascade below switches on these; the safe-fallback bias is `Photograph`.
+
+/// `max(w, h)` at/below which an image may be an icon (with a squarish aspect).
+const ICON_MAX_EDGE: u32 = 128;
+/// Distinct-colour count at/below which the "few-colour graphic" palette gate
+/// fires (the industry pngquant/WebP ≤256-colour lossless heuristic).
+const PALETTE_COLORS: u32 = 256;
+/// Long/short edge ratio at/below which an aspect counts as squarish (icons).
+const ICON_ASPECT_MAX: f32 = 2.0;
+/// Flat-region fraction at/above which (with low edges) an image is a graphic.
+const FLAT_GRAPHIC_RATIO: f32 = 0.60;
+/// Edge fraction below which the flat-graphic gate may fire (few, if any, edges).
+const GRAPHIC_EDGE_MAX: f32 = 0.08;
+/// Bimodality at/above which an image may be a document/scan.
+const DOC_BIMODALITY: f32 = 0.55;
+/// Near-gray fraction at/above which an image may be a document/scan.
+const DOC_GRAY_RATIO: f32 = 0.85;
+/// Entropy below which an image may be a document/scan.
+const DOC_ENTROPY_MAX: f32 = 4.5;
+/// Flat-region fraction at/above which a wide many-colour image may be a
+/// UI screenshot.
+const UI_FLAT_RATIO: f32 = 0.35;
+/// Long/short edge ratio at/above which an aspect counts as "screen-wide".
+const UI_ASPECT_MIN: f32 = 1.3;
+/// Entropy at/above which (with few flat regions) an image is a photograph.
+const PHOTO_ENTROPY: f32 = 5.0;
+/// Flat-region fraction below which the entropy photo rule may fire.
+const PHOTO_FLAT_MAX: f32 = 0.25;
+/// Confidence reported when the cascade falls through to the safe default.
+const FALLBACK_CONFIDENCE: f32 = 0.4;
+
 /// The distinct-colour count, capped for bounded memory (DEC-034 discipline).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UniqueColors {
@@ -74,6 +107,50 @@ impl UniqueColors {
     pub fn is_saturated(self) -> bool {
         matches!(self, UniqueColors::Saturated(_))
     }
+}
+
+/// The fine-grained image class (SPEC-047). Deterministic, no-ML; kept mainly
+/// for the `explain` cosmetic label. The optimization engine switches on the
+/// coarser [`OptBucket`] via [`ImageClass::opt_bucket`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ImageClass {
+    /// Camera/continuous-tone content → compress lossy.
+    Photograph,
+    /// Logo / flat-colour graphic → compress lossless.
+    GraphicLogo,
+    /// Small squarish icon → keep lossless/palette.
+    Icon,
+    /// Scanned/rendered document or line-art → lossless.
+    Document,
+    /// Application/UI screenshot or illustration → mixed (try both families).
+    UiScreenshot,
+}
+
+impl ImageClass {
+    /// Collapse the five classes into the three optimization buckets the format
+    /// engine switches on. Exhaustive by design (no wildcard arm): adding a
+    /// class is a compile error until its bucket is chosen.
+    pub fn opt_bucket(self) -> OptBucket {
+        match self {
+            ImageClass::Photograph => OptBucket::Lossy,
+            ImageClass::GraphicLogo | ImageClass::Icon | ImageClass::Document => {
+                OptBucket::LosslessFlat
+            }
+            ImageClass::UiScreenshot => OptBucket::MixedSafe,
+        }
+    }
+}
+
+/// The coarse optimization disposition the format-decision engine (SPEC-048)
+/// switches on, alongside `has_alpha`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OptBucket {
+    /// Photographic → lossy codec family (JPEG / lossy-WebP / AVIF).
+    Lossy,
+    /// Flat/graphic/icon/document → lossless family (PNG / lossless-WebP).
+    LosslessFlat,
+    /// Ambiguous (UI/illustration) → try both and let measured bytes decide.
+    MixedSafe,
 }
 
 /// Errors from [`Analysis::compute`]. Typed and no-panic
@@ -110,6 +187,9 @@ pub struct Analysis {
     sat_low_ratio: f32,
     gray_ratio: f32,
     dominant_color: [u8; 4],
+    class: ImageClass,
+    opt_bucket: OptBucket,
+    confidence: f32,
 }
 
 impl Analysis {
@@ -196,6 +276,23 @@ impl Analysis {
         let dominant_color = dominant_from_quant(&quant_hist);
         let (edge_ratio, flat_ratio) = edge_flat_ratios(&luma, w, h);
 
+        // Container priors read off `Image` — never re-parsed (DEC-002/DEC-003).
+        let has_exif = img.info().has_exif;
+        let source_format = img.source_format();
+        let (class, confidence) = classify(ClassifyInput {
+            unique_colors,
+            flat_ratio,
+            edge_ratio,
+            entropy,
+            bimodality,
+            gray_ratio,
+            has_exif,
+            source_format,
+            width: w,
+            height: h,
+        });
+        let opt_bucket = class.opt_bucket();
+
         Ok(Analysis {
             width: w,
             height: h,
@@ -211,6 +308,9 @@ impl Analysis {
             sat_low_ratio,
             gray_ratio,
             dominant_color,
+            class,
+            opt_bucket,
+            confidence,
         })
     }
 
@@ -281,6 +381,24 @@ impl Analysis {
     /// populated quantized-colour bin; `a` is reported opaque).
     pub fn dominant_color(&self) -> [u8; 4] {
         self.dominant_color
+    }
+
+    /// The fine-grained image class (SPEC-047). Mainly an `explain` cosmetic;
+    /// the engine reads [`Analysis::opt_bucket`].
+    pub fn class(&self) -> ImageClass {
+        self.class
+    }
+
+    /// The coarse optimization bucket the format engine switches on.
+    pub fn opt_bucket(&self) -> OptBucket {
+        self.opt_bucket
+    }
+
+    /// Classification confidence `0.0..=1.0`. Low values (≤ the fallback
+    /// anchor) mean the safe-default `Photograph` bias fired; `explain` can
+    /// hedge on them.
+    pub fn confidence(&self) -> f32 {
+        self.confidence
     }
 }
 
@@ -389,6 +507,97 @@ fn edge_flat_ratios(luma: &[u8], w: u32, h: u32) -> (f32, f32) {
         return (0.0, 1.0);
     }
     (ratio(edges, evaluated), ratio(flats, evaluated))
+}
+
+/// Inputs to [`classify`]: the computed features plus the container priors.
+/// Grouped in a struct to keep the cascade signature readable (and clippy
+/// quiet about argument count).
+struct ClassifyInput {
+    unique_colors: UniqueColors,
+    flat_ratio: f32,
+    edge_ratio: f32,
+    entropy: f32,
+    bimodality: f32,
+    gray_ratio: f32,
+    has_exif: bool,
+    source_format: ImageFormat,
+    width: u32,
+    height: u32,
+}
+
+/// The deterministic, no-ML classification cascade (SPEC-047 / DEC-047).
+///
+/// Cheapest/strongest first, **first match wins** (precedence, not averaging).
+/// The camera prior (`has_exif`) is decisive and checked early — a
+/// photo-of-a-document still routes lossy, which is usually the right *format*
+/// call. The safe fallback is `Photograph`: a photo forced lossless is merely a
+/// larger file, whereas a graphic forced lossy smears text/edges (and the lossy
+/// downside is bounded anyway by the SSIMULACRA2 target downstream, DEC-019).
+///
+/// `source_format` is used only as the decisive `Ico → Icon` signal in v1; the
+/// softer JPEG/PNG family leans are deferred (they would over-bias without a
+/// real corpus, and `has_exif` already carries the camera prior).
+fn classify(input: ClassifyInput) -> (ImageClass, f32) {
+    let ClassifyInput {
+        unique_colors,
+        flat_ratio,
+        edge_ratio,
+        entropy,
+        bimodality,
+        gray_ratio,
+        has_exif,
+        source_format,
+        width,
+        height,
+    } = input;
+
+    let n = unique_colors.count();
+    let few_colors = !unique_colors.is_saturated() && n <= PALETTE_COLORS;
+    let many_colors = !few_colors;
+    let long_short = width.max(height) as f32 / width.min(height).max(1) as f32;
+
+    // 1. Icon — an `.ico`, or small + squarish and not a camera capture.
+    if source_format == ImageFormat::Ico
+        || (!has_exif && width.max(height) <= ICON_MAX_EDGE && long_short <= ICON_ASPECT_MAX)
+    {
+        return (ImageClass::Icon, 0.8);
+    }
+
+    // 2. Photograph via the decisive camera prior (EXIF) — before the
+    //    graphic/document rules, so a flat-ish camera photo still routes lossy.
+    if has_exif {
+        return (ImageClass::Photograph, 0.9);
+    }
+
+    // 3. Document/scan — bimodal, near-gray, low-entropy (more specific than the
+    //    graphic rule, so checked first even though both bucket LosslessFlat).
+    if bimodality >= DOC_BIMODALITY && gray_ratio >= DOC_GRAY_RATIO && entropy < DOC_ENTROPY_MAX {
+        return (ImageClass::Document, 0.7);
+    }
+
+    // 4. Graphic/logo — the ≤256-colour palette gate, or large flat fills with
+    //    few edges.
+    if few_colors {
+        return (ImageClass::GraphicLogo, 0.85);
+    }
+    if flat_ratio >= FLAT_GRAPHIC_RATIO && edge_ratio < GRAPHIC_EDGE_MAX {
+        return (ImageClass::GraphicLogo, 0.7);
+    }
+
+    // 5. UI-screenshot — wide, many-colour, moderately flat, but with real edges
+    //    (so it did not match the flat-graphic gate above).
+    if many_colors && flat_ratio >= UI_FLAT_RATIO && long_short >= UI_ASPECT_MIN {
+        return (ImageClass::UiScreenshot, 0.6);
+    }
+
+    // 6. Photograph — the no-EXIF heuristic: rich colour, high entropy, few flat
+    //    regions.
+    if many_colors && entropy >= PHOTO_ENTROPY && flat_ratio < PHOTO_FLAT_MAX {
+        return (ImageClass::Photograph, 0.7);
+    }
+
+    // 7. Fallback → Photograph (safe bias), low confidence.
+    (ImageClass::Photograph, FALLBACK_CONFIDENCE)
 }
 
 #[cfg(test)]
@@ -551,5 +760,173 @@ mod tests {
             UNIQUE_COLOR_CAP
         );
         assert!(UniqueColors::Saturated(UNIQUE_COLOR_CAP).is_saturated());
+    }
+
+    // ── SPEC-047 classification: a small labelled synthetic corpus ───────────
+
+    /// Wrap pixels with an explicit source format + optional captured EXIF.
+    fn image_with(dyn_img: DynamicImage, fmt: ImageFormat, exif: bool) -> Image {
+        let meta = exif.then(|| crate::image::MetadataBundle {
+            exif: Some(vec![0x45, 0x78, 0x69, 0x66]),
+            icc: None,
+        });
+        Image::from_parts(dyn_img, fmt, meta)
+    }
+
+    /// A full-colour pseudo-noise RGB image: each channel XOR-mixes the scaled
+    /// coordinates, giving a high-variety (saturated), high-entropy, edgy field
+    /// (adjacent pixels differ sharply) — photographic-like.
+    fn noise_rgb(w: u32, h: u32) -> DynamicImage {
+        let mut img = RgbImage::new(w, h);
+        for y in 0..h {
+            for x in 0..w {
+                let r = (x.wrapping_mul(61) ^ y.wrapping_mul(97)) as u8;
+                let g = (x.wrapping_mul(113) ^ y.wrapping_mul(29)) as u8;
+                let b = (x.wrapping_mul(17) ^ y.wrapping_mul(191)) as u8;
+                img.put_pixel(x, y, Rgb([r, g, b]));
+            }
+        }
+        DynamicImage::ImageRgb8(img)
+    }
+
+    #[test]
+    fn noise_is_photograph_lossy() {
+        let a = Analysis::compute(&image_of(noise_rgb(256, 192))).unwrap();
+        assert_eq!(a.class(), ImageClass::Photograph);
+        assert_eq!(a.opt_bucket(), OptBucket::Lossy);
+    }
+
+    #[test]
+    fn exif_prior_forces_photograph_even_when_flat() {
+        // A flat gray field would read as a graphic — the camera prior overrides.
+        let flat = DynamicImage::ImageRgb8(RgbImage::from_pixel(200, 150, Rgb([180, 180, 180])));
+        let a = Analysis::compute(&image_with(flat, ImageFormat::Jpeg, true)).unwrap();
+        assert_eq!(a.class(), ImageClass::Photograph);
+        assert!(a.confidence() >= 0.85, "conf {}", a.confidence());
+    }
+
+    #[test]
+    fn few_colour_graphic_is_lossless_flat() {
+        let (w, h) = (200u32, 200u32);
+        let colours = [
+            Rgb([200, 30, 30]),
+            Rgb([30, 200, 30]),
+            Rgb([30, 30, 200]),
+            Rgb([200, 200, 30]),
+            Rgb([200, 30, 200]),
+            Rgb([30, 200, 200]),
+        ];
+        let mut img = RgbImage::new(w, h);
+        for y in 0..h {
+            for x in 0..w {
+                img.put_pixel(x, y, colours[(y * 6 / h) as usize]);
+            }
+        }
+        let a = Analysis::compute(&image_of(DynamicImage::ImageRgb8(img))).unwrap();
+        assert_eq!(a.class(), ImageClass::GraphicLogo);
+        assert_eq!(a.opt_bucket(), OptBucket::LosslessFlat);
+    }
+
+    #[test]
+    fn tiny_square_is_icon() {
+        let a = Analysis::compute(&solid_rgb(48, 48, [10, 120, 200])).unwrap();
+        assert_eq!(a.class(), ImageClass::Icon);
+        assert_eq!(a.opt_bucket(), OptBucket::LosslessFlat);
+    }
+
+    #[test]
+    fn bimodal_grayscale_is_document() {
+        let (w, h) = (200u32, 160u32);
+        let mut img = RgbImage::from_pixel(w, h, Rgb([255, 255, 255]));
+        // Black "text" bars on ~25% of rows: two luma levels, near-gray, low entropy.
+        for y in 0..h {
+            if y % 8 < 2 {
+                for x in 0..w {
+                    img.put_pixel(x, y, Rgb([0, 0, 0]));
+                }
+            }
+        }
+        let a = Analysis::compute(&image_of(DynamicImage::ImageRgb8(img))).unwrap();
+        assert_eq!(a.class(), ImageClass::Document);
+        assert_eq!(a.opt_bucket(), OptBucket::LosslessFlat);
+    }
+
+    #[test]
+    fn wide_flat_manycolour_with_edges_is_ui_screenshot() {
+        let (w, h) = (320u32, 180u32);
+        let mut img = RgbImage::new(w, h);
+        // Smooth 2-axis gradient → many colours, low local gradient (flat-ish).
+        for y in 0..h {
+            for x in 0..w {
+                let r = (x * 255 / (w - 1)) as u8;
+                let g = (y * 255 / (h - 1)) as u8;
+                img.put_pixel(x, y, Rgb([r, g, 128]));
+            }
+        }
+        // Hard grid lines → real edges, so the flat-graphic gate does NOT fire.
+        for y in 0..h {
+            for x in 0..w {
+                if x % 16 == 0 || y % 16 == 0 {
+                    img.put_pixel(x, y, Rgb([0, 0, 0]));
+                }
+            }
+        }
+        let a = Analysis::compute(&image_of(DynamicImage::ImageRgb8(img))).unwrap();
+        assert_eq!(a.class(), ImageClass::UiScreenshot);
+        assert_eq!(a.opt_bucket(), OptBucket::MixedSafe);
+    }
+
+    #[test]
+    fn ambiguous_square_falls_back_to_photograph_low_confidence() {
+        // Half smooth gradient (flat, many colours), half noise (edgy) — trips no
+        // strong rule, square so not UI ⇒ the safe fallback to Photograph.
+        let (w, h) = (200u32, 200u32);
+        let mut img = RgbImage::new(w, h);
+        for y in 0..h {
+            for x in 0..w {
+                if x < w / 2 {
+                    let v = (x * 255 / (w / 2 - 1).max(1)) as u8;
+                    img.put_pixel(x, y, Rgb([v, (y * 255 / (h - 1)) as u8, 200]));
+                } else {
+                    let i = y * w + x;
+                    img.put_pixel(
+                        x,
+                        y,
+                        Rgb([
+                            (i.wrapping_mul(61) % 256) as u8,
+                            (i.wrapping_mul(113) % 256) as u8,
+                            (i.wrapping_mul(191) % 256) as u8,
+                        ]),
+                    );
+                }
+            }
+        }
+        let a = Analysis::compute(&image_of(DynamicImage::ImageRgb8(img))).unwrap();
+        assert_eq!(a.class(), ImageClass::Photograph);
+        assert_eq!(a.opt_bucket(), OptBucket::Lossy);
+        assert!(
+            a.confidence() <= FALLBACK_CONFIDENCE + 1e-6,
+            "conf {}",
+            a.confidence()
+        );
+    }
+
+    #[test]
+    fn opt_bucket_collapse_is_total() {
+        assert_eq!(ImageClass::Photograph.opt_bucket(), OptBucket::Lossy);
+        assert_eq!(
+            ImageClass::GraphicLogo.opt_bucket(),
+            OptBucket::LosslessFlat
+        );
+        assert_eq!(ImageClass::Icon.opt_bucket(), OptBucket::LosslessFlat);
+        assert_eq!(ImageClass::Document.opt_bucket(), OptBucket::LosslessFlat);
+        assert_eq!(ImageClass::UiScreenshot.opt_bucket(), OptBucket::MixedSafe);
+    }
+
+    #[test]
+    fn one_pixel_classifies_without_panic() {
+        let a = Analysis::compute(&solid_rgb(1, 1, [9, 9, 9])).unwrap();
+        assert_eq!(a.class(), ImageClass::Icon); // 1×1 satisfies the icon size rule
+        assert!((0.0..=1.0).contains(&a.confidence()));
     }
 }
