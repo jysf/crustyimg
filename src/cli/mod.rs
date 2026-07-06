@@ -146,6 +146,15 @@ impl ProfileArg {
     }
 }
 
+/// `optimize --explain[=json]`: render the auto-decision trace (SPEC-049).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
+pub enum ExplainFmt {
+    /// Human-readable trace to stderr (the default for a bare `--explain`).
+    Human,
+    /// Machine-readable JSON to stdout.
+    Json,
+}
+
 /// An opt-in auto-quality mode for `shrink`/`convert`: the encoder quality is
 /// searched per output instead of fixed (SPEC-016 / SPEC-017). Both modes run
 /// only for a format with a lossy quality knob (JPEG today; ignored otherwise,
@@ -276,6 +285,10 @@ pub enum Commands {
         /// format; `preserve` keeps the input format (today's behaviour).
         #[arg(long, value_enum, default_value_t = ProfileArg::Web)]
         profile: ProfileArg,
+        /// Explain the auto-decision: `--explain` (human, to stderr) or
+        /// `--explain=json` (machine-readable, to stdout).
+        #[arg(long, value_enum, num_args = 0..=1, default_missing_value = "human")]
+        explain: Option<ExplainFmt>,
     },
 
     /// Generate a responsive image set: width-scaled variants per format + a
@@ -604,6 +617,7 @@ fn dispatch(cli: &Cli) -> Result<(), CliError> {
             ssim,
             max_size,
             profile,
+            explain,
         } => run_optimize(
             inputs,
             *max,
@@ -611,6 +625,7 @@ fn dispatch(cli: &Cli) -> Result<(), CliError> {
             *ssim,
             max_size.as_deref(),
             *profile,
+            *explain,
             &cli.global,
         ),
         Commands::Responsive {
@@ -2789,6 +2804,9 @@ fn optimize_auto_config(
 /// `optimize` always auto-tunes quality, so a fixed `-q` conflicts (exit 2);
 /// `--target`/`--ssim`/`--max-size` are mutually exclusive. Multi-input fan-out +
 /// partial-batch exit 6 are inherited via [`run_pixel_op`] (DEC-015).
+// A CLI command handler mirroring its clap-destructured args (outcome flags +
+// profile + explain); bundling them would just re-wrap the same scalars.
+#[allow(clippy::too_many_arguments)]
 fn run_optimize(
     inputs: &[String],
     max: Option<u32>,
@@ -2796,6 +2814,7 @@ fn run_optimize(
     ssim: Option<f64>,
     max_size: Option<&str>,
     profile: ProfileArg,
+    explain: Option<ExplainFmt>,
     global: &GlobalArgs,
 ) -> Result<(), CliError> {
     let auto = optimize_auto_config(target, ssim, max_size)?;
@@ -2818,10 +2837,18 @@ fn run_optimize(
     if profile == ProfileArg::Preserve || pinned {
         // Preserve / pinned: auto quality, per-input format preserved / honored
         // from -o/--format (DEC-015). This is the strict regression anchor.
+        // (--explain has no decision to describe here; it is silently ignored.)
         return run_pixel_op(pipeline, inputs, global, None, None, Some(auto));
     }
 
-    run_optimize_autodecide(&pipeline, inputs, &auto, profile.to_decide(), global)
+    run_optimize_autodecide(
+        &pipeline,
+        inputs,
+        &auto,
+        profile.to_decide(),
+        explain,
+        global,
+    )
 }
 
 /// Build the shared `optimize` pipeline: auto-orient (bake EXIF orientation, drop
@@ -2851,6 +2878,8 @@ struct SolvedCandidate {
     outcome: crate::analysis::decide::CandidateOutcome,
     encoded: Vec<u8>,
     ext: String,
+    /// The encoder quality used (`None` for a lossless candidate) — for `explain`.
+    quality: Option<u8>,
 }
 
 /// Solve one shortlisted candidate against the oriented output image: run the
@@ -2864,19 +2893,19 @@ fn solve_candidate(
     let fmt = entry.fmt;
     let ext = crate::sink::extension_for_format(fmt).to_owned();
 
-    let (encoded, met_target) = match (entry.disposition, auto) {
+    let (encoded, met_target, quality) = match (entry.disposition, auto) {
         // Lossy + perceptual: search the lowest quality meeting the target, then
         // encode once at it. (Shortlist guarantees fmt is perceptually scorable.)
         (Disposition::Lossy, AutoQuality::Perceptual(cfg)) => {
             let qc = quality::auto_quality(out_img.pixels(), fmt, cfg)?;
             let bytes = crate::sink::encode_to_bytes(out_img, fmt, Some(qc.quality))?;
-            (bytes, qc.met_target)
+            (bytes, qc.met_target, Some(qc.quality))
         }
         // Lossless + perceptual: a single encode; lossless always meets a
         // perceptual target.
         (Disposition::Lossless, AutoQuality::Perceptual(_)) => {
             let bytes = crate::sink::encode_to_bytes(out_img, fmt, None)?;
-            (bytes, true)
+            (bytes, true, None)
         }
         // Byte-budget (either disposition): fit_under_size handles quality-then-scale
         // for lossy and the scale search for lossless, and reports whether it fit.
@@ -2889,7 +2918,7 @@ fn solve_candidate(
                 }
                 None => crate::sink::encode_to_bytes(out_img, fmt, fit.quality)?,
             };
-            (bytes, fit.met_budget)
+            (bytes, fit.met_budget, fit.quality)
         }
     };
 
@@ -2903,33 +2932,35 @@ fn solve_candidate(
         outcome,
         encoded,
         ext,
+        quality,
     })
 }
 
 /// What `optimize`'s auto-decision produced for one input.
 enum OptimizeOutput {
-    /// A winning re-encode: ship these bytes in this format.
-    Encoded {
-        fmt: ::image::ImageFormat,
-        bytes: Vec<u8>,
-        ext: String,
-    },
+    /// A winning re-encode: ship these bytes (extension names the chosen format).
+    Encoded { bytes: Vec<u8>, ext: String },
     /// No candidate beat the source — pass the original file through unchanged.
     Passthrough { raw: Vec<u8>, ext: String },
 }
 
-/// Decode → orient → auto-decide the output format for ONE input (SPEC-048). Runs
-/// the decision engine and returns the bytes to ship (or a passthrough). Prints a
-/// one-line summary to stderr unless `--quiet`.
+/// Decode → orient → auto-decide the output format for ONE input (SPEC-048/049).
+/// Runs the decision engine and returns the bytes to ship (or a passthrough)
+/// plus the `ExplainTrace` for reporting (`None` only for a degenerate image).
+/// Does NOT print — the caller renders the summary or `--explain`.
 fn optimize_decide_one(
     input: &crate::source::Input,
     pipeline: &Pipeline,
     auto: &AutoQuality,
     profile: crate::analysis::decide::Profile,
-    global: &GlobalArgs,
-    label: &str,
-) -> Result<OptimizeOutput, CliError> {
-    use crate::analysis::decide::{self, BuiltCodecs, Mode};
+) -> Result<
+    (
+        OptimizeOutput,
+        Option<crate::analysis::decide::ExplainTrace>,
+    ),
+    CliError,
+> {
+    use crate::analysis::decide::{self, BuiltCodecs, CandidateTrace, ExplainTrace, Mode};
 
     // Raw source bytes: the "beats source" reference AND the passthrough payload.
     let raw = read_raw_bytes(input)?;
@@ -2952,14 +2983,15 @@ fn optimize_decide_one(
     };
 
     // Compute the analysis verdict; on a degenerate image (no verdict) pass the
-    // source through unchanged rather than guessing.
+    // source through unchanged rather than guessing (no trace to explain).
     let analysis = match crate::analysis::Analysis::compute(&out_img) {
         Ok(a) => a,
         Err(_) => {
-            return Ok(OptimizeOutput::Passthrough {
+            let output = OptimizeOutput::Passthrough {
                 raw,
                 ext: metadata_output_ext(input, &[]),
-            })
+            };
+            return Ok((output, None));
         }
     };
     let has_alpha = out_img.info().has_alpha;
@@ -2972,12 +3004,12 @@ fn optimize_decide_one(
         solved.push(solve_candidate(&out_img, entry, auto)?);
     }
     let outcomes: Vec<_> = solved.iter().map(|s| s.outcome).collect();
+    let winner = decide::pick_winner(&outcomes, source_bytes, source_format);
 
-    let output = match decide::pick_winner(&outcomes, source_bytes, source_format) {
+    let output = match winner {
         Some(i) => {
             let win = &solved[i];
             OptimizeOutput::Encoded {
-                fmt: win.outcome.fmt,
                 bytes: win.encoded.clone(),
                 ext: win.ext.clone(),
             }
@@ -2987,35 +3019,84 @@ fn optimize_decide_one(
             ext: metadata_output_ext(input, &[]),
         },
     };
+    let out_bytes = match winner {
+        Some(i) => solved[i].outcome.bytes,
+        None => source_bytes,
+    };
 
-    if !global.quiet {
-        match &output {
-            OptimizeOutput::Encoded { fmt, bytes, .. } => {
-                let out_len = bytes.len() as u64;
-                let saved = if source_bytes > 0 {
-                    100.0 * (1.0 - out_len as f64 / source_bytes as f64)
-                } else {
-                    0.0
-                };
-                eprintln!(
-                    "{label}: {} \u{2192} {} \u{b7} {} \u{2192} {} ({saved:.0}% smaller)",
-                    format_label(source_format),
-                    format_label(*fmt),
-                    fmt_bytes(source_bytes),
-                    fmt_bytes(out_len),
-                );
+    let uc = analysis.unique_colors();
+    let trace = ExplainTrace {
+        source_format,
+        class: analysis.class(),
+        entropy: analysis.entropy(),
+        edge_ratio: analysis.edge_ratio(),
+        flat_ratio: analysis.flat_ratio(),
+        unique_colors: uc.count(),
+        unique_saturated: uc.is_saturated(),
+        has_alpha,
+        profile,
+        mode,
+        source_bytes,
+        candidates: solved
+            .iter()
+            .map(|s| CandidateTrace {
+                fmt: s.outcome.fmt,
+                disposition: s.outcome.disposition,
+                quality: s.quality,
+                bytes: s.outcome.bytes,
+                met_target: s.outcome.met_target,
+            })
+            .collect(),
+        winner,
+        out_bytes,
+    };
+
+    Ok((output, Some(trace)))
+}
+
+/// Render one input's report: `--explain` (json→stdout, human→stderr), else the
+/// default one-line summary to stderr (unless `--quiet`).
+fn emit_optimize_report(
+    label: &str,
+    trace: Option<&crate::analysis::decide::ExplainTrace>,
+    explain: Option<ExplainFmt>,
+    global: &GlobalArgs,
+) -> Result<(), CliError> {
+    use std::io::Write as _;
+    match explain {
+        Some(ExplainFmt::Json) => {
+            if let Some(t) = trace {
+                let mut out = std::io::stdout().lock();
+                let render = (|| -> std::io::Result<()> {
+                    t.write_json(&mut out)?;
+                    writeln!(out)
+                })();
+                render
+                    .map_err(|e| CliError::Usage(format!("failed to write explain output: {e}")))?;
             }
-            OptimizeOutput::Passthrough { .. } => {
-                eprintln!(
-                    "{label}: kept {} ({}, already optimal)",
-                    format_label(source_format),
-                    fmt_bytes(source_bytes),
-                );
+        }
+        Some(ExplainFmt::Human) => {
+            let mut err = std::io::stderr().lock();
+            match trace {
+                Some(t) => {
+                    let _ = writeln!(err, "{label}:");
+                    let _ = t.render_human(&mut err);
+                }
+                None => {
+                    let _ = writeln!(err, "{label}: no analysis (degenerate input); kept source");
+                }
+            }
+        }
+        None => {
+            if !global.quiet {
+                match trace {
+                    Some(t) => eprintln!("{label}: {}", t.summary_line()),
+                    None => eprintln!("{label}: kept source (degenerate input)"),
+                }
             }
         }
     }
-
-    Ok(output)
+    Ok(())
 }
 
 /// Write one auto-decided output through the appropriate sink (bytes are already
@@ -3027,7 +3108,7 @@ fn write_optimize_output(
     overwrite: Overwrite,
 ) -> Result<(), CliError> {
     let (bytes, ext) = match output {
-        OptimizeOutput::Encoded { bytes, ext, .. } => (bytes.as_slice(), ext.as_str()),
+        OptimizeOutput::Encoded { bytes, ext } => (bytes.as_slice(), ext.as_str()),
         OptimizeOutput::Passthrough { raw, ext } => (raw.as_slice(), ext.as_str()),
     };
     let sink_input = SinkInput {
@@ -3052,6 +3133,7 @@ fn run_optimize_autodecide(
     inputs: &[String],
     auto: &AutoQuality,
     profile: crate::analysis::decide::Profile,
+    explain: Option<ExplainFmt>,
     global: &GlobalArgs,
 ) -> Result<(), CliError> {
     let mut all: Vec<crate::source::Input> = Vec::new();
@@ -3075,7 +3157,8 @@ fn run_optimize_autodecide(
             .path()
             .map(|p| p.display().to_string())
             .unwrap_or_else(|| input.stem().to_owned());
-        let output = optimize_decide_one(input, pipeline, auto, profile, global, &label)?;
+        let (output, trace) = optimize_decide_one(input, pipeline, auto, profile)?;
+        emit_optimize_report(&label, trace.as_ref(), explain, global)?;
 
         let sink = if let Some(ref out) = global.output {
             if out == "-" {
@@ -3118,7 +3201,8 @@ fn run_optimize_autodecide(
                 crate::source::Input::Stdin { stem, .. } => stem.clone(),
             };
             let result = (|| -> Result<(), CliError> {
-                let output = optimize_decide_one(input, pipeline, auto, profile, global, &label)?;
+                let (output, trace) = optimize_decide_one(input, pipeline, auto, profile)?;
+                emit_optimize_report(&label, trace.as_ref(), explain, global)?;
                 let sink = Sink::Dir {
                     dir: PathBuf::from(out_dir),
                     template: template.clone(),
