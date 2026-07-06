@@ -17,3 +17,5 @@ meant to be edited into your own voice before publishing.
 | 2026-06-03 | [Two numbers traditional dev hides](2026-06-03-value-and-cost.md) — value and AI cost per spec | draft |
 | 2026-06-14 | [crustyimg: a recipe-driven image CLI, rebuilt clean](2026-06-14-crustyimg-the-recipe-driven-image-cli.md) — project overview & roadmap | draft |
 | 2026-07-06 | [crustyimg 0.3.0: `optimize` picks the format for you](2026-07-06-crustyimg-optimize-picks-the-format.md) — the local `f_auto` | draft |
+| 2026-07-06 | [How `optimize` picks a format](2026-07-06-how-optimize-picks-a-format.md) — shortlist, search, winner (feature deep-dive) | draft |
+| 2026-07-06 | [Deciding photo-vs-graphic without ML](2026-07-06-deciding-photo-vs-graphic-without-ml.md) — the analysis layer | draft |
