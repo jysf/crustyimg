@@ -4,7 +4,7 @@
 task:
   id: SPEC-046
   type: story                      # epic | story | task | bug | chore
-  cycle: design                    # frame | design | build | verify | ship
+  cycle: verify  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: M                    # S | M | L  (L means split it)
@@ -186,24 +186,39 @@ generators — reuse them; see `src/cli` create path / test helpers).
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
+- **Branch:** `feat/spec-046-analysis-foundation`
+- **PR (if applicable):** see PROJ-002 STAGE-011 ship log (opened + merged in the autonomous run).
+- **All acceptance criteria met?** yes — 9 new `src/analysis` unit tests green; full suite 440
+  passed (431 baseline + 9); `cargo fmt --check`, `clippy --all-targets -D warnings`, lean
+  `--no-default-features` build, and `just deny` all green; no new dependency.
 - **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
+  - None. The one non-obvious build choice (edge operator) is a spec-level refinement, recorded
+    under Deviations rather than a repo DEC — it doesn't bind future work beyond this module.
 - **Deviations from spec:**
-  - [list]
+  - **Edge operator = forward difference, not the design brief's central difference.** A central
+    difference `|L(x+1,y)-L(x-1,y)|` is blind to a 1-pixel checkerboard (opposite neighbours
+    cancel → a hard checkerboard reads as *flat*), which would break the "checkerboard → high edge
+    ratio" acceptance test. Forward difference `|L(x+1,y)-L(x,y)| + |L(x,y+1)-L(x,y)|` is still
+    integer Sobel-lite with no kernel library, and detects high-frequency edges correctly.
+  - **Degenerate handling refined:** only a **zero-area** image (0 width or height) returns
+    `AnalysisError::DegenerateDimensions`; a 1×1 image is well-defined (`entropy 0`,
+    `unique_colors Exact(1)`, `edge_ratio 0`, `flat_ratio 1`) and returns `Ok`. This keeps
+    SPEC-047's "1-px classifies without panic" consistent (a 1-px image must yield a class).
 - **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - None new. `dominant_color` and `bimodality` are computed but not yet consumed — SPEC-047's
+    classifier is their first reader (already in the STAGE-011 backlog).
 
 ### Build-phase reflection (3 questions, short answers)
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — The "0×0 / 1-px → Err" phrasing in the Failing Tests read as if 1-px should error; the
+   sensible resolution (only 0-area errors; 1-px is valid) is now explicit above and in the test.
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — No. DEC-002/DEC-034 + `untrusted-input-hardening` covered everything; the forward-vs-central
+   edge choice is an implementation detail the spec rightly left open.
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Specify the edge operator as forward-difference up front (the design brief's central
+   difference is a sketch that fails the checkerboard case), to save the mid-build correction.
 
 ---
 
