@@ -4,7 +4,7 @@
 
 project:
   id: PROJ-001                      # stable, zero-padded, never reused
-  status: active                    # proposed | active | shipped | cancelled
+  status: shipped                   # proposed | active | shipped | cancelled
   priority: high                    # critical | high | medium | low
   target_ship: null                 # optional: YYYY-MM-DD
 
@@ -12,7 +12,7 @@ repo:
   id: crustyimg                     # must match .repo-context.yaml
 
 created_at: 2026-06-13
-shipped_at: null
+shipped_at: 2026-07-06
 
 # Business value. Testable claim, not marketing copy.
 value:

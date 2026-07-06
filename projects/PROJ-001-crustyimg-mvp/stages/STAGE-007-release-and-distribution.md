@@ -5,7 +5,7 @@
 
 stage:
   id: STAGE-007                     # stable, zero-padded within the project
-  status: active                    # proposed | active | shipped | cancelled | on_hold
+  status: shipped                   # proposed | active | shipped | cancelled | on_hold
   priority: medium                  # critical | high | medium | low
   target_complete: null             # optional: YYYY-MM-DD
 
@@ -15,7 +15,7 @@ repo:
   id: crustyimg
 
 created_at: 2026-06-14
-shipped_at: null
+shipped_at: 2026-07-06
 
 # What part of the project's value thesis this stage advances.
 value_contribution:
