@@ -129,14 +129,14 @@ are the next projects that all read the `Analysis` layer this one builds.
 
 Format: `- [status] STAGE-ID — one-line summary`
 
-- [~] STAGE-011 (active, IN PROGRESS) — Analysis foundation: `src/analysis/` layer (features +
-  internal classification), lands standalone, all existing tests green — both specs
-  (SPEC-046, SPEC-047) designed; SPEC-046 is the first build target
-- [ ] STAGE-012 (proposed) — Auto-decide & explain: format auto-decision in `optimize`
-  ("local f_auto") + `--profile` + `--explain`; ships 0.3.0 — both specs (SPEC-048, SPEC-049)
-  designed ahead, awaiting STAGE-011
+- [x] STAGE-011 (shipped 2026-07-06) — Analysis foundation: `src/analysis/` layer (features +
+  internal classification) landed standalone, all tests green (431→449). SPEC-046 + SPEC-047,
+  PRs #53/#54.
+- [~] STAGE-012 (active, IN PROGRESS) — Auto-decide & explain: format auto-decision in `optimize`
+  ("local f_auto") + `--profile` + `--explain`; ships 0.3.0 — SPEC-048 (engine) then SPEC-049
+  (explain).
 
-**Count:** 0 shipped / 1 active / 1 pending
+**Count:** 1 shipped / 1 active / 0 pending
 
 ## Dependencies
 

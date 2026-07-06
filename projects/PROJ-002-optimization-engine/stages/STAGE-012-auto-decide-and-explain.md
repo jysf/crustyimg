@@ -4,7 +4,7 @@
 
 stage:
   id: STAGE-012                     # stable, zero-padded within the project
-  status: proposed                  # proposed | active | shipped | cancelled | on_hold
+  status: active                    # proposed | active | shipped | cancelled | on_hold
   priority: high                    # critical | high | medium | low
   target_complete: null
 
@@ -104,7 +104,7 @@ tells you why."
 
 Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
-- [ ] SPEC-048 (design) — format auto-decision in `optimize`: `Analysis`-driven decision tree +
+- [ ] SPEC-048 (design → build NEXT) — format auto-decision in `optimize`: `Analysis`-driven decision tree +
   ≤3 candidate shortlist + per-candidate solve over the existing SSIMULACRA2 search/`LossyFormat`
   seam + winner rule + `--profile web|docs|preserve`; engine + profiles + AVIF-byte-budget-only
   recorded in DEC-048

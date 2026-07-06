@@ -4,7 +4,7 @@
 
 stage:
   id: STAGE-011                     # stable, zero-padded within the project
-  status: active                    # proposed | active | shipped | cancelled | on_hold
+  status: shipped                   # proposed | active | shipped | cancelled | on_hold
   priority: high                    # critical | high | medium | low
   target_complete: null
 
@@ -97,11 +97,11 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
   single-pass feature extractors (histogram, entropy, edge density, alpha coverage, capped
   unique-colours, dominant colour) + bounded no-panic `AnalysisError`; landed standalone, all
   tests green (suite 440). PR #53 (f6c046e).
-- [ ] SPEC-047 (design → build NEXT) — deterministic no-ML classification (`ImageClass` → three
+- [x] SPEC-047 (shipped on 2026-07-06) — deterministic no-ML classification (`ImageClass` → three
   `OptBucket`s) on the SPEC-046 features + `source_format`/`has_exif` container priors + a labeled
-  fixture corpus; thresholds + safe-fallback bias recorded in DEC-047
+  fixture corpus; thresholds + safe-fallback bias tuned to DEC-047. PR #54 (c712afd).
 
-**Count:** 1 shipped / 1 in-design / 0 pending
+**Count:** 2 shipped / 0 in-design / 0 pending — **STAGE-011 complete.**
 
 ## Design Notes
 
@@ -129,10 +129,19 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
 ## Stage-Level Reflection
 
-*Filled in when status moves to shipped.*
+*Filled in when status moves to shipped (2026-07-06).*
 
-- **Did we deliver the outcome in "What This Stage Is"?** <yes/no + notes>
-- **How many specs did it actually take?** <number vs. plan>
-- **What changed between starting and shipping?** <one sentence>
+- **Did we deliver the outcome in "What This Stage Is"?** Yes. `src/analysis/mod.rs` ships the
+  immutable computed-once `Analysis` (single accumulation pass + one edge pass, bounded, no-panic)
+  and the deterministic no-ML classifier (`ImageClass` → three `OptBucket`s). It landed standalone
+  — no command reads it — so every existing test stayed green (baseline 431 → 449). Zero new deps.
+- **How many specs did it actually take?** 2 (SPEC-046 + SPEC-047), exactly as planned.
+- **What changed between starting and shipping?** Two module-local refinements, both documented in
+  the specs: the edge operator is a forward difference (central difference is blind to a 1px
+  checkerboard), and the cascade checks `has_exif` early + Document before Graphic to honour the
+  "camera prior is decisive" intent. No scope change.
 - **Lessons that should update AGENTS.md, templates, or constraints?**
-  - <one-line updates>
+  - None binding. Design lesson carried into STAGE-012: pin operator/ordering choices in the spec,
+    and remember a smooth gradient reads as *flat* under `FLAT_THRESHOLD=4` (fixtures for non-flat
+    classes need genuine high-frequency content). `Analysis` is ready for SPEC-048 to consume
+    (`opt_bucket` + `has_alpha` → codec family).

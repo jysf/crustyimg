@@ -4,7 +4,7 @@
 task:
   id: SPEC-047
   type: story                      # epic | story | task | bug | chore
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: M                    # S | M | L  (L means split it)
@@ -31,11 +31,52 @@ value_link: >
   every STAGE-012 auto-decision reads (`opt_bucket` + `has_alpha` → codec family).
 
 cost:
-  sessions: []
+  sessions:
+    - cycle: design
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-07-05
+      notes: >
+        Main-loop orchestrator (PROJ-002 framing session), not separately metered.
+    - cycle: build
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 85000
+      estimated_usd: 0.77
+      duration_minutes: 18
+      recorded_at: 2026-07-06
+      notes: >
+        ESTIMATE — autonomous overnight run in the orchestrator main loop, NOT a metered
+        subagent, so no subagent_tokens. Order-of-magnitude (~85k at Opus 4.8 ~80/20 ≈ $0.77).
+        Added ImageClass/OptBucket/confidence + the no-ML cascade + 9 corpus tests to
+        src/analysis/mod.rs; one iteration to fix the noise fixture (coord-XOR mixing for genuine
+        >256-colour high-frequency noise). Suite 449; fmt/clippy/lean/deny green. PR #54.
+    - cycle: verify
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 12000
+      estimated_usd: 0.11
+      duration_minutes: 3
+      recorded_at: 2026-07-06
+      notes: >
+        ESTIMATE — same autonomous run; CI-driven verify (all jobs green on #54), decision-drift
+        clean, post-merge suite 449. Order-of-magnitude (~12k).
+    - cycle: ship
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-07-06
+      notes: >
+        Main-loop ship bookkeeping (also shipped STAGE-011), not separately metered.
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 97000
+    estimated_usd: 0.88
+    session_count: 4
 ---
 
 # SPEC-047: deterministic image classification — `ImageClass` → three `OptBucket`s
@@ -257,8 +298,13 @@ about the routing rule, not about a borderline pixel.
 *Appended during the **ship** cycle.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Encode the cascade *order* in the spec, not just the rule set. "has_exif is decisive" and
+   "both Document and Graphic bucket LosslessFlat" have real ordering consequences that only
+   surfaced when writing the corpus tests. Also: fixtures for non-flat classes need genuine
+   high-frequency content — a smooth gradient reads as flat under `FLAT_THRESHOLD=4`.
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — No. DEC-047's "tune the anchors against a labelled corpus in-build" played out exactly as
+   written; the shipped constants are the tuned values it points to. Worth flagging for SPEC-048:
+   the engine consumes `opt_bucket` + `has_alpha`; `confidence` is `explain`-only (SPEC-049).
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — No. STAGE-011 is complete; SPEC-048 (already written) is next and consumes this verdict.
