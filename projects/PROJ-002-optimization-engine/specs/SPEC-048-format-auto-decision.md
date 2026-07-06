@@ -4,7 +4,7 @@
 task:
   id: SPEC-048
   type: story                      # epic | story | task | bug | chore
-  cycle: design                    # frame | design | build | verify | ship
+  cycle: verify  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: L                    # L: the decision engine + CLI wiring + winner rule
@@ -259,24 +259,51 @@ to test the winner rule. Integration tests exercise the real `optimize` CLI on g
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
+- **Branch:** `feat/spec-048-format-auto-decision`
+- **PR (if applicable):** see STAGE-012 ship log (opened + merged in the autonomous run).
+- **All acceptance criteria met?** yes — `src/analysis/decide.rs` (pure `format_shortlist` +
+  `pick_winner` + clear-win guard, 13 unit tests) + the `optimize` autodecide path
+  (`--profile web|docs|preserve`, per-candidate solve via `auto_quality`/`fit_under_size`, winner
+  written via `sink::encode_to_bytes`/`write_bytes`, one-line stderr summary). 7 integration tests.
+  Green across **default (469)**, **webp-lossy (476)**, **lean --no-default-features (469)**, and
+  **avif** clippy; fmt/clippy(×3)/deny green; no new dependency.
 - **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
+  - None beyond DEC-048 (already captures the engine/profiles/winner-rule/clear-win-guard/
+    AVIF-byte-budget). The `DecisionPolicy` constants it points to landed in
+    `src/analysis/decide.rs` (`FORMAT_SWITCH_THRESHOLD = 0.05`, `MAX_SHORTLIST = 3`).
 - **Deviations from spec:**
-  - [list]
+  - **`decide.rs` lives under `src/analysis/`, not `src/quality/`** (the spec sanctioned either).
+    It imports `analysis::OptBucket`; placing it in `quality/` would have widened that module's
+    "only `::image`/`ssimulacra2`" layering contract. It stays `sink`/`cli`/`fs`-free either way —
+    the planner-wrap seam is intact.
+  - **Autodecide is a parallel fan-out (`run_optimize_autodecide`), not threaded through
+    `run_pixel_op`.** The per-input format decision changes format+quality+image, which
+    `run_pixel_op` (one forced/preserved format) can't express. `--profile preserve` and any pinned
+    format still route through `run_pixel_op` **unchanged** — the exact regression anchor.
+  - **"Beats source" compares against the raw source *file* bytes; passthrough writes the original
+    file unchanged** (keeps its metadata/orientation) — the "leave an already-optimal file
+    untouched" semantics. A same-format lossless re-encode of identical pixels equals the source
+    bytes, so it is never "smaller than itself" (correctly ineligible).
+  - Pin detection = `--format` set OR `-o` with a recognized extension → engine bypassed.
 - **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - None new. SPEC-049 (`--explain`) renders this engine's decision record — it will need the
+    per-candidate array surfaced; today `optimize_decide_one` computes it internally. SPEC-049 will
+    thread an `ExplainTrace` out of that function (already in the STAGE-012 backlog).
 
 ### Build-phase reflection (3 questions, short answers)
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — The disposition modelling. The shortlist needs `(format, lossy|lossless)` pairs (WebP appears
+   both ways), not just formats — the spec implied it but I had to make it explicit. Encoding
+   disposition as `quality: Some/None` (which `sink::encode_to_bytes` already keys on) made it fall
+   out cleanly.
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — No. `sink::encode_to_bytes` being the single authoritative encoder (DEC-016) was the key
+   enabler — it's both the byte-measure and the winner's write path, so measured == shipped for free.
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Write `decide.rs` (pure) first and lock its tests before touching the CLI — which is what I
+   did, and it paid off: the CLI wiring compiled and passed with almost no iteration because the
+   hard logic was already proven in isolation.
 
 ---
 

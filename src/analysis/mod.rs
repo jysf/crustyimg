@@ -26,6 +26,10 @@ use thiserror::Error;
 
 use crate::image::Image;
 
+/// The format auto-decision engine's pure core (SPEC-048): shortlist + winner
+/// rule over the [`OptBucket`] verdict. Free of `sink`/`cli`/`fs`.
+pub mod decide;
+
 /// The maximum number of distinct RGB colours counted before the unique-colour
 /// accumulator short-circuits to [`UniqueColors::Saturated`].
 ///
