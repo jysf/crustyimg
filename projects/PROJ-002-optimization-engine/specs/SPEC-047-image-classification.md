@@ -4,7 +4,7 @@
 task:
   id: SPEC-047
   type: story                      # epic | story | task | bug | chore
-  cycle: design                    # frame | design | build | verify | ship
+  cycle: verify  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: M                    # S | M | L  (L means split it)
@@ -213,24 +213,42 @@ about the routing rule, not about a borderline pixel.
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
+- **Branch:** `feat/spec-047-classification`
+- **PR (if applicable):** see STAGE-011 ship log (opened + merged in the autonomous run).
+- **All acceptance criteria met?** yes — `ImageClass` (5) + `OptBucket` (3, exhaustive collapse) +
+  `confidence` added to `Analysis`; 9 corpus/collapse/degenerate tests green; full suite 449
+  (440 + 9); fmt/clippy/lean(+lean tests)/deny green; no new dependency; classification stays
+  wired into no command.
 - **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
+  - None new. DEC-047 already captures the thresholds + safe-fallback-to-`Photograph` bias; the
+    tuned constants live in the `src/analysis/mod.rs` classification-threshold block DEC-047 points
+    to. The cascade-order refinements below are within DEC-047's stated intent.
 - **Deviations from spec:**
-  - [list]
+  - **Cascade order refined vs. the design brief.** `has_exif → Photograph` is checked **early**
+    (rule 2, before the graphic/document rules), to honour "`has_exif` is decisive" — a flat-ish
+    camera photo must route lossy, and the corpus test `exif_prior_forces_photograph_even_when_flat`
+    requires it. **Document is checked before Graphic** (both bucket `LosslessFlat`, but this makes
+    the `Document` label reachable/assertable rather than being swallowed by the ≤256-colour gate).
+  - **`source_format` lean is `Ico → Icon` only in v1.** The softer JPEG/PNG/GIF family leans from
+    the brief are deferred — without a real labelled corpus they over-bias, and `has_exif` already
+    carries the decisive camera prior. Recorded here (not a new DEC).
 - **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - None new. SPEC-048 consumes `opt_bucket` + `has_alpha`; `confidence` feeds SPEC-049's `explain`
+    hedge. Both already in the STAGE-012 backlog.
 
 ### Build-phase reflection (3 questions, short answers)
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — The brief's cascade lists Photograph last, but "has_exif decisive" implies it must be early;
+   reconciling that (and Document-before-Graphic) was the main design judgement. Now explicit above.
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — No. DEC-047 + `untrusted-input-hardening` covered it. Tuning the synthetic corpus fixtures to
+   land cleanly in each class (esp. the UI-vs-graphic boundary, which needs real edges) was the
+   real work — exactly the in-build tuning DEC-047 anticipated.
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — State the cascade order (has_exif early, Document before Graphic) in the spec up front, and
+   note that "smooth gradient" reads as *flat* under the shipped `FLAT_THRESHOLD` — so fixtures for
+   the non-flat classes need genuine high-frequency content, not gradients.
 
 ---
 
