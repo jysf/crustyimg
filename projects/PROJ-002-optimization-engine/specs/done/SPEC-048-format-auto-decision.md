@@ -4,7 +4,7 @@
 task:
   id: SPEC-048
   type: story                      # epic | story | task | bug | chore
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: L                    # L: the decision engine + CLI wiring + winner rule
@@ -31,11 +31,52 @@ value_link: >
   CHOOSING the best one automatically — "the local f_auto" — the 0.3.0 differentiator.
 
 cost:
-  sessions: []
+  sessions:
+    - cycle: design
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-07-05
+      notes: >
+        Main-loop orchestrator (PROJ-002 framing session), not separately metered.
+    - cycle: build
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 180000
+      estimated_usd: 1.62
+      duration_minutes: 40
+      recorded_at: 2026-07-06
+      notes: >
+        ESTIMATE — autonomous overnight run in the orchestrator main loop, NOT a metered subagent,
+        so no subagent_tokens. Order-of-magnitude (~180k at Opus 4.8 ~80/20 ≈ $1.62); the L-complexity
+        spec — deep read of quality/sink/cli, then decide.rs (pure engine, 13 tests) + the optimize
+        autodecide fan-out + 7 integration tests. Green on default/webp-lossy/lean/avif; no new dep.
+        PR #55.
+    - cycle: verify
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 15000
+      estimated_usd: 0.14
+      duration_minutes: 4
+      recorded_at: 2026-07-06
+      notes: >
+        ESTIMATE — same autonomous run; CI-driven verify, all jobs green on #55 (incl. the avif +
+        webp-lossy feature jobs and lean), decision-drift clean. Order-of-magnitude (~15k).
+    - cycle: ship
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-07-06
+      notes: >
+        Main-loop ship bookkeeping, not separately metered.
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 195000
+    estimated_usd: 1.76
+    session_count: 4
 ---
 
 # SPEC-048: format auto-decision in `optimize` — "the local f_auto"
@@ -312,8 +353,15 @@ to test the winner rule. Integration tests exercise the real `optimize` CLI on g
 *Appended during the **ship** cycle.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Build the pure engine first and lock its tests before the CLI — which I did, and it made the
+   L-complexity spec land with almost no CLI iteration. The one real discovery was that "candidate"
+   is `(format, disposition)`, not just format; encoding disposition as `quality: Some/None` (which
+   `sink::encode_to_bytes` already keys on) collapsed that cleanly.
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — No. DEC-048's "one decision engine, two entry points" seam is real: `format_shortlist` +
+   `pick_winner` are pure and `sink`-free, so PROJ-003's planner wraps them with a goal object
+   instead of a profile. Worth recording for SPEC-049: `optimize_decide_one` computes the full
+   per-candidate record internally — SPEC-049 threads an `ExplainTrace` out of it (no re-run).
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — No. SPEC-049 (already written) is the direct continuation; it renders this engine's decision
+   and completes STAGE-012 / ships 0.3.0.

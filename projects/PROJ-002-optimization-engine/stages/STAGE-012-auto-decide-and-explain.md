@@ -104,14 +104,13 @@ tells you why."
 
 Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
-- [ ] SPEC-048 (design → build NEXT) — format auto-decision in `optimize`: `Analysis`-driven decision tree +
-  ≤3 candidate shortlist + per-candidate solve over the existing SSIMULACRA2 search/`LossyFormat`
-  seam + winner rule + `--profile web|docs|preserve`; engine + profiles + AVIF-byte-budget-only
-  recorded in DEC-048
-- [ ] SPEC-049 (design) — `--explain` trace (features/class/candidates/winner/savings), human +
-  `--explain=json`; the `ExplainTrace` type (schema in DEC-049) reused later as a manifest field
+- [x] SPEC-048 (shipped on 2026-07-06) — format auto-decision in `optimize`: `Analysis`-driven
+  decision engine (`src/analysis/decide.rs`) + ≤3 shortlist + per-candidate solve over the existing
+  SSIMULACRA2 search + winner rule + clear-win guard + `--profile web|docs|preserve`. PR #55 (494eb05).
+- [ ] SPEC-049 (design → build NEXT) — `--explain` trace (features/class/candidates/winner/savings),
+  human + `--explain=json`; the `ExplainTrace` type (schema in DEC-049) reused later as a manifest field
 
-**Count:** 0 shipped / 0 active / 2 pending (both specs designed ahead; await STAGE-011)
+**Count:** 1 shipped / 1 in-design / 0 pending
 
 ## Design Notes
 
