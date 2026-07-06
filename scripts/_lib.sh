@@ -57,27 +57,52 @@ get_variant() {
     fi
 }
 
-# Find the active project directory. Default heuristic: the lexically first
-# project folder that doesn't start with PROJ-ZZZZ-archive or similar.
-# Users can override by setting ACTIVE_PROJECT env var.
+# Read the `status:` field nested under `project:` in a project brief's
+# front-matter (e.g. "active", "shipped"). Empty if absent/unreadable.
+project_status() {
+    awk '
+        /^---$/ { f = !f; next }
+        f && /^project:/ { inproj = 1; next }
+        f && inproj && /^[a-zA-Z_]+:/ { inproj = 0 }
+        f && inproj && /^[[:space:]]+status:/ { print $2; exit }
+    ' "$1" 2>/dev/null || true
+}
+
+# Find the active project directory. Honors the brief's `status:` field: the
+# active project is the HIGHEST-numbered project whose status is `active` (the
+# current wave). If none are active, falls back to the highest-numbered
+# non-example project (the latest wave), then the example.
+#
+# (Previously this ignored `status:` and returned the alphabetically FIRST
+# project, which wrongly pinned "active" to PROJ-001 forever — even after later
+# waves became active. Set the ACTIVE_PROJECT env var to override.)
 get_active_project() {
     if [ -n "${ACTIVE_PROJECT:-}" ]; then
         echo "${ACTIVE_PROJECT}"
         return
     fi
-    # Look for the first PROJ-* directory that isn't the example.
-    local first
-    first=$(find "${REPO_ROOT}/projects" -maxdepth 1 -type d -name "PROJ-*" 2>/dev/null \
-            | grep -v "example" | sort | head -n1)
-    if [ -z "$first" ]; then
-        # Fall back to the example if nothing else exists.
-        first=$(find "${REPO_ROOT}/projects" -maxdepth 1 -type d -name "PROJ-*" 2>/dev/null \
-                | sort | head -n1)
+
+    local latest="" active=""
+    while IFS= read -r p; do
+        [ -n "$p" ] || continue
+        [ -z "$latest" ] && latest="$p"
+        if [ -z "$active" ] && [ -f "$p/brief.md" ] \
+           && [ "$(project_status "$p/brief.md")" = "active" ]; then
+            active="$p"
+        fi
+    done < <(find "${REPO_ROOT}/projects" -maxdepth 1 -type d -name "PROJ-*" 2>/dev/null \
+             | grep -v "example" | sort -r)
+
+    local chosen="${active:-$latest}"
+    if [ -z "$chosen" ]; then
+        # No non-example project — fall back to the example if present.
+        chosen=$(find "${REPO_ROOT}/projects" -maxdepth 1 -type d -name "PROJ-*" 2>/dev/null \
+                 | sort | head -n1)
     fi
-    if [ -z "$first" ]; then
+    if [ -z "$chosen" ]; then
         die "No projects found in ./projects/. Create one by copying projects/_templates/project-brief.md into projects/PROJ-NNN-<slug>/brief.md (see GETTING_STARTED.md)."
     fi
-    basename "$first"
+    basename "$chosen"
 }
 
 # Return the next ID for a given prefix (SPEC, STAGE, PROJ, DEC, HANDOFF)
