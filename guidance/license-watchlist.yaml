@@ -61,11 +61,12 @@ license_blocked:
     license_class: copyleft
     reason: "GPL relicenses the binary; not embeddable. Commercial license defeats the open default."
     status: no-permissive-alternative
-    current_fallback: "none — crustyimg writes full-color PNG; no lossy/indexed PNG path yet."
+    current_fallback: "none — crustyimg writes full-color PNG; no lossy/indexed PNG path yet. PROJ-002's format engine (SPEC-048) routes few-colour graphics to **lossless WebP** in the interim (its palette transform captures much of the win with no quantizer)."
     permissive_alternatives:
+      - "quantette (MIT) — a maintained pure-Rust Wu/median-cut quantizer with dithering; the leading permissive candidate that has since matured. Evaluate quality vs libimagequant before adopting; the intended way back to indexed-PNG output."
       - "color_quant (MIT/Apache) for the palette step; permissive but lower quality than libimagequant."
-    build_candidate: "Same `src/quantize` module as above (median-cut/Wu + dithering); the single biggest permissive 'PNG gets much smaller' lever we could own outright."
-    revisit_trigger: "We add an indexed/lossy-PNG output, OR build the quantizer."
+    build_candidate: "Same `src/quantize` module as above (median-cut/Wu + dithering); the single biggest permissive 'PNG gets much smaller' lever we could own outright — or adopt `quantette` instead of building from scratch."
+    revisit_trigger: "PROJ-007 (indexed/lossy-PNG output — deferred there by PROJ-002 scope), OR we build/adopt the quantizer sooner. Evaluate `quantette` first."
     related: [DEC-018, DEC-004, no-agpl-default-deps]
     confidence: high
 
