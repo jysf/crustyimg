@@ -10,6 +10,9 @@
 TESTING-WITH-YOUR-PHOTOS.md
 /reports/
 
+# Business / commercial strategy — private, never committed to the public repo.
+/business/
+
 # Dependencies
 node_modules/
 venv/
