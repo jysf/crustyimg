@@ -4540,3 +4540,201 @@ fn info_on_oversized_image_exits_1_not_panic() {
         "stderr must be non-empty (error message expected)"
     );
 }
+
+// ── SPEC-048: optimize format auto-decision ("local f_auto") ──────────────────
+
+/// Read the single output file produced under an `--out-dir` (fails if not exactly one).
+fn optimize_single_output(dir: &std::path::Path) -> (PathBuf, Vec<u8>) {
+    let mut files: Vec<PathBuf> = std::fs::read_dir(dir)
+        .expect("read out-dir")
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .filter(|p| p.is_file())
+        .collect();
+    files.sort();
+    assert_eq!(
+        files.len(),
+        1,
+        "expected exactly one output file, got {files:?}"
+    );
+    let bytes = std::fs::read(&files[0]).expect("read output");
+    (files[0].clone(), bytes)
+}
+
+/// `--profile preserve` is the regression anchor: it keeps the input's format
+/// (engine off), reproducing today's format-preserving `optimize`.
+#[test]
+fn optimize_preserve_keeps_source_format() {
+    let dir = tempfile::tempdir().unwrap();
+    let in_path = write_bytes(&dir, "in.png", &common::detailed_png(96, 96));
+    let out = Command::new(BIN)
+        .args([
+            "optimize",
+            in_path.to_str().unwrap(),
+            "--profile",
+            "preserve",
+            "-o",
+            "-",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr_str(&out));
+    assert_eq!(
+        image::guess_format(&out.stdout).ok(),
+        Some(ImageFormat::Png),
+        "preserve must keep the source PNG format"
+    );
+}
+
+/// The core guarantee: `optimize` (web, auto-decide) NEVER emits a file larger
+/// than the source — it ships a smaller candidate or passes the source through.
+#[test]
+fn optimize_web_never_larger_than_source() {
+    let dir = tempfile::tempdir().unwrap();
+    let src = common::detailed_png(128, 128);
+    let in_path = write_bytes(&dir, "in.png", &src);
+    let out_dir = dir.path().join("out");
+    let out = Command::new(BIN)
+        .args([
+            "optimize",
+            in_path.to_str().unwrap(),
+            "--out-dir",
+            out_dir.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr_str(&out));
+    let (path, bytes) = optimize_single_output(&out_dir);
+    assert!(
+        image::load_from_memory(&bytes).is_ok(),
+        "output {path:?} must decode"
+    );
+    assert!(
+        bytes.len() <= src.len(),
+        "web optimize must never emit a larger file: {} vs source {}",
+        bytes.len(),
+        src.len()
+    );
+}
+
+/// Auto-decide reports its choice: a one-line summary on stderr, stdout clean.
+#[test]
+fn optimize_web_prints_summary_to_stderr() {
+    let dir = tempfile::tempdir().unwrap();
+    let in_path = write_bytes(&dir, "in.jpg", &common::detailed_jpeg(96, 96));
+    let out_dir = dir.path().join("out");
+    let out = Command::new(BIN)
+        .args([
+            "optimize",
+            in_path.to_str().unwrap(),
+            "--out-dir",
+            out_dir.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr_str(&out));
+    let err = stderr_str(&out);
+    assert!(
+        err.contains('\u{2192}') || err.contains("kept"),
+        "expected a one-line summary on stderr, got: {err:?}"
+    );
+    assert!(out.stdout.is_empty(), "stdout must be clean with --out-dir");
+}
+
+/// `--quiet` suppresses the summary.
+#[test]
+fn optimize_web_quiet_suppresses_summary() {
+    let dir = tempfile::tempdir().unwrap();
+    let in_path = write_bytes(&dir, "in.png", &common::detailed_png(80, 80));
+    let out_dir = dir.path().join("out");
+    let out = Command::new(BIN)
+        .args([
+            "--quiet",
+            "optimize",
+            in_path.to_str().unwrap(),
+            "--out-dir",
+            out_dir.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr_str(&out));
+    assert!(
+        stderr_str(&out).is_empty(),
+        "--quiet must silence the summary, got: {:?}",
+        stderr_str(&out)
+    );
+}
+
+/// Pinning the format (`-o x.webp`, a recognized extension) bypasses the engine.
+#[test]
+fn optimize_pinned_format_bypasses_engine() {
+    let dir = tempfile::tempdir().unwrap();
+    let in_path = write_bytes(&dir, "in.png", &common::detailed_png(96, 96));
+    let out_path = dir.path().join("out.webp");
+    let out = Command::new(BIN)
+        .args([
+            "optimize",
+            in_path.to_str().unwrap(),
+            "-o",
+            out_path.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr_str(&out));
+    let bytes = std::fs::read(&out_path).unwrap();
+    assert_eq!(
+        image::guess_format(&bytes).ok(),
+        Some(ImageFormat::WebP),
+        "a pinned -o .webp must produce WebP (engine bypassed)"
+    );
+}
+
+/// The decision is deterministic: two web runs on the same input are byte-identical.
+#[test]
+fn optimize_web_is_deterministic() {
+    let dir = tempfile::tempdir().unwrap();
+    let in_path = write_bytes(&dir, "in.png", &common::detailed_png(100, 80));
+    let run = |sub: &str| -> Vec<u8> {
+        let out_dir = dir.path().join(sub);
+        let out = Command::new(BIN)
+            .args([
+                "optimize",
+                in_path.to_str().unwrap(),
+                "--out-dir",
+                out_dir.to_str().unwrap(),
+            ])
+            .output()
+            .unwrap();
+        assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr_str(&out));
+        optimize_single_output(&out_dir).1
+    };
+    assert_eq!(
+        run("a"),
+        run("b"),
+        "two web optimize runs must be byte-identical"
+    );
+}
+
+/// Multi-input fan-out: every input yields an output; exit 0.
+#[test]
+fn optimize_web_multi_input_fanout() {
+    let dir = tempfile::tempdir().unwrap();
+    let a = write_bytes(&dir, "a.png", &common::detailed_png(64, 64));
+    let b = write_bytes(&dir, "b.png", &common::solid_png(64, 64, [10, 200, 120]));
+    let out_dir = dir.path().join("out");
+    let out = Command::new(BIN)
+        .args([
+            "optimize",
+            a.to_str().unwrap(),
+            b.to_str().unwrap(),
+            "--out-dir",
+            out_dir.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr_str(&out));
+    let count = std::fs::read_dir(&out_dir)
+        .unwrap()
+        .filter(|e| e.as_ref().unwrap().path().is_file())
+        .count();
+    assert_eq!(count, 2, "both inputs should produce an output");
+}

@@ -123,6 +123,29 @@ impl QualityTarget {
     }
 }
 
+/// `optimize --profile`: the format auto-decision bias (SPEC-048, DEC-048).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
+pub enum ProfileArg {
+    /// Auto-decide the output format, modern-format-first (the default).
+    Web,
+    /// Auto-decide with a crisp-text / lossless bias for documents.
+    Docs,
+    /// Engine off: reproduce today's format-preserving `optimize` exactly.
+    Preserve,
+}
+
+impl ProfileArg {
+    /// Map to the engine's pure [`crate::analysis::decide::Profile`].
+    fn to_decide(self) -> crate::analysis::decide::Profile {
+        use crate::analysis::decide::Profile;
+        match self {
+            ProfileArg::Web => Profile::Web,
+            ProfileArg::Docs => Profile::Docs,
+            ProfileArg::Preserve => Profile::Preserve,
+        }
+    }
+}
+
 /// An opt-in auto-quality mode for `shrink`/`convert`: the encoder quality is
 /// searched per output instead of fixed (SPEC-016 / SPEC-017). Both modes run
 /// only for a format with a lossy quality knob (JPEG today; ignored otherwise,
@@ -249,6 +272,10 @@ pub enum Commands {
         /// Re-encode to fit a byte budget instead, e.g. `200KB`.
         #[arg(long, value_name = "SIZE", conflicts_with_all = ["target", "ssim"])]
         max_size: Option<String>,
+        /// Format auto-decision bias: `web` (default) auto-picks the smallest
+        /// format; `preserve` keeps the input format (today's behaviour).
+        #[arg(long, value_enum, default_value_t = ProfileArg::Web)]
+        profile: ProfileArg,
     },
 
     /// Generate a responsive image set: width-scaled variants per format + a
@@ -576,12 +603,14 @@ fn dispatch(cli: &Cli) -> Result<(), CliError> {
             target,
             ssim,
             max_size,
+            profile,
         } => run_optimize(
             inputs,
             *max,
             *target,
             *ssim,
             max_size.as_deref(),
+            *profile,
             &cli.global,
         ),
         Commands::Responsive {
@@ -2766,35 +2795,347 @@ fn run_optimize(
     target: Option<QualityTarget>,
     ssim: Option<f64>,
     max_size: Option<&str>,
+    profile: ProfileArg,
     global: &GlobalArgs,
 ) -> Result<(), CliError> {
-    let auto = Some(optimize_auto_config(target, ssim, max_size)?);
+    let auto = optimize_auto_config(target, ssim, max_size)?;
     // optimize always auto-tunes quality; a fixed -q conflicts.
-    reject_quality_with_auto(&auto, global)?;
+    reject_quality_with_auto(&Some(auto.clone()), global)?;
 
+    // Always auto-orient first so any `--max` bound applies to the visually-correct
+    // dimensions; the op also drops the metadata bundle after baking (DEC-017).
+    let pipeline = optimize_pipeline(max)?;
+
+    // The engine only fires when the user has NOT pinned a format (`--format` or a
+    // recognized `-o` extension) and the profile is not `preserve` (DEC-048). A pin
+    // or `preserve` reproduces today's format-preserving behaviour exactly.
+    let pinned = resolve_format(global.format.as_deref())?.is_some()
+        || global
+            .output
+            .as_deref()
+            .is_some_and(|o| o != "-" && crate::sink::format_from_extension(Path::new(o)).is_ok());
+
+    if profile == ProfileArg::Preserve || pinned {
+        // Preserve / pinned: auto quality, per-input format preserved / honored
+        // from -o/--format (DEC-015). This is the strict regression anchor.
+        return run_pixel_op(pipeline, inputs, global, None, None, Some(auto));
+    }
+
+    run_optimize_autodecide(&pipeline, inputs, &auto, profile.to_decide(), global)
+}
+
+/// Build the shared `optimize` pipeline: auto-orient (bake EXIF orientation, drop
+/// the metadata bundle, DEC-017), then an optional `--max` long-edge bound.
+fn optimize_pipeline(max: Option<u32>) -> Result<Pipeline, CliError> {
     let registry = OperationRegistry::with_builtins();
     let map_registry_err = |e| match e {
         RegistryError::InvalidParams { reason, .. } => CliError::Usage(reason),
         RegistryError::Unknown { name } => CliError::Usage(format!("unknown operation '{name}'")),
     };
-
-    // Always auto-orient first so any `--max` bound applies to the visually-correct
-    // dimensions; the op also drops the metadata bundle after baking (DEC-017).
     let orient = registry
         .build("auto-orient", &OperationParams::empty())
         .map_err(map_registry_err)?;
     let mut pipeline = Pipeline::new().push(orient);
-
     if let Some(n) = max {
         let resize = registry
             .build("resize", &shrink_params(n))
             .map_err(map_registry_err)?;
         pipeline = pipeline.push(resize);
     }
+    Ok(pipeline)
+}
 
-    // No fixed quality and no forced format: the auto mode drives quality, and the
-    // per-input format is preserved / honored from -o/--format (DEC-015).
-    run_pixel_op(pipeline, inputs, global, None, None, auto)
+/// One solved candidate: its measured outcome plus the encoded bytes to ship if
+/// it wins (encoded exactly once, via the sink's own encoder — DEC-016).
+struct SolvedCandidate {
+    outcome: crate::analysis::decide::CandidateOutcome,
+    encoded: Vec<u8>,
+    ext: String,
+}
+
+/// Solve one shortlisted candidate against the oriented output image: run the
+/// existing quality search for its disposition/mode and encode it once.
+fn solve_candidate(
+    out_img: &Image,
+    entry: crate::analysis::decide::ShortlistEntry,
+    auto: &AutoQuality,
+) -> Result<SolvedCandidate, CliError> {
+    use crate::analysis::decide::{CandidateOutcome, Disposition};
+    let fmt = entry.fmt;
+    let ext = crate::sink::extension_for_format(fmt).to_owned();
+
+    let (encoded, met_target) = match (entry.disposition, auto) {
+        // Lossy + perceptual: search the lowest quality meeting the target, then
+        // encode once at it. (Shortlist guarantees fmt is perceptually scorable.)
+        (Disposition::Lossy, AutoQuality::Perceptual(cfg)) => {
+            let qc = quality::auto_quality(out_img.pixels(), fmt, cfg)?;
+            let bytes = crate::sink::encode_to_bytes(out_img, fmt, Some(qc.quality))?;
+            (bytes, qc.met_target)
+        }
+        // Lossless + perceptual: a single encode; lossless always meets a
+        // perceptual target.
+        (Disposition::Lossless, AutoQuality::Perceptual(_)) => {
+            let bytes = crate::sink::encode_to_bytes(out_img, fmt, None)?;
+            (bytes, true)
+        }
+        // Byte-budget (either disposition): fit_under_size handles quality-then-scale
+        // for lossy and the scale search for lossless, and reports whether it fit.
+        (_, AutoQuality::SizeBudget(budget)) => {
+            let fit = quality::fit_under_size(out_img.pixels(), fmt, *budget)?;
+            let bytes = match fit.image {
+                Some(px) => {
+                    let img = Image::from_parts(px, out_img.source_format(), None);
+                    crate::sink::encode_to_bytes(&img, fmt, fit.quality)?
+                }
+                None => crate::sink::encode_to_bytes(out_img, fmt, fit.quality)?,
+            };
+            (bytes, fit.met_budget)
+        }
+    };
+
+    let outcome = CandidateOutcome {
+        fmt,
+        disposition: entry.disposition,
+        bytes: encoded.len() as u64,
+        met_target,
+    };
+    Ok(SolvedCandidate {
+        outcome,
+        encoded,
+        ext,
+    })
+}
+
+/// What `optimize`'s auto-decision produced for one input.
+enum OptimizeOutput {
+    /// A winning re-encode: ship these bytes in this format.
+    Encoded {
+        fmt: ::image::ImageFormat,
+        bytes: Vec<u8>,
+        ext: String,
+    },
+    /// No candidate beat the source — pass the original file through unchanged.
+    Passthrough { raw: Vec<u8>, ext: String },
+}
+
+/// Decode → orient → auto-decide the output format for ONE input (SPEC-048). Runs
+/// the decision engine and returns the bytes to ship (or a passthrough). Prints a
+/// one-line summary to stderr unless `--quiet`.
+fn optimize_decide_one(
+    input: &crate::source::Input,
+    pipeline: &Pipeline,
+    auto: &AutoQuality,
+    profile: crate::analysis::decide::Profile,
+    global: &GlobalArgs,
+    label: &str,
+) -> Result<OptimizeOutput, CliError> {
+    use crate::analysis::decide::{self, BuiltCodecs, Mode};
+
+    // Raw source bytes: the "beats source" reference AND the passthrough payload.
+    let raw = read_raw_bytes(input)?;
+    let source_bytes = raw.len() as u64;
+
+    let img = match input {
+        crate::source::Input::Path(p) => Image::load(p)?,
+        crate::source::Input::Stdin { bytes, .. } => Image::from_bytes(bytes)?,
+    };
+    let source_format = img.source_format();
+    let out_img = pipeline.run(img)?;
+
+    let built = BuiltCodecs {
+        webp_lossy: cfg!(feature = "webp-lossy"),
+        avif: cfg!(feature = "avif"),
+    };
+    let mode = match auto {
+        AutoQuality::Perceptual(_) => Mode::Perceptual,
+        AutoQuality::SizeBudget(_) => Mode::SizeBudget,
+    };
+
+    // Compute the analysis verdict; on a degenerate image (no verdict) pass the
+    // source through unchanged rather than guessing.
+    let analysis = match crate::analysis::Analysis::compute(&out_img) {
+        Ok(a) => a,
+        Err(_) => {
+            return Ok(OptimizeOutput::Passthrough {
+                raw,
+                ext: metadata_output_ext(input, &[]),
+            })
+        }
+    };
+    let has_alpha = out_img.info().has_alpha;
+
+    let shortlist =
+        decide::format_shortlist(analysis.opt_bucket(), has_alpha, profile, mode, built);
+
+    let mut solved: Vec<SolvedCandidate> = Vec::with_capacity(shortlist.len());
+    for entry in shortlist {
+        solved.push(solve_candidate(&out_img, entry, auto)?);
+    }
+    let outcomes: Vec<_> = solved.iter().map(|s| s.outcome).collect();
+
+    let output = match decide::pick_winner(&outcomes, source_bytes, source_format) {
+        Some(i) => {
+            let win = &solved[i];
+            OptimizeOutput::Encoded {
+                fmt: win.outcome.fmt,
+                bytes: win.encoded.clone(),
+                ext: win.ext.clone(),
+            }
+        }
+        None => OptimizeOutput::Passthrough {
+            raw,
+            ext: metadata_output_ext(input, &[]),
+        },
+    };
+
+    if !global.quiet {
+        match &output {
+            OptimizeOutput::Encoded { fmt, bytes, .. } => {
+                let out_len = bytes.len() as u64;
+                let saved = if source_bytes > 0 {
+                    100.0 * (1.0 - out_len as f64 / source_bytes as f64)
+                } else {
+                    0.0
+                };
+                eprintln!(
+                    "{label}: {} \u{2192} {} \u{b7} {} \u{2192} {} ({saved:.0}% smaller)",
+                    format_label(source_format),
+                    format_label(*fmt),
+                    fmt_bytes(source_bytes),
+                    fmt_bytes(out_len),
+                );
+            }
+            OptimizeOutput::Passthrough { .. } => {
+                eprintln!(
+                    "{label}: kept {} ({}, already optimal)",
+                    format_label(source_format),
+                    fmt_bytes(source_bytes),
+                );
+            }
+        }
+    }
+
+    Ok(output)
+}
+
+/// Write one auto-decided output through the appropriate sink (bytes are already
+/// encoded — DEC-016 — so this never re-encodes).
+fn write_optimize_output(
+    output: &OptimizeOutput,
+    input: &crate::source::Input,
+    sink: &Sink,
+    overwrite: Overwrite,
+) -> Result<(), CliError> {
+    let (bytes, ext) = match output {
+        OptimizeOutput::Encoded { bytes, ext, .. } => (bytes.as_slice(), ext.as_str()),
+        OptimizeOutput::Passthrough { raw, ext } => (raw.as_slice(), ext.as_str()),
+    };
+    let sink_input = SinkInput {
+        stem: input.stem(),
+        path: input.path(),
+    };
+    sink.write_bytes(
+        bytes,
+        &sink_input,
+        ext,
+        overwrite,
+        &mut std::io::stdout().lock(),
+    )?;
+    Ok(())
+}
+
+/// The format auto-decision fan-out for `optimize` (SPEC-048) — mirrors
+/// [`run_pixel_op`]'s resolve + single/multi structure, but per input it decides
+/// the output format via the engine instead of preserving the source format.
+fn run_optimize_autodecide(
+    pipeline: &Pipeline,
+    inputs: &[String],
+    auto: &AutoQuality,
+    profile: crate::analysis::decide::Profile,
+    global: &GlobalArgs,
+) -> Result<(), CliError> {
+    let mut all: Vec<crate::source::Input> = Vec::new();
+    let mut stdin_lock = std::io::stdin().lock();
+    for arg in inputs {
+        all.extend(source::resolve(arg, &mut stdin_lock)?);
+    }
+    if all.is_empty() {
+        return Err(CliError::Source(SourceError::NotFound(inputs.join(" "))));
+    }
+
+    let overwrite = if global.yes {
+        Overwrite::Allow
+    } else {
+        Overwrite::Forbid
+    };
+
+    if all.len() == 1 {
+        let input = &all[0];
+        let label = input
+            .path()
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|| input.stem().to_owned());
+        let output = optimize_decide_one(input, pipeline, auto, profile, global, &label)?;
+
+        let sink = if let Some(ref out) = global.output {
+            if out == "-" {
+                Sink::Stdout { format: None }
+            } else {
+                Sink::File {
+                    path: PathBuf::from(out),
+                    format: None,
+                }
+            }
+        } else if let Some(ref dir) = global.out_dir {
+            let template = global
+                .name_template
+                .clone()
+                .unwrap_or_else(|| "{stem}.{ext}".to_owned());
+            Sink::Dir {
+                dir: PathBuf::from(dir),
+                template,
+                format: None,
+            }
+        } else {
+            Sink::Stdout { format: None }
+        };
+        write_optimize_output(&output, input, &sink, overwrite)?;
+    } else {
+        let out_dir = global
+            .out_dir
+            .as_ref()
+            .ok_or_else(|| CliError::Usage("multiple inputs require --out-dir".into()))?;
+        let template = global
+            .name_template
+            .clone()
+            .unwrap_or_else(|| "{stem}.{ext}".to_owned());
+        let total = all.len();
+        let mut failed = 0usize;
+
+        for input in &all {
+            let label = match input {
+                crate::source::Input::Path(p) => p.display().to_string(),
+                crate::source::Input::Stdin { stem, .. } => stem.clone(),
+            };
+            let result = (|| -> Result<(), CliError> {
+                let output = optimize_decide_one(input, pipeline, auto, profile, global, &label)?;
+                let sink = Sink::Dir {
+                    dir: PathBuf::from(out_dir),
+                    template: template.clone(),
+                    format: None,
+                };
+                write_optimize_output(&output, input, &sink, overwrite)
+            })();
+            if let Err(e) = result {
+                eprintln!("error: {label}: {e}");
+                failed += 1;
+            }
+        }
+        if failed > 0 {
+            return Err(CliError::PartialBatch { failed, total });
+        }
+    }
+    Ok(())
 }
 
 // ── responsive command (SPEC-024, DEC-026) ────────────────────────────────────
