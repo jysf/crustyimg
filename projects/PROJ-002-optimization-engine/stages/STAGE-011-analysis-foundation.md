@@ -93,15 +93,15 @@ projects (planner, lint, manifest) all consume.
 
 Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
-- [ ] SPEC-046 (design → build NEXT) — the `src/analysis/` layer: `Analysis` immutable context +
+- [x] SPEC-046 (shipped on 2026-07-06) — the `src/analysis/` layer: `Analysis` immutable context +
   single-pass feature extractors (histogram, entropy, edge density, alpha coverage, capped
-  unique-colours, dominant colour) + bounded no-panic `AnalysisError`; lands standalone, all
-  existing tests green. **First build target of PROJ-002.**
-- [ ] SPEC-047 (design) — deterministic no-ML classification (`ImageClass` → three `OptBucket`s)
-  on the SPEC-046 features + `source_format`/`has_exif` container priors + a labeled fixture
-  corpus; thresholds + safe-fallback bias recorded in DEC-047
+  unique-colours, dominant colour) + bounded no-panic `AnalysisError`; landed standalone, all
+  tests green (suite 440). PR #53 (f6c046e).
+- [ ] SPEC-047 (design → build NEXT) — deterministic no-ML classification (`ImageClass` → three
+  `OptBucket`s) on the SPEC-046 features + `source_format`/`has_exif` container priors + a labeled
+  fixture corpus; thresholds + safe-fallback bias recorded in DEC-047
 
-**Count:** 0 shipped / 2 in-design / 0 pending
+**Count:** 1 shipped / 1 in-design / 0 pending
 
 ## Design Notes
 

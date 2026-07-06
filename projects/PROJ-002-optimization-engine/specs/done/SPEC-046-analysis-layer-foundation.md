@@ -4,7 +4,7 @@
 task:
   id: SPEC-046
   type: story                      # epic | story | task | bug | chore
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: M                    # S | M | L  (L means split it)
@@ -31,11 +31,55 @@ value_link: >
   reads.
 
 cost:
-  sessions: []
+  sessions:
+    - cycle: design
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-07-05
+      notes: >
+        Main-loop orchestrator (PROJ-002 framing session), not separately metered — the spec +
+        Failing Tests were authored alongside SPEC-047/048/049 and the DECs.
+    - cycle: build
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 72000
+      estimated_usd: 0.65
+      duration_minutes: 15
+      recorded_at: 2026-07-06
+      notes: >
+        ESTIMATE — autonomous overnight run, executed in the orchestrator main loop, NOT a
+        metered subagent (background subagents can't get a shell here), so no subagent_tokens
+        to read. Order-of-magnitude only (~72k tokens at Opus 4.8 list ~80/20 ≈ $0.65). Wrote
+        src/analysis/mod.rs (Analysis + compute + AnalysisError, 9 tests) + lib.rs registration;
+        full suite 440 green, fmt/clippy/lean/deny green. PR #53.
+    - cycle: verify
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 12000
+      estimated_usd: 0.11
+      duration_minutes: 3
+      recorded_at: 2026-07-06
+      notes: >
+        ESTIMATE — same autonomous main-loop run. Verify was CI-driven: 3-OS matrix + deny +
+        avif/webp-lossy + lean + msrv(1.89) + cost-data all green on PR #53; decision-drift
+        (decisions-audit --changed) clean; post-merge suite 440 green. Order-of-magnitude (~12k).
+    - cycle: ship
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-07-06
+      notes: >
+        Main-loop ship bookkeeping (this block, reflection, archive, backlog), not separately
+        metered.
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 84000
+    estimated_usd: 0.76
+    session_count: 4
 ---
 
 # SPEC-046: the `src/analysis/` layer — computed-once image analysis
@@ -227,8 +271,14 @@ generators — reuse them; see `src/cli` create path / test helpers).
 *Appended during the **ship** cycle.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Pin the edge operator (forward difference) in the spec up front. The design brief's central
+   difference is a sketch that fails a 1px checkerboard; leaving it implicit cost a mid-build
+   correction. Otherwise the standalone-module approach worked cleanly — additive, zero regression.
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — No template/constraint change. Worth noting for SPEC-047: `Analysis` deliberately does **not**
+   store `has_exif`/`source_format` (they stay on `Image`); the classifier reads them off `Image`
+   inside `compute`. The `UNIQUE_COLOR_CAP` const is `pub` and is the shared palette-gate anchor —
+   SPEC-047/048 must reuse it, not redefine 4096.
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — No new spec. SPEC-047 (already written) is the direct continuation and consumes
+   `dominant_color`/`bimodality`/`entropy`/`unique_colors` — the features this spec left unwired.
