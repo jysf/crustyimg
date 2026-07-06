@@ -4,7 +4,7 @@
 task:
   id: SPEC-049
   type: story                      # epic | story | task | bug | chore
-  cycle: design                    # frame | design | build | verify | ship
+  cycle: verify  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: M                    # M | S | L
@@ -194,24 +194,46 @@ Written during **design**, BEFORE build. The renderers are pure over a synthetic
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
+- **Branch:** `feat/spec-049-explain-trace`
+- **PR (if applicable):** see STAGE-012 ship log (opened + merged in the autonomous run).
+- **All acceptance criteria met?** yes — `ExplainTrace` (a forward-compatible subset of the planner
+  schema) + `CandidateTrace` in `src/analysis/decide.rs`, with `render_human` (stderr) and
+  hand-rolled `write_json` (**no `serde_json`**, matching `write_json`/`write_diff_json`). `optimize`
+  gains `--explain` (human→stderr) and `--explain=json` (→stdout); threaded out of
+  `optimize_decide_one` (no re-run). 4 unit tests (incl. an exact-JSON golden + determinism) + 2
+  integration tests. Green on default (475)/webp-lossy (482)/lean (475)/avif; fmt/clippy/deny green;
+  no new dependency. Verified live: a photographic PNG auto-decides to JPEG (−43%) with a clear
+  trace.
 - **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
+  - None beyond DEC-049 (the `ExplainTrace` schema / hand-rolled-JSON / subset contract). The pinned
+    schema id is `crustyimg.optimize.explain/v1`.
 - **Deviations from spec:**
-  - [list]
+  - **The "checked-in golden fixture" is an inline exact-JSON unit test over a *synthetic*
+    `ExplainTrace`** (fixed field values → exact string), not a golden of real-encoded CLI output.
+    This is fully deterministic and **cross-platform safe** — it involves no encoder bytes, no
+    `log2`, and no paths — so it can't flake on the mac/Windows CI legs. A second integration test
+    asserts `--explain=json` is byte-identical across two runs. Together they give the golden's
+    regression guarantee without the 3-OS fragility.
+  - **Channels:** `--explain` (human) → stderr; `--explain=json` → stdout. `--explain=json` combined
+    with `-o -` would mingle JSON with the image on stdout — use `--out-dir`/a file (documented).
+  - **Determinism guards:** the trace is path-free and renders floats at 2 decimals, so tiny
+    cross-platform `log2` ULP differences can't change the JSON bytes.
 - **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - None. STAGE-012 is complete; PROJ-002 is ready to cut **0.3.0** (version bump + CHANGELOG — the
+    release *tag/publish* is left to the maintainer as the outward-facing step).
 
 ### Build-phase reflection (3 questions, short answers)
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — Nothing major. The one judgement was the golden-fixture form: a real-output golden is fragile
+   across 3 OSes, so I made the golden a synthetic-trace exact-string test + a determinism check —
+   same guarantee, no flakiness.
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — No. SPEC-048 had already computed the full per-candidate record internally, so SPEC-049 was a
+   clean projection: thread quality into `SolvedCandidate`, build the trace, render. No re-run.
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Nothing substantive — building `ExplainTrace` + its renderers in `decide.rs` (pure, with the
+   golden unit test) before the CLI wiring kept it low-risk, same as SPEC-048.
 
 ---
 

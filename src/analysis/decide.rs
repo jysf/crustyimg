@@ -8,9 +8,11 @@
 //! is what lets the PROJ-003 planner reuse the same engine
 //! (`docs/research/proj-002-findings.md §9`).
 
+use std::io::{self, Write};
+
 use ::image::ImageFormat;
 
-use super::OptBucket;
+use super::{ImageClass, OptBucket};
 
 /// A cross-format switch is only taken when the winner beats the best
 /// same-format candidate by at least this fraction — the clear-win guard
@@ -215,6 +217,245 @@ pub fn pick_winner(
         // No same-format candidate to fall back to: the switch already beat the
         // source, so take it.
         None => Some(best),
+    }
+}
+
+// ── Explain trace (SPEC-049 / DEC-049) ───────────────────────────────────────
+
+/// One candidate as recorded in an [`ExplainTrace`].
+#[derive(Debug, Clone, Copy)]
+pub struct CandidateTrace {
+    /// The candidate format.
+    pub fmt: ImageFormat,
+    /// Lossy or lossless.
+    pub disposition: Disposition,
+    /// The chosen encoder quality (`None` for a lossless candidate).
+    pub quality: Option<u8>,
+    /// Encoded size in bytes.
+    pub bytes: u64,
+    /// Whether it met the perceptual target / byte budget.
+    pub met_target: bool,
+}
+
+/// A human- and machine-readable record of one `optimize` auto-decision
+/// (SPEC-049). A forward-compatible **subset** of the planner/manifest schema
+/// (`docs/research/proj-002-design-planner.md`): PROJ-003 (planner objective /
+/// warnings) and PROJ-005 (the manifest `optimization` field) extend it
+/// additively. Deterministic — no paths or timestamps, floats rendered at fixed
+/// precision — so it is golden-testable across platforms.
+#[derive(Debug, Clone)]
+pub struct ExplainTrace {
+    /// The input's format.
+    pub source_format: ImageFormat,
+    /// The internal class label (cosmetic).
+    pub class: ImageClass,
+    /// Luma entropy (bits).
+    pub entropy: f32,
+    /// Edge-pixel fraction.
+    pub edge_ratio: f32,
+    /// Flat-pixel fraction.
+    pub flat_ratio: f32,
+    /// Distinct-colour count (capped).
+    pub unique_colors: u32,
+    /// Whether the colour count saturated at the cap.
+    pub unique_saturated: bool,
+    /// Whether the image carries alpha.
+    pub has_alpha: bool,
+    /// The active `--profile`.
+    pub profile: Profile,
+    /// Perceptual vs byte-budget mode.
+    pub mode: Mode,
+    /// The source file size in bytes (the "beat source" reference).
+    pub source_bytes: u64,
+    /// Every evaluated candidate, in shortlist order.
+    pub candidates: Vec<CandidateTrace>,
+    /// Index into `candidates`, or `None` for passthrough (source kept).
+    pub winner: Option<usize>,
+    /// Shipped bytes (the winner's, or `source_bytes` on passthrough).
+    pub out_bytes: u64,
+}
+
+impl ExplainTrace {
+    /// Savings as a whole-percent integer (`0` if the source is empty or the
+    /// output is not smaller).
+    pub fn savings_percent(&self) -> i64 {
+        if self.source_bytes == 0 || self.out_bytes >= self.source_bytes {
+            return 0;
+        }
+        let frac = 1.0 - (self.out_bytes as f64 / self.source_bytes as f64);
+        (frac * 100.0).round() as i64
+    }
+
+    /// The default one-line summary (chosen format + savings) shown when
+    /// `--explain` is not set (SPEC-048). Path-free and deterministic.
+    pub fn summary_line(&self) -> String {
+        match self.winner {
+            Some(i) => format!(
+                "{} \u{2192} {} \u{b7} {} \u{2192} {} B ({}% smaller)",
+                format_name(self.source_format),
+                format_name(self.candidates[i].fmt),
+                self.source_bytes,
+                self.out_bytes,
+                self.savings_percent(),
+            ),
+            None => format!(
+                "kept {} ({} B, already optimal)",
+                format_name(self.source_format),
+                self.source_bytes,
+            ),
+        }
+    }
+
+    /// One-line reason for the outcome (used by both renderers).
+    fn win_reason(&self) -> String {
+        match self.winner {
+            Some(i) => format!(
+                "smallest candidate that met the target and beat the source ({})",
+                format_name(self.candidates[i].fmt)
+            ),
+            None => "kept source — no candidate met the target and beat it".to_owned(),
+        }
+    }
+
+    /// Render a concise, human-readable trace (SPEC-049). Goes to stderr so
+    /// stdout stays pipe-clean (AGENTS §11).
+    pub fn render_human(&self, w: &mut impl Write) -> io::Result<()> {
+        let colors = if self.unique_saturated {
+            format!("{}+", self.unique_colors)
+        } else {
+            self.unique_colors.to_string()
+        };
+        writeln!(
+            w,
+            "optimize: {} \u{2192} {} ({} \u{2192} {} B, {}% smaller)",
+            format_name(self.source_format),
+            self.winner
+                .map(|i| format_name(self.candidates[i].fmt))
+                .unwrap_or_else(|| format_name(self.source_format)),
+            self.source_bytes,
+            self.out_bytes,
+            self.savings_percent(),
+        )?;
+        writeln!(
+            w,
+            "  class={} entropy={:.2} edges={:.2} flat={:.2} colors={} alpha={} profile={} mode={}",
+            class_name(self.class),
+            self.entropy,
+            self.edge_ratio,
+            self.flat_ratio,
+            colors,
+            self.has_alpha,
+            profile_name(self.profile),
+            mode_name(self.mode),
+        )?;
+        for (i, c) in self.candidates.iter().enumerate() {
+            let marker = if self.winner == Some(i) { '*' } else { ' ' };
+            let q = c
+                .quality
+                .map(|q| q.to_string())
+                .unwrap_or_else(|| "-".to_owned());
+            writeln!(
+                w,
+                "  {marker} {} {} q={q} {} B met={}",
+                format_name(c.fmt),
+                disposition_name(c.disposition),
+                c.bytes,
+                c.met_target,
+            )?;
+        }
+        writeln!(w, "  reason: {}", self.win_reason())
+    }
+
+    /// Render the trace as single-line, hand-rolled JSON (SPEC-049 / DEC-049) —
+    /// no `serde_json` runtime dependency. Floats at 2 decimals so the output is
+    /// stable across platforms.
+    pub fn write_json(&self, w: &mut impl Write) -> io::Result<()> {
+        write!(
+            w,
+            "{{\"schema\":\"crustyimg.optimize.explain/v1\",\
+             \"source_format\":\"{}\",\"class\":\"{}\",\"profile\":\"{}\",\"mode\":\"{}\",\
+             \"features\":{{\"entropy\":{:.2},\"edge_ratio\":{:.2},\"flat_ratio\":{:.2},\
+             \"unique_colors\":{},\"unique_saturated\":{},\"has_alpha\":{}}},\
+             \"source_bytes\":{},\"candidates\":[",
+            format_name(self.source_format),
+            class_name(self.class),
+            profile_name(self.profile),
+            mode_name(self.mode),
+            self.entropy,
+            self.edge_ratio,
+            self.flat_ratio,
+            self.unique_colors,
+            self.unique_saturated,
+            self.has_alpha,
+            self.source_bytes,
+        )?;
+        for (i, c) in self.candidates.iter().enumerate() {
+            if i > 0 {
+                write!(w, ",")?;
+            }
+            write!(
+                w,
+                "{{\"format\":\"{}\",\"disposition\":\"{}\",\"quality\":{},\"bytes\":{},\"met_target\":{}}}",
+                format_name(c.fmt),
+                disposition_name(c.disposition),
+                c.quality.map(|q| q.to_string()).unwrap_or_else(|| "null".to_owned()),
+                c.bytes,
+                c.met_target,
+            )?;
+        }
+        write!(
+            w,
+            "],\"winner\":{},\"out_bytes\":{},\"savings_percent\":{}}}",
+            self.winner
+                .map(|i| i.to_string())
+                .unwrap_or_else(|| "null".to_owned()),
+            self.out_bytes,
+            self.savings_percent(),
+        )
+    }
+}
+
+/// Stable lowercase name for a candidate format (the engine emits only these).
+fn format_name(f: ImageFormat) -> &'static str {
+    match f {
+        ImageFormat::Jpeg => "jpeg",
+        ImageFormat::Png => "png",
+        ImageFormat::WebP => "webp",
+        ImageFormat::Avif => "avif",
+        ImageFormat::Gif => "gif",
+        _ => "other",
+    }
+}
+
+fn class_name(c: ImageClass) -> &'static str {
+    match c {
+        ImageClass::Photograph => "photograph",
+        ImageClass::GraphicLogo => "graphic-logo",
+        ImageClass::Icon => "icon",
+        ImageClass::Document => "document",
+        ImageClass::UiScreenshot => "ui-screenshot",
+    }
+}
+
+fn profile_name(p: Profile) -> &'static str {
+    match p {
+        Profile::Web => "web",
+        Profile::Docs => "docs",
+        Profile::Preserve => "preserve",
+    }
+}
+
+fn mode_name(m: Mode) -> &'static str {
+    match m {
+        Mode::Perceptual => "perceptual",
+        Mode::SizeBudget => "size-budget",
+    }
+}
+
+fn disposition_name(d: Disposition) -> &'static str {
+    match d {
+        Disposition::Lossy => "lossy",
+        Disposition::Lossless => "lossless",
     }
 }
 
@@ -457,5 +698,88 @@ mod tests {
             s.iter().all(|e| e.disposition == Disposition::Lossless),
             "docs widens to lossless: {s:?}"
         );
+    }
+
+    // ── ExplainTrace (SPEC-049) ──────────────────────────────────────────────
+
+    fn sample_trace() -> ExplainTrace {
+        ExplainTrace {
+            source_format: Png,
+            class: ImageClass::Photograph,
+            entropy: 6.234,
+            edge_ratio: 0.012,
+            flat_ratio: 0.987,
+            unique_colors: 4096,
+            unique_saturated: true,
+            has_alpha: false,
+            profile: Profile::Web,
+            mode: Mode::Perceptual,
+            source_bytes: 10_000,
+            candidates: vec![
+                CandidateTrace {
+                    fmt: WebP,
+                    disposition: Disposition::Lossy,
+                    quality: Some(82),
+                    bytes: 6000,
+                    met_target: true,
+                },
+                CandidateTrace {
+                    fmt: Jpeg,
+                    disposition: Disposition::Lossy,
+                    quality: Some(90),
+                    bytes: 7000,
+                    met_target: true,
+                },
+            ],
+            winner: Some(0),
+            out_bytes: 6000,
+        }
+    }
+
+    #[test]
+    fn explain_json_golden() {
+        let mut buf = Vec::new();
+        sample_trace().write_json(&mut buf).unwrap();
+        let json = String::from_utf8(buf).unwrap();
+        assert_eq!(
+            json,
+            r#"{"schema":"crustyimg.optimize.explain/v1","source_format":"png","class":"photograph","profile":"web","mode":"perceptual","features":{"entropy":6.23,"edge_ratio":0.01,"flat_ratio":0.99,"unique_colors":4096,"unique_saturated":true,"has_alpha":false},"source_bytes":10000,"candidates":[{"format":"webp","disposition":"lossy","quality":82,"bytes":6000,"met_target":true},{"format":"jpeg","disposition":"lossy","quality":90,"bytes":7000,"met_target":true}],"winner":0,"out_bytes":6000,"savings_percent":40}"#
+        );
+    }
+
+    #[test]
+    fn explain_json_is_deterministic() {
+        let (mut a, mut b) = (Vec::new(), Vec::new());
+        sample_trace().write_json(&mut a).unwrap();
+        sample_trace().write_json(&mut b).unwrap();
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn explain_human_lists_candidates_winner_savings() {
+        let mut buf = Vec::new();
+        sample_trace().render_human(&mut buf).unwrap();
+        let s = String::from_utf8(buf).unwrap();
+        assert!(s.contains("webp"), "{s}");
+        assert!(s.contains("jpeg"), "{s}");
+        assert!(s.contains("40% smaller"), "{s}");
+        assert!(s.contains("reason:"), "{s}");
+        assert!(s.contains('*'), "winner marker missing: {s}");
+    }
+
+    #[test]
+    fn explain_passthrough_renders_kept_source() {
+        let mut trace = sample_trace();
+        trace.winner = None;
+        trace.out_bytes = trace.source_bytes;
+        assert_eq!(trace.savings_percent(), 0);
+
+        let mut human = Vec::new();
+        trace.render_human(&mut human).unwrap();
+        assert!(String::from_utf8(human).unwrap().contains("kept source"));
+
+        let mut json = Vec::new();
+        trace.write_json(&mut json).unwrap();
+        assert!(String::from_utf8(json).unwrap().contains("\"winner\":null"));
     }
 }

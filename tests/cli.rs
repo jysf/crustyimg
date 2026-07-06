@@ -4738,3 +4738,79 @@ fn optimize_web_multi_input_fanout() {
         .count();
     assert_eq!(count, 2, "both inputs should produce an output");
 }
+
+// ── SPEC-049: --explain trace ─────────────────────────────────────────────────
+
+/// `--explain` writes the human trace to stderr; stdout stays clean.
+#[test]
+fn optimize_explain_human_to_stderr() {
+    let dir = tempfile::tempdir().unwrap();
+    let in_path = write_bytes(&dir, "in.png", &common::detailed_png(96, 96));
+    let out_dir = dir.path().join("out");
+    let out = Command::new(BIN)
+        .args([
+            "optimize",
+            in_path.to_str().unwrap(),
+            "--out-dir",
+            out_dir.to_str().unwrap(),
+            "--explain",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr_str(&out));
+    let err = stderr_str(&out);
+    assert!(
+        err.contains("class="),
+        "human trace missing features: {err:?}"
+    );
+    assert!(
+        err.contains("reason:"),
+        "human trace missing reason: {err:?}"
+    );
+    assert!(
+        out.stdout.is_empty(),
+        "stdout must stay clean for --explain"
+    );
+}
+
+/// `--explain=json` emits deterministic machine-readable JSON to stdout.
+#[test]
+fn optimize_explain_json_to_stdout_deterministic() {
+    let dir = tempfile::tempdir().unwrap();
+    let in_path = write_bytes(&dir, "in.png", &common::detailed_png(100, 80));
+    let run = |sub: &str| -> Vec<u8> {
+        let out_dir = dir.path().join(sub);
+        let out = Command::new(BIN)
+            .args([
+                "optimize",
+                in_path.to_str().unwrap(),
+                "--out-dir",
+                out_dir.to_str().unwrap(),
+                "--explain=json",
+            ])
+            .output()
+            .unwrap();
+        assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr_str(&out));
+        out.stdout
+    };
+    let a = run("a");
+    let json = String::from_utf8(a.clone()).unwrap();
+    assert!(
+        json.contains("\"schema\":\"crustyimg.optimize.explain/v1\""),
+        "json missing schema: {json}"
+    );
+    assert!(
+        json.contains("\"candidates\":["),
+        "json missing candidates: {json}"
+    );
+    assert!(json.contains("\"winner\":"), "json missing winner: {json}");
+    assert!(
+        json.contains("\"savings_percent\":"),
+        "json missing savings: {json}"
+    );
+    assert_eq!(
+        a,
+        run("b"),
+        "explain=json must be byte-identical across runs"
+    );
+}
