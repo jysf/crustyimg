@@ -21,6 +21,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.3.0] - 2026-07-06
+
+The optimization engine (PROJ-002). `optimize` now looks at the image and picks
+the best output format for you — the "local `f_auto`" — and explains why. Built
+on a new shared image-analysis layer. Zero new default dependencies; the default
+build stays pure-Rust / zero-system-deps.
+
+### Added
+
+- **`optimize` auto-decides the output format** (the "local `f_auto`"). With no
+  `--format`, it analyzes the image, shortlists up to three candidate formats,
+  drives the existing SSIMULACRA2 perceptual search (or the `--max-size` byte
+  budget) across them, and ships the smallest artifact that beats the source —
+  never a larger file (SPEC-048).
+- **`optimize --profile <web|docs|preserve>`** selects the bias: `web` (default)
+  auto-picks the format; `docs` widens the lossless/crisp-text bias; `preserve`
+  keeps the input's format (the previous behavior) (SPEC-048).
+- **`optimize --explain` / `--explain=json`** print an auditable trace of the
+  decision — detected features, class, every candidate tried
+  (format/quality/bytes/met-target), the winner, and the savings — human-readable
+  to stderr or JSON to stdout (schema `crustyimg.optimize.explain/v1`) (SPEC-049).
+- A new internal **image-analysis layer** (`src/analysis/`): a computed-once
+  `Analysis` context (histogram, entropy, edge density, alpha coverage, capped
+  unique-color count, dominant color) plus deterministic, no-ML classification
+  (photograph / graphic-logo / icon / document / ui-screenshot) that biases the
+  format decision (SPEC-046, SPEC-047).
+
+### Changed
+
+- **`optimize`'s default now auto-decides the output format** instead of
+  preserving the input format — e.g. a photographic PNG may be shipped as a
+  smaller JPEG or WebP. Pass `--profile preserve` (or pin `--format` / `-o
+  <ext>`) for the previous format-preserving behavior. The chosen format and
+  savings are always reported on stderr (silence with `--quiet`). **Breaking**
+  for scripts that relied on `optimize` keeping the input format.
+
+### Notes
+
+- AVIF appears as an auto-decision candidate only in `--max-size` (byte-budget)
+  mode and only when built with `--features avif` — it has no decoder, so it
+  cannot be perceptually scored (DEC-020).
+- Indexed/lossy-PNG output is still deferred (it needs a permissive quantizer);
+  few-color graphics use lossless WebP in the interim.
+
+---
+
 ## [0.2.1] - 2026-07-05
 
 Maintenance release: dependency currency + a scheduled advisory audit. No
