@@ -4,7 +4,7 @@
 task:
   id: SPEC-056
   type: story                      # epic | story | task | bug | chore
-  cycle: design                    # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: M                    # S | M | L
@@ -31,11 +31,54 @@ value_link: >
   + a setup-crustyimg Action + a crustyimg-action lint mode".
 
 cost:
-  sessions: []
+  sessions:
+    - cycle: design
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-07-06
+      notes: >
+        Main-loop orchestrator (STAGE-015 continuation — SARIF + release-cut framing), not
+        separately metered.
+    - cycle: build
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 92000
+      estimated_usd: 0.83
+      duration_minutes: 24
+      recorded_at: 2026-07-06
+      notes: >
+        ESTIMATE — autonomous merge-on-green run in the orchestrator main loop, NOT a metered
+        subagent. Order-of-magnitude (~92k at Opus 4.8 ~80/20 ≈ $0.83). Added write_sarif (mirror
+        write_json; version-param golden; cwd-relativized/forward-slashed uris) + --format sarif
+        wiring + README code-scanning snippet; staged 0.4.0 (Cargo.toml + CHANGELOG + compare-links
+        + Cargo.lock). 4 SARIF unit + 2 integration tests. PR #64.
+    - cycle: verify
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 10000
+      estimated_usd: 0.09
+      duration_minutes: 3
+      recorded_at: 2026-07-06
+      notes: >
+        ESTIMATE — same autonomous run; CI-driven verify, all matrix/feature/lean/msrv/deny jobs
+        green on #64 (cross-OS SARIF golden stable). Order-of-magnitude (~10k).
+    - cycle: ship
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-07-06
+      notes: >
+        Main-loop ship bookkeeping (reflection, cost totals, stage backlog, archive) + STAGE-015
+        stage-ship, not separately metered.
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 102000
+    estimated_usd: 0.92
+    session_count: 4
 ---
 
 # SPEC-056: `lint --format sarif` + the 0.4.0 release-cut
@@ -191,6 +234,14 @@ cross-OS stable; document the code-scanning upload; then stage the **0.4.0** ver
 
 *Appended during the **ship** cycle.*
 
-1. **What would I do differently next time?** — <answer>
-2. **Does any template, constraint, or decision need updating?** — <answer>
-3. **Is there a follow-up spec I should write now before I forget?** — <answer>
+1. **What would I do differently next time?** — Nothing. Parameterizing `version` in `write_sarif`
+   (instead of reading `crate::version()` inside it) let the golden survive the same-PR 0.4.0 bump —
+   the one non-obvious bit, and the right call.
+2. **Does any template, constraint, or decision need updating?** — No. `crustyimg.lint/v1` (JSON) and
+   SARIF 2.1.0 are both concrete now; DEC-050's stability surface holds. Bundling the release-cut into
+   the feature PR worked cleanly (Cargo.lock refresh + backfilled compare-links were the only fiddly
+   parts) — fine to repeat for a small wave-closing spec.
+3. **Is there a follow-up spec I should write now before I forget?** — No new spec. **STAGE-015 is
+   complete (2/2).** The only remaining PROJ-004 stage is **STAGE-014 (engine-backed rules)**, still
+   `proposed` and needing a framing pass. The maintainer's outward steps: tag `v0.4.0` (publishes the
+   whole lint wave + unblocks the two Actions for real consumers), then tag the Action repos `v1`.

@@ -3,7 +3,7 @@
 
 stage:
   id: STAGE-015
-  status: active                    # proposed | active | shipped | cancelled | on_hold
+  status: shipped                   # proposed | active | shipped | cancelled | on_hold
   priority: high
   target_complete: null
 
@@ -13,7 +13,7 @@ repo:
   id: crustyimg
 
 created_at: 2026-07-06
-shipped_at: null
+shipped_at: 2026-07-06
 
 value_contribution:
   advances: >
@@ -90,11 +90,11 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
   wraps the cargo-dist installer) + `crustyimg-action` (lint/optimize wrapper, JSON → annotations),
   both in their own repos with 3-OS self-tests GREEN, + the in-repo glue (`.pre-commit-hooks.yaml`,
   `just lint-images`, CI docs). DEC-051 pins the design. In-repo PR #63 → `main` (b6ee724).
-- [ ] SPEC-056 (design → build NEXT) — `lint --format sarif` (hand-rolled, no dep) + the SARIF
-  code-scanning docs; then cut 0.4.0 (CHANGELOG + version, untagged) announcing lint + the Actions.
-  **The last piece of the wave.**
+- [x] SPEC-056 (shipped on 2026-07-06) — `lint --format sarif` (hand-rolled SARIF 2.1.0, no dep) +
+  the SARIF code-scanning docs; staged 0.4.0 (CHANGELOG + version, **untagged** — maintainer tags)
+  announcing lint + the Actions. PR #64 → `main` (5ca1d8c).
 
-**Count:** 1 shipped / 0 active / 1 pending
+**Count:** 2 shipped / 0 active / 0 pending
 
 ## Dependencies
 
@@ -111,8 +111,23 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
 *Filled in when status moves to shipped.*
 
-- **Did we deliver the outcome in "What This Stage Is"?** <yes/no + notes>
-- **How many specs did it actually take?** <number vs. plan>
-- **What changed between starting and shipping?** <one sentence>
+- **Did we deliver the outcome in "What This Stage Is"?** Yes. The full adoption surface shipped: two
+  composite GitHub Actions in their own public repos with **3-OS self-tests green** (`jysf/setup-crustyimg`
+  installs the checksum-verified binary; `jysf/crustyimg-action` runs `lint --format json` → PR
+  annotations + job summary + exit propagation), the in-repo glue (`.pre-commit-hooks.yaml`, `just
+  lint-images`, a README Continuous-integration section), and **`lint --format sarif`** (SARIF 2.1.0
+  for GitHub code-scanning, hand-rolled, no dep). 0.4.0 is staged (version + CHANGELOG, untagged). No
+  new crate dependency; `just deny` green throughout.
+- **How many specs did it actually take?** 2 (SPEC-057 Actions+glue, SPEC-056 SARIF+cut) — exactly the
+  rescoped plan after the maintainer pulled the Actions in. (The original single SPEC-056 was split.)
+- **What changed between starting and shipping?** The Actions moved from "out of scope, separate repos"
+  to in-wave deliverables; and a sequencing reality surfaced — `lint` is unreleased, so the wrapper's
+  self-test builds from `main` (via a new `install: false` input) until 0.4.0 is tagged.
 - **Lessons that should update AGENTS.md, templates, or constraints?**
-  - <one-line updates>
+  - Wrapping the existing cargo-dist installer (vs a hand-rolled download matrix) is the pattern for
+    any "install the CLI" Action — the installer already does os/arch + checksum. (DEC-051.)
+  - Two composite-Action gotchas worth remembering (generic, not crustyimg-specific): hyphenated
+    inputs need `${{ inputs['x-y'] }}`; a composite `run` step is `bash -e`, so `set +e` when a wrapped
+    tool's non-zero exit is meaningful.
+  - Parameterize `version` in any versioned machine-readable output (SARIF) so its golden survives a
+    same-PR release bump.
