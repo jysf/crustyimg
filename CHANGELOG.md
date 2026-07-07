@@ -21,6 +21,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.0] - 2026-07-06
+
+Image **linting** (PROJ-004). `crustyimg lint` is a format-aware, no-URL,
+per-file CI linter for an image asset tree ("clippy for image assets"): it flags
+privacy / format / size / colorspace problems, names a runnable `crustyimg` fix
+for each, and exits `7` on an error finding. Plus a GitHub Actions on-ramp. Zero
+new default dependencies; the default build stays pure-Rust / zero-system-deps.
+
+### Added
+
+- **`crustyimg lint [PATHS]…`** — a read-only, advisory image-asset linter:
+  source-resolution fan-out (globs / dirs / files, non-images skipped), a
+  `Rule` / `Finding` / `Severity` framework, grouped-by-file output, and
+  CI-native exit codes (`0` clean · `7` error finding · `2` usage · `3` no
+  inputs) reusing the exit-7 `CheckFailed` gate.
+- **Rule catalog** (each names a runnable fix): `privacy/gps-metadata-leak`,
+  `privacy/camera-metadata`, `orient/orientation-not-baked`,
+  `size/oversized-bytes`, `size/truncated-or-corrupt`,
+  `dims/oversized-dimensions`, `color/wrong-colorspace`, `color/missing-icc`,
+  `color/unexpected-icc`, `format/animated-gif`.
+- **`.crustyimg-lint.toml` config** (auto-discovered): ruff-style
+  `select` / `ignore` + `per-file-ignores`, eslint-style per-rule severity,
+  per-glob `[[budget]]`, and a savings threshold; plus the CLI flags
+  `--config` / `--no-config` / `--select` / `--ignore` / `--max-warnings` /
+  `--max-intended-width` / `--savings-threshold`.
+- **`lint --format json|sarif`** — hand-rolled reports, no new dependency: a
+  stable `crustyimg.lint/v1` JSON report and SARIF 2.1.0 for GitHub
+  code-scanning (`github/codeql-action/upload-sarif`).
+- **CI on-ramp:** the [`setup-crustyimg`](https://github.com/jysf/setup-crustyimg)
+  and [`crustyimg-action`](https://github.com/jysf/crustyimg-action) GitHub
+  Actions (their own repos), a `.pre-commit-hooks.yaml` hook, and a
+  `just lint-images` recipe — drop image linting into any CI in three lines.
+
+---
+
 ## [0.3.1] - 2026-07-06
 
 Dependency-hygiene patch: no user-facing behavior change.
@@ -275,7 +310,10 @@ re-decoded, so privacy ops carry no quality cost and no recompression.
 
 ---
 
-[Unreleased]: https://github.com/jysf/crustyimg/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/jysf/crustyimg/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/jysf/crustyimg/compare/v0.3.1...v0.4.0
+[0.3.1]: https://github.com/jysf/crustyimg/compare/v0.3.0...v0.3.1
+[0.3.0]: https://github.com/jysf/crustyimg/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/jysf/crustyimg/releases/tag/v0.2.1
 [0.2.0]: https://github.com/jysf/crustyimg/releases/tag/v0.2.0
 [0.1.1]: https://github.com/jysf/crustyimg/releases/tag/v0.1.1

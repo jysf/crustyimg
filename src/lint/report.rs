@@ -13,7 +13,7 @@
 use std::io::{self, Write};
 use std::path::Path;
 
-use super::{Finding, LintOutcome};
+use super::{Finding, LintOutcome, Severity};
 
 /// Render the outcome as a grouped-by-file human report (eslint/ruff style).
 ///
@@ -134,6 +134,109 @@ fn escape_json(s: &str) -> String {
     out
 }
 
+// ── SARIF report (SPEC-056) ───────────────────────────────────────────────────
+
+/// crustyimg's repo — the SARIF `informationUri` / rule `helpUri`.
+const CRUSTYIMG_URI: &str = "https://github.com/jysf/crustyimg";
+
+/// Emit the outcome as a single-line, hand-rolled **SARIF 2.1.0** object (no
+/// trailing newline; the caller adds one) for GitHub code-scanning
+/// (`github/codeql-action/upload-sarif`).
+///
+/// One `run` with the `crustyimg` tool driver, a `rules[]` catalog entry per rule
+/// referenced by the findings (id + default level), and one `result` per finding.
+/// `version` is a **parameter** (not the live crate version) so the golden is
+/// version-independent. `base`, when `Some`, relativizes each location `uri` (and
+/// forward-slashes it) so GitHub anchors findings to repo-relative files rather
+/// than the absolute canonicalized path. Hand-rolled — no `serde_json`.
+pub fn write_sarif(
+    outcome: &LintOutcome,
+    version: &str,
+    base: Option<&Path>,
+    out: &mut impl Write,
+) -> io::Result<()> {
+    // Distinct referenced rule ids, sorted — a stable `rules[]` independent of
+    // finding order.
+    let mut rule_ids: Vec<&str> = outcome.findings.iter().map(|f| f.rule()).collect();
+    rule_ids.sort_unstable();
+    rule_ids.dedup();
+
+    // Default level per rule id, looked up from the catalog (the *default*,
+    // distinct from a per-result, config-overridden level).
+    let catalog = super::default_rules();
+    let default_level = |id: &str| -> &'static str {
+        catalog
+            .iter()
+            .find(|r| r.id() == id)
+            .map(|r| sarif_level(r.default_severity()))
+            .unwrap_or("warning")
+    };
+
+    write!(
+        out,
+        "{{\"version\":\"2.1.0\",\
+         \"$schema\":\"https://json.schemastore.org/sarif-2.1.0.json\",\
+         \"runs\":[{{\"tool\":{{\"driver\":{{\"name\":\"crustyimg\",\
+         \"informationUri\":\"{CRUSTYIMG_URI}\",\"version\":\"{}\",\"rules\":[",
+        escape_json(version),
+    )?;
+    for (i, id) in rule_ids.iter().enumerate() {
+        if i > 0 {
+            write!(out, ",")?;
+        }
+        write!(
+            out,
+            "{{\"id\":\"{}\",\"defaultConfiguration\":{{\"level\":\"{}\"}},\"helpUri\":\"{CRUSTYIMG_URI}\"}}",
+            escape_json(id),
+            default_level(id),
+        )?;
+    }
+    write!(out, "]}}}},\"results\":[")?;
+    for (i, f) in outcome.findings.iter().enumerate() {
+        if i > 0 {
+            write!(out, ",")?;
+        }
+        write_sarif_result(f, base, out)?;
+    }
+    write!(out, "]}}]}}")
+}
+
+/// Write one SARIF `result` object.
+fn write_sarif_result(f: &Finding, base: Option<&Path>, out: &mut impl Write) -> io::Result<()> {
+    let message = match f.fix_command() {
+        Some(cmd) => format!("{} — fix: {}", f.message(), cmd),
+        None => f.message().to_string(),
+    };
+    write!(
+        out,
+        "{{\"ruleId\":\"{}\",\"level\":\"{}\",\"message\":{{\"text\":\"{}\"}},\
+         \"locations\":[{{\"physicalLocation\":{{\"artifactLocation\":{{\"uri\":\"{}\"}}}}}}]}}",
+        escape_json(f.rule()),
+        sarif_level(f.severity()),
+        escape_json(&message),
+        escape_json(&sarif_uri(f.file(), base)),
+    )
+}
+
+/// Map a [`Severity`] to a SARIF `level`.
+fn sarif_level(sev: Severity) -> &'static str {
+    match sev {
+        Severity::Error => "error",
+        Severity::Warn => "warning",
+        Severity::Info => "note",
+    }
+}
+
+/// A SARIF-friendly location uri: relativized to `base` (when the path is under
+/// it) and forward-slashed, so GitHub code-scanning anchors it to a repo file.
+fn sarif_uri(file: &Path, base: Option<&Path>) -> String {
+    let rel = match base {
+        Some(b) => file.strip_prefix(b).unwrap_or(file),
+        None => file,
+    };
+    rel.to_string_lossy().replace('\\', "/")
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::{Finding, LintOutcome, Severity};
@@ -238,5 +341,104 @@ mod tests {
         assert!(got.contains(r#"weird\"name\\x.png"#));
         assert!(got.contains(r#"bad \"quote\""#));
         assert!(got.contains("\"fix\":null"));
+    }
+
+    // ── SARIF (SPEC-056) ─────────────────────────────────────────────────────
+
+    fn sarif_string(outcome: &LintOutcome) -> String {
+        let mut buf = Vec::new();
+        // Version pinned + base None → version- and cwd-independent (stable golden).
+        write_sarif(outcome, "0.4.0", None, &mut buf).unwrap();
+        String::from_utf8(buf).unwrap()
+    }
+
+    #[test]
+    fn sarif_golden_is_an_exact_byte_stable_string() {
+        let got = sarif_string(&synthetic());
+        let expected = concat!(
+            r#"{"version":"2.1.0","$schema":"https://json.schemastore.org/sarif-2.1.0.json","#,
+            r#""runs":[{"tool":{"driver":{"name":"crustyimg","#,
+            r#""informationUri":"https://github.com/jysf/crustyimg","version":"0.4.0","rules":["#,
+            r#"{"id":"privacy/gps-metadata-leak","defaultConfiguration":{"level":"error"},"#,
+            r#""helpUri":"https://github.com/jysf/crustyimg"},"#,
+            r#"{"id":"size/oversized-bytes","defaultConfiguration":{"level":"error"},"#,
+            r#""helpUri":"https://github.com/jysf/crustyimg"}]}},"results":["#,
+            r#"{"ruleId":"privacy/gps-metadata-leak","level":"error","#,
+            r#""message":{"text":"image carries GPS location metadata — fix: crustyimg clean --gps img/leak.jpg"},"#,
+            r#""locations":[{"physicalLocation":{"artifactLocation":{"uri":"img/leak.jpg"}}}]},"#,
+            r#"{"ruleId":"size/oversized-bytes","level":"warning","#,
+            r#""message":{"text":"exceeds the byte budget — fix: crustyimg optimize img/photo.png"},"#,
+            r#""locations":[{"physicalLocation":{"artifactLocation":{"uri":"img/photo.png"}}}]}"#,
+            r#"]}]}"#,
+        );
+        assert_eq!(got, expected);
+    }
+
+    #[test]
+    fn sarif_determinism_two_renders_are_byte_identical() {
+        let outcome = synthetic();
+        assert_eq!(sarif_string(&outcome), sarif_string(&outcome));
+    }
+
+    #[test]
+    fn sarif_maps_severities_and_empty_results_on_clean() {
+        // Level mapping across the three severities.
+        let outcome = LintOutcome {
+            findings: vec![
+                Finding::new(
+                    "a.png",
+                    "size/truncated-or-corrupt",
+                    Severity::Error,
+                    "e",
+                    None,
+                ),
+                Finding::new(
+                    "b.png",
+                    "orient/orientation-not-baked",
+                    Severity::Warn,
+                    "w",
+                    None,
+                ),
+                Finding::new("c.png", "color/missing-icc", Severity::Info, "i", None),
+            ],
+            files_scanned: 3,
+        };
+        let s = sarif_string(&outcome);
+        assert!(s.contains(r#""level":"error""#));
+        assert!(s.contains(r#""level":"warning""#));
+        assert!(s.contains(r#""level":"note""#));
+
+        // A clean outcome → empty results.
+        let clean = LintOutcome {
+            findings: vec![],
+            files_scanned: 2,
+        };
+        let cs = sarif_string(&clean);
+        assert!(cs.contains(r#""rules":[]"#));
+        assert!(cs.contains(r#""results":[]"#));
+    }
+
+    #[test]
+    fn sarif_relativizes_and_forward_slashes_the_uri() {
+        use std::path::{Path, PathBuf};
+        // A path under a base dir is emitted repo-relative, forward-slashed.
+        let base = PathBuf::from("/work/repo");
+        let outcome = LintOutcome {
+            findings: vec![Finding::new(
+                Path::new("/work/repo").join("assets").join("hero.jpg"),
+                "privacy/gps-metadata-leak",
+                Severity::Error,
+                "leak",
+                None,
+            )],
+            files_scanned: 1,
+        };
+        let mut buf = Vec::new();
+        write_sarif(&outcome, "0.4.0", Some(&base), &mut buf).unwrap();
+        let s = String::from_utf8(buf).unwrap();
+        assert!(
+            s.contains(r#""uri":"assets/hero.jpg""#),
+            "relative + slashed: {s}"
+        );
     }
 }

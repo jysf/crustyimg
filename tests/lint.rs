@@ -291,6 +291,57 @@ fn an_invalid_format_value_is_a_usage_error() {
     );
 }
 
+// ── SPEC-056: SARIF report ──────────────────────────────────────────────────
+
+#[test]
+fn sarif_format_on_a_gps_tree_emits_a_sarif_result() {
+    let dir = TempDir::new().unwrap();
+    write(&dir, "leak.jpg", &jpeg_with_gps(16, 16));
+
+    let (code, stdout) = lint_args(&[
+        dir.path().as_os_str(),
+        OsStr::new("--format"),
+        OsStr::new("sarif"),
+    ]);
+    assert_eq!(code, 7, "GPS leak still fails the gate; stdout:\n{stdout}");
+    assert!(
+        stdout.contains(r#""version":"2.1.0""#),
+        "SARIF 2.1.0; {stdout}"
+    );
+    assert!(stdout.contains(r#""name":"crustyimg""#), "tool driver");
+    assert!(
+        stdout.contains(r#""ruleId":"privacy/gps-metadata-leak""#),
+        "the GPS result; {stdout}"
+    );
+    assert!(stdout.contains(r#""level":"error""#), "error level");
+    // A file location is present (relativization-to-cwd is unit-tested; here the
+    // tempdir is outside the cwd so the uri stays absolute — still references it).
+    assert!(stdout.contains("leak.jpg"), "a file location; {stdout}");
+    assert!(
+        stdout.contains(r#""artifactLocation""#),
+        "SARIF physicalLocation; {stdout}"
+    );
+}
+
+#[test]
+fn sarif_and_human_produce_the_same_exit_code() {
+    let dir = TempDir::new().unwrap();
+    write(&dir, "leak.jpg", &jpeg_with_gps(16, 16));
+
+    let (human, _) = lint_args(&[
+        dir.path().as_os_str(),
+        OsStr::new("--format"),
+        OsStr::new("human"),
+    ]);
+    let (sarif, _) = lint_args(&[
+        dir.path().as_os_str(),
+        OsStr::new("--format"),
+        OsStr::new("sarif"),
+    ]);
+    assert_eq!(human, sarif, "format must not change the exit code");
+    assert_eq!(human, 7);
+}
+
 // ── SPEC-053: shipped-capability rules ──────────────────────────────────────
 
 #[test]

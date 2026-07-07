@@ -154,21 +154,36 @@ cross-OS stable; document the code-scanning upload; then stage the **0.4.0** ver
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
+- **Branch:** `feat/spec-056-lint-sarif`
+- **PR (if applicable):** (opened after green local gates)
+- **All acceptance criteria met?** yes
 - **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
+  - None — SARIF was anticipated by DEC-050; it follows the SPEC-052/DEC-049 hand-rolled-JSON
+    precedent. No new DEC.
 - **Deviations from spec:**
-  - [list]
+  - None of substance. `write_sarif` takes `(outcome, version, base, out)` exactly as specced; the
+    golden pins a literal `version` so it's independent of the 0.4.0 bump. The 0.4.0 cut (Cargo.toml
+    `0.3.1 → 0.4.0` + CHANGELOG `[0.4.0]` + backfilled compare-links; Cargo.lock refreshed) is
+    **staged in this same PR** (untagged) rather than a separate chore — it's all SPEC-056.
 - **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - **Maintainer's outward step:** tag `v0.4.0` (cargo-dist publishes → crates.io / Homebrew /
+    Release binaries; this is what makes `lint` + the two Actions usable by real consumers). Then tag
+    the Action repos `v1` (per SPEC-057). Nothing else in STAGE-015.
+  - Minor (already noted in SPEC-057): lint finding paths are absolute unless relativized — the SARIF
+    writer relativizes to cwd (`base`), so code-scanning anchors are repo-relative in CI; the human/
+    JSON reports still show absolute paths.
 
 ### Build-phase reflection (3 questions, short answers)
 
-1. **What was unclear in the spec that slowed you down?** — <answer>
-2. **Was there a constraint or decision that should have been listed but wasn't?** — <answer>
-3. **If you did this task again, what would you do differently?** — <answer>
+1. **What was unclear in the spec that slowed you down?** — Nothing. SPEC-052's `write_json` was a
+   near-exact template; the only new wrinkle (relativizing the location uri for code-scanning) was
+   called out in the spec's Notes and unit-tested directly.
+2. **Was there a constraint or decision that should have been listed but wasn't?** — No. Parameterizing
+   `version` (rather than reading `crate::version()` inside the writer) was the key move that kept the
+   golden stable across the 0.4.0 bump — worth repeating for any versioned machine-readable output.
+3. **If you did this task again, what would you do differently?** — Nothing. Deriving `rules[]` from
+   the distinct referenced rule ids (with default levels looked up from the catalog) kept the golden
+   small and the SARIF valid without expanding the `Rule` trait.
 
 ---
 
