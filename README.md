@@ -212,6 +212,71 @@ crustyimg completions elvish >> ~/.config/elvish/lib/completions.elv
 Where to install the script is your (or your package manager's) step — the
 command writes the script to stdout only.
 
+## Continuous integration
+
+`crustyimg lint` is a **format-aware, no-URL, per-file** image-asset linter — the pre-deploy
+check you run on `assets/`/`content/` in CI before anything is Lighthouse-able. It flags GPS/EXIF
+privacy leaks, over-budget and wrong-format assets, non-baked orientation, corrupt files and more,
+naming a runnable `crustyimg` fix for each and exiting **`7`** on any error-severity finding (a
+CI-native gate). Drop it into any CI in three lines:
+
+### GitHub Actions
+
+The lint wrapper — installs crustyimg and annotates findings inline in the PR:
+
+```yaml
+name: images
+on: [pull_request]
+jobs:
+  lint-images:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jysf/crustyimg-action@v1
+        with:
+          paths: assets content
+```
+
+Or install the binary yourself with [`setup-crustyimg`](https://github.com/jysf/setup-crustyimg)
+(generic — it enables `optimize`/`convert`/`lint` alike) and call it directly:
+
+```yaml
+      - uses: jysf/setup-crustyimg@v1
+      - run: crustyimg lint assets content        # exit 7 fails the job on an error finding
+      - run: crustyimg optimize assets --out-dir dist   # (any crustyimg command works)
+```
+
+- [`jysf/setup-crustyimg`](https://github.com/jysf/setup-crustyimg) — installs the CLI (via the
+  checksum-verifying cargo-dist installer) on Linux/macOS/Windows.
+- [`jysf/crustyimg-action`](https://github.com/jysf/crustyimg-action) — the lint/optimize wrapper
+  with native PR annotations + a job-summary table.
+
+### pre-commit
+
+The format-aware upgrade from `check-added-large-files` — lint image assets before they land, via
+[`.pre-commit-hooks.yaml`](.pre-commit-hooks.yaml):
+
+```yaml
+repos:
+  - repo: https://github.com/jysf/crustyimg
+    rev: v0.4.0            # a crustyimg release that ships `lint`
+    hooks:
+      - id: crustyimg-lint
+```
+
+### Locally / any CI
+
+The binary + its exit code is the whole contract — no Action required:
+
+```bash
+crustyimg lint assets content            # 0 clean · 7 error finding · 2 usage · 3 no inputs
+crustyimg lint assets --format json      # machine-readable report for tooling
+just lint-images assets content          # the same, via the repo's justfile recipe
+```
+
+Tune rules with a `.crustyimg-lint.toml` (`select`/`ignore`, per-rule severity, per-glob byte
+budgets, `per-file-ignores`); zero-config works out of the box.
+
 ## Changelog & releases
 
 - **[CHANGELOG.md](CHANGELOG.md)** — what changed in each version, in

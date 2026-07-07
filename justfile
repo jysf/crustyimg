@@ -66,6 +66,12 @@ bench-cli *ARGS:
     cargo build --release
     hyperfine --warmup 2 './target/release/crustyimg {{ARGS}}'
 
+# Lint IMAGE ASSETS with `crustyimg lint` (the format-aware upgrade from
+# check-added-large-files). Usage: just lint-images [paths…] (default: cwd).
+# Exit 7 on any error-severity finding — the CI-native gate (SPEC-057).
+lint-images *paths=".":
+    cargo run --quiet -- lint {{paths}}
+
 # Lint with clippy, warnings as errors (the CI gate, AGENTS §6)
 lint:
     cargo clippy -- -D warnings
