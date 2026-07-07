@@ -29,9 +29,9 @@
 
 | # | Wave | Ships | Delivers | Draws from | Why here |
 |---|---|---|---|---|---|
-| **1** | **Input reach — HEIC / RAW / SVG** | 0.5.0 | Decode/ingest reach so `convert IMG_1234.heic photo.webp` (and RAW embedded-preview + SVG rasterize) *just works* — no system libs. Market honestly as **web-quality preview extraction**, not archival HEVC/full-RAW decode. | PROJ-007 (input bits) | **The single best "just works" adoption moment.** Makes shipped `optimize`/`convert` dramatically more useful overnight; the strongest Show-HN/demo hook. *Long pole is the corpus, not the code* — see "The cost agents can't lower." |
+| **1** | **Input reach — AVIF / SVG / RAW (+ opt-in HEIC)** | 0.5.0 | Default, no-system-dep decode reach: **AVIF decode** (rav1d, patent-free) + **SVG rasterize** (resvg) + **RAW embedded full-res JPEG preview** extraction. **HEIC is a feature-gated `heic` build only** (libheif where a system HEVC codec is present) — *never* in the default binary (DEC-052: AGPL wall + HEVC patents). RAW ≠ HEIC: RAW carries a usable embedded JPEG preview; HEIC does not (its thumbnail is HEVC too), so HEIC is real-decode-or-nothing. | PROJ-007 (input bits) + DEC-052 | **AVIF-decode alone justifies keeping it early** — it also feeds the shipped `optimize`/auto-format engine as a new candidate format, beyond input reach. Honest headline: *"AVIF/SVG/RAW just work with no system deps; HEIC in the `heic` build."* NOT "iPhone photos just work." *Long pole is the corpus + fuzzing, not the code.* |
 | **2** | **Build + cache + lockfile + `--watch`** | 0.5.x | A `build` workflow over recipes/`apply` with a **content-addressed cache** (incremental rebuild), a reproducibility **lockfile**, and `--watch`. "A Makefile for images, verifiable." | PROJ-007 (determinism) | Best daily-driver feature and **near-ideal agent work** (turborepo/Bazel-shaped, deterministic, clear pass/fail). `--watch` is table-stakes DX for the frontend audience. |
-| **3** | **WASM core + demo page** | 0.6.0 | Compile the (already I/O-agnostic) core to **WASM**, ship an **npm-packaged library**, and a **squoosh.app-style client-side demo page**. | PROJ-008 (WASM seam) | Demo = **highest-ROI marketing artifact** (zero-install "try it," inherently shareable). npm lib = a sharp no-native-binary alternative. **Time the Show HN here, with HEIC working underneath.** Must stay **client-side** (no backend) to honor the no-service/no-CDN guardrail. |
+| **3** | **WASM core + demo page** | 0.6.0 | Compile the (already I/O-agnostic) core to **WASM**, ship an **npm-packaged library**, and a **squoosh.app-style client-side demo page**. | PROJ-008 (WASM seam) | Demo = **highest-ROI marketing artifact** (zero-install "try it," inherently shareable). npm lib = a sharp no-native-binary alternative. **This is where the "watch it just work" moment lives** — in-browser AVIF/SVG conversion; **time the Show HN here.** Must stay **client-side** (no backend) to honor the no-service/no-CDN guardrail. |
 | **4** | **Web-asset manifest + placeholders + favicon** | 0.6.x | Path-keyed **manifest** Sink (`responsive`/`apply --manifest`) + **placeholders** (`blurDataURL` + thumbhash/blurhash) + **dominant color** + **favicon** multi-size set. | **PROJ-005** (unchanged) | The interface any SSG/build consumes. Sequenced after install momentum; go deep in **Eleventy first** (`eleventy-crustyimg`), then an Astro image service. HEIC-in-the-manifest is a real edge (needs #1). |
 | **5** | **Geometry (non-smart)** | 0.6.x | **crop** (rect/gravity/aspect) + **rotate/flip/trim/pad** — and *only* those. | PROJ-006 (geometry half) | Code-bound, table-stakes; completes the local toolchain and makes 1.0 feel finished. |
 
@@ -78,8 +78,12 @@ The reorder came from a velocity-aware reconciliation. The core observations:
   for, or a deterministic smart-crop visibly worse than the ML tools, does not.
 
 **What moved and why:**
-- **Input reach jumped from 0.7.0 to first.** It's the highest-leverage adoption moment and it
-  makes everything already shipped more useful. (Biggest single change.)
+- **Input reach jumped from 0.7.0 to first** — but reframed after the HEIC spike (DEC-052,
+  `docs/research/heic-input-reach-spike.md`). The default hook is **AVIF/SVG/RAW** (all permissive,
+  patent-clean, no system deps); **HEIC is opt-in only** because the mature pure-Rust decoders are
+  AGPL *and* HEVC carries patent exposure regardless of code license. AVIF-decode alone earns the
+  early slot (it also feeds the shipped optimize engine), so the wave stays first even though the
+  "iPhone photos just work" headline moved to the in-browser demo (Wave 3).
 - **build/cache/lockfile and the WASM core + demo split out of PROJ-007/008 and moved up** — the
   demo page is the marketing artifact the Track-B funnel finally has to point at.
 - **Lint expansion (STAGE-014) dropped below the 1.0 line.** The catalog already shipped in 0.4.0
