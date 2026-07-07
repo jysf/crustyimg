@@ -134,18 +134,42 @@ summary), deterministic and golden-testable, adding no dependency.
 
 ## Build Completion
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
-- **New decisions emitted:** <DEC-NNN or none>
-- **Deviations from spec:** <list>
-- **Follow-up work identified:** <list>
+- **Branch:** `feat/spec-052-lint-report-json`
+- **PR (if applicable):** (opened after green local gates)
+- **All acceptance criteria met?** yes
+- **New decisions emitted:** None — the schema (`crustyimg.lint/v1`) is DEC-050's stability surface;
+  the build followed SPEC-049's hand-rolled-JSON precedent.
+- **Deviations from spec:**
+  - `write_json` takes an extra `passed: bool` argument — `write_json(&LintOutcome, passed, &mut impl
+    Write)` rather than the spec's listed `write_json(&LintOutcome, &mut impl Write)`. Required
+    because `summary.passed` must reflect the **`--max-warnings` gate** (not just error count), which
+    `LintOutcome` alone doesn't encode. The CLI computes `passed = exit_code(outcome, max_warnings)
+    == 0` (single source of truth) and threads it in; the golden unit test passes it explicitly →
+    still a pure, deterministic function of its inputs.
+  - `lint --format human|json` reuses the **global `--format`** flag rather than a lint-local
+    `--format` (which would be a clap duplicate-arg conflict with the existing global encode-format
+    flag). This resolves the follow-up flagged in SPEC-050. Only `human`/`json` are valid for lint;
+    any other value is a usage error (exit 2). `render_human`/`write_json` live in a new
+    `src/lint/report.rs` (re-exported), keeping `mod.rs` focused.
+  - Added `Finding::bytes_saved: Option<u64>` (+ `with_bytes_saved`) and
+    `LintOutcome::potential_bytes_saved()` now (defaulting `None`/0) so the schema + human savings
+    summary are wired; STAGE-014's engine rules populate them. `Finding::new`'s signature is
+    unchanged (bytes_saved defaults `None`), so no call site churned.
+- **Follow-up work identified:**
+  - None. STAGE-015's SARIF output (SPEC-056) will add a second renderer alongside `write_json`.
 
 ### Build-phase reflection (3 questions, short answers)
 
-1. **What was unclear in the spec that slowed you down?** — <answer>
-2. **Was there a constraint or decision that should have been listed but wasn't?** — <answer>
-3. **If you did this task again, what would you do differently?** — <answer>
+1. **What was unclear in the spec that slowed you down?** — Only the `write_json` signature vs the
+   `passed`-reflects-`--max-warnings` acceptance criterion (they conflict); resolved by threading a
+   computed `passed` bool (see deviations).
+2. **Was there a constraint or decision that should have been listed but wasn't?** — No. SPEC-049's
+   `ExplainTrace::write_json` was the exact template — sort-first, `escape_json`, exact ints, no
+   wall-clock, synthetic-input golden — and the forward-slash synthetic paths keep the golden
+   cross-OS stable (`Path::display()` doesn't rewrite separators).
+3. **If you did this task again, what would you do differently?** — Nothing. Splitting the renderers
+   into `report.rs` with a local `escape_json` kept the lint library free of any `cli` dependency
+   (correct layering) while reusing the shipped pattern.
 
 ---
 

@@ -31,6 +31,9 @@ use crate::image::{Image, ImageInfo};
 use crate::source::Input;
 
 pub mod config;
+mod report;
+
+pub use report::{render_human, write_json};
 
 use config::{LintConfig, SavingsThreshold};
 
@@ -78,11 +81,18 @@ pub struct Finding {
     severity: Severity,
     message: String,
     fix: Option<String>,
+    /// Estimated bytes this finding's fix would save. `None` for the
+    /// shipped-capability rules (SPEC-050/051/053); the engine-backed
+    /// "could be smaller" rules populate it (STAGE-014).
+    bytes_saved: Option<u64>,
 }
 
 impl Finding {
     /// Build a finding. `fix` is a `crustyimg` subcommand fragment without the
     /// binary name or the file (both are added when rendered), or `None`.
+    ///
+    /// `bytes_saved` defaults to `None`; the engine-backed rules set it via
+    /// [`Finding::with_bytes_saved`].
     pub fn new(
         file: impl Into<PathBuf>,
         rule: &'static str,
@@ -96,6 +106,7 @@ impl Finding {
             severity,
             message: message.into(),
             fix,
+            bytes_saved: None,
         }
     }
 
@@ -122,6 +133,17 @@ impl Finding {
     /// The runnable `crustyimg` subcommand fragment, if any.
     pub fn fix(&self) -> Option<&str> {
         self.fix.as_deref()
+    }
+
+    /// Estimated bytes the fix would save (engine-backed rules only, STAGE-014).
+    pub fn bytes_saved(&self) -> Option<u64> {
+        self.bytes_saved
+    }
+
+    /// Return this finding with an estimated byte saving attached (STAGE-014).
+    pub fn with_bytes_saved(mut self, bytes: u64) -> Finding {
+        self.bytes_saved = Some(bytes);
+        self
     }
 
     /// The full runnable fix command for this finding (`crustyimg <fix> <file>`),
@@ -338,6 +360,12 @@ impl LintOutcome {
     fn count(&self, sev: Severity) -> usize {
         self.findings.iter().filter(|f| f.severity == sev).count()
     }
+
+    /// Total estimated bytes saveable across all findings (0 until the
+    /// engine-backed rules land, STAGE-014).
+    pub fn potential_bytes_saved(&self) -> u64 {
+        self.findings.iter().filter_map(|f| f.bytes_saved).sum()
+    }
 }
 
 /// Run the active rules over every resolved input and collect a sorted outcome,
@@ -399,48 +427,6 @@ pub fn exit_code(outcome: &LintOutcome, max_warnings: Option<usize>) -> i32 {
         }
     }
     0
-}
-
-// ── Human report ──────────────────────────────────────────────────────────────
-
-/// Render the outcome as a grouped-by-file human report (eslint/ruff style).
-///
-/// Findings are grouped by file (already globally sorted by `(path, severity,
-/// rule)`), each line carrying its severity, rule id, message, and — on the next
-/// line — the runnable `crustyimg` fix. Ends with a one-line summary. Writes to
-/// `out`; diagnostics/the report go to stdout so `-o -` stays unaffected.
-pub fn render_human(outcome: &LintOutcome, out: &mut impl std::io::Write) -> std::io::Result<()> {
-    let mut current: Option<&Path> = None;
-    for finding in &outcome.findings {
-        if current != Some(finding.file()) {
-            if current.is_some() {
-                writeln!(out)?;
-            }
-            writeln!(out, "{}", finding.file().display())?;
-            current = Some(finding.file());
-        }
-        writeln!(
-            out,
-            "  {} {}: {}",
-            finding.severity().label(),
-            finding.rule(),
-            finding.message(),
-        )?;
-        if let Some(cmd) = finding.fix_command() {
-            writeln!(out, "    fix: {cmd}")?;
-        }
-    }
-    if !outcome.findings.is_empty() {
-        writeln!(out)?;
-    }
-    writeln!(
-        out,
-        "{} scanned · {} error · {} warn · {} info",
-        outcome.files_scanned,
-        outcome.error_count(),
-        outcome.warn_count(),
-        outcome.info_count(),
-    )
 }
 
 // ── Foundational rules ────────────────────────────────────────────────────────
