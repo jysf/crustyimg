@@ -4,7 +4,7 @@
 task:
   id: SPEC-057
   type: story                      # epic | story | task | bug | chore
-  cycle: design                    # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: M                    # S | M | L
@@ -32,11 +32,56 @@ value_link: >
   "drop image linting into any CI in three lines".
 
 cost:
-  sessions: []
+  sessions:
+    - cycle: design
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-07-06
+      notes: >
+        Main-loop orchestrator (STAGE-015 framing — DEC-051 + SPEC-057 + stage rescope), not
+        separately metered.
+    - cycle: build
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 185000
+      estimated_usd: 1.67
+      duration_minutes: 55
+      recorded_at: 2026-07-06
+      notes: >
+        ESTIMATE — autonomous merge-on-green run in the orchestrator main loop, NOT a metered
+        subagent. Order-of-magnitude (~185k at Opus 4.8 ~80/20 ≈ $1.67). Inspected the real
+        cargo-dist installer, generated fixtures, built + created + pushed the two Action repos
+        (jysf/setup-crustyimg, jysf/crustyimg-action) and drove their 3-OS self-tests green
+        (two GitHub-Actions bugs fixed: hyphenated-input bracket access + composite `bash -e`),
+        plus the in-repo glue (.pre-commit-hooks.yaml + just lint-images + README CI section +
+        tests/adoption_glue.rs). PR #63.
+    - cycle: verify
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 14000
+      estimated_usd: 0.13
+      duration_minutes: 4
+      recorded_at: 2026-07-06
+      notes: >
+        ESTIMATE — same autonomous run; the two Action self-tests (3-OS) + PR #63's CI (matrix/
+        feature/lean/msrv/deny) all green. Order-of-magnitude (~14k).
+    - cycle: ship
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-07-06
+      notes: >
+        Main-loop ship bookkeeping (reflection, cost totals, stage backlog, archive), not
+        separately metered.
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 199000
+    estimated_usd: 1.80
+    session_count: 4
 ---
 
 # SPEC-057: the GitHub Actions adoption on-ramp
@@ -223,6 +268,18 @@ build cycle waits for them to go green). In the crustyimg repo, the glue is veri
 
 *Appended during the **ship** cycle.*
 
-1. **What would I do differently next time?** — <answer>
-2. **Does any template, constraint, or decision need updating?** — <answer>
-3. **Is there a follow-up spec I should write now before I forget?** — <answer>
+1. **What would I do differently next time?** — Wrapping the cargo-dist installer (DEC-051) was the
+   right call — `setup-crustyimg` went green on the first real 3-OS run because the installer already
+   does os/arch detection + checksum verification. The time sink was two GitHub-Actions gotchas
+   (hyphenated-input dot-access → empty; composite `bash -e` aborting on the tool's non-zero exit),
+   both of which I'd now reach for immediately.
+2. **Does any template, constraint, or decision need updating?** — Two reusable lessons worth a home
+   (they're generic to any composite Action, not crustyimg-specific): (a) read hyphenated inputs as
+   `${{ inputs['x-y'] }}`; (b) a composite `run` step is `bash -e`, so `set +e` when you wrap a tool
+   whose non-zero exit is meaningful. Captured in memory rather than a repo doc since they're
+   Actions-authoring lore. DEC-051 already records the installer-wrap + two-repo contract.
+3. **Is there a follow-up spec I should write now before I forget?** — No new spec. **SPEC-056**
+   (`lint --format sarif` + the 0.4.0 release-cut) is the remaining STAGE-015 piece and is already in
+   the backlog; its CHANGELOG/notes announce lint + these Actions ("drop image linting into any CI in
+   three lines"). After 0.4.0 ships, the maintainer tags the two Action repos `v1` (and bumps
+   `crustyimg-action`'s `@main` → `@v1`); the v2 autofix/commit-back mode is README-noted.

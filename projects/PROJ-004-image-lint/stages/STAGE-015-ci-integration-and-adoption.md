@@ -86,14 +86,15 @@ binary + exit code + `crustyimg.lint/v1` JSON report, so they add **no new crate
 
 Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
-- [ ] SPEC-057 (design → build NEXT) — the GitHub Actions on-ramp: `setup-crustyimg` (installer,
-  wraps the cargo-dist installer) + `crustyimg-action` (lint/optimize wrapper, JSON → annotations) in
-  their own repos, + the in-repo glue (`.pre-commit-hooks.yaml`, `just lint-images`, CI docs).
-  DEC-051 pins the design. **The last piece before the 0.4.0 cut.**
-- [ ] SPEC-056 (not yet written) — `lint --format sarif` (hand-rolled, no dep) + the SARIF
+- [x] SPEC-057 (shipped on 2026-07-06) — the GitHub Actions on-ramp: `setup-crustyimg` (installer,
+  wraps the cargo-dist installer) + `crustyimg-action` (lint/optimize wrapper, JSON → annotations),
+  both in their own repos with 3-OS self-tests GREEN, + the in-repo glue (`.pre-commit-hooks.yaml`,
+  `just lint-images`, CI docs). DEC-051 pins the design. In-repo PR #63 → `main` (b6ee724).
+- [ ] SPEC-056 (design → build NEXT) — `lint --format sarif` (hand-rolled, no dep) + the SARIF
   code-scanning docs; then cut 0.4.0 (CHANGELOG + version, untagged) announcing lint + the Actions.
+  **The last piece of the wave.**
 
-**Count:** 0 shipped / 0 active / 2 pending
+**Count:** 1 shipped / 0 active / 1 pending
 
 ## Dependencies
 
