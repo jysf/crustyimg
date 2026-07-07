@@ -93,6 +93,39 @@ arithmetic, strict dimension/allocation caps (model `image::Limits`), **containe
 cross-checks**, bounded box-nesting/item-count/`iref`-graph (cycle detection for grids), and
 **mandatory `cargo-fuzz`/OSS-Fuzz** on both the container and the bitstream.
 
+## Hands-on validation probe (2026-07-07, firsthand)
+
+Ran `rust_h265` 0.1.0 on this machine (macOS ARM, rustc 1.94.1, offline) against a real HEIF corpus
+(the `imazen/heic` test corpus + an Apple-encoded macOS Desktop Picture), using `sips` as the OS
+ground-truth oracle. A ~60-line throwaway Python HEIF extractor (`iloc` + `hvcC` → rebuilt Annex-B)
+fed real HEIC payloads into the decoder.
+
+- **Decoder validated firsthand:** `cargo test` = **166/166 pass, 0 fail** — including byte-exact/hash
+  conformance for deblock+SAO, WPP, sign-hiding+scaling-lists, 10-bit, and real 320p/720p/1080p
+  content. The "real, byte-exact decoder" claim holds on this toolchain.
+- **End-to-end on real HEIC — coverage boundary:**
+
+  | Real file | Shape | Result | Verdict |
+  |---|---|---|---|
+  | `single` 48² 10-bit, `depth10` 64² 10-bit | single item, 4:2:0 | ✓ decoded to valid frame | **works** (permissive path proven end-to-end) |
+  | `irot90` 64×40 | single + `irot` | ✓ decoded | works; orientation is post-decode glue |
+  | `nokia_444` 2048² | single **4:4:4** | ✗ silently produced wrong 160×160 output, **no error** | unsupported (rust_h265 is 4:2:0-only) **+ safety gap** |
+  | `grid` 96² (4 tiles) | `grid` derived | ✗ 0 frames | needs tile-decode + composite glue |
+  | **`Mac Blue` 6016² (real Apple)** | **36-tile `grid`** | ✗ 0 frames | **every real Apple photo is tiled** → needs the grid glue |
+
+- **Decoded size note:** `single.heic` decoded to 64×64 (the CTU-padded coded size); sips reports
+  48×48 (the SPS conformance-window crop). Applying `conf_win` crop + `irot`/`imir` orientation is
+  caller/glue work, not a decoder defect.
+
+**Conclusion:** the permissive pure-Rust path is **real** — rust_h265 + a minimal container parse
+decodes single-item 8/10-bit 4:2:0 HEIC end-to-end, license-clean, offline. But "works on real iPhone
+photos" additionally requires: (1) **grid/tile reassembly glue** (the dominant real case — Apple files
+are N-tile grids), (2) conformance-window crop + `irot`/`imir` (minor glue), (3) a **4:4:4/monochrome
+guard that rejects rather than mis-decodes** (safety — untrusted input silently produced wrong dims),
+and HDR-SEI handling. This is exactly the watchlist revisit-trigger condition (b): decoder-proven +
+license-clean, but **not yet real-world-HEIC-ready**, so it stays feature-gated / on the watchlist —
+and the patent gate (DEC-052) is separate and unaffected regardless.
+
 ## Watchlist / DEC updates from this spike
 - `guidance/license-watchlist.yaml` → `heic-heif-decode`: reframed "impossible" → "immature,
   revisit," naming `rust_h265` + `media-codec-h265` (+ `oxideav-h265`) with the three trigger
