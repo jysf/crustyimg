@@ -4,7 +4,7 @@
 task:
   id: SPEC-053
   type: story
-  cycle: design
+  cycle: ship
   blocked: false
   priority: high
   complexity: M
@@ -31,11 +31,54 @@ value_link: >
   genuinely useful before any engine-backed cleverness.
 
 cost:
-  sessions: []
+  sessions:
+    - cycle: design
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-07-06
+      notes: >
+        Main-loop orchestrator (PROJ-004 framing session), not separately metered.
+    - cycle: build
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 155000
+      estimated_usd: 1.40
+      duration_minutes: 42
+      recorded_at: 2026-07-06
+      notes: >
+        ESTIMATE — autonomous merge-on-green run in the orchestrator main loop, NOT a metered
+        subagent. Order-of-magnitude (~155k at Opus 4.8 ~80/20 ≈ $1.40). Built src/lint/rules.rs
+        (7 rules + JPEG-SOF/GIF-frame byte sniffs), refactored LintTarget EXIF to a single
+        ExifFacts parse + added camera/orientation/icc accessors, added Rule::default_enabled +
+        the opt-in enable logic in config, added png_16bit/animated_gif fixtures. 11 unit + 4
+        integration tests. PR #62.
+    - cycle: verify
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 13000
+      estimated_usd: 0.12
+      duration_minutes: 3
+      recorded_at: 2026-07-06
+      notes: >
+        ESTIMATE — same autonomous run; CI-driven verify, all matrix/feature/lean/msrv/deny jobs
+        green on #62 (incl. Windows). Order-of-magnitude (~13k).
+    - cycle: ship
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-07-06
+      notes: >
+        Main-loop ship bookkeeping (reflection, cost totals, stage backlog, archive) + STAGE-013
+        stage-ship, not separately metered.
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 168000
+    estimated_usd: 1.52
+    session_count: 4
 ---
 
 # SPEC-053: the shipped-capability rules
@@ -199,6 +242,16 @@ with a runnable fix, respecting the config, adding no dependency.
 
 ## Reflection (Ship)
 
-1. **What would I do differently next time?** — <answer>
-2. **Does any template, constraint, or decision need updating?** — <answer>
-3. **Is there a follow-up spec I should write now before I forget?** — <answer>
+1. **What would I do differently next time?** — Nothing structural. The `Rule` trait made each of the
+   seven rules a tiny pure `check` over `LintTarget`; the only real work was fixtures. The one thing I'd
+   pull earlier is the single-parse `ExifFacts` (it belonged in SPEC-050) — three EXIF rules now share
+   one `kamadak-exif` pass.
+2. **Does any template, constraint, or decision need updating?** — Worth adding to the testing
+   conventions (AGENTS §12) that some formats have **no native pure-Rust encoder** (CMYK JPEG, embedded
+   ICC), so their fixtures are hand-built byte splices or the detector is helper-tested — a recurring
+   pattern across the metadata/lint work. No constraint/DEC change needed; DEC-050's catalog held.
+3. **Is there a follow-up spec I should write now before I forget?** — No spec to write now. STAGE-013
+   is complete (4/4). The next stage, STAGE-014 (engine-backed rules: `legacy-format`,
+   `excessive-jpeg-quality`, `indexed-png-opportunity`), is backlog-only and needs a framing pass —
+   they read `LintTarget::savings_threshold()` (already resolved) and populate `Finding::bytes_saved`
+   (already wired). That framing is the checkpoint this run stops at.

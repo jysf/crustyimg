@@ -4,7 +4,7 @@
 
 stage:
   id: STAGE-013                     # stable, zero-padded within the project
-  status: active                    # proposed | active | shipped | cancelled | on_hold
+  status: shipped                   # proposed | active | shipped | cancelled | on_hold
   priority: high                    # critical | high | medium | low
   target_complete: null
 
@@ -14,7 +14,7 @@ repo:
   id: crustyimg
 
 created_at: 2026-07-06
-shipped_at: null
+shipped_at: 2026-07-06
 
 value_contribution:
   advances: >
@@ -106,11 +106,11 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
   inherits the end-to-end budget→size-finding test.
 - [x] SPEC-052 (shipped on 2026-07-06) — `lint --format json` (hand-rolled, no new dep) + the human report
   refinements (runnable-fix line, savings summary). PR #61 → `main` (d903b2e).
-- [ ] SPEC-053 (design → build NEXT) — the remaining shipped-capability rules (camera-metadata, orientation,
-  oversized-bytes, oversized-dimensions, colorspace + ICC, animated-gif). Inherits the per-glob
-  budget → `size/oversized-bytes` end-to-end test (budget plumbing landed in SPEC-051).
+- [x] SPEC-053 (shipped on 2026-07-06) — the remaining shipped-capability rules (camera-metadata, orientation,
+  oversized-bytes, oversized-dimensions, colorspace + ICC, animated-gif). PR #62 → `main` (ec374d6).
+  The per-glob budget → `size/oversized-bytes` end-to-end test landed here.
 
-**Count:** 3 shipped / 0 active / 1 pending
+**Count:** 4 shipped / 0 active / 0 pending
 
 ## Design Notes
 
@@ -139,8 +139,22 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
 *Filled in when status moves to shipped.*
 
-- **Did we deliver the outcome in "What This Stage Is"?** <yes/no + notes>
-- **How many specs did it actually take?** <number vs. plan>
-- **What changed between starting and shipping?** <one sentence>
+- **Did we deliver the outcome in "What This Stage Is"?** Yes. `crustyimg lint content/` is a working
+  CI linter: it resolves an asset tree via `source::resolve`, skips non-images, runs the rule catalog,
+  prints grouped-by-file findings each with a runnable fix, and maps `0`/`7`/`2`/`3` exit codes
+  reusing `CheckFailed` (DEC-025). Zero-config works; `.crustyimg-lint.toml` tunes select/ignore,
+  per-rule severity, per-glob budgets, and per-file-ignores; `--format json` emits a stable hand-rolled
+  report. The privacy moat (`privacy/gps-metadata-leak`) and a decode-failure-is-a-finding rule are in.
+  No new default dependency; `just deny` green throughout.
+- **How many specs did it actually take?** 4, exactly as planned (SPEC-050 core → 051 config → 052 JSON
+  → 053 rules). No specs added or dropped; one integration test moved 051→053 (its consuming rule).
+- **What changed between starting and shipping?** Two contracts got concretely pinned mid-build that the
+  specs left open: lint reuses the **global `--format`** flag (avoiding a clap duplicate-arg conflict),
+  and **opt-in rules** are realized via a new `Rule::default_enabled()` + a config enable rule.
 - **Lessons that should update AGENTS.md, templates, or constraints?**
-  - <one-line updates>
+  - Testing conventions (§12): note that some formats have no native pure-Rust encoder (CMYK JPEG,
+    embedded ICC), so their fixtures are hand-built byte splices or the detector is helper-tested.
+  - A newly-published RUSTSEC advisory can turn `just deny` red mid-build independent of your diff;
+    sync `main` (which may already carry the hygiene bump) before assuming the failure is yours.
+  - A single-parse cache for a shared external read (here `ExifFacts` over `kamadak-exif`) belongs in
+    the framework spec, not retrofitted in the rules spec.
