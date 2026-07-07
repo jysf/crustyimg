@@ -21,6 +21,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.3.1] - 2026-07-06
+
+Dependency-hygiene patch: no user-facing behavior change.
+
+### Security
+
+- Bumped `crossbeam-epoch` 0.9.18 → 0.9.20 to clear **RUSTSEC-2026-0204** — an
+  invalid pointer dereference in its `fmt::Display` impl for `Atomic`/`Shared`
+  on a null pointer. It reaches crustyimg only as a deep transitive of
+  `rayon`/`ravif` and is never `Display`-formatted, so real exposure was nil;
+  this restores a green `cargo deny` supply-chain gate.
+
+---
+
 ## [0.3.0] - 2026-07-06
 
 The optimization engine (PROJ-002). `optimize` now looks at the image and picks
