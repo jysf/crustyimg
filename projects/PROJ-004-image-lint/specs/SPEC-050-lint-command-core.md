@@ -181,24 +181,39 @@ helpers: `solid_png`, `jpeg_with_exif`, and a GPS-tagged JPEG helper — add one
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
+- **Branch:** `feat/spec-050-lint-command-core`
+- **PR (if applicable):** (opened after green local gates)
+- **All acceptance criteria met?** yes
 - **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
+  - None — DEC-050 already fixed the contract; the build followed it verbatim.
 - **Deviations from spec:**
-  - [list]
+  - `size/truncated-or-corrupt` stores `fix: None` (the "re-export a valid image"
+    guidance lives in the finding *message*) rather than a `fix` string. Rationale:
+    `Finding.fix` is a *runnable `crustyimg` subcommand fragment* (rendered as
+    `crustyimg <fix> <file>`); re-export is not a crustyimg command, so surfacing it
+    as a fake command would be wrong. Every present `fix` is therefore genuinely
+    runnable — which is the spec's intent. Findings still carry the guidance.
+  - `lint` with no PATHS defaults to the current directory (an ergonomic-defaults
+    read of the `[PATHS]…` signature); an explicit unresolvable path still exits 3.
 - **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - SPEC-052 must resolve how `lint --format human|json` coexists with the global
+    `--format` flag (encode-format). Options: reuse the global flag's string, or a
+    lint-local `--report`/renamed flag. Flagged so SPEC-052 doesn't hit a clap
+    duplicate-arg conflict.
 
 ### Build-phase reflection (3 questions, short answers)
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — Only the `fix` field's exact contract for a non-command finding
+   (`truncated-or-corrupt`). Resolved by making `fix` mean "a runnable fragment" and
+   pushing re-export guidance into the message (see deviations).
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — No. `kamadak-exif`'s `Tag::context() == Context::Gps` gave a clean, parser-reuse
+   GPS check exactly as the spec anticipated (no new parser).
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Nothing structural. The `LintTarget` (raw bytes + decode `Result` + lazy
+   info/GPS via `OnceCell`) made both rules trivial and leaves SPEC-053's rules a
+   clean seam.
 
 ---
 
