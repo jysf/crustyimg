@@ -30,6 +30,10 @@ use crate::error::ImageError;
 use crate::image::{Image, ImageInfo};
 use crate::source::Input;
 
+pub mod config;
+
+use config::{LintConfig, SavingsThreshold};
+
 // ── Severity ──────────────────────────────────────────────────────────────────
 
 /// A finding's severity (DEC-050's 3-severity model, clippy/eslint/ruff-aligned).
@@ -132,6 +136,13 @@ impl Finding {
     fn sort_key(&self) -> (&Path, Severity, &'static str) {
         (&self.file, self.severity, self.rule)
     }
+
+    /// Return this finding with its severity replaced (the config per-rule
+    /// severity override the runner applies, SPEC-051).
+    pub fn with_severity(mut self, severity: Severity) -> Finding {
+        self.severity = severity;
+        self
+    }
 }
 
 // ── LintTarget ────────────────────────────────────────────────────────────────
@@ -148,38 +159,64 @@ pub struct LintTarget {
     decoded: std::result::Result<Image, ImageError>,
     info: OnceCell<Option<ImageInfo>>,
     has_gps: OnceCell<bool>,
+    // Config-resolved per-file settings (SPEC-051), consumed by the
+    // budget/dimension/engine rules (SPEC-053 / STAGE-014).
+    byte_budget: Option<u64>,
+    intended_width: Option<u32>,
+    savings_threshold: SavingsThreshold,
 }
 
 impl LintTarget {
-    /// Build a target from raw bytes and a display path, decoding once.
+    /// Build a target from raw bytes and a display path, decoding once, with
+    /// **default** (unconfigured) per-file settings.
     ///
     /// Empty or undecodable bytes produce a decode `Err` (which
     /// [`TruncatedOrCorrupt`] turns into a finding) — never a panic.
     pub fn from_bytes(path: impl Into<PathBuf>, bytes: Vec<u8>) -> LintTarget {
+        LintTarget::build(path.into(), bytes, None, None, SavingsThreshold::default())
+    }
+
+    /// The shared constructor: decode once and store the resolved settings.
+    fn build(
+        path: PathBuf,
+        bytes: Vec<u8>,
+        byte_budget: Option<u64>,
+        intended_width: Option<u32>,
+        savings_threshold: SavingsThreshold,
+    ) -> LintTarget {
         let decoded = Image::from_bytes(&bytes);
         LintTarget {
-            path: path.into(),
+            path,
             bytes,
             decoded,
             info: OnceCell::new(),
             has_gps: OnceCell::new(),
+            byte_budget,
+            intended_width,
+            savings_threshold,
         }
     }
 
-    /// Build a target from a resolved [`Input`], reading the file once.
+    /// Build a target from a resolved [`Input`], reading the file once and
+    /// resolving `config`'s per-file settings (budget / intended width /
+    /// savings threshold) for this path.
     ///
     /// An unreadable path yields empty bytes → a decode `Err` (handled as a
     /// finding), so a resolution/read race never aborts the run.
-    fn from_input(input: &Input) -> LintTarget {
-        match input {
-            Input::Path(p) => {
-                let bytes = std::fs::read(p).unwrap_or_default();
-                LintTarget::from_bytes(p.clone(), bytes)
-            }
-            Input::Stdin { bytes, stem } => {
-                LintTarget::from_bytes(PathBuf::from(stem), bytes.clone())
-            }
-        }
+    fn from_input(input: &Input, config: &LintConfig) -> LintTarget {
+        let (path, bytes) = match input {
+            Input::Path(p) => (p.clone(), std::fs::read(p).unwrap_or_default()),
+            Input::Stdin { bytes, stem } => (PathBuf::from(stem), bytes.clone()),
+        };
+        let byte_budget = config.byte_budget_for(&path);
+        let intended_width = config.intended_width_for(&path);
+        LintTarget::build(
+            path,
+            bytes,
+            byte_budget,
+            intended_width,
+            config.savings_threshold,
+        )
     }
 
     /// The file path (the input path as given).
@@ -210,6 +247,24 @@ impl LintTarget {
     /// parser. "No EXIF" / malformed EXIF ⇒ `false`, never an error.
     pub fn has_gps_exif(&self) -> bool {
         *self.has_gps.get_or_init(|| scan_has_gps(&self.bytes))
+    }
+
+    /// The byte budget applying to this file (from config `[[budget]]`), if any.
+    /// Consumed by SPEC-053's `size/oversized-bytes`.
+    pub fn byte_budget(&self) -> Option<u64> {
+        self.byte_budget
+    }
+
+    /// The declared intended width applying to this file, if any (opt-in).
+    /// Consumed by SPEC-053's `dims/oversized-dimensions`.
+    pub fn intended_width(&self) -> Option<u32> {
+        self.intended_width
+    }
+
+    /// The savings-threshold gate applying to this file (default 4096/10).
+    /// Consumed by the engine-backed "could be smaller" rules (STAGE-014).
+    pub fn savings_threshold(&self) -> SavingsThreshold {
+        self.savings_threshold
     }
 }
 
@@ -246,6 +301,12 @@ pub fn default_rules() -> Vec<Box<dyn Rule>> {
     vec![Box::new(GpsMetadataLeak), Box::new(TruncatedOrCorrupt)]
 }
 
+/// Every known rule id (the DEC-050 stability surface) — the catalog `select`/
+/// `ignore`/`severity` config entries validate against (SPEC-051).
+pub fn known_rule_ids() -> Vec<&'static str> {
+    default_rules().iter().map(|r| r.id()).collect()
+}
+
 // ── Runner + outcome ──────────────────────────────────────────────────────────
 
 /// The result of a lint run: every finding (deterministically sorted) plus the
@@ -279,21 +340,41 @@ impl LintOutcome {
     }
 }
 
-/// Run every rule over every resolved input and collect a sorted outcome.
+/// Run the active rules over every resolved input and collect a sorted outcome,
+/// applying `config` (SPEC-051).
 ///
-/// Read-only: builds a [`LintTarget`] per input (decoding once), runs each rule,
-/// and NEVER aborts on a bad file — a decode failure is a finding via
-/// [`TruncatedOrCorrupt`] (DEC-050). Findings are sorted deterministically.
-pub fn run_lint(inputs: &[Input], rules: &[Box<dyn Rule>]) -> LintOutcome {
+/// For each rule the config decides: whether it is active (`select`/`ignore`/
+/// `off`), whether a finding is suppressed on this file (`per_file_ignores`),
+/// and the finding's effective severity (per-rule override). Read-only: builds a
+/// [`LintTarget`] per input (decoding once), and NEVER aborts on a bad file — a
+/// decode failure is a finding via [`TruncatedOrCorrupt`] (DEC-050). Findings are
+/// sorted deterministically by `(path, severity, rule)`.
+pub fn run_lint(inputs: &[Input], rules: &[Box<dyn Rule>], config: &LintConfig) -> LintOutcome {
+    let active_ids: std::collections::HashSet<&str> = rules
+        .iter()
+        .map(|r| r.id())
+        .filter(|id| config.is_rule_active(id))
+        .collect();
+
     let mut findings = Vec::new();
     let mut files_scanned = 0usize;
     for input in inputs {
-        let target = LintTarget::from_input(input);
+        let target = LintTarget::from_input(input, config);
         files_scanned += 1;
         for rule in rules {
-            if let Some(finding) = rule.check(&target) {
-                findings.push(finding);
+            if !active_ids.contains(rule.id()) {
+                continue;
             }
+            let Some(finding) = rule.check(&target) else {
+                continue;
+            };
+            // Per-file suppression (per_file_ignores).
+            if config.is_ignored_for_path(rule.id(), target.path()) {
+                continue;
+            }
+            // Per-rule severity override.
+            let severity = config.severity_for(rule.id(), finding.severity());
+            findings.push(finding.with_severity(severity));
         }
     }
     findings.sort_by(|a, b| a.sort_key().cmp(&b.sort_key()));
@@ -580,7 +661,7 @@ mod tests {
                 stem: "clean".into(),
             },
         ];
-        let outcome = run_lint(&inputs, &default_rules());
+        let outcome = run_lint(&inputs, &default_rules(), &LintConfig::default());
         assert_eq!(outcome.files_scanned, 2);
         assert_eq!(outcome.error_count(), 1);
         assert_eq!(outcome.findings[0].rule(), "size/truncated-or-corrupt");

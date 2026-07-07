@@ -139,18 +139,39 @@ applies, adding no dependency (reuse `toml`, DEC-005).
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
-- **New decisions emitted:** <DEC-NNN or none>
-- **Deviations from spec:** <list>
-- **Follow-up work identified:** <list>
+- **Branch:** `feat/spec-051-lint-config`
+- **PR (if applicable):** (opened after green local gates)
+- **All acceptance criteria met?** yes (with one test reallocated — see deviations)
+- **New decisions emitted:** None — DEC-050 fixed the config schema/discovery/severity/
+  savings-threshold; the build followed it.
+- **Deviations from spec:**
+  - The integration test *"a per-glob byte budget from config drives a size finding"* is
+    **deferred to SPEC-053**, where its consuming rule (`size/oversized-bytes`) lands. The spec
+    hedged it ("with SPEC-053's rule, or a stub"), and injecting a throwaway stub rule into the
+    real binary would pollute the public rule catalog. Instead, the **budget config is fully
+    plumbed here** — `LintConfig::byte_budget_for`/`intended_width_for` (unit-tested:
+    `per_glob_byte_budget_resolves_by_path`) and surfaced on `LintTarget`
+    (`byte_budget()`/`intended_width()`/`savings_threshold()`) — so SPEC-053's rule is a pure
+    consumer. The end-to-end budget→finding assertion moves to SPEC-053's test list.
+  - Config integration is instead proven end-to-end through the binary with the *existing* rules:
+    `off`/`--no-config`, `--ignore`, per-rule `warn` downgrade + `--max-warnings`, unknown-id and
+    malformed-config usage errors (all in `tests/lint.rs`).
+- **Follow-up work identified:**
+  - SPEC-053 gains one integration test: a per-glob `[[budget]]` drives a `size/oversized-bytes`
+    finding (the budget plumbing built here, now consumed).
 
 ### Build-phase reflection (3 questions, short answers)
 
-1. **What was unclear in the spec that slowed you down?** — <answer>
-2. **Was there a constraint or decision that should have been listed but wasn't?** — <answer>
-3. **If you did this task again, what would you do differently?** — <answer>
+1. **What was unclear in the spec that slowed you down?** — Only the budget integration test's
+   ordering (a size rule doesn't exist until SPEC-053). Resolved by plumbing + unit-testing budget
+   resolution here and moving the end-to-end assertion to SPEC-053 (the spec's own "or a stub"
+   hedge licensed this).
+2. **Was there a constraint or decision that should have been listed but wasn't?** — No. The
+   shipped `glob` crate's `Pattern::matches_path` covered `per_file_ignores`/budget globbing with
+   no new dependency, exactly as the spec anticipated.
+3. **If you did this task again, what would you do differently?** — Split the CLI `LintFlags` out
+   from the start (I introduced it once the flag count grew); otherwise the RawConfig→LintConfig
+   two-type split (serde-facing vs runtime) kept validation and enum parsing clean.
 
 ---
 
