@@ -12,7 +12,7 @@ use std::process::Command;
 use tempfile::TempDir;
 
 mod common;
-use common::{jpeg_with_gps, solid_png};
+use common::{animated_gif, jpeg_with_gps, jpeg_with_orientation, png_16bit, solid_png};
 
 /// Path to the compiled binary, provided by Cargo.
 const BIN: &str = env!("CARGO_BIN_EXE_crustyimg");
@@ -288,5 +288,108 @@ fn an_invalid_format_value_is_a_usage_error() {
     assert_eq!(
         code, 2,
         "an unknown --format value is a usage error (exit 2)"
+    );
+}
+
+// ── SPEC-053: shipped-capability rules ──────────────────────────────────────
+
+#[test]
+fn a_mixed_tree_yields_grouped_findings_across_rules_with_the_right_exit_code() {
+    let dir = TempDir::new().unwrap();
+    write(&dir, "leak.jpg", &jpeg_with_gps(16, 16)); // error: GPS
+    write(&dir, "rotated.jpg", &jpeg_with_orientation(16, 16, 6)); // warn: orientation
+    write(&dir, "deep.png", &png_16bit(8, 8)); // warn: 16-bit colorspace
+    write(&dir, "clean.png", &solid_png(4, 4, [1, 2, 3])); // clean
+
+    let (code, stdout) = lint(dir.path());
+    assert_eq!(code, 7, "the GPS error fails the gate; stdout:\n{stdout}");
+    assert!(
+        stdout.contains("privacy/gps-metadata-leak"),
+        "gps; {stdout}"
+    );
+    assert!(
+        stdout.contains("orient/orientation-not-baked"),
+        "orient; {stdout}"
+    );
+    assert!(
+        stdout.contains("color/wrong-colorspace"),
+        "colorspace; {stdout}"
+    );
+    assert!(stdout.contains("4 scanned"), "all four scanned; {stdout}");
+}
+
+#[test]
+fn a_per_glob_byte_budget_from_config_drives_a_size_finding() {
+    // Inherited from SPEC-051: the budget plumbing, now consumed by
+    // `size/oversized-bytes`.
+    let dir = TempDir::new().unwrap();
+    write(&dir, "big.png", &solid_png(8, 8, [10, 20, 30]));
+    // A 10-byte budget over every file → any real image is oversized.
+    write_config(&dir, "[[budget]]\nglob = \"**\"\nmax_bytes = 10\n");
+
+    let (code, stdout) = lint(dir.path());
+    assert_eq!(
+        code, 7,
+        "over-budget is an error → exit 7; stdout:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("size/oversized-bytes"),
+        "size rule; {stdout}"
+    );
+    assert!(stdout.contains("optimize"), "runnable fix; {stdout}");
+
+    // With no budget configured, the rule does not fire.
+    let dir2 = TempDir::new().unwrap();
+    write(&dir2, "big.png", &solid_png(8, 8, [10, 20, 30]));
+    let (code2, _) = lint(dir2.path());
+    assert_eq!(code2, 0, "no budget ⇒ no size finding");
+}
+
+#[test]
+fn per_rule_severity_flips_animated_gif_warn_to_error_and_changes_exit() {
+    let dir = TempDir::new().unwrap();
+    write(&dir, "loop.gif", &animated_gif(8, 8));
+
+    // Default: animated-gif is a warning → does not fail.
+    let (code, stdout) = lint(dir.path());
+    assert_eq!(
+        code, 0,
+        "animated-gif warns, doesn't fail; stdout:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("format/animated-gif"),
+        "gif rule fires; {stdout}"
+    );
+
+    // Config promotes it to error → exit 7.
+    write_config(&dir, "[severity]\n\"format/animated-gif\" = \"error\"\n");
+    let (code, _) = lint(dir.path());
+    assert_eq!(code, 7, "promoted to error → exit 7");
+}
+
+#[test]
+fn opt_in_rules_are_off_by_default_and_enabled_by_config() {
+    let dir = TempDir::new().unwrap();
+    // A plain image has no ICC and no camera metadata.
+    write(&dir, "plain.png", &solid_png(4, 4, [5, 6, 7]));
+
+    // By default the opt-in `color/missing-icc` does not fire.
+    let (code, stdout) = lint(dir.path());
+    assert_eq!(code, 0);
+    assert!(
+        !stdout.contains("color/missing-icc"),
+        "opt-in off by default"
+    );
+
+    // Selecting it turns it on (info never changes the exit code).
+    let (code, stdout) = lint_args(&[
+        dir.path().as_os_str(),
+        OsStr::new("--select"),
+        OsStr::new("color/missing-icc"),
+    ]);
+    assert_eq!(code, 0, "info-severity never fails");
+    assert!(
+        stdout.contains("color/missing-icc"),
+        "select enables it; {stdout}"
     );
 }

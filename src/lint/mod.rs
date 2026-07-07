@@ -32,6 +32,7 @@ use crate::source::Input;
 
 pub mod config;
 mod report;
+mod rules;
 
 pub use report::{render_human, write_json};
 
@@ -180,7 +181,7 @@ pub struct LintTarget {
     bytes: Vec<u8>,
     decoded: std::result::Result<Image, ImageError>,
     info: OnceCell<Option<ImageInfo>>,
-    has_gps: OnceCell<bool>,
+    exif: OnceCell<ExifFacts>,
     // Config-resolved per-file settings (SPEC-051), consumed by the
     // budget/dimension/engine rules (SPEC-053 / STAGE-014).
     byte_budget: Option<u64>,
@@ -212,7 +213,7 @@ impl LintTarget {
             bytes,
             decoded,
             info: OnceCell::new(),
-            has_gps: OnceCell::new(),
+            exif: OnceCell::new(),
             byte_budget,
             intended_width,
             savings_threshold,
@@ -263,12 +264,42 @@ impl LintTarget {
             .as_ref()
     }
 
+    /// The EXIF facts, parsed once (lazily) via the shipped `kamadak-exif` read
+    /// side (DEC-013, DEC-003) — no new parser. "No EXIF" / malformed EXIF ⇒ the
+    /// default (empty) facts, never an error.
+    fn exif_facts(&self) -> &ExifFacts {
+        self.exif.get_or_init(|| scan_exif(&self.bytes))
+    }
+
     /// Whether the file's EXIF carries any GPS/location tag.
-    ///
-    /// Reuses the shipped `kamadak-exif` read side (DEC-013, DEC-003) — no new
-    /// parser. "No EXIF" / malformed EXIF ⇒ `false`, never an error.
     pub fn has_gps_exif(&self) -> bool {
-        *self.has_gps.get_or_init(|| scan_has_gps(&self.bytes))
+        self.exif_facts().has_gps
+    }
+
+    /// Whether the file's EXIF carries identifying (non-GPS) camera metadata —
+    /// Make/Model/serial/lens/owner/original-timestamp. Distinct from GPS.
+    pub fn has_camera_metadata(&self) -> bool {
+        self.exif_facts().has_camera
+    }
+
+    /// The EXIF Orientation value (1–8), if present.
+    pub fn exif_orientation(&self) -> Option<u16> {
+        self.exif_facts().orientation
+    }
+
+    /// Whether the file carries a raw ICC profile (captured at load).
+    pub fn has_icc(&self) -> bool {
+        self.info().map(|i| i.has_icc).unwrap_or(false)
+    }
+
+    /// The captured ICC profile's byte length, if any.
+    pub fn icc_len(&self) -> Option<usize> {
+        self.decoded
+            .as_ref()
+            .ok()
+            .and_then(|img| img.metadata())
+            .and_then(|m| m.icc.as_ref())
+            .map(|v| v.len())
     }
 
     /// The byte budget applying to this file (from config `[[budget]]`), if any.
@@ -290,13 +321,50 @@ impl LintTarget {
     }
 }
 
-/// Whether a container's EXIF carries any GPS-context tag (read-only).
-fn scan_has_gps(bytes: &[u8]) -> bool {
-    use std::io::Cursor;
-    match exif::Reader::new().read_from_container(&mut Cursor::new(bytes)) {
-        Ok(exif) => exif.fields().any(|f| f.tag.context() == exif::Context::Gps),
-        // No EXIF or malformed EXIF → no GPS (not an error).
-        Err(_) => false,
+/// Read-only EXIF facts a rule keys off, extracted in one parse pass.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+struct ExifFacts {
+    /// Any GPS-context tag is present (a location leak).
+    has_gps: bool,
+    /// Any identifying non-GPS camera tag is present (Make/Model/serial/…).
+    has_camera: bool,
+    /// The EXIF Orientation value (1–8), if present.
+    orientation: Option<u16>,
+}
+
+/// Parse a container's EXIF once (read-only). "No EXIF" / malformed EXIF ⇒ the
+/// default (empty) facts, never an error.
+fn scan_exif(bytes: &[u8]) -> ExifFacts {
+    use exif::{In, Tag};
+    let exif = match exif::Reader::new().read_from_container(&mut std::io::Cursor::new(bytes)) {
+        Ok(e) => e,
+        Err(_) => return ExifFacts::default(),
+    };
+
+    let has_gps = exif.fields().any(|f| f.tag.context() == exif::Context::Gps);
+
+    // Identifying, device-level tags (NOT copyright/artist, which are preserved).
+    const CAMERA_TAGS: &[Tag] = &[
+        Tag::Make,
+        Tag::Model,
+        Tag::BodySerialNumber,
+        Tag::LensModel,
+        Tag::LensMake,
+        Tag::DateTimeOriginal,
+    ];
+    let has_camera = exif
+        .fields()
+        .any(|f| f.ifd_num == In::PRIMARY && CAMERA_TAGS.contains(&f.tag));
+
+    let orientation = exif
+        .get_field(Tag::Orientation, In::PRIMARY)
+        .and_then(|f| f.value.get_uint(0))
+        .map(|v| v as u16);
+
+    ExifFacts {
+        has_gps,
+        has_camera,
+        orientation,
     }
 }
 
@@ -313,14 +381,35 @@ pub trait Rule {
     /// The default severity when no config overrides it.
     fn default_severity(&self) -> Severity;
 
+    /// Whether the rule runs by default (DEC-050 catalog). Opt-in rules return
+    /// `false` — they run only when the config explicitly enables them (a
+    /// `select` prefix or a per-rule severity entry). Defaults to `true`.
+    fn default_enabled(&self) -> bool {
+        true
+    }
+
     /// Check the target; `Some` when the rule fires, `None` when clean.
     fn check(&self, target: &LintTarget) -> Option<Finding>;
 }
 
-/// The default rule set (DEC-050). SPEC-050 registers the two foundational
-/// rules; SPEC-053 and STAGE-014 append to this catalog.
+/// The default rule set (DEC-050). SPEC-050 registered the two foundational
+/// rules; SPEC-053 adds the shipped-capability catalog; STAGE-014 appends the
+/// engine-backed rules.
 pub fn default_rules() -> Vec<Box<dyn Rule>> {
-    vec![Box::new(GpsMetadataLeak), Box::new(TruncatedOrCorrupt)]
+    vec![
+        // Foundational (SPEC-050).
+        Box::new(GpsMetadataLeak),
+        Box::new(TruncatedOrCorrupt),
+        // Shipped-capability (SPEC-053).
+        Box::new(rules::CameraMetadata),
+        Box::new(rules::OrientationNotBaked),
+        Box::new(rules::OversizedBytes),
+        Box::new(rules::OversizedDimensions),
+        Box::new(rules::WrongColorspace),
+        Box::new(rules::MissingIcc),
+        Box::new(rules::UnexpectedIcc),
+        Box::new(rules::AnimatedGif),
+    ]
 }
 
 /// Every known rule id (the DEC-050 stability surface) — the catalog `select`/
@@ -380,8 +469,8 @@ impl LintOutcome {
 pub fn run_lint(inputs: &[Input], rules: &[Box<dyn Rule>], config: &LintConfig) -> LintOutcome {
     let active_ids: std::collections::HashSet<&str> = rules
         .iter()
+        .filter(|r| config.is_rule_enabled(r.id(), r.default_enabled()))
         .map(|r| r.id())
-        .filter(|id| config.is_rule_active(id))
         .collect();
 
     let mut findings = Vec::new();
