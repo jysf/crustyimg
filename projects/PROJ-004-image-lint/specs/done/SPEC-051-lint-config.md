@@ -4,7 +4,7 @@
 task:
   id: SPEC-051
   type: story
-  cycle: design
+  cycle: ship
   blocked: false
   priority: high
   complexity: M
@@ -31,11 +31,55 @@ value_link: >
   turns a fixed rule set into a project-shaped one.
 
 cost:
-  sessions: []
+  sessions:
+    - cycle: design
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-07-06
+      notes: >
+        Main-loop orchestrator (PROJ-004 framing session), not separately metered.
+    - cycle: build
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 130000
+      estimated_usd: 1.17
+      duration_minutes: 38
+      recorded_at: 2026-07-06
+      notes: >
+        ESTIMATE — autonomous merge-on-green run in the orchestrator main loop, NOT a metered
+        subagent. Order-of-magnitude (~130k at Opus 4.8 ~80/20 ≈ $1.17). Built src/lint/config.rs
+        (LintConfig + RawConfig serde split + discovery + effective_config/merge + validation),
+        threaded config through run_lint (select/ignore/off filtering, per_file_ignores, severity
+        override), plumbed budget/intended-width/savings-threshold onto LintTarget, added the
+        LintFlags CLI surface (7 flags + savings-threshold parse). 8 config unit + 5 integration
+        tests. PR #60.
+    - cycle: verify
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 12000
+      estimated_usd: 0.11
+      duration_minutes: 3
+      recorded_at: 2026-07-06
+      notes: >
+        ESTIMATE — same autonomous run; CI-driven verify, all matrix/feature/lean/msrv/deny jobs
+        green on #60. Order-of-magnitude (~12k).
+    - cycle: ship
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-07-06
+      notes: >
+        Main-loop ship bookkeeping (reflection, cost totals, stage backlog, archive), not
+        separately metered.
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 142000
+    estimated_usd: 1.28
+    session_count: 4
 ---
 
 # SPEC-051: `.crustyimg-lint.toml` config + severity/select CLI
@@ -177,6 +221,14 @@ applies, adding no dependency (reuse `toml`, DEC-005).
 
 ## Reflection (Ship)
 
-1. **What would I do differently next time?** — <answer>
-2. **Does any template, constraint, or decision need updating?** — <answer>
-3. **Is there a follow-up spec I should write now before I forget?** — <answer>
+1. **What would I do differently next time?** — Nothing structural. Splitting the on-disk
+   `RawConfig` (serde, `deny_unknown_fields`) from the runtime `LintConfig` kept string→enum parsing
+   and rule-id validation explicit, and giving `LintConfig` the query methods (`is_rule_active`,
+   `severity_for`, `is_ignored_for_path`, `byte_budget_for`) let the runner stay a thin loop.
+2. **Does any template, constraint, or decision need updating?** — No. DEC-050's config contract is
+   now concrete. Worth noting for STAGE-014: the savings-threshold + intended-width are already
+   resolved per-file on `LintTarget`, so the engine-backed "could be smaller" rules read them
+   directly — no further config plumbing needed.
+3. **Is there a follow-up spec I should write now before I forget?** — No new spec. SPEC-053 inherits
+   one extra test (per-glob budget → `size/oversized-bytes` finding) since the budget config plumbing
+   landed here; noted in this spec's Build Completion. SPEC-052 (JSON report) is next.

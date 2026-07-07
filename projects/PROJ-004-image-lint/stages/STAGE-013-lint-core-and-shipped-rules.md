@@ -100,15 +100,16 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
   skip + `Rule`/`Finding`/`Severity` framework + human grouped-by-file output + exit-7
   (`CheckFailed`, DEC-025) + 2 foundational rules (`privacy/gps-metadata-leak`,
   `size/truncated-or-corrupt`). DEC-050 landed here. PR #59 → `main` (14e425b).
-- [ ] SPEC-051 (design → build NEXT) — `.crustyimg-lint.toml` config: auto-discovery + `select`/`ignore` +
+- [x] SPEC-051 (shipped on 2026-07-06) — `.crustyimg-lint.toml` config: auto-discovery + `select`/`ignore` +
   per-rule severity + per-glob byte budgets + `per-file-ignores` + savings-threshold defaults +
-  the config/severity CLI flags.
-- [ ] SPEC-052 (design) — `lint --format json` (hand-rolled, no new dep) + the human report
+  the config/severity CLI flags. PR #60 → `main` (236581e). Budget plumbing landed; SPEC-053
+  inherits the end-to-end budget→size-finding test.
+- [ ] SPEC-052 (design → build NEXT) — `lint --format json` (hand-rolled, no new dep) + the human report
   refinements (runnable-fix line, savings summary).
 - [ ] SPEC-053 (design) — the remaining shipped-capability rules (camera-metadata, orientation,
   oversized-bytes, oversized-dimensions, colorspace + ICC, animated-gif).
 
-**Count:** 1 shipped / 0 active / 3 pending
+**Count:** 2 shipped / 0 active / 2 pending
 
 ## Design Notes
 
