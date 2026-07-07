@@ -3,8 +3,8 @@
 
 stage:
   id: STAGE-014
-  status: proposed                  # proposed | active | shipped | cancelled | on_hold
-  priority: high
+  status: on_hold                    # proposed | active | shipped | cancelled | on_hold
+  priority: low                      # deferred below the 1.0 line (2026-07-07 roadmap reconciliation)
   target_complete: null
 
 project:
@@ -37,6 +37,15 @@ value_contribution:
 ---
 
 # STAGE-014: engine-backed rules
+
+> **Deferred below the 1.0 line — demand-gated (2026-07-07).** `lint` already shipped as a
+> 10-rule catalog in v0.4.0. This stage adds *more* lint breadth (three engine-backed rules),
+> which the adoption-first roadmap reconciliation put past 1.0: further investment in the
+> least-validated surface waits for a real adoption signal (Action/Eleventy users asking for it),
+> and the next technical work is **HEIC/RAW/SVG input reach** instead (see `docs/roadmap.md`).
+> The stage is cheap to finish (reuses the shipped engine, no new deps) and is kept **build-ready
+> in spirit but unwritten** — SPEC-054/055 are *not* yet specced. Pick it up **if pulled**, not by
+> default. Nothing here is cancelled; it is sequenced, not dropped.
 
 ## What This Stage Is
 
