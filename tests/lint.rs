@@ -1,9 +1,11 @@
-//! Integration tests for `crustyimg lint` (SPEC-050, DEC-050).
+//! Integration tests for `crustyimg lint` (SPEC-050/051, DEC-050).
 //!
 //! Drives the real compiled binary via `env!("CARGO_BIN_EXE_crustyimg")`.
 //! Fixtures are generated in-memory (see `tests/common`) — no committed binary
-//! files, no ImageMagick. Exit codes: `0` clean · `7` ≥1 error · `3` no inputs.
+//! files, no ImageMagick. Exit codes: `0` clean · `7` ≥1 error (or warns over
+//! `--max-warnings`) · `2` usage/bad config · `3` no inputs.
 
+use std::ffi::OsStr;
 use std::path::Path;
 use std::process::Command;
 
@@ -22,14 +24,24 @@ fn write(dir: &TempDir, name: &str, bytes: &[u8]) {
 
 /// Run `crustyimg lint <path>` and return (exit code, stdout).
 fn lint(path: &Path) -> (i32, String) {
+    lint_args(&[path.as_os_str()])
+}
+
+/// Run `crustyimg lint <args…>` and return (exit code, stdout).
+fn lint_args<S: AsRef<OsStr>>(args: &[S]) -> (i32, String) {
     let output = Command::new(BIN)
         .arg("lint")
-        .arg(path)
+        .args(args)
         .output()
         .expect("failed to run crustyimg lint");
     let code = output.status.code().unwrap_or(-1);
     let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
     (code, stdout)
+}
+
+/// Write a `.crustyimg-lint.toml` into `dir` (discovered when linting `dir`).
+fn write_config(dir: &TempDir, body: &str) {
+    std::fs::write(dir.path().join(".crustyimg-lint.toml"), body).unwrap();
 }
 
 #[test]
@@ -129,4 +141,90 @@ fn lint_with_no_resolvable_inputs_exits_3() {
         3,
         "no inputs resolved → exit 3"
     );
+}
+
+// ── SPEC-051: config surface ────────────────────────────────────────────────
+
+#[test]
+fn config_turning_a_rule_off_makes_a_gps_tree_pass_and_no_config_ignores_it() {
+    let dir = TempDir::new().unwrap();
+    write(&dir, "leak.jpg", &jpeg_with_gps(16, 16));
+    // A discovered config that disables the GPS rule.
+    write_config(
+        &dir,
+        "[severity]\n\"privacy/gps-metadata-leak\" = \"off\"\n",
+    );
+
+    // With the config discovered, the GPS finding is suppressed → exit 0.
+    let (code, stdout) = lint(dir.path());
+    assert_eq!(code, 0, "off rule → clean; stdout:\n{stdout}");
+    assert!(!stdout.contains("privacy/gps-metadata-leak"));
+
+    // `--no-config` ignores the discovered config → the GPS leak fails again.
+    let (code, stdout) = lint_args(&[dir.path().as_os_str(), OsStr::new("--no-config")]);
+    assert_eq!(
+        code, 7,
+        "--no-config restores the default rule; stdout:\n{stdout}"
+    );
+    assert!(stdout.contains("privacy/gps-metadata-leak"));
+}
+
+#[test]
+fn cli_ignore_flag_filters_a_rule() {
+    let dir = TempDir::new().unwrap();
+    write(&dir, "leak.jpg", &jpeg_with_gps(16, 16));
+
+    let (code, _) = lint_args(&[
+        dir.path().as_os_str(),
+        OsStr::new("--ignore"),
+        OsStr::new("privacy"),
+    ]);
+    assert_eq!(code, 0, "ignoring privacy silences the GPS error");
+}
+
+#[test]
+fn per_rule_severity_downgrade_and_max_warnings_gate() {
+    let dir = TempDir::new().unwrap();
+    write(&dir, "leak.jpg", &jpeg_with_gps(16, 16));
+    // Downgrade the GPS error to a warning.
+    write_config(
+        &dir,
+        "[severity]\n\"privacy/gps-metadata-leak\" = \"warn\"\n",
+    );
+
+    // A lone warning does not fail without --max-warnings.
+    let (code, stdout) = lint(dir.path());
+    assert_eq!(code, 0, "warn alone does not fail; stdout:\n{stdout}");
+    assert!(stdout.contains("warn privacy/gps-metadata-leak"));
+
+    // --max-warnings 0 makes any warning fail (exit 7).
+    let (code, _) = lint_args(&[
+        dir.path().as_os_str(),
+        OsStr::new("--max-warnings"),
+        OsStr::new("0"),
+    ]);
+    assert_eq!(code, 7, "1 warn > --max-warnings 0 → exit 7");
+}
+
+#[test]
+fn an_unknown_rule_id_in_select_is_a_usage_error() {
+    let dir = TempDir::new().unwrap();
+    write(&dir, "a.png", &solid_png(4, 4, [1, 2, 3]));
+
+    let (code, _) = lint_args(&[
+        dir.path().as_os_str(),
+        OsStr::new("--select"),
+        OsStr::new("bogus/nope"),
+    ]);
+    assert_eq!(code, 2, "an unknown rule id is a usage error (exit 2)");
+}
+
+#[test]
+fn a_malformed_config_is_a_usage_error_not_a_panic() {
+    let dir = TempDir::new().unwrap();
+    write(&dir, "a.png", &solid_png(4, 4, [1, 2, 3]));
+    write_config(&dir, "this is = = not toml\n");
+
+    let (code, _) = lint(dir.path());
+    assert_eq!(code, 2, "a malformed config is a usage error (exit 2)");
 }

@@ -413,6 +413,28 @@ pub enum Commands {
     Lint {
         /// Image files, directories, or globs to lint (default: the current dir).
         paths: Vec<String>,
+        /// Use this config file instead of auto-discovering `.crustyimg-lint.toml`.
+        #[arg(long, value_name = "PATH")]
+        config: Option<String>,
+        /// Ignore any discovered config; use built-in defaults + CLI flags only.
+        #[arg(long)]
+        no_config: bool,
+        /// Only run rules matching these ids/prefixes (repeatable; ruff-style).
+        #[arg(long, value_name = "PREFIX")]
+        select: Vec<String>,
+        /// Exclude rules matching these ids/prefixes (repeatable; ruff-style).
+        #[arg(long, value_name = "PREFIX")]
+        ignore: Vec<String>,
+        /// Fail (exit 7) when the number of `warn` findings exceeds N.
+        #[arg(long, value_name = "N")]
+        max_warnings: Option<usize>,
+        /// Declared intended display width; enables `dims/oversized-dimensions`.
+        #[arg(long, value_name = "W")]
+        max_intended_width: Option<u32>,
+        /// Savings gate for "could be smaller" rules, as `BYTES:PERCENT`
+        /// (default `4096:10`).
+        #[arg(long, value_name = "BYTES:PERCENT")]
+        savings_threshold: Option<String>,
     },
 
     /// Generate a shell-completion script (bash, zsh, fish, powershell, elvish) to stdout.
@@ -703,7 +725,28 @@ fn dispatch(cli: &Cli) -> Result<(), CliError> {
             save_recipe.as_deref(),
             &cli.global,
         ),
-        Commands::Lint { paths } => run_lint(paths, &cli.global),
+        Commands::Lint {
+            paths,
+            config,
+            no_config,
+            select,
+            ignore,
+            max_warnings,
+            max_intended_width,
+            savings_threshold,
+        } => run_lint(
+            paths,
+            &LintFlags {
+                config: config.as_deref(),
+                no_config: *no_config,
+                select,
+                ignore,
+                max_warnings: *max_warnings,
+                max_intended_width: *max_intended_width,
+                savings_threshold: savings_threshold.as_deref(),
+            },
+            &cli.global,
+        ),
         Commands::Completions { shell } => run_completions(*shell),
     }
 }
@@ -1399,25 +1442,106 @@ fn run_diff(
     Ok(())
 }
 
-// ── lint command (SPEC-050, DEC-050) ───────────────────────────────────────────
+// ── lint command (SPEC-050/051, DEC-050) ───────────────────────────────────────
 
-/// The `lint` path: resolve every PATH via the shared source fan-out (globs/
-/// dirs/files, non-images skipped), run the default rule set per image, print
-/// the grouped-by-file human report to stdout, and map the outcome to a
-/// CI-native exit code reusing [`CliError::CheckFailed`] (exit 7, DEC-025).
+/// The parsed `lint` config/severity flags (SPEC-051), borrowed from `Commands`.
+struct LintFlags<'a> {
+    config: Option<&'a str>,
+    no_config: bool,
+    select: &'a [String],
+    ignore: &'a [String],
+    max_warnings: Option<usize>,
+    max_intended_width: Option<u32>,
+    savings_threshold: Option<&'a str>,
+}
+
+/// Parse `--savings-threshold BYTES:PERCENT` into a [`SavingsThreshold`].
+///
+/// A malformed value (missing `:`, non-integer, percent > 100) is a usage error
+/// (exit 2), never a panic.
+fn parse_savings_threshold(s: &str) -> Result<crate::lint::config::SavingsThreshold, CliError> {
+    let (bytes_s, percent_s) = s.split_once(':').ok_or_else(|| {
+        CliError::Usage(format!(
+            "invalid --savings-threshold '{s}': expected BYTES:PERCENT (e.g. 4096:10)"
+        ))
+    })?;
+    let min_bytes: u64 = bytes_s
+        .trim()
+        .parse()
+        .map_err(|_| CliError::Usage(format!("invalid --savings-threshold bytes '{bytes_s}'")))?;
+    let min_percent: u32 = percent_s.trim().parse().map_err(|_| {
+        CliError::Usage(format!("invalid --savings-threshold percent '{percent_s}'"))
+    })?;
+    if min_percent > 100 {
+        return Err(CliError::Usage(format!(
+            "invalid --savings-threshold percent '{min_percent}': must be 0..=100"
+        )));
+    }
+    Ok(crate::lint::config::SavingsThreshold {
+        min_bytes,
+        min_percent,
+    })
+}
+
+/// Build the effective [`LintConfig`](crate::lint::config::LintConfig) from the
+/// discovered/forced file + CLI overrides. A config error maps to a usage error
+/// (exit 2).
+fn build_lint_config(
+    flags: &LintFlags,
+    first_input: &str,
+) -> Result<crate::lint::config::LintConfig, CliError> {
+    use crate::lint::config::{discover_config, effective_config, CliOverrides};
+
+    let savings_threshold = flags
+        .savings_threshold
+        .map(parse_savings_threshold)
+        .transpose()?;
+
+    let overrides = CliOverrides {
+        select: flags.select.to_vec(),
+        ignore: flags.ignore.to_vec(),
+        max_intended_width: flags.max_intended_width,
+        savings_threshold,
+    };
+
+    let forced = flags.config.map(PathBuf::from);
+    // Auto-discovery anchors on the first input (or cwd) walking up to root.
+    let discovered = if flags.no_config || forced.is_some() {
+        None
+    } else {
+        discover_config(Path::new(first_input))
+    };
+
+    effective_config(
+        &overrides,
+        forced.as_deref(),
+        discovered.as_deref(),
+        flags.no_config,
+    )
+    .map_err(|e| CliError::Usage(e.to_string()))
+}
+
+/// The `lint` path: build the effective config (SPEC-051), resolve every PATH
+/// via the shared source fan-out (globs/dirs/files, non-images skipped), run the
+/// active rule set per image, print the grouped-by-file human report to stdout,
+/// and map the outcome to a CI-native exit code reusing [`CliError::CheckFailed`]
+/// (exit 7, DEC-025).
 ///
 /// - No PATHS ⇒ lint the current directory (ergonomic default).
 /// - No inputs resolved ⇒ [`SourceError::NotFound`] (exit 3).
-/// - An invalid glob pattern ⇒ exit 2 (via `SourceError::InvalidPattern`).
-/// - ≥1 `Error`-severity finding ⇒ `CheckFailed` (exit 7). `Warn`/`Info` do not
-///   fail here (`--max-warnings` is wired in SPEC-051).
+/// - An invalid glob pattern / bad config ⇒ exit 2.
+/// - ≥1 `Error`-severity finding, or `warn` count over `--max-warnings` ⇒
+///   `CheckFailed` (exit 7). `Info` never fails; `Warn` fails only over the cap.
 ///
 /// Read-only: the runner NEVER writes an image; a decode failure is a *finding*
 /// (`size/truncated-or-corrupt`), not an abort (DEC-050).
-fn run_lint(paths: &[String], global: &GlobalArgs) -> Result<(), CliError> {
+fn run_lint(paths: &[String], flags: &LintFlags, global: &GlobalArgs) -> Result<(), CliError> {
     // Default to the current directory when no PATHS are given.
     let default = [".".to_owned()];
     let args: &[String] = if paths.is_empty() { &default } else { paths };
+
+    // The config is discovered relative to the first input (or cwd).
+    let config = build_lint_config(flags, &args[0])?;
 
     // Resolve every arg, concatenating inputs. A NotFound arg contributes
     // nothing (so `no inputs resolved` collapses to exit 3 below); a malformed
@@ -1435,17 +1559,17 @@ fn run_lint(paths: &[String], global: &GlobalArgs) -> Result<(), CliError> {
     }
 
     let rules = crate::lint::default_rules();
-    let outcome = crate::lint::run_lint(&inputs, &rules);
+    let outcome = crate::lint::run_lint(&inputs, &rules, &config);
 
     let mut out = std::io::stdout().lock();
     crate::lint::render_human(&outcome, &mut out).map_err(crate::sink::SinkError::Io)?;
 
-    // SPEC-050: warnings do not fail the gate (max_warnings is SPEC-051).
-    if crate::lint::exit_code(&outcome, None) == 7 {
+    if crate::lint::exit_code(&outcome, flags.max_warnings) == 7 {
         if !global.quiet {
             eprintln!(
-                "lint: {} error-severity finding(s) across {} file(s)",
+                "lint: {} error, {} warn across {} file(s)",
                 outcome.error_count(),
+                outcome.warn_count(),
                 outcome.files_scanned
             );
         }
