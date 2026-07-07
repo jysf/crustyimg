@@ -264,6 +264,20 @@ repos:
       - id: crustyimg-lint
 ```
 
+### GitHub code-scanning (SARIF)
+
+`--format sarif` emits [SARIF 2.1.0](https://sarifweb.azurewebsites.net/) — upload it to put
+findings in the repo's **Security tab** (and inline in PRs) via GitHub code-scanning:
+
+```yaml
+      - uses: jysf/setup-crustyimg@v1
+      - run: crustyimg lint assets --format sarif > crustyimg.sarif
+        continue-on-error: true          # let the upload run even when findings fail the gate
+      - uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: crustyimg.sarif
+```
+
 ### Locally / any CI
 
 The binary + its exit code is the whole contract — no Action required:
@@ -271,6 +285,7 @@ The binary + its exit code is the whole contract — no Action required:
 ```bash
 crustyimg lint assets content            # 0 clean · 7 error finding · 2 usage · 3 no inputs
 crustyimg lint assets --format json      # machine-readable report for tooling
+crustyimg lint assets --format sarif     # SARIF 2.1.0 for GitHub code-scanning
 just lint-images assets content          # the same, via the repo's justfile recipe
 ```
 

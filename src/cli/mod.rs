@@ -1560,9 +1560,9 @@ fn run_lint(paths: &[String], flags: &LintFlags, global: &GlobalArgs) -> Result<
         return Err(CliError::Source(SourceError::NotFound(args.join(", "))));
     }
 
-    // Report format: `lint --format human|json`. To avoid a clap duplicate-arg
-    // conflict with the global `--format` (encode format), lint reads that same
-    // global flag; only `human` (default) / `json` are valid here.
+    // Report format: `lint --format human|json|sarif`. To avoid a clap
+    // duplicate-arg conflict with the global `--format` (encode format), lint
+    // reads that same global flag; only these three values are valid here.
     let report_format = lint_report_format(global.format.as_deref())?;
 
     let rules = crate::lint::default_rules();
@@ -1576,6 +1576,14 @@ fn run_lint(paths: &[String], flags: &LintFlags, global: &GlobalArgs) -> Result<
         }
         LintReportFormat::Json => {
             crate::lint::write_json(&outcome, passed, &mut out)
+                .and_then(|()| writeln!(out))
+                .map_err(crate::sink::SinkError::Io)?;
+        }
+        LintReportFormat::Sarif => {
+            // Relativize finding paths to the cwd (the repo root in CI) so GitHub
+            // code-scanning anchors them to repo files.
+            let base = std::env::current_dir().ok();
+            crate::lint::write_sarif(&outcome, crate::version(), base.as_deref(), &mut out)
                 .and_then(|()| writeln!(out))
                 .map_err(crate::sink::SinkError::Io)?;
         }
@@ -1595,20 +1603,23 @@ fn run_lint(paths: &[String], flags: &LintFlags, global: &GlobalArgs) -> Result<
     Ok(())
 }
 
-/// The `lint` report format (SPEC-052).
+/// The `lint` report format (SPEC-052 human/json; SPEC-056 sarif).
 enum LintReportFormat {
     Human,
     Json,
+    Sarif,
 }
 
 /// Interpret the global `--format` value for `lint`: `None`/`human` ⇒ human,
-/// `json` ⇒ JSON, anything else ⇒ a usage error (exit 2).
+/// `json` ⇒ JSON, `sarif` ⇒ SARIF (GitHub code-scanning), anything else ⇒ a
+/// usage error (exit 2).
 fn lint_report_format(format: Option<&str>) -> Result<LintReportFormat, CliError> {
     match format {
         None | Some("human") => Ok(LintReportFormat::Human),
         Some("json") => Ok(LintReportFormat::Json),
+        Some("sarif") => Ok(LintReportFormat::Sarif),
         Some(other) => Err(CliError::Usage(format!(
-            "lint --format must be 'human' or 'json', got '{other}'"
+            "lint --format must be 'human', 'json', or 'sarif', got '{other}'"
         ))),
     }
 }

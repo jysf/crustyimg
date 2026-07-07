@@ -34,7 +34,7 @@ pub mod config;
 mod report;
 mod rules;
 
-pub use report::{render_human, write_json};
+pub use report::{render_human, write_json, write_sarif};
 
 use config::{LintConfig, SavingsThreshold};
 
