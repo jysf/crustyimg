@@ -136,6 +136,65 @@ pub fn jpeg_with_orientation(w: u32, h: u32, orientation: u8) -> Vec<u8> {
     out
 }
 
+/// Produce JPEG bytes carrying an EXIF APP1 segment with a GPS sub-IFD.
+///
+/// Mirrors `jpeg_with_orientation`, but the TIFF holds a single IFD0 entry — a
+/// GPSInfo pointer (tag 0x8825) to a GPS IFD with one `GPSLatitudeRef` ("N")
+/// entry. Enough for the `kamadak-exif` read side to surface a `Context::Gps`
+/// field, which the `privacy/gps-metadata-leak` rule keys off. The exact
+/// little-endian TIFF bytes:
+///
+/// ```text
+/// 49 49 2A 00                 // "II", 42
+/// 08 00 00 00                 // IFD0 offset = 8
+/// 01 00                       // IFD0 entry count = 1
+/// 25 88 04 00 01 00 00 00     // tag 0x8825 GPSInfo, type LONG, count 1,
+/// 1A 00 00 00                 //   value = GPS-IFD offset (26)
+/// 00 00 00 00                 // next-IFD offset = 0
+/// 01 00                       // GPS IFD entry count = 1
+/// 01 00 02 00 02 00 00 00     // tag 0x0001 GPSLatitudeRef, ASCII, count 2,
+/// 4E 00 00 00                 //   value "N\0" inline
+/// 00 00 00 00                 // next-IFD offset = 0
+/// ```
+pub fn jpeg_with_gps(w: u32, h: u32) -> Vec<u8> {
+    let base = gradient_jpeg(w, h);
+    assert_eq!(
+        &base[0..2],
+        &[0xFF, 0xD8],
+        "generated JPEG must start with SOI"
+    );
+
+    let mut tiff: Vec<u8> = Vec::new();
+    tiff.extend_from_slice(&[0x49, 0x49, 0x2A, 0x00]); // "II", 42
+    tiff.extend_from_slice(&[0x08, 0x00, 0x00, 0x00]); // IFD0 offset = 8
+    tiff.extend_from_slice(&[0x01, 0x00]); // IFD0 entry count = 1
+    tiff.extend_from_slice(&[0x25, 0x88]); // tag 0x8825 (GPSInfo pointer)
+    tiff.extend_from_slice(&[0x04, 0x00]); // type LONG
+    tiff.extend_from_slice(&[0x01, 0x00, 0x00, 0x00]); // count = 1
+    tiff.extend_from_slice(&[0x1A, 0x00, 0x00, 0x00]); // value = offset 26
+    tiff.extend_from_slice(&[0x00, 0x00, 0x00, 0x00]); // next-IFD offset = 0
+    tiff.extend_from_slice(&[0x01, 0x00]); // GPS IFD entry count = 1
+    tiff.extend_from_slice(&[0x01, 0x00]); // tag 0x0001 (GPSLatitudeRef)
+    tiff.extend_from_slice(&[0x02, 0x00]); // type ASCII
+    tiff.extend_from_slice(&[0x02, 0x00, 0x00, 0x00]); // count = 2
+    tiff.extend_from_slice(&[0x4E, 0x00, 0x00, 0x00]); // "N\0" inline
+    tiff.extend_from_slice(&[0x00, 0x00, 0x00, 0x00]); // next-IFD offset = 0
+
+    let mut payload: Vec<u8> = Vec::new();
+    payload.extend_from_slice(b"Exif\0\0");
+    payload.extend_from_slice(&tiff);
+
+    let seg_len = (payload.len() + 2) as u16;
+    let mut out: Vec<u8> = Vec::with_capacity(base.len() + payload.len() + 4);
+    out.extend_from_slice(&base[0..2]); // SOI
+    out.push(0xFF);
+    out.push(0xE1); // APP1 marker
+    out.extend_from_slice(&seg_len.to_be_bytes());
+    out.extend_from_slice(&payload);
+    out.extend_from_slice(&base[2..]); // rest of the JPEG
+    out
+}
+
 /// Build a DETERMINISTIC, STRUCTURED RGB image: a smooth gradient plus a mild
 /// 8px checker texture (SPEC-016 / DEC-019 auto-quality fixture).
 ///

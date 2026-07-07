@@ -404,6 +404,17 @@ pub enum Commands {
         inputs: Vec<String>,
     },
 
+    /// Lint an image asset tree: report problems (each with a runnable fix) and
+    /// a CI-native exit code. Read-only — never writes an image (SPEC-050, DEC-050).
+    ///
+    /// Resolves PATHS via the shared source fan-out (globs/dirs/files, non-images
+    /// skipped), runs the default rule set per image, and exits `0` clean · `7`
+    /// on any error-severity finding · `2` usage · `3` no inputs resolved.
+    Lint {
+        /// Image files, directories, or globs to lint (default: the current dir).
+        paths: Vec<String>,
+    },
+
     /// Generate a shell-completion script (bash, zsh, fish, powershell, elvish) to stdout.
     Completions { shell: clap_complete::Shell },
 }
@@ -692,6 +703,7 @@ fn dispatch(cli: &Cli) -> Result<(), CliError> {
             save_recipe.as_deref(),
             &cli.global,
         ),
+        Commands::Lint { paths } => run_lint(paths, &cli.global),
         Commands::Completions { shell } => run_completions(*shell),
     }
 }
@@ -1380,6 +1392,61 @@ fn run_diff(
             eprintln!(
                 "diff: ssimulacra2 {score:.4} is below --fail-under {}",
                 fail_under.unwrap_or(0.0)
+            );
+        }
+        return Err(CliError::CheckFailed);
+    }
+    Ok(())
+}
+
+// ── lint command (SPEC-050, DEC-050) ───────────────────────────────────────────
+
+/// The `lint` path: resolve every PATH via the shared source fan-out (globs/
+/// dirs/files, non-images skipped), run the default rule set per image, print
+/// the grouped-by-file human report to stdout, and map the outcome to a
+/// CI-native exit code reusing [`CliError::CheckFailed`] (exit 7, DEC-025).
+///
+/// - No PATHS ⇒ lint the current directory (ergonomic default).
+/// - No inputs resolved ⇒ [`SourceError::NotFound`] (exit 3).
+/// - An invalid glob pattern ⇒ exit 2 (via `SourceError::InvalidPattern`).
+/// - ≥1 `Error`-severity finding ⇒ `CheckFailed` (exit 7). `Warn`/`Info` do not
+///   fail here (`--max-warnings` is wired in SPEC-051).
+///
+/// Read-only: the runner NEVER writes an image; a decode failure is a *finding*
+/// (`size/truncated-or-corrupt`), not an abort (DEC-050).
+fn run_lint(paths: &[String], global: &GlobalArgs) -> Result<(), CliError> {
+    // Default to the current directory when no PATHS are given.
+    let default = [".".to_owned()];
+    let args: &[String] = if paths.is_empty() { &default } else { paths };
+
+    // Resolve every arg, concatenating inputs. A NotFound arg contributes
+    // nothing (so `no inputs resolved` collapses to exit 3 below); a malformed
+    // glob or stdin error propagates (exit 2/3).
+    let mut inputs = Vec::new();
+    for arg in args {
+        match source::resolve(arg, &mut std::io::stdin().lock()) {
+            Ok(v) => inputs.extend(v),
+            Err(SourceError::NotFound(_)) => {}
+            Err(e) => return Err(e.into()),
+        }
+    }
+    if inputs.is_empty() {
+        return Err(CliError::Source(SourceError::NotFound(args.join(", "))));
+    }
+
+    let rules = crate::lint::default_rules();
+    let outcome = crate::lint::run_lint(&inputs, &rules);
+
+    let mut out = std::io::stdout().lock();
+    crate::lint::render_human(&outcome, &mut out).map_err(crate::sink::SinkError::Io)?;
+
+    // SPEC-050: warnings do not fail the gate (max_warnings is SPEC-051).
+    if crate::lint::exit_code(&outcome, None) == 7 {
+        if !global.quiet {
+            eprintln!(
+                "lint: {} error-severity finding(s) across {} file(s)",
+                outcome.error_count(),
+                outcome.files_scanned
             );
         }
         return Err(CliError::CheckFailed);

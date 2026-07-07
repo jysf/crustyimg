@@ -32,6 +32,7 @@ pub mod analysis;
 pub mod cli;
 pub mod error;
 pub mod image;
+pub mod lint;
 pub mod metadata;
 pub mod operation;
 pub mod pipeline;
