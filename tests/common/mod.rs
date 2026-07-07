@@ -243,6 +243,29 @@ pub fn webp_lossless(w: u32, h: u32) -> Vec<u8> {
     encode(DynamicImage::ImageRgb8(img), ImageFormat::WebP)
 }
 
+/// Encode a solid 16-bit RGB PNG (needless high bit depth for the web —
+/// SPEC-053 `color/wrong-colorspace` fixture).
+pub fn png_16bit(w: u32, h: u32) -> Vec<u8> {
+    use image::ImageBuffer;
+    let img: ImageBuffer<image::Rgb<u16>, Vec<u16>> =
+        ImageBuffer::from_pixel(w, h, image::Rgb([40000u16, 20000, 10000]));
+    encode(DynamicImage::ImageRgb16(img), ImageFormat::Png)
+}
+
+/// Encode a 2-frame animated GIF (SPEC-053 `format/animated-gif` fixture).
+pub fn animated_gif(w: u32, h: u32) -> Vec<u8> {
+    use image::codecs::gif::GifEncoder;
+    use image::{Frame, RgbaImage};
+    let mut buf = Vec::new();
+    {
+        let mut enc = GifEncoder::new(&mut buf);
+        let f1 = Frame::new(RgbaImage::from_pixel(w, h, image::Rgba([255, 0, 0, 255])));
+        let f2 = Frame::new(RgbaImage::from_pixel(w, h, image::Rgba([0, 255, 0, 255])));
+        enc.encode_frames(vec![f1, f2]).unwrap();
+    }
+    buf
+}
+
 fn encode(img: DynamicImage, format: ImageFormat) -> Vec<u8> {
     let mut out = Cursor::new(Vec::new());
     img.write_to(&mut out, format).unwrap();

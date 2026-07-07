@@ -123,24 +123,34 @@ pub struct LintConfig {
 }
 
 impl LintConfig {
-    /// Whether `rule_id` is active under `select`/`ignore` and not turned `off`.
-    ///
-    /// `select` (when non-empty) restricts to matching prefixes; `ignore`
-    /// removes matching prefixes; an explicit `off` severity disables the rule.
+    /// Whether a **default-on** rule is active under `select`/`ignore`/`off`.
+    /// Shorthand for [`LintConfig::is_rule_enabled`] with `default_enabled = true`.
     pub fn is_rule_active(&self, rule_id: &str) -> bool {
+        self.is_rule_enabled(rule_id, true)
+    }
+
+    /// Whether `rule_id` (with the rule's `default_enabled`) runs.
+    ///
+    /// - `off` severity or a matching `ignore` prefix always disables it.
+    /// - A non-empty `select` is the exact active set (ruff-style): only
+    ///   matching prefixes run.
+    /// - With `select` empty: default-on rules run; an **opt-in** rule
+    ///   (`default_enabled = false`) runs only when the config explicitly
+    ///   enables it — a per-rule severity entry (a non-`off` override).
+    pub fn is_rule_enabled(&self, rule_id: &str, default_enabled: bool) -> bool {
         if matches!(
             self.per_rule_severity.get(rule_id),
             Some(SeverityOverride::Off)
         ) {
             return false;
         }
-        if !self.select.is_empty() && !self.select.iter().any(|p| prefix_matches(p, rule_id)) {
-            return false;
-        }
         if self.ignore.iter().any(|p| prefix_matches(p, rule_id)) {
             return false;
         }
-        true
+        if !self.select.is_empty() {
+            return self.select.iter().any(|p| prefix_matches(p, rule_id));
+        }
+        default_enabled || self.per_rule_severity.contains_key(rule_id)
     }
 
     /// The effective severity for `rule_id`, or `default` when not overridden.

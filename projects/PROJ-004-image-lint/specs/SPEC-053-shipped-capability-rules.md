@@ -152,18 +152,48 @@ with a runnable fix, respecting the config, adding no dependency.
 
 ## Build Completion
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
-- **New decisions emitted:** <DEC-NNN or none>
-- **Deviations from spec:** <list>
-- **Follow-up work identified:** <list>
+- **Branch:** `feat/spec-053-shipped-capability-rules`
+- **PR (if applicable):** (opened after green local gates)
+- **All acceptance criteria met?** yes
+- **New decisions emitted:** None — the rule ids/severities/fixes are DEC-050's catalog; the build
+  followed it. One small trait addition (`Rule::default_enabled`) to realize the catalog's opt-in
+  column — noted below, not weighty enough for a DEC.
+- **Deviations from spec:**
+  - **Opt-in mechanism:** added `Rule::default_enabled()` (default `true`). The three `info` opt-in
+    rules (`privacy/camera-metadata`, `color/missing-icc`, `color/unexpected-icc`) return `false` —
+    off by default, enabled by a `--select` prefix or a per-rule severity entry. `dims/oversized-
+    dimensions` and `size/oversized-bytes` stay default-*on* but are inert without their config input
+    (intended width / budget), which realizes their "opt-in"/"only-with-config" behavior without a
+    flag — matching the acceptance ("fires only when an intended width is declared").
+  - **CMYK detection:** `color/wrong-colorspace` detects CMYK JPEGs via a raw SOF component-count
+    scan (`jpeg_component_count`, `Nf == 4`), unit-tested at the helper level. A native *CMYK JPEG
+    fixture* isn't producible — the `image` crate can't encode CMYK and converts CMYK→RGB on decode,
+    erasing the signal — so the rule's **16-bit PNG** path is the end-to-end fixture-tested trigger;
+    the CMYK branch rides the tested helper. Honest scope note, not a gap.
+  - **EXIF single-parse:** replaced the SPEC-050 `has_gps` cache with one lazily-parsed `ExifFacts`
+    (`has_gps` + `has_camera` + `orientation`), so the GPS/camera/orientation rules share one
+    `kamadak-exif` pass per file.
+  - Inherited SPEC-051's deferred integration test — a per-glob `[[budget]]` now drives a real
+    `size/oversized-bytes` finding end-to-end.
+- **Follow-up work identified:**
+  - STAGE-014 (engine-backed rules) is the next stage: `format/legacy-format`,
+    `quality/excessive-jpeg-quality`, `format/indexed-png-opportunity`. They read the already-resolved
+    `LintTarget::savings_threshold()` and populate `Finding::bytes_saved`. Needs a framing pass first.
 
 ### Build-phase reflection (3 questions, short answers)
 
-1. **What was unclear in the spec that slowed you down?** — <answer>
-2. **Was there a constraint or decision that should have been listed but wasn't?** — <answer>
-3. **If you did this task again, what would you do differently?** — <answer>
+1. **What was unclear in the spec that slowed you down?** — The catalog's "opt-in" column needed a
+   concrete mechanism (nothing in SPEC-050/051 defined default-off rules). Resolved with
+   `Rule::default_enabled()` + the config enable logic; the intended-width/budget rules were made
+   config-gated instead, which is cleaner.
+2. **Was there a constraint or decision that should have been listed but wasn't?** — Not really. The
+   only friction was fixture generation (CMYK unavailable natively); worth capturing in the testing
+   conventions that CMYK/ICC/animation fixtures are hand-built or helper-tested, since the pure-Rust
+   `image` encoders don't cover them.
+3. **If you did this task again, what would you do differently?** — Nothing major. Putting the seven
+   rules in `src/lint/rules.rs` (with the byte-sniff helpers) kept `mod.rs` the framework and made
+   each rule a tiny pure `check`. The `ExifFacts` single-parse refactor is the piece I'd have done in
+   SPEC-050 with hindsight.
 
 ---
 
