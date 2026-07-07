@@ -1,0 +1,26 @@
+# pre-commit hook definitions for crustyimg (https://pre-commit.com).
+#
+# The format-aware upgrade from `check-added-large-files`: lint image assets for
+# size/format/metadata/privacy problems before they're committed. Read-only —
+# it reports (with a runnable fix each) and fails the commit on an error finding;
+# it never writes an image.
+#
+# Usage in a consumer repo's .pre-commit-config.yaml:
+#
+#   repos:
+#     - repo: https://github.com/jysf/crustyimg
+#       rev: v0.4.0            # a crustyimg release tag that ships `lint`
+#       hooks:
+#         - id: crustyimg-lint
+#
+# pre-commit builds the pinned crustyimg with cargo (language: rust) and runs it
+# over the staged image files (types: [image]). Tune rules with a
+# .crustyimg-lint.toml in the consumer repo.
+- id: crustyimg-lint
+  name: crustyimg lint (image assets)
+  description: Lint image assets for size/format/metadata/privacy problems (format-aware, no URL).
+  entry: crustyimg lint
+  language: rust
+  types: [image]
+  pass_filenames: true
+  require_serial: true

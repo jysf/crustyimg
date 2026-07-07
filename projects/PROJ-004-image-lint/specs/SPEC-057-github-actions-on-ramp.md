@@ -168,22 +168,54 @@ build cycle waits for them to go green). In the crustyimg repo, the glue is veri
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
+- **Branch:** `feat/spec-057-actions-on-ramp`
+- **PR (if applicable):** (in-repo glue; opened after green local gates)
 - **Produced Action repos (+ self-test run URLs):**
-- **All acceptance criteria met?** yes/no
+  - `jysf/setup-crustyimg` — https://github.com/jysf/setup-crustyimg — **3-OS self-test GREEN**:
+    https://github.com/jysf/setup-crustyimg/actions/runs/28843150986 (install + checksum + PATH +
+    `optimize` on Linux/macOS/Windows).
+  - `jysf/crustyimg-action` — https://github.com/jysf/crustyimg-action — **3-OS self-test GREEN**:
+    https://github.com/jysf/crustyimg-action/actions/runs/28844221495 (GPS-leak → `::error`
+    annotation with a runnable fix + non-zero exit; `fail-level: never` stays green; `optimize`
+    delegation via `setup-crustyimg@v0.3.1`).
+- **All acceptance criteria met?** yes
 - **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
+  - None beyond DEC-051 (framed at design). The build confirmed its contract.
 - **Deviations from spec:**
-  - [list]
+  - **`crustyimg-action` gained an `install` input** (default `true`). Needed because `lint` ships in
+    crustyimg 0.4.0 and **no published release has it yet** — so the wrapper's self-test builds lint
+    from `main` (`cargo install --git … --no-default-features --locked`) and runs with
+    `install: false`. It's also genuinely useful to consumers who already ran `setup-crustyimg` or
+    cached a build. Once 0.4.0 ships, the normal path (`install: true` + `version: v0.4.0`) works
+    fully; the self-test can be simplified then.
+  - **`setup-crustyimg`'s self-test exercises `optimize`, not `lint`** — it pins `v0.3.1` (the live
+    release), which predates `lint`. `optimize` proves the install/PATH generically; `lint` is
+    equally available once `version: latest` is 0.4.0.
+  - Two GitHub-Actions footguns surfaced + fixed (both cross-repo-generic, worth remembering): a
+    **hyphenated input** must be read as `${{ inputs['fail-level'] }}` (dot form is parsed as
+    subtraction → empty); and a composite `run` step's **default shell is `bash -e`**, so a wrapped
+    tool's non-zero exit aborts the script before you can annotate — `set +e` and own the exit.
 - **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - After 0.4.0 ships: the maintainer tags `setup-crustyimg`/`crustyimg-action` at `v1` (and bumps
+    `crustyimg-action`'s `uses: …@main` → `@v1`); optionally lists them on the Marketplace.
+  - v2: the autofix/commit-back Action mode (deferred; README-noted).
+  - Minor polish: lint finding paths are absolute (canonicalized), so GitHub anchors the annotation
+    to an absolute path rather than a repo-relative one — it still shows, but doesn't inline-link in
+    the diff. A future `--relative`/cwd-relative path option would make annotations inline-link.
 
 ### Build-phase reflection (3 questions, short answers)
 
-1. **What was unclear in the spec that slowed you down?** — <answer>
-2. **Was there a constraint or decision that should have been listed but wasn't?** — <answer>
-3. **If you did this task again, what would you do differently?** — <answer>
+1. **What was unclear in the spec that slowed you down?** — The spec assumed the Actions could be
+   validated against the live release (v0.3.1), but `lint` isn't released yet — so the wrapper needed
+   a source-built lint binary + an `install: false` path. A one-line note ("lint is unreleased; build
+   from main for the wrapper self-test") would have saved a cycle.
+2. **Was there a constraint or decision that should have been listed but wasn't?** — No. DEC-051's
+   "wrap the cargo-dist installer" was exactly right — the installer's built-in os/arch + checksum
+   handling meant `setup-crustyimg` went green on the first real 3-OS run.
+3. **If you did this task again, what would you do differently?** — Set `set +e` and use bracket input
+   access from the start (both are GitHub-Actions gotchas, not crustyimg-specific), and pin the
+   wrapper self-test to ubuntu-only while iterating on the script (the 3-OS cargo build is the slow
+   part) — then restore the matrix for the final green.
 
 ---
 
