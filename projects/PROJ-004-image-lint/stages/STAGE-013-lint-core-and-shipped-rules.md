@@ -104,12 +104,13 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
   per-rule severity + per-glob byte budgets + `per-file-ignores` + savings-threshold defaults +
   the config/severity CLI flags. PR #60 → `main` (236581e). Budget plumbing landed; SPEC-053
   inherits the end-to-end budget→size-finding test.
-- [ ] SPEC-052 (design → build NEXT) — `lint --format json` (hand-rolled, no new dep) + the human report
-  refinements (runnable-fix line, savings summary).
-- [ ] SPEC-053 (design) — the remaining shipped-capability rules (camera-metadata, orientation,
-  oversized-bytes, oversized-dimensions, colorspace + ICC, animated-gif).
+- [x] SPEC-052 (shipped on 2026-07-06) — `lint --format json` (hand-rolled, no new dep) + the human report
+  refinements (runnable-fix line, savings summary). PR #61 → `main` (d903b2e).
+- [ ] SPEC-053 (design → build NEXT) — the remaining shipped-capability rules (camera-metadata, orientation,
+  oversized-bytes, oversized-dimensions, colorspace + ICC, animated-gif). Inherits the per-glob
+  budget → `size/oversized-bytes` end-to-end test (budget plumbing landed in SPEC-051).
 
-**Count:** 2 shipped / 0 active / 2 pending
+**Count:** 3 shipped / 0 active / 1 pending
 
 ## Design Notes
 

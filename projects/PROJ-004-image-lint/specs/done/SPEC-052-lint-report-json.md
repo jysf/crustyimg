@@ -4,7 +4,7 @@
 task:
   id: SPEC-052
   type: story
-  cycle: design
+  cycle: ship
   blocked: false
   priority: high
   complexity: S
@@ -31,11 +31,54 @@ value_link: >
   potential-savings summary).
 
 cost:
-  sessions: []
+  sessions:
+    - cycle: design
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-07-06
+      notes: >
+        Main-loop orchestrator (PROJ-004 framing session), not separately metered.
+    - cycle: build
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 95000
+      estimated_usd: 0.86
+      duration_minutes: 26
+      recorded_at: 2026-07-06
+      notes: >
+        ESTIMATE — autonomous merge-on-green run in the orchestrator main loop, NOT a metered
+        subagent. Order-of-magnitude (~95k at Opus 4.8 ~80/20 ≈ $0.86). Read SPEC-049's
+        write_json precedent, added src/lint/report.rs (write_json + render_human moved out, local
+        escape_json), Finding.bytes_saved + LintOutcome.potential_bytes_saved, wired the global
+        --format flag into the lint handler (human|json). 5 report unit (exact golden) + 3
+        integration tests. PR #61.
+    - cycle: verify
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 10000
+      estimated_usd: 0.09
+      duration_minutes: 3
+      recorded_at: 2026-07-06
+      notes: >
+        ESTIMATE — same autonomous run; CI-driven verify, all matrix/feature/lean/msrv/deny jobs
+        green on #61. Order-of-magnitude (~10k).
+    - cycle: ship
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-07-06
+      notes: >
+        Main-loop ship bookkeeping (reflection, cost totals, stage backlog, archive), not
+        separately metered.
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 105000
+    estimated_usd: 0.95
+    session_count: 4
 ---
 
 # SPEC-052: `lint --format json` report + human polish
@@ -175,6 +218,14 @@ summary), deterministic and golden-testable, adding no dependency.
 
 ## Reflection (Ship)
 
-1. **What would I do differently next time?** — <answer>
-2. **Does any template, constraint, or decision need updating?** — <answer>
-3. **Is there a follow-up spec I should write now before I forget?** — <answer>
+1. **What would I do differently next time?** — Nothing. Reusing SPEC-049's exact discipline
+   (sort-first, `escape_json`, exact ints, synthetic-forward-slash-path golden) made the JSON
+   deterministic on the first try; the 3-OS matrix went green with no golden flakiness.
+2. **Does any template, constraint, or decision need updating?** — No. The `crustyimg.lint/v1`
+   schema is now concrete and additive-only (STAGE-015's SARIF is a *second* renderer, not a schema
+   change). Recording here that lint's report format piggybacks the global `--format` flag — a
+   pattern any future read-only reporting subcommand can follow to dodge the clap duplicate-arg trap.
+3. **Is there a follow-up spec I should write now before I forget?** — No new spec. SPEC-053 (the
+   remaining shipped-capability rules) is the last STAGE-013 build; it will start emitting real
+   `bytes_saved`? No — those are STAGE-014's engine rules. SPEC-053's rules stay `bytes_saved: None`,
+   as designed.
