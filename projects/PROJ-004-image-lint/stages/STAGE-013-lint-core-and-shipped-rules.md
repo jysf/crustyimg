@@ -96,11 +96,11 @@ engine-backed cleverness. It is the scaffold STAGE-014's engine rules plug into.
 
 Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
-- [ ] SPEC-050 (design → build NEXT) — `lint` command core: `source::resolve` fan-out + non-image
+- [x] SPEC-050 (shipped on 2026-07-06) — `lint` command core: `source::resolve` fan-out + non-image
   skip + `Rule`/`Finding`/`Severity` framework + human grouped-by-file output + exit-7
   (`CheckFailed`, DEC-025) + 2 foundational rules (`privacy/gps-metadata-leak`,
-  `size/truncated-or-corrupt`). DEC-050 lands here. **First build target of PROJ-004.**
-- [ ] SPEC-051 (design) — `.crustyimg-lint.toml` config: auto-discovery + `select`/`ignore` +
+  `size/truncated-or-corrupt`). DEC-050 landed here. PR #59 → `main` (14e425b).
+- [ ] SPEC-051 (design → build NEXT) — `.crustyimg-lint.toml` config: auto-discovery + `select`/`ignore` +
   per-rule severity + per-glob byte budgets + `per-file-ignores` + savings-threshold defaults +
   the config/severity CLI flags.
 - [ ] SPEC-052 (design) — `lint --format json` (hand-rolled, no new dep) + the human report
@@ -108,7 +108,7 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 - [ ] SPEC-053 (design) — the remaining shipped-capability rules (camera-metadata, orientation,
   oversized-bytes, oversized-dimensions, colorspace + ICC, animated-gif).
 
-**Count:** 0 shipped / 0 active / 4 pending
+**Count:** 1 shipped / 0 active / 3 pending
 
 ## Design Notes
 

@@ -4,7 +4,7 @@
 task:
   id: SPEC-050
   type: story                      # epic | story | task | bug | chore
-  cycle: design                    # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: M                    # S | M | L
@@ -31,11 +31,55 @@ value_link: >
   other lint rule plugs into.
 
 cost:
-  sessions: []
+  sessions:
+    - cycle: design
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-07-06
+      notes: >
+        Main-loop orchestrator (PROJ-004 framing session), not separately metered.
+    - cycle: build
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 115000
+      estimated_usd: 1.04
+      duration_minutes: 35
+      recorded_at: 2026-07-06
+      notes: >
+        ESTIMATE — autonomous merge-on-green run in the orchestrator main loop, NOT a metered
+        subagent. Order-of-magnitude (~115k at Opus 4.8 ~80/20 ≈ $1.04). Read the four STAGE-013
+        specs + DEC-050 + the reused plumbing (source::resolve, cli exit codes, image/metadata,
+        kamadak-exif GPS API), then built src/lint/mod.rs (Severity/Finding/Rule/LintTarget +
+        runner + human report + 2 rules), wired the Lint subcommand, added the jpeg_with_gps
+        fixture + tests/lint.rs. 5 unit + 5 integration tests. Mid-run: rebased onto origin/main
+        to pick up the crossbeam-epoch advisory fix (v0.3.1). PR #59.
+    - cycle: verify
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 12000
+      estimated_usd: 0.11
+      duration_minutes: 3
+      recorded_at: 2026-07-06
+      notes: >
+        ESTIMATE — same autonomous run; CI-driven verify, all matrix/feature/lean/msrv/deny jobs
+        green on #59. Order-of-magnitude (~12k).
+    - cycle: ship
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-07-06
+      notes: >
+        Main-loop ship bookkeeping (reflection, cost totals, stage backlog, archive), not
+        separately metered.
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 127000
+    estimated_usd: 1.15
+    session_count: 4
 ---
 
 # SPEC-050: the `lint` command core — framework + two foundational rules
@@ -222,8 +266,19 @@ helpers: `solid_png`, `jpeg_with_exif`, and a GPS-tagged JPEG helper — add one
 *Appended during the **ship** cycle.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Nothing structural. The `LintTarget` shape (raw bytes + decode `Result` + lazy `info`/`has_gps`
+   via `OnceCell`) made both rules one-liners and is the clean seam SPEC-053's rules plug into.
+   The one operational lesson was environmental, not design: a newly-published advisory
+   (RUSTSEC-2026-0204, crossbeam-epoch via rayon/ssimulacra2) turned `just deny` red mid-build; the
+   fix was already on `origin/main` (v0.3.1), so rebasing the branch onto it — rather than a local
+   `cargo update` — kept the lockfile from diverging. Worth remembering: sync main before assuming a
+   deny failure is yours.
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — No. DEC-050's contract held verbatim. The GPS check landing on
+   `kamadak-exif`'s `Tag::context() == Context::Gps` confirms the "reuse the shipped read side, no
+   new parser" premise. Recorded a follow-up for SPEC-052 (the `lint --format` vs global `--format`
+   clap collision) in this spec's Build Completion so the next build doesn't rediscover it.
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — No new spec. The remaining STAGE-013 specs (051 config, 052 JSON report, 053 shipped rules) are
+   already written and next in line; SPEC-052 carries the `--format` note. STAGE-014 (engine-backed
+   rules) still needs a framing pass before it can be built.
