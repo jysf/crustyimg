@@ -1536,6 +1536,8 @@ fn build_lint_config(
 /// Read-only: the runner NEVER writes an image; a decode failure is a *finding*
 /// (`size/truncated-or-corrupt`), not an abort (DEC-050).
 fn run_lint(paths: &[String], flags: &LintFlags, global: &GlobalArgs) -> Result<(), CliError> {
+    use std::io::Write;
+
     // Default to the current directory when no PATHS are given.
     let default = [".".to_owned()];
     let args: &[String] = if paths.is_empty() { &default } else { paths };
@@ -1558,13 +1560,28 @@ fn run_lint(paths: &[String], flags: &LintFlags, global: &GlobalArgs) -> Result<
         return Err(CliError::Source(SourceError::NotFound(args.join(", "))));
     }
 
+    // Report format: `lint --format human|json`. To avoid a clap duplicate-arg
+    // conflict with the global `--format` (encode format), lint reads that same
+    // global flag; only `human` (default) / `json` are valid here.
+    let report_format = lint_report_format(global.format.as_deref())?;
+
     let rules = crate::lint::default_rules();
     let outcome = crate::lint::run_lint(&inputs, &rules, &config);
+    let passed = crate::lint::exit_code(&outcome, flags.max_warnings) == 0;
 
     let mut out = std::io::stdout().lock();
-    crate::lint::render_human(&outcome, &mut out).map_err(crate::sink::SinkError::Io)?;
+    match report_format {
+        LintReportFormat::Human => {
+            crate::lint::render_human(&outcome, &mut out).map_err(crate::sink::SinkError::Io)?;
+        }
+        LintReportFormat::Json => {
+            crate::lint::write_json(&outcome, passed, &mut out)
+                .and_then(|()| writeln!(out))
+                .map_err(crate::sink::SinkError::Io)?;
+        }
+    }
 
-    if crate::lint::exit_code(&outcome, flags.max_warnings) == 7 {
+    if !passed {
         if !global.quiet {
             eprintln!(
                 "lint: {} error, {} warn across {} file(s)",
@@ -1576,6 +1593,24 @@ fn run_lint(paths: &[String], flags: &LintFlags, global: &GlobalArgs) -> Result<
         return Err(CliError::CheckFailed);
     }
     Ok(())
+}
+
+/// The `lint` report format (SPEC-052).
+enum LintReportFormat {
+    Human,
+    Json,
+}
+
+/// Interpret the global `--format` value for `lint`: `None`/`human` ⇒ human,
+/// `json` ⇒ JSON, anything else ⇒ a usage error (exit 2).
+fn lint_report_format(format: Option<&str>) -> Result<LintReportFormat, CliError> {
+    match format {
+        None | Some("human") => Ok(LintReportFormat::Human),
+        Some("json") => Ok(LintReportFormat::Json),
+        Some(other) => Err(CliError::Usage(format!(
+            "lint --format must be 'human' or 'json', got '{other}'"
+        ))),
+    }
 }
 
 // ── Resize helpers ────────────────────────────────────────────────────────────

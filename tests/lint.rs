@@ -228,3 +228,65 @@ fn a_malformed_config_is_a_usage_error_not_a_panic() {
     let (code, _) = lint(dir.path());
     assert_eq!(code, 2, "a malformed config is a usage error (exit 2)");
 }
+
+// ── SPEC-052: JSON report + human polish ────────────────────────────────────
+
+#[test]
+fn json_format_on_a_gps_tree_emits_the_finding_and_passed_false() {
+    let dir = TempDir::new().unwrap();
+    write(&dir, "leak.jpg", &jpeg_with_gps(16, 16));
+
+    let (code, stdout) = lint_args(&[
+        dir.path().as_os_str(),
+        OsStr::new("--format"),
+        OsStr::new("json"),
+    ]);
+    assert_eq!(code, 7, "GPS leak still fails the gate; stdout:\n{stdout}");
+    assert!(stdout.contains("\"schema\":\"crustyimg.lint/v1\""));
+    assert!(stdout.contains("\"rule\":\"privacy/gps-metadata-leak\""));
+    assert!(
+        stdout.contains("clean --gps"),
+        "fix command present; stdout:\n{stdout}"
+    );
+    assert!(stdout.contains("\"passed\":false"));
+    // The output format must not change the exit code.
+    assert!(stdout.contains("\"errors\":1"));
+}
+
+#[test]
+fn human_and_json_produce_the_same_exit_code() {
+    let dir = TempDir::new().unwrap();
+    write(&dir, "leak.jpg", &jpeg_with_gps(16, 16));
+
+    let (human_code, _) = lint_args(&[
+        dir.path().as_os_str(),
+        OsStr::new("--format"),
+        OsStr::new("human"),
+    ]);
+    let (json_code, _) = lint_args(&[
+        dir.path().as_os_str(),
+        OsStr::new("--format"),
+        OsStr::new("json"),
+    ]);
+    assert_eq!(
+        human_code, json_code,
+        "format must not change the exit code"
+    );
+    assert_eq!(human_code, 7);
+}
+
+#[test]
+fn an_invalid_format_value_is_a_usage_error() {
+    let dir = TempDir::new().unwrap();
+    write(&dir, "a.png", &solid_png(4, 4, [1, 2, 3]));
+
+    let (code, _) = lint_args(&[
+        dir.path().as_os_str(),
+        OsStr::new("--format"),
+        OsStr::new("xml"),
+    ]);
+    assert_eq!(
+        code, 2,
+        "an unknown --format value is a usage error (exit 2)"
+    );
+}
