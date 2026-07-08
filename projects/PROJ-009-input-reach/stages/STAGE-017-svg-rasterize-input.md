@@ -146,6 +146,26 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
   text-without-fonts renders text **silently to nothing**, a correctness footgun).
   This is the direct analog of AVIF's "a big decoder drags an advisory tail onto the
   default path" lesson (paste/RUSTSEC-2024-0436).
+- **Maintenance status (checked 2026-07-08) — the stack is well-maintained; only a
+  leaf is flagged, and it is being retired upstream.** resvg/usvg/tiny-skia were handed
+  off from RazrFalcon to **Linebender** (the funded Rust 2D-graphics org — Vello/Kurbo/
+  Xilem) and are **actively released** (v0.47.0, Feb 2026). Only the transitive
+  `ttf-parser` *leaf* (harfbuzz org) carries the unmaintained flag, and the ecosystem is
+  consolidating font parsing onto **fontations** (`read-fonts`/`skrifa`, via **HarfRust**)
+  — which crustyimg **already uses via `skrifa`** for watermark text (DEC-045). So we are
+  not building on a dead stack: we carry one stable, feature-complete leaf that upstream is
+  actively replacing, and the revisit trigger is concrete — **drop the advisory ignore when
+  resvg's text stack migrates off ttf-parser** (track: Linebender resvg font issue #200;
+  fontations#956; HarfRust). Refs verified this session.
+- **DECISION (v1): Option 1 — text ON + the advisory ignore.** A `skrifa` text→path
+  pre-pass (own the text stack, no ttf-parser) was weighed against text-ON and **deferred**:
+  `skrifa` provides glyph outlines but does NOT shape, and faithful SVG text layout
+  (`text-anchor`, `x/y/dx/dy` lists, nested `<tspan>`, `letter-spacing`, writing-mode) would
+  reimplement a large slice of usvg's text module at *lower* fidelity than the upstream
+  migration hands us for free. Build the pre-pass ONLY if the upstream migration stalls AND
+  an independent reason appears (e.g. WASM binary-size, Wave 3). Unlike AVIF (no upstream
+  pure-Rust path existed, so owning the glue was right), owning SVG text now would be
+  soon-throwaway work.
 - **Security is the load-bearing work, and resvg is safe-by-construction for the
   worst vectors.** Verified firsthand: usvg does **not** execute scripts (strips
   them), has **no HTTP client** (SSRF is a non-issue), and its XML parser

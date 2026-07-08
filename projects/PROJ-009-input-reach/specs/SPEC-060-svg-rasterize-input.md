@@ -230,10 +230,16 @@ version at build.*
 - **Advisory:** the `text` feature pulls `ttf-parser 0.25.1` (via `usvg`→`fontdb`+`rustybuzz`), which
   `cargo deny check advisories` flags as **RUSTSEC-2026-0192** (*unmaintained*; author declared EOL;
   recommended alt `skrifa` — which the repo already uses for watermarks, but resvg's stack cannot be
-  swapped to it). Add to `deny.toml [advisories] ignore`:
-  `{ id = "RUSTSEC-2026-0192", reason = "ttf-parser unmaintained; transitive via usvg text stack (SPEC-060/DEC-054); parse-time only, no vuln; skrifa cannot substitute into resvg" }`.
+  swapped to it without an upstream migration). Add to `deny.toml [advisories] ignore`:
+  `{ id = "RUSTSEC-2026-0192", reason = "ttf-parser unmaintained; transitive via usvg/resvg text stack (SPEC-060/DEC-054); parse-time only, no vuln. Revisit + DROP when resvg's text stack migrates off ttf-parser to fontations/read-fonts (HarfRust) — we already sit on fontations via skrifa" }`.
   *Verified:* dropping the `text` feature removes ttf-parser entirely (no ignore needed) — see the
   fonts/text decision below.
+- **Maintenance context (checked 2026-07-08 — matters for the decision):** the rasterizer stack itself
+  is **actively maintained by Linebender** (Vello/Kurbo/Xilem org; v0.47.0 Feb 2026) — NOT abandoned.
+  Only the `ttf-parser` *leaf* is flagged, and the ecosystem is migrating font parsing onto **fontations**
+  (`read-fonts`/`skrifa`, via HarfRust — fontations#956, resvg font issue #200), which crustyimg already
+  uses. So the advisory ignore is a *temporary* carry on a stable leaf that upstream is deleting for us —
+  it is NOT a bet on a dead stack.
 
 **Render pipeline (compiles + runs):**
 ```rust
@@ -282,9 +288,20 @@ loading the bundled Go font + `font_family = "Go"` makes it render (`has_childre
   default family. Do **not** call `Database::load_system_fonts()` — keep the render deterministic and
   free of filesystem/font-enumeration surface. Cost: the RUSTSEC-2026-0192 advisory ignore above
   (unmaintained ttf-parser; parse-time; well-precedented by the paste/RUSTSEC-2024-0436 ignore).
-- **Documented alternative (do NOT pick without cause):** text OFF (`resvg = { default-features =
-  false }`, no `text`) removes ttf-parser and the advisory ignore entirely, but silently drops all SVG
-  text. Rejected for v1 on correctness grounds; recorded so the trade-off is explicit and reversible.
+- **Alternatives weighed and NOT chosen for v1 (recorded so the trade-off is explicit and reversible):**
+  - *Text OFF* (`resvg = { default-features = false }`, no `text`) removes ttf-parser + the advisory
+    ignore entirely, but silently drops all SVG text. Rejected on correctness grounds.
+  - *`skrifa` text→path pre-pass* (own the text stack, no ttf-parser, keep text) — **deferred, do NOT
+    build now.** `skrifa` gives glyph outlines but does NOT shape; faithful SVG text layout
+    (`text-anchor`, `x/y/dx/dy` lists, nested `<tspan>`, `letter-spacing`, writing-mode, bidi) means
+    reimplementing a large slice of usvg's text module at *lower* fidelity than the upstream
+    fontations/HarfRust migration will hand us for free (see the maintenance context above). The
+    asymmetry: text-ON costs one informational advisory-ignore line for as long as the migration takes;
+    the pre-pass costs weeks of engineering + a worse text path + ongoing maintenance. Build it ONLY if
+    the upstream migration stalls AND an independent reason appears (e.g. WASM binary-size in Wave 3) —
+    at which point it may warrant its own spec (and a possible upstream contribution, mirroring the
+    image-rs AVIF one). This is the opposite of the AVIF call, where no upstream pure-Rust path existed
+    so owning the glue was correct.
 
 ### `source_format` wrinkle (no `ImageFormat::Svg`)
 `image::ImageFormat` has no `Svg` variant, and "preserving" SVG as an output format is nonsensical.
