@@ -116,6 +116,13 @@ have an impressive unused tool.
   fix-suggesting "did you mean" errors, the `-q` short-flag collision, broaden `--json` to batch
   commands, `--dry-run`/`-n`, and **SBOM + signed releases** (cosign/Sigstore via GH OIDC — the
   2026 trust baseline). Refs: clig.dev, no-color.org, clap_mangen/clap_complete.
+- **Pre-1.0 hardening gates (must-do before cutting 1.0).** Untrusted-input decoders that shipped
+  with a fuzz target must have it actually *run* before 1.0:
+  - **`fuzz/avif_decode`** — the AVIF parse+decode target (SPEC-058/PR #65) ships but was **not run**
+    (no nightly/cargo-fuzz in the build+verify envs). Run `cargo +nightly fuzz run avif_decode -- -runs=100000`
+    (or wire it into CI/OSS-Fuzz) before a 1.0 release. The single real residual risk on the AVIF
+    untrusted-binary path — mitigated today by corrupt-input + cap unit tests, but not fuzzed.
+  - Extend this list as each input-reach decoder (SVG, RAW, opt-in HEIC) lands.
 - **Proof & distribution polish.** `BENCHMARKS.md` (cross-tool, honest equal-quality rule) · a
   real docs site + quickstart + recipe cookbook + the "why crustyimg" page + README badges · the
   **client-side demo page** (Wave 3) as the flagship "try it" artifact.
