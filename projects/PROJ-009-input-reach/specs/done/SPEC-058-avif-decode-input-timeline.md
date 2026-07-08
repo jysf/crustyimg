@@ -19,5 +19,11 @@ there is no separate prompt file unless a cycle needs one.
   `IMAGE_EXTENSIONS`, deny.toml MPL/CC0 per-crate exceptions, fixture + tests + fuzz target, DEC-053,
   watchlist resolved. Default+lean+avif builds, clippy×3, fmt, `just deny`, 300+ tests green. No SPEC-059
   needed (avif-parse covered the container). MSRV 1.89→1.90. Branch `feat/spec-058-avif-decode`. 2026-07-07.
-- [ ] **verify**
-- [ ] **ship**
+- [x] **verify** — ✅ APPROVED (fresh Opus session, run independently). All gates re-run locally:
+  8/8 acceptance criteria mapped to real tests, cargo test 542, feature-gated round-trip, lean +
+  `just deny` + clippy + fmt clean, decisions-audit clean, DEC-053 consistent, real-file color
+  check, MSRV floor confirmed 1.90, PR #65 20/20 CI green. 1 non-blocking punch-list item →
+  pre-1.0 gate: run `fuzz/avif_decode` under nightly+cargo-fuzz. 2026-07-07.
+- [x] **ship** — squash-merged PR #65 → main (c0bc928); appended verify+ship cost sessions +
+  totals (640k, labelled estimates §4), ship reflection, marked cycle ship; archived to done/;
+  STAGE-016 shipped (single-spec stage). Fuzz-run carried as a pre-1.0 hardening gate. 2026-07-07.

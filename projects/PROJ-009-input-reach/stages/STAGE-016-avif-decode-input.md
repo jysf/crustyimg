@@ -2,7 +2,7 @@
 # Maps to ContextCore epic-level conventions.
 stage:
   id: STAGE-016
-  status: proposed                  # proposed | active | shipped | cancelled | on_hold
+  status: shipped                   # proposed | active | shipped | cancelled | on_hold
   priority: high
   target_complete: null
 
@@ -12,7 +12,7 @@ repo:
   id: crustyimg
 
 created_at: 2026-07-07
-shipped_at: null
+shipped_at: 2026-07-07
 
 value_contribution:
   advances: >
@@ -77,15 +77,15 @@ allow-list.
 
 Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
-- [~] SPEC-058 (verify) — AVIF **decode + color/alpha + container**: `re_rav1d` (no-asm) +
-  `avif-parse` (MPL-2.0) → YUV→RGB(A) honoring bit depth / chroma / nclx-CICP / premultiplied alpha;
-  wired into `decode_with_limits` (ftyp-brand dispatch) + `IMAGE_EXTENSIONS`; DEC-034 caps, typed
-  errors, grid reject-cleanly, cargo-fuzz target; DEC-053; deny.toml MPL/CC0 exceptions.
-  **Built — PR #65 (all CI green); in verify.**
+- [x] SPEC-058 (shipped on 2026-07-07) — AVIF **decode + color/alpha + container**: `re_rav1d`
+  (no-asm) + `avif-parse` (MPL-2.0) → YUV→RGB(A) honoring bit depth / chroma / nclx-CICP /
+  premultiplied alpha; wired into `decode_with_limits` (ftyp-brand dispatch) + `IMAGE_EXTENSIONS`;
+  DEC-034 caps, typed errors, grid reject-cleanly, cargo-fuzz target; DEC-053; deny.toml MPL/CC0
+  exceptions. PR #65 (c0bc928), 20/20 CI green incl. clean Windows (no nasm).
 - [x] SPEC-059 — **NOT NEEDED / dropped** (build decision 2026-07-07): `avif-parse` covered the
   container cleanly *within* SPEC-058, so no separate container spec was written.
 
-**Count:** 0 shipped / 1 active (SPEC-058 in verify) / 0 pending — single-spec stage (SPEC-059 folded into 058)
+**Count:** 1 shipped / 0 active / 0 pending — single-spec stage complete (SPEC-059 folded into 058)
 
 ## Design Notes
 
@@ -123,10 +123,19 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
 ## Stage-Level Reflection
 
-*Filled in when status moves to shipped.*
-
-- **Did we deliver the outcome in "What This Stage Is"?** <yes/no + notes>
-- **How many specs did it actually take?** <number vs. plan>
-- **What changed between starting and shipping?** <one sentence>
+- **Did we deliver the outcome in "What This Stage Is"?** Yes — the default binary now reads
+  `.avif` end to end (optimize/convert/info/batch), pure-Rust, zero system deps, clean on Windows
+  with no nasm. PR #65, 20/20 CI green. AVIF/AV1's royalty-free patent status made a default path
+  legitimate (the HEIC contrast, DEC-052).
+- **How many specs did it actually take?** 1 (SPEC-058). The hedged SPEC-059 (container) was folded
+  in — `avif-parse` covered the container within SPEC-058.
+- **What changed between starting and shipping?** The framing's "no clean permissive drop-in →
+  maybe SVG should lead" pessimism was overturned by the deep dive: `re_rav1d` (no-asm) exposes a
+  safe Rust API + `avif-parse` handles the container, so AVIF kept the Wave-1 headline.
 - **Lessons that should update AGENTS.md, templates, or constraints?**
-  - <one-line updates>
+  - Run `just deny` right after `cargo add` on a large decoder — big deps drag a license tail onto
+    the default path (here MPL-2.0 + a CC0 transitive + a `paste` advisory), a mid-build surprise.
+  - The CI `msrv` job pins a HARDCODED toolchain — a dep raising the floor needs a manual `ci.yml`
+    bump (avif-parse → 1.90). Worth noting in the MSRV constraint/docs.
+  - One residual: `fuzz/avif_decode` ships but was never run (no nightly) — tracked as a pre-1.0
+    hardening gate in `docs/roadmap.md`; do not lose it on an untrusted-input decoder.

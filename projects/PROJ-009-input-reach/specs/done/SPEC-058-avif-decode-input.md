@@ -3,7 +3,7 @@
 task:
   id: SPEC-058
   type: story
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: M                    # deep-dive (2026-07-07): viable path = re_rav1d(no-asm)+avif-parse+glue, ~1-1.5 wk; split into container (SPEC-059) + decode (this) specs
@@ -35,6 +35,15 @@ value_link: "STAGE-016's 'read AVIF from the default pure-Rust build' capability
 
 cost:
   sessions:
+    - cycle: design
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-07-07
+      notes: >
+        Framing/design cycle — main-loop, not separately metered → null-with-note per AGENTS §4.
     - cycle: build
       agent: claude-opus-4-8
       interface: claude-code
@@ -49,10 +58,32 @@ cost:
         modules + several DECs, and ran a throwaway re_rav1d+avif-parse decode
         probe (encode→parse→decode round-trip) before wiring. Replace with the
         real /cost number if this is re-run as a metered cycle.
+    - cycle: verify
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 160000
+      estimated_usd: 1.40
+      duration_minutes: null
+      recorded_at: 2026-07-07
+      notes: >
+        Fresh interactive verify session — independently re-ran default cargo test (542),
+        feature-gated AVIF round-trip, lean --no-default-features build, just deny, clippy
+        all-targets, fmt, decisions-audit, a real-file color-decode check, MSRV floor from
+        cargo metadata, and PR #65 CI status. Order-of-magnitude ESTIMATE (main-loop) per §4.
+    - cycle: ship
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-07-07
+      notes: >
+        Ship bookkeeping (merge #65, cost/reflection/archive/stage-ship) — main-loop, not
+        separately metered → null-with-note per AGENTS §4.
   totals:
-    tokens_total: 480000
-    estimated_usd: 4.30
-    session_count: 1
+    tokens_total: 640000
+    estimated_usd: 5.70
+    session_count: 4
 ---
 
 # SPEC-058: AVIF decode as a default, pure-Rust input
@@ -261,6 +292,16 @@ See `guidance/license-watchlist.yaml` → `avif-decode` for the full landscape.
 
 ## Reflection (Ship)
 
-1. **What would I do differently next time?** —
-2. **Does any template, constraint, or decision need updating?** —
-3. **Is there a follow-up spec I should write now before I forget?** —
+1. **What would I do differently next time?** — Run `just deny` immediately after `cargo add` on a
+   large decoder: `re_rav1d`/`avif-parse` dragged a license tail onto the *default* path (MPL-2.0 +
+   a CC0 `to_method` transitive + a `paste` advisory), which was a mid-build surprise. Also: the
+   spec's design-time "probe" (re_rav1d has only a C-ABI) was wrong — the real probe at build found
+   the safe `re_rav1d::dav1d` Rust API. Probe the *actual* API early, not from listings.
+2. **Does any template, constraint, or decision need updating?** — DEC-053 emitted (decoder deps +
+   MPL/CC0 deny exceptions). The CI `msrv` job pins a HARDCODED toolchain — a dep raising the floor
+   (avif-parse → 1.90) needs a manual `ci.yml` bump; worth noting in the MSRV constraint/docs.
+   Watchlist `avif-decode` marked resolved.
+3. **Is there a follow-up spec I should write now before I forget?** — No new spec, but ONE tracked
+   pre-1.0 gate: **run `cargo +nightly fuzz run avif_decode`** — the fuzz target ships but was never
+   run (no nightly in build/verify envs). Recorded as a pre-1.0 hardening gate in `docs/roadmap.md`.
+   Next in the wave: STAGE-017 (SVG via `resvg`).
