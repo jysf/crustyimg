@@ -86,6 +86,13 @@ get_spec_ship_date() {
     ' "$1"
 }
 
+# Short description = the text after the colon in the first H1
+# (`# SPEC-NNN: <title>` or `# PATCH-NNN: <title>`) — authoritative, human-written,
+# and present on every spec/patch, so no separate front-matter field is needed.
+get_work_title() {
+    sed -n -E 's/^# (SPEC|PATCH)-[0-9]+:[[:space:]]*(.*)$/\2/p' "$1" | head -n1
+}
+
 # Compact token count for display: 201141 -> 201k, 950 -> 950.
 fmt_tok() {
     if [ "$1" -ge 1000 ]; then echo "$(( $1 / 1000 ))k"; else echo "$1"; fi
@@ -143,6 +150,7 @@ print_patches() {
         pid=$(basename "$pf" | sed -E 's/^(PATCH-[0-9]+).*/\1/')
         cyc=$(get_patch_cycle "$pf"); [ -n "$cyc" ] || cyc="?"
         cx=$(get_patch_complexity "$pf"); [ -n "$cx" ] || cx="?"
+        title=$(get_work_title "$pf")
         u=$(sum_cost_usd_for_spec "$pf"); t=$(sum_cost_tokens_for_spec "$pf")
         PATCH_USD=$(awk -v a="$PATCH_USD" -v b="$u" 'BEGIN{printf "%.2f", a+b}')
         PATCH_TOK=$((PATCH_TOK + t))
@@ -153,10 +161,10 @@ print_patches() {
         case "$pf" in
             */done/*)
                 sdate=$(get_spec_ship_date "$pf"); [ -n "$sdate" ] || sdate="—"
-                rows+=$(printf "    %-10s  ${GREEN}%-8s${RESET}  %-12s  %-3s  %s\n" "$pid" "shipped" "$sdate" "$cx" "$costcol")$'\n'
+                rows+=$(printf "    %-10s  ${GREEN}%-8s${RESET}  %-12s  %-3s  %-13s  %s\n" "$pid" "shipped" "$sdate" "$cx" "$costcol" "$title")$'\n'
                 SHIPPED=$((SHIPPED + 1)) ;;
             *)
-                rows+=$(printf "    %-10s  %-8s  %-12s  %-3s  %s\n" "$pid" "$cyc" "—" "$cx" "$costcol")$'\n'
+                rows+=$(printf "    %-10s  %-8s  %-12s  %-3s  %-13s  %s\n" "$pid" "$cyc" "—" "$cx" "$costcol" "$title")$'\n'
                 INFLIGHT=$((INFLIGHT + 1)) ;;
         esac
         PATCHES=$((PATCHES + 1)); any=1
@@ -193,6 +201,7 @@ print_stage() {
         sid=$(basename "$sf" | sed -E 's/^(SPEC-[0-9]+).*/\1/')
         cyc=$(get_spec_cycle "$sf"); [ -n "$cyc" ] || cyc="?"
         cx=$(get_spec_complexity "$sf"); [ -n "$cx" ] || cx="?"
+        title=$(get_work_title "$sf")
         u=$(sum_cost_usd_for_spec "$sf"); t=$(sum_cost_tokens_for_spec "$sf")
         STAGE_USD=$(awk -v a="$STAGE_USD" -v b="$u" 'BEGIN{printf "%.2f", a+b}')
         STAGE_TOK=$((STAGE_TOK + t))
@@ -204,10 +213,10 @@ print_stage() {
                 sdate=$(get_spec_ship_date "$sf")
                 [ -n "$sdate" ] || sdate="$shipped"
                 [ -n "$sdate" ] || sdate="—"
-                printf "    %-10s  ${GREEN}%-8s${RESET}  %-12s  %-3s  %s\n" "$sid" "shipped" "$sdate" "$cx" "$costcol"
+                printf "    %-10s  ${GREEN}%-8s${RESET}  %-12s  %-3s  %-13s  %s\n" "$sid" "shipped" "$sdate" "$cx" "$costcol" "$title"
                 SHIPPED=$((SHIPPED + 1)) ;;
             *)
-                printf "    %-10s  %-8s  %-12s  %-3s  %s\n" "$sid" "$cyc" "—" "$cx" "$costcol"
+                printf "    %-10s  %-8s  %-12s  %-3s  %-13s  %s\n" "$sid" "$cyc" "—" "$cx" "$costcol" "$title"
                 INFLIGHT=$((INFLIGHT + 1)) ;;
         esac
         any=1
@@ -236,7 +245,7 @@ case "$SCOPE" in
 esac
 
 printf "${BOLD}Specs by stage — %s${RESET}\n" "$scope_label"
-printf "${DIM}columns: spec · status · ship date · complexity · cost (usd · tokens)${RESET}\n"
+printf "${DIM}columns: spec · status · ship date · complexity · cost (usd · tokens) · description${RESET}\n"
 
 for proj in "${PROJECTS[@]}"; do
     project_dir="${REPO_ROOT}/projects/${proj}"
