@@ -48,10 +48,38 @@ cost:
         embedded-JPEG mechanism: load_from_memory tolerates trailing bytes, and decode-from-each-SOI +
         pick-largest-by-pixels extracts the full preview over the thumbnail — no IFD/ISOBMFF parsing,
         no new dep.
-  totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    - cycle: build
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 350000
+      estimated_usd: 3.15
+      duration_minutes: 20
+      recorded_at: 2026-07-08
+      notes: >
+        Build ran in the main loop (interactive, not a separately-metered subagent), so `/cost` was
+        not readable programmatically — tokens_total is an ORDER-OF-MAGNITUDE ESTIMATE per the
+        autonomous-run-cost practice (labelled estimate, not null, so `just cost-audit` passes at
+        ship). estimated_usd = 350k tokens × Opus 4.8 list ($5/$25 per MTok, ~80/20 in/out) ≈ $3.15.
+        Work: src/image/raw.rs (byte scan + capped decode + bounded candidates), Image::load extension
+        routing + public raw_preview entry, RAW extensions in IMAGE_EXTENSIONS, synthetic fixture via
+        examples/gen_raw_fixture.rs, unit + integration tests, fuzz/raw_preview, DEC-055. All gates
+        green (default + lean build/clippy/fmt/test, `just deny` unchanged); no new dependency.
+    - cycle: build
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 90000
+      estimated_usd: 0.81
+      duration_minutes: 6
+      recorded_at: 2026-07-08
+      notes: >
+        Second build cycle — VERIFY punch-list kickback fix (`info <raw>` bypassed RAW extension
+        routing because run_info decoded via Image::from_bytes for the Path case). Fix: factored the
+        path-decode routing out of Image::load into a shared `Image::decode_path(path, &bytes)` helper
+        and routed run_info's Path case through it (Stdin stays on from_bytes); no double read.
+        Added tests/input_raw.rs `info_raw_reports_jpeg_dims` (+ a typed-error test). Ran in the main
+        loop, not a metered subagent, so tokens_total is an ORDER-OF-MAGNITUDE ESTIMATE per the
+        autonomous-run-cost practice (labelled, not null). estimated_usd = 90k × Opus 4.8 list
+        ($5/$25 per MTok, ~80/20) ≈ $0.81. All gates green; MSRV 1.90 and `just deny` unchanged.
 ---
 
 # SPEC-061: RAW Tier-1 embedded-preview extraction as a default input
@@ -314,24 +342,55 @@ error if named directly; fine.
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
+- **Branch:** `feat/spec-061-raw-preview`
+- **PR (if applicable):** (opened at end of build — see PR link in ship bookkeeping)
+- **All acceptance criteria met?** yes
 - **New decisions emitted:**
-  - `DEC-055` — <title>
+  - `DEC-055` — RAW input = Tier-1 largest-embedded-JPEG preview (format-agnostic byte scan, no new dependency)
 - **Deviations from spec:**
-  - [list]
+  - **Metadata is `None` for RAW, not "best-effort from the preview's APP1".** The spec's Implementation Context left this optional ("… or `None`"). `extract_preview` is pinned to `-> Result<DynamicImage>` (Outputs section), which does not surface the winning JPEG's byte offset; capturing the preview's own APP1 would mean threading that offset out. Chose the spec-faithful `None` and documented preview-APP1 passthrough as a follow-up (recorded in DEC-055 Consequences). No acceptance criterion tests RAW metadata.
+  - **Bounded-decode test uses a `(Option<DynamicImage>, bool, usize)` tuple hook** (the `attempts` count) rather than a struct — a struct field read only under `#[cfg(test)]` trips `-D dead-code` in the plain-lib `--all-targets` build. The tuple's third element is the spec's "counter hook".
+  - **`decode_jpeg_with_limits` forces `ImageFormat::Jpeg` via `ImageReader::set_format`** (we already found an SOI, so no re-sniff) and reuses the shared `super::map_image_decode_error` so a caps rejection maps to `LimitsExceeded` identically to the generic path.
 - **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - RAW **via stdin** (`--format raw` hint or a `Make`/`ftyp 'crx '` content sniff) — v1 non-goal.
+  - RAW-container / preview-APP1 **EXIF + orientation passthrough** (so auto-orient works on RAW).
+  - A faithful `SourceFormat` enum (shared with SVG→`Png`) so `info x.nef` need not report `jpeg`.
+  - **`lint` on a RAW path has the same latent asymmetry** (`src/lint/mod.rs:210` decodes via
+    `Image::from_bytes`, not the extension-aware routing) — NOT a SPEC-061 claim, so out of scope
+    here; needs its own spec if `lint <raw>` is ever in reach.
+
+### Post-verify punch-list fix (build cycle 2)
+
+Verify returned one punch-list item: **`crustyimg info <raw>` was broken.** `run_info`
+(`src/cli/mod.rs`) decoded via `Image::from_bytes` for *both* the Path and Stdin cases, bypassing the
+RAW extension-routing that lived only inside `Image::load` — falsifying DEC-055's "`info x.nef` reports
+jpeg", the spec Context (info is in the end-to-end reach), and `tests/input_raw.rs` module doc. Every
+other command was already correct (`Input::Path ⇒ Image::load`, `Input::Stdin ⇒ Image::from_bytes`).
+
+Root-cause fix (not an inline special-case, and NOT teaching `from_bytes`/content-sniff to handle RAW —
+RAW is deliberately extension-routed because TIFF-based RAW is byte-ambiguous with `.tif`):
+
+- **Factored the path-decode routing out of `Image::load` into one shared helper**
+  `Image::decode_path(path, &bytes)` — the single place the `raw::is_raw_extension(path) → raw_preview
+  else from_bytes` decision lives. `Image::load` now reads the file and delegates to it.
+- **Routed `run_info`'s Path case through `Image::decode_path`** (Stdin stays on `from_bytes`),
+  preserving the one-read of the bytes (still used for file size + EXIF — no double read).
+- Added `tests/input_raw.rs::info_raw_reports_jpeg_dims` (asserts `info`/`--json` on the `.nef` fixture
+  exits 0 and reports format `jpeg` at the 64×48 preview dims — fills the prose-only verify-test gap) and
+  `info_raw_without_preview_reports_typed_error` (a preview-less RAW surfaces the typed `raw:`-prefixed
+  error, not the generic "failed to fill whole buffer").
+
+No new decision (DEC-055 stands, now actually honored by `info`); no new dependency; MSRV 1.90 and
+`just deny` unchanged. All gates green (default + lean build/clippy/fmt/test).
 
 ### Build-phase reflection (3 questions, short answers)
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — Almost nothing — the Implementation Context (probe block + `extract_preview` sketch + routing decision + extension set) was a near-complete handoff. The only judgment call was whether to capture the preview's metadata; the spec pre-answered it as optional, so I picked the simpler `None` and documented it.
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — No. The listed set (DEC-004/034/018, `untrusted-input-hardening`, `single-image-library`, etc.) was complete. One implicit gotcha worth noting for the template: a `#[cfg(test)]`-only struct-field read fails `-D dead-code` under `--all-targets` — reach for a tuple/return value, not a struct, for test-only hooks.
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Write the `scan_for_preview` return as a tuple from the start (avoided a clippy round-trip). Otherwise the mirror-AVIF/SVG approach was efficient: module + one `load` branch + `IMAGE_EXTENSIONS` + fixture-via-example + fuzz target, all patterned on SPEC-058/060.
 
 ---
 

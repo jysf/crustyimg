@@ -9,6 +9,9 @@
 #
 # Run:  cargo +nightly fuzz run svg_decode -- -runs=100000
 # Seed: cargo +nightly fuzz run svg_decode ../tests/fixtures/svg
+#
+# Run:  cargo +nightly fuzz run raw_preview -- -runs=100000
+# Seed: cargo +nightly fuzz run raw_preview ../tests/fixtures/raw
 
 [package]
 name = "crustyimg-fuzz"
@@ -35,6 +38,13 @@ bench = false
 [[bin]]
 name = "svg_decode"
 path = "fuzz_targets/svg_decode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "raw_preview"
+path = "fuzz_targets/raw_preview.rs"
 test = false
 doc = false
 bench = false

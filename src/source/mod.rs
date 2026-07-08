@@ -97,8 +97,15 @@ pub enum SourceError {
 // `svg` is a DEFAULT-rasterizable input (SPEC-060, DEC-054) — pure-Rust rasterize
 // via `resvg`/`usvg`/`tiny-skia`, so directory/glob sources discover `.svg` too.
 // (`.svgz` gzip is out of scope for v1 — the content sniff keys on `<svg`/`<?xml`.)
+// The RAW extensions are DEFAULT Tier-1 inputs (SPEC-061, DEC-055) — `Image::load`
+// routes them by extension to embedded-JPEG-preview extraction, so directory/glob
+// sources discover `.nef`/`.cr2`/`.cr3`/… like any other image. Kept in sync with
+// `raw::RAW_EXTENSIONS`.
+#[rustfmt::skip]
 const IMAGE_EXTENSIONS: &[&str] = &[
     "jpg", "jpeg", "png", "gif", "bmp", "tif", "tiff", "ico", "avif", "svg",
+    // RAW (SPEC-061): Nikon, Canon, Sony, Adobe, Fuji, Panasonic, Olympus, Pentax, Samsung, Leica, generic.
+    "nef", "nrw", "cr2", "cr3", "arw", "srf", "sr2", "dng", "raf", "rw2", "orf", "pef", "srw", "rwl", "raw",
 ];
 
 fn has_image_extension(path: &Path) -> bool {
