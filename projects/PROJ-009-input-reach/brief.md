@@ -92,11 +92,12 @@ and RAW-CR3 preview) also lays reusable groundwork for a future permissive HEIC 
 Format: `- [status] STAGE-ID — one-line summary`
 
 - [x] STAGE-016 (shipped on 2026-07-07) — AVIF decode as a default, pure-Rust input (SPEC-058, PR #65, DEC-053).
-- [ ] (not yet framed) STAGE-017 — SVG rasterize input via `resvg` (MIT), default build. **← next**
+- [~] STAGE-017 (active — framed 2026-07-08) — SVG rasterize input via the `resvg`/`usvg`/`tiny-skia` stack
+  (all permissive: Apache-2.0 OR MIT / BSD-3-Clause — **no deny license exception**), default build (SPEC-060, DEC-054). **← active**
 - [ ] (not yet framed) STAGE-018 — RAW Tier-1 embedded-preview extraction (permissive; reuses ISOBMFF glue for CR3).
 - [ ] (not yet framed) STAGE-019 — HEIC decode behind `--features heic` (libheif decode-only; DEC-052).
 
-**Count:** 1 shipped / 0 active / 3 pending (STAGE-016 shipped; 017 next, then 018–019)
+**Count:** 1 shipped / 1 active / 2 pending (STAGE-016 shipped; 017 active/framed, then 018–019)
 
 ## Dependencies
 
