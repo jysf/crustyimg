@@ -3,7 +3,7 @@
 task:
   id: SPEC-058
   type: story
-  cycle: design                    # frame | design | build | verify | ship
+  cycle: verify  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: M                    # deep-dive (2026-07-07): viable path = re_rav1d(no-asm)+avif-parse+glue, ~1-1.5 wk; split into container (SPEC-059) + decode (this) specs
@@ -34,11 +34,25 @@ references:
 value_link: "STAGE-016's 'read AVIF from the default pure-Rust build' capability."
 
 cost:
-  sessions: []
+  sessions:
+    - cycle: build
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 480000
+      estimated_usd: 4.30
+      duration_minutes: null
+      recorded_at: 2026-07-07
+      notes: >
+        Main-loop build (NOT a separately-metered subagent), so tokens_total is
+        an order-of-magnitude ESTIMATE per AGENTS §4 — Opus 4.8 $5/$25 per MTok,
+        ~80/20 in/out, no cache discount. Input-heavy: read the decode/sink/source
+        modules + several DECs, and ran a throwaway re_rav1d+avif-parse decode
+        probe (encode→parse→decode round-trip) before wiring. Replace with the
+        real /cost number if this is re-run as a metered cycle.
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 480000
+    estimated_usd: 4.30
+    session_count: 1
 ---
 
 # SPEC-058: AVIF decode as a default, pure-Rust input
@@ -212,19 +226,36 @@ See `guidance/license-watchlist.yaml` → `avif-decode` for the full landscape.
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
+- **Branch:** `feat/spec-058-avif-decode`
+- **PR (if applicable):** (opened after coordinating a push of origin/main — see below)
+- **All acceptance criteria met?** yes
+  - [x] default build decodes `.avif` (`Image::load`/`from_bytes`) with correct dims + `source_format == Avif`
+  - [x] DEC-034 caps honored (dimension/alloc cap → `LimitsExceeded`, checked from container metadata **before** allocation)
+  - [x] truncated/corrupt AVIF → typed `ImageError::Decode` (no panic/`unwrap`)
+  - [x] `.avif` in `IMAGE_EXTENSIONS`; directory source discovers it
+  - [x] `optimize <fixture>.avif -o out.webp` exits 0, writes a valid 16×16 WebP (default build)
+  - [x] no C/system dep on the default path; `--no-default-features` builds; `just deny` green (no new copyleft in the global allow list — MPL/CC0 excepted per-crate)
+  - [x] `#[cfg(feature="avif")]` round-trip: 32×32 gradient encode→decode, dims match, SSIMULACRA2 well above threshold
+  - [x] `cargo clippy --all-targets -- -D warnings` (default + lean + avif) and `cargo fmt --check` clean
 - **New decisions emitted:**
-  - `DEC-053` — AVIF decoder-dependency choice (required)
+  - `DEC-053` — AVIF decoder-dependency choice: `re_rav1d` (no-asm, BSD-2) + `avif-parse` (MPL-2.0) + thin YUV→RGB glue.
 - **Deviations from spec:**
+  - **The decoder API:** the spec/probe framing said `re_rav1d` re-exports the *dav1d-rs* ergonomic API. Confirmed TRUE for 0.1.3 — it lives in `re_rav1d::dav1d` (a dav1d-rs fork). No C-ABI FFI was needed; the glue uses the safe `Decoder`/`Picture` API. (The raw C ABI is also present but unused.)
+  - **8-bit output:** 10/12-bit AVIF is down-converted to 8-bit RGB(A) without HDR tone-mapping (transfer-function/HDR handling left out of scope). Noted in DEC-053.
+  - **SPEC-059 not needed:** `avif-parse` covered the container (primary + alpha OBUs, clean grid rejection) with no substantial in-house ISOBMFF glue, so the decode stayed a single spec. SPEC-059 remains a *future option* only if we later drop MPL for an in-house MIT parser.
+  - **`IMAGE_EXTENSIONS`:** added only `avif` (noticed `webp` is also absent from the list, but leaving that to a separate spec — `one-spec-per-pr`).
+  - **MSRV:** bumped 1.89 → 1.90 (avif-parse 2.1.0 floor); CI `msrv` job confirms.
+  - **deny.toml:** added per-crate exceptions for `avif-parse` (MPL-2.0) and `to_method` (CC0-1.0, a re_rav1d transitive); updated the `paste` advisory-ignore reason (now also reached on the default path via re_rav1d).
 - **Follow-up work identified:**
+  - Run the `fuzz/avif_decode` target under nightly + `cargo-fuzz` (not installed in the build env) — the target compiles against the public API; seed from `tests/fixtures/avif`.
+  - Optional: migrate to `image`'s built-in pure-Rust AVIF decode when image-rs #2621 lands (sheds the direct `re_rav1d` dep + hand glue); watchlist the OxideAV MIT stack.
+  - Optional: preserve 10/12-bit precision (Rgb16/Rgba16) + HDR transfer handling; add `.webp` to `IMAGE_EXTENSIONS`; a decide-engine "don't re-encode an AVIF input" bias.
 
 ### Build-phase reflection (3 questions, short answers)
 
-1. **What was unclear in the spec that slowed you down?** —
-2. **Was there a constraint or decision that should have been listed but wasn't?** —
-3. **If you did this task again, what would you do differently?** —
+1. **What was unclear in the spec that slowed you down?** — Whether `re_rav1d` exposed a safe API or only a C ABI. The design section hedged ("first quick probe was wrong"), so I inspected the crate source directly; it does expose the safe `re_rav1d::dav1d` API, which made the glue clean. The load-bearing probe the spec demanded was the right call — it resolved this in minutes and validated color correctness on real files.
+2. **Was there a constraint or decision that should have been listed but wasn't?** — The transitive-license fallout wasn't fully anticipated: beyond the expected MPL exception for `avif-parse`, `re_rav1d` pulls `to_method` (CC0-1.0) and `paste` (an existing advisory) onto the **default** path. Worth a spec note that adding a large decoder often drags a small license/advisory tail that `just deny` surfaces.
+3. **If you did this task again, what would you do differently?** — Run `just deny` immediately after `cargo add` (before writing any glue) to surface the CC0/MPL/advisory tail up front, rather than after the whole module was written. Everything else — probe-first, thin glue, cap-before-decode — I'd keep.
 
 ---
 

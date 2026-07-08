@@ -1,0 +1,32 @@
+# cargo-fuzz harness for crustyimg (SPEC-058 untrusted-input-hardening).
+#
+# This is a SEPARATE, detached package: the empty `[workspace]` table below
+# makes `fuzz/` its own workspace root, so the normal `cargo build`/`cargo test`
+# and CI at the repo root never build it (it needs nightly + `cargo fuzz`).
+#
+# Run:  cargo +nightly fuzz run avif_decode -- -runs=100000
+# Seed: cargo +nightly fuzz run avif_decode ../tests/fixtures/avif
+
+[package]
+name = "crustyimg-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+
+[dependencies.crustyimg]
+path = ".."
+
+[[bin]]
+name = "avif_decode"
+path = "fuzz_targets/avif_decode.rs"
+test = false
+doc = false
+bench = false
+
+[workspace]

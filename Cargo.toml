@@ -2,7 +2,9 @@
 name = "crustyimg"
 version = "0.4.0"
 edition = "2021"
-rust-version = "1.89.0"
+# MSRV = max(rust-version) across the locked tree. SPEC-058 raised the floor from
+# 1.89 → 1.90 (avif-parse 2.1.0 requires 1.90). Let the CI `msrv` job confirm.
+rust-version = "1.90.0"
 description = "A fast Rust CLI to view and transform images."
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/jysf/crustyimg"
@@ -85,6 +87,21 @@ ssimulacra2 = "=0.5.1"
 # `from_rgba`/`from_rgb` encoders, NOT the webp crate's `image` feature (which
 # would pull a second `image` crate). `just deny` stays green with no exception.
 webp = { version = "=0.3.1", optional = true, default-features = false }
+# AVIF DECODE on the default, pure-Rust path (SPEC-058, DEC-053). Two CODEC deps
+# feeding the canonical `Image` (the webp-lossy precedent, DEC-021/DEC-022) — NOT
+# a second pixel library, so `single-image-library` is not tripped. AV1/AVIF is
+# patent royalty-free, so it belongs on the default path (unlike HEIC, DEC-052).
+#   `re_rav1d` (BSD-2-Clause, rerun's rav1d+dav1d-rs fork) — built NO-ASM
+#   (`default-features = false`, only `bitdepth_8`/`bitdepth_16`) → pure-Rust,
+#   ZERO build-tool deps (no nasm/meson), clean on all three CI OSes. We use its
+#   re-exported safe `dav1d` API (`Decoder`/`send_data`/`get_picture`/plane access).
+#   `avif-parse` (MPL-2.0, kornelski/Firefox-mp4parse-derived) — parses the
+#   ISOBMFF/MIAF container to the primary-item + alpha AV1 OBUs; rejects grid/tiled
+#   cleanly. MPL-2.0 is FILE-level weak copyleft (does NOT relicense our binary) —
+#   allowed via a documented per-crate `deny.toml` exception (the ansi_colours
+#   precedent). `image`'s own AVIF decode is dav1d/C and is NOT used (DEC-004).
+re_rav1d = { version = "=0.1.3", default-features = false, features = ["bitdepth_8", "bitdepth_16"] }
+avif-parse = "=2.1.0"
 
 [features]
 # `display` (terminal preview via viuer) is ON BY DEFAULT so `view` works out of the

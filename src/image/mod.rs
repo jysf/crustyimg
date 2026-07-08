@@ -26,6 +26,8 @@ use ::image::{ColorType, DynamicImage, ImageFormat, ImageReader};
 
 use crate::error::{ImageError, Result};
 
+mod avif;
+
 /// Maximum image dimension (width or height) in pixels accepted at decode time
 /// (DEC-034). Any image declaring a dimension above this is rejected with
 /// [`ImageError::LimitsExceeded`] before any pixel data is read.
@@ -278,6 +280,16 @@ fn decode_with_limits(
     bytes: &[u8],
     limits: &::image::Limits,
 ) -> Result<(DynamicImage, ImageFormat)> {
+    // AVIF takes a dedicated pure-Rust decode path (SPEC-058, DEC-053): the
+    // `image` crate's own AVIF decoder is dav1d/C and is NOT used, so we detect
+    // the container by brand and route it through `re_rav1d` + `avif-parse`,
+    // enforcing the same DEC-034 caps via `limits`. Dispatch happens before the
+    // generic `ImageReader` path (which cannot decode AVIF in the default build).
+    if avif::is_avif(bytes) {
+        let pixels = avif::decode_avif(bytes, limits)?;
+        return Ok((pixels, ImageFormat::Avif));
+    }
+
     let mut reader = ImageReader::new(Cursor::new(bytes))
         .with_guessed_format()
         .map_err(ImageError::Io)?;
@@ -614,6 +626,51 @@ mod tests {
     fn from_reader_is_also_limited() {
         let png = oversized_png();
         let result = Image::from_reader(Cursor::new(&png));
+        assert!(
+            matches!(result, Err(ImageError::LimitsExceeded(_))),
+            "expected LimitsExceeded, got {result:?}"
+        );
+    }
+
+    // ── SPEC-058 AVIF decode (default, pure-Rust) ─────────────────────────────
+
+    /// The committed 16×16 AVIF fixture (regen: `cargo run --example
+    /// gen_avif_fixture --features avif`).
+    const AVIF_FIXTURE: &[u8] = include_bytes!("../../tests/fixtures/avif/solid_16x16.avif");
+
+    /// The DEFAULT build decodes a real `.avif` to the canonical `Image` with
+    /// correct dimensions and `source_format == Avif` — proving the pure-Rust
+    /// path is active (no `avif`/dav1d feature).
+    #[test]
+    fn avif_decodes_to_expected_dimensions() {
+        let img = Image::from_bytes(AVIF_FIXTURE).expect("decode avif fixture");
+        assert_eq!(img.width(), 16);
+        assert_eq!(img.height(), 16);
+        assert_eq!(img.source_format(), ImageFormat::Avif);
+    }
+
+    /// A truncated AVIF is a typed decode error, never a panic/`unwrap`.
+    #[test]
+    fn corrupt_avif_is_decode_error_not_panic() {
+        let truncated = &AVIF_FIXTURE[..32.min(AVIF_FIXTURE.len())];
+        let result = Image::from_bytes(truncated);
+        assert!(
+            matches!(
+                result,
+                Err(ImageError::Decode(_) | ImageError::UnsupportedFormat)
+            ),
+            "expected Decode/UnsupportedFormat, got {result:?}"
+        );
+    }
+
+    /// AVIF decode routes through the DEC-034 caps: a dimension cap below the
+    /// fixture yields `LimitsExceeded`, not an OOM or panic.
+    #[test]
+    fn avif_respects_decode_dimension_cap() {
+        let mut limits = ::image::Limits::default();
+        limits.max_image_width = Some(8);
+        limits.max_image_height = Some(8);
+        let result = decode_with_limits(AVIF_FIXTURE, &limits);
         assert!(
             matches!(result, Err(ImageError::LimitsExceeded(_))),
             "expected LimitsExceeded, got {result:?}"

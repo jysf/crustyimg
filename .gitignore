@@ -30,6 +30,13 @@ out/
 # Rust
 /target
 
+# cargo-fuzz build/run artifacts (the harness + targets ARE committed; the
+# generated corpus, crash artifacts, and build dir are not).
+/fuzz/target
+/fuzz/corpus
+/fuzz/artifacts
+/fuzz/Cargo.lock
+
 # IDE
 .vscode/
 .idea/
