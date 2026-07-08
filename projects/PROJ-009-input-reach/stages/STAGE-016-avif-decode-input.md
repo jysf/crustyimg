@@ -77,14 +77,15 @@ allow-list.
 
 Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
-- [ ] SPEC-058 (design) — AVIF **decode + color/alpha** integration: `re_rav1d` (no-asm) →
-  YUV→RGB(A) honoring bit depth / chroma / nclx-CICP / premultiplied alpha; wire into
-  `decode_with_limits` + `IMAGE_EXTENSIONS`; decode-cap + typed-error + `just deny`. **(build-ready)**
-- [ ] (not yet written) SPEC-059 — AVIF **container** parse: adopt/wrap `avif-parse` (MPL-2.0) →
-  primary-item + alpha OBUs + av1C; `deny.toml` note for MPL; grid/tiled handling (reject cleanly
-  if unsupported). Feeds SPEC-058.
+- [~] SPEC-058 (verify) — AVIF **decode + color/alpha + container**: `re_rav1d` (no-asm) +
+  `avif-parse` (MPL-2.0) → YUV→RGB(A) honoring bit depth / chroma / nclx-CICP / premultiplied alpha;
+  wired into `decode_with_limits` (ftyp-brand dispatch) + `IMAGE_EXTENSIONS`; DEC-034 caps, typed
+  errors, grid reject-cleanly, cargo-fuzz target; DEC-053; deny.toml MPL/CC0 exceptions.
+  **Built — PR #65 (all CI green); in verify.**
+- [x] SPEC-059 — **NOT NEEDED / dropped** (build decision 2026-07-07): `avif-parse` covered the
+  container cleanly *within* SPEC-058, so no separate container spec was written.
 
-**Count:** 0 shipped / 0 active / 2 pending (SPEC-058 build-ready; SPEC-059 framed once 058 starts)
+**Count:** 0 shipped / 1 active (SPEC-058 in verify) / 0 pending — single-spec stage (SPEC-059 folded into 058)
 
 ## Design Notes
 
