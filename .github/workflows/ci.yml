@@ -125,19 +125,19 @@ jobs:
 
   msrv:
     # Verify the declared rust-version floor (SPEC-041, DEC-040). Pins the exact
-    # toolchain declared in Cargo.toml [package] rust-version = "1.89.0" so the
-    # floor is CI-enforced. 1.89.0 is the true floor of the pinned dependency tree
-    # (yuvxyb-math 0.1.1 -> 1.89 via ssimulacra2; image 0.25 -> 1.88;
-    # fast_image_resize 5.5 -> 1.87). Covers both the default build and the lean
-    # (--no-default-features / headless) build per DEC-027.
-    name: msrv (rust 1.89.0)
+    # toolchain declared in Cargo.toml [package] rust-version = "1.90.0" so the
+    # floor is CI-enforced. 1.90.0 is the true floor of the pinned dependency tree
+    # (avif-parse 2.1.0 -> 1.90 via the SPEC-058/DEC-053 AVIF decode path; was 1.89
+    # via yuvxyb-math/ssimulacra2; image 0.25 -> 1.88; fast_image_resize -> 1.87).
+    # Covers both the default build and the lean (--no-default-features) build.
+    name: msrv (rust 1.90.0)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install Rust 1.89.0 toolchain
-        uses: dtolnay/rust-toolchain@1.89.0
+      - name: Install Rust 1.90.0 toolchain
+        uses: dtolnay/rust-toolchain@1.90.0
 
       - name: Build (default features)
         run: cargo build --verbose
