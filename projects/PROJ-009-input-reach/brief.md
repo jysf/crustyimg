@@ -2,7 +2,7 @@
 # Maps to ContextCore project.* semantic conventions.
 project:
   id: PROJ-009
-  status: proposed                  # proposed | active | shipped | cancelled
+  status: active                    # proposed | active | shipped | cancelled
   priority: high
   target_ship: null
 
