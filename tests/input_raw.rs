@@ -93,6 +93,80 @@ fn convert_raw_to_png() {
     assert_eq!(decoded.height(), 48);
 }
 
+/// `info <fixture>.nef` (and `--json`) exits 0 and reports the preview as a
+/// JPEG at the preview's (64×48) dimensions — proving `info` routes a RAW path
+/// through the same extension-aware decode as the pipeline (SPEC-061, DEC-055),
+/// not the generic byte decoder that would mis-read the RAW container.
+#[test]
+fn info_raw_reports_jpeg_dims() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let in_path = dir.path().join("in.nef");
+    std::fs::write(&in_path, RAW_FIXTURE).unwrap();
+
+    // Human output.
+    let output = Command::new(BIN)
+        .args(["info", in_path.to_str().unwrap()])
+        .output()
+        .expect("failed to run info");
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "info should exit 0; stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("dimensions: 64x48"),
+        "expected preview dims 64x48; got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("format:     jpeg"),
+        "expected format jpeg; got:\n{stdout}"
+    );
+
+    // JSON output.
+    let output = Command::new(BIN)
+        .args(["info", in_path.to_str().unwrap(), "--json"])
+        .output()
+        .expect("failed to run info --json");
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "info --json should exit 0; stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json = String::from_utf8_lossy(&output.stdout);
+    assert!(json.contains("\"format\":\"jpeg\""), "got:\n{json}");
+    assert!(json.contains("\"width\":64"), "got:\n{json}");
+    assert!(json.contains("\"height\":48"), "got:\n{json}");
+}
+
+/// A `.nef` with no decodable embedded preview fails `info` with the typed,
+/// `raw:`-prefixed error (from the preview path), NOT the generic "failed to
+/// fill whole buffer" that the byte decoder would emit on RAW container bytes.
+#[test]
+fn info_raw_without_preview_reports_typed_error() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let in_path = dir.path().join("empty.nef");
+    // TIFF header + noise: a RAW extension with no embedded JPEG stream.
+    std::fs::write(&in_path, b"II*\0\x08\0\0\0no jpeg preview here at all").unwrap();
+
+    let output = Command::new(BIN)
+        .args(["info", in_path.to_str().unwrap()])
+        .output()
+        .expect("failed to run info");
+    assert_ne!(output.status.code(), Some(0), "info should fail");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("raw:"),
+        "expected typed raw: error; got:\n{stderr}"
+    );
+    assert!(
+        !stderr.contains("failed to fill whole buffer"),
+        "should not surface the generic byte-decoder error; got:\n{stderr}"
+    );
+}
+
 /// A directory source containing a `.nef` (plus a non-image `.txt`) yields
 /// exactly the `.nef` — RAW extensions are in the source allow-list.
 #[test]

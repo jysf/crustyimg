@@ -1308,14 +1308,22 @@ fn run_info(input: &str, exif: bool, json: bool, _global: &GlobalArgs) -> Result
     // Read the raw bytes ONCE: they give the file size, the decoded
     // image, and the EXIF source. (For a path, std::fs::read io-error
     // maps to ImageError::Io → exit 3, consistent with Image::load.)
-    let (raw, label): (Vec<u8>, String) = match &first {
+    //
+    // Decode through the SAME path-aware routing as every other command: a
+    // `Path` goes through `Image::decode_path` so RAW extensions extract the
+    // embedded preview (SPEC-061, DEC-055) instead of being mis-decoded by the
+    // generic byte decoder; stdin has no path, so it stays on `from_bytes`.
+    let (raw, label, img): (Vec<u8>, String, Image) = match &first {
         crate::source::Input::Path(p) => {
             let bytes = std::fs::read(p).map_err(ImageError::Io)?;
-            (bytes, p.display().to_string())
+            let img = Image::decode_path(p, &bytes)?;
+            (bytes, p.display().to_string(), img)
         }
-        crate::source::Input::Stdin { bytes, .. } => (bytes.clone(), "-".to_owned()),
+        crate::source::Input::Stdin { bytes, .. } => {
+            let img = Image::from_bytes(bytes)?;
+            (bytes.clone(), "-".to_owned(), img)
+        }
     };
-    let img = Image::from_bytes(&raw)?;
     let info = img.info();
 
     let exif_tags = if exif {

@@ -64,6 +64,22 @@ cost:
         routing + public raw_preview entry, RAW extensions in IMAGE_EXTENSIONS, synthetic fixture via
         examples/gen_raw_fixture.rs, unit + integration tests, fuzz/raw_preview, DEC-055. All gates
         green (default + lean build/clippy/fmt/test, `just deny` unchanged); no new dependency.
+    - cycle: build
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 90000
+      estimated_usd: 0.81
+      duration_minutes: 6
+      recorded_at: 2026-07-08
+      notes: >
+        Second build cycle — VERIFY punch-list kickback fix (`info <raw>` bypassed RAW extension
+        routing because run_info decoded via Image::from_bytes for the Path case). Fix: factored the
+        path-decode routing out of Image::load into a shared `Image::decode_path(path, &bytes)` helper
+        and routed run_info's Path case through it (Stdin stays on from_bytes); no double read.
+        Added tests/input_raw.rs `info_raw_reports_jpeg_dims` (+ a typed-error test). Ran in the main
+        loop, not a metered subagent, so tokens_total is an ORDER-OF-MAGNITUDE ESTIMATE per the
+        autonomous-run-cost practice (labelled, not null). estimated_usd = 90k × Opus 4.8 list
+        ($5/$25 per MTok, ~80/20) ≈ $0.81. All gates green; MSRV 1.90 and `just deny` unchanged.
 ---
 
 # SPEC-061: RAW Tier-1 embedded-preview extraction as a default input
@@ -339,6 +355,33 @@ error if named directly; fine.
   - RAW **via stdin** (`--format raw` hint or a `Make`/`ftyp 'crx '` content sniff) — v1 non-goal.
   - RAW-container / preview-APP1 **EXIF + orientation passthrough** (so auto-orient works on RAW).
   - A faithful `SourceFormat` enum (shared with SVG→`Png`) so `info x.nef` need not report `jpeg`.
+  - **`lint` on a RAW path has the same latent asymmetry** (`src/lint/mod.rs:210` decodes via
+    `Image::from_bytes`, not the extension-aware routing) — NOT a SPEC-061 claim, so out of scope
+    here; needs its own spec if `lint <raw>` is ever in reach.
+
+### Post-verify punch-list fix (build cycle 2)
+
+Verify returned one punch-list item: **`crustyimg info <raw>` was broken.** `run_info`
+(`src/cli/mod.rs`) decoded via `Image::from_bytes` for *both* the Path and Stdin cases, bypassing the
+RAW extension-routing that lived only inside `Image::load` — falsifying DEC-055's "`info x.nef` reports
+jpeg", the spec Context (info is in the end-to-end reach), and `tests/input_raw.rs` module doc. Every
+other command was already correct (`Input::Path ⇒ Image::load`, `Input::Stdin ⇒ Image::from_bytes`).
+
+Root-cause fix (not an inline special-case, and NOT teaching `from_bytes`/content-sniff to handle RAW —
+RAW is deliberately extension-routed because TIFF-based RAW is byte-ambiguous with `.tif`):
+
+- **Factored the path-decode routing out of `Image::load` into one shared helper**
+  `Image::decode_path(path, &bytes)` — the single place the `raw::is_raw_extension(path) → raw_preview
+  else from_bytes` decision lives. `Image::load` now reads the file and delegates to it.
+- **Routed `run_info`'s Path case through `Image::decode_path`** (Stdin stays on `from_bytes`),
+  preserving the one-read of the bytes (still used for file size + EXIF — no double read).
+- Added `tests/input_raw.rs::info_raw_reports_jpeg_dims` (asserts `info`/`--json` on the `.nef` fixture
+  exits 0 and reports format `jpeg` at the 64×48 preview dims — fills the prose-only verify-test gap) and
+  `info_raw_without_preview_reports_typed_error` (a preview-less RAW surfaces the typed `raw:`-prefixed
+  error, not the generic "failed to fill whole buffer").
+
+No new decision (DEC-055 stands, now actually honored by `info`); no new dependency; MSRV 1.90 and
+`just deny` unchanged. All gates green (default + lean build/clippy/fmt/test).
 
 ### Build-phase reflection (3 questions, short answers)
 

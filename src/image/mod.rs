@@ -65,15 +65,27 @@ impl Image {
         // `ImageReader::open` surfaces a missing/unreadable file as io::Error,
         // which maps to ImageError::Io via #[from].
         let bytes = std::fs::read(path)?;
-        // RAW takes a dedicated Tier-1 preview-extraction path (SPEC-061,
-        // DEC-055): a RAW container embeds a full-res JPEG preview but is
-        // byte-ambiguous with a plain TIFF, so it is routed by file EXTENSION
-        // here (where the `Path` is available) BEFORE the generic byte decoder,
-        // which has no path. RAW-via-stdin (`from_bytes`) is a v1 non-goal.
-        if raw::is_raw_extension(path) {
-            return raw_preview(&bytes);
+        Image::decode_path(path, &bytes)
+    }
+
+    /// Decode already-read file `bytes` using the path's EXTENSION to route
+    /// format detection — the single place the RAW-vs-generic decision lives.
+    ///
+    /// RAW takes a dedicated Tier-1 preview-extraction path (SPEC-061,
+    /// DEC-055): a RAW container embeds a full-res JPEG preview but is
+    /// byte-ambiguous with a plain TIFF, so it is routed by file EXTENSION
+    /// (where the `Path` is available) BEFORE the generic byte decoder, which
+    /// has no path. RAW-via-stdin (`from_bytes`) is a v1 non-goal.
+    ///
+    /// Every command that decodes a `Path` (including `info`, which reads the
+    /// bytes once for the file size + EXIF) MUST route through here so RAW
+    /// extension-routing is not bypassed. [`Image::load`] and `run_info` share
+    /// this helper for exactly that reason.
+    pub fn decode_path(path: impl AsRef<Path>, bytes: &[u8]) -> Result<Image> {
+        if raw::is_raw_extension(path.as_ref()) {
+            return raw_preview(bytes);
         }
-        Image::from_bytes(&bytes)
+        Image::from_bytes(bytes)
     }
 
     /// Detect the format of an in-memory byte slice, decode it, and capture the

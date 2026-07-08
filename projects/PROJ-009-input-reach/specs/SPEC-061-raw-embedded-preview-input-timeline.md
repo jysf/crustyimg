@@ -26,6 +26,12 @@ there is no separate prompt file unless a cycle needs one.
   suite 569 green; default+lean clippy/fmt/build clean; `just deny` UNCHANGED & green (no new crate);
   MSRV floor 1.90 unchanged (Cargo.toml/lock/deny untouched); DEC-055 emitted (decisions-audit 0 errors).
   PR opened for a separate verify session.
+  **Punch-list fix 2026-07-08 (build cycle 2, PR #67):** `info <raw>` bypassed RAW routing (run_info
+  decoded via `Image::from_bytes` for the Path case) → factored routing into shared
+  `Image::decode_path(path, &bytes)`, routed `run_info` Path case through it (no double read), added
+  `tests/input_raw.rs::info_raw_reports_jpeg_dims` (+ typed-error test). Noted the same latent asymmetry
+  in `lint` (`src/lint/mod.rs:210`) as an out-of-scope follow-up. All gates green; no new dep; MSRV/deny
+  unchanged.
 - [ ] **verify** — fresh session; re-run all gates independently, confirm hostile-input safety
   (bounded candidate decodes, cap-per-decode, false-SOI skip), no new dep, DEC-055 consistent.
 - [ ] **ship** — merge PR, cost sessions + totals, ship reflection, archive to done/, update
