@@ -99,9 +99,12 @@ Format: `- [status] STAGE-ID — one-line summary`
   dep**): a format-agnostic byte scan for the largest embedded JPEG covers TIFF-based RAW + CR3 + RAF with
   no ISOBMFF/IFD parsing (probe finding corrected the "ISOBMFF glue" assumption); extension-routed via a
   shared `Image::decode_path` helper (SPEC-061, PR #67, DEC-055).
-- [ ] (not yet framed) STAGE-019 — HEIC decode behind `--features heic` (libheif decode-only; DEC-052). **← next (last of PROJ-009)**
+- [~] STAGE-019 (active — framed 2026-07-08) — HEIC decode behind an off-by-default `heic` feature
+  (system libheif, decode-only; DEC-052): default binary detects `.heic` and exits 4 ("rebuild with
+  --features heic"); `--features heic` decodes via libheif-rs (MIT crates, LGPL system lib → **no deny
+  exception**), never in a distributed artifact (SPEC-062, DEC-056). **← active (last of PROJ-009)**
 
-**Count:** 3 shipped / 0 active / 1 pending (STAGE-016 + 017 + 018 shipped; 019 next closes the wave)
+**Count:** 3 shipped / 1 active / 0 pending (STAGE-016–018 shipped; 019 active/framed closes the wave)
 
 ## Dependencies
 
