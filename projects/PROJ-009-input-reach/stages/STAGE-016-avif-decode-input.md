@@ -77,28 +77,33 @@ allow-list.
 
 Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
-- [ ] SPEC-058 (design) — AVIF decode as a default input: DEC-053 decoder-dependency probe +
-  wiring into `decode_with_limits` + `IMAGE_EXTENSIONS`, decode-cap + typed-error + `just deny`
-  coverage. **(build-ready)**
+- [ ] SPEC-058 (design) — AVIF **decode + color/alpha** integration: `re_rav1d` (no-asm) →
+  YUV→RGB(A) honoring bit depth / chroma / nclx-CICP / premultiplied alpha; wire into
+  `decode_with_limits` + `IMAGE_EXTENSIONS`; decode-cap + typed-error + `just deny`. **(build-ready)**
+- [ ] (not yet written) SPEC-059 — AVIF **container** parse: adopt/wrap `avif-parse` (MPL-2.0) →
+  primary-item + alpha OBUs + av1C; `deny.toml` note for MPL; grid/tiled handling (reject cleanly
+  if unsupported). Feeds SPEC-058.
 
-**Count:** 0 shipped / 0 active / 1 pending (SPEC-058 build-ready; split only if the probe shows the decoder needs substantial container glue)
+**Count:** 0 shipped / 0 active / 2 pending (SPEC-058 build-ready; SPEC-059 framed once 058 starts)
 
 ## Design Notes
 
-- **PROBE RESULT (2026-07-07) — this stage is real work, not a feature toggle.** A design-time
-  probe found **no mature, permissive, pure-Rust AVIF decoder with a usable Rust API + container
-  handling**: `image`'s avif decode = dav1d (C) and the pure-Rust path (image-rs #2621) is
-  **unmerged**; `rav1d`/`re_rav1d` (BSD-2) are pure-Rust but expose a **C-style API** + need AVIF
-  container parsing; `rav1d-safe`/`zenavif` (clean Rust API) are **AGPL — excluded**; `avif-decode`
-  uses AOM (C). See `guidance/license-watchlist.yaml` → `avif-decode` and SPEC-058's probe section.
-- **DEC-053 picks one of three paths:** (a) `rav1d`/`re_rav1d` (BSD-2) + our own AVIF/ISOBMFF
-  container parser (reuse the HEIC-spike box-parse tech) + a no-asm pure-Rust build — keeps the
-  default pure-Rust, **split SPEC-058 into a container-parse + a decode spec**; (b) feature-gate a
-  C decoder (dav1d/aom) off the default — acceptable since AVIF is patent-clean, but not the
-  pure-Rust default headline; (c) wait for image-rs #2621 / a re_rav1d Rust API (then it's nearly a
-  free `image` bump). Any new crate is a top-level dep → DEC-053 also covers `no-new-top-level-deps`.
-- **Open sequencing question:** because AVIF-decode is no longer a quick win, whether it still
-  *leads* Wave 1 (vs SVG via `resvg`, which IS a clean pure-Rust drop-in) is a maintainer call.
+- **DEEP-DIVE RESULT (2026-07-07) — a viable permissive pure-Rust path IS confirmed; AVIF keeps the
+  Wave-1 headline.** No clean drop-in exists (mature drop-ins are C-backed or AGPL), BUT the
+  **`re_rav1d` (BSD-2) + `avif-parse` (MPL-2.0) + glue** path works, ~1–1.5 person-weeks. Crucially,
+  `re_rav1d` re-exports the **safe `dav1d-rs` Rust API** (not just a C ABI — the first quick probe
+  was wrong), and its **no-asm build has zero build-tool deps** (no nasm). Same decoder serves the
+  Wave-3 WASM demo. See `guidance/license-watchlist.yaml` → `avif-decode` + SPEC-058's probe section.
+- **DEC-053 (at build):** adopt `re_rav1d` (no-asm) + `avif-parse`. Split into a container spec
+  (SPEC-059, wrap/verify `avif-parse`) + the decode+color spec (SPEC-058). Interim fallback:
+  feature-gate a C decoder (dav1d/aom) for speed where the toolchain exists — never the default.
+- **Real work is color/alpha/grid, not the codec:** bit depth (8/10/12), 4:2:0/2:2/4:4:4, nclx/CICP
+  matrix+range, premultiplied alpha; and grid/tiled AVIF may be unsupported by `avif-parse` (reject
+  cleanly). `re_rav1d` is rerun's "messy" fork → pin + keep the glue surface thin.
+- **Parallel / future (not blocking):** contribute **image-rs #2621** upstream (trivial; PoC exists)
+  and/or a native Rust API into `rav1d`, to later migrate to `image`'s built-in decode. **Watchlist**
+  the **OxideAV** MIT stack (`oxideav-avif`+`oxideav-av1`, pure-Rust, intra-only, sub-1.0) as the
+  potentially-cleanest single MIT stack for both AVIF and HEIC once it matures.
 - **Patent contrast to record:** AV1/AVIF is royalty-free (no HEVC-style pool) — this is *why*
   it can be default where HEIC cannot (DEC-052).
 - **Wiring is small once the decoder exists:** format dispatch is automatic in

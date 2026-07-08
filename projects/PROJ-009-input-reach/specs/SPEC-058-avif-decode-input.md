@@ -6,7 +6,7 @@ task:
   cycle: design                    # frame | design | build | verify | ship
   blocked: false
   priority: high
-  complexity: L                    # probe (2026-07-07) confirmed: no permissive pure-Rust drop-in → rav1d+container glue; SPLIT into container-parse + decode specs at build
+  complexity: M                    # deep-dive (2026-07-07): viable path = re_rav1d(no-asm)+avif-parse+glue, ~1-1.5 wk; split into container (SPEC-059) + decode (this) specs
 
 project:
   id: PROJ-009
@@ -144,29 +144,36 @@ Written during **design**, BEFORE build. Build makes these pass.
   its maturity, and why it beats the dav1d path. If it is a new top-level dep, DEC-053 also
   satisfies `no-new-top-level-deps-without-decision`.
 
-### The load-bearing probe — RESULT (done 2026-07-07; this is now an L, not an M)
-A design-time probe ran (`docs/roadmap.md` reconciliation session). **Finding: there is NO mature,
-permissive, pure-Rust AVIF decoder with a usable Rust API + container handling today**, so this is
-real work, not a feature-flip:
-- **`image`'s built-in avif decode = dav1d (C).** The pure-Rust path (image-rs #2621) is **open/
-  unmerged** — so "AVIF decode via `image`" is NOT available in a pinnable version. (Re-check #2621
-  at build; if it has landed in a compatible `image`, that becomes the cheapest path.)
-- **`rav1d` / `re_rav1d` (BSD-2)** are permissive pure-Rust AV1 decoders but expose only a **C-style
-  API** (Rust API "planned"), lean on asm/nasm (a slower no-asm build exists), and decode only the
-  **AV1 bitstream** — they need **AVIF/ISOBMFF container parsing** on top (`ftyp avif`, `meta`/
-  `iloc`/`iprp`/`av1C` → primary item — the box-parse pattern proven in the HEIC spike).
-- **`rav1d-safe`/`zenavif` (imazen)** have a clean safe-Rust API + container but are **AGPL →
-  excluded** (DEC-018). `avif-decode` (kornelski) uses AOM (**C**). `rusty-av1-toolkit` is experimental.
+### The load-bearing probe — RESULT (deep-dived 2026-07-07): a viable permissive pure-Rust path IS confirmed
+No *clean drop-in* exists (every mature drop-in is C-backed or AGPL), **but** a viable permissive,
+pure-Rust, zero-build-tool path is confirmed — AVIF-decode stays the Wave-1 default headline.
 
-**Three viable paths — pick one as DEC-053:** (a) **`rav1d`/`re_rav1d` (BSD-2) + our own AVIF
-container parser** + a verified no-asm pure-Rust build — keeps the default pure-Rust (weeks of work;
-**split into a container-parse spec + a decode spec**); (b) **feature-gate a C decoder** (dav1d/aom)
-off the default — acceptable for AVIF because it is patent-clean (contrast HEIC/DEC-052), but it is
-not the pure-Rust default headline; (c) **wait** for image-rs #2621 / a re_rav1d Rust API, then AVIF
-decode is nearly a free `image` version bump. Because none is a drop-in, **the sequencing of this
-spec within Wave 1 is an open question** (SVG via `resvg` IS a clean pure-Rust drop-in and may lead
-instead) — confirm with the maintainer before building. See the `avif-decode` entry in
-`guidance/license-watchlist.yaml` for the full landscape.
+**SHIP PATH (DEC-053) — `re_rav1d` + `avif-parse` + our glue (~1–1.5 person-weeks):**
+- **`re_rav1d`** (BSD-2, rerun) is a combined `rav1d`+`dav1d-rs` fork that re-exports the **safe,
+  ergonomic `dav1d-rs` Rust API** (`Decoder::new` / `send_data` / `get_picture` / plane access),
+  backed by pure-Rust rav1d — *not* just a C ABI (the first quick probe was wrong on this). Build
+  **no-asm** (`--no-default-features --features bitdepth_8,bitdepth_16`) → pure-Rust, **zero
+  build-tool deps (no nasm)**, and perf is fine for one-shot stills.
+- **`avif-parse`** (MPL-2.0, kornelski, Firefox-mp4parse-derived, hardened) parses the ISOBMFF/MIAF
+  container and hands you the primary-item + alpha AV1 OBUs ready to decode. MPL-2.0 is file-level
+  copyleft — fine alongside MIT/Apache; add a `deny.toml` note.
+- **Our glue:** feed OBUs → `re_rav1d` → YUV planes → RGB(A), honoring bit depth (8/10/12),
+  `pixel_layout` (4:2:0/2:2/4:4:4), and color (nclx/CICP matrix+range) + premultiplied alpha.
+
+**Split accordingly:** SPEC-058 (this) = decode integration + color/alpha; SPEC-059 = the AVIF
+container parse (or a thin wrap of `avif-parse`). The same decoder also serves the Wave-3 WASM demo.
+
+**Caveats to test against real files:** (1) `re_rav1d` is rerun's self-described "messy" fork with an
+uncertain maintenance future → **pin versions, keep the FFI/glue surface thin** so we can swap later;
+(2) **grid/tiled** AVIF may be unsupported by `avif-parse` → reject cleanly if so; (3) **color
+correctness** is the usual AVIF footgun, not a decoder bug.
+
+**Parallel / future (not blocking this spec):** contribute **image-rs #2621** upstream (trivial — a
+working PoC exists) and/or a **native Rust API into `rav1d`**, so crustyimg can later migrate to
+`image`'s built-in pure-Rust decode and shed the direct `re_rav1d` dep + glue. **Watchlist** the
+**OxideAV** MIT stack (`oxideav-avif` + `oxideav-av1`, pure-Rust, no C/nasm, intra-only today, sub-1.0)
+as the potentially-cleanest future — one MIT stack for both AVIF and HEIC — and re-probe as it matures.
+See `guidance/license-watchlist.yaml` → `avif-decode` for the full landscape.
 
 ### Constraints that apply
 - `pure-rust-codecs-default`, `no-agpl-default-deps`, `no-new-top-level-deps-without-decision`,
