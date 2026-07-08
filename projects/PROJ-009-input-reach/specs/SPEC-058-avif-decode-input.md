@@ -6,7 +6,7 @@ task:
   cycle: design                    # frame | design | build | verify | ship
   blocked: false
   priority: high
-  complexity: M                    # M today; may split to L if the DEC-053 probe shows the decoder needs substantial ISOBMFF glue
+  complexity: L                    # probe (2026-07-07) confirmed: no permissive pure-Rust drop-in → rav1d+container glue; SPLIT into container-parse + decode specs at build
 
 project:
   id: PROJ-009
@@ -144,17 +144,29 @@ Written during **design**, BEFORE build. Build makes these pass.
   its maturity, and why it beats the dav1d path. If it is a new top-level dep, DEC-053 also
   satisfies `no-new-top-level-deps-without-decision`.
 
-### The load-bearing probe (do this FIRST in build — `probe-load-bearing-crates-at-design`)
-Before writing wiring, prove the decoder on a real AVIF on this toolchain. Evaluate, in order:
-1. **`re_rav1d` via `image`** — check whether a pinnable `image` version exposes a *pure-Rust*
-   AVIF decode backend that does NOT pull dav1d (image-rs #2621). If yes and it fits our pinned
-   `image` (currently `=0.25.10`), this is cleanest (no new top-level dep).
-2. **`rav1d` (BSD-2) + AVIF/ISOBMFF container parse** — `rav1d` decodes the AV1 payload; AVIF is
-   an ISOBMFF container (`ftyp avif`, `meta`/`iloc`/`iprp`/`av1C` → primary item), the same
-   box-parsing shape proven in the HEIC spike (`docs/research/heic-input-reach-spike.md`). Reuse
-   that pattern; this is more work but fully permissive/pure-Rust.
-Record the outcome as DEC-053. If option 2 requires non-trivial container code, **split**: a
-container-parse spec (SPEC-059) + a decode-integration spec — do not silently grow this spec.
+### The load-bearing probe — RESULT (done 2026-07-07; this is now an L, not an M)
+A design-time probe ran (`docs/roadmap.md` reconciliation session). **Finding: there is NO mature,
+permissive, pure-Rust AVIF decoder with a usable Rust API + container handling today**, so this is
+real work, not a feature-flip:
+- **`image`'s built-in avif decode = dav1d (C).** The pure-Rust path (image-rs #2621) is **open/
+  unmerged** — so "AVIF decode via `image`" is NOT available in a pinnable version. (Re-check #2621
+  at build; if it has landed in a compatible `image`, that becomes the cheapest path.)
+- **`rav1d` / `re_rav1d` (BSD-2)** are permissive pure-Rust AV1 decoders but expose only a **C-style
+  API** (Rust API "planned"), lean on asm/nasm (a slower no-asm build exists), and decode only the
+  **AV1 bitstream** — they need **AVIF/ISOBMFF container parsing** on top (`ftyp avif`, `meta`/
+  `iloc`/`iprp`/`av1C` → primary item — the box-parse pattern proven in the HEIC spike).
+- **`rav1d-safe`/`zenavif` (imazen)** have a clean safe-Rust API + container but are **AGPL →
+  excluded** (DEC-018). `avif-decode` (kornelski) uses AOM (**C**). `rusty-av1-toolkit` is experimental.
+
+**Three viable paths — pick one as DEC-053:** (a) **`rav1d`/`re_rav1d` (BSD-2) + our own AVIF
+container parser** + a verified no-asm pure-Rust build — keeps the default pure-Rust (weeks of work;
+**split into a container-parse spec + a decode spec**); (b) **feature-gate a C decoder** (dav1d/aom)
+off the default — acceptable for AVIF because it is patent-clean (contrast HEIC/DEC-052), but it is
+not the pure-Rust default headline; (c) **wait** for image-rs #2621 / a re_rav1d Rust API, then AVIF
+decode is nearly a free `image` version bump. Because none is a drop-in, **the sequencing of this
+spec within Wave 1 is an open question** (SVG via `resvg` IS a clean pure-Rust drop-in and may lead
+instead) — confirm with the maintainer before building. See the `avif-decode` entry in
+`guidance/license-watchlist.yaml` for the full landscape.
 
 ### Constraints that apply
 - `pure-rust-codecs-default`, `no-agpl-default-deps`, `no-new-top-level-deps-without-decision`,

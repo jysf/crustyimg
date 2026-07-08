@@ -85,16 +85,20 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
 ## Design Notes
 
-- **The dependency is the load-bearing risk** (`probe-load-bearing-crates-at-design`). Two
-  shapes to weigh at the SPEC-058 design probe, recorded as **DEC-053**:
-  1. **Via `image`** — if a compatible `image` version exposes a *pure-Rust* AVIF decode
-     backend (`re_rav1d`, image-rs #2621) that does NOT pull dav1d. Cleanest (no new
-     top-level dep) if it exists in a version we can pin.
-  2. **A dedicated permissive decoder crate** — `rav1d` (BSD-2-Clause, verified) as the AV1
-     core + AVIF/ISOBMFF container parsing (reuse the box-parsing pattern proven in the HEIC
-     spike). `zenavif` is **AGPL — excluded** (DEC-018/`no-agpl-default-deps`).
-  The chosen crate is a **new top-level dep** → needs DEC-053 (`no-new-top-level-deps-without-decision`)
-  unless it arrives transitively via `image`.
+- **PROBE RESULT (2026-07-07) — this stage is real work, not a feature toggle.** A design-time
+  probe found **no mature, permissive, pure-Rust AVIF decoder with a usable Rust API + container
+  handling**: `image`'s avif decode = dav1d (C) and the pure-Rust path (image-rs #2621) is
+  **unmerged**; `rav1d`/`re_rav1d` (BSD-2) are pure-Rust but expose a **C-style API** + need AVIF
+  container parsing; `rav1d-safe`/`zenavif` (clean Rust API) are **AGPL — excluded**; `avif-decode`
+  uses AOM (C). See `guidance/license-watchlist.yaml` → `avif-decode` and SPEC-058's probe section.
+- **DEC-053 picks one of three paths:** (a) `rav1d`/`re_rav1d` (BSD-2) + our own AVIF/ISOBMFF
+  container parser (reuse the HEIC-spike box-parse tech) + a no-asm pure-Rust build — keeps the
+  default pure-Rust, **split SPEC-058 into a container-parse + a decode spec**; (b) feature-gate a
+  C decoder (dav1d/aom) off the default — acceptable since AVIF is patent-clean, but not the
+  pure-Rust default headline; (c) wait for image-rs #2621 / a re_rav1d Rust API (then it's nearly a
+  free `image` bump). Any new crate is a top-level dep → DEC-053 also covers `no-new-top-level-deps`.
+- **Open sequencing question:** because AVIF-decode is no longer a quick win, whether it still
+  *leads* Wave 1 (vs SVG via `resvg`, which IS a clean pure-Rust drop-in) is a maintainer call.
 - **Patent contrast to record:** AV1/AVIF is royalty-free (no HEVC-style pool) — this is *why*
   it can be default where HEIC cannot (DEC-052).
 - **Wiring is small once the decoder exists:** format dispatch is automatic in

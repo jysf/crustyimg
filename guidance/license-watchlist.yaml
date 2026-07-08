@@ -135,12 +135,23 @@ license_blocked:
 # ── Deferred for NON-license reasons (capability gaps, same revisit goal) ──────────
 deferred_non_license:
   - id: avif-decode
-    capability: "Reading `.avif` INPUT, and perceptual auto-quality (--target/--ssim) on AVIF output."
+    capability: "Reading `.avif` INPUT (default path — PROJ-009 Wave 1), and perceptual auto-quality (--target/--ssim) on AVIF output."
     deferred_dependency: dav1d (via image's `avif-native`) — permissive but a C system dep
-    reason: "C/system dep contradicts the pure-Rust, zero-system-deps default (DEC-020). AVIF is output-only v1; perceptual AVIF needs this decoder."
-    status: deferred
-    revisit_trigger: "Demand for .avif input or perceptual AVIF; then weigh a vendored/feature-gated dav1d like webp-lossy."
-    related: [DEC-020, SPEC-018]
+    reason: >
+      AVIF/AV1 is patent royalty-free (unlike HEVC), so it COULD be a default — but the DECODER is
+      the blocker. PROBE 2026-07-07 (PROJ-009 / SPEC-058 DEC-053): there is NO mature, permissive,
+      pure-Rust AVIF decoder with a usable Rust API + container handling today. `image`'s avif decode
+      = dav1d (C); the pure-Rust path (image-rs #2621) is OPEN/unmerged. So a C/system dep still
+      contradicts the pure-Rust zero-system-deps default (DEC-004/DEC-020).
+    status: partial-alternative
+    permissive_alternatives:
+      - "`rav1d` / `re_rav1d` (BSD-2, memorysafety/rerun) — permissive pure-Rust AV1 decoders, BUT expose only a C-style API (Rust API 'planned'), rely on asm/nasm for speed (a slower no-asm build exists), and decode only the AV1 bitstream — you must add AVIF/ISOBMFF container parsing (same box-parse pattern as the HEIC spike). Real work (~weeks), not a drop-in."
+      - "`rav1d-safe` / `zenavif` (imazen) — clean safe-Rust API + AVIF container, but AGPL-3.0 → EXCLUDED (no-agpl-default-deps), same as their HEIC decoder."
+      - "`avif-decode` (kornelski, BSD-3) — but AOM (C) backend → a C dep, not pure-Rust."
+      - "`rusty-av1-toolkit` (BSD-2) — experimental (0 stars, no releases, mostly asm, no Rust API/container) — not usable."
+    build_candidate: "Adopt rav1d/re_rav1d (BSD-2) via its low-level API + write an AVIF/ISOBMFF container parser (reuse the HEIC-spike box-parse tech; also serves RAW-CR3 preview) + verify the no-asm pure-Rust build. This is a real STAGE-016 build, not a feature toggle. Interim option: feature-gate a C decoder (dav1d/aom) — acceptable for AVIF since it's patent-clean, unlike HEIC — but off the pure-Rust default path."
+    revisit_trigger: "PROJ-009 / STAGE-016 build (DEC-053 picks the path). Prefer waiting for image-rs #2621 / a re_rav1d Rust API to land (then AVIF decode is nearly a free `image` version bump); else do the rav1d+container-glue build, or ship AVIF decode feature-gated on a C dep interim."
+    related: [DEC-020, DEC-004, DEC-053, SPEC-018, SPEC-058]
     confidence: high
 
   - id: mozjpeg-encode
