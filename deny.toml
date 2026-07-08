@@ -91,6 +91,15 @@ ignore = [
     # macro (no runtime attack surface). Revisit when `re_rav1d`/`rav1e` drop the
     # `paste` dependency, or a patch release resolves this advisory.
     { id = "RUSTSEC-2024-0436", reason = "paste is transitive via re_rav1d (default decode) and rav1e/ravif (avif encode); compile-time proc-macro, no safe upgrade 2026-07-07" },
+    # RUSTSEC-2026-0192 — `ttf-parser` (harfbuzz) is unmaintained (author declared
+    # EOL). Re-entered the tree via the resvg/usvg TEXT stack (usvg -> fontdb +
+    # rustybuzz -> ttf-parser) that SPEC-060 adds for SVG `<text>` rasterization.
+    # SPEC-044/DEC-045 previously dropped ttf-parser (skrifa/fontations), but
+    # resvg's text module cannot be swapped off it without an upstream migration.
+    # It is parse-time only (glyph parsing during rasterize) with no known vuln.
+    # Revisit + DROP when resvg's text stack migrates onto fontations/read-fonts
+    # (HarfRust — fontations#956, resvg#200); we already sit on fontations via skrifa.
+    { id = "RUSTSEC-2026-0192", reason = "ttf-parser unmaintained; transitive via usvg/resvg text stack (SPEC-060/DEC-054); parse-time only, no vuln. Revisit + DROP when resvg's text stack migrates off ttf-parser to fontations/read-fonts (HarfRust) — we already sit on fontations via skrifa" },
 ]
 
 [bans]

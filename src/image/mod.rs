@@ -27,6 +27,7 @@ use ::image::{ColorType, DynamicImage, ImageFormat, ImageReader};
 use crate::error::{ImageError, Result};
 
 mod avif;
+mod svg;
 
 /// Maximum image dimension (width or height) in pixels accepted at decode time
 /// (DEC-034). Any image declaring a dimension above this is rejected with
@@ -288,6 +289,18 @@ fn decode_with_limits(
     if avif::is_avif(bytes) {
         let pixels = avif::decode_avif(bytes, limits)?;
         return Ok((pixels, ImageFormat::Avif));
+    }
+
+    // SVG takes a dedicated pure-Rust rasterize path (SPEC-060, DEC-054): SVG is
+    // XML/text, so the `image` guesser cannot detect it and the generic
+    // `ImageReader` cannot decode it. We content-sniff `<svg`/`<?xml` and
+    // rasterize via `resvg`/`usvg`/`tiny-skia`, enforcing the same DEC-034 caps.
+    // There is no `ImageFormat::Svg`, so a rasterized SVG reports `Png` (its
+    // pixels are now a lossless RGBA raster). Dispatch happens before the
+    // generic `ImageReader` path.
+    if svg::is_svg(bytes) {
+        let pixels = svg::decode_svg(bytes, limits)?;
+        return Ok((pixels, ImageFormat::Png));
     }
 
     let mut reader = ImageReader::new(Cursor::new(bytes))
@@ -675,5 +688,71 @@ mod tests {
             matches!(result, Err(ImageError::LimitsExceeded(_))),
             "expected LimitsExceeded, got {result:?}"
         );
+    }
+
+    // ── SPEC-060 SVG rasterize (default, pure-Rust) ───────────────────────────
+
+    /// The DEFAULT build rasterizes a real `.svg` to the canonical `Image` at its
+    /// intrinsic `width`/`height`, reporting `source_format == Png` (no
+    /// `ImageFormat::Svg` exists).
+    #[test]
+    fn svg_decodes_to_intrinsic_dimensions() {
+        let svg = b"<svg xmlns='http://www.w3.org/2000/svg' width='40' height='30'></svg>";
+        let img = Image::from_bytes(svg).expect("rasterize svg");
+        assert_eq!(img.width(), 40);
+        assert_eq!(img.height(), 30);
+        assert_eq!(img.source_format(), ImageFormat::Png);
+    }
+
+    /// With no `width`/`height`, the intrinsic size comes from the `viewBox`.
+    #[test]
+    fn svg_uses_viewbox_when_no_width_height() {
+        let svg = b"<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 50'></svg>";
+        let img = Image::from_bytes(svg).expect("rasterize svg");
+        assert_eq!(img.width(), 100);
+        assert_eq!(img.height(), 50);
+    }
+
+    /// An SVG declaring a dimension above `MAX_IMAGE_DIMENSION` is rejected with
+    /// `LimitsExceeded` via the production caps — before any raster allocation.
+    #[test]
+    fn oversize_svg_is_limits_exceeded() {
+        let svg = b"<svg xmlns='http://www.w3.org/2000/svg' width='70000' height='10'></svg>";
+        let result = Image::from_bytes(svg);
+        assert!(
+            matches!(result, Err(ImageError::LimitsExceeded(_))),
+            "expected LimitsExceeded, got {result:?}"
+        );
+    }
+
+    /// A malformed (unclosed) SVG is a typed decode error, never a panic.
+    #[test]
+    fn malformed_svg_is_decode_error_not_panic() {
+        let svg = b"<svg xmlns='http://www.w3.org/2000/svg'><rect";
+        let result = Image::from_bytes(svg);
+        assert!(
+            matches!(result, Err(ImageError::Decode(_))),
+            "expected Decode, got {result:?}"
+        );
+    }
+
+    /// An SVG referencing an external file rasterizes WITHOUT reading it: the
+    /// href resolver refuses the reference (transparent region), the local file
+    /// is never opened, and decode still returns `Ok` with the intrinsic dims.
+    #[test]
+    fn svg_external_file_ref_is_ignored() {
+        let svg = b"<svg xmlns='http://www.w3.org/2000/svg' xmlns:xlink='http://www.w3.org/1999/xlink' width='10' height='10'>\
+            <rect width='10' height='10' fill='#00ff00'/>\
+            <image href='file:///etc/hostname' xlink:href='file:///etc/hostname' x='0' y='0' width='10' height='10'/>\
+            </svg>";
+        let img = Image::from_bytes(svg).expect("rasterize svg with refused external ref");
+        assert_eq!(img.width(), 10);
+        assert_eq!(img.height(), 10);
+        // The external image resolved to nothing, so the green background shows
+        // through — proving no local-file read replaced the pixels.
+        let rgba = img.pixels().to_rgba8();
+        let px = rgba.get_pixel(5, 5);
+        assert_eq!(px.0[1], 255, "expected green background, got {:?}", px.0);
+        assert_eq!(px.0[0], 0, "expected green background, got {:?}", px.0);
     }
 }

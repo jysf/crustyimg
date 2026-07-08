@@ -16,10 +16,14 @@ there is no separate prompt file unless a cycle needs one.
   MPL-2.0 assumption); the only cost is a RUSTSEC-2026-0192 advisory ignore for ttf-parser via the
   usvg text stack.** Render + security + font API compiled and verified against resvg 0.47.0.
   Rasterizer choice → **DEC-054** (emit at build). Framing, 2026-07-08.
-- [ ] **build** — wire `src/image/svg.rs` (hardened usvg parse → tiny-skia Pixmap → straight RGBA8 →
+- [x] **build** — wire `src/image/svg.rs` (hardened usvg parse → tiny-skia Pixmap → straight RGBA8 →
   canonical `Image`) into `decode_with_limits` (content-sniff dispatch), add `svg` to
   `IMAGE_EXTENSIONS`, deny.toml RUSTSEC-2026-0192 advisory ignore (no license exception), fixture +
   tests + fuzz target, DEC-054. Verify default + lean + `just deny` + clippy + fmt; check MSRV.
+  **PR #66, 2026-07-08.** Result: all gates green (555 default tests pass incl. 9 new SVG tests, lean
+  build + `just deny` + clippy + fmt clean); licenses needed NO exception (probe finding held), one
+  RUSTSEC-2026-0192 advisory ignore added; MSRV floor unchanged (1.90, resvg/usvg are 1.87). DEC-054
+  emitted. Ready for a fresh verify session.
 - [ ] **verify** — fresh session; re-run all gates independently, confirm hostile-input safety
   (external-ref refused, cap-before-raster), lean build + `just deny` green, DEC-054 consistent.
 - [ ] **ship** — merge PR, cost sessions + totals, ship reflection, archive to done/, update

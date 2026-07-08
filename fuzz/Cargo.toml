@@ -6,6 +6,9 @@
 #
 # Run:  cargo +nightly fuzz run avif_decode -- -runs=100000
 # Seed: cargo +nightly fuzz run avif_decode ../tests/fixtures/avif
+#
+# Run:  cargo +nightly fuzz run svg_decode -- -runs=100000
+# Seed: cargo +nightly fuzz run svg_decode ../tests/fixtures/svg
 
 [package]
 name = "crustyimg-fuzz"
@@ -25,6 +28,13 @@ path = ".."
 [[bin]]
 name = "avif_decode"
 path = "fuzz_targets/avif_decode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "svg_decode"
+path = "fuzz_targets/svg_decode.rs"
 test = false
 doc = false
 bench = false
