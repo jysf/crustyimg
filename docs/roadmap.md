@@ -125,6 +125,11 @@ have an impressive unused tool.
   custom image service**. Ranked targets: Eleventy > Astro > Hugo > Next/Vite > Zola > Jekyll.
   Manifest contract: **key by source path**, self-contained per entry (sandboxed SSGs can't
   re-invoke the binary; see `docs/recipes.md §9`).
+- **Upstream contributions (ecosystem citizenship).** On-brand for "assemble the pure-Rust imaging
+  frontier": contribute **pure-Rust AVIF decode to `image-rs`** ([#2621](https://github.com/image-rs/image/issues/2621),
+  a trivial PoC-backed PR) — benefits the whole ecosystem AND gives crustyimg a future migration off
+  its direct `re_rav1d` dep. Tracked in `docs/contributions/upstream-image-rs-avif-decode.md`
+  (proposed; parallel to PROJ-009, blocks nothing).
 - **External users.** Find **design partners**, gather feedback, seed community (the abandoned
   `@squoosh/cli` audience + no-Node/Makefile shops are the warm leads).
 - **Commercial direction (deferred, tracked privately).** The **CLI + Actions are adoption, and
