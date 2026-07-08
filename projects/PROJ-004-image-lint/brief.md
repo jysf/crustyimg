@@ -4,7 +4,7 @@
 
 project:
   id: PROJ-004                       # stable, zero-padded, never reused
-  status: active                     # proposed | active | shipped | cancelled
+  status: shipped                    # proposed | active | shipped | cancelled
   priority: high                     # critical | high | medium | low
   target_ship: null                  # optional: YYYY-MM-DD
 
@@ -12,7 +12,7 @@ repo:
   id: crustyimg                      # must match .repo-context.yaml
 
 created_at: 2026-07-06
-shipped_at: null
+shipped_at: 2026-07-07
 
 # Business value. Testable claim, not marketing copy.
 value:
@@ -137,14 +137,15 @@ code (DEC-025, whose comment already anticipated "reusable by the future EXIF au
 
 Format: `- [status] STAGE-ID — one-line summary`
 
-- [~] STAGE-013 (active, NEXT) — Lint core & shipped-capability rules: the `lint` scaffold +
+- [x] STAGE-013 (shipped on 2026-07-06) — Lint core & shipped-capability rules: the `lint` scaffold +
   config + JSON report + every rule that needs only shipped features. A useful linter on day one.
-- [ ] STAGE-014 (proposed) — Engine-backed rules: `legacy-format` / `excessive-jpeg-quality` /
-  `indexed-png-opportunity` via the PROJ-002 engine + SSIMULACRA2 probe + savings-threshold gate.
-- [ ] STAGE-015 (proposed) — CI integration & adoption: SARIF output, pre-commit hook,
+- [ ] STAGE-014 (on_hold — deferred post-1.0) — Engine-backed rules: `legacy-format` /
+  `excessive-jpeg-quality` / `indexed-png-opportunity` via the PROJ-002 engine + SSIMULACRA2 probe.
+  Demand-gated (2026-07-07 roadmap reconciliation): further lint breadth waits for adoption signal.
+- [x] STAGE-015 (shipped on 2026-07-06) — CI integration & adoption: SARIF output, pre-commit hook,
   `just lint-images`, CI docs. Ships 0.4.0. (The GitHub Actions are separate repos.)
 
-**Count:** 0 shipped / 1 active / 2 pending
+**Count:** 2 shipped / 0 active / 1 on_hold (STAGE-014 deferred post-1.0)
 
 ## Dependencies
 
@@ -168,12 +169,21 @@ Format: `- [status] STAGE-ID — one-line summary`
 
 ## Project-Level Reflection
 
-*Filled in when status moves to shipped.*
-
-- **Did we deliver the outcome in "What This Project Is"?** <yes/no + notes>
-- **How many stages did it actually take?** <number, compare to plan>
-- **What changed between starting and shipping?** <one or two sentences>
+- **Did we deliver the outcome in "What This Project Is"?** Yes — `crustyimg lint` shipped and
+  RELEASED as **v0.4.0**: a 10-rule catalog (incl. the browser-invisible privacy/GPS-leak moat),
+  `.crustyimg-lint.toml` config, human/JSON/SARIF output, exit-7 gate — plus the two GitHub Actions
+  (`setup-crustyimg`, `crustyimg-action`) live and tagged v1. The defining CI differentiator is real.
+- **How many stages did it actually take?** 2 of 3 planned shipped (STAGE-013 core + STAGE-015 CI/
+  adoption). STAGE-014 (engine-backed rules) was **deferred post-1.0** (`on_hold`, demand-gated) —
+  not cancelled.
+- **What changed between starting and shipping?** The 2026-07-07 adoption-first roadmap reconciliation
+  judged further lint *breadth* the least-validated bet and moved STAGE-014 below the 1.0 line — so
+  we shipped the catalog + Actions and paused expansion rather than build more rules on spec.
 - **Lessons that should update AGENTS.md, templates, or constraints?**
-  - <one-line updates>
+  - GitHub Actions gotchas (recorded): hyphenated inputs need `inputs['x-y']`; composite `run` is
+    `bash -e` (use `set +e`).
+  - "Cheap to build" is a trap on a least-validated surface — gate further rule breadth on real
+    adoption signal, not on it being easy.
 - **What did we defer to the next project?**
-  - <one-line items>
+  - STAGE-014 engine-backed lint rules (`on_hold`, demand-gated — SPEC-054/055 reserved, unwritten).
+  - The next wave became **PROJ-009 (input reach)**, not more lint.
