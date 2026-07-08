@@ -126,7 +126,16 @@ have an impressive unused tool.
     (no nightly/cargo-fuzz in the build+verify envs). Run `cargo +nightly fuzz run svg_decode -- -runs=100000`
     (seed from `tests/fixtures/svg`) before a 1.0 release. Mitigated today by malformed-input + oversize-cap
     + external-ref-refused tests, but not fuzzed — the residual risk on the SVG untrusted-text path.
-  - Extend this list as each remaining input-reach decoder (RAW, opt-in HEIC) lands.
+  - **`fuzz/raw_preview`** — the RAW embedded-preview scan+decode target (SPEC-061/PR #67) ships but was
+    **not run** (no nightly/cargo-fuzz in the build+verify envs). Run `cargo +nightly fuzz run raw_preview -- -runs=100000`
+    (seed from `tests/fixtures/raw`) before a 1.0 release. Mitigated today by bounded-candidate + oversize-cap
+    + no-preview-typed-error tests, but not fuzzed — the residual risk on the RAW untrusted-binary path.
+  - Extend this list as the opt-in HEIC decoder (STAGE-019) lands.
+- **`lint <raw>` follow-up (own spec, post-STAGE-018).** `lint` decodes via `Image::from_bytes`
+  (`src/lint/mod.rs:210`), so it bypasses the RAW extension-routing that `Image::load`/`Image::decode_path`
+  do — `lint` on a `.nef` path does not read the embedded preview. NOT a SPEC-061 claim (its reach was
+  optimize/convert/info/resize/batch), so left out of scope; now that `Image::decode_path` exists it would
+  be a small change. Frame a spec if `lint <raw>` is ever wanted.
 - **Proof & distribution polish.** `BENCHMARKS.md` (cross-tool, honest equal-quality rule) · a
   real docs site + quickstart + recipe cookbook + the "why crustyimg" page + README badges · the
   **client-side demo page** (Wave 3) as the flagship "try it" artifact.

@@ -3,7 +3,7 @@
 task:
   id: SPEC-061
   type: story
-  cycle: design                    # frame | design | build | verify | ship
+  cycle: ship                      # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: M                    # one module + a load() branch; the weight is security bounds + the extension-routing wrinkle + corpus honesty
@@ -80,6 +80,45 @@ cost:
         loop, not a metered subagent, so tokens_total is an ORDER-OF-MAGNITUDE ESTIMATE per the
         autonomous-run-cost practice (labelled, not null). estimated_usd = 90k × Opus 4.8 list
         ($5/$25 per MTok, ~80/20) ≈ $0.81. All gates green; MSRV 1.90 and `just deny` unchanged.
+    - cycle: verify
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 200000
+      estimated_usd: 1.80
+      duration_minutes: null
+      recorded_at: 2026-07-08
+      notes: >
+        First verify session — ⚠ PUNCH LIST (one item: `info <raw>` bypassed RAW extension routing).
+        Re-ran all gates independently + drove the CLI; caught that run_info decoded via
+        Image::from_bytes. Main-loop, not a metered subagent → ORDER-OF-MAGNITUDE ESTIMATE per §4:
+        ~200k × Opus 4.8 list ($5/$25, ~80/20) ≈ $1.80. Sent back to build for the fix.
+    - cycle: verify
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 120000
+      estimated_usd: 1.08
+      duration_minutes: null
+      recorded_at: 2026-07-08
+      notes: >
+        Re-verify session after the punch-list fix — ✅ APPROVED. Confirmed the shared
+        `Image::decode_path` helper (single routing site), drove `info <fixture>.nef` (→ jpeg 64×48)
+        + the preview-less typed-error path, re-ran default+lean test/clippy/fmt/deny (571 pass, no new
+        dep, MSRV 1.90), spot-checked the other path callers undisturbed, confirmed lint-on-RAW left
+        out of scope. Main-loop → ORDER-OF-MAGNITUDE ESTIMATE per §4: ~120k ≈ $1.08.
+    - cycle: ship
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-07-08
+      notes: >
+        Ship bookkeeping (squash-merge #67, cost/reflection/totals/archive/stage-ship, roadmap gate,
+        lint-on-RAW follow-up) — main-loop, not separately metered → null-with-note per AGENTS §4.
+  totals:
+    tokens_total: 760000
+    estimated_usd: 6.84
+    session_count: 6
 ---
 
 # SPEC-061: RAW Tier-1 embedded-preview extraction as a default input
@@ -397,8 +436,26 @@ No new decision (DEC-055 stands, now actually honored by `info`); no new depende
 ## Reflection (Ship)
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Add an `info <input>` acceptance test for every new input format at design time. The verify
+   punch-list caught a real gap — `info <raw>` was broken — that shipped only because the capability
+   was asserted in prose (spec Context + the test-module doc) with no test. The deeper cause was an
+   architectural asymmetry I under-specified: AVIF/SVG route by content-sniff inside `from_bytes`, so
+   all callers get them; RAW routes by extension in `Image::load` only, so the byte-path caller
+   (`run_info`) silently regressed. When a format's routing seam differs from the established pattern,
+   the spec should enumerate the callers that must be updated — not assume "end-to-end" covers them.
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — No template/constraint change. DEC-055 stands (now actually honored by `info`). The reusable
+   lesson: **extension-routed inputs need a single shared path-decode helper** (`Image::decode_path`,
+   added in the fix) so every path caller routes identically — a content-sniffed format gets this for
+   free via `from_bytes`, but an extension-routed one does not. Worth remembering for the eventual
+   `SourceFormat` refactor. Also re-confirmed: a `#[cfg(test)]`-only struct field trips `-D dead-code`
+   under `--all-targets` — use a tuple/return hook (build reflection #2).
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — Yes, one tracked: **`lint` on a RAW path** (`src/lint/mod.rs:210` decodes via `Image::from_bytes`,
+   not the extension-aware routing) has the same latent asymmetry — NOT a SPEC-061 claim, so left out
+   of scope; needs its own spec if `lint <raw>` is ever wanted (now that `Image::decode_path` exists,
+   it would be a small change). Recorded in `docs/roadmap.md`. Also carried as a pre-1.0 gate: run
+   `cargo +nightly fuzz run raw_preview` (target ships, not run — no nightly in build/verify envs),
+   parity with `fuzz/avif_decode` + `fuzz/svg_decode`. Deferred (not lost): RAW-via-stdin, preview
+   EXIF/orientation passthrough, and the shared `SourceFormat` enum. Next: STAGE-019 (HEIC,
+   feature-gated, DEC-052) — the last stage of PROJ-009.

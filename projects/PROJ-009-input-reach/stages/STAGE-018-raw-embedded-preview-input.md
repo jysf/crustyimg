@@ -2,7 +2,7 @@
 # Maps to ContextCore epic-level conventions.
 stage:
   id: STAGE-018
-  status: active                    # proposed | active | shipped | cancelled | on_hold
+  status: shipped                   # proposed | active | shipped | cancelled | on_hold
   priority: high
   target_complete: null
 
@@ -12,7 +12,7 @@ repo:
   id: crustyimg
 
 created_at: 2026-07-08
-shipped_at: null
+shipped_at: 2026-07-08
 
 value_contribution:
   advances: >
@@ -104,14 +104,15 @@ allow-list, typed errors, DEC-034 caps, a cargo-fuzz target, and a decision DEC.
 
 Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
-- [ ] SPEC-061 (design) — RAW **Tier-1 embedded-preview extraction**: extension-routed in
-  `Image::load`; `src/image/raw.rs` scans for embedded JPEG streams, decodes each with the
-  DEC-034-capped `image` decoder, keeps the largest → canonical `Image` (`source_format = Jpeg`);
-  RAW extensions in `IMAGE_EXTENSIONS`; typed errors, candidate-count + per-decode caps,
-  `fuzz/raw_preview` target; DEC-055 — **no new dependency**, format-agnostic (covers TIFF-based
-  RAW + CR3 + RAF).
+- [x] SPEC-061 (shipped on 2026-07-08) — RAW **Tier-1 embedded-preview extraction**: extension-routed
+  via a shared `Image::decode_path` helper; `src/image/raw.rs` scans for embedded JPEG streams, decodes
+  each with the DEC-034-capped `image` decoder, keeps the largest → canonical `Image`
+  (`source_format = Jpeg`); RAW extensions in `IMAGE_EXTENSIONS`; typed errors, candidate-count +
+  per-decode caps, `fuzz/raw_preview` target; DEC-055 — **no new dependency**, format-agnostic (covers
+  TIFF-based RAW + CR3 + RAF). PR #67 (c55b77b), 20/20 CI green; one verify punch-list (`info <raw>`
+  routing) fixed in build cycle 2.
 
-**Count:** 0 shipped / 1 active / 0 pending — single-spec stage (mirrors STAGE-016/017's shape).
+**Count:** 1 shipped / 0 active / 0 pending — single-spec stage complete.
 
 ## Design Notes
 
@@ -167,12 +168,26 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
 ## Stage-Level Reflection
 
-*Filled in when status moves to shipped.*
-
-- **Did we deliver the outcome in "What This Stage Is"?** <yes/no + notes>
-- **How many specs did it actually take?** <number vs. plan>
-- **What changed between starting and shipping?** <one sentence>
+- **Did we deliver the outcome in "What This Stage Is"?** Yes — the default binary now reads common
+  RAW (`.nef/.cr2/.cr3/.arw/.dng/.raf/.rw2/.orf/…`) by extracting the embedded full-res JPEG preview,
+  end to end (optimize/convert/info/resize/batch), pure-Rust, **no new dependency**, hostile-input
+  bounded (DEC-034-capped decodes, bounded candidate count, typed errors). PR #67, 20/20 CI green.
+- **How many specs did it actually take?** 1 (SPEC-061) — as planned; a clean single-spec stage
+  mirroring STAGE-016 (AVIF) and STAGE-017 (SVG).
+- **What changed between starting and shipping?** The design probe collapsed the work: a
+  format-agnostic byte scan for the largest embedded JPEG (leaning on `image::load_from_memory`
+  tolerating trailing bytes) covers TIFF-based RAW **plus CR3 plus RAF** with no IFD/ISOBMFF parsing
+  and no new dep — overturning the brief's "reuses ISOBMFF glue for CR3" and the watchlist's "parse the
+  TIFF/EXIF IFDs". Verify then caught one real gap (`info <raw>` bypassed the extension routing),
+  fixed in a second build cycle via a shared `Image::decode_path` helper.
 - **Lessons that should update AGENTS.md, templates, or constraints?**
-  - <one-line updates>
+  - **Extension-routed inputs need a single shared path-decode seam.** RAW is the first input routed by
+    extension (not content-sniff), so the byte-path caller `run_info` silently regressed until verify
+    caught it. The fix (`Image::decode_path`) is the pattern; a spec introducing a routing seam that
+    differs from the established one should enumerate the callers to update, not assume "end-to-end".
+  - **Prose-only capability claims hide test gaps.** `info <raw>` was asserted in the spec Context +
+    the test-module doc but had no test → green gates didn't reveal it. Add an `info <input>` test for
+    each new input format at design (the verify-test-existence discipline).
 - **Should any spec-level reflections be promoted to stage-level lessons?**
-  - <one-line items>
+  - Yes — both of the above (the shared path-decode seam + the prose-claim/test-gap) generalize to every
+    future input format, so they belong at stage level, not just SPEC-061.

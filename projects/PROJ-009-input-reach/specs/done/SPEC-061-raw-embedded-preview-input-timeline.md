@@ -32,7 +32,13 @@ there is no separate prompt file unless a cycle needs one.
   `tests/input_raw.rs::info_raw_reports_jpeg_dims` (+ typed-error test). Noted the same latent asymmetry
   in `lint` (`src/lint/mod.rs:210`) as an out-of-scope follow-up. All gates green; no new dep; MSRV/deny
   unchanged.
-- [ ] **verify** — fresh session; re-run all gates independently, confirm hostile-input safety
-  (bounded candidate decodes, cap-per-decode, false-SOI skip), no new dep, DEC-055 consistent.
-- [ ] **ship** — merge PR, cost sessions + totals, ship reflection, archive to done/, update
-  STAGE-018 backlog; carry `fuzz/raw_preview` as a pre-1.0 hardening gate (like `fuzz/avif_decode`).
+- [x] **verify** — TWO sessions. **v1: ⚠ PUNCH LIST** (one item — `info <raw>` bypassed RAW
+  extension routing) → sent back to build for the fix above. **v2 (re-verify): ✅ APPROVED** —
+  confirmed the shared `Image::decode_path` helper (single routing site), drove `info <fixture>.nef`
+  (→ jpeg 64×48) + the typed preview-less error, re-ran default+lean test/clippy/fmt/`just deny`
+  (571 pass, no new dep, MSRV 1.90), spot-checked other path callers undisturbed, lint-on-RAW
+  confirmed out of scope. 2026-07-08.
+- [x] **ship** — squash-merged PR #67 → main (c55b77b); appended verify×2 + ship cost sessions +
+  totals (760k, labelled estimates §4), ship reflection, marked cycle ship; archived to done/;
+  STAGE-018 shipped (single-spec stage). `fuzz/raw_preview` run + lint-on-RAW follow-up carried in
+  docs/roadmap.md. 2026-07-08.

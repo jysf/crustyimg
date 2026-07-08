@@ -95,13 +95,13 @@ Format: `- [status] STAGE-ID — one-line summary`
 - [x] STAGE-017 (shipped on 2026-07-08) — SVG rasterize input via the `resvg`/`usvg`/`tiny-skia` stack
   (all permissive: Apache-2.0 OR MIT / BSD-3-Clause — **no deny license exception**; one RUSTSEC-2026-0192
   advisory ignore), default build (SPEC-060, PR #66, DEC-054).
-- [~] STAGE-018 (active — framed 2026-07-08) — RAW Tier-1 embedded-preview extraction (permissive, **no new
+- [x] STAGE-018 (shipped on 2026-07-08) — RAW Tier-1 embedded-preview extraction (permissive, **no new
   dep**): a format-agnostic byte scan for the largest embedded JPEG covers TIFF-based RAW + CR3 + RAF with
-  no ISOBMFF/IFD parsing (probe finding corrects the "ISOBMFF glue" assumption); extension-routed in
-  `Image::load` (SPEC-061, DEC-055). **← active**
-- [ ] (not yet framed) STAGE-019 — HEIC decode behind `--features heic` (libheif decode-only; DEC-052). **← next**
+  no ISOBMFF/IFD parsing (probe finding corrected the "ISOBMFF glue" assumption); extension-routed via a
+  shared `Image::decode_path` helper (SPEC-061, PR #67, DEC-055).
+- [ ] (not yet framed) STAGE-019 — HEIC decode behind `--features heic` (libheif decode-only; DEC-052). **← next (last of PROJ-009)**
 
-**Count:** 2 shipped / 1 active / 1 pending (STAGE-016 + 017 shipped; 018 active/framed, then 019)
+**Count:** 3 shipped / 0 active / 1 pending (STAGE-016 + 017 + 018 shipped; 019 next closes the wave)
 
 ## Dependencies
 
