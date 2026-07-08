@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="40" height="30" viewBox="0 0 40 30">
+  <rect x="0" y="0" width="40" height="30" fill="#3366cc"/>
+  <circle cx="30" cy="10" r="8" fill="#ffffff" fill-opacity="0.5"/>
+  <text x="4" y="24" font-family="Go" font-size="10" fill="#ffffff">Hi</text>
+</svg>

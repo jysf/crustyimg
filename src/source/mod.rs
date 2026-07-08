@@ -94,8 +94,11 @@ pub enum SourceError {
 // `avif` is a DEFAULT-decodable input (SPEC-058, DEC-053) — pure-Rust decode via
 // `re_rav1d` + `avif-parse`, so directory/glob sources discover `.avif` like any
 // other image.
+// `svg` is a DEFAULT-rasterizable input (SPEC-060, DEC-054) — pure-Rust rasterize
+// via `resvg`/`usvg`/`tiny-skia`, so directory/glob sources discover `.svg` too.
+// (`.svgz` gzip is out of scope for v1 — the content sniff keys on `<svg`/`<?xml`.)
 const IMAGE_EXTENSIONS: &[&str] = &[
-    "jpg", "jpeg", "png", "gif", "bmp", "tif", "tiff", "ico", "avif",
+    "jpg", "jpeg", "png", "gif", "bmp", "tif", "tiff", "ico", "avif", "svg",
 ];
 
 fn has_image_extension(path: &Path) -> bool {

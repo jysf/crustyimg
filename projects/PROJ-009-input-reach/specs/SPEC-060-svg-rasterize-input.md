@@ -48,6 +48,20 @@ cost:
         Included a firsthand load-bearing probe (`cargo add resvg` v0.47.0 + `cargo deny` +
         compiling the render/security/font API in a throwaway crate) to verify licenses, the
         dep tree, the render pipeline, the hardening options, and the text/advisory trade-off.
+    - cycle: build
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 185000
+      estimated_usd: 1.67
+      duration_minutes: 30
+      recorded_at: 2026-07-08
+      notes: >
+        Build cycle run in the main loop (not a separately-metered subagent), so tokens_total is
+        an ORDER-OF-MAGNITUDE ESTIMATE, not a null (per the autonomous-run-cost practice + AGENTS §4).
+        estimated_usd = 185k tokens × Opus 4.8 list rate ($5/$25 per MTok, ~80/20 input/output, no
+        cache discount) ≈ $1.67. Wired src/image/svg.rs + dispatch + IMAGE_EXTENSIONS + deny advisory
+        ignore + fixture/tests/fuzz + DEC-054; all gates (default test, lean build, deny, clippy, fmt,
+        MSRV) verified green firsthand.
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -368,24 +382,45 @@ explicit `-o`/`--format`). Return it from the `svg` dispatch arm just like the A
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
+- **Branch:** `feat/spec-060-svg-rasterize`
+- **PR (if applicable):** #66
+- **All acceptance criteria met?** yes
+  - Default-build `.svg` rasterize (intrinsic width/height, else viewBox) → canonical RGBA `Image`,
+    `source_format = Png`. DEC-034 caps enforced from `usvg::Tree::size()` **before** `Pixmap::new`.
+    Malformed/truncated → typed `Decode`. External file/URL hrefs refused (no local-file read/network),
+    decode still `Ok`. `.svg` in `IMAGE_EXTENSIONS`; dir/glob discovery works. `optimize .svg → .png`
+    and `convert .svg → .webp` exit 0 with correct dims. `<text>` renders with the bundled Go font
+    (no system fonts). `just deny` green — **no license exception**, one `RUSTSEC-2026-0192` advisory
+    ignore. `fuzz/svg_decode` target added. Lean `--no-default-features` build + clippy + fmt clean.
 - **New decisions emitted:**
-  - `DEC-054` — <title>
+  - `DEC-054` — SVG rasterize dependency (`resvg`/`usvg`/`tiny-skia`, text ON + bundled font, hardened)
 - **Deviations from spec:**
-  - [list]
+  - `convert` requires an explicit `--format` (it does not infer from the `-o` extension), so the
+    `convert_svg_to_webp` integration test passes `--format webp` (the spec's example omitted it). No
+    behavior change — purely the test invocation.
+  - `is_svg` gained a small tag-boundary check (`<svg` must be followed by whitespace/`>`/`/`/EOF) so
+    `<svgfoo>` is not mis-sniffed — a tightening within the spec's "starts with `<svg`" intent.
 - **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - SVGZ (`.svgz`, gzip) input: sniff gzip magic (`1f 8b`) → hand to usvg (auto-decompresses). Noted
+    out-of-scope in DEC-054; a small follow-up spec.
+  - A faithful `SourceFormat` enum that can name non-`image` inputs (so `info x.svg` reports `svg`,
+    not `png`) — cross-cutting refactor, out of scope here.
+  - A `--size`/`--scale`/`--dpi` SVG render override (v1 rasterizes at intrinsic 1x).
 
 ### Build-phase reflection (3 questions, short answers)
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — Almost nothing — the Implementation Context's verified probe (the exact render/security/font code,
+   the licensing correction, the deny.toml delta) was a near-drop-in handoff. The one small gap was the
+   `convert` CLI needing an explicit `--format` (surfaced by a failing test, fixed in seconds).
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — No. The referenced set (DEC-004/034/018/045/054 + the untrusted-input + single-image-library
+   constraints) was complete. The probe having already resolved the MPL-vs-permissive question up front
+   is what made the license step a non-event.
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Run `just deny` immediately after `cargo add` (I did) — that front-loaded the advisory before any
+   module code, exactly as the AVIF lesson prescribes. Nothing I'd change; the mirror-AVIF discipline
+   made this fast.
 
 ---
 
