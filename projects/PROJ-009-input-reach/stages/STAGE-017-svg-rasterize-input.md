@@ -2,7 +2,7 @@
 # Maps to ContextCore epic-level conventions.
 stage:
   id: STAGE-017
-  status: active                    # proposed | active | shipped | cancelled | on_hold
+  status: shipped                   # proposed | active | shipped | cancelled | on_hold
   priority: high
   target_complete: null
 
@@ -12,7 +12,7 @@ repo:
   id: crustyimg
 
 created_at: 2026-07-08
-shipped_at: null
+shipped_at: 2026-07-08
 
 value_contribution:
   advances: >
@@ -107,14 +107,14 @@ DEC emitted at build.
 
 Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
-- [ ] SPEC-060 (design) — SVG **rasterize + security + wiring**: `resvg`/`usvg`/`tiny-skia`
-  (all permissive) → tiny-skia Pixmap → straight RGBA8 → canonical `Image`; content-sniff
-  dispatch in `decode_with_limits`, `.svg` in `IMAGE_EXTENSIONS`; usvg hardened
-  (no external resources/scripts/network, data-URI-only hrefs), DEC-034 dimension cap before
-  raster, typed errors, cargo-fuzz target, bundled-Go-font text; DEC-054; deny.toml advisory
-  ignore (RUSTSEC-2026-0192, ttf-parser unmaintained) — **no license exception**.
+- [x] SPEC-060 (shipped on 2026-07-08) — SVG **rasterize + security + wiring**: `resvg`/`usvg`/`tiny-skia`
+  (all permissive) → tiny-skia Pixmap → straight RGBA8 → canonical `Image`; content-sniff dispatch in
+  `decode_with_limits`, `.svg` in `IMAGE_EXTENSIONS`; usvg hardened (resources_dir=None, external
+  file/URL hrefs refused, bundled Go font only), DEC-034 dimension cap before raster, typed errors,
+  `fuzz/svg_decode` target, `source_format=Png`; DEC-054; deny.toml one RUSTSEC-2026-0192 advisory
+  ignore — **no license exception**. PR #66 (7414af3), 20/20 CI green incl. Windows + MSRV 1.90.
 
-**Count:** 0 shipped / 1 active / 0 pending — single-spec stage (mirrors STAGE-016's shape).
+**Count:** 1 shipped / 0 active / 0 pending — single-spec stage complete.
 
 ## Design Notes
 
@@ -208,12 +208,26 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
 ## Stage-Level Reflection
 
-*Filled in when status moves to shipped.*
-
-- **Did we deliver the outcome in "What This Stage Is"?** <yes/no + notes>
-- **How many specs did it actually take?** <number vs. plan>
-- **What changed between starting and shipping?** <one sentence>
+- **Did we deliver the outcome in "What This Stage Is"?** Yes — the default binary now rasterizes
+  `.svg` end to end (optimize/convert/info/resize/batch), pure-Rust, zero system deps, hostile-input
+  safe (external refs refused, cap-before-raster, typed errors). PR #66, 20/20 CI green incl. Windows.
+- **How many specs did it actually take?** 1 (SPEC-060) — as planned; a clean single-spec stage
+  mirroring STAGE-016 (AVIF).
+- **What changed between starting and shipping?** The framing's central risk assumption was overturned
+  in our favor: the design-time probe found the resvg stack **fully permissive** (no MPL license
+  exception, contra the brief) and, on the maintenance question the user raised, that resvg is
+  **Linebender-maintained** with only the `ttf-parser` leaf flagged — so the SVG-text decision
+  resolved to "text ON + one advisory ignore now, drop it when upstream migrates off ttf-parser"
+  rather than a costly in-house text→path pre-pass.
 - **Lessons that should update AGENTS.md, templates, or constraints?**
-  - <one-line updates>
+  - **Push design commits to `origin/main` before dispatching the build session.** They were local-only
+    here, fell into PR #66's DCO range, and failed sign-off — the `push-design-before-build-branches`
+    lesson recurring. Treat it as a hard pre-build step.
+  - A design-time load-bearing probe that *compiles the real API + runs `cargo deny`* (not just reads
+    docs) made build + verify near-eventless — the probe-load-bearing-crates discipline paid off again.
+  - `fuzz/svg_decode` ships but was never run (no nightly) — tracked as a pre-1.0 hardening gate in
+    `docs/roadmap.md` alongside `fuzz/avif_decode`; do not lose it on an untrusted-input decoder.
 - **Should any spec-level reflections be promoted to stage-level lessons?**
-  - <one-line items>
+  - The advisory-vs-capability call (accept a well-precedented informational advisory ignore rather than
+    build soon-throwaway glue when a maintained upstream fix is arriving) is the reusable judgment — the
+    *inverse* of the AVIF call, where no upstream path existed so owning the glue was right.

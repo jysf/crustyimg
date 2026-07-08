@@ -122,7 +122,11 @@ have an impressive unused tool.
     (no nightly/cargo-fuzz in the build+verify envs). Run `cargo +nightly fuzz run avif_decode -- -runs=100000`
     (or wire it into CI/OSS-Fuzz) before a 1.0 release. The single real residual risk on the AVIF
     untrusted-binary path — mitigated today by corrupt-input + cap unit tests, but not fuzzed.
-  - Extend this list as each input-reach decoder (SVG, RAW, opt-in HEIC) lands.
+  - **`fuzz/svg_decode`** — the SVG parse+rasterize target (SPEC-060/PR #66) ships but was **not run**
+    (no nightly/cargo-fuzz in the build+verify envs). Run `cargo +nightly fuzz run svg_decode -- -runs=100000`
+    (seed from `tests/fixtures/svg`) before a 1.0 release. Mitigated today by malformed-input + oversize-cap
+    + external-ref-refused tests, but not fuzzed — the residual risk on the SVG untrusted-text path.
+  - Extend this list as each remaining input-reach decoder (RAW, opt-in HEIC) lands.
 - **Proof & distribution polish.** `BENCHMARKS.md` (cross-tool, honest equal-quality rule) · a
   real docs site + quickstart + recipe cookbook + the "why crustyimg" page + README badges · the
   **client-side demo page** (Wave 3) as the flagship "try it" artifact.

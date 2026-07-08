@@ -3,7 +3,7 @@
 task:
   id: SPEC-060
   type: story
-  cycle: design                    # frame | design | build | verify | ship
+  cycle: ship                      # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: M                    # rasterizer wiring is small; the security config + text/advisory decision + the source_format wrinkle carry the weight
@@ -62,10 +62,35 @@ cost:
         cache discount) ≈ $1.67. Wired src/image/svg.rs + dispatch + IMAGE_EXTENSIONS + deny advisory
         ignore + fixture/tests/fuzz + DEC-054; all gates (default test, lean build, deny, clippy, fmt,
         MSRV) verified green firsthand.
+    - cycle: verify
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 140000
+      estimated_usd: 1.26
+      duration_minutes: 20
+      recorded_at: 2026-07-08
+      notes: >
+        Fresh interactive verify session — main-loop, so tokens_total is an ORDER-OF-MAGNITUDE
+        ESTIMATE (per AGENTS §4 + the autonomous-run-cost practice), not a metered subagent number.
+        estimated_usd = 140k × Opus 4.8 list ($5/$25 per MTok, ~80/20 in/out, no cache discount) ≈ $1.26.
+        Re-ran all gates independently (default+lean test 555, clippy default+lean, fmt, just deny,
+        decisions-audit) and DROVE the CLI on hostile (file:// + http refs → exit 0 clean raster) and
+        bomb (100000² → LimitsExceeded in ~4 ms, no giant alloc) inputs. PR #66 CLEAN, 20 CI checks
+        pass, MSRV 1.90. ✅ APPROVED, no punch list.
+    - cycle: ship
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-07-08
+      notes: >
+        Ship bookkeeping (squash-merge #66, cost/reflection/totals/archive/stage-ship, roadmap gate) —
+        main-loop, not separately metered → null-with-note per AGENTS §4.
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 325000
+    estimated_usd: 2.93
+    session_count: 4
 ---
 
 # SPEC-060: SVG rasterize as a default, pure-Rust input
@@ -427,8 +452,23 @@ explicit `-o`/`--format`). Return it from the `svg` dispatch arm just like the A
 ## Reflection (Ship)
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Push the design commits to `origin/main` **before** dispatching the build session. They were
+   committed to local `main` but not pushed, so they fell into PR #66's DCO sign-off range and failed
+   the check; the build session had to sign them off, push to origin/main, and rebase the branch. This
+   is exactly the `push-design-before-build-branches` lesson recurring — worth treating as a hard
+   pre-build step, not a habit. Everything else (probe-first design, mirror-AVIF discipline) I'd keep;
+   the design-time load-bearing probe made build + verify near-eventless.
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — No template/constraint change. DEC-054 emitted (rasterizer deps + the one advisory ignore). The
+   standing reminders held: MSRV floor unchanged (resvg/usvg are 1.87 < the tree's 1.90 avif-parse
+   floor), and `just deny` right after `cargo add` front-loaded the RUSTSEC-2026-0192 advisory. The
+   framing's MPL-2.0 guess being wrong (the tree is fully permissive) is captured in DEC-054 + the
+   watchlist reasoning — no further doc change needed.
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — No new spec now, but ONE tracked pre-1.0 gate: **run `cargo +nightly fuzz run svg_decode`** — the
+   target ships but was not run (no nightly in build/verify envs), parity with `fuzz/avif_decode`.
+   Recorded as a pre-1.0 hardening gate in `docs/roadmap.md`. Deferred (not lost): SVGZ input, a
+   faithful `SourceFormat` enum (so `info x.svg` reports `svg` not `png`), a `--size`/`--scale` render
+   override, and — the strategic one — dropping the RUSTSEC-2026-0192 ignore once resvg's text stack
+   migrates off ttf-parser to fontations/read-fonts (HarfRust). Next in the wave: STAGE-018 (RAW Tier-1
+   embedded-preview extraction).

@@ -24,7 +24,13 @@ there is no separate prompt file unless a cycle needs one.
   build + `just deny` + clippy + fmt clean); licenses needed NO exception (probe finding held), one
   RUSTSEC-2026-0192 advisory ignore added; MSRV floor unchanged (1.90, resvg/usvg are 1.87). DEC-054
   emitted. Ready for a fresh verify session.
-- [ ] **verify** — fresh session; re-run all gates independently, confirm hostile-input safety
-  (external-ref refused, cap-before-raster), lean build + `just deny` green, DEC-054 consistent.
-- [ ] **ship** — merge PR, cost sessions + totals, ship reflection, archive to done/, update
-  STAGE-017 backlog; carry `fuzz/svg_decode` as a pre-1.0 hardening gate (like `fuzz/avif_decode`).
+- [x] **verify** — ✅ APPROVED (fresh Opus session, run independently). All gates re-run locally
+  (default+lean cargo test 555, clippy default+lean, fmt, `just deny`, decisions-audit) + drove the
+  CLI on hostile (file:// + http refs → exit 0 clean raster) and bomb (100000² → LimitsExceeded in
+  ~4 ms) inputs. Every acceptance criterion mapped to a real test; no license exception (probe held),
+  one RUSTSEC-2026-0192 advisory ignore w/ revisit trigger; source_format=Png; MSRV 1.90; PR #66 20/20
+  CI green. No punch list. 2026-07-08.
+- [x] **ship** — squash-merged PR #66 → main (7414af3); appended verify+ship cost sessions + totals
+  (325k, labelled estimates §4), ship reflection, marked cycle ship; archived to done/; STAGE-017
+  shipped (single-spec stage). `fuzz/svg_decode` carried as a pre-1.0 hardening gate in docs/roadmap.md.
+  2026-07-08.
