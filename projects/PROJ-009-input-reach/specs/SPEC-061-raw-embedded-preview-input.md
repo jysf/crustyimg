@@ -48,10 +48,22 @@ cost:
         embedded-JPEG mechanism: load_from_memory tolerates trailing bytes, and decode-from-each-SOI +
         pick-largest-by-pixels extracts the full preview over the thumbnail — no IFD/ISOBMFF parsing,
         no new dep.
-  totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    - cycle: build
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 350000
+      estimated_usd: 3.15
+      duration_minutes: 20
+      recorded_at: 2026-07-08
+      notes: >
+        Build ran in the main loop (interactive, not a separately-metered subagent), so `/cost` was
+        not readable programmatically — tokens_total is an ORDER-OF-MAGNITUDE ESTIMATE per the
+        autonomous-run-cost practice (labelled estimate, not null, so `just cost-audit` passes at
+        ship). estimated_usd = 350k tokens × Opus 4.8 list ($5/$25 per MTok, ~80/20 in/out) ≈ $3.15.
+        Work: src/image/raw.rs (byte scan + capped decode + bounded candidates), Image::load extension
+        routing + public raw_preview entry, RAW extensions in IMAGE_EXTENSIONS, synthetic fixture via
+        examples/gen_raw_fixture.rs, unit + integration tests, fuzz/raw_preview, DEC-055. All gates
+        green (default + lean build/clippy/fmt/test, `just deny` unchanged); no new dependency.
 ---
 
 # SPEC-061: RAW Tier-1 embedded-preview extraction as a default input
@@ -314,24 +326,28 @@ error if named directly; fine.
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
+- **Branch:** `feat/spec-061-raw-preview`
+- **PR (if applicable):** (opened at end of build — see PR link in ship bookkeeping)
+- **All acceptance criteria met?** yes
 - **New decisions emitted:**
-  - `DEC-055` — <title>
+  - `DEC-055` — RAW input = Tier-1 largest-embedded-JPEG preview (format-agnostic byte scan, no new dependency)
 - **Deviations from spec:**
-  - [list]
+  - **Metadata is `None` for RAW, not "best-effort from the preview's APP1".** The spec's Implementation Context left this optional ("… or `None`"). `extract_preview` is pinned to `-> Result<DynamicImage>` (Outputs section), which does not surface the winning JPEG's byte offset; capturing the preview's own APP1 would mean threading that offset out. Chose the spec-faithful `None` and documented preview-APP1 passthrough as a follow-up (recorded in DEC-055 Consequences). No acceptance criterion tests RAW metadata.
+  - **Bounded-decode test uses a `(Option<DynamicImage>, bool, usize)` tuple hook** (the `attempts` count) rather than a struct — a struct field read only under `#[cfg(test)]` trips `-D dead-code` in the plain-lib `--all-targets` build. The tuple's third element is the spec's "counter hook".
+  - **`decode_jpeg_with_limits` forces `ImageFormat::Jpeg` via `ImageReader::set_format`** (we already found an SOI, so no re-sniff) and reuses the shared `super::map_image_decode_error` so a caps rejection maps to `LimitsExceeded` identically to the generic path.
 - **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - RAW **via stdin** (`--format raw` hint or a `Make`/`ftyp 'crx '` content sniff) — v1 non-goal.
+  - RAW-container / preview-APP1 **EXIF + orientation passthrough** (so auto-orient works on RAW).
+  - A faithful `SourceFormat` enum (shared with SVG→`Png`) so `info x.nef` need not report `jpeg`.
 
 ### Build-phase reflection (3 questions, short answers)
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — Almost nothing — the Implementation Context (probe block + `extract_preview` sketch + routing decision + extension set) was a near-complete handoff. The only judgment call was whether to capture the preview's metadata; the spec pre-answered it as optional, so I picked the simpler `None` and documented it.
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — No. The listed set (DEC-004/034/018, `untrusted-input-hardening`, `single-image-library`, etc.) was complete. One implicit gotcha worth noting for the template: a `#[cfg(test)]`-only struct-field read fails `-D dead-code` under `--all-targets` — reach for a tuple/return value, not a struct, for test-only hooks.
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Write the `scan_for_preview` return as a tuple from the start (avoided a clippy round-trip). Otherwise the mirror-AVIF/SVG approach was efficient: module + one `load` branch + `IMAGE_EXTENSIONS` + fixture-via-example + fuzz target, all patterned on SPEC-058/060.
 
 ---
 

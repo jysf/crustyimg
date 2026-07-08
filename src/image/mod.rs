@@ -27,6 +27,7 @@ use ::image::{ColorType, DynamicImage, ImageFormat, ImageReader};
 use crate::error::{ImageError, Result};
 
 mod avif;
+mod raw;
 mod svg;
 
 /// Maximum image dimension (width or height) in pixels accepted at decode time
@@ -64,6 +65,14 @@ impl Image {
         // `ImageReader::open` surfaces a missing/unreadable file as io::Error,
         // which maps to ImageError::Io via #[from].
         let bytes = std::fs::read(path)?;
+        // RAW takes a dedicated Tier-1 preview-extraction path (SPEC-061,
+        // DEC-055): a RAW container embeds a full-res JPEG preview but is
+        // byte-ambiguous with a plain TIFF, so it is routed by file EXTENSION
+        // here (where the `Path` is available) BEFORE the generic byte decoder,
+        // which has no path. RAW-via-stdin (`from_bytes`) is a v1 non-goal.
+        if raw::is_raw_extension(path) {
+            return raw_preview(&bytes);
+        }
         Image::from_bytes(&bytes)
     }
 
@@ -317,6 +326,29 @@ fn decode_with_limits(
 /// enforcement are consistent.
 fn decode_with_format(bytes: &[u8]) -> Result<(DynamicImage, ImageFormat)> {
     decode_with_limits(bytes, &decode_limits())
+}
+
+/// Extract the embedded full-res JPEG preview from RAW `bytes` as a canonical
+/// [`Image`] under the production DEC-034 caps (SPEC-061, DEC-055).
+///
+/// This is the byte-level entry shared by the [`Image::load`] RAW branch and the
+/// `raw_preview` cargo-fuzz target. Routing to it is by file **extension** in
+/// [`Image::load`] (RAW containers are byte-ambiguous with plain TIFF), so this
+/// is the only public surface for the untrusted-input path — the scan/decode
+/// internals stay private to [`raw`].
+///
+/// The extracted preview *is* a JPEG, so `source_format` is reported as
+/// [`ImageFormat::Jpeg`] (the "materialized raster format" convention, like
+/// SVG→`Png`). Metadata is **not** captured in v1: the RAW container's EXIF is
+/// out of scope and threading the winning preview's own APP1 through the scan is
+/// a documented follow-up, so the bundle is `None` (best-effort).
+pub fn raw_preview(bytes: &[u8]) -> Result<Image> {
+    let pixels = raw::extract_preview(bytes, &decode_limits())?;
+    Ok(Image {
+        pixels,
+        source_format: ImageFormat::Jpeg,
+        metadata: None,
+    })
 }
 
 /// Bits per channel for a [`ColorType`] (e.g. `Rgb8`/`Rgba8` → 8, `Rgb16` →
@@ -754,5 +786,84 @@ mod tests {
         let px = rgba.get_pixel(5, 5);
         assert_eq!(px.0[1], 255, "expected green background, got {:?}", px.0);
         assert_eq!(px.0[0], 0, "expected green background, got {:?}", px.0);
+    }
+
+    // ── SPEC-061 RAW embedded-preview extraction (default) ────────────────────
+
+    /// Encode a solid-color JPEG in memory (the RAW-fixture primitive).
+    fn solid_jpeg(w: u32, h: u32) -> Vec<u8> {
+        let img = RgbImage::from_pixel(w, h, ::image::Rgb([200, 150, 100]));
+        let mut out = Cursor::new(Vec::new());
+        DynamicImage::ImageRgb8(img)
+            .write_to(&mut out, ImageFormat::Jpeg)
+            .unwrap();
+        out.into_inner()
+    }
+
+    /// Assemble a synthetic RAW blob: `[II*\0 TIFF hdr][thumb jpeg][junk][preview jpeg]`.
+    fn synthetic_raw(thumb: (u32, u32), preview: (u32, u32)) -> Vec<u8> {
+        let mut b = vec![0x49, 0x49, 0x2A, 0x00, 0x08, 0x00, 0x00, 0x00];
+        b.extend_from_slice(&solid_jpeg(thumb.0, thumb.1));
+        b.extend_from_slice(&[0x00, 0x11, 0x22, 0x33]);
+        b.extend_from_slice(&solid_jpeg(preview.0, preview.1));
+        b
+    }
+
+    /// A `.nef` on disk routes to preview extraction: `Image::load` returns the
+    /// larger embedded JPEG (the full preview) as the canonical `Image` with
+    /// `source_format == Jpeg`.
+    #[test]
+    fn raw_extension_routes_to_preview_extraction() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("photo.nef");
+        std::fs::write(&path, synthetic_raw((16, 12), (64, 48))).unwrap();
+
+        let img = Image::load(&path).expect("load raw preview");
+        assert_eq!(img.width(), 64);
+        assert_eq!(img.height(), 48);
+        assert_eq!(img.source_format(), ImageFormat::Jpeg);
+    }
+
+    /// A non-RAW extension still loads via the generic decoder — the RAW branch
+    /// is extension-gated and does not affect ordinary inputs.
+    #[test]
+    fn non_raw_extension_still_uses_generic_decoder() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("x.png");
+        std::fs::write(&path, solid_png(5, 7, [1, 2, 3])).unwrap();
+
+        let img = Image::load(&path).expect("load png");
+        assert_eq!(img.width(), 5);
+        assert_eq!(img.height(), 7);
+        assert_eq!(img.source_format(), ImageFormat::Png);
+    }
+
+    /// The public `raw_preview` byte entry (also the fuzz surface) extracts the
+    /// largest embedded JPEG regardless of the surrounding container bytes.
+    #[test]
+    fn raw_preview_entry_extracts_largest() {
+        let blob = synthetic_raw((16, 12), (48, 32));
+        let img = raw_preview(&blob).expect("extract preview");
+        assert_eq!(img.width(), 48);
+        assert_eq!(img.height(), 32);
+        assert_eq!(img.source_format(), ImageFormat::Jpeg);
+    }
+
+    /// A RAW-extension file with no decodable embedded JPEG is a typed error,
+    /// never a panic.
+    #[test]
+    fn raw_with_no_preview_is_typed_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("empty.cr3");
+        std::fs::write(&path, b"ftypcrx not really a jpeg in here").unwrap();
+
+        let result = Image::load(&path);
+        assert!(
+            matches!(
+                result,
+                Err(ImageError::Decode(_) | ImageError::UnsupportedFormat)
+            ),
+            "expected typed error, got {result:?}"
+        );
     }
 }
