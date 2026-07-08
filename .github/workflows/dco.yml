@@ -1,0 +1,63 @@
+name: DCO
+
+# Enforces the Developer Certificate of Origin sign-off required by CONTRIBUTING.md:
+# every non-merge commit in a pull request must carry a `Signed-off-by:` trailer
+# whose email matches the commit author. Implemented with plain git + bash — no
+# external GitHub App, no third-party action to pin, no secrets (constraint
+# no-secrets-in-code) — so the check is transparent and version-controlled.
+#
+# To make it binding: add "DCO sign-off check" as a required status check in the
+# branch-protection rule for `main` (Settings -> Branches).
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  dco:
+    name: DCO sign-off check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Verify Signed-off-by on every commit
+        # Pass event data via env, never inline ${{ }} into the script (injection-safe).
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          # PR commits only, excluding merge commits (GitHub-generated merge refs and
+          # cross-branch merges carry no sign-off and are not authored in this PR).
+          commits="$(git rev-list --no-merges "${BASE_SHA}..${HEAD_SHA}")"
+          if [ -z "${commits}" ]; then
+            echo "No non-merge commits to check."
+            exit 0
+          fi
+          fail=0
+          for sha in ${commits}; do
+            email="$(git show -s --format='%ae' "${sha}")"
+            name="$(git show -s --format='%an' "${sha}")"
+            subject="$(git show -s --format='%s' "${sha}")"
+            if git show -s --format='%B' "${sha}" \
+                 | grep -iE '^Signed-off-by: .+ <.+@.+>' \
+                 | grep -qiF "<${email}>"; then
+              echo "PASS ${sha:0:8}  ${subject}"
+            else
+              echo "FAIL ${sha:0:8}  ${subject}"
+              echo "     expected: Signed-off-by: ${name} <${email}>"
+              fail=1
+            fi
+          done
+          if [ "${fail}" -ne 0 ]; then
+            echo ""
+            echo "One or more commits lack a matching DCO sign-off (see CONTRIBUTING.md)."
+            echo "Fix the last commit:   git commit --amend -s"
+            echo "Fix all PR commits:    git rebase --signoff ${BASE_SHA}   (then force-push)"
+            exit 1
+          fi
+          echo ""
+          echo "All commits carry a matching DCO sign-off."
