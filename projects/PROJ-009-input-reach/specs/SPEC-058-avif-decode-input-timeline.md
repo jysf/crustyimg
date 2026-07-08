@@ -13,8 +13,11 @@ there is no separate prompt file unless a cycle needs one.
   + full Implementation Context. Load-bearing item: the decoder-dependency probe → **DEC-053**
   (candidates: `re_rav1d` via `image` vs `rav1d` BSD-2 + ISOBMFF glue; `zenavif` AGPL excluded).
   Framing, 2026-07-07.
-- [ ] **build** — first do the DEC-053 decoder probe on a real AVIF; then wire + make Failing Tests
-  pass; verify lean build + `just deny` in-cycle. Split to a container-parse spec if the probe shows
-  substantial ISOBMFF glue is needed.
+- [x] **build** — probe confirmed `re_rav1d` (no-asm) + `avif-parse` decode a real AVIF (encode→parse→decode
+  round-trip, 8/10-bit + alpha, no nasm); wired `src/image/avif.rs` (YUV→RGB honoring depth/chroma/range/
+  matrix/premult-alpha) into `decode_with_limits` (ftyp-brand dispatch, DEC-034 caps), added `avif` to
+  `IMAGE_EXTENSIONS`, deny.toml MPL/CC0 per-crate exceptions, fixture + tests + fuzz target, DEC-053,
+  watchlist resolved. Default+lean+avif builds, clippy×3, fmt, `just deny`, 300+ tests green. No SPEC-059
+  needed (avif-parse covered the container). MSRV 1.89→1.90. Branch `feat/spec-058-avif-decode`. 2026-07-07.
 - [ ] **verify**
 - [ ] **ship**

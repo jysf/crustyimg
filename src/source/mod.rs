@@ -91,7 +91,12 @@ pub enum SourceError {
 ///
 /// Decision: image-ness by extension, never by decoding (DEC-002 layering;
 /// `single-image-library` constraint: Source must not call the pixel decoder).
-const IMAGE_EXTENSIONS: &[&str] = &["jpg", "jpeg", "png", "gif", "bmp", "tif", "tiff", "ico"];
+// `avif` is a DEFAULT-decodable input (SPEC-058, DEC-053) — pure-Rust decode via
+// `re_rav1d` + `avif-parse`, so directory/glob sources discover `.avif` like any
+// other image.
+const IMAGE_EXTENSIONS: &[&str] = &[
+    "jpg", "jpeg", "png", "gif", "bmp", "tif", "tiff", "ico", "avif",
+];
 
 fn has_image_extension(path: &Path) -> bool {
     path.extension()

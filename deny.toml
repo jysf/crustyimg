@@ -48,9 +48,24 @@ allow = [
 #   permissive, OSI/FSF-approved BSD-style license. We allow it for this one
 #   crate rather than adding NCSA to the global `allow` list, keeping the
 #   surface minimal (the same discipline as the ansi_colours exception above).
+#   avif-parse (MPL-2.0): the AVIF container parser on the DEFAULT decode path
+#   (SPEC-058, DEC-053). MPL-2.0 is FILE-level weak copyleft — it obliges only
+#   sharing modifications to avif-parse's own source, and does NOT relicense our
+#   statically-linked `MIT OR Apache-2.0` binary the way GPL/AGPL would. Accepted
+#   for this one crate (the same discipline as ansi_colours). The AV1 decoder it
+#   feeds, `re_rav1d`, is BSD-2-Clause and needs no exception. Revisit if we
+#   migrate to `image`'s built-in pure-Rust AVIF decode (image-rs #2621).
+#   to_method (CC0-1.0): a tiny utility crate pulled by `re_rav1d` (SPEC-058,
+#   DEC-053). CC0-1.0 is a public-domain DEDICATION — the same permissive tier as
+#   `Unlicense`/`0BSD` (already globally allowed) and imposes no source or
+#   relicensing obligation on our binary. Excepted per-crate rather than widened
+#   into the global `allow` list, keeping the license surface minimal (the same
+#   discipline as the exceptions above). Drops out if we shed the `re_rav1d` dep.
 exceptions = [
     { name = "ansi_colours", allow = ["LGPL-3.0-or-later"] },
     { name = "libfuzzer-sys", allow = ["NCSA"] },
+    { name = "avif-parse", allow = ["MPL-2.0"] },
+    { name = "to_method", allow = ["CC0-1.0"] },
 ]
 
 # Require high confidence when matching a license file's text to an SPDX id.
@@ -68,12 +83,14 @@ confidence-threshold = 0.9
 yanked = "deny"
 ignore = [
     # RUSTSEC-2024-0436 — `paste` (dtolnay) is archived/unmaintained.
-    # No safe upgrade exists as of 2026-07-05; it is a transitive dep reached
-    # ONLY via `rav1e` -> `ravif` -> `image`'s `avif` feature (SPEC-045/DEC-046
-    # dropped little_exif, `paste`'s other former path) — upstream (`rav1e`)
-    # must act first. Revisit when `rav1e` drops the `paste` dependency, or
-    # when a patch release resolves this advisory.
-    { id = "RUSTSEC-2024-0436", reason = "paste is transitive via rav1e/ravif (avif feature); no safe upgrade available 2026-07-05" },
+    # No safe upgrade exists as of 2026-07-07. Reached two ways: (1) `re_rav1d`
+    # -> `paste` on the DEFAULT decode path (SPEC-058/DEC-053 — AVIF decode), and
+    # (2) `rav1e` -> `ravif` -> `image`'s `avif` ENCODE feature. Both are upstream
+    # deps we don't control (the `avif` feature also formerly reached it before
+    # SPEC-045/DEC-046 dropped little_exif). `paste` is a compile-time-only proc
+    # macro (no runtime attack surface). Revisit when `re_rav1d`/`rav1e` drop the
+    # `paste` dependency, or a patch release resolves this advisory.
+    { id = "RUSTSEC-2024-0436", reason = "paste is transitive via re_rav1d (default decode) and rav1e/ravif (avif encode); compile-time proc-macro, no safe upgrade 2026-07-07" },
 ]
 
 [bans]
