@@ -20,9 +20,12 @@ there is no separate prompt file unless a cycle needs one.
   **conservative: over-detect, never under-detect** — an input-ext proxy would silently miss a real
   format-transforming collision `a/logo.png`+`b/logo.svg`→`logo.png`). No new dep; no lockfile (SPEC-066).
   Mark DEC-057's injective section RESOLVED at build; **no new DEC**. Framing, 2026-07-09.
-- [ ] **build** — add `find_output_collision` + `OutputCollision` (pure, `src/build`); insert the global
+- [x] **build** — add `find_output_collision` + `OutputCollision` (pure, `src/build`); insert the global
   check after phase 1 in `run_build`; `CliError::OutputCollision` → exit 2 (+ `exit_code_mapping_is_total`).
   Make all Failing Tests pass. Verify default + lean + `just deny` + clippy + fmt; mark DEC-057 resolved.
+  Done 2026-07-09 (PR #71): 637 tests green default + lean, clippy ×2 / fmt / deny clean, no new dep.
+  Sentinel is the printable `{ext}` (not NUL) so the collision message reads; out-dir normalization also
+  drops `./`, without which two spellings of one dir would slip the cross-target check. No new DEC.
 - [ ] **verify** — fresh session. Re-run gates; reproduce on the real binary: a same-stem target exits 2
   before any write / no `.crustyimg/`; a disambiguating template builds; a cross-target collision is
   caught; a normal multi-input build is unaffected (no false positives). Confirm no new dep, DEC-057 marked.

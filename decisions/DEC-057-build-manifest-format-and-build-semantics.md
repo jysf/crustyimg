@@ -171,19 +171,36 @@ target's outputs, `--watch` re-runs affected targets. Revisit if:
 - sequential-targets parallelism becomes the bottleneck on wide, shallow builds (→ flatten
   the fan-out to one rayon pass over (target, input) pairs).
 
-**Injective source→output constraint (STAGE-022 blocker, SPEC-063 verify).** SPEC-063's executor does
-NOT guarantee that a target's expanded output paths are unique: two inputs sharing a stem in one target
-(`a/logo.png` + `b/logo.png` under `{stem}.{ext}`) collide to one output path — the rayon fan-out races
-and the summary over-counts (exit 0, "2 outputs", one file). SPEC-063 does not claim the count is
-trustworthy; the hazard is out of scope there but **a lockfile cannot pin a build whose source→output
-mapping isn't injective**, so STAGE-022 (lockfile / `--check`) is BLOCKED on resolving it — reject
-duplicate expanded output paths in `prepare_target` (detect the collision at prepare time, before
-executing). STAGE-021 (cache) is not blocked. Recorded here so the constraint is discoverable from the
-contract, not only from the archived spec.
+**Injective source→output constraint (STAGE-022 blocker, SPEC-063 verify) — RESOLVED by SPEC-065.**
+SPEC-063's executor did NOT guarantee that a target's expanded output paths are unique: two inputs
+sharing a stem in one target (`a/logo.png` + `b/logo.png` under `{stem}.{ext}`) collide to one output
+path — the rayon fan-out races and the summary over-counts (exit 0, "2 outputs", one file). SPEC-063 did
+not claim the count was trustworthy; the hazard was out of scope there but **a lockfile cannot pin a
+build whose source→output mapping isn't injective**, so STAGE-022 (lockfile / `--check`) was BLOCKED on
+it. STAGE-021 (cache) was not blocked.
+
+SPEC-065 discharges it where this decision said it should land — at prepare time, before any write.
+`run_build` now runs one **global** check across all prepared targets (so two *different* targets writing
+the same `out`/name collide too), before `Cache::open` and before phase 2: each input's output path is
+computed with `sink::expand_template` over the target's `out` dir, and a duplicate is a typed
+`CliError::OutputCollision` → **exit 2** (a config error found before execution, deliberately not the
+per-output partial-batch 6 of DEC-015). A rejected build writes nothing and creates no `.crustyimg/`.
+The detector itself (`build::find_output_collision`) is pure and filesystem-free.
+
+**The tradeoff — conservative on `{ext}`.** The real output extension is only knowable *after* a decode
+(which is precisely why DEC-058's cache entry records its own ext), and this check runs pre-decode. So
+`{ext}` expands to a sentinel: two inputs whose `{stem}`/`{name}`/`{parent}` expansions agree collide
+*regardless* of output format. This **over-detects** — it rejects the rare "same stem, genuinely
+different output ext" build, which the user fixes by disambiguating the template. Over-detection is the
+safe direction: using the *input* extension as an ext proxy would **under-detect**, silently missing a
+real collision when two inputs transform into the same output format (`a/logo.png` + `b/logo.svg` both
+→ `logo.png` via SVG→PNG, DEC-054) — exactly the failure a lockfile cannot tolerate. A format-sniff
+refinement to narrow the false positives is a documented future option, not a correctness requirement.
 
 ## References
 
-- Related specs: SPEC-063 (this decision's spec), SPEC-006 (recipe TOML), SPEC-031
+- Related specs: SPEC-063 (this decision's spec), SPEC-065 (discharges the injective
+  source→output constraint above), SPEC-006 (recipe TOML), SPEC-031
   (rayon batch + `apply_one`), SPEC-035 (recipe size guard)
 - Related decisions: DEC-005 (recipes — the sibling contract), DEC-006 (rayon batch),
   DEC-007 (typed errors), DEC-015 (partial-batch exit 6), DEC-036 (`RECIPE_MAX_BYTES`),
