@@ -28,6 +28,8 @@ affected_scope:
   - src/image/heic.rs
   - src/image/mod.rs
   - src/error.rs
+  - src/cli/mod.rs
+  - src/lint/mod.rs
   - src/source/mod.rs
   - dist-workspace.toml
   - .github/workflows/ci.yml
@@ -148,8 +150,8 @@ Probed firsthand on this machine (Homebrew libheif 1.23.1, macOS), then re-run a
   pre-generated, so no libclang and no MSRV pressure. (b) `security_limits`/`set_security_limits`
   are `#[cfg(feature = "v1_19")]`, so they are unreachable at the `v1_17` floor we chose for
   distro compatibility.
-- **Gates.** `cargo test` (default, 581), `cargo test --features heic` (588, incl. 12 HEIC unit +
-  4 integration), `cargo test --no-default-features` (lean, 581), `clippy --all-targets -D warnings`
+- **Gates.** `cargo test` (default, 582), `cargo test --features heic` (588, incl. 12 HEIC unit +
+  4 integration), `cargo test --no-default-features` (lean, 582), `clippy --all-targets -D warnings`
   on all three, `cargo fmt --check`, `just deny` — all green.
 - **End to end.** Default binary: `optimize photo.heic` → `error: HEIC support is not built;
   rebuild with --features heic`, exit 4, no output file. `--features heic` binary: `info photo.heic`

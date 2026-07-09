@@ -2,7 +2,7 @@
 # Maps to ContextCore project.* semantic conventions.
 project:
   id: PROJ-009
-  status: active                    # proposed | active | shipped | cancelled
+  status: shipped                   # proposed | active | shipped | cancelled
   priority: high
   target_ship: null
 
@@ -10,7 +10,7 @@ repo:
   id: crustyimg
 
 created_at: 2026-07-07
-shipped_at: null
+shipped_at: 2026-07-08
 
 value:
   thesis: >
@@ -99,12 +99,12 @@ Format: `- [status] STAGE-ID — one-line summary`
   dep**): a format-agnostic byte scan for the largest embedded JPEG covers TIFF-based RAW + CR3 + RAF with
   no ISOBMFF/IFD parsing (probe finding corrected the "ISOBMFF glue" assumption); extension-routed via a
   shared `Image::decode_path` helper (SPEC-061, PR #67, DEC-055).
-- [~] STAGE-019 (active — framed 2026-07-08) — HEIC decode behind an off-by-default `heic` feature
+- [x] STAGE-019 (shipped on 2026-07-08) — HEIC decode behind an off-by-default `heic` feature
   (system libheif, decode-only; DEC-052): default binary detects `.heic` and exits 4 ("rebuild with
   --features heic"); `--features heic` decodes via libheif-rs (MIT crates, LGPL system lib → **no deny
-  exception**), never in a distributed artifact (SPEC-062, DEC-056). **← active (last of PROJ-009)**
+  exception**), never in a distributed artifact (SPEC-062, PR #68, DEC-056).
 
-**Count:** 3 shipped / 1 active / 0 pending (STAGE-016–018 shipped; 019 active/framed closes the wave)
+**Count:** 4 shipped / 0 active / 0 pending — **PROJ-009 complete** (all four input-reach stages shipped).
 
 ## Dependencies
 
@@ -121,12 +121,41 @@ Format: `- [status] STAGE-ID — one-line summary`
 
 ## Project-Level Reflection
 
-*Filled in when status moves to shipped.*
+*Shipped 2026-07-08.*
 
-- **Did we deliver the outcome in "What This Project Is"?** <yes/no + notes>
-- **How many stages did it actually take?** <number, compare to plan>
-- **What changed between starting and shipping?** <one or two sentences>
+- **Did we deliver the outcome in "What This Project Is"?** Yes. The default, pure-Rust, zero-system-dep
+  binary now reads **AVIF** (STAGE-016), **SVG** (STAGE-017), and **RAW embedded previews** (STAGE-018)
+  end to end through the shipped engine (optimize/convert/info/resize/batch), and **HEIC** decodes under
+  an honest opt-in `--features heic` (STAGE-019) with a clear exit-4 in the default binary — exactly the
+  "AVIF/SVG/RAW just work with no system deps; HEIC in the `heic` build" story, not the retired "iPhone
+  photos just work" headline. Every default input path stayed pure-Rust and `just deny`-green; the lean
+  build never regressed. Total recorded AI cost across the four stages ≈ 2.2M tokens / ~$20 (labelled
+  estimates, `just cost-audit` green).
+- **How many stages did it actually take?** 4, exactly as planned (STAGE-016–019), each a clean
+  single-spec stage (SPEC-058, 060, 061, 062; SPEC-059 was folded into 058 at build).
+- **What changed between starting and shipping?** The load-bearing probes repeatedly *simplified* the
+  work versus the framing: AVIF's "no clean permissive drop-in" pessimism was overturned (re_rav1d +
+  avif-parse); SVG's assumed MPL license was actually permissive (resvg relicensed) at the cost of one
+  advisory ignore; RAW needed no ISOBMFF/IFD parsing and no new dep (a format-agnostic JPEG byte scan
+  covers TIFF-RAW + CR3 + RAF); and HEIC's Rust crates were MIT (no deny exception — the LGPL is the
+  system lib). The recurring surprise was environmental, not algorithmic: the license/advisory/system-lib
+  *tail* of each decoder (MPL/CC0/`paste`, `ttf-parser`, ubuntu's libde265 plugin) is where the CI
+  round-trips lived.
 - **Lessons that should update AGENTS.md, templates, or constraints?**
-  - <one-line updates>
+  - **A new input format touches every decode caller.** A new `IMAGE_EXTENSIONS` entry or `ImageError`
+    variant needs an audit of every decode caller + every `Err(_)` catch-all, not just the exit-code map
+    — it bit SPEC-061 (`info <raw>`) and SPEC-062 (`lint` calling a valid `.heic` "corrupt"). The
+    tripwire is a shared path-decode seam (`Image::decode_path`) + listing caller files in the DEC's
+    `affected_scope`. Captured in `image-extensions-expose-every-decode-caller`.
+  - **Probe the license/advisory/system tail immediately after `cargo add`** — `just deny` right away,
+    and for a versioned system lib pin the API-version feature to the oldest distro package + install the
+    decoder *backend* in CI (not just headers).
+  - **`source_format` has no variant for SVG/RAW/HEIC** — all three report a materialized raster format
+    (Png/Jpeg/Png); a faithful `SourceFormat` enum is the standing cross-cutting follow-up.
 - **What did we defer to the next project?**
-  - <one-line items>
+  - Pre-1.0 hardening: **run the four fuzz targets** (`avif/svg/raw/heic_decode`) under nightly — they
+    ship but were never run (tracked in `docs/roadmap.md`).
+  - RAW **Tier-2 development** (rawler, LGPL); RAW/HEIC **stdin**; HEIC **Windows** (vcpkg) + the `v1_19`
+    `set_security_limits` upgrade; a **stride-padding test** with an odd-width HEIC fixture; `lint <raw>`;
+    the shared `SourceFormat` enum; preview EXIF/orientation passthrough. AVIF **animation/grid**, HEIC
+    in a distributed artifact, and a pure-Rust HEIC decoder remain out (DEC-052).

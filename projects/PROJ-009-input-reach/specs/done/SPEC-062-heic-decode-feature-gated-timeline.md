@@ -32,9 +32,15 @@ there is no separate prompt file unless a cycle needs one.
   libheif ≥1.21, more than `ubuntu-latest`'s apt 1.17.6) — which in turn puts `set_security_limits`
   (`#[cfg(v1_19)]`) out of reach; the DEC-034 handle-dim pre-check is the load-bearing bound. Est. cost
   ~260k tokens / ~$2.34 (labelled estimate — main-loop, not separately metered).
-- [ ] **verify** — fresh session; re-run all gates independently, confirm default-build exit-4 + clear
-  message, feature decode + caps + stride, deny green with no new exception, distribution excludes heic,
-  DEC-056 consistent with DEC-052.
-- [ ] **ship** — merge PR, cost sessions + totals, ship reflection, archive to done/, update STAGE-019
-  backlog; carry `fuzz/heic_decode` as a pre-1.0 hardening gate; **PROJ-009 project-ship** (final stage —
-  fill the project-level reflection in brief.md).
+- [x] **verify** — ✅ APPROVED (fresh Opus session, run from scratch). Re-ran all three builds (default
+  582, --features heic 588, lean 582, clippy×3, fmt, `just deny` green + `git diff main -- deny.toml`
+  empty), re-audited all 8 `Err(_)` catch-alls (only lint needed the fix), proved cap-before-decode on
+  the handle, and made a 67×45 HEIC to prove the stride-padding path (stride 208 vs row_bytes 201,
+  unsheared). Confirmed the ubuntu heic job actually DECODES (with libheif-plugin-libde265), the plugin
+  gotcha via the real failed CI run, distribution excludes heic, DEC-056 consistent with DEC-052. 3
+  non-blocking ship items (DEC-056 affected_scope + stride-test follow-up + a 581→582 cosmetic). 2026-07-08.
+- [x] **ship** — squash-merged PR #68 → main (b2f370a); appended verify + ship cost sessions + totals
+  (490k, labelled estimates §4), ship reflection, marked cycle ship; archived to done/; STAGE-019 shipped;
+  **PROJ-009 PROJECT-SHIPPED** (final stage — project reflection filled in brief.md). Ship items applied
+  (DEC-056 affected_scope += cli/lint, 581→582); `fuzz/heic_decode` + stride-test + Windows/v1_19 carried
+  as follow-ups in docs/roadmap.md. 2026-07-08.

@@ -3,7 +3,7 @@
 task:
   id: SPEC-062
   type: story
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: M                    # module + decode-side CodecNotBuilt + a system-lib CI job + LGPL/distribution discipline
@@ -67,10 +67,38 @@ cost:
         fuzz/heic_decode, a system-libheif CI job, docs/licensing.md (LGPL + patents), dist guard,
         DEC-056. All gates green: test/clippy on default + lean + --features heic, fmt, `just deny`
         (no new exception), end-to-end exit-4 and decode runs.
+    - cycle: verify
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 230000
+      estimated_usd: 2.07
+      duration_minutes: null
+      recorded_at: 2026-07-08
+      notes: >
+        Fresh verify session — ✅ APPROVED. Re-ran all three builds independently (default 582,
+        --features heic 588, lean 582, clippy×3, fmt, just deny green with git diff main -- deny.toml
+        empty), re-audited all 8 Err(_) catch-alls in src/ (only the lint site needed the fix, confirmed),
+        proved cap-before-decode on the handle, and — beyond the tests — made a 67×45 HEIC to prove the
+        stride-padding path (stride 208 vs row_bytes 201, unsheared). Verified the ubuntu heic job really
+        DECODES (decode_heic_solid_dimensions passed on ubuntu-latest with libheif-plugin-libde265), the
+        plugin gotcha via the actual failed CI run (140f26b2), and distribution excludes heic. Pulled CI
+        rows via gh api (24 success / 5 skipped-dist / 0 fail). Main-loop → ORDER-OF-MAGNITUDE ESTIMATE
+        per §4: ~230k × Opus 4.8 list ($5/$25, ~80/20) ≈ $2.07. 3 non-blocking ship items filed.
+    - cycle: ship
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-07-08
+      notes: >
+        Ship bookkeeping (squash-merge #68, cost/reflection/totals/archive/stage-ship + PROJ-009
+        project-ship, roadmap gates, the 3 verify ship-items) — main-loop, not separately metered →
+        null-with-note per AGENTS §4.
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 490000
+    estimated_usd: 4.41
+    session_count: 4
 ---
 
 # SPEC-062: HEIC decode behind an off-by-default `heic` feature
@@ -399,8 +427,27 @@ DEC-004/052 promise: the shipped binary tells the user exactly how to get HEIC, 
 ## Reflection (Ship)
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Two probe assumptions in the spec were wrong and cost CI round-trips: it predicted bindgen/libclang
+   + a possible MSRV bump (neither — libheif-sys ships pre-generated bindings), and it did not pin the
+   libheif API version, so libheif-rs's `latest` (v1_21) silently demanded a system libheif newer than
+   Ubuntu's apt package. **Lesson: when a feature depends on a versioned system library, the design probe
+   must pin the API-version feature to the OLDEST distro-shipped lib (here `v1_17` = Ubuntu 1.17.6), not
+   the crate default.** And the biggest bite was environmental, not code: macOS Homebrew bundles the HEVC
+   backend, so no amount of local mac testing catches that Ubuntu's `libheif-dev` links + parses but
+   cannot decode without `libheif-plugin-libde265`. Probe on the target distro, or expect the first CI run
+   to teach you.
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — No template/constraint change. DEC-056 emitted (libheif dep + system-link + never-distributed +
+   the v1_17/`set_security_limits` trade-off with a revisit trigger). The reusable lesson —
+   **[[image-extensions-expose-every-decode-caller]]** — is the one to keep: a new `IMAGE_EXTENSIONS`
+   entry OR a new `ImageError` variant needs an audit of *every* decode caller and `Err(_)` catch-all,
+   not just the exit-code map. It bit SPEC-061 (`info <raw>`) and again here (lint called a valid `.heic`
+   "corrupt"). At ship I added `src/cli/mod.rs` + `src/lint/mod.rs` to DEC-056's `affected_scope` so
+   `just decisions-audit --changed` will warn the next editor of those files (verify item a).
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — No new spec now, but tracked follow-ups (in `docs/roadmap.md`): run `cargo +nightly fuzz run
+   heic_decode` (pre-1.0 gate, parity with avif/svg/raw); a **stride-padding test with an odd-width
+   fixture** (the current 64px fixture can't exercise row padding — proven correct at verify but untested;
+   verify item b); Windows `heic` (vcpkg) + the `v1_19` `set_security_limits` upgrade; HEIC alpha
+   coverage; and the shared `SourceFormat` enum so `info x.heic` need not report `png`. This is the LAST
+   spec of PROJ-009 — shipping it project-ships the input-reach wave.

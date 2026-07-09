@@ -2,7 +2,7 @@
 # Maps to ContextCore epic-level conventions.
 stage:
   id: STAGE-019
-  status: active                    # proposed | active | shipped | cancelled | on_hold
+  status: shipped                   # proposed | active | shipped | cancelled | on_hold
   priority: high
   target_complete: null
 
@@ -12,7 +12,7 @@ repo:
   id: crustyimg
 
 created_at: 2026-07-08
-shipped_at: null
+shipped_at: 2026-07-08
 
 value_contribution:
   advances: >
@@ -102,13 +102,15 @@ PROJ-009 (roadmap Wave 1).
 
 Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
-- [ ] SPEC-062 (design) — HEIC decode behind `--features heic`: `src/image/heic.rs` (ftyp-brand
-  `is_heic` + `#[cfg(feature="heic")]` libheif-rs decode → canonical `Image`), decode-side
-  `CodecNotBuilt`→exit-4 for the default build, `.heic`/`.heif` in `IMAGE_EXTENSIONS`,
-  `heic = ["dep:libheif-rs"]` feature, a system-libheif CI job, exclude from distributed artifacts,
-  LGPL attribution, DEC-034 caps + typed errors, DEC-056.
+- [x] SPEC-062 (shipped on 2026-07-08) — HEIC decode behind `--features heic`: `src/image/heic.rs`
+  (ftyp-brand `is_heic` in both builds + `#[cfg(feature="heic")]` libheif-rs decode → canonical `Image`,
+  cap-before-decode, stride-honoring), new `ImageError::CodecNotBuilt`→exit-4 for the default build,
+  `.heic`/`.heif` in `IMAGE_EXTENSIONS`, `heic = ["dep:libheif-rs"]` (MIT crates, **no deny exception**),
+  a system-libheif CI job (`libheif-plugin-libde265` on ubuntu), excluded from distributed artifacts, LGPL
+  attribution (docs/licensing.md), DEC-056. PR #68 (b2f370a), 24/24 CI green; also fixed a lint
+  false-positive this change introduced (valid `.heic` reported "corrupt").
 
-**Count:** 0 shipped / 1 active / 0 pending — single-spec stage (mirrors STAGE-016/017/018's shape).
+**Count:** 1 shipped / 0 active / 0 pending — single-spec stage complete.
 
 ## Design Notes
 
@@ -179,12 +181,30 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
 ## Stage-Level Reflection
 
-*Filled in when status moves to shipped.*
-
-- **Did we deliver the outcome in "What This Stage Is"?** <yes/no + notes>
-- **How many specs did it actually take?** <number vs. plan>
-- **What changed between starting and shipping?** <one sentence>
+- **Did we deliver the outcome in "What This Stage Is"?** Yes — `--features heic` decodes `.heic`/`.heif`
+  via system libheif into the canonical `Image`, and the DEFAULT binary stays pure-Rust/zero-system-dep,
+  detecting `.heic` and returning a clear exit-4 ("rebuild with --features heic") instead of a vague
+  error. PR #68, 24/24 CI green; `just deny` green with no new exception (MIT Rust crates; LGPL is the
+  system C lib). The honest opt-in per DEC-052 (AGPL wall + HEVC patents).
+- **How many specs did it actually take?** 1 (SPEC-062) — as planned; a single-spec stage like the other
+  three, but the heaviest wiring (a new error variant + a system-lib CI job + distribution discipline).
+- **What changed between starting and shipping?** The design probe under-specified the *system-library*
+  reality: no bindgen (pre-generated bindings, so no MSRV move), the API-version feature had to be pinned
+  to `v1_17` (the crate default `v1_21` outran Ubuntu's apt libheif and would silently break CI — at the
+  cost of `set_security_limits`, so our DEC-034 pre-check is the load-bearing bound), and Ubuntu's
+  `libheif-dev` links+parses but cannot *decode* without `libheif-plugin-libde265` (Homebrew bundles it,
+  so mac testing couldn't catch it). Verify also caught nothing new — the build had already found + fixed
+  the lint false-positive this change introduced.
 - **Lessons that should update AGENTS.md, templates, or constraints?**
-  - <one-line updates>
+  - **A new `IMAGE_EXTENSIONS` entry OR a new `ImageError` variant needs an audit of every decode caller
+    and `Err(_)` catch-all, not just the exit-code map.** This bit SPEC-061 (`info <raw>`) and again here
+    (lint called a valid `.heic` "truncated or corrupt … re-export a valid image", exit 7, on any
+    iPhone-photo directory). The tripwire is `decisions-audit --changed`, so the DEC's `affected_scope`
+    must list the caller files (cli/lint), not just the codec module — added at ship.
+  - **For a feature depending on a versioned system library:** pin the API-version feature to the OLDEST
+    distro-shipped lib, install the decoder *backend* (not just the dev headers) in CI, and expect the
+    first CI run — not local mac testing — to surface the environment truth.
 - **Should any spec-level reflections be promoted to stage-level lessons?**
+  - Yes — the decode-caller-audit lesson generalizes to every input format (it has now recurred twice)
+    and belongs in the shared `image-extensions-expose-every-decode-caller` note, not just this stage.
   - <one-line items>

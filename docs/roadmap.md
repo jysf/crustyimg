@@ -130,7 +130,19 @@ have an impressive unused tool.
     **not run** (no nightly/cargo-fuzz in the build+verify envs). Run `cargo +nightly fuzz run raw_preview -- -runs=100000`
     (seed from `tests/fixtures/raw`) before a 1.0 release. Mitigated today by bounded-candidate + oversize-cap
     + no-preview-typed-error tests, but not fuzzed — the residual risk on the RAW untrusted-binary path.
-  - Extend this list as the opt-in HEIC decoder (STAGE-019) lands.
+  - **`fuzz/heic_decode`** — the HEIC decode target (SPEC-062/PR #68, `#[cfg(feature="heic")]`) ships but
+    was **not run** (needs nightly + system libheif). Run `cargo +nightly fuzz run heic_decode -- -runs=100000`
+    (seed from `tests/fixtures/heic`, libheif installed) before a 1.0 release. Extra-important here: HEIC
+    decode is a **C** library (libheif/libde265, CVE history) and — pinned at the `v1_17` API floor —
+    libheif's own `set_security_limits` is unreachable, so our DEC-034 handle-dimension pre-check is the
+    *only* bound. Fuzz it before shipping the `heic` feature widely.
+- **HEIC `heic`-feature follow-ups (post-STAGE-019, own specs if pulled).** (1) A **stride-padding test**
+  with an odd-width HEIC fixture — the committed 64×48 fixture returns `stride == row_bytes`, so the
+  row-padding copy path (proven correct at verify on a 67×45 image, stride 208 vs 201) is untested; commit
+  a `sips`-made odd-width fixture. (2) **Windows `heic`** (libheif via vcpkg) — the CI job is macOS+Linux
+  only today. (3) Bump the API floor to **`v1_19`** and wire `heif_context_set_security_limits` once a
+  newer libheif is broadly available (drops the "pre-check is the only bound" caveat). (4) **HEIC alpha**
+  coverage (the RGBA path exists but the fixture is opaque).
 - **`lint <raw>` follow-up (own spec, post-STAGE-018).** `lint` decodes via `Image::from_bytes`
   (`src/lint/mod.rs:210`), so it bypasses the RAW extension-routing that `Image::load`/`Image::decode_path`
   do — `lint` on a `.nef` path does not read the embedded preview. NOT a SPEC-061 claim (its reach was
