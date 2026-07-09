@@ -26,9 +26,18 @@ there is no separate prompt file unless a cycle needs one.
   session) retired the nondeterminism
   risk. Injective source→output constraint (DEC-057) is NOT resolved here — cache keys on byte-identity,
   not path. Framing, 2026-07-08.
-- [ ] **build** — implement `src/build/cache.rs` + wire `run_build`; extract `encode_one`; add
-  `--no-cache`; extended summary; `cargo add sha2` + DEC-058 (no probe). Make all Failing Tests pass;
-  keep `apply` byte-identical. Verify default + lean + `just deny` (no new exception) + clippy + fmt.
+- [x] **build** — implemented `src/build/cache.rs` (key + store, 16 unit tests) + `tests/build_cache.rs`
+  (10 integration tests); wired `run_build` (hit → materialize, miss → encode + store); extracted
+  `encode_one` + `write_encoded` from `apply_one` (behavior-preserving; `apply`'s tests unchanged);
+  added `--no-cache` + the `(C cached, R rebuilt)` summary; `cargo add sha2` (=0.11.0, the only new
+  dep) → **DEC-058**. Gates green: 627 tests on default AND lean, clippy `-D warnings` on both,
+  `cargo fmt --check`, `just deny` (advisories/bans/licenses/sources ok, `deny.toml` untouched, no new
+  exception), MSRV unchanged (sha2 tree floors at 1.85 < our 1.90). Drove the release binary on an
+  8-image tree: cold `(0 cached, 8 rebuilt)` → warm `(8 cached, 0 rebuilt)` → one source edited
+  `(7 cached, 1 rebuilt)` → deleted output restored from cache → all entries corrupted → clean rebuild,
+  exit 0, no panic → `--no-cache` bypasses and writes nothing. Deviations + follow-ups in the spec's
+  Build Completion. Injective source→output (DEC-057) untouched, as instructed. Branch
+  `feat/spec-064-content-addressed-cache`, PR #70. 2026-07-08.
 - [ ] **verify** — fresh session. Re-run all gates; reproduce against the real binary: a no-change
   re-run is a full cache hit (0 rebuilt), a one-input edit rebuilds only that output, a hit restores a
   deleted output byte-for-byte, a corrupted entry rebuilds cleanly (no panic), `--no-cache` bypasses,

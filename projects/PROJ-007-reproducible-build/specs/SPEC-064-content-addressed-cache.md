@@ -3,7 +3,7 @@
 task:
   id: SPEC-064
   type: story
-  cycle: design  # frame | design | build | verify | ship
+  cycle: verify  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: M                    # cache-key composition + local content-addressed store + executor seam + one new dep; single spec
@@ -51,6 +51,23 @@ cost:
         encode_to_bytes) to fix the cache seam. No probe needed: the hasher is a boring pure-Rust
         dep (sha2 recommended) confirmed by the standard just-deny/lean/CI gates, recorded in DEC-058;
         the encoder-determinism experiment (prior this session) already retired the nondeterminism risk.
+    - cycle: build
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 480000
+      estimated_usd: 9.60
+      duration_minutes: 55
+      recorded_at: 2026-07-08
+      notes: >
+        Build ran in the MAIN LOOP (not a metered subagent), so tokens_total is a labelled
+        order-of-magnitude ESTIMATE, not a measured subagent_tokens value (AGENTS §4; the
+        `autonomous-run-cost-estimates` convention). Covers: reading the spec + STAGE-021 +
+        brief + DEC-004/005/006/007/015/034/057 + constraints + the cli/sink/recipe/source
+        seams; `cargo add sha2`; writing src/build/cache.rs (16 unit tests) and
+        tests/build_cache.rs (10 integration tests); the encode_one/write_encoded extraction;
+        the run_build wiring + --no-cache + summary; the full gate matrix twice (default +
+        lean × test/clippy, fmt, just deny); a clean end-to-end drive of the real binary;
+        DEC-058 + docs + CHANGELOG + this bookkeeping.
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -339,26 +356,104 @@ materialized to N destinations); the destination is where a hit is written, not 
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
+- **Branch:** `feat/spec-064-content-addressed-cache`
+- **PR (if applicable):** #70
+- **All acceptance criteria met?** yes — all 9. Each maps to a test:
+  - full-hit re-run → `second_run_is_all_cache_hits`
+  - one-source change → `changing_one_input_rebuilds_only_that_output`
+  - recipe-param change → `changing_recipe_param_forces_rebuild` (which also asserts a
+    *cosmetic* recipe edit still hits — the canonical-hash payoff)
+  - `--quality` change → `changing_quality_forces_rebuild`
+  - version in the key → `key_changes_with_each_output_affecting_input` (unit; the
+    compiled-in version can't vary in one test binary, as the spec anticipated)
+  - hit materializes byte-correct → `hit_materializes_byte_correct_output`
+  - corrupt/missing entry → `corrupt_entry_is_a_miss` (unit) +
+    `corrupt_cache_entry_triggers_clean_rebuild` / `malformed_cache_entries_are_misses_not_panics`
+  - local-only + `--no-cache` + summary → `cache_store_is_local_under_project`,
+    `no_cache_flag_bypasses_store`, `summary_reports_cached_and_rebuilt_and_quiet_suppresses_it`
+  - one dep, `just deny` green with no exception, lean build OK, `apply` unchanged
+  Gates: 627 tests pass on default **and** `--no-default-features`; clippy `-D warnings`
+  clean on both; `cargo fmt --check` clean; `just deny` → `advisories ok, bans ok,
+  licenses ok, sources ok` with `deny.toml` untouched. Also driven end-to-end against the
+  release binary on an 8-image tree: cold `(0 cached, 8 rebuilt)` → warm `(8 cached, 0
+  rebuilt)` → one source edited `(7 cached, 1 rebuilt)` → output deleted, restored from
+  cache → every entry corrupted, `(0 cached, 8 rebuilt)`, exit 0, no panic → `--no-cache`
+  rebuilds all and writes no entries.
 - **New decisions emitted:**
-  - `DEC-058` — hasher dep + cache-key composition + store design (if emitted as designed)
+  - `DEC-058` — hasher dep (`sha2`) + cache-key composition + store design, as designed.
+    `affected_scope`: `src/build/cache.rs`, `src/build/mod.rs`, `src/cli/mod.rs`, `Cargo.toml`.
 - **Deviations from spec:**
-  - [list]
+  - **`apply_one` split into three, not two.** The spec said `apply_one` becomes
+    `encode_one` + `sink.write_bytes(...)`. The write half is shared verbatim by the
+    cache-*hit* path too, so it was extracted as `write_encoded` rather than inlined at
+    two call sites. Same seam, one more named function.
+  - **`apply`'s error *ordering* changed, though its output bytes did not.** `Sink::write`
+    encoded *after* the traversal/overwrite guards; `encode_one` + `write_bytes` encodes
+    *before* them. So an input that would both fail to encode and hit an
+    `AlreadyExists`/traversal guard now reports the encode error first. Both are errors,
+    both exit non-zero, and the written bytes are identical (`encode_to_bytes` is the same
+    call). Existing `apply` tests all pass unchanged.
+  - **Two extra store guards beyond the spec's list:** entries are refused if they are not
+    regular files (a symlinked entry is rejected, not followed), and the bounded read is
+    `max + 1` so an oversize file is *detected* rather than silently truncated into a
+    "valid" short entry.
+  - **`store` and `lookup` never fail a build.** The spec allowed a `CacheError` at the
+    boundary; in practice only `Cache::open` can reach it (→ exit 5). A failed `store` is
+    a warning; a failed `lookup` is a miss. Recorded in DEC-058.
+  - **Two extra tests** beyond the spec's list: `malformed_cache_entries_are_misses_not_panics`
+    and `symlinked_entry_is_a_miss` (unix-only), plus `key_fields_are_domain_separated`,
+    which is the test that would actually catch a broken length-prefix.
+  - **`--no-cache` creates no `.crustyimg/` at all** (the spec only said "no store
+    reads/writes"). Stronger, and what the test asserts.
+  - Not a deviation but worth stating: the **injective source→output constraint (DEC-057)
+    was NOT touched**, per instruction. The cache keys on output-byte identity, not path,
+    so two colliding-stem inputs still race at the destination exactly as before. STAGE-022
+    stays blocked on it.
 - **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - `build --gc` / `--cache-prune` + a `--cache-dir` override — the store grows until
+    `rm -rf .crustyimg`. Additive; both named as out-of-scope in the stage.
+  - An mtime/size fast-path *in front of* the content hash, for very large trees where
+    hashing every source dominates. Must never replace the content hash.
+  - `--dry-run` / plan preview ("what would rebuild?") — the natural companion to a cache,
+    and cheap now that hit/miss is computed before any write.
+  - A cache-hit **rate** in `-v` output (per-target hits/misses), useful once trees are big.
+  - The miss path reads each source file twice (once to hash, once in `Image::load`).
+    Threading the already-read bytes into `Image::decode_path` would remove it — the seam
+    already exists (`Image::decode_path(path, bytes)`).
 
 ### Build-phase reflection (3 questions, short answers)
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — Almost nothing; this was the most build-ready spec of the project so far. The one
+   thing I had to decide myself was **where the schema version enters the key**. The spec
+   gave `compute_key` a signature with no `schema` parameter, yet demanded a unit test
+   proving the schema version changes the key — which that signature makes impossible. I
+   resolved it with a private `compute_key_with_schema` that the public `compute_key`
+   delegates to, and tested through it. That pattern is worth naming explicitly next time
+   a spec asks "prove this compiled-in const is load-bearing."
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — `DEC-035` (the symlink-destination guard). The spec's Implementation Context listed
+   DEC-004/005/006/007/015/034/057 and told me to reuse `write_bytes` "inherits safe_join /
+   symlink / create-dir / overwrite guards" — but never named the decision those guards
+   come from, and the cache introduces a *second* symlink surface the spec did mention in
+   prose (a symlinked cache entry) without tying it to DEC-035's precedent. Both are in
+   DEC-058's references now. Also: nothing warned that `GlobalArgs` is constructed by hand
+   in two `#[cfg(test)]` helpers, so adding a field breaks the lib tests before any of the
+   new code runs — a two-second fix, but a spec that says "add `--no-cache` to `GlobalArgs`"
+   could say where its initializers live.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Write the *store* before the *key*. I wrote them in spec order (key, then store), but
+   every hard decision — self-describing entries, the framing, verify-on-read, corrupt→miss
+   — lives in the store, and the key is thirty lines of `absorb`. Starting at the store
+   would have surfaced the "output ext is recovered, not keyed" inversion as something I
+   *derived* rather than something I *transcribed*. I'd also drive the real binary earlier:
+   my first ad-hoc end-to-end script had a bug that made a cold build print "8 cached" (it
+   built, deleted the cache, then timed a build that repopulated it before the run whose
+   summary it printed) and silently failed to modify a source. The integration tests were
+   right and the script was wrong — but for ten minutes I couldn't tell which, and a script
+   I trust is worth writing carefully the first time.
 
 ---
 

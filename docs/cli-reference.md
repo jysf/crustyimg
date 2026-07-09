@@ -276,7 +276,32 @@ name   = "{stem}_web.{ext}"     # optional; default "{stem}.{ext}"
 ```sh
 crustyimg build                 # discovers ./crustyimg.build.toml
 crustyimg build ci.build.toml -j 8
+crustyimg build --no-cache      # rebuild everything, ignore the cache
 ```
+
+#### Incremental rebuilds (the cache)
+
+`build` is **incremental**. Before decoding an input it computes a key from everything
+that can change the output — the source's bytes and extension, the resolved recipe, the
+encode quality, and this binary's version and codec features — and looks it up in a
+local content-addressed store at `.crustyimg/cache/` (relative to the working
+directory). On a hit it writes the cached output and skips the decode/pipeline/encode
+entirely; on a miss it does the work and stores the result.
+
+The summary reports both:
+
+```
+built 1 target, 8 outputs (0 cached, 8 rebuilt)   # a cold build
+built 1 target, 8 outputs (8 cached, 0 rebuilt)   # a re-run with no changes
+built 1 target, 8 outputs (7 cached, 1 rebuilt)   # one source edited
+```
+
+The cache is **local only** — a directory, no network, no cache server. It is a pure
+optimization: a hit restores a deleted output byte-for-byte, and a corrupt, truncated,
+or deleted entry falls back to a clean rebuild rather than serving bad bytes. Clear it
+with `rm -rf .crustyimg` (there is no automatic eviction yet), and add `.crustyimg/` to
+your `.gitignore`. `--no-cache` bypasses it in both directions: no entry is read, none
+is written, and every input is rebuilt.
 
 ---
 

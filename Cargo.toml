@@ -135,6 +135,13 @@ resvg = { version = "=0.47.0", default-features = false, features = ["text"] }
 #   bindgen/libclang build-tool dependency; and NOT `embedded-libheif`, which would
 #   vendor+cmake-build libheif and pull the LGPLv3 §4 static-relink obligation.
 libheif-rs = { version = "=2.7.0", optional = true, default-features = false, features = ["v1_17"] }
+# The build cache's hasher (SPEC-064, DEC-058): cache keys, source-content hashes,
+# and the verify-on-read hash of a stored entry. RustCrypto `sha2` is pure Rust with
+# no `build.rs` C/SIMD (unlike `blake3`'s default build, whose nasm/C path has bitten
+# the Windows CI job), MIT OR Apache-2.0 → `just deny` stays green with no exception,
+# and the lean `--no-default-features` build is unaffected. Hash throughput is
+# immaterial here: the cache's win is skipping a decode+encode, not hashing faster.
+sha2 = "=0.11.0"
 
 [features]
 # `display` (terminal preview via viuer) is ON BY DEFAULT so `view` works out of the

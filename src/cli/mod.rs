@@ -95,6 +95,11 @@ pub struct GlobalArgs {
     /// Opt out of the default drop-GPS policy on pixel-lane encodes.
     #[arg(long, global = true)]
     pub keep_gps: bool,
+
+    /// Bypass the `build` cache: read no entries, write none, rebuild every
+    /// input (SPEC-064). The cache is on by default; this is the opt-out.
+    #[arg(long, global = true)]
+    pub no_cache: bool,
 }
 
 /// A perceptual auto-quality preset for `shrink --target` (SPEC-016, DEC-019).
@@ -499,6 +504,13 @@ pub enum CliError {
         source: std::io::Error,
     },
 
+    /// The build cache could not be opened or written (SPEC-064, DEC-058).
+    /// Only `Cache::open` reaches here — a lookup degrades to a miss, and a
+    /// failed `store` is warned about, not raised. Exit 5 (write refused);
+    /// `--no-cache` is the way past it.
+    #[error(transparent)]
+    Cache(#[from] crate::build::cache::CacheError),
+
     /// One or more inputs in a multi-input batch failed (others may have
     /// succeeded). A per-failure summary is printed to stderr before this is
     /// returned. (api-contract exit code 6.)
@@ -570,6 +582,9 @@ impl CliError {
             // (Reading the manifest file is CliError::BuildManifestIo → 3.)
             CliError::Build(_) => 2,
             CliError::BuildManifestIo { .. } => 3,
+            // The build cache could not be created/written → an output write was
+            // refused → 5, the same code the sink's write failures use.
+            CliError::Cache(_) => 5,
             // Partial batch failure → 6 (DEC-015)
             CliError::PartialBatch { .. } => 6,
             // Runtime usage error → 2 (mirrors clap)
@@ -801,26 +816,24 @@ fn run_completions(shell: clap_complete::Shell) -> Result<(), CliError> {
 /// in non-test code rather than an `unwrap` on an arbitrary user-supplied string.
 const BATCH_PROGRESS_TEMPLATE: &str = "{bar:40.cyan/blue} {pos}/{len} {msg}";
 
-/// Apply one input through the recipe and write the result to `out_dir`.
+/// The decode→pipeline→encode half of [`apply_one`]: everything up to, but not
+/// including, the write. Returns the output's extension and its encoded bytes.
 ///
-/// Extracted from `run_apply` so it is unit-testable. Rebuilds the pipeline
-/// from `recipe` + `registry` on every call — `Operation` is NOT `Send`, so
-/// no pipeline may cross a thread boundary (SPEC-031, Parallel design).
+/// This is the *worker* both callers share. `apply_one` writes its result
+/// straight through; `run_build`'s cache-miss path writes it AND stores it under
+/// the input's cache key (SPEC-064). Extracting it means the cached and
+/// uncached paths cannot drift into producing different bytes.
 ///
-/// - Loads the image from `input`.
-/// - Builds a local pipeline via `recipe.build_pipeline(registry)`.
-/// - Runs the pipeline.
-/// - Writes the result to `Sink::Dir { dir, template, format }`.
-/// - `format`: `None` → preserve the source format.
-fn apply_one(
+/// Rebuilds the pipeline from `recipe` + `registry` on every call — `Operation`
+/// is NOT `Send`, so no pipeline may cross a thread boundary (SPEC-031).
+/// The output format preserves the source format (no `--format` in the batch
+/// path, DEC-015), which is why the extension is a *result* rather than an input.
+fn encode_one(
     recipe: &Recipe,
     registry: &OperationRegistry,
     input: &crate::source::Input,
-    out_dir: &Path,
-    template: &str,
-    overwrite: Overwrite,
     quality: Option<u8>,
-) -> Result<(), CliError> {
+) -> Result<(&'static str, Vec<u8>), CliError> {
     // Load.
     let img = match input {
         crate::source::Input::Path(p) => Image::load(p)?,
@@ -835,11 +848,48 @@ fn apply_one(
 
     // Preserve the source format (no --format override in batch path v1).
     let fmt = img.source_format();
+    let bytes = crate::sink::encode_to_bytes(&out_img, fmt, quality)?;
 
+    Ok((crate::sink::extension_for_format(fmt), bytes))
+}
+
+/// Apply one input through the recipe and write the result to `out_dir`.
+///
+/// Extracted from `run_apply` so it is unit-testable. [`encode_one`] does the
+/// decode→pipeline→encode; this adds the `Sink::Dir` write, which is where the
+/// name-template expansion, traversal, symlink, and overwrite guards live.
+fn apply_one(
+    recipe: &Recipe,
+    registry: &OperationRegistry,
+    input: &crate::source::Input,
+    out_dir: &Path,
+    template: &str,
+    overwrite: Overwrite,
+    quality: Option<u8>,
+) -> Result<(), CliError> {
+    let (ext, bytes) = encode_one(recipe, registry, input, quality)?;
+    write_encoded(&bytes, ext, input, out_dir, template, overwrite)
+}
+
+/// Write already-encoded output `bytes` into `out_dir` under `template`.
+///
+/// The single write seam for the batch paths: `apply_one` hands it freshly
+/// encoded bytes, `run_build`'s cache-hit path hands it bytes read from the
+/// store. Both inherit the sink's create-dir, traversal, symlink, and overwrite
+/// guards — a cached byte reaches disk through exactly the guards a fresh one does.
+fn write_encoded(
+    bytes: &[u8],
+    ext: &str,
+    input: &crate::source::Input,
+    out_dir: &Path,
+    template: &str,
+    overwrite: Overwrite,
+) -> Result<(), CliError> {
+    // `format` is unused by `write_bytes` (the extension is passed explicitly).
     let sink = Sink::Dir {
         dir: out_dir.to_owned(),
         template: template.to_owned(),
-        format: Some(fmt),
+        format: None,
     };
 
     let sink_input = SinkInput {
@@ -847,11 +897,11 @@ fn apply_one(
         path: input.path(),
     };
 
-    sink.write(
-        &out_img,
+    sink.write_bytes(
+        bytes,
         &sink_input,
+        ext,
         overwrite,
-        quality,
         &mut std::io::stdout().lock(),
     )?;
 
@@ -1041,11 +1091,23 @@ fn run_apply(recipe_path: &str, inputs: &[String], global: &GlobalArgs) -> Resul
 // ── Build command (SPEC-063, DEC-057) ────────────────────────────────────────
 
 /// A manifest target with everything resolved that could fail before a write:
-/// its recipe (parsed, pipeline-probed) and its inputs (sources resolved).
+/// its recipe (parsed, pipeline-probed), its inputs (sources resolved), and the
+/// canonical hash of its recipe — computed once per target, not once per input,
+/// since every input in a target shares it (SPEC-064).
 struct PreparedTarget<'a> {
     target: &'a crate::build::Target,
     recipe: Recipe,
+    recipe_hash: crate::build::cache::Hash,
     inputs: Vec<crate::source::Input>,
+}
+
+/// How one input's output came to exist, for the build summary (SPEC-064).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Built {
+    /// Materialized from a cache entry; no decode, no encode.
+    Cached,
+    /// Decoded, run through the pipeline, encoded — and stored for next time.
+    Rebuilt,
 }
 
 /// `"1 target"` / `"2 targets"` — the build summary counts several things and
@@ -1092,6 +1154,7 @@ fn prepare_target<'a>(
 ) -> Result<PreparedTarget<'a>, CliError> {
     let recipe = load_recipe(&target.recipe)?;
     recipe.build_pipeline(registry)?;
+    let recipe_hash = crate::build::cache::recipe_hash(&recipe)?;
 
     let mut inputs: Vec<crate::source::Input> = Vec::new();
     for pattern in target.source.as_slice() {
@@ -1106,8 +1169,102 @@ fn prepare_target<'a>(
     Ok(PreparedTarget {
         target,
         recipe,
+        recipe_hash,
         inputs,
     })
+}
+
+/// The cache key for one input of a prepared target, plus the input's bytes.
+///
+/// Returns `Ok(None)` for a stdin input — the manifest rejects `-` sources
+/// (DEC-057), so this is unreachable in practice, but a stdin input has no file
+/// to hash and simply falls through to an uncached rebuild rather than a panic.
+///
+/// The file is read here (once) so its content can be hashed *before* any decode
+/// — that pre-decode read is exactly what a cache hit exists to make sufficient.
+fn cache_key_for(
+    prepared: &PreparedTarget,
+    input: &crate::source::Input,
+    quality: Option<u8>,
+) -> Result<Option<crate::build::cache::CacheKey>, CliError> {
+    use crate::build::cache;
+
+    let path = match input {
+        crate::source::Input::Path(p) => p,
+        crate::source::Input::Stdin { .. } => return Ok(None),
+    };
+
+    let bytes = std::fs::read(path).map_err(|e| CliError::Image(ImageError::Io(e)))?;
+    let input_ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+
+    Ok(Some(cache::compute_key(
+        crate::version(),
+        &cache::feature_signature(),
+        &prepared.recipe_hash,
+        quality,
+        &input_ext,
+        &cache::hash_bytes(&bytes),
+    )))
+}
+
+/// What every input of a build shares: the operation registry, the (optional)
+/// cache, and the global flags the per-input worker reads. Built once in
+/// `run_build` and borrowed across the rayon fan-out — all `Sync`.
+struct BuildCtx<'a> {
+    registry: &'a OperationRegistry,
+    /// `None` under `--no-cache`: the store is neither read nor written.
+    cache: Option<&'a crate::build::cache::Cache>,
+    quality: Option<u8>,
+    quiet: bool,
+}
+
+/// Build one input: a cache hit materializes the stored bytes, a miss runs the
+/// shipped worker and stores the result.
+///
+/// Cache failures never fail a build. A `lookup` that errors is treated as a
+/// miss (it cannot error by construction, but the executor does not rely on
+/// that); a `store` that errors costs the next run a rebuild and is warned about.
+fn build_one(
+    ctx: &BuildCtx,
+    prepared: &PreparedTarget,
+    input: &crate::source::Input,
+) -> Result<Built, CliError> {
+    let out_dir = Path::new(&prepared.target.out);
+    let template = prepared.target.template();
+    // A build owns its declared outputs and overwrites them (DEC-057) — which is
+    // also what lets a hit restore an output the user deleted.
+    let overwrite = Overwrite::Allow;
+
+    let key = match ctx.cache {
+        Some(_) => cache_key_for(prepared, input, ctx.quality)?,
+        None => None,
+    };
+
+    if let (Some(cache), Some(key)) = (ctx.cache, key.as_ref()) {
+        if let Ok(Some(hit)) = cache.lookup(key) {
+            // The entry is self-describing: it carries the extension the output
+            // was encoded as, so no decode is needed to write it to the right path.
+            write_encoded(&hit.bytes, &hit.ext, input, out_dir, template, overwrite)?;
+            return Ok(Built::Cached);
+        }
+    }
+
+    let (ext, bytes) = encode_one(&prepared.recipe, ctx.registry, input, ctx.quality)?;
+    write_encoded(&bytes, ext, input, out_dir, template, overwrite)?;
+
+    if let (Some(cache), Some(key)) = (ctx.cache, key.as_ref()) {
+        if let Err(e) = cache.store(key, ext, &bytes) {
+            if !ctx.quiet {
+                eprintln!("warning: could not cache output: {e}");
+            }
+        }
+    }
+
+    Ok(Built::Rebuilt)
 }
 
 /// The `build` path: run every `[[target]]` in a declared build manifest.
@@ -1118,9 +1275,15 @@ fn prepare_target<'a>(
 /// 1. **Prepare every target** — parse each recipe, probe each pipeline, resolve
 ///    each source set. Any failure here aborts the build having written nothing,
 ///    so target #2's typo can't leave target #1's half-built outputs on disk.
-/// 2. **Execute** — for each target, fan its inputs out over rayon into the
-///    shipped per-input worker [`apply_one`], writing to that target's `out` dir
-///    under its name template. The registry is built ONCE and shared (fn ptrs → `Sync`).
+/// 2. **Execute** — for each target, fan its inputs out over rayon into
+///    [`build_one`], writing to that target's `out` dir under its name template.
+///    The registry is built ONCE and shared (fn ptrs → `Sync`).
+///
+/// Each input goes through the **content-addressed cache** (SPEC-064): its key
+/// is computed from the source bytes + extension, the canonical recipe, the
+/// quality, and this binary's version + features; a hit materializes the stored
+/// output and skips decode→pipeline→encode entirely, a miss runs the worker and
+/// stores the result. `--no-cache` bypasses the store in both directions.
 ///
 /// A build **owns its declared outputs**, so it writes with [`Overwrite::Allow`]
 /// and needs no `--yes` (the deliberate difference from `apply`; the sink still
@@ -1152,6 +1315,17 @@ fn run_build(file: Option<&str>, global: &GlobalArgs) -> Result<(), CliError> {
 
     let total: usize = prepared.iter().map(|p| p.inputs.len()).sum();
 
+    // Open the store once, before anything is written. This is the only cache
+    // error that can reach the boundary (exit 5); `--no-cache` skips it entirely,
+    // so a bypassed build creates no `.crustyimg/` directory at all.
+    let cache = if global.no_cache {
+        None
+    } else {
+        Some(crate::build::cache::Cache::open(
+            crate::build::cache::DEFAULT_CACHE_DIR,
+        )?)
+    };
+
     // ── Phase 2: execute ─────────────────────────────────────────────────────
     let bar = if global.quiet {
         ProgressBar::hidden()
@@ -1163,24 +1337,21 @@ fn run_build(file: Option<&str>, global: &GlobalArgs) -> Result<(), CliError> {
         pb
     };
 
+    let ctx = BuildCtx {
+        registry: &registry,
+        cache: cache.as_ref(),
+        quality: global.quality,
+        quiet: global.quiet,
+    };
+
     let execute = || {
-        let mut failed = 0usize;
+        let mut outcomes: Vec<Result<Built, CliError>> = Vec::with_capacity(total);
         for p in &prepared {
-            let out_dir = PathBuf::from(&p.target.out);
-            let template = p.target.template();
-            let results: Vec<Result<(), CliError>> = p
+            let results: Vec<Result<Built, CliError>> = p
                 .inputs
                 .par_iter()
                 .map(|input| {
-                    let r = apply_one(
-                        &p.recipe,
-                        &registry,
-                        input,
-                        &out_dir,
-                        template,
-                        Overwrite::Allow,
-                        global.quality,
-                    );
+                    let r = build_one(&ctx, p, input);
                     if let Err(ref e) = r {
                         let label = match input {
                             crate::source::Input::Path(path) => path.display().to_string(),
@@ -1192,12 +1363,12 @@ fn run_build(file: Option<&str>, global: &GlobalArgs) -> Result<(), CliError> {
                     r
                 })
                 .collect();
-            failed += results.iter().filter(|r| r.is_err()).count();
+            outcomes.extend(results);
         }
-        failed
+        outcomes
     };
 
-    let failed = if let Some(n) = global.jobs {
+    let outcomes = if let Some(n) = global.jobs {
         let pool = rayon::ThreadPoolBuilder::new()
             .num_threads(n)
             .build()
@@ -1209,6 +1380,16 @@ fn run_build(file: Option<&str>, global: &GlobalArgs) -> Result<(), CliError> {
 
     bar.finish_and_clear();
 
+    let failed = outcomes.iter().filter(|r| r.is_err()).count();
+    let cached = outcomes
+        .iter()
+        .filter(|r| matches!(r, Ok(Built::Cached)))
+        .count();
+    let rebuilt = outcomes
+        .iter()
+        .filter(|r| matches!(r, Ok(Built::Rebuilt)))
+        .count();
+
     // ── Summary (stderr; stdout stays clean for pipes) ───────────────────────
     if !global.quiet {
         for (i, p) in prepared.iter().enumerate() {
@@ -1219,11 +1400,11 @@ fn run_build(file: Option<&str>, global: &GlobalArgs) -> Result<(), CliError> {
                 p.target.out
             );
         }
-        let written = total - failed;
+        // A no-change re-run reads "(N cached, 0 rebuilt)" — the zero-work signal.
         let summary = format!(
-            "built {}, {}",
+            "built {}, {} ({cached} cached, {rebuilt} rebuilt)",
             plural(prepared.len(), "target"),
-            plural(written, "output")
+            plural(cached + rebuilt, "output")
         );
         if failed > 0 {
             eprintln!("{summary}, {failed} failed");
@@ -4409,6 +4590,7 @@ mod tests {
             quiet: false,
             yes: false,
             keep_gps: false,
+            no_cache: false,
         }
     }
 
@@ -4756,6 +4938,7 @@ mod tests {
             quiet: false,
             yes: true,
             keep_gps: false,
+            no_cache: false,
         }
     }
 
