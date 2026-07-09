@@ -19,8 +19,10 @@
 //! sources, or write outputs — the executor (`run_build` in `crate::cli`) does
 //! that by looping the shipped per-input `apply` worker over these targets.
 //!
-//! Layering: depends on `serde`/`toml`/`thiserror` only. No `clap`, no pixel
-//! crate, no filesystem.
+//! Layering: this module depends on `serde`/`toml`/`thiserror` only. No `clap`,
+//! no pixel crate, no filesystem. Its sibling [`cache`] (SPEC-064, DEC-058) owns
+//! the build's content-addressed cache — the key composition and the on-disk
+//! store — and does touch the filesystem; the executor still owns all the wiring.
 //!
 //! ## Relationship to recipes (DEC-005 / DEC-057)
 //!
@@ -42,6 +44,8 @@
 //!   [`BuildError::InvalidTarget`]. A build reads declared files, never stdin.
 //!
 //! All of these fire before the executor touches a single input.
+
+pub mod cache;
 
 use serde::Deserialize;
 use thiserror::Error;

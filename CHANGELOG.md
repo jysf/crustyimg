@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`crustyimg build` is now incremental** — a content-addressed cache at
+  `.crustyimg/cache/` (SPEC-064, DEC-058). A re-run with no changes is a full cache hit
+  that skips every decode/pipeline/encode; changing one source, one recipe param, the
+  `--quality`, or the crustyimg version rebuilds only what it affects. The build summary
+  reports `(N cached, M rebuilt)`. A cache hit restores a deleted output byte-for-byte;
+  a corrupt, truncated, or missing entry falls back to a clean rebuild. The store is
+  local only (no network path exists), and `--no-cache` bypasses it entirely.
+- One new dependency: `sha2` (RustCrypto SHA-256 — pure Rust, MIT OR Apache-2.0, no
+  `build.rs` C). `cargo deny` stays green with no new exception; the lean
+  `--no-default-features` build and the 1.90 MSRV are unaffected.
+
 ### Changed
 
 ### Deprecated

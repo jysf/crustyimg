@@ -32,6 +32,10 @@ out/
 # Rust
 /target
 
+# `crustyimg build`'s local content-addressed cache (SPEC-064). Machine-local and
+# regenerable; a corrupt or absent entry just triggers a rebuild.
+.crustyimg/
+
 # cargo-fuzz build/run artifacts (the harness + targets ARE committed; the
 # generated corpus, crash artifacts, and build dir are not).
 /fuzz/target
