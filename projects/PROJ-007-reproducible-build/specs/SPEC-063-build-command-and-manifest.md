@@ -293,6 +293,16 @@ Honor `global.jobs` (bounded pool) + `global.quiet` (hidden progress) like `run_
     (DEC-057); revisit if users trip over it.
   - **Flatten the fan-out** to one rayon pass over `(target, input)` pairs — targets run
     sequentially today, which under-uses the pool on wide, shallow builds.
+  - **Output-collision detection (reproducibility hazard, worth a spec).** Two inputs in one
+    target that share a stem (`a/logo.png`, `b/logo.png` under `{stem}.{ext}`) map to the
+    SAME output path. With `Overwrite::Allow` and a rayon fan-out, they race: the winner is
+    nondeterministic. `apply --out-dir` has the same hole, but it matters more here — a build
+    that yields different bytes per run makes STAGE-022's lockfile meaningless. **Reproduced
+    firsthand:** a target with `source = ["a/*.png", "b/*.png"]`, both holding `logo.png`,
+    writes ONE `dist/logo.png` while the summary claims "2 outputs" — so the count is wrong
+    too. Cheapest fix lives in `prepare_target`: expand each input's template up front and
+    reject duplicate output paths with a typed `BuildError` before executing. Not done here
+    (out of the spec's scope, and it wants its own failing test); flagged for STAGE-021/022.
   - `PartialBatch`'s message says "N of M **inputs** failed" for a build whose unit is an
     output. Cosmetic; shared with `apply` (DEC-015), so left alone deliberately.
   - A `--dry-run` / plan preview — the natural STAGE-021 companion (already noted in the stage).
