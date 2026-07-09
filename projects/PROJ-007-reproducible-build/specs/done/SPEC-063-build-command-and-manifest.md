@@ -3,7 +3,7 @@
 task:
   id: SPEC-063
   type: story
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: M                    # manifest schema + executor orchestration + BuildError + exit-code discipline; no new dep
@@ -57,10 +57,37 @@ cost:
         Build cycle run in the main loop (not a metered subagent), so tokens_total is a labelled
         ORDER-OF-MAGNITUDE ESTIMATE, not a harness reading (AGENTS §4). estimated_usd = 260k ×
         Opus 4.8 list ($5/$25 per MTok, ~80/20 in/out, no cache discount).
+    - cycle: verify
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 180000
+      estimated_usd: 1.62
+      duration_minutes: null
+      recorded_at: 2026-07-08
+      notes: >
+        Fresh verify session — ✅ APPROVED. Re-ran all gates from a clean session (default 601, lean 601,
+        clippy default+lean, fmt, `just deny` green + `git diff main -- Cargo.toml Cargo.lock` empty →
+        no new dep) and REPRODUCED both hazards against the real binary: the stem-collision (a/logo.png +
+        b/logo.png → one output, summary over-counts — matches the follow-up) and the manifest size guard
+        (70 KB file → exit 2 without reading) + the name-template escape guard. Confirmed fail-before-write
+        is multi-target, apply_one is not duplicated (load_recipe extracted, run_apply unbroken), PR #69
+        24/24 CI green (rows pulled raw, not via the summarizing wrapper). Main-loop → ORDER-OF-MAGNITUDE
+        ESTIMATE per §4: ~180k ≈ $1.62. 2 non-blocking ship notes.
+    - cycle: ship
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-07-08
+      notes: >
+        Ship bookkeeping (squash-merge #69, cost/reflection/totals/archive/stage-ship, DEC-057
+        injective-mapping line, carry the collision into STAGE-021) — main-loop, not separately
+        metered → null-with-note per AGENTS §4.
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 440000
+    estimated_usd: 3.96
+    session_count: 4
 ---
 
 # SPEC-063: the `build` command + declared `crustyimg.build.toml` manifest
@@ -334,8 +361,24 @@ Honor `global.jobs` (bounded pool) + `global.quiet` (hidden progress) like `run_
 ## Reflection (Ship)
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Count staged files against the spec's Outputs list *before* committing — the `.gitignore`
+   near-miss (an unanchored `build/` from JS-era patterns silently excluded the entire new
+   `src/build/` module from `git add -A`, with no error anywhere) would have merged a broken PR
+   otherwise. It was caught exactly by that file-count check. A repo adding a new top-level `src/`
+   module should audit `.gitignore` for unanchored directory patterns as a matter of course.
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — DEC-057 emitted (build-manifest format + `build` semantics). At ship I added a line to DEC-057's
+   validation/revisit list recording the **injective source→output mapping** constraint: the
+   stem-collision hazard (two inputs sharing a stem in one target collide to one output path — the
+   rayon fan-out races and the summary over-counts) means a lockfile cannot pin a build whose
+   source→output mapping isn't injective. Recording it in the *contract* (not only this archived spec)
+   makes it discoverable to STAGE-021/022, which inherit it. No template/constraint change.
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — No new spec, but two tracked carries: (a) the **output-collision** hazard → **STAGE-022 (lockfile)
+   is blocked on it** (reject duplicate expanded output paths in `prepare_target`; STAGE-021 cache is
+   not blocked) — carried into STAGE-021 framing; (b) two hardening behaviors (the on-disk `fs::metadata`
+   size pre-check and the `-`/stdin source rejection) are only unit-tested at the string level — verify
+   exercised both against the real binary and they work; two cheap `tests/build.rs` additions if we want
+   them pinned. Also noted: `--dir` for non-cwd-relative manifest paths (additive, if users trip over
+   cwd resolution). Next: STAGE-021 (content-addressed cache) — reshaped by the encoder-determinism
+   experiment agreed this session.

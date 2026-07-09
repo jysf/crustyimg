@@ -2,7 +2,7 @@
 # Maps to ContextCore epic-level conventions.
 stage:
   id: STAGE-020
-  status: active                    # proposed | active | shipped | cancelled | on_hold
+  status: shipped                   # proposed | active | shipped | cancelled | on_hold
   priority: high
   target_complete: null
 
@@ -12,7 +12,7 @@ repo:
   id: crustyimg
 
 created_at: 2026-07-08
-shipped_at: null
+shipped_at: 2026-07-08
 
 value_contribution:
   advances: >
@@ -96,13 +96,14 @@ format contract.
 
 Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
-- [ ] SPEC-063 (design) — the `build` command + `crustyimg.build.toml` manifest: `src/build/`
-  (`BuildManifest`/`Target` serde schema + `BuildError`, versioned, `deny_unknown_fields`) + a
-  `run_build` executor in `src/cli/` that loops targets over the shipped `apply_one` (source ×
-  recipe → out/name, rayon), default-file discovery, summary + exit codes, overwrite-owned-outputs;
-  DEC-057. **No new dependency.**
+- [x] SPEC-063 (shipped on 2026-07-08) — the `build` command + `crustyimg.build.toml` manifest: `src/build/`
+  (`BuildManifest`/`Target` serde schema + `BuildError`, versioned, `deny_unknown_fields`, size/target
+  caps) + a `run_build` executor in `src/cli/` that prepares ALL targets then loops the shipped `apply_one`
+  (source × recipe → out/name, rayon, fail-before-write), default-file discovery, summary + exit codes,
+  overwrite-owned-outputs; DEC-057. **No new dependency.** PR #69 (a254fe8), 24/24 CI green. Known hazard
+  carried to STAGE-021/022: non-injective source→output mapping (stem collision).
 
-**Count:** 0 shipped / 1 active / 0 pending — single-spec stage (mirrors the PROJ-009 shape).
+**Count:** 1 shipped / 0 active / 0 pending — single-spec stage complete.
 
 ## Design Notes
 
@@ -162,12 +163,24 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
 ## Stage-Level Reflection
 
-*Filled in when status moves to shipped.*
-
-- **Did we deliver the outcome in "What This Stage Is"?** <yes/no + notes>
-- **How many specs did it actually take?** <number vs. plan>
-- **What changed between starting and shipping?** <one sentence>
+- **Did we deliver the outcome in "What This Stage Is"?** Yes — `crustyimg build` runs a declared
+  `crustyimg.build.toml` (targets = source × recipe → out/name) end to end over the shipped pipeline,
+  with a two-phase fail-before-write executor, manifest hardening, and apply-consistent exit codes. PR
+  #69, 24/24 CI green, **no new dependency** (455 lines src/build + 291 lines cli on shipped machinery).
+- **How many specs did it actually take?** 1 (SPEC-063), as planned — a clean single-spec skeleton stage.
+- **What changed between starting and shipping?** The executor improved on the spec sketch (prepare ALL
+  targets — recipe parse + pipeline probe + source resolve — *before* executing any, so a bad target
+  can't strand an earlier target's outputs), and two things surfaced by exercising the binary: a
+  `.gitignore` near-miss (an unanchored `build/` silently excluded the whole new module from `git add`)
+  and a real reproducibility hazard (a non-injective source→output mapping — stem collision — races the
+  fan-out and over-counts). The hazard is out of scope for the skeleton but recorded in DEC-057 as a
+  STAGE-022 blocker.
 - **Lessons that should update AGENTS.md, templates, or constraints?**
-  - <one-line updates>
+  - Adding a new top-level `src/` module: **audit `.gitignore` for unanchored directory patterns** (and
+    count staged files against the spec's Outputs list before committing) — a silent exclusion produces
+    no error and would merge a broken PR.
+  - When a project's whole thesis is verifiability, **correctness hazards found by hand-exercising the
+    binary matter more than the tests passing** — the stem collision passed every gate green.
 - **Should any spec-level reflections be promoted to stage-level lessons?**
-  - <one-line items>
+  - Yes — the injective source→output constraint is a project-level invariant (the cache and especially
+    the lockfile depend on it), so it lives in DEC-057's validation list, not just SPEC-063's follow-ups.

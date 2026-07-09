@@ -26,8 +26,13 @@ there is no separate prompt file unless a cycle needs one.
   executing any**, so a bad target #2 can't strand target #1's outputs; `load_recipe` extracted from
   `run_apply` and shared; `apply_one` reused verbatim. Manifest paths are cwd-relative (recorded in
   DEC-057). Est. 260k tok / ~$2.34 (main-loop estimate).
-- [ ] **verify** — fresh session; re-run all gates independently, confirm the executor reuses `apply_one`
-  (no duplicated worker), overwrite-owned-outputs + idempotent re-run, partial-batch exit-6, manifest
-  hardening (size guard + deny_unknown_fields + version), no new dep, DEC-057 recorded.
-- [ ] **ship** — merge PR, cost sessions + totals, ship reflection, archive to done/, update STAGE-020
-  backlog + PROJ-007 stage plan (STAGE-021 cache next).
+- [x] **verify** — ✅ APPROVED (fresh Opus session, run from a clean state). Re-ran all gates (default 601,
+  lean 601, clippy×2, fmt, `just deny` green + `git diff main -- Cargo.toml/lock` empty → no new dep) and
+  REPRODUCED both hazards against the real binary (stem-collision + the manifest size / name-escape
+  guards). Confirmed fail-before-write is multi-target, `apply_one` not duplicated (`load_recipe`
+  extracted, `run_apply` unbroken), PR #69 24/24 CI green (rows pulled raw, not the summarizing wrapper).
+  2 non-blocking notes → carried at ship. 2026-07-08.
+- [x] **ship** — squash-merged PR #69 → main (a254fe8); appended verify + ship cost sessions + totals
+  (440k, labelled estimates §4), ship reflection, marked cycle ship; archived to done/; STAGE-020 shipped
+  (single-spec stage). Added the injective source→output constraint to DEC-057 (STAGE-022 blocker) and
+  carried the collision into STAGE-021 framing. 2026-07-08.

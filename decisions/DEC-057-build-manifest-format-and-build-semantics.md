@@ -171,6 +171,16 @@ target's outputs, `--watch` re-runs affected targets. Revisit if:
 - sequential-targets parallelism becomes the bottleneck on wide, shallow builds (→ flatten
   the fan-out to one rayon pass over (target, input) pairs).
 
+**Injective source→output constraint (STAGE-022 blocker, SPEC-063 verify).** SPEC-063's executor does
+NOT guarantee that a target's expanded output paths are unique: two inputs sharing a stem in one target
+(`a/logo.png` + `b/logo.png` under `{stem}.{ext}`) collide to one output path — the rayon fan-out races
+and the summary over-counts (exit 0, "2 outputs", one file). SPEC-063 does not claim the count is
+trustworthy; the hazard is out of scope there but **a lockfile cannot pin a build whose source→output
+mapping isn't injective**, so STAGE-022 (lockfile / `--check`) is BLOCKED on resolving it — reject
+duplicate expanded output paths in `prepare_target` (detect the collision at prepare time, before
+executing). STAGE-021 (cache) is not blocked. Recorded here so the constraint is discoverable from the
+contract, not only from the archived spec.
+
 ## References
 
 - Related specs: SPEC-063 (this decision's spec), SPEC-006 (recipe TOML), SPEC-031
