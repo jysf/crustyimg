@@ -23,12 +23,16 @@
 //! `zeno` + bundled Go font, SPEC-044/DEC-045) that turns a string into a
 //! transparent RGBA overlay for `watermark --text`, then reuses the SPEC-029
 //! compositing path (DEC-032).
+//! SPEC-063 adds the [`build`] module: the `crustyimg.build.toml` manifest
+//! (versioned `[[target]]`s binding sources × a recipe → an out dir + name
+//! template) that `crustyimg build` runs end to end (DEC-057).
 //! SPEC-046 adds the [`analysis`] module: the computed-once `Analysis` feature
 //! layer (histogram, entropy, edge density, alpha coverage, capped
 //! unique-colours, dominant colour) that PROJ-002's optimization engine reads
 //! (DEC-002, DEC-034). It lands standalone — no command consumes it yet.
 
 pub mod analysis;
+pub mod build;
 pub mod cli;
 pub mod error;
 pub mod image;

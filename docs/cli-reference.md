@@ -248,6 +248,36 @@ inputs still write.
 crustyimg apply --recipe web.toml *.jpg --out-dir out/ --name-template "{stem}_web.{ext}" -j 8
 ```
 
+### `build [FILE]`
+Run a **declared build**: every `[[target]]` in a build manifest (default
+`./crustyimg.build.toml`). Each target binds sources — a glob, directory, or path, or a
+list of them — to a recipe file, an output directory, and an optional name template.
+Paths in the manifest resolve relative to the working directory.
+
+Every target is validated up front (recipe parsed, pipeline probed, sources resolved), so
+a typo in one target aborts the build before any output is written. Targets then run
+through the same parallel per-input path as `apply`: per-output failures are summarized
+and exit `6`; a malformed manifest exits `2`; a missing manifest or recipe exits `3`.
+
+Unlike `apply`, `build` **overwrites its own declared outputs without `--yes`** — a build
+owns its output tree and must be re-runnable (DEC-057). It only ever writes inside each
+target's `out` directory.
+
+```toml
+# crustyimg.build.toml
+version = 1
+
+[[target]]
+source = "assets/**/*.png"      # or ["a/*.png", "b/"]
+recipe = "recipes/web.toml"
+out    = "dist/img"
+name   = "{stem}_web.{ext}"     # optional; default "{stem}.{ext}"
+```
+```sh
+crustyimg build                 # discovers ./crustyimg.build.toml
+crustyimg build ci.build.toml -j 8
+```
+
 ---
 
 ## Shell

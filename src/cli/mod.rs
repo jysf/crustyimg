@@ -404,6 +404,14 @@ pub enum Commands {
         inputs: Vec<String>,
     },
 
+    /// Run a declared build: every `[[target]]` in a build manifest (SPEC-063, DEC-057).
+    ///
+    /// FILE defaults to `./crustyimg.build.toml`. Each target binds sources (a
+    /// glob / dir / path, or a list) to a recipe file, an output directory, and
+    /// an optional name template. Unlike `apply`, `build` overwrites its own
+    /// declared outputs without `--yes` — a build must be re-runnable.
+    Build { file: Option<String> },
+
     /// Lint an image asset tree: report problems (each with a runnable fix) and
     /// a CI-native exit code. Read-only — never writes an image (SPEC-050, DEC-050).
     ///
@@ -478,6 +486,19 @@ pub enum CliError {
     #[error("could not read recipe file")]
     RecipeIo(std::io::Error),
 
+    /// A build-manifest parse / version / invalid-target error (SPEC-063).
+    /// Every variant is a manifest *content* error → exit 2 (usage).
+    #[error(transparent)]
+    Build(#[from] crate::build::BuildError),
+
+    /// Build-manifest file I/O (including "no `crustyimg.build.toml` here").
+    /// Names the path, since `build` discovers a default file (exit 3).
+    #[error("could not read build manifest {path}: {source}")]
+    BuildManifestIo {
+        path: String,
+        source: std::io::Error,
+    },
+
     /// One or more inputs in a multi-input batch failed (others may have
     /// succeeded). A per-failure summary is printed to stderr before this is
     /// returned. (api-contract exit code 6.)
@@ -545,6 +566,10 @@ impl CliError {
             CliError::NotImplemented(_) => 1,
             // Recipe file read I/O → input not found / unreadable
             CliError::RecipeIo(_) => 3,
+            // A malformed build manifest is a usage error, like a bad flag → 2.
+            // (Reading the manifest file is CliError::BuildManifestIo → 3.)
+            CliError::Build(_) => 2,
+            CliError::BuildManifestIo { .. } => 3,
             // Partial batch failure → 6 (DEC-015)
             CliError::PartialBatch { .. } => 6,
             // Runtime usage error → 2 (mirrors clap)
@@ -589,6 +614,7 @@ pub fn run() -> ExitCode {
 fn dispatch(cli: &Cli) -> Result<(), CliError> {
     match &cli.command {
         Commands::Apply { recipe, inputs } => run_apply(recipe, inputs, &cli.global),
+        Commands::Build { file } => run_build(file.as_deref(), &cli.global),
 
         Commands::View {
             input,
@@ -842,6 +868,24 @@ fn require_out_dir_for_batch(global: &GlobalArgs) -> Result<&str, CliError> {
         .ok_or_else(|| CliError::Usage("multiple inputs require --out-dir".into()))
 }
 
+/// Size-guard, read, and parse a recipe file into a [`Recipe`].
+///
+/// The on-disk size is checked via `std::fs::metadata` BEFORE reading, so a
+/// multi-GB "recipe" is never loaded into memory (DEC-036, SPEC-035). A missing
+/// or unreadable file is `RecipeIo` (exit 3); bad content is `Recipe` (exit 1).
+/// Shared by `run_apply` and `run_build` (one recipe per target).
+fn load_recipe(recipe_path: &str) -> Result<Recipe, CliError> {
+    let meta = std::fs::metadata(recipe_path).map_err(CliError::RecipeIo)?;
+    if meta.len() > crate::recipe::RECIPE_MAX_BYTES as u64 {
+        return Err(CliError::Recipe(RecipeError::TooLarge {
+            size: meta.len() as usize,
+            max: crate::recipe::RECIPE_MAX_BYTES,
+        }));
+    }
+    let recipe_text = std::fs::read_to_string(recipe_path).map_err(CliError::RecipeIo)?;
+    Ok(Recipe::from_toml(&recipe_text)?)
+}
+
 /// The `apply --recipe` path: recipe → batch fan-out via rayon + indicatif.
 ///
 /// Single resolved input: preserves the original single-input behavior exactly
@@ -854,21 +898,8 @@ fn require_out_dir_for_batch(global: &GlobalArgs) -> Result<&str, CliError> {
 /// The `Operation` trait is NOT `Send`, so each rayon task rebuilds its own
 /// pipeline from the shared `&recipe` + `&registry` (both `Sync`).
 fn run_apply(recipe_path: &str, inputs: &[String], global: &GlobalArgs) -> Result<(), CliError> {
-    // Step 0: pre-read file-size guard (DEC-036, SPEC-035). Check on-disk size via
-    // metadata before reading into memory — avoids loading a multi-GB recipe file.
-    let meta = std::fs::metadata(recipe_path).map_err(CliError::RecipeIo)?;
-    if meta.len() > crate::recipe::RECIPE_MAX_BYTES as u64 {
-        return Err(CliError::Recipe(RecipeError::TooLarge {
-            size: meta.len() as usize,
-            max: crate::recipe::RECIPE_MAX_BYTES,
-        }));
-    }
-
-    // Step 1: read recipe file text (map io error → exit 3).
-    let recipe_text = std::fs::read_to_string(recipe_path).map_err(CliError::RecipeIo)?;
-
-    // Step 2: parse + validate recipe TOML (SPEC-006 reused).
-    let recipe = Recipe::from_toml(&recipe_text)?;
+    // Steps 0-2: size-guard, read, and parse the recipe file (shared with `build`).
+    let recipe = load_recipe(recipe_path)?;
 
     // Step 3: build registry ONCE; shared via & across rayon tasks (fn ptrs → Sync).
     let registry = OperationRegistry::with_builtins();
@@ -1000,6 +1031,207 @@ fn run_apply(recipe_path: &str, inputs: &[String], global: &GlobalArgs) -> Resul
     bar.finish_and_clear();
 
     let failed = results.iter().filter(|r| r.is_err()).count();
+    if failed > 0 {
+        return Err(CliError::PartialBatch { failed, total });
+    }
+
+    Ok(())
+}
+
+// ── Build command (SPEC-063, DEC-057) ────────────────────────────────────────
+
+/// A manifest target with everything resolved that could fail before a write:
+/// its recipe (parsed, pipeline-probed) and its inputs (sources resolved).
+struct PreparedTarget<'a> {
+    target: &'a crate::build::Target,
+    recipe: Recipe,
+    inputs: Vec<crate::source::Input>,
+}
+
+/// `"1 target"` / `"2 targets"` — the build summary counts several things and
+/// "1 targets" reads like a bug in the tool.
+fn plural(n: usize, word: &str) -> String {
+    if n == 1 {
+        format!("{n} {word}")
+    } else {
+        format!("{n} {word}s")
+    }
+}
+
+/// Size-guard, read, and parse the build manifest at `path`.
+///
+/// Mirrors [`load_recipe`]: the on-disk size is checked before reading, so an
+/// oversized manifest is never loaded (DEC-036). A missing file — including the
+/// discovered default `crustyimg.build.toml` — is `BuildManifestIo` (exit 3),
+/// naming the path; malformed content is a typed `BuildError` (exit 2).
+fn load_manifest(path: &str) -> Result<crate::build::BuildManifest, CliError> {
+    let io_err = |source: std::io::Error| CliError::BuildManifestIo {
+        path: path.to_owned(),
+        source,
+    };
+    let meta = std::fs::metadata(path).map_err(io_err)?;
+    if meta.len() > crate::build::BUILD_MANIFEST_MAX_BYTES as u64 {
+        return Err(CliError::Build(crate::build::BuildError::TooLarge {
+            size: meta.len() as usize,
+            max: crate::build::BUILD_MANIFEST_MAX_BYTES,
+        }));
+    }
+    let text = std::fs::read_to_string(path).map_err(io_err)?;
+    Ok(crate::build::BuildManifest::from_toml(&text)?)
+}
+
+/// Resolve everything a target needs before any output is written: parse its
+/// recipe, probe its pipeline (a bad op fails here, exit 1), and resolve its
+/// sources (a missing path / empty glob fails here, exit 3/2).
+///
+/// Manifest paths are relative to the process working directory (DEC-057).
+/// Stdin (`-`) is rejected at manifest validation, so an empty reader suffices.
+fn prepare_target<'a>(
+    target: &'a crate::build::Target,
+    registry: &OperationRegistry,
+) -> Result<PreparedTarget<'a>, CliError> {
+    let recipe = load_recipe(&target.recipe)?;
+    recipe.build_pipeline(registry)?;
+
+    let mut inputs: Vec<crate::source::Input> = Vec::new();
+    for pattern in target.source.as_slice() {
+        inputs.extend(source::resolve(pattern, &mut std::io::empty())?);
+    }
+    if inputs.is_empty() {
+        return Err(CliError::Source(SourceError::NotFound(
+            target.source.as_slice().join(" "),
+        )));
+    }
+
+    Ok(PreparedTarget {
+        target,
+        recipe,
+        inputs,
+    })
+}
+
+/// The `build` path: run every `[[target]]` in a declared build manifest.
+///
+/// `run_apply` generalized from one (recipe, inputs, out) to N declared targets.
+/// Two phases, deliberately:
+///
+/// 1. **Prepare every target** — parse each recipe, probe each pipeline, resolve
+///    each source set. Any failure here aborts the build having written nothing,
+///    so target #2's typo can't leave target #1's half-built outputs on disk.
+/// 2. **Execute** — for each target, fan its inputs out over rayon into the
+///    shipped per-input worker [`apply_one`], writing to that target's `out` dir
+///    under its name template. The registry is built ONCE and shared (fn ptrs → `Sync`).
+///
+/// A build **owns its declared outputs**, so it writes with [`Overwrite::Allow`]
+/// and needs no `--yes` (the deliberate difference from `apply`; the sink still
+/// blocks name-template escapes, so it only ever writes inside `out`). Per-output
+/// decode/encode failures are collected and reported → exit 6 (DEC-015), not a
+/// hard abort. `--jobs` bounds the pool and `--quiet` hides progress + summary,
+/// exactly as in `run_apply`.
+fn run_build(file: Option<&str>, global: &GlobalArgs) -> Result<(), CliError> {
+    let path = file.unwrap_or(crate::build::DEFAULT_MANIFEST_FILE);
+    let manifest = load_manifest(path)?;
+
+    let registry = OperationRegistry::with_builtins();
+
+    // ── Phase 1: prepare all targets (nothing is written yet) ────────────────
+    let mut prepared: Vec<PreparedTarget> = Vec::with_capacity(manifest.target.len());
+    for (i, target) in manifest.target.iter().enumerate() {
+        match prepare_target(target, &registry) {
+            Ok(p) => prepared.push(p),
+            Err(e) => {
+                // Name the offending target; `run()` prints the error itself.
+                eprintln!(
+                    "error: target #{i} (recipe {}, out {})",
+                    target.recipe, target.out
+                );
+                return Err(e);
+            }
+        }
+    }
+
+    let total: usize = prepared.iter().map(|p| p.inputs.len()).sum();
+
+    // ── Phase 2: execute ─────────────────────────────────────────────────────
+    let bar = if global.quiet {
+        ProgressBar::hidden()
+    } else {
+        let pb = ProgressBar::new(total as u64);
+        let style = ProgressStyle::with_template(BATCH_PROGRESS_TEMPLATE)
+            .unwrap_or_else(|_| ProgressStyle::default_bar());
+        pb.set_style(style);
+        pb
+    };
+
+    let execute = || {
+        let mut failed = 0usize;
+        for p in &prepared {
+            let out_dir = PathBuf::from(&p.target.out);
+            let template = p.target.template();
+            let results: Vec<Result<(), CliError>> = p
+                .inputs
+                .par_iter()
+                .map(|input| {
+                    let r = apply_one(
+                        &p.recipe,
+                        &registry,
+                        input,
+                        &out_dir,
+                        template,
+                        Overwrite::Allow,
+                        global.quality,
+                    );
+                    if let Err(ref e) = r {
+                        let label = match input {
+                            crate::source::Input::Path(path) => path.display().to_string(),
+                            crate::source::Input::Stdin { stem, .. } => stem.clone(),
+                        };
+                        eprintln!("error: {label}: {e}");
+                    }
+                    bar.inc(1);
+                    r
+                })
+                .collect();
+            failed += results.iter().filter(|r| r.is_err()).count();
+        }
+        failed
+    };
+
+    let failed = if let Some(n) = global.jobs {
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(n)
+            .build()
+            .map_err(|e| CliError::Usage(format!("could not build thread pool: {e}")))?;
+        pool.install(execute)
+    } else {
+        execute()
+    };
+
+    bar.finish_and_clear();
+
+    // ── Summary (stderr; stdout stays clean for pipes) ───────────────────────
+    if !global.quiet {
+        for (i, p) in prepared.iter().enumerate() {
+            eprintln!(
+                "target #{i}: {} × {} → {}",
+                plural(p.inputs.len(), "input"),
+                p.target.recipe,
+                p.target.out
+            );
+        }
+        let written = total - failed;
+        let summary = format!(
+            "built {}, {}",
+            plural(prepared.len(), "target"),
+            plural(written, "output")
+        );
+        if failed > 0 {
+            eprintln!("{summary}, {failed} failed");
+        } else {
+            eprintln!("{summary}");
+        }
+    }
+
     if failed > 0 {
         return Err(CliError::PartialBatch { failed, total });
     }
@@ -3792,6 +4024,13 @@ mod tests {
         );
     }
 
+    #[test]
+    fn plural_agrees_with_its_count() {
+        assert_eq!(plural(0, "target"), "0 targets");
+        assert_eq!(plural(1, "target"), "1 target");
+        assert_eq!(plural(2, "output"), "2 outputs");
+    }
+
     // ── exit_code_mapping_is_total ────────────────────────────────────────────
 
     #[test]
@@ -3886,6 +4125,28 @@ mod tests {
                 std::io::ErrorKind::NotFound,
                 "no recipe"
             ))
+            .code(),
+            3
+        );
+
+        // Build manifest: content errors → 2 (usage); reading the file → 3 (SPEC-063).
+        assert_eq!(
+            CliError::Build(crate::build::BuildError::UnsupportedVersion {
+                found: 999,
+                supported: crate::build::SUPPORTED_VERSION,
+            })
+            .code(),
+            2
+        );
+        assert_eq!(
+            CliError::Build(crate::build::BuildError::Parse("bad".into())).code(),
+            2
+        );
+        assert_eq!(
+            CliError::BuildManifestIo {
+                path: "crustyimg.build.toml".into(),
+                source: std::io::Error::new(std::io::ErrorKind::NotFound, "no manifest"),
+            }
             .code(),
             3
         );
