@@ -133,8 +133,9 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
   A cache is local/per-machine, so *cross-arch* byte-identity is irrelevant here (STAGE-022).
   The cache relies only on determinism-within-env, which held. **The remaining risk is
   cache-key correctness, not encoder nondeterminism.**
-- **DEC-058 (at build):** the hasher dependency (the load-bearing probe: pick + license-check
-  BLAKE3 vs sha2 vs xxhash — pure-Rust, permissive, `just deny` green with no exception), the
+- **DEC-058 (at build):** the hasher dependency (**`sha2` recommended** — RustCrypto, pure-Rust, no
+  `build.rs` C, permissive, `just deny` green with no exception → **no probe**, just `cargo add` + the
+  standard gates; `blake3` only with its `pure` feature if a hash bottleneck ever shows), the
   **cache-key composition** (the enumerated input set below), and the **store design** (layout,
   atomic write, self-describing entry, verify-on-read, corrupt→miss, GC-deferred).
 - **Cache-key inputs — the correctness core (enumerate exhaustively; each must force a miss).**

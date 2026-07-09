@@ -48,9 +48,9 @@ cost:
         Framing/design cycle — main-loop, not separately metered → null-with-note per AGENTS §4.
         Included a firsthand read of the shipped executor (run_build / prepare_target / apply_one /
         load_recipe) + the sink byte-write path (write_bytes / expand_template / safe_join /
-        encode_to_bytes) to fix the cache seam; the load-bearing hasher probe is deferred to build
-        (pick + license-check BLAKE3 vs sha2, DEC-058). Encoder-determinism experiment (prior this
-        session) retired the nondeterminism risk.
+        encode_to_bytes) to fix the cache seam. No probe needed: the hasher is a boring pure-Rust
+        dep (sha2 recommended) confirmed by the standard just-deny/lean/CI gates, recorded in DEC-058;
+        the encoder-determinism experiment (prior this session) already retired the nondeterminism risk.
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -102,8 +102,10 @@ hasher dependency (DEC-058).
   - `src/recipe/mod.rs` — `Recipe` (the parsed form to hash canonically), `RecipeError`.
   - `src/source/mod.rs` — `Input` (build inputs are always `Input::Path`; `stem`/`path`).
   - `Cargo.toml` — add the ONE hasher dep (DEC-058); confirm the lean build + `just deny`.
-- **External APIs:** the chosen hasher crate (BLAKE3 recommended; sha2/xxhash alternatives) —
-  license + pure-Rust-default + `just deny` verified firsthand at build (the load-bearing probe).
+- **External APIs:** the chosen hasher crate — **`sha2` recommended** (RustCrypto: pure-Rust, MIT/Apache,
+  no `build.rs` C → no probe, sails through `just deny`). `blake3` is faster but its default build pulls
+  C/SIMD (a Windows/no-nasm risk you've been bitten by); only take it with the `pure` feature. The cache's
+  win is skipping decode+encode, so hash throughput is immaterial — prefer the boring dep.
 - **Related code paths:** `src/build/`, `src/cli/`, `tests/` (the `apply`/`build` integration
   tests as the shape for `tests/build_cache.rs`).
 
@@ -220,9 +222,10 @@ firsthand during design against the current tree — re-confirm signatures.*
   output-*byte* identity, not the output *path*, so two colliding-stem inputs still race at the
   path exactly as today — the cache neither fixes nor worsens it. Do not attempt to fix it here.
 - `DEC-004` / `pure-rust-codecs-default` — the hasher must be permissive + pure-Rust-default +
-  `just deny`-green with **no exception**. BLAKE3's default build may pull C/SIMD (a `cc` build
-  step) — verify it stays within the pure-Rust posture and the no-nasm/Windows CI (use the crate's
-  `pure` feature if needed), or fall back to sha2 (RustCrypto, fully pure-Rust). Record the pick + why.
+  `just deny`-green with **no exception**. Default to **`sha2`** (RustCrypto, fully pure-Rust, no `build.rs`
+  C) — nothing to probe, just `cargo add` and let the standard gates confirm it. Only reach for `blake3` if
+  a measured hashing bottleneck ever appears, and then pin its `pure` feature to avoid the C/SIMD Windows/
+  no-nasm risk. DEC-058 records the pick + why.
 - `DEC-005` — recipes are versioned TOML parsed to a `Recipe`; hash the **canonical parsed** recipe
   (ops + params in order) so a cosmetic edit doesn't bust the cache but a semantic change does.
 - `DEC-006` — rayon fan-out; the store must be concurrency-safe (content-addressing + atomic rename).
@@ -319,9 +322,10 @@ materialized to N destinations); the destination is where a hit is written, not 
   `encode_one` in `cli`. Do NOT duplicate the decode→pipeline→encode worker — extract it once.
 - The `encode_one` split must be behavior-preserving: run `apply`'s existing tests + the new
   `build_cache` tests; `apply` output must be byte-identical before/after.
-- Run the load-bearing hasher probe FIRST (a throwaway `cargo add` + `just deny` + lean build +
-  `cargo build` on the 3-OS assumptions): confirm permissive license, no `just deny` exception, no
-  nasm/C surprise on Windows, pure-Rust-default. Only then commit the dep and write DEC-058.
+- No probe needed for the hasher — `cargo add sha2`, then let the standard gates (`just deny` green with
+  no exception, `cargo build --no-default-features`, the CI matrix) confirm it, and write DEC-058. Keep
+  the dep boring and pure-Rust; don't take on `blake3`'s C/SIMD Windows risk for hash speed the cache
+  doesn't need.
 - Verify-on-read is the load-bearing correctness guard — write the `corrupt_entry_is_a_miss` unit
   test first and make the store satisfy it, so "corrupt → rebuild" is structural, not incidental.
 - Version-invalidation is a UNIT test on `compute_key` (the compiled-in version can't change in one

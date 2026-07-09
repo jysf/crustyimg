@@ -20,15 +20,15 @@ there is no separate prompt file unless a cycle needs one.
   Context: the enumerated cache-key inputs (**output format deliberately NOT keyed — recovered from the
   self-describing entry; input ext IS keyed for extension-routed decode**), the store design, and the
   executor seam (**extract a behavior-preserving `encode_one` from `apply_one` — reuse, don't
-  duplicate**). Load-bearing probe **deferred to build**: pick + license-check the hasher (BLAKE3 vs
-  sha2/xxhash — permissive, pure-Rust-default, `just deny` green with no exception) → **DEC-058** (hasher
-  dep + cache-key + store). Encoder-determinism experiment (this session) retired the nondeterminism
+  duplicate**). Hasher = a boring pure-Rust dep (**`sha2` recommended**) — **no probe**, just `cargo add`
+  + the standard `just deny`/lean/CI gates → **DEC-058** (hasher dep + cache-key + store); avoid `blake3`'s
+  C/SIMD Windows/no-nasm risk for hash speed the cache doesn't need. Encoder-determinism experiment (this
+  session) retired the nondeterminism
   risk. Injective source→output constraint (DEC-057) is NOT resolved here — cache keys on byte-identity,
   not path. Framing, 2026-07-08.
 - [ ] **build** — implement `src/build/cache.rs` + wire `run_build`; extract `encode_one`; add
-  `--no-cache`; extended summary; one hasher dep + DEC-058. Run the hasher probe FIRST (`just deny` +
-  lean + Windows/no-nasm). Make all Failing Tests pass; keep `apply` byte-identical. Verify default +
-  lean + `just deny` (no new exception) + clippy + fmt.
+  `--no-cache`; extended summary; `cargo add sha2` + DEC-058 (no probe). Make all Failing Tests pass;
+  keep `apply` byte-identical. Verify default + lean + `just deny` (no new exception) + clippy + fmt.
 - [ ] **verify** — fresh session. Re-run all gates; reproduce against the real binary: a no-change
   re-run is a full cache hit (0 rebuilt), a one-input edit rebuilds only that output, a hit restores a
   deleted output byte-for-byte, a corrupted entry rebuilds cleanly (no panic), `--no-cache` bypasses,
