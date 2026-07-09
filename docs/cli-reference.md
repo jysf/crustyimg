@@ -46,7 +46,7 @@ Available on every command (before or after the subcommand):
 | `1` | Runtime error (decode/encode/op failed; input exceeds a resource limit). |
 | `2` | Usage error (bad args) — clap's standard code. |
 | `3` | Input not found / unreadable (or an empty glob). |
-| `4` | Unsupported format / codec not built (e.g. AVIF without the `avif` feature). |
+| `4` | Unsupported format / codec not built (AVIF output without `--features avif`; a `.heic` input without `--features heic`). |
 | `5` | Output write refused (exists without `--yes`; path traversal; symlinked destination). |
 | `6` | Partial batch failure (some inputs failed; summary on stderr; others still wrote). |
 | `7` | A check/gate was not satisfied (e.g. `diff --fail-under` scored below the threshold). |

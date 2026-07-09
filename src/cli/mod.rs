@@ -530,6 +530,9 @@ impl CliError {
             CliError::Image(ImageError::Decode(_)) => 1,
             CliError::Image(ImageError::UnsupportedFormat) => 4,
             CliError::Image(ImageError::LimitsExceeded(_)) => 1,
+            // A recognized format whose DECODER is feature-gated and off (HEIC
+            // without `--features heic`, DEC-052) → 4, like the sink-side twin.
+            CliError::Image(ImageError::CodecNotBuilt { .. }) => 4,
             // Recipe / operation errors → generic runtime error
             CliError::Recipe(_) => 1,
             CliError::Operation(_) => 1,
@@ -3826,6 +3829,19 @@ mod tests {
         );
         assert_eq!(CliError::Image(ImageError::Decode("bad".into())).code(), 1);
         assert_eq!(CliError::Image(ImageError::UnsupportedFormat).code(), 4);
+        assert_eq!(
+            CliError::Image(ImageError::LimitsExceeded("big".into())).code(),
+            1
+        );
+        // Decode-side CodecNotBuilt (HEIC without `--features heic`) → 4 (SPEC-062).
+        assert_eq!(
+            CliError::Image(ImageError::CodecNotBuilt {
+                codec: "HEIC",
+                feature: "heic"
+            })
+            .code(),
+            4
+        );
 
         // Recipe error → 1.
         assert_eq!(CliError::Recipe(RecipeError::Parse("bad".into())).code(), 1);

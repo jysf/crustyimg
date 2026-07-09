@@ -27,6 +27,7 @@ use ::image::{ColorType, DynamicImage, ImageFormat, ImageReader};
 use crate::error::{ImageError, Result};
 
 mod avif;
+mod heic;
 mod raw;
 mod svg;
 
@@ -322,6 +323,28 @@ fn decode_with_limits(
     if svg::is_svg(bytes) {
         let pixels = svg::decode_svg(bytes, limits)?;
         return Ok((pixels, ImageFormat::Png));
+    }
+
+    // HEIC is the ISOBMFF sibling of AVIF, dispatched AFTER it so an AVIF-in-HEIF
+    // container (which also carries `mif1`) reaches the pure-Rust AVIF path. Decode
+    // lives behind the off-by-default `heic` feature (system libheif, DEC-052/DEC-056),
+    // but DETECTION is compiled into both builds: the default binary must answer a
+    // `.heic` with a precise "rebuild with --features heic" (exit 4), not a vague
+    // "unsupported format". There is no `ImageFormat::Heic`, so a decoded HEIC reports
+    // `Png` (the materialized-raster convention, as for SVG).
+    if heic::is_heic(bytes) {
+        #[cfg(feature = "heic")]
+        {
+            let pixels = heic::decode_heic(bytes, limits)?;
+            return Ok((pixels, ImageFormat::Png));
+        }
+        #[cfg(not(feature = "heic"))]
+        {
+            return Err(ImageError::CodecNotBuilt {
+                codec: "HEIC",
+                feature: "heic",
+            });
+        }
     }
 
     let mut reader = ImageReader::new(Cursor::new(bytes))
@@ -859,6 +882,64 @@ mod tests {
         assert_eq!(img.width(), 48);
         assert_eq!(img.height(), 32);
         assert_eq!(img.source_format(), ImageFormat::Jpeg);
+    }
+
+    // ── SPEC-062 HEIC decode (off-by-default `heic` feature) ──────────────────
+
+    /// The committed 64×48 solid HEIC fixture (regen: `sips -s format heic
+    /// solid.png --out tests/fixtures/heic/solid_64x48.heic`).
+    const HEIC_FIXTURE: &[u8] = include_bytes!("../../tests/fixtures/heic/solid_64x48.heic");
+
+    /// The DEFAULT build detects `.heic` and returns the precise `CodecNotBuilt`
+    /// (→ exit 4), not `UnsupportedFormat`, `Decode`, or a panic (DEC-052).
+    #[cfg(not(feature = "heic"))]
+    #[test]
+    fn heic_without_feature_is_codec_not_built() {
+        let result = Image::from_bytes(HEIC_FIXTURE);
+        assert!(
+            matches!(
+                result,
+                Err(ImageError::CodecNotBuilt {
+                    codec: "HEIC",
+                    feature: "heic"
+                })
+            ),
+            "expected CodecNotBuilt, got {result:?}"
+        );
+    }
+
+    /// Under `--features heic`, the fixture decodes through the canonical `Image`
+    /// with `source_format == Png` (no `ImageFormat::Heic` exists).
+    #[cfg(feature = "heic")]
+    #[test]
+    fn heic_decodes_to_expected_dimensions() {
+        let img = Image::from_bytes(HEIC_FIXTURE).expect("decode heic fixture");
+        assert_eq!(img.width(), 64);
+        assert_eq!(img.height(), 48);
+        assert_eq!(img.source_format(), ImageFormat::Png);
+    }
+
+    /// HEIC decode routes through the DEC-034 caps in BOTH the seam and production.
+    #[cfg(feature = "heic")]
+    #[test]
+    fn heic_respects_decode_dimension_cap() {
+        let mut limits = ::image::Limits::default();
+        limits.max_image_width = Some(8);
+        limits.max_image_height = Some(8);
+        let result = decode_with_limits(HEIC_FIXTURE, &limits);
+        assert!(
+            matches!(result, Err(ImageError::LimitsExceeded(_))),
+            "expected LimitsExceeded, got {result:?}"
+        );
+    }
+
+    /// AVIF is dispatched BEFORE HEIC, so the AVIF fixture still decodes as AVIF
+    /// in both builds — HEIC brand detection must not steal `mif1`-carrying AVIF.
+    #[test]
+    fn avif_is_not_mis_detected_as_heic() {
+        assert!(!heic::is_heic(AVIF_FIXTURE));
+        let img = Image::from_bytes(AVIF_FIXTURE).expect("decode avif fixture");
+        assert_eq!(img.source_format(), ImageFormat::Avif);
     }
 
     /// A RAW-extension file with no decodable embedded JPEG is a typed error,

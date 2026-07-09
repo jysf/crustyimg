@@ -46,14 +46,43 @@ The `view` command (terminal image preview) is **on by default** — a plain
 cargo install --git https://github.com/jysf/crustyimg --no-default-features
 ```
 
-Two additional codecs are opt-in (compile-time features):
+Three additional codecs are opt-in (compile-time features):
 
 | Feature | What it adds |
 |---|---|
 | `webp-lossy` | Lossy WebP encode (libwebp, C dep) — by default WebP is lossless only |
 | `avif` | AVIF output via ravif (pure Rust, no nasm/system libs) |
+| `heic` | HEIC/HEIF **input** via system libheif — **local builds only**, see below |
 
 Enable with `--features webp-lossy,avif` at build/install time.
+
+#### HEIC is opt-in and never in a released binary
+
+crustyimg **reads** AVIF, SVG, and RAW out of the box, but **not HEIC**. HEVC — the
+codec inside a `.heic` — is covered by the Access Advance patent pool, and a
+copyright license of any kind grants zero patent rights; separately, the mature
+pure-Rust HEIC decoders are AGPL. Either blocker alone keeps HEIC off the default
+path, so no release binary, Homebrew bottle, or `cargo install` default can decode
+one. Running those on a `.heic` prints `HEIC support is not built; rebuild with
+--features heic` and exits 4.
+
+If you accept those terms, build it yourself against a system libheif (≥ 1.17):
+
+```sh
+# macOS — Homebrew's libheif bundles its codec backends
+brew install libheif
+
+# Debian/Ubuntu — the HEVC decoder is a SEPARATE plugin package. Without it,
+# libheif parses a .heic but fails to decode it ("Unsupported codec").
+sudo apt-get install libheif-dev libheif-plugin-libde265
+
+cargo build --release --features heic
+```
+
+Decode only — crustyimg never encodes HEIC. See
+[docs/licensing.md](docs/licensing.md) for the LGPL attribution that a
+redistributed `--features heic` build carries, and `decisions/DEC-052` for the
+full rationale.
 
 ## Usage
 
