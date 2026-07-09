@@ -350,6 +350,29 @@ proof of the thesis: the same recipe tuned on one image runs unchanged across ma
 (`Operation` is not `Send`, so each task rebuilds its pipeline from the recipe +
 registry — no async, DEC-006.)
 
+#### `build [FILE]`  *(SPEC-063)*
+Run every `[[target]]` in a declared build manifest (default `./crustyimg.build.toml`;
+`version = 1`, DEC-057). A target binds `source` (a glob/dir/path or a list) × `recipe`
+(a recipe file) → `out` (a directory, auto-created) + optional `name` template
+(default `{stem}.{ext}`). Manifest paths resolve against the working directory.
+
+Two phases: **every** target is validated first — recipe parsed + pipeline probed,
+sources resolved — so a bad target aborts the build before any output is written; then
+each target's inputs fan out over the same rayon path as `apply` (`-j N` bounds workers;
+`--quiet` suppresses progress + summary). A per-output failure is reported on stderr and
+exits **6** (others still written, DEC-015); a summary of targets run + outputs written
+goes to stderr on success.
+
+Unlike `apply`, `build` **overwrites its own declared outputs without `--yes`** — a build
+owns its `out` tree and must be re-runnable (DEC-057); the sink still refuses
+name-template escapes and symlinked destinations, so writes stay inside `out`.
+
+Exit codes: malformed manifest (bad TOML, unknown field, unsupported `version`, oversize,
+invalid target) → **2**; manifest or recipe file unreadable → **3**; invalid recipe
+(unknown op/params) → **1**; missing source / empty glob → **3** (invalid glob pattern →
+2); per-output failure → **6**. Manifest resource limits mirror recipes (DEC-036):
+64 KiB size cap checked before read *and* before parse, 1024-target cap.
+
 ## Stage Map (summary)
 
 | Stage | Commands |

@@ -16,10 +16,16 @@ there is no separate prompt file unless a cycle needs one.
   a serde/toml probe confirmed the manifest schema (string-or-list `source`, `deny_unknown_fields`,
   `version`). Format contract → **DEC-057** (emit at build). Overwrite-owned-outputs is the deliberate
   difference from `apply`. Framing, 2026-07-08.
-- [ ] **build** — `src/build/mod.rs` (BuildManifest/Target/SourceSpec serde + BuildError, versioned,
+- [x] **build** — `src/build/mod.rs` (BuildManifest/Target/SourceSpec serde + BuildError, versioned,
   size-guarded) + `Commands::Build` + `run_build` in cli (loop targets over `apply_one`, rayon, default-file
   discovery, summary, exit codes, `Overwrite::Allow`), `pub mod build` in lib, unit + integration tests,
   DEC-057. No new dep. Verify default + lean + `just deny` + clippy + fmt.
+  → PR #69, 2026-07-08. **Green:** 601 tests (10 new unit + 8 new integration), clippy default + lean,
+  fmt, lean build, `just deny` unchanged (Cargo.toml/lock untouched — no new dep). Executor deviates
+  from the sketch: **prepare ALL targets (recipe parse + pipeline probe + source resolve) before
+  executing any**, so a bad target #2 can't strand target #1's outputs; `load_recipe` extracted from
+  `run_apply` and shared; `apply_one` reused verbatim. Manifest paths are cwd-relative (recorded in
+  DEC-057). Est. 260k tok / ~$2.34 (main-loop estimate).
 - [ ] **verify** — fresh session; re-run all gates independently, confirm the executor reuses `apply_one`
   (no duplicated worker), overwrite-owned-outputs + idempotent re-run, partial-batch exit-6, manifest
   hardening (size guard + deny_unknown_fields + version), no new dep, DEC-057 recorded.

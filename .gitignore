@@ -20,9 +20,11 @@ venv/
 __pycache__/
 *.pyc
 
-# Build artifacts
+# Build artifacts.
+# Anchored to the repo root: an unanchored `build/` also matches `src/build/`
+# (the SPEC-063 build-manifest module), silently dropping source from commits.
 dist/
-build/
+/build/
 out/
 .next/
 .turbo/

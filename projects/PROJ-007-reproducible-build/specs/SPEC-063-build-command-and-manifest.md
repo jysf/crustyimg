@@ -3,7 +3,7 @@
 task:
   id: SPEC-063
   type: story
-  cycle: design                    # frame | design | build | verify | ship
+  cycle: verify  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: M                    # manifest schema + executor orchestration + BuildError + exit-code discipline; no new dep
@@ -46,6 +46,17 @@ cost:
         Included a firsthand probe: read run_apply/apply_one (the executor is apply_one looped over
         targets) + a serde/toml probe of the manifest schema (string-or-list source, deny_unknown_fields,
         version) — no new dependency.
+    - cycle: build
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 260000
+      estimated_usd: 2.34
+      duration_minutes: 40
+      recorded_at: 2026-07-08
+      notes: >
+        Build cycle run in the main loop (not a metered subagent), so tokens_total is a labelled
+        ORDER-OF-MAGNITUDE ESTIMATE, not a harness reading (AGENTS §4). estimated_usd = 260k ×
+        Opus 4.8 list ($5/$25 per MTok, ~80/20 in/out, no cache discount).
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -110,22 +121,22 @@ summary — no new dependency.
 
 ## Acceptance Criteria
 
-- [ ] `crustyimg build` with no arg parses `./crustyimg.build.toml`; `crustyimg build FILE` uses `FILE`;
+- [x] `crustyimg build` with no arg parses `./crustyimg.build.toml`; `crustyimg build FILE` uses `FILE`;
   a missing default file is a clear typed error (exit 3), not a panic.
-- [ ] A valid manifest runs **every** target: each target's sources are resolved, its recipe applied,
+- [x] A valid manifest runs **every** target: each target's sources are resolved, its recipe applied,
   and outputs written to its `out` dir under its `name` template (default `{stem}.{ext}`), with correct
   dimensions/format. A 2-target manifest produces both target's outputs.
-- [ ] `source` accepts a single glob/dir/path **or a list**; `out` dirs are auto-created; unknown TOML
+- [x] `source` accepts a single glob/dir/path **or a list**; `out` dirs are auto-created; unknown TOML
   fields and an unsupported `version` are rejected with a typed `BuildError` (exit 2) BEFORE any input
   is touched; a bad/missing recipe fails before that target writes anything.
-- [ ] Re-running the same build is idempotent (same outputs) and does NOT require `--yes` — `build`
+- [x] Re-running the same build is idempotent (same outputs) and does NOT require `--yes` — `build`
   overwrites its own declared outputs (`Overwrite::Allow`), unlike `apply`.
-- [ ] A per-output decode/encode failure is a **partial-batch** error (exit 6, reported per output),
+- [x] A per-output decode/encode failure is a **partial-batch** error (exit 6, reported per output),
   not a hard abort of the whole build; a build with all-good targets exits 0 with a summary (targets
   run, outputs written).
-- [ ] **No new dependency**; `cargo build --no-default-features` (lean) still succeeds; `just deny`
+- [x] **No new dependency**; `cargo build --no-default-features` (lean) still succeeds; `just deny`
   unchanged and green.
-- [ ] `cargo clippy --all-targets -- -D warnings` and `cargo fmt --check` clean; every new public fn tested.
+- [x] `cargo clippy --all-targets -- -D warnings` and `cargo fmt --check` clean; every new public fn tested.
 
 ## Failing Tests
 
@@ -248,24 +259,75 @@ Honor `global.jobs` (bounded pool) + `global.quiet` (hidden progress) like `run_
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
+- **Branch:** `feat/spec-063-build-command`
+- **PR (if applicable):** #69
+- **All acceptance criteria met?** yes
 - **New decisions emitted:**
-  - `DEC-057` — <title>
+  - `DEC-057` — the `crustyimg.build.toml` manifest format + `build` command semantics
+    (dedicated versioned file, recipe-file reference, overwrite-owned-outputs, exit codes,
+    cwd-relative paths). `affected_scope`: `src/build/**`, `src/cli/mod.rs`, `src/lib.rs`.
 - **Deviations from spec:**
-  - [list]
+  - **Two-phase executor, not per-target-in-a-loop.** The Implementation Context's sketch
+    prepares each target inside the run loop. I prepare **all** targets first (parse recipe,
+    probe `build_pipeline`, resolve sources), then execute. Same reuse, stronger guarantee:
+    target #2's missing recipe can no longer strand target #1's outputs on disk — which is
+    what `build_missing_recipe_fails_before_writing` actually asks for once a manifest has
+    more than one target. Recorded in DEC-057 ("fail-before-write").
+  - **`load_recipe` extracted** from `run_apply` (size-guard + read + parse) and shared with
+    `run_build`, rather than duplicating those three steps. `apply_one` is reused verbatim,
+    as specified.
+  - **`BuildError::InvalidTarget` + `TooManyTargets` added** beyond the spec's variant list:
+    a target with an empty `source` list / blank field, or a `-` (stdin) source, is rejected
+    at parse time (a build reads declared files; stdin cannot feed N targets), and the
+    target count is capped like `RECIPE_MAX_STEPS`.
+  - **`CliError::BuildManifestIo { path, source }`** carries the path, unlike the older
+    `RecipeIo`, so a missing default file says *which* file it looked for.
+  - The spec's `build_runs_all_targets` sketch says "e.g. resize→webp". No registry op
+    changes format and `Target` has no `format` key (out of scope), so outputs preserve the
+    source format; the test asserts a resize + a `{stem}_web.{ext}` template on PNG instead.
 - **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - **Per-target `format` / `quality` keys** (`version = 2`, additive). Today a target's
+    `name = "{stem}.webp"` would produce PNG bytes under a `.webp` name — the inherited
+    `apply` batch behavior (format = source format). Worth closing before 1.0.
+  - **Manifest-relative path resolution** (or a `--dir` flag). Paths are cwd-relative today
+    (DEC-057); revisit if users trip over it.
+  - **Flatten the fan-out** to one rayon pass over `(target, input)` pairs — targets run
+    sequentially today, which under-uses the pool on wide, shallow builds.
+  - **Output-collision detection (reproducibility hazard, worth a spec).** Two inputs in one
+    target that share a stem (`a/logo.png`, `b/logo.png` under `{stem}.{ext}`) map to the
+    SAME output path. With `Overwrite::Allow` and a rayon fan-out, they race: the winner is
+    nondeterministic. `apply --out-dir` has the same hole, but it matters more here — a build
+    that yields different bytes per run makes STAGE-022's lockfile meaningless. **Reproduced
+    firsthand:** a target with `source = ["a/*.png", "b/*.png"]`, both holding `logo.png`,
+    writes ONE `dist/logo.png` while the summary claims "2 outputs" — so the count is wrong
+    too. Cheapest fix lives in `prepare_target`: expand each input's template up front and
+    reject duplicate output paths with a typed `BuildError` before executing. Not done here
+    (out of the spec's scope, and it wants its own failing test); flagged for STAGE-021/022.
+  - `PartialBatch`'s message says "N of M **inputs** failed" for a build whose unit is an
+    output. Cosmetic; shared with `apply` (DEC-015), so left alone deliberately.
+  - A `--dry-run` / plan preview — the natural STAGE-021 companion (already noted in the stage).
 
 ### Build-phase reflection (3 questions, short answers)
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — Only one thing, and it wasn't in the spec at all: **what manifest paths are relative
+   to**. The spec's tests all run in the project root, so cwd-relative and manifest-relative
+   are indistinguishable there. I chose cwd-relative (the `make` / `apply` convention),
+   documented it as a decision with its revisit trigger rather than leaving it implicit.
+   Everything else — schema, executor shape, overwrite semantics, exit codes — was decided
+   in the spec and the probe held up exactly as written.
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — `DEC-044` (`--out-dir` auto-creates the output directory, cited in the spec as
+   "PATCH-001") and `DEC-035` (the sink's symlink-destination guard). Both are load-bearing
+   for `build`: the first is why `out` dirs just appear, the second is half of why
+   `Overwrite::Allow` is safe. The overwrite argument in DEC-057 leans on DEC-035, and I had
+   to go find it.
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Write the two-phase (prepare-all → execute-all) split from the start instead of
+   following the per-target loop sketch and then noticing that the "fails before writing"
+   test only truly holds for a one-target manifest. The multi-target case is the whole
+   point of the command; the failure test should be written multi-target first, and the
+   executor shape falls out of it.
 
 ---
 
