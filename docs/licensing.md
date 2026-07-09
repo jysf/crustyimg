@@ -29,6 +29,12 @@ the LGPL applies to libheif, not to crustyimg:
   it and pull in LGPLv3 §4's relink obligation, so **we do not use it** (DEC-056).
 - **Decode only.** No HEVC *encoder* is built (that would add x265, which is GPL).
 
+On Debian/Ubuntu the HEVC decoder ships as a separate plugin package
+(`libheif-plugin-libde265`) alongside `libheif-dev` — a deliberate distro split, and
+itself a signal of how the ecosystem treats HEVC. Without the plugin, libheif parses
+a `.heic` and then fails with "Unsupported codec". Homebrew's libheif bundles its
+backends.
+
 The feature is **never enabled in a distributed artifact** — not in cargo-dist
 release builds, not in the Homebrew formula, not in `cargo install` defaults — so
 none of this touches the binaries this project publishes. It exists for users who

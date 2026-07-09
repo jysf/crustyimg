@@ -124,9 +124,13 @@ jobs:
         with:
           components: clippy
 
-      - name: Install system libheif (linux)
+      # Debian/Ubuntu split libheif's codec backends into separate plugin packages.
+      # `libheif-dev` alone links and PARSES a `.heic` but has no HEVC decoder, so
+      # libheif fails at decode time with `UnsupportedCodec`. The libde265 plugin is
+      # what actually decodes HEVC. Homebrew's libheif bundles its backends.
+      - name: Install system libheif + HEVC decoder plugin (linux)
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libheif-dev
+        run: sudo apt-get update && sudo apt-get install -y libheif-dev libheif-plugin-libde265
 
       - name: Install system libheif (macos)
         if: runner.os == 'macOS'

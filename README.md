@@ -69,7 +69,13 @@ one. Running those on a `.heic` prints `HEIC support is not built; rebuild with
 If you accept those terms, build it yourself against a system libheif (≥ 1.17):
 
 ```sh
-brew install libheif                  # or: sudo apt-get install libheif-dev
+# macOS — Homebrew's libheif bundles its codec backends
+brew install libheif
+
+# Debian/Ubuntu — the HEVC decoder is a SEPARATE plugin package. Without it,
+# libheif parses a .heic but fails to decode it ("Unsupported codec").
+sudo apt-get install libheif-dev libheif-plugin-libde265
+
 cargo build --release --features heic
 ```
 

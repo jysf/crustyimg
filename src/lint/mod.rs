@@ -565,6 +565,15 @@ impl Rule for TruncatedOrCorrupt {
     fn check(&self, target: &LintTarget) -> Option<Finding> {
         match target.decoded() {
             Ok(_) => None,
+            // A feature-gated decoder that is simply not compiled in (a `.heic` in
+            // the default build, SPEC-062/DEC-052) says NOTHING about the file. It
+            // is valid; we just cannot read it. Reporting "truncated or corrupt …
+            // re-export a valid image" would be a false diagnosis with a
+            // destructive remedy, and would fail CI on any directory of iPhone
+            // photos. Stay silent instead. (Follow-up: a `meta/not-inspected` Info
+            // finding would be the fully honest answer — this rule cannot carry it,
+            // since its severity is fixed at Error.)
+            Err(ImageError::CodecNotBuilt { .. }) => None,
             Err(_) => Some(Finding::new(
                 target.path().to_path_buf(),
                 self.id(),
@@ -721,6 +730,25 @@ mod tests {
         // A valid image does NOT fire the rule.
         let good = LintTarget::from_bytes("ok.jpg", clean_jpeg());
         assert!(TruncatedOrCorrupt.check(&good).is_none());
+    }
+
+    /// A `.heic` in the DEFAULT build fails to decode with `CodecNotBuilt`, but the
+    /// file is perfectly valid — the rule must NOT call it corrupt (SPEC-062). A
+    /// directory of iPhone photos would otherwise fail `lint` with exit 7 and tell
+    /// the user to "re-export a valid image".
+    #[cfg(not(feature = "heic"))]
+    #[test]
+    fn codec_not_built_is_not_reported_as_corrupt() {
+        let heic = include_bytes!("../../tests/fixtures/heic/solid_64x48.heic").to_vec();
+        let target = LintTarget::from_bytes("photo.heic", heic);
+        assert!(
+            matches!(target.decoded(), Err(ImageError::CodecNotBuilt { .. })),
+            "fixture should surface CodecNotBuilt in the default build"
+        );
+        assert!(
+            TruncatedOrCorrupt.check(&target).is_none(),
+            "a missing codec must not be reported as a corrupt file"
+        );
     }
 
     #[test]

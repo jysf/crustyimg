@@ -341,6 +341,21 @@ DEC-004/052 promise: the shipped binary tells the user exactly how to get HEIC, 
     handle-dim pre-check is the load-bearing bound. Recorded in DEC-056 with a revisit trigger.
   - **CI job runs on ubuntu + macOS (a 2-OS matrix)**, not a single runner as the spec suggested —
     the two libheif install paths (apt/brew) are exactly what the job needs to prove.
+  - **Fixed a defect this spec introduced in `lint`** (not in the spec's scope, but caused by it).
+    Adding `.heic` to `IMAGE_EXTENSIONS` made `lint` discover HEIC files, and its
+    `size/truncated-or-corrupt` rule matched `Err(_)` — so in the DEFAULT build a valid `.heic`
+    was reported as *"image is truncated or corrupt; re-export a valid image"* (Error → exit 7).
+    A false diagnosis with a destructive remedy, firing on any directory of iPhone photos.
+    `TruncatedOrCorrupt::check` now skips `ImageError::CodecNotBuilt`, with a regression test.
+    This is the SPEC-061 `info <raw>` lesson recurring: **adding an extension to `IMAGE_EXTENSIONS`
+    exposes it to every caller that decodes, and a new `ImageError` variant needs an audit of
+    every `Err(_)` catch-all**, not just the exit-code map.
+  - **Ubuntu's `libheif-dev` cannot decode HEVC.** The first CI run failed on ubuntu-latest with
+    `UnsupportedFeature(UnsupportedCodec)` — Debian/Ubuntu split libheif's codec backends into
+    separate plugin packages, so the job also installs `libheif-plugin-libde265`. Linking, the
+    `v1_17` floor, and container parsing were all fine; only decode failed. Documented in README
+    + `docs/licensing.md`. (Homebrew's libheif bundles its backends, which is why local macOS
+    testing could not have caught this — the CI matrix did.)
   - **Extra tests beyond the spec's list:** `info_heic_exits_4_codec_not_built` and
     `info_heic_reports_dimensions` (the SPEC-061 lesson: extension/byte path splits break `info`),
     `avif_is_not_mis_detected_as_heic`, an alloc-cap test, and an `is_heic` oversized-box-size bounds
@@ -353,6 +368,10 @@ DEC-004/052 promise: the shipped binary tells the user exactly how to get HEIC, 
   - The `source_format` wart (HEIC/SVG → `Png`, RAW → `Jpeg`) — the shared `SourceFormat` enum remains
     the standing follow-up, now with a third instance.
   - `fuzz/heic_decode` needs libheif + nightly → carry as a pre-1.0 hardening gate (parity with avif/svg/raw).
+  - **A `meta/not-inspected` Info lint finding.** `lint` now stays silent on a `.heic` it cannot
+    decode, which is better than a false "corrupt" error but still reports the file as scanned-and-
+    clean. An Info-severity "not inspected (codec not built)" finding would be the honest answer;
+    `size/truncated-or-corrupt` cannot carry it because its severity is fixed at Error.
 
 ### Build-phase reflection (3 questions, short answers)
 
