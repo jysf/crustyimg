@@ -263,6 +263,53 @@ impl Target {
     }
 }
 
+// ─── Injective source→output (SPEC-065, DEC-057) ────────────────────────────
+
+/// Two inputs of a build that would be written to the same output path.
+///
+/// A build's `source → output` mapping must be a **function**: with
+/// `Overwrite::Allow` and the rayon fan-out, two inputs sharing an output path
+/// race — the winner is nondeterministic and the summary over-counts — and a
+/// lockfile (STAGE-022) cannot pin an output path two inputs fight over.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OutputCollision {
+    /// The shared output path (or the collision key that stands for it).
+    pub output: String,
+    /// The earlier of the two colliding sources.
+    pub first: String,
+    /// The later of the two colliding sources.
+    pub second: String,
+}
+
+/// The first pair of `entries` sharing a collision key, or `None` if every key
+/// is distinct.
+///
+/// `entries` are `(collision_key, source_label)` pairs in build order. Pure,
+/// deterministic, and order-preserving: the reported `first` is the source that
+/// claimed the key, `second` the one that duplicated it, and scanning stops at
+/// the earliest duplicate. The caller composes the key (the executor joins each
+/// target's `out` dir to its expanded name template); this fn only detects the
+/// duplicate, so it stays filesystem-free and unit-testable.
+pub fn find_output_collision(entries: &[(String, String)]) -> Option<OutputCollision> {
+    let mut seen: std::collections::HashMap<&str, &str> =
+        std::collections::HashMap::with_capacity(entries.len());
+    for (key, label) in entries {
+        match seen.get(key.as_str()) {
+            Some(first) => {
+                return Some(OutputCollision {
+                    output: key.clone(),
+                    first: (*first).to_owned(),
+                    second: label.clone(),
+                });
+            }
+            None => {
+                seen.insert(key.as_str(), label.as_str());
+            }
+        }
+    }
+    None
+}
+
 // ─── Tests ──────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -454,6 +501,70 @@ bogus = 1
         assert_eq!(
             SourceSpec::Many(vec!["a".into(), "b".into()]).as_slice(),
             ["a", "b"]
+        );
+    }
+
+    // ── find_output_collision (SPEC-065) ──────────────────────────────────────
+
+    /// `(key, label)` pairs from `&str` literals — the shape `run_build` builds.
+    fn entries(pairs: &[(&str, &str)]) -> Vec<(String, String)> {
+        pairs
+            .iter()
+            .map(|(k, l)| ((*k).to_owned(), (*l).to_owned()))
+            .collect()
+    }
+
+    #[test]
+    fn detects_first_duplicate_collision_key() {
+        let e = entries(&[
+            ("dist/a.{ext}", "src/a.png"),
+            ("dist/logo.{ext}", "a/logo.png"),
+            ("dist/logo.{ext}", "b/logo.png"),
+            ("dist/z.{ext}", "src/z.png"),
+        ]);
+        let c = find_output_collision(&e).expect("repeated key must collide");
+        assert_eq!(c.output, "dist/logo.{ext}");
+        assert_eq!(c.first, "a/logo.png");
+        assert_eq!(c.second, "b/logo.png");
+    }
+
+    #[test]
+    fn no_collision_when_all_keys_distinct() {
+        let e = entries(&[
+            ("dist/a.{ext}", "src/a.png"),
+            ("dist/b.{ext}", "src/b.png"),
+            // Same stem, different out dir — a different output path.
+            ("other/a.{ext}", "src2/a.png"),
+        ]);
+        assert_eq!(find_output_collision(&e), None);
+        // The empty build is vacuously injective.
+        assert_eq!(find_output_collision(&[]), None);
+    }
+
+    #[test]
+    fn collision_is_order_preserving() {
+        let e = entries(&[
+            ("dist/x.{ext}", "first.png"),
+            ("dist/x.{ext}", "second.png"),
+            ("dist/x.{ext}", "third.png"),
+        ]);
+        let c = find_output_collision(&e).expect("must collide");
+        // The earliest offending pair, and `first` is the earlier source.
+        assert_eq!(
+            (c.first.as_str(), c.second.as_str()),
+            ("first.png", "second.png")
+        );
+
+        // Reversing the inputs reverses the reported pair — the fn reads order,
+        // not the labels.
+        let rev = entries(&[
+            ("dist/x.{ext}", "second.png"),
+            ("dist/x.{ext}", "first.png"),
+        ]);
+        let c = find_output_collision(&rev).expect("must collide");
+        assert_eq!(
+            (c.first.as_str(), c.second.as_str()),
+            ("second.png", "first.png")
         );
     }
 }

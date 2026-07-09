@@ -538,6 +538,28 @@ pub enum CliError {
     /// `UnsupportedFormat` → exit 4; `Container`/`Exif` → exit 1 (DEC-029).
     #[error(transparent)]
     Metadata(#[from] crate::metadata::MetadataError),
+
+    /// A build's resolved targets would write two inputs to one output path
+    /// (SPEC-065, DEC-057). A *config* error found before execution → exit 2,
+    /// deliberately not the per-output partial-batch 6 (DEC-015).
+    ///
+    /// `output` may carry a literal `{ext}` — the output extension is only known
+    /// after a decode (DEC-058), so the prepare-phase check leaves it unexpanded.
+    ///
+    /// Paths are quoted literally, not with `{:?}`: `Debug` escapes a Windows
+    /// separator into `"a\\logo.png"`, which is not a path the user can act on.
+    #[error(
+        "output collision: \"{output}\" written by both \"{first}\" and \"{second}\" \
+         — two inputs map to one output (disambiguate the name template, e.g. {{parent}}_{{stem}})"
+    )]
+    OutputCollision {
+        /// The shared output path; `{ext}` is left unexpanded (pre-decode).
+        output: String,
+        /// The earlier of the two colliding sources.
+        first: String,
+        /// The later of the two colliding sources.
+        second: String,
+    },
 }
 
 impl CliError {
@@ -581,6 +603,9 @@ impl CliError {
             // A malformed build manifest is a usage error, like a bad flag → 2.
             // (Reading the manifest file is CliError::BuildManifestIo → 3.)
             CliError::Build(_) => 2,
+            // A non-injective source→output mapping is a manifest *config* error
+            // caught before execution → 2, like a malformed manifest (SPEC-065).
+            CliError::OutputCollision { .. } => 2,
             CliError::BuildManifestIo { .. } => 3,
             // The build cache could not be created/written → an output write was
             // refused → 5, the same code the sink's write failures use.
@@ -1174,6 +1199,64 @@ fn prepare_target<'a>(
     })
 }
 
+/// The `{ext}` stand-in used when computing an output collision key (SPEC-065).
+///
+/// The real output extension is only knowable after a decode (which is why the
+/// cache entry records it — DEC-058), and this check runs at prepare time. So
+/// `{ext}` expands to itself: a fixed sentinel that no real extension can equal
+/// (an extension never contains braces), and one that stays readable when it
+/// reaches the error message. Two inputs whose remaining tokens agree therefore
+/// collide **regardless** of output format — over-detection, the safe direction:
+/// under-detection would silently miss `a/logo.png` + `b/logo.svg` → `logo.png`.
+const EXT_SENTINEL: &str = "{ext}";
+
+/// The output path one input of `target` would be written to, with `{ext}` left
+/// as [`EXT_SENTINEL`] — the equality key for collision detection.
+///
+/// Mirrors `write_encoded`'s placement exactly (`out` dir + the expanded name
+/// template) so the key stands for the real destination. The `out` dir is
+/// normalized by path components — `dist`, `dist/`, and `./dist` are one
+/// directory — but NOT canonicalized: it need not exist yet.
+fn output_collision_key(target: &crate::build::Target, input: &crate::source::Input) -> String {
+    let file_name =
+        crate::sink::expand_template(target.template(), input.stem(), EXT_SENTINEL, input.path());
+    let dir: PathBuf = Path::new(&target.out)
+        .components()
+        .filter(|c| !matches!(c, std::path::Component::CurDir))
+        .collect();
+    dir.join(file_name).display().to_string()
+}
+
+/// Reject a build whose resolved targets would write two inputs to the same
+/// output path (SPEC-065; DEC-057's injective source→output constraint).
+///
+/// Run **once, globally**, over every prepared target — so a collision between
+/// two *different* targets writing the same `out`/name is caught too — and
+/// before phase 2 opens the cache or writes anything, so a rejected build leaves
+/// the destination untouched.
+fn check_output_injective(prepared: &[PreparedTarget]) -> Result<(), CliError> {
+    let mut entries: Vec<(String, String)> =
+        Vec::with_capacity(prepared.iter().map(|p| p.inputs.len()).sum());
+    for p in prepared {
+        for input in &p.inputs {
+            let label = match input {
+                crate::source::Input::Path(path) => path.display().to_string(),
+                crate::source::Input::Stdin { stem, .. } => stem.clone(),
+            };
+            entries.push((output_collision_key(p.target, input), label));
+        }
+    }
+
+    match crate::build::find_output_collision(&entries) {
+        Some(c) => Err(CliError::OutputCollision {
+            output: c.output,
+            first: c.first,
+            second: c.second,
+        }),
+        None => Ok(()),
+    }
+}
+
 /// The cache key for one input of a prepared target, plus the input's bytes.
 ///
 /// Returns `Ok(None)` for a stdin input — the manifest rejects `-` sources
@@ -1273,8 +1356,9 @@ fn build_one(
 /// Two phases, deliberately:
 ///
 /// 1. **Prepare every target** — parse each recipe, probe each pipeline, resolve
-///    each source set. Any failure here aborts the build having written nothing,
-///    so target #2's typo can't leave target #1's half-built outputs on disk.
+///    each source set, then check that the resolved targets map sources to outputs
+///    **injectively** (SPEC-065). Any failure here aborts the build having written
+///    nothing, so target #2's typo can't leave target #1's half-built outputs on disk.
 /// 2. **Execute** — for each target, fan its inputs out over rayon into
 ///    [`build_one`], writing to that target's `out` dir under its name template.
 ///    The registry is built ONCE and shared (fn ptrs → `Sync`).
@@ -1312,6 +1396,11 @@ fn run_build(file: Option<&str>, global: &GlobalArgs) -> Result<(), CliError> {
             }
         }
     }
+
+    // A build must map sources to outputs injectively, or two inputs race one
+    // destination (DEC-057). Checked here — after every target is resolved, before
+    // the store opens and before any write — so a collision costs nothing on disk.
+    check_output_injective(&prepared)?;
 
     let total: usize = prepared.iter().map(|p| p.inputs.len()).sum();
 
@@ -4353,6 +4442,113 @@ mod tests {
 
         // CheckFailed (diff --fail-under gate not met) → 7 (DEC-025).
         assert_eq!(CliError::CheckFailed.code(), 7);
+
+        // A non-injective build is a config error → 2, not partial-batch 6 (SPEC-065).
+        assert_eq!(
+            CliError::OutputCollision {
+                output: "dist/logo.{ext}".into(),
+                first: "a/logo.png".into(),
+                second: "b/logo.png".into(),
+            }
+            .code(),
+            2
+        );
+
+        // Metadata variants (SPEC-026, DEC-029).
+        assert_eq!(
+            CliError::Metadata(crate::metadata::MetadataError::UnsupportedFormat(
+                "x".into()
+            ))
+            .code(),
+            4
+        );
+    }
+
+    // ── SPEC-065: injective source→output ────────────────────────────────────
+
+    #[test]
+    fn output_collision_maps_to_exit_2() {
+        let err = CliError::OutputCollision {
+            output: "dist/logo.{ext}".into(),
+            first: "a/logo.png".into(),
+            second: "b/logo.png".into(),
+        };
+        assert_eq!(err.code(), 2);
+
+        // The message names the shared output and both sources, and points at the fix.
+        let msg = err.to_string();
+        assert!(msg.contains("dist/logo.{ext}"), "{msg}");
+        assert!(
+            msg.contains("a/logo.png") && msg.contains("b/logo.png"),
+            "{msg}"
+        );
+        assert!(msg.contains("{parent}_{stem}"), "{msg}");
+
+        // Paths are quoted literally. `{:?}` would render a Windows separator as
+        // `a\\logo.png` — not a path the user can copy back into the manifest.
+        let windows = CliError::OutputCollision {
+            output: r"dist\logo.{ext}".into(),
+            first: r"a\logo.png".into(),
+            second: r"b\logo.png".into(),
+        };
+        let msg = windows.to_string();
+        assert!(msg.contains(r#""a\logo.png""#), "{msg}");
+        assert!(
+            !msg.contains(r"a\\logo.png"),
+            "must not double-escape: {msg}"
+        );
+    }
+
+    /// A `Target` writing `out` under `name` (or the default template).
+    fn target(out: &str, name: Option<&str>) -> crate::build::Target {
+        crate::build::Target {
+            source: crate::build::SourceSpec::One("src/*.png".into()),
+            recipe: "r.toml".into(),
+            out: out.into(),
+            name: name.map(str::to_owned),
+        }
+    }
+
+    fn key(out: &str, name: Option<&str>, path: &str) -> String {
+        output_collision_key(
+            &target(out, name),
+            &crate::source::Input::Path(PathBuf::from(path)),
+        )
+    }
+
+    #[test]
+    fn collision_key_ignores_output_ext_but_not_the_rest() {
+        // Same stem, different input format → the SAME key: the output ext is
+        // unknowable pre-decode, so this must over-detect (both may → logo.png).
+        assert_eq!(
+            key("dist", None, "a/logo.png"),
+            key("dist", None, "b/logo.svg")
+        );
+
+        // {parent} disambiguates; distinct stems and distinct out dirs do too.
+        let tpl = Some("{parent}_{stem}.{ext}");
+        assert_ne!(
+            key("dist", tpl, "a/logo.png"),
+            key("dist", tpl, "b/logo.png")
+        );
+        assert_ne!(
+            key("dist", None, "a/one.png"),
+            key("dist", None, "a/two.png")
+        );
+        assert_ne!(
+            key("dist", None, "a/logo.png"),
+            key("other", None, "a/logo.png")
+        );
+    }
+
+    #[test]
+    fn collision_key_normalizes_the_out_dir() {
+        // `dist`, `dist/`, and `./dist` are one directory — two targets naming it
+        // differently still collide. (Not canonicalized: it may not exist yet.)
+        let expected = Path::new("dist").join("logo.{ext}").display().to_string();
+        assert_eq!(key("dist", None, "a/logo.png"), expected);
+        assert_eq!(key("dist/", None, "a/logo.png"), expected);
+        assert_eq!(key("./dist", None, "a/logo.png"), expected);
     }
 
     // ── format_label_maps_core_formats ───────────────────────────────────────

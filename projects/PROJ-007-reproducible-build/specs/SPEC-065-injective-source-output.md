@@ -3,7 +3,7 @@
 task:
   id: SPEC-065
   type: story
-  cycle: design  # frame | design | build | verify | ship
+  cycle: verify  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: S                    # a prepare-phase collision check + typed error + exit-code map; no new dep, no lockfile yet
@@ -45,10 +45,23 @@ cost:
         Grounded in a firsthand read of the shipped post-cache executor (run_build / prepare_target /
         build_one / cache_key_for) + DEC-057's injective-constraint section + sink::expand_template.
         No new dep; no lockfile in this spec (that's SPEC-066).
+    - cycle: build
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 115000
+      estimated_usd: 2.10
+      duration_minutes: 22
+      recorded_at: 2026-07-09
+      notes: >
+        Build cycle — main-loop, not separately metered, so tokens/usd are order-of-magnitude
+        ESTIMATES (AGENTS §4). One session: read the seam, added the pure detector + the
+        ext-normalizing key, wired the global prepare-phase check, made all 9 failing tests pass.
+        No new dep, no new DEC. Gates: 637 tests default + 637 lean, clippy ×2, fmt, deny green,
+        Cargo.toml untouched; four collision scenarios driven on the real binary.
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 115000
+    estimated_usd: 2.10
+    session_count: 1
 ---
 
 # SPEC-065: the injective source→output guarantee
@@ -240,26 +253,68 @@ future option, not this spec.
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
+- **Branch:** `feat/spec-065-injective-source-output`
+- **PR (if applicable):** #71
+- **All acceptance criteria met?** yes
 - **New decisions emitted:**
-  - (expected: none — discharges DEC-057's named constraint)
+  - None — as expected. This discharges DEC-057's named constraint; its Validation section is
+    marked **RESOLVED by SPEC-065** with the approach + the over-detection tradeoff. DEC-059
+    stays reserved for the lockfile (SPEC-066).
 - **Deviations from spec:**
-  - [list]
+  - **The `{ext}` sentinel is the literal string `{ext}`, not `"\u{0}ext\u{0}"`.** The spec
+    suggested a NUL-wrapped sentinel; a brace-wrapped one has the same property that matters (no
+    real extension can contain `{`/`}`, so it cannot alias a real ext) and it stays **readable
+    when it reaches the error message**: `output collision: "dist/logo.{ext}" written by both …`.
+    A NUL sentinel would have printed control characters into the user's terminal. For a template
+    that omits `{ext}` (e.g. `{name}`), the key is the real path, which reads even better.
+  - **Out-dir normalization drops `Component::CurDir`** as well as trailing separators, so `dist`,
+    `dist/`, and `./dist` are one directory. The spec asked for "a plain `Path`-based
+    normalization"; `components().collect()` alone leaves a leading `./` intact, which would have
+    let two targets spell the same directory two ways and slip past the cross-target check.
+    Verified on the real binary (a `dist` + `./dist/` pair collides).
+  - **The message quotes paths literally, not with `{:?}`.** The spec's suggested message uses
+    `Debug`-style quoting; on Windows that escapes the separator and prints `"a\\logo.png"`, which
+    is not a path a user can copy back into the manifest. Caught by the Windows CI job, since the
+    source label is a `Path` display. Quoted literally instead, with a cross-platform unit test.
+  - Added one missing `CliError::Metadata` assertion to `exit_code_mapping_is_total` while adding
+    the `OutputCollision` arm — the test was not in fact total.
 - **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - **Residual under-detection: a template that hardcodes an extension.** Two targets writing the
+    same `out` where one names `{stem}.png` and the other `{stem}.{ext}` produce keys
+    `dist/logo.png` and `dist/logo.{ext}` — different keys, but potentially the same real path.
+    Inherent to any pre-decode check that can't know the output ext; it needs a hardcoded-ext
+    template to trigger, so it is rare. A format-sniff (the same refinement that would cut the
+    false positives) closes both at once. Worth a line in DEC-059's threat model, not its own spec.
+  - Not touched, still open from STAGE-021: the `CACHE_ENTRY_MAX_BYTES` vs read-frame off-by-53.
 
 ### Build-phase reflection (3 questions, short answers)
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — Nothing blocked me; the spec's seam pointers were accurate against the post-cache tree and
+   `## Notes for the Implementer` pre-answered the two decisions that would otherwise have cost a
+   round-trip (global check, not per-target; both `code()` *and* the totality test). The one thing
+   the spec asserted without checking was the sentinel: `"\u{0}ext\u{0}"` is correct as an equality
+   key but wrong as a *display* string, and the same field is both (`OutputCollision.output` is
+   compared and then printed). A design that separates the key from its label would not have had
+   the question — but the single field is the simpler API, so the sentinel just has to be printable.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — `DEC-058` was listed as context (why the ext is post-decode) but it also *predicted* a result
+   worth flagging: because the cache key excludes the output destination, a cold build of two
+   targets over the same inputs reports `(2 cached, 2 rebuilt)` — the second target hits the first's
+   entries. That is correct and by design, but it surprised me mid-verify and it will surprise
+   whoever writes SPEC-066's lockfile tests, since output paths and cache entries are not 1:1.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Write the out-dir normalization test *first*. I reached for `components().collect()` because
+   the spec named it, then only found the `./dist` hole when I sat down to write
+   `collision_key_normalizes_the_out_dir`. The cross-target criterion is the one that depends on
+   normalization, and it is the one a per-target implementation would have passed by accident —
+   so the normalization deserved the failing test, not the collision itself. Related: every
+   assertion I wrote about a *path* was Unix-shaped, and Windows CI caught two of them (a `/`
+   literal in the integration test, and `Debug`-escaped separators in the error message itself).
+   Any spec whose output is a path should get one deliberate "what does this print on Windows?"
+   pass before the PR, not after — the round-trip cost more than the thinking would have.
 
 ---
 
