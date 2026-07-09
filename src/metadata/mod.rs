@@ -512,10 +512,7 @@ mod tests {
         // Seed a PNG with a tEXt chunk via img-parts (native, no ImageMagick).
         let base = base_image(ImageFormat::Png);
         let mut png = Png::from_bytes(Bytes::from(base)).expect("parse png");
-        let text = img_parts::png::PngChunk::new(
-            [b't', b'E', b'X', b't'],
-            Bytes::from_static(b"Comment\0hi"),
-        );
+        let text = img_parts::png::PngChunk::new(*b"tEXt", Bytes::from_static(b"Comment\0hi"));
         png.chunks_mut().insert(1, text);
         let mut seeded = Vec::new();
         png.encoder()
