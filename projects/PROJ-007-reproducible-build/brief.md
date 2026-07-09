@@ -118,16 +118,20 @@ Format: `- [status] STAGE-ID — one-line summary`
 - [x] STAGE-020 (shipped on 2026-07-08) — the `build` command + `crustyimg.build.toml` manifest
   (targets = source × recipe → out/name) + executor that prepares all targets then loops the shipped
   `apply_one`. The skeleton: "declare my asset build and run it." **No new dep** (SPEC-063, PR #69, DEC-057).
-- [ ] (not yet framed) STAGE-021 — content-addressed cache (incremental rebuild): the cache key +
-  local store + skip-unchanged + hit/miss reporting. The headline; **reshaped by the encoder-determinism
-  experiment** (split cache-key robustness from output-byte reproducibility) + must handle the injective
-  source→output constraint (DEC-057). **← next**
+- [~] STAGE-021 (framed, active — SPEC-064 design) — content-addressed cache (incremental rebuild): the
+  cache key (over every output-affecting input) + local `.crustyimg/cache/` store (atomic, self-describing,
+  verify-on-read, corrupt→miss) + skip-unchanged + cached/rebuilt reporting + `--no-cache`. The headline;
+  **encoder-determinism experiment retired the nondeterminism risk** (byte-identical run-to-run/thread-count
+  incl. AVIF+lossy-WebP on a fixed machine) → framed as the *robust* half of verifiable (cache-correctness,
+  deterministic-within-env), distinct from STAGE-022's *fragile* cross-arch byte-reproducibility. Keys on
+  output-**byte** identity (not path), so the injective source→output constraint (DEC-057) is **not** resolved
+  here and stays a STAGE-022 blocker. **One new hasher dep → DEC-058 (at build).**
 - [ ] (not yet framed) STAGE-022 — reproducibility lockfile + `build --check`/`--frozen` (the CI drift gate).
   The "verifiable." **Blocked on** the injective source→output mapping (DEC-057); likely a perceptual/pixel
   verify mode (reuse SSIMULACRA2) alongside byte-hash, per the design-feedback review.
 - [ ] (not yet framed) STAGE-023 — `--watch`: debounced file-watching inner loop that rebuilds only affected targets.
 
-**Count:** 1 shipped / 0 active / 3 pending (STAGE-020 shipped; STAGE-021 cache next, then 022 lockfile, 023 watch)
+**Count:** 1 shipped / 1 active / 2 pending (STAGE-020 shipped; STAGE-021 cache active — SPEC-064 framed; then 022 lockfile, 023 watch)
 
 ## Dependencies
 
