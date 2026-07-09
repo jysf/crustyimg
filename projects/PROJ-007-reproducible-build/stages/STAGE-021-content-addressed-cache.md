@@ -2,7 +2,7 @@
 # Maps to ContextCore epic-level conventions.
 stage:
   id: STAGE-021
-  status: active                    # proposed | active | shipped | cancelled | on_hold
+  status: shipped                   # proposed | active | shipped | cancelled | on_hold
   priority: high
   target_complete: null
 
@@ -12,7 +12,7 @@ repo:
   id: crustyimg
 
 created_at: 2026-07-08
-shipped_at: null
+shipped_at: 2026-07-09
 
 value_contribution:
   advances: >
@@ -118,12 +118,15 @@ lockfile will later key on.
 
 Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
-- [ ] SPEC-064 (design) — content-addressed cache: `src/build/cache.rs` (cache-key over every
-  output-affecting input + local `.crustyimg/cache/` store, atomic + self-describing + verify-on-read +
-  corrupt→miss) wired into `run_build` (hit → materialize, miss → `encode_one` + store), `--no-cache`,
-  cached/rebuilt summary; **one new hasher dep** → DEC-058. Framed 2026-07-08.
+- [x] SPEC-064 (shipped on 2026-07-09) — content-addressed cache: `src/build/cache.rs` (cache-key over
+  every output-affecting input + local `.crustyimg/cache/` store, atomic temp→rename + self-describing
+  entries + verify-on-read + corrupt→miss) wired into `run_build` (hit → materialize via `write_encoded`,
+  miss → `encode_one` + store), `--no-cache`, `(C cached, R rebuilt)` summary; **one new dep (`sha2`)** →
+  DEC-058. PR #70 (2c41c06), 24/24 CI green, 627 tests on default + lean. Verify APPROVED (fresh session):
+  reproduced cold→warm→edit→restore→corrupt→`--no-cache` on the real binary + a mutation test proving
+  corrupt→miss is structural. Injective source→output (DEC-057) untouched — carried to STAGE-022.
 
-**Count:** 0 shipped / 0 active / 1 pending — single-spec stage.
+**Count:** 1 shipped / 0 active / 0 pending — single-spec stage complete.
 
 ## Design Notes
 
@@ -206,13 +209,37 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
 ## Stage-Level Reflection
 
-*Filled in when status moves to shipped. Run Prompt 1c (Stage Ship) in
-FIRST_SESSION_PROMPTS.md to draft this.*
-
-- **Did we deliver the outcome in "What This Stage Is"?** <yes/no + notes>
-- **How many specs did it actually take?** <number vs. plan>
-- **What changed between starting and shipping?** <one sentence>
+- **Did we deliver the outcome in "What This Stage Is"?** Yes — `crustyimg build` is now
+  incremental. A no-change re-run is a full cache hit (`8 cached, 0 rebuilt`, decode skipped,
+  confirmed both by timing and structurally — a hit returns before `encode_one` is reachable);
+  changing one source / recipe param / quality rebuilds only the affected outputs; a deleted output
+  is restored byte-for-byte from cache; a corrupt entry rebuilds cleanly (exit 0, no panic — proven
+  structural by a mutation test that deleted verify-on-read); the store is local-only with a
+  `--no-cache` bypass. PR #70, 24/24 CI green, one pure-Rust dep (`sha2`), `just deny` green with no
+  exception, lean build unaffected.
+- **How many specs did it actually take?** 1 (SPEC-064), as planned — a clean single-spec stage.
+- **What changed between starting and shipping?** The seam landed as three functions
+  (`encode_one` / `write_encoded` / `apply_one`) rather than the two the spec sketched — the write
+  half is shared verbatim by the cache-hit path, so extracting it beat inlining it twice. One
+  accepted behavioral delta: `apply` now encodes before the sink's guards (byte-identical output,
+  only the error *ordering* changes on a double-failure path; safe because encode targets an in-memory
+  `Cursor`, so no bytes reach disk before any guard).
 - **Lessons that should update AGENTS.md, templates, or constraints?**
-  - <one-line updates>
+  - **When a spec demands a test proving a compiled-in constant is load-bearing, put that constant
+    in the function's parameters** — SPEC-064 asked for a "schema version changes the key" test but
+    gave `compute_key` a signature with no schema argument, forcing a private
+    `compute_key_with_schema` workaround. A spec-authoring habit, not a template change.
+  - **Name the decision behind reused guards.** The Implementation Context leaned on the sink's
+    symlink/overwrite guards (DEC-035) and mentioned a new symlinked-cache-entry surface without
+    tying either to DEC-035 — cheap to have listed. Also: a spec that adds a `GlobalArgs` field
+    should note its hand-built `#[cfg(test)]` initializers (adding `--no-cache` broke the lib tests
+    first).
 - **Should any spec-level reflections be promoted to stage-level lessons?**
-  - <one-line items>
+  - The **injective source→output constraint (DEC-057)** is a project-level invariant, not a
+    SPEC-064 detail: the cache keys on output-byte identity (not path), so it is neither fixed nor
+    worsened here and **STAGE-022 (lockfile) stays blocked on it**. It lives in DEC-057's validation
+    list; carried into STAGE-022 framing.
+  - One non-blocking defect worth carrying: `store` bounds the payload at `CACHE_ENTRY_MAX_BYTES`
+    while `read_entry` bounds the whole frame (payload + 53-byte header), so a near-cap payload is
+    stored but never readable (a permanent silent miss — correctness unaffected, disk wasted). A
+    one-line fix when the store is next touched.

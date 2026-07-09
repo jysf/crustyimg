@@ -3,7 +3,7 @@
 task:
   id: SPEC-064
   type: story
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: M                    # cache-key composition + local content-addressed store + executor seam + one new dep; single spec
@@ -68,10 +68,42 @@ cost:
         the run_build wiring + --no-cache + summary; the full gate matrix twice (default +
         lean × test/clippy, fmt, just deny); a clean end-to-end drive of the real binary;
         DEC-058 + docs + CHANGELOG + this bookkeeping.
+    - cycle: verify
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 260000
+      estimated_usd: 5.20
+      duration_minutes: 40
+      recorded_at: 2026-07-09
+      notes: >
+        Verify ran in the MAIN LOOP (not a metered subagent), so tokens_total is a labelled
+        order-of-magnitude ESTIMATE, not a measured subagent_tokens value (AGENTS §4; the
+        `autonomous-run-cost-estimates` convention). Fresh session per AGENTS §15: re-derived
+        from the spec + DEC-057/DEC-058 + constraints, not from the build session's context.
+        Covers: reading the spec, DEC-057/058, AGENTS §13/§15, `src/build/cache.rs` in full and
+        the `src/cli/mod.rs` + `src/sink/mod.rs` seam diffs; the full gate matrix from clean
+        (test + clippy × default/lean, fmt, `just deny`, `decisions-audit` both modes); a
+        from-scratch end-to-end driver against the release binary (cold → warm → one-source
+        edit → deleted-output restore → every-entry corruption → `--no-cache` → `--quiet`,
+        plus `-q` and cosmetic-vs-semantic recipe edits); a decode-skip timing check on a
+        2600×2600 source; an exit-5 `Cache::open` boundary drive; and a **mutation test** that
+        deleted verify-on-read to confirm `corrupt_entry_is_a_miss` actually forces it.
+    - cycle: ship
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-07-09
+      notes: >
+        Ship bookkeeping (squash-merge PR #70 → main 2c41c06; re-apply the verify cost session +
+        timeline verify mark on main via stash-pop after merge, per AGENTS §13; ship reflection;
+        cost.totals; timeline ship mark; STAGE-021 stage-ship + brief; archive to done/;
+        `just cost-audit`) — main-loop, not separately metered → null-with-note per AGENTS §4.
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 740000
+    estimated_usd: 14.80
+    session_count: 4
 ---
 
 # SPEC-064: the content-addressed cache (incremental rebuild)
@@ -463,10 +495,36 @@ materialized to N destinations); the destination is where a hit is written, not 
 from the process-focused build reflection above.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — As architect: **give `compute_key` the parameter the test needs.** The build
+   reflection caught it — the spec demanded a unit test proving the cache-schema version is
+   load-bearing, but handed `compute_key` a signature with no schema argument, forcing the
+   builder to invent a private `compute_key_with_schema` to route around it. When a spec says
+   "prove this compiled-in const changes the key," the const belongs in the function's
+   parameters, not smuggled in as a hidden constant. Same class of miss: the Implementation
+   Context leaned on the sink's symlink/overwrite guards without ever naming **DEC-035** (the
+   decision they come from) or noting that `GlobalArgs` is hand-constructed in two
+   `#[cfg(test)]` helpers, so adding `--no-cache` breaks the lib tests first. All cheap to
+   have listed. Otherwise this was, per the builder, the most build-ready spec of the wave —
+   the enumerated cache-key inputs and the output-format-not-keyed inversion held exactly.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — `DEC-058` emitted (hasher `sha2` + cache-key composition + store design), extending the
+   DEC-057 build contract; `just decisions-audit --changed` flags DEC-057/058 as consistent.
+   No template/constraint change. One real defect to record from verify (non-blocking, does
+   not affect correctness — a miss always rebuilds): **`store` bounds the payload at
+   `CACHE_ENTRY_MAX_BYTES` but `read_entry` bounds the whole frame (payload + 53-byte
+   header)**, so a payload within 53 bytes of the cap is written but can never be read back —
+   a permanent silent miss plus wasted disk. A one-line fix (bound both at the same quantity)
+   whenever the store is next touched; added to the stage follow-ups.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — No new spec for STAGE-021 — it's a single-spec stage and it's complete. The tracked
+   carries (in the stage's Explicitly-out-of-scope + Build Completion follow-ups) are all
+   additive: `build --gc` / `--cache-dir`, an mtime/size fast-path in front of the content
+   hash, a `--dry-run` plan preview, removing the miss path's double read of each source (the
+   `Image::decode_path(path, bytes)` seam already exists), and the `CACHE_ENTRY_MAX_BYTES`
+   off-by-53 fix above. The one thing that **is** a blocker, unchanged: **DEC-057's injective
+   source→output constraint** — the cache keys on output-byte identity, not path, so it is
+   neither fixed nor worsened here and **STAGE-022 (lockfile) stays blocked on it** (reject
+   duplicate expanded output paths in `prepare_target` before a lockfile can pin the build).
+   That is the first thing STAGE-022 must resolve. Next: STAGE-022.
