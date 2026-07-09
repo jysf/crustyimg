@@ -120,6 +120,21 @@ avif-parse = "=2.1.0"
 # (resources_dir=None + href resolver), output dims capped from usvg Tree::size()
 # BEFORE Pixmap allocation (DEC-034). Non-optional (default path); no new feature.
 resvg = { version = "=0.47.0", default-features = false, features = ["text"] }
+# HEIC/HEIF DECODE behind the off-by-default `heic` feature (SPEC-062, DEC-056,
+# implementing DEC-052). NEVER in a distributed artifact: HEVC is patent-encumbered
+# (Access Advance) on every decode path, and the mature pure-Rust decoders are AGPL.
+#   `libheif-rs` (MIT) → `libheif-sys` (MIT) → the SYSTEM libheif C library (LGPL,
+#   decode-only). cargo-deny sees only the MIT Rust crates, so `just deny` stays green
+#   with NO exception — the LGPL obligation is attribution (docs/licensing.md), not a
+#   deny entry. Contrast `ansi_colours`, which is an LGPL *crate*.
+#   `default-features = false` drops `latest` (= v1_21, which would demand a system
+#   libheif ≥ 1.21) and the `image` feature (a second `image` crate). `v1_17` is the
+#   lowest API floor libheif-sys ships bindings for, so the feature builds against
+#   Ubuntu 24.04's libheif 1.17.6 as well as Homebrew's 1.23 — see DEC-056.
+#   Bindings are PRE-GENERATED per API version (no `use-bindgen`), so this adds no
+#   bindgen/libclang build-tool dependency; and NOT `embedded-libheif`, which would
+#   vendor+cmake-build libheif and pull the LGPLv3 §4 static-relink obligation.
+libheif-rs = { version = "=2.7.0", optional = true, default-features = false, features = ["v1_17"] }
 
 [features]
 # `display` (terminal preview via viuer) is ON BY DEFAULT so `view` works out of the
@@ -135,6 +150,12 @@ webp-lossy = ["dep:webp"]
 # at exit 4 (DEC-004). `just deny` stays green via the scoped `libfuzzer-sys`
 # exception in deny.toml.
 avif = ["image/avif"]
+# HEIC/HEIF INPUT behind an off-by-default feature (SPEC-062, DEC-052/DEC-056).
+# Requires a system libheif (≥ 1.17) at build and run time — `brew install libheif`
+# / `apt-get install libheif-dev`. Local-build-only: no released binary, Homebrew
+# bottle, or `cargo install` default enables it. Without it, a `.heic` input is
+# DETECTED and rejected with `ImageError::CodecNotBuilt` → exit 4.
+heic = ["dep:libheif-rs"]
 
 [dev-dependencies]
 tempfile = "=3.27.0"

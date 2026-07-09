@@ -2,6 +2,11 @@
 members = ["cargo:."]
 
 [dist]
+# NOTE (DEC-052): there is deliberately no `features`/`all-features` key here.
+# Release artifacts and the Homebrew formula build crustyimg's DEFAULT features
+# only, which keeps `heic` (system libheif, HEVC-patent-encumbered) out of every
+# distributed binary. Do not add one without revisiting DEC-052. Released binaries
+# exit 4 on a `.heic`; see docs/licensing.md.
 cargo-dist-version = "0.32.0"
 ci = "github"
 installers = ["shell", "powershell", "homebrew"]

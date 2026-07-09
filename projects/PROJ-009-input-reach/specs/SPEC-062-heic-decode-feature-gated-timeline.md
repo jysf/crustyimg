@@ -18,12 +18,20 @@ there is no separate prompt file unless a cycle needs one.
   **DEC-056** (emit at build). Key wiring: a decode-side `ImageError::CodecNotBuilt`→exit-4 (mirror
   SinkError), ftyp-brand detection (AVIF dispatched first), a system-libheif CI job, and exclusion from
   every distributed artifact (DEC-052). Framing, 2026-07-08.
-- [ ] **build** — add `src/image/heic.rs` (`is_heic` ftyp scan + `#[cfg(feature="heic")]` libheif-rs
+- [x] **build** — add `src/image/heic.rs` (`is_heic` ftyp scan + `#[cfg(feature="heic")]` libheif-rs
   decode → canonical `Image`, DEC-034-capped, stride-honoring), `ImageError::CodecNotBuilt`→exit-4,
   dispatch in `decode_with_limits` (after AVIF), `.heic`/`.heif` in `IMAGE_EXTENSIONS`,
   `heic = ["dep:libheif-rs"]`, system-libheif CI job, distribution excludes heic, LGPL attribution,
   fixture via sips + tests + fuzz target, DEC-056. Verify default(exit-4) + `--features heic`(decode) +
   lean + `just deny`(green, no exception) + clippy×3 + fmt; check MSRV (bindgen/libheif-sys floor).
+  **DONE 2026-07-08 — PR #68.** All 8 acceptance criteria met; DEC-056 emitted. Gates green: 581 default
+  / 588 `--features heic` / 581 lean tests, clippy×3, fmt, `just deny` (**no new exception** — libheif-rs
+  + libheif-sys are MIT and DO enter the `all-features` graph). Probe corrected two design assumptions:
+  **no bindgen** (pre-generated bindings → no libclang, **no MSRV move**, floor stays 1.90), and the
+  version feature must be pinned **`v1_17`** (libheif-rs's default `latest`=v1_21 would demand a system
+  libheif ≥1.21, more than `ubuntu-latest`'s apt 1.17.6) — which in turn puts `set_security_limits`
+  (`#[cfg(v1_19)]`) out of reach; the DEC-034 handle-dim pre-check is the load-bearing bound. Est. cost
+  ~260k tokens / ~$2.34 (labelled estimate — main-loop, not separately metered).
 - [ ] **verify** — fresh session; re-run all gates independently, confirm default-build exit-4 + clear
   message, feature decode + caps + stride, deny green with no new exception, distribution excludes heic,
   DEC-056 consistent with DEC-052.

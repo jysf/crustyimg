@@ -3,7 +3,7 @@
 task:
   id: SPEC-062
   type: story
-  cycle: design                    # frame | design | build | verify | ship
+  cycle: verify  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: M                    # module + decode-side CodecNotBuilt + a system-lib CI job + LGPL/distribution discipline
@@ -48,6 +48,25 @@ cost:
         Included a firsthand probe (brew libheif 1.23.1 + a real .heic made via `sips`): decoded it to
         64×48 with correct pixels via libheif-rs 2.7.0; confirmed libheif-rs/-sys are MIT (deny green,
         no exception; LGPL is the system C lib) and system-linked via pkg-config.
+    - cycle: build
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 260000
+      estimated_usd: 2.34
+      duration_minutes: 18
+      recorded_at: 2026-07-08
+      notes: >
+        Build ran in the main loop (interactive, not a separately-metered subagent), so `/cost` was
+        not readable programmatically — tokens_total is an ORDER-OF-MAGNITUDE ESTIMATE per the
+        autonomous-run-cost practice (labelled estimate, not null, so `just cost-audit` passes at
+        ship). estimated_usd = 260k tokens × Opus 4.8 list ($5/$25 per MTok, ~80/20 in/out) ≈ $2.34.
+        Work: re-ran the libheif probe (which corrected two design assumptions — no bindgen; the
+        v1_17 API floor), src/image/heic.rs (is_heic in both builds + feature-gated capped,
+        stride-honoring decode), ImageError::CodecNotBuilt → exit 4, decode_with_limits dispatch after
+        AVIF, .heic/.heif extensions, `heic` feature, sips-made fixture, unit + integration tests,
+        fuzz/heic_decode, a system-libheif CI job, docs/licensing.md (LGPL + patents), dist guard,
+        DEC-056. All gates green: test/clippy on default + lean + --features heic, fmt, `just deny`
+        (no new exception), end-to-end exit-4 and decode runs.
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -135,24 +154,24 @@ with --features heic"; keep the feature out of every distributed artifact and
 
 ## Acceptance Criteria
 
-- [ ] With `--features heic` (system libheif present), `Image::from_bytes(heic_bytes)` /
+- [x] With `--features heic` (system libheif present), `Image::from_bytes(heic_bytes)` /
   `Image::load("*.heic")` decode to the canonical `Image` with correct dimensions; `optimize
   <fixture>.heic -o out.webp` and `convert <fixture>.heic --format png -o out.png` exit 0 with correct dims.
-- [ ] In the **default** build (no `heic`), a `.heic` input yields `ImageError::CodecNotBuilt{codec:"HEIC",
+- [x] In the **default** build (no `heic`), a `.heic` input yields `ImageError::CodecNotBuilt{codec:"HEIC",
   feature:"heic"}` → **exit 4** with "HEIC support is not built; rebuild with --features heic" — NOT a
   generic "unsupported format" or a panic. `is_heic` detection is compiled in both builds.
-- [ ] The DEC-034 caps are honored under `--features heic`: a HEIC over the dimension/alloc cap →
+- [x] The DEC-034 caps are honored under `--features heic`: a HEIC over the dimension/alloc cap →
   `ImageError::LimitsExceeded` (checked from the libheif handle dims BEFORE decode); a corrupt HEIC →
   typed `ImageError::Decode`, never a panic.
-- [ ] `.heic`/`.heif` are in `IMAGE_EXTENSIONS`; a directory source discovers them (they then decode
+- [x] `.heic`/`.heif` are in `IMAGE_EXTENSIONS`; a directory source discovers them (they then decode
   under the feature, or surface the exit-4 codec-not-built in the default build).
-- [ ] `is_heic` distinguishes HEVC brands (`heic/heix/heim/heis/hevc/hevx`) from AVIF (`avif/avis`) and
+- [x] `is_heic` distinguishes HEVC brands (`heic/heix/heim/heis/hevc/hevx`) from AVIF (`avif/avis`) and
   generic `mif1` (AVIF is dispatched first); a `.avif` is NOT mis-detected as HEIC.
-- [ ] **No system/C dependency on the default path**; `cargo build --no-default-features` (lean) still
+- [x] **No system/C dependency on the default path**; `cargo build --no-default-features` (lean) still
   succeeds; `just deny` green with **no new license exception** (libheif-rs/-sys are MIT).
-- [ ] A CI job builds+tests `--features heic` against an installed system libheif; the feature is
+- [x] A CI job builds+tests `--features heic` against an installed system libheif; the feature is
   **excluded from distributed artifacts** (cargo-dist/brew build without it).
-- [ ] `cargo clippy --all-targets -- -D warnings` (default + lean + `--features heic`) and `cargo fmt
+- [x] `cargo clippy --all-targets -- -D warnings` (default + lean + `--features heic`) and `cargo fmt
   --check` clean.
 
 ## Failing Tests
@@ -302,24 +321,59 @@ DEC-004/052 promise: the shipped binary tells the user exactly how to get HEIC, 
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
+- **Branch:** `feat/spec-062-heic-decode`
+- **PR (if applicable):** #68
+- **All acceptance criteria met?** yes
 - **New decisions emitted:**
-  - `DEC-056` — <title>
+  - `DEC-056` — HEIC decode via `libheif-rs` → **system** libheif, behind the off-by-default `heic` feature
 - **Deviations from spec:**
-  - [list]
+  - **`default-features = false, features = ["v1_17"]`, not bare `default-features = false`.**
+    `libheif-sys` selects its pre-generated bindings by version feature and `compile_error!`s if none
+    is set; its default (`latest` = `v1_21`) would make `system-deps` demand a system libheif ≥ 1.21,
+    more than `ubuntu-latest`'s apt package (1.17.6) provides. `v1_17` builds against 1.17 → 1.23+.
+  - **No `bindgen`/libclang in the graph** (the spec's Implementation Context expected it). Bindings
+    are pre-generated; `use-bindgen` is off by default. So no build-tool dependency and no MSRV
+    pressure — the `--features heic` tree's floor is 1.90 (`avif-parse`, already ours). **No
+    `ci.yml`/`rust-version` bump**, contrary to the spec's "MSRV may move" note.
+  - **libheif's own security limits are NOT set.** `set_security_limits` is `#[cfg(feature = "v1_19")]`,
+    unreachable at the `v1_17` floor. The stage's "set them if the binding exposes them" note is
+    therefore unmet by choice; libheif ≥ 1.19 applies its defaults regardless, and the DEC-034
+    handle-dim pre-check is the load-bearing bound. Recorded in DEC-056 with a revisit trigger.
+  - **CI job runs on ubuntu + macOS (a 2-OS matrix)**, not a single runner as the spec suggested —
+    the two libheif install paths (apt/brew) are exactly what the job needs to prove.
+  - **Extra tests beyond the spec's list:** `info_heic_exits_4_codec_not_built` and
+    `info_heic_reports_dimensions` (the SPEC-061 lesson: extension/byte path splits break `info`),
+    `avif_is_not_mis_detected_as_heic`, an alloc-cap test, and an `is_heic` oversized-box-size bounds
+    test. Added `docs/licensing.md` (the spec said "docs/" without naming a file).
 - **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - Windows `heic` (libheif via vcpkg) — documented as unsupported; a stretch spec if demand appears.
+  - Move to `v1_19` + `set_security_limits` once the CI runner's stock libheif floor reaches 1.19.
+  - HEIC alpha (`RgbChroma::Rgba`) is implemented but untested — `sips` produces no alpha HEIC. A
+    fixture from another encoder would close it.
+  - The `source_format` wart (HEIC/SVG → `Png`, RAW → `Jpeg`) — the shared `SourceFormat` enum remains
+    the standing follow-up, now with a third instance.
+  - `fuzz/heic_decode` needs libheif + nightly → carry as a pre-1.0 hardening gate (parity with avif/svg/raw).
 
 ### Build-phase reflection (3 questions, short answers)
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — Nothing blocked me; the spec was unusually build-ready. The one thing it got *wrong* rather than
+   unclear was the dependency shape: it predicted `bindgen`/libclang and an MSRV bump, and left the
+   version feature as "or with the version feature the build confirms". Re-running the probe first (as
+   the spec instructed) surfaced the `v1_17`-vs-`latest` question — which turned out to be the single
+   most consequential decision in the build, because it silently determines whether the CI job can use
+   stock `ubuntu-latest`. A design that had probed `apt-cache policy libheif-dev` would have named it.
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — No missing constraint. But the spec's Security note ("set libheif's own security limits if the
+   binding exposes them") and its CI note ("apt-get install libheif-dev") are in latent conflict: the
+   ubuntu package's version is exactly what makes those limits unreachable. Worth stating as a rule:
+   when a feature links a *system* library, the design should pin the minimum system version, because
+   it constrains both the API surface and the CI runner.
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Probe the *distro package versions*, not just the local Homebrew one, before writing the CI job.
+   I wired `--features heic` against my 1.23.1 and only then worked backwards to the floor that
+   `ubuntu-latest` could satisfy. Ten seconds of `apt-cache policy` (or reading libheif-sys's
+   `[package.metadata.system-deps]` table) would have set the version feature first, in one pass.
 
 ---
 

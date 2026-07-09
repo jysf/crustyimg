@@ -106,6 +106,10 @@ const IMAGE_EXTENSIONS: &[&str] = &[
     "jpg", "jpeg", "png", "gif", "bmp", "tif", "tiff", "ico", "avif", "svg",
     // RAW (SPEC-061): Nikon, Canon, Sony, Adobe, Fuji, Panasonic, Olympus, Pentax, Samsung, Leica, generic.
     "nef", "nrw", "cr2", "cr3", "arw", "srf", "sr2", "dng", "raf", "rw2", "orf", "pef", "srw", "rwl", "raw",
+    // HEIC/HEIF (SPEC-062): discovered in BOTH builds. Decoding needs `--features heic`
+    // (system libheif, DEC-052); the default build surfaces exit 4 "codec not built"
+    // rather than silently skipping a file the user can see in the directory.
+    "heic", "heif",
 ];
 
 fn has_image_extension(path: &Path) -> bool {

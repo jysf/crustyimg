@@ -37,6 +37,17 @@ pub enum ImageError {
     /// or allocation cap — DEC-034). The input is rejected before decoding.
     #[error("image exceeds decode limits: {0}")]
     LimitsExceeded(String),
+
+    /// The input's format was recognized, but its DECODER is not compiled into
+    /// this build (a feature-gated codec — today only HEIC, behind `--features
+    /// heic`, DEC-052/DEC-056). Maps to exit 4, and names the feature to rebuild
+    /// with rather than reporting a vague "unsupported format". The encode-side
+    /// twin is [`crate::sink::SinkError::CodecNotBuilt`].
+    #[error("{codec} support is not built; rebuild with --features {feature}")]
+    CodecNotBuilt {
+        codec: &'static str,
+        feature: &'static str,
+    },
 }
 
 /// The crate `Result` alias over [`ImageError`].
@@ -72,5 +83,18 @@ mod tests {
     fn limits_exceeded_carries_message() {
         let err = ImageError::LimitsExceeded("too big".to_string());
         assert!(err.to_string().contains("too big"));
+    }
+
+    /// The message must name BOTH the codec and the cargo feature, so a user who
+    /// hits the default build's `.heic` rejection knows exactly how to proceed.
+    #[test]
+    fn codec_not_built_names_codec_and_feature() {
+        let err = ImageError::CodecNotBuilt {
+            codec: "HEIC",
+            feature: "heic",
+        };
+        let msg = err.to_string();
+        assert!(msg.contains("HEIC"), "got {msg}");
+        assert!(msg.contains("--features heic"), "got {msg}");
     }
 }

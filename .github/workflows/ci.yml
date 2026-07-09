@@ -99,6 +99,48 @@ jobs:
       - name: Clippy (--features webp-lossy, warnings as errors)
         run: cargo clippy --all-targets --features webp-lossy -- -D warnings
 
+  heic:
+    name: heic feature (build / test / clippy, system libheif)
+    # HEIC decode is the off-by-default `heic` feature (SPEC-062, DEC-052/DEC-056)
+    # and is NEVER in a distributed artifact — this job is the only place it is
+    # built. It is also the project's first feature needing a real SYSTEM library
+    # (`avif` is pure-Rust; `webp-lossy` vendors libwebp via `cc`), so each runner
+    # installs libheif first. libheif-sys ships PRE-GENERATED bindings, so no
+    # bindgen/libclang is needed. We pin the `v1_17` API floor precisely so the
+    # apt package on ubuntu-latest (libheif 1.17.x) satisfies it alongside
+    # Homebrew's 1.23. Windows (libheif via vcpkg) is not supported for `heic`;
+    # the default Windows binary is unaffected — a `.heic` there exits 4.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install stable toolchain (clippy)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Install system libheif (linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libheif-dev
+
+      - name: Install system libheif (macos)
+        if: runner.os == 'macOS'
+        run: brew install libheif
+
+      - name: Build (--features heic)
+        run: cargo build --features heic --verbose
+
+      - name: Test (--features heic)
+        run: cargo test --features heic --verbose
+
+      - name: Clippy (--features heic, warnings as errors)
+        run: cargo clippy --all-targets --features heic -- -D warnings
+
   lean:
     name: lean build (--no-default-features)
     runs-on: ubuntu-latest
