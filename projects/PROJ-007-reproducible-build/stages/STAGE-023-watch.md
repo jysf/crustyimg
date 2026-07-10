@@ -132,20 +132,24 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 - **Do not self-trigger (correctness-critical).** A build writes into each target's `out` dir,
   the `.crustyimg/` cache, and (a plain build) the lockfile. If the watcher sees those writes it
   rebuilds forever. The watch set must **exclude** every target's `out` dir, `.crustyimg/`, and
-  `crustyimg.build.lock` — either by not watching them, or by filtering events whose path is
-  under an output/cache/lock location. Test this explicitly (a build must not wake itself).
-- **Lockfile in watch mode (a deliberate call).** A watch cycle is **pre-commit iteration**, not
-  a commit action, so `--watch` should **not** rewrite the committed `crustyimg.build.lock` on
-  every save (that is constant git churn and, combined with the self-trigger rule, avoids the
-  loop entirely). Watch builds outputs + uses the cache; the lock is refreshed by a normal
-  `crustyimg build`. Note `--watch --check` as a plausible "verify against the committed lock on
-  each change, report drift, keep watching" companion — record the decision in DEC-060; a hard
-  `--frozen`+`--watch` gate is out of scope.
-- **Loop resilience + exit.** The initial build's errors surface as normal (a missing manifest
-  at start is a hard exit). Once watching, a failing cycle (bad recipe, partial-batch decode
-  failure) is printed and the loop continues — a dev loop must survive a broken intermediate
-  save. `Ctrl-C`/SIGINT ends the loop with a clean exit. Honor `--quiet` (suppress per-cycle
-  summaries) and `--jobs` (the per-build fan-out) as `run_build` already does.
+  `crustyimg.build.lock`, filtering events whose path is under one of those. **The exclusion must
+  compare *normalized* paths** — `notify` reports absolute/canonical paths while the excluded set is
+  manifest-relative, so a raw string prefix check silently misses and the build self-triggers (the
+  SPEC-066 canonicalization lesson, again). Test this explicitly, including an absolute-vs-relative case.
+- **Lockfile in watch mode (a deliberate call).** A watch cycle is **pre-commit iteration**, not a
+  commit action, so a watch build should **not** rewrite the committed `crustyimg.build.lock` (a user
+  iterating doesn't want it modified in their working tree mid-edit). Implement this as a **one-line
+  suppression inside `run_build` when `global.watch`** — reusing the existing global-flag branching —
+  so the loop still calls `run_build`, and the lock stays a commit-time artifact. `--watch` combined
+  with a **verify mode** (`--check`/`--frozen`/`--locked`) is a **usage error (exit 2)**: a write-mode
+  dev loop and a one-shot assert don't compose. A `--watch --check` "verify-on-change" mode is possible
+  *future* scope, recorded in DEC-060, not built here.
+- **Loop resilience + exit.** The **manifest** must be parseable to start (there is no watch set
+  without it → a missing/malformed manifest is a hard exit). But a **build failure** with a valid
+  manifest (bad recipe, partial-batch decode) is **not** special: it prints the error and enters the
+  loop anyway, so the user can fix a broken intermediate save and see it recover. Subsequent failing
+  cycles likewise print and continue. `Ctrl-C`/SIGINT ends the loop (default signal, exit 130 — no
+  `ctrlc` dep). Honor `--quiet` (suppress per-cycle summaries) and `--jobs` as `run_build` already does.
 
 ## Dependencies
 

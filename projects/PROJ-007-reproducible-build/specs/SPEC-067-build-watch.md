@@ -133,12 +133,24 @@ self-triggers — re-run `run_build`. A failing cycle is reported and the loop c
 - [ ] A single save that fires a **burst** of filesystem events (incl. an editor's atomic
   temp-write + rename) produces exactly **one** rebuild (debounced).
 - [ ] The loop **does not self-trigger**: after the initial build settles, the build's own writes
-  to `out` / `.crustyimg/` / the lockfile do NOT cause another rebuild (no infinite loop).
+  to `out` / `.crustyimg/` / the lockfile do NOT cause another rebuild (no infinite loop). `is_excluded`
+  compares **normalized** paths so an absolute/canonical event path from the watcher still matches a
+  manifest-relative excluded entry (see Implementation Context — this is the load-bearing correctness detail).
+- [ ] In watch mode, a build cycle **does not rewrite the committed lockfile** (a dev loop is pre-commit
+  iteration; `run_build` suppresses the lock write under `--watch`). `--watch` combined with a verify mode
+  (`--check`/`--frozen`/`--locked`) is a **usage error** (exit 2) with a clear message — the two are
+  incompatible (write-mode loop vs one-shot assert); do not leak check-mode exit codes into the loop.
+- [ ] **Startup vs cycle failure:** an unparseable/missing manifest at start is a hard exit (there is
+  nothing to derive a watch set from), but a *build* failure (bad recipe, undecodable input) with a valid
+  manifest **still enters the watch loop** — it prints the error and waits, so the user can fix it and see
+  it recover. (Consistent with the failing-cycle rule below; the first cycle is not special.)
 - [ ] A **failing cycle** (a mid-watch broken recipe or undecodable input) is printed to stderr
   and the loop keeps watching; a subsequent good change still rebuilds. `Ctrl-C` exits.
 - [ ] **No async runtime** (DEC-006 holds); **one** new dependency, recorded in **DEC-060**,
-  permissive with `just deny` green and **no new exception**; if `--watch` is feature-gated, the
-  default binary includes it and `--no-default-features` drops it (mirroring `display`, DEC-027).
+  permissive with `just deny` green and **no new exception** — if the watcher's license (or a transitive
+  dep's, e.g. Artistic-2.0) is not on the deny allowlist, that is a real decision point in DEC-060 (justify
+  an exception, or pick another watcher), not a silent addition; if `--watch` is feature-gated, the default
+  binary includes it and `--no-default-features` drops it (mirroring `display`, DEC-027).
 - [ ] `watch_roots` / `is_excluded` / `debounce` are pure, unit-tested; `cargo clippy --all-targets
   -- -D warnings` + `cargo fmt --check` clean; no `unwrap` on recoverable paths.
 
@@ -153,6 +165,10 @@ Written during **design**, BEFORE build. Build makes these pass.
     `.crustyimg/`, and `crustyimg.build.lock` (the anti-self-trigger set).
   - `"is_excluded_drops_output_and_cache_events_keeps_source"` — a path under an `out` dir /
     `.crustyimg/` / the lockfile → excluded; a path under a source root → not excluded.
+  - `"is_excluded_matches_across_absolute_and_relative_paths"` — the excluded set holds a
+    manifest-relative `dist/` while the event arrives as an **absolute** `.../dist/a.png` (as `notify`
+    reports): still excluded. The normalization is the whole point — a prefix check on raw strings
+    would miss it and the build would self-trigger.
   - `"debounce_coalesces_a_burst_into_one_signal"` — feed a synthetic burst of N events within the
     window into `debounce` (with an injected short timeout) → exactly one rebuild signal; a later
     event after the quiet window → a second signal.
@@ -165,6 +181,14 @@ Written during **design**, BEFORE build. Build makes these pass.
     quiet period: the outputs are NOT rebuilt again on their own (the build's writes didn't wake it).
   - `"watch_survives_a_failing_cycle"` — mid-watch, write a broken recipe → the loop reports an
     error and stays alive; then a valid edit → a normal rebuild.
+  - `"watch_does_not_write_the_lockfile"` — after a watch cycle rebuilds an output, the committed
+    `crustyimg.build.lock` is unchanged (absent if none was committed; byte-identical if one was) —
+    a watch cycle suppresses the lock write.
+  - `"watch_rejects_verify_modes"` — `build --watch --check` (and `--frozen`) exit **2** immediately
+    with a usage error, before watching begins. (Non-blocking to test; no child to kill.)
+  - `"watch_starts_despite_a_broken_initial_build"` — a project whose recipe is broken at start:
+    `build --watch` does **not** hard-exit; it prints the error and enters the loop (then a fixed recipe
+    rebuilds). A *missing manifest*, by contrast, is a hard exit (nothing to watch).
 
 ## Implementation Context
 
@@ -174,8 +198,13 @@ firsthand during design against the current post-lockfile tree — re-confirm si
 ### Decisions that apply
 - `DEC-058` — the cache is why `--watch` needs no affected-target analysis: re-run `run_build`
   and the cache skips unchanged inputs. Do NOT reimplement invalidation.
-- `DEC-057` — `run_build(file, &GlobalArgs)` is the "build once" op; call it verbatim per cycle.
-  Manifest/source/recipe paths are cwd-relative; the watch set derives from the same `Target`s.
+- `DEC-057` — `run_build(file, &GlobalArgs)` is the "build once" op; call it (almost) verbatim per
+  cycle. Manifest/source/recipe paths are cwd-relative; the watch set derives from the same `Target`s.
+  **One deliberate change:** `run_build` must **suppress the lockfile write when `global.watch`** — a
+  dev-loop cycle is not a commit, and a user iterating doesn't want `crustyimg.build.lock` silently
+  modified in their working tree mid-edit. This is a one-line branch in `run_build`'s existing
+  global-flag plumbing (the same place `--check`/`--no-cache` already branch), so "call `run_build`"
+  stays true and "don't rewrite the lock" is enforced inside it.
 - `DEC-006` — **no async runtime.** `notify` runs on its own thread and delivers events over an
   `std::sync::mpsc` channel; the main thread runs the debounce/rebuild loop. Confirm the chosen
   crate needs no tokio.
@@ -184,24 +213,36 @@ firsthand during design against the current post-lockfile tree — re-confirm si
 - **`DEC-060` (NEW — emit at build)** — the file-watch dep (`notify` recommended; permissive,
   `just deny` green with no new exception — run deny right after `cargo add`, the transitive tail
   is the real check), the debounce (hand-rolled `recv_timeout` window, ~150–250 ms; fallback
-  `notify-debouncer-mini`), the watch-loop semantics (initial build → watch roots recursively →
-  filter excluded → rebuild → loop-resilient → Ctrl-C exit), the self-trigger exclusion, whether
-  `--watch` rewrites the lockfile (**no** — a watch cycle is pre-commit iteration; note
-  `--watch --check` as a verify-on-change companion), and the feature-gate.
+  `notify-debouncer-mini`), the watch-loop semantics (below), the self-trigger exclusion **and its
+  path normalization**, the lockfile suppression under `--watch`, the rejection of `--watch` + verify
+  modes (a `--watch --check` verify-on-change mode is possible *future* scope, explicitly not built
+  here), and the feature-gate.
 
 ### The watch loop (thin, over the shipped executor)
 ```
 if global.watch {
-    run_build(file, global)?;                 // initial build (errors surface as normal)
+    if global.check || global.frozen || global.locked {      // write-loop vs one-shot assert
+        return Err(CliError::Usage("--watch cannot be combined with --check/--frozen".into())); // exit 2
+    }
+    let manifest = load_manifest(file)?;      // HARD exit if unparseable/missing — no watch set without it
     let set = watch::watch_roots(&manifest, manifest_path);
     // notify::RecommendedWatcher over set.roots (recursive); events → mpsc channel
+    // Initial build: run it, but a build FAILURE enters the loop anyway (print, don't exit) —
+    // the first cycle is not special. run_build suppresses the lock write because global.watch.
+    if let Err(e) = run_build(file, global) { eprintln!("build error: {e}"); }
     loop {
         let batch = watch::debounce(&rx, DEBOUNCE);           // block until a quiet burst
+        // is_excluded NORMALIZES both sides: notify reports absolute/canonical paths, the excluded
+        // set is manifest-relative — a raw string prefix check would miss them and self-trigger.
         if batch.iter().all(|p| watch::is_excluded(p, &set.excluded)) { continue; } // own writes
         if let Err(e) = run_build(file, global) { eprintln!("build error: {e}"); }  // stay alive
     }
 }
 ```
+**`is_excluded` is the correctness crux and the SPEC-066 lesson repeated:** the watcher's event paths
+and the manifest-derived excluded set come from different sources and won't string-match. Normalize
+both (make absolute against cwd + lexically clean, or canonicalize the existing roots once and compare
+against the event's canonical form) so the exclusion actually fires. Write this + its test first.
 Rely on default SIGINT for `Ctrl-C` (exit 130) — do NOT add a `ctrlc` dependency (that would be a
 second new dep for a graceful message the OS already delivers). Re-read the manifest each cycle so
 a manifest edit is honored (and re-derive `watch_roots`; re-registering the watcher on a manifest
