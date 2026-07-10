@@ -49,6 +49,10 @@
 
 pub mod cache;
 pub mod lock;
+// The pure `--watch` logic (SPEC-067, DEC-060). Compiled unconditionally — it
+// pulls in no `notify` type — so its unit tests run even in the lean build; the
+// blocking watcher + rebuild loop lives in `crate::cli`, behind the `watch` feature.
+pub mod watch;
 
 use serde::Deserialize;
 use thiserror::Error;

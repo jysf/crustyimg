@@ -142,12 +142,24 @@ libheif-rs = { version = "=2.7.0", optional = true, default-features = false, fe
 # and the lean `--no-default-features` build is unaffected. Hash throughput is
 # immaterial here: the cache's win is skipping a decode+encode, not hashing faster.
 sha2 = "=0.11.0"
+# Filesystem watcher for `build --watch` behind the default-on `watch` feature
+# (SPEC-067, DEC-060). `notify` runs a background OS-watcher thread and delivers
+# events over an `std::sync::mpsc` channel — threads + a channel, NOT an async
+# runtime, so DEC-006 (`no-async-runtime`) holds (its `mio` dep is a synchronous
+# epoll/kqueue wrapper used by notify's own thread, not tokio/async-std). The
+# whole transitive tail (inotify / fsevent-sys / kqueue / mio / windows-sys) is
+# permissive (MIT / Apache-2.0 / BSD), so `just deny` stays green with NO new
+# license exception. Default-features on = the per-OS backend (inotify on Linux,
+# FSEvents on macOS, ReadDirectoryChangesW on Windows); the `serde`/`crossbeam`
+# extras stay off. Optional + gated so the lean `--no-default-features` build
+# drops it entirely (mirrors `display`, DEC-027).
+notify = { version = "=8.2.0", optional = true }
 
 [features]
 # `display` (terminal preview via viuer) is ON BY DEFAULT so `view` works out of the
 # box in the released binary — it is a headline command (DEC-027, supersedes DEC-011).
 # Headless/server/CI builds that don't want viuer's tree use `--no-default-features`.
-default = ["display"]
+default = ["display", "watch"]
 display = ["dep:viuer"]
 webp-lossy = ["dep:webp"]
 # AVIF output behind an off-by-default feature (SPEC-018, DEC-020). The codec
@@ -163,6 +175,13 @@ avif = ["image/avif"]
 # bottle, or `cargo install` default enables it. Without it, a `.heic` input is
 # DETECTED and rejected with `ImageError::CodecNotBuilt` → exit 4.
 heic = ["dep:libheif-rs"]
+# `build --watch`: the debounced filesystem-watch rebuild loop (SPEC-067, DEC-060).
+# ON BY DEFAULT (like `display`, DEC-027) so the released binary ships `--watch`;
+# `--no-default-features` drops `notify` and its per-OS backend, and `--watch`
+# then returns a clear "built without watch support" usage error (exit 2), not a
+# panic or a parse failure. The pure watch logic (`src/build/watch.rs`) compiles
+# unconditionally and stays unit-tested even in the lean build.
+watch = ["dep:notify"]
 
 [dev-dependencies]
 tempfile = "=3.27.0"

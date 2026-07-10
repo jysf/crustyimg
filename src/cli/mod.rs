@@ -120,6 +120,14 @@ pub struct GlobalArgs {
     /// byte-identity enforced (DEC-059).
     #[arg(long, global = true)]
     pub strict: bool,
+
+    /// `build` only: re-run the build whenever a source, recipe, or the manifest
+    /// changes (SPEC-067). Debounced (an editor's save burst = one rebuild) and
+    /// self-trigger-proof (the build's own outputs / `.crustyimg` / lockfile are
+    /// ignored). Ctrl-C exits. Incompatible with `--check`/`--frozen`/`--locked`.
+    /// A build cycle under `--watch` does not rewrite the committed lockfile.
+    #[arg(long, global = true)]
+    pub watch: bool,
 }
 
 /// A perceptual auto-quality preset for `shrink --target` (SPEC-016, DEC-019).
@@ -580,6 +588,12 @@ pub enum CliError {
     #[error(transparent)]
     Metadata(#[from] crate::metadata::MetadataError),
 
+    /// A `build --watch` setup failure: the OS filesystem watcher could not be
+    /// created or a root could not be registered (SPEC-067, DEC-060). A generic
+    /// runtime failure of the watch machinery → exit 1.
+    #[error(transparent)]
+    Watch(#[from] crate::build::watch::WatchError),
+
     /// A build's resolved targets would write two inputs to one output path
     /// (SPEC-065, DEC-057). A *config* error found before execution → exit 2,
     /// deliberately not the per-output partial-batch 6 (DEC-015).
@@ -647,6 +661,8 @@ impl CliError {
             // A non-injective source→output mapping is a manifest *config* error
             // caught before execution → 2, like a malformed manifest (SPEC-065).
             CliError::OutputCollision { .. } => 2,
+            // A watcher setup failure is a generic runtime error → 1.
+            CliError::Watch(_) => 1,
             CliError::BuildManifestIo { .. } => 3,
             // A malformed lockfile is a broken committed contract, not a failed
             // check → 2, like a malformed manifest (SPEC-066).
@@ -700,7 +716,13 @@ pub fn run() -> ExitCode {
 fn dispatch(cli: &Cli) -> Result<(), CliError> {
     match &cli.command {
         Commands::Apply { recipe, inputs } => run_apply(recipe, inputs, &cli.global),
-        Commands::Build { file } => run_build(file.as_deref(), &cli.global),
+        Commands::Build { file } => {
+            if cli.global.watch {
+                run_build_watching(file.as_deref(), &cli.global)
+            } else {
+                run_build(file.as_deref(), &cli.global)
+            }
+        }
 
         Commands::View {
             input,
@@ -1748,8 +1770,168 @@ fn run_build(file: Option<&str>, global: &GlobalArgs) -> Result<(), CliError> {
                 eprintln!("lockfile {DEFAULT_LOCK_FILE} is up to date");
             }
         }
-        // The default: refresh the lockfile from what this build produced.
+        // The default: refresh the lockfile from what this build produced —
+        // UNLESS this is a `--watch` cycle. A dev loop is pre-commit iteration, not
+        // a commit; silently rewriting the committed `crustyimg.build.lock` in the
+        // working tree mid-edit is exactly what a watching author does not want
+        // (SPEC-067, DEC-060). `--watch` is incompatible with `--check`, so under
+        // watch `committed` is always `None` and this is the only branch reached.
+        None if global.watch => {}
         None => write_lock(DEFAULT_LOCK_FILE, &current.to_toml()?)?,
+    }
+
+    Ok(())
+}
+
+// ── Build --watch (SPEC-067, DEC-060) ────────────────────────────────────────
+
+/// The debounce quiet-window. An editor's save burst (an atomic temp-write, a
+/// rename, and metadata touches) fires many events within a few milliseconds;
+/// 200 ms coalesces them into one rebuild while staying responsive (DEC-060).
+#[cfg(feature = "watch")]
+const WATCH_DEBOUNCE: std::time::Duration = std::time::Duration::from_millis(200);
+
+/// `crustyimg build --watch`: an initial build, then a debounced rebuild loop over
+/// the shipped [`run_build`] on any change to a source, recipe, or the manifest
+/// (SPEC-067). The STAGE-021 cache makes each full re-run incremental (DEC-058), so
+/// there is no dependency graph — just a resilient loop.
+///
+/// This entry handles the two decisions that must hold in *every* build (including
+/// the lean `--no-default-features` one, where the watcher is not compiled in): the
+/// `--watch` + verify-mode usage error, and the "built without watch support"
+/// message. The real loop is [`watch_impl`], behind the `watch` feature.
+fn run_build_watching(file: Option<&str>, global: &GlobalArgs) -> Result<(), CliError> {
+    // A watch loop *refreshes* outputs; `--check`/`--frozen`/`--locked` is a
+    // one-shot lockfile assertion. The two are incompatible — reject before any
+    // watching begins, and before the lean-build check, so the message is the same
+    // on every build (`--frozen`/`--locked` are clap aliases of `--check`, so this
+    // one field covers all three). Exit 2 (usage), never a leaked check-mode code.
+    if global.check {
+        return Err(CliError::Usage(
+            "--watch cannot be combined with --check/--frozen/--locked: a watch loop \
+             refreshes outputs, while --check is a one-shot lockfile assertion"
+                .to_owned(),
+        ));
+    }
+
+    #[cfg(not(feature = "watch"))]
+    {
+        let _ = file;
+        Err(CliError::Usage(
+            "this binary was built --no-default-features, so `--watch` is not compiled \
+             in; rebuild with the `watch` feature (e.g. `cargo build --features watch`)"
+                .to_owned(),
+        ))
+    }
+
+    #[cfg(feature = "watch")]
+    {
+        watch_impl(file, global)
+    }
+}
+
+/// Create a fresh OS watcher whose events are forwarded (path by path) over `tx`.
+///
+/// The `tx` is cloned so the caller can re-create the watcher on a manifest change
+/// without losing the receiver. A watcher-init failure is a typed [`WatchError`].
+#[cfg(feature = "watch")]
+fn make_watcher(
+    tx: &std::sync::mpsc::Sender<PathBuf>,
+) -> Result<notify::RecommendedWatcher, CliError> {
+    use crate::build::watch::WatchError;
+
+    let tx = tx.clone();
+    let watcher = notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
+        // A watch error mid-run (e.g. a transient backend hiccup) is dropped rather
+        // than crashing the loop; a real edit fires another event. Each event's
+        // paths are forwarded for the debounce + exclusion filter to judge.
+        if let Ok(event) = res {
+            for p in event.paths {
+                let _ = tx.send(p);
+            }
+        }
+    })
+    .map_err(|e| CliError::from(WatchError::Watcher(e.to_string())))?;
+    Ok(watcher)
+}
+
+/// Register every root in `set` with `watcher` (recursively). A root that cannot be
+/// watched (e.g. it does not exist yet) is a warning, not a failure — the others
+/// still watch, and a later manifest edit can bring it into range.
+#[cfg(feature = "watch")]
+fn register_roots(watcher: &mut notify::RecommendedWatcher, set: &crate::build::watch::WatchSet) {
+    use notify::{RecursiveMode, Watcher};
+    for root in &set.roots {
+        if let Err(e) = watcher.watch(root, RecursiveMode::Recursive) {
+            eprintln!("warning: cannot watch {}: {e}", root.display());
+        }
+    }
+}
+
+/// The real `--watch` loop (behind the `watch` feature): set up the watcher, run an
+/// initial build, then rebuild on each debounced, non-self-triggered change.
+#[cfg(feature = "watch")]
+fn watch_impl(file: Option<&str>, global: &GlobalArgs) -> Result<(), CliError> {
+    use crate::build::watch;
+
+    let path = file.unwrap_or(crate::build::DEFAULT_MANIFEST_FILE);
+
+    // A missing/unparseable manifest at start is a HARD exit — there is nothing to
+    // derive a watch set from. (A *build* failure with a valid manifest is NOT a
+    // hard exit; see the initial build below.)
+    let manifest = load_manifest(path)?;
+    let mut set = watch::watch_roots(&manifest, Path::new(path));
+
+    let (tx, rx) = std::sync::mpsc::channel::<PathBuf>();
+    let mut watcher = make_watcher(&tx)?;
+    register_roots(&mut watcher, &set);
+
+    // Initial build. A build FAILURE (bad recipe, undecodable input) with a valid
+    // manifest still enters the loop — print and wait so the user can fix it and
+    // watch it recover (the first cycle is not special). `run_build` suppresses the
+    // lockfile write because `global.watch` is set.
+    if let Err(e) = run_build(file, global) {
+        eprintln!("error: {e}");
+    }
+    if !global.quiet {
+        eprintln!("watching for changes (Ctrl-C to stop)…");
+    }
+
+    // The debounced rebuild loop. Ctrl-C exits via the default SIGINT (exit 130) —
+    // no `ctrlc` dependency (DEC-060).
+    let manifest_prefix = [PathBuf::from(path)];
+    loop {
+        let Some(batch) = watch::debounce(&rx, WATCH_DEBOUNCE) else {
+            // The watcher hung up (its thread died); nothing left to watch.
+            break;
+        };
+
+        // Drop a batch that is entirely the build's OWN writes, so a build never
+        // wakes itself (the correctness crux; see `watch::is_excluded`).
+        if batch.iter().all(|p| watch::is_excluded(p, &set.excluded)) {
+            continue;
+        }
+
+        if let Err(e) = run_build(file, global) {
+            eprintln!("error: {e}");
+        }
+
+        // A manifest edit can change the target set → re-derive the watch set and
+        // re-register the watcher (acceptable per DEC-060). `run_build` already
+        // re-reads the manifest each cycle, so the BUILD is always current; this
+        // only refreshes WHICH directories are watched. Reusing `is_excluded` with
+        // the manifest as the sole prefix answers "did this batch touch the
+        // manifest?" with the same path-normalization the exclusion uses.
+        let manifest_changed = batch
+            .iter()
+            .any(|p| watch::is_excluded(p, &manifest_prefix));
+        if manifest_changed {
+            if let Ok(m) = load_manifest(path) {
+                set = watch::watch_roots(&m, Path::new(path));
+                watcher = make_watcher(&tx)?;
+                register_roots(&mut watcher, &set);
+            }
+        }
     }
 
     Ok(())
@@ -4667,6 +4849,15 @@ mod tests {
             3
         );
 
+        // A `build --watch` watcher setup failure → 1 (generic runtime, SPEC-067).
+        assert_eq!(
+            CliError::Watch(crate::build::watch::WatchError::Watcher(
+                "no backend".into()
+            ))
+            .code(),
+            1
+        );
+
         // The build cache: only `Cache::open` reaches the boundary → 5, the code
         // the sink's write failures use (SPEC-064; this assertion is SPEC-066's,
         // closing a gap the SPEC-064 build note wrongly believed closed).
@@ -5170,6 +5361,7 @@ mod tests {
             no_cache: false,
             check: false,
             strict: false,
+            watch: false,
         }
     }
 
@@ -5520,6 +5712,7 @@ mod tests {
             no_cache: false,
             check: false,
             strict: false,
+            watch: false,
         }
     }
 
