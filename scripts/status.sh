@@ -28,127 +28,122 @@ VARIANT=$(get_variant)
 ACTIVE_PROJECT=$(get_active_project)
 ACTIVE_PROJECT_DIR="${REPO_ROOT}/projects/${ACTIVE_PROJECT}"
 
-# --- JSON mode: emit the same declared state as a single JSON object ---------
-# All gathering reuses the same helpers as the human report below (project_status,
-# get_spec_cycle, find_all_specs, is_grandfathered_cost, spec_missing_cost_cycles),
-# so the two can't drift. Ruby is used ONLY as a safe JSON encoder, fed a simple
-# tab-delimited stream — no logic lives in it.
+# --- JSON mode: emit repo state as one JSON object (spec-driven-template shape)
+# Envelope: { schema_version, command, generated_at, data:{ variant,
+# active_project, specs[], missing_cost_specs[], summary } }. Each spec carries
+# the ContextCore-dotted keys task.id / task.cycle / cost.tokens_total /
+# cost.estimated_usd plus `shipped` and its `missing_cost` cycles.
+#
+# All gathering reuses the same helpers as the human report and `just cost-audit`
+# (get_spec_cycle, find_all_specs, is_grandfathered_cost, spec_missing_cost_cycles),
+# so they can't drift. Ruby is used ONLY as a safe JSON encoder over a
+# tab-delimited stream — no logic lives in it. Output is compact (one line), and
+# cost.estimated_usd keeps 2 decimals as a raw number via a sentinel.
 emit_json() {
     command -v ruby >/dev/null 2>&1 \
         || die "status --json needs \`ruby\` (stdlib json). Use \`just status\` for the human report, or install ruby."
+
     {
         printf 'meta\tvariant\t%s\n' "$VARIANT"
         printf 'meta\tactive_project\t%s\n' "$ACTIVE_PROJECT"
+        printf 'meta\tgenerated_at\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
-        # All projects: id + declared status.
-        for p in "${REPO_ROOT}"/projects/PROJ-*; do
-            [ -d "$p" ] || continue
-            pstatus="unknown"
-            [ -f "$p/brief.md" ] && pstatus=$(project_status "$p/brief.md")
-            printf 'project\t%s\t%s\n' "$(basename "$p")" "${pstatus:-unknown}"
-        done
-
-        # Active project: stages (id + status).
-        if [ -d "${ACTIVE_PROJECT_DIR}/stages" ]; then
-            for s in "${ACTIVE_PROJECT_DIR}/stages"/STAGE-*.md; do
-                [ -f "$s" ] || continue
-                sstatus=$(awk '/^---$/{f=!f; next} f && /^[[:space:]]+status:/{print $2; exit}' "$s" 2>/dev/null || echo "unknown")
-                printf 'stage\t%s\t%s\n' "$(basename "$s" .md)" "${sstatus:-unknown}"
-            done
-        fi
-
-        # Active project: specs by cycle (id + archived flag); done/ counts as ship.
-        if [ -d "${ACTIVE_PROJECT_DIR}/specs" ]; then
-            for cycle in frame design build verify ship; do
-                for f in "${ACTIVE_PROJECT_DIR}/specs"/SPEC-*.md; do
-                    [ -f "$f" ] || continue
-                    sc=$(get_spec_cycle "$f" 2>/dev/null || echo "")
-                    [ "$sc" = "$cycle" ] && printf 'spec\t%s\t%s\t0\n' "$cycle" "$(basename "$f" .md)"
-                done
-            done
-            if [ -d "${ACTIVE_PROJECT_DIR}/specs/done" ]; then
-                for f in "${ACTIVE_PROJECT_DIR}/specs/done"/SPEC-*.md; do
-                    [ -f "$f" ] || continue
-                    printf 'spec\tship\t%s\t1\n' "$(basename "$f" .md)"
-                done
-            fi
-        fi
-
-        # Low-confidence decisions (< 0.7): id + confidence.
-        if [ -d "${REPO_ROOT}/decisions" ]; then
-            for d in "${REPO_ROOT}/decisions"/DEC-*.md; do
-                [ -f "$d" ] || continue
-                conf=$(awk '/^---$/{f=!f; next} f && /^[[:space:]]+confidence:/{print $2; exit}' "$d" 2>/dev/null || echo "")
-                [ -n "$conf" ] || continue
-                low=$(awk -v c="$conf" 'BEGIN { print (c + 0 < 0.7) ? "1" : "0" }')
-                [ "$low" = "1" ] && printf 'lowconf\t%s\t%s\n' "$(basename "$d" .md)" "$conf"
-            done
-        fi
-
-        # Possibly-stale specs (build/verify, file mtime > 7 days): id + cycle + age.
-        if [ -d "${ACTIVE_PROJECT_DIR}/specs" ]; then
-            for f in "${ACTIVE_PROJECT_DIR}/specs"/SPEC-*.md; do
-                [ -f "$f" ] || continue
-                cyc=$(get_spec_cycle "$f" 2>/dev/null || echo "")
-                if [ "$cyc" = "build" ] || [ "$cyc" = "verify" ]; then
-                    if [ "$(uname)" = "Darwin" ]; then
-                        age=$(( ( $(date +%s) - $(stat -f %m "$f") ) / 86400 ))
-                    else
-                        age=$(( ( $(date +%s) - $(stat -c %Y "$f") ) / 86400 ))
-                    fi
-                    [ "$age" -gt 7 ] && printf 'stale\t%s\t%s\t%s\n' "$(basename "$f" .md)" "$cyc" "$age"
-                fi
-            done
-        fi
-
-        # Shipped specs missing build/verify cost (same rule as `just cost-audit`).
-        for f in $(find_all_specs "$ACTIVE_PROJECT_DIR"); do
+        # One record per spec (timelines excluded). task.id / task.cycle /
+        # cost.totals are read in a single awk pass; `shipped` and `missing_cost`
+        # reuse the cost-audit rule (shipped == archived or cycle==ship; missing
+        # only counts for shipped, non-grandfathered specs).
+        total=0
+        shipped_count=0
+        while IFS= read -r f; do
+            [ -n "$f" ] || continue
             case "$f" in *-timeline.md) continue ;; esac
+            total=$((total + 1))
             name=$(basename "$f" .md)
+
+            # id \t cycle \t totals.tokens_total \t totals.estimated_usd
+            fields=$(awk '
+                /^---$/ { fm = !fm; next }
+                !fm { next }
+                /^task:/ { in_task = 1; next }
+                in_task && /^[a-zA-Z_]/ { in_task = 0 }
+                in_task && /^  id:/    { id = $2 }
+                in_task && /^  cycle:/ { cyc = $2 }
+                /^cost:/ { in_cost = 1; next }
+                in_cost && /^[a-zA-Z_]/ { in_cost = 0 }
+                in_cost && /^  totals:/ { in_tot = 1; next }
+                in_cost && in_tot && /^  [a-zA-Z_]/ { in_tot = 0 }
+                in_tot && /^    tokens_total:/  { tok = $2 }
+                in_tot && /^    estimated_usd:/ { usd = $2 }
+                END {
+                    if (tok !~ /^[0-9]+$/) tok = 0
+                    if (usd !~ /^[0-9]+(\.[0-9]+)?$/) usd = 0
+                    printf "%s\t%s\t%s\t%.2f", id, cyc, tok, usd + 0
+                }
+            ' "$f")
+            IFS=$'\t' read -r id cyc tok usd <<EOF
+$fields
+EOF
+            [ -n "$id" ] || id=$(printf '%s' "$name" | sed -E 's/^(SPEC-[0-9]+).*/\1/')
+
             shipped=0
             case "$f" in
                 */specs/done/*) shipped=1 ;;
-                *) [ "$(get_spec_cycle "$f")" = "ship" ] && shipped=1 ;;
+                *) [ "$cyc" = "ship" ] && shipped=1 ;;
             esac
-            [ "$shipped" = "1" ] || continue
-            is_grandfathered_cost "$name" && continue
-            missing=$(spec_missing_cost_cycles "$f")
-            [ -n "$missing" ] && printf 'missingcost\t%s\t%s\n' "$name" "$missing"
-        done
+            [ "$shipped" = "1" ] && shipped_count=$((shipped_count + 1))
 
-        # Summary counts.
-        printf 'summary\ttotal_specs\t%s\n' "$(find "${ACTIVE_PROJECT_DIR}/specs" -name "SPEC-*.md" 2>/dev/null | wc -l | tr -d ' ')"
-        printf 'summary\tshipped_specs\t%s\n' "$(find "${ACTIVE_PROJECT_DIR}/specs/done" -name "SPEC-*.md" 2>/dev/null | wc -l | tr -d ' ')"
-        printf 'summary\ttotal_decisions\t%s\n' "$(find "${REPO_ROOT}/decisions" -name "DEC-*.md" 2>/dev/null | wc -l | tr -d ' ')"
+            missing=""
+            if [ "$shipped" = "1" ] && ! is_grandfathered_cost "$name"; then
+                missing=$(spec_missing_cost_cycles "$f")
+            fi
+
+            printf 'spec\t%s\t%s\t%s\t%s\t%s\t%s\n' "$id" "$cyc" "$shipped" "$tok" "$usd" "$missing"
+        done < <(find_all_specs "$ACTIVE_PROJECT_DIR")
+
+        printf 'summary\ttotal_specs\t%s\n' "$total"
+        printf 'summary\tshipped\t%s\n' "$shipped_count"
+        printf 'summary\tdecisions\t%s\n' "$(find "${REPO_ROOT}/decisions" -name "DEC-*.md" 2>/dev/null | wc -l | tr -d ' ')"
     } | ruby -rjson -e '
-        data = {
-          "schema" => 1,
-          "variant" => nil,
-          "active_project" => nil,
-          "projects" => [],
-          "active" => {
-            "stages" => [],
-            "specs_by_cycle" => {"frame"=>[], "design"=>[], "build"=>[], "verify"=>[], "ship"=>[]},
-            "low_confidence_decisions" => [],
-            "stale_specs" => [],
-            "specs_missing_cost" => [],
+        env = {
+          "schema_version" => 1,
+          "command"        => "status",
+          "generated_at"   => nil,
+          "data" => {
+            "variant"            => nil,
+            "active_project"     => nil,
+            "specs"              => [],
+            "missing_cost_specs" => [],
+            "summary"            => {},
           },
-          "summary" => {},
         }
+        d = env["data"]
         STDIN.each_line do |line|
-          p = line.chomp.split("\t")
+          p = line.chomp("\n").split("\t", -1)
           case p[0]
-          when "meta"        then data[p[1]] = p[2]
-          when "project"     then data["projects"] << {"id"=>p[1], "status"=>p[2]}
-          when "stage"       then data["active"]["stages"] << {"id"=>p[1], "status"=>p[2]}
-          when "spec"        then (data["active"]["specs_by_cycle"][p[1]] ||= []) << {"id"=>p[2], "archived"=>(p[3]=="1")}
-          when "lowconf"     then data["active"]["low_confidence_decisions"] << {"id"=>p[1], "confidence"=>p[2].to_f}
-          when "stale"       then data["active"]["stale_specs"] << {"id"=>p[1], "cycle"=>p[2], "age_days"=>p[3].to_i}
-          when "missingcost" then data["active"]["specs_missing_cost"] << {"id"=>p[1], "missing"=>p[2].split(/\s+/)}
-          when "summary"     then data["summary"][p[1]] = p[2].to_i
+          when "meta"
+            case p[1]
+            when "variant"        then d["variant"] = p[2]
+            when "active_project" then d["active_project"] = p[2]
+            when "generated_at"   then env["generated_at"] = p[2]
+            end
+          when "spec"
+            id, cyc, shipped, tok, usd, missing = p[1], p[2], p[3], p[4], p[5], p[6]
+            d["specs"] << {
+              "task.id"            => id,
+              "task.cycle"         => cyc,
+              "shipped"            => (shipped == "1"),
+              "cost.tokens_total"  => tok.to_i,
+              # Keep 2 decimals as a raw JSON number (unquoted below).
+              "cost.estimated_usd" => "@@USD:#{usd}@@",
+              "missing_cost"       => (missing.nil? || missing.strip.empty? ? [] : missing.split(/\s+/)),
+            }
+          when "summary"
+            d["summary"][p[1]] = p[2].to_i
           end
         end
-        puts JSON.pretty_generate(data)
+        d["missing_cost_specs"] = d["specs"].reject { |s| s["missing_cost"].empty? }.map { |s| s["task.id"] }
+        json = JSON.generate(env).gsub(/"@@USD:([0-9]+(?:\.[0-9]+)?)@@"/, "\\1")
+        puts json
     '
 }
 
