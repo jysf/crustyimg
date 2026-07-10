@@ -2,7 +2,7 @@
 # Maps to ContextCore epic-level conventions.
 stage:
   id: STAGE-022
-  status: active                    # proposed | active | shipped | cancelled | on_hold
+  status: shipped                   # proposed | active | shipped | cancelled | on_hold
   priority: high
   target_complete: null
 
@@ -12,7 +12,7 @@ repo:
   id: crustyimg
 
 created_at: 2026-07-09
-shipped_at: null
+shipped_at: 2026-07-09
 
 value_contribution:
   advances: >
@@ -120,14 +120,16 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
   `CliError::OutputCollision` → exit 2. Discharges DEC-057's blocker (its Validation now reads RESOLVED);
   no new dep, no new DEC. PR #71 (bc13c4d), 637 tests default + lean. Conservative on `{ext}` (over-detect,
   never under-detect); one disclosed literal-ext residual → DEC-059 threat model (below).
-- [ ] SPEC-066 (design) — the reproducibility lockfile (`crustyimg.build.lock`) + `build --check`
-  (drift gate, exit 7) + `build --frozen`/`--locked` + `--strict`; `src/build/lock.rs` (versioned TOML,
-  one `[[output]]` per output {path, key=pinned cache key, hash=observed output bytes, bytes} + one
-  `[env]`) + an env-aware `diff`. Pins the robust (DEC-058 key = inputs), records the fragile (output
-  hash + env); cross-env byte variance informational unless `--strict`; perceptual stays the shipped
-  `diff`. **No new dep.** DEC-059 at build. Framed 2026-07-09.
+- [x] SPEC-066 (shipped on 2026-07-09) — the reproducibility lockfile (`crustyimg.build.lock`) +
+  `build --check` (drift gate, exit 7) + `build --frozen`/`--locked` + `--strict`; `src/build/lock.rs`
+  (versioned TOML, one `[[output]]` per output {path, key=pinned cache key, hash=observed output bytes,
+  bytes} + one `[env]`) + an env-aware `diff`. Pins the robust (DEC-058 key = inputs), records the fragile
+  (output hash + env); cross-env byte variance informational unless `--strict`; perceptual stays the shipped
+  `diff`. **No new dep.** PR #73 (ce2fc69), DEC-059. Verify ⚠ PUNCH LIST (a non-hex digest panicked
+  `--check`) → fixed on the branch (validate hex at `from_toml` + panic-proof `short()`, + regression tests),
+  26/26 CI green.
 
-**Count:** 1 shipped / 1 active / 0 pending — SPEC-065 shipped (unblocker); SPEC-066 (lockfile) framed, build-ready.
+**Count:** 2 shipped / 0 active / 0 pending — STAGE-022 complete (SPEC-065 unblocker + SPEC-066 lockfile).
 
 ## Design Notes
 
@@ -211,13 +213,30 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
 ## Stage-Level Reflection
 
-*Filled in when status moves to shipped. Run Prompt 1c (Stage Ship) in
-FIRST_SESSION_PROMPTS.md to draft this.*
-
-- **Did we deliver the outcome in "What This Stage Is"?** <yes/no + notes>
-- **How many specs did it actually take?** <number vs. plan>
-- **What changed between starting and shipping?** <one sentence>
+- **Did we deliver the outcome in "What This Stage Is"?** Yes — `crustyimg build` is now
+  **checkable**. A build writes a committed, deterministic `crustyimg.build.lock`; `build --check`
+  (and `--frozen`/`--locked`) verifies against it and exits 7 on drift without ever writing;
+  `--strict` escalates cross-env byte variance. The honest policy holds end to end: the pinned key
+  is a function of the inputs alone (key drift always fails, cross-machine), while output-byte
+  variance is recorded-under-env, not promised. SPEC-065 first made the source→output mapping
+  injective so an output path is a valid primary key. No new dependency across either spec.
+- **How many specs did it actually take?** 2, as planned — SPEC-065 (the injective unblocker) then
+  SPEC-066 (the lockfile). Splitting the DEC-057 blocker into its own small spec de-risked the stage.
+- **What changed between starting and shipping?** The lockfile can't reuse the sink's `safe_join`
+  (it canonicalizes to absolute host paths — a committed file needs relative `/`-separated paths),
+  and `to_toml` returns `Result` (toml serialization is fallible; `no-unwrap` outranks a tidy
+  signature). Verify caught a ship-blocking panic (a non-hex digest in a hand-edited lockfile
+  byte-sliced mid-char) — fixed on the branch with validation + a panic-proof slice + regression tests.
 - **Lessons that should update AGENTS.md, templates, or constraints?**
-  - <one-line updates>
+  - **Green exit-code tests don't read strings or feed hostile serialized input.** This stage
+    produced three defects invisible to passing tests — a Windows `{output:?}` double-escape
+    (SPEC-065), a stale `--strict` message, and a non-hex-digest **panic** (SPEC-066) — all caught
+    only by *driving the binary*, twice with adversarial input. Specs that emit user-facing strings
+    or parse committed files should carry message-text (grep-stderr) and hostile-input tests by default.
+  - **A path bound for a *committed* file is a different problem than one written to disk once** —
+    it must be relative + `/`-separated + validated, not run through the sink's absolutizing guards.
 - **Should any spec-level reflections be promoted to stage-level lessons?**
-  - <one-line items>
+  - The **pre-decode format sniff** is the one carry worth a home: it closes both SPEC-065's `{ext}`
+    false positives and SPEC-066's literal-`{ext}` residual (the collision the lockfile catches only
+    after the race writes both files) in one move. Recorded in DEC-059's threat model; a natural
+    small follow-up, not blocking.

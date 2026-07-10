@@ -126,16 +126,16 @@ Format: `- [status] STAGE-ID — one-line summary`
   verifiable (cache-correctness, deterministic-within-env), distinct from STAGE-022's *fragile* cross-arch
   byte-reproducibility. One pure-Rust dep (`sha2`). Keys on output-**byte** identity (not path), so the
   injective source→output constraint (DEC-057) is **not** resolved here and stays a STAGE-022 blocker.
-- [~] STAGE-022 (active 2026-07-09) — reproducibility lockfile + `build --check`/`--frozen` (the CI drift
-  gate). The "verifiable." **SPEC-065 SHIPPED** (PR #71, bc13c4d): the injective source→output guarantee —
-  reject same-output collisions at the prepare phase, exit 2, discharging DEC-057's blocker. Next: the
-  lockfile (**SPEC-066, framed + build-ready**, **DEC-059**) — pin each output's cache key (robust inputs, DEC-058) +
-  record the observed output hash + env; `--check` fails on input drift (exit 7), treats cross-env
-  output-byte variance as informational; opt-in strict byte-identity; perceptual/SSIMULACRA2 (shipped) is the
-  review-grade "did the image change" check, not encoder bytes (per the design-feedback review).
+- [x] STAGE-022 (shipped on 2026-07-09) — reproducibility lockfile + `build --check`/`--frozen` (the CI drift
+  gate). **The "verifiable" leg — DONE.** **SPEC-065** (PR #71, bc13c4d): the injective source→output guarantee
+  (reject same-output collisions at prepare, exit 2, discharging DEC-057's blocker). **SPEC-066** (PR #73,
+  ce2fc69, DEC-059): the committed `crustyimg.build.lock` + `--check`/`--frozen`/`--locked`/`--strict` — pins
+  each output's cache key (robust inputs, DEC-058) + records the observed output hash + env; `--check` fails on
+  input drift (exit 7), cross-env byte variance informational unless `--strict`; perceptual/SSIMULACRA2 (shipped
+  `diff`) stays the review-grade check. No new dep across either spec.
 - [ ] (not yet framed) STAGE-023 — `--watch`: debounced file-watching inner loop that rebuilds only affected targets.
 
-**Count:** 2 shipped / 1 active / 1 pending (STAGE-020 build + STAGE-021 cache shipped; STAGE-022 lockfile active — SPEC-065 injective-fix framed, SPEC-066 lockfile next; then STAGE-023 watch)
+**Count:** 3 shipped / 0 active / 1 pending (STAGE-020 build + STAGE-021 cache + STAGE-022 lockfile shipped — the "verifiable" leg done; only STAGE-023 `--watch` remains)
 
 ## Dependencies
 

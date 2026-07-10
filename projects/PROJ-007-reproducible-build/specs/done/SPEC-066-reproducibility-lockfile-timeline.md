@@ -36,10 +36,32 @@ there is no separate prompt file unless a cycle needs one.
   `exit_code_mapping_is_total` now covers `CliError::Cache`, and the literal-`{ext}` residual is closed as
   a *silent* failure (post-encode `find_output_collision` → exit 2, no lock; the race itself still needs a
   pre-decode format sniff — see DEC-059 + follow-ups). Est. ~350k tok / ~$3.15 (main-loop estimate).
-- [ ] **verify** — fresh session. Re-run gates; reproduce on the real binary: a build writes a deterministic
+- [x] **verify** — fresh session. Re-run gates; reproduce on the real binary: a build writes a deterministic
   lock; `--check` passes on a matching tree and exits 7 on an edited source / added-removed output without
   writing; `--frozen` without a lock exits 7; the cross-env hash tolerance (unit) + `--strict` escalation.
   Confirm no new dep, exit-7 mapping, lock never auto-regenerated under `--check`.
-- [ ] **ship** — merge PR; verify + ship cost sessions + totals + reflection; archive to done/. STAGE-022
-  backlog: SPEC-066 shipped → **STAGE-022 SHIPPED** (2-spec stage complete) → PROJ-007 "verifiable" leg done;
-  only STAGE-023 (`--watch`) remains. Update the PROJ-007 brief + stage-ship reflection.
+  → **⚠ PUNCH LIST**, 2026-07-09. All 8 acceptance criteria reproduced on the real binary; all gates green
+  from clean (666 default + 666 lean, 26 suites; 11 integration + 15 unit lock tests present and running;
+  clippy ×2 + fmt clean; `just deny` green; `git diff main -- Cargo.toml Cargo.lock` empty). The load-bearing
+  deviation holds: the generated lock carries only relative, `/`-separated paths (no `/Users/…`, no `\`).
+  Message prose correct — `--check --strict` prints "failing under --strict", never "use --strict to fail on
+  it"; drift lines name the path + what drifted. `--check` never writes/regenerates the lock (mtime+bytes
+  unchanged on match and on all three drift cases); `--frozen`/`--locked` alias correctly. Literal-`{ext}`
+  residual behaves exactly as DEC-059 discloses (exit 2, no lock, output already raced to disk) — accepted as
+  carried, not punch-listed. All six deviations sound and disclosed.
+  **One defect (blocks ship, not the design):** `lock::short()` (`src/build/lock.rs:367-370`) byte-slices a
+  `key`/`hash` read out of the committed lockfile, so a lockfile whose digest contains a multi-byte char
+  panics `--check` at exit 101 instead of returning a typed code — reproduced on both the `key` (KeyChanged)
+  and `hash` (HashChanged*) render paths. Fails closed, but violates `untrusted-input-hardening` and the
+  module's own "compared as opaque strings" contract. Fix: `hex.get(..n).unwrap_or(hex)` (or validate hex at
+  parse), plus a regression test.
+- [x] **ship** — **punch-list resolved on the branch** (`c6dc827`): `from_toml` now rejects a non-hex
+  `key`/`hash` → exit 2 + `short()` uses `get(..n).unwrap_or(hex)`, with unit (`rejects_non_hex_digest`,
+  `short_never_panics_on_multibyte`) + integration (`non_hex_digest_in_lock_is_exit_2_not_a_panic`, drives the
+  binary → exit 2, asserts no panic) regression tests. Re-confirmed 26 default + lean suites, clippy ×2, fmt,
+  `just deny`, no new dep; **3-OS CI 26/26 green** (DCO fixed after a first miss). Squash-merged PR #73 → main
+  (**ce2fc69**); re-applied verify + ship cost sessions + `cost.totals` (470k tok / ~$4.23, 4 sessions —
+  build+verify are labelled main-loop estimates §4) + ship reflection on main (stash-pop, §13); archived
+  spec+timeline to `done/`; `just cost-audit` green. **STAGE-022 SHIPPED** (SPEC-065 + SPEC-066) → PROJ-007's
+  **"verifiable" leg complete**; only STAGE-023 (`--watch`) remains. Brief + stage-ship reflection updated.
+  2026-07-09.

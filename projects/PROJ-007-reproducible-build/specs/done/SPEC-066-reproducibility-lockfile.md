@@ -3,7 +3,7 @@
 task:
   id: SPEC-066
   type: story
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: L                    # lockfile module + executor wiring + check/frozen/strict + env-aware policy + DEC-059; the stage's headline spec
@@ -59,10 +59,43 @@ cost:
         Build ran in the orchestrator main loop (not a metered subagent), so tokens_total is an
         order-of-magnitude ESTIMATE, not a harness-reported figure: ~350k combined, priced at the
         Opus 4.8 list rate ($5/$25 per MTok) at ~80/20 input/output with no cache discount.
+    - cycle: verify
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 120000
+      estimated_usd: 1.08
+      duration_minutes: 25
+      recorded_at: 2026-07-09
+      notes: >
+        Fresh verify session (AGENTS §15), re-derived from the spec + the diff. Ran in the main
+        loop (not a metered subagent) → tokens_total is an order-of-magnitude ESTIMATE: ~120k,
+        priced at the Opus 4.8 list rate ($5/$25 per MTok) at ~80/20 input/output, no cache
+        discount. Gates re-run from clean: 666 tests default + 666 lean (26 suites; 11 new in
+        tests/build_lock.rs + 15 src/build/lock.rs units all present and running), clippy ×2 and
+        fmt clean, `just deny` green, `git diff main -- Cargo.toml Cargo.lock` empty. Every
+        acceptance criterion reproduced on the real binary. Outcome ⚠ PUNCH LIST: one hardening
+        defect found by driving the binary — `lock::short()` byte-slices a lockfile-supplied
+        `key`/`hash`, so a committed lockfile with a non-ASCII digest panics `--check` (exit 101)
+        instead of a typed exit. Fails closed, but violates untrusted-input-hardening +
+        no-unwrap-on-recoverable-paths. One-line fix + regression test.
+    - cycle: ship
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-07-09
+      notes: >
+        Ship bookkeeping (applied the verify punch-list fix on the branch — validate hex
+        key/hash at from_toml + panic-proof short(), with unit + integration regression tests;
+        c6dc827, DCO-signed after a first DCO miss; 3-OS CI green — then squash-merged PR #73 →
+        main ce2fc69; re-applied verify cost session + timeline mark via stash-pop, §13; ship
+        reflection; cost.totals; timeline ship mark; STAGE-022 stage-ship + brief; archive to
+        done/; `just cost-audit`) — main-loop, not separately metered → null-with-note per AGENTS §4.
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 470000
+    estimated_usd: 4.23
+    session_count: 4
 ---
 
 # SPEC-066: the reproducibility lockfile + `build --check` / `--frozen`
@@ -366,10 +399,30 @@ Compare committed vs current, keyed on output `path`:
 from the process-focused build reflection above.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — As architect, account for the sink's behavior in a **committed-artifact** context, not just
+   a runtime one. My Implementation Context said "compute the output path the same way the sink
+   does (`expand_template` + `safe_join`)" — but `safe_join` canonicalizes to an *absolute* host
+   path, which would have baked `/Users/…` into a committed lockfile (non-portable + a privacy
+   leak). The builder correctly used relative, `/`-separated paths. That's the second time this
+   stage I pointed at the sink without accounting for its escaping/absolutizing (the first was
+   SPEC-065's `{output:?}` Windows double-escape). Lesson banked: a path that lands in a
+   *committed* file is a different problem than one that lands on disk once.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — `DEC-059` emitted (lockfile format + pin-vs-record + env-aware `--check`/`--frozen`/`--strict`,
+   with the literal-`{ext}` residual honestly recorded as caught-but-race-not-prevented). No
+   template/constraint change, but a recurring **testing lesson** worth carrying into the stage
+   playbook: this stage produced **three** defects that green exit-code tests never caught because
+   they don't read strings or feed hostile serialized input — SPEC-065's `{output:?}` Windows
+   escape, SPEC-066's stale `--strict` message, and the ship-blocking non-hex-digest **panic**
+   (unit tests construct `LockOutput` in Rust, so they never exercise a hand-edited lockfile).
+   All three were caught by *driving the binary*, twice with adversarial input. Message-text
+   assertions (grep stderr) and hostile-committed-file tests belong in specs like these by default.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — No new spec — SPEC-066 completes STAGE-022 and PROJ-007's **"verifiable" leg**; only STAGE-023
+   (`--watch`) remains in the wave. The tracked carry that most wants a home is the **pre-decode
+   format sniff**: it would close both SPEC-065's `{ext}` false positives *and* SPEC-066's
+   literal-`{ext}` residual (the collision the lockfile catches only *after* the race writes both
+   files) in one move — a natural small spec, but not blocking. Recorded in DEC-059's threat model
+   and the STAGE-022 follow-ups; fold into STAGE-023 or a `chore` when convenient.
