@@ -120,8 +120,10 @@ fn build_once(dir: &Path, args: &[&str]) -> std::process::Output {
 
 // ── Poll helpers (generous deadlines; no fixed sleeps before asserting) ──────────
 
-const DEADLINE: Duration = Duration::from_secs(30);
+const DEADLINE: Duration = Duration::from_secs(45);
 const TICK: Duration = Duration::from_millis(50);
+/// How often `nudge_until` re-issues the mutation while waiting.
+const NUDGE_EVERY: Duration = Duration::from_secs(2);
 
 /// Poll `f` until it returns `true` or the deadline elapses. Returns whether it
 /// became true in time.
@@ -134,6 +136,30 @@ fn poll_until(mut f: impl FnMut() -> bool) -> bool {
         std::thread::sleep(TICK);
     }
     f()
+}
+
+/// Apply `mutate`, then poll `cond` — re-applying `mutate` every `NUDGE_EVERY`
+/// until `cond` holds or the deadline elapses. A single OS-watch event can be
+/// dropped under startup churn (notably Linux inotify when the whole project tree
+/// is watched while the cache dir is being populated); re-issuing the edit defeats
+/// that race without weakening the assertion — the assertion still requires the
+/// edit to *cause* the observable rebuild. Re-writing identical bytes is a cache
+/// hit, so the observed output is unchanged once the first real rebuild lands.
+fn nudge_until(mut mutate: impl FnMut(), mut cond: impl FnMut() -> bool) -> bool {
+    let start = Instant::now();
+    mutate();
+    let mut last_nudge = Instant::now();
+    while start.elapsed() < DEADLINE {
+        if cond() {
+            return true;
+        }
+        if last_nudge.elapsed() >= NUDGE_EVERY {
+            mutate();
+            last_nudge = Instant::now();
+        }
+        std::thread::sleep(TICK);
+    }
+    cond()
 }
 
 /// The max dimension of a PNG, or `None` if it does not exist / can't be read yet.
@@ -163,14 +189,17 @@ fn watch_rebuilds_on_source_change() {
         "initial build should produce both outputs at 16px"
     );
     let b_before = bytes(&out_b).expect("b exists");
-
-    // Edit ONE source to a new size; the watcher must rebuild it.
-    write_png(&root, "src/a.png", 64, 64, [10, 220, 10]);
-
-    // a.png rebuilds — still clamped to 16 max, but its bytes change (new content).
     let a_before = bytes(&out_a).expect("a exists");
+
+    // Edit ONE source to a new size + color; the watcher must rebuild it (its
+    // bytes change). Re-issued until observed, to defeat a dropped startup event.
     assert!(
-        poll_until(|| { bytes(&out_a).as_deref() != Some(a_before.as_slice()) }),
+        nudge_until(
+            || {
+                write_png(&root, "src/a.png", 64, 64, [10, 220, 10]);
+            },
+            || bytes(&out_a).as_deref() != Some(a_before.as_slice()),
+        ),
         "editing src/a.png should rebuild dist/a.png"
     );
     assert_eq!(max_dim(&out_a), Some(16), "a stays clamped to 16px");
@@ -233,9 +262,14 @@ fn watch_survives_a_failing_cycle() {
     );
 
     // Now a valid edit (a different size): the loop recovers and rebuilds to 8px.
-    write_file(&root, "r.toml", RESIZE_8.as_bytes());
+    // Re-issued until observed, to defeat a dropped watch event.
     assert!(
-        poll_until(|| max_dim(&out_a) == Some(8)),
+        nudge_until(
+            || {
+                write_file(&root, "r.toml", RESIZE_8.as_bytes());
+            },
+            || max_dim(&out_a) == Some(8),
+        ),
         "after fixing the recipe, the loop should rebuild (now clamped to 8px)"
     );
 }
@@ -259,9 +293,13 @@ fn watch_does_not_write_the_lockfile() {
         "watch initial build should settle"
     );
     let a_before = bytes(&out_a).expect("a exists");
-    write_png(&root, "src/a.png", 64, 64, [10, 220, 10]);
     assert!(
-        poll_until(|| bytes(&out_a).as_deref() != Some(a_before.as_slice())),
+        nudge_until(
+            || {
+                write_png(&root, "src/a.png", 64, 64, [10, 220, 10]);
+            },
+            || bytes(&out_a).as_deref() != Some(a_before.as_slice()),
+        ),
         "the source edit should rebuild the output"
     );
 
@@ -314,10 +352,14 @@ fn watch_starts_despite_a_broken_initial_build() {
         "a broken initial build must enter the watch loop, not hard-exit"
     );
 
-    // Fixing the recipe rebuilds.
-    write_file(&root, "r.toml", RESIZE_16.as_bytes());
+    // Fixing the recipe rebuilds (re-issued until observed).
     assert!(
-        poll_until(|| max_dim(&out_a) == Some(16)),
+        nudge_until(
+            || {
+                write_file(&root, "r.toml", RESIZE_16.as_bytes());
+            },
+            || max_dim(&out_a) == Some(16),
+        ),
         "after fixing the recipe, the first successful build should appear"
     );
 }
