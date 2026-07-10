@@ -16,12 +16,14 @@ shipped_at: null
 
 value_contribution:
   advances: >
-    Hardens what the wave shipped rather than adding features: a correctness/robustness sweep
-    over the build/cache/lockfile machinery and the surfaces a prior-session review flagged as
-    the likely homes of latent bugs. It protects the "verifiable" thesis — a build tool people
-    trust in CI can't panic on a hostile file, serve a stale cache hit across build profiles, or
-    corrupt on an unusual filename. Sequenced LAST in PROJ-007, after STAGE-023 (`--watch`).
+    Hardens and security-reviews what the wave shipped rather than adding features: a systematic
+    threat-model pass over PROJ-007's NEW untrusted-input surface (build manifest, recipe files,
+    the `.crustyimg/` cache store, the committed lockfile, and `--watch`), plus the specific
+    correctness defects a prior-session review flagged. It protects the "verifiable" thesis — a
+    build tool people trust in CI can't panic on a hostile committed file, serve a stale cache hit,
+    or corrupt on an unusual filename. Sequenced LAST in PROJ-007, after STAGE-023 (`--watch`).
   delivers:
+    - "A threat-model / attack-surface review of PROJ-007's new untrusted-input paths (manifest, recipe, cache store, lockfile, watch) against the shipped `untrusted-input-hardening` posture — the SPEC-037 precedent, for this wave's surface"
     - "The decoder fuzz gate actually run (AVIF/SVG/RAW/HEIC), with whatever it surfaces fixed — the roadmap's pre-1.0 gate, never yet executed"
     - "Graceful, typed handling of non-UTF-8 / unusual filenames instead of silent empty-stem collisions"
     - "Cache-key / determinism-envelope completeness (build profile is an unkeyed output-affecting input today)"
@@ -29,22 +31,27 @@ value_contribution:
     - "An exit-code-mapping totality audit (the `is_total` test shipped wrong twice)"
   explicitly_does_not:
     - "Add new build/cache/lockfile/watch features (those are STAGE-020..023)"
-    - "Do a general repo-wide security audit beyond the flagged surfaces (a separate effort / ultrareview)"
-    - "Re-open shipped decisions (DEC-057/058/059/060) unless a defect forces it"
+    - "Re-audit PROJ-001's surface (SPEC-037 already did) or run a full repo-wide external audit / ultrareview — the review here is scoped to PROJ-007's NEW surface"
+    - "Re-open shipped decisions (DEC-057/058/059/060) unless the review or a defect forces it"
 ---
 
-# STAGE-024: hardening & latent-bug sweep
+# STAGE-024: hardening & security sweep
 
 ## What This Stage Is
 
-The wave's closing correctness pass. STAGE-020..023 built the declared, cached, verifiable,
-watchable build; this stage hardens it. It gathers the latent-bug suspects a self-review
-surfaced (2026-07-10) — grounded in a code sweep, not speculation — into a bounded sweep:
-run the decoder fuzz gate that has never actually run, make unusual filenames fail gracefully
-instead of silently, close the cache-key/determinism gaps, and fix the two filed defects. It
-is deliberately the **last** stage of PROJ-007: it depends on nothing downstream, and it's the
-difference between "the machinery works on the happy path" and "you can trust it in CI on
-inputs you didn't write."
+The wave's closing correctness + security pass. STAGE-020..023 built the declared, cached,
+verifiable, watchable build; this stage hardens it and reviews its **new attack surface**. Two
+threads. First — the security thread — a systematic threat-model pass over the untrusted-input
+paths PROJ-007 added (the build manifest and recipe files as config, the `.crustyimg/` cache
+store it reads, the committed and hand-editable lockfile, and the tree `--watch` walks),
+checked against the shipped `untrusted-input-hardening` posture — the SPEC-037 threat-model
+precedent, applied to this wave's surface. Second — the hardening thread — the specific
+latent-bug suspects a self-review surfaced (2026-07-10, grounded in a code sweep): the never-run
+decoder fuzz gate, silent unusual-filename handling, cache-key/determinism gaps, and two filed
+defects. It is deliberately the **last** stage of PROJ-007: it depends on nothing downstream,
+and it's the difference between "the machinery works on the happy path" and "you can trust it in
+CI on inputs — and committed files — you didn't write." (The lockfile-panic that blocked
+SPEC-066 ship is the proof: that surface has issues we stumble on rather than enumerate.)
 
 ## Why Now
 
@@ -60,6 +67,9 @@ inputs you didn't write."
 
 ## Success Criteria
 
+- A written threat-model note exists for PROJ-007's new surface (manifest / recipe / cache /
+  lockfile / watch), each path checked against `untrusted-input-hardening`; every finding is
+  fixed or explicitly accepted with a rationale (the SPEC-037 shape, for this wave).
 - The four fuzz targets run (locally, `cargo +nightly fuzz run …`) for a documented budget with
   no crash left unaddressed; the run is recorded so it's repeatable.
 - A non-UTF-8 (or otherwise `.to_str()`-unrepresentable) input filename produces a **clear typed
@@ -76,6 +86,15 @@ inputs you didn't write."
 ## Scope
 
 ### In scope (candidate specs — frame when the stage is picked up)
+- **(security — LEAD) Threat-model / attack-surface review of PROJ-007's new untrusted-input
+  surface.** Systematically walk each new surface the wave added — the **build manifest** and
+  **recipe** files (parsed config), the **`.crustyimg/` cache store** (reads committed, hand-editable
+  entries; verify-on-read exists but the whole path wants an adversarial look), the **committed
+  lockfile** (the non-hex-digest panic came from here), and the tree **`--watch`** walks (symlink
+  escapes, watching outside declared roots, resource use) — against `guidance/constraints.yaml`'s
+  `untrusted-input-hardening` + DEC-034/DEC-035. Mirror SPEC-037 (PROJ-001's threat-model pass) for
+  this wave. Output: a short threat-model note + a punch list. **This runs FIRST — its findings feed,
+  add to, or reprioritize the items below; the fuzz gate is one instrument of it.**
 - **(fuzz) Run the decoder fuzz gate + fix findings.** Execute `fuzz/avif_decode`,
   `fuzz/svg_decode`, and the RAW/HEIC targets; triage + fix any crash; document the run and a
   repeat recipe. *Lineage: the untrusted-decode surface is PROJ-009's, but the targets live
@@ -107,6 +126,7 @@ inputs you didn't write."
 
 Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
+- [ ] (not yet framed) — **LEAD: threat-model / attack-surface review of PROJ-007's new untrusted-input surface (manifest, recipe, cache store, lockfile, watch); SPEC-037 for this wave**
 - [ ] (not yet framed) — run the decoder fuzz gate (AVIF/SVG/RAW/HEIC) + fix findings
 - [ ] (not yet framed) — non-UTF-8 / unusual-filename hardening (typed error, no silent empty stem)
 - [ ] (not yet framed) — cache-key / determinism-envelope completeness (build profile; the envelope's true bound)
@@ -114,7 +134,7 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 - [ ] (not yet framed) — pre-decode format sniff (closes SPEC-065 `{ext}` false positives + SPEC-066 residual)
 - [ ] (not yet framed) — exit-code mapping totality audit + a non-omittable `is_total` test
 
-**Count:** 0 shipped / 0 active / 6 pending — candidate specs; group/split when the stage is framed.
+**Count:** 0 shipped / 0 active / 7 pending — candidate specs (security review leads); group/split when the stage is framed.
 
 ## Design Notes
 

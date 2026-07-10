@@ -138,11 +138,14 @@ Format: `- [status] STAGE-ID — one-line summary`
   incremental, so "only affected rebuilds" is free — no dependency graph); watch manifest + recipes + source
   roots, **exclude own outputs/cache/lock so it never self-triggers**; loop-resilient; Ctrl-C via default
   SIGINT. One new dep (`notify`, threads+mpsc, not async) → **DEC-060** at build.
-- [ ] (proposed) STAGE-024 — hardening & latent-bug sweep: the wave's closing correctness pass, queued LAST.
-  Run the never-executed decoder fuzz gate (AVIF/SVG/RAW/HEIC); graceful non-UTF-8/unusual-filename handling
-  (no silent empty-stem collisions); cache-key/determinism-envelope completeness (build profile is unkeyed
-  today); the two filed defects (`CACHE_ENTRY_MAX_BYTES` off-by-53 + the pre-decode format sniff that closes
-  SPEC-065's `{ext}` false positives + SPEC-066's literal-`{ext}` residual); an exit-code totality audit.
+- [ ] (proposed) STAGE-024 — hardening & security sweep: the wave's closing correctness + security pass,
+  queued LAST. **Leads with a threat-model / attack-surface review of PROJ-007's NEW untrusted-input surface**
+  (build manifest, recipe files, the `.crustyimg/` cache store, the committed lockfile, `--watch`'s tree)
+  against `untrusted-input-hardening` — SPEC-037 for this wave (the SPEC-066 lockfile panic showed that surface
+  has issues we stumble on, not enumerate). Then: run the never-executed decoder fuzz gate (AVIF/SVG/RAW/HEIC);
+  graceful non-UTF-8/unusual-filename handling; cache-key/determinism-envelope completeness (build profile is
+  unkeyed today); the two filed defects (`CACHE_ENTRY_MAX_BYTES` off-by-53 + the pre-decode format sniff that
+  closes SPEC-065's `{ext}` false positives + SPEC-066's literal-`{ext}` residual); an exit-code totality audit.
   From a 2026-07-10 self-review + code sweep — grounded, not speculative; no new default dep.
 
 **Count:** 3 shipped / 1 active / 1 proposed (STAGE-020+021+022 shipped — the "verifiable" leg done; STAGE-023 `--watch` build-ready; STAGE-024 hardening sweep queued last)
