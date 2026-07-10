@@ -133,9 +133,13 @@ Format: `- [status] STAGE-ID — one-line summary`
   each output's cache key (robust inputs, DEC-058) + records the observed output hash + env; `--check` fails on
   input drift (exit 7), cross-env byte variance informational unless `--strict`; perceptual/SSIMULACRA2 (shipped
   `diff`) stays the review-grade check. No new dep across either spec.
-- [ ] (not yet framed) STAGE-023 — `--watch`: debounced file-watching inner loop that rebuilds only affected targets.
+- [~] STAGE-023 (framed, active 2026-07-09) — `--watch`: a debounced file-watching inner loop. **SPEC-067
+  framed + build-ready** — a thin loop over the shipped `run_build` (the STAGE-021 cache makes a full re-run
+  incremental, so "only affected rebuilds" is free — no dependency graph); watch manifest + recipes + source
+  roots, **exclude own outputs/cache/lock so it never self-triggers**; loop-resilient; Ctrl-C via default
+  SIGINT. One new dep (`notify`, threads+mpsc, not async) → **DEC-060** at build.
 
-**Count:** 3 shipped / 0 active / 1 pending (STAGE-020 build + STAGE-021 cache + STAGE-022 lockfile shipped — the "verifiable" leg done; only STAGE-023 `--watch` remains)
+**Count:** 3 shipped / 1 active / 0 pending (STAGE-020 build + STAGE-021 cache + STAGE-022 lockfile shipped — the "verifiable" leg done; STAGE-023 `--watch` framed, build-ready — the last stage)
 
 ## Dependencies
 
