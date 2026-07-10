@@ -114,14 +114,17 @@ encoder bytes.
 
 Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
-- [ ] SPEC-065 (design) — injective source→output guarantee: reject, at prepare time, a build
-  whose resolved targets would write two inputs to the same output path (DEC-057 blocker);
-  typed `BuildError`, exit 2, fail-before-write, global across targets. Framed 2026-07-09.
+- [x] SPEC-065 (shipped on 2026-07-09) — injective source→output guarantee: reject, at `run_build`'s
+  prepare phase (global across targets, before `Cache::open` / any write / any `.crustyimg/`), a build
+  mapping two inputs to one output path; pure `find_output_collision` in `src/build`,
+  `CliError::OutputCollision` → exit 2. Discharges DEC-057's blocker (its Validation now reads RESOLVED);
+  no new dep, no new DEC. PR #71 (bc13c4d), 637 tests default + lean. Conservative on `{ext}` (over-detect,
+  never under-detect); one disclosed literal-ext residual → DEC-059 threat model (below).
 - [ ] (not yet framed) SPEC-066 — the reproducibility lockfile (`crustyimg.build.lock`) +
   `build --check` (drift gate, exit 7) + `build --frozen` (locked); pins cache key, records
-  observed output hash + env; opt-in strict byte-identity; **DEC-059**. Frame after SPEC-065 ships.
+  observed output hash + env; opt-in strict byte-identity; **DEC-059**. Frame next (now unblocked).
 
-**Count:** 0 shipped / 0 active / 2 pending — multi-spec stage (SPEC-065 unblocks, SPEC-066 is the lockfile).
+**Count:** 1 shipped / 0 active / 1 pending — SPEC-065 unblocked the stage; SPEC-066 (the lockfile) is next.
 
 ## Design Notes
 
@@ -177,6 +180,18 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
   + `deny_unknown_fields` like the manifest (DEC-057) and recipes (DEC-005); cwd-relative paths;
   typed errors, exit-code mapping only at the CLI boundary (DEC-007); DEC-025's exit 7 for a
   "check not satisfied" is the precedent for `--check`.
+- **Carried from SPEC-065 (fold into SPEC-066 / DEC-059):**
+  - **The literal-extension residual → DEC-059's threat model.** SPEC-065's collision check is
+    conservative on the `{ext}` *token*, but a *literal*-extension template (`{stem}.png`) has no
+    token to normalize, so a target naming `{stem}.png` and another `{stem}.{ext}` into one `out`
+    can still map to the same real path undetected (reproduced: exit 0, "2 outputs", one file). It's
+    inherent to a *pre-decode* check and needs an unusual mixed-template build. The lockfile is the
+    natural second line of defense — it can refuse to pin two outputs to one real path — and a
+    format-sniff would close both this gap and SPEC-065's `{ext}` false positives at once. Decide in
+    DEC-059 whether the lockfile catches it structurally or a sniff is added.
+  - **`exit_code_mapping_is_total` still omits `CliError::Cache`** (a pre-existing SPEC-064 gap the
+    build note wrongly believed closed). A one-line test addition; SPEC-066 touches `src/cli` and
+    should fold it in (through its PR, not a bare main edit).
 
 ## Dependencies
 

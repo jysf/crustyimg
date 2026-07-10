@@ -26,8 +26,18 @@ there is no separate prompt file unless a cycle needs one.
   Done 2026-07-09 (PR #71): 637 tests green default + lean, clippy ×2 / fmt / deny clean, no new dep.
   Sentinel is the printable `{ext}` (not NUL) so the collision message reads; out-dir normalization also
   drops `./`, without which two spellings of one dir would slip the cross-target check. No new DEC.
-- [ ] **verify** — fresh session. Re-run gates; reproduce on the real binary: a same-stem target exits 2
+- [x] **verify** — fresh session. Re-run gates; reproduce on the real binary: a same-stem target exits 2
   before any write / no `.crustyimg/`; a disambiguating template builds; a cross-target collision is
   caught; a normal multi-input build is unaffected (no false positives). Confirm no new dep, DEC-057 marked.
-- [ ] **ship** — merge PR; verify + ship cost sessions + totals + reflection; archive to done/; advance the
-  STAGE-022 backlog (SPEC-065 shipped → SPEC-066 lockfile next, now unblocked). Update the PROJ-007 brief.
+  ✅ APPROVED 2026-07-09. Gates from clean: 637 default + 637 lean, clippy ×2 / fmt / deny green, Cargo
+  untouched. All four binary scenarios reproduced, incl. `dist` vs `./dist/`. Key is plain component
+  normalization (no `canonicalize`); detector is pure + filesystem-free. Disclosed literal-ext residual
+  (`{stem}.png` vs `{stem}.{ext}` into one dir) reproduced, correctly characterized, carried to DEC-059.
+  Non-blocking: `exit_code_mapping_is_total` still omits `CliError::Cache` (pre-existing, SPEC-064).
+- [x] **ship** — squash-merged PR #71 → main (**bc13c4d**); re-applied verify cost session + timeline verify
+  mark on main after merge (stash-pop, §13); ship cost session + `cost.totals` (205k tok / ~$3.75, 4 sessions
+  — build+verify are labelled main-loop estimates §4) + ship reflection; archived spec+timeline to `done/`;
+  `just cost-audit` green. STAGE-022 backlog: **SPEC-065 shipped → SPEC-066 (lockfile) unblocked, next**;
+  brief updated; stage stays **active**. Two non-blocking carries → STAGE-022 Design Notes: the literal-ext
+  residual (→ DEC-059 threat model) + `exit_code_mapping_is_total` still omits `CliError::Cache` (SPEC-064
+  pre-existing; a one-line test fix through a PR, not smuggled at ship). 2026-07-09.

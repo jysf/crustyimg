@@ -3,7 +3,7 @@
 task:
   id: SPEC-065
   type: story
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: S                    # a prepare-phase collision check + typed error + exit-code map; no new dep, no lockfile yet
@@ -58,10 +58,41 @@ cost:
         ext-normalizing key, wired the global prepare-phase check, made all 9 failing tests pass.
         No new dep, no new DEC. Gates: 637 tests default + 637 lean, clippy ×2, fmt, deny green,
         Cargo.toml untouched; four collision scenarios driven on the real binary.
+    - cycle: verify
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 90000
+      estimated_usd: 1.65
+      duration_minutes: 18
+      recorded_at: 2026-07-09
+      notes: >
+        Verify cycle — fresh session per AGENTS §15, re-derived from the spec + the diff.
+        Main-loop, not separately metered → order-of-magnitude ESTIMATES (AGENTS §4).
+        Gates from clean: 637 tests default + 637 lean, clippy ×2, fmt, `just deny` green,
+        `git diff main -- Cargo.toml Cargo.lock` empty. All 9 spec-named Failing Tests present
+        and running (3 build units + 2 cli units + 4 integration; +2 collision-key units beyond
+        the spec's list). Four collision scenarios re-driven on the release binary, incl. the
+        `dist` vs `./dist/` two-spellings cross-target case; the disclosed literal-ext residual
+        reproduced and accepted (carried to DEC-059). DEC-057 confirmed RESOLVED; no new dep,
+        no new DEC; cache store untouched. One non-blocking note: `exit_code_mapping_is_total`
+        still omits `CliError::Cache` (pre-existing, SPEC-064) despite the build note's claim.
+    - cycle: ship
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-07-09
+      notes: >
+        Ship bookkeeping (squash-merge PR #71 → main bc13c4d; re-apply the verify cost session +
+        timeline verify mark on main via stash-pop after merge, §13; ship reflection; cost.totals;
+        timeline ship mark; STAGE-022 backlog + brief; archive to done/; `just cost-audit`; carry the
+        two verify follow-ups — the `CliError::Cache` exit-map gap and the literal-ext residual) —
+        main-loop, not separately metered → null-with-note per AGENTS §4.
   totals:
-    tokens_total: 115000
-    estimated_usd: 2.10
-    session_count: 1
+    tokens_total: 205000
+    estimated_usd: 3.75
+    session_count: 4
 ---
 
 # SPEC-065: the injective source→output guarantee
@@ -324,10 +355,31 @@ future option, not this spec.
 from the process-focused build reflection above.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — As architect: **never put `{:?}` in a user-facing message that carries a path.** My
+   "Notes for the Implementer" suggested `{output:?}`, which is `Debug` on a `String` — a
+   Windows path renders `"a\\logo.png"`, un-pasteable into a manifest. The three-OS CI caught
+   it (and a mirror `/`-hardcoded bug in the build's own test); a mac-only author wouldn't
+   have. Literal quoting is the rule for any message a user is meant to act on. Otherwise the
+   spec held — the conservative-on-`{ext}` design and the global-check-after-phase-1 insertion
+   point were both borne out.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — `DEC-057`'s Validation section now reads **RESOLVED by SPEC-065** (approach + the
+   over-detection tradeoff); no new DEC (as designed). Two carries recorded in the STAGE-022
+   Design Notes, neither blocking: (a) **the literal-extension residual** — a target naming
+   `{stem}.png` and another `{stem}.{ext}` into one `out` still collide undetected (the
+   `{ext}` token normalizes, a literal `.png` doesn't), inherent to any *pre-decode* check;
+   it belongs in **DEC-059's threat model** and a format-sniff would close it and the false
+   positives together. (b) **`exit_code_mapping_is_total` still omits `CliError::Cache`** — a
+   pre-existing SPEC-064 gap the build note *claimed* was closed but wasn't (only a `Metadata`
+   arm was added). Correcting the record here: the test is **still not total**. A one-line
+   test addition, but a code/test change → it goes through a PR, not smuggled onto main at
+   ship; carried as a follow-up (SPEC-066 touches `src/cli` and will absorb it).
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — No new spec — SPEC-065 was the unblocker, and STAGE-022's remaining spec (**SPEC-066**,
+   the lockfile + `--check`/`--frozen`, **DEC-059**) is already in the backlog and is the next
+   thing to frame, now unblocked. The two carries above fold into it: the literal-ext residual
+   is a DEC-059 threat-model line, and the `CliError::Cache` exit-map gap is a one-line test
+   fix SPEC-066 will pick up as it works in `src/cli`. STAGE-022 stays **active** (SPEC-066
+   pending); no stage-ship yet.
