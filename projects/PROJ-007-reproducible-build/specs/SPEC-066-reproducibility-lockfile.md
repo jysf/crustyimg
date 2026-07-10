@@ -289,7 +289,7 @@ Compare committed vs current, keyed on output `path`:
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
 - **Branch:** `feat/spec-066-reproducibility-lockfile`
-- **PR (if applicable):** #72
+- **PR (if applicable):** #73
 - **All acceptance criteria met?** yes
 - **New decisions emitted:**
   - `DEC-059` — the lockfile format + pin-vs-record + env-aware `--check`/`--frozen`/`--strict` policy

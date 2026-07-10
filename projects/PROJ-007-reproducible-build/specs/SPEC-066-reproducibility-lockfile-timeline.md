@@ -28,7 +28,7 @@ there is no separate prompt file unless a cycle needs one.
   under `--no-cache`; write default / verify on `--check`/`--frozen`/`--locked`/`--strict`); `pub mod lock`;
   `--check`/`--frozen`/`--locked`/`--strict` on GlobalArgs; DEC-059. Make all Failing Tests pass. Verify
   default + lean + `just deny` (no new dep) + clippy + fmt.
-  → **PR #72** on `feat/spec-066-reproducibility-lockfile`, 2026-07-09. 666 tests green (default + lean;
+  → **PR #73** on `feat/spec-066-reproducibility-lockfile`, 2026-07-09. 666 tests green (default + lean;
   11 new in `tests/build_lock.rs`), clippy ×2 + fmt clean, `just deny` unchanged, **no new dep**
   (`git diff main -- Cargo.toml` empty). DEC-059 emitted. Every branch driven on the real binary
   (deterministic lock; `--check` pass / exit-7 on edited source, added, removed; `--frozen` w/o lock → 7;
