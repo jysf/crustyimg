@@ -448,3 +448,30 @@ fn malformed_lockfile_is_exit_2() {
     build_expect(root, &[], 0);
     read_lock(root);
 }
+
+#[test]
+fn non_hex_digest_in_lock_is_exit_2_not_a_panic() {
+    // Regression: `key`/`hash` arrive from a hand-editable committed file. A digest
+    // with a multi-byte char used to reach `short()` and panic on a mid-char byte
+    // slice (exit 101). It must instead be a typed content error (exit 2), because
+    // the realistic vector is a PR that edits crustyimg.build.lock — a CI gate must
+    // not turn into a Rust panic trace.
+    let dir = project();
+    let root = dir.path();
+    build_expect(root, &[], 0);
+
+    let lock = read_lock(root);
+    let text =
+        read_lock_text(root).replace(&lock.output[0].key, "a\u{20ac}\u{20ac}\u{20ac}\u{20ac}");
+    std::fs::write(lock_path(root), &text).unwrap();
+
+    let stderr = build_expect(root, &["--check"], 2);
+    assert!(
+        stderr.contains("hex"),
+        "the non-hex digest is named, not a panic: {stderr}"
+    );
+    assert!(
+        !stderr.contains("panicked"),
+        "must be a typed error, not a panic: {stderr}"
+    );
+}

@@ -238,6 +238,24 @@ impl BuildLock {
             });
         }
 
+        // `key` and `hash` are compared and rendered as opaque digests, but they
+        // arrive from a committed, hand-editable file (untrusted-input-hardening).
+        // Validate that each is a non-empty hex string HERE, at the boundary, so a
+        // hostile lockfile is a typed error (exit 2) — not a byte-slice panic
+        // downstream on a multi-byte char, and not a silently-compared garbage
+        // string. This is the same discipline as `deny_unknown_fields` + the
+        // version gate: the lockfile is validated, not merely deserialized.
+        for out in &lock.output {
+            for (field, value) in [("key", &out.key), ("hash", &out.hash)] {
+                if value.is_empty() || !value.chars().all(|c| c.is_ascii_hexdigit()) {
+                    return Err(LockError::Parse(format!(
+                        "output \"{}\": {field} is not a hex digest",
+                        out.path
+                    )));
+                }
+            }
+        }
+
         lock.output.sort_by(|a, b| a.path.cmp(&b.path));
         Ok(lock)
     }
@@ -364,9 +382,15 @@ impl fmt::Display for LockChange {
 }
 
 /// The first 12 hex characters of a digest — enough to identify, short enough to read.
+///
+/// `from_toml` validates every `key`/`hash` as hex, so in practice this only ever
+/// sees single-byte ASCII. It still slices with `get(..n)` rather than `&hex[..n]`
+/// so a byte index that isn't a char boundary can never panic — a free
+/// belt-and-suspenders against any future caller that hasn't been through
+/// validation (no-unwrap-on-recoverable-paths).
 fn short(hex: &str) -> &str {
     let n = hex.len().min(12);
-    &hex[..n]
+    hex.get(..n).unwrap_or(hex)
 }
 
 /// The result of comparing a committed lockfile against the current build.
@@ -587,6 +611,44 @@ bytes = 100
     }
 
     #[test]
+    fn rejects_non_hex_digest() {
+        // A committed lockfile is hand-editable (untrusted-input-hardening). A
+        // non-hex `key`/`hash` must be a typed error (exit 2) — never a downstream
+        // byte-slice panic on a multi-byte char, and never a silently-compared
+        // garbage string. '€' is the multi-byte case that panicked `short` before.
+        for bad in ["a\u{20ac}\u{20ac}\u{20ac}\u{20ac}", "not-hex!", "", "  "] {
+            let toml_str = VALID.replacen("bbbb0000", bad, 1);
+            let err = BuildLock::from_toml(&toml_str).expect_err("a non-hex key must be rejected");
+            assert!(
+                matches!(&err, LockError::Parse(msg) if msg.contains("key") && msg.contains("hex")),
+                "expected Parse naming the non-hex key, got {err:?}"
+            );
+        }
+        // The same guard applies to `hash`.
+        let toml_str = VALID.replacen("22220000", "a\u{20ac}\u{20ac}\u{20ac}\u{20ac}", 1);
+        let err = BuildLock::from_toml(&toml_str).expect_err("a non-hex hash must be rejected");
+        assert!(
+            matches!(&err, LockError::Parse(msg) if msg.contains("hash") && msg.contains("hex")),
+            "got {err:?}"
+        );
+    }
+
+    #[test]
+    fn short_never_panics_on_multibyte() {
+        // Defence in depth: even a digest that slipped validation must not panic
+        // the 12-char slice. '€' is 3 bytes, so byte 12 of "a€€€€" (13 bytes) lands
+        // mid-char — a naive `&s[..12]` would panic; `get(..12)` yields the whole
+        // string instead.
+        assert_eq!(
+            short("a\u{20ac}\u{20ac}\u{20ac}\u{20ac}"),
+            "a\u{20ac}\u{20ac}\u{20ac}\u{20ac}"
+        );
+        // ASCII digests slice normally.
+        assert_eq!(short("abcdef0123456789"), "abcdef012345");
+        assert_eq!(short("abc"), "abc");
+    }
+
+    #[test]
     fn rejects_oversize_lock() {
         // '#' is a TOML comment, so a successful parse would prove the size check
         // did NOT fire before parsing.
@@ -616,12 +678,13 @@ bytes = 100
     #[test]
     fn to_toml_from_toml_roundtrips() {
         // Constructed out of order: `new` and `to_toml` both sort by path.
+        // Digests are hex (from_toml validates them), distinct per output.
         let lock = BuildLock::new(
             env("x86_64-linux"),
             vec![
-                out("dist/z.png", "kz", "hz"),
-                out("dist/a.png", "ka", "ha"),
-                out("dist/m.png", "km", "hm"),
+                out("dist/z.png", "0c0c", "0d0d"),
+                out("dist/a.png", "0a0a", "0b0b"),
+                out("dist/m.png", "0e0e", "0f0f"),
             ],
         );
         let text = lock.to_toml().expect("shipped schema must serialize");
