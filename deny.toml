@@ -61,11 +61,27 @@ allow = [
 #   relicensing obligation on our binary. Excepted per-crate rather than widened
 #   into the global `allow` list, keeping the license surface minimal (the same
 #   discipline as the exceptions above). Drops out if we shed the `re_rav1d` dep.
+#   notify (CC0-1.0): the filesystem watcher behind the default-on `watch` feature
+#   (`build --watch`, SPEC-067, DEC-060). CC0-1.0 is a public-domain DEDICATION —
+#   the same permissive tier as `to_method` above and `Unlicense`/`0BSD` (already
+#   globally allowed), imposing NO source or relicensing obligation on our binary.
+#   Excepted per-crate rather than widening the global `allow` list (the same
+#   minimal-surface discipline as the exceptions above). Drops out of the lean
+#   `--no-default-features` build entirely.
+#   inotify / inotify-sys (ISC): notify's LINUX backend (SPEC-067, DEC-060). ISC is
+#   an OSI-approved / FSF-Free permissive license, functionally equivalent to the
+#   already-allowed `BSD-2-Clause`/MIT (a simplified two-clause permissive with no
+#   copyleft). Excepted per-crate (not globally allowed) so a FUTURE unexpected ISC
+#   crate still triggers a fresh review — the same discipline as the NCSA exception.
+#   Linux-only + behind the `watch` feature; absent on macOS/Windows and in the lean build.
 exceptions = [
     { name = "ansi_colours", allow = ["LGPL-3.0-or-later"] },
     { name = "libfuzzer-sys", allow = ["NCSA"] },
     { name = "avif-parse", allow = ["MPL-2.0"] },
     { name = "to_method", allow = ["CC0-1.0"] },
+    { name = "notify", allow = ["CC0-1.0"] },
+    { name = "inotify", allow = ["ISC"] },
+    { name = "inotify-sys", allow = ["ISC"] },
 ]
 
 # Require high confidence when matching a license file's text to an SPDX id.

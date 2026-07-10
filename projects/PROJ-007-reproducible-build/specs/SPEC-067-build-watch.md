@@ -3,7 +3,7 @@
 task:
   id: SPEC-067
   type: story
-  cycle: design  # frame | design | build | verify | ship
+  cycle: build  # frame | design | build | verify | ship
   blocked: false
   priority: medium
   complexity: M                    # a debounced watch loop + one new dep + cross-platform + self-trigger exclusion; the logic is small, the dep/testability add weight
@@ -49,6 +49,22 @@ cost:
         the STAGE-021 cache makes a full re-run incremental, so `--watch` is a thin loop over
         `run_build`, not a dependency graph. The file-watch dep (notify) + license probe is a build
         concern (DEC-060). Testability strategy (extract pure logic, thin driven loop) set here.
+    - cycle: build
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-07-10
+      notes: >
+        Build cycle run as the metered build session — the ORCHESTRATOR fills the real
+        tokens_total / duration_minutes / estimated_usd from the Agent result's
+        subagent_tokens at ship (AGENTS §4; must NOT stay null on a shipped spec).
+        Delivered: `notify` dep behind a default-on `watch` feature (DEC-060), the pure
+        `src/build/watch.rs` (watch_roots / is_excluded / debounce / WatchSet / WatchError),
+        the thin feature-gated loop + lockfile suppression in cli, and unit + integration
+        tests. `just deny` green via 3 scoped per-crate exceptions (notify CC0-1.0,
+        inotify/inotify-sys ISC); DEC-006 (no async) intact.
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -288,26 +304,82 @@ them `#[ignore]` (documented) rather than weakening the unit coverage.
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
+- **Branch:** `feat/spec-067-build-watch`
+- **PR (if applicable):** #74 (see report — CI pending at hand-off)
+- **All acceptance criteria met?** **yes** — every box in Acceptance Criteria is covered by a
+  test and hand-driven against the real binary (an initial build → exactly one rebuild
+  `(1 cached, 1 rebuilt)` on a source edit; no self-trigger over a quiet period;
+  `--watch --check`/`--frozen`/`--locked` → exit 2; the committed lockfile is not rewritten
+  mid-loop; a broken *initial build* enters the loop, a missing manifest hard-exits;
+  `--no-default-features` drops the watcher and `--watch` gives a clear usage error).
 - **New decisions emitted:**
-  - `DEC-060` — file-watch dep + debounce + watch-loop semantics + self-trigger exclusion + feature gate
+  - `DEC-060` — file-watch dep (`notify`, default-on `watch` feature) + hand-rolled 200 ms
+    debounce + watch-loop semantics + the self-trigger exclusion **and its path normalization**
+    + lockfile suppression under `--watch` + `--watch`×verify-mode rejection + the feature gate.
+    `just deny` stays green via **three scoped per-crate exceptions** (notify CC0-1.0;
+    inotify + inotify-sys ISC) — a real decision point (deny failed on first `cargo add`),
+    justified in DEC-060, not a silent add. DEC-006 (no async) holds: `cargo tree -i tokio`
+    and `-i async-std` are both empty.
 - **Deviations from spec:**
-  - [list]
+  - **Verify-mode field is one, not three.** `--frozen`/`--locked` are clap `visible_alias`es
+    of `--check` (a single `GlobalArgs.check: bool`), so the rejection guard checks `global.check`
+    once rather than the spec's `global.check || global.frozen || global.locked`. Same behavior,
+    one field. (Confirmed against the live `GlobalArgs`.)
+  - **Watcher-init error path is typed via a new `CliError::Watch(WatchError)` → exit 1**
+    (added to the total exit-code map + its test), rather than reusing an existing variant —
+    a watcher setup failure is a generic runtime error, distinct from the `--watch` *usage*
+    errors (exit 2). `WatchError` lives in `src/build/watch.rs` as the spec asked.
+  - **Watch roots are directories, derived purely lexically** (glob literal-prefix dir /
+    trailing-slash dir / a bare path's parent) so `watch_roots` stays filesystem-free and
+    deterministic in its unit test; every root is a directory (not a bare file) so an
+    editor's atomic save is caught. A bare slash-less directory source watches its parent
+    (broader, but rare). Rationale in DEC-060.
+  - **`WatchSet` has two tiers** — source roots watched **recursively**, the manifest/recipe
+    dirs watched **non-recursively** — because they sit beside the build's own `dist/`+
+    `.crustyimg/` trees. The spec's Implementation Context said "watched recursively"; a
+    first pass did exactly that for every root and **the 3-OS CI caught it** (Linux inotify:
+    a fresh build's cache-write burst floods the recursively-watched `.` and source edits
+    then go undetected — reproduced with 22 re-issued edits over 45 s). The shallow tier
+    never covers the deep cache/output churn, fixing it. This is the wave's cross-platform
+    lesson landing exactly as designed (rationale + repro in DEC-060).
+  - **`is_excluded` normalizes by lexical-absolutize (against CWD), not `canonicalize`** —
+    canonicalize fails on a just-deleted path and resolves symlinks the watcher may not have;
+    `current_dir()` is already symlink-resolved on Unix, so it aligns with the watcher's
+    absolute event paths without those failure modes. Verified on macOS FSEvents temp dirs.
+  - **A missing manifest under `--watch` hard-exits with exit 3** (input-not-found via
+    `load_manifest`), consistent with the spec's "missing manifest = hard exit"; the spec's
+    prose says "hard exit" without pinning a code, so this reuses the existing manifest-IO code.
 - **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - A verify-on-change **`--watch --check`** mode (rebuild + assert the lockfile each cycle) —
+    explicitly out of scope here; the natural next spec if wanted.
+  - If the 200 ms debounce proves too tight on some editor/OS in the wild, adopt
+    `notify-debouncer-mini` (the documented fallback in DEC-060).
+  - The DEC-059 pre-decode format-sniff carry (from STAGE-022) is untouched and still open.
 
 ### Build-phase reflection (3 questions, short answers)
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — The Implementation Context was unusually precise on the *self-trigger* crux (it named the
+   absolute-vs-relative path bug and said write its test first — exactly right). The gap was one
+   level deeper and cost a CI round-trip: the spec said watch the source roots "recursively"
+   without distinguishing them from the manifest/recipe dirs, which sit beside the build's own
+   `dist/`+`.crustyimg/` trees. Watching those recursively made the watcher cover the cache tree,
+   and on Linux inotify a fresh build's cache-write burst then starved detection of source edits.
+   The fix (recursive source roots, shallow config dirs) is the wave's cross-platform lesson —
+   and it was the 3-OS CI, not local macOS, that surfaced it, exactly as the hand-off warned.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — No missing constraint. The spec correctly anticipated the license decision as a real
+   branch point, and it landed exactly there: `notify` pulled CC0-1.0 (itself) and ISC
+   (inotify/inotify-sys) that the allowlist rejected, so DEC-060 justifies three scoped
+   exceptions rather than a silent add. Worth noting for the template: the spec assumed
+   separate `--frozen`/`--locked` fields that don't exist (they're `--check` aliases).
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Nothing structural. Writing `is_excluded` + its normalization test first, then the
+   `watch_does_not_self_trigger` integration test, then hand-driving the real binary to watch
+   the `(1 cached, 1 rebuilt)` summary and a quiet no-self-trigger period, caught every risk up
+   front — the green tests never had to be trusted on their own. I'd keep that order.
 
 ---
 
