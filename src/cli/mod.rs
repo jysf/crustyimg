@@ -1904,15 +1904,11 @@ fn watch_impl(file: Option<&str>, global: &GlobalArgs) -> Result<(), CliError> {
         eprintln!("watching for changes (Ctrl-C to stop)…");
     }
 
-    // The debounced rebuild loop. Ctrl-C exits via the default SIGINT (exit 130) —
-    // no `ctrlc` dependency (DEC-060).
+    // The debounced rebuild loop. `debounce` returns `None` when the watcher hangs
+    // up (its thread died), which ends the loop. Ctrl-C exits via the default SIGINT
+    // (exit 130) — no `ctrlc` dependency (DEC-060).
     let manifest_prefix = [PathBuf::from(path)];
-    loop {
-        let Some(batch) = watch::debounce(&rx, WATCH_DEBOUNCE) else {
-            // The watcher hung up (its thread died); nothing left to watch.
-            break;
-        };
-
+    while let Some(batch) = watch::debounce(&rx, WATCH_DEBOUNCE) {
         // Drop a batch that is entirely the build's OWN writes, so a build never
         // wakes itself (the correctness crux; see `watch::is_excluded`).
         if batch.iter().all(|p| watch::is_excluded(p, &set.excluded)) {
