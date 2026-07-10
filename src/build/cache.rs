@@ -851,6 +851,55 @@ mod tests {
     }
 
     #[test]
+    fn near_cap_payload_round_trips_or_is_a_clean_miss() {
+        // SPEC-068: the confirmed store-vs-read bound asymmetry. `store_bounded`
+        // bounds the PAYLOAD (`bytes.len() > max`), while `read_entry` bounds the
+        // whole FRAME (`53 + ext + payload`). So a payload in the top `53 + ext`
+        // band of `max` is *stored but unreadable*: a permanent silent miss.
+        //
+        // This is a CORRECTNESS wart (a wasted cache slot + always-rebuild), not a
+        // safety one — it never panics and never serves a wrong byte. The one-line
+        // fix (bound the frame in `store_bounded`) is its own STAGE-024 backlog
+        // spec; this test PINS the current safe behavior so the boundary can't drift
+        // silently, and the existing `oversize_entry_is_a_miss` (10-byte payload)
+        // never reaches this band.
+        let (_d, cache) = temp_cache();
+        let key = Base::new().key();
+        const HEADER: usize = ENTRY_MAGIC.len() + 1 + 8 + 32; // = 53
+        let max = 100;
+
+        // A payload inside the band: stored (payload ≤ max) but its frame exceeds
+        // max, so the read refuses it. No panic, and no bytes served.
+        let ext = "png";
+        let near_cap = max - 10; // 90 ≤ 100 stored; frame 53+3+90 = 146 > 100
+        assert!(
+            HEADER + ext.len() + near_cap > max,
+            "fixture must be in the band"
+        );
+        cache
+            .store_bounded(&key, ext, &vec![0u8; near_cap], max)
+            .unwrap();
+        assert!(
+            cache.path_for(&key).exists(),
+            "the near-cap payload IS stored (store bounds only the payload)"
+        );
+        assert!(
+            read_entry(&cache.path_for(&key), max).is_none(),
+            "…but is a CLEAN MISS on read (read bounds the whole frame) — never a panic"
+        );
+
+        // A payload comfortably below the band round-trips, proving the miss above
+        // is the boundary, not a general breakage.
+        let safe = max - HEADER - ext.len() - 1; // frame = max-1 ≤ max
+        cache
+            .store_bounded(&key, ext, &vec![7u8; safe], max)
+            .unwrap();
+        let got = read_entry(&cache.path_for(&key), max).expect("a sub-band payload round-trips");
+        assert_eq!(got.bytes, vec![7u8; safe]);
+        assert_eq!(got.ext, ext);
+    }
+
+    #[test]
     fn store_is_atomic_no_partial_entry() {
         let (_d, cache) = temp_cache();
         let key = Base::new().key();

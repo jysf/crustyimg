@@ -464,6 +464,35 @@ out = "dist/thumb"
     }
 
     #[test]
+    fn watch_root_escaping_source_follows_the_manifest_documented() {
+        // SPEC-068 / DEC-061 — ACCEPTED + DOCUMENTED, pinned so it can't drift.
+        //
+        // A watch root is derived purely from a source spelling; it is NOT clamped to
+        // under the manifest directory. A manifest that declares an out-of-tree source
+        // (`../..`) is therefore watched out of tree — the SAME reach `build` itself
+        // has when it resolves that source. `--watch` is a local, interactive dev loop
+        // (DEC-060, feature-gated, blocks until Ctrl-C); it is not the CI surface
+        // (`build --check` is). Clamping would break legitimate monorepo layouts
+        // (a source in `../shared/assets`) and *under*-watch silently. So roots follow
+        // the declared manifest, and outputs stay clamped to `out` by the sink's
+        // `safe_join`. A separate low-severity backlog item may add a *warning* (not a
+        // clamp) when a root escapes the manifest dir.
+        assert_eq!(source_root("../.."), PathBuf::from(".."));
+        assert_eq!(source_root("../../**/*.png"), PathBuf::from("../.."));
+
+        let m = BuildManifest::from_toml(
+            "version = 1\n[[target]]\nsource = \"../../**/*.png\"\nrecipe = \"r.toml\"\nout = \"dist\"\n",
+        )
+        .expect("an escaping source is a valid manifest — `build` resolves it too");
+        let set = watch_roots(&m, Path::new("crustyimg.build.toml"));
+        assert!(
+            set.recursive.contains(&PathBuf::from("../..")),
+            "the escaping source's root follows the manifest (not clamped): {:?}",
+            set.recursive
+        );
+    }
+
+    #[test]
     fn empty_manifest_still_watches_its_own_directory() {
         let m = BuildManifest::from_toml("version = 1\n").unwrap();
         let set = watch_roots(&m, Path::new("sub/crustyimg.build.toml"));

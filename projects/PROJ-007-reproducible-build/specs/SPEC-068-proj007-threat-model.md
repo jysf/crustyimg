@@ -3,7 +3,7 @@
 task:
   id: SPEC-068
   type: chore
-  cycle: design  # frame | design | build | verify | ship
+  cycle: verify  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: M                    # not a large diff, but a SYSTEMATIC adversarial pass over 5 surfaces + write the note + apply the small tightenings + reprioritize the backlog; the breadth (not any one fix) is the weight
@@ -51,6 +51,22 @@ cost:
         silent `.to_str()→""` seams, and that the exit-code map is ALREADY compiler-exhaustive so
         that backlog item is smaller than it looks). Those are recorded below as suspects, NOT
         verdicts — the fresh adversarial session reaches the conclusions (Design Notes bias).
+    - cycle: build
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 320000
+      estimated_usd: 3.00
+      duration_minutes: 55
+      recorded_at: 2026-07-10
+      notes: >
+        Build cycle run in the ORCHESTRATOR main loop (not a separately-metered subagent), so
+        numerics are an ORDER-OF-MAGNITUDE ESTIMATE per AGENTS §4 + the "autonomous run cost =
+        labelled estimates" practice, not a metered count. Opus 4.8 list rate ($5/$25, ~80/20
+        in/out, no cache discount). Work: firsthand adversarial attack of all five surfaces
+        (hand-authored hostile .toml/.lock/cache-entry bytes driven against the release binary)
+        + the two cross-cutting seams, the threat-model note, DEC-061, one inline tightening
+        (recipe top-level deny_unknown_fields) with hostile-file tests, the cache off-by-53
+        boundary test, and the reprioritized backlog.
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -324,26 +340,71 @@ dismiss**, NOT verdicts — reach the conclusions by attacking the binary (Desig
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
+- **Branch:** `feat/spec-068-threat-model`
+- **PR (if applicable):** #75 (opened against `main`; awaiting 3-OS CI)
+- **All acceptance criteria met?** yes
+  - Threat-model note (`docs/research/proj-007-threat-model.md`) covers all five
+    surfaces + both cross-cutting sections, each with entry point / guards / **hostile
+    inputs driven against the real binary** / verdict / residual risk. ✅
+  - Every surface driven with hostile input against the release binary (manifest:
+    unknown/oversize/duplicate/stdin/traversal; recipe: unknown top-level + step
+    param + malformed + bad version; cache: bad magic / truncated / empty /
+    flipped-payload / `ext_len` overflow / symlink + the near-cap boundary unit test;
+    lockfile: non-hex `key` **and** `hash` + unknown field + bad version + oversize,
+    no write, no panic; watch: `../..` escaping source live-confirmed). ✅
+  - The one clear, small, security-relevant defect (recipe top-level
+    `deny_unknown_fields`) fixed inline with hostile-file regression tests; every
+    other risk explicitly accepted in DEC-061. ✅
+  - Reprioritized STAGE-024 backlog written (6 items confirmed/resized/dismissed +
+    severity; 2 new items). ✅
+  - DEC-061 records verdicts + 4 accepted risks. ✅
+  - No new default dependency (`just deny` unchanged; `git diff` on
+    deny.toml/Cargo.toml/Cargo.lock empty). Full gate matrix green: `cargo test`
+    (377 lib + all integration) + `cargo build --no-default-features` + `cargo clippy
+    --all-targets -- -D warnings` + `cargo fmt --check` + `just deny` + `just
+    validate`. No `unwrap` on recoverable paths in changed code. ✅
 - **New decisions emitted:**
   - `DEC-061` — PROJ-007 threat-model verdicts + accepted risks
 - **Deviations from spec:**
-  - [list]
-- **Follow-up work identified:**
-  - [the reprioritized STAGE-024 backlog + any new items]
+  - The recipe suspect's premise ("missing `deny_unknown_fields` blocked by
+    `#[serde(flatten)] params`") was **imprecise**: the flatten is on `RecipeStep`, not
+    `Recipe`. So the tightening is simpler than the spec's suggested post-parse check —
+    a plain `#[serde(deny_unknown_fields)]` on `Recipe` closes the (more dangerous)
+    top-level gap; the step-param tolerance is the part actually blocked by flatten and
+    is the accepted risk.
+  - Cache off-by-53: **not folded in** (per the spec's default). It is a
+    correctness-not-safety wart on a shipped DEC-058 module, so it does not force a
+    re-open; pinned by a boundary test asserting the current clean-miss, fix filed as
+    its own spec.
+  - No new manifest regression test added: the surface held with no defect and the
+    existing `rejects_unknown_field` / `rejects_oversize_manifest` unit tests already
+    guard it; the binary runs are recorded in the note (avoiding gold-plate).
+- **Follow-up work identified:** (see the note's reprioritized backlog)
+  - **High:** run the decoder fuzz gate (AVIF/SVG/RAW/HEIC) — recipe handed off.
+  - **Med:** pre-decode format sniff; cache-key build-profile completeness.
+  - **Low–Med:** cache off-by-53 read-bound fix.
+  - **Low:** unusual-filename hardening sweep; exit-code value-assertion patch;
+    **NEW** strict per-step recipe params; **NEW** `--watch` root-containment *warning*.
 
 ### Build-phase reflection (3 questions, short answers)
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — Very little — the surface map with anchors was accurate and saved time. The one
+   snag was the recipe suspect conflating `Recipe` and `RecipeStep`: the map said
+   `deny_unknown_fields` was "blocked by flatten," which is only true for the step, so I
+   had to confirm `Recipe` has no flatten before trusting the simpler fix.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — No. `untrusted-input-hardening` + DEC-034/035/025 + DEC-057/058/059/060 were the
+   right set. The `safe_join` output clamp (the mitigation that made the manifest
+   out-of-tree-source risk acceptable) wasn't called out by anchor but was easy to find
+   and verify.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Drive `--watch` (a blocking process) via a detached background launch from the
+   start — my first two attempts hung the shell (`wait` on a SIGINT'd child, then a
+   foreground sleep the harness blocks). A `nohup … &` + separate inspect/kill call is
+   the clean pattern for attacking a long-running subcommand.
 
 ---
 

@@ -461,17 +461,24 @@ fn non_hex_digest_in_lock_is_exit_2_not_a_panic() {
     build_expect(root, &[], 0);
 
     let lock = read_lock(root);
-    let text =
-        read_lock_text(root).replace(&lock.output[0].key, "a\u{20ac}\u{20ac}\u{20ac}\u{20ac}");
-    std::fs::write(lock_path(root), &text).unwrap();
+    let good_text = read_lock_text(root);
 
-    let stderr = build_expect(root, &["--check"], 2);
-    assert!(
-        stderr.contains("hex"),
-        "the non-hex digest is named, not a panic: {stderr}"
-    );
-    assert!(
-        !stderr.contains("panicked"),
-        "must be a typed error, not a panic: {stderr}"
-    );
+    // Both `key` AND `hash` must be guarded — either can reach `short()` (SPEC-068).
+    // '€' is 3 bytes, so byte 12 of the digest lands mid-char: the pre-SPEC-066 bug.
+    for (field, needle) in [(&lock.output[0].key, "key"), (&lock.output[0].hash, "hash")] {
+        let text = good_text.replacen(field.as_str(), "a\u{20ac}\u{20ac}\u{20ac}\u{20ac}", 1);
+        std::fs::write(lock_path(root), &text).unwrap();
+
+        let stderr = build_expect(root, &["--check"], 2);
+        assert!(
+            stderr.contains("hex") && stderr.contains(needle),
+            "the non-hex {needle} is named, not a panic: {stderr}"
+        );
+        assert!(
+            !stderr.contains("panicked"),
+            "must be a typed error, not a panic: {stderr}"
+        );
+        // Fail-before-write: a hostile committed lockfile is never mutated by --check.
+        assert_eq!(read_lock_text(root), text, "the lockfile is untouched");
+    }
 }
