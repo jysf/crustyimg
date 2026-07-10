@@ -23,11 +23,19 @@ there is no separate prompt file unless a cycle needs one.
   cross-env-tolerated-unless-strict/malformed-exit-2 (integration). **No new dep** (serde/toml/sha2 shipped;
   toml serialization already used by DEC-058 recipe round-trip). Reuses `CacheKey::to_hex`/`hash_bytes`,
   exit 7 (DEC-025), SPEC-065 injectivity (path = valid key). **DEC-059 at build.** Framing, 2026-07-09.
-- [ ] **build** — `src/build/lock.rs` (BuildLock/LockEnv/LockOutput/LockError + `to_toml`/`from_toml` +
+- [x] **build** — `src/build/lock.rs` (BuildLock/LockEnv/LockOutput/LockError + `to_toml`/`from_toml` +
   env-aware `diff`) + wire `run_build` (build_one returns a per-output LockRecord; compute the key even
   under `--no-cache`; write default / verify on `--check`/`--frozen`/`--locked`/`--strict`); `pub mod lock`;
   `--check`/`--frozen`/`--locked`/`--strict` on GlobalArgs; DEC-059. Make all Failing Tests pass. Verify
   default + lean + `just deny` (no new dep) + clippy + fmt.
+  → **PR #73** on `feat/spec-066-reproducibility-lockfile`, 2026-07-09. 666 tests green (default + lean;
+  11 new in `tests/build_lock.rs`), clippy ×2 + fmt clean, `just deny` unchanged, **no new dep**
+  (`git diff main -- Cargo.toml` empty). DEC-059 emitted. Every branch driven on the real binary
+  (deterministic lock; `--check` pass / exit-7 on edited source, added, removed; `--frozen` w/o lock → 7;
+  cross-env note vs `--strict` → 7; malformed → 2 pre-write). Folded in per the STAGE-022 notes:
+  `exit_code_mapping_is_total` now covers `CliError::Cache`, and the literal-`{ext}` residual is closed as
+  a *silent* failure (post-encode `find_output_collision` → exit 2, no lock; the race itself still needs a
+  pre-decode format sniff — see DEC-059 + follow-ups). Est. ~350k tok / ~$3.15 (main-loop estimate).
 - [ ] **verify** — fresh session. Re-run gates; reproduce on the real binary: a build writes a deterministic
   lock; `--check` passes on a matching tree and exits 7 on an edited source / added-removed output without
   writing; `--frozen` without a lock exits 7; the cross-env hash tolerance (unit) + `--strict` escalation.
