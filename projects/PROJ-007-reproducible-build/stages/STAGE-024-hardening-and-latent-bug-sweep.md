@@ -1,0 +1,151 @@
+---
+# Maps to ContextCore epic-level conventions.
+stage:
+  id: STAGE-024
+  status: proposed                  # proposed | active | shipped | cancelled | on_hold
+  priority: medium
+  target_complete: null
+
+project:
+  id: PROJ-007
+repo:
+  id: crustyimg
+
+created_at: 2026-07-10
+shipped_at: null
+
+value_contribution:
+  advances: >
+    Hardens what the wave shipped rather than adding features: a correctness/robustness sweep
+    over the build/cache/lockfile machinery and the surfaces a prior-session review flagged as
+    the likely homes of latent bugs. It protects the "verifiable" thesis — a build tool people
+    trust in CI can't panic on a hostile file, serve a stale cache hit across build profiles, or
+    corrupt on an unusual filename. Sequenced LAST in PROJ-007, after STAGE-023 (`--watch`).
+  delivers:
+    - "The decoder fuzz gate actually run (AVIF/SVG/RAW/HEIC), with whatever it surfaces fixed — the roadmap's pre-1.0 gate, never yet executed"
+    - "Graceful, typed handling of non-UTF-8 / unusual filenames instead of silent empty-stem collisions"
+    - "Cache-key / determinism-envelope completeness (build profile is an unkeyed output-affecting input today)"
+    - "The two filed defects closed: the `CACHE_ENTRY_MAX_BYTES` read-bound off-by-53, and the pre-decode format sniff that closes SPEC-065's `{ext}` false positives + SPEC-066's literal-`{ext}` residual"
+    - "An exit-code-mapping totality audit (the `is_total` test shipped wrong twice)"
+  explicitly_does_not:
+    - "Add new build/cache/lockfile/watch features (those are STAGE-020..023)"
+    - "Do a general repo-wide security audit beyond the flagged surfaces (a separate effort / ultrareview)"
+    - "Re-open shipped decisions (DEC-057/058/059/060) unless a defect forces it"
+---
+
+# STAGE-024: hardening & latent-bug sweep
+
+## What This Stage Is
+
+The wave's closing correctness pass. STAGE-020..023 built the declared, cached, verifiable,
+watchable build; this stage hardens it. It gathers the latent-bug suspects a self-review
+surfaced (2026-07-10) — grounded in a code sweep, not speculation — into a bounded sweep:
+run the decoder fuzz gate that has never actually run, make unusual filenames fail gracefully
+instead of silently, close the cache-key/determinism gaps, and fix the two filed defects. It
+is deliberately the **last** stage of PROJ-007: it depends on nothing downstream, and it's the
+difference between "the machinery works on the happy path" and "you can trust it in CI on
+inputs you didn't write."
+
+## Why Now
+
+- **The recurring lesson of this wave was that green exit-code tests miss whole classes of
+  defect** — user-facing strings, hostile serialized/committed input, cross-platform path
+  handling. Three shipped-green defects proved it (SPEC-065 `{output:?}`, SPEC-066 `--strict`
+  message + the non-hex-digest panic). A dedicated sweep is how you find the rest before 1.0.
+- **The fuzz gate is a pre-1.0 roadmap item that was never executed** — the four targets exist
+  but there's no nightly/cargo-fuzz in the build/verify envs, so untrusted-binary decode paths
+  (AVIF/SVG/RAW/HEIC) have never been fuzzed. That's the highest-severity open surface.
+- **It's cheap relative to its value** — most items are small, and finding a memory-safety bug
+  or a stale-hit bug now is far cheaper than a post-1.0 CVE or a "the cache lied" report.
+
+## Success Criteria
+
+- The four fuzz targets run (locally, `cargo +nightly fuzz run …`) for a documented budget with
+  no crash left unaddressed; the run is recorded so it's repeatable.
+- A non-UTF-8 (or otherwise `.to_str()`-unrepresentable) input filename produces a **clear typed
+  error**, not a silent empty stem/extension that collides or writes a `""`-stem output.
+- The cache cannot serve a stale hit across an output-affecting input it doesn't key today
+  (build profile at minimum) — either the input joins the key or the schema version gates it.
+- The `CACHE_ENTRY_MAX_BYTES` store-vs-read bound is consistent (a near-cap payload round-trips),
+  and the pre-decode format sniff closes both `{ext}` collision gaps.
+- Every `CliError` variant provably maps to its documented exit code; the totality test can't
+  silently omit one again.
+- No regressions: full gate matrix green, `just deny` unchanged, no new default dependency
+  (the fuzz tooling is dev/nightly-only).
+
+## Scope
+
+### In scope (candidate specs — frame when the stage is picked up)
+- **(fuzz) Run the decoder fuzz gate + fix findings.** Execute `fuzz/avif_decode`,
+  `fuzz/svg_decode`, and the RAW/HEIC targets; triage + fix any crash; document the run and a
+  repeat recipe. *Lineage: the untrusted-decode surface is PROJ-009's, but the targets live
+  in-repo and the gate is a shared pre-1.0 item — running it here is fine.*
+- **(paths) Unusual-filename hardening.** Audit every `stem`/`ext`/path `.to_str()` seam
+  (`src/source`, `src/sink`, `src/cli`, `src/build`); a non-UTF-8 or empty-stem input becomes a
+  typed error or a documented, collision-safe fallback — never a silent `""` that the injectivity
+  check has to catch as a confusing "output collision."
+- **(cache) Cache-key / determinism-envelope completeness.** Build profile (debug vs release) is
+  an output-affecting input absent from the key (DEC-058's seven) — add it or bump
+  `CACHE_SCHEMA_VERSION`'s contract; re-examine the "byte-identical within a machine" envelope
+  (the rav1e thread-lever caveat) and document its true boundary.
+- **(cache) The `CACHE_ENTRY_MAX_BYTES` off-by-53 read bound** — `store` bounds the payload,
+  `read_entry` bounds payload+53-byte header, so a near-cap payload is stored-but-unreadable
+  (permanent silent miss). One-line fix + a regression test.
+- **(collision) The pre-decode format sniff** — closes SPEC-065's conservative-`{ext}` false
+  positives AND SPEC-066's literal-`{ext}` residual (the mixed `{stem}.png` / `{stem}.{ext}`
+  collision the lockfile catches only after the race writes both files). DEC-059 threat-model item.
+- **(cli) Exit-code totality audit** — verify every `CliError` variant maps to the exit code in
+  `docs/api-contract.md`; strengthen `exit_code_mapping_is_total` so an omission can't ship green
+  again (it missed `Cache` and `Metadata` in prior specs).
+
+### Explicitly out of scope
+- New features; a full repo-wide security audit beyond these surfaces (a separate ultrareview);
+  reworking shipped decisions unless a defect forces it; message-text test infrastructure as a
+  framework (add grep-stderr assertions per spec instead).
+
+## Spec Backlog
+
+Format: `- [status] SPEC-ID (cycle) — one-line summary`
+
+- [ ] (not yet framed) — run the decoder fuzz gate (AVIF/SVG/RAW/HEIC) + fix findings
+- [ ] (not yet framed) — non-UTF-8 / unusual-filename hardening (typed error, no silent empty stem)
+- [ ] (not yet framed) — cache-key / determinism-envelope completeness (build profile; the envelope's true bound)
+- [ ] (not yet framed) — `CACHE_ENTRY_MAX_BYTES` read-bound off-by-53 fix + regression test
+- [ ] (not yet framed) — pre-decode format sniff (closes SPEC-065 `{ext}` false positives + SPEC-066 residual)
+- [ ] (not yet framed) — exit-code mapping totality audit + a non-omittable `is_total` test
+
+**Count:** 0 shipped / 0 active / 6 pending — candidate specs; group/split when the stage is framed.
+
+## Design Notes
+
+- **These are grounded, not speculative.** A 2026-07-10 self-review + code sweep produced this
+  list: the byte-slicing discipline is mostly good (find/hex-based), the `.to_str()` seams
+  correctly use `and_then(...).unwrap_or("")` (safe but *silent* — the item above), and the
+  cache key omits build profile. Fuzzing is the one high-severity unknown. Don't gold-plate:
+  fix what's real, record what isn't.
+- **Framing bias:** the same architect framed all of PROJ-007, so this stage benefits most from a
+  fresh adversarial eye — prefer driving the binary with hostile input and a fuzzer over reading
+  the code the author already trusts.
+- **No new default dependency:** fuzz tooling is nightly/dev-only; the fixes are pure-Rust.
+
+## Dependencies
+
+### Depends on
+- All of PROJ-007's shipped machinery (STAGE-020..022) + STAGE-023 (`--watch`); the four fuzz
+  targets already in `fuzz/`; DEC-034 (decode caps, the mitigation these harden past).
+
+### Enables
+- A PROJ-007 that's trustworthy on untrusted input — a precondition for the pre-1.0 "reviewed
+  like code" claim to be safe, not just aspirational.
+
+## Stage-Level Reflection
+
+*Filled in when status moves to shipped.*
+
+- **Did we deliver the outcome in "What This Stage Is"?** <yes/no + notes>
+- **How many specs did it actually take?** <number vs. plan>
+- **What changed between starting and shipping?** <one sentence>
+- **Lessons that should update AGENTS.md, templates, or constraints?**
+  - <one-line updates>
+- **Should any spec-level reflections be promoted to stage-level lessons?**
+  - <one-line items>
