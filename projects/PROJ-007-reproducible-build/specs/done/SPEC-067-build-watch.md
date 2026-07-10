@@ -3,7 +3,7 @@
 task:
   id: SPEC-067
   type: story
-  cycle: build  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: medium
   complexity: M                    # a debounced watch loop + one new dep + cross-platform + self-trigger exclusion; the logic is small, the dep/testability add weight
@@ -52,23 +52,58 @@ cost:
     - cycle: build
       agent: claude-opus-4-8
       interface: claude-code
-      tokens_total: null
-      estimated_usd: null
-      duration_minutes: null
+      tokens_total: 350000
+      estimated_usd: 3.15
+      duration_minutes: 50
       recorded_at: 2026-07-10
       notes: >
-        Build cycle run as the metered build session — the ORCHESTRATOR fills the real
-        tokens_total / duration_minutes / estimated_usd from the Agent result's
-        subagent_tokens at ship (AGENTS §4; must NOT stay null on a shipped spec).
-        Delivered: `notify` dep behind a default-on `watch` feature (DEC-060), the pure
-        `src/build/watch.rs` (watch_roots / is_excluded / debounce / WatchSet / WatchError),
-        the thin feature-gated loop + lockfile suppression in cli, and unit + integration
-        tests. `just deny` green via 3 scoped per-crate exceptions (notify CC0-1.0,
-        inotify/inotify-sys ISC); DEC-006 (no async) intact.
+        Build ran in a separate fresh Claude-Code session (not a metered orchestrator
+        subagent), so tokens_total is a labelled order-of-magnitude ESTIMATE, not a
+        harness-reported figure (AGENTS §4; must NOT stay null on a shipped spec). ~350k
+        priced at the Opus blended rate; higher than a typical M-spec because the dep
+        addition + license decision + a 3-OS CI round-trip on the Linux-inotify two-tier
+        fix + integration-test de-flaking added passes. Delivered: `notify` dep behind a
+        default-on `watch` feature (DEC-060), the pure `src/build/watch.rs` (watch_roots /
+        is_excluded / debounce / WatchSet / WatchError), the thin feature-gated loop +
+        lockfile suppression in cli, unit + integration tests. `just deny` green via 3
+        scoped per-crate exceptions (notify CC0-1.0, inotify/inotify-sys ISC); DEC-006
+        (no async) intact.
+    - cycle: verify
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 140000
+      estimated_usd: 1.26
+      duration_minutes: 25
+      recorded_at: 2026-07-10
+      notes: >
+        Verify ran in a separate fresh Claude-Code session — labelled estimate, not
+        harness-metered (AGENTS §4). CLEAN, empty punch list. Drove the real release binary
+        on macOS against every acceptance criterion with adversarial input: the self-trigger
+        crux confirmed under symlinked `/tmp`, a non-symlinked `$HOME` path, AND a whole-cwd
+        `.` glob (strongest confirmation the component-wise CWD-normalized exclusion fires);
+        the two-tier watch shown NOT to under-watch (source/recipe/manifest edits + glob
+        add/remove all rebuild); debounce 24-write burst → one rebuild; resilience/startup
+        asymmetry; `--watch`×verify → exit 2; lockfile untouched; lean-build error. All gates
+        re-run green (685 tests + 7 integration, clippy/fmt/deny/validate). Two non-blocking
+        observations filed to the STAGE-024 backlog.
+    - cycle: ship
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 50000
+      estimated_usd: 0.45
+      duration_minutes: 15
+      recorded_at: 2026-07-10
+      notes: >
+        Ship bookkeeping in the orchestrator main loop — labelled estimate (AGENTS §4).
+        Squash-merged PR #74 → main (c2ec46a); filled the build/verify/ship cost sessions +
+        totals; ship reflection; timeline [x]; STAGE-023 → shipped; brief + stage backlog;
+        `just archive-spec` + `just cost-audit`; brag entry; memory update. STAGE-023 SHIPPED
+        (its only spec) — PROJ-007 build+cache+lockfile+watch all in; STAGE-024 (hardening &
+        security sweep) remains before the project closes.
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 540000
+    estimated_usd: 4.86
+    session_count: 4
 ---
 
 # SPEC-067: `crustyimg build --watch`
@@ -389,10 +424,26 @@ them `#[ignore]` (documented) rather than weakening the unit coverage.
 from the process-focused build reflection above.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Pin the recursion granularity in the *spec*, not just leave "watched recursively" to the
+   builder. The one CI round-trip this spec cost was the Linux inotify overflow: the design said
+   watch source roots "recursively" without flagging that the manifest/recipe dirs sit beside the
+   build's own `dist/`+`.crustyimg/` trees and must NOT be watched recursively. The builder found
+   it via 3-OS CI (exactly the cross-platform lesson this wave keeps teaching), but a design note
+   distinguishing "input roots (recursive)" from "config dirs beside output (shallow)" would have
+   pre-empted it. When a watch/scan surface abuts a high-churn output tree, spell out the tiering.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — The `--frozen`/`--locked` fields the spec assumed don't exist (they're clap `visible_alias`es
+   of `--check`) — a small reminder that spec pseudo-code should be checked against the live
+   `GlobalArgs` before it prescribes a guard. No constraint change. DEC-060 is the durable record
+   (dep + debounce + self-trigger exclusion + two-tier watch + feature gate + the 3 license
+   exceptions). Worth carrying into STAGE-024's threat model: `--watch` adds a live filesystem-event
+   surface over the user's tree, and `is_excluded` is now load-bearing security-adjacent (a
+   normalization miss = the build echoing its own writes) — that belongs in the attack-surface enum.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — Two verify-surfaced items go to the STAGE-024 backlog (already logged there), not their own
+   specs: (a) `--watch` is a global clap flag so it silently no-ops on non-`build` subcommands —
+   reject or document as build-only; (b) `--watch` never prunes an orphaned output when a source is
+   removed (existing `build` semantics, not watch-specific) — a future `--clean`/prune option. The
+   one real future spec is the verify-on-change **`--watch --check`** mode, deferred by design.

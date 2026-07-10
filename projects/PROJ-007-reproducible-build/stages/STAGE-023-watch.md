@@ -2,7 +2,7 @@
 # Maps to ContextCore epic-level conventions.
 stage:
   id: STAGE-023
-  status: active                    # proposed | active | shipped | cancelled | on_hold
+  status: shipped                   # proposed | active | shipped | cancelled | on_hold
   priority: medium
   target_complete: null
 
@@ -12,7 +12,7 @@ repo:
   id: crustyimg
 
 created_at: 2026-07-09
-shipped_at: null
+shipped_at: 2026-07-10
 
 value_contribution:
   advances: >
@@ -98,14 +98,34 @@ review de-gated from 1.0-blocking, so it completes the wave without being on the
 
 Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
-- [ ] SPEC-067 (design) — `crustyimg build --watch`: debounced rebuild loop over the shipped incremental
+- [x] SPEC-067 (shipped) — `crustyimg build --watch`: debounced rebuild loop over the shipped incremental
   executor (`run_build` per cycle; the cache prunes to affected outputs — no dependency graph); watch
-  manifest + recipes + source roots (recursive), **exclude own outputs/`.crustyimg/`/lockfile so it never
-  self-triggers**; loop-resilient; Ctrl-C via default SIGINT (no `ctrlc` dep); pure `watch_roots`/`is_excluded`/
-  `debounce` unit-tested + a thin `notify` loop. **One new dep (`notify`, threads+mpsc not async) → DEC-060.**
-  Framed 2026-07-09.
+  manifest + recipes + source roots, **exclude own outputs/`.crustyimg/`/lockfile so it never self-triggers**;
+  loop-resilient; Ctrl-C via default SIGINT (no `ctrlc` dep); pure `watch_roots`/`is_excluded`/`debounce`
+  unit-tested + a thin `notify` loop. **One new dep (`notify`, threads+mpsc not async) → DEC-060**, `just deny`
+  green via 3 scoped per-crate exceptions (notify CC0-1.0, inotify/inotify-sys ISC). PR #74 → main c2ec46a,
+  26/26 3-OS CI green, verify CLEAN. Framed 2026-07-09, shipped 2026-07-10.
 
-**Count:** 0 shipped / 1 active / 0 pending — single-spec stage; SPEC-067 framed, build-ready.
+**Count:** 1 shipped / 0 active / 0 pending — single-spec stage complete.
+
+## Ship Note (2026-07-10)
+
+**STAGE-023 SHIPPED** — SPEC-067 (its only spec) landed. `crustyimg build --watch` is a thin debounced
+loop over the shipped `run_build`: the STAGE-021 cache makes each full re-run incremental, so there is no
+dependency graph. The self-trigger crux held (`is_excluded` normalizes the watcher's absolute event paths
+against the manifest-relative excluded set, compared by components) — verify hammered it under symlinked
+`/tmp` and a whole-cwd `.` glob with no self-trigger. `notify` runs on threads + `std::sync::mpsc` (DEC-006
+holds, no async). The one deviation with teeth was the **two-tier WatchSet** (recursive source roots, shallow
+manifest/recipe dirs): watching config dirs recursively also covered the sibling `.crustyimg/` cache tree,
+and a fresh build's cache-write burst overflowed Linux inotify and starved source-edit detection — caught by
+3-OS CI, exactly the wave's cross-platform lesson. Two non-blocking observations carried to **STAGE-024**'s
+backlog: (a) `--watch` is a global clap flag so it silently no-ops on non-`build` subcommands; (b) a removed
+source leaves an orphaned output (existing `build` semantics — a future `--clean`/prune). DEC-060 records the
+dep + debounce + self-trigger exclusion + two-tier watch + feature gate + the 3 license exceptions.
+
+With STAGE-023 in, PROJ-007 has **build + cache + lockfile + watch** all shipped. The project does **not**
+close yet: **STAGE-024** (hardening & security sweep) is queued last; the Project-Level Reflection runs after
+it ships.
 
 ## Design Notes
 

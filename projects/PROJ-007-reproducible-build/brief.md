@@ -133,11 +133,15 @@ Format: `- [status] STAGE-ID — one-line summary`
   each output's cache key (robust inputs, DEC-058) + records the observed output hash + env; `--check` fails on
   input drift (exit 7), cross-env byte variance informational unless `--strict`; perceptual/SSIMULACRA2 (shipped
   `diff`) stays the review-grade check. No new dep across either spec.
-- [~] STAGE-023 (framed, active 2026-07-09) — `--watch`: a debounced file-watching inner loop. **SPEC-067
-  framed + build-ready** — a thin loop over the shipped `run_build` (the STAGE-021 cache makes a full re-run
-  incremental, so "only affected rebuilds" is free — no dependency graph); watch manifest + recipes + source
-  roots, **exclude own outputs/cache/lock so it never self-triggers**; loop-resilient; Ctrl-C via default
-  SIGINT. One new dep (`notify`, threads+mpsc, not async) → **DEC-060** at build.
+- [x] STAGE-023 (shipped on 2026-07-10 — SPEC-067, PR #74, DEC-060) — `--watch`: a debounced file-watching
+  inner loop. A thin loop over the shipped `run_build` (the STAGE-021 cache makes a full re-run incremental,
+  so "only affected rebuilds" is free — no dependency graph); watch manifest + recipes + source roots,
+  **exclude own outputs/cache/lock so it never self-triggers** (`is_excluded` normalizes both sides — verify
+  hammered it under symlinked `/tmp` + a whole-cwd `.` glob, no self-trigger); loop-resilient; Ctrl-C via
+  default SIGINT. One new dep (`notify`, threads+mpsc, not async — DEC-006 holds), `just deny` green via 3
+  scoped per-crate exceptions (notify CC0-1.0, inotify/inotify-sys ISC). Shipped deviation with teeth: a
+  **two-tier WatchSet** (recursive source roots, shallow manifest/recipe dirs) — a recursive watch over the
+  config dirs also covered `.crustyimg/` and overflowed Linux inotify (3-OS CI caught it).
 - [ ] (proposed) STAGE-024 — hardening & security sweep: the wave's closing correctness + security pass,
   queued LAST. **Leads with a threat-model / attack-surface review of PROJ-007's NEW untrusted-input surface**
   (build manifest, recipe files, the `.crustyimg/` cache store, the committed lockfile, `--watch`'s tree)
@@ -148,7 +152,7 @@ Format: `- [status] STAGE-ID — one-line summary`
   closes SPEC-065's `{ext}` false positives + SPEC-066's literal-`{ext}` residual); an exit-code totality audit.
   From a 2026-07-10 self-review + code sweep — grounded, not speculative; no new default dep.
 
-**Count:** 3 shipped / 1 active / 1 proposed (STAGE-020+021+022 shipped — the "verifiable" leg done; STAGE-023 `--watch` build-ready; STAGE-024 hardening sweep queued last)
+**Count:** 4 shipped / 0 active / 1 proposed (STAGE-020+021+022+023 shipped — build+cache+lockfile+`--watch` all in; STAGE-024 hardening & security sweep queued last, then PROJ-007 closes)
 
 ## Dependencies
 
