@@ -22,7 +22,9 @@
 //! Layering: this module depends on `serde`/`toml`/`thiserror` only. No `clap`,
 //! no pixel crate, no filesystem. Its sibling [`cache`] (SPEC-064, DEC-058) owns
 //! the build's content-addressed cache — the key composition and the on-disk
-//! store — and does touch the filesystem; the executor still owns all the wiring.
+//! store — and does touch the filesystem; its sibling [`lock`] (SPEC-066,
+//! DEC-059) owns the `crustyimg.build.lock` format and its env-aware diff, and
+//! does not. The executor still owns all the wiring.
 //!
 //! ## Relationship to recipes (DEC-005 / DEC-057)
 //!
@@ -46,6 +48,7 @@
 //! All of these fire before the executor touches a single input.
 
 pub mod cache;
+pub mod lock;
 
 use serde::Deserialize;
 use thiserror::Error;

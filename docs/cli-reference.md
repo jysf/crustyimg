@@ -277,6 +277,7 @@ name   = "{stem}_web.{ext}"     # optional; default "{stem}.{ext}"
 crustyimg build                 # discovers ./crustyimg.build.toml
 crustyimg build ci.build.toml -j 8
 crustyimg build --no-cache      # rebuild everything, ignore the cache
+crustyimg build --check         # verify against the lockfile; exit 7 on drift
 ```
 
 #### Incremental rebuilds (the cache)
@@ -302,6 +303,39 @@ or deleted entry falls back to a clean rebuild rather than serving bad bytes. Cl
 with `rm -rf .crustyimg` (there is no automatic eviction yet), and add `.crustyimg/` to
 your `.gitignore`. `--no-cache` bypasses it in both directions: no entry is read, none
 is written, and every input is rebuilt.
+
+#### The lockfile (`--check` / `--frozen`)
+
+Every build writes **`crustyimg.build.lock`** next to the manifest — commit it. It records
+one entry per output: the file it wrote, the source and recipe that produced it, the
+**cache key** (an identity of the *inputs*), the **hash** of the bytes written, and their
+size — plus one `[env]` block naming the crustyimg version, `arch-os`, and features the
+build ran under. Outputs are sorted by path, so two clean builds on one machine produce a
+byte-identical lockfile and a review diff shows only what actually moved.
+
+`build --check` re-runs the build and compares it against the committed lockfile instead of
+refreshing it. It exits **0** when they agree and **7** on drift, naming each output that
+moved, and it **never modifies the lockfile**. `--frozen` and `--locked` are aliases (there
+is no network to lock out). A missing lockfile under these flags is drift, not an error.
+
+```sh
+crustyimg build --check           # the CI gate: exit 7 if the build drifted
+crustyimg build --check --strict  # also fail on cross-environment byte differences
+```
+
+What counts as drift is the honest part. The **key** is a function of the inputs alone, so
+it reproduces on any machine: if a source, recipe, quality, or the tool version changed, the
+key changes and `--check` fails — always. An **output-hash** difference is judged against
+`[env]`: on the *same* `arch-os` it is a real regression (exit 7), on a *different* one it is
+expected encoder variance, reported as a note but not a failure. `--strict` promotes that
+note to a failure, for shops pinned to one toolchain and arch that want byte-identity
+enforced. crustyimg does not promise cross-arch byte-identity, because its encoders can't.
+
+For the review-grade question — *did the image actually change?* — compare pixels, not
+encoder bytes: `crustyimg diff a.png b.png --fail-under 90` (SSIMULACRA2, also exit 7).
+
+A malformed, oversized, or unknown-version lockfile exits **2** before anything is built.
+A plain `crustyimg build` owns the file and simply regenerates it.
 
 ---
 

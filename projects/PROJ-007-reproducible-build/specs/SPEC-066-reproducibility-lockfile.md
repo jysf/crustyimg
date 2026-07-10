@@ -3,7 +3,7 @@
 task:
   id: SPEC-066
   type: story
-  cycle: design  # frame | design | build | verify | ship
+  cycle: verify  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: L                    # lockfile module + executor wiring + check/frozen/strict + env-aware policy + DEC-059; the stage's headline spec
@@ -48,6 +48,17 @@ cost:
         to_hex, hash_bytes, compute_key). Confirmed toml serialization is already used (DEC-058
         recipe round-trip) and sha2/serde/toml are shipped → no new dep. Reproducibility policy
         (pin key, record hash+env; env-aware --check) carried from the STAGE-022 Design Notes.
+    - cycle: build
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 350000
+      estimated_usd: 3.15
+      duration_minutes: 40
+      recorded_at: 2026-07-09
+      notes: >
+        Build ran in the orchestrator main loop (not a metered subagent), so tokens_total is an
+        order-of-magnitude ESTIMATE, not a harness-reported figure: ~350k combined, priced at the
+        Opus 4.8 list rate ($5/$25 per MTok) at ~80/20 input/output with no cache discount.
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -141,23 +152,23 @@ output-hash variance to a failure. No new dependency.
 
 ## Acceptance Criteria
 
-- [ ] A normal `crustyimg build` writes/refreshes `crustyimg.build.lock` with one `[[output]]` per
+- [x] A normal `crustyimg build` writes/refreshes `crustyimg.build.lock` with one `[[output]]` per
   output (path, source, recipe, pinned `key`, observed `hash`, bytes) + one `[env]` block; a
   no-change re-run on the same machine produces a **byte-identical** lockfile (deterministic, sorted).
-- [ ] `crustyimg build --check` exits **0** when the resolved build matches the committed lockfile,
+- [x] `crustyimg build --check` exits **0** when the resolved build matches the committed lockfile,
   and **7** (`CheckFailed`, DEC-025) on drift — **without modifying** the lockfile.
-- [ ] **Input drift** (a source, recipe, quality, or tool version change → the output's cache `key`
+- [x] **Input drift** (a source, recipe, quality, or tool version change → the output's cache `key`
   differs, or an output path is added/removed) makes `--check` exit 7, naming what drifted.
-- [ ] **Output-hash drift under the SAME env** (key matches, bytes differ, recorded `target` ==
+- [x] **Output-hash drift under the SAME env** (key matches, bytes differ, recorded `target` ==
   current) is a failure (exit 7). Under a **different** env it is **informational** (exit 0 with a
   note) — unless `--strict`, which makes it exit 7.
-- [ ] `--frozen` / `--locked` behave as `--check` (assert, never write); a **missing** lockfile under
+- [x] `--frozen` / `--locked` behave as `--check` (assert, never write); a **missing** lockfile under
   `--check`/`--frozen` is drift → exit 7 with "no lockfile; run `crustyimg build` to create one".
-- [ ] A malformed lockfile (bad TOML / unknown field / unsupported version / oversize) is a typed
+- [x] A malformed lockfile (bad TOML / unknown field / unsupported version / oversize) is a typed
   `LockError` → exit 2, before any output is written.
-- [ ] The lockfile relies on SPEC-065's injectivity (one entry per output path); **no new dependency**;
+- [x] The lockfile relies on SPEC-065's injectivity (one entry per output path); **no new dependency**;
   `cargo build --no-default-features` still succeeds; `just deny` unchanged and green.
-- [ ] `cargo clippy --all-targets -- -D warnings` + `cargo fmt --check` clean; every new public fn tested.
+- [x] `cargo clippy --all-targets -- -D warnings` + `cargo fmt --check` clean; every new public fn tested.
 
 ## Failing Tests
 
@@ -277,26 +288,75 @@ Compare committed vs current, keyed on output `path`:
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
+- **Branch:** `feat/spec-066-reproducibility-lockfile`
+- **PR (if applicable):** #72
+- **All acceptance criteria met?** yes
 - **New decisions emitted:**
   - `DEC-059` — the lockfile format + pin-vs-record + env-aware `--check`/`--frozen`/`--strict` policy
+    (`affected_scope`: `src/build/lock.rs`, `src/build/mod.rs`, `src/cli/mod.rs`)
 - **Deviations from spec:**
-  - [list]
+  - **`to_toml` returns `Result<String, LockError>`, not `String`.** `toml::to_string` is fallible;
+    returning `String` would need an `unwrap`/`expect` in library code
+    (`no-unwrap-on-recoverable-paths`). Added `LockError::Serialize`, documented as unreachable for
+    the shipped schema.
+  - **No separate `LockRecord` type.** `build_one` returns `lock::LockOutput` directly (it has exactly
+    the spec's `{path, source, recipe, key, hash, bytes}` fields), wrapped in a small `BuildOutcome
+    { built, record }`. A parallel `LockRecord` would have been a rename of the same struct.
+  - **The key is computed unconditionally, not "when `lock_mode` is on".** Every build either writes or
+    checks a lockfile, so there is no mode where the key is unneeded — the gate the spec anticipated has
+    no off state. Cost: a `--no-cache` build now reads + hashes each source once (recorded in DEC-059's
+    Negative consequences).
+  - **The committed lockfile is loaded in phase 1**, before `Cache::open` and any write — needed to make
+    "a malformed lockfile … exits 2 **before any output is written**" true, and it makes a missing
+    lockfile under `--frozen` fail before writing too.
+  - **Three new `CliError` variants**, not one: `Lock` (content → 2), `LockIo` (read → 3), `LockWrite`
+    (write → 5). Collapsing them would have mapped a failed lockfile *write* to the input-not-found code.
+  - **Lockfile paths are `/`-separated** (not `Path::display()`), so a lockfile committed on macOS reads
+    on Windows. The spec said "compute the path the SAME way the sink does"; the sink's `safe_join`
+    canonicalizes to an absolute host path, which is not committable — so the lock mirrors
+    `output_collision_key`'s relative composition with the real `{ext}` substituted.
+  - **Folded in (both flagged in the STAGE-022 notes as this spec's territory):**
+    - `exit_code_mapping_is_total` now asserts `CliError::Cache` (both variants) — the pre-existing
+      SPEC-064 gap — plus the three new lockfile variants.
+    - The **literal-`{ext}` residual** is closed as a *silent* failure: after the encodes, `run_build`
+      re-runs `find_output_collision` on the resolved output paths and refuses to pin an ambiguity
+      (`OutputCollision`, exit 2, no lockfile). Verified on the real binary with a mixed
+      `{stem}.png` / `{stem}.{ext}` manifest, and pinned by
+      `literal_ext_collision_is_caught_before_the_lock_is_written`. It does **not** unrace the write —
+      DEC-059 says so plainly, and names the pre-decode format sniff as the real fix.
 - **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - `build --check --json` — a machine-readable drift report. Explicitly out of scope here; the natural
+    next ask from anyone wiring `--check` into a CI annotation.
+  - **A pre-decode format sniff** would close BOTH the literal-`{ext}` residual at the prepare phase and
+    SPEC-065's `{ext}` false positives. The cheapest fix to two disclosed defects; worth a spec.
+  - `[env]` cannot distinguish two machines sharing an `arch-os` but not a codec build (a distro-patched
+    libwebp). Only affects the hash half. A codec-version fingerprint would be a lock schema bump.
+  - The STAGE-021 `CACHE_ENTRY_MAX_BYTES` off-by-53 remains open — this spec never touched the store.
 
 ### Build-phase reflection (3 questions, short answers)
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — Almost nothing; the Implementation Context was accurate against the tree and the seam line
+   numbers held. The one under-specified point was the **output path's textual form**. The spec said to
+   compute it "the SAME way the sink does (`expand_template` + `safe_join`)", but `safe_join`
+   canonicalizes to an absolute path — putting `/Users/…/dist/a.png` in a committed file. The intent was
+   clearly "the same *placement*", so I mirrored `output_collision_key`'s relative composition instead
+   and normalized separators to `/`. A design that names a committed artifact should say what its paths
+   look like on the other OS.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — DEC-036 (the size-guard pattern) is cited inside DEC-005/DEC-057 but wasn't in this spec's
+   `references.decisions`, and it's the one I actually reached for twice (`fs::metadata` pre-check, then
+   `s.len()` before parse). Otherwise the reference set was complete. Worth noting the spec's
+   `to_toml(&self) -> String` signature conflicted with `no-unwrap-on-recoverable-paths` — the constraint
+   won, and the signature moved.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — I'd drive the real binary *earlier*. The gates went green while `--check --strict` still printed
+   "use `--strict` to fail on it" — advice the user had already taken. No test caught it because no test
+   read the sentence; a two-minute manual run did. The same run is what proved the literal-`{ext}`
+   second line of defense actually fires, which then became a test. Exercising the CLI is how you find
+   the things assertions don't ask about.
 
 ---
 

@@ -100,6 +100,26 @@ pub struct GlobalArgs {
     /// input (SPEC-064). The cache is on by default; this is the opt-out.
     #[arg(long, global = true)]
     pub no_cache: bool,
+
+    /// Verify the build against the committed `crustyimg.build.lock` instead of
+    /// refreshing it: exit 7 on drift, and never modify the lockfile (SPEC-066).
+    ///
+    /// `--frozen` and `--locked` are aliases — crustyimg has no network, so the
+    /// cargo distinction between "don't update" and "don't hit the registry"
+    /// collapses into one assert mode (DEC-059).
+    #[arg(
+        long,
+        global = true,
+        visible_alias = "frozen",
+        visible_alias = "locked"
+    )]
+    pub check: bool,
+
+    /// With `--check`: promote cross-environment output-byte variance from a
+    /// note to a failure. For shops on a pinned toolchain and arch that want
+    /// byte-identity enforced (DEC-059).
+    #[arg(long, global = true)]
+    pub strict: bool,
 }
 
 /// A perceptual auto-quality preset for `shrink --target` (SPEC-016, DEC-019).
@@ -504,6 +524,27 @@ pub enum CliError {
         source: std::io::Error,
     },
 
+    /// A build-lockfile parse / version / oversize error (SPEC-066, DEC-059).
+    /// A lockfile *content* error → exit 2, like a malformed manifest.
+    #[error(transparent)]
+    Lock(#[from] crate::build::lock::LockError),
+
+    /// The committed lockfile exists but could not be read (exit 3). A *missing*
+    /// lockfile under `--check` is not this: it is drift → `CheckFailed`.
+    #[error("could not read build lockfile {path}: {source}")]
+    LockIo {
+        path: String,
+        source: std::io::Error,
+    },
+
+    /// The lockfile could not be written (exit 5 — an output write was refused,
+    /// the same code the sink and the cache store use).
+    #[error("could not write build lockfile {path}: {source}")]
+    LockWrite {
+        path: String,
+        source: std::io::Error,
+    },
+
     /// The build cache could not be opened or written (SPEC-064, DEC-058).
     /// Only `Cache::open` reaches here — a lookup degrades to a miss, and a
     /// failed `store` is warned about, not raised. Exit 5 (write refused);
@@ -607,6 +648,11 @@ impl CliError {
             // caught before execution → 2, like a malformed manifest (SPEC-065).
             CliError::OutputCollision { .. } => 2,
             CliError::BuildManifestIo { .. } => 3,
+            // A malformed lockfile is a broken committed contract, not a failed
+            // check → 2, like a malformed manifest (SPEC-066).
+            CliError::Lock(_) => 2,
+            CliError::LockIo { .. } => 3,
+            CliError::LockWrite { .. } => 5,
             // The build cache could not be created/written → an output write was
             // refused → 5, the same code the sink's write failures use.
             CliError::Cache(_) => 5,
@@ -1294,6 +1340,65 @@ fn cache_key_for(
     )))
 }
 
+/// Render a path with `/` separators, whatever the host uses.
+///
+/// A lockfile is committed and read on every OS, so the paths inside it must not
+/// carry a Windows `\`. Only the *lock's* strings are normalized; the bytes are
+/// still written through the sink's own platform-native join.
+fn to_slash(path: &Path) -> String {
+    path.components()
+        .filter(|c| !matches!(c, std::path::Component::CurDir))
+        .map(|c| c.as_os_str().to_string_lossy())
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
+/// The output path a lock entry names: `out` dir + the expanded name template,
+/// with the **real** output extension (known only after the encode, or from the
+/// cache entry on a hit).
+///
+/// The same composition `write_encoded` uses, so a lock entry names exactly the
+/// file that was written. It is the post-decode twin of `output_collision_key`,
+/// which must leave `{ext}` unexpanded because it runs before any decode.
+fn lock_output_path(
+    target: &crate::build::Target,
+    input: &crate::source::Input,
+    ext: &str,
+) -> String {
+    let file_name =
+        crate::sink::expand_template(target.template(), input.stem(), ext, input.path());
+    let dir = to_slash(Path::new(&target.out));
+    if dir.is_empty() {
+        file_name
+    } else {
+        format!("{dir}/{file_name}")
+    }
+}
+
+/// The lock entry for one written output.
+fn lock_record(
+    prepared: &PreparedTarget,
+    input: &crate::source::Input,
+    key: &crate::build::cache::CacheKey,
+    ext: &str,
+    bytes: &[u8],
+) -> Option<crate::build::lock::LockOutput> {
+    // A build's inputs are always `Input::Path` (the manifest rejects `-`,
+    // DEC-057), which is also why `cache_key_for` can hand us a key at all.
+    let source = match input {
+        crate::source::Input::Path(p) => to_slash(p),
+        crate::source::Input::Stdin { .. } => return None,
+    };
+    Some(crate::build::lock::LockOutput {
+        path: lock_output_path(prepared.target, input, ext),
+        source,
+        recipe: prepared.target.recipe.clone(),
+        key: key.to_hex(),
+        hash: crate::build::cache::hash_bytes(bytes).to_hex(),
+        bytes: bytes.len() as u64,
+    })
+}
+
 /// What every input of a build shares: the operation registry, the (optional)
 /// cache, and the global flags the per-input worker reads. Built once in
 /// `run_build` and borrowed across the rayon fan-out — all `Sync`.
@@ -1305,8 +1410,23 @@ struct BuildCtx<'a> {
     quiet: bool,
 }
 
+/// One built output: how it was produced, and what the lockfile records of it.
+///
+/// `record` is `None` only for a stdin input, which a build manifest cannot
+/// declare (DEC-057) — the same unreachable branch `cache_key_for` guards.
+struct BuildOutcome {
+    built: Built,
+    record: Option<crate::build::lock::LockOutput>,
+}
+
 /// Build one input: a cache hit materializes the stored bytes, a miss runs the
-/// shipped worker and stores the result.
+/// shipped worker and stores the result. Either way it returns the lock record
+/// for the bytes it wrote.
+///
+/// The cache key is computed **unconditionally**, not just when the store is
+/// open: every build writes or checks a lockfile, and the key is what the
+/// lockfile pins (DEC-058/DEC-059). A `--no-cache` build therefore still reads
+/// and hashes each source once — the cost of being lockable.
 ///
 /// Cache failures never fail a build. A `lookup` that errors is treated as a
 /// miss (it cannot error by construction, but the executor does not rely on
@@ -1315,24 +1435,24 @@ fn build_one(
     ctx: &BuildCtx,
     prepared: &PreparedTarget,
     input: &crate::source::Input,
-) -> Result<Built, CliError> {
+) -> Result<BuildOutcome, CliError> {
     let out_dir = Path::new(&prepared.target.out);
     let template = prepared.target.template();
     // A build owns its declared outputs and overwrites them (DEC-057) — which is
     // also what lets a hit restore an output the user deleted.
     let overwrite = Overwrite::Allow;
 
-    let key = match ctx.cache {
-        Some(_) => cache_key_for(prepared, input, ctx.quality)?,
-        None => None,
-    };
+    let key = cache_key_for(prepared, input, ctx.quality)?;
 
     if let (Some(cache), Some(key)) = (ctx.cache, key.as_ref()) {
         if let Ok(Some(hit)) = cache.lookup(key) {
             // The entry is self-describing: it carries the extension the output
             // was encoded as, so no decode is needed to write it to the right path.
             write_encoded(&hit.bytes, &hit.ext, input, out_dir, template, overwrite)?;
-            return Ok(Built::Cached);
+            return Ok(BuildOutcome {
+                built: Built::Cached,
+                record: lock_record(prepared, input, key, &hit.ext, &hit.bytes),
+            });
         }
     }
 
@@ -1347,7 +1467,59 @@ fn build_one(
         }
     }
 
-    Ok(Built::Rebuilt)
+    Ok(BuildOutcome {
+        built: Built::Rebuilt,
+        record: key
+            .as_ref()
+            .and_then(|k| lock_record(prepared, input, k, ext, &bytes)),
+    })
+}
+
+/// Read and parse the committed lockfile.
+///
+/// `Ok(None)` when the file does not exist — under `--check` that is drift, not
+/// an error, and the caller says so with an actionable message. Every other I/O
+/// failure is `LockIo` (exit 3); a malformed/oversize/over-version lockfile is a
+/// typed `LockError` (exit 2). Size is checked on disk before the read, so an
+/// oversized lockfile is never brought into memory (DEC-036).
+fn load_lock(path: &str) -> Result<Option<crate::build::lock::BuildLock>, CliError> {
+    use crate::build::lock::{BuildLock, LockError, LOCK_MAX_BYTES};
+
+    let io_err = |source: std::io::Error| CliError::LockIo {
+        path: path.to_owned(),
+        source,
+    };
+    let meta = match std::fs::metadata(path) {
+        Ok(m) => m,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(io_err(e)),
+    };
+    if meta.len() > LOCK_MAX_BYTES as u64 {
+        return Err(CliError::Lock(LockError::TooLarge {
+            size: meta.len().min(usize::MAX as u64) as usize,
+            max: LOCK_MAX_BYTES,
+        }));
+    }
+    let text = std::fs::read_to_string(path).map_err(io_err)?;
+    Ok(Some(BuildLock::from_toml(&text)?))
+}
+
+/// Write the lockfile atomically: stage beside it, then `rename` into place.
+///
+/// A reader (a concurrent `--check`, a `git status`) therefore never sees a
+/// half-written lockfile — the same temp→rename discipline the cache store uses.
+fn write_lock(path: &str, contents: &str) -> Result<(), CliError> {
+    let write_err = |source: std::io::Error| CliError::LockWrite {
+        path: path.to_owned(),
+        source,
+    };
+    let tmp = format!("{path}.tmp{}", std::process::id());
+    std::fs::write(&tmp, contents).map_err(write_err)?;
+    if let Err(e) = std::fs::rename(&tmp, path) {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(write_err(e));
+    }
+    Ok(())
 }
 
 /// The `build` path: run every `[[target]]` in a declared build manifest.
@@ -1369,6 +1541,14 @@ fn build_one(
 /// output and skips decode→pipeline→encode entirely, a miss runs the worker and
 /// stores the result. `--no-cache` bypasses the store in both directions.
 ///
+/// Every build ends at the **lockfile** (SPEC-066): by default it writes
+/// `crustyimg.build.lock`, pinning each output's cache key and recording its
+/// observed bytes + the env they were observed under. Under
+/// `--check`/`--frozen`/`--locked` it instead diffs the build against the
+/// committed lockfile and returns [`CliError::CheckFailed`] (exit 7) on drift,
+/// without ever writing the lockfile. The committed lockfile is loaded in phase
+/// 1, so a malformed one fails before any output is written.
+///
 /// A build **owns its declared outputs**, so it writes with [`Overwrite::Allow`]
 /// and needs no `--yes` (the deliberate difference from `apply`; the sink still
 /// blocks name-template escapes, so it only ever writes inside `out`). Per-output
@@ -1376,6 +1556,8 @@ fn build_one(
 /// hard abort. `--jobs` bounds the pool and `--quiet` hides progress + summary,
 /// exactly as in `run_apply`.
 fn run_build(file: Option<&str>, global: &GlobalArgs) -> Result<(), CliError> {
+    use crate::build::lock::{self, DEFAULT_LOCK_FILE};
+
     let path = file.unwrap_or(crate::build::DEFAULT_MANIFEST_FILE);
     let manifest = load_manifest(path)?;
 
@@ -1401,6 +1583,21 @@ fn run_build(file: Option<&str>, global: &GlobalArgs) -> Result<(), CliError> {
     // destination (DEC-057). Checked here — after every target is resolved, before
     // the store opens and before any write — so a collision costs nothing on disk.
     check_output_injective(&prepared)?;
+
+    // Load the committed lockfile before anything is written, so a malformed one
+    // (or, under `--check`, a missing one) costs nothing on disk. `None` here is
+    // "no lockfile"; only `--check` cares.
+    let committed = if global.check {
+        let Some(committed) = load_lock(DEFAULT_LOCK_FILE)? else {
+            eprintln!(
+                "error: no lockfile \"{DEFAULT_LOCK_FILE}\"; run `crustyimg build` to create one"
+            );
+            return Err(CliError::CheckFailed);
+        };
+        Some(committed)
+    } else {
+        None
+    };
 
     let total: usize = prepared.iter().map(|p| p.inputs.len()).sum();
 
@@ -1434,9 +1631,9 @@ fn run_build(file: Option<&str>, global: &GlobalArgs) -> Result<(), CliError> {
     };
 
     let execute = || {
-        let mut outcomes: Vec<Result<Built, CliError>> = Vec::with_capacity(total);
+        let mut outcomes: Vec<Result<BuildOutcome, CliError>> = Vec::with_capacity(total);
         for p in &prepared {
-            let results: Vec<Result<Built, CliError>> = p
+            let results: Vec<Result<BuildOutcome, CliError>> = p
                 .inputs
                 .par_iter()
                 .map(|input| {
@@ -1472,11 +1669,11 @@ fn run_build(file: Option<&str>, global: &GlobalArgs) -> Result<(), CliError> {
     let failed = outcomes.iter().filter(|r| r.is_err()).count();
     let cached = outcomes
         .iter()
-        .filter(|r| matches!(r, Ok(Built::Cached)))
+        .filter(|r| matches!(r, Ok(o) if o.built == Built::Cached))
         .count();
     let rebuilt = outcomes
         .iter()
-        .filter(|r| matches!(r, Ok(Built::Rebuilt)))
+        .filter(|r| matches!(r, Ok(o) if o.built == Built::Rebuilt))
         .count();
 
     // ── Summary (stderr; stdout stays clean for pipes) ───────────────────────
@@ -1502,8 +1699,57 @@ fn run_build(file: Option<&str>, global: &GlobalArgs) -> Result<(), CliError> {
         }
     }
 
+    // A partial build has nothing coherent to lock or check: some outputs are
+    // missing, so a lock written now would pin a half-built tree and a `--check`
+    // would report the failures twice. Exit 6 (DEC-015), lockfile untouched.
     if failed > 0 {
         return Err(CliError::PartialBatch { failed, total });
+    }
+
+    // ── Phase 3: the lockfile (SPEC-066, DEC-059) ────────────────────────────
+    let records: Vec<crate::build::lock::LockOutput> = outcomes
+        .into_iter()
+        .filter_map(|o| o.ok().and_then(|o| o.record))
+        .collect();
+
+    // The lockfile's second line of defense against a non-injective build. The
+    // prepare-phase check (SPEC-065) cannot expand `{ext}` before a decode, so a
+    // target naming a *literal* extension (`{stem}.png`) can still collide with
+    // one naming `{stem}.{ext}` — undetectably, pre-decode. Here the real
+    // extensions are known, so two outputs claiming one path are rejected rather
+    // than pinned. The outputs are already written (the collision raced), but the
+    // build fails loudly with the same typed error and exit 2, and no lockfile
+    // records the ambiguity.
+    let entries: Vec<(String, String)> = records
+        .iter()
+        .map(|r| (r.path.clone(), r.source.clone()))
+        .collect();
+    if let Some(c) = crate::build::find_output_collision(&entries) {
+        return Err(CliError::OutputCollision {
+            output: c.output,
+            first: c.first,
+            second: c.second,
+        });
+    }
+
+    let current = lock::BuildLock::new(lock::current_env(), records);
+
+    match committed {
+        // `--check` / `--frozen` / `--locked`: assert, never write.
+        Some(committed) => {
+            let d = lock::diff(&committed, &current, global.strict);
+            for change in &d.changes {
+                eprintln!("{change}");
+            }
+            if d.drifted {
+                return Err(CliError::CheckFailed);
+            }
+            if !global.quiet && d.is_clean() {
+                eprintln!("lockfile {DEFAULT_LOCK_FILE} is up to date");
+            }
+        }
+        // The default: refresh the lockfile from what this build produced.
+        None => write_lock(DEFAULT_LOCK_FILE, &current.to_toml()?)?,
     }
 
     Ok(())
@@ -4421,6 +4667,69 @@ mod tests {
             3
         );
 
+        // The build cache: only `Cache::open` reaches the boundary → 5, the code
+        // the sink's write failures use (SPEC-064; this assertion is SPEC-066's,
+        // closing a gap the SPEC-064 build note wrongly believed closed).
+        assert_eq!(
+            CliError::Cache(crate::build::cache::CacheError::Open {
+                path: ".crustyimg/cache".into(),
+                source: std::io::Error::other("read-only"),
+            })
+            .code(),
+            5
+        );
+        assert_eq!(
+            CliError::Cache(crate::build::cache::CacheError::Io(std::io::Error::other(
+                "full"
+            )))
+            .code(),
+            5
+        );
+
+        // The build lockfile (SPEC-066): content error → 2, read → 3, write → 5.
+        // A *missing* lockfile under `--check` is none of these — it is drift,
+        // reported as CheckFailed → 7.
+        assert_eq!(
+            CliError::Lock(crate::build::lock::LockError::Parse("bad".into())).code(),
+            2
+        );
+        assert_eq!(
+            CliError::Lock(crate::build::lock::LockError::UnsupportedVersion {
+                found: 999,
+                supported: crate::build::lock::SUPPORTED_LOCK_VERSION,
+            })
+            .code(),
+            2
+        );
+        assert_eq!(
+            CliError::Lock(crate::build::lock::LockError::TooLarge {
+                size: crate::build::lock::LOCK_MAX_BYTES + 1,
+                max: crate::build::lock::LOCK_MAX_BYTES,
+            })
+            .code(),
+            2
+        );
+        assert_eq!(
+            CliError::Lock(crate::build::lock::LockError::Serialize("no".into())).code(),
+            2
+        );
+        assert_eq!(
+            CliError::LockIo {
+                path: "crustyimg.build.lock".into(),
+                source: std::io::Error::other("unreadable"),
+            }
+            .code(),
+            3
+        );
+        assert_eq!(
+            CliError::LockWrite {
+                path: "crustyimg.build.lock".into(),
+                source: std::io::Error::other("read-only"),
+            }
+            .code(),
+            5
+        );
+
         // PartialBatch → 6 (DEC-015).
         assert_eq!(
             CliError::PartialBatch {
@@ -4549,6 +4858,78 @@ mod tests {
         assert_eq!(key("dist", None, "a/logo.png"), expected);
         assert_eq!(key("dist/", None, "a/logo.png"), expected);
         assert_eq!(key("./dist", None, "a/logo.png"), expected);
+    }
+
+    // ── the lockfile's output path (SPEC-066) ────────────────────────────────
+
+    #[test]
+    fn lock_output_path_expands_the_real_ext_and_slashes() {
+        let input = crate::source::Input::Path(PathBuf::from("src/a.png"));
+
+        // The real output extension is substituted — the post-decode twin of the
+        // collision key, which must leave `{ext}` as a sentinel.
+        assert_eq!(
+            lock_output_path(&target("dist", None), &input, "webp"),
+            "dist/a.webp"
+        );
+        assert_eq!(
+            lock_output_path(&target("dist/img", Some("{stem}_web.{ext}")), &input, "jpg"),
+            "dist/img/a_web.jpg"
+        );
+
+        // `./dist` normalizes; a bare `.` out dir leaves just the file name. The
+        // separator is always `/`, so a lockfile committed on one OS reads on another.
+        assert_eq!(
+            lock_output_path(&target("./dist", None), &input, "png"),
+            "dist/a.png"
+        );
+        assert_eq!(lock_output_path(&target(".", None), &input, "png"), "a.png");
+    }
+
+    #[test]
+    fn to_slash_normalizes_separators_and_drops_cur_dir() {
+        assert_eq!(to_slash(&PathBuf::from("src").join("a.png")), "src/a.png");
+        assert_eq!(to_slash(Path::new("./src/a.png")), "src/a.png");
+        assert_eq!(to_slash(Path::new("a.png")), "a.png");
+    }
+
+    #[test]
+    fn lock_record_carries_key_hash_and_size() {
+        use crate::build::cache;
+
+        let recipe = Recipe::from_toml("version = \"1\"\n").expect("empty recipe parses");
+        let t = target("dist", None);
+        let prepared = PreparedTarget {
+            target: &t,
+            recipe_hash: cache::recipe_hash(&recipe).expect("recipe hashes"),
+            recipe,
+            inputs: Vec::new(),
+        };
+        let input = crate::source::Input::Path(PathBuf::from("src/a.png"));
+        let key = cache::compute_key(
+            "0.0.0",
+            "",
+            &prepared.recipe_hash,
+            None,
+            "png",
+            &cache::hash_bytes(b"in"),
+        );
+
+        let rec = lock_record(&prepared, &input, &key, "png", b"out-bytes")
+            .expect("a path input always records");
+        assert_eq!(rec.path, "dist/a.png");
+        assert_eq!(rec.source, "src/a.png");
+        assert_eq!(rec.recipe, "r.toml");
+        assert_eq!(rec.key, key.to_hex());
+        assert_eq!(rec.hash, cache::hash_bytes(b"out-bytes").to_hex());
+        assert_eq!(rec.bytes, 9);
+
+        // A stdin input has no lock record — a manifest cannot declare one (DEC-057).
+        let stdin = crate::source::Input::Stdin {
+            bytes: Vec::new(),
+            stem: "x".into(),
+        };
+        assert!(lock_record(&prepared, &stdin, &key, "png", b"").is_none());
     }
 
     // ── format_label_maps_core_formats ───────────────────────────────────────
@@ -4787,6 +5168,8 @@ mod tests {
             yes: false,
             keep_gps: false,
             no_cache: false,
+            check: false,
+            strict: false,
         }
     }
 
@@ -5135,6 +5518,8 @@ mod tests {
             yes: true,
             keep_gps: false,
             no_cache: false,
+            check: false,
+            strict: false,
         }
     }
 
