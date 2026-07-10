@@ -112,6 +112,12 @@ deny:
 cost-audit:
     @./scripts/cost-audit.sh
 
+# Strict-parse every tracked .md/.yaml/.yml front-matter block; grep-based
+# tooling can't see these. Needs `ruby` (stdlib yaml); the CI `metadata` job.
+# Fail on any front-matter block a real YAML parser rejects.
+validate:
+    @./scripts/validate-frontmatter.sh
+
 # Build and open the crate's API docs
 doc:
     cargo doc --no-deps --open

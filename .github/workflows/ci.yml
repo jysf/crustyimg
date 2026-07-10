@@ -201,6 +201,19 @@ jobs:
       - name: cost-audit (shipped specs have build/verify cost; AGENTS §4)
         run: ./scripts/cost-audit.sh
 
+  metadata:
+    name: front-matter validation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Strict-parse every YAML front-matter block so a malformed one fails fast
+      # here instead of being silently dropped by a strict-YAML consumer. Ruby
+      # (stdlib yaml) is preinstalled on ubuntu-latest — no setup step needed.
+      - name: validate front-matter (strict YAML parse of all declared state)
+        run: ./scripts/validate-frontmatter.sh
+
 # Follow-up: a `--features mozjpeg` job (DEC-009) is deferred until the codec
 # feature exists (DEC-004). No codec dependency is present yet, so there is no
 # feature to build here; this lands with the spec that introduces it.
