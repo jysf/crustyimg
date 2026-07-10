@@ -193,9 +193,10 @@ list-variants:
 # DAILY COMMANDS (work after `just init`)
 # ----------------------------------------------------------------------------
 
-# Print repo state: active project, stage, specs by cycle, stale items
-status:
-    @./scripts/status.sh
+# Print repo state: active project, stage, specs by cycle, stale items.
+# `just status --json` emits the same state as JSON (needs ruby).
+status *FLAGS:
+    @./scripts/status.sh {{FLAGS}}
 
 # Scaffold a new spec. Usage: just new-spec "short title" STAGE-NNN [PROJ-NNN]
 new-spec TITLE STAGE_ID PROJECT_ID="":
