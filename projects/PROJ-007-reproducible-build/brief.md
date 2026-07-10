@@ -129,7 +129,7 @@ Format: `- [status] STAGE-ID — one-line summary`
 - [~] STAGE-022 (active 2026-07-09) — reproducibility lockfile + `build --check`/`--frozen` (the CI drift
   gate). The "verifiable." **SPEC-065 SHIPPED** (PR #71, bc13c4d): the injective source→output guarantee —
   reject same-output collisions at the prepare phase, exit 2, discharging DEC-057's blocker. Next: the
-  lockfile (**SPEC-066**, to frame, **DEC-059**) — pin each output's cache key (robust inputs, DEC-058) +
+  lockfile (**SPEC-066, framed + build-ready**, **DEC-059**) — pin each output's cache key (robust inputs, DEC-058) +
   record the observed output hash + env; `--check` fails on input drift (exit 7), treats cross-env
   output-byte variance as informational; opt-in strict byte-identity; perceptual/SSIMULACRA2 (shipped) is the
   review-grade "did the image change" check, not encoder bytes (per the design-feedback review).

@@ -120,11 +120,14 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
   `CliError::OutputCollision` → exit 2. Discharges DEC-057's blocker (its Validation now reads RESOLVED);
   no new dep, no new DEC. PR #71 (bc13c4d), 637 tests default + lean. Conservative on `{ext}` (over-detect,
   never under-detect); one disclosed literal-ext residual → DEC-059 threat model (below).
-- [ ] (not yet framed) SPEC-066 — the reproducibility lockfile (`crustyimg.build.lock`) +
-  `build --check` (drift gate, exit 7) + `build --frozen` (locked); pins cache key, records
-  observed output hash + env; opt-in strict byte-identity; **DEC-059**. Frame next (now unblocked).
+- [ ] SPEC-066 (design) — the reproducibility lockfile (`crustyimg.build.lock`) + `build --check`
+  (drift gate, exit 7) + `build --frozen`/`--locked` + `--strict`; `src/build/lock.rs` (versioned TOML,
+  one `[[output]]` per output {path, key=pinned cache key, hash=observed output bytes, bytes} + one
+  `[env]`) + an env-aware `diff`. Pins the robust (DEC-058 key = inputs), records the fragile (output
+  hash + env); cross-env byte variance informational unless `--strict`; perceptual stays the shipped
+  `diff`. **No new dep.** DEC-059 at build. Framed 2026-07-09.
 
-**Count:** 1 shipped / 0 active / 1 pending — SPEC-065 unblocked the stage; SPEC-066 (the lockfile) is next.
+**Count:** 1 shipped / 1 active / 0 pending — SPEC-065 shipped (unblocker); SPEC-066 (lockfile) framed, build-ready.
 
 ## Design Notes
 
