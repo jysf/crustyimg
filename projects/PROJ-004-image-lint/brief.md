@@ -43,9 +43,10 @@ value:
     - "the default build stays pure-Rust / zero-system-deps; `just deny` green; **no new default
       dependency** (lint is composition over shipped capabilities + hand-rolled output)"
   risks_to_thesis:
-    - Noise: "could be smaller" rules that fire on trivial gains make teams disable the linter →
-      mitigated by the savings-threshold gate (default 4 KiB / 10%, Lighthouse's own floor) and the
-      3-severity model (only `error`, and `warn` under `--max-warnings`, affects exit code)
+    - >-
+        Noise: "could be smaller" rules that fire on trivial gains make teams disable the linter →
+        mitigated by the savings-threshold gate (default 4 KiB / 10%, Lighthouse's own floor) and the
+        3-severity model (only `error`, and `warn` under `--max-warnings`, affects exit code)
     - The engine-backed rules (`legacy-format`, `indexed-png`) reuse `optimize`'s per-candidate
       solve, which lives in the CLI today → may need a small shared seam exposed (noted in STAGE-014)
     - Suggesting `--format avif` in a build without the AVIF feature would be wrong → a license/

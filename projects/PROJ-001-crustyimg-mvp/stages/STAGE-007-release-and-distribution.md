@@ -25,7 +25,7 @@ value_contribution:
     engineering; no new image features.
   delivers:
     - Versioned, cross-platform binaries published to GitHub Releases
-    - `brew install` via a Homebrew tap
+    - "`brew install` via a Homebrew tap"
     - (optional) `cargo install crustyimg` from crates.io
     - A README/usage that tells a new user how to install and run it
   explicitly_does_not:
