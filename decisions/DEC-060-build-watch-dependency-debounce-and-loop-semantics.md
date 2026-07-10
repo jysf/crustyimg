@@ -143,13 +143,31 @@ decision point (deny failed on first `cargo add`), not a silent addition.
 
 `watch_roots` derives each source's watch **directory** purely lexically (a glob's
 literal prefix dir; a trailing-slash dir; else a bare path's parent), touching no disk,
-so it is deterministic in a unit test. Every root is a **directory** watched recursively
-— never a bare file — because a single-file watch misses an editor's atomic save when
-the original inode is replaced by a rename. Over-watching is the safe direction (the
-cache turns a redundant rebuild into a no-op); under-watching would silently miss a real
-edit. A bare slash-less directory source (e.g. `photos`, indistinguishable lexically
-from a file) watches its parent — broader, but rare, since directory sources are spelled
-with a trailing slash or as globs.
+so it is deterministic in a unit test. Every root is a **directory** watched — never a
+bare file — because a single-file watch misses an editor's atomic save when the original
+inode is replaced by a rename. Over-watching is the safe direction (the cache turns a
+redundant rebuild into a no-op); under-watching would silently miss a real edit. A bare
+slash-less directory source (e.g. `photos`, indistinguishable lexically from a file)
+watches its parent — broader, but rare, since directory sources are spelled with a
+trailing slash or as globs.
+
+### Two watch tiers: recursive source roots vs shallow manifest/recipe dirs
+
+The manifest and recipes live **beside** the build's own `dist/` and `.crustyimg/` cache
+trees at the project root. A first, obvious implementation watched *every* root
+recursively — including the manifest's `.` — which meant the watcher recursively covered
+`.crustyimg/cache/**`. That shipped green on macOS but **failed on Linux CI**: on a
+*fresh* build, the burst of cache writes right after the watcher registers floods inotify
+and degrades detection of the source watches, so a subsequent source edit is never seen
+(reproduced: 22 re-issued edits over 45 s, still no rebuild — a real detection failure,
+not a dropped-event flake; the discriminator was that a *pre-built* project, whose cache
+already existed, detected edits fine). So `WatchSet` has **two tiers**: source roots
+watched **recursively** (they contain only inputs), and the manifest/recipe directories
+watched **non-recursively** (we only care about those files; a shallow watch never covers
+the deep cache/output churn). A dir that is already a recursive root is de-duplicated out
+of the shallow set (a recursive watch is a superset, and registering the same inode twice
+can share/clobber a Linux inotify watch descriptor). This is the load-bearing
+cross-platform lesson of the wave, caught by the 3-OS CI exactly as intended.
 
 ### `is_excluded`: lexical-absolutize vs `canonicalize`
 

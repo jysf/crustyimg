@@ -1855,15 +1855,22 @@ fn make_watcher(
     Ok(watcher)
 }
 
-/// Register every root in `set` with `watcher` (recursively). A root that cannot be
-/// watched (e.g. it does not exist yet) is a warning, not a failure — the others
-/// still watch, and a later manifest edit can bring it into range.
+/// Register every root in `set` with `watcher`: source roots recursively, the
+/// manifest/recipe dirs non-recursively (so the sibling output/cache tree is not
+/// recursively watched — see `WatchSet`). A root that cannot be watched (e.g. it
+/// does not exist yet) is a warning, not a failure — the others still watch, and a
+/// later manifest edit can bring it into range.
 #[cfg(feature = "watch")]
 fn register_roots(watcher: &mut notify::RecommendedWatcher, set: &crate::build::watch::WatchSet) {
     use notify::{RecursiveMode, Watcher};
-    for root in &set.roots {
-        if let Err(e) = watcher.watch(root, RecursiveMode::Recursive) {
-            eprintln!("warning: cannot watch {}: {e}", root.display());
+    for (roots, mode) in [
+        (&set.recursive, RecursiveMode::Recursive),
+        (&set.shallow, RecursiveMode::NonRecursive),
+    ] {
+        for root in roots {
+            if let Err(e) = watcher.watch(root, mode) {
+                eprintln!("warning: cannot watch {}: {e}", root.display());
+            }
         }
     }
 }

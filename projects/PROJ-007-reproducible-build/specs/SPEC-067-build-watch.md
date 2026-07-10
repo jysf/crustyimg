@@ -330,10 +330,18 @@ them `#[ignore]` (documented) rather than weakening the unit coverage.
     a watcher setup failure is a generic runtime error, distinct from the `--watch` *usage*
     errors (exit 2). `WatchError` lives in `src/build/watch.rs` as the spec asked.
   - **Watch roots are directories, derived purely lexically** (glob literal-prefix dir /
-    trailing-slash dir / a bare path's parent), and every root is watched recursively so an
-    editor's atomic save is caught — a single-file watch would miss the inode swap. A bare
-    slash-less directory source watches its parent (broader, but rare). This keeps
-    `watch_roots` filesystem-free and deterministic in its unit test (rationale in DEC-060).
+    trailing-slash dir / a bare path's parent) so `watch_roots` stays filesystem-free and
+    deterministic in its unit test; every root is a directory (not a bare file) so an
+    editor's atomic save is caught. A bare slash-less directory source watches its parent
+    (broader, but rare). Rationale in DEC-060.
+  - **`WatchSet` has two tiers** — source roots watched **recursively**, the manifest/recipe
+    dirs watched **non-recursively** — because they sit beside the build's own `dist/`+
+    `.crustyimg/` trees. The spec's Implementation Context said "watched recursively"; a
+    first pass did exactly that for every root and **the 3-OS CI caught it** (Linux inotify:
+    a fresh build's cache-write burst floods the recursively-watched `.` and source edits
+    then go undetected — reproduced with 22 re-issued edits over 45 s). The shallow tier
+    never covers the deep cache/output churn, fixing it. This is the wave's cross-platform
+    lesson landing exactly as designed (rationale + repro in DEC-060).
   - **`is_excluded` normalizes by lexical-absolutize (against CWD), not `canonicalize`** —
     canonicalize fails on a just-deleted path and resolves symlinks the watcher may not have;
     `current_dir()` is already symlink-resolved on Unix, so it aligns with the watcher's
@@ -351,11 +359,14 @@ them `#[ignore]` (documented) rather than weakening the unit coverage.
 ### Build-phase reflection (3 questions, short answers)
 
 1. **What was unclear in the spec that slowed you down?**
-   — Very little — the Implementation Context was unusually precise (it flagged the
-   absolute-vs-relative self-trigger as *the* bug and said write its test first, which is
-   exactly where the risk was). The one thing I had to resolve myself was the file-vs-directory
-   watch-root question (a single-file watch missing atomic saves), which the spec left implicit;
-   I settled it toward "always watch a directory, recursively" and recorded why in DEC-060.
+   — The Implementation Context was unusually precise on the *self-trigger* crux (it named the
+   absolute-vs-relative path bug and said write its test first — exactly right). The gap was one
+   level deeper and cost a CI round-trip: the spec said watch the source roots "recursively"
+   without distinguishing them from the manifest/recipe dirs, which sit beside the build's own
+   `dist/`+`.crustyimg/` trees. Watching those recursively made the watcher cover the cache tree,
+   and on Linux inotify a fresh build's cache-write burst then starved detection of source edits.
+   The fix (recursive source roots, shallow config dirs) is the wave's cross-platform lesson —
+   and it was the 3-OS CI, not local macOS, that surfaced it, exactly as the hand-off warned.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
    — No missing constraint. The spec correctly anticipated the license decision as a real

@@ -37,13 +37,27 @@ use super::BuildManifest;
 
 /// What a `build --watch` session watches and what it must ignore.
 ///
-/// `roots` are directories registered with the OS watcher (recursively); `excluded`
-/// are the prefixes whose events are dropped so the build never self-triggers.
+/// Two tiers of roots, because the manifest/recipe live *beside* the build's own
+/// output and cache trees at the project root:
+///
+/// - `recursive` — source-root directories, watched **recursively** (a source tree
+///   nests: `assets/**/*.png`). These contain only inputs, never the build's output.
+/// - `shallow` — the manifest's and recipes' directories, watched
+///   **non-recursively**. We only care about *those files* changing; a recursive
+///   watch here would also cover the sibling `.crustyimg/` cache tree, whose
+///   high-churn writes on a fresh build can overflow Linux inotify and degrade
+///   detection of the source watches. A shallow watch sees the manifest/recipe
+///   edits (and top-level dir creation, which is excluded) but not the deep
+///   cache/output churn.
+///
+/// `excluded` are the prefixes whose events are dropped so the build never
+/// self-triggers.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WatchSet {
-    /// Directories to watch recursively: each target's source-root + recipe dir,
-    /// plus the manifest's own directory.
-    pub roots: Vec<PathBuf>,
+    /// Source-root directories, watched recursively.
+    pub recursive: Vec<PathBuf>,
+    /// The manifest's and recipes' directories, watched non-recursively.
+    pub shallow: Vec<PathBuf>,
     /// Prefixes whose events are ignored: each target's `out` dir, the `.crustyimg`
     /// metadata dir, and the lockfile. A build's own writes land here.
     pub excluded: Vec<PathBuf>,
@@ -74,35 +88,46 @@ pub enum WatchError {
 
 /// Derive the [`WatchSet`] for a manifest: what to watch, and what to ignore.
 ///
-/// Purely lexical and filesystem-free, so it is deterministic in a unit test. The
-/// roots are the *directories* containing sources / recipes / the manifest (never
-/// bare files), because watching a directory recursively catches an editor's
-/// atomic save — a temp-write + rename — that a single-file watch would miss when
-/// the original inode is replaced. Over-watching is the safe direction here: the
-/// cache turns a redundant rebuild into a no-op, whereas *under*-watching would
-/// silently miss a real edit.
+/// Purely lexical and filesystem-free, so it is deterministic in a unit test. Every
+/// root is a *directory* (never a bare file), because watching a directory catches
+/// an editor's atomic save — a temp-write + rename — that a single-file watch would
+/// miss when the original inode is replaced. Over-watching is the safe direction:
+/// the cache turns a redundant rebuild into a no-op, whereas *under*-watching would
+/// silently miss a real edit. Source roots are recursive; the manifest/recipe dirs
+/// are shallow (see [`WatchSet`] for why).
 pub fn watch_roots(manifest: &BuildManifest, manifest_path: &Path) -> WatchSet {
-    let mut roots: Vec<PathBuf> = Vec::new();
+    let mut recursive: Vec<PathBuf> = Vec::new();
+    let mut shallow: Vec<PathBuf> = Vec::new();
     let mut excluded: Vec<PathBuf> = Vec::new();
 
-    // The manifest's own directory — editing the manifest is a rebuild trigger,
-    // and `run_build` re-reads it each cycle.
-    push_unique(&mut roots, containing_dir(manifest_path));
+    // The manifest's own directory — editing the manifest is a rebuild trigger, and
+    // `run_build` re-reads it each cycle. Shallow: we only care about this one file,
+    // not the output/cache tree that sits beside it.
+    push_unique(&mut shallow, containing_dir(manifest_path));
 
     for target in &manifest.target {
         for src in target.source.as_slice() {
-            push_unique(&mut roots, source_root(src));
+            push_unique(&mut recursive, source_root(src));
         }
-        push_unique(&mut roots, containing_dir(Path::new(&target.recipe)));
+        push_unique(&mut shallow, containing_dir(Path::new(&target.recipe)));
         // A target's outputs must not wake the watcher.
         push_unique(&mut excluded, lexical_clean(Path::new(&target.out)));
     }
+
+    // A directory that is already a recursive root needs no shallow watch too (a
+    // recursive watch is a superset). This also avoids registering the same inode
+    // twice, which on Linux inotify can share/clobber a watch descriptor.
+    shallow.retain(|s| !recursive.contains(s));
 
     // The build's own metadata dir (cache entries + temp files) and the lockfile.
     push_unique(&mut excluded, cache_exclusion());
     push_unique(&mut excluded, lexical_clean(Path::new(DEFAULT_LOCK_FILE)));
 
-    WatchSet { roots, excluded }
+    WatchSet {
+        recursive,
+        shallow,
+        excluded,
+    }
 }
 
 // ─── is_excluded (the correctness crux) ─────────────────────────────────────────
@@ -332,26 +357,66 @@ out = "dist/thumb"
         let m = manifest_2();
         let set = watch_roots(&m, Path::new("crustyimg.build.toml"));
 
-        // Source-root directories: the glob prefix, and the trailing-slash dir.
+        // Source-root directories are watched RECURSIVELY: the glob prefix, the
+        // trailing-slash dir, and the bare `logo.png` source's parent (".").
         assert!(
-            set.roots.contains(&PathBuf::from("assets")),
+            set.recursive.contains(&PathBuf::from("assets")),
             "{:?}",
-            set.roots
+            set.recursive
         );
         assert!(
-            set.roots.contains(&PathBuf::from("photos")),
+            set.recursive.contains(&PathBuf::from("photos")),
             "{:?}",
-            set.roots
+            set.recursive
         );
-        // Each recipe's directory.
         assert!(
-            set.roots.contains(&PathBuf::from("recipes")),
+            set.recursive.contains(&PathBuf::from(".")),
             "{:?}",
-            set.roots
+            set.recursive
         );
-        // The manifest's own directory (repo root → ".") — also the root of the
-        // bare `logo.png` source.
-        assert!(set.roots.contains(&PathBuf::from(".")), "{:?}", set.roots);
+        // Each recipe's directory is watched SHALLOW (non-recursively).
+        assert!(
+            set.shallow.contains(&PathBuf::from("recipes")),
+            "{:?}",
+            set.shallow
+        );
+        // The manifest's own dir is "." — but "." is already a recursive root (the
+        // `logo.png` source), so it is de-duplicated OUT of the shallow set (a
+        // recursive watch is a superset). It must still be watched somewhere.
+        assert!(
+            !set.shallow.contains(&PathBuf::from(".")),
+            "'.' is recursive, so it must not also be shallow: {:?}",
+            set.shallow
+        );
+    }
+
+    #[test]
+    fn watch_roots_keeps_manifest_dir_shallow_when_no_source_shares_it() {
+        // A manifest in its own dir, sources elsewhere: the manifest dir is a
+        // SHALLOW root (so the sibling cache/output tree isn't recursively watched).
+        let m = BuildManifest::from_toml(
+            "version = 1\n\n[[target]]\nsource = \"src/*.png\"\nrecipe = \"r.toml\"\nout = \"dist\"\n",
+        )
+        .unwrap();
+        let set = watch_roots(&m, Path::new("crustyimg.build.toml"));
+        assert!(
+            set.recursive.contains(&PathBuf::from("src")),
+            "{:?}",
+            set.recursive
+        );
+        // Manifest dir "." and recipe dir "." are shallow, and "." is NOT recursive
+        // here (no source resolves to it), so the output/cache tree at "." is only
+        // shallow-watched.
+        assert!(
+            set.shallow.contains(&PathBuf::from(".")),
+            "{:?}",
+            set.shallow
+        );
+        assert!(
+            !set.recursive.contains(&PathBuf::from(".")),
+            "{:?}",
+            set.recursive
+        );
     }
 
     #[test]
@@ -402,9 +467,13 @@ out = "dist/thumb"
     fn empty_manifest_still_watches_its_own_directory() {
         let m = BuildManifest::from_toml("version = 1\n").unwrap();
         let set = watch_roots(&m, Path::new("sub/crustyimg.build.toml"));
-        // Nothing to build, but the manifest's dir is watched so a later edit that
-        // adds a target is seen.
-        assert!(set.roots.contains(&PathBuf::from("sub")), "{:?}", set.roots);
+        // Nothing to build, but the manifest's dir is watched (shallow) so a later
+        // edit that adds a target is seen.
+        assert!(
+            set.shallow.contains(&PathBuf::from("sub")),
+            "{:?}",
+            set.shallow
+        );
         // The metadata dir + lockfile are always excluded.
         assert!(set.excluded.contains(&PathBuf::from(".crustyimg")));
         assert!(set
