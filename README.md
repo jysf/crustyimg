@@ -63,8 +63,20 @@ codec inside a `.heic` — is covered by the Access Advance patent pool, and a
 copyright license of any kind grants zero patent rights; separately, the mature
 pure-Rust HEIC decoders are AGPL. Either blocker alone keeps HEIC off the default
 path, so no release binary, Homebrew bottle, or `cargo install` default can decode
-one. Running those on a `.heic` prints `HEIC support is not built; rebuild with
---features heic` and exits 4.
+one. Running those on a `.heic` prints `HEIC decoding isn't built into this
+crustyimg; convert the file to a supported format (JPEG, PNG, or WebP) first, or
+rebuild with --features heic` and exits 4.
+
+**Easiest fix — pre-convert.** crustyimg works in web/standard formats, so turn a
+`.heic` into one first, then run crustyimg on the result:
+
+```sh
+sips -s format jpeg photo.heic --out photo.jpg   # macOS, built in
+magick photo.heic photo.jpg                       # ImageMagick, any OS
+```
+
+Building `--features heic` (below) is only needed if you want crustyimg to read
+`.heic` **directly** — for a one-off, pre-converting is faster.
 
 If you accept those terms, build it yourself against a system libheif (≥ 1.17):
 
