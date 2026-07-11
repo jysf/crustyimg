@@ -75,11 +75,14 @@ first-class result.*
     nothing written outside the tree; a contained `out = "dist"` / `out = "build/thumbs"`
     still builds) and unit tests `out_escape_is_typed_invalid_target` /
     `accepts_contained_out_directories` (`src/build/mod.rs`).
-- **Verdict: FIXED — the write-escape is now rejected at exit 2, nothing lands
-  outside the tree.** The remaining hostile manifests are each a typed exit-2 (or a
-  clamped exit-6 on the *name*-traversal attempt); nothing panics.
+- **Verdict: FIXED for lexical `../`/absolute escapes — a traversal `out` is rejected
+  at exit 2 before any write; nothing lands outside the tree via `..` or an absolute
+  path.** The remaining hostile manifests are each a typed exit-2 (or a clamped exit-6
+  on the *name*-traversal attempt); nothing panics. **One residual is NOT closed: a
+  symlinked *out dir* (below) still escapes — accepted (higher exploit bar) and filed.**
 - **Residual risk — reads vs. writes (now distinct).**
-  - **WRITES: clamped.** `out` may not escape the build tree (this fix).
+  - **WRITES: lexically clamped.** `out` may not escape the build tree via `..` or an
+    absolute path (this fix). A symlinked *out dir* is the one un-caught residual (below).
   - **READS: still follow the declared manifest (accepted).** A manifest may declare
     **out-of-tree sources** (`source = "../../**/*.png"`): the live `--watch` run below
     resolved exactly such a glob and matched files two directories up. This is the
@@ -87,14 +90,21 @@ first-class result.*
     `Makefile` — and reading an out-of-tree file only ever produces an *in-tree* output
     (now that `out` is clamped) or a decode error, never an escape. Accepted (DEC-061
     accepted-risk #3, reads); the watch-specific amplification is Surface 5.
-  - **Symlink residual (lexical check is layer 1).** A pre-existing symlink *inside*
-    the `out` path (`out = "linkdir/x"`, `linkdir → /tmp`) passes the purely lexical
-    containment check. The sink's write-time `safe_join` canonicalizes the out dir and
-    the DEC-035 symlink-destination guard (`reject_symlink_destination`, rejects even
-    with `--yes`) are the second layer: a symlinked *destination file* is refused, and
-    canonicalize resolves the real dir. Noted as residual (DEC-061), not gold-plated
-    here — the lexical clamp closes the reproduced defect; the symlinked-out-dir case
-    is a narrower, second-layer concern.
+  - **Symlink residual — NOT caught (accepted + filed).** A pre-existing symlink
+    *inside* the `out` path (`out = "linkdir/x"`, `linkdir → <out-of-tree dir>`) passes
+    the lexical containment check **and is not stopped at write time either.**
+    `safe_join` canonicalizes the out dir — which *follows* the symlink to its
+    out-of-tree target — and then only checks the expanded *name* stays within that
+    already-escaped dir; the DEC-035 guard (`reject_symlink_destination`) fires only on
+    a symlink *destination file*, not a regular file inside a symlinked dir. **Driven in
+    re-verify: `out = "linkdir/x"` wrote bytes to the symlink target outside the tree at
+    exit 0** — the "second layer" does not contain this case. **Accepted residual:** the
+    exploit needs manifest control **plus** a symlink committed *inside* the repo pointing
+    out — a reviewable artifact under the "reviewed like code" model, and a materially
+    higher bar than the `..` escape (which needed nothing pre-planted). Closing it
+    (require the *canonicalized* out dir to stay within the canonicalized build root)
+    would reject intentionally symlinked output dirs (e.g. `dist → ramdisk`) — filed as
+    backlog item #10, not done here.
 
 ---
 
@@ -350,7 +360,8 @@ the LEAD's output that makes the rest of STAGE-024 targeted.*
 |---|---|---|---|
 | 7 | **Strict per-step recipe params** (reject unknown `[[step]]` keys via registry-published param names) | Low | Surface 2 accepted risk — top level is now `deny_unknown_fields`; step level stays tolerant by design. |
 | 8 | **`--watch` root-containment *warning*** (warn, don't clamp, when a watched **read/watch** root escapes the manifest dir — reads only) | Low | Surface 5 accepted risk — preserves monorepo layouts while surfacing an out-of-tree watch. |
-| 9 | **out-directory containment** (reject a target `out` that escapes the build tree) | **DONE** | ~~High~~ — **fixed here (SPEC-068 punch-list).** Verify found the write-escape; clamped at `Target::validate` (exit 2, prepare-phase), pinned by `build_rejects_out_directory_escape`. Residual: symlinked-out-dir (write-time `safe_join`/DEC-035 is layer 2). |
+| 9 | **out-directory containment** (reject a target `out` that escapes the build tree) | **DONE (lexical)** | ~~High~~ — **fixed here (SPEC-068 punch-list).** Verify found the write-escape; clamped at `Target::validate` (exit 2, prepare-phase), pinned by `build_rejects_out_directory_escape`. Catches `..`/absolute; the symlinked-out-dir residual is **not** caught (→ item #10). |
+| 10 | **Canonicalize-contain the `out` dir** (require the *canonicalized* out dir to stay within the canonicalized build root) | Low–Med | Re-verify: a committed in-tree symlink (`out = "linkdir/x"`, `linkdir →` out-of-tree) escapes the lexical clamp and the write-time `safe_join`. Accepted residual (needs a committed symlink + manifest control); closing it rejects intentionally symlinked output dirs (`dist → ramdisk`) — a real tradeoff, hence its own spec. |
 
 **Carried from SPEC-067 verify (unchanged by this review):**
 `--watch` as a global clap flag is a silent no-op on non-build subcommands (reject or

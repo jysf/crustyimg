@@ -120,13 +120,19 @@ test-completeness patch, not a totality hole).
     real binary with a hostile FILE (relative `..` + absolute escape → exit 2, nothing
     written outside the tree; contained `out` still builds). Confirmed to fail without
     the clamp and pass with it.
-  - **Residual (symlink):** a pre-existing symlink *inside* the `out` path
-    (`out = "linkdir/x"`, `linkdir → /tmp`) passes the purely lexical check. Second
-    layer: the sink's write-time `safe_join` canonicalizes the out dir and the DEC-035
-    symlink-destination guard (`reject_symlink_destination`) refuses a symlinked
-    destination file **even with `--yes`**. Not gold-plated further here — the lexical
-    clamp closes the reproduced defect; the symlinked-out-dir case is a narrower,
-    second-layer concern.
+  - **Residual (symlink) — un-caught, accepted, filed.** A pre-existing symlink
+    *inside* the `out` path (`out = "linkdir/x"`, `linkdir →` out-of-tree) passes the
+    lexical check **and is not stopped at write time either.** `safe_join` canonicalizes
+    the out dir — following the symlink to its out-of-tree target — then checks only that
+    the expanded *name* stays within that already-escaped dir; `reject_symlink_destination`
+    fires only on a symlink destination *file*, not a regular file inside a symlinked dir.
+    Re-verify drove `out = "linkdir/x"` and bytes landed **outside the tree at exit 0**;
+    the "second layer" does not contain this case. **Accepted:** the exploit needs
+    manifest control PLUS a symlink committed into the repo pointing out (a reviewable
+    artifact under "reviewed like code"; a higher bar than the `..` escape). Closing it
+    (require the *canonicalized* out dir to stay within the canonicalized build root)
+    would reject intentionally symlinked output dirs (`dist → ramdisk`) — filed as
+    backlog item #10, not done here.
 
 ### Accepted risks (each a decision, with rationale)
 
@@ -152,6 +158,9 @@ test-completeness patch, not a totality hole).
    are clamped (see the out-directory containment fix decision). The `out` write side
    is bounded by that lexical clamp **plus** `safe_join`'s per-name clamp (rejects
    empty / absolute / `..` / separator in the expanded name), both verified by attack.
+   **One accepted exception:** a symlinked *out dir* still escapes both layers — see the
+   symlink residual above; accepted (higher exploit bar: a committed in-tree symlink +
+   manifest control) and filed as backlog item #10.
 4. **The `.to_str()→""` stem/ext seams stay silent (for now).** They degrade to a
    deterministic, path-safe, injectivity-detected fallback, not a silent wrong output.
    A typed "filename not representable" error is a UX/correctness win folded into the
