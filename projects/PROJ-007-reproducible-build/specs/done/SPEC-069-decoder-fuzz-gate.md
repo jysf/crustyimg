@@ -3,7 +3,7 @@
 task:
   id: SPEC-069
   type: chore
-  cycle: design  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: M                    # the run + triage + regression-conversion + recipe + record is bounded; the UNKNOWN is what the fuzzer finds (S if all clean, L if it surfaces real decoder bugs). Toolchain (nightly + cargo-fuzz) is a real setup step.
@@ -50,10 +50,55 @@ cost:
         this spec is "run it, triage, make findings catchable per-PR, make it repeatable" — not
         build a harness. The durability move (convert every crash into a deterministic regression
         test in the NORMAL suite) + the CI decision are set here; SPEC-068 ranked this #1.
+    - cycle: build
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 280000
+      estimated_usd: 2.52
+      duration_minutes: 100
+      recorded_at: 2026-07-10
+      notes: >
+        Build ran in a separate fresh Claude-Code session — labelled order-of-magnitude estimate per
+        AGENTS §4, not harness-metered (long WALL time from 4× ~600 s fuzz runs; moderate token cost
+        in setup/triage/fixes/record). Installed rustup nightly + cargo-fuzz (+ brew libheif). Ran the
+        4 targets seeded; SVG+RAW clean-of-crashes, all AVIF findings upstream avif-parse 2.1.0 (2
+        fixed at boundary: box_sizes_fit + catch_unwind + frame_size_limit; 1 documented residual
+        F-AVIF-3). Durability: 3 minimized regressions + fuzz_corpus_never_panics smoke; just fuzz
+        recipe; run record; DEC-062. No new default dep.
+    - cycle: verify
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 200000
+      estimated_usd: 1.80
+      duration_minutes: 30
+      recorded_at: 2026-07-10
+      notes: >
+        Fresh adversarial verify — labelled estimate per AGENTS §4. Confirmed valid AVIFs still decode
+        (box_sizes_fit/frame_size_limit no false-reject), mutation-checked the 2 AVIF regressions,
+        reconstructed F-AVIF-3 and confirmed its contract holds (typed error, ~8.5 MB RSS — the "OOM"
+        is an ASAN malloc-hook artifact), confirmed the durability smoke runs 3-OS + the dep surface is
+        empty. FOUND the overclaim: raw_preview recorded "CLEAN" but the canonical -O just fuzz gate
+        reproducibly OOMs on F-RAW-1 (a crafted embedded JPEG peaks ~1.9 GB past the DEC-034 caps).
+        Doc-honesty punch list.
+    - cycle: ship
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 90000
+      estimated_usd: 0.81
+      duration_minutes: 30
+      recorded_at: 2026-07-10
+      notes: >
+        Ship bookkeeping in the orchestrator main loop — labelled estimate per AGENTS §4. Confirmed
+        F-RAW-1 on the real binary (782 B .nef → info peaks ~1.93 GB); applied the doc-honesty punch
+        list on-branch (scoped the raw verdict to parity with F-AVIF-3 across run record + roadmap +
+        spec; SVG stays legitimately CLEAN), CI green (123b87e); squash-merged PR #76 → main (7bd18fc);
+        filled build/verify/ship cost sessions + totals; ship reflection; timeline; STAGE-024 marks
+        SPEC-069 shipped + files the F-RAW-1 peak-memory follow-up (→ SPEC-070, Medium, user-prioritized
+        next); archive-spec + cost-audit + validate; brag + memory. No new dep.
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 570000
+    estimated_usd: 5.13
+    session_count: 4
 ---
 
 # SPEC-069: run the decoder fuzz gate (AVIF / SVG / RAW / HEIC)
@@ -358,10 +403,28 @@ works). The three default pure-Rust targets are the required bar.
 from the process-focused build reflection above.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Fuzz the config you SHIP and record per-target under that config. The build ran AVIF in `-O`
+   (release, where the shipped binary lives — the right call, since upstream `debug_assert!`s never
+   fire in production) but ran RAW in the default debug config, where its 602 s budget never mutated
+   to the F-RAW-1 bomb the canonical `-O` `just fuzz` gate hits in ~60 s. That config split is what
+   let "raw CLEAN" get recorded while the shipped gate OOMs — the third overclaim of the wave, all the
+   same shape: **a verdict that wasn't earned under the config/command it claims to describe.** Pin the
+   canonical config once (`-O`) and record every target's verdict under it.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — The fuzz gate surfaced a real caps gap worth a constraint note: **`untrusted-input-hardening`'s
+   memory story bounds per-allocation (`max_alloc`) and per-dimension, but NOT peak/cumulative decode
+   memory** — so a crafted near-max-dimension image (AVIF iloc or JPEG SOF) peaks ~2 GB while passing
+   every DEC-034 cap. DEC-062 records the gate policy; the peak-memory gap wants its own DEC in the fix
+   spec (SPEC-070). Also worth promoting the wave's recurring rule: a "clean/contained/safe" verdict
+   must be earned by the exact command/config it claims (SPEC-068 ×2 + SPEC-069 ×1 all violated it).
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — **Yes — SPEC-070 (Medium), the peak-memory cap**, user-prioritized as the next STAGE-024 item
+   (ahead of the smaller backlog). Root: `image::Limits.max_alloc` bounds a single allocation, not the
+   cumulative/peak working set; add a total-pixel / peak-bytes budget enforced via a pre-decode
+   dimension peek at each decode entry (AVIF `check_caps` + SVG tree-size already have dims; RAW-preview
+   + the general JPEG/PNG path need a header peek), with a DEC for the budget/amplification-factor
+   tradeoff (rejects the 160 MP bomb, keeps legitimate ~24 MP photos). Closes F-RAW-1 + F-AVIF-3's
+   shared root. Other filed follow-ups: a dedicated HEIC-only fuzz entry (heic_decode can't be isolated
+   today — `from_bytes` sniffs AVIF first); report the avif-parse issues upstream.
