@@ -3,7 +3,7 @@
 task:
   id: SPEC-068
   type: chore
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: M                    # not a large diff, but a SYSTEMATIC adversarial pass over 5 surfaces + write the note + apply the small tightenings + reprioritize the backlog; the breadth (not any one fix) is the weight
@@ -83,10 +83,56 @@ cost:
         prepare-phase); hostile-FILE regression test `build_rejects_out_directory_escape` + two
         unit tests; corrected the threat-model note (Surfaces 1 & 5) + DEC-061 (split accepted-risk
         #3, added the clamp decision + symlink residual); no new dep (deny unchanged).
+    - cycle: verify
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 150000
+      estimated_usd: 1.35
+      duration_minutes: 25
+      recorded_at: 2026-07-10
+      notes: >
+        Fresh adversarial verify session — labelled order-of-magnitude estimate per AGENTS §4, not
+        harness-metered. Re-drove every surface with hostile FILES on the real binary and INVENTED
+        new attacks (payload_len u64::MAX → clean miss no OOM; hostile lock paths → opaque, never
+        dereferenced; buried/mixed out traversal). Confirmed the recipe tightening + 4/5 surfaces
+        sound. FOUND ONE SHIP-BLOCKER the design + build both missed: an unclamped `out` directory
+        is a path-traversal WRITE-escape reachable via `build --check` — a hostile manifest wrote
+        image bytes outside the tree while the note claimed writes were clamped. Returned a punch
+        list (fix vs accept, user-decided FIX).
+    - cycle: verify
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 90000
+      estimated_usd: 0.80
+      duration_minutes: 15
+      recorded_at: 2026-07-10
+      notes: >
+        Scoped adversarial RE-verify of the out-clamp fix — labelled estimate per AGENTS §4. Drove
+        every lexical bypass (buried/mixed `..`, absolute, contained `dist/../dist2`) → clamp holds,
+        happy path + `--watch` intact, gates green, no new CliError variant. Caught a DOC-honesty
+        blocker (same overclaim class as SPEC-066): the note/DEC still claimed the write-time
+        `safe_join`/DEC-035 "second layer" catches a symlinked out dir — re-verify DROVE it and
+        bytes escaped at exit 0. Returned a doc-only punch list (scope the claims + record the
+        symlink residual honestly).
+    - cycle: ship
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 70000
+      estimated_usd: 0.63
+      duration_minutes: 20
+      recorded_at: 2026-07-10
+      notes: >
+        Ship bookkeeping in the orchestrator main loop — labelled estimate per AGENTS §4. Applied
+        the re-verify doc-only punch list on the branch (scoped the note + DEC-061 "clamped/nothing
+        escapes" claims to `../`+absolute; recorded the symlinked-out-dir case as an accepted,
+        un-caught residual; filed backlog item #10); confirmed 3-OS CI green (f421dce); squash-merged
+        PR #75 → main (b8283bb); filled the verify/re-verify/ship cost sessions + totals; ship
+        reflection; timeline; STAGE-024 backlog #10 + SPEC-068 marked shipped; archive-spec +
+        cost-audit + validate; brag + memory. No new dep.
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 690000
+    estimated_usd: 6.33
+    session_count: 6
 ---
 
 # SPEC-068: PROJ-007 threat-model / attack-surface review
@@ -470,10 +516,27 @@ recorded here honestly. Fixed on this branch (added to PR #75), no new PR.*
 from the process-focused build reflection above.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Attack the WRITE side before writing any "outputs stay contained" verdict. The framing map
+   and the build session both audited `name`-traversal (clamped) and never attacked the `out`
+   *directory* — so the note affirmatively claimed "never an escape" while a one-line hostile
+   manifest wrote outside the tree via `build --check`. Verify caught it; that's the system working,
+   but a threat-model note should treat every "X is contained" claim as a hypothesis to be broken by
+   a driven attack before it's written, not asserted from reading the guard. The two blockers this
+   spec hit (the out-escape, then the symlink-residual overclaim) were BOTH "the note claims a
+   safety the binary doesn't have" — the exact SPEC-066 overclaim class. A review's verdicts are the
+   deliverable; an unearned "safe" is a defect, not prose.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — Worth promoting to a standing review rule (AGENTS or the threat-model template): **every
+   containment/"cannot escape" verdict must cite the specific hostile input that was driven and
+   failed to break it — a verdict without a named attack is unverified.** DEC-061 is the durable
+   record (the 5-surface verdicts, the out-clamp fix, and the 4+1 accepted risks incl. the symlink
+   residual). No constraint text change; `untrusted-input-hardening` already covers it — the gap was
+   discipline, not a missing rule.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — The reprioritized backlog IS the follow-up set (now STAGE-024's queue). Highest-value next:
+   **run the decoder fuzz gate** (#1, High — the one surface this review couldn't close). New from
+   this spec: **#10 canonicalize-contain the `out` dir** (close the symlinked-out-dir write-escape;
+   tradeoff = rejects intentionally symlinked output dirs, so it needs its own tradeoff call). Both
+   are filed in the stage backlog; the fuzz gate is what I'll frame next.
