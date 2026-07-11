@@ -127,7 +127,7 @@ SPEC-066 ship is the proof: that surface has issues we stumble on rather than en
 Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
 - [x] SPEC-068 (shipped 2026-07-10) — **LEAD: threat-model / attack-surface review of PROJ-007's new untrusted-input surface (manifest, recipe, cache store, lockfile, watch); SPEC-037 for this wave.** PR #75 → main b8283bb, DEC-061 emitted. Threat-model note (`docs/research/proj-007-threat-model.md`) + a **reprioritized backlog** (the items below) + inline tightenings: recipe **top-level** `deny_unknown_fields` (closed a zero-step silent-passthrough footgun) + an **out-directory write-escape clamp** (verify found a hostile `out = "../.."` wrote outside the tree via `build --check`; clamped at `Target::validate`, exit 2, prepare-phase). Symlinked-out-dir residual accepted + documented (→ #10). Suspects resolved: recipe unknown-key CONFIRMED+fixed; cache off-by-53 CONFIRMED (correctness, filed); watch roots + `.to_str()→""` ACCEPTED; exit-code map RESIZED (already compiler-exhaustive). 6 sessions (design→build→verify→punch-fix→re-verify→ship), 690k tok. No new dep.
-- [ ] (not yet framed) — run the decoder fuzz gate (AVIF/SVG/RAW/HEIC) + fix findings *(SPEC-068 ranks this **#1 High** — the one surface the review couldn't close; frame next)*
+- [~] SPEC-069 (design) — run the decoder fuzz gate (AVIF/SVG/RAW/HEIC) + fix findings. **#1 High** — the one untrusted-binary surface SPEC-068 couldn't close by reading; the roadmap's pre-1.0 gate. Framed + build-ready 2026-07-10 → DEC-062 at build. Harness EXISTS (detached `fuzz/`, 4 targets, seed fixtures) but never ran (no nightly/cargo-fuzz in prior envs). Spec = run it seeded to a documented budget → triage each crash → **convert findings to deterministic regression tests in the NORMAL suite** (per-PR durability) → `just fuzz` + run record + `fuzz_corpus_never_panics` smoke + DEC-062. Clean run = first-class result. 3 default targets required; HEIC best-effort. No new default dep.
 - [ ] (not yet framed) — non-UTF-8 / unusual-filename hardening (typed error, no silent empty stem) *(SPEC-068: resized to UX/correctness, Low)*
 - [ ] (not yet framed) — cache-key / determinism-envelope completeness (build profile; the envelope's true bound)
 - [ ] (not yet framed) — `CACHE_ENTRY_MAX_BYTES` read-bound off-by-53 fix + regression test *(SPEC-068 confirmed the asymmetry; correctness not safety; boundary test already pinned)*
@@ -137,7 +137,7 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 - [ ] (not yet framed, from SPEC-067 verify) — orphaned-output prune on source removal under build/watch (a future `--clean`)
 - [ ] (not yet framed, from SPEC-068 re-verify) — canonicalize-contain the `out` dir: require the *canonicalized* out dir to stay within the canonicalized build root, closing the symlinked-out-dir write-escape. Accepted residual for now (needs a committed in-tree symlink + manifest control); closing it rejects intentionally symlinked output dirs (`dist → ramdisk`), so it needs its own spec + that tradeoff call.
 
-**Count:** 1 shipped / 0 active / 9 pending — SPEC-068 (LEAD security review) shipped and reprioritized the rest; 3 new items carried from SPEC-067 (×2) + SPEC-068 (×1) verify. Next to frame: the decoder fuzz gate (#1).
+**Count:** 1 shipped / 1 active / 8 pending — SPEC-068 (LEAD security review) shipped; SPEC-069 (decoder fuzz gate, #1 High) framed + build-ready. 3 new items carried from SPEC-067 (×2) + SPEC-068 (×1) verify.
 
 ## Design Notes
 
