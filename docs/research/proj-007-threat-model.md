@@ -15,10 +15,13 @@ first-class result.*
 - **Threat model:** in CI (the "reviewed like code" story) all five files arrive
   from a pull request the maintainer did **not** write. They are untrusted input,
   not just local config.
-- **Verdict summary:** 4 of 5 surfaces held with **no defect**; 1 tightening
-  applied here (recipe top-level `deny_unknown_fields`); 1 confirmed correctness
-  wart pinned + filed (cache off-by-53); the exit-code item **resized** as
-  predicted. Decisions + accepted risks recorded in **DEC-061**.
+- **Verdict summary:** 3 of 5 surfaces held with **no defect**; **2 fixes applied**
+  — recipe top-level `deny_unknown_fields` (found in review), and the **out-directory
+  write-escape clamp** (Surface 1, SPEC-068 — a real ship-blocker the *verify* pass
+  found: a hostile `out = "../.."` wrote re-encoded bytes outside the project tree at
+  exit 0; now rejected at exit 2 before any write); 1 confirmed correctness wart
+  pinned + filed (cache off-by-53); the exit-code item **resized** as predicted.
+  Decisions + accepted risks recorded in **DEC-061**.
 
 ---
 
@@ -28,9 +31,10 @@ first-class result.*
   `:1228`) → `BuildManifest::from_toml` (`src/build/mod.rs:203`).
 - **Guards in place.** Size cap before parse (`:205`); `#[serde(deny_unknown_fields)]`
   on `BuildManifest` (`:188`) and `Target` (`:166`); version gate (`:217`);
-  target-count cap (`:224`); per-target `validate` (`:243`) rejecting empty fields
-  and a `-` (stdin) source; global injectivity `find_output_collision` (`:300`,
-  SPEC-065). Loader path handling uses no `.to_str()`/index.
+  target-count cap (`:224`); per-target `validate` (`:243`) rejecting empty fields,
+  a `-` (stdin) source, **and an `out` that escapes the build tree** (SPEC-068 clamp,
+  below); global injectivity `find_output_collision` (`:300`, SPEC-065). Loader path
+  handling uses no `.to_str()`/index.
 - **Hostile inputs driven (real binary).**
 
   | Attack | File | Result |
@@ -41,18 +45,56 @@ first-class result.*
   | duplicate output (2 sources → 1 name) | `source = ["a/logo.png","b/logo.png"]` | **exit 2**, `output collision … "dist/logo.{ext}"` |
   | stdin source | `source = "-"` | **exit 2**, `` `source` may not be `-` `` |
   | output-name traversal | `name = "../../../pwned.png"` | **exit 6**, `output path escapes the target directory`; no file written outside `out` (`safe_join`) |
+  | **out-DIRECTORY traversal (write-escape)** | `out = "../ESCAPE/planted"` | **exit 2**, `` `out` escapes the build tree via `..` ``; **no file written outside the tree** — the SPEC-068 clamp, below |
+  | **out-directory absolute** | `out = "/abs"` (or `C:\…`) | **exit 2**, `` `out` must be within the build tree, not an absolute path `` |
 
-- **Verdict: SAFE — no change.** Every hostile manifest is a typed exit-2 (or a
-  clamped exit-6 on the traversal attempt); nothing panics, nothing writes outside
-  `out`. Well-guarded, confirmed by attack.
-- **Residual risk.** A manifest may declare **out-of-tree sources** (`source =
-  "../../**/*.png"`): the live `--watch` run below resolved exactly such a glob and
-  matched files two directories up. This is the **declared-build trust model** — a
-  build reads the paths it is told to, like a `Makefile` — and it is *bounded on the
-  write side* by `safe_join` (rejects empty / absolute / `..` / separator in the
-  expanded name, verified above). Reading an out-of-tree file only ever produces an
-  in-`out` image or a decode error, never an escape. Accepted (DEC-061); the
-  watch-specific amplification is Surface 5.
+- **DEFECT FOUND IN VERIFY → FIXED HERE (the out-directory write-escape).** The
+  original review recorded this surface as SAFE on the strength of the *name*-clamp
+  (`safe_join`, the exit-6 row). That was **wrong for the `out` dir itself**:
+  `Target::validate` checked `out` only for empty, and `safe_join` clamps the
+  per-input *name* within the `out` dir while canonicalizing that dir **as-declared**.
+  So a manifest `out = "../ESCAPE/planted"` drove `crustyimg build` to `create_dir_all`
+  the escaping directory and write re-encoded image bytes **outside the project tree,
+  at exit 0** — reproduced on the real binary, and reachable via `build --check`, the
+  review's named "safe CI surface". This falsified the "never writes outside `out`"
+  claim here and accepted-risk #3 in DEC-061.
+  - **Fix (SPEC-068):** `Target::validate` (`src/build/mod.rs`) now rejects an `out`
+    that escapes the build tree — **lexically** (the out dir may not exist yet, and
+    canonicalize would follow symlinks): it reuses the watcher's `lexical_clean`
+    (`src/build/watch.rs`) and rejects a cleaned `out` whose first component is `..`
+    (`ParentDir`) or absolute (`RootDir`/`Prefix`, covering `/abs`, `C:\…`, `\srv`).
+    **Containment base = the build root**, i.e. the process working directory that
+    `source`/`recipe` resolve against (DEC-057); for a relative `out` this lexical
+    check is equivalent to "resolve against the root, assert `starts_with` the root".
+    Caught at the **prepare/validate phase** — before `Cache::open`, before any write —
+    a typed `BuildError::InvalidTarget` → **exit 2**, mirroring the SPEC-065 injectivity
+    precedent (a hostile manifest never starts a build). No new `CliError` variant, so
+    `code()` stays compiler-exhaustive and `exit_code_mapping_is_total` still holds.
+  - **Pinned by** `build_rejects_out_directory_escape` (`tests/build.rs`, drives the
+    real binary with a hostile FILE: relative `..` escape + absolute escape → exit 2,
+    nothing written outside the tree; a contained `out = "dist"` / `out = "build/thumbs"`
+    still builds) and unit tests `out_escape_is_typed_invalid_target` /
+    `accepts_contained_out_directories` (`src/build/mod.rs`).
+- **Verdict: FIXED — the write-escape is now rejected at exit 2, nothing lands
+  outside the tree.** The remaining hostile manifests are each a typed exit-2 (or a
+  clamped exit-6 on the *name*-traversal attempt); nothing panics.
+- **Residual risk — reads vs. writes (now distinct).**
+  - **WRITES: clamped.** `out` may not escape the build tree (this fix).
+  - **READS: still follow the declared manifest (accepted).** A manifest may declare
+    **out-of-tree sources** (`source = "../../**/*.png"`): the live `--watch` run below
+    resolved exactly such a glob and matched files two directories up. This is the
+    **declared-build trust model** — a build reads the paths it is told to, like a
+    `Makefile` — and reading an out-of-tree file only ever produces an *in-tree* output
+    (now that `out` is clamped) or a decode error, never an escape. Accepted (DEC-061
+    accepted-risk #3, reads); the watch-specific amplification is Surface 5.
+  - **Symlink residual (lexical check is layer 1).** A pre-existing symlink *inside*
+    the `out` path (`out = "linkdir/x"`, `linkdir → /tmp`) passes the purely lexical
+    containment check. The sink's write-time `safe_join` canonicalizes the out dir and
+    the DEC-035 symlink-destination guard (`reject_symlink_destination`, rejects even
+    with `--yes`) are the second layer: a symlinked *destination file* is refused, and
+    canonicalize resolves the real dir. Noted as residual (DEC-061), not gold-plated
+    here — the lexical clamp closes the reproduced defect; the symlinked-out-dir case
+    is a narrower, second-layer concern.
 
 ---
 
@@ -203,12 +245,15 @@ first-class result.*
   - Pinned by `watch_root_escaping_source_follows_the_manifest_documented`
     (`source_root("../..") == ".."`; `watch_roots` on an escaping source yields a
     `../..` recursive root).
-- **Verdict: ACCEPTED + DOCUMENTED (not clamped).** `--watch` is a **local,
-  interactive dev loop** (DEC-060), *not* the CI surface — CI runs `build --check`,
-  which never registers a watcher. Its roots follow the declared manifest, the same
-  reach `build` itself has, and outputs stay clamped by `safe_join`. The only effect
-  of an out-of-tree root is extra inotify descriptors + rebuild triggers from
-  unrelated file activity — a **resource/nuisance cost, never code-exec or exfil**.
+- **Verdict: ACCEPTED + DOCUMENTED (not clamped) — READS/WATCHES only.** `--watch`
+  is a **local, interactive dev loop** (DEC-060), *not* the CI surface — CI runs
+  `build --check`, which never registers a watcher. Its **watch roots** follow the
+  declared manifest, the same *read* reach `build` itself has. This is strictly a
+  read/watch question: the **write** side is now clamped independently — a target's
+  `out` cannot escape the build tree (Surface 1, SPEC-068), on top of `safe_join`'s
+  per-name clamp. The only effect of an out-of-tree watch root is extra inotify
+  descriptors + rebuild triggers from unrelated file activity — a **resource/nuisance
+  cost, never code-exec or exfil**.
   Clamping was rejected: it would break legitimate monorepo layouts (a source in
   `../shared/assets`) and *under*-watch silently (miss real edits). Recorded as an
   accepted risk in DEC-061 and pinned so it can't drift.
@@ -304,7 +349,8 @@ the LEAD's output that makes the rest of STAGE-024 targeted.*
 | # | Item | Severity | Origin |
 |---|---|---|---|
 | 7 | **Strict per-step recipe params** (reject unknown `[[step]]` keys via registry-published param names) | Low | Surface 2 accepted risk — top level is now `deny_unknown_fields`; step level stays tolerant by design. |
-| 8 | **`--watch` root-containment *warning*** (warn, don't clamp, when a watched root escapes the manifest dir) | Low | Surface 5 accepted risk — preserves monorepo layouts while surfacing an out-of-tree watch. |
+| 8 | **`--watch` root-containment *warning*** (warn, don't clamp, when a watched **read/watch** root escapes the manifest dir — reads only) | Low | Surface 5 accepted risk — preserves monorepo layouts while surfacing an out-of-tree watch. |
+| 9 | **out-directory containment** (reject a target `out` that escapes the build tree) | **DONE** | ~~High~~ — **fixed here (SPEC-068 punch-list).** Verify found the write-escape; clamped at `Target::validate` (exit 2, prepare-phase), pinned by `build_rejects_out_directory_escape`. Residual: symlinked-out-dir (write-time `safe_join`/DEC-035 is layer 2). |
 
 **Carried from SPEC-067 verify (unchanged by this review):**
 `--watch` as a global clap flag is a silent no-op on non-build subcommands (reject or
@@ -314,15 +360,19 @@ document); orphaned-output prune on source removal (a future `--clean`).
 
 ## What was fixed here vs. what was recorded
 
-- **Fixed inline (with hostile-file regression tests):** recipe top-level
-  `deny_unknown_fields` (`src/recipe/mod.rs`). This is the only clear, small,
-  security-relevant defect the review surfaced that wasn't already its own backlog
-  item.
+- **Fixed inline (with hostile-file regression tests):**
+  - recipe top-level `deny_unknown_fields` (`src/recipe/mod.rs`) — surfaced by the
+    original review.
+  - **out-directory write-escape clamp (`src/build/mod.rs`, SPEC-068 punch-list)** —
+    surfaced by the *verify* pass as a ship-blocker: `Target::validate` now rejects an
+    `out` that escapes the build tree (`..` / absolute) at exit 2, before any write.
+    Pinned by `build_rejects_out_directory_escape` + two unit tests.
 - **Pinned + filed (no inline fix — its own spec):** cache off-by-53 (boundary test
   added, fix deferred).
 - **Accepted risks (DEC-061):** recipe step-param tolerance; `--watch` un-clamped
-  roots; manifest out-of-tree declared sources; the `.to_str()→""` seams (folded
-  into the unusual-filename sweep).
+  **read/watch** roots; manifest out-of-tree declared **sources** (reads); the
+  `.to_str()→""` seams (folded into the unusual-filename sweep). *(Out-of-tree
+  **writes** are no longer an accepted risk — they are clamped, above.)*
 - **Held with no defect (dismissed suspects):** manifest hardening; cache
   verify-on-read / symlink refusal / `ext_len` bound; lockfile SPEC-066 fix
   (both `key` and `hash`); exit-code arm coverage (compiler-exhaustive).

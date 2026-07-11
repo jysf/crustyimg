@@ -325,6 +325,126 @@ fn build_partial_failure_is_exit_6() {
     assert_dims(&root.join("dist/b/b1_web.png"), 16, 16);
 }
 
+/// Write the minimal project fixtures (recipe + one source PNG) into `root`.
+fn populate_min_project(root: &Path) {
+    write_file(root, "r.toml", RESIZE_RECIPE.as_bytes());
+    write_png(root, "src_a/a1.png", 32, 32);
+    write_png(root, "src_a/a2.png", 32, 32);
+}
+
+/// A hostile manifest whose target `out` escapes the build tree — via `..` or an
+/// absolute path — is rejected at manifest validation (exit 2, SPEC-068) BEFORE
+/// any filesystem write, and NOTHING lands outside the tree. A legit relative
+/// `out` still builds. Drives the real binary with a hostile FILE, not a
+/// constructed struct — this is the ship-blocker the threat-model review found.
+#[test]
+fn build_rejects_out_directory_escape() {
+    // The project is NESTED inside a dedicated outer temp dir, so a `..` escape
+    // lands in a location this test fully OWNS (`<outer>/ESCAPE/...`) — not a
+    // shared system-temp parent where a leftover would make the check flaky.
+    // ── 1) Relative `..` escape ──────────────────────────────────────────────
+    {
+        let outer = TempDir::new().unwrap();
+        let root = outer.path().join("proj");
+        std::fs::create_dir_all(&root).unwrap();
+        populate_min_project(&root);
+        // `../ESCAPE/planted` climbs out of <outer>/proj into <outer>/ESCAPE.
+        // Without the clamp this writes re-encoded bytes there at exit 0; with
+        // it, exit 2 and nothing is written.
+        write_file(
+            &root,
+            "crustyimg.build.toml",
+            b"version = 1\n[[target]]\nsource = \"src_a/*.png\"\nrecipe = \"r.toml\"\nout = \"../ESCAPE/planted\"\n",
+        );
+
+        let out = run_build(&root, &[]);
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert_eq!(
+            out.status.code(),
+            Some(2),
+            "a `..` out-escape must be rejected at validation (exit 2), stderr: {stderr}"
+        );
+        assert!(
+            stderr.contains("out") && stderr.contains("escapes the build tree"),
+            "error should name the escaping `out`, got: {stderr}"
+        );
+        assert!(!stderr.contains("panicked"), "must not panic: {stderr}");
+        // Nothing may be written at the would-be escape target (owned by `outer`).
+        assert!(
+            !outer.path().join("ESCAPE").exists(),
+            "no bytes may be written outside the build tree"
+        );
+    }
+
+    // ── 2) Absolute escape ───────────────────────────────────────────────────
+    // An absolute `out` pointing at a sibling temp dir OUTSIDE the project.
+    {
+        let escape_root = TempDir::new().unwrap();
+        let planted = escape_root.path().join("planted");
+        // TOML basic strings treat `\` as an escape; double it so a Windows path
+        // (C:\...) round-trips (no-op on Unix).
+        let abs = planted.to_string_lossy().replace('\\', "\\\\");
+
+        let dir = TempDir::new().unwrap();
+        let root = dir.path();
+        populate_min_project(root);
+        write_file(
+            root,
+            "crustyimg.build.toml",
+            format!(
+                "version = 1\n[[target]]\nsource = \"src_a/*.png\"\nrecipe = \"r.toml\"\nout = \"{abs}\"\n"
+            )
+            .as_bytes(),
+        );
+
+        let out = run_build(root, &[]);
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert_eq!(
+            out.status.code(),
+            Some(2),
+            "an absolute out-escape must be rejected (exit 2), stderr: {stderr}"
+        );
+        assert!(
+            !planted.exists(),
+            "no bytes may be written at the absolute escape target"
+        );
+    }
+
+    // ── 3) A legit contained `out` still builds ──────────────────────────────
+    {
+        let dir = TempDir::new().unwrap();
+        let root = dir.path();
+        populate_min_project(root);
+        write_file(
+            root,
+            "crustyimg.build.toml",
+            br#"
+version = 1
+
+[[target]]
+source = "src_a/*.png"
+recipe = "r.toml"
+out = "dist"
+
+[[target]]
+source = "src_a/a1.png"
+recipe = "r.toml"
+out = "build/thumbs"
+name = "{stem}_t.{ext}"
+"#,
+        );
+        let out = run_build(root, &[]);
+        assert!(
+            out.status.success(),
+            "a contained `out` (dist, build/thumbs) must still build, stderr: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        assert_dims(&root.join("dist/a1.png"), 16, 16);
+        assert_dims(&root.join("dist/a2.png"), 16, 16);
+        assert_dims(&root.join("build/thumbs/a1_t.png"), 16, 16);
+    }
+}
+
 /// An empty glob / missing source path is a hard source error, not a silent no-op.
 #[test]
 fn build_empty_source_is_an_error() {

@@ -244,7 +244,13 @@ fn normalize_abs(p: &Path) -> PathBuf {
 
 /// Remove `.` components and resolve `..` lexically (never touching the disk), so
 /// two spellings of the same path compare equal by component.
-fn lexical_clean(p: &Path) -> PathBuf {
+///
+/// Exposed `pub(crate)` so the manifest's out-directory containment check
+/// ([`crate::build::Target::validate`], SPEC-068) can reuse the exact same
+/// lexical-normalization discipline the watcher uses — a build must not write
+/// outside its declared tree, and canonicalize is unusable there (the out dir
+/// may not exist yet, and it would follow symlinks).
+pub(crate) fn lexical_clean(p: &Path) -> PathBuf {
     let mut out = PathBuf::new();
     for comp in p.components() {
         match comp {

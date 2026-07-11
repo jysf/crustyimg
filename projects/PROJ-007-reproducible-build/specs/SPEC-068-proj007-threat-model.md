@@ -67,6 +67,22 @@ cost:
         + the two cross-cutting seams, the threat-model note, DEC-061, one inline tightening
         (recipe top-level deny_unknown_fields) with hostile-file tests, the cache off-by-53
         boundary test, and the reprioritized backlog.
+    - cycle: build
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 60000
+      estimated_usd: 0.55
+      duration_minutes: 20
+      recorded_at: 2026-07-10
+      notes: >
+        Punch-list fix pass (verify found ONE ship-blocker: the out-directory write-escape).
+        Run in the ORCHESTRATOR main loop → ORDER-OF-MAGNITUDE ESTIMATE per AGENTS §4 + the
+        "autonomous run cost = labelled estimates" practice, not a metered count. Opus 4.8 list
+        rate ($5/$25, ~80/20 in/out). Work: reproduced the escape on the real binary; clamped
+        `out` at `Target::validate` (lexical containment, reuses watch `lexical_clean`, exit 2,
+        prepare-phase); hostile-FILE regression test `build_rejects_out_directory_escape` + two
+        unit tests; corrected the threat-model note (Surfaces 1 & 5) + DEC-061 (split accepted-risk
+        #3, added the clamp decision + symlink residual); no new dep (deny unchanged).
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -385,6 +401,46 @@ dismiss**, NOT verdicts — reach the conclusions by attacking the binary (Desig
   - **Low–Med:** cache off-by-53 read-bound fix.
   - **Low:** unusual-filename hardening sweep; exit-code value-assertion patch;
     **NEW** strict per-step recipe params; **NEW** `--watch` root-containment *warning*.
+
+### Punch-list resolution (verify → build, 2026-07-10)
+
+*The first verify pass found **one ship-blocker** the original build cycle missed —
+recorded here honestly. Fixed on this branch (added to PR #75), no new PR.*
+
+- **Blocker:** the target `out` directory was an **unclamped path-traversal
+  write-escape**. `Target::validate` checked `out` only for empty; `safe_join` clamps
+  the per-input *name* within the out dir but canonicalizes the out dir **as-declared**.
+  A manifest `out = "../ESCAPE/planted"` therefore wrote re-encoded image bytes
+  **outside the project tree at exit 0** (reproduced on the real binary; reachable via
+  `build --check`, the review's named "safe CI surface"). This falsified the
+  "never writes outside `out`" claims in the note (Surfaces 1 & 5) and DEC-061
+  accepted-risk #3.
+- **Fix:** `Target::validate` (`src/build/mod.rs`) now rejects an `out` that escapes
+  the build tree — **lexically** (the out dir may not exist yet; canonicalize would
+  follow symlinks), reusing the watcher's `lexical_clean` (`src/build/watch.rs`, now
+  `pub(crate)`): a cleaned `out` whose first component is `..` or is absolute
+  (`/abs`, `C:\…`, `\srv`) is rejected. **Containment base = the build root** (the
+  cwd `source`/`recipe` resolve against, DEC-057). Caught at the **prepare/validate
+  phase**, before `Cache::open` and any write — typed `BuildError::InvalidTarget` →
+  **exit 2**, mirroring the SPEC-065 injectivity precedent. No new `CliError` variant
+  (so `code()` stays exhaustive, `exit_code_mapping_is_total` holds); no new dep
+  (`just deny` unchanged); no `{:?}` on the path.
+- **Decision:** recorded in DEC-061 as the out-directory containment **fix decision**
+  (base + error code + symlink residual), with accepted-risk #3 **split** — out-of-tree
+  *reads* stay accepted (declared-build model), out-of-tree *writes* are now clamped.
+- **Regression:** `build_rejects_out_directory_escape` (`tests/build.rs`) drives the
+  real binary with a hostile FILE (relative `..` + absolute escape → exit 2, nothing
+  written outside the tree; contained `out = "dist"`/`"build/thumbs"` still builds) —
+  confirmed to fail without the clamp, pass with it. Plus unit tests
+  `out_escape_is_typed_invalid_target` / `accepts_contained_out_directories`.
+- **Residual (noted, not solved — avoid scope creep):** a pre-existing symlink *in*
+  the out path (`out = "linkdir/x"`, `linkdir → /tmp`) can escape a purely lexical
+  check; the write-time `safe_join` canonicalize + DEC-035 symlink-destination guard
+  are the second layer (DEC-061).
+- **Gates re-run green:** `cargo test` (379 lib + all integration incl. the new test)
+  + `cargo build --no-default-features` + `cargo clippy --all-targets -- -D warnings`
+  + `cargo fmt --check` + `just deny` (unchanged) + `just validate`. 3-OS CI on PR #75
+  is the Windows-path gate for the traversal clamp.
 
 ### Build-phase reflection (3 questions, short answers)
 

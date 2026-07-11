@@ -28,6 +28,7 @@ affected_scope:
   - src/build/watch.rs
   - src/build/mod.rs
   - src/build/lock.rs
+  - tests/build.rs
   - tests/build_lock.rs
   - docs/research/proj-007-threat-model.md
 
@@ -50,16 +51,25 @@ tags:
 The SPEC-068 adversarial pass over PROJ-007's five new untrusted-input surfaces —
 manifest, recipe, `.crustyimg/` cache store, committed lockfile, `--watch` tree —
 plus the `.to_str()` and exit-code cross-cutting seams, drove **hostile files against
-the release binary** for each. The posture verdict: the wave's hardening holds. One
-tightening is applied here; one correctness wart is pinned and filed; four risks are
-**explicitly accepted** with the rationale below (an accepted risk is a decision, not
-an omission). The full evidence table is `docs/research/proj-007-threat-model.md`.
+the release binary** for each. The posture verdict: the wave's hardening holds, with
+**two fixes** — recipe top-level `deny_unknown_fields`, and (found in the *verify*
+pass, a ship-blocker) the **out-directory write-escape clamp**. One correctness wart is
+pinned and filed; three risks are **explicitly accepted** with the rationale below (an
+accepted risk is a decision, not an omission). The full evidence table is
+`docs/research/proj-007-threat-model.md`.
 
 ### Verdicts (one per surface)
 
-1. **Manifest — SAFE, no change.** Unknown key / oversize / duplicate-output / stdin
-   source / name-traversal all resolve to a typed exit 2 (or a clamped exit 6 on the
-   traversal attempt). Nothing panics; nothing writes outside `out`.
+1. **Manifest — FIXED (out-directory write-escape) + SAFE otherwise.** Unknown key /
+   oversize / duplicate-output / stdin source / name-traversal all resolve to a typed
+   exit 2 (or a clamped exit 6 on the *name*-traversal attempt); nothing panics.
+   **The verify pass found a real defect the original review missed:** `Target::validate`
+   checked `out` only for empty, and `safe_join` clamps the per-input *name* while
+   canonicalizing the `out` dir **as-declared** — so `out = "../ESCAPE/planted"` wrote
+   re-encoded bytes **outside the project tree at exit 0** (reproduced on the real
+   binary, reachable via `build --check`). Now clamped: `Target::validate` rejects an
+   `out` that escapes the build tree (`..` or absolute) at the prepare/validate phase,
+   exit 2, before any write (see the clamp decision below).
 2. **Recipe — TIGHTENED (top level) + ACCEPTED (step level).** Added
    `#[serde(deny_unknown_fields)]` to `Recipe`. The surface-map premise that flatten
    blocked this was imprecise: the flatten is on `RecipeStep` only; `Recipe` has no
@@ -84,6 +94,40 @@ path-safe fallback (accepted risk #4); the exit-code item **resizes** — `code(
 compiler-exhaustive, so the only gap is missing *value* assertions (a filed
 test-completeness patch, not a totality hole).
 
+### Fix decisions
+
+- **Recipe top-level `deny_unknown_fields`** (`src/recipe/mod.rs`) — see verdict #2.
+- **Out-directory containment clamp** (`src/build/mod.rs`, SPEC-068 punch-list). A
+  build must not write outside its declared tree.
+  - **Where:** `Target::validate`, the manifest prepare/validate phase — fails
+    **before** any filesystem write and before `Cache::open`, mirroring the SPEC-065
+    injectivity precedent (a hostile manifest never starts a build).
+  - **How:** a **lexical** containment check — the out dir may not exist yet, and
+    canonicalize would follow symlinks. Reuses the watcher's `lexical_clean`
+    (`src/build/watch.rs`, now `pub(crate)`): reject a cleaned `out` whose first
+    component is `..` (`ParentDir`) or absolute (`RootDir`/`Prefix` — covers `/abs`,
+    `C:\…`, `\server`). Component-based, so it is correct for both `/` and `\`.
+  - **Containment base:** the **build root** = the process working directory that
+    `source`/`recipe` resolve against under DEC-057. For a relative `out`, the lexical
+    check is equivalent to "resolve against the root, assert `starts_with` the root".
+    Asserted by `accepts_contained_out_directories` (`out = "dist"`, `"build/thumbs"`,
+    `"./dist"`, `"a/../b"`, `"."` all pass) and `out_escape_is_typed_invalid_target`.
+  - **Error + exit code:** typed `BuildError::InvalidTarget` → `CliError::Build(_)` →
+    **exit 2**, naming the escaping `out` (Display, no `{:?}` — SPEC-065 Windows
+    double-escape lesson). No new `CliError` variant, so `code()` stays
+    compiler-exhaustive and `exit_code_mapping_is_total` still holds.
+  - **Regression:** `build_rejects_out_directory_escape` (`tests/build.rs`) drives the
+    real binary with a hostile FILE (relative `..` + absolute escape → exit 2, nothing
+    written outside the tree; contained `out` still builds). Confirmed to fail without
+    the clamp and pass with it.
+  - **Residual (symlink):** a pre-existing symlink *inside* the `out` path
+    (`out = "linkdir/x"`, `linkdir → /tmp`) passes the purely lexical check. Second
+    layer: the sink's write-time `safe_join` canonicalizes the out dir and the DEC-035
+    symlink-destination guard (`reject_symlink_destination`) refuses a symlinked
+    destination file **even with `--yes`**. Not gold-plated further here — the lexical
+    clamp closes the reproduced defect; the symlinked-out-dir case is a narrower,
+    second-layer concern.
+
 ### Accepted risks (each a decision, with rationale)
 
 1. **Recipe step params stay tolerant.** An unknown `[[step]]` key is absorbed by
@@ -100,10 +144,14 @@ test-completeness patch, not a totality hole).
    break legitimate monorepo layouts (source in `../shared/assets`) and under-watch
    silently. Pinned by `watch_root_escaping_source_follows_the_manifest_documented`;
    a *warning* (not a clamp) is filed as backlog item #8.
-3. **A manifest may declare out-of-tree sources.** The declared-build trust model — a
-   build reads the paths it is told to, like a `Makefile`. Bounded on the write side
-   by `safe_join` (rejects empty / absolute / `..` / separator), verified by attack;
-   reading an out-of-tree file only ever yields an in-`out` image or a decode error.
+3. **A manifest may declare out-of-tree source READS (not writes).** The declared-build
+   trust model — a build *reads* the paths it is told to, like a `Makefile`
+   (`source = "../shared/**/*.png"`). Reading an out-of-tree file only ever yields an
+   **in-tree** output (now that `out` is clamped, above) or a decode error. **Split
+   from the original risk #3:** out-of-tree *writes* are **no longer accepted** — they
+   are clamped (see the out-directory containment fix decision). The `out` write side
+   is bounded by that lexical clamp **plus** `safe_join`'s per-name clamp (rejects
+   empty / absolute / `..` / separator in the expanded name), both verified by attack.
 4. **The `.to_str()→""` stem/ext seams stay silent (for now).** They degrade to a
    deterministic, path-safe, injectivity-detected fallback, not a silent wrong output.
    A typed "filename not representable" error is a UX/correctness win folded into the
@@ -123,6 +171,10 @@ real binary rather than constructing Rust structs.
 - The recipe layer now matches the manifest + lockfile `deny_unknown_fields`
   discipline at the top level; a typo'd recipe key is a typed error, not a silent
   no-op build.
+- A build can no longer be made to write outside its declared tree: a target `out`
+  that escapes via `..` or an absolute path is a typed exit-2 rejection at the
+  prepare/validate phase, before any filesystem write. The out-of-tree *write* is no
+  longer an accepted risk; out-of-tree *reads* still follow the declared manifest.
 - The cache off-by-53 boundary is pinned; a future one-line fix can flip the test from
   clean-miss to round-trip without hunting for the boundary.
 - The `--watch` root behavior is pinned as accepted, so a later change to `source_root`
