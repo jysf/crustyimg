@@ -244,7 +244,13 @@ fn normalize_abs(p: &Path) -> PathBuf {
 
 /// Remove `.` components and resolve `..` lexically (never touching the disk), so
 /// two spellings of the same path compare equal by component.
-fn lexical_clean(p: &Path) -> PathBuf {
+///
+/// Exposed `pub(crate)` so the manifest's out-directory containment check
+/// ([`crate::build::Target::validate`], SPEC-068) can reuse the exact same
+/// lexical-normalization discipline the watcher uses — a build must not write
+/// outside its declared tree, and canonicalize is unusable there (the out dir
+/// may not exist yet, and it would follow symlinks).
+pub(crate) fn lexical_clean(p: &Path) -> PathBuf {
     let mut out = PathBuf::new();
     for comp in p.components() {
         match comp {
@@ -461,6 +467,35 @@ out = "dist/thumb"
         // A bare file → its parent (so an atomic save in that dir is seen).
         assert_eq!(source_root("logo.png"), PathBuf::from("."));
         assert_eq!(source_root("src/logo.png"), PathBuf::from("src"));
+    }
+
+    #[test]
+    fn watch_root_escaping_source_follows_the_manifest_documented() {
+        // SPEC-068 / DEC-061 — ACCEPTED + DOCUMENTED, pinned so it can't drift.
+        //
+        // A watch root is derived purely from a source spelling; it is NOT clamped to
+        // under the manifest directory. A manifest that declares an out-of-tree source
+        // (`../..`) is therefore watched out of tree — the SAME reach `build` itself
+        // has when it resolves that source. `--watch` is a local, interactive dev loop
+        // (DEC-060, feature-gated, blocks until Ctrl-C); it is not the CI surface
+        // (`build --check` is). Clamping would break legitimate monorepo layouts
+        // (a source in `../shared/assets`) and *under*-watch silently. So roots follow
+        // the declared manifest, and outputs stay clamped to `out` by the sink's
+        // `safe_join`. A separate low-severity backlog item may add a *warning* (not a
+        // clamp) when a root escapes the manifest dir.
+        assert_eq!(source_root("../.."), PathBuf::from(".."));
+        assert_eq!(source_root("../../**/*.png"), PathBuf::from("../.."));
+
+        let m = BuildManifest::from_toml(
+            "version = 1\n[[target]]\nsource = \"../../**/*.png\"\nrecipe = \"r.toml\"\nout = \"dist\"\n",
+        )
+        .expect("an escaping source is a valid manifest — `build` resolves it too");
+        let set = watch_roots(&m, Path::new("crustyimg.build.toml"));
+        assert!(
+            set.recursive.contains(&PathBuf::from("../..")),
+            "the escaping source's root follows the manifest (not clamped): {:?}",
+            set.recursive
+        );
     }
 
     #[test]

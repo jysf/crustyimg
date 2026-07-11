@@ -44,6 +44,10 @@
 //! - More than [`BUILD_MANIFEST_MAX_TARGETS`] targets → [`BuildError::TooManyTargets`].
 //! - A target with an empty `source`/`recipe`/`out`, or a `-` (stdin) source →
 //!   [`BuildError::InvalidTarget`]. A build reads declared files, never stdin.
+//! - A target whose `out` escapes the build tree — via `..` or an absolute path
+//!   → [`BuildError::InvalidTarget`] (SPEC-068). A build's outputs must stay
+//!   within its declared tree; the check is lexical (the sink's write-time
+//!   `safe_join` only clamps the file *name*, not the out dir itself).
 //!
 //! All of these fire before the executor touches a single input.
 
@@ -53,6 +57,8 @@ pub mod lock;
 // pulls in no `notify` type — so its unit tests run even in the lean build; the
 // blocking watcher + rebuild loop lives in `crate::cli`, behind the `watch` feature.
 pub mod watch;
+
+use std::path::{Component, Path};
 
 use serde::Deserialize;
 use thiserror::Error;
@@ -262,6 +268,42 @@ impl Target {
         }
         if self.out.trim().is_empty() {
             return Err("`out` is empty".to_owned());
+        }
+        // `out` must stay WITHIN the build tree (SPEC-068). A hostile manifest
+        // declaring `out = "../../x"` or an absolute path would otherwise write
+        // re-encoded bytes OUTSIDE the project: the per-name `safe_join` clamp
+        // (sink) only confines the file *name* within the declared dir — it
+        // canonicalizes the out dir as-declared, so an escaping dir escapes.
+        // Reject the escape here, before any filesystem write and before the
+        // cache opens, mirroring the SPEC-065 injectivity precedent.
+        //
+        // Containment base: the build root — the process working directory that
+        // `source`/`recipe` also resolve against (DEC-057). The check is purely
+        // LEXICAL (the out dir need not exist yet, and canonicalize would follow
+        // symlinks): for a relative `out`, resolving against an absolute root R
+        // and requiring the result stay under R is equivalent to rejecting a
+        // cleaned form that is absolute or begins with `..`. Component-based, so
+        // it is correct on every host separator (`/` and `\`). RESIDUAL: a
+        // pre-existing symlink *inside* the out path can still escape a purely
+        // lexical check; the sink's write-time canonicalize + symlink-destination
+        // guard (DEC-035) is the second layer for that (DEC-061).
+        match watch::lexical_clean(Path::new(&self.out))
+            .components()
+            .next()
+        {
+            Some(Component::ParentDir) => {
+                return Err(format!(
+                    "`out` escapes the build tree via `..`: {}; a build's outputs must stay within its tree",
+                    self.out
+                ));
+            }
+            Some(Component::RootDir | Component::Prefix(_)) => {
+                return Err(format!(
+                    "`out` must be within the build tree, not an absolute path: {}",
+                    self.out
+                ));
+            }
+            _ => {}
         }
         if self.name.as_deref().is_some_and(|n| n.trim().is_empty()) {
             return Err("`name` is empty".to_owned());
@@ -499,6 +541,45 @@ bogus = 1
                 }
                 other => panic!("expected InvalidTarget, got {other:?}"),
             }
+        }
+    }
+
+    #[test]
+    fn out_escape_is_typed_invalid_target() {
+        for (out, needle) in [
+            ("../x", "escapes the build tree"),
+            ("a/../../x", "escapes the build tree"),
+            ("/abs/out", "absolute path"),
+        ] {
+            let toml_str = format!(
+                "version = 1\n[[target]]\nsource = \"a.png\"\nrecipe = \"r.toml\"\nout = \"{out}\"\n"
+            );
+            let err = BuildManifest::from_toml(&toml_str).expect_err("out-escape must fail");
+            match &err {
+                BuildError::InvalidTarget { index, reason } => {
+                    assert_eq!(*index, 0);
+                    assert!(
+                        reason.contains(needle) && reason.contains(out),
+                        "expected {needle:?} and {out:?} in {reason:?}"
+                    );
+                }
+                other => panic!("expected InvalidTarget for out={out:?}, got {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn accepts_contained_out_directories() {
+        // Relative, in-tree `out` spellings all validate — including a `.`-prefixed
+        // and a `..`-that-cancels form (containment base = build root, DEC-057).
+        for out in ["dist", "build/thumbs", "./dist", "a/../b", "."] {
+            let toml_str = format!(
+                "version = 1\n[[target]]\nsource = \"a.png\"\nrecipe = \"r.toml\"\nout = \"{out}\"\n"
+            );
+            assert!(
+                BuildManifest::from_toml(&toml_str).is_ok(),
+                "contained out={out:?} must validate"
+            );
         }
     }
 

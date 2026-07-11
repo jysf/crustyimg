@@ -14,10 +14,23 @@
 //! ## Validation (untrusted-input-hardening)
 //!
 //! - Malformed TOML → [`RecipeError::Parse`] (never a panic).
+//! - An unknown **top-level** key (`version` / `name` / `description` / `step`) →
+//!   [`RecipeError::Parse`] via `deny_unknown_fields` on [`Recipe`], matching the
+//!   manifest (DEC-057) and lockfile (DEC-059) discipline. This catches the
+//!   silent footgun where a typo'd top-level key — `steps = [...]` or `stpe` — used
+//!   to be ignored, leaving a zero-step recipe that copies its input unchanged
+//!   (SPEC-068).
 //! - Wrong `version` → [`RecipeError::UnsupportedVersion`] (checked before
 //!   op resolution).
 //! - Unknown op name → [`RecipeError::UnknownOperation`] (checked at
 //!   `build_pipeline` time, never silently skipped).
+//!
+//! **Accepted (SPEC-068 / DEC-061):** an unknown **step** key is still tolerated.
+//! [`RecipeStep`] cannot carry `deny_unknown_fields` — its `#[serde(flatten)]
+//! params` (a `BTreeMap`) absorbs every extra key — and a strict per-step check
+//! needs each operation to publish its accepted param names through the registry.
+//! An extra step key is inert (never a path, a panic, or a wrong output), so it is
+//! recorded as an accepted risk and filed as a follow-up, not fixed here.
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -157,6 +170,7 @@ pub struct RecipeStep {
 /// output of `to_toml` yields a `Recipe` equal to the original via
 /// [`PartialEq`].
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Recipe {
     /// Schema version. Only `"1"` is supported; `from_toml` rejects others.
     pub version: String,
@@ -419,6 +433,50 @@ mod tests {
         recipe
             .build_pipeline(&registry)
             .expect("pipeline build should succeed");
+    }
+
+    // ─── SPEC-068: unknown-key posture ────────────────────────────────────────
+
+    /// A hostile/typo'd **top-level** key is a hard parse error (`deny_unknown_fields`),
+    /// matching the manifest + lockfile discipline. Before SPEC-068 this was silently
+    /// tolerated: `stpe`/`steps`/`verison` would parse to a zero-step recipe that
+    /// copies its input unchanged — a silent wrong output on a committed file the
+    /// maintainer did not write. Driven from a hand-authored TOML string, not a struct.
+    #[test]
+    fn from_toml_rejects_unknown_top_level_key() {
+        // A plain typo, and the specific footgun: `steps` (plural) vs the `step` key.
+        for bad in [
+            "version = \"1\"\nbogus = 42\n",
+            "version = \"1\"\nsteps = []\n",
+            "version = \"1\"\n[[step]]\nop = \"invert\"\n\n[extra]\nx = 1\n",
+        ] {
+            let result = Recipe::from_toml(bad);
+            assert!(
+                matches!(&result, Err(RecipeError::Parse(_))),
+                "an unknown top-level key must be a typed Parse error, got {result:?}"
+            );
+        }
+    }
+
+    /// PINS the accepted risk (SPEC-068 / DEC-061): an unknown **step** param is
+    /// tolerated by design — `RecipeStep`'s `#[serde(flatten)] params` absorbs it,
+    /// and it is inert. If a future spec adds strict per-op param validation, this
+    /// test flips deliberately, not by accident.
+    #[test]
+    fn from_toml_tolerates_unknown_step_param_by_design() {
+        // An extra key on a param-taking op (resize) and on a paramless op (invert):
+        // both parse and build a working pipeline; the extra key is dropped.
+        for toml_str in [
+            "version = \"1\"\n[[step]]\nop = \"resize\"\nmode = \"max\"\nwidth = 8\nbogus = \"x\"\n",
+            "version = \"1\"\n[[step]]\nop = \"invert\"\nbogus = \"x\"\n",
+        ] {
+            let recipe = Recipe::from_toml(toml_str)
+                .expect("an unknown STEP param is tolerated (flatten), not rejected");
+            let registry = OperationRegistry::with_builtins();
+            recipe
+                .build_pipeline(&registry)
+                .expect("the pipeline still builds; the extra param is inert");
+        }
     }
 
     /// An unsupported version must still be rejected as UnsupportedVersion even

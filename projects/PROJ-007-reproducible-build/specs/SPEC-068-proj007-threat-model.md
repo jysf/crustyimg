@@ -3,7 +3,7 @@
 task:
   id: SPEC-068
   type: chore
-  cycle: design  # frame | design | build | verify | ship
+  cycle: verify  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: M                    # not a large diff, but a SYSTEMATIC adversarial pass over 5 surfaces + write the note + apply the small tightenings + reprioritize the backlog; the breadth (not any one fix) is the weight
@@ -51,6 +51,38 @@ cost:
         silent `.to_str()→""` seams, and that the exit-code map is ALREADY compiler-exhaustive so
         that backlog item is smaller than it looks). Those are recorded below as suspects, NOT
         verdicts — the fresh adversarial session reaches the conclusions (Design Notes bias).
+    - cycle: build
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 320000
+      estimated_usd: 3.00
+      duration_minutes: 55
+      recorded_at: 2026-07-10
+      notes: >
+        Build cycle run in the ORCHESTRATOR main loop (not a separately-metered subagent), so
+        numerics are an ORDER-OF-MAGNITUDE ESTIMATE per AGENTS §4 + the "autonomous run cost =
+        labelled estimates" practice, not a metered count. Opus 4.8 list rate ($5/$25, ~80/20
+        in/out, no cache discount). Work: firsthand adversarial attack of all five surfaces
+        (hand-authored hostile .toml/.lock/cache-entry bytes driven against the release binary)
+        + the two cross-cutting seams, the threat-model note, DEC-061, one inline tightening
+        (recipe top-level deny_unknown_fields) with hostile-file tests, the cache off-by-53
+        boundary test, and the reprioritized backlog.
+    - cycle: build
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 60000
+      estimated_usd: 0.55
+      duration_minutes: 20
+      recorded_at: 2026-07-10
+      notes: >
+        Punch-list fix pass (verify found ONE ship-blocker: the out-directory write-escape).
+        Run in the ORCHESTRATOR main loop → ORDER-OF-MAGNITUDE ESTIMATE per AGENTS §4 + the
+        "autonomous run cost = labelled estimates" practice, not a metered count. Opus 4.8 list
+        rate ($5/$25, ~80/20 in/out). Work: reproduced the escape on the real binary; clamped
+        `out` at `Target::validate` (lexical containment, reuses watch `lexical_clean`, exit 2,
+        prepare-phase); hostile-FILE regression test `build_rejects_out_directory_escape` + two
+        unit tests; corrected the threat-model note (Surfaces 1 & 5) + DEC-061 (split accepted-risk
+        #3, added the clamp decision + symlink residual); no new dep (deny unchanged).
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -324,26 +356,111 @@ dismiss**, NOT verdicts — reach the conclusions by attacking the binary (Desig
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
+- **Branch:** `feat/spec-068-threat-model`
+- **PR (if applicable):** #75 (opened against `main`; awaiting 3-OS CI)
+- **All acceptance criteria met?** yes
+  - Threat-model note (`docs/research/proj-007-threat-model.md`) covers all five
+    surfaces + both cross-cutting sections, each with entry point / guards / **hostile
+    inputs driven against the real binary** / verdict / residual risk. ✅
+  - Every surface driven with hostile input against the release binary (manifest:
+    unknown/oversize/duplicate/stdin/traversal; recipe: unknown top-level + step
+    param + malformed + bad version; cache: bad magic / truncated / empty /
+    flipped-payload / `ext_len` overflow / symlink + the near-cap boundary unit test;
+    lockfile: non-hex `key` **and** `hash` + unknown field + bad version + oversize,
+    no write, no panic; watch: `../..` escaping source live-confirmed). ✅
+  - The one clear, small, security-relevant defect (recipe top-level
+    `deny_unknown_fields`) fixed inline with hostile-file regression tests; every
+    other risk explicitly accepted in DEC-061. ✅
+  - Reprioritized STAGE-024 backlog written (6 items confirmed/resized/dismissed +
+    severity; 2 new items). ✅
+  - DEC-061 records verdicts + 4 accepted risks. ✅
+  - No new default dependency (`just deny` unchanged; `git diff` on
+    deny.toml/Cargo.toml/Cargo.lock empty). Full gate matrix green: `cargo test`
+    (377 lib + all integration) + `cargo build --no-default-features` + `cargo clippy
+    --all-targets -- -D warnings` + `cargo fmt --check` + `just deny` + `just
+    validate`. No `unwrap` on recoverable paths in changed code. ✅
 - **New decisions emitted:**
   - `DEC-061` — PROJ-007 threat-model verdicts + accepted risks
 - **Deviations from spec:**
-  - [list]
-- **Follow-up work identified:**
-  - [the reprioritized STAGE-024 backlog + any new items]
+  - The recipe suspect's premise ("missing `deny_unknown_fields` blocked by
+    `#[serde(flatten)] params`") was **imprecise**: the flatten is on `RecipeStep`, not
+    `Recipe`. So the tightening is simpler than the spec's suggested post-parse check —
+    a plain `#[serde(deny_unknown_fields)]` on `Recipe` closes the (more dangerous)
+    top-level gap; the step-param tolerance is the part actually blocked by flatten and
+    is the accepted risk.
+  - Cache off-by-53: **not folded in** (per the spec's default). It is a
+    correctness-not-safety wart on a shipped DEC-058 module, so it does not force a
+    re-open; pinned by a boundary test asserting the current clean-miss, fix filed as
+    its own spec.
+  - No new manifest regression test added: the surface held with no defect and the
+    existing `rejects_unknown_field` / `rejects_oversize_manifest` unit tests already
+    guard it; the binary runs are recorded in the note (avoiding gold-plate).
+- **Follow-up work identified:** (see the note's reprioritized backlog)
+  - **High:** run the decoder fuzz gate (AVIF/SVG/RAW/HEIC) — recipe handed off.
+  - **Med:** pre-decode format sniff; cache-key build-profile completeness.
+  - **Low–Med:** cache off-by-53 read-bound fix.
+  - **Low:** unusual-filename hardening sweep; exit-code value-assertion patch;
+    **NEW** strict per-step recipe params; **NEW** `--watch` root-containment *warning*.
+
+### Punch-list resolution (verify → build, 2026-07-10)
+
+*The first verify pass found **one ship-blocker** the original build cycle missed —
+recorded here honestly. Fixed on this branch (added to PR #75), no new PR.*
+
+- **Blocker:** the target `out` directory was an **unclamped path-traversal
+  write-escape**. `Target::validate` checked `out` only for empty; `safe_join` clamps
+  the per-input *name* within the out dir but canonicalizes the out dir **as-declared**.
+  A manifest `out = "../ESCAPE/planted"` therefore wrote re-encoded image bytes
+  **outside the project tree at exit 0** (reproduced on the real binary; reachable via
+  `build --check`, the review's named "safe CI surface"). This falsified the
+  "never writes outside `out`" claims in the note (Surfaces 1 & 5) and DEC-061
+  accepted-risk #3.
+- **Fix:** `Target::validate` (`src/build/mod.rs`) now rejects an `out` that escapes
+  the build tree — **lexically** (the out dir may not exist yet; canonicalize would
+  follow symlinks), reusing the watcher's `lexical_clean` (`src/build/watch.rs`, now
+  `pub(crate)`): a cleaned `out` whose first component is `..` or is absolute
+  (`/abs`, `C:\…`, `\srv`) is rejected. **Containment base = the build root** (the
+  cwd `source`/`recipe` resolve against, DEC-057). Caught at the **prepare/validate
+  phase**, before `Cache::open` and any write — typed `BuildError::InvalidTarget` →
+  **exit 2**, mirroring the SPEC-065 injectivity precedent. No new `CliError` variant
+  (so `code()` stays exhaustive, `exit_code_mapping_is_total` holds); no new dep
+  (`just deny` unchanged); no `{:?}` on the path.
+- **Decision:** recorded in DEC-061 as the out-directory containment **fix decision**
+  (base + error code + symlink residual), with accepted-risk #3 **split** — out-of-tree
+  *reads* stay accepted (declared-build model), out-of-tree *writes* are now clamped.
+- **Regression:** `build_rejects_out_directory_escape` (`tests/build.rs`) drives the
+  real binary with a hostile FILE (relative `..` + absolute escape → exit 2, nothing
+  written outside the tree; contained `out = "dist"`/`"build/thumbs"` still builds) —
+  confirmed to fail without the clamp, pass with it. Plus unit tests
+  `out_escape_is_typed_invalid_target` / `accepts_contained_out_directories`.
+- **Residual (noted, not solved — avoid scope creep):** a pre-existing symlink *in*
+  the out path (`out = "linkdir/x"`, `linkdir → /tmp`) can escape a purely lexical
+  check; the write-time `safe_join` canonicalize + DEC-035 symlink-destination guard
+  are the second layer (DEC-061).
+- **Gates re-run green:** `cargo test` (379 lib + all integration incl. the new test)
+  + `cargo build --no-default-features` + `cargo clippy --all-targets -- -D warnings`
+  + `cargo fmt --check` + `just deny` (unchanged) + `just validate`. 3-OS CI on PR #75
+  is the Windows-path gate for the traversal clamp.
 
 ### Build-phase reflection (3 questions, short answers)
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — Very little — the surface map with anchors was accurate and saved time. The one
+   snag was the recipe suspect conflating `Recipe` and `RecipeStep`: the map said
+   `deny_unknown_fields` was "blocked by flatten," which is only true for the step, so I
+   had to confirm `Recipe` has no flatten before trusting the simpler fix.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — No. `untrusted-input-hardening` + DEC-034/035/025 + DEC-057/058/059/060 were the
+   right set. The `safe_join` output clamp (the mitigation that made the manifest
+   out-of-tree-source risk acceptable) wasn't called out by anchor but was easy to find
+   and verify.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Drive `--watch` (a blocking process) via a detached background launch from the
+   start — my first two attempts hung the shell (`wait` on a SIGINT'd child, then a
+   foreground sleep the harness blocks). A `nohup … &` + separate inspect/kill call is
+   the clean pattern for attacking a long-running subcommand.
 
 ---
 
