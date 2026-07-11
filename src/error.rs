@@ -40,10 +40,16 @@ pub enum ImageError {
 
     /// The input's format was recognized, but its DECODER is not compiled into
     /// this build (a feature-gated codec — today only HEIC, behind `--features
-    /// heic`, DEC-052/DEC-056). Maps to exit 4, and names the feature to rebuild
-    /// with rather than reporting a vague "unsupported format". The encode-side
-    /// twin is [`crate::sink::SinkError::CodecNotBuilt`].
-    #[error("{codec} support is not built; rebuild with --features {feature}")]
+    /// heic`, DEC-052/DEC-056). Maps to exit 4. Leads with the fix most users can
+    /// act on — pre-convert to a widely supported format — since the common case
+    /// is a released/`cargo install` binary a user cannot easily rebuild (HEIC is
+    /// patent/AGPL-walled off the default path); the `--features` hint is kept for
+    /// those building from source. The encode-side twin is
+    /// [`crate::sink::SinkError::CodecNotBuilt`].
+    #[error(
+        "{codec} decoding isn't built into this crustyimg; convert the file to a \
+         supported format (JPEG, PNG, or WebP) first, or rebuild with --features {feature}"
+    )]
     CodecNotBuilt {
         codec: &'static str,
         feature: &'static str,
@@ -85,16 +91,19 @@ mod tests {
         assert!(err.to_string().contains("too big"));
     }
 
-    /// The message must name BOTH the codec and the cargo feature, so a user who
-    /// hits the default build's `.heic` rejection knows exactly how to proceed.
+    /// The message must (1) name the codec, (2) lead with the actionable fix for
+    /// the common case — pre-convert to a supported format — and (3) keep the
+    /// `--features` hint for source builders. A released binary's user cannot
+    /// rebuild, so "convert first" is the advice that actually helps them.
     #[test]
-    fn codec_not_built_names_codec_and_feature() {
+    fn codec_not_built_leads_with_convert_and_keeps_feature() {
         let err = ImageError::CodecNotBuilt {
             codec: "HEIC",
             feature: "heic",
         };
         let msg = err.to_string();
         assert!(msg.contains("HEIC"), "got {msg}");
+        assert!(msg.contains("convert"), "got {msg}");
         assert!(msg.contains("--features heic"), "got {msg}");
     }
 }
