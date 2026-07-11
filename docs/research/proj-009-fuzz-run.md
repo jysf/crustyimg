@@ -113,20 +113,29 @@ The seed fixture flows through the always-on `fuzz_corpus_never_panics` smoke.
 
 ---
 
-### `raw_preview` — CLEAN
+### `raw_preview` — no panic/crash; one documented memory-amplification residual (F-RAW-1)
 
 RAW extracts the largest embedded JPEG preview: a byte-scan for `FF D8 FF`
 markers, a plausible-marker prune, and decode of each candidate through the
 DEC-034-capped `image` JPEG decoder, bounded by `MAX_PREVIEW_CANDIDATES` (SPEC-061).
 
 **Budget achieved (default config, debug-assertions on):**
-`Done 1812513 runs in 602 second(s)` — **no crash / panic / OOM / hang**.
-`cov: 2626  ft: 14490  corp: 2024`, exec/s ~3k. Coverage is lower than AVIF/SVG by
-design — the surface is our marker-scan/prune logic plus `image`'s JPEG decoder,
-not a full container parser — and grew steadily from the 1.3 KB synthetic seed.
+`Done 1812513 runs in 602 second(s)` — no panic/crash. `cov: 2626  ft: 14490
+corp: 2024`, exec/s ~3k. Coverage is lower than AVIF/SVG by design — the surface is
+our marker-scan/prune logic plus `image`'s JPEG decoder, not a full container parser
+— and grew steadily from the 1.3 KB synthetic seed. **This debug run did not mutate
+to the F-RAW-1 bomb within budget; the canonical `-O` `just fuzz` gate does (below).**
 
-**Findings:** none. Clean run (DEC-062). The seed fixture flows through the
-always-on `fuzz_corpus_never_panics` smoke.
+**Findings:** no panic/crash/UB — the contract holds. But **one memory-amplification
+residual (F-RAW-1)**, the same class as F-AVIF-3, surfaced by the canonical `-O`
+`just fuzz raw_preview` gate and confirmed on the **shipped release binary**:
+
+| id | class | disposition |
+|----|-------|-------------|
+| F-RAW-1 | transient memory DoS (bucket b — a cap gap, not a crash) | **Documented residual, filed.** A < 800 B `.nef` whose embedded JPEG's SOF declares **16384×9776** drives the `image` JPEG decoder to a **~1.9 GB peak working set** (`crustyimg info` on the 782 B reproducer → `dimensions: 16384x9776`, `peak memory footprint 1.93 GB`; ≈2470× amplification). It **passes the DEC-034 caps** (16384 < 65535; 480 MB RGB output < 512 MB `max_alloc`) because `image::Limits.max_alloc` bounds a **single allocation**, not the **cumulative/peak** working set. No panic/abort/UB — a valid decode that just costs ~1.9 GB transiently — so the contract holds, but the `-O` gate straddles libFuzzer's default 2048 MB `rss_limit` and nondeterministically OOM-aborts the fuzzer (found in ~60 s in one run; a clean-seed 100 s run peaked 903 MB and passed). **Pre-existing and not RAW-specific:** the same crafted dimensions balloon the plain `.jpg` decode path to ~1.45 GB too; not introduced by this branch. Recorded by description, **not committed to the smoke corpus** (a ~2 GB-alloc input would risk OOM-killing CI). **Filed:** the root gap — `max_alloc` bounds single-alloc not peak/cumulative decode memory, across *all* JPEG decode — is a STAGE-024 follow-up (candidate mitigations: a tighter total-pixel or peak-memory bound, or a RAW-preview dimension cap; a real tradeoff since lowering caps rejects legitimate large images). |
+
+The seed fixture + any future minimized reproducer flow through the always-on
+`fuzz_corpus_never_panics` smoke (F-RAW-1 itself is excluded to protect CI memory).
 
 ---
 

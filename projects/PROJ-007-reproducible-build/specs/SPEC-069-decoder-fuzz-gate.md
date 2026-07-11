@@ -294,7 +294,13 @@ works). The three default pure-Rust targets are the required bar.
     reproducer recorded not committed — see deviation). Plus `frame_size_limit`
     decode-stage hardening.
   - **svg_decode** — **CLEAN**: 2,390,202 runs / 601 s, no crash (cov 12296).
-  - **raw_preview** — **CLEAN**: 1,812,513 runs / 602 s, no crash (cov 2626).
+  - **raw_preview** — no panic/crash (1,812,513 runs / 602 s, cov 2626), but **one
+    documented memory-amplification residual (F-RAW-1)**: a crafted embedded JPEG
+    (SOF 16384×9776) peaks ~1.9 GB while passing the DEC-034 caps (`max_alloc` bounds
+    a single allocation, not peak) — a transient memory DoS, same class as F-AVIF-3,
+    pre-existing on the general `.jpg` path, contract holds (no crash/UB). Filed: the
+    root gap (peak decode memory unbounded) as a STAGE-024 follow-up. (Verify surfaced
+    this via the `-O` `just fuzz` gate; the debug budget run above did not mutate to it.)
   - **heic_decode** — **ran best-effort** (system libheif, ASAN): libheif decode
     exercised (~107k execs, cov 1274), **no HEIC/libheif finding**; both configs
     bounded by the shared `from_bytes` AVIF-first dispatch reaching avif-parse's
