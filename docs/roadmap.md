@@ -117,25 +117,30 @@ have an impressive unused tool.
   commands, `--dry-run`/`-n`, and **SBOM + signed releases** (cosign/Sigstore via GH OIDC — the
   2026 trust baseline). Refs: clig.dev, no-color.org, clap_mangen/clap_complete.
 - **Pre-1.0 hardening gates (must-do before cutting 1.0).** Untrusted-input decoders that shipped
-  with a fuzz target must have it actually *run* before 1.0:
-  - **`fuzz/avif_decode`** — the AVIF parse+decode target (SPEC-058/PR #65) ships but was **not run**
-    (no nightly/cargo-fuzz in the build+verify envs). Run `cargo +nightly fuzz run avif_decode -- -runs=100000`
-    (or wire it into CI/OSS-Fuzz) before a 1.0 release. The single real residual risk on the AVIF
-    untrusted-binary path — mitigated today by corrupt-input + cap unit tests, but not fuzzed.
-  - **`fuzz/svg_decode`** — the SVG parse+rasterize target (SPEC-060/PR #66) ships but was **not run**
-    (no nightly/cargo-fuzz in the build+verify envs). Run `cargo +nightly fuzz run svg_decode -- -runs=100000`
-    (seed from `tests/fixtures/svg`) before a 1.0 release. Mitigated today by malformed-input + oversize-cap
-    + external-ref-refused tests, but not fuzzed — the residual risk on the SVG untrusted-text path.
-  - **`fuzz/raw_preview`** — the RAW embedded-preview scan+decode target (SPEC-061/PR #67) ships but was
-    **not run** (no nightly/cargo-fuzz in the build+verify envs). Run `cargo +nightly fuzz run raw_preview -- -runs=100000`
-    (seed from `tests/fixtures/raw`) before a 1.0 release. Mitigated today by bounded-candidate + oversize-cap
-    + no-preview-typed-error tests, but not fuzzed — the residual risk on the RAW untrusted-binary path.
-  - **`fuzz/heic_decode`** — the HEIC decode target (SPEC-062/PR #68, `#[cfg(feature="heic")]`) ships but
-    was **not run** (needs nightly + system libheif). Run `cargo +nightly fuzz run heic_decode -- -runs=100000`
-    (seed from `tests/fixtures/heic`, libheif installed) before a 1.0 release. Extra-important here: HEIC
-    decode is a **C** library (libheif/libde265, CVE history) and — pinned at the `v1_17` API floor —
-    libheif's own `set_security_limits` is unreachable, so our DEC-034 handle-dimension pre-check is the
-    *only* bound. Fuzz it before shipping the `heic` feature widely.
+  with a fuzz target must have it actually *run* before 1.0. **✅ RUN — SPEC-069 (DEC-062);** run
+  record + repeat recipe in [`docs/research/proj-009-fuzz-run.md`](research/proj-009-fuzz-run.md),
+  gate one-liner `just fuzz <target>`. The durable per-PR guard is now
+  `tests/fuzz_regressions.rs` (regressions + `fuzz_corpus_never_panics` smoke), run by ordinary
+  3-OS `cargo test`. Remaining pre-1.0 items are the two upstream-`avif-parse` follow-ups below +
+  OSS-Fuzz (optional).
+  - **`fuzz/avif_decode`** — **RUN (SPEC-069).** Surfaced 3 issues, all in `avif-parse` 2.1.0's
+    container parser (none in `re_rav1d` / our YUV glue): a `check_parser_state` `debug_assert!`
+    panic and a top-level box-size-bomb OOM — **both fixed at our boundary** (`box_sizes_fit` +
+    `catch_unwind` + `frame_size_limit`, regressions committed); and a nested meta-box
+    `TryVec::with_capacity` over-allocation — **documented upstream** (not boundary-fixable without
+    vendoring avif-parse; mitigated by avif-parse's fallible alloc). **Pre-1.0 residual:** upstream
+    `avif-parse` container robustness (report/patch/replace).
+  - **`fuzz/svg_decode`** — **RUN (SPEC-069), CLEAN.** 2.39 M runs / 601 s, no crash. Residual risk
+    on the SVG path closed for this budget.
+  - **`fuzz/raw_preview`** — **RUN (SPEC-069), CLEAN.** 1.81 M runs / 602 s, no crash. Residual risk
+    on the RAW path closed for this budget.
+  - **`fuzz/heic_decode`** — **RUN best-effort (SPEC-069)** with system libheif `1.23.1` + ASAN. The
+    libheif decode path was exercised (~107 k execs) with **no HEIC/libheif finding**; both runs were
+    bounded by the shared `from_bytes` AVIF-first dispatch reaching `avif-parse`'s documented issues.
+    HEIC decode is a **C** library (libheif/libde265) — pinned at the `v1_17` API floor, libheif's own
+    `set_security_limits` is unreachable, so our DEC-034 handle-dimension pre-check is the *only*
+    bound. **Pre-1.0 residual:** a dedicated HEIC-only fuzz entry (bypass the AVIF sniff) + bump to
+    `v1_19` for `heif_context_set_security_limits`.
 - **HEIC `heic`-feature follow-ups (post-STAGE-019, own specs if pulled).** (1) A **stride-padding test**
   with an odd-width HEIC fixture — the committed 64×48 fixture returns `stride == row_bytes`, so the
   row-padding copy path (proven correct at verify on a 67×45 image, stride 208 vs 201) is untested; commit

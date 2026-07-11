@@ -267,28 +267,82 @@ works). The three default pure-Rust targets are the required bar.
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
+- **Branch:** `feat/spec-069-fuzz-gate`
+- **PR (if applicable):** _(opened at end of build; see PR link)_
+- **All acceptance criteria met?** **yes**, with one documented upstream deviation
+  (F-AVIF-3, below). The 3 default targets ran seeded to the budget floor; every
+  finding is fixed-at-boundary or documented-upstream + pinned by a regression /
+  the corpus smoke; `just fuzz` + run record + DEC-062 + roadmap tick landed;
+  `git diff main -- Cargo.toml Cargo.lock deny.toml` is **empty**.
+- **Toolchain installed:** host had Homebrew Rust (stable 1.94.1), **no rustup** →
+  installed rustup (`--no-modify-path`) + nightly `rustc 1.99.0-nightly`, then
+  `cargo install cargo-fuzz` (`0.13.2`). ASAN on aarch64-apple-darwin. libheif
+  `1.23.1` (Homebrew) for HEIC. See run record for the setup note.
 - **New decisions emitted:**
-  - `DEC-062` — decoder fuzz-gate policy (run mechanism, budget, triage, regression-conversion, CI, HEIC scope)
-- **Findings (per target):**
-  - avif / svg / raw / heic — budget achieved + crashes found + disposition
+  - `DEC-062` — decoder fuzz-gate policy (run mechanism = `-O` release config +
+    `just fuzz`, budget floor `-max_total_time=600`, triage rules, the
+    regression-conversion durability rule, the non-blocking CI decision, HEIC
+    best-effort scope, the 1.0-gate contract).
+- **Findings (per target):** (full detail: `docs/research/proj-009-fuzz-run.md`)
+  - **avif_decode** — budget: `-O` ran to ~5.5k execs (cov 6988) before an upstream
+    OOM; default config can't reach a clean budget (upstream debug-asserts abort
+    libFuzzer regardless of `catch_unwind`). **3 findings, all upstream `avif-parse`
+    2.1.0** (none in `re_rav1d`/our glue): (1) `check_parser_state` `debug_assert!`
+    panic → **fixed** (`box_sizes_fit` + `catch_unwind`), 2 regressions; (2) 3.09 GB
+    box-size-bomb OOM → **fixed** (`box_sizes_fit`), regression; (3) ~4.26 GB nested
+    meta `with_capacity` over-allocation → **documented upstream** (bucket c,
+    reproducer recorded not committed — see deviation). Plus `frame_size_limit`
+    decode-stage hardening.
+  - **svg_decode** — **CLEAN**: 2,390,202 runs / 601 s, no crash (cov 12296).
+  - **raw_preview** — **CLEAN**: 1,812,513 runs / 602 s, no crash (cov 2626).
+  - **heic_decode** — **ran best-effort** (system libheif, ASAN): libheif decode
+    exercised (~107k execs, cov 1274), **no HEIC/libheif finding**; both configs
+    bounded by the shared `from_bytes` AVIF-first dispatch reaching avif-parse's
+    documented issues.
 - **Deviations from spec:**
-  - [list]
+  - **F-AVIF-3 not converted to a committed regression / smoke input.** The nested
+    `avif-parse` meta over-allocation provokes a multi-GB allocation; committing it
+    to the always-on `fuzz_corpus_never_panics` smoke risks OOM-killing CI. It is
+    instead recorded by sha256 in the run record and reported upstream. Its class is
+    covered by the committed `box_sizes_fit` regressions for the fixable sibling.
+  - **Two build configs, not one.** The spec's recipe implies the default cargo-fuzz
+    config; the shipped binary is `-O`/release (debug-assertions off). AVIF's upstream
+    `debug_assert!`s abort libFuzzer in the default config regardless of our
+    `catch_unwind`, so `just fuzz` and the run use `-O` (production-representative) as
+    the canonical config, with the distinction documented in DEC-062 + the run record.
 - **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - Report the two `avif-parse` 2.1.0 robustness classes upstream (debug-assert on
+    recoverable state; size/count fields sizing allocations before bounding by input).
+  - A **dedicated HEIC-only decode fuzz entry** (bypass the AVIF content-sniff) so
+    `heic_decode` fuzzes libheif in isolation instead of being diverted to the AVIF
+    path (STAGE-024 backlog).
+  - Optional: wire the sanctioned non-blocking `workflow_dispatch`/scheduled nightly
+    fuzz-smoke CI job (DEC-062); OSS-Fuzz onboarding.
 
 ### Build-phase reflection (3 questions, short answers)
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — The spec assumed a rustup host with a single fuzz config; the real host was
+   Homebrew-Rust (no rustup), and — more consequentially — cargo-fuzz's **default**
+   config runs with debug-assertions ON, which fires upstream `avif-parse`
+   `debug_assert!`s that are compiled out of the shipped release binary and that
+   libFuzzer aborts on *regardless* of a downstream `catch_unwind`. Realizing the
+   canonical run must be `-O` (matching production) took an empirical rebuild-and-
+   reproduce cycle.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — A note that the three ISOBMFF decoders (AVIF, HEIC) share the `from_bytes`
+   sniff/dispatch, so the `heic_decode` target cannot be fuzzed in isolation from the
+   AVIF path — and guidance on whether an upstream-dependency OOM that is only
+   reachable as a multi-GB allocation should be committed to the always-on smoke
+   (decided here: no — record it, don't risk CI).
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Run each target in `-O` first (production config) to separate real
+   memory-safety findings from upstream debug-assert noise, and probe the crash's
+   *stage* (container-parse vs decode) before writing a fix — my first AVIF fix
+   (`frame_size_limit`) targeted the decode stage while the OOM was in the container
+   parser; a one-line stage probe would have pointed straight at `box_sizes_fit`.
 
 ---
 

@@ -135,6 +135,47 @@ install-display:
     cargo install --path . --features display
 
 # ----------------------------------------------------------------------------
+# DECODER FUZZING (SPEC-069, DEC-062)  —  nightly-only, NOT part of `just check`
+#
+# The `fuzz/` crate is a detached workspace (its own empty [workspace]); the
+# repo-root build and CI never touch it. Fuzzing needs a nightly toolchain +
+# cargo-fuzz, a one-time setup:
+#     rustup toolchain install nightly
+#     cargo install cargo-fuzz
+# HEIC additionally needs a system libheif (`brew install libheif`) and
+# `--features heic` (best-effort; see DEC-062).
+#
+# The DURABLE, per-PR guard is `cargo test` (tests/fuzz_regressions.rs — the
+# regressions + the fuzz_corpus_never_panics smoke run on every PR, 3 OSes,
+# without a fuzzer). THIS recipe is the periodic deep run that finds NEW crashes.
+# Targets: avif_decode  svg_decode  raw_preview  heic_decode.
+# ----------------------------------------------------------------------------
+
+# Fuzz one decoder target, seeded from its committed corpus. Usage:
+#     just fuzz avif_decode          # 600s budget (the DEC-062 floor)
+#     just fuzz svg_decode 300       # custom wall-clock seconds
+#
+# Runs in `-O`/release config so the fuzzed code matches the SHIPPED binary
+# (production has debug-assertions off; ASAN stays on). Running with
+# debug-assertions on additionally trips upstream `debug_assert!`s that are
+# compiled out in release (e.g. avif-parse's parser-state checks) — see
+# docs/research/proj-009-fuzz-run.md. New coverage is written to the gitignored
+# fuzz/corpus/<target>/; a crash lands in fuzz/artifacts/<target>/ (minimize with
+# `cargo +nightly fuzz tmin <target> <artifact>`, then commit under
+# tests/fixtures/fuzz/<target>/ and add a regression).
+fuzz TARGET SECONDS="600":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    fmt="{{TARGET}}"; fmt="${fmt%_*}"      # avif_decode→avif, raw_preview→raw, …
+    mkdir -p "fuzz/corpus/{{TARGET}}"
+    # Seed the (gitignored) corpus from the committed seeds + crash reproducers,
+    # so a fresh clone starts from a known-good set without polluting fixtures.
+    cp tests/fixtures/"$fmt"/* "fuzz/corpus/{{TARGET}}/" 2>/dev/null || true
+    cp tests/fixtures/fuzz/{{TARGET}}/* "fuzz/corpus/{{TARGET}}/" 2>/dev/null || true
+    echo "seeded fuzz/corpus/{{TARGET}} from tests/fixtures/$fmt (+ crash corpus)"
+    cargo +nightly fuzz run -O {{TARGET}} "fuzz/corpus/{{TARGET}}" -- -max_total_time={{SECONDS}}
+
+# ----------------------------------------------------------------------------
 # ONE-TIME SETUP
 # ----------------------------------------------------------------------------
 
