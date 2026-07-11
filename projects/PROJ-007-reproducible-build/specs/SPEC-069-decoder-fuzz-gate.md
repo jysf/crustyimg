@@ -268,7 +268,7 @@ works). The three default pure-Rust targets are the required bar.
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
 - **Branch:** `feat/spec-069-fuzz-gate`
-- **PR (if applicable):** _(opened at end of build; see PR link)_
+- **PR (if applicable):** [#76](https://github.com/jysf/crustyimg/pull/76)
 - **All acceptance criteria met?** **yes**, with one documented upstream deviation
   (F-AVIF-3, below). The 3 default targets ran seeded to the budget floor; every
   finding is fixed-at-boundary or documented-upstream + pinned by a regression /
