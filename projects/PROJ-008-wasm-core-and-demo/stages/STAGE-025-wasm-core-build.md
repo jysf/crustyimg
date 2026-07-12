@@ -104,13 +104,14 @@ packaging and UI over a proven, size-measured core.
 
 Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
-- [ ] SPEC-072 (not yet framed) — **WASM build seam + baseline (AVIF-decode gated out).**
-  Add the `wasm` feature / `cfg(target_arch="wasm32")`; make the native-only deps optional
-  and gate `re_rav1d`/`avif-parse` + `src/image/avif.rs` + the display/watch/cli/source/sink
-  filesystem shell out of the wasm build; add a `crate-type=["cdylib","rlib"]` + a minimal
-  `wasm-bindgen` surface; a headless round-trip test; a `just wasm-build` recipe fixing the
-  RUSTC toolchain gotcha on a stable toolchain. Output: a real `.wasm` that decodes/encodes
-  SVG + PNG/JPEG/GIF/WebP + resizes in a browser. **Frame this first — it's the probe made real.**
+- [ ] SPEC-072 (design — build-ready 2026-07-12) — **WASM build seam + baseline (AVIF-decode gated out).**
+  `cfg(target_arch="wasm32")` boundary + target-scoped dep tables (move `re_rav1d`/`avif-parse` — the sole
+  compile blockers — + the fs/CLI-shell deps to not-wasm32; `wasm-bindgen` to wasm32); gate `src/image/avif.rs`
+  (mod at `image/mod.rs:29`, dispatch `353-355`) + the `cli`/`source`/`build` modules out; `crate-type=["cdylib","rlib"]`;
+  a thin `src/wasm.rs` `wasm-bindgen` surface (transform/info/optimize) over the existing
+  `from_bytes → build_pipeline → encode_to_bytes` path; `#[wasm_bindgen_test]` round-trip; `just wasm-build`
+  fixing the RUSTC toolchain gotcha on a STABLE toolchain. Output: a real `.wasm` that decodes/encodes
+  SVG + PNG/JPEG/GIF/WebP + resizes in a browser. Native default + lean builds unaffected. Likely emits DEC-064.
 - [ ] SPEC-073 (not yet framed) — **AVIF-on-wasm decision + DEC.** Test whether `rav1e`
   (AVIF *encode*, `avif` feature) compiles/runs on wasm32 (now reachable once SPEC-072 gates
   `re_rav1d` out); decide the `re_rav1d` (*decode*) path (gate-out / port-shim / wasm32-wasi /
@@ -120,7 +121,7 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
   Release + `wasm-opt`, measure, set the first-load budget, identify lazy-loaded codecs;
   record the number. *(Fold into SPEC-072 if the baseline number is already within budget.)*
 
-**Count:** 0 shipped / 0 active / 3 pending (SPEC-072 is the load-bearing one; frame it first)
+**Count:** 0 shipped / 1 in design / 2 pending (SPEC-072 framed build-ready 2026-07-12; SPEC-073/074 not yet framed)
 
 ## Design Notes
 
