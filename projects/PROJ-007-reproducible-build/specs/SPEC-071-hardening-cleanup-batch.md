@@ -263,7 +263,7 @@ user-visible string/exit code (the wave's recurring lesson).
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
 - **Branch:** `feat/spec-071-hardening-cleanup`
-- **PR (if applicable):** #74
+- **PR (if applicable):** #79
 - **All acceptance criteria met?** yes
 - **New decisions emitted:** none (no fix needed one; the one deviation below is a bug fix
   *against* an existing decision's documented contract, not a new choice)
