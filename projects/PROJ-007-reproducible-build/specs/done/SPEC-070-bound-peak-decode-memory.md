@@ -3,7 +3,7 @@
 task:
   id: SPEC-070
   type: chore
-  cycle: design  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: M                    # a shared pre-decode dimension→memory check wired into ~4 decode seams + a cap constant + a budget/factor DECISION (DEC-063) + cross-format tests; each site is small, the breadth + the tradeoff call are the weight
@@ -67,10 +67,43 @@ cost:
         1.93 GB → 8.7 MB peak RSS (exit 0 → exit 1); a real 24 MP photo still decodes/converts
         (280 MB peak, which also re-validated the ~4× amplification factor). Committed the
         reproducer + graduated it into the always-on corpus smoke. DEC-063. No new default dep.
+    - cycle: verify
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 180000
+      estimated_usd: 1.62
+      duration_minutes: 30
+      recorded_at: 2026-07-11
+      notes: >
+        Fresh adversarial verify — labelled estimate per AGENTS §4. Ran the bypass hunt on the real
+        binary with /usr/bin/time -l: bomb bounded on every route (RAW/baseline-JPEG/progressive-JPEG/
+        PNG/GIF/SVG ~8 MB); the headline progressive-JPEG worry HELD (a real 64 Mpix at-cap progressive
+        decodes to 418 MB = 1.6× baseline, so the 4× factor is conservative); every decode command
+        routes through the cap; no false rejection (24/50 MP + 8192×8192 RGBA16 decode, 8192×8193
+        rejected, 0 corpus regressions); saturating math overflow-safe; F-RAW-1 in the smoke; F-AVIF-3
+        honestly still open. Verdict CLEAN on the core memory goal. (Observation logged: full-pipeline
+        peak — decode + encode/rule buffers — can approach 1 GiB for an at-cap image; downstream of the
+        decode budget, filed. Orchestrator separately found the lint LimitsExceeded false-diagnosis,
+        also filed — not in this verify's scope.)
+    - cycle: ship
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 80000
+      estimated_usd: 0.72
+      duration_minutes: 25
+      recorded_at: 2026-07-11
+      notes: >
+        Ship bookkeeping in the orchestrator main loop — labelled estimate per AGENTS §4. Before the
+        fresh verify ran, did an orchestrator due-diligence pass (per-command routing on the real
+        binary — all bounded ~2.7 MB) that surfaced the lint LimitsExceeded false-diagnosis. Squash-
+        merged PR #78 → main (5ecc717); filled verify/ship cost sessions + totals; ship reflection;
+        timeline; STAGE-024 marks SPEC-070 shipped + files 3 follow-ups (lint false-diagnosis;
+        full-pipeline peak envelope; --max-pixels/cap-raise opt-in for medium-format); archive-spec +
+        cost-audit + validate; brag + memory. No new dep.
   totals:
-    tokens_total: 120000
-    estimated_usd: 1.08
-    session_count: 1
+    tokens_total: 380000
+    estimated_usd: 3.42
+    session_count: 4
 ---
 
 # SPEC-070: bound peak decode memory
@@ -392,10 +425,27 @@ tripping it — and the crate marks it "non-strict, some decoders may ignore it.
 from the process-focused build reflection above.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — When a spec makes an existing `ImageError` variant NEWLY REACHABLE for a new class of input,
+   audit every decode caller in the SAME cycle — not just the direct decode path. SPEC-070's 64 Mpix
+   cap made `LimitsExceeded` common for valid-but-large images, and the `lint` `TruncatedOrCorrupt`
+   rule's `Err(_)` catch-all false-diagnoses it as "truncated or corrupt / re-export" — the exact
+   [IMAGE_EXTENSIONS-exposes-every-decode-caller] lesson, which the rule's own comment already
+   anticipated for `CodecNotBuilt`. It surfaced in orchestrator due-diligence (driving `lint` on the
+   bomb), not in the build or the memory-focused verify — a reminder that the decode-caller audit is
+   a first-class part of any spec that changes what errors decode can return.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — `untrusted-input-hardening` now has its peak-**decode**-memory leg (DEC-063), but verify showed
+   the budget governs DECODE only — encode/rule buffers stack on top (a legit 49 Mpix `convert` hit
+   934 MB, at-cap GIF `lint` 776 MB), so the full-pipeline peak for an at-cap image can approach the
+   1 GiB budget. The honest envelope ("~1 GiB decode + pipeline overhead") is worth stating where the
+   cap is documented. Filed as a follow-up rather than re-scoping the cap here. DEC-063 already carries
+   the cap-value tradeoff + the `--max-pixels` opt-in as a future dial (the maintainer flagged likely
+   future medium-format interest — the revisit trigger is now live, not hypothetical).
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — Three, all filed to the STAGE-024 backlog: (a) **lint `LimitsExceeded` false-diagnosis** (small,
+   prioritized next — mirror the `CodecNotBuilt` special-case: don't call a too-large image "corrupt");
+   (b) **full-pipeline peak envelope** (document/bound decode + encode/rule, Med); (c) **`--max-pixels`
+   opt-in / raise the 64 Mpix cap** when a real large-image (medium-format/panorama) need lands. F-AVIF-3
+   remains the separately-filed upstream-parse-stage item (not closed here).
