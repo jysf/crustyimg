@@ -251,6 +251,9 @@ for proj in "${PROJECTS[@]}"; do
     project_dir="${REPO_ROOT}/projects/${proj}"
     [ -d "$project_dir" ] || continue
     printf "\n${BLUE}%s${RESET}\n" "$proj"
+    # Snapshot the running grand totals so the project's own roll-up is the
+    # delta across its stages + patches (both accumulate into GRAND_*).
+    proj_usd_before="$GRAND_USD"; proj_tok_before="$GRAND_TOK"
     found_stage=0
     while IFS= read -r stage_file; do
         [ -f "$stage_file" ] || continue
@@ -261,6 +264,13 @@ for proj in "${PROJECTS[@]}"; do
         printf "  ${DIM}(no stages)${RESET}\n"
     fi
     print_patches "$project_dir"
+
+    # Project-level cost roll-up (sum of this project's stage + patch costs).
+    proj_usd=$(awk -v a="$GRAND_USD" -v b="$proj_usd_before" 'BEGIN{printf "%.2f", a-b}')
+    proj_tok=$((GRAND_TOK - proj_tok_before))
+    if [ "$proj_tok" -gt 0 ] || [ "$proj_usd" != "0.00" ]; then
+        printf "  ${BOLD}%s total:${RESET} ${DIM}\$%s · %s tokens${RESET}\n" "$proj" "$proj_usd" "$(fmt_tok "$proj_tok")"
+    fi
 done
 
 printf "\n${BOLD}Totals:${RESET} %d shipped · %d in flight · %d not yet written  ${DIM}(%d stage(s), %d patch(es), %d project(s))${RESET}\n" \
