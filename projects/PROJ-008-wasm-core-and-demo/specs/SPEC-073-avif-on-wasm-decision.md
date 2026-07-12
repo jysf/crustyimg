@@ -3,7 +3,7 @@
 task:
   id: SPEC-073
   type: story
-  cycle: design                    # frame | design | build | verify | ship
+  cycle: verify  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: M                    # S | M | L
@@ -47,10 +47,21 @@ cost:
         framed build-ready in the orchestrator main loop; grounded in a design-time
         probe (2026-07-12) that compiled `--features avif` to wasm32 — rav1e 0.8.1 +
         ravif 0.13.0 built clean (exit 0), proving AVIF encode is achievable on wasm.
+    - cycle: build
+      interface: claude-code
+      tokens_total: 300000
+      note: >
+        ORDER-OF-MAGNITUDE ESTIMATE (build ran in the main loop, not a metered
+        subagent). Single session, no rework: measured the size delta on the real
+        release artifact (lean vs `--features avif`), wired the wasm surface, drove
+        the encode in a real wasm VM (10/10 wasm tests green), ran the full native
+        gate set, and emitted DEC-065. The one unplanned piece of work was the
+        `optimize`/perceptual-search guard (the DEC-019 search needs a decoder that
+        AVIF on wasm does not have).
   totals:
-    tokens_total: 0
+    tokens_total: 300000
     estimated_usd: 0
-    session_count: 0
+    session_count: 1
 ---
 
 # SPEC-073: AVIF-on-wasm decision (encode in, decode deferred) + DEC
@@ -114,17 +125,17 @@ size delta rav1e adds — choosing the encode shipping strategy from that measur
 
 ## Acceptance Criteria
 
-- [ ] The wasm surface encodes to AVIF: a `#[wasm_bindgen_test]` takes a PNG (+ optional recipe)
+- [x] The wasm surface encodes to AVIF: a `#[wasm_bindgen_test]` takes a PNG (+ optional recipe)
       and `transform(..., "avif")` returns bytes that are **valid AVIF** (ftyp/brand check, or a
       native decode in the assertion), in a real wasm VM (`just wasm-test`). No panic/abort.
-- [ ] AVIF **input** still returns the typed `CodecUnavailableOnTarget` error on wasm (decode
+- [x] AVIF **input** still returns the typed `CodecUnavailableOnTarget` error on wasm (decode
       unchanged) — no regression from SPEC-072.
-- [ ] The `.wasm` **size delta with `--features avif` is measured and recorded** (raw/gzip/brotli)
+- [x] The `.wasm` **size delta with `--features avif` is measured and recorded** (raw/gzip/brotli)
       against the 1.19 MB brotli baseline; DEC-065 states the number and the shipping strategy.
-- [ ] Native builds unaffected: `cargo build`, `cargo build --no-default-features`, `cargo test`,
+- [x] Native builds unaffected: `cargo build`, `cargo build --no-default-features`, `cargo test`,
       `cargo clippy` green; native AVIF encode (`--features avif`) still works on the real binary;
       `just deny` unchanged.
-- [ ] `just wasm-build` (and the with-AVIF variant) reproduce on the stable toolchain; DEC-065 committed.
+- [x] `just wasm-build` (and the with-AVIF variant) reproduce on the stable toolchain; DEC-065 committed.
 
 ## Failing Tests
 
@@ -185,20 +196,86 @@ Written now (design), before build.
 
 ## Build Completion
 
-*Filled in at the end of the build cycle.*
-
-- **Branch:**
-- **PR:**
-- **All acceptance criteria met?**
-- **New decisions emitted:**
-- **Deviations from spec:**
+- **Branch:** `feat/spec-073-avif-on-wasm`
+- **PR:** #82
+- **All acceptance criteria met?** Yes.
+  - **AVIF encode in the wasm surface** — `transform(png, RESIZE_RECIPE, "avif")` returns bytes
+    with a `ftyp` box and an `avif` major brand, asserted **inside a real wasm VM**
+    (`just wasm-test`: 10/10 `#[wasm_bindgen_test]`s green, no panic/abort). The output is sniffed
+    rather than decoded back — the wasm build has no AVIF decoder, which is the point.
+  - **AVIF input still errors** — new `avif_input_still_errors_on_wasm` (alongside the SPEC-072
+    test) proves that turning ENCODE on did not quietly turn DECODE on: still typed
+    `CodecUnavailableOnTarget`, still no `--features` advice a browser user can't act on.
+  - **Size delta measured** (release, post `wasm-opt`, same machine/toolchain as SPEC-072):
+    | | lean | **with `avif`** | delta |
+    |---|---|---|---|
+    | raw | 4,496,577 B | 6,415,270 B | +1.83 MB (+42.7%) |
+    | gzip | 1,716,575 B | 2,272,806 B | +0.53 MB (+32.4%) |
+    | **brotli** | **1,248,818 B (1.19 MB)** | **1,594,482 B (1.52 MB)** | **+345,664 B (+27.7%)** |
+    The lean column reproduces the SPEC-072 baseline byte-for-byte.
+  - **Native unaffected** — `cargo build`, `cargo build --no-default-features`, `cargo test`
+    (29 suites, 0 failures), `cargo test --features avif`, `cargo clippy --all-targets -D warnings`,
+    `just deny` (advisories/bans/licenses/sources ok — **no new exception**; rav1e/ravif/av1-grain/
+    av-scenechange are permissive pure Rust). **`Cargo.toml` has no dependency change at all** —
+    only feature-doc comments — so the native feature matrix and released binary are byte-identical.
+  - **Reproducible on stable** — `just wasm-build` (shipped, with AVIF) and
+    `just --set _wasm_features "" wasm-build` (the lean comparison SPEC-074 needs). DEC-065 committed.
+- **New decisions emitted:** **DEC-065** — AVIF **encode is IN** the wasm build (shipped artifact is
+  built `--features avif`); **decode is deferred, not scheduled** (the browser already has an AVIF
+  decoder — `createImageBitmap`; shipping a second one is the wrong trade at any size); **one
+  artifact, no lazy AVIF chunk** (wasm modules don't share code, so a "chunk" is a second full
+  1.52 MB engine — the AVIF user would pay 2.71 MB instead of 1.52 MB; the bundle's real problem is
+  the 1.19 MB core, which is SPEC-074's).
+- **Deviations from spec:** two, both additive.
+  1. **`optimize(_, "avif")` needed a guard the spec didn't anticipate.** The perceptual quality
+     search encodes a candidate and **decodes it back** to score it (DEC-019) — so it needs a
+     DECODER, which AVIF on wasm does not have. `src/wasm.rs::optimize` decided lossy-vs-lossless on
+     `supports_lossy_quality` (encode-knob only); with `avif` on, AVIF would have entered the search
+     and failed on candidate #1's decode. Now it guards on `supports_perceptual_quality` (the same
+     seam the CLI guards on) and encodes once at the encoder's default quality. Covered by a new
+     test (`optimize_to_avif_encodes_without_the_perceptual_search`).
+  2. **The `avif` cargo feature stayed the single gate** rather than making AVIF unconditional on
+     wasm (`any(feature, target_arch)` + a wasm dep-table entry). Two reasons, argued in DEC-065:
+     it would smear the cfg's meaning across ~8 sites in `sink`/`quality`, and it would **weld
+     rav1e to the target** — deleting the lean comparison build SPEC-074 needs. The justfile
+     remembers the flag so a human doesn't have to.
 - **Follow-up work identified:**
+  - **STAGE-027 (demo page) inherits two hard constraints:** (a) rav1e runs **serial** on wasm
+    (`maybe-rayon`, no threads) — AVIF encode must go in a Web Worker with visible progress or the
+    page will feel hung; (b) `.avif` **inputs** must be decoded by the page via `createImageBitmap`,
+    since we return a typed error.
+  - **STAGE-026 (npm packaging) / a wasm CI job must build through `just wasm-build`.** A bare
+    `cargo build --target wasm32-…` silently ships an artifact whose headline call answers "codec
+    not built". (The wasm CI job was already a SPEC-072 follow-up; this raises its stakes.)
+  - **SPEC-074 inherits a sharpened brief:** 1.52 MB brotli, of which ~1.19 MB is engine and
+    ~0.35 MB is rav1e. The levers are `ssimulacra2`, the resvg text stack, unused `image` codecs,
+    and the `crustyimg-core` split — not the headline codec.
+  - **`quality::supports_perceptual_quality`'s doc comment is stale on native.** It says AVIF has
+    "no decoder built", which stopped being true at SPEC-058 (re_rav1d). The *predicate* may still
+    be right (perceptual AVIF was never wired), but the stated reason is wrong on native and only
+    accidentally right on wasm. Out of scope here; worth a cleanup spec.
 
 ### Build-phase reflection
 
-1. **What was unclear in the spec that slowed you down?** —
-2. **Was there a constraint or decision that should have been listed but wasn't?** —
-3. **If you did this task again, what would you do differently?** —
+1. **What was unclear in the spec that slowed you down?** — Nothing blocked me; the spec was
+   unusually well-loaded (the probe result, the seam, the baseline, the exact files). The one thing
+   it did not anticipate was the `optimize`/perceptual-search collision above: the spec framed the
+   work as "let the format string reach the existing encode arm", which is true for `transform` but
+   **not** for `optimize` — turning the `avif` feature on changed `supports_lossy_quality(Avif)` to
+   `true`, which silently re-routed `optimize` into a search that cannot run without a decoder. A
+   grep for `feature = "avif"` found it in a minute, but only because I went looking for what the
+   feature flag *else* switches on. **Lesson worth carrying: enabling a feature flag on a new target
+   changes every `cfg(feature)` site in the crate, not just the one you came for** — the sibling of
+   the "IMAGE_EXTENSIONS exposes every decode caller" lesson, and it deserves the same reflex.
+2. **Was there a constraint or decision that should have been listed but wasn't?** — DEC-019 (the
+   perceptual search decodes candidates to score them). It is the reason the `optimize` guard exists,
+   and it was not in the spec's "Decisions that apply" list. Listing it would have pointed straight
+   at the collision.
+3. **If you did this task again, what would you do differently?** — Measure the size delta *first*,
+   before writing a line of code. I did the builds early by luck of ordering, but it should be
+   deliberate: this spec's whole shape (one artifact vs. a split) hinged on one number, and every
+   code decision downstream of it was cheap to make once the number existed and would have been
+   expensive to unwind had it come out at, say, +2 MB brotli.
 
 ---
 
