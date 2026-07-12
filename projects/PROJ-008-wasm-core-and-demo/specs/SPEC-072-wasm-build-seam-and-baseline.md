@@ -3,7 +3,7 @@
 task:
   id: SPEC-072
   type: story
-  cycle: design                    # frame | design | build | verify | ship
+  cycle: verify  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: M                    # S | M | L  (L means split it)
@@ -45,6 +45,17 @@ cost:
       interface: claude-code
       tokens_total: null            # design done in orchestrator main loop (un-metered, §4)
       note: "framed build-ready in the orchestrator main loop; grounded in the 2026-07-12 design-time WASM compile probe"
+    - cycle: build
+      interface: claude-code
+      tokens_total: 400000
+      estimated_usd: 3.60
+      note: >
+        ORDER-OF-MAGNITUDE ESTIMATE, not a meter reading: the build ran in an
+        interactive main-loop session, not a metered subagent, so no
+        `subagent_tokens` exists to copy (§4 / the labelled-estimates practice).
+        Costed at the Opus 4.8 list rate ($5/$25 per MTok, ~80/20 in/out => $9/MTok)
+        with no cache discount. Ship should keep the label; the number is a floor-ish
+        guess, not a measurement.
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -234,20 +245,95 @@ Written now (design), before build. The build cycle makes them pass.
 
 ## Build Completion
 
-*Filled in at the end of the build cycle, before advancing to verify.*
+- **Branch:** `feat/spec-072-wasm-build-seam`
+- **PR:** #74
+- **All acceptance criteria met?** **yes** — all 7.
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
-- **New decisions emitted:**
+| criterion | evidence |
+|---|---|
+| wasm32 lib builds (release too), `.wasm` produced, AVIF gated out | `just wasm-check` + `just wasm-build` → `pkg/crustyimg_bg.wasm` |
+| `#[wasm_bindgen_test]` round-trip passes | **7/7 green** in Node: PNG+resize → bytes that **decode to 32×24**; SVG → raster; `info` correct |
+| AVIF input → typed error, not a panic | `avif_input_errors_not_panics` asserts `Err`, message names AVIF, and does **not** advise `--features` |
+| native default + lean build + `cargo test` green; native AVIF still decodes | **714 tests green**; `--no-default-features` builds; `native_avif_still_decodes` asserts it directly |
+| `just deny` unchanged / no new exception | **licenses, bans, sources all ok — NO new exception** (wasm-bindgen tail is MIT/Apache) |
+| `.wasm` size measured + recorded | **4.29 MB raw / 1.64 MB gzip / 1.19 MB brotli** (post `wasm-opt`) → `docs/research/proj-008-wasm-build.md` |
+| `just wasm-build` reproduces on **stable** | yes — recipes resolve the rustup stable toolchain explicitly; no nightly needed |
+
+- **New decisions emitted:** **DEC-064** — the WASM boundary is `cfg(target_arch)`, not a
+  cargo feature; `wasm-bindgen` as the JS glue; AVIF decode out of the wasm build.
+
 - **Deviations from spec:**
+  1. **`info` returns a `#[wasm_bindgen] struct ImageInfo`, not `JsValue`.** A real JS
+     object with getters (`width`/`height`/`format`/`hasAlpha`) — better DX and no
+     `serde-wasm-bindgen` dep, which `JsValue` would have needed.
+  2. **The AVIF sniff moved to a new `src/image/sniff.rs`.** Not in the spec's file list,
+     but forced: the spec says the wasm build must *detect* AVIF and return a typed
+     error, and `is_avif` lived inside the module that had to leave the wasm build.
+     Detection now lives apart from the decoder it dispatches to.
+  3. **A new `ImageError::CodecUnavailableOnTarget`,** rather than reusing
+     `CodecNotBuilt` — whose message ("rebuild with `--features X`") would be a lie in a
+     browser. Gated `cfg(target_arch = "wasm32")` so the native exit-code map stays
+     total (the SPEC-061/062 lesson).
+  4. **Tests run via `cargo test --target wasm32 --test wasm_roundtrip` (with a
+     `.cargo/config.toml` runner), not `wasm-pack test`.** `wasm-pack test` hardcodes
+     `cargo build --tests`, which drags all ~20 CLI-driving native integration tests into
+     the wasm build. The alternative was `#![cfg(not(target_arch = "wasm32"))]` on every
+     native test file — forever, on every new one. `wasm-pack` is still used for
+     `wasm-build`.
+  5. **`criterion`/`tempfile` moved to native-only dev-deps** — cargo builds *every*
+     dev-dep for *any* test target, and `criterion` hard-`compile_error!`s on wasm.
+     Unforeseen but unavoidable.
+  6. **`optimize` is partial (as the spec permitted).** It uses the real engine
+     (`Analysis` → `decide::format_shortlist` → `quality::auto_quality` SSIMULACRA2
+     search) but takes the shortlist's first candidate instead of solving all candidates
+     via `pick_winner`. Follow-up below.
+  7. **One out-of-scope commit:** `chore(deny)` ignoring RUSTSEC-2026-0206. **`main` was
+     already red** — verified on a clean `main` worktree — because `rustybuzz` was newly
+     declared unmaintained upstream. Same resvg/usvg text stack, same upstream remedy, as
+     the already-ignored RUSTSEC-2026-0192. Kept as a **separate commit** so it is not
+     mistaken for SPEC-072 work.
+
 - **Follow-up work identified:**
+  1. **A shared engine seam for the full `optimize` solve**, called by both `cli` and
+     `wasm`, so the multi-candidate `pick_winner` path isn't CLI-only (and isn't
+     copy-pasted into `wasm.rs`).
+  2. **A wasm CI job.** Today nothing stops a commit from silently breaking the wasm
+     build; `just wasm-test` is a local floor (mirrors the fuzz-gate precedent, DEC-062).
+     Stage-level decision.
+  3. **Bundle size — SPEC-074's brief.** 1.19 MB brotli is the wave's main debt.
+     Prime suspects: `ssimulacra2`, the resvg text stack, unused `image` codecs. The
+     bigger lever is a separate `crustyimg-core` crate (DEC-064 defers it until a
+     measurement argues for it — this is that measurement).
+  4. **A default-ON feature with a native-only dep needs a `not(wasm32)` conjunct.**
+     Today only `display`. If a second appears, introduce a cfg alias.
 
 ### Build-phase reflection (3 questions, short answers)
 
-1. **What was unclear in the spec that slowed you down?** —
-2. **Was there a constraint or decision that should have been listed but wasn't?** —
-3. **If you did this task again, what would you do differently?** —
+1. **What was unclear in the spec that slowed you down?** — Nothing about the *design*;
+   the spec was unusually well-grounded (the probe's findings held exactly, and the
+   "clean cut" claim about the core was true). What it could not have known is that the
+   wasm **test harness** — not the wasm build — was the hard part. The spec said "run it
+   via `wasm-pack test`", and `wasm-pack test` cannot work in a repo whose integration
+   tests drive a CLI binary. Three of the seven deviations above are consequences of
+   that one discovery. A design-time probe of `wasm-pack test` (not just `cargo build
+   --target wasm32`) would have surfaced it.
+
+2. **Was there a constraint or decision that should have been listed but wasn't?** — The
+   spec listed `untrusted-input-hardening` but framed it as "keep the decode caps". The
+   sharper point, which I had to derive: **in wasm a panic aborts the module**, so
+   "typed error, never panic" stops being a code-quality rule and becomes a
+   crash-the-user's-page rule. That's the actual reason `CodecUnavailableOnTarget` had
+   to be an error rather than an `unimplemented!()`, and it should be stated in the
+   constraint's wasm framing.
+
+3. **If you did this task again, what would you do differently?** — Build the test
+   harness *first*, before touching `Cargo.toml`. I partitioned the deps, gated the
+   modules, wrote the surface, got a clean wasm compile — and only then discovered the
+   test runner couldn't run in this repo, which forced changes back into the manifest
+   (`criterion`) and `main.rs`. The compile was the easy half and I did it first because
+   it was the easy half. Driving one trivial `#[wasm_bindgen_test]` end-to-end on day
+   one would have exposed the `wasm-pack`/`--tests`/`criterion`/`main.rs` chain in
+   minutes instead of at the end.
 
 ---
 
