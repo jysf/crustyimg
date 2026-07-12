@@ -4957,13 +4957,25 @@ mod tests {
             2
         );
 
-        // Metadata variants (SPEC-026, DEC-029).
+        // Metadata variants (SPEC-026, DEC-029): unsupported format → 4; a
+        // container/EXIF parse or rewrite failure → 1 (generic runtime).
         assert_eq!(
             CliError::Metadata(crate::metadata::MetadataError::UnsupportedFormat(
                 "x".into()
             ))
             .code(),
             4
+        );
+        assert_eq!(
+            CliError::Metadata(crate::metadata::MetadataError::Container(
+                "bad chunk".into()
+            ))
+            .code(),
+            1
+        );
+        assert_eq!(
+            CliError::Metadata(crate::metadata::MetadataError::Exif("bad tag".into())).code(),
+            1
         );
     }
 
