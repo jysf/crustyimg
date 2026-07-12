@@ -15,8 +15,14 @@
 //! the OUTPUT — the encoded bytes decode, and they decode to the dimensions and
 //! format we asked for.
 //!
-//! The native half of the same guarantee (AVIF still decodes on native after the
-//! target-gating) is asserted at the bottom, and DOES run under `cargo test`.
+//! The native half of the same guarantee (native AVIF decode and encode both
+//! survive the target-gating) is asserted at the bottom, and DOES run under
+//! `cargo test`.
+//!
+//! SPEC-073/DEC-065 added the AVIF **encode** tests: the shipped wasm artifact is
+//! built `--features avif` (which `just wasm-test` passes), so `rav1e` really runs
+//! in the VM. AVIF **decode** stays out — which is why the AVIF assertions here
+//! sniff the output container instead of decoding it back.
 
 // ─────────────────────────────────────────────────────────────────────────────
 // WASM: the real decode → transform → encode round-trip
@@ -167,6 +173,62 @@ op = "identity"
         );
     }
 
+    /// PNG → **AVIF** in the browser: the wave's headline (SPEC-073, DEC-065).
+    ///
+    /// `rav1e`/`ravif` compile to wasm32, so the `avif` feature — which the shipped
+    /// artifact is built with — puts a real AV1 encoder in the page. This test is
+    /// the earned verdict on that: it runs the encoder inside the wasm VM and
+    /// asserts the RETURNED BYTES are a real AVIF file, not merely that the call
+    /// returned `Ok`.
+    ///
+    /// The output cannot be fed back through `info()` — the wasm build has no AVIF
+    /// *decoder* (DEC-065's asymmetry, and precisely why this assertion sniffs the
+    /// container instead of decoding it). So we check the ISOBMFF header the way
+    /// `image::sniff` does: a `ftyp` box at offset 4 whose major brand (offset 8) is
+    /// `avif` (still image) or `avis` (sequence).
+    ///
+    /// NOTE: this test requires `--features avif`, which `just wasm-test` passes.
+    /// The shipped wasm artifact is an AVIF-encoding artifact (DEC-065); a build
+    /// without the feature is only ever made to measure the size delta.
+    #[wasm_bindgen_test]
+    fn transform_png_to_avif_is_valid_avif() {
+        let src = png_64x48();
+
+        let out = transform(&src, RESIZE_RECIPE, "avif")
+            .expect("AVIF encode must work in wasm (build with --features avif — DEC-065)");
+
+        assert!(out.len() > 8, "AVIF encode returned no usable bytes");
+        assert_eq!(&out[4..8], b"ftyp", "output should be an ISOBMFF container");
+        let brand = &out[8..12];
+        assert!(
+            brand == b"avif" || brand == b"avis",
+            "major brand should be avif/avis, got {:?}",
+            std::str::from_utf8(brand)
+        );
+    }
+
+    /// Turning AVIF **encode** on did NOT quietly turn AVIF **decode** on: an AVIF
+    /// input still returns the typed `CodecUnavailableOnTarget` error.
+    ///
+    /// This is the load-bearing guard on DEC-065's asymmetry. `image`'s `avif`
+    /// feature is encode-only (`ravif`), and the decoder we use (`re_rav1d`) is
+    /// still native-only — but that is a property of two upstream crates, and a
+    /// future `image` feature-flag change could silently flip it. The demo page
+    /// promises the browser reads `.avif` via `createImageBitmap`, not via us, so
+    /// the day this test goes red is a day the story changed.
+    #[wasm_bindgen_test]
+    fn avif_input_still_errors_on_wasm() {
+        let err = transform(AVIF, RESIZE_RECIPE, "png")
+            .expect_err("AVIF DECODE stays unavailable in wasm even with the avif feature on");
+
+        let msg = format!("{:?}", wasm_bindgen::JsValue::from(err));
+        assert!(msg.contains("AVIF"), "message should name the codec: {msg}");
+        assert!(
+            !msg.contains("--features"),
+            "must not advise a cargo feature a browser user cannot use: {msg}"
+        );
+    }
+
     /// `optimize` runs the real engine in wasm: the analysis layer buckets the
     /// image, the shortlist picks a format, and — for a lossy target — the
     /// SSIMULACRA2 quality search actually runs. Asserted on the output bytes.
@@ -194,6 +256,24 @@ op = "identity"
         let back = info(&out).expect("auto-optimized bytes should decode");
         assert_eq!((back.width(), back.height()), (64, 48));
     }
+
+    /// `optimize(_, "avif")` encodes rather than searching — and, crucially, does
+    /// not blow up trying to.
+    ///
+    /// The perceptual quality search decodes every candidate to score it (DEC-019),
+    /// so it needs a DECODER, which AVIF does not have here. The wasm surface
+    /// therefore skips the search for AVIF and encodes once at the encoder's
+    /// default quality. Asking `auto_quality` to search AVIF would fail on the
+    /// first candidate's decode, so this asserts the guard is in place — it is the
+    /// one behavioral seam SPEC-073 changed inside `optimize`.
+    #[wasm_bindgen_test]
+    fn optimize_to_avif_encodes_without_the_perceptual_search() {
+        let out =
+            optimize(&png_64x48(), "avif").expect("optimize → avif must not attempt a search");
+
+        assert!(out.len() > 8, "AVIF encode returned no usable bytes");
+        assert_eq!(&out[4..8], b"ftyp", "output should be an ISOBMFF container");
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -213,4 +293,32 @@ fn native_avif_still_decodes() {
 
     assert_eq!((img.width(), img.height()), (16, 16));
     assert_eq!(img.source_format(), image::ImageFormat::Avif);
+}
+
+/// SPEC-073 turned the `avif` feature ON for the wasm artifact and taught the wasm
+/// surface to skip the perceptual search for AVIF. Neither may cost the NATIVE build
+/// its AVIF ENCODE: `--features avif` must still produce a valid AVIF that this
+/// build's own decoder reads back. (Native `cargo test --features avif` runs this;
+/// the unit test `sink::encode_avif_respects_quality` covers the quality knob, so
+/// this asserts only the end-to-end encode → decode identity the wasm change could
+/// plausibly have broken.)
+#[cfg(all(not(target_arch = "wasm32"), feature = "avif"))]
+#[test]
+fn native_avif_encode_still_works() {
+    use crustyimg::image::Image;
+
+    let src = Image::from_bytes(include_bytes!("fixtures/avif/solid_16x16.avif"))
+        .expect("fixture decodes");
+
+    let out = crustyimg::sink::encode_to_bytes(&src, image::ImageFormat::Avif, Some(80))
+        .expect("native AVIF encode must survive");
+
+    assert_eq!(
+        &out[4..8],
+        b"ftyp",
+        "encoded output should be an ISOBMFF box"
+    );
+    let back = Image::from_bytes(&out).expect("native build decodes what it encoded");
+    assert_eq!((back.width(), back.height()), (16, 16));
+    assert_eq!(back.source_format(), image::ImageFormat::Avif);
 }

@@ -164,6 +164,10 @@ SPEC-073 owns: does `rav1e` (AVIF *encode*, already an optional native feature v
 `image/avif`) compile to wasm32? Can `re_rav1d`'s libc/thread usage be `cfg`'d out
 upstream or in a fork? Is there a third pure-Rust AV1 decoder that targets wasm?
 
+> **Answered by SPEC-073 (§7 below): `rav1e` compiles AND runs — AVIF ENCODE is in the
+> wasm build. Decode stays out and is now deliberately deferred (DEC-065), because the
+> browser already has an AVIF decoder and we do not need to ship a second one.**
+
 ---
 
 ## 5. The surface (`src/wasm.rs`)
@@ -212,3 +216,57 @@ as a follow-up; SPEC-072 explicitly permitted this.
 - **No wasm CI job yet.** `just wasm-test` is the local floor, matching the fuzz-gate
   precedent (DEC-062). Nothing stops a future commit from breaking the wasm build
   silently. A CI job is a stage-level decision, filed as a follow-up.
+
+---
+
+## 7. SPEC-073 addendum — AVIF encode, and what it costs
+
+**Run date:** 2026-07-12 · **Spec:** SPEC-073 · **Decision:** DEC-065 · same machine and
+toolchain as above.
+
+### It runs, not just compiles
+
+`rav1e` 0.8.1 + `ravif` 0.13.0 (via `image/avif`) compile to `wasm32-unknown-unknown`
+**and execute in a wasm VM**: `transform(png, recipe, "avif")` returns bytes whose
+ISOBMFF header carries a `ftyp` box with an `avif` major brand. Asserted by
+`transform_png_to_avif_is_valid_avif` under `just wasm-test` (10/10 green) — the output
+bytes are sniffed, not merely `Ok`-checked. They cannot be fed back through `info()`,
+because **there is still no AVIF decoder in the wasm build** — which is the asymmetry, in
+one sentence.
+
+### The size delta (the number SPEC-074 argues from)
+
+Release `.wasm`, post `wasm-opt`. The lean column reproduces §2 exactly.
+
+| | lean (no AVIF) | **shipped (`--features avif`)** | delta |
+|---|---|---|---|
+| raw | 4,496,577 B (4.29 MB) | 6,415,270 B (6.12 MB) | +1.83 MB (+42.7%) |
+| gzip `-9` | 1,716,575 B (1.64 MB) | 2,272,806 B (2.17 MB) | +0.53 MB (+32.4%) |
+| **brotli `-q 11`** | **1,248,818 B (1.19 MB)** | **1,594,482 B (1.52 MB)** | **+345,664 B (+27.7%)** |
+
+Reproduce: `just wasm-build` (shipped) and `just --set _wasm_features "" wasm-build`
+(lean). **+345 KB over the wire** is the honest figure — brotli is what a real host
+serves; the raw +1.83 MB overstates it, because an AV1 encoder compresses well.
+
+**DEC-065 accepts it and ships one artifact.** A lazy "AVIF chunk" is not 345 KB: wasm
+modules don't share code, so a second module re-links the whole engine, and the user who
+actually converts to AVIF would pay 1.19 + 1.52 = **2.71 MB** instead of 1.52. The
+bundle's real problem is the **1.19 MB core** (`ssimulacra2`, the resvg text stack, the
+full `image` codec set) — that is SPEC-074's lever, not the headline codec.
+
+### What bites next
+
+- **rav1e runs SERIAL on wasm** — `maybe-rayon` with no threads on bare wasm32. Encoding
+  is noticeably slower than the native CLI. STAGE-027 must run it in a Web Worker with a
+  progress indication, or the page will feel hung.
+- **`optimize(_, "avif")` does not search.** The perceptual search decodes each candidate
+  to score it (DEC-019) and there is no decoder — so `src/wasm.rs` guards on
+  `supports_perceptual_quality` and encodes once at the default quality (80). AVIF is
+  also never auto-picked (`format_shortlist` only offers it in `Mode::SizeBudget`; the
+  wasm surface runs `Mode::Perceptual`).
+- **The wasm recipes now carry a feature flag** (`_wasm_features := "--features avif"`).
+  A CI job or npm packaging script that shells a bare `cargo build --target wasm32-…`
+  will silently produce an artifact whose headline call answers "codec not built". Build
+  through the recipe.
+- **`.avif` INPUTS are the demo's problem now.** The page must read them with
+  `createImageBitmap` and hand us pixels; we return a typed error.
