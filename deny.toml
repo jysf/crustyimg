@@ -116,6 +116,15 @@ ignore = [
     # Revisit + DROP when resvg's text stack migrates onto fontations/read-fonts
     # (HarfRust — fontations#956, resvg#200); we already sit on fontations via skrifa.
     { id = "RUSTSEC-2026-0192", reason = "ttf-parser unmaintained; transitive via usvg/resvg text stack (SPEC-060/DEC-054); parse-time only, no vuln. Revisit + DROP when resvg's text stack migrates off ttf-parser to fontations/read-fonts (HarfRust) — we already sit on fontations via skrifa" },
+    # RUSTSEC-2026-0206 — `rustybuzz` unmaintained (maintainer declared EOL, points
+    # at `harfrust`). NOT introduced by any spec of ours: it is the SAME resvg/usvg
+    # text stack as RUSTSEC-2026-0192 above (usvg -> rustybuzz -> ttf-parser), and it
+    # went red on `main` the day the advisory was published. Shaping (text layout)
+    # runs only while rasterizing an SVG's `<text>`; no known vulnerability, no safe
+    # upgrade. The remedy is the SAME one -0192 is already waiting on — resvg
+    # migrating its text stack to HarfRust/fontations — so the two ignores live and
+    # DIE together. Revisit with -0192.
+    { id = "RUSTSEC-2026-0206", reason = "rustybuzz unmaintained; transitive via usvg/resvg text stack (SPEC-060/DEC-054); parse-time/shaping only, no vuln, no safe upgrade. Same upstream remedy as RUSTSEC-2026-0192 — DROP both when resvg migrates its text stack to HarfRust" },
 ]
 
 [bans]
