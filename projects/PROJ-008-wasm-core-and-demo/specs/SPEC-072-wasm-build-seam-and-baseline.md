@@ -56,6 +56,19 @@ cost:
         Costed at the Opus 4.8 list rate ($5/$25 per MTok, ~80/20 in/out => $9/MTok)
         with no cache discount. Ship should keep the label; the number is a floor-ish
         guess, not a measurement.
+    - cycle: verify
+      interface: claude-code
+      tokens_total: 120000
+      estimated_usd: 1.10
+      note: >
+        ORDER-OF-MAGNITUDE ESTIMATE, not a meter reading: the verify ran in an
+        interactive main-loop session, not a metered subagent (§4 / the
+        labelled-estimates practice). Costed at the Opus 4.8 list rate
+        ($5/$25 per MTok, ~80/20 in/out => ~$9/MTok), no cache discount. Cheaper
+        than the build because the artifact already existed — the spend was
+        re-driving it (wasm round-trip, hostile-input probes, a clean-`main`
+        worktree deny check, a main-vs-branch native test-count diff), not
+        creating it.
   totals:
     tokens_total: 0
     estimated_usd: 0
