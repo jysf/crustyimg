@@ -714,6 +714,19 @@ pub fn run() -> ExitCode {
 /// Only `Commands::Apply` is wired to a real end-to-end path; every other
 /// variant calls `Err(CliError::NotImplemented(...))` (exit 1).
 fn dispatch(cli: &Cli) -> Result<(), CliError> {
+    // `--watch` is a GLOBAL clap flag, but only `build` has a rebuild loop to run.
+    // On any other subcommand it used to be a silent no-op — the user asks to watch
+    // and gets one quiet one-shot run instead. Reject it as a usage error (exit 2)
+    // rather than ignoring it (SPEC-071 fix 4; `ergonomic-defaults`). Same shape as
+    // the `--watch` × verify-mode guard in `run_build_watching`.
+    if cli.global.watch && !matches!(cli.command, Commands::Build { .. }) {
+        return Err(CliError::Usage(
+            "--watch is only valid with `build`: there is no rebuild loop to run for \
+             this subcommand"
+                .to_owned(),
+        ));
+    }
+
     match &cli.command {
         Commands::Apply { recipe, inputs } => run_apply(recipe, inputs, &cli.global),
         Commands::Build { file } => {

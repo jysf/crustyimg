@@ -4814,3 +4814,60 @@ fn optimize_explain_json_to_stdout_deterministic() {
         "explain=json must be byte-identical across runs"
     );
 }
+
+// ── SPEC-071 fix 4: `--watch` is build-only ──────────────────────────────────
+
+/// `--watch` is a GLOBAL clap flag, but only `build` has a rebuild loop. On every
+/// other subcommand it used to parse fine and be silently ignored — the user asks
+/// to watch and gets one quiet one-shot run. It is now a usage error (exit 2).
+///
+/// Driven on the real binary: the value here is the exit code and the message a
+/// user sees, which a type-level test on `CliError` never exercises.
+#[test]
+fn watch_on_non_build_subcommand_is_usage_error() {
+    let dir = TempDir::new().unwrap();
+    let png = write_test_png(&dir, "in.png", 8, 8);
+    let out = dir.path().join("out.png");
+
+    let cases: Vec<Vec<String>> = vec![
+        vec![
+            "info".into(),
+            png.to_string_lossy().into_owned(),
+            "--watch".into(),
+        ],
+        vec![
+            "convert".into(),
+            png.to_string_lossy().into_owned(),
+            "--format".into(),
+            "png".into(),
+            "-o".into(),
+            out.to_string_lossy().into_owned(),
+            "--watch".into(),
+        ],
+    ];
+
+    for args in &cases {
+        let output = Command::new(BIN)
+            .args(args)
+            .output()
+            .expect("binary should run");
+        assert_eq!(
+            output.status.code(),
+            Some(2),
+            "`{}` must be a usage error (exit 2), got {:?}",
+            args.join(" "),
+            output.status.code()
+        );
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            stderr.contains("--watch is only valid with `build`"),
+            "the message must name the restriction, got: {stderr}"
+        );
+    }
+
+    // The guard rejects, it does not run the command: `convert --watch` wrote nothing.
+    assert!(
+        !out.exists(),
+        "a rejected --watch run must not have executed the command"
+    );
+}
