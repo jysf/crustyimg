@@ -27,6 +27,7 @@ affected_scope:
   - src/image/raw.rs
   - src/image/mod.rs
   - src/source/mod.rs
+  - src/lint/mod.rs   # extension-routing reaches lint via Image::decode_path (SPEC-071)
   - fuzz/**
 
 tags:

@@ -3,7 +3,7 @@
 task:
   id: SPEC-071
   type: chore
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: medium
   complexity: M                    # four small, independent, localized point-fixes (lint / cache / cli / cli) each with a test + a docs sync (api-contract limits + cli-reference --watch) — no single item is hard; the batch runs as ONE build/verify/ship cycle, proportionate to the size of the tail
@@ -20,7 +20,7 @@ agents:
   created_at: 2026-07-11
 
 references:
-  decisions: [DEC-034, DEC-050, DEC-052, DEC-058, DEC-060, DEC-025]
+  decisions: [DEC-034, DEC-050, DEC-052, DEC-055, DEC-058, DEC-060, DEC-063, DEC-025]
   constraints:
     - untrusted-input-hardening
     - no-unwrap-on-recoverable-paths
@@ -66,10 +66,43 @@ cost:
         documented contract). The other four items were mechanical and cheap. The "drive the real
         binary" instruction paid for itself outright: the type-level unit test was green while
         the shipped behavior was still wrong.
+    - cycle: verify
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 150000
+      estimated_usd: 1.35
+      duration_minutes: 25
+      recorded_at: 2026-07-11
+      notes: >
+        Fresh adversarial verify — labelled estimate per AGENTS §4. Verdict CLEAN across all five
+        fixes on the real binary. Bounded fix 1's blast radius structurally (decode_path only
+        diverts RAW extensions; everything else is byte-identical) + a before/after table + DROVE a
+        decode-dependent lint rule to FIRE (proving lint now genuinely inspects RAW, not just stops
+        complaining) + HEIC verified through a real decode. Mutation-checked fix 2's boundary sweep
+        (revert to payload-bound → the test fails). Confirmed every --watch doc claim empirically
+        (incl. the lockfile invariant). One non-blocking observation: a PNG mislabeled `.nef` now
+        flags as corrupt (consistent with `info`; the wording wart lands under the filed
+        meta/not-inspected follow-up). No new dep; dep diff empty.
+    - cycle: ship
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 70000
+      estimated_usd: 0.63
+      duration_minutes: 20
+      recorded_at: 2026-07-11
+      notes: >
+        Ship bookkeeping in the orchestrator main loop — labelled estimate per AGENTS §4.
+        Squash-merged PR #79 → main (06c9927); added DEC-055/DEC-063 to the spec references + updated
+        DEC-055's affected_scope to include src/lint/mod.rs (the architect spec-quality note — so
+        `decisions-audit --changed` catches future lint-decode changes); filled verify/ship cost
+        sessions + totals; ship reflection; timeline; STAGE-024 marks SPEC-071's 4 items shipped +
+        files the build/verify follow-ups (lint decode-seam audit + per-format smoke; meta/
+        not-inspected honest rule incl. the extension-mismatch case; -v cache-refused note);
+        archive-spec + cost-audit + validate; brag + memory. No new dep.
   totals:
-    tokens_total: 190000
-    estimated_usd: 3.10
-    session_count: 1
+    tokens_total: 410000
+    estimated_usd: 5.08
+    session_count: 4
 ---
 
 # SPEC-071: STAGE-024 hardening cleanup (batch)
@@ -360,10 +393,30 @@ user-visible string/exit code (the wave's recurring lesson).
 from the process-focused build reflection above.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — The batch's premise ("small, localized point-fixes, none touches a contract") was *mostly* right
+   but fix 1 hid a strictly-worse bug the spec mis-diagnosed: lint decoded by bytes while holding a
+   path, so **every valid `.nef`/`.cr2` linted as "truncated or corrupt" and failed CI at exit 7**. The
+   type-level unit test for the specced arm went green; only *driving the real binary on the named
+   fixture* exposed it. Two takeaways: (a) when a fix's acceptance criterion names a concrete file,
+   the spec author should mentally trace that exact file through the real code path, not just the
+   error variant — I'd have caught that `pixel_bomb.nef` is extension-routed and never reaches the arm;
+   (b) "batch of trivial fixes" is a fine cadence, but each still earns a real-binary drive — the
+   batching saves *lifecycle* overhead, not verification rigor.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — Two DEC-hygiene fixes applied at ship (from the builder's spec-quality note): **DEC-055's
+   `affected_scope` now lists `src/lint/mod.rs`** (lint routes through `decode_path`, which DEC-055
+   governs — so `just decisions-audit --changed` will flag future lint-decode changes), and DEC-055/
+   DEC-063 were added to this spec's references. The recurring [[image-extensions-expose-every-decode-caller]]
+   lesson is now on its **5th** instance — worth a standing check: any code that decodes a `Path` MUST
+   go through `Image::decode_path`, and a per-format decode smoke test would catch a regression cheaply
+   (filed).
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — Filed to the STAGE-024 backlog: (a) **lint decode-seam audit** — grep every `Image::from_bytes`
+   caller that holds a path (other commands may have the same latent bug) + a per-format lint smoke
+   test, or this recurs a 6th time; (b) **a `meta/not-inspected` honest lint rule** (non-Error
+   severity) — `TruncatedOrCorrupt` now correctly stays silent on files it *couldn't* inspect
+   (LimitsExceeded, and a mislabeled PNG-as-`.nef`), so those deserve an honest "not inspected" signal
+   rather than silence-or-false-corrupt; (c) a **`-v` note when an output is too large to cache** (fix
+   2 now refuses an over-frame payload correctly but silently). None blocks; all are Low.
