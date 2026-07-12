@@ -444,3 +444,60 @@ fn opt_in_rules_are_off_by_default_and_enabled_by_config() {
         "select enables it; {stdout}"
     );
 }
+
+// ── SPEC-071 fix 1: a valid image is never called "truncated or corrupt" ─────
+
+/// `lint` on a **valid RAW** file must not call it corrupt.
+///
+/// `LintTarget` used to decode by BYTES (`Image::from_bytes`) even though it had
+/// the path, so RAW — which is byte-ambiguous with TIFF and therefore routed by
+/// EXTENSION (SPEC-061/DEC-055) — never reached its decoder. Every valid `.nef`
+/// linted as "truncated or corrupt (failed to decode); re-export a valid image",
+/// failing CI with exit 7 on a directory of RAW files, while `info` on the very
+/// same file read it fine. Routing `lint` through `Image::decode_path` fixes it.
+#[test]
+fn lint_does_not_call_a_valid_raw_file_corrupt() {
+    let raw = Path::new("tests/fixtures/raw/synthetic_preview.nef");
+    assert!(raw.exists(), "the SPEC-061 RAW fixture must exist");
+
+    let (code, stdout) = lint(raw);
+    assert!(
+        !stdout.contains("truncated-or-corrupt"),
+        "a valid RAW file must not be diagnosed as corrupt, got:\n{stdout}"
+    );
+    assert_eq!(code, 0, "a clean RAW file must lint clean, got:\n{stdout}");
+}
+
+/// `lint` on a valid-but-**over-cap** image (>64 Mpix, SPEC-070/DEC-063) must not
+/// call it corrupt either: it is a valid image we decline to decode, and
+/// "re-export a valid image" is a remedy for a problem it does not have. The
+/// fixture is the SPEC-070 pixel bomb — a `.nef` declaring 160 Mpix.
+#[test]
+fn lint_does_not_call_an_over_cap_image_corrupt() {
+    let bomb = Path::new("tests/fixtures/fuzz/raw_preview/pixel_bomb.nef");
+    assert!(bomb.exists(), "the SPEC-070 pixel-bomb fixture must exist");
+
+    let (_code, stdout) = lint(bomb);
+    assert!(
+        !stdout.contains("truncated-or-corrupt"),
+        "an image outside the decode budget must not be diagnosed as corrupt, got:\n{stdout}"
+    );
+}
+
+/// The catch-all is intact: a genuinely corrupt file still fires the rule (exit 7).
+#[test]
+fn lint_still_reports_a_genuinely_corrupt_file() {
+    let dir = TempDir::new().unwrap();
+    write(
+        &dir,
+        "broken.png",
+        &[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x01],
+    );
+
+    let (code, stdout) = lint(&dir.path().join("broken.png"));
+    assert!(
+        stdout.contains("truncated-or-corrupt"),
+        "a truly corrupt file must still be reported, got:\n{stdout}"
+    );
+    assert_eq!(code, 7, "an error finding exits 7");
+}

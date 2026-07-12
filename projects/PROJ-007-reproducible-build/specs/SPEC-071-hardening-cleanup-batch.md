@@ -3,7 +3,7 @@
 task:
   id: SPEC-071
   type: chore
-  cycle: design  # frame | design | build | verify | ship
+  cycle: verify  # frame | design | build | verify | ship
   blocked: false
   priority: medium
   complexity: M                    # four small, independent, localized point-fixes (lint / cache / cli / cli) each with a test + a docs sync (api-contract limits + cli-reference --watch) — no single item is hard; the batch runs as ONE build/verify/ship cycle, proportionate to the size of the tail
@@ -49,10 +49,27 @@ cost:
         (`store_bounded:361` vs `read_entry:393/402` + the documenting test at `:855`), the exit-code
         value-assertion gap (`code()` is already compiler-exhaustive — test-completeness only), and
         the `--watch` global-flag no-op on non-build subcommands (`src/cli/mod.rs:717/720`).
+    - cycle: build
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 190000
+      estimated_usd: 3.10
+      duration_minutes: 45
+      recorded_at: 2026-07-11
+      notes: >
+        Main-loop build (not separately metered) → order-of-magnitude ESTIMATE, not a measured
+        total. Five items landed in one cycle as framed. The batch's cost was dominated by ONE
+        item: fix 1's spec-predicted `LimitsExceeded` arm turned out to be insufficient on the
+        real binary — `lint` decoded by BYTES while holding a path, so RAW never reached its
+        extension-routed decoder (SPEC-061/DEC-055) and every valid `.nef` linted as "truncated
+        or corrupt". Root-caused and fixed via `Image::decode_path` (one line, an existing
+        documented contract). The other four items were mechanical and cheap. The "drive the real
+        binary" instruction paid for itself outright: the type-level unit test was green while
+        the shipped behavior was still wrong.
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 190000
+    estimated_usd: 3.10
+    session_count: 1
 ---
 
 # SPEC-071: STAGE-024 hardening cleanup (batch)
@@ -245,28 +262,95 @@ user-visible string/exit code (the wave's recurring lesson).
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
-- **New decisions emitted:** none expected
+- **Branch:** `feat/spec-071-hardening-cleanup`
+- **PR (if applicable):** #79
+- **All acceptance criteria met?** yes
+- **New decisions emitted:** none (no fix needed one; the one deviation below is a bug fix
+  *against* an existing decision's documented contract, not a new choice)
 - **Per-fix status:**
-  - fix 1 (lint) / fix 2 (cache off-by-53) / fix 3 (exit-code asserts) / fix 4 (--watch build-only) /
-    fix 5 (docs sync: api-contract limits + cli-reference --watch)
+  - **fix 1 (lint `LimitsExceeded`) — done, and it uncovered a bigger defect.** Added the
+    `Err(ImageError::LimitsExceeded(_)) => None` arm mirroring `CodecNotBuilt` (`src/lint/mod.rs`).
+    But driving the real binary (as the spec demanded) showed `lint <pixel_bomb.nef>` **still** said
+    "truncated or corrupt": `LintTarget::build` decoded with `Image::from_bytes` (content-sniffed)
+    though it had the path, so RAW — which is *extension*-routed (SPEC-061/DEC-055) — never reached
+    its decoder and failed with a generic `Decode` error, not `LimitsExceeded`. The arm alone could
+    not satisfy the acceptance criterion. Root cause fixed by routing `LintTarget` through
+    `Image::decode_path` — the seam whose own doc says *"every command that decodes a `Path` MUST
+    route through here"*. **This also fixes a strictly worse latent bug: `lint` called every
+    perfectly valid `.nef`/`.cr2` "truncated or corrupt (failed to decode); re-export a valid image"
+    and failed CI with exit 7**, while `info` on the same file read it fine. (This is the
+    previously-filed "lint-on-RAW" follow-up from SPEC-061, and the 5th instance of the
+    IMAGE_EXTENSIONS-exposes-every-decode-caller lesson.)
+  - **fix 2 (cache off-by-53) — done.** `store_bounded` now bounds the **frame**
+    (`ENTRY_HEADER_BYTES + ext + payload`), not the payload, so the invariant "anything `store`
+    writes, `read_entry` can read" holds. Introduced `ENTRY_HEADER_BYTES` (= 53) as the single
+    source of truth, used by `write_entry`, `store_bounded`, and the test (it was an open-coded
+    `+ 41` in `write_entry` and a `const HEADER` in the test). The `:855` documenting test became
+    `near_cap_payload_is_consistent_store_and_read`, which **sweeps the whole boundary band** rather
+    than pinning one point, and asserts store/read agree at every size.
+  - **fix 3 (exit-code asserts) — done.** Added `assert_eq!`s for `Metadata::Container` and
+    `Metadata::Exif` (both → 1) to `exit_code_mapping_is_total`. `Watch(_)` → 1 was already asserted
+    (`:4856`), confirmed. No production change; `code()` remains compiler-exhaustive.
+  - **fix 4 (`--watch` build-only) — done.** Guard at the top of `dispatch`: `cli.global.watch &&
+    !matches!(cli.command, Commands::Build { .. })` → `CliError::Usage` (exit 2). Same shape as
+    SPEC-067's `--watch` × verify-mode guard. `build --watch` unchanged.
+  - **fix 5 (docs sync) — done.** `docs/api-contract.md`: decode limits are now a 3-item list
+    including the 64 Mpix total-pixel cap (DEC-063, linked), checked pre-allocation; the "fixed in
+    v1 / planned follow-up" hand-wave is replaced by DEC-063's actual stated tradeoff (>64 MP
+    medium-format/panoramas are rejected; consumer/prosumer photography fits) and the honest status
+    of `--max-pixels` (filed, deliberately not built, revisit trigger = a real >64 MP user).
+    `docs/cli-reference.md`: a `--watch` subsection under `build` (debounced loop, self-trigger-proof,
+    cache-incremental, survives a failing cycle, Ctrl-C, does not rewrite the lockfile, incompatible
+    with `--check`/`--frozen`/`--locked`) ending on **build-only → exit 2 elsewhere**, matching fix 4.
 - **Deviations from spec:**
-  - [list]
+  - **One extra production change, forced by fix 1's own acceptance criterion** (see fix 1 above):
+    `LintTarget::build` now decodes via `Image::decode_path` instead of `Image::from_bytes`. The spec
+    predicted the `LimitsExceeded` arm would be sufficient; on the real binary it was not, because
+    `lint` was bypassing the extension-routing seam entirely. The change is one line against an
+    existing, documented contract — no new decision. It is *why* the spec's "drive the real binary"
+    instruction earned its keep: the unit test on `LintTarget::from_bytes` passed while the shipped
+    behavior was still wrong.
+  - Fix 4's message is `--watch is only valid with \`build\`: there is no rebuild loop to run for
+    this subcommand` — the spec's string plus a clause saying why.
+  - Fix 2's test is a boundary **sweep**, not the single-point test the spec sketched; it fails
+    against the old asymmetry at multiple sizes, so it is strictly stronger.
 - **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - **A `lint` decode-seam audit.** Fix 1's root cause was `lint` constructing its decode outside the
+    shared path seam. Worth a sweep for *other* callers that decode bytes while holding a path
+    (`Image::from_bytes` call sites), plus a per-format `lint` smoke test mirroring the
+    `info`-per-format test SPEC-061 added — the same class of bug will otherwise recur a 6th time.
+  - **A `size/over-decode-budget` lint rule (Info/Warn).** `TruncatedOrCorrupt` now stays silent on
+    both `CodecNotBuilt` and `LimitsExceeded`, which is correct but means `lint` says *nothing* about
+    a file it could not inspect. The fully honest answer is a `meta/not-inspected`-style finding whose
+    severity is not fixed at Error (noted in the code as a follow-up, as the SPEC-062 comment already
+    did for `CodecNotBuilt`). Deliberately not invented here — the spec said not to.
+  - Cache-slot accounting: an output whose *frame* exceeds the cap is now correctly refused, but
+    silently. A `-v` note ("output too large to cache; rebuilding each run") would make the
+    always-rebuild visible instead of mysterious.
 
 ### Build-phase reflection (3 questions, short answers)
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — Nothing was unclear; one thing was *wrong*, and usefully so. Fix 1's Implementation Context
+   asserted that `LimitsExceeded` "falls into that catch-all" in the `TruncatedOrCorrupt` rule — true
+   for a content-sniffed image, but not for the `.nef` fixture the acceptance criterion names, which
+   never reaches the RAW decoder from `lint` at all. The spec's anchors were all accurate; the causal
+   claim behind them was not. It cost ~15 minutes and was caught by the spec's own "drive the real
+   binary" instruction, which is exactly what that instruction is for.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — DEC-055/SPEC-061 (RAW extension-routing) belonged in fix 1's referenced decisions. The spec
+   referenced DEC-052 (the `CodecNotBuilt` twin it was mirroring) but not the decision that governs
+   *how `lint` gets its decoded image in the first place* — which is where the actual bug lived. The
+   `affected_scope` of DEC-055 does not list `src/lint/mod.rs`, so `just decisions-audit --changed`
+   would not have surfaced it either; worth adding.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Drive the real binary **before** writing the unit test, not after. I wrote a passing unit test
+   against `LintTarget::from_bytes` and only then discovered the shipped path did something else
+   entirely — the unit test was green and meaningless for ~20 minutes. For any fix whose acceptance
+   criterion is stated in terms of a real invocation, the first thing to run is that invocation: it
+   tells you where the code actually goes, and the unit test can then be written at the right seam.
 
 ---
 

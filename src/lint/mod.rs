@@ -207,7 +207,18 @@ impl LintTarget {
         intended_width: Option<u32>,
         savings_threshold: SavingsThreshold,
     ) -> LintTarget {
-        let decoded = Image::from_bytes(&bytes);
+        // Route by PATH, not by bytes: a RAW container is byte-ambiguous with a
+        // plain TIFF, so it is extension-routed (SPEC-061/DEC-055) and
+        // `Image::decode_path` is the one seam that owns that decision — its
+        // contract is that every command decoding a `Path` goes through it.
+        // `lint` did not, so it decoded RAW with the generic byte decoder and
+        // called every valid `.nef`/`.cr2` "truncated or corrupt … re-export a
+        // valid image" — failing CI on a directory of RAW files (SPEC-071 fix 1;
+        // the [IMAGE_EXTENSIONS-exposes-every-decode-caller] lesson again).
+        //
+        // For a stdin target the path is only a stem, which has no RAW extension,
+        // so this degrades to exactly the previous byte-sniffed decode.
+        let decoded = Image::decode_path(&path, &bytes);
         LintTarget {
             path,
             bytes,
@@ -574,6 +585,14 @@ impl Rule for TruncatedOrCorrupt {
             // finding would be the fully honest answer — this rule cannot carry it,
             // since its severity is fixed at Error.)
             Err(ImageError::CodecNotBuilt { .. }) => None,
+            // Same shape, same reasoning: an image whose declared dimensions are
+            // outside our decode budget (SPEC-070/DEC-063 — a 100 MP medium-format
+            // frame, a big stitched panorama) is a VALID image we decline to
+            // decode. Calling it "truncated or corrupt" is a false diagnosis, and
+            // "re-export a valid image" is a remedy for a problem it does not have.
+            // (Follow-up: a dedicated `size/over-decode-budget` rule could report
+            // this honestly; this rule's severity is fixed at Error, so it cannot.)
+            Err(ImageError::LimitsExceeded(_)) => None,
             Err(_) => Some(Finding::new(
                 target.path().to_path_buf(),
                 self.id(),
@@ -748,6 +767,47 @@ mod tests {
         assert!(
             TruncatedOrCorrupt.check(&target).is_none(),
             "a missing codec must not be reported as a corrupt file"
+        );
+    }
+
+    /// An image whose DECLARED dimensions exceed the decode pixel budget
+    /// (SPEC-070/DEC-063) fails to decode with `LimitsExceeded` — but, like a
+    /// missing codec, that says nothing about the file's integrity. A 100 MP
+    /// medium-format frame is not "truncated or corrupt", and "re-export a valid
+    /// image" is a remedy for a problem it does not have (SPEC-071 fix 1).
+    ///
+    /// The fixture is the F-RAW-1 bomb shape: a JPEG whose SOF0 declares
+    /// 16384×9776 (160 Mpix) while the entropy data is only an 8×8 image's, so
+    /// the rejection provably comes from the pre-decode header peek.
+    #[test]
+    fn lint_does_not_call_a_too_large_image_corrupt() {
+        let mut jpg = clean_jpeg();
+        let sof = jpg
+            .windows(2)
+            .position(|m| m == [0xFF, 0xC0])
+            .expect("encoded JPEG carries an SOF0 marker");
+        // SOF0: `FF C0 [len:2] [precision:1] [height:2] [width:2] …`
+        jpg[sof + 5..sof + 7].copy_from_slice(&9776u16.to_be_bytes());
+        jpg[sof + 7..sof + 9].copy_from_slice(&16384u16.to_be_bytes());
+
+        let target = LintTarget::from_bytes("medium-format.jpg", jpg);
+        assert!(
+            matches!(target.decoded(), Err(ImageError::LimitsExceeded(_))),
+            "fixture should surface LimitsExceeded, got {:?}",
+            target.decoded()
+        );
+        assert!(
+            TruncatedOrCorrupt.check(&target).is_none(),
+            "an image outside the decode budget must not be reported as corrupt"
+        );
+
+        // The catch-all is intact: a genuinely corrupt file still fires the rule.
+        let bad = vec![0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x01];
+        assert!(
+            TruncatedOrCorrupt
+                .check(&LintTarget::from_bytes("broken.png", bad))
+                .is_some(),
+            "a truly corrupt image must still fire the rule"
         );
     }
 

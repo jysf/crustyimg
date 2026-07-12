@@ -78,16 +78,28 @@ pub const CACHE_SCHEMA_VERSION: u32 = 1;
 /// convention the manifest's own paths follow (DEC-057).
 pub const DEFAULT_CACHE_DIR: &str = ".crustyimg/cache";
 
-/// The largest entry payload the cache will store or read back (256 MiB).
+/// The largest entry **frame** the cache will store or read back (256 MiB).
 ///
 /// A `lookup` reads at most this much: an entry claiming to be larger is a miss
-/// rather than an unbounded allocation. An output bigger than this is simply
-/// never cached — the build still writes it, it just rebuilds it every run.
+/// rather than an unbounded allocation. An output whose frame would exceed this is
+/// simply never cached — the build still writes it, it just rebuilds it every run.
+///
+/// Store and read bound the same quantity — the whole frame, payload *plus*
+/// [`ENTRY_HEADER_BYTES`] plus `ext` — so anything stored is readable (SPEC-071).
 pub const CACHE_ENTRY_MAX_BYTES: usize = 256 * 1024 * 1024;
 
 /// Frame magic. Carries the schema version so a v1 reader cannot even begin to
 /// parse a future v2 entry that survived at the same path.
 const ENTRY_MAGIC: &[u8; 12] = b"CRUSTYCACHE1";
+
+/// The fixed part of an entry frame: `MAGIC(12) | ext_len:u8(1) | payload_len:u64(8)
+/// | payload_hash(32)` = 53 bytes. The variable part is `ext` + the payload.
+///
+/// Both sides of the cache bound the whole frame against [`CACHE_ENTRY_MAX_BYTES`]
+/// — the store so it never writes an entry the reader would refuse, the reader so
+/// it never allocates more than the cap. Keeping the two in agreement is what makes
+/// "anything stored is readable" hold (SPEC-071).
+const ENTRY_HEADER_BYTES: usize = ENTRY_MAGIC.len() + 1 + 8 + 32;
 
 /// The longest output extension an entry may record. `"tiff"` is 4; the cap
 /// exists only to bound a malformed frame's claimed length.
@@ -343,8 +355,9 @@ impl Cache {
     /// complete entry. Re-storing an existing key is a harmless overwrite:
     /// content-addressing means the bytes are the same.
     ///
-    /// An output over [`CACHE_ENTRY_MAX_BYTES`] is not stored — the reader would
-    /// refuse it anyway, so writing it would only waste disk.
+    /// An output whose framed entry would exceed [`CACHE_ENTRY_MAX_BYTES`] is not
+    /// stored — the reader would refuse it anyway, so writing it would only waste
+    /// disk (and leave a slot that misses forever).
     pub fn store(&self, key: &CacheKey, ext: &str, bytes: &[u8]) -> Result<(), CacheError> {
         self.store_bounded(key, ext, bytes, CACHE_ENTRY_MAX_BYTES)
     }
@@ -358,7 +371,16 @@ impl Cache {
         bytes: &[u8],
         max: usize,
     ) -> Result<(), CacheError> {
-        if bytes.len() > max || ext.len() > MAX_EXT_LEN {
+        // Bound the FRAME, not just the payload — `read_entry` bounds the bytes it
+        // reads off disk, which are `ENTRY_HEADER_BYTES + ext + payload`. Bounding
+        // only the payload here would let a near-cap output be written and then
+        // never read back: a permanent silent miss (SPEC-071 fix 2, the SPEC-068
+        // off-by-53). Refusing it up front keeps the invariant "anything `store`
+        // writes, `read_entry` can read" — the output is simply rebuilt each run.
+        let frame = ENTRY_HEADER_BYTES
+            .saturating_add(ext.len())
+            .saturating_add(bytes.len());
+        if frame > max || ext.len() > MAX_EXT_LEN {
             return Ok(());
         }
 
@@ -413,7 +435,7 @@ fn read_entry(path: &Path, max: usize) -> Option<CachedOutput> {
 /// The payload hash is what [`parse_entry`] re-checks; the lengths let a
 /// truncated file be detected as such rather than read as a short payload.
 fn write_entry(path: &Path, ext: &str, bytes: &[u8]) -> std::io::Result<()> {
-    let mut frame = Vec::with_capacity(ENTRY_MAGIC.len() + 41 + ext.len() + bytes.len());
+    let mut frame = Vec::with_capacity(ENTRY_HEADER_BYTES + ext.len() + bytes.len());
     frame.extend_from_slice(ENTRY_MAGIC);
     frame.push(ext.len() as u8); // bounded by MAX_EXT_LEN at the call site
     frame.extend_from_slice(ext.as_bytes());
@@ -851,52 +873,59 @@ mod tests {
     }
 
     #[test]
-    fn near_cap_payload_round_trips_or_is_a_clean_miss() {
-        // SPEC-068: the confirmed store-vs-read bound asymmetry. `store_bounded`
-        // bounds the PAYLOAD (`bytes.len() > max`), while `read_entry` bounds the
-        // whole FRAME (`53 + ext + payload`). So a payload in the top `53 + ext`
-        // band of `max` is *stored but unreadable*: a permanent silent miss.
+    fn near_cap_payload_is_consistent_store_and_read() {
+        // SPEC-071 fix 2 (the SPEC-068 off-by-53). `store_bounded` used to bound the
+        // PAYLOAD (`bytes.len() > max`) while `read_entry` bounds the whole FRAME
+        // (`53 + ext + payload`). A payload in the top `53 + ext` band of `max` was
+        // therefore *stored but unreadable*: a permanent silent miss that wasted a
+        // cache slot and rebuilt every run.
         //
-        // This is a CORRECTNESS wart (a wasted cache slot + always-rebuild), not a
-        // safety one — it never panics and never serves a wrong byte. The one-line
-        // fix (bound the frame in `store_bounded`) is its own STAGE-024 backlog
-        // spec; this test PINS the current safe behavior so the boundary can't drift
-        // silently, and the existing `oversize_entry_is_a_miss` (10-byte payload)
-        // never reaches this band.
+        // Both now bound the FRAME, which restores the invariant this test asserts:
+        // **anything `store` writes, `read_entry` can read.** Nothing is ever
+        // stored-but-unreadable; a payload too big to frame is refused up front.
         let (_d, cache) = temp_cache();
-        let key = Base::new().key();
-        const HEADER: usize = ENTRY_MAGIC.len() + 1 + 8 + 32; // = 53
+        const HEADER: usize = ENTRY_HEADER_BYTES;
+        assert_eq!(HEADER, 53, "the frame header is MAGIC(12) + 1 + 8 + 32");
         let max = 100;
-
-        // A payload inside the band: stored (payload ≤ max) but its frame exceeds
-        // max, so the read refuses it. No panic, and no bytes served.
         let ext = "png";
-        let near_cap = max - 10; // 90 ≤ 100 stored; frame 53+3+90 = 146 > 100
-        assert!(
-            HEADER + ext.len() + near_cap > max,
-            "fixture must be in the band"
-        );
-        cache
-            .store_bounded(&key, ext, &vec![0u8; near_cap], max)
-            .unwrap();
-        assert!(
-            cache.path_for(&key).exists(),
-            "the near-cap payload IS stored (store bounds only the payload)"
-        );
-        assert!(
-            read_entry(&cache.path_for(&key), max).is_none(),
-            "…but is a CLEAN MISS on read (read bounds the whole frame) — never a panic"
-        );
 
-        // A payload comfortably below the band round-trips, proving the miss above
-        // is the boundary, not a general breakage.
-        let safe = max - HEADER - ext.len() - 1; // frame = max-1 ≤ max
-        cache
-            .store_bounded(&key, ext, &vec![7u8; safe], max)
-            .unwrap();
-        let got = read_entry(&cache.path_for(&key), max).expect("a sub-band payload round-trips");
-        assert_eq!(got.bytes, vec![7u8; safe]);
-        assert_eq!(got.ext, ext);
+        // Sweep the whole boundary band — from comfortably-fits, across the frame
+        // cap, to a payload at `max` itself (the old code stored the top of this
+        // range and then missed on read). At every size the two sides must agree.
+        for payload in (max - HEADER - ext.len() - 2)..=max {
+            let frame = HEADER + ext.len() + payload;
+            // A fresh cache slot per size, so each iteration is independent.
+            let mut base = Base::new();
+            base.quality = Some(payload as u8);
+            let key = base.key();
+            cache
+                .store_bounded(&key, ext, &vec![7u8; payload], max)
+                .unwrap();
+
+            match read_entry(&cache.path_for(&key), max) {
+                Some(got) => {
+                    assert!(
+                        frame <= max,
+                        "a payload whose frame ({frame}) exceeds max ({max}) must not be readable"
+                    );
+                    assert_eq!(got.bytes, vec![7u8; payload]);
+                    assert_eq!(got.ext, ext);
+                }
+                None => {
+                    // The only acceptable miss is one the store REFUSED: nothing may
+                    // be left on disk to be permanently unreadable.
+                    assert!(
+                        frame > max,
+                        "a payload whose frame ({frame}) fits max ({max}) must round-trip"
+                    );
+                    assert!(
+                        !cache.path_for(&key).exists(),
+                        "an over-frame payload must be refused at store, not written \
+                         and then missed on read (the SPEC-068 asymmetry)"
+                    );
+                }
+            }
+        }
     }
 
     #[test]
