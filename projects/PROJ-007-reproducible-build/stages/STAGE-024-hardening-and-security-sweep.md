@@ -2,7 +2,7 @@
 # Maps to ContextCore epic-level conventions.
 stage:
   id: STAGE-024
-  status: active                    # proposed | active | shipped | cancelled | on_hold
+  status: shipped                   # proposed | active | shipped | cancelled | on_hold
   priority: medium
   target_complete: null
 
@@ -12,7 +12,7 @@ repo:
   id: crustyimg
 
 created_at: 2026-07-10
-shipped_at: null
+shipped_at: 2026-07-12
 
 value_contribution:
   advances: >
@@ -139,7 +139,15 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 - [ ] (not yet framed) — cache-key / determinism-envelope completeness (build profile → cross-profile stale hit; touches the DEC-058 key/schema)
 - [ ] (not yet framed, from SPEC-067 verify) — orphaned-output prune on source removal under build/watch (a future `--clean`), Low
 
-**Count:** 4 shipped / 0 active / 8 pending — SPEC-068 + SPEC-069 + SPEC-070 + SPEC-071 shipped. The small-fix tail is cleared; remaining 8 are the **larger/decision-bearing** items (lint decode-seam audit + not-inspected rule, full-pipeline envelope, `--max-pixels`, format-sniff, canonicalize-out, unusual-filename sweep, cache-key profile, orphan prune). **NEXT: "where are we" triage — pick which few genuinely gate PROJ-007's close vs defer to a post-1.0 maintenance pass.**
+**Count:** 4 shipped / 0 active / 8 **DEFERRED** (post-1.0 maintenance) — SPEC-068 + SPEC-069 + SPEC-070 + SPEC-071 shipped. The small-fix tail is cleared; the remaining 8 are the **larger/decision-bearing** items (lint decode-seam audit + not-inspected rule, full-pipeline envelope, `--max-pixels`, format-sniff, canonicalize-out, unusual-filename sweep, cache-key profile, orphan prune).
+
+**TRIAGE + CLOSE DECISION (2026-07-12).** Ran the "where are we" triage against the bar *"does a 1.0 claiming 'trust it in CI on files you didn't write' actually need this?"* Result: **stage + PROJ-007 close now; all 8 deferred to a post-1.0 maintenance pass.** Rationale per item:
+- **canonicalize-contain the `out` dir** (the one genuine out-of-tree WRITE escape) — SPEC-068 already made a deliberate **accept+document** call on it: the exploit bar is high (needs a committed in-tree symlink + attacker-controlled manifest, both reviewable under "reviewed like code"), and the fix rejects legitimate symlinked out dirs (`dist → ramdisk`), so it warrants its own spec with an opt-out hatch — not a rushed close-gate. **Accepted as a documented residual.**
+- **pre-decode format sniff** — the SPEC-066 literal-`{ext}` residual **fails closed** (writes land inside the tree; the post-encode re-check / lockfile catches the collision at exit 2, no lock written). Correctness/UX polish, not a trust break.
+- **full-pipeline peak envelope** — decode is capped at 64 Mpix (DEC-063); encode/rule buffers stacking to ~934 MB on a *legit* large image is not attacker-amplifiable past the decode cap. Document, don't gate.
+- lint decode-seam audit + not-inspected rule (Low), `--max-pixels` (a capability *dial*, revisit-trigger live), unusual-filename `.to_str()` sweep (SPEC-068 accepted `→""` as safe-but-silent; injectivity catches collisions), cache-key build-profile (local stale-hit only across debug+release of the same crustyimg version — tiny; trivial fold-in whenever), orphan-output prune (a future `--clean` feature) — all polish/feature, none touch the trust surface.
+
+These 8 remain listed above as the **post-1.0 maintenance backlog** for PROJ-007; they are pulled individually if adoption/usage surfaces the need. See `docs/roadmap.md` (post-1.0 section references this backlog).
 
 ## Design Notes
 
@@ -165,12 +173,49 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
 ## Stage-Level Reflection
 
-*Filled in when status moves to shipped.*
+*Shipped 2026-07-12.*
 
-- **Did we deliver the outcome in "What This Stage Is"?** <yes/no + notes>
-- **How many specs did it actually take?** <number vs. plan>
-- **What changed between starting and shipping?** <one sentence>
+- **Did we deliver the outcome in "What This Stage Is"?** **Yes.** The security thread landed
+  fully: a written threat-model note (`docs/research/proj-007-threat-model.md`) covering all five
+  new untrusted-input surfaces (manifest / recipe / cache store / lockfile / watch), each checked
+  against `untrusted-input-hardening`, with every finding fixed or explicitly accepted (DEC-061).
+  The never-run decoder fuzz gate was **actually run** (SPEC-069, DEC-062) — the roadmap's stated
+  pre-1.0 gate — with crashes triaged, boundary-fixed, and converted to always-on per-PR
+  regressions (`tests/fuzz_regressions.rs` + `fuzz_corpus_never_panics`). The memory-amplification
+  class it surfaced (F-RAW-1) was closed by a pre-decode pixel budget (SPEC-070, DEC-063), and the
+  small hardening tail (lint false-diagnosis, cache off-by-53, exit-code totality, `--watch`
+  build-only, docs sync) shipped as one proportionate batch (SPEC-071). What we deliberately did
+  **not** gate on: the larger decision-bearing tail (8 items), triaged 2026-07-12 and deferred to a
+  post-1.0 maintenance pass — the one security-flavored residual (canonicalize-contain-out) was
+  already an accept+document decision with a real usability tradeoff, and the rest are
+  polish/feature/fails-closed.
+- **How many specs did it actually take?** **4** (SPEC-068 threat model, SPEC-069 fuzz gate,
+  SPEC-070 peak-memory cap, SPEC-071 cleanup batch) — matching the "lead with the threat model,
+  let its findings reprioritize the rest" plan. The threat model (SPEC-068) did its job: it spawned
+  the reprioritized backlog that became the queue, promoted the fuzz gate to #1, and confirmed /
+  resized / dismissed the self-review suspects instead of us building all of them.
+- **What changed between starting and shipping?** The stage started as a flat list of ~7 candidate
+  fixes; the SPEC-068 threat-model pass turned it into a *ranked* queue where three items proved
+  high-value (fuzz, peak-memory, batch) and eight proved deferrable — the review's real output was
+  the triage, not just the tightenings.
 - **Lessons that should update AGENTS.md, templates, or constraints?**
-  - <one-line updates>
+  - **A "clean / contained / safe" verdict must be EARNED under the exact command + config it
+    claims.** Four overclaims this wave (SPEC-068 out-escape, SPEC-068 symlink-out-dir, SPEC-069 raw
+    "clean" that OOMed under `-O`) were all "the note/verdict claims a safety the binary lacks."
+    Threat-model / verify specs should cite a *driven* attack (or a fuzz run under the shipped
+    config) for every safety claim — an unearned "safe" is a defect, not prose.
+  - **Batch the small tail; don't run a 4-session spec lifecycle per 3-line fix.** SPEC-071 (4
+    point-fixes + docs in one cycle) is the proportionate cadence for a cleared small-fix tail.
+  - **`IMAGE_EXTENSIONS` exposes every decode caller** landed a 5th time (SPEC-071: lint decoded RAW
+    by bytes → every valid `.nef` linted "corrupt"). A new extension / `ImageError` variant needs an
+    audit of *every* decode caller and `Err(_)` catch-all, not just the exit-code map.
+  - **Audit user-facing docs (api-contract / cli-reference / README) for drift before closing a
+    wave** — shipped behavior (`--watch`, the 64 Mpix cap) left doc-debt; SPEC-071 folded a docs sync
+    in as pre-ship discipline.
 - **Should any spec-level reflections be promoted to stage-level lessons?**
-  - <one-line items>
+  - Yes — the "drive the real binary with adversarial / hostile-serialized input; green exit-code
+    tests miss string / cross-platform / hostile-file / config-dependent defects" lesson recurred
+    across every spec of this stage and the prior two, and is the wave's load-bearing process lesson
+    (promote to the project reflection + AGENTS verify guidance).
+  - The **fuzz-under-the-shipped-config** point (SPEC-069 ran RAW in debug, hiding F-RAW-1) is worth
+    a line in the fuzz/`just fuzz` docs: fuzz `-O`/release to match what ships.

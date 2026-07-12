@@ -2,7 +2,7 @@
 # Maps to ContextCore project.* semantic conventions.
 project:
   id: PROJ-007
-  status: active                    # proposed | active | shipped | cancelled
+  status: shipped                   # proposed | active | shipped | cancelled
   priority: high
   target_ship: null
 
@@ -10,7 +10,7 @@ repo:
   id: crustyimg
 
 created_at: 2026-07-08
-shipped_at: null
+shipped_at: 2026-07-12
 
 value:
   thesis: >
@@ -142,17 +142,22 @@ Format: `- [status] STAGE-ID — one-line summary`
   scoped per-crate exceptions (notify CC0-1.0, inotify/inotify-sys ISC). Shipped deviation with teeth: a
   **two-tier WatchSet** (recursive source roots, shallow manifest/recipe dirs) — a recursive watch over the
   config dirs also covered `.crustyimg/` and overflowed Linux inotify (3-OS CI caught it).
-- [ ] (proposed) STAGE-024 — hardening & security sweep: the wave's closing correctness + security pass,
-  queued LAST. **Leads with a threat-model / attack-surface review of PROJ-007's NEW untrusted-input surface**
-  (build manifest, recipe files, the `.crustyimg/` cache store, the committed lockfile, `--watch`'s tree)
-  against `untrusted-input-hardening` — SPEC-037 for this wave (the SPEC-066 lockfile panic showed that surface
-  has issues we stumble on, not enumerate). Then: run the never-executed decoder fuzz gate (AVIF/SVG/RAW/HEIC);
-  graceful non-UTF-8/unusual-filename handling; cache-key/determinism-envelope completeness (build profile is
-  unkeyed today); the two filed defects (`CACHE_ENTRY_MAX_BYTES` off-by-53 + the pre-decode format sniff that
-  closes SPEC-065's `{ext}` false positives + SPEC-066's literal-`{ext}` residual); an exit-code totality audit.
-  From a 2026-07-10 self-review + code sweep — grounded, not speculative; no new default dep.
+- [x] STAGE-024 (shipped on 2026-07-12) — hardening & security sweep: the wave's closing correctness +
+  security pass, queued LAST. Led with a threat-model / attack-surface review of PROJ-007's NEW untrusted-input
+  surface (manifest, recipe, cache store, committed lockfile, `--watch`'s tree) against `untrusted-input-hardening`
+  — **SPEC-068** (PR #75, DEC-061): threat-model note + inline tightenings (recipe top-level `deny_unknown_fields`
+  closing a zero-step silent-passthrough footgun; an out-directory write-escape clamp) + a reprioritized backlog.
+  **SPEC-069** (PR #76, DEC-062): ran the never-executed decoder fuzz gate — AVIF findings all upstream
+  `avif-parse` (validating the pure-Rust decoder choices), boundary-fixed, converted to always-on per-PR
+  regressions. **SPEC-070** (PR #78, DEC-063): closed the memory-amplification class (F-RAW-1) with a 64 Mpix
+  pre-decode pixel budget. **SPEC-071** (PR #79): the small hardening tail as one batch (lint false-diagnosis,
+  cache off-by-53, exit-code totality, `--watch` build-only, docs sync). 4 specs; no new default dep. **The
+  larger decision-bearing tail (8 items) was triaged 2026-07-12 and DEFERRED to a post-1.0 maintenance pass**
+  (see the stage's Spec Backlog) — the one security-flavored residual (canonicalize-contain-out) is an
+  accept+document decision with a real usability tradeoff; the rest are polish / feature / fails-closed.
 
-**Count:** 4 shipped / 0 active / 1 proposed (STAGE-020+021+022+023 shipped — build+cache+lockfile+`--watch` all in; STAGE-024 hardening & security sweep queued last, then PROJ-007 closes)
+**Count:** 5 shipped / 0 active (STAGE-020+021+022+023+024 all shipped — build + cache + lockfile + `--watch`
+delivered, and the closing hardening & security sweep done). **PROJ-007 CLOSED 2026-07-12.**
 
 ## Dependencies
 
@@ -172,15 +177,66 @@ Format: `- [status] STAGE-ID — one-line summary`
 
 ## Project-Level Reflection
 
-*Filled in when status moves to shipped.*
+*Shipped 2026-07-12.*
 
-- **Did we deliver the outcome in "What This Project Is"?** <yes/no + notes>
-- **How many stages did it actually take?** <number, compare to plan>
-- **What changed between starting and shipping?** <one or two sentences>
+- **Did we deliver the outcome in "What This Project Is"?** **Yes — in full.** `crustyimg build`
+  runs a declared build (source globs × recipe → out dir + name template); a no-change re-run is a
+  full cache hit that reports `(cached, rebuilt)`; changing one source / recipe param / the
+  crustyimg version rebuilds only the affected outputs; a committed `crustyimg.build.lock` +
+  `--check`/`--frozen`/`--locked` is a CI drift gate (exit 7); `--watch` gives the debounced dev
+  inner loop. All of it stays local + deterministic + no-service + pure-Rust-default; `just deny`
+  stayed green (the one new default dep, `sha2`, is pure-Rust; `notify` for `--watch` is behind a
+  default-on feature the lean build drops). The load-bearing unknown — encoder byte-reproducibility
+  — was resolved by a design-time experiment (byte-identical run-to-run and across thread counts on
+  a fixed machine, incl. AVIF/rav1e + lossy-WebP), which is exactly what let the design **split
+  "verifiable" into the robust half (cache key = inputs, cross-machine reproducible) and the fragile
+  half (observed output hash + env, informational cross-env)** — the single most important design
+  call of the wave. The closing STAGE-024 also delivered something the brief didn't originally
+  scope: a **run** of the roadmap's pre-1.0 fuzz gate and a threat-model note, so the "reviewed like
+  code / trust it in CI on files you didn't write" claim is earned, not aspirational.
+- **How many stages did it actually take?** **5** (STAGE-020 build+manifest, 021 cache, 022
+  lockfile, 023 `--watch`, 024 hardening & security sweep) across **9 specs** (SPEC-063..071). The
+  original brief planned 4 build stages + a determinism-decisions thread; STAGE-024 (hardening &
+  security sweep) was **appended mid-wave** after a self-review + code sweep — a deliberate expansion,
+  not scope creep, and it turned out to be the highest-leverage stage for the trust claim.
+- **What changed between starting and shipping?** Two things. (1) An external design-feedback review
+  (2026-07-08) reshaped the "verifiable" leg from "pin output bytes" to "pin the robust cache key,
+  *record* the fragile output hash + env" — the honest model given non-bit-identical encoders across
+  arch/version. (2) The wave grew a fifth, security-focused stage; and the threat-model pass (SPEC-068)
+  reprioritized its own tail, promoting the fuzz gate to #1 and deferring 8 lower-value items past 1.0.
 - **Lessons that should update AGENTS.md, templates, or constraints?**
-  - <one-line updates>
-- **What did we defer to the next project?**
-  - <one-line items>
+  - **Drive the real binary with adversarial / hostile-serialized input — green exit-code and
+    struct-level unit tests miss whole classes of defect** (user-facing strings, hostile committed
+    files, cross-platform path handling, config-dependent behavior). This wave shipped **five**
+    green-but-broken defects caught only by driving the CLI: SPEC-065 `{output:?}` Windows escaping,
+    SPEC-066 stale `--strict` message + non-hex-digest panic, SPEC-068 out-of-tree write escape +
+    symlinked-out-dir, SPEC-069 raw "clean" that OOMed under `-O`. **This belongs in AGENTS verify
+    guidance as a first-class rule.**
+  - **A "clean / contained / safe" verdict must be EARNED under the exact command + config it claims**
+    (a driven attack that failed to break it, or a fuzz run under the shipped `-O` config) — an
+    unearned "safe" is a defect, not prose.
+  - **`IMAGE_EXTENSIONS` exposes every decode caller** (memory) recurred a 5th time — a new extension
+    or `ImageError` variant needs an audit of every decode caller + every `Err(_)` catch-all.
+  - **A spec that must prove a compiled-in const is load-bearing should put that const in the
+    function signature** (SPEC-064 cache-key schema) so the test can reach it without a private shim.
+  - **Ship user-facing docs WITH the behavior** — `--watch` and the 64 Mpix cap both left doc-debt
+    that SPEC-071 had to sweep; add a pre-ship doc-drift check to the ship checklist.
+  - **Cross-platform defects hide on macOS-green** (the two-tier WatchSet inotify overflow, the
+    Windows `{:?}` escaping) — 3-OS CI caught them, local macOS did not; "macOS-green ≠ done."
+  - **Batch the small tail; triage the large one.** SPEC-071 (4 fixes + docs in one cycle) is the
+    proportionate cadence for a cleared small-fix tail; the decision-bearing tail gets a "does 1.0
+    actually need this?" triage and an explicit defer, not a reflexive build-everything close.
+- **What did we defer to the next project (post-1.0 maintenance backlog)?**
+  - The 8-item STAGE-024 tail: canonicalize-contain-out (accept+documented write-escape residual, own
+    spec w/ opt-out), pre-decode format sniff (fails-closed), full-pipeline peak envelope,
+    `--max-pixels` cap-raise dial (revisit trigger live), lint decode-seam audit + not-inspected rule,
+    unusual-filename `.to_str()` sweep, cache-key build-profile, orphan-output prune. Each pulled
+    individually if usage surfaces the need (see the stage backlog + `docs/roadmap.md` post-1.0).
+  - `build --gc` / `--cache-dir` / mtime fast-path / `--dry-run` plan preview / cache-hit rate in `-v`
+    (STAGE-021 follow-ups); `--check --json`; F-AVIF-3 (upstream `avif-parse` parse-stage over-alloc,
+    not boundary-fixable without vendoring).
+  - Not in this wave by design: the web-asset manifest (Wave 4), WASM core + demo (Wave 3), geometry
+    (Wave 5), remote/distributed cache (never — no-service guardrail).
 
 ---
 
