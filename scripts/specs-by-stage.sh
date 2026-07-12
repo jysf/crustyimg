@@ -98,6 +98,28 @@ fmt_tok() {
     if [ "$1" -ge 1000 ]; then echo "$(( $1 / 1000 ))k"; else echo "$1"; fi
 }
 
+# The project's most-recent activity date — the max ship date across its specs
+# (a spec's `ship` cost session `recorded_at`) and stages (`shipped_at`). ISO
+# YYYY-MM-DD dates compare correctly as strings. Used to order the `--all`
+# ledger chronologically (numeric PROJ-NNN ids don't reflect when work
+# happened — e.g. PROJ-009 shipped before PROJ-007 was active). A project with
+# no dated work returns empty (the caller sorts it last, as newest).
+project_latest_date() {
+    local d="$1" max="" sd
+    while IFS= read -r sf; do
+        [ -f "$sf" ] || continue
+        case "$sf" in *-timeline.md) continue ;; esac
+        sd=$(get_spec_ship_date "$sf")
+        [ -n "$sd" ] && { [ -z "$max" ] || [ "$sd" \> "$max" ]; } && max="$sd"
+    done < <(find_all_specs "$d" 2>/dev/null)
+    while IFS= read -r stf; do
+        [ -f "$stf" ] || continue
+        sd=$(get_stage_shipped_at "$stf")
+        [ -n "$sd" ] && { [ -z "$max" ] || [ "$sd" \> "$max" ]; } && max="$sd"
+    done < <(find "$d/stages" -maxdepth 1 -type f -name 'STAGE-*.md' 2>/dev/null)
+    printf '%s' "$max"
+}
+
 # ---------------------------------------------------------------------
 # Parse scope flags.
 # ---------------------------------------------------------------------
@@ -121,9 +143,19 @@ elif [ "$SCOPE" = "one" ]; then
     [ -n "$dir" ] || die "No project matching '${TARGET}' under projects/."
     PROJECTS+=("$(basename "$dir")")
 else
-    while IFS= read -r d; do
-        [ -n "$d" ] && PROJECTS+=("$(basename "$d")")
-    done < <(find "${REPO_ROOT}/projects" -maxdepth 1 -type d -name 'PROJ-*' 2>/dev/null | sort)
+    # Chronological ledger: order projects by most-recent activity (oldest at
+    # top, current work at the bottom), not by numeric id. Undated (brand-new)
+    # projects sort last via a 9999 sentinel; PROJ-id is the tiebreak.
+    while IFS=$'\t' read -r _ proj; do
+        [ -n "$proj" ] && PROJECTS+=("$proj")
+    done < <(
+        while IFS= read -r d; do
+            [ -d "$d" ] || continue
+            pdate=$(project_latest_date "$d"); [ -n "$pdate" ] || pdate="9999-99-99"
+            printf '%s\t%s\n' "$pdate" "$(basename "$d")"
+        done < <(find "${REPO_ROOT}/projects" -maxdepth 1 -type d -name 'PROJ-*' 2>/dev/null | sort) \
+            | sort -t"$(printf '\t')" -k1,1 -k2,2
+    )
 fi
 
 [ "${#PROJECTS[@]}" -gt 0 ] || die "No projects found under projects/."
