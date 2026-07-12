@@ -6,7 +6,7 @@ task:
   cycle: design  # frame | design | build | verify | ship
   blocked: false
   priority: medium
-  complexity: M                    # four small, independent, localized point-fixes (lint / cache / cli / cli) each with a test — no single fix is hard; the batch runs as ONE build/verify/ship cycle, proportionate to the size of the tail
+  complexity: M                    # four small, independent, localized point-fixes (lint / cache / cli / cli) each with a test + a docs sync (api-contract limits + cli-reference --watch) — no single item is hard; the batch runs as ONE build/verify/ship cycle, proportionate to the size of the tail
 
 project:
   id: PROJ-007
@@ -88,6 +88,12 @@ Land these four fixes in one build/verify/ship cycle, each with a regression tes
 4. **`--watch` is build-only** — `--watch` is a global clap flag but only `Commands::Build` honors it;
    on any other subcommand it's a silent no-op. Reject `--watch` outside `build` with a usage error
    (exit 2). *(From SPEC-067 verify.)*
+5. **Docs sync** — bring the user-facing docs in line with the wave's shipped behavior: (a)
+   `docs/api-contract.md`'s decode-limits section is missing SPEC-070's **64 Mpix pixel cap**
+   (DEC-063) and still calls `--max-pixels` merely "a planned follow-up"; (b) `docs/cli-reference.md`
+   documents `build` but **not `--watch`** at all (SPEC-067 debt) — document it and its build-only
+   restriction (which fix 4 now enforces). *(Raised pre-ship: docs should ship with the behavior they
+   describe.)*
 
 No new dependency; no new decision expected (each fix is mechanical, and item 4's reject-vs-document
 choice is decided here: **reject**).
@@ -129,6 +135,13 @@ choice is decided here: **reject**).
   - `src/cli/mod.rs` — (fix 3) add the missing value assertions to `exit_code_mapping_is_total`;
     (fix 4) guard the dispatch: if `cli.global.watch` and the command is not `Build`, return
     `CliError::Usage("--watch is only valid with `build`")` (exit 2) before running the command.
+  - `docs/api-contract.md` — (fix 5a) update the "Decode resource limits" section (`:67-73`): add the
+    64 Mpix total-pixel cap (SPEC-070/DEC-063) to the limit list, and revise the `--max-pixels`
+    sentence from "a planned follow-up" to reference the concrete DEC-063 cap + the medium-format
+    revisit trigger (still opt-in / filed, but no longer vaguely "planned").
+  - `docs/cli-reference.md` — (fix 5b) add a `--watch` note to the `build [FILE]` section (`:251`):
+    what it does (debounced rebuild loop) and that it is **build-only** (a usage error, exit 2,
+    elsewhere — matching fix 4).
 - **Files created:** none (tests live in existing modules).
 - **New exports / decisions:** none expected.
 
@@ -148,6 +161,10 @@ choice is decided here: **reject**).
 - [ ] **Fix 4:** `crustyimg info --watch <file>` (and any non-`build` subcommand with `--watch`) exits
   **2** with a clear "`--watch` is only valid with `build`" message — driven on the real binary;
   `build --watch` still works.
+- [ ] **Fix 5:** `docs/api-contract.md`'s decode-limits section names the 64 Mpix pixel cap
+  (SPEC-070/DEC-063) and no longer calls `--max-pixels` merely "planned"; `docs/cli-reference.md`'s
+  `build` section documents `--watch` + its build-only restriction. Docs match the shipped/this-PR
+  behavior (no stale "fixed in v1" / "planned" claims about the limits SPEC-070 changed).
 - [ ] Full gate matrix green: `cargo test` (default) + `cargo build --no-default-features` +
   `cargo clippy --all-targets -- -D warnings` + `cargo fmt --check` + `just deny` (unchanged) +
   `just validate`. No new dependency (`git diff main -- Cargo.toml Cargo.lock deny.toml` empty). No
@@ -194,6 +211,15 @@ user-visible string/exit code (the wave's recurring lesson).
   `Err(CliError::Usage("--watch is only valid with `build`".into()))`. This is the same shape as the
   SPEC-067 `--watch`×verify-mode usage guard. Update `GlobalArgs.watch`'s doc if needed (`:124` already
   says build-only). `build --watch` unchanged.
+- **Fix 5 (docs):** `docs/api-contract.md:67-73` currently lists only DEC-034's per-dim ≤ 65 535 +
+  alloc ≤ 512 MiB and says "Limits are fixed in v1; a `--max-pixels`/env override … is a planned
+  follow-up." Add the DEC-063 total-pixel cap (**64 Mpix**, the peak-decode-memory bound) as a third
+  limit, and revise the last sentence: the cap is deliberate (not "fixed in v1" hand-waving), the
+  tradeoff (rejects > 64 MP medium-format/panoramas) is stated in DEC-063, and `--max-pixels` is a
+  filed opt-in with a live revisit trigger (not vaguely "planned"). Keep it factual and short — link
+  DEC-063. `docs/cli-reference.md`'s `build [FILE]` section (`:251-267`) has no `--watch`: add a short
+  paragraph (debounced rebuild loop over the declared build; build-only — a usage error elsewhere per
+  fix 4; `Ctrl-C` to stop). Match the doc's existing terse style; don't over-document.
 - **Constraints:** `untrusted-input-hardening` (fixes 1–2 are on untrusted-input paths),
   `no-unwrap-on-recoverable-paths`, `every-public-fn-tested`, `clippy-fmt-clean`, `ergonomic-defaults`
   (fix 4 turns a silent no-op into a clear error).
@@ -224,7 +250,8 @@ user-visible string/exit code (the wave's recurring lesson).
 - **All acceptance criteria met?** yes/no
 - **New decisions emitted:** none expected
 - **Per-fix status:**
-  - fix 1 (lint) / fix 2 (cache off-by-53) / fix 3 (exit-code asserts) / fix 4 (--watch build-only)
+  - fix 1 (lint) / fix 2 (cache off-by-53) / fix 3 (exit-code asserts) / fix 4 (--watch build-only) /
+    fix 5 (docs sync: api-contract limits + cli-reference --watch)
 - **Deviations from spec:**
   - [list]
 - **Follow-up work identified:**
