@@ -278,7 +278,20 @@ crustyimg build                 # discovers ./crustyimg.build.toml
 crustyimg build ci.build.toml -j 8
 crustyimg build --no-cache      # rebuild everything, ignore the cache
 crustyimg build --check         # verify against the lockfile; exit 7 on drift
+crustyimg build --watch         # rebuild on every change; Ctrl-C to stop
 ```
+
+#### `--watch`
+
+`build --watch` runs the build, then re-runs it whenever a source, a recipe, or the
+manifest changes. Edits are debounced (an editor's save burst is one rebuild), and the
+build's own outputs, `.crustyimg/`, and the lockfile are ignored — so a rebuild never
+triggers itself. The cache makes each re-run incremental. A failing cycle is reported and
+the loop keeps watching; `Ctrl-C` stops it. A `--watch` cycle does **not** rewrite the
+lockfile, and `--watch` cannot be combined with `--check`/`--frozen`/`--locked` (a watch
+loop refreshes outputs; those verify against a pin).
+
+`--watch` is **`build`-only**: on any other subcommand it is a usage error (exit `2`).
 
 #### Incremental rebuilds (the cache)
 

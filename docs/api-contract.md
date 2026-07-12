@@ -64,13 +64,26 @@ Apply to all subcommands (parsed before/around the subcommand).
 The library returns typed `thiserror` errors; `main` maps them to these
 codes and prints a friendly `anyhow`-formatted message to stderr (DEC-007).
 
-**Decode resource limits (SPEC-033 / DEC-034):** every command that loads an
-image bounds the decoder via `image::Limits` (per-dimension ≤ 65 535, decoded
-allocation ≤ 512 MiB). An input that exceeds either limit (a decompression bomb
-or forged dimensions) is **rejected with a typed error and exit `1`** — never a
-panic or OOM — before pixels are produced. Limits are fixed in v1; a
-`--max-pixels`/env override to re-admit a legitimately huge image is a planned
-follow-up.
+**Decode resource limits (SPEC-033 / DEC-034, SPEC-070 / DEC-063):** every command
+that loads an image bounds the decode before pixels are produced:
+
+- **per-dimension ≤ 65 535** (DEC-034)
+- **decoded allocation ≤ 512 MiB** (DEC-034)
+- **total pixels ≤ 64 Mpix** (67 108 864 px, ≈ 8192×8192 — [DEC-063](../decisions/DEC-063-peak-decode-memory-pixel-budget.md)),
+  checked against the image's *declared* dimensions **before** the decode
+  allocates. This is the peak-decode-memory bound: a 1 GiB budget over a 4×
+  amplification factor on the RGBA output.
+
+An input that exceeds any of these (a decompression bomb, forged dimensions) is
+**rejected with a typed error and exit `1`** — never a panic or OOM.
+
+The pixel cap has a stated tradeoff: it also rejects a legitimate **> 64 MP**
+image (a 100 MP medium-format frame, a very large stitched panorama), which is
+indistinguishable from a bomb by its header. Essentially all consumer and prosumer
+photography (24 MP, 50 MP) fits. An opt-in `--max-pixels` override is **filed, not
+built** — deliberately, since adding an escape hatch to a security bound deserves
+its own spec; the revisit trigger is a real user with a > 64 MP workflow. See
+DEC-063 for the derivation and the alternatives weighed.
 
 **Recipe resource limits (SPEC-035 / DEC-036):** `apply --recipe` bounds an
 untrusted recipe — a recipe text over **64 KiB** or with more than **1024 steps**
