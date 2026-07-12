@@ -112,16 +112,18 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
   `from_bytes → build_pipeline → encode_to_bytes` path; `#[wasm_bindgen_test]` round-trip; `just wasm-build`
   fixing the RUSTC toolchain gotcha on a STABLE toolchain. Output: a real `.wasm` that decodes/encodes
   SVG + PNG/JPEG/GIF/WebP + resizes in a browser. Native default + lean builds unaffected. Likely emits DEC-064.
-- [ ] SPEC-073 (not yet framed) — **AVIF-on-wasm decision + DEC.** Test whether `rav1e`
-  (AVIF *encode*, `avif` feature) compiles/runs on wasm32 (now reachable once SPEC-072 gates
-  `re_rav1d` out); decide the `re_rav1d` (*decode*) path (gate-out / port-shim / wasm32-wasi /
-  browser-native `createImageBitmap` for the demo). Write the run record
-  (`docs/research/proj-008-wasm-probe.md`) + a DEC for the wasm feature boundary + AVIF scope.
+- [ ] SPEC-073 (design — build-ready 2026-07-12) — **AVIF-on-wasm decision + DEC-065.** Design-time
+  probe RESOLVED the central question: **rav1e 0.8.1 + ravif 0.13.0 compile to wasm32** (`--features
+  avif`, exit 0) → AVIF *encode* is achievable (the "convert to AVIF in-browser" headline); AVIF
+  *decode* (re_rav1d) stays gated (SPEC-072), reading `.avif` inputs deferred to demo-side
+  `createImageBitmap`. Spec: wire `out_format="avif"` into `src/wasm.rs`, enable `avif` for the wasm
+  build per a size-measured strategy, PNG→AVIF `#[wasm_bindgen_test]`, **measure the .wasm size delta**
+  (rav1e is large — the decisive SPEC-074 input), DEC-065 (encode in / decode deferred). Native unaffected.
 - [ ] SPEC-074 (not yet framed, may fold into SPEC-072) — **size budget + optimization.**
   Release + `wasm-opt`, measure, set the first-load budget, identify lazy-loaded codecs;
   record the number. *(Fold into SPEC-072 if the baseline number is already within budget.)*
 
-**Count:** 1 shipped / 0 active / 2 pending (SPEC-072 SHIPPED 2026-07-12 — the wasm build seam proven, real round-trip driven, native unaffected, DEC-064; SPEC-073 AVIF-on-wasm decision + SPEC-074 size not yet framed)
+**Count:** 1 shipped / 1 in design / 1 pending (SPEC-072 SHIPPED, DEC-064; SPEC-073 framed build-ready 2026-07-12 — AVIF-on-wasm, encode proven to compile; SPEC-074 size not yet framed)
 
 ## Design Notes
 
