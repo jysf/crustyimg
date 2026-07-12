@@ -1,4 +1,8 @@
-//! Pure-Rust AVIF decode (SPEC-058, DEC-053).
+//! Pure-Rust AVIF decode (SPEC-058, DEC-053). **Native targets only**
+//! (SPEC-072, DEC-064): `re_rav1d` cannot compile to `wasm32-unknown-unknown`.
+//! The AVIF *sniff* that dispatches here lives in `super::sniff` so it survives
+//! into the wasm build, where an AVIF input is answered with a typed
+//! `ImageError::CodecUnavailableOnTarget` rather than reaching this module.
 //!
 //! `image` 0.25's own AVIF decoder is dav1d (a C system library), which would
 //! break the pure-Rust default (DEC-004). This module decodes `.avif` on the
@@ -35,37 +39,6 @@ use re_rav1d::dav1d::{Decoder, Picture, PixelLayout, PlanarImageComponent, Setti
 use std::io::Cursor;
 
 use crate::error::{ImageError, Result};
-
-/// Whether `bytes` is an ISOBMFF file whose `ftyp` box advertises an AVIF brand.
-///
-/// Detection is by container brand (not the `image` guesser) so dispatch does
-/// not depend on `image`'s optional avif feature. Scans the major brand and the
-/// compatible-brands list of the leading `ftyp` box for `avif`/`avis`.
-pub(crate) fn is_avif(bytes: &[u8]) -> bool {
-    // ftyp box: [size:u32][b"ftyp"][major:4][minor:4][compatible brands: 4*n].
-    if bytes.len() < 12 || &bytes[4..8] != b"ftyp" {
-        return false;
-    }
-    let box_size = u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]) as usize;
-    // Clamp the brand scan to the declared box size and the actual buffer.
-    let end = box_size.clamp(8, bytes.len());
-    // Major brand at 8..12, then compatible brands every 4 bytes from 16.
-    if is_avif_brand(&bytes[8..12]) {
-        return true;
-    }
-    let mut i = 16;
-    while i + 4 <= end {
-        if is_avif_brand(&bytes[i..i + 4]) {
-            return true;
-        }
-        i += 4;
-    }
-    false
-}
-
-fn is_avif_brand(brand: &[u8]) -> bool {
-    matches!(brand, b"avif" | b"avis")
-}
 
 /// Whether every **top-level** ISOBMFF box in `bytes` declares a size that fits
 /// within the buffer — a cheap, bounded structural sanity check run before
@@ -476,39 +449,6 @@ fn map_parse_err(e: avif_parse::Error) -> ImageError {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn is_avif_detects_ftyp_avif_major_brand() {
-        // size(0) + "ftyp" + "avif" + minor + compat
-        let mut b = Vec::new();
-        b.extend_from_slice(&0x20u32.to_be_bytes());
-        b.extend_from_slice(b"ftypavif");
-        b.extend_from_slice(&0u32.to_be_bytes());
-        b.extend_from_slice(b"avifmif1miafMA1B");
-        assert!(is_avif(&b));
-    }
-
-    #[test]
-    fn is_avif_detects_compatible_brand() {
-        let mut b = Vec::new();
-        b.extend_from_slice(&0x1cu32.to_be_bytes());
-        b.extend_from_slice(b"ftypmif1"); // major = mif1
-        b.extend_from_slice(&0u32.to_be_bytes());
-        b.extend_from_slice(b"mif1avif"); // compatible brands include avif
-        assert!(is_avif(&b));
-    }
-
-    #[test]
-    fn is_avif_rejects_png_and_short() {
-        assert!(!is_avif(&[0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a]));
-        assert!(!is_avif(b"ftyp")); // too short
-        let mut heic = Vec::new();
-        heic.extend_from_slice(&0x18u32.to_be_bytes());
-        heic.extend_from_slice(b"ftypheic");
-        heic.extend_from_slice(&0u32.to_be_bytes());
-        heic.extend_from_slice(b"heicmif1");
-        assert!(!is_avif(&heic));
-    }
 
     #[test]
     fn to_u8_clamps() {

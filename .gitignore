@@ -32,6 +32,11 @@ out/
 # Rust
 /target
 
+# The wasm-pack output (SPEC-072): the generated .wasm + JS bindings + npm shim.
+# A build artifact, regenerable with `just wasm-build`. STAGE-026 decides what
+# actually gets PUBLISHED to npm; nothing generated belongs in git.
+/pkg/
+
 # `crustyimg build`'s local content-addressed cache (SPEC-064). Machine-local and
 # regenerable; a corrupt or absent entry just triggers a rebuild.
 .crustyimg/

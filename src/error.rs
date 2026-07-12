@@ -54,6 +54,28 @@ pub enum ImageError {
         codec: &'static str,
         feature: &'static str,
     },
+
+    /// The input's format was recognized, but its decoder **cannot be compiled for
+    /// this target at all** — no feature flag would bring it back (SPEC-072,
+    /// DEC-064). Today this is exactly one case: AVIF decode in the `wasm32` build,
+    /// where `re_rav1d` does not compile (it needs libc POSIX types and threads that
+    /// bare wasm32 lacks). Restoring it is SPEC-073.
+    ///
+    /// Distinct from [`ImageError::CodecNotBuilt`], whose whole message is "rebuild
+    /// with `--features X`" — advice that would be a lie here. So the message names
+    /// the real remedy for a browser user (convert first) and no feature flag.
+    ///
+    /// The variant is itself `cfg(target_arch = "wasm32")`: it can only ever be
+    /// constructed in the wasm build, and gating it keeps every native `match` over
+    /// `ImageError` — above all the exit-code map, which must stay total — exactly as
+    /// it was. (Lesson carried from SPEC-061/062: a new `ImageError` variant otherwise
+    /// forces an audit of every decode caller and every catch-all.)
+    #[cfg(target_arch = "wasm32")]
+    #[error(
+        "{codec} decoding isn't available in the WebAssembly build; convert the file \
+         to a supported format (JPEG, PNG, WebP, or SVG) first"
+    )]
+    CodecUnavailableOnTarget { codec: &'static str },
 }
 
 /// The crate `Result` alias over [`ImageError`].

@@ -447,7 +447,16 @@ impl Sink {
                 // feature is off; when the feature is on, the cfg(feature)
                 // block is the only live branch (the not-feature block is
                 // compiled away), so we use a single cfg-selected expression.
-                #[cfg(feature = "display")]
+                //
+                // The `not(wasm32)` conjunct is what lets the wasm build compile
+                // with the DEFAULT feature set (SPEC-072, DEC-064): `display` is
+                // default-ON, but `viuer` is a native-only dep (there is no
+                // terminal in a browser), so on wasm the feature is enabled while
+                // the crate is absent. Gating on the TARGET as well as the feature
+                // means the wasm build takes the "unavailable" arm instead of
+                // failing to resolve `viuer::` — and no native feature combination
+                // changes at all.
+                #[cfg(all(feature = "display", not(target_arch = "wasm32")))]
                 {
                     // The match binds &Option<u32>, so deref to pass Option<u32>.
                     let conf = viuer::Config {
@@ -461,7 +470,7 @@ impl Sink {
                         .map_err(|e| SinkError::Display(e.to_string()))
                         .map(|_| ())
                 }
-                #[cfg(not(feature = "display"))]
+                #[cfg(not(all(feature = "display", not(target_arch = "wasm32"))))]
                 {
                     // Silence unused-variable warning in the feature-off build;
                     // the feature-on build above actively uses both fields.

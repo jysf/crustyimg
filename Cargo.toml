@@ -17,32 +17,38 @@ exclude = ["/decisions", "/docs", "/projects", "/reports", "/guidance", "/feedba
 [lib]
 name = "crustyimg"
 path = "src/lib.rs"
+# `cdylib` is what wasm-bindgen links the `.wasm` artifact from (SPEC-072, DEC-064);
+# `rlib` stays so the bin + integration tests keep linking the library normally. On
+# native targets the extra cdylib is an unused side artifact (a `.dylib`/`.so`/`.dll`
+# next to the rlib) — it changes no native behavior.
+crate-type = ["cdylib", "rlib"]
 
 [[bin]]
 name = "crustyimg"
 path = "src/main.rs"
 
-# Runtime crates arrive with the specs that use them. SPEC-002 adds the first
-# two: `image` (the single pixel library, DEC-002) and `thiserror` (typed
-# library errors, DEC-007). Both are pre-justified by their DECs — no new DEC.
-# `image` is pinned to the pure-Rust formats only (DEC-004,
-# `pure-rust-codecs-default`): default features off, no avif/mozjpeg/native.
-# `webp` (SPEC-019, DEC-021) is included in the default set — it is pure-Rust
-# (`image-webp`, MIT/Apache, no nasm/system libs): WebP DECODE (lossy+lossless)
-# + LOSSLESS WebP encode. Lossy WebP encode (libwebp, a C dep) is the separate
-# off-by-default `webp-lossy` feature (SPEC-020). The off-by-default `avif`
-# feature (SPEC-018, DEC-020) adds AVIF output via `image/avif`.
-# SPEC-005 adds `viuer` as an optional dep behind the `display` feature
-# (DEC-011). Default builds stay viuer-free; `--features display` enables it.
+# Runtime crates arrive with the specs that use them. `image` is pinned to the
+# pure-Rust formats only (DEC-004, `pure-rust-codecs-default`): default features
+# off, no avif/mozjpeg/native. `webp` (SPEC-019, DEC-021) is in the default set —
+# pure-Rust (`image-webp`, MIT/Apache, no nasm/system libs): WebP DECODE
+# (lossy+lossless) + LOSSLESS WebP encode. Lossy WebP encode (libwebp, a C dep) is
+# the separate off-by-default `webp-lossy` feature (SPEC-020). The off-by-default
+# `avif` feature (SPEC-018, DEC-020) adds AVIF OUTPUT via `image/avif`.
+#
+## ── Cross-target dependencies (native AND wasm32) ────────────────────────────
+## The pure engine — decode → operations → encode — plus its typed errors and
+## recipe (de)serialization. Every crate here compiles to `wasm32-unknown-unknown`
+## (verified by the SPEC-072 design probe and the `just wasm-build` recipe), so
+## the WASM build (DEC-064) gets the real pipeline, not a reimplementation.
+## Native-only crates (the CLI/filesystem shell) live in the `cfg(not(wasm32))`
+## table below; the AVIF decoder is there too — it is the one dep that cannot
+## compile to bare wasm32 (see DEC-064).
 [dependencies]
 image = { version = "=0.25.10", default-features = false, features = ["png", "jpeg", "gif", "bmp", "tiff", "ico", "webp"] }
 fast_image_resize = { version = "=6.0.0", features = ["image"] }
 thiserror = "=2.0.18"
-glob = "=0.3.3"
 serde = { version = "=1.0.228", features = ["derive"] }
 toml = "=0.8.23"
-viuer = { version = "=0.11.0", optional = true }
-clap = { version = "=4.6.1", features = ["derive"] }
 kamadak-exif = "=0.6.1"
 # Container-lane metadata WRITE crate (DEC-003, DEC-046). Pure-Rust, permissive
 # (MIT OR Apache-2.0) — `just deny` stays green with no new exception. The read
@@ -63,19 +69,6 @@ img-parts = "=0.4.0"
 # bundled BSD-3 Go font (assets/fonts/Go-Regular.ttf), overridable with `--font PATH`.
 skrifa = "=0.44.0"
 zeno = "=0.3.3"
-# Batch parallelism + progress for `apply --recipe` over a source list (STAGE-005,
-# SPEC-031). `rayon` (data parallelism across inputs) is pre-justified by DEC-006
-# (no async; rayon for batch). `indicatif` (progress bar) is DEC-033. Both pure-Rust,
-# permissive (MIT OR Apache-2.0 / MIT) — `just deny` stays green. Each rayon task
-# rebuilds its own pipeline from the (Sync) recipe + registry, since `Operation` is
-# not `Send` (no Box<dyn Operation> crosses a thread).
-rayon = "=1.12.0"
-indicatif = "=0.18.6"
-# Shell-completion generator for the `completions <SHELL>` subcommand (SPEC-040,
-# DEC-039). Pure-Rust, MIT OR Apache-2.0 (clap project family). Non-optional: the
-# `completions` path compiles and works in both the default and the lean
-# `--no-default-features` (headless) build. Pinned to match clap =4.6.1.
-clap_complete = "=4.6.5"
 # Perceptual quality metric for auto-quality (SPEC-016, DEC-019). Pure-Rust,
 # BSD-2-Clause (permissive — DEC-018). A metric crate only (no decode/encode/
 # resize), so it does not violate `single-image-library`.
@@ -87,21 +80,6 @@ ssimulacra2 = "=0.5.1"
 # `from_rgba`/`from_rgb` encoders, NOT the webp crate's `image` feature (which
 # would pull a second `image` crate). `just deny` stays green with no exception.
 webp = { version = "=0.3.1", optional = true, default-features = false }
-# AVIF DECODE on the default, pure-Rust path (SPEC-058, DEC-053). Two CODEC deps
-# feeding the canonical `Image` (the webp-lossy precedent, DEC-021/DEC-022) — NOT
-# a second pixel library, so `single-image-library` is not tripped. AV1/AVIF is
-# patent royalty-free, so it belongs on the default path (unlike HEIC, DEC-052).
-#   `re_rav1d` (BSD-2-Clause, rerun's rav1d+dav1d-rs fork) — built NO-ASM
-#   (`default-features = false`, only `bitdepth_8`/`bitdepth_16`) → pure-Rust,
-#   ZERO build-tool deps (no nasm/meson), clean on all three CI OSes. We use its
-#   re-exported safe `dav1d` API (`Decoder`/`send_data`/`get_picture`/plane access).
-#   `avif-parse` (MPL-2.0, kornelski/Firefox-mp4parse-derived) — parses the
-#   ISOBMFF/MIAF container to the primary-item + alpha AV1 OBUs; rejects grid/tiled
-#   cleanly. MPL-2.0 is FILE-level weak copyleft (does NOT relicense our binary) —
-#   allowed via a documented per-crate `deny.toml` exception (the ansi_colours
-#   precedent). `image`'s own AVIF decode is dav1d/C and is NOT used (DEC-004).
-re_rav1d = { version = "=0.1.3", default-features = false, features = ["bitdepth_8", "bitdepth_16"] }
-avif-parse = "=2.1.0"
 # SVG RASTERIZE on the default, pure-Rust path (SPEC-060, DEC-054). `resvg` (with
 # `usvg` + `tiny-skia` transitively) rasterizes `.svg` to the canonical `Image` —
 # a rasterizer feeding the pixel core, NOT a second pixel library, so
@@ -135,13 +113,70 @@ resvg = { version = "=0.47.0", default-features = false, features = ["text"] }
 #   bindgen/libclang build-tool dependency; and NOT `embedded-libheif`, which would
 #   vendor+cmake-build libheif and pull the LGPLv3 §4 static-relink obligation.
 libheif-rs = { version = "=2.7.0", optional = true, default-features = false, features = ["v1_17"] }
+
+## ── Native-only dependencies (everything EXCEPT wasm32) ──────────────────────
+## The CLI/filesystem shell (`cli`, `source`, `sink`'s writers, `build`, `lint`) and
+## the one codec that cannot compile to bare wasm32. The `src/lib.rs` modules that
+## use these are gated `#[cfg(not(target_arch = "wasm32"))]`, so the wasm build never
+## reaches for them (SPEC-072, DEC-064). Moving a dep here — rather than making it
+## optional behind a new feature — is what keeps the NATIVE feature matrix (default /
+## lean / avif / heic / webp-lossy) byte-for-byte unchanged: on every native target
+## this table is unconditionally active, exactly as `[dependencies]` was.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+# AVIF DECODE on the default, pure-Rust path (SPEC-058, DEC-053). Two CODEC deps
+# feeding the canonical `Image` (the webp-lossy precedent, DEC-021/DEC-022) — NOT
+# a second pixel library, so `single-image-library` is not tripped. AV1/AVIF is
+# patent royalty-free, so it belongs on the default path (unlike HEIC, DEC-052).
+#   `re_rav1d` (BSD-2-Clause, rerun's rav1d+dav1d-rs fork) — built NO-ASM
+#   (`default-features = false`, only `bitdepth_8`/`bitdepth_16`) → pure-Rust,
+#   ZERO build-tool deps (no nasm/meson), clean on all three CI OSes. We use its
+#   re-exported safe `dav1d` API (`Decoder`/`send_data`/`get_picture`/plane access).
+#   `avif-parse` (MPL-2.0, kornelski/Firefox-mp4parse-derived) — parses the
+#   ISOBMFF/MIAF container to the primary-item + alpha AV1 OBUs; rejects grid/tiled
+#   cleanly. MPL-2.0 is FILE-level weak copyleft (does NOT relicense our binary) —
+#   allowed via a documented per-crate `deny.toml` exception (the ansi_colours
+#   precedent). `image`'s own AVIF decode is dav1d/C and is NOT used (DEC-004).
+# NATIVE-ONLY as of SPEC-072/DEC-064: `re_rav1d` is the single crate in the whole
+# tree that does NOT compile to `wasm32-unknown-unknown` — it needs libc POSIX types
+# bare wasm32 lacks (`off_t`, `ptrdiff_t`, errno `ENOENT`/`EIO`/`EINVAL`) and its
+# thread-task const-eval fails (E0080). `avif-parse` follows it because nothing else
+# uses it. AVIF decode is therefore UNAVAILABLE in the wasm build (a typed
+# `ImageError::CodecUnavailableOnTarget`, never a panic); the AVIF-on-wasm strategy
+# is SPEC-073. The NATIVE AVIF decode path is untouched.
+re_rav1d = { version = "=0.1.3", default-features = false, features = ["bitdepth_8", "bitdepth_16"] }
+avif-parse = "=2.1.0"
+# The CLI surface itself (SPEC-007/SPEC-040, DEC-012/DEC-039) — `clap` derive +
+# the `completions <SHELL>` generator. The `cli` module is native-only: the wasm
+# build's entry point is `src/wasm.rs`, not an argv parser.
+clap = { version = "=4.6.1", features = ["derive"] }
+clap_complete = "=4.6.5"
+# Input resolution (`source`: file / glob / dir / stdin, SPEC-004) and the lint
+# config's ignore patterns — both filesystem concepts with no wasm meaning.
+glob = "=0.3.3"
+# Batch parallelism + progress for `apply --recipe` over a source list (STAGE-005,
+# SPEC-031). `rayon` (data parallelism across inputs) is pre-justified by DEC-006
+# (no async; rayon for batch). `indicatif` (progress bar) is DEC-033. Both pure-Rust,
+# permissive (MIT OR Apache-2.0 / MIT) — `just deny` stays green. Each rayon task
+# rebuilds its own pipeline from the (Sync) recipe + registry, since `Operation` is
+# not `Send` (no Box<dyn Operation> crosses a thread).
+# Native-only because their sole caller is `cli` (a batch is a list of FILES); the
+# wasm surface transforms one in-memory image per call, and bare wasm32 has no
+# threads anyway (rayon would need wasm-bindgen-rayon + COOP/COEP headers).
+rayon = "=1.12.0"
+indicatif = "=0.18.6"
 # The build cache's hasher (SPEC-064, DEC-058): cache keys, source-content hashes,
 # and the verify-on-read hash of a stored entry. RustCrypto `sha2` is pure Rust with
 # no `build.rs` C/SIMD (unlike `blake3`'s default build, whose nasm/C path has bitten
 # the Windows CI job), MIT OR Apache-2.0 → `just deny` stays green with no exception,
 # and the lean `--no-default-features` build is unaffected. Hash throughput is
 # immaterial here: the cache's win is skipping a decode+encode, not hashing faster.
+# Native-only: its sole caller is the `build` module's on-disk cache.
 sha2 = "=0.11.0"
+# Terminal preview for `view`, behind the default-on `display` feature (DEC-027).
+# Native-only: a terminal is not a thing in a browser. The wasm build therefore
+# compiles with `display` ON (the default feature set) but WITHOUT viuer — the
+# `sink::Sink::Display` arm is gated on `all(feature = "display", not(wasm32))`.
+viuer = { version = "=0.11.0", optional = true }
 # Filesystem watcher for `build --watch` behind the default-on `watch` feature
 # (SPEC-067, DEC-060). `notify` runs a background OS-watcher thread and delivers
 # events over an `std::sync::mpsc` channel — threads + a channel, NOT an async
@@ -153,7 +188,23 @@ sha2 = "=0.11.0"
 # FSEvents on macOS, ReadDirectoryChangesW on Windows); the `serde`/`crossbeam`
 # extras stay off. Optional + gated so the lean `--no-default-features` build
 # drops it entirely (mirrors `display`, DEC-027).
+# Native-only: its sole caller is the `build` module, and there is no filesystem
+# to watch in a browser.
 notify = { version = "=8.2.0", optional = true }
+
+## ── wasm32-only dependencies ─────────────────────────────────────────────────
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+# The JS ↔ Rust boundary for the WASM build (SPEC-072, DEC-064). Pure-Rust and
+# permissive (MIT OR Apache-2.0), so DEC-004 holds and `just deny` needs no new
+# exception. It is GLUE, not a codec — `single-image-library` is not tripped: the
+# pixels still flow through the one `image` crate. wasm32-only, so it adds nothing
+# to the native dependency set (the released binary is byte-identical).
+wasm-bindgen = "=0.2.126"
+
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+# The `#[wasm_bindgen_test]` harness — runs the round-trip in Node/a headless
+# browser via `wasm-pack test`. Dev-only; never in the shipped `.wasm`.
+wasm-bindgen-test = "=0.3.76"
 
 [features]
 # `display` (terminal preview via viuer) is ON BY DEFAULT so `view` works out of the
@@ -184,8 +235,17 @@ heic = ["dep:libheif-rs"]
 watch = ["dep:notify"]
 
 [dev-dependencies]
-tempfile = "=3.27.0"
 serde_json = "=1.0.150"
+
+# Native-only dev-deps. Cargo builds EVERY dev-dependency when it builds ANY test
+# target, so a dev-dep that cannot compile to wasm32 breaks `wasm-pack test` even
+# when no wasm test touches it (SPEC-072): `criterion`'s default features pull
+# `rayon`, which hard-`compile_error!`s on wasm. Both of these are filesystem/thread
+# tools with no wasm meaning, so scoping them to native is the honest fix — the
+# native test suite sees no change at all.
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+# Temp dirs for the native integration tests (they write real files).
+tempfile = "=3.27.0"
 # Micro-benchmark harness (SPEC-025, DEC-028). Dev-only — NOT in the shipped binary
 # or the default build; runs via `just bench`. Permissive (MIT/Apache); `just deny`
 # stays green.
