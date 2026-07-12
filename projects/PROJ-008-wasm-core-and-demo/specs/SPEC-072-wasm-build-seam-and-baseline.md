@@ -246,7 +246,7 @@ Written now (design), before build. The build cycle makes them pass.
 ## Build Completion
 
 - **Branch:** `feat/spec-072-wasm-build-seam`
-- **PR:** #74
+- **PR:** #80
 - **All acceptance criteria met?** **yes** — all 7.
 
 | criterion | evidence |
