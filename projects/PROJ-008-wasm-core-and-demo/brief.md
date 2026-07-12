@@ -149,14 +149,16 @@ Ordered list of stages this project will produce. Update as work proceeds.
 
 Format: `- [status] STAGE-ID — one-line summary`
 
-- [ ] STAGE-025 (not yet framed) — **WASM core build (the load-bearing probe).** Get the
-  pure `from_bytes → operations → encode_to_bytes` + `analysis`/`decide` path compiling to
-  `wasm32-unknown-unknown` behind a `wasm` feature: gate out `notify`/`viuer`/`clap`/
-  `rayon`-batch/C-codecs; add a thin `wasm-bindgen` surface; verify `re_rav1d` (AVIF) /
-  `resvg` (SVG) / `fast_image_resize` compile and run in a headless WASM harness; **measure
-  and budget binary size and single-threaded perf** (the DEC-054-flagged risk) → a DEC for
-  the WASM feature boundary + size budget + which codecs ship/lazy-load. This stage decides
-  whether the rest of the wave is cheap or hard.
+- [ ] STAGE-025 (framed + active on 2026-07-12) — **WASM core build (the load-bearing probe).**
+  Get the pure `from_bytes → operations → encode_to_bytes` + `analysis`/`decide` path compiling
+  to `wasm32` behind a `wasm` feature: gate out `notify`/`viuer`/`clap`/`rayon`-batch/C-codecs;
+  add a thin `wasm-bindgen` surface; a headless round-trip harness; **resolve the AVIF-on-wasm
+  strategy** (the design-time probe found `re_rav1d` is the ONE wasm32 blocker; SVG + raster all
+  compile) — priority is AVIF *encode* (rav1e, still untested) over *decode* (re_rav1d); **measure
+  and budget binary size** → a DEC for the WASM feature boundary + AVIF scope + size budget. This
+  stage decides whether the rest of the wave is cheap or hard. Specs: SPEC-072 (build seam +
+  baseline, AVIF-decode gated out — frame first), SPEC-073 (AVIF decision + DEC + run record),
+  SPEC-074 (size budget, may fold into 072).
 - [ ] STAGE-026 (not yet framed) — **npm-packaged library.** Package the WASM + a typed
   JS/TS wrapper into an installable npm module with a small API over the load-bearing verbs
   (transform/convert/resize/optimize/info); publish or dry-run/tag; prove "installs with no
@@ -166,8 +168,8 @@ Format: `- [status] STAGE-ID — one-line summary`
   hosted statically, 100% in-browser — the "watch it just work" artifact to time a Show HN
   around. *(May fold into STAGE-026 if the library API makes the page thin.)*
 
-**Count:** 0 shipped / 0 active / 3 pending (STAGE-025 is the load-bearing probe; frame it
-first — its findings size the other two)
+**Count:** 0 shipped / 1 active / 2 pending (STAGE-025 framed + active 2026-07-12; its
+findings size STAGE-026/027)
 
 ## Dependencies
 
