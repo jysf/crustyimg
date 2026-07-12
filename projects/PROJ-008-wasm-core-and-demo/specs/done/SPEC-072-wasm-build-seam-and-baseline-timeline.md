@@ -64,4 +64,9 @@ they go. Status markers: `[ ]` not started · `[~]` in progress · `[x]` complet
     Prior specs (SPEC-061/062) carried theirs into `docs/roadmap.md`; ship should do the same for the
     shared-`optimize`-engine seam, the wasm CI job, the SPEC-074 size work, and the
     "default-ON feature + native-only dep needs a `not(wasm32)` conjunct" cfg-alias note.
-- [ ] **ship** — squash-merge, bookkeeping on main, cost totals, reflection, memory + brag.
+- [x] **ship** (2026-07-12) — **SHIPPED.** Out-of-scope deny fix split to **PR #81** (`0c6506a`,
+  merged first → main green independently); SPEC-072 rebased (dropped the dup deny commit),
+  DCO fixed via `git rebase --signoff` (the 2 verify commits lacked `-s`), squash-merged as
+  **PR #80** (`c3813a5`). Cost totals filled (520k tok / $4.70, labelled estimates), ship
+  reflection appended, 4 follow-ups → `docs/roadmap.md`, spec archived. `just validate` +
+  `just cost-audit` green. DEC-064 on main.

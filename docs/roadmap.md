@@ -160,6 +160,19 @@ have an impressive unused tool.
   do — `lint` on a `.nef` path does not read the embedded preview. NOT a SPEC-061 claim (its reach was
   optimize/convert/info/resize/batch), so left out of scope; now that `Image::decode_path` exists it would
   be a small change. Frame a spec if `lint <raw>` is ever wanted.
+- **WASM core (STAGE-025 / SPEC-072) follow-ups — own specs if pulled.** SPEC-072 shipped the
+  wasm build seam (PR #80, DEC-064): the pure engine runs a real decode→transform→encode
+  round-trip in-browser with no backend (SVG + PNG/JPEG/GIF/WebP), AVIF *decode* gated out
+  (returns a typed error), native builds unaffected. Carries: (1) **a shared `optimize` engine
+  seam** both `cli` and `wasm` call, so the multi-candidate `pick_winner` solve isn't CLI-only
+  (wasm's `optimize` currently takes the format shortlist's first candidate — honest, not
+  best); (2) **a wasm CI job** — today only a local `just wasm-test` floor guards the wasm
+  build (mirrors the fuzz-gate CI decision, DEC-062); (3) **bundle size = SPEC-074's brief**
+  (1.19 MB brotli; prime levers = `ssimulacra2`, the resvg text stack, unused `image` codecs,
+  and the deferred `crustyimg-core` crate split, DEC-064); (4) a **`not(wasm32)` cfg-alias**
+  once a second default-ON feature carries a native-only dep (only `display` today). The
+  AVIF-on-wasm decision (does `rav1e` encode compile? re_rav1d decode restore path) is
+  **SPEC-073**, the next STAGE-025 spec.
 - **Proof & distribution polish.** `BENCHMARKS.md` (cross-tool, honest equal-quality rule) · a
   real docs site + quickstart + recipe cookbook + the "why crustyimg" page + README badges · the
   **client-side demo page** (Wave 3) as the flagship "try it" artifact.

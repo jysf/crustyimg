@@ -104,7 +104,7 @@ packaging and UI over a proven, size-measured core.
 
 Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
-- [ ] SPEC-072 (design — build-ready 2026-07-12) — **WASM build seam + baseline (AVIF-decode gated out).**
+- [x] SPEC-072 (shipped 2026-07-12, PR #80 `c3813a5`, DEC-064) — **WASM build seam + baseline (AVIF-decode gated out).**
   `cfg(target_arch="wasm32")` boundary + target-scoped dep tables (move `re_rav1d`/`avif-parse` — the sole
   compile blockers — + the fs/CLI-shell deps to not-wasm32; `wasm-bindgen` to wasm32); gate `src/image/avif.rs`
   (mod at `image/mod.rs:29`, dispatch `353-355`) + the `cli`/`source`/`build` modules out; `crate-type=["cdylib","rlib"]`;
@@ -121,7 +121,7 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
   Release + `wasm-opt`, measure, set the first-load budget, identify lazy-loaded codecs;
   record the number. *(Fold into SPEC-072 if the baseline number is already within budget.)*
 
-**Count:** 0 shipped / 1 in design / 2 pending (SPEC-072 framed build-ready 2026-07-12; SPEC-073/074 not yet framed)
+**Count:** 1 shipped / 0 active / 2 pending (SPEC-072 SHIPPED 2026-07-12 — the wasm build seam proven, real round-trip driven, native unaffected, DEC-064; SPEC-073 AVIF-on-wasm decision + SPEC-074 size not yet framed)
 
 ## Design Notes
 

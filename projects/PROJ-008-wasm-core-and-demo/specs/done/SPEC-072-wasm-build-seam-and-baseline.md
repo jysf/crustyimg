@@ -3,7 +3,7 @@
 task:
   id: SPEC-072
   type: story
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: M                    # S | M | L  (L means split it)
@@ -70,9 +70,9 @@ cost:
         worktree deny check, a main-vs-branch native test-count diff), not
         creating it.
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 520000        # build 400k + verify 120k (design null, un-metered main loop)
+    estimated_usd: 4.70         # build $3.60 + verify $1.10 — LABELLED ESTIMATES, not meter reads (§4)
+    session_count: 3
 ---
 
 # SPEC-072: WASM build seam + baseline (AVIF-decode gated out)
@@ -352,8 +352,31 @@ Written now (design), before build. The build cycle makes them pass.
 
 ## Reflection (Ship)
 
-*Appended during the ship cycle.*
+*Appended during the ship cycle (2026-07-12). Shipped via PR #80 (squash `c3813a5`); the
+out-of-scope deny fix split to PR #81 (`0c6506a`) and merged first, per the plan.*
 
-1. **What would I do differently next time?** —
-2. **Does any template, constraint, or decision need updating?** —
-3. **Is there a follow-up spec I should write now before I forget?** —
+1. **What would I do differently next time?** — Probe the *test runner* for a new target at
+   design time, not just the compiler. The design-time probe proved `cargo build --target
+   wasm32` worked and the dep cut was clean — both held exactly — but it never ran
+   `wasm-pack test`, and that (not the build) was the hard part: it hardcodes `--tests` and
+   drags the repo's ~20 CLI-driving integration tests into the wasm build, which forced 3 of
+   the build's 7 deviations (the `.cargo/config.toml` runner, `criterion` → native-only
+   dev-dep, `main.rs`). The [[probe-load-bearing-crates-at-design]] practice should cover "how
+   do tests RUN on the new target", not only "does it compile".
+2. **Does any template, constraint, or decision need updating?** — Yes: the
+   `untrusted-input-hardening` constraint should carry a **wasm framing** — *on wasm a panic
+   aborts the module and takes the page's instance down*, so "typed error, never panic" is a
+   crash-the-user rule there, not a code-quality nicety (this is why AVIF-on-wasm is
+   `ImageError::CodecUnavailableOnTarget`, not `unimplemented!()`). DEC-064 records the
+   `cfg(target_arch)` boundary + the deferred `crustyimg-core` crate split (SPEC-074's size
+   measurement, 1.19 MB brotli, is the trigger to revisit it). Ship also confirmed the wave's
+   git lesson twice: the verify session's two commits landed **without `-s`** → DCO went red on
+   rebase → fixed with `git rebase --signoff` ([[stage-019-heic-decode-framed]] precedent); and
+   the deny-split kept history clean (rebase dropped the dup automatically).
+3. **Is there a follow-up spec I should write now before I forget?** — Four, filed to
+   `docs/roadmap.md` this ship: (a) a **shared `optimize` engine seam** both `cli` and `wasm`
+   call (so the multi-candidate `pick_winner` solve isn't CLI-only) — the sharpest new one;
+   (b) a **wasm CI job** (today only a local `just wasm-test` floor); (c) **SPEC-074** bundle
+   size (already planned); (d) the `not(wasm32)` cfg-alias note for future default-ON
+   native-dep features. SPEC-073 (the AVIF-on-wasm decision — does `rav1e` encode compile?) is
+   the next spec in STAGE-025 regardless.
