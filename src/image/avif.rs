@@ -213,11 +213,15 @@ fn decode_avif_inner(bytes: &[u8], limits: &Limits) -> Result<DynamicImage> {
     }
 }
 
-/// Reject dimensions that exceed the `limits` (dimension or total allocation).
+/// Reject dimensions that exceed the `limits` (dimension or total allocation) or
+/// the shared peak-memory pixel budget (DEC-063).
 ///
 /// The allocation estimate uses the 8-bit RGBA working buffer (`w * h * 4`),
-/// the largest intermediate this module allocates.
+/// the largest intermediate this module allocates. The pixel budget is the
+/// tighter, uniform bound (it supersedes this module's implicit 128 Mpix
+/// `max_alloc / 4` ceiling) and lives in one place — `super::check_pixel_budget`.
 fn check_caps(w: u32, h: u32, limits: &Limits) -> Result<()> {
+    super::check_pixel_budget(w, h)?;
     if let Some(max_w) = limits.max_image_width {
         if w > max_w {
             return Err(ImageError::LimitsExceeded(format!(
@@ -255,20 +259,26 @@ fn check_caps(w: u32, h: u32, limits: &Limits) -> Result<()> {
 /// drove a ~3 GB allocation / OOM. Passing this limit makes `re_rav1d` reject an
 /// oversize frame at header-parse time (a returned error, not an allocation), so
 /// the decoder's own allocation is bounded by the same pixel budget as our output
-/// buffer. `0` means unlimited (dav1d's convention) and is only used if neither
-/// cap is set — never in production, where `decode_limits` sets both.
+/// buffer.
+///
+/// The shared peak-memory pixel budget (DEC-063) is always in force, so unlike the
+/// `limits`-derived bounds it is never absent — the returned limit is never dav1d's
+/// `0` ("unlimited"), whatever `limits` carries.
 fn frame_size_limit(limits: &Limits) -> u32 {
+    // The peak-memory budget bounds every decode path (DEC-063) and is the tightest
+    // bound in production; the `limits`-derived bounds can still be tighter in a
+    // test seam, so take the minimum of whichever apply.
+    let mut limit = super::MAX_IMAGE_PIXELS.min(u32::MAX as u64) as u32;
     // The RGBA working buffer (`w*h*4`) is the largest allocation `check_caps`
     // bounds, so cap the decoder's frame area to that same pixel budget. Also
-    // honor the per-dimension caps via their product, and take the tighter bound.
-    let by_alloc = limits
-        .max_alloc
-        .map(|a| (a / 4).min(u32::MAX as u64) as u32);
-    let by_dims = match (limits.max_image_width, limits.max_image_height) {
-        (Some(w), Some(h)) => Some((w as u64 * h as u64).min(u32::MAX as u64) as u32),
-        _ => None,
-    };
-    [by_alloc, by_dims].into_iter().flatten().min().unwrap_or(0)
+    // honor the per-dimension caps via their product.
+    if let Some(a) = limits.max_alloc {
+        limit = limit.min((a / 4).min(u32::MAX as u64) as u32);
+    }
+    if let (Some(w), Some(h)) = (limits.max_image_width, limits.max_image_height) {
+        limit = limit.min((w as u64 * h as u64).min(u32::MAX as u64) as u32);
+    }
+    limit
 }
 
 /// Decode a single AV1 still image (one OBU stream) to a `re_rav1d` [`Picture`],
@@ -602,29 +612,58 @@ mod tests {
     }
 
     #[test]
-    fn frame_size_limit_is_tighter_of_alloc_and_dims() {
-        // Production caps: max_alloc = 512 MiB → 512Mi/4 = 134_217_728 px, which
-        // is tighter than 65_535² so it wins.
+    fn frame_size_limit_is_tighter_of_budget_alloc_and_dims() {
+        // Production caps: the DEC-063 pixel budget (67_108_864 px) is tighter than
+        // both max_alloc/4 (134_217_728 px) and 65_535², so it wins — the mirror of
+        // the production constants that must not drift from `decode_limits()`.
         let mut l = Limits::default();
         l.max_image_width = Some(65_535);
         l.max_image_height = Some(65_535);
         l.max_alloc = Some(512 * 1024 * 1024);
-        assert_eq!(frame_size_limit(&l), 134_217_728);
+        assert_eq!(frame_size_limit(&l), 67_108_864);
+        assert_eq!(
+            frame_size_limit(&l) as u64,
+            crate::image::MAX_IMAGE_PIXELS,
+            "the mirror must not drift from the production pixel budget"
+        );
 
-        // No alloc cap → falls back to the dimension product (saturating to u32).
+        // A tighter `limits` still wins over the budget: dims product (saturating).
         let mut d = Limits::default();
         d.max_image_width = Some(1000);
         d.max_image_height = Some(2000);
         d.max_alloc = None;
         assert_eq!(frame_size_limit(&d), 2_000_000);
 
-        // Neither cap set → 0 (dav1d "unlimited"); never happens in production
-        // (`decode_limits` always sets both). Note `Limits::default()` already
-        // carries a `max_alloc`, so both must be cleared explicitly.
+        // No `limits` caps at all → the pixel budget is STILL in force (it is not a
+        // `Limits` field), so the decoder is never handed dav1d's 0 = "unlimited".
         let mut none = Limits::default();
         none.max_alloc = None;
         none.max_image_width = None;
         none.max_image_height = None;
-        assert_eq!(frame_size_limit(&none), 0);
+        assert_eq!(
+            frame_size_limit(&none) as u64,
+            crate::image::MAX_IMAGE_PIXELS
+        );
+    }
+
+    /// SPEC-070: dims that pass EVERY DEC-034 cap are still rejected when they
+    /// exceed the DEC-063 pixel budget — the gap the implicit 128 Mpix
+    /// (`max_alloc / 4`) ceiling left open.
+    #[test]
+    fn check_caps_rejects_over_pixel_budget() {
+        let mut prod = Limits::default();
+        prod.max_image_width = Some(65_535);
+        prod.max_image_height = Some(65_535);
+        prod.max_alloc = Some(512 * 1024 * 1024);
+
+        // 10000×10000 = 100 Mpix: each side < 65_535 AND the RGBA buffer (400 MB)
+        // is under the 512 MiB alloc cap — it passes every DEC-034 cap and is
+        // caught ONLY by the pixel budget.
+        assert!(matches!(
+            check_caps(10_000, 10_000, &prod),
+            Err(ImageError::LimitsExceeded(_))
+        ));
+        // A 24 MP frame passes.
+        assert!(check_caps(6_000, 4_000, &prod).is_ok());
     }
 }

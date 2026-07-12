@@ -41,6 +41,48 @@ const MAX_IMAGE_DIMENSION: u32 = 65_535;
 /// rejected before allocation.
 const MAX_ALLOC_BYTES: u64 = 512 * 1024 * 1024;
 
+/// Maximum total pixels (`width × height`) accepted at decode time (DEC-063):
+/// **64 Mpix** (67 108 864 px ≈ 8192×8192).
+///
+/// This is the **peak**-memory bound that [`MAX_ALLOC_BYTES`] cannot be:
+/// `image::Limits.max_alloc` bounds a **single** allocation (the crate decrements
+/// it per `reserve()` and restores it on free), not the decoder's **cumulative**
+/// working set. So several sub-512 MiB buffers sum to a multi-gigabyte peak
+/// without ever tripping it — a 782-byte `.nef` whose embedded JPEG declares
+/// 16384×9776 (160 Mpix) drove a **~1.9 GB** peak while passing every DEC-034 cap
+/// (SPEC-069's F-RAW-1). `image` 0.25's `Limits` has no total-pixel or peak field,
+/// so the bound has to be ours, checked on the **declared** dimensions before the
+/// decode allocates.
+///
+/// The value is derived in DEC-063: a **1 GiB peak budget** ÷ (4 bytes/px RGBA ×
+/// a **4× amplification factor**, measured on JPEG in SPEC-069) = 64 Mpix. It
+/// rejects the bomb and keeps every consumer/prosumer photo (a 24 MP or 50 MP
+/// frame is far under); a **>64 MP** medium-format image is rejected — the
+/// tradeoff DEC-063 states rather than hides. It supersedes the implicit 128 Mpix
+/// single-RGBA-buffer bound the AVIF/SVG caps had via `max_alloc / 4`.
+///
+/// Enforced by [`check_pixel_budget`] at **every** decode seam (generic, RAW,
+/// AVIF, SVG, HEIC); [`MAX_IMAGE_DIMENSION`] stays the per-side backstop.
+pub(crate) const MAX_IMAGE_PIXELS: u64 = 64 * 1024 * 1024;
+
+/// Reject an image whose **declared** dimensions exceed the [`MAX_IMAGE_PIXELS`]
+/// peak-memory budget (DEC-063), before any pixel buffer is allocated.
+///
+/// The one source of truth for the cap: every decode path calls this with the
+/// dimensions it reads from the container/frame header, so the four decoders
+/// cannot drift apart. Multiplication is **saturating** — hostile dimensions must
+/// never overflow or panic, only be rejected (`no-unwrap-on-recoverable-paths`).
+pub(crate) fn check_pixel_budget(w: u32, h: u32) -> Result<()> {
+    let pixels = (w as u64).saturating_mul(h as u64);
+    if pixels > MAX_IMAGE_PIXELS {
+        return Err(ImageError::LimitsExceeded(format!(
+            "image {w}x{h} declares {pixels} pixels, over the {MAX_IMAGE_PIXELS}-pixel \
+             decode budget (~64 MP; peak decode memory would exceed 1 GiB)"
+        )));
+    }
+    Ok(())
+}
+
 /// The one canonical in-memory image model (DEC-002).
 ///
 /// Wraps the decoded pixels, the format detected at load, and an optional raw
@@ -352,6 +394,24 @@ fn decode_with_limits(
         .map_err(ImageError::Io)?;
     let format = reader.format().ok_or(ImageError::UnsupportedFormat)?;
     reader.limits(limits.clone());
+
+    // Peek the HEADER dimensions and enforce the peak-memory budget (DEC-063)
+    // BEFORE `.decode()` allocates: `limits.max_alloc` bounds a single allocation,
+    // not the decoder's cumulative working set, so a near-max-dimension JPEG/PNG
+    // passes every DEC-034 cap and still peaks at gigabytes (SPEC-069 F-RAW-1).
+    //
+    // `ImageReader::into_dimensions()` CONSUMES the reader, so the peek runs on a
+    // throwaway reader over the same in-memory bytes (a header re-parse — no pixel
+    // work, and the bytes are already resident) and the reader built above does the
+    // real decode. The alternative (`into_decoder()` → `.dimensions()` → decode via
+    // that decoder) trades this cheap re-parse for a decoder we would have to drive
+    // by hand; the re-parse is the smaller, clearer change.
+    let mut peek = ImageReader::new(Cursor::new(bytes));
+    peek.set_format(format);
+    peek.limits(limits.clone());
+    let (w, h) = peek.into_dimensions().map_err(map_image_decode_error)?;
+    check_pixel_budget(w, h)?;
+
     let pixels = reader.decode().map_err(map_image_decode_error)?;
     Ok((pixels, format))
 }
@@ -710,6 +770,108 @@ mod tests {
             matches!(result, Err(ImageError::LimitsExceeded(_))),
             "expected LimitsExceeded, got {result:?}"
         );
+    }
+
+    // ── SPEC-070 peak decode memory: the pixel budget (DEC-063) ──────────────
+
+    /// A JPEG whose SOF0 header **declares** `w`×`h` while the entropy data is
+    /// only the original 8×8 image's — the F-RAW-1 pixel-bomb shape (a huge frame
+    /// declared in well under a kilobyte). JPEG has no header checksum, so the
+    /// dimensions can be patched in place.
+    ///
+    /// SOF0 layout: `FF C0 [len:2] [precision:1] [height:2] [width:2] …`
+    fn jpeg_declaring(w: u16, h: u16) -> Vec<u8> {
+        let mut jpg = solid_jpeg(8, 8);
+        let sof = jpg
+            .windows(2)
+            .position(|m| m == [0xFF, 0xC0])
+            .expect("encoded JPEG carries an SOF0 marker");
+        jpg[sof + 5..sof + 7].copy_from_slice(&h.to_be_bytes());
+        jpg[sof + 7..sof + 9].copy_from_slice(&w.to_be_bytes());
+        jpg
+    }
+
+    /// The pure helper: at the cap is allowed, one pixel over is rejected, and the
+    /// largest possible `u32`×`u32` product is rejected without overflowing or
+    /// panicking (saturating arithmetic — `u32::MAX²` fits `u64` only by a hair,
+    /// so the total-ness must not depend on that).
+    #[test]
+    fn pixel_budget_helper_math() {
+        // Exactly at the cap (8192×8192 = 67_108_864 = MAX_IMAGE_PIXELS): allowed.
+        assert!(check_pixel_budget(8192, 8192).is_ok());
+        assert_eq!(8192u64 * 8192, MAX_IMAGE_PIXELS);
+
+        // One pixel over the cap: rejected.
+        let over = check_pixel_budget(8192, 8193);
+        assert!(
+            matches!(over, Err(ImageError::LimitsExceeded(_))),
+            "expected LimitsExceeded, got {over:?}"
+        );
+
+        // The F-RAW-1 bomb's declared dims (160 Mpix) are rejected...
+        assert!(matches!(
+            check_pixel_budget(16384, 9776),
+            Err(ImageError::LimitsExceeded(_))
+        ));
+        // ...while a 24 MP (6000×4000) and a 50 MP (8688×5792) photo are not.
+        assert!(check_pixel_budget(6000, 4000).is_ok());
+        assert!(check_pixel_budget(8688, 5792).is_ok());
+
+        // Hostile extremes: a typed error, never an overflow panic.
+        assert!(matches!(
+            check_pixel_budget(u32::MAX, u32::MAX),
+            Err(ImageError::LimitsExceeded(_))
+        ));
+        // A zero dimension is 0 pixels — not this check's business (the decoder
+        // rejects it), so it must not error here.
+        assert!(check_pixel_budget(0, u32::MAX).is_ok());
+    }
+
+    /// The generic path rejects a header that DECLARES more pixels than the budget
+    /// **before** decoding: the input is a few hundred bytes, so it could not
+    /// possibly hold 160 Mpix — the error can only have come from the pre-decode
+    /// peek, not from a decode that allocated the buffer.
+    #[test]
+    fn declared_oversize_pixels_rejected_before_decode() {
+        let bomb = jpeg_declaring(16384, 9776);
+        assert!(
+            bomb.len() < 1024,
+            "the fixture must be tiny to prove the check is pre-decode ({} bytes)",
+            bomb.len()
+        );
+        let result = Image::from_bytes(&bomb);
+        assert!(
+            matches!(result, Err(ImageError::LimitsExceeded(_))),
+            "expected LimitsExceeded, got {result:?}"
+        );
+    }
+
+    /// The allowed side of the boundary, through the real wiring: a header
+    /// declaring EXACTLY the cap (8192×8192 = `MAX_IMAGE_PIXELS`) is let through
+    /// and decodes — no off-by-one turning the cap into a rejection at its own
+    /// boundary.
+    ///
+    /// It decoding *at all* from a sub-kilobyte file is the amplification this spec
+    /// bounds: `image`'s JPEG decoder pads truncated entropy data out to the full
+    /// declared frame. That is exactly why the budget has to be a **declared-dims**
+    /// check — the file size tells you nothing about the memory it will cost.
+    #[test]
+    fn declared_at_cap_pixels_pass_the_budget_check() {
+        let at_cap = jpeg_declaring(8192, 8192);
+        let img = Image::from_bytes(&at_cap).expect("at-cap dims must not be rejected");
+        assert_eq!(img.width() as u64 * img.height() as u64, MAX_IMAGE_PIXELS);
+    }
+
+    /// A legitimate large photo well inside the budget still decodes to the right
+    /// dimensions and pixels — the cap is a bomb filter, not a low ceiling
+    /// (`ergonomic-defaults`). 4000×3000 = 12 Mpix of real, allocated pixels.
+    #[test]
+    fn legitimate_large_image_within_budget_decodes() {
+        let png = solid_png(4000, 3000, [7, 8, 9]);
+        let img = Image::from_bytes(&png).expect("a 12 MP image must still decode");
+        assert_eq!(img.width(), 4000);
+        assert_eq!(img.height(), 3000);
+        assert_eq!(img.pixels().to_rgb8().get_pixel(3999, 2999).0, [7, 8, 9]);
     }
 
     // ── SPEC-058 AVIF decode (default, pure-Rust) ─────────────────────────────

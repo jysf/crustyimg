@@ -132,10 +132,30 @@ residual (F-RAW-1)**, the same class as F-AVIF-3, surfaced by the canonical `-O`
 
 | id | class | disposition |
 |----|-------|-------------|
-| F-RAW-1 | transient memory DoS (bucket b — a cap gap, not a crash) | **Documented residual, filed.** A < 800 B `.nef` whose embedded JPEG's SOF declares **16384×9776** drives the `image` JPEG decoder to a **~1.9 GB peak working set** (`crustyimg info` on the 782 B reproducer → `dimensions: 16384x9776`, `peak memory footprint 1.93 GB`; ≈2470× amplification). It **passes the DEC-034 caps** (16384 < 65535; 480 MB RGB output < 512 MB `max_alloc`) because `image::Limits.max_alloc` bounds a **single allocation**, not the **cumulative/peak** working set. No panic/abort/UB — a valid decode that just costs ~1.9 GB transiently — so the contract holds, but the `-O` gate straddles libFuzzer's default 2048 MB `rss_limit` and nondeterministically OOM-aborts the fuzzer (found in ~60 s in one run; a clean-seed 100 s run peaked 903 MB and passed). **Pre-existing and not RAW-specific:** the same crafted dimensions balloon the plain `.jpg` decode path to ~1.45 GB too; not introduced by this branch. Recorded by description, **not committed to the smoke corpus** (a ~2 GB-alloc input would risk OOM-killing CI). **Filed:** the root gap — `max_alloc` bounds single-alloc not peak/cumulative decode memory, across *all* JPEG decode — is a STAGE-024 follow-up (candidate mitigations: a tighter total-pixel or peak-memory bound, or a RAW-preview dimension cap; a real tradeoff since lowering caps rejects legitimate large images). |
+| F-RAW-1 | transient memory DoS (bucket b — a cap gap, not a crash) | ✅ **CLOSED by SPEC-070 / DEC-063** (2026-07-11) — see below. *(Original disposition: documented residual, filed.)* A < 800 B `.nef` whose embedded JPEG's SOF declares **16384×9776** drives the `image` JPEG decoder to a **~1.9 GB peak working set** (`crustyimg info` on the 782 B reproducer → `dimensions: 16384x9776`, `peak memory footprint 1.93 GB`; ≈2470× amplification). It **passes the DEC-034 caps** (16384 < 65535; 480 MB RGB output < 512 MB `max_alloc`) because `image::Limits.max_alloc` bounds a **single allocation**, not the **cumulative/peak** working set. No panic/abort/UB — a valid decode that just costs ~1.9 GB transiently — so the contract holds, but the `-O` gate straddles libFuzzer's default 2048 MB `rss_limit` and nondeterministically OOM-aborts the fuzzer (found in ~60 s in one run; a clean-seed 100 s run peaked 903 MB and passed). **Pre-existing and not RAW-specific:** the same crafted dimensions balloon the plain `.jpg` decode path to ~1.45 GB too; not introduced by this branch. **Root gap:** `max_alloc` bounds single-alloc, not peak/cumulative decode memory, across *all* JPEG decode. |
 
-The seed fixture + any future minimized reproducer flow through the always-on
-`fuzz_corpus_never_panics` smoke (F-RAW-1 itself is excluded to protect CI memory).
+**F-RAW-1 closure (SPEC-070, DEC-063).** The root gap is fixed: a **declared-pixel
+budget** (`MAX_IMAGE_PIXELS` = 64 Mpix, from a 1 GiB peak budget ÷ a measured ~4×
+amplification over the RGBA output) is now checked on the **declared** dimensions at
+**every** decode seam before the allocation — the generic `ImageReader` path and the
+RAW SOF peek (which had no pre-decode dimension check at all), plus AVIF/SVG/HEIC,
+which already had dims and are now aligned to the same cap. On the real binary the
+reproducer's peak RSS drops **1.93 GB → 8.7 MB** and it exits **1**
+(`LimitsExceeded`) instead of 0; a legitimate 24 MP photo still decodes. The
+tradeoff (images > 64 Mpix are rejected) is stated in DEC-063.
+
+The minimized reproducer is now committed at
+`tests/fixtures/fuzz/raw_preview/pixel_bomb.nef` (sha256 `d4276ee7…`) and — because
+it is rejected cheaply at the header rather than decoded — it has **graduated into
+the always-on `fuzz_corpus_never_panics` smoke**, which SPEC-069 could not do (a
+~2 GB-alloc input risked OOM-killing CI). It also has a dedicated regression
+(`raw_pixel_bomb_is_limits_exceeded_not_multi_gb_decode`). The seed fixtures and
+every other committed reproducer flow through the same smoke.
+
+⚠️ **F-AVIF-3 is NOT closed by this.** It is an over-allocation inside `avif-parse`
+during **container parsing** (`read_avif_meta`), *before* frame dimensions exist to
+check — unreachable by a dimension peek without vendoring the parser. It remains the
+separately-filed upstream item.
 
 ---
 

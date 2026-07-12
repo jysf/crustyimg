@@ -144,6 +144,30 @@ fn avif_meta_parser_state_is_typed_error_not_panic() {
     assert_avif_fixture_is_decode_error("fixtures/fuzz/avif_decode/meta_parser_state.avif");
 }
 
+/// raw_preview / F-RAW-1 (bucket b — the memory-amplification residual SPEC-069
+/// filed and SPEC-070 closed) — a **782-byte** `.nef` whose embedded JPEG's SOF
+/// declares **16384×9776** (160 Mpix). Pre-fix this was a *successful* decode that
+/// transiently peaked at **~1.93 GB** (`crustyimg info` reported the dimensions and
+/// exited 0): it passed every DEC-034 cap, because `image::Limits.max_alloc` bounds
+/// a single allocation, not the cumulative peak. Post-fix the SOF dimension peek
+/// (DEC-063's pixel budget) rejects it at the header for a few hundred bytes of
+/// work. SPEC-069 had to keep this input OUT of the corpus smoke to protect CI
+/// memory; now that it is rejected cheaply, it joins the sweep below.
+///
+/// (Mutation-check: drop the `check_pixel_budget` call in
+/// `raw::decode_jpeg_with_limits` and this returns `Ok` after a ~1.9 GB decode.)
+#[test]
+fn raw_pixel_bomb_is_limits_exceeded_not_multi_gb_decode() {
+    let bytes = std::fs::read(tests_dir("fixtures/fuzz/raw_preview/pixel_bomb.nef"))
+        .expect("read raw crash fixture");
+    let result = catch_unwind(AssertUnwindSafe(|| raw_preview(&bytes)))
+        .unwrap_or_else(|_| panic!("raw_preview PANICKED on the pixel bomb"));
+    assert!(
+        matches!(result, Err(ImageError::LimitsExceeded(_))),
+        "expected LimitsExceeded (rejected at the header), got {result:?}"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Always-on corpus smoke
 // ---------------------------------------------------------------------------
@@ -163,6 +187,9 @@ fn fuzz_corpus_never_panics() {
     total += assert_dir_never_panics("fixtures/fuzz/svg_decode", from_bytes_entry);
 
     // Extension-routed RAW path (`from_bytes` never reaches it — call directly).
+    // This now includes F-RAW-1's `pixel_bomb.nef`: SPEC-069 had to keep it OUT of
+    // the corpus (decoding it cost ~2 GB and could OOM-kill CI); SPEC-070's
+    // pre-decode pixel budget rejects it at the header, so it is cheap to sweep.
     total += assert_dir_never_panics("fixtures/raw", raw_preview_entry);
     total += assert_dir_never_panics("fixtures/fuzz/raw_preview", raw_preview_entry);
 
