@@ -1,0 +1,26 @@
+# Cargo configuration (SPEC-072, DEC-064).
+#
+# The ONLY setting here is the wasm32 test runner. It is target-scoped, so it has
+# no effect on any native build, test, lint, or release — `cargo test` behaves
+# exactly as it did before this file existed.
+#
+# Why it exists: a `#[wasm_bindgen_test]` binary is a `.wasm` module, not something
+# the host can exec. `wasm-bindgen-test-runner` (from `wasm-bindgen-cli`, pinned to
+# the same version as the `wasm-bindgen` dependency) is the shim that loads it into
+# Node and runs the tests. With this runner configured, the wasm round-trip runs via
+# plain cargo:
+#
+#     cargo test --target wasm32-unknown-unknown --test wasm_roundtrip
+#
+# which builds ONLY that test target. `wasm-pack test` was the obvious alternative
+# and does not work here: it hardcodes `cargo build --tests`, which compiles all ~20
+# integration-test crates for wasm32 — and those drive the CLI *binary* over real
+# files (`std::process::Command`, `tempfile`, argv), none of which exist in wasm. The
+# alternative to this file was tattooing `#![cfg(not(target_arch = "wasm32"))]` onto
+# every native test file and remembering it forever on every new one. This is the
+# cheaper, less breakable half of that trade. `just wasm-test` wraps the command.
+#
+# `wasm-pack` is still used by `just wasm-build` (it builds only the lib and emits
+# the JS bindings + npm-shaped `pkg/`, which is what STAGE-026 packages).
+[target.wasm32-unknown-unknown]
+runner = "wasm-bindgen-test-runner"

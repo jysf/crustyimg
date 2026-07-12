@@ -72,6 +72,66 @@ bench-cli *ARGS:
 lint-images *paths=".":
     cargo run --quiet -- lint {{paths}}
 
+# ----------------------------------------------------------------------------
+# WASM (SPEC-072, DEC-064) — the pure engine compiled to wasm32, no backend
+# ----------------------------------------------------------------------------
+#
+# TOOLCHAIN GOTCHA (this cost the SPEC-072 design probe a debug cycle, so it is
+# baked in here rather than left in a doc): a machine can have BOTH a Homebrew
+# rust (`/opt/homebrew/bin/rustc`, which ships NO wasm std) and a rustup rust. A
+# bare `cargo build --target wasm32-…` invokes `rustc` off PATH, hits Homebrew's
+# first, and fails with `error[E0463]: can't find crate for core/std` — which
+# reads like a broken dependency but is really the wrong compiler. So every
+# recipe below resolves the rustup STABLE toolchain explicitly and pins both
+# CARGO and RUSTC to it.
+#
+# Setup (idempotent; run once):
+#     rustup toolchain install stable
+#     rustup target add --toolchain stable wasm32-unknown-unknown
+#     brew install wasm-pack binaryen        # wasm-pack drives wasm-bindgen; binaryen = wasm-opt
+#
+# AVIF decode is NOT in the wasm build (`re_rav1d` does not compile to bare
+# wasm32 — DEC-064); every other default input format is, SVG included.
+
+# The rustup stable toolchain's bin dir — the one that actually has wasm std.
+_wasm_bin := `rustup which --toolchain stable rustc | xargs dirname`
+
+# Compile the library to wasm32 (debug). The fast "does it still compile" gate.
+wasm-check:
+    PATH="{{_wasm_bin}}:$PATH" RUSTC="{{_wasm_bin}}/rustc" \
+        "{{_wasm_bin}}/cargo" build --lib --target wasm32-unknown-unknown
+
+# Build the release .wasm + JS bindings via wasm-pack → pkg/ (the npm-shaped
+# artifact STAGE-026 packages). Also reports the size baseline SPEC-074 tunes.
+wasm-build:
+    @command -v wasm-pack >/dev/null 2>&1 || { echo "wasm-pack not installed (brew install wasm-pack)"; exit 1; }
+    PATH="{{_wasm_bin}}:$PATH" RUSTC="{{_wasm_bin}}/rustc" \
+        wasm-pack build --target web --release --out-dir pkg
+    @just wasm-size
+
+# Report the .wasm size baseline: raw, and the two COMPRESSED sizes a real host
+# actually serves (a browser downloads the encoded bytes, so gzip/brotli are the
+# honest numbers — raw alone overstates what a user waits for). SPEC-074 tunes these.
+wasm-size:
+    @test -f pkg/crustyimg_bg.wasm || { echo "no pkg/crustyimg_bg.wasm — run 'just wasm-build' first"; exit 1; }
+    @echo ""
+    @echo "── .wasm size baseline (SPEC-072, post wasm-opt) ──"
+    @awk 'BEGIN{printf "  raw:     %8.2f MB\n", '"$(wc -c < pkg/crustyimg_bg.wasm)"'/1048576}'
+    @awk 'BEGIN{printf "  gzip:    %8.2f MB\n", '"$(gzip -9 -c pkg/crustyimg_bg.wasm | wc -c)"'/1048576}'
+    @command -v brotli >/dev/null 2>&1 && awk 'BEGIN{printf "  brotli:  %8.2f MB\n", '"$(brotli -q 11 -c pkg/crustyimg_bg.wasm 2>/dev/null | wc -c)"'/1048576}' || echo "  brotli:  (brotli not installed)"
+
+# Run the #[wasm_bindgen_test] round-trip in Node — the REAL decode → transform →
+# encode proof. A green `wasm-check` only says it compiles; this says it works.
+#
+# Runs through plain cargo (NOT `wasm-pack test`) so that `--test wasm_roundtrip`
+# actually scopes the build to the one wasm test target — see .cargo/config.toml for
+# why, and for the `wasm-bindgen-test-runner` shim that executes the .wasm in Node.
+# Needs: cargo install wasm-bindgen-cli --version <the pinned wasm-bindgen version>
+wasm-test:
+    @command -v wasm-bindgen-test-runner >/dev/null 2>&1 || { echo "wasm-bindgen-test-runner not installed (cargo install wasm-bindgen-cli --version 0.2.126)"; exit 1; }
+    PATH="{{_wasm_bin}}:$PATH" RUSTC="{{_wasm_bin}}/rustc" \
+        "{{_wasm_bin}}/cargo" test --target wasm32-unknown-unknown --test wasm_roundtrip
+
 # Lint with clippy, warnings as errors (the CI gate, AGENTS §6)
 lint:
     cargo clippy -- -D warnings

@@ -26,9 +26,14 @@ use ::image::{ColorType, DynamicImage, ImageFormat, ImageReader};
 
 use crate::error::{ImageError, Result};
 
+// The AVIF DECODER is native-only (SPEC-072, DEC-064): `re_rav1d` does not compile
+// to wasm32. Its *sniff* lives in `sniff` (target-independent) so the wasm build
+// still recognizes AVIF and rejects it with a typed error — see `decode_with_limits`.
+#[cfg(not(target_arch = "wasm32"))]
 mod avif;
 mod heic;
 mod raw;
+mod sniff;
 mod svg;
 
 /// Maximum image dimension (width or height) in pixels accepted at decode time
@@ -350,9 +355,21 @@ fn decode_with_limits(
     // the container by brand and route it through `re_rav1d` + `avif-parse`,
     // enforcing the same DEC-034 caps via `limits`. Dispatch happens before the
     // generic `ImageReader` path (which cannot decode AVIF in the default build).
-    if avif::is_avif(bytes) {
-        let pixels = avif::decode_avif(bytes, limits)?;
-        return Ok((pixels, ImageFormat::Avif));
+    //
+    // On wasm32 the decoder is absent (`re_rav1d` does not compile there,
+    // SPEC-072/DEC-064) but the SNIFF still runs, so an AVIF input gets a typed,
+    // actionable error instead of the generic guesser's "unsupported format" —
+    // and never a panic. Restoring AVIF decode on wasm is SPEC-073.
+    if sniff::is_avif(bytes) {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let pixels = avif::decode_avif(bytes, limits)?;
+            return Ok((pixels, ImageFormat::Avif));
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            return Err(ImageError::CodecUnavailableOnTarget { codec: "AVIF" });
+        }
     }
 
     // SVG takes a dedicated pure-Rust rasterize path (SPEC-060, DEC-054): SVG is

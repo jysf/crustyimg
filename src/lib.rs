@@ -31,20 +31,46 @@
 //! unique-colours, dominant colour) that PROJ-002's optimization engine reads
 //! (DEC-002, DEC-034). It lands standalone — no command consumes it yet.
 
+//! SPEC-072 partitions the crate by TARGET (DEC-064): the modules below split
+//! into the **pure engine** (decode → operations → encode), which compiles for
+//! both native and `wasm32-unknown-unknown`, and the **shell** ([`cli`],
+//! [`source`], [`build`], [`lint`]), which is filesystem/argv-bound and is
+//! compiled only for native targets. The split is by `cfg(target_arch)`, not by
+//! a cargo feature, so the native feature matrix (default / lean / `avif` /
+//! `heic` / `webp-lossy`) is exactly as it was. [`wasm`] is the wasm-only
+//! `wasm-bindgen` surface over the engine.
+
+// ── The pure engine: native AND wasm32 ────────────────────────────────────────
 pub mod analysis;
-pub mod build;
-pub mod cli;
 pub mod error;
 pub mod image;
-pub mod lint;
 pub mod metadata;
 pub mod operation;
 pub mod pipeline;
 pub mod quality;
 pub mod recipe;
-pub mod sink;
-pub mod source;
 pub mod text;
+
+// `sink` straddles the split: `encode_to_bytes` is the pure bytes-out encoder the
+// wasm surface calls, while `Sink`'s file/stdout/display writers are native. The
+// module compiles on both targets (its `std::fs` calls are simply never reached
+// on wasm); only the viuer-backed `Display` arm is target-gated. Keeping it whole
+// means the wasm build encodes through the exact same function as the CLI.
+pub mod sink;
+
+// ── The shell: native only ────────────────────────────────────────────────────
+#[cfg(not(target_arch = "wasm32"))]
+pub mod build;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod cli;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod lint;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod source;
+
+// ── The wasm32 surface ────────────────────────────────────────────────────────
+#[cfg(target_arch = "wasm32")]
+pub mod wasm;
 
 /// Returns the crate's semantic version (from `Cargo.toml`).
 pub fn version() -> &'static str {
