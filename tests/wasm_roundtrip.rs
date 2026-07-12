@@ -1,7 +1,11 @@
 //! The WASM round-trip (SPEC-072) — the load-bearing proof of the whole wave.
 //!
-//! These run under `just wasm-test` (`wasm-pack test --node`), NOT under the
-//! native `cargo test`: the whole file is `cfg(target_arch = "wasm32")`, so a
+//! These run under `just wasm-test`
+//! (`cargo test --target wasm32-unknown-unknown --test wasm_roundtrip`, via the
+//! `wasm-bindgen-test-runner` registered in `.cargo/config.toml` — NOT
+//! `wasm-pack test`, which hardcodes `--tests` and would drag every CLI-driving
+//! native integration test into the wasm build). They do not run under the native
+//! `cargo test`: the wasm half of this file is `cfg(target_arch = "wasm32")`, so a
 //! native `cargo test` compiles it to nothing.
 //!
 //! The bar this file exists to clear: **a green wasm compile is not a working
