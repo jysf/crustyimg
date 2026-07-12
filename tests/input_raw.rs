@@ -183,3 +183,48 @@ fn directory_source_discovers_raw() {
         other => panic!("expected Path, got {other:?}"),
     }
 }
+
+/// SPEC-070 / DEC-063: `info` on the F-RAW-1 pixel bomb (a 782-byte `.nef` whose
+/// embedded JPEG declares 16384×9776 = 160 Mpix) is REJECTED, not decoded.
+///
+/// Before SPEC-070 this exited **0** and printed `dimensions: 16384x9776` after a
+/// **~1.93 GB** peak working set — it passed every DEC-034 cap because
+/// `image::Limits.max_alloc` bounds a single allocation, not the cumulative peak.
+/// Now the SOF dimension peek rejects it at the header: exit **1** (the
+/// `LimitsExceeded` code) and a message naming the pixel budget.
+///
+/// The RSS bound itself is not assertable portably from a test (no cross-platform
+/// peak-RSS API without a dependency), so it is measured on the real binary and
+/// recorded in DEC-063 / the run record; what this test pins is that the input is
+/// *rejected* — which is what makes the peak cheap — and that the rejection is the
+/// typed limits path, not a decode failure.
+#[test]
+fn info_on_pixel_bomb_is_rejected_with_limits_exit_code() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let in_path = dir.path().join("bomb.nef");
+    let bomb = include_bytes!("fixtures/fuzz/raw_preview/pixel_bomb.nef");
+    assert!(bomb.len() < 1024, "the bomb is a sub-kilobyte file");
+    std::fs::write(&in_path, bomb).unwrap();
+
+    let output = Command::new(BIN)
+        .args(["info", in_path.to_str().unwrap()])
+        .output()
+        .expect("failed to run info");
+
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "expected exit 1 (LimitsExceeded); stdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("pixel"),
+        "expected the pixel-budget message; got:\n{stderr}"
+    );
+    assert!(
+        !String::from_utf8_lossy(&output.stdout).contains("16384x9776"),
+        "the bomb's dimensions must never be reported — that means it decoded"
+    );
+}

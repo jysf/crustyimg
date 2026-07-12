@@ -132,11 +132,14 @@ have an impressive unused tool.
     `avif-parse` container robustness (report/patch/replace).
   - **`fuzz/svg_decode`** — **RUN (SPEC-069), CLEAN.** 2.39 M runs / 601 s, no crash. Residual risk
     on the SVG path closed for this budget.
-  - **`fuzz/raw_preview`** — **RUN (SPEC-069).** 1.81 M runs / 602 s, no panic/crash. **One documented
-    memory-amplification residual (F-RAW-1):** a crafted embedded JPEG (SOF 16384×9776) peaks ~1.9 GB
-    while passing DEC-034 caps (`max_alloc` bounds single-alloc, not peak) — a transient memory DoS,
-    same class as F-AVIF-3, pre-existing on the general `.jpg` path. Contract holds (no crash/UB); the
-    root gap (peak-memory not bounded) is filed as a STAGE-024 follow-up. See the run record.
+  - **`fuzz/raw_preview`** — **RUN (SPEC-069).** 1.81 M runs / 602 s, no panic/crash. It surfaced one
+    memory-amplification residual (**F-RAW-1**): a crafted embedded JPEG (SOF 16384×9776) peaked
+    ~1.9 GB while passing every DEC-034 cap (`max_alloc` bounds single-alloc, not peak) — a transient
+    memory DoS, pre-existing on the general `.jpg` path too. ✅ **CLOSED by SPEC-070 / DEC-063:** a
+    declared-pixel budget (64 Mpix = a 1 GiB peak budget ÷ the measured ~4× amplification) is now
+    enforced pre-decode at every seam; the reproducer's peak RSS drops 1.93 GB → 8.7 MB (exit 1, not
+    exit 0) and it has graduated into the always-on corpus smoke. F-AVIF-3 (a *parse*-stage
+    over-allocation, before dims are known) remains open. See the run record.
   - **`fuzz/heic_decode`** — **RUN best-effort (SPEC-069)** with system libheif `1.23.1` + ASAN. The
     libheif decode path was exercised (~107 k execs) with **no HEIC/libheif finding**; both runs were
     bounded by the shared `from_bytes` AVIF-first dispatch reaching `avif-parse`'s documented issues.

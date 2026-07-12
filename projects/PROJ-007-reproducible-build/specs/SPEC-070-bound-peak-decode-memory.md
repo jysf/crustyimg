@@ -51,10 +51,26 @@ cost:
         total-pixel field, so the cap must be crustyimg-side). Confirmed on the real binary in SPEC-069
         verify: a 782 B `.nef` peaks ~1.93 GB via `info`. Scope precision set here: closes the
         DECODE-stage peak (F-RAW-1 + general path), NOT F-AVIF-3's upstream parse-stage over-alloc.
+    - cycle: build
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 120000
+      estimated_usd: 1.08
+      duration_minutes: 45
+      recorded_at: 2026-07-11
+      notes: >
+        Build ran in a fresh Claude-Code session (main loop, not separately metered) — labelled
+        order-of-magnitude estimate per AGENTS §4. Added MAX_IMAGE_PIXELS (64 Mpix) + the pure
+        check_pixel_budget helper; wired a pre-decode header/SOF dimension peek into the two
+        unchecked seams (generic ImageReader, RAW candidate) and aligned AVIF/SVG/HEIC check_caps
+        + dav1d's frame_size_limit to the same cap. Measured the real binary: the F-RAW-1 bomb
+        1.93 GB → 8.7 MB peak RSS (exit 0 → exit 1); a real 24 MP photo still decodes/converts
+        (280 MB peak, which also re-validated the ~4× amplification factor). Committed the
+        reproducer + graduated it into the always-on corpus smoke. DEC-063. No new default dep.
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 120000
+    estimated_usd: 1.08
+    session_count: 1
 ---
 
 # SPEC-070: bound peak decode memory
@@ -270,26 +286,103 @@ tripping it — and the crate marks it "non-strict, some decoders may ignore it.
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
+- **Branch:** `feat/spec-070-peak-decode-memory`
+- **PR (if applicable):** #78
+- **All acceptance criteria met?** yes
+
+- **The cap (finalized in DEC-063):** `MAX_IMAGE_PIXELS = 64 Mpix` (67 108 864 px,
+  ≈8192×8192) = a **1 GiB peak budget** ÷ (4 B/px RGBA × a **4× amplification factor**).
+  The factor is measured, not guessed: SPEC-069 saw ~1.9 GB peak against a ~480 MB RGB
+  output (≈4×), and this build re-measured a real 24 MP photo at **280 MB** peak against
+  a 96 MB RGBA output (≈2.9×) — so 4× is the conservative envelope.
+  **Tradeoff (stated, not hidden):** images **> 64 Mpix are rejected**, so a >64 MP
+  medium-format frame (100 MP GFX / Phase One) or a very large stitched panorama is
+  refused with `LimitsExceeded`. Everything consumer/prosumer is kept: 24 MP = 36% of
+  the budget, 50 MP = 75%. The cap **supersedes the implicit 128 Mpix** single-RGBA-buffer
+  bound AVIF/SVG had via `max_alloc / 4`.
+
+- **Where the check went (one source of truth: `check_pixel_budget`, saturating, typed):**
+  | path | dims from | seam |
+  |---|---|---|
+  | generic JPEG/PNG | `ImageReader` header peek | `decode_with_limits` (was: straight to `.decode()`) |
+  | RAW preview | the candidate JPEG's SOF | `raw::decode_jpeg_with_limits` (was: straight to `.decode()`) |
+  | AVIF | container `ispe` metadata | `avif::check_caps` + dav1d `frame_size_limit` |
+  | SVG | resolved render size | `svg::check_caps` |
+  | HEIC (opt-in) | image handle | `heic::check_caps` |
+  The **`into_dimensions()`-consumes-the-reader gotcha** was handled by peeking on a
+  *throwaway* reader over the same in-memory bytes (a header re-parse — microseconds, no
+  pixel work) and decoding with the reader already built. The alternative
+  (`into_decoder()` → `.dimensions()` → drive that decoder) was rejected: it trades a
+  cheap re-parse for hand-driving a decoder at both seams.
+
+- **Measured on the real binary (the load-bearing proof):**
+  - F-RAW-1 reproducer (782 B `.nef`, declares 16384×9776): **1 932 656 640 B (1.93 GB) peak
+    RSS, exit 0, `dimensions: 16384x9776`** → **8 699 904 B (8.7 MB) peak RSS, exit 1**,
+    `error: image exceeds decode limits: raw: embedded preview exceeds decode caps: image
+    16384x9776 declares 160169984 pixels, over the 67108864-pixel decode budget`. **222×
+    reduction**, far under the 1 GiB budget.
+  - Legitimate 24 MP photo (6000×4000 JPEG): `info` → correct dims, 86 MB peak;
+    `convert --format webp` (a real decode+encode) → 6000×4000 WebP, 280 MB peak. **No
+    false rejection.**
+
 - **New decisions emitted:**
-  - `DEC-063` — peak decode-memory cap (budget + amplification factor + pixel cap + tradeoff; F-AVIF-3 excluded)
+  - `DEC-063` — peak decode-memory cap (1 GiB budget × 4× amplification ⇒ 64 Mpix; the
+    >64 MP tradeoff; supersedes the implicit 128 Mpix bound; **F-AVIF-3 explicitly excluded**)
+
 - **Deviations from spec:**
-  - [list]
+  - **The two "hardcoded test mirrors" needed different treatment than the spec assumed.**
+    The spec expected `raw.rs:234 generous()` and `avif.rs:609` to "carry the new cap."
+    But the cap deliberately does **not** live in `image::Limits` (the crate has no such
+    field — that is the whole problem), so it is a module-level `const` enforced by
+    `check_pixel_budget` on every path. `generous()` therefore *cannot* diverge from it and
+    needed no value change (a comment now says why); `avif.rs`'s `frame_size_limit` mirror
+    *did* need updating (134 217 728 → 67 108 864) and now asserts equality against
+    `crate::image::MAX_IMAGE_PIXELS` so it can never drift again.
+  - **Scope addition (small, defensible):** RAW's `extract_preview` collapsed every
+    caps rejection into a generic `"raw: embedded preview exceeds decode caps"`, which told
+    the user nothing about *which* cap. `scan_for_preview` now carries the rejecting
+    candidate's reason (`Option<String>` instead of `bool`), so the bomb reports the pixel
+    budget by name. Found by driving the real binary, not by the tests.
+  - **HEIC's `check_caps` was aligned too** (the spec named four paths). It is feature-gated
+    and decodes through a C library — the one path that most wants a pre-decode bound.
+
 - **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - **F-AVIF-3 stays OPEN and is NOT closed by this** — it is an `avif-parse` over-allocation
+    during **container parsing** (`read_avif_meta`), *before* frame dims exist to check;
+    unreachable by a dimension peek without vendoring the parser. Recorded in DEC-063, the
+    run record, and the roadmap. (No overclaim — the SPEC-068/069 lesson.)
+  - **An opt-in escape hatch for the cap** (`--max-pixels` / a config key) for the >64 MP
+    medium-format user. Deliberately not built: adding an escape hatch to a *security* bound
+    deserves its own spec, and no user has asked yet.
+  - Proposing a total-pixel limit **upstream in `image`** (the right long-term home; it would
+    not remove our check, which also covers the non-`image` AVIF/SVG/HEIC paths).
 
 ### Build-phase reflection (3 questions, short answers)
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — Almost nothing — the Implementation Context's file:line anchors were accurate and the
+   `into_dimensions()` gotcha was called out before I could trip on it. The one thing that
+   didn't survive contact: the spec's instruction to make the two hardcoded test mirrors
+   "carry the new cap" assumed the cap would live in `Limits`. Once the cap is a module const
+   (which it must be — `image::Limits` has no pixel field), one mirror becomes structurally
+   incapable of diverging and the other needs a different edit than expected.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — An **error-message quality** constraint. The pre-decode check was correct and green on
+   every unit test while the CLI still printed `raw: embedded preview exceeds decode caps` —
+   a typed error that names no cap and gives the user nothing to act on. Only driving the real
+   binary exposed it. The repo keeps re-learning this (SPEC-065's `{:?}` path lesson,
+   SPEC-066's hostile-lockfile lesson): **green exit-code/type assertions never read the
+   string the human sees.**
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Drive the real binary *immediately* after the first seam compiled, not after the whole
+   test suite was green. The 1.93 GB → 8.7 MB measurement and the message defect both came
+   from `/usr/bin/time -l`, and both were available an hour earlier than I took them. Also:
+   my first boundary test asserted the at-cap fixture would fail to *decode* (truncated
+   entropy data) — it actually decodes fine, because `image`'s JPEG decoder pads a short
+   scan out to the full declared frame. That surprise is the exact reason this spec exists,
+   and it makes a better assertion than the one I guessed.
 
 ---
 

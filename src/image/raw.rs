@@ -104,13 +104,16 @@ pub(crate) fn is_raw_extension(path: &Path) -> bool {
 /// exceed the caps, and [`ImageError::Decode`] when no embedded JPEG decodes at
 /// all. Never panics on malformed input.
 pub(crate) fn extract_preview(bytes: &[u8], limits: &Limits) -> Result<DynamicImage> {
-    let (best, saw_oversize, _attempts) = scan_for_preview(bytes, limits);
-    match best {
-        Some(img) => Ok(img),
-        None if saw_oversize => Err(ImageError::LimitsExceeded(
-            "raw: embedded preview exceeds decode caps".into(),
-        )),
-        None => Err(ImageError::Decode(
+    let (best, oversize, _attempts) = scan_for_preview(bytes, limits);
+    match (best, oversize) {
+        (Some(img), _) => Ok(img),
+        // Carry the rejecting candidate's own reason: "exceeds decode caps" alone
+        // tells the user nothing about WHICH cap (a 160 Mpix declared frame and a
+        // 70 000-px-wide one are very different problems).
+        (None, Some(reason)) => Err(ImageError::LimitsExceeded(format!(
+            "raw: embedded preview exceeds decode caps: {reason}"
+        ))),
+        (None, None) => Err(ImageError::Decode(
             "raw: no decodable embedded JPEG preview".into(),
         )),
     }
@@ -120,14 +123,17 @@ pub(crate) fn extract_preview(bytes: &[u8], limits: &Limits) -> Result<DynamicIm
 /// `limits`, and keep the largest by pixel count. Bounded by
 /// [`MAX_PREVIEW_CANDIDATES`] full decode attempts.
 ///
-/// Returns `(best, saw_oversize, attempts)`: the largest decoded preview,
-/// whether any candidate was rejected purely for exceeding the caps, and how
-/// many full decodes were attempted (the last is a test hook for the
-/// bounded-work guarantee).
-fn scan_for_preview(bytes: &[u8], limits: &Limits) -> (Option<DynamicImage>, bool, usize) {
+/// Returns `(best, oversize, attempts)`: the largest decoded preview, the reason
+/// reported by a candidate rejected purely for exceeding the caps (so the caller
+/// can say *which* cap), and how many full decodes were attempted (the last is a
+/// test hook for the bounded-work guarantee).
+fn scan_for_preview(
+    bytes: &[u8],
+    limits: &Limits,
+) -> (Option<DynamicImage>, Option<String>, usize) {
     let mut best: Option<DynamicImage> = None;
     let mut best_px = 0usize;
-    let mut saw_oversize = false;
+    let mut oversize: Option<String> = None;
     let mut attempts = 0usize;
 
     let mut i = 0usize;
@@ -151,9 +157,10 @@ fn scan_for_preview(bytes: &[u8], limits: &Limits) -> (Option<DynamicImage>, boo
                         best = Some(img);
                     }
                 }
-                // A candidate rejected for exceeding the caps is remembered so a
-                // RAW whose only preview is oversize surfaces LimitsExceeded.
-                Err(ImageError::LimitsExceeded(_)) => saw_oversize = true,
+                // A candidate rejected for exceeding the caps is remembered (with
+                // its reason) so a RAW whose only preview is oversize surfaces
+                // LimitsExceeded and names the cap it hit.
+                Err(ImageError::LimitsExceeded(why)) => oversize = Some(why),
                 // A false SOI / non-JPEG candidate is skipped, not fatal.
                 Err(_) => {}
             }
@@ -165,7 +172,7 @@ fn scan_for_preview(bytes: &[u8], limits: &Limits) -> (Option<DynamicImage>, boo
         }
     }
 
-    (best, saw_oversize, attempts)
+    (best, oversize, attempts)
 }
 
 /// Whether `next` (the byte after `FF D8 FF`) is a plausible JPEG segment marker.
@@ -187,7 +194,22 @@ fn is_plausible_jpeg_marker(next: Option<u8>) -> bool {
 /// Routes through the SAME `image` decoder + `Limits` as the generic path, so a
 /// bomb preview is rejected before allocation (DEC-034) — never an uncapped
 /// `load_from_memory`.
+///
+/// The candidate's SOF dimensions are peeked and checked against the peak-memory
+/// budget (DEC-063) BEFORE the full decode: the DEC-034 caps alone let a preview
+/// declaring 16384×9776 through (each side < 65535, the RGB output < 512 MiB
+/// `max_alloc`) while the decode peaks at ~1.9 GB — this was SPEC-069's F-RAW-1,
+/// and this peek is what closes it. `into_dimensions()` consumes its reader, so the
+/// peek uses a throwaway one over the same (already in-memory) bytes; the peek is a
+/// JPEG *header* parse, so an oversize candidate costs a few hundred bytes of work
+/// instead of gigabytes.
 fn decode_jpeg_with_limits(bytes: &[u8], limits: &Limits) -> Result<DynamicImage> {
+    let mut peek = ImageReader::new(Cursor::new(bytes));
+    peek.set_format(ImageFormat::Jpeg);
+    peek.limits(limits.clone());
+    let (w, h) = peek.into_dimensions().map_err(map_image_decode_error)?;
+    super::check_pixel_budget(w, h)?;
+
     let mut reader = ImageReader::new(Cursor::new(bytes));
     reader.set_format(ImageFormat::Jpeg);
     reader.limits(limits.clone());
@@ -229,8 +251,27 @@ mod tests {
         b
     }
 
+    /// A JPEG whose SOF0 header **declares** `w`×`h` while carrying only the 16×12
+    /// image's entropy data — the F-RAW-1 bomb shape (JPEG has no header checksum,
+    /// so the dimensions patch in place).
+    fn jpeg_declaring(w: u16, h: u16) -> Vec<u8> {
+        let mut j = jpeg(16, 12);
+        let sof = j
+            .windows(2)
+            .position(|m| m == [0xFF, 0xC0])
+            .expect("encoded JPEG carries an SOF0 marker");
+        // SOF0: FF C0 [len:2] [precision:1] [height:2] [width:2]
+        j[sof + 5..sof + 7].copy_from_slice(&h.to_be_bytes());
+        j[sof + 7..sof + 9].copy_from_slice(&w.to_be_bytes());
+        j
+    }
+
     fn generous() -> Limits {
         // Mirror decode_limits() shape without depending on its private consts.
+        // NOTE: the DEC-063 pixel budget is deliberately NOT part of `Limits` (the
+        // `image` crate has no such field) — it is the module-level
+        // `super::MAX_IMAGE_PIXELS`, enforced by `check_pixel_budget` on every
+        // path, so it applies here too and this mirror cannot drift from it.
         let mut l = Limits::default();
         l.max_image_width = Some(65_535);
         l.max_image_height = Some(65_535);
@@ -297,7 +338,7 @@ mod tests {
             // `FF D8 FF E0` passes the plausible-marker prune but is not a JPEG.
             blob.extend_from_slice(&[0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x04, 0x00, 0x00]);
         }
-        let (best, _saw_oversize, attempts) = scan_for_preview(&blob, &generous());
+        let (best, _oversize, attempts) = scan_for_preview(&blob, &generous());
         assert!(
             attempts <= MAX_PREVIEW_CANDIDATES,
             "attempts {attempts} must be bounded by {MAX_PREVIEW_CANDIDATES}"
@@ -322,6 +363,35 @@ mod tests {
             matches!(result, Err(ImageError::LimitsExceeded(_))),
             "expected LimitsExceeded, got {result:?}"
         );
+    }
+
+    /// SPEC-070 / F-RAW-1: a RAW whose embedded preview DECLARES 160 Mpix
+    /// (16384×9776) is rejected at the SOF peek, before the ~1.9 GB decode. The
+    /// whole blob is well under a kilobyte, so it cannot hold those pixels — the
+    /// rejection can only be pre-decode. Under the production caps, not a tiny test
+    /// seam: this passes every DEC-034 cap and is caught only by the DEC-063 budget.
+    #[test]
+    fn raw_preview_rejects_oversize_embedded_jpeg_before_decode() {
+        let mut blob = tiff_header();
+        blob.extend_from_slice(&jpeg_declaring(16384, 9776));
+        assert!(blob.len() < 1024, "bomb fixture must stay tiny");
+
+        let result = extract_preview(&blob, &generous());
+        assert!(
+            matches!(result, Err(ImageError::LimitsExceeded(_))),
+            "expected LimitsExceeded, got {result:?}"
+        );
+    }
+
+    /// The other side of the boundary: a RAW with a normal full-res preview
+    /// (2000×1500 = 3 Mpix) still extracts under the same production caps — the
+    /// budget rejects the bomb without rejecting real previews.
+    #[test]
+    fn raw_preview_within_budget_still_extracts() {
+        let blob = raw_blob((160, 120), (2000, 1500));
+        let img = extract_preview(&blob, &generous()).expect("normal preview must still extract");
+        assert_eq!(img.width(), 2000);
+        assert_eq!(img.height(), 1500);
     }
 
     #[test]

@@ -194,11 +194,14 @@ fn hardened_options() -> usvg::Options<'static> {
     opt
 }
 
-/// Reject dimensions that exceed the `limits` (dimension or total allocation).
+/// Reject dimensions that exceed the `limits` (dimension or total allocation) or
+/// the shared peak-memory pixel budget (DEC-063).
 ///
 /// The allocation estimate uses the 8-bit RGBA raster buffer (`w * h * 4`), the
-/// largest buffer this module allocates. Mirrors `avif::check_caps`.
+/// largest buffer this module allocates. The pixel budget is the tighter, uniform
+/// bound across all four decode paths. Mirrors `avif::check_caps`.
 fn check_caps(w: u32, h: u32, limits: &Limits) -> Result<()> {
+    super::check_pixel_budget(w, h)?;
     if let Some(max_w) = limits.max_image_width {
         if w > max_w {
             return Err(ImageError::LimitsExceeded(format!(
@@ -297,5 +300,23 @@ mod tests {
         ));
 
         assert!(check_caps(16, 16, &Limits::default()).is_ok());
+    }
+
+    /// SPEC-070: a render size that passes EVERY DEC-034 cap (each side < 65 535,
+    /// the RGBA pixmap under the 512 MiB alloc cap) is still rejected when it
+    /// exceeds the DEC-063 pixel budget — an SVG `viewBox` is free to declare it.
+    #[test]
+    fn check_caps_rejects_over_pixel_budget() {
+        let mut prod = Limits::default();
+        prod.max_image_width = Some(65_535);
+        prod.max_image_height = Some(65_535);
+        prod.max_alloc = Some(512 * 1024 * 1024);
+
+        // 10000×10000 = 100 Mpix (400 MB RGBA — under the alloc cap).
+        assert!(matches!(
+            check_caps(10_000, 10_000, &prod),
+            Err(ImageError::LimitsExceeded(_))
+        ));
+        assert!(check_caps(6_000, 4_000, &prod).is_ok());
     }
 }

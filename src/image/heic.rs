@@ -171,12 +171,16 @@ pub(crate) fn decode_heic(bytes: &[u8], limits: &Limits) -> Result<DynamicImage>
     }
 }
 
-/// Reject dimensions that exceed the `limits` (dimension or total allocation).
+/// Reject dimensions that exceed the `limits` (dimension or total allocation) or
+/// the shared peak-memory pixel budget (DEC-063).
 ///
 /// The allocation estimate uses the 8-bit RGBA buffer (`w * h * 4`), the largest
-/// buffer this module packs.
+/// buffer this module packs. The pixel budget is the tighter, uniform bound: the
+/// `heic` feature is off by default, but it decodes through a **C** library, so it
+/// gets the same pre-decode peak bound as the pure-Rust paths.
 #[cfg(feature = "heic")]
 fn check_caps(w: u32, h: u32, limits: &Limits) -> Result<()> {
+    super::check_pixel_budget(w, h)?;
     if let Some(max_w) = limits.max_image_width {
         if w > max_w {
             return Err(ImageError::LimitsExceeded(format!(
