@@ -3,7 +3,7 @@
 task:
   id: SPEC-074
   type: story
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: medium
   complexity: M                    # S | M | L
@@ -64,9 +64,9 @@ cost:
         (baseline, shipped, wasm-opt on/off, opt-level=z, resvg-text drop, no-profile), plus
         the Node timing driver and the resvg-text mutation test.
   totals:
-    tokens_total: 330000
-    estimated_usd: 0
-    session_count: 2
+    tokens_total: 330000        # build 210k + verify 120k (design null, un-metered main loop)
+    estimated_usd: 3.00         # ~330k @ ~$9/MTok — LABELLED ESTIMATE, not a meter read (§4)
+    session_count: 3
 ---
 
 # SPEC-074: WASM bundle size
@@ -279,6 +279,33 @@ size cut didn't break a capability:
 
 ## Reflection (Ship)
 
-1. **What would I do differently next time?** —
-2. **Does any template, constraint, or decision need updating?** —
-3. **Is there a follow-up spec I should write now before I forget?** —
+*Appended during ship (2026-07-12). Shipped via PR #83 (squash `506df80`, DEC-066); clean path,
+both commits signed off. Its ship COMPLETES STAGE-025.*
+
+1. **What would I do differently next time?** — The build's headline finding was *wrong* and
+   propagated into four repo files + the auto-memory before verify caught it: it claimed `wasm-opt`
+   "silently fails at exit 0, so wasm-pack shipped an unoptimized module — SPEC-072/073's numbers
+   were never optimized." Verify reproduced it and found the opposite: `wasm-opt` fails **loud**
+   (exit 1) and main's baseline was genuinely optimized (it strips 1.6 MB raw). The −12.6% headline
+   was never in doubt — but a *striking, quotable* claim, written as durable guidance, is exactly
+   what spreads fastest and is most worth an adversarial re-drive. **Lesson: an adversarial verify
+   must re-drive the build's incidental "aha" findings, not just its acceptance criteria** — the
+   more memorable the claim, the higher the cost if it's wrong (it "defamed a sound baseline" and
+   would have misled whoever re-enables wasm-opt).
+2. **Does any template, constraint, or decision need updating?** — DEC-066 records the levers
+   (taken: fat-LTO+cgu=1, strip, wasm-opt-off, wasm-only tiff/bmp/ico trim; refused: resvg `text`
+   −287 KB because dropping it *silently deletes* SVG text, opt-level z/s because they cost 3.4×
+   AVIF encode speed, ssimulacra2 because the search is live on wasm). Two durable lessons banked
+   to memory: **a size spec must TIME the artifact, not just weigh it** (encode speed is a
+   capability, and rav1e is generic so it monomorphizes into `ravif` — pin *that*, not rav1e); and
+   **the wasm size profile can't live in `[profile.release]`** (native shares it) so it lives in
+   the `just wasm-build` env vars — which means a bare `cargo build --target wasm32` silently ships
+   +109 KB heavier. The corrected wasm-opt guidance ("check the raw size moved; don't read the exit
+   code through a pipe") is in DEC-066 + the research doc.
+3. **Is there a follow-up spec I should write now before I forget?** — Filed to `docs/roadmap.md`:
+   (a) **a wasm CI job must build through `just wasm-build`** (the +109 KB footgun; already a
+   carried SPEC-072/073 follow-up, now measured and reinforced); (b) **`optimize(img, "webp")` on
+   wasm returns *lossless* WebP** (320 KB vs a 44 KB JPEG) — there's no lossy-WebP encoder in the
+   wasm feature set, so the perceptual path silently isn't available for WebP; worth resolving
+   before STAGE-027's demo offers WebP as an output. Neither is a SPEC-074 defect. STAGE-025 is now
+   complete; PROJ-008 continues with STAGE-026 (npm) and STAGE-027 (demo).

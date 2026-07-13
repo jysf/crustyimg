@@ -149,16 +149,13 @@ Ordered list of stages this project will produce. Update as work proceeds.
 
 Format: `- [status] STAGE-ID — one-line summary`
 
-- [ ] STAGE-025 (framed + active on 2026-07-12) — **WASM core build (the load-bearing probe).**
-  Get the pure `from_bytes → operations → encode_to_bytes` + `analysis`/`decide` path compiling
-  to `wasm32` behind a `wasm` feature: gate out `notify`/`viuer`/`clap`/`rayon`-batch/C-codecs;
-  add a thin `wasm-bindgen` surface; a headless round-trip harness; **resolve the AVIF-on-wasm
-  strategy** (the design-time probe found `re_rav1d` is the ONE wasm32 blocker; SVG + raster all
-  compile) — priority is AVIF *encode* (rav1e, still untested) over *decode* (re_rav1d); **measure
-  and budget binary size** → a DEC for the WASM feature boundary + AVIF scope + size budget. This
-  stage decides whether the rest of the wave is cheap or hard. Specs: SPEC-072 (build seam +
-  baseline, AVIF-decode gated out — frame first), SPEC-073 (AVIF decision + DEC + run record),
-  SPEC-074 (size budget, may fold into 072).
+- [x] STAGE-025 (shipped on 2026-07-12) — **WASM core build.** The pure engine runs in-browser with
+  no backend: a `cfg(target_arch="wasm32")` boundary + a thin `wasm-bindgen` surface over
+  `from_bytes → build_pipeline → encode_to_bytes`, gating the fs/CLI shell + `re_rav1d` (the one
+  wasm32 blocker) out. **SPEC-072** (seam + baseline, DEC-064), **SPEC-073** (AVIF *encode* runs on
+  wasm — the headline; decode deferred to `createImageBitmap`, DEC-065), **SPEC-074** (bundle size
+  1.52→**1.33 MB brotli** by ablation, DEC-066). Every "works/small" claim was driven, not asserted.
+  Three specs, exactly as framed — each grounded by a design-time probe so none forced a split.
 - [ ] STAGE-026 (not yet framed) — **npm-packaged library.** Package the WASM + a typed
   JS/TS wrapper into an installable npm module with a small API over the load-bearing verbs
   (transform/convert/resize/optimize/info); publish or dry-run/tag; prove "installs with no
@@ -168,8 +165,8 @@ Format: `- [status] STAGE-ID — one-line summary`
   hosted statically, 100% in-browser — the "watch it just work" artifact to time a Show HN
   around. *(May fold into STAGE-026 if the library API makes the page thin.)*
 
-**Count:** 0 shipped / 1 active / 2 pending (STAGE-025 framed + active 2026-07-12; its
-findings size STAGE-026/027)
+**Count:** 1 shipped / 0 active / 2 pending (STAGE-025 SHIPPED 2026-07-12 — the WASM core is
+proven, sized, in-browser; STAGE-026 npm + STAGE-027 demo not yet framed)
 
 ## Dependencies
 

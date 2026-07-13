@@ -78,5 +78,10 @@ they go. Status markers: `[ ]` not started · `[~]` in progress · `[x]` complet
   returns **lossless** WebP (320 KB vs the 44 KB JPEG) — there is no lossy WebP encoder in the wasm
   feature set, so the lossy/perceptual path silently isn't available for WebP. Worth a look before
   the demo offers WebP as an output.
-- [ ] **ship** — squash-merge, bookkeeping on main, cost totals, reflection, memory + brag.
-  **Ship completes STAGE-025** → run the stage-ship reflection; next = STAGE-026 (npm) / STAGE-027 (demo).
+- [x] **ship** (2026-07-12) — **SHIPPED.** Clean path, both commits `-s`. Squash-merged **PR #83**
+  (`506df80`, DEC-066). Cost totals (330k tok / $3.00 est, 3 sessions); ship reflection appended
+  (the propagated-wrong-lesson process note); spec + timeline archived. **STAGE-025 CLOSED** (3/3
+  specs shipped) — stage status → shipped + Stage-Level Reflection filled. Roadmap: filed the wasm
+  CI-job footgun (+109 KB) + the lossless-WebP-on-wasm observation for STAGE-027. `just validate` +
+  `just cost-audit` green. **The build's false wasm-opt lesson had reached the auto-memory too —
+  corrected there this ship.**

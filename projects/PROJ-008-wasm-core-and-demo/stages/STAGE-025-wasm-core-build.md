@@ -3,7 +3,7 @@
 # A Stage is a coherent chunk of work within a Project.
 stage:
   id: STAGE-025
-  status: active                    # proposed | active | shipped | cancelled | on_hold
+  status: shipped                   # proposed | active | shipped | cancelled | on_hold
   priority: high
   target_complete: null
 
@@ -13,7 +13,7 @@ repo:
   id: crustyimg
 
 created_at: 2026-07-12
-shipped_at: null
+shipped_at: 2026-07-12
 
 value_contribution:
   advances: >
@@ -119,7 +119,7 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
   `createImageBitmap`. Spec: wire `out_format="avif"` into `src/wasm.rs`, enable `avif` for the wasm
   build per a size-measured strategy, PNG→AVIF `#[wasm_bindgen_test]`, **measure the .wasm size delta**
   (rav1e is large — the decisive SPEC-074 input), DEC-065 (encode in / decode deferred). Native unaffected.
-- [ ] SPEC-074 (design — build-ready 2026-07-12) — **WASM bundle size.** Shrink the shipped demo
+- [x] SPEC-074 (shipped 2026-07-12, PR #83 `506df80`, DEC-066) — **WASM bundle size.** Shrink the shipped demo
   `.wasm` (1.52 MB brotli w/ avif; rav1e ~0.35 is a KEEP, ~1.19 core is the debt). Design-time
   twiggy probe: NO single whale — mass in the SVG text/font stack (usvg text + ttf_parser +
   rustybuzz + unicode_bidi = resvg `text` feature) + the raster-codec spread (image's decoder set);
@@ -129,7 +129,7 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
   DEC-066 calls with measured savings. `just wasm-test` stays green (no silent capability loss);
   native unaffected. **Ship completes STAGE-025.**
 
-**Count:** 2 shipped / 1 in design / 0 pending (SPEC-072 + SPEC-073 SHIPPED, DEC-064/065; SPEC-074 bundle size framed build-ready 2026-07-12 — its ship completes STAGE-025)
+**Count:** 3 shipped / 0 active / 0 pending — **STAGE-025 COMPLETE 2026-07-12** (SPEC-072 wasm seam + SPEC-073 AVIF encode + SPEC-074 bundle size, DEC-064/065/066).
 
 ## Design Notes
 
@@ -168,12 +168,42 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
 ## Stage-Level Reflection
 
-*Filled in when status moves to shipped.*
+*Shipped 2026-07-12.*
 
-- **Did we deliver the outcome in "What This Stage Is"?** <yes/no + notes>
-- **How many specs did it actually take?** <number vs. plan>
-- **What changed between starting and shipping?** <one sentence>
+- **Did we deliver the outcome in "What This Stage Is"?** **Yes, fully.** The stage turned "the
+  core *should* compile to WASM" into a proven, sized, honest artifact: SPEC-072 shipped the wasm
+  build seam (a real decode→transform→encode round-trip in-browser, no backend, native unaffected);
+  SPEC-073 landed the headline (AVIF *encode* runs in the browser — PNG→valid `.avif`, verified by
+  decoding the wasm-produced bytes with two independent decoders); SPEC-074 sized it honestly
+  (1.52→1.33 MB brotli, −12.6%, by ablation, with every capability-losing lever refused-with-data).
+  Every "it works/it's small" claim was *driven*, not asserted — the throughline of the stage.
+- **How many specs did it actually take?** **3, exactly as framed** (SPEC-072/073/074) — because
+  each was grounded by a design-time probe *before* framing (does the tree compile to wasm32? does
+  rav1e? where do the bytes go?), so no spec discovered a surprise that forced a split. The
+  probe-then-frame discipline is why the count held.
+- **What changed between starting and shipping?** The AVIF story clarified from "unknown" to a
+  proven asymmetry — encode works on wasm, decode doesn't (deferred to the browser's own
+  `createImageBitmap`) — and the size work *corrected* two hypotheses under measurement (ssimulacra2
+  wasn't the whale; the two "free" size levers actually cost speed/nothing).
 - **Lessons that should update AGENTS.md, templates, or constraints?**
-  - <one-line updates>
+  - **Probe the load-bearing unknown at *design* time — including the test runner and the *timing*,
+    not just the compiler.** SPEC-072's probe proved `cargo build --target wasm32` but not
+    `wasm-pack test` (the actual hard part); SPEC-074 proved a size spec must *time* the artifact
+    (encode speed is a capability), not just weigh it. Both are the [[probe-load-bearing-crates-at-design]]
+    lesson, widened.
+  - **On wasm a panic aborts the module / crashes the page** — "typed error, never panic" is a hard
+    rule there, not a nicety (SPEC-072/073). Worth a wasm framing in `untrusted-input-hardening`.
+  - **An adversarial verify must re-drive the build's incidental "aha" findings, not just its
+    acceptance criteria** — SPEC-074's most quotable claim (wasm-opt "fails silently at exit 0") was
+    false and had propagated into 4 files + the auto-memory before verify caught and corrected it. A
+    striking claim written as durable guidance is the highest-value thing to re-drive.
+  - **Enabling a cargo feature for a new target flips *every* `cfg(feature)` site at once** (SPEC-073:
+    `avif` on silently re-routed `optimize` into a decoder-needing search) — audit the whole set.
 - **Should any spec-level reflections be promoted to stage-level lessons?**
-  - <one-line items>
+  - Yes — "**sniff ≠ valid: decode wasm output with an independent decoder**" ([[verify-wasm-output-with-an-independent-decoder]])
+    and "**time the artifact, not just weigh it**" are the two most reusable, both now their own memories.
+  - **Carried to the rest of PROJ-008:** a **wasm CI job must build through `just wasm-build`** (the
+    size profile lives in the recipe's env vars, not `[profile.release]` which native shares → a bare
+    `cargo build --target wasm32` silently ships +109 KB); STAGE-027 inherits rav1e-runs-*serial*
+    (Web Worker + progress) and must decode `.avif` inputs page-side via `createImageBitmap`; and
+    `optimize(_, "webp")` on wasm returns *lossless* WebP (no lossy-WebP encoder in the wasm set).

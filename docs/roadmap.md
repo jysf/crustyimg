@@ -181,6 +181,16 @@ have an impressive unused tool.
   SPEC-058's native AVIF decode — `docs/api-contract.md` ("reading an `.avif` fails") and
   `quality::supports_perceptual_quality`'s doc comment ("no decoder built") — both wrong on
   native today, neither a SPEC-073 defect.
+- **WASM core (STAGE-025) — COMPLETE 2026-07-12** (SPEC-072 seam + SPEC-073 AVIF encode + SPEC-074
+  size, DEC-064/065/066): the pure engine runs in-browser (SVG + PNG/JPEG/GIF/WebP decode+encode,
+  AVIF encode), no backend, **1.33 MB brotli**. Two follow-ups it hands the rest of PROJ-008:
+  (1) **a wasm CI job MUST build through `just wasm-build`** — the size profile lives in the
+  recipe's env vars (not `[profile.release]`, which native shares), so a bare `cargo build
+  --target wasm32` silently ships **+109 KB** heavier; measured, real footgun. (2) **`optimize(_,
+  "webp")` on wasm returns *lossless* WebP** (~320 KB vs a 44 KB JPEG) — there's no lossy-WebP
+  encoder in the wasm feature set, so the perceptual path silently isn't available for WebP; resolve
+  before **STAGE-027**'s demo offers WebP as an output. STAGE-027 also inherits: rav1e runs *serial*
+  on wasm (Web Worker + progress) and must decode `.avif` inputs page-side via `createImageBitmap`.
 - **Proof & distribution polish.** `BENCHMARKS.md` (cross-tool, honest equal-quality rule) · a
   real docs site + quickstart + recipe cookbook + the "why crustyimg" page + README badges · the
   **client-side demo page** (Wave 3) as the flagship "try it" artifact.
