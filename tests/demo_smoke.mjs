@@ -295,6 +295,19 @@ ok("await init() resolved — WebAssembly.instantiateStreaming instantiated the 
 const crateVersion = readFileSync(join(repoRoot, "Cargo.toml"), "utf8").match(
   /^version\s*=\s*"([^"]+)"/m,
 )[1];
+
+// WAIT for the value; do not snapshot it. On a slow runner the navigation can
+// commit twice — the poll above sees `ready` on the first document, and a bare
+// read a moment later lands on the second one while its module is still booting,
+// which reads back as an empty string. (CI caught exactly that; every check after
+// it passed, because by then the second document had finished.) Waiting on the
+// end state is correct regardless of how many documents got there: the page sets
+// the version BEFORE it declares itself ready, so this can only converge.
+await waitFor(
+  cdp,
+  "(document.getElementById('version')?.textContent ?? '').trim().length > 0",
+  "the page to report its engine version",
+);
 const shown = await cdp.eval("document.getElementById('version').textContent");
 check(
   shown.trim() === `crustyimg ${crateVersion}`,
