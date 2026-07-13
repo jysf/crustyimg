@@ -19,7 +19,42 @@ they go. Status markers: `[ ]` not started · `[~]` in progress · `[x]` complet
   / decode deferred — the browser's own `createImageBitmap` reads `.avif`). `optimize(_, "avif")`
   skips the perceptual search (it needs a decoder). NO `Cargo.toml` dep change; native + lean +
   clippy + deny green. Ready for verify.
-- [ ] **verify** — fresh adversarial session: re-drive PNG→AVIF in the wasm VM (valid AVIF bytes),
-  confirm AVIF-input still errors, native+lean unaffected, native AVIF encode intact, the size
-  delta reproduced.
+- [x] **verify** (2026-07-12, fresh adversarial session) — **CLEAN.** Every claim re-earned on the
+  real artifact, plus 19 adversarial probes of my own (written, run in the wasm VM, removed).
+  - **The AVIF is real AVIF, not a brand sniff.** The build asserted `ftyp`/`avif` on 4 bytes; I
+    smuggled the wasm-VM-produced bytes out as hex and decoded them with **two independent AV1
+    decoders** — our native `re_rav1d` (`info` → `64x48, format avif, rgb8`) and **macOS's own
+    system decoder** (`sips` → `pixelWidth 64, pixelHeight 48, format avif`), the same class of
+    decoder the browser would use. 515 bytes, decodes clean. `just wasm-test` 10/10 green.
+  - **Decode stayed gated, through EVERY entry point.** The build tested `transform`; I also probed
+    `optimize(avif, "png")`, `optimize(avif, "auto")`, `info(avif)`, and AVIF-in/AVIF-out — all
+    typed `CodecUnavailableOnTarget`, none advising `--features`, zero panics.
+  - **The `optimize` guard holds.** `optimize(_, "avif")` encodes once and never enters the
+    perceptual search, on the explicit AND the `auto` path. Confirmed in source: the guard is
+    `!fmt.supports_perceptual_quality()`, which excludes AVIF *even with the feature on* — so it
+    catches the auto path too, not just the one the test drives. `decide.rs` already has tests
+    asserting AVIF is absent from the perceptual shortlist.
+  - **19/19 adversarial probes returned typed `Err` or sane `Ok` — zero panics, zero module
+    aborts.** A forged PNG *declaring* 20000×20000 (400M px) is refused by the DEC-034/063 pixel
+    cap before rav1e allocates, through all three entry points; empty/garbage/truncated input;
+    bogus `out_format` (incl. `""`, `../../etc/passwd`, `AVIF\0`); bogus recipe TOML; and rav1e's
+    edge geometry — 1×1, odd 7×13 dims, semi-transparent and fully-transparent alpha — all encode
+    to valid AVIF without a trap.
+  - **Size delta reproduced** independently, both builds: brotli lean **1,248,423 B** → avif
+    **1,595,028 B** = **+346,605 B (+27.8%)**, within 0.03% of the recorded +345,664 (+27.7%);
+    raw/gzip percentages match exactly. The 1.19 → 1.52 MB headline stands.
+  - **Native unaffected.** `cargo build`, `cargo build --no-default-features` (LEAN, run
+    explicitly), `cargo test` (0 failures across every suite), `cargo test --features avif`
+    (`native_avif_encode_still_works` + `native_avif_still_decodes` green),
+    `cargo clippy --all-targets -D warnings` clean, `just deny` **advisories/bans/licenses/sources
+    ok — no new exception**. `Cargo.toml` diff vs merge-base is **comments only** and `Cargo.lock`
+    is **untouched**, so the dep-change claim is true at the diff level, not just asserted.
+  - **DEC-065 is well-formed** and matches what landed: one artifact with `avif` ON (not a split),
+    decode deferred-not-scheduled, `createImageBitmap` as the escape hatch. Its two load-bearing
+    code claims were checked against source, not taken on trust.
+  - **Follow-up (pre-existing, NOT a SPEC-073 defect):** `docs/api-contract.md:244` still says
+    "**AVIF input (decode) is not supported** … reading an `.avif` fails". That line dates to
+    SPEC-019 (PR #22, 2026-06-17) and went stale when **SPEC-058** shipped native AVIF decode — the
+    native binary demonstrably reads `.avif` today. Untouched by this branch; worth folding into
+    the cleanup spec that already owns `supports_perceptual_quality`'s stale doc comment.
 - [ ] **ship** — squash-merge, bookkeeping on main, cost totals, reflection, memory + brag.

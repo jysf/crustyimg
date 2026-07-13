@@ -58,10 +58,20 @@ cost:
         gate set, and emitted DEC-065. The one unplanned piece of work was the
         `optimize`/perceptual-search guard (the DEC-019 search needs a decoder that
         AVIF on wasm does not have).
+    - cycle: verify
+      interface: claude-code
+      tokens_total: 200000
+      note: >
+        ORDER-OF-MAGNITUDE ESTIMATE (verify ran in the main loop, not a metered
+        subagent). Fresh adversarial session, no rework: re-drove the 10 wasm tests,
+        wrote + ran 19 adversarial probes of its own in the wasm VM (removed after),
+        extracted the wasm-produced AVIF bytes and decoded them with two independent
+        AV1 decoders, reproduced both size builds, and ran the full native gate set.
+        Verdict CLEAN — no punch list.
   totals:
-    tokens_total: 300000
+    tokens_total: 500000
     estimated_usd: 0
-    session_count: 1
+    session_count: 2
 ---
 
 # SPEC-073: AVIF-on-wasm decision (encode in, decode deferred) + DEC
