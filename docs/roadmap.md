@@ -191,6 +191,15 @@ have an impressive unused tool.
   encoder in the wasm feature set, so the perceptual path silently isn't available for WebP; resolve
   before **STAGE-027**'s demo offers WebP as an output. STAGE-027 also inherits: rav1e runs *serial*
   on wasm (Web Worker + progress) and must decode `.avif` inputs page-side via `createImageBitmap`.
+- **npm library (STAGE-026 / SPEC-075) — SHIPPED 2026-07-13** (PR #84, DEC-067): the WASM core is
+  an installable, typed npm package **`crustyimg-wasm`** (`--target web`, one artifact, lockstep
+  version, publish gated) that runs client-side with **no native addon / no lifecycle script / zero
+  deps** — the "sharp without the native addon" artifact, proven by a pack→install→run smoke.
+  Carries: (1) the **bare `crustyimg` npm name is deliberately unclaimed** for a future
+  npx-distributed CLI (esbuild/esbuild-wasm precedent — don't re-litigate); (2) the owed **wasm CI
+  job must ALSO run `just wasm-npm-smoke`** (the package is proven on one Mac until CI runs it), on
+  top of building through `just wasm-build`; (3) **SPEC-076** = the live `npm publish`, by hand, on
+  maintainer approval (outward-facing/irreversible — the tooling deliberately can't reach it).
 - **Proof & distribution polish.** `BENCHMARKS.md` (cross-tool, honest equal-quality rule) · a
   real docs site + quickstart + recipe cookbook + the "why crustyimg" page + README badges · the
   **client-side demo page** (Wave 3) as the flagship "try it" artifact.

@@ -91,4 +91,19 @@ they go. Status markers: `[ ]` not started · `[~]` in progress · `[x]` complet
   MUST build through `just wasm-build`. (2) Two different "brotli" numbers are in circulation for
   the same artifact — `brotli -q 11` (the recipe) says **1,394,313 B**, Node's `brotliCompressSync`
   (the guard) says **1,394,631 B**; a 318 B tooling difference, harmless but worth not confusing.
-- [ ] **ship** — squash-merge, bookkeeping on main, cost totals, reflection, memory + brag.
+- [x] **verify** (2026-07-13, fresh adversarial session, isolated worktree) — **CLEAN**, one
+  hardening applied on-branch (commit 03b291f, `-s`). Re-drove `just wasm-npm-smoke` from a clean
+  build: bare-specifier import in a separate Node process, `initSync` via the package's own subpath
+  export, PNG resized to 32×24 confirmed by an independent JS IHDR parse AND `info()`. Tarball = 8
+  files, no `.node`/lifecycle script/deps. **Hardened the size guard: dropped the fragile 1.45 MB
+  ceiling (±4% daylight) for a STRUCTURAL `strip`-fingerprint assertion** (name section 42 B
+  profiled vs 980,292 B stock — mutation-tested, fails 240× not 3.7%); size demoted to a ±5%
+  regression baseline. DEC-067 holds (npm 404; lockstep broken 3 ways → all exit 1; browser init
+  path typed). AVIF honest — `info(avif)` throws, `sips` decodes the wasm-encoded AVIF 32×24. Native
+  untouched (716 tests, `src/` diff empty); PR #84 CI 52 pass / 0 fail.
+- [x] **ship** (2026-07-13) — **SHIPPED.** Squash-merged **PR #84** (`125a590`, DEC-067). Cost
+  225k tok / $2.10 (per-session usd recorded). Ship reflection appended (the structural-guard
+  lesson); spec + timeline archived. STAGE-026: SPEC-075 shipped (1 shipped / 0 active / 1 pending —
+  SPEC-076 publish, gated). Roadmap carries updated (wasm CI job now owes `wasm-npm-smoke` too; bare
+  `crustyimg` npm name reserved for a future CLI). Shared checkout reconciled to `main`.
+  `just validate` + `just cost-audit` green.

@@ -3,7 +3,7 @@
 task:
   id: SPEC-075
   type: story
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: M                    # S | M | L
@@ -270,6 +270,31 @@ Written now (design). The package "test" is an install-and-run smoke, driven by 
 
 ## Reflection (Ship)
 
-1. **What would I do differently next time?** —
-2. **Does any template, constraint, or decision need updating?** —
-3. **Is there a follow-up spec I should write now before I forget?** —
+*Appended during ship (2026-07-13). Shipped via PR #84 (squash `125a590`, DEC-067). The build ran
+in the SHARED checkout (collided with the orchestrator's HEAD); verify correctly used an isolated
+worktree — that split is the process note below.*
+
+1. **What would I do differently next time?** — The size-guard arc is the whole lesson. Build set a
+   size *band* (a 1.30–1.45 MB ceiling), honestly self-flagged it as "chosen by assumption,
+   validated by luck" (the SPEC-074 trap). Verify then proved the flag right — the band was
+   load-bearing on ~4% of daylight either side of two *moving* endpoints — and **replaced it with a
+   structural assertion**: `strip = true` (a DEC-066 lever) leaves an observable fingerprint (the
+   wasm `name` debug section: **42 B profiled vs 980,292 B stock** — categorical, 4 orders of
+   magnitude, immune to legitimate code growth), with the size number demoted to a `±5%` regression
+   baseline. **The reusable move: to assert "was this built through the right recipe?", find the
+   lever's fingerprint in the artifact and assert THAT — don't infer intent from a size threshold
+   between two targets that both drift.** Also: run the build in a worktree from the start (it shared
+   the checkout and moved the orchestrator's HEAD; verify's worktree is the pattern).
+2. **Does any template, constraint, or decision need updating?** — DEC-067 records identity
+   (`crustyimg-wasm` — the suffix reserves the bare `crustyimg` for a future `npx` CLI, the
+   esbuild/esbuild-wasm precedent), target (`--target web`, one artifact), lockstep versioning
+   (enforced — verify broke it 3 ways, all exit 1), and the gated publish. Banked as its own memory:
+   **assert the build profile structurally, not by a size band.** The cost-per-session `estimated_usd`
+   lesson from SPEC-073/074 landed — build and verify both recorded it, so the table shows $2.10.
+3. **Is there a follow-up spec I should write now before I forget?** — (a) **SPEC-076** (the live
+   `npm publish`, by hand, on maintainer approval) — the remaining STAGE-026 spec; (b) **the wasm CI
+   job** is now doubly-owed — it must build through `just wasm-build` (SPEC-074) *and* run
+   `just wasm-npm-smoke` (this spec: the package is proven on one Mac until CI runs it); (c) a
+   roadmap line that the bare `crustyimg` npm name is deliberately unclaimed (so it isn't
+   re-litigated). Trivial: two "brotli" numbers circulate for the same artifact (recipe `brotli -q 11`
+   = 1,394,313 B vs Node `brotliCompressSync` = 1,394,631 B, a 318 B tooling diff) — harmless, noted.
