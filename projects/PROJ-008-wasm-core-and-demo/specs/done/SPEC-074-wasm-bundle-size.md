@@ -49,6 +49,7 @@ cost:
     - cycle: build
       interface: claude-code
       tokens_total: 210000
+      estimated_usd: 1.90
       note: >
         ORDER-OF-MAGNITUDE ESTIMATE (build ran in the main loop, not a metered subagent —
         see the autonomous-run-cost-estimates lesson). Single build session, 2026-07-12.
@@ -57,6 +58,7 @@ cost:
     - cycle: verify
       interface: claude-code
       tokens_total: 120000
+      estimated_usd: 1.10
       note: >
         ORDER-OF-MAGNITUDE ESTIMATE (verify ran in the main loop, not a metered subagent —
         see the autonomous-run-cost-estimates lesson). Fresh adversarial session, 2026-07-12.

@@ -50,6 +50,7 @@ cost:
     - cycle: build
       interface: claude-code
       tokens_total: 300000
+      estimated_usd: 2.70
       note: >
         ORDER-OF-MAGNITUDE ESTIMATE (build ran in the main loop, not a metered
         subagent). Single session, no rework: measured the size delta on the real
@@ -61,6 +62,7 @@ cost:
     - cycle: verify
       interface: claude-code
       tokens_total: 200000
+      estimated_usd: 1.80
       note: >
         ORDER-OF-MAGNITUDE ESTIMATE (verify ran in the main loop, not a metered
         subagent). Fresh adversarial session, no rework: re-drove the 10 wasm tests,
