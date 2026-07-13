@@ -395,3 +395,78 @@ Beyond the tests, the shipped `pkg/` artifact was driven directly from Node — 
 not a shipped artifact. All 10 conversions pass: PNG→PNG/JPEG/WebP/AVIF, SVG→PNG,
 `optimize` with a real SSIMULACRA2 search, and the full-size AVIF encode the timings above
 come from.
+
+---
+
+## STAGE-026 — the npm package (SPEC-075, DEC-067)
+
+`just wasm-build` gets you a `pkg/`; it does not get you a *package*. wasm-pack can only read
+`Cargo.toml`, so what it emits is named after the **crate** (`crustyimg` — the CLI) and described
+as one ("A fast Rust CLI to view and transform images"): the wrong artifact, for the wrong reader,
+at the moment they type `npm install`. Two recipes close that gap.
+
+### The recipes
+
+```bash
+just wasm-npm-pkg      # wasm-build (size-profiled!) → finalize pkg/ as crustyimg-wasm
+just wasm-npm-smoke    # ↑ then: npm pack → install the tarball in a fresh temp project → RUN it
+```
+
+`wasm-npm-pkg` **depends on `wasm-build` on purpose**. The size profile lives in that recipe's env
+vars, not in `[profile.release]` (DEC-066, because native must stay byte-identical) — so a
+packaging path that reached for `cargo build --target wasm32` directly would ship a stock-profile
+`.wasm` and nobody would notice. Measured, at build: profiled **1,394,313 B** brotli vs bare
+**1,503,817 B** — **+109 KB on the wire**, silently. The smoke test's size band (1.30–1.45 MB
+brotli) exists to catch exactly that, and the ceiling was *checked against a real bare build*, not
+assumed: the bare artifact clears it by 54 KB.
+
+The identity wasm-pack can't know lives in `npm/package.overrides.json` + `npm/README.md`
+(committed), merged into `pkg/package.json` by `scripts/wasm-npm-finalize.mjs`. `pkg/` stays
+git-ignored and is regenerated from scratch every build — so there is nothing in it to hand-edit,
+and no second source of truth.
+
+### The install-and-run recipe (what the smoke test actually does)
+
+Not "the package.json looks right". A package.json that looks right and won't instantiate in a real
+project is *the* failure mode here, so every assertion goes through a genuine `npm install` of a
+genuine tarball, in a throwaway directory, in a separate Node process that imports the **bare
+specifier**:
+
+```js
+import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
+import { initSync, info, transform } from "crustyimg-wasm";
+
+// --target web never auto-instantiates (DEC-067), and Node's fetch can't read file:// —
+// so hand initSync the bytes, resolved through the package's own subpath export.
+const require = createRequire(import.meta.url);
+initSync({ module: readFileSync(require.resolve("crustyimg-wasm/crustyimg_bg.wasm")) });
+
+info(png);                              // → { width, height, format, hasAlpha }
+transform(png, recipe, "avif");         // → rav1e, in wasm, from node_modules
+```
+
+It asserts, on the **installed** package: `info` reports the true dimensions; `transform` to PNG /
+JPEG / WebP / AVIF produces bytes that really are those containers — the PNG's IHDR is parsed in
+plain JS, *by a decoder the crate did not write*, and cross-checked against feeding the output back
+through `info()`; the tree contains **no `.node`/`.dylib`/`.so`/`binding.gyp` and no lifecycle
+script**, and pulls in **zero transitive dependencies**. That last group is not hygiene — it is the
+entire pitch ("sharp without the native addon") stated as a test.
+
+AVIF is the one output checked at the container level only (`ftyp`/`avif` box, 329 B): the build
+encodes AVIF but cannot decode it (DEC-065 — the browser does that natively), so the package cannot
+round-trip its own output. Said plainly rather than papered over.
+
+### The choices, and why (DEC-067)
+
+- **`crustyimg-wasm`**, not the (free!) bare `crustyimg` — the suffix names the artifact, and it
+  leaves the bare name for a future npx-distributed CLI. `esbuild` / `esbuild-wasm` is the exact
+  precedent.
+- **`--target web`, one artifact** — the only target that runs unbundled in a browser (the demo),
+  through every bundler, *and* in Node via `initSync(bytes)`. Shipping a second target would mean
+  shipping a second 5.7 MB `.wasm`.
+- **Version = the crate version, enforced** — the finalize script fails the build if `pkg/` has
+  drifted from `Cargo.toml`.
+- **No publish, ever, from a recipe.** The tooling stops at `npm pack`. SPEC-076 owns the live
+  publish, by hand, on maintainer approval — npm's unpublish window is 72 hours and a name is
+  forever.

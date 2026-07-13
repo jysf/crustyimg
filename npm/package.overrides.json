@@ -1,0 +1,55 @@
+{
+  "_comment": [
+    "The npm identity wasm-pack cannot know (DEC-067). `pkg/` is regenerated from scratch",
+    "by every `just wasm-build`, so nothing there can be hand-edited and survive — these",
+    "fields are merged into pkg/package.json by scripts/wasm-npm-finalize.mjs, which the",
+    "`just wasm-npm-pkg` recipe runs. `_comment` is stripped on merge.",
+    "",
+    "NOT overridden, on purpose: `version` (wasm-pack copies it from Cargo.toml, which is",
+    "exactly the lockstep DEC-067 wants — an override here could only introduce drift),",
+    "`license`, `repository`, `main`, `types`, and `sideEffects` (wasm-pack's values are",
+    "right, and `sideEffects` in particular is a bundler contract we have no reason to",
+    "second-guess)."
+  ],
+
+  "name": "crustyimg-wasm",
+  "description": "Resize, convert, and optimize images in the browser — the crustyimg engine compiled to WebAssembly. No native addon, no postinstall build, no server.",
+
+  "keywords": [
+    "image",
+    "wasm",
+    "webassembly",
+    "browser",
+    "resize",
+    "optimize",
+    "convert",
+    "webp",
+    "avif",
+    "jpeg",
+    "png",
+    "svg",
+    "client-side",
+    "sharp-alternative"
+  ],
+
+  "module": "crustyimg.js",
+
+  "exports": {
+    ".": {
+      "types": "./crustyimg.d.ts",
+      "default": "./crustyimg.js"
+    },
+    "./crustyimg_bg.wasm": "./crustyimg_bg.wasm",
+    "./package.json": "./package.json"
+  },
+
+  "files": [
+    "crustyimg_bg.wasm",
+    "crustyimg_bg.wasm.d.ts",
+    "crustyimg.js",
+    "crustyimg.d.ts",
+    "README.md",
+    "LICENSE-APACHE",
+    "LICENSE-MIT"
+  ]
+}

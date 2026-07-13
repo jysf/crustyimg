@@ -3,7 +3,7 @@
 task:
   id: SPEC-075
   type: story
-  cycle: design                    # frame | design | build | verify | ship
+  cycle: verify  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: M                    # S | M | L
@@ -45,10 +45,31 @@ cost:
         typed .d.ts (info/transform/optimize/version/ImageInfo); the npm names `crustyimg`,
         `crustyimg-wasm`, `@jysf/crustyimg` are ALL unpublished (404 — bare name is free); and
         the `--target web` package needs an explicit `init()`/`initSync` before use.
+    - cycle: build
+      interface: claude-code
+      tokens_total: 130000
+      duration_minutes: 40
+      estimated_usd: 1.20
+      note: >
+        ran in the orchestrator main loop, not a metered subagent — tokens_total is an
+        order-of-magnitude ESTIMATE (~80/20 in/out at Opus 4.8 list rates, no cache discount),
+        not a harness-reported number.
+    - cycle: verify
+      interface: claude-code
+      tokens_total: 95000
+      duration_minutes: 30
+      estimated_usd: 0.90
+      note: >
+        ORDER-OF-MAGNITUDE ESTIMATE (verify ran in the main loop, not a metered subagent —
+        see the autonomous-run-cost-estimates lesson). Fresh adversarial session in an
+        isolated worktree, 2026-07-13. Dominated by two full wasm-pack release builds (the
+        profiled artifact + a stock-profile one to measure the guard's failure case), the
+        pack/install/run smoke, the finalize-script drift mutations, and the native gate
+        sweep (build/lean/test/clippy/deny/validate).
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 225000        # build 130k + verify 95k (design null, un-metered main loop)
+    estimated_usd: 2.10         # LABELLED ESTIMATE, not a meter read (§4)
+    session_count: 3
 ---
 
 # SPEC-075: npm package shape + identity + install smoke test
@@ -176,20 +197,74 @@ Written now (design). The package "test" is an install-and-run smoke, driven by 
 
 ## Build Completion
 
-*Filled in at the end of the build cycle.*
+- **Branch:** `feat/spec-075-npm-package`
+- **PR:** #84
 
-- **Branch:**
-- **PR:**
-- **All acceptance criteria met?**
-- **New decisions emitted:**
-- **Deviations from spec:**
+- **All acceptance criteria met?** Yes — all five, each driven rather than inspected.
+  - **Packs, installs, runs client-side.** `just wasm-npm-smoke` is green: `npm pack` → install
+    THAT tarball into a fresh temp project → a separate Node process imports the **bare specifier**
+    `crustyimg-wasm`, `initSync({ module: bytes })` (bytes resolved through the package's own
+    `./crustyimg_bg.wasm` subpath export — which is what proves the export map is real), then
+    `info(png)` → 64×48 png / hasAlpha false, and `transform(png, resize-recipe, fmt)` for **png,
+    jpeg, webp, avif**. The PNG output's dimensions are asserted **twice**: its IHDR is parsed in
+    plain JS (a decoder the crate did not write) *and* the bytes are fed back through `info()`; both
+    say 32×24. AVIF is checked at the container level only (`ftyp`/`avif`, 329 B) — this build
+    encodes AVIF but cannot decode it (DEC-065), and saying so beats faking a round-trip.
+  - **Identity / target / versioning settled → DEC-067.** `crustyimg-wasm`, `--target web` (one
+    artifact), version in lockstep with the crate.
+  - **The packaged `.wasm` is the size-profiled one.** 1,394,313 B brotli, and the smoke test's
+    1.30–1.45 MB band **was mutation-tested against a real bare build**, not assumed: a stock-profile
+    `wasm-pack build` (no DEC-066 env vars) lands at **1,503,817 B** — 54 KB above the ceiling, and
+    exactly the +109 KB the spec warned about. The guard trips.
+  - **No live publish.** Nothing in the tooling can reach `npm publish`; the finalize script also
+    *rejects* any `package.json` carrying a lifecycle script, so the published artifact can't run
+    anything on a consumer's machine either. Verified `npm view crustyimg-wasm` is still 404.
+  - **Native unaffected.** `cargo fmt --check`, `cargo clippy --all-targets -D warnings`,
+    `cargo build --no-default-features`, `cargo test` (716 passed), `just deny`, `just validate` —
+    all green. No change to `src/` at all.
+
+- **New decisions emitted:** **DEC-067** — npm identity (`crustyimg-wasm`), target (`web`, single
+  artifact), versioning (lockstep with the crate, enforced by the finalize script), publish policy
+  (gated; the tooling stops at `npm pack`).
+
+- **Deviations from spec:** None material. Two shape choices the spec left open:
+  - Recipes are **`just wasm-npm-pkg`** (finalize) + **`just wasm-npm-smoke`** (pack/install/run)
+    rather than one `just wasm-pack` — the finalize step is worth being able to run and inspect
+    without a five-minute pack cycle. `wasm-npm-pkg` **depends on `wasm-build`**, so the size profile
+    (DEC-066) is not bypassable by accident.
+  - The npm identity is committed as data (`npm/package.overrides.json` + `npm/README.md`) merged in
+    by `scripts/wasm-npm-finalize.mjs`, rather than a hand-maintained `pkg/package.json` — `pkg/` is
+    git-ignored and regenerated from scratch by every build, so an edit there could not survive and
+    would be a lying source of truth.
+
 - **Follow-up work identified:**
+  - **SPEC-076** (already framed): the live publish, by hand, on maintainer approval.
+  - **CI**: nothing runs `just wasm-npm-smoke` automatically. It needs Node + wasm-pack + the
+    wasm32 target, and it is the only thing standing between "the package works" and "the package
+    worked once, on my Mac". Folds naturally into the wasm CI job STAGE-025 already owes
+    (carried from SPEC-074: a wasm CI job MUST build through `just wasm-build`).
+  - **The `crustyimg` npm name is deliberately left unclaimed** for a future npx-distributed CLI
+    (DEC-067). Worth a line in the roadmap so it isn't re-litigated.
 
 ### Build-phase reflection
 
-1. **What was unclear in the spec that slowed you down?** —
-2. **Was there a constraint or decision that should have been listed but wasn't?** —
-3. **If you did this task again, what would you do differently?** —
+1. **What was unclear in the spec that slowed you down?** — Nothing, genuinely; the design-time
+   probe carried its weight. Knowing up front that all three names were free, and that `--target web`
+   has no auto-instantiation, meant the two load-bearing decisions were *choices* on arrival rather
+   than discoveries — and the spec's "you may build a nodejs variant just for the smoke, or feed
+   bytes to the web build" hint pointed straight at the answer that avoids a second artifact.
+2. **Was there a constraint or decision that should have been listed but wasn't?** — Not listed, but
+   worth naming: the spec (and DEC-066) framed the size profile as a *build* concern, and it is
+   really a *packaging* concern — the profile is only load-bearing at the moment the artifact leaves
+   the repo. Making `wasm-npm-pkg` depend on `wasm-build` is what turns "remember to use the right
+   recipe" into "there is no other recipe", and that dependency edge is the single most important
+   line in this change.
+3. **If you did this task again, what would you do differently?** — Build the bare-`cargo build`
+   comparison **first**, not last. I picked the smoke test's size ceiling (1.45 MB) by arithmetic
+   from the spec's "+109 KB" and only afterwards built the stock-profile artifact to check the guard
+   actually trips it. It did (1,503,817 B, 54 KB clear) — but that ordering is a guard-band chosen by
+   assumption and confirmed by luck, and SPEC-074's whole lesson was that the levers you *assume* are
+   the ones that bite. Measure the failure case, then set the threshold.
 
 ---
 
