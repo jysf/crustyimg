@@ -66,6 +66,11 @@ cost:
         profiled artifact + a stock-profile one to measure the guard's failure case), the
         pack/install/run smoke, the finalize-script drift mutations, and the native gate
         sweep (build/lean/test/clippy/deny/validate).
+    - cycle: ship
+      interface: claude-code
+      recorded_at: 2026-07-13
+      tokens_total: null
+      note: ship bookkeeping in the orchestrator main loop (un-metered, §4)
   totals:
     tokens_total: 225000        # build 130k + verify 95k (design null, un-metered main loop)
     estimated_usd: 2.10         # LABELLED ESTIMATE, not a meter read (§4)
