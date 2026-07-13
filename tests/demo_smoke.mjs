@@ -146,17 +146,25 @@ class CDP {
   }
 }
 
+/// The page's own state, or null if there is no document yet. Every read of the
+/// page goes through this: right after `Page.navigate` the document can still be
+/// the empty initial one, where `document.body` is null and a bare
+/// `document.body.dataset` THROWS rather than politely returning undefined. (It
+/// does not reliably throw on a fast machine, which is precisely why it has to be
+/// written this way — CI found it; my laptop never would have.)
+const PAGE_STATE = "document.body?.dataset.state ?? null";
+
 /// Poll the page until `expression` is truthy (or give up). The demo mirrors its
 /// state onto <body data-state>, so this is how we wait for `init()` and for a
 /// conversion — no arbitrary sleeps.
-async function waitFor(cdp, expression, what, timeoutMs = 30_000) {
+async function waitFor(cdp, expression, what, timeoutMs = 60_000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (await cdp.eval(expression)) return;
     await sleep(100);
   }
-  const state = await cdp.eval("document.body.dataset.state");
-  const err = await cdp.eval("document.getElementById('status').textContent");
+  const state = await cdp.eval(PAGE_STATE);
+  const err = await cdp.eval("document.getElementById('status')?.textContent ?? ''");
   await die(`timed out waiting for ${what} (page state: ${state} — "${err?.trim()}")`);
 }
 
@@ -281,7 +289,7 @@ await cdp.send("DOM.enable");
 await cdp.send("Page.navigate", { url: `${baseUrl}/index.html` });
 
 // The whole point: this resolves only if instantiateStreaming succeeded.
-await waitFor(cdp, "document.body.dataset.state === 'ready'", "init() to resolve");
+await waitFor(cdp, `${PAGE_STATE} === 'ready'`, "init() to resolve");
 ok("await init() resolved — WebAssembly.instantiateStreaming instantiated the engine over HTTP");
 
 const crateVersion = readFileSync(join(repoRoot, "Cargo.toml"), "utf8").match(
@@ -325,13 +333,13 @@ await cdp.send("DOM.setFileInputFiles", { nodeId, files: [fixture] });
 // Chrome fires `change` when the files are set; if a future Chrome stops doing so,
 // nudge it rather than hanging for 30s on a protocol detail.
 await sleep(300);
-if ((await cdp.eval("document.body.dataset.state")) === "ready") {
+if ((await cdp.eval(PAGE_STATE)) === "ready") {
   await cdp.eval(
     "document.getElementById('file').dispatchEvent(new Event('change', { bubbles: true }))",
   );
 }
 
-await waitFor(cdp, "document.body.dataset.state === 'done'", "the conversion to finish");
+await waitFor(cdp, `${PAGE_STATE} === 'done'`, "the conversion to finish");
 
 const result = await cdp.eval(
   "JSON.stringify({ ...document.getElementById('result').dataset, " +
@@ -411,7 +419,7 @@ await cdp.eval(`
   document.getElementById('maxedge').value = '${MAX_EDGE}';
   fmt.dispatchEvent(new Event('change', { bubbles: true }));
 `);
-await waitFor(cdp, "document.body.dataset.state === 'done'", "the resize conversion");
+await waitFor(cdp, `${PAGE_STATE} === 'done'`, "the resize conversion");
 
 const resized = await cdp.eval(
   "JSON.stringify({ ...document.getElementById('result').dataset, " +
@@ -482,7 +490,7 @@ async function drop(path) {
     selector: "#file",
   });
   await cdp.send("DOM.setFileInputFiles", { nodeId: input, files: [path] });
-  await waitFor(cdp, "document.body.dataset.state === 'done'", `the conversion of ${path}`);
+  await waitFor(cdp, `${PAGE_STATE} === 'done'`, `the conversion of ${path}`);
   return cdp
     .eval(
       "JSON.stringify({ ...document.getElementById('result').dataset, " +
@@ -540,8 +548,8 @@ cleanups.push(() => fileCdp.close());
 await fileCdp.send("Runtime.enable");
 await sleep(2000);
 
-const fileState = await fileCdp.eval("document.body.dataset.state");
-const fileStatus = await fileCdp.eval("document.getElementById('status').textContent");
+const fileState = await fileCdp.eval(PAGE_STATE);
+const fileStatus = await fileCdp.eval("document.getElementById('status')?.textContent ?? ''");
 // `#drop` is unhidden only by demo.js, and only after init() resolves.
 const moduleRan = await fileCdp.eval("!!document.querySelector('#drop:not([hidden])')");
 
