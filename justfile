@@ -90,32 +90,42 @@ lint-images *paths=".":
 #     rustup target add --toolchain stable wasm32-unknown-unknown
 #     brew install wasm-pack binaryen        # wasm-pack drives wasm-bindgen; binaryen = wasm-opt
 #
-# AVIF decode is NOT in the wasm build (`re_rav1d` does not compile to bare
-# wasm32 — DEC-064); every other default input format is, SVG included.
+# AVIF is ASYMMETRIC in the wasm build (SPEC-073, DEC-065): ENCODE is in — the
+# shipped artifact is built `--features avif`, so `rav1e` turns a PNG into an AVIF
+# in the browser (the demo's headline, and the reason `_wasm_features` below is not
+# empty). DECODE is out — `re_rav1d` does not compile to bare wasm32 (DEC-064), so
+# an AVIF *input* returns a typed error. Every other default input format works,
+# SVG included.
 
 # The rustup stable toolchain's bin dir — the one that actually has wasm std.
 _wasm_bin := `rustup which --toolchain stable rustc | xargs dirname`
 
+# The feature set the SHIPPED wasm artifact is built with (DEC-065). `avif` costs
+# +345 KB brotli and buys the demo's headline (PNG → AVIF in the browser). Override
+# to build the LEAN artifact — the no-AVIF comparison SPEC-074 measures against:
+#     just --set _wasm_features "" wasm-build
+_wasm_features := "--features avif"
+
 # Compile the library to wasm32 (debug). The fast "does it still compile" gate.
 wasm-check:
     PATH="{{_wasm_bin}}:$PATH" RUSTC="{{_wasm_bin}}/rustc" \
-        "{{_wasm_bin}}/cargo" build --lib --target wasm32-unknown-unknown
+        "{{_wasm_bin}}/cargo" build --lib --target wasm32-unknown-unknown {{_wasm_features}}
 
 # Build the release .wasm + JS bindings via wasm-pack → pkg/ (the npm-shaped
-# artifact STAGE-026 packages). Also reports the size baseline SPEC-074 tunes.
+# artifact STAGE-026 packages). Also reports the size SPEC-074 tunes.
 wasm-build:
     @command -v wasm-pack >/dev/null 2>&1 || { echo "wasm-pack not installed (brew install wasm-pack)"; exit 1; }
     PATH="{{_wasm_bin}}:$PATH" RUSTC="{{_wasm_bin}}/rustc" \
-        wasm-pack build --target web --release --out-dir pkg
+        wasm-pack build --target web --release --out-dir pkg -- {{_wasm_features}}
     @just wasm-size
 
-# Report the .wasm size baseline: raw, and the two COMPRESSED sizes a real host
-# actually serves (a browser downloads the encoded bytes, so gzip/brotli are the
-# honest numbers — raw alone overstates what a user waits for). SPEC-074 tunes these.
+# Report the .wasm size: raw, and the two COMPRESSED sizes a real host actually
+# serves (a browser downloads the encoded bytes, so gzip/brotli are the honest
+# numbers — raw alone overstates what a user waits for). SPEC-074 tunes these.
 wasm-size:
     @test -f pkg/crustyimg_bg.wasm || { echo "no pkg/crustyimg_bg.wasm — run 'just wasm-build' first"; exit 1; }
     @echo ""
-    @echo "── .wasm size baseline (SPEC-072, post wasm-opt) ──"
+    @echo "── .wasm size (post wasm-opt; features: {{ if _wasm_features == '' { 'none (lean)' } else { _wasm_features } }}) ──"
     @awk 'BEGIN{printf "  raw:     %8.2f MB\n", '"$(wc -c < pkg/crustyimg_bg.wasm)"'/1048576}'
     @awk 'BEGIN{printf "  gzip:    %8.2f MB\n", '"$(gzip -9 -c pkg/crustyimg_bg.wasm | wc -c)"'/1048576}'
     @command -v brotli >/dev/null 2>&1 && awk 'BEGIN{printf "  brotli:  %8.2f MB\n", '"$(brotli -q 11 -c pkg/crustyimg_bg.wasm 2>/dev/null | wc -c)"'/1048576}' || echo "  brotli:  (brotli not installed)"
@@ -130,7 +140,7 @@ wasm-size:
 wasm-test:
     @command -v wasm-bindgen-test-runner >/dev/null 2>&1 || { echo "wasm-bindgen-test-runner not installed (cargo install wasm-bindgen-cli --version 0.2.126)"; exit 1; }
     PATH="{{_wasm_bin}}:$PATH" RUSTC="{{_wasm_bin}}/rustc" \
-        "{{_wasm_bin}}/cargo" test --target wasm32-unknown-unknown --test wasm_roundtrip
+        "{{_wasm_bin}}/cargo" test --target wasm32-unknown-unknown --test wasm_roundtrip {{_wasm_features}}
 
 # Lint with clippy, warnings as errors (the CI gate, AGENTS §6)
 lint:

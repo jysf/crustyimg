@@ -12,12 +12,21 @@
 //! Compiled only for `wasm32` (`#[cfg]` in `lib.rs`), so it adds nothing to the
 //! native binary.
 //!
+//! ## AVIF: encode in, decode out (DEC-065)
+//!
+//! The wasm artifact is built `--features avif` (see the `wasm-*` justfile
+//! recipes), so `transform(png, recipe, "avif")` really runs `rav1e` in the
+//! browser — the wave's headline. AVIF **decode** is a different codec
+//! (`re_rav1d`), and it does not compile to bare wasm32 (DEC-064), so an AVIF
+//! *input* still returns a typed error. The asymmetry is deliberate and recorded
+//! in DEC-065.
+//!
 //! ## What is NOT here
 //!
-//! - **AVIF decode.** `re_rav1d` does not compile to bare wasm32 (DEC-064), so an
-//!   AVIF input returns a typed error. SPEC-073 decides the restore path. Every
-//!   other default input format — PNG, JPEG, GIF, BMP, TIFF, ICO, WebP, and **SVG**
-//!   (resvg rasterizes in wasm) — works.
+//! - **AVIF decode.** An AVIF input returns a typed
+//!   [`crate::image::ImageError::CodecUnavailableOnTarget`]. Every other default
+//!   input format — PNG, JPEG, GIF, BMP, TIFF, ICO, WebP, and **SVG** (resvg
+//!   rasterizes in wasm) — works.
 //! - **The filesystem.** There is no `source`/`sink` path handling in wasm: bytes
 //!   in, bytes out. The caller (JS) owns the `File`/`Blob`.
 //!
@@ -46,13 +55,17 @@ use crate::sink;
 /// `optimize`/`shrink` commands use (DEC-019).
 const DEFAULT_TARGET: f64 = 90.0;
 
-/// Which optional codecs this build has. The wasm build is the pure-Rust default
-/// set: no `webp-lossy` (a vendored C library) and no `avif` encode feature. Stated
-/// once here so [`decide::format_shortlist`] shortlists only formats we can
+/// Which optional codecs this build has. The wasm build is the pure-Rust set: no
+/// `webp-lossy` (a vendored C library, and no `cc` in a wasm build), but `avif`
+/// **encode** when the artifact is built with the feature — which the shipped one
+/// is (DEC-065). Read from `cfg!` rather than hardcoded, exactly as the CLI does
+/// (`cli::built_codecs`), so this can never drift from what is actually linked.
+///
+/// Stated once here so [`decide::format_shortlist`] shortlists only formats we can
 /// actually encode.
 const WASM_CODECS: BuiltCodecs = BuiltCodecs {
     webp_lossy: false,
-    avif: false,
+    avif: cfg!(feature = "avif"),
 };
 
 /// Turn any crate error into a JS `Error` carrying its typed message.
@@ -196,8 +209,18 @@ pub fn optimize(input: &[u8], out_format: &str) -> Result<Vec<u8>, JsError> {
         (fmt, disposition)
     };
 
-    // Lossless: nothing to search — encode and hand back the bytes.
-    if disposition == Disposition::Lossless {
+    // Nothing to search — encode at the format's default and hand back the bytes.
+    // Two cases land here:
+    //   * a LOSSLESS target (PNG, lossless WebP): no quality knob at all;
+    //   * a lossy target this build cannot PERCEPTUALLY score. The perceptual
+    //     search encodes a candidate and DECODES IT BACK to score the round-trip
+    //     (DEC-019), so it needs a decoder — and AVIF has an encoder here but no
+    //     decoder (DEC-065). Asking `auto_quality` to search AVIF would fail on the
+    //     first candidate's decode, so the honest answer is a single encode at the
+    //     encoder's default quality. `supports_perceptual_quality` is the same seam
+    //     the CLI guards on, so wasm and native agree about which formats are
+    //     searchable.
+    if disposition == Disposition::Lossless || !fmt.supports_perceptual_quality() {
         return sink::encode_to_bytes(&img, fmt, None).map_err(js_err);
     }
 

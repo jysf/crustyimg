@@ -168,11 +168,15 @@ have an impressive unused tool.
   (wasm's `optimize` currently takes the format shortlist's first candidate — honest, not
   best); (2) **a wasm CI job** — today only a local `just wasm-test` floor guards the wasm
   build (mirrors the fuzz-gate CI decision, DEC-062); (3) **bundle size = SPEC-074's brief**
-  (1.19 MB brotli; prime levers = `ssimulacra2`, the resvg text stack, unused `image` codecs,
-  and the deferred `crustyimg-core` crate split, DEC-064); (4) a **`not(wasm32)` cfg-alias**
-  once a second default-ON feature carries a native-only dep (only `display` today). The
-  AVIF-on-wasm decision (does `rav1e` encode compile? re_rav1d decode restore path) is
-  **SPEC-073**, the next STAGE-025 spec.
+  (now **1.52 MB brotli** with AVIF encode; prime levers = `ssimulacra2`, the resvg text stack,
+  unused `image` codecs, and the deferred `crustyimg-core` crate split, DEC-064); (4) a
+  **`not(wasm32)` cfg-alias** once a second default-ON feature carries a native-only dep (only
+  `display` today). **SPEC-073 answered the AVIF-on-wasm question (DEC-065): encode is IN** —
+  `rav1e` compiles AND runs in a wasm VM, so the shipped artifact is built `--features avif`
+  and PNG → AVIF works in the browser (+345 KB brotli, +28%) — while **decode stays deferred**
+  (`re_rav1d` still won't build for wasm32; the browser's own `createImageBitmap` reads `.avif`
+  for the demo page). Carries: STAGE-027 must treat AVIF encode as a slow, worker-thread
+  operation (rav1e runs serial — no wasm threads) and must decode `.avif` INPUTS itself.
 - **Proof & distribution polish.** `BENCHMARKS.md` (cross-tool, honest equal-quality rule) · a
   real docs site + quickstart + recipe cookbook + the "why crustyimg" page + README badges · the
   **client-side demo page** (Wave 3) as the flagship "try it" artifact.

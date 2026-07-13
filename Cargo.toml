@@ -219,6 +219,12 @@ webp-lossy = ["dep:webp"]
 # compile time / binary size / encode speed; the default build keeps AVIF output
 # at exit 4 (DEC-004). `just deny` stays green via the scoped `libfuzzer-sys`
 # exception in deny.toml.
+#   OFF by default on NATIVE, but the WASM artifact is built WITH it (SPEC-073,
+#   DEC-065): `rav1e` compiles and runs on wasm32, and "PNG → AVIF in the browser"
+#   is the demo's headline — no browser API encodes AVIF, so if we don't ship the
+#   encoder, nobody can. It costs +345 KB brotli (1.19 → 1.52 MB). The `just wasm-*`
+#   recipes pass the flag (`_wasm_features`); build the wasm artifact through them.
+#   AVIF DECODE is a different codec (`re_rav1d`, native-only) and stays out.
 avif = ["image/avif"]
 # HEIC/HEIF INPUT behind an off-by-default feature (SPEC-062, DEC-052/DEC-056).
 # Requires a system libheif (≥ 1.17) at build and run time — `brew install libheif`
