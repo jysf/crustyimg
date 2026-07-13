@@ -199,9 +199,16 @@ wasm-npm-smoke: wasm-npm-pkg
 # DEMO (SPEC-077) — the wasm engine as a real web page
 # ----------------------------------------------------------------------------
 #
-# `demo/` is a plain static site: index.html + demo.js + demo.css, importing the
-# wasm package directly. No bundler, no framework, no npm install — the only build
-# step is `wasm-build` plus a copy.
+# `demo/` is a plain static site: index.html + demo.js + demo.css + worker.js,
+# importing the wasm package directly. No bundler, no framework, no npm install — the
+# only build step is `wasm-build` plus a copy.
+#
+# THE ENGINE RUNS IN A WEB WORKER (SPEC-078). rav1e (AVIF encode) is serial and takes
+# seconds, and a wasm call is synchronous — on the page's thread it would freeze the
+# tab. worker.js is a module Worker that init()s the wasm and does every conversion,
+# so the page stays responsive. A Worker is a separate THREAD, not shared memory: no
+# SharedArrayBuffer, no wasm threads, and therefore no COOP/COEP headers (which
+# GitHub Pages could not set anyway).
 #
 # ⚠ THE DEMO MUST BE SERVED OVER HTTP. Opened as a `file://` URL it cannot work, and
 # the reason is EARLIER than the MIME type: demo.js is an ES module, module scripts are
@@ -225,11 +232,20 @@ demo-build: wasm-build
 demo-serve port="8080": demo-build
     @node scripts/serve.mjs demo {{port}}
 
-# The demo's earned verdict (SPEC-077): serve it, load it in a REAL headless Chrome,
-# and drive the actual user path — init() the engine over HTTP, put a PNG in the file
-# picker, convert it, and decode the downloaded bytes with an independent parser.
-# Also asserts the pitch: the .wasm arrives as application/wasm, and the conversion
-# makes zero network requests.
+# The demo's earned verdict (SPEC-077, SPEC-078): serve it, load it in a REAL headless
+# Chrome, and drive the actual user path — init() the engine over HTTP, put a PNG in
+# the file picker, convert it, and decode the downloaded bytes with an independent
+# parser. Also asserts the pitch: the .wasm arrives as application/wasm, and the
+# conversion makes zero network requests.
+#
+# SPEC-078 added the claims a Worker makes possible, each one driven rather than
+# asserted: the engine init()s inside a module Worker (its own CDP target, which is
+# also where the .wasm fetch now shows up); the main thread keeps running timers AND
+# animation frames THROUGHOUT a slow AVIF encode; the PNG → AVIF output is valid AVIF
+# per decoders the crate never met (an ISOBMFF parse here, Chrome's libavif, and
+# `sips` on macOS — the engine cannot check this one itself, DEC-065); an .avif INPUT
+# converts through the browser's decoder; and the readout shows bytes, % saved, and
+# the chosen format.
 #
 # A page that renders perfectly but cannot instantiateStreaming is the failure this
 # exists to catch, so it must be a browser — Node cannot see it. Needs Chrome or

@@ -3,7 +3,7 @@
 task:
   id: SPEC-078
   type: story
-  cycle: design                    # frame | design | build | verify | ship
+  cycle: build                     # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: M                    # S | M | L  (may split if the UX balloons)
@@ -45,10 +45,20 @@ cost:
         the wave's facts: AVIF encode is ALREADY compiled into the deployed .wasm (DEC-065, one
         artifact) so this enables + off-loads it; rav1e is serial on wasm (must go off the main
         thread); the wasm build can't decode AVIF (DEC-073) so `.avif` INPUTS need createImageBitmap.
+    - cycle: build
+      interface: claude-code
+      tokens_total: 210000          # order-of-magnitude estimate: main-loop build, no metered subagent
+      estimated_usd: 2.60
+      note: >
+        one worktree session. Worker spine first (it worked on the first run — the --target web
+        package inits inside a module Worker unchanged), then AVIF/.avif-input/explain, then the
+        smoke. The costly part was not the code: it was proving the responsiveness claim (the CDP
+        client had to learn session routing to see the worker's own target, and the probe needed a
+        negative control before its counts meant anything).
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 210000
+    estimated_usd: 2.60
+    session_count: 1
 ---
 
 # SPEC-078: demo — Web Worker, AVIF, and the explain readout
@@ -177,20 +187,33 @@ Written now (design). Browser-driven, extending SPEC-077's `demo-smoke`:
 
 ## Build Completion
 
-*Filled in at the end of the build cycle.*
+- **Branch:** `feat/spec-078-demo-worker` (worktree `../crustyimg-wt-spec078`)
+- **PR:** #86
+- **All acceptance criteria met?** Yes, with ONE deviation on the intent controls (below).
 
-- **Branch:**
-- **PR:**
-- **All acceptance criteria met?**
-- **New decisions emitted:**
+  | Criterion | Verdict |
+  |---|---|
+  | All conversions in a Web Worker; main thread responsive during a slow AVIF encode | ✅ driven in headless Chrome: during a real 562 ms PNG→AVIF encode the page ran **28 timer callbacks and 68 animation frames**. And the probe is calibrated: a deliberate 400 ms main-thread block reads **0 / 0**, so the counts are evidence rather than noise. The worker is also structurally visible — it attaches as its own CDP target, and the `.wasm` fetch now happens there. |
+  | AVIF output works, off-thread, verified independently | ✅ 800×600 PNG → a 2632 B AVIF, confirmed by **three decoders the crate never met**: an ISOBMFF `ftyp`/`ispe` parse written from the spec, Chrome's own libavif (`createImageBitmap`), and macOS `sips` (skipped, loudly, on Linux CI). The engine *cannot* check this itself — it encodes AVIF and cannot decode it — which is exactly why an outside opinion is the only proof. Option enabled; no longer "coming". |
+  | `.avif` input works | ✅ the 16×16 fixture decodes via `createImageBitmap` → `OffscreenCanvas` → PNG → engine → 16×16 WebP. The page reports the input as `avif` (not "png"), says *whose* decoder did it, and a browser that cannot decode AVIF gets a specific message naming the browser as the refuser. |
+  | The decision is shown | ✅ bytes in→out, % saved, format chosen **and who chose it**, dimensions, how quality was decided, and where it ran — asserted off the DOM. Intent controls: output format (Auto / AVIF / WebP / JPEG / PNG) + max long edge. |
+  | Honest surface | ✅ WebP still labeled lossless; a spinner, never a %; the "bigger, not smaller" case still says why. |
+  | 100% client-side, no SAB/COOP-COEP, profiled `.wasm`, live gate | ✅ zero network requests during conversion — and the *worker's* traffic is in that log now, so a conversion phoning home from the worker could not hide. No SharedArrayBuffer, no wasm threads. The assembly guard still gates the deployed `.wasm`. |
+  | Native/engine untouched; gates green | ✅ `git diff origin/main -- src/ Cargo.toml Cargo.lock` is **0 bytes**. `just check` (fmt + clippy + build + test), `just deny`, `just validate` all green. No framework, no bundler, no backend. |
+
+- **New decisions emitted:** none. The build used DEC-064/065/067 as shipped; nothing needed a recorded tradeoff that those don't already carry.
 - **Deviations from spec:**
+  - **No quality/byte-budget slider.** The acceptance criteria ask for "a quality/byte-budget where the format supports it", but the shipped wasm surface (DEC-064) takes **no quality argument** — `transform` encodes at the format default and `optimize` decides quality itself. A slider would therefore control nothing, and adding one to the surface is explicitly out of scope for this spec. So the page shows how quality *was* decided instead (JPEG: searched with SSIMULACRA2; AVIF: encoder default, **not** searched, because a perceptual search must decode each candidate and this build cannot decode AVIF; WebP/PNG: lossless), and I added **Auto** — real intent, wired to the engine's own analysis + format shortlist — as the control that does exist. See the follow-up below.
+  - **The `.avif` decode happens in the worker, not the page.** `createImageBitmap`/`OffscreenCanvas` are available to workers, so keeping it there means the page's thread never touches image data at all.
 - **Follow-up work identified:**
+  1. **A quality / byte-budget argument on the wasm surface** (`optimize(bytes, format, { target, maxBytes })`) — the missing half of "intent". It is an engine-surface change, so it needs its own spec; the demo can wire a slider to it in an afternoon once it exists. The engine already has the byte-budget search (the only one AVIF can use, since the perceptual one needs a decoder).
+  2. **AVIF encode is slow enough to want cancellation.** A superseded job is currently dropped on the floor — the page ignores its result, but the worker still finishes it. A second worker, or an abort flag checked between engine calls, would stop a stale 5-second encode from hogging the thread.
 
 ### Build-phase reflection
 
-1. **What was unclear in the spec that slowed you down?** —
-2. **Was there a constraint or decision that should have been listed but wasn't?** —
-3. **If you did this task again, what would you do differently?** —
+1. **What was unclear in the spec that slowed you down?** — Nothing about the worker or AVIF: the spec's grounded assumptions were all correct and stated precisely enough to build from. The one gap was the **quality/byte-budget control**, which the acceptance criteria ask for and the shipped wasm surface cannot express. That is a design-time contradiction the spec could have caught by reading `src/wasm.rs`'s signatures (`optimize(input, out_format)` — no third argument).
+2. **Was there a constraint or decision that should have been listed but wasn't?** — DEC-064 is listed, but only as "the worker calls the shipped surface, don't change it". What actually mattered is a *consequence* of it: the surface exposes no quality knob, so "intent" in the browser is limited to format + size. Worth stating in the spec rather than discovering in the build.
+3. **If you did this task again, what would you do differently?** — I'd write the **negative control first**. The responsiveness probe is the whole spec's claim, and for an hour it was just a number I believed: 28 timer ticks *looks* like proof, but it only becomes proof once you've shown the same probe reads 0 against a thread you froze deliberately. Same lesson as the wave's green-poll-loop bug, from the other side — this time I checked before shipping the belief, but only because the spec's own history told me to.
 
 ---
 

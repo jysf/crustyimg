@@ -12,9 +12,18 @@ they go. Status markers: `[ ]` not started · `[~]` in progress · `[x]` complet
   module Worker (main thread stays responsive), enable AVIF output, `.avif` input, the bytes/format/
   saving readout + intent controls. Ship completes STAGE-027. Named assumptions to drive: module
   worker inits the wasm; createImageBitmap decodes AVIF; "progress" = a busy state, not a %.
-- [ ] **build** — through a PR, in a WORKTREE. Worker first (module worker + init + one round-trip),
-  then AVIF/`.avif`-input/UX. Drive the real browser (responsiveness + valid AVIF). Commit `-s`,
-  per-session usd.
+- [x] **build** (2026-07-13, worktree `crustyimg-wt-spec078`, PR #86) — worker first, as instructed:
+  `demo/worker.js` (module Worker) `init()`s the wasm and every conversion goes through it; the
+  existing smoke passed against it on day one, proving the `--target web` package inits inside a
+  module worker. Then AVIF output enabled (+ Auto/JPEG), the `.avif` input via
+  `createImageBitmap`→OffscreenCanvas→PNG, the explain readout, and a spinner (no fake %). `demo-smoke`
+  extended: it now auto-attaches to the WORKER's CDP target (which is where the `.wasm` fetch moved),
+  drives a real 800×600 PNG→AVIF encode, and proves the main thread stays alive through it — WITH a
+  negative control (a deliberate 400 ms freeze reads 0 timers / 0 frames, so the counts are evidence).
+  AVIF validity checked by three decoders the crate never met (an ISOBMFF `ispe` parse, Chrome's
+  libavif, macOS `sips`). `src/` untouched (0-byte diff). Deviation: **no quality slider** — the
+  shipped wasm surface takes no quality argument (DEC-064), so a slider would control nothing; the
+  page shows how quality WAS decided instead, and the byte-budget/quality intent is a follow-up.
 - [ ] **verify** — fresh adversarial session (worktree): main thread responsive during a slow AVIF
   encode, PNG→AVIF valid (independent decode), `.avif` input converts, readout correct, still
   client-side, deployed .wasm profiled, live gate passes.
