@@ -164,13 +164,17 @@ Format: `- [status] STAGE-ID — one-line summary`
   on explicit maintainer approval** (outward-facing). The packaged `.wasm` must be the size-profiled
   build (the STAGE-025 +109 KB footgun). Specs: SPEC-075 (package shape + smoke test + DEC — frame
   first), SPEC-076 (publish/release, gated, foldable).
-- [ ] STAGE-027 (not yet framed) — **the demo page.** A static, client-side single-page
-  demo (drop → intent → optimized modern-format result + format/bytes/explain → download),
-  hosted statically, 100% in-browser — the "watch it just work" artifact to time a Show HN
-  around. *(May fold into STAGE-026 if the library API makes the page thin.)*
+- [ ] STAGE-027 (framed + active on 2026-07-13) — **the demo page.** A static, client-side
+  single-page demo (drop → intent → optimized modern-format result + format/bytes/explain →
+  download), hosted statically, 100% in-browser — the "watch it just work" artifact to time a Show
+  HN around. Consumes `crustyimg-wasm`; AVIF encode in a Web Worker (rav1e serial), `.avif` inputs
+  via `createImageBitmap`, single-threaded (no COOP/COEP). Specs: SPEC-077 (skeleton — frame first),
+  SPEC-078 (worker + explain/UX). **SPEC-076 (npm publish) is parked to pair with this stage's
+  launch** (demo live + published + Show HN together).
 
-**Count:** 1 shipped / 1 active / 1 pending (STAGE-025 SHIPPED; STAGE-026 npm library framed +
-active 2026-07-12; STAGE-027 demo not yet framed)
+**Count:** 1 shipped / 2 active / 0 pending (STAGE-025 SHIPPED; STAGE-026 npm library — SPEC-075
+shipped, only the gated SPEC-076 publish parked for launch; STAGE-027 demo page framed + active
+2026-07-13). PROJ-008's final stretch: build the demo, then launch (publish + Show HN).
 
 ## Dependencies
 
