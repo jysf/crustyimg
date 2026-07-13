@@ -177,6 +177,10 @@ have an impressive unused tool.
   (`re_rav1d` still won't build for wasm32; the browser's own `createImageBitmap` reads `.avif`
   for the demo page). Carries: STAGE-027 must treat AVIF encode as a slow, worker-thread
   operation (rav1e runs serial — no wasm threads) and must decode `.avif` INPUTS itself.
+  Also carries a small **docs-cleanup** (own spec): two stale native doc strings predating
+  SPEC-058's native AVIF decode — `docs/api-contract.md` ("reading an `.avif` fails") and
+  `quality::supports_perceptual_quality`'s doc comment ("no decoder built") — both wrong on
+  native today, neither a SPEC-073 defect.
 - **Proof & distribution polish.** `BENCHMARKS.md` (cross-tool, honest equal-quality rule) · a
   real docs site + quickstart + recipe cookbook + the "why crustyimg" page + README badges · the
   **client-side demo page** (Wave 3) as the flagship "try it" artifact.

@@ -112,7 +112,7 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
   `from_bytes → build_pipeline → encode_to_bytes` path; `#[wasm_bindgen_test]` round-trip; `just wasm-build`
   fixing the RUSTC toolchain gotcha on a STABLE toolchain. Output: a real `.wasm` that decodes/encodes
   SVG + PNG/JPEG/GIF/WebP + resizes in a browser. Native default + lean builds unaffected. Likely emits DEC-064.
-- [ ] SPEC-073 (design — build-ready 2026-07-12) — **AVIF-on-wasm decision + DEC-065.** Design-time
+- [x] SPEC-073 (shipped 2026-07-12, PR #82 `f027d79`, DEC-065) — **AVIF-on-wasm decision.** Design-time
   probe RESOLVED the central question: **rav1e 0.8.1 + ravif 0.13.0 compile to wasm32** (`--features
   avif`, exit 0) → AVIF *encode* is achievable (the "convert to AVIF in-browser" headline); AVIF
   *decode* (re_rav1d) stays gated (SPEC-072), reading `.avif` inputs deferred to demo-side
@@ -123,7 +123,7 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
   Release + `wasm-opt`, measure, set the first-load budget, identify lazy-loaded codecs;
   record the number. *(Fold into SPEC-072 if the baseline number is already within budget.)*
 
-**Count:** 1 shipped / 1 in design / 1 pending (SPEC-072 SHIPPED, DEC-064; SPEC-073 framed build-ready 2026-07-12 — AVIF-on-wasm, encode proven to compile; SPEC-074 size not yet framed)
+**Count:** 2 shipped / 0 active / 1 pending (SPEC-072 wasm seam + SPEC-073 AVIF-encode both SHIPPED, DEC-064/065; only SPEC-074 bundle size left, then STAGE-025 completes)
 
 ## Design Notes
 

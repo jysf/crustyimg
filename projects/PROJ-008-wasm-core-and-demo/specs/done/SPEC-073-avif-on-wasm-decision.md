@@ -3,7 +3,7 @@
 task:
   id: SPEC-073
   type: story
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: M                    # S | M | L
@@ -69,9 +69,9 @@ cost:
         AV1 decoders, reproduced both size builds, and ran the full native gate set.
         Verdict CLEAN — no punch list.
   totals:
-    tokens_total: 500000
-    estimated_usd: 0
-    session_count: 2
+    tokens_total: 500000        # build 300k + verify 200k (design null, un-metered main loop)
+    estimated_usd: 4.50         # ~500k @ ~$9/MTok — LABELLED ESTIMATE, not a meter read (§4)
+    session_count: 3
 ---
 
 # SPEC-073: AVIF-on-wasm decision (encode in, decode deferred) + DEC
@@ -291,6 +291,38 @@ Written now (design), before build.
 
 ## Reflection (Ship)
 
-1. **What would I do differently next time?** —
-2. **Does any template, constraint, or decision need updating?** —
-3. **Is there a follow-up spec I should write now before I forget?** —
+*Appended during ship (2026-07-12). Shipped via PR #82 (squash `f027d79`, DEC-065); the clean
+path — no out-of-scope commits to split, all three commits signed off (the SPEC-072 DCO lesson
+landed).*
+
+1. **What would I do differently next time?** — Nothing structural; this is the pattern working.
+   The design-time probe (does `rav1e` compile to wasm?) answered the spec's central question
+   before a line was written, so the build had no design surprises — its one deviation
+   (`optimize`'s perceptual-search guard) wasn't a design miss but a **second-order consequence of
+   flipping a cargo feature**: turning `avif` on for a new target lit up *every* `cfg(feature =
+   "avif")` site, including `supports_lossy_quality(Avif) → true`, which re-routed `optimize` into a
+   search that decodes candidates — which AVIF-on-wasm can't. The generalizable lesson (banked in
+   memory): **enabling a feature for a new target flips every `cfg(feature)` site at once — audit
+   the whole set, not just the arm you came for.** It's the `IMAGE_EXTENSIONS`-exposes-every-caller
+   lesson in a new guise.
+2. **Does any template, constraint, or decision need updating?** — DEC-065 records the durable
+   calls: encode-in / decode-deferred (the browser's own `createImageBitmap` reads `.avif`, so
+   shipping a second decoder is the wrong trade at any size), and **one artifact, no lazy AVIF
+   chunk** (wasm modules don't share code → a "chunk" is a second full 1.52 MB engine; the AVIF
+   user would pay 2.71 MB). The verify method itself is worth keeping: **a `ftyp`/magic-byte sniff
+   is not proof of a valid file — decode the wasm-produced bytes with an independent decoder**
+   (native re_rav1d + macOS `sips`, the browser's class); banked as its own memory. Also confirmed:
+   verify must commit `-s` (done this time).
+3. **Is there a follow-up spec I should write now before I forget?** — Filed to `docs/roadmap.md`:
+   (a) **STAGE-027 inherits two hard constraints** — rav1e runs *serial* on wasm (no threads), so
+   AVIF encode must run in a **Web Worker** with visible progress or the page feels hung; and
+   `.avif` *inputs* must be decoded page-side via `createImageBitmap` (we return a typed error).
+   (b) **A docs-cleanup follow-up** now owns two stale native doc strings that predate SPEC-058's
+   native AVIF decode: `docs/api-contract.md:244` ("reading an `.avif` fails") and
+   `quality::supports_perceptual_quality`'s doc comment ("no decoder built"). Neither is a SPEC-073
+   defect; both are pre-existing and out of scope. (c) The **wasm CI job** (already a SPEC-072
+   follow-up) gains stakes — a bare `cargo build --target wasm32` silently ships an artifact whose
+   headline call answers "codec not built"; CI must build through `just wasm-build`. SPEC-074
+   (bundle size) is next in STAGE-025 regardless, with a sharpened brief: of 1.52 MB brotli, ~1.19
+   is engine and ~0.35 is rav1e — the levers are `ssimulacra2` / resvg text / unused `image` codecs
+   / the `crustyimg-core` split, **not** the headline codec.

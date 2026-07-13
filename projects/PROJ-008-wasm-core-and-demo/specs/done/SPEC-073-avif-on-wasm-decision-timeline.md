@@ -57,4 +57,10 @@ they go. Status markers: `[ ]` not started · `[~]` in progress · `[x]` complet
     SPEC-019 (PR #22, 2026-06-17) and went stale when **SPEC-058** shipped native AVIF decode — the
     native binary demonstrably reads `.avif` today. Untouched by this branch; worth folding into
     the cleanup spec that already owns `supports_perceptual_quality`'s stale doc comment.
-- [ ] **ship** — squash-merge, bookkeeping on main, cost totals, reflection, memory + brag.
+- [x] **ship** (2026-07-12) — **SHIPPED.** Clean path (no out-of-scope commits to split; all 3
+  commits signed off — SPEC-072's DCO lesson landed). Squash-merged **PR #82** (`f027d79`, DEC-065).
+  Cost totals filled (500k tok / $4.50, labelled estimates, 3 sessions); ship reflection appended;
+  spec + timeline archived. STAGE-025 backlog: SPEC-073 shipped (2 shipped / 0 active / 1 pending —
+  only SPEC-074 size left). Follow-ups → `docs/roadmap.md` (STAGE-027 Web-Worker + createImageBitmap
+  constraints; a docs-cleanup for 2 stale native AVIF-decode doc strings; wasm CI job stakes).
+  `just validate` + `just cost-audit` green.
