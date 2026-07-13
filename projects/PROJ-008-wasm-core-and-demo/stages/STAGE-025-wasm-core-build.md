@@ -119,11 +119,17 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
   `createImageBitmap`. Spec: wire `out_format="avif"` into `src/wasm.rs`, enable `avif` for the wasm
   build per a size-measured strategy, PNG→AVIF `#[wasm_bindgen_test]`, **measure the .wasm size delta**
   (rav1e is large — the decisive SPEC-074 input), DEC-065 (encode in / decode deferred). Native unaffected.
-- [ ] SPEC-074 (not yet framed, may fold into SPEC-072) — **size budget + optimization.**
-  Release + `wasm-opt`, measure, set the first-load budget, identify lazy-loaded codecs;
-  record the number. *(Fold into SPEC-072 if the baseline number is already within budget.)*
+- [ ] SPEC-074 (design — build-ready 2026-07-12) — **WASM bundle size.** Shrink the shipped demo
+  `.wasm` (1.52 MB brotli w/ avif; rav1e ~0.35 is a KEEP, ~1.19 core is the debt). Design-time
+  twiggy probe: NO single whale — mass in the SVG text/font stack (usvg text + ttf_parser +
+  rustybuzz + unicode_bidi = resvg `text` feature) + the raster-codec spread (image's decoder set);
+  ssimulacra2 NOT a top contributor. Method = feature-ablation brotli-diffing on the wasm-opt'd
+  artifact + a size-tuned wasm profile (opt-level="z"/lto/panic=abort) + `wasm-opt -Oz`. No-cost
+  levers pulled unconditionally; capability-losing ones (drop SVG `<text>`, trim a codec) = explicit
+  DEC-066 calls with measured savings. `just wasm-test` stays green (no silent capability loss);
+  native unaffected. **Ship completes STAGE-025.**
 
-**Count:** 2 shipped / 0 active / 1 pending (SPEC-072 wasm seam + SPEC-073 AVIF-encode both SHIPPED, DEC-064/065; only SPEC-074 bundle size left, then STAGE-025 completes)
+**Count:** 2 shipped / 1 in design / 0 pending (SPEC-072 + SPEC-073 SHIPPED, DEC-064/065; SPEC-074 bundle size framed build-ready 2026-07-12 — its ship completes STAGE-025)
 
 ## Design Notes
 
