@@ -35,14 +35,34 @@ const pkgDir = join(repoRoot, "pkg");
 
 const PKG_NAME = "crustyimg-wasm";
 
-// The size band around the DEC-066 profiled artifact (1,394,313 B brotli at the
-// time of writing). The ceiling is the load-bearing half: a bare `cargo build
-// --target wasm32` — i.e. someone bypassing `just wasm-build` — lands ~109 KB
-// above the profiled build and trips it. The floor catches the opposite mistake:
-// a build without `--features avif`, which is ~145 KB *smaller* and quietly ships
-// a package that cannot do the thing the demo is for (DEC-065).
-const WASM_BROTLI_MAX = 1_450_000;
-const WASM_BROTLI_MIN = 1_300_000;
+// ── The profile guard ─────────────────────────────────────────────────────────
+// What actually needs proving is "this .wasm came through the size-profiled
+// `just wasm-build` (DEC-066)". Size alone is only a PROXY for that, and a weak
+// one: the profiled build (1,394,631 B brotli) and a stock-profile build
+// (1,503,485 B, measured) are just 7.8% apart, so a single hand-picked ceiling
+// between them has ~4% of daylight on either side. It would false-trip on any
+// legitimate 4% growth — and *misreport the cause* when it did ("a bare cargo
+// build would blow this") — while its discriminating power erodes as the artifact
+// grows, because a stock build grows with it.
+//
+// So the profile is asserted STRUCTURALLY, and size is asserted separately:
+//
+//  1. `strip = true` — one of DEC-066's three levers — is directly observable in
+//     the binary: a stripped .wasm has no debug-name table. Measured: the profiled
+//     artifact carries a 43 B `name` custom section, a stock-profile one carries
+//     980,293 B. Four orders of magnitude — categorical rather than a threshold,
+//     and immune to however much the code legitimately grows.
+//  2. The wire size is then a plain REGRESSION baseline keyed to the measured
+//     profiled artifact, so a real size regression is reported as a size
+//     regression instead of being misdiagnosed as a bypassed recipe.
+//  3. The floor still asserts the AVIF encoder is actually in (DEC-065) — a lean
+//     build is hundreds of KB smaller and quietly ships a package that cannot do
+//     the thing the demo is for.
+const WASM_NAME_SECTION_MAX = 4_096;
+const WASM_BROTLI_BASELINE = 1_394_631;
+const WASM_BROTLI_TOLERANCE = 0.05;
+const WASM_BROTLI_MAX = Math.round(WASM_BROTLI_BASELINE * (1 + WASM_BROTLI_TOLERANCE));
+const WASM_BROTLI_MIN = Math.round(WASM_BROTLI_BASELINE * (1 - WASM_BROTLI_TOLERANCE));
 
 const tmpDirs = [];
 let failed = 0;
@@ -134,6 +154,38 @@ function makePng(width, height) {
   ]);
 }
 
+// ── The wasm section table ────────────────────────────────────────────────────
+// Walk the module's sections. Id 0 is a custom section whose payload opens with a
+// LEB128-length-prefixed name; `name` is the debug symbol table that `strip`
+// removes. This is how we see the build profile in the artifact itself.
+function customSections(buf) {
+  const out = new Map();
+  let o = 8; // skip the magic + version words
+  const leb = () => {
+    let r = 0;
+    let s = 0;
+    let b;
+    do {
+      b = buf[o++];
+      r |= (b & 0x7f) << s;
+      s += 7;
+    } while (b & 0x80);
+    return r >>> 0;
+  };
+  while (o < buf.length) {
+    const id = buf[o++];
+    const len = leb();
+    const end = o + len;
+    if (end > buf.length) break; // malformed; nothing further is trustworthy
+    if (id === 0) {
+      const nameLen = leb();
+      out.set(buf.toString("utf8", o, o + nameLen), len);
+    }
+    o = end;
+  }
+  return out;
+}
+
 // ── 1. the packaged artifact ──────────────────────────────────────────────────
 console.log("\n── the finalized pkg/ ──");
 
@@ -162,18 +214,30 @@ check(
 const wasmBytes = readFileSync(join(pkgDir, "crustyimg_bg.wasm"));
 const brotli = brotliCompressSync(wasmBytes).length;
 const raw = wasmBytes.length;
+const nameSection = customSections(wasmBytes).get("name") ?? 0;
 console.log(
-  `    .wasm: ${(raw / 1048576).toFixed(2)} MB raw, ${(brotli / 1048576).toFixed(2)} MB brotli (${brotli} B)`,
+  `    .wasm: ${(raw / 1048576).toFixed(2)} MB raw, ${(brotli / 1048576).toFixed(2)} MB brotli ` +
+    `(${brotli} B), \`name\` section ${nameSection} B`,
+);
+
+// The load-bearing one: this proves the artifact was BUILT the right way, rather
+// than inferring it from how much it weighs.
+check(
+  nameSection <= WASM_NAME_SECTION_MAX,
+  `.wasm is stripped, so it came through the size-profiled \`just wasm-build\` (\`name\` debug ` +
+    `section ${nameSection} B <= ${WASM_NAME_SECTION_MAX} — a stock-profile build carries ~980 KB ` +
+    `there, DEC-066)`,
 );
 check(
   brotli <= WASM_BROTLI_MAX,
-  `.wasm is the size-profiled build (brotli ${brotli} <= ${WASM_BROTLI_MAX} — a bare ` +
-    `cargo build would blow this, DEC-066)`,
+  `.wasm is within ${WASM_BROTLI_TOLERANCE * 100}% of the ${WASM_BROTLI_BASELINE} B baseline ` +
+    `(brotli ${brotli} <= ${WASM_BROTLI_MAX}) — if this growth is deliberate, move ` +
+    `WASM_BROTLI_BASELINE and say why`,
 );
 check(
   brotli >= WASM_BROTLI_MIN,
   `.wasm carries the AVIF encoder (brotli ${brotli} >= ${WASM_BROTLI_MIN} — a build without ` +
-    `--features avif would be smaller, DEC-065)`,
+    `--features avif would be far smaller, DEC-065)`,
 );
 
 if (failed) die(`${failed} check(s) failed before packing`);

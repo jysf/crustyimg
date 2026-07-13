@@ -54,10 +54,22 @@ cost:
         ran in the orchestrator main loop, not a metered subagent — tokens_total is an
         order-of-magnitude ESTIMATE (~80/20 in/out at Opus 4.8 list rates, no cache discount),
         not a harness-reported number.
+    - cycle: verify
+      interface: claude-code
+      tokens_total: 95000
+      duration_minutes: 30
+      estimated_usd: 0.90
+      note: >
+        ORDER-OF-MAGNITUDE ESTIMATE (verify ran in the main loop, not a metered subagent —
+        see the autonomous-run-cost-estimates lesson). Fresh adversarial session in an
+        isolated worktree, 2026-07-13. Dominated by two full wasm-pack release builds (the
+        profiled artifact + a stock-profile one to measure the guard's failure case), the
+        pack/install/run smoke, the finalize-script drift mutations, and the native gate
+        sweep (build/lean/test/clippy/deny/validate).
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 225000        # build 130k + verify 95k (design null, un-metered main loop)
+    estimated_usd: 2.10         # LABELLED ESTIMATE, not a meter read (§4)
+    session_count: 3
 ---
 
 # SPEC-075: npm package shape + identity + install smoke test
