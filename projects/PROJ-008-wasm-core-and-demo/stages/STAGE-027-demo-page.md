@@ -87,15 +87,17 @@ moment. When it ships, PROJ-008's public face is done.
 
 Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
-- [ ] SPEC-077 (not yet framed) — **demo skeleton, single-threaded.** A static page that loads
-  `crustyimg-wasm`, drop-an-image → `transform`/`optimize` → show result + `info` + bytes → download;
-  SVG + raster in, WebP/PNG/AVIF out; static hosting wired. The end-to-end "it works in a browser"
-  proof. **Frame this first.**
+- [ ] SPEC-077 (design — build-ready 2026-07-13) — **demo skeleton, single-threaded.** A static,
+  no-bundler page that loads `crustyimg-wasm` (`import init … from crustyimg.js; await init()` —
+  served over HTTP, NOT `file://`, per the wasm MIME/streaming grounding), drop-an-image →
+  `optimize`/`transform` → result + `info` + bytes → download; SVG + PNG/JPEG/GIF/WebP in, **WebP/PNG
+  out** (AVIF deferred to 078 — needs the worker); GitHub Pages deploy through `just wasm-build`
+  (size-profiled `.wasm`); browser-driven smoke. The end-to-end "it works in a browser" proof.
 - [ ] SPEC-078 (not yet framed) — **make it not-freeze + honest + polished.** AVIF encode in a Web
   Worker with progress (rav1e serial); `.avif` inputs via `createImageBitmap`; the explain/bytes-saved
   readout; the honest WebP-lossless labeling; intent controls (quality/budget/format). May split.
 
-**Count:** 0 shipped / 0 active / 2 pending (SPEC-077 first; SPEC-078 the worker/UX layer)
+**Count:** 0 shipped / 1 in design / 1 pending (SPEC-077 framed build-ready 2026-07-13; SPEC-078 the worker/AVIF/explain/UX layer, not yet framed)
 
 ## Design Notes
 
