@@ -87,16 +87,18 @@ developer can `npm install` and call in the browser (and the artifact STAGE-027'
 
 Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
-- [ ] SPEC-075 (not yet framed) — **npm package shape + identity + install smoke test.** Settle
-  name/scope/target/versioning/README; make `just wasm-build`'s `pkg/` a correct npm package;
-  prove `npm pack` → fresh-install → `transform`/`info` runs client-side with no native addon;
-  DEC for the identity/target/versioning/publish policy. **Frame this first.**
+- [ ] SPEC-075 (design — build-ready 2026-07-12) — **npm package shape + identity + install smoke
+  test.** Probe found: all candidate npm names FREE (bare `crustyimg` not taken → identity is a
+  clarity choice, not forced scoping); `--target web` needs explicit `init()`/`initSync` (shapes the
+  smoke test + the demo). Settle name/target/versioning/README (DEC-067); packaging recipe through
+  `just wasm-build` (size-profiled, DEC-066); prove `npm pack` → fresh-install → `info`/`transform`
+  runs client-side, no native addon (`just wasm-npm-smoke`). NO live publish (SPEC-076, gated).
 - [ ] SPEC-076 (not yet framed, may fold) — **publish + release workflow (gated).** A `just`
   publish recipe / CI release job that builds through `just wasm-build` (size-profiled) and
   publishes — **run only on explicit maintainer approval**. May fold into SPEC-075 as a dry-run +
   documented manual step if a live publish isn't wanted yet.
 
-**Count:** 0 shipped / 0 active / 2 pending (SPEC-075 first; SPEC-076 gated/foldable)
+**Count:** 0 shipped / 1 in design / 1 pending (SPEC-075 framed build-ready 2026-07-12; SPEC-076 publish gated/foldable, not yet framed)
 
 ## Design Notes
 
