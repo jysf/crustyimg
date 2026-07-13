@@ -28,41 +28,25 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { brotliCompressSync, deflateSync } from "node:zlib";
+import { brotliCompressSync } from "node:zlib";
+
+import { makePng, readIhdr } from "../scripts/lib/png.mjs";
+// The build-profile fingerprint (see the module for WHY it is structural rather
+// than a size band). Shared with the demo's assembly guard (SPEC-077), so there is
+// one definition of "this .wasm came through `just wasm-build`" in the repo.
+import {
+  WASM_BROTLI_BASELINE,
+  WASM_BROTLI_MAX,
+  WASM_BROTLI_MIN,
+  WASM_BROTLI_TOLERANCE,
+  WASM_NAME_SECTION_MAX,
+  nameSectionSize,
+} from "../scripts/lib/wasm-artifact.mjs";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const pkgDir = join(repoRoot, "pkg");
 
 const PKG_NAME = "crustyimg-wasm";
-
-// ── The profile guard ─────────────────────────────────────────────────────────
-// What actually needs proving is "this .wasm came through the size-profiled
-// `just wasm-build` (DEC-066)". Size alone is only a PROXY for that, and a weak
-// one: the profiled build (1,394,631 B brotli) and a stock-profile build
-// (1,503,485 B, measured) are just 7.8% apart, so a single hand-picked ceiling
-// between them has ~4% of daylight on either side. It would false-trip on any
-// legitimate 4% growth — and *misreport the cause* when it did ("a bare cargo
-// build would blow this") — while its discriminating power erodes as the artifact
-// grows, because a stock build grows with it.
-//
-// So the profile is asserted STRUCTURALLY, and size is asserted separately:
-//
-//  1. `strip = true` — one of DEC-066's three levers — is directly observable in
-//     the binary: a stripped .wasm has no debug-name table. Measured: the profiled
-//     artifact carries a 43 B `name` custom section, a stock-profile one carries
-//     980,293 B. Four orders of magnitude — categorical rather than a threshold,
-//     and immune to however much the code legitimately grows.
-//  2. The wire size is then a plain REGRESSION baseline keyed to the measured
-//     profiled artifact, so a real size regression is reported as a size
-//     regression instead of being misdiagnosed as a bypassed recipe.
-//  3. The floor still asserts the AVIF encoder is actually in (DEC-065) — a lean
-//     build is hundreds of KB smaller and quietly ships a package that cannot do
-//     the thing the demo is for.
-const WASM_NAME_SECTION_MAX = 4_096;
-const WASM_BROTLI_BASELINE = 1_394_631;
-const WASM_BROTLI_TOLERANCE = 0.05;
-const WASM_BROTLI_MAX = Math.round(WASM_BROTLI_BASELINE * (1 + WASM_BROTLI_TOLERANCE));
-const WASM_BROTLI_MIN = Math.round(WASM_BROTLI_BASELINE * (1 - WASM_BROTLI_TOLERANCE));
 
 const tmpDirs = [];
 let failed = 0;
@@ -102,90 +86,6 @@ function run(cmd, args, cwd) {
   return execFileSync(cmd, args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
 }
 
-// ── A PNG fixture, encoded here in plain JS ────────────────────────────────────
-// Deliberately NOT produced by the package under test: an input the crate's own
-// encoder wrote would let a broken decode-encode round-trip agree with itself.
-// This is a hand-rolled 8-bit RGB PNG (filter 0 scanlines, zlib IDAT) — the
-// format's own spec, written by neither Rust nor the `image` crate.
-function crc32(buf) {
-  let c = ~0;
-  for (const b of buf) {
-    c ^= b;
-    for (let k = 0; k < 8; k++) c = (c >>> 1) ^ (0xedb88320 & -(c & 1));
-  }
-  return ~c >>> 0;
-}
-
-function pngChunk(type, data) {
-  const len = Buffer.alloc(4);
-  len.writeUInt32BE(data.length);
-  const body = Buffer.concat([Buffer.from(type, "ascii"), data]);
-  const crc = Buffer.alloc(4);
-  crc.writeUInt32BE(crc32(body));
-  return Buffer.concat([len, body, crc]);
-}
-
-function makePng(width, height) {
-  const ihdr = Buffer.alloc(13);
-  ihdr.writeUInt32BE(width, 0);
-  ihdr.writeUInt32BE(height, 4);
-  ihdr[8] = 8; // bit depth
-  ihdr[9] = 2; // colour type: truecolour RGB (no alpha)
-  // 10..12 = compression, filter, interlace — all 0.
-
-  // A gradient, not a solid fill: a solid image survives almost any bug.
-  const raw = Buffer.alloc(height * (1 + width * 3));
-  for (let y = 0; y < height; y++) {
-    const row = y * (1 + width * 3);
-    raw[row] = 0; // filter type 0 (None)
-    for (let x = 0; x < width; x++) {
-      const p = row + 1 + x * 3;
-      raw[p] = (x * 255) / (width - 1);
-      raw[p + 1] = (y * 255) / (height - 1);
-      raw[p + 2] = 128;
-    }
-  }
-
-  return Buffer.concat([
-    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
-    pngChunk("IHDR", ihdr),
-    pngChunk("IDAT", deflateSync(raw)),
-    pngChunk("IEND", Buffer.alloc(0)),
-  ]);
-}
-
-// ── The wasm section table ────────────────────────────────────────────────────
-// Walk the module's sections. Id 0 is a custom section whose payload opens with a
-// LEB128-length-prefixed name; `name` is the debug symbol table that `strip`
-// removes. This is how we see the build profile in the artifact itself.
-function customSections(buf) {
-  const out = new Map();
-  let o = 8; // skip the magic + version words
-  const leb = () => {
-    let r = 0;
-    let s = 0;
-    let b;
-    do {
-      b = buf[o++];
-      r |= (b & 0x7f) << s;
-      s += 7;
-    } while (b & 0x80);
-    return r >>> 0;
-  };
-  while (o < buf.length) {
-    const id = buf[o++];
-    const len = leb();
-    const end = o + len;
-    if (end > buf.length) break; // malformed; nothing further is trustworthy
-    if (id === 0) {
-      const nameLen = leb();
-      out.set(buf.toString("utf8", o, o + nameLen), len);
-    }
-    o = end;
-  }
-  return out;
-}
-
 // ── 1. the packaged artifact ──────────────────────────────────────────────────
 console.log("\n── the finalized pkg/ ──");
 
@@ -214,7 +114,7 @@ check(
 const wasmBytes = readFileSync(join(pkgDir, "crustyimg_bg.wasm"));
 const brotli = brotliCompressSync(wasmBytes).length;
 const raw = wasmBytes.length;
-const nameSection = customSections(wasmBytes).get("name") ?? 0;
+const nameSection = nameSectionSize(wasmBytes);
 console.log(
   `    .wasm: ${(raw / 1048576).toFixed(2)} MB raw, ${(brotli / 1048576).toFixed(2)} MB brotli ` +
     `(${brotli} B), \`name\` section ${nameSection} B`,
@@ -371,14 +271,11 @@ check(results.info.hasAlpha === false, "info(png) → hasAlpha false (the fixtur
 // dimensions. Checked twice, once by a decoder we did not write — the PNG header
 // is parsed here in plain JS, independently of anything the crate does.
 const png = results.out.png;
-const head = Buffer.from(png.head, "hex");
-const sig = head.subarray(0, 8).toString("hex") === "89504e470d0a1a0a";
-const ihdrW = head.readUInt32BE(16);
-const ihdrH = head.readUInt32BE(20);
-check(sig, "transform(png) → real PNG signature");
+const ihdr = readIhdr(Buffer.from(png.head, "hex"));
+check(ihdr.signature, "transform(png) → real PNG signature");
 check(
-  ihdrW === 32 && ihdrH === 24,
-  `transform(png) → PNG IHDR says ${ihdrW}x${ihdrH} (independent parse; expected 32x24)`,
+  ihdr.width === 32 && ihdr.height === 24,
+  `transform(png) → PNG IHDR says ${ihdr.width}x${ihdr.height} (independent parse; expected 32x24)`,
 );
 check(
   png.back.width === 32 && png.back.height === 24 && png.back.format === "png",

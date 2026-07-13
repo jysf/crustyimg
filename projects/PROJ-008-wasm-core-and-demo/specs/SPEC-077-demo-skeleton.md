@@ -3,7 +3,7 @@
 task:
   id: SPEC-077
   type: story
-  cycle: design                    # frame | design | build | verify | ship
+  cycle: build                     # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: M                    # S | M | L
@@ -45,10 +45,20 @@ cost:
         `./crustyimg_bg.wasm` subpath; the default `init()` resolves the wasm as
         `new URL('crustyimg_bg.wasm', import.meta.url)` + `instantiateStreaming` — so the page
         MUST be served over HTTP (correct `application/wasm` MIME), not opened as `file://`.
+    - cycle: build
+      interface: claude-code
+      tokens_total: 145000
+      duration_minutes: 55
+      estimated_usd: 1.35
+      note: >
+        ran in the build session's main loop, not a metered subagent — tokens_total is an
+        order-of-magnitude ESTIMATE (~80/20 in/out at Opus 4.8 list rates, no cache discount),
+        not a harness-reported number. Includes the wasm rebuilds and ~6 headless-Chrome smoke
+        runs.
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 145000
+    estimated_usd: 1.35
+    session_count: 1
 ---
 
 # SPEC-077: demo skeleton (in-browser, single-threaded)
@@ -185,20 +195,82 @@ an assembly guard:
 
 ## Build Completion
 
-*Filled in at the end of the build cycle.*
-
-- **Branch:**
-- **PR:**
-- **All acceptance criteria met?**
-- **New decisions emitted:**
+- **Branch:** `feat/spec-077-demo-skeleton` (built in a worktree, not the shared checkout)
+- **PR:** #85
+- **All acceptance criteria met?** Yes — all six, each proven by `just demo-smoke` driving real
+  headless Chrome over HTTP (22 checks green), not by inspection:
+  - `init()` resolves via `instantiateStreaming`; a PNG dropped into the real `<input type=file>`
+    (CDP `DOM.setFileInputFiles` — the user path, not a test hook) converts in-browser; bytes +
+    dims + format shown for input and output; a `blob:` download is produced. The output's bytes
+    are pulled back out of the browser and decoded by parsers we wrote ourselves (VP8L header for
+    WebP, IHDR for PNG), so the engine never grades its own homework.
+  - Input reach driven through the page: **SVG** (the repo's hand-written 40×30 fixture →
+    rasterized, reported `png`), **JPEG, GIF, WebP, PNG**. Output: **WebP + PNG**. AVIF is a
+    `disabled` option labelled "coming (needs a Web Worker)" — never called.
+  - 100% client-side, **measured, not asserted**: the CDP network log shows ZERO requests during
+    the conversion, and nothing off-origin across the whole page load.
+  - The vendored `.wasm` is the size-profiled one — the assembler refuses any other (structural
+    `strip` fingerprint: 42 B `name` section vs ~980 KB, reused from SPEC-075).
+  - `file://` limitation documented **and tested** (see below). Pages deploy path exists
+    (`.github/workflows/pages.yml`), gated on the browser smoke.
+  - `src/` diff is empty; `just deny`, `just validate`, `just wasm-npm-smoke` green.
+- **New decisions emitted:** none — DEC-064/066/067 covered it, as the spec predicted.
 - **Deviations from spec:**
+  - **The `file://` failure mode is not what the spec said, and the spec's version is the
+    dangerous one.** The design (and my first draft of the page) said `instantiateStreaming`
+    fails on the MIME type. Measured in headless Chrome: it never gets that far. `demo.js` is an
+    **ES module**, module scripts are fetched under CORS, and a `file://` origin is opaque — so
+    the browser blocks the module before executing a line of it. No import, no `init()`, no
+    `catch`, no console error: the page sits on "Loading the engine…" **forever**. The MIME
+    problem is real and would bite second. Fixed by a classic (non-module) script in `index.html`
+    that detects `file:` and says so — a classic script is not CORS-fetched, which is exactly why
+    it survives to explain the failure. The smoke now asserts both halves (can't run, and says
+    why), so the claim is tested rather than repeated.
+  - **Added a CI gate the spec didn't ask for.** `pages.yml` runs `just demo-smoke` on every PR
+    and blocks the deploy on it. This is the first CI job in the repo that builds through
+    `just wasm-build` — it closes part of the standing "CI never runs the wasm smokes" carry
+    (`wasm-npm-smoke` is still Mac-only).
+  - **Refactored two SPEC-075 helpers into `scripts/lib/`** (`wasm-artifact.mjs`, `png.mjs`)
+    instead of copy-pasting the fingerprint check and PNG fixture into a second smoke. There is
+    now one definition of "this .wasm came through `just wasm-build`" in the repo. `npm_smoke.mjs`
+    imports them and still passes unchanged.
+  - **No browser driver.** Chrome is driven over the DevTools Protocol directly (~80 lines of
+    WebSocket JSON-RPC). Adding Puppeteer/Playwright to prove a page that needs no toolchain would
+    have undercut the pitch it exists to make.
 - **Follow-up work identified:**
+  - **SPEC-078 (already planned):** AVIF encode in a Web Worker; `.avif` inputs via
+    `createImageBitmap`; `explain` readout; intent controls. The page's `avif` option is wired and
+    disabled, waiting for it.
+  - The conversion runs on the **main thread**, so a very large PNG will jank the tab even for
+    WebP/PNG. The Worker SPEC-078 adds should take *all* conversions, not just AVIF.
+  - **Lossless WebP can grow an already-lossy JPEG.** The page is honest about it (it says "N%
+    bigger" and why), but the real fix is AVIF (SPEC-078) or lossy WebP — which is a C library,
+    and so blocked on `pure-rust-codecs-default`. Worth a line on the license watchlist.
+  - GitHub Pages must be enabled for the repo (Settings → Pages → Source: GitHub Actions) before
+    the deploy job can publish; the workflow is correct but has never run.
 
 ### Build-phase reflection
 
-1. **What was unclear in the spec that slowed you down?** —
-2. **Was there a constraint or decision that should have been listed but wasn't?** —
-3. **If you did this task again, what would you do differently?** —
+1. **What was unclear in the spec that slowed you down?** — Nothing was unclear; one thing was
+   *wrong*, and being handed it as settled fact is what made it costly. The spec stated the
+   `file://` failure mode confidently ("instantiateStreaming fails"), so I wrote that into the
+   page's error handler and into a doc comment before testing it — and the handler I wrote can
+   never fire, because the module it lives in never loads. A design-time claim about *how*
+   something fails is exactly as unproven as a claim about how it works, and the wave has now been
+   bitten by this twice (SPEC-074's "wasm-opt fails silently at exit 0" was also false).
+2. **Was there a constraint or decision that should have been listed but wasn't?** — Not a
+   decision, but a *behaviour*: nothing warned that `optimize(bytes, "auto")` can shortlist AVIF,
+   which on the main thread would freeze the tab — the one thing the spec explicitly forbade. The
+   guardrail ("keep AVIF off the main thread") and the API's auto-format behaviour live in
+   different documents, and the collision is only visible if you read `src/wasm.rs`. The page
+   therefore always passes an explicit format. Worth stating in DEC-064's surface notes.
+3. **If you did this task again, what would you do differently?** — Drive the browser *first*.
+   The smoke was the last thing I wrote and it immediately found two real bugs (the CORS module
+   block, and a `var status` at global scope silently aliasing `window.status` — a legacy
+   string-coercing DOM property — so the error message assignment was a no-op while `dataset.state`
+   worked). Both are invisible to reading the code and instant to a real browser. For a spec whose
+   entire thesis is "we have never run this in a browser", the browser is the first tool to reach
+   for, not the verification at the end.
 
 ---
 

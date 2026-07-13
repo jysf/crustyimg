@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>crustyimg — convert images in your browser</title>
+    <meta
+      name="description"
+      content="The crustyimg engine compiled to WebAssembly. Drop an image, convert it, download it — entirely in your browser."
+    />
+    <link rel="stylesheet" href="./demo.css" />
+  </head>
+  <body>
+    <main>
+      <header>
+        <h1>crustyimg</h1>
+        <p class="tagline">
+          Resize, convert, and optimize images <strong>in your browser</strong>. The whole engine is
+          WebAssembly — your image is never uploaded anywhere.
+        </p>
+      </header>
+
+      <!-- The wasm module is a ~1.3 MB download and `init()` is explicit (DEC-067), so the page
+           is unusable until it lands. Say so, rather than letting a drop silently do nothing. -->
+      <p id="status" class="status status-loading" role="status" aria-live="polite">
+        Loading the engine…
+      </p>
+
+      <section id="drop" class="drop" hidden>
+        <input
+          type="file"
+          id="file"
+          accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml,.png,.jpg,.jpeg,.gif,.webp,.svg"
+        />
+        <label for="file">
+          <span class="drop-headline">Drop an image here</span>
+          <span class="drop-sub">or click to pick one · PNG, JPEG, GIF, WebP, SVG</span>
+        </label>
+      </section>
+
+      <section id="controls" class="controls" hidden>
+        <label>
+          Output
+          <select id="format">
+            <option value="webp" selected>WebP (lossless)</option>
+            <option value="png">PNG</option>
+            <option value="avif" disabled>AVIF — coming (needs a Web Worker)</option>
+          </select>
+        </label>
+        <label>
+          Max long edge
+          <input id="maxedge" type="number" min="1" max="20000" placeholder="px (optional)" />
+        </label>
+      </section>
+
+      <p id="error" class="error" hidden role="alert"></p>
+
+      <section id="result" class="result" hidden>
+        <div class="panes">
+          <figure class="pane">
+            <img id="in-img" alt="the image you dropped" />
+            <figcaption>
+              <span class="pane-title">Input</span>
+              <span class="metric" id="in-dims"></span>
+              <span class="metric" id="in-format"></span>
+              <span class="metric bytes" id="in-bytes"></span>
+            </figcaption>
+          </figure>
+          <figure class="pane">
+            <img id="out-img" alt="the converted result" />
+            <figcaption>
+              <span class="pane-title">Output</span>
+              <span class="metric" id="out-dims"></span>
+              <span class="metric" id="out-format"></span>
+              <span class="metric bytes" id="out-bytes"></span>
+            </figcaption>
+          </figure>
+        </div>
+
+        <p class="delta" id="delta"></p>
+        <a id="download" class="download" download>Download</a>
+      </section>
+
+      <footer>
+        <p>
+          100% client-side — no server, no upload, no network call for the conversion.
+          <span id="version" class="version"></span>
+        </p>
+        <p>
+          <a href="https://github.com/jysf/crustyimg">crustyimg on GitHub</a> ·
+          <a href="https://www.npmjs.com/package/crustyimg-wasm">crustyimg-wasm on npm</a>
+        </p>
+      </footer>
+    </main>
+
+    <!-- A CLASSIC script, deliberately — and it must come before the module below.
+         Opened as a file:// URL, this page's ES module script is CORS-blocked and never
+         executes at all: no import, no init(), no error — just "Loading the engine…"
+         forever. (The wasm's instantiateStreaming would also fail on file://, for the
+         MIME reason, but the module never gets that far.) A classic script has no such
+         restriction, so this one still runs, and can say what went wrong. -->
+    <script>
+      // An IIFE, not a bare `var`: at global scope in a classic script, `var status`
+      // aliases `window.status` — a legacy DOM property that COERCES ITS VALUE TO A
+      // STRING. The element would silently become "[object HTMLParagraphElement]" and
+      // every assignment through it a no-op. (Yes, this bit; the smoke caught it.)
+      (function () {
+        if (location.protocol !== "file:") return;
+        document.body.dataset.state = "error";
+        var banner = document.getElementById("status");
+        banner.className = "status status-error";
+        banner.textContent =
+          "This page is open as a file:// URL, so the browser will not load its code or its " +
+          "WebAssembly. It has to be SERVED over HTTP — run `just demo-serve` and open the URL " +
+          "it prints (any static server will do; so does GitHub Pages).";
+      })();
+    </script>
+    <script type="module" src="./demo.js"></script>
+  </body>
+</html>
