@@ -200,6 +200,16 @@ have an impressive unused tool.
   job must ALSO run `just wasm-npm-smoke`** (the package is proven on one Mac until CI runs it), on
   top of building through `just wasm-build`; (3) **SPEC-076** = the live `npm publish`, by hand, on
   maintainer approval (outward-facing/irreversible — the tooling deliberately can't reach it).
+- **Demo page (STAGE-027) — SKELETON SHIPPED 2026-07-13** (SPEC-077, PR #85): the wasm engine runs
+  as a **real web page** — drop an image → convert client-side → download — proven in headless
+  Chrome (init over HTTP, zero network requests during conversion, output decoded by an independent
+  decoder). `.github/workflows/pages.yml` deploys to GitHub Pages **gated on the browser smoke** and
+  is the repo's **first CI job that builds through `just wasm-build`** (partially closes the "CI
+  never runs the wasm smokes" carry). Carries: (1) **⚠ GitHub Pages is NOT enabled on the repo** —
+  the workflow is correct but has never published (maintainer: Settings → Pages → Source: GitHub
+  Actions); the deploy leg is the one thing unproven end-to-end. (2) **SPEC-078** — all conversions
+  still run on the main thread; the Web Worker should take **all of them** (not just AVIF) + `.avif`
+  input via `createImageBitmap` + the explain readout + intent controls; its ship completes STAGE-027.
 - **Proof & distribution polish.** `BENCHMARKS.md` (cross-tool, honest equal-quality rule) · a
   real docs site + quickstart + recipe cookbook + the "why crustyimg" page + README badges · the
   **client-side demo page** (Wave 3) as the flagship "try it" artifact.

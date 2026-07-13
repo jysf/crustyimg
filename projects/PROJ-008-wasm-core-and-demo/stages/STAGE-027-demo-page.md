@@ -87,7 +87,7 @@ moment. When it ships, PROJ-008's public face is done.
 
 Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
-- [ ] SPEC-077 (design — build-ready 2026-07-13) — **demo skeleton, single-threaded.** A static,
+- [x] SPEC-077 (shipped 2026-07-13, PR #85 `9a61787`) — **demo skeleton, single-threaded.** A static,
   no-bundler page that loads `crustyimg-wasm` (`import init … from crustyimg.js; await init()` —
   served over HTTP, NOT `file://`, per the wasm MIME/streaming grounding), drop-an-image →
   `optimize`/`transform` → result + `info` + bytes → download; SVG + PNG/JPEG/GIF/WebP in, **WebP/PNG
@@ -97,7 +97,7 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
   Worker with progress (rav1e serial); `.avif` inputs via `createImageBitmap`; the explain/bytes-saved
   readout; the honest WebP-lossless labeling; intent controls (quality/budget/format). May split.
 
-**Count:** 0 shipped / 1 in design / 1 pending (SPEC-077 framed build-ready 2026-07-13; SPEC-078 the worker/AVIF/explain/UX layer, not yet framed)
+**Count:** 1 shipped / 0 active / 1 pending (SPEC-077 SHIPPED 2026-07-13 — the demo runs in a real browser, drop→convert→download, deploy gated on a headless-Chrome smoke; only SPEC-078 (Web Worker for ALL conversions + AVIF + `.avif`-input via createImageBitmap + explain + intent controls) left, then STAGE-027 completes). **⚠ Carry: GitHub Pages is NOT enabled on the repo — the deploy workflow is correct but has never published (maintainer: Settings → Pages → Source: GitHub Actions).**
 
 ## Design Notes
 

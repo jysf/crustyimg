@@ -44,4 +44,11 @@ they go. Status markers: `[ ]` not started · `[~]` in progress · `[x]` complet
   instead of waiting on an already-true `done`): **10/10 clean, 28 checks each**. Also fixed: the
   `justfile` still repeated the *disproven* `file://` story, and `pages.yml` did not trigger on
   `tests/**` — where the gate it blocks the deploy on actually lives.
-- [ ] **ship** — squash-merge, bookkeeping on main, cost totals (per-session usd), reflection, memory + brag.
+- [x] **ship** (2026-07-13) — **SHIPPED.** Squash-merged **PR #85** (`9a61787`). Build + verify ran
+  in worktrees (no collision). Cost 355k tok / $3.30 (per-session usd); ship reflection appended (the
+  failure-mode-claims-are-unproven + the `waitFor`-waited-for-nothing lessons, both new memories);
+  spec + timeline archived. STAGE-027: SPEC-077 shipped (1 shipped / 0 active / 1 pending — SPEC-078
+  worker/AVIF/explain left). Roadmap carries: **GitHub Pages NOT enabled on the repo → deploy leg
+  unproven end-to-end** (maintainer action); SPEC-078's Worker should take ALL conversions, not just
+  AVIF. `pages.yml` = the repo's first CI-through-`just wasm-build` + browser smoke. `just validate`
+  + `just cost-audit` green.

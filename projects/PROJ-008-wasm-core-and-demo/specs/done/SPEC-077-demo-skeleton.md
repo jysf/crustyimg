@@ -3,7 +3,7 @@
 task:
   id: SPEC-077
   type: story
-  cycle: build                     # frame | design | build | verify | ship
+  cycle: ship                      # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: M                    # S | M | L
@@ -68,10 +68,15 @@ cost:
         fix), an independent CDP drive of the page (error path, AVIF lockout, file://
         mechanism, `sips` decode of the downloaded bytes), a mutation test of the assembly
         guard and of the file:// assertion, and the native gate sweep.
+    - cycle: ship
+      interface: claude-code
+      recorded_at: 2026-07-13
+      tokens_total: null
+      note: ship bookkeeping in the orchestrator main loop (un-metered, §4)
   totals:
     tokens_total: 355000        # build 145k + verify 210k (design null, un-metered main loop)
     estimated_usd: 3.30         # LABELLED ESTIMATE, not a meter read (§4)
-    session_count: 2
+    session_count: 4
 ---
 
 # SPEC-077: demo skeleton (in-browser, single-threaded)
@@ -374,6 +379,36 @@ earlier". **10 / 10 clean runs after the fix** (28 checks each), where the old c
 
 ## Reflection (Ship)
 
-1. **What would I do differently next time?** —
-2. **Does any template, constraint, or decision need updating?** —
-3. **Is there a follow-up spec I should write now before I forget?** —
+*Appended during ship (2026-07-13). Shipped via PR #85 (squash `9a61787`); build + verify both ran
+in worktrees (no shared-checkout collision this round — the SPEC-075 lesson held). No new DEC.*
+
+1. **What would I do differently next time?** — The spec's `file://` failure mode was **wrong, in
+   the dangerous direction** — I said `init()` would fail at `instantiateStreaming`/MIME; in reality
+   `demo.js` is an ES module, module scripts are CORS-fetched, `file://` is an opaque origin, so the
+   browser blocks the module *before a line runs* — no `init()`, no `catch`, no console error, the
+   page hangs on "Loading…" forever (the error handler I specced lives in the module that never
+   loads). Verify proved the mechanism (`demo.js` CORS-refused from origin `null`; the `.wasm` never
+   even requested). **This is the second confidently-stated design-time failure mode this wave to be
+   false (SPEC-074's "wasm-opt fails silently at exit 0" was the first). Lesson: a claim about HOW
+   something FAILS is exactly as unproven as a claim about how it works — drive the failure path,
+   don't just assert it.** Banked as its own memory.
+2. **Does any template, constraint, or decision need updating?** — Two reusable lessons to memory:
+   (a) the failure-mode-claims-are-unproven rule above; (b) **verify's headline catch — a smoke's
+   `waitFor()` was waiting for nothing**: `${state ?? null} === 'done'` parses as `state ?? (null
+   === 'done')` = `state ?? false` (===​ binds tighter than ??), truthy for every state, so every
+   wait returned on tick 1 and each read raced "one behind" (3/8 failures under load). The build had
+   patched the two resulting "races" symptomatically, so its 22 green checks were partly luck and the
+   deploy gate could have gone green on a page that never converted its input. **Fingerprint: flaky
+   checks that read one step behind. Parenthesize interpolated expressions in page-eval'd JS, and
+   don't wait on a state the previous op already left true (use a freshness token).** Also recurring:
+   **a corrected lesson must be PROPAGATED** — the `justfile` still told the disproven `file://`
+   story the build had already measured false (same shape as SPEC-074's wrong lesson reaching 4
+   files); verify swept it.
+3. **Is there a follow-up spec I should write now before I forget?** — (a) **SPEC-078** — and
+   widened by verify: ALL conversions currently run on the main thread, so the Web Worker should take
+   **all of them**, not just AVIF (plus `.avif` input via `createImageBitmap`, the explain readout,
+   intent controls). (b) **⚠ GitHub Pages is NOT enabled on the repo** (Settings → Pages → Source:
+   GitHub Actions) — `pages.yml` is correct and the deploy is gated on the smoke, but it has **never
+   actually published**, so the deploy leg is the one thing unproven end-to-end. Maintainer
+   repo-settings action. `pages.yml` is the repo's first CI job that builds through `just wasm-build`
+   + runs the browser smoke — partially closing the standing "CI never runs the wasm smokes" carry.
