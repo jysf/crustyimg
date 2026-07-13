@@ -93,11 +93,14 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
   `optimize`/`transform` → result + `info` + bytes → download; SVG + PNG/JPEG/GIF/WebP in, **WebP/PNG
   out** (AVIF deferred to 078 — needs the worker); GitHub Pages deploy through `just wasm-build`
   (size-profiled `.wasm`); browser-driven smoke. The end-to-end "it works in a browser" proof.
-- [ ] SPEC-078 (not yet framed) — **make it not-freeze + honest + polished.** AVIF encode in a Web
-  Worker with progress (rav1e serial); `.avif` inputs via `createImageBitmap`; the explain/bytes-saved
-  readout; the honest WebP-lossless labeling; intent controls (quality/budget/format). May split.
+- [ ] SPEC-078 (design — build-ready 2026-07-13) — **Web Worker + AVIF + explain.** Move ALL
+  conversions into a module Web Worker (main thread stays responsive — rav1e serial would freeze it);
+  ENABLE AVIF output (already compiled into the deployed `.wasm`, DEC-065 — just off-load + un-disable);
+  `.avif` INPUTS via `createImageBitmap`→canvas→PNG→wasm; the bytes-in/out + %-saved + format readout;
+  intent controls (format + quality/budget). "Progress" = a busy state, not a %. Ship completes STAGE-027.
+  May split the UX from the worker/AVIF core if it balloons.
 
-**Count:** 1 shipped / 0 active / 1 pending (SPEC-077 SHIPPED 2026-07-13 — the demo runs in a real browser, drop→convert→download, deploy gated on a headless-Chrome smoke; only SPEC-078 (Web Worker for ALL conversions + AVIF + `.avif`-input via createImageBitmap + explain + intent controls) left, then STAGE-027 completes). **✅ DEPLOY PROVEN LIVE 2026-07-13: GitHub Pages enabled; the demo is published at https://jysf.github.io/crustyimg/ — `pages.yml` deploy job green, the page loads, `vendor/crustyimg_bg.wasm` serves as `application/wasm`, and the engine initializes ("Engine loaded", version 0.4.0, no console errors). The end-to-end deploy leg is no longer unproven.**
+**Count:** 1 shipped / 1 in design / 0 pending (SPEC-077 SHIPPED + LIVE; SPEC-078 framed build-ready 2026-07-13 — Web Worker for ALL conversions + AVIF + `.avif`-input via createImageBitmap + explain + intent controls — its ship completes STAGE-027). **✅ DEPLOY PROVEN LIVE 2026-07-13: GitHub Pages enabled; the demo is published at https://jysf.github.io/crustyimg/ — `pages.yml` deploy job green, the page loads, `vendor/crustyimg_bg.wasm` serves as `application/wasm`, and the engine initializes ("Engine loaded", version 0.4.0, no console errors). The end-to-end deploy leg is no longer unproven.**
 
 ## Design Notes
 
