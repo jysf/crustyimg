@@ -203,12 +203,15 @@ wasm-npm-smoke: wasm-npm-pkg
 # wasm package directly. No bundler, no framework, no npm install — the only build
 # step is `wasm-build` plus a copy.
 #
-# ⚠ THE DEMO MUST BE SERVED OVER HTTP. It cannot be opened as a `file://` URL: the
-# package is built `--target web`, so `init()` fetches crustyimg_bg.wasm and calls
-# `WebAssembly.instantiateStreaming`, which requires the server to send it as
-# `application/wasm` — and a file:// fetch never gets that far. The page would load,
-# look completely fine, and convert nothing. `demo-serve` below serves it correctly;
-# so does GitHub Pages. See demo/README.md.
+# ⚠ THE DEMO MUST BE SERVED OVER HTTP. Opened as a `file://` URL it cannot work, and
+# the reason is EARLIER than the MIME type: demo.js is an ES module, module scripts are
+# fetched under CORS, and a file:// origin is opaque — so the browser blocks the module
+# before it executes a line (measured in Chrome: demo.js is fetched and refused,
+# crustyimg_bg.wasm is never even requested). `init()` is never reached, so the
+# `instantiateStreaming`/`application/wasm` problem — real, and the reason this server
+# exists — would only bite second. index.html carries a classic (non-CORS-fetched)
+# script that survives to say so, rather than leaving the page on "Loading…" forever.
+# `demo-serve` below serves it correctly; so does GitHub Pages. See demo/README.md.
 
 # Assemble the demo: build the wasm THROUGH `wasm-build` (the size profile lives in
 # that recipe — DEC-066, same discipline as `wasm-npm-pkg`), then vendor pkg/ into

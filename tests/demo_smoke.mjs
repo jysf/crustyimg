@@ -152,7 +152,14 @@ class CDP {
 /// `document.body.dataset` THROWS rather than politely returning undefined. (It
 /// does not reliably throw on a fast machine, which is precisely why it has to be
 /// written this way — CI found it; my laptop never would have.)
-const PAGE_STATE = "document.body?.dataset.state ?? null";
+///
+/// THE PARENTHESES ARE LOAD-BEARING. This string gets interpolated into page-side
+/// expressions as `${PAGE_STATE} === 'done'`, and `===` binds tighter than `??`.
+/// Unparenthesized, that parses as `state ?? (null === 'done')` — i.e. `state ??
+/// false` — which is TRUTHY for every state the page can be in. Every waitFor()
+/// below would return on its first poll having waited for nothing, and the reads
+/// after it would race the conversion they are supposed to be waiting for.
+const PAGE_STATE = "(document.body?.dataset.state ?? null)";
 
 /// Poll the page until `expression` is truthy (or give up). The demo mirrors its
 /// state onto <body data-state>, so this is how we wait for `init()` and for a
@@ -494,16 +501,42 @@ await cdp.eval(`
   document.getElementById('maxedge').value = '';
 `);
 
-/// Put a file in the picker and wait for the page to finish converting it.
+/// Put a file in the picker and wait for the page to finish converting THAT file.
+///
+/// Waiting for `state === 'done'` is not enough here, and the difference is a real
+/// bug that bit: by the time we drop the SECOND file, the page is ALREADY 'done'
+/// from the first. The wait is then satisfied by the previous conversion's terminal
+/// state, and we read the previous file's numbers — the check goes green or red on
+/// the wrong image, one behind. (Forcing `state = 'ready'` first only narrows the
+/// window; it does not close it, and it lost the race ~3 runs in 8.)
+///
+/// So don't wait on a level that is already true — wait on something ONLY the new
+/// conversion can produce. `render()` overwrites `#result.dataset` wholesale, so a
+/// unique token stamped there before the drop is proof of freshness when it is gone:
+/// nothing but a real render of the new file can remove it.
+let dropSeq = 0;
 async function drop(path) {
-  await cdp.eval("document.body.dataset.state = 'ready'"); // so we can see it change
+  const token = `awaiting-conversion-${++dropSeq}`;
+  await cdp.eval(`
+    document.getElementById('result').dataset.outFormat = ${JSON.stringify(token)};
+    document.body.dataset.state = 'ready';
+  `);
+
   const doc = await cdp.send("DOM.getDocument");
   const { nodeId: input } = await cdp.send("DOM.querySelector", {
     nodeId: doc.root.nodeId,
     selector: "#file",
   });
   await cdp.send("DOM.setFileInputFiles", { nodeId: input, files: [path] });
-  await waitFor(cdp, `${PAGE_STATE} === 'done'`, `the conversion of ${path}`);
+
+  await waitFor(
+    cdp,
+    `${PAGE_STATE} === 'done' && ` +
+      `document.getElementById('result')?.dataset.outFormat !== ${JSON.stringify(token)}`,
+    `the conversion of ${path}`,
+  );
+  // Safe to snapshot now: render() writes the dataset and the readouts in one
+  // synchronous pass, so the token's absence means all of them are this file's.
   return cdp
     .eval(
       "JSON.stringify({ ...document.getElementById('result').dataset, " +
@@ -570,9 +603,20 @@ check(
   !moduleRan,
   "over file://, the page cannot convert anything — the module script is CORS-blocked before it runs",
 );
+// Assert WHO is speaking, not just that someone is. demo.js's own catch block also
+// mentions serving over HTTP, so a message merely matching /served over http/i would
+// be satisfied by the module having run and failed at instantiateStreaming — exactly
+// the mechanism this test claims is impossible. The classic script's wording is
+// distinct ("will not load its code"); demo.js's catch always opens with "Could not
+// load the WebAssembly engine". Requiring the former and forbidding the latter pins
+// the real failure: the module never executed, and the non-module script is what
+// survived to explain it.
 check(
-  fileState === "error" && /served over http/i.test(fileStatus),
-  `over file://, the page SAYS why instead of hanging on "Loading…" — "${fileStatus.trim().slice(0, 52)}…"`,
+  fileState === "error" &&
+    /will not load its code/i.test(fileStatus) &&
+    !/Could not load the WebAssembly engine/i.test(fileStatus),
+  `over file://, it is the CLASSIC script that speaks — demo.js never ran, so its catch never ` +
+    `fired — and the page SAYS why instead of hanging on "Loading…" — "${fileStatus.trim().slice(0, 52)}…"`,
 );
 
 await cleanup();

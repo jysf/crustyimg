@@ -19,6 +19,8 @@
 
 name: pages
 
+# (The two path lists are duplicated on purpose: GitHub Actions' workflow parser does
+# not support YAML anchors/aliases. Keep them in sync.)
 on:
   push:
     branches: [main]
@@ -26,6 +28,9 @@ on:
       - "demo/**"
       - "scripts/**"
       - "src/**"
+      # The gate itself (tests/demo_smoke.mjs) and the SVG fixture it drops into the
+      # page. A change to the test that decides this deploy must re-run the deploy.
+      - "tests/**"
       - "Cargo.toml"
       - "Cargo.lock"
       - "justfile"
@@ -35,6 +40,7 @@ on:
       - "demo/**"
       - "scripts/**"
       - "src/**"
+      - "tests/**"
       - "Cargo.toml"
       - "Cargo.lock"
       - "justfile"

@@ -55,10 +55,23 @@ cost:
         order-of-magnitude ESTIMATE (~80/20 in/out at Opus 4.8 list rates, no cache discount),
         not a harness-reported number. Includes the wasm rebuilds and ~6 headless-Chrome smoke
         runs.
+    - cycle: verify
+      interface: claude-code
+      tokens_total: 210000
+      duration_minutes: 75
+      estimated_usd: 1.95
+      note: >
+        ORDER-OF-MAGNITUDE ESTIMATE (verify ran in the main loop, not a metered subagent —
+        see the autonomous-run-cost-estimates lesson). Fresh adversarial session in an
+        isolated worktree, 2026-07-13. Dominated by a full profiled wasm rebuild, ~25
+        headless-Chrome smoke runs (8 of them to measure a flake rate, 10 more to prove the
+        fix), an independent CDP drive of the page (error path, AVIF lockout, file://
+        mechanism, `sips` decode of the downloaded bytes), a mutation test of the assembly
+        guard and of the file:// assertion, and the native gate sweep.
   totals:
-    tokens_total: 145000
-    estimated_usd: 1.35
-    session_count: 1
+    tokens_total: 355000        # build 145k + verify 210k (design null, un-metered main loop)
+    estimated_usd: 3.30         # LABELLED ESTIMATE, not a meter read (§4)
+    session_count: 2
 ---
 
 # SPEC-077: demo skeleton (in-browser, single-threaded)
@@ -280,6 +293,82 @@ an assembly guard:
    worked). Both are invisible to reading the code and instant to a real browser. For a spec whose
    entire thesis is "we have never run this in a browser", the browser is the first tool to reach
    for, not the verification at the end.
+
+---
+
+## Verify
+
+**Verdict: CLEAN — ready to ship**, after fixing three defects found on the branch (all in the
+*test and the docs*; the page itself needed no change). Fresh adversarial session in an isolated
+worktree, 2026-07-13. Every claim was re-driven in a real browser rather than read.
+
+### The headline finding: the smoke's `waitFor()` was waiting for nothing
+
+`PAGE_STATE` was `"document.body?.dataset.state ?? null"`, interpolated as
+`` `${PAGE_STATE} === 'done'` ``. **`===` binds tighter than `??`**, so every page-side wait
+actually parsed as `state ?? (null === 'done')` → **`state ?? false`** — truthy for *every* state
+the page can be in. So all four `waitFor()` calls returned on their first poll having waited for
+nothing, and each read *raced* the conversion it was supposed to be waiting for.
+
+It mostly passed because a 64×48 conversion takes ~10 ms. Under load it does not:
+
+```
+$ for i in $(seq 1 8); do node tests/demo_smoke.mjs; done     # before the fix
+run 2 FAILED:  ✗ GIF  in → info() reads 64×48 jpeg …          # ← the PREVIOUS file's result
+run 3 FAILED:  ✗ WEBP in → info() reads 64×48 gif  …
+run 7 FAILED:  ✗ JPEG in → info() reads 40×30 png  …          # ← the SVG's result
+=== 5 pass / 3 fail out of 8 ===                              # ~37% flake, always one behind
+```
+
+This is the *root cause of the two "races" the build fixed on CI* — they were symptoms of it, and
+the fixes (null-safe reads, waiting on the version value) papered over it without removing it. So
+the build's "22 checks green" were partly luck, and the deploy gate could have gone green on a page
+that never converted the file it was handed. Fixed by parenthesizing `PAGE_STATE` (one pair of
+parens, plus a comment saying why they are load-bearing), and by hardening `drop()` to wait on a
+**freshness token** the page must overwrite rather than on `state === 'done'` — a level that is
+*already true* from the previous conversion, and so cannot distinguish "finished" from "finished
+earlier". **10 / 10 clean runs after the fix** (28 checks each), where the old code failed 3 in 8.
+
+### Also fixed on the branch
+
+- **The `justfile` still told the disproven `file://` story** ("a file:// fetch never gets that far
+  … the page would load, look completely fine, and convert nothing") — which the build had already
+  *measured* to be false, and which is now actively wrong (the page shows an error banner). The
+  wave's own recurring failure: a corrected lesson not propagated to every file that repeats it
+  (SPEC-074 hit this in 4 files). Rewritten to the measured mechanism.
+- **`pages.yml` did not trigger on `tests/**`** — where `demo_smoke.mjs`, the gate the deploy is
+  blocked on, actually lives. A change to the test deciding the deploy would not have re-run the
+  deploy. Added (and noted why the two path lists must be duplicated: GHA does not support YAML
+  anchors).
+- **The smoke's `file://` assertions could not tell the corrected mechanism from the wrong one.**
+  Both checks (`!moduleRan`, status matching `/served over http/i`) are equally satisfied by the
+  module *running* and its `catch` firing — the exact path the build proved impossible, since
+  `demo.js`'s catch text also says "served over HTTP". Tightened to require the classic script's
+  distinctive wording and *forbid* demo.js's, so it now pins that the module never executed.
+
+### What was confirmed (driven, not read)
+
+| Claim | Evidence |
+|---|---|
+| init() over HTTP | `instantiateStreaming` resolves; page reports `crustyimg 0.4.0` = crate version; `.wasm` served `application/wasm`; zero console errors |
+| Converts client-side | PNG→WebP, PNG→PNG+resize, and **SVG/JPEG/GIF/WebP** inputs all driven through the real `<input type=file>` via `DOM.setFileInputFiles` |
+| Output is real | Download's bytes pulled out of the browser and decoded by **`sips`** — a decoder nobody in this repo wrote: `pixelWidth: 64, pixelHeight: 48, format: webp`. (Independent of the build's own VP8L/IHDR parsers.) |
+| **Zero network** | CDP network log: 0 requests during conversion, 0 off-origin across the whole load. The pitch holds. |
+| **`file://` correction** | **Independently confirmed the mechanism**: `demo.js` *is* fetched and refused — *"Access to script … from origin 'null' has been blocked by CORS policy"* — and `crustyimg_bg.wasm` is **never requested at all**. `init()` is genuinely never reached. Mutation test: delete the classic script and the page sits on "Loading the engine…" forever (smoke goes red). |
+| AVIF off the main thread | `<option value="avif" disabled>`; the only user-selectable formats are `webp`/`png`; the page never passes `"auto"` to `optimize` (which could shortlist AVIF). Never invoked. |
+| Size-profiled `.wasm` | Rebuilt: `name` section **42 B**, 1,394,313 B brotli. **Mutation-tested the guard**: forged a 1,000,000 B `name` section onto the artifact → assembler refuses, exit 1. It is not green-by-default. |
+| Deploy is gated | `deploy` `needs: build`, and `build` runs `just demo-build` (→ `wasm-build`, profiled) then `just demo-smoke` before uploading. It cannot ship a bare-build `.wasm` or a failing page. The gate demonstrably *can* go red — it failed twice on this very PR before going green. |
+| Engine untouched | `git diff origin/main -- src/ Cargo.toml Cargo.lock` is **empty**. `cargo build`/`test` (all suites ok, 0 failed)/`clippy -D warnings`/`fmt`, `just deny` (advisories+bans+licenses+sources ok), `just validate` — all green. |
+| Guardrail | `demo/` is 4 committed files (html/css/js/README). No package.json, no lockfile, no bundler, no framework, no backend. |
+
+### Carried forward
+
+- The conversion still runs on the **main thread** — SPEC-078's Worker should take *all*
+  conversions, not just AVIF.
+- **GitHub Pages is not enabled for the repo** (Settings → Pages → Source: GitHub Actions). The
+  workflow is correct but has still never published; the deploy leg is unproven end-to-end.
+- `wasm-npm-smoke` remains Mac-only in CI; `pages.yml` is the first job that builds through
+  `just wasm-build`, so the wasm build itself is now covered on Linux.
 
 ---
 
