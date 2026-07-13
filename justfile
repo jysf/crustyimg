@@ -106,6 +106,36 @@ _wasm_bin := `rustup which --toolchain stable rustc | xargs dirname`
 #     just --set _wasm_features "" wasm-build
 _wasm_features := "--features avif"
 
+# The SIZE PROFILE for the wasm artifact (SPEC-074, DEC-066) — fat LTO across the
+# whole graph with a single codegen unit, worth ~116 KB brotli at zero cost to
+# capability OR speed. Build the wasm artifact THROUGH this recipe; a bare
+# `cargo build --target wasm32-…` gets the stock profile and a heavier download.
+#
+# Passed as CARGO_PROFILE_RELEASE_* env vars rather than written into
+# `[profile.release]` in Cargo.toml ON PURPOSE: `[profile.release]` is shared with
+# the NATIVE release build (and with `[profile.dist]`, which inherits it), and
+# DEC-064 requires the released native binary to stay byte-identical. Cargo has no
+# per-target profiles, so the env override — scoped to this recipe — is the only way
+# to size-tune the wasm build without touching native.
+#
+# THREE LEVERS ARE DELIBERATELY ABSENT, each because it was measured and rejected:
+#   * `opt-level = "z"` / `"s"` — the tempting one. "z" is worth another 165 KB
+#     brotli and makes the AVIF encoder 2.8x SLOWER (350 ms → 956 ms on a 512x384;
+#     scale that to a real photo). rav1e is generic, so its encoder monomorphizes
+#     into `ravif` — pinning `ravif` back to opt-level 3 restores the speed exactly
+#     (348 ms) and hands back 161 KB of the 165, i.e. the size win WAS the slowdown.
+#     A one-time 165 KB download is not worth seconds on every conversion, on the
+#     path that IS the demo's headline (DEC-065). See DEC-066.
+#   * `panic = "abort"` — wasm32-unknown-unknown already defaults to it
+#     (`rustc --print cfg` says `panic="abort"`), so it is a no-op.
+#
+# `strip = true` IS load-bearing (−58 KB brotli) and it very nearly got dropped as a
+# no-op: measured against a wasm-opt'd build it looks like 250 B of noise, because
+# `wasm-opt` had already stripped the debug sections itself. With wasm-opt off
+# (DEC-066) nothing else does, so cargo has to. A lever's value depends on which
+# other levers are pulled — measure it in the config you actually ship.
+_wasm_profile := "CARGO_PROFILE_RELEASE_LTO=fat CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1 CARGO_PROFILE_RELEASE_STRIP=true"
+
 # Compile the library to wasm32 (debug). The fast "does it still compile" gate.
 wasm-check:
     PATH="{{_wasm_bin}}:$PATH" RUSTC="{{_wasm_bin}}/rustc" \
@@ -115,20 +145,23 @@ wasm-check:
 # artifact STAGE-026 packages). Also reports the size SPEC-074 tunes.
 wasm-build:
     @command -v wasm-pack >/dev/null 2>&1 || { echo "wasm-pack not installed (brew install wasm-pack)"; exit 1; }
-    PATH="{{_wasm_bin}}:$PATH" RUSTC="{{_wasm_bin}}/rustc" \
+    PATH="{{_wasm_bin}}:$PATH" RUSTC="{{_wasm_bin}}/rustc" {{_wasm_profile}} \
         wasm-pack build --target web --release --out-dir pkg -- {{_wasm_features}}
     @just wasm-size
 
 # Report the .wasm size: raw, and the two COMPRESSED sizes a real host actually
 # serves (a browser downloads the encoded bytes, so gzip/brotli are the honest
 # numbers — raw alone overstates what a user waits for). SPEC-074 tunes these.
+#
+# `wasm-opt` does NOT run (DEC-066): on this binary it trades 340 KB of raw size for
+# 36 KB MORE on the wire, and buys no speed. The brotli line is the one to watch.
 wasm-size:
     @test -f pkg/crustyimg_bg.wasm || { echo "no pkg/crustyimg_bg.wasm — run 'just wasm-build' first"; exit 1; }
     @echo ""
-    @echo "── .wasm size (post wasm-opt; features: {{ if _wasm_features == '' { 'none (lean)' } else { _wasm_features } }}) ──"
-    @awk 'BEGIN{printf "  raw:     %8.2f MB\n", '"$(wc -c < pkg/crustyimg_bg.wasm)"'/1048576}'
-    @awk 'BEGIN{printf "  gzip:    %8.2f MB\n", '"$(gzip -9 -c pkg/crustyimg_bg.wasm | wc -c)"'/1048576}'
-    @command -v brotli >/dev/null 2>&1 && awk 'BEGIN{printf "  brotli:  %8.2f MB\n", '"$(brotli -q 11 -c pkg/crustyimg_bg.wasm 2>/dev/null | wc -c)"'/1048576}' || echo "  brotli:  (brotli not installed)"
+    @echo "── .wasm size (features: {{ if _wasm_features == '' { 'none (lean)' } else { _wasm_features } }}) ──"
+    @awk 'BEGIN{printf "  raw:     %8.2f MB  (%d B)\n", '"$(wc -c < pkg/crustyimg_bg.wasm)"'/1048576, '"$(wc -c < pkg/crustyimg_bg.wasm)"'}'
+    @awk 'BEGIN{printf "  gzip:    %8.2f MB  (%d B)\n", '"$(gzip -9 -c pkg/crustyimg_bg.wasm | wc -c)"'/1048576, '"$(gzip -9 -c pkg/crustyimg_bg.wasm | wc -c)"'}'
+    @command -v brotli >/dev/null 2>&1 && awk 'BEGIN{printf "  brotli:  %8.2f MB  (%d B)  ← the number that matters\n", '"$(brotli -q 11 -c pkg/crustyimg_bg.wasm 2>/dev/null | wc -c)"'/1048576, '"$(brotli -q 11 -c pkg/crustyimg_bg.wasm 2>/dev/null | wc -c)"'}' || echo "  brotli:  (brotli not installed)"
 
 # Run the #[wasm_bindgen_test] round-trip in Node — the REAL decode → transform →
 # encode proof. A green `wasm-check` only says it compiles; this says it works.

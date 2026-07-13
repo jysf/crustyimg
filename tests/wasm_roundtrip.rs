@@ -229,6 +229,86 @@ op = "identity"
         );
     }
 
+    /// The same SVG as the fixture with the `<text>` element REMOVED — the control
+    /// for `svg_text_renders_glyphs_in_wasm` below.
+    const SVG_NO_TEXT: &str = r##"<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="40" height="30" viewBox="0 0 40 30">
+  <rect x="0" y="0" width="40" height="30" fill="#3366cc"/>
+  <circle cx="30" cy="10" r="8" fill="#ffffff" fill-opacity="0.5"/>
+</svg>
+"##;
+
+    /// SVG `<text>` really rasterizes to GLYPHS in the wasm build — the guardrail on
+    /// the one capability SPEC-074 measured, priced, and deliberately KEPT.
+    ///
+    /// resvg's `text` feature is the single biggest cluster in the binary (287,098 B
+    /// brotli, a fifth of the bundle). Dropping it is therefore permanently
+    /// tempting — and the reason it must not be dropped quietly is that dropping it
+    /// is INVISIBLE: `usvg` without `text` silently drops `<text>` nodes from the
+    /// tree, so the SVG still rasterizes, still reports 40x30, and `transform()`
+    /// still returns `Ok` — with a hole where the label was. We built that artifact
+    /// while measuring, and confirmed `svg_rasterizes_in_wasm` (which asserts only
+    /// dimensions) stayed GREEN straight through the corruption. Dimensions cannot
+    /// see this; only pixels can.
+    ///
+    /// So this test compares the fixture against the same SVG with its `<text>`
+    /// removed. With the text stack linked, the two rasters differ (glyphs are drawn
+    /// over the rect). Without it, both render identically — and this goes RED, which
+    /// is exactly the alarm DEC-066 is owed. It fails LOUD on a silent capability loss.
+    #[wasm_bindgen_test]
+    fn svg_text_renders_glyphs_in_wasm() {
+        let with_text = transform(SVG, IDENTITY_RECIPE, "png").expect("text SVG rasterizes");
+        let without_text = transform(SVG_NO_TEXT.as_bytes(), IDENTITY_RECIPE, "png")
+            .expect("text-free SVG rasterizes");
+
+        // Both are the same 40x30 canvas with the same rect and circle...
+        let a = info(&with_text).expect("decodes");
+        let b = info(&without_text).expect("decodes");
+        assert_eq!((a.width(), a.height()), (40, 30));
+        assert_eq!((b.width(), b.height()), (40, 30));
+
+        // ...so if the ONLY difference — the `<text>` element — produced no pixels,
+        // these would be byte-identical. They must not be.
+        assert_ne!(
+            with_text, without_text,
+            "SVG <text> rendered NOTHING: the resvg `text` feature is gone from the \
+             wasm build, so every SVG with a label now rasterizes with a hole in it — \
+             silently, with no error the user can see. That is a capability loss, not \
+             a size win (DEC-066 priced it at 287,098 B brotli and kept it)."
+        );
+    }
+
+    /// A TIFF/BMP/ICO input — the three decoders SPEC-074 trimmed from the wasm build
+    /// (−84,327 B brotli, DEC-066) — fails CLEANLY rather than panicking.
+    ///
+    /// How a dropped codec fails is the whole point of dropping it deliberately: a
+    /// panic in wasm aborts the module and takes the page's instance down with it, so
+    /// "typed Err" versus "trap" is user-visible. These three formats are still
+    /// DETECTED (the sniff is format-agnostic) — they just have no decoder here, the
+    /// same shape as AVIF (DEC-064). The native build still reads all three; its twin
+    /// test below pins that, so this trim cannot leak into the CLI.
+    #[wasm_bindgen_test]
+    fn trimmed_codecs_error_cleanly_in_wasm() {
+        for (name, bytes) in [
+            ("bmp", &include_bytes!("fixtures/raster/tiny_16x12.bmp")[..]),
+            (
+                "tiff",
+                &include_bytes!("fixtures/raster/tiny_16x12.tiff")[..],
+            ),
+            ("ico", &include_bytes!("fixtures/raster/tiny_16x12.ico")[..]),
+        ] {
+            let err = transform(bytes, RESIZE_RECIPE, "png").expect_err(&format!(
+                "{name} decode was trimmed from the wasm build — it must return an \
+                 Err, not decode, and above all not panic"
+            ));
+            let msg = format!("{:?}", wasm_bindgen::JsValue::from(err));
+            assert!(
+                !msg.contains("--features"),
+                "must not advise a cargo feature a browser user cannot use: {msg}"
+            );
+        }
+    }
+
     /// `optimize` runs the real engine in wasm: the analysis layer buckets the
     /// image, the shortlist picks a format, and — for a lossy target — the
     /// SSIMULACRA2 quality search actually runs. Asserted on the output bytes.
@@ -293,6 +373,68 @@ fn native_avif_still_decodes() {
 
     assert_eq!((img.width(), img.height()), (16, 16));
     assert_eq!(img.source_format(), image::ImageFormat::Avif);
+}
+
+/// SPEC-074 trimmed `tiff`, `bmp` and `ico` out of the WASM build's `image` feature
+/// set (DEC-066). The native CLI must still read all three — it is a filesystem tool
+/// pointed at whatever a scanner or a favicon pipeline produced, and `image` is now
+/// declared once per target table, which is exactly the shape where a "cleanup" of
+/// the duplicated line would quietly take the native codecs down with it (DEC-064
+/// requires the native build to stay byte-identical).
+///
+/// The fixtures are the trim's other half: the same three files the wasm test asserts
+/// must FAIL to decode, asserted here to decode. One pair of tests, opposite verdicts
+/// — that is the target-cfg boundary, pinned.
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn native_still_decodes_the_codecs_wasm_trimmed() {
+    use crustyimg::image::Image;
+
+    for (name, bytes) in [
+        ("bmp", &include_bytes!("fixtures/raster/tiny_16x12.bmp")[..]),
+        (
+            "tiff",
+            &include_bytes!("fixtures/raster/tiny_16x12.tiff")[..],
+        ),
+        ("ico", &include_bytes!("fixtures/raster/tiny_16x12.ico")[..]),
+    ] {
+        let img = Image::from_bytes(bytes)
+            .unwrap_or_else(|e| panic!("native {name} decode must survive the wasm trim: {e}"));
+        assert_eq!(
+            (img.width(), img.height()),
+            (16, 12),
+            "{name} decoded to the wrong size"
+        );
+    }
+}
+
+/// The native twin of `svg_text_renders_glyphs_in_wasm`: `resvg`'s `text` feature is
+/// now declared per-target, so this pins that the NATIVE build still renders SVG
+/// `<text>` as real glyphs (DEC-054) — the wasm-side feature line cannot be edited
+/// into taking native's text stack with it.
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn native_svg_text_still_renders_glyphs() {
+    use crustyimg::image::Image;
+
+    const NO_TEXT: &str = r##"<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="40" height="30" viewBox="0 0 40 30">
+  <rect x="0" y="0" width="40" height="30" fill="#3366cc"/>
+  <circle cx="30" cy="10" r="8" fill="#ffffff" fill-opacity="0.5"/>
+</svg>
+"##;
+
+    let with_text = Image::from_bytes(include_bytes!("fixtures/svg/rect_text_40x30.svg"))
+        .expect("text SVG rasterizes natively");
+    let without_text = Image::from_bytes(NO_TEXT.as_bytes()).expect("text-free SVG rasterizes");
+
+    assert_eq!((with_text.width(), with_text.height()), (40, 30));
+    assert_ne!(
+        with_text.pixels().as_bytes(),
+        without_text.pixels().as_bytes(),
+        "native SVG <text> rendered no pixels — the resvg `text` feature (DEC-054) is \
+         gone from the NATIVE build"
+    );
 }
 
 /// SPEC-073 turned the `avif` feature ON for the wasm artifact and taught the wasm

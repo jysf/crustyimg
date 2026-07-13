@@ -11,10 +11,18 @@ they go. Status markers: `[ ]` not started · `[~]` in progress · `[x]` complet
   and the raster-codec spread (zune_jpeg/png/tiff/image_webp/fdeflate); ssimulacra2 is NOT a top
   contributor. Method = feature-ablation brotli-diffing on the wasm-opt'd artifact + a size-tuned
   wasm profile. Capability-losing levers (drop SVG text, trim a codec) = explicit DEC-066 calls.
-- [ ] **build** — through a PR. Build the ablation table (each lever → brotli delta), pull the
-  no-cost levers (opt-level="z", wasm-opt -Oz, trim unused image codecs), decide the capability
-  levers with data → DEC-066. Keep just wasm-test green (no silent capability loss). Native
-  unaffected. Commit with `-s`.
+- [x] **build** (2026-07-12, branch `feat/spec-074-wasm-bundle-size`, PR #83) — ablation table built
+  (16 real builds), **1,595,028 → 1,394,313 B brotli (−200,715, −12.6%): 1.52 → 1.33 MB**. DEC-066
+  emitted. **Both of the design's two suggested "no-cost" levers turned out to COST, and were
+  refused:** `opt-level="z"` makes the AVIF encoder **2.8× slower** (350→956 ms — rav1e is generic,
+  so it monomorphizes into `ravif`; protecting it hands back 161 of the 165 KB), and `wasm-opt` was
+  **silently failing validation** while wasm-pack shipped the unoptimized module at exit 0 — and
+  measured, it *costs* 36 KB on the wire for 340 KB of raw it buys no speed with, so it is now OFF.
+  Taken instead: fat LTO + codegen-units=1 + strip (−138 KB, free) and a wasm-only `image` trim of
+  tiff/bmp/ico (−84 KB). **resvg `text` REFUSED at −287 KB** — dropping it doesn't degrade SVG text,
+  it silently *deletes* it (built that artifact; `transform()` still returned Ok and the old test
+  stayed green through the corruption). 2 new mutation-tested guardrails; wasm-test 12/12; native +
+  lean + deny green; Cargo.lock untouched.
 - [ ] **verify** — fresh adversarial session: reproduce the brotli number, confirm no capability
   silently dropped (drive the demo conversions), native + lean unaffected.
 - [ ] **ship** — squash-merge, bookkeeping on main, cost totals, reflection, memory + brag.

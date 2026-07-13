@@ -24,9 +24,15 @@
 //! ## What is NOT here
 //!
 //! - **AVIF decode.** An AVIF input returns a typed
-//!   [`crate::image::ImageError::CodecUnavailableOnTarget`]. Every other default
-//!   input format — PNG, JPEG, GIF, BMP, TIFF, ICO, WebP, and **SVG** (resvg
-//!   rasterizes in wasm) — works.
+//!   [`crate::image::ImageError::CodecUnavailableOnTarget`].
+//! - **TIFF / BMP / ICO decode.** Trimmed from the wasm build's `image` feature set
+//!   to save 84 KB brotli (SPEC-074, DEC-066) — a browser file picker is fed
+//!   PNG/JPEG/GIF/WebP/SVG, not scanner TIFFs and favicons. Such an input errors
+//!   cleanly, exactly like AVIF; the native CLI still reads all three.
+//!
+//!   So the wasm build's input reach is **PNG, JPEG, GIF, WebP, and SVG** (resvg
+//!   rasterizes in wasm, `<text>` and all — DEC-066 priced dropping the text stack
+//!   at 287 KB and kept it rather than silently eat your labels).
 //! - **The filesystem.** There is no `source`/`sink` path handling in wasm: bytes
 //!   in, bytes out. The caller (JS) owns the `File`/`Blob`.
 //!

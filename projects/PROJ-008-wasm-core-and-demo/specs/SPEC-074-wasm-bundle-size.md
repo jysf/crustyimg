@@ -3,7 +3,7 @@
 task:
   id: SPEC-074
   type: story
-  cycle: design                    # frame | design | build | verify | ship
+  cycle: verify  # frame | design | build | verify | ship
   blocked: false
   priority: medium
   complexity: M                    # S | M | L
@@ -46,10 +46,18 @@ cost:
         size-attribution probe (2026-07-12) on the raw release cdylib — no single whale; mass
         clusters in the SVG text/font stack + the raster-codec spread; ssimulacra2 is NOT a
         top contributor (weakening a prior hypothesis).
+    - cycle: build
+      interface: claude-code
+      tokens_total: 210000
+      note: >
+        ORDER-OF-MAGNITUDE ESTIMATE (build ran in the main loop, not a metered subagent —
+        see the autonomous-run-cost-estimates lesson). Single build session, 2026-07-12.
+        Dominated by 16 real wasm builds (each a full release link of rav1e + resvg) and
+        the Node driver runs that timed the shipped artifact.
   totals:
-    tokens_total: 0
+    tokens_total: 210000
     estimated_usd: 0
-    session_count: 0
+    session_count: 1
 ---
 
 # SPEC-074: WASM bundle size
@@ -112,19 +120,19 @@ into an explicit, data-backed keep/drop decision — recorded in a DEC. rav1e/AV
 
 ## Acceptance Criteria
 
-- [ ] An **ablation table** exists (`docs/research/proj-008-wasm-build.md`): each candidate lever
+- [x] An **ablation table** exists (`docs/research/proj-008-wasm-build.md`): each candidate lever
       (resvg `text`, each trimmable `image` codec, ssimulacra2/quality dead-code, `opt-level="z"`,
       `wasm-opt -Oz`) → its measured **brotli delta** on the shipped artifact. Measured, not guessed.
-- [ ] The shipped demo `.wasm` brotli is **reduced** vs the 1.52 MB (with-avif) / 1.19 MB (core)
+- [x] The shipped demo `.wasm` brotli is **reduced** vs the 1.52 MB (with-avif) / 1.19 MB (core)
       baseline by the no-capability-cost levers, with the new number recorded. (No hard numeric
       budget is invented; the win is whatever the honest levers yield — state it.)
-- [ ] Every **capability-losing** lever is an explicit DEC-066 decision with its measured saving
+- [x] Every **capability-losing** lever is an explicit DEC-066 decision with its measured saving
       and the tradeoff (e.g. "dropped SVG `<text>` → SVGs with text rasterize without glyphs, saves
       N KB" — keep or drop, with rationale). No silent capability loss.
-- [ ] **No silent functional regression:** `just wasm-test` still green — the round-trip, SVG
+- [x] **No silent functional regression:** `just wasm-test` still green — the round-trip, SVG
       rasterize, and AVIF-encode tests all pass (if SVG text is dropped, add/adjust a test that
       pins the new behavior honestly rather than letting a test quietly stop covering it).
-- [ ] **Native unaffected:** `cargo build`, `--no-default-features`, `cargo test`, `cargo clippy`,
+- [x] **Native unaffected:** `cargo build`, `--no-default-features`, `cargo test`, `cargo clippy`,
       `just deny` green; the native codec/feature set unchanged (trims are wasm-target-scoped).
 
 ## Failing Tests
@@ -190,20 +198,72 @@ size cut didn't break a capability:
 
 ## Build Completion
 
-*Filled in at the end of the build cycle.*
-
-- **Branch:**
-- **PR:**
-- **All acceptance criteria met?**
-- **New decisions emitted:**
-- **Deviations from spec:**
+- **Branch:** `feat/spec-074-wasm-bundle-size`
+- **PR:** #83
+- **All acceptance criteria met?** **Yes, all five.**
+  - *Ablation table exists, measured:* 16 real builds, in `docs/research/proj-008-wasm-build.md` §8
+    and DEC-066. Every lever the spec named plus three it didn't (`wasm-opt` on/off, `strip`,
+    per-package `opt-level` overrides).
+  - *Brotli reduced:* **1,595,028 → 1,394,313 B (−200,715, −12.6%). 1.52 MB → 1.33 MB.** No numeric
+    budget was invented; this is what the honest levers yielded.
+  - *Every capability-losing lever is an explicit DEC-066 call with its measured saving:* resvg
+    `text` (−287,098, REFUSED), `opt-level=z`/`s` (−247,936/−169,552, REFUSED), `ssimulacra2`
+    (−23,540, REFUSED), `image` tiff/bmp/ico (−84,327, **TAKEN** — the one capability sold).
+  - *No silent functional regression:* `just wasm-test` **12/12** (was 10). The two new guardrails
+    were **mutation-tested** — each made to fail by re-introducing what it guards, then restored.
+    The shipped `pkg/` artifact was additionally driven from Node: all 10 demo conversions pass.
+  - *Native unaffected:* build / `--no-default-features` / test / clippy / fmt / `just deny` all
+    green, **and `Cargo.lock` is byte-identical** — the strongest available evidence the native dep
+    graph never moved.
+- **New decisions emitted:** **DEC-066** — the keep/drop calls, the full ablation table, and the
+  three traps (wasm-opt's silent failure; `opt-level=z` selling encode speed; a lever's value
+  depending on which other levers are pulled).
+- **Deviations from spec:** **Two, both because the measurement contradicted the design.** The spec
+  listed `opt-level = "z"` and `wasm-opt -Oz` as *"cheap, no-capability-cost levers (do these
+  regardless)"*. Driven, neither is:
+  1. `opt-level = "z"` costs **2.8× on AVIF encode** (350 → 956 ms) — a capability cost the spec
+     didn't anticipate because it only weighed size. Refused; `opt-level` stays 3.
+  2. `wasm-opt` was **silently failing validation** (3,966 validator errors, swallowed by wasm-pack
+     at exit 0 — so SPEC-072/073's "post wasm-opt" numbers were, under some configs, never
+     optimized), and once *made* to run it **costs 36 KB on the wire** for 340 KB of raw, at zero
+     speed benefit. Turned **OFF** deliberately, with the working flag list recorded for whoever
+     re-enables it.
+  The spec's genuinely free levers turned out to be the ones it didn't list: fat LTO **with**
+  `codegen-units = 1` (−79,900; fat LTO *alone* is +1,450 — worse than useless) and `strip`
+  (−58,533).
 - **Follow-up work identified:**
+  - **A CI job must build the wasm artifact through `just wasm-build`.** The size profile now lives
+    in the recipe's `CARGO_PROFILE_RELEASE_*` env vars (it cannot live in `[profile.release]`, which
+    native shares — DEC-064), so a bare `cargo build --target wasm32-…` silently ships a heavier
+    artifact. This compounds the identical hazard DEC-065 left for `--features avif`. Still no wasm
+    CI job at all (SPEC-072 follow-up) — this raises its priority.
+  - **STAGE-026 should re-decide the two refused capability levers** against a real packaging seam:
+    a lazy chunk could make the 287 KB SVG-text stack and the 84 KB tiff/bmp/ico decoders opt-in
+    downloads rather than a keep/drop. The price tags are now known.
+  - `optimize`'s single-candidate shortcut (a SPEC-072 follow-up) is untouched and still open.
 
 ### Build-phase reflection
 
-1. **What was unclear in the spec that slowed you down?** —
-2. **Was there a constraint or decision that should have been listed but wasn't?** —
-3. **If you did this task again, what would you do differently?** —
+1. **What was unclear in the spec that slowed you down?** — Nothing was unclear; the spec was
+   unusually well-framed, and its "measure by ablation, don't trust twiggy" instruction was exactly
+   right. What cost time was the spec being *confidently wrong* in its Notes: it pre-classified
+   `opt-level="z"` and `wasm-opt -Oz` as free wins to "do regardless", and I nearly did. Both are
+   capability trades. The cheap insurance was driving the artifact for **runtime**, not just size —
+   a size spec that never times the thing it shrinks will happily ship a 2.8× slower encoder and
+   call it a win.
+2. **Was there a constraint or decision that should have been listed but wasn't?** — Yes: **encode
+   speed is a capability.** The spec's boundary was "no capability loss", but it defined capability
+   as *what the build can do*, never *how fast* — so `opt-level` looked free. On a demo whose
+   headline is a codec that already runs serial (DEC-065/STAGE-027), latency **is** the product. A
+   constraint like `wasm-encode-latency-is-load-bearing` would have made the biggest decision here
+   fall out immediately instead of after four builds.
+3. **If you did this task again, what would you do differently?** — Build the Node driver that
+   exercises the shipped `pkg/` **first**, before touching a single lever, and make it print size
+   *and* timings together. I built it midway to prove the demo still worked, and only then
+   discovered the speed regression that reversed two decisions. Size and speed are one number here,
+   and I measured them serially. Related: I twice trusted a lever measured in a config I wasn't
+   shipping — `strip` looked like 250 B of noise (because wasm-opt was doing the stripping) and I
+   nearly deleted it; it is worth 58 KB in the config we ship. **Measure in the config you ship.**
 
 ---
 
