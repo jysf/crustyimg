@@ -37,6 +37,12 @@ out/
 # actually gets PUBLISHED to npm; nothing generated belongs in git.
 /pkg/
 
+# The demo's vendored copy of that same wasm package (SPEC-077). Regenerated from
+# scratch by `just demo-build`, which is also what guarantees it is the size-profiled
+# artifact (DEC-066) — a committed copy could only go stale or smuggle in an
+# unprofiled .wasm. The demo's own sources (index.html/demo.js/demo.css) ARE committed.
+/demo/vendor/
+
 # `crustyimg build`'s local content-addressed cache (SPEC-064). Machine-local and
 # regenerable; a corrupt or absent entry just triggers a rebuild.
 .crustyimg/

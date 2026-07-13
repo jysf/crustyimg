@@ -195,6 +195,49 @@ wasm-npm-pkg: wasm-build
 wasm-npm-smoke: wasm-npm-pkg
     @node tests/npm_smoke.mjs
 
+# ----------------------------------------------------------------------------
+# DEMO (SPEC-077) — the wasm engine as a real web page
+# ----------------------------------------------------------------------------
+#
+# `demo/` is a plain static site: index.html + demo.js + demo.css, importing the
+# wasm package directly. No bundler, no framework, no npm install — the only build
+# step is `wasm-build` plus a copy.
+#
+# ⚠ THE DEMO MUST BE SERVED OVER HTTP. Opened as a `file://` URL it cannot work, and
+# the reason is EARLIER than the MIME type: demo.js is an ES module, module scripts are
+# fetched under CORS, and a file:// origin is opaque — so the browser blocks the module
+# before it executes a line (measured in Chrome: demo.js is fetched and refused,
+# crustyimg_bg.wasm is never even requested). `init()` is never reached, so the
+# `instantiateStreaming`/`application/wasm` problem — real, and the reason this server
+# exists — would only bite second. index.html carries a classic (non-CORS-fetched)
+# script that survives to say so, rather than leaving the page on "Loading…" forever.
+# `demo-serve` below serves it correctly; so does GitHub Pages. See demo/README.md.
+
+# Assemble the demo: build the wasm THROUGH `wasm-build` (the size profile lives in
+# that recipe — DEC-066, same discipline as `wasm-npm-pkg`), then vendor pkg/ into
+# demo/vendor/. The assembler REFUSES a .wasm that did not come through the profiled
+# build, so a demo deploy cannot ship a bare-`cargo build` artifact.
+demo-build: wasm-build
+    @node scripts/demo-assemble.mjs
+
+# Serve the assembled demo locally, with the wasm MIME type the browser demands.
+# Open the URL it prints — do not open demo/index.html from the filesystem.
+demo-serve port="8080": demo-build
+    @node scripts/serve.mjs demo {{port}}
+
+# The demo's earned verdict (SPEC-077): serve it, load it in a REAL headless Chrome,
+# and drive the actual user path — init() the engine over HTTP, put a PNG in the file
+# picker, convert it, and decode the downloaded bytes with an independent parser.
+# Also asserts the pitch: the .wasm arrives as application/wasm, and the conversion
+# makes zero network requests.
+#
+# A page that renders perfectly but cannot instantiateStreaming is the failure this
+# exists to catch, so it must be a browser — Node cannot see it. Needs Chrome or
+# Chromium (set CHROME=/path/to/chrome to point it elsewhere); no browser driver is
+# installed — Chrome is driven over the DevTools Protocol directly.
+demo-smoke: demo-build
+    @node tests/demo_smoke.mjs
+
 # Lint with clippy, warnings as errors (the CI gate, AGENTS §6)
 lint:
     cargo clippy -- -D warnings

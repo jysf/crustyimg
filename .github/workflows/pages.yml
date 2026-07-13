@@ -1,0 +1,108 @@
+# The demo page (SPEC-077) — build it, PROVE it, then publish it to GitHub Pages.
+#
+# The demo is a static site (demo/index.html + demo.js + demo.css) that imports the
+# crustyimg engine compiled to WebAssembly. There is no bundler and no npm install:
+# `just demo-build` builds the .wasm through the size-profiled `wasm-build` recipe
+# (DEC-066) and copies pkg/ into demo/vendor/. That is the entire build.
+#
+# GitHub Pages serves .wasm as `application/wasm`, which is what makes the demo work
+# at all — the page's init() streams the module and the browser refuses any other
+# MIME type. (For the same reason the demo cannot be opened as a file:// URL; see
+# demo/README.md.) Nothing here needs COOP/COEP headers: the engine is
+# single-threaded, so there is no SharedArrayBuffer to unlock — which is lucky,
+# because Pages cannot set headers.
+#
+# THE SMOKE GATES THE DEPLOY. `just demo-smoke` loads the assembled demo in headless
+# Chrome over HTTP and converts a real image with it. A demo that renders perfectly
+# and cannot instantiate its wasm is the failure mode this whole wave is exposed to,
+# so it runs on every PR, and a red one blocks publication.
+
+name: pages
+
+# (The two path lists are duplicated on purpose: GitHub Actions' workflow parser does
+# not support YAML anchors/aliases. Keep them in sync.)
+on:
+  push:
+    branches: [main]
+    paths:
+      - "demo/**"
+      - "scripts/**"
+      - "src/**"
+      # The gate itself (tests/demo_smoke.mjs) and the SVG fixture it drops into the
+      # page. A change to the test that decides this deploy must re-run the deploy.
+      - "tests/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "justfile"
+      - ".github/workflows/pages.yml"
+  pull_request:
+    paths:
+      - "demo/**"
+      - "scripts/**"
+      - "src/**"
+      - "tests/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "justfile"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Never let two deploys race for the live site; do cancel a superseded PR build.
+concurrency:
+  group: pages-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build:
+    name: build + browser smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install stable toolchain (wasm32 target)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Install just
+        uses: taiki-e/install-action@just
+
+      - name: Install wasm-pack
+        uses: taiki-e/install-action@wasm-pack
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: wasm32
+
+      # Builds through `just wasm-build` — the size profile lives in that recipe
+      # (DEC-066), and the assembler refuses a .wasm that did not come through it.
+      - name: Assemble the demo
+        run: just demo-build
+
+      # The earned verdict: a REAL browser, over HTTP. ubuntu-latest ships Chrome.
+      - name: Browser smoke
+        run: just demo-smoke
+
+      - name: Upload the site
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: demo
+
+  deploy:
+    name: deploy to Pages
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v4
