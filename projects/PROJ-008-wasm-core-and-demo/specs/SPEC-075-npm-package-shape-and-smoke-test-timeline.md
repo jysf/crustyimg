@@ -11,9 +11,13 @@ they go. Status markers: `[ ]` not started · `[~]` in progress · `[x]` complet
   the `--target web` package needs explicit `init()`/`initSync`. Spec = settle identity/target/
   versioning (DEC-067) + `npm pack` → fresh-install → run `info`/`transform` client-side smoke test.
   NO live publish (SPEC-076, gated).
-- [ ] **build** — through a PR. Finalize package.json + target + name; packaging recipe through
-  `just wasm-build` (size-profiled, DEC-066); `tests/npm_smoke.mjs` + `just wasm-npm-smoke`
-  (pack→install→init→run); DEC-067. Native unaffected. Commit with `-s`.
+- [x] **build** (2026-07-12, PR #84, ~130k tok / ~$1.20 est) — DEC-067 settled: **`crustyimg-wasm`**,
+  `--target web` (one artifact), version in lockstep with the crate, publish gated. `just wasm-npm-pkg`
+  (finalize, **depends on `wasm-build`** so the DEC-066 size profile can't be bypassed) +
+  `just wasm-npm-smoke` (npm pack → fresh install → import the bare specifier → `initSync` → `info` +
+  `transform` to png/jpeg/webp/avif, output decoded back). No native addon, no lifecycle script, zero
+  transitive deps. Size guard mutation-tested against a real bare build (1,503,817 B vs the profiled
+  1,394,313 B — it trips). Native gates + deny + validate green; `src/` untouched. No publish.
 - [ ] **verify** — fresh adversarial session: re-drive pack→install→run in a clean temp dir,
   confirm no native addon / no postinstall, packaged `.wasm` is the ~1.33 MB profiled one, native
   + deny unaffected. Confirm NO publish happened.

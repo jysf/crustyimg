@@ -175,6 +175,26 @@ wasm-test:
     PATH="{{_wasm_bin}}:$PATH" RUSTC="{{_wasm_bin}}/rustc" \
         "{{_wasm_bin}}/cargo" test --target wasm32-unknown-unknown --test wasm_roundtrip {{_wasm_features}}
 
+# Build the FINAL npm package into pkg/ (SPEC-075, DEC-067): the size-profiled
+# `wasm-build` above, plus the npm identity wasm-pack cannot know — it names the
+# package after the crate (`crustyimg`, which is the CLI) and describes it as a CLI.
+#
+# Depends on `wasm-build` ON PURPOSE: the packaging step must never be reachable
+# without going through the size profile (DEC-066), or the package silently ships a
+# stock-profile .wasm, +109 KB on the wire.
+wasm-npm-pkg: wasm-build
+    @node scripts/wasm-npm-finalize.mjs
+
+# The npm package's earned verdict (SPEC-075): `npm pack` the finalized pkg/, install
+# THAT TARBALL into a fresh temp project, and run it from inside — init the wasm, then
+# info + transform a real PNG and decode the output back. Also asserts the pitch: no
+# native addon, no postinstall build, and a .wasm that is the profiled ~1.33 MB.
+#
+# Does NOT publish. `npm publish` is outward-facing and effectively irreversible
+# (npm's unpublish window is narrow) — it is SPEC-076, gated on maintainer approval.
+wasm-npm-smoke: wasm-npm-pkg
+    @node tests/npm_smoke.mjs
+
 # Lint with clippy, warnings as errors (the CI gate, AGENTS §6)
 lint:
     cargo clippy -- -D warnings
