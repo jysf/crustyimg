@@ -54,10 +54,19 @@ cost:
         see the autonomous-run-cost-estimates lesson). Single build session, 2026-07-12.
         Dominated by 16 real wasm builds (each a full release link of rav1e + resvg) and
         the Node driver runs that timed the shipped artifact.
+    - cycle: verify
+      interface: claude-code
+      tokens_total: 120000
+      note: >
+        ORDER-OF-MAGNITUDE ESTIMATE (verify ran in the main loop, not a metered subagent —
+        see the autonomous-run-cost-estimates lesson). Fresh adversarial session, 2026-07-12.
+        Dominated by ~8 independent wasm builds reproducing the endpoints and ablation rows
+        (baseline, shipped, wasm-opt on/off, opt-level=z, resvg-text drop, no-profile), plus
+        the Node timing driver and the resvg-text mutation test.
   totals:
-    tokens_total: 210000
+    tokens_total: 330000
     estimated_usd: 0
-    session_count: 1
+    session_count: 2
 ---
 
 # SPEC-074: WASM bundle size
@@ -223,11 +232,12 @@ size cut didn't break a capability:
   regardless)"*. Driven, neither is:
   1. `opt-level = "z"` costs **2.8× on AVIF encode** (350 → 956 ms) — a capability cost the spec
      didn't anticipate because it only weighed size. Refused; `opt-level` stays 3.
-  2. `wasm-opt` was **silently failing validation** (3,966 validator errors, swallowed by wasm-pack
-     at exit 0 — so SPEC-072/073's "post wasm-opt" numbers were, under some configs, never
-     optimized), and once *made* to run it **costs 36 KB on the wire** for 340 KB of raw, at zero
-     speed benefit. Turned **OFF** deliberately, with the working flag list recorded for whoever
-     re-enables it.
+  2. `wasm-opt` **fails validation under `opt-level = "z"`** (thousands of validator errors), and
+     once *made* to run it **costs 36 KB on the wire** for 340 KB of raw, at zero speed benefit.
+     Turned **OFF** deliberately, with the working flag list recorded for whoever re-enables it.
+     *(Corrected at verify: the build recorded that failure as silent — "swallowed at exit 0", and
+     so cast doubt on SPEC-072/073's numbers. It is not silent; wasm-pack exits 1, and SPEC-072/073's
+     numbers were genuinely post-wasm-opt. See the verify row in the timeline.)*
   The spec's genuinely free levers turned out to be the ones it didn't list: fat LTO **with**
   `codegen-units = 1` (−79,900; fat LTO *alone* is +1,450 — worse than useless) and `strip`
   (−58,533).

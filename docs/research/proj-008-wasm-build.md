@@ -324,15 +324,33 @@ prime suspect (`ssimulacra2`) was worth 23 KB.
 
 *(The refused rows are measured against different bases — see DEC-066 for each base.)*
 
+**A lever's sign can flip with the config (verify, 2026-07-12).** `wasm-opt` OFF is worth −36,488 B
+*in the shipped config* (fat LTO + `codegen-units = 1`), but on the **pre-LTO** baseline it is a
+small brotli **win** to leave it ON (1,599,320 off → 1,595,028 on, −4,292 B). It only becomes a
+wire-size penalty once LTO has already done the merging it would otherwise do. Same caveat as
+`strip`: the row is true of the config we ship, not of the crate in general.
+
 ### Three things here will bite the next person
 
-**1. `wasm-opt` was silently failing, and wasm-pack shipped the unoptimized module anyway.**
-wasm-pack invokes `wasm-opt` allowing an older feature set than rustc now emits. Under
-`opt-level = "z"` — where LLVM starts emitting `memory.copy` and `i32.trunc_sat_*` — it dies
-with **3,966 `[wasm-validator error]` lines, and wasm-pack swallows it and exits 0.** So a
-"post `wasm-opt`" number can be a number no optimizer ever touched (§2's was, under some
-configs). If you turn it back on, the working flag list is in `Cargo.toml`: Rust's wasm32
-baseline **plus `--enable-simd`** (`fast_image_resize` vectorizes). Do not trust an exit code.
+**1. `wasm-opt` rejects what rustc emits at `opt-level = "z"` — and on failure it leaves the
+un-optimized module in `pkg/`.** wasm-pack invokes `wasm-opt` allowing an older feature set than
+rustc now emits. Under `opt-level = "z"` — where LLVM starts emitting `memory.copy` and
+`i32.trunc_sat_*` — it dies with thousands of `[wasm-validator error]` lines. If you turn it back
+on, the working flag list is in `Cargo.toml`: Rust's wasm32 baseline **plus `--enable-simd`**
+(`fast_image_resize` vectorizes).
+
+> **Corrected at verify (2026-07-12).** The build wrote this up as a *silent* failure — "wasm-pack
+> swallows it and exits 0", which would mean §2's numbers were never optimized. **Both halves are
+> wrong.** Re-driven on wasm-pack 0.15.0 / binaryen 130 across four invocation shapes (wasm-pack's
+> default, `wasm-opt = true`, a flag list without `--enable-simd`, the full list), the failure is
+> **loud every time** — `Error: failed to execute 'wasm-opt': exited with exit status: 1`, recipe
+> aborts **exit 1**. And under §2's own config (`opt-level = 3`, thin LTO) `wasm-opt` validates
+> clean and **really runs**, stripping 1.6 MB of raw (8,015,811 → 6,414,690 B). **§2's numbers were
+> genuinely post-wasm-opt**, and the 1,595,028 B baseline this section diffs against is sound.
+> The real hazard is narrower but still live: when `wasm-opt` fails, the **un-optimized module stays
+> in `pkg/`**, so a caller that loses the exit code through a pipe (`just wasm-build | tail` — the
+> likely source of the "exit 0") sees a plausible `pkg/` and a size no optimizer touched.
+> **Check that the raw size moved; don't read the exit code through a pipe.**
 
 We turned it **off** on the measurement: it is a **raw-size tool, not a wire-size tool.** It
 strips 340 KB of raw bytes by restructuring LLVM's very regular output — and takes the

@@ -335,13 +335,18 @@ lto = "thin"
 # So it costs download and buys nothing the user can feel. Off it goes.
 #
 # IF YOU TURN IT BACK ON, YOU MUST KEEP THE FEATURE FLAGS BELOW. wasm-pack's default
-# invocation allows an older feature set than rustc now emits, so wasm-opt fails
-# validation with thousands of `[wasm-validator error]` lines — and wasm-pack
-# SWALLOWS the failure and ships the unoptimized module anyway, exit 0. That is how
-# SPEC-072/073 shipped "post wasm-opt" numbers that were never wasm-opt'd (SPEC-074
-# caught it). The list below is exactly Rust's wasm32 baseline (`rustc --print cfg`)
-# plus `simd`, which `fast_image_resize` emits. Deliberately NOT `-all`, which would
-# also let wasm-opt reach for GC/threads/exception-handling.
+# invocation allows an older feature set than rustc now emits, so under
+# `opt-level = "z"` wasm-opt fails validation with thousands of `[wasm-validator
+# error]` lines. The list below is exactly Rust's wasm32 baseline (`rustc --print
+# cfg`) plus `simd`, which `fast_image_resize` emits. Deliberately NOT `-all`, which
+# would also let wasm-opt reach for GC/threads/exception-handling.
+#
+# That failure is LOUD — wasm-pack reports it and exits 1 (verified at SPEC-074 verify
+# on wasm-pack 0.15.0 / binaryen 130, across all four invocation shapes). But it leaves
+# the UN-OPTIMIZED module sitting in `pkg/`, so a caller that loses the exit code
+# through a pipe (`just wasm-build | tail`) sees a plausible artifact and a size no
+# optimizer ever touched. Check that the raw size MOVED — don't read an exit code
+# through a pipe.
 #
 #   wasm-opt = ["-O", "--enable-bulk-memory", "--enable-bulk-memory-opt",
 #               "--enable-nontrapping-float-to-int", "--enable-sign-ext",

@@ -137,15 +137,26 @@ Deltas are against the row's stated base, not against each other.
     of one compression level. And it buys **no speed** — through the real artifact, the module is a
     hair *faster* without it (AVIF 343 ms vs 350 ms; search 633 ms vs 719 ms). It costs download
     and returns nothing the user can feel.
-  - **The trap it was hiding is the more important find.** wasm-pack invokes `wasm-opt` allowing an
-    older feature set than rustc now emits. Under `opt-level = "z"` (where LLVM starts emitting
-    `memory.copy` and `i32.trunc_sat_*`) it fails validation with **3,966 `[wasm-validator error]`
-    lines — and wasm-pack swallows the failure and ships the unoptimized module anyway, exit 0.**
-    So "post wasm-opt" numbers can be numbers no optimizer ever touched. The working invocation is
-    recorded in `Cargo.toml` for whoever turns it back on: Rust's wasm32 baseline
-    (`--enable-bulk-memory`, `-bulk-memory-opt`, `-nontrapping-float-to-int`, `-sign-ext`,
+  - **The trap it hides.** wasm-pack invokes `wasm-opt` allowing an older feature set than rustc
+    now emits. Under `opt-level = "z"` (where LLVM starts emitting `memory.copy` and
+    `i32.trunc_sat_*`) it dies in validation with **thousands of `[wasm-validator error]` lines**.
+    The working invocation is recorded in `Cargo.toml` for whoever turns it back on: Rust's wasm32
+    baseline (`--enable-bulk-memory`, `-bulk-memory-opt`, `-nontrapping-float-to-int`, `-sign-ext`,
     `-mutable-globals`, `-reference-types`, `-multivalue`) **plus `--enable-simd`**, which
     `fast_image_resize` emits. Not `-all`, which would also permit GC/threads/exceptions.
+  - **Corrected at verify (2026-07-12).** The build recorded this failure as *silent* — "wasm-pack
+    swallows it and exits 0", casting doubt on SPEC-072/073's numbers. **That is wrong, and the
+    correction matters more than the original claim.** Re-driven on wasm-pack 0.15.0 / binaryen 130
+    across four invocation shapes (wasm-pack's default, `wasm-opt = true`, a flag list without
+    `--enable-simd`, and the full list), the failure is **LOUD every time**: `Error: failed to
+    execute 'wasm-opt': exited with exit status: 1`, and the recipe aborts **exit 1**. And under the
+    config SPEC-072/073 actually shipped (`opt-level = 3`, thin LTO), `wasm-opt` **validates clean
+    and really runs** — it strips 1.6 MB of raw (8,015,811 → 6,414,690 B), so **their "post
+    wasm-opt" numbers were genuinely post-wasm-opt.** The baseline this DEC diffs against is sound.
+    What *is* true, and is the durable hazard: on failure wasm-pack leaves the **un-optimized module
+    in `pkg/`**, so a caller that reads an exit code through a pipe (`just wasm-build | tail` — the
+    likely origin of the "exit 0") finds a plausible `pkg/` and a size number no optimizer touched.
+    **Check the raw size moved, not the exit code.**
 
 - **Option D (chosen): the three free levers + the codec trim; refuse the three that cost.**
   - Why selected: it is the honest floor. Every byte we removed is a byte no user misses, and every
