@@ -205,9 +205,9 @@ have an impressive unused tool.
   Chrome (init over HTTP, zero network requests during conversion, output decoded by an independent
   decoder). `.github/workflows/pages.yml` deploys to GitHub Pages **gated on the browser smoke** and
   is the repo's **first CI job that builds through `just wasm-build`** (partially closes the "CI
-  never runs the wasm smokes" carry). Carries: (1) **⚠ GitHub Pages is NOT enabled on the repo** —
-  the workflow is correct but has never published (maintainer: Settings → Pages → Source: GitHub
-  Actions); the deploy leg is the one thing unproven end-to-end. (2) **SPEC-078** — all conversions
+  never runs the wasm smokes" carry). Carries: (1) **✅ RESOLVED 2026-07-13 — Pages enabled; the demo
+  is LIVE at https://jysf.github.io/crustyimg/** (deploy job green, `.wasm` served as `application/wasm`,
+  engine initializes in-browser) — the deploy leg is proven end-to-end. (2) **SPEC-078** — all conversions
   still run on the main thread; the Web Worker should take **all of them** (not just AVIF) + `.avif`
   input via `createImageBitmap` + the explain readout + intent controls; its ship completes STAGE-027.
 - **Proof & distribution polish.** `BENCHMARKS.md` (cross-tool, honest equal-quality rule) · a

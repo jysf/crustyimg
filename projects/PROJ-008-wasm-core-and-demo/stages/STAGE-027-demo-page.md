@@ -97,7 +97,7 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
   Worker with progress (rav1e serial); `.avif` inputs via `createImageBitmap`; the explain/bytes-saved
   readout; the honest WebP-lossless labeling; intent controls (quality/budget/format). May split.
 
-**Count:** 1 shipped / 0 active / 1 pending (SPEC-077 SHIPPED 2026-07-13 — the demo runs in a real browser, drop→convert→download, deploy gated on a headless-Chrome smoke; only SPEC-078 (Web Worker for ALL conversions + AVIF + `.avif`-input via createImageBitmap + explain + intent controls) left, then STAGE-027 completes). **⚠ Carry: GitHub Pages is NOT enabled on the repo — the deploy workflow is correct but has never published (maintainer: Settings → Pages → Source: GitHub Actions).**
+**Count:** 1 shipped / 0 active / 1 pending (SPEC-077 SHIPPED 2026-07-13 — the demo runs in a real browser, drop→convert→download, deploy gated on a headless-Chrome smoke; only SPEC-078 (Web Worker for ALL conversions + AVIF + `.avif`-input via createImageBitmap + explain + intent controls) left, then STAGE-027 completes). **✅ DEPLOY PROVEN LIVE 2026-07-13: GitHub Pages enabled; the demo is published at https://jysf.github.io/crustyimg/ — `pages.yml` deploy job green, the page loads, `vendor/crustyimg_bg.wasm` serves as `application/wasm`, and the engine initializes ("Engine loaded", version 0.4.0, no console errors). The end-to-end deploy leg is no longer unproven.**
 
 ## Design Notes
 
