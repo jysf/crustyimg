@@ -237,6 +237,15 @@ an assembly guard:
   - **No browser driver.** Chrome is driven over the DevTools Protocol directly (~80 lines of
     WebSocket JSON-RPC). Adding Puppeteer/Playwright to prove a page that needs no toolchain would
     have undercut the pitch it exists to make.
+  - **The smoke itself had two races that only a slower machine could show**, and CI found both on
+    the first run (which is an argument for the CI job, not against it). Both were in the *test*,
+    never the page: (1) right after `Page.navigate` the document can still be the empty initial
+    one, where `document.body` is **null** — a bare `document.body.dataset.state` throws rather
+    than returning undefined, killing the poll on its first tick; (2) on a slow runner the
+    navigation **commits twice**, so a bare read taken just after the state poll can land on the
+    second document mid-boot and see an empty version span. Fixed by making every page read
+    null-safe and by *waiting on values instead of snapshotting them*. Worth knowing at verify:
+    this smoke's assertions are all end-states, deliberately.
 - **Follow-up work identified:**
   - **SPEC-078 (already planned):** AVIF encode in a Web Worker; `.avif` inputs via
     `createImageBitmap`; `explain` readout; intent controls. The page's `avif` option is wired and
