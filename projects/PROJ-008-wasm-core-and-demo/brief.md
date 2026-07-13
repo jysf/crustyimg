@@ -156,17 +156,21 @@ Format: `- [status] STAGE-ID — one-line summary`
   wasm — the headline; decode deferred to `createImageBitmap`, DEC-065), **SPEC-074** (bundle size
   1.52→**1.33 MB brotli** by ablation, DEC-066). Every "works/small" claim was driven, not asserted.
   Three specs, exactly as framed — each grounded by a design-time probe so none forced a split.
-- [ ] STAGE-026 (not yet framed) — **npm-packaged library.** Package the WASM + a typed
-  JS/TS wrapper into an installable npm module with a small API over the load-bearing verbs
-  (transform/convert/resize/optimize/info); publish or dry-run/tag; prove "installs with no
-  native addon, runs client-side."
+- [ ] STAGE-026 (framed + active on 2026-07-12) — **npm-packaged library.** Package the shipped
+  WASM build (`just wasm-build`'s `pkg/` — wasm-pack already emits a near-publishable package.json +
+  typed `.d.ts`) into an installable npm module: settle identity (name/scope vs the crate), target
+  (`web`/`bundler`), versioning, README; prove `npm pack` → fresh-install → `transform`/`info` runs
+  client-side with no native addon; DEC for identity/target/versioning/publish. Publish is **gated
+  on explicit maintainer approval** (outward-facing). The packaged `.wasm` must be the size-profiled
+  build (the STAGE-025 +109 KB footgun). Specs: SPEC-075 (package shape + smoke test + DEC — frame
+  first), SPEC-076 (publish/release, gated, foldable).
 - [ ] STAGE-027 (not yet framed) — **the demo page.** A static, client-side single-page
   demo (drop → intent → optimized modern-format result + format/bytes/explain → download),
   hosted statically, 100% in-browser — the "watch it just work" artifact to time a Show HN
   around. *(May fold into STAGE-026 if the library API makes the page thin.)*
 
-**Count:** 1 shipped / 0 active / 2 pending (STAGE-025 SHIPPED 2026-07-12 — the WASM core is
-proven, sized, in-browser; STAGE-026 npm + STAGE-027 demo not yet framed)
+**Count:** 1 shipped / 1 active / 1 pending (STAGE-025 SHIPPED; STAGE-026 npm library framed +
+active 2026-07-12; STAGE-027 demo not yet framed)
 
 ## Dependencies
 
