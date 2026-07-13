@@ -44,7 +44,6 @@ path = "src/main.rs"
 ## table below; the AVIF decoder is there too — it is the one dep that cannot
 ## compile to bare wasm32 (see DEC-064).
 [dependencies]
-image = { version = "=0.25.10", default-features = false, features = ["png", "jpeg", "gif", "bmp", "tiff", "ico", "webp"] }
 fast_image_resize = { version = "=6.0.0", features = ["image"] }
 thiserror = "=2.0.18"
 serde = { version = "=1.0.228", features = ["derive"] }
@@ -97,7 +96,13 @@ webp = { version = "=0.3.1", optional = true, default-features = false }
 # Hostile-input safety lives in src/image/svg.rs: external file/URL hrefs refused
 # (resources_dir=None + href resolver), output dims capped from usvg Tree::size()
 # BEFORE Pixmap allocation (DEC-034). Non-optional (default path); no new feature.
-resvg = { version = "=0.47.0", default-features = false, features = ["text"] }
+#
+# NOTE: `image` and `resvg` are NOT declared here — they are declared once per
+# target table below, because the WASM build takes a SMALLER feature set of each
+# (SPEC-074, DEC-066) and cargo features are additive: you cannot subtract a
+# feature for one target from a shared `[dependencies]` entry. The native entries
+# below carry exactly the feature sets this table used to, so the native build is
+# byte-identical (DEC-064).
 # HEIC/HEIF DECODE behind the off-by-default `heic` feature (SPEC-062, DEC-056,
 # implementing DEC-052). NEVER in a distributed artifact: HEVC is patent-encumbered
 # (Access Advance) on every decode path, and the mature pure-Rust decoders are AGPL.
@@ -123,6 +128,17 @@ libheif-rs = { version = "=2.7.0", optional = true, default-features = false, fe
 ## lean / avif / heic / webp-lossy) byte-for-byte unchanged: on every native target
 ## this table is unconditionally active, exactly as `[dependencies]` was.
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+# The pixel core and the SVG rasterizer, at their FULL native feature sets — these
+# two lines are the ones the shared `[dependencies]` table used to carry, moved here
+# verbatim so the native build is byte-identical (SPEC-074/DEC-066 trims the WASM
+# copies only; see the wasm32 table below for what comes off and why).
+#   `image`: the full pure-Rust decoder set (DEC-004). `tiff`/`bmp`/`ico` stay on
+#   native — a CLI reads whatever file you point it at, and `lint`/`info` must
+#   answer for a scanner's TIFF or a favicon's ICO.
+image = { version = "=0.25.10", default-features = false, features = ["png", "jpeg", "gif", "bmp", "tiff", "ico", "webp"] }
+#   `resvg` WITH `text`: native `crustyimg` renders SVG `<text>` as real glyphs
+#   (DEC-054), using only the bundled Go font. Unchanged.
+resvg = { version = "=0.47.0", default-features = false, features = ["text"] }
 # AVIF DECODE on the default, pure-Rust path (SPEC-058, DEC-053). Two CODEC deps
 # feeding the canonical `Image` (the webp-lossy precedent, DEC-021/DEC-022) — NOT
 # a second pixel library, so `single-image-library` is not tripped. AV1/AVIF is
@@ -194,6 +210,37 @@ notify = { version = "=8.2.0", optional = true }
 
 ## ── wasm32-only dependencies ─────────────────────────────────────────────────
 [target.'cfg(target_arch = "wasm32")'.dependencies]
+# The pixel core and the SVG rasterizer again — same crates, same versions, SMALLER
+# feature sets. Every byte of the demo bundle is a byte the user waits for, and these
+# two feature lists are the only place a capability can be traded for download size
+# (SPEC-074, DEC-066). Both trims are MEASURED, not guessed, and both are
+# wasm32-only: the native lines above are untouched (DEC-064).
+#
+# `image` LOSES `tiff`, `bmp`, `ico` — MEASURED at −84,327 B brotli, the biggest win
+# in this spec that costs the demo nothing. A browser demo is fed by a file picker,
+# and the formats people actually drag into one are PNG/JPEG/GIF/WebP (+SVG, +AVIF
+# via the browser's own decoder). TIFF/BMP/ICO decode in wasm bought nothing and cost
+# download for everyone. Such an input now returns the same typed `ImageError` an
+# unsupported format always did — no panic, no silent garbage — and
+# `tests/wasm_roundtrip.rs::trimmed_codecs_error_cleanly_in_wasm` pins that, while
+# its native twin pins that the CLI still reads all three.
+image = { version = "=0.25.10", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
+# `resvg` KEEPS `text` — MEASURED at 287,098 B brotli (20% of the bundle: the single
+# biggest lever in the binary, and the one we DECLINED).
+#
+# Dropping it does not make SVG text ugly, it makes it VANISH. usvg without `text`
+# drops `<text>` nodes from the tree entirely, so a logo or a chart rasterizes with a
+# hole where its labels were — and `transform()` still returns `Ok` with correct
+# dimensions, so nothing anywhere can tell the user. We built that artifact and
+# confirmed it: `info()` still answered 40x30 on a text SVG whose text was gone, and
+# the existing `svg_rasterizes_in_wasm` test (which asserts dimensions) stayed green
+# straight through the corruption. DEC-054 already called text-to-nothing a
+# "silent-wrong-output footgun"; 287 KB does not buy the right to ship one. A demo
+# that quietly eats your labels is worse than a demo that loads a beat slower.
+# `svg_text_renders_glyphs_in_wasm` is the guardrail that makes a future accidental
+# drop go RED instead of silent. DEC-066 records the number so STAGE-026 can revisit
+# it behind a lazy chunk, with the price tag already known.
+resvg = { version = "=0.47.0", default-features = false, features = ["text"] }
 # The JS ↔ Rust boundary for the WASM build (SPEC-072, DEC-064). Pure-Rust and
 # permissive (MIT OR Apache-2.0), so DEC-004 holds and `just deny` needs no new
 # exception. It is GLUE, not a codec — `single-image-library` is not tripped: the
@@ -266,3 +313,44 @@ harness = false
 [profile.dist]
 inherits = "release"
 lto = "thin"
+
+# How wasm-pack invokes `wasm-opt` on the built `.wasm` (SPEC-074, DEC-066). Inert
+# for every native build — cargo ignores `package.metadata`.
+#
+# **wasm-opt is OFF, and that is a measured decision, not an oversight.**
+#
+# It is a RAW-size tool, not a wire-size tool. On this binary (fat LTO,
+# codegen-units = 1) it restructures LLVM's very regular output — merging and
+# folding code — which removes 340 KB of raw bytes and, in doing so, removes the
+# REDUNDANCY the compressor was feeding on. Measured at the shipped config:
+#
+#            raw          brotli -q11
+#   off      6,003,911    1,394,313
+#   -O       5,663,469    1,430,801   (−340 KB raw, +36 KB ON THE WIRE)
+#
+# The user waits for the compressed bytes, not the raw ones, and the penalty holds
+# at every level we tried (brotli q4/q5/q9/q11 AND gzip -9, +17 KB..+64 KB). The
+# module is not one microsecond faster with it on, either — measured through the
+# real artifact: AVIF encode 350 ms vs 343 ms, perceptual search 719 ms vs 633 ms.
+# So it costs download and buys nothing the user can feel. Off it goes.
+#
+# IF YOU TURN IT BACK ON, YOU MUST KEEP THE FEATURE FLAGS BELOW. wasm-pack's default
+# invocation allows an older feature set than rustc now emits, so under
+# `opt-level = "z"` wasm-opt fails validation with thousands of `[wasm-validator
+# error]` lines. The list below is exactly Rust's wasm32 baseline (`rustc --print
+# cfg`) plus `simd`, which `fast_image_resize` emits. Deliberately NOT `-all`, which
+# would also let wasm-opt reach for GC/threads/exception-handling.
+#
+# That failure is LOUD — wasm-pack reports it and exits 1 (verified at SPEC-074 verify
+# on wasm-pack 0.15.0 / binaryen 130, across all four invocation shapes). But it leaves
+# the UN-OPTIMIZED module sitting in `pkg/`, so a caller that loses the exit code
+# through a pipe (`just wasm-build | tail`) sees a plausible artifact and a size no
+# optimizer ever touched. Check that the raw size MOVED — don't read an exit code
+# through a pipe.
+#
+#   wasm-opt = ["-O", "--enable-bulk-memory", "--enable-bulk-memory-opt",
+#               "--enable-nontrapping-float-to-int", "--enable-sign-ext",
+#               "--enable-mutable-globals", "--enable-reference-types",
+#               "--enable-multivalue", "--enable-simd"]
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = false

@@ -23,6 +23,11 @@ the artifact, not from a successful `cargo build`.
 
 ## 2. Size baseline (the number SPEC-074 tunes)
 
+> **SUPERSEDED by §8 (SPEC-074).** The shipped artifact is now **1.33 MB brotli**, and
+> the "after `wasm-opt`" in the line below was not always true — see §8, which found
+> wasm-opt silently failing and turned it off deliberately. The numbers here are kept
+> as the historical starting line SPEC-074 argued from.
+
 Release build, after `wasm-opt` (wasm-pack runs it automatically when binaryen is on PATH):
 
 | | size | what it is |
@@ -152,7 +157,9 @@ to `wasm32-unknown-unknown` **except `re_rav1d`**.
 
 So the wasm build's input reach is: **PNG, JPEG, GIF, BMP, TIFF, ICO, WebP, SVG** —
 everything the native default build reaches **except AVIF**. (HEIC was already opt-in
-and off, DEC-052.) An AVIF input returns a typed
+and off, DEC-052.) *(SPEC-074 later trimmed **BMP, TIFF and ICO** out of the wasm build
+for 84 KB brotli — DEC-066, §8. The wasm reach is now PNG, JPEG, GIF, WebP, SVG.)* An
+AVIF input returns a typed
 `ImageError::CodecUnavailableOnTarget`, never a panic — which matters more here than on
 native, because **a panic in wasm aborts the module** and takes the page's instance with
 it.
@@ -270,3 +277,121 @@ full `image` codec set) — that is SPEC-074's lever, not the headline codec.
   through the recipe.
 - **`.avif` INPUTS are the demo's problem now.** The page must read them with
   `createImageBitmap` and hand us pixels; we return a typed error.
+
+---
+
+## 8. SPEC-074 addendum — the bundle size, measured by ablation
+
+**Run date:** 2026-07-12 · **Spec:** SPEC-074 · **Decision:** DEC-066 · same machine and
+toolchain as above. This section supersedes the §2 baseline.
+
+### The result
+
+**1,595,028 → 1,394,313 B brotli (−200,715 B, −12.6%): 1.52 MB → 1.33 MB**, with **no
+capability lost** except TIFF/BMP/ICO *decode in the browser*. SVG text, the AVIF
+encoder's speed, and the perceptual quality search all survive.
+
+| | before (SPEC-073) | **after (SPEC-074)** | delta |
+|---|---|---|---|
+| raw | 6,414,690 B (6.12 MB) | 6,003,911 B (5.73 MB) | −410,779 B |
+| gzip `-9` | 2,272,543 B (2.17 MB) | 2,004,000 B (1.91 MB) | −268,543 B |
+| **brotli `-q 11`** | **1,595,028 B (1.52 MB)** | **1,394,313 B (1.33 MB)** | **−200,715 B (−12.6%)** |
+
+Reproduce with `just wasm-build`. **Build through the recipe** — the size profile lives in
+its `CARGO_PROFILE_RELEASE_*` env vars (it cannot live in `[profile.release]`, which the
+native release build shares; DEC-064 requires that to stay byte-identical).
+
+### The ablation table
+
+Each row is a real build. The design probe's framing held: **there is no whale.** The
+biggest *free* win turned out to be a compiler flag nobody had listed, and the probe's own
+prime suspect (`ssimulacra2`) was worth 23 KB.
+
+| lever | brotli | Δ | verdict |
+|---|---|---|---|
+| baseline (SPEC-073) | 1,595,028 | — | |
+| `lto = "fat"` + `codegen-units = 1` | 1,515,128 | **−79,900** | **TAKEN** — free |
+| `image` −tiff −bmp −ico *(wasm only)* | 1,430,801 | **−84,327** | **TAKEN** — costs 3 browser input formats |
+| `wasm-opt` OFF | 1,394,313 | **−36,488** | **TAKEN** — free (and +340 KB raw) |
+| `strip = true` | *(in the above)* | **−58,533** | **TAKEN** — free, but only *because* wasm-opt is off |
+| **SHIPPED** | **1,394,313** | **−200,715** | |
+| resvg `text` | 1,143,703 | −287,098 | **REFUSED** — silently deletes SVG `<text>` |
+| `opt-level = "z"` | 1,267,192 | −247,936 | **REFUSED** — AVIF encode 2.8× slower |
+| `opt-level = "s"` | 1,345,576 | −169,552 | **REFUSED** — AVIF encode 1.5× slower |
+| drop `ssimulacra2` | 1,407,261 | −23,540 | **REFUSED** — kills auto-quality for 1.7% |
+| `panic = "abort"` | — | **0** | already the wasm32 default (`rustc --print cfg`) |
+| `lto = "fat"` *alone* (cu=16) | 1,596,478 | **+1,450** | fat LTO without `codegen-units = 1` is worse than useless |
+
+*(The refused rows are measured against different bases — see DEC-066 for each base.)*
+
+**A lever's sign can flip with the config (verify, 2026-07-12).** `wasm-opt` OFF is worth −36,488 B
+*in the shipped config* (fat LTO + `codegen-units = 1`), but on the **pre-LTO** baseline it is a
+small brotli **win** to leave it ON (1,599,320 off → 1,595,028 on, −4,292 B). It only becomes a
+wire-size penalty once LTO has already done the merging it would otherwise do. Same caveat as
+`strip`: the row is true of the config we ship, not of the crate in general.
+
+### Three things here will bite the next person
+
+**1. `wasm-opt` rejects what rustc emits at `opt-level = "z"` — and on failure it leaves the
+un-optimized module in `pkg/`.** wasm-pack invokes `wasm-opt` allowing an older feature set than
+rustc now emits. Under `opt-level = "z"` — where LLVM starts emitting `memory.copy` and
+`i32.trunc_sat_*` — it dies with thousands of `[wasm-validator error]` lines. If you turn it back
+on, the working flag list is in `Cargo.toml`: Rust's wasm32 baseline **plus `--enable-simd`**
+(`fast_image_resize` vectorizes).
+
+> **Corrected at verify (2026-07-12).** The build wrote this up as a *silent* failure — "wasm-pack
+> swallows it and exits 0", which would mean §2's numbers were never optimized. **Both halves are
+> wrong.** Re-driven on wasm-pack 0.15.0 / binaryen 130 across four invocation shapes (wasm-pack's
+> default, `wasm-opt = true`, a flag list without `--enable-simd`, the full list), the failure is
+> **loud every time** — `Error: failed to execute 'wasm-opt': exited with exit status: 1`, recipe
+> aborts **exit 1**. And under §2's own config (`opt-level = 3`, thin LTO) `wasm-opt` validates
+> clean and **really runs**, stripping 1.6 MB of raw (8,015,811 → 6,414,690 B). **§2's numbers were
+> genuinely post-wasm-opt**, and the 1,595,028 B baseline this section diffs against is sound.
+> The real hazard is narrower but still live: when `wasm-opt` fails, the **un-optimized module stays
+> in `pkg/`**, so a caller that loses the exit code through a pipe (`just wasm-build | tail` — the
+> likely source of the "exit 0") sees a plausible `pkg/` and a size no optimizer touched.
+> **Check that the raw size moved; don't read the exit code through a pipe.**
+
+We turned it **off** on the measurement: it is a **raw-size tool, not a wire-size tool.** It
+strips 340 KB of raw bytes by restructuring LLVM's very regular output — and takes the
+redundancy the compressor was eating with it: **+36 KB on the wire.** That penalty holds at
+brotli q4/q5/q9/q11 *and* gzip -9, and it buys **no speed** (AVIF 343 ms without vs 350 ms
+with). It costs download and returns nothing the user feels.
+
+**2. `opt-level = "z"` is a trap, and `rav1e` is not the crate you think it is.** `z` looks
+like the headline win (−248 KB) until you drive the artifact: the AVIF encoder goes **350 ms
+→ 956 ms** on a 512×384 photo, on the path that *is* the demo (DEC-065), with rav1e already
+serial on wasm. And rav1e is **generic over its pixel type**, so its encoder monomorphizes
+into **`ravif`** — pinning `[profile.release.package.rav1e] opt-level = 3` does almost
+nothing. Pin **`ravif`** and the speed returns exactly (348 ms)… along with **161 KB of the
+165 KB you saved**. The size win *was* the slowdown. There is no middle; we kept the speed.
+
+**3. A lever's value depends on which other levers are pulled.** `strip = true` measured as
+250 B of *noise* — because `wasm-opt` was already stripping the debug sections. The moment
+wasm-opt came off, `strip` became worth **58 KB**. It nearly got dropped as a no-op on a
+measurement taken in a config we don't ship. **Measure in the config you actually ship.**
+
+### The guardrails
+
+`just wasm-test` is 12 green (was 10). Two are new, and both were **mutation-tested** — each
+was made to fail by re-introducing the thing it guards against, then restored:
+
+- **`svg_text_renders_glyphs_in_wasm`** — rasterizes the text fixture and the same SVG with
+  its `<text>` removed, and asserts the two differ. This exists because dropping resvg's
+  `text` feature is **invisible**: usvg drops `<text>` nodes from the tree, so the SVG still
+  rasterizes, still reports 40×30, and `transform()` still returns `Ok` — with a hole where
+  the label was. We built that artifact, and the existing `svg_rasterizes_in_wasm` (which
+  asserts dimensions) stayed **green straight through the corruption**. Dimensions cannot see
+  this; only pixels can.
+- **`trimmed_codecs_error_cleanly_in_wasm`** — a TIFF/BMP/ICO input returns a typed `Err`, not
+  a panic (a panic in wasm aborts the module and takes the page's instance with it). Its
+  native twin, `native_still_decodes_the_codecs_wasm_trimmed`, asserts the **opposite** verdict
+  on the **same three fixtures** — that pair *is* the target-cfg boundary, pinned, so a
+  "cleanup" of the now-duplicated `image`/`resvg` dep lines cannot quietly take the native
+  codecs down with it.
+
+Beyond the tests, the shipped `pkg/` artifact was driven directly from Node — load the
+`.wasm`, run every demo conversion, assert on the output bytes — because a green test build is
+not a shipped artifact. All 10 conversions pass: PNG→PNG/JPEG/WebP/AVIF, SVG→PNG,
+`optimize` with a real SSIMULACRA2 search, and the full-size AVIF encode the timings above
+come from.
