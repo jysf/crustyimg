@@ -17,7 +17,9 @@ they go. Status markers: `[ ]` not started · `[~]` in progress · `[x]` complet
   per-session usd.
 - [ ] **verify** — fresh adversarial session (worktree): main thread responsive during a slow AVIF
   encode, PNG→AVIF valid (independent decode), `.avif` input converts, readout correct, still
-  client-side, deployed .wasm profiled, live gate passes.
+  client-side, deployed .wasm profiled, live gate passes. **+ CROSS-BROWSER/MOBILE (launch-readiness,
+  biggest risk): drive Safari + Firefox + mobile — works or degrades gracefully; confirm module
+  Worker / instantiateStreaming / createImageBitmap-AVIF per engine** (`docs/launch-readiness.md`).
 - [ ] **ship** — squash-merge, bookkeeping on main, cost totals (per-session usd + ship recorded_at),
   reflection, memory + brag. **Ship completes STAGE-027** → stage-ship reflection; then only SPEC-076
   (gated publish) remains in PROJ-008 → the launch.

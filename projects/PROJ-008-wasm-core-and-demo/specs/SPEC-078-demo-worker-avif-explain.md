@@ -84,7 +84,8 @@ Grounded assumptions the build must DRIVE first (name them, don't assume):
 Move the demo's conversions into a Web Worker so they never freeze the tab; enable AVIF output
 (PNG/JPEG/… → `.avif`) off-thread; accept `.avif` inputs via `createImageBitmap`; and show the
 decision — bytes in→out + saving, format chosen, dimensions — with intent controls (output format +
-a quality/byte-budget where the format supports it). Its ship completes STAGE-027.
+a quality/byte-budget where the format supports it). **Also make it launch-ready across browsers**
+(Safari/Firefox/mobile, not just Chrome — see `docs/launch-readiness.md`). Its ship completes STAGE-027.
 
 ## Inputs
 
@@ -120,6 +121,15 @@ a quality/byte-budget where the format supports it). Its ship completes STAGE-02
 - [ ] Still **100% client-side** (zero network during conversion), no SharedArrayBuffer / no
       COOP-COEP (a Worker is a separate thread, not shared-memory threads); the deployed `.wasm` is
       the size-profiled one; the live Pages deploy still passes its gate.
+- [ ] **Cross-browser + mobile (launch-readiness — the biggest risk):** the demo works, **or
+      degrades gracefully with a clear message**, in **Safari, Firefox, and mobile (iOS Safari +
+      Android Chrome)** — not just Chrome. Confirm the engine-varying pieces by a **driven** check:
+      module Web Worker (`{type:'module'}`), `instantiateStreaming`, and **`createImageBitmap`
+      decoding AVIF** (Safari/Firefox differ — if a browser can't decode AVIF, the `.avif`-input path
+      must say so, not hang). The CI `demo-smoke` stays headless-Chrome (the automated gate); the
+      cross-browser matrix is a driven manual/verify pass, recorded in the demo README. *(If a
+      browser needs real fallback code beyond a graceful message, that may split into its own spec —
+      note it, don't balloon this one.)*
 - [ ] Native/engine untouched; `just deny`/`just validate` green; guardrail held (a thin demo page).
 
 ## Failing Tests
