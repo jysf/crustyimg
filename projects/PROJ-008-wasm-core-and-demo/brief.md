@@ -169,12 +169,17 @@ Format: `- [status] STAGE-ID — one-line summary`
   download), hosted statically, 100% in-browser — the "watch it just work" artifact to time a Show
   HN around. Consumes `crustyimg-wasm`; AVIF encode in a Web Worker (rav1e serial), `.avif` inputs
   via `createImageBitmap`, single-threaded (no COOP/COEP). Specs: SPEC-077 (skeleton — frame first),
-  SPEC-078 (worker + explain/UX). **SPEC-076 (npm publish) is parked to pair with this stage's
-  launch** (demo live + published + Show HN together).
+  SPEC-078 (worker + AVIF + explain + cross-browser). SPEC-077 SHIPPED + LIVE; SPEC-078 built,
+  ready for verify.
+- [ ] STAGE-028 (proposed on 2026-07-13) — **launch readiness.** The capstone: the README front
+  door (CLI-only today), honest BENCHMARKS.md, and the Show HN go/no-go against
+  `docs/launch-readiness.md`. Depends on SPEC-078 (demo, incl. cross-browser) + SPEC-076 (gated npm
+  publish); times them into one launch. Docs + coordination, not code. Specs: SPEC-079 (README),
+  SPEC-080 (BENCHMARKS).
 
-**Count:** 1 shipped / 2 active / 0 pending (STAGE-025 SHIPPED; STAGE-026 npm library — SPEC-075
-shipped, only the gated SPEC-076 publish parked for launch; STAGE-027 demo page framed + active
-2026-07-13). PROJ-008's final stretch: build the demo, then launch (publish + Show HN).
+**Count:** 1 shipped / 2 active / 1 proposed (STAGE-025 SHIPPED; STAGE-026 — SPEC-075 shipped, gated
+SPEC-076 publish parked; STAGE-027 demo — SPEC-077 shipped+live, SPEC-078 in verify; STAGE-028 launch
+readiness proposed). Final stretch: finish SPEC-078 → launch readiness → Show HN.
 
 ## Dependencies
 
