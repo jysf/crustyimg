@@ -29,7 +29,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 #[cfg(target_arch = "wasm32")]
 mod wasm {
-    use crustyimg::wasm::{info, optimize, transform};
+    use crustyimg::wasm::{info, optimize, optimize_detailed, score, transform};
     use wasm_bindgen_test::wasm_bindgen_test;
 
     /// The SVG fixture the native suite uses (SPEC-060) — a 40×30 plain-text SVG.
@@ -353,6 +353,285 @@ op = "identity"
 
         assert!(out.len() > 8, "AVIF encode returned no usable bytes");
         assert_eq!(&out[4..8], b"ftyp", "output should be an ISOBMFF container");
+    }
+
+    // ── SPEC-079: the detailed optimize surface ───────────────────────────────
+    //
+    // These drive `optimizeDetailed` and `score` — the surface SPEC-080's demo and
+    // SPEC-081's quality readout are built on — inside the real wasm VM, and assert
+    // on what came back, not on the call returning Ok.
+
+    /// A **photographic** fixture: 192×160, no alpha, a gradient carrying texture and
+    /// deterministic pseudo-noise. Two properties matter and both are load-bearing:
+    ///
+    /// - it is **> 128 px** on its long edge, so the analysis layer's icon rule
+    ///   (`ICON_MAX_EDGE`) does not claim it before the photograph rule can — the
+    ///   64×48 fixture above is an *Icon* to the engine, which is why it cannot be
+    ///   reused here;
+    /// - it has thousands of colours and high entropy, so it buckets `Lossy`
+    ///   (`ImageClass::Photograph`) — the bucket the Auto-AVIF rule keys on.
+    fn photo_png_192x160() -> Vec<u8> {
+        use image::{ImageEncoder, Rgb, RgbImage};
+        let mut img = RgbImage::new(192, 160);
+        for (x, y, px) in img.enumerate_pixels_mut() {
+            // A cheap deterministic hash — no rng dependency, identical every run.
+            let n = ((x.wrapping_mul(2654435761)) ^ (y.wrapping_mul(40503))) % 37;
+            let gx = (x * 255 / 192) as i32;
+            let gy = (y * 255 / 160) as i32;
+            let tex = if ((x / 5) + (y / 3)) % 2 == 0 { 24 } else { 0 };
+            let r = (gx + tex + n as i32).clamp(0, 255) as u8;
+            let g = (gy + n as i32 * 2).clamp(0, 255) as u8;
+            let b = ((gx + gy) / 2 + tex - n as i32).clamp(0, 255) as u8;
+            *px = Rgb([r, g, b]);
+        }
+        let mut out = Vec::new();
+        image::codecs::png::PngEncoder::new(&mut out)
+            .write_image(img.as_raw(), 192, 160, image::ExtendedColorType::Rgb8)
+            .expect("encode photographic fixture");
+        out
+    }
+
+    /// A **flat graphic** fixture: 192×160 (again over the icon edge), four flat
+    /// colours in blocks. Few colours → `ImageClass::GraphicLogo` → the
+    /// `LosslessFlat` bucket, the control for the Auto-AVIF rule.
+    fn graphic_png_192x160() -> Vec<u8> {
+        use image::{ImageEncoder, Rgb, RgbImage};
+        const PALETTE: [[u8; 3]; 4] = [
+            [255, 255, 255],
+            [20, 40, 160],
+            [230, 60, 40],
+            [250, 210, 40],
+        ];
+        let mut img = RgbImage::new(192, 160);
+        for (x, y, px) in img.enumerate_pixels_mut() {
+            *px = Rgb(PALETTE[((x / 48 + y / 40) % 4) as usize]);
+        }
+        let mut out = Vec::new();
+        image::codecs::png::PngEncoder::new(&mut out)
+            .write_image(img.as_raw(), 192, 160, image::ExtendedColorType::Rgb8)
+            .expect("encode graphic fixture");
+        out
+    }
+
+    /// Re-encode a decodable image to JPEG at `q` (a degraded reference for `score`).
+    fn jpeg_at(png: &[u8], q: u8) -> Vec<u8> {
+        let img = image::load_from_memory(png).expect("fixture decodes");
+        let mut out = std::io::Cursor::new(Vec::new());
+        img.write_with_encoder(image::codecs::jpeg::JpegEncoder::new_with_quality(
+            &mut out, q,
+        ))
+        .expect("jpeg encode");
+        out.into_inner()
+    }
+
+    /// **The headline of SPEC-079.** A photo through Auto now comes back as AVIF —
+    /// at the speed the caller asked for.
+    ///
+    /// Before this spec, Auto ran `Mode::Perceptual`, whose shortlist refuses AVIF
+    /// (it cannot be decoded, so it cannot be scored — DEC-020/DEC-048), so a photo
+    /// fell through to a slow SSIMULACRA2 JPEG search that saved ~13 %. The
+    /// Auto-AVIF rule keys on the content bucket instead, and the reported `speed`
+    /// proves the rav1e knob really reached the encoder rather than being accepted
+    /// and dropped.
+    #[wasm_bindgen_test]
+    fn optimize_detailed_auto_photo_picks_avif() {
+        let src = photo_png_192x160();
+
+        let r = optimize_detailed(&src, "auto", Some(10), None, None)
+            .expect("auto optimize of a photo should succeed");
+
+        assert_eq!(r.format(), "avif", "a photo must route to AVIF under Auto");
+        assert!(
+            r.bytes().len() < src.len(),
+            "AVIF ({} B) must beat the source PNG ({} B) — an 'optimization' that grows \
+             the file is the bug STAGE-029 exists to fix",
+            r.bytes().len(),
+            src.len()
+        );
+        assert_eq!(&r.bytes()[4..8], b"ftyp", "output should really be AVIF");
+        assert_eq!(r.quality(), Some(80), "AVIF encodes at its default quality");
+        assert_eq!(r.speed(), Some(10), "the requested rav1e speed is honoured");
+        assert_eq!(
+            r.score(),
+            None,
+            "the wasm engine cannot decode AVIF, so it must NOT claim a score for it \
+             (DEC-065) — SPEC-081 scores it browser-side via score()"
+        );
+        assert_eq!(r.scored_by(), "none");
+    }
+
+    /// The control: the Auto-AVIF rule fires on **content**, not on every input. A
+    /// flat graphic stays lossless — turning a logo into AVIF would be the mirror
+    /// image of the bug.
+    #[wasm_bindgen_test]
+    fn optimize_detailed_auto_graphic_stays_lossless() {
+        let r = optimize_detailed(&graphic_png_192x160(), "auto", None, None, None)
+            .expect("auto optimize of a graphic should succeed");
+
+        assert_ne!(r.format(), "avif", "a flat graphic must not route to AVIF");
+        assert!(
+            r.format() == "png" || r.format() == "webp",
+            "a graphic should stay in the lossless family, got {}",
+            r.format()
+        );
+        assert_eq!(r.quality(), None, "a lossless format has no quality knob");
+        assert_eq!(r.speed(), None, "only AVIF has a speed knob");
+    }
+
+    /// JPEG still runs the real perceptual search, and now the achieved SSIMULACRA2
+    /// comes back with the bytes — the number SPEC-081 puts on screen. `scoredBy`
+    /// says the engine measured it (as opposed to nobody having measured it).
+    #[wasm_bindgen_test]
+    fn optimize_detailed_jpeg_returns_engine_score() {
+        let r = optimize_detailed(&photo_png_192x160(), "jpeg", None, None, Some(90.0))
+            .expect("jpeg optimize should succeed");
+
+        assert_eq!(r.format(), "jpeg");
+        assert!(
+            r.quality().is_some(),
+            "a searched JPEG has a chosen quality"
+        );
+        let s = r
+            .score()
+            .expect("a searched JPEG must carry its achieved score");
+        assert!(
+            s > 0.0 && s <= 100.0,
+            "score {s} is not on the SSIMULACRA2 scale"
+        );
+        assert_eq!(r.scored_by(), "engine");
+
+        let back = info(&r.bytes()).expect("output decodes");
+        assert_eq!((back.width(), back.height()), (192, 160));
+    }
+
+    /// A byte budget is honoured for AVIF — the format the engine can size-search
+    /// but never perceptually search — **at the requested speed**.
+    ///
+    /// This is the speed-parity contract seen from the outside (DEC-068): the size
+    /// search probes candidates at speed 10, and the sink then writes at speed 10, so
+    /// the budget the search met is the budget the returned bytes actually meet. Had
+    /// the search probed at the default speed 6 and the sink emitted at 10, this
+    /// assertion is what would catch it — the emitted file would be a different size
+    /// than the one the search approved.
+    #[wasm_bindgen_test]
+    fn optimize_detailed_budget_is_honoured_and_speed_parity() {
+        let r = optimize_detailed(&photo_png_192x160(), "avif", Some(10), Some(20_000), None)
+            .expect("avif budget optimize should succeed");
+
+        let bytes = r.bytes();
+        assert!(bytes.len() > 8, "no usable bytes");
+        assert_eq!(&bytes[4..8], b"ftyp", "output should be a real AVIF");
+        assert!(
+            bytes.len() <= 20_000,
+            "the 20 000 B budget was not met: got {} B",
+            bytes.len()
+        );
+        assert_eq!(r.format(), "avif");
+        assert_eq!(r.speed(), Some(10));
+        assert!(r.quality().is_some(), "the size search chose a quality");
+    }
+
+    /// A hostile input ERRORS and the module SURVIVES.
+    ///
+    /// The decode caps (DEC-034/DEC-063) live in the core, so they carry into wasm
+    /// unchanged — but "carries" has to be driven, because the failure mode is not a
+    /// wrong answer, it is a **panic that aborts the module** and takes the page's
+    /// engine instance with it. So this asserts both halves: the over-cap call is an
+    /// `Err`, AND a later ordinary call still works.
+    #[wasm_bindgen_test]
+    fn optimize_detailed_rejects_oversize_without_panic() {
+        let bomb = png_header_declaring(100_000, 100_000);
+
+        // (`OptimizeResult` is not `Debug` — it holds the output bytes — so this
+        // matches rather than `expect_err`s.)
+        let msg = match optimize_detailed(&bomb, "auto", Some(10), None, None) {
+            Ok(_) => panic!("a 100000x100000 declaration is over the 64 MP cap — must be an Err"),
+            Err(e) => format!("{:?}", wasm_bindgen::JsValue::from(e)),
+        };
+        assert!(!msg.is_empty(), "the error must carry a message");
+
+        // The module is still alive: an ordinary call after the rejection succeeds.
+        let ok = optimize_detailed(&graphic_png_192x160(), "auto", None, None, None)
+            .expect("the wasm module must survive a rejected input");
+        assert!(!ok.bytes().is_empty());
+    }
+
+    /// A PNG whose IHDR *declares* `w × h` and carries nothing else — the classic
+    /// decompression-bomb shape: 40-odd bytes claiming ten billion pixels. The CRC is
+    /// computed for real, so the decoder reads the header rather than bailing on a
+    /// malformed chunk, and the dimensions are what it rejects.
+    fn png_header_declaring(w: u32, h: u32) -> Vec<u8> {
+        fn crc32(bytes: &[u8]) -> u32 {
+            let mut crc = 0xFFFF_FFFFu32;
+            for &b in bytes {
+                crc ^= b as u32;
+                for _ in 0..8 {
+                    let mask = (crc & 1).wrapping_neg();
+                    crc = (crc >> 1) ^ (0xEDB8_8320 & mask);
+                }
+            }
+            !crc
+        }
+
+        let mut ihdr = Vec::from(*b"IHDR");
+        ihdr.extend_from_slice(&w.to_be_bytes());
+        ihdr.extend_from_slice(&h.to_be_bytes());
+        ihdr.extend_from_slice(&[8, 2, 0, 0, 0]); // 8-bit, truecolour, no interlace
+
+        let mut png = Vec::from(*b"\x89PNG\r\n\x1a\n");
+        png.extend_from_slice(&13u32.to_be_bytes()); // IHDR payload length
+        png.extend_from_slice(&ihdr);
+        png.extend_from_slice(&crc32(&ihdr).to_be_bytes());
+        png
+    }
+
+    /// `score(a, a)` — an image against itself — is the metric's maximum. The
+    /// calibration point for SPEC-081's readout: whatever number the UI shows, THIS
+    /// is what "identical" looks like.
+    #[wasm_bindgen_test]
+    fn score_identical_is_max() {
+        let png = photo_png_192x160();
+
+        let s = score(&png, &png).expect("scoring an image against itself must succeed");
+
+        assert!(s > 99.0, "identical images should score ~100, got {s}");
+    }
+
+    /// …and a degraded copy scores lower — so the number is a real measurement of
+    /// this image, not a constant. A bad input errs rather than panicking.
+    #[wasm_bindgen_test]
+    fn score_degraded_is_lower_and_bad_input_errs() {
+        let png = photo_png_192x160();
+        let degraded = jpeg_at(&png, 10);
+
+        let s = score(&png, &degraded).expect("scoring a degraded copy must succeed");
+        assert!(
+            s < 99.0,
+            "a quality-10 JPEG of a detailed photo must score below identity, got {s}"
+        );
+
+        let err = score(&png, b"not an image").expect_err("undecodable input must be an Err");
+        let msg = format!("{:?}", wasm_bindgen::JsValue::from(err));
+        assert!(!msg.is_empty(), "the error must carry a message");
+    }
+
+    /// The legacy two-argument `optimize` is UNCHANGED by all of the above: same
+    /// call, same engine path, still decodable output. `optimize_detailed` is an
+    /// addition, not a replacement — the npm package's existing callers (and the
+    /// live demo) keep working byte-for-byte.
+    #[wasm_bindgen_test]
+    fn legacy_optimize_unchanged() {
+        let src = png_64x48();
+
+        let out = optimize(&src, "auto").expect("legacy optimize still works");
+        let back = info(&out).expect("legacy optimize output still decodes");
+        assert_eq!((back.width(), back.height()), (64, 48));
+
+        // The legacy entry is a lossless/perceptual path over a 64×48 icon-bucket
+        // image: it must NOT have acquired the new Auto-AVIF behaviour, which is
+        // confined to `optimize_detailed`.
+        let jpeg = optimize(&src, "jpeg").expect("legacy optimize → jpeg");
+        assert_eq!(info(&jpeg).expect("decodes").format(), "jpeg");
     }
 }
 
