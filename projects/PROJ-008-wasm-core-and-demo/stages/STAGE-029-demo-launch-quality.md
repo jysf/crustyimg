@@ -117,14 +117,15 @@ Dependency order — **SPEC-079 (engine surface) first**, because the demo specs
   byte-parity cross-sync contract), a **quality/byte-budget** target arg, a **returned SSIMULACRA2
   score**, and an **Auto-picks-AVIF-for-photos** fixed-quality/no-search path on wasm
   (`src/analysis/decide.rs`, DEC-048). Native CLI unchanged. Frame first.
-- [ ] SPEC-080 (not yet framed) — **demo intent/defaults redesign + perf UX.** "Make it smaller"
-  primary flow; Auto default that shrinks; never-bigger guard; offered resize; megapixel-keyed
-  warnings + live timer + debounce; **default speed 10**. Consumes SPEC-079.
-- [ ] SPEC-081 (not yet framed) — **demo SSIMULACRA2 diff UI.** Show the input↔output perceptual
-  score for lossy conversions, honest where the AVIF-decode seam prevents an in-engine score.
-  Consumes SPEC-079.
+- [~] SPEC-080 (design — framed build-ready 2026-07-13) — **demo intent/defaults redesign + perf UX.**
+  "Make it smaller" primary flow; Auto default that shrinks; never-bigger guard; offered resize;
+  megapixel-keyed warnings + live timer + debounce; **default speed 10**. Consumes SPEC-079; build
+  after it ships.
+- [~] SPEC-081 (design — framed build-ready 2026-07-13) — **demo SSIMULACRA2 diff UI.** Show the
+  input↔output perceptual score, honest where the AVIF-decode seam needs a browser-decode + the
+  `score()` binding. Consumes SPEC-079; build after SPEC-080 (both touch `demo/`).
 
-**Count:** 0 shipped / 0 active / 3 pending. Framed **active** — SPEC-079 is the next thing to frame.
+**Count:** 0 shipped / 0 active / 3 pending (all framed). Dependency order for build: **079 → 080 → 081**.
 
 ## Design Notes
 

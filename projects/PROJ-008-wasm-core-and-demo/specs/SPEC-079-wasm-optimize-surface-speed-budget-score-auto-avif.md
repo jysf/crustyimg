@@ -111,6 +111,12 @@ JPEG search. The existing `optimize(input, out_format)` and all native/CLI behav
     undefined` (AVIF only), `score(): number | undefined` (achieved SSIMULACRA2, `undefined` where
     the engine cannot score it — i.e. AVIF and lossless), `scoredBy(): string` (`"engine"` |
     `"none"`).
+  - `score(reference: &[u8], candidate: &[u8]) -> Result<f64, JsError>` — JS name `score`. Decodes
+    both images (`Image::from_bytes`) and returns their SSIMULACRA2 score via the existing public
+    `quality::score`. This is what lets **SPEC-081** put a number on an **AVIF output** (which the
+    engine cannot self-score, DEC-065): the page decodes the AVIF back to pixels in the browser
+    (the worker already does this) and calls `score(inputBytes, decodedOutputBytes)`. Keeping this
+    binding in SPEC-079 keeps SPEC-081 pure demo/JS (no `src/wasm.rs` change in a UI spec).
 - **New native export:** `sink::encode_to_bytes_with` (+ the internal speed-threaded size search).
 - **New decision:** `DEC-068` (surface shape + Auto-AVIF rule + speed-parity; see below).
 
@@ -130,6 +136,9 @@ JPEG search. The existing `optimize(input, out_format)` and all native/CLI behav
       passes byte-for-byte.
 - [ ] **Native unchanged:** `encode_to_bytes(img, Avif, q)` produces bytes identical to before this
       spec (it forwards to `encode_to_bytes_with(.., None)` at `AVIF_SPEED`); no CLI flag added.
+- [ ] `score(png, png)` (identical bytes) returns a value at/near the SSIMULACRA2 max (~100);
+      `score(png, degradedJpegOfSameImage)` returns a value below it; `score` on undecodable/over-cap
+      input returns a typed `JsError`, never a panic.
 - [ ] **No panic on hostile input:** `optimizeDetailed` on an over-cap image (e.g. a 100000² PNG
       header) returns a typed `JsError`, never a panic (the DEC-034/DEC-063 caps carry;
       `untrusted-input-hardening`).
@@ -153,6 +162,9 @@ Written now, at **design**; the build makes them pass.
     `bytes().len() <= 20_000`, `speed()==Some(10)`.
   - `"optimize_detailed_rejects_oversize_without_panic"` — a 100000×100000 PNG header →
     `optimize_detailed` returns `Err`, module still alive (assert a later call succeeds).
+  - `"score_identical_is_max"` — `score(png, png)` (same bytes) ≈ SSIMULACRA2 max (assert `> 99.0`).
+  - `"score_degraded_is_lower_and_bad_input_errs"` — `score(png, lowQualityJpegOfIt)` `< 99.0`;
+    `score(png, b"not an image")` returns `Err` (no panic).
   - `"legacy_optimize_unchanged"` — keep/keep-green the existing `optimize(_, "auto")` assertion.
 - **`src/sink/mod.rs`** (native `#[test]`)
   - `"encode_to_bytes_forwards_to_with_at_default_speed"` — `encode_to_bytes(img, Avif, Some(q))`
