@@ -148,6 +148,15 @@ AVIF score is unavailable. Don't overclaim.
 **Cost is megapixels, not megabytes** — every warning/threshold keys off decoded dimensions, never
 file size. A 10 MB file is often a 24 MP image; a 10 MB claim would mislead.
 
+**"Never bigger" = keep the original (passthrough), not a bigger file.** Making a file bigger is
+never a user *goal* — it's only ever a side effect of a format/transparency/archival/upscale intent,
+none of which is the demo's "make it smaller" job. So when nothing the engine does beats the source,
+the demo **offers the original back and explains** ("already well-optimized"), mirroring the CLI's
+existing `pick_winner` passthrough (`decide::pick_winner` returns `None` = keep source). The demo has
+both byte counts already, so this is a page-side rule in SPEC-080 — no engine change. The legitimate
+"bigger" operations (explicit `convert`, pad/canvas in Wave 5, AI super-res at 2.0) live elsewhere by
+design and stay out of this flow.
+
 **Keep the CLI still.** The speed knob and Auto changes are wasm-surface / demo concerns; the native
 `AVIF_SPEED = 6` default and CLI behaviour don't change unless a spec argues for it explicitly. The
 byte-parity cross-sync contract (DEC-016/019/020) means a speed arg touches both `src/sink` and
