@@ -228,12 +228,21 @@ have an impressive unused tool.
   for photos.
 - **STAGE-029 (demo launch-quality) — IN PROGRESS.** Kicked off by a measured finding that the demo
   mis-serves photos (slow + often no-improvement `optimize`). SPEC-079 (the hero-agnostic surface)
-  shipped. **SPEC-080 (demo redesign) is ON HOLD pending a strategy reconciliation** — a bigger
-  question surfaced: is the demo's hero `optimize` (slow, comparison-shops, often passes through) or
-  should it be `shrink` (measured **55× faster**, always shrinks) / a fast "modernize to AVIF" +
-  the measured score as proof? A separate strategy pass is adjudicating this before the demo redesign
-  builds. This may also promote the deferred **shared multi-candidate `optimize` solve** (the wasm
-  Auto path now prefers AVIF while the native Auto path runs the perceptual shortlist — they diverge).
+  shipped. SPEC-080 (demo redesign) was held for a strategy reconciliation — now **RESOLVED** (see
+  STAGE-030): the hero is the **`web`** flow (downscale + content-modernize to AVIF + never-bigger).
+  SPEC-080 will be reframed to mirror `web`'s definition once SPEC-085 lands.
+- **★ STAGE-030 (command taxonomy & CLI-quality freeze) — NEW, ACTIVE (2026-07-14).** The strategy
+  reconciliation ran a real benchmark (8 photos 0.7–47 MP + a q-sweep) and became a full pre-launch
+  **CLI surface freeze**, adopted by the maintainer: **full taxonomy redesign, folded into PROJ-008,
+  before the Show HN.** Evidence: today's `optimize` default = **24% in 16.5 s** (2/8 passthrough,
+  49 s on 47 MP) vs a downscale→AVIF `web` path = **98% in 2.7 s** (size-insensitive); the "faceplant"
+  is the byte-budget AVIF search re-encoding rav1e (9–74 s); the content branch (graphic → lossless
+  WebP) already works. **Hard cutover** (~20→14 verbs, no aliases): a `web` flagship, `optimize`
+  demoted to a keep-dims byte-primitive (search → opt-in), **`shrink` removed**, `convert --to`, a
+  `meta` group, bundled recipes, a unified audit report + committed bench. Specs **SPEC-084–089**,
+  DEC-069; **SPEC-084** (fast fixed-quality AVIF in the DEFAULT decision — the native twin of SPEC-079,
+  converging the native/wasm Auto paths) framed build-ready. Sequence: STAGE-030 → STAGE-029 demo
+  (reframed) → STAGE-028 README/BENCHMARKS (SPEC-082/083, reserved) → Show HN.
 - **Proof & distribution polish.** `BENCHMARKS.md` (cross-tool, honest equal-quality rule) · a
   real docs site + quickstart + recipe cookbook + the "why crustyimg" page + README badges · the
   **client-side demo page** (Wave 3) as the flagship "try it" artifact.

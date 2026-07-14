@@ -76,16 +76,22 @@ publish); it times them together with the front-door story so the launch lands a
 
 Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
-- [ ] SPEC-082 (not yet framed) — **README front door.** Rewrite README.md to lead with the pitch +
+> **Sequencing (maintainer decision 2026-07-14): STAGE-030 — the CLI taxonomy/quality freeze — lands
+> BEFORE this stage.** The README + BENCHMARKS must document the *final* surface and the measured
+> numbers, so they are framed only after the freeze. The two specs below are **scaffolded as reserved
+> stubs (SPEC-082/083)** and stay in `frame` until STAGE-030 ships.
+
+- [ ] SPEC-082 (reserved stub — framed after STAGE-030) — **README front door.** Lead with the pitch +
   the live demo link + "no server, client-side" + honest scope + install (cargo/brew/npm
-  `crustyimg-wasm`). The page HN clicks through to. Currently CLI-only.
-- [ ] SPEC-083 (not yet framed) — **BENCHMARKS.md.** Honest, equal-quality size/speed vs
-  squoosh/sharp; reproducible; no cherry-picking. The numbers HN scrutinizes.
+  `crustyimg-wasm`), over the **frozen** verb surface (`web` flagship, etc.). Currently CLI-only.
+- [ ] SPEC-083 (reserved stub — framed after STAGE-030) — **BENCHMARKS.md.** Honest, equal-quality
+  size/speed vs squoosh/sharp; reproducible; no cherry-picking — built on STAGE-030's committed bench
+  corpus/harness (SPEC-088). The numbers HN scrutinizes.
 - [ ] (coordination, not a spec) — the **Show HN go/no-go**: `docs/launch-readiness.md` blockers
   green, `crustyimg-wasm` published (SPEC-076, on approval), post drafted → launch.
 
-**Count:** 0 shipped / 0 active / 2 pending (+ the launch go/no-go). Framed **proposed** — picked up
-after SPEC-078 ships.
+**Count:** 0 shipped / 0 active / 2 reserved stubs (+ the launch go/no-go). **Depends on STAGE-030**
+(surface freeze) + STAGE-029 (demo, hero = `web`). Framed **proposed** — picked up after STAGE-030.
 
 ## Design Notes
 
