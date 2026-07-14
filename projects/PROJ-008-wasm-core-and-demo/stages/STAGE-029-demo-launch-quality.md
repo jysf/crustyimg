@@ -110,21 +110,21 @@ too, because the demo can't do any of it against today's argument-free surface (
 
 Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
-Dependency order — **SPEC-B (engine surface) first**, because the demo specs consume it:
+Dependency order — **SPEC-079 (engine surface) first**, because the demo specs consume it:
 
-- [ ] SPEC-B (not yet framed) — **wasm `optimize()` surface.** A per-call **encode speed/effort**
+- [ ] SPEC-079 (not yet framed) — **wasm `optimize()` surface.** A per-call **encode speed/effort**
   arg (reopens DEC-020: `AVIF_SPEED` is a const shared by `src/sink` + `src/quality` under the
   byte-parity cross-sync contract), a **quality/byte-budget** target arg, a **returned SSIMULACRA2
   score**, and an **Auto-picks-AVIF-for-photos** fixed-quality/no-search path on wasm
   (`src/analysis/decide.rs`, DEC-048). Native CLI unchanged. Frame first.
-- [ ] SPEC-A (not yet framed) — **demo intent/defaults redesign + perf UX.** "Make it smaller"
+- [ ] SPEC-080 (not yet framed) — **demo intent/defaults redesign + perf UX.** "Make it smaller"
   primary flow; Auto default that shrinks; never-bigger guard; offered resize; megapixel-keyed
-  warnings + live timer + debounce; **default speed 10**. Consumes SPEC-B.
-- [ ] SPEC-C (not yet framed) — **demo SSIMULACRA2 diff UI.** Show the input↔output perceptual
+  warnings + live timer + debounce; **default speed 10**. Consumes SPEC-079.
+- [ ] SPEC-081 (not yet framed) — **demo SSIMULACRA2 diff UI.** Show the input↔output perceptual
   score for lossy conversions, honest where the AVIF-decode seam prevents an in-engine score.
-  Consumes SPEC-B.
+  Consumes SPEC-079.
 
-**Count:** 0 shipped / 0 active / 3 pending. Framed **active** — SPEC-B is the next thing to frame.
+**Count:** 0 shipped / 0 active / 3 pending. Framed **active** — SPEC-079 is the next thing to frame.
 
 ## Design Notes
 
@@ -140,8 +140,8 @@ Dependency order — **SPEC-B (engine surface) first**, because the demo specs c
 
 **The AVIF-decode seam constrains two things.** The wasm build encodes AVIF but cannot decode it
 (DEC-065). That's why (a) "Auto" avoids AVIF today (the perceptual search decodes each candidate to
-score it) — SPEC-B's Auto→AVIF path must therefore pick AVIF at a fixed good quality *without* a
-search; and (b) a SSIMULACRA2 score for an AVIF *output* can't be computed in-engine — SPEC-C either
+score it) — SPEC-079's Auto→AVIF path must therefore pick AVIF at a fixed good quality *without* a
+search; and (b) a SSIMULACRA2 score for an AVIF *output* can't be computed in-engine — SPEC-081 either
 scores via the browser-decode seam the worker already uses for `.avif` inputs, or is honest that the
 AVIF score is unavailable. Don't overclaim.
 

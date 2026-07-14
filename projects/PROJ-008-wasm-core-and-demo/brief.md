@@ -172,8 +172,8 @@ Format: `- [status] STAGE-ID — one-line summary`
 - [ ] STAGE-028 (proposed on 2026-07-13) — **launch readiness.** The capstone: the README front
   door (CLI-only today), honest BENCHMARKS.md, and the Show HN go/no-go against
   `docs/launch-readiness.md`. Depends on SPEC-078 (demo, incl. cross-browser) + SPEC-076 (gated npm
-  publish); times them into one launch. Docs + coordination, not code. Specs: SPEC-079 (README),
-  SPEC-080 (BENCHMARKS).
+  publish); times them into one launch. Docs + coordination, not code. Specs: SPEC-082 (README),
+  SPEC-083 (BENCHMARKS).
 
 **Count:** 2 shipped / 1 active / 1 proposed (STAGE-025 + STAGE-027 SHIPPED; STAGE-026 — SPEC-075
 shipped, gated SPEC-076 publish parked; STAGE-028 launch readiness proposed). Only the LAUNCH remains:

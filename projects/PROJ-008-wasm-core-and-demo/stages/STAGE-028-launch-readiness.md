@@ -76,10 +76,10 @@ publish); it times them together with the front-door story so the launch lands a
 
 Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
-- [ ] SPEC-079 (not yet framed) — **README front door.** Rewrite README.md to lead with the pitch +
+- [ ] SPEC-082 (not yet framed) — **README front door.** Rewrite README.md to lead with the pitch +
   the live demo link + "no server, client-side" + honest scope + install (cargo/brew/npm
   `crustyimg-wasm`). The page HN clicks through to. Currently CLI-only.
-- [ ] SPEC-080 (not yet framed) — **BENCHMARKS.md.** Honest, equal-quality size/speed vs
+- [ ] SPEC-083 (not yet framed) — **BENCHMARKS.md.** Honest, equal-quality size/speed vs
   squoosh/sharp; reproducible; no cherry-picking. The numbers HN scrutinizes.
 - [ ] (coordination, not a spec) — the **Show HN go/no-go**: `docs/launch-readiness.md` blockers
   green, `crustyimg-wasm` published (SPEC-076, on approval), post drafted → launch.
