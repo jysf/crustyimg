@@ -116,7 +116,16 @@ have an impressive unused tool.
   `--color=auto|always|never`, examples in `--help` (`after_help`), man pages (`clap_mangen`),
   fix-suggesting "did you mean" errors, the `-q` short-flag collision, broaden `--json` to batch
   commands, `--dry-run`/`-n`, and **SBOM + signed releases** (cosign/Sigstore via GH OIDC — the
-  2026 trust baseline). Refs: clig.dev, no-color.org, clap_mangen/clap_complete.
+  2026 trust baseline). One correctness item folded in here — **`optimize` must never silently
+  enlarge a same-format output**: measured 2026-07-13 that `optimize x.jpg -o out.jpg` (and
+  `--profile preserve`) can be **2.65× larger** than the source, because a format pin / `preserve`
+  skips the beat-source passthrough the default auto path enforces (`optimize_decide_one` →
+  `decide::pick_winner`, `src/cli/mod.rs` ~4031/4201; the auto path was verified to pass the raw
+  source bytes through unchanged). Fix: when the output format == the source format and a re-encode
+  would grow the file, keep the original (+ a one-line stderr note); cross-format `-o out.png` /
+  `--format` stays exempt (deliberate `convert` intent), and decide whether `--profile preserve`
+  (the documented engine-off regression anchor, DEC-048/DEC-059) is guarded automatically or only
+  opt-in. Refs: clig.dev, no-color.org, clap_mangen/clap_complete.
 - **Pre-1.0 hardening gates (must-do before cutting 1.0).** Untrusted-input decoders that shipped
   with a fuzz target must have it actually *run* before 1.0. **✅ RUN — SPEC-069 (DEC-062);** run
   record + repeat recipe in [`docs/research/proj-009-fuzz-run.md`](research/proj-009-fuzz-run.md),
