@@ -7,7 +7,7 @@
 task:
   id: SPEC-079
   type: story                      # epic | story | task | bug | chore
-  cycle: design                    # frame | design | build | verify | ship
+  cycle: build                     # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: M                    # S | M | L  (L means split it)
@@ -34,11 +34,22 @@ value_link: >
   and an Auto path that actually shrinks a photo instead of picking a slow JPEG search.
 
 cost:
-  sessions: []
+  sessions:
+    - cycle: build
+      interface: claude-code
+      tokens_total: 120000
+      duration_minutes: 35
+      estimated_usd: 1.10
+      recorded_at: 2026-07-14
+      note: >
+        ran in the build session's main loop, not a metered subagent — tokens_total is an
+        order-of-magnitude ESTIMATE (~80/20 in/out at Opus 4.8 list rates, no cache discount),
+        not a harness-reported number. Includes the native suite at both feature sets, the
+        wasm VM run, and one `just wasm-build` of the real artifact.
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 120000
+    estimated_usd: 1.10
+    session_count: 1
 ---
 
 # SPEC-079: wasm optimize surface — speed, budget, score, auto-avif
@@ -251,26 +262,71 @@ Written now, at **design**; the build makes them pass.
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
+- **Branch:** `spec-079-wasm-optimize-surface`
+- **PR (if applicable):** #87
+- **All acceptance criteria met?** yes — every row below is proven by a test that RAN, not inferred:
+
+| Acceptance criterion | Met | Where it is proven |
+|---|---|---|
+| `optimizeDetailed(photoPng, "auto", 10, null, null)` → avif / smaller / q80 / speed 10 / no score | ✅ | `wasm::optimize_detailed_auto_photo_picks_avif` |
+| `optimizeDetailed(graphicPng, "auto", …)` → lossless, never avif | ✅ | `wasm::optimize_detailed_auto_graphic_stays_lossless` |
+| `optimizeDetailed(photoPng, "jpeg", null, null, 90)` → jpeg + engine score in (0, 100] | ✅ | `wasm::optimize_detailed_jpeg_returns_engine_score` |
+| `optimizeDetailed(photoPng, "avif", 10, 20000, null)` → valid AVIF ≤ 20 000 B, speed 10, speed-parity | ✅ | `wasm::optimize_detailed_budget_is_honoured_and_speed_parity` + `quality::tests::size_search_speed_parity` |
+| legacy `optimize(input, out_format)` unchanged | ✅ | `wasm::legacy_optimize_unchanged` (+ the three pre-existing `optimize_*` wasm tests, still green) |
+| **native unchanged** — `encode_to_bytes(img, Avif, q)` byte-identical; no CLI flag | ✅ | `sink::tests::encode_to_bytes_forwards_to_with_at_default_speed` asserts the three forms are byte-identical FILES; `sink::tests::avif_speed_changes_output` proves speed isn't merely accepted-and-dropped |
+| `score(png, png)` ≈ max; degraded lower; bad input → typed `JsError` | ✅ | `wasm::score_identical_is_max`, `wasm::score_degraded_is_lower_and_bad_input_errs` |
+| no panic on hostile input (over-cap PNG header) | ✅ | `wasm::optimize_detailed_rejects_oversize_without_panic` — asserts the `Err` **and** that a later call still succeeds (i.e. the module survived) |
+| `just wasm-test`, `cargo test`, `cargo clippy`, `cargo fmt --check` | ✅ | wasm 20/20 in the VM; native 716 (default) / 726 (`--features avif`); clippy clean on both feature sets; fmt clean. Also `cargo build --no-default-features` (the lean build) green. |
+
+Bundle size is unchanged at **1.33 MB brotli** (SPEC-074's baseline) — the new surface is glue over
+code that was already linked.
+
 - **New decisions emitted:**
-  - `DEC-068` — wasm optimize surface (speed/target/maxBytes + OptimizeResult score; Auto prefers
-    AVIF@default for photographic input; per-call speed threads through `encode_to_bytes_with` and the
-    byte-parity contract extends to speed; native/CLI unchanged) — draft title, confirm at build.
+  - `DEC-068` — the wasm optimize surface takes a speed and a budget, returns a score, and Auto picks
+    AVIF for photos — with the byte-parity contract extended to speed.
 - **Deviations from spec:**
-  - [list]
+  - **The Auto-AVIF rule is a predicate on the bucket, not shortlist membership.** Outputs say "reuse
+    the SizeBudget AVIF admission"; the Notes state the rule directly (bucket ∈ {`Lossy`, `MixedSafe`}
+    ∧ `WASM_CODECS.avif`). Built as the Notes state it, because reading it off
+    `format_shortlist(.., Mode::SizeBudget, ..)` does **not** reproduce that rule: the shortlist appends
+    AVIF **last** and then `truncate(MAX_SHORTLIST = 3)`, so a `MixedSafe` image *without alpha* — which
+    already has three entries ahead of AVIF — would silently lose it. The admission *criterion* is
+    reused; the truncation is not. Recorded in DEC-068's implementation notes.
+  - **`max_bytes` on a lossless target is ignored**, and documented as such on the entry point. The spec
+    did not say what a budget means for PNG / lossless-WebP; honouring it would mean *resizing*, which
+    SPEC-080 makes an explicit user-facing OFFER — this call must not do it behind their back.
+  - **`quality()` is `Some(80)` for a default-encoded AVIF**, not `undefined`. The getter list says
+    "`undefined` for lossless", and acceptance criterion 1 requires `quality == 80` on the unsearched
+    Auto-AVIF path — so `undefined` is reserved for genuinely lossless output, and a lossy format
+    encoded at its default reports that default.
 - **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - The **wasm Auto path and the native Auto path now diverge** for photographic input (wasm prefers
+    AVIF; native still runs the perceptual shortlist). Deliberate and bounded (DEC-068), but it is the
+    seam the deferred SPEC-072 shared multi-candidate solve will have to reconcile — worth naming in
+    that spec when it is written.
+  - `quality::tests::size_search_speed_parity` is now the **only** thing holding the two AVIF encode
+    arms together, and it has two arguments to keep in sync rather than one. If a third encoder knob
+    lands, the comment-contract should give way to a shared encode seam.
 
 ### Build-phase reflection (3 questions, short answers)
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — Only one thing, and the spec had already resolved it: "reuse the SizeBudget AVIF admission"
+   (Outputs) and the explicit bucket predicate (Notes) are **not** the same rule once `MAX_SHORTLIST`
+   truncation is accounted for. Treating the Notes as authoritative was right. Nothing else needed a
+   decision the spec hadn't already made.
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — The `quality` → `sink` **layering rule** (it lives in `src/quality/mod.rs`'s module doc, not in the
+   spec's constraint list). It matters precisely here: the speed-parity test is the one place that must
+   cross that boundary — legitimately, in test code — and a builder who read the layering rule as
+   absolute would have written a weaker test that *re-implements* the sink's encode instead of comparing
+   against it, which is exactly the drift the test exists to catch.
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Read the analysis layer's classification thresholds **before** writing the wasm fixtures. The
+   existing 64×48 fixture is an **Icon** to the engine (`ICON_MAX_EDGE = 128`), so a "photographic"
+   fixture built at that size buckets `LosslessFlat` and the Auto-AVIF test would have gone red for a
+   reason having nothing to do with the code under test. Reading `classify` first avoided that; guessing
+   would have cost a cycle.
 
 ---
 

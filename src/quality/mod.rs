@@ -366,6 +366,27 @@ fn encode_candidate_bytes(
     fmt: ImageFormat,
     quality: u8,
 ) -> Result<Vec<u8>, QualityError> {
+    encode_candidate_bytes_with(reference, fmt, quality, None)
+}
+
+/// [`encode_candidate_bytes`], plus a per-call **AVIF encode speed** (SPEC-079,
+/// DEC-068) — the search half of the sink's [`crate::sink::encode_to_bytes_with`].
+///
+/// `speed` affects AVIF only and defaults to [`AVIF_SPEED`] when `None`, exactly
+/// as the sink does. This is what keeps the byte-parity contract true once a
+/// caller can choose a speed: a size search run at speed S probes candidates rav1e
+/// encoded at speed S, so the winning candidate's length is the length of the
+/// bytes the sink then writes at speed S. Encoding probes at 6 and writing at 10
+/// would silently break every budget the search promised to hit.
+fn encode_candidate_bytes_with(
+    reference: &DynamicImage,
+    fmt: ImageFormat,
+    quality: u8,
+    speed: Option<u8>,
+) -> Result<Vec<u8>, QualityError> {
+    #[cfg(not(feature = "avif"))]
+    let _ = speed;
+
     match fmt {
         ImageFormat::Jpeg => {
             let q = quality.clamp(1, 100);
@@ -377,18 +398,17 @@ fn encode_candidate_bytes(
             Ok(cursor.into_inner())
         }
         // AVIF candidate encode (SPEC-018, DEC-020) — IDENTICAL to the sink's
-        // AVIF arm (`crate::sink::encode_to_bytes`): same `AvifEncoder`, same
-        // fixed `AVIF_SPEED`, same `1..=100` clamp. The byte-budget / perceptual
-        // guarantee depends on this probe matching the bytes the sink writes.
+        // AVIF arm (`crate::sink::encode_to_bytes_with`): same `AvifEncoder`, same
+        // speed resolution (`None` → `AVIF_SPEED`), same `1..=10` speed clamp and
+        // `1..=100` quality clamp. The byte-budget / perceptual guarantee depends
+        // on this probe matching the bytes the sink writes.
         #[cfg(feature = "avif")]
         ImageFormat::Avif => {
             let q = quality.clamp(1, 100);
+            let s = speed.unwrap_or(AVIF_SPEED).clamp(1, 10);
             let mut cursor = Cursor::new(Vec::new());
-            let encoder = ::image::codecs::avif::AvifEncoder::new_with_speed_quality(
-                &mut cursor,
-                AVIF_SPEED,
-                q,
-            );
+            let encoder =
+                ::image::codecs::avif::AvifEncoder::new_with_speed_quality(&mut cursor, s, q);
             reference
                 .write_with_encoder(encoder)
                 .map_err(|e| QualityError::Encode(e.to_string()))?;
@@ -436,12 +456,18 @@ pub fn auto_quality(
     search_quality(|q| score_at(reference, fmt, q), cfg)
 }
 
-/// Encode `reference` to `fmt` at `quality` and return the encoded byte length —
-/// the per-quality probe for the byte-budget search (SPEC-017). Unlike
-/// `score_at`, this does NOT decode or score: the size search only needs the
-/// encoded length (it shares the exact encode via `encode_candidate_bytes`).
-fn size_at(reference: &DynamicImage, fmt: ImageFormat, quality: u8) -> Result<u64, QualityError> {
-    Ok(encode_candidate_bytes(reference, fmt, quality)?.len() as u64)
+/// Encode `reference` to `fmt` at `quality` (and, for AVIF, `speed`) and return the
+/// encoded byte length — the per-quality probe for the byte-budget search
+/// (SPEC-017). Unlike `score_at`, this does NOT decode or score: the size search
+/// only needs the encoded length (it shares the exact encode via
+/// `encode_candidate_bytes_with`, which is what makes the length the SINK's length).
+fn size_at(
+    reference: &DynamicImage,
+    fmt: ImageFormat,
+    quality: u8,
+    speed: Option<u8>,
+) -> Result<u64, QualityError> {
+    Ok(encode_candidate_bytes_with(reference, fmt, quality, speed)?.len() as u64)
 }
 
 /// Find the highest `fmt` quality whose encoded size is ≤ `budget_bytes` for
@@ -453,8 +479,27 @@ pub fn auto_under_size(
     fmt: ImageFormat,
     budget_bytes: u64,
 ) -> Result<QualityChoice, QualityError> {
+    auto_under_size_at_speed(reference, fmt, budget_bytes, None)
+}
+
+/// [`auto_under_size`], run at a specific **AVIF encode speed** (SPEC-079,
+/// DEC-068). `speed` affects AVIF only and defaults to [`AVIF_SPEED`] when `None`,
+/// so `auto_under_size` is exactly this function with `speed = None` and the CLI's
+/// bytes are unchanged.
+///
+/// The point of the argument is parity, not speed: the caller (the wasm surface)
+/// will write the winning quality's bytes through
+/// [`crate::sink::encode_to_bytes_with`] at the **same** speed, and the budget it
+/// promised only holds if the candidate probed here was encoded that way too
+/// (DEC-016/DEC-019). `fmt` must satisfy [`LossyFormat::supports_lossy_quality`].
+pub fn auto_under_size_at_speed(
+    reference: &DynamicImage,
+    fmt: ImageFormat,
+    budget_bytes: u64,
+    speed: Option<u8>,
+) -> Result<QualityChoice, QualityError> {
     search_under_size(
-        |q| size_at(reference, fmt, q),
+        |q| size_at(reference, fmt, q, speed),
         budget_bytes,
         &SearchConfig::for_size_budget(),
     )
@@ -811,6 +856,70 @@ mod tests {
         );
     }
 
+    /// **The speed-parity contract (SPEC-079, DEC-068).** A byte-budget AVIF search
+    /// run at speed S must choose a quality whose bytes are the bytes the SINK emits
+    /// at speed S — otherwise the budget the search promised describes a file nobody
+    /// writes.
+    ///
+    /// This is the one test that actually crosses the `quality` → `sink` layering
+    /// boundary, and it does so on purpose: the two AVIF encode arms are kept
+    /// identical by a *comment contract* (DEC-016/DEC-019 — `quality` may not depend
+    /// on `sink` in production code), so the only thing that can catch them drifting
+    /// is an assertion, in a test, that compares their bytes. Adding a speed argument
+    /// to both is exactly the kind of edit that breaks such a contract silently, so
+    /// the assertion is on LENGTH-and-BYTES equality, not on the search returning Ok.
+    #[cfg(feature = "avif")]
+    #[test]
+    fn size_search_speed_parity() {
+        use crate::image::Image;
+
+        const SPEED: u8 = 10;
+
+        let dynimg = detailed_rgb(64, 64);
+        // The sink takes a `crate::image::Image`; round-trip the fixture through PNG
+        // to get one holding the same pixels the search sees.
+        let png = {
+            let mut c = Cursor::new(Vec::new());
+            dynimg.write_to(&mut c, ImageFormat::Png).unwrap();
+            c.into_inner()
+        };
+        let img = Image::from_bytes(&png).expect("fixture PNG decodes");
+
+        let choice = auto_under_size_at_speed(img.pixels(), ImageFormat::Avif, 4_000, Some(SPEED))
+            .expect("AVIF size search at speed 10");
+
+        let emitted = crate::sink::encode_to_bytes_with(
+            &img,
+            ImageFormat::Avif,
+            Some(choice.quality),
+            Some(SPEED),
+        )
+        .expect("sink AVIF encode at speed 10");
+
+        assert_eq!(
+            emitted.len() as u64,
+            choice.score as u64,
+            "the search probed {} bytes at q{} speed {SPEED} but the sink emits {} — the two \
+             AVIF encode arms have drifted, and every --max-size promise is now a lie",
+            choice.score,
+            choice.quality,
+            emitted.len()
+        );
+
+        // And the probe is the same FILE, not merely the same size.
+        let probed = encode_candidate_bytes_with(
+            img.pixels(),
+            ImageFormat::Avif,
+            choice.quality,
+            Some(SPEED),
+        )
+        .expect("re-probe the winner");
+        assert_eq!(
+            probed, emitted,
+            "probe and sink must encode identical bytes"
+        );
+    }
+
     // ── SPEC-020: lossy WebP (feature-gated) ──────────────────────────────────
 
     /// With `webp-lossy`, WebP supports BOTH searches — byte-budget AND perceptual
@@ -907,7 +1016,7 @@ mod tests {
         // Budget below the min-quality full-size JPEG so quality alone can't fit
         // (every quality is ≥ the q1 size). Use 3/4 so the budget stays above
         // JPEG's fixed header/table overhead and a modest downscale can reach it.
-        let min_full = size_at(&img, ImageFormat::Jpeg, MIN_SEARCH_QUALITY).unwrap();
+        let min_full = size_at(&img, ImageFormat::Jpeg, MIN_SEARCH_QUALITY, None).unwrap();
         let budget = min_full * 3 / 4;
         let fit = fit_under_size(&img, ImageFormat::Jpeg, budget).expect("fit");
         assert!(

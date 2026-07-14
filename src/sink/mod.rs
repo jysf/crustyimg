@@ -579,11 +579,47 @@ impl Sink {
 /// (DEC-016). For all other `(format, quality)` combinations, `quality` is
 /// ignored and the default `write_to` path is used (lossless formats have no
 /// 0–100 quality knob).
+///
+/// AVIF is encoded at the fixed [`AVIF_SPEED`]. A caller that needs a different
+/// rav1e speed (the wasm surface, SPEC-079/DEC-068) calls
+/// [`encode_to_bytes_with`] instead; this function forwards to it with
+/// `speed = None`, so every existing caller — and the whole native CLI — emits
+/// exactly the bytes it did before that speed knob existed.
 pub fn encode_to_bytes(
     img: &Image,
     format: ImageFormat,
     quality: Option<u8>,
 ) -> Result<Vec<u8>, SinkError> {
+    encode_to_bytes_with(img, format, quality, None)
+}
+
+/// [`encode_to_bytes`], plus a per-call **rav1e encode speed** for AVIF output
+/// (SPEC-079, DEC-068).
+///
+/// `speed` affects **AVIF only** — it is the rav1e speed (1 = slowest/best …
+/// 10 = fastest), clamped to `1..=10`, and defaults to [`AVIF_SPEED`] when
+/// `None`. For every other format it is ignored, because no other encoder here
+/// has a speed knob.
+///
+/// This exists for the wasm surface, where a 12 MP photo at the native default
+/// speed 6 takes ~33 s in a browser tab and speed 10 is ~3.6× faster for ~4 %
+/// more bytes (STAGE-029's measurements). DEC-020's deferral of a *CLI* `--speed`
+/// flag stands: no CLI flag is added, and the native default is still 6.
+///
+/// **Byte-parity obligation (DEC-016/DEC-019, extended to speed):** the AVIF arm
+/// here MUST stay identical to `crate::quality::encode_candidate_bytes_with`'s
+/// AVIF arm, *including the speed*, so a candidate probed by the byte-budget
+/// search at speed S has the same length as the bytes this sink emits at speed S.
+pub fn encode_to_bytes_with(
+    img: &Image,
+    format: ImageFormat,
+    quality: Option<u8>,
+    speed: Option<u8>,
+) -> Result<Vec<u8>, SinkError> {
+    // Without the `avif` feature there is no encoder with a speed knob at all.
+    #[cfg(not(feature = "avif"))]
+    let _ = speed;
+
     let mut cursor = Cursor::new(Vec::new());
 
     if format == ImageFormat::Jpeg {
@@ -604,18 +640,17 @@ pub fn encode_to_bytes(
 
     if format == ImageFormat::Avif {
         // AVIF output is feature-gated (SPEC-018, DEC-020). With the feature on,
-        // encode via `ravif` at the fixed AVIF_SPEED and the requested quality
-        // (default 80). This encode MUST stay identical to
-        // `crate::quality::encode_candidate_bytes`'s AVIF arm so the auto-quality
-        // / byte-budget search probes match the bytes written here (DEC-019).
+        // encode via `ravif` at the requested speed (default AVIF_SPEED) and the
+        // requested quality (default 80). This encode MUST stay identical to
+        // `crate::quality::encode_candidate_bytes_with`'s AVIF arm — same encoder,
+        // same speed, same clamp — so the auto-quality / byte-budget search probes
+        // match the bytes written here (DEC-019, extended to speed by DEC-068).
         #[cfg(feature = "avif")]
         {
             let q = quality.unwrap_or(AVIF_DEFAULT_QUALITY).clamp(1, 100);
-            let encoder = ::image::codecs::avif::AvifEncoder::new_with_speed_quality(
-                &mut cursor,
-                AVIF_SPEED,
-                q,
-            );
+            let s = speed.unwrap_or(AVIF_SPEED).clamp(1, 10);
+            let encoder =
+                ::image::codecs::avif::AvifEncoder::new_with_speed_quality(&mut cursor, s, q);
             img.pixels()
                 .write_with_encoder(encoder)
                 .map_err(|e| SinkError::Encode(e.to_string()))?;
@@ -882,6 +917,57 @@ mod tests {
             "lower quality should produce fewer bytes: q30={} q90={}",
             low.len(),
             high.len()
+        );
+    }
+
+    /// The speed knob SPEC-079 added is **invisible to every existing caller**:
+    /// `encode_to_bytes` is byte-for-byte what it was, because it forwards to
+    /// `encode_to_bytes_with(.., None)`, which resolves `None` to `AVIF_SPEED`.
+    ///
+    /// This is the parity that lets the wasm surface take a per-call speed without
+    /// changing a single byte the native CLI writes (DEC-068). Asserting on the
+    /// BYTES, not on the argument plumbing: the three encodes below must be
+    /// identical files.
+    #[cfg(feature = "avif")]
+    #[test]
+    fn encode_to_bytes_forwards_to_with_at_default_speed() {
+        let img = detailed_image(64, 64);
+
+        let legacy = encode_to_bytes(&img, ImageFormat::Avif, Some(70)).expect("legacy encode");
+        let defaulted = encode_to_bytes_with(&img, ImageFormat::Avif, Some(70), None)
+            .expect("encode with speed=None");
+        let explicit = encode_to_bytes_with(&img, ImageFormat::Avif, Some(70), Some(AVIF_SPEED))
+            .expect("encode at the explicit default speed");
+
+        assert_eq!(
+            legacy, defaulted,
+            "encode_to_bytes must equal encode_to_bytes_with(.., None) byte-for-byte"
+        );
+        assert_eq!(
+            defaulted, explicit,
+            "speed=None must resolve to AVIF_SPEED ({AVIF_SPEED})"
+        );
+    }
+
+    /// The speed argument is really threaded to rav1e, not accepted and dropped:
+    /// two different speeds produce two different AVIF files (a faster search makes
+    /// different coding decisions). Without this, `encode_to_bytes_with` could
+    /// satisfy the parity test above by ignoring `speed` entirely.
+    #[cfg(feature = "avif")]
+    #[test]
+    fn avif_speed_changes_output() {
+        let img = detailed_image(64, 64);
+
+        let slow = encode_to_bytes_with(&img, ImageFormat::Avif, Some(70), Some(1))
+            .expect("encode at speed 1");
+        let fast = encode_to_bytes_with(&img, ImageFormat::Avif, Some(70), Some(10))
+            .expect("encode at speed 10");
+
+        assert_eq!(::image::guess_format(&slow).unwrap(), ImageFormat::Avif);
+        assert_eq!(::image::guess_format(&fast).unwrap(), ImageFormat::Avif);
+        assert_ne!(
+            slow, fast,
+            "speed 1 and speed 10 must not produce identical bytes — the speed is being ignored"
         );
     }
 
