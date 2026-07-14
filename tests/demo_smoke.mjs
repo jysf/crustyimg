@@ -23,7 +23,7 @@
 //
 // Run: `just demo-smoke`.
 
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -38,6 +38,14 @@ const demoDir = join(repoRoot, "demo");
 const FIXTURE_W = 64;
 const FIXTURE_H = 48;
 const MAX_EDGE = 32; // the resize the second conversion asks for
+
+// The AVIF fixture is big on purpose: rav1e is serial and slow, and the claim under
+// test is about what the page can do WHILE it encodes. A thumbnail would be done
+// before there was anything to observe.
+const AVIF_W = 800;
+const AVIF_H = 600;
+const MIN_ENCODE_MS = 200;
+const BLOCK_MS = 400; // the negative control: how long we freeze the main thread on purpose
 
 let failed = 0;
 const cleanups = [];
@@ -114,12 +122,20 @@ class CDP {
       else p?.res(msg.result);
       return;
     }
-    this.handlers.get(msg.method)?.(msg.params);
+    // Events from an attached target carry its sessionId; events from the page do
+    // not. The handlers below are keyed by METHOD, so a worker's console error and
+    // a page's console error land in the same list — which is what we want.
+    this.handlers.get(msg.method)?.(msg.params, msg.sessionId);
   }
 
-  send(method, params = {}) {
+  /// `sessionId` addresses an auto-attached target — the engine's Web Worker is one
+  /// (SPEC-078), and it is a genuinely separate target with its own Runtime and its
+  /// own Network domain. Without this, the worker's traffic (including the .wasm it
+  /// fetches) is invisible from the page's session — which is exactly what happened
+  /// the first time the conversions moved off the main thread.
+  send(method, params = {}, sessionId) {
     const id = this.#next++;
-    this.#ws.send(JSON.stringify({ id, method, params }));
+    this.#ws.send(JSON.stringify(sessionId ? { id, method, params, sessionId } : { id, method, params }));
     return new Promise((res, rej) => this.#pending.set(id, { res, rej }));
   }
 
@@ -194,6 +210,46 @@ function readWebp(buf) {
     out.height = ((bits >> 14) & 0x3fff) + 1;
   }
   return out;
+}
+
+// ── an independent AVIF container parse ───────────────────────────────────────
+// The engine CANNOT check its own AVIF output: this build encodes AVIF and cannot
+// decode it (DEC-065), so `info()` — the crate agreeing with itself, which would be
+// weak proof anyway — is not even available. An outside reader is the only proof
+// there is. This is one, written from the ISOBMFF/AVIF spec: the `ftyp` box's major
+// brand, and the `ispe` (image spatial extents) box, which is where an AVIF states
+// its true dimensions. (The browser's own decoder is the second opinion; `sips` is a
+// third on macOS.)
+function readAvif(buf) {
+  const out = { ftyp: false, brand: null, width: null, height: null };
+  if (buf.length < 16 || buf.subarray(4, 8).toString("ascii") !== "ftyp") return out;
+  out.ftyp = true;
+  out.brand = buf.subarray(8, 12).toString("ascii");
+
+  // `ispe` sits nested several boxes deep (meta → iprp → ipco → ispe). Walking the
+  // whole tree to reach it would be a decoder; finding the box header is enough to
+  // read what the file says about itself.
+  const at = buf.indexOf("ispe", 0, "ascii");
+  if (at > 0) {
+    out.width = buf.readUInt32BE(at + 8); // 4 B box type, 4 B version+flags, then w, h
+    out.height = buf.readUInt32BE(at + 12);
+  }
+  return out;
+}
+
+/// The bytes behind the page's download link — ALL of them, out of the browser and
+/// into Node, so they can be parsed by something that is not the browser.
+async function downloadBytes(cdp) {
+  const b64 = await cdp.eval(`
+    (async () => {
+      const buf = await (await fetch(document.getElementById('download').href)).arrayBuffer();
+      const u8 = new Uint8Array(buf);
+      let s = '';
+      for (let i = 0; i < u8.length; i++) s += String.fromCharCode(u8[i]);
+      return btoa(s);
+    })()
+  `);
+  return Buffer.from(b64, "base64");
 }
 
 // ── 1. the assembled demo ─────────────────────────────────────────────────────
@@ -293,11 +349,45 @@ await cdp.send("Network.enable");
 await cdp.send("Page.enable");
 await cdp.send("DOM.enable");
 
+// ── attach to the engine's thread ─────────────────────────────────────────────
+// The engine no longer runs in the page (SPEC-078): demo.js starts a module Worker
+// and the Worker is what init()s the wasm. A Worker is a SEPARATE CDP TARGET, so
+// from the page's session it is invisible — its console errors, and the .wasm fetch
+// itself, simply do not appear. (That is not a theory: moving the conversions off
+// the main thread turned the "the .wasm was served as application/wasm" check below
+// into "no response at all", because the page never requested it again.)
+//
+// So auto-attach. `waitForDebuggerOnStart` pauses the worker at its first line, which
+// is the only way to have Network enabled BEFORE it fetches the .wasm; nothing runs in
+// there until `runIfWaitingForDebugger`. Everything the worker does — requests,
+// responses, console errors, uncaught exceptions — now flows into the same lists as
+// the page's, keyed by method.
+const workerTargets = [];
+cdp.on("Target.attachedToTarget", async (p) => {
+  if (p.targetInfo.type !== "worker") return;
+  workerTargets.push(p.targetInfo.url);
+  await cdp.send("Runtime.enable", {}, p.sessionId);
+  await cdp.send("Network.enable", {}, p.sessionId);
+  await cdp.send("Runtime.runIfWaitingForDebugger", {}, p.sessionId);
+});
+await cdp.send("Target.setAutoAttach", {
+  autoAttach: true,
+  waitForDebuggerOnStart: true,
+  flatten: true,
+});
+
 await cdp.send("Page.navigate", { url: `${baseUrl}/index.html` });
 
-// The whole point: this resolves only if instantiateStreaming succeeded.
-await waitFor(cdp, `${PAGE_STATE} === 'ready'`, "init() to resolve");
-ok("await init() resolved — WebAssembly.instantiateStreaming instantiated the engine over HTTP");
+// The whole point: this resolves only if instantiateStreaming succeeded — IN THE
+// WORKER, which is where init() now happens.
+await waitFor(cdp, `${PAGE_STATE} === 'ready'`, "the worker's init() to resolve");
+ok("await init() resolved IN A MODULE WORKER — instantiateStreaming ran off the page's thread");
+
+check(
+  workerTargets.some((u) => u.endsWith("/worker.js")),
+  `the engine is in a Web Worker — a separate browser thread, attached as its own target ` +
+    `(${workerTargets.join(", ") || "NO WORKER TARGET"})`,
+);
 
 const crateVersion = readFileSync(join(repoRoot, "Cargo.toml"), "utf8").match(
   /^version\s*=\s*"([^"]+)"/m,
@@ -565,7 +655,257 @@ for (const fmt of ["jpeg", "gif", "webp"]) {
   );
 }
 
-// ── 8. and the reason the server exists ───────────────────────────────────────
+// ── 8. AVIF out — the headline, and the reason the worker exists ──────────────
+
+console.log("\n── PNG → AVIF, while the page keeps running ──");
+
+// A BIG fixture on purpose. rav1e is serial and slow, and this test's whole claim is
+// about what happens DURING a slow encode — a 64×48 thumbnail would be over before
+// there was anything to observe. (The encode is also the demo's headline: it is the
+// only thing here that a browser cannot already do for you.)
+const bigPng = join(fixtureDir, "big.png");
+writeFileSync(bigPng, makePng(AVIF_W, AVIF_H));
+
+// THE PROBE. Two independent main-thread heartbeats — a timer and a rAF frame
+// callback — each counting how many times it ran while the page was in the
+// `converting` state. If the conversion were still a synchronous wasm call on the
+// page's thread, NEITHER could run during it: the thread would be inside rav1e, and
+// by the time it came back the state would already be `done`. So a non-zero count
+// here is not a smell test, it is the difference between the two architectures.
+await cdp.eval(`
+  window.__probe = { ticks: 0, duringConvert: 0, frames: 0, framesDuringConvert: 0 };
+  const converting = () => document.body.dataset.state === 'converting';
+  setInterval(() => {
+    window.__probe.ticks++;
+    if (converting()) window.__probe.duringConvert++;
+  }, 20);
+  (function frame() {
+    window.__probe.frames++;
+    if (converting()) window.__probe.framesDuringConvert++;
+    requestAnimationFrame(frame);
+  })();
+  document.getElementById('format').value = 'avif';
+  document.getElementById('maxedge').value = '';
+`);
+
+const requestsBeforeAvif = requests.length;
+const avifOut = await drop(bigPng);
+const probe = await cdp.eval("JSON.stringify(window.__probe)").then(JSON.parse);
+const encodeMs = Number(avifOut.elapsedMs);
+
+check(
+  avifOut.outFormat === "avif" &&
+    Number(avifOut.outWidth) === AVIF_W &&
+    Number(avifOut.outHeight) === AVIF_H,
+  `PNG → AVIF: ${avifOut.outWidth}×${avifOut.outHeight} ${avifOut.outFormat}, ${avifOut.outBytes} B ` +
+    `(expected ${AVIF_W}×${AVIF_H} avif) — the option SPEC-077 had to disable`,
+);
+
+// A window worth measuring: if rav1e finished this in 50 ms, the responsiveness
+// claim below would be true but untested. (It does not; it takes seconds.)
+check(
+  encodeMs >= MIN_ENCODE_MS,
+  `the AVIF encode took ${encodeMs} ms — a real blocking window (>= ${MIN_ENCODE_MS} ms), long ` +
+    `enough that a main-thread encode would have frozen the tab for it`,
+);
+check(
+  probe.duringConvert >= 5 && probe.framesDuringConvert >= 5,
+  `THE MAIN THREAD STAYED ALIVE THROUGH IT — ${probe.duringConvert} timer callbacks and ` +
+    `${probe.framesDuringConvert} animation frames ran DURING the ${encodeMs} ms encode ` +
+    `(a main-thread encode blocks both: the page cannot paint the spinner it is showing)`,
+);
+
+// THE NEGATIVE CONTROL — and it is not optional. A probe that cannot detect a frozen
+// main thread would report "responsive" for a page that is not, and the check above
+// would pass for the wrong reason (this wave has already shipped one green wait that
+// was waiting for nothing). So freeze the main thread ON PURPOSE, in the same state
+// the page shows while converting, and confirm the probe goes to ZERO — which is what
+// it would have read all along if the engine had stayed on this thread.
+const control = await cdp
+  .eval(
+    `(async () => {
+      const before = { ...window.__probe };
+      document.body.dataset.state = 'converting';
+      const until = performance.now() + ${BLOCK_MS};
+      while (performance.now() < until) {} // a synchronous wasm call, imitated exactly
+      const ticks = window.__probe.duringConvert - before.duringConvert;
+      const frames = window.__probe.framesDuringConvert - before.framesDuringConvert;
+      document.body.dataset.state = 'done'; // still synchronous: nothing queued has run yet
+      return JSON.stringify({ ticks, frames });
+    })()`,
+  )
+  .then(JSON.parse);
+check(
+  control.ticks === 0 && control.frames === 0,
+  `and the probe CAN see a freeze: a deliberate ${BLOCK_MS} ms main-thread block ran ` +
+    `${control.ticks} timers / ${control.frames} frames — so the counts above are evidence, not noise`,
+);
+
+// The independent decode, twice over. `readAvif` below is a container parse we wrote
+// from the ISOBMFF spec — the crate had no hand in it — and `createImageBitmap` is
+// Chrome's own libavif, a decoder from a different project in a different language.
+// (The engine CANNOT check this one itself: it encodes AVIF and cannot decode it,
+// DEC-065. That asymmetry is exactly why an outside opinion is the only proof here.)
+const avifBytes = await downloadBytes(cdp);
+const box = readAvif(avifBytes);
+check(
+  box.ftyp && box.brand === "avif",
+  `the downloaded bytes are a real AVIF container (ftyp brand "${box.brand}", ${avifBytes.length} B ` +
+    `— parsed here, by a reader the crate never touched)`,
+);
+check(
+  box.width === AVIF_W && box.height === AVIF_H,
+  `the AVIF's own ispe box says ${box.width}×${box.height} (independent parse; expected ` +
+    `${AVIF_W}×${AVIF_H})`,
+);
+
+const chromeDecode = await cdp
+  .eval(
+    `(async () => {
+      const blob = await (await fetch(document.getElementById('download').href)).blob();
+      const bitmap = await createImageBitmap(blob);
+      return JSON.stringify({ w: bitmap.width, h: bitmap.height });
+    })()`,
+  )
+  .then(JSON.parse);
+check(
+  chromeDecode.w === AVIF_W && chromeDecode.h === AVIF_H,
+  `Chrome's own AVIF decoder reads the bytes back as ${chromeDecode.w}×${chromeDecode.h} — an ` +
+    `independent decoder, in another language, agreeing this is the image`,
+);
+
+// And a third, when the platform has one: macOS's `sips` is a decoder from neither
+// this crate nor this browser. Skipped elsewhere (CI is Linux) rather than faked.
+if (process.platform === "darwin") {
+  const avifFile = join(fixtureDir, "out.avif");
+  writeFileSync(avifFile, avifBytes);
+  const sips = spawnSync("sips", ["-g", "format", "-g", "pixelWidth", "-g", "pixelHeight", avifFile], {
+    encoding: "utf8",
+  });
+  const said = `${sips.stdout ?? ""}`.replace(/\s+/g, " ").trim();
+  check(
+    sips.status === 0 &&
+      /format:\s*avif/i.test(said) &&
+      new RegExp(`pixelWidth: ${AVIF_W}\\b`).test(said) &&
+      new RegExp(`pixelHeight: ${AVIF_H}\\b`).test(said),
+    `macOS \`sips\` — a third decoder, from neither the crate nor the browser — reads it as ` +
+      `${AVIF_W}×${AVIF_H} AVIF ("${said}")`,
+  );
+} else {
+  console.log(`  · (sips is macOS-only — skipped on ${process.platform}; two decoders agreed above)`);
+}
+
+const duringAvif = requests
+  .slice(requestsBeforeAvif)
+  .filter((u) => !u.startsWith("blob:") && !u.startsWith("data:"));
+check(
+  duringAvif.length === 0,
+  `the AVIF encode made ZERO network requests — the worker's traffic is in this log too, so a ` +
+    `conversion that phoned home from the worker could not hide here`,
+);
+if (duringAvif.length) console.error(`    ${duringAvif.join("\n    ")}`);
+
+// ── 9. AVIF in — the browser decodes what the engine cannot ───────────────────
+
+console.log("\n── .avif in (the browser decodes what the engine cannot) ──");
+
+// The engine has no AVIF decoder (DEC-065) — an `.avif` input used to be a typed
+// error on this page. The worker now hands it to `createImageBitmap`, draws it on an
+// OffscreenCanvas, and gives the engine lossless PNG pixels. The fixture is the
+// repo's own 16×16 AVIF, which nothing in this build could read a week ago.
+await cdp.eval(`
+  document.getElementById('format').value = 'webp';
+  document.getElementById('maxedge').value = '';
+`);
+const fromAvif = await drop(join(repoRoot, "tests", "fixtures", "avif", "solid_16x16.avif"));
+
+check(
+  fromAvif.inFormat === "avif" && fromAvif.inDims === "16×16",
+  `an .avif INPUT is read: ${fromAvif.inDims} ${fromAvif.inFormat} (the page says avif, not "png" — ` +
+    `it does not pretend the browser's PNG hand-off is the file you dropped)`,
+);
+check(
+  fromAvif.outFormat === "webp" &&
+    Number(fromAvif.outWidth) === 16 &&
+    Number(fromAvif.outHeight) === 16 &&
+    Number(fromAvif.outBytes) > 0,
+  `.avif → WebP: ${fromAvif.outWidth}×${fromAvif.outHeight} ${fromAvif.outFormat}, ` +
+    `${fromAvif.outBytes} B — the dimensions survived the createImageBitmap → canvas → engine path`,
+);
+
+const whereText = await cdp.eval("document.getElementById('ex-where').textContent");
+check(
+  /browser decoded the AVIF input/i.test(whereText),
+  `and the page SAYS whose decoder that was, rather than quietly implying the engine did it`,
+);
+
+// ── 10. the decision, on the page ─────────────────────────────────────────────
+
+console.log("\n── the readout shows the decision ──");
+
+const readout = await cdp
+  .eval(
+    "JSON.stringify({ ...document.getElementById('result').dataset, " +
+      "inBytes: document.getElementById('in-bytes').textContent, " +
+      "outBytes: document.getElementById('out-bytes').textContent, " +
+      "delta: document.getElementById('delta').textContent, " +
+      "exFormat: document.getElementById('ex-format').textContent, " +
+      "exSize: document.getElementById('ex-size').textContent, " +
+      "exDims: document.getElementById('ex-dims').textContent, " +
+      "exQuality: document.getElementById('ex-quality').textContent })",
+  )
+  .then(JSON.parse);
+
+check(
+  /\d+ (B|KB|MB)/.test(readout.inBytes) && /\d+(\.\d+)? (B|KB|MB)/.test(readout.outBytes),
+  `the DOM shows the bytes in and out — "${readout.inBytes}" → "${readout.outBytes}"`,
+);
+check(
+  /\d+% (smaller|bigger)/.test(readout.delta) &&
+    Number.isInteger(Number(readout.savedPct)) &&
+    /\d+% (saved|larger)/.test(readout.exSize),
+  `and the SAVING, as a percentage — "${readout.delta.trim()}" (data-saved-pct="${readout.savedPct}")`,
+);
+check(
+  readout.exFormat.includes(`${readout.inFormat} → ${readout.outFormat}`) &&
+    readout.exFormat.includes("you chose the format"),
+  `and the format it chose, and WHO chose it — "${readout.exFormat}"`,
+);
+check(
+  readout.exDims.includes(`${readout.outWidth}×${readout.outHeight}`),
+  `and the dimensions — "${readout.exDims}"`,
+);
+check(
+  /lossless/i.test(readout.exQuality),
+  `and how the quality was decided, honestly (WebP here is LOSSLESS — this build has no lossy ` +
+    `WebP) — "${readout.exQuality.slice(0, 60)}…"`,
+);
+
+// ── 11. Auto: let the engine choose ───────────────────────────────────────────
+
+console.log("\n── Auto — the engine picks the format ──");
+
+// The other half of "intent": the user says what they want, not how. `optimize(bytes,
+// "auto")` runs the engine's own analysis + format shortlist (the same code the CLI's
+// `optimize` runs) inside the wasm, and whatever it picks is what the page reports.
+await cdp.eval("document.getElementById('format').value = 'auto';");
+const auto = await drop(fixture);
+
+check(
+  ["avif", "webp", "png", "jpeg"].includes(auto.outFormat) && Number(auto.outBytes) > 0,
+  `Auto → the engine chose ${auto.outFormat} for a ${FIXTURE_W}×${FIXTURE_H} gradient PNG ` +
+    `(${auto.outBytes} B) — its own analysis + format shortlist, running in the browser`,
+);
+const autoSays = await cdp.eval("document.getElementById('ex-format').textContent");
+check(
+  autoSays.includes("the engine chose the format"),
+  `and the readout attributes the choice to the engine — "${autoSays}"`,
+);
+
+check(consoleErrors.length === 0, "no console errors in the page OR the worker, after all of it");
+if (consoleErrors.length) console.error(`    ${consoleErrors.join("\n    ")}`);
+
+// ── 12. and the reason the server exists ──────────────────────────────────────
 
 console.log("\n── the file:// failure mode is real (which is WHY we serve) ──");
 

@@ -30,21 +30,28 @@
         <input
           type="file"
           id="file"
-          accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml,.png,.jpg,.jpeg,.gif,.webp,.svg"
+          accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml,image/avif,.png,.jpg,.jpeg,.gif,.webp,.svg,.avif"
         />
         <label for="file">
           <span class="drop-headline">Drop an image here</span>
-          <span class="drop-sub">or click to pick one · PNG, JPEG, GIF, WebP, SVG</span>
+          <span class="drop-sub">or click to pick one · PNG, JPEG, GIF, WebP, SVG, AVIF</span>
         </label>
       </section>
 
+      <!-- Intent, not knobs: what you want out, and how big. There is deliberately no
+           quality SLIDER — the engine decides quality itself (auto-quality for JPEG, the
+           encoder's default for AVIF, nothing at all for the lossless formats), and the
+           readout below says which of those happened. Inventing a slider the shipped wasm
+           surface does not take (DEC-064) would be a control that controls nothing. -->
       <section id="controls" class="controls" hidden>
         <label>
           Output
           <select id="format">
+            <option value="auto">Auto — let the engine choose</option>
+            <option value="avif">AVIF (smallest)</option>
             <option value="webp" selected>WebP (lossless)</option>
-            <option value="png">PNG</option>
-            <option value="avif" disabled>AVIF — coming (needs a Web Worker)</option>
+            <option value="jpeg">JPEG (auto-quality)</option>
+            <option value="png">PNG (lossless)</option>
           </select>
         </label>
         <label>
@@ -54,6 +61,14 @@
       </section>
 
       <p id="error" class="error" hidden role="alert"></p>
+
+      <!-- A spinner, not a percentage. One conversion is a single blocking call inside
+           the worker and rav1e reports nothing as it goes, so a progress BAR would be a
+           lie about information we do not have. The page staying alive is the true part. -->
+      <p id="busy" class="busy" hidden role="status" aria-live="polite">
+        <span class="spinner" aria-hidden="true"></span>
+        Converting in a background thread — the page stays responsive.
+      </p>
 
       <section id="result" class="result" hidden>
         <div class="panes">
@@ -78,6 +93,21 @@
         </div>
 
         <p class="delta" id="delta"></p>
+
+        <!-- The decision, in the engine's own terms. Every line is something it did. -->
+        <dl class="explain" id="explain">
+          <dt>Format</dt>
+          <dd id="ex-format"></dd>
+          <dt>Size</dt>
+          <dd id="ex-size"></dd>
+          <dt>Dimensions</dt>
+          <dd id="ex-dims"></dd>
+          <dt>Quality</dt>
+          <dd id="ex-quality"></dd>
+          <dt>Where</dt>
+          <dd id="ex-where"></dd>
+        </dl>
+
         <a id="download" class="download" download>Download</a>
       </section>
 
