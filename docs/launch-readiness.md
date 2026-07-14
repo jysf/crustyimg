@@ -10,10 +10,17 @@
 
 ## Blockers — do NOT launch until these clear
 
-- [ ] **Ship SPEC-078** — the headline (in-browser **AVIF** conversion) must actually work. Today
-      the demo says *"AVIF output is not here yet."* Sending HN to a demo with its headline feature
-      disabled underdelivers on the pitch. (STAGE-027's last spec; Web Worker + AVIF + `.avif` input
-      + explain.)
+- [x] **Ship SPEC-078** — ✅ done (2026-07-13, PR #86). In-browser AVIF conversion works both ways
+      off the main thread; the explain readout is honest. (STAGE-027 complete.)
+- [ ] **STAGE-029 — demo launch quality** (the new blocker, framed 2026-07-13 after a measured perf
+      investigation). The demo is live but mis-serves the common photo case: a 12 MP photo → AVIF is
+      **~33 s** at the hardcoded rav1e speed 6 (a silent spinner reads as a *hang*), the default
+      output is lossless-WebP which makes photos *bigger*, and "Auto" falls back to a slow JPEG
+      search (~4–11 s, ~13 %). Ship STAGE-029 before pointing traffic here: **speed 10** (measured
+      3.6× faster), an **intent-led "make it smaller" redesign** (Auto picks AVIF for photos, a
+      never-bigger guard, an offered resize, megapixel-keyed warnings + a live timer), and the
+      **SSIMULACRA2 score readout** (the differentiator vs squoosh). See
+      `projects/PROJ-008-.../stages/STAGE-029-demo-launch-quality.md`.
 - [x] **Desktop cross-browser** — ✅ done (SPEC-078 verify, 2026-07-13): driven CLEAN in **Chrome 150,
       Firefox 150 (real Gecko), Safari 26.5 (real WebKit)** via three separate clients; all three do
       module Worker + `instantiateStreaming` + `createImageBitmap`-decodes-AVIF, all responsive
@@ -59,8 +66,9 @@ gates for a demo-centric Show HN.
 
 ## Critical path
 
-**SPEC-078 → cross-browser/mobile hardening (in SPEC-078) → README front-door → (publish
-`crustyimg-wasm` if the post mentions it, SPEC-076) → launch.**
+**SPEC-078 ✅ → STAGE-029 (demo launch quality: speed 10 + intent redesign + SSIMULACRA2 readout) →
+mobile real-device test → README front-door + BENCHMARKS (STAGE-028) → (publish `crustyimg-wasm` if
+the post mentions it, SPEC-076) → launch.**
 
 ## Owners / pointers
 
