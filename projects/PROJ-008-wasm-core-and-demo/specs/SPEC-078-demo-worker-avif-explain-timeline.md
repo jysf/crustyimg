@@ -24,9 +24,24 @@ they go. Status markers: `[ ]` not started · `[~]` in progress · `[x]` complet
   libavif, macOS `sips`). `src/` untouched (0-byte diff). Deviation: **no quality slider** — the
   shipped wasm surface takes no quality argument (DEC-064), so a slider would control nothing; the
   page shows how quality WAS decided instead, and the byte-budget/quality intent is a follow-up.
-- [ ] **verify** — fresh adversarial session (worktree): main thread responsive during a slow AVIF
-  encode, PNG→AVIF valid (independent decode), `.avif` input converts, readout correct, still
-  client-side, deployed .wasm profiled, live gate passes.
+- [x] **verify** (2026-07-13, worktree `crustyimg-wt-verify078`) — **CLEAN on the engineering; the
+  cross-browser criterion was NOT met by the build and is now met in part.** Drove the real page with
+  a CDP/BiDi/WebDriver client written for this pass, not the build's smoke. **Chrome 150** 17/17,
+  **Firefox 150** (real Gecko, BiDi) 9/9, **Safari 26.5** (real WebKit, safaridriver) 8/8 — all three
+  do module Worker + `instantiateStreaming` + `createImageBitmap`-decodes-AVIF, and all three stayed
+  responsive through a real ~3.1 s 1600×1200 PNG→AVIF encode (Chrome 311 timers/295 frames, FF
+  274/392, Safari 260/187) against a **0/0 negative control** — the build's control reproduces, so the
+  counts are evidence. AVIF validity re-judged by three outside decoders (`sips`, Chrome libavif, a
+  from-the-spec ISOBMFF `ispe` parse); confirmed the engine itself *refuses* its own AVIF, which is
+  what makes the outside opinion necessary. Zero network from page *or* worker. No dead quality slider
+  (0 range inputs); Auto is real — it chose **jpeg** for a noisy photo, i.e. the engine's analysis, not
+  a stub. `src/` diff vs main = 0 bytes; `just check`/`deny`/`validate` green; the size-profile guard
+  **bites** (a forged fat-`name`-section artifact was refused, exit 1). **Findings:** (1) the build's
+  completion table silently omitted the cross-browser criterion while claiming all met, and never
+  drove a non-Chrome engine — now driven, and the matrix the spec asked for is recorded in
+  `demo/README.md`; (2) **mobile (iOS Safari / Android Chrome) is still UNVERIFIED** — undrivable here
+  (no simulator/SDK), stays a launch-checklist item; (3) the branch is 2 commits behind main → needs
+  `gh pr update-branch` before merge.
 - [ ] **ship** — squash-merge, bookkeeping on main, cost totals (per-session usd + ship recorded_at),
   reflection, memory + brag. **Ship completes STAGE-027** → stage-ship reflection; then only SPEC-076
   (gated publish) remains in PROJ-008 → the launch.

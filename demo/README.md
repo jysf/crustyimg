@@ -65,6 +65,35 @@ does not build for bare wasm32). So:
 
 Neither borrows a codec into the wasm; both borrow the one already in the browser.
 
+## Browsers
+
+The demo leans on three things browser engines have historically disagreed about: **module Web
+Workers** (`new Worker(url, {type:'module'})`), **`WebAssembly.instantiateStreaming`**, and
+**`createImageBitmap` decoding AVIF** — the last one is what the `.avif`-input path rides on. So they
+are not assumed; each engine below was **driven** (SPEC-078 verify, 2026-07-13): the real page, over
+HTTP, converting a real 1600×1200 photo to AVIF, with the main-thread probe and its negative control.
+
+| Engine | Module Worker + `instantiateStreaming` | `createImageBitmap` decodes AVIF | Main thread stays alive during a ~3 s AVIF encode |
+|---|---|---|---|
+| **Chrome 150** (macOS, headed + headless) | ✅ | ✅ | ✅ 311 timers / 295 frames (control: 0 / 0) |
+| **Firefox 150** (macOS, real Gecko) | ✅ | ✅ | ✅ 274 timers / 392 frames (control: 0 / 0) |
+| **Safari 26.5** (macOS, real WebKit) | ✅ | ✅ | ✅ 260 timers / 187 frames (control: 0 / 0) |
+| **iOS Safari** | **not driven** — see below | **not driven** | **not driven** |
+| **Android Chrome** | **not driven** | **not driven** | **not driven** |
+
+The counts are only meaningful because of the **control**: the same probe, against a deliberately
+frozen thread, reads 0 / 0. All three desktop engines also produced an AVIF that macOS `sips` — a
+decoder from neither this crate nor the browser — read back as a 1600×1200 AVIF.
+
+**Mobile is NOT verified.** It could not be driven on the verifying machine (no iOS simulator, no
+Android SDK), and desktop-Chrome device emulation proves layout, not engine capability — so it is not
+evidence about iOS Safari or Android Chrome. What *was* checked: the page lays out at 390×844 and
+412×915 with no horizontal scroll and the controls reachable. **Driving a real phone remains an open
+launch-checklist item** (`docs/launch-readiness.md`). The engine features are well-supported on both
+(module workers: iOS 15+, Chrome 80+; AVIF decode: iOS 16+, Android Chrome 85+), and a browser that
+*can't* decode AVIF gets a clear message rather than a hang — but "well-supported" is a claim from a
+support table, not a drive, and this file does not pretend otherwise.
+
 ### Quality, honestly
 
 There is no quality **slider**, because the shipped wasm surface takes no quality argument (DEC-064)
