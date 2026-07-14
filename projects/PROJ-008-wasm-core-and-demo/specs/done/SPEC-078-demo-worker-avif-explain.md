@@ -3,7 +3,7 @@
 task:
   id: SPEC-078
   type: story
-  cycle: verify                    # frame | design | build | verify | ship
+  cycle: ship                      # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: M                    # S | M | L  (may split if the UX balloons)
@@ -66,10 +66,19 @@ cost:
         cost was the cross-browser leg, which the build had not attempted: Safari needed a human to
         tick "Allow remote automation", and proving the size-profile guard actually bites meant
         forging a non-profiled artifact and watching it get refused.
+    - cycle: ship
+      interface: claude-code
+      recorded_at: 2026-07-13
+      tokens_total: null
+      note: >
+        ship bookkeeping in the orchestrator main loop (un-metered, §4). Included resolving a
+        merge conflict: the SPEC-078 spec/timeline had diverged because the orchestrator edited
+        them on main (STAGE-028 + the cross-browser fold) while the spec was in verify on its
+        branch — process note in the reflection.
   totals:
-    tokens_total: 360000
-    estimated_usd: 4.45
-    session_count: 2
+    tokens_total: 360000        # build 210k + verify 150k (design + ship null, un-metered)
+    estimated_usd: 4.45         # LABELLED ESTIMATE, not a meter read (§4)
+    session_count: 4
 ---
 
 # SPEC-078: demo — Web Worker, AVIF, and the explain readout
@@ -128,30 +137,32 @@ a quality/byte-budget where the format supports it). **Also make it launch-ready
 
 ## Acceptance Criteria
 
-- [ ] **All conversions run in a Web Worker** — during a slow AVIF encode the **main thread stays
-      responsive** (assert it in the browser: the UI updates / a probe runs while the encode is in
-      flight; the page does not freeze). Driven in a real browser, served over HTTP.
-- [ ] **AVIF output works** — a PNG/JPEG → `.avif` conversion produces **valid AVIF** (verified by an
-      independent decoder — `sips` or `createImageBitmap`), off the main thread. The option is enabled
-      (no longer "coming").
-- [ ] **`.avif` input works** — dropping an `.avif` decodes it via `createImageBitmap` (→ canvas →
-      PNG → engine) and converts; a clear message if the browser can't decode AVIF.
-- [ ] **The decision is shown** — input→output **bytes + % saved**, the **format** chosen, and
-      **dimensions**; plus intent controls (output format + a quality/byte-budget where supported).
-- [ ] **Honest surface** — WebP stays labeled lossless (no lossy-WebP on wasm); no faked progress %.
-- [ ] Still **100% client-side** (zero network during conversion), no SharedArrayBuffer / no
-      COOP-COEP (a Worker is a separate thread, not shared-memory threads); the deployed `.wasm` is
-      the size-profiled one; the live Pages deploy still passes its gate.
-- [ ] **Cross-browser + mobile (launch-readiness — the biggest risk):** the demo works, **or
-      degrades gracefully with a clear message**, in **Safari, Firefox, and mobile (iOS Safari +
-      Android Chrome)** — not just Chrome. Confirm the engine-varying pieces by a **driven** check:
-      module Web Worker (`{type:'module'}`), `instantiateStreaming`, and **`createImageBitmap`
-      decoding AVIF** (Safari/Firefox differ — if a browser can't decode AVIF, the `.avif`-input path
-      must say so, not hang). The CI `demo-smoke` stays headless-Chrome (the automated gate); the
-      cross-browser matrix is a driven manual/verify pass, recorded in the demo README. *(If a
-      browser needs real fallback code beyond a graceful message, that may split into its own spec —
-      note it, don't balloon this one.)*
-- [ ] Native/engine untouched; `just deny`/`just validate` green; guardrail held (a thin demo page).
+- [x] **All conversions run in a Web Worker** — verify drove a real ~3.1 s 1600×1200 PNG→AVIF encode
+      with the main thread responsive (Chrome 311 timers/295 frames, FF 274/392, Safari 260/187)
+      against a **0/0 negative control** (a deliberately frozen thread), so the counts are evidence.
+- [x] **AVIF output works** — PNG/JPEG → valid AVIF off the main thread, judged by THREE independent
+      decoders (`sips`, Chrome libavif, a from-spec ISOBMFF `ispe` parse); the option is enabled.
+- [x] **`.avif` input works** — decodes via `createImageBitmap`→canvas→PNG→engine in all three
+      desktop engines; a refused AVIF degrades to a clear message naming the browser (driven).
+- [x] **The decision is shown** — bytes in→out + % saved + format chosen (**and who chose it**) +
+      dims + how quality was decided. Intent = **Auto** (real, wired to analysis — chose jpeg on a
+      noisy photo) + format + max-edge. *(A quality/byte-budget slider is deferred — the wasm surface
+      takes no quality arg; filed as a surface follow-up, see below.)*
+- [x] **Honest surface** — WebP labeled lossless; a spinner never a %; the "bigger, not smaller" case
+      still says why; zero dead range inputs.
+- [x] Still **100% client-side** (zero network during conversion — page AND worker), no
+      SharedArrayBuffer/COOP-COEP; the deployed `.wasm` is the size-profiled one (the guard **bites** —
+      a forged fat-`name` artifact was refused, exit 1); the live Pages gate passes.
+- [~] **Cross-browser + mobile (launch-readiness):** **DESKTOP MET** — driven CLEAN in **Chrome 150,
+      Firefox 150 (real Gecko), Safari 26.5 (real WebKit)** via three separate clients (CDP / BiDi /
+      W3C WebDriver); all three do module Worker + `instantiateStreaming` + `createImageBitmap`-decodes-
+      AVIF. **MOBILE DEFERRED** — iOS Safari / Android Chrome undrivable here (no simulator/SDK); a
+      real-device test is a **STAGE-028 launch-readiness blocker** before the Show HN (an accepted,
+      documented residual — not blocking this spec's ship). Matrix recorded in `demo/README.md`.
+      (Safari remote automation needs a human "Allow remote automation" tick — so future CI Safari
+      coverage hits the same human gate.)
+- [x] Native/engine untouched (`src/` diff vs main = 0 bytes); `just deny`/`just validate` green;
+      guardrail held (a thin demo page, no framework/bundler/backend).
 
 ## Failing Tests
 
@@ -283,6 +294,29 @@ table denied, because no row mentioned it. A criterion nobody claims is a criter
 
 ## Reflection (Ship)
 
-1. **What would I do differently next time?** —
-2. **Does any template, constraint, or decision need updating?** —
-3. **Is there a follow-up spec I should write now before I forget?** —
+*Appended during ship (2026-07-13). Shipped via PR #86 (squash `b568f82`). Build + verify ran in
+worktrees. Its ship COMPLETES STAGE-027. No new DEC.*
+
+1. **What would I do differently next time?** — Two process misses, both mine as orchestrator:
+   (a) **I edited SPEC-078's spec + timeline on `main`** (the cross-browser fold + STAGE-028) *while
+   the spec was in verify on its branch* → the PR went CONFLICTING and needed a manual merge-resolve
+   before it could ship. **Don't edit an in-flight spec's own files on main while a build/verify
+   branch holds them** — put cross-cutting additions in a separate doc (the launch-readiness stage)
+   or wait for the merge. (b) The **cross-browser criterion was added to the spec AFTER the build
+   started**, so the build never saw it — which is half of why the build's completion table could
+   omit it. Fold launch-gating criteria into the spec *before* dispatching the build.
+2. **Does any template, constraint, or decision need updating?** — Verify's headline lesson is
+   banked: **a criterion nobody claims is a criterion nobody checks** — the build answered "all
+   criteria met? Yes" while its table silently omitted the cross-browser row (nothing false, the
+   *omission* was the defect). **Verify must DIFF the completion table against the spec's Acceptance
+   list; a criterion with no row is presumed NOT met.** ([[a-criterion-nobody-claims-is-a-criterion-nobody-checks]].)
+   Also reinforced: drive real *separate* clients per engine (CDP/BiDi/WebDriver) so one harness
+   can't fake a cross-browser pass; and a responsiveness probe needs a frozen-thread negative control
+   to be evidence.
+3. **Is there a follow-up spec I should write now before I forget?** — (a) **A quality/byte-budget
+   argument on the wasm surface** (`optimize(bytes, format, {target, maxBytes})`) — the missing half
+   of "intent"; an engine-surface change (its own spec), then the demo wires a slider in an
+   afternoon. Filed. (b) **Mobile cross-browser** (iOS Safari / Android Chrome) — a real-device test,
+   now a **STAGE-028 launch-readiness** blocker (narrowed in `docs/launch-readiness.md`), cleared on
+   a phone before the Show HN. STAGE-027 is complete; PROJ-008's remainder = the launch (SPEC-076
+   gated publish + the launch-readiness stage).

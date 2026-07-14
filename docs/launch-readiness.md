@@ -14,11 +14,13 @@
       the demo says *"AVIF output is not here yet."* Sending HN to a demo with its headline feature
       disabled underdelivers on the pitch. (STAGE-027's last spec; Web Worker + AVIF + `.avif` input
       + explain.)
-- [ ] **Cross-browser + mobile** — the demo is proven only in **headless Chrome**. HN traffic is
-      heavily Safari / Firefox / mobile, and the demo leans on engine-varying features: module Web
-      Workers, `WebAssembly.instantiateStreaming`, and **`createImageBitmap` decoding AVIF**
-      (Safari/Firefox differ). Confirm it works — or degrades gracefully with a clear message — on
-      **Safari, Firefox, and mobile** (iOS Safari + Android Chrome). *Folded into SPEC-078's scope.*
+- [x] **Desktop cross-browser** — ✅ done (SPEC-078 verify, 2026-07-13): driven CLEAN in **Chrome 150,
+      Firefox 150 (real Gecko), Safari 26.5 (real WebKit)** via three separate clients; all three do
+      module Worker + `instantiateStreaming` + `createImageBitmap`-decodes-AVIF, all responsive
+      through a real ~3.1 s AVIF encode.
+- [ ] **Mobile** — ⚠ STILL OPEN, the remaining cross-browser blocker. iOS Safari + Android Chrome
+      were undrivable in verify (no simulator/SDK). **Load the live page on a real phone** (module
+      Worker + AVIF encode + `.avif` input + layout) before the Show HN. HN has heavy mobile traffic.
 - [ ] **README front door** — README.md is **CLI-only today: no mention of the demo, the wasm, or
       `crustyimg-wasm`, and no live-demo link.** That's the page HN clicks through to. Add: the
       one-line pitch, the live demo link, "no server — your image never leaves your browser," honest

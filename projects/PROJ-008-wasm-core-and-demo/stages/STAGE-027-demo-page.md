@@ -2,7 +2,7 @@
 # Maps to ContextCore epic-level conventions.
 stage:
   id: STAGE-027
-  status: active                    # proposed | active | shipped | cancelled | on_hold
+  status: shipped                   # proposed | active | shipped | cancelled | on_hold
   priority: high
   target_complete: null
 
@@ -12,7 +12,7 @@ repo:
   id: crustyimg
 
 created_at: 2026-07-13
-shipped_at: null
+shipped_at: 2026-07-13
 
 value_contribution:
   advances: >
@@ -93,14 +93,14 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
   `optimize`/`transform` → result + `info` + bytes → download; SVG + PNG/JPEG/GIF/WebP in, **WebP/PNG
   out** (AVIF deferred to 078 — needs the worker); GitHub Pages deploy through `just wasm-build`
   (size-profiled `.wasm`); browser-driven smoke. The end-to-end "it works in a browser" proof.
-- [ ] SPEC-078 (design — build-ready 2026-07-13) — **Web Worker + AVIF + explain.** Move ALL
+- [x] SPEC-078 (shipped 2026-07-13, PR #86 `b568f82`) — **Web Worker + AVIF + explain.** Move ALL
   conversions into a module Web Worker (main thread stays responsive — rav1e serial would freeze it);
   ENABLE AVIF output (already compiled into the deployed `.wasm`, DEC-065 — just off-load + un-disable);
   `.avif` INPUTS via `createImageBitmap`→canvas→PNG→wasm; the bytes-in/out + %-saved + format readout;
   intent controls (format + quality/budget). "Progress" = a busy state, not a %. Ship completes STAGE-027.
   May split the UX from the worker/AVIF core if it balloons.
 
-**Count:** 1 shipped / 1 in design / 0 pending (SPEC-077 SHIPPED + LIVE; SPEC-078 framed build-ready 2026-07-13 — Web Worker for ALL conversions + AVIF + `.avif`-input via createImageBitmap + explain + intent controls — its ship completes STAGE-027). **✅ DEPLOY PROVEN LIVE 2026-07-13: GitHub Pages enabled; the demo is published at https://jysf.github.io/crustyimg/ — `pages.yml` deploy job green, the page loads, `vendor/crustyimg_bg.wasm` serves as `application/wasm`, and the engine initializes ("Engine loaded", version 0.4.0, no console errors). The end-to-end deploy leg is no longer unproven.**
+**Count:** 2 shipped / 0 active / 0 pending — **STAGE-027 COMPLETE 2026-07-13** (SPEC-077 skeleton + SPEC-078 Worker/AVIF/explain). The demo is live + full-featured on desktop; **mobile verification is the one carry → STAGE-028 launch-readiness** (real-device test before the Show HN). **✅ DEPLOY PROVEN LIVE 2026-07-13: GitHub Pages enabled; the demo is published at https://jysf.github.io/crustyimg/ — `pages.yml` deploy job green, the page loads, `vendor/crustyimg_bg.wasm` serves as `application/wasm`, and the engine initializes ("Engine loaded", version 0.4.0, no console errors). The end-to-end deploy leg is no longer unproven.**
 
 ## Design Notes
 
@@ -128,12 +128,32 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
 ## Stage-Level Reflection
 
-*Filled in when status moves to shipped.*
+*Shipped 2026-07-13.*
 
-- **Did we deliver the outcome in "What This Stage Is"?** <yes/no + notes>
-- **How many specs did it actually take?** <number vs. plan>
-- **What changed between starting and shipping?** <one sentence>
+- **Did we deliver the outcome in "What This Stage Is"?** **Yes** (desktop) — the crustyimg engine
+  runs as a real, live web page (https://jysf.github.io/crustyimg/): drop → convert client-side →
+  download, with AVIF both directions off the main thread, `.avif` input via `createImageBitmap`, and
+  an honest explain readout. Every claim was *driven* in a real browser (SPEC-077's headless-Chrome
+  smoke; SPEC-078's three separate CDP/BiDi/WebDriver clients across Chrome/Firefox/Safari, with a
+  frozen-thread negative control). **The one gap: mobile** (iOS Safari / Android Chrome) is
+  unverified — undrivable without a device here — carried to STAGE-028 as a launch blocker.
+- **How many specs did it actually take?** **2** (SPEC-077 skeleton, SPEC-078 Worker/AVIF/explain),
+  as framed. The split held: 077 proved "it runs as a web page" (and caught the `file://`/CORS
+  reality); 078 added the headline (AVIF off-thread) + the UX.
+- **What changed between starting and shipping?** The deploy went from theoretical to *proven live*
+  (Pages enabled mid-stage), and "cross-browser" got sharpened from an afterthought into an explicit,
+  driven criterion — which then exposed that only mobile remains.
 - **Lessons that should update AGENTS.md, templates, or constraints?**
-  - <one-line updates>
-- **Should any spec-level reflections be promoted to stage-level lessons?**
-  - <one-line items>
+  - **A criterion nobody claims is a criterion nobody checks** — verify must diff the build's
+    completion table against the spec's Acceptance list ([[a-criterion-nobody-claims-is-a-criterion-nobody-checks]]).
+  - **Don't edit an in-flight spec's own files on `main` while a build/verify branch holds them** —
+    it caused SPEC-078's PR to go CONFLICTING. Put cross-cutting additions elsewhere (a separate
+    stage/doc) or wait for the merge; fold launch-gating criteria into the spec *before* the build.
+  - **Browser claims need real, separate per-engine drivers + a negative control** — a responsiveness
+    count is decoration until the same probe reads 0 against a thread you froze on purpose.
+    ([[a-green-poll-loop-may-be-waiting-for-nothing]], the failure-mode-unproven lesson.)
+  - **Serve, don't `file://`** (SPEC-077): module scripts are CORS-fetched; `file://` is an opaque
+    origin and blocks the module before `init()` — the error handler can't fire.
+- **Should any spec-level reflections be promoted to stage-level lessons?** The two above
+  (criterion-nobody-claims; separate-clients-plus-control) are the most reusable and are already
+  their own memories.

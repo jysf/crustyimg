@@ -42,6 +42,12 @@ they go. Status markers: `[ ]` not started · `[~]` in progress · `[x]` complet
   `demo/README.md`; (2) **mobile (iOS Safari / Android Chrome) is still UNVERIFIED** — undrivable here
   (no simulator/SDK), stays a launch-checklist item; (3) the branch is 2 commits behind main → needs
   `gh pr update-branch` before merge.
-- [ ] **ship** — squash-merge, bookkeeping on main, cost totals (per-session usd + ship recorded_at),
-  reflection, memory + brag. **Ship completes STAGE-027** → stage-ship reflection; then only SPEC-076
-  (gated publish) remains in PROJ-008 → the launch.
+- [x] **ship** (2026-07-13) — **SHIPPED → STAGE-027 COMPLETE.** Squash-merged **PR #86** (`b568f82`).
+  Needed a manual merge-resolve first: the spec/timeline had diverged because the orchestrator edited
+  them on main (cross-browser fold + STAGE-028) while the branch was in verify → CONFLICTING; resolved
+  by taking the branch's build/verify content + re-adding the cross-browser criterion here. Cost 360k
+  tok / $4.45 (per-session usd). Acceptance marked (7 met; cross-browser = desktop ✅ / mobile
+  deferred to STAGE-028). Ship reflection (the "criterion nobody claims" lesson + the edit-in-flight-spec
+  process note). STAGE-027 closed (2/2 specs) + Stage-Level Reflection. launch-readiness.md cross-browser
+  narrowed to mobile-only. Follow-ups → roadmap (quality/budget wasm-surface arg; mobile test).
+  `just validate` + `just cost-audit` green.

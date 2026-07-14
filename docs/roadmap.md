@@ -207,9 +207,14 @@ have an impressive unused tool.
   is the repo's **first CI job that builds through `just wasm-build`** (partially closes the "CI
   never runs the wasm smokes" carry). Carries: (1) **✅ RESOLVED 2026-07-13 — Pages enabled; the demo
   is LIVE at https://jysf.github.io/crustyimg/** (deploy job green, `.wasm` served as `application/wasm`,
-  engine initializes in-browser) — the deploy leg is proven end-to-end. (2) **SPEC-078** — all conversions
-  still run on the main thread; the Web Worker should take **all of them** (not just AVIF) + `.avif`
-  input via `createImageBitmap` + the explain readout + intent controls; its ship completes STAGE-027.
+  engine initializes in-browser) — the deploy leg is proven end-to-end. (2) **✅ SPEC-078 SHIPPED
+  2026-07-13 (PR #86) — STAGE-027 COMPLETE:** all conversions run in a Web Worker (main thread stays
+  responsive — verified with a negative control), AVIF both directions (encode off-thread + `.avif`
+  input via `createImageBitmap`), the explain readout; driven CLEAN in Chrome/Firefox/Safari via
+  three separate clients. **Carries:** (a) **mobile (iOS Safari / Android Chrome) still unverified**
+  — a real-device test is a STAGE-028 launch blocker before the Show HN; (b) a **quality/byte-budget
+  arg on the wasm surface** (`optimize(bytes, format, {target,maxBytes})`) — the missing half of
+  "intent", an engine-surface change = its own spec.
 - **Proof & distribution polish.** `BENCHMARKS.md` (cross-tool, honest equal-quality rule) · a
   real docs site + quickstart + recipe cookbook + the "why crustyimg" page + README badges · the
   **client-side demo page** (Wave 3) as the flagship "try it" artifact.

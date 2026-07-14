@@ -164,22 +164,20 @@ Format: `- [status] STAGE-ID — one-line summary`
   on explicit maintainer approval** (outward-facing). The packaged `.wasm` must be the size-profiled
   build (the STAGE-025 +109 KB footgun). Specs: SPEC-075 (package shape + smoke test + DEC — frame
   first), SPEC-076 (publish/release, gated, foldable).
-- [ ] STAGE-027 (framed + active on 2026-07-13) — **the demo page.** A static, client-side
-  single-page demo (drop → intent → optimized modern-format result + format/bytes/explain →
-  download), hosted statically, 100% in-browser — the "watch it just work" artifact to time a Show
-  HN around. Consumes `crustyimg-wasm`; AVIF encode in a Web Worker (rav1e serial), `.avif` inputs
-  via `createImageBitmap`, single-threaded (no COOP/COEP). Specs: SPEC-077 (skeleton — frame first),
-  SPEC-078 (worker + AVIF + explain + cross-browser). SPEC-077 SHIPPED + LIVE; SPEC-078 built,
-  ready for verify.
+- [x] STAGE-027 (shipped on 2026-07-13) — **the demo page.** The crustyimg engine runs as a real,
+  LIVE web page (https://jysf.github.io/crustyimg/): drop → convert client-side → download, AVIF both
+  directions off the main thread (Web Worker), `.avif` input via `createImageBitmap`, an honest
+  explain readout — driven CLEAN in Chrome/Firefox/Safari. SPEC-077 (skeleton) + SPEC-078
+  (Worker/AVIF/explain). One carry: **mobile verification** → STAGE-028 (real-device test before launch).
 - [ ] STAGE-028 (proposed on 2026-07-13) — **launch readiness.** The capstone: the README front
   door (CLI-only today), honest BENCHMARKS.md, and the Show HN go/no-go against
   `docs/launch-readiness.md`. Depends on SPEC-078 (demo, incl. cross-browser) + SPEC-076 (gated npm
   publish); times them into one launch. Docs + coordination, not code. Specs: SPEC-079 (README),
   SPEC-080 (BENCHMARKS).
 
-**Count:** 1 shipped / 2 active / 1 proposed (STAGE-025 SHIPPED; STAGE-026 — SPEC-075 shipped, gated
-SPEC-076 publish parked; STAGE-027 demo — SPEC-077 shipped+live, SPEC-078 in verify; STAGE-028 launch
-readiness proposed). Final stretch: finish SPEC-078 → launch readiness → Show HN.
+**Count:** 2 shipped / 1 active / 1 proposed (STAGE-025 + STAGE-027 SHIPPED; STAGE-026 — SPEC-075
+shipped, gated SPEC-076 publish parked; STAGE-028 launch readiness proposed). Only the LAUNCH remains:
+launch-readiness (README + benchmarks + mobile test) + the gated npm publish → Show HN.
 
 ## Dependencies
 
