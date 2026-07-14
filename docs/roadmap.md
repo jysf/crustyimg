@@ -222,8 +222,18 @@ have an impressive unused tool.
   input via `createImageBitmap`), the explain readout; driven CLEAN in Chrome/Firefox/Safari via
   three separate clients. **Carries:** (a) **mobile (iOS Safari / Android Chrome) still unverified**
   — a real-device test is a STAGE-028 launch blocker before the Show HN; (b) a **quality/byte-budget
-  arg on the wasm surface** (`optimize(bytes, format, {target,maxBytes})`) — the missing half of
-  "intent", an engine-surface change = its own spec.
+  arg on the wasm surface** — ✅ **delivered by SPEC-079 (STAGE-029, PR #87, DEC-068)**, which added
+  `optimizeDetailed(input, out_format, speed?, maxBytes?, target?) → OptimizeResult`, a per-call
+  rav1e speed knob (measured 3.6× at speed 10), a returned SSIMULACRA2 `score()`, and Auto-picks-AVIF
+  for photos.
+- **STAGE-029 (demo launch-quality) — IN PROGRESS.** Kicked off by a measured finding that the demo
+  mis-serves photos (slow + often no-improvement `optimize`). SPEC-079 (the hero-agnostic surface)
+  shipped. **SPEC-080 (demo redesign) is ON HOLD pending a strategy reconciliation** — a bigger
+  question surfaced: is the demo's hero `optimize` (slow, comparison-shops, often passes through) or
+  should it be `shrink` (measured **55× faster**, always shrinks) / a fast "modernize to AVIF" +
+  the measured score as proof? A separate strategy pass is adjudicating this before the demo redesign
+  builds. This may also promote the deferred **shared multi-candidate `optimize` solve** (the wasm
+  Auto path now prefers AVIF while the native Auto path runs the perceptual shortlist — they diverge).
 - **Proof & distribution polish.** `BENCHMARKS.md` (cross-tool, honest equal-quality rule) · a
   real docs site + quickstart + recipe cookbook + the "why crustyimg" page + README badges · the
   **client-side demo page** (Wave 3) as the flagship "try it" artifact.

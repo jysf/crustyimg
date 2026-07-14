@@ -7,7 +7,7 @@
 task:
   id: SPEC-079
   type: story                      # epic | story | task | bug | chore
-  cycle: build                     # frame | design | build | verify | ship
+  cycle: ship                      # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: M                    # S | M | L  (L means split it)
@@ -35,6 +35,15 @@ value_link: >
 
 cost:
   sessions:
+    - cycle: design
+      interface: claude-code
+      tokens_total: null
+      note: >
+        framed build-ready in the orchestrator main loop (un-metered, §4), grounded in a read of the
+        decision engine (decide.rs / quality / sink): the Auto-AVIF rule reuses the existing
+        SizeBudget AVIF admission, the score is surfaced from what the search already computes, and
+        the speed knob threads through a non-invasive encode_to_bytes_with. score() was added at
+        framing so SPEC-081 stays pure demo.
     - cycle: build
       interface: claude-code
       tokens_total: 120000
@@ -46,10 +55,31 @@ cost:
         order-of-magnitude ESTIMATE (~80/20 in/out at Opus 4.8 list rates, no cache discount),
         not a harness-reported number. Includes the native suite at both feature sets, the
         wasm VM run, and one `just wasm-build` of the real artifact.
+    - cycle: verify
+      interface: claude-code
+      tokens_total: 130000          # order-of-magnitude estimate: main-loop verify, no metered subagent
+      estimated_usd: 1.55
+      recorded_at: 2026-07-14
+      note: >
+        adversarial pass in its own worktree (~8.5 min). Drove all 9 acceptance criteria against a
+        fresh `just wasm-build` pkg via a Node initSync harness (34/34 asserts) plus 3 self-written
+        native tests. Proved the speed knob for real (speed 1 = 8862 ms vs speed 10 = 161 ms, 55×,
+        different bytes), re-drove speed-parity at speeds 1/6/10 rather than trusting the build's
+        test, decoded the AVIF output with an outside decoder (sips), and confirmed native
+        byte-identical. Surfaced two forward-notes for SPEC-080/081 (score() can be NEGATIVE;
+        an unsatisfiable byte budget returns over-budget bytes silently).
+    - cycle: ship
+      interface: claude-code
+      tokens_total: null
+      recorded_at: 2026-07-14
+      note: >
+        ship bookkeeping in the orchestrator main loop (un-metered, §4). Clean squash-merge (PR #87,
+        de6f901) — no conflict, since the demo specs SPEC-080/081 are separate files. Forward-notes
+        folded into STAGE-029's design notes; SPEC-080 left on hold pending the strategy reconciliation.
   totals:
-    tokens_total: 120000
-    estimated_usd: 1.10
-    session_count: 1
+    tokens_total: 250000
+    estimated_usd: 2.65
+    session_count: 4
 ---
 
 # SPEC-079: wasm optimize surface — speed, budget, score, auto-avif
@@ -336,8 +366,21 @@ code that was already linked.
 build reflection above.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Name the exact decision *criterion* to reuse, not "reuse the shortlist". The spec's Outputs said
+   "reuse the SizeBudget AVIF admission" but a literal reading — reuse `format_shortlist` membership —
+   would have silently dropped AVIF for a `MixedSafe`-no-alpha image, because the shortlist appends
+   AVIF last then truncates to `MAX_SHORTLIST=3`. The build correctly reused the *admission criterion*
+   instead; the spec should have said that. Reusing a decision function means naming which property you
+   depend on (admission vs ordering vs truncation), because those are separable and one can bite.
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — Two: (a) the **quality→sink layering rule** (`quality` must not depend on `sink`) lives only in a
+   module doc; the speed-parity test crosses it in test code deliberately. Worth elevating to a listed
+   constraint in `guidance/constraints.yaml` so it's checkable, not folklore. (b) `score()` returns raw
+   SSIMULACRA2, which is **not** bounded to 0–100 (a q20 JPEG scored −4.70) — a real surface property,
+   captured in STAGE-029's design notes so SPEC-081's readout handles negatives.
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — The **shared multi-candidate `optimize` solve** (the long-deferred SPEC-072 seam) is now more
+   pressing: the wasm Auto path (AVIF-for-photos) and the native Auto path (perceptual shortlist)
+   deliberately diverge, and a shared engine seam should reconcile them. Not framing it yet — the
+   STAGE-029 strategy reconciliation (is the hero `optimize` / `shrink` / modernize-to-AVIF?) may
+   reshape what "optimize" even is, so this waits for that decision.

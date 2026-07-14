@@ -112,11 +112,11 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
 Dependency order — **SPEC-079 (engine surface) first**, because the demo specs consume it:
 
-- [~] SPEC-079 (design — framed build-ready 2026-07-13) — **wasm `optimize()` surface.** A per-call **encode speed/effort**
-  arg (reopens DEC-020: `AVIF_SPEED` is a const shared by `src/sink` + `src/quality` under the
-  byte-parity cross-sync contract), a **quality/byte-budget** target arg, a **returned SSIMULACRA2
-  score**, and an **Auto-picks-AVIF-for-photos** fixed-quality/no-search path on wasm
-  (`src/analysis/decide.rs`, DEC-048). Native CLI unchanged. Frame first.
+- [x] SPEC-079 (shipped 2026-07-14, PR #87, DEC-068) — **wasm `optimize()` surface.** A per-call
+  **encode speed** arg (reopened DEC-020 for wasm; `encode_to_bytes_with`), a **quality/byte-budget**
+  target arg, a **returned SSIMULACRA2 score** + a `score(a,b)` binding, and an
+  **Auto-picks-AVIF-for-photos** fixed-quality/no-search path. Native CLI unchanged; verified CLEAN
+  (speed knob proven 55×, native byte-identical).
 - [~] SPEC-080 (design — framed build-ready 2026-07-13) — **demo intent/defaults redesign + perf UX.**
   "Make it smaller" primary flow; Auto default that shrinks; never-bigger guard; offered resize;
   megapixel-keyed warnings + live timer + debounce; **default speed 10**. Consumes SPEC-079; build
@@ -125,7 +125,23 @@ Dependency order — **SPEC-079 (engine surface) first**, because the demo specs
   input↔output perceptual score, honest where the AVIF-decode seam needs a browser-decode + the
   `score()` binding. Consumes SPEC-079; build after SPEC-080 (both touch `demo/`).
 
-**Count:** 0 shipped / 0 active / 3 pending (all framed). Dependency order for build: **079 → 080 → 081**.
+**Count:** 1 shipped (SPEC-079) / 0 active / 2 framed. SPEC-080 is **on hold** pending the strategy
+reconciliation (is the demo hero `optimize`, `shrink`, or fast modernize-to-AVIF?); SPEC-081 waits on
+SPEC-080. Build order once unblocked: **080 → 081**.
+
+## Surface properties SPEC-079 exposes (the demo specs MUST handle these)
+
+Captured here (not only in SPEC-080/081) so they survive any reshaping of those specs by the strategy
+reconciliation — they are real properties of the shipped surface, verified 2026-07-14:
+
+- **`score()` is raw SSIMULACRA2 — NOT bounded 0–100.** A q20 JPEG scored **−4.70**. Whatever renders
+  the score (a bar / gauge / band) must handle negative values; a 0–100 widget fed −4.7 renders wrong.
+- **An unsatisfiable byte budget returns over-budget bytes silently.** `optimizeDetailed(img, "avif",
+  10, 100, null)` returns 676 B at q=1 — over the 100 B budget, with no signal in `OptimizeResult`
+  (the native CLI *warns* here). The demo must compare `bytes.length` against its own budget before
+  promising it.
+- **Speed is AVIF-only**; `speed()`/`quality()` are `undefined` for genuinely lossless output, and
+  `quality()` is `Some(80)` for a default-encoded AVIF (it is lossy).
 
 ## Design Notes
 
