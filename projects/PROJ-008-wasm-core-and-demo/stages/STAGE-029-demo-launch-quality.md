@@ -112,7 +112,7 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
 Dependency order — **SPEC-079 (engine surface) first**, because the demo specs consume it:
 
-- [ ] SPEC-079 (not yet framed) — **wasm `optimize()` surface.** A per-call **encode speed/effort**
+- [~] SPEC-079 (design — framed build-ready 2026-07-13) — **wasm `optimize()` surface.** A per-call **encode speed/effort**
   arg (reopens DEC-020: `AVIF_SPEED` is a const shared by `src/sink` + `src/quality` under the
   byte-parity cross-sync contract), a **quality/byte-budget** target arg, a **returned SSIMULACRA2
   score**, and an **Auto-picks-AVIF-for-photos** fixed-quality/no-search path on wasm
