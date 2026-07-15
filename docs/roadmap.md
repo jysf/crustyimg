@@ -240,9 +240,13 @@ have an impressive unused tool.
   WebP) already works. **Hard cutover** (~20→14 verbs, no aliases): a `web` flagship, `optimize`
   demoted to a keep-dims byte-primitive (search → opt-in), **`shrink` removed**, `convert --to`, a
   `meta` group, bundled recipes, a unified audit report + committed bench. Specs **SPEC-084–089**,
-  DEC-069; **SPEC-084** (fast fixed-quality AVIF in the DEFAULT decision — the native twin of SPEC-079,
-  converging the native/wasm Auto paths) framed build-ready. Sequence: STAGE-030 → STAGE-029 demo
-  (reframed) → STAGE-028 README/BENCHMARKS (SPEC-082/083, reserved) → Show HN.
+  DEC-069; **SPEC-084 SHIPPED 2026-07-14 (PR #88, $7.10)** — fast fixed-quality AVIF (`Mode::Fast`,
+  q85) in the DEFAULT decision, the native twin of SPEC-079, converging the native/wasm Auto paths;
+  verified CLEAN after a fix pass that caught a never-bigger+honesty blow-up on the metadata-bearing
+  graphic edge (a lossy source forced off raw-passthrough now gets a compact lossy re-encode, never a
+  lossless blow-up; a genuinely-larger output is reported honestly). **Next: SPEC-085 (`web`) +
+  SPEC-086 (`optimize`/`shrink`).** Sequence: STAGE-030 → STAGE-029 demo (reframed to the `web` hero)
+  → STAGE-028 README/BENCHMARKS (SPEC-082/083, reserved) → Show HN.
 - **Proof & distribution polish.** `BENCHMARKS.md` (cross-tool, honest equal-quality rule) · a
   real docs site + quickstart + recipe cookbook + the "why crustyimg" page + README badges · the
   **client-side demo page** (Wave 3) as the flagship "try it" artifact.

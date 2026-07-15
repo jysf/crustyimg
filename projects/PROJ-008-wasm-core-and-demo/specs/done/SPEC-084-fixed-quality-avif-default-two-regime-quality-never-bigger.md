@@ -3,7 +3,7 @@
 task:
   id: SPEC-084
   type: story
-  cycle: design            # framed build-ready (draft adopted from the strategy session, validated)
+  cycle: ship              # shipped 2026-07-14 (PR #88)
   blocked: false
   priority: high
   complexity: M
@@ -28,11 +28,68 @@ value_link: >
   median in 16.5 s (2/8 passthrough, 49 s on 47 MP); a downscale+AVIF path gets 98% in 2.7 s. SPEC-085
   (web) and SPEC-086 (optimize) consume this; SPEC-079 already shipped the wasm twin.
 cost:
-  sessions: []
+  sessions:
+    - cycle: design
+      interface: claude-code
+      tokens_total: null
+      note: >
+        adopted the strategy session's build-ready SPEC-084 draft in the orchestrator main loop
+        (un-metered, §4); corrected project.id PROJ-010→PROJ-008/STAGE-030; validated the premise
+        (the SizeBudget-only AVIF gate is vestigial since native AVIF decode shipped, DEC-058) against
+        decide.rs; refined acceptance #4 mid-flight (cb1e262) to forbid always-on scoring in the
+        keep-dims default after measuring the score cost (~107 ms/MP).
+    - cycle: build
+      interface: claude-code
+      tokens_total: 210000
+      estimated_usd: 2.30
+      recorded_at: 2026-07-14
+      note: >
+        first build, ~41 min, own worktree. Mode::Fast + avif_admissible() bucket predicate, single
+        fixed-quality AVIF compare, score_winner_once(), FAST_LOSSY_QUALITY=85 (AVIF_DEFAULT_QUALITY
+        stays 80 so convert is byte-identical). q85 validated on the real corpus + eyeballed. Emitted
+        DEC-069. Order-of-magnitude estimate (main-loop, no metered subagent).
+    - cycle: verify
+      interface: claude-code
+      tokens_total: 190000
+      estimated_usd: 2.10
+      recorded_at: 2026-07-14
+      note: >
+        first verify, ~24 min, own worktree — NOT CLEAN. Drove the real artifact + corpus and found a
+        never-bigger+honesty defect (the metadata-forced fallback ships a lossless blow-up reported
+        "0% smaller", real repro), measured the always-on score cost (~14% at 24 MP → recommend gating),
+        eyeballed the q85 worst case (indistinguishable). convert byte-identity / content branch /
+        opt-in searches / truncation immunity / hostile input all confirmed clean.
+    - cycle: build
+      interface: claude-code
+      tokens_total: 150000
+      estimated_usd: 1.65
+      recorded_at: 2026-07-14
+      note: >
+        fix pass, ~27 min. Merged origin/main first (union-resolved the refined acceptance #4). Fixed
+        all 5 findings: fast_fallback_lossy_entry (a compact lossy re-encode, never a lossless blow-up),
+        honest negative savings, gated the default score off (helper kept), honest --help + explain,
+        corrected DEC-069's savings claim.
+    - cycle: verify
+      interface: claude-code
+      tokens_total: 95000
+      estimated_usd: 1.05
+      recorded_at: 2026-07-14
+      note: >
+        focused re-verify, ~11 min — CLEAN. Drove all 5 fixes on the binary (detailed_jpeg_with_icc →
+        compact JPEG not a blow-up; genuine larger case reports "19% larger" / -19; default has no ssim
+        suffix; honest help/explain; DEC-069 corrected) + a regression spot-check. Gates green.
+    - cycle: ship
+      interface: claude-code
+      tokens_total: null
+      recorded_at: 2026-07-14
+      note: >
+        ship bookkeeping in the orchestrator main loop (un-metered, §4). Clean squash-merge (PR #88,
+        20c5fba). Two follow-ups captured: the stale run_optimize /// doc-comment (→ SPEC-086) and
+        DEC-069's native(85)/wasm(80) AVIF-quality divergence (align when src/wasm.rs is next touched).
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 645000
+    estimated_usd: 7.10
+    session_count: 6
 ---
 
 # SPEC-084: fixed-quality AVIF in the default path + two-regime quality + never-bigger
@@ -295,6 +352,23 @@ order (merged `origin/main`'s refined acceptance #4 + STAGE-030 score-cost note 
 ---
 
 ## Reflection (Ship)
-1. **What would I do differently next time?** — <answer>
-2. **Does any template, constraint, or decision need updating?** — <answer>
-3. **Is there a follow-up spec I should write now before I forget?** — <answer>
+1. **What would I do differently next time?** — Land framing refinements **before** dispatching the
+   build, not after. The build cut its branch before my `cb1e262` refinement (which forbade always-on
+   scoring in the keep-dims default), so it built the behavior the refinement rules out — costing a
+   fix + re-verify cycle. This is `push-design-before-build-branches` generalized to *mid-flight* spec
+   edits: any change to acceptance after a build is dispatched won't be seen. Also: a "keep the
+   original" shortcut must preserve **every** invariant at once — the privacy fix (strip EXIF/GPS,
+   bake orientation) collided with never-bigger (a metadata-forced fallback shipped a lossless
+   blow-up). Verify earned its keep by driving the *reachable* path (a graphic-classified lossy source
+   with ICC), not the assumed one.
+2. **Does any template, constraint, or decision need updating?** — Two follow-ups, both for SPEC-086:
+   the stale `run_optimize` `///` doc-comment ("perceptual target / visually-lossless") and DEC-069's
+   **native(85)/wasm(80) AVIF-quality divergence** (align when `src/wasm.rs` is next touched). No new
+   constraint, but "**never-bigger must survive the metadata-strip fallback**" is now a durable engine
+   invariant (a lossy source forced off raw-passthrough gets a compact lossy re-encode, not a lossless
+   blow-up; a genuinely-larger output is reported honestly, never clamped to 0%).
+3. **Is there a follow-up spec I should write now before I forget?** — SPEC-085 (`web`) and SPEC-086
+   (`optimize` redefine + `shrink` removal) are next in STAGE-030 and consume this engine. SPEC-086
+   also folds in the `--verify` gate (so `optimize` can opt into the score helper), the doc-comment
+   cleanup, and — with SPEC-085 — the `web`-always score call. The wasm/native AVIF-quality alignment
+   is a small wasm-surface change (own spec or folded when `src/wasm.rs` is next edited).

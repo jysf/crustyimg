@@ -101,10 +101,11 @@ the cutover requires.
 Format: `- [status] SPEC-ID (cycle) — one-line summary`. Build order: **084 → {085, 086} → {087, 088}
 → 089 (opt)**.
 
-- [~] SPEC-084 (design — draft adopted from the strategy session, being validated) — **engine:
-  fixed-quality AVIF in the DEFAULT decision** via single-encode compare (not the search), two-regime
-  quality, first-class never-bigger passthrough, score-winner-once. Native twin of SPEC-079; converges
-  the native/wasm Auto paths. Emits **DEC-069**. Frame/validate first.
+- [x] SPEC-084 (shipped 2026-07-14, PR #88, DEC-069) — **engine: fixed-quality AVIF in the DEFAULT
+  decision** via single-encode compare (`Mode::Fast`, not the search), q85 two-regime quality, a
+  never-bigger + metadata-safe fallback, a score-winner-once helper (gated off the keep-dims default).
+  Native twin of SPEC-079; converges the native/wasm Auto paths. Verified CLEAN after a fix pass
+  (caught a never-bigger+honesty blow-up on the metadata-bearing graphic edge). $7.10.
 - [ ] SPEC-085 (not yet framed) — **`web` flagship verb** + bundled-recipe registry (`include_str!` +
   registry); `web == apply --recipe web`; ship web/gallery/product; feature RAW (`web ./raws/`).
   Consumes 084.
@@ -116,7 +117,8 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`. Build order: **084 �
   lint/optimize/web/apply + **committed bench corpus/harness** (seed from `scratchpad/bench/`).
 - [ ] SPEC-089 (optional / may fold) — `convert --to` rename + social/archive recipes.
 
-**Count:** 0 shipped / 1 in design (SPEC-084) / 5 pending.
+**Count:** 1 shipped (SPEC-084) / 0 in design / 5 pending. **Next: frame SPEC-085 (`web`) + SPEC-086
+(`optimize`/`shrink`)** against the now-confirmed engine.
 
 ## Design Notes
 
