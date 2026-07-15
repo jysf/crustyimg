@@ -309,14 +309,30 @@ pub struct ExplainTrace {
 }
 
 impl ExplainTrace {
-    /// Savings as a whole-percent integer (`0` if the source is empty or the
-    /// output is not smaller).
+    /// Savings as a whole-percent integer: positive when the output is smaller,
+    /// **negative when it is larger** (`0` only for an empty source or an exact
+    /// break-even). A larger output is never clamped to `0` — the metadata-forced
+    /// fallback (SPEC-084) can ship a re-encode that could not beat the source, and
+    /// the report must tell the truth about that (see [`Self::size_delta_phrase`]).
     pub fn savings_percent(&self) -> i64 {
-        if self.source_bytes == 0 || self.out_bytes >= self.source_bytes {
+        if self.source_bytes == 0 {
             return 0;
         }
         let frac = 1.0 - (self.out_bytes as f64 / self.source_bytes as f64);
         (frac * 100.0).round() as i64
+    }
+
+    /// The size change rendered honestly: `"40% smaller"`, `"17% larger"`, or
+    /// `"0% smaller"` at break-even. A forced re-encode that could not beat the
+    /// source (SPEC-084 never-bigger) reads as "larger", never a clamped
+    /// "0% smaller".
+    fn size_delta_phrase(&self) -> String {
+        let p = self.savings_percent();
+        if p < 0 {
+            format!("{}% larger", -p)
+        } else {
+            format!("{p}% smaller")
+        }
     }
 
     /// The default one-line summary (chosen format + savings) shown when
@@ -324,12 +340,12 @@ impl ExplainTrace {
     pub fn summary_line(&self) -> String {
         match self.winner {
             Some(i) => format!(
-                "{} \u{2192} {} \u{b7} {} \u{2192} {} B ({}% smaller)",
+                "{} \u{2192} {} \u{b7} {} \u{2192} {} B ({})",
                 format_name(self.source_format),
                 format_name(self.candidates[i].fmt),
                 self.source_bytes,
                 self.out_bytes,
-                self.savings_percent(),
+                self.size_delta_phrase(),
             ),
             None => format!(
                 "kept {} ({} B, already optimal)",
@@ -339,14 +355,38 @@ impl ExplainTrace {
         }
     }
 
-    /// One-line reason for the outcome (used by both renderers).
+    /// One-line reason for the outcome (used by both renderers). Mode-aware: the
+    /// default (fast) path has no perceptual *target*, so it never claims one was
+    /// "met" (SPEC-084) — it picks the smallest re-encode that beats the source by
+    /// bytes. A forced winner that could NOT beat the source (metadata stripped /
+    /// orientation baked, so the raw source could not ship) is named as such.
     fn win_reason(&self) -> String {
         match self.winner {
-            Some(i) => format!(
-                "smallest candidate that met the target and beat the source ({})",
-                format_name(self.candidates[i].fmt)
-            ),
-            None => "kept source — no candidate met the target and beat it".to_owned(),
+            Some(i) => {
+                let fmt = format_name(self.candidates[i].fmt);
+                if self.out_bytes >= self.source_bytes {
+                    format!(
+                        "shipped the smallest correct re-encode ({fmt}); no candidate beat the \
+                         source, but the source could not ship unchanged (metadata stripped / \
+                         orientation baked)"
+                    )
+                } else {
+                    match self.mode {
+                        Mode::Fast => {
+                            format!("smallest fixed-quality re-encode that beat the source ({fmt})")
+                        }
+                        Mode::Perceptual | Mode::SizeBudget => format!(
+                            "smallest candidate that met the target and beat the source ({fmt})"
+                        ),
+                    }
+                }
+            }
+            None => match self.mode {
+                Mode::Fast => "kept source — no candidate beat it".to_owned(),
+                Mode::Perceptual | Mode::SizeBudget => {
+                    "kept source — no candidate met the target and beat it".to_owned()
+                }
+            },
         }
     }
 
@@ -360,14 +400,14 @@ impl ExplainTrace {
         };
         writeln!(
             w,
-            "optimize: {} \u{2192} {} ({} \u{2192} {} B, {}% smaller)",
+            "optimize: {} \u{2192} {} ({} \u{2192} {} B, {})",
             format_name(self.source_format),
             self.winner
                 .map(|i| format_name(self.candidates[i].fmt))
                 .unwrap_or_else(|| format_name(self.source_format)),
             self.source_bytes,
             self.out_bytes,
-            self.savings_percent(),
+            self.size_delta_phrase(),
         )?;
         writeln!(
             w,
@@ -901,5 +941,81 @@ mod tests {
         let mut json = Vec::new();
         trace.write_json(&mut json).unwrap();
         assert!(String::from_utf8(json).unwrap().contains("\"winner\":null"));
+    }
+
+    // ── SPEC-084 Finding 1: honest reporting of a forced re-encode that is LARGER ──
+
+    /// A forced winner whose output EXCEEDS the source (the metadata-stripped
+    /// re-encode couldn't beat an already-tight source) reports the true delta as
+    /// "larger" — `savings_percent` goes negative, never clamped to a break-even 0.
+    #[test]
+    fn larger_forced_output_is_reported_honestly_not_clamped() {
+        let mut trace = sample_trace();
+        // winner Some(0), but its bytes (12_000) exceed the 10_000-byte source.
+        trace.out_bytes = 12_000;
+        trace.candidates[0].bytes = 12_000;
+
+        assert_eq!(
+            trace.savings_percent(),
+            -20,
+            "a 20% larger output must report -20, not a clamped 0"
+        );
+        assert!(
+            trace.summary_line().contains("20% larger"),
+            "summary must say 'larger', not '0% smaller': {}",
+            trace.summary_line()
+        );
+        assert!(
+            !trace.summary_line().contains("smaller"),
+            "a larger output must not read as 'smaller': {}",
+            trace.summary_line()
+        );
+
+        let mut human = Vec::new();
+        trace.render_human(&mut human).unwrap();
+        let h = String::from_utf8(human).unwrap();
+        assert!(h.contains("20% larger"), "{h}");
+        assert!(
+            h.contains("could not ship unchanged"),
+            "the reason must explain the forced re-encode: {h}"
+        );
+
+        let mut json = Vec::new();
+        trace.write_json(&mut json).unwrap();
+        assert!(
+            String::from_utf8(json)
+                .unwrap()
+                .contains("savings_percent\":-20"),
+            "JSON savings_percent must be honestly negative"
+        );
+    }
+
+    /// The default (fast) path has no perceptual *target*, so its reason must not
+    /// claim one was "met" (SPEC-084 Finding 4) — for both a winning and a
+    /// passthrough outcome.
+    #[test]
+    fn fast_mode_reason_never_claims_a_met_target() {
+        let mut win = sample_trace();
+        win.mode = Mode::Fast;
+        assert!(
+            !win.win_reason().contains("met the target"),
+            "fast win reason must not mention a target: {}",
+            win.win_reason()
+        );
+        assert!(
+            win.win_reason().contains("beat the source"),
+            "fast win reason should still explain the byte decision: {}",
+            win.win_reason()
+        );
+
+        let mut pass = sample_trace();
+        pass.mode = Mode::Fast;
+        pass.winner = None;
+        pass.out_bytes = pass.source_bytes;
+        assert!(
+            !pass.win_reason().contains("met the target"),
+            "fast passthrough reason must not mention a target: {}",
+            pass.win_reason()
+        );
     }
 }

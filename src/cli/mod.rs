@@ -302,16 +302,19 @@ pub enum Commands {
         max_size: Option<String>,
     },
 
-    /// One-button web-good: auto-orient + strip metadata + perceptual re-encode,
-    /// visually-lossless by default, format/size-preserving.
-    /// `--target`/`--ssim`/`--max-size` override the outcome; `--max` optionally
-    /// bounds the long edge; `-o`/`--format` pick the output format.
+    /// One-button web-good: auto-orient + strip metadata + a fast fixed-quality
+    /// re-encode (high quality by default), picking the smallest modern format that
+    /// beats the source — and never shipping a larger file.
+    /// `--target`/`--ssim` opt into a perceptual search; `--max-size` into a byte
+    /// budget; `--max` optionally bounds the long edge; `-o`/`--format` pick the
+    /// output format.
     Optimize {
         inputs: Vec<String>,
         /// Optional long-edge bound (no resize by default).
         #[arg(long)]
         max: Option<u32>,
-        /// Override the default visually-lossless target with a preset.
+        /// Opt into a perceptual quality search at a preset target (instead of the
+        /// fast fixed-quality default).
         #[arg(long, value_enum)]
         target: Option<QualityTarget>,
         /// Override with a specific SSIMULACRA2 score (0-100).
@@ -4099,6 +4102,42 @@ fn fast_lossy_quality(_fmt: ::image::ImageFormat) -> u8 {
     crate::sink::FAST_LOSSY_QUALITY
 }
 
+/// The compact LOSSY re-encode format for the metadata-forced fallback (SPEC-084
+/// never-bigger), used only when a **lossy-family source** landed in a bucket whose
+/// shortlist offers only lossless candidates (a graphic-classified photo, or any
+/// lossy source with an ICC profile). A lossless re-encode of a lossy source blows up
+/// several-fold; a lossy re-encode in the source's own family (or JPEG) stays
+/// ≈ source size, so we ship that instead of the blow-up.
+///
+/// Prefers the source's own lossy codec when it is built (AVIF → AVIF, WebP → lossy
+/// WebP), else a baseline JPEG — but JPEG cannot carry alpha, so an alpha source with
+/// no built alpha-capable lossy codec has no compact lossy option and returns `None`
+/// (the lossless candidates stay, honestly reported). Returns `None` for a lossless
+/// source (PNG/lossless-WebP): its lossless candidates are the right fallback, and a
+/// lossy re-encode would be an unwanted quality loss.
+fn fast_fallback_lossy_entry(
+    source_format: ::image::ImageFormat,
+    has_alpha: bool,
+    built: crate::analysis::decide::BuiltCodecs,
+) -> Option<crate::analysis::decide::ShortlistEntry> {
+    use crate::analysis::decide::{Disposition, ShortlistEntry};
+    use ::image::ImageFormat::{Avif, Jpeg, WebP};
+
+    let fmt = match source_format {
+        Avif if built.avif => Avif,
+        WebP if built.webp_lossy => WebP,
+        // A lossy source (JPEG, or WebP/AVIF whose lossy encoder is not built): a
+        // baseline JPEG is the universal compact lossy fallback — but only without
+        // alpha (JPEG has none).
+        Jpeg | WebP | Avif if !has_alpha => Jpeg,
+        _ => return None,
+    };
+    Some(ShortlistEntry {
+        fmt,
+        disposition: Disposition::Lossy,
+    })
+}
+
 /// Solve one shortlisted candidate against the oriented output image: run the
 /// existing quality search for its disposition/mode and encode it once.
 fn solve_candidate(
@@ -4259,16 +4298,33 @@ fn optimize_decide_one(
     let winner = decide::pick_winner(&outcomes, source_bytes, source_format);
 
     // When nothing beats the source but the pipeline altered the image, the raw
-    // source is not a valid output (wrong orientation / un-stripped metadata) — ship
-    // the smallest processed candidate instead. never-bigger only guards enlarging an
-    // ALREADY-CORRECT source, which this no longer is.
-    let winner = winner.or_else(|| {
-        if pipeline_altered && !solved.is_empty() {
+    // source is NOT a valid output (wrong orientation / un-stripped metadata) — we
+    // must ship a processed, stripped result. Ship the SMALLEST CORRECT one.
+    //
+    // A graphic bucket offers only lossless candidates, and a lossless re-encode of a
+    // *lossy* source (a photo that classified as a graphic, or any lossy source with
+    // an ICC profile) blows up several-fold. So for a lossy-family source with no
+    // lossy candidate in the shortlist, add one compact lossy re-encode (its own
+    // family, or JPEG) and let it compete — never ship a lossless blow-up
+    // (SPEC-084 never-bigger). If even the smallest correct output still exceeds the
+    // source (a genuine case: stripping metadata forces a re-encode that can't beat an
+    // already-tight source), we ship it anyway — but the report tells the truth
+    // ("N% larger"), it is never clamped to a break-even "0% smaller".
+    let winner = match winner {
+        Some(i) => Some(i),
+        None if pipeline_altered => {
+            let has_lossy = solved
+                .iter()
+                .any(|s| s.outcome.disposition == Disposition::Lossy);
+            if !has_lossy {
+                if let Some(entry) = fast_fallback_lossy_entry(source_format, has_alpha, built) {
+                    solved.push(solve_candidate(&out_img, entry, auto)?);
+                }
+            }
             (0..solved.len()).min_by_key(|&i| (solved[i].outcome.bytes, i))
-        } else {
-            None
         }
-    });
+        None => None,
+    };
 
     let output = match winner {
         Some(i) => {
@@ -4288,21 +4344,14 @@ fn optimize_decide_one(
         None => source_bytes,
     };
 
-    // The fast path reports the winner's achieved SSIMULACRA2 with ONE native decode
-    // (SPEC-084). Only for a lossy fast winner: lossless reports "lossless" (None),
-    // and the opt-in search modes already own their own scoring. A decode/score
-    // failure degrades to "no score", never to a failed optimize.
-    let winner_score = match (auto, winner) {
-        (AutoQuality::Fast, Some(i)) if solved[i].outcome.disposition == Disposition::Lossy => {
-            match Image::from_bytes(&solved[i].encoded) {
-                Ok(decoded) => quality::score_winner_once(out_img.pixels(), Some(decoded.pixels()))
-                    .ok()
-                    .flatten(),
-                Err(_) => None,
-            }
-        }
-        _ => None,
-    };
+    // The winner is NOT scored on the default keep-dimensions path (SPEC-084
+    // acceptance #4): scoring a full-resolution image costs ~107 ms/MP (measured;
+    // ~5 s at 47 MP), too much to run unconditionally on the verb everyone runs.
+    // Scoring is a *surface* opt-in via `quality::score_winner_once` — the `web` verb
+    // (SPEC-085, on its downscaled output) will always score, and `optimize --verify`
+    // (SPEC-086) on request. Until those land the default reports no score. The seam
+    // (the third return value + the score suffix) stays so wiring it is a one-liner.
+    let winner_score: Option<f64> = None;
 
     let uc = analysis.unique_colors();
     let trace = ExplainTrace {
@@ -4792,6 +4841,67 @@ fn run_responsive(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── SPEC-084: metadata-forced never-bigger fallback format ────────────────
+
+    /// The compact lossy fallback picks the source's own lossy family when built,
+    /// else a baseline JPEG — and refuses (keeps lossless) only when there is no
+    /// alpha-capable lossy codec for an alpha source, or the source is lossless.
+    #[test]
+    fn fast_fallback_lossy_entry_prefers_a_compact_lossy_format() {
+        use crate::analysis::decide::{BuiltCodecs, Disposition};
+        use ::image::ImageFormat::{Avif, Jpeg, Png, WebP};
+
+        let all = BuiltCodecs {
+            webp_lossy: true,
+            avif: true,
+        };
+        let none = BuiltCodecs {
+            webp_lossy: false,
+            avif: false,
+        };
+
+        // A JPEG source → JPEG (no alpha), regardless of what else is built.
+        let j = fast_fallback_lossy_entry(Jpeg, false, none).expect("jpeg fallback");
+        assert_eq!((j.fmt, j.disposition), (Jpeg, Disposition::Lossy));
+
+        // Source's own family when built: AVIF → AVIF, WebP → lossy WebP.
+        assert_eq!(
+            fast_fallback_lossy_entry(Avif, false, all).unwrap().fmt,
+            Avif
+        );
+        assert_eq!(
+            fast_fallback_lossy_entry(WebP, false, all).unwrap().fmt,
+            WebP
+        );
+
+        // Own codec NOT built → fall back to JPEG (no alpha).
+        assert_eq!(
+            fast_fallback_lossy_entry(Avif, false, none).unwrap().fmt,
+            Jpeg
+        );
+        assert_eq!(
+            fast_fallback_lossy_entry(WebP, false, none).unwrap().fmt,
+            Jpeg
+        );
+
+        // Alpha + only JPEG available → no compact lossy option → keep lossless.
+        assert!(fast_fallback_lossy_entry(Jpeg, true, none).is_none());
+        assert!(fast_fallback_lossy_entry(WebP, true, none).is_none());
+        // Alpha with an alpha-capable lossy codec built is fine.
+        assert_eq!(
+            fast_fallback_lossy_entry(WebP, true, all).unwrap().fmt,
+            WebP
+        );
+        assert_eq!(
+            fast_fallback_lossy_entry(Avif, true, all).unwrap().fmt,
+            Avif
+        );
+
+        // A LOSSLESS source (PNG) never gets a lossy fallback — its lossless
+        // candidates are the correct family.
+        assert!(fast_fallback_lossy_entry(Png, false, all).is_none());
+    }
 
     // ── cli_parses_global_and_apply ──────────────────────────────────────────
 

@@ -66,7 +66,8 @@ pub const AVIF_DEFAULT_QUALITY: u8 = 80;
 /// byte — the savings come from the modern *codec* (AVIF), not from a low quality.
 /// Lowering the target for more savings is the opt-in `--target` search, not the
 /// default. **85 was validated on the real corpus** (5 photos, 0–24 MP, kept-dims):
-/// AVIF q85 lands SSIMULACRA2 ≈ 70–82 (median ~78) at **90 %+ savings**, and it is
+/// AVIF q85 lands SSIMULACRA2 ≈ 70–82 (median ~78) at a corpus-median **~82 % savings**
+/// (69–99 %, 4/8 photos ≥ 90 %), and it is
 /// visually indistinguishable from the source even on the lowest-scoring 24 MP photo
 /// (the full-resolution score is depressed by fine detail and by already-JPEG'd
 /// references — DEC-069). q80 is measurably aggressive (61–76); q90 costs ~1.5–2× the

@@ -59,12 +59,14 @@ DEC-068's wasm surface:
    byte-identical. The fast path passes `Some(85)` explicitly. 85 is the eyeball-validated anchor for
    AVIF; JPEG and lossy WebP reuse the same number on their own scales as fallbacks when AVIF is not
    built.
-4. **The winner is scored once (one native decode) and reported; the searches stay opt-in.** The fast
-   path decodes its lossy winner through the crate's native decoders (which include AVIF, DEC-058) and
-   calls `quality::score_winner_once` — exactly one SSIMULACRA2 computation, no search — surfacing the
-   achieved score on the summary (`… (93% smaller) · ssim 77.9`). A lossless winner reports "lossless".
-   `--target`/`--ssim` still select the perceptual search (`auto_quality`) and `--max-size` the
-   byte-budget search (`search_size`), unchanged.
+4. **A score-the-winner-once helper exists, but is NOT wired into the keep-dimensions default; the
+   searches stay opt-in.** `quality::score_winner_once` does exactly one SSIMULACRA2 computation on an
+   already-decoded winner (no search) — but scoring a *full-resolution* image costs ~107 ms/MP (≈5 s at
+   47 MP), too much to run unconditionally on the verb everyone runs. So the default `optimize` reports
+   **no** score; whether to score is the *surface's* choice — `web` (SPEC-085) always scores its
+   downscaled output (~0.2–0.35 s), `optimize --verify` (SPEC-086) on request. The seam (the summary's
+   `· ssim NN` suffix) is in place for those to switch on. `--target`/`--ssim` still select the
+   perceptual search (`auto_quality`) and `--max-size` the byte-budget search (`search_size`), unchanged.
 
 `convert`, `shrink`, `--profile preserve`, and the wasm surface are untouched.
 
@@ -81,7 +83,8 @@ AVIF (what `Mode::Fast` does — no downscale), SSIMULACRA2 of the output vs the
 | IMG_3855.jpeg | 7 | 1537 KB | 287 KB / **75.2** | 404 KB / **80.7** | 587 KB / 85.3 |
 | DSC_2011.JPG | 24 | 13137 KB | 261 KB / **75.7** | 364 KB / **78.4** | 581 KB / 81.7 |
 
-**Chosen: q85.** It lands SSIMULACRA2 ≈ **70–82 (median ~78)** at **90 %+ savings** on most photos, and
+**Chosen: q85.** It lands SSIMULACRA2 ≈ **70–82 (median ~78)** at a corpus-median **~82 % savings
+(range 69–99 %, 4/8 photos ≥ 90 %)**, and
 it is **visually indistinguishable from the source even on the lowest-scoring 24 MP photo** (DSC_0974,
 70.7) — an A/B eyeball at 760 px showed a smooth sky with no banding, crisp sign edges, clean text. The
 low full-resolution scores are the metric being harsh on fine 24 MP detail against an **already-JPEG'd
@@ -136,15 +139,23 @@ in shape**: both do fixed-quality Auto-AVIF for lossy-family content via a bucke
 **Good**
 
 - The verb everyone runs now stops optimizing the least-valuable variable: a photo → AVIF, one encode,
-  **90 %+ smaller**, with the achieved SSIMULACRA2 shown as proof (`jpeg → avif · … (93% smaller) ·
-  ssim 77.9`). No repeated-encode search in the default path.
+  a corpus-median **~82 % smaller** (69–99 %, 4/8 ≥ 90 %). No repeated-encode search in the default
+  path. (The achieved SSIMULACRA2 is available as proof via `quality::score_winner_once`, but is a
+  *surface* opt-in — `web` scores its downscaled output always, `optimize --verify` on request — NOT
+  wired into the keep-dimensions default, where a full-res score costs ~107 ms/MP.)
 - **Passthrough is now correctness-safe.** `Mode::Fast` makes passthrough common (a fixed quality often
   can't beat an already-compressed source), which exposed a latent bug: shipping the *raw* source on
   passthrough leaks metadata (incl. GPS) and a wrong orientation that `optimize` promised to bake/strip.
   The fix: raw passthrough only when the source carried no metadata **and** the pipeline changed nothing
   (dims unchanged; an orientation flip carries an EXIF tag, so it trips the metadata check) — otherwise
-  the smallest processed candidate ships. This closes the "never silently enlarge" fix *and* the
-  privacy/orientation guarantee together, for every mode.
+  the smallest **correct** (stripped, oriented) candidate ships. A graphic bucket offers only lossless
+  candidates, and a lossless re-encode of a *lossy* source blows up several-fold; so for a lossy-family
+  source with no lossy candidate in the shortlist, a compact lossy re-encode (its own family, or JPEG)
+  is added — we never ship a lossless blow-up. And if even the smallest correct output exceeds the
+  source (stripping metadata forces a re-encode that can't beat an already-tight source), we ship it but
+  the report says so honestly (`N% larger`) — `savings_percent` goes negative, never a clamped
+  break-even `0%`. This closes the "never silently enlarge" fix *and* the privacy/orientation guarantee
+  together, for every mode.
 - Native and wasm Auto paths converge in shape (closes the DEC-068 divergence in decision *structure*).
 
 **Bad / risky**
@@ -162,11 +173,12 @@ in shape**: both do fixed-quality Auto-AVIF for lossy-family content via a bucke
 
 - `Mode::Fast` is prepend-AVIF; `Mode::SizeBudget` is still append-AVIF (byte-parity with SPEC-018 kept).
   The admission is `decide::avif_admissible` — a bucket predicate, not shortlist membership.
-- Winner scoring lives in the CLI (`optimize_decide_one`), not `quality`, because only the CLI/image
-  layer can decode AVIF (re_rav1d is native-only and not in `::image`). `quality::score_winner_once`
-  takes an already-decoded winner and does the single `score` call. A decode/score failure degrades to
-  "no score", never a failed optimize.
-- The score is surfaced on the human summary/trace only; the `--explain=json` schema
-  (`crustyimg.optimize.explain/v1`) is **untouched** — the machine-readable audit report is SPEC-088's.
+- `quality::score_winner_once` takes an already-decoded winner and does the single `score` call. The
+  *decode* must live in the CLI/image layer (only it can decode AVIF — re_rav1d is native-only, not in
+  `::image`); the default path does neither now (scoring is a surface opt-in, decision #4). When a
+  surface does score, a decode/score failure must degrade to "no score", never a failed optimize.
+- When surfaced, the score goes on the human summary/trace only (`· ssim NN`); the `--explain=json`
+  schema (`crustyimg.optimize.explain/v1`) is **untouched** — the machine-readable audit report is
+  SPEC-088's.
 - Bench harness: `scratchpad/bench` / the throwaway sweep over `_incoming0`; the numbers above are
   reproducible with `convert --format avif -q <N>` + `diff <src> <out> --json`.

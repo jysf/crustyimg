@@ -157,7 +157,47 @@ pub fn jpeg_with_orientation(w: u32, h: u32, orientation: u8) -> Vec<u8> {
 /// 00 00 00 00                 // next-IFD offset = 0
 /// ```
 pub fn jpeg_with_gps(w: u32, h: u32) -> Vec<u8> {
-    let base = gradient_jpeg(w, h);
+    wrap_with_gps_app1(&gradient_jpeg(w, h))
+}
+
+/// A structured [`detailed_jpeg`] carrying an APP2 `ICC_PROFILE` segment but **no
+/// EXIF**. The detailed content (flat_ratio ≈ 0.69, near-zero edges) classifies as a
+/// GraphicLogo → LosslessFlat bucket — but *only* because there is no EXIF (an EXIF
+/// camera prior would force Photograph). This is the metadata-forced fallback trigger
+/// (SPEC-084): a lossy JPEG source, in a bucket that offers ONLY lossless candidates,
+/// with metadata (the ICC) that forbids a raw passthrough. `optimize` must ship a
+/// compact lossy re-encode (≈ source), never a lossless blow-up several times the
+/// source size, and must strip the ICC.
+pub fn detailed_jpeg_with_icc(w: u32, h: u32) -> Vec<u8> {
+    let base = detailed_jpeg(w, h);
+    assert_eq!(
+        &base[0..2],
+        &[0xFF, 0xD8],
+        "generated JPEG must start with SOI"
+    );
+
+    // APP2 ICC_PROFILE segment: the marker, a 1/1 chunk header, then filler profile
+    // bytes. Enough for the decoder to surface `has_icc = true`.
+    let mut payload: Vec<u8> = Vec::new();
+    payload.extend_from_slice(b"ICC_PROFILE\0");
+    payload.push(1); // chunk sequence number
+    payload.push(1); // chunk count
+    payload.extend(std::iter::repeat_n(0xABu8, 128)); // profile bytes (filler)
+    let seg_len = (payload.len() + 2) as u16;
+
+    let mut out: Vec<u8> = Vec::with_capacity(base.len() + payload.len() + 4);
+    out.extend_from_slice(&base[0..2]); // SOI
+    out.push(0xFF);
+    out.push(0xE2); // APP2 marker
+    out.extend_from_slice(&seg_len.to_be_bytes());
+    out.extend_from_slice(&payload);
+    out.extend_from_slice(&base[2..]); // rest of the JPEG
+    out
+}
+
+/// Wrap arbitrary base JPEG bytes with an EXIF APP1 segment carrying a GPS sub-IFD
+/// (see [`jpeg_with_gps`] for the exact TIFF layout).
+fn wrap_with_gps_app1(base: &[u8]) -> Vec<u8> {
     assert_eq!(
         &base[0..2],
         &[0xFF, 0xD8],

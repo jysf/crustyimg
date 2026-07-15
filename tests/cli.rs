@@ -4865,6 +4865,71 @@ fn optimize_max_size_still_budget() {
     );
 }
 
+/// The metadata-forced fallback must NOT ship a lossless blow-up (SPEC-084
+/// never-bigger, Finding 1). A graphic-classified LOSSY source (a detailed JPEG that
+/// classifies as GraphicLogo) whose only shortlist candidates are lossless — and
+/// which carries an ICC profile, so the raw source can't pass through — must ship a
+/// compact LOSSY re-encode (≈ source), never a lossless WebP/PNG several times the
+/// source size. The ICC must be stripped. Feature-independent: AVIF is never admitted
+/// for a graphic bucket, and the source is JPEG, so the fallback is JPEG in both the
+/// default and `--features avif` builds.
+#[test]
+fn optimize_graphic_lossy_with_metadata_avoids_lossless_blowup() {
+    let dir = tempfile::tempdir().unwrap();
+    let src = common::detailed_jpeg_with_icc(256, 256);
+    let in_path = write_bytes(&dir, "graphic_icc.jpg", &src);
+    let out_dir = dir.path().join("out");
+
+    let out = Command::new(BIN)
+        .args([
+            "optimize",
+            in_path.to_str().unwrap(),
+            "--out-dir",
+            out_dir.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr_str(&out));
+
+    let (out_path, bytes) = optimize_single_output(&out_dir);
+
+    // The output must be a LOSSY format (JPEG), the compact fallback — NOT a lossless
+    // WebP/PNG blow-up. If the fix were absent the winner would be the smallest
+    // lossless candidate, several times the source size.
+    assert_eq!(
+        image::guess_format(&bytes).ok(),
+        Some(ImageFormat::Jpeg),
+        "fallback must be a compact lossy JPEG, not a lossless blow-up ({})",
+        out_path.display()
+    );
+    // Concretely bound the blow-up: a lossless WebP of the same pixels is the thing we
+    // must NOT ship. The shipped output must be well under it.
+    let pixels = image::load_from_memory(&src).unwrap();
+    let mut lossless_webp = std::io::Cursor::new(Vec::new());
+    pixels
+        .write_to(&mut lossless_webp, ImageFormat::WebP)
+        .unwrap();
+    let blowup = lossless_webp.into_inner().len();
+    assert!(
+        bytes.len() < blowup,
+        "shipped {} B; a lossless blow-up would be {} B — the fallback must beat it",
+        bytes.len(),
+        blowup
+    );
+
+    // The ICC metadata must be gone (the whole reason we couldn't raw-passthrough).
+    let info = Command::new(BIN)
+        .args(["info", "--json", out_path.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert_eq!(info.status.code(), Some(0), "stderr: {}", stderr_str(&info));
+    let info_stdout = String::from_utf8_lossy(&info.stdout);
+    assert!(
+        info_stdout.contains("\"has_icc\":false"),
+        "ICC must be stripped from the fallback output: {info_stdout}"
+    );
+}
+
 // ── SPEC-049: --explain trace ─────────────────────────────────────────────────
 
 /// `--explain` writes the human trace to stderr; stdout stays clean.
