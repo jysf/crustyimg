@@ -125,9 +125,17 @@ Dependency order — **SPEC-079 (engine surface) first**, because the demo specs
   input↔output perceptual score, honest where the AVIF-decode seam needs a browser-decode + the
   `score()` binding. Consumes SPEC-079; build after SPEC-080 (both touch `demo/`).
 
-**Count:** 1 shipped (SPEC-079) / 0 active / 2 framed. SPEC-080 is **on hold** pending the strategy
-reconciliation (is the demo hero `optimize`, `shrink`, or fast modernize-to-AVIF?); SPEC-081 waits on
-SPEC-080. Build order once unblocked: **080 → 081**.
+**Count:** 1 shipped (SPEC-079) / 0 active / 2 framed. **Strategy reconciliation RESOLVED (2026-07-14):
+the demo hero is the `web` flow (STAGE-030).** SPEC-080 is to be **reframed to the `web` hero** and
+must wait for SPEC-085 (which defines `web` + the bundled recipes). Build order once reframed:
+**080 → 081**.
+
+**➕ Demo recipe presets (fold into the reframed SPEC-080, consumes SPEC-085).** Ship the bundled
+recipes (SPEC-085: `web`/`gallery`/`product`/…) as **one-click client-side presets** in the demo —
+the *same* recipe TOMLs the CLI ships (DEC-005), run in-browser: geometry/format recipes via the
+existing wasm `transform(input, recipe_toml, out_format)`; the `web`/auto-format recipe via
+`optimizeDetailed` (the hero). Story: "the recipe you click here is the same one you'd run in your
+build." Cheap (the wasm engine already runs recipes); sequenced after SPEC-085 so the recipes exist.
 
 ## Surface properties SPEC-079 exposes (the demo specs MUST handle these)
 
