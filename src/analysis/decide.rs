@@ -306,6 +306,11 @@ pub struct ExplainTrace {
     pub winner: Option<usize>,
     /// Shipped bytes (the winner's, or `source_bytes` on passthrough).
     pub out_bytes: u64,
+    /// The winner's achieved SSIMULACRA2 score, when it was measured this run
+    /// (`web` always, `optimize --verify` on request — SPEC-085/086); `None` when
+    /// scoring was off, or the winner is lossless / a passthrough. Surfaced in the
+    /// JSON explain only when `Some`, so a non-verify run's schema is unchanged.
+    pub verify_score: Option<f64>,
 }
 
 impl ExplainTrace {
@@ -478,13 +483,20 @@ impl ExplainTrace {
         }
         write!(
             w,
-            "],\"winner\":{},\"out_bytes\":{},\"savings_percent\":{}}}",
+            "],\"winner\":{},\"out_bytes\":{},\"savings_percent\":{}",
             self.winner
                 .map(|i| i.to_string())
                 .unwrap_or_else(|| "null".to_owned()),
             self.out_bytes,
             self.savings_percent(),
-        )
+        )?;
+        // The SSIMULACRA2 readout rides the JSON only when it was actually measured
+        // (`web` / `optimize --verify`); omitting it otherwise keeps a non-verify
+        // run's schema byte-identical (SPEC-086).
+        if let Some(s) = self.verify_score {
+            write!(w, ",\"ssim\":{s:.1}")?;
+        }
+        write!(w, "}}")
     }
 }
 
@@ -893,6 +905,7 @@ mod tests {
             ],
             winner: Some(0),
             out_bytes: 6000,
+            verify_score: None,
         }
     }
 
@@ -913,6 +926,32 @@ mod tests {
         sample_trace().write_json(&mut a).unwrap();
         sample_trace().write_json(&mut b).unwrap();
         assert_eq!(a, b);
+    }
+
+    /// SPEC-086: `optimize --verify` / `web` surface the measured score as a trailing
+    /// `"ssim"` field; a non-scored run omits it entirely (schema unchanged).
+    #[test]
+    fn explain_json_includes_ssim_only_when_verified() {
+        let mut off = Vec::new();
+        sample_trace().write_json(&mut off).unwrap();
+        assert!(
+            !String::from_utf8(off).unwrap().contains("\"ssim\""),
+            "a non-verify trace must not emit an ssim field"
+        );
+
+        let mut trace = sample_trace();
+        trace.verify_score = Some(88.42);
+        let mut on = Vec::new();
+        trace.write_json(&mut on).unwrap();
+        let json = String::from_utf8(on).unwrap();
+        assert!(
+            json.contains("\"ssim\":88.4"),
+            "a verified trace must emit the rounded ssim: {json}"
+        );
+        assert!(
+            json.trim_end().ends_with("}"),
+            "the ssim field must stay inside the JSON object: {json}"
+        );
     }
 
     #[test]

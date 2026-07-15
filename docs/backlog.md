@@ -92,7 +92,7 @@ follow-up, with `crop` first.
 
 | Item | Value | Complexity | Enabling architecture in place |
 |---|---|---|---|
-| **WebP output** | Biggest real web-size win; the headline fast-follow | M | `convert`/`shrink` encode path + codec policy (DEC-004); `image` already supports WebP |
+| **WebP output** | Biggest real web-size win; the headline fast-follow | M | `convert`/`optimize` encode path + codec policy (DEC-004); `image` already supports WebP |
 
 ---
 
@@ -106,7 +106,7 @@ suite. Still additive on the same architecture.
 | **AVIF output (feature-gated)** | Best modern compression; slow pure-Rust encode behind a cargo feature | L | Codec policy already gates native/slow codecs behind off-by-default features (DEC-004) |
 | `open` in external app | Hand off to Preview / Safari / Chrome / OS default | S | Sink abstraction (a non-rendering "open" sink) |
 | `compare` (SSIM / PSNR) | "Did optimization hurt quality?" — quality measurement | M | Read-only inspect path (like `info`); two-image read |
-| target-size / target-quality auto-tuning | "Smallest file ≥ SSIM threshold" — a real differentiator | L | Builds on `compare` metric + `shrink` encode loop |
+| target-size / target-quality auto-tuning | "Smallest file ≥ SSIM threshold" — a real differentiator | L | Builds on `compare` metric + `optimize` encode loop |
 | color / tone suite (brightness/contrast/gamma/levels/curves) | Full tonal editing | M | Each is an `Operation`; recipe chaining |
 | montage / contact-sheet | Grid of images (was in original docs) | M | Source list + a compositing Sink |
 | append (H / V) | Concatenate images horizontally/vertically | S–M | `Operation` over a Source list |
@@ -131,7 +131,7 @@ recognized RAW extension/magic, locates the largest embedded JPEG preview
 (TIFF `IFD`/`SubIFD` `JPEGInterchangeFormat`/preview tags for NEF/CR2/DNG/RWL/ARW;
 the RAF header's JPEG offset+length for Fuji; the `PRVW`/`THMB` ISOBMFF box for
 Canon CR3), decodes it via `image`, and feeds it into the normal pipeline (so
-`convert`/`shrink`/`thumbnail` all work). Bound it with the existing decode limits
+`convert`/`optimize`/`thumbnail` all work). Bound it with the existing decode limits
 (STAGE-006). Failure mode when no full-size preview exists → clear exit 4 with a
 "RAW development (Tier 2) not built; only embedded-preview conversion is supported"
 message. Behind a `raw` cargo feature to keep the default lean. A future project

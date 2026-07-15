@@ -685,7 +685,7 @@ pub fn encode_to_bytes_with(
         // Without the feature, AVIF output is a clear "codec not built" → exit 4
         // (DEC-004). `run_convert` resolves the format up front via
         // `ensure_codec_built`, so this is the belt-and-suspenders path for any
-        // other caller (e.g. `shrink -o x.avif`).
+        // other caller (e.g. `optimize -o x.avif`).
         #[cfg(not(feature = "avif"))]
         {
             return Err(SinkError::CodecNotBuilt {

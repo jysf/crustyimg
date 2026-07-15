@@ -79,20 +79,24 @@ are unchanged.
 
 ## Acceptance Criteria
 
-- [ ] `optimize <photo>` (no flags) stays **lean and score-free** (fast keep-dims Mode::Fast, never
-      bigger) — unchanged from SPEC-084.
-- [ ] `optimize --verify <photo>` reports the winner's **SSIMULACRA2 score** (one `score_winner_once`
+- [x] `optimize <photo>` (no flags) stays **lean and score-free** (fast keep-dims Mode::Fast, never
+      bigger) — unchanged from SPEC-084. (`optimize_default_has_no_score`; driven end-to-end.)
+- [x] `optimize --verify <photo>` reports the winner's **SSIMULACRA2 score** (one `score_winner_once`
       call; ~107 ms/MP added — STAGE-030 notes); the score matches a `diff` of input vs output within
-      tolerance; `--verify` works with `--json`.
-- [ ] **`crustyimg shrink` no longer exists** (exits as an unknown subcommand); `run_shrink` is gone;
-      **no `shrink` reference remains** anywhere in `src/`, `docs/`, `tests/`, `README`, help, or
-      completions (`grep -rn shrink` is clean except intentional migration notes).
-- [ ] The `optimize` help + the `run_optimize` doc-comment are **honest** (no "visually-lossless by
+      tolerance; `--verify` works with `--json` (the `--explain=json` channel gains an `"ssim"` field).
+      (`optimize_verify_reports_score`; driven: ` · ssim 84.3` + `"ssim":84.3`.)
+- [x] **`crustyimg shrink` no longer exists** (exits 2 as an unknown subcommand); `run_shrink` is gone;
+      **no `shrink` reference remains** on the live surface — `src/`, `tests/`, `README`, and every
+      current-facing `docs/` file are clean; help + completions are clap-generated so `shrink` is absent
+      (`grep -rn shrink` clean except intentional migration notes + dated historical records).
+      (`shrink_subcommand_is_gone`, `no_shrink_references_remain`.)
+- [x] The `optimize` help + the `run_optimize` doc-comment are **honest** (no "visually-lossless by
       default").
-- [ ] `--target`/`--ssim`/`--max-size` (opt-in searches), `--profile preserve` (DEC-059), `convert`, and
+- [x] `--target`/`--ssim`/`--max-size` (opt-in searches), `--profile preserve` (DEC-059), `convert`, and
       `web` are **unchanged**.
-- [ ] `cargo test` (default **and** `--features avif`), `cargo clippy`, `cargo fmt --check`, and
-      `cargo build --no-default-features` pass; no test still references `shrink`.
+- [x] `cargo test` (default **and** `--features avif`), `cargo clippy` (both), `cargo fmt --check`, and
+      `cargo build --no-default-features` pass; no test references `shrink` (except the two removal
+      tests + one historical note).
 
 ## Failing Tests (written at design)
 
@@ -141,9 +145,42 @@ are unchanged.
 ---
 
 ## Build Completion
-- **Branch:** · **PR:** · **All acceptance criteria met?** · **New decisions:** · **Deviations:** · **Follow-ups:**
+- **Branch:** `spec-086-optimize-verify-remove-shrink` · **PR:** #TBD · **All acceptance criteria met?**
+  Yes — all six acceptance boxes checked; the five design Failing Tests exist and pass (plus a migrated
+  `optimize_unreachable_target_warns_best_effort` and a `explain_json_includes_ssim_only_when_verified`
+  unit test); driven end-to-end on a real photo (`optimize` no-score vs `--verify` `· ssim 84.3` vs
+  `web` always-scores; `shrink` exits 2). Gates green: `cargo test` (default 717 / avif 730), `cargo
+  clippy` (both, clean), `cargo fmt --check`, `cargo build --no-default-features`.
+- **New decisions:** DEC-071 (`optimize --verify` opt-in score + the JSON `"ssim"` extension + the
+  `shrink` removal + the migration mapping).
+- **Deviations:**
+  1. **`--verify` also extends the JSON explain**, not just the human summary. The spec said "report the
+     score (human + `--json`)"; the pinned `crustyimg.optimize.explain/v1` had no score field, so I added
+     a trailing `"ssim":NN.N` emitted **only** when a winner is scored (`web`/`--verify`) — a non-verify
+     run's JSON stays byte-identical. Recorded in DEC-071.
+  2. **Scope of the `shrink` grep-clean.** Cleaned the live surface (`src/`, `tests/`, `README`, and all
+     current-facing docs: cli-reference/recipes/USAGE/api-contract/architecture/feature-exploration/
+     backlog/territory + justfile). **Left dated historical records untouched** — decision ADRs
+     (`decisions/`), session/blog/research/review docs (`docs/sessions|blog|research|reviews`), and prior
+     work-tracking specs/stages (`projects/`) — because rewriting them would falsify the project's history
+     (the honest read of "except intentional migration notes"). The `no_shrink_references_remain` test
+     targets the clap help/command list, which is fully clean.
+  3. **Migrated, not deleted, two feature tests + the unreachable-target test** to `optimize` (identical
+     search machinery regardless of verb) to preserve WebP/AVIF-target + best-effort coverage; deleted the
+     rest of the `shrink_*` integration tests (optimize/convert already cover the same paths).
+- **Follow-ups:** DEC-069's native(85)/wasm(80) AVIF-quality divergence still open (no wasm change here).
 ### Build-phase reflection
-1. <answer> 2. <answer> 3. <answer>
+1. **The pinned-format path silently skips `--verify`.** `optimize -o x.avif` bypasses the auto-decision
+   (and therefore the score) — by design (a pin is an explicit override), and consistent with how
+   `--explain` is ignored there. Worth remembering: `--verify` only reports on the auto-decide path
+   (`--out-dir` or format-inferred), which is where the score is meaningful.
+2. **A near-name-collision that wasn't.** The global `--check` flag's help text begins with the word
+   "Verify", which made a naive grep of `optimize --help` look like a `--verify` collision; the real
+   global build-assert flag is `--check`/`--frozen`/`--locked`, so `--verify` was free. Read the flag
+   NAME, not a description that happens to contain the word.
+3. **Deletion is a coverage question, not just a grep.** Removing ~50 `shrink` test references risked
+   silently dropping edge coverage (unreachable-target best-effort, perceptual-drives-WebP); I checked
+   optimize/convert's existing tests first, then migrated the few unique ones instead of deleting blindly.
 
 ---
 

@@ -70,7 +70,6 @@ fn help_lists_all_subcommands() {
         "diff",
         "resize",
         "thumbnail",
-        "shrink",
         "convert",
         "web",
         "optimize",
@@ -138,7 +137,6 @@ fn each_subcommand_help_parses() {
         "diff",
         "resize",
         "thumbnail",
-        "shrink",
         "convert",
         "optimize",
         "responsive",
@@ -163,6 +161,56 @@ fn each_subcommand_help_parses() {
             output.status.success(),
             "crustyimg {cmd} --help should exit 0; stderr: {}",
             stderr_str(&output)
+        );
+    }
+}
+
+/// SPEC-086: `shrink` is REMOVED. Invoking it errors as an unknown subcommand
+/// (clap usage error, exit 2) — the verb no longer exists (`web`/`optimize` own
+/// its old jobs).
+#[test]
+fn shrink_subcommand_is_gone() {
+    let output = Command::new(BIN)
+        .args(["shrink", "x.png"])
+        .output()
+        .expect("failed to run crustyimg shrink");
+
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "`shrink` should be an unknown subcommand (exit 2); stderr: {}",
+        stderr_str(&output)
+    );
+}
+
+/// SPEC-086: no `shrink` remains on the user-facing surface — not in the top-level
+/// `--help` command list, nor in the help of the verbs that absorbed its jobs
+/// (`web`/`optimize`/`convert`). A curated assertion over the real binary's help.
+#[test]
+fn no_shrink_references_remain() {
+    // Top-level help lists the command set; `shrink` must be absent.
+    let top = Command::new(BIN)
+        .arg("--help")
+        .output()
+        .expect("failed to run crustyimg --help");
+    assert!(top.status.success(), "--help should exit 0");
+    assert!(
+        !stdout_str(&top).contains("shrink"),
+        "top-level --help must not mention `shrink`, got:\n{}",
+        stdout_str(&top)
+    );
+
+    // The verbs that inherited shrink's jobs must not name it in their help either.
+    for cmd in ["web", "optimize", "convert"] {
+        let out = Command::new(BIN)
+            .args([cmd, "--help"])
+            .output()
+            .unwrap_or_else(|e| panic!("failed to run crustyimg {cmd} --help: {e}"));
+        assert!(out.status.success(), "{cmd} --help should exit 0");
+        assert!(
+            !stdout_str(&out).contains("shrink"),
+            "`{cmd} --help` must not mention `shrink`, got:\n{}",
+            stdout_str(&out)
         );
     }
 }
@@ -252,9 +300,9 @@ fn apply_to_stdout_keeps_stdout_clean() {
 /// operation flag"). SPEC-032 wired `edit`; no commands remain as stubs.
 ///
 /// (resize is now real — SPEC-011; thumbnail is now real — SPEC-012;
-/// shrink is now real — SPEC-013; convert is now real — SPEC-014;
-/// auto-orient is now real — SPEC-015; watermark is now real — SPEC-029;
-/// edit is now real — SPEC-032.)
+/// convert is now real — SPEC-014; auto-orient is now real — SPEC-015;
+/// watermark is now real — SPEC-029; edit is now real — SPEC-032.
+/// `shrink` was wired in SPEC-013 and removed in SPEC-086 — `web`/`optimize`.)
 #[test]
 fn stub_command_returns_not_implemented() {
     let dir = tempfile::tempdir().expect("tempdir");
@@ -1675,337 +1723,6 @@ fn thumbnail_size_zero_is_usage_error() {
     );
 }
 
-// ── SPEC-013 shrink integration tests ─────────────────────────────────────────
-
-/// `shrink <jpg>` (no flags) resizes long edge to DEFAULT_SHRINK_MAX (1600) and
-/// writes a file smaller than the original.
-///
-/// Source: 2000×1000 JPEG → long edge == 1600, smaller file. (AC1)
-#[test]
-fn shrink_defaults_bound_long_edge_and_shrink_file() {
-    let dir = tempfile::tempdir().expect("tempdir");
-    let in_path = write_test_jpeg(&dir, "in.jpg", 2000, 1000);
-    let out_path = dir.path().join("out.jpg");
-
-    let in_size = std::fs::metadata(&in_path).unwrap().len();
-
-    let output = Command::new(BIN)
-        .args([
-            "shrink",
-            in_path.to_str().unwrap(),
-            "-o",
-            out_path.to_str().unwrap(),
-        ])
-        .output()
-        .expect("failed to run shrink");
-
-    assert_eq!(
-        output.status.code(),
-        Some(0),
-        "shrink (no flags) should exit 0; stderr: {}",
-        stderr_str(&output)
-    );
-    assert!(out_path.exists(), "output file should exist");
-
-    let decoded = image::open(&out_path).expect("output should be decodable");
-    // Long edge (width) must be exactly 1600.
-    assert_eq!(
-        decoded.width(),
-        1600,
-        "long edge should be 1600 (DEFAULT_SHRINK_MAX)"
-    );
-    assert_eq!(
-        decoded.height(),
-        800,
-        "short edge should be 800 (aspect preserved)"
-    );
-
-    let out_size = std::fs::metadata(&out_path).unwrap().len();
-    assert!(
-        out_size < in_size,
-        "output ({out_size} bytes) should be smaller than input ({in_size} bytes)"
-    );
-}
-
-/// `shrink <jpg> --max 100` on a 200×100 JPEG → long edge == 100, short edge == 50. (AC2)
-#[test]
-fn shrink_max_bounds_long_edge() {
-    let dir = tempfile::tempdir().expect("tempdir");
-    let in_path = write_test_jpeg(&dir, "in.jpg", 200, 100);
-    let out_path = dir.path().join("out.jpg");
-
-    let output = Command::new(BIN)
-        .args([
-            "shrink",
-            in_path.to_str().unwrap(),
-            "--max",
-            "100",
-            "-o",
-            out_path.to_str().unwrap(),
-        ])
-        .output()
-        .expect("failed to run shrink --max");
-
-    assert_eq!(
-        output.status.code(),
-        Some(0),
-        "shrink --max 100 should exit 0; stderr: {}",
-        stderr_str(&output)
-    );
-    assert!(out_path.exists(), "output file should exist");
-
-    let decoded = image::open(&out_path).expect("output should be decodable");
-    assert_eq!(decoded.width(), 100, "long edge should be 100");
-    assert_eq!(
-        decoded.height(),
-        50,
-        "short edge should be 50 (aspect preserved)"
-    );
-}
-
-/// Same JPEG at `-q 20` vs `-q 90`: low-quality output smaller; same dims. (AC3)
-#[test]
-fn shrink_quality_lower_is_smaller() {
-    let dir = tempfile::tempdir().expect("tempdir");
-    let in_path = write_test_jpeg(&dir, "in.jpg", 400, 200);
-    let out_lo = dir.path().join("lo.jpg");
-    let out_hi = dir.path().join("hi.jpg");
-
-    // Low quality.
-    let lo_out = Command::new(BIN)
-        .args([
-            "shrink",
-            in_path.to_str().unwrap(),
-            "--max",
-            "200",
-            "-q",
-            "20",
-            "-o",
-            out_lo.to_str().unwrap(),
-        ])
-        .output()
-        .expect("failed to run shrink -q 20");
-
-    assert_eq!(
-        lo_out.status.code(),
-        Some(0),
-        "shrink -q 20 should exit 0; stderr: {}",
-        stderr_str(&lo_out)
-    );
-
-    // High quality.
-    let hi_out = Command::new(BIN)
-        .args([
-            "shrink",
-            in_path.to_str().unwrap(),
-            "--max",
-            "200",
-            "-q",
-            "90",
-            "-o",
-            out_hi.to_str().unwrap(),
-        ])
-        .output()
-        .expect("failed to run shrink -q 90");
-
-    assert_eq!(
-        hi_out.status.code(),
-        Some(0),
-        "shrink -q 90 should exit 0; stderr: {}",
-        stderr_str(&hi_out)
-    );
-
-    let lo_size = std::fs::metadata(&out_lo).unwrap().len();
-    let hi_size = std::fs::metadata(&out_hi).unwrap().len();
-    assert!(
-        lo_size < hi_size,
-        "low quality ({lo_size} bytes) should be smaller than high quality ({hi_size} bytes)"
-    );
-
-    // Both must decode at the same dimensions.
-    let lo_img = image::open(&out_lo).expect("lo output should be decodable");
-    let hi_img = image::open(&out_hi).expect("hi output should be decodable");
-    assert_eq!(lo_img.width(), hi_img.width(), "widths must match");
-    assert_eq!(lo_img.height(), hi_img.height(), "heights must match");
-}
-
-/// `shrink <png> --max 100 -q 10` → PNG output, exit 0, quality ignored. (AC4)
-#[test]
-fn shrink_png_preserves_format_quality_ignored() {
-    let dir = tempfile::tempdir().expect("tempdir");
-    let in_path = write_test_png(&dir, "in.png", 200, 100);
-    let out_path = dir.path().join("out.png");
-
-    let output = Command::new(BIN)
-        .args([
-            "shrink",
-            in_path.to_str().unwrap(),
-            "--max",
-            "100",
-            "-q",
-            "10",
-            "-o",
-            out_path.to_str().unwrap(),
-        ])
-        .output()
-        .expect("failed to run shrink on PNG");
-
-    assert_eq!(
-        output.status.code(),
-        Some(0),
-        "shrink on PNG should exit 0; stderr: {}",
-        stderr_str(&output)
-    );
-    assert!(out_path.exists(), "output file should exist");
-
-    // Output must be PNG (magic bytes).
-    let bytes = std::fs::read(&out_path).unwrap();
-    assert_eq!(&bytes[..4], b"\x89PNG", "output should be PNG format");
-
-    let decoded = image::open(&out_path).expect("output should be decodable");
-    assert_eq!(decoded.width(), 100, "long edge should be 100");
-}
-
-/// `shrink a.png b.jpg --max 64 --out-dir D` → exit 0; each keeps source format. (AC5)
-#[test]
-fn shrink_multi_input_fan_out_preserves_format() {
-    let dir = tempfile::tempdir().expect("tempdir");
-    let out_dir = tempfile::tempdir().expect("out tempdir");
-
-    let png_path = write_test_png(&dir, "a.png", 200, 100);
-    let jpg_path = write_test_jpeg(&dir, "b.jpg", 200, 100);
-
-    let output = Command::new(BIN)
-        .args([
-            "shrink",
-            png_path.to_str().unwrap(),
-            jpg_path.to_str().unwrap(),
-            "--max",
-            "64",
-            "--out-dir",
-            out_dir.path().to_str().unwrap(),
-        ])
-        .output()
-        .expect("failed to run shrink multi-input");
-
-    assert_eq!(
-        output.status.code(),
-        Some(0),
-        "shrink multi-input should exit 0; stderr: {}",
-        stderr_str(&output)
-    );
-
-    // a.png → out_dir/a.png, scaled to ≤ 64 on long edge, must be PNG.
-    let out_png = out_dir.path().join("a.png");
-    assert!(out_png.exists(), "a.png output should exist in out-dir");
-    let png_bytes = std::fs::read(&out_png).unwrap();
-    assert_eq!(
-        &png_bytes[..4],
-        b"\x89PNG",
-        "a.png output should be PNG format"
-    );
-    let decoded_png = image::open(&out_png).expect("a.png output should be decodable");
-    assert!(decoded_png.width() <= 64, "a.png long edge should be ≤ 64");
-
-    // b.jpg → out_dir/b.jpg, scaled to ≤ 64 on long edge, must be JPEG.
-    let out_jpg = out_dir.path().join("b.jpg");
-    assert!(out_jpg.exists(), "b.jpg output should exist in out-dir");
-    let jpg_bytes = std::fs::read(&out_jpg).unwrap();
-    assert_eq!(
-        &jpg_bytes[..2],
-        b"\xFF\xD8",
-        "b.jpg output should be JPEG format"
-    );
-    let decoded_jpg = image::open(&out_jpg).expect("b.jpg output should be decodable");
-    assert!(decoded_jpg.width() <= 64, "b.jpg long edge should be ≤ 64");
-}
-
-/// `shrink <missing>` → exit 3. (AC6)
-#[test]
-fn shrink_missing_input_exits_3() {
-    let dir = tempfile::tempdir().expect("tempdir");
-    let missing = dir.path().join("nope.jpg");
-
-    let output = Command::new(BIN)
-        .args(["shrink", missing.to_str().unwrap()])
-        .output()
-        .expect("failed to run shrink missing");
-
-    assert_eq!(
-        output.status.code(),
-        Some(3),
-        "shrink of missing file should exit 3; stderr: {}",
-        stderr_str(&output)
-    );
-}
-
-/// Two inputs with no `--out-dir` → exit 2; stderr mentions `--out-dir`. (AC7)
-#[test]
-fn shrink_multi_without_out_dir_is_usage_error() {
-    let dir = tempfile::tempdir().expect("tempdir");
-    let in1 = write_test_jpeg(&dir, "a.jpg", 4, 4);
-    let in2 = write_test_jpeg(&dir, "b.jpg", 4, 4);
-
-    let output = Command::new(BIN)
-        .args(["shrink", in1.to_str().unwrap(), in2.to_str().unwrap()])
-        .output()
-        .expect("failed to run shrink multi-no-out-dir");
-
-    assert_eq!(
-        output.status.code(),
-        Some(2),
-        "shrink multi without --out-dir should exit 2; stderr: {}",
-        stderr_str(&output)
-    );
-    let stderr = stderr_str(&output);
-    assert!(
-        stderr.contains("out-dir") || stderr.contains("out_dir"),
-        "stderr should mention --out-dir; got: {stderr}"
-    );
-}
-
-/// `shrink <jpg> --max 64 -o -` → exit 0; stdout is the encoded image; stderr empty. (AC8)
-#[test]
-fn shrink_stdout_keeps_stdout_clean() {
-    let dir = tempfile::tempdir().expect("tempdir");
-    let in_path = write_test_jpeg(&dir, "in.jpg", 200, 100);
-
-    let output = Command::new(BIN)
-        .args([
-            "shrink",
-            in_path.to_str().unwrap(),
-            "--max",
-            "64",
-            "-o",
-            "-",
-        ])
-        .output()
-        .expect("failed to run shrink stdout");
-
-    assert_eq!(
-        output.status.code(),
-        Some(0),
-        "shrink -o - should exit 0; stderr: {}",
-        stderr_str(&output)
-    );
-
-    // stdout must be ONLY the encoded image bytes — decodable.
-    let decoded = image::load_from_memory(&output.stdout)
-        .expect("stdout bytes should decode as a valid image");
-    assert!(
-        decoded.width() <= 64,
-        "stdout image width should be ≤ 64, got {}",
-        decoded.width()
-    );
-
-    // stderr must be empty.
-    assert!(
-        output.stderr.is_empty(),
-        "stderr must be empty on clean stdout run, got: {}",
-        stderr_str(&output)
-    );
-}
-
 // ── SPEC-014 convert integration tests ───────────────────────────────────────
 
 /// `convert <png> --format jpg -o out.jpg` → exit 0; output is JPEG (FF D8 magic),
@@ -2280,39 +1997,6 @@ fn webp_input_decodes() {
     );
 }
 
-/// `shrink <jpg> -o out.webp` → exit 0; output is WebP (lossless; the `-o`
-/// extension drives the format, DEC-015).
-#[test]
-fn shrink_to_webp_output() {
-    let dir = tempfile::tempdir().expect("tempdir");
-    let in_path = dir.path().join("in.jpg");
-    std::fs::write(&in_path, common::detailed_jpeg(48, 32)).unwrap();
-    let out_path = dir.path().join("out.webp");
-
-    let output = Command::new(BIN)
-        .args([
-            "shrink",
-            in_path.to_str().unwrap(),
-            "-o",
-            out_path.to_str().unwrap(),
-        ])
-        .output()
-        .expect("failed to run shrink -o out.webp");
-
-    assert_eq!(
-        output.status.code(),
-        Some(0),
-        "shrink to .webp should exit 0; stderr: {}",
-        stderr_str(&output)
-    );
-    let bytes = std::fs::read(&out_path).expect("WebP output file");
-    assert_eq!(
-        image::guess_format(&bytes).expect("guess format"),
-        ImageFormat::WebP,
-        "output should be WebP"
-    );
-}
-
 /// `-q` is ignored for (lossless) WebP output, like PNG (DEC-016): the command
 /// still succeeds and produces WebP — the quality value has no effect.
 #[test]
@@ -2421,7 +2105,7 @@ fn convert_to_lossy_webp_is_smaller() {
     );
 }
 
-/// FEATURE build: the PERCEPTUAL search drives WebP — `shrink --target high -o
+/// FEATURE build: the PERCEPTUAL search drives WebP — `optimize --target high -o
 /// out.webp` → exit 0, valid WebP, and (unlike AVIF) NO "needs a decoder" warning.
 #[cfg(feature = "webp-lossy")]
 #[test]
@@ -2433,7 +2117,7 @@ fn webp_target_high() {
 
     let output = Command::new(BIN)
         .args([
-            "shrink",
+            "optimize",
             in_path.to_str().unwrap(),
             "--target",
             "high",
@@ -2441,7 +2125,7 @@ fn webp_target_high() {
             out_path.to_str().unwrap(),
         ])
         .output()
-        .expect("failed to run shrink --target high -o out.webp");
+        .expect("failed to run optimize --target high -o out.webp");
 
     assert_eq!(
         output.status.code(),
@@ -2587,48 +2271,14 @@ fn convert_to_avif_produces_avif() {
     );
 }
 
-/// FEATURE build: `shrink <jpg> -o out.avif -q 50` → exit 0; output is AVIF.
-#[cfg(feature = "avif")]
-#[test]
-fn shrink_to_avif_output() {
-    let dir = tempfile::tempdir().expect("tempdir");
-    let in_path = dir.path().join("in.jpg");
-    std::fs::write(&in_path, common::detailed_jpeg(64, 64)).unwrap();
-    let out_path = dir.path().join("out.avif");
-
-    let output = Command::new(BIN)
-        .args([
-            "shrink",
-            in_path.to_str().unwrap(),
-            "-o",
-            out_path.to_str().unwrap(),
-            "-q",
-            "50",
-        ])
-        .output()
-        .expect("failed to run shrink -o out.avif");
-
-    assert_eq!(
-        output.status.code(),
-        Some(0),
-        "shrink to .avif (feature) should exit 0; stderr: {}",
-        stderr_str(&output)
-    );
-    let bytes = std::fs::read(&out_path).expect("AVIF output file");
-    assert_eq!(
-        image::guess_format(&bytes).expect("guess format"),
-        ImageFormat::Avif,
-        "output should be AVIF"
-    );
-}
-
 /// FEATURE build: a perceptual target (`--target`) on AVIF degrades GRACEFULLY.
 /// The SSIMULACRA2 search must DECODE each candidate to score it, but AVIF decode
 /// is not built (output-only v1, DEC-020) — so the run still succeeds (exit 0),
 /// writes valid AVIF at the encoder default, and warns that perceptual targeting
 /// needs a decoder. (Byte-budget AVIF, which is encode-only, works — see
-/// `avif_max_size_fits`.) Uses `shrink` because `--target`/`--ssim` are
-/// shrink-only flags (SPEC-016); `convert` carries only `--max-size`.
+/// `avif_max_size_fits`.) Uses `optimize` with a pinned `-o out.avif`, since
+/// `--target`/`--ssim` are the opt-in perceptual searches (SPEC-016); `convert`
+/// carries only `--max-size`.
 #[cfg(feature = "avif")]
 #[test]
 fn avif_target_high() {
@@ -2639,7 +2289,7 @@ fn avif_target_high() {
 
     let output = Command::new(BIN)
         .args([
-            "shrink",
+            "optimize",
             in_path.to_str().unwrap(),
             "--target",
             "high",
@@ -2647,12 +2297,12 @@ fn avif_target_high() {
             out_path.to_str().unwrap(),
         ])
         .output()
-        .expect("failed to run shrink --target high -o out.avif");
+        .expect("failed to run optimize --target high -o out.avif");
 
     assert_eq!(
         output.status.code(),
         Some(0),
-        "shrink --target high to .avif (feature) should exit 0 (graceful fallback); stderr: {}",
+        "optimize --target high to .avif (feature) should exit 0 (graceful fallback); stderr: {}",
         stderr_str(&output)
     );
     let bytes = std::fs::read(&out_path).expect("AVIF output file");
@@ -2949,253 +2599,11 @@ fn convert_stdout_keeps_stdout_clean() {
     );
 }
 
-// ── SPEC-016: perceptual auto-quality (`shrink --target` / `--ssim`) ───────────
-
 /// Write raw fixture bytes to `dir/name` and return the path.
 fn write_bytes(dir: &TempDir, name: &str, bytes: &[u8]) -> PathBuf {
     let path = dir.path().join(name);
     std::fs::write(&path, bytes).unwrap();
     path
-}
-
-/// `shrink --target visually-lossless` produces a valid JPEG at the input dims.
-#[test]
-fn shrink_target_visually_lossless_produces_valid_jpeg() {
-    let dir = tempfile::tempdir().expect("tempdir");
-    let in_path = write_bytes(&dir, "in.jpg", &common::detailed_jpeg(160, 160));
-    let out_path = dir.path().join("out.jpg");
-
-    let output = Command::new(BIN)
-        .args([
-            "shrink",
-            in_path.to_str().unwrap(),
-            "--target",
-            "visually-lossless",
-            "-o",
-            out_path.to_str().unwrap(),
-        ])
-        .output()
-        .expect("failed to run shrink --target");
-
-    assert_eq!(
-        output.status.code(),
-        Some(0),
-        "shrink --target should exit 0; stderr: {}",
-        stderr_str(&output)
-    );
-    let bytes = std::fs::read(&out_path).expect("output file should exist");
-    assert_eq!(
-        image::guess_format(&bytes).expect("guess format"),
-        ImageFormat::Jpeg,
-        "output should be a JPEG"
-    );
-    let decoded = image::load_from_memory(&bytes).expect("output should decode");
-    // Default --max is 1600, so a 160×160 input is not downscaled.
-    assert_eq!(decoded.width(), 160, "width preserved");
-    assert_eq!(decoded.height(), 160, "height preserved");
-}
-
-/// A lower `--ssim` target yields a smaller file than a higher one (same input).
-#[test]
-fn shrink_lower_ssim_target_is_smaller_file() {
-    let dir = tempfile::tempdir().expect("tempdir");
-    let in_path = write_bytes(&dir, "in.jpg", &common::detailed_jpeg(160, 160));
-    let lo_path = dir.path().join("lo.jpg");
-    let hi_path = dir.path().join("hi.jpg");
-
-    for (score, out) in [("50", &lo_path), ("95", &hi_path)] {
-        let output = Command::new(BIN)
-            .args([
-                "shrink",
-                in_path.to_str().unwrap(),
-                "--ssim",
-                score,
-                "-o",
-                out.to_str().unwrap(),
-            ])
-            .output()
-            .expect("failed to run shrink --ssim");
-        assert_eq!(
-            output.status.code(),
-            Some(0),
-            "shrink --ssim {score} should exit 0; stderr: {}",
-            stderr_str(&output)
-        );
-    }
-
-    let lo_len = std::fs::metadata(&lo_path).unwrap().len();
-    let hi_len = std::fs::metadata(&hi_path).unwrap().len();
-    assert!(
-        lo_len < hi_len,
-        "--ssim 50 file ({lo_len} bytes) should be smaller than --ssim 95 file ({hi_len} bytes)"
-    );
-}
-
-/// `--target` and `--ssim` together is a usage error (clap conflict) → exit 2.
-#[test]
-fn shrink_target_and_ssim_conflict_exits_2() {
-    let dir = tempfile::tempdir().expect("tempdir");
-    let in_path = write_bytes(&dir, "in.jpg", &common::detailed_jpeg(128, 128));
-    let out_path = dir.path().join("out.jpg");
-
-    let output = Command::new(BIN)
-        .args([
-            "shrink",
-            in_path.to_str().unwrap(),
-            "--target",
-            "high",
-            "--ssim",
-            "80",
-            "-o",
-            out_path.to_str().unwrap(),
-        ])
-        .output()
-        .expect("failed to run shrink");
-
-    assert_eq!(
-        output.status.code(),
-        Some(2),
-        "--target + --ssim should exit 2; stderr: {}",
-        stderr_str(&output)
-    );
-}
-
-/// `--ssim` outside 0..=100 is a usage error → exit 2.
-#[test]
-fn shrink_ssim_out_of_range_exits_2() {
-    let dir = tempfile::tempdir().expect("tempdir");
-    let in_path = write_bytes(&dir, "in.jpg", &common::detailed_jpeg(128, 128));
-    let out_path = dir.path().join("out.jpg");
-
-    let output = Command::new(BIN)
-        .args([
-            "shrink",
-            in_path.to_str().unwrap(),
-            "--ssim",
-            "150",
-            "-o",
-            out_path.to_str().unwrap(),
-        ])
-        .output()
-        .expect("failed to run shrink");
-
-    assert_eq!(
-        output.status.code(),
-        Some(2),
-        "--ssim 150 should exit 2; stderr: {}",
-        stderr_str(&output)
-    );
-    assert!(
-        stderr_str(&output).to_lowercase().contains("ssim"),
-        "stderr should mention ssim, got: {}",
-        stderr_str(&output)
-    );
-}
-
-/// `-q` combined with an auto target is a usage error → exit 2.
-#[test]
-fn shrink_quality_and_target_conflict_exits_2() {
-    let dir = tempfile::tempdir().expect("tempdir");
-    let in_path = write_bytes(&dir, "in.jpg", &common::detailed_jpeg(128, 128));
-    let out_path = dir.path().join("out.jpg");
-
-    let output = Command::new(BIN)
-        .args([
-            "shrink",
-            in_path.to_str().unwrap(),
-            "-q",
-            "80",
-            "--target",
-            "high",
-            "-o",
-            out_path.to_str().unwrap(),
-        ])
-        .output()
-        .expect("failed to run shrink");
-
-    assert_eq!(
-        output.status.code(),
-        Some(2),
-        "-q + --target should exit 2; stderr: {}",
-        stderr_str(&output)
-    );
-    assert!(
-        stderr_str(&output).to_lowercase().contains("quality")
-            || stderr_str(&output).to_lowercase().contains("target"),
-        "stderr should mention the quality/target conflict, got: {}",
-        stderr_str(&output)
-    );
-}
-
-/// A non-JPEG output ignores `--target` (no error, output stays PNG).
-#[test]
-fn shrink_target_non_jpeg_is_ignored() {
-    let dir = tempfile::tempdir().expect("tempdir");
-    let in_path = write_bytes(&dir, "in.png", &common::detailed_png(120, 120));
-    let out_path = dir.path().join("out.png");
-
-    let output = Command::new(BIN)
-        .args([
-            "shrink",
-            in_path.to_str().unwrap(),
-            "--target",
-            "visually-lossless",
-            "-o",
-            out_path.to_str().unwrap(),
-        ])
-        .output()
-        .expect("failed to run shrink --target on png");
-
-    assert_eq!(
-        output.status.code(),
-        Some(0),
-        "shrink --target on a PNG should exit 0 (target ignored); stderr: {}",
-        stderr_str(&output)
-    );
-    let bytes = std::fs::read(&out_path).expect("output file should exist");
-    assert_eq!(
-        image::guess_format(&bytes).expect("guess format"),
-        ImageFormat::Png,
-        "output should still be a PNG"
-    );
-}
-
-/// `--target` runs the per-image search across a multi-input fan-out.
-#[test]
-fn shrink_target_multi_input_fan_out() {
-    let dir = tempfile::tempdir().expect("tempdir");
-    let a = write_bytes(&dir, "a.jpg", &common::detailed_jpeg(128, 128));
-    let b = write_bytes(&dir, "b.jpg", &common::detailed_jpeg(144, 112));
-    let out_dir = dir.path().join("out");
-    std::fs::create_dir(&out_dir).unwrap();
-
-    let output = Command::new(BIN)
-        .args([
-            "shrink",
-            a.to_str().unwrap(),
-            b.to_str().unwrap(),
-            "--target",
-            "high",
-            "--out-dir",
-            out_dir.to_str().unwrap(),
-        ])
-        .output()
-        .expect("failed to run shrink --target multi");
-
-    assert_eq!(
-        output.status.code(),
-        Some(0),
-        "multi-input shrink --target should exit 0; stderr: {}",
-        stderr_str(&output)
-    );
-    for name in ["a.jpg", "b.jpg"] {
-        let bytes = std::fs::read(out_dir.join(name)).expect("output should exist");
-        assert_eq!(
-            image::guess_format(&bytes).expect("guess format"),
-            ImageFormat::Jpeg,
-            "{name} should be a JPEG"
-        );
-    }
 }
 
 /// A deterministic high-frequency pseudo-noise JPEG. Unlike the smooth
@@ -3220,44 +2628,6 @@ fn noisy_jpeg(w: u32, h: u32) -> Vec<u8> {
         .write_to(&mut buf, ImageFormat::Jpeg)
         .unwrap();
     buf.into_inner()
-}
-
-/// An unreachable perceptual target (`--ssim 100` on a high-frequency image,
-/// which a lossy JPEG round-trip cannot reach) still succeeds (best-effort) but
-/// warns on stderr.
-#[test]
-fn shrink_unreachable_target_warns_best_effort() {
-    let dir = tempfile::tempdir().expect("tempdir");
-    let in_path = write_bytes(&dir, "in.jpg", &noisy_jpeg(96, 96));
-    let out_path = dir.path().join("out.jpg");
-
-    let output = Command::new(BIN)
-        .args([
-            "shrink",
-            in_path.to_str().unwrap(),
-            "--ssim",
-            "100",
-            "-o",
-            out_path.to_str().unwrap(),
-        ])
-        .output()
-        .expect("failed to run shrink --ssim 100");
-
-    // Best-effort: the command still succeeds and writes a file.
-    assert_eq!(
-        output.status.code(),
-        Some(0),
-        "unreachable target should still exit 0 (best effort); stderr: {}",
-        stderr_str(&output)
-    );
-    assert!(out_path.exists(), "output file should still be written");
-    // ...but it must warn that the target was not met.
-    let err = stderr_str(&output).to_lowercase();
-    assert!(
-        err.contains("could not reach") || err.contains("best effort"),
-        "expected an unmet-target warning on stderr, got: {}",
-        stderr_str(&output)
-    );
 }
 
 // ── SPEC-021: --max-size dimension-reduction fallback ───────────────────────────
@@ -3352,238 +2722,7 @@ fn max_size_keeps_dims_when_it_fits() {
     );
 }
 
-// ── SPEC-017: --max-size byte budget (shrink + convert) ────────────────────────
-
-/// `shrink --max-size <feasible>` produces a JPEG within the budget.
-#[test]
-fn shrink_max_size_fits_budget() {
-    let dir = tempfile::tempdir().expect("tempdir");
-    let in_path = write_bytes(&dir, "in.jpg", &common::detailed_jpeg(160, 160));
-    let out_path = dir.path().join("out.jpg");
-
-    let output = Command::new(BIN)
-        .args([
-            "shrink",
-            in_path.to_str().unwrap(),
-            "--max-size",
-            "6KB",
-            "-o",
-            out_path.to_str().unwrap(),
-        ])
-        .output()
-        .expect("failed to run shrink --max-size");
-
-    assert_eq!(
-        output.status.code(),
-        Some(0),
-        "shrink --max-size should exit 0; stderr: {}",
-        stderr_str(&output)
-    );
-    let bytes = std::fs::read(&out_path).expect("output should exist");
-    assert_eq!(
-        image::guess_format(&bytes).expect("guess format"),
-        ImageFormat::Jpeg,
-        "output should be a JPEG"
-    );
-    assert!(
-        bytes.len() as u64 <= 6000,
-        "output ({} bytes) should fit the 6KB budget",
-        bytes.len()
-    );
-}
-
-/// A larger budget yields a larger-or-equal file than a smaller budget.
-#[test]
-fn shrink_max_size_larger_budget_not_smaller() {
-    let dir = tempfile::tempdir().expect("tempdir");
-    let in_path = write_bytes(&dir, "in.jpg", &common::detailed_jpeg(160, 160));
-    let small = dir.path().join("small.jpg");
-    let large = dir.path().join("large.jpg");
-
-    for (budget, out) in [("4KB", &small), ("12KB", &large)] {
-        let output = Command::new(BIN)
-            .args([
-                "shrink",
-                in_path.to_str().unwrap(),
-                "--max-size",
-                budget,
-                "-o",
-                out.to_str().unwrap(),
-            ])
-            .output()
-            .expect("failed to run shrink --max-size");
-        assert_eq!(
-            output.status.code(),
-            Some(0),
-            "shrink --max-size {budget} should exit 0; stderr: {}",
-            stderr_str(&output)
-        );
-    }
-
-    let small_len = std::fs::metadata(&small).unwrap().len();
-    let large_len = std::fs::metadata(&large).unwrap().len();
-    assert!(
-        small_len <= large_len,
-        "4KB-budget output ({small_len}) should be <= 12KB-budget output ({large_len})"
-    );
-}
-
-/// `--max-size` conflicts with `--target` → exit 2 (clap).
-#[test]
-fn shrink_max_size_conflicts_with_target_exits_2() {
-    let dir = tempfile::tempdir().expect("tempdir");
-    let in_path = write_bytes(&dir, "in.jpg", &common::detailed_jpeg(128, 128));
-    let output = Command::new(BIN)
-        .args([
-            "shrink",
-            in_path.to_str().unwrap(),
-            "--max-size",
-            "5KB",
-            "--target",
-            "high",
-            "-o",
-            dir.path().join("o.jpg").to_str().unwrap(),
-        ])
-        .output()
-        .expect("run");
-    assert_eq!(
-        output.status.code(),
-        Some(2),
-        "stderr: {}",
-        stderr_str(&output)
-    );
-}
-
-/// `--max-size` conflicts with `--ssim` → exit 2 (clap).
-#[test]
-fn shrink_max_size_conflicts_with_ssim_exits_2() {
-    let dir = tempfile::tempdir().expect("tempdir");
-    let in_path = write_bytes(&dir, "in.jpg", &common::detailed_jpeg(128, 128));
-    let output = Command::new(BIN)
-        .args([
-            "shrink",
-            in_path.to_str().unwrap(),
-            "--max-size",
-            "5KB",
-            "--ssim",
-            "90",
-            "-o",
-            dir.path().join("o.jpg").to_str().unwrap(),
-        ])
-        .output()
-        .expect("run");
-    assert_eq!(
-        output.status.code(),
-        Some(2),
-        "stderr: {}",
-        stderr_str(&output)
-    );
-}
-
-/// `--max-size` conflicts with `-q` → exit 2 (runtime usage).
-#[test]
-fn shrink_max_size_conflicts_with_quality_exits_2() {
-    let dir = tempfile::tempdir().expect("tempdir");
-    let in_path = write_bytes(&dir, "in.jpg", &common::detailed_jpeg(128, 128));
-    let output = Command::new(BIN)
-        .args([
-            "shrink",
-            in_path.to_str().unwrap(),
-            "--max-size",
-            "5KB",
-            "-q",
-            "80",
-            "-o",
-            dir.path().join("o.jpg").to_str().unwrap(),
-        ])
-        .output()
-        .expect("run");
-    assert_eq!(
-        output.status.code(),
-        Some(2),
-        "stderr: {}",
-        stderr_str(&output)
-    );
-}
-
-/// An infeasibly tiny budget still succeeds (best-effort smallest) but warns.
-#[test]
-fn shrink_max_size_infeasible_warns() {
-    let dir = tempfile::tempdir().expect("tempdir");
-    let in_path = write_bytes(&dir, "in.jpg", &common::detailed_jpeg(160, 160));
-    let out_path = dir.path().join("out.jpg");
-    let output = Command::new(BIN)
-        .args([
-            "shrink",
-            in_path.to_str().unwrap(),
-            "--max-size",
-            "200", // 200 bytes — below even quality-1
-            "-o",
-            out_path.to_str().unwrap(),
-        ])
-        .output()
-        .expect("run");
-    assert_eq!(
-        output.status.code(),
-        Some(0),
-        "infeasible budget should still exit 0 (best effort); stderr: {}",
-        stderr_str(&output)
-    );
-    assert!(out_path.exists(), "output should still be written");
-    let err = stderr_str(&output).to_lowercase();
-    assert!(
-        err.contains("budget") || err.contains("could not"),
-        "expected an unmet-budget warning, got: {}",
-        stderr_str(&output)
-    );
-}
-
-/// `--max-size` on a lossless (PNG) output now DOWNSCALES to fit (SPEC-021,
-/// DEC-023) — previously it warned and left the image at full size. With a tiny
-/// budget the 120x120 source is scaled down; output stays PNG and exits 0.
-#[test]
-fn shrink_max_size_lossless_downscales() {
-    let dir = tempfile::tempdir().expect("tempdir");
-    let in_path = write_bytes(&dir, "in.png", &common::detailed_png(120, 120));
-    let out_path = dir.path().join("out.png");
-    let output = Command::new(BIN)
-        .args([
-            "shrink",
-            in_path.to_str().unwrap(),
-            "--max-size",
-            "1KB",
-            "-o",
-            out_path.to_str().unwrap(),
-        ])
-        .output()
-        .expect("run");
-    assert_eq!(
-        output.status.code(),
-        Some(0),
-        "shrink --max-size on a PNG should exit 0; stderr: {}",
-        stderr_str(&output)
-    );
-    let bytes = std::fs::read(&out_path).expect("output should exist");
-    assert_eq!(
-        image::guess_format(&bytes).expect("guess format"),
-        ImageFormat::Png,
-        "output should still be PNG"
-    );
-    // A 120x120 detailed PNG is far over 1KB, so the fallback must downscale it.
-    let decoded = image::load_from_memory(&bytes).expect("decode png");
-    assert!(
-        decoded.width() < 120 && decoded.height() < 120,
-        "lossless --max-size should downscale (got {}x{})",
-        decoded.width(),
-        decoded.height()
-    );
-    let err = stderr_str(&output).to_lowercase();
-    assert!(
-        err.contains("scal") || err.contains("budget"),
-        "expected a scaled/budget warning, got: {}",
-        stderr_str(&output)
-    );
-}
+// ── SPEC-017: --max-size byte budget (optimize + convert) ──────────────────────
 
 /// `convert --format jpeg --max-size <feasible>` fits the budget.
 #[test]
@@ -3702,8 +2841,8 @@ fn optimize_reorients_and_strips_metadata() {
     );
 }
 
-/// `optimize` with no flags defaults to a visually-lossless re-encode: a valid
-/// JPEG, smaller than a max-quality encode, with dimensions preserved.
+/// `optimize -o out.jpg` with no other flags does a fast fixed-quality re-encode
+/// (SPEC-084): a valid JPEG, smaller than a max-quality encode, dimensions preserved.
 #[test]
 fn optimize_default_is_smaller_valid_jpeg() {
     let dir = tempfile::tempdir().expect("tempdir");
@@ -4665,6 +3804,150 @@ fn optimize_web_quiet_suppresses_summary() {
     );
 }
 
+/// SPEC-086: the DEFAULT `optimize` (no `--verify`) stays lean — no SSIMULACRA2
+/// score in the summary or the JSON explain (scoring a full-resolution winner is
+/// too costly to run unconditionally — SPEC-084 acceptance #4).
+#[test]
+fn optimize_default_has_no_score() {
+    let dir = tempfile::tempdir().unwrap();
+    let in_path = write_bytes(&dir, "photo.jpg", &common::jpeg_with_exif(256, 256));
+    let out_dir = dir.path().join("out");
+
+    // Default summary (stderr) carries no ssim readout.
+    let summary = Command::new(BIN)
+        .args([
+            "optimize",
+            in_path.to_str().unwrap(),
+            "--out-dir",
+            out_dir.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(
+        summary.status.code(),
+        Some(0),
+        "stderr: {}",
+        stderr_str(&summary)
+    );
+    assert!(
+        !stderr_str(&summary).contains("ssim"),
+        "the default summary must not carry a score, got: {}",
+        stderr_str(&summary)
+    );
+
+    // The JSON explain schema is unchanged: no `ssim` field without `--verify`.
+    let json = Command::new(BIN)
+        .args([
+            "optimize",
+            in_path.to_str().unwrap(),
+            "--out-dir",
+            dir.path().join("out2").to_str().unwrap(),
+            "--explain=json",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(json.status.code(), Some(0), "stderr: {}", stderr_str(&json));
+    assert!(
+        !stdout_str(&json).contains("\"ssim\""),
+        "the default JSON explain must not carry an ssim field, got: {}",
+        stdout_str(&json)
+    );
+}
+
+/// SPEC-086: `optimize --verify` opts the score back on for one run — the winner's
+/// SSIMULACRA2 appears on the summary and in the JSON explain, is in `(0, 100]`, and
+/// matches an independent `diff` of the input against the shipped output (the readout
+/// is the real metric, not a fabricated number). `jpeg_with_exif` classifies as a
+/// photograph (lossy winner in both build configs) and keeps its dimensions, so the
+/// input/output `diff` is dimension-matched.
+#[test]
+fn optimize_verify_reports_score() {
+    // Pull `"<key>":<number>` out of a flat JSON object.
+    fn json_number(json: &str, key: &str) -> Option<f64> {
+        let needle = format!("\"{key}\":");
+        let start = json.find(&needle)? + needle.len();
+        let rest = &json[start..];
+        let end = rest
+            .find(|c: char| !(c.is_ascii_digit() || c == '.' || c == '-'))
+            .unwrap_or(rest.len());
+        rest[..end].parse().ok()
+    }
+
+    let dir = tempfile::tempdir().unwrap();
+    let in_path = write_bytes(&dir, "photo.jpg", &common::jpeg_with_exif(256, 256));
+    let out_dir = dir.path().join("out");
+
+    // Human summary (default reporter) must carry the ssim readout.
+    let summary = Command::new(BIN)
+        .args([
+            "optimize",
+            in_path.to_str().unwrap(),
+            "--out-dir",
+            out_dir.to_str().unwrap(),
+            "--verify",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(
+        summary.status.code(),
+        Some(0),
+        "stderr: {}",
+        stderr_str(&summary)
+    );
+    assert!(
+        stderr_str(&summary).contains("ssim"),
+        "`--verify` summary must report a score, got: {}",
+        stderr_str(&summary)
+    );
+
+    // JSON explain must carry the score too; capture the machine-readable value.
+    let json_out = Command::new(BIN)
+        .args([
+            "optimize",
+            in_path.to_str().unwrap(),
+            "--out-dir",
+            dir.path().join("out2").to_str().unwrap(),
+            "--verify",
+            "--explain=json",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(
+        json_out.status.code(),
+        Some(0),
+        "stderr: {}",
+        stderr_str(&json_out)
+    );
+    let json = stdout_str(&json_out);
+    let ssim = json_number(&json, "ssim")
+        .unwrap_or_else(|| panic!("`--verify --explain=json` must carry an ssim field: {json}"));
+    assert!(
+        ssim > 0.0 && ssim <= 100.0,
+        "the reported ssim must be in (0, 100], got {ssim}"
+    );
+
+    // Independently score the shipped output against the input via `diff` — the
+    // `--verify` readout must match it within tolerance (they measure the same
+    // degradation; the tolerance covers the decode/rounding paths).
+    let (out_path, _) = optimize_single_output(&out_dir);
+    let diff = Command::new(BIN)
+        .args([
+            "diff",
+            in_path.to_str().unwrap(),
+            out_path.to_str().unwrap(),
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(diff.status.code(), Some(0), "stderr: {}", stderr_str(&diff));
+    let diff_score = json_number(&stdout_str(&diff), "score")
+        .unwrap_or_else(|| panic!("diff --json must carry a score: {}", stdout_str(&diff)));
+    assert!(
+        (ssim - diff_score).abs() <= 6.0,
+        "the --verify ssim ({ssim}) must match the input↔output diff ({diff_score}) within tolerance"
+    );
+}
+
 /// Pinning the format (`-o x.webp`, a recognized extension) bypasses the engine.
 #[test]
 fn optimize_pinned_format_bypasses_engine() {
@@ -4828,9 +4111,51 @@ fn optimize_target_flag_still_searches() {
     // The searched JPEG must still beat the source (visually-lossy-family win).
     assert!(
         bytes.len() < src.len(),
-        "perceptual search should still shrink: {} vs {}",
+        "perceptual search should still reduce bytes: {} vs {}",
         bytes.len(),
         src.len()
+    );
+}
+
+/// An unreachable perceptual target degrades to BEST EFFORT, not an error: on a
+/// high-frequency noise JPEG that even quality 100 cannot match, `optimize --ssim
+/// 100 -o out.jpg` exits 0, writes the highest-quality JPEG, and warns that the
+/// target was not reached (the opt-in perceptual search's best-effort contract,
+/// SPEC-016 — inherited by `optimize`).
+#[test]
+fn optimize_unreachable_target_warns_best_effort() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let src = noisy_jpeg(64, 64);
+    let in_path = write_bytes(&dir, "noise.jpg", &src);
+    let out_path = dir.path().join("out.jpg");
+
+    let output = Command::new(BIN)
+        .args([
+            "optimize",
+            in_path.to_str().unwrap(),
+            "--ssim",
+            "100",
+            "-o",
+            out_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run optimize --ssim 100");
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "an unreachable target must degrade to best-effort (exit 0); stderr: {}",
+        stderr_str(&output)
+    );
+    let bytes = std::fs::read(&out_path).expect("output file");
+    assert_eq!(
+        image::guess_format(&bytes).expect("guess format"),
+        ImageFormat::Jpeg,
+        "best-effort output should still be a valid JPEG"
+    );
+    let stderr = stderr_str(&output);
+    assert!(
+        stderr.contains("could not reach") || stderr.contains("best effort"),
+        "an unreachable target should warn best-effort; got: {stderr}"
     );
 }
 

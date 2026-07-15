@@ -130,7 +130,7 @@ pub struct GlobalArgs {
     pub watch: bool,
 }
 
-/// A perceptual auto-quality preset for `shrink --target` (SPEC-016, DEC-019).
+/// A perceptual auto-quality preset for `optimize --target` (SPEC-016, DEC-019).
 ///
 /// Each preset maps to a target SSIMULACRA2 score (higher = closer to the
 /// original). clap renders the variants in kebab-case on the command line:
@@ -188,7 +188,7 @@ pub enum ExplainFmt {
     Json,
 }
 
-/// An opt-in auto-quality mode for `shrink`/`convert`: the encoder quality is
+/// An opt-in auto-quality mode for `optimize`/`convert`: the encoder quality is
 /// searched per output instead of fixed (SPEC-016 / SPEC-017). Both modes run
 /// only for a format with a lossy quality knob (JPEG today; ignored otherwise,
 /// DEC-019) — see [`LossyFormat::supports_lossy_quality`]. The search lives in
@@ -273,23 +273,6 @@ pub enum Commands {
         square: bool,
     },
 
-    /// Optimize-for-web: resize + quality encode + strip metadata.
-    /// `--target`/`--ssim` auto-tune the JPEG quality to a perceptual target.
-    Shrink {
-        inputs: Vec<String>,
-        #[arg(long)]
-        max: Option<u32>,
-        /// Auto-tune the JPEG quality to a perceptual preset (SSIMULACRA2).
-        #[arg(long, value_enum)]
-        target: Option<QualityTarget>,
-        /// Auto-tune the JPEG quality to a specific SSIMULACRA2 score (0-100).
-        #[arg(long, conflicts_with = "target")]
-        ssim: Option<f64>,
-        /// Auto-tune the JPEG quality to fit a byte budget, e.g. `200KB`.
-        #[arg(long, value_name = "SIZE", conflicts_with_all = ["target", "ssim"])]
-        max_size: Option<String>,
-    },
-
     /// Re-encode to another core format.
     Convert {
         inputs: Vec<String>,
@@ -344,6 +327,10 @@ pub enum Commands {
         /// format; `preserve` keeps the input format (today's behaviour).
         #[arg(long, value_enum, default_value_t = ProfileArg::Web)]
         profile: ProfileArg,
+        /// Compute and report the winner's SSIMULACRA2 score for this run (off by
+        /// default — the keep-dimensions default stays lean; `web` scores always).
+        #[arg(long)]
+        verify: bool,
         /// Explain the auto-decision: `--explain` (human, to stderr) or
         /// `--explain=json` (machine-readable, to stdout).
         #[arg(long, value_enum, num_args = 0..=1, default_missing_value = "human")]
@@ -801,20 +788,6 @@ fn dispatch(cli: &Cli) -> Result<(), CliError> {
             size,
             square,
         } => run_thumbnail(inputs, *size, *square, &cli.global),
-        Commands::Shrink {
-            inputs,
-            max,
-            target,
-            ssim,
-            max_size,
-        } => run_shrink(
-            inputs,
-            *max,
-            *target,
-            *ssim,
-            max_size.as_deref(),
-            &cli.global,
-        ),
         Commands::Convert {
             inputs,
             format,
@@ -827,6 +800,7 @@ fn dispatch(cli: &Cli) -> Result<(), CliError> {
             ssim,
             max_size,
             profile,
+            verify,
             explain,
         } => run_optimize(
             inputs,
@@ -835,6 +809,7 @@ fn dispatch(cli: &Cli) -> Result<(), CliError> {
             *ssim,
             max_size.as_deref(),
             *profile,
+            *verify,
             *explain,
             &cli.global,
         ),
@@ -3034,8 +3009,8 @@ fn resolve_effective_quality(
             quality: None,
             image: None,
         }),
-        // `Fast` is the `optimize`-only default decision (SPEC-084); it runs through
-        // `optimize_decide_one`, never this shrink/convert quality planner. Handled
+        // `Fast` is the `optimize`/`web` default decision (SPEC-084); it runs through
+        // `optimize_decide_one`, never this convert quality planner. Handled
         // defensively as the encoder default so the match stays exhaustive.
         Some(AutoQuality::Fast) => Ok(EncodePlan {
             quality: None,
@@ -3066,7 +3041,7 @@ fn resolve_effective_quality(
 /// - `auto`: when `Some(mode)`, search the quality per-input on the output pixels
 ///   (JPEG outputs only; ignored for other formats) instead of using the fixed
 ///   `quality` — perceptual (`--target`/`--ssim`, SPEC-016) or a byte budget
-///   (`--max-size`, SPEC-017). Used by `run_shrink` and `run_convert`.
+///   (`--max-size`, SPEC-017). Used by `run_optimize` and `run_convert`.
 fn run_pixel_op(
     pipeline: Pipeline,
     inputs: &[String],
@@ -3695,13 +3670,11 @@ fn run_thumbnail(
     run_pixel_op(pipeline, inputs, global, global.quality, None, None)
 }
 
-// ── shrink helpers ────────────────────────────────────────────────────────────
+// ── resize/quality helpers ────────────────────────────────────────────────────
 
-/// The default long-edge bound when `--max` is omitted for `shrink`.
-const DEFAULT_SHRINK_MAX: u32 = 1600;
-
-/// The default JPEG encode quality when `-q` is omitted for `shrink` (DEC-016).
-const DEFAULT_SHRINK_QUALITY: u8 = 80;
+/// The default JPEG encode quality when `-q` is omitted for a lossy re-encode that
+/// defaults its quality (DEC-016) — `responsive`'s per-variant default.
+const DEFAULT_LOSSY_QUALITY: u8 = 80;
 
 /// The `web` verb's default downscale long-edge bound, in pixels.
 ///
@@ -3715,11 +3688,11 @@ const DEFAULT_SHRINK_QUALITY: u8 = 80;
 /// own bounds.
 pub const WEB_DEFAULT_LONG_EDGE: u32 = 2048;
 
-/// Map shrink's `max` arg to the `Resize` OperationParams the registry expects
-/// (SPEC-010's PINNED schema). `shrink` always uses `mode=max` to bound the
-/// long edge; `max` defaults to `DEFAULT_SHRINK_MAX`. Infallible — the mapping
-/// is total; the op validates the dim.
-fn shrink_params(max: u32) -> OperationParams {
+/// Map a `--max` long-edge bound to the `Resize` OperationParams the registry
+/// expects (SPEC-010's PINNED schema): always `mode=max` (bound the long edge, no
+/// upscale). Used by `optimize`/`web`'s pipeline. Infallible — the mapping is
+/// total; the op validates the dim.
+fn resize_max_params(max: u32) -> OperationParams {
     use std::collections::BTreeMap;
 
     let mut map: BTreeMap<String, toml::Value> = BTreeMap::new();
@@ -3728,12 +3701,12 @@ fn shrink_params(max: u32) -> OperationParams {
     OperationParams::from_map(map)
 }
 
-// ── shrink handler ────────────────────────────────────────────────────────────
+// ── auto-quality helpers ──────────────────────────────────────────────────────
 
 /// Reject combining a fixed `-q/--quality` with an auto-quality mode — they are
 /// mutually exclusive (one pins a quality, the other searches for it). `-q` is a
 /// GLOBAL arg, so this can't be expressed as a clap `conflicts_with` against the
-/// subcommand args; both `shrink` and `convert` enforce it here at runtime
+/// subcommand args; both `convert` and `optimize` enforce it here at runtime
 /// (`CliError::Usage`, exit 2).
 fn reject_quality_with_auto(
     auto: &Option<AutoQuality>,
@@ -3747,33 +3720,6 @@ fn reject_quality_with_auto(
         ));
     }
     Ok(())
-}
-
-/// Resolve `shrink`'s auto-quality target from `--target`/`--ssim` (SPEC-016).
-///
-/// Returns `Ok(None)` when neither flag is set (fixed-quality behavior). A
-/// `--ssim` score outside `0.0..=100.0` is a usage error (exit 2). `--target`
-/// and `--ssim` together are rejected by clap (`conflicts_with`) before this is
-/// reached; the `(Some, Some)` arm is a defensive fallback.
-fn shrink_auto_config(
-    target: Option<QualityTarget>,
-    ssim: Option<f64>,
-) -> Result<Option<SearchConfig>, CliError> {
-    match (target, ssim) {
-        (Some(_), Some(_)) => Err(CliError::Usage(
-            "--target and --ssim are mutually exclusive".into(),
-        )),
-        (Some(t), None) => Ok(Some(SearchConfig::for_target(t.target_score()))),
-        (None, Some(s)) => {
-            if !(0.0..=100.0).contains(&s) {
-                return Err(CliError::Usage(format!(
-                    "--ssim must be a score in 0..=100, got {s}"
-                )));
-            }
-            Ok(Some(SearchConfig::for_target(s)))
-        }
-        (None, None) => Ok(None),
-    }
 }
 
 /// Parse a `--max-size` value into a byte count (SPEC-017).
@@ -3820,68 +3766,6 @@ fn parse_size(s: &str) -> Result<u64, CliError> {
         )));
     }
     Ok(bytes.round() as u64)
-}
-
-/// Wire the `shrink` subcommand: resize to a long-edge bound + quality-aware
-/// JPEG encode + inherent metadata drop (from the pixel-lane re-encode).
-///
-/// - `--max N` (default 1600) bounds the longest edge to N (no upscale via the
-///   `resize max` mode).
-/// - `--target <preset>` / `--ssim <score>` / `--max-size <SIZE>` auto-tune the
-///   JPEG quality per input (SPEC-016 / SPEC-017): perceptual (lowest quality
-///   clearing an SSIMULACRA2 target) or a byte budget (highest quality ≤ SIZE).
-///   Opt-in; mutually exclusive with each other and with `-q`. Ignored for
-///   non-JPEG outputs (encoder default), mirroring `-q` on lossless formats.
-/// - `-q Q` (default 80, only when no auto mode) sets the JPEG encode quality;
-///   ignored for lossless formats (DEC-016).
-/// - Multi-input fan-out and partial-batch exit 6 are inherited via
-///   `run_pixel_op` (DEC-015).
-fn run_shrink(
-    inputs: &[String],
-    max: Option<u32>,
-    target: Option<QualityTarget>,
-    ssim: Option<f64>,
-    max_size: Option<&str>,
-    global: &GlobalArgs,
-) -> Result<(), CliError> {
-    // Resolve the auto mode: perceptual (--target/--ssim) or byte budget
-    // (--max-size). clap `conflicts_with_all` makes these mutually exclusive; the
-    // `(Some, Some)` arm is a defensive fallback.
-    let auto: Option<AutoQuality> = match (shrink_auto_config(target, ssim)?, max_size) {
-        (Some(cfg), None) => Some(AutoQuality::Perceptual(cfg)),
-        (None, Some(sz)) => Some(AutoQuality::SizeBudget(parse_size(sz)?)),
-        (None, None) => None,
-        (Some(_), Some(_)) => {
-            return Err(CliError::Usage(
-                "--max-size is mutually exclusive with --target/--ssim".into(),
-            ))
-        }
-    };
-
-    // `-q` pins a quality; the auto modes search for one — reject combining them.
-    reject_quality_with_auto(&auto, global)?;
-
-    let effective_max = max.unwrap_or(DEFAULT_SHRINK_MAX);
-    let params = shrink_params(effective_max);
-
-    let op = OperationRegistry::with_builtins()
-        .build("resize", &params)
-        .map_err(|e| match e {
-            RegistryError::InvalidParams { reason, .. } => CliError::Usage(reason),
-            RegistryError::Unknown { name } => {
-                CliError::Usage(format!("unknown operation '{name}'"))
-            }
-        })?;
-
-    let pipeline = Pipeline::new().push(op);
-    // With an auto target, the per-input search supplies the quality (pass None as
-    // the fixed quality). Without it, keep today's fixed default (80).
-    let fixed_quality = if auto.is_some() {
-        None
-    } else {
-        Some(global.quality.unwrap_or(DEFAULT_SHRINK_QUALITY))
-    };
-    run_pixel_op(pipeline, inputs, global, fixed_quality, None, auto)
 }
 
 // ── auto-orient handler ───────────────────────────────────────────────────────
@@ -4040,7 +3924,7 @@ fn run_watermark(
 /// and the shared `run_pixel_op` fan-out with `forced_format` (DEC-015 / SPEC-014).
 ///
 /// Quality threading: pass `global.quality` as-is; `convert` has NO forced
-/// default (only `shrink` defaults quality to 80, per DEC-016). `--max-size`
+/// default quality (the encoder default unless `-q`, per DEC-016). `--max-size`
 /// auto-tunes the JPEG quality to a byte budget (SPEC-017; JPEG target only —
 /// ignored with a warning for a lossless target format); mutually exclusive with
 /// `-q`.
@@ -4088,7 +3972,7 @@ fn run_convert(
 
 /// Resolve `optimize`'s auto-quality mode (SPEC-022, DEC-024; SPEC-084).
 ///
-/// Unlike [`shrink_auto_config`], `optimize` is ALWAYS in an auto mode: with no flag
+/// `optimize` is ALWAYS in an auto mode: with no flag
 /// the default is the **fast decision** ([`AutoQuality::Fast`], SPEC-084) — a
 /// fixed-quality single-encode compare that admits AVIF for photographic content and
 /// never emits a larger file. `--target`/`--ssim` opt into the perceptual search;
@@ -4122,21 +4006,28 @@ fn optimize_auto_config(
     }
 }
 
-/// Wire the `optimize` subcommand: the one-button "web-good" command (DEC-024).
+/// Wire the `optimize` subcommand: the keep-dimensions byte-primitive (DEC-024,
+/// SPEC-084/086).
 ///
 /// Pipeline (PINNED order): `auto-orient` (bake EXIF orientation, then drop the
 /// metadata bundle — DEC-017) then, iff `--max N`, a `resize max N` long-edge
-/// bound (built like [`shrink_params`]). The output is re-encoded to a perceptual
-/// target (visually-lossless by default) in the input's own format (DEC-015
-/// precedence: `--format` > `-o` ext > preserve source — i.e. `forced_format =
-/// None`). The pixel-lane re-encode drops ALL metadata (privacy incl. GPS); this is
-/// NOT the selective-preserve container lane (DEC-003), which is unbuilt (STAGE-004).
+/// bound (built via [`resize_max_params`]). By default (no flags) the output is the
+/// **fast fixed-quality decision** ([`AutoQuality::Fast`], SPEC-084): a single-encode
+/// AVIF-aware compare that keeps dimensions and never ships a larger file. The
+/// perceptual (`--target`/`--ssim`) and byte-budget (`--max-size`) searches are
+/// opt-in. Format follows DEC-015 precedence (`--format` > `-o` ext > the
+/// auto-decision, unless `--profile preserve`). The pixel-lane re-encode drops ALL
+/// metadata (privacy incl. GPS); this is NOT the selective-preserve container lane
+/// (DEC-003), which is unbuilt (STAGE-004).
 ///
-/// `optimize` always auto-tunes quality, so a fixed `-q` conflicts (exit 2);
-/// `--target`/`--ssim`/`--max-size` are mutually exclusive. Multi-input fan-out +
-/// partial-batch exit 6 are inherited via [`run_pixel_op`] (DEC-015).
+/// The default stays **score-free** (scoring a full-resolution winner costs too much
+/// to run unconditionally — SPEC-084 acceptance #4); `--verify` opts into a single
+/// [`crate::quality::score_winner_once`] readout for this run (`web` scores always —
+/// SPEC-085). `optimize` always auto-tunes quality, so a fixed `-q` conflicts
+/// (exit 2); `--target`/`--ssim`/`--max-size` are mutually exclusive. Multi-input
+/// fan-out + partial-batch exit 6 are inherited via [`run_pixel_op`] (DEC-015).
 // A CLI command handler mirroring its clap-destructured args (outcome flags +
-// profile + explain); bundling them would just re-wrap the same scalars.
+// profile + verify + explain); bundling them would just re-wrap the same scalars.
 #[allow(clippy::too_many_arguments)]
 fn run_optimize(
     inputs: &[String],
@@ -4145,6 +4036,7 @@ fn run_optimize(
     ssim: Option<f64>,
     max_size: Option<&str>,
     profile: ProfileArg,
+    verify: bool,
     explain: Option<ExplainFmt>,
     global: &GlobalArgs,
 ) -> Result<(), CliError> {
@@ -4180,8 +4072,9 @@ fn run_optimize(
         explain,
         global,
         // `optimize` keeps dimensions, so scoring the full-resolution winner is too
-        // costly to run by default (SPEC-084 acceptance #4); only `web` scores.
-        false,
+        // costly to run by default (SPEC-084 acceptance #4); `--verify` opts in for
+        // this run (SPEC-086), and `web` scores always (SPEC-085).
+        verify,
     )
 }
 
@@ -4251,7 +4144,7 @@ fn optimize_pipeline(max: Option<u32>) -> Result<Pipeline, CliError> {
     let mut pipeline = Pipeline::new().push(orient);
     if let Some(n) = max {
         let resize = registry
-            .build("resize", &shrink_params(n))
+            .build("resize", &resize_max_params(n))
             .map_err(map_registry_err)?;
         pipeline = pipeline.push(resize);
     }
@@ -4575,6 +4468,7 @@ fn optimize_decide_one(
             .collect(),
         winner,
         out_bytes,
+        verify_score: winner_score,
     };
 
     Ok((output, Some(trace), winner_score))
@@ -4846,7 +4740,7 @@ fn mime_for_format(fmt: ::image::ImageFormat) -> String {
 /// else 80 for a lossy format; `None` (lossless) for formats without a quality knob.
 fn responsive_quality(fmt: ::image::ImageFormat, q: Option<u8>) -> Option<u8> {
     if fmt.supports_lossy_quality() {
-        Some(q.unwrap_or(DEFAULT_SHRINK_QUALITY))
+        Some(q.unwrap_or(DEFAULT_LOSSY_QUALITY))
     } else {
         None
     }

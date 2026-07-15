@@ -23,7 +23,7 @@ Legend: 🟢 in the original prototype · ⭐ user-requested · ✅ MVP ·
 - ⭐⏩ `crop` (rect / gravity / center / aspect; 💎 entropy/smart) · ⏩ `rotate` · ⏩ `flip`/`flop` · ⏩ `trim` · ⏩ `pad`/`extend`
 
 ### Format / encoding / web-optimize
-- 🟢✅ `shrink` / optimize (resize + real quality + strip metadata) · ✅ `convert` (format change) · 🟢✅ `strip`
+- 🟢✅ `web` / `optimize` (downscale/keep-dims + real quality + strip metadata) · ✅ `convert` (format change) · 🟢✅ `strip`
 - ⏩ **WebP** output (biggest real web-size win) · 💎 **AVIF** output (behind a cargo feature; slow encode)
 - ⏩ progressive JPEG, PNG compression level, GIF/PNG quantization · 💎 target-file-size / target-SSIM auto-quality
 
