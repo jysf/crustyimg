@@ -134,6 +134,15 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`. Build order: **084 �
   a 4× regression). Do **not** fire AVIF on graphics.
 - **AVIF admission is a bucket predicate**, not shortlist membership (SPEC-079's `MAX_SHORTLIST`
   truncation lesson).
+- **The SSIMULACRA2 score is informational, and its cost is dimension-linear — measured 2026-07-14
+  (release): ~107 ms/MP** (1 MP 114 ms, 3 MP 330 ms, 12 MP 1.31 s, ~5 s at 47 MP; via `diff`, which
+  decodes both — the in-flow score-once is a touch cheaper since the input is already decoded). Two
+  consequences for the score-once readout: (1) the **fast default picks the winner by BYTES** (smallest
+  beats source), so the score is **never needed for the decision** — it can be gated freely. (2) The
+  gate: **`web` shows it always** (it scores the downscaled ~2–3 MP output → ~0.2–0.35 s, effectively
+  free), **keep-dimensions `optimize` shows it only under `--verify`** (SPEC-086) — because scoring a
+  full-res 12–47 MP image is 1.3–5 s. SPEC-084 provides the score-once *helper*; do NOT wire it
+  always-on into the keep-dims default.
 
 ## Dependencies
 
