@@ -136,6 +136,12 @@ the *same* recipe TOMLs the CLI ships (DEC-005), run in-browser: geometry/format
 existing wasm `transform(input, recipe_toml, out_format)`; the `web`/auto-format recipe via
 `optimizeDetailed` (the hero). Story: "the recipe you click here is the same one you'd run in your
 build." Cheap (the wasm engine already runs recipes); sequenced after SPEC-085 so the recipes exist.
+  - **Teaching angle (the adoption funnel).** Each preset should **show the recipe TOML it runs** +
+    a **"run this in your terminal" `crustyimg apply --recipe web` copy affordance** — the user learns
+    the format by reading the real recipe, then gets the exact command that works (same file, DEC-005).
+    That's the MVP. **Stretch (follow-up, not the redesign):** an **editable recipe playground** — a
+    TOML textarea re-run in-browser via `transform` — nearly free technically, but scope-gate it so the
+    core demo lands first.
 
 ## Surface properties SPEC-079 exposes (the demo specs MUST handle these)
 
