@@ -50,8 +50,34 @@ pub const AVIF_SPEED: u8 = 6;
 /// The default AVIF quality (1–100, 100=best) when `-q` is omitted (DEC-020).
 /// AVIF quality numbers are NOT comparable to JPEG's; use `--target`/`--ssim`/
 /// `--max-size` to ask for an outcome rather than a raw number.
+///
+/// This is the **`convert`/explicit-`-q`-omitted** default and MUST stay 80 — the
+/// native `convert -o x.avif` byte-output is anchored to it (SPEC-084's
+/// `convert_avif_bytes_unchanged_at_default`). The **default `optimize`** path is a
+/// separate, more generous knob: [`FAST_LOSSY_QUALITY`].
 #[cfg(feature = "avif")]
 pub const AVIF_DEFAULT_QUALITY: u8 = 80;
+
+/// The fixed encoder quality the **default `optimize` decision** (`Mode::Fast`,
+/// SPEC-084) encodes its lossy candidates at — AVIF, JPEG, and lossy WebP.
+///
+/// It is deliberately **generous** (DEC-069, the two-regime rule): the default
+/// keeps the source's dimensions, so it should protect quality, not chase the last
+/// byte — the savings come from the modern *codec* (AVIF), not from a low quality.
+/// Lowering the target for more savings is the opt-in `--target` search, not the
+/// default. **85 was validated on the real corpus** (5 photos, 0–24 MP, kept-dims):
+/// AVIF q85 lands SSIMULACRA2 ≈ 70–82 (median ~78) at a corpus-median **~82 % savings**
+/// (69–99 %, 4/8 photos ≥ 90 %), and it is
+/// visually indistinguishable from the source even on the lowest-scoring 24 MP photo
+/// (the full-resolution score is depressed by fine detail and by already-JPEG'd
+/// references — DEC-069). q80 is measurably aggressive (61–76); q90 costs ~1.5–2× the
+/// bytes for +3–6 points. See DEC-069 for the full sweep.
+///
+/// This is one number on three different codec scales; AVIF is the eyeball-anchored
+/// one. JPEG and lossy WebP at 85 are conventional "high quality" on their own
+/// scales and are only fallbacks when AVIF is not built. Not `#[cfg]`-gated: JPEG is
+/// always available, so the constant is always meaningful.
+pub const FAST_LOSSY_QUALITY: u8 = 85;
 
 // ── Public types ──────────────────────────────────────────────────────────────
 
@@ -917,6 +943,48 @@ mod tests {
             "lower quality should produce fewer bytes: q30={} q90={}",
             low.len(),
             high.len()
+        );
+    }
+
+    /// **SPEC-084 regression anchor.** The native `convert` default AVIF output —
+    /// `encode_to_bytes(img, Avif, None)` — MUST be byte-identical to what it was
+    /// before this spec. SPEC-084 adds a *separate*, more generous fast-path quality
+    /// ([`FAST_LOSSY_QUALITY`]) for the default `optimize`; it must NOT touch the
+    /// `None` default, which is anchored to [`AVIF_DEFAULT_QUALITY`] = 80.
+    #[cfg(feature = "avif")]
+    #[test]
+    fn convert_avif_bytes_unchanged_at_default() {
+        let img = detailed_image(96, 96);
+
+        // The default (no quality) encode is q80, byte-for-byte, and unchanged.
+        assert_eq!(
+            AVIF_DEFAULT_QUALITY, 80,
+            "convert's AVIF default must stay 80"
+        );
+        let default = encode_to_bytes(&img, ImageFormat::Avif, None).expect("encode None");
+        let explicit_80 = encode_to_bytes(&img, ImageFormat::Avif, Some(AVIF_DEFAULT_QUALITY))
+            .expect("encode 80");
+        assert_eq!(
+            default, explicit_80,
+            "convert default AVIF (None) must equal an explicit q{AVIF_DEFAULT_QUALITY} encode"
+        );
+        assert_eq!(
+            ::image::guess_format(&default).unwrap(),
+            ImageFormat::Avif,
+            "default AVIF output must be AVIF"
+        );
+
+        // The fast-path quality is a DIFFERENT, more generous knob — proving the two
+        // paths are distinct (else the anchor above would be meaningless).
+        assert_ne!(
+            FAST_LOSSY_QUALITY, AVIF_DEFAULT_QUALITY,
+            "the fast-path quality must be distinct from convert's default"
+        );
+        let fast = encode_to_bytes(&img, ImageFormat::Avif, Some(FAST_LOSSY_QUALITY))
+            .expect("encode fast quality");
+        assert_ne!(
+            default, fast,
+            "the generous fast-path encode must differ from convert's default encode"
         );
     }
 

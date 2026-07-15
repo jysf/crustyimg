@@ -48,9 +48,15 @@ pub enum Disposition {
 /// per-candidate solve.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
-    /// Perceptual SSIMULACRA2 target (`--target`/`--ssim`, the default).
+    /// The **default** decision (SPEC-084): no search. Each bucket-appropriate
+    /// candidate is encoded **once** at its fixed default quality, AVIF is admitted
+    /// for lossy-family content at a generous fixed quality, and the smallest that
+    /// beats the source wins. This is the mode a plain `optimize` (no
+    /// `--target`/`--ssim`/`--max-size`) runs.
+    Fast,
+    /// Perceptual SSIMULACRA2 target (`--target`/`--ssim`, opt-in).
     Perceptual,
-    /// Byte budget (`--max-size`).
+    /// Byte budget (`--max-size`, opt-in).
     SizeBudget,
 }
 
@@ -87,13 +93,32 @@ pub struct CandidateOutcome {
     pub met_target: bool,
 }
 
+/// Is AVIF admissible as a fixed-quality candidate for this content bucket?
+///
+/// AVIF belongs to the **lossy family** — it is the modern replacement for a JPEG,
+/// never for a flat graphic (validated: a screenshot → lossless WebP, AVIF is a 4×
+/// regression). So it is admitted for [`OptBucket::Lossy`] and the ambiguous
+/// [`OptBucket::MixedSafe`] (where `pick_winner`'s smallest-beats-source lets the
+/// measured bytes veto it), never for [`OptBucket::LosslessFlat`].
+///
+/// This is a **bucket predicate, deliberately independent of shortlist position**
+/// (SPEC-079's lesson): [`format_shortlist`] truncates to [`MAX_SHORTLIST`], and a
+/// last-appended AVIF on a full list would be silently dropped — so the admission
+/// rule is about the bucket, not "did AVIF survive the truncation".
+pub fn avif_admissible(bucket: OptBucket, built: BuiltCodecs) -> bool {
+    built.avif && matches!(bucket, OptBucket::Lossy | OptBucket::MixedSafe)
+}
+
 /// Build the ordered ≤[`MAX_SHORTLIST`] candidate shortlist for a decoded image
 /// (SPEC-048 / DEC-048).
 ///
-/// Only built + capability-valid entries are returned; **AVIF appears only in
-/// byte-budget mode and only when built** (it has no decoder, DEC-020, so it
-/// cannot be perceptually scored). The result is never empty — it always
-/// contains at least one always-available lossless entry (PNG).
+/// Only built + capability-valid entries are returned. **AVIF is admitted for the
+/// lossy-family buckets** (see [`avif_admissible`]) in the two non-perceptual
+/// modes: [`Mode::SizeBudget`] (the byte-budget search, appended) and
+/// [`Mode::Fast`] (the default decision, prepended so the [`MAX_SHORTLIST`]
+/// truncation can never drop it). It never appears in [`Mode::Perceptual`] — it has
+/// no decoder to score a round-trip against (DEC-020). The result is never empty —
+/// it always contains at least one always-available lossless entry (PNG).
 pub fn format_shortlist(
     bucket: OptBucket,
     has_alpha: bool,
@@ -149,12 +174,20 @@ pub fn format_shortlist(
         }
     }
 
-    // AVIF: byte-budget mode only, built only, lossy-family bucket only.
-    if mode == Mode::SizeBudget
-        && built.avif
-        && matches!(effective, OptBucket::Lossy | OptBucket::MixedSafe)
-    {
-        out.push(lossy(ImageFormat::Avif));
+    // AVIF admission (built + lossy-family bucket only — the bucket predicate,
+    // NOT shortlist position). Two non-perceptual modes admit it, differently:
+    //   * SizeBudget: appended — its byte-budget search comparison-shops it against
+    //     the same-family lossy candidates (unchanged from SPEC-018).
+    //   * Fast: PREPENDED — it is the preferred modern candidate for the default
+    //     decision, and prepending makes it immune to the MAX_SHORTLIST truncation
+    //     that would otherwise silently drop a last-appended AVIF (SPEC-079's
+    //     lesson: admit by bucket, and don't let truncation position decide it).
+    if avif_admissible(effective, built) {
+        match mode {
+            Mode::SizeBudget => out.push(lossy(ImageFormat::Avif)),
+            Mode::Fast => out.insert(0, lossy(ImageFormat::Avif)),
+            Mode::Perceptual => {}
+        }
     }
 
     out.truncate(MAX_SHORTLIST);
@@ -276,14 +309,30 @@ pub struct ExplainTrace {
 }
 
 impl ExplainTrace {
-    /// Savings as a whole-percent integer (`0` if the source is empty or the
-    /// output is not smaller).
+    /// Savings as a whole-percent integer: positive when the output is smaller,
+    /// **negative when it is larger** (`0` only for an empty source or an exact
+    /// break-even). A larger output is never clamped to `0` — the metadata-forced
+    /// fallback (SPEC-084) can ship a re-encode that could not beat the source, and
+    /// the report must tell the truth about that (see [`Self::size_delta_phrase`]).
     pub fn savings_percent(&self) -> i64 {
-        if self.source_bytes == 0 || self.out_bytes >= self.source_bytes {
+        if self.source_bytes == 0 {
             return 0;
         }
         let frac = 1.0 - (self.out_bytes as f64 / self.source_bytes as f64);
         (frac * 100.0).round() as i64
+    }
+
+    /// The size change rendered honestly: `"40% smaller"`, `"17% larger"`, or
+    /// `"0% smaller"` at break-even. A forced re-encode that could not beat the
+    /// source (SPEC-084 never-bigger) reads as "larger", never a clamped
+    /// "0% smaller".
+    fn size_delta_phrase(&self) -> String {
+        let p = self.savings_percent();
+        if p < 0 {
+            format!("{}% larger", -p)
+        } else {
+            format!("{p}% smaller")
+        }
     }
 
     /// The default one-line summary (chosen format + savings) shown when
@@ -291,12 +340,12 @@ impl ExplainTrace {
     pub fn summary_line(&self) -> String {
         match self.winner {
             Some(i) => format!(
-                "{} \u{2192} {} \u{b7} {} \u{2192} {} B ({}% smaller)",
+                "{} \u{2192} {} \u{b7} {} \u{2192} {} B ({})",
                 format_name(self.source_format),
                 format_name(self.candidates[i].fmt),
                 self.source_bytes,
                 self.out_bytes,
-                self.savings_percent(),
+                self.size_delta_phrase(),
             ),
             None => format!(
                 "kept {} ({} B, already optimal)",
@@ -306,14 +355,38 @@ impl ExplainTrace {
         }
     }
 
-    /// One-line reason for the outcome (used by both renderers).
+    /// One-line reason for the outcome (used by both renderers). Mode-aware: the
+    /// default (fast) path has no perceptual *target*, so it never claims one was
+    /// "met" (SPEC-084) — it picks the smallest re-encode that beats the source by
+    /// bytes. A forced winner that could NOT beat the source (metadata stripped /
+    /// orientation baked, so the raw source could not ship) is named as such.
     fn win_reason(&self) -> String {
         match self.winner {
-            Some(i) => format!(
-                "smallest candidate that met the target and beat the source ({})",
-                format_name(self.candidates[i].fmt)
-            ),
-            None => "kept source — no candidate met the target and beat it".to_owned(),
+            Some(i) => {
+                let fmt = format_name(self.candidates[i].fmt);
+                if self.out_bytes >= self.source_bytes {
+                    format!(
+                        "shipped the smallest correct re-encode ({fmt}); no candidate beat the \
+                         source, but the source could not ship unchanged (metadata stripped / \
+                         orientation baked)"
+                    )
+                } else {
+                    match self.mode {
+                        Mode::Fast => {
+                            format!("smallest fixed-quality re-encode that beat the source ({fmt})")
+                        }
+                        Mode::Perceptual | Mode::SizeBudget => format!(
+                            "smallest candidate that met the target and beat the source ({fmt})"
+                        ),
+                    }
+                }
+            }
+            None => match self.mode {
+                Mode::Fast => "kept source — no candidate beat it".to_owned(),
+                Mode::Perceptual | Mode::SizeBudget => {
+                    "kept source — no candidate met the target and beat it".to_owned()
+                }
+            },
         }
     }
 
@@ -327,14 +400,14 @@ impl ExplainTrace {
         };
         writeln!(
             w,
-            "optimize: {} \u{2192} {} ({} \u{2192} {} B, {}% smaller)",
+            "optimize: {} \u{2192} {} ({} \u{2192} {} B, {})",
             format_name(self.source_format),
             self.winner
                 .map(|i| format_name(self.candidates[i].fmt))
                 .unwrap_or_else(|| format_name(self.source_format)),
             self.source_bytes,
             self.out_bytes,
-            self.savings_percent(),
+            self.size_delta_phrase(),
         )?;
         writeln!(
             w,
@@ -447,6 +520,7 @@ fn profile_name(p: Profile) -> &'static str {
 
 fn mode_name(m: Mode) -> &'static str {
     match m {
+        Mode::Fast => "fast",
         Mode::Perceptual => "perceptual",
         Mode::SizeBudget => "size-budget",
     }
@@ -604,7 +678,8 @@ mod tests {
     }
 
     #[test]
-    fn shortlist_avif_only_in_size_mode_and_when_built() {
+    fn shortlist_avif_never_in_perceptual_and_gated_on_built() {
+        // Perceptual never admits AVIF (no decoder to score a round-trip, DEC-020).
         let perceptual = format_shortlist(
             OptBucket::Lossy,
             false,
@@ -617,29 +692,110 @@ mod tests {
             "no AVIF perceptual"
         );
 
-        let size_built = format_shortlist(
-            OptBucket::Lossy,
+        // Both non-perceptual modes admit AVIF for a lossy-family bucket when built.
+        for mode in [Mode::SizeBudget, Mode::Fast] {
+            let built = format_shortlist(OptBucket::Lossy, false, Profile::Web, mode, ALL_BUILT);
+            assert!(
+                built.iter().any(|e| e.fmt == Avif),
+                "AVIF in {mode:?} when built: {built:?}"
+            );
+            let unbuilt = format_shortlist(OptBucket::Lossy, false, Profile::Web, mode, NONE_BUILT);
+            assert!(
+                unbuilt.iter().all(|e| e.fmt != Avif),
+                "no AVIF unbuilt in {mode:?}: {unbuilt:?}"
+            );
+        }
+
+        // AVIF is never admitted for a purely lossless/graphic bucket, even in Fast.
+        let graphic = format_shortlist(
+            OptBucket::LosslessFlat,
             false,
             Profile::Web,
-            Mode::SizeBudget,
+            Mode::Fast,
             ALL_BUILT,
         );
         assert!(
-            size_built.iter().any(|e| e.fmt == Avif),
-            "AVIF in size mode when built: {size_built:?}"
+            graphic.iter().all(|e| e.fmt != Avif),
+            "no AVIF for a graphic bucket: {graphic:?}"
         );
+    }
 
-        let size_unbuilt = format_shortlist(
-            OptBucket::Lossy,
+    // ── SPEC-084: the default (fast) decision mode ────────────────────────────
+
+    /// The default (fast) decision admits AVIF for a photographic (lossy) bucket.
+    #[test]
+    fn default_decision_admits_avif_for_photo() {
+        let s = format_shortlist(OptBucket::Lossy, false, Profile::Web, Mode::Fast, ALL_BUILT);
+        assert!(
+            s.iter()
+                .any(|e| e.fmt == Avif && e.disposition == Disposition::Lossy),
+            "fast mode must offer a lossy AVIF candidate for a photo: {s:?}"
+        );
+    }
+
+    /// The default (fast) decision keeps a graphic bucket lossless — never AVIF.
+    #[test]
+    fn default_decision_keeps_graphic_lossless() {
+        let s = format_shortlist(
+            OptBucket::LosslessFlat,
             false,
             Profile::Web,
-            Mode::SizeBudget,
-            NONE_BUILT,
+            Mode::Fast,
+            ALL_BUILT,
         );
         assert!(
-            size_unbuilt.iter().all(|e| e.fmt != Avif),
-            "no AVIF unbuilt"
+            s.iter().all(|e| e.disposition == Disposition::Lossless),
+            "a graphic bucket must stay lossless in fast mode: {s:?}"
         );
+        assert!(
+            s.iter().all(|e| e.fmt != Avif),
+            "never AVIF for a graphic: {s:?}"
+        );
+    }
+
+    /// The default decision returns passthrough (`None`) when no fixed-quality
+    /// candidate beats the source — the never-bigger guarantee, mode-independent
+    /// (`pick_winner` compares measured bytes to the source regardless of how the
+    /// candidates were produced).
+    #[test]
+    fn default_decision_passthrough_when_nothing_beats_source() {
+        // An already-optimal source: every fast candidate is ≥ the source bytes.
+        let cands = [
+            oc(Avif, 1_050, true),
+            oc(Jpeg, 1_100, true),
+            oc(WebP, 1_010, true),
+        ];
+        assert_eq!(
+            pick_winner(&cands, 1_000, Jpeg),
+            None,
+            "nothing beats the source → passthrough"
+        );
+    }
+
+    /// The AVIF admission is a **bucket predicate**, not shortlist membership: even
+    /// when the pre-AVIF candidate list already fills `MAX_SHORTLIST`, AVIF survives
+    /// (it is prepended, not appended-then-truncated — the SPEC-079 footgun).
+    #[test]
+    fn avif_admission_survives_shortlist_truncation() {
+        // MixedSafe + no-alpha + ALL_BUILT already yields four pre-AVIF candidates
+        // (lossy WebP, lossless WebP, lossless PNG, JPEG) — more than MAX_SHORTLIST.
+        // An appended AVIF would be truncated away; a prepended one must not be.
+        let s = format_shortlist(
+            OptBucket::MixedSafe,
+            false,
+            Profile::Web,
+            Mode::Fast,
+            ALL_BUILT,
+        );
+        assert!(s.len() <= MAX_SHORTLIST, "still bounded: {s:?}");
+        assert!(
+            s.iter().any(|e| e.fmt == Avif),
+            "AVIF must survive truncation on a full lossy-family shortlist: {s:?}"
+        );
+        // And the predicate agrees independently of the shortlist.
+        assert!(avif_admissible(OptBucket::MixedSafe, ALL_BUILT));
+        assert!(!avif_admissible(OptBucket::LosslessFlat, ALL_BUILT));
+        assert!(!avif_admissible(OptBucket::Lossy, NONE_BUILT));
     }
 
     #[test]
@@ -650,7 +806,7 @@ mod tests {
             OptBucket::MixedSafe,
         ];
         let profiles = [Profile::Web, Profile::Docs];
-        let modes = [Mode::Perceptual, Mode::SizeBudget];
+        let modes = [Mode::Fast, Mode::Perceptual, Mode::SizeBudget];
         let builts = [
             ALL_BUILT,
             NONE_BUILT,
@@ -673,7 +829,11 @@ mod tests {
                                     (Jpeg, _) | (Png, _) => true,
                                     (WebP, Disposition::Lossless) => true,
                                     (WebP, Disposition::Lossy) => built.webp_lossy,
-                                    (Avif, _) => built.avif && mode == Mode::SizeBudget,
+                                    // AVIF is admitted in the two non-perceptual
+                                    // modes, for the lossy-family buckets only.
+                                    (Avif, _) => {
+                                        built.avif && matches!(mode, Mode::SizeBudget | Mode::Fast)
+                                    }
                                     _ => false,
                                 };
                                 assert!(ok, "unbuildable entry {e:?} with {built:?}");
@@ -781,5 +941,81 @@ mod tests {
         let mut json = Vec::new();
         trace.write_json(&mut json).unwrap();
         assert!(String::from_utf8(json).unwrap().contains("\"winner\":null"));
+    }
+
+    // ── SPEC-084 Finding 1: honest reporting of a forced re-encode that is LARGER ──
+
+    /// A forced winner whose output EXCEEDS the source (the metadata-stripped
+    /// re-encode couldn't beat an already-tight source) reports the true delta as
+    /// "larger" — `savings_percent` goes negative, never clamped to a break-even 0.
+    #[test]
+    fn larger_forced_output_is_reported_honestly_not_clamped() {
+        let mut trace = sample_trace();
+        // winner Some(0), but its bytes (12_000) exceed the 10_000-byte source.
+        trace.out_bytes = 12_000;
+        trace.candidates[0].bytes = 12_000;
+
+        assert_eq!(
+            trace.savings_percent(),
+            -20,
+            "a 20% larger output must report -20, not a clamped 0"
+        );
+        assert!(
+            trace.summary_line().contains("20% larger"),
+            "summary must say 'larger', not '0% smaller': {}",
+            trace.summary_line()
+        );
+        assert!(
+            !trace.summary_line().contains("smaller"),
+            "a larger output must not read as 'smaller': {}",
+            trace.summary_line()
+        );
+
+        let mut human = Vec::new();
+        trace.render_human(&mut human).unwrap();
+        let h = String::from_utf8(human).unwrap();
+        assert!(h.contains("20% larger"), "{h}");
+        assert!(
+            h.contains("could not ship unchanged"),
+            "the reason must explain the forced re-encode: {h}"
+        );
+
+        let mut json = Vec::new();
+        trace.write_json(&mut json).unwrap();
+        assert!(
+            String::from_utf8(json)
+                .unwrap()
+                .contains("savings_percent\":-20"),
+            "JSON savings_percent must be honestly negative"
+        );
+    }
+
+    /// The default (fast) path has no perceptual *target*, so its reason must not
+    /// claim one was "met" (SPEC-084 Finding 4) — for both a winning and a
+    /// passthrough outcome.
+    #[test]
+    fn fast_mode_reason_never_claims_a_met_target() {
+        let mut win = sample_trace();
+        win.mode = Mode::Fast;
+        assert!(
+            !win.win_reason().contains("met the target"),
+            "fast win reason must not mention a target: {}",
+            win.win_reason()
+        );
+        assert!(
+            win.win_reason().contains("beat the source"),
+            "fast win reason should still explain the byte decision: {}",
+            win.win_reason()
+        );
+
+        let mut pass = sample_trace();
+        pass.mode = Mode::Fast;
+        pass.winner = None;
+        pass.out_bytes = pass.source_bytes;
+        assert!(
+            !pass.win_reason().contains("met the target"),
+            "fast passthrough reason must not mention a target: {}",
+            pass.win_reason()
+        );
     }
 }

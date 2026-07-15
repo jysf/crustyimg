@@ -195,6 +195,12 @@ pub enum ExplainFmt {
 /// `crate::quality`.
 #[derive(Debug, Clone)]
 pub enum AutoQuality {
+    /// The **default** `optimize` decision (SPEC-084): no search. Each candidate is
+    /// encoded **once** at a fixed generous quality ([`crate::sink::FAST_LOSSY_QUALITY`]
+    /// for lossy formats), AVIF is admitted for photographic content, and the
+    /// smallest that beats the source wins. The perceptual/byte-budget searches
+    /// below are the opt-in modes (`--target`/`--ssim`/`--max-size`).
+    Fast,
     /// Lowest quality whose decoded round-trip scores ≥ the SSIMULACRA2 target
     /// (`--target`/`--ssim`, SPEC-016).
     Perceptual(SearchConfig),
@@ -296,16 +302,19 @@ pub enum Commands {
         max_size: Option<String>,
     },
 
-    /// One-button web-good: auto-orient + strip metadata + perceptual re-encode,
-    /// visually-lossless by default, format/size-preserving.
-    /// `--target`/`--ssim`/`--max-size` override the outcome; `--max` optionally
-    /// bounds the long edge; `-o`/`--format` pick the output format.
+    /// One-button web-good: auto-orient + strip metadata + a fast fixed-quality
+    /// re-encode (high quality by default), picking the smallest modern format that
+    /// beats the source — and never shipping a larger file.
+    /// `--target`/`--ssim` opt into a perceptual search; `--max-size` into a byte
+    /// budget; `--max` optionally bounds the long edge; `-o`/`--format` pick the
+    /// output format.
     Optimize {
         inputs: Vec<String>,
         /// Optional long-edge bound (no resize by default).
         #[arg(long)]
         max: Option<u32>,
-        /// Override the default visually-lossless target with a preset.
+        /// Opt into a perceptual quality search at a preset target (instead of the
+        /// fast fixed-quality default).
         #[arg(long, value_enum)]
         target: Option<QualityTarget>,
         /// Override with a specific SSIMULACRA2 score (0-100).
@@ -2916,6 +2925,13 @@ fn resolve_effective_quality(
             quality: None,
             image: None,
         }),
+        // `Fast` is the `optimize`-only default decision (SPEC-084); it runs through
+        // `optimize_decide_one`, never this shrink/convert quality planner. Handled
+        // defensively as the encoder default so the match stays exhaustive.
+        Some(AutoQuality::Fast) => Ok(EncodePlan {
+            quality: None,
+            image: None,
+        }),
         None => Ok(EncodePlan {
             quality,
             image: None,
@@ -3949,24 +3965,24 @@ fn run_convert(
 
 // ── optimize handler ──────────────────────────────────────────────────────────
 
-/// Resolve `optimize`'s auto-quality mode (SPEC-022, DEC-024).
+/// Resolve `optimize`'s auto-quality mode (SPEC-022, DEC-024; SPEC-084).
 ///
-/// Unlike [`shrink_auto_config`], `optimize` is ALWAYS in an auto mode: with no
-/// flag the default is the **visually-lossless** perceptual target (score 90,
-/// `QualityTarget::VisuallyLossless`). `--target`/`--ssim` pick a different
-/// perceptual target; `--max-size` switches to a byte budget. The three are
-/// mutually exclusive — clap enforces it on the subcommand args, so the trailing
-/// `_` arm is a defensive runtime fallback (usage error, exit 2).
+/// Unlike [`shrink_auto_config`], `optimize` is ALWAYS in an auto mode: with no flag
+/// the default is the **fast decision** ([`AutoQuality::Fast`], SPEC-084) — a
+/// fixed-quality single-encode compare that admits AVIF for photographic content and
+/// never emits a larger file. `--target`/`--ssim` opt into the perceptual search;
+/// `--max-size` opts into the byte-budget search. The three flags are mutually
+/// exclusive — clap enforces it on the subcommand args, so the trailing `_` arm is a
+/// defensive runtime fallback (usage error, exit 2).
 fn optimize_auto_config(
     target: Option<QualityTarget>,
     ssim: Option<f64>,
     max_size: Option<&str>,
 ) -> Result<AutoQuality, CliError> {
     match (target, ssim, max_size) {
-        // Default: visually-lossless perceptual target.
-        (None, None, None) => Ok(AutoQuality::Perceptual(SearchConfig::for_target(
-            QualityTarget::VisuallyLossless.target_score(),
-        ))),
+        // Default: the fast decision (SPEC-084) — fixed-quality single-encode compare,
+        // AVIF-aware, never-bigger. The perceptual/byte-budget searches are opt-in.
+        (None, None, None) => Ok(AutoQuality::Fast),
         (Some(t), None, None) => Ok(AutoQuality::Perceptual(SearchConfig::for_target(
             t.target_score(),
         ))),
@@ -4076,6 +4092,52 @@ struct SolvedCandidate {
     quality: Option<u8>,
 }
 
+/// The fixed encoder quality a lossy candidate is encoded at in the default (fast)
+/// decision (SPEC-084). One generous value ([`crate::sink::FAST_LOSSY_QUALITY`])
+/// across AVIF / JPEG / lossy WebP — AVIF is the eyeball-validated anchor (DEC-069);
+/// the others are conventional high-quality on their own scales, reached only as
+/// fallbacks when AVIF is not built. Distinct from `convert`'s
+/// [`crate::sink::AVIF_DEFAULT_QUALITY`], which the fast path never uses.
+fn fast_lossy_quality(_fmt: ::image::ImageFormat) -> u8 {
+    crate::sink::FAST_LOSSY_QUALITY
+}
+
+/// The compact LOSSY re-encode format for the metadata-forced fallback (SPEC-084
+/// never-bigger), used only when a **lossy-family source** landed in a bucket whose
+/// shortlist offers only lossless candidates (a graphic-classified photo, or any
+/// lossy source with an ICC profile). A lossless re-encode of a lossy source blows up
+/// several-fold; a lossy re-encode in the source's own family (or JPEG) stays
+/// ≈ source size, so we ship that instead of the blow-up.
+///
+/// Prefers the source's own lossy codec when it is built (AVIF → AVIF, WebP → lossy
+/// WebP), else a baseline JPEG — but JPEG cannot carry alpha, so an alpha source with
+/// no built alpha-capable lossy codec has no compact lossy option and returns `None`
+/// (the lossless candidates stay, honestly reported). Returns `None` for a lossless
+/// source (PNG/lossless-WebP): its lossless candidates are the right fallback, and a
+/// lossy re-encode would be an unwanted quality loss.
+fn fast_fallback_lossy_entry(
+    source_format: ::image::ImageFormat,
+    has_alpha: bool,
+    built: crate::analysis::decide::BuiltCodecs,
+) -> Option<crate::analysis::decide::ShortlistEntry> {
+    use crate::analysis::decide::{Disposition, ShortlistEntry};
+    use ::image::ImageFormat::{Avif, Jpeg, WebP};
+
+    let fmt = match source_format {
+        Avif if built.avif => Avif,
+        WebP if built.webp_lossy => WebP,
+        // A lossy source (JPEG, or WebP/AVIF whose lossy encoder is not built): a
+        // baseline JPEG is the universal compact lossy fallback — but only without
+        // alpha (JPEG has none).
+        Jpeg | WebP | Avif if !has_alpha => Jpeg,
+        _ => return None,
+    };
+    Some(ShortlistEntry {
+        fmt,
+        disposition: Disposition::Lossy,
+    })
+}
+
 /// Solve one shortlisted candidate against the oriented output image: run the
 /// existing quality search for its disposition/mode and encode it once.
 fn solve_candidate(
@@ -4088,6 +4150,18 @@ fn solve_candidate(
     let ext = crate::sink::extension_for_format(fmt).to_owned();
 
     let (encoded, met_target, quality) = match (entry.disposition, auto) {
+        // Fast (the default, SPEC-084): a single fixed-quality encode — no search.
+        // Lossy candidates use the generous fast quality; lossless has no knob. A
+        // fixed encode has no target to miss, so it always "meets" — `pick_winner`
+        // still requires it to beat the source (never-bigger).
+        (disposition, AutoQuality::Fast) => {
+            let quality = match disposition {
+                Disposition::Lossy => Some(fast_lossy_quality(fmt)),
+                Disposition::Lossless => None,
+            };
+            let bytes = crate::sink::encode_to_bytes(out_img, fmt, quality)?;
+            (bytes, true, quality)
+        }
         // Lossy + perceptual: search the lowest quality meeting the target, then
         // encode once at it. (Shortlist guarantees fmt is perceptually scorable.)
         (Disposition::Lossy, AutoQuality::Perceptual(cfg)) => {
@@ -4151,10 +4225,16 @@ fn optimize_decide_one(
     (
         OptimizeOutput,
         Option<crate::analysis::decide::ExplainTrace>,
+        // The winner's achieved SSIMULACRA2 score, for the default (fast) path's
+        // report — `Some` only for a lossy fast winner that could be decoded and
+        // scored; `None` for lossless, passthrough, or the opt-in search modes.
+        Option<f64>,
     ),
     CliError,
 > {
-    use crate::analysis::decide::{self, BuiltCodecs, CandidateTrace, ExplainTrace, Mode};
+    use crate::analysis::decide::{
+        self, BuiltCodecs, CandidateTrace, Disposition, ExplainTrace, Mode,
+    };
 
     // Raw source bytes: the "beats source" reference AND the passthrough payload.
     let raw = read_raw_bytes(input)?;
@@ -4165,13 +4245,30 @@ fn optimize_decide_one(
         crate::source::Input::Stdin { bytes, .. } => Image::from_bytes(bytes)?,
     };
     let source_format = img.source_format();
+    // Capture the source's shape + metadata BEFORE the pipeline consumes it: a raw
+    // passthrough is only faithful when the pipeline changed nothing `optimize`
+    // promised to change (see `pipeline_altered` below).
+    let source_info = img.info();
+    let source_dims = (source_info.width, source_info.height);
+    let source_had_metadata = source_info.has_exif || source_info.has_icc;
     let out_img = pipeline.run(img)?;
+
+    // Did the pipeline alter the image in a way that makes the RAW source an invalid
+    // output? `optimize` bakes EXIF orientation and strips ALL metadata (privacy,
+    // incl. GPS — DEC-017). So the raw bytes are a faithful passthrough only when the
+    // source carried no metadata AND the pixels were untouched (dims unchanged; an
+    // orientation flip that keeps dims still carries an EXIF tag, so it trips the
+    // metadata check). Otherwise a "passthrough" must ship the PROCESSED, stripped
+    // image instead of leaking metadata / a wrong orientation.
+    let out_info = out_img.info();
+    let pipeline_altered = source_had_metadata || (out_info.width, out_info.height) != source_dims;
 
     let built = BuiltCodecs {
         webp_lossy: cfg!(feature = "webp-lossy"),
         avif: cfg!(feature = "avif"),
     };
     let mode = match auto {
+        AutoQuality::Fast => Mode::Fast,
         AutoQuality::Perceptual(_) => Mode::Perceptual,
         AutoQuality::SizeBudget(_) => Mode::SizeBudget,
     };
@@ -4185,10 +4282,10 @@ fn optimize_decide_one(
                 raw,
                 ext: metadata_output_ext(input, &[]),
             };
-            return Ok((output, None));
+            return Ok((output, None, None));
         }
     };
-    let has_alpha = out_img.info().has_alpha;
+    let has_alpha = out_info.has_alpha;
 
     let shortlist =
         decide::format_shortlist(analysis.opt_bucket(), has_alpha, profile, mode, built);
@@ -4199,6 +4296,35 @@ fn optimize_decide_one(
     }
     let outcomes: Vec<_> = solved.iter().map(|s| s.outcome).collect();
     let winner = decide::pick_winner(&outcomes, source_bytes, source_format);
+
+    // When nothing beats the source but the pipeline altered the image, the raw
+    // source is NOT a valid output (wrong orientation / un-stripped metadata) — we
+    // must ship a processed, stripped result. Ship the SMALLEST CORRECT one.
+    //
+    // A graphic bucket offers only lossless candidates, and a lossless re-encode of a
+    // *lossy* source (a photo that classified as a graphic, or any lossy source with
+    // an ICC profile) blows up several-fold. So for a lossy-family source with no
+    // lossy candidate in the shortlist, add one compact lossy re-encode (its own
+    // family, or JPEG) and let it compete — never ship a lossless blow-up
+    // (SPEC-084 never-bigger). If even the smallest correct output still exceeds the
+    // source (a genuine case: stripping metadata forces a re-encode that can't beat an
+    // already-tight source), we ship it anyway — but the report tells the truth
+    // ("N% larger"), it is never clamped to a break-even "0% smaller".
+    let winner = match winner {
+        Some(i) => Some(i),
+        None if pipeline_altered => {
+            let has_lossy = solved
+                .iter()
+                .any(|s| s.outcome.disposition == Disposition::Lossy);
+            if !has_lossy {
+                if let Some(entry) = fast_fallback_lossy_entry(source_format, has_alpha, built) {
+                    solved.push(solve_candidate(&out_img, entry, auto)?);
+                }
+            }
+            (0..solved.len()).min_by_key(|&i| (solved[i].outcome.bytes, i))
+        }
+        None => None,
+    };
 
     let output = match winner {
         Some(i) => {
@@ -4217,6 +4343,15 @@ fn optimize_decide_one(
         Some(i) => solved[i].outcome.bytes,
         None => source_bytes,
     };
+
+    // The winner is NOT scored on the default keep-dimensions path (SPEC-084
+    // acceptance #4): scoring a full-resolution image costs ~107 ms/MP (measured;
+    // ~5 s at 47 MP), too much to run unconditionally on the verb everyone runs.
+    // Scoring is a *surface* opt-in via `quality::score_winner_once` — the `web` verb
+    // (SPEC-085, on its downscaled output) will always score, and `optimize --verify`
+    // (SPEC-086) on request. Until those land the default reports no score. The seam
+    // (the third return value + the score suffix) stays so wiring it is a one-liner.
+    let winner_score: Option<f64> = None;
 
     let uc = analysis.unique_colors();
     let trace = ExplainTrace {
@@ -4245,18 +4380,30 @@ fn optimize_decide_one(
         out_bytes,
     };
 
-    Ok((output, Some(trace)))
+    Ok((output, Some(trace), winner_score))
 }
 
 /// Render one input's report: `--explain` (json→stdout, human→stderr), else the
 /// default one-line summary to stderr (unless `--quiet`).
+///
+/// `score` is the fast path's achieved SSIMULACRA2 (SPEC-084) — appended to the
+/// default summary and the human trace as proof of the quality kept. `None` (a
+/// lossless winner, a passthrough, or the opt-in search modes) prints "lossless"
+/// only when a re-encode actually happened, otherwise nothing.
 fn emit_optimize_report(
     label: &str,
     trace: Option<&crate::analysis::decide::ExplainTrace>,
+    score: Option<f64>,
     explain: Option<ExplainFmt>,
     global: &GlobalArgs,
 ) -> Result<(), CliError> {
     use std::io::Write as _;
+    // The score suffix shown on the human summary lines: " · ssim 88.4" for a scored
+    // lossy winner, empty otherwise (the JSON channel is schema-pinned and untouched).
+    let score_suffix = match score {
+        Some(s) => format!(" \u{b7} ssim {s:.1}"),
+        None => String::new(),
+    };
     match explain {
         Some(ExplainFmt::Json) => {
             if let Some(t) = trace {
@@ -4275,6 +4422,9 @@ fn emit_optimize_report(
                 Some(t) => {
                     let _ = writeln!(err, "{label}:");
                     let _ = t.render_human(&mut err);
+                    if !score_suffix.is_empty() {
+                        let _ = writeln!(err, " {}", score_suffix.trim_start());
+                    }
                 }
                 None => {
                     let _ = writeln!(err, "{label}: no analysis (degenerate input); kept source");
@@ -4284,7 +4434,7 @@ fn emit_optimize_report(
         None => {
             if !global.quiet {
                 match trace {
-                    Some(t) => eprintln!("{label}: {}", t.summary_line()),
+                    Some(t) => eprintln!("{label}: {}{score_suffix}", t.summary_line()),
                     None => eprintln!("{label}: kept source (degenerate input)"),
                 }
             }
@@ -4351,8 +4501,8 @@ fn run_optimize_autodecide(
             .path()
             .map(|p| p.display().to_string())
             .unwrap_or_else(|| input.stem().to_owned());
-        let (output, trace) = optimize_decide_one(input, pipeline, auto, profile)?;
-        emit_optimize_report(&label, trace.as_ref(), explain, global)?;
+        let (output, trace, score) = optimize_decide_one(input, pipeline, auto, profile)?;
+        emit_optimize_report(&label, trace.as_ref(), score, explain, global)?;
 
         let sink = if let Some(ref out) = global.output {
             if out == "-" {
@@ -4395,8 +4545,8 @@ fn run_optimize_autodecide(
                 crate::source::Input::Stdin { stem, .. } => stem.clone(),
             };
             let result = (|| -> Result<(), CliError> {
-                let (output, trace) = optimize_decide_one(input, pipeline, auto, profile)?;
-                emit_optimize_report(&label, trace.as_ref(), explain, global)?;
+                let (output, trace, score) = optimize_decide_one(input, pipeline, auto, profile)?;
+                emit_optimize_report(&label, trace.as_ref(), score, explain, global)?;
                 let sink = Sink::Dir {
                     dir: PathBuf::from(out_dir),
                     template: template.clone(),
@@ -4691,6 +4841,67 @@ fn run_responsive(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── SPEC-084: metadata-forced never-bigger fallback format ────────────────
+
+    /// The compact lossy fallback picks the source's own lossy family when built,
+    /// else a baseline JPEG — and refuses (keeps lossless) only when there is no
+    /// alpha-capable lossy codec for an alpha source, or the source is lossless.
+    #[test]
+    fn fast_fallback_lossy_entry_prefers_a_compact_lossy_format() {
+        use crate::analysis::decide::{BuiltCodecs, Disposition};
+        use ::image::ImageFormat::{Avif, Jpeg, Png, WebP};
+
+        let all = BuiltCodecs {
+            webp_lossy: true,
+            avif: true,
+        };
+        let none = BuiltCodecs {
+            webp_lossy: false,
+            avif: false,
+        };
+
+        // A JPEG source → JPEG (no alpha), regardless of what else is built.
+        let j = fast_fallback_lossy_entry(Jpeg, false, none).expect("jpeg fallback");
+        assert_eq!((j.fmt, j.disposition), (Jpeg, Disposition::Lossy));
+
+        // Source's own family when built: AVIF → AVIF, WebP → lossy WebP.
+        assert_eq!(
+            fast_fallback_lossy_entry(Avif, false, all).unwrap().fmt,
+            Avif
+        );
+        assert_eq!(
+            fast_fallback_lossy_entry(WebP, false, all).unwrap().fmt,
+            WebP
+        );
+
+        // Own codec NOT built → fall back to JPEG (no alpha).
+        assert_eq!(
+            fast_fallback_lossy_entry(Avif, false, none).unwrap().fmt,
+            Jpeg
+        );
+        assert_eq!(
+            fast_fallback_lossy_entry(WebP, false, none).unwrap().fmt,
+            Jpeg
+        );
+
+        // Alpha + only JPEG available → no compact lossy option → keep lossless.
+        assert!(fast_fallback_lossy_entry(Jpeg, true, none).is_none());
+        assert!(fast_fallback_lossy_entry(WebP, true, none).is_none());
+        // Alpha with an alpha-capable lossy codec built is fine.
+        assert_eq!(
+            fast_fallback_lossy_entry(WebP, true, all).unwrap().fmt,
+            WebP
+        );
+        assert_eq!(
+            fast_fallback_lossy_entry(Avif, true, all).unwrap().fmt,
+            Avif
+        );
+
+        // A LOSSLESS source (PNG) never gets a lossy fallback — its lossless
+        // candidates are the correct family.
+        assert!(fast_fallback_lossy_entry(Png, false, all).is_none());
+    }
 
     // ── cli_parses_global_and_apply ──────────────────────────────────────────
 
@@ -5536,10 +5747,12 @@ mod tests {
     }
 
     #[test]
-    fn optimize_default_auto_is_visually_lossless() {
+    fn optimize_default_auto_is_fast() {
+        // SPEC-084: the flagless default is the fast decision (fixed-quality,
+        // AVIF-aware, never-bigger), NOT the perceptual search.
         match optimize_auto_config(None, None, None).expect("default mode") {
-            AutoQuality::Perceptual(cfg) => assert_eq!(cfg.target, 90.0),
-            other => panic!("expected Perceptual(90), got {other:?}"),
+            AutoQuality::Fast => {}
+            other => panic!("expected Fast, got {other:?}"),
         }
     }
 
