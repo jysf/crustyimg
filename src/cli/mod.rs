@@ -302,6 +302,23 @@ pub enum Commands {
         max_size: Option<String>,
     },
 
+    /// The flagship: make an image web-ready. Downscale the long edge to a
+    /// web-friendly default (never upscaling), bake orientation + strip metadata,
+    /// pick the smallest modern format that beats the source (AVIF for photos,
+    /// lossless WebP/PNG for graphics — never larger than the source), and report
+    /// its SSIMULACRA2 score. Size-insensitive: a 24 MP photo finishes as fast as a
+    /// small one because it downscales first.
+    ///
+    /// Equivalent to `apply --recipe web`. `--max` overrides the downscale bound;
+    /// `-o`/`--format` pin the output format (bypassing the auto-decision); the
+    /// global `--out-dir`/`--name-template`/`-j` drive batch output as elsewhere.
+    Web {
+        inputs: Vec<String>,
+        /// Override the downscale long-edge bound (default 2048; never upscales).
+        #[arg(long)]
+        max: Option<u32>,
+    },
+
     /// One-button web-good: auto-orient + strip metadata + a fast fixed-quality
     /// re-encode (high quality by default), picking the smallest modern format that
     /// beats the source — and never shipping a larger file.
@@ -737,6 +754,7 @@ fn dispatch(cli: &Cli) -> Result<(), CliError> {
     }
 
     match &cli.command {
+        Commands::Web { inputs, max } => run_web(inputs, *max, &cli.global),
         Commands::Apply { recipe, inputs } => run_apply(recipe, inputs, &cli.global),
         Commands::Build { file } => {
             if cli.global.watch {
@@ -1033,22 +1051,71 @@ fn require_out_dir_for_batch(global: &GlobalArgs) -> Result<&str, CliError> {
         .ok_or_else(|| CliError::Usage("multiple inputs require --out-dir".into()))
 }
 
-/// Size-guard, read, and parse a recipe file into a [`Recipe`].
+/// Resolve `--recipe <arg>` to a [`Recipe`]: a file path OR a bundled name (SPEC-085).
 ///
-/// The on-disk size is checked via `std::fs::metadata` BEFORE reading, so a
-/// multi-GB "recipe" is never loaded into memory (DEC-036, SPEC-035). A missing
-/// or unreadable file is `RecipeIo` (exit 3); bad content is `Recipe` (exit 1).
-/// Shared by `run_apply` and `run_build` (one recipe per target).
-fn load_recipe(recipe_path: &str) -> Result<Recipe, CliError> {
-    let meta = std::fs::metadata(recipe_path).map_err(CliError::RecipeIo)?;
-    if meta.len() > crate::recipe::RECIPE_MAX_BYTES as u64 {
-        return Err(CliError::Recipe(RecipeError::TooLarge {
-            size: meta.len() as usize,
-            max: crate::recipe::RECIPE_MAX_BYTES,
-        }));
+/// **Precedence — a real file on disk ALWAYS wins.** `<arg>` is treated as a path
+/// first; only when no such file exists does it fall back to the bundled registry
+/// (`web`/`gallery`/`product`). So a local `web.toml` (or a file literally named
+/// `web`) unambiguously shadows the bundled `web`, and every existing file-path
+/// recipe keeps working exactly as before.
+///
+/// The on-disk size is checked via `std::fs::metadata` BEFORE reading, so a multi-GB
+/// "recipe" is never loaded into memory (DEC-036, SPEC-035). Bundled recipes are
+/// trusted compile-time strings — no size guard needed. A missing file AND unknown
+/// name is `RecipeIo` (exit 3); bad content is `Recipe` (exit 1). Shared by
+/// `run_apply` and `run_build` (one recipe per target).
+fn load_recipe(recipe_arg: &str) -> Result<Recipe, CliError> {
+    if Path::new(recipe_arg).is_file() {
+        let meta = std::fs::metadata(recipe_arg).map_err(CliError::RecipeIo)?;
+        if meta.len() > crate::recipe::RECIPE_MAX_BYTES as u64 {
+            return Err(CliError::Recipe(RecipeError::TooLarge {
+                size: meta.len() as usize,
+                max: crate::recipe::RECIPE_MAX_BYTES,
+            }));
+        }
+        let recipe_text = std::fs::read_to_string(recipe_arg).map_err(CliError::RecipeIo)?;
+        return Ok(Recipe::from_toml(&recipe_text)?);
     }
-    let recipe_text = std::fs::read_to_string(recipe_path).map_err(CliError::RecipeIo)?;
-    Ok(Recipe::from_toml(&recipe_text)?)
+
+    // Not a file: try the bundled registry by name.
+    if let Some(text) = crate::recipe::bundled::resolve(recipe_arg) {
+        return Ok(Recipe::from_toml(text)?);
+    }
+
+    // Neither a readable file nor a known bundled name → not found (exit 3); name both
+    // what we looked for and the bundled recipes available.
+    Err(CliError::RecipeIo(std::io::Error::new(
+        std::io::ErrorKind::NotFound,
+        format!(
+            "no recipe file '{recipe_arg}' and no bundled recipe by that name \
+             (bundled: {})",
+            crate::recipe::bundled::names().join(", ")
+        ),
+    )))
+}
+
+/// The reserved terminal recipe step that encodes via the fast AVIF-aware decision
+/// (`Mode::Fast`: modernize format + never-bigger + score) instead of a plain
+/// format-preserving sink write (SPEC-085). This is what makes `apply --recipe web`
+/// == the `web` verb — the bundled flows end with it. It is NOT a registry
+/// operation (it produces bytes + a format choice, not a transformed `Image`), so it
+/// is handled here in the apply path and stripped before `build_pipeline`.
+const OPTIMIZE_STEP_OP: &str = "optimize";
+
+/// If `recipe` ends with the terminal [`OPTIMIZE_STEP_OP`] step, return a copy with
+/// that step removed — the pixel pipeline to run before the fast decision. `None`
+/// when the recipe has no terminal `optimize` step (a plain pixel recipe). An
+/// `optimize` step anywhere but last is left in place, so `build_pipeline` surfaces
+/// it as a typed `UnknownOperation` error rather than silently reordering intent.
+fn split_terminal_optimize(recipe: &Recipe) -> Option<Recipe> {
+    match recipe.steps.last() {
+        Some(step) if step.op == OPTIMIZE_STEP_OP => {
+            let mut pixel = recipe.clone();
+            pixel.steps.pop();
+            Some(pixel)
+        }
+        _ => None,
+    }
 }
 
 /// The `apply --recipe` path: recipe → batch fan-out via rayon + indicatif.
@@ -1063,8 +1130,28 @@ fn load_recipe(recipe_path: &str) -> Result<Recipe, CliError> {
 /// The `Operation` trait is NOT `Send`, so each rayon task rebuilds its own
 /// pipeline from the shared `&recipe` + `&registry` (both `Sync`).
 fn run_apply(recipe_path: &str, inputs: &[String], global: &GlobalArgs) -> Result<(), CliError> {
-    // Steps 0-2: size-guard, read, and parse the recipe file (shared with `build`).
+    // Steps 0-2: resolve (file path OR bundled name), size-guard, read, and parse.
     let recipe = load_recipe(recipe_path)?;
+
+    // A recipe ending in the terminal `optimize` step (the bundled web/gallery/product
+    // flows, SPEC-085) encodes via the fast AVIF-aware decision instead of a plain
+    // format-preserving write — so `apply --recipe web` == the `web` verb. Run the
+    // preceding pixel steps as the pipeline, then dispatch to the SAME auto-decide
+    // fan-out `web` uses (always scoring the downscaled winner). This path is
+    // sequential (like `optimize`/`web`), not the rayon batch below.
+    if let Some(pixel_recipe) = split_terminal_optimize(&recipe) {
+        let registry = OperationRegistry::with_builtins();
+        let pipeline = pixel_recipe.build_pipeline(&registry)?;
+        return run_optimize_autodecide(
+            &pipeline,
+            inputs,
+            &AutoQuality::Fast,
+            crate::analysis::decide::Profile::Web,
+            None,
+            global,
+            true,
+        );
+    }
 
     // Step 3: build registry ONCE; shared via & across rayon tasks (fn ptrs → Sync).
     let registry = OperationRegistry::with_builtins();
@@ -3594,6 +3681,18 @@ const DEFAULT_SHRINK_MAX: u32 = 1600;
 /// The default JPEG encode quality when `-q` is omitted for `shrink` (DEC-016).
 const DEFAULT_SHRINK_QUALITY: u8 = 80;
 
+/// The `web` verb's default downscale long-edge bound, in pixels.
+///
+/// STAGE-030's benchmark measured this as the flagship sweet spot: downscaling the
+/// long edge to 2048 before the AVIF-aware modernize gave ~98% median savings in
+/// ~2.7 s and made the flow size-insensitive (a 24 MP photo finishes as fast as a
+/// small one). It is a *max* bound applied via `resize mode=max`, so a source
+/// already smaller than 2048 keeps its dimensions (never upscaled). `web --max N`
+/// overrides it. This is `web`'s opinion, NOT `optimize`'s (which keeps dimensions
+/// by default — SPEC-086); the two bundled variants `gallery`/`product` carry their
+/// own bounds.
+pub const WEB_DEFAULT_LONG_EDGE: u32 = 2048;
+
 /// Map shrink's `max` arg to the `Resize` OperationParams the registry expects
 /// (SPEC-010's PINNED schema). `shrink` always uses `mode=max` to bound the
 /// long edge; `max` defaults to `DEFAULT_SHRINK_MAX`. Infallible — the mapping
@@ -4058,6 +4157,61 @@ fn run_optimize(
         profile.to_decide(),
         explain,
         global,
+        // `optimize` keeps dimensions, so scoring the full-resolution winner is too
+        // costly to run by default (SPEC-084 acceptance #4); only `web` scores.
+        false,
+    )
+}
+
+/// Wire the `web` flagship verb (SPEC-085): the measured downscale-then-modernize
+/// flow. `web <inputs>` == `apply --recipe web <inputs>` — both reach the identical
+/// engine (this verb builds the flow in memory; the bundled `web` recipe reaches it
+/// through the terminal-`optimize` apply path).
+///
+/// The flow: bake EXIF orientation + strip metadata (`auto-orient`, DEC-017) →
+/// downscale the long edge to [`WEB_DEFAULT_LONG_EDGE`] (or `--max`, never upscaling)
+/// → the fast AVIF-aware decision (`Mode::Fast`, never-bigger — SPEC-084) →
+/// unconditionally score the (downscaled) winner and report it. Reuses
+/// [`optimize_pipeline`] + [`run_optimize_autodecide`]; it does NOT re-implement the
+/// engine.
+///
+/// `-o`/`--format` pin the output format, which (as with `optimize`) bypasses the
+/// auto-decision and reproduces a plain format-honored re-encode of the downscaled
+/// image. The global `--out-dir`/`--name-template`/`-j` drive batch output.
+fn run_web(inputs: &[String], max: Option<u32>, global: &GlobalArgs) -> Result<(), CliError> {
+    // `web` always auto-tunes (the fast decision), so a fixed `-q` conflicts (exit 2),
+    // exactly like `optimize`.
+    let auto = AutoQuality::Fast;
+    reject_quality_with_auto(&Some(auto.clone()), global)?;
+
+    // The default downscale is `web`'s whole point; `--max` overrides the bound. It is
+    // a `resize mode=max` long-edge cap, so a smaller source is never upscaled.
+    let long_edge = max.unwrap_or(WEB_DEFAULT_LONG_EDGE);
+    let pipeline = optimize_pipeline(Some(long_edge))?;
+
+    // A pinned format (`--format` or a recognized `-o` extension) is an explicit
+    // override: honor it and skip the auto-decision (and the score), mirroring
+    // `optimize`'s pin behaviour.
+    let pinned = resolve_format(global.format.as_deref())?.is_some()
+        || global
+            .output
+            .as_deref()
+            .is_some_and(|o| o != "-" && crate::sink::format_from_extension(Path::new(o)).is_ok());
+    if pinned {
+        return run_pixel_op(pipeline, inputs, global, None, None, Some(auto));
+    }
+
+    run_optimize_autodecide(
+        &pipeline,
+        inputs,
+        &auto,
+        crate::analysis::decide::Profile::Web,
+        // `web` has no `--explain`; the default one-line summary (with the score)
+        // carries the report.
+        None,
+        global,
+        // The downscaled winner is cheap to score — always do it (SPEC-085).
+        true,
     )
 }
 
@@ -4221,6 +4375,11 @@ fn optimize_decide_one(
     pipeline: &Pipeline,
     auto: &AutoQuality,
     profile: crate::analysis::decide::Profile,
+    // Always score the winner (the `web` verb / a terminal-`optimize` recipe, on
+    // their downscaled output — cheap, SPEC-085). The keep-dimensions default
+    // (`optimize`) passes `false`: scoring a full-resolution image costs too much
+    // to run unconditionally (SPEC-084 acceptance #4).
+    always_score: bool,
 ) -> Result<
     (
         OptimizeOutput,
@@ -4344,14 +4503,30 @@ fn optimize_decide_one(
         None => source_bytes,
     };
 
-    // The winner is NOT scored on the default keep-dimensions path (SPEC-084
-    // acceptance #4): scoring a full-resolution image costs ~107 ms/MP (measured;
-    // ~5 s at 47 MP), too much to run unconditionally on the verb everyone runs.
-    // Scoring is a *surface* opt-in via `quality::score_winner_once` — the `web` verb
-    // (SPEC-085, on its downscaled output) will always score, and `optimize --verify`
-    // (SPEC-086) on request. Until those land the default reports no score. The seam
-    // (the third return value + the score suffix) stays so wiring it is a one-liner.
-    let winner_score: Option<f64> = None;
+    // The winner is scored only when `always_score` is set (SPEC-085's `web` verb
+    // and terminal-`optimize` recipes, on their DOWNSCALED output — cheap, ~0.2–0.35 s
+    // at 2–3 MP). The keep-dimensions default (`optimize`) passes `false`: scoring a
+    // full-resolution image costs ~107 ms/MP (measured; ~5 s at 47 MP), too much to run
+    // unconditionally on the verb everyone runs (SPEC-084 acceptance #4). `optimize
+    // --verify` (SPEC-086) will opt in on request.
+    //
+    // Scoring decodes the shipped winner bytes with the default decoder (AVIF via
+    // re_rav1d, no feature needed — SPEC-058) and compares against the oriented,
+    // downscaled reference `out_img`. It is best-effort: a decode/score failure
+    // degrades to "no score", never failing the command. A passthrough (no winner)
+    // and a degenerate image have nothing to score.
+    let winner_score: Option<f64> = if always_score {
+        winner.and_then(|i| {
+            Image::from_bytes(&solved[i].encoded)
+                .ok()
+                .and_then(|decoded| {
+                    crate::quality::score_winner_once(out_img.pixels(), Some(decoded.pixels())).ok()
+                })
+                .flatten()
+        })
+    } else {
+        None
+    };
 
     let uc = analysis.unique_colors();
     let trace = ExplainTrace {
@@ -4479,6 +4654,9 @@ fn run_optimize_autodecide(
     profile: crate::analysis::decide::Profile,
     explain: Option<ExplainFmt>,
     global: &GlobalArgs,
+    // Always score the decided winner (SPEC-085 `web` / terminal-`optimize` recipes,
+    // on downscaled output). `optimize` (keep-dimensions default) passes `false`.
+    always_score: bool,
 ) -> Result<(), CliError> {
     let mut all: Vec<crate::source::Input> = Vec::new();
     let mut stdin_lock = std::io::stdin().lock();
@@ -4501,7 +4679,8 @@ fn run_optimize_autodecide(
             .path()
             .map(|p| p.display().to_string())
             .unwrap_or_else(|| input.stem().to_owned());
-        let (output, trace, score) = optimize_decide_one(input, pipeline, auto, profile)?;
+        let (output, trace, score) =
+            optimize_decide_one(input, pipeline, auto, profile, always_score)?;
         emit_optimize_report(&label, trace.as_ref(), score, explain, global)?;
 
         let sink = if let Some(ref out) = global.output {
@@ -4545,7 +4724,8 @@ fn run_optimize_autodecide(
                 crate::source::Input::Stdin { stem, .. } => stem.clone(),
             };
             let result = (|| -> Result<(), CliError> {
-                let (output, trace, score) = optimize_decide_one(input, pipeline, auto, profile)?;
+                let (output, trace, score) =
+                    optimize_decide_one(input, pipeline, auto, profile, always_score)?;
                 emit_optimize_report(&label, trace.as_ref(), score, explain, global)?;
                 let sink = Sink::Dir {
                     dir: PathBuf::from(out_dir),

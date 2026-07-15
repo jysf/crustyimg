@@ -35,6 +35,8 @@
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+pub mod bundled;
+
 use crate::operation::registry::RegistryError;
 use crate::operation::{Operation, OperationParams, OperationRegistry};
 use crate::pipeline::Pipeline;
