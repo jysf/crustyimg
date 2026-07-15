@@ -111,8 +111,12 @@ guard; **score the winner once** (native decode) for the report; and return a fi
       AVIF (the content branch holds).
 - [ ] When nothing beats the source, the decision returns **passthrough** (`None` = keep original) —
       never a larger file (subsumes the "never silently enlarge" fix).
-- [ ] The chosen winner carries a **reported SSIMULACRA2 score** (one native decode), for lossy
-      outputs; lossless outputs report "lossless."
+- [ ] The engine exposes a **score-the-winner-once** helper (one native decode via `score()`); it is
+      **NOT required for winner selection** (the fast default picks by bytes) and must **not** be wired
+      always-on into the keep-dimensions default — scoring a full-res image is **~107 ms/MP** (measured;
+      ~5 s at 47 MP). Whether it runs is the *surface's* choice (SPEC-085 `web` always — it scores the
+      downscaled output, ~0.2–0.35 s; SPEC-086 `optimize` under `--verify`). Lossy outputs get a score
+      in `(0,100]`; lossless outputs report "lossless." (Cost + the split: STAGE-030 design notes.)
 - [ ] `--target`/`--ssim` still run the **perceptual search** (`auto_quality`), unchanged; `--max-size`
       still runs the **byte-budget search** (`search_size`), unchanged.
 - [ ] **Native `convert` byte-output is unchanged** (fixed-quality encodes go through
