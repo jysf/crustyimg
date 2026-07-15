@@ -244,9 +244,14 @@ have an impressive unused tool.
   q85) in the DEFAULT decision, the native twin of SPEC-079, converging the native/wasm Auto paths;
   verified CLEAN after a fix pass that caught a never-bigger+honesty blow-up on the metadata-bearing
   graphic edge (a lossy source forced off raw-passthrough now gets a compact lossy re-encode, never a
-  lossless blow-up; a genuinely-larger output is reported honestly). **Next: SPEC-085 (`web`) +
-  SPEC-086 (`optimize`/`shrink`).** Sequence: STAGE-030 → STAGE-029 demo (reframed to the `web` hero)
-  → STAGE-028 README/BENCHMARKS (SPEC-082/083, reserved) → Show HN.
+  lossless blow-up; a genuinely-larger output is reported honestly). **SPEC-085 SHIPPED 2026-07-15
+  (PR #89, DEC-070, $5.25)** — the **`web` flagship verb** (downscale→modernize→never-bigger→strip→
+  orient→score, reusing SPEC-084's engine) + a **bundled-recipe registry** (web/gallery/product);
+  `web == apply --recipe web` delivered via a terminal-optimize recipe step (DEC-070). DEC-070
+  follow-ups: `build` manifest doesn't run terminal-optimize recipes yet (`UnknownOperation`;
+  `run_build` deferred), + a clearer unknown-recipe-name error. **Next: SPEC-086 (`optimize --verify`
+  + remove `shrink`).** Sequence: STAGE-030 → STAGE-029 demo (reframed to the `web` hero + recipe
+  presets) → STAGE-028 README/BENCHMARKS (SPEC-082/083, reserved) → Show HN.
 - **Proof & distribution polish.** `BENCHMARKS.md` (cross-tool, honest equal-quality rule) · a
   real docs site + quickstart + recipe cookbook + the "why crustyimg" page + README badges · the
   **client-side demo page** (Wave 3) as the flagship "try it" artifact.

@@ -106,11 +106,11 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`. Build order: **084 �
   never-bigger + metadata-safe fallback, a score-winner-once helper (gated off the keep-dims default).
   Native twin of SPEC-079; converges the native/wasm Auto paths. Verified CLEAN after a fix pass
   (caught a never-bigger+honesty blow-up on the metadata-bearing graphic edge). $7.10.
-- [~] SPEC-085 (design — framed build-ready 2026-07-14) — **`web` flagship verb** (= `optimize` +
-  default downscale + always-on score, reusing SPEC-084's engine) + bundled-recipe registry
-  (`include_str!` + name resolver); `web == apply --recipe web` (the load-bearing design decision: needs
-  a terminal optimize/auto-format recipe step, or descope-with-docs); ship web/gallery/product; RAW
-  highlight (`web ./raws/`). Consumes 084.
+- [x] SPEC-085 (shipped 2026-07-15, PR #89, DEC-070) — **`web` flagship verb** (= `optimize` + default
+  downscale to 2048 + always-on score, reusing SPEC-084's engine) + bundled-recipe registry
+  (web/gallery/product, file-path-wins precedence). **`web == apply --recipe web` DELIVERED** (not
+  descoped) via a terminal-optimize recipe step (DEC-070). RAW highlight works. Verified CLEAN after a
+  fix pass (the pinned `-o`/`--format` corner ignored the pin). $5.25.
 - [~] SPEC-086 (design — framed build-ready 2026-07-14) — **redefine `optimize`** surface: add
   **`--verify`** (opt into the score-once, off by default per SPEC-084) + **remove `shrink`** (a clean
   cut — `web` absorbs it) + fix the stale `run_optimize` doc-comment + update all refs. Surface + deletion,
@@ -121,10 +121,8 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`. Build order: **084 �
   lint/optimize/web/apply + **committed bench corpus/harness** (seed from `scratchpad/bench/`).
 - [ ] SPEC-089 (optional / may fold) — `convert --to` rename + social/archive recipes.
 
-**Count:** 1 shipped (SPEC-084) / 2 in design (SPEC-085, SPEC-086) / 3 pending (087/088/089). **Next:
-build SPEC-085 + SPEC-086** (both consume the shipped SPEC-084 engine; they can build in parallel —
-085 adds `web`, 086 removes `shrink`, no file overlap beyond the `Commands` enum, so sequence
-085 → 086 to avoid a trivial conflict).
+**Count:** 2 shipped (SPEC-084, SPEC-085) / 1 in design (SPEC-086) / 3 pending (087/088/089). **Next:
+build SPEC-086** (`optimize --verify` + remove `shrink`) off the post-SPEC-085 `main`.
 
 ## Design Notes
 

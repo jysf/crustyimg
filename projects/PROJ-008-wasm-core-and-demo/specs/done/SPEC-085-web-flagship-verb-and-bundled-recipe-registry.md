@@ -3,7 +3,7 @@
 task:
   id: SPEC-085
   type: story
-  cycle: design
+  cycle: ship
   blocked: false
   priority: high
   complexity: M
@@ -25,6 +25,66 @@ value_link: >
   Ships the measured flagship: the `web` flow (downscale → content-modernize to AVIF/lossless-WebP →
   never-bigger → strip → orient → prove the score) that got 98% median savings in 2.7 s, size-insensitive,
   vs today's default 24% in 16.5 s. The one verb a new user should reach for.
+
+cost:
+  sessions:
+    - cycle: design
+      interface: claude-code
+      tokens_total: null
+      note: >
+        framed build-ready in the orchestrator main loop (un-metered, §4), grounded in a probe of the
+        CLI verb wiring + recipe system: `web` = `optimize` + a default downscale + always-score
+        (reuse `optimize_pipeline`/`optimize_decide_one`), plus a bundled-recipe registry; flagged the
+        `web == apply --recipe web` equivalence as the load-bearing design decision.
+    - cycle: build
+      interface: claude-code
+      tokens_total: 165000
+      estimated_usd: 1.80
+      recorded_at: 2026-07-14
+      note: >
+        first build, ~30 min, own worktree. `web` verb reusing the SPEC-084 engine; bundled-recipe
+        registry (`include_str!` + name resolver, file-path-wins precedence); DELIVERED (not descoped)
+        the equivalence via a terminal-optimize recipe step routing `apply` through the fast decision.
+        Order-of-magnitude estimate (main-loop, no metered subagent).
+    - cycle: verify
+      interface: claude-code
+      tokens_total: 125000
+      estimated_usd: 1.40
+      recorded_at: 2026-07-14
+      note: >
+        first verify, ~14 min — near-CLEAN. Reproduced the equivalence byte-identically + the corpus
+        flow; found the untested pinned corner (DEFECT: the terminal-optimize apply path ignored
+        `-o <ext>`/`--format` → AVIF-bytes-in-a-.png) + a missing DEC for the recipe-model change.
+    - cycle: build
+      interface: claude-code
+      tokens_total: 90000
+      estimated_usd: 1.00
+      recorded_at: 2026-07-14
+      note: >
+        fix pass, ~9 min. Honored the `-o`/`--format` pin in the terminal-optimize apply branch (mirror
+        the verb's diversion; new pinned-equivalence test), and emitted DEC-070 (terminal-op semantics,
+        precedence, build-manifest limitation).
+    - cycle: verify
+      interface: claude-code
+      tokens_total: 95000
+      estimated_usd: 1.05
+      recorded_at: 2026-07-14
+      note: >
+        focused re-verify, ~10 min — CLEAN. Pinned + unpinned equivalence byte-identical; DEC-070
+        present; the build-manifest limitation is a clean error (no panic); regressions + gates green.
+    - cycle: ship
+      interface: claude-code
+      tokens_total: null
+      recorded_at: 2026-07-15
+      note: >
+        ship bookkeeping in the orchestrator main loop (un-metered, §4). PR #89 was BEHIND main →
+        `gh pr update-branch` (re-ran CI) → clean squash-merge (f1e8ba7). Two DEC-070 follow-ups carried:
+        `build` manifest doesn't run terminal-optimize recipes (UnknownOperation; run_build deferred) +
+        a clearer unknown-recipe-name error.
+  totals:
+    tokens_total: 475000
+    estimated_usd: 5.25
+    session_count: 6
 ---
 
 # SPEC-085: `web` flagship verb + bundled-recipe registry
@@ -220,4 +280,18 @@ downscaled output), and a **bundled-recipe registry** (`include_str!` + a name r
 ---
 
 ## Reflection (Ship)
-1. <answer> 2. <answer> 3. <answer>
+1. **What would I do differently next time?** — Name the *pinned corner* explicitly in the spec. The
+   equivalence was delivered impressively (a terminal-optimize recipe step, not a descope), but the
+   `-o`/`--format` pin path through `apply --recipe web` was the one case neither the spec's acceptance
+   nor the build's tests covered — verify found AVIF-bytes-in-a-`.png`. When two paths are claimed
+   "equivalent," the spec should enumerate the *flag combinations* that must agree, not just the happy
+   path. Also: don't drop the `cost:` block when Writing a spec over its scaffold (caught at ship).
+2. **Does any template, constraint, or decision need updating?** — DEC-070 now carries the recipe-model
+   change (a terminal-optimize "magic op" that isn't a registry operation) — a genuine DEC-005 extension
+   worth its own entry, not a code comment. Follow-ups it records: the `build` manifest can't run
+   terminal-optimize recipes (`UnknownOperation`; `run_build` wiring deferred) and a clearer
+   unknown-recipe-name error.
+3. **Is there a follow-up spec I should write now before I forget?** — SPEC-086 (`optimize --verify` +
+   remove `shrink`) is next and unblocked. The `build`-manifest-runs-terminal-optimize gap (DEC-070) is
+   a small future spec if pulled. The reframed SPEC-080 (demo → `web` hero + recipe presets) now has its
+   dependency (the bundled recipes) shipped.
