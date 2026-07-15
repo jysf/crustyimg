@@ -192,18 +192,61 @@ NOT the default. Validate the exact value on eyeballs; also **sanity-check the `
 ---
 
 ## Build Completion
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
+- **Branch:** `spec-084-fast-avif-default`
+- **PR (if applicable):** (opened; see PR link in the ship note)
+- **All acceptance criteria met?** yes
+  - Default → AVIF single-encode for a photo (verified on the real corpus: `jpeg → avif · (93% smaller)`,
+    one encode, no budget search) ✓
+  - Graphic/screenshot stays lossless, never AVIF (bucket predicate + `pick_winner`) ✓
+  - Nothing-beats-source → passthrough (`None`), never larger — and the passthrough is now
+    orientation/metadata-safe (a latent raw-passthrough leak Fast mode exposed) ✓
+  - Winner carries a reported SSIMULACRA2 (one native decode); lossless reports "lossless" ✓
+  - `--target`/`--ssim` still search perceptually; `--max-size` still runs the byte-budget search ✓
+  - Native `convert` AVIF bytes unchanged (`AVIF_DEFAULT_QUALITY = 80` untouched; anchor test); wasm
+    surface untouched; `--profile preserve` still keeps source format ✓
+  - Default AVIF quality validated on the corpus (eyeball + q-sweep) and recorded in DEC-069 ✓
+  - `cargo test` (default + `--features avif`), `cargo clippy` (both), `cargo fmt --check`,
+    `cargo build --no-default-features` all pass ✓
 - **New decisions emitted:**
-  - `DEC-069` — <title> (draft; confirm at build)
+  - `DEC-069` — the default `optimize` decision admits AVIF at a fixed generous quality (`FAST_LOSSY_QUALITY
+    = 85`) via a single-encode compare; the perceptual/byte-budget searches become opt-in. Includes the
+    validated q-sweep, the eyeball note, and the `-q`→SSIMULACRA2 aggressiveness finding.
 - **Deviations from spec:**
+  - **Passthrough is now correctness-safe, not raw-only.** The spec said passthrough = "keep original".
+    `Mode::Fast` makes passthrough common, which exposed that shipping raw source bytes on passthrough
+    leaks metadata (GPS) and a wrong orientation `optimize` promised to bake/strip — breaking two existing
+    tests and the privacy guarantee. Passthrough now ships raw only when the source had no metadata **and**
+    the pipeline changed nothing; otherwise it ships the smallest processed candidate. Applies to all modes.
+  - **`AVIF_DEFAULT_QUALITY` was NOT bumped to 85.** The spec's sink note says "set the default AVIF
+    quality (~85)", but that constant is also `convert`'s default and the acceptance criterion pins
+    `convert` bytes unchanged. Resolved by a *separate* `FAST_LOSSY_QUALITY = 85`; the `None`/`convert`
+    default stays 80.
+  - **The winner-scoring compose lives in the CLI, not `quality`.** `quality` may not depend on
+    `crate::image`, and only that layer can decode AVIF (re_rav1d, native-only, absent from `::image`).
+    `quality::score_winner_once` does the single `score` call on an already-decoded winner; the CLI decodes.
+  - **The score is surfaced on the human summary/trace only**, not the `--explain=json` schema (that is
+    SPEC-088's audit report; `crustyimg.optimize.explain/v1` is left byte-stable).
 - **Follow-up work identified:**
+  - Align the wasm Auto AVIF quality (still 80, DEC-068) to the native fast 85 when `src/wasm.rs` is next
+    touched — the two default paths converge in shape here but not in the number.
+  - The `-q`→SSIMULACRA2 gap (q80 → ~72) is documented, not recalibrated; revisit if a quality-scale
+    remap is ever in scope.
+  - `SPEC-085` (`web` verb, downscale-then-AVIF) is where generosity is truly free — reframe SPEC-080's
+    demo hero onto it (already tracked).
 
 ### Build-phase reflection (3 questions, short answers)
-1. **What was unclear in the spec that slowed you down?** — <answer>
-2. **Was there a constraint or decision that should have been listed but wasn't?** — <answer>
-3. **If you did this task again, what would you do differently?** — <answer>
+1. **What was unclear in the spec that slowed you down?** — The passthrough semantics vs the
+   orientation/metadata guarantee. The spec framed passthrough as "keep original", but `Mode::Fast` makes
+   passthrough common enough that shipping raw bytes silently violates the bake+strip promise. That
+   interaction wasn't called out and was the bulk of the design work.
+2. **Was there a constraint or decision that should have been listed but wasn't?** — The tension between
+   "set the default AVIF quality ~85" and "native `convert` bytes unchanged": those are the *same*
+   constant unless you split it. Listing `AVIF_DEFAULT_QUALITY`'s dual role (convert default AND the thing
+   the note wanted to raise) up front would have pointed straight at the two-constant solution.
+3. **If you did this task again, what would you do differently?** — Probe the fixture *classifier* buckets
+   first. I burned a cycle assuming `detailed_jpeg`/`detailed_png` were photos; they classify as
+   graphic-logo (flat_ratio ~0.8), so AVIF was never admitted. `jpeg_with_exif` (EXIF camera prior →
+   Photograph) is the reliable "photo" fixture; I'd reach for it immediately next time.
 
 ---
 

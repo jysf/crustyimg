@@ -505,6 +505,38 @@ pub fn auto_under_size_at_speed(
     )
 }
 
+// ── Fast-path winner scoring (SPEC-084) ───────────────────────────────────────
+
+/// Score the default (fast) decision's chosen winner **once** (SPEC-084).
+///
+/// This is the non-search counterpart to [`auto_quality`]: the default
+/// [`crate::analysis::decide::Mode::Fast`] path picks a winner by measured bytes,
+/// not by a perceptual search, so it never scores anything along the way. To report
+/// the achieved SSIMULACRA2 it decodes the winning bytes and scores them here —
+/// exactly **one** [`score`] computation, no binary search, no re-encode.
+///
+/// - `Some(winner)` → the *decoded* winning candidate (a lossy output) → `Ok(Some(
+///   score))`. The caller decodes the winner through the crate's own decoders,
+///   which on native include AVIF (DEC-058) — the `::image` crate cannot decode
+///   AVIF, so the decode cannot live in this layer, only the score does.
+/// - `None` → a lossless winner (or passthrough): there is no perceptual number to
+///   report ("lossless") → `Ok(None)`.
+///
+/// A non-finite score (a degenerate metric result) is normalized to `Ok(None)`
+/// rather than surfaced as a fabricated number.
+pub fn score_winner_once(
+    reference: &DynamicImage,
+    winner: Option<&DynamicImage>,
+) -> Result<Option<f64>, QualityError> {
+    match winner {
+        Some(candidate) => {
+            let s = score(reference, candidate)?;
+            Ok(s.is_finite().then_some(s))
+        }
+        None => Ok(None),
+    }
+}
+
 // ── Byte-budget fit: quality, then dimension reduction (SPEC-021, DEC-023) ─────
 
 /// The outcome of fitting an image under a byte budget, possibly by downscaling.
@@ -753,6 +785,35 @@ mod tests {
         assert_eq!(cfg.min_quality, 1);
         assert_eq!(cfg.max_quality, 100);
         assert_eq!(cfg.max_iters, 8);
+    }
+
+    // ── SPEC-084: fast-path winner scoring ────────────────────────────────────
+
+    /// The default (fast) path scores its winner in a single [`score`] call, with
+    /// no binary search: a lossy winner yields a number in `(0, 100]`, and a
+    /// lossless winner yields `None` ("lossless"). The "scored once, not searched"
+    /// property is structural — [`score_winner_once`] takes an already-decoded
+    /// candidate and never touches [`SearchConfig`]/[`auto_quality`] — and this test
+    /// pins the observable contract.
+    #[test]
+    fn default_winner_is_scored_once() {
+        let reference = detailed_rgb(96, 96);
+
+        // A lossy winner: encode a real JPEG candidate ONCE, decode it, score once.
+        let bytes = jpeg_at(&reference, 85);
+        let decoded =
+            ::image::load_from_memory_with_format(&bytes, ImageFormat::Jpeg).expect("decode q85");
+        let scored = score_winner_once(&reference, Some(&decoded))
+            .expect("scoring a lossy winner should succeed");
+        let s = scored.expect("a lossy winner must carry a score");
+        assert!(
+            s > 0.0 && s <= 100.0,
+            "the fast winner's score must be in (0, 100], got {s}"
+        );
+
+        // A lossless winner reports no perceptual number ("lossless").
+        let lossless = score_winner_once(&reference, None).expect("lossless path is infallible");
+        assert!(lossless.is_none(), "a lossless winner has no score");
     }
 
     // ── SPEC-017: byte-budget search ──────────────────────────────────────────

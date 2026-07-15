@@ -195,6 +195,12 @@ pub enum ExplainFmt {
 /// `crate::quality`.
 #[derive(Debug, Clone)]
 pub enum AutoQuality {
+    /// The **default** `optimize` decision (SPEC-084): no search. Each candidate is
+    /// encoded **once** at a fixed generous quality ([`crate::sink::FAST_LOSSY_QUALITY`]
+    /// for lossy formats), AVIF is admitted for photographic content, and the
+    /// smallest that beats the source wins. The perceptual/byte-budget searches
+    /// below are the opt-in modes (`--target`/`--ssim`/`--max-size`).
+    Fast,
     /// Lowest quality whose decoded round-trip scores ≥ the SSIMULACRA2 target
     /// (`--target`/`--ssim`, SPEC-016).
     Perceptual(SearchConfig),
@@ -2916,6 +2922,13 @@ fn resolve_effective_quality(
             quality: None,
             image: None,
         }),
+        // `Fast` is the `optimize`-only default decision (SPEC-084); it runs through
+        // `optimize_decide_one`, never this shrink/convert quality planner. Handled
+        // defensively as the encoder default so the match stays exhaustive.
+        Some(AutoQuality::Fast) => Ok(EncodePlan {
+            quality: None,
+            image: None,
+        }),
         None => Ok(EncodePlan {
             quality,
             image: None,
@@ -3949,24 +3962,24 @@ fn run_convert(
 
 // ── optimize handler ──────────────────────────────────────────────────────────
 
-/// Resolve `optimize`'s auto-quality mode (SPEC-022, DEC-024).
+/// Resolve `optimize`'s auto-quality mode (SPEC-022, DEC-024; SPEC-084).
 ///
-/// Unlike [`shrink_auto_config`], `optimize` is ALWAYS in an auto mode: with no
-/// flag the default is the **visually-lossless** perceptual target (score 90,
-/// `QualityTarget::VisuallyLossless`). `--target`/`--ssim` pick a different
-/// perceptual target; `--max-size` switches to a byte budget. The three are
-/// mutually exclusive — clap enforces it on the subcommand args, so the trailing
-/// `_` arm is a defensive runtime fallback (usage error, exit 2).
+/// Unlike [`shrink_auto_config`], `optimize` is ALWAYS in an auto mode: with no flag
+/// the default is the **fast decision** ([`AutoQuality::Fast`], SPEC-084) — a
+/// fixed-quality single-encode compare that admits AVIF for photographic content and
+/// never emits a larger file. `--target`/`--ssim` opt into the perceptual search;
+/// `--max-size` opts into the byte-budget search. The three flags are mutually
+/// exclusive — clap enforces it on the subcommand args, so the trailing `_` arm is a
+/// defensive runtime fallback (usage error, exit 2).
 fn optimize_auto_config(
     target: Option<QualityTarget>,
     ssim: Option<f64>,
     max_size: Option<&str>,
 ) -> Result<AutoQuality, CliError> {
     match (target, ssim, max_size) {
-        // Default: visually-lossless perceptual target.
-        (None, None, None) => Ok(AutoQuality::Perceptual(SearchConfig::for_target(
-            QualityTarget::VisuallyLossless.target_score(),
-        ))),
+        // Default: the fast decision (SPEC-084) — fixed-quality single-encode compare,
+        // AVIF-aware, never-bigger. The perceptual/byte-budget searches are opt-in.
+        (None, None, None) => Ok(AutoQuality::Fast),
         (Some(t), None, None) => Ok(AutoQuality::Perceptual(SearchConfig::for_target(
             t.target_score(),
         ))),
@@ -4076,6 +4089,16 @@ struct SolvedCandidate {
     quality: Option<u8>,
 }
 
+/// The fixed encoder quality a lossy candidate is encoded at in the default (fast)
+/// decision (SPEC-084). One generous value ([`crate::sink::FAST_LOSSY_QUALITY`])
+/// across AVIF / JPEG / lossy WebP — AVIF is the eyeball-validated anchor (DEC-069);
+/// the others are conventional high-quality on their own scales, reached only as
+/// fallbacks when AVIF is not built. Distinct from `convert`'s
+/// [`crate::sink::AVIF_DEFAULT_QUALITY`], which the fast path never uses.
+fn fast_lossy_quality(_fmt: ::image::ImageFormat) -> u8 {
+    crate::sink::FAST_LOSSY_QUALITY
+}
+
 /// Solve one shortlisted candidate against the oriented output image: run the
 /// existing quality search for its disposition/mode and encode it once.
 fn solve_candidate(
@@ -4088,6 +4111,18 @@ fn solve_candidate(
     let ext = crate::sink::extension_for_format(fmt).to_owned();
 
     let (encoded, met_target, quality) = match (entry.disposition, auto) {
+        // Fast (the default, SPEC-084): a single fixed-quality encode — no search.
+        // Lossy candidates use the generous fast quality; lossless has no knob. A
+        // fixed encode has no target to miss, so it always "meets" — `pick_winner`
+        // still requires it to beat the source (never-bigger).
+        (disposition, AutoQuality::Fast) => {
+            let quality = match disposition {
+                Disposition::Lossy => Some(fast_lossy_quality(fmt)),
+                Disposition::Lossless => None,
+            };
+            let bytes = crate::sink::encode_to_bytes(out_img, fmt, quality)?;
+            (bytes, true, quality)
+        }
         // Lossy + perceptual: search the lowest quality meeting the target, then
         // encode once at it. (Shortlist guarantees fmt is perceptually scorable.)
         (Disposition::Lossy, AutoQuality::Perceptual(cfg)) => {
@@ -4151,10 +4186,16 @@ fn optimize_decide_one(
     (
         OptimizeOutput,
         Option<crate::analysis::decide::ExplainTrace>,
+        // The winner's achieved SSIMULACRA2 score, for the default (fast) path's
+        // report — `Some` only for a lossy fast winner that could be decoded and
+        // scored; `None` for lossless, passthrough, or the opt-in search modes.
+        Option<f64>,
     ),
     CliError,
 > {
-    use crate::analysis::decide::{self, BuiltCodecs, CandidateTrace, ExplainTrace, Mode};
+    use crate::analysis::decide::{
+        self, BuiltCodecs, CandidateTrace, Disposition, ExplainTrace, Mode,
+    };
 
     // Raw source bytes: the "beats source" reference AND the passthrough payload.
     let raw = read_raw_bytes(input)?;
@@ -4165,13 +4206,30 @@ fn optimize_decide_one(
         crate::source::Input::Stdin { bytes, .. } => Image::from_bytes(bytes)?,
     };
     let source_format = img.source_format();
+    // Capture the source's shape + metadata BEFORE the pipeline consumes it: a raw
+    // passthrough is only faithful when the pipeline changed nothing `optimize`
+    // promised to change (see `pipeline_altered` below).
+    let source_info = img.info();
+    let source_dims = (source_info.width, source_info.height);
+    let source_had_metadata = source_info.has_exif || source_info.has_icc;
     let out_img = pipeline.run(img)?;
+
+    // Did the pipeline alter the image in a way that makes the RAW source an invalid
+    // output? `optimize` bakes EXIF orientation and strips ALL metadata (privacy,
+    // incl. GPS — DEC-017). So the raw bytes are a faithful passthrough only when the
+    // source carried no metadata AND the pixels were untouched (dims unchanged; an
+    // orientation flip that keeps dims still carries an EXIF tag, so it trips the
+    // metadata check). Otherwise a "passthrough" must ship the PROCESSED, stripped
+    // image instead of leaking metadata / a wrong orientation.
+    let out_info = out_img.info();
+    let pipeline_altered = source_had_metadata || (out_info.width, out_info.height) != source_dims;
 
     let built = BuiltCodecs {
         webp_lossy: cfg!(feature = "webp-lossy"),
         avif: cfg!(feature = "avif"),
     };
     let mode = match auto {
+        AutoQuality::Fast => Mode::Fast,
         AutoQuality::Perceptual(_) => Mode::Perceptual,
         AutoQuality::SizeBudget(_) => Mode::SizeBudget,
     };
@@ -4185,10 +4243,10 @@ fn optimize_decide_one(
                 raw,
                 ext: metadata_output_ext(input, &[]),
             };
-            return Ok((output, None));
+            return Ok((output, None, None));
         }
     };
-    let has_alpha = out_img.info().has_alpha;
+    let has_alpha = out_info.has_alpha;
 
     let shortlist =
         decide::format_shortlist(analysis.opt_bucket(), has_alpha, profile, mode, built);
@@ -4199,6 +4257,18 @@ fn optimize_decide_one(
     }
     let outcomes: Vec<_> = solved.iter().map(|s| s.outcome).collect();
     let winner = decide::pick_winner(&outcomes, source_bytes, source_format);
+
+    // When nothing beats the source but the pipeline altered the image, the raw
+    // source is not a valid output (wrong orientation / un-stripped metadata) — ship
+    // the smallest processed candidate instead. never-bigger only guards enlarging an
+    // ALREADY-CORRECT source, which this no longer is.
+    let winner = winner.or_else(|| {
+        if pipeline_altered && !solved.is_empty() {
+            (0..solved.len()).min_by_key(|&i| (solved[i].outcome.bytes, i))
+        } else {
+            None
+        }
+    });
 
     let output = match winner {
         Some(i) => {
@@ -4216,6 +4286,22 @@ fn optimize_decide_one(
     let out_bytes = match winner {
         Some(i) => solved[i].outcome.bytes,
         None => source_bytes,
+    };
+
+    // The fast path reports the winner's achieved SSIMULACRA2 with ONE native decode
+    // (SPEC-084). Only for a lossy fast winner: lossless reports "lossless" (None),
+    // and the opt-in search modes already own their own scoring. A decode/score
+    // failure degrades to "no score", never to a failed optimize.
+    let winner_score = match (auto, winner) {
+        (AutoQuality::Fast, Some(i)) if solved[i].outcome.disposition == Disposition::Lossy => {
+            match Image::from_bytes(&solved[i].encoded) {
+                Ok(decoded) => quality::score_winner_once(out_img.pixels(), Some(decoded.pixels()))
+                    .ok()
+                    .flatten(),
+                Err(_) => None,
+            }
+        }
+        _ => None,
     };
 
     let uc = analysis.unique_colors();
@@ -4245,18 +4331,30 @@ fn optimize_decide_one(
         out_bytes,
     };
 
-    Ok((output, Some(trace)))
+    Ok((output, Some(trace), winner_score))
 }
 
 /// Render one input's report: `--explain` (json→stdout, human→stderr), else the
 /// default one-line summary to stderr (unless `--quiet`).
+///
+/// `score` is the fast path's achieved SSIMULACRA2 (SPEC-084) — appended to the
+/// default summary and the human trace as proof of the quality kept. `None` (a
+/// lossless winner, a passthrough, or the opt-in search modes) prints "lossless"
+/// only when a re-encode actually happened, otherwise nothing.
 fn emit_optimize_report(
     label: &str,
     trace: Option<&crate::analysis::decide::ExplainTrace>,
+    score: Option<f64>,
     explain: Option<ExplainFmt>,
     global: &GlobalArgs,
 ) -> Result<(), CliError> {
     use std::io::Write as _;
+    // The score suffix shown on the human summary lines: " · ssim 88.4" for a scored
+    // lossy winner, empty otherwise (the JSON channel is schema-pinned and untouched).
+    let score_suffix = match score {
+        Some(s) => format!(" \u{b7} ssim {s:.1}"),
+        None => String::new(),
+    };
     match explain {
         Some(ExplainFmt::Json) => {
             if let Some(t) = trace {
@@ -4275,6 +4373,9 @@ fn emit_optimize_report(
                 Some(t) => {
                     let _ = writeln!(err, "{label}:");
                     let _ = t.render_human(&mut err);
+                    if !score_suffix.is_empty() {
+                        let _ = writeln!(err, " {}", score_suffix.trim_start());
+                    }
                 }
                 None => {
                     let _ = writeln!(err, "{label}: no analysis (degenerate input); kept source");
@@ -4284,7 +4385,7 @@ fn emit_optimize_report(
         None => {
             if !global.quiet {
                 match trace {
-                    Some(t) => eprintln!("{label}: {}", t.summary_line()),
+                    Some(t) => eprintln!("{label}: {}{score_suffix}", t.summary_line()),
                     None => eprintln!("{label}: kept source (degenerate input)"),
                 }
             }
@@ -4351,8 +4452,8 @@ fn run_optimize_autodecide(
             .path()
             .map(|p| p.display().to_string())
             .unwrap_or_else(|| input.stem().to_owned());
-        let (output, trace) = optimize_decide_one(input, pipeline, auto, profile)?;
-        emit_optimize_report(&label, trace.as_ref(), explain, global)?;
+        let (output, trace, score) = optimize_decide_one(input, pipeline, auto, profile)?;
+        emit_optimize_report(&label, trace.as_ref(), score, explain, global)?;
 
         let sink = if let Some(ref out) = global.output {
             if out == "-" {
@@ -4395,8 +4496,8 @@ fn run_optimize_autodecide(
                 crate::source::Input::Stdin { stem, .. } => stem.clone(),
             };
             let result = (|| -> Result<(), CliError> {
-                let (output, trace) = optimize_decide_one(input, pipeline, auto, profile)?;
-                emit_optimize_report(&label, trace.as_ref(), explain, global)?;
+                let (output, trace, score) = optimize_decide_one(input, pipeline, auto, profile)?;
+                emit_optimize_report(&label, trace.as_ref(), score, explain, global)?;
                 let sink = Sink::Dir {
                     dir: PathBuf::from(out_dir),
                     template: template.clone(),
@@ -5536,10 +5637,12 @@ mod tests {
     }
 
     #[test]
-    fn optimize_default_auto_is_visually_lossless() {
+    fn optimize_default_auto_is_fast() {
+        // SPEC-084: the flagless default is the fast decision (fixed-quality,
+        // AVIF-aware, never-bigger), NOT the perceptual search.
         match optimize_auto_config(None, None, None).expect("default mode") {
-            AutoQuality::Perceptual(cfg) => assert_eq!(cfg.target, 90.0),
-            other => panic!("expected Perceptual(90), got {other:?}"),
+            AutoQuality::Fast => {}
+            other => panic!("expected Fast, got {other:?}"),
         }
     }
 

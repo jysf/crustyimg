@@ -48,9 +48,15 @@ pub enum Disposition {
 /// per-candidate solve.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
-    /// Perceptual SSIMULACRA2 target (`--target`/`--ssim`, the default).
+    /// The **default** decision (SPEC-084): no search. Each bucket-appropriate
+    /// candidate is encoded **once** at its fixed default quality, AVIF is admitted
+    /// for lossy-family content at a generous fixed quality, and the smallest that
+    /// beats the source wins. This is the mode a plain `optimize` (no
+    /// `--target`/`--ssim`/`--max-size`) runs.
+    Fast,
+    /// Perceptual SSIMULACRA2 target (`--target`/`--ssim`, opt-in).
     Perceptual,
-    /// Byte budget (`--max-size`).
+    /// Byte budget (`--max-size`, opt-in).
     SizeBudget,
 }
 
@@ -87,13 +93,32 @@ pub struct CandidateOutcome {
     pub met_target: bool,
 }
 
+/// Is AVIF admissible as a fixed-quality candidate for this content bucket?
+///
+/// AVIF belongs to the **lossy family** — it is the modern replacement for a JPEG,
+/// never for a flat graphic (validated: a screenshot → lossless WebP, AVIF is a 4×
+/// regression). So it is admitted for [`OptBucket::Lossy`] and the ambiguous
+/// [`OptBucket::MixedSafe`] (where `pick_winner`'s smallest-beats-source lets the
+/// measured bytes veto it), never for [`OptBucket::LosslessFlat`].
+///
+/// This is a **bucket predicate, deliberately independent of shortlist position**
+/// (SPEC-079's lesson): [`format_shortlist`] truncates to [`MAX_SHORTLIST`], and a
+/// last-appended AVIF on a full list would be silently dropped — so the admission
+/// rule is about the bucket, not "did AVIF survive the truncation".
+pub fn avif_admissible(bucket: OptBucket, built: BuiltCodecs) -> bool {
+    built.avif && matches!(bucket, OptBucket::Lossy | OptBucket::MixedSafe)
+}
+
 /// Build the ordered ≤[`MAX_SHORTLIST`] candidate shortlist for a decoded image
 /// (SPEC-048 / DEC-048).
 ///
-/// Only built + capability-valid entries are returned; **AVIF appears only in
-/// byte-budget mode and only when built** (it has no decoder, DEC-020, so it
-/// cannot be perceptually scored). The result is never empty — it always
-/// contains at least one always-available lossless entry (PNG).
+/// Only built + capability-valid entries are returned. **AVIF is admitted for the
+/// lossy-family buckets** (see [`avif_admissible`]) in the two non-perceptual
+/// modes: [`Mode::SizeBudget`] (the byte-budget search, appended) and
+/// [`Mode::Fast`] (the default decision, prepended so the [`MAX_SHORTLIST`]
+/// truncation can never drop it). It never appears in [`Mode::Perceptual`] — it has
+/// no decoder to score a round-trip against (DEC-020). The result is never empty —
+/// it always contains at least one always-available lossless entry (PNG).
 pub fn format_shortlist(
     bucket: OptBucket,
     has_alpha: bool,
@@ -149,12 +174,20 @@ pub fn format_shortlist(
         }
     }
 
-    // AVIF: byte-budget mode only, built only, lossy-family bucket only.
-    if mode == Mode::SizeBudget
-        && built.avif
-        && matches!(effective, OptBucket::Lossy | OptBucket::MixedSafe)
-    {
-        out.push(lossy(ImageFormat::Avif));
+    // AVIF admission (built + lossy-family bucket only — the bucket predicate,
+    // NOT shortlist position). Two non-perceptual modes admit it, differently:
+    //   * SizeBudget: appended — its byte-budget search comparison-shops it against
+    //     the same-family lossy candidates (unchanged from SPEC-018).
+    //   * Fast: PREPENDED — it is the preferred modern candidate for the default
+    //     decision, and prepending makes it immune to the MAX_SHORTLIST truncation
+    //     that would otherwise silently drop a last-appended AVIF (SPEC-079's
+    //     lesson: admit by bucket, and don't let truncation position decide it).
+    if avif_admissible(effective, built) {
+        match mode {
+            Mode::SizeBudget => out.push(lossy(ImageFormat::Avif)),
+            Mode::Fast => out.insert(0, lossy(ImageFormat::Avif)),
+            Mode::Perceptual => {}
+        }
     }
 
     out.truncate(MAX_SHORTLIST);
@@ -447,6 +480,7 @@ fn profile_name(p: Profile) -> &'static str {
 
 fn mode_name(m: Mode) -> &'static str {
     match m {
+        Mode::Fast => "fast",
         Mode::Perceptual => "perceptual",
         Mode::SizeBudget => "size-budget",
     }
@@ -604,7 +638,8 @@ mod tests {
     }
 
     #[test]
-    fn shortlist_avif_only_in_size_mode_and_when_built() {
+    fn shortlist_avif_never_in_perceptual_and_gated_on_built() {
+        // Perceptual never admits AVIF (no decoder to score a round-trip, DEC-020).
         let perceptual = format_shortlist(
             OptBucket::Lossy,
             false,
@@ -617,29 +652,110 @@ mod tests {
             "no AVIF perceptual"
         );
 
-        let size_built = format_shortlist(
-            OptBucket::Lossy,
+        // Both non-perceptual modes admit AVIF for a lossy-family bucket when built.
+        for mode in [Mode::SizeBudget, Mode::Fast] {
+            let built = format_shortlist(OptBucket::Lossy, false, Profile::Web, mode, ALL_BUILT);
+            assert!(
+                built.iter().any(|e| e.fmt == Avif),
+                "AVIF in {mode:?} when built: {built:?}"
+            );
+            let unbuilt = format_shortlist(OptBucket::Lossy, false, Profile::Web, mode, NONE_BUILT);
+            assert!(
+                unbuilt.iter().all(|e| e.fmt != Avif),
+                "no AVIF unbuilt in {mode:?}: {unbuilt:?}"
+            );
+        }
+
+        // AVIF is never admitted for a purely lossless/graphic bucket, even in Fast.
+        let graphic = format_shortlist(
+            OptBucket::LosslessFlat,
             false,
             Profile::Web,
-            Mode::SizeBudget,
+            Mode::Fast,
             ALL_BUILT,
         );
         assert!(
-            size_built.iter().any(|e| e.fmt == Avif),
-            "AVIF in size mode when built: {size_built:?}"
+            graphic.iter().all(|e| e.fmt != Avif),
+            "no AVIF for a graphic bucket: {graphic:?}"
         );
+    }
 
-        let size_unbuilt = format_shortlist(
-            OptBucket::Lossy,
+    // ── SPEC-084: the default (fast) decision mode ────────────────────────────
+
+    /// The default (fast) decision admits AVIF for a photographic (lossy) bucket.
+    #[test]
+    fn default_decision_admits_avif_for_photo() {
+        let s = format_shortlist(OptBucket::Lossy, false, Profile::Web, Mode::Fast, ALL_BUILT);
+        assert!(
+            s.iter()
+                .any(|e| e.fmt == Avif && e.disposition == Disposition::Lossy),
+            "fast mode must offer a lossy AVIF candidate for a photo: {s:?}"
+        );
+    }
+
+    /// The default (fast) decision keeps a graphic bucket lossless — never AVIF.
+    #[test]
+    fn default_decision_keeps_graphic_lossless() {
+        let s = format_shortlist(
+            OptBucket::LosslessFlat,
             false,
             Profile::Web,
-            Mode::SizeBudget,
-            NONE_BUILT,
+            Mode::Fast,
+            ALL_BUILT,
         );
         assert!(
-            size_unbuilt.iter().all(|e| e.fmt != Avif),
-            "no AVIF unbuilt"
+            s.iter().all(|e| e.disposition == Disposition::Lossless),
+            "a graphic bucket must stay lossless in fast mode: {s:?}"
         );
+        assert!(
+            s.iter().all(|e| e.fmt != Avif),
+            "never AVIF for a graphic: {s:?}"
+        );
+    }
+
+    /// The default decision returns passthrough (`None`) when no fixed-quality
+    /// candidate beats the source — the never-bigger guarantee, mode-independent
+    /// (`pick_winner` compares measured bytes to the source regardless of how the
+    /// candidates were produced).
+    #[test]
+    fn default_decision_passthrough_when_nothing_beats_source() {
+        // An already-optimal source: every fast candidate is ≥ the source bytes.
+        let cands = [
+            oc(Avif, 1_050, true),
+            oc(Jpeg, 1_100, true),
+            oc(WebP, 1_010, true),
+        ];
+        assert_eq!(
+            pick_winner(&cands, 1_000, Jpeg),
+            None,
+            "nothing beats the source → passthrough"
+        );
+    }
+
+    /// The AVIF admission is a **bucket predicate**, not shortlist membership: even
+    /// when the pre-AVIF candidate list already fills `MAX_SHORTLIST`, AVIF survives
+    /// (it is prepended, not appended-then-truncated — the SPEC-079 footgun).
+    #[test]
+    fn avif_admission_survives_shortlist_truncation() {
+        // MixedSafe + no-alpha + ALL_BUILT already yields four pre-AVIF candidates
+        // (lossy WebP, lossless WebP, lossless PNG, JPEG) — more than MAX_SHORTLIST.
+        // An appended AVIF would be truncated away; a prepended one must not be.
+        let s = format_shortlist(
+            OptBucket::MixedSafe,
+            false,
+            Profile::Web,
+            Mode::Fast,
+            ALL_BUILT,
+        );
+        assert!(s.len() <= MAX_SHORTLIST, "still bounded: {s:?}");
+        assert!(
+            s.iter().any(|e| e.fmt == Avif),
+            "AVIF must survive truncation on a full lossy-family shortlist: {s:?}"
+        );
+        // And the predicate agrees independently of the shortlist.
+        assert!(avif_admissible(OptBucket::MixedSafe, ALL_BUILT));
+        assert!(!avif_admissible(OptBucket::LosslessFlat, ALL_BUILT));
+        assert!(!avif_admissible(OptBucket::Lossy, NONE_BUILT));
     }
 
     #[test]
@@ -650,7 +766,7 @@ mod tests {
             OptBucket::MixedSafe,
         ];
         let profiles = [Profile::Web, Profile::Docs];
-        let modes = [Mode::Perceptual, Mode::SizeBudget];
+        let modes = [Mode::Fast, Mode::Perceptual, Mode::SizeBudget];
         let builts = [
             ALL_BUILT,
             NONE_BUILT,
@@ -673,7 +789,11 @@ mod tests {
                                     (Jpeg, _) | (Png, _) => true,
                                     (WebP, Disposition::Lossless) => true,
                                     (WebP, Disposition::Lossy) => built.webp_lossy,
-                                    (Avif, _) => built.avif && mode == Mode::SizeBudget,
+                                    // AVIF is admitted in the two non-perceptual
+                                    // modes, for the lossy-family buckets only.
+                                    (Avif, _) => {
+                                        built.avif && matches!(mode, Mode::SizeBudget | Mode::Fast)
+                                    }
                                     _ => false,
                                 };
                                 assert!(ok, "unbuildable entry {e:?} with {built:?}");
