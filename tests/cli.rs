@@ -5187,6 +5187,67 @@ fn web_equals_apply_recipe_web() {
     );
 }
 
+/// `web <in> -o out.png` == `apply --recipe web <in> -o out.png`: a pinned format
+/// (`-o` extension) is honored on BOTH paths. The terminal-`optimize` apply path
+/// diverts to the same plain re-encode the `web` verb does, so the output is a real
+/// PNG of the downscaled image — NOT AVIF bytes written to a `.png` — and the two
+/// paths are byte-identical. Feature-independent: the pin skips the AVIF decision.
+#[test]
+fn web_pinned_format_equals_apply_recipe_web_pinned() {
+    let dir = tempfile::tempdir().unwrap();
+    let src = common::jpeg_with_exif(256, 256);
+    let in_path = write_bytes(&dir, "photo.jpg", &src);
+    let verb_out = dir.path().join("verb.png");
+    let recipe_out = dir.path().join("recipe.png");
+
+    let verb = Command::new(BIN)
+        .args([
+            "web",
+            in_path.to_str().unwrap(),
+            "-o",
+            verb_out.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(verb.status.code(), Some(0), "stderr: {}", stderr_str(&verb));
+
+    let recipe = Command::new(BIN)
+        .args([
+            "apply",
+            "--recipe",
+            "web",
+            in_path.to_str().unwrap(),
+            "-o",
+            recipe_out.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(
+        recipe.status.code(),
+        Some(0),
+        "stderr: {}",
+        stderr_str(&recipe)
+    );
+
+    let verb_bytes = std::fs::read(&verb_out).unwrap();
+    let recipe_bytes = std::fs::read(&recipe_out).unwrap();
+    // The pin is honored on both paths: a real PNG, not AVIF-in-a-`.png`.
+    assert_eq!(
+        image::guess_format(&verb_bytes).ok(),
+        Some(ImageFormat::Png),
+        "web -o .png must write a real PNG (pin honored)"
+    );
+    assert_eq!(
+        image::guess_format(&recipe_bytes).ok(),
+        Some(ImageFormat::Png),
+        "apply --recipe web -o .png must write a real PNG, not AVIF-in-a-.png"
+    );
+    assert_eq!(
+        verb_bytes, recipe_bytes,
+        "the pinned web verb and apply --recipe web must be byte-identical"
+    );
+}
+
 /// `web` reads a RAW input end to end (the embedded preview, PROJ-009) — a
 /// "sharp can't do this" path. The 64×48 preview stays under the 2048 default (no
 /// downscale); the output just has to decode. Feature-independent.

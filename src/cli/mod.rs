@@ -1142,6 +1142,28 @@ fn run_apply(recipe_path: &str, inputs: &[String], global: &GlobalArgs) -> Resul
     if let Some(pixel_recipe) = split_terminal_optimize(&recipe) {
         let registry = OperationRegistry::with_builtins();
         let pipeline = pixel_recipe.build_pipeline(&registry)?;
+
+        // A pinned format (`--format` or a recognized `-o` extension) is an explicit
+        // override: honor it and skip the auto-decision (and the score), exactly like
+        // the `web`/`optimize` verbs do. Without this diversion the terminal-`optimize`
+        // path would auto-decide to AVIF and write those bytes to a `.png` path — so
+        // `apply --recipe web hero.jpg -o hero.png` must match `web hero.jpg -o hero.png`
+        // (a real PNG of the downscaled image, not AVIF-in-a-`.png`).
+        let pinned = resolve_format(global.format.as_deref())?.is_some()
+            || global.output.as_deref().is_some_and(|o| {
+                o != "-" && crate::sink::format_from_extension(Path::new(o)).is_ok()
+            });
+        if pinned {
+            return run_pixel_op(
+                pipeline,
+                inputs,
+                global,
+                None,
+                None,
+                Some(AutoQuality::Fast),
+            );
+        }
+
         return run_optimize_autodecide(
             &pipeline,
             inputs,

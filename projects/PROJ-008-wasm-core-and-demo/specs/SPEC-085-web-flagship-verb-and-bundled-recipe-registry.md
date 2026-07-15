@@ -17,7 +17,7 @@ agents:
   implementer: claude-opus-4-8
   created_at: 2026-07-14
 references:
-  decisions: [DEC-005, DEC-017, DEC-048, DEC-057, DEC-069]
+  decisions: [DEC-005, DEC-017, DEC-048, DEC-057, DEC-069, DEC-070]
   constraints: [pure-rust-codecs-default, ergonomic-defaults, untrusted-input-hardening,
                 every-public-fn-tested, test-before-implementation, no-new-top-level-deps-without-decision]
   related_specs: [SPEC-084, SPEC-086]
@@ -164,7 +164,8 @@ downscaled output), and a **bundled-recipe registry** (`include_str!` + a name r
   `web <graphic>` stays lossless (content branch holds); size-insensitive on the real corpus (12.8 MP
   and 1.8 MB photos both ~3–4 s); `apply --recipe web` is **byte-identical** to `web`; bundled
   `gallery`/`product` run + a real file path still works (file-wins precedence); `web ./raw.nef` reads
-  the embedded RAW preview end-to-end. All gates pass: `cargo test` (734 default / 748 `--features avif`),
+  the embedded RAW preview end-to-end. All gates pass: `cargo test` (735 default / 749 `--features avif`,
+  after the verify-fix pass added `web_pinned_format_equals_apply_recipe_web_pinned`),
   `cargo clippy --all-targets` (both feature sets), `cargo fmt --check`, `cargo build --no-default-features`.
 - **Default long-edge validated (2048):** measured on the corpus with the release binary — DSC_2011.JPG
   (12.8 MB/12 MP → 98.6 KB AVIF, 2048×1367, **99% smaller, 3.9 s, ssim 80.2**); L1024678.JPG (14 MB →
@@ -175,23 +176,29 @@ downscaled output), and a **bundled-recipe registry** (`include_str!` + a name r
   (`optimize_pipeline(Some(2048))` + `Mode::Fast` + always-score); the bundled `web` recipe reaches the
   *same* `run_optimize_autodecide(..., always_score=true)` via `run_apply`'s terminal-`optimize` branch.
   Identical pixel pipeline (auto-orient + resize max 2048) → identical decision → identical bytes.
-- **New decisions:** none required a new DEC — folded into DEC-069's follow-through. Two design choices
-  worth recording: (1) the terminal `optimize` marker lives in the CLI apply path, **not** the operation
-  registry (it produces bytes + a format choice, not an `Image`, so it can't be an `Operation`); (2)
-  **precedence = a real file always wins** — `--recipe <arg>` is a path first, bundled name only on
-  fallback, so a local `web.toml` unambiguously shadows the bundle and every existing file recipe is
-  unchanged.
+- **New decisions:** **DEC-070** records the recipe-model change (the terminal `optimize` recipe step, the
+  bundled-vs-file precedence, the pinned-format bypass on the apply path, and the `build`-manifest
+  limitation) — the follow-through DEC-069 had deferred. Two design choices captured there: (1) the
+  terminal `optimize` marker lives in the CLI apply path, **not** the operation registry (it produces
+  bytes + a format choice, not an `Image`, so it can't be an `Operation`); (2) **precedence = a real file
+  always wins** — `--recipe <arg>` is a path first, bundled name only on fallback, so a local `web.toml`
+  unambiguously shadows the bundle and every existing file recipe is unchanged.
 - **Deviations:** (a) `gallery`/`product` also use the terminal-`optimize` step (they modernize format
   like `web`, at 2560/1600 px) rather than being fixed-format "non-optimize flows" as the descope note
-  imagined — cleaner and more consistent now that the mechanism exists. (b) A pinned format (`web -o x.png`
-  / `--format`) bypasses the auto-decision (and the score), mirroring `optimize`'s pin. (c) The
+  imagined — cleaner and more consistent now that the mechanism exists. (b) A pinned format (`-o x.png` /
+  `--format`) bypasses the auto-decision (and the score), mirroring `optimize`'s pin — **on both the `web`
+  verb AND the terminal-`optimize` apply path** (`apply --recipe web hero.jpg -o hero.png` writes a real
+  PNG, byte-identical to `web hero.jpg -o hero.png`). *(The apply-path pin was Defect 1 in verify — the
+  first build honored the pin on the verb but not the `run_apply` terminal-`optimize` branch, which wrote
+  AVIF-in-a-`.png`; the fix mirrors the verb's `pinned`→`run_pixel_op` diversion. See DEC-070 §2.)* (c) The
   terminal-`optimize` apply path is **sequential** (like `optimize`/`web`), not the rayon batch the plain
   apply path uses. (d) AVIF-producing tests use a small `--max`/small sources because the debug-build AVIF
   encoder is far too slow to encode a 2048 px image inside a unit test; the 2048 default is validated on
   the release corpus above.
 - **Follow-ups:** (1) `build` binding a terminal-`optimize` recipe would hit `UnknownOperation("optimize")`
   at `build_pipeline` (a typed error, not a panic) — wire the same terminal-optimize split into `run_build`
-  if DEC-057 build-manifest use of bundled flows is wanted. (2) `apply` unknown-recipe-name error still
+  if DEC-057 build-manifest use of bundled flows is wanted (recorded as a known limitation in DEC-070 §4).
+  (2) `apply` unknown-recipe-name error still
   prints the generic "could not read recipe file" (exit 3 is correct); surface the bundled-names hint by
   giving the not-found case its own `CliError` message. (3) An `optimize` step mid-recipe (not terminal) is
   left to fail as `UnknownOperation`; a dedicated "must be terminal" error would read better. (4) Reframe

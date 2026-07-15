@@ -182,3 +182,13 @@ in shape**: both do fixed-quality Auto-AVIF for lossy-family content via a bucke
   SPEC-088's.
 - Bench harness: `scratchpad/bench` / the throwaway sweep over `_incoming0`; the numbers above are
   reproducible with `convert --format avif -q <N>` + `diff <src> <out> --json`.
+
+## Follow-through
+
+- **The recipe-model side of this decision is recorded in [DEC-070](./DEC-070-terminal-optimize-recipe-step-and-bundled-recipe-model.md).**
+  SPEC-085's `web` verb and bundled `web`/`gallery`/`product` recipes invoke the `Mode::Fast` decision
+  above through a **terminal `optimize` recipe step** (a DEC-005 recipe-format extension, handled in the
+  apply path — not a registry op). DEC-070 records that step, the bundled-vs-file precedence (a real file
+  always wins), the pinned-format bypass on the apply path, and the `build`-manifest limitation
+  (`UnknownOperation("optimize")`, deferred). This is the "surface's choice to score" (decision #4)
+  concretely wired: `web` scores always on its downscaled output.
