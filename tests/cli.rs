@@ -72,6 +72,7 @@ fn help_lists_all_subcommands() {
         "thumbnail",
         "shrink",
         "convert",
+        "web",
         "optimize",
         "responsive",
         "auto-orient",
@@ -4927,6 +4928,426 @@ fn optimize_graphic_lossy_with_metadata_avoids_lossless_blowup() {
     assert!(
         info_stdout.contains("\"has_icc\":false"),
         "ICC must be stripped from the fallback output: {info_stdout}"
+    );
+}
+
+// ── SPEC-085: `web` flagship verb + bundled-recipe registry ───────────────────
+
+/// Decode an output image's dimensions via the binary's `info --json` — the robust
+/// path for AVIF, which the `image` test crate cannot decode (crustyimg decodes it
+/// natively via `re_rav1d`, but the `image` crate's `avif` feature is encode-only).
+fn info_dims(path: &std::path::Path) -> (u32, u32) {
+    let out = Command::new(BIN)
+        .args(["info", "--json", path.to_str().unwrap()])
+        .output()
+        .expect("run info --json");
+    assert_eq!(out.status.code(), Some(0), "info: {}", stderr_str(&out));
+    let json = String::from_utf8_lossy(&out.stdout);
+    // Minimal field extraction (no JSON dep in the test crate): find `"key":<int>`.
+    let field = |key: &str| -> u32 {
+        let needle = format!("\"{key}\":");
+        let start = json.find(&needle).expect("field present") + needle.len();
+        let rest = &json[start..];
+        let end = rest
+            .find(|c: char| !c.is_ascii_digit())
+            .unwrap_or(rest.len());
+        rest[..end].parse().expect("integer field")
+    };
+    (field("width"), field("height"))
+}
+
+/// A flat, few-color "logo" graphic (4 solid vertical bands): classifies as
+/// `graphic-logo` → the lossless bucket, so the `web`/optimize decision keeps it
+/// lossless (WebP/PNG) and never picks AVIF. `400×300` stays under the 2048 default,
+/// so `web` does not downscale it — a lossless WebP of the same pixels round-trips
+/// bit-exactly.
+fn banded_graphic_png(w: u32, h: u32) -> Vec<u8> {
+    let bands = [
+        image::Rgb([200u8, 30, 30]),
+        image::Rgb([30, 200, 30]),
+        image::Rgb([30, 30, 200]),
+        image::Rgb([240, 240, 240]),
+    ];
+    let mut img = RgbImage::new(w, h);
+    for (x, _y, px) in img.enumerate_pixels_mut() {
+        *px = bands[((x * 4 / w.max(1)) % 4) as usize];
+    }
+    let mut c = Cursor::new(Vec::new());
+    DynamicImage::ImageRgb8(img)
+        .write_to(&mut c, ImageFormat::Png)
+        .unwrap();
+    c.into_inner()
+}
+
+/// The headline: `web <photo>` downscales the long edge to the bound, modernizes to
+/// **AVIF** via the fast decision, ships something smaller than the source, strips
+/// metadata, and **reports an SSIMULACRA2 score** on the (downscaled) output.
+///
+/// Uses `--max 128` so the AVIF encode is on a tiny image — the debug-build encoder
+/// is far too slow to AVIF-encode a 2048px image inside a unit test. The 2048 default
+/// downscale is validated on the real corpus in the build report; here we prove the
+/// downscale *mechanism* + modernize + score end to end.
+#[cfg(feature = "avif")]
+#[test]
+fn web_photo_downscales_modernizes_scores() {
+    let dir = tempfile::tempdir().unwrap();
+    // A photographic source (EXIF camera prior → Photograph → the AVIF-admitting
+    // lossy bucket), 384×288 so `--max 128` actually downscales it.
+    let src = common::jpeg_with_exif(384, 288);
+    let in_path = write_bytes(&dir, "photo.jpg", &src);
+    let out_dir = dir.path().join("out");
+
+    let out = Command::new(BIN)
+        .args([
+            "web",
+            in_path.to_str().unwrap(),
+            "--max",
+            "128",
+            "--out-dir",
+            out_dir.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr_str(&out));
+
+    let (path, bytes) = optimize_single_output(&out_dir);
+    assert_eq!(
+        path.extension().and_then(|e| e.to_str()),
+        Some("avif"),
+        "web must modernize a photo to AVIF, got {path:?}"
+    );
+    assert_eq!(
+        image::guess_format(&bytes).ok(),
+        Some(ImageFormat::Avif),
+        "output bytes must be AVIF"
+    );
+    // Downscaled: the long edge is the 128 bound (384×288 → 128×96).
+    assert_eq!(
+        info_dims(&path),
+        (128, 96),
+        "web must downscale the long edge to the --max bound"
+    );
+    assert!(
+        bytes.len() < src.len(),
+        "web output ({}) must be smaller than the source ({})",
+        bytes.len(),
+        src.len()
+    );
+    // The score is reported on stderr (the always-on `web` SSIMULACRA2).
+    assert!(
+        stderr_str(&out).contains("ssim"),
+        "web must report an SSIMULACRA2 score, got: {}",
+        stderr_str(&out)
+    );
+    // Metadata stripped (the EXIF is gone).
+    let info = Command::new(BIN)
+        .args(["info", "--json", path.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(
+        String::from_utf8_lossy(&info.stdout).contains("\"has_exif\":false"),
+        "web must strip metadata: {}",
+        String::from_utf8_lossy(&info.stdout)
+    );
+}
+
+/// `web <graphic>` keeps a flat few-color logo **lossless** — the content branch
+/// (DEC-048) holds through the `web` flow: never AVIF, and the pixels round-trip
+/// bit-exactly. Feature-independent (a graphic never admits AVIF).
+#[test]
+fn web_graphic_stays_lossless() {
+    let dir = tempfile::tempdir().unwrap();
+    let src = banded_graphic_png(400, 300);
+    let in_path = write_bytes(&dir, "logo.png", &src);
+    let out_dir = dir.path().join("out");
+
+    let out = Command::new(BIN)
+        .args([
+            "web",
+            in_path.to_str().unwrap(),
+            "--out-dir",
+            out_dir.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr_str(&out));
+
+    let (path, bytes) = optimize_single_output(&out_dir);
+    let fmt = image::guess_format(&bytes).ok();
+    assert_ne!(
+        fmt,
+        Some(ImageFormat::Avif),
+        "a graphic must not become AVIF"
+    );
+    assert!(
+        matches!(fmt, Some(ImageFormat::WebP) | Some(ImageFormat::Png)),
+        "a graphic must stay in a lossless format (WebP/PNG), got {fmt:?} ({path:?})"
+    );
+    // Lossless: the decoded output equals the source pixels bit-for-bit (400×300 is
+    // under the 2048 default, so there is no downscale to change them).
+    let out_pixels = image::load_from_memory(&bytes).unwrap().to_rgb8();
+    let src_pixels = image::load_from_memory(&src).unwrap().to_rgb8();
+    assert_eq!(
+        (out_pixels.width(), out_pixels.height()),
+        (400, 300),
+        "no downscale for a sub-2048 graphic"
+    );
+    assert_eq!(
+        out_pixels.into_raw(),
+        src_pixels.into_raw(),
+        "the graphic must be re-encoded losslessly (pixels unchanged)"
+    );
+}
+
+/// `web` never upscales a source already smaller than the downscale default: a
+/// 200×150 image keeps its dimensions. Feature-independent (a graphic source).
+#[test]
+fn web_never_upscales_small_source() {
+    let dir = tempfile::tempdir().unwrap();
+    let in_path = write_bytes(&dir, "small.png", &banded_graphic_png(200, 150));
+    let out_dir = dir.path().join("out");
+
+    let out = Command::new(BIN)
+        .args([
+            "web",
+            in_path.to_str().unwrap(),
+            "--out-dir",
+            out_dir.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr_str(&out));
+
+    let (_path, bytes) = optimize_single_output(&out_dir);
+    let decoded = image::load_from_memory(&bytes).expect("output must decode");
+    assert_eq!(
+        (decoded.width(), decoded.height()),
+        (200, 150),
+        "web must not upscale a sub-default source"
+    );
+}
+
+/// `web <inputs>` == `apply --recipe web <inputs>`: the verb and the bundled recipe
+/// reach the identical engine and produce **byte-identical** output (same format,
+/// dims, bytes). Uses a 256×256 photo (under 2048, so neither path downscales) to
+/// keep the debug AVIF encode small.
+#[cfg(feature = "avif")]
+#[test]
+fn web_equals_apply_recipe_web() {
+    let dir = tempfile::tempdir().unwrap();
+    let src = common::jpeg_with_exif(256, 256);
+    let in_path = write_bytes(&dir, "photo.jpg", &src);
+    let verb_dir = dir.path().join("verb");
+    let recipe_dir = dir.path().join("recipe");
+
+    let verb = Command::new(BIN)
+        .args([
+            "web",
+            in_path.to_str().unwrap(),
+            "--out-dir",
+            verb_dir.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(verb.status.code(), Some(0), "stderr: {}", stderr_str(&verb));
+
+    let recipe = Command::new(BIN)
+        .args([
+            "apply",
+            "--recipe",
+            "web",
+            in_path.to_str().unwrap(),
+            "--out-dir",
+            recipe_dir.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(
+        recipe.status.code(),
+        Some(0),
+        "stderr: {}",
+        stderr_str(&recipe)
+    );
+
+    let (verb_path, verb_bytes) = optimize_single_output(&verb_dir);
+    let (recipe_path, recipe_bytes) = optimize_single_output(&recipe_dir);
+    assert_eq!(
+        verb_path.extension(),
+        recipe_path.extension(),
+        "web and apply --recipe web must agree on format"
+    );
+    assert_eq!(
+        image::guess_format(&verb_bytes).ok(),
+        Some(ImageFormat::Avif),
+        "both must produce AVIF for this photo"
+    );
+    assert_eq!(
+        verb_bytes, recipe_bytes,
+        "web and apply --recipe web must produce byte-identical output"
+    );
+}
+
+/// `web <in> -o out.png` == `apply --recipe web <in> -o out.png`: a pinned format
+/// (`-o` extension) is honored on BOTH paths. The terminal-`optimize` apply path
+/// diverts to the same plain re-encode the `web` verb does, so the output is a real
+/// PNG of the downscaled image — NOT AVIF bytes written to a `.png` — and the two
+/// paths are byte-identical. Feature-independent: the pin skips the AVIF decision.
+#[test]
+fn web_pinned_format_equals_apply_recipe_web_pinned() {
+    let dir = tempfile::tempdir().unwrap();
+    let src = common::jpeg_with_exif(256, 256);
+    let in_path = write_bytes(&dir, "photo.jpg", &src);
+    let verb_out = dir.path().join("verb.png");
+    let recipe_out = dir.path().join("recipe.png");
+
+    let verb = Command::new(BIN)
+        .args([
+            "web",
+            in_path.to_str().unwrap(),
+            "-o",
+            verb_out.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(verb.status.code(), Some(0), "stderr: {}", stderr_str(&verb));
+
+    let recipe = Command::new(BIN)
+        .args([
+            "apply",
+            "--recipe",
+            "web",
+            in_path.to_str().unwrap(),
+            "-o",
+            recipe_out.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(
+        recipe.status.code(),
+        Some(0),
+        "stderr: {}",
+        stderr_str(&recipe)
+    );
+
+    let verb_bytes = std::fs::read(&verb_out).unwrap();
+    let recipe_bytes = std::fs::read(&recipe_out).unwrap();
+    // The pin is honored on both paths: a real PNG, not AVIF-in-a-`.png`.
+    assert_eq!(
+        image::guess_format(&verb_bytes).ok(),
+        Some(ImageFormat::Png),
+        "web -o .png must write a real PNG (pin honored)"
+    );
+    assert_eq!(
+        image::guess_format(&recipe_bytes).ok(),
+        Some(ImageFormat::Png),
+        "apply --recipe web -o .png must write a real PNG, not AVIF-in-a-.png"
+    );
+    assert_eq!(
+        verb_bytes, recipe_bytes,
+        "the pinned web verb and apply --recipe web must be byte-identical"
+    );
+}
+
+/// `web` reads a RAW input end to end (the embedded preview, PROJ-009) — a
+/// "sharp can't do this" path. The 64×48 preview stays under the 2048 default (no
+/// downscale); the output just has to decode. Feature-independent.
+#[test]
+fn web_reads_raw_input() {
+    const RAW_FIXTURE: &[u8] = include_bytes!("fixtures/raw/synthetic_preview.nef");
+    let dir = tempfile::tempdir().unwrap();
+    let in_path = dir.path().join("in.nef");
+    std::fs::write(&in_path, RAW_FIXTURE).unwrap();
+    let out_dir = dir.path().join("out");
+
+    let out = Command::new(BIN)
+        .args([
+            "web",
+            in_path.to_str().unwrap(),
+            "--out-dir",
+            out_dir.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr_str(&out));
+
+    let (path, _bytes) = optimize_single_output(&out_dir);
+    assert_eq!(
+        info_dims(&path),
+        (64, 48),
+        "the RAW preview (64×48) flows through web unscaled"
+    );
+}
+
+/// Bundled-vs-path precedence: a **real recipe file always wins**. Passing the path
+/// to a file (an `invert` recipe) runs THAT recipe — a plain pixel op, format
+/// preserved, no auto-decision — proving a file path is honored and shadows any
+/// bundled name. Separately, a bare bundled name (`gallery`) resolves to the shipped
+/// flow and reaches the optimize decision (an `ssim` report). Feature-independent.
+#[test]
+fn apply_prefers_real_path_over_bundled_name() {
+    let dir = tempfile::tempdir().unwrap();
+    let in_path = write_bytes(&dir, "in.png", &common::detailed_png(64, 64));
+
+    // A real file recipe (invert), passed by path → runs the file, not any bundle.
+    let recipe_path = write_recipe(
+        &dir,
+        "web.toml",
+        "version = \"1\"\n[[step]]\nop = \"invert\"\n",
+    );
+    let out_path = dir.path().join("out.png");
+    let file_run = Command::new(BIN)
+        .args([
+            "apply",
+            "--recipe",
+            recipe_path.to_str().unwrap(),
+            in_path.to_str().unwrap(),
+            "-o",
+            out_path.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(
+        file_run.status.code(),
+        Some(0),
+        "stderr: {}",
+        stderr_str(&file_run)
+    );
+    // The file recipe is a plain pixel pipeline: format preserved (PNG), and NO
+    // optimize-flow report (no `ssim`) — proving the bundled `web` flow did NOT run.
+    let bytes = std::fs::read(&out_path).unwrap();
+    assert_eq!(
+        image::guess_format(&bytes).ok(),
+        Some(ImageFormat::Png),
+        "the file's invert recipe preserves the PNG format"
+    );
+    assert!(
+        !stderr_str(&file_run).contains("ssim"),
+        "the file recipe must not trigger the bundled web/optimize flow"
+    );
+
+    // A bare bundled name resolves and DOES reach the optimize decision.
+    let out_dir = dir.path().join("bundled");
+    let bundled_run = Command::new(BIN)
+        .args([
+            "apply",
+            "--recipe",
+            "gallery",
+            in_path.to_str().unwrap(),
+            "--out-dir",
+            out_dir.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(
+        bundled_run.status.code(),
+        Some(0),
+        "bundled gallery must resolve and run; stderr: {}",
+        stderr_str(&bundled_run)
+    );
+    assert!(
+        stderr_str(&bundled_run).contains("ssim") || stderr_str(&bundled_run).contains('\u{2192}'),
+        "the bundled recipe must reach the optimize flow (a report), got: {}",
+        stderr_str(&bundled_run)
     );
 }
 

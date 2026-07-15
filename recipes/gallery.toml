@@ -1,0 +1,17 @@
+# The `gallery` flow (SPEC-085): the `web` flow at a larger long edge for
+# full-bleed lightbox / gallery imagery. Same engine (downscale → orient → strip
+# → fast AVIF-aware modernize → never-bigger → score), just a 2560px bound.
+version = "1"
+name = "gallery"
+description = "Downscale to 2560px for gallery/lightbox display, then modernize (never bigger)."
+
+[[step]]
+op = "auto-orient"
+
+[[step]]
+op = "resize"
+mode = "max"
+width = 2560
+
+[[step]]
+op = "optimize"

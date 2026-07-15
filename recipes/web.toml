@@ -1,0 +1,23 @@
+# The `web` flagship flow (SPEC-085), shipped in-binary so `web <inputs>` and
+# `apply --recipe web <inputs>` reach the identical engine.
+#
+# Downscale the long edge to a web-friendly size (never upscaling), bake EXIF
+# orientation + strip metadata, then let the fast AVIF-aware decision (SPEC-084,
+# `Mode::Fast`) pick the smallest modern format that beats the source — never
+# shipping a larger file, and scoring the winner (SSIMULACRA2) on the downscaled
+# output. The terminal `optimize` step is what invokes that decision instead of a
+# plain format-preserving write.
+version = "1"
+name = "web"
+description = "Downscale to 2048px, modernize (AVIF/lossless-WebP), never bigger, score."
+
+[[step]]
+op = "auto-orient"
+
+[[step]]
+op = "resize"
+mode = "max"
+width = 2048
+
+[[step]]
+op = "optimize"

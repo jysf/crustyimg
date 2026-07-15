@@ -17,7 +17,7 @@ agents:
   implementer: claude-opus-4-8
   created_at: 2026-07-14
 references:
-  decisions: [DEC-005, DEC-017, DEC-048, DEC-057, DEC-069]
+  decisions: [DEC-005, DEC-017, DEC-048, DEC-057, DEC-069, DEC-070]
   constraints: [pure-rust-codecs-default, ergonomic-defaults, untrusted-input-hardening,
                 every-public-fn-tested, test-before-implementation, no-new-top-level-deps-without-decision]
   related_specs: [SPEC-084, SPEC-086]
@@ -157,9 +157,65 @@ downscaled output), and a **bundled-recipe registry** (`include_str!` + a name r
 ---
 
 ## Build Completion
-- **Branch:** · **PR:** · **All acceptance criteria met?** · **New decisions:** · **Deviations:** · **Follow-ups:**
+- **Branch:** `spec-085-web-verb`
+- **PR:** (opened, do-not-merge — see PR body)
+- **All acceptance criteria met?** **Yes.** `web <photo>` → downscale-to-2048 → AVIF via `Mode::Fast`,
+  substantially smaller, never larger, metadata stripped, orientation baked, SSIMULACRA2 reported;
+  `web <graphic>` stays lossless (content branch holds); size-insensitive on the real corpus (12.8 MP
+  and 1.8 MB photos both ~3–4 s); `apply --recipe web` is **byte-identical** to `web`; bundled
+  `gallery`/`product` run + a real file path still works (file-wins precedence); `web ./raw.nef` reads
+  the embedded RAW preview end-to-end. All gates pass: `cargo test` (735 default / 749 `--features avif`,
+  after the verify-fix pass added `web_pinned_format_equals_apply_recipe_web_pinned`),
+  `cargo clippy --all-targets` (both feature sets), `cargo fmt --check`, `cargo build --no-default-features`.
+- **Default long-edge validated (2048):** measured on the corpus with the release binary — DSC_2011.JPG
+  (12.8 MB/12 MP → 98.6 KB AVIF, 2048×1367, **99% smaller, 3.9 s, ssim 80.2**); L1024678.JPG (14 MB →
+  63.7 KB, 2.7 s, ssim 83.1); DSCF1154.JPG (1.8 MB → 83 KB, 4.0 s, ssim 78.9); DSC_0163.png (86%, 1.1 s).
+  Size-insensitive confirmed (the 12 MP photo is no slower than the 1.8 MB one — it downscales first).
+- **The equivalence WAS delivered (not descoped).** A reserved **terminal `optimize` recipe step** encodes
+  via the fast decision instead of a plain sink write. The `web` verb builds the flow in memory
+  (`optimize_pipeline(Some(2048))` + `Mode::Fast` + always-score); the bundled `web` recipe reaches the
+  *same* `run_optimize_autodecide(..., always_score=true)` via `run_apply`'s terminal-`optimize` branch.
+  Identical pixel pipeline (auto-orient + resize max 2048) → identical decision → identical bytes.
+- **New decisions:** **DEC-070** records the recipe-model change (the terminal `optimize` recipe step, the
+  bundled-vs-file precedence, the pinned-format bypass on the apply path, and the `build`-manifest
+  limitation) — the follow-through DEC-069 had deferred. Two design choices captured there: (1) the
+  terminal `optimize` marker lives in the CLI apply path, **not** the operation registry (it produces
+  bytes + a format choice, not an `Image`, so it can't be an `Operation`); (2) **precedence = a real file
+  always wins** — `--recipe <arg>` is a path first, bundled name only on fallback, so a local `web.toml`
+  unambiguously shadows the bundle and every existing file recipe is unchanged.
+- **Deviations:** (a) `gallery`/`product` also use the terminal-`optimize` step (they modernize format
+  like `web`, at 2560/1600 px) rather than being fixed-format "non-optimize flows" as the descope note
+  imagined — cleaner and more consistent now that the mechanism exists. (b) A pinned format (`-o x.png` /
+  `--format`) bypasses the auto-decision (and the score), mirroring `optimize`'s pin — **on both the `web`
+  verb AND the terminal-`optimize` apply path** (`apply --recipe web hero.jpg -o hero.png` writes a real
+  PNG, byte-identical to `web hero.jpg -o hero.png`). *(The apply-path pin was Defect 1 in verify — the
+  first build honored the pin on the verb but not the `run_apply` terminal-`optimize` branch, which wrote
+  AVIF-in-a-`.png`; the fix mirrors the verb's `pinned`→`run_pixel_op` diversion. See DEC-070 §2.)* (c) The
+  terminal-`optimize` apply path is **sequential** (like `optimize`/`web`), not the rayon batch the plain
+  apply path uses. (d) AVIF-producing tests use a small `--max`/small sources because the debug-build AVIF
+  encoder is far too slow to encode a 2048 px image inside a unit test; the 2048 default is validated on
+  the release corpus above.
+- **Follow-ups:** (1) `build` binding a terminal-`optimize` recipe would hit `UnknownOperation("optimize")`
+  at `build_pipeline` (a typed error, not a panic) — wire the same terminal-optimize split into `run_build`
+  if DEC-057 build-manifest use of bundled flows is wanted (recorded as a known limitation in DEC-070 §4).
+  (2) `apply` unknown-recipe-name error still
+  prints the generic "could not read recipe file" (exit 3 is correct); surface the bundled-names hint by
+  giving the not-found case its own `CliError` message. (3) An `optimize` step mid-recipe (not terminal) is
+  left to fail as `UnknownOperation`; a dedicated "must be terminal" error would read better. (4) Reframe
+  SPEC-080 (demo redesign) onto the `web` flow, per the STAGE-030 sequencing.
 ### Build-phase reflection
-1. <answer> 2. <answer> 3. <answer>
+1. **The equivalence was the whole risk, and it resolved cleanly because `optimize_decide_one` already
+   took a `&Pipeline`.** That seam meant `web` and the bundled recipe could share the identical fan-out by
+   just handing it different pipelines — the verb builds one in memory, the recipe strips its terminal step
+   and builds the rest. No engine was re-implemented; byte-identical output fell out for free.
+2. **SPEC-084 left the exact seam it promised.** `optimize_decide_one` already returned the third
+   `Option<f64>` score value and `emit_optimize_report` already appended `· ssim N` — wiring `web`'s
+   always-score was adding one `bool` param and a best-effort decode-and-score, exactly the "one-liner" the
+   SPEC-084 comment predicted. Landing that seam paid off a spec later.
+3. **The debug AVIF encoder is the real test-design constraint.** Encoding a 2048 px AVIF in a debug build
+   is >2 min; every AVIF-producing test had to keep the *encoded* image tiny (small `--max` or sub-2048
+   sources). The 2048 default itself can only be honestly validated on a release binary against the corpus,
+   which the build report now records.
 
 ---
 
