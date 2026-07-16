@@ -141,7 +141,7 @@ cutover). Update every reference. No behavior change, no new capability.
 ---
 
 ## Build Completion
-- **Branch:** `spec-087-meta-group` · **PR:** #PENDING · **All acceptance criteria met?**
+- **Branch:** `spec-087-meta-group` · **PR:** #91 · **All acceptance criteria met?**
   Yes — all five acceptance boxes checked; the four design Failing Tests exist and pass
   (`meta_subcommands_match_old_verbs`, `top_level_metadata_verbs_are_gone`,
   `meta_bare_prints_subcommand_help`, `auto_orient_still_top_level`) plus a new
