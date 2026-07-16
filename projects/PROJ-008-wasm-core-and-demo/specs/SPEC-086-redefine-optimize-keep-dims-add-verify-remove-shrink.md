@@ -145,7 +145,7 @@ are unchanged.
 ---
 
 ## Build Completion
-- **Branch:** `spec-086-optimize-verify-remove-shrink` · **PR:** #TBD · **All acceptance criteria met?**
+- **Branch:** `spec-086-optimize-verify-remove-shrink` · **PR:** #90 · **All acceptance criteria met?**
   Yes — all six acceptance boxes checked; the five design Failing Tests exist and pass (plus a migrated
   `optimize_unreachable_target_warns_best_effort` and a `explain_json_includes_ssim_only_when_verified`
   unit test); driven end-to-end on a real photo (`optimize` no-score vs `--verify` `· ssim 84.3` vs
