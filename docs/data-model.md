@@ -117,8 +117,8 @@ cares about. It is read with `kamadak-exif` (read-only) and edited with
 | Orientation | preserved | container lane |
 | ICC profile | preserved | container lane |
 | Copyright / Artist | preserved | `set` (little_exif) |
-| GPS | **dropped** unless `--keep-gps` | `clean --gps` removes |
-| All other EXIF/IPTC/XMP | dropped on pixel lane | `strip` removes; `copy-metadata` transfers |
+| GPS | **dropped** unless `--keep-gps` | `meta clean --gps` removes |
+| All other EXIF/IPTC/XMP | dropped on pixel lane | `meta strip` removes; `meta copy` transfers |
 
 ## Recipe Schema (TOML)
 

@@ -3,7 +3,7 @@
 task:
   id: SPEC-087
   type: story
-  cycle: design
+  cycle: build
   blocked: false
   priority: medium
   complexity: S
@@ -26,11 +26,27 @@ value_link: >
   optimize, convert, resize, meta, …) instead of a flat list where metadata ops sit next to encoders.
 
 cost:
-  sessions: []
-  totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+  sessions:
+    - cycle: design
+      interface: claude-code
+      tokens_total: null
+      note: >
+        framed build-ready in the orchestrator main loop (un-metered, §4). A pure surface
+        move within the STAGE-030 freeze; the design grounded the clap shape (nested subcommand)
+        and confirmed byte-identity as the whole value.
+    - cycle: build
+      interface: claude-code
+      tokens_total: 210000
+      estimated_usd: 2.30
+      recorded_at: 2026-07-15
+      note: >
+        metered subagent, own worktree — ESTIMATE (orchestrator finalizes subagent_tokens at
+        ship, §4). Introduced the `Meta` group + `MetaCommand` enum (strip/clean/copy),
+        removed the 3 top-level verbs, kept run_* handlers unchanged; grep-cleaned the live
+        surface (README/docs/cli-reference/api-contract/recipes/data-model/architecture/moat/
+        feature-exploration + the lint fix fragments + constraints.yaml rule) and the tests.
+        Gates green (test default+avif, clippy, fmt, no-default-features, validate). Flagged a
+        design-grounding error: a top-level `set` verb DOES exist (left top-level per spec scope).
 ---
 
 # SPEC-087: `meta` group consolidation (strip / clean / copy)
@@ -77,14 +93,15 @@ cutover). Update every reference. No behavior change, no new capability.
 
 ## Acceptance Criteria
 
-- [ ] `meta strip <inputs>`, `meta clean [--gps] <inputs>`, `meta copy --from A --to B` produce
+- [x] `meta strip <inputs>`, `meta clean [--gps] <inputs>`, `meta copy --from A --to B` produce
       **byte-identical** results to today's `strip`/`clean`/`copy-metadata` (same ops, just moved).
-- [ ] The **top-level** `strip`/`clean`/`copy-metadata` verbs **no longer exist** (unknown-subcommand
-      exit); `meta` with no subcommand prints help listing the three.
-- [ ] `auto-orient` remains **top-level** (unchanged).
-- [ ] No `strip`/`clean`/`copy-metadata` **top-level** reference remains on the live surface (help,
+      (`meta_subcommands_match_old_verbs` asserts the CLI bytes equal the underlying container-lane op.)
+- [x] The **top-level** `strip`/`clean`/`copy-metadata` verbs **no longer exist** (unknown-subcommand
+      exit 2); `meta` with no subcommand prints help listing the three.
+- [x] `auto-orient` remains **top-level** (unchanged); it is NOT a `meta` subcommand.
+- [x] No `strip`/`clean`/`copy-metadata` **top-level** reference remains on the live surface (help,
       completions, README, user-facing docs); historical records untouched.
-- [ ] `cargo test` (default **and** `--features avif`), `cargo clippy`, `cargo fmt --check`, and
+- [x] `cargo test` (default **and** `--features avif`), `cargo clippy`, `cargo fmt --check`, and
       `cargo build --no-default-features` pass.
 
 ## Failing Tests (written at design)
@@ -124,9 +141,51 @@ cutover). Update every reference. No behavior change, no new capability.
 ---
 
 ## Build Completion
-- **Branch:** · **PR:** · **All acceptance criteria met?** · **New decisions:** · **Deviations:** · **Follow-ups:**
+- **Branch:** `spec-087-meta-group` · **PR:** #PENDING · **All acceptance criteria met?**
+  Yes — all five acceptance boxes checked; the four design Failing Tests exist and pass
+  (`meta_subcommands_match_old_verbs`, `top_level_metadata_verbs_are_gone`,
+  `meta_bare_prints_subcommand_help`, `auto_orient_still_top_level`) plus a new
+  `meta_subcommand_help_parses`. Driven end-to-end on a real JPEG: `meta strip`/`meta clean --gps`/
+  `meta copy` produce bytes byte-identical to the container-lane ops; top-level `strip`/`clean`/
+  `copy-metadata` now exit 2; bare `meta` prints subcommand help. Gates green: `cargo test` (default
+  723 / avif), `cargo clippy` (clean), `cargo fmt --check`, `cargo build --no-default-features`,
+  `just validate`.
+- **New decisions:** None. A pure surface move within the STAGE-030 freeze (as framed) — no DEC needed.
+- **Deviations:**
+  1. **`set` verb discrepancy (design-grounding error — FLAGGED, left in place).** The spec's Context +
+     the STAGE-030 backlog both assert "there is **no `set` verb today**." That is **wrong**: a top-level
+     `Commands::Set` (`set --artist/--copyright/--description`, SPEC-027) exists and is documented. Per the
+     spec's explicit scope (move exactly `strip`/`clean`/`copy-metadata`; a `meta set` *write* capability
+     is out of scope), I left `set` **top-level, unchanged**. This leaves one metadata verb (`set`)
+     stranded outside the `meta` group — a taxonomy inconsistency the maintainer should rule on (fold
+     `set` → `meta set` in a follow-up, or keep it top-level deliberately). Not fixed here because it
+     exceeds the spec's enumerated scope and has no failing test.
+  2. **`run_clean` usage-error string kept verbatim.** `meta clean` without `--gps` still errors
+     `"clean requires --gps"` (not `"meta clean requires --gps"`) — the handler was moved *unchanged*
+     per the spec directive. Success-path bytes (the whole point) are byte-identical; the message is a
+     cosmetic nit a follow-up could polish.
+  3. **Lint fix fragments updated to the new path.** The lint rules emit runnable fixes
+     (`crustyimg <fix> <file>`); their fragments `strip`/`clean --gps` were rewritten to `meta strip`/
+     `meta clean --gps` so the suggested command still runs after the cutover (rules.rs, mod.rs, report.rs
+     goldens + the lint integration/unit tests).
+- **Follow-ups:**
+  - Maintainer call on `set`: fold into `meta set` (own spec — and it would make the group whole), or
+    keep top-level by design. Correct the "no `set` verb exists" note in the SPEC-087 Context + STAGE-030
+    backlog either way.
+  - Optional: `meta clean` usage message wording (`clean` → `meta clean`).
 ### Build-phase reflection
-1. <answer> 2. <answer> 3. <answer>
+1. **The spec's own grounding was falsifiable — and false.** "There is no `set` verb today" read like a
+   settled probe, but the code has `Commands::Set`. Grounding claims in a spec are hypotheses to re-check
+   against the tree at build time, not givens; a `grep` of the `Commands` enum caught it in seconds.
+2. **Byte-identity is best proven against the op, not a captured blob.** "Capture golden bytes from the
+   OLD verbs before deleting them" is impossible once the verb is gone and would need a committed binary
+   fixture (against convention). The container-lane fns are `pub`, so the test compares the `meta` CLI's
+   stdout to `metadata::strip_all/clean_gps/copy_metadata` directly — the exact code both the old and new
+   paths dispatch to. Self-contained, no fixtures, and a *stronger* invariant than a frozen hash.
+3. **A "pure surface move" still touched fifteen files.** The move itself is ~30 lines of clap; the value
+   ("nothing changed but the path") only holds if every *rendered* path changes too — including the lint
+   fixes users copy-paste (`crustyimg clean --gps …` would 404 after the cutover). The grep-clean, not the
+   enum edit, was the real work.
 
 ---
 

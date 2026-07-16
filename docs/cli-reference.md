@@ -184,18 +184,18 @@ when no orientation tag is present.
 crustyimg auto-orient photo.jpg -o fixed.jpg
 ```
 
-### `strip <INPUT...>`
+### `meta strip <INPUT...>`
 Remove **all** container metadata (EXIF/IPTC/XMP/ICC). JPEG and PNG.
 ```sh
-crustyimg strip photo.jpg -o clean.jpg
-crustyimg strip *.jpg --out-dir clean/
+crustyimg meta strip photo.jpg -o clean.jpg
+crustyimg meta strip *.jpg --out-dir clean/
 ```
 
-### `clean <INPUT...> --gps`
+### `meta clean <INPUT...> --gps`
 Selectively remove **only** GPS/location tags, preserving everything else (orientation,
 copyright, ICC). JPEG and PNG.
 ```sh
-crustyimg clean photo.jpg --gps -o nogeo.jpg
+crustyimg meta clean photo.jpg --gps -o nogeo.jpg
 ```
 
 ### `set <INPUT...> [--artist S] [--copyright S] [--description S]`
@@ -204,10 +204,10 @@ Write named EXIF tags (creating a fresh EXIF block if the input has none).
 crustyimg set photo.jpg --artist "Jane Doe" --copyright "© 2026" -o tagged.jpg
 ```
 
-### `copy-metadata --from SRC --to DST`
+### `meta copy --from SRC --to DST`
 Copy EXIF + ICC from one image's container onto another (pixels untouched). JPEG in v1.
 ```sh
-crustyimg copy-metadata --from original.jpg --to edited.jpg
+crustyimg meta copy --from original.jpg --to edited.jpg
 ```
 
 ---

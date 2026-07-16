@@ -23,7 +23,7 @@ Legend: 🟢 in the original prototype · ⭐ user-requested · ✅ MVP ·
 - ⭐⏩ `crop` (rect / gravity / center / aspect; 💎 entropy/smart) · ⏩ `rotate` · ⏩ `flip`/`flop` · ⏩ `trim` · ⏩ `pad`/`extend`
 
 ### Format / encoding / web-optimize
-- 🟢✅ `web` / `optimize` (downscale/keep-dims + real quality + strip metadata) · ✅ `convert` (format change) · 🟢✅ `strip`
+- 🟢✅ `web` / `optimize` (downscale/keep-dims + real quality + strip metadata) · ✅ `convert` (format change) · 🟢✅ `meta strip`
 - ⏩ **WebP** output (biggest real web-size win) · 💎 **AVIF** output (behind a cargo feature; slow encode)
 - ⏩ progressive JPEG, PNG compression level, GIF/PNG quantization · 💎 target-file-size / target-SSIM auto-quality
 
@@ -83,8 +83,8 @@ Two lanes:
 - **metadata lane** — container-level edit (`img-parts` for EXIF/ICC segments;
   `little_exif` or `rexiv2` for tag read/write); pixels untouched
 
-Commands: `strip` (all) · `clean --gps` (drop only location — privacy win) ·
-`set --artist/--copyright/--description` · `copy-metadata from→to`.
+Commands: `meta strip` (all) · `meta clean --gps` (drop only location — privacy win) ·
+`set --artist/--copyright/--description` · `meta copy from→to`.
 
 Default-preserve policy to settle as a DEC: on pixel-lane ops, keep
 orientation + ICC + copyright, drop GPS unless asked otherwise.

@@ -76,10 +76,9 @@ fn help_lists_all_subcommands() {
         "responsive",
         "auto-orient",
         "watermark",
-        "strip",
-        "clean",
+        // `strip`/`clean`/`copy-metadata` folded into the `meta` group (SPEC-087).
+        "meta",
         "set",
-        "copy-metadata",
         "edit",
         "apply",
         "completions",
@@ -142,10 +141,9 @@ fn each_subcommand_help_parses() {
         "responsive",
         "auto-orient",
         "watermark",
-        "strip",
-        "clean",
+        // `strip`/`clean`/`copy-metadata` now live under `meta` (SPEC-087); their
+        // `--help` is exercised via the group below.
         "set",
-        "copy-metadata",
         "edit",
         "apply",
     ];
@@ -213,6 +211,92 @@ fn no_shrink_references_remain() {
             stdout_str(&out)
         );
     }
+}
+
+// ── SPEC-087: metadata verbs folded into the `meta` group ─────────────────────
+
+/// SPEC-087: the top-level metadata verbs `strip`/`clean`/`copy-metadata` are
+/// GONE — folded into the `meta` group (`meta strip`/`meta clean`/`meta copy`),
+/// a hard cutover with no aliases. At top level they now error as unknown
+/// subcommands (clap usage error, exit 2).
+#[test]
+fn top_level_metadata_verbs_are_gone() {
+    for verb in ["strip", "clean", "copy-metadata"] {
+        let output = Command::new(BIN)
+            .args([verb, "x.png"])
+            .output()
+            .unwrap_or_else(|e| panic!("failed to run crustyimg {verb}: {e}"));
+        assert_eq!(
+            output.status.code(),
+            Some(2),
+            "`{verb}` should be an unknown top-level subcommand (exit 2); stderr: {}",
+            stderr_str(&output)
+        );
+    }
+}
+
+/// SPEC-087: `meta` with no subcommand prints help listing its three
+/// subcommands (`strip`/`clean`/`copy`).
+#[test]
+fn meta_bare_prints_subcommand_help() {
+    let output = Command::new(BIN)
+        .arg("meta")
+        .output()
+        .expect("failed to run crustyimg meta");
+    // With `arg_required_else_help`, clap prints the group help; whichever stream
+    // it lands on, the three subcommand names must appear.
+    let combined = format!("{}\n{}", stdout_str(&output), stderr_str(&output));
+    for sub in ["strip", "clean", "copy"] {
+        assert!(
+            combined.contains(sub),
+            "`meta` (no subcommand) should list subcommand '{sub}', got:\n{combined}"
+        );
+    }
+}
+
+/// SPEC-087: each `meta` subcommand (`strip`/`clean`/`copy`) accepts `--help`
+/// and exits 0 — proving each variant and its args are declared in clap.
+#[test]
+fn meta_subcommand_help_parses() {
+    for sub in ["strip", "clean", "copy"] {
+        let output = Command::new(BIN)
+            .args(["meta", sub, "--help"])
+            .output()
+            .unwrap_or_else(|e| panic!("failed to run crustyimg meta {sub} --help: {e}"));
+        assert!(
+            output.status.success(),
+            "crustyimg meta {sub} --help should exit 0; stderr: {}",
+            stderr_str(&output)
+        );
+    }
+}
+
+/// SPEC-087 / DEC-017: `auto-orient` bakes orientation into pixels — it is an
+/// image op, NOT a metadata verb — so it stays TOP-LEVEL and is NOT folded into
+/// `meta`.
+#[test]
+fn auto_orient_still_top_level() {
+    // Top-level `auto-orient --help` still parses (exit 0).
+    let top = Command::new(BIN)
+        .args(["auto-orient", "--help"])
+        .output()
+        .expect("failed to run crustyimg auto-orient --help");
+    assert!(
+        top.status.success(),
+        "`auto-orient` must remain a top-level subcommand; stderr: {}",
+        stderr_str(&top)
+    );
+    // ...and it is NOT reachable as a `meta` subcommand (unknown → exit 2).
+    let under_meta = Command::new(BIN)
+        .args(["meta", "auto-orient", "--help"])
+        .output()
+        .expect("failed to run crustyimg meta auto-orient --help");
+    assert_eq!(
+        under_meta.status.code(),
+        Some(2),
+        "`auto-orient` must NOT be a `meta` subcommand; stderr: {}",
+        stderr_str(&under_meta)
+    );
 }
 
 /// `apply --recipe r.toml in.png -o out.png` runs end-to-end:

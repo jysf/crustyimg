@@ -17,7 +17,7 @@ const ICC_BULKY_BYTES: usize = 4096;
 // ── privacy/camera-metadata (info, opt-in) ──────────────────────────────────
 
 /// Identifying non-GPS camera EXIF (Make/Model/serial/lens/original-timestamp).
-/// Opt-in (`info`). Fix: `strip`.
+/// Opt-in (`info`). Fix: `meta strip`.
 pub struct CameraMetadata;
 
 impl Rule for CameraMetadata {
@@ -37,7 +37,7 @@ impl Rule for CameraMetadata {
                 self.id(),
                 self.default_severity(),
                 "image carries identifying camera metadata (Make/Model/serial/timestamp)",
-                Some("strip".to_string()),
+                Some("meta strip".to_string()),
             )
         })
     }
@@ -202,7 +202,7 @@ impl Rule for MissingIcc {
 }
 
 /// A bulky embedded ICC profile worth stripping for the web. Opt-in (`info`).
-/// Fix: `strip`.
+/// Fix: `meta strip`.
 pub struct UnexpectedIcc;
 
 impl Rule for UnexpectedIcc {
@@ -223,7 +223,7 @@ impl Rule for UnexpectedIcc {
                 self.id(),
                 self.default_severity(),
                 format!("bulky {len}-byte ICC profile; strip it for the web"),
-                Some("strip".to_string()),
+                Some("meta strip".to_string()),
             )
         })
     }
@@ -571,7 +571,7 @@ mod tests {
                 .check(&target(jpeg_with_make()))
                 .unwrap()
                 .fix(),
-            Some("strip")
+            Some("meta strip")
         );
         assert_eq!(MissingIcc.check(&target(solid_jpeg())).unwrap().fix(), None);
     }

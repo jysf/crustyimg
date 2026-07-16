@@ -19,7 +19,7 @@
 //! ## Read-only by construction
 //!
 //! This module NEVER writes or modifies an image: there is no `Sink`/write path
-//! here. A finding *names* a fix (`clean --gps`, `auto-orient`, …); running it
+//! here. A finding *names* a fix (`meta clean --gps`, `auto-orient`, …); running it
 //! is the user's choice. Config, the JSON report, and the rest of the rule
 //! catalog layer on in SPEC-051/052/053.
 
@@ -72,7 +72,7 @@ impl Severity {
 ///
 /// `rule` is a stable, namespaced id (`privacy/gps-metadata-leak`) — a
 /// compatibility surface (DEC-050). `fix` is a runnable `crustyimg` subcommand
-/// *fragment* (e.g. `clean --gps`) the report renders as
+/// *fragment* (e.g. `meta clean --gps`) the report renders as
 /// `crustyimg <fix> <file>`; `None` when there is no command to run (the fix
 /// guidance is then in `message`).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -532,7 +532,7 @@ pub fn exit_code(outcome: &LintOutcome, max_warnings: Option<usize>) -> i32 {
 // ── Foundational rules ────────────────────────────────────────────────────────
 
 /// `privacy/gps-metadata-leak` (Error): the image carries GPS EXIF — a location
-/// leak in a public asset (the privacy moat). Fix: `clean --gps`.
+/// leak in a public asset (the privacy moat). Fix: `meta clean --gps`.
 pub struct GpsMetadataLeak;
 
 impl Rule for GpsMetadataLeak {
@@ -551,7 +551,7 @@ impl Rule for GpsMetadataLeak {
                 self.id(),
                 self.default_severity(),
                 "image carries GPS location metadata (a privacy leak in a public asset)",
-                Some("clean --gps".to_string()),
+                Some("meta clean --gps".to_string()),
             ))
         } else {
             None
@@ -728,7 +728,7 @@ mod tests {
         let f = GpsMetadataLeak.check(&leaky).expect("GPS finding expected");
         assert_eq!(f.rule(), "privacy/gps-metadata-leak");
         assert_eq!(f.severity(), Severity::Error);
-        assert_eq!(f.fix(), Some("clean --gps"));
+        assert_eq!(f.fix(), Some("meta clean --gps"));
 
         let clean = LintTarget::from_bytes("clean.jpg", clean_jpeg());
         assert!(GpsMetadataLeak.check(&clean).is_none());

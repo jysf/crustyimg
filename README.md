@@ -158,10 +158,10 @@ crustyimg convert photo.jpg --format avif -o out.avif   # AVIF: needs a build wi
 
 ```sh
 crustyimg auto-orient photo.jpg -o fixed.jpg     # bake EXIF orientation into pixels, clear the tag
-crustyimg strip photo.jpg -o clean.jpg            # remove ALL metadata (EXIF/IPTC/XMP/ICC)
-crustyimg clean photo.jpg --gps -o nogeo.jpg      # remove only GPS/location, keep the rest
+crustyimg meta strip photo.jpg -o clean.jpg       # remove ALL metadata (EXIF/IPTC/XMP/ICC)
+crustyimg meta clean photo.jpg --gps -o nogeo.jpg # remove only GPS/location, keep the rest
 crustyimg set photo.jpg --artist "Jane Doe" --copyright "© 2026" -o tagged.jpg
-crustyimg copy-metadata --from original.jpg --to edited.jpg   # copy EXIF+ICC between images
+crustyimg meta copy --from original.jpg --to edited.jpg      # copy EXIF+ICC between images
 ```
 
 > Pixel-lane encodes drop GPS by default; pass `--keep-gps` to retain it.
@@ -198,7 +198,7 @@ require `--out-dir`, and `--name-template` controls output names (`{stem}`, `{ex
 crustyimg web *.jpg --out-dir web/                               # a glob
 crustyimg convert photos/ --format webp --out-dir out/           # a whole directory
 crustyimg thumbnail *.png --size 200 --square --out-dir thumbs/
-crustyimg strip *.jpg --out-dir clean/ --name-template "{stem}_clean.{ext}"
+crustyimg meta strip *.jpg --out-dir clean/ --name-template "{stem}_clean.{ext}"
 ```
 
 For a repeatable multi-step pipeline over a large set, tune it once, save a recipe, then

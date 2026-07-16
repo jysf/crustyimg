@@ -392,14 +392,17 @@ pub enum Commands {
         tile: bool,
     },
 
-    /// Remove all metadata at the container level.
-    Strip { inputs: Vec<String> },
-
-    /// Remove only GPS/location metadata.
-    Clean {
-        inputs: Vec<String>,
-        #[arg(long)]
-        gps: bool,
+    /// Container-level metadata operations: `strip` (remove all), `clean --gps`
+    /// (remove location), `copy` (graft one file's metadata onto another).
+    ///
+    /// A grouped surface so the top-level verbs read by *job*: `meta` owns the
+    /// container-lane metadata ops, none of which re-decode pixels (SPEC-087).
+    /// `auto-orient` is NOT here — it bakes orientation into pixels, an image op,
+    /// so it stays top-level (DEC-017).
+    #[command(subcommand_required = true, arg_required_else_help = true)]
+    Meta {
+        #[command(subcommand)]
+        command: MetaCommand,
     },
 
     /// Write specific EXIF tags; pixels untouched.
@@ -411,15 +414,6 @@ pub enum Commands {
         copyright: Option<String>,
         #[arg(long)]
         description: Option<String>,
-    },
-
-    /// Copy metadata from one image's container to another's.
-    #[command(name = "copy-metadata")]
-    CopyMetadata {
-        #[arg(long)]
-        from: String,
-        #[arg(long)]
-        to: String,
     },
 
     /// One-shot multi-op on a single image; optionally saves the recipe.
@@ -493,6 +487,33 @@ pub enum Commands {
 
     /// Generate a shell-completion script (bash, zsh, fish, powershell, elvish) to stdout.
     Completions { shell: clap_complete::Shell },
+}
+
+/// Subcommands of the `meta` group: the container-lane metadata operations
+/// (SPEC-087). Each carries the same args its old top-level verb did and
+/// dispatches to the identical handler — a pure surface move, no behavior change.
+///
+/// `arg_required_else_help` makes a bare `meta` print this group's help (listing
+/// strip/clean/copy) instead of a terse "subcommand required" error.
+#[derive(Subcommand, Debug)]
+pub enum MetaCommand {
+    /// Remove all metadata at the container level.
+    Strip { inputs: Vec<String> },
+
+    /// Remove only GPS/location metadata.
+    Clean {
+        inputs: Vec<String>,
+        #[arg(long)]
+        gps: bool,
+    },
+
+    /// Copy metadata from one image's container to another's.
+    Copy {
+        #[arg(long)]
+        from: String,
+        #[arg(long)]
+        to: String,
+    },
 }
 
 // ── CliError + exit-code mapping ─────────────────────────────────────────────
@@ -596,7 +617,7 @@ pub enum CliError {
     #[error("check not satisfied")]
     CheckFailed,
 
-    /// A container-lane metadata error (`strip` / `clean --gps`, SPEC-026).
+    /// A container-lane metadata error (`meta strip` / `meta clean --gps`, SPEC-026).
     /// `UnsupportedFormat` → exit 4; `Container`/`Exif` → exit 1 (DEC-029).
     #[error(transparent)]
     Metadata(#[from] crate::metadata::MetadataError),
@@ -848,8 +869,11 @@ fn dispatch(cli: &Cli) -> Result<(), CliError> {
             *tile,
             &cli.global,
         ),
-        Commands::Strip { inputs } => run_strip(inputs, &cli.global),
-        Commands::Clean { inputs, gps } => run_clean(inputs, *gps, &cli.global),
+        Commands::Meta { command } => match command {
+            MetaCommand::Strip { inputs } => run_strip(inputs, &cli.global),
+            MetaCommand::Clean { inputs, gps } => run_clean(inputs, *gps, &cli.global),
+            MetaCommand::Copy { from, to } => run_copy_metadata(from, to, &cli.global),
+        },
         Commands::Set {
             inputs,
             artist,
@@ -862,7 +886,6 @@ fn dispatch(cli: &Cli) -> Result<(), CliError> {
             description.clone(),
             &cli.global,
         ),
-        Commands::CopyMetadata { from, to } => run_copy_metadata(from, to, &cli.global),
         Commands::Edit {
             input,
             auto_orient,
@@ -3375,15 +3398,15 @@ fn run_metadata_lane(
     Ok(())
 }
 
-/// Wire `strip`: remove ALL container metadata via the container lane (DEC-003).
-/// Format is preserved; no pixel re-encode (`metadata-not-via-pixel-encode`).
+/// Wire `meta strip`: remove ALL container metadata via the container lane
+/// (DEC-003). Format is preserved; no pixel re-encode (`metadata-not-via-pixel-encode`).
 fn run_strip(inputs: &[String], global: &GlobalArgs) -> Result<(), CliError> {
     run_metadata_lane(inputs, global, crate::metadata::strip_all)
 }
 
-/// Wire `clean --gps`: remove ONLY GPS/location metadata via the container lane.
-/// `--gps` is required in v1; `clean` without it is a usage error (exit 2),
-/// leaving room for future selective flags.
+/// Wire `meta clean --gps`: remove ONLY GPS/location metadata via the container
+/// lane. `--gps` is required in v1; `meta clean` without it is a usage error (exit
+/// 2), leaving room for future selective flags.
 fn run_clean(inputs: &[String], gps: bool, global: &GlobalArgs) -> Result<(), CliError> {
     if !gps {
         return Err(CliError::Usage("clean requires --gps".into()));
@@ -3419,7 +3442,7 @@ fn run_set(
     })
 }
 
-/// Wire `copy-metadata --from SRC --to DST`: graft SRC's container EXIF + ICC
+/// Wire `meta copy --from SRC --to DST`: graft SRC's container EXIF + ICC
 /// onto DST via the container lane (DEC-003, DEC-030), preserving DST's pixels
 /// exactly (no re-encode, `metadata-not-via-pixel-encode`). JPEG only in v1; a
 /// non-JPEG `--from`/`--to` is a [`MetadataError::UnsupportedFormat`] → exit 4.

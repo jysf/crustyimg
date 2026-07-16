@@ -252,7 +252,7 @@ mod tests {
                     "privacy/gps-metadata-leak",
                     Severity::Error,
                     "image carries GPS location metadata",
-                    Some("clean --gps".to_string()),
+                    Some("meta clean --gps".to_string()),
                 ),
                 Finding::new(
                     "img/photo.png",
@@ -276,7 +276,7 @@ mod tests {
         let expected = concat!(
             r#"{"schema":"crustyimg.lint/v1","findings":["#,
             r#"{"file":"img/leak.jpg","rule":"privacy/gps-metadata-leak","severity":"error","#,
-            r#""message":"image carries GPS location metadata","fix":"crustyimg clean --gps img/leak.jpg"},"#,
+            r#""message":"image carries GPS location metadata","fix":"crustyimg meta clean --gps img/leak.jpg"},"#,
             r#"{"file":"img/photo.png","rule":"size/oversized-bytes","severity":"warn","#,
             r#""message":"exceeds the byte budget","fix":"crustyimg optimize img/photo.png","bytes_saved":12000}"#,
             r#"],"summary":{"files_scanned":3,"errors":1,"warnings":1,"infos":0,"#,
@@ -318,7 +318,7 @@ mod tests {
         // Grouped by file, runnable fix present.
         assert!(got.contains("img/leak.jpg"));
         assert!(got.contains("error privacy/gps-metadata-leak:"));
-        assert!(got.contains("fix: crustyimg clean --gps img/leak.jpg"));
+        assert!(got.contains("fix: crustyimg meta clean --gps img/leak.jpg"));
         // Savings summary present when a finding carries bytes_saved.
         assert!(got.contains("~12000 bytes saveable"), "summary: {got}");
     }
@@ -364,7 +364,7 @@ mod tests {
             r#"{"id":"size/oversized-bytes","defaultConfiguration":{"level":"error"},"#,
             r#""helpUri":"https://github.com/jysf/crustyimg"}]}},"results":["#,
             r#"{"ruleId":"privacy/gps-metadata-leak","level":"error","#,
-            r#""message":{"text":"image carries GPS location metadata — fix: crustyimg clean --gps img/leak.jpg"},"#,
+            r#""message":{"text":"image carries GPS location metadata — fix: crustyimg meta clean --gps img/leak.jpg"},"#,
             r#""locations":[{"physicalLocation":{"artifactLocation":{"uri":"img/leak.jpg"}}}]},"#,
             r#"{"ruleId":"size/oversized-bytes","level":"warning","#,
             r#""message":{"text":"exceeds the byte budget — fix: crustyimg optimize img/photo.png"},"#,
