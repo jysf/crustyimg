@@ -1,10 +1,15 @@
-//! Regenerate the committed benchmark corpus (SPEC-088).
+//! Regenerate the **synthetic** part of the committed benchmark corpus (SPEC-088).
 //!
-//! Writes four **synthetic, license-clean** images spanning photo-vs-graphic ×
-//! small-vs-large into `bench/corpus/` (or an output dir passed as the first
-//! argument). The content is generated deterministically from pure math — no
-//! camera capture, no EXIF, no private data — so the corpus can be committed and
-//! re-derived by anyone (see `bench/corpus/README.md`).
+//! Writes four synthetic, license-clean images (a smooth gradient and a flat-block
+//! graphic, each small/large) into `bench/corpus/` (or an output dir passed as the
+//! first argument). The content is generated deterministically from pure math — no
+//! camera capture, no EXIF, no private data — so it can be committed and re-derived
+//! by anyone (see `bench/corpus/README.md`).
+//!
+//! This does NOT write `photo_forest_cc0.jpg`: that is a real CC0 photograph (the
+//! only row whose pixels reach the photographic/AVIF branch — synthetic math does
+//! not), so it is committed as-is rather than generated. Existing files are
+//! overwritten by name; nothing else in the directory is touched.
 //!
 //! Run with: `cargo run --example gen_bench_corpus` (from the repo root).
 
@@ -12,17 +17,21 @@ use std::path::PathBuf;
 
 use image::{DynamicImage, ImageFormat, RgbImage};
 
-/// A photo-like frame: a smooth colour gradient plus low-frequency sinusoidal
-/// structure. High-ish colour count, few hard edges → the lossy (photograph)
-/// family, and it compresses (it is not pure noise) so the file stays small.
+/// A smooth colour gradient plus low-frequency sinusoidal structure, stored as a
+/// JPEG (a lossy-family *source*, whatever the engine later decides).
+///
+/// **This is not a photograph, and the engine agrees:** the gradient is smooth
+/// enough that `classify` measures a high flat-region ratio and routes it to
+/// `graphic-logo` (lossless family) — the same verdict as the flat-block graphics
+/// below. It was named `photo_*` before this fix; the tool contradicted the label,
+/// so the name now describes what it is. A real photograph
+/// (`photo_forest_cc0.jpg`) is what exercises the photographic/AVIF branch.
 ///
 /// As a JPEG this is deliberately *already near-optimal*: `web`/`optimize`
-/// correctly **pass it through** (never-bigger), which is exactly the behaviour
-/// the smoke corpus should also exercise. Real-detail photos — where a modern
-/// codec beats the source — are what the maintainer runs via `--corpus`
-/// (`bench/corpus/README.md`); baking that much detail into a committed synthetic
-/// file would bloat the repo with incompressible noise.
-fn photo(w: u32, h: u32) -> RgbImage {
+/// correctly **pass it through** (never-bigger), which is a real path worth
+/// exercising. Baking photographic detail into a committed synthetic file would
+/// bloat the repo with incompressible noise — and still not classify as a photo.
+fn gradient(w: u32, h: u32) -> RgbImage {
     let mut img = RgbImage::new(w, h);
     for (x, y, px) in img.enumerate_pixels_mut() {
         let fx = x as f32 / w as f32;
@@ -67,11 +76,12 @@ fn main() {
         .unwrap_or_else(|| PathBuf::from("bench/corpus"));
     std::fs::create_dir_all(&out_dir).expect("create corpus dir");
 
-    // (name, image, format). Photos are JPEG (a lossy source); graphics are PNG
-    // (a lossless source). Small = 256², large = 512² (a 4× pixel step).
+    // (name, image, format). Gradients are JPEG (a lossy source); graphics are PNG
+    // (a lossless source). Small = 256², large = 512² (a 4× pixel step). Both kinds
+    // classify `graphic-logo` — see `gradient`'s note and `bench/corpus/README.md`.
     let items: [(&str, RgbImage, ImageFormat); 4] = [
-        ("photo_small.jpg", photo(256, 256), ImageFormat::Jpeg),
-        ("photo_large.jpg", photo(512, 512), ImageFormat::Jpeg),
+        ("gradient_small.jpg", gradient(256, 256), ImageFormat::Jpeg),
+        ("gradient_large.jpg", gradient(512, 512), ImageFormat::Jpeg),
         ("graphic_small.png", graphic(256, 256), ImageFormat::Png),
         ("graphic_large.png", graphic(512, 512), ImageFormat::Png),
     ];

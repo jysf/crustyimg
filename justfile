@@ -64,8 +64,11 @@ bench-micro:
 # committed license-clean corpus (bench/corpus), printing a savings/time/score
 # table. OFFLINE, deterministic, NO telemetry. `--json` for machine-readable
 # output; `--corpus DIR` points at a real corpus (those photos never enter git).
-# Built with `--features avif` so the flagship AVIF path (the `web` story) is
-# exercised; the default (pure-Rust) binary would passthrough most photos.
+# Built with `--features avif` because one corpus row (photo_forest_cc0.jpg, the
+# real CC0 photograph) classifies `photograph` and its AVIF candidate WINS — so
+# the flagship encode is regression-tested here. The synthetic rows classify
+# `graphic-logo` and never reach AVIF; `web`'s downscale needs a >2048px source,
+# which no committed image is. The table prints those limits as a footer.
 # Usage: just bench [--json] [--corpus DIR] [--verbs web,optimize]
 bench *ARGS:
     cargo build --release --features avif

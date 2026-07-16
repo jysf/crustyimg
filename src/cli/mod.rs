@@ -4184,6 +4184,30 @@ fn reject_audit_without_autodecide(json: bool, timing: bool) -> Result<(), CliEr
     Ok(())
 }
 
+/// The JSON audit report goes to stdout, and so do the image bytes under `-o -` —
+/// interleaving the two corrupts both (the report is unparseable, the image
+/// undecodable). Reject the combination rather than emit a poisoned stream, so
+/// stdout stays pipe-clean (SPEC-088, DEC-074).
+///
+/// This covers `optimize --json`, `web --json`, `apply --recipe web --json` **and**
+/// the pre-existing `optimize --explain=json`, which reaches the same writer — one
+/// rule for one surface. `--timing` alone is unaffected: it renders to stderr.
+/// The human `--explain` is likewise fine (stderr).
+fn reject_json_report_on_stdout_sink(
+    explain: Option<ExplainFmt>,
+    global: &GlobalArgs,
+) -> Result<(), CliError> {
+    if matches!(explain, Some(ExplainFmt::Json)) && global.output.as_deref() == Some("-") {
+        return Err(CliError::Usage(
+            "--json/--explain=json writes the report to stdout, which `-o -` is already \
+             using for the image; send the image elsewhere (-o FILE or --out-dir DIR) \
+             to keep stdout pipe-clean"
+                .to_owned(),
+        ));
+    }
+    Ok(())
+}
+
 /// Wire the `web` flagship verb (SPEC-085): the measured downscale-then-modernize
 /// flow. `web <inputs>` == `apply --recipe web <inputs>` — both reach the identical
 /// engine (this verb builds the flow in memory; the bundled `web` recipe reaches it
@@ -4732,6 +4756,9 @@ fn run_optimize_autodecide(
     // on downscaled output). `optimize` (keep-dimensions default) passes `false`.
     always_score: bool,
 ) -> Result<(), CliError> {
+    // The JSON report and `-o -`'s image bytes would both land on stdout (SPEC-088).
+    reject_json_report_on_stdout_sink(explain, global)?;
+
     let mut all: Vec<crate::source::Input> = Vec::new();
     let mut stdin_lock = std::io::stdin().lock();
     for arg in inputs {

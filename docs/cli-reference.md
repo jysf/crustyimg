@@ -364,6 +364,62 @@ A plain `crustyimg build` owns the file and simply regenerates it.
 
 ---
 
+## Audit surface (`--json` / `--timing`)
+
+Machine-readable output for "how much smaller, how fast, at what quality" — the
+surface CI and the benchmark harness consume (SPEC-088, DEC-074). Two schemas,
+because they answer two different questions:
+
+| Command | Flag | Schema | Answers |
+|---|---|---|---|
+| `optimize` / `web` / `apply --recipe web` | `--json` | `crustyimg.optimize.explain/v1` | What did the engine **decide**, and what did it cost? |
+| `lint` | `--format json` | `crustyimg.lint/v1` | What is **wrong** with these files? |
+| `info` | `--json` | *(inspection)* | What **is** this file? |
+| `diff` | `--json` | *(comparison)* | How far apart are these two? |
+
+### The decision report — `optimize` / `web` / `apply`
+`--json` emits one line of `crustyimg.optimize.explain/v1` to stdout: the classified
+`class`, every candidate format with its bytes, the `winner`, `savings_percent`, and
+`ssim` when the run scored. On `optimize` it is a synonym for `--explain=json` (pass
+one or the other, not both). Add `--timing` for a gated `timing` object
+(`decode_ms`/`encode_ms`/`total_ms`); `--timing` alone reports to stderr instead.
+
+```sh
+crustyimg web photo.jpg --json --timing --out-dir out/
+crustyimg optimize photo.jpg --json --verify --out-dir out/     # adds "ssim"
+```
+
+Two deliberate rules keep the surface honest rather than quietly useless:
+
+* **The report needs a decision to report.** With a pinned `-o`/`--format`,
+  `--profile preserve`, or a plain (non-`optimize`) recipe, the engine never
+  auto-decides, so `--json`/`--timing` is a **usage error (exit 2)** — not a flag
+  that silently does nothing.
+* **stdout stays pipe-clean.** The report and `-o -`'s image bytes both target
+  stdout, so combining them is a **usage error (exit 2)** rather than a stream with
+  JSON glued to the front of an image. Send the image elsewhere (`-o FILE`,
+  `--out-dir DIR`) and stdout carries the report alone; or drop `--json` and pipe
+  the image. (`--timing` and the human `--explain` render to stderr and stay
+  compatible with `-o -`.)
+
+### The findings report — `lint`
+`crustyimg lint --format json` emits `crustyimg.lint/v1`: a `findings` array plus a
+`summary` (`files_scanned`, `errors`, `warnings`, `infos`, `potential_bytes_saved`,
+`passed`). It is **deliberately a separate schema, not a fork of the decision
+report** — findings about many files are a different shape from one file's encode
+decision, and forcing them into one object would serve neither. It keeps its own
+`--format json` spelling (it predates the `--json` audit flags, and `--format` there
+selects between three reports — `human` (default), `json`, and `sarif` for GitHub
+code-scanning — where a boolean `--json` could not); the schema string tells
+consumers which report they hold.
+
+```sh
+crustyimg lint assets/ --format json
+crustyimg lint assets/ --format sarif > results.sarif
+```
+
+---
+
 ## Shell
 
 ### `completions <bash|zsh|fish|powershell|elvish>`

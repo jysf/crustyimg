@@ -307,6 +307,76 @@ fn non_json_output_unchanged() {
     );
 }
 
+/// The JSON report and `-o -`'s image bytes both target stdout; emitting both
+/// poisons the stream (an unparseable report glued to an undecodable image).
+/// Every JSON-report spelling must refuse the combination (exit 2) and write
+/// NOTHING to stdout — the "stdout stays pipe-clean" criterion (SPEC-088).
+///
+/// `optimize --explain=json -o -` did this before SPEC-088 too; DEC-074 corrects
+/// all three verbs together rather than leave one spelling emitting a poisoned
+/// stream.
+#[test]
+fn json_report_refuses_stdout_sink() {
+    let dir = tempfile::tempdir().unwrap();
+    let photo = write_bytes(&dir, "photo.jpg", &common::jpeg_with_exif(256, 256));
+    let p = photo.to_str().unwrap();
+
+    let cases: [(&str, Vec<&str>); 4] = [
+        ("web --json", vec!["web", p, "--json", "-o", "-"]),
+        ("optimize --json", vec!["optimize", p, "--json", "-o", "-"]),
+        (
+            "optimize --explain=json",
+            vec!["optimize", p, "--explain=json", "-o", "-"],
+        ),
+        (
+            "apply --recipe web --json",
+            vec!["apply", "--recipe", "web", p, "--json", "-o", "-"],
+        ),
+    ];
+
+    for (label, args) in cases {
+        let out = Command::new(BIN).args(&args).output().unwrap();
+        assert_eq!(
+            out.status.code(),
+            Some(2),
+            "{label}: --json with `-o -` must be a usage error; stderr: {}",
+            stderr_str(&out)
+        );
+        assert!(
+            out.stdout.is_empty(),
+            "{label}: nothing may reach stdout on the refusal, got {} bytes",
+            out.stdout.len()
+        );
+        assert!(
+            stderr_str(&out).contains("stdout"),
+            "{label}: the error must explain the stdout collision: {}",
+            stderr_str(&out)
+        );
+    }
+
+    // The guard is precisely scoped: `--timing` renders to stderr, so it stays
+    // compatible with `-o -` and must still stream the image.
+    let timing = Command::new(BIN)
+        .args(["web", p, "--timing", "-o", "-"])
+        .output()
+        .unwrap();
+    assert_eq!(
+        timing.status.code(),
+        Some(0),
+        "--timing alone must still work with `-o -`; stderr: {}",
+        stderr_str(&timing)
+    );
+    assert!(
+        timing.stdout.len() > 8,
+        "`-o -` must still stream the image bytes under --timing"
+    );
+    assert!(
+        stderr_str(&timing).contains("ms"),
+        "--timing must report to stderr: {}",
+        stderr_str(&timing)
+    );
+}
+
 // ── 4. committed bench harness runs offline over the committed corpus ─────────
 
 /// Locate `python3`, returning `None` (so the test skips) when it is absent.

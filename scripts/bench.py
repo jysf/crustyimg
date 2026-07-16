@@ -109,7 +109,28 @@ def run_one(binary, verb, image, out_dir):
     }
 
 
-def print_table(rows):
+"""What the committed smoke corpus can and cannot demonstrate.
+
+Printed under the table whenever the default corpus is used, so a skeptic reading
+the output sees the limits *in the output* — not only in `bench/corpus/README.md`,
+which they have no reason to open. Every claim here is checked by driving the
+tool; see that README for the per-image classifier verdicts.
+"""
+SMOKE_CAVEAT = """
+NOTE — this is the committed SMOKE corpus, not the launch numbers.
+  * `web` == `optimize` on every row: web's whole point is the downscale to a 2048px
+    long edge, and every committed image is smaller than that, so it never fires.
+    The size-insensitivity story is INVISIBLE here by construction.
+  * Only photo_forest_cc0.jpg (a real CC0 photograph) classifies `photograph` and
+    exercises the lossy/AVIF branch. The synthetic gradient_*/graphic_* rows all
+    classify `graphic-logo` -> lossless-WebP or never-bigger passthrough (0%).
+  * A committed corpus that is small AND license-clean cannot also be a big, varied
+    photo set. This proves the harness + the branches, not the headline.
+For real numbers (what BENCHMARKS.md must cite):  just bench --corpus /path/to/photos
+""".rstrip()
+
+
+def print_table(rows, show_caveat=True):
     header = f"{'image':<20} {'verb':<9} {'src B':>8} {'out B':>8} {'savings':>8} {'ssim':>6} {'total ms':>9}"
     print(header)
     print("-" * len(header))
@@ -120,11 +141,16 @@ def print_table(rows):
             f"{r['image']:<20} {r['verb']:<9} {r['source_bytes']:>8} {r['out_bytes']:>8} "
             f"{r['savings_percent']:>7}% {ssim:>6} {total:>9}"
         )
+    if show_caveat:
+        print(SMOKE_CAVEAT)
+
+
+DEFAULT_CORPUS = REPO_ROOT / "bench" / "corpus"
 
 
 def main():
     ap = argparse.ArgumentParser(description="crustyimg committed benchmark harness")
-    ap.add_argument("--corpus", default=str(REPO_ROOT / "bench" / "corpus"))
+    ap.add_argument("--corpus", default=str(DEFAULT_CORPUS))
     ap.add_argument("--bin", default=None)
     ap.add_argument("--json", action="store_true", dest="as_json")
     ap.add_argument("--verbs", default="web,optimize")
@@ -151,10 +177,19 @@ def main():
     if not rows:
         sys.exit("bench: no successful runs")
 
+    # The caveat describes the *committed* corpus specifically; it would be a lie
+    # about a real one passed via --corpus.
+    is_smoke = Path(args.corpus).resolve() == DEFAULT_CORPUS.resolve()
+
     if args.as_json:
-        print(json.dumps({"corpus": str(args.corpus), "results": rows}, indent=2))
+        print(
+            json.dumps(
+                {"corpus": str(args.corpus), "smoke_corpus": is_smoke, "results": rows},
+                indent=2,
+            )
+        )
     else:
-        print_table(rows)
+        print_table(rows, show_caveat=is_smoke)
 
 
 if __name__ == "__main__":
