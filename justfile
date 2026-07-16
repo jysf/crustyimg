@@ -60,7 +60,7 @@ bench:
     cargo bench
 
 # Wall-clock the release binary with hyperfine. Skips cleanly (exit 0) if hyperfine
-# is not installed. Usage: just bench-cli shrink photo.jpg --max 800 -o /tmp/o.jpg
+# is not installed. Usage: just bench-cli web photo.jpg --max 800 -o /tmp/o.avif
 bench-cli *ARGS:
     @command -v hyperfine >/dev/null 2>&1 || { echo "hyperfine not installed; skipping (brew install hyperfine)"; exit 0; }
     cargo build --release

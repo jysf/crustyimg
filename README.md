@@ -4,7 +4,7 @@
 in a modern format — and get the smallest file that meets it, from one pure-Rust
 binary with zero system dependencies.** "Set the look, not the number."
 
-A fast CLI for viewing and transforming images: resize, shrink/optimize-for-web,
+A fast CLI for viewing and transforming images: resize, optimize for web,
 inspect, strip metadata, watermark, and generate responsive image sets — all from
 a single static binary with no system dependencies.
 
@@ -124,21 +124,26 @@ crustyimg resize photo.jpg --cover 800x800 -o out.jpg  # fill + crop to exactly 
 crustyimg thumbnail photo.jpg --size 200 --square -o thumb.jpg
 ```
 
-### Optimize / shrink for web
+### Make it web-ready
 
 ```sh
-# One-button "make it web-good": auto-orient + strip metadata + visually-lossless re-encode
-crustyimg optimize photo.jpg -o out.webp
+# The flagship: downscale (long edge ≤2048), pick the smallest modern format that
+# beats the source (AVIF for photos, lossless WebP/PNG for graphics), strip metadata,
+# and report the SSIMULACRA2 score. Size-insensitive — a 24 MP photo is as fast as a small one.
+crustyimg web photo.jpg -o out.avif
+crustyimg web photo.jpg --max 1200 -o out.avif    # override the downscale bound
 
-# Shrink: resize long edge to ≤1200 px, encode as WebP
-crustyimg shrink photo.jpg --max 1200 -o out.webp
+# Keep the original dimensions (the byte-primitive): fast fixed-quality, never bigger.
+# Off by default the score is skipped; add --verify to report it for this run.
+crustyimg optimize photo.jpg -o out.avif
+crustyimg optimize photo.jpg --verify -o out.avif
 
 # Perceptual auto-quality: smallest file that still clears a visual target (JPEG/WebP)
-crustyimg shrink photo.jpg --max 1600 --target high -o out.jpg
-crustyimg shrink photo.jpg --ssim 85 -o out.jpg
+crustyimg optimize photo.jpg --target high -o out.jpg
+crustyimg optimize photo.jpg --ssim 85 -o out.jpg
 
 # Byte budget: fit under a size, lowering quality then dimensions as needed
-crustyimg shrink photo.jpg --max-size 200KB -o out.jpg
+crustyimg optimize photo.jpg --max-size 200KB -o out.jpg
 ```
 
 ### Convert formats
@@ -190,7 +195,7 @@ Pass many inputs (a list, a glob, or a directory) to any transform — multi-inp
 require `--out-dir`, and `--name-template` controls output names (`{stem}`, `{ext}`):
 
 ```sh
-crustyimg shrink *.jpg --max 1200 --out-dir web/                 # a glob
+crustyimg web *.jpg --out-dir web/                               # a glob
 crustyimg convert photos/ --format webp --out-dir out/           # a whole directory
 crustyimg thumbnail *.png --size 200 --square --out-dir thumbs/
 crustyimg strip *.jpg --out-dir clean/ --name-template "{stem}_clean.{ext}"

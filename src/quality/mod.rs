@@ -355,7 +355,7 @@ impl LossyFormat for ImageFormat {
 /// IMPORTANT: for JPEG this MUST stay byte-for-byte equivalent to the production
 /// write path `crate::sink::encode_to_bytes` (DEC-016) — same `JpegEncoder::
 /// new_with_quality` + `1..=100` clamp. The searches optimize the bytes THIS
-/// produces, but `shrink`/`convert` write the file through `encode_to_bytes`; if
+/// produces, but `optimize`/`convert` write the file through `encode_to_bytes`; if
 /// the two ever diverge (e.g. a switch to a progressive/optimized JPEG encoder),
 /// the searched quality would no longer describe the bytes actually emitted,
 /// silently breaking the perceptual / byte-budget guarantee. Layering forbids
@@ -446,7 +446,7 @@ fn score_at(reference: &DynamicImage, fmt: ImageFormat, quality: u8) -> Result<f
 }
 
 /// Find the lowest `fmt` quality whose decoded round-trip scores ≥ `cfg.target`
-/// for `reference` (the production entry point for `shrink`'s auto-quality).
+/// for `reference` (the production entry point for `optimize`'s auto-quality).
 /// `fmt` must satisfy [`LossyFormat::supports_lossy_quality`].
 pub fn auto_quality(
     reference: &DynamicImage,
@@ -814,6 +814,28 @@ mod tests {
         // A lossless winner reports no perceptual number ("lossless").
         let lossless = score_winner_once(&reference, None).expect("lossless path is infallible");
         assert!(lossless.is_none(), "a lossless winner has no score");
+    }
+
+    /// SPEC-086: `optimize --verify`'s readout IS the real metric — for the same
+    /// (reference, candidate) pair, [`score_winner_once`] returns exactly what a
+    /// direct [`score`] (the `diff` command's metric, DEC-019) computes. This is what
+    /// lets a `--verify` number be checked against an independent `diff`.
+    #[test]
+    fn score_winner_once_matches_diff() {
+        let reference = detailed_rgb(96, 96);
+        let bytes = jpeg_at(&reference, 70);
+        let decoded =
+            ::image::load_from_memory_with_format(&bytes, ImageFormat::Jpeg).expect("decode q70");
+
+        let via_helper = score_winner_once(&reference, Some(&decoded))
+            .expect("helper score should succeed")
+            .expect("a lossy winner carries a score");
+        let via_diff = score(&reference, &decoded).expect("direct score should succeed");
+
+        assert_eq!(
+            via_helper, via_diff,
+            "score_winner_once must equal the direct diff metric for the same pair"
+        );
     }
 
     // ── SPEC-017: byte-budget search ──────────────────────────────────────────

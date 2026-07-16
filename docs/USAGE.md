@@ -139,12 +139,13 @@ cp -R ~/site/images ~/cimg-test && mkdir -p ~/cimg-out
    ci apply --recipe ~/web.toml ~/cimg-test/*.jpg --out-dir ~/cimg-out -j 8 -y
    ```
 
-3. **Batch web-prep to a target or budget** — `optimize`/`shrink` hit a *look* or a
-   *size*, not a guessed number; `convert` re-encodes a whole folder:
+3. **Batch web-prep to a target or budget** — `web` downscales-and-modernizes a whole
+   folder; `optimize` keeps dimensions and hits a *look* or a *size*, not a guessed
+   number; `convert` re-encodes a whole folder:
    ```bash
-   ci optimize ~/cimg-test/*.jpg --out-dir ~/cimg-out -j 8 -y
-   ci shrink   ~/cimg-test/*.jpg --max 1600 --target high --out-dir ~/cimg-out -j 8 -y
-   ci shrink   ~/cimg-test/*.jpg --max-size 200KB         --out-dir ~/cimg-out -j 8 -y
+   ci web      ~/cimg-test/*.jpg                          --out-dir ~/cimg-out -j 8 -y
+   ci optimize ~/cimg-test/*.jpg --target high            --out-dir ~/cimg-out -j 8 -y
+   ci optimize ~/cimg-test/*.jpg --max-size 200KB         --out-dir ~/cimg-out -j 8 -y
    ci convert  ~/cimg-test/*.jpg --format webp            --out-dir ~/cimg-out -j 8 -y
    ```
 

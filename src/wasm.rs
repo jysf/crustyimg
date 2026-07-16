@@ -58,7 +58,7 @@ use crate::sink;
 
 /// The perceptual target `optimize` aims for when the caller doesn't say —
 /// "visually lossless" on the SSIMULACRA2 scale, the same default the native
-/// `optimize`/`shrink` commands use (DEC-019).
+/// `optimize --target` command uses (DEC-019).
 const DEFAULT_TARGET: f64 = 90.0;
 
 /// Which optional codecs this build has. The wasm build is the pure-Rust set: no
@@ -231,7 +231,7 @@ pub fn optimize(input: &[u8], out_format: &str) -> Result<Vec<u8>, JsError> {
     }
 
     // Lossy: find the lowest quality that still reaches the perceptual target. This
-    // is the real SSIMULACRA2 binary search (DEC-019) — the same code `shrink
+    // is the real SSIMULACRA2 binary search (DEC-019) — the same code `optimize
     // --target` runs — so it decodes each candidate to score it. That is the
     // expensive part of the wasm build's runtime, and honestly so: it is what makes
     // the output good rather than merely small.

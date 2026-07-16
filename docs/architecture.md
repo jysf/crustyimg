@@ -8,7 +8,7 @@
 
 `crustyimg` is a single-binary Rust CLI that views images in the terminal
 and performs the everyday transformations people actually reach for
-(resize, shrink-for-web, thumbnail, convert, auto-orient, watermark, EXIF
+(resize, optimize-for-web, thumbnail, convert, auto-orient, watermark, EXIF
 strip/clean/set). Its defining idea is a **load-once pipeline**: an image
 is decoded into one canonical in-memory model, an ordered list of
 `Operation`s is applied in memory, and the result is written to a sink

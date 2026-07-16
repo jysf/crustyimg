@@ -13,16 +13,19 @@ Legend: **[today]** shipped · **[feat:X]** behind a cargo feature · **[planned
 
 ## 1. Web optimization (the core job)
 
-- **Optimize one image, in place-ish** **[today]**
-  `crustyimg optimize hero.jpg -o hero.opt.jpg`
-  Auto-orient + strip metadata + perceptual visually-lossless re-encode.
-- **Auto-decide the best format** **[planned — PROJ-002]**
-  `crustyimg optimize hero.png` → engine picks AVIF/WebP/PNG/JPEG and explains with `--explain`.
+- **Make one image web-ready (the flagship)** **[today]**
+  `crustyimg web hero.jpg -o hero.avif`
+  Downscale (long edge ≤ 2048) + auto-orient + strip metadata + smallest modern format
+  that beats the source + reports the SSIMULACRA2 score.
+- **Optimize keeping the original dimensions** **[today]**
+  `crustyimg optimize hero.jpg -o hero.opt.avif` (fast, never bigger; add `--verify` for the score).
+- **Auto-decide the best format** **[today]**
+  `crustyimg optimize hero.png --explain` → engine picks AVIF/WebP/PNG/JPEG and explains.
 - **Hit a visual-quality target** **[today]**
-  `crustyimg shrink hero.jpg --target visually-lossless -o hero.webp`
-  `crustyimg shrink hero.jpg --ssim 92 -o hero.jpg`
+  `crustyimg optimize hero.jpg --target visually-lossless -o hero.webp`
+  `crustyimg optimize hero.jpg --ssim 92 -o hero.jpg`
 - **Hit a file-size budget** **[today]**
-  `crustyimg shrink hero.jpg --max-size 150KB -o hero.jpg` (quality search, then downscale if needed).
+  `crustyimg optimize hero.jpg --max-size 150KB -o hero.jpg` (quality search, then downscale if needed).
 - **Web-optimize a whole folder** **[today]**
   `crustyimg apply --recipe web.toml "assets/**/*.{jpg,png}" --out-dir dist/img -j 8`
   (see the `web.toml` recipe in §7; rayon-parallel, progress bar).
@@ -155,9 +158,9 @@ service). (Ranked targets + per-tool sources live in the roadmap's Track B / the
 ---
 
 ### Which recipes need which project
-- **[today]:** optimize/shrink/resize/thumbnail/convert/responsive(HTML)/strip/clean/set/watermark/
-  edit/apply/diff — the whole §1–§8 core (minus the auto-decide/lint/manifest items).
-- **PROJ-002:** `optimize` auto-decides format + `--explain`.
+- **[today]:** web/optimize/resize/thumbnail/convert/responsive(HTML)/strip/clean/set/watermark/
+  edit/apply/diff — the whole §1–§8 core (minus the lint/manifest items).
+- **PROJ-002:** `optimize` auto-decides format + `--explain` (shipped).
 - **PROJ-004:** `lint` (+ the GitHub Action).
 - **PROJ-005:** `--manifest`, `favicon`, `placeholder`, dominant color — unlocks §9 SSG integration.
 - **PROJ-006:** `crop`/smart-crop, redaction, auto-color, upscaling.

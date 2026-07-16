@@ -115,30 +115,42 @@ crustyimg thumbnail *.png --size 150 --out-dir thumbs/
 
 ## Web optimize & convert
 
-### `shrink <INPUT...> [--max N] [--target T | --ssim S | --max-size SIZE]`
-Optimize for web: resize (long edge, default ≤ 1600 px) + quality encode + strip
-metadata. Choose **at most one** quality mode:
+### `web <INPUT...> [--max N]`  *(the flagship)*
+Make an image web-ready in one step: bake orientation + strip metadata, **downscale**
+the long edge to a web-friendly default (≤ 2048 px, never upscaling), pick the smallest
+modern format that beats the source (AVIF for photos, lossless WebP/PNG for graphics —
+never larger), and **report its SSIMULACRA2 score**. Size-insensitive: a 24 MP photo
+finishes as fast as a small one because it downscales first. Equivalent to
+`apply --recipe web`. `--max` overrides the downscale bound; `-o`/`--format` pin the
+output format (bypassing the auto-decision).
+```sh
+crustyimg web photo.jpg -o out.avif
+crustyimg web photo.jpg --max 1200 -o out.avif
+crustyimg web *.jpg --out-dir web/
+```
+
+### `optimize <INPUT...> [--max N] [--verify] [--target T | --ssim S | --max-size SIZE]`
+The keep-dimensions byte-primitive: auto-orient + strip metadata + a **fast
+fixed-quality** re-encode that picks the smallest modern format beating the source and
+**never ships a larger file**. Dimensions are preserved by default (`--max` optionally
+bounds the long edge). The default is lean and **score-free**; opt into the perceptual
+searches or a proof-of-quality readout as needed:
 
 | Option | Meaning |
 |---|---|
-| `--target <visually-lossless\|high\|medium>` | Auto-tune quality to a perceptual preset (SSIMULACRA2). |
-| `--ssim <0-100>` | Auto-tune quality to a specific SSIMULACRA2 score. |
+| *(none)* | Fast fixed-quality decision, keep dims, never bigger. |
+| `--verify` | Also compute + report the winner's SSIMULACRA2 for this run (human + JSON). |
+| `--target <visually-lossless\|high\|medium>` | Opt into a perceptual search at a preset target. |
+| `--ssim <0-100>` | Opt into a perceptual search at a specific SSIMULACRA2 score. |
 | `--max-size <SIZE>` | Fit under a byte budget (e.g. `200KB`); lowers quality, then dimensions. |
 
+`-o`/`--format` pick the output format; `--profile preserve` keeps the source format.
+For downscale-and-modernize, reach for **`web`** instead.
 ```sh
-crustyimg shrink photo.jpg --max 1200 -o out.webp
-crustyimg shrink photo.jpg --max 1600 --target high -o out.jpg
-crustyimg shrink photo.jpg --max-size 200KB -o out.jpg
-```
-
-### `optimize <INPUT...> [--max N] [--target T | --ssim S | --max-size SIZE]`
-One-button "make it web-good": auto-orient + strip metadata + perceptual re-encode,
-**visually-lossless by default**, format/size-preserving. `--max` optionally bounds the
-long edge; `-o`/`--format` pick the output format; the quality flags override the default
-target.
-```sh
-crustyimg optimize photo.jpg -o out.webp
-crustyimg optimize *.jpg --out-dir web/
+crustyimg optimize photo.jpg -o out.avif
+crustyimg optimize photo.jpg --verify -o out.avif
+crustyimg optimize photo.jpg --target high -o out.jpg
+crustyimg optimize photo.jpg --max-size 200KB -o out.jpg
 ```
 
 ### `convert <INPUT...> --format FMT [--max-size SIZE]`

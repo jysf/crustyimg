@@ -15,7 +15,7 @@
 //! SPEC-007 adds the [`cli`] module: the clap subcommand surface + dispatch +
 //! exit-code mapping (DEC-012, DEC-007).
 //! SPEC-016 adds the [`quality`] module: the SSIMULACRA2 perceptual metric + a
-//! generic JPEG-quality binary search powering `shrink`'s auto-quality (DEC-019).
+//! generic JPEG-quality binary search powering `optimize`'s auto-quality (DEC-019).
 //! SPEC-026 adds the [`metadata`] module: the container lane (`strip` +
 //! `clean --gps`), editing container bytes without re-decoding pixels (DEC-003,
 //! DEC-029).

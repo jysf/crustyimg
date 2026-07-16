@@ -162,8 +162,8 @@ per-input failure writes the successes, prints a per-file summary to stderr,
 and exits **6**; a single-input failure keeps its natural code (3/1/4/5).
 `-q/--quality` is threaded to the encoder where the format supports it (JPEG;
 ignored for lossless formats — DEC-016); `resize` forces no default quality
-(the encoder default unless `-q` is given). `shrink` is the command with a
-quality default.
+(the encoder default unless `-q` is given). `optimize`'s fast decision supplies its
+own fixed quality (SPEC-084).
 
 #### `thumbnail <INPUT...> [--size N] [--square]`  *(S3)*
 Convenience resize to a small bounded size — a thin wrapper over `resize`.
@@ -178,8 +178,28 @@ failures:** any per-input failure writes the successes, prints a per-file summar
 to stderr, and exits **6**; a single-input failure keeps its natural code
 (3/1/4/5). `-q/--quality` is not honored (encoder default); `--size 0` → exit 2.
 
-#### `shrink <INPUT...> [--max N] [-q Q] [--target visually-lossless|high|medium | --ssim 0-100]`  *(S3; `--target`/`--ssim` S8/SPEC-016)*
-**Perceptual auto-quality** (SPEC-016, DEC-019): `--target
+#### `web <INPUT...> [--max N]`  *(the flagship; SPEC-085)*
+Make an image web-ready in one step: bake EXIF orientation + strip metadata →
+**downscale** the long edge to a web-friendly default (**2048**, aspect preserved,
+never upscaled; `--max N` overrides) → the **fast AVIF-aware decision** (below) that
+picks the smallest modern format beating the source and **never ships a larger file**
+→ **report the winner's SSIMULACRA2 score**. Size-insensitive (a 24 MP photo finishes
+as fast as a small one because it downscales first). Equivalent to `apply --recipe
+web`. `-o`/`--format` pin the output format (bypassing the auto-decision + score).
+Multi-input `--out-dir` fan-out (sequential; partial failure → exit 6; missing input
+→ 3; multi-input without `--out-dir` → 2).
+
+#### `optimize <INPUT...> [--max N] [--verify] [-q Q] [--target visually-lossless|high|medium | --ssim 0-100 | --max-size SIZE]`  *(S3+; SPEC-084/086)*
+The **keep-dimensions byte-primitive**. By DEFAULT (no flags) it runs the **fast
+fixed-quality decision** (SPEC-084, DEC-069): auto-orient + strip metadata + a single
+fixed-quality encode that picks the smallest modern format beating the source and
+**never ships a larger file** — no perceptual search. Dimensions are **preserved**
+(`--max N` optionally bounds the long edge). The default is lean and **score-free**
+(scoring a full-resolution winner is too costly to run unconditionally); **`--verify`**
+opts in to a single **SSIMULACRA2** readout for this run (reported on the summary and
+in the JSON explain). For downscale-and-modernize, use **`web`**.
+
+**Perceptual auto-quality** (SPEC-016, DEC-019 — opt-in): `--target
 <visually-lossless|high|medium>` / `--ssim <0-100>` auto-tune the **JPEG** encode
 quality to a perceptual **SSIMULACRA2** target — the command binary-searches the
 **lowest** quality whose decoded round-trip scores at/above the target (capped at
@@ -187,15 +207,14 @@ quality to a perceptual **SSIMULACRA2** target — the command binary-searches t
 The presets map to SSIMULACRA2 scores (visually-lossless ≈ 90, high ≈ 70, medium ≈
 50; tunable). `--target`, `--ssim`, and `-q` are **mutually exclusive** (you either
 pin a quality or search for one → exit **2** if combined; `--ssim` outside 0–100 →
-exit **2**). It is **opt-in**: without `--target`/`--ssim`, `shrink` uses the fixed
-default quality (80, below). For a **non-JPEG** output format the target is
+exit **2**). For a **non-JPEG** output format the target is
 **ignored** (encoder default), mirroring `-q` on lossless formats (DEC-016). If the
-target is unreachable even at quality 100, `shrink` emits the highest-quality encode
+target is unreachable even at quality 100, `optimize` emits the highest-quality encode
 (best-effort). A scoring failure (e.g. a pathologically tiny image) is a typed error
 (single-input exit **1**; one input in a batch → exit **6**).
 
-**Byte budget** (SPEC-017 + SPEC-021): `--max-size <SIZE>` (e.g. `200KB`, `1.5MB`,
-`200000`, `64KiB`) fits the output under the budget. For a **lossy** target
+**Byte budget** (SPEC-017 + SPEC-021 — opt-in): `--max-size <SIZE>` (e.g. `200KB`,
+`1.5MB`, `200000`, `64KiB`) fits the output under the budget. For a **lossy** target
 (JPEG; AVIF/WebP with their features) it first auto-tunes the quality to the
 **highest** quality whose encoded output is ≤ the budget (the perceptual search
 inverted; capped, in-memory). Units are decimal (`KB`=1000, `MB`=1e6); `KiB`/`MiB`
@@ -204,22 +223,16 @@ a malformed size → exit **2**). **Dimension-reduction fallback (SPEC-021, DEC-
 when lowering quality alone cannot meet the budget — or for a **lossless** output
 (PNG, lossless WebP, …) which has no quality knob — the output is **progressively
 downscaled** until it fits; a downscale prints a `scaled to WxH` warning (unless
-`--quiet`). So `--max-size` now works for **every** output format and for very small
+`--quiet`). So `--max-size` works for **every** output format and for very small
 budgets; the result is the largest image that fits. If even the smallest size
 doesn't fit, the best-effort smallest is written with a warning. A budget already met
 at full size never resizes.
 
-Optimize-for-web: resize to a default long-edge bound + a real quality-aware
-encode + drop metadata. The headline web-prep command. `--max` defaults to
-**1600** (long edge, aspect preserved, never upscaled); `-q/--quality` defaults
-to **80** and maps to **JPEG** quality — it is **ignored for lossless formats**
-(PNG/GIF/BMP/TIFF/ICO/WebP), which re-encode unchanged (DEC-016). Output **preserves
-the input's source format** (`--format` / `-o` extension override; DEC-015) — a
-JPEG stays JPEG, a PNG stays PNG. **Metadata is dropped** on the re-encode (the
-pixel lane carries no container metadata); selective preservation and
-`--keep-gps` are the STAGE-004 container lane and are **not yet active for
-`shrink`** (DEC-003). Multi-input `--out-dir` fan-out (sequential; partial
-failure → exit 6; missing input → 3; multi-input without `--out-dir` → 2).
+Output follows DEC-015 precedence (`--format` > `-o` ext > the auto-decision, unless
+`--profile preserve` keeps the source format). **Metadata is dropped** on the pixel-lane
+re-encode (privacy incl. GPS); selective preservation is the STAGE-004 container lane
+(DEC-003), not active here. Multi-input `--out-dir` fan-out (sequential; partial failure
+→ exit 6; missing input → 3; multi-input without `--out-dir` → 2).
 
 #### `convert <INPUT...> --format FMT [-q Q]`  *(S3)*
 Re-encode to another core format (JPEG/PNG/GIF/BMP/TIFF/ICO/WebP) — a **pure
@@ -229,7 +242,7 @@ overriding both the DEC-015 source-preserve default and any `-o <path>`
 extension (precedence: `--format` > `-o` ext > preserve source; here `--format`
 is always present, so it wins). `-q/--quality` is threaded to the encoder where
 the format supports it (JPEG; **ignored** for lossless formats — DEC-016); unlike
-`shrink`, `convert` forces **no** default quality (encoder default unless `-q`).
+`optimize`, `convert` forces **no** default quality (encoder default unless `-q`).
 **Metadata is dropped** on the re-encode (pixel lane; DEC-003). Multi-input
 `--out-dir` fan-out (sequential; output names take the target `{ext}`); a
 per-input **load/write** failure writes the successes, prints a per-file summary
@@ -256,8 +269,8 @@ format: a lossy target (**JPEG**, **AVIF** `--features avif`, **WebP**
 `--features webp-lossy`) lowers quality first, and any target — lossy that still
 overflows, or a **lossless** one (PNG, lossless WebP) — then **downscales dimensions**
 until it fits (DEC-023), warning `scaled to WxH` (unless `--quiet`). Mutually
-exclusive with `-q` → exit 2; see `shrink` for the size-unit and best-effort
-semantics. (The perceptual `--target`/`--ssim` auto-quality is `shrink`-only and, for
+exclusive with `-q` → exit 2; see `optimize` for the size-unit and best-effort
+semantics. (The perceptual `--target`/`--ssim` auto-quality is `optimize`-only and, for
 AVIF, falls back to the encoder default with a warning because it needs an AVIF
 decoder — use `--max-size` for an AVIF byte budget.)
 
@@ -392,7 +405,7 @@ invalid target) → **2**; manifest or recipe file unreadable → **3**; invalid
 |---|---|
 | STAGE-001 | (no real commands) skeleton + dispatch + global args + smoke stub |
 | STAGE-002 | `view`, `info` (+ `--exif`) |
-| STAGE-003 | `resize`, `thumbnail`, `shrink`, `convert`, `auto-orient` |
+| STAGE-003 | `resize`, `thumbnail`, `convert`, `auto-orient` (also `shrink`, removed in SPEC-086 → `web`/`optimize`) |
 | STAGE-004 | `watermark`; `strip`, `clean --gps`, `set`, `copy-metadata` |
 | STAGE-005 | `edit` (+ `--save-recipe`), `apply --recipe` (parallel + progress) |
 
