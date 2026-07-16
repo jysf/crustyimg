@@ -177,7 +177,7 @@ synthetic, spanning photo/graphic × a few sizes) that measures savings + time +
 
 ## Build Completion
 - **Branch:** `spec-088-audit-bench`
-- **PR:** #TBD (opened against `main`; orchestrator handles verify → merge → bookkeeping)
+- **PR:** #92 (opened against `main`; orchestrator handles verify → merge → bookkeeping)
 - **All acceptance criteria met?** Yes.
   - `--timing` on optimize/web/apply reports decode/encode/total (human → stderr; folded into `--json`); stdout stays pipe-clean. ✅ (`timing_flag_reports_and_json_includes_it`, `non_json_output_unchanged`)
   - `--json` consistent across optimize/web/apply — the `optimize.explain/v1` schema extended additively + versioned (gated `"timing"` object; `"ssim"` unchanged), NOT forked; a non-`--json`/non-`--timing` run is byte-identical. ✅ (`json_shape_consistent_across_verbs`, `non_json_output_unchanged`, decide.rs unit tests)
