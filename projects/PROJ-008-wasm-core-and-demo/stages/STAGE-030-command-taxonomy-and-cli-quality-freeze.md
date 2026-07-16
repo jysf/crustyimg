@@ -111,18 +111,20 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`. Build order: **084 �
   (web/gallery/product, file-path-wins precedence). **`web == apply --recipe web` DELIVERED** (not
   descoped) via a terminal-optimize recipe step (DEC-070). RAW highlight works. Verified CLEAN after a
   fix pass (the pinned `-o`/`--format` corner ignored the pin). $5.25.
-- [~] SPEC-086 (design — framed build-ready 2026-07-14) — **redefine `optimize`** surface: add
-  **`--verify`** (opt into the score-once, off by default per SPEC-084) + **remove `shrink`** (a clean
-  cut — `web` absorbs it) + fix the stale `run_optimize` doc-comment + update all refs. Surface + deletion,
-  no engine change. Consumes 084.
+- [x] SPEC-086 (shipped 2026-07-15, PR #90, DEC-071) — **redefine `optimize`** surface: added
+  **`--verify`** (opt into the score-once; JSON gains an `"ssim"` field, non-verify byte-identical) +
+  **removed `shrink`** (hard cut, no alias — `web` absorbs it) + fixed the stale `run_optimize`
+  doc-comment. Independent verify CLEAN (byte-identity both ways; live surface `shrink`-clean). $3.30.
 - [ ] SPEC-087 (not yet framed) — **`meta` group** consolidation (strip/clean/set/copy); auto-orient
   stays top-level. Surface move.
 - [ ] SPEC-088 (not yet framed) — **unified audit report** + `--json`/`--timing` across
   lint/optimize/web/apply + **committed bench corpus/harness** (seed from `scratchpad/bench/`).
 - [ ] SPEC-089 (optional / may fold) — `convert --to` rename + social/archive recipes.
 
-**Count:** 2 shipped (SPEC-084, SPEC-085) / 1 in design (SPEC-086) / 3 pending (087/088/089). **Next:
-build SPEC-086** (`optimize --verify` + remove `shrink`) off the post-SPEC-085 `main`.
+**Count:** 3 shipped (SPEC-084, SPEC-085, SPEC-086) / 0 in design / 3 pending (087/088/089). The core
+of the freeze — the fast AVIF default, the `web` flagship, `optimize` demoted + `shrink` removed — is
+**done**. Remaining: SPEC-087 (`meta` group), SPEC-088 (unified audit + committed bench), SPEC-089
+(`convert --to`, optional). **Next: frame SPEC-087 + SPEC-088.**
 
 ## Design Notes
 

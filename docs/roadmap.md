@@ -249,9 +249,13 @@ have an impressive unused tool.
   orient→score, reusing SPEC-084's engine) + a **bundled-recipe registry** (web/gallery/product);
   `web == apply --recipe web` delivered via a terminal-optimize recipe step (DEC-070). DEC-070
   follow-ups: `build` manifest doesn't run terminal-optimize recipes yet (`UnknownOperation`;
-  `run_build` deferred), + a clearer unknown-recipe-name error. **Next: SPEC-086 (`optimize --verify`
-  + remove `shrink`).** Sequence: STAGE-030 → STAGE-029 demo (reframed to the `web` hero + recipe
-  presets) → STAGE-028 README/BENCHMARKS (SPEC-082/083, reserved) → Show HN.
+  `run_build` deferred), + a clearer unknown-recipe-name error. **SPEC-086 SHIPPED 2026-07-15 (PR #90,
+  DEC-071, $3.30)** — `optimize --verify` (opt-in score; JSON gains an `"ssim"` field, non-verify
+  byte-identical) + **`shrink` removed** (hard cut, no alias; `web` absorbs it) + the stale doc-comment
+  fixed. **The taxonomy freeze's core is done** (fast AVIF default + `web` flagship + `optimize` demoted
+  + `shrink` gone). **Next: SPEC-087 (`meta` group) + SPEC-088 (unified audit + committed bench)**, then
+  optional SPEC-089 (`convert --to`). Sequence: STAGE-030 → STAGE-029 demo (reframed to the `web` hero +
+  recipe presets) → STAGE-028 README/BENCHMARKS (SPEC-082/083, reserved) → Show HN.
 - **Proof & distribution polish.** `BENCHMARKS.md` (cross-tool, honest equal-quality rule) · a
   real docs site + quickstart + recipe cookbook + the "why crustyimg" page + README badges · the
   **client-side demo page** (Wave 3) as the flagship "try it" artifact.

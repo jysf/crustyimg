@@ -3,7 +3,7 @@
 task:
   id: SPEC-086
   type: story
-  cycle: design
+  cycle: ship
   blocked: false
   priority: high
   complexity: M
@@ -25,6 +25,48 @@ value_link: >
   Finishes the two-tier story: `optimize` is the honest keep-dimensions byte-primitive (fast, never
   bigger, opt-in proof via --verify), and the redundant `shrink` verb — whose downscale-re-encode `web`
   now does better with AVIF — is removed. One intent per verb.
+
+cost:
+  sessions:
+    - cycle: design
+      interface: claude-code
+      tokens_total: null
+      note: >
+        framed build-ready in the orchestrator main loop (un-metered, §4); mostly surface + deletion
+        on top of the SPEC-084 engine (add `--verify`, remove `shrink`, fix the doc-comment).
+    - cycle: build
+      interface: claude-code
+      tokens_total: 180000
+      estimated_usd: 2.00
+      recorded_at: 2026-07-15
+      note: >
+        ~35 min, own worktree. `optimize --verify` (reuse `score_winner_once`; JSON gains an `"ssim"`
+        field gated on measured, non-verify byte-identical); hard-cut `shrink` (Commands::Shrink,
+        run_shrink, shrink_auto_config, DEFAULT_SHRINK_MAX; neutral helper renames); stale doc-comment
+        fixed. Drove the binary end-to-end (self-check, not the independent verify). Emitted DEC-071.
+    - cycle: verify
+      interface: claude-code
+      tokens_total: 120000
+      estimated_usd: 1.30
+      recorded_at: 2026-07-15
+      note: >
+        independent adversarial pass, ~15 min, fresh worktree — CLEAN. Proved non-verify JSON
+        byte-identical to main + the pinned output byte-identical; the `--verify` score matches
+        `crustyimg diff`; `shrink` gone from the live surface (historical records correctly kept);
+        renamed-helper regressions + gates green. One non-defect: pinned `--verify -o x.avif` silently
+        ignores `--verify` (by design, mirrors the pre-existing silent `--explain`-on-pin).
+    - cycle: ship
+      interface: claude-code
+      tokens_total: null
+      recorded_at: 2026-07-15
+      note: >
+        ship bookkeeping in the orchestrator main loop (un-metered, §4). Clean squash-merge (PR #90,
+        f54aac9) — mergeable/CLEAN, no rebase. Follow-up logged: pinned `optimize --verify` could
+        surface a hint rather than silently ignore the flag (ergonomics nit).
+  totals:
+    tokens_total: 300000
+    estimated_usd: 3.30
+    session_count: 4
 ---
 
 # SPEC-086: redefine `optimize` (keep-dims + `--verify`) + remove `shrink`
@@ -185,4 +227,19 @@ are unchanged.
 ---
 
 ## Reflection (Ship)
-1. <answer> 2. <answer> 3. <answer>
+1. **What would I do differently next time?** — The build session self-verified *and* opened the PR,
+   which isn't the independent check — I ran a separate adversarial verify anyway, and it was worth it
+   for the confidence even though it came back CLEAN (unlike SPEC-084/085, which the independent pass
+   caught defects in). For a surface+deletion spec the risk was low, but "the build verified its own
+   work" isn't a substitute for the separate pass. Also (third time): remember the `cost:` block when
+   Writing a spec over its scaffold.
+2. **Does any template, constraint, or decision need updating?** — DEC-071 records `--verify`, the
+   `shrink` removal + migration mapping, and the JSON `"ssim"` deviation (additive, gated on measured,
+   `v1` unbumped). The hard-cutover grep-clean discipline worked: live surface clean, dated historical
+   records (ADRs, session logs, prior specs) intentionally preserved — that distinction is the right
+   default for a repo whose history is a deliverable.
+3. **Is there a follow-up spec I should write now before I forget?** — A small ergonomics nit: pinned
+   `optimize --verify -o x.avif` silently ignores `--verify` (mirrors the pre-existing silent
+   `--explain`-on-pin) — worth a hint someday, not a spec. STAGE-030 continues: SPEC-087 (`meta` group),
+   SPEC-088 (unified audit + committed bench), SPEC-089 (`convert --to`, optional). DEC-069/071 also
+   carry the native(85)/wasm(80) AVIF-quality alignment for when `src/wasm.rs` is next touched.
