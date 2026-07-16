@@ -3,7 +3,7 @@
 task:
   id: SPEC-087
   type: story
-  cycle: build
+  cycle: verify
   blocked: false
   priority: medium
   complexity: S
@@ -47,6 +47,19 @@ cost:
         feature-exploration + the lint fix fragments + constraints.yaml rule) and the tests.
         Gates green (test default+avif, clippy, fmt, no-default-features, validate). Flagged a
         design-grounding error: a top-level `set` verb DOES exist (left top-level per spec scope).
+    - cycle: verify
+      interface: claude-code
+      tokens_total: 190000
+      estimated_usd: 2.10
+      recorded_at: 2026-07-15
+      note: >
+        metered subagent, own detached worktree — ESTIMATE (orchestrator finalizes subagent_tokens
+        at ship, §4). Adversarial verify: built the binary here AND the parent-commit (80c71c1) old
+        binary, drove both on one EXIF+GPS JPEG fixture — `meta strip`/`meta clean --gps`/`meta copy`
+        are byte-identical to the OLD top-level `strip`/`clean`/`copy-metadata` output (independent of
+        the build's library-op test). Confirmed top-level verbs exit 2, bare `meta` prints help, and
+        the lint fix fragments (`crustyimg meta clean --gps <file>`) run post-cutover. Re-ran all gates
+        green. Verdict CLEAN.
 ---
 
 # SPEC-087: `meta` group consolidation (strip / clean / copy)
@@ -188,6 +201,50 @@ cutover). Update every reference. No behavior change, no new capability.
    enum edit, was the real work.
 
 ---
+
+## Verify — ✅ APPROVED (CLEAN)
+
+Independent verify session (fresh, own detached worktree at `origin/spec-087-meta-group`).
+Verdict: **CLEAN — no defects.** Every acceptance criterion has a completion-table row and was
+independently re-verified (not just re-run from the build's own tests).
+
+**Acceptance criteria, row-by-row:**
+1. **Byte-identity (`meta strip`/`clean --gps`/`copy`).** Proven adversarially *against the old code
+   path*, not only the library op the build's test chose: built the parent-commit (`80c71c1`) OLD
+   binary and this branch's NEW binary, drove both on one EXIF+GPS+copyright JPEG fixture. All three
+   ops `cmp`-identical — strip 688 B, clean 876 B, copy 1002 B. Semantics correct (strip removes all;
+   `clean --gps` drops GPS, keeps Orientation + Copyright). ✅
+2. **Top-level verbs gone / bare `meta` help.** `strip`, `clean`, `copy-metadata` at top level all
+   exit **2** (unknown subcommand; `copy-metadata` even suggests `meta`); bare `meta` prints the group
+   help listing strip/clean/copy and exits 2 (`arg_required_else_help`). ✅
+3. **`auto-orient` top-level, unchanged.** Confirmed top-level; `set` (SPEC-027) also confirmed still
+   top-level, untouched (the flagged out-of-scope deviation). ✅
+4. **No stale top-level ref on the live surface.** Grepped `src/`/`docs/`/`README`/`guidance`. Remaining
+   hits are all legitimate: dated historical records (sessions/research/reviews/blog), library fn names
+   (`strip_all`/`clean_gps`) in `metadata/` unit tests, a `"clean"` *test fixture stem*, and the
+   crate-rustdoc per-SPEC changelog line for SPEC-026 (the module capability, not a CLI example).
+   The **lint fix fragments** are correctly `meta strip` / `meta clean --gps`; drove `crustyimg lint`
+   on a real image and confirmed the emitted `crustyimg meta clean --gps <file>` **parses and runs**
+   post-cutover (it strips GPS; the earlier exit-5 was a self-inflicted `-o /dev/null`, an overwrite
+   guard, not a parse failure). Shell completions are generated dynamically from the clap enum — the
+   generated zsh/bash output shows top-level `meta`/`auto-orient`/`set` with strip/clean/copy nested
+   under `meta`, no stale top-level entries. ✅
+5. **Gates.** Re-ran all myself: `cargo test` **723** (default) / **736** (`--features avif`),
+   `cargo clippy --all-targets` clean (default + avif), `cargo fmt --check` clean,
+   `cargo build --no-default-features` builds, `just validate` passes. The five named design tests
+   (`meta_subcommands_match_old_verbs`, `top_level_metadata_verbs_are_gone`,
+   `meta_bare_prints_subcommand_help`, `auto_orient_still_top_level`, `meta_subcommand_help_parses`)
+   exist and pass. ✅
+
+**Pure-move confirmation:** the `src/` diff to `run_strip`/`run_clean`/`run_copy_metadata`/
+`run_metadata_lane` is doc-comment-only; behavior routes through the new `MetaCommand` match to the
+identical handlers. No metadata-op logic changed. No decision drift (`just decisions-audit --changed`
+clean; build correctly declared no new DEC). Prior cycles have `cost.sessions` entries.
+
+**On the `set` deviation:** confirmed SPEC-087 did its scoped move correctly and left the top-level
+`set` verb untouched. The "no `set` verb exists" grounding error and the fold-`set`→`meta set`
+question are out of SPEC-087's scope and owned by the orchestrator's follow-up spec — **not** folded
+here. Not a defect against this spec.
 
 ## Reflection (Ship)
 1. <answer> 2. <answer> 3. <answer>
