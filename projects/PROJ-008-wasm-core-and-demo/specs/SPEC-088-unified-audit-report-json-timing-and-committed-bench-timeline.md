@@ -9,5 +9,5 @@ Cycle prompts live in `prompts/SPEC-088-<cycle>.md`.
 
 - [x] **design** — spec + failing tests + implementation context written to `main`.
 - [x] **build** — audit report (`--json`/`--timing`) + committed bench; worktree `spec-088-audit-bench`, PR #92, ~$4.90 est, DEC-074. Gates green (731 default / 744 avif). 2026-07-16.
-- [ ] **verify** — independent pass (orchestrator).
+- [x] **verify** — independent adversarial pass, own worktree. ⚠ **PUNCH LIST** (4 items; byte-identity + privacy PROVEN clean against the pre-spec oracle). ~$3.40 est. 2026-07-16.
 - [ ] **ship** — merge + bookkeeping (orchestrator).

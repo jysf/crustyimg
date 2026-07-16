@@ -3,7 +3,7 @@
 task:
   id: SPEC-088
   type: story
-  cycle: build
+  cycle: verify
   blocked: false
   priority: high
   complexity: M
@@ -49,10 +49,21 @@ cost:
         (`bench/corpus/` + generator `examples/gen_bench_corpus.rs` + provenance README) + `just bench`
         (criterion → `bench-micro`). 5 spec Failing Tests + 3 decide.rs unit tests. Gates green
         (731 default / 744 avif; clippy; fmt; lean build; validate; bench). Emitted DEC-074.
+    - cycle: verify
+      interface: claude-code
+      tokens_total: 340000
+      estimated_usd: 3.40
+      recorded_at: 2026-07-16
+      note: >
+        ~35 min, own worktree (detached at origin/spec-088-audit-bench). Main-loop ESTIMATE (no metered
+        subagent, §4 + [[autonomous-run-cost-estimates]]): order-of-magnitude tokens at Opus 4.8 list
+        rate, ~80/20. Adversarial pass: built the PRE-SPEC parent binary (913faef) as an oracle and
+        byte-diffed 28 real runs; regenerated the corpus from its committed generator; drove the offline
+        claim under a network-denying sandbox; re-ran every gate. Verdict ⚠ PUNCH LIST (4 items).
   totals:
-    tokens_total: 470000
-    estimated_usd: 4.90
-    session_count: 1
+    tokens_total: 810000
+    estimated_usd: 8.30
+    session_count: 2
 ---
 
 # SPEC-088: unified audit report (`--json`/`--timing`) + committed bench
@@ -199,6 +210,107 @@ synthetic, spanning photo/graphic × a few sizes) that measures savings + time +
 1. **What surprised me?** The synthetic "photo" corpus refused to compress: smooth gradients are already JPEG-optimal (passthrough), and adding high-frequency noise to force a codec win just bloated the file to 160 KB while *still* passing through (noise is incompressible for AVIF too). The honest resolution — a tiny corpus that legitimately exercises the never-bigger path, with real savings deferred to `--corpus` — is better than a manufactured number.
 2. **What was the load-bearing design choice?** Building the schema first and having the harness *consume the CLI's own `--json`* (not re-implement measurement) — the spec's "keep them coherent" instruction. It means the bench can't drift from the report, and the gated-additive discipline (copying `ssim`'s exact pattern) kept every non-audit run byte-identical, which the regression anchor proves.
 3. **What would I check first in verify?** That a plain run's stdout/stderr is truly byte-identical to `origin/main` (the anchor test asserts structure, not literal pre-spec bytes), and that `just bench` is green offline on a clean checkout with only `python3` present — plus that `--json`/`--timing` correctly error (not silently pass) on every non-autodecide path (pinned `-o`, `--format`, `--profile preserve`, plain recipe).
+
+---
+
+## Verify (2026-07-16) — ⚠ PUNCH LIST
+
+Independent adversarial pass in its own worktree. **The two load-bearing claims are PROVEN**, not
+taken on trust; four defects sit on top of them, none of which touch the engine.
+
+### Proven clean (driven, not assumed)
+
+- **Byte-identity — proven against the pre-spec ORACLE.** Built the parent commit (`913faef`) as a
+  binary and diffed **28 real runs** (`optimize` / `optimize --verify` / `optimize --explain=json` /
+  `optimize --max` / `web` / `web --max` / `apply --recipe web` × 4 corpus images): **stdout, stderr,
+  exit code, and output image bytes all identical**. The spec's `non_json_output_unchanged` asserts
+  *structure* only — the build's reflection said so honestly, and this closes the gap. The pre-existing
+  `--explain=json` golden is byte-identical too.
+- **Privacy — proven, no real photo ever entered git.** Only four image blobs exist across the whole
+  branch history (all `bench/corpus/`). `cargo run --example gen_bench_corpus` **regenerates all four
+  byte-identically** — the bytes are a pure function of committed math (`sin`/`cos`, no reads, no
+  network, no `include_bytes!`), so no photo can be hiding in them. Zero EXIF/GPS/ICC/XMP by both
+  `info` and a raw marker scan. The only `_incoming0` strings are pre-existing prose paths in DEC-069 /
+  SPEC-084, not data.
+- **Schema additive, `/v1` intact.** `timing` is absent without `--timing`, ordered after `ssim`,
+  mirroring DEC-071 exactly. `--json` is `conflicts_with = "explain"` at the clap layer, so the
+  pre-existing `--explain=json` cannot be shadowed or diverge; `optimize --json` is a true synonym.
+- **Usage-error guard consistent** across all three verbs × pinned `-o` / `--format` / `--profile
+  preserve` / plain recipe → exit 2 with an actionable message. Breaks no previously-working
+  invocation (the flags are new; control runs still exit 0).
+- **Offline — proven by driving.** Ran the harness under `sandbox-exec` with `(deny network*)`, having
+  first proven *the blocker blocks* (`curl` exits 6 under the sandbox, 0 outside). Harness green, rc=0.
+  Imports are stdlib-only; the sole network strings are comments.
+- **Gates re-run here:** `cargo test` 731 default / 744 `--features avif` (matches the build's claim),
+  clippy clean, `fmt --check` clean, `--no-default-features` builds, `just validate`, `just bench`,
+  `just bench-micro` (compiles). `decisions-audit`: 0 structural errors. No CI job calls `bench`, so
+  the rename breaks nothing.
+
+### Punch list
+
+1. **`--json` + `-o -` collides on stdout** (contradicts the spec's "stdout stays pipe-clean").
+   The `pinned` guard deliberately excludes `-o -`, which is precisely the case where the report and
+   the image contend for stdout. Repro:
+   `crustyimg web bench/corpus/photo_large.jpg --json -o - > out` → `out` is a 512-byte JSON line
+   followed by the 15449-byte image. **Pre-existing** for `optimize --explain=json -o -` (the oracle
+   binary does it identically), but SPEC-088 propagated it to `web`/`apply`, which had no `--json`
+   before. `non_json_output_unchanged` covers `-o -` *without* `--json`, so it can't catch this.
+   Fix is one condition: treat `-o -` as audit-incompatible (exit 2), or send the report to stderr
+   when the sink is stdout.
+2. **The `lint` acceptance criterion is claimed ✅ on evidence that does not exist.** The row cites
+   "(DEC-074, docs)": **DEC-074 contains zero occurrences of "lint"**, and no doc anywhere documents
+   `lint --format json` as the audit surface. The whole SPEC-088 diff contains no lint change. The
+   claim is its own only evidence. (`lint --format json` does still work, untouched.) Separately,
+   `lint` spells it `--format json` while the new surface spells it `--json` — the criterion's
+   "`--json` where it fits" inconsistency is untouched and undocumented. Either write the one
+   paragraph, or drop the criterion honestly. A new variant of
+   [[a-criterion-nobody-claims-is-a-criterion-nobody-checks]]: the row is present but its citation is
+   hollow.
+3. **DEC-028 is now stale.** Its body still reads "runnable via `just bench`" (lines 44, 92) for the
+   criterion micro-bench, which is now `just bench-micro`. DEC-074 records the rename and nothing
+   breaks, but DEC-028 carries no pointer or `superseded_by`. One-line fix.
+4. **The justfile's AVIF claim is false.** `bench` comments that it builds `--features avif` "so the
+   flagship AVIF path (the `web` story) is exercised" — **no corpus row ever produces AVIF** (see the
+   assessment below). The extra build cost buys nothing on the committed corpus.
+
+### Assessment — does the committed bench serve its stated purpose?
+
+**Judgment: it is a smoke / regression harness, not a demonstration of the `web`-vs-`optimize` story —
+and the gap is wider than `bench/corpus/README.md` admits.**
+
+On all 8 rows, `web` and `optimize` emit **identical** `out_bytes` and savings. STAGE-030's whole
+thesis (`web` 98% / size-insensitive vs `optimize` 24%) is invisible. Two causes:
+
+- *Documented:* every image is ≤512px, under the 2048 long-edge bound, so `web`'s downscale — its
+  entire point — never fires and `web` ≡ `optimize`.
+- *Not documented, and the sharper one:* **crustyimg's own classifier labels all four images
+  `graphic-logo`** — including both `photo_*.jpg`. The photo/lossy branch is never entered and **AVIF
+  never fires once**. So the README's Contents table calling them "photo" / "lossy-family source" is
+  contradicted by the engine, and the justfile asserts the opposite of what happens.
+
+What it does buy is real: it proves the harness wiring, that the bench consumes the CLI's own `--json`
+(so the two can't drift), the graphic→lossless-WebP branch, and the never-bigger passthrough path.
+That is worth committing. But **every headline number for SPEC-083 must come from `--corpus <real>`** —
+this corpus is scaffolding, not evidence.
+
+Is the limitation documented where a skeptic hits it? **Partially, and not where it counts.**
+`bench/corpus/README.md` §"What the smoke numbers show (and honestly don't)" is genuinely honest about
+the size cap — good. But a skeptic runs `just bench`, not `cat README.md`, and **the table itself
+carries no caveat**. Reading "photo_large.jpg web 0%" and `web == optimize` on every row, the
+reasonable conclusion is "this tool does nothing" — the exact opposite of the launch pitch.
+
+**Recommendation (cheap, high value):** print a one-line footer from `print_table` — e.g. *"smoke
+corpus: ≤512px synthetic, all graphic-class → `web`==`optimize` and AVIF never fires; run
+`--corpus <real>` for the launch numbers"* — fix the justfile AVIF comment, and reconcile the README's
+"photo"/"lossy-family" labels with the classifier's actual verdict. Adding a ≥2048px synthetic is
+**not** an easy win: I generated one (3000px, same pure-math formula) and it also classifies
+`graphic-logo`, takes lossless-WebP, and lands **−14% (bigger)** — reinforcing the build's reflection
+that synthetic gradients aren't photos.
+
+*Out of scope, flagged for the maintainer:* that −14% is `web` shipping a file **larger than the
+source**. The oracle binary does it identically, so it is **pre-existing SPEC-085 behaviour, not a
+SPEC-088 regression**, and it is reported honestly ("14% larger"). But it shows `web`'s never-bigger
+guarantee does not hold once the downscale forces a re-encode. Worth its own look.
 
 ---
 
