@@ -131,14 +131,22 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`. Build order: **084 �
   whole (`meta {strip,clean,copy,set}`). Pure hard-cutover surface move mirroring SPEC-087 (byte-identity
   vs the pre-move binary); one deliberate divergence — update the `set requires …` usage string to
   `meta set requires …`. No DEC. Complexity S.
-- [ ] SPEC-090 (optional / may fold) — `convert --to` rename + social/archive recipes.
+- [~] SPEC-090 (design — framed build-ready 2026-07-16) — **reconcile `web`'s never-bigger claim with its
+  actual baseline.** SPEC-088's verify measured `web` shipping a file **14% larger** than a 3000px source;
+  the pre-spec oracle reproduces it → **pre-existing SPEC-085 behavior**, honestly reported, but
+  `pick_winner` enforces never-bigger against the **downscaled intermediate** while the recipe + docs
+  promise "never shipping a larger file" (i.e. than the user's input). Genuine design tension: `web`'s
+  dimension contract (≤2048px) means passthrough-the-original isn't an equivalent fallback. Decide
+  claim-vs-behavior **with evidence**; DEC-075. `optimize`'s unconditional keep-dims guarantee is out of
+  scope and unchanged. Complexity S, priority high (flagship promise).
+- [ ] SPEC-091 (optional / may fold) — `convert --to` rename + social/archive recipes.
 
-**Count:** 4 shipped (SPEC-084/085/086/087) / 2 in design (SPEC-088, SPEC-089) / 1 pending (SPEC-090,
-optional `convert --to`). The core of the freeze is **done**; 088 (audit + committed bench, the more
-launch-critical one — feeds SPEC-083 BENCHMARKS) finishes the measurable-honesty pillar, and 089 closes
-the `meta` group. **Build order: 088 and 089 are independent** (088 = report/bench, 089 = one more
-metadata verb move). **Next: build SPEC-088 + SPEC-089, and/or reframe SPEC-080 (demo) in parallel** —
-the `web` hero it needs is shipped.
+**Count:** 4 shipped (SPEC-084/085/086/087) / 3 in design (SPEC-088 in verify-fix, SPEC-089, SPEC-090) /
+1 pending (SPEC-091, optional `convert --to`). The core of the freeze is **done**; 088 (audit + committed
+bench) finishes the measurable-honesty pillar, 089 closes the `meta` group, and 090 makes the flagship's
+headline promise true as written. **Build order:** 088 is in a fix pass (its branch); **089 and 090 both
+touch `src/cli/mod.rs` / the decision path — serialize them after 088 merges** to keep the file
+uncontended. **Then: reframe SPEC-080 (demo)** — the `web` hero it needs is shipped.
 
 ## Design Notes
 
