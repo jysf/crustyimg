@@ -78,10 +78,30 @@ cost:
         `photo_*.jpg` → `gradient_*.jpg` (engine says `graphic-logo`); added a `print_table` caveat
         footer. Re-proved byte-identity vs the pre-spec oracle (32/32) + re-ran every gate
         (732/745, +1 test).
+    - cycle: verify
+      interface: claude-code
+      tokens_total: 330000
+      estimated_usd: 3.30
+      recorded_at: 2026-07-16
+      note: >
+        RE-VERIFY of the fix pass (~40 min), own worktree (detached at 9add66b). Main-loop ESTIMATE (no
+        metered subagent, §4 + [[autonomous-run-cost-estimates]]): order-of-magnitude tokens at Opus 4.8
+        list rate, ~80/20. Chartered on the fixer's self-report that it had written two
+        plausible-but-wrong prose claims (an invented Wikimedia author, a non-existent `lint --format`
+        value) and caught both itself — the question being whether a THIRD survived uncaught. One did
+        (defect 1). Drove rather than read: the CC0 licence/provenance re-confirmed element-by-element
+        from the Commons API + a pixel diff against the Commons original (ssim 53, vs -816 for an
+        unrelated image and 100 for self) + looking at the photo; a raw JPEG segment scan for the
+        metadata claim; the `-o -` guard across every verb/spelling incl. a guard-removal experiment
+        (the new test provably fails without it); the DEC-074 §Corrections oracle claim reproduced
+        EXACTLY (15,963 B, image magic at offset 514); an independent 32/32 byte-identity sweep vs the
+        913faef oracle; every `docs/cli-reference.md` value; footer print-vs-suppress; generator
+        byte-for-byte reproduction; every gate. Verdict ⚠ PUNCH LIST (2 minor doc-accuracy defects;
+        behaviour, licence + provenance CLEAN).
   totals:
-    tokens_total: 1210000
-    estimated_usd: 12.35
-    session_count: 3
+    tokens_total: 1540000
+    estimated_usd: 15.65
+    session_count: 4
 ---
 
 # SPEC-088: unified audit report (`--json`/`--timing`) + committed bench
@@ -447,6 +467,132 @@ behaviour, now framed as **SPEC-090** on main).
    classifies `photograph` (and thus that AVIF is exercised) would make the drift
    loud; I did not add one, because the maintainer scoped this pass to the punch
    list. Worth a follow-up.
+
+---
+
+## Re-verify of the fix pass (2026-07-16) — ⚠ PUNCH LIST (2 minor)
+
+Independent pass over the fix commit (9add66b), own worktree. Scoped to what the fix
+*changed*: a behaviour change, a permanently-committed asset, rewritten docs. The
+prior verify's byte-identity + privacy proofs were re-run, not re-derived.
+
+**Charter:** the fixer self-reported writing two plausible-but-wrong prose claims (an
+invented Wikimedia author; a `lint --format text` value that does not exist) and
+catching both itself. The question was whether a **third** survived uncaught. **One
+did** — defect 1. Everything else is confirmed.
+
+### Verdict on the licence + provenance claim — **CONFIRMED, high confidence**
+
+This got its own verdict because it is permanent, public, and legally load-bearing.
+Every element was confirmed **from the source**, not from the fix's prose:
+
+| Claim | How it was checked | Result |
+|---|---|---|
+| File exists on Wikimedia Commons | Commons API `action=query&prop=imageinfo` | ✅ pageid 139692243, 6016×4000 |
+| Author **DimiTalen** | API `extmetadata.Artist` | ✅ `DimiTalen` (the earlier invented author is gone) |
+| **Own work** | `extmetadata.Credit` = `Own work` | ✅ |
+| **CC0-1.0** | `LicenseShortName`=`CC0`, `License`=`cc0`, `UsageTerms`=*Creative Commons Zero, Public Domain Dedication*, `LicenseUrl`=…/publicdomain/zero/1.0/, `AttributionRequired`=`false`, category `CC-Zero` | ✅ exactly as documented |
+| The committed file **is that photograph** | downloaded the Commons original, resampled to 800×532 with `sips` (not our code), `crustyimg diff` → **ssim 53.0**; calibrated against an unrelated corpus image (**−815.8**) and self (**100.0**) | ✅ same image, different resample path |
+| It depicts what it says | looked at it: spruce forest undergrowth | ✅ |
+
+Provenance is **not** taken on trust anywhere in this verdict: the licence came from
+the API's own `extmetadata`, and the identity from pixels.
+
+### Proven clean (driven, not read)
+
+- **Metadata stripping.** Raw JPEG segment walk (independent of our decoder): the only
+  marker before `SOS` is `APP0/JFIF` + Huffman/quant/DRI tables. Byte-scan for `Exif`,
+  `ICC_PROFILE`, `XMP`, `http://ns.adobe.com`, `GPS`, `Photoshop`, `Nikon`, `DimiTalen`
+  → **0 occurrences each**. `info --json` → `has_exif:false, has_icc:false`. The source
+  carries GPS 50.4957/6.1034; the committed file carries none of it. 800×532 ✅.
+- **The classifier mechanism.** `class=photograph` driven on the stripped file across
+  the debug, release-avif, and `web` paths — so it classifies on **pixel content**, and
+  the "survives metadata stripping" rationale holds. The cited thresholds are real:
+  `PHOTO_FLAT_MAX = 0.25`, `PHOTO_ENTROPY = 5.0` (`src/analysis/mod.rs:85-87`), and the
+  predicate is the no-EXIF heuristic (`mod.rs:599`). All four synthetic rows →
+  `graphic-logo`, `flat_ratio` **1.00** as claimed.
+- **`just bench` really exercises AVIF.** Driven: `photo_forest_cc0.jpg` → candidates
+  `[avif 125548, jpeg 188101]`, `winner=0`, **30%**, **ssim 81.4**, ~559 ms (claim:
+  ~590 ms). The artifact is AVIF per **two independent decoders** (`file` → *ISO Media,
+  AVIF Image*; macOS `sips` → `format: avif`). The functional gap the fix existed to
+  close is genuinely closed — and on a default (no-`avif`) build that row honestly
+  passes through (only a 188101-byte JPEG candidate, larger than source).
+- **The `-o -` guard, full blast radius.** Fires with **exit 2 and zero stdout bytes**
+  on `optimize --json`, `optimize --explain=json`, `web --json`, `apply --recipe web
+  --json`, `optimize --json --timing`. Still `-o -`-compatible, stdout carrying exactly
+  the image bytes: `--timing` (renders to stderr), human `--explain`, and plain runs.
+  The auto-decision-only rules all hold (pinned `-o`, `--format`, `--profile preserve`
+  → exit 2; `--json` + `--explain=json` together → exit 2).
+  **Guard-removal experiment:** with `reject_json_report_on_stdout_sink` disabled,
+  `json_report_refuses_stdout_sink` **FAILS**; restored → passes. The test is real.
+- **DEC-074 §Corrections reproduced EXACTLY.** The oracle (913faef, built from a clean
+  clone) on `gradient_large.jpg`: `--explain=json -o -` → exit 0, **15,963 bytes**,
+  image magic `ffd8ff` first at **offset 514**, parses as neither JSON (`Extra data`)
+  nor JPEG (no SOI at byte 0). The justification for changing shipped behaviour is
+  sound. New binary on the same input → exit 2, 0 stdout bytes.
+- **Byte-identity, independently swept.** My own 32-run matrix (5 corpus files ×
+  optimize plain / `--explain` human / `--explain=json -o FILE` / `info` / `info --json`
+  / `web`, + 2 lint runs), diffing stdout **and** stderr **and** exit code **and**
+  output bytes vs the oracle: **32/32 identical, 0 differ**. Same count as the fix
+  claimed, reached independently.
+- **Every docs value drives true.** `lint --format` accepts exactly `human`/`json`/
+  `sarif` and rejects `text` with exit 2 (the fabricated value is gone, and the error
+  message itself enumerates the three); `lint --format json` → `schema:
+  crustyimg.lint/v1` with summary keys `files_scanned, errors, warnings, infos,
+  potential_bytes_saved, passed` — exactly as documented; `info --json` and `diff
+  --json` exist; `optimize --json --verify` adds `ssim: 81.4`.
+- **Footer both ways.** Committed corpus → caveat prints (1×). `--corpus <real>` →
+  suppressed (0×). `--json` exposes `smoke_corpus: true`.
+- **Generator honesty.** `cargo run --example gen_bench_corpus` reproduces the four
+  synthetic files **byte-for-byte** (identical md5s, clean `git status`) and leaves
+  `photo_forest_cc0.jpg` untouched, as the README promises.
+- **Criteria coverage.** All 6 Acceptance rows have completion entries — no criterion
+  silently omitted ([[a-criterion-nobody-claims-is-a-criterion-nobody-checks]]).
+- **Gates re-run green:** `cargo test` **732** default / **745** `--features avif`
+  (both as claimed), `cargo clippy --all-targets` clean, `cargo fmt --check`,
+  `cargo build --no-default-features`, `just validate`, `just bench`, `just bench-micro`.
+- Corpus total **206,638 B** (~202 KiB) — matches "~200 KB".
+
+### Punch list (2, both documentation-accuracy; neither affects behaviour)
+
+1. **The third unverified prose claim — stale feature values in this spec.** Line ~385
+   states the committed photo classifies on pixel content
+   *"(flat_ratio 0.02 < 0.25, entropy 7.58 ≥ 5.0)"*. The tool disagrees: the committed
+   800×532 file measures **flat_ratio 0.04, entropy 7.37** (identical across debug,
+   release-avif, and `web`). Those numbers are **not invented — they are the 960px
+   intermediate's**: the Commons 960px download measures *exactly* flat_ratio 0.02 /
+   entropy 7.58. The classifier was driven on a working file and the reading was
+   written up as describing the committed asset.
+   *Repro:* `crustyimg optimize bench/corpus/photo_forest_cc0.jpg --json | jq .features`
+   → `{"entropy":7.37,…,"flat_ratio":0.04}`.
+   **The conclusion is unaffected** (0.04 < 0.25 and 7.37 ≥ 5.0 still hold, with margin),
+   and the thresholds cited are correct — only the two measured values are wrong. Fix:
+   `flat_ratio 0.04 < 0.25, entropy 7.37 ≥ 5.0`. Contained to this spec; the corpus
+   README and DEC-074 cite no feature numbers and are clean.
+2. **DEC-028's de-staling missed one caller.** `Cargo.toml:303` still documents
+   criterion as *"runs via `just bench`"*. After the rename `just bench` is the Python
+   corpus harness; criterion runs via **`just bench-micro`**. The justfile, DEC-028, and
+   the docs were all updated — this comment was not.
+   *Repro:* `grep -n "just bench" Cargo.toml`. Fix: one word.
+
+Both are one-line corrections. Neither blocks the merge on its own; the maintainer's
+call whether to fix here or fold into ship.
+
+### Re-verify reflection
+1. **What surprised me?** That the fixer's own reflection #3 named the *right* risk
+   ("check the README's `class` column still matches the classifier") and the class
+   column is exactly what held — while the claim that broke was a neighbouring pair of
+   **numbers** in the same sentence as a correct conclusion. Guarding the conclusion is
+   not guarding the evidence: a true claim ("it classifies on pixel content") carried
+   false support ("0.02 / 7.58") and read as verified because its *conclusion* was.
+2. **The generalisable lesson.** [[a-citation-looks-like-prose-not-a-claim]] extends:
+   a measurement copied from a **working file** inherits nothing from the artifact you
+   ship. Both of the fixer's self-caught errors and this one share a shape — a value
+   transcribed from somewhere adjacent to the real source. Re-measure against the
+   committed artifact, at the moment of writing.
+3. **What I would check first next time.** Any number in prose that a one-line command
+   can print. Cheapest possible test, and it is where all three defects in this spec's
+   history have lived — never in the engine.
 
 ---
 
