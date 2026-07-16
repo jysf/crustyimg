@@ -3,7 +3,7 @@
 task:
   id: SPEC-087
   type: story
-  cycle: verify
+  cycle: ship
   blocked: false
   priority: medium
   complexity: S
@@ -60,6 +60,16 @@ cost:
         the build's library-op test). Confirmed top-level verbs exit 2, bare `meta` prints help, and
         the lint fix fragments (`crustyimg meta clean --gps <file>`) run post-cutover. Re-ran all gates
         green. Verdict CLEAN.
+    - cycle: ship
+      interface: claude-code
+      tokens_total: null
+      recorded_at: 2026-07-15
+      estimated_usd: 0.55
+      note: >
+        orchestrator main loop (un-metered, §4) — ESTIMATE. CI matrix polled green (27 checks),
+        squash-merged PR #91 (f7ce015), synced main, removed both worktrees + branch, bookkeeping
+        (cycle→ship, timeline, STAGE-030 4/6, archive, corrected the "no `set` verb" grounding error,
+        memory + brag). Framed the `meta set` follow-up per the maintainer decision.
 ---
 
 # SPEC-087: `meta` group consolidation (strip / clean / copy)
@@ -73,10 +83,14 @@ the encoders. This spec groups them under a single **`meta`** command with subco
 reads by job. It's a pure surface move (a hard cutover, no aliases); the underlying `run_strip` /
 `run_clean` / `run_copy_metadata` behavior is unchanged.
 
-Grounding (probed): there is **no `set` verb today** — the strategy brief's `meta {strip,clean,set,copy}`
-listed a `set` that doesn't exist. Writing a metadata value is a *new capability*, not a move, so it's
-out of scope here (see below). `auto-orient` is an image operation (it bakes orientation into pixels),
-not a metadata verb — it **stays top-level** (DEC-017).
+Grounding — **CORRECTED at ship (2026-07-15):** this spec originally asserted "there is no `set` verb
+today." That was **wrong** — a top-level `set` verb (`set --artist/--copyright/--description`, SPEC-027,
+`Commands::Set`→`run_set`) does exist and is documented. SPEC-087 correctly moved only the three verbs it
+enumerated (`strip`/`clean`/`copy-metadata`), leaving `set` top-level. Per the maintainer decision
+(2026-07-15), `set` **will fold into `meta set`** as its own follow-up spec (a pure move, mirroring this
+one) so the metadata group is whole (`meta {strip,clean,copy,set}`) — matching the original strategy
+brief's intent. `auto-orient` is an image operation (it bakes orientation into pixels), not a metadata
+verb — it **stays top-level** (DEC-017).
 
 ## Goal
 
@@ -247,4 +261,16 @@ question are out of SPEC-087's scope and owned by the orchestrator's follow-up s
 here. Not a defect against this spec.
 
 ## Reflection (Ship)
-1. <answer> 2. <answer> 3. <answer>
+1. **The spec's own probe was the risk, not the code.** A framing that states a "probed" fact ("no `set`
+   verb today") without a grep of the `Commands` enum shipped a falsifiable-and-false grounding claim into
+   a build. The build caught it in seconds because the invariant was code-checkable — the lesson generalizes
+   ([[read-whole-function-before-asserting-a-gap]] applied to the CLI surface: enumerate the actual verb set
+   at framing, don't trust a strategy brief's list). Cost was only a flagged deviation because the spec's
+   *scope* was enumerated tightly (move exactly these three), so the wrong grounding didn't widen the build.
+2. **A "pure move" is validated by the OLD binary, not the library op.** Verify built the parent-commit
+   binary and drove both old and new on one real EXIF+GPS JPEG — byte-identical output independent of the
+   build's library-fn test. That's the strongest form of a consolidation proof: the exact bytes a user got
+   before == after, through the shipped CLI, not a code path the test author picked.
+3. **Grouping surfaces a completeness question the flat list hid.** Folding three of four metadata verbs
+   made the fourth (`set`) visibly stranded — the group boundary *is* the discovery. The taxonomy freeze
+   is better for it: `set` → `meta set` follow-up framed, and the metadata group becomes whole.

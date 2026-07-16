@@ -115,10 +115,12 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`. Build order: **084 �
   **`--verify`** (opt into the score-once; JSON gains an `"ssim"` field, non-verify byte-identical) +
   **removed `shrink`** (hard cut, no alias — `web` absorbs it) + fixed the stale `run_optimize`
   doc-comment. Independent verify CLEAN (byte-identity both ways; live surface `shrink`-clean). $3.30.
-- [~] SPEC-087 (design — framed build-ready 2026-07-15) — **`meta` group** consolidation: fold the 3
+- [x] SPEC-087 (shipped 2026-07-15, PR #91, no DEC) — **`meta` group** consolidation: folded the 3
   existing metadata verbs (`strip`/`clean`/`copy-metadata`) into `meta strip`/`clean`/`copy`; a pure
-  hard-cutover surface move (prove byte-identity), auto-orient stays top-level. Note: no `set` verb
-  exists today — a metadata *write* is a new capability, out of scope. Complexity S.
+  hard-cutover surface move (byte-identity proven against the OLD binary), auto-orient stays top-level.
+  **Grounding correction (see Design Notes):** a top-level `set` verb (SPEC-027) DOES exist — it was left
+  top-level per scope; **maintainer decided to fold `set` → `meta set`** in a follow-up so the group is
+  whole. Complexity S.
 - [~] SPEC-088 (design — framed build-ready 2026-07-15) — **unified audit report** (`--json` +
   `--timing` across optimize/web/apply/lint, extending the `optimize.explain/v1` schema additively) +
   a **committed bench** (a `just bench` harness + a small *license-clean* corpus, offline/no-telemetry,
@@ -126,12 +128,12 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`. Build order: **084 �
   the maintainer's real photos.
 - [ ] SPEC-089 (optional / may fold) — `convert --to` rename + social/archive recipes.
 
-**Count:** 3 shipped (SPEC-084/085/086) / 2 in design (SPEC-087, SPEC-088) / 1 pending (SPEC-089,
-optional `convert --to`). The core of the freeze is **done**; 087 (`meta`) + 088 (audit + committed
-bench) finish it. **Build order: 087 and 088 are independent** (087 = metadata verbs, 088 = report +
-bench) — can go in parallel or either order; 088 is the more launch-critical (feeds SPEC-083
-BENCHMARKS). **Next: build SPEC-088 (then 087), or reframe SPEC-080 (demo) in parallel** — the `web`
-hero it needs is shipped.
+**Count:** 4 shipped (SPEC-084/085/086/087) / 1 in design (SPEC-088) / 1 pending (SPEC-089, optional
+`convert --to`) + a new **`meta set` follow-up** to frame (fold the existing top-level `set` into the
+`meta` group). The core of the freeze is **done**; 088 (audit + committed bench, the more launch-critical
+one — feeds SPEC-083 BENCHMARKS) finishes the measurable-honesty pillar. **Next: build SPEC-088, frame
+the `meta set` follow-up, and/or reframe SPEC-080 (demo) in parallel** — the `web` hero it needs is
+shipped.
 
 ## Design Notes
 
@@ -142,8 +144,10 @@ hero it needs is shipped.
   byte-identity proven). No decision record needed — it changes only the path, not behavior. **Grounding
   correction:** the SPEC-087 framing (and the backlog line above) said "no `set` verb exists today" — that
   is **wrong**; a top-level `set` (SPEC-027) exists. Build left `set` top-level per the spec's enumerated
-  scope, which leaves it as the one metadata verb *outside* `meta`. **Open maintainer call:** fold
-  `set → meta set` (own spec) to make the group whole, or keep `set` top-level deliberately.
+  scope, which left it the one metadata verb *outside* `meta`. **RESOLVED (maintainer, 2026-07-15):** fold
+  `set → meta set` in its own follow-up spec (a pure move mirroring SPEC-087) so the group is whole
+  (`meta {strip,clean,copy,set}`) — the git-config / gh-secret pattern where a noun-group holds its
+  read/remove *and* write verbs together. To frame next.
 - **Honesty guardrails (non-negotiable):** passthrough is a **green** result ("kept, already optimal"),
   not a failure; **never silently enlarge** (subsumes the Track-B `optimize` fix); downscale is
   **`web`'s** opinion, not `optimize`'s (optimize keeps dimensions); don't claim *visually-lossless* at
