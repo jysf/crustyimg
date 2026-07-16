@@ -126,14 +126,19 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`. Build order: **084 �
   a **committed bench** (a `just bench` harness + a small *license-clean* corpus, offline/no-telemetry,
   external-corpus-capable) — the reproducible numbers **SPEC-083 BENCHMARKS** stands on. Don't commit
   the maintainer's real photos.
-- [ ] SPEC-089 (optional / may fold) — `convert --to` rename + social/archive recipes.
+- [~] SPEC-089 (design — framed build-ready 2026-07-16) — **fold `set` → `meta set`**: relocate the
+  existing top-level `set` verb (write EXIF attribution tags, SPEC-027) into the `meta` group, so it's
+  whole (`meta {strip,clean,copy,set}`). Pure hard-cutover surface move mirroring SPEC-087 (byte-identity
+  vs the pre-move binary); one deliberate divergence — update the `set requires …` usage string to
+  `meta set requires …`. No DEC. Complexity S.
+- [ ] SPEC-090 (optional / may fold) — `convert --to` rename + social/archive recipes.
 
-**Count:** 4 shipped (SPEC-084/085/086/087) / 1 in design (SPEC-088) / 1 pending (SPEC-089, optional
-`convert --to`) + a new **`meta set` follow-up** to frame (fold the existing top-level `set` into the
-`meta` group). The core of the freeze is **done**; 088 (audit + committed bench, the more launch-critical
-one — feeds SPEC-083 BENCHMARKS) finishes the measurable-honesty pillar. **Next: build SPEC-088, frame
-the `meta set` follow-up, and/or reframe SPEC-080 (demo) in parallel** — the `web` hero it needs is
-shipped.
+**Count:** 4 shipped (SPEC-084/085/086/087) / 2 in design (SPEC-088, SPEC-089) / 1 pending (SPEC-090,
+optional `convert --to`). The core of the freeze is **done**; 088 (audit + committed bench, the more
+launch-critical one — feeds SPEC-083 BENCHMARKS) finishes the measurable-honesty pillar, and 089 closes
+the `meta` group. **Build order: 088 and 089 are independent** (088 = report/bench, 089 = one more
+metadata verb move). **Next: build SPEC-088 + SPEC-089, and/or reframe SPEC-080 (demo) in parallel** —
+the `web` hero it needs is shipped.
 
 ## Design Notes
 
@@ -147,7 +152,7 @@ shipped.
   scope, which left it the one metadata verb *outside* `meta`. **RESOLVED (maintainer, 2026-07-15):** fold
   `set → meta set` in its own follow-up spec (a pure move mirroring SPEC-087) so the group is whole
   (`meta {strip,clean,copy,set}`) — the git-config / gh-secret pattern where a noun-group holds its
-  read/remove *and* write verbs together. To frame next.
+  read/remove *and* write verbs together. **Framed as SPEC-089 (2026-07-16), build-ready.**
 - **Honesty guardrails (non-negotiable):** passthrough is a **green** result ("kept, already optimal"),
   not a failure; **never silently enlarge** (subsumes the Track-B `optimize` fix); downscale is
   **`web`'s** opinion, not `optimize`'s (optimize keeps dimensions); don't claim *visually-lossless* at
