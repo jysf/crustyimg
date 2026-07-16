@@ -56,8 +56,20 @@ test-one NAME:
 
 # Run the criterion micro-benchmarks: decode/resize/encode/score/pipeline
 # (SPEC-025, DEC-028). Dev-only — not part of the shipped binary.
-bench:
+# (Renamed from `bench` in SPEC-088; `bench` is now the committed corpus harness.)
+bench-micro:
     cargo bench
+
+# Committed end-to-end benchmark (SPEC-088, DEC-074): run web/optimize over the
+# committed license-clean corpus (bench/corpus), printing a savings/time/score
+# table. OFFLINE, deterministic, NO telemetry. `--json` for machine-readable
+# output; `--corpus DIR` points at a real corpus (those photos never enter git).
+# Built with `--features avif` so the flagship AVIF path (the `web` story) is
+# exercised; the default (pure-Rust) binary would passthrough most photos.
+# Usage: just bench [--json] [--corpus DIR] [--verbs web,optimize]
+bench *ARGS:
+    cargo build --release --features avif
+    python3 scripts/bench.py --bin ./target/release/crustyimg {{ARGS}}
 
 # Wall-clock the release binary with hyperfine. Skips cleanly (exit 0) if hyperfine
 # is not installed. Usage: just bench-cli web photo.jpg --max 800 -o /tmp/o.avif

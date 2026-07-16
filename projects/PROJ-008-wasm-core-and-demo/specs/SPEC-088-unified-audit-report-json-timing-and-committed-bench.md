@@ -3,7 +3,7 @@
 task:
   id: SPEC-088
   type: story
-  cycle: design
+  cycle: build
   blocked: false
   priority: high
   complexity: M
@@ -28,11 +28,31 @@ value_link: >
   lets a user (or CI) audit "how much smaller, how fast, at what quality" without trusting our word.
 
 cost:
-  sessions: []
+  sessions:
+    - cycle: design
+      interface: claude-code
+      tokens_total: null
+      note: >
+        framed build-ready in the orchestrator main loop (un-metered, §4).
+    - cycle: build
+      interface: claude-code
+      tokens_total: 470000
+      estimated_usd: 4.90
+      recorded_at: 2026-07-16
+      note: >
+        ~50 min, own worktree (spec-088-audit-bench). Main-loop ESTIMATE (no metered subagent, §4 +
+        [[autonomous-run-cost-estimates]]): order-of-magnitude tokens at Opus 4.8 list rate, ~80/20.
+        Added a gated `Timing` field to the `optimize.explain/v1` schema (additive, byte-identical
+        without `--timing`), `--json`/`--timing` on optimize/web/apply routed through the shared
+        `write_json`, an auto-decision-only usage-error guard, decode/encode/total `Instant` timing;
+        committed `scripts/bench.py` (stdlib, offline, no telemetry) + a 40 KB CC0 synthetic corpus
+        (`bench/corpus/` + generator `examples/gen_bench_corpus.rs` + provenance README) + `just bench`
+        (criterion → `bench-micro`). 5 spec Failing Tests + 3 decide.rs unit tests. Gates green
+        (731 default / 744 avif; clippy; fmt; lean build; validate; bench). Emitted DEC-074.
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 470000
+    estimated_usd: 4.90
+    session_count: 1
 ---
 
 # SPEC-088: unified audit report (`--json`/`--timing`) + committed bench
@@ -156,9 +176,29 @@ synthetic, spanning photo/graphic × a few sizes) that measures savings + time +
 ---
 
 ## Build Completion
-- **Branch:** · **PR:** · **All acceptance criteria met?** · **New decisions:** · **Deviations:** · **Follow-ups:**
+- **Branch:** `spec-088-audit-bench`
+- **PR:** #TBD (opened against `main`; orchestrator handles verify → merge → bookkeeping)
+- **All acceptance criteria met?** Yes.
+  - `--timing` on optimize/web/apply reports decode/encode/total (human → stderr; folded into `--json`); stdout stays pipe-clean. ✅ (`timing_flag_reports_and_json_includes_it`, `non_json_output_unchanged`)
+  - `--json` consistent across optimize/web/apply — the `optimize.explain/v1` schema extended additively + versioned (gated `"timing"` object; `"ssim"` unchanged), NOT forked; a non-`--json`/non-`--timing` run is byte-identical. ✅ (`json_shape_consistent_across_verbs`, `non_json_output_unchanged`, decide.rs unit tests)
+  - `lint`'s machine-readable output reconciled into the audit story: documented as the existing `lint --format json` audit surface (no schema fork — findings are a different domain). ✅ (DEC-074, docs)
+  - `just bench` runs offline over the committed corpus, printing a savings/time/score table; `--json` mode emits raw numbers; deterministic, no network, no telemetry. ✅ (`bench_runs_offline_on_committed_corpus`)
+  - Committed corpus is license-clean (synthetic CC0, provenance README, zero EXIF) and small (~40 KB); harness accepts `--corpus <dir>` for the real SPEC-083 numbers. ✅ (`bench_corpus_is_license_clean`, README)
+  - Gates: `cargo test` default (731) **and** `--features avif` (744), `cargo clippy --all-targets`, `cargo fmt --check`, `cargo build --no-default-features`, `just validate`, `just bench` — all green. ✅
+- **New decisions:** DEC-074 (audit-report schema extension + committed-bench/corpus policy).
+- **Deviations:**
+  1. **`just bench` repurposed** from the criterion micro-benches → the committed corpus harness (the spec's named recipe); the criterion recipe moved to **`just bench-micro`** (DEC-028's name shifts, intent kept). Recorded in DEC-074.
+  2. **Audit surface is auto-decision-only.** `--json`/`--timing` on a format-pinned (`-o`/`--format`), `--profile preserve`, or plain-pixel-recipe run is a **usage error (exit 2)**, not a silent no-op (there is no decision to report). Chosen over silently ignoring the flag (a known repo footgun). `optimize`'s legacy `--explain` keeps its pre-existing silent-ignore-on-pin behaviour (byte-identity).
+  3. **Committed photos honestly pass through (0%).** The smooth synthetic JPEGs are already near-optimal, so `web`/`optimize` correctly never-bigger them; real savings show on the maintainer's `--corpus`. Documented in `bench/corpus/README.md` rather than faking a win.
+  4. **Harness is Python 3 stdlib** (`scripts/bench.py`), a checked-in script per the spec's allowance — no new Cargo/dev dep. `just bench` builds `--release --features avif` so the flagship AVIF path is exercised.
+- **Follow-ups:**
+  - SPEC-083 authors BENCHMARKS.md on top of `just bench --corpus <real>` (out of scope here).
+  - Consider a `docs/` note / CLI hint if a user passes `--json`/`--timing` on the pinned path (today: usage error — clear, but a hint could help).
+
 ### Build-phase reflection
-1. <answer> 2. <answer> 3. <answer>
+1. **What surprised me?** The synthetic "photo" corpus refused to compress: smooth gradients are already JPEG-optimal (passthrough), and adding high-frequency noise to force a codec win just bloated the file to 160 KB while *still* passing through (noise is incompressible for AVIF too). The honest resolution — a tiny corpus that legitimately exercises the never-bigger path, with real savings deferred to `--corpus` — is better than a manufactured number.
+2. **What was the load-bearing design choice?** Building the schema first and having the harness *consume the CLI's own `--json`* (not re-implement measurement) — the spec's "keep them coherent" instruction. It means the bench can't drift from the report, and the gated-additive discipline (copying `ssim`'s exact pattern) kept every non-audit run byte-identical, which the regression anchor proves.
+3. **What would I check first in verify?** That a plain run's stdout/stderr is truly byte-identical to `origin/main` (the anchor test asserts structure, not literal pre-spec bytes), and that `just bench` is green offline on a clean checkout with only `python3` present — plus that `--json`/`--timing` correctly error (not silently pass) on every non-autodecide path (pinned `-o`, `--format`, `--profile preserve`, plain recipe).
 
 ---
 

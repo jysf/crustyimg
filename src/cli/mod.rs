@@ -300,6 +300,14 @@ pub enum Commands {
         /// Override the downscale long-edge bound (default 2048; never upscales).
         #[arg(long)]
         max: Option<u32>,
+        /// Emit the machine-readable audit report (the `optimize.explain/v1`
+        /// schema) to stdout — the `--json` shared across `optimize`/`web`/`apply`.
+        #[arg(long)]
+        json: bool,
+        /// Report decode/encode/total timing per image (human to stderr; folded
+        /// into `--json`).
+        #[arg(long)]
+        timing: bool,
     },
 
     /// One-button web-good: auto-orient + strip metadata + a fast fixed-quality
@@ -335,6 +343,14 @@ pub enum Commands {
         /// `--explain=json` (machine-readable, to stdout).
         #[arg(long, value_enum, num_args = 0..=1, default_missing_value = "human")]
         explain: Option<ExplainFmt>,
+        /// Emit the machine-readable audit report to stdout — the `--json` shared
+        /// across `optimize`/`web`/`apply` (equivalent to `--explain=json`).
+        #[arg(long, conflicts_with = "explain")]
+        json: bool,
+        /// Report decode/encode/total timing per image (human to stderr; folded
+        /// into `--json`).
+        #[arg(long)]
+        timing: bool,
     },
 
     /// Generate a responsive image set: width-scaled variants per format + a
@@ -442,6 +458,15 @@ pub enum Commands {
         #[arg(long)]
         recipe: String,
         inputs: Vec<String>,
+        /// Emit the machine-readable audit report to stdout for a recipe that ends
+        /// in the terminal `optimize` step (the bundled web/gallery/product flows) —
+        /// the `--json` shared across `optimize`/`web`/`apply`.
+        #[arg(long)]
+        json: bool,
+        /// Report decode/encode/total timing per image (human to stderr; folded
+        /// into `--json`). Requires a terminal-`optimize` recipe.
+        #[arg(long)]
+        timing: bool,
     },
 
     /// Run a declared build: every `[[target]]` in a build manifest (SPEC-063, DEC-057).
@@ -762,8 +787,18 @@ fn dispatch(cli: &Cli) -> Result<(), CliError> {
     }
 
     match &cli.command {
-        Commands::Web { inputs, max } => run_web(inputs, *max, &cli.global),
-        Commands::Apply { recipe, inputs } => run_apply(recipe, inputs, &cli.global),
+        Commands::Web {
+            inputs,
+            max,
+            json,
+            timing,
+        } => run_web(inputs, *max, *json, *timing, &cli.global),
+        Commands::Apply {
+            recipe,
+            inputs,
+            json,
+            timing,
+        } => run_apply(recipe, inputs, *json, *timing, &cli.global),
         Commands::Build { file } => {
             if cli.global.watch {
                 run_build_watching(file.as_deref(), &cli.global)
@@ -823,6 +858,8 @@ fn dispatch(cli: &Cli) -> Result<(), CliError> {
             profile,
             verify,
             explain,
+            json,
+            timing,
         } => run_optimize(
             inputs,
             *max,
@@ -832,6 +869,8 @@ fn dispatch(cli: &Cli) -> Result<(), CliError> {
             *profile,
             *verify,
             *explain,
+            *json,
+            *timing,
             &cli.global,
         ),
         Commands::Responsive {
@@ -1127,7 +1166,13 @@ fn split_terminal_optimize(recipe: &Recipe) -> Option<Recipe> {
 ///
 /// The `Operation` trait is NOT `Send`, so each rayon task rebuilds its own
 /// pipeline from the shared `&recipe` + `&registry` (both `Sync`).
-fn run_apply(recipe_path: &str, inputs: &[String], global: &GlobalArgs) -> Result<(), CliError> {
+fn run_apply(
+    recipe_path: &str,
+    inputs: &[String],
+    json: bool,
+    timing: bool,
+    global: &GlobalArgs,
+) -> Result<(), CliError> {
     // Steps 0-2: resolve (file path OR bundled name), size-guard, read, and parse.
     let recipe = load_recipe(recipe_path)?;
 
@@ -1152,6 +1197,8 @@ fn run_apply(recipe_path: &str, inputs: &[String], global: &GlobalArgs) -> Resul
                 o != "-" && crate::sink::format_from_extension(Path::new(o)).is_ok()
             });
         if pinned {
+            // No auto-decision to report on the pinned path (SPEC-088).
+            reject_audit_without_autodecide(json, timing)?;
             return run_pixel_op(
                 pipeline,
                 inputs,
@@ -1167,11 +1214,17 @@ fn run_apply(recipe_path: &str, inputs: &[String], global: &GlobalArgs) -> Resul
             inputs,
             &AutoQuality::Fast,
             crate::analysis::decide::Profile::Web,
-            None,
+            // `--json` opts into the machine-readable report, matching the `web` verb.
+            if json { Some(ExplainFmt::Json) } else { None },
+            timing,
             global,
             true,
         );
     }
+
+    // A plain pixel recipe (no terminal `optimize` step) has no auto-decision to
+    // report — `--json`/`--timing` here is a usage error, not a silent no-op (SPEC-088).
+    reject_audit_without_autodecide(json, timing)?;
 
     // Step 3: build registry ONCE; shared via & across rayon tasks (fn ptrs → Sync).
     let registry = OperationRegistry::with_builtins();
@@ -4061,11 +4114,21 @@ fn run_optimize(
     profile: ProfileArg,
     verify: bool,
     explain: Option<ExplainFmt>,
+    json: bool,
+    timing: bool,
     global: &GlobalArgs,
 ) -> Result<(), CliError> {
     let auto = optimize_auto_config(target, ssim, max_size)?;
     // optimize always auto-tunes quality; a fixed -q conflicts.
     reject_quality_with_auto(&Some(auto.clone()), global)?;
+
+    // `--json` is the consistent audit spelling; it maps to the JSON explain
+    // channel (equivalent to `--explain=json`, which clap forbids combining with).
+    let explain = if json {
+        Some(ExplainFmt::Json)
+    } else {
+        explain
+    };
 
     // Always auto-orient first so any `--max` bound applies to the visually-correct
     // dimensions; the op also drops the metadata bundle after baking (DEC-017).
@@ -4084,6 +4147,9 @@ fn run_optimize(
         // Preserve / pinned: auto quality, per-input format preserved / honored
         // from -o/--format (DEC-015). This is the strict regression anchor.
         // (--explain has no decision to describe here; it is silently ignored.)
+        // The audit report needs the auto-decision, so `--json`/`--timing` here is a
+        // usage error rather than a silent no-op (SPEC-088).
+        reject_audit_without_autodecide(json, timing)?;
         return run_pixel_op(pipeline, inputs, global, None, None, Some(auto));
     }
 
@@ -4093,12 +4159,29 @@ fn run_optimize(
         &auto,
         profile.to_decide(),
         explain,
+        timing,
         global,
         // `optimize` keeps dimensions, so scoring the full-resolution winner is too
         // costly to run by default (SPEC-084 acceptance #4); `--verify` opts in for
         // this run (SPEC-086), and `web` scores always (SPEC-085).
         verify,
     )
+}
+
+/// The audit report (`--json`/`--timing`) is produced by the auto-decision path
+/// (`optimize`/`web`/`apply --recipe web`). On a format-pinned (`-o`/`--format`),
+/// `--profile preserve`, or plain-pixel-recipe run there is no decision to report,
+/// so passing `--json`/`--timing` is a usage error (exit 2) — an honest rejection
+/// rather than a silently ignored flag (SPEC-088).
+fn reject_audit_without_autodecide(json: bool, timing: bool) -> Result<(), CliError> {
+    if json || timing {
+        return Err(CliError::Usage(
+            "--json/--timing report the auto-decision and are unavailable with a pinned \
+             -o/--format, --profile preserve, or a plain pixel recipe"
+                .to_owned(),
+        ));
+    }
+    Ok(())
 }
 
 /// Wire the `web` flagship verb (SPEC-085): the measured downscale-then-modernize
@@ -4116,7 +4199,13 @@ fn run_optimize(
 /// `-o`/`--format` pin the output format, which (as with `optimize`) bypasses the
 /// auto-decision and reproduces a plain format-honored re-encode of the downscaled
 /// image. The global `--out-dir`/`--name-template`/`-j` drive batch output.
-fn run_web(inputs: &[String], max: Option<u32>, global: &GlobalArgs) -> Result<(), CliError> {
+fn run_web(
+    inputs: &[String],
+    max: Option<u32>,
+    json: bool,
+    timing: bool,
+    global: &GlobalArgs,
+) -> Result<(), CliError> {
     // `web` always auto-tunes (the fast decision), so a fixed `-q` conflicts (exit 2),
     // exactly like `optimize`.
     let auto = AutoQuality::Fast;
@@ -4136,6 +4225,8 @@ fn run_web(inputs: &[String], max: Option<u32>, global: &GlobalArgs) -> Result<(
             .as_deref()
             .is_some_and(|o| o != "-" && crate::sink::format_from_extension(Path::new(o)).is_ok());
     if pinned {
+        // No auto-decision to report on the pinned path (SPEC-088).
+        reject_audit_without_autodecide(json, timing)?;
         return run_pixel_op(pipeline, inputs, global, None, None, Some(auto));
     }
 
@@ -4144,9 +4235,10 @@ fn run_web(inputs: &[String], max: Option<u32>, global: &GlobalArgs) -> Result<(
         inputs,
         &auto,
         crate::analysis::decide::Profile::Web,
-        // `web` has no `--explain`; the default one-line summary (with the score)
-        // carries the report.
-        None,
+        // `web` has no `--explain`; `--json` opts into the machine-readable report,
+        // else the default one-line summary (with the score) carries it.
+        if json { Some(ExplainFmt::Json) } else { None },
+        timing,
         global,
         // The downscaled winner is cheap to score — always do it (SPEC-085).
         true,
@@ -4318,6 +4410,10 @@ fn optimize_decide_one(
     // (`optimize`) passes `false`: scoring a full-resolution image costs too much
     // to run unconditionally (SPEC-084 acceptance #4).
     always_score: bool,
+    // Measure decode/encode/total for the `--timing` audit readout (SPEC-088). When
+    // false, no `Instant`s are taken and the trace's `timing` stays `None`, so a
+    // non-`--timing` run's report is byte-identical.
+    timing: bool,
 ) -> Result<
     (
         OptimizeOutput,
@@ -4332,15 +4428,26 @@ fn optimize_decide_one(
     use crate::analysis::decide::{
         self, BuiltCodecs, CandidateTrace, Disposition, ExplainTrace, Mode,
     };
+    use std::time::Instant;
+
+    // Whole-run clock (SPEC-088). Only started under `--timing`; the sub-spans
+    // (decode, encode) accumulate into these locals when it is set.
+    let run_start = timing.then(Instant::now);
+    let mut decode_ms = 0.0_f64;
+    let mut encode_ms = 0.0_f64;
 
     // Raw source bytes: the "beats source" reference AND the passthrough payload.
     let raw = read_raw_bytes(input)?;
     let source_bytes = raw.len() as u64;
 
+    let decode_start = timing.then(Instant::now);
     let img = match input {
         crate::source::Input::Path(p) => Image::load(p)?,
         crate::source::Input::Stdin { bytes, .. } => Image::from_bytes(bytes)?,
     };
+    if let Some(t) = decode_start {
+        decode_ms = t.elapsed().as_secs_f64() * 1000.0;
+    }
     let source_format = img.source_format();
     // Capture the source's shape + metadata BEFORE the pipeline consumes it: a raw
     // passthrough is only faithful when the pipeline changed nothing `optimize`
@@ -4388,8 +4495,12 @@ fn optimize_decide_one(
         decide::format_shortlist(analysis.opt_bucket(), has_alpha, profile, mode, built);
 
     let mut solved: Vec<SolvedCandidate> = Vec::with_capacity(shortlist.len());
+    let encode_start = timing.then(Instant::now);
     for entry in shortlist {
         solved.push(solve_candidate(&out_img, entry, auto)?);
+    }
+    if let Some(t) = encode_start {
+        encode_ms += t.elapsed().as_secs_f64() * 1000.0;
     }
     let outcomes: Vec<_> = solved.iter().map(|s| s.outcome).collect();
     let winner = decide::pick_winner(&outcomes, source_bytes, source_format);
@@ -4415,7 +4526,11 @@ fn optimize_decide_one(
                 .any(|s| s.outcome.disposition == Disposition::Lossy);
             if !has_lossy {
                 if let Some(entry) = fast_fallback_lossy_entry(source_format, has_alpha, built) {
+                    let fallback_start = timing.then(Instant::now);
                     solved.push(solve_candidate(&out_img, entry, auto)?);
+                    if let Some(t) = fallback_start {
+                        encode_ms += t.elapsed().as_secs_f64() * 1000.0;
+                    }
                 }
             }
             (0..solved.len()).min_by_key(|&i| (solved[i].outcome.bytes, i))
@@ -4492,6 +4607,13 @@ fn optimize_decide_one(
         winner,
         out_bytes,
         verify_score: winner_score,
+        // `total` is the whole decide→encode→(score) span, so it is >= encode and
+        // >= decode by construction (SPEC-088). `None` unless `--timing` was set.
+        timing: run_start.map(|start| crate::analysis::decide::Timing {
+            decode_ms,
+            encode_ms,
+            total_ms: start.elapsed().as_secs_f64() * 1000.0,
+        }),
     };
 
     Ok((output, Some(trace), winner_score))
@@ -4548,7 +4670,17 @@ fn emit_optimize_report(
         None => {
             if !global.quiet {
                 match trace {
-                    Some(t) => eprintln!("{label}: {}{score_suffix}", t.summary_line()),
+                    Some(t) => {
+                        eprintln!("{label}: {}{score_suffix}", t.summary_line());
+                        // The `--timing` readout rides the default summary on stderr
+                        // (folded into `--json` on the JSON channel above) — SPEC-088.
+                        if let Some(tm) = t.timing {
+                            eprintln!(
+                                "  timing: decode {:.1} ms \u{b7} encode {:.1} ms \u{b7} total {:.1} ms",
+                                tm.decode_ms, tm.encode_ms, tm.total_ms,
+                            );
+                        }
+                    }
                     None => eprintln!("{label}: kept source (degenerate input)"),
                 }
             }
@@ -4586,12 +4718,15 @@ fn write_optimize_output(
 /// The format auto-decision fan-out for `optimize` (SPEC-048) — mirrors
 /// [`run_pixel_op`]'s resolve + single/multi structure, but per input it decides
 /// the output format via the engine instead of preserving the source format.
+#[allow(clippy::too_many_arguments)]
 fn run_optimize_autodecide(
     pipeline: &Pipeline,
     inputs: &[String],
     auto: &AutoQuality,
     profile: crate::analysis::decide::Profile,
     explain: Option<ExplainFmt>,
+    // Measure + report decode/encode/total per image (`--timing`, SPEC-088).
+    timing: bool,
     global: &GlobalArgs,
     // Always score the decided winner (SPEC-085 `web` / terminal-`optimize` recipes,
     // on downscaled output). `optimize` (keep-dimensions default) passes `false`.
@@ -4619,7 +4754,7 @@ fn run_optimize_autodecide(
             .map(|p| p.display().to_string())
             .unwrap_or_else(|| input.stem().to_owned());
         let (output, trace, score) =
-            optimize_decide_one(input, pipeline, auto, profile, always_score)?;
+            optimize_decide_one(input, pipeline, auto, profile, always_score, timing)?;
         emit_optimize_report(&label, trace.as_ref(), score, explain, global)?;
 
         let sink = if let Some(ref out) = global.output {
@@ -4664,7 +4799,7 @@ fn run_optimize_autodecide(
             };
             let result = (|| -> Result<(), CliError> {
                 let (output, trace, score) =
-                    optimize_decide_one(input, pipeline, auto, profile, always_score)?;
+                    optimize_decide_one(input, pipeline, auto, profile, always_score, timing)?;
                 emit_optimize_report(&label, trace.as_ref(), score, explain, global)?;
                 let sink = Sink::Dir {
                     dir: PathBuf::from(out_dir),
@@ -5039,7 +5174,7 @@ mod tests {
 
         // The subcommand must be the Apply variant.
         match &cli.command {
-            Commands::Apply { recipe, inputs } => {
+            Commands::Apply { recipe, inputs, .. } => {
                 assert_eq!(recipe, "r.toml");
                 assert_eq!(inputs, &["in.png"]);
             }

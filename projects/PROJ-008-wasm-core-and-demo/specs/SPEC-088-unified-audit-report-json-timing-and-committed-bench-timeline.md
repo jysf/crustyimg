@@ -7,4 +7,7 @@ Cycle prompts live in `prompts/SPEC-088-<cycle>.md`.
 
 ## Instructions
 
-_(Timeline will be populated as the architect writes each cycle's prompt.)_
+- [x] **design** — spec + failing tests + implementation context written to `main`.
+- [x] **build** — audit report (`--json`/`--timing`) + committed bench; worktree `spec-088-audit-bench`, PR #TBD, ~$4.90 est, DEC-074. Gates green (731 default / 744 avif). 2026-07-16.
+- [ ] **verify** — independent pass (orchestrator).
+- [ ] **ship** — merge + bookkeeping (orchestrator).
