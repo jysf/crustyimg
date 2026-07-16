@@ -118,7 +118,7 @@ flowchart LR
     registry -->|construct| ops
     args --> src
     src --> load --> ops --> sink
-    args -. "strip/clean/set/copy-metadata<br/>(no pixel decode)" .-> meta
+    args -. "meta strip/clean/copy · set<br/>(no pixel decode)" .-> meta
     meta -. "preserve policy on encode" .-> sink
 ```
 
@@ -168,7 +168,7 @@ Component responsibilities:
    (STAGE-005); each input is decode-once → ops → sink-with-template.
 4. `indicatif` shows progress (STAGE-005).
 
-**Metadata-only** (`crustyimg clean --gps in.jpg`):
+**Metadata-only** (`crustyimg meta clean --gps in.jpg`):
 1. `cli` routes to the **metadata lane** — no decode, no `Operation`.
 2. `metadata` edits the container in place / to output, dropping GPS
    segments only.

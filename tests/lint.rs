@@ -74,7 +74,7 @@ fn lint_on_a_gps_tagged_jpeg_exits_7_and_prints_the_finding_and_fix() {
         "must name the rule; stdout:\n{stdout}"
     );
     assert!(
-        stdout.contains("clean --gps"),
+        stdout.contains("meta clean --gps"),
         "must print the runnable fix; stdout:\n{stdout}"
     );
     assert!(stdout.contains("leak.jpg"), "must name the file");
@@ -245,7 +245,7 @@ fn json_format_on_a_gps_tree_emits_the_finding_and_passed_false() {
     assert!(stdout.contains("\"schema\":\"crustyimg.lint/v1\""));
     assert!(stdout.contains("\"rule\":\"privacy/gps-metadata-leak\""));
     assert!(
-        stdout.contains("clean --gps"),
+        stdout.contains("meta clean --gps"),
         "fix command present; stdout:\n{stdout}"
     );
     assert!(stdout.contains("\"passed\":false"));

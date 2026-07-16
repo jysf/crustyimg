@@ -1,5 +1,6 @@
 //! Integration tests for the container-lane metadata commands (SPEC-026):
-//! `strip` and `clean --gps`. These drive the REAL compiled binary via
+//! `meta strip` and `meta clean --gps` (grouped under `meta` in SPEC-087).
+//! These drive the REAL compiled binary via
 //! `std::process::Command` and assert exit codes + output bytes end-to-end.
 //!
 //! Fixtures are generated NATIVELY (no ImageMagick): pixels via the `image`
@@ -251,7 +252,7 @@ fn strip_jpeg_to_stdout_has_no_exif() {
     let input = write_fixture(&dir, "in.jpg", &jpeg_with_exif());
 
     let output = Command::new(BIN)
-        .args(["strip", input.to_str().unwrap(), "-o", "-"])
+        .args(["meta", "strip", input.to_str().unwrap(), "-o", "-"])
         .output()
         .unwrap();
 
@@ -270,6 +271,7 @@ fn clean_gps_jpeg_removes_location_keeps_orientation() {
 
     let output = Command::new(BIN)
         .args([
+            "meta",
             "clean",
             input.to_str().unwrap(),
             "--gps",
@@ -300,7 +302,7 @@ fn clean_without_gps_flag_exits_2() {
     let input = write_fixture(&dir, "in.jpg", &jpeg_with_exif());
 
     let output = Command::new(BIN)
-        .args(["clean", input.to_str().unwrap(), "-o", "-"])
+        .args(["meta", "clean", input.to_str().unwrap(), "-o", "-"])
         .output()
         .unwrap();
 
@@ -317,7 +319,7 @@ fn strip_unsupported_format_exits_4() {
     let input = write_fixture(&dir, "in.bmp", &base_bytes(ImageFormat::Bmp));
 
     let output = Command::new(BIN)
-        .args(["strip", input.to_str().unwrap(), "-o", "-"])
+        .args(["meta", "strip", input.to_str().unwrap(), "-o", "-"])
         .output()
         .unwrap();
 
@@ -335,7 +337,7 @@ fn strip_multi_input_requires_out_dir() {
     let b = write_fixture(&dir, "b.jpg", &jpeg_with_exif());
 
     let output = Command::new(BIN)
-        .args(["strip", a.to_str().unwrap(), b.to_str().unwrap()])
+        .args(["meta", "strip", a.to_str().unwrap(), b.to_str().unwrap()])
         .output()
         .unwrap();
 
@@ -355,6 +357,7 @@ fn strip_multi_input_fanout_writes_all() {
 
     let output = Command::new(BIN)
         .args([
+            "meta",
             "strip",
             a.to_str().unwrap(),
             b.to_str().unwrap(),
@@ -383,6 +386,7 @@ fn strip_batch_partial_failure_exits_6() {
 
     let output = Command::new(BIN)
         .args([
+            "meta",
             "strip",
             good.to_str().unwrap(),
             bad.to_str().unwrap(),
@@ -414,6 +418,7 @@ fn strip_refuses_overwrite_without_yes() {
 
     let refused = Command::new(BIN)
         .args([
+            "meta",
             "strip",
             input.to_str().unwrap(),
             "-o",
@@ -429,6 +434,7 @@ fn strip_refuses_overwrite_without_yes() {
 
     let allowed = Command::new(BIN)
         .args([
+            "meta",
             "strip",
             input.to_str().unwrap(),
             "-o",
@@ -603,7 +609,8 @@ fn copy_metadata_to_explicit_output() {
 
     let output = Command::new(BIN)
         .args([
-            "copy-metadata",
+            "meta",
+            "copy",
             "--from",
             src.to_str().unwrap(),
             "--to",
@@ -637,7 +644,8 @@ fn copy_metadata_in_place_requires_yes() {
     // No -o, no -y: in-place overwrite of the existing DST is refused → exit 5.
     let refused = Command::new(BIN)
         .args([
-            "copy-metadata",
+            "meta",
+            "copy",
             "--from",
             src.to_str().unwrap(),
             "--to",
@@ -654,7 +662,8 @@ fn copy_metadata_in_place_requires_yes() {
     // With -y: overwrites DST in place and DST now carries SRC's Copyright.
     let allowed = Command::new(BIN)
         .args([
-            "copy-metadata",
+            "meta",
+            "copy",
             "--from",
             src.to_str().unwrap(),
             "--to",
@@ -683,7 +692,8 @@ fn copy_metadata_png_exits_4() {
 
     let output = Command::new(BIN)
         .args([
-            "copy-metadata",
+            "meta",
+            "copy",
             "--from",
             src.to_str().unwrap(),
             "--to",
@@ -711,7 +721,8 @@ fn copy_metadata_preserves_pixels_e2e() {
 
     let output = Command::new(BIN)
         .args([
-            "copy-metadata",
+            "meta",
+            "copy",
             "--from",
             src.to_str().unwrap(),
             "--to",
@@ -727,5 +738,83 @@ fn copy_metadata_preserves_pixels_e2e() {
         decode_rgba(&dst_after),
         pixels_before,
         "DST's decoded pixels should be unchanged after copy"
+    );
+}
+
+// ── SPEC-087: `meta` group is a pure surface move ─────────────────────────────
+
+/// SPEC-087: `meta strip`, `meta clean --gps`, and `meta copy` are a *pure
+/// surface move* of the old top-level `strip`/`clean`/`copy-metadata` verbs —
+/// nothing changed but the path. Prove byte-identity: the CLI's output bytes
+/// must equal the underlying container-lane op's output on the identical input
+/// (the exact functions the old verbs dispatched to, and the new ones still do).
+/// Capturing the "golden" bytes straight from the library op is the strongest
+/// pre-move reference available once the old verbs are deleted.
+#[test]
+fn meta_subcommands_match_old_verbs() {
+    let dir = TempDir::new().unwrap();
+    let fixture = jpeg_with_exif();
+    let input = write_fixture(&dir, "in.jpg", &fixture);
+
+    // meta strip  ==  metadata::strip_all
+    let golden_strip = crustyimg::metadata::strip_all(&fixture).expect("strip_all");
+    let out = Command::new(BIN)
+        .args(["meta", "strip", input.to_str().unwrap(), "-o", "-"])
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "meta strip should exit 0; stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert_eq!(
+        out.stdout, golden_strip,
+        "`meta strip` bytes must be byte-identical to strip_all() (the old `strip`)"
+    );
+
+    // meta clean --gps  ==  metadata::clean_gps
+    let golden_clean = crustyimg::metadata::clean_gps(&fixture).expect("clean_gps");
+    let out = Command::new(BIN)
+        .args(["meta", "clean", input.to_str().unwrap(), "--gps", "-o", "-"])
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "meta clean --gps should exit 0; stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert_eq!(
+        out.stdout, golden_clean,
+        "`meta clean --gps` bytes must be byte-identical to clean_gps() (the old `clean`)"
+    );
+
+    // meta copy --from SRC --to DST  ==  metadata::copy_metadata
+    let src_bytes = jpeg_with_copyright("© Old Verb");
+    let src = write_fixture(&dir, "src.jpg", &src_bytes);
+    let dst_bytes = jpeg_with_exif();
+    let dst = write_fixture(&dir, "dst.jpg", &dst_bytes);
+    let golden_copy =
+        crustyimg::metadata::copy_metadata(&src_bytes, &dst_bytes).expect("copy_metadata");
+    let out = Command::new(BIN)
+        .args([
+            "meta",
+            "copy",
+            "--from",
+            src.to_str().unwrap(),
+            "--to",
+            dst.to_str().unwrap(),
+            "-o",
+            "-",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "meta copy should exit 0; stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert_eq!(
+        out.stdout, golden_copy,
+        "`meta copy` bytes must be byte-identical to copy_metadata() (the old `copy-metadata`)"
     );
 }

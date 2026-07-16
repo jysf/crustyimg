@@ -242,14 +242,14 @@ pub fn set_tags(bytes: &[u8], tags: &TagSet) -> Result<Vec<u8>, MetadataError> {
 /// `img-parts` `ImageEXIF`/`ImageICC` traits).
 ///
 /// **JPEG only in v1 (DEC-030):** both `from` and `to` must sniff as JPEG, else
-/// [`MetadataError::UnsupportedFormat`]. PNG `copy-metadata` is deferred because
+/// [`MetadataError::UnsupportedFormat`]. PNG `meta copy` is deferred because
 /// `little_exif` writes PNG EXIF as a `zTXt` "Raw profile type exif" chunk while
 /// `img-parts` uses the native `eXIf` chunk, so the two can't interoperate.
 pub fn copy_metadata(from: &[u8], to: &[u8]) -> Result<Vec<u8>, MetadataError> {
     // Both inputs must be JPEG (DEC-030). A clear message names the limitation.
     if sniff(from)? != Lane::Jpeg || sniff(to)? != Lane::Jpeg {
         return Err(MetadataError::UnsupportedFormat(
-            "copy-metadata supports JPEG only in v1".to_owned(),
+            "meta copy supports JPEG only in v1".to_owned(),
         ));
     }
 

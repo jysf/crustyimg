@@ -137,6 +137,13 @@ hero it needs is shipped.
 
 - **Hard cutover discipline.** Rename/remove/merge freely; no aliases, no deprecation, no CHANGELOG
   migration. Cost is in-repo docs + tests only. Every reference to a renamed/removed verb gets updated.
+- **SPEC-087 `meta` group — built (no DEC).** A pure surface move within the freeze: `strip`/`clean`/
+  `copy-metadata` → `meta strip`/`meta clean`/`meta copy` (nested clap subcommand; handlers unchanged;
+  byte-identity proven). No decision record needed — it changes only the path, not behavior. **Grounding
+  correction:** the SPEC-087 framing (and the backlog line above) said "no `set` verb exists today" — that
+  is **wrong**; a top-level `set` (SPEC-027) exists. Build left `set` top-level per the spec's enumerated
+  scope, which leaves it as the one metadata verb *outside* `meta`. **Open maintainer call:** fold
+  `set → meta set` (own spec) to make the group whole, or keep `set` top-level deliberately.
 - **Honesty guardrails (non-negotiable):** passthrough is a **green** result ("kept, already optimal"),
   not a failure; **never silently enlarge** (subsumes the Track-B `optimize` fix); downscale is
   **`web`'s** opinion, not `optimize`'s (optimize keeps dimensions); don't claim *visually-lossless* at

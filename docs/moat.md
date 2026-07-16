@@ -36,7 +36,7 @@ flowchart TB
         direction TB
         ENGINE["⚙️ Engine — outcome-driven compression<br/>perceptual auto-quality (SSIMULACRA2) · byte budgets · WebP/AVIF<br/><b>STAGE-008 ✓</b>"]
         SURFACE["🎛️ Surface — commands a person runs<br/>optimize · diff · responsive<br/><b>STAGE-009 ✓</b>"]
-        PRIVACY["🛡️ Verifiable privacy — container-lane metadata<br/>clean --gps · strip · set · copy-metadata (no pixel re-encode)<br/><b>STAGE-004 ✓</b>"]
+        PRIVACY["🛡️ Verifiable privacy — container-lane metadata<br/>meta clean --gps · meta strip · set · meta copy (no pixel re-encode)<br/><b>STAGE-004 ✓</b>"]
         REPRO["🔁 Surfaced reproducibility — tune once → save → replay<br/>edit · --save-recipe · parallel apply --recipe<br/><b>STAGE-005 ✓</b>"]
         VERIFY["✅ Verification — claims you can check<br/>diff --fail-under (exit 7) · criterion net · equal-quality rule<br/><b>STAGE-009 ✓ / DEC-028</b>"]
         TRUST["🔒 Trust & safety — bounded untrusted input<br/>decode/recipe/resize limits · path+symlink guards · cargo-deny CI<br/><b>STAGE-006 ✓ — MVP exit gate</b>"]
@@ -89,8 +89,8 @@ flowchart TB
   snippet. The deliverable a web developer actually ships.
 
 ### 3. Verifiable privacy — drop metadata without touching pixels (STAGE-004)
-- **Container-lane metadata ops:** `strip` (all metadata), `clean --gps` (selective
-  location removal), `set` (artist/copyright/description), `copy-metadata` — all
+- **Container-lane metadata ops:** `meta strip` (all metadata), `meta clean --gps` (selective
+  location removal), `set` (artist/copyright/description), `meta copy` — all
   operate on the **container, with no pixel re-encode** (DEC-029/030), so removing
   GPS does not recompress the image. This is the *verifiable* part: privacy without
   a quality cost, and a default drop-GPS policy on pixel-lane encodes (`--keep-gps`
@@ -143,7 +143,7 @@ flowchart TB
 
 | Axis | Status | Lands in |
 |---|---|---|
-| Verifiable privacy (selective `clean --gps`, container-lane metadata) | **built** (STAGE-004) — GPS/metadata removed with no pixel re-encode; the EXIF **audit-as-linter** command is the remaining piece | STAGE-004 ✓ (audit-linter: later) |
+| Verifiable privacy (selective `meta clean --gps`, container-lane metadata) | **built** (STAGE-004) — GPS/metadata removed with no pixel re-encode; the EXIF **audit-as-linter** command is the remaining piece | STAGE-004 ✓ (audit-linter: later) |
 | Surfaced reproducibility (`edit`/`--save-recipe`/parallel `apply`) | **built** (STAGE-005) — tune-once → save → replay is two commands sharing one byte-stable recipe format | STAGE-005 ✓ |
 | Untrusted-input hardening (decode/recipe/resize limits, path+symlink guards, cargo-deny-in-CI) | **built** (STAGE-006) — every untrusted surface bounded + a recorded threat-model verification, no unresolved finding | STAGE-006 ✓ |
 | Proof at scale (cross-tool + quality-per-byte comparisons, `BENCHMARKS.md`) | only the local micro-net exists | STAGE-007 / later |

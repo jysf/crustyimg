@@ -314,7 +314,7 @@ Default font is the **bundled BSD-3 Go font**; `--font PATH` (a TTF/OTF) overrid
 
 ### Metadata lane *(container-level; no pixel decode — DEC-003)*
 
-#### `strip <INPUT...>`  *(SPEC-026)*
+#### `meta strip <INPUT...>`  *(SPEC-026; grouped under `meta` in SPEC-087)*
 Remove **all** container metadata (EXIF/IPTC/XMP/ICC) via `img-parts`
 segment/chunk removal — no pixel re-decode (decoded pixels byte-identical).
 **v1 covers JPEG + PNG**; any other format → exit **4**. Fan-out mirrors the
@@ -323,11 +323,11 @@ require `--out-dir`; a per-input failure in a batch → exit **6**; overwrite re
 without `-y`. Format is preserved (`-q`/`--format` ignored). A no-metadata input is
 a clean no-op (exit 0).
 
-#### `clean <INPUT...> --gps`  *(SPEC-026)*
+#### `meta clean <INPUT...> --gps`  *(SPEC-026; grouped under `meta` in SPEC-087)*
 Remove **only** GPS/location metadata via `little_exif` tag removal, preserving
 everything else (orientation, copyright, ICC) — privacy-focused, no pixel
 re-decode. **`--gps` is required in v1** (omitted → exit **2**). Same JPEG+PNG
-coverage, fan-out, and exit codes as `strip`. A JPEG with no EXIF is a no-op
+coverage, fan-out, and exit codes as `meta strip`. A JPEG with no EXIF is a no-op
 (exit 0).
 
 #### `set <INPUT...> [--artist S] [--copyright S] [--description S]`  *(SPEC-027)*
@@ -335,11 +335,11 @@ Write the named EXIF tags (Artist/Copyright/ImageDescription) via `little_exif`,
 **preserving all other metadata and the pixels** (no re-decode). At least one tag
 flag is required (none → exit **2**). **v1 covers JPEG + PNG**; other formats →
 exit **4**. Writing overwrites an existing same-tag value and creates a fresh EXIF
-block when the input has none. Same fan-out + exit codes as `strip`/`clean`
+block when the input has none. Same fan-out + exit codes as `meta strip`/`meta clean`
 (reuses the container lane; single → stdout/`-o`/`--out-dir`, multi → `--out-dir`,
 per-input failure → exit **6**, overwrite refused without `-y`).
 
-#### `copy-metadata --from SRC --to DST [-o OUT] [-y]`  *(SPEC-028)*
+#### `meta copy --from SRC --to DST [-o OUT] [-y]`  *(SPEC-028; grouped under `meta` in SPEC-087)*
 Copy SRC's container **EXIF + ICC** onto DST, preserving DST's pixels exactly (no
 re-decode); DST's prior EXIF/ICC are replaced by SRC's. **JPEG only in v1**
 (DEC-030 — `little_exif`/`img-parts` use incompatible PNG EXIF chunks); a non-JPEG
@@ -406,7 +406,7 @@ invalid target) → **2**; manifest or recipe file unreadable → **3**; invalid
 | STAGE-001 | (no real commands) skeleton + dispatch + global args + smoke stub |
 | STAGE-002 | `view`, `info` (+ `--exif`) |
 | STAGE-003 | `resize`, `thumbnail`, `convert`, `auto-orient` (also `shrink`, removed in SPEC-086 → `web`/`optimize`) |
-| STAGE-004 | `watermark`; `strip`, `clean --gps`, `set`, `copy-metadata` |
+| STAGE-004 | `watermark`; `set`; the metadata trio (regrouped under `meta` in SPEC-087: `meta strip`, `meta clean --gps`, `meta copy`) |
 | STAGE-005 | `edit` (+ `--save-recipe`), `apply --recipe` (parallel + progress) |
 
 ## Error Output Shape
