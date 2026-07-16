@@ -26,6 +26,13 @@ value_link: >
   (`--json`) + `--timing` across the audit-relevant verbs, and a COMMITTED benchmark harness + a small
   license-clean corpus. This is what BENCHMARKS.md (SPEC-083) — a launch blocker — stands on, and what
   lets a user (or CI) audit "how much smaller, how fast, at what quality" without trusting our word.
+
+cost:
+  sessions: []
+  totals:
+    tokens_total: 0
+    estimated_usd: 0
+    session_count: 0
 ---
 
 # SPEC-088: unified audit report (`--json`/`--timing`) + committed bench
