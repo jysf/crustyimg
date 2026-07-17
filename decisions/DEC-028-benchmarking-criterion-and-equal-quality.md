@@ -41,7 +41,9 @@ tags:
 
 Adopt **`criterion`** (a dev-dependency, `harness = false`) for micro-benchmarks
 over crustyimg's hot paths — decode, resize, encode, perceptual score, full
-pipeline — runnable via `just bench`, plus a `just bench-cli` recipe that wall-clocks
+pipeline — runnable via `just bench-micro` (named `just bench` until SPEC-088/DEC-074
+gave that name to the committed end-to-end corpus harness; the recipe's intent is
+unchanged), plus a `just bench-cli` recipe that wall-clocks
 the release binary with **`hyperfine`** (an external CLI, not a vendored dep; skips
 cleanly if absent). The benches live in `benches/` over **in-memory generated
 fixtures** (no committed binaries, DEC-009). Establishing principle: **any size or
@@ -89,8 +91,8 @@ shell-out), keep the default build/CI fast (so: no CI bench job yet).
 
 ## Consequences
 
-- **Positive:** a fast local regression net (`just bench`) over decode/resize/encode/
-  score/pipeline; end-to-end CLI timing (`just bench-cli`); a written standard that
+- **Positive:** a fast local regression net (`just bench-micro`) over decode/resize/
+  encode/score/pipeline; end-to-end CLI timing (`just bench-cli`); a written standard that
   forbids quality-blind size/speed claims; no impact on the shipped binary (criterion
   is dev-only) or the default-build/CI speed (no bench job added).
 - **Negative:** one more dev-dependency tree (criterion pulls plotters/rayon/etc., all
@@ -112,6 +114,9 @@ shell-out), keep the default build/CI fast (so: no CI bench job yet).
 
 ## References
 
+- **Amended by DEC-074 (SPEC-088):** the criterion recipe is now `just bench-micro`.
+  `just bench` is the committed end-to-end corpus harness. Not a supersession — the
+  micro-net and the equal-quality principle stand as decided; only the recipe name moved.
 - Related specs: SPEC-025 (this harness), SPEC-016 (the SSIMULACRA2 metric being
   benched + the equal-quality basis), SPEC-013 (`shrink`, the pipeline shape benched)
 - Related decisions: DEC-009 (testing/CI + native fixtures), DEC-019 (SSIMULACRA2),

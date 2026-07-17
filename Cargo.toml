@@ -300,8 +300,9 @@ serde_json = "=1.0.150"
 # Temp dirs for the native integration tests (they write real files).
 tempfile = "=3.27.0"
 # Micro-benchmark harness (SPEC-025, DEC-028). Dev-only — NOT in the shipped binary
-# or the default build; runs via `just bench`. Permissive (MIT/Apache); `just deny`
-# stays green.
+# or the default build; runs via `just bench-micro` (renamed from `just bench` in
+# SPEC-088, where `bench` became the committed corpus harness). Permissive
+# (MIT/Apache); `just deny` stays green.
 criterion = "=0.8.2"
 
 [[bench]]

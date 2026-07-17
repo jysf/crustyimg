@@ -270,6 +270,23 @@ pub struct CandidateTrace {
     pub met_target: bool,
 }
 
+/// Wall-clock timing for one image's audit run, in milliseconds (SPEC-088).
+///
+/// `decode` and `encode` are the two dominant sub-costs; `total` is the whole
+/// per-image decide→encode→(score) span, so `total >= encode` and `total >=
+/// decode` always hold. Only populated when `--timing` is requested — a non-timing
+/// run leaves [`ExplainTrace::timing`] `None`, so the JSON stays byte-identical
+/// (the same additive/gated discipline as `verify_score`, DEC-071).
+#[derive(Debug, Clone, Copy)]
+pub struct Timing {
+    /// Time spent decoding the source image.
+    pub decode_ms: f64,
+    /// Time spent encoding the candidate(s).
+    pub encode_ms: f64,
+    /// Whole per-image span (decode + analysis + encode + any score).
+    pub total_ms: f64,
+}
+
 /// A human- and machine-readable record of one `optimize` auto-decision
 /// (SPEC-049). A forward-compatible **subset** of the planner/manifest schema
 /// (`docs/research/proj-002-design-planner.md`): PROJ-003 (planner objective /
@@ -311,6 +328,11 @@ pub struct ExplainTrace {
     /// scoring was off, or the winner is lossless / a passthrough. Surfaced in the
     /// JSON explain only when `Some`, so a non-verify run's schema is unchanged.
     pub verify_score: Option<f64>,
+    /// Decode/encode/total timing for this run, when `--timing` was requested
+    /// (SPEC-088). Rides the JSON and the human report only when `Some`, so a
+    /// non-`--timing` run's output is byte-identical (same discipline as
+    /// [`Self::verify_score`]).
+    pub timing: Option<Timing>,
 }
 
 impl ExplainTrace {
@@ -441,7 +463,16 @@ impl ExplainTrace {
                 c.met_target,
             )?;
         }
-        writeln!(w, "  reason: {}", self.win_reason())
+        writeln!(w, "  reason: {}", self.win_reason())?;
+        // Timing rides the human trace only under `--timing` (SPEC-088).
+        if let Some(t) = self.timing {
+            writeln!(
+                w,
+                "  timing: decode {:.1} ms · encode {:.1} ms · total {:.1} ms",
+                t.decode_ms, t.encode_ms, t.total_ms,
+            )?;
+        }
+        Ok(())
     }
 
     /// Render the trace as single-line, hand-rolled JSON (SPEC-049 / DEC-049) —
@@ -495,6 +526,15 @@ impl ExplainTrace {
         // run's schema byte-identical (SPEC-086).
         if let Some(s) = self.verify_score {
             write!(w, ",\"ssim\":{s:.1}")?;
+        }
+        // The timing object rides the JSON only under `--timing`; omitting it
+        // otherwise keeps a non-timing run's schema byte-identical (SPEC-088).
+        if let Some(t) = self.timing {
+            write!(
+                w,
+                ",\"timing\":{{\"decode_ms\":{:.2},\"encode_ms\":{:.2},\"total_ms\":{:.2}}}",
+                t.decode_ms, t.encode_ms, t.total_ms,
+            )?;
         }
         write!(w, "}}")
     }
@@ -906,6 +946,7 @@ mod tests {
             winner: Some(0),
             out_bytes: 6000,
             verify_score: None,
+            timing: None,
         }
     }
 
@@ -952,6 +993,79 @@ mod tests {
             json.trim_end().ends_with("}"),
             "the ssim field must stay inside the JSON object: {json}"
         );
+    }
+
+    /// SPEC-088: `--timing` adds a `timing` object to the JSON with fixed-precision
+    /// decode/encode/total fields; a non-timing trace omits it entirely (schema
+    /// unchanged), holding the byte-identity guarantee.
+    #[test]
+    fn explain_json_includes_timing_only_when_set() {
+        let mut off = Vec::new();
+        sample_trace().write_json(&mut off).unwrap();
+        assert!(
+            !String::from_utf8(off).unwrap().contains("\"timing\""),
+            "a non-timing trace must not emit a timing field"
+        );
+
+        let mut trace = sample_trace();
+        trace.timing = Some(Timing {
+            decode_ms: 12.345,
+            encode_ms: 56.7,
+            total_ms: 78.912,
+        });
+        let mut on = Vec::new();
+        trace.write_json(&mut on).unwrap();
+        let json = String::from_utf8(on).unwrap();
+        assert!(
+            json.contains(
+                "\"timing\":{\"decode_ms\":12.35,\"encode_ms\":56.70,\"total_ms\":78.91}"
+            ),
+            "timing must render at 2dp inside the object: {json}"
+        );
+        assert!(
+            json.trim_end().ends_with('}'),
+            "timing must stay inside the JSON object: {json}"
+        );
+    }
+
+    /// SPEC-088: timing and ssim can co-exist and both stay inside the object, in a
+    /// stable order (ssim then timing) — the additive-field discipline composes.
+    #[test]
+    fn explain_json_timing_and_ssim_compose() {
+        let mut trace = sample_trace();
+        trace.verify_score = Some(88.42);
+        trace.timing = Some(Timing {
+            decode_ms: 1.0,
+            encode_ms: 2.0,
+            total_ms: 3.0,
+        });
+        let mut buf = Vec::new();
+        trace.write_json(&mut buf).unwrap();
+        let json = String::from_utf8(buf).unwrap();
+        let ssim_at = json.find("\"ssim\"").expect("ssim present");
+        let timing_at = json.find("\"timing\"").expect("timing present");
+        assert!(ssim_at < timing_at, "ssim must precede timing: {json}");
+        assert!(json.trim_end().ends_with('}'));
+    }
+
+    /// SPEC-088: the human trace gains a timing line only under `--timing`.
+    #[test]
+    fn explain_human_shows_timing_only_when_set() {
+        let mut off = Vec::new();
+        sample_trace().render_human(&mut off).unwrap();
+        assert!(!String::from_utf8(off).unwrap().contains("timing"));
+
+        let mut trace = sample_trace();
+        trace.timing = Some(Timing {
+            decode_ms: 4.0,
+            encode_ms: 8.0,
+            total_ms: 12.0,
+        });
+        let mut on = Vec::new();
+        trace.render_human(&mut on).unwrap();
+        let s = String::from_utf8(on).unwrap();
+        assert!(s.contains("timing:"), "human trace must show timing: {s}");
+        assert!(s.contains("total 12.0 ms"), "{s}");
     }
 
     #[test]
