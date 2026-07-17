@@ -449,7 +449,7 @@ fn strip_refuses_overwrite_without_yes() {
     );
 }
 
-// ── set (SPEC-027) ────────────────────────────────────────────────────────────
+// ── meta set (SPEC-027, folded from top-level `set` via SPEC-089) ─────────────
 
 #[test]
 fn set_writes_tags_to_output() {
@@ -460,6 +460,7 @@ fn set_writes_tags_to_output() {
 
     let output = Command::new(BIN)
         .args([
+            "meta",
             "set",
             input.to_str().unwrap(),
             "--artist",
@@ -472,7 +473,7 @@ fn set_writes_tags_to_output() {
         .output()
         .unwrap();
 
-    assert!(output.status.success(), "set should exit 0");
+    assert!(output.status.success(), "meta set should exit 0");
     let bytes = std::fs::read(&out).unwrap();
     assert!(
         jpeg_has_generic_tag(&bytes, TAG_ARTIST),
@@ -484,20 +485,29 @@ fn set_writes_tags_to_output() {
     );
 }
 
+/// SPEC-089: `meta set` with none of `--artist`/`--copyright`/`--description`
+/// is a usage error (exit 2) with the updated `"meta set requires …"` message
+/// (SPEC-089's deliberate divergence from SPEC-087, which left `clean`'s
+/// message verbatim).
 #[test]
-fn set_without_any_flag_exits_2() {
+fn meta_set_requires_a_tag() {
     let dir = TempDir::new().unwrap();
     let input = write_fixture(&dir, "in.jpg", &jpeg_with_exif());
 
     let output = Command::new(BIN)
-        .args(["set", input.to_str().unwrap(), "-o", "-"])
+        .args(["meta", "set", input.to_str().unwrap(), "-o", "-"])
         .output()
         .unwrap();
 
     assert_eq!(
         output.status.code(),
         Some(2),
-        "set with no tag flags should exit 2"
+        "meta set with no tag flags should exit 2"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("meta set requires"),
+        "usage error should name the live command `meta set`, got:\n{stderr}"
     );
 }
 
@@ -510,6 +520,7 @@ fn set_preserves_other_metadata() {
 
     let output = Command::new(BIN)
         .args([
+            "meta",
             "set",
             input.to_str().unwrap(),
             "--copyright",
@@ -520,7 +531,7 @@ fn set_preserves_other_metadata() {
         .output()
         .unwrap();
 
-    assert!(output.status.success(), "set should exit 0");
+    assert!(output.status.success(), "meta set should exit 0");
     let bytes = std::fs::read(&out).unwrap();
     assert!(
         jpeg_has_generic_tag(&bytes, TAG_ORIENTATION),
@@ -534,14 +545,22 @@ fn set_unsupported_format_exits_4() {
     let input = write_fixture(&dir, "in.bmp", &base_bytes(ImageFormat::Bmp));
 
     let output = Command::new(BIN)
-        .args(["set", input.to_str().unwrap(), "--artist", "A", "-o", "-"])
+        .args([
+            "meta",
+            "set",
+            input.to_str().unwrap(),
+            "--artist",
+            "A",
+            "-o",
+            "-",
+        ])
         .output()
         .unwrap();
 
     assert_eq!(
         output.status.code(),
         Some(4),
-        "set on a BMP should exit 4 (unsupported format)"
+        "meta set on a BMP should exit 4 (unsupported format)"
     );
 }
 
@@ -554,6 +573,7 @@ fn set_multi_input_fanout_writes_all() {
 
     let output = Command::new(BIN)
         .args([
+            "meta",
             "set",
             a.to_str().unwrap(),
             b.to_str().unwrap(),
@@ -565,7 +585,7 @@ fn set_multi_input_fanout_writes_all() {
         .output()
         .unwrap();
 
-    assert!(output.status.success(), "fan-out set should exit 0");
+    assert!(output.status.success(), "fan-out meta set should exit 0");
 
     for name in ["a.jpg", "b.jpg"] {
         let path = out_dir.path().join(name);
@@ -816,5 +836,50 @@ fn meta_subcommands_match_old_verbs() {
     assert_eq!(
         out.stdout, golden_copy,
         "`meta copy` bytes must be byte-identical to copy_metadata() (the old `copy-metadata`)"
+    );
+}
+
+// ── SPEC-089: `set` folded into `meta set` is a pure surface move ─────────────
+
+/// SPEC-089: `meta set` is a *pure surface move* of the old top-level `set`
+/// verb — nothing changed but the path. Prove byte-identity: the CLI's output
+/// bytes must equal `metadata::set_tags`'s output on the identical input and
+/// tags (the exact function the old `set` dispatched to, and `meta set` still
+/// does), mirroring SPEC-087's proof for strip/clean/copy.
+#[test]
+fn meta_set_matches_old_set() {
+    let dir = TempDir::new().unwrap();
+    let fixture = jpeg_with_exif();
+    let input = write_fixture(&dir, "in.jpg", &fixture);
+
+    let tags = crustyimg::metadata::TagSet {
+        artist: Some("Jane".to_string()),
+        copyright: Some("2026".to_string()),
+        description: None,
+    };
+    let golden = crustyimg::metadata::set_tags(&fixture, &tags).expect("set_tags");
+
+    let out = Command::new(BIN)
+        .args([
+            "meta",
+            "set",
+            input.to_str().unwrap(),
+            "--artist",
+            "Jane",
+            "--copyright",
+            "2026",
+            "-o",
+            "-",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "meta set should exit 0; stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert_eq!(
+        out.stdout, golden,
+        "`meta set` bytes must be byte-identical to set_tags() (the old `set`)"
     );
 }

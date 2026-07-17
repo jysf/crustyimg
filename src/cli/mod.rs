@@ -409,27 +409,17 @@ pub enum Commands {
     },
 
     /// Container-level metadata operations: `strip` (remove all), `clean --gps`
-    /// (remove location), `copy` (graft one file's metadata onto another).
+    /// (remove location), `copy` (graft one file's metadata onto another), `set`
+    /// (write artist/copyright/description tags).
     ///
     /// A grouped surface so the top-level verbs read by *job*: `meta` owns the
-    /// container-lane metadata ops, none of which re-decode pixels (SPEC-087).
-    /// `auto-orient` is NOT here — it bakes orientation into pixels, an image op,
-    /// so it stays top-level (DEC-017).
+    /// container-lane metadata ops, none of which re-decode pixels (SPEC-087,
+    /// SPEC-089). `auto-orient` is NOT here — it bakes orientation into pixels,
+    /// an image op, so it stays top-level (DEC-017).
     #[command(subcommand_required = true, arg_required_else_help = true)]
     Meta {
         #[command(subcommand)]
         command: MetaCommand,
-    },
-
-    /// Write specific EXIF tags; pixels untouched.
-    Set {
-        inputs: Vec<String>,
-        #[arg(long)]
-        artist: Option<String>,
-        #[arg(long)]
-        copyright: Option<String>,
-        #[arg(long)]
-        description: Option<String>,
     },
 
     /// One-shot multi-op on a single image; optionally saves the recipe.
@@ -538,6 +528,17 @@ pub enum MetaCommand {
         from: String,
         #[arg(long)]
         to: String,
+    },
+
+    /// Write specific EXIF tags; pixels untouched.
+    Set {
+        inputs: Vec<String>,
+        #[arg(long)]
+        artist: Option<String>,
+        #[arg(long)]
+        copyright: Option<String>,
+        #[arg(long)]
+        description: Option<String>,
     },
 }
 
@@ -912,19 +913,19 @@ fn dispatch(cli: &Cli) -> Result<(), CliError> {
             MetaCommand::Strip { inputs } => run_strip(inputs, &cli.global),
             MetaCommand::Clean { inputs, gps } => run_clean(inputs, *gps, &cli.global),
             MetaCommand::Copy { from, to } => run_copy_metadata(from, to, &cli.global),
+            MetaCommand::Set {
+                inputs,
+                artist,
+                copyright,
+                description,
+            } => run_set(
+                inputs,
+                artist.clone(),
+                copyright.clone(),
+                description.clone(),
+                &cli.global,
+            ),
         },
-        Commands::Set {
-            inputs,
-            artist,
-            copyright,
-            description,
-        } => run_set(
-            inputs,
-            artist.clone(),
-            copyright.clone(),
-            description.clone(),
-            &cli.global,
-        ),
         Commands::Edit {
             input,
             auto_orient,
@@ -3467,9 +3468,9 @@ fn run_clean(inputs: &[String], gps: bool, global: &GlobalArgs) -> Result<(), Cl
     run_metadata_lane(inputs, global, crate::metadata::clean_gps)
 }
 
-/// Wire `set`: write the given EXIF attribution tags into the container via the
-/// container lane (DEC-003), preserving every other tag and the pixels exactly
-/// (no re-encode, `metadata-not-via-pixel-encode`).
+/// Wire `meta set`: write the given EXIF attribution tags into the container
+/// via the container lane (DEC-003), preserving every other tag and the
+/// pixels exactly (no re-encode, `metadata-not-via-pixel-encode`).
 ///
 /// At least one of `--artist`/`--copyright`/`--description` is required; none is
 /// a usage error (exit 2). Format is preserved; `-q`/`--format` are ignored.
@@ -3482,7 +3483,7 @@ fn run_set(
 ) -> Result<(), CliError> {
     if artist.is_none() && copyright.is_none() && description.is_none() {
         return Err(CliError::Usage(
-            "set requires at least one of --artist/--copyright/--description".into(),
+            "meta set requires at least one of --artist/--copyright/--description".into(),
         ));
     }
     let tags = crate::metadata::TagSet {

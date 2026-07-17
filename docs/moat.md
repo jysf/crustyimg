@@ -90,7 +90,7 @@ flowchart TB
 
 ### 3. Verifiable privacy — drop metadata without touching pixels (STAGE-004)
 - **Container-lane metadata ops:** `meta strip` (all metadata), `meta clean --gps` (selective
-  location removal), `set` (artist/copyright/description), `meta copy` — all
+  location removal), `meta set` (artist/copyright/description), `meta copy` — all
   operate on the **container, with no pixel re-encode** (DEC-029/030), so removing
   GPS does not recompress the image. This is the *verifiable* part: privacy without
   a quality cost, and a default drop-GPS policy on pixel-lane encodes (`--keep-gps`

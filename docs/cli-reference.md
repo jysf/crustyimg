@@ -198,16 +198,16 @@ copyright, ICC). JPEG and PNG.
 crustyimg meta clean photo.jpg --gps -o nogeo.jpg
 ```
 
-### `set <INPUT...> [--artist S] [--copyright S] [--description S]`
-Write named EXIF tags (creating a fresh EXIF block if the input has none).
-```sh
-crustyimg set photo.jpg --artist "Jane Doe" --copyright "© 2026" -o tagged.jpg
-```
-
 ### `meta copy --from SRC --to DST`
 Copy EXIF + ICC from one image's container onto another (pixels untouched). JPEG in v1.
 ```sh
 crustyimg meta copy --from original.jpg --to edited.jpg
+```
+
+### `meta set <INPUT...> [--artist S] [--copyright S] [--description S]`
+Write named EXIF tags (creating a fresh EXIF block if the input has none).
+```sh
+crustyimg meta set photo.jpg --artist "Jane Doe" --copyright "© 2026" -o tagged.jpg
 ```
 
 ---

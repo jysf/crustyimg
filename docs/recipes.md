@@ -64,7 +64,7 @@ Legend: **[today]** shipped · **[feat:X]** behind a cargo feature · **[planned
 - **Strip ALL metadata before publishing** **[today]** — `crustyimg meta strip photo.jpg`
 - **Remove location only, keep copyright** **[today]** — `crustyimg meta clean --gps photo.jpg`
 - **Stamp copyright/artist across a batch** **[today]**
-  `crustyimg set --artist "Jane Doe" --copyright "© 2026 Jane Doe" photo.jpg`
+  `crustyimg meta set --artist "Jane Doe" --copyright "© 2026 Jane Doe" photo.jpg`
 - **Copy metadata from an original to a derivative** **[today]** — `crustyimg meta copy --from orig.jpg --to edited.jpg`
 - **Note:** `optimize` drops GPS/metadata by default (privacy-safe web prep); `--keep-gps` opts out.
 - **Audit a tree for metadata leaks (fail CI)** **[planned — PROJ-004]** — `crustyimg lint --select privacy assets/`

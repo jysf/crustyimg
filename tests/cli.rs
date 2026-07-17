@@ -76,9 +76,9 @@ fn help_lists_all_subcommands() {
         "responsive",
         "auto-orient",
         "watermark",
-        // `strip`/`clean`/`copy-metadata` folded into the `meta` group (SPEC-087).
+        // `strip`/`clean`/`copy-metadata` folded into the `meta` group (SPEC-087);
+        // `set` folded into `meta set` (SPEC-089) — no longer a top-level entry.
         "meta",
-        "set",
         "edit",
         "apply",
         "completions",
@@ -141,9 +141,8 @@ fn each_subcommand_help_parses() {
         "responsive",
         "auto-orient",
         "watermark",
-        // `strip`/`clean`/`copy-metadata` now live under `meta` (SPEC-087); their
-        // `--help` is exercised via the group below.
-        "set",
+        // `strip`/`clean`/`copy-metadata`/`set` now live under `meta` (SPEC-087,
+        // SPEC-089); their `--help` is exercised via the group below.
         "edit",
         "apply",
     ];
@@ -235,18 +234,35 @@ fn top_level_metadata_verbs_are_gone() {
     }
 }
 
-/// SPEC-087: `meta` with no subcommand prints help listing its three
-/// subcommands (`strip`/`clean`/`copy`).
+/// SPEC-089: the top-level `set` verb is GONE — folded into `meta set`
+/// (hard cutover, no alias). At top level it now errors as an unknown
+/// subcommand (clap usage error, exit 2).
 #[test]
-fn meta_bare_prints_subcommand_help() {
+fn top_level_set_is_gone() {
+    let output = Command::new(BIN)
+        .args(["set", "x.png", "--artist", "A"])
+        .output()
+        .expect("failed to run crustyimg set");
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "`set` should be an unknown top-level subcommand (exit 2); stderr: {}",
+        stderr_str(&output)
+    );
+}
+
+/// SPEC-087 / SPEC-089: `meta` with no subcommand prints help listing its four
+/// subcommands (`strip`/`clean`/`copy`/`set`).
+#[test]
+fn meta_bare_lists_four_subcommands() {
     let output = Command::new(BIN)
         .arg("meta")
         .output()
         .expect("failed to run crustyimg meta");
     // With `arg_required_else_help`, clap prints the group help; whichever stream
-    // it lands on, the three subcommand names must appear.
+    // it lands on, the four subcommand names must appear.
     let combined = format!("{}\n{}", stdout_str(&output), stderr_str(&output));
-    for sub in ["strip", "clean", "copy"] {
+    for sub in ["strip", "clean", "copy", "set"] {
         assert!(
             combined.contains(sub),
             "`meta` (no subcommand) should list subcommand '{sub}', got:\n{combined}"
@@ -254,11 +270,12 @@ fn meta_bare_prints_subcommand_help() {
     }
 }
 
-/// SPEC-087: each `meta` subcommand (`strip`/`clean`/`copy`) accepts `--help`
-/// and exits 0 — proving each variant and its args are declared in clap.
+/// SPEC-087 / SPEC-089: each `meta` subcommand (`strip`/`clean`/`copy`/`set`)
+/// accepts `--help` and exits 0 — proving each variant and its args are
+/// declared in clap.
 #[test]
 fn meta_subcommand_help_parses() {
-    for sub in ["strip", "clean", "copy"] {
+    for sub in ["strip", "clean", "copy", "set"] {
         let output = Command::new(BIN)
             .args(["meta", sub, "--help"])
             .output()

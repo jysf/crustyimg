@@ -406,7 +406,7 @@ invalid target) → **2**; manifest or recipe file unreadable → **3**; invalid
 | STAGE-001 | (no real commands) skeleton + dispatch + global args + smoke stub |
 | STAGE-002 | `view`, `info` (+ `--exif`) |
 | STAGE-003 | `resize`, `thumbnail`, `convert`, `auto-orient` (also `shrink`, removed in SPEC-086 → `web`/`optimize`) |
-| STAGE-004 | `watermark`; `set`; the metadata trio (regrouped under `meta` in SPEC-087: `meta strip`, `meta clean --gps`, `meta copy`) |
+| STAGE-004 | `watermark`; the metadata quartet (regrouped under `meta`: `meta strip`, `meta clean --gps`, `meta copy` in SPEC-087, `meta set` in SPEC-089) |
 | STAGE-005 | `edit` (+ `--save-recipe`), `apply --recipe` (parallel + progress) |
 
 ## Error Output Shape
