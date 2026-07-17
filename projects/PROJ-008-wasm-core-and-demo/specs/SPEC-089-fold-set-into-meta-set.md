@@ -3,7 +3,7 @@
 task:
   id: SPEC-089
   type: story
-  cycle: build
+  cycle: verify
   blocked: false
   priority: medium
   complexity: S
@@ -43,10 +43,26 @@ cost:
         recipes, data-model, moat, api-contract) and tests/cli.rs + tests/metadata.rs. Gates
         green (test default 734 / avif 747, clippy, fmt, no-default-features, `just validate`).
         Rate: Sonnet blended (~$5.4/MTok, 80/20 in/out, no cache discount, per AGENTS.md §4).
+    - cycle: verify
+      interface: claude-code
+      model: claude-opus-4-8
+      tokens_total: 260000
+      estimated_usd: 2.34
+      recorded_at: 2026-07-16
+      note: >
+        main-loop verify session (not a metered subagent) — ORDER-OF-MAGNITUDE ESTIMATE per
+        docs/cost-tracking.md's autonomous-run guidance (no subagent_tokens available). Built the
+        parent-commit (218ba57) oracle binary in a throwaway worktree and drove old-vs-new byte
+        comparison across 5 paths (3 flags / 1 flag / stdout / fan-out / PNG); built an EXIF+GPS+
+        Orientation+Copyright fixture with exiftool (independent decoder) and confirmed tags written,
+        others preserved, JPEG SOS scan untouched. Re-ran all gates independently (test default 734 /
+        avif 747, clippy, fmt, no-default-features, just validate, decisions-audit). Independent
+        grep-clean sweep found 2 docs misses. Rate: Opus blended (~$9/MTok, 80/20 in/out, no cache
+        discount, per AGENTS.md §4).
   totals:
-    tokens_total: 190000
-    estimated_usd: 1.03
-    session_count: 1
+    tokens_total: 450000
+    estimated_usd: 3.37
+    session_count: 2
 ---
 
 # SPEC-089: fold `set` into `meta set`
@@ -117,8 +133,11 @@ change to the bytes any invocation produces.
       help listing **strip / clean / copy / set**.
 - [x] `meta strip`/`meta clean`/`meta copy` and `auto-orient` are **unchanged** (SPEC-087's surface holds;
       `auto-orient` stays top-level, DEC-017).
-- [x] No top-level `set` reference remains on the live surface (help, completions, README, user-facing
+- [ ] No top-level `set` reference remains on the live surface (help, completions, README, user-facing
       docs); historical records untouched.
+      *(**VERIFY: NOT MET** — `docs/api-contract.md:333` still documents `#### \`set <INPUT...>\`` as a
+      top-level verb, and `docs/feature-exploration.md:87` is half-updated. Help + completions + README +
+      cli-reference/recipes/data-model/moat ARE clean. See the Verify section.)*
 - [x] `cargo test` (default **and** `--features avif`), `cargo clippy`, `cargo fmt --check`, and
       `cargo build --no-default-features` pass; `just validate` passes.
 
@@ -204,6 +223,165 @@ change to the bytes any invocation produces.
    the grep-clean is the real work, not the enum edit.
 
 ---
+
+## Verify — ⚠️ DEFECTS FOUND (docs-only; engine + surface CLEAN)
+
+Independent verify session (fresh detached worktree at `origin/spec-089-meta-set` @ `dbed129`; Opus).
+Verdict: **NOT CLEAN — 2 documentation defects against Acceptance Criterion 5.** Five of six criteria
+verified clean, including the load-bearing byte-identity proof. **No code defect: the move itself is
+correct.** A docs-only fix cycle closes this.
+
+**Acceptance criteria, row-by-row (diffed against the build's completion table):**
+
+1. **Byte-identity vs the PRE-MOVE BINARY — ✅ MET (the proof the build deferred to verify).**
+   Built the parent-commit (`218ba57`) oracle in a throwaway worktree; sanity-confirmed it IS pre-move
+   (top-level `set --help` works; its bare `meta` lists only strip/clean/copy). Drove both binaries on
+   one fixture (`gradient_small.jpg` + exiftool-written Orientation=6, GPS, Copyright, ImageDescription,
+   Make). `cmp`-identical on **all five paths**:
+   | case | old `set` → new `meta set` | bytes |
+   |---|---|---|
+   | all three flags | identical (md5 `0b7de002…`) | 6222 |
+   | `--artist` only | identical | 6234 |
+   | stdout (`-o -`) | identical | 6204 |
+   | multi-input `--out-dir` fan-out | identical (both files) | — |
+   | PNG input | identical | 1700 |
+   Semantics confirmed with **exiftool** (a decoder I didn't write): Artist/Copyright/ImageDescription
+   written; Orientation/GPS/Make preserved. Pixels proven untouched by extracting the JPEG SOS
+   entropy-coded scan — byte-identical to the fixture (5299 B). ✅
+2. **`meta set` with no tag flag → exit 2 + updated message — ✅ MET.** Drove it: exit **2**,
+   `error: meta set requires at least one of --artist/--copyright/--description`. The spec's one
+   deliberate divergence from SPEC-087, applied exactly as framed. ✅
+3. **Top-level `set` gone / bare `meta` lists four — ✅ MET.** `crustyimg set …` → exit **2**,
+   `unrecognized subcommand 'set'` (clap even suggests `meta`). Bare `meta` prints group help listing
+   **strip / clean / copy / set**. ✅
+4. **SPEC-087's surface holds; `auto-orient` still top-level — ✅ MET.** Top-level `strip`/`clean`/
+   `copy-metadata` all exit 2; `meta strip` / `meta clean --gps` / `meta copy` all exit 0 on a real
+   JPEG; `auto-orient` still top-level (DEC-017 held). ✅
+5. **Live-surface grep-clean — ❌ NOT MET (2 defects, below).** Help text, all three shell completions,
+   README, cli-reference, recipes, data-model, moat: **clean**. `docs/api-contract.md` and
+   `docs/feature-exploration.md`: **stale**. ❌
+6. **Gates — ✅ MET, re-run independently.** `cargo test` **734** passed / 0 failed (default),
+   **747** / 0 (`--features avif`) — matching the build's claim exactly. `cargo clippy --all-targets
+   -- -D warnings` clean; `cargo fmt --check` clean; `cargo build --no-default-features` builds;
+   `just validate` (207 front-matter blocks) passes; `just decisions-audit --changed` clean (build
+   correctly declared no new DEC). All five named tests exist and pass individually
+   (`meta_set_matches_old_set`, `meta_set_requires_a_tag`, `top_level_set_is_gone`,
+   `meta_bare_lists_four_subcommands`, `meta_subcommand_help_parses`). ✅
+   *(Note: a first full-suite run showed 6 `tests/build_watch.rs` failures — reproduced as a
+   load-induced flake from my own concurrent cargo builds, not a branch defect. `build_watch` passes
+   7/7 in isolation and the full suite is green when not competing for cores. Recorded so the next
+   session doesn't re-chase it: **these timing-sensitive watch tests fail under parallel build load.**)*
+
+### Defects
+
+**DEFECT 1 — `docs/api-contract.md:333` still documents top-level `set` (must fix).**
+The file is the repo's **live public CLI contract** ("Its public contract is the **command-line
+interface**"). In its Metadata-lane section, three of four headings carry SPEC-087's migration
+annotation — `#### meta strip … (SPEC-026; grouped under meta in SPEC-087)`, `#### meta clean …`,
+`#### meta copy …` — and between them sits the un-migrated:
+```
+#### `set <INPUT...> [--artist S] [--copyright S] [--description S]`  *(SPEC-027)*
+```
+Repro: `grep -n '#### `set' docs/api-contract.md` → line 333. A reader following the contract runs
+`crustyimg set …` and gets exit 2. This is not an overlooked file: **SPEC-089 edited this very file at
+line 409** (the STAGE table, correctly rewritten to name `meta set` in SPEC-089) while missing the
+actual command-surface section 76 lines earlier. Note the section *body* already reads "Same fan-out +
+exit codes as `meta strip`/`meta clean`" — SPEC-087 updated the body's cross-references but not the
+heading, so this heading was precisely SPEC-089's to fix.
+The build's Follow-ups assert *"None on documentation: README/cli-reference/recipes/data-model/moat/
+api-contract grep-cleaned"* — that claim is **false for api-contract**, and it is what let the checked
+`[x]` box stand. (Stage pattern: a claim standing in for a check.)
+Fix: rewrite the heading to `#### \`meta set <INPUT...> …\` *(SPEC-027; grouped under \`meta\` in
+SPEC-089)*` and move it beside `meta copy`, mirroring cli-reference.md's already-correct ordering.
+
+**DEFECT 2 — `docs/feature-exploration.md:87` is half-updated (minor, but decide deliberately).**
+```
+Commands: `meta strip` (all) · `meta clean --gps` (drop only location — privacy win) ·
+`set --artist/--copyright/--description` · `meta copy from→to`.
+```
+This looks like a "dated historical record" (pre-design research feeding PROJ-001) that the grep-clean
+discipline says to leave alone — **except SPEC-087 rewrote this exact line** (`git log -S` confirms
+f7ce015 changed `strip`→`meta strip` and `clean --gps`→`meta clean --gps` on it). By its own sibling's
+precedent the file is live surface, and the line is now internally inconsistent: three verbs grouped,
+one not. Fix (rewrite `set` → `meta set`) or consciously reclassify the file as historical — but the
+current half-and-half state is the one option that isn't defensible.
+
+**Correctly left alone (not defects), for the fixer's benefit:** `CHANGELOG.md:166,272` (dated release
+records — historical, per SPEC-086/087 precedent); `src/metadata/tiff.rs:18` + `src/metadata/mod.rs:193`
+(internal rustdoc naming the capability — and tiff.rs:18 says `set`/`clean --gps` together, so SPEC-087
+left its half too; consistent, a nit at most); `src/cli/mod.rs:2041` (`set` = a Rust `HashSet` local,
+false positive).
+
+**Independently confirmed, not taken on the build's word:**
+- **Lint fix fragments emit no `set`.** The build asserted this from a grep of `src/lint/`; I *drove*
+  `crustyimg lint` on a GPS+Orientation-bearing image and read the emitted fixes — only
+  `crustyimg meta clean --gps <file>` and `crustyimg auto-orient <file>`. `set` is genuinely not
+  emitted (unlike SPEC-087's `clean --gps` fragments, which did need rewriting). Claim holds. ✅
+- **Shell completions are enum-generated and clean.** Generated all three: top-level offers
+  `… auto-orient watermark meta edit apply build lint completions help` — **no `set`**; `set` appears
+  only nested (`__fish_crustyimg_using_subcommand meta; and __fish_seen_subcommand_from set` with
+  `--artist`/`--copyright`/`--description`). Verified in fish, zsh, and bash. ✅
+- **`src/` diff is a pure move.** The only changes to `run_set` are the doc-comment (`set` → `meta set`)
+  and the usage-error string; the handler body, `TagSet` construction, and container-lane call are
+  untouched. `Commands::Set` deleted, `MetaCommand::Set` added with identical arg shape, dispatch
+  relocated verbatim. No logic change. ✅
+
+**Pre-existing quirks surfaced (NOT SPEC-089 defects — the old binary emits the identical bytes; noted
+only so they aren't mistaken for regressions later):** on a JPEG whose EXIF was written by exiftool,
+`set`/`meta set` round-trips **Orientation 6 → "Unknown (1536)"** (1536 = 6 << 8 — smells like a
+byte-order bug in the TIFF-IFD writer) and **loses GPS precision** (48°51'30.24" → 48°51'9.76"). Both
+reproduce identically on the pre-move binary, so they predate this spec and are out of its scope — but
+`set` mangling Orientation is a real bug worth its own spec, and it is exactly the kind of thing the
+byte-identity framing hides (identical to the old bytes ≠ correct bytes).
+
+**Carry for ship (not a build defect):** the STAGE-030 stage doc still marks SPEC-089 `[~]` with
+"Framed … build-ready", and the Design Notes say "**Framed as SPEC-089**" rather than the spec's
+Outputs-requested "RESOLVED → shipped". Git history shows stage bookkeeping is ship-cycle work
+(`ship(SPEC-088): bookkeeping — cycle→ship, cost, timeline, archive; STAGE-030 5/6`), so this is
+correctly deferred, not missed — flagged only so ship doesn't drop it (STAGE-030 → 6/6).
+
+### Build-quality assessment (the Sonnet/Opus model experiment)
+
+The referee ask: SPEC-089's build ran on **Sonnet**; its mirror SPEC-087 ran on **Opus** (verified CLEAN
+first pass). Honest read — **the difference is real but narrow, and it is not where I'd have guessed.**
+
+**Indistinguishable from SPEC-087's build:** the engine. The clap move is exactly right, the arg shape
+mirrors `meta copy` as directed, dispatch is verbatim, and the deliberate divergence (the usage string)
+was applied precisely as framed and no further — a real discipline test, since "while I'm here" scope
+creep on the message would have been easy. The four design-named tests exist, are named as designed, and
+each genuinely fails against the pre-implementation tree. Gate numbers reported (734/747) are **exactly**
+what I measured — no rounding, no aspiration. Test quality is *better* than it had to be: `tests/cli.rs`
+correctly removes `set` from the top-level help-parse list rather than leaving a passing-but-vacuous
+assertion, and `meta_set_requires_a_tag` asserts the **message**, not just exit 2 — the failure mode
+[[test-the-guard-where-the-criterion-applies]] warns about. Nothing was faked, hedged, or padded.
+
+**Stronger than I expected — self-awareness about its own proof's limits.** This was the predicted
+Sonnet weak spot and it is instead the build's best quality. It did not claim the byte-identity criterion
+was fully met; it stated plainly that it proved identity against `metadata::set_tags` (the library fn),
+named the stronger old-binary claim it had *not* attempted, and wrote it into Follow-ups as verify's job
+with a correct rationale (that proof needs a second binary and a worktree). Reflection #2 reasons about
+*why* that split is right. That is exactly the honesty the stage's scar tissue was built from, and my
+old-binary run vindicated the underlying claim on all five paths — the engine really was sound.
+
+**Weaker than SPEC-087's build — the grep-clean, and only the grep-clean.** SPEC-087's Opus build
+grep-cleaned fifteen files and caught the non-obvious case that made its verify clean: the **lint fix
+fragments**, a rendering of the surface nobody would find by grepping docs. SPEC-089's build cleaned six
+files and missed a plainly-grepable heading **in a file it had open and edited**. The tell is the
+Follow-up's shape: *"None on documentation: README/cli-reference/…/api-contract grep-cleaned"* — a
+**file-level** claim ("I touched api-contract") standing in for a **line-level** check ("no `set` heading
+survives in it"). One `grep -n '\bset\b' docs/api-contract.md` — the command I ran — would have shown two
+hits where one was expected. Both builds' reflections say the same sentence ("a pure move still touches
+N files; the grep-clean is the real work") — SPEC-087 *acted* on it, SPEC-089 *observed* it.
+
+**The honest bottom line:** on the hard parts — correct move, tests that bite, refusing to overclaim a
+proof it hadn't run — the Sonnet build is indistinguishable from Opus, and its self-awareness is a
+genuine strength. It lost on **thoroughness of mechanical sweep**: fewer files searched, and a
+file-level claim substituted for a line-level check. That is a cheap, checkable failure — a
+`grep`-the-file-you-edited step in the build prompt likely closes the whole gap. n=1, one spec, one
+pairing; I would not generalize past "Sonnet did the reasoning well and the sweeping less completely
+here." Notably the miss is the **same species** as SPEC-088's defects (a claim standing in for a check)
+which happened on Opus — so this is more plausibly a *process* gap the model choice widened than a
+Sonnet-specific defect.
 
 ## Reflection (Ship)
 1. <answer> 2. <answer> 3. <answer>
