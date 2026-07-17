@@ -101,6 +101,20 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
   is the model — carry it into the README + benchmarks + post. HN rewards it and punishes the opposite.
 - **Lean on the free/private/scalable story** — static, no-backend: an HN spike is free, un-DDoS-able,
   and "your image never leaves your machine" is real.
+- **Technical positioning: sync core, no async runtime (DEC-006) — a real differentiator worth a README
+  line (→ SPEC-082).** crustyimg is a **synchronous** CLI: no `tokio`/`async-std` anywhere (0 in
+  `Cargo.lock`), because image work is CPU-bound and embarrassingly parallel per file — async buys
+  overlapping *waits*, and there are none. Batch parallelism is `rayon` data-parallelism across inputs
+  with real `--jobs` control (`ThreadPoolBuilder` + `par_iter`, `src/cli/mod.rs` ~1250). The payoff is
+  **instant startup + no async coloring**, which lands directly against Node-based tooling (the
+  sharp/`@squoosh/cli` pain this wave answers) — pair it with the existing "no native addon" story.
+  The decision has *aged well and been re-validated*, which is the credible part: `build --watch`
+  (DEC-060) deliberately uses `notify`'s thread + an `std::sync::mpsc` channel rather than a runtime,
+  and the wasm target has no threads at all. **Framing note for SPEC-082:** state it as a *consequence*
+  (fast startup, one static binary), not as async-bashing — the honesty voice above. Don't overclaim a
+  benchmark we haven't run; if we want a startup number, it belongs to SPEC-088's harness / SPEC-083.
+  Origin: maintainer asked 2026-07-16 whether the missing `tokio` was a gap — it isn't; DEC-006 (conf.
+  0.95, PROJ-001) cut it from the prototype on purpose and the rationale still holds.
 
 ## Dependencies
 
