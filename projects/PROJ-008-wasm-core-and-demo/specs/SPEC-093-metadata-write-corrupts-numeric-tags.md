@@ -51,10 +51,30 @@ cost:
         length 6430 → 504954880, dangling pointer). Gates green (test default 745 / avif 758,
         clippy, fmt, no-default-features, `just validate`, decisions-audit 0 structural errors).
         Rate: Opus blended (~$9/MTok, 80/20 in/out, no cache discount, per AGENTS.md §4).
+    - cycle: verify
+      interface: claude-code
+      model: claude-opus-4-8
+      tokens_total: 240000
+      estimated_usd: 2.15
+      recorded_at: 2026-07-17
+      note: >
+        main-loop verify session (not a metered subagent) — ORDER-OF-MAGNITUDE ESTIMATE per
+        docs/cost-tracking.md's autonomous-run guidance. VERDICT: CLEAN. Resolved the
+        build↔orchestrator mechanism contradiction with driven evidence (built genuinely-MM
+        and genuinely-II JPEGs from a no-EXIF base, verified raw TIFF magic AND stored value
+        bytes, drove pre/post-fix binaries): the build is correct — pre-fix MM→1536, II→6
+        (clean no-op); post-fix both→6 with byte order preserved. The orchestrator's
+        contradicting "verified-II→1536" was a stale-output artifact (reused `-o out.jpg`
+        under a no-overwrite tool), which I reproduced. Mechanism complete, NO second bug
+        (`meta copy` pre-fix already preserved MM — segment graft never reaches the writer).
+        Re-drove all 8 mutation tests (exactly 8 fail, copy/strip correctly pass), confirmed
+        fixture-builder independence, GPS precision, thumbnail LONG repair, gates
+        (745/758/clippy/fmt/no-default-features/just validate), CI all-pass, DEC no collision.
+        Rate: Opus blended (~$9/MTok, per AGENTS.md §4).
   totals:
-    tokens_total: 300000
-    estimated_usd: 3.00
-    session_count: 1
+    tokens_total: 540000
+    estimated_usd: 5.15
+    session_count: 2
 ---
 
 # SPEC-093: the metadata write path corrupts numeric EXIF tags
@@ -314,6 +334,72 @@ the same shape of blindness as SPEC-087/089's proofs against a shared-defect ora
    it paid twice, once by proving the 7 real tests bite, and once by proving `meta copy` was genuinely
    unaffected (its test correctly *doesn't* fail) rather than my assuming it. "Confirm each is correct,
    don't assume" has a mechanical answer, and it's cheap.
+
+---
+
+## Verification (2026-07-17, independent worktree)
+
+**VERDICT: CLEAN.** All 8 acceptance criteria re-verified by driving, not reading. Fix is correct for the
+right reason and complete.
+
+### #1 — The build↔orchestrator mechanism contradiction, resolved in favor of the build
+
+The task flagged a live contradiction: the build claimed pre-fix `MM → 1536, II → 6`; the orchestrator
+re-tested and claimed a **verified-II** file also corrupts pre-fix (`→ 1536`), which — if true — would mean
+the stated mechanism ("hardcode an II header, pass values through verbatim") is incomplete, because an II
+input would be a no-op.
+
+I built the decisive experiment: genuinely-MM and genuinely-II JPEGs from a **no-EXIF base**
+(`bench/corpus/photo_forest_cc0.jpg`, confirmed 0 tags so exiftool's `-ExifByteOrder` actually applied),
+and verified each not just by exiftool but by the **raw TIFF magic** (`4d4d002a` / `49492a00`) **and the
+stored Orientation value bytes** (MM: `00 06`; II: `06 00` — the correct II encoding of 6). Driving both
+binaries and grading with exiftool + a raw IFD dumper:
+
+| input | raw magic | pre-fix Orientation | post-fix Orientation | post-fix magic |
+|---|---|---|---|---|
+| MM | `4d4d002a` | **1536** (corrupt) | 6 ✅ | `4d4d002a` (MM preserved) |
+| II | `49492a00` | **6** (clean no-op) ✅ | 6 ✅ | `49492a00` (II preserved) |
+
+**The build is correct. The orchestrator's re-test was itself the artifact.** A genuinely-II input is a
+no-op pre-fix, exactly as the stated mechanism predicts. I reproduced how the orchestrator likely got 1536
+for II: reusing a single `-o out.jpg` across runs returns the **first** (corrupt MM) output, because the
+CLI refuses to overwrite an existing file — my own first pass hit this and reported "all 1536" until I gave
+each run a unique output name.
+
+**Mechanism is complete — there is no second bug.** `meta copy` pre-fix already preserved an MM file
+correctly (Orientation 6, magic MM), because it grafts the EXIF segment and never enters the
+parse→serialize path — the clean confirmation that only clean/set (which parse then serialize) were ever
+affected, and only for big-endian input. `set` pre-fix reproduced the reported GPS drift exactly
+(50.4957 → 50.4843223958333) on MM only. DEC-076's recorded mechanism fully explains every observed
+behavior.
+
+### The rest, all driven
+
+- **Mutation testing:** reverting the fix in place (`let le = true;`) fails **exactly 8** tests — the 8 the
+  build named — and no others; `copy_metadata_preserves_big_endian_numeric_tags` and
+  `strip_all_on_big_endian_removes_everything` correctly **pass** under the mutation, which is the evidence
+  (not assumption) that those paths are unaffected (criterion 6).
+- **Fixture independence:** `src/metadata/tiff/fixture.rs` has its own encoders and never calls
+  `serialize`/`put_ifd`; it takes typed `V` values and encodes them in the caller's byte order. The
+  mutation result proves the independence (a forced-LE serialize fails against these fixtures).
+- **Coverage span** (SHORT · LONG · RATIONAL single+GPS triplet · ASCII · UNDEFINED · sub-IFDs · IFD1
+  thumbnail · both orders) genuinely exercised; the thumbnail test round-trips the blob through
+  parse→serialize→parse (fails under mutation). `6430 → 504954880` arithmetic confirmed
+  (`0x191E` LE bytes read BE = `0x1E190000`).
+- **Independent decoder:** exiftool 13.55 across clean/set/copy/strip × MM/II → Orientation 6,
+  GPSLatitude 50.4957, byte order preserved.
+- **Docs:** `docs/api-contract.md`'s `meta clean` "preserving … orientation" claim is now true as written;
+  the `little_exif` attribution correction is accurate (crate absent from Cargo.lock; the one Cargo.toml
+  hit is a historical comment).
+- **DEC number:** no collision — DEC-075 is on disk nowhere and is reserved by open SPEC-090 (named in its
+  acceptance criteria) and SPEC-091; DEC-076 is unique.
+- **Gates:** `cargo test` 745 (default) / 758 (avif), clippy clean (`-D warnings`), fmt clean, no-default-features
+  build clean, `just validate` clean. PR #94 CI all-pass including "build + browser smoke" — the earlier
+  Chrome-startup flake is cleared, and is unrelated by construction (this diff touches only
+  `src/metadata` + docs/decisions/spec, nothing browser).
+- **Follow-ups:** both correctly deferred (repo-wide `little_exif` doc drift — 8 live refs in AGENTS.md /
+  docs/architecture.md / docs/data-model.md; and `meta copy`'s PNG rationale citing the removed crate,
+  which needs its own frame). Right call under `one-spec-per-pr`.
 
 ---
 
