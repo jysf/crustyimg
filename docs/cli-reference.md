@@ -395,12 +395,14 @@ Two deliberate rules keep the surface honest rather than quietly useless:
   `--profile preserve`, or a plain (non-`optimize`) recipe, the engine never
   auto-decides, so `--json`/`--timing` is a **usage error (exit 2)** — not a flag
   that silently does nothing.
-* **stdout stays pipe-clean.** The report and `-o -`'s image bytes both target
-  stdout, so combining them is a **usage error (exit 2)** rather than a stream with
-  JSON glued to the front of an image. Send the image elsewhere (`-o FILE`,
-  `--out-dir DIR`) and stdout carries the report alone; or drop `--json` and pipe
-  the image. (`--timing` and the human `--explain` render to stderr and stay
-  compatible with `-o -`.)
+* **stdout stays pipe-clean.** Whenever the image sink is stdout, the report and the
+  image bytes both target it, so asking for both is a **usage error (exit 2)** rather
+  than a stream with JSON glued to the front of an image. Two spellings reach that
+  sink and both are refused: an explicit `-o -`, and the **default** with no `-o` and
+  no `--out-dir` (`optimize photo.jpg --json`). Send the image elsewhere (`-o FILE`,
+  `--out-dir DIR`) and stdout carries the report alone; or drop `--json` and pipe the
+  image. (`--timing` and the human `--explain` render to stderr and stay compatible
+  with a stdout image.)
 
 ### The findings report — `lint`
 `crustyimg lint --format json` emits `crustyimg.lint/v1`: a `findings` array plus a

@@ -307,30 +307,51 @@ fn non_json_output_unchanged() {
     );
 }
 
-/// The JSON report and `-o -`'s image bytes both target stdout; emitting both
-/// poisons the stream (an unparseable report glued to an undecodable image).
-/// Every JSON-report spelling must refuse the combination (exit 2) and write
-/// NOTHING to stdout — the "stdout stays pipe-clean" criterion (SPEC-088).
+/// The JSON report and the image bytes both target stdout whenever the image sink
+/// resolves there; emitting both poisons the stream (an unparseable report glued to
+/// an undecodable image). Every JSON-report spelling must refuse the combination
+/// (exit 2) and write NOTHING to stdout — the "stdout stays pipe-clean" criterion
+/// (SPEC-088).
 ///
-/// `optimize --explain=json -o -` did this before SPEC-088 too; DEC-074 corrects
-/// all three verbs together rather than leave one spelling emitting a poisoned
-/// stream.
+/// TWO doors reach the stdout sink and both are covered here: the explicit `-o -`,
+/// and the bare default (no `-o`, no `--out-dir`), which is the *common* invocation
+/// — `optimize photo.jpg --json` is what a user types first. The guard keys on the
+/// resolved sink, not on the `-o -` spelling.
+///
+/// `optimize --explain=json` did this before SPEC-088 too, by either door; DEC-074
+/// §Corrections corrects every verb and spelling together rather than leave one
+/// emitting a poisoned stream.
 #[test]
 fn json_report_refuses_stdout_sink() {
     let dir = tempfile::tempdir().unwrap();
     let photo = write_bytes(&dir, "photo.jpg", &common::jpeg_with_exif(256, 256));
     let p = photo.to_str().unwrap();
 
-    let cases: [(&str, Vec<&str>); 4] = [
-        ("web --json", vec!["web", p, "--json", "-o", "-"]),
-        ("optimize --json", vec!["optimize", p, "--json", "-o", "-"]),
+    let cases: [(&str, Vec<&str>); 8] = [
+        // Door 1: the explicit `-o -`.
+        ("web --json -o -", vec!["web", p, "--json", "-o", "-"]),
         (
-            "optimize --explain=json",
+            "optimize --json -o -",
+            vec!["optimize", p, "--json", "-o", "-"],
+        ),
+        (
+            "optimize --explain=json -o -",
             vec!["optimize", p, "--explain=json", "-o", "-"],
         ),
         (
-            "apply --recipe web --json",
+            "apply --recipe web --json -o -",
             vec!["apply", "--recipe", "web", p, "--json", "-o", "-"],
+        ),
+        // Door 2: the default sink — no `-o`, no `--out-dir`, image goes to stdout.
+        ("web --json", vec!["web", p, "--json"]),
+        ("optimize --json", vec!["optimize", p, "--json"]),
+        (
+            "optimize --explain=json",
+            vec!["optimize", p, "--explain=json"],
+        ),
+        (
+            "apply --recipe web --json",
+            vec!["apply", "--recipe", "web", p, "--json"],
         ),
     ];
 
@@ -339,7 +360,8 @@ fn json_report_refuses_stdout_sink() {
         assert_eq!(
             out.status.code(),
             Some(2),
-            "{label}: --json with `-o -` must be a usage error; stderr: {}",
+            "{label}: a JSON report into the stdout image sink must be a usage error; \
+             stderr: {}",
             stderr_str(&out)
         );
         assert!(
@@ -347,12 +369,37 @@ fn json_report_refuses_stdout_sink() {
             "{label}: nothing may reach stdout on the refusal, got {} bytes",
             out.stdout.len()
         );
+        let err = stderr_str(&out);
         assert!(
-            stderr_str(&out).contains("stdout"),
-            "{label}: the error must explain the stdout collision: {}",
-            stderr_str(&out)
+            err.contains("stdout"),
+            "{label}: the error must explain the stdout collision: {err}"
+        );
+        assert!(
+            err.contains("-o FILE") || err.contains("--out-dir"),
+            "{label}: the error must point at the working path: {err}"
         );
     }
+
+    // The guard is precisely scoped: a real file sink leaves stdout to the report
+    // alone, so `--json -o FILE` must succeed and emit parseable JSON. This is the
+    // path the refusal above tells the user to take.
+    let ok = Command::new(BIN)
+        .args([
+            "optimize",
+            p,
+            "--json",
+            "-o",
+            dir.path().join("ok.out").to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(ok.status.code(), Some(0), "stderr: {}", stderr_str(&ok));
+    serde_json::from_slice::<serde_json::Value>(&ok.stdout).unwrap_or_else(|e| {
+        panic!(
+            "--json -o FILE must leave stdout parseable ({e}): {}",
+            stdout_str(&ok)
+        )
+    });
 
     // The guard is precisely scoped: `--timing` renders to stderr, so it stays
     // compatible with `-o -` and must still stream the image.

@@ -98,10 +98,31 @@ cost:
         913faef oracle; every `docs/cli-reference.md` value; footer print-vs-suppress; generator
         byte-for-byte reproduction; every gate. Verdict ⚠ PUNCH LIST (2 minor doc-accuracy defects;
         behaviour, licence + provenance CLEAN).
+    - cycle: fix
+      interface: claude-code
+      tokens_total: 310000
+      estimated_usd: 3.15
+      recorded_at: 2026-07-16
+      note: >
+        FIX ROUND 2 (~35 min), worktree spec-088-audit-bench. Main-loop ESTIMATE (no metered subagent,
+        §4 + [[autonomous-run-cost-estimates]]): order-of-magnitude tokens at Opus 4.8 list rate, ~80/20.
+        Three items, all cleared. (1) The round-1 `-o -` guard had a HOLE: it keyed on the `-o -`
+        SPELLING, so the DEFAULT stdout sink (no `-o`, no `--out-dir`) walked straight through —
+        `optimize photo --json` emitted 126,052 B of JSON-then-AVIF at exit 0, the exact corruption
+        DEC-074 §Corrections condemns. Re-keyed on the STATE via `image_sink_is_stdout()` at the same
+        shared writer, so one rule closes both doors for every verb + the pre-existing `--explain=json`;
+        test extended 4 → 8 cases + a positive control, and proven real by TWO mutations (guard removed →
+        fails; guard reverted to the old `-o -` condition → fails on a door-2 case). (2) Corrected the
+        photo evidence to the SHIPPED artifact's driven values (flat_ratio 0.04 / entropy 7.37; the old
+        0.02 / 7.58 were the 960px intermediate's). (3) Cargo.toml criterion comment `just bench` →
+        `bench-micro`. Re-proved byte-identity vs the 913faef oracle (55 runs: 25 file-sink + 30
+        stdout-sink, 0 diffs); blast radius is exactly the one documented correction. All gates green.
+        Found + reported (NOT fixed, out of scope): a PRE-EXISTING `--features avif` suite flake in
+        re_rav1d's debug-only DisjointMut overlap check.
   totals:
-    tokens_total: 1540000
-    estimated_usd: 15.65
-    session_count: 4
+    tokens_total: 1850000
+    estimated_usd: 18.80
+    session_count: 5
 ---
 
 # SPEC-088: unified audit report (`--json`/`--timing`) + committed bench
@@ -227,9 +248,9 @@ synthetic, spanning photo/graphic × a few sizes) that measures savings + time +
 ## Build Completion
 - **Branch:** `spec-088-audit-bench`
 - **PR:** #92 (opened against `main`; orchestrator handles verify → merge → bookkeeping)
-- **Status:** amended by the **fix pass (2026-07-16)** below, which cleared verify's 4-item punch list + the maintainer's corpus ruling. Criteria rows reflect the post-fix state; rows the fix changed are marked ⟳.
+- **Status:** amended by the **fix pass (2026-07-16)** below, then by **fix round 2 (2026-07-16)**, which closed a HOLE in round 1's stdout guard + 2 doc-accuracy items. Criteria rows reflect the post-fix state; rows the fix changed are marked ⟳.
 - **All acceptance criteria met?** Yes — with one criterion narrowed honestly (see the `web`-vs-`optimize` note under the bench row).
-  - `--timing` on optimize/web/apply reports decode/encode/total (human → stderr; folded into `--json`); stdout stays pipe-clean. ✅ ⟳ (`timing_flag_reports_and_json_includes_it`, `non_json_output_unchanged`, **`json_report_refuses_stdout_sink`** — the `-o -` collision verify found is now a usage error on all three verbs *and* on the pre-existing `--explain=json`; DEC-074 §Corrections)
+  - `--timing` on optimize/web/apply reports decode/encode/total (human → stderr; folded into `--json`); stdout stays pipe-clean. ✅ ⟳⟳ (`timing_flag_reports_and_json_includes_it`, `non_json_output_unchanged`, **`json_report_refuses_stdout_sink`** — a JSON report into a stdout image sink is now a usage error on all three verbs *and* on the pre-existing `--explain=json`, by **both** doors: an explicit `-o -` **and** the bare default. Round 1 keyed on the `-o -` spelling and left the default sink emitting ~126 KB of JSON-then-AVIF at exit 0; **fix round 2** re-keyed on the resolved sink state (`image_sink_is_stdout()`). DEC-074 §Corrections)
   - `--json` consistent across optimize/web/apply — the `optimize.explain/v1` schema extended additively + versioned (gated `"timing"` object; `"ssim"` unchanged), NOT forked; a non-`--json`/non-`--timing` run is byte-identical. ✅ (`json_shape_consistent_across_verbs`, `non_json_output_unchanged`, decide.rs unit tests; **re-proven against the pre-spec oracle in the fix pass: 32/32 runs identical**)
   - `lint`'s machine-readable output reconciled into the audit story: `lint --format json` (`crustyimg.lint/v1`) documented as a first-class audit surface alongside the decision report, with the schema split + the `--format json` vs `--json` spelling difference explained. ✅ ⟳ (**`docs/cli-reference.md` §"Audit surface"** — a real section, written in the fix pass; **DEC-074 decision #3**. Verify was right that the original claim cited evidence that did not exist.)
   - `just bench` runs offline over the committed corpus, printing a savings/time/score table; `--json` mode emits raw numbers; deterministic, no network, no telemetry. ✅ ⟳ (`bench_runs_offline_on_committed_corpus`; the table now prints a **caveat footer** naming what the corpus cannot show — suppressed under `--corpus <real>`.) **Narrowed honestly:** the table is a *smoke/regression* harness. `web` == `optimize` on every committed row because no committed image exceeds `web`'s 2048px downscale bound, so the `web`-vs-`optimize` contrast the spec's Goal mentions is **not demonstrated by the committed corpus** and must come from `--corpus <real>` (SPEC-083). Stated in the footer, the corpus README, and DEC-074.
@@ -402,8 +423,9 @@ behaviour, now framed as **SPEC-090** on main).
      AVIF. Selection was evidence-led — the first CC0 candidate (a landscape)
      classified `ui-screenshot`, and a second classified `photograph` only via the
      EXIF camera prior; this one classifies on **pixel content alone**
-     (flat_ratio 0.02 < 0.25, entropy 7.58 ≥ 5.0), which is why it survives metadata
-     stripping.
+     (flat_ratio 0.04 < 0.25, entropy 7.37 ≥ 5.0 — read out of the *committed*
+     800×532 artifact via `optimize bench/corpus/photo_forest_cc0.jpg -o /tmp/x
+     --json`), which is why it survives metadata stripping.
    * **Every label is now true.** `photo_small/large.jpg` → **`gradient_small/large.jpg`**:
      the engine calls them `graphic-logo` (flat_ratio **1.00**), so the `photo_*`
      names and the README's "photo"/"lossy-family" rows were contradicted by the
@@ -563,8 +585,10 @@ the API's own `extmetadata`, and the identity from pixels.
    intermediate's**: the Commons 960px download measures *exactly* flat_ratio 0.02 /
    entropy 7.58. The classifier was driven on a working file and the reading was
    written up as describing the committed asset.
-   *Repro:* `crustyimg optimize bench/corpus/photo_forest_cc0.jpg --json | jq .features`
-   → `{"entropy":7.37,…,"flat_ratio":0.04}`.
+   *Repro:* `crustyimg optimize bench/corpus/photo_forest_cc0.jpg -o /tmp/x --json | jq
+   .features` → `{"entropy":7.37,…,"flat_ratio":0.04}`. (The `-o /tmp/x` is required as
+   of fix round 2: without it the image sink is stdout and the JSON report is refused —
+   see the stdout-collision fix below. This repro line was written before that guard.)
    **The conclusion is unaffected** (0.04 < 0.25 and 7.37 ≥ 5.0 still hold, with margin),
    and the thresholds cited are correct — only the two measured values are wrong. Fix:
    `flat_ratio 0.04 < 0.25, entropy 7.37 ≥ 5.0`. Contained to this spec; the corpus
@@ -577,6 +601,112 @@ the API's own `extmetadata`, and the identity from pixels.
 
 Both are one-line corrections. Neither blocks the merge on its own; the maintainer's
 call whether to fix here or fold into ship.
+
+---
+
+## Fix round 2 (2026-07-16)
+
+Three items, all cleared. Re-verify found two; the orchestrator found the third —
+which turned out to be the only one that mattered.
+
+### 1. The stdout guard had a hole: it keyed on the spelling, not the state ⬛ behaviour
+
+Round 1's guard read `global.output.as_deref() == Some("-")`. But `-o -` is only **one**
+of two doors to the stdout image sink — with **no `-o` at all** the sink *defaults* to
+stdout, and that door was wide open. Driven on the branch before this fix:
+
+```
+web      bench/corpus/photo_forest_cc0.jpg --json  → exit 0, 126,068 B  (JSON, then AVIF)
+optimize bench/corpus/photo_forest_cc0.jpg --json  → exit 0, 126,052 B  (same collision)
+optimize bench/corpus/photo_forest_cc0.jpg -o out --json → exit 0, 504 B clean JSON  ✅
+```
+
+This is exactly the corruption DEC-074 §Corrections condemns — *"neither valid JSON nor
+a valid image"* — and it shipped through the **more common** invocation: `optimize
+photo.jpg --json` names no output, so it is what a user types first. Round 1 guarded the
+exotic spelling and missed the default.
+
+**Fix:** a new `image_sink_is_stdout(global)` predicate mirrors
+`run_optimize_autodecide`'s own sink construction (`out_dir.is_none() && output is None
+or "-"`), and the guard keys on it. One rule at the one shared writer → every verb
+(`optimize`/`web`/`apply --recipe web`) × every spelling (`--json`/`--explain=json`) ×
+both doors. The error message now names the working path (`-o FILE` / `--out-dir DIR`).
+DEC-074 §Corrections extended to cover the default-stdout `--explain=json` case on the
+same rationale as the `-o -` one it already recorded.
+
+**Proven real by two mutations**, not just by passing:
+* Guard removed (`if false && …`) → `json_report_refuses_stdout_sink` **FAILS**
+  (`web --json -o -`: left `Some(0)`, right `Some(2)`).
+* Guard reverted to round 1's `== Some("-")` condition → **FAILS on a door-2 case**
+  (`web --json`: left `Some(0)`, right `Some(2)`). This is the mutation that proves the
+  *new* coverage is doing work rather than riding the old assertions.
+
+Test extended 4 → 8 cases (4 verbs × 2 doors), each asserting exit 2 + empty stdout +
+an error naming the working path, plus a **positive control** (`--json -o FILE` → exit 0,
+`serde_json` parses stdout) so the guard is proven *scoped*, not just present.
+
+### 2. The photo evidence described the wrong file ⬛ documentation
+
+Corrected to the **shipped artifact's** driven values. Driven, not read:
+
+```
+$ crustyimg optimize bench/corpus/photo_forest_cc0.jpg -o /tmp/x --json
+"class": "photograph",
+"features": {"entropy": 7.37, "edge_ratio": 0.14, "flat_ratio": 0.04, …}
+```
+
+`flat_ratio 0.02 / entropy 7.58` → **`0.04` / `7.37`**. Re-verify's diagnosis was right:
+those were the 960px intermediate's readings. Conclusion and thresholds were always
+correct (0.04 < 0.25, 7.37 ≥ 5.0, with margin) — only the evidence was wrong. The
+punch-list repro line above was also updated: it invoked `--json` with no `-o`, which
+item 1's guard now (correctly) refuses.
+
+### 3. `Cargo.toml:303` still said `just bench` ⬛ documentation
+
+Criterion runs via **`just bench-micro`**; `just bench` is the corpus harness. Comment
+corrected, with the SPEC-088 rename named so the next reader sees why.
+
+### Discipline
+
+- **Byte-identity vs the pre-spec oracle (913faef), re-proven: 55 runs, 0 diffs.**
+  25 file-sink runs (5 corpus files × `optimize` / `optimize --verify` / `web` /
+  `optimize --explain` / `optimize --explain=json -o FILE`) + 30 stdout-sink runs
+  (× `optimize`/`web` on both doors, `--explain`, `--timing`) — diffing exit code,
+  stdout, and output bytes. The guard moved **nothing** on any non-`--json` path.
+- **The blast radius is exactly the one documented correction.** Against the oracle,
+  the only behaviour that moved is `optimize --explain=json` into a stdout sink
+  (oracle: exit 0 / 126,052 B of poison → now: exit 2 / 0 B). `--json` itself did not
+  exist pre-spec, so the oracle's exit 2 there is clap rejecting an unknown flag.
+- **Every measured value in this section was driven and pasted**, per the standing
+  correction ([[a-citation-looks-like-prose-not-a-claim]]). This branch had produced
+  three fabricated-but-plausible claims; none were introduced here.
+- **Gates re-run green:** `cargo test` **732** default / `--features avif`, `cargo
+  clippy --all-targets`, `cargo fmt --check`, `cargo build --no-default-features`,
+  `just validate`, `just bench`, `just bench-micro`.
+
+### Found, reported, NOT fixed (out of scope)
+
+**A pre-existing flake in the `--features avif` suite — `re_rav1d`'s debug-only
+`DisjointMut` overlap check.** Under full-suite concurrency,
+`timing_flag_reports_and_json_includes_it` intermittently fails because a crustyimg
+*subprocess* panics in an AVIF-decode worker:
+
+```
+thread 'rav1d-worker-11' panicked at re_rav1d-0.1.3/src/disjoint_mut.rs:837:13:
+        overlapping DisjointMut:
+```
+
+Reached because `web` always scores → decodes the AVIF winner. **Not caused by this
+fix, and not by SPEC-088's code:** the pre-fix branch tip (12bb369) flakes at the same
+rate with the identical signature (2/5 and 1/3 measured there; 2/4 here — statistically
+indistinguishable, and my first 0/3 sample was luck). The test passes 5/5 in isolation;
+it needs suite-level CPU contention. The check is `debug_assertions`-only — re_rav1d
+documents disjointness as *"unchecked in release mode… checked at runtime in debug
+mode"* — so `just bench` (release) is unaffected, but `cargo test --features avif` in
+CI can flake. Worth its own follow-up: the check firing at all suggests a genuine
+overlapping-borrow in the decoder, which is *unchecked UB* in the release builds we
+ship. Left for the maintainer to triage — it is a dep-robustness question, not a
+SPEC-088 defect, and fixing it here would exceed this pass's charter.
 
 ### Re-verify reflection
 1. **What surprised me?** That the fixer's own reflection #3 named the *right* risk

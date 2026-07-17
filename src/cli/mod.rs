@@ -4184,24 +4184,34 @@ fn reject_audit_without_autodecide(json: bool, timing: bool) -> Result<(), CliEr
     Ok(())
 }
 
-/// The JSON audit report goes to stdout, and so do the image bytes under `-o -` —
-/// interleaving the two corrupts both (the report is unparseable, the image
-/// undecodable). Reject the combination rather than emit a poisoned stream, so
-/// stdout stays pipe-clean (SPEC-088, DEC-074).
+/// Does the image sink resolve to stdout? Two spellings reach it: an explicit
+/// `-o -`, and the bare default (no `-o`, no `--out-dir`) — mirroring the sink
+/// construction in [`run_optimize_autodecide`]. Keying the JSON guard on this
+/// state rather than on the `-o -` spelling closes both doors with one rule.
+fn image_sink_is_stdout(global: &GlobalArgs) -> bool {
+    global.out_dir.is_none() && global.output.as_deref().is_none_or(|o| o == "-")
+}
+
+/// The JSON audit report goes to stdout, and so do the image bytes whenever the
+/// sink resolves there — interleaving the two corrupts both (the report is
+/// unparseable, the image undecodable). Reject the combination rather than emit a
+/// poisoned stream, so stdout stays pipe-clean (SPEC-088, DEC-074).
 ///
 /// This covers `optimize --json`, `web --json`, `apply --recipe web --json` **and**
 /// the pre-existing `optimize --explain=json`, which reaches the same writer — one
-/// rule for one surface. `--timing` alone is unaffected: it renders to stderr.
-/// The human `--explain` is likewise fine (stderr).
+/// rule for one surface, on both the explicit `-o -` and the default-stdout path.
+/// `--timing` alone is unaffected: it renders to stderr. The human `--explain` is
+/// likewise fine (stderr).
 fn reject_json_report_on_stdout_sink(
     explain: Option<ExplainFmt>,
     global: &GlobalArgs,
 ) -> Result<(), CliError> {
-    if matches!(explain, Some(ExplainFmt::Json)) && global.output.as_deref() == Some("-") {
+    if matches!(explain, Some(ExplainFmt::Json)) && image_sink_is_stdout(global) {
         return Err(CliError::Usage(
-            "--json/--explain=json writes the report to stdout, which `-o -` is already \
-             using for the image; send the image elsewhere (-o FILE or --out-dir DIR) \
-             to keep stdout pipe-clean"
+            "--json/--explain=json writes the report to stdout, which the image is \
+             already using (an explicit `-o -`, or the default with no -o/--out-dir); \
+             send the image elsewhere (-o FILE or --out-dir DIR) to keep stdout \
+             pipe-clean"
                 .to_owned(),
         ));
     }

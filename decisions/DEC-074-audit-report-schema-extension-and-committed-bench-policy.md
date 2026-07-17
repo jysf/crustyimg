@@ -61,12 +61,15 @@ Two coupled choices for SPEC-088:
    (`-o`/`--format`), `--profile preserve`, or plain-pixel-recipe run there is no
    decision to report, so `--json`/`--timing` is a **usage error (exit 2)**, not a
    silently ignored flag. For the same reason — **stdout stays pipe-clean** — the
-   JSON report combined with `-o -` is also a **usage error (exit 2)**: both target
-   stdout, and emitting both yields an unparseable report glued to an undecodable
-   image. This rule is enforced at the one writer all three verbs share, so it also
-   **corrects the pre-existing `optimize --explain=json -o -`** (see *Corrections*).
-   `--timing` alone and the human `--explain` render to stderr and stay compatible
-   with `-o -`.
+   JSON report is also a **usage error (exit 2)** whenever **the image sink resolves
+   to stdout**: both target stdout, and emitting both yields an unparseable report
+   glued to an undecodable image. The rule keys on the resolved *sink*, not on a
+   flag spelling, so it closes **both doors**: an explicit `-o -`, and the **bare
+   default** (no `-o`, no `--out-dir`), which is the sink `optimize photo.jpg
+   --json` silently used. It is enforced at the one writer all three verbs share, so
+   it also **corrects the pre-existing `optimize --explain=json`** by either door
+   (see *Corrections*). `--timing` alone and the human `--explain` render to stderr
+   and stay compatible with a stdout image.
 
 2. **The committed benchmark is a checked-in Python-3 stdlib script
    (`scripts/bench.py`) over a small, license-clean corpus (`bench/corpus/`)** that
@@ -165,16 +168,28 @@ not drift.
 
 ## Corrections to pre-existing behaviour
 
-**`optimize --explain=json -o -` changes from exit 0 to exit 2.** It previously
-wrote the JSON report and the image to the same stream, producing a file that is
-neither valid JSON nor a valid image; the pre-spec oracle binary reproduces this
-exactly, so it is not a SPEC-088 regression. It is corrected here anyway, because
-SPEC-088 adds the same `--json` to `web`/`apply` and the spec's "stdout stays
-pipe-clean" criterion is explicit: fixing two of the three spellings would freeze a
-known-broken one for symmetry's sake. The blast radius is the combination
-`--explain=json` **with** `-o -` only — a combination whose output was already
-unusable, so no working pipeline can depend on it. Every other `--explain=json`
-invocation stays byte-identical (verified against the oracle).
+**`optimize --explain=json` changes from exit 0 to exit 2 whenever the image sink
+is stdout** — by an explicit `-o -` **or** by the bare default (no `-o`, no
+`--out-dir`). It previously wrote the JSON report and the image to the same stream,
+producing output that is neither valid JSON nor a valid image; the pre-spec oracle
+binary reproduces this exactly, so it is not a SPEC-088 regression. It is corrected
+here anyway, because SPEC-088 adds the same `--json` to `web`/`apply` and the spec's
+"stdout stays pipe-clean" criterion is explicit: fixing some spellings would freeze
+a known-broken one for symmetry's sake.
+
+**Both doors, one rule.** The guard's first cut keyed on the `-o -` *spelling* and
+so missed the default sink — which is the door a user is far more likely to walk
+through, since `optimize photo.jpg --json` names no output at all and quietly emits
+~126 KB of JSON-then-AVIF at exit 0. Driven on the corpus photo before the fix:
+`web … --json` → 126,068 bytes, `optimize … --json` → 126,052 bytes, both exit 0 and
+unparseable. The condition now keys on the resolved state ("the image sink is
+stdout"), which is the only formulation that closes a door nobody enumerated.
+
+The blast radius is `--explain=json`/`--json` **with a stdout image sink** only — a
+combination whose output was already unusable, so no working pipeline can depend on
+it. Every other `--explain=json` invocation stays byte-identical (verified against
+the oracle), and the working path (`--json -o FILE`, clean parseable JSON on stdout)
+is unaffected and named in the error message.
 
 ## Consequences
 
@@ -187,8 +202,8 @@ invocation stays byte-identical (verified against the oracle).
   machines/CI, but not a Rust toolchain guarantee) and on `--features avif` for the
   release build it benches. The committed corpus grows from ~40 KB to ~200 KB (the
   CC0 photo is 174 KB — the price of a row that actually reaches AVIF). One usage
-  error (`--explain=json -o -`) is newly returned where a corrupt stream was
-  previously emitted.
+  error (`--explain=json` into a stdout image sink, by either door) is newly
+  returned where a corrupt stream was previously emitted.
 - **Neutral:** `just bench` was repurposed from the criterion micro-benches, which
   move to `just bench-micro` (DEC-028's recipe name shifts, not its intent;
   DEC-028's References carry the amendment).
