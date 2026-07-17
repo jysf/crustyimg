@@ -3,7 +3,7 @@
 task:
   id: SPEC-089
   type: story
-  cycle: verify
+  cycle: ship
   blocked: false
   priority: medium
   complexity: S
@@ -81,10 +81,24 @@ cost:
         clippy -- -D warnings`, `cargo fmt --check`, `cargo build --no-default-features`, `just
         validate` (207 front-matter blocks). Rate: Sonnet blended (~$5.4/MTok, 80/20 in/out, no cache
         discount, per AGENTS.md §4).
+    - cycle: ship
+      interface: claude-code
+      model: claude-opus-4-8
+      tokens_total: null
+      estimated_usd: 0.60
+      recorded_at: 2026-07-17
+      note: >
+        orchestrator main loop (un-metered, §4) — ESTIMATE. Framed the spec, dispatched build (Sonnet)
+        + verify (Opus) + fix (Sonnet), independent spot-check of the fix (drove the surface: top-level
+        `set` exit 2; bare `meta` lists all four; the updated "meta set requires …" message; auto-orient
+        still top-level; own grep found zero stale live-surface refs), `gh pr update-branch` (BEHIND),
+        CI polled green, squash-merge (8e5e1f8), bookkeeping, memory + brag. **This spec was the
+        near-controlled MODEL EXPERIMENT** (Sonnet build vs SPEC-087's Opus build, verify held on Opus);
+        result recorded in the Ship Reflection.
   totals:
     tokens_total: 580000
-    estimated_usd: 4.07
-    session_count: 3
+    estimated_usd: 4.67
+    session_count: 4
 ---
 
 # SPEC-089: fold `set` into `meta set`
@@ -476,4 +490,31 @@ and left untouched.
 ---
 
 ## Reflection (Ship)
-1. <answer> 2. <answer> 3. <answer>
+1. **The model experiment (this spec's real second deliverable): Sonnet built it, Opus verified it, and
+   the difference was narrow — and not where predicted.** SPEC-089 was chosen as a near-controlled mirror
+   of SPEC-087 (same complexity S, same "pure move + prove byte-identity + grep-clean" shape, same file,
+   verify held constant on Opus). **Indistinguishable on the hard parts:** the move is correct, the one
+   deliberate divergence was applied precisely *and no further* (real scope-creep bait), the tests bite
+   (`meta_set_requires_a_tag` asserts the message, not just exit 2), and the reported gate numbers were
+   exactly what verify measured. **The predicted Sonnet weakness — self-awareness about its own proof —
+   was its best quality:** it refused to claim the byte-identity criterion met, named the old-binary proof
+   it hadn't run, and handed it to verify with a correct rationale; verify then vindicated it on all five
+   paths. **It lost only on mechanical-sweep thoroughness** (cleaned 6 files vs SPEC-087's 15, missing a
+   grepable heading in a file it had open). Cost: build $1.03 (Sonnet) vs SPEC-087's $2.30 (Opus).
+   **Caveat worth stating: SPEC-087's Opus build got to catch a false grounding claim; SPEC-089's spec had
+   no such flaw, so that capability was never tested here.** n=1, confounded, not settled.
+2. **The miss was a PROCESS gap the model choice widened, not a Sonnet defect — and the numbers prove it.**
+   Verify flagged 2 stale docs; the fix pass then ran one mechanical grep of the live surface and found
+   **5 more that verify had also missed** — 7 total. So two careful readers (Sonnet build, Opus verify)
+   found 2; one `grep` found 7. **Decisive evidence that a mechanical sweep needs a mechanical check, not
+   model judgment about which files to look at.** The tell, per verify: *"'api-contract grep-cleaned' is a
+   file-level claim standing in for a line-level check"* — the same species as SPEC-088's defects, which
+   happened on **Opus**. Action: a "grep the live surface, check every hit" step belongs in the build
+   prompt/template, and the `model:` field is now recorded per cost session so this can be measured.
+3. **Byte-identity proved the move and was structurally blind to the bug underneath.** Verify's
+   out-of-scope find — `set` mangles EXIF Orientation (6 → 1536) and degrades GPS — is **pre-existing**,
+   so every proof we ran (identical to the old binary) passed while shipping corruption. *Identical to the
+   old bytes ≠ correct bytes.* Reproduced at framing and found **wider** (`meta clean --gps` corrupts
+   orientation too — the shared container lane), now **SPEC-093**. The lesson generalizes: an oracle that
+   shares the defect certifies the defect. A pure-move spec should ask, once, whether the thing it is
+   faithfully preserving is *right* — not just unchanged.

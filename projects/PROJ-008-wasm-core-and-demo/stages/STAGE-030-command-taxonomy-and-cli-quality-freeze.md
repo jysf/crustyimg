@@ -135,11 +135,16 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`. Build order: **084 �
   flake**: re_rav1d's debug-only `DisjointMut` overlap check panics under load (`disjoint_mut.rs:837`),
   reached because `web` always scores → decodes the AVIF winner. Reported-not-fixed; **under
   investigation** (disjointness is *unchecked in release* → possible UB in shipped builds).
-- [~] SPEC-089 (design — framed build-ready 2026-07-16) — **fold `set` → `meta set`**: relocate the
-  existing top-level `set` verb (write EXIF attribution tags, SPEC-027) into the `meta` group, so it's
-  whole (`meta {strip,clean,copy,set}`). Pure hard-cutover surface move mirroring SPEC-087 (byte-identity
-  vs the pre-move binary); one deliberate divergence — update the `set requires …` usage string to
-  `meta set requires …`. No DEC. Complexity S.
+- [x] SPEC-089 (shipped 2026-07-17, PR #93, no DEC, ~$4.67 / 4 sessions) — **folded `set` → `meta set`**;
+  the metadata group is now whole (`meta {strip,clean,copy,set}`). Pure hard-cutover move; byte-identity
+  proven against the pre-move oracle across 5 paths (3 flags / 1 flag / stdout / fan-out / PNG), confirmed
+  with exiftool. **This was the near-controlled MODEL EXPERIMENT** — build on **Sonnet** ($1.03) vs its
+  mirror SPEC-087's build on **Opus** ($2.30), verify held constant on Opus. Result: indistinguishable on
+  the hard parts; Sonnet's self-awareness about its own proof was its *best* quality; it lost only on
+  mechanical-sweep thoroughness (6 files vs 15). **The decisive datum: verify found 2 stale docs, then one
+  mechanical `grep` found 5 MORE it had missed — 7 total. A mechanical sweep needs a mechanical check, not
+  model judgment.** Same species as SPEC-088's defects, which happened on Opus → a **process gap the model
+  choice widened, not a Sonnet defect**. `model:` is now recorded per cost session. See the Ship Reflection.
 - [~] SPEC-090 (design — framed build-ready 2026-07-16) — **reconcile `web`'s never-bigger claim with its
   actual baseline.** SPEC-088's verify measured `web` shipping a file **14% larger** than a 3000px source;
   the pre-spec oracle reproduces it → **pre-existing SPEC-085 behavior**, honestly reported, but
@@ -166,13 +171,14 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`. Build order: **084 �
   oracle. Orchestrator's byte-order hypothesis REFUTED at framing (both MM and II corrupt) → mechanism
   undiagnosed. The test gap is as much the deliverable as the fix. Complexity M.
 
-**Count:** 5 shipped (SPEC-084/085/086/087/088) / 3 in design (SPEC-089, SPEC-090, SPEC-091) / 1 pending
-(SPEC-092, optional `convert --to`). The measurable-honesty pillar is **done** (088). Remaining: 089
-closes the `meta` group; 090 makes the flagship's headline promise true as written; 091 sets the AVIF
-decode thread policy (and must land before SPEC-083). **089 + 090 both touch `src/cli/mod.rs` / the
-decision path — serialize them**; 091 is independent (`src/image/avif.rs`) and can run in parallel.
-**Then: reframe SPEC-080 (demo)** — the `web` hero it needs is shipped.
-
+**Count:** 6 shipped (SPEC-084/085/086/087/088/089) / 3 in design (SPEC-090, SPEC-091, SPEC-093) / 1
+pending (SPEC-092, optional `convert --to`). The taxonomy work is **done**: fast-AVIF default + `web` +
+`optimize` demoted + `shrink` gone + a whole `meta` group + the measurable-honesty pillar. Remaining is
+**quality/correctness**, in priority order: **093** (the metadata lane silently corrupts Orientation/GPS —
+the privacy verb breaks its own documented promise; arguably a launch blocker), **090** (`web`'s
+never-bigger measured against the wrong baseline), **091** (AVIF decode thread policy — must land before
+SPEC-083). **091 and 093 are independent** (`src/image/avif.rs` vs `src/metadata/tiff.rs`); 090 touches the
+decision path. **Then: reframe SPEC-080 (demo)** — the `web` hero it needs is shipped.
 **Follow-up still filed out of SPEC-088** (not blocking): a regression test asserting
 `bench/corpus/photo_forest_cc0.jpg` classifies `photograph`, so a future classifier change fails loudly
 instead of silently falsifying the corpus README's class column. (The re_rav1d investigation is now
