@@ -324,15 +324,20 @@ without `-y`. Format is preserved (`-q`/`--format` ignored). A no-metadata input
 a clean no-op (exit 0).
 
 #### `meta clean <INPUT...> --gps`  *(SPEC-026; grouped under `meta` in SPEC-087)*
-Remove **only** GPS/location metadata via `little_exif` tag removal, preserving
-everything else (orientation, copyright, ICC) — privacy-focused, no pixel
-re-decode. **`--gps` is required in v1** (omitted → exit **2**). Same JPEG+PNG
-coverage, fan-out, and exit codes as `meta strip`. A JPEG with no EXIF is a no-op
-(exit 0).
+Remove **only** GPS/location metadata via in-house TIFF-IFD tag removal (DEC-046),
+preserving everything else (orientation, copyright, ICC) — privacy-focused, no pixel
+re-decode. Every untargeted tag round-trips **byte-identically**, for every TIFF type
+and for **both** input byte orders (`II` and `MM`) — the block is re-emitted in the
+byte order it arrived in (SPEC-093/DEC-076; before that fix, a big-endian input's
+Orientation `6` silently became `1536`). **`--gps` is required in v1**
+(omitted → exit **2**). Same JPEG+PNG coverage, fan-out, and exit codes as
+`meta strip`. A JPEG with no EXIF is a no-op (exit 0).
 
 #### `meta set <INPUT...> [--artist S] [--copyright S] [--description S]`  *(SPEC-027; grouped under `meta` in SPEC-089)*
-Write the named EXIF tags (Artist/Copyright/ImageDescription) via `little_exif`,
-**preserving all other metadata and the pixels** (no re-decode). At least one tag
+Write the named EXIF tags (Artist/Copyright/ImageDescription) via the in-house
+TIFF-IFD writer (DEC-046), **preserving all other metadata and the pixels** (no
+re-decode) — including numeric tags (Orientation, GPS) in either byte order,
+byte-identically (SPEC-093/DEC-076). At least one tag
 flag is required (none → exit **2**). **v1 covers JPEG + PNG**; other formats →
 exit **4**. Writing overwrites an existing same-tag value and creates a fresh EXIF
 block when the input has none. Same fan-out + exit codes as `meta strip`/`meta clean`
