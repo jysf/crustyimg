@@ -158,7 +158,7 @@ service). (Ranked targets + per-tool sources live in the roadmap's Track B / the
 ---
 
 ### Which recipes need which project
-- **[today]:** web/optimize/resize/thumbnail/convert/responsive(HTML)/meta(strip/clean/copy)/set/watermark/
+- **[today]:** web/optimize/resize/thumbnail/convert/responsive(HTML)/meta(strip/clean/copy/set)/watermark/
   edit/apply/diff — the whole §1–§8 core (minus the lint/manifest items).
 - **PROJ-002:** `optimize` auto-decides format + `--explain` (shipped).
 - **PROJ-004:** `lint` (+ the GitHub Action).

@@ -9,7 +9,7 @@
 `crustyimg` is a single-binary Rust CLI that views images in the terminal
 and performs the everyday transformations people actually reach for
 (resize, optimize-for-web, thumbnail, convert, auto-orient, watermark, EXIF
-strip/clean/set). Its defining idea is a **load-once pipeline**: an image
+`meta` strip/clean/set). Its defining idea is a **load-once pipeline**: an image
 is decoded into one canonical in-memory model, an ordered list of
 `Operation`s is applied in memory, and the result is written to a sink
 exactly once. Because the operation list is serializable (a **recipe**),
@@ -118,7 +118,7 @@ flowchart LR
     registry -->|construct| ops
     args --> src
     src --> load --> ops --> sink
-    args -. "meta strip/clean/copy · set<br/>(no pixel decode)" .-> meta
+    args -. "meta strip/clean/copy/set<br/>(no pixel decode)" .-> meta
     meta -. "preserve policy on encode" .-> sink
 ```
 

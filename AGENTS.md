@@ -13,7 +13,7 @@ Instructions for Claude working across all phases of this repository. Read this 
 - **Repo (the app):** `crustyimg` — a fast Rust CLI to view and transform images.
 - **Purpose:** View images in the terminal and run everyday transforms
   (resize, shrink-for-web, thumbnail, convert, auto-orient, watermark, EXIF
-  strip/clean/set) on a single image or a batch, via a load-once
+  `meta` strip/clean/set) on a single image or a batch, via a load-once
   `Operation` pipeline and reusable TOML recipes.
 - **Primary stakeholders:** Web/content developers prepping images; terminal
   power users; the maintainer (clean trait-based base to extend).

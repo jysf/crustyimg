@@ -330,7 +330,7 @@ re-decode. **`--gps` is required in v1** (omitted → exit **2**). Same JPEG+PNG
 coverage, fan-out, and exit codes as `meta strip`. A JPEG with no EXIF is a no-op
 (exit 0).
 
-#### `set <INPUT...> [--artist S] [--copyright S] [--description S]`  *(SPEC-027)*
+#### `meta set <INPUT...> [--artist S] [--copyright S] [--description S]`  *(SPEC-027; grouped under `meta` in SPEC-089)*
 Write the named EXIF tags (Artist/Copyright/ImageDescription) via `little_exif`,
 **preserving all other metadata and the pixels** (no re-decode). At least one tag
 flag is required (none → exit **2**). **v1 covers JPEG + PNG**; other formats →

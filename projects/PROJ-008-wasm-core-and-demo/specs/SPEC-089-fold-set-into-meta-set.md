@@ -59,10 +59,32 @@ cost:
         avif 747, clippy, fmt, no-default-features, just validate, decisions-audit). Independent
         grep-clean sweep found 2 docs misses. Rate: Opus blended (~$9/MTok, 80/20 in/out, no cache
         discount, per AGENTS.md §4).
+    - cycle: fix
+      interface: claude-code
+      model: claude-sonnet-5
+      tokens_total: 130000
+      estimated_usd: 0.70
+      recorded_at: 2026-07-16
+      note: >
+        main-loop fix session (not a metered subagent) — ORDER-OF-MAGNITUDE ESTIMATE per
+        docs/cost-tracking.md's autonomous-run guidance (no subagent_tokens available). Docs-only
+        pass closing verify's 2 defects: rewrote `docs/api-contract.md:333`'s heading from top-level
+        `set` to `meta set` (SPEC-027; grouped under `meta` in SPEC-089), matching the `meta strip`/
+        `meta clean`/`meta copy` siblings' annotation style, and finished
+        `docs/feature-exploration.md:87`'s half-updated command list. Then ran the discipline verify's
+        note called out — grepped the live surface (not just the two flagged files) and found 5 more
+        stale bare-`set` references verify hadn't flagged: `docs/architecture.md` (prose line 12 +
+        Mermaid diagram label line 121), `docs/recipes.md:161`, `docs/moat.md:39`, and
+        `guidance/constraints.yaml:40` — all fixed to `meta set`/grouped form; dated historical records
+        (sessions/research/reviews/blog/decisions/specs-done) left untouched. No code change. Gates
+        re-run green: `cargo test` (734 default / 747 avif — unchanged from build/verify), `cargo
+        clippy -- -D warnings`, `cargo fmt --check`, `cargo build --no-default-features`, `just
+        validate` (207 front-matter blocks). Rate: Sonnet blended (~$5.4/MTok, 80/20 in/out, no cache
+        discount, per AGENTS.md §4).
   totals:
-    tokens_total: 450000
-    estimated_usd: 3.37
-    session_count: 2
+    tokens_total: 580000
+    estimated_usd: 4.07
+    session_count: 3
 ---
 
 # SPEC-089: fold `set` into `meta set`
@@ -133,11 +155,13 @@ change to the bytes any invocation produces.
       help listing **strip / clean / copy / set**.
 - [x] `meta strip`/`meta clean`/`meta copy` and `auto-orient` are **unchanged** (SPEC-087's surface holds;
       `auto-orient` stays top-level, DEC-017).
-- [ ] No top-level `set` reference remains on the live surface (help, completions, README, user-facing
+- [x] No top-level `set` reference remains on the live surface (help, completions, README, user-facing
       docs); historical records untouched.
-      *(**VERIFY: NOT MET** — `docs/api-contract.md:333` still documents `#### \`set <INPUT...>\`` as a
-      top-level verb, and `docs/feature-exploration.md:87` is half-updated. Help + completions + README +
-      cli-reference/recipes/data-model/moat ARE clean. See the Verify section.)*
+      *(**FIX: MET** — `docs/api-contract.md:333` and `docs/feature-exploration.md:87` (verify's 2
+      defects) rewritten to `meta set`, plus 5 more stale bare-`set` references verify hadn't flagged
+      (`docs/architecture.md` ×2, `docs/recipes.md:161`, `docs/moat.md:39`, `guidance/constraints.yaml:40`)
+      found by grepping the live surface directly rather than trusting which files had been touched. See
+      the Fix pass section.)*
 - [x] `cargo test` (default **and** `--features avif`), `cargo clippy`, `cargo fmt --check`, and
       `cargo build --no-default-features` pass; `just validate` passes.
 
@@ -382,6 +406,74 @@ pairing; I would not generalize past "Sonnet did the reasoning well and the swee
 here." Notably the miss is the **same species** as SPEC-088's defects (a claim standing in for a check)
 which happened on Opus — so this is more plausibly a *process* gap the model choice widened than a
 Sonnet-specific defect.
+
+---
+
+## Fix pass (2026-07-16) — both defects cleared
+
+Docs-only fix cycle closing verify's 2 flagged defects. Scope held to documentation; the pre-existing
+Orientation/GPS corruption verify surfaced (now framed as SPEC-093 on main) was explicitly out of scope
+and left untouched.
+
+### What changed
+
+1. **`docs/api-contract.md:333`** — heading rewritten from top-level `` #### `set <INPUT...> …` *(SPEC-027)* ``
+   to `` #### `meta set <INPUT...> …` *(SPEC-027; grouped under `meta` in SPEC-089)* ``, matching the
+   annotation style of its `meta strip`/`meta clean`/`meta copy` siblings. The section body already read
+   correctly (SPEC-087 had updated the cross-references); only the heading was stale.
+2. **`docs/feature-exploration.md:87`** — finished the half-updated line: `` `set --artist/…` `` →
+   `` `meta set --artist/…` ``, matching its two already-migrated siblings on the same line
+   (`meta strip`, `meta clean --gps`).
+3. **Discipline sweep, not a file-level claim.** Per verify's note that "api-contract grep-cleaned" was a
+   file-level claim standing in for a line-level check, ran `grep -rn '\bset\b'` across the live doc
+   surface (`docs/`, `README.md`, `AGENTS.md`, `guidance/`) rather than reasoning about which files the
+   build had touched, and read every hit. Found **5 more stale bare-`set` references** verify's targeted
+   pass hadn't surfaced, all fixed to `meta set` / grouped form:
+   - `docs/architecture.md:12` — prose feature list (`EXIF strip/clean/set` → `` EXIF `meta` strip/clean/set ``)
+   - `docs/architecture.md:121` — Mermaid diagram edge label (`meta strip/clean/copy · set` →
+     `meta strip/clean/copy/set`)
+   - `docs/recipes.md:161` — command inventory (`meta(strip/clean/copy)/set` → `meta(strip/clean/copy/set)`)
+   - `docs/moat.md:39` — Mermaid diagram node label (`meta clean --gps · meta strip · set · meta copy` →
+     `… · meta set · …`; note `moat.md:93` elsewhere in the same file was already correct — another
+     half-updated-file case caught only by reading every hit, not just the two named ones)
+   - `guidance/constraints.yaml:40` — the `metadata-not-via-pixel-encode` rule text
+     (`meta strip/meta clean/set/meta copy` → `meta strip/meta clean/meta set/meta copy`)
+   Also fixed `AGENTS.md:16`'s equivalent prose list for consistency with `architecture.md`, though
+   verify's discipline note scoped to `docs/`+`README.md`. All remaining `\bset\b` hits (checked
+   individually) are either correct `meta set` references or the generic English word ("responsive
+   image set", "a large set", "quality was set") — no more bare-verb references. Dated historical
+   records (`docs/sessions/`, `docs/research/`, `docs/reviews/`, `docs/blog/`, `docs/framework-feedback/`,
+   `decisions/`, `specs/done/`, `CHANGELOG.md`) deliberately left untouched, per the SPEC-087/089
+   grep-clean precedent.
+
+### Proof (driven, not asserted)
+
+- No `src/` changes — docs-only, so the build/verify byte-identity proofs are unaffected.
+- Gates re-run: `cargo test` **734** passed (default), **747** passed (`--features avif`) — identical
+  counts to build and verify, confirming no test regression from the docs edits. `cargo clippy -- -D
+  warnings` clean. `cargo fmt --check` clean. `cargo build --no-default-features` builds. `just validate`
+  — 207 front-matter blocks parse.
+
+### Honestly unmet / narrowed
+
+- None. Both flagged defects are closed, and the broader discipline sweep the verify note asked for
+  found and fixed additional stale references beyond the two named ones.
+
+### Fix-phase reflection
+1. **The verify note's instruction — grep the live surface, don't reason about which files you touched —
+   is what surfaced the extra 5 hits.** A narrower fix that patched exactly the two cited lines would have
+   left `architecture.md`, `recipes.md`, `moat.md`, and `constraints.yaml` stale, reproducing the exact
+   failure mode verify flagged (a file-level "I edited this" claim standing in for a line-level check) one
+   level up — this time across *files*, not lines within one file.
+2. **`docs/moat.md` was itself a half-updated file**, same species as `feature-exploration.md`: line 93
+   already said `meta set` while line 39 (a Mermaid diagram label, not prose) still said bare `set`.
+   Diagram labels are easy to miss in a text-only skim of a doc — worth remembering that a file "looking"
+   grep-clean based on one matching line doesn't mean every line is.
+3. **The out-of-scope boundary held.** The EXIF Orientation/GPS corruption verify surfaced (pre-existing,
+   now SPEC-093) was not touched, investigated, or mentioned in any edited file beyond what was already
+   there — confirmed by diffing the fix commit against only the 7 doc files listed above.
+
+---
 
 ## Reflection (Ship)
 1. <answer> 2. <answer> 3. <answer>

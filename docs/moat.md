@@ -36,7 +36,7 @@ flowchart TB
         direction TB
         ENGINE["⚙️ Engine — outcome-driven compression<br/>perceptual auto-quality (SSIMULACRA2) · byte budgets · WebP/AVIF<br/><b>STAGE-008 ✓</b>"]
         SURFACE["🎛️ Surface — commands a person runs<br/>optimize · diff · responsive<br/><b>STAGE-009 ✓</b>"]
-        PRIVACY["🛡️ Verifiable privacy — container-lane metadata<br/>meta clean --gps · meta strip · set · meta copy (no pixel re-encode)<br/><b>STAGE-004 ✓</b>"]
+        PRIVACY["🛡️ Verifiable privacy — container-lane metadata<br/>meta clean --gps · meta strip · meta set · meta copy (no pixel re-encode)<br/><b>STAGE-004 ✓</b>"]
         REPRO["🔁 Surfaced reproducibility — tune once → save → replay<br/>edit · --save-recipe · parallel apply --recipe<br/><b>STAGE-005 ✓</b>"]
         VERIFY["✅ Verification — claims you can check<br/>diff --fail-under (exit 7) · criterion net · equal-quality rule<br/><b>STAGE-009 ✓ / DEC-028</b>"]
         TRUST["🔒 Trust & safety — bounded untrusted input<br/>decode/recipe/resize limits · path+symlink guards · cargo-deny CI<br/><b>STAGE-006 ✓ — MVP exit gate</b>"]
