@@ -1,5 +1,7 @@
-//! A minimal, bounded, panic-free binary TIFF-IFD reader + normalizing
-//! little-endian writer (SPEC-045, DEC-046).
+//! A minimal, bounded, panic-free binary TIFF-IFD reader + **order-preserving**
+//! writer (SPEC-045, DEC-046; order-preserving since SPEC-093/DEC-076 — it used
+//! to normalize every block to little-endian, which silently corrupted the
+//! numeric tags of big-endian inputs).
 //!
 //! This replaces `little_exif` for the two tag-level edits the container lane
 //! needs: [`crate::metadata::set_tags`] (add/replace IFD0 ASCII tags) and
@@ -23,6 +25,9 @@
 //! is captured as [`Ifd::thumbnail`] and relocated on serialize.
 
 use std::collections::HashSet;
+
+#[cfg(test)]
+pub(super) mod fixture;
 
 /// A tag-level error from the TIFF-IFD parser or serializer. Every variant
 /// maps to `MetadataError::Exif` in `src/metadata/mod.rs`.
@@ -149,10 +154,32 @@ fn value_as_u32(bytes: &[u8; 4], le: bool) -> u32 {
 
 // ── Parse ────────────────────────────────────────────────────────────────────
 
+/// The byte order declared by a TIFF block's header (TIFF 6.0 §2).
+///
+/// This is **not** a cosmetic property of the header. Every numeric value
+/// inside the block — SHORT, LONG, RATIONAL, and every offset — is encoded in
+/// this order, and [`Entry::value`] carries those bytes verbatim. Re-labelling
+/// the header without re-encoding the values silently changes what they mean
+/// (SPEC-093), so the order a block was parsed in must survive to serialize.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ByteOrder {
+    Little,
+    Big,
+}
+
+impl ByteOrder {
+    /// Whether values are little-endian — the flag the readers/writers take.
+    fn is_le(self) -> bool {
+        matches!(self, ByteOrder::Little)
+    }
+}
+
 /// A parsed TIFF block: byte order + IFD0 (with its sub-IFDs and IFD1
 /// chain).
 #[derive(Debug, Clone)]
 pub struct Tiff {
+    /// The order [`Ifd`] values are encoded in. Preserved through serialize.
+    pub byte_order: ByteOrder,
     pub ifd0: Ifd,
 }
 
@@ -176,7 +203,12 @@ pub fn parse(buf: &[u8]) -> Result<Tiff> {
 
     let mut seen = HashSet::new();
     let ifd0 = parse_ifd(buf, ifd0_offset, little_endian, 0, &mut seen)?;
-    Ok(Tiff { ifd0 })
+    let byte_order = if little_endian {
+        ByteOrder::Little
+    } else {
+        ByteOrder::Big
+    };
+    Ok(Tiff { byte_order, ifd0 })
 }
 
 /// Parse one IFD at `offset`, recursing into pointer-tag sub-IFDs and
@@ -322,29 +354,66 @@ pub fn remove_gps(ifd0: &mut Ifd) {
 /// for `set_tags` — callers then apply [`set_ascii_tag`]).
 pub fn minimal() -> Tiff {
     Tiff {
+        byte_order: ByteOrder::Little,
         ifd0: Ifd::default(),
     }
 }
 
 // ── Serialize ────────────────────────────────────────────────────────────────
 
-/// Serialize a [`Tiff`] to a normalized **little-endian** TIFF block
-/// (regardless of the input's original byte order — matches prior
-/// `little_exif` output behavior; readers handle either order per the TIFF
-/// spec).
+/// Encode a `u16` in byte order `le`.
+fn u16_bytes(v: u16, le: bool) -> [u8; 2] {
+    if le {
+        v.to_le_bytes()
+    } else {
+        v.to_be_bytes()
+    }
+}
+
+/// Encode a `u32` in byte order `le`.
+fn u32_bytes(v: u32, le: bool) -> [u8; 4] {
+    if le {
+        v.to_le_bytes()
+    } else {
+        v.to_be_bytes()
+    }
+}
+
+/// Serialize a [`Tiff`] back to a bare TIFF block **in the byte order it was
+/// parsed in** ([`Tiff::byte_order`]; [`minimal`] — a block built from
+/// scratch — is little-endian).
+///
+/// Preserving the order is what makes the round-trip faithful. [`Entry::value`]
+/// holds the raw value bytes exactly as they appeared in the input, so the
+/// header must keep declaring the order those bytes are written in. Emitting a
+/// normalized `II` header over big-endian value bytes (as this did before
+/// SPEC-093) silently reinterprets every numeric tag: Orientation `6` became
+/// `1536` (`6 << 8`), and GPS coordinates drifted to plausible-but-wrong
+/// locations. Preserving the order also keeps untargeted tags byte-identical
+/// for free, for every TIFF type — including types this module does not model.
 pub fn serialize(tiff: &Tiff) -> Vec<u8> {
-    let mut out = vec![b'I', b'I', 42, 0, 8, 0, 0, 0];
-    put_ifd(&mut out, &tiff.ifd0);
+    let le = tiff.byte_order.is_le();
+    let mut out = if le {
+        vec![b'I', b'I', 42, 0, 8, 0, 0, 0]
+    } else {
+        vec![b'M', b'M', 0, 42, 0, 0, 0, 8]
+    };
+    put_ifd(&mut out, &tiff.ifd0, le);
     out
 }
 
 /// Append `ifd` (its directory, sub-IFDs, out-of-line values, thumbnail
 /// blob, and its `next` chain) to the end of `out`, patching offset slots
 /// for the region that was reserved for this call as it goes.
-fn put_ifd(out: &mut Vec<u8>, ifd: &Ifd) {
+///
+/// `le` is the block's byte order and applies to every field this function
+/// *writes* (tag, type, count, offsets). Entry values are copied verbatim —
+/// they are already in `le` order, having been parsed from a block with that
+/// header.
+fn put_ifd(out: &mut Vec<u8>, ifd: &Ifd, le: bool) {
     let dir_at = out.len();
     let count = ifd.entries.len() as u16;
-    out.extend_from_slice(&count.to_le_bytes());
+    out.extend_from_slice(&u16_bytes(count, le));
 
     // Reserve the directory (12 bytes/entry) + the 4-byte next-IFD offset
     // slot; entry/offset/sub-IFD patches below write into this reserved
@@ -354,9 +423,9 @@ fn put_ifd(out: &mut Vec<u8>, ifd: &Ifd) {
 
     for (i, entry) in ifd.entries.iter().enumerate() {
         let slot = dir_start + i * 12;
-        out[slot..slot + 2].copy_from_slice(&entry.tag.to_le_bytes());
-        out[slot + 2..slot + 4].copy_from_slice(&entry.ty.to_le_bytes());
-        out[slot + 4..slot + 8].copy_from_slice(&entry.count.to_le_bytes());
+        out[slot..slot + 2].copy_from_slice(&u16_bytes(entry.tag, le));
+        out[slot + 2..slot + 4].copy_from_slice(&u16_bytes(entry.ty, le));
+        out[slot + 4..slot + 8].copy_from_slice(&u32_bytes(entry.count, le));
 
         if entry.tag == TAG_THUMB_OFFSET && ifd.thumbnail.is_some() {
             // Placeholder — patched below once the thumbnail blob (which
@@ -368,8 +437,8 @@ fn put_ifd(out: &mut Vec<u8>, ifd: &Ifd) {
 
         if let Some(sub) = &entry.sub {
             let sub_at = out.len();
-            put_ifd(out, sub);
-            out[slot + 8..slot + 12].copy_from_slice(&(sub_at as u32).to_le_bytes());
+            put_ifd(out, sub, le);
+            out[slot + 8..slot + 12].copy_from_slice(&u32_bytes(sub_at as u32, le));
         } else if entry.value.len() <= 4 {
             let mut inline = [0u8; 4];
             inline[..entry.value.len()].copy_from_slice(&entry.value);
@@ -380,7 +449,7 @@ fn put_ifd(out: &mut Vec<u8>, ifd: &Ifd) {
             }
             let value_at = out.len();
             out.extend_from_slice(&entry.value);
-            out[slot + 8..slot + 12].copy_from_slice(&(value_at as u32).to_le_bytes());
+            out[slot + 8..slot + 12].copy_from_slice(&u32_bytes(value_at as u32, le));
         }
     }
 
@@ -396,7 +465,7 @@ fn put_ifd(out: &mut Vec<u8>, ifd: &Ifd) {
         out.extend_from_slice(thumb);
         if let Some(i) = ifd.entries.iter().position(|e| e.tag == TAG_THUMB_OFFSET) {
             let slot = dir_start + i * 12;
-            out[slot + 8..slot + 12].copy_from_slice(&(thumb_at as u32).to_le_bytes());
+            out[slot + 8..slot + 12].copy_from_slice(&u32_bytes(thumb_at as u32, le));
         }
     }
 
@@ -406,8 +475,244 @@ fn put_ifd(out: &mut Vec<u8>, ifd: &Ifd) {
             out.push(0);
         }
         let next_at = out.len();
-        out[next_slot..next_slot + 4].copy_from_slice(&(next_at as u32).to_le_bytes());
-        put_ifd(out, next);
+        out[next_slot..next_slot + 4].copy_from_slice(&u32_bytes(next_at as u32, le));
+        put_ifd(out, next, le);
     }
     // else: next_slot stays zero (already zero-initialized above) — end of chain.
+}
+
+// ── Tests ────────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::fixture::{build_tiff, build_tiff_with_thumbnail, V};
+    use super::*;
+
+    const TAG_ORIENTATION: u16 = 0x0112;
+    const TAG_GPS_LATITUDE: u16 = 0x0002;
+    const TAG_EXPOSURE_TIME: u16 = 0x829A;
+    const TAG_IMAGE_WIDTH: u16 = 0x0100;
+    const TAG_EXIF_VERSION: u16 = 0x9000;
+
+    /// Grade a serialized block with `kamadak-exif` — a decoder we did not
+    /// write. Our own reader shares the writer's byte-order assumptions, so
+    /// it cannot be trusted to grade a byte-order fix (SPEC-093).
+    fn read_back(block: &[u8]) -> exif::Exif {
+        exif::Reader::new()
+            .read_raw(block.to_vec())
+            .expect("kamadak-exif should parse our serialized block")
+    }
+
+    fn u32_field(exif: &exif::Exif, tag: exif::Tag) -> Option<u32> {
+        exif.get_field(tag, exif::In::PRIMARY)?.value.get_uint(0)
+    }
+
+    /// The rationals of a field, as (num, den) pairs.
+    fn rationals(exif: &exif::Exif, tag: exif::Tag) -> Vec<(u32, u32)> {
+        match &exif.get_field(tag, exif::In::PRIMARY).expect("field").value {
+            exif::Value::Rational(v) => v.iter().map(|r| (r.num, r.denom)).collect(),
+            other => panic!("expected Rational, got {other:?}"),
+        }
+    }
+
+    /// The IFD0 fixture used across the round-trip tests: one value of every
+    /// TIFF type the container lane can meet, so no type is left unexercised.
+    fn every_type() -> Vec<(u16, V)> {
+        vec![
+            (TAG_IMAGE_WIDTH, V::Long(4032)),
+            (TAG_ORIENTATION, V::Short(6)),
+            (TAG_COPYRIGHT, V::Ascii("crustyimg")),
+            (
+                EXIF_PTR,
+                V::Sub(vec![
+                    (TAG_EXPOSURE_TIME, V::Rational(1, 250)),
+                    (TAG_EXIF_VERSION, V::Undefined(b"0231")),
+                ]),
+            ),
+            (
+                GPS_PTR,
+                V::Sub(vec![(
+                    // 50° 29' 44.52" — the real fixture's latitude.
+                    TAG_GPS_LATITUDE,
+                    V::RationalTriplet([(50, 1), (29, 1), (1113, 25)]),
+                )]),
+            ),
+        ]
+    }
+
+    /// `tiff_roundtrip_handles_both_byte_orders` (SPEC-093 failing test):
+    /// a parse→serialize round-trip with **no edit** preserves every value,
+    /// for `MM` and `II` inputs alike. The `MM` half fails pre-fix:
+    /// Orientation 6 comes back as 1536 (`6 << 8`).
+    #[test]
+    fn tiff_roundtrip_handles_both_byte_orders() {
+        for le in [true, false] {
+            let order = if le { "II" } else { "MM" };
+            let block = build_tiff(le, &every_type());
+            let out = serialize(&parse(&block).expect("parse input"));
+            let exif = read_back(&out);
+
+            assert_eq!(
+                u32_field(&exif, exif::Tag::Orientation),
+                Some(6),
+                "{order}: Orientation must survive a no-edit round-trip"
+            );
+            assert_eq!(
+                u32_field(&exif, exif::Tag::ImageWidth),
+                Some(4032),
+                "{order}: LONG must survive"
+            );
+            assert_eq!(
+                rationals(&exif, exif::Tag::ExposureTime),
+                vec![(1, 250)],
+                "{order}: RATIONAL must survive"
+            );
+            assert_eq!(
+                rationals(&exif, exif::Tag::GPSLatitude),
+                vec![(50, 1), (29, 1), (1113, 25)],
+                "{order}: GPS RATIONAL triplet must survive exactly"
+            );
+        }
+    }
+
+    /// `tiff_roundtrip_is_byte_identical_for_untargeted_tags` (SPEC-093
+    /// failing test): a no-edit round-trip reproduces every entry's raw
+    /// `(tag, ty, count, value)` **and** the block's declared byte order.
+    ///
+    /// The byte-order half is load-bearing: the value bytes alone round-trip
+    /// identically even pre-fix — it is the *header* that changed underneath
+    /// them. Asserting bytes without asserting the order they are read in is
+    /// precisely the blind spot that let this ship (identical bytes ≠ same
+    /// meaning).
+    #[test]
+    fn tiff_roundtrip_is_byte_identical_for_untargeted_tags() {
+        for le in [true, false] {
+            let order = if le { "II" } else { "MM" };
+            let block = build_tiff(le, &every_type());
+            let before = parse(&block).expect("parse input");
+            let out = serialize(&before);
+            let after = parse(&out).expect("parse output");
+
+            assert_eq!(
+                after.byte_order, before.byte_order,
+                "{order}: declared byte order must survive — reinterpreting \
+                 carried-over value bytes under a new order silently rewrites them"
+            );
+            assert_ifd_eq(&before.ifd0, &after.ifd0, order);
+        }
+    }
+
+    /// Every entry's opaque `(tag, ty, count, value)` matches, recursively
+    /// through sub-IFDs.
+    fn assert_ifd_eq(a: &Ifd, b: &Ifd, order: &str) {
+        assert_eq!(
+            a.entries.len(),
+            b.entries.len(),
+            "{order}: entry count differs"
+        );
+        for (x, y) in a.entries.iter().zip(&b.entries) {
+            assert_eq!(x.tag, y.tag, "{order}: tag differs");
+            assert_eq!(x.ty, y.ty, "{order}: type differs for {:#x}", x.tag);
+            assert_eq!(x.count, y.count, "{order}: count differs for {:#x}", x.tag);
+            if x.sub.is_none() {
+                assert_eq!(
+                    x.value, y.value,
+                    "{order}: value bytes differ for {:#x}",
+                    x.tag
+                );
+            }
+            match (&x.sub, &y.sub) {
+                (Some(sa), Some(sb)) => assert_ifd_eq(sa, sb, order),
+                (None, None) => {}
+                _ => panic!("{order}: sub-IFD presence differs for {:#x}", x.tag),
+            }
+        }
+    }
+
+    /// The serializer must not silently re-label a big-endian block as
+    /// little-endian while carrying its values over untouched.
+    #[test]
+    fn serialize_preserves_declared_byte_order() {
+        let mm = build_tiff(false, &[(TAG_ORIENTATION, V::Short(6))]);
+        let out = serialize(&parse(&mm).expect("parse MM"));
+        assert_eq!(&out[0..2], b"MM", "a MM input must serialize back as MM");
+
+        let ii = build_tiff(true, &[(TAG_ORIENTATION, V::Short(6))]);
+        let out = serialize(&parse(&ii).expect("parse II"));
+        assert_eq!(&out[0..2], b"II", "an II input must serialize back as II");
+    }
+
+    /// An IFD1 thumbnail must survive a round-trip in either byte order —
+    /// blob intact, length intact, pointer relocated to where the blob
+    /// actually landed.
+    ///
+    /// This was a third, unreported symptom of the same defect: 0x0202
+    /// (ThumbnailLength) is a LONG carried over verbatim, so a big-endian
+    /// input's 6,430-byte thumbnail was re-labelled 504,954,880 bytes and its
+    /// pointer left dangling — the thumbnail was simply gone.
+    #[test]
+    fn roundtrip_preserves_ifd1_thumbnail_for_both_byte_orders() {
+        let thumb: Vec<u8> = (0u8..=255).cycle().take(600).collect();
+        for le in [true, false] {
+            let order = if le { "II" } else { "MM" };
+            let block = build_tiff_with_thumbnail(le, &every_type(), &thumb);
+
+            let before = parse(&block).expect("parse input");
+            assert_eq!(
+                before.ifd0.next.as_ref().and_then(|n| n.thumbnail.as_ref()),
+                Some(&thumb),
+                "{order}: fixture precondition — IFD1 carries the thumbnail"
+            );
+
+            let after = parse(&serialize(&before)).expect("parse output");
+            let ifd1 = after.ifd0.next.expect("IFD1 must survive");
+            assert_eq!(
+                ifd1.thumbnail.as_deref(),
+                Some(thumb.as_slice()),
+                "{order}: thumbnail blob must survive intact"
+            );
+        }
+    }
+
+    /// A block created from scratch (no existing EXIF) is little-endian.
+    #[test]
+    fn minimal_is_little_endian() {
+        assert_eq!(minimal().byte_order, ByteOrder::Little);
+        assert_eq!(&serialize(&minimal())[0..2], b"II");
+    }
+
+    /// `set_ascii_tag` on a big-endian block must not disturb the numeric
+    /// tags around it — the ASCII write is the trigger in `meta set`.
+    #[test]
+    fn set_ascii_tag_on_big_endian_preserves_numeric_tags() {
+        let block = build_tiff(false, &every_type());
+        let mut parsed = parse(&block).expect("parse MM");
+        set_ascii_tag(&mut parsed.ifd0, TAG_ARTIST, "New Artist");
+        let exif = read_back(&serialize(&parsed));
+
+        assert_eq!(u32_field(&exif, exif::Tag::Orientation), Some(6));
+        assert_eq!(
+            rationals(&exif, exif::Tag::GPSLatitude),
+            vec![(50, 1), (29, 1), (1113, 25)]
+        );
+    }
+
+    /// `remove_gps` on a big-endian block must drop GPS and leave every other
+    /// numeric tag exactly as it was — the `meta clean --gps` promise.
+    #[test]
+    fn remove_gps_on_big_endian_preserves_numeric_tags() {
+        let block = build_tiff(false, &every_type());
+        let mut parsed = parse(&block).expect("parse MM");
+        remove_gps(&mut parsed.ifd0);
+        let exif = read_back(&serialize(&parsed));
+
+        assert!(
+            exif.get_field(exif::Tag::GPSLatitude, exif::In::PRIMARY)
+                .is_none(),
+            "GPS must be gone"
+        );
+        assert_eq!(u32_field(&exif, exif::Tag::Orientation), Some(6));
+        assert_eq!(u32_field(&exif, exif::Tag::ImageWidth), Some(4032));
+        assert_eq!(rationals(&exif, exif::Tag::ExposureTime), vec![(1, 250)]);
+    }
 }

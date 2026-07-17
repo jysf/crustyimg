@@ -273,6 +273,7 @@ pub fn copy_metadata(from: &[u8], to: &[u8]) -> Result<Vec<u8>, MetadataError> {
 
 #[cfg(test)]
 mod tests {
+    use super::tiff::fixture::{build_tiff, V as FV};
     use super::tiff::{self, Entry, Ifd};
     use super::*;
     use ::image::{ImageFormat, RgbImage};
@@ -305,6 +306,7 @@ mod tests {
     const TAG_EXPOSURE_TIME: u16 = 0x829A;
     // GPS sub-tags.
     const TAG_GPS_LAT_REF: u16 = 0x0001;
+    const TAG_GPS_LATITUDE: u16 = 0x0002;
     const TAG_GPS_LON_REF: u16 = 0x0003;
     // IFD1 thumbnail location tags.
     const TAG_THUMB_OFFSET: u16 = 0x0201;
@@ -369,7 +371,10 @@ mod tests {
     /// fresh [`base_image`]. This is the crate-internal equivalent of what
     /// `little_exif` used to do for the test fixtures.
     fn image_with_tiff(format: ImageFormat, ifd0: Ifd) -> Vec<u8> {
-        let tiff = tiff::Tiff { ifd0 };
+        let tiff = tiff::Tiff {
+            byte_order: tiff::ByteOrder::Little,
+            ifd0,
+        };
         let tiff_bytes = tiff::serialize(&tiff);
         let base = base_image(format);
         match format {
@@ -389,6 +394,50 @@ mod tests {
             }
             _ => panic!("image_with_tiff only supports Jpeg/Png"),
         }
+    }
+
+    /// Embed an already-serialized TIFF block as `format`'s EXIF on a fresh
+    /// [`base_image`]. Unlike [`image_with_tiff`], the block does not come
+    /// from `tiff::serialize`, so the caller can seed a **big-endian** fixture
+    /// (SPEC-093) — the one thing the writer could not produce, and therefore
+    /// the one thing the old fixtures could never test.
+    fn image_with_tiff_bytes(format: ImageFormat, tiff_bytes: Vec<u8>) -> Vec<u8> {
+        let base = base_image(format);
+        let mut out = Vec::new();
+        match format {
+            ImageFormat::Jpeg => {
+                let mut jpeg = Jpeg::from_bytes(Bytes::from(base)).expect("parse jpeg");
+                jpeg.set_exif(Some(Bytes::from(tiff_bytes)));
+                jpeg.encoder().write_to(&mut out).expect("encode jpeg");
+            }
+            ImageFormat::Png => {
+                let mut png = Png::from_bytes(Bytes::from(base)).expect("parse png");
+                png.set_exif(Some(Bytes::from(tiff_bytes)));
+                png.encoder().write_to(&mut out).expect("encode png");
+            }
+            _ => panic!("image_with_tiff_bytes only supports Jpeg/Png"),
+        }
+        out
+    }
+
+    /// The IFD0 of the SPEC-093 regression fixture: Orientation 6 and a real
+    /// GPS latitude (50° 29' 44.52" = 50.4957), plus an ASCII tag for the
+    /// `set` path to overwrite.
+    fn orientation_and_gps_ifd() -> Vec<(u16, FV)> {
+        vec![
+            (TAG_ORIENTATION, FV::Short(6)),
+            (tiff::TAG_ARTIST, FV::Ascii("Orig Artist")),
+            (
+                tiff::GPS_PTR,
+                FV::Sub(vec![
+                    (TAG_GPS_LAT_REF, FV::Ascii("N")),
+                    (
+                        TAG_GPS_LATITUDE,
+                        FV::RationalTriplet([(50, 1), (29, 1), (1113, 25)]),
+                    ),
+                ]),
+            ),
+        ]
     }
 
     /// A JPEG seeded with Orientation + Copyright (IFD0) and
@@ -617,6 +666,156 @@ mod tests {
             Some("png owner")
         );
         assert_pixels_equal(&input, &out);
+    }
+
+    // ── SPEC-093: numeric-tag fidelity across byte orders ─────────────────────
+    //
+    // Every fixture above is seeded through `tiff::serialize`, which only ever
+    // emitted little-endian blocks — so none of them could exhibit the
+    // byte-order corruption, and the suite stayed green while `meta clean
+    // --gps` silently rewrote Orientation 6 → 1536 on every big-endian photo.
+    // These tests seed the block independently (`fixture::build_tiff`) and run
+    // both orders.
+
+    /// The GPS latitude rationals of a container's EXIF, per `kamadak-exif`.
+    fn gps_latitude(bytes: &[u8]) -> Option<Vec<(u32, u32)>> {
+        let exif = read_exif(bytes)?;
+        match &exif
+            .get_field(exif::Tag::GPSLatitude, exif::In::PRIMARY)?
+            .value
+        {
+            exif::Value::Rational(v) => Some(v.iter().map(|r| (r.num, r.denom)).collect()),
+            _ => None,
+        }
+    }
+
+    /// The Orientation value of a container's EXIF, per `kamadak-exif`.
+    fn orientation(bytes: &[u8]) -> Option<u32> {
+        read_exif(bytes)?
+            .get_field(TAG_EXIF_ORIENTATION, exif::In::PRIMARY)?
+            .value
+            .get_uint(0)
+    }
+
+    /// `clean_gps_preserves_orientation` (SPEC-093 failing test): the privacy
+    /// verb removes GPS and leaves Orientation **exactly** as it was — the
+    /// promise `docs/api-contract.md` makes for `meta clean`. Pre-fix, the
+    /// big-endian half returned Orientation 1536, so the user's photo came
+    /// back rotated wrong in every viewer.
+    #[test]
+    fn clean_gps_preserves_orientation() {
+        for le in [true, false] {
+            let order = if le { "II" } else { "MM" };
+            let input = image_with_tiff_bytes(
+                ImageFormat::Jpeg,
+                build_tiff(le, &orientation_and_gps_ifd()),
+            );
+            assert_eq!(
+                orientation(&input),
+                Some(6),
+                "{order}: fixture precondition"
+            );
+
+            let out = clean_gps(&input).expect("clean");
+
+            assert_eq!(
+                orientation(&out),
+                Some(6),
+                "{order}: clean --gps must preserve Orientation exactly"
+            );
+            assert!(
+                gps_latitude(&out).is_none(),
+                "{order}: GPS must actually be gone"
+            );
+            assert_pixels_equal(&input, &out);
+        }
+    }
+
+    /// `set_tags_preserves_orientation_and_gps` (SPEC-093 failing test): an
+    /// ASCII-tag write must not disturb the numeric tags around it —
+    /// Orientation unchanged, GPS unchanged **and not degraded**. Pre-fix the
+    /// big-endian half returned Orientation 1536 and a latitude of
+    /// 50.4843223958333 instead of 50.4957: a plausible-but-wrong location
+    /// ~1.3 km away, which is far worse than an obvious error.
+    #[test]
+    fn set_tags_preserves_orientation_and_gps() {
+        for le in [true, false] {
+            let order = if le { "II" } else { "MM" };
+            let input = image_with_tiff_bytes(
+                ImageFormat::Jpeg,
+                build_tiff(le, &orientation_and_gps_ifd()),
+            );
+            let before = gps_latitude(&input).expect("fixture GPS");
+
+            let out = set_tags(
+                &input,
+                &TagSet {
+                    artist: Some("New Artist".to_string()),
+                    ..TagSet::default()
+                },
+            )
+            .expect("set");
+
+            assert_eq!(
+                primary_string(&read_exif(&out).expect("reparse"), TAG_EXIF_ARTIST).as_deref(),
+                Some("New Artist"),
+                "{order}: the targeted tag should be written"
+            );
+            assert_eq!(
+                orientation(&out),
+                Some(6),
+                "{order}: set must preserve Orientation exactly"
+            );
+            assert_eq!(
+                gps_latitude(&out).as_ref(),
+                Some(&before),
+                "{order}: set must preserve GPS exactly — no precision loss"
+            );
+            assert_pixels_equal(&input, &out);
+        }
+    }
+
+    /// `meta strip` removes all metadata, so it cannot corrupt a numeric tag —
+    /// but that is an assumption worth pinning rather than asserting. Re-checked
+    /// against a big-endian fixture (SPEC-093 acceptance).
+    #[test]
+    fn strip_all_on_big_endian_removes_everything() {
+        let input = image_with_tiff_bytes(
+            ImageFormat::Jpeg,
+            build_tiff(false, &orientation_and_gps_ifd()),
+        );
+        assert_eq!(orientation(&input), Some(6), "fixture precondition");
+
+        let out = strip_all(&input).expect("strip");
+        assert!(read_exif(&out).is_none(), "no EXIF should remain");
+        assert_pixels_equal(&input, &out);
+    }
+
+    /// `meta copy` grafts SRC's EXIF onto DST at the **segment** level — it
+    /// never parses or re-serializes the TIFF block, so a big-endian donor's
+    /// numeric tags must arrive intact. Re-checked, not assumed (SPEC-093
+    /// acceptance).
+    #[test]
+    fn copy_metadata_preserves_big_endian_numeric_tags() {
+        let src = image_with_tiff_bytes(
+            ImageFormat::Jpeg,
+            build_tiff(false, &orientation_and_gps_ifd()),
+        );
+        let dst = base_image(ImageFormat::Jpeg);
+        let before = gps_latitude(&src).expect("src GPS");
+
+        let out = copy_metadata(&src, &dst).expect("copy");
+
+        assert_eq!(
+            orientation(&out),
+            Some(6),
+            "copy must carry Orientation across intact"
+        );
+        assert_eq!(
+            gps_latitude(&out).as_ref(),
+            Some(&before),
+            "copy must carry GPS across intact"
+        );
     }
 
     #[test]

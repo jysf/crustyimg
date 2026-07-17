@@ -3,7 +3,7 @@
 task:
   id: SPEC-093
   type: bug
-  cycle: design
+  cycle: verify
   blocked: false
   priority: high
   complexity: M
@@ -28,11 +28,33 @@ value_link: >
   by the verbs whose entire promise is "we only touch what you asked."
 
 cost:
-  sessions: []
+  sessions:
+    - cycle: build
+      interface: claude-code
+      model: claude-opus-4-8
+      tokens_total: 300000
+      estimated_usd: 3.00
+      recorded_at: 2026-07-16
+      note: >
+        main-loop build session (not a metered subagent) — ORDER-OF-MAGNITUDE ESTIMATE per
+        docs/cost-tracking.md's autonomous-run guidance (no subagent_tokens available).
+        Diagnosed the mechanism empirically rather than from the spec's stated one: the spec's
+        REFUTED byte-order hypothesis was in fact CORRECT — its refutation was an artifact of
+        exiftool's `-ExifByteOrder` being silently ignored on files that already carry EXIF, so
+        the "II" arm was still MM. Also found the spec's cited repro file
+        (bench/corpus/photo_forest_cc0.jpg) carries no EXIF at all; seeded MM/II fixtures with
+        exiftool instead. Fix: `Tiff::byte_order`, preserved through serialize (DEC-076, amends
+        DEC-046). Wrote 8 failing tests first behind a serialize-independent fixture builder
+        (src/metadata/tiff/fixture.rs), watched them fail, then fixed; MUTATION-TESTED all 8 by
+        reverting the fix in place. Graded end-to-end with exiftool 13.55 (independent decoder)
+        across clean/set/copy/strip × MM/II. Found a third unreported symptom (IFD1 thumbnail
+        length 6430 → 504954880, dangling pointer). Gates green (test default 745 / avif 758,
+        clippy, fmt, no-default-features, `just validate`, decisions-audit 0 structural errors).
+        Rate: Opus blended (~$9/MTok, 80/20 in/out, no cache discount, per AGENTS.md §4).
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 300000
+    estimated_usd: 3.00
+    session_count: 1
 ---
 
 # SPEC-093: the metadata write path corrupts numeric EXIF tags
@@ -112,21 +134,30 @@ coverage hide it.
 
 ## Acceptance Criteria
 
-- [ ] **`meta clean --gps` preserves Orientation exactly** (6 stays 6) — driven end-to-end with an
-      independent tool (exiftool), not just our own reader.
-- [ ] **`meta set --artist/--copyright/--description` preserves Orientation AND GPS exactly** (no
-      precision loss: 50.4957 stays 50.4957 to the source's precision).
-- [ ] Round-trip fidelity for **every** TIFF type present in a real fixture — SHORT, LONG, RATIONAL,
+- [x] **`meta clean --gps` preserves Orientation exactly** (6 stays 6) — driven end-to-end with an
+      independent tool (exiftool), not just our own reader. *Release binary + exiftool: MM input →
+      Orientation **6**, GPS removed, Artist preserved. II likewise.*
+- [x] **`meta set --artist/--copyright/--description` preserves Orientation AND GPS exactly** (no
+      precision loss: 50.4957 stays 50.4957 to the source's precision). *exiftool: MM → Orientation **6**,
+      GPSLatitude **50.4957**, GPSLongitude **4.4699**, Artist updated.*
+- [x] Round-trip fidelity for **every** TIFF type present in a real fixture — SHORT, LONG, RATIONAL,
       ASCII, UNDEFINED — for **both** input byte orders (`MM` and `II`). Untargeted tags byte-identical.
-- [ ] `meta copy` and `meta strip` re-checked for the same defect (copy grafts EXIF; strip removes all —
-      confirm each is correct, don't assume).
-- [ ] A test exists that **fails on the pre-fix code** — demonstrate it (the whole point is that the
-      current suite is green while the bug ships).
-- [ ] Verified against an **independent decoder** (exiftool and/or `sips`), because our own reader may
-      share the writer's misunderstanding.
-- [ ] `docs/api-contract.md`'s `meta clean` "preserving … orientation" claim is **true as written**.
-- [ ] `cargo test` (default **and** `--features avif`), `cargo clippy`, `cargo fmt --check`,
-      `cargo build --no-default-features`, `just validate` pass.
+      *`every_type()` fixture covers all five + sub-IFDs (ExifIFD/GPS) + IFD1 thumbnail, both orders.*
+- [x] `meta copy` and `meta strip` re-checked for the same defect (copy grafts EXIF; strip removes all —
+      confirm each is correct, don't assume). *Both **confirmed correct** — they operate at the
+      segment level and never reach the TIFF writer. Pinned by
+      `copy_metadata_preserves_big_endian_numeric_tags` + `strip_all_on_big_endian_removes_everything`
+      and by exiftool on real MM files. The copy test correctly does **not** fail under the mutation —
+      that is the evidence it was unaffected, rather than an assumption.*
+- [x] A test exists that **fails on the pre-fix code** — demonstrate it. *All **8** new tests fail with
+      the fix reverted in place (mutation-tested; list in Build Completion). `clean_gps_preserves_orientation`
+      pre-fix: `left: Some(1536), right: Some(6)`.*
+- [x] Verified against an **independent decoder** (exiftool and/or `sips`). *Graded end-to-end with
+      **exiftool 13.55**; unit/integration tests grade with **kamadak-exif**, not our own reader.*
+- [x] `docs/api-contract.md`'s `meta clean` "preserving … orientation" claim is **true as written**.
+      *Reconciled — and its stale `little_exif` attribution corrected (DEC-046 removed that crate).*
+- [x] `cargo test` (default **and** `--features avif`), `cargo clippy`, `cargo fmt --check`,
+      `cargo build --no-default-features`, `just validate` pass. *745 / 758 / clean / clean / clean.*
 
 ## Failing Tests (written at design)
 
@@ -169,9 +200,120 @@ coverage hide it.
 ---
 
 ## Build Completion
-- **Branch:** · **PR:** · **All acceptance criteria met?** · **New decisions:** · **Deviations:** · **Follow-ups:**
+
+- **Branch:** `spec-093-metadata-corruption` · **PR:** #94 · **All acceptance criteria met?** **Yes** (8/8, each with evidence above) · **New decisions:** **DEC-076** (amends DEC-046) · **Deviations:** two, both recorded below · **Follow-ups:** two, filed below
+
+### The mechanism (diagnosed, not assumed)
+
+`parse` stores each entry's value bytes **verbatim in the input's byte order** (the opaque-value model
+that lets unknown tags round-trip). `serialize` emitted a hardcoded `II` header — DEC-046's
+"normalize to little-endian" — while copying those big-endian bytes straight through. **Nothing
+byte-swapped them.** The header ends up lying about its own contents:
+
+- **Orientation** (SHORT): `0x00 0x06` read LE = `0x0600` = **1536** = `6 << 8`.
+- **GPS** (RATIONAL): stays *plausible*, which is why it's the worst symptom. `50° 29' 44.52"` is
+  `50/1, 29/1, 1113/25`. Byte-reversing a `u32` whose value fits in the low byte multiplies it by
+  `2^24` — and a RATIONAL is a **ratio**, so the factor cancels: `50/1` → `838860800/16777216` = exactly
+  50. Degrees and minutes survive by arithmetic luck; `1113` needs two bytes, so seconds drift
+  `44.52"` → `3.56"`. Output: a well-formed coordinate ~1.3 km off.
+- **Thumbnail length** (LONG): 6,430 → **504,954,880**, dangling the IFD1 pointer. A **third symptom
+  nobody had reported**, found while fixing this and fixed by the same change.
+
+### ⚠️ The spec's "REFUTED" hypothesis was correct — the refutation was the error
+
+SPEC-093 instructed: *"`-ExifByteOrder=MM` → 1536 and `-ExifByteOrder=II` → 1536. The bug is
+unconditional… do not re-derive it."* **The bug is byte-order dependent.** Measured: MM → 1536,
+II → **6, correct**.
+
+The framing's experiment was broken, not its hypothesis: **exiftool's `-ExifByteOrder` only applies
+when EXIF is created from scratch — on a file that already carries EXIF it is silently ignored.** The
+"II" arm was still an MM file. Verified directly: `-ExifByteOrder=II` on an MM-EXIF JPEG leaves it MM.
+The refutation had the *shape* of evidence (two arms, same result) while testing one condition twice.
+
+Also corrected at build: the spec's repro cites `bench/corpus/photo_forest_cc0.jpg`, but the committed
+corpus copy **carries no EXIF at all** (exiftool: no Orientation, no GPS) — it cannot host this repro.
+Fixtures were seeded from it with exiftool instead.
+
+### The fix
+
+`Tiff` gains a `byte_order`; `serialize` emits the header — and every tag/type/count/offset it
+writes — in the order the block was parsed in. Values keep passing through verbatim. `minimal()`
+(no existing EXIF) stays little-endian. **Rejected** the alternative of byte-swapping values into a
+canonical LE form: that forces the writer to *understand* every value it touches, which is exactly
+what the opaque model avoids — any type modelled wrong, or not modelled (`type_size` treats unknown
+codes as byte-sized), would be silently mangled. Preserving the order makes round-trip fidelity hold
+for **every** type, including ones this module has never heard of. See DEC-076.
+
+### The coverage (the real deliverable)
+
+`src/metadata/tiff/fixture.rs` — a TIFF builder **deliberately independent of `serialize`**. It takes
+*typed* values (`V::Short(6)`, not "these two bytes") and encodes them itself in the requested order.
+The old fixtures were all seeded by calling `serialize`, which could only emit LE — so the suite had
+**no big-endian fixture at all**, and its one Orientation assertion checked `is_some()`, never `== 6`.
+It could not fail.
+
+**All 8 new tests mutation-tested** — reverting the fix in place (`let le = true;`) fails every one:
+
+```
+metadata::tests::clean_gps_preserves_orientation
+metadata::tests::set_tags_preserves_orientation_and_gps
+metadata::tiff::tests::tiff_roundtrip_handles_both_byte_orders
+metadata::tiff::tests::tiff_roundtrip_is_byte_identical_for_untargeted_tags
+metadata::tiff::tests::serialize_preserves_declared_byte_order
+metadata::tiff::tests::roundtrip_preserves_ifd1_thumbnail_for_both_byte_orders
+metadata::tiff::tests::set_ascii_tag_on_big_endian_preserves_numeric_tags
+metadata::tiff::tests::remove_gps_on_big_endian_preserves_numeric_tags
+```
+
+Coverage spans SHORT · LONG · RATIONAL (single + GPS triplet) · ASCII · UNDEFINED, sub-IFDs
+(ExifIFD/GPS), the IFD1 thumbnail, and **both** byte orders — graded by kamadak-exif, then by exiftool
+end-to-end.
+
+Note `tiff_roundtrip_is_byte_identical_for_untargeted_tags` fails **only** on its byte-order
+assertion: the value bytes round-trip identically even pre-fix, because it was the *header* that moved
+underneath them. A byte-identity test without an order assertion would have passed on the broken code —
+the same shape of blindness as SPEC-087/089's proofs against a shared-defect oracle.
+
+### Deviations
+
+1. **Took DEC-076, not DEC-075.** The spec said "next actually-free". DEC-075 is on disk nowhere, but
+   **SPEC-090 names it in its acceptance criteria** and SPEC-091 reserves "DEC-075+" — taking it would
+   collide with an open spec. 074 is the highest on disk; 072/073 are gaps/claimed. Cost of the gap: nil.
+2. **Also corrected `docs/api-contract.md`'s `little_exif` attribution** for `meta clean`/`meta set`.
+   Not in the spec's scope, but those are the exact lines the spec sent me to reconcile and the crate
+   was removed by DEC-046 — leaving it would have made the reconciled sentence false in a new way.
+
+### Follow-ups (not this PR — `one-spec-per-pr`)
+
+1. **Repo-wide `little_exif` doc drift.** The crate is gone from `Cargo.toml`, but `AGENTS.md` (§5 tech
+   stack, §14 glossary), `docs/architecture.md` (×4, incl. the dep table and a Mermaid diagram), and
+   `docs/data-model.md` (×2) still list it as a live dependency. Found by grep; out of scope here.
+   (`docs/sessions/**` and `docs/backlog.md` are legitimately historical — leave them.)
+2. **`meta copy`'s PNG limitation cites a crate that no longer exists.** `docs/api-contract.md` ~345
+   and DEC-030 justify JPEG-only by "`little_exif`/`img-parts` use incompatible PNG EXIF chunks". With
+   `little_exif` gone the rationale may no longer hold — PNG `meta copy` might now be free. Worth a
+   frame; needs its own spec, not a doc edit.
+
 ### Build-phase reflection
-1. <answer> 2. <answer> 3. <answer>
+
+1. **What surprised me?** That the spec's *most emphatic* instruction — "REFUTED… do not re-derive it"
+   — was the wrong one, and that the error was one layer below where anyone was looking. The hypothesis
+   was right; the *tool* silently no-op'd the control. The generalizable lesson isn't about EXIF: **a
+   control you never verified applied is not a control.** The refutation looked like strong evidence
+   (two arms, same result) while testing one condition twice. It cost one command to check — and the
+   spec's own instruction to grade with an independent decoder is what made checking natural.
+
+2. **What was hardest?** Deciding the failing test's *shape*. The obvious one — "round-trip reproduces
+   every value byte" — **passes on the broken code**, because the bytes were never what changed. I only
+   caught it by asking what pre-fix output would actually look like before writing the assertion. That's
+   the same trap that made SPEC-087/089's byte-identity proofs certify the defect, reappearing one level
+   down. The invariant had to be *semantic* (decode per the block's own declared order), not byte-level.
+
+3. **What would I do differently?** I'd have reached for mutation-testing sooner. I wrote 8 tests and
+   *believed* they covered the bug; reverting the fix in place is what turned that into evidence — and
+   it paid twice, once by proving the 7 real tests bite, and once by proving `meta copy` was genuinely
+   unaffected (its test correctly *doesn't* fail) rather than my assuming it. "Confirm each is correct,
+   don't assume" has a mechanical answer, and it's cheap.
 
 ---
 

@@ -102,6 +102,14 @@ A `tiff` submodule with a bounded, panic-free parser + a normalizing serializer:
 - **Serialize** to a normalized **little-endian** TIFF (matches what `little_exif` emitted;
   consumers handle either order), relocating out-of-line values and the IFD1 thumbnail
   blob (`JPEGInterchangeFormat 0x0201` + `0x0202`) with recomputed offsets.
+  > ⚠️ **Amended by [DEC-076](DEC-076-tiff-writer-preserves-input-byte-order.md)
+  > (SPEC-093): normalizing was wrong and silently corrupted data.** Entry values are
+  > carried through *verbatim in the input's byte order*, so re-labelling the header
+  > `II` made every reader misread a big-endian block's numeric tags (Orientation
+  > `6` → `1536`; GPS drifted to a plausible-but-wrong coordinate; the IFD1
+  > thumbnail length to `504954880`, dangling the pointer). The writer now
+  > **preserves the input's byte order**; only `minimal()` (no existing EXIF) is
+  > little-endian.
 - **Embed** via `img-parts` `set_exif(Some(tiff))` (JPEG APP1 + PNG native `eXIf`),
   preserving pixels exactly (`metadata-not-via-pixel-encode`). No-EXIF cases keep today's
   behavior: `set` synthesizes a minimal TIFF; `clean` is a byte-faithful no-op.
