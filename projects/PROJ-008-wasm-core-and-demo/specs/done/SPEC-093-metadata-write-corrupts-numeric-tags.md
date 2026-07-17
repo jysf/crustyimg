@@ -3,7 +3,7 @@
 task:
   id: SPEC-093
   type: bug
-  cycle: verify
+  cycle: ship
   blocked: false
   priority: high
   complexity: M
@@ -71,10 +71,26 @@ cost:
         fixture-builder independence, GPS precision, thumbnail LONG repair, gates
         (745/758/clippy/fmt/no-default-features/just validate), CI all-pass, DEC no collision.
         Rate: Opus blended (~$9/MTok, per AGENTS.md §4).
+    - cycle: ship
+      interface: claude-code
+      model: claude-opus-4-8
+      tokens_total: null
+      estimated_usd: 0.70
+      recorded_at: 2026-07-17
+      note: >
+        orchestrator main loop (un-metered, §4) — ESTIMATE. Framed the bug (independently reproduced),
+        dispatched build + verify (both Opus). **On verify's report I re-tested the mechanism and was
+        WRONG** — reused an `-o` output filename under a no-overwrite CLI, read stale MM output, and
+        reported "verified-II→1536" while accusing the build of the same failure mode; verify's
+        negative-control (unique filenames) proved the build correct. Then merged: CI hit the SPEC-091
+        re_rav1d DisjointMut flake on a required `avif` check (BLOCKED a clean PR); confirmed it's the
+        flake (same commit passed on the sibling trigger; SPEC-093 diff touches only metadata+docs),
+        rerun cleared it → CLEAN → squash-merge (d14a13a). Bookkeeping, memory + brag, lessons banked
+        (incl. my own unverified re-test).
   totals:
     tokens_total: 540000
-    estimated_usd: 5.15
-    session_count: 2
+    estimated_usd: 5.85
+    session_count: 3
 ---
 
 # SPEC-093: the metadata write path corrupts numeric EXIF tags
@@ -404,4 +420,31 @@ behavior.
 ---
 
 ## Reflection (Ship)
-1. <answer> 2. <answer> 3. <answer>
+1. **This stage's disease — a plausible test result standing in for a checked one — is model-independent,
+   and I proved it by committing it twice in one spec.** First at framing: I "refuted" the byte-order
+   hypothesis with `-ExifByteOrder=MM` vs `=II` giving the same result — but exiftool silently ignores
+   that flag on a file that already carries EXIF, so I tested one condition twice (the same trap that
+   authored [[a-control-you-never-verified-applied-is-not-a-control]]). Then at ship: I "disproved" the
+   build's mechanism by reusing an `-o out.jpg` name under a no-overwrite CLI, reading stale MM output,
+   and reporting "verified-II→1536" — *while accusing the builder of exactly this*. Both had the SHAPE of
+   evidence (two arms → same result) while controlling nothing. Verify caught both with negative controls
+   I skipped: unique filenames, and constructing byte order from a genuinely-empty base. **The build ran
+   on Opus and also made a confident-wrong claim ("II→6 correct… `-ExifByteOrder` ignored") — right
+   conclusion, wrong reason.** Across SPEC-088/089/093 this failure now has instances on both models and
+   at every role including the orchestrator. It is a PROCESS gap; the fix is a negative control, not a
+   better model.
+2. **The bug's whole existence is a testing-methodology lesson, and the fix encodes the cure.** It
+   shipped for a month because (a) `set` writes only ASCII tags and **byte order doesn't apply to ASCII**,
+   so every test checked exactly the tags that couldn't fail; and (b) every "proof" was byte-identity
+   against a pre-move oracle that *shared the defect* — **identical to the old bytes ≠ correct bytes**
+   ([[fixtures-from-the-code-under-test-cannot-fail]] generalized to oracles). The build's response is the
+   template: a fixture builder deliberately independent of `serialize`, coverage spanning SHORT/LONG/
+   RATIONAL/ASCII/UNDEFINED × both byte orders, all 8 tests mutation-verified, graded by exiftool (a
+   decoder we didn't write). It even surfaced a third unreported symptom (thumbnail length 6430 →
+   504954880). This is the strongest engineering the stage produced.
+3. **The re_rav1d flake (SPEC-091) has escalated from annoyance to pipeline-blocker.** It failed a
+   *required* `avif` CI check on this clean PR and only cleared on a same-commit rerun. Every future PR
+   that decodes AVIF in a test now carries that merge-blocking risk. SPEC-091 is framed and independent;
+   its priority is a live maintainer decision as of ship. Follow-ups filed (not swept in, per
+   one-spec-per-pr): repo-wide stale `little_exif` references; `meta copy`'s PNG rationale citing a
+   removed crate.

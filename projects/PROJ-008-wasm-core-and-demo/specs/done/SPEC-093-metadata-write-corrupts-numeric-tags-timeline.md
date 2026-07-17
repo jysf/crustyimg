@@ -34,4 +34,15 @@ Cycle prompts live in `prompts/SPEC-093-<cycle>.md`.
   (test 745/758, clippy, fmt, no-default-features, `just validate`), CI all-pass incl. browser smoke, DEC-076
   vs DEC-075 no collision (075 reserved by open SPEC-090/091), api-contract "orientation" claim now true, two
   follow-ups correctly deferred.
-- [ ] ship — orchestrator.
+- [x] orchestrator re-test (on verify's report) — **I was WRONG.** Re-tested the mechanism, reused an `-o`
+  output filename under a no-overwrite CLI, read stale MM output, and reported "verified-II→1536" while
+  accusing the build of the stage's own failure mode. Verify's negative control (unique filenames, byte
+  order built from a genuinely-empty base) proved the build correct: pre-fix MM→1536, II→6 no-op; post-fix
+  both→6, order preserved. Second time in one spec I let a plausible test stand in for a checked one
+  (framing's `-ExifByteOrder` refutation was the first). Lesson: a negative control is not optional.
+- [x] ship — squash-merged PR #94 (**d14a13a**) 2026-07-17. CI hit the **SPEC-091 re_rav1d DisjointMut
+  flake** on a *required* `avif` check (BLOCKED a clean PR); confirmed it's the flake (same commit passed
+  on the sibling trigger; the SPEC-093 diff touches only `src/metadata` + docs), rerun cleared it → CLEAN.
+  Bookkeeping: cycle→ship, 3 cost sessions with `model:` (build Opus $3.00 / verify Opus $2.15 / ship
+  $0.70 ≈ **$5.85**), timeline, DEC-076, archive, STAGE-030, memory + brag. Lessons banked incl. my own
+  unverified re-test. The flake blocking a required check escalates SPEC-091 (maintainer to sequence).
