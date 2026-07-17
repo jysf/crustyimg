@@ -148,18 +148,27 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`. Build order: **084 �
   dimension contract (≤2048px) means passthrough-the-original isn't an equivalent fallback. Decide
   claim-vs-behavior **with evidence**; DEC-075. `optimize`'s unconditional keep-dims guarantee is out of
   scope and unchanged. Complexity S, priority high (flagship promise).
-- [ ] SPEC-091 (optional / may fold) — `convert --to` rename + social/archive recipes.
+- [~] SPEC-091 (design — framed build-ready 2026-07-17) — **AVIF decode thread policy**: `decode_obus`
+  uses `Settings::new()` (dav1d default `n_threads=0` = ALL CORES) and never caps threads, so EVERY
+  decoder spawns its own pool — inside a rayon batch that already parallelizes across files (DEC-006).
+  Very likely what trips re_rav1d's `DisjointMut` overlap check (SPEC-088's flake). Severity BOUNDED:
+  upstream's contract says provenanceless targets ⇒ wrong results, **NOT** memory unsafety — not a
+  security fix; the bite is a wrong SSIMULACRA2 score + untrustworthy decode timings. Repro FIRST, then
+  measure single + batch, then decide (`set_n_threads(1)` is the prior). **Land before SPEC-083** or its
+  BENCHMARKS decode numbers are measured under oversubscription. DEC at build. Complexity S.
+- [ ] SPEC-092 (optional / may fold) — `convert --to` rename + social/archive recipes.
 
-**Count:** 5 shipped (SPEC-084/085/086/087/088) / 2 in design (SPEC-089, SPEC-090) / 1 pending
-(SPEC-091, optional `convert --to`). The measurable-honesty pillar is **done** (088). Remaining: 089
-closes the `meta` group; 090 makes the flagship's headline promise true as written. **Both touch
-`src/cli/mod.rs` / the decision path — serialize them.** **Then: reframe SPEC-080 (demo)** — the `web`
-hero it needs is shipped.
+**Count:** 5 shipped (SPEC-084/085/086/087/088) / 3 in design (SPEC-089, SPEC-090, SPEC-091) / 1 pending
+(SPEC-092, optional `convert --to`). The measurable-honesty pillar is **done** (088). Remaining: 089
+closes the `meta` group; 090 makes the flagship's headline promise true as written; 091 sets the AVIF
+decode thread policy (and must land before SPEC-083). **089 + 090 both touch `src/cli/mod.rs` / the
+decision path — serialize them**; 091 is independent (`src/image/avif.rs`) and can run in parallel.
+**Then: reframe SPEC-080 (demo)** — the `web` hero it needs is shipped.
 
-**Follow-ups filed out of SPEC-088** (not blocking the stage): (a) a regression test asserting
+**Follow-up still filed out of SPEC-088** (not blocking): a regression test asserting
 `bench/corpus/photo_forest_cc0.jpg` classifies `photograph`, so a future classifier change fails loudly
-instead of silently falsifying the corpus README's class column; (b) the **re_rav1d `DisjointMut`
-investigation** (see the SPEC-088 line above).
+instead of silently falsifying the corpus README's class column. (The re_rav1d investigation is now
+**SPEC-091**.)
 ## Design Notes
 
 - **Hard cutover discipline.** Rename/remove/merge freely; no aliases, no deprecation, no CHANGELOG
