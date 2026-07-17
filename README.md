@@ -160,7 +160,7 @@ crustyimg convert photo.jpg --format avif -o out.avif   # AVIF: needs a build wi
 crustyimg auto-orient photo.jpg -o fixed.jpg     # bake EXIF orientation into pixels, clear the tag
 crustyimg meta strip photo.jpg -o clean.jpg       # remove ALL metadata (EXIF/IPTC/XMP/ICC)
 crustyimg meta clean photo.jpg --gps -o nogeo.jpg # remove only GPS/location, keep the rest
-crustyimg set photo.jpg --artist "Jane Doe" --copyright "© 2026" -o tagged.jpg
+crustyimg meta set photo.jpg --artist "Jane Doe" --copyright "© 2026" -o tagged.jpg
 crustyimg meta copy --from original.jpg --to edited.jpg      # copy EXIF+ICC between images
 ```
 

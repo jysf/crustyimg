@@ -37,7 +37,7 @@ constraints:
     rationale: "The prototype re-read each file per op. Decode-once is the architecture. See DEC-002."
 
   - id: metadata-not-via-pixel-encode
-    rule: "Metadata edits (meta strip/meta clean/set/meta copy) must use the container lane and must NOT route through the pixel decode/encode path."
+    rule: "Metadata edits (meta strip/meta clean/meta set/meta copy) must use the container lane and must NOT route through the pixel decode/encode path."
     severity: blocking
     paths: ["src/metadata/**", "src/sink/**"]
     added_by: claude

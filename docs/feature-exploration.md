@@ -84,7 +84,7 @@ Two lanes:
   `little_exif` or `rexiv2` for tag read/write); pixels untouched
 
 Commands: `meta strip` (all) · `meta clean --gps` (drop only location — privacy win) ·
-`set --artist/--copyright/--description` · `meta copy from→to`.
+`meta set --artist/--copyright/--description` · `meta copy from→to`.
 
 Default-preserve policy to settle as a DEC: on pixel-lane ops, keep
 orientation + ICC + copyright, drop GPS unless asked otherwise.
