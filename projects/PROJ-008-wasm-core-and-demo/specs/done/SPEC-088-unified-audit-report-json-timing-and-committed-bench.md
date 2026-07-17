@@ -3,7 +3,7 @@
 task:
   id: SPEC-088
   type: story
-  cycle: verify
+  cycle: ship
   blocked: false
   priority: high
   complexity: M
@@ -119,10 +119,25 @@ cost:
         stdout-sink, 0 diffs); blast radius is exactly the one documented correction. All gates green.
         Found + reported (NOT fixed, out of scope): a PRE-EXISTING `--features avif` suite flake in
         re_rav1d's debug-only DisjointMut overlap check.
+    - cycle: ship
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: 0.95
+      recorded_at: 2026-07-16
+      note: >
+        orchestrator main loop (un-metered, §4) — ESTIMATE. Spanned the whole build→verify→fix→
+        re-verify→fix2→ship arc: dispatch + adjudication of two punch lists, the maintainer's corpus
+        ruling, and an independent spot-check of fix round 1 that FOUND the guard's default-stdout hole
+        (`web photo.jpg --json` → 126,068 B of JSON+image at exit 0) which both verify passes had missed —
+        chartering fix round 2. Then a clean spot-check of fix round 2 (guard closed + scoped: 4 verb×door
+        combos exit 2/0 bytes, `-o FILE`/`--out-dir`/`--timing` positive controls intact, README class
+        column driven against the engine), `gh pr update-branch` (PR was BEHIND), CI polled green,
+        squash-merge (a6b74de), bookkeeping, memory + brag. Framed SPEC-090 mid-flight from verify's
+        out-of-scope `web`-ships-larger finding.
   totals:
     tokens_total: 1850000
-    estimated_usd: 18.80
-    session_count: 5
+    estimated_usd: 19.75
+    session_count: 7
 ---
 
 # SPEC-088: unified audit report (`--json`/`--timing`) + committed bench
@@ -727,4 +742,29 @@ SPEC-088 defect, and fixing it here would exceed this pass's charter.
 ---
 
 ## Reflection (Ship)
-1. <answer> 2. <answer> 3. <answer>
+1. **Every defect in this spec was a claim standing in for a check — never a broken engine.** Six rounds,
+   and the engine was sound in round one: byte-identity held at 28/28, then 32/32, then 55/55; the schema
+   really was additive; the asset really was CC0. What kept failing was the *reporting layer*, in the same
+   shape each time, each round finding the previous round's blind spot: the build claimed a criterion
+   citing evidence that didn't exist (DEC-074 has zero occurrences of "lint"); the fix cited real
+   measurements **of the wrong file** (0.02/7.58 = the 960px intermediate, not the shipped artifact —
+   *a true conclusion launders its false evidence*); and the guard was tested where it was **implemented**
+   (`-o -`) rather than where the criterion **applies** (any image-to-stdout), so `web photo.jpg --json`
+   shipped 126,068 B of garbage at exit 0. Three lessons, all banked: [[a-citation-looks-like-prose-not-a-claim]]
+   (sharpened with "re-measure the artifact you ship, not the working file"), *synthetic math cannot make
+   a photograph*, and *test the guard where the criterion applies, not where the code lives*.
+2. **A test harness that exercises nothing is worse than no harness, because it reports green.** `just bench`
+   built `--release --features avif` and encoded **zero AVIFs** for its entire first life — every synthetic
+   image measures `flat_ratio 1.00` → the classifier says `graphic-logo` → the lossy branch never opened.
+   The filename `photo_*.jpg` was the strongest false label in the repo: it made the corpus *look* like it
+   covered the flagship path. Fixed with a real CC0 photo that classifies `photograph` **on pixel content**
+   (`flat_ratio 0.04`, `entropy 7.37`) so it survives metadata stripping — the property that made it the
+   right choice, and one that only a driven measurement could establish.
+3. **The layered discipline earned its cost here, and the decisive catch was one command.** ~$19.75 across
+   7 sessions is roughly 3× a clean spec — but the alternative was shipping an audit surface whose primary
+   invocation (`crustyimg web photo.jpg --json | jq`) returns unparseable bytes at exit 0. Note where the
+   catches came from: verify found the fabricated citation, re-verify found the wrong-file measurement, and
+   the *orchestrator's own spot-check* — one driven command outside the fixer's and verify's shared frame —
+   found the guard hole both had missed. Each layer was blind to its own frame; only a different vantage
+   point saw past it. **Follow-up filed:** a test asserting `photo_forest_cc0.jpg` classifies `photograph`,
+   so a future classifier change fails loudly instead of silently falsifying the README's class column.

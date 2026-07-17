@@ -121,11 +121,20 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`. Build order: **084 �
   **Grounding correction (see Design Notes):** a top-level `set` verb (SPEC-027) DOES exist — it was left
   top-level per scope; **maintainer decided to fold `set` → `meta set`** in a follow-up so the group is
   whole. Complexity S.
-- [~] SPEC-088 (design — framed build-ready 2026-07-15) — **unified audit report** (`--json` +
-  `--timing` across optimize/web/apply/lint, extending the `optimize.explain/v1` schema additively) +
-  a **committed bench** (a `just bench` harness + a small *license-clean* corpus, offline/no-telemetry,
-  external-corpus-capable) — the reproducible numbers **SPEC-083 BENCHMARKS** stands on. Don't commit
-  the maintainer's real photos.
+- [x] SPEC-088 (shipped 2026-07-16, PR #92, **DEC-074**, ~$19.75 / 7 sessions) — **unified audit report**
+  (`--json` + `--timing` on optimize/web/apply, `optimize.explain/v1` extended **additively + gated**;
+  `lint` reconciled as the documented `lint --format json`, `docs/cli-reference.md` §"Audit surface") +
+  a **committed bench** (`just bench` + `scripts/bench.py`, stdlib/offline/no-telemetry, `--corpus <dir>`
+  capable; criterion → `just bench-micro`). Took **build → verify → fix → re-verify → fix2 → ship**; the
+  engine was sound throughout (byte-identity 28/28 → 32/32 → 55/55 vs a pre-spec oracle) — every defect
+  lived in the reporting layer. See the spec's Ship Reflection for the three banked lessons.
+  **⚠ Two carries:** (1) the committed corpus **cannot** show `web`-vs-`optimize` (nothing exceeds the
+  2048px bound → the verbs converge on every row; a >2048px real photo can't be both committed and lean —
+  measured ~620 KB) — a `print_table` footer says so and auto-suppresses under `--corpus <real>`; **every
+  SPEC-083 headline number must come from `--corpus <real>`.** (2) A **pre-existing `--features avif` test
+  flake**: re_rav1d's debug-only `DisjointMut` overlap check panics under load (`disjoint_mut.rs:837`),
+  reached because `web` always scores → decodes the AVIF winner. Reported-not-fixed; **under
+  investigation** (disjointness is *unchecked in release* → possible UB in shipped builds).
 - [~] SPEC-089 (design — framed build-ready 2026-07-16) — **fold `set` → `meta set`**: relocate the
   existing top-level `set` verb (write EXIF attribution tags, SPEC-027) into the `meta` group, so it's
   whole (`meta {strip,clean,copy,set}`). Pure hard-cutover surface move mirroring SPEC-087 (byte-identity
@@ -141,13 +150,16 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`. Build order: **084 �
   scope and unchanged. Complexity S, priority high (flagship promise).
 - [ ] SPEC-091 (optional / may fold) — `convert --to` rename + social/archive recipes.
 
-**Count:** 4 shipped (SPEC-084/085/086/087) / 3 in design (SPEC-088 in verify-fix, SPEC-089, SPEC-090) /
-1 pending (SPEC-091, optional `convert --to`). The core of the freeze is **done**; 088 (audit + committed
-bench) finishes the measurable-honesty pillar, 089 closes the `meta` group, and 090 makes the flagship's
-headline promise true as written. **Build order:** 088 is in a fix pass (its branch); **089 and 090 both
-touch `src/cli/mod.rs` / the decision path — serialize them after 088 merges** to keep the file
-uncontended. **Then: reframe SPEC-080 (demo)** — the `web` hero it needs is shipped.
+**Count:** 5 shipped (SPEC-084/085/086/087/088) / 2 in design (SPEC-089, SPEC-090) / 1 pending
+(SPEC-091, optional `convert --to`). The measurable-honesty pillar is **done** (088). Remaining: 089
+closes the `meta` group; 090 makes the flagship's headline promise true as written. **Both touch
+`src/cli/mod.rs` / the decision path — serialize them.** **Then: reframe SPEC-080 (demo)** — the `web`
+hero it needs is shipped.
 
+**Follow-ups filed out of SPEC-088** (not blocking the stage): (a) a regression test asserting
+`bench/corpus/photo_forest_cc0.jpg` classifies `photograph`, so a future classifier change fails loudly
+instead of silently falsifying the corpus README's class column; (b) the **re_rav1d `DisjointMut`
+investigation** (see the SPEC-088 line above).
 ## Design Notes
 
 - **Hard cutover discipline.** Rename/remove/merge freely; no aliases, no deprecation, no CHANGELOG
