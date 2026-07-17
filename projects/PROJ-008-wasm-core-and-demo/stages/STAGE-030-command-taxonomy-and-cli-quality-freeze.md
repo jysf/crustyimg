@@ -157,6 +157,14 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`. Build order: **084 �
   measure single + batch, then decide (`set_n_threads(1)` is the prior). **Land before SPEC-083** or its
   BENCHMARKS decode numbers are measured under oversubscription. DEC at build. Complexity S.
 - [ ] SPEC-092 (optional / may fold) — `convert --to` rename + social/archive recipes.
+- [~] SPEC-093 (design — framed build-ready 2026-07-17, **BUG, high**) — **the metadata write path
+  corrupts numeric EXIF tags.** `meta clean --gps` (the PRIVACY verb, documented to preserve
+  "orientation, copyright, ICC") rewrites **Orientation 6 → 1536**; `meta set` does the same AND degrades
+  GPS to a plausible-but-wrong coordinate (50.4957 → 50.4843…). Shared container lane
+  (`src/metadata/tiff.rs`), **pre-existing** (SPEC-026/027 era). Survived because **ASCII tags are immune
+  and every test checks only ASCII tags**, and byte-identity proofs compared against an equally-broken
+  oracle. Orchestrator's byte-order hypothesis REFUTED at framing (both MM and II corrupt) → mechanism
+  undiagnosed. The test gap is as much the deliverable as the fix. Complexity M.
 
 **Count:** 5 shipped (SPEC-084/085/086/087/088) / 3 in design (SPEC-089, SPEC-090, SPEC-091) / 1 pending
 (SPEC-092, optional `convert --to`). The measurable-honesty pillar is **done** (088). Remaining: 089
