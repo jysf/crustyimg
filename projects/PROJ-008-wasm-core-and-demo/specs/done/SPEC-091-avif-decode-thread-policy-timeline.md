@@ -41,4 +41,10 @@ Cycle prompts live in `prompts/SPEC-091-<cycle>.md`.
   `debug_abort()` (uncatchable, pre-existing, not round-2); primary path guarded by the metadata
   pre-check, alpha path unguarded (plausible/unconfirmed reachability) — cheap one-line follow-up.
   See Verify Completion — Round 2.
-- [ ] ship — orchestrator.
+- [x] ship — squash-merged PR #95 (**f5d3859**) 2026-07-18 after CI settled CLEAN on the verify commit
+  (ddcc3ac) with no flake recurrence. Full three-OS matrix green throughout. Bookkeeping: cycle→ship,
+  5 cost sessions (build $2.35 / verify $1.80 / build-r2 $1.70 / verify-r2 $2.05 / ship $0.75 ≈ **$8.65**,
+  all `model:`-tagged), DEC-077, timeline, STAGE-030, archive, memory + brag. **Lessons banked:**
+  [[a-green-gate-on-one-os-is-not-the-required-matrix]] (the round-1 Windows miss) + verify's
+  [[a-thread-boundary-does-not-catch-abort]]. Three follow-ups filed: upstream re_rav1d report,
+  empty-OBU debug_abort guard, `par_iter run_pixel_op`.

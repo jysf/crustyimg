@@ -3,7 +3,7 @@
 task:
   id: SPEC-091
   type: story
-  cycle: verify
+  cycle: ship
   blocked: false
   priority: high
   complexity: S
@@ -93,10 +93,23 @@ cost:
         (out-of-round-2-scope, debug-only), re-ran the pixel golden, confirmed PR
         #95 CI green on all three OSes at HEAD d1d901d, and ran the full local gate
         set (test default+avif, clippy ×2, fmt, lean build, just validate).
+    - cycle: ship
+      interface: claude-code
+      model: claude-opus-4-8
+      tokens_total: null
+      estimated_usd: 0.75
+      recorded_at: 2026-07-18
+      note: >
+        orchestrator main loop (un-metered, §4) — ESTIMATE. Framed the spec, dispatched build →
+        verify (PUNCH LIST: Windows stack overflow) → build round 2 (8 MiB scoped thread) → focused
+        round-2 verify (CLEAN), each in the single primary checkout (worktrees retired per the
+        maintainer's 2026-07-17 preference). Independently confirmed the Windows CI red, then the
+        three-OS green at each HEAD. Merged PR #95 (f5d3859) after CI settled clean on the verify
+        commit (no flake recurrence). Bookkeeping, memory + brag, two follow-ups filed.
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 1070000
+    estimated_usd: 8.65
+    session_count: 5
 ---
 
 # SPEC-091: AVIF decode thread policy (cap dav1d's threads; kill the DisjointMut flake)
@@ -518,4 +531,28 @@ primary. Worth reporting upstream alongside the existing avif-parse/re_rav1d iss
 ---
 
 ## Reflection (Ship)
-1. <answer> 2. <answer> 3. <answer>
+1. **A one-OS green gate is not the required matrix — the sharpest process lesson of the stage.** Round 1
+   was excellent: reliable repro (two vehicles), the flake structurally eliminated, pixels byte-identical
+   (golden re-derived with a hand-written PNG decoder), throughput measured, `n_threads=4` proven
+   insufficient. It still shipped a **release-blocking Windows stack overflow** on the *default* build,
+   because the "≥5 green runs" criterion was validated on the darwin box while the required Windows CI leg
+   was never read. The root cause was poetic: the very mechanism that kills the flake (`n_threads=1` →
+   zero worker threads → inline decode) is what overflowed Windows' ~1 MB main-thread stack. **A change to
+   *where* code runs — thread, stack, platform API — is platform-sensitive by nature; its gate is every
+   required CI platform, not the dev OS.** Banked as [[a-green-gate-on-one-os-is-not-the-required-matrix]].
+2. **This is the strongest case in the stage for independent, adversarial verify.** The build's core work
+   was genuinely first-rate and *still* carried a required-platform blocker that only a matrix-aware check
+   caught — and round-2 verify, scoped to the thread-boundary delta, then confirmed the harder-to-see
+   properties (hostile input still typed-errors across the `join`, panics propagate not deadlock) each with
+   a **negative control** (revert-in-place → SIGABRT). Verify earned its keep at both rounds. The pattern
+   across SPEC-088/089/093/091: the builder is rarely wrong on what it checked; the value is in checking
+   what it didn't think to.
+3. **The fix is a workaround for an upstream bug, and the DEC says so honestly.** DEC-077 frames it as
+   correctness+throughput, NOT memory-safety (provenanceless targets → wrong pixels, per re_rav1d's own
+   contract), and records the real root cause as an upstream `re_rav1d`/rav1d threading race
+   (cdef/loop-filter workers). **Follow-ups filed** (not folded in, per one-spec-per-pr): (a) report the
+   overlap upstream; (b) an empty-OBU `debug_abort()` path that bypasses both `catch_unwind` and the
+   scoped-thread join (pre-existing, debug-only; alpha path unguarded — a one-line `is_empty()` guard),
+   banked as [[a-thread-boundary-does-not-catch-abort]]; (c) `par_iter` on `run_pixel_op` so serial
+   `convert`/`resize` reclaim the ~3.8× single-decode loss. SPEC-083 BENCHMARKS should land after this —
+   decode numbers are now measured single-threaded, without oversubscription.

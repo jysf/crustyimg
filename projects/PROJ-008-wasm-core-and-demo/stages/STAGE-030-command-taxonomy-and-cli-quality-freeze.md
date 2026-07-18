@@ -153,14 +153,20 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`. Build order: **084 �
   dimension contract (≤2048px) means passthrough-the-original isn't an equivalent fallback. Decide
   claim-vs-behavior **with evidence**; DEC-075. `optimize`'s unconditional keep-dims guarantee is out of
   scope and unchanged. Complexity S, priority high (flagship promise).
-- [~] SPEC-091 (design — framed build-ready 2026-07-17) — **AVIF decode thread policy**: `decode_obus`
-  uses `Settings::new()` (dav1d default `n_threads=0` = ALL CORES) and never caps threads, so EVERY
-  decoder spawns its own pool — inside a rayon batch that already parallelizes across files (DEC-006).
-  Very likely what trips re_rav1d's `DisjointMut` overlap check (SPEC-088's flake). Severity BOUNDED:
-  upstream's contract says provenanceless targets ⇒ wrong results, **NOT** memory unsafety — not a
-  security fix; the bite is a wrong SSIMULACRA2 score + untrustworthy decode timings. Repro FIRST, then
-  measure single + batch, then decide (`set_n_threads(1)` is the prior). **Land before SPEC-083** or its
-  BENCHMARKS decode numbers are measured under oversubscription. DEC at build. Complexity S.
+- [x] SPEC-091 (shipped 2026-07-18, PR #95, **DEC-077**, ~$8.65 / 5 sessions, build→verify→build→verify)
+  — **AVIF decode thread policy: `n_threads=1` on an 8 MiB scoped thread.** Killed SPEC-088's re_rav1d
+  `DisjointMut` flake by decoding with **zero** worker threads (`n_threads=1` → `n_tc=1` → inline;
+  `n_threads=4` still flakes, so only 1 closes it). Severity as-framed: **NOT memory-safety** (provenanceless
+  targets → wrong pixels), a correctness+throughput fix; the real root cause is an **upstream re_rav1d/rav1d
+  threading race** (cdef/loop-filter workers) — the cap is a workaround. **Round 1 (excellent: reliable
+  repro, pixels byte-identical, throughput measured) still shipped a required-platform blocker** — inline
+  decode overflowed Windows' ~1 MB main-thread stack on the *default* build; the "≥5 green" gate had been
+  checked on darwin only → [[a-green-gate-on-one-os-is-not-the-required-matrix]]. Round 2 moved the decode
+  onto a `thread::scope` + 8 MiB stack (`Picture` is `Send`), validated against the Windows CI leg.
+  Round-2 verify CLEAN with negative controls (revert→SIGABRT; hostile input → typed `Err` across the
+  `join`). Trade: single-image / serial `convert`/`resize` ~3.8× slower on AVIF decode; flagship
+  rayon paths a wash. Follow-ups: upstream report · empty-OBU `debug_abort` guard
+  ([[a-thread-boundary-does-not-catch-abort]]) · `par_iter run_pixel_op`.
 - [ ] SPEC-092 (optional / may fold) — `convert --to` rename + social/archive recipes.
 - [x] SPEC-093 (shipped 2026-07-17, PR #94, **DEC-076**, ~$5.85, **BUG**) — **fixed the metadata write
   path corrupting numeric EXIF tags.** Root cause: the TIFF writer hardcoded an `II` header (DEC-046
@@ -177,13 +183,14 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`. Build order: **084 �
   orchestrator's ship-time re-test** (both plausible-tests-not-checked; verify caught both) — a process
   gap, not a model gap.
 
-**Count:** 7 shipped (SPEC-084/085/086/087/088/089/093) / 2 in design (SPEC-090, SPEC-091) / 1 pending
-(SPEC-092, optional `convert --to`). Taxonomy + the biggest correctness bug (093) are done. **Remaining,
-priority order: SPEC-090 (`web` never-bigger baseline) and SPEC-091 (AVIF decode thread policy).** ⚠
-**SPEC-091 has ESCALATED:** its re_rav1d DisjointMut flake failed a *required* `avif` CI check on SPEC-093's
-clean PR (cleared only on rerun) — it now blocks the merge pipeline, not just local tests, and must land
-before SPEC-083. 091 is independent (`src/image/avif.rs`); 090 touches the decision path. **Then: reframe
-SPEC-080 (demo)** — the `web` hero it needs is shipped.
+**Count:** 8 shipped (SPEC-084/085/086/087/088/089/091/093) / 1 in design (SPEC-090) / 1 pending
+(SPEC-092, optional `convert --to`). Taxonomy, the biggest correctness bug (093), and the CI-blocking
+AVIF flake (091) are done. **Remaining: SPEC-090 (`web` never-bigger baseline) — the last STAGE-030 spec**
+(touches the decision path; owns DEC-075). **Then STAGE-030 closes → reframe SPEC-080 (demo → `web` hero)
+→ STAGE-028 README/BENCHMARKS** (SPEC-083 benefits from 091: decode numbers now single-threaded, not
+measured under oversubscription). Open follow-ups from 091 (not blocking): report the re_rav1d overlap
+upstream; an empty-OBU `debug_abort` guard; `par_iter run_pixel_op` to reclaim serial convert/resize
+decode throughput.
 
 - **Hard cutover discipline.** Rename/remove/merge freely; no aliases, no deprecation, no CHANGELOG
   migration. Cost is in-repo docs + tests only. Every reference to a renamed/removed verb gets updated.
