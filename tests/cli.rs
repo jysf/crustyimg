@@ -4713,12 +4713,15 @@ fn web_reads_raw_input() {
 /// flag in the `--json` audit report AND a `note:` on stderr, with savings read
 /// honestly as "N% larger" (SPEC-084 not regressed).
 ///
-/// Gated `not(feature = "avif")`: the DEFAULT `cargo test` codec set re-encodes the
-/// downscaled output as fast lossless-WebP/PNG (~2 s); under `--features avif` this
-/// same content selects AVIF, whose debug encode is minutes-slow. The signal is
-/// codec-independent (a byte comparison) and is unit-tested in `analysis::decide`
-/// for every feature build (`larger_than_source_flag_only_when_output_exceeds_source`).
-#[cfg(not(feature = "avif"))]
+/// Gated to the **lossless-only** codec build (`not(any(avif, webp-lossy))`): the
+/// case only exists when NO lossy encoder can beat the tiny downscaled source. The
+/// DEFAULT `cargo test` codec set re-encodes as lossless-WebP/PNG (~2 s) and the
+/// downscale exceeds the source; add any lossy encoder — `avif` (minutes-slow debug
+/// encode) or `webp-lossy` (crushes the 512px downscale well under the source) — and
+/// the output shrinks, so the reproduction no longer holds. The signal itself is
+/// codec-independent (a byte comparison) and is unit-tested in `analysis::decide` for
+/// every feature build (`larger_than_source_flag_only_when_output_exceeds_source`).
+#[cfg(not(any(feature = "avif", feature = "webp-lossy")))]
 #[test]
 fn web_output_larger_than_original_is_surfaced() {
     let dir = tempfile::tempdir().unwrap();
@@ -4780,9 +4783,10 @@ fn web_output_larger_than_original_is_surfaced() {
 }
 
 /// The default channel (no `--json`) also surfaces the larger case: the one-line
-/// summary reads "N% larger" (SPEC-084) AND the explicit `note:` follows. Gated
-/// `not(feature = "avif")` for the same speed reason as above.
-#[cfg(not(feature = "avif"))]
+/// summary reads "N% larger" (SPEC-084) AND the explicit `note:` follows. Gated to
+/// the lossless-only codec build (`not(any(avif, webp-lossy))`) for the same reason
+/// as above — any lossy encoder beats the tiny downscale, so the case disappears.
+#[cfg(not(any(feature = "avif", feature = "webp-lossy")))]
 #[test]
 fn web_larger_than_original_noted_on_default_channel() {
     let dir = tempfile::tempdir().unwrap();
