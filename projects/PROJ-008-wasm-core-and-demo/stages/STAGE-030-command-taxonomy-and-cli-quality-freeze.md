@@ -145,14 +145,18 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`. Build order: **084 �
   mechanical `grep` found 5 MORE it had missed — 7 total. A mechanical sweep needs a mechanical check, not
   model judgment.** Same species as SPEC-088's defects, which happened on Opus → a **process gap the model
   choice widened, not a Sonnet defect**. `model:` is now recorded per cost session. See the Ship Reflection.
-- [~] SPEC-090 (design — framed build-ready 2026-07-16) — **reconcile `web`'s never-bigger claim with its
-  actual baseline.** SPEC-088's verify measured `web` shipping a file **14% larger** than a 3000px source;
-  the pre-spec oracle reproduces it → **pre-existing SPEC-085 behavior**, honestly reported, but
-  `pick_winner` enforces never-bigger against the **downscaled intermediate** while the recipe + docs
-  promise "never shipping a larger file" (i.e. than the user's input). Genuine design tension: `web`'s
-  dimension contract (≤2048px) means passthrough-the-original isn't an equivalent fallback. Decide
-  claim-vs-behavior **with evidence**; DEC-075. `optimize`'s unconditional keep-dims guarantee is out of
-  scope and unchanged. Complexity S, priority high (flagship promise).
+- [x] SPEC-090 (shipped 2026-07-18, PR #96, **DEC-075**, ~$14.73 / 3 sessions) — **reconciled `web`'s
+  never-bigger claim with its actual baseline.** Chose option **(A)**: the dimension contract (≤2048px)
+  wins, the larger-than-original case is **surfaced** not enforced away — a gated `larger_than_source`
+  `--json` field (additive, after `savings_percent`) + a stderr `note:`; SPEC-084's honest "N% larger"
+  unregressed. **The framing's mechanism was WRONG and the build corrected it:** `source_bytes` is the
+  **original file** (`read_raw_bytes`), not the downscaled intermediate — the larger output ships via the
+  `None if pipeline_altered` branch (nothing beats the original, but the resize means it can't passthrough).
+  Corrected mechanism triple-checked (build → orchestrator spot-check → verify). `web == apply --recipe web`
+  + `optimize` byte-identity both held. Verify APPROVED after fixing a **webp-lossy CI-gate defect** (the
+  e2e tests were gated `not(avif)` but the premise needs *no lossy encoder* — widened to
+  `not(any(avif, webp-lossy))`; another [[a-green-gate-on-one-os-is-not-the-required-matrix]] cousin, on a
+  feature flag). Cost was the AVIF-oracle verification loop, not the diff (an "S" that ran expensive).
 - [x] SPEC-091 (shipped 2026-07-18, PR #95, **DEC-077**, ~$8.65 / 5 sessions, build→verify→build→verify)
   — **AVIF decode thread policy: `n_threads=1` on an 8 MiB scoped thread.** Killed SPEC-088's re_rav1d
   `DisjointMut` flake by decoding with **zero** worker threads (`n_threads=1` → `n_tc=1` → inline;
@@ -183,13 +187,16 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`. Build order: **084 �
   orchestrator's ship-time re-test** (both plausible-tests-not-checked; verify caught both) — a process
   gap, not a model gap.
 
-**Count:** 8 shipped (SPEC-084/085/086/087/088/089/091/093) / 1 in design (SPEC-090) / 1 pending
-(SPEC-092, optional `convert --to`). Taxonomy, the biggest correctness bug (093), and the CI-blocking
-AVIF flake (091) are done. **Remaining: SPEC-090 (`web` never-bigger baseline) — the last STAGE-030 spec**
-(touches the decision path; owns DEC-075). **Then STAGE-030 closes → reframe SPEC-080 (demo → `web` hero)
-→ STAGE-028 README/BENCHMARKS** (SPEC-083 benefits from 091: decode numbers now single-threaded, not
-measured under oversubscription). Open follow-ups from 091 (not blocking): report the re_rav1d overlap
-upstream; an empty-OBU `debug_abort` guard; `par_iter run_pixel_op` to reclaim serial convert/resize
+**Count:** 9 shipped (SPEC-084/085/086/087/088/089/090/091/093) / 0 in design / 1 pending (SPEC-092,
+optional `convert --to`). **All planned STAGE-030 specs are shipped** — taxonomy freeze, the fast-AVIF
+default, `web` flagship, `optimize` demotion + `shrink` removal, the `meta` group, the audit report +
+committed bench, the metadata-corruption fix, the AVIF thread policy, and the `web` never-bigger
+reconciliation. **STAGE-030 is held ACTIVE (not closed) per maintainer decision (2026-07-18)** — close it
+deliberately when ready (status→shipped + shipped_at + Stage-Level Reflection). SPEC-092 (`convert --to`)
+remains optional/deferrable. **Next: reframe SPEC-080 (demo → `web` hero)** → STAGE-028 README/BENCHMARKS
+(SPEC-083 benefits from 091: decode numbers now single-threaded, not under oversubscription). Open
+follow-ups from 091 (not blocking, do sequentially): report the re_rav1d overlap upstream; an empty-OBU
+`debug_abort` guard; `par_iter run_pixel_op` to reclaim serial convert/resize
 decode throughput.
 
 - **Hard cutover discipline.** Rename/remove/merge freely; no aliases, no deprecation, no CHANGELOG

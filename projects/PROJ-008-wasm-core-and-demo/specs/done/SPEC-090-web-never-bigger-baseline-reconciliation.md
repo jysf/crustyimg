@@ -3,7 +3,7 @@
 task:
   id: SPEC-090
   type: story
-  cycle: build
+  cycle: ship
   blocked: false
   priority: high
   complexity: S
@@ -51,10 +51,23 @@ cost:
         builds (branch + parent-commit oracle worktree), driven end-to-end reproductions
         of the larger-than-source case + negative controls, full test suites across
         default/avif/webp-lossy, CI-log analysis, and the webp-lossy gate fix + re-verify.
+    - cycle: ship
+      interface: claude-code
+      model: claude-opus-4-8
+      tokens_total: null
+      estimated_usd: 0.60
+      recorded_at: 2026-07-18
+      note: >
+        orchestrator main loop (un-metered, §4) — ESTIMATE. Framed the spec, dispatched build (which
+        CORRECTED the framing's mechanism) → verify (APPROVED + fixed a webp-lossy CI-gate defect).
+        Independently confirmed the corrected mechanism (source_bytes = original via read_raw_bytes; the
+        larger output ships through the None-if-pipeline_altered branch) and the signal-fires-iff-larger
+        contract before dispatching verify. Confirmed PR #96 full-matrix green at b486815, squash-merged
+        (cc9b832), bookkeeping. STAGE-030 held ACTIVE per maintainer (not closed at this merge).
   totals:
     tokens_total: 1570000
-    estimated_usd: 14.13
-    session_count: 2
+    estimated_usd: 14.73
+    session_count: 3
 ---
 
 # SPEC-090: reconcile `web`'s never-bigger claim with its actual baseline
@@ -305,4 +318,30 @@ green in CI.)
 ---
 
 ## Reflection (Ship)
-1. <answer> 2. <answer> 3. <answer>
+1. **The build correcting the framing's mechanism is the spec working as intended, not a failure.** My
+   framing asserted `pick_winner` compares against the *downscaled intermediate*; the code says
+   `source_bytes` is the **original file** (`read_raw_bytes`), and the larger-than-original output ships
+   through the `None if pipeline_altered` branch (nothing beat the original, but the resize means the
+   original isn't a valid output). The build read the whole path and corrected it — exactly the
+   [[read-whole-function-before-asserting-a-gap]] discipline the spec asked for. I re-derived the
+   correction independently before dispatching verify (didn't take it on faith), and verify confirmed it a
+   third time. Net: the mechanism is now triple-checked, and the fix (docs + a `larger_than_source` signal)
+   is correct *because* the mechanism was pinned, not despite the framing being loose.
+2. **"One config green isn't the matrix" recurred — this time on a feature flag, not an OS.** The two
+   heavy e2e tests were gated `#[cfg(not(feature = "avif"))]`, but the reproduction premise needs **no
+   lossy encoder at all** — CI's `webp-lossy` job ran them and lossy WebP crushed the 512px downscale far
+   below the source, failing `assert!(out > src)` (the actual PR-head red). Verify caught and fixed it
+   (widen to `not(any(avif, webp-lossy))`; the codec-independent `decide.rs` unit tests carry the signal
+   for every build). Same species as SPEC-091's Windows miss ([[a-green-gate-on-one-os-is-not-the-required-matrix]]):
+   a conditional-compilation or platform assumption that's true on the dev config and false on another
+   required CI leg. The general rule: **when a test's premise depends on which codecs/platform/features are
+   present, enumerate every CI config it runs under, not the one you developed on.**
+3. **An S-complexity spec cost ~$14.73 — the label measured scope, not verification effort.** The *change*
+   was small (docs + a gated signal), but proving it demanded repeated end-to-end reproductions against a
+   parent-commit oracle including slow AVIF debug encodes (~180s each), on both build and verify. Cost
+   tracks the correctness loop, not the diff size — worth remembering when an "S" touches the AVIF path or
+   needs oracle comparison, so the estimate isn't a surprise. Non-blocking tidy-ups left for later
+   (recorded, not swept in): `optimize --help`'s "never shipping a larger file" wording (the passthrough
+   primitive's metadata-forced re-encode can now honestly flag larger — scoped out here); `roadmap.md`'s
+   historical "never-bigger" `web` notes (internal, natural to tidy at the SPEC-080 demo reframe); the
+   pre-existing `has_alpha:true`-on-JPEG resize-adds-alpha readout quirk (its own frame).

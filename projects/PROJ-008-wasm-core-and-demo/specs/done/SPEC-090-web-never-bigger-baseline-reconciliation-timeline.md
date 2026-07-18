@@ -38,4 +38,9 @@ Cycle prompts live in `prompts/SPEC-090-<cycle>.md`.
   default, `--features avif` (428 passed), `--features webp-lossy` (fixed, 0 fail), clippy (default+webp-lossy),
   fmt, `--no-default-features`, `just validate`/`bench`/`bench-micro`. (build_watch + convert/responsive
   local fails are parallel-contention flakes — pass serially, green in CI.)
-- [ ] ship — orchestrator.
+- [x] ship — squash-merged PR #96 (**cc9b832**) 2026-07-18, full three-OS+feature matrix green at b486815.
+  Bookkeeping: cycle→ship, 3 cost sessions with `model:` (build $7.65 / verify $6.48 / ship $0.60 ≈
+  **$14.73** — an S whose cost was the AVIF-oracle verification loop, not the diff), DEC-075, timeline,
+  archive, memory + brag. **STAGE-030 held ACTIVE per maintainer** (not closed at this merge). Lessons:
+  the framing-mechanism correction (triple-checked) + the webp-lossy gate defect
+  ([[a-green-gate-on-one-os-is-not-the-required-matrix]] on a feature flag).
