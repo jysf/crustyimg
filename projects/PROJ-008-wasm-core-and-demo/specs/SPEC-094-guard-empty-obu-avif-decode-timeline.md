@@ -13,6 +13,12 @@ Cycle prompts live in `prompts/SPEC-094-<cycle>.md`.
   violating DEC-062. The alpha path (`avif.rs:168-169`) is unguarded; reachability plausible-but-unconfirmed.
   Fix = an `is_empty()` guard at the shared `decode_obus` chokepoint (covers primary + alpha). Confirm
   reachability FIRST. No DEC expected.
-- [ ] build — single session, primary checkout.
+- [x] build — single session, primary checkout, branch `spec-094-empty-obu-guard`. Confirmed reachability
+  FIRST (hand-built a conforming AVIF whose alpha item is genuinely empty via an `iloc` `ToEnd`-extent
+  duplicate-offset trick; drove it through the pre-fix `decode_avif` in an isolated subprocess and observed
+  `SIGABRT` — the bug is real, not hypothetical). Guard added at the `decode_obus` chokepoint (1 `send_data`
+  site, 1 `Decoder::with_settings` site, 2 callers — all covered). 3 failing tests written and made to pass;
+  fuzz target survives the crafted input in debug; valid AVIFs (with/without alpha) proven pixel-identical
+  against the pre-fix binary. All gates clean. No DEC. PR opened against main.
 - [ ] verify — single session, primary checkout.
 - [ ] ship — orchestrator.
