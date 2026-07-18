@@ -16,7 +16,10 @@ Legend: **[today]** shipped · **[feat:X]** behind a cargo feature · **[planned
 - **Make one image web-ready (the flagship)** **[today]**
   `crustyimg web hero.jpg -o hero.avif`
   Downscale (long edge ≤ 2048) + auto-orient + strip metadata + smallest modern format
-  that beats the source + reports the SSIMULACRA2 score.
+  that beats the **downscaled** image + reports the SSIMULACRA2 score. The downscale is the
+  contract, so an already-small source above 2048px can come back larger than the original
+  (reported honestly); for an unconditional never-bigger guarantee that keeps dimensions,
+  use `optimize`.
 - **Optimize keeping the original dimensions** **[today]**
   `crustyimg optimize hero.jpg -o hero.opt.avif` (fast, never bigger; add `--verify` for the score).
 - **Auto-decide the best format** **[today]**

@@ -3,7 +3,7 @@
 task:
   id: SPEC-090
   type: story
-  cycle: design
+  cycle: build
   blocked: false
   priority: high
   complexity: S
@@ -27,11 +27,22 @@ value_link: >
   the behavior agree, in whichever direction the evidence supports.
 
 cost:
-  sessions: []
+  sessions:
+    - cycle: build
+      interface: claude-code
+      model: claude-opus-4-8
+      tokens_total: 850000
+      estimated_usd: 7.65
+      note: >
+        Main-loop build (not a separately-metered subagent), so tokens_total is an
+        order-of-magnitude ESTIMATE ([[autonomous-run-cost-estimates]]); estimated_usd
+        at Opus 4.8 list ($5/$25, ~80/20 in/out, no cache discount). Heavy on large
+        source reads (decide.rs, cli.rs) + repeated end-to-end reproduction/oracle runs
+        (incl. two slow AVIF debug encodes).
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 850000
+    estimated_usd: 7.65
+    session_count: 1
 ---
 
 # SPEC-090: reconcile `web`'s never-bigger claim with its actual baseline
@@ -169,9 +180,66 @@ larger-output case to the user. Emit a DEC recording the choice and its rational
 ---
 
 ## Build Completion
-- **Branch:** · **PR:** · **All acceptance criteria met?** · **New decisions:** · **Deviations:** · **Follow-ups:**
+- **Branch:** `spec-090-web-never-bigger` · **PR:** (pending) · **All acceptance criteria met?** Yes ·
+  **New decisions:** DEC-075 · **Deviations:** see below · **Follow-ups:** the resize-adds-alpha quirk
+  (below) is a separate pre-existing bug worth its own frame.
+
+**Option chosen: (A)** — keep behavior (the dimension contract wins), correct every rendered claim, and
+surface the larger-than-original case (stderr `note:` + an additive/gated `"larger_than_source":true` field
+in the `--json` audit report). Proven, not assumed:
+
+- **Pre-spec reproduction (the parent-commit oracle, `0eac2cf`, built `--features avif,webp-lossy`):** a
+  heavily-compressed 3000×3000 JPEG (420816 B) through `web` ships AVIF at **572218 B — 36% larger**
+  (`savings_percent:-36`, `winner:0`). Confirms the case is pre-existing SPEC-085 behavior, honestly
+  reported by SPEC-084's negative-savings path, and promised away by the docs. **The spec's framing
+  mechanism was imprecise** — `source_bytes` is the **original** file (`read_raw_bytes`), *not* the
+  downscaled intermediate; the larger output comes from the `pipeline_altered` override (src/cli/mod.rs
+  ~4556) shipping the smallest correct re-encode when nothing beats the original. Reading the code before
+  trusting the paragraph ([[read-whole-function-before-asserting-a-gap]]) changed the fix's shape.
+- **The signal surfaces** (verified on the real binary, not just asserted): `--json` stdout carries
+  `...,"savings_percent":-36,"larger_than_source":true,"ssim":84.5}`; stderr carries an explicit
+  `note: shipped 572218 B, larger than the 420816 B source (36% larger) — …` on every channel (respecting
+  `--quiet`); the default summary still reads "36% larger".
+- **`web == apply --recipe web` (DEC-070) holds byte-for-byte** — image bytes AND the full `--json` report
+  (including the new flag) are `cmp`-identical (post-change binary).
+- **`optimize` byte-identical to pre-spec** — `cmp`-identical output vs the parent-commit binary on the
+  same input; the keep-dims primitive (`pick_winner`/`solve_candidate`/encode) is untouched (only an
+  additive gated field + a gated stderr note were added).
+- **Every rendered never-bigger claim made true** — grep of the live surface
+  (`never bigger|never larger|never ship|never-bigger`, 20 hits across README/docs/recipes/src): `web`'s
+  claims fixed at 8 rendered sites (`web` clap `--help`, `recipes/web.toml` header+description,
+  `recipes/gallery.toml`, `recipes/product.toml`, `docs/cli-reference.md`, `docs/api-contract.md`,
+  `README.md`, `docs/recipes.md`) + the `src/recipe/bundled.rs` module doc; `optimize`'s unconditional
+  keep-dims claims left intact and still stated (4 sites), per scope.
+
+**Deviations / judgment calls:**
+- **`json_shape_consistent_across_verbs` (SPEC-088) fixture changed** `jpeg_with_exif(256,256)` →
+  `detailed_png(800,600)`. Cause: on the tiny gradient, `optimize`'s metadata-forced re-encode ships
+  larger → emits the (data-gated) `larger_than_source` key, which `web`/`apply` (which the resize op lets
+  shrink it) do not — a legitimate divergence for a *data-driven* additive field. The new fixture is one
+  all three verbs shrink, so the golden key set documents the **base** schema; the flag's
+  presence-when-larger is covered by SPEC-090's own tests.
+- **The two heavy end-to-end `web`-larger tests are gated `#[cfg(not(feature = "avif"))]`.** Under
+  `--features avif`, this content selects AVIF whose *debug* encode is ~180 s — untenable for CI. The
+  DEFAULT `cargo test` codec set re-encodes as fast lossless-WebP/PNG (~2 s) and reproduces the case; the
+  signal is codec-independent and unit-tested in `analysis::decide` for **every** feature build.
+- **Fixture reuse, not a new fixture.** The reproducer uses the existing `detailed_jpeg_with_icc` (a
+  lossy source in a lossless-only bucket, >2048px, with `--max 512` to keep the debug encode quick) rather
+  than a bespoke generator (which I built, measured, then deleted as dead code).
+
 ### Build-phase reflection
-1. <answer> 2. <answer> 3. <answer>
+1. **The spec's stated mechanism was wrong in a load-bearing way, and only reading the code caught it.**
+   The framing said `source_bytes` is the downscaled intermediate; it is the original file. The real
+   mechanism is the `pipeline_altered` override, and SPEC-084 had *already* built the honest-larger
+   reporting — so the fix was "make it explicit + fix the docs", not "change the comparison". Taking the
+   paragraph on faith would have produced a wrong, invasive change.
+2. **A data-driven additive JSON field is not the same as a flag-driven one.** `ssim`/`timing` are gated by
+   *flags*, so a cross-verb parity test can force them present; `larger_than_source` is gated by *bytes*,
+   which `web` (downscales) and `optimize` (keeps dims) legitimately disagree on. That broke a parity test
+   in a way that was a real signal about the field's nature, not a bug — the fix was a fixture, not a hack.
+3. **AVIF debug-encode cost is a real test-design constraint.** A "just run web on a big image" end-to-end
+   test costs 180 s under `--features avif`. Measuring that (twice — once by timeout) forced the right
+   design: gate the heavy path to the fast codec set and carry the codec-independent proof in unit tests.
 
 ---
 

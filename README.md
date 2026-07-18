@@ -128,8 +128,11 @@ crustyimg thumbnail photo.jpg --size 200 --square -o thumb.jpg
 
 ```sh
 # The flagship: downscale (long edge ≤2048), pick the smallest modern format that
-# beats the source (AVIF for photos, lossless WebP/PNG for graphics), strip metadata,
-# and report the SSIMULACRA2 score. Size-insensitive — a 24 MP photo is as fast as a small one.
+# beats the DOWNSCALED image (AVIF for photos, lossless WebP/PNG for graphics), strip
+# metadata, and report the SSIMULACRA2 score. Size-insensitive — a 24 MP photo is as
+# fast as a small one. The downscale is the contract, so an already-small source above
+# 2048px can come back larger than the original (reported honestly as "N% larger"); for
+# an unconditional never-bigger guarantee that keeps dimensions, use `optimize` below.
 crustyimg web photo.jpg -o out.avif
 crustyimg web photo.jpg --max 1200 -o out.avif    # override the downscale bound
 

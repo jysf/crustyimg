@@ -118,11 +118,14 @@ crustyimg thumbnail *.png --size 150 --out-dir thumbs/
 ### `web <INPUT...> [--max N]`  *(the flagship)*
 Make an image web-ready in one step: bake orientation + strip metadata, **downscale**
 the long edge to a web-friendly default (≤ 2048 px, never upscaling), pick the smallest
-modern format that beats the source (AVIF for photos, lossless WebP/PNG for graphics —
-never larger), and **report its SSIMULACRA2 score**. Size-insensitive: a 24 MP photo
-finishes as fast as a small one because it downscales first. Equivalent to
-`apply --recipe web`. `--max` overrides the downscale bound; `-o`/`--format` pin the
-output format (bypassing the auto-decision).
+modern format that beats the **downscaled** image (AVIF for photos, lossless WebP/PNG for
+graphics), and **report its SSIMULACRA2 score**. Size-insensitive: a 24 MP photo finishes
+as fast as a small one because it downscales first. The downscale to a dimension bound is
+the contract, so an already-small source **above** that bound can come back **larger than
+the original** — that is reported honestly (`N% larger`, and a `larger_than_source` flag in
+`--json`), not hidden. For an *unconditional* never-bigger guarantee that keeps dimensions,
+use **`optimize`**. Equivalent to `apply --recipe web`. `--max` overrides the downscale
+bound; `-o`/`--format` pin the output format (bypassing the auto-decision).
 ```sh
 crustyimg web photo.jpg -o out.avif
 crustyimg web photo.jpg --max 1200 -o out.avif

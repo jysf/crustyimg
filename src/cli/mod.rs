@@ -287,10 +287,14 @@ pub enum Commands {
 
     /// The flagship: make an image web-ready. Downscale the long edge to a
     /// web-friendly default (never upscaling), bake orientation + strip metadata,
-    /// pick the smallest modern format that beats the source (AVIF for photos,
-    /// lossless WebP/PNG for graphics — never larger than the source), and report
-    /// its SSIMULACRA2 score. Size-insensitive: a 24 MP photo finishes as fast as a
-    /// small one because it downscales first.
+    /// pick the smallest modern format that beats the downscaled image (AVIF for
+    /// photos, lossless WebP/PNG for graphics), and report its SSIMULACRA2 score.
+    /// The downscale to a dimension bound is the contract, so an already-small
+    /// source above that bound can come back larger than the original — reported
+    /// honestly ("N% larger", plus a `larger_than_source` flag in `--json`), never
+    /// hidden. For an unconditional never-bigger guarantee that keeps dimensions,
+    /// use `optimize`. Size-insensitive: a 24 MP photo finishes as fast as a small
+    /// one because it downscales first.
     ///
     /// Equivalent to `apply --recipe web`. `--max` overrides the downscale bound;
     /// `-o`/`--format` pin the output format (bypassing the auto-decision); the
@@ -4718,6 +4722,28 @@ fn emit_optimize_report(
                     }
                     None => eprintln!("{label}: kept source (degenerate input)"),
                 }
+            }
+        }
+    }
+    // SPEC-090 / DEC-075: when the shipped output ends up LARGER than the source, say
+    // so explicitly on stderr — on EVERY channel, including `--json` (whose report
+    // goes to stdout, leaving the user no heads-up otherwise). `web` downscales to a
+    // dimension bound, so an already-small large-dimension source can re-encode
+    // larger; `optimize` hits this only on the rare metadata-forced re-encode. Either
+    // way the source could not ship unchanged, so the smallest correct output was
+    // kept — and the never-bigger wording must not hide it. Respects `--quiet` like
+    // the other stderr diagnostics; the `--json` flag still carries the machine signal.
+    if !global.quiet {
+        if let Some(t) = trace {
+            if t.exceeds_source() {
+                eprintln!(
+                    "{label}: note: shipped {} B, larger than the {} B source ({}% larger) — the \
+                     source could not ship unchanged (metadata stripped / orientation baked / \
+                     resized to the requested bound), so the smallest correct output was kept",
+                    t.out_bytes,
+                    t.source_bytes,
+                    -t.savings_percent(),
+                );
             }
         }
     }

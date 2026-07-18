@@ -13,6 +13,11 @@ Cycle prompts live in `prompts/SPEC-090-<cycle>.md`.
   enforces (`pick_winner` compares against the DOWNSCALED intermediate, not the original file). Spec
   decides claim-vs-behavior with evidence; recommendation (A) correct-the-claim + surface it, to be
   proven or refuted at build. DEC-075 at build.
-- [ ] build — worktree session.
+- [x] build — 2026-07-17, branch `spec-090-web-never-bigger`. Option **(A)**: dimension contract wins,
+  docs corrected, larger-than-original surfaced (stderr `note:` + additive/gated `larger_than_source`
+  `--json` field). Pre-spec oracle reproduced 36% larger; `web==apply` + `optimize` byte-identity both
+  verified against the parent-commit binary. **Framing mechanism was imprecise** (`source_bytes` is the
+  original, not the downscaled intermediate — the `pipeline_altered` override is the real path). DEC-075
+  emitted. All gates green. PR (pending).
 - [ ] verify — independent worktree session.
 - [ ] ship — orchestrator.
