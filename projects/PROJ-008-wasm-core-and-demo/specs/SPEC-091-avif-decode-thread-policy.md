@@ -3,7 +3,7 @@
 task:
   id: SPEC-091
   type: story
-  cycle: build
+  cycle: verify
   blocked: false
   priority: high
   complexity: S
@@ -41,6 +41,23 @@ cost:
         cost practice). Opus 4.8 list $5/$25 per MTok, ~80/20 in/out, no cache
         discount. Heavy tool use: re_rav1d source spelunking, a repro harness, and
         before/after throughput + pixel-identity measurement across rebuilt binaries.
+    - cycle: verify
+      interface: claude-code
+      model: claude-opus-4-8
+      tokens_total: 200000
+      duration_minutes: null
+      estimated_usd: 1.80
+      recorded_at: 2026-07-18
+      note: >
+        Order-of-magnitude estimate — verify ran interactively in the orchestrator
+        main loop (not a metered subagent), so tokens are a self-estimate. Opus 4.8
+        list $5/$25 per MTok, ~80/20 in/out, no cache discount. Heavy tool use:
+        built pre-change + branch binaries (debug + release), independently
+        reproduced the DisjointMut panic on the parent (2/4 @100 procs) and the
+        negative control (cap→0 panics return; n_threads=4 still flakes 1/4),
+        confirmed 0/12 on the branch, re-derived the pixel golden with a hand-written
+        PNG decoder, measured single/parallel throughput, ran the full gate set, and
+        triaged the Windows CI stack-overflow regression.
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -233,6 +250,102 @@ all-cores default), backed by measurement: does capping threads (a) kill the Dis
    Reproducing at ~2/3, then 0/6 on the identical vehicle, plus a byte-identical
    pixel proof against a *separately built* pre-change binary, is the evidence; one
    green suite would have proved nothing on a 1-in-4 flake.
+
+---
+
+## Verify (2026-07-18, Opus 4.8, independent session in the primary checkout)
+
+### Verdict: ⚠ PUNCH LIST — returns to build
+
+The core fix is **verified sound and honest** on macOS/Linux, but it introduces a
+**consistent, release-blocking regression on Windows** — a required platform in the
+three-OS release matrix (DEC-009). The approach (`n_threads = 1`) is correct; the
+*implementation* is incomplete because it moves the whole decode inline onto the
+caller's thread without ensuring that thread has an adequate stack.
+
+### P1 — BLOCKER: AVIF decode stack-overflows on Windows (default build)
+
+- **Evidence:** PR #95 CI is RED on `build / test / clippy / fmt (windows-latest)`
+  on **both** runs (29624638686, 29624624672), failing identically at
+  `optimize_avif_input_writes_webp` (`tests/input_avif.rs:37`):
+  `thread 'main' … has overflowed its stack`. The parent cd39f17 was **green** on
+  Windows — this is a new, deterministic regression, not a flake.
+- **Blast radius is the default build, not just `--features avif`.** The failing
+  test is a plain `#[test]` (no feature gate) decoding a **16×16** AVIF; `re_rav1d`
+  is a default dep (SPEC-058), so **every AVIF decode on Windows now crashes** —
+  even a tiny image — breaking a shipped default input capability (PROJ-009) on a
+  supported release OS.
+- **Root cause (mechanically clear, from source):** `re_rav1d` spawns its
+  `rav1d-worker-*` threads only when `n_tc > 1`, and those workers deliberately use
+  Rust's default 2 MiB thread stack — the crate's own comment at `src/lib.rs:258`
+  reads *"Don't set stack size like `dav1d` does. See …/rav1d/issues/889."* With
+  `n_threads = 1` the decode runs `Rav1dContextTaskType::Single` **inline on the
+  calling thread**, whose stack on Windows' main thread is only ~1 MB — smaller than
+  the decode's frame needs. dav1d avoids this by setting a large worker stack; rav1d
+  relies on the 2 MiB default that only exists on spawned threads, which the cap
+  removes. So the same mechanism that kills the flake (no worker threads) is what
+  overflows Windows.
+- **Why the build missed it:** the "green across ≥5 consecutive full-suite runs"
+  claim was validated only on the darwin box; the three-OS matrix (AGENTS §5 /
+  DEC-009) was never exercised locally, and CI's Windows leg was not checked before
+  the completion table was written. Acceptance criterion #6 (all gates pass) is
+  therefore **NOT met** on Windows.
+- **Fix direction (for build, not prescriptive):** keep `n_threads = 1` but run the
+  inline decode on a thread with an adequate stack — e.g. execute `decode_obus` on a
+  `std::thread::Builder::new().stack_size(N)` scratch thread, or scope it via a small
+  helper — then re-validate on Windows CI. (Whatever is chosen must keep the flake
+  gone and pixels byte-identical, both re-checked below.)
+
+### What IS verified sound (so the fix can be finished with confidence)
+
+- **Flake repro + gone + negative control (independent).** Rebuilt the pre-change
+  parent (cd39f17) and branch binaries. Fast vehicle = N concurrent 256² real-photo
+  decodes:
+  - **Parent (all-cores):** panic in **2 of 4** completed trials @100 procs
+    (`overlapping DisjointMut`, `cdef.rs:207` ∩ `cdef_apply.rs:56`, two ThreadIds) —
+    an independent reproduction (build cited `cdef.rs:207` ∩ `lf_apply.rs:124`; same
+    CDEF-worker race).
+  - **Branch (`n_threads=1`):** **0 panics in 12×100 = 1200 process-decodes**, and it
+    no longer hangs under load.
+  - **Negative control:** branch source with the cap flipped back to `0` (all-cores)
+    → panic **returns** (1/3 trials) — proving the harness can still fail and that
+    the cap specifically suppresses it.
+- **Option B rejection substantiated.** `n_threads = 4` **still flakes** (1/4 trials
+  @100 procs, same overlap) — only `1` (n_tc=1, zero workers) removes it. Matches the
+  DEC's mechanism claim (`n_tc > 1` ⇒ workers ⇒ overlap).
+- **Pixel identity (independently re-derived).** Parent and branch decode both the
+  committed 128² fixture and a 256² photo to **byte-identical PNG** (sha256 match).
+  The pinned golden `PRE_CHANGE_RGBA_FNV1A = 0x0d2b956b63f0cd85` was re-derived from
+  the decoded RGBA using a **hand-written standalone PNG decoder** (not the code under
+  test) → exact match. `sips` (independent decoder) confirms the fixture is 128×128.
+- **Throughput (release, 14-core).** Single-image 6 MP `convert→png`: parent ~101 ms
+  vs branch ~323 ms (**3.2×** slower — corroborates the DEC's ~3.8× single-image
+  claim). **Flagship parallel path IS a wash:** 14 concurrent 6 MP decodes parent
+  512 ms vs branch **466 ms (0.91×)** — the branch actually *wins* the parallel case
+  (parent oversubscribes 14×14). DEC's "wash (~2% faster)" is honest, if conservative.
+- **DEC-077 honesty: CONFIRMED.** States plainly it is a correctness + throughput fix,
+  NOT memory-safety (provenanceless targets ⇒ wrong pixels); flags the upstream
+  re_rav1d CDEF/loop-restoration bug as the root cause and a workaround, not a repair;
+  records the `run_pixel_op` par_iter follow-up. Does not oversell.
+- **Fixture provenance: license-clean.** `tests/fixtures/avif/photo_128.avif` is a
+  128² crop of `bench/corpus/photo_forest_cc0.jpg` (Wikimedia Commons / DimiTalen,
+  CC0-1.0, own work, metadata-stripped — verified against the Commons API in SPEC-088)
+  re-encoded to AVIF; carries only an sRGB profile (no camera/GPS/artist/copyright).
+  Same standard as SPEC-088's corpus.
+- **Gates (macOS):** `cargo fmt --check`, `clippy` (default + avif), `cargo build
+  --no-default-features`, `cargo test` (default, 419+), `cargo test --features avif`
+  ×3 clean (761 tests, 0 panics; the 3 new SPEC-091 tests run), `just validate`,
+  `just bench`, `just bench-micro` — all green.
+
+### P3 — minor (address alongside the Windows fix)
+
+- The DEC's Consequences table and the completion table say the flagship parallel
+  paths are a "wash (~2% faster)"; my measurement has the branch **9% faster** there.
+  Not wrong (still a wash-or-better), but the specific "~2%" undersells it slightly —
+  fine to leave, noted for accuracy.
+- Neither the spec, DEC-077, nor the completion table mentions Windows / the three-OS
+  matrix at all — the platform dimension of the acceptance repro was never considered.
+  The re-worked DEC should record the Windows stack behavior and how the fix handles it.
 
 ---
 
