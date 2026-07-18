@@ -28,6 +28,17 @@ Cycle prompts live in `prompts/SPEC-091-<cycle>.md`.
   crashes ("main has overflowed its stack") on the **default** build, RED on both PR #95
   Windows CI runs (parent was green). Every AVIF decode on Windows now stack-overflows.
   Fix: run the inline decode on a thread with an adequate stack, re-validate on Windows CI.
-- [ ] build (round 2) — address the Windows stack overflow; keep flake gone + pixels identical.
-- [ ] verify (round 2) — re-check on the three-OS matrix.
+- [x] build (round 2) — 8 MiB scoped decode thread (DEC-077), commit d87d389. Windows CI green;
+  flake gone + pixels identical re-proven. See Build Completion — Round 2.
+- [x] verify (round 2) — 2026-07-18, Opus 4.8, primary checkout. **CLEAN.** Focused re-verify of
+  the scoped-thread change: (1) hostile OBU bytes → typed Err across the `join` (nonempty junk
+  driven directly; five hostile fixtures typed-error through the CLI; DEC-034 frame-size guard
+  still inside the thread); (2) scoped-thread panic → join Err, no deadlock; (3) **negative
+  control** — reverting the wrap in place aborts the small-caller-stack test with SIGABRT, so the
+  regression test bites; (4) pixel golden unchanged; (5) rayon composition — no oversubscription,
+  full avif suite clean; (6) PR #95 matrix green at HEAD d1d901d (27/0, both windows legs). All
+  local gates green. One out-of-scope P3 note: an **empty** OBU stream hits re_rav1d's debug-only
+  `debug_abort()` (uncatchable, pre-existing, not round-2); primary path guarded by the metadata
+  pre-check, alpha path unguarded (plausible/unconfirmed reachability) — cheap one-line follow-up.
+  See Verify Completion — Round 2.
 - [ ] ship — orchestrator.

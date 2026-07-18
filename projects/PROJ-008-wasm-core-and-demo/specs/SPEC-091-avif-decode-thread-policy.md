@@ -3,7 +3,7 @@
 task:
   id: SPEC-091
   type: story
-  cycle: build
+  cycle: verify
   blocked: false
   priority: high
   complexity: S
@@ -74,6 +74,25 @@ cost:
         overflows/aborts a 1 MiB thread), re-proved the flake gone (6×100 rayon) and
         pixels byte-identical, ran the full local gate set, and iterated against the
         PR #95 Windows CI leg until green.
+    - cycle: verify
+      interface: claude-code
+      model: claude-opus-4-8
+      tokens_total: 230000
+      duration_minutes: null
+      estimated_usd: 2.05
+      recorded_at: 2026-07-18
+      note: >
+        Round 2 (focused re-verify of the Windows stack-overflow fix). Order-of-
+        magnitude estimate; ran in the orchestrator main loop (not a metered
+        subagent). Opus 4.8 list $5/$25 per MTok, ~80/20 in/out, no cache discount.
+        Drove the negative control (reverted the scoped-thread wrap in place → the
+        small-caller-stack test aborts with SIGABRT on macOS, proving the guard
+        bites), drove hostile OBU bytes through the thread boundary (nonempty junk
+        → typed Err via join; scoped-thread panic → join Err, no deadlock),
+        confirmed the empty-OBU debug_abort mechanism from re_rav1d source
+        (out-of-round-2-scope, debug-only), re-ran the pixel golden, confirmed PR
+        #95 CI green on all three OSes at HEAD d1d901d, and ran the full local gate
+        set (test default+avif, clippy ×2, fmt, lean build, just validate).
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -419,6 +438,82 @@ caller's OS-defined stack onto one with adequate headroom.
 - **DEC-077 updated:** new section "Windows: the inline decode needs its own stack"
   records the mechanism, the 8 MiB choice, the rayon composition, and the round-1
   gate gap (darwin-only validation of a change to *where* work runs).
+
+---
+
+## Verify Completion — Round 2 (focused, PR #95): **CLEAN**
+
+Focused re-verify of the round-2 change only (the inline decode now runs on an 8 MiB
+scoped thread). Round 1's core findings were not re-litigated. Every claim was
+**driven**, not read; the standard of proof was a negative control.
+
+1. **Hostile input still returns a typed Err through the thread boundary — CONFIRMED.**
+   Drove nonempty garbage OBU bytes (`vec![0xFF; 64]`) directly through `decode_obus`
+   (the new scoped-thread surface) → `Err(Decode("avif send_data: Invalid argument"))`
+   returned cleanly **across the `join`** — no hang, no abort, no swallow. Through the
+   real production entry (`decode_avif` via the CLI) all five hostile fixtures
+   (corrupt/0xFF OBU, the three fuzz reproducers, the box-size bomb) returned typed
+   errors (or the pre-existing avif-parse debug-assert **panic caught by the outer
+   `catch_unwind`**, exit 1 not SIGABRT — the DEC-062 contract, unchanged). The
+   DEC-034 `frame_size_limit` guard is set inside `decode_settings`, called inside the
+   spawned thread, so it still bounds the decode; container dims are still checked by
+   `check_caps` on the caller thread before the spawn.
+2. **Panic propagation — CONFIRMED.** A panic inside the `spawn_scoped` closure
+   surfaces as `Err` from `join()` (driven with a simulated panic) → the `map_err` arm
+   converts it to a typed `ImageError::Decode`. No deadlock on join, no silent
+   continue. `thread::scope` re-panic-on-drop is not reached because the handle is
+   always explicitly joined.
+3. **Regression test genuinely bites — CONFIRMED by negative control.** Reverting the
+   scoped-thread wrap in place (call `decode_obus_inline` directly on the caller
+   stack) made `avif_decode_survives_a_small_caller_stack` **overflow and abort**
+   (`fatal runtime error: stack overflow`, SIGABRT) from the 1 MiB caller thread —
+   the exact Windows failure mode, reproduced on macOS. Restored; tree clean.
+4. **Pixels unchanged by the round-2 refactor — CONFIRMED.** The committed golden
+   `avif_decode_pixels_unchanged_by_thread_policy` passes (digest unchanged); the
+   thread move did not corrupt the return path.
+5. **Rayon composition — CONFIRMED.** `n_threads = 1` ⇒ zero `rav1d-worker-*` threads;
+   each rayon worker spawns exactly one decode thread and blocks on `join`, so net
+   CPU-active threads stay ≈ core count. `avif_batch_decode_does_not_oversubscribe`
+   passes and the full `--features avif` suite (incl. the 100+s parallel integration
+   leg) ran clean with no thread explosion or deadlock.
+6. **Matrix gate — CONFIRMED green at HEAD d1d901d.** `gh pr checks 95`: **27 passed,
+   0 failed**; both `windows-latest` legs, both `macos-latest`, `ubuntu-latest`, and
+   the previously-flaky `avif feature (build / test / clippy)` check all pass. The
+   gate is the three-OS matrix, met on the exact commit under review (not just
+   d87d389).
+
+**Gates (local, macOS):** `cargo test` default (all green) + `--features avif` (all
+green), `cargo clippy --all-targets` default + `--features avif` (clean), `cargo fmt
+--check` (clean), `cargo build --no-default-features` (green), `just validate` (green).
+
+### Out-of-round-2-scope observation (P3, not a blocker) — empty-OBU debug abort
+
+While driving the thread boundary I found that `re_rav1d`'s `rav1d_send_data` guards
+`sz > 0` via `validate_input!`, whose failure calls `debug_abort()` — which
+`abort()`s **only under `cfg!(debug_assertions)`** (`re_rav1d` `include/common/
+validate.rs:15-19`). So calling `decode_obus(&[], …)` with an **empty** OBU stream
+**aborts the process under `cargo test`/`cargo fuzz`** (release returns a typed
+`EINVAL` Err). This is an `abort()`, not an unwind, so it is uncatchable by the
+scoped-thread `join` **or** the `decode_avif` `catch_unwind` — the round-2 change
+neither introduced nor could fix it (it predates SPEC-091: the pre-change `decode_obus`
+called `send_data` the same way). Reachability via the real entry point:
+
+- **Primary item: guarded.** `decode_avif_inner` runs `primary_item_metadata()` →
+  `parse_obu(&primary_item)` with `?` (`avif.rs:152`) **before** `decode_obus`
+  (`:159`); an empty primary item fails that metadata pre-check first. None of the
+  hostile fixtures driven through the CLI aborted.
+- **Alpha item: NOT guarded (plausible, unproven reachability).** `avif.rs:168-169`
+  calls `decode_obus(alpha, …)` with **no** preceding parse/metadata check, and
+  avif-parse can set `alpha_item = Some(empty)` via `get_or_insert_with(TryVec::new)`
+  (avif-parse `lib.rs:843`) for an alpha item with a zero-length iloc extent. A
+  crafted AVIF with a valid primary + empty-extent alpha could therefore abort the
+  process under a debug/fuzz build. I did not build that fixture, so reachability is
+  **plausible, not confirmed.**
+
+Cheap insurance (own follow-up, not blocking merge): a one-line
+`if obus.is_empty() { return Err(ImageError::Decode("avif: empty OBU stream".into())); }`
+at the top of `decode_obus`, plus an alpha-item metadata pre-check mirroring the
+primary. Worth reporting upstream alongside the existing avif-parse/re_rav1d issues.
 
 ---
 
