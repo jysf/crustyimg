@@ -19,6 +19,6 @@ Cycle prompts live in `prompts/SPEC-094-<cycle>.md`.
   `SIGABRT` — the bug is real, not hypothetical). Guard added at the `decode_obus` chokepoint (1 `send_data`
   site, 1 `Decoder::with_settings` site, 2 callers — all covered). 3 failing tests written and made to pass;
   fuzz target survives the crafted input in debug; valid AVIFs (with/without alpha) proven pixel-identical
-  against the pre-fix binary. All gates clean. No DEC. PR opened against main.
+  against the pre-fix binary. All gates clean. No DEC. PR #97 opened against main.
 - [ ] verify — single session, primary checkout.
 - [ ] ship — orchestrator.

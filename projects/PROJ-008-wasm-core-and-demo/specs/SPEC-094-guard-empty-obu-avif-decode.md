@@ -162,7 +162,7 @@ first; guard at the shared chokepoint so every caller is covered.
 
 ## Build Completion
 - **Branch:** `spec-094-empty-obu-guard`
-- **PR:** (opened against main)
+- **PR:** [#97](https://github.com/jysf/crustyimg/pull/97)
 - **All acceptance criteria met?** Yes.
   - **Reachability confirmed FIRST, not assumed.** Read the vendored `re_rav1d-0.1.3` source directly:
     `include/common/validate.rs`'s `debug_abort()` calls `std::process::abort()` under
