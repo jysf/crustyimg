@@ -3,7 +3,7 @@
 task:
   id: SPEC-091
   type: story
-  cycle: design
+  cycle: build
   blocked: false
   priority: high
   complexity: S
@@ -28,7 +28,19 @@ value_link: >
   including SPEC-083's BENCHMARKS numbers, measured via the `--timing` SPEC-088 just shipped.
 
 cost:
-  sessions: []
+  sessions:
+    - cycle: build
+      interface: claude-code
+      model: claude-opus-4-8
+      tokens_total: 260000
+      duration_minutes: null
+      estimated_usd: 2.35
+      note: >
+        Order-of-magnitude estimate — build ran in the orchestrator main loop, not
+        a separately metered subagent (per docs/cost-tracking + the autonomous-run
+        cost practice). Opus 4.8 list $5/$25 per MTok, ~80/20 in/out, no cache
+        discount. Heavy tool use: re_rav1d source spelunking, a repro harness, and
+        before/after throughput + pixel-identity measurement across rebuilt binaries.
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -165,9 +177,62 @@ all-cores default), backed by measurement: does capping threads (a) kill the Dis
 ---
 
 ## Build Completion
-- **Branch:** · **PR:** · **All acceptance criteria met?** · **New decisions:** · **Deviations:** · **Follow-ups:**
+- **Branch:** `spec-091-avif-threads`
+- **PR:** (opened against main)
+- **All acceptance criteria met?** Yes.
+  - **Reliable repro (pre-change):** two independent vehicles. (1) Full
+    `cargo test --features avif` suite → panic via
+    `json_shape_consistent_across_verbs` (its `apply --recipe web` subprocess
+    panics at `disjoint_mut.rs:837: overlapping DisjointMut`, `rav1d-worker`),
+    ~**1 in 4** sequential full-suite runs. (2) Fast A/B: *N* concurrent debug
+    single-image (256²) decodes — at **100 procs, a panic in ~2 of 3 trials**.
+    Captured overlap: `cdef.rs:207` (ThreadId 10) ∩ `lf_apply.rs:124` (ThreadId 8).
+  - **Explicit policy in code:** `AVIF_DECODE_THREADS = 1` via `decode_settings`
+    (`src/image/avif.rs`), commented; overrides dav1d's `n_threads = 0` default.
+  - **Flake gone:** **0 panics in 6×100-proc trials** post-change (same vehicle
+    that flaked ~2/3 pre-change) — the negative control. `n_threads = 4` **still
+    flakes** (1/3 at 50 procs), so only `1` (n_tc=1, zero workers) eliminates it.
+  - **Throughput measured (release, 14-core):** single-image 6 MP decode
+    ~60→~230 ms (**3.8× slower**); serial `convert` batch (28×6 MP) ~1.80→~6.76 s
+    (**3.8× slower** — `run_pixel_op` is a serial `for`, not rayon); **parallel
+    `web`/`optimize`/`apply` batch (rayon 14, 28×6 MP) ~640→~625 ms — a wash.**
+    The regression on the non-rayon paths is consciously traded for correctness
+    (DEC-077).
+  - **Pixels byte-identical:** pre-change vs after-change binaries decode a 6 MP
+    AVIF to identical PNG (`sha256 df4a5981…`, graded by `shasum`); committed test
+    pins the 128² fixture's RGBA to a pre-change digest; sips confirms the fixture.
+  - **Gates:** `cargo test` default + `--features avif` green across ≥5
+    consecutive full-suite runs; clippy (both feature sets), fmt, lean build,
+    `just validate`/`bench`/`bench-micro` all pass.
+- **New decisions:** DEC-077 (AVIF decode single-thread policy).
+- **Deviations:** The spec's premise "batch always par_iter across files (DEC-006)"
+  holds only for `web`/`optimize`/`apply`; `convert`/`resize`/`edit` decode via a
+  **serial** `run_pixel_op` loop, so the cap regresses those ~3.8×. Chose
+  `n_threads = 1` (Option A) over a small cap (Option B — measured to still flake)
+  and context-awareness (Option C — the race fires under external load too, so it
+  can't be bounded to "inside our batch").
+- **Follow-ups:** (1) Report the `cdef.rs`/`lf_apply.rs` overlap upstream to
+  re_rav1d — the root cause is a port threading bug, not our usage. (2) Own spec:
+  par_iter `run_pixel_op` so `convert`/`resize` reclaim the loss (makes the cap a
+  wash everywhere). (3) SPEC-083 BENCHMARKS should land after this (decode numbers
+  now measured without oversubscription).
 ### Build-phase reflection
-1. <answer> 2. <answer> 3. <answer>
+1. **The spec's own premise was partly wrong, and only measurement caught it.**
+   "Batch par_iter across files makes per-file all-cores threading redundant" is
+   true for the rayon verbs but false for `convert`/`resize`, whose `run_pixel_op`
+   is a serial `for` loop — so there dav1d's threading was the *only* parallelism
+   and the cap costs 3.8×. Re-driving the claim (reading the actual batch path,
+   measuring both) turned a clean "obvious win" into an honest trade-off.
+2. **A small cap felt safe but was a gamble; the source proved why.** `re_rav1d`
+   spawns workers only when `n_tc > 1` (`src/lib.rs:257`); any `n_threads > 1`
+   keeps the race live — confirmed empirically (`n_threads = 4` still flakes). The
+   only value that *structurally* removes the overlap is 1. Grounding the choice in
+   the spawn gate, not just a passing run, is what makes it defensible.
+3. **The negative control did the real work.** A flake "fixed" is only believable
+   if you watched it fail reliably first, then stop — same harness, variable moved.
+   Reproducing at ~2/3, then 0/6 on the identical vehicle, plus a byte-identical
+   pixel proof against a *separately built* pre-change binary, is the evidence; one
+   green suite would have proved nothing on a 1-in-4 flake.
 
 ---
 

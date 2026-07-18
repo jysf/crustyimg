@@ -254,11 +254,42 @@ fn frame_size_limit(limits: &Limits) -> u32 {
     limit
 }
 
-/// Decode a single AV1 still image (one OBU stream) to a `re_rav1d` [`Picture`],
-/// bounding the decoder's frame allocation via [`frame_size_limit`] (DEC-034).
-fn decode_obus(obus: &[u8], limits: &Limits) -> Result<Picture> {
+/// The AVIF-decode thread policy (DEC-077): decode every still frame on a single
+/// thread rather than inheriting dav1d's `n_threads = 0` (= all logical cores).
+///
+/// We decode exactly **one** AV1 still frame per call, so frame-threading (the
+/// `n_fc` frame contexts dav1d derives from the core count) buys nothing — there
+/// is no second frame to overlap. Worse, batch runs already parallelize *across
+/// files* with rayon (DEC-006), so an all-cores decoder pool spawned *per file*
+/// is textbook oversubscription (on a 14-core box, 14 rayon workers each starting
+/// a ~14-thread dav1d pool). That oversubscription is what trips `re_rav1d`'s
+/// debug-mode `DisjointMut` overlap check (a *real* cross-thread data race between
+/// its CDEF/loop-restoration workers; silent in release, where the targets are
+/// provenanceless so the consequence is wrong pixels, not a memory-safety hole).
+///
+/// `re_rav1d` spawns its `rav1d-worker-*` threads only when the tile-context count
+/// `n_tc > 1` (`re_rav1d-0.1.3/src/lib.rs:257`); `n_tc == 1` runs the whole decode
+/// inline on the calling thread. Pinning to 1 thread therefore means **no worker
+/// threads exist to overlap**, and file-level rayon still keeps every core busy.
+/// This extends the DEC-034 precedent of setting decode `Settings` deliberately.
+const AVIF_DECODE_THREADS: u32 = 1;
+
+/// Build the decode [`Settings`] used for every AVIF frame: the DEC-034 frame-size
+/// cap plus the explicit DEC-077 single-thread policy ([`AVIF_DECODE_THREADS`]).
+/// Factored out so the thread policy is asserted against the exact `Settings`
+/// production uses, not a re-derived copy.
+fn decode_settings(limits: &Limits) -> Settings {
     let mut settings = Settings::new();
     settings.set_frame_size_limit(frame_size_limit(limits));
+    settings.set_n_threads(AVIF_DECODE_THREADS);
+    settings
+}
+
+/// Decode a single AV1 still image (one OBU stream) to a `re_rav1d` [`Picture`],
+/// bounding the decoder's frame allocation via [`frame_size_limit`] (DEC-034) and
+/// pinning threads via [`decode_settings`] (DEC-077).
+fn decode_obus(obus: &[u8], limits: &Limits) -> Result<Picture> {
+    let settings = decode_settings(limits);
     let mut dec =
         Decoder::with_settings(&settings).map_err(|e| ImageError::Decode(format!("avif: {e}")))?;
     dec.send_data(obus.to_vec(), None, None, None)
@@ -605,5 +636,49 @@ mod tests {
         ));
         // A 24 MP frame passes.
         assert!(check_caps(6_000, 4_000, &prod).is_ok());
+    }
+
+    /// SPEC-091/DEC-077: the decode `Settings` set a thread count deliberately,
+    /// rather than silently inheriting dav1d's `n_threads = 0` (= all cores). The
+    /// guard on `Settings::new()` documents the default we override — if a future
+    /// dav1d bump changed that default, this pins what we are deviating from.
+    #[test]
+    fn avif_decode_thread_policy_is_explicit() {
+        assert_eq!(
+            AVIF_DECODE_THREADS, 1,
+            "still-image decode is single-threaded (DEC-077)"
+        );
+        // The exact Settings production uses (not a re-derivation) carry the cap.
+        let s = decode_settings(&Limits::default());
+        assert_eq!(
+            s.get_n_threads(),
+            AVIF_DECODE_THREADS,
+            "decode_settings must set the explicit thread policy"
+        );
+        // The dav1d default is all-cores auto (0); prove we are not inheriting it.
+        assert_eq!(
+            Settings::new().get_n_threads(),
+            0,
+            "dav1d default n_threads is 0 (=auto all cores); the policy overrides it"
+        );
+        assert_ne!(s.get_n_threads(), Settings::new().get_n_threads());
+    }
+
+    /// SPEC-091/DEC-077: a rayon batch (DEC-006) must not spawn an ~N-core decoder
+    /// pool *per file*. `re_rav1d` spawns its `rav1d-worker-*` threads only when the
+    /// tile-context count `n_tc > 1` (`re_rav1d-0.1.3/src/lib.rs:257`), and `n_tc`
+    /// is derived directly from `n_threads`; `n_threads == 1` ⇒ `n_tc == 1` ⇒ zero
+    /// worker threads ⇒ no oversubscription and no cross-thread overlap. The
+    /// observable, deterministic proxy is the thread count on the production
+    /// `Settings`; the wall-clock effect is covered by the DEC-077 measurements.
+    #[test]
+    fn avif_batch_decode_does_not_oversubscribe() {
+        let s = decode_settings(&Limits::default());
+        assert_eq!(
+            s.get_n_threads(),
+            1,
+            "a single decode thread spawns no rav1d-worker pool, so N rayon workers \
+             cannot each start an N-core dav1d pool"
+        );
     }
 }

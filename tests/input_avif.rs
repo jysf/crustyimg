@@ -115,3 +115,40 @@ fn avif_roundtrip_gradient() {
     let s = crustyimg::quality::score(&source, decoded.pixels()).expect("ssimulacra2");
     assert!(s >= 70.0, "round-trip perceptual score too low: {s}");
 }
+
+/// SPEC-091/DEC-077: the single-thread decode policy must not change decoded
+/// pixels. This pins the decoded RGBA of a committed 128×128 photo AVIF to a
+/// digest **captured from the pre-change (all-cores) binary** at HEAD cd39f17 —
+/// an independent value the code under test cannot fabricate. dav1d is a
+/// conformant decoder whose output is bit-exact regardless of thread count, so a
+/// digest change here means the thread policy altered pixels (a bug), not a
+/// benign difference. The fixture is `photo_128.avif` (real photo content, so the
+/// multi-threaded CDEF/loop-restoration path that the cap removes actually ran
+/// when the golden was captured).
+#[cfg(feature = "avif")]
+#[test]
+fn avif_decode_pixels_unchanged_by_thread_policy() {
+    use crustyimg::image::Image;
+
+    const PHOTO_128: &[u8] = include_bytes!("fixtures/avif/photo_128.avif");
+    // FNV-1a of the decoded RGBA, captured on the pre-change binary (n_threads=0).
+    const PRE_CHANGE_RGBA_FNV1A: u64 = 0x0d2b_956b_63f0_cd85;
+
+    fn fnv1a(bytes: &[u8]) -> u64 {
+        let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+        for &b in bytes {
+            h ^= b as u64;
+            h = h.wrapping_mul(0x0000_0100_0000_01b3);
+        }
+        h
+    }
+
+    let img = Image::from_bytes(PHOTO_128).expect("decode photo_128.avif");
+    assert_eq!((img.width(), img.height()), (128, 128));
+    let rgba = img.pixels().to_rgba8();
+    assert_eq!(
+        fnv1a(rgba.as_raw()),
+        PRE_CHANGE_RGBA_FNV1A,
+        "single-thread decode changed pixels vs the pre-change all-cores decode"
+    );
+}
