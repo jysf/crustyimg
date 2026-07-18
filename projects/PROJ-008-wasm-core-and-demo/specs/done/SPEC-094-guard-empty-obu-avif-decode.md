@@ -3,7 +3,7 @@
 task:
   id: SPEC-094
   type: bug
-  cycle: verify
+  cycle: ship
   blocked: false
   priority: medium
   complexity: S
@@ -59,10 +59,22 @@ cost:
         reachability + fuzz-gate negative controls in both directions.
         estimated_usd = tokens_total x list rate (Opus 4.8 ~$5/$25 per MTok,
         ~80/20 input/output, no cache discount).
+    - cycle: ship
+      interface: claude-code
+      model: claude-opus-4-8
+      tokens_total: null
+      estimated_usd: 0.55
+      recorded_at: 2026-07-18
+      note: >
+        orchestrator main loop (un-metered, §4) — ESTIMATE. Framed the spec (SPEC-091 follow-up #2),
+        dispatched build (Sonnet) → verify (Opus, CLEAN), each in the single primary checkout.
+        Spot-checked the guard placement + fixture + CI, confirmed the three-OS matrix green on the
+        verify commit (no flake recurrence), squash-merged PR #97 (751aae4), bookkeeping + brag +
+        memory. This is the SECOND model-experiment data point (a bug-fix spec on Sonnet).
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 1200000
+    estimated_usd: 9.70
+    session_count: 3
 ---
 
 # SPEC-094: guard the empty-OBU `debug_abort()` in AVIF decode
@@ -329,4 +341,27 @@ the chokepoint choice, the abort-≠-unwind reasoning) this is **indistinguishab
 ---
 
 ## Reflection (Ship)
-1. <answer> 2. <answer> 3. <answer>
+1. **The stage's recurring trap was the spec's whole risk — and this time it was avoided by construction,
+   on the first pass.** The failure mode ([[a-plausible-test-result-is-not-a-checked-one]]) here would be
+   "guard the alpha path, test it with a *direct* empty-slice call, declare the bug fixed" — proving the
+   guard, not the reachability. The framing front-loaded the discipline ("prove reachability with a crafted
+   AVIF or say it's unreachable and STOP"), the build honored it (hand-built a conforming AVIF exploiting
+   avif-parse's `iloc` ToEnd `mem::take` semantics → real SIGABRT on pre-fix), and verify re-drove the
+   abort *and* its negative control (guard-removed → libFuzzer deadly-signal through `catch_unwind`). A
+   live bug, proven live, fixed — no plausible-but-unchecked step anywhere. When the framing names the
+   exact trap, the build tends not to fall in it.
+2. **Model experiment, point #2 — Sonnet held on a JUDGMENT-heavy bug fix, not just a mechanical move.**
+   SPEC-089 (the first point) was a pure rename; the worry was that Sonnet's edge would fade on real
+   investigation. This spec was the opposite — the fix is one line, but *proving reachability* meant
+   reverse-engineering avif-parse's extent handling and byte-crafting a container to trigger it. Verify's
+   independent read: "on the hard parts, indistinguishable from an Opus build." Build $3.30 (Sonnet) +
+   verify $5.85 (Opus). Working rule holds and strengthens: **build on Sonnet when the framing is tight
+   and names the crux — even for investigation-heavy specs — and keep verify on Opus as the constant
+   adversarial referee.** ([[builder-model-choice-experiment]] now n=2.)
+3. **An abort is a distinct hazard class from a panic, and the decode contract now covers it.** DEC-062
+   said "typed error, never a panic/abort," but the `catch_unwind` + scoped-`join` machinery only ever
+   handled *unwinds* — an `abort()` (re_rav1d's debug-only `debug_abort`) sailed through both. The only
+   defense is to stop bad input *before* the decoder, at the chokepoint, for every caller. Guard lives at
+   `decode_obus` (1 `send_data` / 1 `Decoder::with_settings` / 2 callers, all covered). Closes SPEC-091
+   follow-up #2; the other two (upstream re_rav1d report — maintainer to file; `par_iter run_pixel_op` —
+   perf) remain queued, sequential. Lesson banked at [[a-thread-boundary-does-not-catch-abort]].

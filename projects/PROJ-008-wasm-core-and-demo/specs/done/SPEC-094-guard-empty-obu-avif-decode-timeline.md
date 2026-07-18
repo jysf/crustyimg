@@ -28,4 +28,8 @@ Cycle prompts live in `prompts/SPEC-094-<cycle>.md`.
   no-op (guard = early-return on empty); fixture carries a real `auxC` alpha item. Gates green (759 default /
   771 avif / clippy x2 / fmt / lean / validate); PR #97 CI 27/27 incl. avif on all three OSes. No punch list.
   Build (Sonnet) indistinguishable from Opus on the hard parts.
-- [ ] ship — orchestrator.
+- [x] ship — squash-merged PR #97 (**751aae4**) 2026-07-18, three-OS matrix green (no flake). Bookkeeping:
+  cycle→ship, 3 cost sessions with `model:` (build Sonnet $3.30 / verify Opus $5.85 / ship $0.55 ≈ **$9.70**),
+  NO DEC (defensive guard), timeline, STAGE-030 backlog, archive, memory + brag. **Model experiment point #2:
+  Sonnet build held on a judgment-heavy bug fix (verify: indistinguishable on the hard parts).** Closes
+  SPEC-091 follow-up #2; #1 (upstream report) + #3 (`par_iter run_pixel_op`) remain queued.
