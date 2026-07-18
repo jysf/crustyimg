@@ -1,9 +1,15 @@
 # The crustyimg demo
 
-A static page that runs the crustyimg engine **in your browser**. Drop an image, convert it,
-download the result — nothing is uploaded, and there is no backend to upload it to. The engine is
-the same pure-Rust code the CLI runs, compiled to WebAssembly and shipped as
-[`crustyimg-wasm`](../npm/README.md).
+A static page that runs the crustyimg engine **in your browser**. Drop a photo and it becomes
+**web-ready** in one click — the `web` flow (SPEC-085): downscale the long edge to 2048, modernize
+to AVIF (photos) or lossless WebP (graphics), never hand back a bigger file, and score the result.
+Nothing is uploaded, and there is no backend to upload it to. The engine is the same pure-Rust code
+the CLI runs, compiled to WebAssembly and shipped as [`crustyimg-wasm`](../npm/README.md).
+
+The demo's job is not to convert one image — it is to **turn a visitor into a user**. Every result
+shows the exact `crustyimg web <file>` command (with a copy button and the recipe verbatim), because
+the CLI runs this same flow on whole folders at once. All the old knobs (format override, a size cap,
+a byte budget) live behind a collapsed **Advanced** disclosure; the hero never needs them.
 
 ```
 just demo-serve      # build it, serve it, print a URL
@@ -36,10 +42,15 @@ fortunate: GitHub Pages cannot set headers.)
 | | |
 |---|---|
 | **In** | PNG, JPEG, GIF, WebP, SVG (rasterized by resvg, `<text>` and all), AVIF |
-| **Out** | AVIF, WebP (lossless), JPEG (auto-quality), PNG — or **Auto**, and the engine picks |
-| **Resize** | optional max long edge — runs a real recipe, the same TOML the CLI reads |
-| **Explains** | bytes in → out and % saved, the format chosen and by whom, the dimensions, and how the quality was decided |
+| **Default (the hero)** | the `web` flow: auto-orient → downscale long edge to 2048 → modernize (Auto: AVIF for photos, lossless WebP for graphics) → **never bigger than the original** → score |
+| **Advanced** | a collapsed `<details>`: format override, a max-edge (incl. "keep full resolution"), a byte budget — none of it needed for the one-click path |
+| **Downscale** | runs a real recipe — the same `resize` TOML + `fast_image_resize` backend the CLI's `web` runs, not a browser resampler |
+| **Funnel** | every result shows `crustyimg web <file>` + a copy button + the recipe verbatim from `recipes/web.toml`, because the CLI does this to whole folders (`crustyimg web *.jpg`) |
+| **Explains** | bytes in → out and % saved (or "kept your original"), the downscale stated honestly, and the raw SSIMULACRA2 score where the engine can measure it |
 | **Runs** | entirely on your machine, in a Worker: no server, no upload, no network call for the conversion |
+
+The in-browser result **approximates** the CLI — the wasm build encodes AVIF at q80, the `web` CLI at
+q85 (DEC-069) — so it is close, not byte-identical, and the page says so.
 
 ### Why a Worker (SPEC-078)
 
@@ -105,8 +116,16 @@ There is no quality **slider**, because the shipped wasm surface takes no qualit
   candidate, and this build cannot decode AVIF;
 * **WebP / PNG** — *lossless*, so there is no quality to choose. Lossy WebP is a C library and this
   build is pure Rust, which means re-encoding an already-lossy JPEG to WebP can legitimately produce
-  a **bigger** file. The page says so when it happens instead of hiding it — try AVIF, or cap the
-  long edge.
+  a **bigger** file. That is exactly when the demo's **never-bigger guard** hands your original back
+  ("kept your file") instead of shipping the larger result — pure page logic on top of `web`, which
+  itself reports size honestly and can go larger (use the CLI's `optimize` for an unconditional
+  never-bigger that keeps dimensions).
+
+The **score** shown is raw SSIMULACRA2 (~100 is visually identical; it can go **negative** on a bad
+encode) — never a 0–100 percentage. The engine only produces it when it ran a perceptual search
+(JPEG here); AVIF cannot be scored in-browser (encode-only — no decoder to measure against), and
+lossless output has nothing to score. The page says which of those happened rather than showing a
+blank.
 
 ## How it is built
 
@@ -132,8 +151,8 @@ and publishes `demo/` to GitHub Pages.
 
 | File | |
 |---|---|
-| `index.html` | the page (and the classic script that explains the `file://` failure) |
-| `demo.js` | the page's half: drop → post to the worker → render what it decided |
-| `worker.js` | the engine's thread: `init()`s the wasm, converts, and borrows the browser's AVIF decoder |
+| `index.html` | the page: the one-click hero, the Advanced `<details>`, the funnel (and the classic script that explains the `file://` failure) |
+| `demo.js` | the page's half: drop → post to the worker → render the result, the never-bigger guard, the funnel + copy, the honest score, and the slow-path timer |
+| `worker.js` | the engine's thread: `init()`s the wasm, runs the `web` geometry (auto-orient + downscale) then `optimizeDetailed` at speed 10, and borrows the browser's AVIF decoder |
 | `demo.css` | the whole stylesheet |
 | `vendor/` | the vendored `crustyimg-wasm` build output — generated, gitignored |
