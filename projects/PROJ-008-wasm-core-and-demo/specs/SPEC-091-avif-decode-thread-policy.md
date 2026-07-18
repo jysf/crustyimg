@@ -410,11 +410,12 @@ caller's OS-defined stack onto one with adequate headroom.
 - **Local gates (macOS):** `cargo test` default + `--features avif` (762), clippy
   (both feature sets), `cargo fmt --check`, `cargo build --no-default-features`,
   `just validate` / `bench` / `bench-micro` — all green.
-- **The gate that was missed in round 1 — Windows CI:** PR #95 `build / test /
-  clippy / fmt (windows-latest)` is the acceptance gate (the three-OS matrix,
-  DEC-009 — not the darwin box). This section is finalized only after pushing and
-  watching `gh pr checks 95` show the windows-latest leg **green** (ubuntu + macos
-  green too). ‹CI RESULT recorded on confirmation below.›
+- **The gate that was missed in round 1 — Windows CI: GREEN.** On commit `d87d389`,
+  PR #95 `build / test / clippy / fmt (windows-latest)` **passed** (both workflow
+  legs, ~5m21s / 5m24s) with ubuntu-latest and macos-latest green too. Full matrix:
+  **27 checks passed, 0 failed** (remaining jobs are release-only, skipped on a PR).
+  The three-OS matrix (DEC-009), not the darwin box, is the acceptance gate; met by
+  pushing and watching `gh pr checks 95` until the windows-latest leg passed.
 - **DEC-077 updated:** new section "Windows: the inline decode needs its own stack"
   records the mechanism, the 8 MiB choice, the rayon composition, and the round-1
   gate gap (darwin-only validation of a change to *where* work runs).

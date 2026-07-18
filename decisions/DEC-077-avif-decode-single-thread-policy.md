@@ -254,8 +254,9 @@ When upstream fixes it, revisit whether multi-threaded decode can return.
   committed golden test on the 128×128 fixture; sips (an independent system
   decoder) confirms the fixture decodes to 128×128.
 - **Windows overflow fixed (round 2):** the inline decode runs on an 8 MiB spawned
-  stack. The gate is PR #95's windows-latest leg green (with ubuntu + macos green) —
-  the three-OS matrix (DEC-009), not a single box.
+  stack; PR #95's windows-latest leg is **green** (with ubuntu + macos green;
+  commit `d87d389`, 27 checks passed / 0 failed) — the three-OS matrix (DEC-009),
+  not a single box, is the gate.
 - **Tests:** `avif_decode_thread_policy_is_explicit`,
   `avif_batch_decode_does_not_oversubscribe` (unit, `avif.rs`),
   `avif_decode_pixels_unchanged_by_thread_policy` +
