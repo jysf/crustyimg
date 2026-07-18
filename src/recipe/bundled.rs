@@ -19,9 +19,12 @@
 //!
 //! Each bundled flow ends with an `op = "optimize"` step — the reserved terminal
 //! marker that makes the recipe encode via the fast AVIF-aware decision
-//! (`Mode::Fast`, never-bigger, score) instead of a plain format-preserving sink
-//! write. It is handled in the CLI's apply path, not the operation registry, so a
-//! bundled recipe modernizes format the way the `web` verb does.
+//! (`Mode::Fast`, beats-the-downscaled-image, score) instead of a plain
+//! format-preserving sink write. Because these flows downscale first, an
+//! already-small source above the bound can re-encode larger than the original;
+//! that is reported honestly (SPEC-090, DEC-075), not hidden. It is handled in the
+//! CLI's apply path, not the operation registry, so a bundled recipe modernizes
+//! format the way the `web` verb does.
 
 /// One bundled recipe: its lookup `name` and the embedded TOML `text`.
 struct Bundled {

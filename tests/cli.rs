@@ -4704,6 +4704,231 @@ fn web_reads_raw_input() {
     );
 }
 
+// ── SPEC-090: reconcile `web`'s never-bigger claim with its baseline (DEC-075) ──
+
+/// The spec's central case: an already-small, heavily-compressed source ABOVE the
+/// downscale bound comes back LARGER than the ORIGINAL — `web` honors the dimension
+/// request (its contract), so it cannot also promise "never bigger". The output is
+/// shipped, and the fact is SURFACED, never hidden: an explicit `larger_than_source`
+/// flag in the `--json` audit report AND a `note:` on stderr, with savings read
+/// honestly as "N% larger" (SPEC-084 not regressed).
+///
+/// Gated to the **lossless-only** codec build (`not(any(avif, webp-lossy))`): the
+/// case only exists when NO lossy encoder can beat the tiny downscaled source. The
+/// DEFAULT `cargo test` codec set re-encodes as lossless-WebP/PNG (~2 s) and the
+/// downscale exceeds the source; add any lossy encoder — `avif` (minutes-slow debug
+/// encode) or `webp-lossy` (crushes the 512px downscale well under the source) — and
+/// the output shrinks, so the reproduction no longer holds. The signal itself is
+/// codec-independent (a byte comparison) and is unit-tested in `analysis::decide` for
+/// every feature build (`larger_than_source_flag_only_when_output_exceeds_source`).
+#[cfg(not(any(feature = "avif", feature = "webp-lossy")))]
+#[test]
+fn web_output_larger_than_original_is_surfaced() {
+    let dir = tempfile::tempdir().unwrap();
+    // A detailed LOSSY JPEG (+ICC) at 2200×1467 (> the 2048 default): tiny for its
+    // dimensions, yet the downscaled re-encode cannot beat it. `--max 512` keeps the
+    // debug re-encode quick without changing the mechanism (a downscale to a
+    // dimension bound of an already-small large-dimension source).
+    let src = common::detailed_jpeg_with_icc(2200, 1467);
+    let in_path = write_bytes(&dir, "tiny_big.jpg", &src);
+    let out_dir = dir.path().join("out");
+
+    let out = Command::new(BIN)
+        .args([
+            "web",
+            in_path.to_str().unwrap(),
+            "--max",
+            "512",
+            "--out-dir",
+            out_dir.to_str().unwrap(),
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr_str(&out));
+
+    // The fixture must actually reproduce the case (else the test proves nothing).
+    let (_path, bytes) = optimize_single_output(&out_dir);
+    assert!(
+        bytes.len() > src.len(),
+        "fixture must reproduce web-larger-than-original: out {} vs source {}",
+        bytes.len(),
+        src.len()
+    );
+
+    // Signal 1 — the machine-readable audit flag (additive, gated), plus honest
+    // negative savings (SPEC-084 not regressed: "N% larger", never a clamped 0).
+    let json = stdout_str(&out);
+    assert!(
+        json.contains("\"larger_than_source\":true"),
+        "the --json report must flag the larger-than-source output: {json}"
+    );
+    assert!(
+        json.contains("\"savings_percent\":-"),
+        "savings must read honestly negative (larger): {json}"
+    );
+
+    // Signal 2 — the stderr note (present even under --json, whose report owns
+    // stdout), so a human is told the flagship shrink verb shipped a bigger file.
+    let err = stderr_str(&out);
+    assert!(
+        err.contains("note:") && err.contains("larger than the"),
+        "stderr must carry an explicit larger-than-source note: {err}"
+    );
+    // stdout stays pipe-clean JSON (the note is not leaked onto it).
+    assert!(
+        !json.contains("note:"),
+        "the note belongs on stderr, not the JSON stdout: {json}"
+    );
+}
+
+/// The default channel (no `--json`) also surfaces the larger case: the one-line
+/// summary reads "N% larger" (SPEC-084) AND the explicit `note:` follows. Gated to
+/// the lossless-only codec build (`not(any(avif, webp-lossy))`) for the same reason
+/// as above — any lossy encoder beats the tiny downscale, so the case disappears.
+#[cfg(not(any(feature = "avif", feature = "webp-lossy")))]
+#[test]
+fn web_larger_than_original_noted_on_default_channel() {
+    let dir = tempfile::tempdir().unwrap();
+    let src = common::detailed_jpeg_with_icc(2200, 1467);
+    let in_path = write_bytes(&dir, "tiny_big.jpg", &src);
+    let out_dir = dir.path().join("out");
+
+    let out = Command::new(BIN)
+        .args([
+            "web",
+            in_path.to_str().unwrap(),
+            "--max",
+            "512",
+            "--out-dir",
+            out_dir.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr_str(&out));
+    let err = stderr_str(&out);
+    assert!(err.contains("larger"), "summary must read 'larger': {err}");
+    assert!(
+        err.contains("note:"),
+        "the default channel must also carry the note: {err}"
+    );
+    assert!(out.stdout.is_empty(), "stdout stays clean with --out-dir");
+}
+
+/// `optimize` (the keep-dimensions byte-primitive) is UNCHANGED and out of scope:
+/// on a metadata-free source it never ships a larger file. The same large,
+/// heavily-compressed content that makes `web` grow (because `web` downscales)
+/// leaves `optimize` at ≤ source (because it keeps dimensions) — no
+/// `larger_than_source` flag, no note. Feature-independent and fast.
+#[test]
+fn optimize_never_bigger_still_unconditional() {
+    let dir = tempfile::tempdir().unwrap();
+    // Metadata-free: no forced re-encode. A detailed PNG re-encodes to a smaller
+    // format OR passes through — never larger.
+    let src = common::detailed_png(400, 300);
+    let in_path = write_bytes(&dir, "in.png", &src);
+    let out_dir = dir.path().join("out");
+
+    let out = Command::new(BIN)
+        .args([
+            "optimize",
+            in_path.to_str().unwrap(),
+            "--out-dir",
+            out_dir.to_str().unwrap(),
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr_str(&out));
+    let (_path, bytes) = optimize_single_output(&out_dir);
+    assert!(
+        bytes.len() <= src.len(),
+        "optimize keep-dims must never ship larger: {} vs source {}",
+        bytes.len(),
+        src.len()
+    );
+    let json = stdout_str(&out);
+    assert!(
+        !json.contains("larger_than_source"),
+        "a never-bigger optimize run must not flag larger-than-source: {json}"
+    );
+    assert!(
+        !stderr_str(&out).contains("note:"),
+        "no larger-than-source note when optimize did not grow: {}",
+        stderr_str(&out)
+    );
+}
+
+/// `optimize` byte-identity anchor for the keep-dims primitive (untouched by this
+/// spec): a metadata-free source that no candidate can beat passes through
+/// BYTE-FOR-BYTE — the output equals the input exactly. (The cross-binary pre-spec
+/// oracle diff is run at build/verify; this pins the invariant in-suite.)
+#[test]
+fn optimize_metadata_free_passthrough_is_byte_identical() {
+    let dir = tempfile::tempdir().unwrap();
+    // An already-tight, metadata-free lossy JPEG that nothing beats → the raw source
+    // ships verbatim (a passthrough, no re-encode).
+    let src = common::detailed_jpeg(512, 512);
+    let in_path = write_bytes(&dir, "in.jpg", &src);
+    let out_dir = dir.path().join("out");
+
+    let out = Command::new(BIN)
+        .args([
+            "optimize",
+            in_path.to_str().unwrap(),
+            "--out-dir",
+            out_dir.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr_str(&out));
+    let (_path, bytes) = optimize_single_output(&out_dir);
+    assert_eq!(
+        bytes, src,
+        "a non-beatable metadata-free source must pass through byte-identically"
+    );
+}
+
+/// The common path is unchanged (the additive/gated discipline): a normal photo
+/// `web` shrinks emits NO `larger_than_source` flag and NO note — the field rides
+/// the report only when the output is actually larger. Feature-independent.
+#[test]
+fn web_normal_case_no_larger_flag() {
+    let dir = tempfile::tempdir().unwrap();
+    let src = common::detailed_png(800, 600);
+    let in_path = write_bytes(&dir, "photo.png", &src);
+    let out_dir = dir.path().join("out");
+
+    let out = Command::new(BIN)
+        .args([
+            "web",
+            in_path.to_str().unwrap(),
+            "--out-dir",
+            out_dir.to_str().unwrap(),
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr_str(&out));
+    let (_path, bytes) = optimize_single_output(&out_dir);
+    assert!(
+        bytes.len() < src.len(),
+        "normal web must shrink: {} vs {}",
+        bytes.len(),
+        src.len()
+    );
+    let json = stdout_str(&out);
+    assert!(
+        !json.contains("larger_than_source"),
+        "a shrinking run must not carry the flag (schema byte-identical): {json}"
+    );
+    assert!(
+        !stderr_str(&out).contains("note:"),
+        "no note on a shrinking run: {}",
+        stderr_str(&out)
+    );
+}
+
 /// Bundled-vs-path precedence: a **real recipe file always wins**. Passing the path
 /// to a file (an `invert` recipe) runs THAT recipe — a plain pixel op, format
 /// preserved, no auto-decision — proving a file path is honored and shadows any

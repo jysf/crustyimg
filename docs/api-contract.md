@@ -182,10 +182,14 @@ to stderr, and exits **6**; a single-input failure keeps its natural code
 Make an image web-ready in one step: bake EXIF orientation + strip metadata →
 **downscale** the long edge to a web-friendly default (**2048**, aspect preserved,
 never upscaled; `--max N` overrides) → the **fast AVIF-aware decision** (below) that
-picks the smallest modern format beating the source and **never ships a larger file**
-→ **report the winner's SSIMULACRA2 score**. Size-insensitive (a 24 MP photo finishes
-as fast as a small one because it downscales first). Equivalent to `apply --recipe
-web`. `-o`/`--format` pin the output format (bypassing the auto-decision + score).
+picks the smallest modern format beating the **downscaled** image → **report the
+winner's SSIMULACRA2 score**. The downscale to a dimension bound is the contract, so an
+already-small source **above** that bound can re-encode **larger than the original** —
+reported honestly (`N% larger`, plus a `larger_than_source` flag in `--json`), never
+hidden (SPEC-090, DEC-075). For an *unconditional* never-bigger guarantee that keeps
+dimensions, use **`optimize`**. Size-insensitive (a 24 MP photo finishes as fast as a
+small one because it downscales first). Equivalent to `apply --recipe web`. `-o`/`--format`
+pin the output format (bypassing the auto-decision + score).
 Multi-input `--out-dir` fan-out (sequential; partial failure → exit 6; missing input
 → 3; multi-input without `--out-dir` → 2).
 

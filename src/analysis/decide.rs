@@ -349,6 +349,19 @@ impl ExplainTrace {
         (frac * 100.0).round() as i64
     }
 
+    /// Did the shipped output end up **larger than the source** the user handed in?
+    ///
+    /// True only when a correct output had to ship despite not beating the source:
+    /// `web` downscales to a dimension bound, so an already-small, heavily-compressed
+    /// source above that bound can re-encode larger (SPEC-090); `optimize` hits this
+    /// only on the rare metadata-forced re-encode (SPEC-084). `false` at an exact
+    /// break-even or for an empty source. This is the case the `web` "never bigger"
+    /// wording must not paper over — see [`Self::write_json`]'s `larger_than_source`
+    /// flag and DEC-075.
+    pub fn exceeds_source(&self) -> bool {
+        self.source_bytes > 0 && self.out_bytes > self.source_bytes
+    }
+
     /// The size change rendered honestly: `"40% smaller"`, `"17% larger"`, or
     /// `"0% smaller"` at break-even. A forced re-encode that could not beat the
     /// source (SPEC-084 never-bigger) reads as "larger", never a clamped
@@ -521,6 +534,16 @@ impl ExplainTrace {
             self.out_bytes,
             self.savings_percent(),
         )?;
+        // SPEC-090 / DEC-075: an explicit, machine-detectable flag that the shipped
+        // output ended up LARGER than the source the user provided — additive and
+        // gated (absent unless true), so a normal (smaller / break-even) run's schema
+        // stays byte-identical (the same discipline as `ssim`/`timing`). `web`
+        // downscales to a dimension bound, so an already-small large-dimension source
+        // can re-encode larger; this makes that queryable beyond the sign of
+        // `savings_percent`. Placed before `ssim`/`timing` so their order is stable.
+        if self.exceeds_source() {
+            write!(w, ",\"larger_than_source\":true")?;
+        }
         // The SSIMULACRA2 readout rides the JSON only when it was actually measured
         // (`web` / `optimize --verify`); omitting it otherwise keeps a non-verify
         // run's schema byte-identical (SPEC-086).
@@ -1141,6 +1164,83 @@ mod tests {
                 .contains("savings_percent\":-20"),
             "JSON savings_percent must be honestly negative"
         );
+    }
+
+    // ── SPEC-090: the `larger_than_source` audit signal (DEC-075) ────────────────
+
+    /// The `exceeds_source` predicate and its gated JSON field fire ONLY when the
+    /// shipped output is strictly larger than the source — never at break-even, a
+    /// smaller output, or an empty source. A normal run's JSON is byte-identical
+    /// (the additive/gated discipline, like `ssim`/`timing`).
+    #[test]
+    fn larger_than_source_flag_only_when_output_exceeds_source() {
+        // Smaller winner (the common case): no flag, and the JSON omits the key.
+        let smaller = sample_trace(); // out 6000 < source 10000
+        assert!(!smaller.exceeds_source());
+        let mut j = Vec::new();
+        smaller.write_json(&mut j).unwrap();
+        assert!(
+            !String::from_utf8(j).unwrap().contains("larger_than_source"),
+            "a smaller output must not emit the flag"
+        );
+
+        // Exact break-even (passthrough): out == source → not "larger".
+        let mut even = sample_trace();
+        even.winner = None;
+        even.out_bytes = even.source_bytes;
+        assert!(!even.exceeds_source(), "break-even is not larger");
+        let mut j = Vec::new();
+        even.write_json(&mut j).unwrap();
+        assert!(!String::from_utf8(j).unwrap().contains("larger_than_source"));
+
+        // Larger output: the flag fires and the JSON carries it.
+        let mut larger = sample_trace();
+        larger.out_bytes = 11_000; // > 10_000 source
+        larger.candidates[0].bytes = 11_000;
+        assert!(larger.exceeds_source());
+        let mut j = Vec::new();
+        larger.write_json(&mut j).unwrap();
+        let json = String::from_utf8(j).unwrap();
+        assert!(
+            json.contains("\"larger_than_source\":true"),
+            "a larger output must emit the flag: {json}"
+        );
+        // It stays inside the object, and savings still reads honestly negative.
+        assert!(json.trim_end().ends_with('}'));
+        assert!(json.contains("\"savings_percent\":-10"), "{json}");
+
+        // Empty source is not "larger" (guard against divide-by-zero semantics).
+        let mut empty = sample_trace();
+        empty.source_bytes = 0;
+        empty.out_bytes = 5;
+        assert!(!empty.exceeds_source());
+    }
+
+    /// The three additive JSON fields compose in a stable order:
+    /// `larger_than_source` (after `savings_percent`) → `ssim` → `timing`.
+    #[test]
+    fn larger_than_source_precedes_ssim_and_timing() {
+        let mut trace = sample_trace();
+        trace.out_bytes = 12_000;
+        trace.candidates[0].bytes = 12_000;
+        trace.verify_score = Some(88.4);
+        trace.timing = Some(Timing {
+            decode_ms: 1.0,
+            encode_ms: 2.0,
+            total_ms: 3.0,
+        });
+        let mut buf = Vec::new();
+        trace.write_json(&mut buf).unwrap();
+        let json = String::from_utf8(buf).unwrap();
+        let larger_at = json.find("larger_than_source").expect("flag present");
+        let ssim_at = json.find("\"ssim\"").expect("ssim present");
+        let timing_at = json.find("\"timing\"").expect("timing present");
+        let savings_at = json.find("savings_percent").expect("savings present");
+        assert!(
+            savings_at < larger_at && larger_at < ssim_at && ssim_at < timing_at,
+            "stable order savings→larger→ssim→timing: {json}"
+        );
+        assert!(json.trim_end().ends_with('}'));
     }
 
     /// The default (fast) path has no perceptual *target*, so its reason must not

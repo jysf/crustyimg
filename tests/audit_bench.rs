@@ -156,9 +156,16 @@ fn timing_flag_reports_and_json_includes_it() {
 #[test]
 fn json_shape_consistent_across_verbs() {
     let dir = tempfile::tempdir().unwrap();
-    let photo = write_bytes(&dir, "photo.jpg", &common::jpeg_with_exif(256, 256));
+    // A detailed source all three verbs SHRINK (≈44% smaller) with a scored winner:
+    // the base `optimize.explain/v1` schema, with no `larger_than_source` flag. (A
+    // tiny gradient made `optimize`'s metadata-forced re-encode ship larger, whose
+    // additive/gated `larger_than_source` field — SPEC-090 — is data-driven, not
+    // flag-driven, so it legitimately appears for one verb and not another; the base
+    // schema is the shared shape, and the flag's presence is covered by SPEC-090's
+    // own tests.)
+    let photo = write_bytes(&dir, "photo.png", &common::detailed_png(800, 600));
 
-    // Golden top-level key set with `--json --timing` and a scored (lossy) winner.
+    // Golden top-level key set with `--json --timing` and a scored winner.
     // `optimize` is run with `--verify` so its ssim field is present like web/apply.
     let golden: Vec<String> = {
         let mut k = vec![
