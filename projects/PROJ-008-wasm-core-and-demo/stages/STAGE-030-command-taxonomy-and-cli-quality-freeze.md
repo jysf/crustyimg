@@ -172,6 +172,12 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`. Build order: **084 �
   rayon paths a wash. Follow-ups: upstream report · empty-OBU `debug_abort` guard
   ([[a-thread-boundary-does-not-catch-abort]]) · `par_iter run_pixel_op`.
 - [ ] SPEC-092 (optional / may fold) — `convert --to` rename + social/archive recipes.
+- [~] SPEC-094 (design — framed build-ready 2026-07-18, **BUG**, SPEC-091 follow-up) — **guard the
+  empty-OBU `debug_abort()` in AVIF decode.** An empty OBU stream reaches re_rav1d's debug-only
+  `debug_abort()` (uncatchable by `catch_unwind`/the scoped `join`) → crashes debug builds where the
+  SPEC-069 fuzz gate runs, violating DEC-062. Alpha path unguarded; confirm reachability FIRST, then an
+  `is_empty()` guard at the `decode_obus` chokepoint. No DEC expected. *(Decode-hardening, off the CLI-freeze
+  theme — homed here as the SPEC-091 follow-up; move to a maintenance stage if preferred.)*
 - [x] SPEC-093 (shipped 2026-07-17, PR #94, **DEC-076**, ~$5.85, **BUG**) — **fixed the metadata write
   path corrupting numeric EXIF tags.** Root cause: the TIFF writer hardcoded an `II` header (DEC-046
   normalize) while copying the input's value bytes through verbatim → a big-endian (`MM`) input's
