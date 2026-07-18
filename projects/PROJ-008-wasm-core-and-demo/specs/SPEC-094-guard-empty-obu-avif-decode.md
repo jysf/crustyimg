@@ -43,6 +43,22 @@ cost:
         avif-parse) and hand-constructing a byte-exact crafted AVIF container.
         estimated_usd = tokens_total x list rate (Sonnet ~$3/$15 per MTok, ~80/20
         input/output, no cache discount).
+    - cycle: verify
+      interface: claude-code
+      model: claude-opus-4-8
+      tokens_total: 650000
+      duration_minutes: null
+      estimated_usd: 5.85
+      note: >
+        Main-loop interactive session (not a metered Agent subagent), so no clean
+        subagent_tokens reading — order-of-magnitude ESTIMATE per the "autonomous
+        run cost = labelled estimates" convention (docs/cost-tracking.md), not a
+        metered figure. Heavy on vendored-crate source reading (re_rav1d validate.rs
+        / lib.rs), two full test-suite runs (759 default + 771 --features avif),
+        two clippy runs, and two cargo-fuzz builds (~1m22s each) to drive the
+        reachability + fuzz-gate negative controls in both directions.
+        estimated_usd = tokens_total x list rate (Opus 4.8 ~$5/$25 per MTok,
+        ~80/20 input/output, no cache discount).
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -242,6 +258,73 @@ first; guard at the shared chokepoint so every caller is covered.
    spec's letter was the parse-layer-only `crafted_container_yields_empty_alpha_item` test, kept as a
    documentation/regression aid for the container-shape exploit itself, separate from the crux
    process-behavior test.
+
+---
+
+## Verify (✅ APPROVED — 2026-07-18, claude-opus-4-8)
+
+Independent verify on Opus (build was on Sonnet — the model-comparison referee stays constant). Every
+acceptance criterion re-derived from behavior, not from the Build Completion prose. Both crux items proven
+with **negative controls driven in both directions**.
+
+**1. Reachability proof (the crux) — CONFIRMED, not conflated.** Regenerated the crafted container
+in-process (`build_avif_with_empty_alpha` over the real `solid_16x16.avif` primary OBU), then temporarily
+removed the guard and ran `empty_alpha_obu_is_typed_error_not_abort` in a debug build: the process died with
+`signal: 6, SIGABRT`, and re_rav1d printed its own diagnostic —
+`` Input validation check `(sz > 0 && sz <= usize::MAX / 2, EINVAL)` failed in `fn re_rav1d::src::lib::rav1d_send_data` `` at `re_rav1d-0.1.3/src/lib.rs:523`. This is a *container-driven* abort (a conforming AVIF whose
+alpha item parses to `Some(<empty>)`), not a direct empty-slice call, so it proves genuine **reachability**,
+not just that the guard fires. Verified the vendored mechanism directly: `validate.rs::debug_abort()` calls
+`std::process::abort()` under `cfg!(debug_assertions)`, reached via the `validate_input!` macro from
+`rav1d_send_data` — release compiles it out, debug (tests + fuzz) aborts. `catch_unwind` demonstrably did
+**not** save it (the process died despite `decode_avif`'s boundary).
+
+**2. Post-fix typed error — CONFIRMED.** With the guard restored, `empty_alpha_obu_is_typed_error_not_abort`
+and `empty_primary_obu_is_typed_error` both pass inside the normal (non-isolated) test binary in debug —
+`Err(ImageError::Decode(_))`, process survives.
+
+**3. Fuzz gate (the real motivation) — CONFIRMED in BOTH directions.** Dumped the crafted bytes to a file
+and ran `cargo fuzz run avif_decode <crafted>` on the nightly toolchain (cargo-fuzz builds with
+`-Cdebug-assertions`, so `debug_abort` is live). Post-fix: `Executed ... in 2 ms`, no crash, no ASAN report.
+Guard-removed (negative control): libFuzzer reports **`deadly signal`**, backtrace
+`crustyimg…avif::decode_obus → re_rav1d::rav1d_send_data → std::process::abort`, punching through the
+`catch_unwind` frame (#11) — exactly the uncatchable-abort this spec closes. (Toolchain note: the Homebrew
+`cargo`/`rustc` on PATH shadow rustup; prepend `~/.rustup/toolchains/nightly-*/bin` — matches the build's
+reflection.)
+
+**4. Every caller guarded — CONFIRMED.** Re-ran the greps: `rg '\.send_data\('` → **1** (in
+`decode_obus_inline`), `Decoder::with_settings|Decoder::new` → **1** re_rav1d site (the other hit is
+`GifDecoder::new` in `lint/rules.rs`, a different codec), `decode_obus\b` call sites → **2** (primary
+`avif.rs:159`, alpha `:169`). Every re_rav1d mention outside `avif.rs` (error.rs, source, cli, image/mod,
+sniff, wasm) is a doc-comment only; wasm doesn't compile the decoder at all. One guard at the chokepoint =
+full coverage.
+
+**5. Valid AVIFs decode unchanged — CONFIRMED.** The guard is a pure early-return on `is_empty()`, so for
+any non-empty stream control flow is byte-identical to pre-fix — valid decode is a *definitional* no-op.
+The new `solid_16x16_alpha.avif` fixture genuinely carries a real alpha aux item (verified: it declares
+`auxC` + `urn:mpeg:mpegB:cicp:systems:auxiliary:alpha`), so `valid_avif_with_alpha_unchanged` exercises the
+alpha `decode_obus` path and matches its pre-fix golden FNV-1a; SPEC-091's no-alpha golden tests still pass.
+Fixture is synthetic/license-clean (466 B, generated by crustyimg's own encoder via `gen_avif_fixture.rs`).
+
+**6. Gates — ALL GREEN.** `cargo test` (default) **759 passed**; `cargo test --features avif` **771 passed**;
+`cargo clippy --all-targets -- -D warnings` and `--features avif` clean; `cargo fmt --check` clean;
+`cargo build --no-default-features` clean; `just validate` clean (212 blocks). **PR #97 CI: 27/27 green** —
+avif-feature legs pass on the full three-OS matrix (macOS/ubuntu/**windows**), distinguishing a real pass
+from the SPEC-091 flake (now fixed); heic, lean, webp-lossy, msrv 1.90 all pass. `mergeStateStatus: CLEAN`.
+
+**Completion-table ↔ acceptance-list diff:** all 6 acceptance rows have a matching Build Completion claim
+AND an independent verify confirmation; no orphan criterion.
+
+**Build-quality read (Sonnet build, model experiment):** genuinely sound. Proving reachability required
+constructing a *byte-exact conforming* AVIF that exploits avif-parse's `iloc` `ToEnd`-extent `mem::take`
+semantics (two items at the same mdat offset; the first drains the real bytes, the second gets the empty
+leftover) — a real ISOBMFF edge case, not a parser bug — and then *driving the actual abort* rather than
+assuming it. The mechanism claim held under independent tracing. The one nuance a stricter framing would
+tighten: `valid_avif_with_alpha_unchanged`'s "pixel-identically to the pre-fix binary" is slightly
+over-stated, since the guard cannot change a non-empty decode — the golden confirms the alpha path *works*,
+not a pre/post *difference*; a framing nit, not a defect. On the hard parts (the reachability investigation,
+the chokepoint choice, the abort-≠-unwind reasoning) this is **indistinguishable from an Opus build**.
+
+**Verdict: ✅ APPROVED.** No punch list. Ready to ship.
 
 ---
 

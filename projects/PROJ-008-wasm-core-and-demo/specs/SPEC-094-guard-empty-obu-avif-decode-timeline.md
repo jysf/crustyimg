@@ -20,5 +20,12 @@ Cycle prompts live in `prompts/SPEC-094-<cycle>.md`.
   site, 1 `Decoder::with_settings` site, 2 callers — all covered). 3 failing tests written and made to pass;
   fuzz target survives the crafted input in debug; valid AVIFs (with/without alpha) proven pixel-identical
   against the pre-fix binary. All gates clean. No DEC. PR #97 opened against main.
-- [ ] verify — single session, primary checkout.
+- [x] verify — ✅ APPROVED 2026-07-18 (claude-opus-4-8, main-loop interactive, ~$5.85 est). Reachability
+  proven independently: regenerated the crafted AVIF, removed the guard, drove the pre-fix `SIGABRT` from
+  `re_rav1d::rav1d_send_data` (container-driven empty alpha, not a direct empty-slice call — genuine
+  reachability). Fuzz gate proven in BOTH directions: clean post-fix (2 ms, no ASAN), `deadly signal` with
+  the guard removed. Grep re-run (1 send_data / 1 Decoder / 2 callers). Valid-alpha decode is a definitional
+  no-op (guard = early-return on empty); fixture carries a real `auxC` alpha item. Gates green (759 default /
+  771 avif / clippy x2 / fmt / lean / validate); PR #97 CI 27/27 incl. avif on all three OSes. No punch list.
+  Build (Sonnet) indistinguishable from Opus on the hard parts.
 - [ ] ship — orchestrator.
