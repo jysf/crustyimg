@@ -320,7 +320,22 @@ fn decode_settings(limits: &Limits) -> Settings {
 /// (blocked→working) decode thread, not an all-cores pool, so this does not
 /// reintroduce oversubscription. The spawn costs ~tens of µs against a ms-scale
 /// decode — negligible.
+///
+/// **SPEC-094:** an empty `obus` slice must never reach `re_rav1d` — its
+/// `send_data` validates `sz > 0` via a `debug_abort()` that calls
+/// `std::process::abort()` under `cfg!(debug_assertions)`. `abort()` is not an
+/// unwind, so it bypasses both `decode_avif`'s `catch_unwind` and this
+/// function's own scoped-thread `join`; the only fix is to stop the empty
+/// stream *before* it reaches the decoder. This is the single chokepoint both
+/// the primary and alpha decode paths flow through (the only `send_data` /
+/// `Decoder::with_settings` call sites in the crate), so guarding here covers
+/// every caller.
 fn decode_obus(obus: &[u8], limits: &Limits) -> Result<Picture> {
+    if obus.is_empty() {
+        return Err(ImageError::Decode(
+            "avif: empty OBU stream (0 bytes)".into(),
+        ));
+    }
     std::thread::scope(|scope| {
         std::thread::Builder::new()
             .name("avif-decode".into())
@@ -531,6 +546,228 @@ fn map_parse_err(e: avif_parse::Error) -> ImageError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Build a byte-exact box: `[u32 size][4-byte fourcc][payload]`.
+    fn bx(fourcc: &[u8; 4], payload: &[u8]) -> Vec<u8> {
+        let mut out = ((8 + payload.len()) as u32).to_be_bytes().to_vec();
+        out.extend_from_slice(fourcc);
+        out.extend_from_slice(payload);
+        out
+    }
+
+    /// Builds a conforming (non-corrupt) AVIF whose **alpha** item's OBU
+    /// stream is genuinely empty (`alpha_item == Some(<empty>)`), to answer
+    /// SPEC-094's reachability question directly rather than assume it.
+    ///
+    /// The mechanism: `avif-parse`'s iloc `matches_extent` check for a
+    /// `ToEnd` extent (wire `extent_length == 0`) compares only the mdat's
+    /// **file offset**, never its current byte count — so two items whose
+    /// `iloc` entries both point at the SAME mdat offset each get a
+    /// `mem::take` of whatever bytes remain there at the time they're
+    /// processed. Listing the primary item first drains the real OBU bytes
+    /// into `primary_item`; the alpha item's identical-offset entry then
+    /// drains the (already-emptied) leftover, yielding
+    /// `alpha_item == Some(TryVec::new())`. This is a legal reading of the
+    /// ISOBMFF `iloc` box, not a corrupt/malformed container.
+    fn build_avif_with_empty_alpha(primary_obu: &[u8]) -> Vec<u8> {
+        let mut ftyp_payload = b"avif".to_vec();
+        ftyp_payload.extend_from_slice(&0u32.to_be_bytes()); // minor_version
+        let ftyp = bx(b"ftyp", &ftyp_payload);
+
+        let infe = |item_id: u16| -> Vec<u8> {
+            let mut p = vec![2, 0, 0, 0]; // fullbox version=2 (mif1 min), flags=0
+            p.extend_from_slice(&item_id.to_be_bytes());
+            p.extend_from_slice(&0u16.to_be_bytes()); // item_protection_index
+            p.extend_from_slice(b"av01");
+            bx(b"infe", &p)
+        };
+        let mut iinf_payload = vec![0, 0, 0, 0]; // fullbox v0 f0
+        iinf_payload.extend_from_slice(&2u16.to_be_bytes()); // entry_count
+        iinf_payload.extend_from_slice(&infe(1)); // primary
+        iinf_payload.extend_from_slice(&infe(2)); // alpha
+        let iinf = bx(b"iinf", &iinf_payload);
+
+        let mut pitm_payload = vec![0, 0, 0, 0];
+        pitm_payload.extend_from_slice(&1u16.to_be_bytes()); // primary_item_id = 1
+        let pitm = bx(b"pitm", &pitm_payload);
+
+        let mut auxl_payload = 2u16.to_be_bytes().to_vec(); // from_item_id = 2 (alpha)
+        auxl_payload.extend_from_slice(&1u16.to_be_bytes()); // reference_count
+        auxl_payload.extend_from_slice(&1u16.to_be_bytes()); // to_item_id = 1 (primary)
+        let auxl = bx(b"auxl", &auxl_payload);
+        let mut iref_payload = vec![0, 0, 0, 0]; // fullbox v0 f0
+        iref_payload.extend_from_slice(&auxl);
+        let iref = bx(b"iref", &iref_payload);
+
+        const ALPHA_URN: &[u8] = b"urn:mpeg:mpegB:cicp:systems:auxiliary:alpha";
+        let mut auxc_payload = vec![0, 0, 0, 0]; // fullbox v0 f0
+        auxc_payload.extend_from_slice(ALPHA_URN);
+        let auxc = bx(b"auxC", &auxc_payload);
+        let ipco = bx(b"ipco", &auxc);
+
+        let mut ipma_payload = vec![0, 0, 0, 0]; // fullbox v0 f0
+        ipma_payload.extend_from_slice(&1u32.to_be_bytes()); // entry_count
+        ipma_payload.extend_from_slice(&2u16.to_be_bytes()); // item_id = 2 (alpha)
+        ipma_payload.push(1); // association_count
+        ipma_payload.push(0x01); // essential=0, property_index=1 (1-based -> auxC)
+        let ipma = bx(b"ipma", &ipma_payload);
+
+        let mut iprp_payload = Vec::new();
+        iprp_payload.extend_from_slice(&ipco);
+        iprp_payload.extend_from_slice(&ipma);
+        let iprp = bx(b"iprp", &iprp_payload);
+
+        // iloc (version 0, offset_size=length_size=base_offset_size=4) has a
+        // fixed size regardless of the base_offset value it carries: fullbox
+        // (4) + sizes byte + base/reserved byte (2) + item_count (2) + 2
+        // items * (item_id(2) + data_reference_index(2) + base_offset(4) +
+        // extent_count(2) + extent_offset(4) + extent_length(4) = 18) = 44.
+        const ILOC_PAYLOAD_LEN: usize = 4 + 2 + 2 + 2 * 18;
+        let meta_payload_len_without_iloc = 4 + iinf.len() + pitm.len() + iref.len() + iprp.len();
+        let meta_total_len = 8 + meta_payload_len_without_iloc + 8 + ILOC_PAYLOAD_LEN;
+        // The mdat's *content* offset (what avif-parse's OffsetReader reports
+        // as `MediaDataBox::offset`) is everything written before it,
+        // including mdat's own 8-byte header.
+        let mdat_offset = (ftyp.len() + meta_total_len + 8) as u32;
+
+        let iloc_item = |item_id: u16| -> Vec<u8> {
+            let mut p = item_id.to_be_bytes().to_vec();
+            p.extend_from_slice(&0u16.to_be_bytes()); // data_reference_index
+            p.extend_from_slice(&mdat_offset.to_be_bytes()); // base_offset
+            p.extend_from_slice(&1u16.to_be_bytes()); // extent_count
+            p.extend_from_slice(&0u32.to_be_bytes()); // extent_offset
+            p.extend_from_slice(&0u32.to_be_bytes()); // extent_length = 0 => ToEnd
+            p
+        };
+        let mut iloc_payload = vec![0, 0, 0, 0]; // fullbox v0 f0
+        iloc_payload.push(0x44); // offset_size=4, length_size=4
+        iloc_payload.push(0x40); // base_offset_size=4, reserved=0
+        iloc_payload.extend_from_slice(&2u16.to_be_bytes()); // item_count
+        iloc_payload.extend_from_slice(&iloc_item(1)); // primary: drains the real mdat
+        iloc_payload.extend_from_slice(&iloc_item(2)); // alpha: drains the (now-empty) leftover
+        assert_eq!(iloc_payload.len(), ILOC_PAYLOAD_LEN);
+        let iloc = bx(b"iloc", &iloc_payload);
+
+        let mut meta_payload = vec![0, 0, 0, 0]; // fullbox v0 f0
+        meta_payload.extend_from_slice(&iinf);
+        meta_payload.extend_from_slice(&pitm);
+        meta_payload.extend_from_slice(&iref);
+        meta_payload.extend_from_slice(&iprp);
+        meta_payload.extend_from_slice(&iloc);
+        let meta = bx(b"meta", &meta_payload);
+        assert_eq!(meta.len(), meta_total_len);
+
+        let mdat = bx(b"mdat", primary_obu);
+
+        let mut out = Vec::new();
+        out.extend_from_slice(&ftyp);
+        out.extend_from_slice(&meta);
+        out.extend_from_slice(&mdat);
+        out
+    }
+
+    /// Extract the real primary-item OBU bytes from the committed 16x16
+    /// fixture, so the crafted container decodes a genuine still image on
+    /// the primary path (only the alpha path is hostile).
+    fn real_primary_obu() -> Vec<u8> {
+        const FIXTURE: &[u8] = include_bytes!("../../tests/fixtures/avif/solid_16x16.avif");
+        let parsed = avif_parse::read_avif(&mut std::io::Cursor::new(FIXTURE))
+            .expect("parse committed avif fixture");
+        parsed.primary_item.as_slice().to_vec()
+    }
+
+    /// Confirms SPEC-094's reachability question directly: `avif-parse` DOES
+    /// accept a crafted-but-conforming container whose `alpha_item` is
+    /// `Some(<empty>)`, and the empty slice really does reach
+    /// `parsed.alpha_item`. This is a probe over the parse layer only (no
+    /// decode) so it can run safely in any build profile; the
+    /// debug-mode-abort proof is [`empty_alpha_obu_is_typed_error_not_abort`]
+    /// below, which drives the same crafted bytes all the way to `decode_avif`.
+    #[test]
+    fn crafted_container_yields_empty_alpha_item() {
+        let bytes = build_avif_with_empty_alpha(&real_primary_obu());
+        let parsed = avif_parse::read_avif(&mut std::io::Cursor::new(bytes))
+            .expect("crafted container must parse as well-formed AVIF");
+        assert!(
+            !parsed.primary_item.is_empty(),
+            "primary item must still carry the real OBU bytes"
+        );
+        assert_eq!(
+            parsed.alpha_item.as_deref(),
+            Some(&[][..]),
+            "alpha item must be Some(<empty>) -- the exact shape SPEC-094 asks about"
+        );
+    }
+
+    /// SPEC-094 crux. A conforming AVIF whose alpha item is genuinely empty
+    /// (see [`build_avif_with_empty_alpha`]) must decode to a typed
+    /// `ImageError::Decode`, never crash the process.
+    ///
+    /// **Pre-fix, this test proves the bug by aborting the test binary.**
+    /// `decode_obus` hands the empty alpha slice straight to
+    /// `re_rav1d::dav1d::Decoder::send_data`, which validates `sz > 0` via the
+    /// `validate_input!` macro; failing that check calls `debug_abort()` →
+    /// `std::process::abort()` under `cfg!(debug_assertions)` (on in `cargo
+    /// test`). `abort()` is not an unwind, so neither `decode_avif`'s
+    /// `catch_unwind` nor `decode_obus`'s scoped-thread `join` catches it —
+    /// the whole process dies (observed: `cargo test` reports the test binary
+    /// exiting via `signal: 6, SIGABRT`, not a failed assertion). Post-fix,
+    /// the `is_empty()` guard at the top of `decode_obus` rejects the alpha
+    /// slice before it ever reaches `re_rav1d`, and this test passes normally.
+    #[test]
+    fn empty_alpha_obu_is_typed_error_not_abort() {
+        let bytes = build_avif_with_empty_alpha(&real_primary_obu());
+        let result = decode_avif(&bytes, &Limits::default());
+        assert!(
+            matches!(result, Err(ImageError::Decode(_))),
+            "got {result:?}"
+        );
+    }
+
+    /// SPEC-094 belt-and-suspenders: the primary path is already screened by
+    /// `avif-parse`'s `parse_obu` metadata pre-check (an empty primary item
+    /// never reaches `decode_obus` via the normal `decode_avif` route), so this
+    /// pins the `decode_obus` chokepoint's OWN contract directly — no empty
+    /// slice reaches `re_rav1d` from ANY caller, not just the ones reachable
+    /// through a full container parse.
+    #[test]
+    fn empty_primary_obu_is_typed_error() {
+        let result = decode_obus(&[], &Limits::default());
+        assert!(
+            matches!(result, Err(ImageError::Decode(_))),
+            "got {result:?}"
+        );
+    }
+
+    /// SPEC-094: the guard must reject only genuinely empty streams. A real
+    /// AVIF with a non-empty alpha channel decodes pixel-identically to the
+    /// pre-fix binary. The golden FNV-1a digest below was captured from this
+    /// exact fixture on the pre-fix binary (mirrors the SPEC-091
+    /// `avif_decode_pixels_unchanged_by_thread_policy` pattern: an
+    /// independent value the code under test cannot fabricate).
+    #[test]
+    fn valid_avif_with_alpha_unchanged() {
+        const FIXTURE: &[u8] = include_bytes!("../../tests/fixtures/avif/solid_16x16_alpha.avif");
+        const PRE_FIX_RGBA_FNV1A: u64 = 0x4a53_054d_660f_c525;
+
+        fn fnv1a(bytes: &[u8]) -> u64 {
+            let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+            for &b in bytes {
+                h ^= b as u64;
+                h = h.wrapping_mul(0x0000_0100_0000_01b3);
+            }
+            h
+        }
+
+        let img = decode_avif(FIXTURE, &Limits::default()).expect("decode alpha avif");
+        assert_eq!((img.width(), img.height()), (16, 16));
+        let rgba = img.to_rgba8();
+        assert_eq!(
+            fnv1a(rgba.as_raw()),
+            PRE_FIX_RGBA_FNV1A,
+            "the empty-OBU guard must not change valid-alpha decode output"
+        );
+    }
 
     #[test]
     fn to_u8_clamps() {
