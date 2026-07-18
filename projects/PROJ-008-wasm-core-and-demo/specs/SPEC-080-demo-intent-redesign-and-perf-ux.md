@@ -20,14 +20,16 @@ agents:
   created_at: 2026-07-13
 
 references:
-  decisions: [DEC-020, DEC-064, DEC-065]
+  decisions: [DEC-020, DEC-064, DEC-065, DEC-068, DEC-069, DEC-070]
   constraints: [untrusted-input-hardening, ergonomic-defaults]
-  related_specs: [SPEC-077, SPEC-078, SPEC-079]
+  related_specs: [SPEC-077, SPEC-078, SPEC-079, SPEC-085]
 
 value_link: >
-  Turns the demo from "technically works" into "good enough to send strangers to": a photo shrinks
-  in seconds instead of tens of seconds, the default result is smaller (never bigger), and a slow
-  encode never reads as a hang.
+  Make the demo BE the flagship. The live demo is a squoosh-style "pick a format" tool that defaults
+  to lossless-WebP (which makes a photo BIGGER). Reframe it to the shipped `web` flow as one opinionated
+  action — drop a photo, it downscales + modernizes to AVIF + never ships bigger + scores the result,
+  in seconds — and turn every conversion into an adoption moment by showing the exact `crustyimg web`
+  command that does it. The demo's job isn't to convert one image; it's to convert a visitor into a user.
 
 cost:
   sessions: []
@@ -37,143 +39,185 @@ cost:
     session_count: 0
 ---
 
-# SPEC-080: demo intent redesign + perf UX
+# SPEC-080: demo = the `web` flow, one-click, with a CLI adoption funnel
 
 ## Context
 
-STAGE-029's measured investigation found the live demo mis-serves its most common visitor. This spec
-is the **demo half** of the fix; it consumes the surface **SPEC-079** adds (`optimizeDetailed` with a
-speed knob + Auto-picks-AVIF + a returned score). The problems it fixes, all page-side:
+STAGE-029's measured investigation found the live demo mis-serves its most common visitor, and the
+STAGE-030 taxonomy reconciliation settled what the demo hero should BE: **the `web` flow** (SPEC-085) —
+the flagship verb, made tangible in the browser. This reframes the demo around that, on top of the
+surface **SPEC-079** shipped.
 
-1. **The default fights the use case.** The default output is lossless WebP, which makes an
-   already-lossy photo *bigger* — the opposite of what someone dropping a photo wants.
-2. **A slow encode reads as a hang.** AVIF at rav1e speed 6 is ~33 s on a 12 MP photo; the busy state
-   is a bare spinner with no time and no expectation set (SPEC-078). Measured fix: **speed 10**
-   (3.6× faster) + an **offered resize** + honest, megapixel-keyed warnings + a **live elapsed timer**.
-3. **No "keep the original" path.** When nothing beats the source, the demo should hand back the
-   original, not a bigger file (the never-bigger rule — the demo has both byte counts already).
+**Product decisions (maintainer, 2026-07-18):**
+1. **One-click `web` hero; advanced controls hidden.** Drop → the `web` flow runs automatically, no
+   choices required. The old format picker / max-edge / quality controls move behind an **"Advanced"**
+   disclosure, collapsed by default. Opinionated "it just works" — beats squoosh by *not* making you
+   choose, and matches the CLI's flagship.
+2. **First-class CLI adoption funnel.** After each conversion, prominently show the exact command
+   (`crustyimg web <file>`) + the `web` recipe + a copy button. The demo deliberately converts curiosity
+   into installs — its strategic reason to exist.
 
-It is **demo files only** (`demo/index.html`, `demo/demo.js`, `demo/demo.css`, `demo/worker.js`) — no
-engine change (SPEC-079 owns the surface; SPEC-081 owns the score UI).
+**Why the live demo is wrong today (measured, STAGE-029):**
+- Default output is **lossless WebP** → makes an already-lossy photo *bigger* (the opposite of intent).
+- The busy state is a bare spinner; AVIF at full resolution + speed 6 was ~33 s on a 12 MP photo → reads
+  as a hang.
+- No "keep the original" path when nothing beats the source.
+
+**The reframe dissolves most of that:** the `web` flow **downscales the long edge to 2048 by default**,
+so the encode operates on ~2 MP, not 12 — a 2048px AVIF at **speed 10** is ~1–2 s, not 33 s. The
+perf-UX machinery (timer, megapixel warning, debounce) survives but moves to a **fallback for the
+Advanced "keep full resolution" path**; the default hero is simply fast.
+
+It is **demo files only** (`demo/index.html`, `demo/demo.js`, `demo/worker.js`, `demo/demo.css`, and the
+vendored recipe text) — **no engine/wasm change** (SPEC-079 owns the surface; SPEC-081 owns the rich
+score/diff UI).
 
 ## Goal
 
-Reorient the demo around the intent **"make it smaller"**: default to the format that actually
-shrinks the input (AVIF for photos, lossless for graphics, via SPEC-079's Auto), run AVIF at speed
-10, **never present a bigger file** (keep the original and say so), and make a slow encode legible —
-a megapixel-keyed expectation + warning, an **offered** (never forced) resize, a live elapsed timer,
-and debounced re-conversion.
+Reframe the demo so its **default, zero-choice action is the `web` flow** — downscale long-edge to 2048,
+Auto-modernize (AVIF for photos / lossless-WebP for graphics via SPEC-079), at speed 10, never shipping a
+file bigger than the original, and reporting the SSIMULACRA2 score — and **turn each result into a CLI
+adoption moment** (the `crustyimg web` command + recipe + copy). Move all format/resolution/quality
+controls behind a collapsed **Advanced** disclosure; keep the honest perf UX as the Advanced-path fallback.
 
 ## Inputs
 
 - **Files to read:** `demo/demo.js`, `demo/worker.js`, `demo/index.html`, `demo/demo.css` (the whole
   demo — small); `demo/README.md` (the candor to preserve).
-- **The SPEC-079 surface (its dependency):** `optimizeDetailed(input, out_format, speed?, maxBytes?,
-  target?) → OptimizeResult { bytes, format, quality, speed, score, scoredBy }`. Reconcile the exact
-  exported names against SPEC-079 **as shipped** before building (it ships first).
+- **The SPEC-079 surface (its dependency, reconcile against SHIPPED names):** `optimizeDetailed(input,
+  out_format, speed?, maxBytes?, target?) → OptimizeResult { bytes, format, quality, speed, score,
+  scoredBy }` and the `score(a, b)` binding. Note: `optimizeDetailed` does **not** resize — the demo
+  performs the **downscale itself** (the worker already has the decoded bitmap; resize via
+  canvas/`createImageBitmap` before encoding), then calls `optimizeDetailed` on the 2048px image.
+- **`recipes/web.toml`** — the actual `web` recipe, shown verbatim in the funnel (vendor its text into
+  the demo, or read it; it must match the shipped recipe).
+- **SPEC-085 / `web`** — what the flagship flow *is* (downscale 2048 → content-modernize → never-bigger
+  → strip → orient → score), so the demo's approximation is honest about what it mirrors.
 
 ## Outputs
 
-- **Files modified:**
-  - `demo/worker.js` — call `optimizeDetailed` (not `optimize`), pass **speed 10** for AVIF, thread
-    an optional `maxBytes`; return the richer result (format/quality/speed/score) to the page.
-  - `demo/demo.js` — the intent model: a primary **"Make it smaller"** action (Auto that shrinks);
-    the **never-bigger** rule (if the result ≥ the input, offer the *original* for download and label
-    it "already optimized — kept your file"); an **offered resize** for large inputs (a dismissible
-    "this is N MP — most web uses need ~2 MP; resize to 2048px?" that sets `maxEdge`, never silently);
-    a **megapixel-keyed** expectation/warning before a slow encode; a **live elapsed-seconds timer**
-    in the busy state; **debounced** re-conversion so control fiddling doesn't queue jobs behind an
-    in-flight encode.
-  - `demo/index.html` — recast the controls around intent (a clear primary "smaller" path + the
-    format/resize as secondary refinements); keep the format picker but no longer default to
-    lossless-that-grows.
-  - `demo/demo.css` — styling for the timer, the warning/expectation banner, the "kept original" state.
+- **`demo/worker.js`** — downscale the decoded image to a **2048px long edge by default** (skip if already
+  ≤ 2048) before encoding; call `optimizeDetailed` (not `optimize`) with **speed 10** for AVIF; return the
+  richer result (format / quality / speed / score / scoredBy) + the pre/post dimensions.
+- **`demo/demo.js`** — the hero flow + the funnel:
+  - **Default action = `web`:** on drop, run downscale-2048 → Auto-modernize → never-bigger, no controls
+    touched. State the downscale honestly in the result ("resized to 2048px for web").
+  - **Never-bigger:** if the result ≥ the input, hand back the **original** for download, labeled
+    "already optimized — kept your file" (pure page logic; the page has both byte counts).
+  - **CLI adoption funnel:** after each conversion, render a prominent block — the exact command
+    `crustyimg web <original-filename>` with a **copy button**, the `web` recipe (collapsible, verbatim
+    from `web.toml`), and a short honest line that the demo *approximates* `web` in-browser while the CLI
+    runs the real thing on whole folders (`crustyimg web *.jpg`). Include an install pointer.
+  - **Score readout (minimal):** show the returned SSIMULACRA2 score as a value in the result (SPEC-081
+    owns the rich diff UI). Handle the shipped gotchas: `score` is **raw SSIMULACRA2, not 0–100** and
+    **can be negative** — render it honestly, never assume a 0–100 range; if `maxBytes` is ever exercised
+    (Advanced), self-check `bytes.length` because an unsatisfiable budget returns over-budget bytes
+    silently (SPEC-079 note).
+  - **Advanced disclosure (collapsed):** format override (incl. the old picker), a **max-edge** control
+    (incl. "keep full resolution" = no downscale), quality/maxBytes. Only when a user opts into a slow
+    path (full resolution / a big encode) do the **megapixel warning + live elapsed timer + debounce**
+    apply — carry them from the current spec as the Advanced-path fallback.
+- **`demo/index.html`** — recast around the one-click hero: a drop zone + a single implicit "make it
+  web-ready" result, with Advanced as a collapsed `<details>`; the funnel block in the result area.
+- **`demo/demo.css`** — styling for the funnel (command + copy + collapsible recipe), the "kept original"
+  state, the Advanced disclosure, and the timer/warning (Advanced-path).
 
 ## Acceptance Criteria
 
-- [ ] Dropping a **photo** (JPEG/PNG photographic) with defaults yields a **smaller** file (AVIF via
-      SPEC-079 Auto) — not a bigger lossless one — and downloads with the right extension.
-- [ ] When the best result is **≥ the input**, the demo shows a **"kept your original"** state and the
-      download hands back the **original bytes**, with an honest one-line reason — it never downloads a
-      bigger file by default.
-- [ ] A **large** input (over a megapixel threshold, e.g. > ~6 MP) shows a **warning/expectation**
-      ("N MP — AVIF runs a real codec in your browser; a few seconds") and **offers** a one-click
-      resize to ~2048px; the full-resolution path stays available (warn, never silent cap).
-- [ ] During a conversion the busy state shows a **counting-up elapsed timer** (honest — no fake %);
-      the page stays responsive (the Web Worker guarantee from SPEC-078 holds).
-- [ ] Rapidly changing a control does **not** stack conversions behind an in-flight encode (debounce /
-      supersede); the newest request wins.
-- [ ] AVIF conversions run at **speed 10** (visibly faster than 078's speed 6 on the same photo).
-- [ ] The existing browser smoke (`just demo-smoke` / the headless-Chrome driver from SPEC-077/078)
-      still passes end-to-end (drop → convert → download, zero network requests), updated for the new
-      controls; hostile/edge inputs still surface a clean error, no hang.
+- [ ] **Default is the `web` flow:** dropping a **photo** with **no controls touched** downscales the long
+      edge to ~2048px, produces a **smaller AVIF** (via SPEC-079 Auto), and downloads with the right
+      extension — no format choice required, and never a bigger lossless file.
+- [ ] The default hero on a typical (e.g. 12 MP) photo completes in **a few seconds** (downscale-2048 +
+      speed 10), not tens of seconds — the perf problem is gone by construction, not by a spinner.
+- [ ] **Never-bigger:** when the best result ≥ the input, the UI shows a **"kept your original"** state and
+      the download hands back the **original bytes**, with an honest one-line reason.
+- [ ] **CLI adoption funnel:** every successful conversion shows the exact `crustyimg web <file>` command
+      with a working **copy-to-clipboard** button, the `web` recipe (verbatim from `web.toml`), and the
+      honest "the CLI runs this on whole folders" framing. The command reflects the dropped file's name.
+- [ ] **Advanced is collapsed by default** and contains the format / max-edge (incl. keep-full-resolution)
+      / quality controls; the hero works without ever opening it.
+- [ ] **Advanced-path perf UX:** choosing "keep full resolution" (or an otherwise slow encode) shows the
+      **megapixel warning + a counting-up elapsed timer** (honest, no fake %); the page stays responsive
+      (the SPEC-078 Web-Worker guarantee holds); rapid control changes **debounce/supersede** (newest
+      wins, no stacked jobs).
+- [ ] The score is shown as an **honest raw value** (handles negatives; not assumed 0–100).
+- [ ] The browser smoke (`just demo-smoke` / the SPEC-077/078 headless-Chrome driver) passes end-to-end
+      (drop → convert → download, **zero network requests**), updated for the new hero + funnel; hostile/
+      edge inputs still surface a clean error, no hang.
 
 ## Failing Tests
 
-Written at design; the demo's earned verdict is browser-driven (SPEC-077/078 precedent), not unit tests.
+Written at design; the demo's earned verdict is **browser-driven** (SPEC-077/078 precedent), not units.
 
-- **The headless-Chrome demo smoke (extend the SPEC-077/078 driver)**
-  - `"photo_default_is_smaller_avif"` — drive a dropped photographic PNG on defaults; assert the
-    result dataset shows `format == "avif"` and `outBytes < inBytes`.
-  - `"never_bigger_keeps_original"` — drive an input the engine can't beat; assert the UI enters the
-    "kept original" state and the download `blob` byte length == the input's (original handed back).
-  - `"large_input_offers_resize"` — drive a > ~6 MP input; assert the resize offer / warning element
-    is present and, when taken, the output dimensions are capped (~2048px long edge).
-  - `"busy_state_shows_timer"` — assert an elapsed-time element updates during a conversion (a value
-    that increases), and the page stays interactive (a control remains clickable — the 078 negative
-    control).
-- **Manual/verify (documented, driven at verify):** speed-10 is visibly faster than 078 on a real
-  photo; the resize offer is dismissible; the never-bigger path is honest on an already-optimized JPEG.
+- **Headless-Chrome demo smoke (extend the SPEC-077/078 driver)**
+  - `"default_is_web_flow_smaller_avif"` — drop a large photographic PNG on defaults (no controls touched);
+    assert the result is `format == "avif"`, `outBytes < inBytes`, **and the output long edge ≤ ~2048**
+    (the downscale ran).
+  - `"never_bigger_keeps_original"` — drive an input the engine can't beat; assert the "kept original"
+    state and that the download `blob` byte length == the input's.
+  - `"funnel_shows_web_command_and_copies"` — after a conversion, assert the funnel renders
+    `crustyimg web <filename>` and the copy button writes that exact string to the clipboard; assert the
+    `web.toml` recipe text is present and matches the vendored recipe.
+  - `"advanced_full_resolution_shows_timer"` — open Advanced, pick keep-full-resolution on a > ~6 MP input;
+    assert the megapixel warning + an **increasing** elapsed-time element appear and the page stays
+    interactive (a control remains clickable — the 078 negative control).
+- **Manual/verify (documented, driven at verify):** the default hero is visibly fast on a real 12 MP
+  photo (downscale-2048 + speed 10); the funnel command copies correctly; the never-bigger path is honest
+  on an already-optimized JPEG; the score renders sanely on a low-quality input (negative value handled).
 
 ## Implementation Context
 
 ### Decisions that apply
-- `DEC-064`/`DEC-065` — the wasm surface + AVIF-encode-not-decode asymmetry; the worker already
-  decodes `.avif` inputs via `createImageBitmap` (SPEC-078). Reuse that seam; add nothing to the wasm.
+- `DEC-070` (SPEC-085) — the `web` flow this mirrors (downscale 2048 → content-modernize → never-bigger →
+  score). The demo **approximates** it via the wasm surface + a page-side downscale; be honest that the
+  CLI is the real thing.
+- `DEC-068` (SPEC-079) — the `optimizeDetailed`/`score` surface the demo consumes (it does **not** resize;
+  the demo downscales itself).
+- `DEC-069` — native(`web` q85) vs wasm(q80) AVIF-quality divergence exists; don't claim the in-browser
+  result is byte-identical to the CLI — "approximates."
+- `DEC-064`/`DEC-065` — the wasm cfg boundary + AVIF-encode-not-decode asymmetry; `.avif` inputs decode
+  via `createImageBitmap` (SPEC-078). Reuse that seam; add nothing to the wasm.
 - `DEC-020` — rav1e speed; the demo passes **10** through SPEC-079's knob (the CLI stays 6).
 
 ### Constraints that apply
-- `untrusted-input-hardening` — hostile/huge inputs surface a clean typed error already (SPEC-078);
-  keep that — no hangs, no cryptic failures, with the new controls.
-- `ergonomic-defaults` — the default must be the thing a photo-dropper wants (smaller), and choices
-  must be honest (never silently bigger, never a silent cap).
+- `untrusted-input-hardening` — hostile/huge inputs surface a clean typed error already (SPEC-078); keep
+  that with the new hero + Advanced path — no hangs, no cryptic failures.
+- `ergonomic-defaults` — the default must be what a photo-dropper wants (web-ready + smaller), choices
+  honest (never silently bigger; the downscale is stated, not hidden).
 
 ### Prior related work
-- `SPEC-077` (demo skeleton) / `SPEC-078` (Web Worker + AVIF + explain) — the page this reshapes; the
-  worker, the `.avif`-input seam, the explain readout, and the browser smoke all come from here.
-- `SPEC-079` (its hard dependency) — the `optimizeDetailed` surface. **Build SPEC-080 only after
-  SPEC-079 ships**, and reconcile names against the shipped surface.
-- STAGE-029 design note: **"never bigger = keep the original"** — the passthrough intent, mirrored
-  from the CLI's `pick_winner`.
+- `SPEC-077`/`SPEC-078` — the page/worker/`.avif`-input seam/browser smoke this reshapes.
+- `SPEC-079` (hard dependency, shipped) — the `optimizeDetailed`/`score` surface. Reconcile names against
+  the shipped surface.
+- `SPEC-085` (shipped) — the `web` verb + `web.toml` the demo mirrors and teaches.
 
 ### Out of scope (for this spec specifically)
-- Any `src/` / wasm change (SPEC-079 owns the surface).
-- The SSIMULACRA2 **score readout UI** (SPEC-081) — this spec wires speed/format/never-bigger/timer;
-  SPEC-081 adds the "here's the perceptual score" panel.
-- A silent auto-cap of large images (decided: **warn + offer**, not cap).
-- Mobile-specific layout beyond "it must not break" (the real-device test is a STAGE-028 human task).
+- Any `src/`/wasm change (SPEC-079 owns the surface; the demo downscales page-side).
+- The **rich** SSIMULACRA2 score/diff UI (SPEC-081) — this spec shows the score as a value; 081 adds the
+  visual input↔output diff/gauge.
+- A **multi-recipe showcase** (offering gallery/product recipes as demo modes) — a compelling *future*
+  enhancement (teaches "crustyimg is a recipe engine"), but it would push this past M; frame its own spec
+  if wanted. This spec's funnel is `web` only.
+- Mobile-specific layout beyond "must not break" (the real-device test is a STAGE-028 human task).
 
 ## Notes for the Implementer
-- **Keep the demo thin.** This is a marketing artifact, not a web app — recast the existing controls,
-  don't add a framework or a pile of options.
-- **Never-bigger is pure page logic:** the page already has `input.bytes` and `output.bytes`
-  (`demo.js` render). If `output.bytes >= input.bytes`, switch the download to `source.file` (the
-  original) and set the "kept original" copy. No engine round-trip.
-- **Timer honesty:** count elapsed seconds; do **not** fake a percentage (one blocking rav1e call
-  reports nothing — the SPEC-078 rationale stands).
-- **Carry the candor** from `demo/README.md` into the new copy (WebP lossless-only, AVIF
-  encode-not-decode). HN rewards it.
+- **Keep the demo thin.** A marketing artifact, not a web app — recast controls, no framework, no pile of
+  options. The hero is *one path*; Advanced is a `<details>`.
+- **Downscale is page-side and honest.** `optimizeDetailed` doesn't resize; the worker resizes the decoded
+  bitmap to a 2048px long edge (skip if already smaller) before encoding, and the UI *says* it did.
+- **Never-bigger is pure page logic** (`output.bytes >= input.bytes` → switch download to the original).
+- **The funnel is the point, not a footer.** Command + copy + recipe, prominent in the result. Honest:
+  "approximates `web`; the CLI runs the real thing on whole folders."
+- **Timer honesty:** count elapsed seconds; never fake a percentage (one blocking rav1e call reports
+  nothing — the SPEC-078 rationale stands).
+- **Carry the candor** from `demo/README.md` (WebP lossless-only, AVIF encode-not-decode). HN rewards it.
+- **Score gotchas (SPEC-079, shipped):** raw SSIMULACRA2, can be **negative**; unsatisfiable `maxBytes`
+  returns over-budget bytes **silently** — render honestly / self-check bytes if Advanced exposes a budget.
 
 ---
 
 ## Build Completion
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
-- **New decisions emitted:**
-- **Deviations from spec:**
-- **Follow-up work identified:**
-
+- **Branch:** · **PR (if applicable):** · **All acceptance criteria met?** · **New decisions emitted:** · **Deviations from spec:** · **Follow-up work identified:**
 ### Build-phase reflection (3 questions, short answers)
 1. **What was unclear in the spec that slowed you down?** — <answer>
 2. **Was there a constraint or decision that should have been listed but wasn't?** — <answer>
