@@ -3,7 +3,7 @@
 task:
   id: SPEC-091
   type: story
-  cycle: verify
+  cycle: build
   blocked: false
   priority: high
   complexity: S
@@ -58,6 +58,22 @@ cost:
         confirmed 0/12 on the branch, re-derived the pixel golden with a hand-written
         PNG decoder, measured single/parallel throughput, ran the full gate set, and
         triaged the Windows CI stack-overflow regression.
+    - cycle: build
+      interface: claude-code
+      model: claude-opus-4-8
+      tokens_total: 190000
+      duration_minutes: null
+      estimated_usd: 1.70
+      recorded_at: 2026-07-18
+      note: >
+        Round 2 — the Windows stack-overflow fix. Order-of-magnitude estimate; ran
+        in the orchestrator main loop (not a metered subagent). Opus 4.8 list $5/$25
+        per MTok, ~80/20 in/out, no cache discount. Confirmed re_rav1d Picture is
+        Send from source, moved the inline decode onto an 8 MiB scoped thread, added
+        a small-caller-stack regression test, drove a negative control (inline decode
+        overflows/aborts a 1 MiB thread), re-proved the flake gone (6×100 rayon) and
+        pixels byte-identical, ran the full local gate set, and iterated against the
+        PR #95 Windows CI leg until green.
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -346,6 +362,62 @@ caller's thread without ensuring that thread has an adequate stack.
 - Neither the spec, DEC-077, nor the completion table mentions Windows / the three-OS
   matrix at all — the platform dimension of the acceptance repro was never considered.
   The re-worked DEC should record the Windows stack behavior and how the fix handles it.
+
+---
+
+## Build Completion — Round 2 (Windows stack-overflow fix, PR #95)
+
+Addresses the verify PUNCH LIST: the `n_threads = 1` policy is kept (it is the only
+setting that structurally closes the race), but the inline decode is moved off the
+caller's OS-defined stack onto one with adequate headroom.
+
+- **Root cause (confirmed):** `n_threads = 1` ⇒ zero `rav1d-worker-*` threads ⇒ the
+  decode runs **inline on the caller's thread**. dav1d's decode has a large fixed
+  stack frame (size-independent); macOS/Linux main threads (~8 MiB) absorb it, but
+  the **Windows main thread (~1 MiB)** overflows — even a 16×16 AVIF did, on both
+  windows-latest legs of PR #95. `re_rav1d`'s own workers avoid this by keeping
+  Rust's 2 MiB default stack (`src/lib.rs:258`); running inline forfeits it.
+- **Fix:** `decode_obus` runs the inline decode on a **scoped thread with an 8 MiB
+  stack** (`std::thread::scope` + `Builder::stack_size(AVIF_DECODE_STACK_SIZE)
+  .spawn_scoped`), returning the decoded `Picture` across the `join`. `re_rav1d`'s
+  `Picture` **is `Send`** (`Arc<InnerPicture>`; `static_assertions::assert_impl_all!
+  (Picture: Send, Sync)`), so no decode-to-owned-buffer copy is needed. The scope
+  lets the closure borrow `obus`/`limits` without cloning.
+- **Stack size = 8 MiB:** matches the macOS/Linux main-thread stack that never
+  overflowed and is 4× dav1d's 2 MiB worker default. `stack_size` only reserves
+  address space (committed lazily), so the generous figure is ~free. Chosen over the
+  untested 2 MiB minimum deliberately; Windows CI green is the evidence.
+- **Composition with rayon (DEC-006):** each rayon worker spawns one decode thread
+  then **blocks on `join`** — one extra thread per concurrent decode, CPU work done
+  by the decode thread while the worker sleeps. No all-cores pool, no re-introduced
+  oversubscription; alpha's second decode runs after the primary (never two live).
+- **Cost:** one spawn per decode, ~tens of µs vs ms-scale decode — negligible;
+  `bench-micro`/`bench` unchanged within noise.
+- **Picture was Send?** **Yes** — so the frame is returned, not re-materialized.
+- **Flake stays gone (re-proven under the refactor):** the concurrent-decode vehicle
+  (100 debug decodes via rayon, each now spawning its own decode thread) → **0
+  panics in 6 trials**; full `cargo test --features avif` (762 tests) green; targeted
+  `input_avif` ×5 clean. A negative control (decode inline, no re-spawn) reproduced
+  the overflow-abort on macOS from a 1 MiB thread, proving the guard bites.
+- **Pixels byte-identical:** the committed golden `avif_decode_pixels_unchanged_by_
+  thread_policy` still passes (digest unchanged) — the refactor changed *where* the
+  decode runs, not the pixels.
+- **New regression test:** `avif_decode_survives_a_small_caller_stack` (ungated,
+  `input_avif.rs`) decodes from a deliberately ~1 MiB caller thread (the Windows
+  main-thread size) using the default 16×16 fixture — passes only because the decode
+  re-spawns onto its own stack. Guards the default `cargo test` too, like the
+  `optimize_avif_input_writes_webp` test that first caught the overflow on Windows.
+- **Local gates (macOS):** `cargo test` default + `--features avif` (762), clippy
+  (both feature sets), `cargo fmt --check`, `cargo build --no-default-features`,
+  `just validate` / `bench` / `bench-micro` — all green.
+- **The gate that was missed in round 1 — Windows CI:** PR #95 `build / test /
+  clippy / fmt (windows-latest)` is the acceptance gate (the three-OS matrix,
+  DEC-009 — not the darwin box). This section is finalized only after pushing and
+  watching `gh pr checks 95` show the windows-latest leg **green** (ubuntu + macos
+  green too). ‹CI RESULT recorded on confirmation below.›
+- **DEC-077 updated:** new section "Windows: the inline decode needs its own stack"
+  records the mechanism, the 8 MiB choice, the rayon composition, and the round-1
+  gate gap (darwin-only validation of a change to *where* work runs).
 
 ---
 

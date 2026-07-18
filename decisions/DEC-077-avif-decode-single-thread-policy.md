@@ -42,8 +42,15 @@ tags:
 
 `src/image/avif.rs`'s decode `Settings` set `n_threads = 1` explicitly
 (`AVIF_DECODE_THREADS`), instead of inheriting dav1d's default `n_threads = 0`
-(= auto = all logical cores). Every AVIF still frame is decoded inline on the
-calling thread, with no `rav1d-worker-*` pool.
+(= auto = all logical cores). Every AVIF still frame is decoded inline, with no
+`rav1d-worker-*` pool.
+
+Because `n_threads = 1` removes those worker threads, the inline decode is **not**
+run on the caller's thread (whose stack size the OS fixes — only ~1 MiB on the
+Windows main thread). `decode_obus` re-spawns it onto a thread it creates with an
+8 MiB stack (`AVIF_DECODE_STACK_SIZE`) and returns the decoded frame across the
+`join` (`re_rav1d`'s `Picture` is `Send`, `Arc`-backed). See "Windows: the inline
+decode needs its own stack" below — this is the round-2 addition (PR #95).
 
 **This is a correctness + throughput decision, NOT a memory-safety fix.** See
 "Not a security fix" below — say this plainly wherever it is cited.
@@ -173,6 +180,64 @@ abstract machine, but the realistic consequence is **wrong pixels**, not an
 exploitable hole. This decision is about correctness (no wrong pixels) and
 throughput (no oversubscription), not memory safety. Do not oversell it.
 
+### Windows: the inline decode needs its own stack (round 2, PR #95)
+
+Setting `n_threads = 1` moves *where* the decode runs: with no `rav1d-worker-*`
+threads, `re_rav1d` decodes inline on **the caller's** thread. dav1d's decode has
+a large *fixed* stack frame (on-stack tile/context structures) that is independent
+of image size, and `re_rav1d` deliberately leaves its workers on Rust's default
+2 MiB thread stack rather than shrinking it (`src/lib.rs:258`, "Don't set stack
+size like dav1d does", upstream rav1d#889). Running inline forfeits that 2 MiB
+headroom and inherits whatever stack the OS gave the caller:
+
+- macOS / Linux **main** threads are ~8 MiB → the inline decode never overflowed,
+  so round 1 passed local (darwin) and the ubuntu CI leg.
+- The **Windows** main thread is only ~1 MiB. On PR #95, `optimize_avif_input_
+  writes_webp` (an ungated `#[test]` decoding a **16×16** AVIF) hit `thread 'main'
+  has overflowed its stack` on **both** windows-latest runs — the parent commit was
+  green. Even 16×16 overflows, confirming the frame is size-independent and this is
+  structural, not a decompression concern. (`frame_size_limit`/DEC-034 bounds
+  *heap* plane allocation — a separate axis from stack.)
+
+The lesson: round 1's "≥5 green runs" gate was validated on the darwin box only;
+the required Windows CI leg (DEC-009) was never checked. A change to *where* work
+runs shifts per-platform stack assumptions, so it must be validated on the whole
+required OS matrix, not one box.
+
+**Fix.** `decode_obus` never runs the inline decode on the caller's (OS-defined,
+possibly ~1 MiB) stack. It uses a scoped thread —
+`std::thread::scope` + `Builder::stack_size(AVIF_DECODE_STACK_SIZE).spawn_scoped` —
+so the decode runs on a stack we control and the closure can borrow `obus`/`limits`
+without cloning; the frame (`Picture`, `Send`/`Arc`-backed) is returned across the
+`join`.
+
+**Stack size = 8 MiB.** It matches the macOS/Linux main-thread stack that has
+always decoded these frames without overflow, and is 4× dav1d's own 2 MiB worker
+default — ample headroom above the frame that overflowed ~1 MiB. `stack_size`
+only *reserves* address space (committed lazily by the OS), so the generous figure
+costs effectively nothing. Windows CI green on PR #95 is the evidence that 8 MiB
+clears the frame; we chose the known-good-environment figure over the untested
+2 MiB minimum deliberately.
+
+**Composition with rayon (DEC-006) — no re-oversubscription.** Inside a batch each
+rayon worker calls `decode_obus`, which spawns **one** decode thread and then
+**blocks on `join`**. So per concurrent decode there is exactly one extra thread,
+and the CPU-bound work is done by the decode thread while its rayon worker sleeps
+on the join — no two CPU-bound threads per file, no all-cores pool. Net CPU-active
+threads stay ≈ core count, the same as before. The alpha plane's second
+`decode_obus` runs after the primary, so a file never has two decode threads live
+at once.
+
+**Cost.** One thread spawn per decode is ~tens of µs against a ms-scale decode —
+negligible; `bench-micro` and `bench` are unchanged within noise.
+
+**Regression guard.** `avif_decode_survives_a_small_caller_stack` (ungated,
+`input_avif.rs`) runs the decode from a deliberately ~1 MiB caller thread — the
+Windows main-thread size — using the default 16×16 fixture. It passes only because
+the decode re-spawns onto its own 8 MiB stack; a negative control (calling the
+inline decode directly, no re-spawn) reproduced the overflow/abort on macOS,
+proving the guard bites.
+
 ### Root cause is upstream
 
 The overlap is between `re_rav1d`'s *own* CDEF/loop-restoration workers — a
@@ -188,11 +253,16 @@ When upstream fixes it, revisit whether multi-threaded decode can return.
 - **Pixels unchanged:** byte-identical before/after on 6 MP (`sha256`), plus the
   committed golden test on the 128×128 fixture; sips (an independent system
   decoder) confirms the fixture decodes to 128×128.
+- **Windows overflow fixed (round 2):** the inline decode runs on an 8 MiB spawned
+  stack. The gate is PR #95's windows-latest leg green (with ubuntu + macos green) —
+  the three-OS matrix (DEC-009), not a single box.
 - **Tests:** `avif_decode_thread_policy_is_explicit`,
   `avif_batch_decode_does_not_oversubscribe` (unit, `avif.rs`),
-  `avif_decode_pixels_unchanged_by_thread_policy` (integration, `input_avif.rs`).
-- **Gate:** `cargo test` (default and `--features avif`) green across ≥5
-  consecutive full-suite runs.
+  `avif_decode_pixels_unchanged_by_thread_policy` +
+  `avif_decode_survives_a_small_caller_stack` (integration, `input_avif.rs`; the
+  latter decodes from a ~1 MiB caller thread, mirroring the Windows overflow).
+- **Gate:** full PR #95 CI matrix green (ubuntu, macos, **windows**); `cargo test`
+  (default and `--features avif`) green across ≥5 consecutive full-suite runs.
 
 **Revisit if:** upstream re_rav1d fixes the CDEF/loop-filter overlap (then
 multi-threaded decode can return), or `run_pixel_op` is parallelized (then measure

@@ -274,6 +274,28 @@ fn frame_size_limit(limits: &Limits) -> u32 {
 /// This extends the DEC-034 precedent of setting decode `Settings` deliberately.
 const AVIF_DECODE_THREADS: u32 = 1;
 
+/// Stack size (bytes) for the thread the inline decode runs on (DEC-077).
+///
+/// With [`AVIF_DECODE_THREADS`] `== 1`, `re_rav1d` spawns **no** `rav1d-worker-*`
+/// threads and runs the whole decode *inline on the calling thread* — so it loses
+/// the 2 MiB stack those workers would otherwise get (Rust's default thread stack;
+/// `re_rav1d` deliberately does not shrink it, `re_rav1d-0.1.3/src/lib.rs:258`,
+/// "Don't set stack size like dav1d does", upstream rav1d#889). dav1d's decode has
+/// a large *fixed* stack frame (on-stack tile/context structures) independent of
+/// image size, so an inline decode overflows a small caller stack **regardless of
+/// resolution**: on Windows — whose main thread gets only ~1 MiB — even a 16×16
+/// AVIF stack-overflowed both windows-latest legs of PR #95 (macOS/Linux main
+/// threads are ~8 MiB, so the inline decode never overflowed there). `frame_size_
+/// limit` (DEC-034) bounds *heap* plane allocation, a separate concern from stack.
+///
+/// So we never run the inline decode on the caller's (OS-defined, possibly ~1 MiB)
+/// stack: we re-spawn it onto a thread whose stack we control. 8 MiB matches the
+/// macOS/Linux main-thread stack that has always decoded these frames without
+/// overflow and is 4× dav1d's own 2 MiB worker default — ample headroom. A large
+/// `stack_size` only *reserves* address space (committed lazily), so the cost of
+/// the generous figure is negligible.
+const AVIF_DECODE_STACK_SIZE: usize = 8 * 1024 * 1024;
+
 /// Build the decode [`Settings`] used for every AVIF frame: the DEC-034 frame-size
 /// cap plus the explicit DEC-077 single-thread policy ([`AVIF_DECODE_THREADS`]).
 /// Factored out so the thread policy is asserted against the exact `Settings`
@@ -285,10 +307,39 @@ fn decode_settings(limits: &Limits) -> Settings {
     settings
 }
 
-/// Decode a single AV1 still image (one OBU stream) to a `re_rav1d` [`Picture`],
-/// bounding the decoder's frame allocation via [`frame_size_limit`] (DEC-034) and
-/// pinning threads via [`decode_settings`] (DEC-077).
+/// Decode a single AV1 still image (one OBU stream) to a `re_rav1d` [`Picture`].
+///
+/// Because the DEC-077 single-thread policy makes `re_rav1d` decode inline (no
+/// worker threads, see [`AVIF_DECODE_STACK_SIZE`]), we run that inline decode on a
+/// thread we spawn with an ample stack rather than on the caller's — whose size is
+/// set by the OS and is only ~1 MiB on the Windows main thread, too small for
+/// dav1d's fixed decode frame. `Picture` is `Send` (`Arc`-backed), so the decoded
+/// frame is returned across the `join`. A scoped thread lets the closure borrow
+/// `obus`/`limits` without cloning; the parent blocks on `join`, so no CPU-bound
+/// work overlaps it — under a rayon batch (DEC-006) each worker adds exactly one
+/// (blocked→working) decode thread, not an all-cores pool, so this does not
+/// reintroduce oversubscription. The spawn costs ~tens of µs against a ms-scale
+/// decode — negligible.
 fn decode_obus(obus: &[u8], limits: &Limits) -> Result<Picture> {
+    std::thread::scope(|scope| {
+        std::thread::Builder::new()
+            .name("avif-decode".into())
+            .stack_size(AVIF_DECODE_STACK_SIZE)
+            .spawn_scoped(scope, || decode_obus_inline(obus, limits))
+            .map_err(|e| ImageError::Decode(format!("avif: spawn decode thread: {e}")))?
+            .join()
+            // A stack overflow aborts the process, so a returned `Err` here is an
+            // ordinary decoder panic (e.g. avif-parse debug-assert on malformed
+            // input) — mapped to a typed error, matching the `decode_avif`
+            // panic boundary it used to sit behind.
+            .map_err(|_| ImageError::Decode("avif: decoder panicked on malformed input".into()))?
+    })
+}
+
+/// The actual inline `re_rav1d` decode, run on the ample-stack thread spawned by
+/// [`decode_obus`]. Bounds the decoder's frame allocation via [`frame_size_limit`]
+/// (DEC-034) and pins threads via [`decode_settings`] (DEC-077).
+fn decode_obus_inline(obus: &[u8], limits: &Limits) -> Result<Picture> {
     let settings = decode_settings(limits);
     let mut dec =
         Decoder::with_settings(&settings).map_err(|e| ImageError::Decode(format!("avif: {e}")))?;

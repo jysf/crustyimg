@@ -116,6 +116,36 @@ fn avif_roundtrip_gradient() {
     assert!(s >= 70.0, "round-trip perceptual score too low: {s}");
 }
 
+/// SPEC-091/DEC-077: the single-thread (inline) decode must not depend on the
+/// caller's OS-defined stack. With `n_threads == 1`, `re_rav1d` decodes inline and
+/// dav1d's fixed decode frame overflows a small stack *regardless of image size* —
+/// on Windows, whose main thread is only ~1 MiB, even a 16×16 AVIF stack-overflowed
+/// (both windows-latest legs of PR #95). This mirrors that exact scenario on any
+/// platform: run the decode from a deliberately ~1 MiB caller thread. It passes
+/// only because `decode_obus` re-spawns the decode onto its own ample stack; if it
+/// ever ran inline again, this thread would overflow and abort the test process.
+/// Ungated (decode is a default dep) so it guards the default `cargo test` too,
+/// like the `optimize_avif_input_writes_webp` test that first caught the overflow.
+#[test]
+fn avif_decode_survives_a_small_caller_stack() {
+    use crustyimg::image::Image;
+
+    // ~1 MiB — the Windows main-thread stack that overflowed on the inline decode.
+    // The container parse + YUV→RGBA conversion run on this caller stack and fit
+    // (Windows got past parse); only the inline decode overflowed, and that now
+    // runs elsewhere. A returned dimension proves the decode completed, not aborted.
+    let dims = std::thread::Builder::new()
+        .stack_size(1024 * 1024)
+        .spawn(|| {
+            let img = Image::from_bytes(AVIF_FIXTURE).expect("decode 16x16 avif on small stack");
+            (img.width(), img.height())
+        })
+        .expect("spawn small-stack caller thread")
+        .join()
+        .expect("small-stack decode thread panicked or overflowed");
+    assert_eq!(dims, (16, 16));
+}
+
 /// SPEC-091/DEC-077: the single-thread decode policy must not change decoded
 /// pixels. This pins the decoded RGBA of a committed 128×128 photo AVIF to a
 /// digest **captured from the pre-change (all-cores) binary** at HEAD cd39f17 —
