@@ -463,6 +463,7 @@ async function drop(path) {
         "scoreBand: document.getElementById('score-band').textContent, " +
         "scoreSource: document.getElementById('score-source').textContent, " +
         "scoreMeterHidden: document.getElementById('score-meter').hidden, " +
+        "scoreFillWidth: document.getElementById('score-fill').style.width, " +
         "download: document.getElementById('download').getAttribute('download'), " +
         "href: document.getElementById('download').href })",
     )
@@ -598,6 +599,17 @@ check(
   avifScore > 50 && avifScore < 130,
   `SANITY: the browser-decode score is plausible for a visually-lossless q85 AVIF ` +
     `(${avifScore.toFixed(2)} — up the scale, raw not a %; band "${hero.scoreBand}")`,
+);
+// The meter is wired to the value, not decorative: for a measured score its fill is a
+// real [0,100]% width and it is NOT hidden. (The clamp for out-of-range values — 0% at
+// negative, 100% above 100 — is exercised by the verify-session negative controls.)
+const heroFill = Number.parseFloat(hero.scoreFillWidth);
+check(
+  hero.scoreMeterHidden === false &&
+    /%$/.test(hero.scoreFillWidth) &&
+    heroFill >= 0 &&
+    heroFill <= 100,
+  `and the meter reflects the score — fill ${hero.scoreFillWidth}, shown (not hidden)`,
 );
 
 // jpeg_shows_engine_score — force JPEG (a searched lossy encode). The engine scores
