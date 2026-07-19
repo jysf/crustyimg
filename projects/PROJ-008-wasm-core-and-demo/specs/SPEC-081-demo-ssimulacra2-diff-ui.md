@@ -161,17 +161,28 @@ Browser-driven (the SPEC-077/078/080 headless-Chrome smoke, extended).
 ---
 
 ## Build Completion
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
-- **New decisions emitted:**
+- **Branch:** `spec-081-score-ui`
+- **PR (if applicable):** none yet (handed back for review, not opened)
+- **All acceptance criteria met?** yes
+  - JPEG → numeric raw SSIMULACRA2, "measured by the engine", banded, not clamped — ✓ (smoke: `scoredBy="engine"`, 91.0)
+  - AVIF → numeric score via browser decode + `score(...)`, labelled browser-side; q85 photo lands "high" — ✓ (smoke: `scoredBy="browser"`, 80.2, band "high")
+  - Lossless → "every pixel preserved", no number — ✓ (smoke: `scoredBy="lossless"`, no value, meter hidden)
+  - Scoring-impossible → candid, no throw, rest still renders — ✓ (`scoredBy="unavailable"` branch, worded panel)
+  - Interpretable scale (band + one-line meaning) — ✓ (band pill + meter + honest source line)
+  - Smoke passes, score element numeric for a lossy output, zero network requests — ✓ (exit 0; 0 requests during conversion)
+- **New decisions emitted:** none (SPEC-079 owns the bindings; no engine change).
+- **Files changed:** `demo/worker.js` (import `score`; `readBack` yields the decoded-AVIF PNG from its single decode; attach honest `{score, scoredBy}` — engine/browser/lossless/unavailable), `demo/demo.js` (ui refs + `scoreBand()` + rewritten `renderScore` into a banded panel), `demo/index.html` (score-panel markup), `demo/demo.css` (banded meter, theme-token styling), `tests/demo_smoke.mjs` (3 named tests + AVIF sanity; `drop()` exposes score sub-elements).
 - **Deviations from spec:**
-- **Follow-up work identified:**
+  1. **Reference for the browser AVIF score is the *downscaled* PNG (`pixels` after `transform`), not the original input.** The spec wrote `score(inputPngBytes, decodedOutputPngBytes)`; `score()` requires matching dimensions and the `web` flow downscales before encoding, so the original (2200×1650) vs the AVIF (2048×1536) would throw a dimension mismatch. The downscaled PNG is also the exact basis the engine's own JPEG search scores on, so the two provenances are consistent. This is the intended behaviour, just more precise than the spec's shorthand.
+  2. **Added a sixth band, "very low", below "low"** (for negative / badly-degraded scores). The spec enumerated five; the honesty rule ("band must handle negatives") makes "low" for a −4.70 misleading, so the bottom band is named honestly.
+  3. **"Theme-aware" = built from the page's shared CSS theme tokens**, not a separate light/dark scheme. The demo commits to one colour scheme (`color-scheme: dark`, SPEC-080); a lone light-mode meter on a dark page would look broken. The panel tracks the theme via the existing vars.
+  4. **The `"unavailable"` branch mainly guards the `score()` call itself, not the AVIF decode.** The demo already browser-decodes an AVIF output for its dimensions (pre-existing `readBack`), so a browser that genuinely can't decode AVIF already fails the whole conversion upstream. The score try/catch keeps a *scoring* failure (mismatch/cap/missing pixels) from crashing an otherwise-good result — honest, but the "old browser" scenario is largely theoretical given the existing dims dependency.
+- **Follow-up work identified:** the side-by-side pixel/loupe diff is explicitly out of scope here (spec's Out-of-Scope) — a candidate follow-up if wanted. The observed q85 AVIF score (~80, "high") is a touch below the "visually lossless" band; not a bug (it's candid), but worth a glance during launch BENCHMARKS.
 
 ### Build-phase reflection (3 questions, short answers)
-1. **What was unclear in the spec that slowed you down?** — <answer>
-2. **Was there a constraint or decision that should have been listed but wasn't?** — <answer>
-3. **If you did this task again, what would you do differently?** — <answer>
+1. **What was unclear in the spec that slowed you down?** — The reference argument for the AVIF `score()`: the spec's `score(inputPngBytes, ...)` reads as "the original input", but that mismatches dimensions after the downscale. Reading `score()`'s "both must match dimensions" contract resolved it — the reference must be the downscaled PNG the encoder saw.
+2. **Was there a constraint or decision that should have been listed but wasn't?** — The `score()` dimension-match requirement deserved a one-line note in the spec's Notes for the Implementer; it's the one thing that turns "call score(input, output)" from wrong to right.
+3. **If you did this task again, what would you do differently?** — Verify the `drop()` helper's same-file `change`-event quirk before writing tests; I lost a run to re-dropping `heroPath` for the JPEG case (no `change` fires when the file input already holds that path). Distinct fixtures per drop is the established pattern.
 
 ---
 

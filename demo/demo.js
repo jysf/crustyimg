@@ -80,6 +80,11 @@ const ui = {
   delta: el("delta"),
   resizeNote: el("resize-note"),
   score: el("score"),
+  scoreValue: el("score-value"),
+  scoreBand: el("score-band"),
+  scoreMeter: el("score-meter"),
+  scoreFill: el("score-fill"),
+  scoreSource: el("score-source"),
   download: el("download"),
   funnel: el("funnel"),
   funnelCmd: el("funnel-cmd"),
@@ -370,28 +375,73 @@ function render(m) {
   setState("done");
 }
 
-/// The score, honestly. It is RAW SSIMULACRA2 (SPEC-079): ~100 is visually
-/// identical, and it can be NEGATIVE on a bad encode — never a 0–100 percentage. The
-/// engine only produces it when it ran a perceptual search (JPEG here); AVIF cannot
-/// be scored in-browser (no decoder — DEC-065), and lossless output has nothing to
-/// score. Each of those is said in its own words rather than shown as a blank.
+/// A raw SSIMULACRA2 value → a band a non-expert can read. The value is RAW
+/// (SPEC-079), NOT a 0–100 percentage: ~100 is visually identical, it can exceed 100,
+/// and it goes NEGATIVE on a bad encode (a q20 JPEG measured −4.70). These bands cover
+/// that whole range — the meter fill is clamped for the bar's sake, the number is not.
+function scoreBand(s) {
+  if (s >= 95) return { label: "indistinguishable", cls: "band-top" };
+  if (s >= 85) return { label: "visually lossless", cls: "band-top" };
+  if (s >= 70) return { label: "high", cls: "band-high" };
+  if (s >= 50) return { label: "medium", cls: "band-mid" };
+  if (s >= 30) return { label: "low", cls: "band-low" };
+  return { label: "very low", cls: "band-bad" };
+}
+
+/// The score panel, honestly (SPEC-081). When a number was genuinely measured it is
+/// shown RAW on an interpretable band + meter; when there is no honest number to show
+/// (lossless output, a kept original, or a browser that couldn't decode the AVIF to
+/// measure) the meter is hidden and the panel says in words what happened — never a
+/// fabricated score. `scoredBy` (from the worker) decides which case this is:
+///   engine  — the JPEG search's own SSIMULACRA2
+///   browser — the AVIF, decoded back in the browser and scored (the SPEC-080 gap, closed)
+///   lossless — pixels preserved, nothing to score
+///   unavailable — scoring failed; be candid
 function renderScore(score, scoredBy, format, keptOriginal, budgetMissed, budget, shownBytes) {
-  let text;
+  let value = null; // the raw SSIMULACRA2 to display, or null for a worded-only panel
+  let source; // one honest line on where the number came from — or why there isn't one
+
   if (keptOriginal) {
-    text = "Your original was already the best — no re-encode, so no new score.";
+    source = "Your original was already the best — no re-encode, so there is no new score to measure.";
   } else if (scoredBy === "engine" && score != null) {
-    text = `SSIMULACRA2 ${score.toFixed(1)} — raw scale, ~100 is visually identical (it can go negative on a bad encode; it is not a 0–100 %).`;
-  } else if (format === "avif") {
-    text =
-      "AVIF isn't scored here: this build encodes AVIF but can't decode it to measure the score — " +
-      "the CLI does, and SPEC-081's diff view will show it in-page.";
+    value = score;
+    source = "Measured by the engine — the perceptual search that chose this JPEG's quality.";
+  } else if (scoredBy === "browser" && score != null) {
+    value = score;
+    source =
+      "Measured by decoding the AVIF back in your browser and scoring it against the resized input — " +
+      "the one output the engine can't score itself (it has no AVIF decoder, DEC-065).";
+  } else if (scoredBy === "lossless") {
+    source = `Lossless ${format.toUpperCase()} — every pixel is preserved, so there is no quality loss to score.`;
   } else {
-    text = `Lossless ${format.toUpperCase()} — every pixel preserved, so there is no quality to score.`;
+    // "unavailable" (or any unexpected state): candid, not a fabricated number.
+    source =
+      "Couldn't score this output — your browser wouldn't decode the AVIF back to measure it. " +
+      "(Chrome, Firefox and Safari have all decoded AVIF since 2020–23; a very old browser will not.)";
   }
   if (budgetMissed) {
-    text += ` (Couldn't hit the ${fmtBytes(budget)} budget — the smallest this encoder produced was ${fmtBytes(shownBytes)}.)`;
+    source += ` (Couldn't hit the ${fmtBytes(budget)} budget — the smallest this encoder produced was ${fmtBytes(shownBytes)}.)`;
   }
-  ui.score.textContent = text;
+
+  if (value == null) {
+    ui.score.dataset.mode = "worded";
+    ui.scoreValue.textContent = "";
+    ui.scoreBand.textContent = "";
+    ui.scoreBand.className = "score-band";
+    ui.scoreMeter.hidden = true;
+  } else {
+    const band = scoreBand(value);
+    ui.score.dataset.mode = "measured";
+    ui.scoreValue.textContent = `SSIMULACRA2 ${value.toFixed(1)}`;
+    ui.scoreBand.textContent = band.label;
+    ui.scoreBand.className = `score-band ${band.cls}`;
+    // The bar can't render a negative width or overflow past full, so the FILL is
+    // clamped to [0, 100] — the raw number above it is not.
+    ui.scoreFill.style.width = `${Math.max(0, Math.min(100, value))}%`;
+    ui.scoreFill.className = `score-fill ${band.cls}`;
+    ui.scoreMeter.hidden = false;
+  }
+  ui.scoreSource.textContent = source;
 }
 
 /// THE FUNNEL. Every conversion becomes an invitation to run the real thing: the
