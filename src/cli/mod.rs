@@ -5756,6 +5756,46 @@ mod tests {
         let _ = tags;
     }
 
+    // ── escape_json_impls_are_equivalent (SPEC-097, pre-merge gate) ─────────
+
+    /// `cli::escape_json` (here) and `lint::report::escape_json` are two
+    /// independent hand-rolled JSON escapers (SPEC-097's motivating
+    /// duplication) that must agree byte-for-byte on adversarial input BEFORE
+    /// they are collapsed into one shared helper — otherwise the merge could
+    /// quietly change JSON output. A lone UTF-16 surrogate cannot be
+    /// represented in a Rust `&str` (it isn't a valid Unicode scalar value),
+    /// so the closest in-bounds adversarial case is the pair of code points
+    /// immediately flanking the surrogate range (U+D7FF, U+E000) plus the
+    /// replacement character (U+FFFD).
+    #[test]
+    fn escape_json_impls_are_equivalent() {
+        let cases: &[&str] = &[
+            "",
+            "plain ascii",
+            "\"quoted\"",
+            "back\\slash",
+            "both\"and\\together",
+            "\n\t\r",
+            "\0",
+            "\u{01}\u{02}\u{1F}",
+            "\u{7F}", // DEL: >= 0x20, must NOT be escaped by either impl
+            " ",      // 0x20: the escape boundary itself, must NOT be escaped
+            "emoji \u{1F980} crab",
+            "multi-byte \u{00E9}\u{4E2D}\u{6587}",
+            "\u{D7FF}", // last scalar value before the surrogate range
+            "\u{E000}", // first scalar value after the surrogate range
+            "\u{FFFD}", // U+FFFD REPLACEMENT CHARACTER
+            "mixed \"\\\n\u{1F600}\u{0}end",
+        ];
+        for s in cases {
+            assert_eq!(
+                escape_json(s),
+                crate::lint::escape_json(s),
+                "escape_json impls diverged on {s:?}"
+            );
+        }
+    }
+
     // ── info_report_serializes_fields ────────────────────────────────────────
 
     #[test]

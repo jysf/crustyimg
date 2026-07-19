@@ -121,7 +121,11 @@ fn write_finding(f: &Finding, out: &mut impl Write) -> io::Result<()> {
 
 /// Escape a string for a hand-rolled JSON value (mirrors the shipped
 /// `escape_json`): `"` → `\"`, `\` → `\\`, control chars < 0x20 → `\u00XX`.
-fn escape_json(s: &str) -> String {
+///
+/// `pub(crate)` only so `cli::tests::escape_json_impls_are_equivalent`
+/// (SPEC-097) can prove this is byte-identical to `cli::escape_json` before
+/// the two are merged into one shared helper; not part of the public API.
+pub(crate) fn escape_json(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for ch in s.chars() {
         match ch {
