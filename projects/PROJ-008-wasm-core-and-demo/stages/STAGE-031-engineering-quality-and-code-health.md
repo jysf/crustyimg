@@ -80,13 +80,12 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 - [~] SPEC-097 (design — framed 2026-07-19, on main) — decompose `src/cli/mod.rs` (6,483 lines) into a
   `cli/` submodule tree + dedup the two hand-rolled `escape_json`; pure mechanical, byte-identical gate.
   **Build gated on maintainer go** (a 6k-line move — review the approach + verification gate first).
-- [~] SPEC-098 (design — framed 2026-07-19, on main) — **dependency-pinning strategy DECISION RECORD**
-  (→ `DEC-078`), closing the audit's D4 thread: exact `=` pins stay policy for the binary today; caret
+- [x] SPEC-098 (shipped 2026-07-19, PR #102, **DEC-078**, ~$2.1) — **dependency-pinning strategy DECISION
+  RECORD**, closing the audit's D4 thread: exact `=` pins stay policy for the binary today; caret
   relaxation of the library-public deps is a mandatory, deferred prerequisite of the crates.io publish
-  (backlog #5); no migration now; refines AGENTS.md §5 / DEC-011/013. Docs-only. Build (write the DEC +
-  cross-refs) gated on maintainer go.
+  (backlog #5); no migration now; refines AGENTS.md §5 / DEC-011/013. Docs-only, zero code change.
 
-**Count:** 0 shipped / 0 active / 2 framed (SPEC-097 cli split, SPEC-098 pinning DEC — both build-gated)
+**Count:** 1 shipped (SPEC-098, DEC-078) / 1 framed (SPEC-097 cli split — build-gated) / 0 active
 
 ## Design Notes
 

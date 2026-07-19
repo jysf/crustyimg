@@ -7,7 +7,7 @@
 task:
   id: SPEC-098
   type: chore
-  cycle: build
+  cycle: ship
   blocked: false
   priority: medium
   complexity: S
@@ -41,11 +41,39 @@ value_link: >
 # See AGENTS.md §4 and docs/cost-tracking.md. interface: claude-code |
 # claude-ai | api | ollama | other.
 cost:
-  sessions: []
+  sessions:
+    - cycle: build
+      interface: claude-code
+      model: claude-sonnet-5
+      tokens_total: 50000
+      duration_minutes: null
+      estimated_usd: 1.5
+      note: >
+        Estimated order-of-magnitude (main-loop build in the primary checkout) — a small docs-only spec,
+        mostly reads: wrote DEC-078 from the spec's draft, the AGENTS.md §5 pointer, and located the real
+        backlog-#5 (STAGE-007 #5 per DEC-041) for the cross-ref. ~80/20 at Sonnet list rate.
+    - cycle: verify
+      interface: claude-code
+      model: claude-opus-4-8
+      tokens_total: null
+      estimated_usd: 0.3
+      note: >
+        orchestrator inline review (docs-only, no runtime surface to drive per the verify-skill guidance)
+        — confirmed the DEC states all four required points + matches the audit's D4, the STAGE-007
+        cross-ref is accurate/non-contradictory, DEC-078 is the next number, and zero code/config moved.
+    - cycle: ship
+      interface: claude-code
+      model: claude-opus-4-8
+      tokens_total: null
+      estimated_usd: 0.3
+      recorded_at: 2026-07-19
+      note: >
+        orchestrator main loop — PR #102, CI green, squash-merge (dd085d5), bookkeeping. No new DEC beyond
+        DEC-078 (the deliverable).
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 50000
+    estimated_usd: 2.1
+    session_count: 3
 ---
 
 # SPEC-098: dependency-pinning strategy decision record
@@ -227,10 +255,18 @@ Process-focused: how did the build go? What friction did the spec create?
 from the process-focused build reflection above.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Nothing. Drafting the full DEC prose inside the spec at framing time paid off — the build was a
+   near-verbatim drop + a diff-confirm, and the review was a content check, not a behavioral verify
+   (correct for a docs-only change with no runtime surface).
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — DEC-078 refines AGENTS.md §5 (the exact-pin convention) via the pointer it now carries — that's the
+   intended reconciliation, no further edit. The build's grounding correction is worth banking: the
+   crates.io-publish backlog item lives in STAGE-007 (per DEC-040/041), not `docs/backlog.md` (which is
+   the post-MVP candidate list) — future release-facing specs should target STAGE-007.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — No spec. One trivial optional add the build flagged: a one-line DEC-078 pointer in `RELEASING.md` at
+   the `cargo publish` step (the operational checklist a maintainer actually runs at publish) — belt-and-
+   suspenders alongside the STAGE-007 cross-ref. Not worth its own spec; fold into the crates.io-publish
+   work (backlog #5), which already owns the caret migration DEC-078 gates.
