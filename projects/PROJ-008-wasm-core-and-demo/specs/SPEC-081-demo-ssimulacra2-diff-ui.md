@@ -20,9 +20,9 @@ agents:
   created_at: 2026-07-13
 
 references:
-  decisions: [DEC-019, DEC-065]
+  decisions: [DEC-019, DEC-065, DEC-068, DEC-069]
   constraints: [ergonomic-defaults]
-  related_specs: [SPEC-078, SPEC-079, SPEC-080]
+  related_specs: [SPEC-078, SPEC-079, SPEC-080, SPEC-095]
 
 value_link: >
   The demo's differentiator vs squoosh: we don't guess the quality, we measure it. Shows the
@@ -47,16 +47,30 @@ decoder — DEC-065). This spec is the **UI** that turns those into the demo's h
 pick a quality and hope — here's the measured perceptual score."* That is the crisp wedge vs squoosh
 (and the honest counter to "AVIF made it tiny — but does it still look right?").
 
-It is **demo files only**, and it builds on **SPEC-080**'s reshaped page (both touch `demo/`, so it
-is built after SPEC-080). No engine change — SPEC-079 owns every wasm binding it needs.
+It is **demo files only**, and it **extends the shipped SPEC-080/095 demo** — no engine change (SPEC-079
+owns every binding).
+
+**★ Reconciled against the shipped demo (2026-07-18) — build on what exists, don't rebuild:**
+- `demo/demo.js` already has **`renderScore(...)`** (SPEC-080): it shows a real `SSIMULACRA2 X.X` for a
+  JPEG (`scoredBy: "engine"`), an honest *"AVIF isn't scored here — this build can't decode it to
+  measure"* for AVIF, and *"lossless — every pixel preserved"* for lossless. **This spec's job is to
+  (a) make the AVIF case actually score, and (b) add the interpretable visual band.** Extend
+  `renderScore`; don't fork a second path.
+- `demo/worker.js` already has **`decodeInBrowser(bytes, label)`** (createImageBitmap → OffscreenCanvas)
+  — the exact AVIF read-back seam. It currently reads output dimensions; here it also yields the PNG
+  pixels to score. **`score` is NOT yet imported** in the worker (only `optimizeDetailed`/`transform`/
+  `info`/`version`) — add `score` to that import.
+- **SPEC-095 shipped:** the demo AVIF is now q85 (matches the CLI), so a visually-lossless AVIF should
+  score high — a good sanity anchor for the browser-decode score.
 
 ## Goal
 
-Show the input↔output **SSIMULACRA2 score** for each conversion, on a scale a lay visitor
-understands (100 = indistinguishable, ~90 = visually lossless, ~70 high, ~50 medium), sourced
-honestly: from the engine for a searched lossy encode, from a browser-decode + `score(a, b)` for
-AVIF, and shown as "lossless — every pixel preserved" for a lossless output. Where it genuinely
-can't be computed, say so — never show a fabricated number.
+Show the input↔output **SSIMULACRA2 score** for each conversion, sourced honestly: from the engine for a
+searched lossy encode, from a **browser-decode + `score(a, b)`** for AVIF (the headline case), and shown
+as "lossless — every pixel preserved" for a lossless output. Present it on an **interpretable band** a lay
+visitor reads ("visually lossless" / "high" / "medium" / "low"), **mapped honestly from the RAW
+SSIMULACRA2 value** — which is *not* a 0–100 percentage: ~100 ≈ visually identical, it can exceed 100 and
+**can go negative** on a bad encode (SPEC-079). Never clamp to (0,100]; never show a fabricated number.
 
 ## Inputs
 
@@ -85,10 +99,13 @@ can't be computed, say so — never show a fabricated number.
 
 ## Acceptance Criteria
 
-- [ ] A **JPEG** conversion shows a numeric SSIMULACRA2 score in `(0, 100]` labelled "measured by the
-      engine" (from `OptimizeResult.score`).
-- [ ] An **AVIF** conversion shows a numeric score obtained by decoding the AVIF back in the browser
-      and calling `score(...)`, labelled as a browser-side measurement — the headline case works.
+- [ ] A **JPEG** conversion shows the numeric raw SSIMULACRA2 score labelled "measured by the engine"
+      (from `OptimizeResult.score`) with an interpretable band — **not clamped to (0,100]** (the value is
+      raw; ~100 ≈ identical, can exceed 100 or go negative).
+- [ ] An **AVIF** conversion (the demo's hero output) shows a numeric score obtained by **decoding the
+      AVIF back in the browser** (`decodeInBrowser`) and calling `score(inputPixels, decodedOutputPixels)`,
+      labelled as a browser-side measurement — **this is the case SPEC-080 could not score; making it work
+      is the whole point.** At q85 (SPEC-095) a photo should land in the "visually lossless / high" band.
 - [ ] A **lossless** (PNG / lossless-WebP) conversion shows "lossless — every pixel preserved" (no
       misleading number).
 - [ ] When scoring is genuinely impossible (e.g. a browser too old to decode AVIF), the panel says so
