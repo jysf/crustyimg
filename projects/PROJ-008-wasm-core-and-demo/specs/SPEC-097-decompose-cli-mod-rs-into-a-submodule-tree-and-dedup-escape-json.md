@@ -41,11 +41,28 @@ value_link: >
 # See AGENTS.md §4 and docs/cost-tracking.md. interface: claude-code |
 # claude-ai | api | ollama | other.
 cost:
-  sessions: []
+  sessions:
+    - cycle: build
+      interface: claude-code
+      model: claude-sonnet-5
+      tokens_total: 1200000
+      duration_minutes: null
+      estimated_usd: 6.48
+      note: >
+        Main-loop build session (no metered subagent) — ORDER-OF-MAGNITUDE
+        ESTIMATE, not a real usage-object reading. Derived from session scope
+        (full 6,483-line read of cli/mod.rs across many chunks, 5 new files
+        totaling ~5,260 lines written, ~15 cargo test/clippy/build cycles
+        across native+lean+wasm, multiple golden-harness runs) at Sonnet
+        list rate ($3/$15 per MTok, ~80/20 input/output, no cache discount).
+        Ship cycle should replace with the real subagent_tokens/duration_ms
+        if this ran as a dispatched subagent, or /cost if run interactively.
   totals:
     tokens_total: 0
     estimated_usd: 0
     session_count: 0
+    # Computed at ship (AGENTS.md §4) — not build's job. See cost.sessions
+    # above for the build cycle's own (estimated) entry.
 ---
 
 # SPEC-097: decompose cli/mod.rs into a submodule tree and dedup escape_json
@@ -218,28 +235,118 @@ test of new behavior:
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
-- **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
+- **Branch:** `feat/spec-097-cli-decomposition`
+- **PR (if applicable):** none yet — not opened per instructions (build only)
+- **All acceptance criteria met?** yes
+  - Byte-identical CLI output: `scripts/cli-golden.py` (21 cases spanning every
+    submodule) captured an oracle from the pre-split binary and re-verified
+    21/21 byte-identical after every single commit, including the final
+    state. A negative control (deliberately mutated one output string,
+    rebuilt, re-ran `check`) proved the harness actually detects a real diff
+    (exit 1, correct case flagged) before being trusted as a green gate.
+  - Public paths preserved: `grep -rn "cli::" src/main.rs tests/` → 2 hits,
+    both in `src/main.rs` (the doc comment + the `crustyimg::cli::run()`
+    call) — unchanged from the pre-split count. Every item that was `pub` in
+    the original `cli/mod.rs` (`Cli`, `GlobalArgs`, `QualityTarget`,
+    `ProfileArg`, `ExplainFmt`, `AutoQuality`, `Commands`, `MetaCommand`,
+    `CliError`, `run()`, `WEB_DEFAULT_LONG_EDGE`) is still `pub` at the exact
+    same `crustyimg::cli::<name>` path — `WEB_DEFAULT_LONG_EDGE` moved into
+    `optimize.rs` and is re-exported via `pub use optimize::
+    WEB_DEFAULT_LONG_EDGE;` in `mod.rs`.
+  - One JSON escaper: `escape_json` now lives once, in `cli::report`
+    (`pub(crate)`, since `lint::report` reuses it across the `cli`/`lint`
+    module boundary — `cli::mod`'s `mod report;` became `pub(crate) mod
+    report;` to allow that). `lint::report`'s independent copy is deleted.
+    Equivalence was proven BEFORE the merge (`escape_json_impls_are_equivalent`,
+    committed separately) with adversarial input (quotes, backslashes,
+    control chars incl. the 0x20 boundary and DEL, multi-byte unicode, the
+    code points flanking the surrogate range, U+FFFD); after the merge that
+    test was replaced by three permanent regression tests asserting the
+    single surviving helper still produces the same proven outputs.
+  - No widened visibility: every new cross-submodule item is `pub(super)`;
+    only `escape_json` and the `report` module declaration are `pub(crate)`
+    (required for the `cli`/`lint` boundary); `WEB_DEFAULT_LONG_EDGE` stays
+    `pub` exactly as it was before the split (not a widening — a relocation).
+  - No signature/param changes: every extracted function's signature was
+    copied verbatim; `run_optimize`'s 11-argument signature is untouched
+    (bundling deferred, per Out of scope).
+  - Green matrix: `cargo test` 769/769 (see test-count reconciliation
+    below), `cargo build --no-default-features` clean, `cargo clippy
+    --all-targets -- -D warnings` clean on both feature sets, `cargo fmt
+    --check` clean, `just wasm-check` clean (the `cli` module is
+    `#[cfg(not(target_arch = "wasm32"))]`-gated in `lib.rs` — it was never
+    part of the wasm build surface, so this confirms the split didn't leak
+    a stray reference into a wasm-reachable module, not that `cli/` itself
+    compiles for wasm).
+- **New decisions emitted:** none
 - **Deviations from spec:**
-  - [list]
+  - Extracted `common.rs` together with `build.rs` in the first commit
+    (rather than build → report → optimize → ops → common in that literal
+    order) — `build.rs`'s `run_build`/`run_build_watching` depend on
+    `common.rs`'s `load_recipe`/`encode_one`/`write_encoded`/
+    `BATCH_PROGRESS_TEMPLATE`, and `common.rs` is a leaf dependency of every
+    other submodule, so extracting it first kept every commit compiling
+    standalone instead of carrying temporary duplicate definitions.
+  - `plural()` (and its test) went to `build.rs`, not `common.rs`, despite
+    being in the spec's common.rs candidate list — after the move it has
+    exactly one real caller (`run_build`), which fails the spec's own
+    "`common.rs` only if ≥2 submodules use it" rule; confirmed by grep before
+    assigning it. This is exactly the kind of inventory-vs-file mismatch the
+    spec warned to check for.
+  - `run_apply` (with `split_terminal_optimize`/`OPTIMIZE_STEP_OP`) is not
+    named in any candidate module list; assigned to `optimize.rs` (implementer's
+    judgment) since its non-trivial branch dispatches straight into the
+    auto-decide engine (`run_optimize_autodecide`), and its plain-recipe
+    fallback uses only `common.rs` helpers already centralized there.
+  - `run_view` is likewise unlisted; assigned to `ops.rs` as a single-image
+    pixel/display handler, cohesive with resize/thumbnail/watermark.
+  - `lint`'s handler cluster (`LintFlags`, `parse_savings_threshold`,
+    `build_lint_config`, `run_lint`, `LintReportFormat`, `lint_report_format`)
+    is not named in any candidate module list; folded into `report.rs`
+    (read-only reporting family, adjacent in the original file) rather than
+    a separate module — no unit tests existed for this cluster in the
+    original file (it's covered by `tests/lint.rs`), so nothing needed to move.
+  - `args.rs` was NOT created: the spec explicitly allows leaving the clap
+    derive types in `mod.rs` "if pulling them out... reduces bulk without
+    churn; otherwise leave them in mod.rs" — moving `Cli`/`GlobalArgs`/
+    `Commands`/`MetaCommand`/the arg enums out would have meant re-exporting
+    9 additional `pub` items instead of the 1 (`WEB_DEFAULT_LONG_EDGE`) that
+    actually needed it, for no reduction in mod.rs's conceptual weight (the
+    clap surface + `CliError` + `dispatch()` is the front door's actual job).
+    `mod.rs` is 1,426 lines post-split — mostly the `Commands` enum's
+    extensive doc comments, `CliError`'s exit-code mapping + its ~250-line
+    total-mapping test, and `dispatch()`.
 - **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - None new. The two items the spec explicitly deferred (the `run_optimize`
+    11-arg → params-struct bundling; any further module splits beyond these
+    5) remain deferred, unstarted, as instructed.
 
 ### Build-phase reflection (3 questions, short answers)
 
 Process-focused: how did the build go? What friction did the spec create?
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — Several real functions/tests had no home in any candidate module list
+   (`run_apply`, `run_view`, the whole `lint` handler cluster, `plural()`'s
+   correct home). The spec anticipated this ("candidate boundaries... not
+   gospel... implementer's judgment") but resolving each one still meant
+   reading the full file and tracing every call site before assigning it —
+   the single biggest time cost in the build, ahead of the mechanical
+   extraction itself.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — No missing constraint; the spec's own Notes (write the harness first,
+   one module per commit, prove `escape_json` equivalence before merging,
+   don't trust the inventory, watch for a silently dropped test module) were
+   exactly the checklist this build needed and nothing else was missing.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Extract `common.rs` first explicitly in the plan rather than discovering
+   the forward-reference problem mid-build.rs-extraction — it's the obvious
+   leaf dependency in hindsight (every other submodule needs at least one of
+   its helpers) and planning the commit order around the dependency graph
+   up front (common → build/report/optimize/ops in any order) would have
+   avoided the one mid-commit detour.
 
 ---
 
