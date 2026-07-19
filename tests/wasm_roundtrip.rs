@@ -29,6 +29,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 #[cfg(target_arch = "wasm32")]
 mod wasm {
+    use crustyimg::sink::FAST_LOSSY_QUALITY;
     use crustyimg::wasm::{info, optimize, optimize_detailed, score, transform};
     use wasm_bindgen_test::wasm_bindgen_test;
 
@@ -449,7 +450,12 @@ op = "identity"
             src.len()
         );
         assert_eq!(&r.bytes()[4..8], b"ftyp", "output should really be AVIF");
-        assert_eq!(r.quality(), Some(80), "AVIF encodes at its default quality");
+        assert_eq!(
+            r.quality(),
+            Some(FAST_LOSSY_QUALITY),
+            "the default AVIF encode uses native web's FAST_LOSSY_QUALITY (SPEC-095), \
+             not convert's AVIF_DEFAULT_QUALITY"
+        );
         assert_eq!(r.speed(), Some(10), "the requested rav1e speed is honoured");
         assert_eq!(
             r.score(),
@@ -458,6 +464,52 @@ op = "identity"
              (DEC-065) — SPEC-081 scores it browser-side via score()"
         );
         assert_eq!(r.scored_by(), "none");
+    }
+
+    /// **SPEC-095.** The demo's default photo→AVIF conversion must be the SAME
+    /// quality setting native `crustyimg web` (`Mode::Fast`) actually ships — not
+    /// merely a plausible-looking one. Two separate proofs, because a report that
+    /// says "85" while the bytes underneath were still encoded at 80 would be
+    /// exactly the kind of unchecked claim this project keeps catching:
+    ///
+    /// 1. `OptimizeResult.quality` reports [`FAST_LOSSY_QUALITY`] — the symbol
+    ///    native `web` uses, not a wasm-local literal that happens to match it.
+    /// 2. The RETURNED BYTES equal an independent encode at that same quality —
+    ///    proving the value was actually threaded into the encoder, not just
+    ///    reported next to a still-q80 encode.
+    ///
+    /// Before this spec: reported `Some(80)` and the bytes were the
+    /// `AVIF_DEFAULT_QUALITY` encode (the `(_, true) => (None, None)` no-search arm
+    /// falling through to `encode_to_bytes_with(..., None, ...)`).
+    #[wasm_bindgen_test]
+    fn wasm_default_avif_quality_is_web_fast_quality() {
+        let src = photo_png_192x160();
+
+        let r = optimize_detailed(&src, "auto", None, None, None)
+            .expect("auto optimize of a photo should succeed");
+
+        assert_eq!(r.format(), "avif", "a photo must route to AVIF under Auto");
+        assert_eq!(
+            r.quality(),
+            Some(FAST_LOSSY_QUALITY),
+            "wasm's default AVIF quality must equal native web's FAST_LOSSY_QUALITY"
+        );
+
+        // Independently re-derive what an honest q85 encode looks like, at the
+        // SAME rav1e speed `optimize_detailed` resolves to when the caller doesn't
+        // pass one (AVIF_SPEED) — and prove the returned bytes are exactly that.
+        let img = crustyimg::image::Image::from_bytes(&src).expect("fixture decodes");
+        let expected = crustyimg::sink::encode_to_bytes(
+            &img,
+            ::image::ImageFormat::Avif,
+            Some(FAST_LOSSY_QUALITY),
+        )
+        .expect("independent q85 encode");
+        assert_eq!(
+            r.bytes(),
+            expected,
+            "the demo must actually ENCODE at FAST_LOSSY_QUALITY, not just report it"
+        );
     }
 
     /// The control: the Auto-AVIF rule fires on **content**, not on every input. A
@@ -742,4 +794,122 @@ fn native_avif_encode_still_works() {
     let back = Image::from_bytes(&out).expect("native build decodes what it encoded");
     assert_eq!((back.width(), back.height()), (16, 16));
     assert_eq!(back.source_format(), image::ImageFormat::Avif);
+}
+
+/// SPEC-095 mechanical check
+/// ([[mechanical-sweeps-need-a-mechanical-check]]): the wasm no-search AVIF quality
+/// is anchored to the `FAST_LOSSY_QUALITY` SYMBOL, not a hardcoded `85` literal that
+/// merely happens to match it today — a literal is exactly how DEC-069's
+/// native(85)/wasm(80) divergence opened in the first place, and exactly how a
+/// second one would open silently if the constant ever moved. Reading the two match
+/// arms this spec changed and asserting they reference the symbol is a plausible
+/// check; grepping the WHOLE file for a bare `85` is the mechanical one.
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn wasm_avif_quality_anchored_not_hardcoded() {
+    let src = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/wasm.rs"),
+    )
+    .expect("read src/wasm.rs");
+
+    let fast_quality_refs = src.matches("sink::FAST_LOSSY_QUALITY").count();
+    assert!(
+        fast_quality_refs >= 2,
+        "expected src/wasm.rs to reference sink::FAST_LOSSY_QUALITY at both the \
+         optimize() and optimize_detailed() no-search AVIF sites, found {fast_quality_refs}"
+    );
+
+    // No line in the file may carry a bare `85` literal — the only place "85" is
+    // allowed to appear is as part of the `FAST_LOSSY_QUALITY` symbol name itself,
+    // which this grep does not match (it looks for the digits, not the identifier).
+    let bare_85_lines: Vec<&str> = src
+        .lines()
+        .filter(|line| {
+            let stripped = line.trim_start();
+            if stripped.starts_with("//") {
+                return false; // prose may say "85" while explaining the constant
+            }
+            contains_bare_number(line, "85")
+        })
+        .collect();
+    assert!(
+        bare_85_lines.is_empty(),
+        "found a hardcoded 85 literal outside a comment in src/wasm.rs — anchor to \
+         sink::FAST_LOSSY_QUALITY instead: {bare_85_lines:?}"
+    );
+}
+
+/// `true` iff `line` contains `needle` as digits not adjacent to another digit or
+/// underscore (so it doesn't false-positive on `185`, `85_000`, or `x85y`).
+#[cfg(not(target_arch = "wasm32"))]
+fn contains_bare_number(line: &str, needle: &str) -> bool {
+    let bytes = line.as_bytes();
+    let mut start = 0;
+    while let Some(pos) = line[start..].find(needle) {
+        let idx = start + pos;
+        let before_ok = idx == 0 || !(bytes[idx - 1].is_ascii_digit() || bytes[idx - 1] == b'_');
+        let after = idx + needle.len();
+        let after_ok =
+            after >= bytes.len() || !(bytes[after].is_ascii_digit() || bytes[after] == b'_');
+        if before_ok && after_ok {
+            return true;
+        }
+        start = idx + needle.len();
+    }
+    false
+}
+
+/// **SPEC-095 native regression anchor.** Closing the wasm/native AVIF-quality
+/// divergence must NOT touch `convert`'s byte-identity contract (DEC-071): native
+/// `convert` output is entirely unchanged by this spec. This complements the
+/// existing `sink::tests::convert_avif_bytes_unchanged_at_default` unit test
+/// (`src/sink/mod.rs:961`) — that one proves the *default* (`None`) still resolves
+/// to `AVIF_DEFAULT_QUALITY`; this one drives the real `convert` binary end-to-end
+/// and pins the actual output bytes so a regression anywhere in the CLI's argument
+/// resolution (not just the sink) would be caught too.
+#[cfg(all(not(target_arch = "wasm32"), feature = "avif"))]
+#[test]
+fn convert_avif_default_unchanged() {
+    use std::process::Command;
+
+    use tempfile::TempDir;
+
+    let src = crustyimg::image::Image::from_bytes(include_bytes!("fixtures/avif/solid_16x16.avif"))
+        .expect("fixture decodes");
+    let png = crustyimg::sink::encode_to_bytes(&src, image::ImageFormat::Png, None)
+        .expect("encode fixture as png source");
+
+    let dir = TempDir::new().unwrap();
+    let src_path = dir.path().join("in.png");
+    let out_path = dir.path().join("out.avif");
+    std::fs::write(&src_path, &png).unwrap();
+
+    let bin = env!("CARGO_BIN_EXE_crustyimg");
+    let output = Command::new(bin)
+        .args(["convert", "--format", "avif"])
+        .arg(&src_path)
+        .arg("-o")
+        .arg(&out_path)
+        .arg("--yes")
+        .output()
+        .expect("run convert");
+    assert!(
+        output.status.success(),
+        "convert --format avif must succeed; stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let produced = std::fs::read(&out_path).expect("read convert output");
+    let expected = crustyimg::sink::encode_to_bytes(
+        &crustyimg::image::Image::from_bytes(&png).unwrap(),
+        image::ImageFormat::Avif,
+        None,
+    )
+    .expect("independent default-quality encode");
+
+    assert_eq!(
+        produced, expected,
+        "native `convert --format avif` output must stay byte-identical to the \
+         AVIF_DEFAULT_QUALITY (q80) encode — SPEC-095 must not move convert's bytes"
+    );
 }

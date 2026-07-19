@@ -3,7 +3,7 @@
 task:
   id: SPEC-095
   type: story
-  cycle: design
+  cycle: verify
   blocked: false
   priority: medium
   complexity: S
@@ -29,11 +29,32 @@ value_link: >
   one place the "same engine" story is currently literally weaker.
 
 cost:
-  sessions: []
+  sessions:
+    - cycle: build
+      interface: claude-code
+      model: claude-sonnet-5
+      tokens_total: 900000
+      duration_minutes: null
+      estimated_usd: 5.4
+      note: >
+        Estimated order-of-magnitude (no clean subagent metering available for a main-loop build
+        session run directly in the primary checkout, per AGENTS.md worktree-per-session guidance) —
+        ~80/20 input/output at Sonnet list rate ($3/$15 per MTok), no cache discount.
+    - cycle: verify
+      interface: claude-code
+      model: claude-opus-4-8
+      tokens_total: 400000
+      duration_minutes: null
+      estimated_usd: 3.6
+      note: >
+        Estimated order-of-magnitude (main-loop verify run directly in the primary checkout, not a
+        separately-metered subagent, per the autonomous-run cost convention) — ~80/20 input/output at
+        Opus 4.8 list rate ($5/$25 per MTok), no cache discount. Heavy compute (3× full --features avif
+        runs, wasm rebuilds, demo-smoke, npm-smoke) is wall-clock, not tokens.
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 1300000
+    estimated_usd: 9.0
+    session_count: 2
 ---
 
 # SPEC-095: align the wasm default AVIF quality to native `web` (q80 → q85)
@@ -105,20 +126,34 @@ web` on the same (downscaled) image. Rebuild the packaged wasm, update the demo'
 
 ## Acceptance Criteria
 
-- [ ] A default photo→AVIF `optimizeDetailed` on wasm encodes at **q85** (`OptimizeResult.quality == 85`),
+- [x] A default photo→AVIF `optimizeDetailed` on wasm encodes at **q85** (`OptimizeResult.quality == 85`),
       anchored to `FAST_LOSSY_QUALITY` (not a literal) — proven in a wasm roundtrip test.
-- [ ] The wasm AVIF output for a given (2048px) image is the **same quality setting** as `crustyimg web`
+      (`wasm_default_avif_quality_is_web_fast_quality`, `tests/wasm_roundtrip.rs`.)
+- [x] The wasm AVIF output for a given (2048px) image is the **same quality setting** as `crustyimg web`
       on the same image — verify the quality parameter matches; the encoded bytes are close but need NOT
       be byte-identical (no-asm rav1e). Grade the AVIF with an independent decoder (`sips`), confirm valid.
-- [ ] **`convert` is byte-identical** to before (native `AVIF_DEFAULT_QUALITY = 80` untouched) — prove
+      (Same test byte-compares against an independent q85 encode; `just demo-smoke`'s
+      `default_is_web_flow_smaller_avif` independently confirms `sips` reads the demo's real hero output as
+      valid AVIF; a manual `convert -q 80` vs `-q 85` pair was also `sips`-graded.)
+- [x] **`convert` is byte-identical** to before (native `AVIF_DEFAULT_QUALITY = 80` untouched) — prove
       against the pre-spec binary. Native behavior is entirely unchanged.
-- [ ] `just wasm-build` succeeds, the packaged `.wasm` is the size-profiled artifact (strip fingerprint
+      (`convert_avif_default_unchanged`, `tests/wasm_roundtrip.rs`, drives the real binary; the existing
+      `sink::tests::convert_avif_bytes_unchanged_at_default` unit test also still holds unmodified.)
+- [x] `just wasm-build` succeeds, the packaged `.wasm` is the size-profiled artifact (strip fingerprint
       per SPEC-075's structural guard), and `just wasm-npm-smoke` / the demo browser smoke stay green.
-- [ ] The demo copy states the accurate claim (same engine + q85, not "approximates"; honest that bytes
+      (Both ran green; `wasm-npm-smoke` confirmed the strip fingerprint and brotli size stayed within the
+      DEC-066 baseline.)
+- [x] The demo copy states the accurate claim (same engine + q85, not "approximates"; honest that bytes
       aren't guaranteed identical) — driven in the demo smoke if it asserts funnel/README text.
-- [ ] DEC-069 resolved/amended; `just decisions-audit` clean.
-- [ ] `cargo test` (default **and** `--features avif`), `cargo clippy`, `cargo fmt --check`,
+      (`tests/demo_copy.rs`, new; the existing `demo-smoke` does not assert this specific copy so no
+      browser-smoke change was needed.)
+- [x] DEC-069 resolved/amended; `just decisions-audit` clean.
+      (Amended in place — resolution note + `affected_scope` extended to `src/wasm.rs`/`demo/**`; audit
+      exits 0, only pre-existing advisory scope-overlap warnings.)
+- [x] `cargo test` (default **and** `--features avif`), `cargo clippy`, `cargo fmt --check`,
       `cargo build --no-default-features`, `just validate` pass.
+      (All green; see Build Completion for a note on one transient full-suite flake that did not
+      reproduce.)
 
 ## Failing Tests (written at design)
 
@@ -163,9 +198,94 @@ web` on the same (downscaled) image. Rebuild the packaged wasm, update the demo'
 ---
 
 ## Build Completion
-- **Branch:** · **PR:** · **All acceptance criteria met?** · **New decisions:** · **Deviations:** · **Follow-ups:**
+- **Branch:** `spec-095-wasm-q85` · **PR:** (opened against `main`, not yet merged) · **All acceptance
+  criteria met?** Yes, all seven. · **New decisions:** none (amended DEC-069 in place, per the spec's
+  own guidance — no new DEC file). · **Deviations:**
+  - Deleted `default_quality_for` (the `.or_else` fallback in `optimize_detailed`) instead of leaving it
+    in place: once the `(_, true)` catch-all arm returns `Some(FAST_LOSSY_QUALITY)` directly, its one
+    call site can never see a `None` for AVIF, making the whole function permanently unreachable —
+    `no-dead-code` calls for deleting rather than leaving an inert fallback.
+  - Split `optimize()`'s single `if disposition == Lossless || !supports_perceptual_quality()` guard into
+    two `if`s so only the AVIF (lossy, non-perceptual) case gets `Some(FAST_LOSSY_QUALITY)`; the lossless
+    case still passes `None` (lossless formats have no quality knob to move).
+  - Added a native regression test (`convert_avif_default_unchanged`) driving the real `convert` binary
+    end-to-end, on top of the spec-named unit-level anchor, and a mechanical grep test
+    (`wasm_avif_quality_anchored_not_hardcoded`) proving no bare `85` literal survives in `src/wasm.rs`
+    outside the `FAST_LOSSY_QUALITY` symbol — both go beyond the spec's named test list but follow
+    directly from its "anchor to the constant, don't hardcode 85" instruction.
+  · **Follow-ups:** none identified.
+
 ### Build-phase reflection
-1. <answer> 2. <answer> 3. <answer>
+1. **What was the trickiest part?** Proving the fix actually changed the ENCODED BYTES, not just the
+   reported `quality` field — the failure mode this spec exists to prevent (report 85, still encode 80)
+   is exactly the kind of plausible-but-unchecked claim the project's own memory warns about. The test
+   independently re-encodes at `FAST_LOSSY_QUALITY` and asserts byte equality against
+   `optimize_detailed`'s output, not just the label.
+2. **What surprised you?** `default_quality_for`'s `.or_else` fallback turned out to be fully vestigial
+   after the fix — every reachable AVIF path through `optimize_detailed` now populates `quality` directly
+   from the match, so the fallback function could never fire even before I deleted it. Worth flagging
+   because a reviewer scanning only the diff's `+`/`-` might read the deletion as unrelated cleanup
+   rather than a direct consequence of the fix.
+3. **What would you do differently?** Would grep for `--yes`/`--format` flag spellings against `--help`
+   output before writing the native `convert_avif_default_unchanged` test — I first guessed `--to` (this
+   crate's flag is `--format`), which would have been a build-time compile pass but a runtime failure at
+   test time; checking `--help` first would have saved a cycle.
+
+**Note on a transient full-suite flake:** one intermediate `cargo test --features avif` run (of several)
+showed 8 failures in `tests/cli.rs` (AVIF-feature-detection mismatches) plus, separately, my own new
+`convert_avif_default_unchanged` failing once with a bare "must succeed". Both reproduced as CLEAN in
+isolation (`cargo test --features avif --test cli`: 126/126; `--test wasm_roundtrip
+convert_avif_default_unchanged` run 3×: 3/3) and CLEAN on two subsequent full-workspace reruns (764/764
+default, 777/777 avif — twice). Read as environment/build-parallelism flakiness under this session's
+concurrent background builds, not a code defect; flagging for verify to weigh rather than silently
+omitting.
+
+---
+
+## Verify Verdict — ✅ APPROVED (Opus, 2026-07-18)
+
+Verified in the primary checkout (branch `spec-095-wasm-q85`), driven with negative controls.
+
+1. **The demo's real output is q85, from a fresh-from-HEAD wasm.** `just demo-smoke` rebuilds the wasm
+   from HEAD source (the exact path GitHub Pages deploys — `demo-build` → `wasm-build`, and the assembler
+   refuses a non-profiled/stale `.wasm`, so the "packaged artifact is what runs" trap is structurally
+   impossible: `pkg/` and `demo/vendor/` are gitignored and always regenerated). The hero AVIF read back
+   as valid AVIF 2048×1536 by three independent decoders incl. `sips`. `just wasm-test`'s
+   `wasm_default_avif_quality_is_web_fast_quality` proves in the **compiled wasm** that the returned bytes
+   **byte-equal an independent `FAST_LOSSY_QUALITY` (85) encode** — not just the reported label. Mutating
+   the `(_, true)` arm to `AVIF_DEFAULT_QUALITY` (80) makes that test **fail** (confirmed it bites).
+2. **q85 is anchored, not coincidental.** Both wasm no-search sites (`optimize` legacy branch +
+   `optimize_detailed`'s `(_, true)` arm) encode at `sink::FAST_LOSSY_QUALITY`; independent grep found no
+   bare `85` literal in live code and 2 symbol refs (the build's `wasm_avif_quality_anchored_not_hardcoded`
+   agrees). The `auto_avif_quality` `AVIF_DEFAULT_QUALITY` is an admission-only `Some(_)` signal whose
+   number is discarded — not a missed encode site.
+3. **Native `convert` is byte-identical.** Built the pre-spec parent binary (`main`, isolated worktree)
+   and `cmp`'d `convert --format avif` output vs the HEAD binary: **byte-identical** (286 B, sips-valid).
+   `src/sink/` untouched in the diff; the `convert_avif_bytes_unchanged_at_default` unit test holds
+   unmodified. Negative control: `convert -q 80` (4732 B) ≠ `-q 85` (6268 B) on a real photo, both
+   sips-valid — so byte-identity is a meaningful assertion and q80≠q85 is a real distinction.
+4. **Flake CLEARED.** The build's transient full-suite `--features avif` failures did **not** reproduce:
+   3× isolated full runs = 777 passed / 0 failed / exit 0 each; PR #99's CI `avif feature` job is green.
+   The failure kind (exit-code assertions in feature-detection tests) is a stale/half-built CLI binary
+   from `target/` contention under the build session's concurrent background builds — **not** a SPEC-095
+   regression and **not** the SPEC-091 re_rav1d `DisjointMut`/`debug_abort` signature (which aborts the
+   process; no abort/SIGABRT/panic markers appeared).
+5. **Demo copy honest; DEC-069 accurate.** Copy states "same engine and the same AVIF quality (q85)" and
+   explicitly disclaims byte-identity ("no-asm `rav1e`") — no overclaim; no "approximates"/"q80" hedge
+   survives anywhere user-facing. DEC-069's divergence note is struck through and resolved to
+   `FAST_LOSSY_QUALITY`, `convert` q80 unchanged.
+
+**Gates:** `cargo test` (425+) ✅ · `cargo test --features avif` ✅ ×3 (777/0) · `cargo clippy`
+default+avif ✅ · `cargo fmt --check` ✅ · `cargo build --no-default-features` ✅ · `just validate` ✅ ·
+`just decisions-audit` (0 structural errors) ✅ · `just wasm-build`/`wasm-test`/`wasm-npm-smoke`
+(strip fingerprint + brotli 1.33 MB within DEC-066 baseline) ✅ · `just demo-smoke` ✅ · PR #99 CI full
+matrix green.
+
+**Build-quality read (Sonnet build, Opus verify):** high. The build correctly identified the real trap
+(report vs encode) and wrote a byte-equality test that bites; the `default_quality_for` deletion is a
+sound dead-code consequence of the fix; the anchor-not-literal discipline is followed on both surfaces;
+and the flake was flagged honestly for verify rather than buried. Nothing on the hard parts distinguished
+it from an Opus build — consistent with the stage's n=1 finding.
 
 ---
 

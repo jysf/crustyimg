@@ -215,19 +215,24 @@ pub fn optimize(input: &[u8], out_format: &str) -> Result<Vec<u8>, JsError> {
         (fmt, disposition)
     };
 
-    // Nothing to search — encode at the format's default and hand back the bytes.
-    // Two cases land here:
-    //   * a LOSSLESS target (PNG, lossless WebP): no quality knob at all;
-    //   * a lossy target this build cannot PERCEPTUALLY score. The perceptual
-    //     search encodes a candidate and DECODES IT BACK to score the round-trip
-    //     (DEC-019), so it needs a decoder — and AVIF has an encoder here but no
-    //     decoder (DEC-065). Asking `auto_quality` to search AVIF would fail on the
-    //     first candidate's decode, so the honest answer is a single encode at the
-    //     encoder's default quality. `supports_perceptual_quality` is the same seam
-    //     the CLI guards on, so wasm and native agree about which formats are
-    //     searchable.
-    if disposition == Disposition::Lossless || !fmt.supports_perceptual_quality() {
+    // A LOSSLESS target (PNG, lossless WebP): no quality knob at all.
+    if disposition == Disposition::Lossless {
         return sink::encode_to_bytes(&img, fmt, None).map_err(js_err);
+    }
+
+    // A lossy target this build cannot PERCEPTUALLY score. The perceptual search
+    // encodes a candidate and DECODES IT BACK to score the round-trip (DEC-019), so
+    // it needs a decoder — and AVIF has an encoder here but no decoder (DEC-065).
+    // Asking `auto_quality` to search AVIF would fail on the first candidate's
+    // decode, so the honest answer is a single encode — at the same generous
+    // quality native `web`'s default (`Mode::Fast`) encodes at
+    // ([`sink::FAST_LOSSY_QUALITY`], SPEC-095), not the encoder's own bare default
+    // (`AVIF_DEFAULT_QUALITY`, which stays `convert`-only, DEC-071). Without this,
+    // this legacy no-search path would quietly ship a worse file than the CLI.
+    // `supports_perceptual_quality` is the same seam the CLI guards on, so wasm and
+    // native agree about which formats are searchable.
+    if !fmt.supports_perceptual_quality() {
+        return sink::encode_to_bytes(&img, fmt, Some(sink::FAST_LOSSY_QUALITY)).map_err(js_err);
     }
 
     // Lossy: find the lowest quality that still reaches the perceptual target. This
@@ -441,9 +446,11 @@ pub fn optimize_detailed(
     //      speed parity).
     //    * a PERCEPTUAL target (and a format we can decode back) → the SSIMULACRA2
     //      binary search — the expensive, honest one.
-    //    * neither → the encoder's default quality. AVIF lands here: it has a
-    //      quality knob but no decoder (DEC-065), so it can be size-searched but
-    //      never perceptually searched.
+    //    * neither → the same generous quality native `web`'s default
+    //      (`Mode::Fast`) encodes at ([`sink::FAST_LOSSY_QUALITY`], SPEC-095), NOT
+    //      the encoder's own bare default (`AVIF_DEFAULT_QUALITY`, `convert`-only,
+    //      DEC-071). AVIF lands here: it has a quality knob but no decoder
+    //      (DEC-065), so it can be size-searched but never perceptually searched.
     let (quality, engine_score) = match (max_bytes, lossy) {
         (Some(budget), true) => {
             let choice =
@@ -456,7 +463,7 @@ pub fn optimize_detailed(
             let choice = quality::auto_quality(img.pixels(), fmt, &cfg).map_err(js_err)?;
             (Some(choice.quality), Some(choice.score))
         }
-        (_, true) => (None, None),
+        (_, true) => (Some(sink::FAST_LOSSY_QUALITY), None),
         (_, false) => (None, None),
     };
 
@@ -475,25 +482,11 @@ pub fn optimize_detailed(
     Ok(OptimizeResult {
         bytes,
         format: format_name(fmt),
-        // A lossy format encoded at its default (AVIF with no budget) still has a
-        // real, reportable quality: the default the sink will use.
-        quality: quality.or_else(|| default_quality_for(fmt)),
+        quality,
         speed,
         score,
         scored_by: scored_by.to_string(),
     })
-}
-
-/// The quality the sink encodes `fmt` at when no quality is given — reported so an
-/// AVIF result can say "q80" instead of "undefined". `None` for a lossless format,
-/// which genuinely has no quality.
-fn default_quality_for(fmt: ImageFormat) -> Option<u8> {
-    #[cfg(feature = "avif")]
-    if fmt == ImageFormat::Avif {
-        return Some(sink::AVIF_DEFAULT_QUALITY);
-    }
-    let _ = fmt;
-    None
 }
 
 /// The SSIMULACRA2 score between two encoded images — the engine's perceptual

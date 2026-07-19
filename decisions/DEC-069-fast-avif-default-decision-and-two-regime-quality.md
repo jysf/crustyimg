@@ -28,6 +28,8 @@ affected_scope:
   - "src/sink/mod.rs"
   - "src/cli/mod.rs"
   - "tests/cli.rs"
+  - "src/wasm.rs"
+  - "demo/**"
 
 tags:
   - avif
@@ -164,8 +166,15 @@ in shape**: both do fixed-quality Auto-AVIF for lossy-family content via a bucke
   fast lossy candidate is JPEG at a fixed 85 — generous, so it usually passes through an already-good
   JPEG rather than degrading it, but there is no per-image perceptual target. Users who need one opt in
   with `--target`; the default's contract is "smaller, modern, never bigger, quality shown".
-- **The wasm quality number (80) and the native fast number (85) differ.** Bounded and deliberate (the
-  shapes match); a follow-up should align the wasm constant when `src/wasm.rs` is next touched.
+- ~~**The wasm quality number (80) and the native fast number (85) differ.** Bounded and deliberate (the
+  shapes match); a follow-up should align the wasm constant when `src/wasm.rs` is next touched.~~
+  **Resolved by SPEC-095 (2026-07-18).** `src/wasm.rs`'s no-search AVIF quality (both `optimize`'s
+  legacy no-search branch and `optimize_detailed`'s `(_, true)` catch-all arm) now encodes at
+  `sink::FAST_LOSSY_QUALITY` — the same symbol, not a matching literal — so a demo conversion is the
+  same AVIF quality setting `crustyimg web` ships, and the two constants cannot silently re-diverge.
+  `AVIF_DEFAULT_QUALITY` (80) stays `convert`-only, unchanged (DEC-071's byte-identity contract holds).
+  The demo's "approximates" hedge is retired for the accurate "same engine, same quality" claim (bytes
+  still not guaranteed byte-identical — the wasm build is a no-asm `rav1e`).
 - **The `-q`→SSIMULACRA2 gap is documented, not fixed.** A user reading "q80" gets ~72; the mapping is
   left as-is because `--target` is the outcome-based path and recalibration is out of scope.
 
