@@ -49,8 +49,10 @@ fortunate: GitHub Pages cannot set headers.)
 | **Explains** | bytes in → out and % saved (or "kept your original"), the downscale stated honestly, and the raw SSIMULACRA2 score where the engine can measure it |
 | **Runs** | entirely on your machine, in a Worker: no server, no upload, no network call for the conversion |
 
-The in-browser result **approximates** the CLI — the wasm build encodes AVIF at q80, the `web` CLI at
-q85 (DEC-069) — so it is close, not byte-identical, and the page says so.
+The in-browser result uses **the same engine and the same AVIF quality (q85)** as the CLI (DEC-069,
+resolved: SPEC-095 anchored the wasm default to `FAST_LOSSY_QUALITY`, the same constant native `web`
+uses). Bytes are not guaranteed identical — the wasm build is a no-asm `rav1e` — but the settings match,
+and the page says so.
 
 ### Why a Worker (SPEC-078)
 

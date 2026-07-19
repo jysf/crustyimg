@@ -121,8 +121,8 @@
         <section id="funnel" class="funnel" hidden>
           <h2>Run this on all your images</h2>
           <p class="funnel-lead">
-            This page approximates <code>crustyimg web</code> in your browser. The CLI runs the real
-            thing — the same engine, at CLI quality — on a whole folder at once:
+            This page runs the same engine <code>crustyimg web</code> does, in your browser. Install the
+            CLI to run it on a whole folder at once:
           </p>
           <div class="cmd">
             <code id="funnel-cmd" class="funnel-cmd"></code>
@@ -136,8 +136,9 @@
             <pre id="recipe-text" class="recipe-text"></pre>
           </details>
           <p class="funnel-honest">
-            The in-browser result <strong>approximates</strong> the CLI (wasm encodes AVIF at q80; the
-            <code>web</code> CLI uses q85 — DEC-069), so it is close, not byte-identical. Install:
+            The in-browser result uses <strong>the same engine and the same AVIF quality (q85)</strong>
+            as the CLI (DEC-069, resolved). Bytes are not guaranteed identical — this build is a
+            no-asm <code>rav1e</code> — but the settings match. Install:
             <a href="https://github.com/jysf/crustyimg#install"><code>cargo install crustyimg</code></a>.
           </p>
         </section>
