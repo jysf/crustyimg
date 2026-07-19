@@ -111,7 +111,21 @@
 
         <p class="delta" id="delta"></p>
         <p class="resize-note" id="resize-note"></p>
-        <p class="score" id="score"></p>
+
+        <!-- The perceptual score (SPEC-081). RAW SSIMULACRA2 on an interpretable band,
+             or — when there is no honest number (lossless output, a kept original, or a
+             browser that can't decode the AVIF to measure) — a worded panel with the
+             meter hidden. Never a fabricated number. -->
+        <div class="score" id="score">
+          <div class="score-head">
+            <span class="score-value" id="score-value"></span>
+            <span class="score-band" id="score-band"></span>
+          </div>
+          <div class="score-meter" id="score-meter" aria-hidden="true">
+            <div class="score-fill" id="score-fill"></div>
+          </div>
+          <p class="score-source" id="score-source"></p>
+        </div>
 
         <a id="download" class="download" download>Download</a>
 

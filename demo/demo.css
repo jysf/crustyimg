@@ -332,10 +332,105 @@ input:disabled {
   font-size: 0.98rem;
 }
 
-.resize-note,
-.score {
+.resize-note {
   margin: 0.4rem 0 0;
   font-size: 0.88rem;
+  color: var(--muted);
+}
+
+/* ── the perceptual score panel (SPEC-081) ─────────────────────────────────── */
+/* RAW SSIMULACRA2, shown honestly on a labelled band. ~100 ≈ visually identical; it
+   can exceed 100 and go negative — the meter fill is clamped for the bar only, the
+   number is verbatim. Built from the page's shared theme tokens so it tracks the
+   colour scheme rather than pinning its own (the demo commits to one scheme, SPEC-080). */
+
+.score {
+  margin: 0.9rem 0 0;
+  padding: 0.75rem 0.85rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+}
+
+.score-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.6rem;
+}
+
+.score-value {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+
+/* When there is no honest number (lossless / kept / unavailable) the value and band
+   are emptied — collapse them so only the worded source line shows. */
+.score-value:empty,
+.score-band:empty {
+  display: none;
+}
+
+.score-band {
+  padding: 0.05rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--bg);
+  background: var(--muted);
+}
+
+.score-band.band-top {
+  background: var(--good);
+}
+.score-band.band-high {
+  background: color-mix(in srgb, var(--good) 65%, var(--warn));
+}
+.score-band.band-mid {
+  background: var(--warn);
+}
+.score-band.band-low {
+  background: color-mix(in srgb, var(--warn) 45%, var(--bad));
+}
+.score-band.band-bad {
+  background: var(--bad);
+}
+
+.score-meter {
+  margin-top: 0.55rem;
+  height: 0.5rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--line) 70%, var(--bg));
+  overflow: hidden;
+}
+
+.score-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: var(--good);
+  transition: width 0.2s ease;
+}
+
+.score-fill.band-top {
+  background: var(--good);
+}
+.score-fill.band-high {
+  background: color-mix(in srgb, var(--good) 65%, var(--warn));
+}
+.score-fill.band-mid {
+  background: var(--warn);
+}
+.score-fill.band-low {
+  background: color-mix(in srgb, var(--warn) 45%, var(--bad));
+}
+.score-fill.band-bad {
+  background: var(--bad);
+}
+
+.score-source {
+  margin: 0.55rem 0 0;
+  font-size: 0.85rem;
   color: var(--muted);
 }
 

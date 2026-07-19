@@ -454,6 +454,16 @@ async function drop(path) {
         "delta: document.getElementById('delta').textContent, " +
         "resizeNote: document.getElementById('resize-note').textContent, " +
         "score: document.getElementById('score').textContent, " +
+        // SPEC-081: the raw metric (off #result.dataset, before it is shadowed) plus
+        // the score panel's own sub-elements, so a test can read the number and band
+        // directly rather than parsing prose.
+        "scoreRaw: document.getElementById('result').dataset.score, " +
+        "scoreMode: (document.getElementById('score').dataset.mode ?? ''), " +
+        "scoreValue: document.getElementById('score-value').textContent, " +
+        "scoreBand: document.getElementById('score-band').textContent, " +
+        "scoreSource: document.getElementById('score-source').textContent, " +
+        "scoreMeterHidden: document.getElementById('score-meter').hidden, " +
+        "scoreFillWidth: document.getElementById('score-fill').style.width, " +
         "download: document.getElementById('download').getAttribute('download'), " +
         "href: document.getElementById('download').href })",
     )
@@ -564,6 +574,82 @@ if (process.platform === "darwin") {
 } else {
   console.log(`  · (sips is macOS-only — skipped on ${process.platform}; two decoders agreed above)`);
 }
+
+// ── 6½. the score panel (SPEC-081): input↔output SSIMULACRA2, sourced honestly ──
+
+console.log("\n── the score panel (SPEC-081): honestly sourced perceptual score ──");
+
+// avif_shows_browser_score — the hero AVIF is the output SPEC-080 could NOT score
+// (the engine has no AVIF decoder, DEC-065). SPEC-081 decodes it back in the browser
+// and scores it: this asserts scoredBy=="browser" and a real numeric score.
+const avifScore = Number(hero.scoreRaw);
+check(
+  hero.scoredBy === "browser" && hero.scoreRaw !== "" && Number.isFinite(avifScore),
+  `avif_shows_browser_score: the AVIF hero is scored by decoding it BACK in the browser — ` +
+    `scoredBy="${hero.scoredBy}", SSIMULACRA2 ${hero.scoreRaw} (the output SPEC-080 left unscored)`,
+);
+check(
+  hero.scoreMode === "measured" && /SSIMULACRA2/.test(hero.scoreValue) && hero.scoreBand.trim().length > 0,
+  `and it renders on an interpretable band, not a bare float — value "${hero.scoreValue}", band "${hero.scoreBand}"`,
+);
+// Documented sanity (NOT a golden): a q85 (SPEC-095) photo→AVIF is a visually-lossless
+// encode, so the raw score lands well up the scale — high enough to read "high"/
+// "visually lossless", and NOT clamped into a 0–100 % (raw metric, can exceed 100).
+check(
+  avifScore > 50 && avifScore < 130,
+  `SANITY: the browser-decode score is plausible for a visually-lossless q85 AVIF ` +
+    `(${avifScore.toFixed(2)} — up the scale, raw not a %; band "${hero.scoreBand}")`,
+);
+// The meter is wired to the value, not decorative: for a measured score its fill is a
+// real [0,100]% width and it is NOT hidden. (The clamp for out-of-range values — 0% at
+// negative, 100% above 100 — is exercised by the verify-session negative controls.)
+const heroFill = Number.parseFloat(hero.scoreFillWidth);
+check(
+  hero.scoreMeterHidden === false &&
+    /%$/.test(hero.scoreFillWidth) &&
+    heroFill >= 0 &&
+    heroFill <= 100,
+  `and the meter reflects the score — fill ${hero.scoreFillWidth}, shown (not hidden)`,
+);
+
+// jpeg_shows_engine_score — force JPEG (a searched lossy encode). The engine scores
+// this one ITSELF; the panel must attribute it to the engine and show the RAW value.
+await resetControls();
+await cdp.eval("document.getElementById('format').value = 'jpeg';");
+// A DISTINCT path from the hero drop: re-setting the same file into #file fires no
+// `change` event, so the conversion would never start (every drop() uses a fresh file).
+const jpegPath = join(fixtureDir, "photo-for-jpeg.png");
+writeFileSync(jpegPath, makePhotoPng(HERO_W, HERO_H, 7));
+const jpeg = await drop(jpegPath);
+const jpegScore = Number(jpeg.scoreRaw);
+check(
+  jpeg.outFormat === "jpeg" && jpeg.scoredBy === "engine" && Number.isFinite(jpegScore),
+  `jpeg_shows_engine_score: a searched JPEG is scored BY THE ENGINE — out="${jpeg.outFormat}", ` +
+    `scoredBy="${jpeg.scoredBy}", SSIMULACRA2 ${jpeg.scoreRaw}`,
+);
+check(
+  jpeg.scoreMode === "measured" && /SSIMULACRA2/.test(jpeg.scoreValue) && /engine/i.test(jpeg.scoreSource),
+  `and the panel says the ENGINE measured it, raw (not clamped to 0–100) — "${jpeg.scoreSource.trim()}"`,
+);
+
+// lossless_shows_lossless_not_a_number — a graphic routes to lossless; a lossless
+// output has nothing to score, so the panel must say so with NO fabricated number.
+await resetControls();
+const graphicPath = join(fixtureDir, "graphic.png");
+writeFileSync(graphicPath, makePng(1600, 1200));
+const lossless = await drop(graphicPath);
+check(
+  /webp|png/.test(lossless.outFormat) && lossless.scoredBy === "lossless",
+  `lossless_shows_lossless_not_a_number: a graphic → lossless ${lossless.outFormat}, scoredBy="${lossless.scoredBy}"`,
+);
+check(
+  lossless.scoreRaw === "" && lossless.scoreValue.trim() === "" && lossless.scoreMeterHidden === true,
+  `and there is NO number and NO meter — nothing fabricated (raw="${lossless.scoreRaw}", value="${lossless.scoreValue}", meterHidden=${lossless.scoreMeterHidden})`,
+);
+check(
+  /lossless|pixel/i.test(lossless.scoreSource),
+  `and it says why in plain words — "${lossless.scoreSource.trim()}"`,
+);
 
 // ── 7. funnel_shows_web_command_and_copies ─────────────────────────────────────
 

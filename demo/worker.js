@@ -37,7 +37,7 @@
 // codec to the wasm (the `pure-rust-codecs-default` constraint holds): they borrow
 // the one already in the browser.
 
-import init, { info, optimizeDetailed, transform, version } from "./vendor/crustyimg.js";
+import init, { info, optimizeDetailed, score, transform, version } from "./vendor/crustyimg.js";
 
 const msg = (e) => e?.message ?? String(e);
 
@@ -97,12 +97,20 @@ async function decodeInBrowser(bytes, label) {
 async function readBack(out) {
   try {
     const i = info(out);
-    return { width: i.width, height: i.height, format: i.format, readBy: "engine" };
+    return { width: i.width, height: i.height, format: i.format, readBy: "engine", pixels: null };
   } catch (e) {
     if (!isAvif(out)) throw e;
+    // The engine cannot decode its own AVIF (DEC-065), so the browser does. Decode
+    // it EXACTLY ONCE here: the output dimensions AND the PNG pixels SPEC-081 scores
+    // both come from this single decode — no second createImageBitmap. Same seam as
+    // `decodeInBrowser` uses for an .avif INPUT.
     const bitmap = await createImageBitmap(new Blob([out], { type: "image/avif" }));
+    const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+    canvas.getContext("2d").drawImage(bitmap, 0, 0);
     const back = { width: bitmap.width, height: bitmap.height, format: "avif", readBy: "browser" };
     bitmap.close();
+    const png = await canvas.convertToBlob({ type: "image/png" });
+    back.pixels = new Uint8Array(await png.arrayBuffer());
     return back;
   }
 }
@@ -175,6 +183,35 @@ async function convert(job) {
 
   const back = await readBack(outBytes);
 
+  // The perceptual score, sourced HONESTLY (SPEC-081). `scoredBy` says who measured
+  // it — the number is meaningless without knowing that. The reference is `pixels`:
+  // the DOWNSCALED PNG the encoder actually saw (not the original), so it matches the
+  // output's dimensions and is the same basis the engine's own JPEG search scored on.
+  //
+  //   · engine      — a searched lossy encode (JPEG): the engine scored it itself.
+  //   · browser     — AVIF: the engine can't decode its own output, so the browser
+  //                   decoded it back (above) and we score those pixels here.
+  //   · lossless    — PNG / lossless-WebP: every pixel is preserved, nothing to score.
+  //   · unavailable — scoring genuinely failed (an old browser that won't decode the
+  //                   AVIF to measure it); say so, never fabricate a number.
+  let scoreValue = result.score ?? null;
+  let scoredBy = result.scoredBy; // "engine" (JPEG) or "none" (AVIF / lossless) from wasm
+  if (scoredBy === "engine") {
+    // Keep the engine's own SSIMULACRA2 — a real perceptual search ran.
+  } else if (back.format === "avif") {
+    try {
+      if (!back.pixels) throw new Error("no decoded AVIF pixels to score");
+      scoreValue = score(pixels, back.pixels);
+      scoredBy = "browser";
+    } catch {
+      scoreValue = null;
+      scoredBy = "unavailable";
+    }
+  } else {
+    scoreValue = null;
+    scoredBy = "lossless";
+  }
+
   // An unsatisfiable byte budget returns over-budget bytes SILENTLY (SPEC-079 note),
   // so a budget that was asked for but missed is flagged rather than implied met.
   const budgetMissed = budget !== undefined && outBytes.length > budget;
@@ -191,10 +228,10 @@ async function convert(job) {
       quality: result.quality ?? null,
       speed: result.speed ?? null,
     },
-    // Raw SSIMULACRA2 (can be negative; ~100 is visually identical) or null when the
-    // engine could not score it — `scoredBy` says which.
-    score: result.score ?? null,
-    scoredBy: result.scoredBy,
+    // Raw SSIMULACRA2 (can be negative; ~100 is visually identical) or null when it
+    // could not be scored — `scoredBy` says which of the four sources above applied.
+    score: scoreValue,
+    scoredBy,
     budget: budget ?? null,
     budgetMissed,
     elapsedMs,
