@@ -3,7 +3,7 @@
 task:
   id: SPEC-080
   type: story
-  cycle: verify
+  cycle: ship
   blocked: false
   priority: high
   complexity: M
@@ -313,6 +313,22 @@ FAILS. Every one bit (working tree reverted after each):
 `SPEC-095-*.md` (a wasm-AVIF-quality follow-up) exists in the tree but is outside PR #98 and this verify.
 
 ## Reflection (Ship)
-1. **What would I do differently next time?** — <answer>
-2. **Does any template, constraint, or decision need updating?** — <answer>
-3. **Is there a follow-up spec I should write now before I forget?** — <answer>
+1. **What would I do differently next time?** — Two things. (a) **Product-wise: the reframe was the win,
+   not the mechanics.** Turning the demo from a squoosh-style format picker into the one-click `web` hero +
+   CLI adoption funnel is what makes it "the strongest product," and the sharpest insight was that making
+   downscale-2048 the *default* dissolved the perf problem (2 MP AVIF @ speed10 ≈ 1–2 s) — the whole
+   timer/hang saga was a full-resolution artifact. Deciding the two product forks (opinionated hero,
+   first-class funnel) *before* framing is why the build had a clear target. (b) **Process: I framed
+   SPEC-095 while this spec was in verify** — violating the single-tree rule that the orchestrator stays
+   out of the repo while a build/verify holds the checkout. The commit orphaned on the branch and didn't
+   reach origin; recovered cleanly (cherry-picked to main, PR #98 unaffected), but it's exactly the
+   footgun the discipline prevents. **Frame the next spec only after the in-flight cycle reports and the
+   checkout is back on main.** ([[worktree-per-session]] reinforced.)
+2. **Does any template, constraint, or decision need updating?** — The build's deviation #1 (use the
+   shipped `wasm::transform` to run `web.toml`'s actual geometry, not a canvas resample) is a *better*
+   mirror than the spec suggested and should be the pattern for any future "mirror a CLI recipe in the
+   demo" work — the demo runs the real recipe through the real engine, not an approximation of it.
+3. **Is there a follow-up spec I should write now before I forget?** — Already framed: **SPEC-095**
+   (align wasm AVIF q80→q85 so the demo is a faithful preview, not an over-flattering one; closes DEC-069)
+   — builds next. And the deferred **multi-recipe showcase** (offer gallery/product recipes as demo modes,
+   teaching "crustyimg is a recipe engine") remains a compelling own-spec enhancement, out of scope here.

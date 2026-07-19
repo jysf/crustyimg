@@ -21,4 +21,8 @@ Cycle prompts live in `prompts/SPEC-080-<cycle>.md`.
   break each of the four new smoke checks and confirmed every one FAILS. Spot-checked engine-transform
   geometry vs a real `crustyimg web` (both 2048×1536) + raw-SSIMULACRA2 score honesty. PR #98 CI green
   on the full matrix. No punch list. (~240k tok est / ~$2.16, main-loop.)
-- [ ] ship — orchestrator.
+- [x] ship — squash-merged PR #98 (**94d4665**) 2026-07-18, full matrix green. The demo is now the
+  `web`-flow hero + CLI adoption funnel. Bookkeeping: cycle→ship, 3 cost sessions with `model:` (build
+  Opus $4.05 / verify Opus $2.16 / ship $0.70 ≈ **$6.91**), timeline, archive, memory + brag. Process
+  incident banked: framed SPEC-095 during 080's verify (single-tree violation) — recovered cleanly, PR
+  unaffected. NEXT = build SPEC-095 (wasm q85).
