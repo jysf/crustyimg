@@ -119,8 +119,8 @@ SSIMULACRA2 value** — which is *not* a 0–100 percentage: ~100 ≈ visually i
 
 Browser-driven (the SPEC-077/078/080 headless-Chrome smoke, extended).
 
-- `"jpeg_shows_engine_score"` — drive a photo → JPEG; assert a score element with a number in
-  `(0,100]` and a "measured by the engine"-class label.
+- `"jpeg_shows_engine_score"` — drive a photo → JPEG; assert a score element with the raw numeric
+  SSIMULACRA2 value (NOT clamped to `(0,100]`) + a band and a "measured by the engine"-class label.
 - `"avif_shows_browser_score"` — drive a photo → AVIF (default); assert a numeric score element and a
   `scoredBy=="browser"` label (the AVIF was decoded back and scored).
 - `"lossless_shows_lossless_not_a_number"` — drive a graphic → lossless; assert the "lossless"
