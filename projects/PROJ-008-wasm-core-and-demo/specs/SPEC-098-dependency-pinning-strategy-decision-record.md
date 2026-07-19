@@ -180,28 +180,44 @@ is structural:
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
+- **Branch:** `spec-098-pinning-dec`
+- **PR (if applicable):** none yet (build cycle only, no PR/merge per instructions)
+- **All acceptance criteria met?** yes
 - **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
+  - `DEC-078` — Dependency pinning: exact for the binary now, caret for the library at publish
 - **Deviations from spec:**
-  - [list]
+  - The backlog-#5 cross-reference landed in `projects/PROJ-001-crustyimg-mvp/stages/STAGE-007-release-and-distribution.md`'s
+    Count line, not `docs/backlog.md`. `docs/backlog.md` is the *post-MVP* candidate backlog
+    (PROJ-002+) and never listed the numbered #1–#7 release items; DEC-041's own Context section
+    names "STAGE-007 backlog #4 ... and #5" as the location, and STAGE-007's spec-backlog table
+    is where #5 (crates.io publish, SPEC-042) is actually tracked — that table already marks the
+    machinery shipped, so the cross-ref clarifies that the *actual firing* (the `v0.1.0` tag push)
+    is now additionally gated on DEC-078, without contradicting the "machinery ARMED" status.
 - **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - None new — the caret migration itself remains owned by the future crates.io-publish spec
+    (backlog #5), as DEC-078 records.
 
 ### Build-phase reflection (3 questions, short answers)
 
 Process-focused: how did the build go? What friction did the spec create?
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — The backlog-#5 location. The spec says "wherever it lives — `docs/…` / the roadmap," but
+   `docs/backlog.md` doesn't contain it (it's a different, post-MVP backlog). DEC-041's Context
+   section was the actual pointer ("STAGE-007 backlog #4 ... and #5"), and STAGE-007's own spec
+   list shows #5 already shipped as machinery (SPEC-042) with only the tag-push/publish event
+   itself still future — a nuance the spec's framing ("future work") slightly undersells.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — Not a constraint gap, but worth noting for future reference: `RELEASING.md` is the other
+   plausible home for this cross-reference (it's the actual pre-publish checklist a maintainer
+   runs), since it documents the same `cargo publish --locked` step that DEC-078 gates. Chose
+   STAGE-007 because it's what DEC-040/041 explicitly name as the backlog's home; `RELEASING.md`
+   would be a reasonable second cross-reference if the maintainer wants belt-and-suspenders.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Nothing structural — the spec's draft DEC prose was usable close to verbatim, and the
+   diff-stat verification made the "zero code touched" constraint trivial to confirm.
 
 ---
 

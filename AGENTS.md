@@ -142,7 +142,8 @@ Reports aggregate cost by cycle, by interface, by spec, and by stage.
 
 > Pin exact patch versions in `Cargo.toml` at SPEC-001 build. Adding any new
 > top-level crate requires a `DEC-*` (constraint
-> `no-new-top-level-deps-without-decision`).
+> `no-new-top-level-deps-without-decision`). Exact pins are the binary's policy;
+> see DEC-078 for when the library-public deps move to caret.
 
 ---
 
