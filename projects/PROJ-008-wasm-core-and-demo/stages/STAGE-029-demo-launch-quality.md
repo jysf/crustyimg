@@ -215,3 +215,5 @@ byte-parity cross-sync contract (DEC-016/019/020) means a speed arg touches both
   - <one-line updates>
 - **Should any spec-level reflections be promoted to stage-level lessons?**
   - <one-line items>
+
+- [~] SPEC-095 (design — framed build-ready 2026-07-18) — **align wasm AVIF quality to native `web` (q80→q85)**, closing DEC-069 so the demo is a FAITHFUL preview (currently overstates savings). Small `src/wasm.rs` change + wasm rebuild + demo copy 'approximates'→'same engine + quality'. `convert` q80 byte-identity untouched. **Build after SPEC-080 merges.** Complexity S.
