@@ -801,6 +801,21 @@ await cdp.eval(`
 
 await waitFor(cdp, `${PAGE_STATE} === 'converting'`, "the full-resolution encode to start");
 
+// ── busy_indicator_is_a_static_crab (SPEC-096) ──────────────────────────────
+// The busy glyph is a static 🦀 placeholder, not a spinner — piggybacks on this
+// slow full-resolution encode since it is the one window where `converting` is
+// guaranteed to still be live when we look.
+
+console.log("\n── busy_indicator_is_a_static_crab (the busy glyph is a static 🦀, not a spinner) ──");
+
+const busyIconText = await cdp.eval("document.getElementById('busy-icon')?.textContent ?? ''");
+const busyIconAnim = await cdp.eval("getComputedStyle(document.getElementById('busy-icon')).animationName");
+check(busyIconText === "🦀", `the busy glyph renders 🦀 — "${busyIconText}"`);
+check(
+  busyIconAnim === "none",
+  `and it carries no running CSS animation (computed animation-name: "${busyIconAnim}")`,
+);
+
 const warnShown = await cdp.eval("!document.getElementById('mp-warning').hidden");
 const warnText = await cdp.eval("document.getElementById('mp-warning').textContent");
 check(

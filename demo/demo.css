@@ -192,9 +192,9 @@ input:disabled {
 }
 
 /* ── busy ───────────────────────────────────────────────────────────────── */
-/* An indeterminate spinner, never a percentage. On the slow full-resolution path a
-   megapixel warning and an HONEST counting-up timer join it — still no fake %. If the
-   spinner or the timer ever freezes, the worker is gone. */
+/* A static crab, never a percentage. On the slow full-resolution path a megapixel
+   warning and an HONEST counting-up timer join it — still no fake %. If the timer
+   ever freezes, the worker is gone. */
 
 .busy {
   display: flex;
@@ -210,26 +210,11 @@ input:disabled {
   color: var(--muted);
 }
 
-.spinner {
-  width: 1rem;
-  height: 1rem;
-  border: 2px solid var(--line);
-  border-top-color: var(--rust);
-  border-radius: 50%;
-  animation: spin 0.7s linear infinite;
+.busy-icon {
+  font-size: 1rem;
+  line-height: 1;
+  animation: none;
   flex: none;
-}
-
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .spinner {
-    animation-duration: 2.4s;
-  }
 }
 
 .mp-warning {

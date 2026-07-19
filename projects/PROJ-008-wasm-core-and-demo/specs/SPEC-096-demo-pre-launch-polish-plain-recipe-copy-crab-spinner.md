@@ -177,17 +177,25 @@ glyph with a static 🦀 placeholder. No engine or recipe-behavior change.
 ---
 
 ## Build Completion
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
-- **New decisions emitted:**
+- **Branch:** `spec-096-demo-polish`
+- **PR (if applicable):** none (build session only, no PR/merge per instructions)
+- **All acceptance criteria met?** yes
+  - Header comments in `recipes/{web,gallery,product}.toml` are the verbatim plain copy from the spec — no `SPEC-`/`DEC-` refs, no `Mode::Fast`/`larger_than_source`. Mechanically guarded by `bundled_recipe_headers_are_plain`.
+  - Recipe behavior byte-identical: `version`/`name`/`description`/`[[step]]` untouched in all three files; `bundled_recipe_behavior_unchanged` pins the parsed `web` recipe exactly.
+  - `demo/demo.js`'s `WEB_RECIPE` matches `recipes/web.toml` byte-for-byte (verified via `eval`-based comparison, not just string diff, to account for the backtick-escaping in the template literal); `tests/demo_smoke.mjs`'s existing verbatim assertion is green (690 B).
+  - Busy indicator is a static 🦀 (`demo/index.html:82`, `#busy-icon`), `.busy-icon { animation: none; }` in `demo/demo.css` — no spin keyframes remain. `busy_indicator_is_a_static_crab` confirms both the glyph and `getComputedStyle(...).animationName === "none"`.
+  - Full Rust suite (`cargo test --features avif`): 434+ tests, 0 failed. `cargo clippy --all-targets --features avif -- -D warnings`: clean. `cargo fmt --check`: clean. `just demo-smoke` (real headless Chrome, over HTTP): all checks green, including the new crab test, mid a 5.4 s full-resolution encode. Zero `src/` engine-logic changes — only `recipes/*.toml` comment bytes, `demo/*`, `src/recipe/bundled.rs` (tests only), and `tests/demo_smoke.mjs`.
+- **New decisions emitted:** none.
 - **Deviations from spec:**
-- **Follow-up work identified:**
+  - Both new Rust guard tests landed in `src/recipe/bundled.rs`'s existing `#[cfg(test)] mod tests` (next to `bundled_recipe_names_resolve`) rather than `tests/cli.rs` — the spec offered this as the first option ("`tests/cli.rs` (or a small unit test near `src/recipe/bundled.rs`)") and it's the more local, already-established home for bundled-recipe assertions.
+  - Also fixed two comments outside the spec's explicit file list that referenced the removed spinner and would otherwise have gone stale: the busy-block comment in `demo/index.html` ("alongside the spinner" → "alongside the crab") and one line in `demo/demo.js` ("calm spinner" → "no MP warning"). Both are demo-file prose, not `src/` engine logic, and leaving them would have shipped a comment describing behavior that no longer exists.
+  - `busy_indicator_is_a_static_crab` piggybacks on the existing `advanced_full_resolution_shows_timer` mid-encode window (the one place `state === 'converting'` is reliably observable) rather than opening a new drop — cheaper and the spec's Inputs section already pointed at that same busy block.
+- **Follow-up work identified:** none — the 🦀 is an explicit placeholder per the spec, to be swapped for a real logo/image later (not this spec's job).
 
 ### Build-phase reflection (3 questions, short answers)
-1. **What was unclear in the spec that slowed you down?** — <answer>
-2. **Was there a constraint or decision that should have been listed but wasn't?** — <answer>
-3. **If you did this task again, what would you do differently?** — <answer>
+1. **What was unclear in the spec that slowed you down?** — Nothing major. The one thing I had to work out myself: comparing `WEB_RECIPE` to `recipes/web.toml` by regexing the raw JS source text gives a false mismatch (the backtick-escape `\`` in the source isn't the same character sequence as the evaluated string's literal backtick) — had to eval the template literal properly to get a trustworthy byte-identity check.
+2. **Was there a constraint or decision that should have been listed but wasn't?** — No — DEC-070 was the right and sufficient reference; nothing else needed pulling in.
+3. **If you did this task again, what would you do differently?** — Same approach. Running the mutation/negative-control checks (inject a `SPEC-` string, widen the resize, re-add a spin animation) before calling the tests done was worth the extra `just demo-smoke` cycle — it's the cheapest way to know a guard test actually guards something.
 
 ---
 

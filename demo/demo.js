@@ -26,19 +26,14 @@
 // fetched so the funnel needs zero network requests (the SPEC-077 guarantee), and
 // the demo smoke asserts this string is byte-identical to the file on disk — so it
 // cannot silently drift from the recipe the CLI actually runs.
-const WEB_RECIPE = `# The \`web\` flagship flow (SPEC-085), shipped in-binary so \`web <inputs>\` and
-# \`apply --recipe web <inputs>\` reach the identical engine.
+const WEB_RECIPE = `# Prepare an image for the web: resize the long edge down to 2048px
+# (never upscaling) and re-encode to the smallest modern format that
+# beats the resized image — AVIF for photos, lossless WebP for graphics.
 #
-# Downscale the long edge to a web-friendly size (never upscaling), bake EXIF
-# orientation + strip metadata, then let the fast AVIF-aware decision (SPEC-084,
-# \`Mode::Fast\`) pick the smallest modern format that beats the DOWNSCALED image,
-# and score the winner (SSIMULACRA2) on that output. The downscale to a dimension
-# bound is the contract, so an already-small source ABOVE that bound can re-encode
-# LARGER than the original — reported honestly as "N% larger" and flagged
-# (\`larger_than_source\`), never hidden (SPEC-090, DEC-075). For an unconditional
-# never-bigger guarantee that keeps dimensions, use \`optimize\`. The terminal
-# \`optimize\` step is what invokes that decision instead of a plain
-# format-preserving write.
+# Because it resizes, a source already under that size can come out
+# larger than the original; when it does, the new size is reported
+# plainly, not hidden. To keep the original dimensions and never grow
+# the file, use \`optimize\` instead.
 version = "1"
 name = "web"
 description = "Downscale to 2048px, modernize (AVIF/lossless-WebP), and score (size reported honestly)."
@@ -243,7 +238,7 @@ async function load(file) {
   // Probe the natural dimensions page-side so the slow-path decision (below) can be
   // made before the worker even starts. `createImageBitmap` decodes every raster
   // format the browser supports (AVIF included); an SVG or an unreadable file just
-  // leaves dims null → calm spinner, and the engine reports any real error.
+  // leaves dims null → no MP warning, and the engine reports any real error.
   let dims = null;
   try {
     const bmp = await createImageBitmap(file);

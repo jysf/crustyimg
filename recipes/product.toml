@@ -1,8 +1,7 @@
-# The `product` flow (SPEC-085): the `web` flow at a compact long edge for
-# product cards / catalogue shots. Same engine (downscale → orient → strip →
-# fast AVIF-aware modernize → score), with a 1600px bound. Like `web`, the
-# downscale is the contract, so an already-small source above 1600px can re-encode
-# larger than the original — reported honestly (SPEC-090, DEC-075).
+# Prepare product-card and catalogue images: like `web`, but resizes the
+# long edge to 1600px, then re-encodes to the smallest modern format. A
+# source already under that size can come out larger than the original;
+# the new size is reported plainly.
 version = "1"
 name = "product"
 description = "Downscale to 1600px for product cards/thumbnails, then modernize (size reported honestly)."
