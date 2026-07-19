@@ -3,7 +3,7 @@
 task:
   id: SPEC-096
   type: chore
-  cycle: design
+  cycle: ship
   blocked: false
   priority: medium
   complexity: S
@@ -29,11 +29,43 @@ value_link: >
   and the busy state doesn't imply "stuck". Cheap credibility before Show HN.
 
 cost:
-  sessions: []
+  sessions:
+    - cycle: build
+      interface: claude-code
+      model: claude-sonnet-5
+      tokens_total: 125000
+      duration_minutes: null
+      estimated_usd: 3.0
+      note: >
+        Estimated order-of-magnitude (main-loop build in the primary checkout, not a separately-metered
+        subagent) — ~100–150k tokens across two full demo-smoke cycles (incl. wasm builds) + the full
+        cargo test/clippy/fmt gates. ~80/20 input/output at Sonnet list rate ($3/$15 per MTok). Mechanical
+        spec (the near-controlled model experiment, now n≈3) — indistinguishable on the hard parts.
+    - cycle: verify
+      interface: claude-code
+      model: claude-opus-4-8
+      tokens_total: 65000
+      duration_minutes: null
+      estimated_usd: 4.5
+      note: >
+        Estimated order-of-magnitude (main-loop verify) — wall-clock dominated by 2 release builds
+        (parent-vs-branch byte-identity, SPEC-087 pattern), the 128 s full suite, and 3 wasm demo-smoke
+        cycles; fresh negative controls on all three guards. ~$4–5 Opus.
+    - cycle: ship
+      interface: claude-code
+      model: claude-opus-4-8
+      tokens_total: null
+      estimated_usd: 0.45
+      recorded_at: 2026-07-18
+      note: >
+        orchestrator main loop (un-metered) — ESTIMATE. Framed the batched spec (recipe cleanup + crab,
+        from two maintainer-noticed warts), handed off build (Sonnet) → verify (Opus, CLEAN, parent-vs-
+        branch byte-identity + fresh negative controls), confirmed merge, opened PR #101, polled CI
+        (27/0), squash-merged (ad94997), bookkeeping. No new DEC.
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 190000
+    estimated_usd: 7.95
+    session_count: 3
 ---
 
 # SPEC-096: demo pre-launch polish — plain recipe copy + crab spinner
@@ -200,6 +232,15 @@ glyph with a static 🦀 placeholder. No engine or recipe-behavior change.
 ---
 
 ## Reflection (Ship)
-1. **What would I do differently next time?** — <answer>
-2. **Does any template, constraint, or decision need updating?** — <answer>
-3. **Is there a follow-up spec I should write now before I forget?** — <answer>
+1. **What would I do differently next time?** — Nothing on execution. This is the model for a small
+   maintainer-noticed fix: batch the related warts (recipe copy + spinner) into one tracked spec rather
+   than an untracked drive-by, frame it with the exact replacement text inlined, hand off build→verify,
+   and let byte-identity prove "no behavior change" instead of asserting it.
+2. **Does any template, constraint, or decision need updating?** — No template/DEC change. Reinforces the
+   new [[comments-plain-no-spec-refs]] feedback: user-facing text (shipped recipe headers, demo copy)
+   stays plain and behavior-first, and the mechanical guard (`bundled_recipe_headers_are_plain`) now
+   *enforces* it so the copy can't regress — a rule with a check behind it, per the stage's running
+   lesson. Internal `src/` traceability comments remain the accepted convention (explicitly out of scope).
+3. **Is there a follow-up spec I should write now before I forget?** — No. The 🦀 is an explicit
+   placeholder; when the maintainer has a logo/image, swapping the static glyph is a trivial follow-up,
+   not worth a spec now. No other threads opened.

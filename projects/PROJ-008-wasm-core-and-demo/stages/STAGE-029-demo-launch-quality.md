@@ -125,14 +125,14 @@ Dependency order — **SPEC-079 (engine surface) first**, because the demo specs
   band (unclamped, handles negatives/>100); JPEG engine-scored, lossless shows no number. No engine
   change. Verify CLEAN (4 negative controls). **The last STAGE-029 demo piece.**
 
-- [~] SPEC-096 (design — framed build-ready 2026-07-18) — **pre-launch demo polish (batched).** Plain
+- [x] SPEC-096 (shipped 2026-07-18, PR #101, ad94997) — **pre-launch demo polish (batched).** Plain
   behavior-first copy for the bundled recipe headers (`web`/`gallery`/`product`, no SPEC/DEC refs), demo
   `WEB_RECIPE` kept byte-identical to `web.toml`; spinning busy glyph → static 🦀 placeholder. No
-  engine/recipe-behavior change. Sonnet build / Opus verify.
+  engine/recipe-behavior change (byte-identity proven parent↔branch). Sonnet build / Opus verify CLEAN.
 
-**Count:** 4 shipped (SPEC-079, 080, 081, 095) / 1 framed (SPEC-096, pre-launch polish) / 0 active. The
-original demo backlog completed 2026-07-18; SPEC-096 is a small maintainer-noticed polish pass added
-before Show HN. Strategy reconciliation RESOLVED (2026-07-14): the demo hero is the `web` flow — SPEC-080
+**Count:** 5 shipped (SPEC-079, 080, 081, 095, 096) / 0 active / 0 framed. The original demo backlog
+completed 2026-07-18; SPEC-096 added the maintainer-noticed pre-launch polish. STAGE-029
+content-complete, held active (close deliberately with STAGE-030). Strategy reconciliation RESOLVED (2026-07-14): the demo hero is the `web` flow — SPEC-080
 was reframed to it (after SPEC-085 defined `web`) and shipped; SPEC-081 scored the hero; SPEC-095
 aligned the demo AVIF to q85. Build order held: **080 → 095 → 081**.
 
