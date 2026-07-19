@@ -3,7 +3,7 @@
 task:
   id: SPEC-081
   type: story
-  cycle: design
+  cycle: ship
   blocked: false
   priority: high
   complexity: S
@@ -29,11 +29,43 @@ value_link: >
   input↔output SSIMULACRA2 score so "smaller AND still looks right" is proven on the page, not asserted.
 
 cost:
-  sessions: []
+  sessions:
+    - cycle: build
+      interface: claude-code
+      model: claude-opus-4-8
+      tokens_total: 100000
+      duration_minutes: null
+      estimated_usd: 3.0
+      note: >
+        Estimated order-of-magnitude (main-loop build run directly in the primary checkout, not a
+        separately-metered subagent, per AGENTS.md worktree-per-session + the autonomous-run cost
+        convention) — demo-files-only edits + one headless-Chrome smoke (reused committed vendor/, no
+        wasm rebuild). ~80/20 input/output at Opus 4.8 list rate ($5/$25 per MTok), no cache discount.
+    - cycle: verify
+      interface: claude-code
+      model: claude-opus-4-8
+      tokens_total: 110000
+      duration_minutes: null
+      estimated_usd: 3.5
+      note: >
+        Estimated order-of-magnitude (main-loop verify in the primary checkout) — dominated by ~5
+        headless-Chrome smoke runs (one from-source wasm rebuild + 4 negative-control runs: masquerade,
+        negative, >100, break-the-gate). ~80/20 input/output at Opus 4.8 list rate, no cache discount.
+    - cycle: ship
+      interface: claude-code
+      model: claude-opus-4-8
+      tokens_total: null
+      estimated_usd: 0.45
+      recorded_at: 2026-07-18
+      note: >
+        orchestrator main loop (un-metered) — ESTIMATE. Handed off build (Opus) → verify (Opus, CLEAN,
+        4 negative controls) as prompts and stayed out of the repo while each ran; confirmed the merge
+        with the maintainer, opened PR #100, polled CI (27/0 matrix green), squash-merged (60511f5),
+        bookkeeping. No new DEC.
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 210000
+    estimated_usd: 6.95
+    session_count: 3
 ---
 
 # SPEC-081: demo SSIMULACRA2 diff UI
@@ -187,6 +219,22 @@ Browser-driven (the SPEC-077/078/080 headless-Chrome smoke, extended).
 ---
 
 ## Reflection (Ship)
-1. **What would I do differently next time?** — <answer>
-2. **Does any template, constraint, or decision need updating?** — <answer>
-3. **Is there a follow-up spec I should write now before I forget?** — <answer>
+1. **What would I do differently next time?** — Not offload the build to the maintainer as a copy-paste
+   chore after mis-starting a subagent. This ship's process wobble was mine as orchestrator: I first
+   spawned a background build subagent (wrong), then over-corrected into handing the maintainer a prompt
+   to run manually. The maintainer's steer landed the pattern: the orchestrator hands off a build/verify
+   prompt to a *session* and stays out of the repo; it does not do the build itself nor make the human
+   the runner. Held that cleanly through verify → merge.
+2. **Does any template, constraint, or decision need updating?** — No template/DEC change. Reinforces two
+   standing lessons: the demo-honesty discipline held (every honesty claim gated by a negative control —
+   NC-1 masquerade `score(px,px)=100` vs real `80.17`, NC-2 negative renders unclamped, NC-4 breaking
+   `score()` fails the gate), continuing the stage's "a plausible test result is not a checked one" theme.
+   One spec-clarity note for future demo specs: when a spec says `score(input, output)`, spell out the
+   `score()` dimension-match contract so "reference = the downscaled PNG the encoder saw" isn't a
+   build-time discovery (the build's own reflection flagged this).
+3. **Is there a follow-up spec I should write now before I forget?** — No new spec required. Two carries,
+   both belong to STAGE-028 launch-readiness, not their own spec: (a) the score panel is Chrome-verified
+   only — new `color-mix()` CSS degrades gracefully but glance on Firefox/Safari before Show HN; (b) the
+   observed q85 AVIF score (~80, "high", a touch below "visually lossless") is candid and correct — worth
+   noting when BENCHMARKS frames the quality story so the number isn't read as a defect. The out-of-scope
+   side-by-side pixel/loupe diff remains a genuine future idea, not launch-blocking.

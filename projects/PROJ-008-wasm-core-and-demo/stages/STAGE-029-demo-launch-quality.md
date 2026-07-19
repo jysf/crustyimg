@@ -117,18 +117,18 @@ Dependency order — **SPEC-079 (engine surface) first**, because the demo specs
   target arg, a **returned SSIMULACRA2 score** + a `score(a,b)` binding, and an
   **Auto-picks-AVIF-for-photos** fixed-quality/no-search path. Native CLI unchanged; verified CLEAN
   (speed knob proven 55×, native byte-identical).
-- [~] SPEC-080 (design — framed build-ready 2026-07-13) — **demo intent/defaults redesign + perf UX.**
-  "Make it smaller" primary flow; Auto default that shrinks; never-bigger guard; offered resize;
-  megapixel-keyed warnings + live timer + debounce; **default speed 10**. Consumes SPEC-079; build
-  after it ships.
-- [~] SPEC-081 (design — framed build-ready 2026-07-13) — **demo SSIMULACRA2 diff UI.** Show the
-  input↔output perceptual score, honest where the AVIF-decode seam needs a browser-decode + the
-  `score()` binding. Consumes SPEC-079; build after SPEC-080 (both touch `demo/`).
+- [x] SPEC-080 (shipped 2026-07-18, PR #98) — **demo = the `web`-flow hero + CLI adoption funnel.**
+  Reframed to the `web` hero (downscale-2048 + Auto-AVIF + never-bigger + score, one-click, Advanced
+  hidden) running the real `web.toml` via the shipped `wasm::transform`; `crustyimg web <file>` funnel.
+- [x] SPEC-081 (shipped 2026-07-18, PR #100) — **demo SSIMULACRA2 diff UI.** The hero AVIF output is now
+  scored in-page (browser-decode via `readBack` + the `score()` binding), raw SSIMULACRA2 on an honest
+  band (unclamped, handles negatives/>100); JPEG engine-scored, lossless shows no number. No engine
+  change. Verify CLEAN (4 negative controls). **The last STAGE-029 demo piece.**
 
-**Count:** 1 shipped (SPEC-079) / 0 active / 2 framed. **Strategy reconciliation RESOLVED (2026-07-14):
-the demo hero is the `web` flow (STAGE-030).** SPEC-080 is to be **reframed to the `web` hero** and
-must wait for SPEC-085 (which defines `web` + the bundled recipes). Build order once reframed:
-**080 → 081**.
+**Count:** 4 shipped (SPEC-079, 080, 081, 095) / 0 active / 0 framed. **STAGE-029 content-complete
+2026-07-18.** Strategy reconciliation RESOLVED (2026-07-14): the demo hero is the `web` flow — SPEC-080
+was reframed to it (after SPEC-085 defined `web`) and shipped; SPEC-081 scored the hero; SPEC-095
+aligned the demo AVIF to q85. Build order held: **080 → 095 → 081**.
 
 **➕ Demo recipe presets (fold into the reframed SPEC-080, consumes SPEC-085).** Ship the bundled
 recipes (SPEC-085: `web`/`gallery`/`product`/…) as **one-click client-side presets** in the demo —
@@ -216,4 +216,4 @@ byte-parity cross-sync contract (DEC-016/019/020) means a speed arg touches both
 - **Should any spec-level reflections be promoted to stage-level lessons?**
   - <one-line items>
 
-- [~] SPEC-095 (design — framed build-ready 2026-07-18) — **align wasm AVIF quality to native `web` (q80→q85)**, closing DEC-069 so the demo is a FAITHFUL preview (currently overstates savings). Small `src/wasm.rs` change + wasm rebuild + demo copy 'approximates'→'same engine + quality'. `convert` q80 byte-identity untouched. **Build after SPEC-080 merges.** Complexity S.
+- [x] SPEC-095 (shipped 2026-07-18, PR #99, DEC-069 closed) — **aligned wasm AVIF quality to native `web` (q80→q85)** so the demo is a FAITHFUL preview (anchored to `FAST_LOSSY_QUALITY`, not a bare 85). `convert` q80 byte-identity untouched. Complexity S.
