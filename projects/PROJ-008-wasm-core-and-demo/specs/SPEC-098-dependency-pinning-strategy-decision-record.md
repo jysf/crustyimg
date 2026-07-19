@@ -7,7 +7,7 @@
 task:
   id: SPEC-098
   type: chore
-  cycle: design
+  cycle: build
   blocked: false
   priority: medium
   complexity: S
