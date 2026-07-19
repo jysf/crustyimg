@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-// SPEC-077: the demo's earned verdict — the page, in a real browser, over HTTP.
+// SPEC-077 / SPEC-078 / SPEC-080: the demo's earned verdict — the page, in a real
+// browser, over HTTP.
 //
 // Everything in this wave up to now ran the wasm in NODE (`initSync` with bytes we
 // handed it). The browser path is different in the one way that can break it:
@@ -9,17 +10,29 @@
 // testing would see it. So this serves the assembled demo and drives it in headless
 // Chrome, through the real user path:
 //
-//   serve → load → init() → put a PNG in the file picker → convert → read the DOM
-//   → fetch the download's blob → decode the bytes with a parser we wrote ourselves.
+//   serve → load → init() → put a photo in the file picker → the `web` flow runs →
+//   read the DOM → fetch the download's blob → decode the bytes with a parser we
+//   wrote ourselves.
 //
-// It also asserts the pitch: the .wasm arrives as `application/wasm`, and NOTHING
-// is fetched during the conversion — no backend, no upload, no round trip.
+// SPEC-080 reframed the demo around the `web` flow (one-click hero: downscale to
+// 2048 → modernize to AVIF → never bigger → score) plus a CLI adoption funnel. The
+// four checks that pin that reframe are labelled below:
 //
-// Chrome is driven over the DevTools Protocol directly (a WebSocket + JSON-RPC,
-// ~80 lines below). No Puppeteer/Playwright: a demo whose whole point is "no
-// toolchain, no install" should not need a 300 MB browser driver in devDependencies
-// to prove it works. Chrome itself is the only requirement — set CHROME to point at
-// it if it is not where we look.
+//   • default_is_web_flow_smaller_avif  — a photo on defaults → smaller AVIF, ≤2048
+//   • never_bigger_keeps_original       — an input it can't beat → the original back
+//   • funnel_shows_web_command_and_copies — the exact `crustyimg web <file>` + copy
+//   • advanced_full_resolution_shows_timer — the slow path warns + counts + stays live
+//
+// It also keeps the SPEC-077/078 guarantees: the .wasm arrives as `application/wasm`,
+// the engine runs in a module Worker, NOTHING is fetched during a conversion, the
+// main thread survives a slow AVIF encode (with a negative control), the AVIF output
+// is valid per decoders the crate never met, an `.avif` input rides the browser's
+// decoder, and the file:// failure mode is real.
+//
+// Chrome is driven over the DevTools Protocol directly (a WebSocket + JSON-RPC). No
+// Puppeteer/Playwright: a demo whose whole point is "no toolchain, no install" should
+// not need a 300 MB browser driver to prove it works. Set CHROME to point at it if it
+// is not where we look.
 //
 // Run: `just demo-smoke`.
 
@@ -29,21 +42,29 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { makePng, readIhdr } from "../scripts/lib/png.mjs";
+import { makePng, makePhotoPng, readIhdr } from "../scripts/lib/png.mjs";
 import { startServer } from "../scripts/serve.mjs";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const demoDir = join(repoRoot, "demo");
 
-const FIXTURE_W = 64;
-const FIXTURE_H = 48;
-const MAX_EDGE = 32; // the resize the second conversion asks for
+// The hero fixture: a real PHOTOGRAPH, larger than the 2048 web bound, so the default
+// flow both DOWNSCALES it and picks AVIF. A gradient would not — the engine reads a
+// gradient as a flat graphic and routes it lossless, so a "photo → AVIF" fixture built
+// from `makePng` would silently test the wrong path (the STAGE-030 lesson). `makePhotoPng`
+// carries the entropy + colour + low flat-ratio that buckets Lossy → AVIF.
+const HERO_W = 2200;
+const HERO_H = 1650;
+const WEB_EDGE = 2048; // the `web` long-edge target the demo downscales to
 
-// The AVIF fixture is big on purpose: rav1e is serial and slow, and the claim under
-// test is about what the page can do WHILE it encodes. A thumbnail would be done
-// before there was anything to observe.
-const AVIF_W = 800;
-const AVIF_H = 600;
+// The full-resolution fixture for the Advanced slow path: > ~6 MP, so a full-res AVIF
+// encode is genuinely slow — long enough to watch the timer count and the main thread
+// stay alive.
+const FULL_W = 3000;
+const FULL_H = 2100;
+
+// The AVIF-encode responsiveness window (SPEC-078): a real blocking window, so a
+// main-thread encode would have frozen the tab for it.
 const MIN_ENCODE_MS = 200;
 const BLOCK_MS = 400; // the negative control: how long we freeze the main thread on purpose
 
@@ -131,8 +152,7 @@ class CDP {
   /// `sessionId` addresses an auto-attached target — the engine's Web Worker is one
   /// (SPEC-078), and it is a genuinely separate target with its own Runtime and its
   /// own Network domain. Without this, the worker's traffic (including the .wasm it
-  /// fetches) is invisible from the page's session — which is exactly what happened
-  /// the first time the conversions moved off the main thread.
+  /// fetches) is invisible from the page's session.
   send(method, params = {}, sessionId) {
     const id = this.#next++;
     this.#ws.send(JSON.stringify(sessionId ? { id, method, params, sessionId } : { id, method, params }));
@@ -165,22 +185,18 @@ class CDP {
 /// The page's own state, or null if there is no document yet. Every read of the
 /// page goes through this: right after `Page.navigate` the document can still be
 /// the empty initial one, where `document.body` is null and a bare
-/// `document.body.dataset` THROWS rather than politely returning undefined. (It
-/// does not reliably throw on a fast machine, which is precisely why it has to be
-/// written this way — CI found it; my laptop never would have.)
+/// `document.body.dataset` THROWS rather than politely returning undefined.
 ///
 /// THE PARENTHESES ARE LOAD-BEARING. This string gets interpolated into page-side
 /// expressions as `${PAGE_STATE} === 'done'`, and `===` binds tighter than `??`.
 /// Unparenthesized, that parses as `state ?? (null === 'done')` — i.e. `state ??
-/// false` — which is TRUTHY for every state the page can be in. Every waitFor()
-/// below would return on its first poll having waited for nothing, and the reads
-/// after it would race the conversion they are supposed to be waiting for.
+/// false` — which is TRUTHY for every state the page can be in.
 const PAGE_STATE = "(document.body?.dataset.state ?? null)";
 
 /// Poll the page until `expression` is truthy (or give up). The demo mirrors its
 /// state onto <body data-state>, so this is how we wait for `init()` and for a
 /// conversion — no arbitrary sleeps.
-async function waitFor(cdp, expression, what, timeoutMs = 60_000) {
+async function waitFor(cdp, expression, what, timeoutMs = 90_000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (await cdp.eval(expression)) return;
@@ -191,20 +207,14 @@ async function waitFor(cdp, expression, what, timeoutMs = 60_000) {
   await die(`timed out waiting for ${what} (page state: ${state} — "${err?.trim()}")`);
 }
 
-// ── an independent WebP header parse ──────────────────────────────────────────
-// The engine's own `info()` already reports the output's dimensions, but that is
-// the crate agreeing with itself. This reads the container the way a decoder that
-// never met crustyimg would: RIFF envelope, then the VP8L bitstream's 14-bit
-// width-1/height-1 fields. (This build's WebP is lossless — VP8L — because lossy
-// WebP is a C library and this is the pure-Rust engine.)
+// ── independent container parses (decoders the crate never met) ────────────────
+
 function readWebp(buf) {
   const riff = buf.subarray(0, 4).toString("ascii") === "RIFF";
   const webp = buf.subarray(8, 12).toString("ascii") === "WEBP";
   const chunk = buf.subarray(12, 16).toString("ascii");
   const out = { riff, webp, chunk, width: null, height: null };
-
   if (chunk === "VP8L" && buf[20] === 0x2f) {
-    // 14 bits width-1, then 14 bits height-1, little-endian bit order.
     const bits = buf.readUInt32LE(21);
     out.width = (bits & 0x3fff) + 1;
     out.height = ((bits >> 14) & 0x3fff) + 1;
@@ -212,26 +222,17 @@ function readWebp(buf) {
   return out;
 }
 
-// ── an independent AVIF container parse ───────────────────────────────────────
-// The engine CANNOT check its own AVIF output: this build encodes AVIF and cannot
-// decode it (DEC-065), so `info()` — the crate agreeing with itself, which would be
-// weak proof anyway — is not even available. An outside reader is the only proof
-// there is. This is one, written from the ISOBMFF/AVIF spec: the `ftyp` box's major
-// brand, and the `ispe` (image spatial extents) box, which is where an AVIF states
-// its true dimensions. (The browser's own decoder is the second opinion; `sips` is a
-// third on macOS.)
+// The engine CANNOT check its own AVIF output (encode-only, DEC-065), so an outside
+// reader is the only proof there is. This is one, from the ISOBMFF/AVIF spec: the
+// `ftyp` box's major brand and the `ispe` (image spatial extents) box.
 function readAvif(buf) {
   const out = { ftyp: false, brand: null, width: null, height: null };
   if (buf.length < 16 || buf.subarray(4, 8).toString("ascii") !== "ftyp") return out;
   out.ftyp = true;
   out.brand = buf.subarray(8, 12).toString("ascii");
-
-  // `ispe` sits nested several boxes deep (meta → iprp → ipco → ispe). Walking the
-  // whole tree to reach it would be a decoder; finding the box header is enough to
-  // read what the file says about itself.
   const at = buf.indexOf("ispe", 0, "ascii");
   if (at > 0) {
-    out.width = buf.readUInt32BE(at + 8); // 4 B box type, 4 B version+flags, then w, h
+    out.width = buf.readUInt32BE(at + 8);
     out.height = buf.readUInt32BE(at + 12);
   }
   return out;
@@ -273,9 +274,6 @@ if (!chromePath) {
 
 console.log("\n── serve → headless Chrome ──");
 
-// Every path the page asks the SERVER for. If the conversion ever went to a
-// backend, it would show up here (and in the CDP network log below, which also
-// sees requests that never reach us).
 const served = [];
 const { server, url: baseUrl } = await startServer({
   root: demoDir,
@@ -298,9 +296,6 @@ const chrome = spawn(
     "--remote-allow-origins=*",
     "--remote-debugging-port=0",
     `--user-data-dir=${profileDir}`,
-    // Chrome's sandbox needs kernel namespaces that many containerized CI runners
-    // do not grant; without this it exits instantly there. Only in CI — a developer's
-    // machine keeps the sandbox on, because there is no reason not to.
     ...(process.env.CI ? ["--no-sandbox"] : []),
     "about:blank",
   ],
@@ -308,7 +303,6 @@ const chrome = spawn(
 );
 cleanups.push(() => chrome.kill());
 
-// Chrome writes the port it actually took into DevToolsActivePort.
 const portFile = join(profileDir, "DevToolsActivePort");
 let devtoolsPort;
 for (let i = 0; i < 100 && !devtoolsPort; i++) {
@@ -349,19 +343,19 @@ await cdp.send("Network.enable");
 await cdp.send("Page.enable");
 await cdp.send("DOM.enable");
 
-// ── attach to the engine's thread ─────────────────────────────────────────────
-// The engine no longer runs in the page (SPEC-078): demo.js starts a module Worker
-// and the Worker is what init()s the wasm. A Worker is a SEPARATE CDP TARGET, so
-// from the page's session it is invisible — its console errors, and the .wasm fetch
-// itself, simply do not appear. (That is not a theory: moving the conversions off
-// the main thread turned the "the .wasm was served as application/wasm" check below
-// into "no response at all", because the page never requested it again.)
-//
-// So auto-attach. `waitForDebuggerOnStart` pauses the worker at its first line, which
-// is the only way to have Network enabled BEFORE it fetches the .wasm; nothing runs in
-// there until `runIfWaitingForDebugger`. Everything the worker does — requests,
-// responses, console errors, uncaught exceptions — now flows into the same lists as
-// the page's, keyed by method.
+// Clipboard reads/writes need permission in headless Chrome; the funnel copy button
+// uses navigator.clipboard.writeText, and the funnel check reads it back.
+await cdp
+  .send("Browser.grantPermissions", {
+    origin: baseUrl,
+    permissions: ["clipboardReadWrite", "clipboardSanitizedWrite"],
+  })
+  .catch(() => {
+    /* older Chrome may not know these names; the dataset fallback still proves the write */
+  });
+
+// Auto-attach to the engine's Worker (a separate CDP target). `waitForDebuggerOnStart`
+// pauses it at its first line so Network is enabled BEFORE it fetches the .wasm.
 const workerTargets = [];
 cdp.on("Target.attachedToTarget", async (p) => {
   if (p.targetInfo.type !== "worker") return;
@@ -378,8 +372,6 @@ await cdp.send("Target.setAutoAttach", {
 
 await cdp.send("Page.navigate", { url: `${baseUrl}/index.html` });
 
-// The whole point: this resolves only if instantiateStreaming succeeded — IN THE
-// WORKER, which is where init() now happens.
 await waitFor(cdp, `${PAGE_STATE} === 'ready'`, "the worker's init() to resolve");
 ok("await init() resolved IN A MODULE WORKER — instantiateStreaming ran off the page's thread");
 
@@ -393,13 +385,6 @@ const crateVersion = readFileSync(join(repoRoot, "Cargo.toml"), "utf8").match(
   /^version\s*=\s*"([^"]+)"/m,
 )[1];
 
-// WAIT for the value; do not snapshot it. On a slow runner the navigation can
-// commit twice — the poll above sees `ready` on the first document, and a bare
-// read a moment later lands on the second one while its module is still booting,
-// which reads back as an empty string. (CI caught exactly that; every check after
-// it passed, because by then the second document had finished.) Waiting on the
-// end state is correct regardless of how many documents got there: the page sets
-// the version BEFORE it declares itself ready, so this can only converge.
 await waitFor(
   cdp,
   "(document.getElementById('version')?.textContent ?? '').trim().length > 0",
@@ -414,98 +399,115 @@ check(
 const wasmResponse = responses.get(`${baseUrl}/vendor/crustyimg_bg.wasm`);
 check(
   wasmResponse?.mimeType === "application/wasm",
-  `the .wasm was served as application/wasm (got ${wasmResponse?.mimeType ?? "no response at all"}) ` +
-    `— instantiateStreaming rejects anything else, which is why file:// cannot work`,
+  `the .wasm was served as application/wasm (got ${wasmResponse?.mimeType ?? "no response at all"})`,
 );
 
 check(consoleErrors.length === 0, "no console errors while loading");
 if (consoleErrors.length) console.error(`    ${consoleErrors.join("\n    ")}`);
 
-// ── 4. convert: PNG in → WebP out ─────────────────────────────────────────────
-
-console.log("\n── PNG in → WebP out, in the browser ──");
+// ── a fixture staging dir + a drop helper ──────────────────────────────────────
 
 const fixtureDir = mkdtempSync(join(tmpdir(), "crustyimg-fixture-"));
 cleanups.push(() => rmSync(fixtureDir, { recursive: true, force: true }));
-const fixture = join(fixtureDir, "fixture.png");
-writeFileSync(fixture, makePng(FIXTURE_W, FIXTURE_H));
 
-// The real user path: hand the file to the page's <input type=file>, exactly as a
-// picker or a drop would. Not a test hook, not a synthetic call into the module.
-const { root } = await cdp.send("DOM.getDocument");
-const { nodeId } = await cdp.send("DOM.querySelector", {
-  nodeId: root.nodeId,
-  selector: "#file",
-});
-const requestsBeforeConvert = requests.length;
-await cdp.send("DOM.setFileInputFiles", { nodeId, files: [fixture] });
-
-// Chrome fires `change` when the files are set; if a future Chrome stops doing so,
-// nudge it rather than hanging for 30s on a protocol detail.
-await sleep(300);
-if ((await cdp.eval(PAGE_STATE)) === "ready") {
-  await cdp.eval(
-    "document.getElementById('file').dispatchEvent(new Event('change', { bubbles: true }))",
-  );
+/// Reset the controls to the hero defaults (Auto, downscale to 2048, no budget), so
+/// each test starts from the one-click path unless it opts into Advanced.
+async function resetControls() {
+  await cdp.eval(`
+    document.getElementById('format').value = 'auto';
+    document.getElementById('keepfull').checked = false;
+    document.getElementById('maxedge').disabled = false;
+    document.getElementById('maxedge').value = '${WEB_EDGE}';
+    document.getElementById('maxbytes').value = '';
+  `);
 }
 
-await waitFor(cdp, `${PAGE_STATE} === 'done'`, "the conversion to finish");
+/// Put a file in the picker and wait for the page to finish converting THAT file.
+/// Waiting on `state === 'done'` alone is not enough: by the time a second file is
+/// dropped the page is already 'done' from the first, so the wait would be satisfied
+/// by the previous conversion. `render()` overwrites `#result.dataset` wholesale, so a
+/// unique token stamped there before the drop is proof of freshness when it is gone.
+let dropSeq = 0;
+async function drop(path) {
+  const token = `awaiting-conversion-${++dropSeq}`;
+  await cdp.eval(`
+    document.getElementById('result').dataset.outFormat = ${JSON.stringify(token)};
+    document.body.dataset.state = 'ready';
+  `);
+  const doc = await cdp.send("DOM.getDocument");
+  const { nodeId } = await cdp.send("DOM.querySelector", {
+    nodeId: doc.root.nodeId,
+    selector: "#file",
+  });
+  await cdp.send("DOM.setFileInputFiles", { nodeId, files: [path] });
+  await waitFor(
+    cdp,
+    `${PAGE_STATE} === 'done' && ` +
+      `document.getElementById('result')?.dataset.outFormat !== ${JSON.stringify(token)}`,
+    `the conversion of ${path}`,
+  );
+  return cdp
+    .eval(
+      "JSON.stringify({ ...document.getElementById('result').dataset, " +
+        "inDims: document.getElementById('in-dims').textContent, " +
+        "inFormat: document.getElementById('in-format').textContent, " +
+        "delta: document.getElementById('delta').textContent, " +
+        "resizeNote: document.getElementById('resize-note').textContent, " +
+        "score: document.getElementById('score').textContent, " +
+        "download: document.getElementById('download').getAttribute('download'), " +
+        "href: document.getElementById('download').href })",
+    )
+    .then(JSON.parse);
+}
 
-const result = await cdp.eval(
-  "JSON.stringify({ ...document.getElementById('result').dataset, " +
-    "inDims: document.getElementById('in-dims').textContent, " +
-    "inFormat: document.getElementById('in-format').textContent, " +
-    "download: document.getElementById('download').getAttribute('download'), " +
-    "href: document.getElementById('download').href })",
-).then(JSON.parse);
+// ── 4. default_is_web_flow_smaller_avif ────────────────────────────────────────
+
+console.log("\n── default_is_web_flow_smaller_avif: a photo, no controls touched ──");
+
+await resetControls();
+const heroPath = join(fixtureDir, "photo.png");
+writeFileSync(heroPath, makePhotoPng(HERO_W, HERO_H, 7));
+
+const requestsBeforeHero = requests.length;
+const hero = await drop(heroPath);
 
 check(
-  result.inDims === `${FIXTURE_W}×${FIXTURE_H}` && result.inFormat === "png",
-  `info(input) → ${result.inDims} ${result.inFormat} (expected ${FIXTURE_W}×${FIXTURE_H} png)`,
-);
-check(Number(result.outBytes) > 0, `the conversion produced ${result.outBytes} bytes`);
-check(
-  result.outFormat === "webp" &&
-    Number(result.outWidth) === FIXTURE_W &&
-    Number(result.outHeight) === FIXTURE_H,
-  `the engine reads its own output back as ${result.outWidth}×${result.outHeight} ${result.outFormat}`,
+  hero.inDims === `${HERO_W}×${HERO_H}` && hero.inFormat === "png",
+  `the ${HERO_W}×${HERO_H} photo went in as ${hero.inDims} ${hero.inFormat}`,
 );
 check(
-  result.href?.startsWith("blob:") && result.download === "fixture.webp",
-  `a download is produced: <a download="${result.download}"> pointing at a blob: URL (no server round trip)`,
-);
-
-// The load-bearing decode: pull the download's actual BYTES out of the browser and
-// parse them here, with a parser the crate had no hand in.
-const outHex = await cdp.eval(`
-  (async () => {
-    const buf = await (await fetch(document.getElementById('download').href)).arrayBuffer();
-    return [...new Uint8Array(buf.slice(0, 32))].map(b => b.toString(16).padStart(2, '0')).join('');
-  })()
-`);
-const webp = readWebp(Buffer.from(outHex, "hex"));
-check(
-  webp.riff && webp.webp,
-  `the downloaded bytes are a real RIFF/WEBP container (${webp.chunk} chunk — lossless)`,
+  hero.outFormat === "avif",
+  `the default (no controls touched) modernized it to AVIF — "${hero.outFormat}" (Auto chose it)`,
 );
 check(
-  webp.width === FIXTURE_W && webp.height === FIXTURE_H,
-  `the downloaded bytes' own VP8L header says ${webp.width}×${webp.height} (independent parse; ` +
-    `expected ${FIXTURE_W}×${FIXTURE_H})`,
+  Number(hero.outBytes) < Number(hero.inBytes),
+  `and it is SMALLER — ${hero.inBytes} B → ${hero.outBytes} B`,
+);
+check(
+  Math.max(Number(hero.outWidth), Number(hero.outHeight)) <= WEB_EDGE,
+  `and DOWNSCALED — output ${hero.outWidth}×${hero.outHeight}, long edge ≤ ${WEB_EDGE} (the web flow ran)`,
+);
+check(
+  hero.resized === "true" && /Resized to \d+×\d+ for web/.test(hero.resizeNote),
+  `and the page SAYS it downscaled — "${hero.resizeNote}"`,
+);
+check(
+  hero.href?.startsWith("blob:") && hero.download === "photo.avif" && hero.keptOriginal === "false",
+  `a download is produced from the page's own blob: URL — <a download="${hero.download}">`,
 );
 
 // ── 5. it is client-side, and it is not lying about it ────────────────────────
 
 console.log("\n── 100% client-side ──");
 
-const duringConvert = requests
-  .slice(requestsBeforeConvert)
+const duringHero = requests
+  .slice(requestsBeforeHero)
   .filter((u) => !u.startsWith("blob:") && !u.startsWith("data:"));
 check(
-  duringConvert.length === 0,
-  `the conversion made ZERO network requests (only the page's own blob: URL was read back)`,
+  duringHero.length === 0,
+  `the web-flow conversion made ZERO network requests (the worker's traffic is in this log too)`,
 );
-if (duringConvert.length) console.error(`    ${duringConvert.join("\n    ")}`);
+if (duringHero.length) console.error(`    ${duringHero.join("\n    ")}`);
 
 const offOrigin = requests.filter(
   (u) => !u.startsWith(baseUrl) && !u.startsWith("blob:") && !u.startsWith("data:"),
@@ -517,246 +519,20 @@ check(
 if (offOrigin.length) console.error(`    ${offOrigin.join("\n    ")}`);
 console.log(`    served: ${served.join(", ")}`);
 
-// ── 6. the other output format, and the resize ────────────────────────────────
+// ── 6. the AVIF output is real, per decoders the crate never met ──────────────
 
-console.log("\n── PNG out, resized to a max long edge ──");
+console.log("\n── the AVIF is valid (independent decoders) ──");
 
-// Both controls, then one conversion — the same path a user takes, and the one
-// that exercises `transform()` with a real recipe instead of `optimize()`.
-await cdp.eval(`
-  const fmt = document.getElementById('format');
-  fmt.value = 'png';
-  document.getElementById('maxedge').value = '${MAX_EDGE}';
-  fmt.dispatchEvent(new Event('change', { bubbles: true }));
-`);
-await waitFor(cdp, `${PAGE_STATE} === 'done'`, "the resize conversion");
-
-const resized = await cdp.eval(
-  "JSON.stringify({ ...document.getElementById('result').dataset, " +
-    "download: document.getElementById('download').getAttribute('download') })",
-).then(JSON.parse);
-
-// mode = "max" caps the LONG edge, so a 64×48 becomes 32×24.
-const expectW = MAX_EDGE;
-const expectH = Math.round((FIXTURE_H * MAX_EDGE) / FIXTURE_W);
-check(
-  resized.outFormat === "png" &&
-    Number(resized.outWidth) === expectW &&
-    Number(resized.outHeight) === expectH,
-  `transform(recipe: resize max ${MAX_EDGE}) → ${resized.outWidth}×${resized.outHeight} ${resized.outFormat} ` +
-    `(expected ${expectW}×${expectH} png)`,
-);
-check(resized.download === "fixture.png", `the download follows the format: ${resized.download}`);
-
-const pngHex = await cdp.eval(`
-  (async () => {
-    const buf = await (await fetch(document.getElementById('download').href)).arrayBuffer();
-    return [...new Uint8Array(buf.slice(0, 32))].map(b => b.toString(16).padStart(2, '0')).join('');
-  })()
-`);
-const ihdr = readIhdr(Buffer.from(pngHex, "hex"));
-check(ihdr.signature, "the downloaded bytes are a real PNG");
-check(
-  ihdr.width === expectW && ihdr.height === expectH,
-  `the downloaded PNG's own IHDR says ${ihdr.width}×${ihdr.height} (independent parse; expected ` +
-    `${expectW}×${expectH})`,
-);
-
-check(consoleErrors.length === 0, "still no console errors after two conversions");
-if (consoleErrors.length) console.error(`    ${consoleErrors.join("\n    ")}`);
-
-// ── 7. input reach: SVG + JPEG + GIF + WebP ───────────────────────────────────
-
-console.log("\n── every input format the page claims ──");
-
-// The SVG is the repo's hand-written fixture — a file no part of this engine
-// produced. The raster fixtures below ARE minted by the engine (there is no second
-// JPEG/GIF encoder here), so they prove the BROWSER path — File → arrayBuffer →
-// decode — accepts each format, not that the codecs are correct; the codecs are the
-// crate's own test suite's job.
-const { initSync, transform: nodeTransform } = await import(
-  join(demoDir, "vendor", "crustyimg.js")
-);
-initSync({ module: readFileSync(join(demoDir, "vendor", "crustyimg_bg.wasm")) });
-
-const keep = 'version = "1"\n\n[[step]]\nop = "resize"\nmode = "exact"\nwidth = 64\nheight = 48\n';
-const srcPng = makePng(FIXTURE_W, FIXTURE_H);
-for (const fmt of ["jpeg", "gif", "webp"]) {
-  writeFileSync(join(fixtureDir, `fixture.${fmt}`), nodeTransform(srcPng, keep, fmt));
-}
-
-// Reset the controls — no resize, WebP out — so each input is judged on its decode.
-await cdp.eval(`
-  document.getElementById('format').value = 'webp';
-  document.getElementById('maxedge').value = '';
-`);
-
-/// Put a file in the picker and wait for the page to finish converting THAT file.
-///
-/// Waiting for `state === 'done'` is not enough here, and the difference is a real
-/// bug that bit: by the time we drop the SECOND file, the page is ALREADY 'done'
-/// from the first. The wait is then satisfied by the previous conversion's terminal
-/// state, and we read the previous file's numbers — the check goes green or red on
-/// the wrong image, one behind. (Forcing `state = 'ready'` first only narrows the
-/// window; it does not close it, and it lost the race ~3 runs in 8.)
-///
-/// So don't wait on a level that is already true — wait on something ONLY the new
-/// conversion can produce. `render()` overwrites `#result.dataset` wholesale, so a
-/// unique token stamped there before the drop is proof of freshness when it is gone:
-/// nothing but a real render of the new file can remove it.
-let dropSeq = 0;
-async function drop(path) {
-  const token = `awaiting-conversion-${++dropSeq}`;
-  await cdp.eval(`
-    document.getElementById('result').dataset.outFormat = ${JSON.stringify(token)};
-    document.body.dataset.state = 'ready';
-  `);
-
-  const doc = await cdp.send("DOM.getDocument");
-  const { nodeId: input } = await cdp.send("DOM.querySelector", {
-    nodeId: doc.root.nodeId,
-    selector: "#file",
-  });
-  await cdp.send("DOM.setFileInputFiles", { nodeId: input, files: [path] });
-
-  await waitFor(
-    cdp,
-    `${PAGE_STATE} === 'done' && ` +
-      `document.getElementById('result')?.dataset.outFormat !== ${JSON.stringify(token)}`,
-    `the conversion of ${path}`,
-  );
-  // Safe to snapshot now: render() writes the dataset and the readouts in one
-  // synchronous pass, so the token's absence means all of them are this file's.
-  return cdp
-    .eval(
-      "JSON.stringify({ ...document.getElementById('result').dataset, " +
-        "inDims: document.getElementById('in-dims').textContent, " +
-        "inFormat: document.getElementById('in-format').textContent })",
-    )
-    .then(JSON.parse);
-}
-
-// A rasterized SVG reports `png` — it HAS become a lossless raster (SPEC-060's
-// materialized-raster convention). The fixture is 40×30 in its own viewBox.
-const svg = await drop(join(repoRoot, "tests", "fixtures", "svg", "rect_text_40x30.svg"));
-check(
-  svg.inDims === "40×30" && svg.inFormat === "png",
-  `SVG in → rasterized to ${svg.inDims} (reported as ${svg.inFormat}: it is a raster now) → ` +
-    `${svg.outWidth}×${svg.outHeight} ${svg.outFormat} out`,
-);
-check(Number(svg.outBytes) > 0, `SVG → WebP produced ${svg.outBytes} bytes in the browser`);
-
-for (const fmt of ["jpeg", "gif", "webp"]) {
-  const r = await drop(join(fixtureDir, `fixture.${fmt}`));
-  check(
-    r.inFormat === fmt && r.inDims === `${FIXTURE_W}×${FIXTURE_H}`,
-    `${fmt.toUpperCase()} in → info() reads ${r.inDims} ${r.inFormat} → ${r.outWidth}×${r.outHeight} ` +
-      `${r.outFormat} out (${r.outBytes} B)`,
-  );
-}
-
-// ── 8. AVIF out — the headline, and the reason the worker exists ──────────────
-
-console.log("\n── PNG → AVIF, while the page keeps running ──");
-
-// A BIG fixture on purpose. rav1e is serial and slow, and this test's whole claim is
-// about what happens DURING a slow encode — a 64×48 thumbnail would be over before
-// there was anything to observe. (The encode is also the demo's headline: it is the
-// only thing here that a browser cannot already do for you.)
-const bigPng = join(fixtureDir, "big.png");
-writeFileSync(bigPng, makePng(AVIF_W, AVIF_H));
-
-// THE PROBE. Two independent main-thread heartbeats — a timer and a rAF frame
-// callback — each counting how many times it ran while the page was in the
-// `converting` state. If the conversion were still a synchronous wasm call on the
-// page's thread, NEITHER could run during it: the thread would be inside rav1e, and
-// by the time it came back the state would already be `done`. So a non-zero count
-// here is not a smell test, it is the difference between the two architectures.
-await cdp.eval(`
-  window.__probe = { ticks: 0, duringConvert: 0, frames: 0, framesDuringConvert: 0 };
-  const converting = () => document.body.dataset.state === 'converting';
-  setInterval(() => {
-    window.__probe.ticks++;
-    if (converting()) window.__probe.duringConvert++;
-  }, 20);
-  (function frame() {
-    window.__probe.frames++;
-    if (converting()) window.__probe.framesDuringConvert++;
-    requestAnimationFrame(frame);
-  })();
-  document.getElementById('format').value = 'avif';
-  document.getElementById('maxedge').value = '';
-`);
-
-const requestsBeforeAvif = requests.length;
-const avifOut = await drop(bigPng);
-const probe = await cdp.eval("JSON.stringify(window.__probe)").then(JSON.parse);
-const encodeMs = Number(avifOut.elapsedMs);
-
-check(
-  avifOut.outFormat === "avif" &&
-    Number(avifOut.outWidth) === AVIF_W &&
-    Number(avifOut.outHeight) === AVIF_H,
-  `PNG → AVIF: ${avifOut.outWidth}×${avifOut.outHeight} ${avifOut.outFormat}, ${avifOut.outBytes} B ` +
-    `(expected ${AVIF_W}×${AVIF_H} avif) — the option SPEC-077 had to disable`,
-);
-
-// A window worth measuring: if rav1e finished this in 50 ms, the responsiveness
-// claim below would be true but untested. (It does not; it takes seconds.)
-check(
-  encodeMs >= MIN_ENCODE_MS,
-  `the AVIF encode took ${encodeMs} ms — a real blocking window (>= ${MIN_ENCODE_MS} ms), long ` +
-    `enough that a main-thread encode would have frozen the tab for it`,
-);
-check(
-  probe.duringConvert >= 5 && probe.framesDuringConvert >= 5,
-  `THE MAIN THREAD STAYED ALIVE THROUGH IT — ${probe.duringConvert} timer callbacks and ` +
-    `${probe.framesDuringConvert} animation frames ran DURING the ${encodeMs} ms encode ` +
-    `(a main-thread encode blocks both: the page cannot paint the spinner it is showing)`,
-);
-
-// THE NEGATIVE CONTROL — and it is not optional. A probe that cannot detect a frozen
-// main thread would report "responsive" for a page that is not, and the check above
-// would pass for the wrong reason (this wave has already shipped one green wait that
-// was waiting for nothing). So freeze the main thread ON PURPOSE, in the same state
-// the page shows while converting, and confirm the probe goes to ZERO — which is what
-// it would have read all along if the engine had stayed on this thread.
-const control = await cdp
-  .eval(
-    `(async () => {
-      const before = { ...window.__probe };
-      document.body.dataset.state = 'converting';
-      const until = performance.now() + ${BLOCK_MS};
-      while (performance.now() < until) {} // a synchronous wasm call, imitated exactly
-      const ticks = window.__probe.duringConvert - before.duringConvert;
-      const frames = window.__probe.framesDuringConvert - before.framesDuringConvert;
-      document.body.dataset.state = 'done'; // still synchronous: nothing queued has run yet
-      return JSON.stringify({ ticks, frames });
-    })()`,
-  )
-  .then(JSON.parse);
-check(
-  control.ticks === 0 && control.frames === 0,
-  `and the probe CAN see a freeze: a deliberate ${BLOCK_MS} ms main-thread block ran ` +
-    `${control.ticks} timers / ${control.frames} frames — so the counts above are evidence, not noise`,
-);
-
-// The independent decode, twice over. `readAvif` below is a container parse we wrote
-// from the ISOBMFF spec — the crate had no hand in it — and `createImageBitmap` is
-// Chrome's own libavif, a decoder from a different project in a different language.
-// (The engine CANNOT check this one itself: it encodes AVIF and cannot decode it,
-// DEC-065. That asymmetry is exactly why an outside opinion is the only proof here.)
-const avifBytes = await downloadBytes(cdp);
-const box = readAvif(avifBytes);
+const heroBytes = await downloadBytes(cdp);
+const box = readAvif(heroBytes);
 check(
   box.ftyp && box.brand === "avif",
-  `the downloaded bytes are a real AVIF container (ftyp brand "${box.brand}", ${avifBytes.length} B ` +
-    `— parsed here, by a reader the crate never touched)`,
+  `the downloaded bytes are a real AVIF container (ftyp brand "${box.brand}", ${heroBytes.length} B — ` +
+    `parsed here, by a reader the crate never touched)`,
 );
 check(
-  box.width === AVIF_W && box.height === AVIF_H,
-  `the AVIF's own ispe box says ${box.width}×${box.height} (independent parse; expected ` +
-    `${AVIF_W}×${AVIF_H})`,
+  Math.max(box.width, box.height) <= WEB_EDGE && box.width > 0,
+  `the AVIF's own ispe box says ${box.width}×${box.height} (independent parse; long edge ≤ ${WEB_EDGE})`,
 );
 
 const chromeDecode = await cdp
@@ -769,159 +545,303 @@ const chromeDecode = await cdp
   )
   .then(JSON.parse);
 check(
-  chromeDecode.w === AVIF_W && chromeDecode.h === AVIF_H,
-  `Chrome's own AVIF decoder reads the bytes back as ${chromeDecode.w}×${chromeDecode.h} — an ` +
-    `independent decoder, in another language, agreeing this is the image`,
+  chromeDecode.w === box.width && chromeDecode.h === box.height,
+  `Chrome's own AVIF decoder reads it back as ${chromeDecode.w}×${chromeDecode.h} — an independent ` +
+    `decoder, in another language, agreeing this is the image`,
 );
 
-// And a third, when the platform has one: macOS's `sips` is a decoder from neither
-// this crate nor this browser. Skipped elsewhere (CI is Linux) rather than faked.
 if (process.platform === "darwin") {
-  const avifFile = join(fixtureDir, "out.avif");
-  writeFileSync(avifFile, avifBytes);
+  const avifFile = join(fixtureDir, "hero.avif");
+  writeFileSync(avifFile, heroBytes);
   const sips = spawnSync("sips", ["-g", "format", "-g", "pixelWidth", "-g", "pixelHeight", avifFile], {
     encoding: "utf8",
   });
   const said = `${sips.stdout ?? ""}`.replace(/\s+/g, " ").trim();
   check(
-    sips.status === 0 &&
-      /format:\s*avif/i.test(said) &&
-      new RegExp(`pixelWidth: ${AVIF_W}\\b`).test(said) &&
-      new RegExp(`pixelHeight: ${AVIF_H}\\b`).test(said),
-    `macOS \`sips\` — a third decoder, from neither the crate nor the browser — reads it as ` +
-      `${AVIF_W}×${AVIF_H} AVIF ("${said}")`,
+    sips.status === 0 && /format:\s*avif/i.test(said) && new RegExp(`pixelWidth: ${box.width}\\b`).test(said),
+    `macOS \`sips\` — a third decoder, from neither the crate nor the browser — reads it as AVIF ${box.width}×${box.height} ("${said}")`,
   );
 } else {
   console.log(`  · (sips is macOS-only — skipped on ${process.platform}; two decoders agreed above)`);
 }
 
-const duringAvif = requests
-  .slice(requestsBeforeAvif)
-  .filter((u) => !u.startsWith("blob:") && !u.startsWith("data:"));
-check(
-  duringAvif.length === 0,
-  `the AVIF encode made ZERO network requests — the worker's traffic is in this log too, so a ` +
-    `conversion that phoned home from the worker could not hide here`,
-);
-if (duringAvif.length) console.error(`    ${duringAvif.join("\n    ")}`);
+// ── 7. funnel_shows_web_command_and_copies ─────────────────────────────────────
 
-// ── 9. AVIF in — the browser decodes what the engine cannot ───────────────────
+console.log("\n── funnel_shows_web_command_and_copies ──");
 
-console.log("\n── .avif in (the browser decodes what the engine cannot) ──");
+await resetControls();
+const funnelPath = join(fixtureDir, "my-beach-photo.png");
+writeFileSync(funnelPath, makePhotoPng(600, 450, 2));
+await drop(funnelPath);
 
-// The engine has no AVIF decoder (DEC-065) — an `.avif` input used to be a typed
-// error on this page. The worker now hands it to `createImageBitmap`, draws it on an
-// OffscreenCanvas, and gives the engine lossless PNG pixels. The fixture is the
-// repo's own 16×16 AVIF, which nothing in this build could read a week ago.
-await cdp.eval(`
-  document.getElementById('format').value = 'webp';
-  document.getElementById('maxedge').value = '';
-`);
-const fromAvif = await drop(join(repoRoot, "tests", "fixtures", "avif", "solid_16x16.avif"));
-
-check(
-  fromAvif.inFormat === "avif" && fromAvif.inDims === "16×16",
-  `an .avif INPUT is read: ${fromAvif.inDims} ${fromAvif.inFormat} (the page says avif, not "png" — ` +
-    `it does not pretend the browser's PNG hand-off is the file you dropped)`,
-);
-check(
-  fromAvif.outFormat === "webp" &&
-    Number(fromAvif.outWidth) === 16 &&
-    Number(fromAvif.outHeight) === 16 &&
-    Number(fromAvif.outBytes) > 0,
-  `.avif → WebP: ${fromAvif.outWidth}×${fromAvif.outHeight} ${fromAvif.outFormat}, ` +
-    `${fromAvif.outBytes} B — the dimensions survived the createImageBitmap → canvas → engine path`,
-);
-
-const whereText = await cdp.eval("document.getElementById('ex-where').textContent");
-check(
-  /browser decoded the AVIF input/i.test(whereText),
-  `and the page SAYS whose decoder that was, rather than quietly implying the engine did it`,
-);
-
-// ── 10. the decision, on the page ─────────────────────────────────────────────
-
-console.log("\n── the readout shows the decision ──");
-
-const readout = await cdp
+const expectedCmd = "crustyimg web my-beach-photo.png";
+const funnel = await cdp
   .eval(
-    "JSON.stringify({ ...document.getElementById('result').dataset, " +
-      "inBytes: document.getElementById('in-bytes').textContent, " +
-      "outBytes: document.getElementById('out-bytes').textContent, " +
-      "delta: document.getElementById('delta').textContent, " +
-      "exFormat: document.getElementById('ex-format').textContent, " +
-      "exSize: document.getElementById('ex-size').textContent, " +
-      "exDims: document.getElementById('ex-dims').textContent, " +
-      "exQuality: document.getElementById('ex-quality').textContent })",
+    "JSON.stringify({ " +
+      "hidden: document.getElementById('funnel').hidden, " +
+      "cmd: document.getElementById('funnel-cmd').textContent, " +
+      "cmdData: document.getElementById('funnel-cmd').dataset.cmd, " +
+      "recipe: document.getElementById('recipe-text').textContent })",
   )
   .then(JSON.parse);
 
 check(
-  /\d+ (B|KB|MB)/.test(readout.inBytes) && /\d+(\.\d+)? (B|KB|MB)/.test(readout.outBytes),
-  `the DOM shows the bytes in and out — "${readout.inBytes}" → "${readout.outBytes}"`,
-);
-check(
-  /\d+% (smaller|bigger)/.test(readout.delta) &&
-    Number.isInteger(Number(readout.savedPct)) &&
-    /\d+% (saved|larger)/.test(readout.exSize),
-  `and the SAVING, as a percentage — "${readout.delta.trim()}" (data-saved-pct="${readout.savedPct}")`,
-);
-check(
-  readout.exFormat.includes(`${readout.inFormat} → ${readout.outFormat}`) &&
-    readout.exFormat.includes("you chose the format"),
-  `and the format it chose, and WHO chose it — "${readout.exFormat}"`,
-);
-check(
-  readout.exDims.includes(`${readout.outWidth}×${readout.outHeight}`),
-  `and the dimensions — "${readout.exDims}"`,
-);
-check(
-  /lossless/i.test(readout.exQuality),
-  `and how the quality was decided, honestly (WebP here is LOSSLESS — this build has no lossy ` +
-    `WebP) — "${readout.exQuality.slice(0, 60)}…"`,
+  !funnel.hidden && funnel.cmd.trim() === expectedCmd,
+  `the funnel shows the exact command for the dropped file — "${funnel.cmd.trim()}"`,
 );
 
-// ── 11. Auto: let the engine choose ───────────────────────────────────────────
+// Click the real copy button with a TRUSTED gesture (a synthetic .click() is not a
+// user activation, and the Clipboard API needs one) and read the clipboard back. The
+// button is scrolled into view first so its viewport coordinates are hittable.
+await cdp.send("Page.bringToFront").catch(() => {});
+await cdp.eval("document.getElementById('copy-cmd').scrollIntoView({ block: 'center' })");
+const btnBox = await cdp
+  .eval(
+    "(() => { const r = document.getElementById('copy-cmd').getBoundingClientRect(); " +
+      "return JSON.stringify({ x: r.x + r.width / 2, y: r.y + r.height / 2 }); })()",
+  )
+  .then(JSON.parse);
+await cdp.send("Input.dispatchMouseEvent", {
+  type: "mousePressed",
+  x: btnBox.x,
+  y: btnBox.y,
+  button: "left",
+  clickCount: 1,
+});
+await cdp.send("Input.dispatchMouseEvent", {
+  type: "mouseReleased",
+  x: btnBox.x,
+  y: btnBox.y,
+  button: "left",
+  clickCount: 1,
+});
+await sleep(250);
+const copiedData = await cdp.eval("document.getElementById('copy-cmd').dataset.copied ?? ''");
+let clip = "";
+try {
+  clip = await cdp.eval("navigator.clipboard.readText()");
+} catch {
+  /* headless clipboard read can be denied even with permission granted; dataset proves the write resolved */
+}
+check(
+  copiedData === expectedCmd && (clip === "" || clip === expectedCmd),
+  `the copy button wrote "${expectedCmd}" to the clipboard` +
+    (clip ? ` (read back: "${clip}")` : " (writeText resolved; clipboard read unavailable headless)"),
+);
 
-console.log("\n── Auto — the engine picks the format ──");
+const webToml = readFileSync(join(repoRoot, "recipes", "web.toml"), "utf8");
+check(
+  funnel.recipe === webToml,
+  `the funnel's recipe is VERBATIM from recipes/web.toml (${funnel.recipe.length} B; byte-identical — ` +
+    `it cannot drift from what the CLI runs)`,
+);
 
-// The other half of "intent": the user says what they want, not how. `optimize(bytes,
-// "auto")` runs the engine's own analysis + format shortlist (the same code the CLI's
-// `optimize` runs) inside the wasm, and whatever it picks is what the page reports.
-await cdp.eval("document.getElementById('format').value = 'auto';");
-const auto = await drop(fixture);
+// ── 8. never_bigger_keeps_original ─────────────────────────────────────────────
+
+console.log("\n── never_bigger_keeps_original ──");
+
+// An input the engine cannot beat: a moderate-quality JPEG of a photo, small enough
+// (≤ 2048) that nothing downscales — the best modern re-encode comes out LARGER, so
+// the never-bigger guard hands the original back. Minted here via the SAME wasm the
+// browser runs, so the ">= input" relationship is a property of the engine, not luck.
+const { initSync, optimizeDetailed: nodeOptimize } = await import(join(demoDir, "vendor", "crustyimg.js"));
+initSync({ module: readFileSync(join(demoDir, "vendor", "crustyimg_bg.wasm")) });
+const jpegBytes = Buffer.from(nodeOptimize(makePhotoPng(1200, 900, 4), "jpeg", undefined, 45000, undefined).bytes);
+const keepPath = join(fixtureDir, "already-small.jpg");
+writeFileSync(keepPath, jpegBytes);
+
+await resetControls();
+const kept = await drop(keepPath);
 
 check(
-  ["avif", "webp", "png", "jpeg"].includes(auto.outFormat) && Number(auto.outBytes) > 0,
-  `Auto → the engine chose ${auto.outFormat} for a ${FIXTURE_W}×${FIXTURE_H} gradient PNG ` +
-    `(${auto.outBytes} B) — its own analysis + format shortlist, running in the browser`,
+  kept.keptOriginal === "true",
+  `the engine could not beat the ${jpegBytes.length} B JPEG — the never-bigger guard fired (kept-original state)`,
 );
-const autoSays = await cdp.eval("document.getElementById('ex-format').textContent");
 check(
-  autoSays.includes("the engine chose the format"),
-  `and the readout attributes the choice to the engine — "${autoSays}"`,
+  /kept your file/i.test(kept.delta),
+  `and the page SAYS so honestly — "${kept.delta.trim().slice(0, 70)}…"`,
 );
+check(
+  kept.download === "already-small.jpg",
+  `the download reverts to the ORIGINAL file name — "${kept.download}"`,
+);
+
+const keptDownload = await downloadBytes(cdp);
+check(
+  keptDownload.length === jpegBytes.length && keptDownload.equals(jpegBytes),
+  `and the downloaded bytes ARE the original, byte-for-byte (${keptDownload.length} B == ${jpegBytes.length} B)`,
+);
+
+// ── 9. advanced_full_resolution_shows_timer ────────────────────────────────────
+
+console.log("\n── advanced_full_resolution_shows_timer (the slow path warns + counts + stays live) ──");
+
+const fullPath = join(fixtureDir, "huge.png");
+writeFileSync(fullPath, makePhotoPng(FULL_W, FULL_H, 11));
+
+// THE PROBE (SPEC-078): two independent main-thread heartbeats counting how many
+// times each ran while the page was `converting`. If the encode were a synchronous
+// wasm call on this thread, NEITHER could run during it.
+await cdp.eval(`
+  window.__probe = { duringConvert: 0, framesDuringConvert: 0 };
+  const converting = () => document.body.dataset.state === 'converting';
+  setInterval(() => { if (converting()) window.__probe.duringConvert++; }, 20);
+  (function frame() {
+    if (converting()) window.__probe.framesDuringConvert++;
+    requestAnimationFrame(frame);
+  })();
+`);
+
+// Open Advanced and choose keep-full-resolution — the one path slow enough to warrant
+// the warning + timer. Set the control property directly (no change event) so the drop
+// below reads it live without a debounced stray convert firing first.
+await cdp.eval(`
+  document.getElementById('advanced').open = true;
+  document.getElementById('keepfull').checked = true;
+  document.getElementById('maxedge').disabled = true;
+`);
+
+// Drop huge.png but DON'T await the whole conversion — we need to observe it MID-flight.
+const fullToken = `awaiting-conversion-${++dropSeq}`;
+await cdp.eval(`
+  document.getElementById('result').dataset.outFormat = ${JSON.stringify(fullToken)};
+  document.body.dataset.state = 'ready';
+`);
+{
+  const doc = await cdp.send("DOM.getDocument");
+  const { nodeId } = await cdp.send("DOM.querySelector", { nodeId: doc.root.nodeId, selector: "#file" });
+  await cdp.send("DOM.setFileInputFiles", { nodeId, files: [fullPath] });
+}
+
+await waitFor(cdp, `${PAGE_STATE} === 'converting'`, "the full-resolution encode to start");
+
+const warnShown = await cdp.eval("!document.getElementById('mp-warning').hidden");
+const warnText = await cdp.eval("document.getElementById('mp-warning').textContent");
+check(
+  warnShown && /MP at full resolution/i.test(warnText),
+  `the megapixel warning appears for the full-res path — "${warnText.trim()}"`,
+);
+
+// Sample the HONEST elapsed timer twice, mid-encode: a value, then a larger one. The
+// timer is driven by setInterval on the MAIN thread, so it can only advance if the
+// main thread is alive — which is the point.
+const t1 = Number.parseFloat(await cdp.eval("document.getElementById('elapsed').textContent"));
+const interactive = await cdp.eval("!document.getElementById('elapsed').hidden");
+await sleep(700);
+const t2 = Number.parseFloat(await cdp.eval("document.getElementById('elapsed').textContent"));
+check(
+  interactive && Number.isFinite(t1) && Number.isFinite(t2) && t2 > t1,
+  `the elapsed timer COUNTS UP during the encode (${t1}s → ${t2}s) — honest seconds, no fake %, ` +
+    `and the main thread is alive to advance it`,
+);
+
+await waitFor(
+  cdp,
+  `${PAGE_STATE} === 'done' && document.getElementById('result')?.dataset.outFormat !== ${JSON.stringify(fullToken)}`,
+  "the full-resolution encode to finish",
+);
+
+const full = await cdp
+  .eval(
+    "JSON.stringify({ ...document.getElementById('result').dataset })",
+  )
+  .then(JSON.parse);
+const encodeMs = Number(full.elapsedMs);
+check(
+  full.resized === "false" &&
+    Number(full.outWidth) === FULL_W &&
+    Number(full.outHeight) === FULL_H,
+  `keep-full-resolution kept every pixel — ${full.outWidth}×${full.outHeight}, not downscaled`,
+);
+check(
+  encodeMs >= MIN_ENCODE_MS,
+  `the full-res encode was a real blocking window (${encodeMs} ms ≥ ${MIN_ENCODE_MS} ms)`,
+);
+
+const probe = await cdp.eval("JSON.stringify(window.__probe)").then(JSON.parse);
+check(
+  probe.duringConvert >= 5 && probe.framesDuringConvert >= 5,
+  `THE MAIN THREAD STAYED ALIVE THROUGH IT — ${probe.duringConvert} timer callbacks and ` +
+    `${probe.framesDuringConvert} animation frames ran DURING the ${encodeMs} ms encode`,
+);
+
+// THE NEGATIVE CONTROL — not optional. Freeze the main thread on purpose, in the same
+// state the page shows while converting, and confirm the probe goes to ZERO — which is
+// what it would have read all along if the engine had stayed on this thread.
+const control = await cdp
+  .eval(
+    `(async () => {
+      const before = { ...window.__probe };
+      document.body.dataset.state = 'converting';
+      const until = performance.now() + ${BLOCK_MS};
+      while (performance.now() < until) {}
+      const ticks = window.__probe.duringConvert - before.duringConvert;
+      const frames = window.__probe.framesDuringConvert - before.framesDuringConvert;
+      document.body.dataset.state = 'done';
+      return JSON.stringify({ ticks, frames });
+    })()`,
+  )
+  .then(JSON.parse);
+check(
+  control.ticks === 0 && control.frames === 0,
+  `and the probe CAN see a freeze: a deliberate ${BLOCK_MS} ms main-thread block ran ` +
+    `${control.ticks} timers / ${control.frames} frames — so the counts above are evidence, not noise`,
+);
+
+// ── 10. every input format the page claims (reach) ────────────────────────────
+
+console.log("\n── every input format the page claims ──");
+
+const { transform: nodeTransform } = await import(join(demoDir, "vendor", "crustyimg.js"));
+const keepRecipe = 'version = "1"\n\n[[step]]\nop = "resize"\nmode = "exact"\nwidth = 64\nheight = 48\n';
+const srcPng = makePng(64, 48);
+for (const fmt of ["jpeg", "gif", "webp"]) {
+  writeFileSync(join(fixtureDir, `reach.${fmt}`), Buffer.from(nodeTransform(srcPng, keepRecipe, fmt)));
+}
+
+await resetControls();
+
+const svg = await drop(join(repoRoot, "tests", "fixtures", "svg", "rect_text_40x30.svg"));
+check(
+  svg.inDims === "40×30" && Number(svg.outBytes) > 0,
+  `SVG in → rasterized to ${svg.inDims} → ${svg.outWidth}×${svg.outHeight} ${svg.outFormat} out (${svg.outBytes} B)`,
+);
+
+for (const fmt of ["jpeg", "gif", "webp"]) {
+  const r = await drop(join(fixtureDir, `reach.${fmt}`));
+  check(
+    r.inFormat === fmt && r.inDims === "64×48" && Number(r.outBytes) > 0,
+    `${fmt.toUpperCase()} in → info() reads ${r.inDims} ${r.inFormat} → ${r.outWidth}×${r.outHeight} ${r.outFormat} out (${r.outBytes} B)`,
+  );
+}
+
+// ── 11. .avif in — the browser decodes what the engine cannot ─────────────────
+
+console.log("\n── .avif in (the browser decodes what the engine cannot) ──");
+
+await resetControls();
+const requestsBeforeAvifIn = requests.length;
+const fromAvif = await drop(join(repoRoot, "tests", "fixtures", "avif", "solid_16x16.avif"));
+check(
+  fromAvif.inFormat === "avif" && fromAvif.inDims === "16×16" && fromAvif.decodedBy === "browser",
+  `an .avif INPUT is read: ${fromAvif.inDims} ${fromAvif.inFormat}, decoded by the ${fromAvif.decodedBy} ` +
+    `(the page does not pretend the engine did it)`,
+);
+check(Number(fromAvif.outBytes) > 0, `.avif → ${fromAvif.outFormat}: ${fromAvif.outBytes} B produced in the browser`);
+
+const duringAvifIn = requests
+  .slice(requestsBeforeAvifIn)
+  .filter((u) => !u.startsWith("blob:") && !u.startsWith("data:"));
+check(duringAvifIn.length === 0, "and even the browser-decode path made ZERO network requests");
+if (duringAvifIn.length) console.error(`    ${duringAvifIn.join("\n    ")}`);
 
 check(consoleErrors.length === 0, "no console errors in the page OR the worker, after all of it");
 if (consoleErrors.length) console.error(`    ${consoleErrors.join("\n    ")}`);
 
-// ── 12. and the reason the server exists ──────────────────────────────────────
+// ── 12. the file:// failure mode is real (which is WHY we serve) ──────────────
 
 console.log("\n── the file:// failure mode is real (which is WHY we serve) ──");
 
-// The whole recipe/deploy story rests on "this page cannot be opened from the
-// filesystem". That claim is load-bearing enough to test rather than repeat: open
-// the very same index.html as a file:// URL and confirm it (a) cannot run, and
-// (b) says so instead of hanging on a spinner.
-//
-// The failure is EARLIER than "instantiateStreaming rejects the MIME type": an ES
-// module script is fetched under CORS, and file:// is an opaque origin, so demo.js
-// is blocked before it executes at all — which is why index.html carries a classic
-// script whose only job is to explain this.
-//
-// It needs its OWN tab: Chrome refuses to navigate an http:// page to a file:// URL,
-// so reusing the tab above would silently test nothing. Target.createTarget opens the
-// file:// URL as a top-level navigation, the way double-clicking the file does.
 const { targetId } = await cdp.send("Target.createTarget", {
   url: `file://${join(demoDir, "index.html")}`,
 });
@@ -936,27 +856,18 @@ await sleep(2000);
 
 const fileState = await fileCdp.eval(PAGE_STATE);
 const fileStatus = await fileCdp.eval("document.getElementById('status')?.textContent ?? ''");
-// `#drop` is unhidden only by demo.js, and only after init() resolves.
 const moduleRan = await fileCdp.eval("!!document.querySelector('#drop:not([hidden])')");
 
 check(
   !moduleRan,
   "over file://, the page cannot convert anything — the module script is CORS-blocked before it runs",
 );
-// Assert WHO is speaking, not just that someone is. demo.js's own catch block also
-// mentions serving over HTTP, so a message merely matching /served over http/i would
-// be satisfied by the module having run and failed at instantiateStreaming — exactly
-// the mechanism this test claims is impossible. The classic script's wording is
-// distinct ("will not load its code"); demo.js's catch always opens with "Could not
-// load the WebAssembly engine". Requiring the former and forbidding the latter pins
-// the real failure: the module never executed, and the non-module script is what
-// survived to explain it.
 check(
   fileState === "error" &&
     /will not load its code/i.test(fileStatus) &&
     !/Could not load the WebAssembly engine/i.test(fileStatus),
-  `over file://, it is the CLASSIC script that speaks — demo.js never ran, so its catch never ` +
-    `fired — and the page SAYS why instead of hanging on "Loading…" — "${fileStatus.trim().slice(0, 52)}…"`,
+  `over file://, it is the CLASSIC script that speaks — demo.js never ran — and the page SAYS why ` +
+    `instead of hanging on "Loading…" — "${fileStatus.trim().slice(0, 52)}…"`,
 );
 
 await cleanup();
@@ -967,6 +878,6 @@ if (failed) {
   process.exit(1);
 }
 console.log(
-  `demo-smoke: the demo loads crustyimg ${crateVersion} in a real browser over HTTP and converts ` +
-    `images client-side. ✓\n`,
+  `demo-smoke: the demo loads crustyimg ${crateVersion} in a real browser over HTTP, runs the web ` +
+    `flow client-side, and funnels to the CLI. ✓\n`,
 );

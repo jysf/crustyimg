@@ -10,6 +10,7 @@
   --rust: #d97a45;
   --good: #7fc08a;
   --bad: #d9705f;
+  --warn: #e0b878;
   color-scheme: dark;
 }
 
@@ -43,11 +44,16 @@ h1::before {
 .tagline {
   margin: 0.35rem 0 1.5rem;
   color: var(--muted);
-  max-width: 40rem;
+  max-width: 42rem;
 }
 
 .tagline strong {
   color: var(--ink);
+}
+
+code {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.9em;
 }
 
 /* ── status ─────────────────────────────────────────────────────────────── */
@@ -115,21 +121,57 @@ h1::before {
   font-size: 0.88rem;
 }
 
-/* ── controls ───────────────────────────────────────────────────────────── */
+/* ── advanced disclosure ────────────────────────────────────────────────── */
 
-.controls {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 1rem;
+.advanced {
   margin-top: 1rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
 }
 
-.controls label {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  font-size: 0.9rem;
+.advanced > summary {
+  padding: 0.7rem 0.9rem;
+  cursor: pointer;
   color: var(--muted);
+  font-size: 0.9rem;
+  font-weight: 600;
+  user-select: none;
+}
+
+.advanced[open] > summary {
+  border-bottom: 1px solid var(--line);
+}
+
+.advanced-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  padding: 1rem 0.9rem;
+}
+
+@media (max-width: 40rem) {
+  .advanced-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.advanced-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.advanced-grid label.checkbox {
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+
+.advanced-grid label.checkbox input {
+  margin-top: 0.15rem;
 }
 
 select,
@@ -137,14 +179,10 @@ input[type="number"] {
   padding: 0.4rem 0.55rem;
   border: 1px solid var(--line);
   border-radius: 7px;
-  background: var(--panel);
+  background: var(--bg);
   color: var(--ink);
   font: inherit;
   font-size: 0.9rem;
-}
-
-input[type="number"] {
-  width: 9rem;
 }
 
 select:disabled,
@@ -154,13 +192,13 @@ input:disabled {
 }
 
 /* ── busy ───────────────────────────────────────────────────────────────── */
-/* An indeterminate spinner, never a percentage: the conversion is one blocking call
-   inside the worker with no progress signal to report. What this really announces is
-   that the page is STILL ALIVE while the engine works — which it is, because the
-   engine is on another thread. If this animation ever freezes, the worker is gone. */
+/* An indeterminate spinner, never a percentage. On the slow full-resolution path a
+   megapixel warning and an HONEST counting-up timer join it — still no fake %. If the
+   spinner or the timer ever freezes, the worker is gone. */
 
 .busy {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 0.6rem;
   margin-top: 1rem;
@@ -179,6 +217,7 @@ input:disabled {
   border-top-color: var(--rust);
   border-radius: 50%;
   animation: spin 0.7s linear infinite;
+  flex: none;
 }
 
 @keyframes spin {
@@ -191,6 +230,19 @@ input:disabled {
   .spinner {
     animation-duration: 2.4s;
   }
+}
+
+.mp-warning {
+  width: 100%;
+  color: var(--warn);
+  font-size: 0.85rem;
+}
+
+.elapsed {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: var(--ink);
 }
 
 /* ── error ──────────────────────────────────────────────────────────────── */
@@ -265,61 +317,136 @@ input:disabled {
 }
 
 .delta {
-  margin: 1rem 0 0;
-  font-size: 1rem;
+  margin: 1.1rem 0 0;
+  font-size: 1.05rem;
+  font-weight: 600;
 }
 
 .delta.smaller {
   color: var(--good);
 }
 
-.delta.bigger {
-  color: var(--bad);
+.delta.kept {
+  color: var(--warn);
+  font-weight: 500;
+  font-size: 0.98rem;
 }
 
-/* ── the explain readout ────────────────────────────────────────────────── */
-
-.explain {
-  display: grid;
-  grid-template-columns: 7rem 1fr;
-  gap: 0.35rem 1rem;
-  margin: 1rem 0 0;
-  padding: 0.9rem 1rem;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: var(--panel);
+.resize-note,
+.score {
+  margin: 0.4rem 0 0;
   font-size: 0.88rem;
-}
-
-.explain dt {
   color: var(--muted);
-  font-weight: 600;
-}
-
-.explain dd {
-  margin: 0;
-  font-variant-numeric: tabular-nums;
-}
-
-@media (max-width: 40rem) {
-  .explain {
-    grid-template-columns: 1fr;
-  }
-
-  .explain dd {
-    margin-bottom: 0.35rem;
-  }
 }
 
 .download {
   display: inline-block;
-  margin-top: 1rem;
+  margin-top: 1.1rem;
   padding: 0.6rem 1.2rem;
   border-radius: 8px;
   background: var(--rust);
   color: #1a1208;
   font-weight: 600;
   text-decoration: none;
+}
+
+/* ── the CLI adoption funnel — the point, not a footer ──────────────────── */
+
+.funnel {
+  margin-top: 1.75rem;
+  padding: 1.25rem 1.25rem 1rem;
+  border: 1px solid color-mix(in srgb, var(--rust) 35%, var(--line));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--rust) 7%, var(--panel));
+}
+
+.funnel h2 {
+  margin: 0 0 0.4rem;
+  font-size: 1.15rem;
+}
+
+.funnel-lead {
+  margin: 0 0 0.9rem;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.cmd {
+  display: flex;
+  align-items: stretch;
+  gap: 0.5rem;
+}
+
+.funnel-cmd {
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  white-space: nowrap;
+  padding: 0.65rem 0.8rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.92rem;
+}
+
+.copy-cmd {
+  flex: none;
+  padding: 0.5rem 1rem;
+  border: 1px solid var(--rust);
+  border-radius: 8px;
+  background: var(--rust);
+  color: #1a1208;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.copy-cmd:active {
+  transform: translateY(1px);
+}
+
+.funnel-folder {
+  margin: 0.65rem 0 0;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.recipe {
+  margin-top: 0.9rem;
+  border-top: 1px solid var(--line);
+  padding-top: 0.7rem;
+}
+
+.recipe > summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 0.85rem;
+  user-select: none;
+}
+
+.recipe-text {
+  margin: 0.7rem 0 0;
+  padding: 0.85rem;
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+.funnel-honest {
+  margin: 0.9rem 0 0;
+  color: var(--muted);
+  font-size: 0.83rem;
+}
+
+.funnel-honest a {
+  color: var(--rust);
 }
 
 /* ── footer ─────────────────────────────────────────────────────────────── */
@@ -338,6 +465,16 @@ footer p {
 
 footer a {
   color: var(--rust);
+}
+
+footer .candor {
+  margin-top: 0.9rem;
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+footer .candor strong {
+  color: var(--ink);
 }
 
 .version {

@@ -15,6 +15,10 @@ Cycle prompts live in `prompts/SPEC-080-<cycle>.md`.
   recipe + copy). Key insight: making downscale-2048 the default dissolves the perf problem (2 MP AVIF at
   speed 10 ≈ 1–2 s, not 33 s) — the timer/warning machinery demotes to the Advanced full-resolution
   fallback. Demo files only; consumes the shipped SPEC-079 surface + SPEC-085 `web`. Complexity M.
-- [ ] build — single session, primary checkout (demo files only; browser-driven smoke).
-- [ ] verify — single session, primary checkout (drive the hero + funnel in headless Chrome).
+- [x] build — demo reframe (hero `web` flow + CLI funnel) + rewritten headless-Chrome smoke. PR #98.
+- [x] verify — **✅ APPROVED (2026-07-18).** Hero + funnel + never-bigger + timer driven end-to-end in
+  headless Chrome (baseline green); ran the red→green substitute the build owed — mutated the demo to
+  break each of the four new smoke checks and confirmed every one FAILS. Spot-checked engine-transform
+  geometry vs a real `crustyimg web` (both 2048×1536) + raw-SSIMULACRA2 score honesty. PR #98 CI green
+  on the full matrix. No punch list. (~240k tok est / ~$2.16, main-loop.)
 - [ ] ship — orchestrator.

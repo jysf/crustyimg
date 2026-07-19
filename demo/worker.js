@@ -1,5 +1,5 @@
-// The engine's thread (SPEC-078). Every conversion the demo does happens HERE, in
-// a module Web Worker, and never on the page's thread.
+// The engine's thread (SPEC-078, reframed by SPEC-080). Every conversion the demo
+// does happens HERE, in a module Web Worker, and never on the page's thread.
 //
 // WHY. rav1e — the AVIF encoder compiled into this .wasm (DEC-065) — is serial and
 // slow: seconds of straight-line work for a photo. Called from the page's thread it
@@ -10,13 +10,23 @@
 // COOP/COEP headers — the engine is still single-threaded, it is simply not on the
 // thread that draws.
 //
+// THE `web` FLOW, MIRRORED (SPEC-080). The demo's default is the flagship `web` verb
+// (SPEC-085 / DEC-070): auto-orient, downscale the long edge to 2048, then modernize
+// (AVIF for photos, lossless WebP for graphics) and score the winner. `optimizeDetailed`
+// does NOT resize (DEC-068), so THIS FILE does the geometry itself — via `transform`
+// with the SAME recipe machinery the CLI reads from disk (DEC-005), so the resize is
+// the engine's own `fast_image_resize`, not a browser resampler. Then it calls
+// `optimizeDetailed` (speed 10 in the browser; the CLI stays 6 — DEC-020) and reports
+// what it did. The never-bigger guard is pure PAGE logic (demo.js); the worker just
+// converts and hands both byte counts back.
+//
 // The engine is loaded exactly as the page loaded it (DEC-067): the package is built
 // `--target web`, so `init()` is explicit and resolves `crustyimg_bg.wasm` relative to
 // THIS module's URL — `demo/vendor/crustyimg.js` → `demo/vendor/crustyimg_bg.wasm`.
 // A module worker (`new Worker(url, { type: 'module' })`) can `import`, and its
 // `import.meta.url` is its own script URL, so the same vendored package works
-// unchanged in here. (That was this spec's load-bearing assumption; it is proven by
-// the browser smoke, which fails if the worker cannot instantiate the engine.)
+// unchanged in here. (Proven by the browser smoke, which fails if the worker cannot
+// instantiate the engine.)
 //
 // AVIF, BOTH WAYS ROUND. This build ENCODES AVIF and cannot DECODE it (DEC-065 —
 // the decoder is a different codec that does not build for bare wasm32). So an
@@ -27,7 +37,7 @@
 // codec to the wasm (the `pure-rust-codecs-default` constraint holds): they borrow
 // the one already in the browser.
 
-import init, { info, optimize, transform, version } from "./vendor/crustyimg.js";
+import init, { info, optimizeDetailed, transform, version } from "./vendor/crustyimg.js";
 
 const msg = (e) => e?.message ?? String(e);
 
@@ -97,41 +107,29 @@ async function readBack(out) {
   }
 }
 
-// ── how the quality was chosen ───────────────────────────────────────────────
-// Said out loud rather than implied, because the answer differs by format and two
-// of the three are not what a user would guess. There is no quality SLIDER: the
-// shipped wasm surface (DEC-064) takes no quality argument — `optimize` decides.
-
-function qualityNote(format) {
-  switch (format) {
-    case "jpeg":
-      return {
-        mode: "searched",
-        note: "quality searched with SSIMULACRA2 until the result is visually lossless (the engine's own auto-quality — it decodes every candidate to score it)",
-      };
-    case "avif":
-      return {
-        mode: "default",
-        note: "encoded at the encoder's default quality — not searched: a perceptual search has to DECODE each candidate to score it, and this build encodes AVIF without being able to decode it (DEC-065)",
-      };
-    default:
-      return { mode: "lossless", note: "lossless — every pixel is preserved, so there is no quality to choose" };
-  }
-}
-
 // ── the conversion ───────────────────────────────────────────────────────────
 
-/// One conversion, start to finish. The chain is deliberately uniform:
+/// The `web` geometry as a recipe: auto-orient, then (unless full resolution was
+/// asked for) downscale the long edge to `cap`. It is the SAME recipe TOML the CLI
+/// reads from disk (DEC-005), built through the SAME registry, encoded to a LOSSLESS
+/// PNG — so `optimizeDetailed` gets exactly the pixels the CLI's `web` would, and the
+/// resize is `fast_image_resize`, not the browser's resampler. `mode = "max"` never
+/// upscales, so a source already within `cap` passes through untouched.
+function geometryRecipe(cap) {
+  let recipe = 'version = "1"\n\n[[step]]\nop = "auto-orient"\n';
+  if (Number.isInteger(cap) && cap > 0) {
+    recipe += `\n[[step]]\nop = "resize"\nmode = "max"\nwidth = ${cap}\n`;
+  }
+  return recipe;
+}
+
+/// One conversion, start to finish:
 ///
-///   [browser-decode an .avif] → [transform(recipe) → PNG, if a size cap was asked]
-///   → optimize(→ the chosen format)
+///   [browser-decode an .avif] → transform(auto-orient + downscale) → PNG
+///   → optimizeDetailed(→ the chosen format, speed 10)
 ///
-/// The final encode always goes through `optimize`, so the quality story is the same
-/// however the user got here (and "Auto" — let the engine pick the format — works
-/// with a resize too, which it could not if the resize did the encoding). When a
-/// size cap is set, the resize is a real `transform` with a real recipe — the SAME
-/// recipe TOML the CLI reads from disk (DEC-005) — encoded to a LOSSLESS PNG so the
-/// intermediate throws nothing away before `optimize` gets its turn.
+/// The downscale runs BEFORE the encode and the analysis, exactly as `web` orders it,
+/// so Auto picks the format for the DOWNSCALED image (a 2 MP photo, not a 12 MP one).
 async function convert(job) {
   await booted;
   if (bootError) throw bootError;
@@ -149,31 +147,59 @@ async function convert(job) {
   const started = performance.now();
 
   // `info()` on the engine-readable bytes: for an AVIF that is the PNG the browser
-  // handed back, whose dimensions are the AVIF's — so the width/height are right,
-  // and the format is the one we sniffed above, not "png".
+  // handed back, whose dimensions are the AVIF's — so width/height are right, and the
+  // format is the one we sniffed above, not "png".
   const i = info(pixels);
   input.width = i.width;
   input.height = i.height;
   input.format ??= i.format;
 
-  if (Number.isInteger(job.maxEdge) && job.maxEdge > 0) {
-    const recipe = `version = "1"\n\n[[step]]\nop = "resize"\nmode = "max"\nwidth = ${job.maxEdge}\n`;
-    pixels = transform(pixels, recipe, "png");
-  }
+  // The web geometry. `cap` is the long-edge limit: the default 2048, an Advanced
+  // override, or null for "keep full resolution".
+  const cap = Number.isInteger(job.maxEdge) && job.maxEdge > 0 ? job.maxEdge : null;
+  pixels = transform(pixels, geometryRecipe(cap), "png");
+  const scaled = info(pixels);
 
-  const out = optimize(pixels, job.format === "auto" ? "auto" : job.format);
+  // Modernize + score. `optimizeDetailed` does not resize (we just did). speed 10 in
+  // the browser (DEC-020). A byte budget only comes from the Advanced control.
+  const budget = Number.isInteger(job.maxBytes) && job.maxBytes > 0 ? job.maxBytes : undefined;
+  const result = optimizeDetailed(
+    pixels,
+    job.format && job.format !== "auto" ? job.format : "auto",
+    Number.isInteger(job.speed) ? job.speed : 10,
+    budget,
+    undefined,
+  );
+  const outBytes = result.bytes; // a getter that CLONES — read it once.
   const elapsedMs = Math.round(performance.now() - started);
 
-  const output = await readBack(out);
-  output.bytes = out.length;
+  const back = await readBack(outBytes);
+
+  // An unsatisfiable byte budget returns over-budget bytes SILENTLY (SPEC-079 note),
+  // so a budget that was asked for but missed is flagged rather than implied met.
+  const budgetMissed = budget !== undefined && outBytes.length > budget;
 
   return {
     input,
-    output,
+    scaled: { width: scaled.width, height: scaled.height },
+    output: {
+      width: back.width,
+      height: back.height,
+      format: back.format,
+      readBy: back.readBy,
+      bytes: outBytes.length,
+      quality: result.quality ?? null,
+      speed: result.speed ?? null,
+    },
+    // Raw SSIMULACRA2 (can be negative; ~100 is visually identical) or null when the
+    // engine could not score it — `scoredBy` says which.
+    score: result.score ?? null,
+    scoredBy: result.scoredBy,
+    budget: budget ?? null,
+    budgetMissed,
     elapsedMs,
-    quality: qualityNote(output.format),
     // Transferred, not copied: the bytes leave this thread's heap entirely.
-    out: out.buffer,
+    out: outBytes.buffer,
   };
 }
 

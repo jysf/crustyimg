@@ -3,7 +3,7 @@
 task:
   id: SPEC-080
   type: story
-  cycle: design
+  cycle: verify
   blocked: false
   priority: high
   complexity: M
@@ -32,11 +32,43 @@ value_link: >
   command that does it. The demo's job isn't to convert one image; it's to convert a visitor into a user.
 
 cost:
-  sessions: []
+  sessions:
+    - cycle: build
+      interface: claude-code
+      model: claude-opus-4-8
+      tokens_total: 450000
+      estimated_usd: 4.05
+      recorded_at: 2026-07-18
+      note: >
+        Main-loop build (not a separately-metered subagent), so tokens_total is an
+        order-of-magnitude ESTIMATE ([[autonomous-run-cost-estimates]]); estimated_usd
+        at Opus 4.8 list ($5/$25, ~80/20 in/out, no cache discount). Demo-only reframe:
+        read the whole demo + the SPEC-079 wasm surface + the analysis classifier;
+        design-time probes against the vendored wasm to pin the photo→AVIF and
+        never-bigger fixtures ([[probe-load-bearing-crates-at-design]]); a full demo
+        rewrite (index/js/worker/css) + a rewritten headless-Chrome smoke; one wasm
+        build and several end-to-end smoke runs in a real browser.
+    - cycle: verify
+      interface: claude-code
+      model: claude-opus-4-8
+      tokens_total: 240000
+      estimated_usd: 2.16
+      recorded_at: 2026-07-18
+      note: >
+        Main-loop verify (not a separately-metered subagent), so tokens_total is an
+        order-of-magnitude ESTIMATE ([[autonomous-run-cost-estimates]]); estimated_usd
+        at Opus 4.8 list ($5/$25, ~80/20 in/out, no cache discount). Drove the hero +
+        funnel + never-bigger + timer end-to-end in headless Chrome (baseline green),
+        then ran the red→green substitute the build owed: mutated the demo to break
+        each of the four new smoke checks and confirmed every one FAILS (downscale
+        removed → ≤2048 assertion fails; never-bigger guard → false → kept-original
+        fails; WEB_RECIPE + command drift → funnel fails; timer neutered → counts-up
+        fails). Spot-checked engine-transform geometry against a real `crustyimg web`
+        run (both 2048×1536) and the raw-SSIMULACRA2 score honesty via wasm probes.
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 690000
+    estimated_usd: 6.21
+    session_count: 2
 ---
 
 # SPEC-080: demo = the `web` flow, one-click, with a CLI adoption funnel
@@ -217,13 +249,68 @@ Written at design; the demo's earned verdict is **browser-driven** (SPEC-077/078
 ---
 
 ## Build Completion
-- **Branch:** · **PR (if applicable):** · **All acceptance criteria met?** · **New decisions emitted:** · **Deviations from spec:** · **Follow-up work identified:**
+- **Branch:** `spec-080-demo-web-hero`
+- **PR (if applicable):** (opened against `main`)
+- **All acceptance criteria met?** Yes — all seven, driven end-to-end in headless Chrome:
+  - **Default = `web` flow:** dropping a 2200×1650 photo with no controls touched → AVIF, 10.4 MB → 2.0 MB (smaller), downscaled to 2048×1536 (long edge ≤ 2048), download `photo.avif` from a `blob:` URL. Auto chose AVIF (photo bucket); the page states the downscale.
+  - **Fast by construction:** the hero downscales to 2048 then encodes at speed 10 — a few seconds, and it is the calm-spinner path (no timer), because the perf problem is gone, not hidden.
+  - **Never-bigger:** a moderate-quality 42 KB JPEG the engine's best re-encode can't beat → "kept your file" state; the download is the **original bytes, byte-for-byte** (41952 B == 41952 B), original filename.
+  - **Funnel:** every result shows `crustyimg web <file>` reflecting the dropped name, a working copy button (clipboard read back byte-for-byte), the `web.toml` recipe **byte-identical** to disk (verbatim, 1108 B), the "runs on whole folders" line + an install pointer.
+  - **Advanced collapsed by default** with format / max-edge / keep-full-resolution / byte-budget; the hero works without opening it.
+  - **Advanced-path perf UX:** keep-full-resolution on a 6.3 MP photo → megapixel warning + a **counting-up** elapsed timer (0.0s → 0.7s during the ~5.1 s encode); the main thread ran 268 timer + 642 rAF callbacks during it, and the negative control (a deliberate 400 ms freeze) reads 0/0.
+  - **Score honest:** raw SSIMULACRA2, negatives handled, never assumed 0–100; AVIF/lossless say *why* they're unscored rather than showing a blank.
+  - **Zero network + clean errors:** the smoke asserts 0 network requests during every conversion (worker traffic included), nothing off-origin, and the file:// failure mode still speaks.
+- **New decisions emitted:** None. This spec consumes DEC-068/069/070/020/064/065; it adds no wasm surface and no new dependency, so no DEC is warranted.
+- **Deviations from spec:**
+  1. The downscale runs via the engine's own `transform` (auto-orient + `resize max`, the same recipe TOML + `fast_image_resize` the CLI's `web` uses) rather than the spec's suggested `canvas`/`createImageBitmap` resample. This is a **more faithful** mirror of `web` (same resampler, same order) and reuses proven machinery; `createImageBitmap` is still used for `.avif` **input** decode and for reading AVIF output dimensions back. Net-honest, and it's what "the demo *approximates* `web`" should mean at the pixel level.
+  2. Advanced exposes a byte-budget (`maxBytes`) as the "quality/maxBytes" knob rather than a raw quality slider — the shipped wasm surface takes `target`/`maxBytes`, not a quality argument (DEC-064); the budget exercises the size search and the unsatisfiable-budget self-check (SPEC-079 note).
+  3. The funnel command is `crustyimg web <name>` unquoted (matches the exact-string smoke assertion); filenames with spaces would need quoting — noted as a possible polish, out of scope here.
+- **Follow-up work identified:** SPEC-081 (the rich SSIMULACRA2 diff/gauge UI — this spec shows the score as a value and honestly says when it's unscored, leaving the browser-decode-and-`score()` for AVIF to 081); a multi-recipe showcase (gallery/product modes) remains a future spec; mobile real-device test stays a STAGE-028 human task.
 ### Build-phase reflection (3 questions, short answers)
-1. **What was unclear in the spec that slowed you down?** — <answer>
-2. **Was there a constraint or decision that should have been listed but wasn't?** — <answer>
-3. **If you did this task again, what would you do differently?** — <answer>
+1. **What was unclear in the spec that slowed you down?** — Whether the 2048 downscale should be a page-side `canvas` resample (Inputs/Notes wording) or the engine's own `resize` recipe. I chose the latter as the more faithful `web` mirror; a one-line "use the engine's resize for pixel-faithfulness" would have removed the ambiguity. Also, which formats actually yield an engine `score` (only JPEG) wasn't obvious until I re-read the surface — the hero's AVIF is always `scoredBy: "none"`, so "show the score" mostly means "honestly say why there isn't one".
+2. **Was there a constraint or decision that should have been listed but wasn't?** — No missing constraint. Worth flagging for the next demo spec: the "synthetic math is not a photograph" lesson bit the fixture design — a gradient routes lossless, so the AVIF hero test needs a genuinely photographic fixture (I added `makePhotoPng`); a design-time probe against the vendored wasm confirmed photo→AVIF and the never-bigger relationship before I wrote the assertions.
+3. **If you did this task again, what would you do differently?** — Write the four smoke assertions first and run them red against the old demo *before* touching the page, rather than building the demo and smoke together. The tests do genuinely gate the new behavior (old demo has no funnel/keepfull/timer, defaulted to WebP, had no never-bigger), but a literal red→green transition would be cleaner evidence. I'd also probe fixtures earlier — it's the cheapest way to avoid a plausible-but-wrong test.
 
 ---
+
+## Verify (2026-07-18, claude-opus-4-8, primary checkout)
+
+**✅ APPROVED.** All seven acceptance criteria hold, driven end-to-end in headless Chrome; the
+diff is demo-only (no `src/`/`pkg/`/`Cargo` change — the spec's "no engine change" claim is true).
+PR #98 CI is green on the full matrix (3-OS CI, avif/webp/heic features, lean, msrv, DCO, and the
+`pages` **build + browser smoke** job). `just demo-smoke`, `just validate`, and
+`just decisions-audit --changed` (no DEC governs demo/) all pass.
+
+**The build's honest gap — closed.** The build shipped demo + smoke together, not literal red→green,
+so verify ran the substitute: mutate the demo to break each of the four new checks and confirm it
+FAILS. Every one bit (working tree reverted after each):
+- `default_is_web_flow_smaller_avif` — removed the worker's `resize` step → output stayed 2200×1650,
+  the ≤2048 downscale assertion **and** the independent `ispe`-box parse both failed.
+- `never_bigger_keeps_original` — forced `keptOriginal = false` → all four kept-original checks failed
+  (the "-464% smaller", 41 KB→231 KB re-encode confirms the engine genuinely can't beat that JPEG, so
+  the guard does real work).
+- `funnel_shows_web_command_and_copies` — (a) drifted the inlined `WEB_RECIPE` (width 2048→4096) →
+  the byte-identical-to-`recipes/web.toml` drift guard failed (it reads the file from disk); (b)
+  hardcoded a static command name → both the command-reflects-filename and the clipboard-readback
+  sub-assertions failed.
+- `advanced_full_resolution_shows_timer` — neutered the `setInterval` → the counts-up assertion failed
+  (0s→0s) while the megapixel warning and the main-thread-alive probe (with its 0/0 freeze negative
+  control) stayed green — the check discriminates the timer specifically.
+
+**Independently checked beyond the smoke:**
+- **Hero geometry mirror:** a real `crustyimg web <2200×1650>` run produces 2048×1536 AVIF; the demo's
+  engine `transform` (auto-orient + `resize max 2048`) produces the identical 2048×1536 — same op, same
+  registry, confirming deviation #1 (engine-transform, not canvas) is a faithful `web` mirror.
+- **AVIF validity:** three decoders the crate never wrote (an ISOBMFF `ispe` parse, Chrome's libavif,
+  macOS `sips`) all agree the hero output is AVIF 2048×1536.
+- **Score honesty:** wasm probes show the engine emits raw SSIMULACRA2 values well below any 0–100
+  reading (0.47, 4.87, 12.15 at low targets); `renderScore` passes the raw value through `toFixed(1)`
+  with explicit "raw scale / can go negative / not a 0–100 %" framing and no clamping — negatives are
+  handled by the same path.
+
+**No punch list.** Debounce/supersede (newest-wins) is present in code (`ask()` clears pending;
+`scheduleConvert` debounces) but not independently driven — acceptable, mechanism is clear. Untracked
+`SPEC-095-*.md` (a wasm-AVIF-quality follow-up) exists in the tree but is outside PR #98 and this verify.
 
 ## Reflection (Ship)
 1. **What would I do differently next time?** — <answer>
