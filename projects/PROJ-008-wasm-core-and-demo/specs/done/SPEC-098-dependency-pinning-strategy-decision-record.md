@@ -55,10 +55,11 @@ cost:
     - cycle: verify
       interface: claude-code
       model: claude-opus-4-8
-      tokens_total: null
+      tokens_total: 40000
       estimated_usd: 0.3
       note: >
-        orchestrator inline review (docs-only, no runtime surface to drive per the verify-skill guidance)
+        Estimated (orchestrator inline review — un-metered main-loop, not a separate subagent). Docs-only,
+        no runtime surface to drive per the verify-skill guidance)
         — confirmed the DEC states all four required points + matches the audit's D4, the STAGE-007
         cross-ref is accurate/non-contradictory, DEC-078 is the next number, and zero code/config moved.
     - cycle: ship
@@ -71,7 +72,7 @@ cost:
         orchestrator main loop — PR #102, CI green, squash-merge (dd085d5), bookkeeping. No new DEC beyond
         DEC-078 (the deliverable).
   totals:
-    tokens_total: 50000
+    tokens_total: 90000
     estimated_usd: 2.1
     session_count: 3
 ---
