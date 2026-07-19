@@ -35,12 +35,6 @@ mod report;
 mod rules;
 
 pub use report::{render_human, write_json, write_sarif};
-// Test-only, crate-internal (not part of the public `crustyimg::lint` surface)
-// — lets `cli::tests::escape_json_impls_are_equivalent` (SPEC-097) prove this
-// is byte-identical to `cli::escape_json` before the two are merged into one
-// shared helper, at which point this local copy and this re-export both go away.
-#[cfg(test)]
-pub(crate) use report::escape_json;
 
 use config::{LintConfig, SavingsThreshold};
 
