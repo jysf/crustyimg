@@ -65,7 +65,7 @@ pub fn names() -> Vec<&'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::recipe::Recipe;
+    use crate::recipe::{Recipe, RecipeStep};
 
     /// Every bundled recipe resolves to a NAME and parses as a valid `Recipe`
     /// (Failing Test `bundled_recipe_names_resolve`). The pixel steps (everything
@@ -111,5 +111,75 @@ mod tests {
     fn unknown_name_resolves_none() {
         assert!(resolve("does-not-exist").is_none());
         assert!(resolve("").is_none());
+    }
+
+    /// The shipped recipe headers read as plain, behavior-first prose: a visitor
+    /// pastes this TOML verbatim into their own repo, so no `SPEC-`/`DEC-`
+    /// traceability reference or internal symbol name may leak into it.
+    #[test]
+    fn bundled_recipe_headers_are_plain() {
+        const FORBIDDEN: &[&str] = &["SPEC-", "DEC-", "Mode::Fast", "larger_than_source"];
+        for name in ["web", "gallery", "product"] {
+            let text = resolve(name).unwrap_or_else(|| panic!("{name} must resolve"));
+            let header: String = text
+                .lines()
+                .take_while(|line| line.starts_with('#'))
+                .collect::<Vec<_>>()
+                .join("\n");
+            assert!(
+                !header.is_empty(),
+                "{name} recipe must carry a header comment"
+            );
+            for needle in FORBIDDEN {
+                assert!(
+                    !header.contains(needle),
+                    "{name} header must not contain {needle:?}: {header}"
+                );
+            }
+        }
+    }
+
+    /// The header rewrite is comment-bytes only: `web`'s parsed
+    /// version/name/description/steps are exactly what they were before, proving
+    /// the plain-copy rewrite left recipe behavior untouched.
+    #[test]
+    fn bundled_recipe_behavior_unchanged() {
+        use crate::operation::OperationParams;
+        use std::collections::BTreeMap;
+
+        let text = resolve("web").expect("web must resolve");
+        let recipe = Recipe::from_toml(text).expect("web must parse as a Recipe");
+
+        let mut resize_params = BTreeMap::new();
+        resize_params.insert("mode".to_string(), toml::Value::String("max".to_string()));
+        resize_params.insert("width".to_string(), toml::Value::Integer(2048));
+
+        let expected = Recipe {
+            version: "1".to_string(),
+            name: Some("web".to_string()),
+            description: Some(
+                "Downscale to 2048px, modernize (AVIF/lossless-WebP), and score (size reported honestly)."
+                    .to_string(),
+            ),
+            steps: vec![
+                RecipeStep {
+                    op: "auto-orient".to_string(),
+                    params: OperationParams::empty(),
+                },
+                RecipeStep {
+                    op: "resize".to_string(),
+                    params: OperationParams::from_map(resize_params),
+                },
+                RecipeStep {
+                    op: "optimize".to_string(),
+                    params: OperationParams::empty(),
+                },
+            ],
+        };
+
+        assert_eq!(
+            recipe, expected,
+            "the header rewrite must not change parsed recipe behavior"
+        );
     }
 }

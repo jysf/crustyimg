@@ -73,13 +73,13 @@
 
       <p id="error" class="error" hidden role="alert"></p>
 
-      <!-- A spinner, not a percentage. One conversion is a single blocking call inside the worker
+      <!-- Not a percentage. One conversion is a single blocking call inside the worker
            and rav1e reports nothing as it goes, so a progress BAR would be a lie about information
            we do not have. The page staying alive is the true part. On the Advanced full-resolution
            path the encode is genuinely slow, so a megapixel warning and an HONEST counting-up
-           elapsed timer appear alongside the spinner — still no fake percentage. -->
+           elapsed timer appear alongside the crab — still no fake percentage. -->
       <div id="busy" class="busy" hidden role="status" aria-live="polite">
-        <span class="spinner" aria-hidden="true"></span>
+        <span id="busy-icon" class="busy-icon" aria-hidden="true">🦀</span>
         <span class="busy-text">
           Making it web-ready in a background thread — the page stays responsive.
         </span>

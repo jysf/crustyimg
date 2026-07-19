@@ -1,8 +1,7 @@
-# The `gallery` flow (SPEC-085): the `web` flow at a larger long edge for
-# full-bleed lightbox / gallery imagery. Same engine (downscale → orient → strip
-# → fast AVIF-aware modernize → score), just a 2560px bound. Like `web`, the
-# downscale is the contract, so an already-small source above 2560px can re-encode
-# larger than the original — reported honestly (SPEC-090, DEC-075).
+# Prepare gallery and lightbox images: like `web`, but resizes the long
+# edge to 2560px for full-bleed display, then re-encodes to the smallest
+# modern format. A source already under that size can come out larger
+# than the original; the new size is reported plainly.
 version = "1"
 name = "gallery"
 description = "Downscale to 2560px for gallery/lightbox display, then modernize (size reported honestly)."
