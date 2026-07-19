@@ -17,11 +17,9 @@ use super::common::{
     apply_one, build_sink, fmt_bytes, load_recipe, require_out_dir_for_batch, resolve_format,
     BATCH_PROGRESS_TEMPLATE,
 };
+use super::ops::{metadata_output_ext, read_raw_bytes, run_pixel_op};
 use super::report::format_label;
-use super::{
-    metadata_output_ext, read_raw_bytes, run_pixel_op, AutoQuality, CliError, ExplainFmt,
-    GlobalArgs, ProfileArg, QualityTarget,
-};
+use super::{AutoQuality, CliError, ExplainFmt, GlobalArgs, ProfileArg, QualityTarget};
 
 // ── Real apply path ───────────────────────────────────────────────────────────
 
