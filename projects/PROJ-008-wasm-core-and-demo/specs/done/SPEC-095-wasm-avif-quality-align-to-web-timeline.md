@@ -18,4 +18,8 @@ Status markers: `[ ]` not started · `[~]` in progress · `[x]` complete · `[?]
   byte-identical to the pre-spec parent binary (286 B, q80). Flake CLEARED — 3× isolated `--features avif`
   full runs all 777/0, PR #99 CI avif job green; environmental target/ contention, not a regression, not
   the SPEC-091 DisjointMut abort. All gates green.
-- [ ] ship — orchestrator.
+- [x] ship — squash-merged PR #99 (**992f797**) 2026-07-18, full matrix green. The demo now encodes AVIF
+  at q85 = a faithful preview of `crustyimg web`; DEC-069 closed. Bookkeeping: cycle→ship, 3 cost sessions
+  with `model:` (build Sonnet $5.40 / verify Opus $3.60 / ship $0.45 ≈ **$9.45**), timeline, archive,
+  memory + brag. Model experiment n=2: Sonnet build indistinguishable on the hard parts. NEXT = SPEC-081
+  (score diff UI).
