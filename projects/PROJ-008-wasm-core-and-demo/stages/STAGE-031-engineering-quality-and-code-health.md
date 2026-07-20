@@ -86,14 +86,16 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
   relaxation of the library-public deps is a mandatory, deferred prerequisite of the crates.io publish
   (backlog #5); no migration now; refines AGENTS.md §5 / DEC-011/013. Docs-only, zero code change.
 
-**Count:** 2 shipped (SPEC-097 cli split, SPEC-098 DEC-078) / 0 active / 0 framed.
+**Count:** 2 shipped (SPEC-097 cli split, SPEC-098 DEC-078) / 1 framed (SPEC-099 crates.io pinning
+correction — build-gated) / 0 active.
+
+- [~] SPEC-099 (design — framed 2026-07-19, on main; **build gated on maintainer go**) — **crates.io
+  pinning correction.** DEC-078's premise ("not on crates.io") is FALSE — crustyimg is published (0.4.0,
+  `has_lib`, auto-per-tag), so the 30 exact `=` pins are live on a published lib. Caret-migrate the ~23
+  runtime dep reqs (keep dev-deps pinned; `Cargo.lock` byte-unchanged) + `DEC-079` supersedes DEC-078 +
+  de-stale RELEASING.md/STAGE-007/DEC-041/audit-D4. Reproducibility stays via the committed lock.
 
 **Queued for this stage (not yet framed):**
-- **crates.io / pinning correction** — DEC-078's premise ("not on crates.io") is FALSE; crustyimg is
-  published (0.4.0, `has_lib:true`, auto-published every tag). So the caret migration of the
-  library-public deps is a real, current cleanup (not deferred), and DEC-078 + STAGE-007/DEC-041/
-  RELEASING.md/the audit D4 are stale. One small spec: caret-migrate library-public rows (next release)
-  + supersede/correct DEC-078 + de-stale the release docs. Verified 2026-07-19.
 - **strict-JSON `escape_json`** (SPEC-097 follow-up, low priority) — `0x7F`/≥0x20 controls pass through
   unescaped (byte-identical to pre-split main; a *behavior* change to fix, own spec).
 
