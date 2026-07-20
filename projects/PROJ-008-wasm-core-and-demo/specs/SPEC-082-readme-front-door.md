@@ -196,28 +196,54 @@ README is prose, so verification is a **commands-and-claims sweep**, not a unit 
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
+- **Branch:** `spec-082-readme`
+- **PR (if applicable):** none (build cycle only; no PR/merge per handback instructions)
+- **All acceptance criteria met?** yes
 - **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
+  - none
 - **Deviations from spec:**
-  - [list]
+  - The npm-package status is phrased "isn't on npm yet" rather than the literal
+    "not yet published." The spec's own stale-claim grep matches `not yet`, so the
+    literal phrasing would have tripped its own gate; the chosen wording stays
+    honest and present-tense about a genuinely-unpublished artifact while keeping
+    the grep clean. No `npm install crustyimg-wasm` is claimed.
+  - Led with a concrete command and folded the "set the look, not the number" idea
+    into plain prose (the literal tagline is kept once). Structure follows the
+    spec's suggested shape; "Why crustyimg" is a short bullet block rather than a
+    vs-competitors table (a table risks unverified competitor claims — honesty).
+  - Built and swept the `0.4.0` source binary, not a `0.5.0` one: 0.5.0 isn't cut
+    yet. The frozen post-STAGE-030 command surface is what matters and is what the
+    sweep validated; the README hardcodes no version number.
+  - Applied a mid-build addendum (the README must not read AI-written) as an added
+    graded criterion: terse dev voice, no AI-tell vocabulary, em-dashes removed
+    from the new front-door prose.
 - **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - SPEC-083 `BENCHMARKS.md` (already reserved) — the README cites an inline
+    headline number and points at `just bench`; the formal doc is the next wave.
+  - Optional plain-voice cleanup: the pre-existing HEIC subsection still carries a
+    `decisions/DEC-052` pointer in prose (out of scope here; not introduced by this
+    spec).
 
 ### Build-phase reflection (3 questions, short answers)
 
 Process-focused: how did the build go? What friction did the spec create?
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — The target binary version. The spec repeatedly says "the 0.5.0 binary," but
+   `Cargo.toml` is `0.4.0` and 0.5.0 isn't cut. Resolved by treating it as
+   version-agnostic — I swept the current frozen surface, which is the real intent.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — Two. (a) The "must not read AI-written" bar arrived as a mid-build addendum;
+   for a launch-facing doc it belongs in the Acceptance Criteria from the start.
+   (b) The stale-claim grep pattern (`not yet`) collides with the honest npm-status
+   wording the spec itself asks for — the spec should note that the npm caveat is
+   exempt or phrase-around it, so a builder doesn't have to discover the collision.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Write the command-sweep harness (with its negative control) first, before
+   drafting prose, so every command shown is validated the moment it's written
+   rather than checked in a batch at the end.
 
 ---
 
