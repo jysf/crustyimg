@@ -2,7 +2,7 @@
 # Maps to ContextCore epic-level conventions.
 stage:
   id: STAGE-028
-  status: proposed                  # proposed | active | shipped | cancelled | on_hold
+  status: active                  # proposed | active | shipped | cancelled | on_hold
   priority: high
   target_complete: null
 
@@ -81,17 +81,21 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 > numbers, so they are framed only after the freeze. The two specs below are **scaffolded as reserved
 > stubs (SPEC-082/083)** and stay in `frame` until STAGE-030 ships.
 
-- [ ] SPEC-082 (reserved stub — framed after STAGE-030) — **README front door.** Lead with the pitch +
-  the live demo link + "no server, client-side" + honest scope + install (cargo/brew/npm
-  `crustyimg-wasm`), over the **frozen** verb surface (`web` flagship, etc.). Currently CLI-only.
+- [~] SPEC-082 (design — framed build-ready 2026-07-19, build-dispatched) — **README front door.** Lead
+  with the pitch + the **live browser-demo link** + "client-side, zero install" + why-vs-sharp/squoosh +
+  honest install (de-stale the "once v0.1.0 published" claim — we ARE published), over the frozen verb
+  surface. Ships in 0.5.0 (renders on crates.io). Verify = run every README command against the binary.
+  **Honesty: `crustyimg-wasm` npm is NOT yet published — don't claim `npm install`.**
 - [ ] SPEC-083 (reserved stub — framed after STAGE-030) — **BENCHMARKS.md.** Honest, equal-quality
   size/speed vs squoosh/sharp; reproducible; no cherry-picking — built on STAGE-030's committed bench
   corpus/harness (SPEC-088). The numbers HN scrutinizes.
 - [ ] (coordination, not a spec) — the **Show HN go/no-go**: `docs/launch-readiness.md` blockers
   green, `crustyimg-wasm` published (SPEC-076, on approval), post drafted → launch.
 
-**Count:** 0 shipped / 0 active / 2 reserved stubs (+ the launch go/no-go). **Depends on STAGE-030**
-(surface freeze) + STAGE-029 (demo, hero = `web`). Framed **proposed** — picked up after STAGE-030.
+**Count:** 0 shipped / 1 in build (SPEC-082 README) / 1 reserved stub (SPEC-083 BENCHMARKS, next wave) +
+the launch go/no-go. STAGE-030 (freeze) + STAGE-029 (demo) done. **Stage ACTIVE 2026-07-19** — README
+first (ships in 0.5.0), BENCHMARKS deferred to the next wave per the maintainer's release-before-next-wave
+call.
 
 ## Design Notes
 
