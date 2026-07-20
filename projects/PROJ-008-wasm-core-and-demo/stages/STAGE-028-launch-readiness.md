@@ -86,6 +86,10 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
   honest de-staled install + the 98% headline number. Verified by running all 48 fenced commands (+
   negative control); an independent voice read confirmed it doesn't read AI-written. **Ships to crates.io
   on the 0.5.0 cut.**
+- [~] SPEC-100 (design — framed build-ready 2026-07-20, build-dispatched) — **README CI/Actions section +
+  surface RAW & recipes.** Adds the two live GitHub Actions (`setup-crustyimg`/`crustyimg-action`) with
+  snippets + surfaces RAW (embedded-preview, honest) and declarative recipes (CLI + browser). Small,
+  docs-only, ships with the README in 0.5.0. Sonnet build / Opus verify.
 - [ ] SPEC-083 (reserved stub — framed after STAGE-030) — **BENCHMARKS.md.** Honest, equal-quality
   size/speed vs squoosh/sharp; reproducible; no cherry-picking — built on STAGE-030's committed bench
   corpus/harness (SPEC-088). The numbers HN scrutinizes.
