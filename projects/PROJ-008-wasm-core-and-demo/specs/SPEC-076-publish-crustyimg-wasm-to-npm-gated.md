@@ -41,11 +41,21 @@ value_link: >
 # See AGENTS.md §4 and docs/cost-tracking.md. interface: claude-code |
 # claude-ai | api | ollama | other.
 cost:
-  sessions: []
+  sessions:
+    - cycle: build
+      interface: claude-code
+      tokens_total: 40000
+      estimated_usd: 0.40
+      note: >
+        ran in the orchestrator main loop, not a metered subagent — tokens_total is an
+        order-of-magnitude ESTIMATE (autonomous-run-cost-estimates convention), not a
+        harness-reported number. Two wasm-pack release builds, one smoke run, one
+        publish dry-run, one full native gate (just check), and two small file edits
+        (npm/README.md, npm/package.overrides.json).
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 40000
+    estimated_usd: 0.40
+    session_count: 1
 ---
 
 # SPEC-076: publish crustyimg-wasm to npm (gated)
@@ -153,28 +163,112 @@ the crustyimg README's wasm section to the real `npm install` once it's live. **
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
-- **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
+- **Branch:** `spec-076-npm-publish`
+- **PR (if applicable):** none — build stops before PR, per spec (prepare + dry-run only)
+- **All acceptance criteria met?** Yes, five of six directly; the sixth (the live `npm publish`) is
+  correctly NOT done — it is gated to the maintainer.
+  - **`just wasm-npm-pkg` → `crustyimg-wasm@0.5.0`.** Ran clean. The package identity the spec
+    flagged as a risk (`pkg/package.json` raw-emitting `crustyimg` v0.4.0) was **already fixed**:
+    SPEC-075's finalize script (`scripts/wasm-npm-finalize.mjs` + `npm/package.overrides.json`)
+    merges the right name in, and the crate is already at 0.5.0 (the SPEC-099 cut shipped earlier
+    today), so the finalized `pkg/package.json` came out correct on the first build — name
+    `crustyimg-wasm`, version `0.5.0`, correct `main`/`module`/`types`/`files`/`homepage`/`license`/
+    `keywords`, package `README.md` present, `.wasm` verified size-profiled (`name` debug section
+    42 B, DEC-066 fingerprint).
+  - **One real identity bug found and fixed:** `repository.url` was wasm-pack's plain
+    `https://github.com/jysf/crustyimg` (copied from `Cargo.toml`, deliberately left un-overridden by
+    SPEC-075 as "wasm-pack's value is right"). It isn't — `npm publish --dry-run` silently
+    auto-corrected it to the canonical `git+https://github.com/jysf/crustyimg.git` form and warned
+    about it. Fixed by adding an explicit `repository` override to `npm/package.overrides.json` so
+    the committed `package.json` and what the registry would actually store agree; re-ran, the
+    warning is gone.
+  - **`just wasm-npm-smoke` green.** Pack → fresh install → bare-specifier import → `initSync` →
+    `info`/`transform` for png/jpeg/webp/avif, all asserted (independent PNG IHDR parse, AVIF
+    ISOBMFF box check). Asserts `crustyimg-wasm@0.5.0`, no `.node`/lifecycle script, zero transitive
+    deps.
+  - **`npm publish --dry-run` clean** (after the repository fix) — 8 files, 2.0 MB tarball, no
+    warnings. Full output captured below for the maintainer.
+  - **npm README honest + complete.** Found it stale against the current wasm surface: it documented
+    `init`/`info`/`transform`/`optimize`/`version` but not `optimizeDetailed`/`score` (both real,
+    shipped surface — SPEC-079/081, and what the live demo actually calls). Added a `## Caveats`
+    section (explicit `init()` requirement, single-threaded/blocking, AVIF encode-only + can't
+    self-score an AVIF output) and extended the snippet + API table to cover `optimizeDetailed` and
+    `score`. Kept the copy plain — no spec/DEC references, per the project's user-facing-copy
+    convention.
+  - **`just validate` green** (224 front-matter blocks). Also ran the full native gate (`just
+    check` = fmt-check + clippy + build + test, all green) as an extra check, since the spec's
+    acceptance bar implies "nothing else broke" — `git diff --stat` confirms only `npm/README.md`
+    and `npm/package.overrides.json` changed; no `src/` touch.
+
+- **New decisions emitted:** None. This is packaging polish inside DEC-067's existing frame, not a
+  new decision.
+
 - **Deviations from spec:**
-  - [list]
+  - The spec's Inputs section assumed the `pkg/package.json` name/version mismatch still needed
+    fixing; it did not (SPEC-075 + the already-cut 0.5.0 crate had resolved it). The only identity
+    fix actually needed was `repository.url`'s non-canonical form, which the spec didn't anticipate.
+  - Extended the npm README beyond the spec's literal ask (which named `optimize`/`transform` +
+    `score`) to also document `optimizeDetailed`, since leaving a real, demo-used export
+    undocumented would make the "honest, no capability overclaimed" bar cut both ways (a package
+    README that hides a capability is its own kind of dishonesty).
+
 - **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - None new. The existing follow-ups from SPEC-075 stand: a CI job running `just wasm-npm-smoke`
+    (nothing runs it automatically yet), and flipping the crustyimg README's "isn't on npm yet" line
+    once the maintainer actually runs the publish below.
+
+### The exact command for the maintainer
+
+Run from a clean `pkg/` (i.e. `just wasm-npm-pkg` immediately before, so the `.wasm` and
+`package.json` are fresh):
+
+```bash
+just wasm-npm-pkg   # rebuild + finalize pkg/ one more time, right before publishing
+cd pkg
+npm publish
+```
+
+- No `--access`/`--tag` flags needed — the name is unscoped and this is the first release, so
+  npm's defaults (public, `latest`) are correct.
+- **2FA/OTP:** if the maintainer's npm account has two-factor auth on publish (recommended, and
+  likely already the case), `npm publish` will prompt for a one-time password interactively — pass
+  `--otp=123456` non-interactively, or just answer the terminal prompt.
+- After it succeeds: `npm view crustyimg-wasm` should show `0.5.0` instead of 404, and a follow-up
+  change should flip the crustyimg `README.md` wasm section from "isn't on npm yet" to the real
+  `npm install crustyimg-wasm` line (explicitly out of scope for this build, per spec).
+
+### Cost estimate
+
+Ran in the main-loop build session (not a metered subagent) — order-of-magnitude estimate only, per
+the `autonomous-run-cost-estimates` convention: **~35–45k tokens, ~$0.35–0.45.** Cheap relative to
+SPEC-075's build/verify because there was no new tooling to write — two wasm-pack release builds
+(~20s each), one smoke run, one dry-run, one full native gate (`just check`, dominated by the crate
+compile + test suite), and two small file edits.
 
 ### Build-phase reflection (3 questions, short answers)
 
 Process-focused: how did the build go? What friction did the spec create?
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — Nothing slowed the build down, but the spec's Inputs section stated the identity mismatch
+   ("`pkg/package.json` currently emitted as name `crustyimg` v0.4.0") as still-live, when it had
+   already been fixed by SPEC-075 plus the intervening 0.5.0 crate cut. Not a real obstacle (a
+   two-minute check confirmed it), but worth noting: a spec drafted against an older repo state can
+   describe a bug that's already gone, and the build still has to verify that rather than trust it.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — The npm README's honesty bar implicitly extends to *completeness*, not just caveat-wording —
+   the spec's Inputs section named `optimizeDetailed`/`score` as part of the surface to document,
+   but the Outputs/Acceptance Criteria only asked for an `init()`→optimize/transform→score snippet,
+   not full API coverage. The stale README (missing two real, demo-used exports) wasn't something
+   the acceptance criteria alone would have caught — I only found it by reading `src/wasm.rs` end to
+   end against the current npm README, which the spec's Inputs list did point at but didn't force.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Run `npm publish --dry-run` *before* editing the README, immediately after the first
+   `wasm-npm-pkg` build — that's what surfaced the `repository.url` auto-correction warning, and
+   finding it first would have let both fixes (identity + README) land in one pass through the
+   build/smoke/dry-run loop instead of two.
 
 ---
 
