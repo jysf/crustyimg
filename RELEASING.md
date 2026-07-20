@@ -28,10 +28,12 @@ bare/lightweight tags. Pushing a version tag ALSO (SPEC-042):
 - **publishes to crates.io** (`cargo publish --locked`) via the separate
   `.github/workflows/publish-crates.yml` workflow.
 
-## One-time setup (before the first tagged release) — **[MAINTAINER-AUTHORIZED]**
+## One-time setup (done — kept for reference) — **[MAINTAINER-AUTHORIZED]**
 
-These are prerequisites for the Homebrew + crates.io channels. Do them once, before
-cutting `v0.1.0`; the tag push will fail those jobs if they are missing.
+These were the prerequisites for the Homebrew + crates.io channels. They were
+completed before `v0.1.0` (2026-07-04); crustyimg has published to crates.io and
+pushed a Homebrew formula on every tag since (currently 0.4.0). Kept here so a
+fork or a credential rotation has the checklist.
 
 1. **Create the Homebrew tap repo** — a public GitHub repo **`jysf/homebrew-tap`**
    (the cargo-dist job creates the `Formula/` dir + commits `crustyimg.rb` on release).

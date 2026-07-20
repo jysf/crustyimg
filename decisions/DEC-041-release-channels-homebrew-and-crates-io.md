@@ -78,13 +78,16 @@ reverted) established the split:
 - crates.io **is not** — `crates-io`/`cargo` are rejected as `publish-jobs` values in
   0.32.0. Hence the separate `cargo publish` workflow.
 
-**Safety (unchanged from DEC-040's model):** merging the spec that adds this config
-**arms** the channels but fires nothing — both the cargo-dist homebrew job and the
+**Safety (unchanged from DEC-040's model):** merging the spec that added this config
+**armed** the channels but fired nothing — both the cargo-dist homebrew job and the
 crates.io workflow trigger only on a real `v*` tag push. The **[MAINTAINER-AUTHORIZED]**
-acts remain: creating the `jysf/homebrew-tap` repo, adding the two repo **secrets**
-(`HOMEBREW_TAP_TOKEN`, `CARGO_REGISTRY_TOKEN` — only a maintainer can add secrets), and
-pushing the tag. A crates.io publish is **irreversible** (a version can never be
-re-published); `RELEASING.md`'s `cargo publish --dry-run` + gate suite are the guards.
+one-time setup (creating the `jysf/homebrew-tap` repo, adding the two repo **secrets**
+`HOMEBREW_TAP_TOKEN`/`CARGO_REGISTRY_TOKEN`) was completed before `v0.1.0`
+(2026-07-04), and both channels have fired on every tag since — crustyimg is on
+crates.io now (latest 0.4.0) and `brew install jysf/tap/crustyimg` installs it. A
+crates.io publish is **irreversible** (a version can never be re-published);
+`RELEASING.md`'s `cargo publish --dry-run` + gate suite remain the guards for each
+new tag.
 
 ## Alternatives Considered
 

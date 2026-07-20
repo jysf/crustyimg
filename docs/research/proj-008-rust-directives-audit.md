@@ -19,7 +19,7 @@ evidence, not rubber-stamped.
 | **D1** checked-math-on-dimensions | **SATISFIED** (with a naming correction) | Every buffer-sizing multiply is downstream of a pixel/alloc cap (`check_pixel_budget` 64 Mpx, `MAX_AREA` 128 Mpx, per-decoder `check_caps`); worst case 64 Mpx × 4 = 268 M < 32-bit `usize::MAX`. The cap variant is **`ImageError::LimitsExceeded(String)`** (`error.rs:39`), **not** `DimensionsTooLarge`. |
 | **D2** zero-allocation-pipeline | **N-A-false-premise** | Per-op buffers are real (`Invert` `operation/mod.rs:197`, resize `:526`) but bounded by the decode cap and dwarfed by the measured bottleneck (AVIF encode, 33.6 s @ 12 Mpx). A ~48 MB alloc+memcpy is sub-millisecond → <0.01 % of wall-clock. |
 | **D3** miette-cli-diagnostics | **DESIGN-CHANGE** (not a violation) | Current design is deliberate `thiserror` (DEC-007); `miette`/`anyhow` are **not** direct deps. Recipe TOML spans are flattened at `recipe/mod.rs:247` (`Parse(e.to_string())`), but `toml` 0.8 already renders line/column + caret in that string. Real but incremental UX win, at the cost of a new dep + boundary rework. |
-| **D4** semver-in-toml | **DECISION-NEEDED** (map below) | 30 exact `=` pins, a deliberate convention (AGENTS.md §5, DEC-011/013) serving the PROJ-007 reproducible-build thesis. **No downstream Cargo consumer exists today** — crustyimg is not on crates.io (DEC-040/041: backlog #5), and the npm package ships a *compiled* `.wasm`, not a Cargo tree. Pins only bite *if/when* the library is published to crates.io. |
+| **D4** semver-in-toml | **DECISION-NEEDED** (map below) | 30 exact `=` pins, a deliberate convention (AGENTS.md §5, DEC-011/013) serving the PROJ-007 reproducible-build thesis. **No downstream Cargo consumer exists today** — crustyimg is not on crates.io (DEC-040/041: backlog #5), and the npm package ships a *compiled* `.wasm`, not a Cargo tree. Pins only bite *if/when* the library is published to crates.io. **[Corrected 2026-07-19 — DEC-079: this "not on crates.io" premise was false; crustyimg has published since v0.1.0 (now 0.4.0, `has_lib: true`), so the caret migration shipped in SPEC-099 rather than being deferred.]** |
 | **D5** static-dispatch-in-hot-loops | **N-A-false-premise** | `Box<dyn Operation>` dispatches **once per recipe step**, not per pixel: `Pipeline::run` (`pipeline/mod.rs:53–55`) folds `op.apply(Image) -> Image` over the whole image. ~3 vtable calls/image. Prior confirmed. |
 | **D6** tile-based-parallelism | **N-A-false-premise** | rayon parallelizes **across images** (`cli/mod.rs:1313, 1337` `all.par_iter()` → `apply_one` per input). There is **no intra-image parallelism at all** — no stripes and no tiles — so the "stripes vs tiles" choice does not exist (DEC-006). Prior confirmed. |
 
@@ -32,8 +32,10 @@ This audit landed on `main` on 2026-07-19. The maintainer reviewed it and dispos
 - **Adopted → framed as specs (STAGE-031):**
   - The structural finding (`src/cli/mod.rs`, 6,483 lines) → **SPEC-097** — decompose into a `cli/`
     submodule tree + dedup `escape_json`, behind a byte-identity gate.
-  - **D4** (semver-in-toml) → **SPEC-098 / DEC-078** — exact pins stay for the binary; caret relaxation of
-    the library-public deps is a mandatory, deferred prerequisite of the crates.io publish (backlog #5).
+  - **D4** (semver-in-toml) → **SPEC-098 / DEC-078**, corrected by **SPEC-099 / DEC-079** — DEC-078's "not
+    on crates.io" premise was false (crustyimg has published since v0.1.0, currently 0.4.0, `has_lib: true`),
+    so the caret relaxation of the library-public deps shipped in SPEC-099 rather than being deferred to a
+    future publish; the committed `Cargo.lock` keeps the binary reproducible.
 - **Shelved → no action (do not re-raise):**
   - **D1** — SATISFIED; only optional belt-and-suspenders remained (the two plain-`usize` sites are
     proven-bounded). Not worth churn.
@@ -202,6 +204,11 @@ solved).
 ---
 
 ## D4 — semver-in-toml → **DECISION-NEEDED** — THE MAP
+
+> **Correction (2026-07-19, DEC-079):** the "not on crates.io" premise below was
+> false when checked against crates.io directly — crustyimg has been published
+> since v0.1.0 (2026-07-04) and auto-publishes every tag. See DEC-079, which
+> supersedes DEC-078 (the decision this section's finding fed into).
 
 **Directive claim:** never exact-pin (`=x.y.z`); use caret; reproducibility comes
 from committing `Cargo.lock`, not from pins, which cause consumer dependency hell.
@@ -407,7 +414,9 @@ DEC-011/013 convention.
 3. **D4 "genuine tension" needed sharpening.** The tension is real but **latent**: it
    has zero live downstream target today (crates.io publish is unshipped backlog #5;
    npm ships a compiled artifact). The prior implied an active consumer-facing problem;
-   there isn't one yet.
+   there isn't one yet. **[Corrected 2026-07-19, DEC-079: this "unshipped backlog #5"
+   premise was false — crustyimg was already published (0.4.0, `has_lib: true`), so the
+   consumer-facing problem was live; the caret fix shipped in SPEC-099.]**
 4. **D1 fully, not "mostly," satisfied.** The prior said "mostly satisfied … hunt for
    gap sites." The hunt found no overflow gap: every channel multiply is downstream of
    a cap, and the worst case (64 Mpx × 4 = 268 M) fits a 32-bit `usize`. The correct

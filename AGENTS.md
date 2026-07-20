@@ -137,13 +137,17 @@ Reports aggregate cost by cycle, by interface, by spec, and by stage.
   integration tests under `tests/`, native-generated image fixtures
   (no shell-out to ImageMagick).
 - **Linter / Formatter:** `cargo clippy --all-targets -- -D warnings`, `cargo fmt`.
-- **Hosting:** release artifacts (GitHub Releases); target brew / crates.io.
+- **Hosting:** release artifacts (GitHub Releases); published to Homebrew
+  (`jysf/tap/crustyimg`) and crates.io (`crustyimg`) on every tag.
 - **CI:** GitHub Actions, three-OS matrix (Linux/macOS/Windows) (DEC-009).
 
-> Pin exact patch versions in `Cargo.toml` at SPEC-001 build. Adding any new
-> top-level crate requires a `DEC-*` (constraint
-> `no-new-top-level-deps-without-decision`). Exact pins are the binary's policy;
-> see DEC-078 for when the library-public deps move to caret.
+> Runtime dependency requirements in `Cargo.toml` are caret (`^x.y.z`, written as
+> the bare version) — crustyimg is a published crates.io library, and caret lets
+> consumers unify versions. Reproducibility comes from the committed
+> `Cargo.lock`, not from manifest pins (DEC-079, supersedes DEC-078).
+> `[dev-dependencies]` may stay exactly pinned — they never constrain a
+> consumer's resolution. Adding any new top-level crate requires a `DEC-*`
+> (constraint `no-new-top-level-deps-without-decision`).
 
 ---
 
