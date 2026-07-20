@@ -9,17 +9,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **`crustyimg build` is now incremental** — a content-addressed cache at
-  `.crustyimg/cache/` (SPEC-064, DEC-058). A re-run with no changes is a full cache hit
-  that skips every decode/pipeline/encode; changing one source, one recipe param, the
-  `--quality`, or the crustyimg version rebuilds only what it affects. The build summary
-  reports `(N cached, M rebuilt)`. A cache hit restores a deleted output byte-for-byte;
-  a corrupt, truncated, or missing entry falls back to a clean rebuild. The store is
-  local only (no network path exists), and `--no-cache` bypasses it entirely.
-- One new dependency: `sha2` (RustCrypto SHA-256 — pure Rust, MIT OR Apache-2.0, no
-  `build.rs` C). `cargo deny` stays green with no new exception; the lean
-  `--no-default-features` build and the 1.90 MSRV are unaffected.
-
 ### Changed
 
 ### Deprecated
@@ -29,6 +18,77 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 ### Security
+
+---
+
+## [0.5.0] - 2026-07-20
+
+A large release: a faster, smarter default engine and the `web` flagship command,
+broad new input-format support, a reproducible incremental build system, a
+WebAssembly build with a client-side browser demo, and a frozen CLI surface.
+
+**This release has breaking CLI changes.** While the version is `0.x`, a minor bump
+may rename or remove commands — see Removed and Changed before upgrading.
+
+### Added
+
+- **`web`** — make an image web-ready in one command: downscale, re-encode to the
+  smallest modern format that beats the downscaled image (AVIF for photos, lossless
+  WebP or PNG for graphics), strip metadata, auto-orient, and report an SSIMULACRA2
+  quality score. Size-insensitive — a 24 MP photo is about as fast as a small one.
+- **Declarative, reusable recipes** — `apply --recipe` with bundled `web`, `gallery`,
+  and `product` recipes; tune settings on one image, save the recipe, and replay it
+  across a batch. The same recipe file runs in the browser via the WebAssembly build.
+- **New input formats, pure Rust and on by default** — AVIF decode, SVG rasterize,
+  and RAW embedded-preview extraction (reads `.DNG`/`.CR2`/etc. by pulling the
+  embedded JPEG preview, not a full RAW develop). HEIC decode is available behind an
+  off-by-default `heic` feature (system libheif, local builds only).
+- **`crustyimg build`** — a declared, incremental build from a `crustyimg.build.toml`
+  manifest, with a content-addressed cache and `--watch`. A no-change re-run is a full
+  cache hit that skips every decode/encode; `--no-cache` bypasses it.
+- **`optimize --verify`** — opt in to computing the SSIMULACRA2 score for a run
+  (added to the JSON report as `ssim`).
+- **Machine-readable output** — `--json` and `--timing` on `optimize`/`web`/`apply`,
+  `lint --format json`, and a committed offline benchmark (`just bench`, `--corpus`).
+- **WebAssembly build** — the pure-Rust engine compiles to wasm. A client-side demo
+  (drop an image, convert to AVIF, read the score — entirely in your browser, nothing
+  uploaded) runs at https://jysf.github.io/crustyimg/.
+- **CI integration** — two GitHub Actions wrap the binary: `jysf/setup-crustyimg`
+  (install in CI) and `jysf/crustyimg-action` (lint or optimize with inline PR
+  annotations).
+
+### Changed
+
+- **The default optimization is now fast and AVIF-aware.** The default decision does a
+  single fixed-quality encode to the smallest modern format that beats the source,
+  with a first-class "kept, already optimal" passthrough — instead of the slower
+  quality search that ran by default before.
+- **`optimize` is now a keep-dimensions byte primitive** — best format at good quality,
+  never larger than the source. The perceptual and byte-budget searches are opt-in via
+  `--target` / `--ssim` / `--max-size`.
+- **Metadata commands moved into a `meta` group** — `strip` → `meta strip`, `clean` →
+  `meta clean`, `copy-metadata` → `meta copy`, `set` → `meta set`. (`auto-orient` stays
+  top-level.)
+- **Dependency requirements use caret ranges instead of exact pins**, so crustyimg is
+  friendlier to depend on as a library; reproducible builds come from the committed
+  `Cargo.lock` (use `cargo install --locked`).
+
+### Removed
+
+- **`shrink`** — its behavior is folded into `web` (and upgraded with AVIF).
+
+### Fixed
+
+- The metadata write path corrupted numeric EXIF tags (orientation, GPS) on big-endian
+  input; the writer now preserves the input's byte order.
+- AVIF decode: a data race under load and an empty-stream abort, both fixed.
+- `web`'s "never larger than the source" guarantee is now reconciled with the
+  downscaled baseline.
+
+### Security
+
+- Peak decode memory is bounded before allocation by a declared-pixel budget, and a
+  hardening pass tightened decode limits and error handling.
 
 ---
 
@@ -321,7 +381,8 @@ re-decoded, so privacy ops carry no quality cost and no recompression.
 
 ---
 
-[Unreleased]: https://github.com/jysf/crustyimg/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/jysf/crustyimg/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/jysf/crustyimg/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/jysf/crustyimg/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/jysf/crustyimg/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/jysf/crustyimg/compare/v0.2.1...v0.3.0

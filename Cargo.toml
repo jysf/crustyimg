@@ -1,6 +1,6 @@
 [package]
 name = "crustyimg"
-version = "0.4.0"
+version = "0.5.0"
 edition = "2021"
 # MSRV = max(rust-version) across the locked tree. SPEC-058 raised the floor from
 # 1.89 → 1.90 (avif-parse 2.1.0 requires 1.90). Let the CI `msrv` job confirm.
