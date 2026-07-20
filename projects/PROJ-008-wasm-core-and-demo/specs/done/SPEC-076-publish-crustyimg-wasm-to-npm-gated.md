@@ -7,7 +7,7 @@
 task:
   id: SPEC-076
   type: chore
-  cycle: design
+  cycle: ship
   blocked: false
   priority: high
   complexity: M
@@ -47,15 +47,38 @@ cost:
       tokens_total: 40000
       estimated_usd: 0.40
       note: >
-        ran in the orchestrator main loop, not a metered subagent — tokens_total is an
+        ran in a build session main loop, not a metered subagent — tokens_total is an
         order-of-magnitude ESTIMATE (autonomous-run-cost-estimates convention), not a
         harness-reported number. Two wasm-pack release builds, one smoke run, one
         publish dry-run, one full native gate (just check), and two small file edits
         (npm/README.md, npm/package.overrides.json).
+    - cycle: verify
+      interface: claude-code
+      model: claude-opus-4-8
+      tokens_total: 80000
+      estimated_usd: 2.00
+      note: >
+        Estimated order-of-magnitude (main-loop verify on Opus 4.8, 1M ctx). Dominated by
+        two full `just check` runs (crate compile + test suite); wasm rebuilds cargo-cached.
+        Adversarial: identity from a fresh build, both required negative controls fired
+        (override removal → normalize warning returns; smoke version-assert mutation → RED),
+        README caveats graded live against src/wasm.rs, nothing published.
+    - cycle: ship
+      interface: claude-code
+      model: claude-opus-4-8
+      tokens_total: null
+      estimated_usd: 0.30
+      recorded_at: 2026-07-20
+      note: >
+        orchestrator main loop — PR #107, CI CLEAN (full 3-OS matrix), squash-merge
+        (0d3f936), bookkeeping. No DEC (identity already lockstep from SPEC-075's finalize
+        + the 0.5.0 crate; the one real fix — canonical repository.url — is too small for a
+        decision record). Publish stays maintainer-fired + permanent; ships the npm README +
+        override to main. crustyimg-wasm not yet on npm.
   totals:
-    tokens_total: 40000
-    estimated_usd: 0.40
-    session_count: 1
+    tokens_total: 120000
+    estimated_usd: 2.70
+    session_count: 3
 ---
 
 # SPEC-076: publish crustyimg-wasm to npm (gated)
@@ -278,10 +301,21 @@ Process-focused: how did the build go? What friction did the spec create?
 from the process-focused build reflection above.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Nothing on the mechanics — clean single-PR ship, CI green first try, no split needed.
+   The framing carried a stale premise ("raw pkg/ emits crustyimg v0.4.0") that the 0.5.0
+   crate cut + SPEC-075's finalize had already resolved; the honest read is that this spec
+   is *prep-to-dry-run* only — the actual value (a valid npm link, the flipped README line)
+   lands at the maintainer's `npm publish`, which this merge does NOT perform. Don't let the
+   merge read as "shipped the npm package" — it shipped the *readiness*.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — No new DEC. DEC-067 (identity/target/versioning) still governs; the lockstep-version
+   guard it established is what made identity a non-event here. The one real fix (canonical
+   `repository.url` override) is a packaging detail, not a decision.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — No new spec, but two gated follow-through steps once the maintainer fires `npm publish`
+   and it's confirmed live: (a) fix the demo's broken npm link (`demo/index.html:168`,
+   currently 403); (b) flip the crustyimg README "isn't on npm yet" line to a real
+   `npm install crustyimg-wasm`. Both are one-line edits gated on the publish being live —
+   NOT before.

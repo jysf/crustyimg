@@ -95,15 +95,19 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
   png/jpeg/webp/avif, dims decoded back). 8-file tarball, no native addon / lifecycle script / deps.
   Verify hardened the size guard STRUCTURALLY (strip fingerprint 42 B vs 980,292 B, not a size band).
   Native untouched. Cost $2.10.
-- [~] SPEC-076 (design — framed build-ready 2026-07-20, **maintainer approved publishing for the launch**)
-  — **publish `crustyimg-wasm` to npm (gated).** Nail identity (`crustyimg-wasm`, 0.5.0 lockstep — raw
-  `pkg/` emits `crustyimg` v0.4.0), a usage README for the npm page (honest caveats), `wasm-npm-smoke` +
-  `npm publish --dry-run` green; **the actual `npm publish` is [MAINTAINER-AUTHORIZED] + permanent — build
-  stops at the dry-run.** README wasm line flips to a real `npm install` only once published. Sequenced
-  with the launch (publishes at/after the 0.5.0 crate cut). Its ship completes STAGE-026.
+- [x] SPEC-076 (shipped 2026-07-20, PR #107 `0d3f936`, no DEC) — **`crustyimg-wasm@0.5.0` prepped for
+  npm publish (gated).** Identity was already lockstep (SPEC-075's finalize + the 0.5.0 crate → raw
+  wasm-pack now emits v0.5.0, not v0.4.0); the one real fix was a canonical `repository.url` override so
+  the dry-run is warning-clean. npm README brought current (`optimizeDetailed`/`score` + Caveats).
+  `wasm-npm-smoke` + `npm publish --dry-run` green (8 files / 2.0 MB, zero deps). **The actual `npm publish`
+  remains [MAINTAINER-AUTHORIZED] + permanent — merge ships readiness, not the package.** Two gated
+  follow-throughs owed once publish is live: demo npm link (`demo/index.html:168`) + the README
+  "isn't on npm yet" flip.
 
-**Count:** 1 shipped / 1 framed (SPEC-076 npm publish — build-ready, publish gated) / 0 active. SPEC-075
-SHIPPED 2026-07-13 (package installs + runs client-side, DEC-067). SPEC-076's ship completes STAGE-026.
+**Count:** 2 shipped / 0 active. SPEC-075 SHIPPED 2026-07-13 (package installs + runs client-side,
+DEC-067). SPEC-076 SHIPPED 2026-07-20 (identity + npm README + dry-run gate). **Stage content-complete;
+the gated `npm publish` is the maintainer's to fire — hold the stage active until the package is live on
+npm, then close deliberately (status→shipped + shipped_at + reflection).**
 
 ## Design Notes
 
