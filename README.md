@@ -1,40 +1,51 @@
 # crustyimg
 
-**Tell the tool the outcome you want — a visual quality or a file-size budget,
-in a modern format — and get the smallest file that meets it, from one pure-Rust
-binary with zero system dependencies.** "Set the look, not the number."
+Make an image web-ready in one command. `crustyimg web photo.jpg -o out.avif` downscales,
+re-encodes to the smallest modern format that beats the downscaled image, and prints a real
+quality score. One Rust binary, no system libraries.
 
-A fast CLI for viewing and transforming images: resize, optimize for web,
-inspect, strip metadata, watermark, and generate responsive image sets — all from
-a single static binary with no system dependencies.
+Beyond `web` it's a general image CLI: view, resize, convert, optimize, inspect, strip
+metadata, watermark, diff, and build responsive sets. Tell it the visual outcome you want
+(a quality target or a size budget) and it finds the smallest file that hits it. Set the
+look, not the number.
+
+## Try it in your browser
+
+**[jysf.github.io/crustyimg](https://jysf.github.io/crustyimg/)**: drop in a photo, watch
+it become AVIF, and read an SSIMULACRA2 quality score. It runs entirely in the browser (the
+Rust engine compiled to WebAssembly), so nothing is uploaded and there's nothing to install.
+It's the fastest way to see what `crustyimg web` does.
+
+## Why crustyimg
+
+- Quality is measured, not guessed. `web`, `optimize`, and `diff` score the output with
+  SSIMULACRA2, a perceptual metric, so "high quality" is a number you can gate on in CI.
+- One static binary, pure Rust, no system libraries. No libvips or ImageMagick to install,
+  no native Node addon to build. It's synchronous with no async runtime, so startup is
+  instant and it drops straight into a shell pipeline or a CI step.
+- `web` is one command to a web-ready file: downscale, strip metadata, re-encode to the
+  smallest modern format that beats the downscaled image (AVIF for photos, lossless WebP or
+  PNG for graphics), and report the score. For a keep-the-dimensions pass that is guaranteed
+  never larger than the source, use `optimize`.
+- The same engine runs client-side in the browser via WebAssembly. That's the demo above.
+
+Over a corpus of 8 real photos (0.7 to 47 MP), `crustyimg web` produced files a median 98%
+smaller in 2 to 5 seconds each. Runtime barely changes across that size range
+because `web` downscales before it encodes. Reproduce it on your own photos with `just bench
+--corpus /path/to/photos`.
 
 ## Install
 
-**Works today:**
-
 ```sh
-# From source (always current)
-cargo install --git https://github.com/jysf/crustyimg
-
-# Or clone and build manually
-git clone https://github.com/jysf/crustyimg
-cd crustyimg
-cargo build --release
-# binary: ./target/release/crustyimg
+cargo install crustyimg                                 # crates.io
+brew install jysf/tap/crustyimg                         # Homebrew
+cargo install --git https://github.com/jysf/crustyimg   # latest from git
 ```
 
-**Once v0.1.0 is published** (see [RELEASING.md](RELEASING.md) for the release checklist):
-
-```sh
-# cargo (crates.io)
-cargo install crustyimg
-
-# Homebrew
-brew install jysf/tap/crustyimg
-
-# Prebuilt binary — download from the GitHub Releases page
-# https://github.com/jysf/crustyimg/releases
-```
+Prebuilt binaries are on the [Releases page](https://github.com/jysf/crustyimg/releases).
+Building from a clone works too: `cargo build --release` puts the binary at
+`./target/release/crustyimg`. To use crustyimg as a Rust library, `cargo add crustyimg`.
+See [RELEASING.md](RELEASING.md) for the versioning policy and release channels.
 
 ### Feature notes
 
@@ -235,6 +246,14 @@ cat in.jpg | crustyimg convert - --format webp -o - > out.webp
 `-v/--verbose` · `--keep-gps`. Exit codes: `0` ok, `1` runtime error, `2` usage, `3`
 input not found, `4` unsupported format, `5` output refused, `6` partial batch, `7`
 check failed (e.g. `diff --fail-under`).
+
+## WebAssembly
+
+The engine compiles to WebAssembly, and that's what runs the
+[browser demo](https://jysf.github.io/crustyimg/): the real `web` pipeline, client-side,
+with nothing uploaded. A `crustyimg-wasm` npm package isn't on npm yet, so there's no
+`npm install` for it. Build the bundle from this repo with `just wasm-build`, or just use
+the demo.
 
 ## Shell completions
 
