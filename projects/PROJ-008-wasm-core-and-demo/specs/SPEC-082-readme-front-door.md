@@ -129,6 +129,12 @@ claim** — while keeping the already-current Usage reference. Every command sho
       (`meta strip`, not `strip`).
 - [ ] The wasm/library mention is honest — no `npm install crustyimg-wasm` claim while it's unpublished.
 - [ ] All links resolve (the demo URL, Releases, RELEASING.md, tap).
+- [ ] **Reads as human-written, not AI-generated.** No AI-tell vocabulary ("seamless", "robust",
+      "powerful", "leverage", "harness", "unleash", "elevate", "boasts", "cutting-edge", "effortless",
+      "whether you're…", "look no further", "in today's world"), no rule-of-three tic, no hedgy
+      over-qualification, no throat-clearing lead sentences, no em-dash overuse, no marketing fluff. Terse,
+      concrete, developer-to-developer: show commands and real numbers, not adjectives. An r/rust reader
+      must not smell a language model.
 - [ ] `just validate` stays green; no `src/`/behavior change (docs only).
 
 ## Failing Tests
@@ -173,6 +179,13 @@ README is prose, so verification is a **commands-and-claims sweep**, not a unit 
   an `npm install` that doesn't work; attribute the benchmark number to the real corpus; if unsure a claim
   is true, cut it.
 - **Keep the good parts** — the Usage section is current; this is a front-door + de-stale, not a rewrite.
+  (Reusing existing human-written prose also helps the "not AI-written" bar — don't over-rewrite it.)
+- **Must not read as AI-written** (maintainer, 2026-07-19) — this is a graded criterion, not a nicety.
+  Use the **`avoid-ai-writing` skill** if available. Concretely: cut the AI-tell words listed in the
+  acceptance criteria; prefer short declaratives over hedged compound sentences; lead sections with the
+  thing itself, not a preamble; don't triplicate ("fast, simple, and powerful"); let commands and numbers
+  carry it. Read it back and ask "would a Rust dev writing their own tool phrase it this way?" — if it
+  smells generated, rewrite it plainer. When in doubt, cut words.
 - **Plain voice, no SPEC/DEC refs** in the README ([[comments-plain-no-spec-refs]]).
 - The maintainer will want to **eyeball the final README voice/positioning** before it ships (it's
   marketing-adjacent) — flag it for review at handback.
