@@ -7,7 +7,7 @@
 task:
   id: SPEC-100
   type: chore
-  cycle: build
+  cycle: ship
   blocked: false
   priority: high
   complexity: S
@@ -55,10 +55,29 @@ cost:
         was stale), read src/image/raw.rs + src/recipe/bundled.rs + src/wasm.rs for accurate RAW/recipe
         claims, wrote 2 new "Why crustyimg" bullets + a CI-inputs addition, ran a 6-command sweep against
         the release binary, grepped for AI-tell vocabulary, link-checked both repos (200/200).
+    - cycle: verify
+      interface: claude-code
+      model: claude-opus-4-8
+      tokens_total: 30000
+      estimated_usd: 0.5
+      note: >
+        Estimated (orchestrator inline review — proportionate to a ~4-line docs change). Independently
+        confirmed the RAW extension list + "and more" against `RAW_EXTENSIONS` (nef/cr2/dng/arw/…) and the
+        bundled recipe names (web/gallery/product) against `src/recipe/bundled.rs`, verified the CI section
+        wasn't duplicated (it pre-existed), voice read (no AI-tells), docs-only scope.
+    - cycle: ship
+      interface: claude-code
+      model: claude-opus-4-8
+      tokens_total: null
+      estimated_usd: 0.3
+      recorded_at: 2026-07-20
+      note: >
+        orchestrator main loop — PR #106, CI CLEAN, squash-merge (f3fc965), bookkeeping. No DEC. Ships to
+        crates.io at 0.6.0 (no 0.5.1). Framing-error lesson banked (see reflection).
   totals:
-    tokens_total: 120000
-    estimated_usd: 1.2
-    session_count: 1
+    tokens_total: 150000
+    estimated_usd: 2.0
+    session_count: 3
 ---
 
 # SPEC-100: README CI/Actions section + surface RAW and recipes
@@ -231,10 +250,21 @@ Process-focused: how did the build go? What friction did the spec create?
 from the process-focused build reflection above.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — **Verify the "gap" against the whole artifact before framing it.** My Context claimed the README
+   "doesn't mention" the CI Actions — false; a full "Continuous integration" section already existed (the
+   DEC-051 adoption glue). When I framed it I'd read the README top + Usage headings and grepped for a few
+   terms, but not for the CI section itself. The build caught it by checking the real README + both
+   `action.yml` files instead of trusting the spec. This is [[read-whole-function-before-asserting-a-gap]]
+   applied to a doc: grep the WHOLE target for the thing you claim is missing before asserting it's absent.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — No. The spec's discipline still delivered — the build adapted honestly (didn't duplicate the section,
+   added only the genuinely-new RAW/recipes bullets + the missing action-inputs line) and verified every
+   claim against the code (RAW extensions, bundled recipe names). A stale framing premise cost nothing
+   because the build treated it as a hypothesis, not a fact — which is the point.
 
 3. **Is there a follow-up spec I should write now before I forget?**
+   — No spec. One trivial doc note (out of scope here): README's pre-commit example pins `rev: v0.4.0` —
+   valid (v0.4.0 ships `lint`) but could bump to a current release whenever the README is next touched.
+   The README's RAW/recipes/CI content is now complete; it rides to crates.io at 0.6.0.
    — <answer>

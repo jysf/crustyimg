@@ -86,10 +86,10 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
   honest de-staled install + the 98% headline number. Verified by running all 48 fenced commands (+
   negative control); an independent voice read confirmed it doesn't read AI-written. **Ships to crates.io
   on the 0.5.0 cut.**
-- [~] SPEC-100 (design — framed build-ready 2026-07-20, build-dispatched) — **README CI/Actions section +
-  surface RAW & recipes.** Adds the two live GitHub Actions (`setup-crustyimg`/`crustyimg-action`) with
-  snippets + surfaces RAW (embedded-preview, honest) and declarative recipes (CLI + browser). Small,
-  docs-only, ships with the README in 0.5.0. Sonnet build / Opus verify.
+- [x] SPEC-100 (shipped 2026-07-20, PR #106) — **README: surface RAW + recipes; note CI action inputs.**
+  Added 2 "Why crustyimg" bullets (RAW embedded-preview / declarative recipes) + an action-inputs line;
+  the CI section already existed (DEC-051), so not duplicated. Docs-only, claims verified against `src/`.
+  Rides to crates.io at 0.6.0.
 - [~] SPEC-083 (design — framed build-ready 2026-07-20; **build AFTER the 0.5.0 cut**) — **BENCHMARKS.md.**
   Honest, equal-quality, reproducible cross-tool comparison vs sharp/`@squoosh/cli`/ImageMagick on
   size+speed, off a real `--corpus` (committed CC0 corpus is <2048px, SPEC-088 carry). Matched-quality is
@@ -98,10 +98,10 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 - [ ] (coordination, not a spec) — the **Show HN go/no-go**: `docs/launch-readiness.md` blockers
   green, `crustyimg-wasm` published (SPEC-076, on approval), post drafted → launch.
 
-**Count:** 1 shipped (SPEC-082 README) / 1 reserved stub (SPEC-083 BENCHMARKS, next wave) + the launch
-go/no-go. STAGE-030 (freeze) + STAGE-029 (demo) done. **Stage ACTIVE** — README shipped; **next = the
-0.5.0 release cut** (CHANGELOG + `just release` + gate + maintainer tag push), then the next wave
-(BENCHMARKS, demo-polish v2, device gate, r/rust launch).
+**Count:** 2 shipped (SPEC-082 README front-door, SPEC-100 RAW/recipes/CI) / 1 framed (SPEC-083
+BENCHMARKS, build after 0.5.0) + the launch go/no-go. **0.5.0 SHIPPED 2026-07-20** (frozen CLI + caret +
+README, live on crates.io/brew/Release, demo footer 0.5.0). **Next wave accumulates → 0.6.0** (the launch
+release): SPEC-076 npm publish → SPEC-083 BENCHMARKS → SPEC-101 demo polish → device gate → r/rust launch.
 
 ## Design Notes
 
