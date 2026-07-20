@@ -20,7 +20,7 @@ repo:
 
 created_at: 2026-07-19
 supersedes: null
-superseded_by: null
+superseded_by: DEC-079
 
 # Refines AGENTS.md §5 / DEC-011 / DEC-013's exact-pin convention; will govern
 # Cargo.toml's library-public dependency rows at the crates.io publish (backlog #5).

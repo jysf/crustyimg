@@ -44,11 +44,11 @@ path = "src/main.rs"
 ## table below; the AVIF decoder is there too — it is the one dep that cannot
 ## compile to bare wasm32 (see DEC-064).
 [dependencies]
-fast_image_resize = { version = "=6.0.0", features = ["image"] }
-thiserror = "=2.0.18"
-serde = { version = "=1.0.228", features = ["derive"] }
-toml = "=0.8.23"
-kamadak-exif = "=0.6.1"
+fast_image_resize = { version = "6.0.0", features = ["image"] }
+thiserror = "2.0.18"
+serde = { version = "1.0.228", features = ["derive"] }
+toml = "0.8.23"
+kamadak-exif = "0.6.1"
 # Container-lane metadata WRITE crate (DEC-003, DEC-046). Pure-Rust, permissive
 # (MIT OR Apache-2.0) — `just deny` stays green with no new exception. The read
 # side stays kamadak-exif (read-only). `img-parts` does segment/chunk-level strip +
@@ -58,7 +58,7 @@ kamadak-exif = "=0.6.1"
 # `img-parts` exposes — this replaced `little_exif` (dropping quick-xml,
 # RUSTSEC-2026-0194/-0195, and brotli from the tree). v1 (SPEC-026) = `strip` +
 # `clean --gps` for JPEG + PNG.
-img-parts = "=0.4.0"
+img-parts = "0.4.0"
 # Text-watermark glyph rasterizer (SPEC-030 → SPEC-044, DEC-045). Pure-Rust,
 # MIT OR Apache-2.0, and `ttf-parser`-free (unlike the superseded `ab_glyph`):
 # `skrifa` (Google `fontations`) provides outlines + metrics, `zeno` rasterizes
@@ -66,19 +66,19 @@ img-parts = "=0.4.0"
 # transitive from the tree, letting `deny.toml` delete its RUSTSEC-2026-0192
 # ignore. NOT imageproc (it drags in sdl2/nalgebra). The default font is the
 # bundled BSD-3 Go font (assets/fonts/Go-Regular.ttf), overridable with `--font PATH`.
-skrifa = "=0.44.0"
-zeno = "=0.3.3"
+skrifa = "0.44.0"
+zeno = "0.3.3"
 # Perceptual quality metric for auto-quality (SPEC-016, DEC-019). Pure-Rust,
 # BSD-2-Clause (permissive — DEC-018). A metric crate only (no decode/encode/
 # resize), so it does not violate `single-image-library`.
-ssimulacra2 = "=0.5.1"
+ssimulacra2 = "0.5.1"
 # Lossy WebP encode (SPEC-020, DEC-022) behind the off-by-default `webp-lossy`
 # feature. `webp` (MIT/Apache) → `libwebp-sys` (MIT) → VENDORED libwebp (BSD-3),
 # compiled with `cc` — the project's FIRST C dependency, strictly opt-in (the
 # default build stays pure-Rust). default-features off so we use the raw
 # `from_rgba`/`from_rgb` encoders, NOT the webp crate's `image` feature (which
 # would pull a second `image` crate). `just deny` stays green with no exception.
-webp = { version = "=0.3.1", optional = true, default-features = false }
+webp = { version = "0.3.1", optional = true, default-features = false }
 # SVG RASTERIZE on the default, pure-Rust path (SPEC-060, DEC-054). `resvg` (with
 # `usvg` + `tiny-skia` transitively) rasterizes `.svg` to the canonical `Image` —
 # a rasterizer feeding the pixel core, NOT a second pixel library, so
@@ -117,7 +117,7 @@ webp = { version = "=0.3.1", optional = true, default-features = false }
 #   Bindings are PRE-GENERATED per API version (no `use-bindgen`), so this adds no
 #   bindgen/libclang build-tool dependency; and NOT `embedded-libheif`, which would
 #   vendor+cmake-build libheif and pull the LGPLv3 §4 static-relink obligation.
-libheif-rs = { version = "=2.7.0", optional = true, default-features = false, features = ["v1_17"] }
+libheif-rs = { version = "2.7.0", optional = true, default-features = false, features = ["v1_17"] }
 
 ## ── Native-only dependencies (everything EXCEPT wasm32) ──────────────────────
 ## The CLI/filesystem shell (`cli`, `source`, `sink`'s writers, `build`, `lint`) and
@@ -135,10 +135,10 @@ libheif-rs = { version = "=2.7.0", optional = true, default-features = false, fe
 #   `image`: the full pure-Rust decoder set (DEC-004). `tiff`/`bmp`/`ico` stay on
 #   native — a CLI reads whatever file you point it at, and `lint`/`info` must
 #   answer for a scanner's TIFF or a favicon's ICO.
-image = { version = "=0.25.10", default-features = false, features = ["png", "jpeg", "gif", "bmp", "tiff", "ico", "webp"] }
+image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "gif", "bmp", "tiff", "ico", "webp"] }
 #   `resvg` WITH `text`: native `crustyimg` renders SVG `<text>` as real glyphs
 #   (DEC-054), using only the bundled Go font. Unchanged.
-resvg = { version = "=0.47.0", default-features = false, features = ["text"] }
+resvg = { version = "0.47.0", default-features = false, features = ["text"] }
 # AVIF DECODE on the default, pure-Rust path (SPEC-058, DEC-053). Two CODEC deps
 # feeding the canonical `Image` (the webp-lossy precedent, DEC-021/DEC-022) — NOT
 # a second pixel library, so `single-image-library` is not tripped. AV1/AVIF is
@@ -159,16 +159,16 @@ resvg = { version = "=0.47.0", default-features = false, features = ["text"] }
 # uses it. AVIF decode is therefore UNAVAILABLE in the wasm build (a typed
 # `ImageError::CodecUnavailableOnTarget`, never a panic); the AVIF-on-wasm strategy
 # is SPEC-073. The NATIVE AVIF decode path is untouched.
-re_rav1d = { version = "=0.1.3", default-features = false, features = ["bitdepth_8", "bitdepth_16"] }
-avif-parse = "=2.1.0"
+re_rav1d = { version = "0.1.3", default-features = false, features = ["bitdepth_8", "bitdepth_16"] }
+avif-parse = "2.1.0"
 # The CLI surface itself (SPEC-007/SPEC-040, DEC-012/DEC-039) — `clap` derive +
 # the `completions <SHELL>` generator. The `cli` module is native-only: the wasm
 # build's entry point is `src/wasm.rs`, not an argv parser.
-clap = { version = "=4.6.1", features = ["derive"] }
-clap_complete = "=4.6.5"
+clap = { version = "4.6.1", features = ["derive"] }
+clap_complete = "4.6.5"
 # Input resolution (`source`: file / glob / dir / stdin, SPEC-004) and the lint
 # config's ignore patterns — both filesystem concepts with no wasm meaning.
-glob = "=0.3.3"
+glob = "0.3.3"
 # Batch parallelism + progress for `apply --recipe` over a source list (STAGE-005,
 # SPEC-031). `rayon` (data parallelism across inputs) is pre-justified by DEC-006
 # (no async; rayon for batch). `indicatif` (progress bar) is DEC-033. Both pure-Rust,
@@ -178,8 +178,8 @@ glob = "=0.3.3"
 # Native-only because their sole caller is `cli` (a batch is a list of FILES); the
 # wasm surface transforms one in-memory image per call, and bare wasm32 has no
 # threads anyway (rayon would need wasm-bindgen-rayon + COOP/COEP headers).
-rayon = "=1.12.0"
-indicatif = "=0.18.6"
+rayon = "1.12.0"
+indicatif = "0.18.6"
 # The build cache's hasher (SPEC-064, DEC-058): cache keys, source-content hashes,
 # and the verify-on-read hash of a stored entry. RustCrypto `sha2` is pure Rust with
 # no `build.rs` C/SIMD (unlike `blake3`'s default build, whose nasm/C path has bitten
@@ -187,12 +187,12 @@ indicatif = "=0.18.6"
 # and the lean `--no-default-features` build is unaffected. Hash throughput is
 # immaterial here: the cache's win is skipping a decode+encode, not hashing faster.
 # Native-only: its sole caller is the `build` module's on-disk cache.
-sha2 = "=0.11.0"
+sha2 = "0.11.0"
 # Terminal preview for `view`, behind the default-on `display` feature (DEC-027).
 # Native-only: a terminal is not a thing in a browser. The wasm build therefore
 # compiles with `display` ON (the default feature set) but WITHOUT viuer — the
 # `sink::Sink::Display` arm is gated on `all(feature = "display", not(wasm32))`.
-viuer = { version = "=0.11.0", optional = true }
+viuer = { version = "0.11.0", optional = true }
 # Filesystem watcher for `build --watch` behind the default-on `watch` feature
 # (SPEC-067, DEC-060). `notify` runs a background OS-watcher thread and delivers
 # events over an `std::sync::mpsc` channel — threads + a channel, NOT an async
@@ -206,7 +206,7 @@ viuer = { version = "=0.11.0", optional = true }
 # drops it entirely (mirrors `display`, DEC-027).
 # Native-only: its sole caller is the `build` module, and there is no filesystem
 # to watch in a browser.
-notify = { version = "=8.2.0", optional = true }
+notify = { version = "8.2.0", optional = true }
 
 ## ── wasm32-only dependencies ─────────────────────────────────────────────────
 [target.'cfg(target_arch = "wasm32")'.dependencies]
@@ -224,7 +224,7 @@ notify = { version = "=8.2.0", optional = true }
 # unsupported format always did — no panic, no silent garbage — and
 # `tests/wasm_roundtrip.rs::trimmed_codecs_error_cleanly_in_wasm` pins that, while
 # its native twin pins that the CLI still reads all three.
-image = { version = "=0.25.10", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
+image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
 # `resvg` KEEPS `text` — MEASURED at 287,098 B brotli (20% of the bundle: the single
 # biggest lever in the binary, and the one we DECLINED).
 #
@@ -240,13 +240,13 @@ image = { version = "=0.25.10", default-features = false, features = ["png", "jp
 # `svg_text_renders_glyphs_in_wasm` is the guardrail that makes a future accidental
 # drop go RED instead of silent. DEC-066 records the number so STAGE-026 can revisit
 # it behind a lazy chunk, with the price tag already known.
-resvg = { version = "=0.47.0", default-features = false, features = ["text"] }
+resvg = { version = "0.47.0", default-features = false, features = ["text"] }
 # The JS ↔ Rust boundary for the WASM build (SPEC-072, DEC-064). Pure-Rust and
 # permissive (MIT OR Apache-2.0), so DEC-004 holds and `just deny` needs no new
 # exception. It is GLUE, not a codec — `single-image-library` is not tripped: the
 # pixels still flow through the one `image` crate. wasm32-only, so it adds nothing
 # to the native dependency set (the released binary is byte-identical).
-wasm-bindgen = "=0.2.126"
+wasm-bindgen = "0.2.126"
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 # The `#[wasm_bindgen_test]` harness — runs the round-trip in Node/a headless

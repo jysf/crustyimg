@@ -203,6 +203,11 @@ solved).
 
 ## D4 — semver-in-toml → **DECISION-NEEDED** — THE MAP
 
+> **Correction (2026-07-19, DEC-079):** the "not on crates.io" premise below was
+> false when checked against crates.io directly — crustyimg has been published
+> since v0.1.0 (2026-07-04) and auto-publishes every tag. See DEC-079, which
+> supersedes DEC-078 (the decision this section's finding fed into).
+
 **Directive claim:** never exact-pin (`=x.y.z`); use caret; reproducibility comes
 from committing `Cargo.lock`, not from pins, which cause consumer dependency hell.
 **Prior:** genuine tension; the map decides it.

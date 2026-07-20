@@ -208,28 +208,63 @@ Documentation + a manifest change, so verification is structural, not a unit tes
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
+- **Branch:** `spec-099-pinning-correction`
+- **PR (if applicable):** none — hand back is a plain commit, no PR/merge (per instructions).
+- **All acceptance criteria met?** yes
+  - Every runtime dep in the three tables lost its leading `=` (26 rows total:
+    11 in `[dependencies]`, 12 in the native target table, 3 in the wasm32
+    target table — verified by grepping the pre-edit `= "N` pattern per table).
+    The 4 dev-dep rows
+    (`wasm-bindgen-test`, `serde_json`, `tempfile`, `criterion`) stayed exactly
+    pinned. `Cargo.lock` is byte-unchanged (`git diff --stat Cargo.lock` empty
+    through every build/test/lean/MSRV/wasm invocation). `decisions/DEC-079-*.md`
+    exists with `supersedes: DEC-078`; DEC-078 now has `superseded_by: DEC-079`.
+    RELEASING.md, STAGE-007, DEC-041, and the audit's D4 no longer claim
+    crustyimg is unpublished. AGENTS.md §5 repoints to DEC-079. Full matrix green
+    (native, avif, lean, MSRV 1.90.0, wasm, clippy, fmt, cargo-deny). No `src/`
+    change, no version bump.
 - **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
+  - `DEC-079` — Dependency pinning: caret for the (published) library, exact
+    lock for reproducibility (supersedes DEC-078)
 - **Deviations from spec:**
-  - [list]
+  - Also corrected `AGENTS.md`'s "Hosting: ... target brew / crates.io" line
+    (§5) to the true present — it carried the same "not yet published" premise
+    as the other de-staled docs, and the spec's own goal ("de-stale... to the
+    true present") covers it even though it wasn't named as one of the four
+    explicit doc edits.
+  - Ran `cargo deny check` (not in the spec's Failing Tests list, but named in
+    RELEASING.md's gate suite) as an extra confirmation — pre-existing
+    duplicate-crate warnings only, `advisories ok, bans ok, licenses ok, sources
+    ok`, unaffected by the lock staying unchanged.
 - **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - None — this is a complete, self-contained correction.
 
 ### Build-phase reflection (3 questions, short answers)
 
 Process-focused: how did the build go? What friction did the spec create?
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — Nothing major; the spec's exact line-number map for each `Cargo.toml` table
+     made the mechanical edit fast and low-risk. Minor ambiguity: "cargo update
+     --dry-run should show nothing forced" reads at first like the dry-run
+     should print no diff at all, but a caret migration *should* surface newly
+     permitted patches (that's the negative control) — the intended meaning is
+     "nothing forces OUR build to move off the committed lock," which the
+     unchanged-lock builds already prove.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — The MSRV toolchain (1.90.0) wasn't installed locally (`rustup toolchain
+     list` only had stable/nightly); the spec assumes `cargo +1.90.0 build`
+     just works. Installing it was a one-line `rustup toolchain install
+     1.90.0`, and the local Homebrew `cargo` doesn't understand `+toolchain`
+     syntax at all — had to invoke via `rustup run 1.90.0 cargo build`. Worth a
+     one-line note in AGENTS.md or RELEASING.md for the next MSRV check.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Nothing structurally; the spec's line-by-line dependency map was accurate
+     and the lock-unchanged gate is a clean, mechanical proof of correctness.
+     I'd front-load the MSRV toolchain install earlier in the sequence since
+     it's the one external-state dependency in an otherwise self-contained task.
 
 ---
 
