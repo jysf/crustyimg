@@ -90,9 +90,11 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
   surface RAW & recipes.** Adds the two live GitHub Actions (`setup-crustyimg`/`crustyimg-action`) with
   snippets + surfaces RAW (embedded-preview, honest) and declarative recipes (CLI + browser). Small,
   docs-only, ships with the README in 0.5.0. Sonnet build / Opus verify.
-- [ ] SPEC-083 (reserved stub — framed after STAGE-030) — **BENCHMARKS.md.** Honest, equal-quality
-  size/speed vs squoosh/sharp; reproducible; no cherry-picking — built on STAGE-030's committed bench
-  corpus/harness (SPEC-088). The numbers HN scrutinizes.
+- [~] SPEC-083 (design — framed build-ready 2026-07-20; **build AFTER the 0.5.0 cut**) — **BENCHMARKS.md.**
+  Honest, equal-quality, reproducible cross-tool comparison vs sharp/`@squoosh/cli`/ImageMagick on
+  size+speed, off a real `--corpus` (committed CC0 corpus is <2048px, SPEC-088 carry). Matched-quality is
+  THE credibility question (show the quality column); state machine/versions/exact commands; report losses
+  honestly. Extends the SPEC-088 bench discipline. The numbers HN scrutinizes. Sonnet build / Opus verify.
 - [ ] (coordination, not a spec) — the **Show HN go/no-go**: `docs/launch-readiness.md` blockers
   green, `crustyimg-wasm` published (SPEC-076, on approval), post drafted → launch.
 

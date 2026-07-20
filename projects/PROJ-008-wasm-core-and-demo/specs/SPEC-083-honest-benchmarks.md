@@ -6,11 +6,11 @@
 
 task:
   id: SPEC-083
-  type: story                      # epic | story | task | bug | chore
-  cycle: design                    # frame | design | build | verify | ship
+  type: chore
+  cycle: design
   blocked: false
-  priority: medium
-  complexity: S                    # S | M | L  (L means split it)
+  priority: high
+  complexity: M
 
 project:
   id: PROJ-008
@@ -19,19 +19,18 @@ repo:
   id: crustyimg
 
 agents:
-  architect: claude-opus-4-7
-  implementer: claude-opus-4-7     # usually same Claude, different session
+  architect: claude-opus-4-8
+  implementer: claude-sonnet-5
   created_at: 2026-07-14
 
 references:
-  decisions: []
+  decisions: [DEC-074]
   constraints: []
-  related_specs: []
+  related_specs: [SPEC-088, SPEC-082]
 
-# One sentence on what this spec contributes to its stage's
-# value_contribution. For plumbing: "infrastructure enabling
-# STAGE-028's <capability>". Optional; null is acceptable.
-value_link: null
+value_link: >
+  The credibility spine of the launch — honest, equal-quality, reproducible numbers vs sharp/squoosh/
+  ImageMagick. The claims r/rust and HN will actually scrutinize.
 
 # Self-reported AI cost per cycle. Each cycle (design, build, verify,
 # ship) appends one entry to sessions[]. Totals are computed at ship.
@@ -49,82 +48,106 @@ cost:
     session_count: 0
 ---
 
-# SPEC-083: honest benchmarks
+# SPEC-083: honest benchmarks (BENCHMARKS.md)
 
 ## Context
 
-Why does this spec exist? What problem does it solve? Link to:
-- The parent `STAGE-028` and this spec's place in its backlog
-- The project `PROJ-008`
-- Any related discussions or prior decisions
+The launch claims crustyimg makes images dramatically smaller, fast, at measured quality. r/rust and HN
+will not take that on the README's word — they want **numbers they can reproduce**, and they punish
+cherry-picking and unfair comparisons hard. This spec produces `BENCHMARKS.md`: an honest, **equal-quality**,
+**reproducible** comparison of crustyimg vs the tools people actually use — **sharp** (Node/libvips, the
+incumbent), **`@squoosh/cli`** (the demo's spiritual sibling), and **ImageMagick** — on **size and speed**.
+
+We already have a committed, offline, crustyimg-only benchmark (`just bench` / `scripts/bench.py`, SPEC-088,
+DEC-074, CC0 corpus). This extends that discipline to a **cross-tool** comparison: same inputs, matched
+quality, measured the same way, with the methodology and caveats stated so a skeptic can re-run it and get
+the same answer.
+
+**The bar is credibility, not favorable numbers.** If crustyimg loses on an axis (e.g. raw encode speed vs
+libvips on a resize), the doc says so. Honesty is the strategy (it's the whole project's voice).
 
 ## Goal
 
-1–2 sentences. Unambiguous. If you can't write the goal in two
-sentences, split the spec.
+Write `BENCHMARKS.md` backed by a reproducible cross-tool harness: crustyimg vs sharp / squoosh / ImageMagick
+on size + speed, at **matched quality** (not "smallest wins"), on a real photo corpus — with the exact
+commands, versions, and machine stated so anyone can reproduce it. No cherry-picking; caveats explicit.
 
 ## Inputs
 
-- **Files to read:** `path/to/file.ext` — why
-- **External APIs:** <name, docs link, auth>
-- **Related code paths:** `src/some/module/`
+- **Files to read:** `scripts/bench.py` + `just bench` (SPEC-088 — the existing corpus/harness to extend or
+  mirror); the STAGE-030 benchmark findings (`stages/STAGE-030-*` / the memory of the 8-photo 0.7–47 MP
+  corpus: `web` ≈ 98% median / 2–5 s) for the crustyimg side; `README.md` (the headline number this doc
+  substantiates); `docs/cli-reference.md` (the exact crustyimg invocations).
+- **External tools (install for the harness):** `sharp` (Node), `@squoosh/cli` (Node, note it's archived),
+  `imagemagick` (`magick`). Pin + record their versions.
+- **Corpus:** a real photo set spanning small→large (the STAGE-030 corpus is the reference; the doc's
+  headline numbers must come from a real `--corpus`, not the committed CC0 fixtures which are all <2048px —
+  the SPEC-088 carry). Do NOT commit large real photos; the harness takes `--corpus <dir>`.
 
 ## Outputs
 
-- **Files created:** `path/to/new.ext` — purpose
-- **Files modified:** `path/to/existing.ext` — what changes
-- **New exports:** <names and signatures>
-- **Database changes:** <migrations>
+- **Files created:**
+  - `BENCHMARKS.md` — the human-facing doc: methodology (matched-quality definition, machine/versions,
+    exact commands), a results table (size + speed, crustyimg vs each tool, per size bucket), the honest
+    caveats (where crustyimg loses; what "matched quality" means; single-thread vs libvips threading), and
+    a "reproduce it yourself" section (the harness command + how to point it at your own corpus).
+  - A **cross-tool harness** (extend `scripts/bench.py` or a sibling, e.g. `scripts/bench-compare.py`) that
+    runs crustyimg + the competitors on a `--corpus`, matches quality (see below), and emits the table.
+- **Files modified:** `README.md` — the headline number links to / is consistent with BENCHMARKS.md (light;
+  don't duplicate the whole table).
 
 ## Acceptance Criteria
 
-Testable outcomes. Cover happy path, error cases, edge cases.
-
-- [ ] Criterion 1 (testable)
-- [ ] Criterion 2 (testable)
+- [ ] `BENCHMARKS.md` exists with: an explicit **matched-quality** methodology (how quality is equalized
+      across tools — e.g. target the same SSIMULACRA2/target quality, not just smallest file), the tool
+      **versions + machine** used, the **exact commands** per tool, a size+speed results table, and stated
+      **caveats** (including at least one axis where crustyimg does not win, if the data shows one).
+- [ ] The numbers are **reproducible**: a documented harness command regenerates the table from a
+      `--corpus <dir>`; running it twice gives materially the same result. No hand-edited numbers.
+- [ ] **No cherry-picking** — the corpus spans small→large real photos; the methodology is fixed before
+      the numbers are read; every crustyimg claim in the README is consistent with the doc.
+- [ ] Honest scope: if a comparison isn't apples-to-apples (e.g. AVIF vs a tool without AVIF), it's labelled,
+      not silently dropped.
+- [ ] `just validate` green; no `src/`/behavior change (docs + a bench script).
 
 ## Failing Tests
 
-Written during **design**, BEFORE build. The implementer's job in
-**build** is to make these pass.
+Benchmarks are empirical, so verification is **reproducibility + honesty**, not a unit test:
 
-- **`path/to/test.file`**
-  - `"test description 1"` — asserts: ...
+- The harness runs end-to-end on a sample corpus and regenerates the `BENCHMARKS.md` table; a second run
+  matches within noise. Capture both.
+- The matched-quality claim is checked: the tools' outputs are actually at comparable quality (score them),
+  not "crustyimg tuned to win." Show the quality column, not just size.
+- Every competitor command in the doc runs (versions pinned); every crustyimg command runs on the 0.5.0
+  binary (extend the SPEC-082 command-sweep discipline).
+- Grep: no README benchmark claim contradicts BENCHMARKS.md.
 
 ## Implementation Context
 
-*Read this section (and the files it points to) before starting
-the build cycle. It is the equivalent of a handoff document, folded
-into the spec since there is no separate receiving agent.*
-
 ### Decisions that apply
-
-- `DEC-NNN` — <one-line summary of why this matters here>
-- `DEC-MMM` — <one-line summary>
-
-### Constraints that apply
-
-These constraints apply to the paths touched by this task (see
-`/guidance/constraints.yaml` for full text):
-
-- `constraint-id-1` — <one-line summary>
-- `constraint-id-2` — <one-line summary>
+- `DEC-074` — the committed offline bench (`just bench`, `scripts/bench.py`, CC0 corpus, `--corpus`); this
+  extends its discipline to competitors. Keep the "no telemetry, offline, reproducible" posture.
 
 ### Prior related work
+- `SPEC-088` (shipped) — the crustyimg-only bench harness + corpus this builds on. **Carry:** the committed
+  corpus can't show the big wins (all <2048px) — headline numbers MUST come from a real `--corpus`.
+- `SPEC-082` (shipped) — the README headline number this substantiates.
 
-- `SPEC-YYY` (shipped) — <one-line summary, if relevant>
-- `PR #NNN` — <link, if relevant>
-
-### Out of scope (for this spec specifically)
-
-Explicit list of what this spec does NOT include. If any of these feel
-necessary during build, create a new spec rather than expanding this one.
-
-- ...
+### Out of scope
+- Any `src/`/engine change or new benchmark *feature* in the CLI (this is a doc + an external-comparison
+  script). Committing large real photos (use `--corpus`). Micro-benchmarks (that's `just bench-micro`).
 
 ## Notes for the Implementer
-
-Gotchas, style preferences, reuse opportunities.
+- **Matched quality is the whole credibility question.** "Smallest file" is meaningless without equal
+  quality — define the match (e.g. drive each tool to the same SSIMULACRA2 target, or the same visual
+  quality setting) and **show the quality column**. A reviewer who spots an unfair comparison discredits the
+  whole launch.
+- **State the machine, versions, and exact commands** — reproducibility is the point; a number without its
+  command is a boast.
+- **Report losses honestly** — if libvips out-throughputs us on a plain resize, say so; the credible doc is
+  the one that admits where it's beaten. Honesty voice ([[comments-plain-no-spec-refs]]), no marketing.
+- `@squoosh/cli` is archived/unmaintained — note that (it's context, not a dunk).
+- Build **after 0.5.0** so the crustyimg side reflects the shipped 0.5.0 surface/engine.
 
 ---
 

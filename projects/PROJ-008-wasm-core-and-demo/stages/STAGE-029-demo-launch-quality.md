@@ -130,6 +130,11 @@ Dependency order — **SPEC-079 (engine surface) first**, because the demo specs
   `WEB_RECIPE` kept byte-identical to `web.toml`; spinning busy glyph → static 🦀 placeholder. No
   engine/recipe-behavior change (byte-identity proven parent↔branch). Sonnet build / Opus verify CLEAN.
 
+- [~] SPEC-101 (design — framed build-ready 2026-07-20) — **demo polish v2 (batched):** link the
+  score panel's SSIMULACRA2 to the metric explainer (cloudinary/ssimulacra2) + the Rust impl
+  (rust-av/ssimulacra2), and confirm the SPEC-081 `color-mix()` band renders on real Firefox+Safari (the
+  launch carry). Demo-files-only, href-only (zero-network holds). Logo swap deferred. Build post-0.5.0-ish.
+
 **Count:** 5 shipped (SPEC-079, 080, 081, 095, 096) / 0 active / 0 framed. The original demo backlog
 completed 2026-07-18; SPEC-096 added the maintainer-noticed pre-launch polish. STAGE-029
 content-complete, held active (close deliberately with STAGE-030). Strategy reconciliation RESOLVED (2026-07-14): the demo hero is the `web` flow — SPEC-080
