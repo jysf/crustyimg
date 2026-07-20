@@ -7,7 +7,7 @@
 task:
   id: SPEC-099
   type: chore
-  cycle: build
+  cycle: ship
   blocked: false
   priority: high
   complexity: S
@@ -41,11 +41,41 @@ value_link: >
 # See AGENTS.md §4 and docs/cost-tracking.md. interface: claude-code |
 # claude-ai | api | ollama | other.
 cost:
-  sessions: []
+  sessions:
+    - cycle: build
+      interface: claude-code
+      model: claude-sonnet-5
+      tokens_total: 90000
+      duration_minutes: null
+      estimated_usd: 3.5
+      note: >
+        Estimated order-of-magnitude (main-loop build) — a mechanical manifest edit (26 rows) + DEC-079 +
+        doc de-staling, followed by a fairly long verification matrix (build/test/lean/MSRV/publish-dry-run/
+        wasm, each confirming Cargo.lock unchanged). ~80/20 at Sonnet list rate.
+    - cycle: verify
+      interface: claude-code
+      model: claude-opus-4-8
+      tokens_total: 125000
+      duration_minutes: null
+      estimated_usd: 3.0
+      note: >
+        Estimated (main-loop verify on Opus) — independently re-derived the lock-unchanged gate (sha held
+        across ~7 invocations), a fresh `cargo update` + MSRV 1.90 recompile, the negative control, and a
+        de-staling completeness grep that FOUND 3 residual stale claims the build left (fixed as verify
+        hardening). ~110–140k tokens; two full-tree MSRV recompiles dominated wall-clock.
+    - cycle: ship
+      interface: claude-code
+      model: claude-opus-4-8
+      tokens_total: null
+      estimated_usd: 0.5
+      recorded_at: 2026-07-19
+      note: >
+        orchestrator main loop — PR #104, CI CLEAN, squash-merge (106d5bf), bookkeeping. DEC-079 recorded
+        (supersedes DEC-078). Follow-up standing: the fix reaches crates.io on the next publish (0.5.0).
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 215000
+    estimated_usd: 7.0
+    session_count: 3
 ---
 
 # SPEC-099: crates.io pinning correction — caret-migrate library-public deps + supersede DEC-078
@@ -274,10 +304,20 @@ Process-focused: how did the build go? What friction did the spec create?
 from the process-focused build reflection above.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Check ground truth before shipping a decision, not the doc that cites it. DEC-078 (the thing this
+   corrects) shipped on a false premise because both its build and its verify checked it against the
+   audit, and the audit against a stale doc — never against crates.io. `gh run list --workflow=
+   publish-crates.yml` was the one-command check. The correction cost a full spec; the check cost 3
+   seconds. This is [[a-plausible-test-result-is-not-a-checked-one]] reaching the decision layer.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — Done as the deliverable: DEC-079 supersedes DEC-078 and refines AGENTS §5 / DEC-011/013 (runtime =
+   caret, reproducibility via the committed lock). The durable lesson: a "reproducibility" convention and
+   a "published library" reality can conflict silently — the committed `Cargo.lock` reconciles them (caret
+   manifest + exact lock = both). Verify's de-staling-completeness grep (found 3 residual claims a
+   single-banner fix left) is the reusable move: correct EVERY instance, prove it with a grep.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — No spec — an **operational** follow-up: the caret manifest only reaches crates.io on the next
+   publish, so cut **0.5.0** (semver-correct: STAGE-030 was a breaking CLI cutover since 0.4.0) carrying
+   this fix. In progress at ship time.

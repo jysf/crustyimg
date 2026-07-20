@@ -86,14 +86,15 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
   relaxation of the library-public deps is a mandatory, deferred prerequisite of the crates.io publish
   (backlog #5); no migration now; refines AGENTS.md §5 / DEC-011/013. Docs-only, zero code change.
 
-**Count:** 2 shipped (SPEC-097 cli split, SPEC-098 DEC-078) / 1 framed (SPEC-099 crates.io pinning
-correction — build-gated) / 0 active.
+- [x] SPEC-099 (shipped 2026-07-19, PR #104, **DEC-079**, ~$7.0) — **crates.io pinning correction.**
+  Corrected DEC-078's FALSE premise (crustyimg IS published, `has_lib`, auto-per-tag): caret-migrated the
+  26 runtime dep reqs (kept 4 dev-deps pinned; **`Cargo.lock` byte-unchanged**), DEC-079 supersedes
+  DEC-078, de-staled RELEASING.md/STAGE-007/DEC-041/audit-D4/AGENTS §5. Reproducibility via the committed
+  lock. Verify found + fixed 3 residual stale claims a single-banner de-stale left. **Reaches crates.io on
+  the 0.5.0 cut.**
 
-- [~] SPEC-099 (design — framed 2026-07-19, on main; **build gated on maintainer go**) — **crates.io
-  pinning correction.** DEC-078's premise ("not on crates.io") is FALSE — crustyimg is published (0.4.0,
-  `has_lib`, auto-per-tag), so the 30 exact `=` pins are live on a published lib. Caret-migrate the ~23
-  runtime dep reqs (keep dev-deps pinned; `Cargo.lock` byte-unchanged) + `DEC-079` supersedes DEC-078 +
-  de-stale RELEASING.md/STAGE-007/DEC-041/audit-D4. Reproducibility stays via the committed lock.
+**Count:** 3 shipped (SPEC-097 cli split, SPEC-098 DEC-078, SPEC-099 DEC-079) / 0 framed / 0 active.
+All three adopted audit items shipped.
 
 **Queued for this stage (not yet framed):**
 - **strict-JSON `escape_json`** (SPEC-097 follow-up, low priority) — `0x7F`/≥0x20 controls pass through
