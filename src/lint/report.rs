@@ -13,6 +13,8 @@
 use std::io::{self, Write};
 use std::path::Path;
 
+use crate::cli::report::escape_json;
+
 use super::{Finding, LintOutcome, Severity};
 
 /// Render the outcome as a grouped-by-file human report (eslint/ruff style).
@@ -117,21 +119,6 @@ fn write_finding(f: &Finding, out: &mut impl Write) -> io::Result<()> {
         write!(out, ",\"bytes_saved\":{bytes}")?;
     }
     write!(out, "}}")
-}
-
-/// Escape a string for a hand-rolled JSON value (mirrors the shipped
-/// `escape_json`): `"` → `\"`, `\` → `\\`, control chars < 0x20 → `\u00XX`.
-fn escape_json(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for ch in s.chars() {
-        match ch {
-            '"' => out.push_str("\\\""),
-            '\\' => out.push_str("\\\\"),
-            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04X}", c as u32)),
-            c => out.push(c),
-        }
-    }
-    out
 }
 
 // ── SARIF report (SPEC-056) ───────────────────────────────────────────────────
