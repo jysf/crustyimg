@@ -7,13 +7,23 @@
     "",
     "NOT overridden, on purpose: `version` (wasm-pack copies it from Cargo.toml, which is",
     "exactly the lockstep DEC-067 wants — an override here could only introduce drift),",
-    "`license`, `repository`, `main`, `types`, and `sideEffects` (wasm-pack's values are",
-    "right, and `sideEffects` in particular is a bundler contract we have no reason to",
-    "second-guess)."
+    "`license`, `main`, `types`, and `sideEffects` (wasm-pack's values are right, and",
+    "`sideEffects` in particular is a bundler contract we have no reason to second-guess).",
+    "",
+    "`repository` IS overridden (SPEC-076): wasm-pack's copy of Cargo.toml's plain",
+    "`https://github.com/jysf/crustyimg` is a valid but non-canonical shorthand — `npm",
+    "publish` silently auto-corrects it to the `git+...git` form at publish time, so the",
+    "committed package.json and what actually lands in the registry would otherwise",
+    "disagree. This spells out the form npm wants so the dry-run needs no correction."
   ],
 
   "name": "crustyimg-wasm",
   "description": "Resize, convert, and optimize images in the browser — the crustyimg engine compiled to WebAssembly. No native addon, no postinstall build, no server.",
+
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jysf/crustyimg.git"
+  },
 
   "keywords": [
     "image",

@@ -11,6 +11,22 @@ leave the user's machine.
 npm install crustyimg-wasm
 ```
 
+## Caveats
+
+Read this before integrating:
+
+- **You must call `await init()` (or `initSync()`) once before anything else.** There is no
+  auto-instantiation — see Usage below.
+- **Every call is synchronous and single-threaded.** There is no worker or thread pool inside the
+  `.wasm` — a call runs on whatever JS thread invokes it and blocks that thread until it returns. A
+  multi-megapixel AVIF encode can take several seconds; run it in a Web Worker if you don't want
+  your page's main thread (or UI) to freeze for that long.
+- **AVIF encodes here but does not decode here.** An AVIF *input* throws. `score()` (below) also
+  can't grade an AVIF *output* directly, because scoring decodes both images — decode the AVIF in
+  the browser first (`createImageBitmap`) and score the decoded bytes instead.
+- Not a drop-in server-side `sharp`/`libvips` replacement — this runs client-side (or in Node via
+  `initSync`), with the format reach and performance profile of a wasm build, not a native one.
+
 ## Usage
 
 The package is an ES module built with `wasm-pack --target web`, so **you must initialize it
@@ -20,7 +36,7 @@ Brotli), and the package will not fetch it behind your back.
 ### Browser
 
 ```js
-import init, { info, transform, optimize, version } from "crustyimg-wasm";
+import init, { info, transform, optimize, score, version } from "crustyimg-wasm";
 import wasmUrl from "crustyimg-wasm/crustyimg_bg.wasm?url"; // Vite; see below for other setups
 
 await init({ module_or_path: wasmUrl });
@@ -40,12 +56,16 @@ width = 1200
 `;
 
 const png = transform(bytes, recipe, "png");
-const avif = transform(bytes, recipe, "avif"); // yes, AVIF encoding, client-side
-const best = optimize(bytes, "auto"); // let the engine pick format + quality
+const jpeg = optimize(bytes, "jpeg"); // let the engine pick a quality that hits the perceptual target
+
+const quality = score(bytes, jpeg); // SSIMULACRA2, 0-100+; ~100 is visually identical to the input
+console.log(quality);
 ```
 
 `optimize` runs the same perceptual quality search the CLI runs (an SSIMULACRA2-targeted binary
 search), so it is doing real work — expect it to take meaningfully longer than a plain `transform`.
+`optimizeDetailed` (see the API table) runs the same search but also reports the quality/speed it
+picked and its own score, so you don't have to call `score()` yourself for a non-AVIF result.
 
 Serve the `.wasm` with `Content-Type: application/wasm` and, ideally, Brotli — it is a static
 asset, and it is the download the user waits for.
@@ -81,6 +101,8 @@ in webpack/Rollup). What matters is that **you** resolve the URL and pass it to 
 | `info` | `(bytes) => ImageInfo` | Decode and report `width`, `height`, `format`, `hasAlpha`. |
 | `transform` | `(bytes, recipeToml, outFormat) => Uint8Array` | Run a recipe (resize, crop, watermark, auto-orient, …) and encode. |
 | `optimize` | `(bytes, outFormat \| "auto") => Uint8Array` | Re-encode well: pick a format when asked to, and search for the smallest quality that still hits the perceptual target. |
+| `optimizeDetailed` | `(bytes, outFormat, speed?, maxBytes?, target?) => OptimizeResult` | Same engine as `optimize`, but reports what it did: `.bytes`, `.format`, `.quality`, `.speed` (AVIF only), `.score` (perceptual search only — `undefined` for AVIF, which this build can't decode back to score), `.scoredBy` (`"engine"` or `"none"`). |
+| `score` | `(reference, candidate) => number` | The engine's SSIMULACRA2 score between two encoded images. Both must be formats this build can *decode* — so an AVIF candidate must be decoded elsewhere (e.g. the browser's `createImageBitmap`) before scoring. |
 | `version` | `() => string` | The crate version this `.wasm` was built from. |
 
 Every fallible call **throws a typed `Error`** on bad input — it never panics the module out from
