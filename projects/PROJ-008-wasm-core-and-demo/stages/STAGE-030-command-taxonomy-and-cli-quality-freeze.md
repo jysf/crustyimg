@@ -2,7 +2,7 @@
 # Maps to ContextCore epic-level conventions.
 stage:
   id: STAGE-030
-  status: active                    # proposed | active | shipped | cancelled | on_hold
+  status: shipped                   # proposed | active | shipped | cancelled | on_hold
   priority: high
   target_complete: null
 
@@ -12,7 +12,7 @@ repo:
   id: crustyimg
 
 created_at: 2026-07-14
-shipped_at: null
+shipped_at: 2026-07-20
 
 value_contribution:
   advances: >
@@ -171,7 +171,9 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`. Build order: **084 �
   `join`). Trade: single-image / serial `convert`/`resize` ~3.8× slower on AVIF decode; flagship
   rayon paths a wash. Follow-ups: upstream report · empty-OBU `debug_abort` guard
   ([[a-thread-boundary-does-not-catch-abort]]) · `par_iter run_pixel_op`.
-- [ ] SPEC-092 (optional / may fold) — `convert --to` rename + social/archive recipes.
+- [→] SPEC-092 (moved to STAGE-032, 2026-07-20) — `convert --to` rename + social/archive recipes.
+  Moved out of this stage into the new proposed STAGE-032 (post-launch CLI surface): the surface froze
+  at ~14 verbs for launch and this optional additive convenience lands later without touching the core.
 - [x] SPEC-094 (shipped 2026-07-18, PR #97, no DEC, ~$9.70, **BUG**, SPEC-091 follow-up) — **guarded the
   empty-OBU `debug_abort()` in AVIF decode.** A LIVE bug: a conforming crafted AVIF (avif-parse `iloc`
   ToEnd `mem::take` drains a shared mdat offset → alpha item = `Some(<empty>)`) reached re_rav1d's
@@ -196,13 +198,12 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`. Build order: **084 �
   orchestrator's ship-time re-test** (both plausible-tests-not-checked; verify caught both) — a process
   gap, not a model gap.
 
-**Count:** 9 shipped (SPEC-084/085/086/087/088/089/090/091/093) / 0 in design / 1 pending (SPEC-092,
-optional `convert --to`). **All planned STAGE-030 specs are shipped** — taxonomy freeze, the fast-AVIF
-default, `web` flagship, `optimize` demotion + `shrink` removal, the `meta` group, the audit report +
-committed bench, the metadata-corruption fix, the AVIF thread policy, and the `web` never-bigger
-reconciliation. **STAGE-030 is held ACTIVE (not closed) per maintainer decision (2026-07-18)** — close it
-deliberately when ready (status→shipped + shipped_at + Stage-Level Reflection). SPEC-092 (`convert --to`)
-remains optional/deferrable. **Next: reframe SPEC-080 (demo → `web` hero)** → STAGE-028 README/BENCHMARKS
+**Count:** 9 shipped (SPEC-084/085/086/087/088/089/090/091/093) + SPEC-094 (091 follow-up bug) / 0 in
+design / SPEC-092 moved to STAGE-032 (post-launch CLI surface). **All planned STAGE-030 specs are
+shipped** — taxonomy freeze, the fast-AVIF default, `web` flagship, `optimize` demotion + `shrink` removal,
+the `meta` group, the audit report + committed bench, the metadata-corruption fix, the AVIF thread policy,
+and the `web` never-bigger reconciliation. **STAGE-030 CLOSED 2026-07-20** (status→shipped; see
+Stage-Level Reflection). **Next: reframe SPEC-080 (demo → `web` hero)** → STAGE-028 README/BENCHMARKS
 (SPEC-083 benefits from 091: decode numbers now single-threaded, not under oversubscription). Open
 follow-ups from 091 (not blocking, do sequentially): report the re_rav1d overlap upstream; an empty-OBU
 `debug_abort` guard; `par_iter run_pixel_op` to reclaim serial convert/resize
@@ -255,4 +256,40 @@ decode throughput.
 
 ## Stage-Level Reflection
 
-*Filled in when status moves to shipped.*
+*Closed 2026-07-20.*
+
+**Did we deliver the outcome?** Yes. The pre-launch surface freeze landed as framed: a hard cutover from
+~20 verbs to ~14 one-intent verbs with no aliases and no deprecation, the `web` flow shipped as the
+measured flagship (98% / 2.7 s vs the old `optimize` default's 24% / 16.5 s), `optimize` demoted to an
+honest keep-dimensions byte-primitive with the perceptual search made opt-in, `shrink` removed, the `meta`
+group made whole (`strip/clean/copy/set`), and a unified audit report + committed offline bench. The
+enabling decision (fast, AVIF-aware default) was the native twin of the already-shipped wasm surface, so
+the two Auto paths converged rather than diverged.
+
+**How many specs did it take?** 9 planned specs shipped (084–091, 093), plus SPEC-094 as a 091 follow-up.
+SPEC-092 (`convert --to` + extra recipes) was optional from the start and deferred post-launch — the
+surface froze without it. Two of the nine were LIVE bugs the freeze work itself flushed out (093 metadata
+byte-order corruption; 094 empty-OBU abort), which is a feature of doing a careful surface pass, not a
+defect in the plan.
+
+**What changed between starting and shipping?** Nothing in direction — the benchmark settled the hero
+question up front and the plan held. The surprises were failure *mechanisms*, not scope: SPEC-090's framing
+had the wrong baseline (source = original file, not the downscaled intermediate) and the build corrected
+it; SPEC-091 needed a second round after the darwin-green `n_threads=1` fix stack-overflowed every Windows
+CI leg.
+
+**The one lesson worth carrying out of this stage:** the recurring defect was the same species every time
+and it was **model-independent** — *a plausible-but-unchecked claim*. A test with the shape of evidence
+(093 graded byte-identity against an equally-broken oracle; 088's `--json` guard keyed on the `-o -`
+spelling not the resolved sink; 089's rename "verified" by reading found 2 stale docs where one `grep`
+found 7). Every one was caught by a **negative control or a mechanical check**, never by the original test,
+and the misses landed on both Opus and Sonnet builds. Two model experiments (089, 094) confirmed the
+build/verify split is sound: Sonnet builds mechanical/judgment-heavy specs as well as Opus on the hard
+parts, losing only on mechanical-sweep thoroughness — so keep verify on Opus and *back every "it passes"
+with the control that proves the harness could have failed*. This is now partially mechanized
+(`bundled_recipe_headers_are_plain`, SPEC-096); extend that instinct.
+
+**Deferred out of this stage:** SPEC-092 (`convert --to` + social/archive recipes) → STAGE-032
+(post-launch CLI surface), proposed. Non-blocking 091 follow-ups remain sequential: report the re_rav1d `DisjointMut` race
+upstream (draft ready, maintainer files); `par_iter run_pixel_op` to reclaim serial convert/resize decode
+throughput lost to the single-threaded AVIF decode.
