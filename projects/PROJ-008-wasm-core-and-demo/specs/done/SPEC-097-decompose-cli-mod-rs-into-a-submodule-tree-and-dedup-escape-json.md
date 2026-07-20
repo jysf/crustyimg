@@ -7,7 +7,7 @@
 task:
   id: SPEC-097
   type: chore
-  cycle: build
+  cycle: ship
   blocked: false
   priority: medium
   complexity: M
@@ -57,12 +57,33 @@ cost:
         list rate ($3/$15 per MTok, ~80/20 input/output, no cache discount).
         Ship cycle should replace with the real subagent_tokens/duration_ms
         if this ran as a dispatched subagent, or /cost if run interactively.
+    - cycle: verify
+      interface: claude-code
+      model: claude-opus-4-8
+      tokens_total: 2000000
+      duration_minutes: null
+      estimated_usd: 10.5
+      note: >
+        Main-loop verify on Opus 4.8 — ORDER-OF-MAGNITUDE ESTIMATE (no metered subagent). ~2M tokens
+        mixed across 6 release/test/clippy compiles (native + lean + --features avif + wasm), the
+        independent oracle-vs-branch golden run (27 cases), a function-body brace-matched check across
+        ~170 fns, the 3-way escape_json equivalence, and large file/git dumps (many RTK-filtered). ~$9–12
+        at Opus list rate; midpoint recorded.
+    - cycle: ship
+      interface: claude-code
+      model: claude-opus-4-8
+      tokens_total: null
+      estimated_usd: 0.5
+      recorded_at: 2026-07-19
+      note: >
+        orchestrator main loop (un-metered) — ESTIMATE. Confirmed merge, opened PR #103, polled CI
+        (MERGEABLE/CLEAN), squash-merged (701b7b0), bookkeeping. No new DEC. Filed the escape_json
+        JSON-conformance follow-up (0x7F/≥0x20 controls pass through unescaped — byte-identical to main,
+        own behavior spec if ever).
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
-    # Computed at ship (AGENTS.md §4) — not build's job. See cost.sessions
-    # above for the build cycle's own (estimated) entry.
+    tokens_total: 3200000
+    estimated_usd: 17.48
+    session_count: 3
 ---
 
 # SPEC-097: decompose cli/mod.rs into a submodule tree and dedup escape_json
@@ -356,10 +377,21 @@ Process-focused: how did the build go? What friction did the spec create?
 from the process-focused build reflection above.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Nothing on the mechanics — this is the template for a large behavior-preserving refactor: a golden
+   byte-identity oracle captured from the pre-change binary, one-module-per-commit, and verification by
+   name-diff/body-diff rather than counts. The verify earned its keep by finding what the build's own
+   harness couldn't (the clap `argv[0]`-usage-line false-diff, and code paths the sampled commands never
+   reach) — proof that an independent oracle beats trusting the build's green.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — No template/DEC change. Reinforces the STAGE-031 standing gate (byte-identical, proven against a
+   pre-change oracle) as the right bar for maintainability work. Worth banking as a reusable pattern: for
+   a mechanical move, verify the artifact three ways — behavior (golden diff), structure (re-export
+   compile-proof), and completeness (test-name + function-body diff, not counts).
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — One filed, low priority: the shared `escape_json` passes `0x7F`/other ≥0x20 control chars through
+   **unescaped** — technically non-conformant JSON. It's byte-identical to `main` (exactly the gate this
+   spec had to meet), so it was correctly left alone; fixing it is a separate *behavior* spec (would
+   change `--json` output), candidate for STAGE-031 if we want strict-JSON conformance before/after
+   launch. Not blocking.

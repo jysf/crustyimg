@@ -77,15 +77,25 @@ blocks Show HN; a legible codebase is what a launch spike's contributors and rev
 
 Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
-- [~] SPEC-097 (design — framed 2026-07-19, on main) — decompose `src/cli/mod.rs` (6,483 lines) into a
-  `cli/` submodule tree + dedup the two hand-rolled `escape_json`; pure mechanical, byte-identical gate.
-  **Build gated on maintainer go** (a 6k-line move — review the approach + verification gate first).
+- [x] SPEC-097 (shipped 2026-07-19, PR #103, ~$17.48) — decomposed `src/cli/mod.rs` **6,483 → 1,426**
+  lines into a `build/report/optimize/ops/common` submodule tree + deduped `escape_json` to one source.
+  **Byte-identical behavior** proven by an independent oracle (27/27 golden + a function-body diff across
+  ~170 fns); 0 tests dropped; no signature/visibility change. The r/rust-facing code-legibility win.
 - [x] SPEC-098 (shipped 2026-07-19, PR #102, **DEC-078**, ~$2.1) — **dependency-pinning strategy DECISION
   RECORD**, closing the audit's D4 thread: exact `=` pins stay policy for the binary today; caret
   relaxation of the library-public deps is a mandatory, deferred prerequisite of the crates.io publish
   (backlog #5); no migration now; refines AGENTS.md §5 / DEC-011/013. Docs-only, zero code change.
 
-**Count:** 1 shipped (SPEC-098, DEC-078) / 1 framed (SPEC-097 cli split — build-gated) / 0 active
+**Count:** 2 shipped (SPEC-097 cli split, SPEC-098 DEC-078) / 0 active / 0 framed.
+
+**Queued for this stage (not yet framed):**
+- **crates.io / pinning correction** — DEC-078's premise ("not on crates.io") is FALSE; crustyimg is
+  published (0.4.0, `has_lib:true`, auto-published every tag). So the caret migration of the
+  library-public deps is a real, current cleanup (not deferred), and DEC-078 + STAGE-007/DEC-041/
+  RELEASING.md/the audit D4 are stale. One small spec: caret-migrate library-public rows (next release)
+  + supersede/correct DEC-078 + de-stale the release docs. Verified 2026-07-19.
+- **strict-JSON `escape_json`** (SPEC-097 follow-up, low priority) — `0x7F`/≥0x20 controls pass through
+  unescaped (byte-identical to pre-split main; a *behavior* change to fix, own spec).
 
 ## Design Notes
 
