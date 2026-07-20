@@ -239,6 +239,41 @@ CASES = [
         lambda f, w: _copy(f, w, "a.jpg", "b.jpg"),
         ["meta", "copy", "--from", "a.jpg", "--to", "b.jpg", "-o", "out.jpg"],
     ),
+    # ── ops.rs: pixel/geometry handlers not covered above ────────────────────
+    (
+        "thumbnail_default",
+        lambda f, w: _copy(f, w, "a.png"),
+        ["thumbnail", "a.png", "-o", "out.png"],
+    ),
+    (
+        "thumbnail_square",
+        lambda f, w: _copy(f, w, "a.png"),
+        ["thumbnail", "a.png", "--size", "32", "--square", "-o", "out.png"],
+    ),
+    (
+        "auto_orient",
+        lambda f, w: _copy(f, w, "a.png"),
+        ["auto-orient", "a.png", "-o", "out.png"],
+    ),
+    # `view` has no tty under capture_output, so it exits 5 with a stable
+    # error — the headless-safe way to exercise `run_view`'s dispatch + the
+    # CliError→exit-code mapping without depending on terminal rendering.
+    (
+        "view_headless",
+        lambda f, w: _copy(f, w, "a.png"),
+        ["view", "a.png", "--width", "8", "--height", "8"],
+    ),
+    # ── optimize.rs: `run_apply` (plain-recipe path + terminal-optimize path) ─
+    (
+        "apply_recipe_plain",
+        lambda f, w: _copy(f, w, "a.png", "r.toml"),
+        ["apply", "a.png", "--recipe", "r.toml", "-o", "out.png"],
+    ),
+    (
+        "apply_web_json",
+        lambda f, w: _copy(f, w, "a.png"),
+        ["apply", "a.png", "--recipe", "web", "--json", "--out-dir", "out"],
+    ),
 ]
 
 
