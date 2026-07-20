@@ -7,7 +7,7 @@
 task:
   id: SPEC-082
   type: chore
-  cycle: build
+  cycle: ship
   blocked: false
   priority: high
   complexity: M
@@ -41,11 +41,43 @@ value_link: >
 # See AGENTS.md §4 and docs/cost-tracking.md. interface: claude-code |
 # claude-ai | api | ollama | other.
 cost:
-  sessions: []
+  sessions:
+    - cycle: build
+      interface: claude-code
+      model: claude-sonnet-5
+      tokens_total: 300000
+      duration_minutes: null
+      estimated_usd: 4.0
+      note: >
+        Estimated order-of-magnitude (main-loop build) — README front-door rewrite + de-stale, one
+        `cargo build --release`, and a self-built 47-command sweep harness (extract every fenced
+        `crustyimg …` command, run each on fixtures + a negative control). ~$3.5–4.5 on Opus-tier;
+        midpoint recorded. (Sonnet-dispatched but ran main-loop; est only.)
+    - cycle: verify
+      interface: claude-code
+      model: claude-opus-4-8
+      tokens_total: 200000
+      duration_minutes: null
+      estimated_usd: 3.0
+      note: >
+        Estimated (main-loop verify on Opus) — independently re-derived the 48-command sweep + negative
+        control against a fresh binary, honesty/stale/AI-tell greps, link checks (200s), a second voice
+        read, and one honesty fix (headline runtime 2–3s → 2–5s to match the measured corpus). ~200k tok.
+    - cycle: ship
+      interface: claude-code
+      model: claude-opus-4-8
+      tokens_total: null
+      estimated_usd: 0.5
+      recorded_at: 2026-07-20
+      note: >
+        orchestrator main loop — PR #105, CI CLEAN, squash-merge (543f451), bookkeeping. No DEC. The
+        README ships to crates.io on the 0.5.0 cut (next). Process note: the anti-AI-voice criterion
+        landed on the build branch (single-tree collision) and rode the PR to main — the [[worktree-per-
+        session]] hazard; relayed the requirement to the build out-of-band after.
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 500000
+    estimated_usd: 7.5
+    session_count: 3
 ---
 
 # SPEC-082: README front door
@@ -253,10 +285,19 @@ Process-focused: how did the build go? What friction did the spec create?
 from the process-focused build reflection above.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Not add a requirement to a live build by editing the repo. Adding the "must not read as AI-written"
+   criterion mid-build committed onto the build's branch in the single-tree checkout ([[worktree-per-
+   session]]) — I should have relayed it out-of-band. No harm done (it rode the PR to main), but the
+   orchestrator staying out of the repo while a build runs means *out*, including spec edits.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — The "must not read as AI-written" criterion is worth reusing on any user-facing prose spec (README,
+   docs, marketing) — pairs with [[comments-plain-no-spec-refs]]. The verification pattern that worked:
+   treat every fenced command as an executable claim and RUN it (48/48 + a negative control that injected
+   removed/renamed verbs) — a README on the crate page with a stale command is exactly the doc-rot this
+   catches. And the honesty catch (2–3s → 2–5s) shows even a "safe" docs spec needs a facts check.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — No spec. The README ships to crates.io on the **0.5.0 cut** (the operational next step). BENCHMARKS.md
+   (SPEC-083) stays framed for the next wave; the README cites a headline number inline with a reproduce
+   pointer, which is enough for 0.5.0.
