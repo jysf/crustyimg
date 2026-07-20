@@ -95,12 +95,15 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
   png/jpeg/webp/avif, dims decoded back). 8-file tarball, no native addon / lifecycle script / deps.
   Verify hardened the size guard STRUCTURALLY (strip fingerprint 42 B vs 980,292 B, not a size band).
   Native untouched. Cost $2.10.
-- [ ] SPEC-076 (not yet framed, may fold) — **publish + release workflow (gated).** A `just`
-  publish recipe / CI release job that builds through `just wasm-build` (size-profiled) and
-  publishes — **run only on explicit maintainer approval**. May fold into SPEC-075 as a dry-run +
-  documented manual step if a live publish isn't wanted yet.
+- [~] SPEC-076 (design — framed build-ready 2026-07-20, **maintainer approved publishing for the launch**)
+  — **publish `crustyimg-wasm` to npm (gated).** Nail identity (`crustyimg-wasm`, 0.5.0 lockstep — raw
+  `pkg/` emits `crustyimg` v0.4.0), a usage README for the npm page (honest caveats), `wasm-npm-smoke` +
+  `npm publish --dry-run` green; **the actual `npm publish` is [MAINTAINER-AUTHORIZED] + permanent — build
+  stops at the dry-run.** README wasm line flips to a real `npm install` only once published. Sequenced
+  with the launch (publishes at/after the 0.5.0 crate cut). Its ship completes STAGE-026.
 
-**Count:** 1 shipped / 0 active / 1 pending (SPEC-075 SHIPPED 2026-07-13 — the package installs + runs client-side, DEC-067; only SPEC-076 live publish left, gated on maintainer approval — its ship completes STAGE-026)
+**Count:** 1 shipped / 1 framed (SPEC-076 npm publish — build-ready, publish gated) / 0 active. SPEC-075
+SHIPPED 2026-07-13 (package installs + runs client-side, DEC-067). SPEC-076's ship completes STAGE-026.
 
 ## Design Notes
 
