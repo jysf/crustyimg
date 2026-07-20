@@ -27,6 +27,13 @@ It's the fastest way to see what `crustyimg web` does.
   smallest modern format that beats the downscaled image (AVIF for photos, lossless WebP or
   PNG for graphics), and report the score. For a keep-the-dimensions pass that is guaranteed
   never larger than the source, use `optimize`.
+- Reads RAW files too — `.dng`, `.cr2`, `.nef`, `.arw`, and more — by extracting the
+  camera's embedded full-res JPEG preview. That's not a RAW develop (no demosaic, no white
+  balance), but it's enough to get a RAW straight into `web` or `optimize`; sharp and squoosh
+  can't open these at all.
+- Pipelines are recipes: tune one with `edit --save-recipe`, or start from a bundled
+  `web`/`gallery`/`product`, then replay it in parallel across a batch with `apply --recipe`.
+  The same recipe TOML runs in the browser demo too, via the wasm `transform()` binding.
 - The same engine runs client-side in the browser via WebAssembly. That's the demo above.
 
 Over a corpus of 8 real photos (0.7 to 47 MP), `crustyimg web` produced files a median 98%
@@ -304,6 +311,10 @@ jobs:
         with:
           paths: assets content
 ```
+
+Other inputs: `mode: optimize` re-encodes the tree instead of linting it, `args` passes extra
+flags straight to crustyimg (`--select privacy`, `--config path`), `fail-level: warn|never`
+controls what fails the job, and `version` pins a release tag instead of `latest`.
 
 Or install the binary yourself with [`setup-crustyimg`](https://github.com/jysf/setup-crustyimg)
 (generic — it enables `optimize`/`convert`/`lint` alike) and call it directly:

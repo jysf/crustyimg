@@ -41,11 +41,24 @@ value_link: >
 # See AGENTS.md §4 and docs/cost-tracking.md. interface: claude-code |
 # claude-ai | api | ollama | other.
 cost:
-  sessions: []
+  sessions:
+    - cycle: build
+      interface: claude-code
+      model: claude-sonnet-5
+      tokens_total: 120000
+      duration_minutes: null
+      estimated_usd: 1.2
+      note: >
+        Estimated order-of-magnitude (main-loop build, Sonnet). Read README/DEC-051/docs/recipes.md,
+        fetched both action repos' live action.yml via `gh api` for exact input ground truth (found the
+        existing CI section already satisfied most acceptance criteria — the spec's "invisible" framing
+        was stale), read src/image/raw.rs + src/recipe/bundled.rs + src/wasm.rs for accurate RAW/recipe
+        claims, wrote 2 new "Why crustyimg" bullets + a CI-inputs addition, ran a 6-command sweep against
+        the release binary, grepped for AI-tell vocabulary, link-checked both repos (200/200).
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 120000
+    estimated_usd: 1.2
+    session_count: 1
 ---
 
 # SPEC-100: README CI/Actions section + surface RAW and recipes
@@ -157,28 +170,58 @@ real; keep the human, non-AI voice SPEC-082 established.
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
-- **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
+- **Branch:** `spec-100-readme-ci` (commit `ceec7a2`)
+- **PR (if applicable):** none — hand back for verify, no PR/merge per orchestrator instruction
+- **All acceptance criteria met?** yes
+  - "Use it in CI" section with both actions, correct `uses:` refs/inputs, working snippets —
+    **already existed** (DEC-051's original adoption glue, `## Continuous integration` →
+    `### GitHub Actions`, shipped 2026-07-06). Verified against the live `action.yml` in both
+    repos (fetched via `gh api`) and extended it with the four inputs it wasn't showing yet
+    (`mode`, `args`, `fail-level`, `version`) — the setup-crustyimg snippet + "what lint catches
+    + exits non-zero" line were already accurate and unchanged.
+  - RAW surfaced honestly in "Why crustyimg" as embedded-preview extraction (verified against
+    `src/image/raw.rs`'s doc comment and `RAW_EXTENSIONS`; confirmed live with `crustyimg info`
+    on a `.nef` fixture — reports `format: jpeg`, the extracted preview).
+  - Recipes surfaced in "Why crustyimg" as declarative/reusable, CLI + browser (verified
+    `apply --recipe` resolves bundled `web`/`gallery`/`product` by name via
+    `src/recipe/bundled.rs`, and `src/wasm.rs::transform()` docs itself as "the browser twin of
+    `crustyimg apply --recipe`" reading the same TOML).
+  - Command sweep: `crustyimg info`/`web` on the RAW fixture, `edit --save-recipe`,
+    `apply --recipe web|gallery|product` all ran clean against `./target/release/crustyimg`.
+    Both action repo URLs return 200 (`curl -o /dev/null -w %{http_code}`). Grepped the new
+    prose for SPEC-082's AI-tell list — none found. `just validate` green (front-matter only;
+    no other README-content check exists in the repo).
+- **New decisions emitted:** none
 - **Deviations from spec:**
-  - [list]
-- **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - The Outputs section describes the CI section as new ("A new 'Use it in CI' section"), but
+    it already existed in full — both actions, exact refs, the lint-catches + exit-code line —
+    from DEC-051's glue work (2026-07-06), predating this spec. The spec's Context claim ("the
+    README doesn't mention them") didn't match the repo at build time. Treated the acceptance
+    criteria as the source of truth over the literal Outputs framing: verified the existing
+    section against the two live `action.yml` files rather than rewriting it, and only added
+    the genuinely missing pieces (the four under-documented Action inputs, and the RAW/recipes
+    positioning lines, which really were absent). No section rename — `## Continuous
+    integration` already reads as "use it in CI" and a rename would just churn anchors/links
+    for no acceptance-criteria gain.
+- **Follow-up work identified:** none
 
 ### Build-phase reflection (3 questions, short answers)
 
 Process-focused: how did the build go? What friction did the spec create?
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — The spec's Context asserted the CI section didn't exist; the actual README already had a
+   thorough one. Cost one research pass to confirm before writing anything — worth it, since
+   writing a duplicate section would have been the wrong deliverable. [[a-plausible-test-result-is-not-a-checked-one]]-adjacent: a spec claim about repo state is exactly the kind of thing that needs re-checking against the live file, not trusted from the framing session's memory of it.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — No — DEC-051 was listed and was the right decision to read; it explained *why* the section
+   already existed (STAGE-015 glue work), which resolved the confusion once found.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Same approach: read the current README in full before touching it, fetch both action.yml
+   files directly (not just repo READMEs) for exact input ground truth, and run every
+   command/flag referenced in new prose against the real binary before committing.
 
 ---
 
