@@ -66,8 +66,9 @@ logo exists**; not in this spec.)
 
 ## Goal
 
-Make the SSIMULACRA2 score self-explaining (link the metric explainer + the Rust impl) and confirm the
-score band renders correctly on real Firefox and Safari before launch. Demo files only.
+Make the SSIMULACRA2 score self-explaining (link the metric explainer + the Rust impl), give the
+Advanced-control re-convert a **visible signal** so a settings change obviously regenerates the output,
+and confirm the score band renders correctly on real Firefox and Safari before launch. Demo files only.
 
 ## Inputs
 
@@ -86,6 +87,13 @@ score band renders correctly on real Firefox and Safari before launch. Demo file
     Keep it unobtrusive (a linked label + a secondary "Rust impl" link), honest, and consistent with the
     existing panel voice.
   - `demo/demo.css` — any styling for the link affordance; theme-aware, matches the panel.
+  - `demo/demo.js` / `demo/index.html` / `demo/demo.css` — a **re-convert signal**: when an Advanced
+    control change triggers a debounced re-convert of the current image (the existing
+    `scheduleConvert`→`convert()` path, `demo/demo.js:520-536`), make it visibly obvious the output
+    regenerated. The wiring already works; the gap is that it's silent (maintainer feedback 2026-07-20:
+    "it's working, but hard to tell"). Options: surface the existing busy state on re-convert, and/or a
+    brief "Updated" pulse on the result, and/or an explicit "Regenerate/Apply" affordance. Keep it
+    unobtrusive and on-voice; don't change the auto-rerun behavior, just make it legible.
 - **Verification artifact (not a code change):** the FF/Safari band render is confirmed (see below).
 
 ## Acceptance Criteria
@@ -97,6 +105,10 @@ score band renders correctly on real Firefox and Safari before launch. Demo file
       (or degrade to the documented `var(--muted)`/`var(--good)` fallback without looking broken); confirmed
       by driving the demo on Firefox + Safari (the SPEC-078/080 multi-browser harness), not just Chrome.
       Record what each browser showed.
+- [ ] Changing an Advanced control (format/max-edge/max-bytes/keep-full) on an already-converted image
+      produces a **visible signal** that the output regenerated — not just a silently-swapped result.
+      Confirmed by driving the demo: change a control, observe the signal, see the new output. The
+      auto-rerun behavior itself is unchanged (still debounced, still `if (source)`).
 - [ ] Zero network requests during a conversion still holds (the links are static `href`s, not fetches).
 - [ ] Browser smoke stays green; no `src/`/engine change; no wasm rebuild needed.
 
