@@ -258,9 +258,18 @@ check failed (e.g. `diff --fail-under`).
 
 The engine compiles to WebAssembly, and that's what runs the
 [browser demo](https://jysf.github.io/crustyimg/): the real `web` pipeline, client-side,
-with nothing uploaded. A `crustyimg-wasm` npm package isn't on npm yet, so there's no
-`npm install` for it. Build the bundle from this repo with `just wasm-build`, or just use
-the demo.
+with nothing uploaded. The same build ships as an npm package —
+[`crustyimg-wasm`](https://www.npmjs.com/package/crustyimg-wasm), no native addon, no
+postinstall, no dependencies:
+
+```sh
+npm install crustyimg-wasm
+```
+
+It runs in the browser and in Node. Note the edges: `--target web` needs an explicit
+`init()`, calls are single-threaded and blocking, and AVIF is encode-only (a `.avif`
+you pass in is decoded by the browser). You can also build the bundle from this repo
+with `just wasm-build`.
 
 ## Shell completions
 
