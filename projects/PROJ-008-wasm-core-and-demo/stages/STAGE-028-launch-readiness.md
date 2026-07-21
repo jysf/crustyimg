@@ -90,11 +90,13 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
   Added 2 "Why crustyimg" bullets (RAW embedded-preview / declarative recipes) + an action-inputs line;
   the CI section already existed (DEC-051), so not duplicated. Docs-only, claims verified against `src/`.
   Rides to crates.io at 0.6.0.
-- [~] SPEC-083 (design — framed build-ready 2026-07-20; **build AFTER the 0.5.0 cut**) — **BENCHMARKS.md.**
-  Honest, equal-quality, reproducible cross-tool comparison vs sharp/`@squoosh/cli`/ImageMagick on
-  size+speed, off a real `--corpus` (committed CC0 corpus is <2048px, SPEC-088 carry). Matched-quality is
-  THE credibility question (show the quality column); state machine/versions/exact commands; report losses
-  honestly. Extends the SPEC-088 bench discipline. The numbers HN scrutinizes. Sonnet build / Opus verify.
+- [~] SPEC-083 (design — **build-ready, reframed 2026-07-20 for 0.5.0-live; awaiting dispatch**) —
+  **BENCHMARKS.md.** Honest, equal-quality, reproducible cross-tool comparison vs sharp/`@squoosh/cli`/
+  ImageMagick on size+speed, off a real `--corpus`. **Pinned:** the concrete reference corpus (`_incoming0`,
+  8 photos 0.7–47 MP) + the matched-quality method (score every output with ONE scorer, `crustyimg diff`
+  SSIMULACRA2, vs the same original; iso-quality band OR honest scatter, method fixed before numbers).
+  Expects a DEC (methodology). State machine/versions/exact commands; report losses honestly; q85-AVIF
+  "high" told straight. The numbers HN scrutinizes → judgment-bound → **recommend OPUS build**, Opus verify.
 - [ ] (coordination, not a spec) — the **Show HN go/no-go**: `docs/launch-readiness.md` blockers
   green, `crustyimg-wasm` published (SPEC-076, on approval), post drafted → launch.
 

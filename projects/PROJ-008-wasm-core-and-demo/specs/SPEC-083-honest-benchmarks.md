@@ -80,9 +80,15 @@ commands, versions, and machine stated so anyone can reproduce it. No cherry-pic
   substantiates); `docs/cli-reference.md` (the exact crustyimg invocations).
 - **External tools (install for the harness):** `sharp` (Node), `@squoosh/cli` (Node, note it's archived),
   `imagemagick` (`magick`). Pin + record their versions.
-- **Corpus:** a real photo set spanning small→large (the STAGE-030 corpus is the reference; the doc's
-  headline numbers must come from a real `--corpus`, not the committed CC0 fixtures which are all <2048px —
-  the SPEC-088 carry). Do NOT commit large real photos; the harness takes `--corpus <dir>`.
+- **Corpus:** a real photo set spanning small→large. **Reference corpus (the one STAGE-030 measured):**
+  `~/PSeven/experiments/crustimg_redo_plus/_incoming0/` — 8 real photos, 0.7–47 MP, 5 cameras (`.JPG`/
+  `.jpeg`/`.png`; ignore the `.mcp.json`). The doc's headline numbers must come from a real `--corpus`,
+  NOT the committed CC0 fixtures (all <2048px — the SPEC-088 carry). Do NOT commit large real photos; the
+  harness takes `--corpus <dir>`. State the corpus's provenance/size distribution in the doc (not the files).
+- **The uniform scorer (already in the 0.5.0 binary):** `crustyimg diff A B` computes an **SSIMULACRA2**
+  score of B vs A (`docs/cli-reference.md` §diff, exit 7 on `--fail-under`). This is the matched-quality
+  anchor — score EVERY tool's output with the SAME scorer against the SAME original, so the quality column
+  is one consistent metric, not each tool's self-reported quality.
 
 ## Outputs
 
@@ -139,15 +145,32 @@ Benchmarks are empirical, so verification is **reproducibility + honesty**, not 
 
 ## Notes for the Implementer
 - **Matched quality is the whole credibility question.** "Smallest file" is meaningless without equal
-  quality — define the match (e.g. drive each tool to the same SSIMULACRA2 target, or the same visual
-  quality setting) and **show the quality column**. A reviewer who spots an unfair comparison discredits the
-  whole launch.
+  quality. **The method: score every tool's output with ONE scorer — `crustyimg diff <original> <output>`
+  (SSIMULACRA2) — against the same original, and report that quality column next to size + time.** Don't
+  trust each tool's self-reported `-q`; a q80 JPEG and a q80 AVIF are not the same quality. Two credible
+  framings, pick and state one: (a) **iso-quality** — drive each tool to a target SSIMULACRA2 band (e.g.
+  ~90 "high") and compare bytes+time at matched quality; or (b) **the honest scatter** — a fixed sensible
+  setting per tool, plot/table size-vs-quality so the reader sees the trade, no single "winner." Iso-quality
+  is the stronger claim if the harness can hit the band; the scatter is the honest fallback. **Show the
+  quality column either way.** A reviewer who spots an unfair comparison discredits the whole launch.
+- **This is judgment-bound, not mechanical** — the methodology choice, the fairness of each competitor
+  invocation, and the caveats are the deliverable. Expect a **DEC** recording the methodology (scorer,
+  matched-quality definition, tool set + versions, corpus provenance) so the numbers are defensible and the
+  method is fixed *before* the numbers are read (no post-hoc tuning to win).
+- **Fair competitor commands.** sharp (libvips) and ImageMagick are general resizers, not AVIF-first — when
+  comparing AVIF output, use each tool's best AVIF path if it has one, and **label** where a tool can't do
+  AVIF at all (don't silently drop it, don't claim a win it can't contest). cwebp is present locally; sharp/
+  `@squoosh/cli`/ImageMagick install via npm/brew (node+npm present). Pin + record every version.
 - **State the machine, versions, and exact commands** — reproducibility is the point; a number without its
-  command is a boast.
+  command is a boast. Single-thread caveat: crustyimg is single-threaded on the wasm/demo path; libvips
+  threads by default — note the CPU/thread context so the speed comparison is read fairly.
 - **Report losses honestly** — if libvips out-throughputs us on a plain resize, say so; the credible doc is
   the one that admits where it's beaten. Honesty voice ([[comments-plain-no-spec-refs]]), no marketing.
 - `@squoosh/cli` is archived/unmaintained — note that (it's context, not a dunk).
-- Build **after 0.5.0** so the crustyimg side reflects the shipped 0.5.0 surface/engine.
+- **The q85-AVIF "high" story (STAGE-029 carry):** crustyimg's fast-AVIF default lands ~80 SSIMULACRA2
+  ("high", a touch below "visually lossless") — tell this honestly in the quality story so it reads as a
+  deliberate size/quality trade, not a defect.
+- Build **after 0.5.0** so the crustyimg side reflects the shipped 0.5.0 surface/engine (it is; 0.5.0 live).
 
 ---
 
