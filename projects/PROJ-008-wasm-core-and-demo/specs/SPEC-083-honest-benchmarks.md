@@ -7,7 +7,7 @@
 task:
   id: SPEC-083
   type: chore
-  cycle: design
+  cycle: verify
   blocked: false
   priority: high
   complexity: M
@@ -74,10 +74,27 @@ cost:
         output dimensions, `web` vs `convert -q` byte identity, ImageMagick and
         cwebp quality readouts, RAW extension list, dist default features).
         Outcome: ⚠ PUNCH LIST — 4 substantive + 4 minor.
+    - cycle: build
+      interface: claude-code
+      model: claude-opus-4-8
+      tokens_total: 700000
+      duration_minutes: null
+      estimated_usd: 5.0
+      note: >
+        Second build (fix) session on Opus 4.8 clearing the verify punch list —
+        ORDER-OF-MAGNITUDE ESTIMATE, not a real usage-object reading. Scope: read
+        @squoosh/lib's resizeWithAspect to find the real aspect semantics, fixed
+        the squoosh/sharp/cwebp resize dialects, added the harness dimension guard
+        + `--self-test` + `--q-from`, proved the guard with an end-to-end negative
+        control (re-injected the old squoosh call, watched the run fail), re-ran
+        the full harness three times (~70 min wall), re-derived every published
+        cell mechanically from the fresh JSON, re-measured the resampler claim,
+        md5-verified the `web` == `-q 80` identity, and rewrote the affected
+        BENCHMARKS.md / DEC-080 / README prose. Mostly waiting on encodes.
   totals:
-    tokens_total: 2000000
-    estimated_usd: 14.6
-    session_count: 2
+    tokens_total: 2700000
+    estimated_usd: 19.6
+    session_count: 3
 ---
 
 # SPEC-083: honest benchmarks (BENCHMARKS.md)
@@ -212,14 +229,90 @@ Benchmarks are empirical, so verification is **reproducibility + honesty**, not 
 
 - **Branch:** `spec-083-honest-benchmarks` (off `main` @ 260dc02)
 - **PR (if applicable):** none — build cycle; handed to verify, not merged.
+
+### Second build pass — clearing the verify punch list (2026-07-20)
+
+Verify came back NOT CLEAN. One finding forced a full re-run, so every published
+number below is re-derived from a fresh three-pass benchmark, not patched.
+
+**What was wrong, and what changed:**
+
+1. **`@squoosh/cli` was benchmarked distorted (blocking).** The harness passed both
+   `width` and `height` to `--resize`; squoosh's `resizeWithAspect` stretches to the
+   box when given both and only derives the missing axis when given one. Six of the
+   eight photos were squashed to a square. **Own-reference scoring hid it perfectly**
+   — the distorted encode scored against the distorted reference still landed in the
+   82 band, so the quality column offered zero protection. Fixed by constraining the
+   long axis only.
+2. **The harness now measures what it claims.** "Same pipeline for every tool" was an
+   unchecked claim; nothing in the harness looked at output shape. Every reference
+   and every grid output is now measured against the source long edge and aspect
+   ratio (orientation-insensitive, so `web`'s EXIF-baked transpose isn't a false
+   positive); a violation flags the row and exits 3. **Negative control:** the old
+   squoosh call was re-injected via a patch-in driver and the guard failed the run
+   end-to-end, reproducing the exact poisoned published cell (DSC_0163 squoosh
+   245 KB · 82.5) while flagging it. `--self-test` covers eight shapes — including
+   both real bugs — with no corpus and no tools installed.
+3. **Portrait sources fixed for sharp and cwebp.** Confirmed the old arguments
+   really produced 2048×3068 from a 4016×6016 source for both (2.2× the pixels).
+   sharp now gets the full `resize E E --fit inside` box (byte-identical output on
+   landscape, so no published number moved from this); cwebp pins whichever axis is
+   long. A full six-tool run on a portrait source passes the guard.
+4. **The per-core table is genuinely controlled.** New `--q-from` re-times *the same
+   encodes* the main table matched, so only the thread count changes; previously the
+   band was re-picked under one thread and sharp landed at a different quality. The
+   table now prints the matched score for both arms.
+5. **DEC-080's calibration was factually wrong** and the error flattered the setup:
+   `crustyimg web` is byte-identical to `convert --format avif -q 80` (md5-verified
+   here on three photos; byte counts identical on all eight), **not** `-q 85`, and it
+   lands 73.5–79.0 / median **75.2**, not "≈79–82". So 82 is ~7 points *above*
+   crustyimg's real default, and the stated rationale ("the band centre is
+   crustyimg's real operating point") was unfounded. Re-justified honestly: 82 is the
+   band every tool's grid can bracket and a quality worth shipping; anchoring on
+   crustyimg's own default would have dragged four competitors down to a band chosen
+   to suit crustyimg's fast preset. The RESULTS stood — BENCHMARKS.md already
+   reported the honest ~75 and disclosed the tune-up.
+6. **Prose corrections:** "3–8× faster" → 3–9× (sharp) and 4–14× (ImageMagick);
+   "none of the competitors ship a perceptual quality readout" was false (`magick
+   compare -metric DSSIM/SSIM`, `cwebp -print_ssim`, both confirmed) → narrowed to
+   SSIMULACRA2, reported as part of the encode and gateable via `diff --fail-under`;
+   matched-score span 79.0–83.6 (was prose "79–83.5" against a table showing 83.6);
+   the documented squoosh and cwebp commands now match what the harness runs, with
+   `E = min(2048, long edge)` spelled out; README "2 to 5 seconds" → "about one to
+   five seconds" (the doc's own small-bucket `web` row is 967 ms).
+7. **The resampler claim was re-measured, and it changed.** DEC-080 said cross-tool
+   downscales are 92–95 similar, so the resampler is a second-order effect. With every
+   downscale now aspect-correct: 91–94 on three of four sampled photos, but sharp's
+   lands at **~82** against the others on one 24 MP photo. Own-reference scoring is
+   doing real work — against a shared reference that gap would have been charged to
+   sharp's encoder. Corrected in both DEC-080 and the doc.
+
+**The re-run (identical config, no hand-edits):** run 1 and run 2 both `--runs 3
+--warmup 1` (the first pass compared `--runs 3` against `--runs 1`, which is not a
+like-for-like reproducibility claim); run 3 per-core with `--q-from run1.json`.
+Dimension check PASSED on all three. Determinism: **141/141** deterministic fields
+identical run1≡run2; wall-time drift median 1.6%, 5 of 47 over 5%, max 19.6% on a
+416 ms measurement — the doc now says that instead of "≤ ~2%".
+
+**What moved in the results:** the smallest-AVIF tally **flipped from sharp 5 /
+IM 2 / squoosh 1 to sharp 4 / IM 2 / squoosh 2** — aspect-correct squoosh is
+markedly smaller (DSC_9952 26→21 KB, DSC_0974 415→181 KB, DSCN3478 520→422 KB) and
+now wins two photos, one of them a 0.4% edge over sharp on the 47 MP Leica.
+crustyimg's worst case against the smallest widened from ~1.5× to ~1.7×. Every
+bucket median, per-photo cell and per-core row was re-derived from the fresh JSON
+and then **mechanically cross-checked** against it (47 per-photo + 18 bucket +
+8 per-core cells, all match). The headline is unchanged: crustyimg is neither the
+smallest nor the fastest, and per core it is still faster on four of eight.
+
 - **All acceptance criteria met?** yes
   - BENCHMARKS.md with matched-quality methodology, machine + pinned versions,
     exact per-tool commands, size+speed+quality tables per size bucket, and stated
     caveats incl. two axes where crustyimg loses (smallest; wall-clock speed). ✓
   - Reproducible: `just bench-compare --corpus <dir>` regenerates the tables; two
-    runs matched (every deterministic field — chosen quality, bytes, score —
-    identical run-to-run; wall-times moved ≤ ~2%). No hand-edited numbers (tables
-    built from the harness JSON). ✓
+    IDENTICALLY-configured runs matched on every deterministic field (chosen
+    quality, bytes, score — 141/141). Wall-times moved: median 1.6%, 5 of 47 over
+    5%, max 19.6% on a 416 ms measurement. No hand-edited numbers (tables built
+    from the harness JSON, then mechanically cross-checked against it). ✓
   - No cherry-picking: 8 real photos 0.7–47 MP; methodology fixed (DEC-080) and the
     grids calibrated before the full numbers were read; every README benchmark line
     is consistent with the doc (grep-checked — README makes no "beats competitor"
@@ -248,7 +341,8 @@ Benchmarks are empirical, so verification is **reproducibility + honesty**, not 
     6 models across 4 brands (Fujifilm X100F; Nikon P1100/D3300/D750; Leica Q2
     Monochrom; Apple iPhone 15) and **no Sony**. Corrected in the doc + DEC.
   - **The honest result:** at matched quality crustyimg is neither smallest (sharp
-    wins size on 5/8) nor fastest (sharp/ImageMagick are 3–8× faster on wall-clock,
+    wins size on 4/8, ImageMagick 2, squoosh 2) nor fastest (sharp is 3–9× and
+    ImageMagick 4–14× faster on wall-clock,
     being multi-threaded). Reported straight; per-core it's a wash vs single-thread
     libvips, so the value framing rests on portability + measured quality + RAW +
     wasm, not raw compression/speed superiority.
@@ -267,6 +361,11 @@ Benchmarks are empirical, so verification is **reproducibility + honesty**, not 
     it stops building, its row degrades to "NOT RUN" (labelled, not silent).
   - Optionally add a Linux/Windows machine run for cross-platform speed context
     (the single-machine caveat is stated in the doc).
+  - **sharp's resampler on one 24 MP photo** lands ~82 SSIMULACRA2 against every
+    other tool's downscale of the same file (the rest cluster 91–94), and it isn't
+    `fastShrinkOnLoad` (disabling it is byte-identical). Own-reference scoring makes
+    it harmless for this doc, but the cause is unexplained and worth a look if the
+    downscale ever becomes the thing being compared.
 
 ### Build-phase reflection (3 questions, short answers)
 
@@ -294,6 +393,28 @@ Process-focused: how did the build go? What friction did the spec create?
    method. And budget the wall-clock better: the timed encode runs dominate the
    session (~40 min for three full passes), so I'd pick the run count up front and
    avoid running anything else on the machine while timing.
+
+### Second-pass reflection (the fix cycle)
+
+1. **What was unclear in the spec that slowed you down?**
+   — Nothing new; the punch list was specific enough to act on directly. The real
+   cost was wall-clock: any finding that changes an input forces a full re-run, so
+   a single wrong CLI flag cost ~70 minutes of re-measurement.
+
+2. **Was there a constraint or decision that should have been listed but wasn't?**
+   — That every tool spells "downscale the long edge" in a different dialect, and
+   two of the four dialects silently do something else (squoosh stretches when given
+   both axes; sharp and cwebp constrain only the axis you name). A cross-tool
+   benchmark needs the shared pipeline asserted from day one, not assumed — and the
+   assertion has to be structural, because the obvious guard (the quality column)
+   provably cannot see the failure.
+
+3. **If you did this task again, what would you do differently?**
+   — Write the output-shape assertion *before* the first timed run. Every number in
+   the first pass was correct in the sense of "the harness reported what it
+   measured"; it was wrong because nobody checked what the harness was measuring.
+   Also: read the competitor's own resize source rather than trusting its flag names
+   — `resizeWithAspect` answered in thirty seconds what the whole benchmark got wrong.
 
 ---
 

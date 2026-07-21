@@ -18,10 +18,10 @@ SSIMULACRA2 metric and tuned to the same "high" band), on the web-ready job of
 _downscale a photo to ≤ 2048 px and encode AVIF_:
 
 - **crustyimg is never the smallest, and it's the slowest.** sharp (libvips)
-  usually produces the smallest AVIF; sharp and ImageMagick, which use every CPU
-  core, finish roughly 3–8× faster on the clock. crustyimg's files run from about
-  parity to ~50% larger than sharp's, and it takes ~1–5 s where sharp takes
-  ~0.3–1 s.
+  produces the smallest AVIF more often than anyone else (4 of the 8 photos);
+  sharp and ImageMagick, which use every CPU core, finish roughly 3–9× and 4–14×
+  faster on the clock. crustyimg's files run from about parity to ~50% larger
+  than sharp's, and it takes ~1–5 s where sharp takes ~0.3–1 s.
 - **But the gap is threading and a deliberate speed preset, not a weak encoder.**
   crustyimg is single-threaded by design (it's the same engine that runs in the
   browser); pin sharp to a single thread and the two trade wins photo-for-photo.
@@ -32,9 +32,9 @@ _downscale a photo to ≤ 2048 px and encode AVIF_:
   same engine in the browser. sharp needs a native libvips addon; ImageMagick is a
   large C install; `@squoosh/cli` is archived and no longer runs on current Node.
 - **AVIF is the honest comparison, and cwebp can't play** — at matched quality a
-  dedicated WebP encoder is larger than every AVIF tool here (commonly 1.5–2.5×,
-  up to ~2.6× on detailed photos). It's here as context, labelled, not as a
-  contestant it can't win.
+  dedicated WebP encoder is larger than every AVIF tool here (1.2× to 3.0× the
+  smallest AVIF, worst on detailed photos). It's here as context, labelled, not
+  as a contestant it can't win.
 
 So: if you want the absolute smallest file or the fastest batch on a many-core
 box, sharp is excellent and this doc will tell you so. If you want one dependency-
@@ -50,16 +50,31 @@ if you just lower the quality. So every number below is at **matched quality**:
   diff` (SSIMULACRA2, a perceptual metric where ~70 is "high" and ~90 is "visually
   lossless"), against **that tool's own lossless downscale** of the source. Scoring
   each encode against its own downscale isolates *encode* fidelity and doesn't
-  reward or punish a tool for its resampler. (The tools' downscales measure 92–95
-  similar to each other, so the resampler choice is a second-order effect.)
-- **Same pipeline for every tool.** Downscale the long edge to ≤ 2048 px (never
-  upscaling), then encode AVIF. This is the real "make it web-ready" job, and it's
-  where the size savings come from — most of a 47 MP photo's shrink is the
-  downscale, which every tool can do.
+  reward or punish a tool for its resampler. That's not a formality: the tools'
+  lossless downscales of the same photo score 92–94 against each other on most of
+  this corpus, but on one 24 MP photo sharp's lands at ~82 against everyone
+  else's. Scored against a single shared reference, that difference would have
+  been charged to sharp's *encoder*.
+- **Same pipeline for every tool — measured, not assumed.** Downscale the long
+  edge to ≤ 2048 px (never upscaling), then encode AVIF. This is the real "make it
+  web-ready" job, and it's where the size savings come from — most of a 47 MP
+  photo's shrink is the downscale, which every tool can do. Every tool spells
+  "long edge" differently, so the harness measures every output it produces and
+  fails the run if one came back a different shape than the source. That check
+  matters more than it sounds: because each tool is scored against its own
+  reference, a tool that stretched the image would score its distorted encode
+  against its distorted reference and land in the band like everyone else. The
+  quality column cannot police the downscale, so something else has to.
 - **Each tool is tuned to the same band.** For each photo, every tool is swept
   over a fixed quality grid and the setting whose score lands nearest **82** is
   chosen. Nobody is run at "smallest", nobody is tuned to win. The matched score is
-  shown in every row so you can see where each tool actually landed (79–83.5).
+  shown in every row so you can see where each tool actually landed (79.0–83.6).
+  82 is *not* crustyimg's default operating point — `crustyimg web` lands around
+  75 (see below). It's a band every tool's quality grid can bracket, high enough
+  to be a quality anyone would ship. Matching everyone at crustyimg's own default
+  would have pulled the competitors down to a lower-quality band chosen to suit
+  crustyimg; 82 tunes crustyimg *up*, away from the setting its fast preset is
+  built for, which is the conservative direction to be wrong in.
 - **No hand-edited numbers.** The tables are emitted by the harness
   (`scripts/bench-compare.py`); scores and byte counts are deterministic (two runs
   produce identical numbers), and only the wall-times vary because they're
@@ -98,25 +113,32 @@ Each tool downscales the long edge to ≤ 2048 px and encodes at the quality `Q`
 that matched the band (`Q` varies per photo; see the tables). crustyimg's one-
 command default is `web`; the matched-quality row uses `convert -q` to tune it.
 
+`E` below is the target long edge — `min(2048, the source's long edge)`, so a
+photo already under 2048 px is never enlarged. These are the exact commands the
+harness runs.
+
 ```sh
 # crustyimg — one command, its own default fast-AVIF quality
-crustyimg web photo.jpg --max 2048 -o out.avif
+crustyimg web photo.jpg --max E -o out.avif
 
 # crustyimg — tuned to the matched-quality band
-crustyimg resize photo.jpg --max 2048 -o ds.png
+crustyimg resize photo.jpg --max E -o ds.png
 crustyimg convert ds.png --format avif -q Q -o out.avif
 
 # sharp
-sharp -i photo.jpg -o out.avif resize 2048 --fit inside --withoutEnlargement -f avif -q Q
+sharp -i photo.jpg -o out.avif resize E E --fit inside --withoutEnlargement -f avif -q Q
 
 # ImageMagick
-magick photo.jpg -resize '2048x2048>' -quality Q out.avif
+magick photo.jpg -resize 'ExE>' -quality Q out.avif
 
 # @squoosh/cli  (archived — run it on an older Node, e.g. Node 16)
-squoosh-cli --avif '{"cqLevel":Q}' --resize '{"enabled":true,"width":2048,"height":2048}' -d out/ photo.jpg
+#   one axis only: given both, squoosh stretches the image to that box
+squoosh-cli --avif '{"cqLevel":Q}' \
+  --resize '{"enabled":true,"width":E,"method":"lanczos3"}' -d out/ photo.jpg
+#   ...and for a portrait source, "height":E instead
 
-# cwebp  (WebP, not AVIF)
-cwebp -q Q -resize 2048 0 photo.jpg -o out.webp
+# cwebp  (WebP, not AVIF) — the 0 axis is derived from the other
+cwebp -q Q -resize E 0 photo.jpg -o out.webp      # portrait source: -resize 0 E
 ```
 
 ## Results — by photo size
@@ -130,12 +152,12 @@ of the downscale-and-encode.
 
 | Tool | Format | Score | Median size | vs source | Median time |
 |---|---|---:|---:|---:|---:|
-| sharp | AVIF | 82.7 | **85 KB** | 99.4% | 709 ms |
-| squoosh | AVIF | 81.8 | 112 KB | 99.2% | 2856 ms |
-| crustyimg | AVIF | 81.7 | 123 KB | 99.1% | 2716 ms |
-| ImageMagick | AVIF | 81.1 | 162 KB | 97.4% | 598 ms |
-| cwebp | WebP | 82.4 | 166 KB | 98.8% | **302 ms** |
-| _crustyimg `web` (default)_ | AVIF | 75.1 | 47 KB | 99.5% | 2265 ms |
+| sharp | AVIF | 82.7 | **85 KB** | 99.4% | 785 ms |
+| squoosh | AVIF | 81.8 | 88 KB | 99.3% | 2543 ms |
+| crustyimg | AVIF | 81.7 | 123 KB | 99.1% | 2809 ms |
+| ImageMagick | AVIF | 81.1 | 162 KB | 97.4% | 629 ms |
+| cwebp | WebP | 82.4 | 166 KB | 98.8% | **314 ms** |
+| _crustyimg `web` (default)_ | AVIF | 75.1 | 47 KB | 99.5% | 2343 ms |
 
 sharp wins size and beats crustyimg on the clock by ~4×. crustyimg lands in the
 middle of the AVIF pack on size and last on speed. (ImageMagick covers 4 of the 5
@@ -145,23 +167,23 @@ photos here — it errored on the 47 MP Leica; see the caveats.)
 
 | Tool | Format | Score | Median size | vs source | Median time |
 |---|---|---:|---:|---:|---:|
-| sharp | AVIF | 82.1 | **176 KB** | 89.1% | 509 ms |
-| squoosh | AVIF | 82.6 | 193 KB | 88.2% | 1896 ms |
-| crustyimg | AVIF | 81.6 | 201 KB | 87.8% | 4283 ms |
-| ImageMagick | AVIF | 81.6 | 215 KB | 87.0% | **338 ms** |
-| cwebp | WebP | 82.2 | 268 KB | 83.9% | 265 ms |
-| _crustyimg `web` (default)_ | AVIF | 75.4 | 132 KB | 91.9% | 3885 ms |
+| sharp | AVIF | 82.1 | **176 KB** | 89.1% | 543 ms |
+| squoosh | AVIF | 82.6 | 193 KB | 88.2% | 1985 ms |
+| crustyimg | AVIF | 81.6 | 201 KB | 87.8% | 4418 ms |
+| ImageMagick | AVIF | 81.6 | 215 KB | 87.0% | 353 ms |
+| cwebp | WebP | 82.2 | 268 KB | 83.9% | **273 ms** |
+| _crustyimg `web` (default)_ | AVIF | 75.4 | 132 KB | 91.9% | 3954 ms |
 
 ### Small photos (< 2 MP: 1 photo, 0.7 MP)
 
 | Tool | Format | Score | Size | vs source | Time |
 |---|---|---:|---:|---:|---:|
-| sharp | AVIF | 81.8 | **198 KB** | 86.4% | 274 ms |
-| crustyimg | AVIF | 81.6 | 203 KB | 86.1% | 968 ms |
-| ImageMagick | AVIF | 82.1 | 206 KB | 85.9% | **94 ms** |
-| squoosh | AVIF | 82.5 | 245 KB | 83.2% | 923 ms |
-| cwebp | WebP | 83.5 | 240 KB | 83.5% | 70 ms |
-| _crustyimg `web` (default)_ | AVIF | 75.2 | 154 KB | 89.5% | 939 ms |
+| sharp | AVIF | 81.8 | **198 KB** | 86.4% | 284 ms |
+| crustyimg | AVIF | 81.6 | 203 KB | 86.1% | 992 ms |
+| ImageMagick | AVIF | 82.1 | 206 KB | 85.9% | 96 ms |
+| squoosh | AVIF | 83.0 | 218 KB | 85.1% | 835 ms |
+| cwebp | WebP | 83.5 | 240 KB | 83.5% | **73 ms** |
+| _crustyimg `web` (default)_ | AVIF | 75.2 | 154 KB | 89.5% | 967 ms |
 
 ## Results — every photo
 
@@ -169,43 +191,54 @@ Nothing hidden — all 8 photos, matched to the band. Size in KB, time in ms.
 
 | Photo | MP | crustyimg | sharp | ImageMagick | squoosh | cwebp (WebP) |
 |---|---:|---|---|---|---|---|
-| DSC_0163 | 0.7 | 203 KB · 81.6 · 968 ms | **198 KB** · 81.8 · 274 ms | 206 KB · 82.1 · 94 ms | 245 KB · 82.5 · 923 ms | 240 KB · 83.5 · 70 ms |
-| IMG_3855 | 7.8 | 282 KB · 81.4 · 5109 ms | 274 KB · 82.7 · 600 ms | **268 KB** · 80.9 · 363 ms | 290 KB · 82.6 · 2033 ms | 329 KB · 80.9 · 277 ms |
-| DSCF1154 | 8.0 | 120 KB · 81.8 · 3457 ms | **79 KB** · 81.6 · 417 ms | 163 KB · 82.2 · 313 ms | 95 KB · 82.5 · 1759 ms | 207 KB · 83.5 · 253 ms |
-| DSCN3478 | 15.9 | 371 KB · 81.7 · 3804 ms | 380 KB · 83.3 · 754 ms | **348 KB** · 81.5 · 443 ms | 520 KB · 82.7 · 2393 ms | 424 KB · 83.3 · 289 ms |
-| DSC_0974 | 24.0 | 155 KB · 81.0 · 2716 ms | **109 KB** · 79.0 · 954 ms | 157 KB · 81.2 · 586 ms | 415 KB · 81.8 · 2375 ms | 185 KB · 80.8 · 279 ms |
-| DSC_2011 | 24.2 | 123 KB · 82.7 · 3104 ms | **85 KB** · 80.7 · 709 ms | 167 KB · 80.8 · 693 ms | 112 KB · 81.2 · 3230 ms | 166 KB · 82.4 · 328 ms |
-| DSC_9952 | 24.2 | 37 KB · 81.6 · 2499 ms | 27 KB · 82.7 · 444 ms | 105 KB · 81.1 · 610 ms | **26 KB** · 81.8 · 2856 ms | 65 KB · 82.3 · 302 ms |
-| L1024678 | 46.7 | 64 KB · 83.1 · 2282 ms | **48 KB** · 83.6 · 566 ms | — (see caveats) | 59 KB · 83.1 · 3468 ms | 98 KB · 82.8 · 428 ms |
+| DSC_0163 | 0.7 | 203 KB · 81.6 · 992 ms | **198 KB** · 81.8 · 284 ms | 206 KB · 82.1 · 96 ms | 218 KB · 83.0 · 835 ms | 240 KB · 83.5 · 73 ms |
+| IMG_3855 | 7.8 | 282 KB · 81.4 · 5282 ms | 274 KB · 82.7 · 671 ms | **268 KB** · 80.9 · 379 ms | 290 KB · 82.6 · 2115 ms | 329 KB · 80.9 · 284 ms |
+| DSCF1154 | 8.0 | 120 KB · 81.8 · 3554 ms | **79 KB** · 81.6 · 416 ms | 163 KB · 82.2 · 327 ms | 95 KB · 82.5 · 1854 ms | 207 KB · 83.5 · 261 ms |
+| DSCN3478 | 15.9 | 371 KB · 81.7 · 3945 ms | 380 KB · 83.3 · 855 ms | **348 KB** · 81.5 · 467 ms | 422 KB · 83.2 · 2192 ms | 424 KB · 83.3 · 298 ms |
+| DSC_0974 | 24.0 | 155 KB · 81.0 · 2809 ms | **109 KB** · 79.0 · 1004 ms | 157 KB · 81.2 · 616 ms | 181 KB · 81.5 · 2114 ms | 185 KB · 80.8 · 288 ms |
+| DSC_2011 | 24.2 | 123 KB · 82.7 · 3226 ms | **85 KB** · 80.7 · 785 ms | 167 KB · 80.8 · 695 ms | 88 KB · 81.2 · 2797 ms | 166 KB · 82.4 · 336 ms |
+| DSC_9952 | 24.2 | 37 KB · 81.6 · 2575 ms | 27 KB · 82.7 · 483 ms | 105 KB · 81.1 · 641 ms | **21 KB** · 81.8 · 2543 ms | 65 KB · 82.3 · 314 ms |
+| L1024678 | 46.7 | 64 KB · 83.1 · 2382 ms | 48 KB · 83.6 · 606 ms | — (see caveats) | **48 KB** · 82.9 · 3056 ms | 98 KB · 82.8 · 439 ms |
 
 _Each cell: output size · matched SSIMULACRA2 · median time. Bold = smallest AVIF
-for that photo. sharp is smallest on 5 of 8, ImageMagick on 2, squoosh on 1;
-crustyimg is never the smallest, but on every photo it's within ~1.5× of the
+for that photo. sharp is smallest on 4 of 8, ImageMagick on 2, squoosh on 2 (the
+47 MP row is effectively a tie — squoosh 47,730 bytes to sharp's 47,907).
+crustyimg is never the smallest, but on every photo it's within ~1.7× of the
 smallest — and on one (DSCN3478) it edges out sharp._
 
 ## Reading the results honestly
 
-**crustyimg is slower on the clock, because it's single-threaded.** It runs 3–8×
-slower than sharp or ImageMagick, which use every core. This is a real cost of a
-design choice: crustyimg is a synchronous, single-threaded engine with no async
+**crustyimg is slower on the clock, because it's single-threaded.** It runs 3–9×
+slower than sharp and 4–14× slower than ImageMagick, which use every core. This is
+a real cost of a design choice: crustyimg is a synchronous, single-threaded engine with no async
 runtime — the same code path that has to run single-threaded in the browser. To
 show it's threading and not a slow encoder, here is crustyimg against sharp **pinned
-to one thread** (`VIPS_CONCURRENCY=1`), at matched quality:
+to one thread** (`VIPS_CONCURRENCY=1`). These are the *same encodes* as the tables
+above — each tool keeps the exact quality setting it matched there, so the only
+thing that changes is the thread count:
 
 | Photo | MP | crustyimg (1 core) | sharp (1 thread) |
 |---|---:|---:|---:|
-| DSC_0163 | 0.7 | 957 ms | 1265 ms |
-| IMG_3855 | 7.8 | 5115 ms | 4121 ms |
-| DSCF1154 | 8.0 | 3502 ms | 2386 ms |
-| DSCN3478 | 15.9 | 3813 ms | 3883 ms |
-| DSC_0974 | 24.0 | 2710 ms | 3013 ms |
-| DSC_2011 | 24.2 | 3116 ms | 3701 ms |
-| DSC_9952 | 24.2 | 2496 ms | 1902 ms |
-| L1024678 | 46.7 | 2282 ms | 1603 ms |
+| DSC_0163 | 0.7 | **999 ms** · 81.6 | 1322 ms · 81.9 |
+| IMG_3855 | 7.8 | 5316 ms · 81.4 | **4324 ms** · 82.7 |
+| DSCF1154 | 8.0 | 3625 ms · 81.8 | **2497 ms** · 81.6 |
+| DSCN3478 | 15.9 | **3943 ms** · 81.7 | 4811 ms · 83.4 |
+| DSC_0974 | 24.0 | **2805 ms** · 81.0 | 3139 ms · 78.7 |
+| DSC_2011 | 24.2 | **3232 ms** · 82.7 | 3868 ms · 80.6 |
+| DSC_9952 | 24.2 | 2560 ms · 81.6 | **2001 ms** · 82.8 |
+| L1024678 | 46.7 | 2404 ms · 83.1 | **1666 ms** · 83.5 |
+
+_Time · matched SSIMULACRA2, bold = faster. The score is shown because "at matched
+quality" has to stay true here too: holding the quality setting fixed, sharp's
+one-thread output is not byte-identical to its 14-thread output (libaom's
+threading changes the bitstream — 0.3–1.7% fewer bytes), so its score moves by up
+to 0.27 points. crustyimg's outputs are byte-for-byte identical across the two
+runs, which is what you'd expect from a single-threaded encoder and a useful check
+that nothing else changed._
 
 Per core the two trade wins — crustyimg is faster on four of the eight, slower on
-four. The wall-clock gap in the main tables is almost entirely that sharp uses 14
-cores and crustyimg uses one.
+four, with margins from 12% to 45% either way. The wall-clock gap in the main
+tables is almost entirely that sharp uses 14 cores and crustyimg uses one.
 
 **crustyimg's AVIF files are competitive but not the smallest.** At matched
 quality they run roughly parity-to-50% larger than sharp's. crustyimg encodes AVIF
@@ -215,23 +248,24 @@ libvips and clearly ahead of ImageMagick's AVIF on several photos — it's just 
 the size champion.
 
 **crustyimg's one-command default is tuned smaller, not bigger.** `crustyimg web`
-(one command, no dials) uses that fast-AVIF preset and lands around **75
-SSIMULACRA2** — still "high", a notch below the 82 band the table matches everyone
-to, and well below "visually lossless" (~90). That's a deliberate size/speed trade
-for a sensible default, not a defect: at that setting `web` produces the smallest
-files of any crustyimg row (median 98% smaller than the source) and is a touch
-faster. The matched-quality tables tune crustyimg *up* to 82 with `-q` so the
-quality comparison is fair; if you want the smaller default, that's what `web`
-gives you out of the box.
+(one command, no dials) uses that fast-AVIF preset and lands at **75 SSIMULACRA2**
+median across the corpus (73.5–79.0) — still "high", but a real notch below the 82
+band the table matches everyone to, and well below "visually lossless" (~90).
+That's a deliberate size/speed trade for a sensible default, not a defect: at that
+setting `web` produces the smallest files of any crustyimg row (a median 98%
+smaller than the source) and is a touch faster. Concretely, `web`'s preset is
+byte-for-byte `convert --format avif -q 80`, and the matched-quality rows tune
+crustyimg *up* to `-q 85`–`-q 92` to reach the band, so the quality comparison is
+fair. If you want the smaller default, that's what `web` gives you out of the box.
 
 **WebP is a different weight class.** cwebp at matched quality is bigger than every
-AVIF encoder here — from ~1.2× on a couple of photos to ~2.6× on detailed ones —
-because that's the format, not the tool. It's fast and universal; if you need
-AVIF's size, you need AVIF.
+AVIF encoder here — from ~1.2× the smallest AVIF on a couple of photos to ~3.0× on
+detailed ones — because that's the format, not the tool. It's fast and universal;
+if you need AVIF's size, you need AVIF.
 
 **ImageMagick is fast but the least size-efficient, and less tolerant of odd
 inputs.** Its AVIF is quick (libaom threads internally) but often the largest at
-matched quality — on one 24 MP photo it was 105 KB where the others were 26–37 KB.
+matched quality — on one 24 MP photo it was 105 KB where the others were 21–37 KB.
 It also refused the 47 MP Leica outright ("Incorrect data in iCCP"): that file
 carries a malformed embedded colour profile, which crustyimg, sharp, and squoosh
 all read without complaint. It's excluded from ImageMagick's row for that photo
@@ -249,9 +283,11 @@ The benchmark says crustyimg isn't the smallest or the fastest. Here's the case 
   `@squoosh/cli` is archived and won't start on a current Node. crustyimg is one
   download or one `cargo install`.
 - **Quality is a number the tool gives you.** The SSIMULACRA2 score this whole
-  comparison uses to keep everyone honest is built into crustyimg — `web`,
-  `optimize`, and `diff` report it, and you can gate on it in CI. None of the
-  competitors ship a perceptual quality readout.
+  comparison uses to keep everyone honest is built into crustyimg — `web` and
+  `optimize` report it as part of the encode, and `diff --fail-under` exits
+  non-zero so you can gate a build on it. Other tools can measure quality (`magick
+  compare -metric DSSIM`, `cwebp -print_ssim`), but as a separate step against a
+  reference you supply, and not with SSIMULACRA2.
 - **It reads RAW.** `.dng`, `.cr2`, `.nef`, `.arw` and more, via the camera's
   embedded preview. sharp and squoosh can't open those at all.
 - **The same engine runs in the browser.** The [demo](https://jysf.github.io/crustyimg/)
@@ -284,10 +320,17 @@ python3 scripts/bench-compare.py --corpus /path/to/your/photos \
 
 The harness prints the same size / speed / matched-score numbers, per photo and per
 size bucket (`--json` for machine-readable output). A tool that isn't installed is
-**labelled "NOT RUN"**, never silently dropped. Scores and
-sizes are deterministic, so a second run reproduces them exactly; only the
-wall-times move, typically by a percent or two. Point `--corpus` at your own photos
-and you'll get your own numbers — which is the whole idea.
+**labelled "NOT RUN"**, never silently dropped. It also measures every output and
+refuses the run (exit 3) if a tool didn't get the same downscale as the others —
+so pointing it at portrait photos, or at a tool version whose resize flags have
+changed, gets you an error rather than a quietly wrong table.
+`--self-test` checks that guard on its own, with no corpus and no tools installed.
+
+Scores and sizes are deterministic: two identically-configured runs here
+reproduced all 141 of them exactly. Wall-times move, because they're measurements
+— a median of 1.6% between those two runs, and up to ~20% on the sub-second ones,
+where a few tens of milliseconds is a large share. Point `--corpus` at your own
+photos and you'll get your own numbers — which is the whole idea.
 
 ---
 

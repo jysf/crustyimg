@@ -86,14 +86,30 @@ A throwaway probe on two corpus photos confirmed the method is viable:
   82 band is reliably hittable by a fixed grid (no fragile search / interpolation):
   crustyimg `-q` ≈ 90–91, sharp `-q` ≈ 77–80, ImageMagick `-quality` ≈ 68–70,
   squoosh `cqLevel` ≈ 12–14, cwebp `-q` ≈ 92 (WebP).
-- `crustyimg web`'s fixed fast-AVIF == `convert -q 85`, landing SSIMULACRA2
-  ≈ 79–82 — the "high" operating point, a touch below visually-lossless. This is
-  the band centre, so competitors are matched to crustyimg's real operating point.
+- `crustyimg web`'s fixed fast-AVIF is byte-identical to `convert --format avif
+  -q 80` — not `-q 85`, which the design-time probe got wrong. Measured over the
+  full corpus it lands **SSIMULACRA2 73.5–79.0, median 75.2**. (The first pass
+  recorded "== `-q 85`, ≈ 79–82" and used it to justify 82 as "crustyimg's real
+  operating point". Both halves were wrong, and the error flattered the setup: it
+  made the band look like crustyimg's home turf when it is ~7 points above it.)
+- **Why the band is 82 anyway.** Not because it is crustyimg's default — it
+  isn't. 82 is the band every tool's quality grid can bracket, and it is a quality
+  a reader would actually ship. Anchoring on crustyimg's true default (~75) would
+  have dragged four competitors down to a lower-quality band picked to suit
+  crustyimg's fast preset; 82 instead tunes crustyimg *up* (`-q 85`–`-q 92`),
+  away from the setting its preset is built for. If the choice biases anything it
+  biases against crustyimg, which is the right direction for a doc whose purpose
+  is credibility. crustyimg's actual default is reported separately as its own
+  `web` row rather than smuggled in as the band.
 - `crustyimg diff` **requires identical dimensions** (`cannot compare images of
   different dimensions`) — so each tool is scored against a downscale it produced
   at the same target size, which also makes the score resampler-neutral (each
-  tool judged on its own encode). Cross-tool lossless downscales measured 92–95
-  SSIMULACRA2 similar, so the resampler choice is a second-order effect.
+  tool judged on its own encode). Re-measured with every tool's downscale
+  aspect-correct: the tools' lossless downscales score **91–94** against each
+  other on three of four sampled photos, but only **~82** for sharp against the
+  others on one 24 MP photo. So the resampler is *not* uniformly a second-order
+  effect, and own-reference scoring is doing real work — against a shared
+  reference that photo's resampler gap would have been charged to sharp's encoder.
 - `crustyimg`'s native perceptual search (`optimize --ssim`) does **not** apply to
   AVIF (it needs to decode each candidate; warns and falls back to fixed quality),
   so the crustyimg grid uses `convert --format avif -q`, not `--ssim`.
@@ -145,7 +161,22 @@ A throwaway probe on two corpus photos confirmed the method is viable:
   distribution are stated in the doc, and the harness takes `--corpus <dir>` so
   anyone points it at their own.
 - **Pipeline (identical per tool):** downscale long edge to ≤ 2048 px (never
-  upscale) → encode AVIF. cwebp is the same pipeline to WebP, labelled.
+  upscale) → encode AVIF. cwebp is the same pipeline to WebP, labelled. Every
+  tool says "long edge" differently, and two of the four dialects were wrong on
+  the first pass, so the harness **measures every output** (reference and every
+  grid point) against the source long edge and aspect ratio and **exits 3** if
+  any tool's output departs. This check is load-bearing, not defensive: the
+  quality column cannot catch a distorted downscale, because each tool is scored
+  against its OWN reference — a squashed encode judged against a squashed
+  reference still lands in the band. `--self-test` exercises the guard against
+  known-good and known-bad shapes with no corpus and no tools installed.
+- **Per-core (single-thread) comparison:** re-time the *same encodes* — the
+  harness's `--q-from` reuses each tool's matched quality from the main run — with
+  sharp pinned to `VIPS_CONCURRENCY=1`. Only the thread count changes, so the
+  table answers "how much of the gap is threading" rather than comparing two
+  different encoder settings. Re-picking the band under one thread would move
+  sharp's quality (libaom's output shifts with thread count), which is the thing
+  being controlled for.
 - **Scorer:** `crustyimg diff A B` (SSIMULACRA2), one metric for all, B scored
   against A = **that tool's own lossless 2048 px downscale** (encode fidelity;
   same number `crustyimg web` reports).
@@ -154,7 +185,10 @@ A throwaway probe on two corpus photos confirmed the method is viable:
   - crustyimg 0.5.0 `--features avif`: `convert --format avif -q {80,85,88,90,92,94}`
   - sharp-cli 5.2.0 (sharp 0.34.4): `-f avif -q {50,60,70,78,85}`
   - ImageMagick 7.1.2-27: AVIF `-quality {45,55,65,72,80}`
-  - `@squoosh/cli` 0.7.2: `--avif cqLevel {23,18,14,10,6}` (lower = better)
+  - `@squoosh/cli` 0.7.2: `--avif cqLevel {23,18,14,10,6}` (lower = better).
+    Its `--resize` takes **one** axis: given both `width` and `height` it stretches
+    the image to that box instead of fitting inside it, so the harness constrains
+    the long axis only and lets squoosh derive the other from the source aspect.
   - cwebp 1.6.0 (WebP-only, labelled): `-q {78,85,90,93,96}`
 - **Tools + versions** pinned above. AVIF backends: crustyimg = ravif/rav1e
   (pure Rust); sharp = libvips/libaom; ImageMagick = libheif 1.23.1/libaom;
@@ -179,14 +213,14 @@ A throwaway probe on two corpus photos confirmed the method is viable:
 - **Positive:** a defensible, reproducible, equal-quality comparison a skeptic
   can re-run with one command; the quality column is one consistent metric, not
   each tool's marketing `-q`; the honest losses (single-thread wall-clock vs
-  libvips; the q85→~80 "high" trade; WebP's format disadvantage) are visible in
-  the same table, not buried.
+  libvips; the fast-AVIF default's ~75 "high" trade; WebP's format disadvantage)
+  are visible in the same table, not buried.
 - **Negative:** the harness needs the competitors installed (node/npm + a Node-16
   shim for squoosh, brew ImageMagick, cwebp) and `--features avif` for the
-  crustyimg side — heavier than the offline `just bench`. Iso-quality anchored on
-  crustyimg's operating point (82) means the table answers "at crustyimg's
-  quality, how do the others compare", not "at every quality" — the scatter of
-  per-effort size/time is the mitigation.
+  crustyimg side — heavier than the offline `just bench`. A single band means the
+  table answers "at one shippable quality, how do these tools compare", not "at
+  every quality" — printing each tool's matched score and its whole grid is the
+  mitigation.
 - **Neutral:** the numbers come from a private corpus, so they are reproducible
   in *shape* by anyone but exact bytes depend on the photos; the doc states this
   and ships the command, not a promise.

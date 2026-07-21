@@ -84,6 +84,10 @@ bench *ARGS:
 # then point --squoosh-node at a Node < 18 binary (or set $SQUOOSH_NODE), and
 # --tools-dir at the node_modules holding them (or $BENCH_TOOLS_DIR). A tool that
 # isn't installed is LABELLED "NOT RUN", never silently dropped.
+# Every output is measured against the source long edge and aspect ratio: a tool
+# that didn't get the same downscale as the others is flagged and the run exits 3,
+# because the quality column cannot detect a distorted output. `--self-test`
+# checks that guard on its own (no corpus, no tools needed).
 # Usage: just bench-compare --corpus /path/to/photos [--json] [--tools ...]
 bench-compare *ARGS:
     cargo build --release --features avif

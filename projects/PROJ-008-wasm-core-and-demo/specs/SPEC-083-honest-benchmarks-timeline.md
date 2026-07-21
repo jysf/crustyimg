@@ -50,3 +50,23 @@ Cycle prompts live in `prompts/SPEC-083-<cycle>.md`.
   competitors ship a perceptual quality readout" is false (`magick compare -metric DSSIM/SSIM`,
   `cwebp -print_ssim`). Minor: prose "79–83.5" vs the table's own 83.6; the documented squoosh command omits
   `"method":"lanczos3"`; front-matter `cycle:` was never advanced past `design`. See the verify report.
+- [x] build (fix) — Opus, 2026-07-20 on `spec-083-honest-benchmarks`. Cleared the whole punch list with a
+  **full re-run**, not a doc patch. Harness: squoosh `--resize` now constrains ONE axis (its
+  `resizeWithAspect` stretches when given both); sharp gets the full `resize E E --fit inside` box and
+  cwebp pins the long axis, so **portrait sources downscale correctly** (both really produced 2048×3068
+  before — confirmed); new **dimension guard** measures every reference and every grid output against the
+  source long edge + aspect and exits 3 on a violation; `--self-test` (8 shapes, no corpus/tools) and
+  `--q-from` (hold quality fixed across conditions) added. **Negative control:** re-injected the old
+  squoosh call and watched the guard fail the run end-to-end, reproducing the exact poisoned published
+  cell. Re-ran run1/run2 at an IDENTICAL `--runs 3` config + run3 per-core via `--q-from`; dimension check
+  PASSED on all three; determinism 141/141, wall-time drift median 1.6% / max 19.6% (was overclaimed as
+  "≤~2%"). **Tally flipped: sharp 4 / IM 2 / squoosh 2** (aspect-correct squoosh is much smaller and now
+  wins two photos); crustyimg's worst case vs the smallest widened 1.5×→1.7×; headline unchanged (neither
+  smallest nor fastest; per core still faster on 4 of 8, now at margins of 12–45% with scores shown).
+  DEC-080 calibration corrected: `web` is byte-identical to `convert -q 80` (md5-verified), lands median
+  **75.2** not 79–82, so the 82 band is re-justified as a deliberate tune-up *away* from crustyimg's home
+  setting. Also re-measured the resampler claim — 91–94 on three photos but **~82 for sharp on one**, so
+  own-reference scoring is load-bearing, not a formality. Prose fixed: 3–9×/4–14×, quality-readout claim
+  narrowed to SSIMULACRA2, 79.0–83.6, exact commands match the harness, README "about one to five seconds".
+  Every published cell mechanically cross-checked against the fresh JSON (47+18+8, all match).
+  `just validate` green (225 blocks), no `src/` change. **Handed back to re-verify — NOT merged.**

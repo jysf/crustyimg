@@ -10,7 +10,12 @@ and **cwebp** (WebP-only) — on **size, speed, and quality**, over a real photo
 The method (fixed in DEC-080, before any number was read):
 
   * ONE PIPELINE for every tool — downscale the long edge to <= 2048 px (never
-    upscale), then encode AVIF (cwebp does WebP, labelled).
+    upscale), then encode AVIF (cwebp does WebP, labelled). The harness ASSERTS
+    this: every reference and every encoded output is measured, and a tool whose
+    output long edge or aspect ratio departs from the source is flagged and the
+    run exits non-zero. "Same pipeline for every tool" is a checkable claim, not
+    a promise — the quality column cannot catch a distorted output, because a
+    squashed image scored against its own squashed reference still scores fine.
   * ONE SCORER — `crustyimg diff A B` (SSIMULACRA2). Every tool's output is
     scored against *that tool's own* lossless 2048 px downscale, so the quality
     column is encode fidelity, resampler-neutral, and identical in kind to the
@@ -45,8 +50,16 @@ Usage:
     --warmup N        Untimed warmup runs (default 1).
     --tools LIST      Comma-separated subset of {crustyimg,crustyimg-web,sharp,
                       imagemagick,squoosh,cwebp} (default: all available).
+    --q-from PATH     Reuse the quality each tool matched in a previous run's JSON
+                      instead of sweeping the grid. Use it to re-time the same
+                      encodes under different conditions (e.g. VIPS_CONCURRENCY=1)
+                      so only the condition changes, not the encoder setting.
+    --self-test       Check the dimension guard against known-good and known-bad
+                      shapes and exit. No corpus, no tools needed.
     --json            Emit machine-readable JSON instead of the Markdown tables.
     --json-out PATH   Also write the JSON to PATH.
+
+Exit codes: 0 ok · 2 usage/setup · 3 a tool's output failed the dimension check.
 
 Stdlib only (json, subprocess, argparse, time, ...); no pip installs; offline.
 """
@@ -95,6 +108,30 @@ def run_pipeline(cmds, timed=False):
     return 0, "", (total if timed else None)
 
 
+class Plan:
+    """The one downscale every tool must perform for a given source.
+
+    Long edge to `cap`, aspect preserved, never upscaling — so the effective long
+    edge is min(cap, source long edge). Tools disagree on how you say that: some
+    take a long-edge number, some a bounding box, some a single axis. `Plan` holds
+    the source shape so each tool can be told the same thing in its own dialect,
+    and so the result can be checked against what actually came out.
+    """
+
+    def __init__(self, width, height, cap):
+        self.src_w = width
+        self.src_h = height
+        self.cap = cap
+        self.edge = min(cap, max(width, height))
+        self.portrait = height > width
+
+    @property
+    def expected(self):
+        """(long, short) edges the output should have, ignoring orientation."""
+        scale = self.edge / max(self.src_w, self.src_h)
+        return self.edge, round(min(self.src_w, self.src_h) * scale)
+
+
 class Tool:
     """A benchmarked tool: how it downscales (for scoring) and encodes (timed)."""
 
@@ -110,10 +147,10 @@ class Tool:
         self.version = version or "?"
 
     # Each returns (list_of_cmds, output_path). Subclasses override.
-    def ref_pipeline(self, src, work, max_edge):
+    def ref_pipeline(self, src, work, plan):
         raise NotImplementedError
 
-    def enc_pipeline(self, src, work, max_edge, q):
+    def enc_pipeline(self, src, work, plan, q):
         raise NotImplementedError
 
 
@@ -128,15 +165,16 @@ class Crustyimg(Tool):
                          available=True, version=version)
         self.bin = binary
 
-    def ref_pipeline(self, src, work, max_edge):
+    def ref_pipeline(self, src, work, plan):
+        # `--max` is a long-edge bound, so one number covers both orientations.
         ref = os.path.join(work, "ref.png")
-        return ([[self.bin, "resize", src, "--max", str(max_edge), "-o", ref, "-y"]], ref)
+        return ([[self.bin, "resize", src, "--max", str(plan.edge), "-o", ref, "-y"]], ref)
 
-    def enc_pipeline(self, src, work, max_edge, q):
+    def enc_pipeline(self, src, work, plan, q):
         png = os.path.join(work, "ds.png")
         out = os.path.join(work, f"q{q}.avif")
         return ([
-            [self.bin, "resize", src, "--max", str(max_edge), "-o", png, "-y"],
+            [self.bin, "resize", src, "--max", str(plan.edge), "-o", png, "-y"],
             [self.bin, "convert", png, "--format", "avif", "-q", str(q), "-o", out, "-y"],
         ], out)
 
@@ -151,18 +189,18 @@ class CrustyimgWeb(Tool):
                          available=True, version=version)
         self.bin = binary
 
-    def ref_pipeline(self, src, work, max_edge):
+    def ref_pipeline(self, src, work, plan):
         # `web` bakes EXIF orientation, so the reference must be an auto-oriented
         # downscale to match web's AVIF dimensions (a plain `resize` would leave a
         # portrait photo transposed -> a dimension mismatch that scores as None).
         # `web -o ref.png` is the same downscale+orient pipeline, written lossless.
         ref = os.path.join(work, "ref.png")
-        return ([[self.bin, "web", src, "--max", str(max_edge), "-o", ref, "-y"]], ref)
+        return ([[self.bin, "web", src, "--max", str(plan.edge), "-o", ref, "-y"]], ref)
 
-    def enc_pipeline(self, src, work, max_edge, q):
+    def enc_pipeline(self, src, work, plan, q):
         # q is ignored: web picks its own fixed fast-AVIF quality.
         out = os.path.join(work, "web.avif")
-        return ([[self.bin, "web", src, "--max", str(max_edge),
+        return ([[self.bin, "web", src, "--max", str(plan.edge),
                   "-o", out, "-y"]], out)
 
 
@@ -173,17 +211,22 @@ class Sharp(Tool):
                          available=True, version=version)
         self.bin = sharp_bin
 
-    def _resize(self, max_edge):
-        return ["resize", str(max_edge), "--fit", "inside", "--withoutEnlargement"]
+    def _resize(self, plan):
+        # sharp-cli's `resize <width> [height]` constrains only the axes it is
+        # given: `resize 2048` alone caps the WIDTH, which leaves a portrait
+        # source with a 3068 px long edge. Pass the full box and let `--fit
+        # inside` bound the long edge in either orientation.
+        return ["resize", str(plan.edge), str(plan.edge),
+                "--fit", "inside", "--withoutEnlargement"]
 
-    def ref_pipeline(self, src, work, max_edge):
+    def ref_pipeline(self, src, work, plan):
         ref = os.path.join(work, "ref.png")
-        return ([[self.bin, "-i", src, "-o", ref, *self._resize(max_edge),
+        return ([[self.bin, "-i", src, "-o", ref, *self._resize(plan),
                   "-f", "png"]], ref)
 
-    def enc_pipeline(self, src, work, max_edge, q):
+    def enc_pipeline(self, src, work, plan, q):
         out = os.path.join(work, f"q{q}.avif")
-        return ([[self.bin, "-i", src, "-o", out, *self._resize(max_edge),
+        return ([[self.bin, "-i", src, "-o", out, *self._resize(plan),
                   "-f", "avif", "-q", str(q)]], out)
 
 
@@ -194,13 +237,18 @@ class ImageMagick(Tool):
                          available=True, version=version)
         self.bin = magick_bin
 
-    def ref_pipeline(self, src, work, max_edge):
-        ref = os.path.join(work, "ref.png")
-        return ([[self.bin, src, "-resize", f"{max_edge}x{max_edge}>", ref]], ref)
+    def _geometry(self, plan):
+        # `WxH>` is a bounding box that only ever shrinks — correct in either
+        # orientation.
+        return f"{plan.edge}x{plan.edge}>"
 
-    def enc_pipeline(self, src, work, max_edge, q):
+    def ref_pipeline(self, src, work, plan):
+        ref = os.path.join(work, "ref.png")
+        return ([[self.bin, src, "-resize", self._geometry(plan), ref]], ref)
+
+    def enc_pipeline(self, src, work, plan, q):
         out = os.path.join(work, f"q{q}.avif")
-        return ([[self.bin, src, "-resize", f"{max_edge}x{max_edge}>",
+        return ([[self.bin, src, "-resize", self._geometry(plan),
                   "-quality", str(q), out]], out)
 
 
@@ -214,27 +262,29 @@ class Squoosh(Tool):
         self.node = node_bin
         self.cli = cli_js
 
-    def _resize_json(self, max_edge):
-        # squoosh has no "long edge" mode; pass both W and H caps + no upscale is
-        # NOT built in, so we skip resize when the source already fits (handled by
-        # the caller passing max_edge = source long edge when it is <= 2048).
-        return json.dumps({"enabled": True, "width": max_edge, "height": max_edge,
-                           "method": "lanczos3"})
+    def _resize_json(self, plan):
+        # squoosh has no "long edge" or "fit" mode. Given BOTH width and height it
+        # stretches the image to exactly that box — a 6016x4016 photo comes back
+        # 2048x2048, squashed. Given ONE axis it derives the other from the source
+        # aspect, so constrain the long axis only. (No upscale guard either, which
+        # is why the caller's plan caps the edge at the source long edge.)
+        axis = "height" if plan.portrait else "width"
+        return json.dumps({"enabled": True, axis: plan.edge, "method": "lanczos3"})
 
-    def ref_pipeline(self, src, work, max_edge):
+    def ref_pipeline(self, src, work, plan):
         d = os.path.join(work, "sqref")
         os.makedirs(d, exist_ok=True)
         stem = Path(src).stem
         return ([[self.node, self.cli, "--oxipng", '{"level":1}',
-                  "--resize", self._resize_json(max_edge), "-d", d, src]],
+                  "--resize", self._resize_json(plan), "-d", d, src]],
                 os.path.join(d, stem + ".png"))
 
-    def enc_pipeline(self, src, work, max_edge, q):
+    def enc_pipeline(self, src, work, plan, q):
         d = os.path.join(work, f"sq{q}")
         os.makedirs(d, exist_ok=True)
         stem = Path(src).stem
         return ([[self.node, self.cli, "--avif", json.dumps({"cqLevel": q}),
-                  "--resize", self._resize_json(max_edge), "-d", d, src]],
+                  "--resize", self._resize_json(plan), "-d", d, src]],
                 os.path.join(d, stem + ".avif"))
 
 
@@ -247,18 +297,23 @@ class Cwebp(Tool):
                          available=True, version=version)
         self.bin = cwebp_bin
 
-    def ref_pipeline(self, src, work, max_edge):
+    def _resize(self, plan):
+        # `-resize W H` treats a 0 as "derive from the other axis". Constraining
+        # the width unconditionally leaves a portrait source oversized, so pin
+        # whichever axis is actually the long one.
+        return ["-resize", "0", str(plan.edge)] if plan.portrait else \
+               ["-resize", str(plan.edge), "0"]
+
+    def ref_pipeline(self, src, work, plan):
         # cwebp is an encoder, not a resizer with lossless PNG out; use lossless
         # WebP at the target size as the reference (same downscaler as its lossy
         # output, so the score isolates lossy encode fidelity).
         ref = os.path.join(work, "ref.webp")
-        return ([[self.bin, "-lossless", "-resize", str(max_edge), "0", src,
-                  "-o", ref]], ref)
+        return ([[self.bin, "-lossless", *self._resize(plan), src, "-o", ref]], ref)
 
-    def enc_pipeline(self, src, work, max_edge, q):
+    def enc_pipeline(self, src, work, plan, q):
         out = os.path.join(work, f"q{q}.webp")
-        return ([[self.bin, "-q", str(q), "-resize", str(max_edge), "0", src,
-                  "-o", out]], out)
+        return ([[self.bin, "-q", str(q), *self._resize(plan), src, "-o", out]], out)
 
 
 # --------------------------------------------------------------------------- #
@@ -390,43 +445,114 @@ def score_of(crustyimg_bin, ref, out):
         return None
 
 
-def image_megapixels(crustyimg_bin, src):
-    rc, out, err = sh([crustyimg_bin, "info", src, "--json"])
+def image_dims(crustyimg_bin, path):
+    rc, out, err = sh([crustyimg_bin, "info", path, "--json"])
     try:
         d = json.loads(out)
-        return (d.get("width", 0) * d.get("height", 0)) / 1e6, d.get("width"), d.get("height")
+        return d.get("width"), d.get("height")
     except Exception:
-        return None, None, None
+        return None, None
 
 
-def target_edge(width, height, cap=2048):
-    """The pipeline downscales the long edge to <= cap and never upscales, so the
-    effective long edge is min(cap, source long edge). Passing that to a tool with
-    no 'no-upscale' mode (squoosh) keeps it from enlarging small sources."""
-    return min(cap, max(width, height))
+# --------------------------------------------------------------------------- #
+# The dimension guard
+# --------------------------------------------------------------------------- #
+#
+# The quality column cannot police the downscale. Every tool is scored against
+# ITS OWN reference, so a tool that stretches the image to a square scores its
+# squashed encode against its squashed reference and lands in the band like
+# everyone else — which is exactly how @squoosh/cli ran distorted for a whole
+# benchmark. Nothing else in the harness looks at output shape, so "same pipeline
+# for every tool" was an unchecked claim. This is the check.
+#
+# Orientation-insensitive on purpose: `crustyimg web` bakes EXIF orientation, so
+# its output can be the transpose of the source. That is a correct downscale, not
+# a distortion, so compare long-vs-short rather than width-vs-width.
+
+ASPECT_TOL = 0.01   # 1% — absorbs each tool's rounding (cwebp rounds a 1367 up to 1368)
+EDGE_TOL = 1        # px
 
 
-def bench_tool(tool, crustyimg_bin, src, mp, edge, args):
+def check_dims(plan, out_w, out_h):
+    """Did this output actually get the plan's downscale? -> (ok, reason)."""
+    if not out_w or not out_h:
+        return False, "output dimensions unreadable"
+    exp_long, exp_short = plan.expected
+    got_long, got_short = max(out_w, out_h), min(out_w, out_h)
+    if abs(got_long - exp_long) > EDGE_TOL:
+        return False, (f"long edge {got_long} px, expected {exp_long} "
+                       f"(source {plan.src_w}x{plan.src_h}, got {out_w}x{out_h})")
+    src_aspect = max(plan.src_w, plan.src_h) / min(plan.src_w, plan.src_h)
+    got_aspect = got_long / got_short
+    if abs(got_aspect - src_aspect) / src_aspect > ASPECT_TOL:
+        return False, (f"aspect {got_aspect:.4f} vs source {src_aspect:.4f} "
+                       f"({plan.src_w}x{plan.src_h} -> {out_w}x{out_h})")
+    return True, None
+
+
+def self_test():
+    """Prove the guard can fail — including on the two shapes that shipped.
+
+    A guard nobody has seen reject anything is not a guard.
+    """
+    cases = [
+        # (label, src_w, src_h, cap, out_w, out_h, expect_ok)
+        ("landscape, correct", 6016, 4016, 2048, 2048, 1367, True),
+        ("landscape, squooshed to square", 6016, 4016, 2048, 2048, 2048, False),
+        ("portrait, correct", 4016, 6016, 2048, 1367, 2048, True),
+        ("portrait, long edge unconstrained", 4016, 6016, 2048, 2048, 3068, False),
+        ("EXIF-rotated output (transposed)", 6016, 4016, 2048, 1367, 2048, True),
+        ("square source", 2832, 2832, 2048, 2048, 2048, True),
+        ("small source, not upscaled", 979, 734, 2048, 979, 734, True),
+        ("cwebp rounding the short edge up", 6016, 4016, 2048, 2048, 1368, True),
+    ]
+    failures = 0
+    for label, sw, sh_, cap, ow, oh, want_ok in cases:
+        ok, why = check_dims(Plan(sw, sh_, cap), ow, oh)
+        good = (ok == want_ok)
+        failures += 0 if good else 1
+        mark = "ok  " if good else "FAIL"
+        print(f"{mark} {label}: {'accepted' if ok else 'rejected'}"
+              f"{'' if ok else ' — ' + why}")
+    if failures:
+        print(f"\nself-test FAILED ({failures} case(s))")
+        return 1
+    print(f"\nself-test passed ({len(cases)} cases)")
+    return 0
+
+
+def bench_tool(tool, crustyimg_bin, src, mp, plan, args, forced_q=None):
     """Sweep the grid, pick nearest-target, time the winner. Returns a result dict."""
     if not tool.available:
         return {"tool": tool.name, "available": False, "why": tool.why}
 
+    grid = tool.grid if forced_q is None else [forced_q]
+    violations = []
+
+    def dim_check(stage, path):
+        ok, why = check_dims(plan, *image_dims(crustyimg_bin, path))
+        if not ok:
+            violations.append(f"{stage}: {why}")
+        return ok
+
     with tempfile.TemporaryDirectory(prefix=f"bcmp-{tool.name}-") as work:
         # reference (own lossless downscale)
-        ref_cmds, ref_path = tool.ref_pipeline(src, work, edge)
+        ref_cmds, ref_path = tool.ref_pipeline(src, work, plan)
         rc, err, _ = run_pipeline(ref_cmds)
         if rc != 0 or not os.path.exists(ref_path):
             return {"tool": tool.name, "available": True, "error": f"ref failed: {err[:160]}"}
+        dim_check("reference", ref_path)
 
         # grid sweep -> (q, bytes, score)
         grid_pts = []
-        for q in tool.grid:
+        for q in grid:
             gwork = os.path.join(work, f"g{q}")
             os.makedirs(gwork, exist_ok=True)
-            enc_cmds, out_path = tool.enc_pipeline(src, gwork, edge, q)
+            enc_cmds, out_path = tool.enc_pipeline(src, gwork, plan, q)
             rc, err, _ = run_pipeline(enc_cmds)
             if rc != 0 or not os.path.exists(out_path):
                 continue
+            dim_check(f"q={q}", out_path)
             sc = score_of(crustyimg_bin, ref_path, out_path)
             if sc is None:
                 continue
@@ -444,7 +570,7 @@ def bench_tool(tool, crustyimg_bin, src, mp, edge, args):
         for i in range(args.warmup + args.runs):
             twork = os.path.join(work, f"t{i}")
             os.makedirs(twork, exist_ok=True)
-            enc_cmds, out_path = tool.enc_pipeline(src, twork, edge, best["q"])
+            enc_cmds, out_path = tool.enc_pipeline(src, twork, plan, best["q"])
             rc, err, dt = run_pipeline(enc_cmds, timed=True)
             if rc != 0:
                 break
@@ -452,17 +578,21 @@ def bench_tool(tool, crustyimg_bin, src, mp, edge, args):
                 times.append(dt)
         median_ms = round(statistics.median(times) * 1000, 1) if times else None
 
-        return {
+        res = {
             "tool": tool.name,
             "available": True,
             "kind": tool.kind,
             "version": tool.version,
             "q": best["q"],
+            "q_source": "forced" if forced_q is not None else "grid",
             "matched_score": best["score"],
             "out_bytes": best["bytes"],
             "median_ms": median_ms,
             "grid": grid_pts,
         }
+        if violations:
+            res["dim_violations"] = violations
+        return res
 
 
 # --------------------------------------------------------------------------- #
@@ -501,20 +631,21 @@ def render_markdown(report):
     # per-image table
     L.append("### Per-image (web-ready: downscale ≤2048px long edge + AVIF, matched quality)")
     L.append("")
-    L.append("| Photo | MP | Tool | Format | Matched score | Output | Savings | Median time |")
-    L.append("|---|---:|---|---|---:|---:|---:|---:|")
+    L.append("| Photo | MP | Tool | Format | q | Matched score | Output | Savings | Median time |")
+    L.append("|---|---:|---|---|---:|---:|---:|---:|---:|")
     for row in report["images"]:
         for r in row["results"]:
             if not r.get("available"):
-                L.append(f"| {row['image']} | {row['mp']:.1f} | {r['tool']} | — | — | — | — | NOT RUN ({r.get('why','')}) |")
+                L.append(f"| {row['image']} | {row['mp']:.1f} | {r['tool']} | — | — | — | — | — | NOT RUN ({r.get('why','')}) |")
                 continue
             if r.get("error"):
-                L.append(f"| {row['image']} | {row['mp']:.1f} | {r['tool']} | — | — | — | — | ERROR |")
+                L.append(f"| {row['image']} | {row['mp']:.1f} | {r['tool']} | — | — | — | — | — | ERROR |")
                 continue
             sav = 1 - r["out_bytes"] / row["source_bytes"]
+            flag = " ⚠ BAD DIMENSIONS" if r.get("dim_violations") else ""
             L.append(f"| {row['image']} | {row['mp']:.1f} | {r['tool']} | {r['kind'].upper()} "
-                     f"| {r['matched_score']:.1f} | {fmt_bytes(r['out_bytes'])} "
-                     f"| {sav*100:.1f}% | {r['median_ms']:.0f} ms |")
+                     f"| {r['q']} | {r['matched_score']:.1f} | {fmt_bytes(r['out_bytes'])} "
+                     f"| {sav*100:.1f}% | {r['median_ms']:.0f} ms{flag} |")
     L.append("")
 
     # per-bucket aggregate
@@ -542,6 +673,14 @@ def render_markdown(report):
             L.append(f"| {bname} | {tname} | {kind.upper()} | {msc:.1f} | {fmt_bytes(int(mby))} "
                      f"| {msa*100:.1f}% | {mms:.0f} ms |")
     L.append("")
+
+    bad = report.get("dimension_violations") or []
+    L.append(f"_Dimension check: {'PASSED' if not bad else 'FAILED'} — "
+             f"every reference and every encoded output measured against the "
+             f"source long edge and aspect ratio._")
+    for v in bad:
+        L.append(f"- ⚠ {v['image']} / {v['tool']}: {'; '.join(v['violations'])}")
+    L.append("")
     return "\n".join(L)
 
 
@@ -562,7 +701,7 @@ def machine_context():
 
 def main():
     ap = argparse.ArgumentParser(description="crustyimg cross-tool benchmark harness")
-    ap.add_argument("--corpus", required=True)
+    ap.add_argument("--corpus", default=None)
     ap.add_argument("--bin", default=None)
     ap.add_argument("--tools-dir", default=None)
     ap.add_argument("--squoosh-node", default=None)
@@ -571,16 +710,38 @@ def main():
     ap.add_argument("--warmup", type=int, default=1)
     ap.add_argument("--max-edge", type=int, default=2048)
     ap.add_argument("--tools", default=None)
+    ap.add_argument("--q-from", default=None, dest="q_from")
+    ap.add_argument("--self-test", action="store_true", dest="self_test")
     ap.add_argument("--json", action="store_true", dest="as_json")
     ap.add_argument("--json-out", default=None)
     args = ap.parse_args()
 
+    if args.self_test:
+        sys.exit(self_test())
+
+    if not args.corpus:
+        sys.exit("bench-compare: --corpus is required (or --self-test)")
     corpus = Path(args.corpus)
     if not corpus.is_dir():
         sys.exit(f"bench-compare: corpus dir not found: {corpus}")
     images = sorted(p for p in corpus.iterdir() if p.suffix.lower() in IMAGE_EXTS)
     if not images:
         sys.exit(f"bench-compare: no images (.jpg/.jpeg/.png) in {corpus}")
+
+    # --q-from: reuse a previous run's matched quality per (image, tool), so a
+    # re-run under different conditions changes only the conditions.
+    forced_q = {}
+    if args.q_from:
+        try:
+            prev = json.loads(Path(args.q_from).read_text())
+        except Exception as e:
+            sys.exit(f"bench-compare: --q-from unreadable: {e}")
+        for row in prev.get("images", []):
+            for r in row.get("results", []):
+                if r.get("available") and not r.get("error"):
+                    forced_q[(row["image"], r["tool"])] = r["q"]
+        sys.stderr.write(f"bench-compare: quality held fixed from {args.q_from} "
+                         f"({len(forced_q)} points)\n")
 
     crustyimg_bin = find_crustyimg(args.bin)
     rc, ver_out, _ = sh([crustyimg_bin, "--version"])
@@ -592,16 +753,19 @@ def main():
     sys.stderr.write(f"bench-compare: {len(images)} photos, tools: {', '.join(tool_order)}\n")
 
     image_rows = []
+    violations = []
     for src in images:
-        mp, w, h = image_megapixels(crustyimg_bin, str(src))
-        if mp is None:
+        w, h = image_dims(crustyimg_bin, str(src))
+        if not w or not h:
             sys.stderr.write(f"  skip {src.name}: could not read dimensions\n")
             continue
-        edge = target_edge(w, h, args.max_edge)
-        sys.stderr.write(f"  {src.name}  {mp:.1f} MP  ({w}x{h}) -> long edge {edge}\n")
+        mp = (w * h) / 1e6
+        plan = Plan(w, h, args.max_edge)
+        sys.stderr.write(f"  {src.name}  {mp:.1f} MP  ({w}x{h}) -> long edge {plan.edge}\n")
         results = []
         for tname in tool_order:
-            res = bench_tool(tools[tname], crustyimg_bin, str(src), mp, edge, args)
+            res = bench_tool(tools[tname], crustyimg_bin, str(src), mp, plan, args,
+                             forced_q=forced_q.get((src.name, tname)))
             results.append(res)
             if res.get("available") and not res.get("error"):
                 sys.stderr.write(f"    {tname:<13} score={res.get('matched_score')} "
@@ -609,9 +773,14 @@ def main():
                                  f"t={res.get('median_ms')}ms\n")
             else:
                 sys.stderr.write(f"    {tname:<13} {res.get('why') or res.get('error')}\n")
+            if res.get("dim_violations"):
+                violations.append({"image": src.name, "tool": tname,
+                                   "violations": res["dim_violations"]})
+                for v in res["dim_violations"]:
+                    sys.stderr.write(f"    {tname:<13} ⚠ DIMENSION CHECK FAILED — {v}\n")
         image_rows.append({
             "image": src.name, "mp": round(mp, 2), "width": w, "height": h,
-            "source_bytes": src.stat().st_size, "long_edge": edge, "results": results,
+            "source_bytes": src.stat().st_size, "long_edge": plan.edge, "results": results,
         })
 
     report = {
@@ -620,6 +789,7 @@ def main():
         "runs": args.runs,
         "warmup": args.warmup,
         "max_edge": args.max_edge,
+        "q_from": args.q_from,
         "machine": machine_context(),
         "tool_order": tool_order,
         "tool_versions": [
@@ -627,6 +797,7 @@ def main():
             for t in tools.values()
         ],
         "images": image_rows,
+        "dimension_violations": violations,
     }
 
     if args.json_out:
@@ -635,6 +806,14 @@ def main():
         print(json.dumps(report, indent=2))
     else:
         print(render_markdown(report))
+
+    if violations:
+        sys.stderr.write(
+            f"\nbench-compare: DIMENSION CHECK FAILED — {len(violations)} tool/photo "
+            f"pair(s) did not get the downscale every other tool got. These numbers "
+            f"are not comparable; fix the tool's resize arguments before publishing "
+            f"anything from this run.\n")
+        sys.exit(3)
 
 
 if __name__ == "__main__":
