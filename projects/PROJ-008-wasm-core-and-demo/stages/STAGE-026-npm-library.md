@@ -2,7 +2,7 @@
 # Maps to ContextCore epic-level conventions.
 stage:
   id: STAGE-026
-  status: active                    # proposed | active | shipped | cancelled | on_hold
+  status: shipped                   # proposed | active | shipped | cancelled | on_hold
   priority: high
   target_complete: null
 
@@ -12,7 +12,7 @@ repo:
   id: crustyimg
 
 created_at: 2026-07-12
-shipped_at: null
+shipped_at: 2026-07-20
 
 value_contribution:
   advances: >
@@ -137,12 +137,27 @@ npm, then close deliberately (status→shipped + shipped_at + reflection).**
 
 ## Stage-Level Reflection
 
-*Filled in when status moves to shipped.*
+- **Did we deliver the outcome in "What This Stage Is"?** Yes. `crustyimg-wasm@0.5.0` is live on
+  npm — installable, typed, runs client-side in the browser and in Node, zero dependencies, no
+  native addon, no postinstall/lifecycle script. The "sharp without the native addon" pitch is real,
+  and honest about its edges (`init()` on `--target web`, single-threaded/blocking, AVIF encode-only).
 
-- **Did we deliver the outcome in "What This Stage Is"?** <yes/no + notes>
-- **How many specs did it actually take?** <number vs. plan>
-- **What changed between starting and shipping?** <one sentence>
+- **How many specs did it actually take?** 2 (SPEC-075 package shape + smoke; SPEC-076 publish) — as
+  planned. SPEC-076 was framed once (2026-07-12), parked deliberately to pair with the launch, then
+  built/verified/shipped 2026-07-20 after the 0.5.0 crate cut so the versions matched lockstep.
+
+- **What changed between starting and shipping?** The publish was intentionally deferred ~8 days to
+  ride with the launch and the 0.5.0 crate cut, which made identity a non-event (the lockstep guard
+  from DEC-067 meant the finalize script produced the right name+version on the first build).
+
 - **Lessons that should update AGENTS.md, templates, or constraints?**
-  - <one-line updates>
+  - None new for the templates. DEC-067's lockstep-version enforcement is the load-bearing decision —
+    it turned "fix the pkg/ identity" (the spec's framing worry) into a no-op.
+  - Banked as a project gotcha: npmjs.com's website 403s automated/datacenter requests even with a
+    browser UA — authoritative liveness is `npm view <pkg>` / `registry.npmjs.org/<pkg>` (200), not a
+    curl of the web page.
+
 - **Should any spec-level reflections be promoted to stage-level lessons?**
-  - <one-line items>
+  - SPEC-075's structural build-profile guard ([[assert-the-build-profile-structurally-not-by-size]])
+    and SPEC-076's "grade a claimed fix with a negative control" (override-removed → warning returns)
+    are already durable memories; no further promotion needed.
