@@ -31,3 +31,22 @@ Cycle prompts live in `prompts/SPEC-083-<cycle>.md`.
   **no AVIF** (needs `--features avif`) — the central honesty pivot; brief's "5 cameras/Sony" corrected
   from EXIF (6 models/4 brands, no Sony); IM errored on the 47MP Leica (bad iCCP) — reported honestly.
   `just validate` green, no `src/` change. **Handed to verify (Opus) — NOT merged.** See Build Completion.
+- [x] verify — Opus, 2026-07-20 on `spec-083-honest-benchmarks` @ 0ded21e. **⚠ PUNCH LIST — back to build.**
+  What held: every published cell re-derived from `run1.json` matches exactly (per-photo, per-bucket
+  medians, per-core table, smallest-AVIF tally 5/2/1); determinism confirmed 47/47 deterministic fields
+  identical run1≡run2; `just validate` green; the `--features avif` pivot is real (`dist-workspace.toml`
+  builds default features); RAW extension list correct; harness runs end-to-end and does label "NOT RUN".
+  **Blocking (1):** `@squoosh/cli` is invoked with BOTH `width` and `height` set, which squashes aspect —
+  its outputs are distorted 2048×2048 on **6 of the 8 photos** (verified: 6016×4016 → 2048×2048 while every
+  other tool gives 2048×1367). Own-reference scoring masks it (still scores ~82), so the quality column
+  provides no protection, and the doc's "same pipeline for every tool" is false for squoosh. Corrected
+  aspect-preserving re-run of DSC_9952 gives 21 KB @ cq18, not the published 26 KB @ cq14.
+  **Also:** the per-core table's DSCN3478 row is not iso-quality (sharp picked q78 multi-thread vs q70 at
+  `VIPS_CONCURRENCY=1` — libaom output shifts with thread count), and it is the closest row the "faster on
+  4 of 8" tally rests on; `sharp`/`cwebp` mis-size PORTRAIT sources (long edge 3068, not 2048) which breaks
+  the "run it on your own corpus" promise; DEC-080's calibration is wrong — `crustyimg web` is byte-identical
+  to `convert -q 80` (md5-verified), not `-q 85`, and lands 73.5–79.0 not 79–82, so the stated rationale for
+  the 82 band centre is unfounded; "3–8× faster" understates ImageMagick (up to 14.1×); "none of the
+  competitors ship a perceptual quality readout" is false (`magick compare -metric DSSIM/SSIM`,
+  `cwebp -print_ssim`). Minor: prose "79–83.5" vs the table's own 83.6; the documented squoosh command omits
+  `"method":"lanczos3"`; front-matter `cycle:` was never advanced past `design`. See the verify report.

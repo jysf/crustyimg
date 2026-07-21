@@ -59,10 +59,25 @@ cost:
         (background), reproducibility + per-core analysis, and README/justfile
         wiring. ~1.6M tokens mixed at Opus list rate (~80/20 in/out); midpoint
         recorded. Verify/ship should replace with real subagent_tokens or /cost.
+    - cycle: verify
+      interface: claude-code
+      model: claude-opus-4-8
+      tokens_total: 400000
+      duration_minutes: null
+      estimated_usd: 3.6
+      note: >
+        Main-loop verify session on Opus 4.8 (no metered subagent) —
+        ORDER-OF-MAGNITUDE ESTIMATE, not a real usage-object reading. Scope:
+        re-derived every published cell from the harness JSON (per-photo,
+        per-bucket, per-core), re-ran the run1/run2 determinism diff, and drove
+        the load-bearing prose claims against the real tools (squoosh/sharp/cwebp
+        output dimensions, `web` vs `convert -q` byte identity, ImageMagick and
+        cwebp quality readouts, RAW extension list, dist default features).
+        Outcome: ⚠ PUNCH LIST — 4 substantive + 4 minor.
   totals:
-    tokens_total: 1600000
-    estimated_usd: 11.0
-    session_count: 1
+    tokens_total: 2000000
+    estimated_usd: 14.6
+    session_count: 2
 ---
 
 # SPEC-083: honest benchmarks (BENCHMARKS.md)
