@@ -112,3 +112,31 @@ Cycle prompts live in `prompts/SPEC-083-<cycle>.md`.
   slowest" → all three bucket medians and 7 of 8 photos; the harness's two-process claim is now disclosed
   in BENCHMARKS.md and the docstring cites only that. `just validate` green, `--self-test` green, no `src/`
   change. **Handed back for a short prose-only re-verify — NOT merged.**
+- [x] re-verify (prose) — Opus, 2026-07-21 on `spec-083-honest-benchmarks` @ 2413557. **All three prose fixes
+  PASS; a NEW substantive finding surfaced outside the prose scope — ⚠ back to build.** Prose scope, all
+  independently re-derived: no number moved (44/44 table lines byte-identical by md5; the only numeric-token
+  deltas in BENCHMARKS.md are 92/94 → 90.9/94.5 plus the prose counts 7-of-8, 47 MP, 24 MP; DEC-080 only
+  91/94 → 90.9/94.5; the harness only drops a `DEC-080` citation). F1 reproduced first-hand — `magick
+  L1024678.JPG -resize '2048x2048>' -quality 70 out.avif` → rc 0, valid `ftypavif` 2048×1367 (sips + magick
+  agree), `... ref.png` → rc 1 "Incorrect data in iCCP" leaving a 33-byte IHDR stub, `-strip` fixes it;
+  `ImageMagick.ref_pipeline()` does write `ref.png` and `bench_tool` bails at the reference step before the
+  encode grid, so the gap really is this method's. Zero residue of the deleted claims in BENCHMARKS.md.
+  F2 checked against the run JSON: cwebp is 1.215–3.034× the smallest AVIF (raw bytes) and under IM on
+  exactly DSC_2011 + DSC_9952. F3 consistent in all three docs. All 39 size cells re-matched `run1.json`.
+  **FINDING (F4, pre-existing, not introduced here): the `_crustyimg web (default)_` rows do not measure
+  `web`'s default.** `crustyimg web IN -o out.avif` pins the format via the `-o` extension, which skips the
+  auto-decision and falls back to `convert`'s `AVIF_DEFAULT_QUALITY` = 80; the real default path
+  (`web IN`, or `--out-dir`) uses `FAST_LOSSY_QUALITY` = 85 — the constant whose own doc-comment says
+  `convert`'s default is what "the fast path never uses". Proven byte-identically on 4 photos: pinned ==
+  `convert -q 80`, default == `convert -q 85`, same 2048×1367 dims. The harness's `CrustyimgWeb.enc_pipeline`
+  uses `-o web.avif`, so every `web` row is the pinned q80 path: DSC_9952 28603 B @ 78.95 (doc) vs 36791 B
+  @ 81.6 (actual default); DSC_2011 70524 vs 98599; DSCF1154 61753 vs 83275; L1024678 46698 vs 63680 —
+  29–40% larger, ~4–5 SSIMULACRA2 points higher. This undercuts the doc's "web lands at **75** median, a real
+  notch below the 82 band" narrative and the "`web`'s preset is byte-for-byte `convert --format avif -q 80`"
+  line (that equality is the *symptom* of the pin, not web's preset), and it makes the freshly-corrected
+  score bullet point readers at `--out-dir` — the form that does NOT produce the benchmarked bytes. Note
+  DEC-080's original calibration (`-q 85`, 79–82) was right and was "corrected" against the pinned
+  measurement. Two verify passes missed it because both graded the doc against the harness's own run JSONs —
+  a control that shares the defect with the artifact ([[a-self-referential-control-cannot-detect-a-broken-pipeline]]).
+  Gates: `just validate` green (225), `--self-test` green (8/8), no `src/` change, cycle `verify`, demo
+  favicons untracked and untouched. **NOT merged.**

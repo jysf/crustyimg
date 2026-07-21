@@ -126,10 +126,27 @@ cost:
         read the harness's reference path to describe it accurately, and
         rewrote the affected prose in BENCHMARKS.md / DEC-080 / this spec /
         the timeline / one harness docstring line. Cheap: no encodes.
+    - cycle: verify
+      interface: claude-code
+      model: claude-opus-4-8
+      tokens_total: 250000
+      duration_minutes: null
+      estimated_usd: 1.9
+      note: >
+        Prose-only re-verify on Opus 4.8 (no metered subagent) —
+        ORDER-OF-MAGNITUDE ESTIMATE, not a real usage-object reading. The
+        benchmark was NOT re-run. Scope: re-derived the prose-fix diff's
+        numeric-token deltas mechanically (tables md5-identical), reproduced
+        the ImageMagick AVIF-vs-PNG split first-hand, re-checked the cwebp and
+        resampler claims against `run1.json`, and exercised `web`/`optimize`
+        directly. That last check surfaced F4 — `web -o FILE` pins the format
+        and encodes at q80 while the real default encodes at q85, so the doc's
+        `web` rows measure the wrong operating point. Outcome: ⚠ prose PASSES,
+        new substantive finding — back to build.
   totals:
-    tokens_total: 3270000
-    estimated_usd: 24.5
-    session_count: 5
+    tokens_total: 3520000
+    estimated_usd: 26.4
+    session_count: 6
 ---
 
 # SPEC-083: honest benchmarks (BENCHMARKS.md)
