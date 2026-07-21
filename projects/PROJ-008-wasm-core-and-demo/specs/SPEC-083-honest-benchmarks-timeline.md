@@ -70,3 +70,28 @@ Cycle prompts live in `prompts/SPEC-083-<cycle>.md`.
   narrowed to SSIMULACRA2, 79.0–83.6, exact commands match the harness, README "about one to five seconds".
   Every published cell mechanically cross-checked against the fresh JSON (47+18+8, all match).
   `just validate` green (225 blocks), no `src/` change. **Handed back to re-verify — NOT merged.**
+- [x] re-verify — Opus, 2026-07-21 on `spec-083-honest-benchmarks` @ a0954cc. **⚠ PUNCH LIST (3) — numbers
+  CLEAN, prose is not.** Ran an INDEPENDENT three-pass benchmark and re-derived everything from it: all 157
+  deterministic cells match the doc exactly (per-photo, bucket, per-core), tally **sharp 4 / IM 2 / squoosh 2**
+  and per-core **4 of 8** recomputed, determinism 141/141 (fresh drift median 1.1% / max 11.1% — the doc's
+  1.6% / 19.6% is the more conservative report of its own runs). Against the fix cycle's own JSONs all 230
+  cells match INCLUDING wall-times → no hand-edited numbers. **The guard is real:** `--self-test` 8/8, and
+  two end-to-end negative controls — the shipped squoosh both-axes bug AND an independent `sharp --fit fill`
+  distortion — both exit 3 with the row flagged, while the matching unpatched runs exit 0; the poisoned row
+  still scored 81.2 in-band, which is the whole argument for the guard. No false positive on an EXIF
+  Orientation=6 source (`web` transposes; six-tool portrait run exits 0). Old portrait args reproduce
+  2048×3068 for sharp and cwebp; documented args give 1367×2048. 12 sampled encodes reproduce byte- and
+  score-exact **from the doc's own command block**; squoosh outputs are 2048×1367 and DSC_9952 is 21,464 B at
+  81.85 (matched quality, not distortion). `web` == `convert --format avif -q 80` md5-identical on **all 8**
+  photos (never `-q 85`), median 75.17. sharp's 24 MP resampler outlier reproduced: 81.8/81.9/80.8 vs the
+  others' 91.6–94.2. **Findings (all doc prose, no re-measurement needed):** (1) **"ImageMagick refused the
+  47 MP Leica outright" is false** — magick encodes that file to AVIF fine (rc 0, 2048×1367, 116,462 B), and
+  to JPEG/TIFF/PPM; only the PNG write fails, and that PNG is the harness's *scoring reference*, not the
+  benchmarked pipeline (the source's sRGB/Linotronic ICC trips magick's PNG writer; `-strip` fixes it). The
+  doc's one competitor-robustness dig is unearned and trivially disproved by any reader. (2) "cwebp is larger
+  than every AVIF tool here" (twice) is contradicted by the doc's OWN table — cwebp beats ImageMagick on
+  DSC_2011 (166 vs 167 KB) and DSC_9952 (65 vs 105 KB); the true claim is 1.22–3.03× the *smallest* AVIF.
+  (3) resampler range "92–94" vs DEC-080's "91–94"; measured 90.9–94.5. Nits: "`web` and `optimize` report
+  [the score] as part of the encode" — `optimize` is score-free without `--verify` (per cli-reference) and
+  `web -o FILE` prints nothing; "it's the slowest" holds on all bucket medians and 7 of 8 photos (squoosh is
+  slower on the 47 MP). `just validate` green (225), `--self-test` green, no `src/` change, cycle `verify`.

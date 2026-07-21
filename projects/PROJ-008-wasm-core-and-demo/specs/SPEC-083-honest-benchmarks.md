@@ -91,10 +91,30 @@ cost:
         cell mechanically from the fresh JSON, re-measured the resampler claim,
         md5-verified the `web` == `-q 80` identity, and rewrote the affected
         BENCHMARKS.md / DEC-080 / README prose. Mostly waiting on encodes.
+    - cycle: verify
+      interface: claude-code
+      model: claude-opus-4-8
+      tokens_total: 450000
+      duration_minutes: null
+      estimated_usd: 4.0
+      note: >
+        Re-verify (second verify pass) on Opus 4.8 (no metered subagent) —
+        ORDER-OF-MAGNITUDE ESTIMATE, not a real usage-object reading. Scope: an
+        INDEPENDENT three-pass re-run of the harness (run1/run2 identical
+        `--runs 3`, run3 per-core via `--q-from`, ~30 min wall) and a mechanical
+        re-derivation of every published cell from that fresh JSON; the guard
+        proven by two end-to-end negative controls (the shipped squoosh bug and
+        an independent sharp `--fit fill` distortion, both exit 3) plus matching
+        positive controls and an EXIF-Orientation=6 false-positive fixture; the
+        12 sampled encodes reproduced byte- and score-exact from the DOC's own
+        commands; `web` == `convert -q 80` md5-confirmed on all 8 photos; the
+        sharp-resampler ~82 outlier reproduced against a common reference.
+        Outcome: ⚠ PUNCH LIST — 1 substantive + 2 minor, all doc prose; every
+        number re-derived and no re-measurement required.
   totals:
-    tokens_total: 2700000
-    estimated_usd: 19.6
-    session_count: 3
+    tokens_total: 3150000
+    estimated_usd: 23.6
+    session_count: 4
 ---
 
 # SPEC-083: honest benchmarks (BENCHMARKS.md)
