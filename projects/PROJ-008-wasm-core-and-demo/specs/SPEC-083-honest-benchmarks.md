@@ -41,11 +41,28 @@ value_link: >
 # See AGENTS.md §4 and docs/cost-tracking.md. interface: claude-code |
 # claude-ai | api | ollama | other.
 cost:
-  sessions: []
+  sessions:
+    - cycle: build
+      interface: claude-code
+      model: claude-opus-4-8
+      tokens_total: 1600000
+      duration_minutes: null
+      estimated_usd: 11.0
+      note: >
+        Main-loop build session on Opus 4.8 (no metered subagent) —
+        ORDER-OF-MAGNITUDE ESTIMATE, not a real usage-object reading. Scope:
+        design-time probing (quality→SSIMULACRA2 grid calibration for 5 tools,
+        diff dimension + AVIF-search limits), building crustyimg --features avif,
+        installing + pinning 4 competitors (incl. a Node-16 shim for archived
+        squoosh), writing the ~540-line cross-tool harness + a ~200-line DEC + a
+        ~300-line BENCHMARKS.md, three full timed benchmark passes over 8 photos
+        (background), reproducibility + per-core analysis, and README/justfile
+        wiring. ~1.6M tokens mixed at Opus list rate (~80/20 in/out); midpoint
+        recorded. Verify/ship should replace with real subagent_tokens or /cost.
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 1600000
+    estimated_usd: 11.0
+    session_count: 1
 ---
 
 # SPEC-083: honest benchmarks (BENCHMARKS.md)
@@ -178,28 +195,90 @@ Benchmarks are empirical, so verification is **reproducibility + honesty**, not 
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
+- **Branch:** `spec-083-honest-benchmarks` (off `main` @ 260dc02)
+- **PR (if applicable):** none — build cycle; handed to verify, not merged.
+- **All acceptance criteria met?** yes
+  - BENCHMARKS.md with matched-quality methodology, machine + pinned versions,
+    exact per-tool commands, size+speed+quality tables per size bucket, and stated
+    caveats incl. two axes where crustyimg loses (smallest; wall-clock speed). ✓
+  - Reproducible: `just bench-compare --corpus <dir>` regenerates the tables; two
+    runs matched (every deterministic field — chosen quality, bytes, score —
+    identical run-to-run; wall-times moved ≤ ~2%). No hand-edited numbers (tables
+    built from the harness JSON). ✓
+  - No cherry-picking: 8 real photos 0.7–47 MP; methodology fixed (DEC-080) and the
+    grids calibrated before the full numbers were read; every README benchmark line
+    is consistent with the doc (grep-checked — README makes no "beats competitor"
+    size/speed claim). ✓
+  - Honest scope: cwebp (no AVIF) labelled a WebP-only format-context row, not
+    dropped or claimed as an uncontested win. ✓
+  - `just validate` green (224 front-matter blocks); no `src/`/behaviour change
+    (a doc + an external-comparison script + a justfile recipe + a README link). ✓
 - **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
+  - `DEC-080` — cross-tool benchmark methodology (iso-quality at an SSIMULACRA2
+    ~82 band; one scorer = `crustyimg diff`; own-reference encode-fidelity scoring;
+    fixed per-tool grids picked-nearest-band; tool set + pinned versions; corpus
+    provenance).
 - **Deviations from spec:**
-  - [list]
+  - **Framing:** chose **(a) iso-quality** (the stronger claim) — the probe
+    confirmed every tool's quality→score grid is smooth and the 82 band is hittable.
+    Added beyond the minimum: the real one-command `crustyimg web` operating point
+    (fixed fast-AVIF, lands ~75 "high"), a labelled WebP-only cwebp row, and a
+    single-thread (per-core) table isolating the threading question.
+  - **The distributed 0.5.0 binary has NO AVIF.** AVIF is a compile-time feature
+    off by default (crates.io / Homebrew / Releases build default features). The
+    flagship path benchmarked here needs `cargo install crustyimg --features avif`
+    (still pure Rust). This wasn't called out in the spec; it's the doc's central
+    honesty pivot and is stated prominently.
+  - **Corpus provenance corrected:** the brief said "5 cameras / Sony". EXIF shows
+    6 models across 4 brands (Fujifilm X100F; Nikon P1100/D3300/D750; Leica Q2
+    Monochrom; Apple iPhone 15) and **no Sony**. Corrected in the doc + DEC.
+  - **The honest result:** at matched quality crustyimg is neither smallest (sharp
+    wins size on 5/8) nor fastest (sharp/ImageMagick are 3–8× faster on wall-clock,
+    being multi-threaded). Reported straight; per-core it's a wash vs single-thread
+    libvips, so the value framing rests on portability + measured quality + RAW +
+    wasm, not raw compression/speed superiority.
+  - **ImageMagick errored** on the 47 MP Leica ("Incorrect data in iCCP" — a
+    malformed source colour profile that crustyimg/sharp/squoosh tolerate).
+    Reported honestly; that one cell is excluded (magick is n=4 in the large bucket).
 - **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - **Distributed-binary AVIF friction (launch blocker candidate):** a plain
+    `cargo install crustyimg` / `brew install` user gets a binary that can't produce
+    AVIF. Either ship an AVIF-enabled release channel or make the `--features avif`
+    requirement much louder in install docs — an r/rust reader will hit this.
+  - **Single-threaded native AVIF encode:** the wall-clock loss is entirely
+    threading; a multi-threaded rav1e path on native would close it (ties to the
+    parked `par_iter run_pixel_op` / perf item).
+  - **Harness fragility:** `@squoosh/cli` is archived and runs only on Node 16; if
+    it stops building, its row degrades to "NOT RUN" (labelled, not silent).
+  - Optionally add a Linux/Windows machine run for cross-platform speed context
+    (the single-machine caveat is stated in the doc).
 
 ### Build-phase reflection (3 questions, short answers)
 
 Process-focused: how did the build go? What friction did the spec create?
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — The spec said the crustyimg side "reflects the shipped 0.5.0 surface" but
+   didn't flag that the shipped binary has **no AVIF** (it's `--features avif`, off
+   by default). The flagship photo path simply isn't in a default `cargo install`,
+   which reframed the entire doc and forced the `--features avif` disclosure. The
+   spec also leaned toward a "substantiate the headline / crustyimg wins" posture,
+   while the honest data shows crustyimg is neither smallest nor fastest —
+   reconciling the launch-credibility goal with the real losses was the main judgment.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — Two load-bearing facts, found only by probing: `crustyimg diff` **requires
+   identical dimensions** (which forces own-reference scoring), and crustyimg's
+   perceptual `--ssim` search **doesn't apply to AVIF** (so iso-quality needs a
+   `convert -q` grid, not the native search). Also the corpus provenance in the
+   brief was factually wrong (Sony / 5 cameras) — worth verifying from EXIF up front.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Probe the distributed-binary AVIF status, the `diff` dimension constraint, and
+   the corpus's real EXIF **first**, before designing the tables — each reshaped the
+   method. And budget the wall-clock better: the timed encode runs dominate the
+   session (~40 min for three full passes), so I'd pick the run count up front and
+   avoid running anything else on the machine while timing.
 
 ---
 

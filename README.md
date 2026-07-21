@@ -41,6 +41,11 @@ smaller in 2 to 5 seconds each. Runtime barely changes across that size range
 because `web` downscales before it encodes. Reproduce it on your own photos with `just bench
 --corpus /path/to/photos`.
 
+How does that stack up against sharp, ImageMagick, and squoosh at matched quality —
+where crustyimg wins and where it doesn't? See **[BENCHMARKS.md](BENCHMARKS.md)**: an
+equal-quality, reproducible comparison (crustyimg isn't the smallest or the fastest, and
+the doc says so).
+
 ## Install
 
 ```sh

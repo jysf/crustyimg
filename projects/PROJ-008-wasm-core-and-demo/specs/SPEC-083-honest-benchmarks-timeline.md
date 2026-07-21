@@ -18,3 +18,16 @@ Cycle prompts live in `prompts/SPEC-083-<cycle>.md`.
   verify. Extends the SPEC-088 `just bench` discipline to competitors; report losses honestly; tell the
   q85-AVIF "high" (~80) story straight. Complexity M (leans L — installs 3 competitors + a cross-tool
   harness). **Build-ready; awaiting dispatch decision (Opus build).**
+- [x] build — Opus, 2026-07-20 on `spec-083-honest-benchmarks`. Chose **(a) iso-quality** at an
+  SSIMULACRA2 ~82 band (probe confirmed the band is hittable for every tool). Deliverables:
+  `scripts/bench-compare.py` (cross-tool harness — one scorer = `crustyimg diff`, own-reference
+  encode-fidelity scoring, fixed per-tool grids picked-nearest-band, competitors labelled not dropped),
+  `BENCHMARKS.md` (methodology + machine + pinned versions + exact commands + per-bucket AND per-photo
+  tables + honest caveats + reproduce section), `DEC-080` (methodology), `just bench-compare`, README
+  link. **Honest headline: crustyimg is NEITHER smallest (sharp wins size 5/8) NOR fastest (sharp/IM
+  3–8× faster on wall-clock, being multi-threaded); per-core it's a wash vs single-thread libvips.**
+  Value framing = zero-dep pure-Rust binary + measured quality + RAW + wasm. Reproducibility proven
+  (run1≡run2 on all deterministic fields, wall-times ≤~2%). Key finds: the distributed 0.5.0 binary has
+  **no AVIF** (needs `--features avif`) — the central honesty pivot; brief's "5 cameras/Sony" corrected
+  from EXIF (6 models/4 brands, no Sony); IM errored on the 47MP Leica (bad iCCP) — reported honestly.
+  `just validate` green, no `src/` change. **Handed to verify (Opus) — NOT merged.** See Build Completion.
