@@ -97,7 +97,7 @@ def run_pipeline(cmds, timed=False):
 
     A tool whose downscale+encode is one process has a single-command pipeline;
     crustyimg's grid path is resize + convert, so its time sums both steps (an
-    extra process start vs a one-shot tool — disclosed in DEC-080/BENCHMARKS.md).
+    extra process start vs a one-shot tool — noted in BENCHMARKS.md).
     """
     total = 0.0
     for cmd in cmds:

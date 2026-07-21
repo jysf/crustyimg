@@ -111,10 +111,25 @@ cost:
         sharp-resampler ~82 outlier reproduced against a common reference.
         Outcome: ⚠ PUNCH LIST — 1 substantive + 2 minor, all doc prose; every
         number re-derived and no re-measurement required.
+    - cycle: build
+      interface: claude-code
+      model: claude-opus-4-8
+      tokens_total: 120000
+      duration_minutes: null
+      estimated_usd: 0.9
+      note: >
+        Third build pass — PROSE ONLY, on Opus 4.8 (no metered subagent) —
+        ORDER-OF-MAGNITUDE ESTIMATE, not a real usage-object reading. No
+        benchmark was re-run and no number changed. Scope: reproduced the
+        ImageMagick claim's failure mode directly (PNG reference write fails,
+        AVIF encode succeeds), checked what `web`/`optimize` actually print,
+        read the harness's reference path to describe it accurately, and
+        rewrote the affected prose in BENCHMARKS.md / DEC-080 / this spec /
+        the timeline / one harness docstring line. Cheap: no encodes.
   totals:
-    tokens_total: 3150000
-    estimated_usd: 23.6
-    session_count: 4
+    tokens_total: 3270000
+    estimated_usd: 24.5
+    session_count: 5
 ---
 
 # SPEC-083: honest benchmarks (BENCHMARKS.md)
@@ -302,7 +317,7 @@ number below is re-derived from a fresh three-pass benchmark, not patched.
    five seconds" (the doc's own small-bucket `web` row is 967 ms).
 7. **The resampler claim was re-measured, and it changed.** DEC-080 said cross-tool
    downscales are 92–95 similar, so the resampler is a second-order effect. With every
-   downscale now aspect-correct: 91–94 on three of four sampled photos, but sharp's
+   downscale now aspect-correct: 90.9–94.5 on the photos sampled, but sharp's
    lands at **~82** against the others on one 24 MP photo. Own-reference scoring is
    doing real work — against a shared reference that gap would have been charged to
    sharp's encoder. Corrected in both DEC-080 and the doc.
@@ -366,9 +381,12 @@ smallest nor the fastest, and per core it is still faster on four of eight.
     being multi-threaded). Reported straight; per-core it's a wash vs single-thread
     libvips, so the value framing rests on portability + measured quality + RAW +
     wasm, not raw compression/speed superiority.
-  - **ImageMagick errored** on the 47 MP Leica ("Incorrect data in iCCP" — a
-    malformed source colour profile that crustyimg/sharp/squoosh tolerate).
-    Reported honestly; that one cell is excluded (magick is n=4 in the large bucket).
+  - **The 47 MP Leica has no ImageMagick cell — a limit of this method, not of
+    ImageMagick.** magick encodes that file to AVIF fine (rc 0, 2048×1367); what it
+    won't write is the lossless PNG *reference* the scoring needs ("Incorrect data
+    in iCCP" — the source's embedded colour profile trips magick's PNG writer;
+    `-strip` makes it succeed). Stated as our limitation; that cell is excluded
+    (magick is n=4 in the large bucket).
 - **Follow-up work identified:**
   - **Distributed-binary AVIF friction (launch blocker candidate):** a plain
     `cargo install crustyimg` / `brew install` user gets a binary that can't produce
@@ -382,10 +400,49 @@ smallest nor the fastest, and per core it is still faster on four of eight.
   - Optionally add a Linux/Windows machine run for cross-platform speed context
     (the single-machine caveat is stated in the doc).
   - **sharp's resampler on one 24 MP photo** lands ~82 SSIMULACRA2 against every
-    other tool's downscale of the same file (the rest cluster 91–94), and it isn't
+    other tool's downscale of the same file (the rest cluster 90.9–94.5), and it isn't
     `fastShrinkOnLoad` (disabling it is byte-identical). Own-reference scoring makes
     it harmless for this doc, but the cause is unexplained and worth a look if the
     downscale ever becomes the thing being compared.
+
+### Third build pass — prose only (2026-07-21)
+
+Re-verify re-derived every published number independently (157/157 fresh cells,
+230/230 against the run JSONs, tally and per-core reproduced, the dimension guard
+proven to fire on a distortion it was never shown) and found **no number wrong**.
+The findings were all wording. Nothing was re-measured and no table cell moved;
+the diff is prose in `BENCHMARKS.md`, `DEC-080`, this spec, the timeline, and one
+docstring line in the harness.
+
+1. **The ImageMagick caveat was false and any reader could disprove it.** The doc
+   said magick "refused the 47 MP Leica outright" and was "less tolerant of odd
+   inputs" than the tools that "read it without complaint". Checked here:
+   `magick L1024678.JPG -resize '2048x2048>' -quality 70 out.avif` returns 0 and
+   writes a valid 2048×1367 AVIF. What fails is `... ref.png` — magick's PNG
+   writer, on that source's embedded ICC profile ("Incorrect data in iCCP";
+   `-strip` fixes it) — and that PNG is *our* scoring reference, not the
+   benchmarked pipeline. Restated as a limit of this method in all three places
+   (doc, this Build Completion, timeline); the "less tolerant" characterization and
+   the contrast with the other tools are gone, because neither was earned.
+2. **"cwebp is larger than every AVIF tool here" (twice) contradicted the doc's own
+   table** — cwebp beats ImageMagick on DSC_2011 (166 vs 167 KB) and DSC_9952
+   (65 vs 105 KB). Replaced with the measured, checkable claim: ~1.2×–3.0× the
+   *smallest* AVIF on every photo, and the largest median in all three buckets.
+3. **One resampler range, matching the measurement.** BENCHMARKS.md said 92–94,
+   DEC-080 said 91–94; measured is 90.87–94.53. Both now say **90.9–94.5**, as does
+   this spec.
+4. **Nits.** The score-readout bullet claimed `web` and `optimize` "report it as
+   part of the encode" — verified here that `optimize` is score-free without
+   `--verify` and `web -o FILE` prints nothing (the `· ssim` line comes with
+   `--out-dir`/default naming), so the sentence now names the forms that actually
+   print it. TL;DR "it's the slowest" is now the precise version (all three bucket
+   medians, 7 of 8 photos — squoosh is slower on the 47 MP). The harness docstring
+   cited a two-process disclosure that existed in neither doc; the disclosure is now
+   in BENCHMARKS.md (crustyimg's tuned path is two commands and its time sums both)
+   and the docstring cites only that.
+
+`just validate` green, `--self-test` green, no `src/` change, no number changed.
+Handed back for a short prose-only re-verify — NOT merged.
 
 ### Build-phase reflection (3 questions, short answers)
 

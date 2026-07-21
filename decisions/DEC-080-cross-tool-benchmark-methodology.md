@@ -105,8 +105,8 @@ A throwaway probe on two corpus photos confirmed the method is viable:
   different dimensions`) — so each tool is scored against a downscale it produced
   at the same target size, which also makes the score resampler-neutral (each
   tool judged on its own encode). Re-measured with every tool's downscale
-  aspect-correct: the tools' lossless downscales score **91–94** against each
-  other on three of four sampled photos, but only **~82** for sharp against the
+  aspect-correct: the tools' lossless downscales score **90.9–94.5** against each
+  other on the photos sampled, but only **~82** for sharp against the
   others on one 24 MP photo. So the resampler is *not* uniformly a second-order
   effect, and own-reference scoring is doing real work — against a shared
   reference that photo's resampler gap would have been charged to sharp's encoder.

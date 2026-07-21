@@ -17,11 +17,12 @@ At **matched perceptual quality** (every tool's output scored by the same
 SSIMULACRA2 metric and tuned to the same "high" band), on the web-ready job of
 _downscale a photo to ≤ 2048 px and encode AVIF_:
 
-- **crustyimg is never the smallest, and it's the slowest.** sharp (libvips)
-  produces the smallest AVIF more often than anyone else (4 of the 8 photos);
-  sharp and ImageMagick, which use every CPU core, finish roughly 3–9× and 4–14×
-  faster on the clock. crustyimg's files run from about parity to ~50% larger
-  than sharp's, and it takes ~1–5 s where sharp takes ~0.3–1 s.
+- **crustyimg is never the smallest, and it's the slowest** — on all three bucket
+  medians and on 7 of the 8 photos (squoosh is slower on the 47 MP Leica).
+  sharp (libvips) produces the smallest AVIF more often than anyone else (4 of the
+  8 photos); sharp and ImageMagick, which use every CPU core, finish roughly 3–9×
+  and 4–14× faster on the clock. crustyimg's files run from about parity to ~50%
+  larger than sharp's, and it takes ~1–5 s where sharp takes ~0.3–1 s.
 - **But the gap is threading and a deliberate speed preset, not a weak encoder.**
   crustyimg is single-threaded by design (it's the same engine that runs in the
   browser); pin sharp to a single thread and the two trade wins photo-for-photo.
@@ -32,9 +33,9 @@ _downscale a photo to ≤ 2048 px and encode AVIF_:
   same engine in the browser. sharp needs a native libvips addon; ImageMagick is a
   large C install; `@squoosh/cli` is archived and no longer runs on current Node.
 - **AVIF is the honest comparison, and cwebp can't play** — at matched quality a
-  dedicated WebP encoder is larger than every AVIF tool here (1.2× to 3.0× the
-  smallest AVIF, worst on detailed photos). It's here as context, labelled, not
-  as a contestant it can't win.
+  dedicated WebP encoder runs ~1.2× to ~3.0× the smallest AVIF on every photo (worst
+  on detailed ones) and posts the largest median size in all three size buckets.
+  It's here as context, labelled, not as a contestant it can't win.
 
 So: if you want the absolute smallest file or the fastest batch on a many-core
 box, sharp is excellent and this doc will tell you so. If you want one dependency-
@@ -51,8 +52,8 @@ if you just lower the quality. So every number below is at **matched quality**:
   lossless"), against **that tool's own lossless downscale** of the source. Scoring
   each encode against its own downscale isolates *encode* fidelity and doesn't
   reward or punish a tool for its resampler. That's not a formality: the tools'
-  lossless downscales of the same photo score 92–94 against each other on most of
-  this corpus, but on one 24 MP photo sharp's lands at ~82 against everyone
+  lossless downscales of the same photo score 90.9–94.5 against each other on the
+  photos sampled, but on one 24 MP photo sharp's lands at ~82 against everyone
   else's. Scored against a single shared reference, that difference would have
   been charged to sharp's *encoder*.
 - **Same pipeline for every tool — measured, not assumed.** Downscale the long
@@ -112,6 +113,8 @@ two 8 MP, one 16 MP, three 24 MP, one 47 MP.
 Each tool downscales the long edge to ≤ 2048 px and encodes at the quality `Q`
 that matched the band (`Q` varies per photo; see the tables). crustyimg's one-
 command default is `web`; the matched-quality row uses `convert -q` to tune it.
+That tuned path is two commands, and crustyimg's time is the sum of both — it pays
+a second process start that the one-shot tools don't.
 
 `E` below is the target long edge — `min(2048, the source's long edge)`, so a
 photo already under 2048 px is never enlarged. These are the exact commands the
@@ -161,7 +164,7 @@ of the downscale-and-encode.
 
 sharp wins size and beats crustyimg on the clock by ~4×. crustyimg lands in the
 middle of the AVIF pack on size and last on speed. (ImageMagick covers 4 of the 5
-photos here — it errored on the 47 MP Leica; see the caveats.)
+photos here — the harness can't score its 47 MP Leica encode; see the caveats.)
 
 ### Medium photos (2–12 MP: 2 photos, 8 MP)
 
@@ -258,18 +261,24 @@ byte-for-byte `convert --format avif -q 80`, and the matched-quality rows tune
 crustyimg *up* to `-q 85`–`-q 92` to reach the band, so the quality comparison is
 fair. If you want the smaller default, that's what `web` gives you out of the box.
 
-**WebP is a different weight class.** cwebp at matched quality is bigger than every
-AVIF encoder here — from ~1.2× the smallest AVIF on a couple of photos to ~3.0× on
-detailed ones — because that's the format, not the tool. It's fast and universal;
-if you need AVIF's size, you need AVIF.
+**WebP is a different weight class.** At matched quality cwebp runs from ~1.2× the
+smallest AVIF on a couple of photos to ~3.0× on detailed ones, and it has the
+largest median size in every bucket — because that's the format, not the tool. (It
+isn't larger than every AVIF row everywhere: it comes in under ImageMagick's AVIF
+on two of the 24 MP photos.) It's fast and universal; if you need AVIF's size, you
+need AVIF.
 
-**ImageMagick is fast but the least size-efficient, and less tolerant of odd
-inputs.** Its AVIF is quick (libaom threads internally) but often the largest at
-matched quality — on one 24 MP photo it was 105 KB where the others were 21–37 KB.
-It also refused the 47 MP Leica outright ("Incorrect data in iCCP"): that file
-carries a malformed embedded colour profile, which crustyimg, sharp, and squoosh
-all read without complaint. It's excluded from ImageMagick's row for that photo
-rather than papered over.
+**ImageMagick is fast but the least size-efficient.** Its AVIF is quick (libaom
+threads internally) but often the largest at matched quality — on one 24 MP photo
+it was 105 KB where the others were 21–37 KB.
+
+**The missing ImageMagick cell is this method's limit, not ImageMagick's.** Scoring
+every tool against its own downscale means the harness needs a lossless PNG
+reference from each tool, and `magick` won't write that PNG for the 47 MP Leica
+("Incorrect data in iCCP" — the source's embedded colour profile trips magick's PNG
+writer; `-strip` makes it succeed). Its AVIF encode of that photo is fine; there is
+simply nothing to score it against under these rules, so the cell is left empty
+rather than filled with an unmatched number.
 
 ## What crustyimg is for
 
@@ -283,11 +292,12 @@ The benchmark says crustyimg isn't the smallest or the fastest. Here's the case 
   `@squoosh/cli` is archived and won't start on a current Node. crustyimg is one
   download or one `cargo install`.
 - **Quality is a number the tool gives you.** The SSIMULACRA2 score this whole
-  comparison uses to keep everyone honest is built into crustyimg — `web` and
-  `optimize` report it as part of the encode, and `diff --fail-under` exits
-  non-zero so you can gate a build on it. Other tools can measure quality (`magick
-  compare -metric DSSIM`, `cwebp -print_ssim`), but as a separate step against a
-  reference you supply, and not with SSIMULACRA2.
+  comparison uses to keep everyone honest is built into crustyimg — `web` prints it
+  on each file's summary line (`crustyimg web *.jpg --out-dir web/`), `optimize
+  --verify` adds it to an optimize run, and `crustyimg diff` scores any two images,
+  with `--fail-under` exiting non-zero so you can gate a build on it. Other tools
+  can measure quality (`magick compare -metric DSSIM`, `cwebp -print_ssim`), but as
+  a separate step against a reference you supply, and not with SSIMULACRA2.
 - **It reads RAW.** `.dng`, `.cr2`, `.nef`, `.arw` and more, via the camera's
   embedded preview. sharp and squoosh can't open those at all.
 - **The same engine runs in the browser.** The [demo](https://jysf.github.io/crustyimg/)

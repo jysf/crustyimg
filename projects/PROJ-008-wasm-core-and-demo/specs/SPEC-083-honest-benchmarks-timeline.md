@@ -29,7 +29,9 @@ Cycle prompts live in `prompts/SPEC-083-<cycle>.md`.
   Value framing = zero-dep pure-Rust binary + measured quality + RAW + wasm. Reproducibility proven
   (run1≡run2 on all deterministic fields, wall-times ≤~2%). Key finds: the distributed 0.5.0 binary has
   **no AVIF** (needs `--features avif`) — the central honesty pivot; brief's "5 cameras/Sony" corrected
-  from EXIF (6 models/4 brands, no Sony); IM errored on the 47MP Leica (bad iCCP) — reported honestly.
+  from EXIF (6 models/4 brands, no Sony); no IM cell for the 47MP Leica — magick won't write the lossless
+  PNG *reference* this method scores against (bad iCCP), though its AVIF encode of that file is fine, so
+  it's a limit of the harness (first written as an IM failure; corrected in the prose pass).
   `just validate` green, no `src/` change. **Handed to verify (Opus) — NOT merged.** See Build Completion.
 - [x] verify — Opus, 2026-07-20 on `spec-083-honest-benchmarks` @ 0ded21e. **⚠ PUNCH LIST — back to build.**
   What held: every published cell re-derived from `run1.json` matches exactly (per-photo, per-bucket
@@ -95,3 +97,18 @@ Cycle prompts live in `prompts/SPEC-083-<cycle>.md`.
   [the score] as part of the encode" — `optimize` is score-free without `--verify` (per cli-reference) and
   `web -o FILE` prints nothing; "it's the slowest" holds on all bucket medians and 7 of 8 photos (squoosh is
   slower on the 47 MP). `just validate` green (225), `--self-test` green, no `src/` change, cycle `verify`.
+- [x] build (prose) — Opus, 2026-07-21 on `spec-083-honest-benchmarks`. **Wording pass only — nothing
+  re-measured, no number changed, no table cell moved** (diff is prose in BENCHMARKS.md, DEC-080, the spec,
+  this timeline, and one harness docstring line). (1) The ImageMagick caveat was false and any reader with
+  magick could disprove it: reproduced here that `magick L1024678.JPG -resize '2048x2048>' -quality 70
+  out.avif` succeeds and only the **PNG reference** write fails (the source's ICC profile trips magick's PNG
+  writer; `-strip` fixes it) — restated in all three places as a limit of OUR scoring method, with the
+  "less tolerant of odd inputs" dig and the "the others read it without complaint" contrast deleted.
+  (2) "cwebp is larger than every AVIF tool here" (twice) → the true, table-checkable claim: ~1.2×–3.0× the
+  *smallest* AVIF on every photo + the largest median in all three buckets, and the doc now says outright
+  that cwebp beats ImageMagick's AVIF on two 24 MP photos. (3) One resampler range everywhere: **90.9–94.5**
+  (was 92–94 in the doc, 91–94 in DEC-080). Nits: score-readout narrowed to what actually prints (verified:
+  `web -o FILE` prints nothing, `--out-dir` prints `· ssim`; `optimize` needs `--verify`); "it's the
+  slowest" → all three bucket medians and 7 of 8 photos; the harness's two-process claim is now disclosed
+  in BENCHMARKS.md and the docstring cites only that. `just validate` green, `--self-test` green, no `src/`
+  change. **Handed back for a short prose-only re-verify — NOT merged.**
