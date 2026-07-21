@@ -143,10 +143,31 @@ cost:
         and encodes at q80 while the real default encodes at q85, so the doc's
         `web` rows measure the wrong operating point. Outcome: ⚠ prose PASSES,
         new substantive finding — back to build.
+    - cycle: build
+      interface: claude-code
+      model: claude-opus-4-8
+      tokens_total: 400000
+      duration_minutes: null
+      estimated_usd: 3.0
+      note: >
+        Fourth build (fix) pass on Opus 4.8 clearing F4 — ORDER-OF-MAGNITUDE
+        ESTIMATE, not a real usage-object reading. Scope: byte-proved the pin
+        defect by hand before touching anything (md5: `web -o FILE` == `-q 80`,
+        `web --out-dir` == `-q 85`); established the blast radius by reading the
+        grid's explicit-`-q` path and then CONFIRMING it — a full grid re-run
+        reproduced all 8 published rows exactly, so only the `web` rows moved;
+        switched the harness to `--out-dir`; added the operating-point guard
+        (static no-pin + observed `web --json`) and grew `--self-test` 8 → 18;
+        proved the guard with an end-to-end negative control (re-injected the
+        pinned call, watched it exit 3 on the published wrong number); re-ran the
+        `web` rows (`--runs 3`); cross-validated against DEC-069 and
+        `scripts/bench.py` (byte-identical on all 8); reverted DEC-080's
+        calibration with its double-correction trail and rewrote the affected
+        BENCHMARKS.md prose. ~35 min of encodes.
   totals:
-    tokens_total: 3520000
-    estimated_usd: 26.4
-    session_count: 6
+    tokens_total: 3920000
+    estimated_usd: 29.4
+    session_count: 7
 ---
 
 # SPEC-083: honest benchmarks (BENCHMARKS.md)
@@ -461,6 +482,88 @@ docstring line in the harness.
 `just validate` green, `--self-test` green, no `src/` change, no number changed.
 Handed back for a short prose-only re-verify — NOT merged.
 
+### Fourth build pass — the `web` rows measured the wrong operating point (2026-07-21)
+
+The prose-only re-verify passed on prose but, by driving the CLI by hand rather than
+re-checking the harness JSON, found **F4**: every `crustyimg web (default)` row
+measured a path that is not `web`'s default.
+
+**The defect.** The harness ran `crustyimg web IN --max E -o web.avif`. A recognized
+`-o` extension **pins the format**, and `web` treats a pin as an explicit override —
+it skips the auto-decision entirely and falls through to `convert`'s
+`AVIF_DEFAULT_QUALITY` (80). `web`'s actual default is `FAST_LOSSY_QUALITY` (85).
+Confirmed here by hand before changing anything, on DSC_9952:
+
+| by-hand invocation | bytes | score |
+|---|---:|---:|
+| `web … -o pinned.avif` (what the harness ran) | 28,603 | 78.95 |
+| `convert --format avif -q 80` | 28,603 | md5-identical |
+| `web … --out-dir od` (the real default) | 36,791 | 81.64 |
+| `convert --format avif -q 85` | 36,791 | md5-identical |
+
+**Blast radius, established before any change.** The iso-quality grid is
+**unaffected**: it encodes via `convert ds.png --format avif -q Q`, with quality set
+*explicitly*, so `unwrap_or(AVIF_DEFAULT_QUALITY)` never fires and there is no
+auto-decision to skip. `resize` is a lossless pixel op. Competitors never touch
+crustyimg's encoder (only `diff` and `info`). So only the `crustyimg-web` rows were
+wrong — the tally (sharp 4 / IM 2 / squoosh 2), the per-core table, and every
+competitor row stand. Proven, not assumed: a full re-run of the grid tool reproduced
+**all 8 published rows exactly** (bytes and score).
+
+**What changed:**
+
+1. **The harness exercises the real default.** `enc_pipeline` now runs
+   `web IN --max E --out-dir D`. Because the auto-decision picks the output format,
+   the filename is resolved after the run rather than named up front.
+2. **A structural control, so this class can't recur** — the same discipline as the
+   dimension guard, which polices output *shape* but never asked which *code path*
+   produced the bytes. A row claiming a tool's fixed default must now prove it, two
+   independent ways, exit 3 on either: **static** — the timed command carries no
+   format-pinning `-o`/`--format`; **observed** — `web --json`, the engine's own
+   account of its decision, reports the quality and format the row claims. The
+   static half catches the defect without running anything; the observed half
+   catches a pin spelled some way the harness doesn't recognize, and catches
+   `FAST_LOSSY_QUALITY` moving underneath the doc. `--self-test` grew from 8 to 18
+   cases covering both halves, including the exact invocation that shipped.
+3. **Negative control, end to end.** The original pinned call was re-injected into a
+   copy of the final harness: it reproduced the published wrong number (29 KB @
+   79.0), flagged the row, and **exited 3**; the fixed harness exits 0. Worth
+   recording *which* half caught it — only the **static** one. The audit probe
+   issues its own (correct) `--out-dir` invocation, so it truthfully reported q85
+   while the encode under test ran at q80. Two independent checks were not
+   redundancy; here one of them was the only thing standing between the pin and a
+   clean-looking run. A guard nobody has watched reject anything is not a guard.
+4. **DEC-080's calibration reverted to the truth**, with the trail showing why it
+   moved twice: the original `-q 85` was right, the "correction" to `-q 80` /
+   median 75.2 was a real measurement of the pinned path, and the ~7-point
+   "we handicapped crustyimg" narrative built on it is **withdrawn**.
+5. **Narrative rewritten from the fresh numbers.** The "byte-for-byte `convert
+   --format avif -q 80`" line is deleted. `web`'s default measures **80.8 median
+   (75.4–83.1)**, so the 82 band is ~1 point above it, not ~7 — restated modestly.
+   The exact-commands comment now labels the unpinned path and says why. The
+   ImageMagick lead is now "often the least size-efficient", matching the doc's own
+   table (IM is bolded smallest on IMG_3855 and DSCN3478).
+
+**Re-measured (web rows only, `--runs 3 --warmup 1`, both guards PASSED, all 8 at
+q=85/AVIF):** small `81.6 · 203 KB · 86.1% · 1090 ms`; medium
+`80.2 · 182 KB · 88.8% · 4685 ms`; large `80.2 · 64 KB · 99.3% · 2791 ms`.
+
+**Three independent corroborations of the fresh numbers:** DEC-069's pre-existing
+q85 table lists DSC_0163 at 81.6 (measured here: 81.59); `scripts/bench.py` — a
+different harness that always used `--out-dir` — reproduces all 8 outputs
+**byte-for-byte**; and on the 4 photos where the grid picked q85, the grid row and
+the `web` row are now the same encode to the byte, which is what "the default is
+`-q 85`" predicts.
+
+**⚠ Out of scope, for the maintainer:** `README.md:39` claims `crustyimg web`
+produced files "a median 98% smaller". Measured today on that corpus with the cited
+harness (`scripts/bench.py`), the median is **97%** (82/86/93/95/99/99/100/100).
+This does **not** rest on the pin — `bench.py` always used `--out-dir` — so it is a
+separate pre-existing discrepancy from SPEC-082, and I have not touched README.
+
+`just validate` green, `--self-test` green (18/18), no `src/` change. Handed back for
+re-verify — NOT merged.
+
 ### Build-phase reflection (3 questions, short answers)
 
 Process-focused: how did the build go? What friction did the spec create?
@@ -509,6 +612,31 @@ Process-focused: how did the build go? What friction did the spec create?
    measured"; it was wrong because nobody checked what the harness was measuring.
    Also: read the competitor's own resize source rather than trusting its flag names
    — `resizeWithAspect` answered in thirty seconds what the whole benchmark got wrong.
+
+### Fourth-pass reflection (the operating-point fix)
+
+1. **What was unclear in the spec that slowed you down?**
+   — Nothing; F4 was reported precisely enough to act on. What cost time was
+   *proving the blast radius* rather than assuming it — but that was the right
+   spend: it turned "only the `web` rows changed" from a plausible claim into a
+   measured one (all 8 grid rows re-run and reproduced exactly), and it meant the
+   headline tally never had to move.
+
+2. **Was there a constraint or decision that should have been listed but wasn't?**
+   — That `-o <recognized extension>` is a *semantic* flag in this CLI, not just a
+   destination: it silently switches `web` from the auto-decision to an override
+   path with a different quality constant. Every harness that invokes `web` needs
+   to know that, and nothing in the spec, the DEC, or the harness said it.
+
+3. **If you did this task again, what would you do differently?**
+   — Assert the path at the same moment I assert the shape. The previous pass added
+   a guard that the output *looked* right and I treated the pipeline as settled;
+   the operating point was the other half of the same question and went unasked for
+   two more cycles. The generalizable form: for every published row, name the code
+   path it claims and make the harness prove it ran there — an output that looks
+   right is not evidence it came from the right place. Also, the thing that actually
+   found this was driving the CLI by hand instead of re-reading the harness's own
+   JSON; a harness cannot testify about itself.
 
 ---
 

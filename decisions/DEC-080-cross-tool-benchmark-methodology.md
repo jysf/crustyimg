@@ -86,21 +86,39 @@ A throwaway probe on two corpus photos confirmed the method is viable:
   82 band is reliably hittable by a fixed grid (no fragile search / interpolation):
   crustyimg `-q` ≈ 90–91, sharp `-q` ≈ 77–80, ImageMagick `-quality` ≈ 68–70,
   squoosh `cqLevel` ≈ 12–14, cwebp `-q` ≈ 92 (WebP).
-- `crustyimg web`'s fixed fast-AVIF is byte-identical to `convert --format avif
-  -q 80` — not `-q 85`, which the design-time probe got wrong. Measured over the
-  full corpus it lands **SSIMULACRA2 73.5–79.0, median 75.2**. (The first pass
-  recorded "== `-q 85`, ≈ 79–82" and used it to justify 82 as "crustyimg's real
-  operating point". Both halves were wrong, and the error flattered the setup: it
-  made the band look like crustyimg's home turf when it is ~7 points above it.)
-- **Why the band is 82 anyway.** Not because it is crustyimg's default — it
-  isn't. 82 is the band every tool's quality grid can bracket, and it is a quality
-  a reader would actually ship. Anchoring on crustyimg's true default (~75) would
-  have dragged four competitors down to a lower-quality band picked to suit
-  crustyimg's fast preset; 82 instead tunes crustyimg *up* (`-q 85`–`-q 92`),
-  away from the setting its preset is built for. If the choice biases anything it
-  biases against crustyimg, which is the right direction for a doc whose purpose
-  is credibility. crustyimg's actual default is reported separately as its own
-  `web` row rather than smuggled in as the band.
+- `crustyimg web`'s fixed fast-AVIF encodes at `FAST_LOSSY_QUALITY` = **85**, the
+  same setting as `convert --format avif -q 85` and byte-identical to it. Measured
+  over the full corpus it lands **SSIMULACRA2 75.4–83.1, median 80.8**, at a median
+  97 % smaller than the source.
+
+  **This entry has now been corrected twice, and the trail matters more than the
+  number.** The first pass recorded "== `-q 85`, ≈ 79–82" from a two-photo
+  design-time probe. A verify cycle "corrected" it to "== `-q 80`, 73.5–79.0,
+  median 75.2" and built a narrative on it: that the 82 band sits ~7 points above
+  crustyimg's home turf and so handicaps it. That correction was itself wrong. It
+  was measured through `crustyimg web IN -o out.avif`, and a recognized `-o`
+  extension **pins the format**, which makes `web` treat the run as an explicit
+  override — skipping the auto-decision entirely and falling through to `convert`'s
+  `AVIF_DEFAULT_QUALITY` (80). The harness invoked `web` that way on every photo, so
+  every published "`web` (default)" figure described the override path, not the
+  default. Driving the CLI by hand settled it: `web IN -o out.avif` is md5-identical
+  to `-q 80` (28,603 B, 78.95 on DSC_9952) and `web IN --out-dir D` is md5-identical
+  to `-q 85` (36,791 B, 81.64). The original quality was right; the "correction"
+  was a real measurement of the wrong path, and it was more confident than the
+  probe it overruled.
+- **Why the band is 82.** Not because it is crustyimg's default, and — now that the
+  default is measured correctly — not because it is far from it either. 82 is the
+  band every tool's quality grid can bracket, at a quality a reader would actually
+  ship, and it was fixed before any tool was measured. It happens to land ~1 point
+  above `web`'s corpus median of 80.8, close enough that on 4 of the 8 photos the
+  sweep picks `web`'s own `-q 85` and the tuned row and the default row are the same
+  encode (the rest tune up to `-q 88`–`-q 92`). **The earlier claim that the band
+  biases ~7 points against crustyimg is withdrawn** — it was an artifact of the
+  pinned measurement, and it flattered the setup in the "we handicapped ourselves"
+  direction. The honest statement is that the band and crustyimg's default are
+  close, and the choice tilts the comparison very little either way. crustyimg's
+  actual default is still reported separately as its own `web` row rather than
+  smuggled in as the band.
 - `crustyimg diff` **requires identical dimensions** (`cannot compare images of
   different dimensions`) — so each tool is scored against a downscale it produced
   at the same target size, which also makes the score resampler-neutral (each
@@ -170,6 +188,17 @@ A throwaway probe on two corpus photos confirmed the method is viable:
   against its OWN reference — a squashed encode judged against a squashed
   reference still lands in the band. `--self-test` exercises the guard against
   known-good and known-bad shapes with no corpus and no tools installed.
+- **Operating point (the claimed path, asserted):** the dimension guard polices
+  output *shape*; nothing policed which *code path* produced the bytes, and that is
+  how the `web` rows shipped measuring a format-pinned override instead of `web`'s
+  default (see the calibration entry above). A row that claims a tool's fixed
+  default now has to prove it, two independent ways, and **exits 3** on either: the
+  timed command must carry no format-pinning `-o`/`--format`, and `web --json` —
+  the engine's own account of its decision — must report the quality and format the
+  row claims. The static half catches the defect without running anything; the
+  observed half catches a pin spelled some way the harness doesn't recognize, and
+  catches `FAST_LOSSY_QUALITY` moving underneath the doc. `--self-test` covers both
+  halves, including the exact invocation that shipped.
 - **Per-core (single-thread) comparison:** re-time the *same encodes* — the
   harness's `--q-from` reuses each tool's matched quality from the main run — with
   sharp pinned to `VIPS_CONCURRENCY=1`. Only the thread count changes, so the

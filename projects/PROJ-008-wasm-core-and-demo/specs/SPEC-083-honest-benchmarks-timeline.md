@@ -140,3 +140,32 @@ Cycle prompts live in `prompts/SPEC-083-<cycle>.md`.
   a control that shares the defect with the artifact ([[a-self-referential-control-cannot-detect-a-broken-pipeline]]).
   Gates: `just validate` green (225), `--self-test` green (8/8), no `src/` change, cycle `verify`, demo
   favicons untracked and untouched. **NOT merged.**
+- [x] build (fix #3) — Opus, 2026-07-21 on `spec-083-honest-benchmarks`. Cleared **F4**: the harness's
+  `CrustyimgWeb.enc_pipeline` now runs `web IN --max E --out-dir D` instead of `-o web.avif`, so the
+  `web` rows measure `web`'s actual default. **Blast radius established BEFORE any change, then confirmed
+  rather than assumed:** the iso-quality grid sets quality *explicitly* (`convert --format avif -q Q`), so
+  `unwrap_or(AVIF_DEFAULT_QUALITY)` never fires and there is no auto-decision to skip — and a full grid
+  re-run reproduced **all 8 published rows exactly** (bytes + score). So the tally (sharp 4 / IM 2 /
+  squoosh 2), the per-core table and every competitor row STAND; only the three `web` bucket rows moved.
+  Byte-proved the mechanism by hand first (md5: `web -o FILE` == `convert -q 80` = 28603 B @ 78.95;
+  `web --out-dir` == `convert -q 85` = 36791 B @ 81.64). **New structural control — the operating-point
+  guard**, sibling to the dimension guard: a row claiming a tool's fixed default must prove it two ways,
+  exit 3 on either — STATIC (the timed command carries no format-pinning `-o`/`--format`) and OBSERVED
+  (`web --json`, the engine's own decision report, shows the claimed quality + format). `--self-test` 8 →
+  18 cases; guard proven by an end-to-end negative control (re-injected the pinned call into a copy →
+  reproduced the published wrong number 29 KB @ 79.0, flagged the row, **exit 3**; fixed harness exit 0).
+  Re-measured web rows (`--runs 3`, both guards PASSED, all 8 at q=85/AVIF): small `81.6 · 203 KB · 86.1%
+  · 1090 ms`, medium `80.2 · 182 KB · 88.8% · 4685 ms`, large `80.2 · 64 KB · 99.3% · 2791 ms`; corpus
+  median **80.8** (75.4–83.1), median 97% smaller. **DEC-080's calibration reverted to the truth** with the
+  double-correction trail recorded (original `-q 85` was right; the "correction" to `-q 80` / 75.2 measured
+  the pinned path) and the ~7-point "we handicapped crustyimg" narrative **withdrawn** — the band is ~1
+  point above web's default, and on **4 of 8 photos the grid picks web's own q85**, making the tuned row
+  and the default row the same encode byte-for-byte. Deleted the "byte-for-byte `convert --format avif
+  -q 80`" line; relabelled the exact-commands comment; ImageMagick lead → "often the least size-efficient"
+  (the doc's own table bolds IM smallest on IMG_3855 + DSCN3478). Fresh numbers corroborated three
+  independent ways: DEC-069's pre-existing q85 table (DSC_0163 81.6 vs 81.59 measured), `scripts/bench.py`
+  (a different harness, always `--out-dir`) byte-identical on all 8, and the 4 byte-identical grid/web rows.
+  **⚠ Out of scope, flagged not fixed:** `README.md:39`'s "median 98% smaller" measures **97%** today via
+  its own cited harness — pre-existing from SPEC-082, NOT a pin artifact (`bench.py` always used
+  `--out-dir`); maintainer call. Gates: `just validate` green (225), `--self-test` green (18/18), no `src/`
+  change, demo favicons untracked and untouched. **NOT merged.**

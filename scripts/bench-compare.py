@@ -16,6 +16,11 @@ The method (fixed in DEC-080, before any number was read):
     run exits non-zero. "Same pipeline for every tool" is a checkable claim, not
     a promise — the quality column cannot catch a distorted output, because a
     squashed image scored against its own squashed reference still scores fine.
+  * THE CLAIMED PATH, ASSERTED — a row labelled "`crustyimg web` (default)" has to
+    have come from `web`'s default. The harness proves it two ways per run: the
+    timed command carries no format-pinning `-o`, and `web --json` (the engine's
+    own account of its decision) reports the quality and format the row claims.
+    A violation fails the run, like a dimension violation.
   * ONE SCORER — `crustyimg diff A B` (SSIMULACRA2). Every tool's output is
     scored against *that tool's own* lossless 2048 px downscale, so the quality
     column is encode fidelity, resampler-neutral, and identical in kind to the
@@ -54,12 +59,13 @@ Usage:
                       instead of sweeping the grid. Use it to re-time the same
                       encodes under different conditions (e.g. VIPS_CONCURRENCY=1)
                       so only the condition changes, not the encoder setting.
-    --self-test       Check the dimension guard against known-good and known-bad
-                      shapes and exit. No corpus, no tools needed.
+    --self-test       Check the dimension and operating-point guards against
+                      known-good and known-bad cases and exit. No corpus, no tools.
     --json            Emit machine-readable JSON instead of the Markdown tables.
     --json-out PATH   Also write the JSON to PATH.
 
-Exit codes: 0 ok · 2 usage/setup · 3 a tool's output failed the dimension check.
+Exit codes: 0 ok · 2 usage/setup · 3 a guard failed (a tool's output shape, or a
+tool that did not run at the operating point its row claims).
 
 Stdlib only (json, subprocess, argparse, time, ...); no pip installs; offline.
 """
@@ -135,6 +141,12 @@ class Plan:
 class Tool:
     """A benchmarked tool: how it downscales (for scoring) and encodes (timed)."""
 
+    # A tool whose row claims a FIXED operating point (rather than a grid-swept
+    # one) declares it here, and the harness checks the encode actually ran there.
+    # See "The operating-point guard".
+    expect_quality = None
+    expect_format = None
+
     def __init__(self, name, kind, fmt, grid, higher_is_better, available, why=None,
                  version=None):
         self.name = name
@@ -146,12 +158,22 @@ class Tool:
         self.why = why            # reason if unavailable
         self.version = version or "?"
 
-    # Each returns (list_of_cmds, output_path). Subclasses override.
+    # Each returns (list_of_cmds, output_path). `output_path` may name a DIRECTORY
+    # for a tool that chooses its own filename; `resolve_output` finds the file.
+    # Subclasses override.
     def ref_pipeline(self, src, work, plan):
         raise NotImplementedError
 
     def enc_pipeline(self, src, work, plan, q):
         raise NotImplementedError
+
+    def observe_operating_point(self, src, work, plan):
+        """What the tool says it actually did -> (observation dict, error).
+
+        Only tools with a declared `expect_*` need this. Returns `(None, None)`
+        when the tool can't be asked.
+        """
+        return None, None
 
 
 # --------------------------------------------------------------------------- #
@@ -183,6 +205,13 @@ class CrustyimgWeb(Tool):
     """The real one-command flagship: `crustyimg web` (downscale + fast-AVIF,
     fixed quality). Not grid-swept — its fixed operating point is the point."""
 
+    # `web`'s default lossy encode quality: `FAST_LOSSY_QUALITY` in src/sink/mod.rs.
+    # Not `convert`'s `AVIF_DEFAULT_QUALITY` (80), which `web` reaches only when a
+    # format pin sends it down the override path. If the constant ever moves, the
+    # observed check below fails the run rather than quietly relabelling the row.
+    expect_quality = 85
+    expect_format = "avif"
+
     def __init__(self, binary, version):
         super().__init__("crustyimg-web", "avif", "avif",
                          grid=[None], higher_is_better=True,
@@ -194,14 +223,54 @@ class CrustyimgWeb(Tool):
         # downscale to match web's AVIF dimensions (a plain `resize` would leave a
         # portrait photo transposed -> a dimension mismatch that scores as None).
         # `web -o ref.png` is the same downscale+orient pipeline, written lossless.
+        #
+        # The `.png` pin is deliberate HERE and only here: pinning suppresses the
+        # auto-decision, which is exactly what a reference wants — the downscaled
+        # pixels, encoded losslessly, with no encode decision in the way. The pin
+        # is wrong in `enc_pipeline`, where the decision IS the measurement.
         ref = os.path.join(work, "ref.png")
         return ([[self.bin, "web", src, "--max", str(plan.edge), "-o", ref, "-y"]], ref)
 
     def enc_pipeline(self, src, work, plan, q):
-        # q is ignored: web picks its own fixed fast-AVIF quality.
-        out = os.path.join(work, "web.avif")
+        # q is ignored: `web` picks its own fixed fast-AVIF quality, and that fixed
+        # point IS the row.
+        #
+        # `--out-dir`, never `-o web.avif`: a recognized `-o` extension pins the
+        # format, and a pinned run is treated as an explicit override — it skips
+        # the auto-decision and falls through to `convert`'s default quality (80)
+        # instead of web's own (85). That is a different operating point, ~30%
+        # smaller at ~4 points lower quality, and it is not what this row claims.
+        # `--out-dir` is also how the docs tell you to run `web` over a batch.
+        # The auto-decision picks the output format, so the filename is resolved
+        # after the run rather than named up front.
+        d = os.path.join(work, "webout")
+        os.makedirs(d, exist_ok=True)
         return ([[self.bin, "web", src, "--max", str(plan.edge),
-                  "-o", out, "-y"]], out)
+                  "--out-dir", d, "-y"]], d)
+
+    def observe_operating_point(self, src, work, plan):
+        """Ask `web` itself which operating point it used.
+
+        `web --json` emits the auto-decision report (schema
+        `crustyimg.optimize.explain/v1`): the candidate shortlist, the winning
+        index, and that winner's encoder quality. That is the engine's own account
+        of the path it took, so the row is checked against what ran rather than
+        against the flags we hoped would trigger it.
+        """
+        d = os.path.join(work, "audit")
+        os.makedirs(d, exist_ok=True)
+        rc, out, err = sh([self.bin, "web", src, "--max", str(plan.edge),
+                           "--out-dir", d, "--json", "-y"])
+        if rc != 0:
+            return None, f"`web --json` failed (exit {rc}): {(err or out).strip()[:160]}"
+        try:
+            rep = json.loads(out.strip().splitlines()[-1])
+            win = rep["candidates"][rep["winner"]]
+        except Exception as e:
+            return None, f"`web --json` report unreadable: {e}"
+        return {"quality": win.get("quality"), "format": win.get("format"),
+                "bytes": win.get("bytes"), "mode": rep.get("mode"),
+                "profile": rep.get("profile"), "self_reported_score": rep.get("ssim")}, None
 
 
 class Sharp(Tool):
@@ -490,8 +559,98 @@ def check_dims(plan, out_w, out_h):
     return True, None
 
 
+# --------------------------------------------------------------------------- #
+# The operating-point guard
+# --------------------------------------------------------------------------- #
+#
+# The dimension guard polices output SHAPE. Nothing policed which CODE PATH produced
+# the bytes — and `crustyimg web IN -o out.avif` is not `crustyimg web`. A recognized
+# `-o` extension pins the format, a pinned run counts as an explicit override, and
+# the override path skips web's auto-decision and takes `convert`'s
+# AVIF_DEFAULT_QUALITY (80) instead of web's own FAST_LOSSY_QUALITY (85). Different
+# operating point: ~30% fewer bytes at ~4 fewer SSIMULACRA2 points.
+#
+# A whole build and two verify passes published those q80 numbers under a "`web`
+# (default)" label, because a plausible number off the wrong path is indistinguishable
+# from a plausible number off the right one — it lands in range, it's deterministic,
+# it reproduces. Only running the CLI by hand and comparing bytes caught it.
+#
+# So the claim gets asserted, two independent ways:
+#   * STATIC — the timed encode command must carry no format-pinning `-o`/`--format`.
+#     Catches the defect at the invocation, without running anything.
+#   * OBSERVED — the tool's own report must show the quality and format the row
+#     claims. Catches it even if the pin were spelled some way this file doesn't
+#     know about, and catches the constant moving underneath us.
+# Either one failing fails the run, exactly like a dimension violation.
+
+# Extensions `crustyimg` resolves to a format (src/sink/mod.rs `format_from_extension`).
+# An `-o` naming one of these pins the format and suppresses the auto-decision.
+PINNING_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".bmp",
+                ".tif", ".tiff", ".ico", ".webp", ".avif"}
+
+
+def pinning_arg(cmd):
+    """The format-pinning argument in a crustyimg command, or None. -> str|None"""
+    for i, tok in enumerate(cmd):
+        nxt = cmd[i + 1] if i + 1 < len(cmd) else ""
+        if tok == "--format":
+            return f"--format {nxt}"
+        if tok in ("-o", "--output"):
+            # `-o -` is stdout: no extension, so no pin.
+            if nxt != "-" and os.path.splitext(nxt)[1].lower() in PINNING_EXTS:
+                return f"-o {os.path.basename(nxt)}"
+    return None
+
+
+def check_operating_point(tool, cmds, observed):
+    """Did this tool run at the operating point its row claims? -> list of reasons."""
+    if tool.expect_quality is None and tool.expect_format is None:
+        return []
+    bad = []
+    for cmd in cmds:
+        pin = pinning_arg(cmd)
+        if pin:
+            bad.append(f"encode command pins the format ({pin}), which skips the "
+                       f"auto-decision this row measures — use --out-dir")
+    if observed is None:
+        bad.append("could not observe the operating point; a row that claims a fixed "
+                   "quality must be able to prove it")
+        return bad
+    got_q, got_f = observed.get("quality"), observed.get("format")
+    if tool.expect_quality is not None and got_q != tool.expect_quality:
+        bad.append(f"ran at quality {got_q}, but this row claims {tool.name}'s default "
+                   f"quality {tool.expect_quality}")
+    if tool.expect_format is not None and got_f != tool.expect_format:
+        bad.append(f"chose format {got_f}, but this row claims {tool.expect_format}")
+    return bad
+
+
+def resolve_output(path):
+    """The file a tool produced.
+
+    Usually `path` itself. A tool told to fill a DIRECTORY picks its own filename —
+    `crustyimg web --out-dir` chooses the output format, and so the extension, as
+    part of the very decision being measured — so there the single file that landed
+    is the output. Anything but exactly one file is ambiguous, and returns None.
+    """
+    if os.path.isdir(path):
+        files = sorted(p for p in Path(path).iterdir() if p.is_file())
+        return str(files[0]) if len(files) == 1 else None
+    return path if os.path.exists(path) else None
+
+
+class _FakeTool:
+    """Minimal stand-in so the self-test can exercise `check_operating_point`
+    without a binary, a corpus, or a photo."""
+
+    def __init__(self, expect_quality, expect_format):
+        self.name = "crustyimg-web"
+        self.expect_quality = expect_quality
+        self.expect_format = expect_format
+
+
 def self_test():
-    """Prove the guard can fail — including on the two shapes that shipped.
+    """Prove the guards can fail — including on the three defects that shipped.
 
     A guard nobody has seen reject anything is not a guard.
     """
@@ -507,17 +666,58 @@ def self_test():
         ("cwebp rounding the short edge up", 6016, 4016, 2048, 2048, 1368, True),
     ]
     failures = 0
+    print("dimension guard")
     for label, sw, sh_, cap, ow, oh, want_ok in cases:
         ok, why = check_dims(Plan(sw, sh_, cap), ow, oh)
         good = (ok == want_ok)
         failures += 0 if good else 1
-        mark = "ok  " if good else "FAIL"
+        mark = "  ok  " if good else "  FAIL"
         print(f"{mark} {label}: {'accepted' if ok else 'rejected'}"
               f"{'' if ok else ' — ' + why}")
+
+    # The operating-point guard, against the invocation that actually shipped.
+    web = _FakeTool(85, "avif")
+    grid = _FakeTool(None, None)
+    ok_obs = {"quality": 85, "format": "avif"}
+    op_cases = [
+        ("web via --out-dir at its own default", web,
+         [["ci", "web", "p.jpg", "--max", "2048", "--out-dir", "d", "-y"]], ok_obs, True),
+        ("web pinned by `-o web.avif` (the bug that shipped)", web,
+         [["ci", "web", "p.jpg", "--max", "2048", "-o", "web.avif", "-y"]],
+         {"quality": 80, "format": "avif"}, False),
+        ("web pinned by extension alone, right quality anyway", web,
+         [["ci", "web", "p.jpg", "-o", "out.avif", "-y"]], ok_obs, False),
+        ("web pinned by --format", web,
+         [["ci", "web", "p.jpg", "--format", "avif", "--out-dir", "d"]], ok_obs, False),
+        ("web at convert's default quality", web,
+         [["ci", "web", "p.jpg", "--out-dir", "d"]], {"quality": 80, "format": "avif"}, False),
+        ("web whose constant moved underneath us", web,
+         [["ci", "web", "p.jpg", "--out-dir", "d"]], {"quality": 90, "format": "avif"}, False),
+        ("web that shipped a different format (never-bigger fallback)", web,
+         [["ci", "web", "p.jpg", "--out-dir", "d"]], {"quality": 85, "format": "jpeg"}, False),
+        ("web that could not be observed at all", web,
+         [["ci", "web", "p.jpg", "--out-dir", "d"]], None, False),
+        ("`-o -` is stdout, not a pin", web,
+         [["ci", "web", "p.jpg", "-o", "-"]], ok_obs, True),
+        ("grid tool: pinned on purpose, claims no fixed point", grid,
+         [["ci", "convert", "ds.png", "--format", "avif", "-q", "85", "-o", "q85.avif"]],
+         None, True),
+    ]
+    print("\noperating-point guard")
+    for label, tool, cmds, observed, want_ok in op_cases:
+        bad = check_operating_point(tool, cmds, observed)
+        ok = not bad
+        good = (ok == want_ok)
+        failures += 0 if good else 1
+        mark = "  ok  " if good else "  FAIL"
+        print(f"{mark} {label}: {'accepted' if ok else 'rejected'}"
+              f"{'' if ok else ' — ' + '; '.join(bad)}")
+
+    total = len(cases) + len(op_cases)
     if failures:
-        print(f"\nself-test FAILED ({failures} case(s))")
+        print(f"\nself-test FAILED ({failures} of {total} case(s))")
         return 1
-    print(f"\nself-test passed ({len(cases)} cases)")
+    print(f"\nself-test passed ({total} cases)")
     return 0
 
 
@@ -543,23 +743,35 @@ def bench_tool(tool, crustyimg_bin, src, mp, plan, args, forced_q=None):
             return {"tool": tool.name, "available": True, "error": f"ref failed: {err[:160]}"}
         dim_check("reference", ref_path)
 
+        # Did the tool run at the operating point this row claims? Only tools with a
+        # declared fixed point answer; the grid-swept ones set their quality
+        # explicitly on every encode and have nothing to prove.
+        observed, obs_err = tool.observe_operating_point(src, work, plan)
+        op_violations = []
+        if obs_err:
+            op_violations.append(obs_err)
+
         # grid sweep -> (q, bytes, score)
         grid_pts = []
         for q in grid:
             gwork = os.path.join(work, f"g{q}")
             os.makedirs(gwork, exist_ok=True)
             enc_cmds, out_path = tool.enc_pipeline(src, gwork, plan, q)
+            op_violations += check_operating_point(tool, enc_cmds, observed)
             rc, err, _ = run_pipeline(enc_cmds)
-            if rc != 0 or not os.path.exists(out_path):
+            out_file = resolve_output(out_path) if rc == 0 else None
+            if out_file is None:
                 continue
-            dim_check(f"q={q}", out_path)
-            sc = score_of(crustyimg_bin, ref_path, out_path)
+            dim_check(f"q={q}", out_file)
+            sc = score_of(crustyimg_bin, ref_path, out_file)
             if sc is None:
                 continue
-            grid_pts.append({"q": q, "bytes": os.path.getsize(out_path), "score": sc})
+            grid_pts.append({"q": q, "bytes": os.path.getsize(out_file), "score": sc})
 
         if not grid_pts:
-            return {"tool": tool.name, "available": True, "error": "no grid point produced a scorable output"}
+            return {"tool": tool.name, "available": True,
+                    "error": "no grid point produced a scorable output",
+                    **({"op_violations": op_violations} if op_violations else {})}
 
         # pick the point whose score is nearest the target band centre (tie -> smaller)
         target = args.target
@@ -571,6 +783,9 @@ def bench_tool(tool, crustyimg_bin, src, mp, plan, args, forced_q=None):
             twork = os.path.join(work, f"t{i}")
             os.makedirs(twork, exist_ok=True)
             enc_cmds, out_path = tool.enc_pipeline(src, twork, plan, best["q"])
+            # The timed commands are what the "Median time" column reports, so they
+            # get the same path check as the scored ones.
+            op_violations += check_operating_point(tool, enc_cmds, observed)
             rc, err, dt = run_pipeline(enc_cmds, timed=True)
             if rc != 0:
                 break
@@ -578,20 +793,34 @@ def bench_tool(tool, crustyimg_bin, src, mp, plan, args, forced_q=None):
                 times.append(dt)
         median_ms = round(statistics.median(times) * 1000, 1) if times else None
 
+        # The same command shape is checked once per grid point and once per timed
+        # run, so an identical complaint arrives many times; report each once.
+        op_violations = list(dict.fromkeys(op_violations))
+
+        # A fixed-operating-point tool has no grid to report a `q` from; the quality
+        # it was OBSERVED using is the honest value for the column.
+        q_value, q_source = best["q"], ("forced" if forced_q is not None else "grid")
+        if q_value is None and observed and observed.get("quality") is not None:
+            q_value, q_source = observed["quality"], "observed"
+
         res = {
             "tool": tool.name,
             "available": True,
             "kind": tool.kind,
             "version": tool.version,
-            "q": best["q"],
-            "q_source": "forced" if forced_q is not None else "grid",
+            "q": q_value,
+            "q_source": q_source,
             "matched_score": best["score"],
             "out_bytes": best["bytes"],
             "median_ms": median_ms,
             "grid": grid_pts,
         }
+        if observed:
+            res["observed_operating_point"] = observed
         if violations:
             res["dim_violations"] = violations
+        if op_violations:
+            res["op_violations"] = op_violations
         return res
 
 
@@ -643,6 +872,7 @@ def render_markdown(report):
                 continue
             sav = 1 - r["out_bytes"] / row["source_bytes"]
             flag = " ⚠ BAD DIMENSIONS" if r.get("dim_violations") else ""
+            flag += " ⚠ WRONG OPERATING POINT" if r.get("op_violations") else ""
             L.append(f"| {row['image']} | {row['mp']:.1f} | {r['tool']} | {r['kind'].upper()} "
                      f"| {r['q']} | {r['matched_score']:.1f} | {fmt_bytes(r['out_bytes'])} "
                      f"| {sav*100:.1f}% | {r['median_ms']:.0f} ms{flag} |")
@@ -679,6 +909,14 @@ def render_markdown(report):
              f"every reference and every encoded output measured against the "
              f"source long edge and aspect ratio._")
     for v in bad:
+        L.append(f"- ⚠ {v['image']} / {v['tool']}: {'; '.join(v['violations'])}")
+    L.append("")
+
+    badop = report.get("operating_point_violations") or []
+    L.append(f"_Operating-point check: {'PASSED' if not badop else 'FAILED'} — "
+             f"every row claiming a tool's fixed default verified against that "
+             f"tool's own report of the quality and format it used._")
+    for v in badop:
         L.append(f"- ⚠ {v['image']} / {v['tool']}: {'; '.join(v['violations'])}")
     L.append("")
     return "\n".join(L)
@@ -754,6 +992,7 @@ def main():
 
     image_rows = []
     violations = []
+    op_violations = []
     for src in images:
         w, h = image_dims(crustyimg_bin, str(src))
         if not w or not h:
@@ -778,6 +1017,11 @@ def main():
                                    "violations": res["dim_violations"]})
                 for v in res["dim_violations"]:
                     sys.stderr.write(f"    {tname:<13} ⚠ DIMENSION CHECK FAILED — {v}\n")
+            if res.get("op_violations"):
+                op_violations.append({"image": src.name, "tool": tname,
+                                      "violations": res["op_violations"]})
+                for v in res["op_violations"]:
+                    sys.stderr.write(f"    {tname:<13} ⚠ OPERATING POINT CHECK FAILED — {v}\n")
         image_rows.append({
             "image": src.name, "mp": round(mp, 2), "width": w, "height": h,
             "source_bytes": src.stat().st_size, "long_edge": plan.edge, "results": results,
@@ -798,6 +1042,7 @@ def main():
         ],
         "images": image_rows,
         "dimension_violations": violations,
+        "operating_point_violations": op_violations,
     }
 
     if args.json_out:
@@ -813,6 +1058,13 @@ def main():
             f"pair(s) did not get the downscale every other tool got. These numbers "
             f"are not comparable; fix the tool's resize arguments before publishing "
             f"anything from this run.\n")
+    if op_violations:
+        sys.stderr.write(
+            f"\nbench-compare: OPERATING POINT CHECK FAILED — {len(op_violations)} "
+            f"tool/photo pair(s) did not run at the operating point their row claims. "
+            f"The numbers are real measurements of the WRONG setting; fix the "
+            f"invocation before publishing anything from this run.\n")
+    if violations or op_violations:
         sys.exit(3)
 
 

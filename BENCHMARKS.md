@@ -70,12 +70,13 @@ if you just lower the quality. So every number below is at **matched quality**:
   over a fixed quality grid and the setting whose score lands nearest **82** is
   chosen. Nobody is run at "smallest", nobody is tuned to win. The matched score is
   shown in every row so you can see where each tool actually landed (79.0–83.6).
-  82 is *not* crustyimg's default operating point — `crustyimg web` lands around
-  75 (see below). It's a band every tool's quality grid can bracket, high enough
-  to be a quality anyone would ship. Matching everyone at crustyimg's own default
-  would have pulled the competitors down to a lower-quality band chosen to suit
-  crustyimg; 82 tunes crustyimg *up*, away from the setting its fast preset is
-  built for, which is the conservative direction to be wrong in.
+  82 is a band every tool's quality grid can bracket, at a quality anyone would
+  ship. It is close to, but not the same as, crustyimg's own default operating
+  point — `crustyimg web` lands at a median of 80.8 on this corpus (see below), so
+  the band sits about a point above where crustyimg already runs. That proximity is
+  a property of this corpus, not a thumb on the scale — 82 was fixed when the method
+  was written, and `web`'s default is reported as its own row rather than folded
+  into the band.
 - **No hand-edited numbers.** The tables are emitted by the harness
   (`scripts/bench-compare.py`); scores and byte counts are deterministic (two runs
   produce identical numbers), and only the wall-times vary because they're
@@ -121,8 +122,11 @@ photo already under 2048 px is never enlarged. These are the exact commands the
 harness runs.
 
 ```sh
-# crustyimg — one command, its own default fast-AVIF quality
-crustyimg web photo.jpg --max E -o out.avif
+# crustyimg — one command, no dials
+#   --out-dir, not `-o out.avif`: naming a recognized extension on -o pins the
+#   format, and a pinned run skips the automatic format-and-quality decision
+#   that this row is measuring
+crustyimg web photo.jpg --max E --out-dir out/
 
 # crustyimg — tuned to the matched-quality band
 crustyimg resize photo.jpg --max E -o ds.png
@@ -160,7 +164,7 @@ of the downscale-and-encode.
 | crustyimg | AVIF | 81.7 | 123 KB | 99.1% | 2809 ms |
 | ImageMagick | AVIF | 81.1 | 162 KB | 97.4% | 629 ms |
 | cwebp | WebP | 82.4 | 166 KB | 98.8% | **314 ms** |
-| _crustyimg `web` (default)_ | AVIF | 75.1 | 47 KB | 99.5% | 2343 ms |
+| _crustyimg `web` (default)_ | AVIF | 80.2 | 64 KB | 99.3% | 2791 ms |
 
 sharp wins size and beats crustyimg on the clock by ~4×. crustyimg lands in the
 middle of the AVIF pack on size and last on speed. (ImageMagick covers 4 of the 5
@@ -175,7 +179,7 @@ photos here — the harness can't score its 47 MP Leica encode; see the caveats.
 | crustyimg | AVIF | 81.6 | 201 KB | 87.8% | 4418 ms |
 | ImageMagick | AVIF | 81.6 | 215 KB | 87.0% | 353 ms |
 | cwebp | WebP | 82.2 | 268 KB | 83.9% | **273 ms** |
-| _crustyimg `web` (default)_ | AVIF | 75.4 | 132 KB | 91.9% | 3954 ms |
+| _crustyimg `web` (default)_ | AVIF | 80.2 | 182 KB | 88.8% | 4685 ms |
 
 ### Small photos (< 2 MP: 1 photo, 0.7 MP)
 
@@ -186,7 +190,10 @@ photos here — the harness can't score its 47 MP Leica encode; see the caveats.
 | ImageMagick | AVIF | 82.1 | 206 KB | 85.9% | 96 ms |
 | squoosh | AVIF | 83.0 | 218 KB | 85.1% | 835 ms |
 | cwebp | WebP | 83.5 | 240 KB | 83.5% | **73 ms** |
-| _crustyimg `web` (default)_ | AVIF | 75.2 | 154 KB | 89.5% | 967 ms |
+| _crustyimg `web` (default)_ | AVIF | 81.6 | 203 KB | 86.1% | 1090 ms |
+
+On this photo the band and the default are the same setting — the grid picked
+`web`'s own quality, so the two crustyimg rows are the same encode to the byte.
 
 ## Results — every photo
 
@@ -250,16 +257,18 @@ some compression for encode simplicity. It's in the same order of magnitude as
 libvips and clearly ahead of ImageMagick's AVIF on several photos — it's just not
 the size champion.
 
-**crustyimg's one-command default is tuned smaller, not bigger.** `crustyimg web`
-(one command, no dials) uses that fast-AVIF preset and lands at **75 SSIMULACRA2**
-median across the corpus (73.5–79.0) — still "high", but a real notch below the 82
-band the table matches everyone to, and well below "visually lossless" (~90).
-That's a deliberate size/speed trade for a sensible default, not a defect: at that
-setting `web` produces the smallest files of any crustyimg row (a median 98%
-smaller than the source) and is a touch faster. Concretely, `web`'s preset is
-byte-for-byte `convert --format avif -q 80`, and the matched-quality rows tune
-crustyimg *up* to `-q 85`–`-q 92` to reach the band, so the quality comparison is
-fair. If you want the smaller default, that's what `web` gives you out of the box.
+**crustyimg's one-command default lands just under the band.** `crustyimg web`
+(one command, no dials) uses the fast-AVIF preset — `-q 85` on the same encoder —
+and lands at **80.8 SSIMULACRA2** median across the corpus (75.4–83.1), about a
+point below the 82 the table matches everyone to and below "visually lossless"
+(~90). It shrinks these photos by a median 97%.
+
+That the two are so close has a concrete consequence: on **4 of the 8 photos the
+matched-quality sweep picked exactly the quality `web` already uses**, so the tuned
+crustyimg row and the default row are the same encode, byte for byte. On the other
+four the sweep tuned up, to `-q 88`–`-q 92`, buying a higher score with a bigger
+file. So the tuned rows aren't a quality regime you only reach by knowing which
+dial to turn — half the time they're what `web` hands you with no dials at all.
 
 **WebP is a different weight class.** At matched quality cwebp runs from ~1.2× the
 smallest AVIF on a couple of photos to ~3.0× on detailed ones, and it has the
@@ -268,7 +277,7 @@ isn't larger than every AVIF row everywhere: it comes in under ImageMagick's AVI
 on two of the 24 MP photos.) It's fast and universal; if you need AVIF's size, you
 need AVIF.
 
-**ImageMagick is fast but the least size-efficient.** Its AVIF is quick (libaom
+**ImageMagick is fast but often the least size-efficient.** Its AVIF is quick (libaom
 threads internally) but often the largest at matched quality — on one 24 MP photo
 it was 105 KB where the others were 21–37 KB.
 
@@ -330,11 +339,14 @@ python3 scripts/bench-compare.py --corpus /path/to/your/photos \
 
 The harness prints the same size / speed / matched-score numbers, per photo and per
 size bucket (`--json` for machine-readable output). A tool that isn't installed is
-**labelled "NOT RUN"**, never silently dropped. It also measures every output and
-refuses the run (exit 3) if a tool didn't get the same downscale as the others —
-so pointing it at portrait photos, or at a tool version whose resize flags have
-changed, gets you an error rather than a quietly wrong table.
-`--self-test` checks that guard on its own, with no corpus and no tools installed.
+**labelled "NOT RUN"**, never silently dropped. It also refuses the run (exit 3)
+on either of two checks: if a tool didn't get the same downscale as the others (it
+measures every output, so pointing it at portrait photos, or at a tool version
+whose resize flags have changed, gets you an error rather than a quietly wrong
+table), or if a row claiming a tool's default didn't actually run at that default —
+the `web` row is checked against `web`'s own report of the quality and format it
+used. `--self-test` exercises both guards on their own, with no corpus and no tools
+installed.
 
 Scores and sizes are deterministic: two identically-configured runs here
 reproduced all 141 of them exactly. Wall-times move, because they're measurements
