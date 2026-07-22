@@ -181,3 +181,33 @@ encode). Worth doing, clearly later.
   permissive" claim literally true, and revisits DEC-011. `ratatui-image` (MIT,
   multi-protocol) is the right display lib for the *later* ratatui TUI editor, not
   for the one-shot `view`.
+- **A "crustyimg in a deploy pipeline" benchmark** — M, post-launch companion to
+  `BENCHMARKS.md` (not a rewrite of it). BENCHMARKS measures **single-image latency on a
+  14-core desktop**, which is crustyimg's worst case: it's the configuration where sharp's
+  multi-threading pays most (3–9×) and where our single-threaded design pays least. CI runners
+  and build containers are small — typically low single-digit cores — so **the gap compresses
+  toward the per-core result, where the two already trade wins 4–4**. Meanwhile the
+  zero-dependency story is worth most exactly there: no libvips, no `node_modules`, no native
+  addon to compile or platform-match. Three axes to measure, all cheap extensions of
+  `scripts/bench-compare.py` (which already pins sharp to one thread):
+  (1) **a core-count sweep** at 1/2/4 cores — the range pipelines actually run in;
+  (2) **batch throughput** — N images, total wall-clock, each tool using the machine as it likes.
+  This is the one that could change the story: crustyimg parallelizes **across files**
+  (`apply --recipe`) while sharp parallelizes **within** an image, so on a multi-image job we may
+  already saturate the cores. **Verify the batch path is genuinely parallel before leaning on
+  this** — it's an assumption, not a measured fact;
+  (3) **install / cold-start cost** — `npm i sharp` vs downloading one static binary, plus
+  container image size. A real pipeline cost nobody measures, and one we'd win on merit.
+  Sequence AFTER the LLM-free benchmark refresh (see the repo-tooling backlog) so re-running
+  costs wall-clock instead of tokens. Same fairness bar as `BENCHMARKS.md`: state the machine,
+  pin versions, publish losses.
+- **Benchmark corpus expansion** — S–M, post-launch, and gated on the same refresh tooling.
+  Today's corpus is 8 real photographs (0.7–47 MP), which exercises only the AVIF-photo path.
+  Highest-value addition is **content diversity**: screenshots, UI, and flat graphics, where the
+  engine's content-aware branch picks lossless WebP and AVIF is roughly a 4× regression. That
+  branch is the actual differentiator and is currently untested in public. **Fairness trap to
+  design around:** comparing crustyimg's automatic choice against a competitor *forced* to AVIF
+  is a strawman a reader will call out — the honest claim is "correct format automatically" vs
+  "you have to know which to pick", so the competitor must be shown doing the right thing.
+  Then: a public/licensed corpus (so readers can check *our* cells, not just re-run the method)
+  and thicker small/medium buckets (currently n=1 and n=2).
