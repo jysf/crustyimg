@@ -248,6 +248,21 @@ input:disabled {
   margin-top: 1.75rem;
 }
 
+/* Fires once per re-convert (an Advanced control changed an already-shown result) —
+   never on the first conversion, since there is nothing to update from yet. */
+.updated-flag {
+  margin: 0 0 0.6rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--good);
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.updated-flag.show {
+  opacity: 1;
+}
+
 .panes {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -348,6 +363,30 @@ input:disabled {
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   color: var(--ink);
+}
+
+.score-link {
+  color: inherit;
+  text-decoration: underline dotted;
+  text-underline-offset: 0.15em;
+}
+
+.score-link:hover,
+.score-link:focus-visible {
+  color: var(--rust);
+}
+
+.score-link-secondary {
+  font-weight: 400;
+  font-size: 0.85em;
+  color: var(--muted);
+  text-decoration: underline dotted;
+  text-underline-offset: 0.15em;
+}
+
+.score-link-secondary:hover,
+.score-link-secondary:focus-visible {
+  color: var(--rust);
 }
 
 /* When there is no honest number (lossless / kept / unavailable) the value and band
