@@ -74,6 +74,28 @@ bench *ARGS:
     cargo build --release --features avif
     python3 scripts/bench.py --bin ./target/release/crustyimg {{ARGS}}
 
+# Cross-tool benchmark (SPEC-083, DEC-080): crustyimg vs sharp / ImageMagick /
+# @squoosh/cli / cwebp on size + speed + QUALITY, at MATCHED quality (every
+# tool's output scored by `crustyimg diff` / SSIMULACRA2 and driven to the same
+# band), over a real --corpus. This is what regenerates BENCHMARKS.md's tables —
+# no hand-edited numbers. The competitors are NOT repo dependencies; install them:
+#   npm i -g sharp-cli @squoosh/cli      # @squoosh/cli needs Node < 18
+#   brew install imagemagick webp
+# then point --squoosh-node at a Node < 18 binary (or set $SQUOOSH_NODE), and
+# --tools-dir at the node_modules holding them (or $BENCH_TOOLS_DIR). A tool that
+# isn't installed is LABELLED "NOT RUN", never silently dropped.
+# Two guards can stop the run (exit 3). Shape: every output is measured against the
+# source long edge and aspect ratio, so a tool that didn't get the same downscale as
+# the others is flagged — the quality column cannot detect a distorted output.
+# Operating point: a row claiming a tool's default must prove it ran there — no
+# format-pinning `-o`/`--format` in the encode command, and the tool's own report has
+# to account for exactly the bytes the row publishes. `--self-test` checks both guards
+# on their own (no corpus, no tools needed).
+# Usage: just bench-compare --corpus /path/to/photos [--json] [--tools ...]
+bench-compare *ARGS:
+    cargo build --release --features avif
+    python3 scripts/bench-compare.py --bin ./target/release/crustyimg {{ARGS}}
+
 # Wall-clock the release binary with hyperfine. Skips cleanly (exit 0) if hyperfine
 # is not installed. Usage: just bench-cli web photo.jpg --max 800 -o /tmp/o.avif
 bench-cli *ARGS:
