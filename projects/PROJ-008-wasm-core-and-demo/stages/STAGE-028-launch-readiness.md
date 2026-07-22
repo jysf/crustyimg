@@ -90,20 +90,31 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
   Added 2 "Why crustyimg" bullets (RAW embedded-preview / declarative recipes) + an action-inputs line;
   the CI section already existed (DEC-051), so not duplicated. Docs-only, claims verified against `src/`.
   Rides to crates.io at 0.6.0.
-- [~] SPEC-083 (design — **build-ready, reframed 2026-07-20 for 0.5.0-live; awaiting dispatch**) —
-  **BENCHMARKS.md.** Honest, equal-quality, reproducible cross-tool comparison vs sharp/`@squoosh/cli`/
-  ImageMagick on size+speed, off a real `--corpus`. **Pinned:** the concrete reference corpus (`_incoming0`,
-  8 photos 0.7–47 MP) + the matched-quality method (score every output with ONE scorer, `crustyimg diff`
-  SSIMULACRA2, vs the same original; iso-quality band OR honest scatter, method fixed before numbers).
-  Expects a DEC (methodology). State machine/versions/exact commands; report losses honestly; q85-AVIF
-  "high" told straight. The numbers HN scrutinizes → judgment-bound → **recommend OPUS build**, Opus verify.
+- [x] SPEC-083 (shipped 2026-07-21, PR #108 `0465c67`, DEC-080, ~$40.5 / 12 sessions) —
+  **BENCHMARKS.md + `scripts/bench-compare.py`/`just bench-compare`.** Iso-quality (SSIMULACRA2 ~82
+  band, one scorer) cross-tool comparison vs sharp / ImageMagick / `@squoosh/cli` / cwebp over 8 real
+  photos (0.7–47 MP). **Honest headline: crustyimg is neither smallest nor fastest** — sharp 4 / IM 2 /
+  squoosh 2 on size (crustyimg 0, but within ~1.7× on every photo), 3–9× and 4–14× slower on the clock —
+  **but per core it's a wash (faster on 4 of 8), so the gap is threading, not the encoder.** `web`'s
+  default lands 80.8 median, ~97% smaller. Two exit-3 guards (dimension + operating-point) +
+  `--self-test` 24/24. README's stale 98% corrected to 97%. **5 build / 4 verify passes caught five real
+  defects** (squoosh squashed on 6 of 8, portrait mis-sizing, per-core not iso-quality, `web` rows at the
+  wrong operating point, a guard advertising reach it lacked) — four invisible to number-checking alone.
 - [ ] (coordination, not a spec) — the **Show HN go/no-go**: `docs/launch-readiness.md` blockers
   green, `crustyimg-wasm` published (SPEC-076, on approval), post drafted → launch.
 
-**Count:** 2 shipped (SPEC-082 README front-door, SPEC-100 RAW/recipes/CI) / 1 framed (SPEC-083
-BENCHMARKS, build after 0.5.0) + the launch go/no-go. **0.5.0 SHIPPED 2026-07-20** (frozen CLI + caret +
-README, live on crates.io/brew/Release, demo footer 0.5.0). **Next wave accumulates → 0.6.0** (the launch
-release): SPEC-076 npm publish → SPEC-083 BENCHMARKS → SPEC-101 demo polish → device gate → r/rust launch.
+**Count:** 3 shipped (SPEC-082 README front-door, SPEC-100 RAW/recipes/CI, SPEC-083 BENCHMARKS) / 0
+active + the launch go/no-go. **0.5.0 SHIPPED 2026-07-20** (frozen CLI + caret + README, live on
+crates.io/brew/Release, demo footer 0.5.0); `crustyimg-wasm@0.5.0` live on npm. **Remaining before the
+r/rust launch, in order:** (1) **demo pass** — favicons + `site.webmanifest` subpath fix + SPEC-101
+(SSIMULACRA2 explainer links, FF/Safari `color-mix()` band check, a visible re-convert signal) + the
+**mobile/cross-browser device gate**, batched as ONE browser session; (2) **AVIF in the distributed
+binary** — BENCHMARKS.md has to tell readers the flagship path needs `cargo install --features avif`,
+so a `brew install` user can't reproduce the headline (own decision + DEC); (3) **public ROADMAP.md**
+(themes + honest non-goals, no dates); (4) the go/no-go + drafting the post. **Deferred to first
+post-launch:** encoder threading (the benchmark proves per-core parity, so it's the biggest real win —
+but it likely trades byte-reproducibility, which PROJ-007 built around, so it needs a probe + a DEC),
+then the benchmark-refresh tooling that makes re-running it cost wall-clock instead of tokens.
 
 ## Design Notes
 

@@ -7,7 +7,7 @@
 task:
   id: SPEC-083
   type: chore
-  cycle: verify
+  cycle: ship
   blocked: false
   priority: high
   complexity: M
@@ -199,10 +199,61 @@ cost:
         checked split (five surfaces restated, three had carried it — verified by
         grepping all five at cf99eb3); bounded BENCHMARKS.md's static-half
         sentence to `-o`/`--format`. ~0 min of encodes.
+    - cycle: verify
+      interface: claude-code
+      model: claude-opus-4-8
+      tokens_total: 560000
+      duration_minutes: null
+      estimated_usd: 5.0
+      note: >
+        Re-verify #3 on Opus 4.8 — RECONSTRUCTED AT SHIP. This session ran but
+        left no ledger entry of its own (the fifth build pass flagged the gap
+        rather than papering over it); recorded here from its report, so the
+        cost table reflects what was actually spent. ORDER-OF-MAGNITUDE
+        ESTIMATE, ~50 tool calls. Scope: drove `crustyimg web --out-dir` BY HAND
+        on all 8 corpus photos and re-derived every published `web` row, bucket
+        median and corpus median from its own invocations rather than the
+        harness JSON; re-swept all 8 grid rows and 3 competitor cells by hand;
+        confirmed the blast radius independently. Found F5 (the operating-point
+        guard's observed half cannot catch a mis-spelled pin — `--format=avif`
+        evades it, exit 0, publishing the wrong q80 cell — while three documents
+        claimed it could) and F6 (README's 98% measures 97%).
+    - cycle: verify
+      interface: claude-code
+      model: claude-opus-4-8
+      tokens_total: 450000
+      duration_minutes: null
+      estimated_usd: 4.0
+      note: >
+        Re-verify #4 on Opus 4.8 — ORDER-OF-MAGNITUDE ESTIMATE, not a real
+        usage-object reading. Scope: confirmed the asserted invariant is sound by
+        reading the source path (solve_candidate → out_bytes → write_bytes, no
+        post-processing) AND empirically (sha256-identical --json probe vs plain
+        encode); a 10-variant ablation blinding each guard half in turn, with an
+        all-blinded positive control proving the injection would otherwise
+        publish cleanly; found v10 — a real attached-short `-o<path>` spelling
+        `pinning_arg` returns None for, caught by the byte tie on the SHIPPED
+        harness with nothing blinded, which is the documented claim proven
+        without manufacturing it. Verdict NOT-CLEAN on three prose findings
+        (F7/F8/F9), zero number defects, zero code changes needed.
+    - cycle: ship
+      interface: claude-code
+      model: claude-opus-4-8
+      tokens_total: null
+      estimated_usd: 0.5
+      recorded_at: 2026-07-21
+      note: >
+        orchestrator main loop — final prose check done INLINE rather than as a
+        dispatched session (three sentences did not warrant a fresh context);
+        PR #108, DCO fixed by `git rebase --signoff main` on one unsigned verify
+        commit (content byte-identical), one cargo-deny failure diagnosed as a
+        Docker Hub image-pull timeout and cleared by re-running the job, CI
+        CLEAN, squash-merge (0465c67), bookkeeping incl. reconstructing the two
+        missing verify entries above.
   totals:
-    tokens_total: 4130000
-    estimated_usd: 31.0
-    session_count: 9
+    tokens_total: 5140000
+    estimated_usd: 40.5
+    session_count: 12
 ---
 
 # SPEC-083: honest benchmarks (BENCHMARKS.md)
@@ -820,7 +871,39 @@ from the process-focused build reflection above.*
    — <answer>
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — Yes, three, all of which would have cut this spec's cost materially:
+   (a) **measurement specs need a "name the code path" criterion** — "state which code path each
+   published number claims, and how the harness asserts the run took it." That single line turns
+   F4 (the `-o` pin silently switching `web` to the q80 override) from a pass-six discovery into a
+   framing-time requirement. (b) **Verify prompts for measurement artifacts need a standing clause:**
+   grade against ground truth you generate by invoking the tool yourself — the artifact's own run
+   JSON is necessary but never sufficient, because it shares the pipeline with the artifact. We
+   discovered this at pass 3; it immediately found the two largest defects. (c) **When a spec adds a
+   guard, the guard's documented coverage is itself an acceptance criterion with its own negative
+   control** — F5 was a false capability claim in three documents that survived two verify passes
+   because everyone tested "does it fire?" and nobody tested "does it cover what we wrote?"
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — Three, none blocking the launch:
+   (a) **Make the benchmark refreshable without an LLM** (maintainer requirement — time is fine,
+   tokens are not): the harness should emit the markdown blocks verbatim into generated regions in
+   `BENCHMARKS.md`, compute every derived claim (the tally, speed ranges, worst-case ratio, score
+   span, `web` median, median savings), and gain a `--check` mode that diffs a fresh run against
+   what's published and exits non-zero naming the moved cells. Pair it with a cheap **input
+   tripwire** that fails when a benchmark-relevant constant changes (quality preset, speed, the
+   2048 default) so staleness surfaces mechanically. Sequence this BEFORE threading, since
+   threading invalidates every time column.
+   (b) **Corpus expansion, after (a) makes re-running cheap** — highest value is content diversity:
+   every photo here is a photograph, so the benchmark exercises only the AVIF-photo path and never
+   the content-aware branch (screenshots/graphics → lossless WebP), which is the actual
+   differentiator. Note the fairness trap: comparing crustyimg's automatic choice against a
+   competitor forced blindly to AVIF is a strawman; the honest claim is "correct automatically" vs
+   "you have to know". Then a public/licensed corpus (so readers can check our cells, not just the
+   method) and thicker small/medium buckets (currently n=1 and n=2).
+   (c) **The AVIF-default decision** — already queued, and this doc is why it's urgent: BENCHMARKS.md
+   itself has to tell readers AVIF is off in the distributed binary and they must
+   `cargo install --features avif`. The benchmarked flagship path is invisible to a `brew install`
+   user, which is friction at exactly the moment someone wants to try what they just read.
+   Also logged, lower priority: the unexplained sharp-resampler outlier (its lossless downscale
+   scores ~82 against the other tools' 90.9–94.5 on one 24 MP photo) — if sharp's resampler is
+   genuinely softer, part of its size win is an artifact, which would move the story in our favour.

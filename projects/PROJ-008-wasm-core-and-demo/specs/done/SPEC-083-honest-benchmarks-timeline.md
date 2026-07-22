@@ -221,3 +221,21 @@ Cycle prompts live in `prompts/SPEC-083-<cycle>.md`.
   for both phrasings and for "five surfaces"/"five documents" finds nothing else. Gates: `just validate`
   green, `--self-test` green (24/24), `git diff -- src/` empty, every `|` table line in `BENCHMARKS.md` +
   `README.md` byte-identical to the prior commit, demo favicons untracked and untouched. **NOT merged.**
+- [x] ship — squash-merged PR #108 (**0465c67**) 2026-07-21, CI CLEAN. `BENCHMARKS.md` +
+  `scripts/bench-compare.py`/`just bench-compare` + `DEC-080` + a README link now on `main`;
+  README's stale "98% smaller" corrected to the measured 97%. **HONEST HEADLINE SHIPPED: crustyimg
+  is neither the smallest nor the fastest** (sharp 4 / IM 2 / squoosh 2 on size, crustyimg 0 but
+  within ~1.7× on every photo; 3–9× and 4–14× slower on the clock) — **and per core it's a wash
+  (faster on 4 of 8), so the gap is threading, not the encoder.** `web`'s default lands 80.8 median
+  and shrinks these photos ~97%. Two exit-3 guards (dimension + operating-point) + `--self-test`
+  24/24 keep it honest. **Cost ~$40.5 / 12 sessions** (5 build passes, 4 verify passes + a
+  reconstructed re-verify entry that had been missing from the ledger). Ship mechanics: one verify
+  commit lacked `-s` → `git rebase --signoff main` (content byte-identical); one cargo-deny failure
+  was a Docker Hub image-pull timeout, not a policy violation — cleared by re-running the job
+  (same SHA had passed cargo-deny in a duplicate run). **Five real defects caught across the
+  cycles** — squoosh benchmarked squashed on 6 of 8 photos, portrait mis-sizing, per-core rows that
+  weren't iso-quality, `web` rows measuring the wrong operating point, and a guard advertising reach
+  it lacked. Four were invisible to number-checking; driving the CLI by hand out-of-band found them.
+  Lessons banked: [[a-guards-advertised-reach-is-a-claim]], [[documentation-has-no-green]],
+  [[a-number-from-an-unproven-path-is-not-a-measurement]],
+  [[a-self-referential-control-cannot-detect-a-broken-pipeline]].
