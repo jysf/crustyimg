@@ -18,9 +18,10 @@ The method (fixed in DEC-080, before any number was read):
     squashed image scored against its own squashed reference still scores fine.
   * THE CLAIMED PATH, ASSERTED — a row labelled "`crustyimg web` (default)" has to
     have come from `web`'s default. The harness proves it two ways per run: the
-    timed command carries no format-pinning `-o`, and `web --json` (the engine's
-    own account of its decision) reports the quality and format the row claims.
-    A violation fails the run, like a dimension violation.
+    encode command carries no format-pinning `-o`/`--format`, and `web --json` (the
+    engine's own account of its decision) reports the quality and format the row
+    claims for an encode of exactly the size the row publishes. A violation fails
+    the run, like a dimension violation.
   * ONE SCORER — `crustyimg diff A B` (SSIMULACRA2). Every tool's output is
     scored against *that tool's own* lossless 2048 px downscale, so the quality
     column is encode fidelity, resampler-neutral, and identical in kind to the
@@ -576,12 +577,23 @@ def check_dims(plan, out_w, out_h):
 # it reproduces. Only running the CLI by hand and comparing bytes caught it.
 #
 # So the claim gets asserted, two independent ways:
-#   * STATIC — the timed encode command must carry no format-pinning `-o`/`--format`.
-#     Catches the defect at the invocation, without running anything.
+#   * STATIC — the encode command must carry no format-pinning `-o`/`--format`, in
+#     either spelling (`--format avif` and `--format=avif`). Catches the defect at
+#     the invocation, without running anything, and says exactly which flag did it.
 #   * OBSERVED — the tool's own report must show the quality and format the row
-#     claims. Catches it even if the pin were spelled some way this file doesn't
-#     know about, and catches the constant moving underneath us.
+#     claims, AND must account for the very bytes the row publishes. Catches the
+#     constant moving underneath us, and — through the byte tie — a pin spelled some
+#     way the static half doesn't recognize.
 # Either one failing fails the run, exactly like a dimension violation.
+#
+# The byte tie is what makes the observed half independent rather than decorative.
+# The report comes from a SEPARATE probe run with its own (correct) invocation, so
+# by itself it describes the engine's default and says nothing about the encode that
+# was measured — a pin the static half missed would leave a truthful q85 report
+# sitting next to a q80 row. Requiring the report's byte count to equal the
+# published one forces it to be about THIS encode, and does so without knowing what
+# went wrong: the encoder is deterministic on a fixed source and bound, so any
+# divergence in path shows up as a divergence in bytes.
 
 # Extensions `crustyimg` resolves to a format (src/sink/mod.rs `format_from_extension`).
 # An `-o` naming one of these pins the format and suppresses the auto-decision.
@@ -590,20 +602,33 @@ PINNING_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".bmp",
 
 
 def pinning_arg(cmd):
-    """The format-pinning argument in a crustyimg command, or None. -> str|None"""
+    """The format-pinning argument in a crustyimg command, or None. -> str|None
+
+    Both spellings, because clap takes both: `--format avif` (two tokens) and
+    `--format=avif` (one). A whole-token match sees only the first, and the
+    attached spelling then walks past a check written to stop it.
+    """
     for i, tok in enumerate(cmd):
-        nxt = cmd[i + 1] if i + 1 < len(cmd) else ""
-        if tok == "--format":
-            return f"--format {nxt}"
-        if tok in ("-o", "--output"):
+        if "=" in tok:
+            flag, _, val = tok.partition("=")
+        else:
+            flag, val = tok, (cmd[i + 1] if i + 1 < len(cmd) else "")
+        if flag == "--format":
+            return f"--format {val}"
+        if flag in ("-o", "--output"):
             # `-o -` is stdout: no extension, so no pin.
-            if nxt != "-" and os.path.splitext(nxt)[1].lower() in PINNING_EXTS:
-                return f"-o {os.path.basename(nxt)}"
+            if val != "-" and os.path.splitext(val)[1].lower() in PINNING_EXTS:
+                return f"-o {os.path.basename(val)}"
     return None
 
 
-def check_operating_point(tool, cmds, observed):
-    """Did this tool run at the operating point its row claims? -> list of reasons."""
+def check_operating_point(tool, cmds, observed, out_bytes=None):
+    """Did this tool run at the operating point its row claims? -> list of reasons.
+
+    `out_bytes` is the size of the encode the row publishes. Pass it once the
+    winning encode exists; while the grid is still being swept there is nothing
+    to tie the observation to yet.
+    """
     if tool.expect_quality is None and tool.expect_format is None:
         return []
     bad = []
@@ -622,6 +647,19 @@ def check_operating_point(tool, cmds, observed):
                    f"quality {tool.expect_quality}")
     if tool.expect_format is not None and got_f != tool.expect_format:
         bad.append(f"chose format {got_f}, but this row claims {tool.expect_format}")
+    # The observation comes from a separate probe run, so on its own it describes
+    # the engine's default — not necessarily the encode this row publishes. The
+    # byte count is what ties the two together: same source, same bound, a
+    # deterministic encoder, so agreeing bytes mean the probe and the measured
+    # encode took the same path. A divergence means they did not, whatever the
+    # cause — a pin spelled some way `pinning_arg` misses, a flag nobody thought
+    # of, a different input reaching one of them.
+    if out_bytes is not None:
+        got_b = observed.get("bytes")
+        if got_b != out_bytes:
+            bad.append(f"the observed run shipped {got_b} bytes but this row publishes "
+                       f"{out_bytes} — the report describes a different encode than the "
+                       f"one measured, so it cannot vouch for this row")
     return bad
 
 
@@ -676,36 +714,55 @@ def self_test():
               f"{'' if ok else ' — ' + why}")
 
     # The operating-point guard, against the invocation that actually shipped.
+    # `out_bytes` is None while the grid is being swept, and the published size
+    # once the winning encode exists (the observed-vs-published tie).
     web = _FakeTool(85, "avif")
     grid = _FakeTool(None, None)
-    ok_obs = {"quality": 85, "format": "avif"}
+    ok_obs = {"quality": 85, "format": "avif", "bytes": 36791}
+    unpinned = [["ci", "web", "p.jpg", "--max", "2048", "--out-dir", "d", "-y"]]
     op_cases = [
-        ("web via --out-dir at its own default", web,
-         [["ci", "web", "p.jpg", "--max", "2048", "--out-dir", "d", "-y"]], ok_obs, True),
+        # (label, tool, cmds, observed, out_bytes, expect_ok)
+        ("web via --out-dir at its own default", web, unpinned, ok_obs, None, True),
         ("web pinned by `-o web.avif` (the bug that shipped)", web,
          [["ci", "web", "p.jpg", "--max", "2048", "-o", "web.avif", "-y"]],
-         {"quality": 80, "format": "avif"}, False),
+         {"quality": 80, "format": "avif"}, None, False),
         ("web pinned by extension alone, right quality anyway", web,
-         [["ci", "web", "p.jpg", "-o", "out.avif", "-y"]], ok_obs, False),
+         [["ci", "web", "p.jpg", "-o", "out.avif", "-y"]], ok_obs, None, False),
         ("web pinned by --format", web,
-         [["ci", "web", "p.jpg", "--format", "avif", "--out-dir", "d"]], ok_obs, False),
+         [["ci", "web", "p.jpg", "--format", "avif", "--out-dir", "d"]], ok_obs, None, False),
+        ("web pinned by `--format=avif` (attached spelling)", web,
+         [["ci", "web", "p.jpg", "--format=avif", "--out-dir", "d"]], ok_obs, None, False),
+        ("web pinned by `--output=out.avif` (attached spelling)", web,
+         [["ci", "web", "p.jpg", "--output=out.avif"]], ok_obs, None, False),
         ("web at convert's default quality", web,
-         [["ci", "web", "p.jpg", "--out-dir", "d"]], {"quality": 80, "format": "avif"}, False),
+         [["ci", "web", "p.jpg", "--out-dir", "d"]], {"quality": 80, "format": "avif"},
+         None, False),
         ("web whose constant moved underneath us", web,
-         [["ci", "web", "p.jpg", "--out-dir", "d"]], {"quality": 90, "format": "avif"}, False),
+         [["ci", "web", "p.jpg", "--out-dir", "d"]], {"quality": 90, "format": "avif"},
+         None, False),
         ("web that shipped a different format (never-bigger fallback)", web,
-         [["ci", "web", "p.jpg", "--out-dir", "d"]], {"quality": 85, "format": "jpeg"}, False),
+         [["ci", "web", "p.jpg", "--out-dir", "d"]], {"quality": 85, "format": "jpeg"},
+         None, False),
         ("web that could not be observed at all", web,
-         [["ci", "web", "p.jpg", "--out-dir", "d"]], None, False),
+         [["ci", "web", "p.jpg", "--out-dir", "d"]], None, None, False),
         ("`-o -` is stdout, not a pin", web,
-         [["ci", "web", "p.jpg", "-o", "-"]], ok_obs, True),
+         [["ci", "web", "p.jpg", "-o", "-"]], ok_obs, None, True),
+        ("observation is about the encode the row publishes", web, unpinned,
+         ok_obs, 36791, True),
+        ("observation describes a different encode (the pin the static half missed)",
+         web, unpinned, ok_obs, 28603, False),
+        ("observation with no byte count to check against", web, unpinned,
+         {"quality": 85, "format": "avif"}, 36791, False),
         ("grid tool: pinned on purpose, claims no fixed point", grid,
          [["ci", "convert", "ds.png", "--format", "avif", "-q", "85", "-o", "q85.avif"]],
-         None, True),
+         None, None, True),
+        ("grid tool: no fixed point, so no bytes to certify", grid,
+         [["ci", "convert", "ds.png", "--format", "avif", "-q", "85", "-o", "q85.avif"]],
+         None, 12345, True),
     ]
     print("\noperating-point guard")
-    for label, tool, cmds, observed, want_ok in op_cases:
-        bad = check_operating_point(tool, cmds, observed)
+    for label, tool, cmds, observed, out_bytes, want_ok in op_cases:
+        bad = check_operating_point(tool, cmds, observed, out_bytes=out_bytes)
         ok = not bad
         good = (ok == want_ok)
         failures += 0 if good else 1
@@ -776,6 +833,12 @@ def bench_tool(tool, crustyimg_bin, src, mp, plan, args, forced_q=None):
         # pick the point whose score is nearest the target band centre (tie -> smaller)
         target = args.target
         best = min(grid_pts, key=lambda p: (abs(p["score"] - target), p["bytes"]))
+
+        # Now that the published encode exists, require the observation to be ABOUT
+        # it: same bytes, or the report is describing some other run and certifies
+        # nothing. No commands to re-check here — this is the observed half alone.
+        op_violations += check_operating_point(tool, [], observed,
+                                               out_bytes=best["bytes"])
 
         # time the winning pipeline: warmup then N timed, report median
         times = []

@@ -164,10 +164,29 @@ cost:
         `scripts/bench.py` (byte-identical on all 8); reverted DEC-080's
         calibration with its double-correction trail and rewrote the affected
         BENCHMARKS.md prose. ~35 min of encodes.
+    - cycle: build
+      interface: claude-code
+      model: claude-opus-4-8
+      tokens_total: 150000
+      duration_minutes: null
+      estimated_usd: 1.1
+      note: >
+        Fifth build (fix) pass on Opus 4.8 clearing re-verify #3's F5 + F6 —
+        ORDER-OF-MAGNITUDE ESTIMATE, not a real usage-object reading. That
+        re-verify ran outside this ledger and left no session entry of its own;
+        its findings arrived as the handoff for this pass. Scope: confirmed the
+        report's `out_bytes` equals the file on disk before relying on it; made
+        the observed half assert `observed["bytes"] == out_bytes`; taught
+        `pinning_arg` clap's attached spellings; proved the coverage claim with
+        three injected-`--format=avif` variants (shipped harness exit 0; byte
+        tie alone exit 3; both fixes exit 3) plus a clean 8-photo control run
+        (exit 0, all three published bucket rows reproduced exactly); grew
+        `--self-test` 18 → 24; corrected the overclaim on five doc surfaces and
+        README's 98% → 97%. ~5 min of encodes; no benchmark re-run.
   totals:
-    tokens_total: 3920000
-    estimated_usd: 29.4
-    session_count: 7
+    tokens_total: 4070000
+    estimated_usd: 30.5
+    session_count: 8
 ---
 
 # SPEC-083: honest benchmarks (BENCHMARKS.md)
@@ -522,9 +541,11 @@ competitor row stand. Proven, not assumed: a full re-run of the grid tool reprod
    format-pinning `-o`/`--format`; **observed** — `web --json`, the engine's own
    account of its decision, reports the quality and format the row claims. The
    static half catches the defect without running anything; the observed half
-   catches a pin spelled some way the harness doesn't recognize, and catches
-   `FAST_LOSSY_QUALITY` moving underneath the doc. `--self-test` grew from 8 to 18
-   cases covering both halves, including the exact invocation that shipped.
+   catches `FAST_LOSSY_QUALITY` moving underneath the doc. `--self-test` grew from 8
+   to 18 cases covering both halves, including the exact invocation that shipped.
+   *(The claim as first written also said the observed half catches a pin spelled
+   some way the harness doesn't recognize. It did not — see the fifth pass, which
+   made it true.)*
 3. **Negative control, end to end.** The original pinned call was re-injected into a
    copy of the final harness: it reproduced the published wrong number (29 KB @
    79.0), flagged the row, and **exited 3**; the fixed harness exits 0. Worth
@@ -533,6 +554,8 @@ competitor row stand. Proven, not assumed: a full re-run of the grid tool reprod
    while the encode under test ran at q80. Two independent checks were not
    redundancy; here one of them was the only thing standing between the pin and a
    clean-looking run. A guard nobody has watched reject anything is not a guard.
+   *(That observation was the counter-example to this pass's own reach claim, sitting
+   three lines below it. The fifth pass acts on it.)*
 4. **DEC-080's calibration reverted to the truth**, with the trail showing why it
    moved twice: the original `-q 85` was right, the "correction" to `-q 80` /
    median 75.2 was a real measurement of the pinned path, and the ~7-point
@@ -560,9 +583,75 @@ produced files "a median 98% smaller". Measured today on that corpus with the ci
 harness (`scripts/bench.py`), the median is **97%** (82/86/93/95/99/99/100/100).
 This does **not** rest on the pin — `bench.py` always used `--out-dir` — so it is a
 separate pre-existing discrepancy from SPEC-082, and I have not touched README.
+*(Actioned in the fifth pass, on the maintainer's call — see F6 below.)*
 
 `just validate` green, `--self-test` green (18/18), no `src/` change. Handed back for
 re-verify — NOT merged.
+
+### Fifth build pass — the guard's advertised reach was false (2026-07-21)
+
+Re-verify #3 read the *guards* rather than the numbers and found two things. Every
+published number was re-driven by hand and came back clean (8 web rows, 8 grid rows,
+3 competitor cells, corpus median 80.8), so nothing in the tables moved this pass.
+
+**F5 — the operating-point guard did not cover what three documents said it
+covered.** `pinning_arg()` matched whole tokens, so clap's attached spellings
+(`--format=avif`, `--output=x.avif`) walked straight past the static half. The
+observed half could not compensate, and the reason was recorded in this very
+section one pass ago: `observe_operating_point()` issues its **own separate**
+`web --out-dir --json` probe, so its report describes the engine's default, not the
+row's encode. Two halves, and neither one was looking at the pinned command.
+
+Reproduced before changing anything — `--format=avif` injected into the shipped
+harness, one photo, `--tools crustyimg-web`:
+
+| harness | exit | what it published | flagged? |
+|---|---:|---|---|
+| shipped (cf99eb3) | **0** | 202,492 B @ 75.84, labelled q=85 (observed) | no |
+
+**What changed:**
+
+1. **The observation now has to be about the row.** `check_operating_point` takes
+   the published `out_bytes` and requires the report's own byte count to equal it.
+   The encoder is deterministic on a fixed source and bound, so agreeing bytes mean
+   the probe and the measured encode took the same path — and a divergence says they
+   didn't, without the harness having to guess *how*. This is what makes the observed
+   half independent of the list of spellings anyone thought to enumerate.
+2. **`pinning_arg()` reads attached spellings** (`--format=avif`, `--output=x.avif`).
+   Defense in depth, not the fix: it fails earlier and names the flag.
+3. **Proven, three ways, same injected `--format=avif`:**
+
+| harness variant | exit | which half caught it |
+|---|---:|---|
+| byte tie only (`pinning_arg` deliberately left whole-token) | **3** | observed — "shipped 281,617 B, row publishes 202,492" |
+| both fixes | **3** | static names the flag, observed confirms the bytes |
+| both fixes, **no** injection, full 8-photo corpus | **0** | no violations — no false positive |
+
+   That middle row is the point: the observed half now catches a pin the static half
+   cannot see, which is what the docs claimed all along.
+4. **`--self-test` 18 → 24 cases**, locking in both attached spellings, an
+   observed/published byte mismatch, a report carrying no byte count at all (fails
+   closed), and the matching positive controls.
+5. **The overclaim corrected on all five surfaces** — `scripts/bench-compare.py`
+   (module docstring + the guard's comment block), `DEC-080`, this spec's fourth-pass
+   entry, `BENCHMARKS.md`'s reader-facing sentence, and the `justfile` recipe comment,
+   which had described only the dimension guard and never mentioned the second one.
+   Restated to what each half actually covers, since after (1) the claim is true.
+
+**F6 — `README.md:39` said "a median 98% smaller"; it measures 97%.** Maintainer's
+call to correct it. Confirmed independently here from the control run's own JSON:
+per-photo savings `82.1 / 86.1 / 93.2 / 95.4 / 98.7 / 99.3 / 99.6 / 99.7`, median
+**97.05%**. `BENCHMARKS.md:264` already said 97%, so the branch was shipping two
+numbers for the same corpus and command. Pre-existing from SPEC-082, corrected
+opportunistically rather than left for a later spec.
+
+**No published number moved.** The control run reproduces all three published `web`
+bucket rows exactly — small `81.6 · 203 KB · 86.1%`, medium `80.2 · 182 KB · 88.8%`,
+large `80.2 · 64 KB · 99.3%` — and `observed["bytes"] == out_bytes` on all 8 photos,
+which is also a first, real exercise of the new assertion.
+
+`just validate` green, `--self-test` green (24/24), no `src/` change. Handed back for
+a short re-verify — NOT merged.
 
 ### Build-phase reflection (3 questions, short answers)
 
@@ -637,6 +726,25 @@ Process-focused: how did the build go? What friction did the spec create?
    right is not evidence it came from the right place. Also, the thing that actually
    found this was driving the CLI by hand instead of re-reading the harness's own
    JSON; a harness cannot testify about itself.
+
+### Fifth-pass reflection (the guard's reach)
+
+1. **What was unclear in the spec that slowed you down?**
+   — Nothing. F5 arrived with the mechanism already isolated and the primary fix
+   already chosen, which is why this pass cost minutes of encodes instead of an hour.
+
+2. **Was there a constraint or decision that should have been listed but wasn't?**
+   — That a guard's *coverage* is a claim like any other, and the fourth pass wrote
+   down the disproof of its own claim three lines beneath it: "only the static one
+   caught it — the audit probe issues its own invocation". Everything needed to see
+   the gap was on the page. What was missing was the habit of reading a written
+   guarantee back against the mechanism that is supposed to deliver it.
+
+3. **If you did this task again, what would you do differently?**
+   — Prefer the assertion that doesn't enumerate. The static half has to know every
+   spelling of every flag; the byte tie has to know nothing — it just demands that
+   the witness be talking about the defendant. When a check depends on a list, ask
+   what the check would look like without one.
 
 ---
 

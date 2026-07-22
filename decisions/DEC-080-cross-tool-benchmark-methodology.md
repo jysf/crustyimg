@@ -193,12 +193,17 @@ A throwaway probe on two corpus photos confirmed the method is viable:
   how the `web` rows shipped measuring a format-pinned override instead of `web`'s
   default (see the calibration entry above). A row that claims a tool's fixed
   default now has to prove it, two independent ways, and **exits 3** on either: the
-  timed command must carry no format-pinning `-o`/`--format`, and `web --json` —
-  the engine's own account of its decision — must report the quality and format the
-  row claims. The static half catches the defect without running anything; the
-  observed half catches a pin spelled some way the harness doesn't recognize, and
-  catches `FAST_LOSSY_QUALITY` moving underneath the doc. `--self-test` covers both
-  halves, including the exact invocation that shipped.
+  encode command must carry no format-pinning `-o`/`--format` in either spelling
+  (`--format avif`, `--format=avif`), and `web --json` — the engine's own account of
+  its decision — must report the quality and format the row claims **for an encode
+  of exactly the size the row publishes**. The static half catches the defect at the
+  invocation, without running anything, and names the flag. The observed half
+  catches `FAST_LOSSY_QUALITY` moving underneath the doc, and — because of the byte
+  tie — a pin spelled some way the static half doesn't recognize: the report comes
+  from a separate probe run, so without that tie it describes the engine's default
+  rather than the encode being measured, and a missed pin would leave a truthful
+  q85 report sitting beside a q80 row. `--self-test` covers both halves, including
+  the exact invocation that shipped and an attached-spelling pin.
 - **Per-core (single-thread) comparison:** re-time the *same encodes* — the
   harness's `--q-from` reuses each tool's matched quality from the main run — with
   sharp pinned to `VIPS_CONCURRENCY=1`. Only the thread count changes, so the

@@ -36,7 +36,7 @@ It's the fastest way to see what `crustyimg web` does.
   The same recipe TOML runs in the browser demo too, via the wasm `transform()` binding.
 - The same engine runs client-side in the browser via WebAssembly. That's the demo above.
 
-Over a corpus of 8 real photos (0.7 to 47 MP), `crustyimg web` produced files a median 98%
+Over a corpus of 8 real photos (0.7 to 47 MP), `crustyimg web` produced files a median 97%
 smaller in about one to five seconds each. Runtime barely changes across that size range
 because `web` downscales before it encodes. Reproduce it on your own photos with `just bench
 --corpus /path/to/photos`.
