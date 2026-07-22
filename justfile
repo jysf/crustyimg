@@ -88,8 +88,8 @@ bench *ARGS:
 # source long edge and aspect ratio, so a tool that didn't get the same downscale as
 # the others is flagged — the quality column cannot detect a distorted output.
 # Operating point: a row claiming a tool's default must prove it ran there — no
-# format-pinning flag in the encode command, and the tool's own report has to
-# account for exactly the bytes the row publishes. `--self-test` checks both guards
+# format-pinning `-o`/`--format` in the encode command, and the tool's own report has
+# to account for exactly the bytes the row publishes. `--self-test` checks both guards
 # on their own (no corpus, no tools needed).
 # Usage: just bench-compare --corpus /path/to/photos [--json] [--tools ...]
 bench-compare *ARGS:

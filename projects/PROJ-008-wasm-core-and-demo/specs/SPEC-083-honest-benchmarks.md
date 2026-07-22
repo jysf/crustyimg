@@ -183,10 +183,26 @@ cost:
         (exit 0, all three published bucket rows reproduced exactly); grew
         `--self-test` 18 → 24; corrected the overclaim on five doc surfaces and
         README's 98% → 97%. ~5 min of encodes; no benchmark re-run.
+    - cycle: build
+      interface: claude-code
+      model: claude-opus-4-8
+      tokens_total: 60000
+      duration_minutes: null
+      estimated_usd: 0.5
+      note: >
+        Sixth build (fix) pass on Opus 4.8 clearing re-verify #4's F7 + F8 + F9 —
+        ORDER-OF-MAGNITUDE ESTIMATE, not a real usage-object reading. Prose only:
+        no code, no number, no benchmark run. Pointed the coverage claim at the
+        row that carries it and at re-verify #4's unblinded v10 (`-oout.avif`,
+        which `pinning_arg` returns None for — re-confirmed here by calling the
+        shipped function); replaced "five documents said it covered" with the
+        checked split (five surfaces restated, three had carried it — verified by
+        grepping all five at cf99eb3); bounded BENCHMARKS.md's static-half
+        sentence to `-o`/`--format`. ~0 min of encodes.
   totals:
-    tokens_total: 4070000
-    estimated_usd: 30.5
-    session_count: 8
+    tokens_total: 4130000
+    estimated_usd: 31.0
+    session_count: 9
 ---
 
 # SPEC-083: honest benchmarks (BENCHMARKS.md)
@@ -627,16 +643,24 @@ harness, one photo, `--tools crustyimg-web`:
 | both fixes | **3** | static names the flag, observed confirms the bytes |
 | both fixes, **no** injection, full 8-photo corpus | **0** | no violations — no false positive |
 
-   That middle row is the point: the observed half now catches a pin the static half
-   cannot see, which is what the docs claimed all along.
+   The row that carries the claim is the **first** one — `pinning_arg` is blinded
+   there, so the byte tie is the only half still looking, and it fires. That blinding
+   is manufactured, though. Re-verify #4 found the unmanufactured version: its variant
+   v10 injected `-o<path>` in clap's attached-short spelling (`-oout.avif`), which
+   `pinning_arg()` returns `None` for — the token carries no `=` to split on, so it
+   never matches `-o` (confirmed here by calling the shipped function). On the
+   **shipped** harness, nothing blinded, the byte tie alone caught it and exited 3.
+   That is the observed half catching a pin the static half genuinely cannot see,
+   which is what the docs claimed all along.
 4. **`--self-test` 18 → 24 cases**, locking in both attached spellings, an
    observed/published byte mismatch, a report carrying no byte count at all (fails
    closed), and the matching positive controls.
-5. **The overclaim corrected on all five surfaces** — `scripts/bench-compare.py`
-   (module docstring + the guard's comment block), `DEC-080`, this spec's fourth-pass
-   entry, `BENCHMARKS.md`'s reader-facing sentence, and the `justfile` recipe comment,
-   which had described only the dimension guard and never mentioned the second one.
-   Restated to what each half actually covers, since after (1) the claim is true.
+5. **Five surfaces restated; three of them had carried the overclaim** —
+   `scripts/bench-compare.py` (module docstring + the guard's comment block),
+   `DEC-080`, and this spec's fourth-pass entry. The other two never made the claim:
+   `BENCHMARKS.md`'s reader-facing sentence described only the observed half, and the
+   `justfile` recipe comment described only the dimension guard, never mentioning the
+   second one. All five now say what each half actually covers, which after (1) is true.
 
 **F6 — `README.md:39` said "a median 98% smaller"; it measures 97%.** Maintainer's
 call to correct it. Confirmed independently here from the control run's own JSON:
@@ -652,6 +676,45 @@ which is also a first, real exercise of the new assertion.
 
 `just validate` green, `--self-test` green (24/24), no `src/` change. Handed back for
 a short re-verify — NOT merged.
+
+### Sixth build pass — three prose claims, none of them true as written (2026-07-21)
+
+Re-verify #4 confirmed the fifth pass's guards and numbers and raised three findings,
+all about how the work was *described*. Prose only: no code, no number, no benchmark
+run, and the tables are byte-identical to `23b1206`.
+
+**F7 — the coverage claim pointed at the wrong row.** "That middle row is the point"
+cited the *both fixes* variant, where the static half also fires; the row that
+actually isolates the byte tie is the **first** one, where `pinning_arg` was
+deliberately blinded. Fixed — and the paragraph now leans on a better exhibit than
+either: re-verify #4's **v10**, which injected `-o<path>` in clap's attached-short
+spelling (`-oout.avif`). That is a real spelling and `pinning_arg()` returns `None`
+for it — the token carries no `=` to split on, so it never matches `-o`; confirmed
+here by importing the shipped module and calling it. The byte tie caught v10 on the
+**shipped** harness with nothing blinded. Same claim, demonstrated instead of staged.
+
+**F8 — "five documents said it covered" was itself an unchecked count.** Five surfaces
+were *restated* last pass; only **three** had *carried* the claim. Checked at
+`cf99eb3` rather than recalled: `scripts/bench-compare.py` (docstring + guard
+comment), `DEC-080`, and this spec's fourth-pass entry carry it; `BENCHMARKS.md`
+described only the observed half ("checked against `web`'s own report of the quality
+and format it used") and the `justfile` never mentioned the operating-point guard at
+all. The timeline entry said "five" in one bullet and disproved itself two lines
+later; both now say the split, matching this spec's own F5 header.
+
+**F9 — `BENCHMARKS.md` advertised a reach the static half doesn't have.** "checked for
+anything that would pin the format" → "checked for a format-pinning `-o`/`--format`",
+so the generality rests on the byte tie, where v10 shows it actually lives.
+
+**One surface volunteered beyond the punch list:** the `justfile` recipe comment said
+"no format-pinning **flag**" — the same overreach as F9, one word wide. Bounded it to
+`-o`/`--format` to match. Back it out if you'd rather keep the pass strictly to the
+three findings. A repo-wide grep for the two phrasings and for "five surfaces" /
+"five documents" turns up nothing else.
+
+`just validate` green, `--self-test` green (24/24), `git diff -- src/` empty, every
+`|` table line in `BENCHMARKS.md` and `README.md` byte-identical to the prior commit.
+NOT merged.
 
 ### Build-phase reflection (3 questions, short answers)
 

@@ -344,7 +344,7 @@ on either of two checks: if a tool didn't get the same downscale as the others (
 measures every output, so pointing it at portrait photos, or at a tool version
 whose resize flags have changed, gets you an error rather than a quietly wrong
 table), or if a row claiming a tool's default didn't actually run at that default —
-the `web` row's command is checked for anything that would pin the format, and
+the `web` row's command is checked for a format-pinning `-o`/`--format`, and
 `web`'s own report of the quality and format it used has to account for exactly the
 bytes the row publishes. `--self-test` exercises both guards on their own, with no
 corpus and no tools installed.

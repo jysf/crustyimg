@@ -171,8 +171,9 @@ Cycle prompts live in `prompts/SPEC-083-<cycle>.md`.
   change, demo favicons untracked and untouched. **NOT merged.**
 - [x] build (fix #4) — Opus, 2026-07-21 on `spec-083-honest-benchmarks`. Cleared re-verify #3's **F5 + F6**;
   that re-verify read the *guards* rather than the numbers, re-drove every published cell by hand and found
-  them clean, so **no number moved this pass**. **F5 — the operating-point guard did not cover what five
-  documents said it covered.** `pinning_arg()` matched whole tokens, so clap's attached spellings
+  them clean, so **no number moved this pass**. **F5 — the operating-point guard did not cover what three
+  documents said it covered** (`scripts/bench-compare.py`, `DEC-080`, this spec's fourth-pass entry).
+  `pinning_arg()` matched whole tokens, so clap's attached spellings
   (`--format=avif`, `--output=x.avif`) walked past the STATIC half; and the OBSERVED half could not
   compensate, because `observe_operating_point()` issues its **own separate** `web --out-dir --json` probe —
   it describes the engine's default, not the row's encode. The disproof was already written three lines
@@ -186,14 +187,37 @@ Cycle prompts live in `prompts/SPEC-083-<cycle>.md`.
   deliberately left whole-token) → **exit 3** ("shipped 281,617 B, row publishes 202,492"); both fixes →
   **exit 3**; both fixes with no injection over the full 8-photo corpus → **exit 0**, no false positive.
   `--self-test` 18 → **24** (both attached spellings, a byte mismatch, a report with no byte count at all →
-  fails closed, plus positive controls). Overclaim restated accurately on all five surfaces:
-  `scripts/bench-compare.py` (docstring + guard comment), `DEC-080`, the spec's fourth-pass entry,
-  `BENCHMARKS.md`'s reader-facing sentence, and the `justfile` recipe comment — which had described only the
-  dimension guard and never mentioned the second one. **F6 — `README.md:39` 98% → 97%** (maintainer's call),
-  re-confirmed here from the control run's own JSON: `82.1/86.1/93.2/95.4/98.7/99.3/99.6/99.7`, median
+  fails closed, plus positive controls). Five surfaces RESTATED, three of which had CARRIED the overclaim:
+  `scripts/bench-compare.py` (docstring + guard comment), `DEC-080`, and the spec's fourth-pass entry. The
+  other two never made the claim — `BENCHMARKS.md`'s reader-facing sentence described only the observed
+  half, and the `justfile` recipe comment described only the dimension guard, never mentioning the second
+  one — and were brought up to the corrected wording alongside them.
+  **F6 — `README.md:39` 98% → 97%** (maintainer's call), re-confirmed here from the control run's own
+  JSON: `82.1/86.1/93.2/95.4/98.7/99.3/99.6/99.7`, median
   **97.05%**; `BENCHMARKS.md:264` already said 97%, so the branch was shipping two numbers for one corpus +
   command. Pre-existing from SPEC-082, corrected opportunistically. **No published number moved:** the
   control run reproduces all three `web` bucket rows exactly (small `81.6 · 203 KB · 86.1%`, medium
   `80.2 · 182 KB · 88.8%`, large `80.2 · 64 KB · 99.3%`) with `observed["bytes"] == out_bytes` on all 8
   photos. Gates: `just validate` green, `--self-test` green (24/24), no `src/` change, demo favicons
   untracked and untouched. **NOT merged.**
+- [x] build (fix #5) — Opus, 2026-07-21 on `spec-083-honest-benchmarks`. Cleared re-verify #4's **F7 + F8 +
+  F9**, all three about how the last pass DESCRIBED itself: guards and numbers were confirmed, so this pass
+  is **prose only** — no code, no number, no benchmark run, tables byte-identical to `23b1206`.
+  **F7 — the coverage claim cited the wrong row.** "That middle row is the point" pointed at the *both
+  fixes* variant, where the static half also fires; the row that isolates the byte tie is the **first** one,
+  where `pinning_arg` was deliberately blinded. Repointed — and re-anchored on a better exhibit than either:
+  re-verify #4's **v10**, an attached-short `-o<path>` (`-oout.avif`) that `pinning_arg()` returns `None`
+  for (no `=` in the token, so it never matches `-o`; re-confirmed here by importing the shipped module and
+  calling it), caught by the byte tie on the **shipped** harness with nothing blinded. The claim demonstrated
+  rather than staged. **F8 — "five documents said it covered" was itself an unchecked count.** Five surfaces
+  were RESTATED; **three** had CARRIED the claim (`scripts/bench-compare.py`, `DEC-080`, the spec's
+  fourth-pass entry) — checked at `cf99eb3`, not recalled: `BENCHMARKS.md` described only the observed half
+  and the `justfile` never mentioned the operating-point guard at all. The entry above said "five" in one
+  bullet and disproved itself two lines later; both halves now state the split, agreeing with the spec's own
+  F5 header. **F9 — `BENCHMARKS.md` advertised a reach the static half lacks:** "checked for anything that
+  would pin the format" → "checked for a format-pinning `-o`/`--format`", so the generality rests on the
+  byte tie, where v10 shows it lives. **One volunteered beyond the punch list:** the `justfile` said "no
+  format-pinning **flag**" — the same overreach one word wide — bounded to `-o`/`--format`; a repo-wide grep
+  for both phrasings and for "five surfaces"/"five documents" finds nothing else. Gates: `just validate`
+  green, `--self-test` green (24/24), `git diff -- src/` empty, every `|` table line in `BENCHMARKS.md` +
+  `README.md` byte-identical to the prior commit, demo favicons untracked and untouched. **NOT merged.**
