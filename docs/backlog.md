@@ -211,3 +211,50 @@ encode). Worth doing, clearly later.
   "you have to know which to pick", so the competitor must be shown doing the right thing.
   Then: a public/licensed corpus (so readers can check *our* cells, not just re-run the method)
   and thicker small/medium buckets (currently n=1 and n=2).
+- **The recipe format as a first-class language, with a playground** — M–L, post-0.6.0, and
+  the highest-leverage adoption item on this list. Recipes are *already* a small declarative
+  language: versioned (`version = "1"`), named, an ordered `[[step]]` pipeline, parsed and
+  validated by `Recipe::parse`. And the wasm surface already accepts **arbitrary** recipe TOML
+  via `transform(input, recipe_toml, out_format)`. What's missing is not syntax — it's
+  formalization and exposure:
+  (1) **a formal op reference / schema** — every `op`, its params, types and defaults, as the
+  source of truth (partly in `docs/cli-reference.md` today); optionally emit a **JSON Schema**
+  so editors give autocomplete for free;
+  (2) **a `validate(recipe_toml)` wasm export** that parses and validates *without running* and
+  returns **structured** errors (which step, which field, what was wrong, did-you-mean);
+  (3) **a playground in the browser tool** — edit a recipe, validate it live, run it on your own
+  photo, copy the exact TOML into CI.
+  **The point is that the browser would be running the CLI's actual validator compiled to wasm,
+  not a JavaScript reimplementation** — so unlike every other online config playground, it
+  cannot drift from the real tool. That supports a claim almost nobody can make honestly: *what
+  you just watched run is exactly what your CI will do.*
+  **Do NOT invent a new syntax.** TOML is parseable everywhere, diffable, familiar, already
+  versioned, and free; a bespoke grammar means maintaining a parser twice and losing every
+  editor that already understands TOML.
+  **Probe first:** what do recipe parse/validate errors look like today — structured, or
+  strings? That answer decides whether this is S or L, because **error quality is the entire
+  feature**: "invalid recipe" is worthless, "step 2: unknown op `reisze` — did you mean
+  `resize`?" is the product.
+  Feeds the web-asset manifest and the SSG plugins, which consume recipes.
+- **The browser demo as a real tool (not only a showcase)** — M, post-0.6.0, demand-driven.
+  Driven by the maintainer's own use: dropping a whole Photos batch in and wanting it to be
+  *good*, not just impressive. The competitive position is genuinely open — **Squoosh is
+  archived** (unmaintained; won't start on current Node), TinyPNG/CloudConvert **upload your
+  images**, ImageOptim needs a Mac install; none of them report a perceptual quality number.
+  Candidate features, ordered cheapest-first: **presets** (`gallery.toml`/`product.toml` already
+  exist and are unused by the demo), **batch + download-all** (the real workflow), a **byte
+  budget** (⚠ an unsatisfiable `maxBytes` currently returns over-budget bytes *silently*, so the
+  UI must self-check `bytes.length` and say so), and **remembered settings**. Note these serve
+  *repeat use*, a different axis from demo-value — batch makes a better tool but not a better
+  demo.
+  ⚠ **Decide the territory question explicitly before building any of it.** The project brief
+  scopes the demo as "a thin marketing artifact, NOT a web app" — a listed risk-to-thesis.
+  Crossing that deliberately is fine; drifting across it one feature at a time is how you end up
+  maintaining a web app you never chose while the CLI and library stall. Useful distinction: a
+  **playground is an on-ramp** (you leave with a file to run elsewhere, so it strengthens the
+  CLI), whereas **batch + download-all makes the demo a destination** that competes with it.
+  Let launch traffic inform the call.
+- **`eleventy-crustyimg` has a real dogfood testbed.** The roadmap already sequences Eleventy
+  first among SSG integrations; the maintainer's own Eleventy photo blog is an actual site with
+  actual photos and an actual build, which is what a plugin needs to be designed against instead
+  of a toy fixture. Worth pairing the two when the manifest wave (#4) comes up.
