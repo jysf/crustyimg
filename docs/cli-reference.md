@@ -46,7 +46,7 @@ Available on every command (before or after the subcommand):
 | `1` | Runtime error (decode/encode/op failed; input exceeds a resource limit). |
 | `2` | Usage error (bad args) — clap's standard code. |
 | `3` | Input not found / unreadable (or an empty glob). |
-| `4` | Unsupported format / codec not built (AVIF output without `--features avif`; a `.heic` input without `--features heic`). |
+| `4` | Unsupported format / codec not built (AVIF output on a `--no-default-features` lean build; a `.heic` input without `--features heic`). |
 | `5` | Output write refused (exists without `--yes`; path traversal; symlinked destination). |
 | `6` | Partial batch failure (some inputs failed; summary on stderr; others still wrote). |
 | `7` | A check/gate was not satisfied (e.g. `diff --fail-under` scored below the threshold). |
@@ -158,8 +158,9 @@ crustyimg optimize photo.jpg --max-size 200KB -o out.jpg
 
 ### `convert <INPUT...> --format FMT [--max-size SIZE]`
 Pure re-encode to another format (no pixel changes). `--format` is required
-(`png`/`jpeg`/`gif`/`bmp`/`tiff`/`ico`/`webp`; `avif` needs a build with `--features
-avif`). `--max-size` fits a byte budget (JPEG target).
+(`png`/`jpeg`/`gif`/`bmp`/`tiff`/`ico`/`webp`/`avif`; `avif` ships by default —
+a `--no-default-features` (lean) build needs `--features avif` to get it back).
+`--max-size` fits a byte budget (JPEG target).
 ```sh
 crustyimg convert photo.png --format webp -o out.webp
 crustyimg convert *.png --format webp --out-dir out/

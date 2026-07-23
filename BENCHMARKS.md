@@ -96,10 +96,10 @@ two 8 MP, one 16 MP, three 24 MP, one 47 MP.
 ## The machine and the tools
 
 - **Machine:** Apple M4 Pro, 14 cores, macOS 26.5.2, 48 GB. Nothing else running.
-- **crustyimg 0.5.0**, built `--features avif`. AVIF encode is a compile-time
-  feature (pure Rust — ravif/rav1e, no system libraries), off in the default
-  distributed binary; install it with `cargo install crustyimg --features avif`.
-  It's the same pure-Rust AVIF encoder the browser demo ships.
+- **crustyimg 0.5.0**, built `--features avif`. AVIF encode is pure Rust
+  (ravif/rav1e, no system libraries) — the same pure-Rust AVIF encoder the
+  browser demo ships. As of 0.6.0, AVIF ships in the default distributed binary;
+  a plain `cargo install crustyimg` gets it, no feature flag needed.
 - **sharp-cli 5.2.0** (sharp 0.34.4, libvips) on Node 22 — AVIF via libvips/libaom.
 - **ImageMagick 7.1.2-27** — AVIF via libheif 1.23.1 / libaom.
 - **`@squoosh/cli` 0.7.2** — AVIF via its own libaom-in-wasm. It is **archived**,
@@ -295,8 +295,9 @@ The benchmark says crustyimg isn't the smallest or the fastest. Here's the case 
 *does* make, and none of it shows up in a size column:
 
 - **One static binary, zero system dependencies.** Pure Rust, including the AVIF
-  encoder (`cargo install crustyimg --features avif`). No libvips to link, no
-  ImageMagick to install, no native Node addon to compile, no Python. sharp is
+  encoder (`cargo install crustyimg`, no feature flag needed as of 0.6.0). No
+  libvips to link, no ImageMagick to install, no native Node addon to compile, no
+  Python. sharp is
   excellent but pulls a native libvips addon; ImageMagick is a large C toolchain;
   `@squoosh/cli` is archived and won't start on a current Node. crustyimg is one
   download or one `cargo install`.
@@ -327,8 +328,8 @@ dependencies), then run it on your own photos:
 npm i -g sharp-cli @squoosh/cli      # @squoosh/cli is archived — run it on Node 16
 brew install imagemagick webp
 
-# crustyimg with the AVIF encoder
-cargo install crustyimg --features avif        # or: cargo build --release --features avif
+# crustyimg (AVIF encoder included by default as of 0.6.0)
+cargo install crustyimg        # or: cargo build --release
 
 # run the comparison on your corpus
 just bench-compare --corpus /path/to/your/photos

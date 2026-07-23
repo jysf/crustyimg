@@ -120,7 +120,7 @@ photos before publishing them to a website.
 
 ```bash
 cargo build --release                        # WebP built-in; binary at target/release/crustyimg
-alias ci="$PWD/target/release/crustyimg"     # AVIF output: add --features avif
+alias ci="$PWD/target/release/crustyimg"     # AVIF output is built in by default
 cp -R ~/site/images ~/cimg-test && mkdir -p ~/cimg-out
 ```
 

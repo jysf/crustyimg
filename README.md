@@ -61,23 +61,22 @@ See [RELEASING.md](RELEASING.md) for the versioning policy and release channels.
 
 ### Feature notes
 
-The `view` command (terminal image preview) is **on by default** — a plain
-`cargo install` or release binary includes it. For a headless, smaller binary
-(CI / server / container), build without it:
+The `view` command (terminal image preview) and **AVIF output** are both **on by
+default** — a plain `cargo install` or release binary includes them. For a
+headless, smaller binary (CI / server / container), build without either:
 
 ```sh
 cargo install --git https://github.com/jysf/crustyimg --no-default-features
 ```
 
-Three additional codecs are opt-in (compile-time features):
+Two additional codecs are opt-in (compile-time features):
 
 | Feature | What it adds |
 |---|---|
 | `webp-lossy` | Lossy WebP encode (libwebp, C dep) — by default WebP is lossless only |
-| `avif` | AVIF output via ravif (pure Rust, no nasm/system libs) |
 | `heic` | HEIC/HEIF **input** via system libheif — **local builds only**, see below |
 
-Enable with `--features webp-lossy,avif` at build/install time.
+Enable with `--features webp-lossy` at build/install time.
 
 #### HEIC is opt-in and never in a released binary
 
@@ -177,7 +176,7 @@ crustyimg optimize photo.jpg --max-size 200KB -o out.jpg
 ```sh
 crustyimg convert photo.png --format webp -o out.webp   # PNG/JPEG/GIF/BMP/TIFF/ICO/WebP
 crustyimg convert photo.jpg --format webp --max-size 150KB -o out.webp
-crustyimg convert photo.jpg --format avif -o out.avif   # AVIF: needs a build with `--features avif`
+crustyimg convert photo.jpg --format avif -o out.avif   # AVIF: built in by default
 ```
 
 ### Auto-orient & metadata

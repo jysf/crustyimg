@@ -11,6 +11,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **AVIF encode is now in the default build.** Every distributed binary
+  (Homebrew, the Releases-page downloads, the shell/PowerShell installers,
+  and a plain `cargo install crustyimg`) now includes the AVIF encoder with
+  no extra flag — previously it needed a `--features avif` build from
+  source. This is a **behavior change**: `web` and `optimize` can now pick
+  AVIF for lossy-family photos where they couldn't before, so upgrading may
+  change the output file for the same command and input. A
+  `--no-default-features` (lean) build still leaves AVIF out.
+
 ### Deprecated
 
 ### Removed

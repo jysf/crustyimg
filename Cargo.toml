@@ -32,8 +32,9 @@ path = "src/main.rs"
 # off, no avif/mozjpeg/native. `webp` (SPEC-019, DEC-021) is in the default set —
 # pure-Rust (`image-webp`, MIT/Apache, no nasm/system libs): WebP DECODE
 # (lossy+lossless) + LOSSLESS WebP encode. Lossy WebP encode (libwebp, a C dep) is
-# the separate off-by-default `webp-lossy` feature (SPEC-020). The off-by-default
-# `avif` feature (SPEC-018, DEC-020) adds AVIF OUTPUT via `image/avif`.
+# the separate off-by-default `webp-lossy` feature (SPEC-020). The default
+# `avif` feature (SPEC-018, DEC-020; default since SPEC-102, DEC-081) adds AVIF
+# OUTPUT via `image/avif`.
 #
 ## ── Cross-target dependencies (native AND wasm32) ────────────────────────────
 ## The pure engine — decode → operations → encode — plus its typed errors and
@@ -257,21 +258,27 @@ wasm-bindgen-test = "=0.3.76"
 # `display` (terminal preview via viuer) is ON BY DEFAULT so `view` works out of the
 # box in the released binary — it is a headline command (DEC-027, supersedes DEC-011).
 # Headless/server/CI builds that don't want viuer's tree use `--no-default-features`.
-default = ["display", "watch"]
+default = ["display", "watch", "avif"]
 display = ["dep:viuer"]
 webp-lossy = ["dep:webp"]
-# AVIF output behind an off-by-default feature (SPEC-018, DEC-020). The codec
-# arrives via the `image` crate's own `avif` feature → `ravif` → `rav1e` (pure
-# Rust, no nasm/system libs), so this adds NO new top-level dep. Kept gated for
-# compile time / binary size / encode speed; the default build keeps AVIF output
-# at exit 4 (DEC-004). `just deny` stays green via the scoped `libfuzzer-sys`
-# exception in deny.toml.
-#   OFF by default on NATIVE, but the WASM artifact is built WITH it (SPEC-073,
-#   DEC-065): `rav1e` compiles and runs on wasm32, and "PNG → AVIF in the browser"
-#   is the demo's headline — no browser API encodes AVIF, so if we don't ship the
-#   encoder, nobody can. It costs +345 KB brotli (1.19 → 1.52 MB). The `just wasm-*`
-#   recipes pass the flag (`_wasm_features`); build the wasm artifact through them.
-#   AVIF DECODE is a different codec (`re_rav1d`, native-only) and stays out.
+# AVIF output is a DEFAULT feature (SPEC-102, DEC-081 — supersedes DEC-020's
+# off-by-default gate). The codec arrives via the `image` crate's own `avif`
+# feature → `ravif` → `rav1e` (pure Rust, no nasm/system libs), so this adds NO
+# new top-level dep. DEC-020 gated it for compile time / binary size / encode
+# speed when AVIF was one candidate among several; since then SPEC-084 made
+# fixed-quality AVIF the default `optimize`/`web` decision and SPEC-083
+# benchmarked it as the headline, so a distributed binary without it can't do
+# the thing the docs describe. `--no-default-features` (the lean build) still
+# drops it — `convert --format avif` there exits 4 with a "rebuild with
+# --features avif" hint (DEC-004). `just deny` stays green via the scoped
+# `libfuzzer-sys` exception in deny.toml.
+#   The WASM artifact has shipped this unconditionally all along (SPEC-073,
+#   DEC-065) — no browser API encodes AVIF, so if the wasm build didn't ship the
+#   encoder, nobody could. It costs +345 KB brotli (1.19 → 1.52 MB). The `just
+#   wasm-*` recipes pass the flag (`_wasm_features`) explicitly regardless of the
+#   native default; build the wasm artifact through them.
+#   AVIF DECODE is a different codec (`re_rav1d`, native-only, unconditional
+#   since SPEC-058/DEC-053) and is unaffected by this feature either way.
 avif = ["image/avif"]
 # HEIC/HEIF INPUT behind an off-by-default feature (SPEC-062, DEC-052/DEC-056).
 # Requires a system libheif (≥ 1.17) at build and run time — `brew install libheif`

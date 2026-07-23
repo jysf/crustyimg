@@ -130,8 +130,11 @@ Reports aggregate cost by cycle, by interface, by spec, and by stage.
 - **Sources:** `glob` 0.3, `walkdir` 2. **Batch:** `rayon` 1, `indicatif` 0.17.
 - **Metadata (container lane):** `kamadak-exif` 0.6 (read-only), `img-parts`
   0.3, `little_exif` 0.6 (DEC-003).
-- **Native codecs (off by default, cargo features):** `mozjpeg`, `ravif`
-  (avif), `rexiv2` (DEC-004).
+- **AVIF encode:** `ravif` (via `image`'s `avif` feature), **on by default**
+  (SPEC-102, DEC-081, supersedes DEC-020); headless/lean builds use
+  `--no-default-features`.
+- **Native codecs (off by default, cargo features):** `mozjpeg`, `rexiv2`
+  (DEC-004) — not yet added; reserved for future codec work.
 - **Database:** none (no persistent store; recipes are user TOML files).
 - **Testing:** `cargo test` — unit tests in `#[cfg(test)]` modules,
   integration tests under `tests/`, native-generated image fixtures

@@ -75,7 +75,7 @@ flowchart TB
   (`--target visually-lossless` / `--ssim <N>`).
 - **Byte budgets:** `--max-size <KB>` with a dimension-reduction fallback when
   quality alone can't fit — works for every format.
-- **Modern formats:** WebP (pure-Rust, default) and AVIF (feature-gated), behind a
+- **Modern formats:** WebP and AVIF, both pure-Rust and on by default, behind a
   clean `LossyFormat` seam. The search is encoder-agnostic.
 - All pure-Rust by default, zero system deps.
 
