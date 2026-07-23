@@ -74,6 +74,7 @@ const ui = {
   outImg: el("out-img"),
   delta: el("delta"),
   resizeNote: el("resize-note"),
+  updatedFlag: el("updated-flag"),
   score: el("score"),
   scoreValue: el("score-value"),
   scoreBand: el("score-band"),
@@ -111,6 +112,7 @@ let outUrl = null; // the previous blob: URL, revoked on the next conversion
 let jobSeq = 0;
 let debounceTimer = null;
 let timerId = null;
+let updatedFlagTimer = null;
 
 function fmtBytes(n) {
   if (n < 1024) return `${n} B`;
@@ -283,8 +285,23 @@ async function convert() {
 
 // ── the decision, shown ──────────────────────────────────────────────────────
 
+/// A brief, quiet flash on the result — the only visible sign a debounced Advanced
+/// re-convert actually swapped the output, since the busy state can come and go too
+/// fast to notice. Never fires on the FIRST conversion (`render` guards on that).
+function pulseUpdated() {
+  clearTimeout(updatedFlagTimer);
+  ui.updatedFlag.classList.remove("show");
+  void ui.updatedFlag.offsetWidth; // restart the fade if a pulse is already mid-flight
+  ui.updatedFlag.classList.add("show");
+  updatedFlagTimer = setTimeout(() => ui.updatedFlag.classList.remove("show"), 1400);
+}
+
 function render(m) {
   const { input, scaled, output, score, scoredBy, budget, budgetMissed, elapsedMs } = m;
+
+  // A result was already on screen before this one — this is a re-convert, not the
+  // first conversion of a freshly dropped image.
+  const isReconvert = !ui.result.hidden;
 
   ui.inImg.src = source.url;
   el("in-dims").textContent = `${input.width}×${input.height}`;
@@ -368,6 +385,7 @@ function render(m) {
   ds.elapsedMs = String(elapsedMs);
   ui.result.hidden = false;
   setState("done");
+  if (isReconvert) pulseUpdated();
 }
 
 /// A raw SSIMULACRA2 value → a band a non-expert can read. The value is RAW
@@ -427,7 +445,15 @@ function renderScore(score, scoredBy, format, keptOriginal, budgetMissed, budget
   } else {
     const band = scoreBand(value);
     ui.score.dataset.mode = "measured";
-    ui.scoreValue.textContent = `SSIMULACRA2 ${value.toFixed(1)}`;
+    // "SSIMULACRA2" links to the metric explainer, with a small secondary link to the
+    // Rust implementation this engine actually runs — so a visitor who has never heard
+    // of the metric has somewhere to go. `textContent` still reads "SSIMULACRA2 87.3"
+    // for anything (including the smoke) that only cares about the plain text.
+    ui.scoreValue.innerHTML =
+      `<a href="https://github.com/cloudinary/ssimulacra2" target="_blank" rel="noopener noreferrer" ` +
+      `class="score-link">SSIMULACRA2</a> ${value.toFixed(1)} ` +
+      `<a href="https://github.com/rust-av/ssimulacra2" target="_blank" rel="noopener noreferrer" ` +
+      `class="score-link-secondary">(Rust impl)</a>`;
     ui.scoreBand.textContent = band.label;
     ui.scoreBand.className = `score-band ${band.cls}`;
     // The bar can't render a negative width or overflow past full, so the FILL is

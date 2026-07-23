@@ -43,6 +43,10 @@ out/
 # unprofiled .wasm. The demo's own sources (index.html/demo.js/demo.css) ARE committed.
 /demo/vendor/
 
+# Local dev harnesses under demo/: an underscore prefix marks a throwaway probe
+# (e.g. a color-mix() rendering check) that is never part of the shipped demo.
+/demo/_*
+
 # `crustyimg build`'s local content-addressed cache (SPEC-064). Machine-local and
 # regenerable; a corrupt or absent entry just triggers a rebuild.
 .crustyimg/

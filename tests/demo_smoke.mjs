@@ -405,6 +405,50 @@ check(
 check(consoleErrors.length === 0, "no console errors while loading");
 if (consoleErrors.length) console.error(`    ${consoleErrors.join("\n    ")}`);
 
+// ── the favicon set (SPEC-101) ──────────────────────────────────────────────────
+// This server (like `just demo-serve`) serves the demo at its ROOT, so a root-relative
+// icon `src` would look fine here even though it 404s under GitHub Pages' `/crustyimg/`
+// subpath — this test can't reproduce that subpath, so it asserts the STRUCTURAL
+// property that makes the bug impossible regardless of where the demo is mounted: no
+// leading slash. (The actual subpath was reproduced by hand during the build — see the
+// spec's Build Completion.)
+
+console.log("\n── the favicon set loads with no 404s ──");
+
+for (const icon of [
+  "favicon.ico",
+  "favicon-16x16.png",
+  "favicon-32x32.png",
+  "apple-touch-icon.png",
+  "android-chrome-192x192.png",
+  "android-chrome-512x512.png",
+  "site.webmanifest",
+]) {
+  const status = await cdp.eval(
+    `fetch(${JSON.stringify(`${baseUrl}/${icon}`)}).then((r) => r.status)`,
+  );
+  check(status === 200, `${icon} → ${status}`);
+}
+
+const manifest = await cdp
+  .eval(`fetch(${JSON.stringify(`${baseUrl}/site.webmanifest`)}).then((r) => r.text())`)
+  .then(JSON.parse);
+check(
+  manifest.name.length > 0 && manifest.short_name.length > 0,
+  `the manifest's name/short_name are set — "${manifest.name}" / "${manifest.short_name}"`,
+);
+check(
+  manifest.theme_color !== "#ffffff" && manifest.background_color !== "#ffffff",
+  `the manifest's theme/background colors are the demo's dark palette, not white ` +
+    `(theme "${manifest.theme_color}", background "${manifest.background_color}")`,
+);
+check(
+  manifest.icons.every((i) => !i.src.startsWith("/")),
+  `every manifest icon src is RELATIVE, not domain-root-absolute — ` +
+    `(${manifest.icons.map((i) => i.src).join(", ")}) — the property that keeps them ` +
+    `resolving under a project-pages subpath like /crustyimg/`,
+);
+
 // ── a fixture staging dir + a drop helper ──────────────────────────────────────
 
 const fixtureDir = mkdtempSync(join(tmpdir(), "crustyimg-fixture-"));
@@ -610,6 +654,58 @@ check(
     heroFill >= 0 &&
     heroFill <= 100,
   `and the meter reflects the score — fill ${hero.scoreFillWidth}, shown (not hidden)`,
+);
+
+// The metric is self-explaining (SPEC-101): "SSIMULACRA2" links to the explainer (WITH
+// the "2" — cloudinary/ssimulacra without it is the older v1), plus a secondary link to
+// the Rust implementation this engine actually runs. href-only, so this adds no
+// network request of its own.
+const scoreLinks = await cdp
+  .eval(
+    "JSON.stringify(Array.from(document.getElementById('score-value').querySelectorAll('a'))" +
+      ".map((a) => a.href))",
+  )
+  .then(JSON.parse);
+check(
+  scoreLinks.includes("https://github.com/cloudinary/ssimulacra2"),
+  `the score panel links "SSIMULACRA2" to the metric explainer (with the "2") — links found: ${JSON.stringify(scoreLinks)}`,
+);
+check(
+  scoreLinks.includes("https://github.com/rust-av/ssimulacra2"),
+  `and a secondary link to the Rust implementation this engine runs`,
+);
+
+// ── the re-convert signal (SPEC-101): a silent re-convert made visible ────────
+
+console.log("\n── the re-convert signal: an Advanced-control change is visibly not silent ──");
+
+// Change max-edge on the ALREADY-CONVERTED hero (no new file dropped) — the exact
+// `scheduleConvert` → debounced `convert()` path this item makes legible.
+const beforeReconvertWidth = await cdp.eval("document.getElementById('result').dataset.outWidth");
+await cdp.eval(`
+  const el = document.getElementById('maxedge');
+  el.value = '1024';
+  el.dispatchEvent(new Event('input', { bubbles: true }));
+`);
+await waitFor(cdp, `${PAGE_STATE} === 'converting'`, "the debounced Advanced-control re-convert to start");
+const busyDuringReconvert = await cdp.eval("document.getElementById('busy').hidden === false");
+check(busyDuringReconvert, "the busy state reappears while the re-convert runs, not just on the first conversion");
+
+await waitFor(
+  cdp,
+  `${PAGE_STATE} === 'done' && ` +
+    `document.getElementById('result')?.dataset.outWidth !== ${JSON.stringify(beforeReconvertWidth)}`,
+  "the re-convert to finish with a genuinely different output",
+);
+const updatedShown = await cdp.eval("document.getElementById('updated-flag').classList.contains('show')");
+const reconvertedWidth = await cdp.eval("document.getElementById('result').dataset.outWidth");
+check(
+  Number(reconvertedWidth) <= 1024 && reconvertedWidth !== beforeReconvertWidth,
+  `and the output actually changed — ${beforeReconvertWidth}px → ${reconvertedWidth}px (max-edge now 1024)`,
+);
+check(
+  updatedShown,
+  "and the result carries a visible 'Updated' pulse — not a silently-swapped image",
 );
 
 // jpeg_shows_engine_score — force JPEG (a searched lossy encode). The engine scores

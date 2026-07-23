@@ -8,6 +8,11 @@
       name="description"
       content="Drop a photo: crustyimg resizes it for the web, modernizes it to AVIF, and never hands back a bigger file — entirely in your browser. Then run the same thing on whole folders from the CLI."
     />
+    <link rel="icon" type="image/x-icon" href="./favicon.ico" />
+    <link rel="icon" type="image/png" sizes="32x32" href="./favicon-32x32.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="./favicon-16x16.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="./apple-touch-icon.png" />
+    <link rel="manifest" href="./site.webmanifest" />
     <link rel="stylesheet" href="./demo.css" />
   </head>
   <body>
@@ -88,6 +93,10 @@
       </div>
 
       <section id="result" class="result" hidden>
+        <!-- An Advanced-control change re-converts the current image automatically
+             (debounced); this is the only visible sign it happened, since the swap
+             beneath it is otherwise silent. -->
+        <p class="updated-flag" id="updated-flag" aria-live="polite">Updated</p>
         <div class="panes">
           <figure class="pane">
             <img id="in-img" alt="the image you dropped" />
