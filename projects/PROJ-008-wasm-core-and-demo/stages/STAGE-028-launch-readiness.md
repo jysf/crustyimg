@@ -100,6 +100,14 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
   `--self-test` 24/24. README's stale 98% corrected to 97%. **5 build / 4 verify passes caught five real
   defects** (squoosh squashed on 6 of 8, portrait mis-sizing, per-core not iso-quality, `web` rows at the
   wrong operating point, a guard advertising reach it lacked) — four invisible to number-checking alone.
+- [~] SPEC-102 (design — framed build-ready 2026-07-22) — **AVIF in the distributed binary.** The gap
+  SPEC-083 surfaced: cargo-dist builds default features only and `avif` is off by default, so Homebrew,
+  the Releases binaries and plain `cargo install crustyimg` all lack the flagship path — BENCHMARKS.md
+  itself has to tell readers to add `--features avif`. Fix is one line in `Cargo.toml`
+  (`default = [... , "avif"]`), NOT a `features` key in the dist config, which would miss `cargo
+  install` and erode the DEC-052 `heic` guard. A BEHAVIOR change (`Mode::Fast` can then admit AVIF, so
+  `web`/`optimize` outputs move) → DEC-081 + a headline CHANGELOG entry. Measure size/compile-time/MSRV
+  rather than assume; docs sweep verified by grep + hit count. **Blocks cutting 0.6.0.**
 - [ ] (coordination, not a spec) — the **Show HN go/no-go**: `docs/launch-readiness.md` blockers
   green, `crustyimg-wasm` published (SPEC-076, on approval), post drafted → launch.
 
