@@ -130,12 +130,20 @@ Dependency order — **SPEC-079 (engine surface) first**, because the demo specs
   `WEB_RECIPE` kept byte-identical to `web.toml`; spinning busy glyph → static 🦀 placeholder. No
   engine/recipe-behavior change (byte-identity proven parent↔branch). Sonnet build / Opus verify CLEAN.
 
-- [~] SPEC-101 (design — framed build-ready 2026-07-20) — **demo polish v2 (batched):** link the
-  score panel's SSIMULACRA2 to the metric explainer (cloudinary/ssimulacra2) + the Rust impl
-  (rust-av/ssimulacra2), and confirm the SPEC-081 `color-mix()` band renders on real Firefox+Safari (the
-  launch carry). Demo-files-only, href-only (zero-network holds). Logo swap deferred. Build post-0.5.0-ish.
+- [x] SPEC-101 (shipped 2026-07-22, PR #109 `fdd4447`, ~$8.8 / 3 sessions) — **the pre-launch demo
+  pass (batched).** Score panel's SSIMULACRA2 now links the metric explainer (cloudinary/ssimulacra2)
+  + the Rust impl (rust-av/ssimulacra2); an **"Updated" pulse** makes the Advanced re-convert legible
+  (the wiring already worked, it was just silent); the **favicon set is wired** and `site.webmanifest`
+  fixed for the `/crustyimg/` subpath (its absolute icon paths would have 404'd — verify proved it with
+  a negative control on a real subpath server), plus non-empty name/short_name and the dark theme
+  colors. Demo-files-only, href-only (zero-network holds), no `src/` change. **DEVICE GATE = PASS
+  (maintainer-decided):** iOS WebKit solid on real devices incl. a real Photos-library batch; Android
+  Chrome untested and accepted on judgment (static, no backend, degrades gracefully) — recorded
+  honestly rather than claimed. **Carries out: the demo can't open RAW `.dng` (probe written) and the
+  logo swap still awaits the outsourced mark.** Process lesson: a gate needing human hardware belongs
+  on the launch-readiness track, not in a build spec's acceptance criteria.
 
-**Count:** 5 shipped (SPEC-079, 080, 081, 095, 096) / 0 active / 0 framed. The original demo backlog
+**Count:** 6 shipped (SPEC-079, 080, 081, 095, 096, 101) / 0 active / 0 framed. The original demo backlog
 completed 2026-07-18; SPEC-096 added the maintainer-noticed pre-launch polish. STAGE-029
 content-complete, held active (close deliberately with STAGE-030). Strategy reconciliation RESOLVED (2026-07-14): the demo hero is the `web` flow — SPEC-080
 was reframed to it (after SPEC-085 defined `web`) and shipped; SPEC-081 scored the hero; SPEC-095

@@ -7,7 +7,7 @@
 task:
   id: SPEC-101
   type: chore
-  cycle: design
+  cycle: ship
   blocked: false
   priority: medium
   complexity: S
@@ -41,11 +41,56 @@ value_link: >
 # See AGENTS.md §4 and docs/cost-tracking.md. interface: claude-code |
 # claude-ai | api | ollama | other.
 cost:
-  sessions: []
+  sessions:
+    - cycle: build
+      interface: claude-code
+      model: claude-sonnet-5
+      tokens_total: 250000
+      duration_minutes: null
+      estimated_usd: 2.0
+      note: >
+        Build session on Sonnet — ORDER-OF-MAGNITUDE ESTIMATE, not a real
+        usage-object reading. Scope: the SSIMULACRA2 explainer links, the
+        "Updated" re-convert pulse, wiring the 7-file favicon set + the three
+        site.webmanifest fixes (absolute icon src -> relative for the
+        /crustyimg/ subpath, empty name/short_name, white theme colors on a
+        dark demo), and extending the browser smoke to cover all three.
+        Verified the manifest fix against a real subpath server rather than a
+        root-served dir, which is what makes the check meaningful. Paused
+        before the device gate (no device access) — see the process note.
+    - cycle: verify
+      interface: claude-code
+      model: claude-opus-4-8
+      tokens_total: 750000
+      duration_minutes: null
+      estimated_usd: 6.5
+      note: >
+        Finalize + verify on Opus (1M ctx) — ORDER-OF-MAGNITUDE ESTIMATE,
+        midpoint of the session's own ~$5-8 range. Finalized two loose ends
+        (gitignored the demo/_* dev harness, confirming it was never committed;
+        recorded the maintainer-decided device gate honestly) then verified the
+        three code items against the committed diff rather than the build's
+        prose. Both link targets curl 200 and the metric link is the "2" repo,
+        not v1. The favicon check carried a NEGATIVE CONTROL: on a real
+        /crustyimg/ subpath server the relative paths return 200 while the
+        root-absolute paths a leading slash would produce return 404 — proving
+        the trap was real and the fix clears it. Zero off-origin requests during
+        conversion; no src/ change; smoke and validate green.
+    - cycle: ship
+      interface: claude-code
+      model: claude-opus-4-8
+      tokens_total: null
+      estimated_usd: 0.3
+      recorded_at: 2026-07-22
+      note: >
+        orchestrator main loop — PR #109, CI CLEAN first try (all 5 commits
+        DCO-signed), squash-merge (fdd4447), bookkeeping. No DEC. Merge triggers
+        a Pages redeploy, so the demo goes live with the favicons and the
+        Updated signal.
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 1000000
+    estimated_usd: 8.8
+    session_count: 3
 ---
 
 # SPEC-101: demo polish v2 — SSIMULACRA2 explainer links + FF/Safari band check
@@ -245,10 +290,33 @@ Process-focused: how did the build go? What friction did the spec create?
 from the process-focused build reflection above.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — **Not put a gate that needs human hardware into a build spec's acceptance criteria.** A *gate*
+   produces a go/no-go answer; a *change* produces a diff. Folding the mobile device check into this
+   spec meant three finished, shippable code items sat blocked on devices no agent can reach, and it
+   pushed the build toward trying to reach a real browser however it could. The stage backlog already
+   has the right pattern — it lists the launch go/no-go as "(coordination, not a spec)". Device gates
+   belong on the launch-readiness track as a checklist the maintainer runs.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — Yes, the build/verify prompt shape: **when a task needs a browser, name the access path, not just
+   the browser.** This spec said "drive the demo on real Firefox and Safari" without saying *how*, and
+   the build reasonably read that as driving the maintainer's live session — hitting an accessibility
+   wall and enumerating personal tabs before stopping and self-reporting. The failure was the
+   instruction, not the judgment. Standing clause: *use a clean profile the automation owns; never
+   touch the human's running browser, tabs, history, or logged-in state; if a check needs their
+   hardware, produce a checklist for them instead.* For a visual check on a **public** URL, asking the
+   human is both cheaper and safer than any automation.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — **Yes — the demo can't open RAW, and RAW is a stated headline differentiator.** Dropping a `.DNG`
+   fails with a leaky internal error ("The image format Tiff is not supported"). Mechanism: RAW routing
+   is by file *extension* (`is_raw_extension(path: &Path)` → `extract_preview`), but every wasm entry
+   point calls `Image::from_bytes(bytes)` with no filename, so a DNG sniffs as TIFF and falls through.
+   `raw.rs` has no wasm cfg-gate, so the extraction code is likely *already compiled into the .wasm* and
+   merely unwired. That matters because the README says "sharp and squoosh can't open these at all" —
+   so a photographer testing the front-door demo hits exactly the gap the pitch promises to fill. A
+   design-time probe is written (feasibility, mobile memory on a 47 MP DNG, and the cleanest way to
+   thread an extension through the wasm surface); size the spec from its findings. Floor if the full
+   path proves expensive: have the demo detect RAW and say honestly that preview extraction lives in
+   the CLI, rather than leaking a decoder error.
+   Also still open, unchanged: the logo swap (outsourced, pending) for the demo's 🦀 placeholder.
