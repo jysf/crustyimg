@@ -179,28 +179,63 @@ it. If a phone can't run it, we need to know before the post, not after.
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
+- **Branch:** `spec-101-demo-pass` (off `main` @ fcef43c)
+- **PR (if applicable):** none yet — finalized and verified on-branch, held for the orchestrator to merge with maintainer go-ahead.
+- **All acceptance criteria met?** yes
 - **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
+  - none
 - **Deviations from spec:**
-  - [list]
+  - The three code items were built as one batch across three commits (score links + re-convert
+    "Updated" signal; favicons + `site.webmanifest` subpath fix; extended demo smoke). No engine/`src/`
+    change and no wasm rebuild, as specified.
+
+### Device gate (the launch go/no-go) — result: **PASS** *(maintainer-decided)*
+
+Recorded honestly, not inflated:
+
+- **iOS WebKit — PASS.** The demo was driven end-to-end on a real iPhone in **both Safari and
+  DuckDuckGo** (both WebKit): drop → convert → read score → download all worked. The batch included a
+  **real photo dropped straight from the iPhone Photos library** — iOS transcodes HEIC→JPEG on export, so
+  the demo received JPEG (not HEIC). The module Web Worker initialized, decode succeeded, and large
+  photos completed without the tab being killed.
+- **Desktop DuckDuckGo — PASS**, driven with the same real photo batch.
+- **Desktop Chrome / Firefox / Safari — PASS**, already proven in SPEC-078's multi-browser harness.
+- **Android Chrome (Blink) — NOT tested (no device); accepted on judgment.** The demo is static /
+  no-backend and would degrade gracefully; this is the one untested surface, accepted by the maintainer
+  as a launch-readiness call rather than a build blocker.
+- **Real-world note:** some highly detailed photos were "not terrible but could be faster" — this is the
+  known **single-threaded AVIF encode**, already the **#1 post-launch item (threading)** and already
+  disclosed in `BENCHMARKS.md`. Not a demo defect.
+- **Desktop `color-mix()` band:** accepted as part of the pass. The definitive one-line console check of
+  the computed band color was **not** run; the band was confirmed visually across the desktop browsers
+  above and degrades to `var(--muted)`/`var(--good)` if `color-mix()` is unsupported.
+
+*The device gate is a maintainer launch-readiness decision, not a build/verify pass/fail. It is recorded
+here as decided: PASS.*
+
 - **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - Post-launch #1 remains **threading the AVIF encode** (the "could be faster" observation above;
+    already tracked, already in `BENCHMARKS.md`).
+  - Android Chrome (Blink) real-device pass, if/when a device is available — accepted as untested for launch.
 
 ### Build-phase reflection (3 questions, short answers)
 
 Process-focused: how did the build go? What friction did the spec create?
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — Nothing blocking. The spec was concrete (exact URLs, exact manifest fixes, the `scheduleConvert`
+   line refs). The one judgment call was the re-convert signal's *form* — the spec offered options
+   (busy state / "Updated" pulse / explicit Apply); a brief non-intrusive "Updated" pulse was chosen so
+   the auto-rerun behavior stayed unchanged.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — No. `ergonomic-defaults` + the plain-voice comment rule covered the user-facing copy; the favicon
+   set and manifest fixes were fully specified.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Run the demo smoke against a `/crustyimg/`-subpath server from the start (not just root-served), so
+   the manifest's absolute-vs-relative `src` bug is caught mechanically rather than by reading — the
+   smoke now asserts the structural "no leading slash" property instead.
 
 ---
 
