@@ -94,3 +94,18 @@ project:
   verify sessions commit punch lists as an afterthought. Mechanical fix: a local pre-push hook, or
   make `-s` explicit in the verify prompt's commit instruction rather than relying on the house
   convention being remembered.
+
+- **Track the release binary size over time (a baseline, not a hard gate)** — SPEC-102 added
+  **+2,878,672 B (+22.4%)** in a single commit by moving AVIF into the default feature set. That was
+  a deliberate, measured, accepted trade — but it was only visible because the spec *asked* for the
+  measurement. Nothing in the repo would notice the same growth arriving as six smaller changes.
+  Wanted: a `just size`-style recipe reporting the release binary size, plus a **recorded baseline**
+  so drift is visible in a diff, and ideally a CI line that flags a jump past a threshold. Deliberately
+  **advisory, not a hard failure** — a legitimate feature can justify growth, and a gate that blocks
+  merges on size would just get bypassed.
+  Precedent to copy: the wasm side already does this well (`just wasm-size`, and SPEC-074's
+  ablation-measured 1.33 MB brotli budget). The native binary has no equivalent.
+  Design note from an earned lesson ([[assert-the-build-profile-structurally-not-by-size]]): keep the
+  **size** check baseline-keyed and *separate* from any structural build-profile assertion — "is it
+  built the right way" is a fingerprint question (strip, LTO), not a byte-count question, and
+  conflating them makes both flaky.

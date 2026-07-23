@@ -258,3 +258,20 @@ encode). Worth doing, clearly later.
   first among SSG integrations; the maintainer's own Eleventy photo blog is an actual site with
   actual photos and an actual build, which is what a plugin needs to be designed against instead
   of a toy fixture. Worth pairing the two when the manifest wave (#4) comes up.
+- **Add an install-footprint comparison to `BENCHMARKS.md`** — S, post-launch, pairs naturally with
+  the deploy-pipeline benchmark above (whose third axis is install cost). `BENCHMARKS.md` compares
+  size, speed and quality of the *output*; it says nothing about what each tool costs to *install*,
+  which is where the zero-dependency thesis is strongest and currently unevidenced. Ad-hoc numbers
+  measured 2026-07-23 on arm64 macOS, **indicative only — re-measure through a harness rather than
+  lifting these**: crustyimg **12.2 MB** as one static binary (~15.1 MB once AVIF is in the default
+  build); `npm i sharp` → **28 MB** of `node_modules`, of which **17 MB is
+  `@img/sharp-libvips-darwin-arm64`** and 9 MB a `wasm32` fallback you may never run; ImageMagick via
+  brew → **31 MB** plus **~86 MB** across 17 transitive dependencies.
+  **State the caveats or don't publish it:** it isn't apples-to-apples (ImageMagick's dependencies are
+  shared libraries other formulae also use, so the *marginal* cost on a populated machine is lower),
+  and it's one platform on one machine — the same caveat the rest of the doc already carries.
+  **The shape is the story, more than the totals:** sharp's footprint is dominated by a prebuilt
+  libvips matched to your platform, which is exactly the thing that breaks when a CI runner or an
+  architecture changes. crustyimg's is one artifact with nothing to match. That's the benchmark's
+  existing finding told from the other side — you pay some size and speed, and you get nothing to link
+  and nothing to go wrong on a different runner.
