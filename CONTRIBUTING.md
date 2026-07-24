@@ -42,10 +42,10 @@ Please make sure `cargo test`, `cargo clippy --all-targets -- -D warnings`, and
 `cargo fmt --check` are all green locally before pushing — these are the same gates
 CI enforces.
 
-A couple of codecs are opt-in compile-time features (`webp-lossy`, `avif`); the
-terminal `view` command is on by default and can be turned off with
-`--no-default-features` for a lean/headless build. If your change touches those
-paths, build and test the relevant feature combination too. See the
+`webp-lossy` (lossy WebP encode) is an opt-in compile-time feature; `avif` (AVIF
+encode) and the terminal `view` command are both on by default and can be turned
+off with `--no-default-features` for a lean/headless build. If your change
+touches those paths, build and test the relevant feature combination too. See the
 [README](README.md#feature-notes) for the feature matrix.
 
 ## Commit and PR conventions

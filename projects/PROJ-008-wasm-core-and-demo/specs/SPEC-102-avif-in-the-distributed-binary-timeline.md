@@ -22,3 +22,16 @@ Cycle prompts live in `prompts/SPEC-102-<cycle>.md`.
   the dist-config note). Honest limit: the *prebuilt* artifact can only be fully proven by cutting an
   irreversible tag, so verify everything provable pre-tag and mark the released-binary check as
   post-tag. Sonnet build / Opus verify. Complexity S.
+- [x] build — `Cargo.toml` `default = ["display", "watch", "avif"]` + both AVIF comment blocks rewritten;
+  `DEC-081` written (supersedes `DEC-020`, which got `superseded_by: DEC-081`). **Measured:** binary
+  +2,878,672 B (+22.4%), clean release compile +5.71 s (+23%), MSRV (1.90.0) still passes, byte-parity
+  confirmed (SHA-256 identical `-q80` AVIF vs a pre-spec `--features avif` build). Docs sweep by grep:
+  61→59 hits after fixing a genuinely missed `README.md` example line. **Found + fixed one thing the
+  spec didn't call out:** `justfile`'s `_wasm_features` relied on cargo's `default` list being AVIF-less
+  to make the SPEC-074 lean/no-AVIF wasm comparison lean — pinned it to `--no-default-features --features
+  avif` explicitly so this native-facing change couldn't silently break it. **Deviated** from the spec's
+  suggested "remove the test's `#[cfg(feature = "avif")]` gate" — that would break the lean CI job;
+  proved the same behavior change via the same test's pass/fail transition across commits instead (0
+  tests filtered on parent → 1 passed here). All gates green: `cargo test` default (783) + lean (763),
+  clippy/fmt/deny clean, `dist-workspace.toml` confirmed still feature-free. Full detail in the spec's
+  Build Completion section. → verify.

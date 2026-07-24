@@ -56,7 +56,7 @@ Apply to all subcommands (parsed before/around the subcommand).
 | `1` | Generic runtime error (decode/encode/op failed; includes an input that exceeds decode resource limits — see below). |
 | `2` | Usage error (bad args) — clap's standard code. |
 | `3` | Input not found / unreadable. |
-| `4` | Unsupported format / codec not built — an ENCODER (AVIF output without `--features avif`) or a DECODER (a `.heic` input without `--features heic`, SPEC-062/DEC-052). The message names the feature to rebuild with. |
+| `4` | Unsupported format / codec not built — an ENCODER (AVIF output on a `--no-default-features` lean build) or a DECODER (a `.heic` input without `--features heic`, SPEC-062/DEC-052). The message names the feature to rebuild with. |
 | `5` | Output write failed / refused (exists without `--yes`; name/path traversal; a symlinked destination, refused even with `--yes` — SPEC-034 / DEC-035). |
 | `6` | Partial batch failure (some inputs failed; summary on stderr). |
 | `7` | A check/gate was not satisfied (e.g. `diff --fail-under` scored below the threshold). Distinct from a runtime error so CI can tell "regression detected" from "couldn't run" (S9/SPEC-023, DEC-025). |
@@ -254,10 +254,11 @@ to stderr, and exits **6** (DEC-015); a single-input failure keeps its natural
 code (3/1/5); multi-input without `--out-dir` → exit **2**; missing input → exit
 **3**. An **unsupported or unbuilt target codec** → exit **4** (DEC-004) —
 resolved **once up front**, so even a multi-input convert to an unbuilt codec is a
-single exit 4, **not** a partial-batch exit 6. **AVIF** output is the off-by-default
-`avif` feature (SPEC-018, DEC-020): a `--features avif` build encodes `--format
-avif` (and `-o x.avif`) — pure-Rust via `ravif`, no system deps — while the default
-build keeps AVIF output at exit 4 with a "rebuild with --features avif" hint. **AVIF
+single exit 4, **not** a partial-batch exit 6. **AVIF** output is a **default**
+`avif` feature (SPEC-018/DEC-020, moved into `default` by SPEC-102/DEC-081): a
+plain build encodes `--format avif` (and `-o x.avif`) — pure-Rust via `ravif`, no
+system deps — while a `--no-default-features` (lean) build keeps AVIF output at
+exit 4 with a "rebuild with --features avif" hint. **AVIF
 input (decode) is not supported** (output-only v1; reading an `.avif` fails). **WebP**
 is a **pure-Rust DEFAULT format** (SPEC-019, DEC-021): `.webp` reads as INPUT (lossy +
 lossless) everywhere, and `--format webp` / `-o x.webp` write **lossless** WebP
@@ -269,7 +270,7 @@ quality knob: a WebP output is encoded **lossy** when a quality is set — an ex
 bare `convert --format webp`. (Because the WebP decoder ships by default, BOTH the
 byte-budget AND the perceptual searches drive WebP — the AVIF contrast.) `--max-size
 <SIZE>` (SPEC-017 + SPEC-021) fits the output under a byte budget for **every**
-format: a lossy target (**JPEG**, **AVIF** `--features avif`, **WebP**
+format: a lossy target (**JPEG**, **AVIF** (default), **WebP**
 `--features webp-lossy`) lowers quality first, and any target — lossy that still
 overflows, or a **lossless** one (PNG, lossless WebP) — then **downscales dimensions**
 until it fits (DEC-023), warning `scaled to WxH` (unless `--quiet`). Mutually

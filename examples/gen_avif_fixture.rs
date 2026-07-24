@@ -10,11 +10,13 @@
 //! Regen (from the repo root):
 //!
 //! ```sh
-//! cargo run --example gen_avif_fixture --features avif
+//! cargo run --example gen_avif_fixture
 //! ```
 //!
-//! Without `--features avif` this is a no-op that prints how to run it (so the
-//! example still compiles in the default `--all-targets` build).
+//! `avif` is a default feature (SPEC-102, DEC-081), so a plain `cargo run` picks
+//! it up with no flag. Only a build that drops it (e.g. `--no-default-features`)
+//! makes this a no-op that prints how to run it (so the example still compiles
+//! in the default `--all-targets` build either way).
 
 fn main() {
     #[cfg(feature = "avif")]

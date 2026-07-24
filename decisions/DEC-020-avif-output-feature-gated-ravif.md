@@ -21,7 +21,7 @@ repo:
 
 created_at: 2026-06-16
 supersedes: null
-superseded_by: null
+superseded_by: DEC-081   # avif flipped to ON by default (2026-07-22)
 
 affected_scope:
   - Cargo.toml

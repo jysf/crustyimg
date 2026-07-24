@@ -94,7 +94,7 @@ license_blocked:
     status: needs-verification
     current_fallback: "the `image` crate's baseline JPEG encoder (DEC-016 `-q`)."
     permissive_alternatives:
-      - "If jpegli upstream is permissive: a maintained pure-Rust or vendored-C binding behind an off-by-default feature (the AVIF/libwebp pattern)."
+      - "If jpegli upstream is permissive: a maintained pure-Rust or vendored-C binding behind an off-by-default feature (the webp-lossy pattern; avif was the same shape before SPEC-102/DEC-081 moved it into default)."
       - "zune-jpeg / other permissive encoders — evaluate quality."
     build_candidate: "n/a until the license question is answered."
     revisit_trigger: "Before any JPEG-quality spec; verify the actual license of jpegli-rs and reclassify (license-blocked vs c-dep-deferred vs adoptable)."

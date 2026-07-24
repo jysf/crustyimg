@@ -62,9 +62,11 @@ jobs:
         with:
           components: clippy
 
-      # AVIF output is the off-by-default `avif` feature (SPEC-018, DEC-020):
-      # pure-Rust via ravif/rav1e — no nasm / system libs needed. Single runner
-      # (the default cross-OS matrix above already covers the no-feature build).
+      # AVIF output (SPEC-018, DEC-020) is a DEFAULT feature as of SPEC-102/
+      # DEC-081, so the `check` job above already exercises it — this job now
+      # pins the explicit flag as a belt-and-suspenders check that `--features
+      # avif` alone (without the other defaults) still builds/tests/lints clean.
+      # Pure-Rust via ravif/rav1e — no nasm / system libs needed. Single runner.
       - name: Build (--features avif)
         run: cargo build --features avif --verbose
 

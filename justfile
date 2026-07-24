@@ -138,10 +138,20 @@ lint-images *paths=".":
 _wasm_bin := `rustup which --toolchain stable rustc | xargs dirname`
 
 # The feature set the SHIPPED wasm artifact is built with (DEC-065). `avif` costs
-# +345 KB brotli and buys the demo's headline (PNG → AVIF in the browser). Override
-# to build the LEAN artifact — the no-AVIF comparison SPEC-074 measures against:
-#     just --set _wasm_features "" wasm-build
-_wasm_features := "--features avif"
+# +345 KB brotli and buys the demo's headline (PNG → AVIF in the browser).
+# `--no-default-features` is DELIBERATE here, not redundant: `avif` became a
+# default NATIVE feature in SPEC-102/DEC-081, so if this recipe relied on cargo
+# defaults the way it used to, the LEAN override below would silently stop being
+# lean. Pinning the wasm feature set explicitly, independent of the native
+# `default` list, is what keeps the two decisions decoupled. Override to build the
+# LEAN artifact — the no-AVIF comparison SPEC-074 measures against. Note the
+# leading space in the value: `just` itself parses a `--set` value starting with
+# `--` as an unknown flag and errors before the recipe ever runs (verified —
+# without the space, `--set _wasm_features "--no-default-features"` fails with
+# "unexpected argument"). The space is required, not decorative; the recipe's
+# shell command collapses the resulting double space harmlessly.
+#     just --set _wasm_features " --no-default-features" wasm-build
+_wasm_features := "--no-default-features --features avif"
 
 # The SIZE PROFILE for the wasm artifact (SPEC-074, DEC-066) — fat LTO across the
 # whole graph with a single codegen unit, worth ~116 KB brotli at zero cost to
