@@ -11,6 +11,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+### Deprecated
+
+### Removed
+
+### Fixed
+
+### Security
+
+---
+
+## [0.6.0] - 2026-07-24
+
+A small release with one behavior change: AVIF now works out of the box. Also
+adds published benchmarks and the WebAssembly library on npm.
+
+### Added
+
+- **`crustyimg-wasm` on npm** — the engine compiled to WebAssembly, installable
+  with `npm install crustyimg-wasm`. It runs client-side in the browser or in
+  Node: no native addon, no postinstall build step, and no dependencies. Same
+  engine as the CLI, so a recipe behaves the same in both.
+- **`BENCHMARKS.md`** — an equal-quality comparison against sharp, ImageMagick,
+  `@squoosh/cli`, and cwebp over real photographs, with the machine, the pinned
+  tool versions, and the exact commands stated so you can check it. Every tool's
+  output is scored with the same perceptual metric rather than compared at
+  whatever quality it happened to produce. crustyimg is neither the smallest nor
+  the fastest, and the document says where it loses and why. Re-run it on your
+  own images with `just bench-compare --corpus /path/to/photos`.
+
+### Changed
+
 - **AVIF encode is now in the default build.** Every distributed binary
   (Homebrew, the Releases-page downloads, the shell/PowerShell installers,
   and a plain `cargo install crustyimg`) now includes the AVIF encoder with
@@ -20,13 +51,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   change the output file for the same command and input. A
   `--no-default-features` (lean) build still leaves AVIF out.
 
-### Deprecated
-
-### Removed
-
 ### Fixed
 
-### Security
+- The README quoted a median saving of 98%; re-measuring the same corpus with
+  the same command gives 97%. Corrected.
 
 ---
 
@@ -391,6 +419,7 @@ re-decoded, so privacy ops carry no quality cost and no recompression.
 ---
 
 [Unreleased]: https://github.com/jysf/crustyimg/compare/v0.5.0...HEAD
+[0.6.0]: https://github.com/jysf/crustyimg/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/jysf/crustyimg/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/jysf/crustyimg/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/jysf/crustyimg/compare/v0.3.0...v0.3.1
