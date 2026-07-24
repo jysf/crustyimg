@@ -540,6 +540,100 @@ Process-focused: how did the build go? What friction did the spec create?
    script's assumptions in a way no doc-string grep catches, and the
    `justfile` sits right at that boundary (it's neither "docs" nor "src/").
 
+### Build Completion — Fix Pass 2 (CI red on `webp-lossy feature (build / test / clippy)`)
+
+*A third build-cycle pass, against `main`-rebased `spec-102-avif-default` @ 9d51830. CI's
+`webp-lossy` feature leg failed a test that Fix Pass 1's item D did not touch (a different test,
+newly exercised in that leg for the first time — see diagnosis below).*
+
+- **Failure:** `optimize_default_photo_picks_avif_single_encode` (`tests/cli.rs`) failed only under
+  `cargo test --features webp-lossy` — `assert_eq!` on the output extension expected `"avif"`, got
+  `"webp"`. Every other CI leg was green.
+- **Why it surfaced now:** this test is `#[cfg(feature = "avif")]`-gated, so before SPEC-102 it only
+  ever compiled under an explicit `--features avif` build. Once `avif` became a **default** feature,
+  it started compiling into every feature combination that doesn't disable defaults — including the
+  `webp-lossy` CI leg (`cargo build --features webp-lossy`, which *adds* to the default set, it
+  doesn't replace it), which had never run this test before. Same class of surprise as the two tests
+  Fix Pass 1 rewrote (item D) — a feature-default flip changes which `cfg` **combinations**, not just
+  which flags, exercise a given path — but a distinct test, since Fix Pass 1's sweep was scoped to
+  load-flakiness under `--features avif` alone and had no reason to anticipate a `webp-lossy`
+  combination it wasn't yet running.
+- **Diagnosis (a vs b) — driven, not assumed.** Per the fix-pass instructions, I did not touch the
+  test until confirming which case this was. Ran the exact failing fixture with `--json` added
+  (`cargo test --features webp-lossy optimize_default_photo_picks_avif_single_encode -- --nocapture`,
+  reading the raw log directly since the `rtk` proxy hook truncates `cargo test` stdout — see
+  [[rtk-can-silently-corrupt-grep-counts]]) and inspected the `--explain` candidate list:
+  ```
+  source_bytes: 3621
+  candidates: [
+    {"format":"avif","disposition":"lossy","quality":85,"bytes":525,"met_target":true},
+    {"format":"webp","disposition":"lossy","quality":85,"bytes":372,"met_target":true},
+    {"format":"jpeg","disposition":"lossy","quality":85,"bytes":3861,"met_target":true}
+  ]
+  winner: 1 (webp, 372 B)
+  ```
+  This is **case (a): the test was too strong.** AVIF *is* admitted as a candidate (present in the
+  shortlist, `met_target: true`) — exactly what `format_shortlist`/`avif_admissible`
+  (`src/analysis/decide.rs`) promise. But `pick_winner`'s actual contract is "smallest admitted
+  candidate that beats the source, modulo the clear-win guard against the *source-format* candidate"
+  (`src/analysis/decide.rs:211-254`) — it has never promised "AVIF always wins the byte race
+  regardless of what else is compiled in." On this specific tiny synthetic fixture
+  (`common::jpeg_with_exif(256, 256)`, a 256×256 grayscale gradient — `entropy=7.50`,
+  `edge_ratio=0.00`, `flat_ratio=1.00`, 192 unique colors), lossy WebP genuinely out-encodes AVIF's
+  fixed q85 candidate (372 B vs 525 B) — a real, deterministic property of this fixture at these
+  fixed qualities, not flakiness (re-ran the same command twice, byte counts identical both times).
+  JPEG (3861 B) never wins regardless — it doesn't beat the 3621 B source at all. Not case (b): AVIF
+  was not incorrectly excluded or beaten by a candidate that shouldn't have been admitted; the engine
+  correctly shipped the objectively smaller of two admitted, target-meeting candidates. No engine
+  change made or needed; nothing filed as a separate decision.
+- **Fix:** rewrote the test to assert the contract, not the extension — the same shape Fix Pass 1's
+  item D already established for the other two load-flaky tests (`--json` + assert
+  `"format":"avif"` is present in the `--explain` candidates array = admission, independent of which
+  candidate's bytes win). Specifically:
+  - Added `--json` to the `optimize` invocation and asserted the report contains
+    `"format":"avif"` (AVIF admitted as a candidate for a photographic source).
+  - Replaced the hard-coded `Some("avif")` extension check with: the output extension must be
+    `avif` or `webp` (a modern lossy re-encode — explicitly rejecting a bare JPEG passthrough, which
+    would indicate the fast decision failed to modernize at all), and the decoded bytes must match
+    whichever extension shipped.
+  - Kept unchanged: the "beats the source" byte-count assertion and the `elapsed.as_secs() < 20`
+    timing assertion (still valid regardless of which admitted candidate wins — both are single
+    fixed-quality encodes, not the byte-budget search).
+  - Updated the doc comment to explain *why* the assertion is admission-shaped, citing the measured
+    372 B vs 525 B split on this exact fixture so a future reader doesn't mistake this for
+    unexplained hedging.
+- **Verified:** `cargo test --features webp-lossy optimize_default_photo_picks_avif_single_encode`
+  — 1 passed; `cargo test optimize_default_photo_picks_avif_single_encode` (default features, no
+  `webp-lossy`) — 1 passed (this fixture still has only AVIF/JPEG admitted without `webp-lossy`
+  built, AVIF 525 B beats JPEG's 3861 B and the 3621 B source, so it's still the winner there — the
+  rewritten assertions hold in both shapes); `cargo test --test cli --features webp-lossy` — full
+  suite, **129 passed, 0 failed** (confirms the two Fix-Pass-1 tests and this one all coexist clean
+  under the leg that was red); `cargo clippy --all-targets --features webp-lossy -- -D warnings` —
+  clean.
+- **Full local feature matrix run (the gap that let this through — CI's per-leg jobs aren't run
+  combined locally by default), all exit 0. Counts are summed from each run's own `test result:`
+  lines (32 suites/binaries every time — unit tests + 31 integration-test crates), not estimated:**
+  | Combination | `cargo build --verbose` | `cargo test --verbose` | `cargo clippy --all-targets -- -D warnings` |
+  |---|---|---|---|
+  | default (`avif,display,watch`) | ✓ | ✓ **783 passed, 0 failed** | ✓ |
+  | `--no-default-features` (lean) | ✓ | ✓ **763 passed, 0 failed** | ✓ |
+  | `--features avif` | ✓ | ✓ **783 passed, 0 failed** (identical to default — `avif` is already in the default set, so this leg is a no-op addition, per the CI comment calling it a "belt-and-suspenders" pin) | ✓ |
+  | `--features webp-lossy` | ✓ | ✓ **790 passed, 0 failed** (the leg that was red before this pass's fix) | ✓ |
+  | `--features heic` (system `libheif` 1.23 via Homebrew, present locally) | ✓ | ✓ **789 passed, 0 failed** | ✓ |
+  | `--features avif,webp-lossy` | ✓ | ✓ **790 passed, 0 failed** (same as `webp-lossy` alone, for the same reason `avif` alone matches default) | ✓ |
+
+  `heic` was buildable and run locally this pass (`pkg-config --exists libheif` confirmed present) —
+  CI's `heic` job additionally covers Ubuntu/Windows-unsupported-path legs this local run does not,
+  per the existing CI comments.
+- **Gates:** `just validate` — 227 front-matter blocks parse, clean; `just check` (`fmt-check` +
+  `lint` + `build` + `test`, default features) — `✓ all gates passed`.
+- **No published number moved:** `git diff --stat` for this pass shows a single file touched,
+  `tests/cli.rs` (40 insertions, 13 deletions — the one test's doc comment + body). `Cargo.toml`,
+  `CHANGELOG.md`, `BENCHMARKS.md`, and every measured figure from Fix Pass 1 are untouched.
+- **Scope discipline held:** `webp-lossy` remains opt-in and absent from `dist-workspace.toml`
+  (DEC-052 unaffected); no change was made to `src/analysis/decide.rs` or any other engine code:
+  this was a test-correctness fix responding to case (a), not a decision-engine change.
+
 ---
 
 ## Reflection (Ship)
