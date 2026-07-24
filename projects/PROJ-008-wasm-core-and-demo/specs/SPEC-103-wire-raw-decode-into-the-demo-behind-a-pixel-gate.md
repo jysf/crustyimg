@@ -7,7 +7,7 @@
 task:
   id: SPEC-103
   type: story                      # epic | story | task | bug | chore
-  cycle: design                    # frame | design | build | verify | ship
+  cycle: build  # frame | design | build | verify | ship
   blocked: false
   priority: medium
   complexity: M                    # S | M | L  (L means split it)
@@ -264,18 +264,16 @@ Written during **design**, before build.
 
 ## Notes for the Implementer
 
-- **The threshold is a product decision — surface it, don't bury it.** Framing default
-  is **40 MP**: it passes the measured-safe 2.46 MP RAF and typical full-frame
-  previews (24 MP), and catches the measured-risky 46.7 MP Leica. The maintainer
-  asked for permissive-not-conservative, so err high, keep it ONE named constant, and
-  record the safe/risky bracket (2.46 MP OK ↔ 46.7 MP ≈ 320 MB peak) in DEC-082 so
-  whoever tunes it on a phone has the data. **Confirm the exact default number with
-  the maintainer before shipping** — it's the one value the whole spec pivots on.
-- **User-facing copy needs a maintainer draft-review** ([[comments-plain-no-spec-refs]]).
-  Draft for the "too large" fallback: *"This RAW's built-in preview is very
-  high-resolution — convert it with the crustyimg CLI instead."* Draft for
-  "no preview": *"Couldn't find a preview image inside this RAW file."* Show these
-  before finalizing; keep them on the demo's plain voice.
+- **The threshold is a product decision, and it is settled: 40 MP** (maintainer-confirmed
+  2026-07-24). It passes the measured-safe 2.46 MP RAF and typical full-frame previews
+  (24 MP), and catches the measured-risky 46.7 MP Leica (~320 MB peak). Keep it ONE
+  named constant, and record the safe/risky bracket (2.46 MP OK ↔ 46.7 MP ≈ 320 MB
+  peak) in DEC-082 so whoever tunes it on a phone has the data. The default ships as-is;
+  on-device tuning is a post-ship launch-readiness step, not a build decision.
+- **User-facing copy is maintainer-approved (2026-07-24)** — ship these verbatim:
+  - "too large" fallback: **"This RAW's built-in preview is very high-resolution — convert it with the crustyimg CLI instead."**
+  - "no preview": **"Couldn't find a preview image inside this RAW file."**
+  Plain voice, behavior-first, no internal symbols ([[comments-plain-no-spec-refs]]).
 - **Gate before allocating.** The whole point of the pre-check is to *not* allocate
   ~232 MB for a preview you're about to reject. Peek declared SOF dims first; reject
   on the header, exactly like `raw_preview_rejects_oversize_embedded_jpeg_before_decode`.
