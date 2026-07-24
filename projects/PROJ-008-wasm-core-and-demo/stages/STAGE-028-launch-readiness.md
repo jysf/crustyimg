@@ -100,19 +100,26 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
   `--self-test` 24/24. README's stale 98% corrected to 97%. **5 build / 4 verify passes caught five real
   defects** (squoosh squashed on 6 of 8, portrait mis-sizing, per-core not iso-quality, `web` rows at the
   wrong operating point, a guard advertising reach it lacked) — four invisible to number-checking alone.
-- [~] SPEC-102 (design — framed build-ready 2026-07-22) — **AVIF in the distributed binary.** The gap
-  SPEC-083 surfaced: cargo-dist builds default features only and `avif` is off by default, so Homebrew,
-  the Releases binaries and plain `cargo install crustyimg` all lack the flagship path — BENCHMARKS.md
-  itself has to tell readers to add `--features avif`. Fix is one line in `Cargo.toml`
-  (`default = [... , "avif"]`), NOT a `features` key in the dist config, which would miss `cargo
-  install` and erode the DEC-052 `heic` guard. A BEHAVIOR change (`Mode::Fast` can then admit AVIF, so
-  `web`/`optimize` outputs move) → DEC-081 + a headline CHANGELOG entry. Measure size/compile-time/MSRV
-  rather than assume; docs sweep verified by grep + hit count. **Blocks cutting 0.6.0.**
+- [x] SPEC-102 (shipped 2026-07-24, PR #110 `afd9f4e`, DEC-081, ~$19.4 / 6 sessions) — **AVIF in the
+  distributed binary.** `default = ["display","watch","avif"]` — one line in `Cargo.toml`, deliberately
+  NOT a `features` key in the dist config (which would have missed `cargo install` and eroded DEC-052's
+  heic guard; the dist config still carries zero features keys). A **behavior change**: `web`/`optimize`
+  can now pick AVIF where they previously couldn't, headlined in the CHANGELOG. Measured, and reproduced
+  bit-exactly by verify: **+22.4% binary (+22.5% on the dist profile that actually ships)**, +23% compile,
+  MSRV 1.90.0 unaffected, AVIF output SHA-256 identical to a pre-spec `--features avif` build.
+  **2 verify passes + 2 fix passes caught: a live "AVIF is opt-in" overclaim inside the harness that
+  produces BENCHMARKS.md (survived because the cited sweep's `--include` was blind to `.py`/`.mjs`/
+  `.yaml`/`justfile`), a DEC citing a `[profile.release]` table that doesn't exist, a justfile override
+  that never parsed, and three tests that were flaky or asserting implementation details.** The last was
+  a genuinely useful finding: on a small synthetic gradient lossy WebP beats AVIF on merit (372 B vs
+  525 B) — the content-aware branch working correctly, and the differentiator BENCHMARKS can't yet show.
+  ⚠ **Reaches users only when 0.6.0 is cut** — the Releases binaries and the Homebrew formula are still
+  0.5.0, i.e. still AVIF-less.
 - [ ] (coordination, not a spec) — the **Show HN go/no-go**: `docs/launch-readiness.md` blockers
   green, `crustyimg-wasm` published (SPEC-076, on approval), post drafted → launch.
 
-**Count:** 3 shipped (SPEC-082 README front-door, SPEC-100 RAW/recipes/CI, SPEC-083 BENCHMARKS) / 0
-active + the launch go/no-go. **0.5.0 SHIPPED 2026-07-20** (frozen CLI + caret + README, live on
+**Count:** 4 shipped (SPEC-082 README front-door, SPEC-100 RAW/recipes/CI, SPEC-083 BENCHMARKS, SPEC-102
+AVIF-default) / 0 active + the launch go/no-go. **0.5.0 SHIPPED 2026-07-20** (frozen CLI + caret + README, live on
 crates.io/brew/Release, demo footer 0.5.0); `crustyimg-wasm@0.5.0` live on npm. **Remaining before the
 r/rust launch, in order:** (1) **demo pass** — favicons + `site.webmanifest` subpath fix + SPEC-101
 (SSIMULACRA2 explainer links, FF/Safari `color-mix()` band check, a visible re-convert signal) + the

@@ -109,3 +109,13 @@ project:
   **size** check baseline-keyed and *separate* from any structural build-profile assertion — "is it
   built the right way" is a fingerprint question (strip, LTO), not a byte-count question, and
   conflating them makes both flaky.
+
+- **`just wasm-size`'s banner mislabels a lean build** — found by SPEC-102's re-verify, pre-existing but
+  only *reachable* since that spec made the `--set _wasm_features` override actually parse. `justfile:197`
+  calls `@just wasm-size` as a **nested** `just` invocation, which does not inherit `--set`, so it re-reads
+  the default feature list. Same artifact, same bytes, two different labels: `wasm-build` prints
+  "features: --no-default-features --features avif" while `wasm-size` prints " --no-default-features".
+  Corrupts nothing today — SPEC-102's own check used `cargo tree`, not the banner — but it is a live trap
+  for whoever next runs the documented command to re-measure SPEC-074's **lean wasm baseline**, which is
+  exactly the number a mislabelled banner would poison. Fix: pass the feature set through explicitly, or
+  have `wasm-size` take it as a parameter rather than re-deriving it.

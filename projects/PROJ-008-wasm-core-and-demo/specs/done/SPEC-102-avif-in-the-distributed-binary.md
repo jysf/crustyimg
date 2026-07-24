@@ -7,7 +7,7 @@
 task:
   id: SPEC-102
   type: chore
-  cycle: design
+  cycle: ship
   blocked: false
   priority: high
   complexity: S
@@ -60,6 +60,25 @@ cost:
         under both the shipped and lean feature sets, and fixing a latent
         justfile regression (the SPEC-074 lean wasm comparison) the spec
         itself didn't flag.
+    - cycle: verify
+      interface: claude-code
+      model: claude-opus-4-8
+      tokens_total: 700000
+      duration_minutes: null
+      estimated_usd: 8.0
+      note: >
+        First verify on Opus 4.8 (1M ctx) — RECONSTRUCTED AT SHIP from the
+        session's own ~$7-9 range; ORDER-OF-MAGNITUDE ESTIMATE. Re-measured the
+        binary-size delta independently and reproduced it BIT-EXACTLY twice, plus
+        the dist profile that actually ships (+22.49%); ran the real CI msrv legs
+        at 1.90.0; drove the DEC-052 heic guard rather than reading it; reproduced
+        the parent-vs-spec AVIF transition on real binaries. Outcome: NOT-CLEAN on
+        four findings — a live "opt-in" overclaim in scripts/bench-compare.py that
+        the cited sweep's --include filter was structurally blind to, a DEC-081
+        profile mislabel, a justfile override that did not parse, and two
+        load-flaky web tests. Caught and redid its own false-positive byte-parity
+        result (a stale output file), then added a negative control proving the
+        check can detect a difference.
     - cycle: build
       interface: claude-code
       model: claude-sonnet-5
@@ -89,10 +108,64 @@ cost:
         Re-ran the full gate suite (`just validate`, `just check`, lean
         build/test/clippy, `cargo fmt --check`, `just deny`, wasm-check under
         both feature sets) — all green, no published number moved.
+    - cycle: verify
+      interface: claude-code
+      model: claude-opus-4-8
+      tokens_total: 300000
+      duration_minutes: null
+      estimated_usd: 3.5
+      note: >
+        Re-verify on Opus 4.8 (1M ctx), scoped to the four findings —
+        ORDER-OF-MAGNITUDE ESTIMATE. Re-derived the docs sweep independently
+        rather than confirming it (446 hits/118 files widened, set-differenced
+        against the claimed set; all 9 extra hits read in context and correctly
+        describe the feature MECHANISM, not an opt-in default). Drove the justfile
+        override with a negative control and confirmed via cargo tree that the
+        lean wasm build genuinely excludes rav1e/ravif. Proved the rewritten tests
+        NON-VACUOUS by mutating the admission site while keeping the feature on —
+        both failed on the admission assertions. Verdict CLEAN; flagged one
+        newly-reachable latent trap (a nested `just wasm-size` does not inherit
+        --set, so a lean build mislabels its own size banner) and noted that the
+        rtk hook silently corrupted rg counts twice during the session.
+    - cycle: build
+      interface: claude-code
+      model: claude-sonnet-5
+      tokens_total: 300000
+      duration_minutes: null
+      estimated_usd: 1.75
+      note: >
+        Second fix pass on Sonnet — RECONSTRUCTED AT SHIP (the session reported no
+        cost); ORDER-OF-MAGNITUDE ESTIMATE. CI went red on the `webp-lossy` leg,
+        a feature combination no local gate covered: making avif a DEFAULT feature
+        meant optimize_default_photo_picks_avif_single_encode began running in a
+        leg where a lossy-WebP encoder also competes. DIAGNOSED BEFORE FIXING and
+        it was the test, not the engine — `--json` showed source 3621 B ->
+        avif 525 B, webp 372 B, jpeg 3861 B, so lossy WebP genuinely out-encodes
+        fixed-quality AVIF on that tiny synthetic gradient. pick_winner's contract
+        is "smallest admitted candidate that beats the source", never "AVIF always
+        wins"; the test asserted an implementation detail. Rewritten to assert
+        AVIF's ADMISSION plus a modern-format winner. No engine code touched. Also
+        ran the full local feature matrix (default/lean/avif/webp-lossy/heic/
+        avif+webp-lossy) — the gap that let this reach CI.
+    - cycle: ship
+      interface: claude-code
+      model: claude-opus-4-8
+      tokens_total: null
+      estimated_usd: 0.5
+      recorded_at: 2026-07-24
+      note: >
+        orchestrator main loop — rebased onto main (the branch was behind; a
+        stale-base diff made my own docs commits render as deletions, resolved by
+        diffing from the merge-base instead), PR #110, CI red then green, and an
+        INLINE non-vacuity check on the final test rewrite rather than a fresh
+        session: mutating `avif: cfg!(feature = "avif")` to false made it fail on
+        the right assertion with the candidate list collapsed to JPEG-only.
+        Squash-merge (afd9f4e) + bookkeeping, including reconstructing the four
+        cost sessions missing from this ledger.
   totals:
-    tokens_total: 1050000
-    estimated_usd: 5.65
-    session_count: 2
+    tokens_total: 2350000
+    estimated_usd: 19.4
+    session_count: 6
 ---
 
 # SPEC-102: AVIF in the distributed binary
@@ -389,7 +462,7 @@ re-measured here — this pass is docs/robustness only.*
     | grep -Ei "opt-in|off.by.default|off in the default|not built|--features avif"
   ```
 
-  **69 hits across 27 files before this pass's edits (already reflecting B(i)'s
+  **69 hits across 28 files before this pass's edits (already reflecting B(i)'s
   fix), 67 across 28 files after.** Every hit was read in file context and
   classified, not just counted:
   - **Fixed, beyond what verify named:** `examples/gen_avif_fixture.rs`'s doc
@@ -642,10 +715,34 @@ newly exercised in that leg for the first time — see diagnosis below).*
 from the process-focused build reflection above.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — **Run the feature matrix locally before handing off, not after CI goes red.** The one-line
+   change was correct on the first try; every subsequent cycle came from *combinations* nobody
+   exercised. The `webp-lossy` leg failed because making `avif` default silently changed which cfg
+   combinations run which tests — the same shape as the wasm lesson from SPEC-073, one level up. The
+   final fix pass now runs default / lean / avif / webp-lossy / heic / avif+webp-lossy locally; that
+   should have been in the spec's own acceptance criteria from the start, since the spec's whole
+   premise is "turning a feature on by default changes what runs."
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — Yes, one real sharpening: **citing a grep is not enough — the grep's SCOPE is itself a claim.**
+   The build satisfied the letter of the "cite the grep and the hit count" criterion, but its
+   `--include=*.{rs,md,toml,yml}` was structurally blind to `.py`, `.mjs`, `.yaml` and the
+   extensionless `justfile`, which is where the one live overclaim survived. Verify proved the
+   blindness with a control showing those files score zero against a pattern they clearly match.
+   The criterion should read: cite the grep, the hit count, **and the file types it can and cannot
+   see** — or better, run it scope-free and triage. Also banked separately: the rtk proxy silently
+   corrupted `rg -c`/`-l` counts to zero during verify, which would make an incomplete sweep look
+   complete; sweep evidence needs a positive control.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — No new spec, but three things filed rather than lost: (a) the **`just wasm-size` banner
+   mislabel** — a nested `just` invocation doesn't inherit `--set`, so a lean wasm build prints the
+   shipped feature label; harmless today but a live trap for whoever next re-measures SPEC-074's lean
+   baseline (→ `docs/repo-tooling-backlog.md`). (b) **0.6.0 must be cut** for any of this to reach a
+   user — the released binaries and the Homebrew formula are still 0.5.0, i.e. still AVIF-less, and
+   confirming AVIF in the *prebuilt* artifact is explicitly a post-tag check. (c) The diagnosis
+   surfaced a genuinely useful product fact worth evidencing publicly: **AVIF is not universally
+   smallest** — on a small synthetic gradient lossy WebP won on merit (372 B vs 525 B). That is the
+   content-aware branch working correctly, and it is exactly the differentiator BENCHMARKS cannot
+   currently show, because every corpus photo is a photograph. Strengthens the case for the
+   corpus-diversity backlog item.
