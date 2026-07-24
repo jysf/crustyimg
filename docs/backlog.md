@@ -275,3 +275,30 @@ encode). Worth doing, clearly later.
   architecture changes. crustyimg's is one artifact with nothing to match. That's the benchmark's
   existing finding told from the other side — you pay some size and speed, and you get nothing to link
   and nothing to go wrong on a different runner.
+- **Provenance that survives a screenshot (invisible watermark + C2PA)** — L, post-1.0,
+  **research-gated**. The question: can you mark an image so its origin is still recoverable
+  after a screenshot or a copy+paste? Mechanism decides the answer, and the split is sharp:
+  a screenshot re-renders pixels and carries **no** metadata, and copy+paste usually transfers
+  a bitmap only — so **EXIF, XMP and C2PA manifests all die to both**. Only a signal carried in
+  the *pixels* survives.
+  **The standard architecture is a pairing, not a choice.** C2PA / Content Credentials gives you
+  a signed manifest that is rich but fragile; a **soft binding** — a robust invisible watermark
+  or perceptual fingerprint — is tiny but durable, and carries an identifier that lets the
+  manifest be recovered from a registry afterwards. Google's SynthID and Digimarc are the same
+  shape. (Verify against current C2PA specs when this is picked up; the area moves.)
+  **Why crustyimg is unusually well placed:** the `watermark` verb already exists
+  (`--image`/`--text`), so this extends a surface rather than inventing one — and **SSIMULACRA2
+  can measure whether the mark is genuinely imperceptible**, which most implementations cannot
+  do for themselves. That turns "invisible" from a claim into a number, which is this project's
+  whole posture.
+  ⚠ **Probe the dependency before framing anything.** Does a permissive, pure-Rust robust
+  watermarking crate exist? If it needs a C library, it breaks the zero-dependency thesis and
+  belongs on `guidance/license-watchlist.yaml` with a revisit trigger instead. This decides
+  feasibility, so it is a design-time probe, not a build task.
+  ⚠ **Resolve the direction conflict deliberately.** `web` *strips* metadata by default, for
+  privacy — the tool currently removes provenance on purpose. Adding it back in pixel form is a
+  change of stance, and the privacy story would need restating honestly rather than quietly.
+  **Accept the tradeoff triangle up front:** robustness, imperceptibility and payload capacity
+  trade against each other. A mark that survives screenshot + rescale + recompression carries
+  **tens of bits** — an identifier, not a story — and nothing is unbreakable under cropping,
+  rotation or deliberate attack. Claim that honestly or not at all.
