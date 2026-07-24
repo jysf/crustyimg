@@ -60,10 +60,39 @@ cost:
         under both the shipped and lean feature sets, and fixing a latent
         justfile regression (the SPEC-074 lean wasm comparison) the spec
         itself didn't flag.
+    - cycle: build
+      interface: claude-code
+      model: claude-sonnet-5
+      tokens_total: 450000
+      duration_minutes: null
+      estimated_usd: 2.40
+      note: >
+        Fix pass on Sonnet, responding to verify's not-clean findings —
+        ORDER-OF-MAGNITUDE ESTIMATE, not a real usage-object reading. Scope:
+        bench-compare.py's overclaim (both the docstring and the --bin/sys.exit
+        hints); re-running the docs sweep with .py/.mjs/.yaml/justfile added to
+        the grep --include set (69→67 hits across 28 files) and independently
+        re-triaging every surviving hit rather than taking the prior triage,
+        which turned up one real miss outside the named file types
+        (examples/gen_avif_fixture.rs's "no-op without --features avif" doc
+        comment, false now that avif defaults on) plus a precision fix to
+        license-watchlist.yaml's stale "AVIF/libwebp" off-by-default citation;
+        DEC-081's profile mislabel (no `[profile.release]` table exists, only
+        `[profile.dist]`) plus adding verify's independently-measured
+        dist-profile delta; the justfile:148 `--set` override, which failed to
+        parse (`just` reads a value starting with `--` as a flag) — fixed with
+        a documented leading-space form and driven for real (`wasm-check` and
+        a full `wasm-build`, confirmed via `cargo tree` that rav1e/ravif are
+        genuinely absent from the lean wasm dependency graph); and rewriting
+        two load-flaky tests to assert AVIF's candidate ADMISSION via the
+        `--json` explain trace instead of which candidate won the byte race.
+        Re-ran the full gate suite (`just validate`, `just check`, lean
+        build/test/clippy, `cargo fmt --check`, `just deny`, wasm-check under
+        both feature sets) — all green, no published number moved.
   totals:
-    tokens_total: 600000
-    estimated_usd: 3.25
-    session_count: 1
+    tokens_total: 1050000
+    estimated_usd: 5.65
+    session_count: 2
 ---
 
 # SPEC-102: AVIF in the distributed binary
@@ -326,6 +355,164 @@ reconcile every doc that currently tells readers AVIF is opt-in.
     artifact is **not** verified by this build — only a local default-feature
     build. That confirmation is a **post-tag** check when 0.6.0 actually
     cuts.
+
+### Build Completion — Fix Pass (responding to verify's not-clean findings)
+
+*A second build-cycle pass, made against `main` @ 096789c-rebased (docs/roadmap.md
++ docs/backlog.md only, no overlap). The feature flip, the measured numbers, and
+byte parity were confirmed correct by verify and were NOT re-litigated or
+re-measured here — this pass is docs/robustness only.*
+
+- **B(i) — `scripts/bench-compare.py`'s overclaim, fixed.** The docstring
+  (`"the flagship AVIF path is a pure-Rust opt-in; cargo install crustyimg
+  --features avif"`) and two more spots verify didn't separately name but which
+  carried the same claim — the `--bin PATH` usage line ("crustyimg binary built
+  `--features avif`") and the `find_crustyimg` `sys.exit` hint
+  (`` `cargo build --release --features avif` ``) — all now read plain (`cargo
+  install crustyimg` / `cargo build --release`, avif built in by default),
+  matching `BENCHMARKS.md`'s own corrected wording. The one surviving
+  `--features avif` mention in this file (the "shipped 0.5.0 engine built
+  `--features avif`" line, describing how *that specific benchmark run* was
+  built) is historical, matching `BENCHMARKS.md`'s own retained "crustyimg
+  0.5.0, built `--features avif`" — left as-is, same class as the CHANGELOG's
+  frozen old-version entries.
+- **B(ii) — the sweep itself re-run with the missing extensions, and every hit
+  re-triaged independently, not taken on the prior pass's word.** Corrected
+  grep:
+
+  ```
+  grep -rn -i "avif" \
+    --include="*.rs" --include="*.md" --include="*.toml" --include="*.yml" \
+    --include="*.py" --include="*.mjs" --include="*.yaml" --include="justfile" \
+    . 2>/dev/null \
+    | grep -v -E '(^|/)target/|(^|/)decisions/|/specs/done/|/specs/prompts/|(^|/)reports/|(^|/)docs/sessions/|(^|/)docs/research/|/stages/|(^|/)projects/|(^|/)pkg/|node_modules/' \
+    | grep -Ei "opt-in|off.by.default|off in the default|not built|--features avif"
+  ```
+
+  **69 hits across 27 files before this pass's edits (already reflecting B(i)'s
+  fix), 67 across 28 files after.** Every hit was read in file context and
+  classified, not just counted:
+  - **Fixed, beyond what verify named:** `examples/gen_avif_fixture.rs`'s doc
+    comment claimed "without `--features avif` this is a no-op" — **false as of
+    this spec**, since `avif` defaulting on means a bare `cargo run --example
+    gen_avif_fixture` (no flags at all) now runs the encode branch. Verified by
+    driving it: deleted the two committed fixtures, ran the bare command with
+    no feature flags, confirmed it regenerated them (`git diff` showed zero
+    byte drift against the committed fixtures after). Comment corrected to say
+    a plain `cargo run` picks up `avif` by default; only `--no-default-features`
+    (or similar) makes it a no-op. The eprintln fallback hint
+    (`--features avif`) is untouched — still a valid way to re-enable the
+    feature on a build that dropped it, so not a false claim.
+  - **Fixed for precision:** `guidance/license-watchlist.yaml:97` cited "the
+    AVIF/libwebp pattern" as an example of an off-by-default feature gate for a
+    hypothetical jpegli binding — AVIF no longer fits that description.
+    Reworded to cite `webp-lossy` (still genuinely off-by-default,
+    `Cargo.toml`'s `default` list confirms) and note AVIF was the same shape
+    before this spec.
+  - **Confirmed correct-as-is, independently re-derived (not just re-stated):**
+    - `guidance/constraints.yaml:48` — names `libavif` (a hypothetical *native* C
+      binding) as an example needing an off-by-default gate; this is a
+      different codec implementation from crustyimg's own pure-Rust `avif`
+      feature (`ravif`/`rav1e`) and is unaffected by this spec either way.
+    - `justfile:67,74,96,131,149` — the `bench`/`bench-compare` recipes' explicit
+      `cargo build --release --features avif` and the wasm `_wasm_features`
+      pin are redundant-but-functional (the flag is now a no-op override, not a
+      false claim to any reader) — confirmed by re-reading each in context, not
+      just accepting the label.
+    - `tests/npm_smoke.mjs:140`, `scripts/demo-assemble.mjs:68` — both about the
+      **wasm** build's own explicit, deliberately-pinned feature flag
+      (DEC-065), unrelated to the native `default` list this spec changed.
+    - `bench/corpus/README.md:49`, `deny.toml:46-47`, `docs/roadmap.md:32,184`,
+      `docs/backlog.md:106,119`, `docs/feature-exploration.md:103`,
+      `docs/blog/2026-07-06-*.md:44`, the three `CHANGELOG.md` hits under old
+      version headers, and every `tests/*.rs`/`src/*.rs` hit (feature-gating
+      *mechanism* comments and live `cfg!(feature = "avif")` runtime checks,
+      e.g. `tests/cli.rs`'s `convert_unbuilt_codec_exits_4`) — re-read in full
+      context; each is either a historical/frozen record (same category as a
+      CHANGELOG entry under an old version header) or a mechanism description
+      that stays true regardless of default status, not a live "AVIF is
+      opt-in" claim. `.github/workflows/ci.yml`'s explicit `avif` feature job
+      is DEC-081's own documented Neutral-consequence, not an oversight.
+  - The 69→67 delta is the two `examples/gen_avif_fixture.rs` lines fixed above
+    (`scripts/bench-compare.py`'s B(i) fixes were already reflected in the
+    69-count, since B(i) was done first in this pass).
+- **A — DEC-081's profile mislabel, fixed.** There is no `[profile.release]`
+  table in `Cargo.toml` (confirmed: `grep -n '^\[profile' Cargo.toml` shows only
+  `[profile.dist]`, which `inherits = "release"` and adds `lto = "thin"`); a
+  plain `cargo build --release` applies the Cargo-default release profile, no
+  LTO. The annotation now says so, and adds verify's independently-measured
+  `[profile.dist]` figure (12,843,376 → 15,732,192 B, +22.49%) as a second data
+  point — the profile Homebrew/Releases actually ship — strengthening the DEC
+  rather than just correcting it. **No published number changed**: the
+  original before/after table (12,841,632 → 15,720,304 B, +22.4%; 24.77s →
+  30.48s) is untouched.
+- **C — `justfile:148`'s override, fixed and driven for real.**
+  `just --set _wasm_features "--no-default-features" wasm-build` does not
+  parse: `just` itself (not cargo) reads a `--set` value starting with `--` as
+  an unrecognized flag and errors before the recipe ever runs (reproduced:
+  `error: unexpected argument '--no-default-features' found`). Fixed to a
+  leading-space value (`" --no-default-features"`), which `just`'s parser
+  accepts since the value no longer starts with `--`; the resulting double
+  space in the interpolated shell command is harmless. Documented the exact
+  failure and why the space is required, not decorative. **Driven, not just
+  read**: ran `just --set _wasm_features " --no-default-features" wasm-check`
+  (exit 0) and the full documented `wasm-build` (exit 0, produced
+  `pkg/`), then independently confirmed via `cargo tree --target
+  wasm32-unknown-unknown --no-default-features -e normal` that `ravif`/`rav1e`
+  are genuinely absent from that build's dependency graph (the `v_frame`/
+  `yuvxyb`/`av-data` crates that also appeared in the build log come from
+  `ssimulacra2`, an always-on scoring dependency, not from `avif` — traced via
+  `cargo tree --invert yuvxyb`). Re-ran `just wasm-build` afterward (shipped
+  feature set) to leave `pkg/` in its normal shipped state (gitignored, no
+  tracked diff either way).
+- **D — the two load-flaky tests, fixed.** `web_photo_downscales_modernizes_scores`
+  and `web_equals_apply_recipe_web` (`tests/cli.rs`) asserted the winning
+  output FORMAT was AVIF — i.e., that a debug-build, multithreaded `rav1e`
+  encode's measured bytes beat JPEG's on a tiny synthetic photo. That byte
+  race is not a stable property under heavy concurrent CPU load (CI's 3-OS
+  matrix runs in parallel), even though the ENGINE'S DECISION (admit AVIF as a
+  candidate for a photographic bucket, per SPEC-084) is deterministic and
+  load-independent. Fixed by adding `--json` to each command and asserting on
+  the `--explain` trace's `candidates` array (`"format":"avif"` present)
+  instead of the winning file's format:
+  - `web_photo_downscales_modernizes_scores` — now asserts AVIF was *admitted*
+    (via the JSON report), keeps the format-agnostic assertions unchanged
+    (downscale dims, output smaller than source, metadata stripped), and reads
+    the SSIMULACRA2 score off the JSON (`"ssim":`) instead of stderr, since
+    `--json` routes the report to stdout.
+  - `web_equals_apply_recipe_web` — now asserts BOTH the `web` verb and
+    `apply --recipe web` admit AVIF as a candidate (via each run's own JSON),
+    and keeps comparing the two runs to EACH OTHER (extension agreement +
+    byte-identical output) rather than to a hard-coded format — the two
+    subprocess invocations run under near-identical momentary CPU conditions,
+    so if a byte race flips the winner, it flips consistently for both, and
+    the byte-identical invariant (the actual point of this test: `web` ==
+    `apply --recipe web`) still holds either way.
+  - A fully robust assertion WAS available here (unlike the spec's own caveat
+    for a case where it might not be) — the JSON explain trace already exists
+    and reports admitted candidates independent of which one wins, so no
+    engine behavior change was needed and nothing was left un-fixed or filed.
+  - Verified: both tests pass (`cargo test --test cli
+    web_photo_downscales_modernizes_scores` /
+    `web_equals_apply_recipe_web`), and manually inspected a `--json` report to
+    confirm the `candidates` array shape assumed by the new assertions.
+- **Full gate suite re-run (all exit 0), scoped to confirm no published number
+  moved:** `just validate` (227 front-matter blocks parse); `just check`
+  (`fmt-check` + `clippy --all-targets -- -D warnings` + `build` + `test`,
+  default features) — all green, full test suite passed; `cargo build
+  --no-default-features --release` — exit 0; `cargo test
+  --no-default-features` — all green (the avif-gated tests, including the two
+  fixed above, correctly absent from this run); `cargo clippy
+  --no-default-features --all-targets -- -D warnings` — clean; `cargo fmt
+  --check` — clean; `just deny` — advisories/bans/licenses/sources all ok;
+  `just wasm-check` (shipped `--no-default-features --features avif`) — exit
+  0; `just --set _wasm_features " --no-default-features" wasm-check` (lean) —
+  exit 0. **No measurement re-run, no benchmark re-run** — this pass touched
+  only `decisions/DEC-081-*.md` (annotation + an added verify-sourced figure),
+  `scripts/bench-compare.py`, `justfile`, `guidance/license-watchlist.yaml`,
+  `examples/gen_avif_fixture.rs`, and `tests/cli.rs`; `git diff --stat`
+  confirms zero touch to `Cargo.toml`, `CHANGELOG.md`, or `BENCHMARKS.md`'s
+  measured tables.
 
 ### Build-phase reflection (3 questions, short answers)
 

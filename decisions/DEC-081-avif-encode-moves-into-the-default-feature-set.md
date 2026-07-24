@@ -83,14 +83,22 @@ an explicit `--format avif` exits 4.
 
 ## The measured costs (DEC-020 gated this for real reasons — reporting plainly)
 
-Measured on the release profile (`[profile.release]`, thin-LTO via `Cargo.toml`'s
-own release settings; Apple M4 Pro, macOS, clean `cargo clean --release` +
-`cargo build --release` each time, Homebrew rustc 1.94.1):
+Measured with a plain `cargo build --release` — the default profile, no LTO
+(`Cargo.toml` has no `[profile.release]` table; thin-LTO belongs to
+`[profile.dist]`, which `inherits = "release"` and is what Homebrew/Releases
+actually build — see the dist-profile figure below). Apple M4 Pro, macOS,
+clean `cargo clean --release` + `cargo build --release` each time, Homebrew
+rustc 1.94.1:
 
 | | before (no avif in default) | after (avif in default) | delta |
 |---|---|---|---|
 | **Binary size** | 12,841,632 B (12.2 MiB) | 15,720,304 B (15.0 MiB) | **+2,878,672 B (+22.4%)** |
 | **Clean release compile** | 24.77 s real (227.93 s user) | 30.48 s real (274.55 s user) | **+5.71 s real (+23%)** |
+
+The verify pass independently measured the same delta on `[profile.dist]` (thin-LTO,
+the profile Homebrew/Releases actually ship): **12,843,376 → 15,732,192 B
+(+22.49%)** — confirming the cost holds for the shipped artifact, not just this
+plain `--release` dev build.
 
 This is the DEC-020 cost, realized: every distributed binary is ~2.7 MiB larger
 and every from-source build (dev machine or CI's `check` job) is ~5-6 s slower.

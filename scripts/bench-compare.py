@@ -37,16 +37,20 @@ The method (fixed in DEC-080, before any number was read):
     runs match within timing noise.
 
 The crustyimg side is the shipped 0.5.0 engine built `--features avif` (the
-flagship AVIF path is a pure-Rust opt-in; `cargo install crustyimg --features
-avif`). Competitor versions are pinned by whatever is installed and recorded in
-the output header, so the doc's commands are reproducible.
+flagship AVIF path is pure Rust — ravif/rav1e, no system libraries — and as of
+0.6.0 ships in the default distributed binary; `cargo install crustyimg` gets
+it, no feature flag needed). Competitor versions are pinned by whatever is
+installed and recorded in the output header, so the doc's commands are
+reproducible.
 
 Usage:
     python3 scripts/bench-compare.py --corpus DIR [options]
 
     --corpus DIR      Directory of real source photos (REQUIRED for real numbers;
                       those photos never enter git — see DEC-074).
-    --bin PATH        crustyimg binary built --features avif (default: target/release).
+    --bin PATH        crustyimg binary with AVIF encode built in — the default
+                      build as of 0.6.0, no feature flag needed (default:
+                      target/release).
     --tools-dir DIR   node_modules dir holding sharp-cli + @squoosh/cli
                       (default: probes a few known locations).
     --squoosh-node P  Node binary for @squoosh/cli (it is archived and needs
@@ -400,7 +404,7 @@ def find_crustyimg(explicit):
         cand = REPO_ROOT / "target" / build / "crustyimg"
         if cand.is_file():
             return str(cand)
-    sys.exit("bench-compare: no crustyimg binary; `cargo build --release --features avif`")
+    sys.exit("bench-compare: no crustyimg binary; `cargo build --release`")
 
 
 def tool_version(cmd):
