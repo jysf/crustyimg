@@ -202,7 +202,15 @@ function ask(bytes, params) {
   return new Promise((resolve, reject) => {
     pending.set(id, { resolve, reject });
     worker.postMessage(
-      { id, bytes: bytes.buffer, format: params.format, maxEdge: params.maxEdge, maxBytes: params.maxBytes, speed: params.speed },
+      {
+        id,
+        bytes: bytes.buffer,
+        name: source.file.name, // lets the worker route RAW by extension (DEC-055)
+        format: params.format,
+        maxEdge: params.maxEdge,
+        maxBytes: params.maxBytes,
+        speed: params.speed,
+      },
       [bytes.buffer],
     );
   });

@@ -1035,6 +1035,101 @@ if (duringAvifIn.length) console.error(`    ${duringAvifIn.join("\n    ")}`);
 check(consoleErrors.length === 0, "no console errors in the page OR the worker, after all of it");
 if (consoleErrors.length) console.error(`    ${consoleErrors.join("\n    ")}`);
 
+// ── 11½. RAW in — the demo's pixel gate (SPEC-103, DEC-082) ───────────────────
+//
+// The demo could not open a RAW file at all before this: a dropped .dng/.cr2/…
+// sniffs as plain TIFF (byte-ambiguous, DEC-055) and the wasm build has no TIFF
+// decoder (DEC-066), so it leaked "could not decode image: The image format Tiff
+// is not supported." `isRawExtension`/`rawPreview` route by file EXTENSION
+// instead and extract the largest embedded JPEG preview, gated by a pre-decode
+// pixel check (`MAX_RAW_PREVIEW_MEGAPIXELS` in `src/wasm.rs`) so an oversize
+// preview never allocates the full decode in a browser tab.
+
+console.log("\n── RAW in (the demo's pixel gate) ──");
+
+/// Put a file in the picker and wait for the page to land in the ERROR state —
+/// the error-banner twin of `drop()` above, for an input the engine is expected
+/// to reject.
+async function dropExpectError(path) {
+  await cdp.eval("document.body.dataset.state = 'ready';");
+  const doc = await cdp.send("DOM.getDocument");
+  const { nodeId } = await cdp.send("DOM.querySelector", {
+    nodeId: doc.root.nodeId,
+    selector: "#file",
+  });
+  await cdp.send("DOM.setFileInputFiles", { nodeId, files: [path] });
+  await waitFor(cdp, `${PAGE_STATE} === 'error'`, `the conversion of ${path} to fail`);
+  return cdp.eval("document.getElementById('error').textContent");
+}
+
+// A synthetic RAW (TIFF header + a 16×12 thumb + a 64×48 preview — well under the
+// 40 Mpix gate) drops, its largest embedded preview shows, and it flows through
+// the normal convert path — no "Tiff is not supported" leak, and zero network
+// requests (the RAW path is all-local, same as every other input).
+await resetControls();
+const requestsBeforeRaw = requests.length;
+const rawResult = await drop(join(repoRoot, "tests", "fixtures", "raw", "synthetic_preview.nef"));
+check(
+  rawResult.inDims === "64×48" && Number(rawResult.outBytes) > 0,
+  `a synthetic .nef drops, its largest embedded preview (64×48) previews, and converts to ` +
+    `${rawResult.outWidth}×${rawResult.outHeight} ${rawResult.outFormat} (${rawResult.outBytes} B)`,
+);
+const duringRaw = requests
+  .slice(requestsBeforeRaw)
+  .filter((u) => !u.startsWith("blob:") && !u.startsWith("data:"));
+check(duringRaw.length === 0, "the RAW conversion made ZERO network requests");
+if (duringRaw.length) console.error(`    ${duringRaw.join("\n    ")}`);
+
+// A RAW whose largest embedded preview DECLARES more pixels than the demo's gate
+// (50.4 Mpix declared, over the 40 Mpix ceiling, but carrying only a 16×12 image's
+// worth of real entropy — the fixture cannot possibly hold those pixels, so a
+// correct rejection can only come from the pre-decode header peek) shows the
+// honest CLI-fallback message — never the engine's internal `raw: …` string or a
+// bare "Tiff is not supported".
+await resetControls();
+const tooLargeMsg = await dropExpectError(
+  join(repoRoot, "tests", "fixtures", "raw", "oversize_preview.dng"),
+);
+check(
+  tooLargeMsg.includes(
+    "This RAW's built-in preview is very high-resolution — convert it with the crustyimg CLI instead.",
+  ),
+  `the over-threshold RAW shows the maintainer-approved fallback copy verbatim — "${tooLargeMsg}"`,
+);
+check(
+  !tooLargeMsg.includes("Tiff is not supported") && !tooLargeMsg.includes("raw:"),
+  `and never leaks the engine's internal error string — "${tooLargeMsg}"`,
+);
+
+// A RAW with no decodable embedded preview at all (a TIFF header plus non-JPEG
+// noise) shows a DIFFERENT honest message — the "too large" and "no preview"
+// cases must never collapse into one banner.
+await resetControls();
+const noPreviewMsg = await dropExpectError(
+  join(repoRoot, "tests", "fixtures", "raw", "no_preview.cr2"),
+);
+check(
+  noPreviewMsg.includes("Couldn't find a preview image inside this RAW file."),
+  `a RAW with no decodable preview shows the distinct, maintainer-approved copy — "${noPreviewMsg}"`,
+);
+check(
+  !noPreviewMsg.includes("Tiff is not supported") &&
+    !noPreviewMsg.includes("raw:") &&
+    !noPreviewMsg.includes(
+      "This RAW's built-in preview is very high-resolution — convert it with the crustyimg CLI instead.",
+    ),
+  `and it never leaks an internal string or collapses into the too-large case — "${noPreviewMsg}"`,
+);
+
+// index.html's file-picker `accept` lists the RAW extensions too — picker-dialog
+// parity with drag-and-drop (which bypasses `accept` entirely; that mismatch is
+// exactly how the original "Tiff is not supported" symptom happened).
+const acceptAttr = await cdp.eval("document.getElementById('file').getAttribute('accept')");
+check(
+  [".dng", ".cr2", ".nef", ".arw", ".raf"].every((ext) => acceptAttr.includes(ext)),
+  `index.html's file-input accept lists the RAW extensions — "${acceptAttr}"`,
+);
+
 // ── 12. the file:// failure mode is real (which is WHY we serve) ──────────────
 
 console.log("\n── the file:// failure mode is real (which is WHY we serve) ──");
