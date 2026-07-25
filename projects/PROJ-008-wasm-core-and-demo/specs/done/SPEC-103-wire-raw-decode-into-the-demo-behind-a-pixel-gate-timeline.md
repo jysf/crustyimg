@@ -23,4 +23,8 @@ Cycle prompts live in `prompts/SPEC-103-<cycle>.md`.
   Not merged — held for verify.
 - [ ] **verify** — on Opus; adversarial (independent decoder on RAW output, gate-fires-before-decode
   negative control, published-API-untouched, brotli delta vs the probe's +1,214 B).
-- [ ] **ship** — squash-merge on maintainer go-ahead; demo redeploys from `main` (no tag).
+- [x] **ship** (2026-07-24, orchestrator main-loop) — PR #111 squash-merged (fe66a89) after
+  `gh pr update-branch` re-ran the matrix green; branch deleted; demo redeploys from `main` (no tag) so
+  RAW support goes live. Bookkeeping done: cost.sessions filled with REAL sub-agent token counts (build
+  301,224 / verify 152,014 / ship est), Ship reflection, stage backlog, spec archived, memory + brag.
+  Sub-agent prompts + readouts captured in `prompts/SPEC-103-{build,verify}.md` + `-readouts.md`.

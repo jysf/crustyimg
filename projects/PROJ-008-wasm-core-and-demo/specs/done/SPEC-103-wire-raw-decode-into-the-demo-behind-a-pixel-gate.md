@@ -7,7 +7,7 @@
 task:
   id: SPEC-103
   type: story                      # epic | story | task | bug | chore
-  cycle: build  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: medium
   complexity: M                    # S | M | L  (L means split it)
@@ -40,21 +40,46 @@ value_link: >
 cost:
   sessions:
     - cycle: build
-      date: 2026-07-24
-      interface: claude-ai
+      interface: claude-code
       model: claude-sonnet-5
-      tokens_total: null
-      duration_minutes: null
-      estimated_usd: null
+      tokens_total: 301224
+      duration_minutes: 85
+      estimated_usd: 2.4
+      recorded_at: 2026-07-24
       note: >
-        metered subagent session (build dispatched via Agent tool) — this session has
-        no visibility into subagent_tokens; the orchestrator fills
-        tokens_total/duration_minutes/estimated_usd from the Agent result per
-        AGENTS.md §4 before ship.
+        Build dispatched as a metered sub-agent (Agent tool, Sonnet). tokens_total is
+        the REAL subagent usage count, not an estimate; estimated_usd is an
+        order-of-magnitude label. Wired rawPreview/isRawExtension + the
+        MAX_RAW_PREVIEW_MEGAPIXELS=40 pre-decode gate + demo routing; emitted DEC-082;
+        wrote the Rust/JS tests from the spec's prose Failing Tests; +1,262 B brotli.
+    - cycle: verify
+      interface: claude-code
+      model: claude-opus-4-8
+      tokens_total: 152014
+      duration_minutes: 40
+      estimated_usd: 6.0
+      recorded_at: 2026-07-24
+      note: >
+        Verify dispatched as a metered sub-agent (Agent tool, Opus). tokens_total is the
+        REAL subagent usage count. VERDICT CLEAN, re-driven by hand: independent `sips`
+        decode of the RAW output; a MUTATION test (threshold 40→60 flipped the 50.4 MP
+        bomb to FAIL, proving the gate non-vacuous); verbatim strings/no leak; API
+        additive-only; no native behavior change; brotli delta re-measured +1,262 B.
+        No findings.
+    - cycle: ship
+      interface: claude-code
+      model: claude-opus-4-8
+      tokens_total: null
+      estimated_usd: 0.4
+      recorded_at: 2026-07-24
+      note: >
+        Orchestrator main-loop — PR #111 squash-merged (fe66a89) after update-branch
+        re-ran the matrix green; branch deleted; bookkeeping + cost + memory + brag.
+        Merge triggers a Pages redeploy, so RAW support goes live on the demo.
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 453238
+    estimated_usd: 8.8
+    session_count: 3
 ---
 
 # SPEC-103: wire RAW decode into the demo behind a pixel gate
@@ -345,8 +370,25 @@ Written during **design**, before build.
 *Appended during the **ship** cycle.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — The probe did almost all the design de-risking (mechanism, measured bundle cost, verified wasm
+   run, the memory bracket), so framing was cheap and the build had no real unknowns — this is the
+   payoff of running the load-bearing probe *before* the spec. The one thing I'd tighten: the spec's
+   Failing Tests were prose, and both the build and verify reflections flagged that the over-threshold
+   bomb must sit strictly between the new 40 MP gate and the native 64 MP DEC-063 cap to actually
+   exercise the new code — I should have written that "straddle the two ceilings" constraint into the
+   Failing Tests myself, not left the builder to discover it.
+
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — Process: **sub-agent dispatch is now the default for build/verify, and each cycle's prompt +
+   readout is captured for maintainer review** (maintainer preference, 2026-07-24). The prompt already
+   persists as `prompts/SPEC-103-<cycle>.md`; the readout is now captured in
+   `prompts/SPEC-103-readouts.md`. A happy side effect: dispatched sub-agents return a REAL token count
+   (build 301,224 / verify 152,014), so cost.sessions carries measured `tokens_total` rather than the
+   order-of-magnitude estimate the hand-run-session flow forced.
+
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — Not a spec, a **launch-readiness checklist item**: tune the 40 MP threshold on a real phone — drop
+   an actual RAW into the live demo on an iPhone and move `MAX_RAW_PREVIEW_MEGAPIXELS` if needed (up if
+   47 MP survives, down if a low-end device can't do 40). This is deliberately a maintainer-hardware
+   gate, not a build criterion ([[never-drive-the-maintainers-live-browser]]). Also still open from the
+   probe: CR3 (Canon ISOBMFF) unverified on wasm against a real file — low priority, same-mechanism.

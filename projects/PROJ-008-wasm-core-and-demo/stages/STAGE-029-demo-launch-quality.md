@@ -143,18 +143,21 @@ Dependency order — **SPEC-079 (engine surface) first**, because the demo specs
   logo swap still awaits the outsourced mark.** Process lesson: a gate needing human hardware belongs
   on the launch-readiness track, not in a build spec's acceptance criteria.
 
-- [ ] SPEC-103 (framed 2026-07-24, cycle=design) — **wire RAW decode into the demo behind a pixel
-  gate.** Closes the SPEC-101 carry: the demo can't open a `.dng` (leaks "Tiff is not supported")
-  because every wasm entry calls `from_bytes` with no filename, so RAW's extension routing never fires.
-  Additive `rawPreview`/`isRawExtension` wasm exports (+~1.2 KB brotli, probe-measured) route RAW to the
-  already-linked embedded-JPEG extractor, gated by ONE tunable pixel threshold (framing default 40 MP)
-  that falls back to an honest "convert with the CLI" message for previews too large for a mobile tab —
-  the mobile-memory risk the probe measured (~320 MB for a 47 MP Leica preview) but couldn't verify on a
-  real phone. No published-API or native-`src/` change. Ships via `main` (demo redeploys, no tag);
-  threshold tuned on-device post-ship as a launch-readiness step. Emits DEC-082. Probe:
-  `docs/research/proj-008-raw-on-wasm-probe.md`. Complexity M.
+- [x] SPEC-103 (shipped 2026-07-24, PR #111 `fe66a89`, DEC-082, ~$8.8 / 3 sessions) — **wire RAW decode
+  into the demo behind a pixel gate.** Closed the SPEC-101 carry: the demo leaked "Tiff is not supported"
+  on a `.dng` because every wasm entry calls `from_bytes` with no filename, so RAW's extension routing
+  never fired. Additive `rawPreview`/`isRawExtension` wasm exports (**+1,262 B brotli, measured** — no
+  codec pulled in) route RAW to the already-linked embedded-JPEG extractor, gated by ONE tunable constant
+  `MAX_RAW_PREVIEW_MEGAPIXELS = 40` that rejects an oversize preview **on the SOF header peek, before the
+  full decode** (the mobile-OOM risk: ~320 MB for a 47 MP Leica preview, camera-dependent), falling back
+  to an honest verbatim "convert with the CLI" message. No published-API or native-`src/` change. **Verify
+  (Opus) CLEAN — mutation-tested the gate (threshold 40→60 flipped the 50.4 MP bomb to FAIL, proving it
+  non-vacuous) + `sips`-decoded the RAW output.** Demo redeployed from `main`, so RAW is live. **Carry
+  out: on-device threshold tuning (drop a real RAW into the live demo on a phone; move the constant if
+  needed) — a launch-readiness step, not a build criterion.** Dispatched as sub-agents; prompts + readouts
+  captured in `prompts/SPEC-103-{build,verify}.md` + `-readouts.md`. Complexity M.
 
-**Count:** 6 shipped (SPEC-079, 080, 081, 095, 096, 101) / 0 active / 1 framed (SPEC-103). The original demo backlog
+**Count:** 7 shipped (SPEC-079, 080, 081, 095, 096, 101, 103) / 0 active / 0 framed. The original demo backlog
 completed 2026-07-18; SPEC-096 added the maintainer-noticed pre-launch polish. STAGE-029
 content-complete, held active (close deliberately with STAGE-030). Strategy reconciliation RESOLVED (2026-07-14): the demo hero is the `web` flow — SPEC-080
 was reframed to it (after SPEC-085 defined `web`) and shipped; SPEC-081 scored the hero; SPEC-095
