@@ -38,43 +38,46 @@ cost:
     - cycle: build
       interface: claude-code
       model: claude-sonnet-5
-      tokens_total: 0
-      duration_minutes: 0
-      estimated_usd: 0
+      tokens_total: 151255
+      duration_minutes: 18
+      estimated_usd: 1.3
       recorded_at: 2026-07-24
       note: >
-        Autonomous build in the main loop (no metered sub-agent), so tokens_total /
-        duration_minutes are unavailable and estimated_usd is an order-of-magnitude
-        placeholder pending the orchestrator's real numbers, per
-        [[autonomous-run-cost-estimates]]. Raised MAX_RAW_PREVIEW_MEGAPIXELS 40→60;
-        moved the wasm_roundtrip over-threshold bomb + raw.rs boundary test to
-        straddle 60 Mpix (not 40); regenerated the stale demo-smoke RAW fixture
-        (tests/fixtures/raw/oversize_preview.dng, 50.4→62.4 Mpix declared) via
-        gen_raw_gate_fixtures, an out-of-Inputs-list dependency the constant raise
-        silently broke; amended DEC-082. wasm-build brotli delta ~0 (-147 B).
+        Build dispatched as a metered sub-agent (Agent tool, Sonnet); tokens_total is the
+        REAL subagent usage count, estimated_usd an order-of-magnitude label. Raised
+        MAX_RAW_PREVIEW_MEGAPIXELS 40→60; moved the wasm_roundtrip over-threshold bomb +
+        raw.rs boundary test to straddle 60 Mpix; regenerated the stale demo-smoke RAW
+        fixture (oversize_preview.dng, 50.4→62.4 Mpix declared) via gen_raw_gate_fixtures
+        — a dependency the constant raise silently broke; amended DEC-082. Brotli ~0 (−147 B).
     - cycle: verify
       interface: claude-code
       model: claude-opus-4-8
-      tokens_total: 0
-      duration_minutes: 0
-      estimated_usd: 0
+      tokens_total: 95240
+      duration_minutes: 40
+      estimated_usd: 3.8
       recorded_at: 2026-07-25
       note: >
-        Autonomous verify in the main loop (no metered sub-agent), so tokens_total /
-        duration_minutes are unavailable and estimated_usd is an order-of-magnitude
-        placeholder pending the orchestrator's real numbers, per
-        [[autonomous-run-cost-estimates]]. VERDICT CLEAN. Independently confirmed the
-        62.4 Mpix fixture straddles the 60→64 Mpix window (raw SOF0 scan) and is
-        byte-reproducible from gen_raw_gate_fixtures; mutation-tested both the native
-        60 Mpix boundary test and the wasm bomb-rejection integration test (raising
-        the gate to 63 flips the bomb test, proving the demo gate — not the native cap
-        — rejects; caught an mtime/incremental-compile stale-object race in the
-        process). Full native suite (440), wasm-test (25), validate, demo-smoke,
-        wasm-npm-smoke, lean build all green. Native MAX_IMAGE_PIXELS/decode paths
-        byte-unchanged; brotli delta −147 B vs same-tree main.
+        Verify dispatched as a metered sub-agent (Agent tool, Opus); tokens_total is the
+        REAL subagent usage count. VERDICT CLEAN. Independently confirmed the 62.4 Mpix
+        fixture straddles the 60→64 Mpix window (raw SOF0 scan) + is byte-reproducible;
+        MUTATION-tested the gate (raising it to 63 flips the bomb test, proving the demo
+        gate — not the native cap — rejects; caught an mtime/incremental-compile
+        stale-object race in the process). Native suite (440), wasm-test (25), validate,
+        demo-smoke, npm-smoke, lean all green; native decode paths byte-unchanged; −147 B.
+    - cycle: ship
+      interface: claude-code
+      model: claude-opus-4-8
+      tokens_total: null
+      estimated_usd: 0.4
+      recorded_at: 2026-07-25
+      note: >
+        Orchestrator main-loop — PR #112 squash-merged (after two update-branch cycles,
+        since main advanced under it) + bookkeeping + readouts + memory + brag. Merge
+        redeploys the demo, so the 60 MP gate goes live.
   totals:
-    tokens_total: 0
-    estimated_usd: 0
+    tokens_total: 246495
+    estimated_usd: 5.5
+    session_count: 3
     session_count: 2
 ---
 
@@ -276,8 +279,26 @@ tests and a DEC-082 amendment. No other behavior change.
 *Appended during the **ship** cycle.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — This spec existed only because SPEC-103's 40 MP default was a *mobile* number applied as a *global*
+   constant — a conflation I could have caught at SPEC-103 framing (the gate's whole justification was the
+   phone memory ceiling, yet nothing scoped it to phones). The retune was cheap and correct, but the
+   cleaner lesson is that a device-specific safety bound should be scoped to the device from the start, or
+   at least flagged as "global for now, platform-split later" so it isn't discovered by a desktop user
+   hitting it. The build/verify sub-agent flow worked well again: the build caught the stale committed
+   fixture (50.4 Mpix now under the raised gate), and verify's mutation test proved the demo gate — not
+   the native cap — is what rejects.
+
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — No template change. Two tooling footguns surfaced and are already filed in
+   `docs/repo-tooling-backlog.md`: (a) `find_spec()`'s glob matches `specs/prompts/*.md`, so
+   `just advance-cycle` silently no-ops on a prompt file (hit by both sub-agents this spec); (b) verify
+   hit an mtime/incremental-compile stale-object race while mutation-testing (a `mv`-restore gave the file
+   an older mtime than the compiled object, so cargo reused stale output) — a real trap for anyone
+   mutation-testing, worth a note for future verify sessions.
+
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — Not yet, but the deferred candidate is now sharper: **platform-aware gating** (desktop effectively
+   unlimited, mobile conservative) — the "correct" fix this spec's global raise sidestepped by maintainer
+   choice. It only becomes worth building if/when a real phone test shows the mobile ceiling actually
+   needs to differ from 60. So it stays paired with the still-open **on-device mobile verification**
+   launch-readiness item — do that test first, let its result decide whether platform-split is warranted.

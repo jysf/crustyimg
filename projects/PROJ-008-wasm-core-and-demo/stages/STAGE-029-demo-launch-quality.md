@@ -157,16 +157,18 @@ Dependency order — **SPEC-079 (engine surface) first**, because the demo specs
   needed) — a launch-readiness step, not a build criterion.** Dispatched as sub-agents; prompts + readouts
   captured in `prompts/SPEC-103-{build,verify}.md` + `-readouts.md`. Complexity M.
 
-- [ ] SPEC-104 (framed 2026-07-24, cycle=build) — **raise the demo RAW preview gate 40 → 60 MP.**
-  On-device tuning of SPEC-103: the maintainer hit the 40 MP fallback on a real desktop Leica `.DNG`
-  (~47 MP preview). Root cause: 40 was a *mobile* memory bound wrongly applied as a *global* constant —
-  on desktop, ~320 MB is trivial. Maintainer chose the simple global raise. 60 clears any realistic
-  Leica body while staying below the 64 Mpix native cap (DEC-063) so the "convert with the CLI" fallback
-  stays honest. One constant + boundary tests (kept in the [60,64] Mpix window to test the demo gate not
-  the native cap) + a DEC-082 amendment. Platform-aware gating explicitly deferred; on-device *mobile*
-  verification still the open launch-readiness item. Complexity S.
+- [x] SPEC-104 (shipped 2026-07-25, PR #112 `233e5dc`, DEC-082 amended, ~$5.5 / 3 sessions) — **raised the
+  demo RAW preview gate 40 → 60 MP.** On-device tuning of SPEC-103: the maintainer hit the 40 MP fallback
+  on a real desktop Leica `.DNG` (~47 MP preview). Root cause: 40 was a *mobile* memory bound wrongly
+  applied as a *global* constant — on desktop ~320 MB is trivial. Maintainer chose the simple global raise.
+  60 clears any realistic Leica body while staying below the 64 Mpix native cap (DEC-063) so the "convert
+  with the CLI" fallback stays honest. One constant + boundary tests (kept in the [60,64] Mpix window) +
+  DEC-082 amendment; native paths byte-unchanged; −147 B brotli. **Verify (Opus) CLEAN — mutation-tested
+  that the demo gate, not the native cap, does the rejecting.** Build caught a stale committed fixture
+  (50.4 Mpix, now under the raised gate) + regenerated it at 62.4 Mpix. Demo redeployed. **Platform-aware
+  gating deferred; on-device *mobile* verification still the open launch-readiness item.** Complexity S.
 
-**Count:** 7 shipped (SPEC-079, 080, 081, 095, 096, 101, 103) / 1 build (SPEC-104) / 0 framed. The original demo backlog
+**Count:** 8 shipped (SPEC-079, 080, 081, 095, 096, 101, 103, 104) / 0 active / 0 framed. The original demo backlog
 completed 2026-07-18; SPEC-096 added the maintainer-noticed pre-launch polish. STAGE-029
 content-complete, held active (close deliberately with STAGE-030). Strategy reconciliation RESOLVED (2026-07-14): the demo hero is the `web` flow — SPEC-080
 was reframed to it (after SPEC-085 defined `web`) and shipped; SPEC-081 scored the hero; SPEC-095
