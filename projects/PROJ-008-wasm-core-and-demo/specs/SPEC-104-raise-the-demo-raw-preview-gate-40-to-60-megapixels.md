@@ -206,7 +206,7 @@ tests and a DEC-082 amendment. No other behavior change.
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
 - **Branch:** `spec-104-raise-raw-gate`
-- **PR (if applicable):** filled in after `gh pr create` below
+- **PR (if applicable):** #112 — https://github.com/jysf/crustyimg/pull/112
 - **All acceptance criteria met?** yes
 - **New decisions emitted:**
   - DEC-082 amended (not a new DEC)
