@@ -7,7 +7,7 @@
 task:
   id: SPEC-104
   type: chore                      # epic | story | task | bug | chore
-  cycle: verify                    # frame | design | build | verify | ship
+  cycle: ship                      # frame | design | build | verify | ship
   blocked: false
   priority: medium
   complexity: S                    # S | M | L  (L means split it)
@@ -52,10 +52,30 @@ cost:
         (tests/fixtures/raw/oversize_preview.dng, 50.4→62.4 Mpix declared) via
         gen_raw_gate_fixtures, an out-of-Inputs-list dependency the constant raise
         silently broke; amended DEC-082. wasm-build brotli delta ~0 (-147 B).
+    - cycle: verify
+      interface: claude-code
+      model: claude-opus-4-8
+      tokens_total: 0
+      duration_minutes: 0
+      estimated_usd: 0
+      recorded_at: 2026-07-25
+      note: >
+        Autonomous verify in the main loop (no metered sub-agent), so tokens_total /
+        duration_minutes are unavailable and estimated_usd is an order-of-magnitude
+        placeholder pending the orchestrator's real numbers, per
+        [[autonomous-run-cost-estimates]]. VERDICT CLEAN. Independently confirmed the
+        62.4 Mpix fixture straddles the 60→64 Mpix window (raw SOF0 scan) and is
+        byte-reproducible from gen_raw_gate_fixtures; mutation-tested both the native
+        60 Mpix boundary test and the wasm bomb-rejection integration test (raising
+        the gate to 63 flips the bomb test, proving the demo gate — not the native cap
+        — rejects; caught an mtime/incremental-compile stale-object race in the
+        process). Full native suite (440), wasm-test (25), validate, demo-smoke,
+        wasm-npm-smoke, lean build all green. Native MAX_IMAGE_PIXELS/decode paths
+        byte-unchanged; brotli delta −147 B vs same-tree main.
   totals:
     tokens_total: 0
     estimated_usd: 0
-    session_count: 1
+    session_count: 2
 ---
 
 # SPEC-104: raise the demo RAW preview gate 40 → 60 megapixels
