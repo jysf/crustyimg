@@ -7,9 +7,10 @@
 //! own unit tests use:
 //!
 //! - `tests/fixtures/raw/oversize_preview.dng` — a TIFF header plus ONE embedded
-//!   JPEG whose SOF0 header DECLARES 8000×6300 (50.4 Mpix — over the wasm demo's
-//!   40 Mpix gate, `MAX_RAW_PREVIEW_MEGAPIXELS` in `src/wasm.rs`, but under the
-//!   native 64 Mpix DEC-063 decode budget) while carrying only a real 16×12
+//!   JPEG whose SOF0 header DECLARES 8000×7800 (62.4 Mpix — over the wasm demo's
+//!   60 Mpix gate, `MAX_RAW_PREVIEW_MEGAPIXELS` in `src/wasm.rs` (retuned 40→60,
+//!   SPEC-104), but under the native 64 Mpix DEC-063 decode budget) while
+//!   carrying only a real 16×12
 //!   image's worth of entropy data (JPEG has no header checksum, so the
 //!   dimension fields patch in place after encoding — the same F-RAW-1 bomb
 //!   shape `raw.rs` uses). The whole file stays under 1 KB: nothing this small
@@ -67,7 +68,7 @@ fn main() {
     std::fs::create_dir_all("tests/fixtures/raw").expect("create fixture dir");
 
     let mut oversize = tiff_header();
-    oversize.extend_from_slice(&jpeg_declaring(8000, 6300)); // 50.4 Mpix declared
+    oversize.extend_from_slice(&jpeg_declaring(8000, 7800)); // 62.4 Mpix declared
     assert!(oversize.len() < 1024, "bomb fixture must stay tiny");
     let oversize_path = "tests/fixtures/raw/oversize_preview.dng";
     std::fs::write(oversize_path, oversize).expect("write oversize fixture");

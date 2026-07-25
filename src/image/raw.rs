@@ -487,23 +487,23 @@ mod tests {
         );
     }
 
-    /// The boundary a demo-specific ceiling (SPEC-103's `MAX_RAW_PREVIEW_MEGAPIXELS`)
-    /// would gate on: a declared size just at/over a 40 Mpix line is reported
-    /// correctly distinct from one just under it, so the gate this function backs
-    /// is not vacuous in either direction.
+    /// The boundary a demo-specific ceiling (`MAX_RAW_PREVIEW_MEGAPIXELS`, retuned
+    /// 40 → 60 by SPEC-104) would gate on: a declared size just at/over a 60 Mpix
+    /// line is reported correctly distinct from one just under it, so the gate
+    /// this function backs is not vacuous in either direction.
     #[test]
-    fn largest_declared_preview_pixels_straddles_a_40mp_boundary() {
-        const FORTY_MP: u64 = 40_000_000;
+    fn largest_declared_preview_pixels_straddles_a_60mp_boundary() {
+        const SIXTY_MP: u64 = 60_000_000;
 
         let mut under = tiff_header();
-        under.extend_from_slice(&jpeg_declaring(6300, 6349)); // 39,998,700 px
+        under.extend_from_slice(&jpeg_declaring(6300, 9523)); // 59,994,900 px
         let under_px = largest_declared_preview_pixels(&under).expect("candidate found");
-        assert!(under_px < FORTY_MP, "{under_px} should be under 40 Mpix");
+        assert!(under_px < SIXTY_MP, "{under_px} should be under 60 Mpix");
 
         let mut over = tiff_header();
-        over.extend_from_slice(&jpeg_declaring(6300, 6351)); // 40,011,300 px
+        over.extend_from_slice(&jpeg_declaring(6300, 9525)); // 60,007,500 px
         let over_px = largest_declared_preview_pixels(&over).expect("candidate found");
-        assert!(over_px > FORTY_MP, "{over_px} should be over 40 Mpix");
+        assert!(over_px > SIXTY_MP, "{over_px} should be over 60 Mpix");
     }
 
     /// No plausible JPEG candidate at all → `None`, the same case

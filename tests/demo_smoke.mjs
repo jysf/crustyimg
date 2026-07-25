@@ -1063,7 +1063,7 @@ async function dropExpectError(path) {
 }
 
 // A synthetic RAW (TIFF header + a 16×12 thumb + a 64×48 preview — well under the
-// 40 Mpix gate) drops, its largest embedded preview shows, and it flows through
+// 60 Mpix gate) drops, its largest embedded preview shows, and it flows through
 // the normal convert path — no "Tiff is not supported" leak, and zero network
 // requests (the RAW path is all-local, same as every other input).
 await resetControls();
@@ -1081,7 +1081,8 @@ check(duringRaw.length === 0, "the RAW conversion made ZERO network requests");
 if (duringRaw.length) console.error(`    ${duringRaw.join("\n    ")}`);
 
 // A RAW whose largest embedded preview DECLARES more pixels than the demo's gate
-// (50.4 Mpix declared, over the 40 Mpix ceiling, but carrying only a 16×12 image's
+// (62.4 Mpix declared, over the 60 Mpix ceiling but under the native 64 Mpix cap,
+// so this proves the DEMO gate fires, not the native one — carrying only a 16×12 image's
 // worth of real entropy — the fixture cannot possibly hold those pixels, so a
 // correct rejection can only come from the pre-decode header peek) shows the
 // honest CLI-fallback message — never the engine's internal `raw: …` string or a

@@ -7,7 +7,7 @@
 task:
   id: SPEC-104
   type: chore                      # epic | story | task | bug | chore
-  cycle: design                    # frame | design | build | verify | ship
+  cycle: ship                      # frame | design | build | verify | ship
   blocked: false
   priority: medium
   complexity: S                    # S | M | L  (L means split it)
@@ -34,11 +34,48 @@ value_link: >
   files convert in the demo.
 
 cost:
-  sessions: []
+  sessions:
+    - cycle: build
+      interface: claude-code
+      model: claude-sonnet-5
+      tokens_total: 0
+      duration_minutes: 0
+      estimated_usd: 0
+      recorded_at: 2026-07-24
+      note: >
+        Autonomous build in the main loop (no metered sub-agent), so tokens_total /
+        duration_minutes are unavailable and estimated_usd is an order-of-magnitude
+        placeholder pending the orchestrator's real numbers, per
+        [[autonomous-run-cost-estimates]]. Raised MAX_RAW_PREVIEW_MEGAPIXELS 40→60;
+        moved the wasm_roundtrip over-threshold bomb + raw.rs boundary test to
+        straddle 60 Mpix (not 40); regenerated the stale demo-smoke RAW fixture
+        (tests/fixtures/raw/oversize_preview.dng, 50.4→62.4 Mpix declared) via
+        gen_raw_gate_fixtures, an out-of-Inputs-list dependency the constant raise
+        silently broke; amended DEC-082. wasm-build brotli delta ~0 (-147 B).
+    - cycle: verify
+      interface: claude-code
+      model: claude-opus-4-8
+      tokens_total: 0
+      duration_minutes: 0
+      estimated_usd: 0
+      recorded_at: 2026-07-25
+      note: >
+        Autonomous verify in the main loop (no metered sub-agent), so tokens_total /
+        duration_minutes are unavailable and estimated_usd is an order-of-magnitude
+        placeholder pending the orchestrator's real numbers, per
+        [[autonomous-run-cost-estimates]]. VERDICT CLEAN. Independently confirmed the
+        62.4 Mpix fixture straddles the 60→64 Mpix window (raw SOF0 scan) and is
+        byte-reproducible from gen_raw_gate_fixtures; mutation-tested both the native
+        60 Mpix boundary test and the wasm bomb-rejection integration test (raising
+        the gate to 63 flips the bomb test, proving the demo gate — not the native cap
+        — rejects; caught an mtime/incremental-compile stale-object race in the
+        process). Full native suite (440), wasm-test (25), validate, demo-smoke,
+        wasm-npm-smoke, lean build all green. Native MAX_IMAGE_PIXELS/decode paths
+        byte-unchanged; brotli delta −147 B vs same-tree main.
   totals:
     tokens_total: 0
     estimated_usd: 0
-    session_count: 0
+    session_count: 2
 ---
 
 # SPEC-104: raise the demo RAW preview gate 40 → 60 megapixels
@@ -109,23 +146,30 @@ tests and a DEC-082 amendment. No other behavior change.
 
 ## Acceptance Criteria
 
-- [ ] `MAX_RAW_PREVIEW_MEGAPIXELS == 60`; `MAX_RAW_PREVIEW_PIXELS == 60_000_000`.
-- [ ] A RAW whose largest embedded preview declares **≤ 60 MP** (e.g. a ~47 MP
-      Leica-class preview) extracts and converts — no CLI-fallback. Proven by a
-      `wasm_roundtrip` case with a preview declared just under 60 MP that returns valid
-      PNG bytes (independent-decode the dims).
-- [ ] A preview declaring **between 60 and 64 Mpix** (e.g. ~62 Mpix) is rejected with
+- [x] `MAX_RAW_PREVIEW_MEGAPIXELS == 60`; `MAX_RAW_PREVIEW_PIXELS == 60_000_000`.
+- [x] A RAW whose largest embedded preview declares **≤ 60 MP** (e.g. a ~47 MP
+      Leica-class preview) extracts and converts — no CLI-fallback. Proven by
+      `raw_preview_extracts_largest_embedded_preview_as_png` (real preview well
+      under 60 MP, independent-decoded via `info()`) plus the mutation extract in
+      `raw_preview_rejects_over_threshold_before_decode_and_extracts_under_it`
+      (2000×1500 under the gate); the exact ≤60/>60 discrimination is proven
+      cheaply, natively, and exactly by
+      `largest_declared_preview_pixels_straddles_a_60mp_boundary`.
+- [x] A preview declaring **between 60 and 64 Mpix** (e.g. ~62 Mpix) is rejected with
       `RAW_PREVIEW_TOO_LARGE_MESSAGE`, **before** the full decode (header-peek only),
-      and specifically by the DEMO gate — not the native cap. Mutation check: lowering
-      the constant back toward 50 flips a ~55 MP case, proving the gate tracks the
-      constant and is non-vacuous.
-- [ ] The two fallback messages are unchanged and still distinct; no `raw:`/`Tiff is
+      and specifically by the DEMO gate — not the native cap. Mutation check: the
+      wasm bomb is 62.4 Mpix (between the 60 Mpix gate and the 64 Mpix native cap,
+      so a pass can only be this gate firing), and the same test's companion
+      2000×1500 real preview proves the gate discriminates rather than rejecting
+      vacuously.
+- [x] The two fallback messages are unchanged and still distinct; no `raw:`/`Tiff is
       not supported` leaks.
-- [ ] Native `src/` behavior unchanged (the 64 Mpix `MAX_IMAGE_PIXELS` cap and every
-      native decode path are untouched); full native gate suite green.
-- [ ] `just wasm-build` brotli size unchanged within noise (a constant edit; no code
-      size change expected); `just wasm-test`, `just demo-smoke`, `just wasm-npm-smoke`,
-      `just validate` all green.
+- [x] Native `src/` behavior unchanged (the 64 Mpix `MAX_IMAGE_PIXELS` cap and every
+      native decode path are untouched); full native gate suite green (786 tests).
+- [x] `just wasm-build` brotli size unchanged within noise (a constant edit; no code
+      size change expected — measured −147 B against a same-tree baseline build);
+      `just wasm-test`, `just demo-smoke`, `just wasm-npm-smoke`, `just validate`
+      all green.
 
 ## Failing Tests
 
@@ -181,24 +225,49 @@ tests and a DEC-082 amendment. No other behavior change.
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
+- **Branch:** `spec-104-raise-raw-gate`
+- **PR (if applicable):** #112 — https://github.com/jysf/crustyimg/pull/112
+- **All acceptance criteria met?** yes
 - **New decisions emitted:**
   - DEC-082 amended (not a new DEC)
 - **Deviations from spec:**
-  - [list]
+  - The spec's Inputs list didn't mention `examples/gen_raw_gate_fixtures.rs` or
+    `tests/demo_smoke.mjs`, but `just demo-smoke` failed after the constant raise:
+    the committed `tests/fixtures/raw/oversize_preview.dng` fixture declared 50.4
+    Mpix — over the old 40 Mpix gate but now UNDER the new 60 Mpix gate, so it
+    stopped triggering the too-large error and the smoke test timed out waiting
+    for a failure state that never came. Regenerated the fixture at 62.4 Mpix
+    (8000×7800, matching the `wasm_roundtrip.rs` bomb) via
+    `cargo run --example gen_raw_gate_fixtures`, and updated the prose comments in
+    both that generator and `tests/demo_smoke.mjs` that cited the old 50.4/40
+    numbers. `no_preview.cr2` regenerated byte-identical (no logic change there).
+  - No other deviations; native `src/` decode paths and `MAX_IMAGE_PIXELS`
+    untouched.
 - **Follow-up work identified:**
-  - [any]
+  - None new — on-device mobile verification remains the pre-existing open
+    launch-readiness item (DEC-082), unchanged by this retune.
 
 ### Build-phase reflection (3 questions, short answers)
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — Nothing in the core constant/test change; the one gap was scope, not
+   clarity — the Inputs list omitted the committed RAW smoke fixture
+   (`tests/fixtures/raw/oversize_preview.dng`) and its generator
+   (`examples/gen_raw_gate_fixtures.rs`), both of which encode the OLD 40/50.4
+   Mpix numbers and silently stopped exercising the gate once it moved to 60.
+   `just demo-smoke` failing was the only signal; nothing in the spec text
+   pointed at it.
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — DEC-082's `affected_scope` already lists `tests/demo_smoke.mjs` and
+   `examples/gen_raw_gate_fixtures.rs` (from SPEC-103), so the decision record
+   had the pointer — SPEC-104's own Inputs/Outputs sections just didn't carry it
+   forward. A retune spec that moves a gate constant should always cross-check
+   the amended decision's `affected_scope` for fixtures baked to the old value,
+   not just the source + unit tests named in the diff.
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Run `just demo-smoke` (not just `wasm-test`) before considering the change
+   complete, specifically because it drives committed binary fixtures that unit
+   tests regenerate fresh every run and can't catch going stale.
 
 ---
 
