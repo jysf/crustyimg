@@ -119,3 +119,14 @@ project:
   for whoever next runs the documented command to re-measure SPEC-074's **lean wasm baseline**, which is
   exactly the number a mislabelled banner would poison. Fix: pass the feature set through explicitly, or
   have `wasm-size` take it as a parameter rather than re-deriving it.
+
+- **`find_spec()` glob also matches `specs/prompts/*.md`, so `just advance-cycle` can silently no-op** —
+  found by the SPEC-104 build AND verify sub-agents (2026-07-25), both had to fix `task.cycle` by hand.
+  `find_spec()` in `scripts/_lib.sh` resolves a `SPEC-NNN` id with a glob that matches not just the real
+  spec (`specs/SPEC-NNN-*.md` / `specs/done/…`) but also the cycle prompt + readout files under
+  `specs/prompts/SPEC-NNN-*.md`. When a prompt file sorts first, `just advance-cycle SPEC-NNN <cycle>`
+  edits *it* — a file with no front-matter `task.cycle` — and reports success while the real spec's cycle
+  never moves. Silent: the command prints its normal "Advanced …" line. Fix: scope the glob to the spec
+  files only (exclude `prompts/`), or assert the target has a `task.cycle` field before editing and error
+  loudly if not. Non-urgent (hand-fixable), but it silently breaks a core workflow command, so it recurs.
+  Edits a shared file (`scripts/_lib.sh`) → do it as its own focused change, not alongside in-flight spec work.
