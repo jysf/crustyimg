@@ -205,6 +205,41 @@ constant, no other code changes needed; or if a camera family's typical
 preview size turns out to sit uncomfortably close to the gate, prompting a
 per-format or configurable threshold instead of one flat constant.
 
+## Amendment (2026-07-24, SPEC-104): retuned 40 → 60
+
+The maintainer hit the 40 Mpix gate on a real desktop Leica `.DNG` (an 85 MB
+file, ~47 MP embedded preview) — the very launch-readiness scenario this
+decision's "Revisit if" clause anticipated, arriving faster than expected and
+on desktop rather than mobile. Investigating showed 40 Mpix had conflated two
+different bounds into one constant: it was sized as a **mobile** memory
+ceiling (iOS Safari's per-tab budget), but applied as a **single global**
+value to every visitor — so on desktop, where a ~320 MB preview decode is
+trivial, the gate blocked for no measured reason.
+
+`MAX_RAW_PREVIEW_MEGAPIXELS` is now **60**. 60 clears any realistic
+Leica-class preview (including a 60 MP M11) in one shot while staying below
+the native DEC-063 64 Mpix decode budget (`MAX_IMAGE_PIXELS`), so the "convert
+with the CLI instead" fallback message stays honest — the CLI cannot decode
+above 64 Mpix either, so the gate must never reach or exceed it. The
+mechanism, the two fallback messages, and every native RAW/decode path are
+unchanged; only the one constant moved.
+
+This raise is **global**, not mobile-aware: the maintainer chose the simpler
+across-the-board change over building platform detection now, explicitly
+accepting that phone visitors can now attempt a larger preview decode
+(~400 MB peak, extrapolating the probe's Leica measurement) than the original
+40 Mpix value would have let through. **On-device mobile verification is
+still the open item this decision deferred in 2026-07-24's original text** —
+raising the number does not resolve it, and remains a launch-readiness
+checklist item, not a build decision. Platform-aware (desktop-high /
+mobile-conservative) gating stays a possible future refinement, out of scope
+for this retune.
+
+Tests moved to match: the over-threshold wasm fixture now declares ~62.4 Mpix
+(between 60 and 64 Mpix, so it exercises this demo gate and not the native
+cap — the SPEC-103 straddle lesson, reapplied at the new boundary), and
+`raw.rs`'s native boundary test now straddles 60 Mpix instead of 40.
+
 ## References
 
 - Supersedes: none

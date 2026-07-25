@@ -518,20 +518,22 @@ pub fn score(reference: &[u8], candidate: &[u8]) -> Result<f64, JsError> {
 /// The largest embedded RAW preview this wasm build will decode, in megapixels.
 /// **Maintainer-locked; the one place this gate is tuned.**
 ///
-/// A RAW file's embedded JPEG preview is camera-firmware-dependent, not
-/// RAW-dependent: the design-time probe measured a 2.46 Mpix screen-res preview
-/// (Fujifilm RAF, ~110 MB peak wasm memory to extract) alongside a 46.7 Mpix
-/// near-full-sensor preview (Leica DNG, ~320 MB peak) — the SAME extraction
-/// mechanism, a 19× spread driven entirely by which camera wrote the file. 40 Mpix
-/// passes the measured-safe RAF preview and a typical full-frame preview (~24
-/// Mpix), and catches the measured-risky Leica DNG before its ~320 MB decode ever
-/// allocates in a browser tab (`docs/research/proj-008-raw-on-wasm-probe.md`).
-///
-/// This is a **wasm/demo-only** ceiling, layered BELOW the native DEC-063 decode
-/// budget (64 Mpix) — native RAW handling is completely unchanged. The value ships
-/// at this framing default; tuning it against a real phone is a post-ship
-/// launch-readiness step, not a build decision (DEC-082).
-const MAX_RAW_PREVIEW_MEGAPIXELS: u64 = 40;
+/// Retuned 40 → 60 (SPEC-104) after the maintainer hit the original 40 Mpix value
+/// on a real desktop Leica `.DNG` (an 85 MB file, ~47 MP embedded preview) — the CLI
+/// fallback fired on a machine where a ~320 MB preview decode is trivial. 40 Mpix
+/// had conflated a **mobile** memory bound (iOS Safari's per-tab ceiling) with a
+/// **single global** constant applied to every visitor; 60 clears any realistic
+/// Leica-class preview (including a 60 MP M11) in one shot while staying below the
+/// native DEC-063 64 Mpix decode budget, so the "convert with the CLI instead"
+/// fallback message stays honest — the CLI can't decode above 64 Mpix either. This
+/// is still a **wasm/demo-only** ceiling, layered BELOW that native cap; native RAW
+/// handling is completely unchanged. Raising it applies globally (desktop AND
+/// mobile) and accepts, without on-device proof, that a phone may now attempt a
+/// ~400 MB-peak decode it would previously have been gated out of — a graceful
+/// fallback (typed error, no panic) either way, but on-device *mobile*
+/// verification is still an open launch-readiness item, not resolved by this
+/// value (DEC-082).
+const MAX_RAW_PREVIEW_MEGAPIXELS: u64 = 60;
 
 /// [`MAX_RAW_PREVIEW_MEGAPIXELS`] as a raw pixel count, for comparing directly
 /// against [`crate::image::raw::largest_declared_preview_pixels`]'s `u64`.

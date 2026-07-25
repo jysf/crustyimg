@@ -741,7 +741,12 @@ op = "identity"
     /// `rawPreview` picks the LARGEST embedded preview (not the thumbnail) and
     /// hands it back as bytes that really decode — fed straight back through
     /// `info()`, a real decode inside the wasm VM, per
-    /// [[verify-wasm-output-with-an-independent-decoder]].
+    /// [[verify-wasm-output-with-an-independent-decoder]]. Also the "extracts a
+    /// ~sub-60 MP preview" happy-path case (SPEC-104): a real preview well under
+    /// the 60 Mpix demo gate still converts, no CLI-fallback — the raise didn't
+    /// break the normal path. Precise boundary discrimination near 60 Mpix itself
+    /// is proven cheaply (native, no wasm VM, no multi-hundred-MB encode) by
+    /// `image::raw::tests::largest_declared_preview_pixels_straddles_a_60mp_boundary`.
     #[wasm_bindgen_test]
     fn raw_preview_extracts_largest_embedded_preview_as_png() {
         let blob = raw_blob((160, 120), (1024, 768));
@@ -757,23 +762,24 @@ op = "identity"
     /// over-threshold preview BEFORE the full decode, and does not reject
     /// everything (a real, normal preview still extracts).
     ///
-    /// The bomb declares 8000×6300 = 50.4 Mpix: over the 40 Mpix DEMO gate, but
-    /// UNDER the native 64 Mpix DEC-063 decode budget — deliberately, so a pass
-    /// here can only be this spec's NEW gate firing, not the pre-existing native
-    /// cap (which would let 50.4 Mpix through). The real entropy behind that
-    /// declared size is a 16×12 image's worth of bytes (well under 1 KB total), so
-    /// a correct, fast rejection can only have come from the HEADER peek — nothing
-    /// this small could feed a genuine multi-hundred-MB decode.
+    /// The bomb declares 8000×7800 = 62.4 Mpix: over the 60 Mpix DEMO gate
+    /// (SPEC-104), but UNDER the native 64 Mpix (67,108,864 px) DEC-063 decode
+    /// budget — deliberately, so a pass here can only be this gate firing, not the
+    /// pre-existing native cap (which would let 62.4 Mpix through). The real
+    /// entropy behind that declared size is a 16×12 image's worth of bytes (well
+    /// under 1 KB total), so a correct, fast rejection can only have come from the
+    /// HEADER peek — nothing this small could feed a genuine multi-hundred-MB
+    /// decode.
     ///
-    /// Precise boundary discrimination (39,998,700 px vs 40,011,300 px) is proven
+    /// Precise boundary discrimination (59,994,900 px vs 60,007,500 px) is proven
     /// cheaply at the header-peek level by
-    /// `image::raw::tests::largest_declared_preview_pixels_straddles_a_40mp_boundary`
+    /// `image::raw::tests::largest_declared_preview_pixels_straddles_a_60mp_boundary`
     /// (native, no wasm VM needed); this integration test proves the GATE COMPOSES
     /// correctly with the real `rawPreview` export end-to-end.
     #[wasm_bindgen_test]
     fn raw_preview_rejects_over_threshold_before_decode_and_extracts_under_it() {
         let mut bomb = tiff_header();
-        bomb.extend_from_slice(&jpeg_declaring(8000, 6300));
+        bomb.extend_from_slice(&jpeg_declaring(8000, 7800));
         assert!(bomb.len() < 1024, "bomb fixture must stay tiny");
 
         let err =
