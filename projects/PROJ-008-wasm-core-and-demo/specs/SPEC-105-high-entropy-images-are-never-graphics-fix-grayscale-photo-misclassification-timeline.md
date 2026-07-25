@@ -13,7 +13,7 @@ Cycle prompts live in `prompts/SPEC-105-<cycle>.md`.
   (DEC-047) treats grayscale (≤256 colours) as a graphic, and RAW EXIF-stripping bypasses the camera prior
   that normally saves photos. Fix = a strong-entropy → Photograph signal ahead of the graphic gates.
   Engine change, native + wasm. Spec + Failing Tests + DEC-047-amendment plan written.
-- [x] **build** (2026-07-25, Opus, PR #111, ~$4.1 est) — Added `PHOTO_ENTROPY_STRONG = 4.0` + the
+- [x] **build** (2026-07-25, Opus, PR #113, ~$4.1 est) — Added `PHOTO_ENTROPY_STRONG = 4.0` + the
   strong-entropy → Photograph rule (after EXIF/Document, before the graphic gates). Calibrated against
   48 real photo crops (floor 4.58) + real/generated graphics incl. an 8-colour Floyd–Steinberg dither
   (3.03); threshold sits in the (3.43, 4.58] gap. Committed 4 real fixtures under

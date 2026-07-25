@@ -212,7 +212,7 @@ against a small set of REAL grayscale photos and real graphics.
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
 - **Branch:** `spec-105-entropy-photo-classify`
-- **PR (if applicable):** #111
+- **PR (if applicable):** #113
 - **All acceptance criteria met?** yes
 - **New decisions emitted:**
   - `DEC-047` amended (strong-entropy Photograph signal + calibration table + accepted crossings)
