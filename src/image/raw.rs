@@ -175,6 +175,65 @@ fn scan_for_preview(
     (best, oversize, attempts)
 }
 
+/// Peek the declared pixel count of the **largest** candidate embedded JPEG in
+/// `bytes`, from each candidate's header alone — no pixel decode of any of them.
+/// Returns `None` when the file carries no plausible JPEG candidate at all (the
+/// same case in which [`extract_preview`] would return [`ImageError::Decode`],
+/// never [`ImageError::LimitsExceeded`]).
+///
+/// This exists for the wasm demo's pre-decode pixel gate (SPEC-103, DEC-082): it
+/// reuses the exact SOI scan and candidate-marker prune [`scan_for_preview`] uses,
+/// bounded by the same [`MAX_PREVIEW_CANDIDATES`], but reads only each
+/// candidate's JPEG header (a metadata parse) instead of decoding its pixels — so
+/// the caller can reject an oversize preview BEFORE paying for the allocation
+/// [`extract_preview`] would make, mirroring the DEC-063 SOF peek at a
+/// caller-chosen ceiling instead of the native decode cap.
+///
+/// `cfg`'d to `wasm32` (its one real caller, `src/wasm.rs`) `+ test` (this
+/// module's own unit tests below) rather than left unconditional: a native,
+/// non-test build has no caller for it at all, and an unconditional definition
+/// would be reported as dead code on every native `cargo build`/`clippy`.
+#[cfg(any(target_arch = "wasm32", test))]
+pub(crate) fn largest_declared_preview_pixels(bytes: &[u8]) -> Option<u64> {
+    let mut best: Option<u64> = None;
+    let mut attempts = 0usize;
+
+    let mut i = 0usize;
+    while i + 3 <= bytes.len() {
+        if bytes[i] == 0xFF
+            && bytes[i + 1] == 0xD8
+            && bytes[i + 2] == 0xFF
+            && is_plausible_jpeg_marker(bytes.get(i + 3).copied())
+        {
+            if attempts >= MAX_PREVIEW_CANDIDATES {
+                break;
+            }
+            attempts += 1;
+            if let Some((w, h)) = peek_jpeg_dimensions(&bytes[i..]) {
+                let px = (w as u64) * (h as u64);
+                best = Some(best.map_or(px, |b| b.max(px)));
+            }
+            i += 3;
+        } else {
+            i += 1;
+        }
+    }
+
+    best
+}
+
+/// Read a JPEG candidate's declared width/height from its header alone (no pixel
+/// decode), forcing the JPEG format exactly as [`decode_jpeg_with_limits`] does
+/// for its own internal peek. `None` for a candidate that doesn't parse as a
+/// JPEG header at all (a false SOI match that slipped the marker prune) — the
+/// caller treats that as "no data from this candidate", not an error.
+#[cfg(any(target_arch = "wasm32", test))]
+fn peek_jpeg_dimensions(bytes: &[u8]) -> Option<(u32, u32)> {
+    let mut peek = ImageReader::new(Cursor::new(bytes));
+    peek.set_format(ImageFormat::Jpeg);
+    peek.into_dimensions().ok()
+}
+
 /// Whether `next` (the byte after `FF D8 FF`) is a plausible JPEG segment marker.
 ///
 /// A genuine JPEG's third byte after SOI opens a marker segment: an application
@@ -404,6 +463,58 @@ mod tests {
             matches!(result, Err(ImageError::Decode(_))),
             "expected Decode, got {result:?}"
         );
+    }
+
+    /// [`largest_declared_preview_pixels`] reads the header only: a bomb declaring
+    /// 160 Mpix while carrying 16×12 real entropy is reported at its DECLARED size
+    /// (proving the peek never touches the entropy-coded scan data), and a normal
+    /// real preview is reported at its true size.
+    #[test]
+    fn largest_declared_preview_pixels_reads_headers_not_entropy() {
+        let mut bomb = tiff_header();
+        bomb.extend_from_slice(&jpeg_declaring(16384, 9776));
+        assert_eq!(
+            largest_declared_preview_pixels(&bomb),
+            Some(16384u64 * 9776),
+            "the declared (not real) dimensions drive the peek"
+        );
+
+        let real = raw_blob((160, 120), (2000, 1500));
+        assert_eq!(
+            largest_declared_preview_pixels(&real),
+            Some(2000u64 * 1500),
+            "the LARGEST candidate wins, same as scan_for_preview's own selection"
+        );
+    }
+
+    /// The boundary a demo-specific ceiling (SPEC-103's `MAX_RAW_PREVIEW_MEGAPIXELS`)
+    /// would gate on: a declared size just at/over a 40 Mpix line is reported
+    /// correctly distinct from one just under it, so the gate this function backs
+    /// is not vacuous in either direction.
+    #[test]
+    fn largest_declared_preview_pixels_straddles_a_40mp_boundary() {
+        const FORTY_MP: u64 = 40_000_000;
+
+        let mut under = tiff_header();
+        under.extend_from_slice(&jpeg_declaring(6300, 6349)); // 39,998,700 px
+        let under_px = largest_declared_preview_pixels(&under).expect("candidate found");
+        assert!(under_px < FORTY_MP, "{under_px} should be under 40 Mpix");
+
+        let mut over = tiff_header();
+        over.extend_from_slice(&jpeg_declaring(6300, 6351)); // 40,011,300 px
+        let over_px = largest_declared_preview_pixels(&over).expect("candidate found");
+        assert!(over_px > FORTY_MP, "{over_px} should be over 40 Mpix");
+    }
+
+    /// No plausible JPEG candidate at all → `None`, the same case
+    /// [`extract_preview`] reports as [`ImageError::Decode`] rather than
+    /// [`ImageError::LimitsExceeded`] — the peek and the real scan agree on which
+    /// case this is.
+    #[test]
+    fn largest_declared_preview_pixels_none_when_no_candidate() {
+        let mut blob = tiff_header();
+        blob.extend_from_slice(&[0x13, 0x37, 0x00, 0xFE, 0xED, 0xBE, 0xEF, 0x42]);
+        assert_eq!(largest_declared_preview_pixels(&blob), None);
     }
 
     #[test]

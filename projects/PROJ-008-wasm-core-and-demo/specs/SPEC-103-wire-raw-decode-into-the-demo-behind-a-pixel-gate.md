@@ -38,7 +38,19 @@ value_link: >
 # Self-reported AI cost per cycle. Each cycle (design, build, verify,
 # ship) appends one entry to sessions[]. Totals are computed at ship.
 cost:
-  sessions: []
+  sessions:
+    - cycle: build
+      date: 2026-07-24
+      interface: claude-ai
+      model: claude-sonnet-5
+      tokens_total: null
+      duration_minutes: null
+      estimated_usd: null
+      note: >
+        metered subagent session (build dispatched via Agent tool) — this session has
+        no visibility into subagent_tokens; the orchestrator fills
+        tokens_total/duration_minutes/estimated_usd from the Agent result per
+        AGENTS.md §4 before ship.
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -292,24 +304,39 @@ Written during **design**, before build.
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
+- **Branch:** `spec-103-raw-on-wasm`
+- **PR (if applicable):** opened from `spec-103-raw-on-wasm` → `main` (see PR description for number/URL; not merged — held for verify + maintainer go-ahead).
+- **All acceptance criteria met?** yes
+  - RAW opens in the demo — `demo_smoke.mjs`'s new RAW section drives a real headless-Chrome drop of a synthetic `.nef` through to a download, 0 network requests.
+  - Gate rejects an oversize preview BEFORE the full decode — `raw_preview_rejects_over_threshold_before_decode_and_extracts_under_it` (wasm VM) uses a bomb declaring 50.4 Mpix (over the 40 Mpix demo gate, under the native 64 Mpix DEC-063 cap, so only the NEW gate can be catching it) with ~16×12 real entropy; the same test's mutation check proves a real preview under the threshold still extracts. Precise boundary discrimination (39,998,700 px vs 40,011,300 px) is pinned natively, cheaply, by `largest_declared_preview_pixels_straddles_a_40mp_boundary` in `raw.rs`.
+  - "Too large" distinguishable from "no decodable preview" — two distinct maintainer-approved messages, verified both at the wasm-VM level and in the browser banner; neither leaks `raw: …` or `Tiff is not supported`.
+  - `isRawExtension` matches `RAW_EXTENSIONS` exactly — `is_raw_extension_mirrors_the_engine_list`, and `demo/worker.js`/`demo/demo.js` call the export rather than hand-copying the list (`/usr/bin/grep -c "isRawExtension\|rawPreview" demo/*.js` shows the only occurrences are the import + the one call site each; no second array).
+  - Published API untouched — `info`/`transform`/`optimize`/`optimizeDetailed`/`score`/`version` signatures unchanged; `just wasm-npm-smoke` passes (size/shape/no-lifecycle-script/zero-deps checks all green).
+  - No native `src/` behavior change — the gate is entirely `cfg(target_arch = "wasm32")` in `src/wasm.rs`; the one `raw.rs` addition (`largest_declared_preview_pixels`) is `pub(crate)`, called by no native path, and is itself `cfg(any(target_arch = "wasm32", test))` so it does not even compile into a native non-test build. Full native suite green (see cost/notes below on one unrelated pre-existing flake).
+  - Bundle cost negligible — see the real brotli delta below.
+  - Zero network requests — asserted explicitly in `demo_smoke.mjs`'s RAW section.
+  - Browser smoke + `just validate` green; commits DCO-signed; wasm built through `just wasm-build`.
+- **Real `just wasm-build` brotli delta vs the probe's +1,214 B:** this build's own before/after: the probe's own baseline build (no RAW export at all) measured **1,395,239 B**; this spec's full build (`rawPreview` + `isRawExtension` + the pixel gate + two message constants) measures **1,396,501 B** — **+1,262 B (+0.09%)**, within a small margin of the probe's +1,214 B estimate for the bare export alone (the gate + `isRawExtension` + two string constants account for the ~48 B difference). No codec was pulled in — JPEG was already linked for every other format.
 - **New decisions emitted:**
-  - `DEC-082` — RAW preview on wasm behind a demo pixel gate (if built)
+  - `DEC-082` — RAW preview on wasm behind a demo-specific pixel gate (`decisions/DEC-082-raw-preview-on-wasm-behind-a-demo-pixel-gate.md`).
 - **Deviations from spec:**
-  - [list]
+  - The spec's Failing Tests were written as prose (test names + descriptions) rather than committed test code — this build cycle wrote the actual Rust (`tests/wasm_roundtrip.rs`, plus new native unit tests in `src/image/raw.rs`) and JS (`tests/demo_smoke.mjs`) test code implementing them, since none existed yet on `main`.
+  - Two new committed fixtures (`tests/fixtures/raw/oversize_preview.dng`, `tests/fixtures/raw/no_preview.cr2`) and their generator (`examples/gen_raw_gate_fixtures.rs`) were added — not explicitly named in the spec, but the spec's own convention (`examples/gen_raw_fixture.rs`, SPEC-061) requires a Rust-side generator for any RAW fixture needing real JPEG bytes, since `tests/demo_smoke.mjs` has no JPEG encoder available in plain JS (unlike its PNG fixtures, hand-rolled in `scripts/lib/png.mjs`).
+  - The "over-threshold" test fixtures (both wasm-VM and browser) use a bomb that declares dimensions between the demo's 40 Mpix gate and the native 64 Mpix DEC-063 cap (50.4 Mpix), rather than reusing the existing native test's 160 Mpix bomb — deliberately, so a pass can only be attributed to this spec's NEW gate rather than the pre-existing native cap (which a >64 Mpix bomb would also catch on its own, making the test not actually exercise the new code).
+  - The "mutation check" (a preview just under the threshold still extracts) uses a real, well-under-threshold preview (2000×1500 = 3 Mpix) rather than a preview literally at ~39.999 Mpix: building/decoding an actual ~40 Mpix JPEG inside the wasm VM as a TEST FIXTURE would itself allocate the multi-hundred-MB working set the gate exists to avoid, defeating the point of a cheap test. Precise near-boundary discrimination (±5,650 px either side of the 40,000,000 line) is instead pinned cheaply, at the header-peek level with no real decode, by a new native unit test in `raw.rs`.
+  - `demo/worker.js`'s `convert()` sets `input.format = "raw"` for a RAW input (mirroring the existing `input.format = "avif"` pattern for AVIF-in) rather than leaving it to fall through to `info()`'s `"png"` report — not explicitly required by the spec's acceptance criteria, but a direct analog of the existing pattern and avoids the UI showing a materialized "png" as if that were the source format the user dropped.
 - **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - On-device threshold tuning (explicitly out of scope for this spec, per its own Notes) — a real low/mid-range mobile Safari test to confirm or adjust `MAX_RAW_PREVIEW_MEGAPIXELS`, as a launch-readiness checklist item.
+  - CR3 (Canon, ISOBMFF-based RAW) is still unverified against a real file on wasm — DEC-055 claims the same scan mechanism covers it, but no CR3 sample was available to this build either (same gap the probe recorded).
 
 ### Build-phase reflection (3 questions, short answers)
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — The spec's "## Failing Tests" section is prose (test names + one-paragraph descriptions), not committed test code, even though AGENTS.md §12/§8 describes tests as "written during design, made to pass during build" in a way that reads as if the test files already exist on disk. Confirming that (checking `tests/wasm_roundtrip.rs`/`tests/demo_smoke.mjs` had zero RAW-related content) took an extra round-trip before I could start implementing against a known target.
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — Not a missing constraint, but a subtlety the spec didn't flag: a naive "over-threshold" test bomb declaring dimensions above 64 Mpix (the existing native DEC-063 cap) would pass through EITHER the new demo gate or the pre-existing native cap, so it wouldn't actually prove the new code path fires. The spec's Failing Tests description didn't call out that the over-threshold fixture needs to sit strictly between the two ceilings (40–64 Mpix) to be a real test of the new gate rather than the old one.
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — I'd write the raw.rs-level boundary unit test (`largest_declared_preview_pixels_straddles_a_40mp_boundary`) FIRST, before the wasm integration tests — it's the cheapest, fastest-to-run proof of the gate's actual discrimination logic, and having it green early would have made designing the (necessarily coarser) wasm-VM-level fixtures more confident and faster.
 
 ---
 

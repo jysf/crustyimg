@@ -513,6 +513,90 @@ pub fn score(reference: &[u8], candidate: &[u8]) -> Result<f64, JsError> {
     quality::score(reference.pixels(), candidate.pixels()).map_err(js_err)
 }
 
+// ── RAW: embedded-preview extraction behind a demo pixel gate (SPEC-103, DEC-082) ──
+
+/// The largest embedded RAW preview this wasm build will decode, in megapixels.
+/// **Maintainer-locked; the one place this gate is tuned.**
+///
+/// A RAW file's embedded JPEG preview is camera-firmware-dependent, not
+/// RAW-dependent: the design-time probe measured a 2.46 Mpix screen-res preview
+/// (Fujifilm RAF, ~110 MB peak wasm memory to extract) alongside a 46.7 Mpix
+/// near-full-sensor preview (Leica DNG, ~320 MB peak) — the SAME extraction
+/// mechanism, a 19× spread driven entirely by which camera wrote the file. 40 Mpix
+/// passes the measured-safe RAF preview and a typical full-frame preview (~24
+/// Mpix), and catches the measured-risky Leica DNG before its ~320 MB decode ever
+/// allocates in a browser tab (`docs/research/proj-008-raw-on-wasm-probe.md`).
+///
+/// This is a **wasm/demo-only** ceiling, layered BELOW the native DEC-063 decode
+/// budget (64 Mpix) — native RAW handling is completely unchanged. The value ships
+/// at this framing default; tuning it against a real phone is a post-ship
+/// launch-readiness step, not a build decision (DEC-082).
+const MAX_RAW_PREVIEW_MEGAPIXELS: u64 = 40;
+
+/// [`MAX_RAW_PREVIEW_MEGAPIXELS`] as a raw pixel count, for comparing directly
+/// against [`crate::image::raw::largest_declared_preview_pixels`]'s `u64`.
+const MAX_RAW_PREVIEW_PIXELS: u64 = MAX_RAW_PREVIEW_MEGAPIXELS * 1_000_000;
+
+/// Shown when a RAW's largest embedded preview declares more pixels than
+/// [`MAX_RAW_PREVIEW_PIXELS`] — maintainer-approved copy, shipped verbatim. Plain,
+/// honest, no internal symbols (`ergonomic-defaults`, `comments-plain-no-spec-refs`).
+const RAW_PREVIEW_TOO_LARGE_MESSAGE: &str = "This RAW's built-in preview is very \
+    high-resolution — convert it with the crustyimg CLI instead.";
+
+/// Shown when a RAW carries no decodable embedded JPEG preview at all — distinct
+/// from [`RAW_PREVIEW_TOO_LARGE_MESSAGE`] so the two honest failure modes never
+/// collapse into one banner. Maintainer-approved copy, shipped verbatim.
+const RAW_PREVIEW_NO_PREVIEW_MESSAGE: &str = "Couldn't find a preview image inside this RAW file.";
+
+/// Whether `name` (a filename, extension included — e.g. `"IMG_1234.CR2"`) names a
+/// RAW format this build routes to [`raw_preview`].
+///
+/// A thin wrapper over [`crate::image::raw::is_raw_extension`] so the demo's JS
+/// routing list is DERIVED from the engine's own list, never hand-copied — it
+/// cannot drift from `raw.rs`'s own `RAW_EXTENSIONS` the way a JS-side
+/// `['dng','cr2',…]` array could.
+#[wasm_bindgen(js_name = isRawExtension)]
+pub fn is_raw_extension(name: &str) -> bool {
+    crate::image::raw::is_raw_extension(std::path::Path::new(name))
+}
+
+/// Extract a RAW file's largest embedded JPEG preview and hand it back
+/// PNG-encoded — the wasm/demo bridge for a capability this build otherwise
+/// cannot reach at all (there is no RAW codec here, and none is needed: DEC-064).
+/// This is the same "browser bridges a capability via re-encoded bytes" shape
+/// [`score`]'s doc describes (DEC-065), just with Rust doing RAW extraction
+/// instead of the browser decoding AVIF. The returned PNG bytes feed straight
+/// into [`info`]/[`transform`]/[`optimize_detailed`] unchanged.
+///
+/// **Before** the full extraction, peeks the largest candidate preview's
+/// declared dimensions (a header parse, not a pixel decode) and rejects with
+/// [`RAW_PREVIEW_TOO_LARGE_MESSAGE`] if they exceed [`MAX_RAW_PREVIEW_PIXELS`] —
+/// the DEC-063 SOF-peek pattern, reused at this demo's own ceiling (DEC-082), so
+/// a huge embedded preview never allocates the full decode in a browser tab. A
+/// RAW with no decodable embedded JPEG at all gets the distinct
+/// [`RAW_PREVIEW_NO_PREVIEW_MESSAGE`] instead. Neither message leaks the
+/// engine's internal `raw: …`-prefixed strings — every error path here is
+/// remapped to one of the two maintainer-approved, plain-language messages.
+#[wasm_bindgen(js_name = rawPreview)]
+pub fn raw_preview(input: &[u8]) -> Result<Vec<u8>, JsError> {
+    if let Some(px) = crate::image::raw::largest_declared_preview_pixels(input) {
+        if px > MAX_RAW_PREVIEW_PIXELS {
+            return Err(JsError::new(RAW_PREVIEW_TOO_LARGE_MESSAGE));
+        }
+    }
+
+    let img = crate::image::raw_preview(input).map_err(|e| match e {
+        // A cap this gate's own peek somehow let through (e.g. the native DEC-063
+        // budget caught it instead) still reads as "too large", not the engine's
+        // internal `raw: embedded preview exceeds decode caps: …` string.
+        crate::error::ImageError::LimitsExceeded(_) => JsError::new(RAW_PREVIEW_TOO_LARGE_MESSAGE),
+        crate::error::ImageError::Decode(_) => JsError::new(RAW_PREVIEW_NO_PREVIEW_MESSAGE),
+        other => js_err(other),
+    })?;
+
+    sink::encode_to_bytes(&img, ImageFormat::Png, None).map_err(js_err)
+}
+
 /// The crate version, so a demo page can show which build it loaded.
 #[wasm_bindgen]
 pub fn version() -> String {

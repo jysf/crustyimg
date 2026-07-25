@@ -37,7 +37,15 @@
 // codec to the wasm (the `pure-rust-codecs-default` constraint holds): they borrow
 // the one already in the browser.
 
-import init, { info, optimizeDetailed, score, transform, version } from "./vendor/crustyimg.js";
+import init, {
+  info,
+  isRawExtension,
+  optimizeDetailed,
+  rawPreview,
+  score,
+  transform,
+  version,
+} from "./vendor/crustyimg.js";
 
 const msg = (e) => e?.message ?? String(e);
 
@@ -146,7 +154,20 @@ async function convert(job) {
   let pixels = original;
   const input = { bytes: original.length, decodedBy: "engine" };
 
-  if (isAvif(original)) {
+  // RAW routes by FILE EXTENSION, not content sniff (DEC-055 — TIFF-based RAW is
+  // byte-indistinguishable from a plain .tif, so extension is the only reliable
+  // discriminator; `isRawExtension` mirrors the engine's own list, so this can't
+  // drift from a hand-copied array). `rawPreview` extracts the largest embedded
+  // JPEG preview and hands back PNG bytes — the SAME "browser bridges via
+  // re-encoded bytes" bridge shape the AVIF branch below uses, just extracted by
+  // Rust instead of decoded by the browser (SPEC-103, DEC-082). It can throw the
+  // typed "too large" / "no preview" error, which `convert`'s caller (the message
+  // handler below) turns into the page's error banner — an honest CLI-fallback
+  // message, never a leaked internal decoder string.
+  if (job.name && isRawExtension(job.name)) {
+    pixels = rawPreview(original);
+    input.format = "raw";
+  } else if (isAvif(original)) {
     pixels = await decodeInBrowser(original, "AVIF");
     input.decodedBy = "browser";
     input.format = "avif";

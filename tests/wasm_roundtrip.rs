@@ -30,7 +30,9 @@
 #[cfg(target_arch = "wasm32")]
 mod wasm {
     use crustyimg::sink::FAST_LOSSY_QUALITY;
-    use crustyimg::wasm::{info, optimize, optimize_detailed, score, transform};
+    use crustyimg::wasm::{
+        info, is_raw_extension, optimize, optimize_detailed, raw_preview, score, transform,
+    };
     use wasm_bindgen_test::wasm_bindgen_test;
 
     /// The SVG fixture the native suite uses (SPEC-060) — a 40×30 plain-text SVG.
@@ -684,6 +686,176 @@ op = "identity"
         // confined to `optimize_detailed`.
         let jpeg = optimize(&src, "jpeg").expect("legacy optimize → jpeg");
         assert_eq!(info(&jpeg).expect("decodes").format(), "jpeg");
+    }
+
+    // ── RAW on wasm, behind a demo pixel gate (SPEC-103, DEC-082) ──────────────
+
+    /// A minimal little-endian TIFF header — the RAW container shape
+    /// `src/image/raw.rs`'s own unit tests build (SPEC-061). Duplicated here (not
+    /// exported: raw.rs's own fixture helpers are `#[cfg(test)]`-private to that
+    /// module) because this integration test only needs the SHAPE, not the
+    /// module's internals.
+    fn tiff_header() -> Vec<u8> {
+        vec![0x49, 0x49, 0x2A, 0x00, 0x08, 0x00, 0x00, 0x00]
+    }
+
+    /// Encode a solid-color `w`×`h` JPEG in memory — the same fixture primitive
+    /// `raw.rs`'s own tests use (generate fixtures natively, never shell out).
+    fn raw_jpeg(w: u32, h: u32) -> Vec<u8> {
+        use image::{DynamicImage, ImageFormat as CodecFormat, Rgb, RgbImage};
+        let img = RgbImage::from_pixel(w, h, Rgb([120, 90, 60]));
+        let mut out = std::io::Cursor::new(Vec::new());
+        DynamicImage::ImageRgb8(img)
+            .write_to(&mut out, CodecFormat::Jpeg)
+            .expect("encode jpeg fixture");
+        out.into_inner()
+    }
+
+    /// Assemble `[TIFF hdr][thumb jpeg][junk][preview jpeg][junk]` — the shape of a
+    /// real RAW: a small embedded thumbnail followed by the larger full-res
+    /// preview, exactly `raw.rs`'s own `raw_blob` fixture.
+    fn raw_blob(thumb: (u32, u32), preview: (u32, u32)) -> Vec<u8> {
+        let mut b = tiff_header();
+        b.extend_from_slice(&raw_jpeg(thumb.0, thumb.1));
+        b.extend_from_slice(&[0x00, 0x11, 0x22, 0x33, 0x44, 0x55]);
+        b.extend_from_slice(&raw_jpeg(preview.0, preview.1));
+        b.extend_from_slice(&[0xAA, 0xBB, 0xCC, 0xDD]);
+        b
+    }
+
+    /// A JPEG whose SOF0 header DECLARES `w`×`h` while carrying only a real 16×12
+    /// image's worth of entropy data — the F-RAW-1 bomb shape `raw.rs` uses (JPEG
+    /// has no header checksum, so the dimension fields patch in place).
+    fn jpeg_declaring(w: u16, h: u16) -> Vec<u8> {
+        let mut j = raw_jpeg(16, 12);
+        let sof = j
+            .windows(2)
+            .position(|m| m == [0xFF, 0xC0])
+            .expect("encoded JPEG carries an SOF0 marker");
+        // SOF0: FF C0 [len:2] [precision:1] [height:2] [width:2]
+        j[sof + 5..sof + 7].copy_from_slice(&h.to_be_bytes());
+        j[sof + 7..sof + 9].copy_from_slice(&w.to_be_bytes());
+        j
+    }
+
+    /// `rawPreview` picks the LARGEST embedded preview (not the thumbnail) and
+    /// hands it back as bytes that really decode — fed straight back through
+    /// `info()`, a real decode inside the wasm VM, per
+    /// [[verify-wasm-output-with-an-independent-decoder]].
+    #[wasm_bindgen_test]
+    fn raw_preview_extracts_largest_embedded_preview_as_png() {
+        let blob = raw_blob((160, 120), (1024, 768));
+
+        let out = raw_preview(&blob).expect("rawPreview should extract the larger preview");
+
+        let back = info(&out).expect("rawPreview output should decode as a real PNG");
+        assert_eq!((back.width(), back.height()), (1024, 768));
+        assert_eq!(back.format(), "png");
+    }
+
+    /// The pre-decode pixel gate (`MAX_RAW_PREVIEW_MEGAPIXELS`) rejects an
+    /// over-threshold preview BEFORE the full decode, and does not reject
+    /// everything (a real, normal preview still extracts).
+    ///
+    /// The bomb declares 8000×6300 = 50.4 Mpix: over the 40 Mpix DEMO gate, but
+    /// UNDER the native 64 Mpix DEC-063 decode budget — deliberately, so a pass
+    /// here can only be this spec's NEW gate firing, not the pre-existing native
+    /// cap (which would let 50.4 Mpix through). The real entropy behind that
+    /// declared size is a 16×12 image's worth of bytes (well under 1 KB total), so
+    /// a correct, fast rejection can only have come from the HEADER peek — nothing
+    /// this small could feed a genuine multi-hundred-MB decode.
+    ///
+    /// Precise boundary discrimination (39,998,700 px vs 40,011,300 px) is proven
+    /// cheaply at the header-peek level by
+    /// `image::raw::tests::largest_declared_preview_pixels_straddles_a_40mp_boundary`
+    /// (native, no wasm VM needed); this integration test proves the GATE COMPOSES
+    /// correctly with the real `rawPreview` export end-to-end.
+    #[wasm_bindgen_test]
+    fn raw_preview_rejects_over_threshold_before_decode_and_extracts_under_it() {
+        let mut bomb = tiff_header();
+        bomb.extend_from_slice(&jpeg_declaring(8000, 6300));
+        assert!(bomb.len() < 1024, "bomb fixture must stay tiny");
+
+        let err =
+            raw_preview(&bomb).expect_err("an over-threshold declared preview must be rejected");
+        let msg = format!("{:?}", wasm_bindgen::JsValue::from(err));
+        assert!(
+            msg.contains("high-resolution") && msg.contains("crustyimg CLI"),
+            "must show the maintainer-approved too-large copy verbatim: {msg}"
+        );
+        assert!(
+            !msg.contains("raw:") && !msg.contains("Tiff"),
+            "must not leak an internal engine string: {msg}"
+        );
+
+        // Mutation check: a genuinely real, decodable preview well under the
+        // threshold still extracts — the gate discriminates by size, it is not
+        // vacuously rejecting every RAW.
+        let real = raw_blob((160, 120), (2000, 1500));
+        let out = raw_preview(&real).expect("a real preview under the threshold must extract");
+        let back = info(&out).expect("decodes");
+        assert_eq!((back.width(), back.height()), (2000, 1500));
+    }
+
+    /// A RAW with no decodable embedded JPEG at all gets a DIFFERENT honest message
+    /// than the too-large case — neither leaks the engine's internal `raw: …`
+    /// string or a bare `Tiff is not supported` into what would be a browser
+    /// banner ([[comments-plain-no-spec-refs]]).
+    #[wasm_bindgen_test]
+    fn raw_preview_no_preview_is_distinct_from_too_large() {
+        let mut blob = tiff_header();
+        blob.extend_from_slice(&[0x13, 0x37, 0x00, 0xFE, 0xED, 0xBE, 0xEF, 0x42]);
+
+        let err = raw_preview(&blob).expect_err("a RAW with no decodable preview must error");
+        let msg = format!("{:?}", wasm_bindgen::JsValue::from(err));
+        assert!(
+            msg.contains("Couldn't find a preview"),
+            "must show the maintainer-approved no-preview copy verbatim: {msg}"
+        );
+        assert!(
+            !msg.contains("high-resolution"),
+            "the no-preview case must not read as the too-large case: {msg}"
+        );
+        assert!(
+            !msg.contains("raw:") && !msg.contains("Tiff"),
+            "must not leak an internal engine string: {msg}"
+        );
+    }
+
+    /// `isRawExtension` mirrors `RAW_EXTENSIONS` exactly — the demo's JS routing
+    /// list is DERIVED from this export, never a hand-copied array.
+    #[wasm_bindgen_test]
+    fn is_raw_extension_mirrors_the_engine_list() {
+        for name in [
+            "photo.nef",
+            "photo.NRW",
+            "img.cr2",
+            "img.CR2",
+            "x.cr3",
+            "x.arw",
+            "x.srf",
+            "x.sr2",
+            "x.dng",
+            "x.raf",
+            "x.rw2",
+            "x.orf",
+            "x.pef",
+            "x.srw",
+            "x.rwl",
+            "x.raw",
+        ] {
+            assert!(is_raw_extension(name), "{name} should be RAW");
+        }
+        for name in [
+            "photo.png",
+            "photo.tif",
+            "photo.jpg",
+            "photo.x3f",
+            "photo",
+            "",
+        ] {
+            assert!(!is_raw_extension(name), "{name} should NOT be RAW");
+        }
     }
 }
 

@@ -32,7 +32,12 @@ use crate::error::{ImageError, Result};
 #[cfg(not(target_arch = "wasm32"))]
 mod avif;
 mod heic;
-mod raw;
+// `pub(crate)` (not `mod raw;`) so the wasm surface (`src/wasm.rs`, a sibling
+// module of `image`) can reach `raw::is_raw_extension` and
+// `raw::largest_declared_preview_pixels` directly (SPEC-103) rather than this
+// module growing a wrapper for each — same-crate-only, so it changes nothing
+// about `raw`'s external API (still not `pub`).
+pub(crate) mod raw;
 mod sniff;
 mod svg;
 
