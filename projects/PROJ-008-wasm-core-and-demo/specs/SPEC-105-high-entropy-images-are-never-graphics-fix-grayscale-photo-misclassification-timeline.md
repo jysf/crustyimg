@@ -20,7 +20,13 @@ Cycle prompts live in `prompts/SPEC-105-<cycle>.md`.
   `tests/fixtures/classify/`. Native (Leica DNG → AVIF 63,894 B, was 843,252 B) + wasm both proven.
   Two unrepresentative high-entropy synthetic tests redesigned to realistic low-entropy fixtures.
   DEC-047 amended. All gates green.
-- [ ] **verify** — on Opus; re-drive the symptom end-to-end + the graphic no-regression guard (esp. the
-  dithered case); confirm the threshold sits in the measured gap; native + wasm.
+- [x] **verify** — on Opus; re-drive the symptom end-to-end + the graphic no-regression guard (esp. the
+  dithered case); confirm the threshold sits in the measured gap; native + wasm. CLEAN. Grayscale Leica
+  DNG → photograph → AVIF 63,894 B (entropy 7.45). Color case (maintainer's repro) confirmed: 64 real
+  EXIF-stripped D3300 color RAWs (6016×4016) all → photograph → AVIF, entropy floor 5.87 (>4.0 with wide
+  margin); with the rule disabled the high-flat ones (flat 0.86–0.94) fall to graphic-logo → lossless WebP
+  — exactly the reported bug. Dither re-measured 3.03 (<4.0, lossless). Threshold mutation-checked both
+  directions. 5 fixture/test changes audited: all corrections for the removed gradient-misclassification,
+  no diluted assertions. Native suite + wasm-test + demo-smoke + validate + lean + fmt/clippy all green.
 - [ ] **ship** — squash-merge on maintainer go-ahead; demo redeploys from `main` so Auto picks AVIF for
   B&W photos.
