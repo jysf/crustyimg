@@ -168,7 +168,18 @@ Dependency order — **SPEC-079 (engine surface) first**, because the demo specs
   (50.4 Mpix, now under the raised gate) + regenerated it at 62.4 Mpix. Demo redeployed. **Platform-aware
   gating deferred; on-device *mobile* verification still the open launch-readiness item.** Complexity S.
 
-**Count:** 8 shipped (SPEC-079, 080, 081, 095, 096, 101, 103, 104) / 0 active / 0 framed. The original demo backlog
+- [ ] SPEC-105 (framed 2026-07-25, cycle=build) — **high-entropy images are never graphics — fix grayscale
+  photo misclassification.** A real B&W Leica DNG came out of the demo's Auto path as 823 KB lossless WebP
+  (should be ~62 KB AVIF — 13×). Probe root cause: the shared classifier (DEC-047) treats grayscale (≤256
+  RGB colours) as a graphic, and RAW EXIF-stripping bypasses the camera prior that normally routes photos
+  lossy — so it's an ENGINE bug (native CLI mis-encodes byte-identically), not demo-only. Also surfaced a
+  latent scale-broken flat detector the EXIF prior had been masking (separate follow-up). Fix = a
+  strong-entropy → Photograph signal ahead of the graphic gates, calibrated against REAL grayscale photos +
+  real graphics (incl. a dithered one — the adversarial high-entropy graphic). Safe in the dangerous
+  direction: low-entropy graphics stay lossless (the differentiator preserved). Amends DEC-047; native +
+  wasm. Probe: `docs/research/proj-008-grayscale-photo-misclassification-probe.md`. Complexity M.
+
+**Count:** 8 shipped (SPEC-079, 080, 081, 095, 096, 101, 103, 104) / 1 build (SPEC-105) / 0 framed. The original demo backlog
 completed 2026-07-18; SPEC-096 added the maintainer-noticed pre-launch polish. STAGE-029
 content-complete, held active (close deliberately with STAGE-030). Strategy reconciliation RESOLVED (2026-07-14): the demo hero is the `web` flow — SPEC-080
 was reframed to it (after SPEC-085 defined `web`) and shipped; SPEC-081 scored the hero; SPEC-095
