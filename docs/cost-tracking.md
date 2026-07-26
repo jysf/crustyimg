@@ -37,9 +37,19 @@ if present, for forward-compatibility.)
 - **design / ship cycles** are orchestrator main-loop work with no clean per-cycle
   metering — leave their numerics `null` with a "main-loop, not separately
   metered" note.
-- **`estimated_usd`** = `tokens_total × list rate` (Opus 4.8 $5/$25, Sonnet 4.6
-  $3/$15 per MTok), applying a stated ~80/20 input/output mix at list rates with
-  no cache discount. It is explicitly order-of-magnitude — note that in the entry.
+- **`estimated_usd`** prices each token component separately at the model's list anchors
+  (Opus $5/$25, Sonnet $3/$15 per MTok), with the standard cache multipliers —
+  `cache_creation` ×1.25 input, `cache_read` ×0.10 input. Record which anchors were used.
+
+  **The flat `tokens_total × list rate` rule this document used to give was withdrawn on
+  2026-07-26 (DEC-083).** It assumed cache reads were absent or negligible. On a long
+  agentic cycle they dominate: SPEC-109's build measured **98.7% cache reads**, where the
+  flat rule returns **$588** against a component-accurate **$43.21** — a **14×**
+  overstatement, i.e. worse than the "order of magnitude" it advertised.
+
+  ⚠ **Entries recorded before 2026-07-26 use the withdrawn rule and are not comparable
+  with entries after it.** Do not sum across the boundary without reading DEC-083's
+  "What this means for the existing record".
 
 ## How it's enforced (so it can't silently go empty again)
 
