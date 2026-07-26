@@ -7,7 +7,7 @@
 task:
   id: SPEC-105
   type: bug                        # epic | story | task | bug | chore
-  cycle: build  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: M                    # S | M | L  (L means split it)
@@ -34,7 +34,32 @@ value_link: >
   classifier so a high-entropy image is never treated as a graphic.
 
 cost:
-  sessions: []
+  sessions:
+    - cycle: build
+      interface: claude-code
+      model: claude-opus-4-8
+      tokens_total: 640000
+      estimated_usd: 4.10
+      note: >
+        Order-of-magnitude estimate (main-loop build, not a separately-metered
+        subagent — AGENTS §4). One session: reproduce the bug on the real Leica
+        DNG, generate + measure a real photo/graphic calibration distribution
+        (~70 images via optimize --explain=json), implement the rule, redesign two
+        synthetic tests, commit fixtures, add native + wasm + unit tests, amend
+        DEC-047. Opus 4.8 list rate, ~80/20 in/out, no cache discount.
+    - cycle: verify
+      interface: claude-code
+      model: claude-opus-4-8
+      tokens_total: 143805
+      estimated_usd: 5.7
+      recorded_at: 2026-07-25
+      note: >
+        Verify dispatched as a metered sub-agent (Agent tool, Opus); tokens_total is the
+        REAL subagent usage count. VERDICT CLEAN: verified the classifier fix against 64
+        real Nikon RAWs (the color case) + the Leica (grayscale), mutation-tested the 4.0
+        threshold, confirmed no genuine graphic regressed. NOTE: verify passed the feature
+        matrix only via stale incremental-build artifacts (a false green); CI caught real
+        no-AVIF-leg test breakage, corrected in a follow-up fix pass (see the ship note).
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -199,26 +224,90 @@ against a small set of REAL grayscale photos and real graphics.
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
+- **Branch:** `spec-105-entropy-photo-classify`
+- **PR (if applicable):** #113
+- **All acceptance criteria met?** yes
 - **New decisions emitted:**
-  - `DEC-047` amended (strong-entropy Photograph signal)
-- **Calibration table (entropy per validation image, chosen threshold):**
-  - [fill in]
+  - `DEC-047` amended (strong-entropy Photograph signal + calibration table + accepted crossings)
+- **Chosen threshold:** `PHOTO_ENTROPY_STRONG = 4.0` bits (luma entropy), one new constant in
+  `src/analysis/mod.rs`; the rule fires after EXIF (rule 2) + Document (rule 3), before the graphic
+  gates (rule 4), returning `Photograph` at confidence 0.8.
+- **Calibration table (entropy per validation image, all EXIF-stripped, measured via
+  `optimize --explain=json`):**
+
+  | Class | Image | Entropy | Class w/ fix |
+  |---|---|---|---|
+  | photo (gray, committed) | `grayscale_photo_leica.png` (the Leica B&W subject) | 6.07 | photograph ✓ |
+  | photo (gray, committed) | `grayscale_photo_canon.png` | 6.83 | photograph ✓ |
+  | photo (colour, committed) | `color_photo_fuji.png` | 6.37 | photograph ✓ |
+  | photo distribution (48 real crops) | Canon/Fuji/Nikon, gray+colour | floor **4.58**, median ~6.8, max 7.6 | photograph ✓ |
+  | graphic | solid fill | 0.00 | graphic-logo ✓ |
+  | graphic | text on flat | 0.39 | document ✓ |
+  | graphic | simple logo (shapes) | 0.96 | graphic-logo ✓ |
+  | graphic | realistic UI dashboard screenshot | 1.56 | (lossless) ✓ |
+  | graphic (dither) | 2-colour ordered dither | 1.00–1.50 | graphic/document ✓ |
+  | graphic (dither, committed) | `dithered_graphic.png` (8-colour Floyd–Steinberg) | **3.03** | graphic-logo ✓ |
+  | graphic (dither) | 16-colour Floyd–Steinberg | 3.43 | graphic-logo ✓ |
+  | **crossing (accepted)** | 32-colour F-S dither of a photo | 5.14 | photograph (a dithered *photo*, lossy-safe) |
+  | **crossing (accepted)** | smooth full-frame gradient | ~7.5 | photograph (no hard edges, lossy-safe) |
+
+  **The threshold `4.0` sits in the gap `(3.43, 4.58]`** — above every realistic hard-edged graphic
+  (≤1.6, or ≤3.43 counting dithers-of-photos) and below the real-photo floor (4.58). A
+  `calibration_gap_holds_for_committed_fixtures` unit test locks `graphic_max < 4.0 ≤ photo_min`.
+- **Symptom fixed end-to-end?** Yes. Native `optimize --explain=json --max 2048` on the real
+  `_incoming0/L1024678.DNG`: `class: photograph`, winner **AVIF 63,894 B** (was 843,252 B lossless
+  WebP — the 13× fix, matching the probe's ~62 KB). Wasm `optimize_detailed(auto)` on the committed
+  grayscale fixture → **AVIF**, not lossless WebP. The classifier is shared, so both paths route
+  identically.
 - **Deviations from spec:**
-  - [list]
+  - Two *existing* synthetic tests used full-range gradient/noise as stand-ins for a "screenshot"
+    (entropy 7.2) and an "ambiguous" image (entropy 7.6). The strong-entropy rule correctly reads
+    those as photographic, so both fixtures were replaced with **realistic low-entropy**
+    constructions (an iso-luma tint keeps luma entropy low while pushing the colour count past 256).
+    Each now asserts `entropy < PHOTO_ENTROPY_STRONG` so it exercises its intended class, not the new
+    rule. This is a fix, not a regression: the old synthetics were exactly the unrepresentative
+    fixtures the memory lessons warn about.
+  - The spec's suggested "~5" threshold would have *missed* real photos at the 4.58 floor; the
+    measured distribution drove `4.0` instead. Recorded in DEC-047.
+  - Three more existing fixtures relied on the same gradient misclassification and were updated to
+    genuine content (the fix's correctness, surfaced by their green→red flip):
+    (a) `tests/cli.rs` never-bigger passthrough now uses a committed fine-checkerboard JPEG
+    (`checker_graphic.jpg`) — a genuine low-entropy graphic whose lossless candidates blow up, so it
+    truly passes through; (b) the never-bigger ICC test now asserts the corrected photograph path
+    (compact lossy AVIF/JPEG, ICC stripped, never a lossless blow-up) — the SPEC-084 blow-up scenario
+    is only reachable via the misclassification this spec removes; (c) `just demo-smoke`'s
+    "lossless shows no fabricated score" check used `makePng` (a gradient) as its "graphic"; it now
+    uses a new `makeGraphicPng` (flat solid-colour blocks, entropy 2.34 → GraphicLogo → lossless).
 - **Follow-up work identified:**
-  - [scale-normalize the flat/edge detector; EXIF-through-RAW; diverse corpus]
+  - Scale-normalize the flat/edge detector (tuned on 64×64 synthetics; reads every megapixel photo as
+    ~flat). This rule *masks* it for photos but does not fix it.
+  - Carry EXIF through the RAW-preview decode (would restore the camera prior for RAW directly).
+  - A broad, diverse labelled corpus to re-confirm the 4.0 anchor beyond this small validation set —
+    in particular, whether an even lower-contrast real photo can dip below 4.0 (would fall back to
+    lossless: a bigger file, the safe direction).
 
 ### Build-phase reflection (3 questions, short answers)
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — The spec (and probe) framed the entropy gap as "wide and clean" (~7.45 photo vs ~1.0 graphic)
+   and suggested a ~5.0 threshold. Measuring real material showed the gap is real but *narrower and
+   two-sided*: the photo floor is ~4.58 (a low-contrast colour crop), a smooth gradient is a
+   high-entropy *graphic* (~7.5), and a heavy error-diffusion dither of a photo climbs to ~5.1. A
+   naive "~5" would have missed real photos. The spec's own note ("MEASURE it, don't assume") was the
+   right instinct, and it paid off.
+
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — The interaction with the *UI-screenshot* rule (rule 5). The spec said fire "before the graphic
+   gates (rule 4)", which also places the new rule before rule 5. The two existing high-entropy
+   synthetic UI/ambiguous fixtures broke, and it wasn't obvious until running the suite that they were
+   gradients/noise masquerading as their class. Worth a one-line heads-up that adding an
+   ahead-of-rule-4 rule also preempts rules 5–6.
+
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Measure the two *existing* synthetic classify tests' entropy up front (they were the only
+   surprises), rather than discovering the breakage after implementing. And I'd reach for `rtk proxy`
+   immediately for any command whose real stdout/stderr I need — the rtk summarizer silently ate
+   `--nocapture` eprintln output and a couple of glob qualifiers, costing a few iterations.
 
 ---
 

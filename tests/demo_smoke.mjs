@@ -42,7 +42,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { makePng, makePhotoPng, readIhdr } from "../scripts/lib/png.mjs";
+import { makePng, makePhotoPng, makeGraphicPng, readIhdr } from "../scripts/lib/png.mjs";
 import { startServer } from "../scripts/serve.mjs";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -732,7 +732,9 @@ check(
 // output has nothing to score, so the panel must say so with NO fabricated number.
 await resetControls();
 const graphicPath = join(fixtureDir, "graphic.png");
-writeFileSync(graphicPath, makePng(1600, 1200));
+// A genuine flat graphic (few solid colours) — not `makePng`'s full-range gradient,
+// which SPEC-105 now correctly reads as a photograph and routes Lossy → AVIF.
+writeFileSync(graphicPath, makeGraphicPng(1600, 1200));
 const lossless = await drop(graphicPath);
 check(
   /webp|png/.test(lossless.outFormat) && lossless.scoredBy === "lossless",

@@ -83,6 +83,18 @@ const UI_FLAT_RATIO: f32 = 0.35;
 const UI_ASPECT_MIN: f32 = 1.3;
 /// Entropy at/above which (with few flat regions) an image is a photograph.
 const PHOTO_ENTROPY: f32 = 5.0;
+/// Luma entropy at/above which an image is a photograph **outright** — high
+/// enough that no genuine graphic/logo/document/screenshot reaches it, low enough
+/// that every real photograph clears it (grayscale or colour, EXIF or not). This
+/// is the single knob that stops a detailed grayscale photo (≤256 colours, so it
+/// trips the palette gate) or an EXIF-stripped colour photo (which the
+/// scale-broken flat detector reads as ~flat) from being misfiled as a lossless
+/// graphic. Calibrated (DEC-047, 2026-07-25) against real photos — floor ≈ 4.58 —
+/// versus real graphics/logos/documents/screenshots ≈ ≤ 1.6, so 4.0 sits in the
+/// gap. It fires ahead of the graphic gates; a smooth full-frame gradient and a
+/// heavily error-diffusion-dithered photo are the two known high-entropy inputs
+/// that clear it, both lossy-safe (recorded in DEC-047).
+const PHOTO_ENTROPY_STRONG: f32 = 4.0;
 /// Flat-region fraction below which the entropy photo rule may fire.
 const PHOTO_FLAT_MAX: f32 = 0.25;
 /// Confidence reported when the cascade falls through to the safe default.
@@ -579,6 +591,20 @@ fn classify(input: ClassifyInput) -> (ImageClass, f32) {
         return (ImageClass::Document, 0.7);
     }
 
+    // 3.5 Strong-entropy Photograph — a high-entropy image is never a graphic.
+    //     Placed after the Document rule (a genuine low-entropy scan is already
+    //     claimed) and BEFORE the graphic gates, so a detailed grayscale photo
+    //     (≤256 RGB colours, which trips the palette gate) or an EXIF-stripped
+    //     colour photo (which the scale-broken flat detector reads as ~flat) is
+    //     classified as the photograph it is, not a lossless graphic. This is the
+    //     safe error direction (DEC-047): a photo forced lossless is merely a
+    //     bigger file, whereas the misfire it fixes shipped a 13× oversized
+    //     lossless WebP for a real B&W photograph. The threshold clears every real
+    //     graphic/logo/document/screenshot measured (≤ ~1.6) with wide margin.
+    if entropy >= PHOTO_ENTROPY_STRONG {
+        return (ImageClass::Photograph, 0.8);
+    }
+
     // 4. Graphic/logo — the ≤256-colour palette gate, or large flat fills with
     //    few edges.
     if few_colors {
@@ -831,6 +857,131 @@ mod tests {
         assert_eq!(a.opt_bucket(), OptBucket::LosslessFlat);
     }
 
+    // ── SPEC-105: high-entropy images are never graphics (DEC-047 amendment) ──
+    //
+    // The calibration set is REAL on the photo side (committed downscaled grayscale
+    // + colour crops the maintainer owns — synthetics are what mis-tuned this
+    // classifier). The graphic side is generated (graphics ARE low-entropy flat by
+    // nature) plus a committed real error-diffusion **dithered** graphic — the one
+    // plausible elevated-entropy graphic — as the adversarial guard. Full entropy
+    // table + threshold rationale in DEC-047 (2026-07-25).
+
+    /// Decode a committed classify fixture (a real photo crop / dithered graphic).
+    fn classify_fixture(bytes: &[u8]) -> Analysis {
+        Analysis::compute(&Image::from_bytes(bytes).expect("fixture decodes")).unwrap()
+    }
+
+    const FX_GRAY_LEICA: &[u8] =
+        include_bytes!("../../tests/fixtures/classify/grayscale_photo_leica.png");
+    const FX_GRAY_CANON: &[u8] =
+        include_bytes!("../../tests/fixtures/classify/grayscale_photo_canon.png");
+    const FX_COLOR_FUJI: &[u8] =
+        include_bytes!("../../tests/fixtures/classify/color_photo_fuji.png");
+    const FX_DITHERED: &[u8] = include_bytes!("../../tests/fixtures/classify/dithered_graphic.png");
+
+    #[test]
+    fn real_grayscale_photo_is_photograph_not_graphic() {
+        // The headline bug: a detailed B&W photo has ≤256 RGB colours (r=g=b) and,
+        // EXIF-stripped, tripped the palette gate → GraphicLogo → 13× oversized
+        // lossless. The strong-entropy rule now classifies it as the photo it is.
+        for (name, bytes) in [("leica", FX_GRAY_LEICA), ("canon", FX_GRAY_CANON)] {
+            let a = classify_fixture(bytes);
+            assert!(
+                !a.unique_colors().is_saturated() && a.unique_colors().count() <= PALETTE_COLORS,
+                "{name}: a grayscale photo trips the palette gate ({:?})",
+                a.unique_colors()
+            );
+            assert!(
+                a.entropy() >= PHOTO_ENTROPY_STRONG,
+                "{name}: a real photo clears the strong-entropy floor: {}",
+                a.entropy()
+            );
+            assert_eq!(a.class(), ImageClass::Photograph, "{name} class");
+            assert_eq!(
+                a.opt_bucket(),
+                OptBucket::Lossy,
+                "{name} bucket admits AVIF"
+            );
+        }
+    }
+
+    #[test]
+    fn real_exif_stripped_colour_photo_is_photograph() {
+        // The broader exposure: an EXIF-stripped COLOUR photo reads ~flat to the
+        // scale-broken detector and hit the flat-graphic gate. The same rule (colour
+        // or grayscale) rescues it.
+        let a = classify_fixture(FX_COLOR_FUJI);
+        assert!(
+            a.unique_colors().is_saturated(),
+            "a colour photo saturates colours"
+        );
+        assert!(
+            a.entropy() >= PHOTO_ENTROPY_STRONG,
+            "entropy {}",
+            a.entropy()
+        );
+        assert_eq!(a.class(), ImageClass::Photograph);
+        assert_eq!(a.opt_bucket(), OptBucket::Lossy);
+    }
+
+    #[test]
+    fn dithered_graphic_stays_graphic_not_photograph() {
+        // The adversarial case: a real error-diffusion (Floyd–Steinberg) dither has
+        // ELEVATED entropy (~3.0, well above a flat logo) yet stays below the floor,
+        // so it is NOT mis-routed to lossy — the differentiator is preserved. (A
+        // much heavier 32-colour dither of a photo reaches ~5.1 and DOES cross; that
+        // accepted tradeoff — a dithered photo routed lossy — is recorded in DEC-047.)
+        let a = classify_fixture(FX_DITHERED);
+        assert!(
+            a.entropy() < PHOTO_ENTROPY_STRONG,
+            "the committed dither must sit below the floor: {}",
+            a.entropy()
+        );
+        assert_eq!(a.class(), ImageClass::GraphicLogo);
+        assert_eq!(a.opt_bucket(), OptBucket::LosslessFlat);
+    }
+
+    #[test]
+    fn calibration_gap_holds_for_committed_fixtures() {
+        // The threshold sits in the measured gap: every real photo above it, the
+        // dithered graphic below it. Locks the calibration against silent drift.
+        let photo_min = [FX_GRAY_LEICA, FX_GRAY_CANON, FX_COLOR_FUJI]
+            .iter()
+            .map(|b| classify_fixture(b).entropy())
+            .fold(f32::INFINITY, f32::min);
+        let graphic_max = classify_fixture(FX_DITHERED).entropy();
+        assert!(
+            graphic_max < PHOTO_ENTROPY_STRONG && PHOTO_ENTROPY_STRONG <= photo_min,
+            "threshold {PHOTO_ENTROPY_STRONG} must fall in (graphic_max {graphic_max}, photo_min {photo_min}]"
+        );
+    }
+
+    #[test]
+    fn high_entropy_grayscale_texture_is_photograph() {
+        // A synthetic high-entropy grayscale SUPPLEMENT (not the sole evidence): a
+        // fine grayscale noise field is ≤256 colours yet high entropy — the palette
+        // gate must not claim it.
+        let (w, h) = (200u32, 200u32);
+        let mut img = RgbImage::new(w, h);
+        for y in 0..h {
+            for x in 0..w {
+                let v = (x.wrapping_mul(97).wrapping_add(y.wrapping_mul(43)) % 256) as u8;
+                img.put_pixel(x, y, Rgb([v, v, v]));
+            }
+        }
+        let a = Analysis::compute(&image_of(DynamicImage::ImageRgb8(img))).unwrap();
+        assert!(
+            !a.unique_colors().is_saturated(),
+            "grayscale ⇒ ≤256 colours"
+        );
+        assert!(
+            a.entropy() >= PHOTO_ENTROPY_STRONG,
+            "entropy {}",
+            a.entropy()
+        );
+        assert_eq!(a.class(), ImageClass::Photograph);
+    }
+
     #[test]
     fn tiny_square_is_icon() {
         let a = Analysis::compute(&solid_rgb(48, 48, [10, 120, 200])).unwrap();
@@ -855,57 +1006,80 @@ mod tests {
         assert_eq!(a.opt_bucket(), OptBucket::LosslessFlat);
     }
 
+    /// An iso-luma tint: `r=l+2j, g=l-j, b=l` moves BT.601 luma by only
+    /// `(154-150)j/256 ≈ 0`, so a per-pixel `j` can push the colour count past
+    /// [`PALETTE_COLORS`] WITHOUT spreading the luma histogram — the only way to
+    /// build a realistic many-colour graphic/screenshot that stays *low-entropy*
+    /// (real UI/graphics are; SPEC-105's strong-entropy rule must not preempt them).
+    fn iso_luma(l: i32, j: i32) -> Rgb<u8> {
+        Rgb([
+            (l + 2 * j).clamp(0, 255) as u8,
+            (l - j).clamp(0, 255) as u8,
+            l.clamp(0, 255) as u8,
+        ])
+    }
+
     #[test]
     fn wide_flat_manycolour_with_edges_is_ui_screenshot() {
+        // A realistic screenshot is LOW-entropy: flat panels over a few luma
+        // levels, plus fine widget/stripe edges. Entropy stays below
+        // PHOTO_ENTROPY_STRONG (asserted), so the SPEC-105 strong-entropy rule does
+        // NOT preempt it; many colours (iso-luma tint) + real edges keep it out of
+        // the flat-graphic gate and land it on UiScreenshot. (The old fixture was a
+        // full-range 2-axis gradient — entropy ~7.2, an unrealistic "screenshot"
+        // that the strong-entropy rule rightly reads as photographic.)
         let (w, h) = (320u32, 180u32);
         let mut img = RgbImage::new(w, h);
-        // Smooth 2-axis gradient → many colours, low local gradient (flat-ish).
         for y in 0..h {
             for x in 0..w {
-                let r = (x * 255 / (w - 1)) as u8;
-                let g = (y * 255 / (h - 1)) as u8;
-                img.put_pixel(x, y, Rgb([r, g, 128]));
-            }
-        }
-        // Hard grid lines → real edges, so the flat-graphic gate does NOT fire.
-        for y in 0..h {
-            for x in 0..w {
-                if x % 16 == 0 || y % 16 == 0 {
-                    img.put_pixel(x, y, Rgb([0, 0, 0]));
-                }
+                let j = ((x.wrapping_mul(7).wrapping_add(y.wrapping_mul(13)) % 90) as i32) - 45;
+                let px = if y < 60 {
+                    iso_luma(200, j) // light panel (flat)
+                } else if y < 120 {
+                    iso_luma(150, j) // mid panel (flat)
+                } else if (x / 3) % 2 == 0 {
+                    iso_luma(90, j) // fine 3px stripes: two luma levels → edges
+                } else {
+                    iso_luma(210, j)
+                };
+                img.put_pixel(x, y, px);
             }
         }
         let a = Analysis::compute(&image_of(DynamicImage::ImageRgb8(img))).unwrap();
+        assert!(
+            a.entropy() < PHOTO_ENTROPY_STRONG,
+            "a realistic screenshot must stay below the strong-entropy floor: {}",
+            a.entropy()
+        );
+        assert!(a.unique_colors().count() > PALETTE_COLORS, "many colours");
         assert_eq!(a.class(), ImageClass::UiScreenshot);
         assert_eq!(a.opt_bucket(), OptBucket::MixedSafe);
     }
 
     #[test]
     fn ambiguous_square_falls_back_to_photograph_low_confidence() {
-        // Half smooth gradient (flat, many colours), half noise (edgy) — trips no
-        // strong rule, square so not UI ⇒ the safe fallback to Photograph.
+        // A low-entropy many-colour square that matches no specific rule: four luma
+        // levels in 5px cells (frequent steps → not flat-graphic), iso-luma tint for
+        // >256 colours, square (not UI), entropy below every entropy gate ⇒ the safe
+        // fallback to Photograph at FALLBACK_CONFIDENCE. Entropy is asserted below
+        // PHOTO_ENTROPY_STRONG so it exercises the *fallback*, not the new rule. (The
+        // old fixture was half-noise — entropy ~7.6 — now decisively a photograph.)
         let (w, h) = (200u32, 200u32);
         let mut img = RgbImage::new(w, h);
         for y in 0..h {
             for x in 0..w {
-                if x < w / 2 {
-                    let v = (x * 255 / (w / 2 - 1).max(1)) as u8;
-                    img.put_pixel(x, y, Rgb([v, (y * 255 / (h - 1)) as u8, 200]));
-                } else {
-                    let i = y * w + x;
-                    img.put_pixel(
-                        x,
-                        y,
-                        Rgb([
-                            (i.wrapping_mul(61) % 256) as u8,
-                            (i.wrapping_mul(113) % 256) as u8,
-                            (i.wrapping_mul(191) % 256) as u8,
-                        ]),
-                    );
-                }
+                let level = ((x / 5 + y / 5) % 4) as i32;
+                let luma = 80 + level * 40; // 80,120,160,200
+                let j = ((x.wrapping_mul(7).wrapping_add(y.wrapping_mul(13)) % 81) as i32) - 40;
+                img.put_pixel(x, y, iso_luma(luma, j));
             }
         }
         let a = Analysis::compute(&image_of(DynamicImage::ImageRgb8(img))).unwrap();
+        assert!(
+            a.entropy() < PHOTO_ENTROPY_STRONG,
+            "fallback fixture must stay below the strong-entropy floor: {}",
+            a.entropy()
+        );
         assert_eq!(a.class(), ImageClass::Photograph);
         assert_eq!(a.opt_bucket(), OptBucket::Lossy);
         assert!(

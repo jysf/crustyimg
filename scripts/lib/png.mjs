@@ -116,6 +116,59 @@ export function makePhotoPng(width, height, seed = 1) {
   ]);
 }
 
+/// An 8-bit RGB PNG carrying a genuine FLAT GRAPHIC — a handful of solid-colour
+/// blocks on a flat background (a logo/UI shape, few distinct colours, low luma
+/// entropy). `makePng`'s full-range gradient is NOT a graphic to the engine:
+/// SPEC-105 reads its high entropy as photographic and routes it Lossy → AVIF (the
+/// grayscale/EXIF-stripped-colour exposure that spec fixes). A real graphic is
+/// low-entropy and few-coloured, so `Analysis` buckets it `LosslessFlat` and Auto
+/// keeps it lossless — the path the "lossless shows no fabricated score" check needs.
+export function makeGraphicPng(width, height) {
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(width, 0);
+  ihdr.writeUInt32BE(height, 4);
+  ihdr[8] = 8; // bit depth
+  ihdr[9] = 2; // colour type: truecolour RGB (no alpha)
+
+  // Six flat colours: a light background plus five solid rectangles. Few distinct
+  // colours ⇒ the palette gate buckets it a graphic; the blocks are perfectly flat.
+  const bg = [238, 240, 243];
+  const blocks = [
+    { x0: 0.06, y0: 0.08, x1: 0.46, y1: 0.5, c: [40, 96, 200] },
+    { x0: 0.52, y0: 0.08, x1: 0.94, y1: 0.5, c: [214, 62, 54] },
+    { x0: 0.06, y0: 0.56, x1: 0.46, y1: 0.92, c: [34, 168, 108] },
+    { x0: 0.52, y0: 0.56, x1: 0.72, y1: 0.92, c: [240, 190, 40] },
+    { x0: 0.76, y0: 0.56, x1: 0.94, y1: 0.92, c: [30, 30, 34] },
+  ];
+  const raw = Buffer.alloc(height * (1 + width * 3));
+  for (let y = 0; y < height; y++) {
+    const row = y * (1 + width * 3);
+    raw[row] = 0; // filter type 0 (None)
+    const fy = y / height;
+    for (let x = 0; x < width; x++) {
+      const fx = x / width;
+      let c = bg;
+      for (const b of blocks) {
+        if (fx >= b.x0 && fx < b.x1 && fy >= b.y0 && fy < b.y1) {
+          c = b.c;
+          break;
+        }
+      }
+      const p = row + 1 + x * 3;
+      raw[p] = c[0];
+      raw[p + 1] = c[1];
+      raw[p + 2] = c[2];
+    }
+  }
+
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    pngChunk("IHDR", ihdr),
+    pngChunk("IDAT", deflateSync(raw)),
+    pngChunk("IEND", Buffer.alloc(0)),
+  ]);
+}
+
 /// Read a PNG's signature and IHDR dimensions out of its first 24 bytes.
 export function readIhdr(head) {
   return {

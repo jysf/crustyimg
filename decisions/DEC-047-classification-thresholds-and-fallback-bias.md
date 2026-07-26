@@ -49,6 +49,54 @@ to **`Photograph`/`Lossy`** — the deliberate safe-fallback bias. `has_exif` is
 Photograph prior; contradictions resolve by **cascade precedence, not averaging**. Classification
 **never errors and never blocks** (it is advisory, always yields a class + confidence).
 
+## Amendment — 2026-07-25 (SPEC-105): strong-entropy → Photograph, ahead of the graphic gates
+
+**New rule.** A sixth threshold, `PHOTO_ENTROPY_STRONG = 4.0` (bits of luma entropy), adds a
+decisive rule to the cascade: **any image with luma entropy ≥ `PHOTO_ENTROPY_STRONG` is a
+`Photograph`.** It fires *after* the EXIF (rule 2) and Document (rule 3) rules and *before* the
+graphic gates (rule 4), so a high-entropy image — grayscale or colour, EXIF or not — can no longer
+be misfiled as a `GraphicLogo`.
+
+**Why.** A real Leica B&W portrait (a RAW embedded preview, so EXIF-stripped) shipped as an 823 KB
+lossless WebP instead of a ~62 KB AVIF — 13× oversized (probe:
+`docs/research/proj-008-grayscale-photo-misclassification-probe.md`). Two shared-classifier gates
+mis-fired: a grayscale photo has ≤256 RGB colours (r=g=b), tripping the palette gate (rule 4
+clause 1); and at megapixel resolution the flat detector — anchored on 64×64 synthetics — reads
+*every* photo as ~flat, tripping the flat-graphic gate (rule 4 clause 2) for EXIF-stripped **colour**
+photos too. The EXIF prior (rule 2) had been *masking* both; RAW preview extraction drops EXIF and
+exposed them. Entropy is the clean discriminator: real photographs are high-entropy, genuine
+graphics are low-entropy.
+
+**Calibration (real photos vs real graphics; every value measured via `optimize --explain=json`).**
+
+| Side | Set (all EXIF-stripped) | Entropy |
+|---|---|---|
+| Photos (real) | 48 grayscale + colour crops from the maintainer's library; committed fixtures: Leica 6.07, Canon 6.83, Fuji colour 6.37 | **floor ≈ 4.58**, median ≈ 6.8, up to 7.6 |
+| Graphics — hard-edged (must stay lossless) | solid 0.00 · logo 0.96 · text 0.39 · document 0.49 · realistic UI dashboard 1.56 · code-editor screenshot 0.32 | **≤ ~1.6** |
+| Graphics — dithers | ordered 2-colour 1.00–1.50 · Floyd–Steinberg 8-colour (committed `dithered_graphic.png`) **3.03** · 16-colour 3.43 | ≤ 3.43 |
+
+`PHOTO_ENTROPY_STRONG = 4.0` sits in the gap between the highest realistic hard-edged graphic
+(≈1.6, or ≤3.43 counting dithers-of-photos) and the lowest real photo (≈4.58): ~2.4 margin above
+the genuine graphics it must protect, ~0.6 below the photo floor.
+
+**Known crossings (accepted, both lossy-safe).** Two high-entropy inputs clear the floor and route
+lossy: a **smooth full-frame gradient** (~7.5 — no hard edges, so lossy at high quality doesn't
+smear anything) and a **heavy 32-colour error-diffusion dither of a photo** (~5.1 — a dithered
+*photograph*, not a logo). Both are the safe error direction DEC-047 already commits to: a photo
+forced lossless is merely a bigger file; only a *hard-edged graphic* forced lossy is harmful, and
+none of those reach 4.0.
+
+**Scope guardrail.** This rule *masks* the scale-broken flat/edge detector for photos; it does **not
+fix** it. Scale-normalizing that detector (so "flat" means the same at 64 px and 20 MP) and carrying
+EXIF through the RAW-preview decode remain separate follow-ups. The two synthetic tests that used
+full-range gradients/noise as stand-ins for a "screenshot" / "ambiguous" image were replaced with
+realistic **low-entropy** constructions (iso-luma tint for >256 colours without spreading the luma
+histogram), since a high-entropy gradient is exactly what this rule now — correctly — reads as
+photographic.
+
+**Confidence.** The rule returns `Photograph` at confidence 0.8 (a strong, calibrated signal — above
+the no-EXIF photo heuristic's 0.7, below the decisive EXIF prior's 0.9).
+
 ## Context
 
 STAGE-011 (SPEC-047) needs a photo-vs-graphic verdict to bias STAGE-012's format engine toward the

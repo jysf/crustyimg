@@ -4049,6 +4049,64 @@ fn optimize_verify_reports_score() {
     );
 }
 
+/// SPEC-105: a real EXIF-stripped grayscale photograph (≤256 RGB colours, so it
+/// tripped the ≤256-colour palette gate → `graphic-logo` → 13× oversized lossless
+/// WebP) now classifies as `photograph` and re-encodes to a **lossy AVIF**, not a
+/// lossless WebP. Driven through the real CLI on the committed fixture (the probe's
+/// method: conclude from `--explain=json`, not from unit-level introspection).
+#[test]
+fn optimize_grayscale_photo_is_photograph_lossy_avif() {
+    // The committed real grayscale crop the maintainer owns (the Leica B&W subject).
+    const FIXTURE: &[u8] = include_bytes!("fixtures/classify/grayscale_photo_leica.png");
+
+    let dir = tempfile::tempdir().unwrap();
+    let in_path = write_bytes(&dir, "gray_photo.png", FIXTURE);
+    let out = Command::new(BIN)
+        .args([
+            "optimize",
+            in_path.to_str().unwrap(),
+            "--out-dir",
+            dir.path().join("out").to_str().unwrap(),
+            "--explain=json",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr_str(&out));
+    let json = stdout_str(&out);
+
+    // The class flipped from graphic-logo to photograph…
+    assert!(
+        json.contains("\"class\":\"photograph\""),
+        "a real grayscale photo must classify as a photograph, got: {json}"
+    );
+    assert!(
+        !json.contains("\"class\":\"graphic-logo\""),
+        "the ≤256-colour palette gate must no longer claim it: {json}"
+    );
+    // …and the shipped winner is a LOSSY re-encode (AVIF where built, else JPEG /
+    // lossy WebP), never the lossless WebP blow-up the bug produced. Codec-agnostic
+    // so it holds on every feature leg — the fast decision emits a single candidate,
+    // so its disposition is the winner's.
+    assert!(
+        json.contains("\"winner\":0"),
+        "the fast decision's single candidate must win at index 0, got: {json}"
+    );
+    assert!(
+        json.contains("\"disposition\":\"lossy\""),
+        "the winner must be a lossy re-encode, got: {json}"
+    );
+    assert!(
+        !json.contains("\"disposition\":\"lossless\""),
+        "a real photo must never ship the lossless blow-up, got: {json}"
+    );
+    // Where AVIF is built (the shipped default), it is specifically the AVIF candidate.
+    #[cfg(feature = "avif")]
+    assert!(
+        json.contains("\"candidates\":[{\"format\":\"avif\",\"disposition\":\"lossy\""),
+        "with avif built, the winner must be the lossy AVIF candidate, got: {json}"
+    );
+}
+
 /// Pinning the format (`-o x.webp`, a recognized extension) bypasses the engine.
 #[test]
 fn optimize_pinned_format_bypasses_engine() {
@@ -4319,19 +4377,22 @@ fn optimize_max_size_still_budget() {
     );
 }
 
-/// The metadata-forced fallback must NOT ship a lossless blow-up (SPEC-084
-/// never-bigger, Finding 1). A graphic-classified LOSSY source (a detailed JPEG that
-/// classifies as GraphicLogo) whose only shortlist candidates are lossless — and
-/// which carries an ICC profile, so the raw source can't pass through — must ship a
-/// compact LOSSY re-encode (≈ source), never a lossless WebP/PNG several times the
-/// source size. The ICC must be stripped. Feature-independent: AVIF is never admitted
-/// for a graphic bucket, and the source is JPEG, so the fallback is JPEG in both the
-/// default and `--features avif` builds.
+/// A metadata-carrying, detailed LOSSY source must ship a compact LOSSY re-encode —
+/// never a lossless WebP/PNG blow-up (SPEC-084 never-bigger, Finding 1). The source is
+/// a detailed gradient JPEG carrying an ICC profile, so the raw bytes can't pass
+/// through (the ICC must be stripped). SPEC-105 now classifies this detailed content
+/// as the **photograph** it is (the gradient/EXIF-stripped-colour exposure the probe
+/// found), so its bucket is `Lossy` and the shipped candidate is a lossy AVIF (default
+/// build) or JPEG (`--no-default-features`) — either way a compact lossy encode, never
+/// the lossless blow-up. Before SPEC-105 the same guarantee held via the metadata-
+/// forced JPEG fallback out of the (mis-assigned) graphic bucket; the corrected
+/// classification reaches it more directly, and the never-a-lossless-blow-up + ICC-
+/// stripped guarantees are unchanged.
 #[test]
-fn optimize_graphic_lossy_with_metadata_avoids_lossless_blowup() {
+fn optimize_detailed_icc_source_ships_compact_lossy_not_lossless_blowup() {
     let dir = tempfile::tempdir().unwrap();
     let src = common::detailed_jpeg_with_icc(256, 256);
-    let in_path = write_bytes(&dir, "graphic_icc.jpg", &src);
+    let in_path = write_bytes(&dir, "detailed_icc.jpg", &src);
     let out_dir = dir.path().join("out");
 
     let out = Command::new(BIN)
@@ -4347,15 +4408,20 @@ fn optimize_graphic_lossy_with_metadata_avoids_lossless_blowup() {
 
     let (out_path, bytes) = optimize_single_output(&out_dir);
 
-    // The output must be a LOSSY format (JPEG), the compact fallback — NOT a lossless
-    // WebP/PNG blow-up. If the fix were absent the winner would be the smallest
-    // lossless candidate, several times the source size.
-    assert_eq!(
-        image::guess_format(&bytes).ok(),
-        Some(ImageFormat::Jpeg),
-        "fallback must be a compact lossy JPEG, not a lossless blow-up ({})",
+    // The output must be a LOSSY format — AVIF (default build) or JPEG (lean build) —
+    // NEVER a lossless WebP/PNG blow-up. If the never-bigger guarantee (or the
+    // photograph classification) regressed, the winner would be a lossless candidate.
+    let fmt = image::guess_format(&bytes).ok();
+    assert!(
+        matches!(
+            fmt,
+            Some(ImageFormat::Avif) | Some(ImageFormat::Jpeg) | Some(ImageFormat::WebP)
+        ),
+        "output must be a compact lossy format (AVIF / JPEG / lossy WebP), not a lossless blow-up ({fmt:?}, {})",
         out_path.display()
     );
+    // (`guess_format` can't tell lossy from lossless WebP, so the byte bound below is
+    // what actually proves it is not the lossless blow-up.)
     // Concretely bound the blow-up: a lossless WebP of the same pixels is the thing we
     // must NOT ship. The shipped output must be well under it.
     let pixels = image::load_from_memory(&src).unwrap();
@@ -4366,7 +4432,7 @@ fn optimize_graphic_lossy_with_metadata_avoids_lossless_blowup() {
     let blowup = lossless_webp.into_inner().len();
     assert!(
         bytes.len() < blowup,
-        "shipped {} B; a lossless blow-up would be {} B — the fallback must beat it",
+        "shipped {} B; a lossless blow-up would be {} B — the compact lossy re-encode must beat it",
         bytes.len(),
         blowup
     );
@@ -4914,9 +4980,14 @@ fn optimize_never_bigger_still_unconditional() {
 #[test]
 fn optimize_metadata_free_passthrough_is_byte_identical() {
     let dir = tempfile::tempdir().unwrap();
-    // An already-tight, metadata-free lossy JPEG that nothing beats → the raw source
-    // ships verbatim (a passthrough, no re-encode).
-    let src = common::detailed_jpeg(512, 512);
+    // A committed metadata-free JPEG of a fine checkerboard: a genuine low-entropy
+    // graphic (`graphic-logo`, entropy well under `PHOTO_ENTROPY_STRONG`, so SPEC-105
+    // leaves it lossless), whose high spatial frequency makes every lossless candidate
+    // LARGER than the compact JPEG source — so nothing beats it and the raw source
+    // ships verbatim. (Was `detailed_jpeg`, a gradient that SPEC-105 now correctly
+    // classifies as a photograph — for which AVIF *does* beat the source, so it is no
+    // longer a passthrough fixture.)
+    let src: Vec<u8> = include_bytes!("fixtures/classify/checker_graphic.jpg").to_vec();
     let in_path = write_bytes(&dir, "in.jpg", &src);
     let out_dir = dir.path().join("out");
 
@@ -4943,8 +5014,14 @@ fn optimize_metadata_free_passthrough_is_byte_identical() {
 #[test]
 fn web_normal_case_no_larger_flag() {
     let dir = tempfile::tempdir().unwrap();
-    let src = common::detailed_png(800, 600);
-    let in_path = write_bytes(&dir, "photo.png", &src);
+    // A large JPEG-with-EXIF photograph (3000px): the EXIF camera-prior classifies it
+    // as a photograph directly (independent of SPEC-105), and at 3000px `web`'s
+    // downscale to the 2048 max-edge shrinks it on EVERY feature leg regardless of the
+    // lossy codec (AVIF where built, else JPEG). (Synthetic `detailed_png` is
+    // high-frequency and BLOWS UP under lossy re-encode — not a real-world photo case —
+    // and the small committed photo crops hit the never-bigger passthrough.)
+    let src = common::jpeg_with_exif(3000, 2000);
+    let in_path = write_bytes(&dir, "photo.jpg", &src);
     let out_dir = dir.path().join("out");
 
     let out = Command::new(BIN)

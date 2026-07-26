@@ -43,6 +43,11 @@ mod wasm {
     /// The AVIF fixture the native suite uses (SPEC-058) — a 16×16 solid AVIF.
     const AVIF: &[u8] = include_bytes!("fixtures/avif/solid_16x16.avif");
 
+    /// SPEC-105: a real EXIF-stripped grayscale photograph (≤256 RGB colours). The
+    /// same committed crop the native + unit tests use — the classifier is shared,
+    /// so the browser Auto path must route it exactly as native does.
+    const GRAYSCALE_PHOTO: &[u8] = include_bytes!("fixtures/classify/grayscale_photo_leica.png");
+
     /// Build a small PNG in-process (the native suite's convention: generate
     /// fixtures, never shell out). A 64×48 two-tone image — enough for a resize to
     /// be observable and for the analysis layer to have something to look at.
@@ -466,6 +471,36 @@ op = "identity"
              (DEC-065) — SPEC-081 scores it browser-side via score()"
         );
         assert_eq!(r.scored_by(), "none");
+    }
+
+    /// **SPEC-105.** The demo's headline case: a real grayscale photograph dropped
+    /// into Auto. It has ≤256 RGB colours (r=g=b), so before the shared classifier's
+    /// strong-entropy rule it bucketed `LosslessFlat` and came back as a 13×
+    /// oversized lossless WebP. Through the SAME `optimize_detailed` Auto path the
+    /// demo calls, it must now route to AVIF (`Lossy`) — proving the fix on the wasm
+    /// path, not only native. Guards the browser side of the shared-layer claim.
+    #[wasm_bindgen_test]
+    fn optimize_detailed_auto_grayscale_photo_picks_avif() {
+        let r = optimize_detailed(GRAYSCALE_PHOTO, "auto", None, None, None)
+            .expect("auto optimize of a grayscale photo should succeed");
+
+        assert_eq!(
+            r.format(),
+            "avif",
+            "a real grayscale photo must route to AVIF under Auto (not lossless WebP)"
+        );
+        assert_eq!(&r.bytes()[4..8], b"ftyp", "output should really be AVIF");
+        assert_eq!(
+            r.quality(),
+            Some(FAST_LOSSY_QUALITY),
+            "the default AVIF encode uses native web's FAST_LOSSY_QUALITY"
+        );
+        assert!(
+            r.bytes().len() < GRAYSCALE_PHOTO.len(),
+            "the AVIF ({} B) must beat the source PNG ({} B)",
+            r.bytes().len(),
+            GRAYSCALE_PHOTO.len()
+        );
     }
 
     /// **SPEC-095.** The demo's default photo→AVIF conversion must be the SAME
