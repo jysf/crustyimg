@@ -35,6 +35,11 @@ fn write_bytes(dir: &tempfile::TempDir, name: &str, bytes: &[u8]) -> PathBuf {
 /// (`features`, `timing`), arrays (`candidates`), and colons inside string values
 /// are not mistaken for top-level keys. The schema values we emit carry no
 /// depth-0 commas, which keeps this deliberately small parser correct.
+///
+/// Only `json_shape_consistent_across_verbs` uses this, and that test is
+/// `avif`-gated (see its doc), so this helper is gated to match — otherwise it is
+/// dead code on the lean / webp-lossy legs (`-D warnings`).
+#[cfg(feature = "avif")]
 fn top_level_keys(json: &str) -> Vec<String> {
     let s = json.trim();
     assert!(
