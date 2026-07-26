@@ -132,9 +132,20 @@ Build into a fresh `CARGO_TARGET_DIR` and **confirm the log actually says
 ## When you finish
 
 Fill in `## Build Completion` in the spec (branch, PR, ACs met, deviations, follow-ups) and
-the three build-phase reflection questions. Append the real `tokens_total` for this cycle to
-`cost.sessions` — build is a **metered** cycle, so a null is not acceptable
-(`just cost-audit` enforces this at ship).
+the three build-phase reflection questions.
+
+**Measure your own cost and report it back.** Build is a metered cycle and a null is not
+acceptable (`just cost-audit` enforces it at ship) — but do not estimate it either. Your
+session transcript carries per-message `usage`, so sum it yourself:
+`~/.claude/projects/<cwd-slug>/<session-id>.jsonl`, adding `input_tokens`,
+`output_tokens`, `cache_creation_input_tokens` and `cache_read_input_tokens` over every
+line with `.message.usage`; take duration from the first/last `timestamp`. The session id
+is the last path component of your scratchpad directory. Write the measured numbers into
+`cost.sessions`, price the components separately rather than with the flat 80/20 rule
+(cache reads dominate a long cycle and the shortcut overstates by an order of magnitude),
+and **end your return message with the `## Cost readout` block** from
+`projects/_templates/prompts/cost-snippet.md` — the orchestrator reads cost from your
+return, not by hunting for it.
 
 Then update the `- [ ] **build**` line in
 `specs/SPEC-109-evidence-integrity-for-the-classifier-calibration-timeline.md`, including the

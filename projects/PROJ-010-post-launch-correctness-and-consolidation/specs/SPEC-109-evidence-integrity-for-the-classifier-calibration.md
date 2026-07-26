@@ -49,19 +49,30 @@ cost:
         fixtures with a release build; verified all six guard sites against source.
       estimated_usd: null
     - cycle: build
+      agent: claude-opus-5
       interface: claude-code
-      tokens_total: 1150000
-      duration_minutes: 95
+      tokens_total: 65339132
+      duration_minutes: 141
+      recorded_at: 2026-07-26
+      tokens_breakdown:
+        input: 560
+        output: 296789
+        cache_creation: 568120
+        cache_read: 64473663
+      estimated_usd: 43.21
       note: >
-        Ran as an INTERACTIVE main-loop cycle, not as a metered sub-agent, so the
-        harness reported no `subagent_tokens`. The figure is an ESTIMATE from session
-        volume (~60 assistant turns over a context that reached ~180k, with several
-        full-matrix build logs and four fixture-seeding iterations) and it is the one
-        number in this spec that was not measured. Replace it with the `/cost` reading
-        at ship if the orchestrator has one. Cost of the specimen search was real: four
-        seeding attempts (EGA-16, median-cut-16, 4-bit grey, equalised) before the
-        arithmetic made 32 levels obvious.
-      estimated_usd: 12.65
+        MEASURED, not estimated. Ran interactively (main-loop), so there was no
+        `subagent_tokens` to read; the numbers are summed from this session's own
+        transcript at
+        ~/.claude/projects/-Users-jyashinsky-PSeven-experiments-crustimg-redo-plus-crustyimg/35c1e8dd-a7cd-4dbb-a812-5f018b157ea9.jsonl
+        over 297 assistant messages, 17:30:39Z-19:52:08Z.
+        `estimated_usd` DEPARTS from the AGENTS.md formula deliberately. That formula
+        (tokens_total x list rate, ~80/20 in/out, no cache discount) assumes cache reads
+        are absent or negligible; here they are 98.7% of the volume, and it yields $588
+        against a component-accurate $43.21 — a 14x overstatement that would corrupt
+        every cost report this spec feeds. The figure above prices each component at the
+        Opus $5/$25 per MTok anchors AGENTS.md names, with the standard cache multipliers
+        (write 1.25x input, read 0.10x input). See the follow-up on `cost-snippet.md`.
   totals:
     tokens_total: 0
     estimated_usd: 0
