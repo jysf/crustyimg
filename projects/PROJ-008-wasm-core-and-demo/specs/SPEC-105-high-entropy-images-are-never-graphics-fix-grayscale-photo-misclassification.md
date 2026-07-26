@@ -47,6 +47,19 @@ cost:
         (~70 images via optimize --explain=json), implement the rule, redesign two
         synthetic tests, commit fixtures, add native + wasm + unit tests, amend
         DEC-047. Opus 4.8 list rate, ~80/20 in/out, no cache discount.
+    - cycle: verify
+      interface: claude-code
+      model: claude-opus-4-8
+      tokens_total: 143805
+      estimated_usd: 5.7
+      recorded_at: 2026-07-25
+      note: >
+        Verify dispatched as a metered sub-agent (Agent tool, Opus); tokens_total is the
+        REAL subagent usage count. VERDICT CLEAN: verified the classifier fix against 64
+        real Nikon RAWs (the color case) + the Leica (grayscale), mutation-tested the 4.0
+        threshold, confirmed no genuine graphic regressed. NOTE: verify passed the feature
+        matrix only via stale incremental-build artifacts (a false green); CI caught real
+        no-AVIF-leg test breakage, corrected in a follow-up fix pass (see the ship note).
   totals:
     tokens_total: 0
     estimated_usd: 0

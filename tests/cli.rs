@@ -4083,13 +4083,27 @@ fn optimize_grayscale_photo_is_photograph_lossy_avif() {
         !json.contains("\"class\":\"graphic-logo\""),
         "the ≤256-colour palette gate must no longer claim it: {json}"
     );
-    // …and the shipped winner is a lossy AVIF, not a lossless WebP.
-    let winner_is_avif = json.find("\"winner\":0").is_some_and(|_| {
-        json.contains("\"candidates\":[{\"format\":\"avif\",\"disposition\":\"lossy\"")
-    });
+    // …and the shipped winner is a LOSSY re-encode (AVIF where built, else JPEG /
+    // lossy WebP), never the lossless WebP blow-up the bug produced. Codec-agnostic
+    // so it holds on every feature leg — the fast decision emits a single candidate,
+    // so its disposition is the winner's.
     assert!(
-        winner_is_avif,
-        "the winner must be the lossy AVIF candidate at index 0, got: {json}"
+        json.contains("\"winner\":0"),
+        "the fast decision's single candidate must win at index 0, got: {json}"
+    );
+    assert!(
+        json.contains("\"disposition\":\"lossy\""),
+        "the winner must be a lossy re-encode, got: {json}"
+    );
+    assert!(
+        !json.contains("\"disposition\":\"lossless\""),
+        "a real photo must never ship the lossless blow-up, got: {json}"
+    );
+    // Where AVIF is built (the shipped default), it is specifically the AVIF candidate.
+    #[cfg(feature = "avif")]
+    assert!(
+        json.contains("\"candidates\":[{\"format\":\"avif\",\"disposition\":\"lossy\""),
+        "with avif built, the winner must be the lossy AVIF candidate, got: {json}"
     );
 }
 
@@ -4399,10 +4413,15 @@ fn optimize_detailed_icc_source_ships_compact_lossy_not_lossless_blowup() {
     // photograph classification) regressed, the winner would be a lossless candidate.
     let fmt = image::guess_format(&bytes).ok();
     assert!(
-        matches!(fmt, Some(ImageFormat::Avif) | Some(ImageFormat::Jpeg)),
-        "output must be a compact lossy AVIF/JPEG, not a lossless blow-up ({fmt:?}, {})",
+        matches!(
+            fmt,
+            Some(ImageFormat::Avif) | Some(ImageFormat::Jpeg) | Some(ImageFormat::WebP)
+        ),
+        "output must be a compact lossy format (AVIF / JPEG / lossy WebP), not a lossless blow-up ({fmt:?}, {})",
         out_path.display()
     );
+    // (`guess_format` can't tell lossy from lossless WebP, so the byte bound below is
+    // what actually proves it is not the lossless blow-up.)
     // Concretely bound the blow-up: a lossless WebP of the same pixels is the thing we
     // must NOT ship. The shipped output must be well under it.
     let pixels = image::load_from_memory(&src).unwrap();
@@ -4995,8 +5014,14 @@ fn optimize_metadata_free_passthrough_is_byte_identical() {
 #[test]
 fn web_normal_case_no_larger_flag() {
     let dir = tempfile::tempdir().unwrap();
-    let src = common::detailed_png(800, 600);
-    let in_path = write_bytes(&dir, "photo.png", &src);
+    // A large JPEG-with-EXIF photograph (3000px): the EXIF camera-prior classifies it
+    // as a photograph directly (independent of SPEC-105), and at 3000px `web`'s
+    // downscale to the 2048 max-edge shrinks it on EVERY feature leg regardless of the
+    // lossy codec (AVIF where built, else JPEG). (Synthetic `detailed_png` is
+    // high-frequency and BLOWS UP under lossy re-encode — not a real-world photo case —
+    // and the small committed photo crops hit the never-bigger passthrough.)
+    let src = common::jpeg_with_exif(3000, 2000);
+    let in_path = write_bytes(&dir, "photo.jpg", &src);
     let out_dir = dir.path().join("out");
 
     let out = Command::new(BIN)
