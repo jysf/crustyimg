@@ -355,3 +355,36 @@ not by any gate. **Three separable defects; likely one S spec.**
    *every* pre-freeze install has exactly this breakage, and the 0.6.0 CHANGELOG never tells
    anyone to regenerate. Wants: a CHANGELOG/README note, and consider having the script assert
    its own version against the binary so staleness is loud instead of silent.
+
+## Classifier regression — graphics promoted to lossy by the resize (code review, 2026-07-26)
+
+⚠ **Launch-gating, engine-level, not yet framed as a spec.** Full findings:
+[`docs/research/pr113-classifier-review-findings.md`](research/pr113-classifier-review-findings.md).
+
+A max-effort review of the merged SPEC-105 commit (`54ba05e`) returned 15 findings, none
+refuted. It posted nothing to PR #113, so that document is the only record — read it before
+framing any classifier work.
+
+The load-bearing one: **classification runs after the resize pipeline**
+(`src/cli/optimize.rs:989` → `:1013`), so `--max` chooses the content class. Downscaling
+averages hard edges into intermediate luma bins, which is exactly the signal the SPEC-105
+entropy rule reads as "photograph" — and `web` downscales to 2048 by default. DEC-047's
+calibration was measured at native size, so it does not describe the path most users take.
+Reported (unverified, being re-derived): a 3840×2160 code-editor screenshot crosses the 4.0
+threshold at `--max 2048` and ships a 358 KB lossy AVIF for a 111 KB lossless source —
+larger than the input, and smeared, on the flagship verb.
+
+Also confirmed structurally: cascade rule 6 is unreachable dead code (two constants now
+inert, `clippy-fmt-clean` is a **blocking** constraint and the automated gate cannot see
+this); `--profile docs` is a silent no-op for promoted images; DEC-047 states a rule reach
+that is false for images ≤ 128 px; and the PR's headline calibration guard is a tautology
+that stays green with the threshold moved to 5.5.
+
+Suggested shape (the review's, not yet adopted): one design spec for classification
+placement / scale-aware entropy — which likely **subsumes** the queued "scale-normalize the
+flat/edge detector" item rather than layering on it — plus one evidence-integrity spec that
+commits the boundary specimens DEC-047 cites but the repo does not contain, re-establishes
+each diluted guard with a negative control, and corrects DEC-047's two false claims.
+
+Session prompt for the re-derivation:
+[`docs/research/pr113-rederivation-session-prompt.md`](research/pr113-rederivation-session-prompt.md).
