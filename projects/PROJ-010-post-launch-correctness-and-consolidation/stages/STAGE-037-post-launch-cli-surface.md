@@ -4,18 +4,22 @@
 # It has a spec backlog and ships as a unit when the backlog is done.
 
 stage:
-  id: STAGE-032                     # stable, zero-padded within the project
+  id: STAGE-037                     # stable, zero-padded within the project
   status: proposed                  # proposed | active | shipped | cancelled | on_hold
   priority: low                     # critical | high | medium | low
   target_complete: null             # optional: YYYY-MM-DD
 
 project:
-  id: PROJ-008                      # parent project
+  id: PROJ-010                      # parent project
 repo:
   id: crustyimg
 
 created_at: 2026-07-20
 shipped_at: null
+
+# Re-homed 2026-07-26 from PROJ-008 STAGE-032, where it was framed but never
+# started. Content unchanged; the ID and parent project moved. No spec shipped
+# under the old number, so nothing is split across projects.
 
 value_contribution:
   advances: >
@@ -31,7 +35,7 @@ value_contribution:
     - "Block the launch — this stage is post-launch, pulled only when there's a reason to."
 ---
 
-# STAGE-032: post-launch CLI surface enhancements
+# STAGE-037: post-launch CLI surface enhancements
 
 ## What This Stage Is
 
@@ -87,7 +91,8 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 ## Dependencies
 
 ### Depends on
-- STAGE-030 (shipped 2026-07-20) — the frozen ~14-verb surface and recipe registry this stage extends.
+- STAGE-030 (PROJ-008, shipped 2026-07-20) — the frozen ~14-verb surface and recipe registry this
+  stage extends.
 
 ### Enables
 - Nothing blocks on this; it is pure post-launch convenience.

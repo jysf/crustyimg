@@ -12,10 +12,10 @@
 
 ## Queued
 
-> **Items 1, 2, 4, 5, 6 and 7 are carried by STAGE-033** (post-launch polish and repo housekeeping,
-> framed 2026-07-26), alongside the shell-completions defect. They stay listed here as the
-> detailed source of truth; the stage holds the sequencing. **Item 3 is deliberately NOT in that
-> stage** — see its note.
+> **Items 1, 2, 4, 5, 6 and 7 are carried by PROJ-010 STAGE-038** (post-launch polish and repo
+> housekeeping — framed 2026-07-26 as PROJ-008 STAGE-033, re-homed the same day), alongside the
+> shell-completions defect. They stay listed here as the detailed source of truth; the stage holds
+> the sequencing. **Item 3 is deliberately NOT in that stage** — see its note.
 >
 > These seven sat under `## Done` until 2026-07-26 with no commit or PR against any of them;
 > all seven were verified still open at close-out and moved back here.
@@ -74,7 +74,7 @@ project:
 
 ### 3. Make the cross-tool benchmark refreshable without an LLM
 
-NOT carried by STAGE-033 — this one is M-sized and is the hard prerequisite for encoder
+NOT carried by PROJ-010 STAGE-038 — this one is M-sized and is the hard prerequisite for encoder
 threading, so it wants its own spec.
 
 - the harness already runs

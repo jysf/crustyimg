@@ -190,24 +190,25 @@ Format: `- [status] STAGE-ID — one-line summary`
   (084–091, 093) + SPEC-094 as a follow-up; SPEC-092 was optional from the start and deferred to
   STAGE-032. Two of the nine were LIVE bugs the freeze flushed out (093 metadata byte-order
   corruption, 094 empty-OBU abort).
-- [ ] STAGE-031 (proposed; 3 specs shipped 2026-07-19) — **engineering quality and code health.**
-  **NOT PROJ-008 thesis work** — it is post-audit code hygiene that happened to run during this
-  wave (SPEC-097 `src/cli/mod.rs` 6,483 → 1,426 lines byte-identically; SPEC-098/099 the dependency
-  pinning decision record and its correction, DEC-078/079). One unframed follow-up remains
-  (strict-JSON `escape_json`). **Carried forward — awaiting re-home into the next project.**
-- [ ] STAGE-032 (proposed) — **post-launch CLI surface.** Additive conveniences STAGE-030
-  deliberately deferred (SPEC-092 `convert --to` + social/archive recipes). **NOT PROJ-008 thesis
-  work. Carried forward — awaiting re-home into the next project.**
-- [ ] STAGE-033 (proposed) — **post-launch polish and repo housekeeping.** Shell completions
-  (SPEC-106), the hostile/edge input confirmation pass (**SPEC-107 — launch-gating, framed and
-  ready to build**), plus six repo-tooling chores. **NOT PROJ-008 thesis work. Carried forward —
-  awaiting re-home into the next project.**
+- [x] STAGE-031 (shipped 2026-07-26; 3 specs shipped 2026-07-19) — **engineering quality and code
+  health.** **NOT PROJ-008 thesis work** — it is post-audit code hygiene that happened to run during
+  this wave (SPEC-097 `src/cli/mod.rs` 6,483 → 1,426 lines byte-identically; SPEC-098/099 the
+  dependency pinning decision record and its correction, DEC-078/079). Closed in place on 2026-07-26:
+  all three adopted audit items had shipped, and its one unframed follow-up (strict-JSON
+  `escape_json`) moved to **PROJ-010 STAGE-036**, the continuation.
+- [→] STAGE-032 → **PROJ-010 STAGE-037** (re-homed 2026-07-26) — **post-launch CLI surface.**
+  Additive conveniences STAGE-030 deliberately deferred (SPEC-092 `convert --to` + social/archive
+  recipes). **NOT PROJ-008 thesis work.**
+- [→] STAGE-033 → **PROJ-010 STAGE-038** (re-homed 2026-07-26) — **post-launch polish and repo
+  housekeeping.** Shell completions (SPEC-106) plus six repo-tooling chores. **NOT PROJ-008 thesis
+  work.** The hostile/edge input confirmation pass (**SPEC-107 — launch-gating**) went to **PROJ-010
+  STAGE-035** instead of travelling with the rest of the stage.
 
-**Count:** **6 shipped / 0 active / 3 proposed-and-carried-forward.** The project thesis —
+**Count:** **7 shipped / 0 active / 0 open; 2 re-homed to PROJ-010.** The project thesis —
 wasm core (025) → npm library (026) → demo page (027) → launch readiness (028) → demo launch
-quality (029) → CLI surface freeze (030) — is **complete and live**. STAGE-031/032/033 are code
-health, additive CLI surface, and housekeeping: real work, but not this wave's thesis, and they do
-not hold it open. The Show HN / r/rust go/no-go likewise does not hold it open — same call already
+quality (029) → CLI surface freeze (030) — is **complete and live**. STAGE-031/032/033 were code
+health, additive CLI surface, and housekeeping: real work, but not this wave's thesis, and they never
+held it open. The Show HN / r/rust go/no-go likewise does not hold it open — same call already
 made for STAGE-028 — it is a maintainer decision on `docs/launch-readiness.md`.
 
 ## Dependencies
@@ -398,28 +399,35 @@ part.**
 
 ### What is carried forward to the next project
 
-**Framed but not re-homed.** STAGE-031, STAGE-032 and STAGE-033 stay `proposed` and stay in this
-project's `stages/` directory. They are **not PROJ-008 thesis work** and they do not hold this
-project open; they await re-home into the next project, which the maintainer frames in a later
-session. They are deliberately not renumbered, moved or deleted here.
+**Resolved 2026-07-26 — the maintainer framed PROJ-010 and re-homed these.** They were **not PROJ-008
+thesis work** and never held this project open. What happened to each, and why the three were not
+treated alike:
 
-- **STAGE-031 — engineering quality and code health.** Three specs shipped during this wave
-  (097/098/099); one unframed follow-up remains (strict-JSON `escape_json`).
-- **STAGE-032 — post-launch CLI surface.** SPEC-092 (`convert --to` + social/archive recipes),
-  additive only.
-- **STAGE-033 — post-launch polish and repo housekeeping.** SPEC-106 (shell completions: nothing
-  installs them, zero `ValueHint` in `src/`, a pre-freeze script silently stops completing `web`),
-  **SPEC-107 (hostile / edge input confirmation pass — LAUNCH-GATING, framed and ready to build)**,
+- **STAGE-031 — engineering quality and code health.** **Stayed here, and is now `shipped`.** All
+  three adopted audit items shipped during this wave (097/098/099, PRs #103/#102/#104, DEC-078/079)
+  and those spec files live in this project's `specs/done/`. Moving the stage would have relocated
+  PROJ-008's shipped work and PR provenance into a project that has not started. Its one unframed
+  follow-up (strict-JSON `escape_json`) went to **PROJ-010 STAGE-036**, the continuation, which also
+  inherits the shelved-directive record (D1/D2/D3/D5/D6, do not re-raise) and the byte-identical
+  pre-change-oracle gate.
+- **STAGE-032 → PROJ-010 STAGE-037.** Re-homed by `git mv`; content unchanged. SPEC-092
+  (`convert --to` + social/archive recipes), additive only. No spec had shipped under the old number.
+- **STAGE-033 → PROJ-010 STAGE-038.** Re-homed by `git mv`. SPEC-106 (shell completions: nothing
+  installs them, zero `ValueHint` in `src/`, a pre-freeze script silently stops completing `web`)
   plus six repo-tooling chores (duplicate CI matrix, DCO sign-off hook, release-size baseline,
-  `wasm-size` banner, `lifetime-report` port, `activity:` front-matter field).
+  `wasm-size` banner, `lifetime-report` port, `activity:` front-matter field). **One change on the
+  move:** SPEC-107 (hostile / edge input confirmation pass — LAUNCH-GATING) left for **PROJ-010
+  STAGE-035**, a launch-gating stage of its own, which resolves structurally the caveat STAGE-033
+  carried about holding a launch gate inside a post-launch stage.
 
-**Also carried forward, engine work with no stage yet:**
+**Also carried forward, engine work with no stage yet — resolved 2026-07-26:**
 
 - **The classifier regression above** — classification placement / scale-aware entropy, plus an
   evidence-integrity pass (commit the boundary specimens DEC-047 cites but the repo does not
   contain; re-establish each diluted guard with a negative control; correct DEC-047's two false
   claims). Launch-gating. It likely **subsumes** the queued "scale-normalize the flat/edge
-  detector" item rather than layering on it.
+  detector" item rather than layering on it. **Now PROJ-010 STAGE-034**, as SPEC-108 (the fix)
+  and SPEC-109 (evidence integrity).
 - **`web` returns larger-than-source output on the *lossless* path too**, for ordinary screenshots,
   with no misclassification involved (a 4K spreadsheet screenshot: 420,717 B → 567,140 B at the
   default `--max 2048`). It is disclosed (`larger_than_source: true` + help text), not hidden — but

@@ -4,18 +4,23 @@
 # It has a spec backlog and ships as a unit when the backlog is done.
 
 stage:
-  id: STAGE-033                     # stable, zero-padded within the project
+  id: STAGE-038                     # stable, zero-padded within the project
   status: proposed                  # proposed | active | shipped | cancelled | on_hold
   priority: medium                  # critical | high | medium | low
   target_complete: null             # optional: YYYY-MM-DD
 
 project:
-  id: PROJ-008                      # parent project
+  id: PROJ-010                      # parent project
 repo:
   id: crustyimg
 
 created_at: 2026-07-26
 shipped_at: null
+
+# Re-homed 2026-07-26 from PROJ-008 STAGE-033, where it was framed but never
+# started. No spec shipped under the old number. One change on the move:
+# SPEC-107 left for STAGE-035, because it is launch-gating and this stage is
+# not — the sequencing caveat the old file carried is now structural.
 
 # What part of the project's value thesis this stage advances.
 value_contribution:
@@ -30,7 +35,6 @@ value_contribution:
     - "Shell completions that install themselves via the package manager, complete file paths on every shell, and do not rot silently when the CLI surface changes"
     - "A whole-repo, all-time `lifetime-report` rollup (rule-based, deterministic, no LLM) alongside the existing report-daily / report-weekly tooling"
     - "An `activity:` front-matter field so a project's status says what KIND of work is live, not just active/shipped"
-    - "A recorded answer to what the CLI and the wasm build actually do with hostile input — truncated, garbage, zero-byte, decompression-bomb, and over-gate files — instead of an untested assumption"
     - "The repo-tooling backlog's small standing annoyances closed out: PRs no longer running the 3-OS matrix twice, DCO sign-off made mechanical, an advisory release-binary size baseline, and the wasm-size banner telling the truth"
   explicitly_does_not:
     - "Touch the engine, the classifier, any codec, or the wasm/demo surface — no pixels change in this stage"
@@ -39,7 +43,7 @@ value_contribution:
     - "Do launch coordination (the Show HN / r/rust go/no-go) — that is maintainer-blocked and lives on the launch board"
 ---
 
-# STAGE-033: post-launch polish and repo housekeeping
+# STAGE-038: post-launch polish and repo housekeeping
 
 ## What This Stage Is
 
@@ -48,21 +52,19 @@ between a tool that works and a tool that feels finished. None of them touch the
 
 1. **Shell completions** — a real user-visible bug, found the only way it could be found: by the
    maintainer trying to tab-complete a filename after `crustyimg web` and getting nothing.
-2. **A hostile / edge input confirmation pass** — the launch checklist has always said "hold
-   natively; confirm in the browser," and nobody ever recorded the confirmation.
-3. **`just lifetime-report`** — port the whole-repo, all-time rollup tooling from
+2. **`just lifetime-report`** — port the whole-repo, all-time rollup tooling from
    `zany-animal-slots`. Repo-methodology work; complements `report-daily` / `report-weekly`.
-4. **An `activity:` front-matter field** — make `status: active` say *what kind* of work is live.
-5. **Four standing repo-tooling annoyances** — CI running every PR's 3-OS matrix twice, DCO
+3. **An `activity:` front-matter field** — make `status: active` say *what kind* of work is live.
+4. **Four standing repo-tooling annoyances** — CI running every PR's 3-OS matrix twice, DCO
    sign-off that keeps being forgotten, no release-binary size baseline, and a `wasm-size` banner
    that lies about which build it measured.
 
 The unifying thread is **maintenance-of-use, not construction**: nothing here adds capability.
 
-⚠ **One exception to "post-launch": SPEC-107.** Confirming hostile-input behavior is an open
-launch blocker, not polish. It lives here because it's cheap repo work that fits the stage's
-shape — but if the launch moves first, pull it out and run it alone rather than letting a launch
-gate wait on housekeeping.
+**SPEC-107 is no longer here.** As STAGE-033 this stage carried the hostile/edge input pass with a
+standing caveat that it was the one launch-gating item in a post-launch stage. The re-home resolved
+that structurally: SPEC-107 now lives in **STAGE-035**, a launch-gating stage of its own, and this
+stage is post-launch without exception.
 
 ## Why Now
 
@@ -70,11 +72,12 @@ gate wait on housekeeping.
   before the STAGE-030 surface freeze has a script that silently stops completing `web` — the
   flagship verb the README and the post both lead with. That is a bad first five minutes for
   exactly the audience a launch would bring.
-- **PROJ-008 is launch-ready and nothing is in flight.** This is the natural slot for cheap,
-  low-risk work that doesn't want to be interleaved with an engine change.
-- **Deliberately sequenced AFTER the `/code-review ultra` triage.** The review's scope is engine
-  surfaces and test rigor; its findings get first claim on build capacity. This stage is what to
-  pull when that queue is clear — or to interleave, since it shares no files with engine work.
+- **PROJ-008 shipped 2026-07-25.** This is the natural slot for cheap, low-risk work that
+  doesn't want to be interleaved with an engine change.
+- **Deliberately sequenced AFTER the `/code-review ultra` triage.** That triage has since
+  happened: its findings are `docs/research/pr113-classifier-review-findings.md` and they became
+  STAGE-034. Those get first claim on build capacity. This stage is what to pull when that queue
+  is clear — or to interleave, since it shares no files with engine work.
 
 ## Success Criteria
 
@@ -89,16 +92,6 @@ gate wait on housekeeping.
   releases).
 - `activity:` is accepted by `just validate`, documented in the project-brief template with a
   settled vocabulary, and backfilled on the active brief.
-- **Every input in the hostile set has a recorded, driven result** — native CLI and wasm, each
-  file actually run, no hang, a message a user can act on, and the documented exit code. A
-  recorded "it held" counts only if the run happened; an untested assumption does not close the
-  launch-readiness item.
-- **The empty-OBU AVIF still hits the SPEC-094 guard**, shown by driving it, not by reading the
-  guard — and the `debug_assertions` build is the leg that proves it, since that is where
-  `debug_abort()` lives.
-- The launch-readiness hostile-input blocker moves off "hold natively; confirm in the browser"
-  to a stated outcome, with the genuinely browser-specific remainder named and left on the
-  launch board rather than silently dropped.
 - All gates green on the full clean matrix (default / lean / `webp-lossy`, clippy each, fmt).
 
 ## Scope
@@ -108,25 +101,14 @@ gate wait on housekeeping.
   README / `--help` / CHANGELOG notes about completions and regeneration; a staleness signal.
 - `scripts/lifetime-report.sh` + three `just` recipes + `reports/lifetime/`.
 - The `activity:` field: template, `just validate`, optional `just status` surfacing, backfill.
-- A committed hostile-input corpus and the harness that drives it against **both** the native
-  CLI and the wasm build, plus the recorded results and the launch-readiness update. Fixes to
-  anything it finds are in scope even if they land in engine-adjacent code — a confirmation pass
-  that cannot fix what it finds is not worth running.
 - CI trigger de-duplication, a DCO pre-push hook, `just size` + a recorded binary-size baseline,
   and the `just wasm-size` banner label.
 
 ### Explicitly out of scope
 - Engine / classifier / codec / wasm / demo changes as *feature* work; any change to the frozen
-  verb set; the benchmark refresh; encoder threading; launch coordination. SPEC-107 **exercises**
-  those surfaces and may fix a defect it proves — it does not redesign them.
-- **The browser half of the hostile-input pass**: whether the demo UI *surfaces* these errors
-  legibly, and how a phone behaves on the large ones. That needs a real device and a human
-  looking at a screen, so it folds into the maintainer's mobile test on the launch board
-  ([[never-drive-the-maintainers-live-browser]]). This stage covers the wasm build driven
-  headlessly, which is where the engine behavior actually lives.
-- Platform-aware RAW gating. SPEC-107 drives inputs either side of the current global 60 MP gate
-  and records what happens; whether that gate should ever become device-dependent is decided by
-  the mobile test, not here.
+  verb set; the benchmark refresh; encoder threading; launch coordination.
+- The hostile / edge input confirmation pass and everything fenced around it — that is STAGE-035
+  now, including the browser-half split and the platform-aware RAW gating fence.
 
 ## Spec Backlog
 
@@ -167,21 +149,6 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
   exists. Wants a recipe + a recorded baseline so drift shows in a diff. Keep the size check
   baseline-keyed and **separate** from any structural build-profile assertion
   ([[assert-the-build-profile-structurally-not-by-size]]). Queued item #6. Complexity **S**.
-- [ ] SPEC-107 (frame) — **hostile / edge input confirmation pass.** ⚠ **The one launch-GATING
-  item in this stage** — it is an open blocker in `docs/launch-readiness.md` ("hold natively;
-  confirm in the browser"), and browser confirmation has never been recorded either way. Framed
-  as a spec, not a chore, because it can find real defects and needs stated acceptance criteria.
-  Drive the native CLI **and** the wasm build against a hostile set and record what holds: a
-  truncated AVIF and JPEG; a `.txt` renamed `.jpg`; a zero-byte file; a decompression-bomb PNG
-  (small file, huge canvas); a RAW just under and just over the 60 MP demo gate; an AVIF with an
-  empty OBU (confirm the SPEC-094 `debug_abort()` guard still fires — per
-  [[a-thread-boundary-does-not-catch-abort]] a thread boundary will not save us). Acceptance:
-  no hang, no cryptic failure, a clear message on every input, and the documented exit codes.
-  **Split by design:** everything above is testable without a browser and is repo work; what
-  remains genuinely browser-specific is whether the demo *surfaces* those errors clearly and how
-  a phone behaves on the big ones — that part folds into the maintainer's mobile device test and
-  stays on the launch board. Touches no engine source (verification only, unless it finds
-  something). Complexity **S–M**.
 - [ ] (chore) — **`just wasm-size`'s banner mislabels a lean build.** [justfile:197](../../../justfile)
   calls `@just wasm-size` as a *nested* `just` invocation, which does not inherit `--set`, so it
   re-reads the default feature list: same artifact, same bytes, two different labels. Corrupts
@@ -189,11 +156,11 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
   baseline — exactly the number a mislabelled banner would poison. Queued item #7.
   Complexity **S**.
 
-**Count:** 0 shipped / 0 active / 2 specs + 6 chores pending
+**Count:** 0 shipped / 0 active / 1 spec + 6 chores pending
 
-> **Sequencing caveat.** This stage is framed *post-launch*, but SPEC-107 is a **pre-launch
-> blocker**. If the launch goes first, pull SPEC-107 out and run it on its own — do not let a
-> launch gate wait on a housekeeping stage. The rest of the stage genuinely can wait.
+> **Sequencing.** Nothing here is launch-gating. STAGE-034 and STAGE-035 are; run them first.
+> The old sequencing caveat is gone because the thing it protected against — a launch gate
+> waiting on a housekeeping stage — was removed by moving SPEC-107 to STAGE-035.
 
 ## Design Notes
 
@@ -220,8 +187,8 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 ## Dependencies
 
 ### Depends on
-- STAGE-030 (shipped) — the frozen 14-verb surface the completions must describe.
-- Nothing blocking. Sequenced after the `/code-review ultra` triage by choice, not necessity.
+- STAGE-030 (PROJ-008, shipped) — the frozen 14-verb surface the completions must describe.
+- Nothing blocking. Sequenced after STAGE-034/035 by choice, not necessity.
 
 ### Enables
 - Nothing blocks on this. It removes friction rather than unlocking capability.

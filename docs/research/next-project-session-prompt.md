@@ -1,5 +1,27 @@
 # Session prompt: frame the project that follows PROJ-008
 
+> ## ✅ RESOLVED 2026-07-26 — this prompt has been executed. Read it as a record, not as instructions.
+>
+> The session it briefed ran and the maintainer made every decision it asked for. **Its imperatives
+> are now spent** — in particular "Do not re-home stages 031/032/033 until the thesis is chosen"
+> (§3) and "decide deliberately whether you want that renumbering" (§3) have both been answered.
+>
+> - **Thesis:** (a) post-launch correctness and consolidation. **PROJ-010** is framed and tracked.
+> - **The draft:** adopted with the six named edits, plus the two scope problems fixed (Spec 2 widened
+>   to six named guard sites; STAGE-036's unsourced items demoted to a labelled candidate list).
+> - **Renumbering:** STAGE-032 → STAGE-037 and STAGE-033 → STAGE-038 by `git mv`. **STAGE-031 was
+>   NOT moved** — it had three shipped specs in PROJ-008's `specs/done/`, so it closed in place as
+>   `shipped` and PROJ-010 STAGE-036 is its continuation. SPEC-107 went to its own launch-gating
+>   stage, STAGE-035.
+> - **The eleven absent findings:** seven brought into STAGE-034 (including rule 6's dead code and
+>   `--profile docs`); the dirty-alpha finding deferred to `docs/backlog.md` pending a specimen,
+>   since the re-derivation could not test it.
+> - **Also fixed:** `just status` exited 1 on any project without a `specs/done/` directory
+>   (`find` under `set -o pipefail`). See `scripts/_lib.sh` `count_files`.
+>
+> Everything §1, §2 and §4 assert about the measured classifier state still stands and is still the
+> ground truth to design against. §6 (splitting the roadmap) remains open and unframed.
+
 Working dir: `/Users/jyashinsky/PSeven/experiments/crustimg_redo_plus/crustyimg`, on `main`.
 Git user `jysf`; **every commit signed off (`-s`)** — DCO is enforced and has gone red three
 times for a missing `-s`. **Never `git reset --hard`** — a previous session used it and

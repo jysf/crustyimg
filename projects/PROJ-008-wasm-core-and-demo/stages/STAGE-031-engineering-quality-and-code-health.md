@@ -5,7 +5,7 @@
 
 stage:
   id: STAGE-031                     # stable, zero-padded within the project
-  status: proposed                  # proposed | active | shipped | cancelled | on_hold
+  status: shipped                   # proposed | active | shipped | cancelled | on_hold
   priority: medium                  # critical | high | medium | low
   target_complete: null             # optional: YYYY-MM-DD
 
@@ -15,7 +15,15 @@ repo:
   id: crustyimg
 
 created_at: 2026-07-19
-shipped_at: null
+shipped_at: 2026-07-26
+
+# Closed 2026-07-26, retroactively. All three adopted audit items shipped here
+# on 2026-07-19 (SPEC-097/098/099); the file stayed `proposed` only because the
+# one unframed tail item had nowhere to go. That tail now lives in PROJ-010
+# STAGE-036, so this stage's backlog is empty and it is closed where its specs
+# shipped. Unlike STAGE-032/033, this stage was NOT re-homed — moving it would
+# have relocated PROJ-008's shipped work and PR provenance into a project that
+# has not started.
 
 # What part of the project's value thesis this stage advances.
 # If you can't articulate value_contribution, the stage may be
@@ -96,9 +104,10 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 **Count:** 3 shipped (SPEC-097 cli split, SPEC-098 DEC-078, SPEC-099 DEC-079) / 0 framed / 0 active.
 All three adopted audit items shipped.
 
-**Queued for this stage (not yet framed):**
+**Carried forward, not queued here (2026-07-26):**
 - **strict-JSON `escape_json`** (SPEC-097 follow-up, low priority) — `0x7F`/≥0x20 controls pass through
-  unescaped (byte-identical to pre-split main; a *behavior* change to fix, own spec).
+  unescaped (byte-identical to pre-split main; a *behavior* change to fix, own spec). Now the tail item
+  of **PROJ-010 STAGE-036**, which is this stage's continuation.
 
 ## Design Notes
 
@@ -126,21 +135,28 @@ Standing gate for every spec here: **byte-identical behavior**, proven against a
 ## Dependencies
 
 ### Depends on
-- STAGE-YYY (in this project or previous) — what it provides
-- External: <third-party, vendor, approval>
+- The pre-launch Rust audit (`docs/research/proj-008-rust-directives-audit.md`, landed 2026-07-19) —
+  the source of every item this stage adopted or shelved.
 
 ### Enables
-- STAGE-ZZZ — what becomes possible once this ships
+- **PROJ-010 STAGE-036** — the continuation. It inherits the one unframed tail item, the shelved-directive
+  record below, and the byte-identical pre-change-oracle gate.
 
 ## Stage-Level Reflection
 
-*Filled in when status moves to shipped. Run Prompt 1c (Stage Ship) in
-FIRST_SESSION_PROMPTS.md to draft this.*
-
-- **Did we deliver the outcome in "What This Stage Is"?** <yes/no + notes>
-- **How many specs did it actually take?** <number vs. plan>
-- **What changed between starting and shipping?** <one sentence>
+- **Did we deliver the outcome in "What This Stage Is"?** Yes. Both adopted items shipped, plus a third
+  spec that was not planned: SPEC-099 corrected a false premise SPEC-098 had recorded as a decision.
+- **How many specs did it actually take?** 3 (097/098/099) against a plan of 2. The extra one was a
+  correction, not new scope.
+- **What changed between starting and shipping?** SPEC-098 recorded DEC-078 on a false premise
+  (that crustyimg was not published to crates.io — it is), so SPEC-099 had to supersede it with DEC-079
+  before the pinning story was true.
 - **Lessons that should update AGENTS.md, templates, or constraints?**
-  - <one-line updates>
+  - A decision record's *premise* needs the same verification as a spec's measurements — DEC-078 was
+    internally coherent and factually wrong, and nothing in the cycle checked the premise.
+  - The byte-identical pre-change-oracle gate did its job on a 6,483 → 1,426 line split: an independent
+    oracle (27/27 golden + a function-body diff across ~170 fns) is what made a refactor that size safe
+    to merge. Carried forward to STAGE-036 as a standing gate.
 - **Should any spec-level reflections be promoted to stage-level lessons?**
-  - <one-line items>
+  - Yes — SPEC-099's "a single de-stale banner leaves residue": verify found and fixed 3 residual stale
+    claims after the sweep. Related to [[mechanical-sweeps-need-a-mechanical-check]].

@@ -389,28 +389,49 @@ each diluted guard with a negative control, and corrects DEC-047's two false cla
 Session prompt for the re-derivation:
 [`docs/research/pr113-rederivation-session-prompt.md`](research/pr113-rederivation-session-prompt.md).
 
-## Carried forward from PROJ-008 — three stages awaiting a home (2026-07-26)
+## Carried forward from PROJ-008 — RESOLVED, re-homed into PROJ-010 (2026-07-26)
 
-PROJ-008 closed `shipped` on 2026-07-25. Three of its stages are **not** that project's thesis
-work (wasm core → npm library → client-side demo) and were deliberately **not** absorbed into it,
-renumbered, moved, or deleted. They stay `proposed` in
-`projects/PROJ-008-wasm-core-and-demo/stages/` until the maintainer frames the next project and
-re-homes them.
+PROJ-008 closed `shipped` on 2026-07-25 leaving three stages that were **not** its thesis work
+(wasm core → npm library → client-side demo) and were deliberately left in place until the next
+project's thesis was chosen. The maintainer framed **PROJ-010 — post-launch correctness and
+consolidation** on 2026-07-26 and re-homed them. The three were **not** treated alike:
 
-- **STAGE-031 — engineering quality and code health.** Three specs already shipped during the wave
-  (097 `src/cli/mod.rs` split, 098/099 dependency-pinning record + correction). One unframed
-  follow-up remains: strict-JSON `escape_json`.
-- **STAGE-032 — post-launch CLI surface.** SPEC-092 (`convert --to` plus social/archive recipes).
-  Additive only; STAGE-030's freeze deferred it on purpose.
-- **STAGE-033 — post-launch polish and repo housekeeping.** SPEC-106 (shell completions),
-  **SPEC-107 (hostile / edge input confirmation pass — LAUNCH-GATING, framed and ready to build)**,
-  plus six repo-tooling chores.
+- **STAGE-031 — engineering quality and code health.** **Not moved; closed in place as `shipped`.**
+  Its three specs shipped during the wave (097 `src/cli/mod.rs` split, 098/099 dependency-pinning
+  record + correction) and their files live in PROJ-008's `specs/done/`. Moving the stage would
+  have relocated PROJ-008's shipped work and PR provenance into a project that has not started.
+  Its one unframed follow-up (strict-JSON `escape_json`) went to **PROJ-010 STAGE-036**, the
+  continuation, which also inherits the shelved-directive record and the byte-identity gate.
+- **STAGE-032 → PROJ-010 STAGE-037** (`git mv`, content unchanged). SPEC-092 (`convert --to` plus
+  social/archive recipes). Additive only; STAGE-030's freeze deferred it on purpose.
+- **STAGE-033 → PROJ-010 STAGE-038** (`git mv`). SPEC-106 (shell completions) plus six
+  repo-tooling chores. **SPEC-107 (hostile / edge input confirmation pass — LAUNCH-GATING) left
+  for PROJ-010 STAGE-035**, a launch-gating stage of its own.
 
-**SPEC-107 is launch-gating** and sits alongside the classifier regression below. Both should be
-sequenced before the Show HN.
+**The two launch-gating items are now PROJ-010 STAGE-034 (classifier regression) and STAGE-035
+(SPEC-107).** Both should be sequenced before the Show HN.
 
-Do not re-home these here. The next project's thesis is an open framing decision — see
-`docs/research/next-project-session-prompt.md`.
+## Classifier review findings NOT taken into PROJ-010 (2026-07-26)
+
+Of the 15 findings in `docs/research/pr113-classifier-review-findings.md`, STAGE-034 took the
+placement bug, the test-integrity cluster, and seven more (rule 6's dead code, the `DOC_ENTROPY_MAX`
+band, rule 5's reachability, the `Icon` ordering call, `decide.rs:150`'s missing lossless fallback,
+the `iso_luma` fixture artifact, and `--profile docs`). **One was deliberately left here:**
+
+- **Luma entropy ignores alpha** (`src/analysis/mod.rs:248`). RGB under fully transparent pixels feeds
+  the histogram, and the new rule made it class-deciding: a flat logo with dirty transparent-background
+  RGB measures **6.25 → `photograph`**, while the same file at `--max 500` measures **1.04 →
+  `graphic-logo`**, because the resize zeroes transparent RGB. Same asset, opposite buckets, depending
+  on whether a resize ran.
+
+  **Status: PLAUSIBLE, not confirmed.** The mechanism is verified by reading source; the re-derivation
+  of 2026-07-25 lists this as **COULD NOT TEST** — the dirty-alpha case was never attempted. It is not
+  spec-able yet.
+
+  **First task is a specimen, not a fix:** obtain a logo exported with dirty alpha (common from
+  Photoshop/Sketch), confirm the 6.25/1.04 split reproduces, and only then decide whether it is a
+  STAGE-034 follow-up or its own spec. Per [[a-claimed-failure-mode-is-as-unproven-as-a-claimed-success]],
+  drive the failure path before designing against it.
 
 ## Open question — split the roadmap into internal and public (maintainer, 2026-07-26)
 
