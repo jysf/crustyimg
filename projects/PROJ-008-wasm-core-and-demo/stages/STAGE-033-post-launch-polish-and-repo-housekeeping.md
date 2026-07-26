@@ -89,6 +89,16 @@ gate wait on housekeeping.
   releases).
 - `activity:` is accepted by `just validate`, documented in the project-brief template with a
   settled vocabulary, and backfilled on the active brief.
+- **Every input in the hostile set has a recorded, driven result** — native CLI and wasm, each
+  file actually run, no hang, a message a user can act on, and the documented exit code. A
+  recorded "it held" counts only if the run happened; an untested assumption does not close the
+  launch-readiness item.
+- **The empty-OBU AVIF still hits the SPEC-094 guard**, shown by driving it, not by reading the
+  guard — and the `debug_assertions` build is the leg that proves it, since that is where
+  `debug_abort()` lives.
+- The launch-readiness hostile-input blocker moves off "hold natively; confirm in the browser"
+  to a stated outcome, with the genuinely browser-specific remainder named and left on the
+  launch board rather than silently dropped.
 - All gates green on the full clean matrix (default / lean / `webp-lossy`, clippy each, fmt).
 
 ## Scope
@@ -98,10 +108,25 @@ gate wait on housekeeping.
   README / `--help` / CHANGELOG notes about completions and regeneration; a staleness signal.
 - `scripts/lifetime-report.sh` + three `just` recipes + `reports/lifetime/`.
 - The `activity:` field: template, `just validate`, optional `just status` surfacing, backfill.
+- A committed hostile-input corpus and the harness that drives it against **both** the native
+  CLI and the wasm build, plus the recorded results and the launch-readiness update. Fixes to
+  anything it finds are in scope even if they land in engine-adjacent code — a confirmation pass
+  that cannot fix what it finds is not worth running.
+- CI trigger de-duplication, a DCO pre-push hook, `just size` + a recorded binary-size baseline,
+  and the `just wasm-size` banner label.
 
 ### Explicitly out of scope
-- Engine / classifier / codec / wasm / demo changes; any change to the frozen verb set; the
-  benchmark refresh; encoder threading; launch coordination.
+- Engine / classifier / codec / wasm / demo changes as *feature* work; any change to the frozen
+  verb set; the benchmark refresh; encoder threading; launch coordination. SPEC-107 **exercises**
+  those surfaces and may fix a defect it proves — it does not redesign them.
+- **The browser half of the hostile-input pass**: whether the demo UI *surfaces* these errors
+  legibly, and how a phone behaves on the large ones. That needs a real device and a human
+  looking at a screen, so it folds into the maintainer's mobile test on the launch board
+  ([[never-drive-the-maintainers-live-browser]]). This stage covers the wasm build driven
+  headlessly, which is where the engine behavior actually lives.
+- Platform-aware RAW gating. SPEC-107 drives inputs either side of the current global 60 MP gate
+  and records what happens; whether that gate should ever become device-dependent is decided by
+  the mobile test, not here.
 
 ## Spec Backlog
 
