@@ -124,7 +124,25 @@ already stands in that code** — they are not additions to the stage's shape:
 ## Spec Backlog
 
 - [ ] SPEC-108 (**design cycle complete 2026-07-26**) — **Classification placement and scale-aware entropy.** **Decision: classify the source image, not the pipeline output.** The narrow rule-4 gating alternative was evaluated as instructed and **measurably refuted** — see below. Also resolves the `DOC_ENTROPY_MAX` band, rule 6's reachability, `decide.rs:150`'s lossless fallback on the lean leg, and `--profile docs`. 9 acceptance criteria, 6 failing tests + the mutation control written at design.
-- [ ] SPEC-109 (design) — **Evidence integrity.** Commit DEC-047's two cited boundary specimens that the repo does not contain. Re-establish each diluted guard with a negative control that proves the harness can go red, at all six sites below. Correct the two `iso_luma` fixture comments and the fixture artifact behind them. Correct DEC-047's two false claims.
+- [ ] SPEC-109 (**design cycle complete 2026-07-26**) — **Evidence integrity.** Commit DEC-047's two cited boundary specimens, re-establish each diluted guard with a negative control, correct the two `iso_luma` fixtures, correct DEC-047's two false claims. 11 acceptance criteria, 7 failing tests. **Build this BEFORE SPEC-108** — it is the instrument the fix is measured with.
+
+**Sequencing decision (2026-07-26): SPEC-109 → SPEC-108.** Today `PHOTO_ENTROPY_STRONG = 5.5` leaves `cargo test --release --lib analysis` green at 52/52. Building the fix first would mean proving it with a guard that has never been shown to move. SPEC-109 is fixtures and guards only, so nothing in it can be invalidated by SPEC-108's placement change.
+
+**Measured during SPEC-109's design — the calibration window, with our own numbers:**
+
+| fixture | class | entropy | flat_ratio | edge_ratio | unique_colors |
+|---|---|---|---|---|---|
+| `grayscale_photo_leica.png` | photograph | 6.07 | 0.83 | 0.00 | 182 |
+| `grayscale_photo_canon.png` | photograph | 6.83 | 0.83 | 0.00 | 233 |
+| `color_photo_fuji.png` | photograph | 6.37 | 0.76 | 0.00 | 4096 (sat) |
+| `dithered_graphic.png` | graphic-logo | 3.03 | 0.49 | 0.28 | 9 |
+| `checker_graphic.jpg` | graphic-logo | 2.78 | 0.00 | 1.00 | 8 |
+
+The guard at `mod.rs:945` therefore holds for **any threshold in (3.03, 6.07]** — 3.04 wide against DEC-047's documented gap of (3.43, 4.58], width 1.15. Loose by ~2.6×, which is why it cannot see 5.5.
+
+⚠ **A finding neither the review nor the re-derivation had: all three photo fixtures measure `flat_ratio` 0.76–0.83, ABOVE `FLAT_GRAPHIC_RATIO` (0.60), with `edge_ratio` 0.00, below `GRAPHIC_EDGE_MAX` (0.08).** Rule 4b would classify every one of them as `GraphicLogo` if rule 3.5 did not fire first. **Rule 3.5 is load-bearing — weakening it is not a safe simplification**, which independently confirms SPEC-108's decision to change the classifier's input rather than its cascade.
+
+**Correction to the review's site list:** `tests/cli.rs:4381` and `:4392` are the **same test** — `:4381` is its doc comment, `:4392` its signature. The work is **four distinct test functions plus the two `iso_luma` fixtures**, not five plus two.
 
 **The six guard sites for Spec 2** — the draft said "every numeric threshold guard", but three of these are
 not numeric-threshold guards at all, and **none of the sites appeared anywhere in the draft**. As written
