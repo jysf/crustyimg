@@ -302,3 +302,15 @@ encode). Worth doing, clearly later.
   trade against each other. A mark that survives screenshot + rescale + recompression carries
   **tens of bits** — an identifier, not a story — and nothing is unbreakable under cropping,
   rotation or deliberate attack. Claim that honestly or not at all.
+
+## Batch report flag (maintainer request, 2026-07-25)
+
+A `--report[=path]` flag on the BATCH path that writes a summary of a multi-file run:
+per-file input→output format / bytes / savings, plus (likely) timing and errors/skips,
+aggregating the existing per-file `--json` audit report (SPEC-088, `optimize.explain/v1`)
+into ONE batch artifact. Format TBD — JSON (machine) and/or a compact markdown/CSV table
+(human). Natural fit for the **goal-1 CI / deploy-pipeline** use case: "what did this batch
+actually do, and did anything fail or grow?" Reuses machinery already in place (the audit
+report + the rayon batch path); the new work is aggregation + a writer + the flag surface.
+Frame as its own spec post-launch. Consider whether it also wants an exit-code signal when
+any file errored or grew (CI-friendly).

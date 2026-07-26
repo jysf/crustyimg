@@ -28,5 +28,12 @@ Cycle prompts live in `prompts/SPEC-105-<cycle>.md`.
   — exactly the reported bug. Dither re-measured 3.03 (<4.0, lossless). Threshold mutation-checked both
   directions. 5 fixture/test changes audited: all corrections for the removed gradient-misclassification,
   no diluted assertions. Native suite + wasm-test + demo-smoke + validate + lean + fmt/clippy all green.
-- [ ] **ship** — squash-merge on maintainer go-ahead; demo redeploys from `main` so Auto picks AVIF for
-  B&W photos.
+- [x] **ship** (2026-07-26, orchestrator main-loop) — PR #113 squash-merged (54ba05e); demo redeploys from
+  `main` so Auto picks AVIF for B&W **and** color EXIF-stripped photos. ⚠ Required a LARGE CI-parity fix
+  pass: build + verify both false-greened the feature matrix on stale incremental-build artifacts, so CI
+  (clean builds) caught real breakage the classifier change exposed — `json_shape_consistent_across_verbs`
+  (avif-gated), 3 cli tests reclassified graphic→photo (codec-agnostic), a dead-code helper on no-avif
+  legs, and a missing verify cost session. Fixed against clean local full-matrix builds. ~6 CI cycles.
+  Lessons banked in the Ship reflection (clean-matrix verify for engine changes; orchestrator re-runs the
+  matrix; don't push to main mid-merge; check git status for sub-agent uncommitted work). Prompts +
+  readouts in `prompts/SPEC-105-{build,verify}.md` + `-readouts.md`.

@@ -60,10 +60,27 @@ cost:
         threshold, confirmed no genuine graphic regressed. NOTE: verify passed the feature
         matrix only via stale incremental-build artifacts (a false green); CI caught real
         no-AVIF-leg test breakage, corrected in a follow-up fix pass (see the ship note).
+    - cycle: ship
+      interface: claude-code
+      model: claude-opus-4-8
+      tokens_total: null
+      estimated_usd: 12.0
+      recorded_at: 2026-07-26
+      note: >
+        Orchestrator main-loop — merge + a LARGE CI-parity fix pass. SPEC-105's build
+        and verify both false-greened the feature matrix on stale incremental-build
+        artifacts, so CI (clean builds) caught real breakage the classifier change had
+        exposed: json_shape_consistent_across_verbs (golden requires a scored AVIF
+        winner) and 3 cli tests (grayscale/ICC/never-bigger fixtures reclassified
+        graphic→photo → AVIF/JPEG/lossy-WebP by leg), plus a dead-code helper on the
+        no-avif legs, plus a missing verify cost session. Diagnosed each against CI logs
+        + reproduced with CLEAN local full-matrix builds, fixed codec-agnostically,
+        merged (PR #113, 54ba05e). Order-of-magnitude estimate; the cost was diagnosis +
+        repeated ~10-min CI cycles, not the fix size. Lessons banked (see Reflection).
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: null
+    estimated_usd: 21.8
+    session_count: 4
 ---
 
 # SPEC-105: high-entropy images are never graphics — fix grayscale photo misclassification
@@ -316,8 +333,33 @@ against a small set of REAL grayscale photos and real graphics.
 *Appended during the **ship** cycle.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — The classifier feature was sound and verified against 64 real Nikon RAWs; the entire
+   overrun was TEST-SCAFFOLDING fallout, made far worse by a **stale-incremental-build false
+   green**. Build and verify both ran `cargo test` against incrementally-compiled artifacts
+   and reported the feature matrix passing — but a clean CI build caught real breakage: a
+   golden-shape test needing a scored AVIF winner, and three fixtures that SPEC-105 correctly
+   reclassifies graphic→photo (so their winners move to AVIF/JPEG/lossy-WebP by feature leg).
+   Two hard rules for next time: (a) **an engine change that touches the shared classifier
+   requires a CLEAN full-matrix run** (`cargo test` on default / lean / webp-lossy + clippy on
+   each + fmt) before it's trusted — incremental builds lie; (b) the **orchestrator
+   independently re-runs that clean matrix** rather than relaying a sub-agent's "CLEAN." I did
+   neither up front and paid for it in ~6 CI cycles.
+
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — The **verify prompt** for any engine/shared-code change must mandate a clean full feature
+   matrix (delete `target` or `--offline` fresh, not incremental) and forbid concluding from a
+   possibly-stale local pass. Two process lessons also earned real cost today and are worth
+   standing rules: **never push to `main` between a verify and its merge** (each push knocked
+   the PR "behind" → an extra ~10-min CI cycle), and **a sub-agent can leave uncommitted work
+   in the shared checkout** — check `git status` before trusting the branch state (a `git
+   reset --hard` here discarded the verify agent's uncommitted codec-agnostic fixes, which I
+   then had to reconstruct). Synthetic fixtures also bit again exactly as SPEC-105 warns:
+   `detailed_png` (high-frequency noise) *inflates* under lossy re-encode, so it never behaves
+   like a photo — real or downscale-driven sources only.
+
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — Two carried, both filed: **scale-normalize the flat/edge detector** (still tuned on 64×64
+   synthetics — the strong-entropy rule masks it for photos but doesn't fix it) and **carry
+   EXIF through the RAW-preview decode** (would restore the camera prior for RAW directly). Both
+   post-launch. Also the maintainer's **batch-report flag** request (a `--report` summary of a
+   multi-file run) → `docs/backlog.md`.

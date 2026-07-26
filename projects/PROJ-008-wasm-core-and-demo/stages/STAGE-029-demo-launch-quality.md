@@ -179,7 +179,20 @@ Dependency order — **SPEC-079 (engine surface) first**, because the demo specs
   direction: low-entropy graphics stay lossless (the differentiator preserved). Amends DEC-047; native +
   wasm. Probe: `docs/research/proj-008-grayscale-photo-misclassification-probe.md`. Complexity M.
 
-**Count:** 8 shipped (SPEC-079, 080, 081, 095, 096, 101, 103, 104) / 1 build (SPEC-105) / 0 framed. The original demo backlog
+- [x] SPEC-105 (shipped 2026-07-26, PR #113 `54ba05e`, DEC-047 amended, ~$21.8 / 4 sessions) — **high-entropy
+  images are never graphics — fixed grayscale + color photo misclassification.** A real B&W Leica DNG (and
+  a color Nikon RAW) came out of the demo's Auto path as oversized lossless WebP (13×). Probe: the shared
+  classifier (DEC-047) treated grayscale (≤256 colours) as a graphic AND the megapixel-scale-broken flat
+  detector mis-fired on EXIF-stripped color photos, with RAW EXIF-stripping bypassing the camera prior — an
+  ENGINE bug (native mis-encoded byte-identically). Fix = a strong-entropy → Photograph signal
+  (`PHOTO_ENTROPY_STRONG = 4.0`, calibrated real photos ≥4.58 vs graphics ≤3.03) ahead of the graphic gates.
+  **Verify (Opus) confirmed against 64 real Nikon RAWs (all → AVIF) + the Leica, mutation-tested the gate.**
+  ⚠ **Cost overran (~$21.8) on a CI-parity fix pass — build+verify false-greened the feature matrix on
+  stale incremental builds; clean CI caught real test breakage (avif-gated shape test, 3 reclassified cli
+  fixtures, dead-code helper, missing verify cost).** Lessons banked. Carries: scale-normalize the flat
+  detector; carry EXIF through RAW-preview — both post-launch. Complexity M.
+
+**Count:** 9 shipped (SPEC-079, 080, 081, 095, 096, 101, 103, 104, 105) / 0 active / 0 framed. The original demo backlog
 completed 2026-07-18; SPEC-096 added the maintainer-noticed pre-launch polish. STAGE-029
 content-complete, held active (close deliberately with STAGE-030). Strategy reconciliation RESOLVED (2026-07-14): the demo hero is the `web` flow — SPEC-080
 was reframed to it (after SPEC-085 defined `web`) and shipped; SPEC-081 scored the hero; SPEC-095
