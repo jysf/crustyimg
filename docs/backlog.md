@@ -18,6 +18,89 @@ new metric, or new UI surface).
 
 ---
 
+## ⚠ Live defects on shipped verbs (2026-07-26)
+
+Surfaced by the read-only exploration in
+[`docs/research/photo-preset-import-and-photographic-ops.md`](research/photo-preset-import-and-photographic-ops.md)
+and **independently re-verified against this repo's source** in the PROJ-010 framing session. These
+are not roadmap candidates — they are things that are wrong today, on verbs that shipped. Same class
+as the classifier regression: a default path that hands the user a wrong result.
+
+### D-1. `convert` strips EXIF Orientation without baking it — **confirmed, user-visible**
+
+`run_convert` (`src/cli/optimize.rs:507`) builds `Pipeline::new()` at `:538` — the comment says so:
+*"Pure re-encode: an empty pipeline returns the pixels unchanged."* The pixel-lane re-encode then
+drops the metadata bundle. So the Orientation tag is discarded and **the rotation it described is
+never applied**. `optimize` and `web` instead pin `auto-orient` first (`:790`, DEC-017).
+
+Measured in the exploration with a positive control: `ctrl.jpg` (1200×800, `Orientation=6`, 14 EXIF
+tags) → `convert` gives 1200×800 with the tag stripped and pixels unrotated → **displays sideways in
+every viewer**, while `web` / `optimize` / `auto-orient` all correctly give 800×1200 (which is what
+proves the harness can show the other result). **Orientation 6 is the ordinary phone-photo case.**
+
+Two things this needs beyond the fix: a **design call** (bake vs preserve — `convert`'s contract is a
+lossless-intent format change, so baking pixels is not obviously right), and a **mechanical sweep** of
+every other re-encoding verb — `thumbnail`, `resize`, `responsive`, `edit` without `--auto-orient`.
+Cite the grep and treat its scope as a claim ([[mechanical-sweeps-need-a-mechanical-check]]). The
+regression fixture must assert **output dimensions**, not tag absence. Complexity **S–M**.
+
+### D-2. `build` cannot run any bundled recipe — **confirmed, live since the manifest shipped**
+
+`prepare_target` (`src/cli/build.rs:80`) calls `recipe.build_pipeline(registry)` directly at `:85`.
+It never strips the terminal `optimize` marker: `grep` for `optimize` / `OPTIMIZE_STEP` /
+`strip_terminal` in `build.rs` returns **0 each**. But **every** bundled recipe ends with
+`op = "optimize"` — `src/recipe/bundled.rs:20` documents it and `:91` asserts it — and `optimize` is
+a reserved pseudo-step, not a registered operation: `OperationRegistry::with_builtins`
+(`src/operation/registry.rs:80-83`) registers exactly four (`identity`, `invert`, `resize`,
+`auto-orient`).
+
+So a manifest target bound to `web`, `product` or `gallery` fails at prepare time with
+`UnknownOperation { name: "optimize" }`. The strip helper exists — `OPTIMIZE_STEP_OP` and its
+consumer at `src/cli/optimize.rs:32-41` — it is simply not on the `build` path. Self-documented in
+**DEC-070 point 4**. Complexity **S–M**. *(Subsumed if a recipe-schema `[output]` table ever lands,
+which removes the positional hack entirely.)*
+
+### D-3. `docs/data-model.md` advertises three operations that do not exist — **confirmed**
+
+`docs/data-model.md:142-182` presents a worked "prep for web" recipe using `op = "unsharp"` (`:161`),
+`op = "watermark"` (`:166`) and `op = "clean-gps"` (`:174`), plus CLI flags `--unsharp` and
+`--watermark` (`:181-182`). **None of the three ops is registered** (four exist; see D-2), and
+`watermark` is implemented but *deliberately* unregistered (`src/operation/mod.rs:784`,
+`src/cli/ops.rs:945`), so naming it in a recipe fails `UnknownOperation`.
+
+The doc labels the example illustrative, which is not enough: it is the first thing someone
+evaluating *"can it run my pipeline?"* reads. Complexity **S**.
+
+### Checked and NOT a defect here
+
+- **"Squoosh is archived"** would be factually wrong (`archived: false`, 25.5k stars, maintainer
+  retains commit access) — but **this repo does not say it.** `docs/launch-readiness.md:61` says
+  *"squoosh-cli is **abandoned**"* and `docs/moat.md:21` says *"squoosh-cli is unmaintained"*, both of
+  which are the correct, defensible claim. No change needed; recorded so it is not re-raised.
+
+### Reported but NOT verified here — do not treat as findings yet
+
+Each of these needs its own confirmation before it is spec-able:
+
+- **RAW loses 100% of EXIF** (92 tags → 0) because `raw_preview` sets `metadata: None`
+  (`src/image/mod.rs:462-468`), and **RAW orientation is never read**. The exploration also reports a
+  *correction to DEC-055's planned fix*: the measured DNG's embedded previews contain **no EXIF at
+  all** (a marker walk shows `FFDB → FFC0 → FFC4 → FFDD → SOS`, no APP1), so "thread the preview's
+  APP1 forward" would not restore orientation — the container's IFD0 tag is the only source. The
+  portrait-RAW case is explicitly stated as **cannot-determine**, not confirmed.
+- **The metadata lane reaches only JPEG and PNG.** Mechanism is visible at
+  `src/metadata/mod.rs:67-68` (only `ImageFormat::Jpeg`/`Png` map to a `Lane`), so metadata cannot be
+  written on the AVIF output path — but the exploration's exact spelling
+  (`Lane::Jpeg | Lane::Png`) returns **0 hits**, so its stated reach is unconfirmed.
+- **AVIF byte-determinism is unbacked upstream.** `aomenc`/`vpxenc` ship `-D, --debug` *to become*
+  deterministic; rav1e has no guarantee and a filed nondeterminism bug (#2781). If crustyimg's AVIF
+  is not deterministic across thread counts, existing "reproducible" language is a false claim.
+  **Measure before claiming either way.**
+- **Gain-map (UltraHDR) input is silently discarded**, destroying HDR the user can see on their own
+  display — same class as D-1. Cheapest correct move is a **detection fixture**, not integration.
+
+---
+
 ## Post-0.1.0 fast-follows — advisory elimination (→ clean 0.2.0)
 
 Agreed at the v0.1.0 cut: ship 0.1.0 with the three accepted `deny.toml` advisory
