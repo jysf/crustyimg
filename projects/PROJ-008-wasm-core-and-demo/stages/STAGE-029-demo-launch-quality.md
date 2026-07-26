@@ -5,7 +5,7 @@
 
 stage:
   id: STAGE-029                     # stable, zero-padded within the project
-  status: active                    # proposed | active | shipped | cancelled | on_hold
+  status: shipped                   # proposed | active | shipped | cancelled | on_hold
   priority: high                    # critical | high | medium | low
   target_complete: null             # optional: YYYY-MM-DD
 
@@ -15,7 +15,7 @@ repo:
   id: crustyimg
 
 created_at: 2026-07-13
-shipped_at: null
+shipped_at: 2026-07-26
 
 # What part of the project's value thesis this stage advances.
 value_contribution:
@@ -168,17 +168,6 @@ Dependency order — **SPEC-079 (engine surface) first**, because the demo specs
   (50.4 Mpix, now under the raised gate) + regenerated it at 62.4 Mpix. Demo redeployed. **Platform-aware
   gating deferred; on-device *mobile* verification still the open launch-readiness item.** Complexity S.
 
-- [ ] SPEC-105 (framed 2026-07-25, cycle=build) — **high-entropy images are never graphics — fix grayscale
-  photo misclassification.** A real B&W Leica DNG came out of the demo's Auto path as 823 KB lossless WebP
-  (should be ~62 KB AVIF — 13×). Probe root cause: the shared classifier (DEC-047) treats grayscale (≤256
-  RGB colours) as a graphic, and RAW EXIF-stripping bypasses the camera prior that normally routes photos
-  lossy — so it's an ENGINE bug (native CLI mis-encodes byte-identically), not demo-only. Also surfaced a
-  latent scale-broken flat detector the EXIF prior had been masking (separate follow-up). Fix = a
-  strong-entropy → Photograph signal ahead of the graphic gates, calibrated against REAL grayscale photos +
-  real graphics (incl. a dithered one — the adversarial high-entropy graphic). Safe in the dangerous
-  direction: low-entropy graphics stay lossless (the differentiator preserved). Amends DEC-047; native +
-  wasm. Probe: `docs/research/proj-008-grayscale-photo-misclassification-probe.md`. Complexity M.
-
 - [x] SPEC-105 (shipped 2026-07-26, PR #113 `54ba05e`, DEC-047 amended, ~$21.8 / 4 sessions) — **high-entropy
   images are never graphics — fixed grayscale + color photo misclassification.** A real B&W Leica DNG (and
   a color Nikon RAW) came out of the demo's Auto path as oversized lossless WebP (13×). Probe: the shared
@@ -192,9 +181,11 @@ Dependency order — **SPEC-079 (engine surface) first**, because the demo specs
   fixtures, dead-code helper, missing verify cost).** Lessons banked. Carries: scale-normalize the flat
   detector; carry EXIF through RAW-preview — both post-launch. Complexity M.
 
-**Count:** 9 shipped (SPEC-079, 080, 081, 095, 096, 101, 103, 104, 105) / 0 active / 0 framed. The original demo backlog
-completed 2026-07-18; SPEC-096 added the maintainer-noticed pre-launch polish. STAGE-029
-content-complete, held active (close deliberately with STAGE-030). Strategy reconciliation RESOLVED (2026-07-14): the demo hero is the `web` flow — SPEC-080
+**Count:** 9 shipped (SPEC-079, 080, 081, 095, 096, 101, 103, 104, 105) / 0 active / 0 framed.
+**CLOSED 2026-07-26** — content-complete since SPEC-105 shipped; held active only pending this
+close-out. The original demo backlog completed 2026-07-18; SPEC-096 added the maintainer-noticed
+pre-launch polish, and 101/103/104/105 followed from real maintainer use of the live demo.
+Strategy reconciliation RESOLVED (2026-07-14): the demo hero is the `web` flow — SPEC-080
 was reframed to it (after SPEC-085 defined `web`) and shipped; SPEC-081 scored the hero; SPEC-095
 aligned the demo AVIF to q85. Build order held: **080 → 095 → 081**.
 
@@ -274,14 +265,33 @@ byte-parity cross-sync contract (DEC-016/019/020) means a speed arg touches both
 
 ## Stage-Level Reflection
 
-*Filled in when status moves to shipped.*
-
-- **Did we deliver the outcome in "What This Stage Is"?** <yes/no + notes>
-- **How many specs did it actually take?** <number vs. plan>
-- **What changed between starting and shipping?** <one sentence>
+- **Did we deliver the outcome in "What This Stage Is"?** **Yes.** The demo went from
+  mis-serving its most common visitor (a 12 MP photo → ~33 s, and a lossless default that made
+  photos *bigger*) to an intent-led flow that picks the right format, shows a measured
+  SSIMULACRA2 score, and opens the maintainer's actual RAW files.
+- **How many specs did it actually take?** **9** (079, 080, 081, 095, 096, 101, 103, 104, 105)
+  against a plan of roughly 4. The overrun is the finding, not a failure — see below.
+- **What changed between starting and shipping?** The stage was framed around *performance*, and
+  half of what it ultimately shipped was **correctness the frame never anticipated** — RAW
+  support, a pixel gate, and an engine-level classifier bug.
 - **Lessons that should update AGENTS.md, templates, or constraints?**
-  - <one-line updates>
+  - **Every spec after 096 came from the maintainer using the live demo, not from a gate.**
+    101, 103, 104 and 105 were all real-usage reports. SPEC-105 in particular was an *engine*
+    defect (the native CLI mis-encoded byte-identically) that a browser demo surfaced — the
+    demo turned out to be the repo's best test harness for the shared classifier, which is not
+    what it was built for.
+  - **A stage held open "deliberately" drifts.** STAGE-029 was content-complete on 2026-07-18
+    and stayed active for eight more days, accumulating four specs. That is defensible — they
+    were real defects — but the stage stopped describing a coherent unit of work, and its
+    backlog grew a duplicate SPEC-105 entry that survived until this close-out. Prefer closing
+    and opening a successor over holding a stage open as a catch-all.
+  - **Cost concentrated in the last spec.** SPEC-105 alone was $21.8 of the stage's $78.1, and
+    the overrun was a CI-parity fix pass on a false-green incremental build
+    ([[a-stale-incremental-build-is-a-false-green]]).
 - **Should any spec-level reflections be promoted to stage-level lessons?**
-  - <one-line items>
+  - Yes — [[a-stale-incremental-build-is-a-false-green]] (SPEC-105) is now a standing workflow
+    rule for any engine or shared-classifier change.
+  - Yes — [[never-drive-the-maintainers-live-browser]] (SPEC-101): gates needing human hardware
+    are launch-readiness checklist items, not build acceptance criteria.
 
 - [x] SPEC-095 (shipped 2026-07-18, PR #99, DEC-069 closed) — **aligned wasm AVIF quality to native `web` (q80→q85)** so the demo is a FAITHFUL preview (anchored to `FAST_LOSSY_QUALITY`, not a bare 85). `convert` q80 byte-identity untouched. Complexity S.

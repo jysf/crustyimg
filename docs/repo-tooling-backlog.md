@@ -12,9 +12,13 @@
 
 ## Queued
 
-> **Items 1 and 2 are now carried by STAGE-033** (post-launch polish and repo housekeeping,
+> **Items 1, 2, 4, 5, 6 and 7 are carried by STAGE-033** (post-launch polish and repo housekeeping,
 > framed 2026-07-26), alongside the shell-completions defect. They stay listed here as the
-> detailed source of truth; the stage holds the sequencing.
+> detailed source of truth; the stage holds the sequencing. **Item 3 is deliberately NOT in that
+> stage** — see its note.
+>
+> These seven sat under `## Done` until 2026-07-26 with no commit or PR against any of them;
+> all seven were verified still open at close-out and moved back here.
 
 ### 1. Port the lifetime-report commands from `zany-animal-slots`
 
@@ -68,11 +72,12 @@ project:
 
 ---
 
-## Done
+### 3. Make the cross-tool benchmark refreshable without an LLM
 
-*(move items here with the commit/PR when completed)*
+NOT carried by STAGE-033 — this one is M-sized and is the hard prerequisite for encoder
+threading, so it wants its own spec.
 
-- **Make the cross-tool benchmark refreshable without an LLM** — the harness already runs
+- the harness already runs
   standalone (`just bench-compare --corpus DIR` costs wall-clock, not tokens). What costs tokens
   is everything *after*: transcribing output into `BENCHMARKS.md`, re-checking cells, and updating
   the derived prose. Four changes push that to ~zero: (1) the harness **emits the markdown blocks
@@ -87,19 +92,25 @@ project:
   found by a reader. Principle: *the harness owns the numbers and every claim derived from them;
   the doc holds only narrative that doesn't depend on specific values.*
   **Do this BEFORE encoder threading**, which will invalidate every time column in the doc.
-- **CI hygiene, both surfaced merging PR #108:** (a) the workflow appears to trigger on both
+### 4. CI hygiene (both surfaced merging PR #108)
+
+- (a) the workflow appears to trigger on both
   `push` and `pull_request`, so every PR runs the full 3-OS matrix **twice** — doubles cost and
   doubles the chance a network flake blocks a merge; (b) the `cargo-deny` action pulls a Docker
   Hub base image, so a required check can fail for reasons unrelated to this repo (it did:
   `dial tcp ... i/o timeout`, three retries, while the same SHA passed cargo-deny in the duplicate
   run). Consider a non-Docker invocation or a pinned/mirrored image.
-- **Stop DCO sign-off recurring** — a verify-cycle commit has landed without `-s` three times now
+### 5. Stop DCO sign-off recurring
+
+- a verify-cycle commit has landed without `-s` three times now
   (most recently blocking PR #108 until `git rebase --signoff main`). It keeps happening because
   verify sessions commit punch lists as an afterthought. Mechanical fix: a local pre-push hook, or
   make `-s` explicit in the verify prompt's commit instruction rather than relying on the house
   convention being remembered.
 
-- **Track the release binary size over time (a baseline, not a hard gate)** — SPEC-102 added
+### 6. Track the release binary size over time (a baseline, not a hard gate)
+
+- SPEC-102 added
   **+2,878,672 B (+22.4%)** in a single commit by moving AVIF into the default feature set. That was
   a deliberate, measured, accepted trade — but it was only visible because the spec *asked* for the
   measurement. Nothing in the repo would notice the same growth arriving as six smaller changes.
@@ -114,7 +125,9 @@ project:
   built the right way" is a fingerprint question (strip, LTO), not a byte-count question, and
   conflating them makes both flaky.
 
-- **`just wasm-size`'s banner mislabels a lean build** — found by SPEC-102's re-verify, pre-existing but
+### 7. `just wasm-size`'s banner mislabels a lean build
+
+- found by SPEC-102's re-verify, pre-existing but
   only *reachable* since that spec made the `--set _wasm_features` override actually parse. `justfile:197`
   calls `@just wasm-size` as a **nested** `just` invocation, which does not inherit `--set`, so it re-reads
   the default feature list. Same artifact, same bytes, two different labels: `wasm-build` prints
@@ -134,3 +147,11 @@ project:
   files only (exclude `prompts/`), or assert the target has a `task.cycle` field before editing and error
   loudly if not. Non-urgent (hand-fixable), but it silently breaks a core workflow command, so it recurs.
   Edits a shared file (`scripts/_lib.sh`) → do it as its own focused change, not alongside in-flight spec work.
+
+---
+
+## Done
+
+*(move items here with the commit/PR when completed)*
+
+*(nothing yet)*

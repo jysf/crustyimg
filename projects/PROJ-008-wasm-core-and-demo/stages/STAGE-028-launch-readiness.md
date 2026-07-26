@@ -2,7 +2,7 @@
 # Maps to ContextCore epic-level conventions.
 stage:
   id: STAGE-028
-  status: active                  # proposed | active | shipped | cancelled | on_hold
+  status: shipped                 # proposed | active | shipped | cancelled | on_hold
   priority: high
   target_complete: null
 
@@ -12,7 +12,7 @@ repo:
   id: crustyimg
 
 created_at: 2026-07-13
-shipped_at: null
+shipped_at: 2026-07-26
 
 value_contribution:
   advances: >
@@ -115,8 +115,12 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
   525 B) — the content-aware branch working correctly, and the differentiator BENCHMARKS can't yet show.
   ⚠ **Reaches users only when 0.6.0 is cut** — the Releases binaries and the Homebrew formula are still
   0.5.0, i.e. still AVIF-less.
-- [ ] (coordination, not a spec) — the **Show HN go/no-go**: `docs/launch-readiness.md` blockers
-  green, `crustyimg-wasm` published (SPEC-076, on approval), post drafted → launch.
+- [→] (coordination, not a spec) — the **Show HN / r/rust go/no-go.** **Moved off this stage at
+  close-out (2026-07-26) to the launch board**, where it already lives. It is a maintainer
+  decision gated on maintainer-only hardware and reading (the on-device mobile RAW test, the
+  ROADMAP + post-draft read), not repo work — so it was holding a stage open that had nothing
+  left to build. `docs/launch-readiness.md` was de-staled in the same pass; **Mobile is the one
+  genuine remaining blocker.**
 
 **Count:** 4 shipped (SPEC-082 README front-door, SPEC-100 RAW/recipes/CI, SPEC-083 BENCHMARKS, SPEC-102
 AVIF-default) / 0 active + the launch go/no-go. **0.5.0 SHIPPED 2026-07-20** (frozen CLI + caret + README, live on
@@ -165,10 +169,31 @@ then the benchmark-refresh tooling that makes re-running it cost wall-clock inst
 
 ## Stage-Level Reflection
 
-*Filled in when status moves to shipped.*
+**CLOSED 2026-07-26.**
 
-- **Did we deliver the outcome in "What This Stage Is"?** <yes/no + notes>
-- **How many specs did it actually take?** <number vs. plan>
-- **What changed between starting and shipping?** <one sentence>
+- **Did we deliver the outcome in "What This Stage Is"?** **Yes, for everything that was repo
+  work.** The README front door, BENCHMARKS.md, and AVIF-in-the-distributed-binary all shipped;
+  0.6.0 is live on crates.io / brew / Releases and `crustyimg-wasm` is on npm. The one item not
+  delivered — the go/no-go itself — is a maintainer decision, not a deliverable this stage could
+  produce, which is why it moved to the launch board rather than holding the stage open.
+- **How many specs did it actually take?** **4** (082, 100, 083, 102) plus the coordination item,
+  against a plan of 2 (082, 083). The two additions were both discovered, not planned.
+- **What changed between starting and shipping?** The stage was framed as "mostly docs +
+  coordination, not code" — and then SPEC-102 turned out to be a real behavior change to the
+  shipped binary, because writing honest benchmarks exposed that the flagship path wasn't in the
+  default build.
 - **Lessons that should update AGENTS.md, templates, or constraints?**
-  - <one-line updates>
+  - **Writing the honest version of a claim is a discovery process.** BENCHMARKS.md (083) forced
+    SPEC-102: the benchmark could not honestly describe the flagship path because a `brew
+    install` user couldn't reproduce it. Documentation work that keeps generating code work is a
+    signal the product had a gap, not that the docs spec was badly scoped.
+  - **SPEC-083 was the most expensive spec in repo history ($40.5, 12 sessions) and produced
+    four of the repo's standing lessons** — [[documentation-has-no-green]],
+    [[a-number-from-an-unproven-path-is-not-a-measurement]],
+    [[a-self-referential-control-cannot-detect-a-broken-pipeline]],
+    [[a-guards-advertised-reach-is-a-claim]]. Four of its five real defects were invisible to
+    number-checking and were found only by driving the CLI by hand.
+  - **A launch checklist rots faster than the work it tracks.** `docs/launch-readiness.md` sat
+    at its 2026-07-13 snapshot while five of its blockers shipped, so it read far redder than
+    reality for two weeks. If a doc gates a decision, closing the spec that clears an item must
+    include ticking it.

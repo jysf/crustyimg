@@ -30,6 +30,7 @@ value_contribution:
     - "Shell completions that install themselves via the package manager, complete file paths on every shell, and do not rot silently when the CLI surface changes"
     - "A whole-repo, all-time `lifetime-report` rollup (rule-based, deterministic, no LLM) alongside the existing report-daily / report-weekly tooling"
     - "An `activity:` front-matter field so a project's status says what KIND of work is live, not just active/shipped"
+    - "The repo-tooling backlog's small standing annoyances closed out: PRs no longer running the 3-OS matrix twice, DCO sign-off made mechanical, an advisory release-binary size baseline, and the wasm-size banner telling the truth"
   explicitly_does_not:
     - "Touch the engine, the classifier, any codec, or the wasm/demo surface — no pixels change in this stage"
     - "Add, rename, or remove any of the 14 verbs frozen in STAGE-030 — completions describe the surface, they don't alter it"
@@ -117,8 +118,29 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
   `requirements|design|build|test|blocked` against crustyimg's cycle model
   `frame|design|build|verify|ship`; keep it an open string with a documented suggested set, not
   a parse-rejecting enum. Queued item #2 in `docs/repo-tooling-backlog.md`. Complexity **S**.
+- [ ] (chore) — **CI hygiene.** (a) `.github/workflows/ci.yml` triggers on both `push:` and
+  `pull_request:` with no branch filter, so **every PR runs the full 3-OS matrix twice** —
+  double cost, double the chance a network flake blocks a merge. (b) The `cargo-deny` action
+  pulls a Docker Hub base image, so a required check can fail for reasons unrelated to this repo
+  (it did, on PR #108: `dial tcp … i/o timeout`, while the same SHA passed in the duplicate run).
+  Queued item #4. Complexity **S**.
+- [ ] (chore) — **stop DCO sign-off recurring.** A verify-cycle commit has landed without `-s`
+  three times, most recently blocking PR #108. No hook exists anywhere (verified: no
+  `.githooks/`, no `.git/hooks/pre-push`). Mechanical fix: a local pre-push hook, and/or make
+  `-s` explicit in the verify prompt's commit instruction. Queued item #5. Complexity **S**.
+- [ ] (chore) — **track the release binary size (advisory baseline, not a gate).** SPEC-102 added
+  +2,878,672 B (+22.4%) in one commit, visible only because that spec asked. No `just size`
+  exists. Wants a recipe + a recorded baseline so drift shows in a diff. Keep the size check
+  baseline-keyed and **separate** from any structural build-profile assertion
+  ([[assert-the-build-profile-structurally-not-by-size]]). Queued item #6. Complexity **S**.
+- [ ] (chore) — **`just wasm-size`'s banner mislabels a lean build.** [justfile:197](../../../justfile)
+  calls `@just wasm-size` as a *nested* `just` invocation, which does not inherit `--set`, so it
+  re-reads the default feature list: same artifact, same bytes, two different labels. Corrupts
+  nothing today, but it is a live trap for whoever next re-measures SPEC-074's lean wasm
+  baseline — exactly the number a mislabelled banner would poison. Queued item #7.
+  Complexity **S**.
 
-**Count:** 0 shipped / 0 active / 1 spec + 2 chores pending
+**Count:** 0 shipped / 0 active / 1 spec + 6 chores pending
 
 ## Design Notes
 
