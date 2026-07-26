@@ -388,3 +388,35 @@ each diluted guard with a negative control, and corrects DEC-047's two false cla
 
 Session prompt for the re-derivation:
 [`docs/research/pr113-rederivation-session-prompt.md`](research/pr113-rederivation-session-prompt.md).
+
+## Carried forward from PROJ-008 — three stages awaiting a home (2026-07-26)
+
+PROJ-008 closed `shipped` on 2026-07-25. Three of its stages are **not** that project's thesis
+work (wasm core → npm library → client-side demo) and were deliberately **not** absorbed into it,
+renumbered, moved, or deleted. They stay `proposed` in
+`projects/PROJ-008-wasm-core-and-demo/stages/` until the maintainer frames the next project and
+re-homes them.
+
+- **STAGE-031 — engineering quality and code health.** Three specs already shipped during the wave
+  (097 `src/cli/mod.rs` split, 098/099 dependency-pinning record + correction). One unframed
+  follow-up remains: strict-JSON `escape_json`.
+- **STAGE-032 — post-launch CLI surface.** SPEC-092 (`convert --to` plus social/archive recipes).
+  Additive only; STAGE-030's freeze deferred it on purpose.
+- **STAGE-033 — post-launch polish and repo housekeeping.** SPEC-106 (shell completions),
+  **SPEC-107 (hostile / edge input confirmation pass — LAUNCH-GATING, framed and ready to build)**,
+  plus six repo-tooling chores.
+
+**SPEC-107 is launch-gating** and sits alongside the classifier regression below. Both should be
+sequenced before the Show HN.
+
+Do not re-home these here. The next project's thesis is an open framing decision — see
+`docs/research/next-project-session-prompt.md`.
+
+## Open question — split the roadmap into internal and public (maintainer, 2026-07-26)
+
+`docs/roadmap.md`'s "Sequencing rationale" is written from inside the AI-agent-experiment framing,
+in a public file. The maintainer wants the roadmap split into an internal and a public document
+but **has not framed the shape yet**.
+
+This is recorded as an **open question awaiting his framing** — deliberately *not* filed as a
+decision, and not to be acted on unprompted.

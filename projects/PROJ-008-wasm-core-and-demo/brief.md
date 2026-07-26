@@ -4,7 +4,7 @@
 
 project:
   id: PROJ-008
-  status: active                    # proposed | active | shipped | cancelled
+  status: shipped                   # proposed | active | shipped | cancelled
   priority: high
   target_ship: null                 # optional: YYYY-MM-DD
 
@@ -12,7 +12,7 @@ repo:
   id: crustyimg
 
 created_at: 2026-07-12
-shipped_at: null
+shipped_at: 2026-07-25
 
 # Business value. Testable claim, not marketing copy.
 value:
@@ -156,7 +156,7 @@ Format: `- [status] STAGE-ID — one-line summary`
   wasm — the headline; decode deferred to `createImageBitmap`, DEC-065), **SPEC-074** (bundle size
   1.52→**1.33 MB brotli** by ablation, DEC-066). Every "works/small" claim was driven, not asserted.
   Three specs, exactly as framed — each grounded by a design-time probe so none forced a split.
-- [ ] STAGE-026 (framed + active on 2026-07-12) — **npm-packaged library.** Package the shipped
+- [x] STAGE-026 (shipped on 2026-07-20) — **npm-packaged library.** Package the shipped
   WASM build (`just wasm-build`'s `pkg/` — wasm-pack already emits a near-publishable package.json +
   typed `.d.ts`) into an installable npm module: settle identity (name/scope vs the crate), target
   (`web`/`bundler`), versioning, README; prove `npm pack` → fresh-install → `transform`/`info` runs
@@ -169,15 +169,46 @@ Format: `- [status] STAGE-ID — one-line summary`
   directions off the main thread (Web Worker), `.avif` input via `createImageBitmap`, an honest
   explain readout — driven CLEAN in Chrome/Firefox/Safari. SPEC-077 (skeleton) + SPEC-078
   (Worker/AVIF/explain). One carry: **mobile verification** → STAGE-028 (real-device test before launch).
-- [ ] STAGE-028 (proposed on 2026-07-13) — **launch readiness.** The capstone: the README front
-  door (CLI-only today), honest BENCHMARKS.md, and the Show HN go/no-go against
-  `docs/launch-readiness.md`. Depends on SPEC-078 (demo, incl. cross-browser) + SPEC-076 (gated npm
-  publish); times them into one launch. Docs + coordination, not code. Specs: SPEC-082 (README),
-  SPEC-083 (BENCHMARKS).
+- [x] STAGE-028 (shipped, closed 2026-07-24) — **launch readiness.** The capstone: the README front
+  door, honest `BENCHMARKS.md`, and AVIF in the distributed binary. Planned as 2 specs (082 README,
+  083 BENCHMARKS); took **4** — SPEC-100 (README CI/Actions + RAW + recipes) and **SPEC-102**
+  (AVIF into the default feature set, DEC-081) were both *discovered*, the latter because writing an
+  honest benchmark exposed that a `brew install` user could not reproduce the flagship path. The
+  Show HN / r/rust **go/no-go is a maintainer decision, not a deliverable** — it moved to the launch
+  board (`docs/launch-readiness.md`) rather than holding the stage open.
+- [x] STAGE-029 (shipped, closed 2026-07-24) — **demo launch quality.** The demo went from
+  mis-serving its most common visitor (12 MP photo → ~33 s, a lossless default that made photos
+  *bigger*) to an intent-led flow that picks the format, shows a measured SSIMULACRA2 score, and
+  opens the maintainer's own RAW files. **9 specs against a plan of ~4** (079, 080, 081, 095, 096,
+  101, 103, 104, 105) — every spec after 096 came from the maintainer *using* the live demo, not
+  from a gate. SPEC-105 was an **engine** defect (the shared classifier mis-encoding photographs as
+  13× oversized lossless) that the browser demo surfaced.
+- [x] STAGE-030 (shipped, closed 2026-07-20) — **command taxonomy & CLI-quality freeze.** A hard
+  pre-launch cutover from ~20 verbs to ~14 one-intent verbs, no aliases, no deprecation; `web`
+  shipped as the measured flagship (98% / 2.7 s vs the old `optimize` default's 24% / 16.5 s);
+  `optimize` demoted to an honest byte-primitive; the `meta` group made whole. 9 planned specs
+  (084–091, 093) + SPEC-094 as a follow-up; SPEC-092 was optional from the start and deferred to
+  STAGE-032. Two of the nine were LIVE bugs the freeze flushed out (093 metadata byte-order
+  corruption, 094 empty-OBU abort).
+- [ ] STAGE-031 (proposed; 3 specs shipped 2026-07-19) — **engineering quality and code health.**
+  **NOT PROJ-008 thesis work** — it is post-audit code hygiene that happened to run during this
+  wave (SPEC-097 `src/cli/mod.rs` 6,483 → 1,426 lines byte-identically; SPEC-098/099 the dependency
+  pinning decision record and its correction, DEC-078/079). One unframed follow-up remains
+  (strict-JSON `escape_json`). **Carried forward — awaiting re-home into the next project.**
+- [ ] STAGE-032 (proposed) — **post-launch CLI surface.** Additive conveniences STAGE-030
+  deliberately deferred (SPEC-092 `convert --to` + social/archive recipes). **NOT PROJ-008 thesis
+  work. Carried forward — awaiting re-home into the next project.**
+- [ ] STAGE-033 (proposed) — **post-launch polish and repo housekeeping.** Shell completions
+  (SPEC-106), the hostile/edge input confirmation pass (**SPEC-107 — launch-gating, framed and
+  ready to build**), plus six repo-tooling chores. **NOT PROJ-008 thesis work. Carried forward —
+  awaiting re-home into the next project.**
 
-**Count:** 2 shipped / 1 active / 1 proposed (STAGE-025 + STAGE-027 SHIPPED; STAGE-026 — SPEC-075
-shipped, gated SPEC-076 publish parked; STAGE-028 launch readiness proposed). Only the LAUNCH remains:
-launch-readiness (README + benchmarks + mobile test) + the gated npm publish → Show HN.
+**Count:** **6 shipped / 0 active / 3 proposed-and-carried-forward.** The project thesis —
+wasm core (025) → npm library (026) → demo page (027) → launch readiness (028) → demo launch
+quality (029) → CLI surface freeze (030) — is **complete and live**. STAGE-031/032/033 are code
+health, additive CLI surface, and housekeeping: real work, but not this wave's thesis, and they do
+not hold it open. The Show HN / r/rust go/no-go likewise does not hold it open — same call already
+made for STAGE-028 — it is a maintainer decision on `docs/launch-readiness.md`.
 
 ## Dependencies
 
@@ -206,15 +237,200 @@ launch-readiness (README + benchmarks + mobile test) + the gated npm publish →
 
 ## Project-Level Reflection
 
-*Filled in when status moves to shipped.*
+*Shipped 2026-07-25.*
 
-- **Did we deliver the outcome in "What This Project Is"?** <yes/no + notes>
-- **How many stages did it actually take?** <number, compare to plan>
-- **What changed between starting and shipping?** <one or two sentences>
-- **Lessons that should update AGENTS.md, templates, or constraints?**
-  - <one-line updates>
-- **What did we defer to the next project?**
-  - <one-line items>
+### Did we deliver the outcome in "What This Project Is"?
+
+**Yes — all three artifacts are live, and the engine behind them is the same one the CLI ships.**
+
+- The pure core compiles to `wasm32-unknown-unknown` and runs a full decode → transform → encode
+  round-trip in a browser with **no backend** (STAGE-025, DEC-064). The headline turned out to be
+  the *asymmetry*: AVIF **encode** runs on wasm (DEC-065) while decode is deferred to the browser's
+  own `createImageBitmap` — proven by decoding wasm-produced bytes with two independent decoders,
+  not by sniffing magic bytes.
+- **`crustyimg-wasm` is published on npm** — installable, typed, zero dependencies, no native
+  addon, no postinstall script, running client-side in the browser and in Node (STAGE-026,
+  DEC-067). The "sharp without the native addon" pitch is real and stated with its edges
+  (`init()` on `--target web`, single-threaded/blocking, AVIF encode-only).
+- **The demo page is live** at https://jysf.github.io/crustyimg/ — drop → convert client-side →
+  download, AVIF both directions off the main thread, `.avif` and camera **RAW** inputs opened
+  page-side, an honest explain readout and a **measured SSIMULACRA2 score** (STAGE-027 + 029).
+  Driven clean in Chrome, Firefox and Safari with separate per-engine drivers and a frozen-thread
+  negative control.
+- First-load bundle landed at **1.33 MB brotli** (1.52 → 1.33 by ablation, DEC-066), with every
+  capability-losing lever refused *with data*.
+- The no-regression clause held: `just deny` unchanged, no service, no CDN, no backend. The one
+  deliberate native-path change was the opposite direction — SPEC-102 moved **AVIF encode into the
+  default feature set** (DEC-081) so a `brew install` user gets the flagship path.
+
+**0.6.0 is live** (tag `v0.6.0`, crates.io + Homebrew + GitHub Releases) with `crustyimg-wasm` on
+npm alongside it.
+
+### ⚠ This wave did NOT close clean: a live, launch-gating classifier regression is open
+
+**Classification runs *after* the resize pipeline** (`src/cli/optimize.rs:989` → `:1013`), so
+`--max` chooses the content class — and `web` downscales to 2048 by default. DEC-047's calibration
+was measured at **native** size, so it does not describe the path most users take.
+
+Re-derived and measured against a from-scratch release build of `main` @ `b71c96b` (see
+`docs/research/pr113-classifier-review-findings.md`, "Re-derivation (2026-07-25)"):
+
+> A 3000×2250 1-bit halftone passes through **untouched at native size** (entropy 0.62 →
+> `document`, 45,527 B). Through a bare `crustyimg web file.png` it becomes a **lossy AVIF of
+> 844,492 B — 18.5× larger than its input — at SSIMULACRA2 69.2** (entropy 5.29 → `photograph`).
+> At `--max 2560` it reaches 1,590,638 B (35×). The class flips purely because `web` resized it
+> first.
+
+Blast radius is **dithered / halftoned graphics**, not screenshots: four substituted 4K–6K
+screenshots showed the same monotonic entropy rise under downscale but topped out at 1.14–3.35,
+well under the 4.0 threshold. The committed fixture `tests/fixtures/classify/dithered_graphic.png`
+reproduces the promotion exactly at `--max 256`. Two related findings reproduce cleanly: the
+headline calibration guard is a **tautology** (it stays green with `PHOTO_ENTROPY_STRONG` moved to
+5.5, which reinstates the original bug), and the `Icon` rule silently masks the entropy rule below
+128 px.
+
+**This is ENGINE work, not wasm work. It belongs to the NEXT project, not to PROJ-008.** It is
+recorded here so the closeout is not read as a clean close: the wave shipped a live defect on the
+flagship verb, and the browser demo — built as a marketing artifact — is what surfaced the
+classifier class of bug in the first place.
+
+### How many stages did it actually take?
+
+**6 shipped against a plan of 3** (025 wasm core, 026 npm library, 027 demo page — plus 028 launch
+readiness, 029 demo launch quality, 030 CLI surface freeze), across **33 specs** (SPEC-072..105,
+less the deferred SPEC-092) and **17 decisions** (DEC-064..DEC-082, less 072/073).
+
+The three unplanned stages are the finding. 028 and 029 were appended because *shipping to real
+users is not the same as building the artifact*: 028 because a launch needs a front door and honest
+numbers, 029 because the maintainer using the live demo generated four more specs after the stage
+was content-complete. 030 (the ~20 → ~14 verb freeze) is arguably not this wave's thesis at all —
+it was pulled in because the demo and the CLI had to present the same Auto path, and a surface you
+launch on cannot be renamed afterwards.
+
+Three further stages (031 code health, 032 post-launch CLI surface, 033 polish + housekeeping) were
+framed during this wave and are explicitly **not** thesis work — see "carried forward" below.
+
+### What it cost
+
+Read from the specs' `cost.sessions` bookkeeping (`projects/PROJ-008-wasm-core-and-demo/specs/done/`):
+
+| Figure | Value |
+|---|---|
+| Specs | 33 |
+| Cost sessions recorded | 129 |
+| Tokens (metered sessions only) | **≈ 27.6 M** |
+| Estimated spend | **≈ \$283** |
+| Sessions with `tokens_total: null` | 41 (orchestrator main-loop design/ship, per AGENTS §4) |
+| Elapsed | 2026-07-12 → 2026-07-25 (13 days) |
+
+Caveats, stated rather than smoothed over: `estimated_usd` is an order-of-magnitude list-rate
+estimate (no cache discount), several build/verify token counts are labelled ESTIMATE rather than a
+finalized `subagent_tokens`, SPEC-105 carries `tokens_total: null` with a recorded \$21.8, and
+SPEC-087 never got a `cost.totals` block (its sessions are present and are included above).
+`duration_minutes` is recorded almost nowhere in this project, so **there is no wall-clock figure to
+report** — I am not going to invent one.
+
+Cost concentrated hard in a few places, and not where the thesis was: **SPEC-083 (honest
+benchmarks) alone was \$40.5 across 12 sessions** — the most expensive spec in repo history and a
+*documentation* spec. SPEC-102 (\$19.4), SPEC-088 (\$19.8), SPEC-097 (\$17.5), SPEC-090 (\$14.7)
+follow. The wasm core itself — the load-bearing technical unknown, SPEC-072/073/074 — cost about
+\$12.2 combined. **The engine port was the cheap part; being honest in public was the expensive
+part.**
+
+### What changed between framing and shipping
+
+1. **The risk register was wrong about which risk would bite.** The brief's top risk was binary
+   size; it resolved early and cheaply (1.33 MB brotli, one ablation spec). The threads/SIMD risk
+   resolved into "run it in a Web Worker." What actually consumed the wave was **quality and
+   honesty** — a demo that mis-served a 12 MP photo, benchmarks that could not honestly describe
+   the flagship path, and a shared classifier that mis-encoded real photographs.
+2. **The demo became a test harness.** It was framed as a thin marketing artifact. It turned out to
+   be the repo's best instrument for the *shared* classifier — SPEC-105 was a native-CLI engine
+   defect that a browser page surfaced, and the regression above came out of reviewing that fix.
+   That is not what it was built for and is the most valuable unplanned outcome of the wave.
+3. **AVIF moved onto the native default path.** Framed as "wasm-only concessions never touch
+   native", the wave ended up making a deliberate native change in the *other* direction (DEC-081),
+   because a benchmark you cannot reproduce with `brew install` is not an honest benchmark.
+4. **The launch itself was decoupled from the work.** The Show HN / r/rust go/no-go was originally
+   inside STAGE-028's success criteria. It is a maintainer decision on human-hardware and timing
+   grounds, not a deliverable a stage can produce, so it lives on `docs/launch-readiness.md`. The
+   same call is made here at project level, consistently.
+
+### Lessons that should update AGENTS.md, templates, or constraints
+
+- **An engine or shared-classifier change requires a CLEAN full-matrix verify, re-run by the
+  orchestrator.** SPEC-105 reported the feature matrix green on incrementally-compiled artifacts; a
+  clean CI build caught real no-AVIF-leg breakage and cost about a day
+  ([[a-stale-incremental-build-is-a-false-green]]). This belongs in AGENTS §15 verify guidance as a
+  hard rule, together with: never relay a sub-agent's "CLEAN", never push to `main` between verify
+  and merge, and check `git status` for a sub-agent's uncommitted work.
+- **A calibration constant needs a guard that FAILS when the constant moves.** The classifier's
+  headline calibration test stays green with `PHOTO_ENTROPY_STRONG` at 5.5 — the value that
+  reinstates the bug it was written to prevent. Any spec that ships a tuned threshold should be
+  required to demonstrate the mutation failing, i.e. a negative control on the constant itself.
+  This is the strongest concrete case yet for [[a-plausible-test-result-is-not-a-checked-one]] and
+  the one worth mechanizing.
+- **A calibration measured on one path does not describe another path.** DEC-047 was measured at
+  native size; the default verb resizes first. Constraint-worthy: a decision that states a
+  numeric threshold must state **the pipeline position and input scale it was measured at**, and a
+  spec that changes pipeline order must re-check every threshold downstream of it.
+- **Documentation work that keeps generating code work is a product signal, not a scoping failure**
+  (STAGE-028: BENCHMARKS.md forced SPEC-102). Worth saying in the templates so a docs spec that
+  overruns isn't treated as mis-scoped.
+- **A stage held open "deliberately" drifts.** STAGE-029 was content-complete on 2026-07-18 and
+  stayed active eight more days, accumulating four specs and a duplicate backlog entry. Prefer
+  closing and opening a successor over holding a stage open as a catch-all — and note that this
+  project repeated the same shape at project level, which is exactly why it is being closed now
+  with three stages carried forward rather than absorbed.
+- **A doc that gates a decision rots faster than the work it tracks.** `docs/launch-readiness.md`
+  sat at its 2026-07-13 snapshot while five of its blockers shipped. Closing a spec that clears a
+  checklist item must include ticking it.
+- **On wasm a panic aborts the module and crashes the page** — "typed error, never panic" is a hard
+  rule there. Worth a wasm framing in the `untrusted-input-hardening` constraint.
+- Already banked as standing memories from this wave, no further action:
+  [[verify-wasm-output-with-an-independent-decoder]],
+  [[assert-the-build-profile-structurally-not-by-size]],
+  [[a-criterion-nobody-claims-is-a-criterion-nobody-checks]],
+  [[never-drive-the-maintainers-live-browser]], [[documentation-has-no-green]],
+  [[a-number-from-an-unproven-path-is-not-a-measurement]],
+  [[a-self-referential-control-cannot-detect-a-broken-pipeline]],
+  [[a-guards-advertised-reach-is-a-claim]], [[mechanical-sweeps-need-a-mechanical-check]].
+
+### What is carried forward to the next project
+
+**Framed but not re-homed.** STAGE-031, STAGE-032 and STAGE-033 stay `proposed` and stay in this
+project's `stages/` directory. They are **not PROJ-008 thesis work** and they do not hold this
+project open; they await re-home into the next project, which the maintainer frames in a later
+session. They are deliberately not renumbered, moved or deleted here.
+
+- **STAGE-031 — engineering quality and code health.** Three specs shipped during this wave
+  (097/098/099); one unframed follow-up remains (strict-JSON `escape_json`).
+- **STAGE-032 — post-launch CLI surface.** SPEC-092 (`convert --to` + social/archive recipes),
+  additive only.
+- **STAGE-033 — post-launch polish and repo housekeeping.** SPEC-106 (shell completions: nothing
+  installs them, zero `ValueHint` in `src/`, a pre-freeze script silently stops completing `web`),
+  **SPEC-107 (hostile / edge input confirmation pass — LAUNCH-GATING, framed and ready to build)**,
+  plus six repo-tooling chores (duplicate CI matrix, DCO sign-off hook, release-size baseline,
+  `wasm-size` banner, `lifetime-report` port, `activity:` front-matter field).
+
+**Also carried forward, engine work with no stage yet:**
+
+- **The classifier regression above** — classification placement / scale-aware entropy, plus an
+  evidence-integrity pass (commit the boundary specimens DEC-047 cites but the repo does not
+  contain; re-establish each diluted guard with a negative control; correct DEC-047's two false
+  claims). Launch-gating. It likely **subsumes** the queued "scale-normalize the flat/edge
+  detector" item rather than layering on it.
+- **`web` returns larger-than-source output on the *lossless* path too**, for ordinary screenshots,
+  with no misclassification involved (a 4K spreadsheet screenshot: 420,717 B → 567,140 B at the
+  default `--max 2048`). It is disclosed (`larger_than_source: true` + help text), not hidden — but
+  it is a poor default to lead a launch post with, and it is independent of the classifier.
+- Non-blocking SPEC-091 follow-ups: report the `re_rav1d` `DisjointMut` race upstream (maintainer
+  files); `par_iter run_pixel_op` to reclaim serial decode throughput. Encoder threading (probe
+  first) and an LLM-free benchmark refresh are the queued post-launch build items.
+- EXIF-through-RAW-preview; the mobile RAW on-device test (maintainer hardware, launch board).
+
+**Maintainer-owned, deliberately not a project deliverable:** the Show HN / r/rust go/no-go and the
+on-device mobile test. Both live on `docs/launch-readiness.md`.
 
 ---
 
