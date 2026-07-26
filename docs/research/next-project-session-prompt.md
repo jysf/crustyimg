@@ -87,6 +87,83 @@ and it will otherwise be duplicated. Note it appears to *renumber* the carried s
 deliberately whether you want that renumbering, and reconcile it against the three stage files
 still sitting in `projects/PROJ-008-wasm-core-and-demo/stages/`.
 
+### The draft has been reviewed — here is what the review found
+
+A read-only review of that draft ran on 2026-07-26. Its findings were independently spot-checked
+(raw `python3` scans with positive controls, not `rtk`). **Do not re-run this review; act on it.**
+
+**What the draft gets right — and it is the thing that matters most.** It does **not** inherit the
+review's unreproduced headline: `4.24`, `358,227` and `111,095` appear nowhere in it, and it
+consistently frames the defect around **dithered/halftoned graphics**, not screenshots. It carries
+the rule-4 alternative verbatim, makes the `PHOTO_ENTROPY_STRONG = 5.5` mutation a success
+criterion, and states the supersession rule outright. Front-matter parses 6/6 against the same
+loader `just validate` uses; stage IDs 034–038 and spec IDs 108/109 are genuinely free.
+
+**Six named edits it needs before it is committable** (each verified):
+
+1. **`pulp` is NOT in the dependency tree.** `STAGE-036:70,84` claims it is ("a usage gate, not a
+   new dep"). `grep 'name = "pulp"' Cargo.lock` → **0** (positive control `flate2` → 1). It is a new
+   dependency and triggers the licence / `deny` / MSRV probe discipline the draft says it avoids.
+2. **The edition-2024 item silently raises the MSRV and contradicts a live decision.**
+   `STAGE-036:58,101` require stable **1.94.1+**; `Cargo.toml:7` pins `rust-version = "1.90.0"`.
+   `DEC-009` explicitly rejects edition 2024 and states its own revisit trigger; the draft cites
+   neither. Also drop the unmeasured "`zlib-rs` … 2× faster PNG encode" figure.
+3. **`decide_perceptual` does not exist.** `STAGE-034:40` describes the order as
+   `build_pipeline → decide_perceptual → classification`. Zero hits in `src/` + `tests/` (control
+   `format_shortlist` → 23). The real order is `pipeline.run` (`optimize.rs:989`) →
+   `Analysis::compute` (`:1013`) → `decide::format_shortlist` (`:1026`).
+4. **"13–35× larger" (`brief.md:54`) blends two different defects.** Measured is **18.5×** (and 35×
+   at `--max 2560`); `13×` is SPEC-105's already-fixed oversized-*lossless* misclassification. The
+   draft never states `18.5` anywhere.
+5. **"the 5 boundary specimens" (`STAGE-034:62`) — there are two**, the 4.58-floor photo and the
+   3.43 16-colour dither. The 5 is most likely the five diluted *guard sites*, conflated.
+6. **Strike screenshots and favicons from the beneficiary and why-now lines** (`brief.md:27,54`).
+   Both are non-defects per the re-derivation: screenshots top out at 3.35, and sub-129 px input hits
+   the `Icon` rule → lossless. Nothing currently scopes the *fixtures* to them, so this is a framing
+   leak — but it becomes a green-against-the-defect stage if a spec author builds a corpus from that
+   brief.
+
+**Two scope problems beyond the factual edits:**
+
+- **Spec 2 is narrower than the settled shape.** `STAGE-034:63` says "negative controls on **every
+  numeric threshold guard**", but three of the five sites §4 below names are *not* numeric-threshold
+  guards (`tests/cli.rs:4392`, `cli.rs:4381`, `tests/audit_bench.rs:171`). **None of the five
+  file:line sites appears anywhere in the draft.** As written, Spec 2 could ship having touched only
+  `mod.rs:945`. Widen it to the five named sites.
+- **STAGE-036 is padded with five items that have no provenance in this repo** — `doc_markdown`,
+  `redundant_clone`, `manual_let_else`, the "50 slowest integration tests", the edition migration:
+  all appear *only* inside the draft, attributed to a session that left no committed record.
+  STAGE-031's actual carried tail is **one** item (strict-JSON `escape_json`). Either strike them or
+  demote them to an explicitly-labelled "candidate, unsourced" list.
+
+**The renumbering is duplication, not re-homing — and it needs your decision.** The draft creates
+new files and says so (`STAGE-036:92`: "The PROJ-008 stage file stays in that project's directory").
+Every spec and chore survives the mapping; nothing is duplicated *within* the draft. But committing
+it as-is leaves **two `proposed` files per carried stage** and leaves the repo asserting both sides:
+`projects/PROJ-008-wasm-core-and-demo/brief.md:401` and `docs/backlog.md:412` both say these are
+deliberately **not** re-homed. Pick one and amend the other.
+
+What the renumbering *does* lose is **evidence, not work items** — and all of it is still on disk in
+PROJ-008, which is why superseding those files without merging content forward is the destructive
+move. Specifically dropped: STAGE-031's entire shelved-directives record (D1/D2/D3/D5/D6, marked
+"do not re-raise" — note the new `pulp` SIMD probe sits close to that shelved territory), the
+pre-change-**oracle** method behind the byte-identical gate, the
+`[[assert-the-build-profile-structurally-not-by-size]]` warning attached to the binary-size baseline,
+the **platform-aware RAW gating** out-of-scope fence (absent from both 038 and 035), and most
+file:line / PR-number provenance.
+
+**Also absent from the draft: eleven of the fifteen review findings** — rule 6's unreachable dead
+code (which the findings doc says breaks the **blocking** `clippy-fmt-clean` constraint),
+`PHOTO_FLAT_MAX`, the `DOC_ENTROPY_MAX` 4.5 > 4.0 contradiction band, `--profile docs` as a silent
+no-op, `decide.rs:150`'s missing lossless fallback, luma entropy ignoring alpha, and the `Icon`
+ordering *code* fix. `STAGE-034:68` then puts "any classifier redesign" out of scope, which reads as
+excluding the rule-6 cleanup. Decide deliberately which of the eleven are in scope.
+
+**Review verdict: adopt with the named edits** — the skeleton is closer to right than a fresh first
+pass is likely to be, and it avoided the one failure mode that mattered. Not discard, not adopt-as-is.
+
+### Then the thesis question
+
 Two candidate theses. **This is the maintainer's call.**
 
 **(a) Post-launch correctness and consolidation.** Houses the carried-forward stages
@@ -163,3 +240,29 @@ framing — do not file it as a decision and do not act on it unprompted.
   `find_spec` glob bug) — archive by hand with `git mv`.
 - Dispatch build/verify as foreground sub-agents; persist the prompt
   (`prompts/SPEC-NNN-<cycle>.md`) and the readout (`prompts/SPEC-NNN-readouts.md`).
+
+---
+
+## Appendix — repo state as of 2026-07-26, and two loose ends
+
+`main` @ `9312f13`, pushed, tree clean except the untracked `PROJ-010` draft.
+
+- **PROJ-008 is `shipped`** (`shipped_at: 2026-07-25`) with a full project-level reflection. Read its
+  "What is carried forward to the next project" section — it is the authoritative carry list.
+- **`just status` already reports PROJ-010 as the active project**, but only because
+  `get_active_project()` (`scripts/_lib.sh:79`) falls back to the highest-numbered project directory
+  when none is `active`. It is not validated — `just validate` is fed by `git ls-files` and cannot see
+  untracked files. Nothing is broken; nothing is checked either.
+- **`docs/launch-readiness.md:34` is stale.** It still reads "Mobile — ⚠ STILL OPEN, the remaining
+  cross-browser blocker", but SPEC-101's record shows the gate was closed (iOS Safari + DuckDuckGo
+  PASS on real devices; Android Chrome untested, accepted on maintainer judgment). Left untouched
+  because the launch board is maintainer-owned — but a session grading launch readiness off the repo
+  will re-open a gate that is already closed. Worth ticking.
+- **Memory was compacted** (PROJ-008 memory 112 KB → 13 KB, PROJ-007 43 KB → 7 KB, `MEMORY.md`
+  18 KB → 7.9 KB and back to one-line-per-memory spec). Originals are archived under
+  `memory/archive/`. An audit against those originals found nothing load-bearing dropped. Orientation
+  should now cost a fraction of what it did.
+- **`rtk` is actively unreliable in this repo.** Tonight it reported a 91.5 GiB `cargo clean` followed
+  by a 0.36 s build that had compiled nothing, mangled an alternation `grep`, and silently omitted a
+  file from `ls`. Prefer `python3` for scans and mappings; verify any build you intend to measure on
+  by confirming the log actually says `Compiling crustyimg`.
