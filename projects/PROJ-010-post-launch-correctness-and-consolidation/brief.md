@@ -93,8 +93,11 @@ Two pre-launch stages (launch-gating), three post-launch stages (optional, per m
 - [ ] STAGE-036 (proposed) — **Engineering quality and code health** (post-launch). The continuation of PROJ-008 STAGE-031 (which shipped 097/098/099 and closed there): the `escape_json` tail plus an unsourced candidate list to triage.
 - [ ] STAGE-037 (proposed) — **Post-launch CLI surface** (post-launch). SPEC-092 `convert --to` + social/archive recipes. Re-homed from PROJ-008 STAGE-032 by `git mv`, content unchanged.
 - [ ] STAGE-038 (proposed) — **Post-launch polish and repo housekeeping** (post-launch). SPEC-106 completions + six CI/DCO/size/tooling chores. Re-homed from PROJ-008 STAGE-033 by `git mv`, minus SPEC-107.
+- [ ] STAGE-039 (proposed) — **Shipped-verb correctness** (D-1/D-2 launch-gating, D-3 cheap). SPEC-110 `convert` orientation + sweep; SPEC-111 `build` runs bundled recipes; a doc chore. New stage, added 2026-07-26 from re-verified exploration findings. Shares no files with STAGE-034 and can run concurrently.
 
-**Count:** 0 shipped / 0 active / 5 pending
+**Count:** 0 shipped / 0 active / 6 pending
+
+**Launch-gating:** STAGE-034, STAGE-035, and D-1/D-2 within STAGE-039. Everything else is post-launch.
 
 ### How the carried stages were re-homed (2026-07-26)
 

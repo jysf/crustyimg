@@ -26,6 +26,11 @@ and **independently re-verified against this repo's source** in the PROJ-010 fra
 are not roadmap candidates — they are things that are wrong today, on verbs that shipped. Same class
 as the classifier regression: a default path that hands the user a wrong result.
 
+> **Homed 2026-07-26 → PROJ-010 STAGE-039 (shipped-verb correctness).** D-1 and D-2 are
+> launch-gating alongside STAGE-034/035; D-3 is a cheap doc fix. The evidence stays here as the
+> detailed source of truth; the stage holds the sequencing. The **unverified** reports at the end of
+> this section were deliberately left out of that stage.
+
 ### D-1. `convert` strips EXIF Orientation without baking it — **confirmed, user-visible**
 
 `run_convert` (`src/cli/optimize.rs:507`) builds `Pipeline::new()` at `:538` — the comment says so:
