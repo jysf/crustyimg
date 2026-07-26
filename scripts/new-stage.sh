@@ -24,7 +24,8 @@ if [ -z "$PROJECT_DIR" ]; then
     die "Project not found: ${PROJECT_ID}"
 fi
 
-STAGE_ID=$(next_id STAGE "${PROJECT_DIR}/stages")
+# Across all projects: STAGE IDs are globally unique, not per-project.
+STAGE_ID=$(next_id STAGE "${REPO_ROOT}/projects")
 SLUG=$(slugify "$TITLE")
 STAGE_FILE="${PROJECT_DIR}/stages/${STAGE_ID}-${SLUG}.md"
 

@@ -105,9 +105,14 @@ get_active_project() {
     basename "$chosen"
 }
 
-# Return the next ID for a given prefix (SPEC, STAGE, PROJ, DEC, HANDOFF)
-# across the entire repo (or within a project, for SPEC/STAGE/HANDOFF).
-# Usage: next_id SPEC ./projects/PROJ-001-foo
+# Return the next ID for a given prefix (SPEC, STAGE, PROJ, DEC, HANDOFF).
+#
+# Scope the search to where the ID space actually lives. SPEC and STAGE IDs are
+# globally unique across this repo, NOT per-project — PROJ-010's stages start at
+# 034 because PROJ-008's ended at 033. Passing a single project directory here
+# restarts the count at 001 for a new project and mints a duplicate ID; callers
+# must pass the projects root.
+# Usage: next_id SPEC ./projects
 next_id() {
     local prefix="$1"
     local search_dir="${2:-$REPO_ROOT}"

@@ -91,7 +91,36 @@ draft, attributed to a readiness-analysis session that left no committed record.
 so the ideas are not lost, **not** as a backlog. Each needs a source or a measurement before it becomes
 a spec, and "declined" is a legitimate outcome for any of them.
 
-- **Clippy `doc_markdown` / `redundant_clone` / `manual_let_else` sweep + cast audit.** Register in `Cargo.toml [lints.clippy]` so CI catches regressions. Low risk and mechanical, but the warning count is **unmeasured** — `cargo clippy --all-targets -- -D warnings` is already a required gate and is green today, so these lints are not currently on. Measure the count first; a sweep that turns out to be 4 warnings is not worth a spec.
+- **Clippy `doc_markdown` / `redundant_clone` / `manual_let_else` sweep + cast audit.** ✅ **MEASURED
+  2026-07-26** (clean `cargo clean -p crustyimg` then `--all-targets`, confirmed it actually
+  recompiled — the cached second run reports 0 and is a false green,
+  [[a-stale-incremental-build-is-a-false-green]]):
+
+  | lint | unique sites |
+  |---|---|
+  | `doc_markdown` ("item in documentation is missing backticks") | **71** |
+  | `manual_let_else` | **5** |
+  | `redundant_clone` | **2** |
+  | **total** | **78 sites across 27 files** |
+
+  **Verdict: real but cosmetic, and not urgent.** `cargo clippy --all-targets -- -D warnings` — the
+  required gate — is **green today**; all 78 come from lints that are not enabled. **91% are
+  doc-comment backticks**, and clippy reports most as auto-applicable (`--fix` offers 25 suggestions
+  on the lib-test target alone). Only the 2 `redundant_clone` hits have any runtime meaning, and that
+  lint is nursery.
+
+  **Do it here, post-launch, not before.** The 27 files span `src/analysis`-adjacent code,
+  `src/cli/optimize.rs`, `src/cli/ops.rs` and `tests/cli.rs` — exactly what STAGE-034 and STAGE-039
+  are editing. Running a zero-user-value 78-site sweep across those files while two launch-gating
+  stages are in flight buys merge conflicts and nothing else.
+
+  Shape when pulled: one auto-fix commit per lint, each with its own oracle run, then register the
+  three in `Cargo.toml [lints.clippy]` so the count cannot regrow.
+
+  ⚠ **Note what this sweep would NOT have caught:** rule 6's unreachable dead code
+  (`src/analysis/mod.rs:625`), which breaks the *blocking* `clippy-fmt-clean` constraint and stays
+  invisible to `-D warnings` because the constants remain syntactically referenced. That is in
+  STAGE-034. A green clippy run is not evidence of no dead code.
 - **Test-speed stratification.** "The 50 slowest integration tests" and the "~30s dev loop" target are both unsourced numbers. Measure the actual distribution via `cargo test -- -Z unstable-options --report-time` before committing to a shape; the gating mechanism (`#[cfg_attr(not(feature = "ci-full-suite"), ignore)]`) is sound if the measurement supports it.
 - **Rust 2024 edition migration.** ⚠ **Contradicts a live decision, and the draft cited neither side.** `DEC-009` chose edition 2021 and explicitly rejected 2024 — *"bumps the minimum stable toolchain for no MVP-required feature"* — with a stated revisit trigger: *"an edition-2024 feature becomes compelling."* The draft named no such feature. It also silently raises the MSRV: it requires stable 1.94.1+ against `Cargo.toml:7`'s `rust-version = "1.90.0"`, a floor derived as max(rust_version) across the locked tree ([[msrv-floor-from-cargo-metadata]]). **Do not frame this as a chore.** It needs a DEC superseding DEC-009 that names the compelling feature and accepts the MSRV cost — or it stays declined.
 - **`pulp` for SIMD in quality-metric inner loops.** ⚠ **The draft's premise is false.** `pulp` is **not** in the dependency tree — `grep 'name = "pulp"' Cargo.lock` returns **0** (positive control: `flate2` returns 1). This is a **new top-level dependency**, not "a usage gate", so it triggers the full discipline: `no-new-top-level-deps-without-decision`, a licence check (`pulp` is **MIT-only** — no explicit Apache patent grant), the `deny` gate, and an MSRV probe. Independently corroborated as a reasonable *candidate* by `docs/research/photo-preset-import-and-photographic-ops.md` §36, which also notes `std::simd` is confirmed **not** coming (rust#86656 untouched since 2025-03) — but that document reaches it as a new dependency too. Also note it sits close to the shelved D5/D6 territory below.
