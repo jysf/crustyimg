@@ -30,6 +30,7 @@ value_contribution:
     - "Shell completions that install themselves via the package manager, complete file paths on every shell, and do not rot silently when the CLI surface changes"
     - "A whole-repo, all-time `lifetime-report` rollup (rule-based, deterministic, no LLM) alongside the existing report-daily / report-weekly tooling"
     - "An `activity:` front-matter field so a project's status says what KIND of work is live, not just active/shipped"
+    - "A recorded answer to what the CLI and the wasm build actually do with hostile input — truncated, garbage, zero-byte, decompression-bomb, and over-gate files — instead of an untested assumption"
     - "The repo-tooling backlog's small standing annoyances closed out: PRs no longer running the 3-OS matrix twice, DCO sign-off made mechanical, an advisory release-binary size baseline, and the wasm-size banner telling the truth"
   explicitly_does_not:
     - "Touch the engine, the classifier, any codec, or the wasm/demo surface — no pixels change in this stage"
@@ -43,17 +44,25 @@ value_contribution:
 ## What This Stage Is
 
 The catch-up stage for small things that are individually trivial and collectively the difference
-between a tool that works and a tool that feels finished. Three items, none of which touch the
-engine:
+between a tool that works and a tool that feels finished. None of them touch the engine:
 
 1. **Shell completions** — a real user-visible bug, found the only way it could be found: by the
    maintainer trying to tab-complete a filename after `crustyimg web` and getting nothing.
-2. **`just lifetime-report`** — port the whole-repo, all-time rollup tooling from
+2. **A hostile / edge input confirmation pass** — the launch checklist has always said "hold
+   natively; confirm in the browser," and nobody ever recorded the confirmation.
+3. **`just lifetime-report`** — port the whole-repo, all-time rollup tooling from
    `zany-animal-slots`. Repo-methodology work; complements `report-daily` / `report-weekly`.
-3. **An `activity:` front-matter field** — make `status: active` say *what kind* of work is live.
+4. **An `activity:` front-matter field** — make `status: active` say *what kind* of work is live.
+5. **Four standing repo-tooling annoyances** — CI running every PR's 3-OS matrix twice, DCO
+   sign-off that keeps being forgotten, no release-binary size baseline, and a `wasm-size` banner
+   that lies about which build it measured.
 
-The unifying thread is that all three are **maintenance-of-use, not construction**: nothing here
-adds capability, and nothing here is on the launch critical path.
+The unifying thread is **maintenance-of-use, not construction**: nothing here adds capability.
+
+⚠ **One exception to "post-launch": SPEC-107.** Confirming hostile-input behavior is an open
+launch blocker, not polish. It lives here because it's cheap repo work that fits the stage's
+shape — but if the launch moves first, pull it out and run it alone rather than letting a launch
+gate wait on housekeeping.
 
 ## Why Now
 
@@ -133,6 +142,21 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
   exists. Wants a recipe + a recorded baseline so drift shows in a diff. Keep the size check
   baseline-keyed and **separate** from any structural build-profile assertion
   ([[assert-the-build-profile-structurally-not-by-size]]). Queued item #6. Complexity **S**.
+- [ ] SPEC-107 (frame) — **hostile / edge input confirmation pass.** ⚠ **The one launch-GATING
+  item in this stage** — it is an open blocker in `docs/launch-readiness.md` ("hold natively;
+  confirm in the browser"), and browser confirmation has never been recorded either way. Framed
+  as a spec, not a chore, because it can find real defects and needs stated acceptance criteria.
+  Drive the native CLI **and** the wasm build against a hostile set and record what holds: a
+  truncated AVIF and JPEG; a `.txt` renamed `.jpg`; a zero-byte file; a decompression-bomb PNG
+  (small file, huge canvas); a RAW just under and just over the 60 MP demo gate; an AVIF with an
+  empty OBU (confirm the SPEC-094 `debug_abort()` guard still fires — per
+  [[a-thread-boundary-does-not-catch-abort]] a thread boundary will not save us). Acceptance:
+  no hang, no cryptic failure, a clear message on every input, and the documented exit codes.
+  **Split by design:** everything above is testable without a browser and is repo work; what
+  remains genuinely browser-specific is whether the demo *surfaces* those errors clearly and how
+  a phone behaves on the big ones — that part folds into the maintainer's mobile device test and
+  stays on the launch board. Touches no engine source (verification only, unless it finds
+  something). Complexity **S–M**.
 - [ ] (chore) — **`just wasm-size`'s banner mislabels a lean build.** [justfile:197](../../../justfile)
   calls `@just wasm-size` as a *nested* `just` invocation, which does not inherit `--set`, so it
   re-reads the default feature list: same artifact, same bytes, two different labels. Corrupts
@@ -140,7 +164,11 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
   baseline — exactly the number a mislabelled banner would poison. Queued item #7.
   Complexity **S**.
 
-**Count:** 0 shipped / 0 active / 1 spec + 6 chores pending
+**Count:** 0 shipped / 0 active / 2 specs + 6 chores pending
+
+> **Sequencing caveat.** This stage is framed *post-launch*, but SPEC-107 is a **pre-launch
+> blocker**. If the launch goes first, pull SPEC-107 out and run it on its own — do not let a
+> launch gate wait on a housekeeping stage. The rest of the stage genuinely can wait.
 
 ## Design Notes
 
