@@ -203,6 +203,20 @@ get_active_stage_file() {
     done
 }
 
+# Count files matching a glob under a directory. Prints 0 when the
+# directory does not exist.
+#
+# `find` exits 1 on a missing directory, and every caller runs under
+# `set -o pipefail`, so `find ... | wc -l` aborts the whole script rather
+# than reporting zero. A freshly-framed project has no specs/done until
+# its first spec ships, which is exactly when that happens.
+# Usage: count_files projects/PROJ-010/specs/done 'SPEC-*.md'
+count_files() {
+    local dir="$1" pattern="$2"
+    [ -d "$dir" ] || { echo 0; return; }
+    find "$dir" -name "$pattern" | wc -l | tr -d ' '
+}
+
 # Read a stage file's status: field. Empty string if missing.
 get_stage_status() {
     local file="$1"

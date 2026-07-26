@@ -102,7 +102,7 @@ EOF
 
         printf 'summary\ttotal_specs\t%s\n' "$total"
         printf 'summary\tshipped\t%s\n' "$shipped_count"
-        printf 'summary\tdecisions\t%s\n' "$(find "${REPO_ROOT}/decisions" -name "DEC-*.md" 2>/dev/null | wc -l | tr -d ' ')"
+        printf 'summary\tdecisions\t%s\n' "$(count_files "${REPO_ROOT}/decisions" 'DEC-*.md')"
     } | ruby -rjson -e '
         env = {
           "schema_version" => 1,
@@ -304,9 +304,9 @@ fi
 echo ""
 
 # --- Summary counts ---
-total_specs=$(find "${ACTIVE_PROJECT_DIR}/specs" -name "SPEC-*.md" 2>/dev/null | wc -l | tr -d ' ')
-shipped_specs=$(find "${ACTIVE_PROJECT_DIR}/specs/done" -name "SPEC-*.md" 2>/dev/null | wc -l | tr -d ' ')
-total_decisions=$(find "$decisions_dir" -name "DEC-*.md" 2>/dev/null | wc -l | tr -d ' ')
+total_specs=$(count_files "${ACTIVE_PROJECT_DIR}/specs" 'SPEC-*.md')
+shipped_specs=$(count_files "${ACTIVE_PROJECT_DIR}/specs/done" 'SPEC-*.md')
+total_decisions=$(count_files "$decisions_dir" 'DEC-*.md')
 echo "${BOLD}Summary${RESET}"
 echo "  Total specs in ${ACTIVE_PROJECT}:     ${total_specs}"
 echo "  Shipped (archived):                   ${shipped_specs}"
