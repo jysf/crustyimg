@@ -36,10 +36,8 @@ fn write_bytes(dir: &tempfile::TempDir, name: &str, bytes: &[u8]) -> PathBuf {
 /// are not mistaken for top-level keys. The schema values we emit carry no
 /// depth-0 commas, which keeps this deliberately small parser correct.
 ///
-/// Only `json_shape_consistent_across_verbs` uses this, and that test is
-/// `avif`-gated (see its doc), so this helper is gated to match — otherwise it is
-/// dead code on the lean / webp-lossy legs (`-D warnings`).
-#[cfg(feature = "avif")]
+/// Only `json_shape_consistent_across_verbs` uses this, and that test now runs on
+/// every feature leg, so this helper is no longer gated either.
 fn top_level_keys(json: &str) -> Vec<String> {
     let s = json.trim();
     assert!(
@@ -159,27 +157,35 @@ fn timing_flag_reports_and_json_includes_it() {
 /// shape (identical top-level key set) — the `optimize.explain/v1` schema, not a
 /// per-command fork. Asserted against a golden key set.
 ///
-/// Gated to `avif` (the shipped default): the golden shape carries `ssim`, i.e. a
-/// SCORED winner. `web` scores its winner only for a format it also decodes back
-/// (AVIF here), so on the lean / webp-lossy legs the `detailed_png` source — which
-/// SPEC-105 correctly classifies as a photograph — gets an unscored JPEG `web`
-/// winner whose key set legitimately lacks `ssim`, while `optimize --verify` still
-/// emits it, and the two verbs diverge for reasons unrelated to the shared schema
-/// this test pins. The schema-consistency guarantee is validated on the build users
-/// actually get. (Before SPEC-105 this source classified as a graphic → a
-/// codec-independent lossless winner, so the divergence did not surface.)
-#[cfg(feature = "avif")]
+/// Runs on **every** feature leg. It used to be `#[cfg(feature = "avif")]`, which was
+/// a silencer rather than a fix: the lean leg is CI's only no-AVIF leg, so a schema
+/// fork there would ship undetected — which is the whole thing this test exists to
+/// catch.
+///
+/// The gate's stated reason was also wrong. It blamed an "unscored JPEG `web` winner"
+/// on the no-AVIF legs. The measured cause is different: `web` and `apply` run the
+/// image through the resize pipeline and report `has_alpha: true`, while `optimize`
+/// reports `false` for the same source. On a no-AVIF build a `Lossy`-bucket image
+/// **with alpha** shortlists exactly `[lossless(Png)]`, that PNG loses to the source,
+/// and the verb passes through with no winner and therefore nothing to score — so the
+/// key sets diverged on `ssim`. That missing lossy-alpha fallback is
+/// `src/analysis/decide.rs`'s, and it is SPEC-108's to fix, not this spec's.
+///
+/// The source is therefore a flat six-colour graphic: a `LosslessFlat` bucket whose
+/// shortlist is the same codec-independent lossless pair on every build, which all
+/// three verbs shrink to the same scored winner. The schema comparison is then about
+/// the schema, not about which codecs the leg happens to have.
 #[test]
 fn json_shape_consistent_across_verbs() {
     let dir = tempfile::tempdir().unwrap();
-    // A detailed source all three verbs SHRINK (≈44% smaller) with a scored winner:
-    // the base `optimize.explain/v1` schema, with no `larger_than_source` flag. (A
-    // tiny gradient made `optimize`'s metadata-forced re-encode ship larger, whose
+    // A source all three verbs SHRINK with a scored winner: the base
+    // `optimize.explain/v1` schema, with no `larger_than_source` flag. (A tiny
+    // gradient made `optimize`'s metadata-forced re-encode ship larger, whose
     // additive/gated `larger_than_source` field — SPEC-090 — is data-driven, not
     // flag-driven, so it legitimately appears for one verb and not another; the base
     // schema is the shared shape, and the flag's presence is covered by SPEC-090's
     // own tests.)
-    let photo = write_bytes(&dir, "photo.png", &common::detailed_png(800, 600));
+    let photo = write_bytes(&dir, "graphic.png", &common::flat_graphic_png(1200, 800));
 
     // Golden top-level key set with `--json --timing` and a scored winner.
     // `optimize` is run with `--verify` so its ssim field is present like web/apply.

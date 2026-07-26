@@ -4388,8 +4388,13 @@ fn optimize_max_size_still_budget() {
 /// forced JPEG fallback out of the (mis-assigned) graphic bucket; the corrected
 /// classification reaches it more directly, and the never-a-lossless-blow-up + ICC-
 /// stripped guarantees are unchanged.
+///
+/// The disposition is read from `--explain=json`, not sniffed from the output bytes.
+/// `guess_format` cannot tell a lossy WebP from a lossless one — and it accepted AVIF,
+/// JPEG *and* WebP here, so it could not fail for any format this test admits. The
+/// decision engine states what it shipped; assert that (SPEC-109 AC-4).
 #[test]
-fn optimize_detailed_icc_source_ships_compact_lossy_not_lossless_blowup() {
+fn optimize_detailed_icc_source_ships_lossy_disposition() {
     let dir = tempfile::tempdir().unwrap();
     let src = common::detailed_jpeg_with_icc(256, 256);
     let in_path = write_bytes(&dir, "detailed_icc.jpg", &src);
@@ -4401,29 +4406,53 @@ fn optimize_detailed_icc_source_ships_compact_lossy_not_lossless_blowup() {
             in_path.to_str().unwrap(),
             "--out-dir",
             out_dir.to_str().unwrap(),
+            "--explain=json",
         ])
         .output()
         .unwrap();
     assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr_str(&out));
+    let json = stdout_str(&out);
+
+    // The engine's own verdict: something shipped, and every candidate it considered
+    // was lossy — so the winner is lossy whichever index it landed on. (The shortlist
+    // size is leg-dependent: one candidate on the lean build, three with
+    // `webp-lossy`, where the winner is index 1. Asserting a fixed winner index here
+    // would pin the codec set, not the guarantee.)
+    assert!(
+        !json.contains("\"winner\":null"),
+        "a metadata-carrying source cannot pass through — something must ship: {json}"
+    );
+    assert!(
+        json.contains("\"disposition\":\"lossy\""),
+        "the metadata-carrying detailed source must ship a LOSSY re-encode, got: {json}"
+    );
+    assert!(
+        !json.contains("\"disposition\":\"lossless\""),
+        "no lossless candidate may even be on the shortlist — that is the blow-up: {json}"
+    );
 
     let (out_path, bytes) = optimize_single_output(&out_dir);
 
-    // The output must be a LOSSY format — AVIF (default build) or JPEG (lean build) —
-    // NEVER a lossless WebP/PNG blow-up. If the never-bigger guarantee (or the
-    // photograph classification) regressed, the winner would be a lossless candidate.
-    let fmt = image::guess_format(&bytes).ok();
-    assert!(
-        matches!(
-            fmt,
-            Some(ImageFormat::Avif) | Some(ImageFormat::Jpeg) | Some(ImageFormat::WebP)
-        ),
-        "output must be a compact lossy format (AVIF / JPEG / lossy WebP), not a lossless blow-up ({fmt:?}, {})",
+    // The byte-level guard is the report's HONESTY, checked against the file on disk
+    // (SPEC-109 AC-5). The bound this replaces was self-referential — a lossless WebP
+    // this test encoded itself with the `image` crate at default effort, which a
+    // shipped lossless WebP at higher effort satisfies — and the obvious replacement,
+    // "smaller than the source", is not a guarantee SPEC-084 makes: stripping the ICC
+    // forces a re-encode that an already-tight JPEG source can beat, and on the lean
+    // leg it does (7231 B out for 6101 B in). What is promised is that the report says
+    // so rather than clamping to a break-even "0% smaller" — so assert exactly that,
+    // in both directions, on whichever leg is running.
+    assert_eq!(
+        json.contains("\"larger_than_source\":true"),
+        bytes.len() > src.len(),
+        "the report must agree with the bytes on disk: shipped {} B for a {} B source ({}), report: {json}",
+        bytes.len(),
+        src.len(),
         out_path.display()
     );
-    // (`guess_format` can't tell lossy from lossless WebP, so the byte bound below is
-    // what actually proves it is not the lossless blow-up.)
-    // Concretely bound the blow-up: a lossless WebP of the same pixels is the thing we
-    // must NOT ship. The shipped output must be well under it.
+    // Kept as a supplement, not as the proof — the disposition assertion above is what
+    // rules out the lossless blow-up. A lossless WebP of the same pixels is the shape
+    // of the blow-up the bug produced.
     let pixels = image::load_from_memory(&src).unwrap();
     let mut lossless_webp = std::io::Cursor::new(Vec::new());
     pixels
@@ -4438,6 +4467,97 @@ fn optimize_detailed_icc_source_ships_compact_lossy_not_lossless_blowup() {
     );
 
     // The ICC metadata must be gone (the whole reason we couldn't raw-passthrough).
+    let info = Command::new(BIN)
+        .args(["info", "--json", out_path.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert_eq!(info.status.code(), Some(0), "stderr: {}", stderr_str(&info));
+    let info_stdout = String::from_utf8_lossy(&info.stdout);
+    assert!(
+        info_stdout.contains("\"has_icc\":false"),
+        "ICC must be stripped from the fallback output: {info_stdout}"
+    );
+}
+
+/// The SPEC-084 **metadata-forced lossy fallback** (`src/cli/optimize.rs`) still has a
+/// live end-to-end route, and this is it.
+///
+/// SPEC-105's comment on the test above claimed the scenario was "only reachable via
+/// the misclassification this spec removes". That is false. The branch needs three
+/// things at once — a lossy-family source, a bucket offering ONLY lossless candidates,
+/// and metadata that forbids a raw passthrough — and a real hard-edged graphic JPEG
+/// with an ICC profile supplies all three without any misclassification: the committed
+/// `checker_graphic.jpg` measures luma entropy 2.78, so it is a `graphic-logo` on the
+/// merits.
+///
+/// The proof that the branch was reached is the shortlist itself. A `LosslessFlat`
+/// bucket never shortlists a lossy candidate, so a lossy candidate in the report can
+/// only have been appended by the fallback. Delete or mis-condition that call site and
+/// this goes red (SPEC-109 AC-6).
+#[test]
+fn spec_084_metadata_forced_fallback_is_reached() {
+    const GRAPHIC: &[u8] = include_bytes!("fixtures/classify/checker_graphic.jpg");
+
+    let dir = tempfile::tempdir().unwrap();
+    let src = common::jpeg_with_icc(GRAPHIC);
+    let in_path = write_bytes(&dir, "graphic_icc.jpg", &src);
+    let out_dir = dir.path().join("out");
+
+    let out = Command::new(BIN)
+        .args([
+            "optimize",
+            in_path.to_str().unwrap(),
+            "--out-dir",
+            out_dir.to_str().unwrap(),
+            "--explain=json",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr_str(&out));
+    let json = stdout_str(&out);
+
+    // Precondition: it really is a graphic, on the merits, with no misclassification
+    // involved. If this ever flips the test below stops testing the fallback, so it
+    // is asserted rather than assumed.
+    assert!(
+        json.contains("\"class\":\"graphic-logo\""),
+        "the committed checker graphic must classify as a graphic, got: {json}"
+    );
+    // The fallback fired. A `LosslessFlat` shortlist is lossless-only by
+    // construction, so a lossy candidate in this report can only have been appended
+    // by the branch under test — this is the assertion that goes red if that call
+    // site is deleted or mis-conditioned.
+    assert!(
+        json.contains("\"disposition\":\"lossy\""),
+        "the metadata-forced lossy fallback must add a lossy candidate to a \
+         lossless-only shortlist, got: {json}"
+    );
+
+    // What it ships is the SMALLEST correct candidate, which for a hard-edged
+    // 8-colour checkerboard is the lossless WebP — a lossy re-encode of a
+    // checkerboard is bigger, not smaller. That is the branch working as written:
+    // it widens the field, it does not force lossy.
+    //
+    // And the smallest correct output is still larger than this already-tight JPEG
+    // source. SPEC-084 does NOT promise never-bigger here — stripping the ICC forces
+    // a re-encode that cannot beat the source — it promises the report says so
+    // rather than clamping to a break-even "0% smaller". Assert the honesty, since
+    // that is the actual guarantee.
+    assert!(
+        json.contains("\"larger_than_source\":true"),
+        "a re-encode that cannot beat the source must say so in the report: {json}"
+    );
+    assert!(
+        json.contains("\"savings_percent\":-"),
+        "…and report negative savings rather than clamping to zero: {json}"
+    );
+    let (out_path, bytes) = optimize_single_output(&out_dir);
+    assert_ne!(
+        bytes, src,
+        "the ICC forbids a raw passthrough — a re-encode must actually have happened"
+    );
+
+    // The ICC that forced the re-encode must be gone.
     let info = Command::new(BIN)
         .args(["info", "--json", out_path.to_str().unwrap()])
         .output()
@@ -5011,15 +5131,20 @@ fn optimize_metadata_free_passthrough_is_byte_identical() {
 /// The common path is unchanged (the additive/gated discipline): a normal photo
 /// `web` shrinks emits NO `larger_than_source` flag and NO note — the field rides
 /// the report only when the output is actually larger. Feature-independent.
+///
+/// This case is deliberately the EXIF one; `web_classifies_a_no_exif_source` below
+/// covers the other side. Note what this test does *not* pin: the 3000px source forces
+/// a downscale, so "web shrinks" here is guaranteed by resampling, not by the encoder
+/// decision.
 #[test]
 fn web_normal_case_no_larger_flag() {
     let dir = tempfile::tempdir().unwrap();
     // A large JPEG-with-EXIF photograph (3000px): the EXIF camera-prior classifies it
     // as a photograph directly (independent of SPEC-105), and at 3000px `web`'s
     // downscale to the 2048 max-edge shrinks it on EVERY feature leg regardless of the
-    // lossy codec (AVIF where built, else JPEG). (Synthetic `detailed_png` is
-    // high-frequency and BLOWS UP under lossy re-encode — not a real-world photo case —
-    // and the small committed photo crops hit the never-bigger passthrough.)
+    // lossy codec (AVIF where built, else JPEG). (Synthetic `detailed_png` — a smooth
+    // gradient plus a mild 8px checker, `tests/common/mod.rs` — BLOWS UP under lossy
+    // re-encode, and the small committed photo crops hit the never-bigger passthrough.)
     let src = common::jpeg_with_exif(3000, 2000);
     let in_path = write_bytes(&dir, "photo.jpg", &src);
     let out_dir = dir.path().join("out");
@@ -5052,6 +5177,55 @@ fn web_normal_case_no_larger_flag() {
         "no note on a shrinking run: {}",
         stderr_str(&out)
     );
+}
+
+/// `web` classifies a source with **no EXIF** — the path the demo and RAW-preview
+/// extraction actually take, since both strip EXIF.
+///
+/// The test above uses `jpeg_with_exif`, whose camera prior returns at rule 2 before
+/// the entropy rule ever runs, so between them the `web` verb had zero coverage of the
+/// no-EXIF classification path. Two committed real fixtures pin both answers on that
+/// path: a photo that must reach `photograph` on entropy alone, and a graphic that must
+/// stay `graphic-logo` (SPEC-109 AC-7).
+#[test]
+fn web_classifies_a_no_exif_source() {
+    const PHOTO: &[u8] = include_bytes!("fixtures/classify/grayscale_photo_leica.png");
+    const GRAPHIC: &[u8] = include_bytes!("fixtures/classify/dithered_graphic.png");
+
+    for (name, bytes, want) in [
+        ("photo.png", PHOTO, "photograph"),
+        ("graphic.png", GRAPHIC, "graphic-logo"),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let in_path = write_bytes(&dir, name, bytes);
+        let out = Command::new(BIN)
+            .args([
+                "web",
+                in_path.to_str().unwrap(),
+                "--out-dir",
+                dir.path().join("out").to_str().unwrap(),
+                "--json",
+            ])
+            .output()
+            .unwrap();
+        assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr_str(&out));
+        let json = stdout_str(&out);
+
+        // No EXIF in either source, so rule 2 cannot be what decided this.
+        let info = Command::new(BIN)
+            .args(["info", "--json", in_path.to_str().unwrap()])
+            .output()
+            .unwrap();
+        assert!(
+            String::from_utf8_lossy(&info.stdout).contains("\"has_exif\":false"),
+            "{name} must carry no EXIF, else this tests rule 2 instead: {}",
+            String::from_utf8_lossy(&info.stdout)
+        );
+        assert!(
+            json.contains(&format!("\"class\":\"{want}\"")),
+            "{name}: web must classify a no-EXIF source as {want}, got: {json}"
+        );
+    }
 }
 
 /// Bundled-vs-path precedence: a **real recipe file always wins**. Passing the path

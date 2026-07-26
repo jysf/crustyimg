@@ -7,7 +7,7 @@
 task:
   id: SPEC-109
   type: story                      # epic | story | task | bug | chore
-  cycle: design                    # frame | design | build | verify | ship
+  cycle: verify                    # frame | design | build | verify | ship
   blocked: false
   priority: critical
   complexity: M                    # S | M | L  (L means split it)
@@ -48,10 +48,24 @@ cost:
         Un-metered main-loop design cycle. Re-measured all five committed classify
         fixtures with a release build; verified all six guard sites against source.
       estimated_usd: null
+    - cycle: build
+      interface: claude-code
+      tokens_total: 1150000
+      duration_minutes: 95
+      note: >
+        Ran as an INTERACTIVE main-loop cycle, not as a metered sub-agent, so the
+        harness reported no `subagent_tokens`. The figure is an ESTIMATE from session
+        volume (~60 assistant turns over a context that reached ~180k, with several
+        full-matrix build logs and four fixture-seeding iterations) and it is the one
+        number in this spec that was not measured. Replace it with the `/cost` reading
+        at ship if the orchestrator has one. Cost of the specimen search was real: four
+        seeding attempts (EGA-16, median-cut-16, 4-bit grey, equalised) before the
+        arithmetic made 32 levels obvious.
+      estimated_usd: 12.65
   totals:
     tokens_total: 0
     estimated_usd: 0
-    session_count: 1
+    session_count: 2
 ---
 
 # SPEC-109: evidence integrity for the classifier calibration
@@ -134,38 +148,38 @@ every diluted guard a negative control that proves it can go red.
 
 ## Acceptance Criteria
 
-- [ ] **AC-1.** The two boundary specimens are committed, with their measured entropy
+- [x] **AC-1.** The two boundary specimens are committed, with their measured entropy
       **asserted as values**, and registered as `FX_` constants beside the existing four.
-- [ ] **AC-2.** `calibration_gap_holds_for_committed_fixtures` asserts the **documented**
+- [x] **AC-2.** `calibration_gap_holds_for_committed_fixtures` asserts the **documented**
       gap, not the loose one: with the specimens in, the window narrows from (3.03, 6.07] to
       approximately (3.43, 4.58]. State the achieved bounds in the test message.
-- [ ] **AC-3 — the gate that matters.** With `PHOTO_ENTROPY_STRONG = 5.5`, `cargo test
+- [x] **AC-3 — the gate that matters.** With `PHOTO_ENTROPY_STRONG = 5.5`, `cargo test
       --release --lib analysis` **fails**. Record which test fails and its message. Also
       check the other direction: `3.2` should fail too. A guard that only catches one side
       of its window is half a guard.
-- [ ] **AC-4.** The ICC test (`tests/cli.rs:4392`) asserts disposition from
+- [x] **AC-4.** The ICC test (`tests/cli.rs:4392`) asserts disposition from
       `--explain=json` (`"disposition":"lossy"`) instead of `matches!` on `guess_format`,
       which cannot fail for the formats it lists and whose own comment concedes it cannot
       distinguish lossy from lossless WebP. The stronger form already exists 200 lines away
       in `optimize_grayscale_photo_is_photograph_lossy_avif` (`tests/cli.rs:4637`) — reuse it.
-- [ ] **AC-5.** The self-referential `blowup` bound is replaced or supplemented. It encodes
+- [x] **AC-5.** The self-referential `blowup` bound is replaced or supplemented. It encodes
       a lossless WebP with the `image` crate at default effort and asserts we beat it — a
       shipped lossless WebP at higher effort satisfies it
       ([[a-self-referential-control-cannot-detect-a-broken-pipeline]]).
-- [ ] **AC-6.** The SPEC-084 metadata-forced lossy-fallback branch
+- [x] **AC-6.** The SPEC-084 metadata-forced lossy-fallback branch
       (`src/cli/optimize.rs:1059`) regains end-to-end coverage. The comment claiming the
       scenario is "only reachable via the misclassification this spec removes" is **false**:
       `checker_graphic.jpg` (measured entropy **2.78**, above) plus an ICC profile still
       reaches it. Use that, and correct the comment.
-- [ ] **AC-7.** `web` regains coverage of the **no-EXIF** classification path — the path the
+- [x] **AC-7.** `web` regains coverage of the **no-EXIF** classification path — the path the
       demo and RAW-preview extraction actually take, since both strip EXIF. The current test
       uses `jpeg_with_exif(3000, 2000)`, whose EXIF makes rule 2 return before rule 3.5 runs.
       Add a no-EXIF case; keep the EXIF one.
-- [ ] **AC-8.** `json_shape_consistent_across_verbs` runs on the lean build, or the schema
+- [x] **AC-8.** `json_shape_consistent_across_verbs` runs on the lean build, or the schema
       fork is **fixed** rather than gated. The `#[cfg(feature = "avif")]` at
       `tests/audit_bench.rs:171` and its sibling at `:43` were silencers. The lean leg is
       CI's only no-AVIF leg, so further forks there ship undetected.
-- [ ] **AC-9.** Both `iso_luma` fixtures are corrected. `wide_flat_manycolour_with_edges_is_ui_screenshot`
+- [x] **AC-9.** Both `iso_luma` fixtures are corrected. `wide_flat_manycolour_with_edges_is_ui_screenshot`
       reproduces at **25 occupied luma bins, not the ~5 its four flat panels intend, and
       entropy 3.3964** — 0.60 under the threshold it asserts — because `(l + 2*j).clamp(0,255)`
       saturates red, which the comment at `:1009` denies. Either fix the generator so the
@@ -173,14 +187,14 @@ every diluted guard a negative control that proves it can go red.
       for `ambiguous_square_falls_back_to_photograph_low_confidence` (`:1060`), whose comment
       "frequent steps → not flat-graphic" is false: measured `flat_ratio` is **0.611, above**
       `FLAT_GRAPHIC_RATIO` 0.60; only `edge_ratio` keeps that gate shut.
-- [ ] **AC-10.** DEC-047's two false claims are corrected in place:
+- [x] **AC-10.** DEC-047's two false claims are corrected in place:
       (a) the reach claim — "**any** image with luma entropy ≥ `PHOTO_ENTROPY_STRONG` is a
       `Photograph`" is false for `width.max(height) <= 128` with aspect ≤ 2.0 and no EXIF
       (a 128×128 EXIF-stripped photo thumbnail measures entropy **6.02** and classifies
       `Icon` → lossless); (b) the safety claim that no hard-edged graphic reaches 4.0 — the
       committed dither reaches 7.08 at `--max 256`. Its evidence roster gains the two
       specimens.
-- [ ] **AC-11.** Clean full-matrix green (default / lean / `webp-lossy`, clippy `-D warnings`
+- [x] **AC-11.** Clean full-matrix green (default / lean / `webp-lossy`, clippy `-D warnings`
       each, `fmt --check`), with `Compiling crustyimg` in the log.
 
 ## Failing Tests
@@ -256,28 +270,177 @@ Written during **design**, BEFORE build.
 
 ## Build Completion
 
-*Filled in at the end of the **build** cycle, before advancing to verify.*
+- **Branch:** `spec-109-classifier-evidence-integrity`
+- **PR (if applicable):** not yet opened
+- **All acceptance criteria met?** yes (AC-1 … AC-11), with two deviations recorded below
+- **New decisions emitted:** none. DEC-047 was amended in place (AC-10); nothing here
+  chose anything a `DEC-*` would record.
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
-- **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
-- **Deviations from spec:**
-  - [list]
-- **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+### The gate — AC-3, before and after
+
+| run | `PHOTO_ENTROPY_STRONG` | result |
+|---|---|---|
+| **before** (baseline, tree clean) | 5.5 | **52 passed, 0 failed** — green, as the design measured |
+| before, positive control | 7.0 | 49 passed, **3 failed** — proves the mutation reaches the build |
+| after | 4.0 (shipped) | 54 passed, 0 failed |
+| **after** | **5.5** | **RED — 52 passed, 2 failed** |
+| **after** | **3.2** | **RED — 51 passed, 3 failed** |
+
+The 7.0 run is the control the baseline needed. 5.5 green before and 5.5 red after only
+means something if a threshold move can move the suite at all
+([[a-control-you-never-verified-applied-is-not-a-control]]); at 7.0 the pre-change suite
+went red in three places, so the harness was live and 52/52 at 5.5 was a real result.
+
+Failing tests and messages at 5.5:
+
+- `calibration_gap_matches_the_documented_gap` — *"threshold 5.5 must fall in the
+  calibration window (3.6414278, 4.5176096] (width 0.87618184 bits, cap 1.2)"*
+- `boundary_specimens_measure_their_recorded_values` — `photo_entropy_floor.png` falls to
+  `GraphicLogo` (61 colours trips the palette gate once rule 3.5 stops firing)
+
+At 3.2 a third test fails — `wide_flat_manycolour_with_edges_is_ui_screenshot`, *"a
+realistic screenshot must stay below the strong-entropy floor: 3.3964376"*. Both edges of
+the window are caught, so this is a whole guard rather than half of one.
+
+### Acceptance criteria
+
+| AC | Status | Evidence |
+|---|---|---|
+| AC-1 | ✅ | `photo_entropy_floor.png` (4.5176) and `dither_32color.png` (3.6414) committed, registered as `FX_PHOTO_FLOOR` / `FX_DITHER_32`, entropies asserted **as values** |
+| AC-2 | ✅ | window narrowed (3.03, 6.07] → **(3.6414, 4.5176]**, 3.04 bits → 0.88; achieved bounds and width are in the failure message |
+| AC-3 | ✅ | table above — red at 5.5 **and** at 3.2 |
+| AC-4 | ✅ | `optimize_detailed_icc_source_ships_lossy_disposition` asserts `"disposition":"lossy"` from `--explain=json`; the `matches!` on `guess_format` is gone |
+| AC-5 | ✅ | self-referential bound demoted to a labelled supplement; the load-bearing byte check is now report-honesty vs the file on disk |
+| AC-6 | ✅ | `spec_084_metadata_forced_fallback_is_reached` — `checker_graphic.jpg` + ICC; the false comment is corrected |
+| AC-7 | ✅ | `web_classifies_a_no_exif_source` (photo → `photograph`, dither → `graphic-logo`), EXIF-absence asserted; the EXIF case kept |
+| AC-8 | ✅ | both `#[cfg(feature = "avif")]` gates removed; `audit_bench` runs 6 tests on the lean leg, was 5 |
+| AC-9 | ✅ | `iso_luma_fixture_occupies_the_bin_count_it_claims` pins 25 / 14 bins, 3.3964 / 3.1905 entropy, and flat_ratio 0.611 > `FLAT_GRAPHIC_RATIO`; all three comments corrected |
+| AC-10 | ✅ | DEC-047 carries two dated correction blocks + the specimens in its roster |
+| AC-11 | ✅ | clean full matrix, fresh `CARGO_TARGET_DIR`, `Compiling crustyimg` observed — table below |
+
+### AC-11 — clean full matrix
+
+Built into an empty `CARGO_TARGET_DIR` (`rm -rf` first), so nothing is inherited. Each
+leg's log contains `Compiling crustyimg` exactly once, which is the check that this is a
+real build and not a stale-artifact green ([[a-stale-incremental-build-is-a-false-green]]).
+
+| leg | exit | suites | passed | failed | `Compiling crustyimg` |
+|---|---|---|---|---|---|
+| `cargo test --no-default-features` | 0 | 32 | 776 | 0 | 1 |
+| `cargo test` | 0 | 32 | 796 | 0 | 1 |
+| `cargo test --features webp-lossy` | 0 | 32 | 803 | 0 | 1 |
+| `cargo clippy --all-targets -- -D warnings` | 0 | | | | |
+| `cargo clippy --all-targets --no-default-features -- -D warnings` | 0 | | | | |
+| `cargo clippy --all-targets --features webp-lossy -- -D warnings` | 0 | | | | |
+| `cargo fmt --check` | 0 | | | | |
+
+Exit codes were read directly, not through a pipe — `cmd | tail` reports *tail's* status,
+which silently turned a failing leg into a green one earlier in this cycle.
+
+### The six guard sites, counted independently
+
+Confirmed by reading each, not by trusting the handed list. The review's "five" is four
+tests plus two fixtures: `tests/cli.rs:4381` is a doc comment and `:4392` the signature of
+**the same function**, as the spec says.
+
+1. `src/analysis/mod.rs` calibration guard — rewritten, window cap added
+2. `tests/cli.rs` ICC never-bigger assertion — disposition from `--explain=json`
+3. `tests/cli.rs` `web` no-EXIF path — new test
+4. `tests/cli.rs` SPEC-084 fallback coverage — new test (same function as site 2's doc)
+5. `tests/audit_bench.rs` schema test + its `top_level_keys` helper — both un-gated
+6. `src/analysis/mod.rs` two `iso_luma` fixtures — pinned and corrected
+
+Mechanical cross-check on the gates, run in Python and again through `rtk proxy grep`
+(plain `grep` is rewritten to a broken `rg` regex in this environment and reported 0
+matches — [[rtk-can-silently-corrupt-grep-counts]]): 27 `cfg(feature)` attributes remain
+under `tests/`, of which `audit_bench.rs` holds **0** — its single remaining match is the
+words inside my own doc comment.
+
+### Deviations from spec
+
+1. **`dither_16color.png` → `dither_32color.png` (32 grey levels, not 16).** A 16-colour
+   dither cannot do this job with the photographs this repo holds. Quantising to L levels
+   costs about `log2(256/L)` bits, so 16 levels of a 6.07–6.83-bit source lands at
+   2.46–2.88 — measured 2.80 for the Fuji frame, 2.46 for Leica, 2.88 for Canon — all
+   **below** the 3.03 dither already committed, so the lower bound would not move and 3.2
+   would still pass. Reaching DEC-047's cited 3.43 at 16 levels needs a ~7.4-bit source,
+   which none of these are; histogram-equalising first gets there (measured 3.94) but
+   leaves 0.06 bits of margin under the threshold, which is a fixture that flips on any
+   small change. 32 levels of the unmodified photograph gives the same boundary role with
+   0.36 bits of margin. Recorded in `tests/fixtures/classify/RECIPES.md` and in DEC-047.
+2. **AC-8 resolved by running the test everywhere, not by fixing the schema fork.** The
+   fork is real and I reproduced it, but its cause is not what the gate's comment claimed
+   (see below), and the fix belongs to SPEC-108. The test now runs on every leg against a
+   `LosslessFlat` source whose shortlist is codec-independent — so it will catch a *new*
+   fork on the lean leg, which is what the gate was suppressing. It does not catch the
+   existing one. Follow-up filed.
+
+### Things found that the spec did not predict
+
+- **The gate's stated reason for the schema fork was false.** It blamed "an unscored JPEG
+  `web` winner" on no-AVIF builds. Measured cause: `web`/`apply` run the source through the
+  resize pipeline and report `has_alpha: true`, while `optimize` reports `false` for the
+  same file. On a no-AVIF build a `Lossy`-bucket image **with alpha** shortlists exactly
+  `[lossless(Png)]`, that PNG loses to the source, and the verb passes through with no
+  winner and so nothing to score. That is `decide.rs`'s missing lossy-alpha fallback — the
+  finding STAGE-034 already lists for SPEC-108 — seen from a third direction.
+- **SPEC-084 does not promise never-bigger-than-source on this branch, and I asserted that
+  it did.** Twice: the new `spec_084_*` test and the rewritten ICC test both first asserted
+  `out < src`, and both failed — on the checker graphic (28,652 B out for 15,291 B in) and
+  on the lean leg of the ICC test (7,231 B for 6,101 B). Reading the branch, that is
+  deliberate: when stripping metadata forces a re-encode an already-tight source can beat,
+  it ships the smallest correct output *and reports the truth* rather than clamping to a
+  break-even "0% smaller". Both tests now assert the honesty invariant, which is the
+  guarantee that actually exists.
+- **`photo_entropy_floor.png` measures `flat_ratio` 1.00.** The flat detector reads the
+  photo floor as *completely* flat, so rule 3.5 alone keeps it off the lossless path. This
+  is independent confirmation of the stage's "rule 3.5 is load-bearing" finding, from a
+  specimen built without that finding in view.
+- **The `optimize_detailed_icc_source_*` shortlist is leg-dependent** — one candidate lean,
+  three under `webp-lossy` where the winner is index 1. A `"winner":0` assertion (copied
+  from the grayscale-photo test) pinned the codec set rather than the guarantee; replaced.
+
+### Follow-up work identified
+
+- **The `explain/v1` schema forks on `ssim` between `optimize` and `web`/`apply` on
+  no-AVIF builds**, because the two disagree on `has_alpha` for the same source. Root cause
+  is the missing lossy-alpha fallback at `src/analysis/decide.rs` — already SPEC-108's
+  AC. Worth naming explicitly there: the schema symptom is a second consumer-visible face
+  of that bug, and `json_shape_consistent_across_verbs` will not catch it.
+- **`--profile docs` still has no `tests/cli.rs` coverage** (STAGE-034 lists it; SPEC-108
+  owns the behaviour decision). Untouched here.
+- **DEC-047's 16-colour 3.43 row is unreproducible** from the repo's fixtures. Left in place
+  with the arithmetic recorded beside it rather than silently deleted, since the original
+  measurement was presumably of a source we no longer have.
 
 ### Build-phase reflection (3 questions, short answers)
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — Nothing was unclear; one thing was *unstated and wrong to assume*. The spec names the
+   boundary specimen by its target value (`dither_16color.png`, ≈3.43) without saying which
+   property is load-bearing — the number, the palette size, or the filename. It is the
+   number, and specifically that it sit above 3.2, because AC-3's lower edge depends on it.
+   I spent four seeding attempts (EGA-16 → median-cut-16 → 4-bit grey → equalised) before
+   working out that the entropy of an L-level dither is pinned by arithmetic to about
+   `source − log2(256/L)`, which makes 16 levels impossible here and 32 obvious. Stating the
+   window the specimen must land in, rather than the value it should print, would have got
+   me there first try.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — SPEC-084's actual guarantee. Both AC-5 and AC-6 concern a never-bigger branch, and the
+   natural reading of "never-bigger" is "output ≤ source" — which is false on exactly the
+   branch AC-6 targets. It cost me two red tests to find out from the code. A one-line
+   pointer to the branch's own comment ("if even the smallest correct output still exceeds
+   the source, we ship it anyway — but the report tells the truth") would have prevented
+   both. Worth pulling into DEC-084's territory or the spec's Implementation Context.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Build the independent measuring tool first, before touching any fixture. I wrote the
+   Python PNG reader/entropy implementation to *seed* the specimens, then noticed it made a
+   far better oracle — it reproduces all four committed fixtures to four decimals, which is
+   what lets the new assertions be values rather than round-trips. Had I built it first I
+   would also have predicted the 16-level dead end analytically instead of discovering it by
+   generating three fixtures that did not tighten the window at all.
 
 ---
 
