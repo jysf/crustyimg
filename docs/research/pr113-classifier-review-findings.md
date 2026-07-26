@@ -275,3 +275,108 @@ The 15 findings are not 15 independent fixes. They cluster:
 - `rtk` rewrites command output and can corrupt grep counts — cross-check any sweep count
   with raw `grep` plus a positive control, and reach for `rtk proxy` when you need real
   stdout.
+
+---
+
+# Re-derivation (2026-07-25)
+
+A measurement-only session re-ran the claims above against a **from-scratch release
+build** of `main` @ `b71c96b` (`crustyimg 0.6.0`; compiled into an isolated
+`CARGO_TARGET_DIR`, compile of `crustyimg v0.6.0` observed in the build log — the
+in-tree `target/` was not trusted after `rtk` reported a 91.5 GiB clean followed by a
+0.36 s "build"). Class, entropy, and disposition were read from `web --json`
+(`crustyimg.optimize.explain/v1`), never inferred from the output format.
+
+**These numbers supersede the reproduction recipes above.**
+
+## Verdict table
+
+| # | Claim | Measured | Verdict |
+|---|---|---|---|
+| 1 | 3840×2160 code-editor screenshot: 0.79 native → 4.24 at `--max 2048` → `photograph` → 358,227 B lossy for a 111,095 B source | Four substituted screenshots. Dark dense 4K code: **0.57 → 1.14**. Light theme: 0.48 → 0.80. Sparse code: 1.51 → 2.04. Image-editor canvas: 1.24 → 2.37. All stay `graphic-logo`/`document`, all lossless. Entropy rises monotonically with downscale in **every** case, but never approaches 4.0. | **NOT REPRODUCED** (magnitude). Mechanism — monotonic entropy rise under downscale — **CONFIRMED**. |
+| 2 | 3000×2250 1-bit halftone: 0.56 native → 4.79 at `--max 2048` → lossy | **0.62 → `document` → passthrough** at native; **5.29 → `photograph` → lossy AVIF** at `--max 2048`. Output **844,492 B for a 45,527 B source — 18.5× larger**, `larger_than_source: true`, **SSIMULACRA2 69.2**. At `--max 2560`: 5.20, 1,590,638 B (35×). | **CONFIRMED**, and materially worse than claimed. |
+| 3 | committed `tests/fixtures/classify/dithered_graphic.png`: 3.03 native, **7.08 at `--max 256`** → `photograph` → lossy | **3.03 native** (`graphic-logo`, unchanged through `--max 512`); **7.08 at `--max 256` → `photograph` → lossy AVIF**, SSIMULACRA2 81.8. At `--max 128` it becomes `icon` (7.15) → lossless. | **CONFIRMED exactly.** Review harness and repo agree. |
+| 4 | Mixed UI+photo at 1600×1000: `document`→lossless at 25%/33% photo area (3.35/3.92); `photograph`→lossy q85 at 50% (4.93) | Composite of `color_photo_fuji.png` into flat chrome + a text bar: **25% → 4.56, 33% → 4.89, 50% → 5.30 — all three `photograph` → lossy AVIF q85**. Outputs are smaller, not larger (96% savings at 50%), SSIMULACRA2 81.8. | **DIRECTIONALLY CONFIRMED**, worse than claimed: the "safe" 25%/33% band does not exist in my reproduction — promotion starts at or below 25% photo area. The harm is quality on the text half, not size. |
+| 5 | `PHOTO_ENTROPY_STRONG = 5.5` leaves the classify suite green | Mutation applied to `src/analysis/mod.rs:97`; `cargo test --release --lib analysis` → **52 passed, 0 failed**, including `calibration_gap_holds_for_committed_fixtures`, `dithered_graphic_stays_graphic_not_photograph`, `real_grayscale_photo_is_photograph_not_graphic`. Mutation reverted; tree clean. | **CONFIRMED.** The suite cannot detect a threshold move that reinstates the original bug. |
+| 6 | 128×128 EXIF-stripped B&W photo thumbnail still classifies `Icon` → `LosslessFlat` | 128×128 centre crop of `grayscale_photo_leica.png`, `-strip`: **entropy 6.02 → `icon` → lossless**. | **CONFIRMED.** DEC-047's "**any** image with entropy ≥ `PHOTO_ENTROPY_STRONG` is a `Photograph`" is false as written. |
+| 7 | Dirty alpha: 6.25 native vs 1.04 at `--max 500` | Not attempted — lowest priority, no realistic dirty-alpha asset sourced. | **COULD NOT TEST.** |
+
+## Answer to the load-bearing question
+
+> Does `crustyimg web <screenshot>` produce a file both larger than and visually worse
+> than its input? Yes or no, and at what input size does it start?
+
+**Yes — but not for the input the review named.**
+
+- For **UI, code-editor, spreadsheet, and image-editor screenshots**: **no**. Across four
+  substituted 4K–6K sources, entropy rises with downscale but tops out at 1.14–3.35 at the
+  default `--max 2048`. They stay on the lossless path. The 4.24 crossing did not reproduce
+  at any plausible screenshot size; for gridline-dense content the crossing sits near
+  `--max ≈ 700`, far below the default.
+- For **dithered / halftone graphics**: **yes, emphatically, on the default path.** A
+  3000×2250 1-bit halftone — an ordinary print/scan artifact — goes
+  45,527 B → **844,492 B (18.5× larger)** at SSIMULACRA2 **69.2**, from a single
+  `crustyimg web file.png`. The class flips `document` → `photograph` purely because
+  `web` downscaled it first: at native size the same file passes through untouched.
+- **Where it starts:** the trigger is the *downscale ratio*, not the input size as such.
+  The halftone crosses at a ratio of ~1.2 (3000 → 2560). The committed `dithered_graphic`
+  fixture crosses at ~1.6 (400 → 256). Any dithered or halftoned source whose long edge
+  exceeds 2048 by more than ~20% is exposed by default.
+
+## Two findings the review did not name
+
+1. **`web` returns larger-than-source output on the *lossless* path too**, for perfectly
+   ordinary screenshots — no misclassification required. A 3840×2160 spreadsheet
+   screenshot goes 420,717 B → 567,140 B at the default `--max 2048`
+   (`larger_than_source: true`, `savings_percent: -35`); a 256-colour 4K code screenshot
+   goes 154,259 B → 376,554 B (−144%). The flag is set and the help text discloses that
+   `web` trades size for the dimension bound, so this is disclosed rather than hidden —
+   but "downscaled to 2048 **and** 2.4× bigger" is a poor default result to lead a launch
+   post with, and it is independent of the classifier.
+2. **`--max 128` re-routes a promoted image back to `icon` → lossless** (dithered fixture:
+   7.08/`photograph` at 256, 7.15/`icon` at 128). This is finding 6's ordering bug seen
+   from the other side, and it means the Icon rule silently masks the entropy rule for the
+   thumbnail sizes a gallery pipeline actually emits.
+
+## Commands
+
+```bash
+# binary under test (from-scratch build, isolated target dir)
+CARGO_TARGET_DIR=$SCRATCH/target-clean cargo build --release --locked
+CB=$SCRATCH/target-clean/release/crustyimg
+
+# claim 3 — committed fixture, exact reproduction
+for m in 4096 512 256 128; do
+  $CB web tests/fixtures/classify/dithered_graphic.png --max $m --json -o /dev/null
+done
+
+# claim 2 — halftone (generated: ordered dither of the repo's own photo fixture)
+magick tests/fixtures/classify/color_photo_fuji.png -colorspace Gray \
+  -resize 3000x2250! -ordered-dither o8x8 -depth 1 halftone_3000.png
+$CB web halftone_3000.png --json -o /dev/null          # default --max 2048
+
+# claim 6 — icon escape hatch
+magick tests/fixtures/classify/grayscale_photo_leica.png \
+  -resize 128x128^ -gravity center -extent 128x128 -strip photo_thumb_128.png
+$CB web photo_thumb_128.png --json -o /dev/null
+
+# claim 5 — tautology mutation (reverted afterwards; tree confirmed clean)
+# src/analysis/mod.rs:97  PHOTO_ENTROPY_STRONG: 4.0 -> 5.5
+cargo test --release --lib analysis
+```
+
+Generated inputs (screenshots, halftone, composites) were rendered with ImageMagick +
+Menlo and live in the session scratchpad, not the repo. The dithered fixture, the Leica
+crop source, and the Fuji composite source are all committed repo fixtures, so claims 3,
+4, and 6 are reproducible from the repo alone.
+
+## What this means for framing
+
+- The regression is **real and launch-gating**, but its blast radius is **dithered and
+  halftoned graphics**, not screenshots. A fix spec should be scoped and tested against
+  dither/halftone content; a screenshot-only test set would go green against the defect.
+- Claim 1's *mechanism* — classification reading the post-resize image — is confirmed and
+  is the shared root cause of claims 2, 3, and 4. Its *published magnitude* was too high;
+  do not design against 4.24.
+- Findings 5 (tautological calibration guard) and 6 (icon ordering) reproduce exactly and
+  are cheap, independent fixes.
