@@ -298,6 +298,16 @@ Low-priority CLI-utility ideas that don't belong to a wave; each gets framed onl
   `source::resolve` + the existing `info` probe + the `--json` writer; keep it read-only (never
   writes, never decodes pixels beyond a header probe).
 
+- **Batch report (`--report[=path]`) — small, unscheduled.** A flag on the batch path that writes
+  a summary of a multi-file run: per-file input→output format / bytes / savings, plus timing and
+  errors/skips, aggregating the existing per-file `--json` audit report (the `optimize.explain/v1`
+  schema) into one artifact — JSON for machines and/or a compact markdown/CSV table for humans. Its
+  value is the **CI / deploy-pipeline** question "what did this batch actually do, and did anything
+  fail or grow?" — a natural fit for the single dependency-free binary in CI. Reuses the audit
+  report + the batch fan-out already shipped; the new work is aggregation, a writer, and the flag.
+  Consider a nonzero exit code when any file errored or grew, so CI can gate on it. Frame as its own
+  spec if pulled. (Also tracked in `docs/backlog.md`.)
+
 ---
 
 ## Relationship to existing docs
