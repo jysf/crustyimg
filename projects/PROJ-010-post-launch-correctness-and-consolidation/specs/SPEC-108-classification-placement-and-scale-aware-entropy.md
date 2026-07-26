@@ -6,11 +6,11 @@
 
 task:
   id: SPEC-108
-  type: story                      # epic | story | task | bug | chore
+  type: bug                        # epic | story | task | bug | chore
   cycle: design                    # frame | design | build | verify | ship
   blocked: false
-  priority: medium
-  complexity: S                    # S | M | L  (L means split it)
+  priority: critical
+  complexity: M                    # S | M | L  (L means split it)
 
 project:
   id: PROJ-010
@@ -19,112 +19,277 @@ repo:
   id: crustyimg
 
 agents:
-  architect: claude-opus-4-7
-  implementer: claude-opus-4-7     # usually same Claude, different session
+  architect: claude-opus-5
+  implementer: claude-opus-5       # usually same Claude, different session
   created_at: 2026-07-26
 
 references:
-  decisions: []
-  constraints: []
-  related_specs: []
+  decisions:
+    - DEC-047
+  constraints:
+    - clippy-fmt-clean
+    - test-before-implementation
+    - no-unwrap-on-recoverable-paths
+    - one-spec-per-pr
+  related_specs:
+    - SPEC-105
+    - SPEC-109
 
-# One sentence on what this spec contributes to its stage's
-# value_contribution. For plumbing: "infrastructure enabling
-# STAGE-034's <capability>". Optional; null is acceptable.
-value_link: null
+value_link: >
+  STAGE-034's whole reason to exist: stop `web` promoting dithered and halftoned
+  graphics to lossy AVIF because the resize changed their entropy.
 
-# Self-reported AI cost per cycle. Each cycle (design, build, verify,
-# ship) appends one entry to sessions[]. Totals are computed at ship.
-# Record a REAL tokens_total for metered cycles (build/verify): the
-# orchestrator fills it from the Agent result's subagent_tokens at ship
-# (or /cost interactively). Only un-metered cycles (design/ship main-loop)
-# may be null-with-note. `just cost-audit` enforces this on shipped specs.
-# See AGENTS.md §4 and docs/cost-tracking.md. interface: claude-code |
-# claude-ai | api | ollama | other.
 cost:
-  sessions: []
+  sessions:
+    - cycle: design
+      interface: claude-code
+      tokens_total: null
+      note: >
+        Un-metered main-loop design cycle. Included one release build and four
+        instrumented `web --json` runs against the committed fixture.
+      estimated_usd: null
   totals:
     tokens_total: 0
     estimated_usd: 0
-    session_count: 0
+    session_count: 1
 ---
 
 # SPEC-108: classification placement and scale-aware entropy
 
 ## Context
 
-Why does this spec exist? What problem does it solve? Link to:
-- The parent `STAGE-034` and this spec's place in its backlog
-- The project `PROJ-010`
-- Any related discussions or prior decisions
+`web` promotes dithered and halftoned graphics to lossy AVIF, returning a file
+**18.5× larger than its input and visually degraded** (SSIMULACRA2 69.2) through the
+default path with no flags. Root cause, confirmed by reading source: classification
+runs on the **output of the resize pipeline**, not on the input —
+`pipeline.run` (`src/cli/optimize.rs:989`) → `Analysis::compute` (`:1013`) →
+`decide::format_shortlist` (`:1026`). So `--max` decides the content class.
+
+Parent stage: **STAGE-034**. Sibling: **SPEC-109** (evidence integrity) — it commits the
+boundary specimens and the negative controls this spec's fix will be measured against.
+Full evidence: `docs/research/pr113-classifier-review-findings.md`, section
+"Re-derivation (2026-07-25)".
+
+### The design question this spec had to answer, and the measurement that answered it
+
+STAGE-034 carried two candidate fixes and told the design cycle to choose on measured
+complexity, flagging the second as attractive:
+
+- **(a) Placement** — classify the *original*, before the resize pipeline.
+- **(b) Narrow gating** — keep classification where it is, delete rule 3.5's unconditional
+  early return, and instead gate rule 4's two clauses on `entropy < PHOTO_ENTROPY_STRONG`.
+  Advertised benefits: same depth, keeps rules 5 and 6 reachable, keeps `PHOTO_ENTROPY`
+  live, and the mask is deletable verbatim once the detector is fixed.
+
+**Measured, against the committed fixture `tests/fixtures/classify/dithered_graphic.png`,
+release build, `web --json`:**
+
+| `--max` | class | entropy | edge_ratio | flat_ratio | unique_colors |
+|---|---|---|---|---|---|
+| 4096 (native) | `graphic-logo` | 3.03 | 0.28 | 0.49 | **9** |
+| 512 | `graphic-logo` | 3.03 | 0.28 | 0.49 | **9** |
+| **256** | **`photograph`** | **7.08** | 0.05 | **0.27** | **217** |
+| 128 | `icon` | 7.15 | 0.07 | 0.36 | 207 |
+
+Now trace option (b) at `--max 256` with the real constants
+(`PALETTE_COLORS = 256`, `ICON_MAX_EDGE = 128`, `FLAT_GRAPHIC_RATIO = 0.60`,
+`DOC_ENTROPY_MAX = 4.5`, `PHOTO_ENTROPY = 5.0`, `PHOTO_ENTROPY_STRONG = 4.0`):
+
+- `unique_colors = 217 ≤ 256` and not saturated → **`few_colors` is TRUE**, so
+  **`many_colors` is FALSE**.
+- Rule 1 Icon — `256 > ICON_MAX_EDGE` → no.
+- Rule 2 EXIF — none → no.
+- Rule 3 Document — needs `entropy < 4.5`; 7.08 → no.
+- Rule 4a — `few_colors` TRUE, but gated on `entropy < 4.0`; 7.08 → **skipped**.
+- Rule 4b — `flat_ratio 0.27 >= 0.60` → no.
+- Rule 5 UI — requires `many_colors` → **unreachable**.
+- Rule 6 — requires `many_colors` → **unreachable**.
+- Rule 7 fallback → **`Photograph`**, confidence 0.4.
+
+**Option (b) does not fix the defect.** It changes which line returns `Photograph`, not the
+answer. And the reason generalises: **rule 7's fallback bias is `Photograph`** (DEC-047,
+deliberately — a photo forced lossless is merely a bigger file). So *any* fix that only
+stops the graphic gates from firing lands on `Photograph` anyway. Option (b) is structurally
+incapable of fixing an input whose correct answer is "graphic", which is precisely this
+defect's blast radius.
+
+Note this also disposes of the hope that (b) would rescue rules 5 and 6 for free here:
+`few_colors` is TRUE at `--max 256`, so both stay unreachable on this input regardless.
+
+**Decision: option (a), placement.** It is directly supported by the same table — at native
+and at `--max 512` the fixture measures 9 unique colours and entropy 3.03 and classifies
+`graphic-logo` correctly. Classifying the input is classifying the thing the user actually
+gave us; the resized buffer is a derived artifact whose entropy is a resampling artifact,
+not content.
+
+**Consequence to carry into the stage.** The brief recorded a risk: *"three of the seven
+brought-in findings are only cheap if the narrow rule-4 gating fix wins."* **That risk has
+materialised.** Under (a), rule 3.5 keeps its unconditional early return, so rules 5 and 6
+stay unreachable and rule 6's dead code must be handled explicitly rather than falling out.
+This spec does that (AC-6); it does not silently leave it.
 
 ## Goal
 
-1–2 sentences. Unambiguous. If you can't write the goal in two
-sentences, split the spec.
+Classify the **source image**, not the resize output, so `--max` cannot change an image's
+content class — and leave the cascade with no unreachable rule behind.
 
 ## Inputs
 
-- **Files to read:** `path/to/file.ext` — why
-- **External APIs:** <name, docs link, auth>
-- **Related code paths:** `src/some/module/`
+- **Files to read:**
+  - `src/cli/optimize.rs:960-1070` — the pipeline/analyse/decide sequence being reordered;
+    `:989` `pipeline.run`, `:1013` `Analysis::compute`, `:1026` `format_shortlist`,
+    `:1043-1059` the lossless-fallback hazard comment and `fast_fallback_lossy_entry`.
+  - `src/cli/optimize.rs:150-170` — the **second** `pipeline.run` at `:160`. Establish
+    whether it feeds a classify path too; if it does, it needs the same treatment.
+  - `src/analysis/mod.rs:556-631` — `classify`, the seven-rule cascade.
+  - `src/analysis/mod.rs:75-101` — the constants.
+  - `decisions/DEC-047-classification-thresholds-and-fallback-bias.md` — the rule this
+    changes the *input* of; SPEC-109 corrects its two false claims separately.
+- **Related code paths:** `src/analysis/`, `src/cli/optimize.rs`, `src/pipeline/`.
 
 ## Outputs
 
-- **Files created:** `path/to/new.ext` — purpose
-- **Files modified:** `path/to/existing.ext` — what changes
-- **New exports:** <names and signatures>
-- **Database changes:** <migrations>
+- **Files modified:**
+  - `src/cli/optimize.rs` — compute `Analysis` from the source image before
+    `pipeline.run`, and thread it to the decision site.
+  - `src/analysis/mod.rs` — resolve rule 6 (AC-6) and the `[4.0, 4.5)` band (AC-5).
+  - `decisions/DEC-NNN-*.md` — **a new decision record** for "classify the source, not the
+    pipeline output", superseding the placement implied by DEC-047's context.
+- **New exports:** none expected. If threading the analysis requires a signature change,
+  keep it internal (`pub(super)`/`pub(crate)`).
 
 ## Acceptance Criteria
 
-Testable outcomes. Cover happy path, error cases, edge cases.
-
-- [ ] Criterion 1 (testable)
-- [ ] Criterion 2 (testable)
+- [ ] **AC-1.** `tests/fixtures/classify/dithered_graphic.png` classifies `graphic-logo` and
+      takes a lossless disposition at **every** `--max` in {4096, 512, 256, 128} — the exact
+      set measured above, so the fix is checked at the two sizes that currently break (256)
+      and that currently pass for the wrong reason (128, rescued by the Icon rule).
+- [ ] **AC-2.** The reported `features` block for a given input is **identical across
+      `--max` values**, because it now describes the source. This is the structural
+      assertion; AC-1 is the behavioural one.
+- [ ] **AC-3.** The 1-bit halftone boundary specimen (committed by SPEC-109) produces a
+      lossless or smaller-lossy output through default `web`, not an 18.5× lossy AVIF.
+      `larger_than_source` is false.
+- [ ] **AC-4.** A real photograph still classifies `photograph` and routes lossy at every
+      `--max` — the fix must not trade this defect for its mirror image. Use the committed
+      `color_photo_fuji.png` and `grayscale_photo_leica.png`.
+- [ ] **AC-5.** The `[4.0, 4.5)` contradiction band is resolved: `DOC_ENTROPY_MAX` (4.5)
+      must no longer exceed `PHOTO_ENTROPY_STRONG` (4.0), or the ordering dependency must be
+      documented at the site and covered by a test. A halftone scan at entropy 4.2 with
+      `bimodality ≈ 0.30` must not reach `Photograph`.
+- [ ] **AC-6.** Rule 6 (`src/analysis/mod.rs:625`) is **either reachable or deleted**, and
+      `PHOTO_ENTROPY` / `PHOTO_FLAT_MAX` are correspondingly live or gone. No inert
+      constants remain. Deleting is an acceptable outcome and probably the right one —
+      but say which was chosen and why in the DEC.
+- [ ] **AC-7.** On the lean leg (`--no-default-features`), a promoted photograph **with
+      alpha** does not ship a PNG blow-up (`src/analysis/decide.rs:150`). This is a
+      precondition check on our own change: the finding is conditional on the pipeline being
+      altered, and this spec alters it.
+- [ ] **AC-8.** `--profile docs` has a decided, tested behaviour for a promoted image.
+      There is currently no `(Profile::Docs, OptBucket::Lossy)` arm and **no `--profile
+      docs` test in `tests/cli.rs` at all**. Decide the behaviour, then test it.
+- [ ] **AC-9.** Clean **full-matrix** green: default, `--no-default-features`,
+      `--features webp-lossy`; `clippy -D warnings` on each; `fmt --check`. Confirm the log
+      says `Compiling crustyimg` — an incremental build false-greens here and cost this repo
+      about a day on SPEC-105. [[a-stale-incremental-build-is-a-false-green]]
 
 ## Failing Tests
 
-Written during **design**, BEFORE build. The implementer's job in
-**build** is to make these pass.
+Written during **design**, BEFORE build. The implementer's job in **build** is to make these
+pass. All are expected to FAIL against current `main` except where noted.
 
-- **`path/to/test.file`**
-  - `"test description 1"` — asserts: ...
+- **`tests/cli.rs`**
+  - `"dithered_graphic_stays_graphic_at_every_max"` — drives the committed fixture at
+    `--max` 4096/512/256/128 with `--json`, asserts `class == "graphic-logo"` and a lossless
+    disposition at each. **Fails today at 256** (`photograph`) **and at 128 for the wrong
+    reason** (`icon`). Assert on `--explain`/`--json` output, not on output bytes — the
+    stronger form already used by `optimize_grayscale_photo_is_photograph_lossy_avif`
+    (`tests/cli.rs:4637`).
+  - `"classification_is_independent_of_max"` — same input at two `--max` values; asserts the
+    emitted `features.entropy` and `features.unique_colors` are **equal**. Fails today
+    (3.03/9 vs 7.08/217). This is the structural guard: it stays meaningful even if the
+    thresholds are later retuned.
+  - `"real_photo_stays_photograph_at_every_max"` — the AC-4 mirror. **Passes today**; it is
+    the regression guard against over-correcting, and must be written anyway
+    ([[a-plausible-test-result-is-not-a-checked-one]] — a test that only ever passed is not
+    evidence until something can make it fail; pair it with the AC-4 note below).
+  - `"docs_profile_downgrades_a_promoted_image"` — AC-8. Fails today (silent no-op).
+- **`src/analysis/mod.rs`** (unit)
+  - `"halftone_scan_in_the_contradiction_band_is_not_a_photograph"` — synthesises the
+    entropy-4.2 / `bimodality ≈ 0.30` case for AC-5. Fails today.
+  - `"rule_six_is_reachable_or_absent"` — if rule 6 is kept, a test that **hits it**; if
+    deleted, this test is deleted with it and the DEC records that. Do not leave a test that
+    asserts a rule exists without exercising it
+    ([[a-harness-that-exercises-nothing-reports-green]]).
+- **Negative controls** (the point of SPEC-109, restated here because this spec must not
+  ship without them):
+  - Setting `PHOTO_ENTROPY_STRONG = 5.5` must make at least one test **RED**. It currently
+    leaves the suite green — `cargo test --release --lib analysis` passes **52/52** with that
+    mutation applied. Until that mutation goes red, none of the above is proven to be
+    load-bearing.
 
 ## Implementation Context
 
-*Read this section (and the files it points to) before starting
-the build cycle. It is the equivalent of a handoff document, folded
-into the spec since there is no separate receiving agent.*
-
 ### Decisions that apply
 
-- `DEC-NNN` — <one-line summary of why this matters here>
-- `DEC-MMM` — <one-line summary>
+- `DEC-047` — classification thresholds and fallback bias. This spec changes what the
+  classifier is *given*, not its thresholds. Its two false claims are SPEC-109's, not
+  this spec's — do not fix them here (`one-spec-per-pr`).
+- **A new DEC is required** for "classify the source, not the pipeline output", recording
+  the measured refutation of the narrow alternative above so it is not re-proposed.
 
 ### Constraints that apply
 
-These constraints apply to the paths touched by this task (see
-`/guidance/constraints.yaml` for full text):
-
-- `constraint-id-1` — <one-line summary>
-- `constraint-id-2` — <one-line summary>
+- `clippy-fmt-clean` (**blocking**) — "No dead code; delete rather than comment out." Rule 6
+  breaks this today and its automated gate **cannot** catch it (the constants stay
+  syntactically referenced, so `-D warnings` is green). AC-6 is the constraint, not a nicety.
+- `test-before-implementation` (**blocking**) — the Failing Tests above go in first.
+- `no-unwrap-on-recoverable-paths` (**blocking**) — `Analysis::compute` already returns a
+  `Result` handled with a `match` at `:1013`; preserve that shape when moving it.
+- `one-spec-per-pr` (**blocking**) — SPEC-109's specimens and DEC-047 corrections are a
+  separate PR.
 
 ### Prior related work
 
-- `SPEC-YYY` (shipped) — <one-line summary, if relevant>
-- `PR #NNN` — <link, if relevant>
+- `SPEC-105` — introduced rule 3.5 and this regression. Read its reasoning before changing
+  the cascade; the rule it added is correct in intent and was given the wrong input.
+- `SPEC-109` — commits the boundary specimens and the negative controls. **Sequencing:** its
+  specimens are needed for AC-3. Either land SPEC-109 first, or have this spec's build commit
+  the two specimens and let SPEC-109 own the guard rework.
 
 ### Out of scope (for this spec specifically)
 
-Explicit list of what this spec does NOT include. If any of these feel
-necessary during build, create a new spec rather than expanding this one.
-
-- ...
+- Retuning any threshold value. The numbers stay; the *input* changes.
+- Rewriting the flat/edge detector. This spec **subsumes** the queued "scale-normalize the
+  flat/edge detector" follow-up in the sense that classifying the source removes the
+  scale-dependence that motivated it — **verify that before closing the follow-up**, and if
+  a residue remains, re-file it rather than letting it disappear.
+- Luma entropy ignoring alpha (`src/analysis/mod.rs:248`) — unverified, no specimen; see
+  `docs/backlog.md`. Note the fixture at `--max 256` reports `has_alpha: true`, so resist the
+  temptation to chase this here.
+- The `Icon` ordering *code* fix, and DEC-047's false claims — SPEC-109.
 
 ## Notes for the Implementer
 
-Gotchas, style preferences, reuse opportunities.
+- **The `--max 128` row is a trap.** It currently returns `icon` → lossless, which *looks*
+  like a pass. It is the Icon rule firing on size, not the classifier being right. A test
+  that only checks "lossless at 128" goes green on the broken build. Assert the **class**.
+- **Check both `pipeline.run` sites.** `:989` is the one the findings name; there is another
+  at `:160`. If it also feeds a classify path, fixing only one leaves a second door open —
+  and cite the grep when you claim it doesn't ([[mechanical-sweeps-need-a-mechanical-check]]).
+- **Watch the alpha/EXIF interaction when moving the analysis earlier.** The pipeline bakes
+  orientation and drops metadata (DEC-017); rule 2 keys on `has_exif`. Classifying *before*
+  the pipeline means EXIF is still present where it previously was not — that is the correct
+  input, but it will change behaviour for EXIF-bearing inputs, and `web`'s no-EXIF path
+  currently has **zero** coverage (`tests/cli.rs:5023`, SPEC-109's site). Expect real
+  fallout here and measure it rather than assuming it is inert. This is the single most
+  likely place for this spec to surprise you.
+- Reuse the existing `--json` `features` block for assertions; it already emits entropy,
+  `edge_ratio`, `flat_ratio`, `unique_colors`, `unique_saturated`, `has_alpha`
+  (`src/analysis/decide.rs:499`).
+- Reproduce the measurement table before changing anything, to confirm your build agrees
+  with this design's numbers. If it does not, stop and reconcile — do not build on top of a
+  disagreement.
 
 ---
 
@@ -136,15 +301,13 @@ Gotchas, style preferences, reuse opportunities.
 - **PR (if applicable):**
 - **All acceptance criteria met?** yes/no
 - **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
+  - `DEC-NNN` — classify the source image, not the pipeline output
 - **Deviations from spec:**
   - [list]
 - **Follow-up work identified:**
   - [any new specs for the stage's backlog]
 
 ### Build-phase reflection (3 questions, short answers)
-
-Process-focused: how did the build go? What friction did the spec create?
 
 1. **What was unclear in the spec that slowed you down?**
    — <answer>
@@ -158,9 +321,6 @@ Process-focused: how did the build go? What friction did the spec create?
 ---
 
 ## Reflection (Ship)
-
-*Appended during the **ship** cycle. Outcome-focused reflection, distinct
-from the process-focused build reflection above.*
 
 1. **What would I do differently next time?**
    — <answer>

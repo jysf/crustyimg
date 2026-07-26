@@ -123,7 +123,7 @@ already stands in that code** — they are not additions to the stage's shape:
 
 ## Spec Backlog
 
-- [ ] SPEC-108 (design) — **Classification placement and scale-aware entropy.** Move classification before the resize pipeline, or make the entropy threshold scale-aware so that resize-altered entropy cannot cross the `photograph` boundary. Resolve the cascade's internal contradictions in the same change: rule 6's reachability, the `DOC_ENTROPY_MAX` band, the `Icon` ordering call, and `decide.rs:150`'s missing lossless fallback. Decide `--profile docs`'s behaviour for promoted images. Subsumes the queued "scale-normalize the flat/edge detector" follow-up — **check that before carrying the follow-up forward separately.**
+- [ ] SPEC-108 (**design cycle complete 2026-07-26**) — **Classification placement and scale-aware entropy.** **Decision: classify the source image, not the pipeline output.** The narrow rule-4 gating alternative was evaluated as instructed and **measurably refuted** — see below. Also resolves the `DOC_ENTROPY_MAX` band, rule 6's reachability, `decide.rs:150`'s lossless fallback on the lean leg, and `--profile docs`. 9 acceptance criteria, 6 failing tests + the mutation control written at design.
 - [ ] SPEC-109 (design) — **Evidence integrity.** Commit DEC-047's two cited boundary specimens that the repo does not contain. Re-establish each diluted guard with a negative control that proves the harness can go red, at all six sites below. Correct the two `iso_luma` fixture comments and the fixture artifact behind them. Correct DEC-047's two false claims.
 
 **The six guard sites for Spec 2** — the draft said "every numeric threshold guard", but three of these are
@@ -141,7 +141,23 @@ it could have shipped having touched only the first one:
 
 ## Design Notes
 
-- **Two fix approaches identified in the review findings.** (a) Move classification *before* the resize pipeline — the architecturally correct fix, aligning with the "classify the original, not the proxy" principle — but it may require threading the pipeline differently or classifying twice if the resize needs the result. (b) Make the entropy threshold scale-aware — the narrower fix: gate rule 4's two mis-firing clauses on `entropy < PHOTO_ENTROPY_STRONG` instead of the unconditional early return. **Evaluate (b) seriously.** It fixes the same bug at the same depth, keeps rules 5 and 6 reachable, keeps `PHOTO_ENTROPY` live, and localizes the mask so it can be deleted verbatim once the detector is fixed. The spec should choose on measured complexity, but (b) is the one that makes four of the seven brought-in findings fall out for free rather than needing separate work.
+- **✅ RESOLVED 2026-07-26 by SPEC-108's design cycle: option (a), placement. Option (b) was measured and refuted.**
+
+  The two candidates were (a) classify *before* the resize pipeline, and (b) the narrower fix — delete rule 3.5's unconditional early return and gate rule 4's two clauses on `entropy < PHOTO_ENTROPY_STRONG`. (b) was the attractive one: same depth, keeps rules 5 and 6 reachable, keeps `PHOTO_ENTROPY` live, deletable verbatim later.
+
+  **Measured against the committed fixture, release build, `web --json`:**
+
+  | `--max` | class | entropy | edge | flat | unique_colors |
+  |---|---|---|---|---|---|
+  | 4096 / 512 | `graphic-logo` | 3.03 | 0.28 | 0.49 | **9** |
+  | **256** | **`photograph`** | **7.08** | 0.05 | 0.27 | **217** |
+  | 128 | `icon` | 7.15 | 0.07 | 0.36 | 207 |
+
+  At `--max 256` the fixture has **217 unique colours ≤ `PALETTE_COLORS` 256**, so `few_colors` is TRUE and **`many_colors` is FALSE**. Under (b): rule 3 fails on entropy, rule 4a is gated off by the new `entropy < 4.0` condition, rule 4b fails on `flat_ratio 0.27 < 0.60`, and **rules 5 and 6 are unreachable because both require `many_colors`.** It falls to rule 7 — whose bias is `Photograph`.
+
+  **(b) changes which line returns `Photograph`, not the answer.** And the reason generalises: since rule 7's fallback is `Photograph` by design (DEC-047), *any* fix that merely stops the graphic gates from firing still lands on `Photograph`. (b) is structurally incapable of fixing an input whose correct answer is "graphic" — which is this defect's entire blast radius.
+
+- **⚠ The risk the brief recorded has materialised.** The brief noted that three of the seven brought-in findings were only cheap if (b) won. Under (a), rule 3.5 keeps its early return, so **rules 5 and 6 stay unreachable** and rule 6's dead code must be fixed explicitly rather than falling out. SPEC-108 carries it as AC-6 (reachable or deleted, no inert constants). It did not silently disappear.
 - **The trigger is the downscale ratio, not the input size.** Any dithered or halftoned source whose long edge exceeds 2048 by more than ~20% is exposed at the default. Conversely `--max 128` re-routes a promoted image back to `icon` → lossless (the dithered fixture: 7.08/`photograph` at 256, 7.15/`icon` at 128) — the `Icon` ordering bug seen from the other side, masking the entropy rule at exactly the thumbnail sizes a gallery pipeline emits. Fixture coverage must span both sides of that.
 - **Negative controls are the key verify gate.** The review found that the headline calibration test stays green with `PHOTO_ENTROPY_STRONG` at 5.5 — the value that reinstates the original bug. Every spec in this stage must prove its guard fails when the constant moves to a regression value. This is [[a-plausible-test-result-is-not-a-checked-one]] mechanized.
 - **DEC-047 corrections are part of the fix, not separate documentation.** The DEC made two false claims (the "any image" reach claim, the safety claim about hard-edged graphics being harmless). These are corrected in the same branch as the code fix so the decision record and the implementation stay consistent.
