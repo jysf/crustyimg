@@ -12,6 +12,10 @@
 
 ## Queued
 
+> **Items 1 and 2 are now carried by STAGE-033** (post-launch polish and repo housekeeping,
+> framed 2026-07-26), alongside the shell-completions defect. They stay listed here as the
+> detailed source of truth; the stage holds the sequencing.
+
 ### 1. Port the lifetime-report commands from `zany-animal-slots`
 
 Bring the whole-repo "lifetime report" tooling into crustyimg. Source:

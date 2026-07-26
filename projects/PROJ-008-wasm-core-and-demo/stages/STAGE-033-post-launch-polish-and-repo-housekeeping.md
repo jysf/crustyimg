@@ -1,0 +1,162 @@
+---
+# Maps to ContextCore epic-level conventions.
+# A Stage is a coherent chunk of work within a Project.
+# It has a spec backlog and ships as a unit when the backlog is done.
+
+stage:
+  id: STAGE-033                     # stable, zero-padded within the project
+  status: proposed                  # proposed | active | shipped | cancelled | on_hold
+  priority: medium                  # critical | high | medium | low
+  target_complete: null             # optional: YYYY-MM-DD
+
+project:
+  id: PROJ-008                      # parent project
+repo:
+  id: crustyimg
+
+created_at: 2026-07-26
+shipped_at: null
+
+# What part of the project's value thesis this stage advances.
+value_contribution:
+  advances: >
+    The friction that only shows up once someone actually uses the thing. PROJ-008 spent its
+    length on the engine, the demo, and the launch story; this stage picks up the small,
+    unglamorous defects and tooling gaps that no gate catches because no gate is looking —
+    starting with a real usage report (shell completions were installed by hand, silently went
+    stale at the surface freeze, and quietly stopped completing the flagship verb). Cheap work
+    with a direct line to goal 1: a tool the maintainer actually enjoys using.
+  delivers:
+    - "Shell completions that install themselves via the package manager, complete file paths on every shell, and do not rot silently when the CLI surface changes"
+    - "A whole-repo, all-time `lifetime-report` rollup (rule-based, deterministic, no LLM) alongside the existing report-daily / report-weekly tooling"
+    - "An `activity:` front-matter field so a project's status says what KIND of work is live, not just active/shipped"
+  explicitly_does_not:
+    - "Touch the engine, the classifier, any codec, or the wasm/demo surface — no pixels change in this stage"
+    - "Add, rename, or remove any of the 14 verbs frozen in STAGE-030 — completions describe the surface, they don't alter it"
+    - "Do the LLM-free benchmark refresh or encoder threading — those are sequenced separately and gated on the code-review triage"
+    - "Do launch coordination (the Show HN / r/rust go/no-go) — that is maintainer-blocked and lives on the launch board"
+---
+
+# STAGE-033: post-launch polish and repo housekeeping
+
+## What This Stage Is
+
+The catch-up stage for small things that are individually trivial and collectively the difference
+between a tool that works and a tool that feels finished. Three items, none of which touch the
+engine:
+
+1. **Shell completions** — a real user-visible bug, found the only way it could be found: by the
+   maintainer trying to tab-complete a filename after `crustyimg web` and getting nothing.
+2. **`just lifetime-report`** — port the whole-repo, all-time rollup tooling from
+   `zany-animal-slots`. Repo-methodology work; complements `report-daily` / `report-weekly`.
+3. **An `activity:` front-matter field** — make `status: active` say *what kind* of work is live.
+
+The unifying thread is that all three are **maintenance-of-use, not construction**: nothing here
+adds capability, and nothing here is on the launch critical path.
+
+## Why Now
+
+- **The completions defect is live and user-visible today.** Anyone who installed completions
+  before the STAGE-030 surface freeze has a script that silently stops completing `web` — the
+  flagship verb the README and the post both lead with. That is a bad first five minutes for
+  exactly the audience a launch would bring.
+- **PROJ-008 is launch-ready and nothing is in flight.** This is the natural slot for cheap,
+  low-risk work that doesn't want to be interleaved with an engine change.
+- **Deliberately sequenced AFTER the `/code-review ultra` triage.** The review's scope is engine
+  surfaces and test rigor; its findings get first claim on build capacity. This stage is what to
+  pull when that queue is clear — or to interleave, since it shares no files with engine work.
+
+## Success Criteria
+
+- A `brew install` (and `cargo install`) user gets working completions **without knowing the
+  `completions` subcommand exists**, and they regenerate on upgrade.
+- Tab-completing a path argument offers files **on bash and zsh**, verified by driving a real
+  shell — not by reading the generated script.
+- A completion script generated against an older CLI surface **fails loudly or not at all**,
+  never by silently offering nothing for a verb it doesn't know.
+- `just lifetime-data` / `lifetime-report` / `lifetime-save` exist, are deterministic and
+  LLM-free, and discover crustyimg's actual layout (`projects/PROJ-*/`, `decisions/DEC-*.md`,
+  releases).
+- `activity:` is accepted by `just validate`, documented in the project-brief template with a
+  settled vocabulary, and backfilled on the active brief.
+- All gates green on the full clean matrix (default / lean / `webp-lossy`, clippy each, fmt).
+
+## Scope
+
+### In scope
+- `value_hint` across the CLI's path arguments; the Homebrew formula's completion install; the
+  README / `--help` / CHANGELOG notes about completions and regeneration; a staleness signal.
+- `scripts/lifetime-report.sh` + three `just` recipes + `reports/lifetime/`.
+- The `activity:` field: template, `just validate`, optional `just status` surfacing, backfill.
+
+### Explicitly out of scope
+- Engine / classifier / codec / wasm / demo changes; any change to the frozen verb set; the
+  benchmark refresh; encoder threading; launch coordination.
+
+## Spec Backlog
+
+Format: `- [status] SPEC-ID (cycle) — one-line summary`
+
+- [ ] SPEC-106 (frame) — **shell completions: ship them, complete paths, don't rot silently.**
+  Three separable defects, one spec. (a) Nothing installs completions — the brew formula ships
+  none and the README never mentions the verb, so the maintainer hand-placed a script into a
+  directory `omz update` can overwrite. (b) **Zero `ValueHint` in `src/`** → every path arg
+  generates `_default`, not `_files`; zsh degrades gracefully (measured), **bash does not**
+  (`complete -F` replaces the default file completion, leaving no fallback). (c) A pre-freeze
+  script has no `web` case, so zsh's `#compdef` function claims the line, matches nothing, and
+  offers **nothing** — while surviving verbs still complete, which is what made it read as
+  "everything works except `web`." Detail + evidence in `docs/backlog.md`. Complexity **S**.
+- [ ] (chore, may not need a spec) — **port the `lifetime-report` commands.** From
+  `~/PSeven/experiments/zany-animal-slots/scripts/lifetime-report.sh` (~8.5 KB) + three recipes:
+  `lifetime-data` (deterministic rollup), `lifetime-report` (same history wrapped as an LLM
+  synthesis prompt), `lifetime-save` (→ `reports/lifetime/YYYY-MM-DD-HHMMSS.md`, timestamped to
+  the second). Adapt discovery to crustyimg's layout; POSIX/bash-portable; no new dep. Queued
+  item #1 in `docs/repo-tooling-backlog.md`. Complexity **S**.
+- [ ] (chore, may not need a spec) — **add an `activity:` field to project front-matter.**
+  Vocabulary is **not settled** — reconcile bragfile000's
+  `requirements|design|build|test|blocked` against crustyimg's cycle model
+  `frame|design|build|verify|ship`; keep it an open string with a documented suggested set, not
+  a parse-rejecting enum. Queued item #2 in `docs/repo-tooling-backlog.md`. Complexity **S**.
+
+**Count:** 0 shipped / 0 active / 1 spec + 2 chores pending
+
+## Design Notes
+
+- **The completions diagnosis is recorded so the spec doesn't re-derive it.** Evidence gathered
+  2026-07-26 against the installed 0.6.0 binary: the stale script offered `shrink` and
+  `copy-metadata` (both gone at the freeze) and no `web`; 1,796 diff lines vs current; it also
+  predated `build --watch/--check/--frozen`. Regenerating into a maintainer-owned fpath directory
+  plus clearing `~/.zcompdump*` fixed it immediately.
+- **⚠ Do not over-claim the `ValueHint` fix.** The zsh symptom was caused by (c), *not* (b) —
+  once the script was current, `_default` completed files fine on zsh. The `value_hint` work is
+  justified by **bash**, where the failure is real and total, and by not depending on a zstyle
+  fallback we don't control. Verify on both shells; a fix verified only on zsh proves nothing
+  about the shell that was actually broken. Per
+  [[a-plausible-test-result-is-not-a-checked-one]], drive a real shell — reading the generated
+  script is not evidence that TAB does anything.
+- **The staleness class is the interesting finding, and it generalizes.** A `#compdef` function
+  *suppresses* the shell's default behavior, so an out-of-date completion is strictly worse than
+  no completion at all — it converts a working fallback into silence. STAGE-030's deliberate
+  no-alias cutover guaranteed this for every existing install. Whatever the fix, the property
+  worth designing for is: *the failure must be loud.*
+- **This is a goal-1 stage.** All three items came from using the repo, not from a gate. Worth
+  noting in the stage reflection: no test, lint, or CI leg could have surfaced any of them.
+
+## Dependencies
+
+### Depends on
+- STAGE-030 (shipped) — the frozen 14-verb surface the completions must describe.
+- Nothing blocking. Sequenced after the `/code-review ultra` triage by choice, not necessity.
+
+### Enables
+- Nothing blocks on this. It removes friction rather than unlocking capability.
+
+## Stage-Level Reflection
+
+*Filled in when status moves to shipped.*
+
+- **Did we deliver the outcome in "What This Stage Is"?** <yes/no + notes>
+- **How many specs did it actually take?** <number vs. plan>
+- **What changed between starting and shipping?** <one sentence>
+- **Lessons that should update AGENTS.md, templates, or constraints?**
+  - <one-line updates>

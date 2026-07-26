@@ -314,3 +314,44 @@ actually do, and did anything fail or grow?" Reuses machinery already in place (
 report + the rayon batch path); the new work is aggregation + a writer + the flag surface.
 Frame as its own spec post-launch. Consider whether it also wants an exit-code signal when
 any file errored or grew (CI-friendly).
+
+## Shell completions — install, complete paths, don't rot silently (maintainer report, 2026-07-26)
+
+`crustyimg completions <shell>` has existed since SPEC-040 (DEC-039) and works, but the
+surrounding story has three gaps — all three found by the maintainer hitting them in real use,
+not by any gate. **Three separable defects; likely one S spec.**
+
+1. **Nothing installs them.** The Homebrew formula ships no completion files (checked: no
+   `share/zsh/site-functions/_crustyimg`, no `etc/bash_completion.d/`, no
+   `share/fish/vendor_completions.d/`), there is no `completions/` directory in the repo, and
+   neither the README nor `--help` mentions the subcommand. So a `brew install` user gets
+   nothing unless they discover the verb and place the file by hand — which is what happened,
+   into `~/.oh-my-zsh/plugins/brew/`, a directory `omz update` can overwrite. Fix is the
+   standard `generate_completions_from_executable` in the formula, which also makes completions
+   regenerate on upgrade — the real cure for (3).
+
+2. **No `ValueHint` anywhere in `src/`** (verified: raw grep, zero hits, positive control
+   passes). clap only emits a file-completion action for args carrying
+   `ValueHint::FilePath`/`AnyPath`/`DirPath`; without it every path argument and path-valued
+   flag generates the generic `_default` action instead of `_files` — confirmed in the real
+   0.6.0 output (`':input:_default'`, `'*::inputs:_default'`, `-o`, `--name-template`).
+   **Severity is shell-dependent, and measured, not assumed:** on zsh `_default` does reach
+   filename completion (confirmed working on the maintainer's machine once the script was
+   current), so zsh degrades gracefully. On **bash it is a hard failure** — clap registers
+   `complete -F _crustyimg`, which replaces bash's default filename completion, so with no file
+   action bash offers nothing and has no fallback. Fix is mechanical (`value_hint` on every path
+   arg across the 14-verb surface) but per [[mechanical-sweeps-need-a-mechanical-check]] it needs
+   a grep-backed sweep with a hit count, not a read-through. Natural mechanical check: assert the
+   generated script contains no `_default` action for a path argument.
+
+3. **A stale completion fails silently and confusingly — and STAGE-030 guaranteed a stale one.**
+   The maintainer's installed script predated the surface freeze: it still offered `shrink`
+   (removed, SPEC-086) and `copy-metadata` (consolidated to `meta copy`, SPEC-087) and had **no
+   `web` case at all**. Because the script is `#compdef`-registered, zsh hands it the whole line;
+   its `case $line[1] in` matched nothing, no `_arguments` spec ran, and the function returned
+   having "handled" the command — so **zsh offered nothing and did not fall back to files**.
+   Verbs surviving the freeze still completed, which is what makes the failure so confusing:
+   "everything works except the flagship verb." The 20→14 hard cutover with no aliases means
+   *every* pre-freeze install has exactly this breakage, and the 0.6.0 CHANGELOG never tells
+   anyone to regenerate. Wants: a CHANGELOG/README note, and consider having the script assert
+   its own version against the binary so staleness is loud instead of silent.
