@@ -7,7 +7,7 @@
 task:
   id: SPEC-109
   type: story                      # epic | story | task | bug | chore
-  cycle: verify                    # frame | design | build | verify | ship
+  cycle: ship                      # frame | design | build | verify | ship
   blocked: false
   priority: critical
   complexity: M                    # S | M | L  (L means split it)
@@ -73,10 +73,35 @@ cost:
         every cost report this spec feeds. The figure above prices each component at the
         Opus $5/$25 per MTok anchors AGENTS.md names, with the standard cache multipliers
         (write 1.25x input, read 0.10x input). See the follow-up on `cost-snippet.md`.
+    - cycle: verify
+      agent: claude-opus-5
+      interface: claude-code
+      tokens_total: 21152459
+      duration_minutes: 227
+      recorded_at: 2026-07-26
+      tokens_breakdown:
+        input: 289
+        output: 143450
+        cache_creation: 637593
+        cache_read: 20371127
+      estimated_usd: 17.76
+      note: >
+        MEASURED, not estimated. Ran interactively (main-loop), so there was no
+        `subagent_tokens` to read; summed from this session's own transcript at
+        ~/.claude/projects/-Users-jyashinsky-PSeven-experiments-crustimg-redo-plus-crustyimg/5fb69733-2d8c-4220-8428-dfc7ee9cdebf.jsonl
+        over 154 assistant messages, 21:28:25Z-01:14:55Z. Measured at the point of
+        writing this entry; the tail of the session is not included.
+        `estimated_usd` DEPARTS from the AGENTS.md formula for the same reason the
+        build entry does: cache reads are 96.3% of the volume here, and the flat
+        formula yields $190.37 against a component-accurate $17.76. Priced at the
+        Opus $5/$25 per MTok anchors AGENTS.md names, with the standard cache
+        multipliers (write 1.25x input, read 0.10x input). Much of the wall-clock is
+        cargo builds: three full-matrix legs from an empty target dir plus eleven
+        mutation rebuilds.
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 2
+    tokens_total: 86491591
+    estimated_usd: 60.97
+    session_count: 3
 ---
 
 # SPEC-109: evidence integrity for the classifier calibration

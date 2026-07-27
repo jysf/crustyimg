@@ -44,10 +44,47 @@ Cycle prompts live in `prompts/SPEC-109-<cycle>.md`.
       SPEC-084 makes no never-bigger-than-source promise on the branch AC-5/AC-6 target — both
       recorded in `## Build Completion`.
 
-- [ ] **verify** — not started. Clean full matrix (default / `--no-default-features` /
-      `--features webp-lossy`, clippy `-D warnings` each, `fmt --check`), `Compiling crustyimg`
-      confirmed. AC-8 un-gates a test on the lean leg, so the lean leg is not optional here.
-      Check the mutation in **both** directions: 5.5 and 3.2 must each fail something.
+- [x] **verify** — 2026-07-26, @ `2006cc4`. **All 11 ACs verified**; readout in
+      `prompts/SPEC-109-readouts.md`. Nothing blocking.
+
+      **The gate, re-derived on both trees.** Pre-SPEC-109 at 5.5: **52 passed, 0 failed** —
+      the premise reproduced, the guard could not see the bug value. Branch at 5.5: **RED
+      (52/2)**; at 3.2: **RED (51/3)**; at 4.0: 54/0. The 7.0 control fires on both trees
+      (3 failures before, 4 after), so the greens are results and not un-recompiled builds.
+      Window `(3.6414278, 4.5176096]`, width `0.87618184`, matching an independent Python
+      measurement to seven figures. Dropping either specimen from the roster re-widens past
+      the 1.20 cap and the guard says so (1.4917 / 2.4329).
+
+      **Driven, not read.** The SPEC-084 branch at `optimize.rs:1059` is genuinely reached —
+      a `panic!()` there fires under `spec_084_metadata_forced_fallback_is_reached` and
+      *not* under the ICC test — and mis-conditioning the call site turns the test red.
+      AC-8 is not a tautology: on the lean leg the test goes red both when `ssim` is removed
+      from the golden set and when a real per-verb fork is injected. AC-5's honesty
+      assertion goes red on default *and* lean when `exceeds_source()` is inverted. AC-7's
+      `photograph` verdict collapses to `graphic-logo` at threshold 7.0, so it is rule 3.5
+      on the no-EXIF path.
+
+      **Clean full matrix, fresh `CARGO_TARGET_DIR` in an isolated worktree**, all seven
+      legs exit 0, `Compiling`/`Checking crustyimg` on each: lean **776**, default **796**,
+      **`webp-lossy` 803 passed / 0 failed** — the loose end handed to this cycle is
+      resolved, the earlier "0" was a log-capture artifact.
+
+      **Scope: `one-spec-per-pr` is satisfied.** `cost-snippet.md` was moved out at
+      `2006cc4` and is byte-identical to `main`; the change lives on
+      `chore/cost-measurement-methodology`.
+
+      **Four findings, none blocking.** (1) `rtk` dropped the newest commit from
+      `git log main..HEAD` — three reported, four real — which would have produced a false
+      scope violation. (2) The build's "27 `cfg(feature)` under `tests/`" reproduces under
+      no scope I tried (19 / 20 / 26 / 33 / 41); the load-bearing half — `audit_bench` holds
+      0 real gates — is exact. (3) DEC-047's revised "≤3.64 counting dithers-of-photos" is
+      the chosen specimen's value, not a ceiling: the same recipe on the repo's Canon frame
+      measures **3.8396**, cutting the margin to 4.0 from 0.36 to 0.16 bits. (4) DEC-047's
+      "6.02" parenthetical re-measures at **6.03**; same verdict.
+
+      **Not checked:** CI on any OS but this one, the build session's cost figures,
+      SPEC-105's 48-crop 4.58 floor (sources absent from the repo), DEC-047 outside the two
+      corrections, fixture provenance claims, `--profile docs`, wasm.
 
 - [ ] **ship** — not started. Amends DEC-047 in place (two false claims + evidence roster);
       emits no new DEC of its own.
