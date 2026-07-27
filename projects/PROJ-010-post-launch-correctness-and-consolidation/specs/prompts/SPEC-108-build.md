@@ -4,12 +4,15 @@ Cycle: **build**. You are NOT the architect. The design is settled; your job is 
 This is an **engine change to the shared content classifier** — the highest-risk change in
 PROJ-010 and the launch gate the whole project exists for.
 
-**Preconditions — check both before starting:**
+**Precondition — check before starting.** SPEC-109 (PR #114, merged 2026-07-27 as `408b0f9`)
+must be on your `main`, because AC-3 needs its two boundary specimens. Verify by **name**, not
+by counting the directory:
 
-1. **PR #114 (SPEC-109) is merged** and you are on an up-to-date `main`. Your AC-3 depends on
-   its two boundary specimens existing.
-2. `ls tests/fixtures/classify/` shows **seven** files, including `photo_entropy_floor.png`
-   and `dither_32color.png`. If it shows five, stop — #114 has not landed.
+```bash
+ls tests/fixtures/classify/photo_entropy_floor.png tests/fixtures/classify/dither_32color.png
+```
+
+Both must exist. If either is missing, stop — you are not on an up-to-date `main`.
 
 **One-line summary of the job:** classification currently runs on the *output* of the resize
 pipeline, so `--max` decides an image's content class. Make it run on the source.
