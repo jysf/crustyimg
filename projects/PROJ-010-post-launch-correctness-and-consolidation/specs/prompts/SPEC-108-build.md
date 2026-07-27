@@ -135,10 +135,59 @@ instrument, and that is a blocking defect regardless of how the fixtures behave.
 
 ## When you finish
 
-Fill in `## Build Completion` in the spec and the three reflection questions. Report cost per
-`projects/_templates/prompts/cost-snippet.md` — **measured from your own transcript, priced by
-component per DEC-083** (a flat rate overstates a cache-heavy cycle by ~14×). Close your return
-with the `## Cost readout` block. Update the timeline's `build` line.
+Fill in `## Build Completion` in the spec and the three reflection questions. Update the
+timeline's `build` line.
+
+### Cost — follow THIS, not `cost-snippet.md`
+
+⚠ **`projects/_templates/prompts/cost-snippet.md` on `main` is stale and its instructions are
+unsatisfiable.** It says to leave `tokens_total` null "because the orchestrator fills it from
+the Agent result's `subagent_tokens`" — but an interactive cycle has no `subagent_tokens`, and
+`just cost-audit` rejects a null on a metered cycle at ship. Following it leaves inventing a
+number as the only way to satisfy both rules, which is exactly what happened on SPEC-109's build
+before it was caught. The corrected snippet and its decision record (**DEC-083**) are on the
+unmerged branch `chore/cost-measurement-methodology`. **Ignore the version you find on `main`
+and use the following instead.**
+
+**Measure, do not estimate.** Your session transcript carries per-message `usage`:
+
+```
+~/.claude/projects/<cwd-slug>/<session-id>.jsonl
+```
+
+Sum `input_tokens`, `output_tokens`, `cache_creation_input_tokens` and
+`cache_read_input_tokens` over every line with `.message.usage`; `tokens_total` is all four.
+Duration comes from the first and last `timestamp`, model from `.message.model`. The session id
+is the last path component of your scratchpad directory. If the transcript is genuinely
+unreadable, write `tokens_total: null` **and say so explicitly** — a stated gap is fine, an
+invented number is not.
+
+**Price by component, not by a flat rate.** At Opus anchors ($5 input / $25 output per MTok):
+
+```
+input          x1.00 input rate
+output         x1.00 output rate
+cache_creation x1.25 input rate
+cache_read     x0.10 input rate
+```
+
+A flat `tokens_total × list rate` overstates a long agentic cycle by ~14× — cache reads
+dominate volume (SPEC-109's build: 98.7% cache reads, $588 flat vs $43.21 by component; its
+verify: 96.3%, $190.37 vs $17.76). Record the anchors you used.
+
+**Close your return message with this block, verbatim, as the last thing you emit:**
+
+```
+## Cost readout
+cycle:            build
+spec:             SPEC-108
+agent:            <model id>
+tokens_total:     <n>
+breakdown:        in <n> / out <n> / cache-write <n> / cache-read <n>
+duration_minutes: <n>
+estimated_usd:    <n>
+source:           transcript sum over <n> assistant messages | subagent_tokens | UNAVAILABLE (<reason>)
+```
 
 **Report what you could not do as clearly as what you did.** A stated gap is worth more than a
 green tick that quietly skipped something.
