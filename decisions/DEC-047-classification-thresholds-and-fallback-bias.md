@@ -99,7 +99,7 @@ recipes and measured outside the crate (`tests/fixtures/classify/RECIPES.md`,
 | specimen | entropy | what it is |
 |---|---|---|
 | `photo_entropy_floor.png` | **4.5176** | the photo floor — `grayscale_photo_leica.png` under a flat-light curve (tonal range compressed to a third). `flat_ratio` **1.00**, so rule 3.5 is the only thing keeping it off the lossless path. |
-| `dither_32color.png` | **3.6414** | the graphic ceiling — `color_photo_fuji.png` at 32 grey levels with Floyd–Steinberg. Entropy bounded by `log2(32)` = 5 bits by construction. |
+| `dither_32color.png` | **3.6414** | the graphic-side boundary **specimen** — `color_photo_fuji.png` at 32 grey levels with Floyd–Steinberg. Entropy bounded by `log2(32)` = 5 bits by construction. **Not a class ceiling** — see the correction below; the same recipe on the Canon frame gives 3.8396. |
 
 The realised window is therefore **(3.6414, 4.5176]**, 0.88 bits — near the (3.43, 4.58] this
 record documents, and narrow enough that the guard now fails at 5.5 *and* at 3.2. The 16-colour
@@ -107,8 +107,27 @@ record documents, and narrow enough that the guard now fails at 5.5 *and* at 3.2
 (16 levels of a 6.07–6.83 bit source lands at 2.46–2.88); the reasoning is in the RECIPES note.
 
 `PHOTO_ENTROPY_STRONG = 4.0` sits in the gap between the highest realistic hard-edged graphic
-(≈1.6, or ≤3.64 counting dithers-of-photos) and the lowest real photo (≈4.52): ~2.4 margin above
-the genuine graphics it must protect, ~0.5 below the photo floor.
+(≈1.6) and the lowest real photo (≈4.52): ~2.4 margin above the genuine graphics it must
+protect, ~0.5 below the photo floor.
+
+> **Correction — 2026-07-26 (SPEC-109 verify), landed after the verify cycle; docs-only.**
+> This paragraph first read "≈1.6, **or ≤3.64 counting dithers-of-photos**". Strike that
+> clause. **3.6414 is `dither_32color.png`'s measured value, not a ceiling for its class** —
+> the same recipe applied to the repo's own Canon frame measures **3.8396**, which cuts the
+> margin to 4.0 from 0.36 to **0.16 bits**.
+>
+> Note what happened here: that clause was itself written *by* SPEC-109, whose whole purpose
+> was correcting a claim of exactly this shape ("none of those reach 4.0"). A value measured
+> from one specimen was restated as a property of the class, in the act of fixing the same
+> error. [[a-guards-advertised-reach-is-a-claim]] — and evidently a hard habit to break even
+> while looking straight at it.
+>
+> **The real ceiling of dithers-of-photos is UNKNOWN.** It has not been measured across a
+> corpus, only on two frames (3.6414 and 3.8396). If any such image exceeds 4.0, the threshold
+> is too low for the graphic class, and **SPEC-108's placement fix does not help** — a
+> native-size dither above the floor classifies `photograph` on its own merits. Establishing
+> the ceiling is filed in `docs/backlog.md`; both STAGE-034 specs forbid retuning thresholds,
+> so it is nobody's work yet.
 
 **Known crossings (accepted, both lossy-safe).** Two high-entropy inputs clear the floor and route
 lossy: a **smooth full-frame gradient** (~7.5 — no hard edges, so lossy at high quality doesn't
