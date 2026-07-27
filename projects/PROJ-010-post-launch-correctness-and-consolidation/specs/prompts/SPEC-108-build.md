@@ -14,19 +14,57 @@ PROJ-010 and the launch gate the whole project exists for.
 **One-line summary of the job:** classification currently runs on the *output* of the resize
 pipeline, so `--max` decides an image's content class. Make it run on the source.
 
-## Read in order
+## Read in order — deliberately short
 
-1. `/AGENTS.md` — conventions (fixtures, DCO, `just` recipes, cost per DEC-083).
-2. `/projects/PROJ-010-post-launch-correctness-and-consolidation/specs/SPEC-108-classification-placement-and-scale-aware-entropy.md`
-   — the whole spec. **Do not skip `### What SPEC-109 established that changes this spec's
-   picture`** — four things landed after the design and two of them change what you must not do.
-3. `/projects/PROJ-010-post-launch-correctness-and-consolidation/stages/STAGE-034-classifier-regression-fix.md`
-   — the measured tables and the seven findings brought into scope.
-4. `/docs/research/pr113-classifier-review-findings.md` §"Re-derivation (2026-07-25)" — ground
-   truth for numbers. **The re-derivation supersedes the review's original figures.**
-5. `src/cli/optimize.rs` (the pipeline/analyse/decide sequence), `src/analysis/mod.rs`
-   (the cascade + constants), `src/analysis/decide.rs`.
-6. `decisions/DEC-047-*.md` — including SPEC-109's corrections and the specimen-vs-ceiling note.
+Everything you need that lives elsewhere is inlined below. **Do not go reading the wider
+evidence trail unless something here contradicts what you find in the code** — if it does, stop
+and report the contradiction rather than resolving it yourself.
+
+1. **The spec** —
+   `/projects/PROJ-010-post-launch-correctness-and-consolidation/specs/SPEC-108-classification-placement-and-scale-aware-entropy.md`,
+   in full. It is your contract: 9 acceptance criteria, 6 pre-written failing tests. Do not skip
+   `### What SPEC-109 established that changes this spec's picture`.
+2. **The code** — `src/cli/optimize.rs` (the pipeline → analyse → decide sequence),
+   `src/analysis/mod.rs` (the `classify()` cascade and its constants), `src/analysis/decide.rs`.
+3. **`/AGENTS.md`, these sections only** — §4 cost tracking, §5 tech stack, §6 commands,
+   and the git/PR conventions. Skip the rest.
+
+Optional, only if you need provenance for something: `decisions/DEC-047-*.md` (the SPEC-105
+amendment section and its two 2026-07-26 corrections) and
+`docs/research/pr113-classifier-review-findings.md` §"Re-derivation (2026-07-25)". You should
+not need either — everything load-bearing from them is below.
+
+## The measured facts, inlined
+
+Every number here is from a release build; the re-derivation of 2026-07-25 supersedes the
+original review's figures, which were wrong on magnitude.
+
+**The defect.** Classification runs on the resize *output*: `pipeline.run`
+(`src/cli/optimize.rs:989`) → `Analysis::compute` (`:1013`) → `decide::format_shortlist`
+(`:1026`). So `--max` decides an image's content class. A 1-bit halftone goes from **45,527 B
+lossless passthrough at native size to 844,492 B lossy AVIF at the default `--max 2048`** —
+18.5× larger, SSIMULACRA2 69.2. At `--max 2560` it reaches 35×.
+
+**The committed fixture, at four scales** (`tests/fixtures/classify/dithered_graphic.png`):
+
+| `--max` | class | entropy | edge | flat | unique_colors |
+|---|---|---|---|---|---|
+| 4096 / 512 | `graphic-logo` | 3.03 | 0.28 | 0.49 | 9 |
+| **256** | **`photograph`** | **7.08** | 0.05 | 0.27 | **217** |
+| 128 | `icon` | 7.15 | 0.07 | 0.36 | 207 |
+
+**The other fixtures** (`--max 8192`, no resize): leica 6.07, canon 6.83, fuji 6.37 — all
+`photograph`, all with `flat_ratio` **0.76–0.83** and `edge_ratio` 0.00. `photo_entropy_floor`
+4.5176, `flat_ratio` **1.00**. `dither_32color` 3.6414. `checker_graphic` 2.78.
+
+**Constants:** `ICON_MAX_EDGE` 128 · `PALETTE_COLORS` 256 · `FLAT_GRAPHIC_RATIO` 0.60 ·
+`GRAPHIC_EDGE_MAX` 0.08 · `DOC_ENTROPY_MAX` 4.5 · `PHOTO_ENTROPY` 5.0 ·
+`PHOTO_ENTROPY_STRONG` 4.0 · `PHOTO_FLAT_MAX` 0.25.
+
+**Blast radius:** dithered and halftoned sources whose long edge exceeds ~2048 by more than
+~20%. **Not screenshots** (four measured, entropy 0.80–2.37, all stay lossless) and **not
+favicons** (sub-129 px hits the `Icon` rule). A screenshot-only fixture corpus would go green
+against this defect — scope your fixtures to dither and halftone.
 
 ## The design decision is settled — do not re-litigate it
 
