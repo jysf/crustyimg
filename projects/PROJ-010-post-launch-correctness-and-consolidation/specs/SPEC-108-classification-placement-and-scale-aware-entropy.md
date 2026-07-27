@@ -249,6 +249,34 @@ pass. All are expected to FAIL against current `main` except where noted.
 - `one-spec-per-pr` (**blocking**) — SPEC-109's specimens and DEC-047 corrections are a
   separate PR.
 
+### What SPEC-109 established that changes this spec's picture
+
+SPEC-109 shipped and was independently verified after this spec was designed. Four things it
+found bear directly on the build:
+
+1. **Rule 3.5 is load-bearing, confirmed twice from independent directions.** All three photo
+   fixtures measure `flat_ratio` 0.76–0.83 (above `FLAT_GRAPHIC_RATIO` 0.60) with `edge_ratio`
+   0.00 — and the new `photo_entropy_floor.png` specimen measures `flat_ratio` **1.00**. Rule 4b
+   would claim every one of them if rule 3.5 did not fire first. **Do not weaken or reorder rule
+   3.5 as part of the placement change.** Its unconditional early return is the only thing
+   holding real photographs off the lossless path while the flat detector stays scale-broken.
+2. **The margin above the graphic class is 0.16 bits, not 0.36 — and the ceiling is unknown.**
+   DEC-047's "≤3.64 counting dithers-of-photos" is one specimen's value; the same recipe on the
+   Canon frame gives 3.8396. If any dither of a photo exceeds 4.0 at native size, placement does
+   not save it — it classifies `photograph` on its own merits. Filed in `docs/backlog.md`. **Do
+   not treat 4.0 as validated headroom.**
+3. **SPEC-084 makes no never-bigger-than-source promise on the metadata-forced branch.** The
+   build session learned this from the code at the cost of two red tests. Read
+   `src/cli/optimize.rs:1043-1059` before assuming that branch guarantees anything about output
+   size relative to input.
+4. **AC-7 here is the root-cause fix for a defect SPEC-109 could only work around.** The
+   cross-verb schema fork in `tests/audit_bench.rs` is a **`has_alpha` disagreement** between
+   `optimize` and `web`/`apply` — *not* the "unscored JPEG winner" its comment claimed. SPEC-109
+   un-gated the test rather than fixing the fork, and in doing so moved its source from a
+   `Lossy`-bucket photo to a `LosslessFlat` graphic: the lean leg gained coverage, **the default
+   leg lost cross-verb coverage for a `Lossy` source.** Fixing `decide.rs:150` should restore it;
+   check that it does.
+
 ### Prior related work
 
 - `SPEC-105` — introduced rule 3.5 and this regression. Read its reasoning before changing
