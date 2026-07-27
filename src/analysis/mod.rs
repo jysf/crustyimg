@@ -879,6 +879,70 @@ mod tests {
         include_bytes!("../../tests/fixtures/classify/color_photo_fuji.png");
     const FX_DITHERED: &[u8] = include_bytes!("../../tests/fixtures/classify/dithered_graphic.png");
 
+    // The two BOUNDARY specimens (SPEC-109). Without them the calibration guard
+    // ranges over 3.03 vs 6.07 and holds for any threshold in (3.03, 6.07] — a
+    // window so wide it stays green at 5.5, the value that reinstates the original
+    // bug. These two close it from both sides. Seeded independently by
+    // `scripts/seed-classify-specimens.py` from documented recipes and measured
+    // there by a separate entropy implementation; the values asserted below are
+    // that script's, not this module's. See `tests/fixtures/classify/RECIPES.md`.
+    const FX_PHOTO_FLOOR: &[u8] =
+        include_bytes!("../../tests/fixtures/classify/photo_entropy_floor.png");
+    const FX_DITHER_32: &[u8] = include_bytes!("../../tests/fixtures/classify/dither_32color.png");
+
+    /// Entropy of `photo_entropy_floor.png`, measured by the seeding script.
+    const FX_PHOTO_FLOOR_ENTROPY: f32 = 4.5176;
+    /// Entropy of `dither_32color.png`, measured by the seeding script.
+    const FX_DITHER_32_ENTROPY: f32 = 3.6414;
+
+    /// How many luma bins a histogram actually occupies.
+    fn occupied_luma_bins(a: &Analysis) -> usize {
+        a.luma_histogram().iter().filter(|&&c| c > 0).count()
+    }
+
+    #[test]
+    fn boundary_specimens_measure_their_recorded_values() {
+        // Values as VALUES, not as inequalities against the threshold under test.
+        // Each was predicted from its recipe before it was measured, and measured
+        // outside this crate (see the fixture RECIPES note), so this assertion can
+        // fail: change the luma weights or the entropy maths and it goes red here,
+        // pointing at the code rather than at the fixture.
+        let floor = classify_fixture(FX_PHOTO_FLOOR);
+        assert!(
+            (floor.entropy() - FX_PHOTO_FLOOR_ENTROPY).abs() < 5e-4,
+            "photo_entropy_floor.png: recorded {FX_PHOTO_FLOOR_ENTROPY}, measured {}",
+            floor.entropy()
+        );
+        assert_eq!(occupied_luma_bins(&floor), 61, "photo floor luma bins");
+        assert_eq!(floor.unique_colors(), UniqueColors::Exact(61));
+        assert_eq!(floor.dims(), (512, 512));
+        // It is the photo FLOOR: a real photograph whose tonal range is squeezed
+        // into a third of the scale. Its flat_ratio is 1.00 — the scale-broken flat
+        // detector reads it as completely flat — so rule 3.5 is the ONLY thing
+        // keeping it off the lossless path. That is what makes it the boundary.
+        assert!(
+            floor.flat_ratio() > 0.99,
+            "photo floor reads as flat: {}",
+            floor.flat_ratio()
+        );
+        assert_eq!(floor.class(), ImageClass::Photograph);
+        assert_eq!(floor.opt_bucket(), OptBucket::Lossy);
+
+        let dither = classify_fixture(FX_DITHER_32);
+        assert!(
+            (dither.entropy() - FX_DITHER_32_ENTROPY).abs() < 5e-4,
+            "dither_32color.png: recorded {FX_DITHER_32_ENTROPY}, measured {}",
+            dither.entropy()
+        );
+        // 32 grey levels ⇒ at most 32 occupied luma bins, so this specimen's entropy
+        // is bounded by log2(32) = 5 bits BY CONSTRUCTION, not by measurement luck.
+        assert_eq!(occupied_luma_bins(&dither), 32, "dither luma bins");
+        assert_eq!(dither.unique_colors(), UniqueColors::Exact(32));
+        assert_eq!(dither.dims(), (448, 448));
+        assert_eq!(dither.class(), ImageClass::GraphicLogo);
+        assert_eq!(dither.opt_bucket(), OptBucket::LosslessFlat);
+    }
+
     #[test]
     fn real_grayscale_photo_is_photograph_not_graphic() {
         // The headline bug: a detailed B&W photo has ≤256 RGB colours (r=g=b) and,
@@ -941,18 +1005,45 @@ mod tests {
         assert_eq!(a.opt_bucket(), OptBucket::LosslessFlat);
     }
 
+    /// The widest calibration window this guard will accept, in bits. DEC-047
+    /// documents a gap of (3.43, 4.58] — width 1.15 — and the committed specimens
+    /// realise (3.64, 4.52], width 0.88. The cap is what stops the guard drifting
+    /// back into a tautology: drop a boundary specimen from the roster and the
+    /// window re-widens past this and the test says so, instead of passing on a
+    /// three-bit window that no plausible threshold could escape.
+    const MAX_CALIBRATION_WINDOW: f32 = 1.20;
+
     #[test]
-    fn calibration_gap_holds_for_committed_fixtures() {
-        // The threshold sits in the measured gap: every real photo above it, the
-        // dithered graphic below it. Locks the calibration against silent drift.
-        let photo_min = [FX_GRAY_LEICA, FX_GRAY_CANON, FX_COLOR_FUJI]
+    fn calibration_gap_matches_the_documented_gap() {
+        // The threshold must sit in the gap between the highest-entropy image that
+        // must stay lossless and the lowest-entropy real photograph — AND the gap
+        // must be the narrow one DEC-047 documents, not a window so wide that any
+        // threshold satisfies it.
+        //
+        // Before the boundary specimens landed this test ranged over 3.03 vs 6.07:
+        // it held for anything in (3.03, 6.07], a 3.04-bit window, and stayed green
+        // at 5.5 — the value that reinstates the bug it is named for. The floor
+        // photo and the 32-level dither are what make it able to fail.
+        let photo_min = [FX_GRAY_LEICA, FX_GRAY_CANON, FX_COLOR_FUJI, FX_PHOTO_FLOOR]
             .iter()
             .map(|b| classify_fixture(b).entropy())
             .fold(f32::INFINITY, f32::min);
-        let graphic_max = classify_fixture(FX_DITHERED).entropy();
+        let graphic_max = [FX_DITHERED, FX_DITHER_32]
+            .iter()
+            .map(|b| classify_fixture(b).entropy())
+            .fold(f32::NEG_INFINITY, f32::max);
+        let width = photo_min - graphic_max;
+
         assert!(
             graphic_max < PHOTO_ENTROPY_STRONG && PHOTO_ENTROPY_STRONG <= photo_min,
-            "threshold {PHOTO_ENTROPY_STRONG} must fall in (graphic_max {graphic_max}, photo_min {photo_min}]"
+            "threshold {PHOTO_ENTROPY_STRONG} must fall in the calibration window \
+             ({graphic_max}, {photo_min}] (width {width} bits, cap {MAX_CALIBRATION_WINDOW})"
+        );
+        assert!(
+            width <= MAX_CALIBRATION_WINDOW,
+            "the calibration window ({graphic_max}, {photo_min}] is {width} bits wide — \
+             wider than the {MAX_CALIBRATION_WINDOW}-bit cap, so it no longer pins the \
+             threshold. A boundary specimen is missing from the roster."
         );
     }
 
@@ -1008,9 +1099,18 @@ mod tests {
 
     /// An iso-luma tint: `r=l+2j, g=l-j, b=l` moves BT.601 luma by only
     /// `(154-150)j/256 ≈ 0`, so a per-pixel `j` can push the colour count past
-    /// [`PALETTE_COLORS`] WITHOUT spreading the luma histogram — the only way to
-    /// build a realistic many-colour graphic/screenshot that stays *low-entropy*
+    /// [`PALETTE_COLORS`] WITHOUT spreading the luma histogram much — the only way
+    /// to build a realistic many-colour graphic/screenshot that stays *low-entropy*
     /// (real UI/graphics are; SPEC-105's strong-entropy rule must not preempt them).
+    ///
+    /// "Iso-luma" is approximate, and the `clamp` is why. Where `l + 2j` exceeds 255
+    /// the red channel saturates, the cancellation stops holding, and luma drifts —
+    /// so a light panel tinted over a wide `j` range spreads across several bins
+    /// rather than one. The fixtures below therefore occupy MORE luma bins than
+    /// their panel count, and their tests assert the real count (see
+    /// [`iso_luma_fixture_occupies_the_bin_count_it_claims`]) rather than an
+    /// intended one. The entropy that results is still far under
+    /// [`PHOTO_ENTROPY_STRONG`], which is what the fixtures are for.
     fn iso_luma(l: i32, j: i32) -> Rgb<u8> {
         Rgb([
             (l + 2 * j).clamp(0, 255) as u8,
@@ -1019,15 +1119,9 @@ mod tests {
         ])
     }
 
-    #[test]
-    fn wide_flat_manycolour_with_edges_is_ui_screenshot() {
-        // A realistic screenshot is LOW-entropy: flat panels over a few luma
-        // levels, plus fine widget/stripe edges. Entropy stays below
-        // PHOTO_ENTROPY_STRONG (asserted), so the SPEC-105 strong-entropy rule does
-        // NOT preempt it; many colours (iso-luma tint) + real edges keep it out of
-        // the flat-graphic gate and land it on UiScreenshot. (The old fixture was a
-        // full-range 2-axis gradient — entropy ~7.2, an unrealistic "screenshot"
-        // that the strong-entropy rule rightly reads as photographic.)
+    /// The UI-screenshot fixture: four flat panels (luma 200 / 150 / 90 / 210) under
+    /// an iso-luma tint, with fine 3px stripes in the lower third for real edges.
+    fn ui_screenshot_fixture() -> Image {
         let (w, h) = (320u32, 180u32);
         let mut img = RgbImage::new(w, h);
         for y in 0..h {
@@ -1045,7 +1139,77 @@ mod tests {
                 img.put_pixel(x, y, px);
             }
         }
-        let a = Analysis::compute(&image_of(DynamicImage::ImageRgb8(img))).unwrap();
+        image_of(DynamicImage::ImageRgb8(img))
+    }
+
+    /// The measured entropy of [`ui_screenshot_fixture`], computed outside this
+    /// crate (see `scripts/seed-classify-specimens.py` for the same independent
+    /// luma/entropy implementation applied to the committed specimens).
+    const UI_SCREENSHOT_ENTROPY: f32 = 3.3964;
+    /// The measured entropy of [`ambiguous_square_fixture`], likewise.
+    const AMBIGUOUS_SQUARE_ENTROPY: f32 = 3.1905;
+
+    #[test]
+    fn iso_luma_fixture_occupies_the_bin_count_it_claims() {
+        // The fixtures below are asserted only as "entropy < 4.0", which they clear
+        // by 0.6 — a margin wide enough to hide the fact that they do not mean what
+        // their comments said. `iso_luma`'s clamp saturates red on the light panels
+        // (l + 2j > 255 for j >= 28 at l = 200, and j >= 23 at l = 210), so the
+        // screenshot's four panels spread over 25 luma bins, not the ~5 four flat
+        // panels would give. Pin the real numbers HERE, as values, so a change to
+        // the luma weights or the panel levels fails pointing at the FIXTURE, and
+        // the classification tests below stay about the classifier.
+        let ui = Analysis::compute(&ui_screenshot_fixture()).unwrap();
+        assert_eq!(
+            occupied_luma_bins(&ui),
+            25,
+            "the screenshot fixture's clamped tint occupies 25 luma bins"
+        );
+        assert!(
+            (ui.entropy() - UI_SCREENSHOT_ENTROPY).abs() < 5e-4,
+            "screenshot fixture: recorded {UI_SCREENSHOT_ENTROPY}, measured {}",
+            ui.entropy()
+        );
+
+        let amb = Analysis::compute(&ambiguous_square_fixture()).unwrap();
+        assert_eq!(
+            occupied_luma_bins(&amb),
+            14,
+            "the ambiguous-square fixture occupies 14 luma bins"
+        );
+        assert!(
+            (amb.entropy() - AMBIGUOUS_SQUARE_ENTROPY).abs() < 5e-4,
+            "ambiguous fixture: recorded {AMBIGUOUS_SQUARE_ENTROPY}, measured {}",
+            amb.entropy()
+        );
+        // Its comment used to say "frequent steps → not flat-graphic". False: the
+        // 5px cells leave flat_ratio at 0.611, ABOVE FLAT_GRAPHIC_RATIO. The only
+        // thing holding the flat-graphic gate shut is edge_ratio, and only just.
+        assert!(
+            amb.flat_ratio() > FLAT_GRAPHIC_RATIO,
+            "the ambiguous fixture IS flat by ratio: {}",
+            amb.flat_ratio()
+        );
+        assert!(
+            amb.edge_ratio() >= GRAPHIC_EDGE_MAX,
+            "…and only edge_ratio keeps it out of the flat-graphic gate: {}",
+            amb.edge_ratio()
+        );
+    }
+
+    #[test]
+    fn wide_flat_manycolour_with_edges_is_ui_screenshot() {
+        // A realistic screenshot is LOW-entropy: flat panels over a few luma
+        // levels, plus fine widget/stripe edges. Entropy stays below
+        // PHOTO_ENTROPY_STRONG (asserted), so the SPEC-105 strong-entropy rule does
+        // NOT preempt it; many colours (iso-luma tint) + real edges keep it out of
+        // the flat-graphic gate and land it on UiScreenshot. (The old fixture was a
+        // full-range 2-axis gradient — entropy ~7.2, an unrealistic "screenshot"
+        // that the strong-entropy rule rightly reads as photographic.)
+        //
+        // What the fixture measures — 25 luma bins, entropy 3.3964 — is pinned by
+        // `iso_luma_fixture_occupies_the_bin_count_it_claims`, not left implicit.
+        let a = Analysis::compute(&ui_screenshot_fixture()).unwrap();
         assert!(
             a.entropy() < PHOTO_ENTROPY_STRONG,
             "a realistic screenshot must stay below the strong-entropy floor: {}",
@@ -1056,14 +1220,9 @@ mod tests {
         assert_eq!(a.opt_bucket(), OptBucket::MixedSafe);
     }
 
-    #[test]
-    fn ambiguous_square_falls_back_to_photograph_low_confidence() {
-        // A low-entropy many-colour square that matches no specific rule: four luma
-        // levels in 5px cells (frequent steps → not flat-graphic), iso-luma tint for
-        // >256 colours, square (not UI), entropy below every entropy gate ⇒ the safe
-        // fallback to Photograph at FALLBACK_CONFIDENCE. Entropy is asserted below
-        // PHOTO_ENTROPY_STRONG so it exercises the *fallback*, not the new rule. (The
-        // old fixture was half-noise — entropy ~7.6 — now decisively a photograph.)
+    /// The ambiguous-square fixture: four luma levels (80/120/160/200) in 5px cells
+    /// under an iso-luma tint, square, matching no specific rule.
+    fn ambiguous_square_fixture() -> Image {
         let (w, h) = (200u32, 200u32);
         let mut img = RgbImage::new(w, h);
         for y in 0..h {
@@ -1074,7 +1233,23 @@ mod tests {
                 img.put_pixel(x, y, iso_luma(luma, j));
             }
         }
-        let a = Analysis::compute(&image_of(DynamicImage::ImageRgb8(img))).unwrap();
+        image_of(DynamicImage::ImageRgb8(img))
+    }
+
+    #[test]
+    fn ambiguous_square_falls_back_to_photograph_low_confidence() {
+        // A low-entropy many-colour square that matches no specific rule: four luma
+        // levels in 5px cells, iso-luma tint for >256 colours, square (not UI),
+        // entropy below every entropy gate ⇒ the safe fallback to Photograph at
+        // FALLBACK_CONFIDENCE. Entropy is asserted below PHOTO_ENTROPY_STRONG so it
+        // exercises the *fallback*, not the strong-entropy rule. (The old fixture
+        // was half-noise — entropy ~7.6 — now decisively a photograph.)
+        //
+        // It reaches the fallback by a narrower path than it looks: flat_ratio is
+        // 0.611, ABOVE FLAT_GRAPHIC_RATIO, so only edge_ratio keeps the flat-graphic
+        // gate shut. Both numbers are pinned by
+        // `iso_luma_fixture_occupies_the_bin_count_it_claims`.
+        let a = Analysis::compute(&ambiguous_square_fixture()).unwrap();
         assert!(
             a.entropy() < PHOTO_ENTROPY_STRONG,
             "fallback fixture must stay below the strong-entropy floor: {}",

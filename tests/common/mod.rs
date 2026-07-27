@@ -161,20 +161,26 @@ pub fn jpeg_with_gps(w: u32, h: u32) -> Vec<u8> {
 }
 
 /// A structured [`detailed_jpeg`] carrying an APP2 `ICC_PROFILE` segment but **no
-/// EXIF**. The detailed content (flat_ratio ≈ 0.69, near-zero edges) classifies as a
-/// GraphicLogo → LosslessFlat bucket — but *only* because there is no EXIF (an EXIF
-/// camera prior would force Photograph). This is the metadata-forced fallback trigger
-/// (SPEC-084): a lossy JPEG source, in a bucket that offers ONLY lossless candidates,
-/// with metadata (the ICC) that forbids a raw passthrough. `optimize` must ship a
-/// compact lossy re-encode (≈ source), never a lossless blow-up several times the
-/// source size, and must strip the ICC.
+/// EXIF**. Since SPEC-105 the detailed content classifies as a **Photograph** →
+/// `Lossy` bucket (its luma entropy is 7.77, well over the strong-entropy floor); the
+/// ICC is what forbids a raw passthrough, so `optimize` must ship a compact lossy
+/// re-encode and strip the ICC, never a lossless blow-up.
+///
+/// It no longer reaches the *metadata-forced fallback* branch it was written for —
+/// that needs a source in a lossless-only bucket. Use [`jpeg_with_icc`] over a real
+/// graphic for that (see `spec_084_metadata_forced_fallback_is_reached`).
 pub fn detailed_jpeg_with_icc(w: u32, h: u32) -> Vec<u8> {
-    let base = detailed_jpeg(w, h);
-    assert_eq!(
-        &base[0..2],
-        &[0xFF, 0xD8],
-        "generated JPEG must start with SOI"
-    );
+    jpeg_with_icc(&detailed_jpeg(w, h))
+}
+
+/// Splice an APP2 `ICC_PROFILE` segment into arbitrary JPEG bytes, right after SOI.
+///
+/// The profile body is filler — the decode path only needs to surface
+/// `has_icc = true`, and the container lane never interprets the bytes. Metadata that
+/// must be stripped is what forces a re-encode, so this is the knob that turns a
+/// passthrough-eligible source into one that has to go through the decision engine.
+pub fn jpeg_with_icc(base: &[u8]) -> Vec<u8> {
+    assert_eq!(&base[0..2], &[0xFF, 0xD8], "JPEG must start with SOI");
 
     // APP2 ICC_PROFILE segment: the marker, a 1/1 chunk header, then filler profile
     // bytes. Enough for the decoder to surface `has_icc = true`.
@@ -265,6 +271,28 @@ pub fn detailed_jpeg(w: u32, h: u32) -> Vec<u8> {
         DynamicImage::ImageRgb8(detailed_rgb(w, h)),
         ImageFormat::Jpeg,
     )
+}
+
+/// A flat six-colour banded graphic as PNG bytes.
+///
+/// Deliberately a `LosslessFlat`-bucket source: every verb shortlists the same
+/// codec-independent lossless candidates, so the report shape carries no dependence
+/// on which codecs the build has. That is what lets
+/// `json_shape_consistent_across_verbs` run on every feature leg.
+pub fn flat_graphic_png(w: u32, h: u32) -> Vec<u8> {
+    const BANDS: [[u8; 3]; 6] = [
+        [200, 30, 30],
+        [30, 200, 30],
+        [30, 30, 200],
+        [200, 200, 30],
+        [200, 30, 200],
+        [30, 200, 200],
+    ];
+    let mut img = RgbImage::new(w, h);
+    for (_x, y, px) in img.enumerate_pixels_mut() {
+        *px = image::Rgb(BANDS[(y * 6 / h.max(1)).min(5) as usize]);
+    }
+    encode(DynamicImage::ImageRgb8(img), ImageFormat::Png)
 }
 
 /// Encode the structured `detailed_rgb` pattern to PNG bytes (SPEC-016 fixture).
