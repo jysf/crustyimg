@@ -210,10 +210,12 @@ if [ -d "$specs_dir" ]; then
                 names="${names}    - $(basename "$f" .md)\n"
             fi
         done
-        # Also count done/ as ship
+        # Also count done/ as ship. Skip `-timeline.md` companions: they match
+        # the same glob and would double-count every archived spec.
         if [ "$cycle" = "ship" ] && [ -d "${specs_dir}/done" ]; then
             for f in "${specs_dir}/done"/SPEC-*.md; do
                 [ -f "$f" ] || continue
+                case "$f" in *-timeline.md) continue ;; esac
                 count=$((count + 1))
                 names="${names}    - $(basename "$f" .md) ${DIM}(archived)${RESET}\n"
             done
@@ -304,8 +306,10 @@ fi
 echo ""
 
 # --- Summary counts ---
-total_specs=$(count_files "${ACTIVE_PROJECT_DIR}/specs" 'SPEC-*.md')
-shipped_specs=$(count_files "${ACTIVE_PROJECT_DIR}/specs/done" 'SPEC-*.md')
+# count_specs, not count_files: every spec has a `-timeline.md` companion that
+# matches the same glob, so counting the glob doubles the number.
+total_specs=$(( $(count_specs "${ACTIVE_PROJECT_DIR}/specs") + $(count_specs "${ACTIVE_PROJECT_DIR}/specs/done") ))
+shipped_specs=$(count_specs "${ACTIVE_PROJECT_DIR}/specs/done")
 total_decisions=$(count_files "$decisions_dir" 'DEC-*.md')
 echo "${BOLD}Summary${RESET}"
 echo "  Total specs in ${ACTIVE_PROJECT}:     ${total_specs}"

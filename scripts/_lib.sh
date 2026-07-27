@@ -222,6 +222,24 @@ count_files() {
     find "$dir" -name "$pattern" | wc -l | tr -d ' '
 }
 
+# Count SPEC files under a directory, EXCLUDING `-timeline.md` companions.
+#
+# Every spec has a paired `SPEC-NNN-<slug>-timeline.md`, which matches the same
+# `SPEC-*.md` glob. Counting the glob therefore double-counts every spec. The
+# JSON path and the cost audit already filter these out per-caller; this is the
+# shared version so the human report and the summary agree with them.
+# Usage: count_specs projects/PROJ-010/specs/done
+count_specs() {
+    local dir="$1" n=0 f
+    [ -d "$dir" ] || { echo 0; return; }
+    for f in "${dir}"/SPEC-*.md; do
+        [ -f "$f" ] || continue
+        case "$f" in *-timeline.md) continue ;; esac
+        n=$((n + 1))
+    done
+    echo "$n"
+}
+
 # Read a stage file's status: field. Empty string if missing.
 get_stage_status() {
     local file="$1"
