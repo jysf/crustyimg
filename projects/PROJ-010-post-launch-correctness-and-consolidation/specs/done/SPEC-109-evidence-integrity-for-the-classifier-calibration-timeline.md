@@ -86,5 +86,12 @@ Cycle prompts live in `prompts/SPEC-109-<cycle>.md`.
       SPEC-105's 48-crop 4.58 floor (sources absent from the repo), DEC-047 outside the two
       corrections, fixture provenance claims, `--profile docs`, wasm.
 
-- [ ] **ship** — not started. Amends DEC-047 in place (two false claims + evidence roster);
-      emits no new DEC of its own.
+- [x] **ship** — 2026-07-27, merged as `408b0f9` (PR #114, squash). Amended DEC-047 in place
+      (two false claims corrected + the two specimens added to its evidence roster) and emitted
+      no new DEC of its own. A **third** DEC-047 correction landed post-verify as `ae01cb4`,
+      docs-only: its revised "≤3.64 counting dithers-of-photos" was this spec's specimen value
+      restated as a class ceiling, refuted by the Canon frame at 3.8396.
+      Cost totals: **86,491,591 tokens / $60.97** across 3 sessions (design un-metered; build
+      65,339,132 / $43.21; verify 21,152,459 / $17.76 — both component-priced, both measured
+      from transcripts rather than estimated). Archived to `specs/done/` by hand with `git mv`,
+      since `just archive-spec` mis-targets `specs/prompts/*.md`.
