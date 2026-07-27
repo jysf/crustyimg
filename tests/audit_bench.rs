@@ -166,10 +166,16 @@ fn timing_flag_reports_and_json_includes_it() {
 /// on the no-AVIF legs. The measured cause is different: `web` and `apply` run the
 /// image through the resize pipeline and report `has_alpha: true`, while `optimize`
 /// reports `false` for the same source. On a no-AVIF build a `Lossy`-bucket image
-/// **with alpha** shortlists exactly `[lossless(Png)]`, that PNG loses to the source,
-/// and the verb passes through with no winner and therefore nothing to score — so the
-/// key sets diverged on `ssim`. That missing lossy-alpha fallback is
-/// `src/analysis/decide.rs`'s, and it is SPEC-108's to fix, not this spec's.
+/// **with alpha** shortlisted exactly `[lossless(Png)]`, that PNG lost to the source,
+/// and the verb passed through with no winner and therefore nothing to score — so the
+/// key sets diverged on `ssim`. That missing lossy-alpha fallback was
+/// `src/analysis/decide.rs`'s, and SPEC-108 (AC-7, DEC-084) fixed it: the same arm now
+/// also offers a lossless WebP candidate, smaller than PNG for photographic content,
+/// so a `Lossy`-bucket alpha image on a no-AVIF build has a real winner to score again.
+/// This test is left on its `LosslessFlat` fixture rather than reverted to the
+/// original `Lossy`-bucket-with-alpha source: `promoted_alpha_photo_gets_a_webp_fallback_on_the_lean_leg`
+/// (`tests/cli.rs`) now covers that source directly, and this test's value is in the
+/// schema comparison, not in which bucket exercises it.
 ///
 /// The source is therefore a flat six-colour graphic: a `LosslessFlat` bucket whose
 /// shortlist is the same codec-independent lossless pair on every build, which all
@@ -282,7 +288,15 @@ fn json_shape_consistent_across_verbs() {
 #[test]
 fn non_json_output_unchanged() {
     let dir = tempfile::tempdir().unwrap();
-    let photo = write_bytes(&dir, "photo.jpg", &common::jpeg_with_exif(256, 256));
+    // 3000×2000 (not 256×256): large enough that `web`'s default downscale does
+    // real work and the re-encode reliably beats the source on every feature leg.
+    // A source this size AND this tiny is a `larger_than_source` case in its own
+    // right (SPEC-090) — a real, accepted outcome (SPEC-108, DEC-084: `has_alpha`
+    // now correctly reads `false` for a JPEG source, so a no-alpha-codec-built
+    // lean leg re-encodes as JPEG rather than an accidentally-smaller lossless
+    // PNG) — but it is `web_output_larger_than_original_is_surfaced`'s case to
+    // cover, not this format-only test's.
+    let photo = write_bytes(&dir, "photo.jpg", &common::jpeg_with_exif(3000, 2000));
 
     // Writing to --out-dir: stdout is empty, stderr is exactly one summary line.
     let out = Command::new(BIN)

@@ -81,8 +81,6 @@ const DOC_ENTROPY_MAX: f32 = 4.5;
 const UI_FLAT_RATIO: f32 = 0.35;
 /// Long/short edge ratio at/above which an aspect counts as "screen-wide".
 const UI_ASPECT_MIN: f32 = 1.3;
-/// Entropy at/above which (with few flat regions) an image is a photograph.
-const PHOTO_ENTROPY: f32 = 5.0;
 /// Luma entropy at/above which an image is a photograph **outright** — high
 /// enough that no genuine graphic/logo/document/screenshot reaches it, low enough
 /// that every real photograph clears it (grayscale or colour, EXIF or not). This
@@ -95,8 +93,6 @@ const PHOTO_ENTROPY: f32 = 5.0;
 /// heavily error-diffusion-dithered photo are the two known high-entropy inputs
 /// that clear it, both lossy-safe (recorded in DEC-047).
 const PHOTO_ENTROPY_STRONG: f32 = 4.0;
-/// Flat-region fraction below which the entropy photo rule may fire.
-const PHOTO_FLAT_MAX: f32 = 0.25;
 /// Confidence reported when the cascade falls through to the safe default.
 const FALLBACK_CONFIDENCE: f32 = 0.4;
 
@@ -591,18 +587,38 @@ fn classify(input: ClassifyInput) -> (ImageClass, f32) {
         return (ImageClass::Document, 0.7);
     }
 
-    // 3.5 Strong-entropy Photograph — a high-entropy image is never a graphic.
-    //     Placed after the Document rule (a genuine low-entropy scan is already
-    //     claimed) and BEFORE the graphic gates, so a detailed grayscale photo
-    //     (≤256 RGB colours, which trips the palette gate) or an EXIF-stripped
-    //     colour photo (which the scale-broken flat detector reads as ~flat) is
-    //     classified as the photograph it is, not a lossless graphic. This is the
-    //     safe error direction (DEC-047): a photo forced lossless is merely a
-    //     bigger file, whereas the misfire it fixes shipped a 13× oversized
-    //     lossless WebP for a real B&W photograph. The threshold clears every real
-    //     graphic/logo/document/screenshot measured (≤ ~1.6) with wide margin.
-    if entropy >= PHOTO_ENTROPY_STRONG {
+    // 3.5a Strong-entropy Photograph, unambiguous zone — at/above the Document
+    //      rule's own entropy ceiling, so rule 3 could never have claimed this
+    //      input regardless of its bimodality/gray_ratio. Every real photo
+    //      fixture measures here (floor 4.5176); no real graphic/logo/document/
+    //      screenshot measured comes close (≤ ~1.6). Unconditional — this is the
+    //      early return DEC-047 and the SPEC-108 traps call load-bearing: it is
+    //      the only thing holding real photographs off the lossless path while
+    //      the flat detector stays scale-broken. Do not gate this arm.
+    if entropy >= DOC_ENTROPY_MAX {
         return (ImageClass::Photograph, 0.8);
+    }
+    // 3.5b Strong-entropy Photograph, contested zone — `[PHOTO_ENTROPY_STRONG,
+    //      DOC_ENTROPY_MAX)` (AC-5). `DOC_ENTROPY_MAX` (4.5) sits above
+    //      `PHOTO_ENTROPY_STRONG` (4.0) by construction (the Document rule's
+    //      ceiling was never tuned against this rule), so an input that fails
+    //      Document's bimodality/gray_ratio gate but lands in this band would,
+    //      unconditionally, be indistinguishable from 3.5a's real-photo case —
+    //      except no real photo measures this low (floor 4.5176) and no real
+    //      graphic/dither measures this high (ceiling 3.8396) either, so nothing
+    //      load-bearing is known to live here. A halftone-dithered SCAN could,
+    //      though: its dither pattern can push entropy past 4.0 without the
+    //      bimodal two-tone signature a clean scan has. Defer to the graphic
+    //      gates (rule 4's own conditions, reused rather than retuned) before
+    //      conceding Photograph, so that case falls through instead of being
+    //      claimed here.
+    if entropy >= PHOTO_ENTROPY_STRONG {
+        let looks_graphic =
+            few_colors || (flat_ratio >= FLAT_GRAPHIC_RATIO && edge_ratio < GRAPHIC_EDGE_MAX);
+        if !looks_graphic {
+            return (ImageClass::Photograph, 0.8);
+        }
+        // Falls through to rule 4, which resolves it via the same test.
     }
 
     // 4. Graphic/logo — the ≤256-colour palette gate, or large flat fills with
@@ -620,11 +636,13 @@ fn classify(input: ClassifyInput) -> (ImageClass, f32) {
         return (ImageClass::UiScreenshot, 0.6);
     }
 
-    // 6. Photograph — the no-EXIF heuristic: rich colour, high entropy, few flat
-    //    regions.
-    if many_colors && entropy >= PHOTO_ENTROPY && flat_ratio < PHOTO_FLAT_MAX {
-        return (ImageClass::Photograph, 0.7);
-    }
+    // Rule 6 (many_colors && entropy >= PHOTO_ENTROPY && flat_ratio < PHOTO_FLAT_MAX)
+    // was deleted (AC-6, SPEC-108, DEC-084): unreachable under this cascade both
+    // before and after the placement fix. Rule 3.5 (now 3.5a/3.5b) claims
+    // Photograph for every entropy >= PHOTO_ENTROPY_STRONG (4.0) that is not
+    // graphic-shaped; rule 6 required entropy >= PHOTO_ENTROPY (5.0), a strictly
+    // higher bar, so any input that could reach it had already been claimed.
+    // `PHOTO_ENTROPY` and `PHOTO_FLAT_MAX` were deleted with it.
 
     // 7. Fallback → Photograph (safe bias), low confidence.
     (ImageClass::Photograph, FALLBACK_CONFIDENCE)
@@ -1003,6 +1021,42 @@ mod tests {
         );
         assert_eq!(a.class(), ImageClass::GraphicLogo);
         assert_eq!(a.opt_bucket(), OptBucket::LosslessFlat);
+    }
+
+    #[test]
+    fn halftone_scan_in_the_contradiction_band_is_not_a_photograph() {
+        // AC-5 (SPEC-108): `DOC_ENTROPY_MAX` (4.5) and `PHOTO_ENTROPY_STRONG` (4.0)
+        // overlap in [4.0, 4.5) — no committed fixture falls in this band (photo
+        // floor 4.5176, dither ceiling 3.8396), but a halftone-dithered SCAN could:
+        // its dither pattern can inflate entropy past 4.0 without making it bimodal
+        // (that needs a clean two-tone text/background, not a dot pattern), so it
+        // never reaches the Document rule. Constructed directly as a `ClassifyInput`
+        // rather than a synthesized image: the exact entropy/bimodality combination
+        // this band needs is impractical to hit pixel-by-pixel.
+        let input = ClassifyInput {
+            unique_colors: UniqueColors::Exact(32),
+            flat_ratio: 0.30,
+            edge_ratio: 0.15,
+            entropy: 4.2,
+            bimodality: 0.30,
+            gray_ratio: 0.5,
+            has_exif: false,
+            source_format: ImageFormat::Png,
+            width: 2000,
+            height: 1500,
+        };
+        let (class, _confidence) = classify(input);
+        assert_ne!(
+            class,
+            ImageClass::Photograph,
+            "a halftone scan in the contradiction band must not fall to the \
+             strong-entropy rule just because it isn't bimodal enough for Document"
+        );
+        assert_eq!(
+            class,
+            ImageClass::GraphicLogo,
+            "expected the palette gate (few_colors) to catch it once 3.5b defers"
+        );
     }
 
     /// The widest calibration window this guard will accept, in bits. DEC-047

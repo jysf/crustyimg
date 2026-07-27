@@ -303,6 +303,16 @@ pub fn detailed_png(w: u32, h: u32) -> Vec<u8> {
     )
 }
 
+/// The `detailed_rgb` pattern with a fully-opaque alpha channel, as PNG bytes
+/// (SPEC-108, AC-7 fixture). Same high-entropy content as `detailed_png` — it
+/// classifies `photograph` — but `RgbaImage`'s colour type reports `has_alpha:
+/// true` (a structural property of the container, not per-pixel transparency),
+/// which is what routes it through the `OptBucket::Lossy` + alpha shortlist arm.
+pub fn detailed_rgba_png(w: u32, h: u32) -> Vec<u8> {
+    let rgba = DynamicImage::ImageRgb8(detailed_rgb(w, h)).to_rgba8();
+    encode(DynamicImage::ImageRgba8(rgba), ImageFormat::Png)
+}
+
 /// Encode a small solid-color `RgbImage` to LOSSLESS WebP bytes (SPEC-019
 /// fixture). WebP is a default format; `write_to(_, WebP)` uses the pure-Rust
 /// lossless encoder. Used to exercise the `.webp` decode (INPUT) path.
