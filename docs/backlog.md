@@ -499,6 +499,36 @@ consolidation** on 2026-07-26 and re-homed them. The three were **not** treated 
 **The two launch-gating items are now PROJ-010 STAGE-034 (classifier regression) and STAGE-035
 (SPEC-107).** Both should be sequenced before the Show HN.
 
+## Open — establish the real entropy ceiling of dithers-of-photos (2026-07-26)
+
+**Nobody's work yet. Both STAGE-034 specs forbid retuning thresholds, so this has no home.**
+
+`PHOTO_ENTROPY_STRONG = 4.0` is safe only if no genuine graphic reaches it. DEC-047 has now
+twice stated a ceiling for the hardest case — dithers of photographs — and been wrong twice:
+
+| claim | source | refuted by |
+|---|---|---|
+| "none of those reach 4.0" | DEC-047, original | `dithered_graphic.png` measures **7.08 at `--max 256`** (SPEC-109) |
+| "≤3.64 counting dithers-of-photos" | DEC-047, **as revised by SPEC-109** | the same recipe on the Canon frame measures **3.8396** (SPEC-109 verify) |
+
+Measured so far, 32-level Floyd–Steinberg: **3.6414** (Fuji), **3.8396** (Canon). Two frames is
+not a corpus. The margin to 4.0 is **0.16 bits**, not the 0.36 the record implied.
+
+**Why it matters, and why SPEC-108 does not cover it.** SPEC-108 fixes *scale-dependence* by
+classifying the source rather than the resize output. It does not move the threshold. So if any
+dither of a photograph exceeds 4.0 **at native size**, it classifies `photograph` on its own
+merits and ships lossy — a hard-edged graphic smeared, which is the harmful error direction
+DEC-047 exists to prevent. Placement does not save that case.
+
+**What the work is:** measure the recipe across the available photographic corpus (not two
+frames), establish the actual distribution and its upper tail, and only then decide whether 4.0
+holds, needs to move, or needs a second discriminator. Cheap — it is measurement, not design.
+
+**Note the pattern, since it has now repeated inside its own fix:** a value measured from one
+specimen restated as a property of the class. [[a-guards-advertised-reach-is-a-claim]]. Whatever
+number this work produces, record it as *"the maximum observed across corpus X"*, never as
+*"the ceiling"*.
+
 ## Classifier review findings NOT taken into PROJ-010 (2026-07-26)
 
 Of the 15 findings in `docs/research/pr113-classifier-review-findings.md`, STAGE-034 took the
