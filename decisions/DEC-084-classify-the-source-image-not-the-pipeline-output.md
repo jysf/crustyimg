@@ -155,14 +155,26 @@ to be handled explicitly rather than falling out of the placement fix for free (
   *correct* input, but it changes behaviour for EXIF-bearing sources and is the most likely place
   this spec surprises a caller relying on the old (wrong) input.
 
-  > **Measured 2026-07-28 (SPEC-108 verify).** This paragraph was written as a predicted risk; it
-  > now has a number and a fixture. Across 12 fixtures (4 EXIF variants × 3 content types) exactly
-  > **one** genuine flip reproduces: a document-shaped scan carrying a **real, non-identity
-  > orientation tag**. On a 17,980 B source this branch ships a lossy AVIF at **2,956 B,
-  > SSIMULACRA2 92.2**; the pre-SPEC-108 build shipped a lossless WebP at **2,918 B, 100.0**.
-  > Near-identical size, real quality loss on text-like content, **no benefit** — a strict
-  > regression in that narrow case, accepted here only because reordering the cascade is outside
-  > this spec's scope.
+  > **Measured 2026-07-28 (SPEC-108 verify, re-measured on committed fixtures).** This paragraph
+  > was written as a predicted risk; it now has fixtures and numbers. Across 12 fixtures (4 EXIF
+  > variants × 3 content types) exactly **one** genuine flip reproduces: a document-shaped scan
+  > carrying a **real, non-identity orientation tag**. Confirmed to be a property of EXIF rather
+  > than of one generator — it reproduces on an independently constructed document source (different
+  > geometry, 218 colours vs 117), and structurally it must, since rule 2 returns before rule 3.
+  >
+  > | source | this branch | pre-SPEC-108 |
+  > |---|---|---|
+  > | `scan_jpeg(1200,1600)`+o6, 78,670 B *(the committed fixture)* | AVIF 6,261 B, **88.3** | lossless WebP 6,748 B, **100.0** |
+  > | `scan_jpeg(450,600)`+o6, 20,829 B | AVIF 4,811 B, 87.3 | WebP 9,010 B, 100.0 |
+  > | independent LCG scan+o6, 155,022 B | AVIF 87,033 B, 86.7 | WebP 230,422 B, 100.0, **`larger_than_source`** |
+  >
+  > **The trade is quality for size, not quality for nothing.** An earlier draft of this note said
+  > "near-identical size … no benefit … a strict regression", from a single ad-hoc fixture that was
+  > never committed and whose 92.2 figure **cannot be re-derived from this repo**. Re-measured on
+  > committed fixtures the branch is **7.2% / 46.6% / 62.2% smaller**, and on the largest source the
+  > *old* lossless path shipped 49% **larger than the input**. The quality loss is real (86.7–88.3
+  > against a pixel-perfect 100.0) and is the reason this is recorded as a downside — but anyone
+  > reading this to decide whether to reorder the cascade needs both halves.
   >
   > **The reason it stayed invisible is worth more than the number.** The suite's `jpeg_with_exif`
   > carries a **zero-entry IFD**, and `orientation_from_exif_segment` returns `None` for it, so
@@ -177,8 +189,14 @@ to be handled explicitly rather than falling out of the placement fix for free (
   rather than the bounded post-resize buffer. On a 24 MP (6000×4000) coarse checker
   (`graphic-logo`, cheap encode): **484–507 ms vs 344–352 ms** on the pre-change build, a
   repeatable **~140–150 ms** gap isolated to the classify+resize segment (`decode_ms` 8–14 ms and
-  `encode_ms` ~6 ms are near-identical on both). The photograph/AVIF path is unaffected — 4282–4468
-  vs 4234–4342 ms, inside noise, because the ~3.8 s AVIF encode dominates.
+  `encode_ms` ~6 ms are near-identical on both). Independently reproduced at 501–546 ms vs 350–354
+  ms (+43%). That path also became **size-sensitive**: on this branch 2 MP → 24 MP costs +70%
+  (311 → 523–534 ms) against +21% before (317 → 381–406 ms).
+
+  The photograph/AVIF path is **near-unaffected**, not unaffected: 3204/3259/3255 ms vs
+  3174/3174/3173 ms is a consistent **+50–85 ms (1.5–2.5%)** — small, but outside the ±5 ms
+  measurement spread, so it is a real delta rather than noise. "Finishes about as fast" holds
+  (2 MP → 24 MP is +3.5% on the branch); "unaffected" would not.
   `web`'s help text has been corrected accordingly; the mitigation (bound analysis cost by sampling
   the source under a fixed rule, which preserves the `--max`-independence this decision buys) is
   filed in `docs/backlog.md` rather than attempted here.

@@ -4060,12 +4060,16 @@ fn optimize_verify_reports_score() {
 /// firing is the designed behaviour; what changed is that `web` finally reaches
 /// it.
 ///
-/// Measured cost, SPEC-108 verify (17,980 B source): this branch ships a lossy
-/// AVIF at 2,956 B / SSIMULACRA2 **92.2**; the pre-SPEC-108 build shipped a
-/// lossless WebP at 2,918 B / **100.0**. Near-identical size, real quality loss,
-/// no benefit — so it is a genuine downside, accepted because reordering the
-/// cascade is out of SPEC-108's scope. If that trade is ever revisited, this
-/// test is the thing that must change, and DEC-084 records the reasoning.
+/// Measured cost on **this fixture** (`scan_jpeg(1200, 1600)` + orientation 6,
+/// 78,670 B): this branch ships a lossy AVIF at 6,261 B / SSIMULACRA2 **88.3**;
+/// the pre-SPEC-108 build shipped a lossless WebP at 6,748 B / **100.0**.
+///
+/// So the trade is **real quality loss in exchange for a real size win** — 7.2%
+/// here, and 46.6% / 62.2% on two other document sources measured alongside it
+/// (on one of which the *old* lossless path shipped 49% **larger than source**).
+/// It is a trade, not a strict loss. Accepted because reordering the cascade is
+/// out of SPEC-108's scope; if it is ever revisited, this test is what must
+/// change, and DEC-084 records the reasoning.
 ///
 /// **Why a bespoke fixture.** The suite's `jpeg_with_exif` carries a ZERO-ENTRY
 /// IFD, and `orientation_from_exif_segment` returns `None` for it, so
@@ -4110,8 +4114,15 @@ fn scan_with_real_orientation_tag_classifies_photograph() {
         "a scan with a real orientation tag reaches rule 2's EXIF prior: {flipped}"
     );
 
-    // And the zero-entry fixture does NOT reproduce it — the finding that this
-    // whole test exists to pin. `AutoOrient` no-ops, so nothing changes.
+    // Sanity only: the suite's zero-entry gradient fixture is not document-shaped,
+    // which is why it could never have exercised the case above.
+    //
+    // It does NOT test the zero-entry IFD's effect on classification, and must not
+    // be read as doing so — this assertion is sensitive to document-shapedness and
+    // insensitive to EXIF, and a single-binary test cannot observe a pre/post delta
+    // anyway. For the record, measured separately: splicing a zero-entry APP1 onto
+    // this scan gives `has_exif: true` → `photograph` on BOTH builds — no delta,
+    // which is exactly why DEC-084's argument rests on the non-identity tag.
     let zero_entry = common::jpeg_with_exif(64, 64);
     let ze = class_of(&dir, "zero_entry.jpg", &zero_entry);
     assert!(
