@@ -499,6 +499,38 @@ consolidation** on 2026-07-26 and re-homed them. The three were **not** treated 
 **The two launch-gating items are now PROJ-010 STAGE-034 (classifier regression) and STAGE-035
 (SPEC-107).** Both should be sequenced before the Show HN.
 
+## Open — bound classification cost by sampling the source (2026-07-28)
+
+**Measured, not speculative.** SPEC-108 moved `Analysis::compute` onto the source image, which is
+what makes classification independent of `--max`. `Analysis::compute` is an unconditional
+O(pixels) scan, so on large inputs it now costs more than it did on the bounded post-resize buffer.
+
+Measured by SPEC-108's verify on a 24 MP (6000×4000) input:
+
+| path | branch | pre-change | delta |
+|---|---|---|---|
+| graphic → lossless (cheap encode) | 484–507 ms | 344–352 ms | **~140–150 ms, ≈40%** |
+| photograph → AVIF (encode dominates) | 4282–4468 ms | 4234–4342 ms | inside noise |
+
+Isolated cleanly: `decode_ms` (8–14 ms) and `encode_ms` (~6 ms) are near-identical on both builds,
+so the whole gap sits in classify+resize. `web`'s help text was corrected in the same change, so
+the repo no longer claims size-insensitivity on that path.
+
+**The obvious fix is wrong.** Classifying the downscaled buffer again reinstates exactly the
+18.5×-blow-up bug SPEC-108 fixed.
+
+**The shape worth trying:** bound analysis cost by sampling the **source** under a fixed,
+scale-independent rule (e.g. cap the scan at N pixels by striding). Because the sample is drawn
+from the source rather than from a `--max`-dependent resize, SPEC-108's invariant survives — the
+emitted features stay identical across `--max` values, which is what AC-2 asserts and what any
+implementation here must keep proving.
+
+**Open question that decides the design:** striding changes measured entropy, so the thresholds
+would need re-checking against the committed boundary specimens
+(`photo_entropy_floor.png` 4.5176, `dither_32color.png` 3.6414). If a strided sample moves either
+past `PHOTO_ENTROPY_STRONG`, sampling is not free and the trade needs stating. **Measure that
+before designing.**
+
 ## Open — establish the real entropy ceiling of dithers-of-photos (2026-07-26)
 
 **Nobody's work yet. Both STAGE-034 specs forbid retuning thresholds, so this has no home.**

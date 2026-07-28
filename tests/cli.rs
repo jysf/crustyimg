@@ -4049,6 +4049,77 @@ fn optimize_verify_reports_score() {
     );
 }
 
+/// SPEC-108: a document-shaped scan carrying a REAL orientation tag classifies
+/// `photograph`, not `document` — the accepted consequence of classifying the
+/// source image.
+///
+/// This is a **recorded decision, not a latent bug**. Classifying pre-pipeline
+/// means rule 2's decisive EXIF prior (DEC-047) is now visible where the old
+/// post-pipeline analysis never saw it: `AutoOrient` drops the metadata bundle,
+/// so `has_exif` was always false by the time the classifier ran. The prior
+/// firing is the designed behaviour; what changed is that `web` finally reaches
+/// it.
+///
+/// Measured cost, SPEC-108 verify (17,980 B source): this branch ships a lossy
+/// AVIF at 2,956 B / SSIMULACRA2 **92.2**; the pre-SPEC-108 build shipped a
+/// lossless WebP at 2,918 B / **100.0**. Near-identical size, real quality loss,
+/// no benefit — so it is a genuine downside, accepted because reordering the
+/// cascade is out of SPEC-108's scope. If that trade is ever revisited, this
+/// test is the thing that must change, and DEC-084 records the reasoning.
+///
+/// **Why a bespoke fixture.** The suite's `jpeg_with_exif` carries a ZERO-ENTRY
+/// IFD, and `orientation_from_exif_segment` returns `None` for it, so
+/// `AutoOrient` no-ops and metadata survives the pipeline either way — that
+/// fixture cannot express this case despite its name. Orientation 1 is a no-op
+/// for the same reason. Only a genuine non-identity tag reproduces it.
+#[test]
+fn scan_with_real_orientation_tag_classifies_photograph() {
+    fn class_of(dir: &tempfile::TempDir, name: &str, bytes: &[u8]) -> String {
+        let in_path = write_bytes(dir, name, bytes);
+        let out = Command::new(BIN)
+            .args([
+                "optimize",
+                in_path.to_str().unwrap(),
+                "--out-dir",
+                dir.path().join(format!("out_{name}")).to_str().unwrap(),
+                "--explain=json",
+            ])
+            .output()
+            .unwrap();
+        assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr_str(&out));
+        stdout_str(&out)
+    }
+
+    let dir = tempfile::tempdir().unwrap();
+    let scan = common::scan_jpeg(1200, 1600);
+
+    // CONTROL. Without EXIF the same pixels must reach the Document rule. If
+    // this fails the fixture is not document-shaped and the assertion below is
+    // vacuous — it would pass for a reason that has nothing to do with EXIF.
+    let plain = class_of(&dir, "scan_plain.jpg", &scan);
+    assert!(
+        plain.contains("\"class\":\"document\""),
+        "control failed: the scan fixture must classify as a document without EXIF, got: {plain}"
+    );
+
+    // The accepted flip: a real orientation tag routes it to rule 2 instead.
+    let tagged = common::wrap_with_orientation_app1(&scan, 6);
+    let flipped = class_of(&dir, "scan_orient6.jpg", &tagged);
+    assert!(
+        flipped.contains("\"class\":\"photograph\""),
+        "a scan with a real orientation tag reaches rule 2's EXIF prior: {flipped}"
+    );
+
+    // And the zero-entry fixture does NOT reproduce it — the finding that this
+    // whole test exists to pin. `AutoOrient` no-ops, so nothing changes.
+    let zero_entry = common::jpeg_with_exif(64, 64);
+    let ze = class_of(&dir, "zero_entry.jpg", &zero_entry);
+    assert!(
+        !ze.contains("\"class\":\"document\""),
+        "sanity: the zero-entry gradient fixture is not document-shaped: {ze}"
+    );
+}
+
 /// SPEC-105: a real EXIF-stripped grayscale photograph (≤256 RGB colours, so it
 /// tripped the ≤256-colour palette gate → `graphic-logo` → 13× oversized lossless
 /// WebP) now classifies as `photograph` and re-encodes to a **lossy AVIF**, not a

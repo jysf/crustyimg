@@ -306,8 +306,10 @@ pub enum Commands {
     /// source above that bound can come back larger than the original — reported
     /// honestly ("N% larger", plus a `larger_than_source` flag in `--json`), never
     /// hidden. For an unconditional never-bigger guarantee that keeps dimensions,
-    /// use `optimize`. Size-insensitive: a 24 MP photo finishes as fast as a small
-    /// one because it downscales first.
+    /// use `optimize`. A 24 MP photo finishes about as fast as a small one: the
+    /// downscale happens first and the encode dominates. Large graphics that take
+    /// the lossless path are the exception — there the encode is cheap, so the
+    /// full-resolution content analysis is a visible share of the time.
     ///
     /// Equivalent to `apply --recipe web`. `--max` overrides the downscale bound;
     /// `-o`/`--format` pin the output format (bypassing the auto-decision); the

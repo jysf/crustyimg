@@ -153,7 +153,37 @@ to be handled explicitly rather than falling out of the placement fix for free (
   rule 2 (the decisive camera prior) fires for every EXIF-bearing input, which it effectively could
   not before (analysis always ran on the metadata-stripped post-pipeline buffer). This is the
   *correct* input, but it changes behaviour for EXIF-bearing sources and is the most likely place
-  this spec surprises a caller relying on the old (wrong) input. The lean-leg alpha-photo fallback
+  this spec surprises a caller relying on the old (wrong) input.
+
+  > **Measured 2026-07-28 (SPEC-108 verify).** This paragraph was written as a predicted risk; it
+  > now has a number and a fixture. Across 12 fixtures (4 EXIF variants × 3 content types) exactly
+  > **one** genuine flip reproduces: a document-shaped scan carrying a **real, non-identity
+  > orientation tag**. On a 17,980 B source this branch ships a lossy AVIF at **2,956 B,
+  > SSIMULACRA2 92.2**; the pre-SPEC-108 build shipped a lossless WebP at **2,918 B, 100.0**.
+  > Near-identical size, real quality loss on text-like content, **no benefit** — a strict
+  > regression in that narrow case, accepted here only because reordering the cascade is outside
+  > this spec's scope.
+  >
+  > **The reason it stayed invisible is worth more than the number.** The suite's `jpeg_with_exif`
+  > carries a **zero-entry IFD**, and `orientation_from_exif_segment` returns `None` for it, so
+  > `AutoOrient` no-ops and metadata survives the pipeline either way. Orientation 1 is a no-op for
+  > the same reason. **That fixture cannot express the case its name implies**, which is why no
+  > existing test caught this. Pinned by `scan_with_real_orientation_tag_classifies_photograph`
+  > (`tests/cli.rs`), which carries a control arm asserting the same pixels classify `document`
+  > without EXIF — without it the assertion would pass for reasons unrelated to EXIF.
+
+- **Negative (measured 2026-07-28, SPEC-108 verify): a ~40% slowdown on large graphic/lossless
+  inputs.** `Analysis::compute` is an unconditional O(pixels) scan; it now runs on the source
+  rather than the bounded post-resize buffer. On a 24 MP (6000×4000) coarse checker
+  (`graphic-logo`, cheap encode): **484–507 ms vs 344–352 ms** on the pre-change build, a
+  repeatable **~140–150 ms** gap isolated to the classify+resize segment (`decode_ms` 8–14 ms and
+  `encode_ms` ~6 ms are near-identical on both). The photograph/AVIF path is unaffected — 4282–4468
+  vs 4234–4342 ms, inside noise, because the ~3.8 s AVIF encode dominates.
+  `web`'s help text has been corrected accordingly; the mitigation (bound analysis cost by sampling
+  the source under a fixed rule, which preserves the `--max`-independence this decision buys) is
+  filed in `docs/backlog.md` rather than attempted here.
+
+- **Negative:** the lean-leg alpha-photo fallback
   is improved, not fixed: a lossless WebP/PNG re-encode of a lossy-family alpha source can still
   exceed the source's size when no lossy-alpha codec is built — this is a structural limitation of
   the lean feature set, not a bug this change closes.
