@@ -42,12 +42,30 @@ Cycle prompts live in `prompts/SPEC-108-<cycle>.md`.
       warnings` clean on all three legs; `fmt --check` clean. Mutation control confirmed:
       `PHOTO_ENTROPY_STRONG = 5.5` still goes RED (`calibration_gap_matches_the_documented_gap`).
 
-- [ ] **verify** — not started. Engine change ⇒ **clean full matrix**, re-run by the
-      orchestrator rather than relayed: default / `--no-default-features` /
-      `--features webp-lossy`, `clippy -D warnings` each, plus `fmt --check`. Confirm the log
-      says `Compiling crustyimg`. The gate that matters is the mutation control: with
-      `PHOTO_ENTROPY_STRONG = 5.5`, at least one test must go RED. It currently leaves
-      `cargo test --release --lib analysis` green at 52/52.
+- [x] **verify** — 2026-07-27/28. All AC-1–9 independently re-derived (not inferred from green
+      tests) via direct CLI driving on my own release builds of branch and `main` (`14eab28`).
+      Mutation control confirmed live: `PHOTO_ENTROPY_STRONG = 5.5` goes RED
+      (`calibration_gap_matches_the_documented_gap`, 54/55), a `= 7.0` must-fail control also RED
+      (52/55, two more tests fail), cleanly reverted (55/55, empty diff). Full matrix, isolated
+      sequential `CARGO_TARGET_DIR`s: lean 783/0 (main re-measured 776/0, exact match), default
+      802/0, webp-lossy 809/0 — deltas (+7/+6/+6) reconcile exactly against the 7 new tests (6 on
+      every leg, 1 lean-only via `cfg`). `clippy -D warnings` and `fmt --check` clean on all three
+      legs. All three modified pre-existing tests judged and independently confirmed as corrected
+      truth (fixture-mechanism swaps forced by the has_alpha fix, not weakened assertions) — see
+      readout for the empirical proof on each.
+      **New finding (not in any AC or DEC-084):** EXIF fallout is real but only for EXIF carrying
+      an actual orientation tag — `AutoOrient` no-ops (preserves metadata either way) on a
+      zero-entry IFD, so the existing `jpeg_with_exif` fixture never exercised the risk DEC-084
+      names. Quantified one genuine flip: a scanned-document-shaped fixture with real orientation
+      EXIF goes `document`→lossless on `main` but `photograph`→lossy AVIF (SSIM 92.2 vs 100.0) on
+      this branch. DEC-084 already names this as an accepted, revisit-later tradeoff, so not
+      blocking, but should become its own fixture rather than staying open.
+      **Second new finding:** a real, repeatable ~40% total-time regression on large
+      (24 MP) few-colour/graphic inputs (484–507 ms vs 344–352 ms, isolated from encode/decode
+      cost) — `Analysis::compute` is an O(pixels) full-buffer scan now running on the source
+      instead of the post-resize buffer, contradicting `web`'s own "size-insensitive" help text
+      for the lossless-class path specifically (the lossy/AVIF path is unaffected — encode
+      dominates there). Full readout: `specs/prompts/SPEC-108-readouts.md`.
 
 - [ ] **ship** — not started. Emits a new DEC for "classify the source, not the pipeline
       output", which must record the measured refutation of the narrow alternative so it is
