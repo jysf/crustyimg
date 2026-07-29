@@ -4,7 +4,7 @@
 
 project:
   id: PROJ-010
-  status: proposed
+  status: active
   priority: critical
   target_ship: null
 
@@ -88,14 +88,14 @@ Two pre-launch stages (launch-gating), three post-launch stages (optional, per m
 
 ## Stage Plan
 
-- [ ] STAGE-034 (proposed) — **Classifier regression fix** (launch-gating). SPEC-108 the fix + cascade consistency; SPEC-109 evidence integrity. New stage.
-- [ ] STAGE-035 (proposed) — **Hostile/edge input confirmation pass** (launch-gating). SPEC-107, moved out of PROJ-008 STAGE-033 so a launch gate does not sit inside a post-launch stage. New stage.
+- [x] STAGE-034 (**shipped 2026-07-28**) — **Classifier regression fix** (launch-gating). SPEC-108 the fix + cascade consistency (DEC-084, PR #121); SPEC-109 evidence integrity (PR #114). The 18.5× blow-up is fixed on `main`. New stage.
+- [ ] STAGE-035 (**active**) — **Hostile/edge input confirmation pass** (launch-gating). SPEC-107, moved out of PROJ-008 STAGE-033 so a launch gate does not sit inside a post-launch stage. **Designed 2026-07-28**: the pass was driven at design and found a live defect (a truncated JPEG succeeds silently on `web`), so it is no longer verification-only. New stage.
 - [ ] STAGE-036 (proposed) — **Engineering quality and code health** (post-launch). The continuation of PROJ-008 STAGE-031 (which shipped 097/098/099 and closed there): the `escape_json` tail plus an unsourced candidate list to triage.
 - [ ] STAGE-037 (proposed) — **Post-launch CLI surface** (post-launch). SPEC-092 `convert --to` + social/archive recipes. Re-homed from PROJ-008 STAGE-032 by `git mv`, content unchanged.
 - [ ] STAGE-038 (proposed) — **Post-launch polish and repo housekeeping** (post-launch). SPEC-106 completions + six CI/DCO/size/tooling chores. Re-homed from PROJ-008 STAGE-033 by `git mv`, minus SPEC-107.
 - [ ] STAGE-039 (proposed) — **Shipped-verb correctness** (D-1/D-2 launch-gating, D-3 cheap). SPEC-110 `convert` orientation + sweep; SPEC-111 `build` runs bundled recipes; a doc chore. New stage, added 2026-07-26 from re-verified exploration findings. Shares no files with STAGE-034 and can run concurrently.
 
-**Count:** 0 shipped / 0 active / 6 pending
+**Count:** 1 shipped / 1 active / 4 pending
 
 **Launch-gating:** STAGE-034, STAGE-035, and D-1/D-2 within STAGE-039. Everything else is post-launch.
 

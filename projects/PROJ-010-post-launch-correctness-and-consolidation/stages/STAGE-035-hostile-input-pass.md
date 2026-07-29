@@ -5,7 +5,7 @@
 
 stage:
   id: STAGE-035
-  status: proposed
+  status: active
   priority: critical
   target_complete: null
 
@@ -88,8 +88,16 @@ Sequenced immediately after the classifier fix (STAGE-034), so the launch has bo
   browser-specific is whether the demo *surfaces* those errors clearly and how a phone behaves on the
   big ones — that part folds into the maintainer's mobile device test and stays on the launch board.
   Touches no engine source (verification only, unless it finds something). Complexity **S–M**.
+  **Designed 2026-07-28** — and it *did* find something, so "verification only" no longer holds:
+  a truncated JPEG succeeds **silently (exit 0, empty stderr)** on `info`/`web`/`resize`. The
+  spec now carries a small container-lane fix (warn on a missing `FF D9` end-of-image marker,
+  exit stays 0) alongside the harness. Complexity re-rated **M**. Four further findings are
+  recorded in the spec's Context: exit 4's doc row is narrower than its use (doc fix), the debug
+  profile leaks upstream `avif-parse` panic text while release is clean (recorded, not fixed),
+  the 60 MP RAW gate is **wasm-only** so the roster item was mis-aimed at native, and the
+  wasm half is already better covered than this stage assumed.
 
-**Count:** 0 shipped / 0 active / 1 pending
+**Count:** 0 shipped / 1 active / 0 pending
 
 > **Provenance.** SPEC-107 was framed in PROJ-008's STAGE-033 and its full detail is inlined above
 > rather than cross-referenced, because that stage moved here as STAGE-038 *without* SPEC-107 — a
