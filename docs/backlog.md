@@ -560,6 +560,35 @@ holds, needs to move, or needs a second discriminator. Cheap — it is measureme
 specimen restated as a property of the class. [[a-guards-advertised-reach-is-a-claim]]. Whatever
 number this work produces, record it as *"the maximum observed across corpus X"*, never as
 *"the ceiling"*.
+## Open question — are the 317 historical `estimated_usd` entries inflated? (2026-07-26)
+
+**Not urgent. Nothing has been run; this is a note, not a finding.**
+
+DEC-083 replaced the flat `tokens_total × list rate` cost rule with component pricing, after
+SPEC-109's build measured a **14× overstatement** (98.7% cache reads: $588 flat vs $43.21 by
+component). That fixes the method going forward. It says nothing about what is already recorded.
+
+**The corpus:** 317 non-zero `estimated_usd` entries across `projects/PROJ-*/specs/`, summing
+**$897.98**.
+
+**The question that decides everything:** did the `subagent_tokens` figure those entries were
+derived from **count cache reads**? If yes, they are inflated on the same order as SPEC-109's
+measurement and the real lifetime spend is a small fraction of $897.98. If it counted only
+non-cached tokens, they may be approximately right. **This has not been checked.**
+
+**Why it matters beyond bookkeeping:** spend-per-spec is a figure that reads as precise and
+gets repeated. It is exactly the kind of number that ends up in a launch post, a README, or a
+"what did this cost to build" note. Getting it wrong in public by an order of magnitude is
+worse than not quoting it.
+
+**Suggested order when picked up:**
+
+1. Establish what `subagent_tokens` counts — from the harness, not by inference.
+2. Only then decide between: restate (likely **impossible** — old cycles almost certainly did
+   not preserve a per-component breakdown), annotate the series with a dated methodology
+   divider, or leave it and stop quoting the aggregate.
+3. Whatever is chosen, `just cost-audit` needs no change — it checks presence, not method, and
+   will keep passing either way. That is not evidence the numbers agree.
 
 ## Classifier review findings NOT taken into PROJ-010 (2026-07-26)
 
