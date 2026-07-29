@@ -37,9 +37,12 @@ if present, for forward-compatibility.)
 - **design / ship cycles** are orchestrator main-loop work with no clean per-cycle
   metering — leave their numerics `null` with a "main-loop, not separately
   metered" note.
-- **`estimated_usd`** prices each token component separately at the model's list anchors
-  (Opus $5/$25, Sonnet $3/$15 per MTok), with the standard cache multipliers —
-  `cache_creation` ×1.25 input, `cache_read` ×0.10 input. Record which anchors were used.
+- **`estimated_usd`** prices each token component separately at the list anchors of **the model
+  that actually ran** — the one recorded in `agent`, read from `.message.model` in the cycle's own
+  transcript, **not** the one a prompt happens to name (Opus $5/$25, Sonnet $3/$15 per MTok) —
+  with the standard cache multipliers: `cache_creation` ×1.25 input, `cache_read` ×0.10 input.
+  Record which anchors were used, next to the agent. ⚠ This mismatch has already cost one spec a
+  ~67% overstatement (DEC-083's 2026-07-28 amendment).
 
   **The flat `tokens_total × list rate` rule this document used to give was withdrawn on
   2026-07-26 (DEC-083).** It assumed cache reads were absent or negligible. On a long

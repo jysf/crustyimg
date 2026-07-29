@@ -95,10 +95,11 @@ reference: `docs/cost-tracking.md`.)
 - **design / ship cycles** are orchestrator main-loop work with no clean
   per-cycle metering — leave numerics `null` with a "main-loop, not
   separately metered" note.
-- **`estimated_usd`** prices each token component separately at the model's
-  list anchors (Opus $5/$25, Sonnet $3/$15 per MTok) with the standard cache
+- **`estimated_usd`** prices each token component separately at the list anchors
+  of **the model that actually ran** — the one in `agent`, not the one a prompt
+  names (Opus $5/$25, Sonnet $3/$15 per MTok) — with the standard cache
   multipliers: `cache_creation` ×1.25 input, `cache_read` ×0.10 input. Record
-  the rate anchors used. **Do not apply a flat rate to `tokens_total`** — on a
+  the rate anchors used, next to the agent. **Do not apply a flat rate to `tokens_total`** — on a
   long agentic cycle, cache reads dominate volume and a flat rate overstates
   by more than an order of magnitude (measured: SPEC-109's build, 98.7% cache
   reads, $588 flat vs $43.21 by component). See DEC-083.
