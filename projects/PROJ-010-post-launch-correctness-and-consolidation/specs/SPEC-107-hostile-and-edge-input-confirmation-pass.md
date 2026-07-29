@@ -20,7 +20,11 @@ repo:
 
 agents:
   architect: claude-opus-5
-  implementer: claude-opus-5       # usually same Claude, different session
+  implementer: claude-sonnet-5     # build on Sonnet: the framing is tight and names
+                                   # the crux (11 AC, 13 pre-written tests, F1 decided).
+                                   # Verify stays on Opus. Sonnet's known weakness is
+                                   # mechanical-sweep thoroughness, which AC-3 defuses
+                                   # by making the harness enumerate the corpus itself.
   created_at: 2026-07-28
 
 references:
