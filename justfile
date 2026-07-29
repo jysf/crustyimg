@@ -503,6 +503,24 @@ report-daily:
 report-weekly DATE="":
     @./scripts/report_weekly.sh "{{DATE}}"
 
+# Whole-repo, all-time data report: every project, stage, spec, decision and
+# release since the first commit. Deterministic and LLM-free.
+lifetime-data:
+    @./scripts/lifetime-report.sh data
+
+# The same lifetime data wrapped in a synthesis prompt, for an LLM to turn into
+# a narrative arc. Pipe it: `just lifetime-report | pbcopy`.
+lifetime-report:
+    @./scripts/lifetime-report.sh prompt
+
+# Save the lifetime DATA report to reports/lifetime/YYYY-MM-DD-HHMMSS.md.
+# Timestamped to the second so repeated runs on one day never overwrite.
+lifetime-save:
+    @mkdir -p reports/lifetime
+    @S="$(date +%Y-%m-%d-%H%M%S)"; \
+        ./scripts/lifetime-report.sh data > "reports/lifetime/$S.md"; \
+        echo "✓ Wrote reports/lifetime/$S.md"
+
 # Capture today's `just status` output to reports/daily/YYYY-MM-DD-status.md.
 # Lighter than report-daily — a snapshot of current state with no curation.
 daily-status-report:
