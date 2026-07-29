@@ -5,7 +5,7 @@
 
 stage:
   id: STAGE-034
-  status: proposed
+  status: shipped
   priority: critical
   target_complete: null
 
@@ -15,7 +15,7 @@ repo:
   id: crustyimg
 
 created_at: 2026-07-26
-shipped_at: null
+shipped_at: 2026-07-28
 
 value_contribution:
   advances: >
@@ -123,7 +123,7 @@ already stands in that code** — they are not additions to the stage's shape:
 
 ## Spec Backlog
 
-- [ ] SPEC-108 (**design cycle complete 2026-07-26**) — **Classification placement and scale-aware entropy.** **Decision: classify the source image, not the pipeline output.** The narrow rule-4 gating alternative was evaluated as instructed and **measurably refuted** — see below. Also resolves the `DOC_ENTROPY_MAX` band, rule 6's reachability, `decide.rs:150`'s lossless fallback on the lean leg, and `--profile docs`. 9 acceptance criteria, 6 failing tests + the mutation control written at design.
+- [x] SPEC-108 (**shipped 2026-07-28, PR #121 `a8694fd`, 149,070,662 tokens / $103.69**) — **Classification placement.** `Analysis::compute` now runs on the decoded source before `pipeline.run`, so `--max` cannot change an image's content class. 9/9 ACs verified independently. Confirmed on merged `main`: the committed fixture measures `graphic-logo` / entropy 3.03 / 9 colours at **every** `--max` in {4096, 512, 256, 128} — identical features at every scale, the structural property rather than just the behavioural one. Also: rule 6 deleted as confirmed-dead, the `[4.0, 4.5)` band resolved, `--profile docs` given real behaviour, a lean-leg lossless fallback for promoted alpha, and a `has_alpha` correctness fix (it had been read from the always-RGBA post-pipeline buffer, so a plain JPEG reported `true`). Two accepted consequences, both measured and recorded in DEC-084: an EXIF-bearing document-shaped scan now routes lossy (quality 86.7–88.3 vs 100.0, for outputs 7.2–62.2% smaller), and large graphic/lossless inputs cost ~40% more.
 - [x] SPEC-109 (**shipped 2026-07-27, PR #114 `408b0f9`, 86,491,591 tokens / $60.97**) — **Evidence integrity.** Committed the two boundary specimens (independently seeded, measured outside the crate), tightened the calibration guard from a **(3.03, 6.07]** window to **(3.6414278, 4.5176096]**, repaired four diluted guard sites plus the two `iso_luma` fixtures, and corrected DEC-047's two false claims. **11/11 ACs verified independently.** The gate that mattered: `PHOTO_ENTROPY_STRONG = 5.5` left the analysis suite green at 52/52 before, and now goes **RED**; 3.2 goes red too. Deviations: a 32-colour dither rather than 16 (a 16-level dither of this repo's photos lands at 2.46–2.88, below the 3.03 already committed), and AC-8 un-gated the schema test rather than fixing the fork — root cause is a `has_alpha` disagreement, which is SPEC-108's AC-7.
 
 **Sequencing decision (2026-07-26): SPEC-109 → SPEC-108.** Today `PHOTO_ENTROPY_STRONG = 5.5` leaves `cargo test --release --lib analysis` green at 52/52. Building the fix first would mean proving it with a guard that has never been shown to move. SPEC-109 is fixtures and guards only, so nothing in it can be invalidated by SPEC-108's placement change.
@@ -155,7 +155,7 @@ it could have shipped having touched only the first one:
 5. `tests/audit_bench.rs:171` — the `#[cfg(feature = "avif")]`-silenced schema test (the gate was a silencer, not a fix; the lean leg is CI's only no-AVIF leg).
 6. `src/analysis/mod.rs:1014` / `:1060` — the two `iso_luma` fixtures and their wrong comments.
 
-**Count:** 1 shipped (SPEC-109) / 0 active / 1 pending (SPEC-108, design complete, build prompt ready)
+**Count:** 2 shipped (SPEC-108, SPEC-109) / 0 active / 0 pending — **stage complete**
 
 ## Design Notes
 
