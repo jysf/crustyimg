@@ -482,11 +482,45 @@ words inside my own doc comment.
 
 ## Reflection (Ship)
 
+Shipped 2026-07-27 as `408b0f9` (PR #114). 11/11 ACs verified independently.
+
 1. **What would I do differently next time?**
-   — <answer>
+   — **Derive the specimen from arithmetic at design, not from an unverified figure in a
+   decision record.** This spec asked for a "3.43 16-colour dither" because DEC-047 cited one.
+   The build showed a 16-level dither of this repo's photographs lands at 2.46–2.88 — below the
+   3.03 already committed — so the specimen could not do the job it was named for. Quantising to
+   L levels costs ≈ `log2(256/L)` bits; that is one line of arithmetic I could have done while
+   writing the spec, and it would have specified 32 levels from the start. The DEC's number was
+   inherited rather than checked, which is the exact failure this spec existed to correct.
+   — **The 7.0 control was the build's idea, not the spec's, and it should have been mine.** The
+   prompt asked for 4.0 / 5.5 / 3.2. Without a value that *must* fail, "green at 5.5 before" is
+   indistinguishable from an edit that never got compiled. Every mutation table should carry a
+   must-fail arm from now on.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — **Yes, and it is already in flight.** `AGENTS.md` §4's flat cost formula overstates a
+   cache-heavy cycle by ~14× (measured twice here: build 98.7% cache reads, $588 flat vs $43.21
+   by component; verify 96.3%, $190.37 vs $17.76). More seriously,
+   `projects/_templates/prompts/cost-snippet.md` told the cycle to leave `tokens_total` null for
+   the orchestrator to fill from `subagent_tokens` — which an interactive cycle does not have,
+   while `cost-audit` rejects a null at ship. **Inventing a number was the only compliant
+   path**, and that is what happened before it was caught. Fix and rationale are **DEC-083** on
+   branch `chore/cost-measurement-methodology`, unmerged as of this ship.
+   — **DEC-047 needed a third correction, made during this spec's own life.** Its revised
+   "≤3.64 counting dithers-of-photos" was this spec's specimen value restated as a class
+   ceiling; the same recipe on the Canon frame gives 3.8396. A value measured from one specimen
+   presented as a property of the class — while fixing that same error. Worth carrying as a
+   standing caution, not just a corrected line.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — **Two, both filed rather than left in a head.**
+   (a) **Establish the real entropy ceiling of dithers-of-photos** — `docs/backlog.md`. Two
+   frames is not a corpus, the margin to 4.0 is 0.16 bits, and if any such image clears the
+   threshold then SPEC-108's placement fix does not save it. Neither STAGE-034 spec may retune
+   thresholds, so it has no home.
+   (b) **Restore default-leg cross-verb schema coverage for a `Lossy` source.** AC-8 un-gated
+   `json_shape_consistent_across_verbs` rather than fixing the fork, and moving its source from
+   a `Lossy`-bucket photo to a `LosslessFlat` graphic gained lean-leg coverage at the cost of
+   default-leg coverage. The root cause is a `has_alpha` disagreement — **not** the "unscored
+   JPEG winner" its comment claimed — and the fix is SPEC-108's AC-7. Recorded in SPEC-108's
+   Implementation Context so it is checked there rather than forgotten.
