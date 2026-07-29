@@ -7,7 +7,7 @@
 task:
   id: SPEC-108
   type: bug                        # epic | story | task | bug | chore
-  cycle: design                    # frame | design | build | verify | ship
+  cycle: ship                      # frame | design | build | verify | ship
   blocked: false
   priority: critical
   complexity: M                    # S | M | L  (L means split it)
@@ -48,10 +48,58 @@ cost:
         Un-metered main-loop design cycle. Included one release build and four
         instrumented `web --json` runs against the committed fixture.
       estimated_usd: null
+    - cycle: build
+      agent: claude-sonnet-5
+      interface: claude-code
+      tokens_total: 103470877
+      duration_minutes: 122
+      recorded_at: 2026-07-27
+      tokens_breakdown:
+        input: 872
+        output: 443266
+        cache_creation: 1294354
+        cache_read: 101732385
+      estimated_usd: 70.04
+      note: >
+        MEASURED from the cycle's own transcript (397 assistant messages), per
+        DEC-083. ⚠ ANCHOR MISMATCH, recorded rather than silently resolved: the
+        figure is priced at the OPUS anchors ($5/$25 per MTok) the build prompt
+        named, but `agent` is claude-sonnet-5. At Sonnet anchors ($3/$15) the
+        same token counts give ~$42.03. The token counts are the reliable half;
+        the dollar figure is high by ~67% if Sonnet is the correct attribution.
+        See the note on totals.
+    - cycle: verify
+      agent: claude-sonnet-5
+      interface: claude-code
+      tokens_total: 45599785
+      duration_minutes: 555
+      recorded_at: 2026-07-28
+      tokens_breakdown:
+        input: 550
+        output: 198117
+        cache_creation: 1043030
+        cache_read: 44358088
+      estimated_usd: 33.65
+      note: >
+        MEASURED from the cycle's own transcript (275 assistant messages), per
+        DEC-083. Same anchor mismatch as the build entry — Opus anchors against a
+        claude-sonnet-5 attribution; Sonnet anchors give ~$20.19. Covers both the
+        full verify cycle and the focused re-verify of the orchestrator's
+        follow-up commit.
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 1
+    tokens_total: 149070662
+    estimated_usd: 103.69
+    session_count: 3
+    note: >
+      ⚠ `estimated_usd` here sums two entries priced at Opus anchors against a
+      claude-sonnet-5 attribution. If Sonnet is correct the total is ~$62.22, not
+      $103.69. Recorded as reported rather than silently re-priced, because the
+      right fix is for DEC-083 to say which model's anchors apply — it currently
+      names anchors without tying them to the `agent` field. Filed as a follow-up
+      on PR #122.
+      Separately: `tokens_total` sums per-message `cache_read`, which re-counts
+      the same cached prefix once per message (~98% of volume here). It is a
+      faithful sum of the usage records and NOT a measure of distinct work.
 ---
 
 # SPEC-108: classification placement and scale-aware entropy
@@ -397,11 +445,47 @@ found bear directly on the build:
 
 ## Reflection (Ship)
 
+Shipped 2026-07-28 as `a8694fd` (PR #121). 9/9 ACs verified independently. Confirmed on merged
+`main`: the committed fixture now measures `graphic-logo`, entropy 3.03, 9 colours at **every**
+`--max` in {4096, 512, 256, 128} — identical features at every scale, which is the structural
+property, not just the behavioural one. The 18.5× blow-up is gone from the default path.
+
 1. **What would I do differently next time?**
-   — <answer>
+   — **The code was never the risky part; the prose was.** The build and both verify cycles found
+   the implementation sound. What needed correcting twice was documentation *I* wrote as
+   orchestrator: a test comment describing an assertion as testing something it does not, and a
+   "near-identical size … no benefit … strict regression" framing drawn from an uncommitted fixture
+   whose figure cannot be re-derived from this repo. Both would have misled the next reader of
+   DEC-084 — the second one into thinking the EXIF trade was a pure loss when the branch is
+   actually 7.2–62.2% smaller. Prose asserting measurements needs the same "can this be
+   re-derived?" test as a guard needs a negative control.
+   — **I did build-cycle work in the orchestrator seat.** Acting on verify's findings, I wrote
+   ~150 lines of test code, a fixture generator and a helper refactor directly, rather than
+   dispatching a cycle. It also meant I shipped a test I had never proved could fail — the focused
+   re-verify had to drive it red four ways after the fact. If it is code, it belongs in a build
+   cycle.
+   — **The `--max 128` row nearly fooled the design.** It returned `icon` → lossless, which reads
+   as a pass and is the Icon rule firing on size. Every prompt in this stage carried that warning
+   because it was so nearly missed at design time.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — **DEC-083 needs one more clause: which model's anchors apply.** It names Opus and Sonnet rates
+   but does not tie them to the `agent` field, so both metered cycles here were priced at Opus
+   anchors against a `claude-sonnet-5` attribution — inflating the recorded total from ~$62 to
+   ~$104. Recorded in the cost block rather than silently re-priced; filed on PR #122.
+   — **`tokens_total` is not a measure of work and the schema should say so.** It sums per-message
+   `cache_read`, which re-counts the same cached prefix once per message — ~98% of volume on these
+   cycles. Faithful to the usage records, misleading as an effort figure.
+   — **`jpeg_with_exif` cannot express the case its name implies** (zero-entry IFD → `AutoOrient`
+   no-ops). Any test relying on it for EXIF behaviour is weaker than it reads. Recorded in DEC-084;
+   worth a sweep of its other callers.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — **Two, both filed rather than left in a head.** (a) Bound classification cost by sampling the
+   *source* — `docs/backlog.md`, with the measured ~40% regression on large graphic/lossless inputs
+   and the open question that decides the design (striding changes entropy, so the boundary
+   specimens need re-checking). (b) The dither-of-photo entropy ceiling, still nobody's work, now
+   more relevant since placement classifies natives on their own entropy.
+   — **Not a spec but worth noting:** the new EXIF test runs **53.6 s standing alone** against a
+   99.5 s `tests/cli.rs` suite — plausibly the critical path on AVIF-enabled legs now. That belongs
+   with STAGE-036's test-speed work, where two binaries already carry 94% of the runtime.

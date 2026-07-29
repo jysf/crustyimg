@@ -67,6 +67,16 @@ Cycle prompts live in `prompts/SPEC-108-<cycle>.md`.
       for the lossless-class path specifically (the lossy/AVIF path is unaffected — encode
       dominates there). Full readout: `specs/prompts/SPEC-108-readouts.md`.
 
-- [ ] **ship** — not started. Emits a new DEC for "classify the source, not the pipeline
-      output", which must record the measured refutation of the narrow alternative so it is
-      not re-proposed.
+- [x] **ship** — 2026-07-28, merged as `a8694fd` (PR #121, squash). Emitted **DEC-084**
+      recording the placement decision and the measured refutation of the narrow alternative,
+      so it is not re-proposed. Two post-verify commits landed on the branch before merge:
+      `6bde4b8` pinned the accepted EXIF trade with a fixture and corrected `web`'s
+      size-insensitivity claim; `e0579eb` corrected two claims a focused re-verify falsified
+      in that commit — a mislabelled assertion comment, and a "no benefit" framing drawn from
+      an uncommitted fixture. Confirmed on merged `main`: the committed fixture measures
+      `graphic-logo` / entropy 3.03 / 9 colours at every `--max` in {4096, 512, 256, 128}.
+      Cost totals: **149,070,662 tokens / $103.69** across 3 sessions (design un-metered;
+      build 103,470,877; verify 45,599,785) — see the spec's cost note for the Opus-vs-Sonnet
+      anchor mismatch, which likely overstates the dollar figure by ~67%. Archived to
+      `specs/done/` by hand with `git mv`, since `just archive-spec` mis-targets
+      `specs/prompts/*.md`.
