@@ -160,35 +160,35 @@ content class — and leave the cascade with no unreachable rule behind.
 
 ## Acceptance Criteria
 
-- [ ] **AC-1.** `tests/fixtures/classify/dithered_graphic.png` classifies `graphic-logo` and
+- [x] **AC-1.** `tests/fixtures/classify/dithered_graphic.png` classifies `graphic-logo` and
       takes a lossless disposition at **every** `--max` in {4096, 512, 256, 128} — the exact
       set measured above, so the fix is checked at the two sizes that currently break (256)
       and that currently pass for the wrong reason (128, rescued by the Icon rule).
-- [ ] **AC-2.** The reported `features` block for a given input is **identical across
+- [x] **AC-2.** The reported `features` block for a given input is **identical across
       `--max` values**, because it now describes the source. This is the structural
       assertion; AC-1 is the behavioural one.
-- [ ] **AC-3.** The 1-bit halftone boundary specimen (committed by SPEC-109) produces a
+- [x] **AC-3.** The 1-bit halftone boundary specimen (committed by SPEC-109) produces a
       lossless or smaller-lossy output through default `web`, not an 18.5× lossy AVIF.
       `larger_than_source` is false.
-- [ ] **AC-4.** A real photograph still classifies `photograph` and routes lossy at every
+- [x] **AC-4.** A real photograph still classifies `photograph` and routes lossy at every
       `--max` — the fix must not trade this defect for its mirror image. Use the committed
       `color_photo_fuji.png` and `grayscale_photo_leica.png`.
-- [ ] **AC-5.** The `[4.0, 4.5)` contradiction band is resolved: `DOC_ENTROPY_MAX` (4.5)
+- [x] **AC-5.** The `[4.0, 4.5)` contradiction band is resolved: `DOC_ENTROPY_MAX` (4.5)
       must no longer exceed `PHOTO_ENTROPY_STRONG` (4.0), or the ordering dependency must be
       documented at the site and covered by a test. A halftone scan at entropy 4.2 with
       `bimodality ≈ 0.30` must not reach `Photograph`.
-- [ ] **AC-6.** Rule 6 (`src/analysis/mod.rs:625`) is **either reachable or deleted**, and
+- [x] **AC-6.** Rule 6 (`src/analysis/mod.rs:625`) is **either reachable or deleted**, and
       `PHOTO_ENTROPY` / `PHOTO_FLAT_MAX` are correspondingly live or gone. No inert
       constants remain. Deleting is an acceptable outcome and probably the right one —
       but say which was chosen and why in the DEC.
-- [ ] **AC-7.** On the lean leg (`--no-default-features`), a promoted photograph **with
+- [x] **AC-7.** On the lean leg (`--no-default-features`), a promoted photograph **with
       alpha** does not ship a PNG blow-up (`src/analysis/decide.rs:150`). This is a
       precondition check on our own change: the finding is conditional on the pipeline being
       altered, and this spec alters it.
-- [ ] **AC-8.** `--profile docs` has a decided, tested behaviour for a promoted image.
+- [x] **AC-8.** `--profile docs` has a decided, tested behaviour for a promoted image.
       There is currently no `(Profile::Docs, OptBucket::Lossy)` arm and **no `--profile
       docs` test in `tests/cli.rs` at all**. Decide the behaviour, then test it.
-- [ ] **AC-9.** Clean **full-matrix** green: default, `--no-default-features`,
+- [x] **AC-9.** Clean **full-matrix** green: default, `--no-default-features`,
       `--features webp-lossy`; `clippy -D warnings` on each; `fmt --check`. Confirm the log
       says `Compiling crustyimg` — an incremental build false-greens here and cost this repo
       about a day on SPEC-105. [[a-stale-incremental-build-is-a-false-green]]
@@ -325,26 +325,73 @@ found bear directly on the build:
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
+- **Branch:** `spec-108-classify-the-source-image`
+- **PR (if applicable):** not opened (maintainer's call, per repo guardrails)
+- **All acceptance criteria met?** yes — AC-1 through AC-9, all verified (see per-AC checkboxes
+  above and the timeline's build entry for detail).
 - **New decisions emitted:**
-  - `DEC-NNN` — classify the source image, not the pipeline output
+  - `DEC-084` — classify the source image, not the pipeline output (also records the AC-5/6/7/8
+    sub-decisions and the measured refutation of the narrow alternative). Numbered 084, not the
+    next-looking 083: DEC-083 is reserved on the unmerged `chore/cost-measurement-methodology`
+    branch per the build prompt's cost section, so 084 avoids a future collision.
 - **Deviations from spec:**
-  - [list]
+  - AC-5's contradiction-band fix touches `classify()`'s cascade structure (splits rule 3.5 into
+    an unconditional zone and a contested zone that reuses rule 4's own conditions) rather than
+    only "documenting the ordering dependency" — the spec offered that as one of two options, but
+    it would not have satisfied the AC's own literal test case (a halftone scan at entropy 4.2 /
+    bimodality ≈0.30 fails Document's bimodality gate regardless of where `DOC_ENTROPY_MAX` sits,
+    so a comment-only fix could not make the AC's test pass). Reasoning and the measured safety
+    argument (no committed fixture falls in the contested band) are in DEC-084.
+  - Found and fixed a second, related bug en route to AC-2: `has_alpha` was read from the
+    post-pipeline buffer (always internally RGBA) rather than the source, so a plain JPEG — which
+    never has a real alpha channel — reported `has_alpha: true`. This is the same root cause
+    SPEC-109 identified as "SPEC-108's to fix" for the `optimize`/`web` cross-verb `has_alpha`
+    disagreement (its own comment in `tests/audit_bench.rs`). Fixing it (required by AC-2's own
+    text: the features block "now describes the source") also required updating three pre-existing
+    tests (`non_json_output_unchanged`, `web_output_larger_than_original_is_surfaced`,
+    `web_larger_than_original_noted_on_default_channel`) whose fixtures had unknowingly depended on
+    the incorrect `has_alpha: true` to construct a "no lossy candidate available" reproduction on
+    the lean leg. Not listed as a numbered AC because it surfaced during implementation, not design
+    — but it is in scope of AC-2/AC-7 and recorded here rather than silently folded in.
+  - AC-3 has no separate named test in the spec's Failing Tests list; added
+    `boundary_specimen_stays_lossless_or_smaller_through_default_web` to cover it directly (it
+    passes both before and after the fix — the specimen's native size is well under `web`'s default
+    downscale bound, so it is a regression guard, not a red-to-green test, same status as AC-4's
+    mirror guard).
 - **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - A concurrent `cargo test` invocation with a different `--features`/`--no-default-features` set
+    against a *shared* `CARGO_TARGET_DIR` can corrupt the resulting binary (observed directly: a
+    lean-leg run picked up AVIF-enabled artifacts from a concurrently-running default-feature
+    build, and every AVIF-must-be-absent test failed as a result). Worth a memory/lesson entry —
+    the existing "fresh CARGO_TARGET_DIR" guidance is about *incremental* staleness; this is a
+    *concurrency* hazard on top of it, distinct enough to bite someone who dutifully uses a fresh
+    target dir per leg but runs the legs in parallel against the same one.
+  - `docs/backlog.md`'s dither-of-photo entropy ceiling item is still open and still gates how much
+    headroom AC-5's contested band actually has in the wild (no committed fixture measures inside
+    it, but nothing rules a real one out).
 
 ### Build-phase reflection (3 questions, short answers)
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — AC-5's "or" framing (retune `DOC_ENTROPY_MAX`, or document + test) reads as two independent
+   options, but the spec's own out-of-scope note ("the numbers stay") rules out the first, and the
+   literal test case it names (bimodality ≈0.30) cannot be satisfied by documentation alone. Working
+   out that the real requirement was a third thing — a structural cascade change reusing existing,
+   unretouched constants — took the most reasoning of any single AC.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — The `has_alpha` post-pipeline-vs-source bug (see Deviations) wasn't named anywhere, but it's a
+   direct structural consequence of the same class of defect this spec exists to fix (a feature
+   read from the wrong buffer) and it was hiding behind AC-7's fixture. A pointer in AC-2 or the
+   traps section — "has_alpha has the same placement question as everything else Analysis reads" —
+   would have saved the detour of tracing three test regressions back to one root cause.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Run the three feature-leg full-matrix verifies in fully isolated `CARGO_TARGET_DIR`s from the
+   start, sequentially or with distinct dirs, rather than launching them concurrently against one
+   shared dir and discovering the corruption after the fact. The spec's "fresh CARGO_TARGET_DIR"
+   instruction was about incremental staleness; I read it too narrowly and only isolated after a
+   run failed for the wrong reason.
 
 ---
 

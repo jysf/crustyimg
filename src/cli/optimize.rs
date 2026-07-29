@@ -986,6 +986,26 @@ fn optimize_decide_one(
     let source_info = img.info();
     let source_dims = (source_info.width, source_info.height);
     let source_had_metadata = source_info.has_exif || source_info.has_icc;
+    let has_alpha = source_info.has_alpha;
+
+    // Compute the analysis verdict from the SOURCE image, before the pipeline
+    // resizes it (SPEC-108, DEC-084): classification must describe the image the
+    // user actually gave us — `--max` cannot be allowed to change an image's
+    // content class, and a resized buffer's entropy is a resampling artifact, not
+    // content. On a degenerate source (no verdict) pass it through unchanged
+    // rather than guessing (no trace to explain) — checked before running the
+    // pipeline, since a zero-area source stays zero-area after any resize.
+    let analysis = match crate::analysis::Analysis::compute(&img) {
+        Ok(a) => a,
+        Err(_) => {
+            let output = OptimizeOutput::Passthrough {
+                raw,
+                ext: metadata_output_ext(input, &[]),
+            };
+            return Ok((output, None, None));
+        }
+    };
+
     let out_img = pipeline.run(img)?;
 
     // Did the pipeline alter the image in a way that makes the RAW source an invalid
@@ -1007,20 +1027,6 @@ fn optimize_decide_one(
         AutoQuality::Perceptual(_) => Mode::Perceptual,
         AutoQuality::SizeBudget(_) => Mode::SizeBudget,
     };
-
-    // Compute the analysis verdict; on a degenerate image (no verdict) pass the
-    // source through unchanged rather than guessing (no trace to explain).
-    let analysis = match crate::analysis::Analysis::compute(&out_img) {
-        Ok(a) => a,
-        Err(_) => {
-            let output = OptimizeOutput::Passthrough {
-                raw,
-                ext: metadata_output_ext(input, &[]),
-            };
-            return Ok((output, None, None));
-        }
-    };
-    let has_alpha = out_info.has_alpha;
 
     let shortlist =
         decide::format_shortlist(analysis.opt_bucket(), has_alpha, profile, mode, built);

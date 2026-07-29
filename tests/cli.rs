@@ -4049,6 +4049,88 @@ fn optimize_verify_reports_score() {
     );
 }
 
+/// SPEC-108: a document-shaped scan carrying a REAL orientation tag classifies
+/// `photograph`, not `document` — the accepted consequence of classifying the
+/// source image.
+///
+/// This is a **recorded decision, not a latent bug**. Classifying pre-pipeline
+/// means rule 2's decisive EXIF prior (DEC-047) is now visible where the old
+/// post-pipeline analysis never saw it: `AutoOrient` drops the metadata bundle,
+/// so `has_exif` was always false by the time the classifier ran. The prior
+/// firing is the designed behaviour; what changed is that `web` finally reaches
+/// it.
+///
+/// Measured cost on **this fixture** (`scan_jpeg(1200, 1600)` + orientation 6,
+/// 78,670 B): this branch ships a lossy AVIF at 6,261 B / SSIMULACRA2 **88.3**;
+/// the pre-SPEC-108 build shipped a lossless WebP at 6,748 B / **100.0**.
+///
+/// So the trade is **real quality loss in exchange for a real size win** — 7.2%
+/// here, and 46.6% / 62.2% on two other document sources measured alongside it
+/// (on one of which the *old* lossless path shipped 49% **larger than source**).
+/// It is a trade, not a strict loss. Accepted because reordering the cascade is
+/// out of SPEC-108's scope; if it is ever revisited, this test is what must
+/// change, and DEC-084 records the reasoning.
+///
+/// **Why a bespoke fixture.** The suite's `jpeg_with_exif` carries a ZERO-ENTRY
+/// IFD, and `orientation_from_exif_segment` returns `None` for it, so
+/// `AutoOrient` no-ops and metadata survives the pipeline either way — that
+/// fixture cannot express this case despite its name. Orientation 1 is a no-op
+/// for the same reason. Only a genuine non-identity tag reproduces it.
+#[test]
+fn scan_with_real_orientation_tag_classifies_photograph() {
+    fn class_of(dir: &tempfile::TempDir, name: &str, bytes: &[u8]) -> String {
+        let in_path = write_bytes(dir, name, bytes);
+        let out = Command::new(BIN)
+            .args([
+                "optimize",
+                in_path.to_str().unwrap(),
+                "--out-dir",
+                dir.path().join(format!("out_{name}")).to_str().unwrap(),
+                "--explain=json",
+            ])
+            .output()
+            .unwrap();
+        assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr_str(&out));
+        stdout_str(&out)
+    }
+
+    let dir = tempfile::tempdir().unwrap();
+    let scan = common::scan_jpeg(1200, 1600);
+
+    // CONTROL. Without EXIF the same pixels must reach the Document rule. If
+    // this fails the fixture is not document-shaped and the assertion below is
+    // vacuous — it would pass for a reason that has nothing to do with EXIF.
+    let plain = class_of(&dir, "scan_plain.jpg", &scan);
+    assert!(
+        plain.contains("\"class\":\"document\""),
+        "control failed: the scan fixture must classify as a document without EXIF, got: {plain}"
+    );
+
+    // The accepted flip: a real orientation tag routes it to rule 2 instead.
+    let tagged = common::wrap_with_orientation_app1(&scan, 6);
+    let flipped = class_of(&dir, "scan_orient6.jpg", &tagged);
+    assert!(
+        flipped.contains("\"class\":\"photograph\""),
+        "a scan with a real orientation tag reaches rule 2's EXIF prior: {flipped}"
+    );
+
+    // Sanity only: the suite's zero-entry gradient fixture is not document-shaped,
+    // which is why it could never have exercised the case above.
+    //
+    // It does NOT test the zero-entry IFD's effect on classification, and must not
+    // be read as doing so — this assertion is sensitive to document-shapedness and
+    // insensitive to EXIF, and a single-binary test cannot observe a pre/post delta
+    // anyway. For the record, measured separately: splicing a zero-entry APP1 onto
+    // this scan gives `has_exif: true` → `photograph` on BOTH builds — no delta,
+    // which is exactly why DEC-084's argument rests on the non-identity tag.
+    let zero_entry = common::jpeg_with_exif(64, 64);
+    let ze = class_of(&dir, "zero_entry.jpg", &zero_entry);
+    assert!(
+        !ze.contains("\"class\":\"document\""),
+        "sanity: the zero-entry gradient fixture is not document-shaped: {ze}"
+    );
+}
+
 /// SPEC-105: a real EXIF-stripped grayscale photograph (≤256 RGB colours, so it
 /// tripped the ≤256-colour palette gate → `graphic-logo` → 13× oversized lossless
 /// WebP) now classifies as `photograph` and re-encodes to a **lossy AVIF**, not a
@@ -4940,30 +5022,32 @@ fn web_reads_raw_input() {
 
 // ── SPEC-090: reconcile `web`'s never-bigger claim with its baseline (DEC-075) ──
 
-/// The spec's central case: an already-small, heavily-compressed source ABOVE the
-/// downscale bound comes back LARGER than the ORIGINAL — `web` honors the dimension
-/// request (its contract), so it cannot also promise "never bigger". The output is
-/// shipped, and the fact is SURFACED, never hidden: an explicit `larger_than_source`
-/// flag in the `--json` audit report AND a `note:` on stderr, with savings read
-/// honestly as "N% larger" (SPEC-084 not regressed).
+/// The spec's central case: `web` must re-encode (ICC forces a strip, DEC-017) an
+/// already near-optimally-compressed source, and the re-encode comes back LARGER
+/// than the ORIGINAL — `web` cannot ship the raw source (it would leak the ICC
+/// profile) and it cannot also promise "never bigger" once nothing beats it. The
+/// output is shipped, and the fact is SURFACED, never hidden: an explicit
+/// `larger_than_source` flag in the `--json` audit report AND a `note:` on stderr,
+/// with savings read honestly as "N% larger" (SPEC-084 not regressed).
 ///
 /// Gated to the **lossless-only** codec build (`not(any(avif, webp-lossy))`): the
-/// case only exists when NO lossy encoder can beat the tiny downscaled source. The
-/// DEFAULT `cargo test` codec set re-encodes as lossless-WebP/PNG (~2 s) and the
-/// downscale exceeds the source; add any lossy encoder — `avif` (minutes-slow debug
-/// encode) or `webp-lossy` (crushes the 512px downscale well under the source) — and
-/// the output shrinks, so the reproduction no longer holds. The signal itself is
-/// codec-independent (a byte comparison) and is unit-tested in `analysis::decide` for
-/// every feature build (`larger_than_source_flag_only_when_output_exceeds_source`).
+/// case only exists when NO lossy encoder can beat the tiny source. On this leg a
+/// JPEG source (`has_alpha` correctly `false`, SPEC-108/DEC-084) shortlists a single
+/// fixed-quality JPEG re-encode with no search — enough headroom loss on an already
+/// simple, small image to land larger. Add any lossy encoder built for real search
+/// (`avif`, `webp-lossy`) and it beats the source, so the reproduction no longer
+/// holds. The signal itself is codec-independent (a byte comparison) and is
+/// unit-tested in `analysis::decide` for every feature build
+/// (`larger_than_source_flag_only_when_output_exceeds_source`).
 #[cfg(not(any(feature = "avif", feature = "webp-lossy")))]
 #[test]
 fn web_output_larger_than_original_is_surfaced() {
     let dir = tempfile::tempdir().unwrap();
-    // A detailed LOSSY JPEG (+ICC) at 2200×1467 (> the 2048 default): tiny for its
-    // dimensions, yet the downscaled re-encode cannot beat it. `--max 512` keeps the
-    // debug re-encode quick without changing the mechanism (a downscale to a
-    // dimension bound of an already-small large-dimension source).
-    let src = common::detailed_jpeg_with_icc(2200, 1467);
+    // A small, simple, already near-optimally-compressed JPEG carrying an ICC
+    // profile: `web` must strip it (DEC-017), and the fixed-quality re-encode this
+    // leg's lossless-only shortlist falls back to (no lossy codec is built) has no
+    // room to beat a source this close to optimal already.
+    let src = common::jpeg_with_icc(&common::gradient_jpeg(200, 150));
     let in_path = write_bytes(&dir, "tiny_big.jpg", &src);
     let out_dir = dir.path().join("out");
 
@@ -4971,8 +5055,6 @@ fn web_output_larger_than_original_is_surfaced() {
         .args([
             "web",
             in_path.to_str().unwrap(),
-            "--max",
-            "512",
             "--out-dir",
             out_dir.to_str().unwrap(),
             "--json",
@@ -5019,12 +5101,13 @@ fn web_output_larger_than_original_is_surfaced() {
 /// The default channel (no `--json`) also surfaces the larger case: the one-line
 /// summary reads "N% larger" (SPEC-084) AND the explicit `note:` follows. Gated to
 /// the lossless-only codec build (`not(any(avif, webp-lossy))`) for the same reason
-/// as above — any lossy encoder beats the tiny downscale, so the case disappears.
+/// as above — any lossy encoder built for real search beats the tiny source, so the
+/// case disappears.
 #[cfg(not(any(feature = "avif", feature = "webp-lossy")))]
 #[test]
 fn web_larger_than_original_noted_on_default_channel() {
     let dir = tempfile::tempdir().unwrap();
-    let src = common::detailed_jpeg_with_icc(2200, 1467);
+    let src = common::jpeg_with_icc(&common::gradient_jpeg(200, 150));
     let in_path = write_bytes(&dir, "tiny_big.jpg", &src);
     let out_dir = dir.path().join("out");
 
@@ -5032,8 +5115,6 @@ fn web_larger_than_original_noted_on_default_channel() {
         .args([
             "web",
             in_path.to_str().unwrap(),
-            "--max",
-            "512",
             "--out-dir",
             out_dir.to_str().unwrap(),
         ])
@@ -5431,5 +5512,286 @@ fn watch_on_non_build_subcommand_is_usage_error() {
     assert!(
         !out.exists(),
         "a rejected --watch run must not have executed the command"
+    );
+}
+
+// ── SPEC-108: classify the source image, not the resize output ────────────────
+
+/// AC-1: the committed dithered/halftone fixture stays `graphic-logo` (and takes
+/// a lossless disposition) at every `--max` — not just the sizes where the old
+/// post-resize classifier happened to agree. `--max 256` was the headline defect
+/// (post-resize entropy crossed into `photograph`, an 18.5× lossy AVIF); `--max
+/// 128` is the trap — it returns `icon` (lossless too, but via the Icon rule
+/// firing on SIZE, not because the classifier read the content correctly), so
+/// the class is asserted explicitly rather than just "lossless".
+#[test]
+fn dithered_graphic_stays_graphic_at_every_max() {
+    const FIXTURE: &[u8] = include_bytes!("fixtures/classify/dithered_graphic.png");
+    let dir = tempfile::tempdir().unwrap();
+    let in_path = write_bytes(&dir, "dithered_graphic.png", FIXTURE);
+
+    for (i, max) in [4096, 512, 256, 128].into_iter().enumerate() {
+        let out = Command::new(BIN)
+            .args([
+                "web",
+                in_path.to_str().unwrap(),
+                "--max",
+                &max.to_string(),
+                "--out-dir",
+                dir.path().join(format!("out{i}")).to_str().unwrap(),
+                "--json",
+            ])
+            .output()
+            .unwrap();
+        assert_eq!(
+            out.status.code(),
+            Some(0),
+            "--max {max}: stderr: {}",
+            stderr_str(&out)
+        );
+        let json = stdout_str(&out);
+        assert!(
+            json.contains("\"class\":\"graphic-logo\""),
+            "--max {max}: must classify graphic-logo (the source, not the resized \
+             output), got: {json}"
+        );
+        assert!(
+            !json.contains("\"disposition\":\"lossy\""),
+            "--max {max}: a graphic must never be offered a lossy candidate, \
+             got: {json}"
+        );
+    }
+}
+
+/// AC-2: the `features` block — computed from the SOURCE image — is identical
+/// across `--max` values for the same input, because it no longer describes a
+/// resize-dependent derived buffer. The structural counterpart to AC-1's
+/// behavioural assertion: this stays meaningful even if the class thresholds
+/// are retuned later.
+#[test]
+fn classification_is_independent_of_max() {
+    const FIXTURE: &[u8] = include_bytes!("fixtures/classify/dithered_graphic.png");
+    let dir = tempfile::tempdir().unwrap();
+    let in_path = write_bytes(&dir, "dithered_graphic.png", FIXTURE);
+
+    let run_at = |max: u32, tag: &str| -> String {
+        let out = Command::new(BIN)
+            .args([
+                "web",
+                in_path.to_str().unwrap(),
+                "--max",
+                &max.to_string(),
+                "--out-dir",
+                dir.path().join(tag).to_str().unwrap(),
+                "--json",
+            ])
+            .output()
+            .unwrap();
+        assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr_str(&out));
+        stdout_str(&out)
+    };
+
+    // Extract the flat `"features":{...}` object (no nested braces in this
+    // schema, so the first closing brace after the opener closes it).
+    let features = |json: &str| -> String {
+        let start = json
+            .find("\"features\":{")
+            .expect("features object present");
+        let rest = &json[start..];
+        let end = rest.find('}').expect("features object closes") + 1;
+        rest[..end].to_owned()
+    };
+
+    let small = run_at(256, "small");
+    let large = run_at(4096, "large");
+    assert_eq!(
+        features(&small),
+        features(&large),
+        "the features block must not depend on --max: small={small} large={large}"
+    );
+}
+
+/// AC-4 mirror guard for AC-1: a real photograph must NOT be pushed into the
+/// lossless path by fixing the graphic-side defect. Checked at two very
+/// different `--max` values so the placement fix isn't just moving "--max
+/// decides the class" around instead of removing it.
+#[test]
+fn real_photo_stays_photograph_at_every_max() {
+    for fixture in [
+        &include_bytes!("fixtures/classify/color_photo_fuji.png")[..],
+        &include_bytes!("fixtures/classify/grayscale_photo_leica.png")[..],
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let in_path = write_bytes(&dir, "photo.png", fixture);
+        for (i, max) in [4096, 256].into_iter().enumerate() {
+            let out = Command::new(BIN)
+                .args([
+                    "web",
+                    in_path.to_str().unwrap(),
+                    "--max",
+                    &max.to_string(),
+                    "--out-dir",
+                    dir.path().join(format!("out{i}")).to_str().unwrap(),
+                    "--json",
+                ])
+                .output()
+                .unwrap();
+            assert_eq!(
+                out.status.code(),
+                Some(0),
+                "--max {max}: stderr: {}",
+                stderr_str(&out)
+            );
+            let json = stdout_str(&out);
+            assert!(
+                json.contains("\"class\":\"photograph\""),
+                "--max {max}: a real photo must stay photograph, got: {json}"
+            );
+            assert!(
+                json.contains("\"disposition\":\"lossy\""),
+                "--max {max}: must offer a lossy candidate, got: {json}"
+            );
+        }
+    }
+}
+
+/// AC-3: SPEC-109's committed graphic-side boundary specimen
+/// (`dither_32color.png`, entropy 3.6414, right at the edge of the calibration
+/// gap) produces a lossless-or-smaller output through PLAIN `web` (the default
+/// long edge, no `--max` override) — not the 18.5× lossy AVIF blow-up a resize
+/// crossing the photograph floor used to produce under the pipeline-output
+/// classifier.
+#[test]
+fn boundary_specimen_stays_lossless_or_smaller_through_default_web() {
+    const FIXTURE: &[u8] = include_bytes!("fixtures/classify/dither_32color.png");
+    let dir = tempfile::tempdir().unwrap();
+    let in_path = write_bytes(&dir, "dither_32color.png", FIXTURE);
+    let out = Command::new(BIN)
+        .args([
+            "web",
+            in_path.to_str().unwrap(),
+            "--out-dir",
+            dir.path().join("out").to_str().unwrap(),
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr_str(&out));
+    let json = stdout_str(&out);
+    assert!(
+        json.contains("\"class\":\"graphic-logo\""),
+        "the boundary specimen must classify graphic-logo, got: {json}"
+    );
+    assert!(
+        !json.contains("\"larger_than_source\":true"),
+        "must not ship a larger-than-source output, got: {json}"
+    );
+    assert!(
+        !json.contains("\"disposition\":\"lossy\""),
+        "must not offer a lossy candidate, got: {json}"
+    );
+}
+
+/// AC-8: `--profile docs`'s "crisp-text bias: widen the lossless/graphic
+/// preference" (its own doc comment) now also covers a confidently-classified
+/// photograph, not just the ambiguous `MixedSafe` bucket — a docs-oriented
+/// corpus would rather keep everything lossless than risk a lossy artifact on
+/// content adjacent to text/line-art. Default `optimize` (no `--profile`) is
+/// the contrast: the same input stays lossy.
+#[test]
+fn docs_profile_downgrades_a_promoted_image() {
+    let dir = tempfile::tempdir().unwrap();
+    let in_path = write_bytes(
+        &dir,
+        "photo.png",
+        include_bytes!("fixtures/classify/color_photo_fuji.png"),
+    );
+
+    let run = |profile: Option<&str>, tag: &str| -> String {
+        let out_dir = dir.path().join(tag);
+        let mut cmd = Command::new(BIN);
+        cmd.args([
+            "optimize",
+            in_path.to_str().unwrap(),
+            "--out-dir",
+            out_dir.to_str().unwrap(),
+            "--json",
+        ]);
+        if let Some(p) = profile {
+            cmd.args(["--profile", p]);
+        }
+        let out = cmd.output().unwrap();
+        assert_eq!(
+            out.status.code(),
+            Some(0),
+            "{tag}: stderr: {}",
+            stderr_str(&out)
+        );
+        stdout_str(&out)
+    };
+
+    let default_json = run(None, "default");
+    assert!(
+        default_json.contains("\"class\":\"photograph\""),
+        "must classify photograph, got: {default_json}"
+    );
+    assert!(
+        default_json.contains("\"disposition\":\"lossy\""),
+        "default profile: a photograph must stay lossy, got: {default_json}"
+    );
+
+    let docs_json = run(Some("docs"), "docs");
+    assert!(
+        docs_json.contains("\"class\":\"photograph\""),
+        "class is unaffected by profile, got: {docs_json}"
+    );
+    assert!(
+        !docs_json.contains("\"disposition\":\"lossy\""),
+        "--profile docs must downgrade a promoted image to lossless, got: {docs_json}"
+    );
+}
+
+/// AC-7: on the lean leg (no avif, no webp-lossy), a promoted photograph
+/// (`OptBucket::Lossy`) with alpha previously shortlisted only `lossless(Png)`
+/// — a several-fold blow-up of a lossy-family source with no smaller candidate
+/// to fall back to (`src/analysis/decide.rs:150`). Lossless WebP has no Cargo
+/// feature gate and compresses photographic content well below PNG, so it must
+/// now also be offered. `--max` forces a resize (`pipeline_altered`), which is
+/// exactly the branch that previously had no escape but the PNG blow-up.
+#[cfg(not(any(feature = "avif", feature = "webp-lossy")))]
+#[test]
+fn promoted_alpha_photo_gets_a_webp_fallback_on_the_lean_leg() {
+    let dir = tempfile::tempdir().unwrap();
+    let in_path = write_bytes(
+        &dir,
+        "photo_alpha.png",
+        &common::detailed_rgba_png(1600, 1200),
+    );
+    let out = Command::new(BIN)
+        .args([
+            "web",
+            in_path.to_str().unwrap(),
+            "--max",
+            "400",
+            "--out-dir",
+            dir.path().join("out").to_str().unwrap(),
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr_str(&out));
+    let json = stdout_str(&out);
+    assert!(
+        json.contains("\"class\":\"photograph\""),
+        "fixture must classify as a photograph, got: {json}"
+    );
+    assert!(
+        json.contains("\"has_alpha\":true"),
+        "fixture must carry alpha, got: {json}"
+    );
+    assert!(
+        json.contains("\"format\":\"webp\""),
+        "the lean leg must offer a lossless WebP fallback for a promoted alpha \
+         photo, not just PNG, got: {json}"
     );
 }

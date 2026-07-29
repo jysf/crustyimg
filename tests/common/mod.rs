@@ -100,7 +100,40 @@ pub fn jpeg_with_exif(w: u32, h: u32) -> Vec<u8> {
 /// 00 00 00 00            // next-IFD offset = 0
 /// ```
 pub fn jpeg_with_orientation(w: u32, h: u32, orientation: u8) -> Vec<u8> {
-    let base = gradient_jpeg(w, h);
+    wrap_with_orientation_app1(&gradient_jpeg(w, h), orientation)
+}
+
+/// A bimodal, near-gray, low-entropy "scan": a light page with darker
+/// text-like bars. Shaped to satisfy the Document rule's conjunction
+/// (`bimodality >= DOC_BIMODALITY`, `gray_ratio >= DOC_GRAY_RATIO`,
+/// `entropy < DOC_ENTROPY_MAX`) rather than to look like anything.
+///
+/// Exists for SPEC-108's EXIF finding: the flip it records only reproduces on
+/// document-class content, and every other JPEG generator here is a gradient
+/// or a detailed pattern whose entropy already clears `PHOTO_ENTROPY_STRONG`.
+pub fn scan_jpeg(w: u32, h: u32) -> Vec<u8> {
+    let mut img = RgbImage::new(w, h);
+    // Two luma levels only — a light page (paper) and dark bars (glyph rows) —
+    // so the histogram is genuinely bimodal and the entropy stays low.
+    const PAPER: [u8; 3] = [235, 235, 233];
+    const INK: [u8; 3] = [58, 58, 60];
+    let band = (h / 24).max(1);
+    for (x, y, px) in img.enumerate_pixels_mut() {
+        // Text-like bars: every third band, broken up along x so the rows are
+        // not solid rectangles (a solid fill reads as flat-graphic, not scan).
+        let in_line = (y / band) % 3 == 1;
+        let in_glyph = (x / band.max(1)) % 4 != 3;
+        *px = image::Rgb(if in_line && in_glyph { INK } else { PAPER });
+    }
+    encode(DynamicImage::ImageRgb8(img), ImageFormat::Jpeg)
+}
+
+/// Splice a one-entry Orientation IFD onto arbitrary JPEG bytes.
+///
+/// Factored out of [`jpeg_with_orientation`] so a caller can attach a *real*
+/// orientation tag to content other than a gradient — which SPEC-108's EXIF
+/// fixture needs, and which the zero-entry [`jpeg_with_exif`] cannot express.
+pub fn wrap_with_orientation_app1(base: &[u8], orientation: u8) -> Vec<u8> {
     assert_eq!(
         &base[0..2],
         &[0xFF, 0xD8],
@@ -301,6 +334,16 @@ pub fn detailed_png(w: u32, h: u32) -> Vec<u8> {
         DynamicImage::ImageRgb8(detailed_rgb(w, h)),
         ImageFormat::Png,
     )
+}
+
+/// The `detailed_rgb` pattern with a fully-opaque alpha channel, as PNG bytes
+/// (SPEC-108, AC-7 fixture). Same high-entropy content as `detailed_png` — it
+/// classifies `photograph` — but `RgbaImage`'s colour type reports `has_alpha:
+/// true` (a structural property of the container, not per-pixel transparency),
+/// which is what routes it through the `OptBucket::Lossy` + alpha shortlist arm.
+pub fn detailed_rgba_png(w: u32, h: u32) -> Vec<u8> {
+    let rgba = DynamicImage::ImageRgb8(detailed_rgb(w, h)).to_rgba8();
+    encode(DynamicImage::ImageRgba8(rgba), ImageFormat::Png)
 }
 
 /// Encode a small solid-color `RgbImage` to LOSSLESS WebP bytes (SPEC-019

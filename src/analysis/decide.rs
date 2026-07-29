@@ -140,9 +140,14 @@ pub fn format_shortlist(
 
     let mut out: Vec<ShortlistEntry> = Vec::new();
 
-    // `docs` widens the graphic bias: treat the ambiguous bucket as lossless-flat.
+    // `docs` widens the graphic bias: treat the ambiguous bucket as lossless-flat
+    // — and, AC-8 (SPEC-108, DEC-084), a confidently-classified photograph too. A
+    // docs-oriented corpus is scans/diagrams/line-art; the flag's own contract is
+    // "widen the lossless/graphic preference", so it deliberately overrides the
+    // classifier's Photograph verdict rather than only covering the cases the
+    // classifier itself left ambiguous.
     let effective = match (profile, bucket) {
-        (Profile::Docs, OptBucket::MixedSafe) => OptBucket::LosslessFlat,
+        (Profile::Docs, OptBucket::MixedSafe | OptBucket::Lossy) => OptBucket::LosslessFlat,
         (_, b) => b,
     };
 
@@ -152,7 +157,13 @@ pub fn format_shortlist(
                 out.push(lossy(WebP));
             }
             if has_alpha {
-                // JPEG has no alpha — a lossless RGBA format preserves it.
+                // JPEG has no alpha. Lossless WebP has no Cargo feature gate
+                // (SPEC-019/DEC-021) and compresses photographic content well
+                // below PNG, so offer it ahead of PNG — on the lean leg (no
+                // avif, no webp-lossy) it was previously the ONLY candidate, a
+                // several-fold blow-up of a lossy-family source with nothing
+                // smaller to fall back to (AC-7, SPEC-108, DEC-084).
+                out.push(lossless(WebP));
                 out.push(lossless(Png));
             } else {
                 out.push(lossy(Jpeg));
