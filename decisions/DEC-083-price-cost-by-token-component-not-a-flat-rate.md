@@ -37,9 +37,19 @@ tags:
 
 ## Decision
 
-`estimated_usd` prices each token component separately at the model's list anchors
-(Opus $5/$25, Sonnet $3/$15 per MTok), with the standard cache multipliers —
-`cache_creation` ×1.25 input, `cache_read` ×0.10 input — and records which anchors were used.
+`estimated_usd` prices each token component separately at the list anchors of **the model that
+actually ran** — the one recorded in `agent`, read from `.message.model` in the cycle's own
+transcript — with the standard cache multipliers: `cache_creation` ×1.25 input, `cache_read`
+×0.10 input. The anchors used are recorded alongside the figure.
+
+> **Amendment — 2026-07-28.** This decision originally said "the model's list anchors (Opus
+> $5/$25, Sonnet $3/$15)" without tying the choice to the `agent` field. That gap produced a
+> wrong number on the very next spec: SPEC-108's build and verify both recorded
+> `agent: claude-sonnet-5` and priced at the **Opus** anchors their prompt happened to name,
+> overstating that spec's total by ~67% — **$103.69 recorded against ~$62.22** at Sonnet rates.
+> The token counts were correct; only the pricing was wrong, and it was wrong because the rule
+> named rates without saying whose. Use the anchors of the model in `agent`, not the anchors a
+> prompt mentions.
 
 The previous rule — `tokens_total` × list rate, ~80/20 input/output, no cache discount — is
 **withdrawn**.
