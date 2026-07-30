@@ -75,10 +75,27 @@ Cycle prompts live in `prompts/SPEC-107-<cycle>.md`.
       design's ~⅓ JPEG-truncation ratio doesn't transfer across images (this session's
       96×96 fixture's actual decodes-OK boundary is ~50%, so `truncated.jpg` uses 60%; the
       wasm AC-7 test deliberately uses a MORE aggressive truncation instead, since AC-7
-      requires an `Err`). Identified but out-of-scope-for-this-spec: the F1 warning is not
-      wired on `view`/`watermark`/`edit`/`diff`/`apply`/`build`/`responsive`, which also
-      decode JPEGs directly — filed as a follow-up candidate, not fixed here
-      (`one-spec-per-pr`). Full detail in the spec's `## Build Completion`.
+      requires an `Err`). Identified but out-of-scope-for-this-spec (corrected on the
+      punch-list pass — the original list here was wrong in both directions): the F1 warning
+      is not wired on `diff` (both inputs), `responsive`, `apply`/`build` with a plain pixel
+      recipe, `watermark --image` (overlay only), `lint`, or `meta strip` — each also decodes
+      JPEGs directly without going through `run_pixel_op`. (`edit`, `watermark`'s primary
+      input, and `apply --recipe web` DO warn — all three route through `run_pixel_op`, so
+      they were wrongly listed here before.) Filed as a follow-up candidate, not fixed here
+      (`one-spec-per-pr`).
+      **Punch-list pass (second build session, same day):** verify returned ⚠ PUNCH LIST on
+      PR #127 — fixed the one unmet criterion (AC-6's carve-out now screens the debug-profile
+      extra stderr lines by exact 5-line match, not `contains()`; drove both mutations
+      myself — replace RED, coexist RED — confirming the coexist case was GREEN under the old
+      assertion first); corrected the headline deviation (design's shape was right; a second,
+      unnamed cap — `MAX_IMAGE_DIMENSION`/DEC-034 — explains the wasm test's real
+      `LimitsExceeded`) and the follow-up verb list (above); strengthened two
+      `wasm_roundtrip.rs` assertions; fixed doc overclaims (corpus coverage claim,
+      `--quiet` row, verb-count framing) and DEC-085's rationale (decision unchanged); drove
+      `build`/release-profile-stderr/`view`'s non-tty path from "what verify could not check".
+      Re-ran the full matrix clean, same counts (lean 797 / default 816 / webp-lossy 823,
+      `just wasm-test` 30/30 — no tests added/removed, only bodies changed). Full detail in
+      the spec's `## Build Completion`.
 
 - [ ] **verify** — fresh session. Re-derive the findings independently rather than
       inheriting them; drive the corpus yourself on your own builds of branch **and** `main`.
