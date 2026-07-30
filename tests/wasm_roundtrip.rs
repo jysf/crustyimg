@@ -708,6 +708,10 @@ op = "identity"
             "a hard-truncated JPEG must be an Err, not a panic",
         );
         assert!(!msg.is_empty(), "the error must carry a message");
+        // Pins the message to the JPEG decoder specifically (`image`'s error Display
+        // reads "...decoding Jpeg: ..."), not merely "some Err came back" — so this
+        // stays red if `jpeg_at`'s generator ever silently stopped producing a JPEG.
+        assert!(msg.contains("Jpeg"), "message should name the codec: {msg}");
 
         let ok = info(&png_64x48()).expect("the wasm module must survive a rejected input");
         assert_eq!((ok.width(), ok.height()), (64, 48));
@@ -727,6 +731,15 @@ op = "identity"
         const EMPTY_ALPHA_OBU_AVIF: &[u8] = include_bytes!("fixtures/hostile/empty_alpha_obu.avif");
         let msg = info_err_message(EMPTY_ALPHA_OBU_AVIF, "must be an Err, not a panic or abort");
         assert!(!msg.is_empty(), "the error must carry a message");
+        // Same convention as `avif_input_errors_not_panics`/`avif_input_still_errors_on_wasm`
+        // above: pin the message to `CodecUnavailableOnTarget`'s AVIF wording specifically, so
+        // this cannot pass on any Err an unrelated regression happens to produce, and must stay
+        // honest for a browser user (no cargo-feature advice).
+        assert!(msg.contains("AVIF"), "message should name the codec: {msg}");
+        assert!(
+            !msg.contains("--features"),
+            "must not advise a cargo feature a browser user cannot use: {msg}"
+        );
 
         let ok = info(&png_64x48()).expect("the wasm module must survive a rejected input");
         assert_eq!((ok.width(), ok.height()), (64, 48));
