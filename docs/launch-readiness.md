@@ -54,8 +54,10 @@
       not, don't claim it.
 - [x] **Hostile / edge inputs** — ✅ **done (SPEC-107): driven, not assumed.** A committed
       corpus (zero-byte, text-as-image, truncated JPEG/PNG/AVIF, a forged pixel-count bomb, an
-      empty-OBU AVIF) is driven through both the native CLI and headless wasm: no hang, no panic,
-      no OOM on any input, and every input now gets a clear, typed message (the one live defect
+      empty-OBU AVIF) is driven through the native CLI; the equivalent hostile shapes (zero-byte,
+      non-image text, a truncated JPEG, an oversize PNG, plus the SAME committed empty-OBU AVIF)
+      are separately driven through headless wasm. Both surfaces agree: no hang, no panic, no
+      OOM on any input, and every input now gets a clear, typed message (the one live defect
       found — a truncated JPEG silently succeeding on `web` — is fixed, DEC-085). See
       `tests/hostile_inputs.rs` + `tests/wasm_roundtrip.rs`'s AC-7 cases.
       **Genuinely browser-specific and still open:** whether the demo *surfaces* these errors

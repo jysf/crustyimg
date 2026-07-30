@@ -95,14 +95,23 @@ would exceed **512 MiB** (≈ the same cap as decode) — an upscale bomb via
 `exact`/`percent`/`cover`/`fill`, from a recipe or the CLI — is rejected with a
 typed error (exit `1`) before allocation. (`max`/`fit` never upscale.)
 
-**Truncated JPEG warning (SPEC-107 / DEC-085):** `info`/`web`/`convert`/`resize`/
-`optimize` print a one-line `warning: <input>: truncated JPEG: …` to stderr when a
-JPEG is missing its trailing end-of-image marker (`FF D9`) — the `image` crate's
-JPEG decoder tolerates this by design and decodes a (possibly incomplete) frame
-rather than erroring, unlike PNG/AVIF. The command still **exits `0`** and still
-writes its output: this is a warning, not a failure, and — unlike this CLI's other
-advisory warnings — is **not** suppressed by `--quiet` (the whole point is that a
+**Truncated JPEG warning (SPEC-107 / DEC-085):** print a one-line
+`warning: <input>: truncated JPEG: …` to stderr when a JPEG is missing its
+trailing end-of-image marker (`FF D9`) — the `image` crate's JPEG decoder
+tolerates this by design and decodes a (possibly incomplete) frame rather than
+erroring, unlike PNG/AVIF. The command still **exits `0`** and still writes its
+output: this is a warning, not a failure, and — unlike this CLI's other advisory
+warnings — is **not** suppressed by `--quiet` (the whole point is that a
 truncated JPEG must never again pass through unremarked).
+Wired wherever a verb decodes pixels through the shared `run_pixel_op`/
+`optimize_decide_one` seams — **not** an exhaustive-sounding short list:
+`info`, `web`, `convert`, `resize`, `optimize`, `thumbnail`, `auto-orient`,
+`edit`, `watermark` (its *primary* input only — the `--image` overlay loads
+separately and does not warn), and `apply --recipe <name>` when the recipe ends
+in the terminal `optimize` step (e.g. the bundled `web` recipe). Verbs that
+decode pixels through a *different* seam do not warn yet: `diff`, `responsive`,
+`apply`/`build` with a plain pixel recipe, and `view` — filed as a follow-up
+candidate (SPEC-107 punch list), not fixed here.
 
 ## Subcommand Surface (full MVP)
 
