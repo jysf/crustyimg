@@ -89,6 +89,28 @@ cost:
         (first-to-last transcript timestamp), which includes several
         multi-minute waits on `cargo build`/`cargo test` full-recompiles run
         in the background per-leg for AC-11 — not continuous active compute.
+    - cycle: verify
+      agent: claude-opus-5
+      interface: claude-code
+      tokens_total: 27201122
+      duration_minutes: 100
+      recorded_at: 2026-07-30
+      tokens_breakdown:
+        input: 347
+        output: 158050
+        cache_creation: 466771
+        cache_read: 26575954
+      estimated_usd: 20.16
+      note: >
+        MEASURED — summed .message.usage over 184 usage-bearing lines in this
+        session's own transcript (claude-opus-5 throughout). Priced per-component
+        at Opus anchors ($5/$25 per MTok in/out; cache_creation x1.25 input;
+        cache_read x0.10 input) — 97.7% cache reads (DEC-083). Excludes the
+        final return message, which is not yet in the transcript when summed.
+        duration_minutes is wall-clock first-to-last timestamp and includes long
+        waits on nine clean full-matrix legs (three on the branch, three on
+        `main`, three re-confirming) plus three `just wasm-test` runs — not
+        continuous active compute.
   totals:
     # Left for ship (AGENTS §4: "Ship computes cost.totals") — not computed here.
     tokens_total: 0

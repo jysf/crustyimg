@@ -80,8 +80,53 @@ Cycle prompts live in `prompts/SPEC-107-<cycle>.md`.
       decode JPEGs directly — filed as a follow-up candidate, not fixed here
       (`one-spec-per-pr`). Full detail in the spec's `## Build Completion`.
 
-- [ ] **verify** — fresh session. Re-derive the findings independently rather than
-      inheriting them; drive the corpus yourself on your own builds of branch **and** `main`.
+- [x] **verify** — 2026-07-30, Opus, own worktree. **⚠ PUNCH LIST** — the code is sound and all
+      11 acceptance criteria hold under independent re-derivation, but **AC-6 is not met as
+      worded** and two load-bearing statements in the record are wrong.
+      **Re-derived, not inherited:** nine clean full-matrix legs from fresh per-leg
+      `CARGO_TARGET_DIR`s, every one through `rtk proxy` from the first leg and every one showing
+      exactly one `Compiling crustyimg` line — branch **797 / 816 / 823** against `main`
+      **784 / 803 / 810**, so the **+13 is identical on all three legs** and reconciles against
+      the 13 tests added (8+1-ignored in `tests/hostile_inputs.rs`, 3 unit in `src/image/mod.rs`,
+      1 ignored generator in `src/image/avif.rs`); `clippy -D warnings` + `fmt --check` clean on
+      all three; `just wasm-test` 30/30 twice. Drove all 8 corpus fixtures through a debug binary
+      myself (exit codes as declared), and both ignored generators reproduce the committed bytes
+      **byte-identically** (`git status` clean after regeneration). Both AC-10 negative controls
+      re-run independently: `jpeg_missing_eoi` → `false` turned 2 integration + 2 unit tests RED;
+      hiding `zero_byte.png` turned the enumeration RED; each revert verified applied **to the
+      binary**, not just the source.
+      **Finding 1 (corrects the build's headline deviation).** The claim that
+      `optimize_detailed_rejects_oversize_without_panic` "never exercised the `LimitsExceeded`
+      path" is **false**. Driving the bare `png_header_declaring` shape at its own 100000×100000
+      on wasm32 returns `image exceeds decode limits: Image size exceeds limit` — a real
+      `LimitsExceeded`. Reproduced natively across all four shape×dimension combinations: at
+      100000×100000 **either** shape trips DEC-034's `MAX_IMAGE_DIMENSION` (65 535) inside the
+      header read; only at 20000×20000 (under the dimension cap, over the 64 Mpix cap) does the
+      bare shape fail early with `Decode("unexpected end of file")` and the appended
+      `IDAT`+`IEND` become necessary. So the **code fix was right and necessary**, the
+      **design cycle's ✅ was correct** (the matrix was not wrong), and there is **nothing
+      vacuous left to fix** in `wasm_roundtrip.rs`. The real residual — opposite in direction to
+      what was reported — is that **no wasm test reaches `check_pixel_budget`** (DEC-063), though
+      that test's docstring claims DEC-034/DEC-063 both carry into wasm
+      ([[a-guards-advertised-reach-is-a-claim]]).
+      **Finding 2 (AC-6, not met).** Drove the carve-out both ways. A *replacing* panic
+      (`debug_assert!(false, …)` with different wording in `decode_avif_inner`) turns 2 tests RED
+      — narrowness proven for that class. But an *additive* panic-shaped leak on the same input,
+      coexisting with the known banner, leaves the suite **8/8 GREEN**: the check is
+      `stderr.contains("bad parser state bytes left")` plus a last-line check, and it never
+      screens the non-final lines. AC-6 requires "narrow enough that a *new* panic still fails
+      the suite"; half of that holds.
+      **Finding 3.** The follow-up's unwired-verb list is wrong in **both** directions. Drove 16
+      verb invocations: `edit` and `watermark` (primary input) **do** warn (both route through
+      `run_pixel_op`), as does `apply --recipe web`. Actually unwarned: `diff` (both inputs),
+      `responsive`, `apply` with a plain pixel recipe, `build`, `watermark --image` (overlay
+      only), `lint`, `meta strip`, and `view` (by inspection — needs a tty, not driven).
+      Also: the corpus README and the launch board both say the corpus "is driven through both
+      the native CLI and headless wasm" — only `empty_alpha_obu.avif` actually is; DEC-085's
+      "every other advisory is cosmetic" is contradicted by DEC-023 and DEC-075; and
+      `docs/cli-reference.md`'s `--quiet` row is now literally false. Cost reconciles exactly
+      ($81.04, `agent` matches the pinned `implementer`); only the note's "98.4% cache reads"
+      is off (actual 98.57%). Full detail in the verify return.
 
 - [ ] **ship** — bookkeeping on `main` after the PR merges: cost totals, reflection,
       `just archive-spec SPEC-107`, stage backlog, and the STAGE-035 close-out (this is the
