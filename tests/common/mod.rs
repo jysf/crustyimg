@@ -377,6 +377,52 @@ pub fn animated_gif(w: u32, h: u32) -> Vec<u8> {
     buf
 }
 
+/// A PNG whose IHDR *declares* `w`×`h` and carries no real pixel data — the
+/// classic decompression-bomb shape: under 100 bytes claiming billions of
+/// pixels. Every chunk's CRC is computed for real, and an empty `IDAT` +
+/// `IEND` follow the header: `image` 0.25's PNG decoder needs to see those
+/// chunk boundaries to finish reading the header info (a bare `IHDR` alone
+/// makes `into_dimensions()` fail with a generic "unexpected end of file"
+/// *before* the declared size is ever compared against the decode budget —
+/// confirmed empirically while building this fixture, SPEC-107). Mirrors the
+/// shape of `wasm_roundtrip.rs`'s private `png_header_declaring` (that copy's
+/// caller only asserts `Err(_)` generically, so it never needed the trailing
+/// chunks); duplicated rather than shared across the wasm/native test
+/// targets, which do not otherwise depend on each other.
+pub fn png_header_declaring(w: u32, h: u32) -> Vec<u8> {
+    fn crc32(bytes: &[u8]) -> u32 {
+        let mut crc = 0xFFFF_FFFFu32;
+        for &b in bytes {
+            crc ^= b as u32;
+            for _ in 0..8 {
+                let mask = (crc & 1).wrapping_neg();
+                crc = (crc >> 1) ^ (0xEDB8_8320 & mask);
+            }
+        }
+        !crc
+    }
+    // `[u32 be length][fourcc][payload][u32 be crc32(fourcc ++ payload)]`.
+    fn chunk(fourcc: &[u8; 4], payload: &[u8]) -> Vec<u8> {
+        let mut out = (payload.len() as u32).to_be_bytes().to_vec();
+        out.extend_from_slice(fourcc);
+        out.extend_from_slice(payload);
+        let mut crc_input = fourcc.to_vec();
+        crc_input.extend_from_slice(payload);
+        out.extend_from_slice(&crc32(&crc_input).to_be_bytes());
+        out
+    }
+
+    let mut ihdr_payload = w.to_be_bytes().to_vec();
+    ihdr_payload.extend_from_slice(&h.to_be_bytes());
+    ihdr_payload.extend_from_slice(&[8, 2, 0, 0, 0]); // 8-bit, truecolour, no interlace
+
+    let mut png = Vec::from(*b"\x89PNG\r\n\x1a\n");
+    png.extend_from_slice(&chunk(b"IHDR", &ihdr_payload));
+    png.extend_from_slice(&chunk(b"IDAT", &[])); // empty — never actually decoded
+    png.extend_from_slice(&chunk(b"IEND", &[]));
+    png
+}
+
 fn encode(img: DynamicImage, format: ImageFormat) -> Vec<u8> {
     let mut out = Cursor::new(Vec::new());
     img.write_to(&mut out, format).unwrap();
