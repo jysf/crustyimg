@@ -145,9 +145,9 @@ fn every_hostile_fixture_has_a_declared_expectation() {
 }
 
 /// AC-2: every fixture through `info` gets its EXACT declared exit code.
-/// `Command::output()` blocks until the process exits, so a hang here fails
-/// the test binary itself (via the test harness's own bound) rather than
-/// silently passing.
+/// `Command::output()` blocks until the process exits, so a hang here would
+/// hang the test binary itself — there is no configured `nextest`/`libtest`
+/// timeout in this project (plain `cargo test`), so nothing bounds that wait.
 #[test]
 fn hostile_corpus_exit_codes_are_as_declared() {
     for exp in EXPECTATIONS {
@@ -231,14 +231,45 @@ fn meta_parser_state_avif_debug_leak_is_the_only_carve_out() {
     );
 
     if cfg!(debug_assertions) {
-        if stderr.lines().count() > 1 {
-            // F3's known upstream banner, by name — not a blanket "extra lines
-            // are fine". Any OTHER extra text here is an unrecognized (and
-            // therefore un-carved-out) panic, and fails below.
+        let lines: Vec<&str> = stderr.lines().collect();
+        if lines.len() > 1 {
+            // F3's known upstream banner, by name and by POSITION — the extra
+            // lines must be EXACTLY this 5-line block, not merely contain its
+            // key phrase. `contains()` alone would still pass if a second,
+            // unrelated panic-shaped leak appeared alongside the known banner
+            // on the same input [[test-a-carve-out-additively-not-just-by-replacement]];
+            // requiring an exact-length, line-by-line match closes that hole.
+            let banner = &lines[..lines.len() - 1];
+            assert_eq!(
+                banner.len(),
+                5,
+                "debug profile's known F3 banner is exactly 5 lines before our typed \
+                 error — got {} extra line(s), which means either the banner changed or \
+                 a second leak is coexisting with it: {stderr}",
+                banner.len()
+            );
             assert!(
-                stderr.contains("bad parser state bytes left"),
-                "debug profile carries unexpected extra stderr lines that are not the \
-                 known F3 avif-parse banner: {stderr}"
+                banner[0].starts_with("thread 'main' (")
+                    && banner[0].contains("panicked at")
+                    && banner[0].contains("avif-parse-2.1.0/src/lib.rs:921:9:"),
+                "banner line 1 (panic header) is not the known F3 shape: {stderr}"
+            );
+            assert_eq!(
+                banner[1], "assertion `left == right` failed: bad parser state bytes left",
+                "banner line 2 is not the known F3 assertion text: {stderr}"
+            );
+            assert_eq!(
+                banner[2], "  left: 0",
+                "banner line 3 is not the known F3 left-value: {stderr}"
+            );
+            assert_eq!(
+                banner[3], " right: 1768517057",
+                "banner line 4 is not the known F3 right-value: {stderr}"
+            );
+            assert_eq!(
+                banner[4],
+                "note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace",
+                "banner line 5 is not the known F3 backtrace note: {stderr}"
             );
         }
     } else {
