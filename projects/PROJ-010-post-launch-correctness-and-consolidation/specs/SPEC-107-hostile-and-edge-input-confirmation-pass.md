@@ -70,15 +70,15 @@ cost:
     - cycle: build
       agent: claude-sonnet-5
       interface: claude-code
-      tokens_total: 184386961
-      duration_minutes: 1192
+      tokens_total: 218031873
+      duration_minutes: 1241
       recorded_at: 2026-07-30
       tokens_breakdown:
-        input: 1160
-        output: 395965
-        cache_creation: 2611134
-        cache_read: 181378702
-      estimated_usd: 70.15
+        input: 1292
+        output: 435915
+        cache_creation: 2673195
+        cache_read: 214921471
+      estimated_usd: 81.04
       note: >
         MEASURED — summed .message.usage across every line with usage in this
         session's own transcript (claude-sonnet-5 throughout; one <synthetic>
