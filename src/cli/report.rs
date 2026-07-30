@@ -245,6 +245,18 @@ pub(super) fn run_info(
             (bytes.clone(), "-".to_owned(), img)
         }
     };
+    // F1 (SPEC-107, DEC-085): a truncated JPEG decodes "successfully" but may
+    // be silently incomplete — warn rather than fail (exit stays 0). Printed
+    // unconditionally (not gated on `--quiet`, unlike this file's other
+    // advisory warnings): the whole point of this fix is that a truncated
+    // JPEG must never again pass through unremarked.
+    if img.is_truncated_jpeg() {
+        eprintln!(
+            "warning: {}: {}",
+            label,
+            crate::image::TRUNCATED_JPEG_WARNING
+        );
+    }
     let info = img.info();
 
     let exif_tags = if exif {
