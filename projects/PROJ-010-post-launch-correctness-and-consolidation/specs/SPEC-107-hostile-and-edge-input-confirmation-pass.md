@@ -496,7 +496,7 @@ these pass. Expected to FAIL against current `main` except where noted.
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
 - **Branch:** `feat/spec-107-hostile-input-pass`
-- **PR (if applicable):** opened, not merged (maintainer's call) — see PR body for the summary.
+- **PR (if applicable):** [#127](https://github.com/jysf/crustyimg/pull/127) — opened, not merged (maintainer's call).
 - **All acceptance criteria met?** yes — AC-1 through AC-11, all green (full detail below).
 - **New decisions emitted:**
   - `DEC-085` — a truncated JPEG warns on stderr; exit stays 0 (F1). Records both rejected

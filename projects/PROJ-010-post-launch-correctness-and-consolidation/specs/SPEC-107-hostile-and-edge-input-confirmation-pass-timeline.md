@@ -49,7 +49,7 @@ Cycle prompts live in `prompts/SPEC-107-<cycle>.md`.
       driven on both profiles, a CLI drive of the whole committed fuzz crash corpus, and one
       `just wasm-test` run.
 
-- [x] **build** — 2026-07-30, `feat/spec-107-hostile-input-pass`, PR opened (not merged).
+- [x] **build** — 2026-07-30, `feat/spec-107-hostile-input-pass`, PR #127 opened (not merged).
       All 11 acceptance criteria met. Fixed F1 (`src/image/mod.rs`'s container-level
       `jpeg_missing_eoi`, wired at three CLI call sites: `report.rs::run_info`,
       `ops.rs::run_pixel_op`, `optimize.rs::optimize_decide_one`) — a truncated JPEG now
