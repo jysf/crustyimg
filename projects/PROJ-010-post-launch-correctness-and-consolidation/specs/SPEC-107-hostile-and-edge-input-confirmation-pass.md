@@ -7,7 +7,7 @@
 task:
   id: SPEC-107
   type: story                      # epic | story | task | bug | chore
-  cycle: design                    # frame | design | build | verify | ship
+  cycle: build                     # frame | design | build | verify | ship
   blocked: false
   priority: critical
   complexity: M                    # S | M | L  (L means split it)
@@ -34,6 +34,7 @@ references:
     - DEC-063
     - DEC-077
     - DEC-082
+    - DEC-085
   constraints:
     - clippy-fmt-clean
     - test-before-implementation
@@ -66,7 +67,30 @@ cost:
         corpus across `info`/`web`/`optimize`/`convert`/`resize`, a CLI drive of
         the whole committed fuzz crash corpus, and one green `just wasm-test`
         run (26/26, 30.17 s).
+    - cycle: build
+      agent: claude-sonnet-5
+      interface: claude-code
+      tokens_total: 184386961
+      duration_minutes: 1192
+      recorded_at: 2026-07-30
+      tokens_breakdown:
+        input: 1160
+        output: 395965
+        cache_creation: 2611134
+        cache_read: 181378702
+      estimated_usd: 70.15
+      note: >
+        MEASURED — summed .message.usage across every line with usage in this
+        session's own transcript (claude-sonnet-5 throughout; one <synthetic>
+        line carried zero usage and was excluded). Priced per-component at
+        Sonnet anchors ($3/$15 per MTok in/out; cache_creation x1.25 input;
+        cache_read x0.10 input) — 98.4% cache reads, so the flat-rate shortcut
+        would badly overstate this (DEC-083). duration_minutes is wall-clock
+        (first-to-last transcript timestamp), which includes several
+        multi-minute waits on `cargo build`/`cargo test` full-recompiles run
+        in the background per-leg for AC-11 — not continuous active compute.
   totals:
+    # Left for ship (AGENTS §4: "Ship computes cost.totals") — not computed here.
     tokens_total: 0
     estimated_usd: 0
     session_count: 0
@@ -471,28 +495,160 @@ these pass. Expected to FAIL against current `main` except where noted.
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
+- **Branch:** `feat/spec-107-hostile-input-pass`
+- **PR (if applicable):** opened, not merged (maintainer's call) — see PR body for the summary.
+- **All acceptance criteria met?** yes — AC-1 through AC-11, all green (full detail below).
 - **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
+  - `DEC-085` — a truncated JPEG warns on stderr; exit stays 0 (F1). Records both rejected
+    alternatives (exit 1; document-only) and the reasoning for making the warning
+    unconditional (not `--quiet`-suppressed), which is a choice the spec didn't explicitly
+    pin down.
+- **Per-AC evidence:**
+  - AC-1: `tests/fixtures/hostile/` holds all 8 named fixtures (zero-byte, text-as-.jpg,
+    text-as-.png, truncated JPEG/PNG/AVIF, the 20000×20000 pixel-count-bomb PNG, the
+    empty-alpha-OBU AVIF), each ≤ 758 B (well under the 4 KB cap), with a README.md line
+    each and the exact Rust builder that produced them.
+  - AC-2/AC-3: `tests/hostile_inputs.rs` drives every corpus file through the real binary,
+    asserts the exact declared exit code + a non-empty, prefix-matching, panic-free stderr,
+    and the enumeration test fails on either a corpus file with no expectation OR a
+    declared expectation with no file (both directions verified — AC-10).
+  - AC-4: `empty_alpha_obu.avif` committed (317 B); `empty_alpha_obu_is_typed_error_not_abort`
+    re-pointed at the file via `include_bytes!`; a new CLI test
+    (`empty_alpha_obu_avif_exits_1_through_the_cli`) drives it through the binary, exit 1 on
+    both profiles (the `debug_assertions` leg is what actually proves the `debug_abort()`
+    guard fires).
+  - AC-5: fixed in `src/image/mod.rs` (container-level `jpeg_missing_eoi`, no
+    `unwrap`/`panic` on a short buffer) and wired at three CLI call sites
+    (`report.rs::run_info`; `ops.rs::run_pixel_op`, both single/multi branches — covers
+    `resize` always and `convert`/pinned-`web`/pinned-`optimize`; `optimize.rs`'s
+    `optimize_decide_one` → `run_optimize_autodecide` — covers default-mode `web`/`optimize`).
+    Verified end-to-end on all four named verbs by hand and by test; negative control
+    (`well_formed_jpeg_emits_no_truncation_warning`) passes non-vacuously (confirmed via
+    AC-10's revert).
+  - AC-6: `meta_parser_state_avif_debug_leak_is_the_only_carve_out` drives the EXISTING
+    `tests/fixtures/fuzz/avif_decode/meta_parser_state.avif` (not duplicated into the new
+    corpus) through the CLI and asserts the carve-out is exact — by name
+    (`"bad parser state bytes left"`), not a blanket debug-mode skip: the final stderr line
+    must always be our own typed error, and on debug any EXTRA lines must be exactly the
+    known banner. Confirmed empirically against both `target/debug` and `target/release`.
+  - AC-7: four new `#[wasm_bindgen_test]`s in `tests/wasm_roundtrip.rs`
+    (`wasm_rejects_zero_byte_input_without_panicking`,
+    `wasm_rejects_non_image_bytes_without_panicking`,
+    `wasm_truncated_jpeg_does_not_kill_the_module`,
+    `wasm_empty_obu_avif_is_an_error_not_an_abort`), each an `Err` + a subsequent ordinary
+    `info()` call proving survival, following `optimize_detailed_rejects_oversize_without_panic`'s
+    shape. `just wasm-test`: 30/30 (26 baseline + 4 new).
+  - AC-8: `docs/api-contract.md`'s exit-4 row widened to name "not a recognisable image at
+    all" alongside codec-not-built, and the universal "the message names a feature" claim
+    dropped; the F1 warning documented as a new callout paragraph (mirrors the existing
+    "Decode resource limits" style) rather than repeated across 4 subcommand sections.
+  - AC-9: `docs/launch-readiness.md`'s hostile-input blocker marked `[x]` with the driven
+    outcome and a pointer to the two test files; the browser-specific remainder (does the
+    demo surface errors legibly; phone behavior on the largest inputs) is named explicitly
+    and left open, folded into the existing mobile-device-pass item. Line 34 (Mobile) is
+    also corrected per SPEC-101's actual outcome (iOS Safari + DuckDuckGo PASS; Android
+    Chrome untested, accepted on maintainer judgment) — both stale-line corrections, not a
+    re-grading of any other item.
+  - AC-10: both negative controls run and confirmed (not just asserted):
+    reverting `truncated_jpeg` to a hardcoded `false` in `Image::from_bytes` turned
+    `truncated_jpeg_warns_on_stderr_and_still_exits_0` AND
+    `hostile_corpus_stderr_is_non_empty_and_not_a_panic` RED (both, not just one); deleting
+    `zero_byte.png` from the corpus turned `every_hostile_fixture_has_a_declared_expectation`
+    RED. Also verified the reverse direction (an undeclared extra file in the corpus dir
+    also turns it RED) as extra rigor. Both reverts undone before the final matrix run.
+  - AC-11: clean from fresh per-leg `CARGO_TARGET_DIR`s, run sequentially (never
+    shared-and-parallel), each log confirmed showing exactly one `Compiling crustyimg` line.
+    First pass through the ordinary shell hook silently collapsed `cargo test`'s real output
+    into a one-line summary with no `Compiling` line at all (a NEW instance of the
+    documented `rtk` output-corruption risk, this time on `cargo test`/`cargo clippy`, not
+    just `grep`/`git log`) — caught it via the missing positive control, wiped the
+    already-run target dir, and re-ran every leg through `rtk proxy` for genuine raw output
+    before trusting any count:
+    lean **797** (795 passed / 0 failed / 2 ignored, was 784, +13), default **816** (814/0/2,
+    was 803, +13), webp-lossy **823** (821/0/2, was 810, +13) — the +13 delta is identical
+    on all three legs and reconciles exactly against what this spec added (9 in
+    `tests/hostile_inputs.rs` incl. 1 ignored generator, 3 new unit tests in
+    `src/image/mod.rs`, 1 ignored generator in `src/image/avif.rs`). `clippy --all-targets
+    -D warnings` clean on all three legs; `cargo fmt --check` clean; `just wasm-test` 30/30.
 - **Deviations from spec:**
-  - [list]
+  - The Notes' recommended shape for the forged-header PNG
+    (`wasm_roundtrip.rs`'s `png_header_declaring` — bare signature + IHDR + CRC) was
+    **insufficient** for the native path: `ImageReader::into_dimensions()` needs to see the
+    chunk boundary past IHDR to complete its header-only read, and without it the peek fails
+    with a generic `Decode("unexpected end of file")` *before* `check_pixel_budget` ever
+    runs — so the existing wasm test (which only asserts `Err(_)` generically) never actually
+    exercised the `LimitsExceeded` path either, it just happened not to need to. Fixed by
+    extending `tests/common::png_header_declaring` (a new copy, not touching
+    `wasm_roundtrip.rs`'s private original) to append a real empty `IDAT` + `IEND`. Confirmed
+    empirically (see the reflection below) before committing to the shape.
+  - The design's measured truncation ratio (real.jpg 5694 B → truncated.jpg 1898 B, ≈⅓)
+    does not transfer across images: empirically, a 96×96 gradient JPEG truncated to ⅓
+    hits a hard decoder error (`Not enough bytes...`), not F1's silent-success case; the
+    boundary on that specific fixture is between 48% and 50%. Used 60% for
+    `tests/fixtures/hostile/truncated.jpg` (comfortable margin on the decodes-OK side) and
+    documented the finding in the corpus builder's comment and `README.md`. The wasm
+    AC-7 test needs the OPPOSITE property (a truncation aggressive enough to force an
+    `Err`, since AC-7's wording is "each return a JsError") — so it uses a separate,
+    much-more-truncated JPEG (3% of a larger photo fixture), not the CLI corpus's file.
+  - AC-6's carve-out is proven against `tests/fixtures/fuzz/avif_decode/meta_parser_state.avif`
+    (the pre-existing fuzz fixture, read in place) rather than a new file in
+    `tests/fixtures/hostile/` — none of the 8 AC-1 fixtures happen to trigger the F3
+    debug-only panic-leak, so the carve-out logic would otherwise be untested dead code.
+    This is additive beyond the literal Failing Tests list (which names one combined
+    AC-2+AC-6 test) but was the only way to make AC-6's "narrow enough that a new panic
+    still fails" claim actually checked rather than assumed.
+  - The F1 warning is **unconditional** (not suppressed by `--quiet`), unlike this crate's
+    other CLI advisory warnings. The spec didn't pin this down explicitly; DEC-085 records
+    the reasoning (gating a silent-corruption warning behind `--quiet` would reopen the
+    exact loophole this fix closes).
 - **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - The F1 warning is wired on exactly the four named verbs (`info`/`web`/`convert`/`resize`)
+    plus `optimize` (shares `run_pixel_op`/`optimize_decide_one`) and, incidentally,
+    `thumbnail`/`auto-orient` (both delegate to `run_pixel_op` too). It is **not** wired on
+    `view`, `watermark`, `edit`, `diff`, `apply`/`build`, or `responsive` — each of these
+    also calls `Image::load`/`from_bytes` directly and would currently still silently
+    succeed on a truncated JPEG with no warning. AC-5 only requires the four named verbs, so
+    this is in-scope-complete, but the underlying defect is generic to any JPEG-decoding
+    verb. Worth a small follow-up spec (a "warning coverage sweep" over the remaining load
+    sites) rather than expanding this one (`one-spec-per-pr`).
+  - Not filed as a spec, but worth noting for whoever designs SPEC-110/111: this pass did
+    not find any NEW defects on `convert`'s orientation handling or elsewhere — the roster
+    was exactly F1 (fixed) and F2 (doc-only), as the design cycle predicted.
 
 ### Build-phase reflection (3 questions, short answers)
 
 Process-focused: how did the build go? What friction did the spec create?
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — Two things needed empirical discovery the spec's Notes didn't fully anticipate. First,
+   "reuse `png_header_declaring`'s shape" undersold what native `decode_with_limits` needs:
+   the wasm test that shape was lifted from only asserts `Err(_)` generically, so nobody had
+   ever confirmed it actually reaches `LimitsExceeded` rather than failing earlier at the
+   dimension peek — it doesn't, without an empty IDAT+IEND appended. Second, the design's
+   measured JPEG truncation ratio (~⅓) is specific to that probe's `real.jpg`, not a general
+   property of "JPEG truncated to ⅓" — it depends on where the entropy-coded scan data lands
+   relative to the cut, which varies by image content and size. Both took a few minutes of
+   binary-search probing (via a temporary scratch `#[test]`, deleted before commit) to pin
+   down rather than being derivable from the spec text alone.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — Whether the F1 warning should respect `--quiet`. The spec says "warn on stderr, still
+   exit 0" but doesn't address suppression, and this codebase has an established
+   `--quiet`-gates-all-advisories convention that a literal reading would have pointed
+   toward — which would have quietly reopened the exact silent-corruption gap this spec
+   exists to close, for anyone running with `-Q`. Filed as an explicit DEC-085 call rather
+   than a silent default.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Run the two empirical probes (PNG-bomb chunk shape, JPEG truncation boundary) as the
+   very first step, before writing any of the harness or fixture-builder code, rather than
+   discovering them mid-build. Both were cheap to check (a few `Image::from_bytes` calls in
+   a throwaway test) and would have let the corpus generator get the shapes right on the
+   first pass instead of two. Separately: run the AC-11 matrix through `rtk proxy` from the
+   very first leg, not the second — the summarized-output failure mode was already a
+   documented lesson ([[rtk-can-silently-corrupt-grep-counts]]) for `grep`/`git log`; this
+   session is the evidence it also applies to `cargo test`/`cargo clippy`, and that memory
+   is worth widening rather than re-discovering per-command.
 
 ---
 
