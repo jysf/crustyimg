@@ -85,14 +85,22 @@ and it is on the flagship `web` path.
   knowingly leaving a **silent** corruption path on the flagship `web` verb. A stated
   gap is honest; a known-and-unstated one is not.
 
-**Why unconditional (not `--quiet`-gated).** Every other advisory `warning:` in this CLI
-is cosmetic (a quality search fell short of its target, a downscale was applied to meet a
-byte budget) — suppressing it loses a nice-to-know, not a correctness signal. This
-warning exists specifically because F1 is a **silent-corruption** path: gating it behind
-`--quiet` would let a scripted/batch pipeline (`-Q`, the exact context where a human is
-least likely to notice) reintroduce the very failure mode this decision closes. The
+**Why unconditional (not `--quiet`-gated). Corrected on the SPEC-107 punch-list pass — this
+crate's other `--quiet`-gated advisories are not merely cosmetic, which makes the
+departure below more notable, not less.** `DEC-023`'s downscale warning
+("scaled to WxH to fit the N budget") is explicitly recorded as "surprising if
+unnoticed," and `DEC-075`'s larger-than-source `note:` exists precisely to explain an
+unexpected output property (the shipped bytes are bigger than the source) — both are
+`--quiet`-gated anyway, because a script that opted into `--quiet` is presumed to also
+have opted out of caring about a shape/size deviation it can still discover by
+inspecting its own output. F1 is different in kind, not merely in degree: the shipped
+bytes are **wrong** (an incomplete decode passed off as a complete one), not merely a
+different size or shape than expected, and there is no downstream signal (file size,
+dimensions) a script could check instead to notice it. Gating it behind `--quiet` would
+let a scripted/batch pipeline (`-Q`, the exact context where a human is least likely to
+notice) reintroduce the very silent-corruption failure mode this decision closes. The
 top-level `error:` line (`src/cli/mod.rs::run`) is likewise never `--quiet`-suppressed,
-for the same reason — this warning is closer to that than to the cosmetic advisories.
+for the same reason — this warning is closer to that than to the other advisories.
 
 ## Consequences
 
