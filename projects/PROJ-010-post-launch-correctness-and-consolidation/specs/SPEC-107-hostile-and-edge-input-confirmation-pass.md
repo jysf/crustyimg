@@ -92,22 +92,24 @@ cost:
     - cycle: build
       agent: claude-sonnet-5
       interface: claude-code
-      tokens_total: 78759229
-      duration_minutes: 896
+      tokens_total: 95596984
+      duration_minutes: 901
       recorded_at: 2026-07-30
       tokens_breakdown:
-        input: 852
-        output: 254481
-        cache_creation: 1386195
-        cache_read: 77117701
-      estimated_usd: 32.15
+        input: 960
+        output: 293464
+        cache_creation: 2260020
+        cache_read: 93042540
+      estimated_usd: 40.79
       note: >
         SECOND build session (PUNCH LIST pass, not a replacement for the first
         session above — both are real spend on this spec). MEASURED — summed
         .message.usage across every line with usage in this session's own
-        transcript (claude-sonnet-5 throughout; no <synthetic> lines).
+        transcript (claude-sonnet-5 throughout; no <synthetic> lines) — refreshed
+        to the session's final total after the commit/push work, matching this
+        spec's own established practice for the first build session.
         Priced per-component at Sonnet anchors ($3/$15 per MTok in/out;
-        cache_creation x1.25 input; cache_read x0.10 input) — 97.92% cache
+        cache_creation x1.25 input; cache_read x0.10 input) — 97.33% cache
         reads, so the flat-rate shortcut would badly overstate this
         (DEC-083). duration_minutes is wall-clock (first-to-last transcript
         timestamp), which includes several multi-minute background waits on
