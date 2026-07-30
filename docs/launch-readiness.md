@@ -31,9 +31,15 @@
       Firefox 150 (real Gecko), Safari 26.5 (real WebKit)** via three separate clients; all three do
       module Worker + `instantiateStreaming` + `createImageBitmap`-decodes-AVIF, all responsive
       through a real ~3.1 s AVIF encode.
-- [ ] **Mobile** — ⚠ STILL OPEN, the remaining cross-browser blocker. iOS Safari + Android Chrome
+- [x] **Mobile** — ✅ **done (SPEC-101, device gate PASS, maintainer-decided).** iOS Safari +
+      DuckDuckGo (both WebKit) driven end-to-end on a real iPhone: drop → convert → read score →
+      download all worked, including a real photo dropped straight from the Photos library.
+      Android Chrome (Blink) — **not tested (no device); accepted on maintainer judgment** as a
+      launch-readiness call, not a build blocker (the demo is static/no-backend and would degrade
+      gracefully). Original text below.
+      (was: ⚠ STILL OPEN, the remaining cross-browser blocker. iOS Safari + Android Chrome
       were undrivable in verify (no simulator/SDK). **Load the live page on a real phone** (module
-      Worker + AVIF encode + `.avif` input + layout) before the Show HN. HN has heavy mobile traffic.
+      Worker + AVIF encode + `.avif` input + layout) before the Show HN. HN has heavy mobile traffic.)
 - [x] **README front door** — ✅ **done (SPEC-082, PR #105; extended by SPEC-100, PR #106).**
       Command-first hook, live demo link, the no-server privacy line, honest scope, and install
       paths; all 48 fenced commands were run to verify. Original text below.
@@ -46,9 +52,20 @@
       (was: `crustyimg-wasm` is **unpublished (404)**. If the post says
       `npm install crustyimg-wasm`, publish it first (SPEC-076, gated on maintainer approval). If
       not, don't claim it.
-- [ ] **Hostile / edge inputs in the browser** — HN *will* drop huge / garbage / unsupported files.
-      The decode caps + clear error messages must hold on the live page — no hangs, no cryptic
-      failures. (Hold natively; confirm in the browser.)
+- [x] **Hostile / edge inputs** — ✅ **done (SPEC-107): driven, not assumed.** A committed
+      corpus (zero-byte, text-as-image, truncated JPEG/PNG/AVIF, a forged pixel-count bomb, an
+      empty-OBU AVIF) is driven through both the native CLI and headless wasm: no hang, no panic,
+      no OOM on any input, and every input now gets a clear, typed message (the one live defect
+      found — a truncated JPEG silently succeeding on `web` — is fixed, DEC-085). See
+      `tests/hostile_inputs.rs` + `tests/wasm_roundtrip.rs`'s AC-7 cases.
+      **Genuinely browser-specific and still open:** whether the demo *surfaces* these errors
+      legibly in the UI (the engine returns a typed message; whether the page renders it
+      readably is untested), and how a phone behaves on the largest inputs (the decode caps are
+      global, not device-aware — see the RAW/60 MP note in "Critical path" below). Left on the
+      board for the mobile device pass. Original text below.
+      (was: HN *will* drop huge / garbage / unsupported files. The decode caps + clear error
+      messages must hold on the live page — no hangs, no cryptic failures. (Hold natively;
+      confirm in the browser.))
 
 ## Strengtheners — harden the reception (do if time allows)
 
@@ -89,11 +106,16 @@ published ✅ → 0.6.0 live on crates.io / brew / Releases ✅.
 
 **What remains is maintainer-only and needs no repo work:**
 
-1. **Mobile real-device test** — the one genuine remaining blocker. Now also covers the RAW
-   preview gate: does a phone survive a ~60 MP decode? The answer decides whether platform-aware
-   gating is ever worth building (until then the global 60 MP gate stands).
-2. **Hostile / edge inputs confirmed on the live page** — holds natively; browser confirmation
-   was never recorded either way.
+1. **Mobile real-device test** — ✅ **done (SPEC-101)**: iOS Safari + DuckDuckGo PASS on a real
+   iPhone; Android Chrome untested, accepted on maintainer judgment. Still genuinely open: does a
+   phone survive the ~60 MP RAW-preview decode specifically — RAW landed in the demo via
+   SPEC-103/104, after SPEC-101's device pass, so it has never been on-device tested. The answer
+   decides whether platform-aware gating is ever worth building (until then the global 60 MP gate
+   stands).
+2. **Hostile / edge inputs confirmed on the live page** — ✅ **native + headless wasm done
+   (SPEC-107)**, holds and is now driven, not assumed (the one defect found is fixed, DEC-085).
+   Still genuinely open: does the demo *surface* these errors legibly in the UI, and how a phone
+   behaves on the largest inputs — both fold into item 1's device pass.
 3. **Re-verify the install one-liners at 0.6.0**, if the post mentions the CLI.
 4. **ROADMAP read + post draft** — ⚠ the draft needs a **CLI-vs-demo RAW split** fix: the CLI
    reads RAW, and since SPEC-103 the demo does too, behind a stated 60 MP gate. State it honestly.

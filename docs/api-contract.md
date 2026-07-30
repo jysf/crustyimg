@@ -56,7 +56,7 @@ Apply to all subcommands (parsed before/around the subcommand).
 | `1` | Generic runtime error (decode/encode/op failed; includes an input that exceeds decode resource limits — see below). |
 | `2` | Usage error (bad args) — clap's standard code. |
 | `3` | Input not found / unreadable. |
-| `4` | Unsupported format / codec not built — an ENCODER (AVIF output on a `--no-default-features` lean build) or a DECODER (a `.heic` input without `--features heic`, SPEC-062/DEC-052). The message names the feature to rebuild with. |
+| `4` | Unsupported or undetectable format. Three cases: the input bytes are not a recognisable image at all (zero-byte file, arbitrary text/bytes) — the message just says so, there is no feature to name; a DECODER is recognized but not built (a `.heic` input without `--features heic`, SPEC-062/DEC-052) — the message names the feature to rebuild with; or an ENCODER is not built (AVIF output on a `--no-default-features` lean build) — likewise names the feature. |
 | `5` | Output write failed / refused (exists without `--yes`; name/path traversal; a symlinked destination, refused even with `--yes` — SPEC-034 / DEC-035). |
 | `6` | Partial batch failure (some inputs failed; summary on stderr). |
 | `7` | A check/gate was not satisfied (e.g. `diff --fail-under` scored below the threshold). Distinct from a runtime error so CI can tell "regression detected" from "couldn't run" (S9/SPEC-023, DEC-025). |
@@ -94,6 +94,15 @@ refused before it is read into memory.
 would exceed **512 MiB** (≈ the same cap as decode) — an upscale bomb via
 `exact`/`percent`/`cover`/`fill`, from a recipe or the CLI — is rejected with a
 typed error (exit `1`) before allocation. (`max`/`fit` never upscale.)
+
+**Truncated JPEG warning (SPEC-107 / DEC-085):** `info`/`web`/`convert`/`resize`/
+`optimize` print a one-line `warning: <input>: truncated JPEG: …` to stderr when a
+JPEG is missing its trailing end-of-image marker (`FF D9`) — the `image` crate's
+JPEG decoder tolerates this by design and decodes a (possibly incomplete) frame
+rather than erroring, unlike PNG/AVIF. The command still **exits `0`** and still
+writes its output: this is a warning, not a failure, and — unlike this CLI's other
+advisory warnings — is **not** suppressed by `--quiet` (the whole point is that a
+truncated JPEG must never again pass through unremarked).
 
 ## Subcommand Surface (full MVP)
 
