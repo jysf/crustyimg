@@ -248,10 +248,19 @@ fn meta_parser_state_avif_debug_leak_is_the_only_carve_out() {
                  a second leak is coexisting with it: {stderr}",
                 banner.len()
             );
+            // The panic header embeds the absolute path of the upstream source
+            // file, so its separators follow the host: `.../src/lib.rs` on unix,
+            // `...\src\lib.rs` on Windows. Normalise before matching — the
+            // separator is the only platform-dependent part of this 5-line block,
+            // and matching it verbatim turned a macOS-only observation into a red
+            // Windows CI leg [[a-green-gate-on-one-os-is-not-the-required-matrix]].
+            // Position, line count and every other line stay exact, so this does
+            // not widen the carve-out.
+            let header = banner[0].replace('\\', "/");
             assert!(
-                banner[0].starts_with("thread 'main' (")
-                    && banner[0].contains("panicked at")
-                    && banner[0].contains("avif-parse-2.1.0/src/lib.rs:921:9:"),
+                header.starts_with("thread 'main' (")
+                    && header.contains("panicked at")
+                    && header.contains("avif-parse-2.1.0/src/lib.rs:921:9:"),
                 "banner line 1 (panic header) is not the known F3 shape: {stderr}"
             );
             assert_eq!(
