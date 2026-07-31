@@ -953,6 +953,11 @@ fn optimize_decide_one(
         // report — `Some` only for a lossy fast winner that could be decoded and
         // scored; `None` for lossless, passthrough, or the opt-in search modes.
         Option<f64>,
+        // F1 (SPEC-107, DEC-085): whether the SOURCE decoded as a truncated
+        // JPEG. Returned rather than printed here (this function's contract is
+        // "does NOT print") — the caller prints the warning against the label
+        // it already has.
+        bool,
     ),
     CliError,
 > {
@@ -979,6 +984,9 @@ fn optimize_decide_one(
     if let Some(t) = decode_start {
         decode_ms = t.elapsed().as_secs_f64() * 1000.0;
     }
+    // F1 (SPEC-107, DEC-085): captured on the SOURCE, before the pipeline
+    // (which may replace the pixels) consumes `img` below.
+    let truncated_jpeg = img.is_truncated_jpeg();
     let source_format = img.source_format();
     // Capture the source's shape + metadata BEFORE the pipeline consumes it: a raw
     // passthrough is only faithful when the pipeline changed nothing `optimize`
@@ -1002,7 +1010,7 @@ fn optimize_decide_one(
                 raw,
                 ext: metadata_output_ext(input, &[]),
             };
-            return Ok((output, None, None));
+            return Ok((output, None, None, truncated_jpeg));
         }
     };
 
@@ -1153,7 +1161,7 @@ fn optimize_decide_one(
         }),
     };
 
-    Ok((output, Some(trace), winner_score))
+    Ok((output, Some(trace), winner_score, truncated_jpeg))
 }
 
 /// Render one input's report: `--explain` (json→stdout, human→stderr), else the
@@ -1315,8 +1323,13 @@ fn run_optimize_autodecide(
             .path()
             .map(|p| p.display().to_string())
             .unwrap_or_else(|| input.stem().to_owned());
-        let (output, trace, score) =
+        let (output, trace, score, truncated_jpeg) =
             optimize_decide_one(input, pipeline, auto, profile, always_score, timing)?;
+        // F1 (SPEC-107, DEC-085): unconditional, not gated on `--quiet` — see
+        // `report.rs`'s `run_info` for why.
+        if truncated_jpeg {
+            eprintln!("warning: {label}: {}", crate::image::TRUNCATED_JPEG_WARNING);
+        }
         emit_optimize_report(&label, trace.as_ref(), score, explain, global)?;
 
         let sink = if let Some(ref out) = global.output {
@@ -1360,8 +1373,12 @@ fn run_optimize_autodecide(
                 crate::source::Input::Stdin { stem, .. } => stem.clone(),
             };
             let result = (|| -> Result<(), CliError> {
-                let (output, trace, score) =
+                let (output, trace, score, truncated_jpeg) =
                     optimize_decide_one(input, pipeline, auto, profile, always_score, timing)?;
+                // F1 (SPEC-107, DEC-085): see the single-input branch above.
+                if truncated_jpeg {
+                    eprintln!("warning: {label}: {}", crate::image::TRUNCATED_JPEG_WARNING);
+                }
                 emit_optimize_report(&label, trace.as_ref(), score, explain, global)?;
                 let sink = Sink::Dir {
                     dir: PathBuf::from(out_dir),

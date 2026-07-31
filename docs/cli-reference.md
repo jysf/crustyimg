@@ -33,7 +33,7 @@ Available on every command (before or after the subcommand):
 | `--quality <0-100>` | `-q` | Encoder quality where the format supports it (e.g. JPEG). |
 | `--jobs <N>` | `-j` | Parallel workers for `apply` batch (default = CPU count). |
 | `--yes` | `-y` | Assume "yes" to overwrite prompts (non-interactive). |
-| `--quiet` | `-Q` | Suppress non-error output. |
+| `--quiet` | `-Q` | Suppress non-error output — except the truncated-JPEG warning (DEC-085), which is unconditional so a silent-corruption path can never be fully suppressed. |
 | `--verbose` | `-v` | Increase verbosity (repeatable, `-vv`); logs to stderr. |
 | `--keep-gps` | | Keep GPS/location tags on pixel-lane encodes (default drops them). |
 | `--version` / `--help` | `-V` / `-h` | Standard. |

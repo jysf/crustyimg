@@ -645,6 +645,106 @@ op = "identity"
         assert!(!ok.bytes().is_empty());
     }
 
+    // ── SPEC-107 AC-7: the four wasm hostile-input gaps the coverage matrix
+    // names (zero-byte, `.txt` bytes, truncated JPEG, empty-OBU AVIF) —
+    // everything else on the roster is already driven above or is a
+    // native-only concern (F1's stderr warning has no browser-side
+    // equivalent; wasm's job here is only "does not crash the module"). Each
+    // follows `optimize_detailed_rejects_oversize_without_panic`'s shape:
+    // the hostile call is an `Err` carrying a message, and a later ordinary
+    // call still succeeds. ─────────────────────────────────────────────────
+
+    /// `info(bytes)` must be an `Err` (not a panic); returns the error's
+    /// stringified message. (`ImageInfo` is not `Debug` — it holds
+    /// non-`Debug` `image::` types — so this matches rather than
+    /// `expect_err`s, mirroring `optimize_detailed_rejects_oversize_without_panic`.)
+    fn info_err_message(bytes: &[u8], panic_msg: &str) -> String {
+        match info(bytes) {
+            Ok(_) => panic!("{panic_msg}"),
+            Err(e) => format!("{:?}", wasm_bindgen::JsValue::from(e)),
+        }
+    }
+
+    /// A zero-byte input is a typed `JsError`, never a panic. `info` drives
+    /// `Image::from_bytes` directly — the leanest check of the decode-side
+    /// contract, with no encode step to also exercise.
+    #[wasm_bindgen_test]
+    fn wasm_rejects_zero_byte_input_without_panicking() {
+        let msg = info_err_message(&[], "an empty input must be an Err, not a panic");
+        assert!(!msg.is_empty(), "the error must carry a message");
+
+        let ok = info(&png_64x48()).expect("the wasm module must survive a rejected input");
+        assert_eq!((ok.width(), ok.height()), (64, 48));
+    }
+
+    /// Plain text bytes under an image call — same contract as the zero-byte
+    /// case, a different way of not being an image at all.
+    #[wasm_bindgen_test]
+    fn wasm_rejects_non_image_bytes_without_panicking() {
+        let msg = info_err_message(
+            b"this is not an image, just plain text bytes\n",
+            "non-image bytes must be an Err, not a panic",
+        );
+        assert!(!msg.is_empty(), "the error must carry a message");
+
+        let ok = info(&png_64x48()).expect("the wasm module must survive a rejected input");
+        assert_eq!((ok.width(), ok.height()), (64, 48));
+    }
+
+    /// A JPEG truncated aggressively enough that the decoder returns a hard
+    /// error — NOT F1's silent-partial-decode case (`SPEC-107`'s CLI-side
+    /// fix warns on stderr and still succeeds; wasm has no stderr-equivalent
+    /// surface, so the gap this test closes is only "a hostile JPEG must not
+    /// crash the module"). Cut to 3% of a detailed photo JPEG's encoded
+    /// length: empirically well past the point where the decoder can
+    /// produce a full frame from this fixture (confirmed while building
+    /// this test).
+    #[wasm_bindgen_test]
+    fn wasm_truncated_jpeg_does_not_kill_the_module() {
+        let jpeg = jpeg_at(&photo_png_192x160(), 80);
+        let cut = jpeg.len() * 3 / 100;
+        let msg = info_err_message(
+            &jpeg[..cut],
+            "a hard-truncated JPEG must be an Err, not a panic",
+        );
+        assert!(!msg.is_empty(), "the error must carry a message");
+        // Pins the message to the JPEG decoder specifically (`image`'s error Display
+        // reads "...decoding Jpeg: ..."), not merely "some Err came back" — so this
+        // stays red if `jpeg_at`'s generator ever silently stopped producing a JPEG.
+        assert!(msg.contains("Jpeg"), "message should name the codec: {msg}");
+
+        let ok = info(&png_64x48()).expect("the wasm module must survive a rejected input");
+        assert_eq!((ok.width(), ok.height()), (64, 48));
+    }
+
+    /// The empty-alpha-OBU AVIF — the SAME committed fixture
+    /// (`tests/fixtures/hostile/empty_alpha_obu.avif`, AC-4) the native CLI
+    /// drives, not a re-derived copy — is an error on wasm too, for a
+    /// DIFFERENT reason than on native: AVIF decode is not built for
+    /// `wasm32` at all (DEC-064), so the container SNIFF recognizes it and
+    /// returns `CodecUnavailableOnTarget` before the SPEC-094
+    /// `debug_abort()` guard (which does not exist in this target's binary)
+    /// would ever matter. Still worth driving directly: proves the crafted
+    /// container bytes do not confuse the sniff into a panic either.
+    #[wasm_bindgen_test]
+    fn wasm_empty_obu_avif_is_an_error_not_an_abort() {
+        const EMPTY_ALPHA_OBU_AVIF: &[u8] = include_bytes!("fixtures/hostile/empty_alpha_obu.avif");
+        let msg = info_err_message(EMPTY_ALPHA_OBU_AVIF, "must be an Err, not a panic or abort");
+        assert!(!msg.is_empty(), "the error must carry a message");
+        // Same convention as `avif_input_errors_not_panics`/`avif_input_still_errors_on_wasm`
+        // above: pin the message to `CodecUnavailableOnTarget`'s AVIF wording specifically, so
+        // this cannot pass on any Err an unrelated regression happens to produce, and must stay
+        // honest for a browser user (no cargo-feature advice).
+        assert!(msg.contains("AVIF"), "message should name the codec: {msg}");
+        assert!(
+            !msg.contains("--features"),
+            "must not advise a cargo feature a browser user cannot use: {msg}"
+        );
+
+        let ok = info(&png_64x48()).expect("the wasm module must survive a rejected input");
+        assert_eq!((ok.width(), ok.height()), (64, 48));
+    }
+
     /// A PNG whose IHDR *declares* `w × h` and carries nothing else — the classic
     /// decompression-bomb shape: 40-odd bytes claiming ten billion pixels. The CRC is
     /// computed for real, so the decoder reads the header rather than bailing on a

@@ -93,6 +93,32 @@ pub(crate) fn check_pixel_budget(w: u32, h: u32) -> Result<()> {
     Ok(())
 }
 
+/// Whether `bytes` is missing a well-formed JPEG's trailing end-of-image
+/// marker (`FF D9`) — a container-level check, not a decoder change (F1,
+/// SPEC-107, DEC-085). The `image` crate's JPEG decoder tolerates a missing
+/// EOI by design (it decodes what entropy data is present and returns), so a
+/// truncated JPEG otherwise decodes "successfully" and silently — unlike PNG
+/// and AVIF, which both error on the equivalent truncation.
+///
+/// `bytes.ends_with` cannot panic on a shorter-than-2-byte input
+/// (`no-unwrap-on-recoverable-paths`): it simply returns `false`, which reads
+/// as "missing" — correct, since a buffer that short is not a well-formed
+/// JPEG in the first place (this helper is only ever consulted after the
+/// format has already been detected as JPEG).
+fn jpeg_missing_eoi(bytes: &[u8]) -> bool {
+    const EOI: [u8; 2] = [0xFF, 0xD9];
+    !bytes.ends_with(&EOI)
+}
+
+/// The stderr warning the CLI prints on [`Image::is_truncated_jpeg`] (F1,
+/// SPEC-107) — centralized so `info`/`web`/`convert`/`resize` print identical
+/// wording and the test suite asserts on one string. Native-only (no `cli`
+/// on `wasm32` — `Image` still computes and carries the flag on every
+/// target, but only the native CLI turns it into a printed warning).
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) const TRUNCATED_JPEG_WARNING: &str =
+    "truncated JPEG: missing end-of-image marker (FF D9) — the decoded image may be incomplete";
+
 /// The one canonical in-memory image model (DEC-002).
 ///
 /// Wraps the decoded pixels, the format detected at load, and an optional raw
@@ -104,6 +130,13 @@ pub struct Image {
     pixels: DynamicImage,
     source_format: ImageFormat,
     metadata: Option<MetadataBundle>,
+    /// Set at decode time (F1, SPEC-107) when `source_format` is JPEG and the
+    /// input bytes are missing the trailing end-of-image marker (`FF D9`).
+    /// The `image` crate's JPEG decoder tolerates a missing EOI by design and
+    /// returns a (possibly incomplete) image rather than erroring, unlike
+    /// PNG/AVIF — so a truncated JPEG decodes "successfully" here and the CLI
+    /// layer is what turns this flag into a stderr warning.
+    truncated_jpeg: bool,
 }
 
 impl Image {
@@ -146,10 +179,12 @@ impl Image {
     pub fn from_bytes(bytes: &[u8]) -> Result<Image> {
         let (pixels, source_format) = decode_with_format(bytes)?;
         let metadata = MetadataBundle::capture(bytes, source_format);
+        let truncated_jpeg = source_format == ImageFormat::Jpeg && jpeg_missing_eoi(bytes);
         Ok(Image {
             pixels,
             source_format,
             metadata,
+            truncated_jpeg,
         })
     }
 
@@ -189,13 +224,26 @@ impl Image {
         &self.pixels
     }
 
+    /// Whether this image was decoded from a JPEG missing its trailing
+    /// end-of-image marker (F1, SPEC-107). The CLI layer checks this right
+    /// after load (before any pipeline runs) to print the truncation warning
+    /// on `info`/`web`/`convert`/`resize` — see `TRUNCATED_JPEG_WARNING`.
+    /// Native-only: no `cli` on `wasm32` to consult it.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) fn is_truncated_jpeg(&self) -> bool {
+        self.truncated_jpeg
+    }
+
     /// Build an `Image` from already-decoded pixels, carrying through the
     /// source format and metadata bundle.
     ///
     /// Used by `Operation` impls (SPEC-003+) to return a transformed image
     /// without re-decoding (decode-once, DEC-002). Operations that have no
     /// access to the originating `Image` value (e.g. because they consumed
-    /// it via `with_pixels`) can call this directly.
+    /// it via `with_pixels`) can call this directly. Never itself the product
+    /// of a truncated JPEG decode (that flag is only ever set in
+    /// [`Image::from_bytes`], on the ORIGINAL loaded bytes — see
+    /// [`Image::is_truncated_jpeg`]).
     pub fn from_parts(
         pixels: DynamicImage,
         source_format: ImageFormat,
@@ -205,6 +253,7 @@ impl Image {
             pixels,
             source_format,
             metadata,
+            truncated_jpeg: false,
         }
     }
 
@@ -218,6 +267,7 @@ impl Image {
             pixels,
             source_format: self.source_format,
             metadata: self.metadata,
+            truncated_jpeg: self.truncated_jpeg,
         }
     }
 
@@ -465,6 +515,11 @@ pub fn raw_preview(bytes: &[u8]) -> Result<Image> {
         pixels,
         source_format: ImageFormat::Jpeg,
         metadata: None,
+        // F1 (SPEC-107) is about a directly-loaded JPEG *file* missing its EOI;
+        // a RAW container's embedded preview is a different artifact (already
+        // extracted/decoded by `raw::extract_preview` above) and is out of this
+        // spec's scope (F4/F5).
+        truncated_jpeg: false,
     })
 }
 
@@ -1142,5 +1197,64 @@ mod tests {
             ),
             "expected typed error, got {result:?}"
         );
+    }
+
+    // ── F1 truncated-JPEG warning (SPEC-107, DEC-085) ──────────────────────────
+
+    /// The container-level EOI check itself: a well-formed JPEG ends `FF D9`;
+    /// cutting even the last byte off must flip the verdict. Also a
+    /// `no-unwrap-on-recoverable-paths` proof: an empty/1-byte slice must not
+    /// panic, and correctly reads as "missing".
+    #[test]
+    fn jpeg_missing_eoi_detects_the_trailing_marker() {
+        let jpeg = solid_jpeg(8, 8);
+        assert!(jpeg.ends_with(&[0xFF, 0xD9]), "test fixture sanity check");
+        assert!(
+            !jpeg_missing_eoi(&jpeg),
+            "a well-formed JPEG must not read as truncated"
+        );
+
+        let cut = &jpeg[..jpeg.len() - 1];
+        assert!(
+            jpeg_missing_eoi(cut),
+            "removing the last byte must read as truncated"
+        );
+
+        assert!(
+            jpeg_missing_eoi(&[]),
+            "an empty slice must not panic and reads as missing"
+        );
+        assert!(
+            jpeg_missing_eoi(&[0xD9]),
+            "a 1-byte slice must not panic and reads as missing"
+        );
+    }
+
+    /// End-to-end through `Image::from_bytes`: a well-formed JPEG reports
+    /// `is_truncated_jpeg() == false`; truncating it (short enough to lose the
+    /// EOI, long enough to still decode a full frame) flips it to `true`.
+    #[test]
+    fn from_bytes_flags_a_truncated_jpeg_but_not_a_whole_one() {
+        let jpeg = solid_jpeg(64, 64);
+        let whole = Image::from_bytes(&jpeg).expect("decode whole jpeg");
+        assert!(!whole.is_truncated_jpeg());
+
+        // A solid-color JPEG compresses to very little entropy data, so cut
+        // deep enough to lose the EOI but keep enough of the header + scan
+        // for the decoder to still return a frame.
+        let cut = jpeg.len() * 9 / 10;
+        let truncated = Image::from_bytes(&jpeg[..cut]).expect("decode truncated jpeg");
+        assert!(truncated.is_truncated_jpeg());
+    }
+
+    /// A non-JPEG whose bytes happen to end `FF D9` must NOT be flagged — the
+    /// check only applies once the format is already known to be JPEG.
+    #[test]
+    fn non_jpeg_is_never_flagged_truncated() {
+        let mut png = solid_png(8, 8, [1, 2, 3]);
+        png.extend_from_slice(&[0xFF, 0xD9]); // trailing junk, coincidentally EOI-shaped
+        let img = Image::from_bytes(&png).expect("PNG decoder ignores trailing junk");
+        assert_eq!(img.source_format(), ImageFormat::Png);
+        assert!(!img.is_truncated_jpeg());
     }
 }

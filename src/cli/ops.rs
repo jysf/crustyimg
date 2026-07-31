@@ -314,6 +314,16 @@ pub(super) fn run_pixel_op(
             crate::source::Input::Path(p) => Image::load(p)?,
             crate::source::Input::Stdin { bytes, .. } => Image::from_bytes(bytes)?,
         };
+        let label = input
+            .path()
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|| input.stem().to_owned());
+        // F1 (SPEC-107, DEC-085): warn on a truncated JPEG; still proceed (exit
+        // stays 0). Unconditional, not gated on `--quiet` — see `report.rs`'s
+        // `run_info` for why.
+        if img.is_truncated_jpeg() {
+            eprintln!("warning: {label}: {}", crate::image::TRUNCATED_JPEG_WARNING);
+        }
 
         let out_img = pipeline.run(img.clone())?;
 
@@ -350,10 +360,6 @@ pub(super) fn run_pixel_op(
         };
 
         // Resolve the effective quality (auto-quality search for JPEG, else fixed).
-        let label = input
-            .path()
-            .map(|p| p.display().to_string())
-            .unwrap_or_else(|| input.stem().to_owned());
         let plan = resolve_effective_quality(quality, &auto, fmt, &out_img, global, &label)?;
         // A `--max-size` downscale (SPEC-021) replaces the pixels we write.
         let write_img = plan.image.as_ref().unwrap_or(&out_img);
@@ -397,6 +403,10 @@ pub(super) fn run_pixel_op(
                     crate::source::Input::Path(p) => Image::load(p)?,
                     crate::source::Input::Stdin { bytes, .. } => Image::from_bytes(bytes)?,
                 };
+                // F1 (SPEC-107, DEC-085): see the single-input branch above.
+                if img.is_truncated_jpeg() {
+                    eprintln!("warning: {label}: {}", crate::image::TRUNCATED_JPEG_WARNING);
+                }
 
                 let out_img = pipeline.run(img.clone())?;
 
