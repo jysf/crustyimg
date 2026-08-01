@@ -7,7 +7,7 @@
 task:
   id: SPEC-107
   type: story                      # epic | story | task | bug | chore
-  cycle: build                     # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: critical
   complexity: M                    # S | M | L  (L means split it)
@@ -141,11 +141,39 @@ cost:
         (through `rtk proxy`, fresh `CARGO_TARGET_DIR` each) plus real gaps
         between when this session was opened and when work on it actually
         started — not continuous active compute.
+    - cycle: ship
+      interface: claude-code
+      tokens_total: null
+      duration_minutes: null
+      estimated_usd: null
+      note: >
+        Un-metered orchestrator main-loop cycle (AGENTS §4). Two pieces of
+        orchestrator work on this spec are likewise OUTSIDE the metered total
+        below, and are named here rather than silently omitted: (a) the
+        two-line Windows CI fix on `tests/hostile_inputs.rs` after PR #127 went
+        red on both windows-latest runs, and (b) a focused AC-6 re-verify spot
+        check on Opus (~$3.10, a LABELLED ESTIMATE, not a transcript sum) that
+        drove three mutation families — a replacement panic incl. a
+        length-matched one, an additive coexisting leak in both orderings, and
+        six header perturbations after the path normalisation — all RED where
+        required, with two GREEN controls proving attribution.
   totals:
-    # Left for ship (AGENTS §4: "Ship computes cost.totals") — not computed here.
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 340829979
+    estimated_usd: 141.99
+    session_count: 5
+    note: >
+      Sum of the three METERED cycles only: build $81.04 (Sonnet anchors) +
+      verify $20.16 (Opus anchors) + punch-list build $40.79 (Sonnet anchors).
+      Each was independently reconciled against its own component breakdown at
+      the anchors of the model recorded in `agent` (DEC-083) — all three
+      reproduce exactly, and the SPEC-108 anchor-mismatch is not repeated here
+      because `implementer` was pinned before the build ran (PR #126).
+      `session_count` counts all 5 entries; design and ship are main-loop and
+      null by convention, so the dollar figure covers 3 of them.
+      As on every spec here, `tokens_total` sums per-message `cache_read`, which
+      re-counts the same cached prefix once per message (97–99% of volume across
+      these cycles). It is a faithful sum of the usage records and NOT a measure
+      of distinct work.
 ---
 
 # SPEC-107: hostile / edge input confirmation pass
@@ -820,10 +848,52 @@ Process-focused: how did the build go? What friction did the spec create?
 from the process-focused build reflection above.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — **Drive the roster on more than one platform when the finding IS a platform artifact.**
+   F3 is a finding whose entire subject is platform-specific stderr text, and all three
+   cycles characterised it on macOS alone — design captured it there, build reproduced it
+   there, verify drove it there. It stayed harmless only while the assertion was loose;
+   the punch-list pass made it exact (correctly, to close verify's additive-leak hole) and
+   that instantly turned a shared blind spot into a red Windows CI leg. The fix was two
+   lines, but nobody would have needed them if the design cycle had asked "is this string
+   host-shaped?" once. Generalised: **an exact assertion on a panic message, a path, or
+   formatted stderr is a platform assertion wearing a correctness assertion's clothes.**
+
+   Second, smaller: the design cycle's measured JPEG truncation ratio (⅓) was reported as
+   if it were a property of "truncated JPEG" when it is a property of *that* file — the
+   build found the real boundary sits near 50% on its own fixture. Measurements taken on
+   one artifact should be stated as such in the spec, not as a general constant a builder
+   can lift.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — No template or constraint change. Two decisions are now on the record from this spec:
+   **DEC-085** (a truncated JPEG warns on stderr, unconditionally, exit stays 0), whose
+   rationale was corrected during the punch-list pass after verify found it overstated the
+   `--quiet` convention it departs from — DEC-023 and DEC-075 both gate advisories behind
+   `--quiet`, so the departure is *more* notable than DEC-085 originally claimed, not less.
+   The decision itself stands unchanged.
+
+   Worth flagging for whoever touches `docs/api-contract.md` next: this spec widened exit
+   4's documented meaning to cover "the bytes are not a recognisable image at all" and
+   dropped the universal claim that its message names a feature. The exit-code *mapping*
+   was never wrong; only its description was.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — **Yes — a warning-coverage sweep, and it should be framed from the corrected list.**
+   The F1 truncation warning is wired on `info`, `web`, `convert`, `resize`, `optimize`,
+   `thumbnail` and `auto-orient` (the last three incidentally, via `run_pixel_op`). It is
+   NOT wired on `diff` (both inputs), `responsive`, `apply`/`build` with a plain pixel
+   recipe, `watermark --image` (overlay only), `lint`, or `meta strip` — each decodes JPEGs
+   directly without passing through `run_pixel_op`. AC-5 only ever required the four named
+   verbs, so this spec is in-scope-complete, but the underlying defect is generic to any
+   JPEG-decoding verb.
+
+   **Frame it from verify's list, not the build's.** The build's original follow-up list was
+   wrong in both directions — it named `edit` and `watermark` (which do warn) and omitted
+   `lint` and `meta strip` (which do not). Verify drove 16 invocations to correct it. A spec
+   scoped from the uncorrected list would have sent real work at the wrong files.
+
+   Second, smaller follow-up: **no wasm test reaches `check_pixel_budget`** (DEC-063),
+   although `optimize_detailed_rejects_oversize_without_panic`'s docstring advertises both
+   DEC-034 and DEC-063. Its 100000² fixture is caught by the per-dimension cap first. The
+   test is not vacuous — verify refuted that — but its advertised reach exceeds what it
+   drives. [[a-guards-advertised-reach-is-a-claim]]
