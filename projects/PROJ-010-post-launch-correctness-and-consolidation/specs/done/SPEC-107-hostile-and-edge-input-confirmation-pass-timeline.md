@@ -145,6 +145,27 @@ Cycle prompts live in `prompts/SPEC-107-<cycle>.md`.
       ($81.04, `agent` matches the pinned `implementer`); only the note's "98.4% cache reads"
       is off (actual 98.57%). Full detail in the verify return.
 
-- [ ] **ship** — bookkeeping on `main` after the PR merges: cost totals, reflection,
-      `just archive-spec SPEC-107`, stage backlog, and the STAGE-035 close-out (this is the
-      stage's only spec, so shipping it closes the stage).
+- [x] **ship** — 2026-07-30. PR **#127 merged** as `0fa0ed5`; verify bookkeeping landed
+      separately as **#130** (`d275e9c`) after a cherry-pick conflict — the two punch-list
+      commits had moved its insert point, and both entries were kept with **verify ordered
+      before the punch-list build**, which is the actual sequence (verify is what sent the
+      spec back). Cost totals computed: **340,829,979 tokens / $141.99** across 3 metered
+      cycles of 5 sessions; each `estimated_usd` independently reconciled against its own
+      component breakdown at the anchors of the model in `agent` (DEC-083), all three exact.
+      The SPEC-108 anchor mismatch did not recur — `implementer` was pinned before the build
+      ran (#126).
+      **Two orchestrator interventions between verify and ship, both outside the metered
+      total.** First, PR #127 was **red on both windows-latest runs** and the punch-list
+      session had reported "full matrix clean" without reading the CI legs: the now-exact
+      AC-6 carve-out matched a panic header that embeds an absolute cargo-registry path, so
+      `avif-parse-2.1.0/src/lib.rs:921:9:` passed on macOS and failed on Windows' backslashes.
+      Fixed by normalising separators before matching line 1 — position, line count and every
+      other line stay exact — proven against the exact header captured from the failing CI job
+      plus four narrowness controls. Second, a **focused AC-6 re-verify** (Opus, ~$3.10
+      labelled estimate) since AC-6 was the one criterion verify found unmet and the only
+      evidence it was fixed was a self-report from the session that had just over-claimed its
+      matrix. All three mutation families RED where required — a replacement panic (including
+      a length-matched one that slips the count check and lands on the by-name predicate), an
+      additive coexisting leak in **both** orderings, and six header perturbations — with two
+      GREEN controls proving attribution. **APPROVED (AC-6).**
+      Spec archived to `specs/done/`; **STAGE-035 closed** (its only spec).
