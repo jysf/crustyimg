@@ -5,7 +5,7 @@
 
 stage:
   id: STAGE-039
-  status: proposed
+  status: active
   priority: critical
   target_complete: null
 
@@ -96,13 +96,26 @@ out of STAGE-034 keeps that stage a single subject — the classifier pixel lane
 
 ## Spec Backlog
 
-- [ ] SPEC-110 (frame) — **`convert` orientation: decide, fix, sweep.** `run_convert`
+- [ ] SPEC-110 (**designed 2026-08-03**) — **`convert` orientation: decide, fix, sweep.** `run_convert`
   (`src/cli/optimize.rs:507`) builds `Pipeline::new()` at `:538` — *"Pure re-encode: an empty pipeline
   returns the pixels unchanged"* — and the pixel-lane re-encode drops the metadata bundle, so the
   Orientation tag is discarded while the rotation it described is never applied. `optimize`/`web` pin
   `auto-orient` first (`:790`, DEC-017). **There is a real design call here:** `convert`'s contract is
   a lossless-intent format change, so baking pixels is not automatically right — preserving the tag
   may be the better answer. Decide it, then sweep. Complexity **S–M**.
+  **Designed 2026-08-03 — the sweep is where most of the defect lives, so this is no longer a
+  `convert` spec.** Driven against a purpose-built `Orientation=6` fixture (stored 1200×800,
+  correct display 800×1200) on a release build: `convert` (both formats), `resize`, `thumbnail`,
+  `responsive`, and `edit` without its flag — **seven invocations return a sideways image, and
+  every one also drops the EXIF**, so the information needed to correct the output is destroyed
+  by the same operation that made it wrong. **`resize` is the worst case, not `convert`:** the
+  `--max` bound lands on the wrong axis, so the output is the wrong *size*. Only
+  `web`/`optimize`/`auto-orient`/`edit --auto-orient` bake. **Maintainer decision: bake
+  everywhere** (rejected: preserve-the-tag; split-by-verb-intent). Two further findings:
+  **DEC-003's own falsifiability condition is currently false** (*"Right if: a resize preserves
+  orientation…"*), and **no test asserts orientation on any of the five broken verbs** — every
+  existing orientation fixture sits on a verb that already bakes, which is why this survived.
+  Complexity re-rated **M**.
 - [ ] SPEC-111 (frame) — **`build` runs bundled recipes.** `prepare_target` (`src/cli/build.rs:80`)
   calls `recipe.build_pipeline(registry)` at `:85` without stripping the terminal `optimize` marker —
   `build.rs` contains **0** references to `optimize`, `OPTIMIZE_STEP` or `strip_terminal`. Every
@@ -114,7 +127,7 @@ out of STAGE-034 keeps that stage a single subject — the classifier pixel lane
   `op = "unsharp"` (`:161`), `op = "watermark"` (`:166`), `op = "clean-gps"` (`:174`) and the CLI flags
   `--unsharp` / `--watermark` (`:181-182`). Rewrite against the four real ops. Complexity **S**.
 
-**Count:** 0 shipped / 0 active / 2 specs + 1 chore pending
+**Count:** 0 shipped / 1 active / 1 spec + 1 chore pending
 
 ## Design Notes
 
