@@ -357,7 +357,7 @@ where noted.
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
 - **Branch:** `feat/spec-110-orientation`
-- **PR (if applicable):** TBD — recorded in a follow-up commit once opened.
+- **PR (if applicable):** [#133](https://github.com/jysf/crustyimg/pull/133) — NOT merged, handed off to verify.
 - **All acceptance criteria met?** yes — AC-1 through AC-11, including the AC-10 negative
   control (see below) and AC-11's full matrix (see below).
 - **New decisions emitted:**
