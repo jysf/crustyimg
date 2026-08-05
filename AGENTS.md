@@ -445,7 +445,8 @@ DECs are stable; specs come and go. DECs don't reciprocally list specs.
 - **Container lane** — Container-level metadata read/edit/preserve
   (`kamadak-exif`, `img-parts`, `little_exif`) that never re-decodes pixels.
   Separate from the pixel lane (DEC-003).
-- **Default-preserve policy** — On pixel-lane encodes, keep orientation +
+- **Default-preserve policy** — On pixel-lane encodes: **bake** orientation
+  into pixels (not preserved as a tag — SPEC-110, amending DEC-003); keep
   ICC + copyright/artist; drop GPS unless `--keep-gps` (DEC-003).
 - **Gravity** — A compass anchor (north/south/east/west/center and
   combinations) for placing a watermark or crop region within an image.

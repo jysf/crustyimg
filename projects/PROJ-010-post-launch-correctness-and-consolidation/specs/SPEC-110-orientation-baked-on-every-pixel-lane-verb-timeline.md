@@ -41,10 +41,29 @@ Cycle prompts live in `prompts/SPEC-110-<cycle>.md`.
       **Un-metered main-loop cycle** (AGENTS §4): one fixture build, ~15 driven invocations on a
       release binary, plus an audit of the five existing orientation-fixture callers.
 
-- [ ] **build** — run `prompts/SPEC-110-build.md` in a **fresh session**, own git worktree.
-      Sonnet. Touches shared pipeline construction, so AC-11's clean full matrix is required —
-      and **read the CI legs**, not just the local run (SPEC-107 shipped a red Windows leg
-      behind a "matrix clean" claim).
+- [x] **build** — 2026-08-04, Sonnet, own worktree (`feat/spec-110-orientation`). Factored
+      `optimize_pipeline()`'s existing `auto-orient` push into a shared `auto_orient_prefix()`
+      (`src/cli/optimize.rs`) and wired it into `run_convert`/`run_responsive`
+      (`optimize.rs`) and `run_resize`/`run_thumbnail`/`run_edit` (`ops.rs`) — the six sites
+      the mechanical grep of every `Pipeline::new()` construction in `src/cli/` identified as
+      in-scope (`run_auto_orient` already IS the op; `apply`/`build`'s recipe-driven pipeline
+      and `run_watermark` are out of scope, not in the measured table). `edit`'s
+      `build_edit_ops` is unchanged — `--auto-orient` still adds its own explicit op, now
+      redundant-but-safe (idempotent) alongside the prefix.
+      9 tests in a new `tests/orientation.rs` (AC-1 through AC-6 directly; AC-7/AC-8/AC-9
+      are structural/doc, not test-shaped). **AC-10 negative control:** reverted the prefix on
+      `convert`, confirmed 2 tests go RED (`convert_bakes_orientation_into_pixels` AND
+      `all_eight_orientation_values_are_applied`, since AC-5's representative verb is
+      `convert`), restored, confirmed GREEN — each rebuild verified via a changed binary MD5
+      (reverting source does not rebuild the binary by itself; proved the artifact actually
+      changed each time). **AC-11 full matrix**, fresh per-leg `CARGO_TARGET_DIR`, sequential,
+      every leg through `rtk proxy`, every log confirmed `Compiling crustyimg`: lean 804 /
+      default 823 / webp-lossy 830 passed, 0 failed — reconciles exactly against a freshly
+      measured `origin/main` baseline (795/814/821, i.e. the build prompt's stated
+      797/816/823 reference was stale by 2 in every leg) plus the 9 tests added.
+      `just wasm-test` 30/30. `cargo fmt --check` clean. New DEC-086 (bake on every
+      pixel-lane verb) + a dated amendment to DEC-003 + `AGENTS.md:448`'s glossary line
+      corrected. Full readout in the spec's `## Build Completion`.
 
 - [ ] **verify** — fresh session, **Opus**. Re-derive the table yourself on your own builds of
       branch and `main`; do not inherit it. Drive every verb rather than reasoning from the call

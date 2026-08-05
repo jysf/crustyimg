@@ -92,6 +92,30 @@ container crates can't preserve ICC reliably across core formats (then
 promote `rexiv2` from optional to a recommended feature, or narrow the
 preserve set).
 
+## Amendment (2026-08-04, SPEC-110 / DEC-086)
+
+**The orientation half of this record's Validation and Consequences no longer describes
+the code, and is corrected here rather than silently drifting further.**
+
+The Validation line above — *"a resize preserves orientation"* — and the Consequences
+line — *"Orientation/ICC survive transforms"* — were never true of `convert`, `thumbnail`,
+`edit`, or `responsive` (they drop the tag AND leave the pixels un-rotated), and are no
+longer true of `resize` either. SPEC-110's design measured this directly: driving a
+1200×800, `Orientation=6` fixture through every pixel-lane verb showed seven of eleven
+invocations returning a sideways image with no EXIF to correct it by hand — the tag was
+destroyed by the same re-encode that made the output wrong.
+
+**Corrected claim:** on pixel-lane encodes, EXIF **orientation is baked into pixels, not
+preserved as a tag** (DEC-086). ICC and copyright/artist remain the **preserve** claim this
+record originally made — unaffected by SPEC-110, which touches only orientation. GPS is
+still dropped by default unless `--keep-gps`, as originally decided. **This amendment does
+not open a new investigation into whether ICC/copyright preservation actually holds on the
+pixel lane today** — SPEC-110's scope was orientation only (`one-spec-per-pr`); if that
+sweep surfaces evidence ICC is also being silently dropped against this record's claim, it
+is a separate finding, filed as its own spec, not fixed here.
+
+`AGENTS.md`'s "Default-preserve policy" glossary entry is corrected to match (§14).
+
 ## References
 
 - Related specs: STAGE-004 backlog (metadata commands); SPEC-002 (capture metadata at load)

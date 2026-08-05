@@ -58,6 +58,26 @@ cost:
         and read output dimensions + EXIF presence; the full table is in the
         Context. Also audited the five existing callers of the orientation
         fixture builders to establish test fallout.
+    - cycle: build
+      agent: claude-sonnet-5
+      interface: claude-code
+      tokens_total: 61879452
+      duration_minutes: 1118
+      recorded_at: 2026-08-04
+      tokens_breakdown:
+        input: 530
+        output: 235030
+        cache_creation: 2192141
+        cache_read: 59451751
+      estimated_usd: 29.58
+      note: >
+        MEASURED — summed .message.usage across 265 assistant messages in this
+        session's own transcript (not dispatched as a subagent). duration_minutes
+        is first-to-last transcript timestamp (~18h39m calendar span), which
+        includes idle time between turns, not continuous active compute.
+        estimated_usd priced per component at Sonnet anchors ($3/$15 per MTok
+        in/out; cache_creation x1.25 input, cache_read x0.10 input) since
+        claude-sonnet-5 is the model that actually ran.
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -336,26 +356,82 @@ where noted.
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
+- **Branch:** `feat/spec-110-orientation`
+- **PR (if applicable):** TBD — recorded in a follow-up commit once opened.
+- **All acceptance criteria met?** yes — AC-1 through AC-11, including the AC-10 negative
+  control (see below) and AC-11's full matrix (see below).
 - **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
+  - `DEC-086` — bake EXIF orientation on every pixel-lane verb (measured table + both
+    rejected alternatives; `decisions/DEC-086-bake-orientation-on-every-pixel-lane-verb.md`).
+    `DEC-003` is amended in place (dated 2026-08-04 section), not superseded — only its
+    orientation claim changes; ICC/copyright/GPS are untouched.
 - **Deviations from spec:**
-  - [list]
+  - Went slightly beyond the `Outputs` list's named `docs/cli-reference.md` scope (which
+    named only `edit --auto-orient`'s description): also corrected the `resize`/
+    `thumbnail`/`convert`/`responsive` lines there, since they made the same now-false
+    "no pixel changes" / "preserving aspect" claims AC-8 required fixing in
+    `docs/api-contract.md`. Leaving one doc file internally inconsistent with the other
+    seemed worse than the small scope add.
+  - `edit`'s `build_edit_ops` was left unchanged (still adds an explicit `auto-orient` op
+    to its ops list when `--auto-orient` is passed) rather than making the flag contribute
+    zero ops. This means `edit --auto-orient` runs `AutoOrient::apply` twice in a row when
+    combined with the new unconditional prefix — confirmed safe/idempotent (the first bake
+    drops the metadata bundle the op reads, so the second call is a true no-op on every
+    input, not a double rotation) and it keeps `--save-recipe`'s captured recipe accurate
+    for that one flag combination. The alternative (stripping auto-orient from
+    `build_edit_ops`) would have made `edit --auto-orient` alone produce an empty `ops`
+    list, requiring a second special case in the "at least one op flag" check to avoid a
+    false usage-error — more moving parts for the same observable behavior.
+  - The build prompt's reference test totals (lean 797 / default 816 / webp-lossy 823)
+    were stale by exactly 2 in every leg: measuring a clean `origin/main` worktree directly
+    gives lean 795 (confirmed zero failures). My branch's lean total is 804 = 795 + the 9
+    tests added — reconciles exactly. Default (823) and webp-lossy (830) show the same
+    +9 delta, consistent with the same stale-by-2 reference. Not investigated further
+    (not a SPEC-110 regression — the discrepancy exists identically on `origin/main`
+    before this branch's changes).
 - **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - `edit --save-recipe`'s captured recipe does not record the CLI-level auto-orient
+    prefix as a step. A recipe saved from an `edit` invocation that omitted
+    `--auto-orient` will not bake orientation when replayed via `apply --recipe FILE`,
+    diverging from what `edit` itself just produced. Pre-existing pattern (this spec's
+    change is what makes it newly visible for `edit`, since `edit` didn't bake before);
+    flagged, not fixed (`one-spec-per-pr`; `apply`/recipe pixel-lane wiring is SPEC-111's
+    territory). Documented in `docs/api-contract.md`'s `edit` section and `src/cli/ops.rs`.
+  - `watermark` (`src/cli/ops.rs::run_watermark`) was NOT driven or touched — it is not in
+    the spec's measured table, `Outputs`, or acceptance criteria. Whether it has the same
+    latent bug (EXIF orientation on the base image ignored) is unknown; worth a quick
+    drive-and-report pass in a future spec if someone asks.
+  - DEC-003's ICC/copyright preserve claims were NOT re-investigated (out of scope,
+    explicitly declined per the build prompt's "report it, don't fix it" instruction).
+    `AGENTS.md`/every affected verb's own doc comments already state the pixel lane drops
+    ALL metadata on re-encode, which is in tension with DEC-003's ICC preserve claim
+    predating this spec — not a new finding from this sweep, just noted for whichever
+    future spec finally reconciles it.
 
 ### Build-phase reflection (3 questions, short answers)
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — Nothing structural was unclear — the design table, traps, and file/line pointers were
+   precise enough to implement directly. The one judgment call the spec left open was
+   *how* `edit --auto-orient` should become a no-op: whether the flag should still
+   contribute an explicit op to `build_edit_ops`'s list (redundant-but-safe alongside the
+   new prefix) or contribute nothing (requiring a second special case in the "at least one
+   flag" check). The spec's wording ("accepted, documented no-op") is consistent with
+   either reading; I picked the smaller, lower-risk diff (see Deviations) but a sentence
+   pinning this in the spec would have saved the analysis.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — The `edit --save-recipe` recipe-capture gap (see Follow-up work) isn't a constraint
+   that was missing so much as a consequence the spec's Outputs/AC list didn't anticipate,
+   because `edit`'s pre-change behavior never baked, so the gap didn't exist yet. Not a
+   spec defect — a genuinely new interaction surfaced by the fix itself.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Verify the "reference test totals" claim against a fresh `origin/main` build BEFORE
+   starting implementation, not after finishing the matrix. It cost one extra worktree +
+   test run to discover the stale-by-2 baseline late; doing it first would have let me
+   state "expect lean 795+9=804" up front instead of investigating a surprise mismatch at
+   the end.
 
 ---
 
