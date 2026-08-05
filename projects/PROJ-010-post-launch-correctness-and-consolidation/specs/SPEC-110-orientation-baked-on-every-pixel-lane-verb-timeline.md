@@ -96,10 +96,34 @@ Cycle prompts live in `prompts/SPEC-110-<cycle>.md`.
       `cargo fmt --check` clean; `just wasm-test` **30/30**, unchanged. Full detail in the
       spec's `## Build Completion`.
 
-- [ ] **verify** — fresh session, **Opus**. Re-derive the table yourself on your own builds of
-      branch and `main`; do not inherit it. Drive every verb rather than reasoning from the call
-      graph — SPEC-107's follow-up list was wrong in both directions until verify drove 16
-      invocations.
+- [x] **verify** — 2026-08-05, Opus, own worktree. **⚠ PUNCH LIST** — PR #133 NOT merged.
+      Re-derived everything on own release builds of the branch and `origin/main`, with
+      ImageMagick + exiftool as oracles independent of the code under test. The design's
+      measured table reproduces exactly on `main`; the branch fixes all seven wrong cells.
+      **AC-1/AC-2/AC-3/AC-4/AC-5/AC-6/AC-10/AC-11 confirmed**, several beyond what they
+      asked: AC-2 was driven at pixel-CONTENT level across all eight orientation values (a
+      dimensions-only check cannot see a 180° double-bake or a mirror flip) and shows no
+      double rotation anywhere, including `edit --auto-orient`, which genuinely does run
+      `AutoOrient` twice; AC-3's byte claim holds on 24/24 outputs main-vs-branch with an
+      orientation-6 negative control that separates 7 changed / 5 unchanged. Test counts
+      re-measured both sides: main 795/814/821 → branch 804/823/830, **+9 in every leg**,
+      matching the 9 tests in `tests/orientation.rs`; `ignored=2` confirms the build
+      prompt's reference numbers were passed+ignored (the architect's stale-by-2, real).
+      AC-10 re-run, not read — and proved **behaviorally** (the rebuilt binary drove
+      1200×800) rather than only by changed MD5, which shows a rebuild happened but not
+      that the revert took effect. **AC-7 REFUTED:** `watermark` still returns 1200×800
+      where 800×1200 is correct, so the spec's Goal — no shipped verb can hand back a
+      sideways image — is false on this branch, and **DEC-086 is false on the day it is
+      written** (its title, Decision and Consequences all assert every pixel-lane verb
+      bakes). Own grep, scope stated as a claim, confirms watermark is the ONLY missed
+      site. Item 6 re-characterized: the `edit --save-recipe` divergence is **introduced
+      by this PR**, not pre-existing — on `main` an `edit --invert` recipe replayed to the
+      same geometry. Full punch list in the verify readout.
+
+- [ ] **punch list** — see the verify readout: fix `run_watermark`'s prefix + test
+      (blocking), correct DEC-086 / the DEC-003 amendment / `optimize.rs:782`'s doc
+      comment (blocking), re-characterize the save-recipe gap, and drop
+      `cli-reference.md`'s now-false "byte-pinned to what `apply` produces".
 
 - [ ] **ship** — bookkeeping on `main` after the PR merges: cost totals, reflection,
       `just archive-spec SPEC-110`, stage backlog. STAGE-039 also holds SPEC-111 and a doc
