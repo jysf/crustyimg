@@ -78,6 +78,27 @@ cost:
         estimated_usd priced per component at Sonnet anchors ($3/$15 per MTok
         in/out; cache_creation x1.25 input, cache_read x0.10 input) since
         claude-sonnet-5 is the model that actually ran.
+    - cycle: verify
+      agent: claude-opus-5
+      interface: claude-code
+      tokens_total: 13726892
+      duration_minutes: 1061
+      recorded_at: 2026-08-05
+      tokens_breakdown:
+        input: 237
+        output: 103164
+        cache_creation: 1434485
+        cache_read: 12189006
+      estimated_usd: 17.64
+      note: >
+        MEASURED — summed .message.usage across 124 assistant messages in this
+        session's own transcript (not dispatched as a subagent); every message
+        reports .message.model = claude-opus-5. duration_minutes is
+        first-to-last transcript timestamp (~17h41m calendar span), which
+        includes idle time between turns, not continuous active compute.
+        estimated_usd priced per component at Opus anchors ($5/$25 per MTok
+        in/out; cache_creation x1.25 input, cache_read x0.10 input). Cache
+        reads were 88.80% of volume. Verdict: PUNCH LIST.
   totals:
     tokens_total: 0
     estimated_usd: 0
