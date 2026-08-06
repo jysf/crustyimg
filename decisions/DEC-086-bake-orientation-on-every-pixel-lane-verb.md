@@ -42,8 +42,8 @@ tags:
 ## Decision
 
 Every verb that re-encodes pixels — `convert`, `resize`, `thumbnail`, `edit`, `responsive`,
-in addition to the already-correct `web`/`optimize`/`auto-orient` — pins the existing
-`auto-orient` operation first, via one shared prefix (`auto_orient_prefix()`,
+`watermark`, in addition to the already-correct `web`/`optimize`/`auto-orient` — pins the
+existing `auto-orient` operation first, via one shared prefix (`auto_orient_prefix()`,
 `src/cli/optimize.rs`). **Bake, do not preserve.** `edit --auto-orient` becomes an accepted,
 documented no-op (the flag cannot be removed — STAGE-030 froze the CLI surface); **no
 opt-out flag is added.**
@@ -76,6 +76,14 @@ builder each verb happened to call: `web`/`optimize` route through `optimize_pip
 (`Pipeline::new().push(orient)`), every other verb built its own pipeline without it. No
 rule explained the split — a rule nobody can state is a rule nobody maintains, which is
 how seven invocations drifted wrong without anyone noticing.
+
+This table did not include `watermark` — it was outside SPEC-110's original measured
+roster and shipped in PR #133 still unbaked, the identical `Pipeline::new().push(...)`
+shape as `resize`/`thumbnail` above. Verify's punch list caught it via a 17-subcommand
+classification (the table above only finds sites that build a `Pipeline`, which
+`watermark` also does, but nobody had re-driven it against the fixture); fixed in the
+punch-list pass, same fixture: `watermark --text hi` now returns 800×1200, matching the
+rest of this table.
 
 `resize` is the worst case for users, not `convert`: the `--max` bound was applied to the
 **wrong axis**, so the output was the wrong *size*, not merely mis-rotated.
@@ -131,15 +139,19 @@ file `--max-pixels` rather than build it.
 - **Positive:** one orientation rule is true across the entire pixel lane; no shipped verb
   can hand back a sideways image. `resize`'s worst-case bug (wrong-axis bound) is fixed as
   a side effect of the same change. The prefix is factored once
-  (`auto_orient_prefix()`) rather than copied into six call sites, so the next pixel-lane
+  (`auto_orient_prefix()`) rather than copied into seven call sites, so the next pixel-lane
   verb inherits correct behavior by construction rather than by remembering to add it.
 - **Negative:** `convert` is no longer a byte-faithful re-encode for the (small) minority
   of inputs carrying a non-1 orientation tag — its output pixels now differ from the input
   pixels for those cases. `edit --auto-orient` is a vestigial no-op flag on the frozen CLI
   surface. The `edit --save-recipe` recipe capture does not record the CLI-level bake as a
-  step, so a recipe saved from an `edit` invocation that omitted `--auto-orient` will not
-  reproduce baking when replayed via `apply --recipe` (pre-existing gap, unchanged by this
-  decision — flagged, not fixed, `one-spec-per-pr`).
+  step, so a recipe saved from an `edit` invocation now diverges when replayed via
+  `apply --recipe`: direct `edit --invert` on the design's measured fixture bakes
+  (800×1200) while the same recipe replayed via `apply` does not (1200×800) — measured, not
+  assumed. **This decision introduces the divergence, it does not inherit one:** before this
+  decision `edit` never baked either, so direct invocation and a recipe replay of it agreed
+  (both unbaked). Flagged, not fixed (`one-spec-per-pr`); lands in SPEC-111, which owns
+  `apply`/recipe pixel-lane wiring.
 - **Neutral:** Orientation 1 and no-EXIF inputs (the overwhelming majority of real-world
   images) are unaffected — `AutoOrient::apply` no-ops on both, returning the input `Image`
   completely unchanged, so output bytes are identical to before this decision for those
@@ -148,15 +160,16 @@ file `--max-pixels` rather than build it.
 ## Validation
 
 Right if: driving the same measured fixture (1200×800, `Orientation=6`) through
-`convert`/`resize`/`thumbnail`/`edit`/`responsive` now produces the display-correct
-dimensions (800×1200, or 600×900 for `responsive --widths 600`, width-pinned); the four
-already-correct verbs (`web`/`optimize`/`auto-orient`/`edit --auto-orient`) are unchanged
-at 800×1200 (not double-rotated); orientation 1 / no-EXIF inputs are byte-identical to
-before on every affected verb; and reverting the shared prefix on any one verb turns at
-least one test RED (SPEC-110's AC-10 negative control). Revisit if: a real user requests
-the un-rotated stored pixels (then file the opt-out flag spec DEC-086 explicitly declined
-to build), or `edit --save-recipe`'s recipe-capture gap causes an actual reported
-surprise (then give the CLI-level bake its own recorded recipe step).
+`convert`/`resize`/`thumbnail`/`edit`/`responsive`/`watermark` now produces the
+display-correct dimensions (800×1200, or 600×900 for `responsive --widths 600`,
+width-pinned); the four already-correct verbs
+(`web`/`optimize`/`auto-orient`/`edit --auto-orient`) are unchanged at 800×1200 (not
+double-rotated); orientation 1 / no-EXIF inputs are byte-identical to before on every
+affected verb; and reverting the shared prefix on any one verb turns at least one test RED
+(SPEC-110's AC-10 negative control). Revisit if: a real user requests the un-rotated stored
+pixels (then file the opt-out flag spec DEC-086 explicitly declined to build). The
+`edit --save-recipe` recipe-capture divergence this decision introduces is not a "revisit
+if" — it is already confirmed (see Consequences) and filed to land in SPEC-111.
 
 ## References
 
@@ -165,7 +178,8 @@ surprise (then give the CLI-level bake its own recorded recipe step).
   was wrong in both directions from reasoning about `run_pixel_op` call-graph membership
   instead of driving the binary — the same discipline this spec's design table applied),
   SPEC-108 (moved classification before the resize pipeline; classification is untouched
-  by this spec).
+  by this spec), SPEC-111 (owns `apply`/recipe pixel-lane wiring — where the
+  `edit --save-recipe` divergence this decision introduces is filed to land).
 - Related decisions: DEC-003 (metadata dual-lane + default-preserve policy — amended by
   this decision's orientation claim, dated section in the DEC-003 file itself), DEC-017
   (operations may read the captured `MetadataBundle`; `auto-orient` is the op this

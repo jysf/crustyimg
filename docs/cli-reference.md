@@ -259,9 +259,10 @@ output; it stays because the CLI surface is frozen (STAGE-030) and it must keep 
 0. Ops apply in a fixed canonical order regardless of flag order (`auto-orient` →
 `resize` → `invert`), so the result is deterministic. At least one op flag is required
 (`--auto-orient` alone still satisfies this). `--save-recipe FILE` serializes the chain
-to a TOML recipe (byte-pinned to what `apply` of that recipe produces) — note the
-CLI-level bake itself is not recorded as a step, so a recipe saved without
-`--auto-orient` will not bake orientation when replayed via `apply`.
+to a TOML recipe. The CLI-level orientation bake itself is not recorded as a step, so a
+recipe replayed via `apply` no longer matches its own `edit` invocation: `edit`
+bakes, the replay doesn't. This divergence is introduced by SPEC-110 (before it, `edit`
+never baked either); flagged, not fixed — lands in SPEC-111.
 ```sh
 crustyimg edit photo.jpg --auto-orient --resize-max 1600 -o out.jpg
 crustyimg edit hero.jpg --auto-orient --resize-max 1600 --save-recipe web.toml

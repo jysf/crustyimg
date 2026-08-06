@@ -104,8 +104,10 @@ flowchart TB
 - **`edit`** — chain an ordered op list on one image in a single decode→ops→encode
   pass (the "experiment like an editor" mode).
 - **`--save-recipe`** — capture that exact chain as a TOML recipe via the operation
-  registry (DEC-005); the round-trip is **byte-pinned** (`edit` output ==
-  `apply`-of-the-saved-recipe output).
+  registry (DEC-005). The round-trip is byte-pinned for the ops it records — with one
+  known gap: the CLI-level orientation bake `edit` always applies (SPEC-110) isn't
+  itself a recorded step, so `apply`-of-the-saved-recipe can diverge from `edit`'s own
+  output (DEC-086; lands in SPEC-111).
 - **`apply --recipe`** — replay a recipe across a file / glob / directory in
   **parallel** (rayon, `-j N`, DEC-006) with an `indicatif` progress bar and exit-6
   partial-failure semantics (DEC-015/033).

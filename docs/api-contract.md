@@ -328,11 +328,14 @@ safe no-op.
 
 ### Compositing
 
-#### `watermark <INPUT...> --image LOGO [--gravity G] [--opacity O] [--scale S] [--margin M] [--tile]`  *(SPEC-029)*
+#### `watermark <INPUT...> --image LOGO [--gravity G] [--opacity O] [--scale S] [--margin M] [--tile]`  *(SPEC-029; orientation baking SPEC-110)*
 Overlay an image watermark (`--image`, required) onto each base at a compass
 **gravity** anchor (default `southeast`; `center`/`north`/…/`southwest`). A
 pixel-lane `Operation` (DEC-002) — the first that composes a second image, loaded
-once at the CLI boundary (DEC-031). `--opacity O` (0–1, default 1) scales the
+once at the CLI boundary (DEC-031). The base image's EXIF **orientation is baked
+into the pixels first** (SPEC-110), matching every other pixel-lane verb, so the
+overlay composites onto the display-correct orientation, not the stored one.
+`--opacity O` (0–1, default 1) scales the
 overlay alpha; `--scale S` resizes the overlay to `S ×` base width; `--margin M`
 insets the anchor; `--tile` repeats the overlay across the whole base (ignores
 gravity/margin). Missing/unreadable `--image` → exit **3**; bad opacity/scale or
@@ -410,10 +413,14 @@ so the result — and any saved recipe — is deterministic. Output, format,
 `--format` › `-o` ext › preserve). `--save-recipe FILE` serializes the exact op
 chain to a TOML recipe (DEC-005, `version = "1"`) that `apply --recipe FILE`
 replays; a recipe write failure exits 5. **Note:** the CLI-level orientation
-bake is NOT itself recorded as a recipe step, so a saved recipe that did not
-include `--auto-orient` will not bake orientation when replayed via `apply`
-(pre-existing recipe-capture gap, unchanged by SPEC-110). Watermark/compose
-ops are not in `edit` yet (need registry wiring first, DEC-031).
+bake is NOT itself recorded as a recipe step, so a saved recipe now diverges
+when replayed via `apply`: `edit --invert` bakes orientation, but the same
+recipe replayed via `apply` does not. **This divergence is introduced by
+SPEC-110** — before it, `edit` never baked either, so a recipe replay and the
+`edit` invocation that produced it agreed. Flagged, not fixed
+(`one-spec-per-pr`); lands in SPEC-111, which owns `apply`/recipe pixel-lane
+wiring. Watermark/compose ops are not in `edit` yet (need registry wiring
+first, DEC-031).
 
 #### `apply --recipe FILE <INPUT...> [--out-dir DIR] [--name-template T] [-j N]`  *(SPEC-031)*
 Run a saved recipe over one image or a batch. **`rayon`-parallel** across inputs
