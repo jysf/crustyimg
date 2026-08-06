@@ -1082,7 +1082,7 @@ pub(super) fn run_watermark(
     // rendered overlay pixels; the text/image label is kept for `params()`.
     let op = Watermark::new(overlay, label, gravity, opacity, scale, margin, tile);
 
-    let pipeline = Pipeline::new().push(Box::new(op));
+    let pipeline = auto_orient_prefix()?.push(Box::new(op));
     run_pixel_op(pipeline, inputs, global, global.quality, None, None)
 }
 

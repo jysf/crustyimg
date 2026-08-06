@@ -785,10 +785,10 @@ pub(super) fn run_web(
 /// start with auto-orient" (AC-7) — every construction site below builds on
 /// top of it rather than pushing its own `auto-orient` op.
 ///
-/// Not applied to: `auto-orient` itself (it IS this op), `watermark` (out of
-/// scope for SPEC-110 — not in the measured table), or `apply`/`build`'s
+/// Not applied to: `auto-orient` itself (it IS this op), or `apply`/`build`'s
 /// recipe-driven pixel lane (the recipe's own steps decide the pipeline;
-/// SPEC-111 territory).
+/// SPEC-111 territory). Every other pixel-lane verb — including `watermark`
+/// (`run_watermark`, `src/cli/ops.rs`) — builds on this prefix.
 pub(super) fn auto_orient_prefix() -> Result<Pipeline, CliError> {
     let registry = OperationRegistry::with_builtins();
     let orient = registry
