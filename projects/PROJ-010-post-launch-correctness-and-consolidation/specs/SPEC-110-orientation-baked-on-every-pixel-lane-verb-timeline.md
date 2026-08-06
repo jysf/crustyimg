@@ -64,6 +64,37 @@ Cycle prompts live in `prompts/SPEC-110-<cycle>.md`.
       `just wasm-test` 30/30. `cargo fmt --check` clean. New DEC-086 (bake on every
       pixel-lane verb) + a dated amendment to DEC-003 + `AGENTS.md:448`'s glossary line
       corrected. Full readout in the spec's `## Build Completion`.
+      **Punch-list pass (second build session, Sonnet, 2026-08-05):** verify returned
+      ⚠ PUNCH LIST on PR #133 — the design and every measured verb were correct, but
+      `run_watermark` (`src/cli/ops.rs:1085`) shipped without `auto_orient_prefix()`, the
+      identical `Pipeline::new().push(...)` shape as `resize`/`thumbnail`, missed because
+      it fell outside the spec's measured table. **Fixed:** one-line change plus a tenth
+      test (`watermark_bakes_orientation`, `tests/orientation.rs`); drove the negative
+      control myself (revert → RED at 1200×800, the exact wrong dimensions; restore →
+      GREEN). **Made the records true:** DEC-086's Decision/Context/Consequences now name
+      `watermark` as a seventh baked call site; `src/cli/optimize.rs:782`'s doc comment
+      dropped its watermark exception; `docs/api-contract.md`'s `watermark` section now
+      states the bake. **Corrected a mischaracterization:** the build's Follow-up and
+      DEC-086's Consequences called the `edit --save-recipe` recipe-replay divergence
+      "pre-existing, unchanged by this decision" — verify drove it and found the opposite
+      (direct `edit --invert` 800×1200 vs. the same recipe replayed via `apply` 1200×800,
+      consistent on `main`, divergent on this branch): **this decision introduces it**,
+      corrected in `## Build Completion`, DEC-086, and (additively, same false claim)
+      `docs/api-contract.md`'s `edit` section and `docs/moat.md`; filed to land in
+      SPEC-111. Dropped a self-contradicting parenthetical in `docs/cli-reference.md`'s
+      `edit` section (claimed byte-pinned, then described the same divergence).
+      **Also strengthened AC-5's test** (non-blocking): dimensions alone were vacuous for
+      orientations 1–4 (an unbaked build also produces the same dims); added a
+      quadrant-marker fixture + corner-brightness check, content-level for all eight
+      values, and drove a negative control (a forced-180°-rotate mutation) that the old
+      dimension-only assertion would have missed but the new one caught. **Re-ran the full
+      matrix** clean from fresh per-leg `CARGO_TARGET_DIR`s, sequentially, every leg
+      through `rtk proxy`, every log confirmed `Compiling crustyimg`: **lean 805 / default
+      824 / webp-lossy 831 passed, 0 failed** — reconciles exactly against the prior
+      reference (804/823/830) plus the one new test (AC-5's strengthening added assertions
+      to an existing test, not a new fn). `clippy -D warnings` clean on all three legs;
+      `cargo fmt --check` clean; `just wasm-test` **30/30**, unchanged. Full detail in the
+      spec's `## Build Completion`.
 
 - [ ] **verify** — fresh session, **Opus**. Re-derive the table yourself on your own builds of
       branch and `main`; do not inherit it. Drive every verb rather than reasoning from the call
