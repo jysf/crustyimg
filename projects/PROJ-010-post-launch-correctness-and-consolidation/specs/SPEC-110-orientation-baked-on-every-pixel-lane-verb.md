@@ -81,24 +81,25 @@ cost:
     - cycle: build
       agent: claude-sonnet-5
       interface: claude-code
-      tokens_total: 29256473
-      duration_minutes: 975
+      tokens_total: 48955092
+      duration_minutes: 1369
       recorded_at: 2026-08-06
       tokens_breakdown:
-        input: 348
-        output: 87354
-        cache_creation: 687966
-        cache_read: 28480805
-      estimated_usd: 12.44
+        input: 480
+        output: 111068
+        cache_creation: 1274948
+        cache_read: 47568596
+      estimated_usd: 20.72
       note: >
         Punch-list pass (second build session) — MEASURED, summed .message.usage
-        across 174 unique assistant message ids in this session's own transcript
+        across 240 unique assistant message ids in this session's own transcript
         (deduped: each API response appears as multiple JSONL lines, one per
         content block, all carrying the same usage snapshot; summing raw lines
-        would overcount). Computed shortly before this session's own final
-        messages, so the true total is a few messages higher than recorded here
-        (this session cannot fully measure itself while still running).
-        duration_minutes is first-to-last transcript timestamp, includes idle
+        would overcount). Computed after the CI matrix went green, before this
+        session's own closing messages, so the true total is a few messages
+        higher than recorded here (this session cannot fully measure itself
+        while still running). duration_minutes is first-to-last transcript
+        timestamp, includes idle
         time between turns. estimated_usd priced per component at Sonnet anchors
         ($3/$15 per MTok in/out; cache_creation x1.25 input, cache_read x0.10
         input), same formula as the first build session.
