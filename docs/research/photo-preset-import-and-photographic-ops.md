@@ -540,6 +540,11 @@ it described is never applied. `optimize`/`web` instead pin `auto-orient` first
 Worth sweeping every other re-encoding verb (`thumbnail`, `resize`, `responsive`, `edit` without
 `--auto-orient`) **mechanically**, per the repo lesson that mechanical sweeps need a mechanical check — cite the grep, and treat its SCOPE as a claim too.
 
+*(Resolved 2026-08-06: this is the defect SPEC-110/DEC-086 fixed — every pixel-lane verb now
+bakes orientation via a shared `auto_orient_prefix()`, including `watermark`, caught in
+SPEC-110's punch-list pass. Left as-written above since this section records what the research
+session found at the time, not current behavior.)*
+
 **(b) RAW loses 100% of EXIF.** The Leica Q2 DNG carries 92 tags; `convert`, `web` and `optimize`
 outputs carry **zero** — no Make/Model, lens, DateTimeOriginal, Artist, Copyright, ISO, aperture,
 shutter. Cause: `raw_preview` sets `metadata: None` (`src/image/mod.rs:462-468`). This is the
