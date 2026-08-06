@@ -261,6 +261,42 @@ fn edit_bakes_orientation_without_the_flag() {
     assert_dims(&out_resize, 400, 600, "edit --resize-max 600");
 }
 
+/// `watermark --text hi` (no `--image`/`--auto-orient` flag — `watermark` has
+/// neither) on the same source comes back 800×1200. Not part of AC-1's
+/// measured table (`watermark` was the punch-list's missed pixel-lane site —
+/// verify's 17-subcommand classification caught it after the build's own
+/// `Pipeline`-construction sweep missed it), but the identical shape: a
+/// `Pipeline::new().push(...)` site that skipped the shared prefix.
+#[test]
+fn watermark_bakes_orientation() {
+    let dir = TempDir::new().unwrap();
+    let input = write_bytes(
+        &dir,
+        "in.jpg",
+        &common::jpeg_with_orientation(W, H, ORIENT_6),
+    );
+    let out = dir.path().join("out.png");
+
+    let output = Command::new(BIN)
+        .args([
+            "watermark",
+            input.to_str().unwrap(),
+            "--text",
+            "hi",
+            "-o",
+            out.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run watermark");
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "watermark --text hi should exit 0; stderr: {}",
+        stderr_str(&output)
+    );
+    assert_dims(&out, 800, 1200, "watermark --text hi");
+}
+
 // ── AC-2: the four already-correct verbs stay correct (no double rotation) ──
 
 /// `web`, `optimize`, `auto-orient`, and `edit --auto-orient` all already
@@ -471,21 +507,99 @@ fn orientation_1_and_no_exif_are_byte_identical() {
 
 // ── AC-5: all eight orientation values, driven through one verb ─────────────
 
+/// A source whose top-left QUADRANT is solid black and the rest solid white —
+/// a content-level marker, independent of `common::gradient_jpeg` (which
+/// varies only along X, so it cannot distinguish orientation 4's
+/// vertical-only flip from a no-op: both leave a horizontal-only gradient's
+/// values unchanged). Local to this test; not shared via `tests/common`
+/// since no other test needs it.
+fn quadrant_marker_jpeg(w: u32, h: u32) -> Vec<u8> {
+    let mut img = image::RgbImage::new(w, h);
+    for (x, y, px) in img.enumerate_pixels_mut() {
+        let black = x < w / 2 && y < h / 2;
+        *px = image::Rgb(if black { [0, 0, 0] } else { [255, 255, 255] });
+    }
+    let mut out = std::io::Cursor::new(Vec::new());
+    image::DynamicImage::ImageRgb8(img)
+        .write_to(&mut out, image::ImageFormat::Jpeg)
+        .unwrap();
+    out.into_inner()
+}
+
+/// Where the source's top-left quadrant marker lands in the DISPLAY-CORRECT
+/// output, derived directly from the EXIF orientation spec's transform
+/// definitions (not from crustyimg's implementation): 1=normal, 2=mirror
+/// horizontal, 3=rotate 180, 4=mirror vertical, 5=transpose, 6=rotate 90 CW,
+/// 7=transverse, 8=rotate 270 CW. Working through where a top-left source
+/// point (small x, small y) lands under each transform gives a repeating
+/// TL/TR/BR/BL cycle across {1,2,3,4} and again across {5,6,7,8} (the second
+/// cycle in the swapped-dimension frame) — independent of AC-5's own
+/// dimension-swap check, which this corner check complements rather than
+/// duplicates.
+#[derive(Clone, Copy, Debug)]
+enum Corner {
+    TopLeft,
+    TopRight,
+    BottomRight,
+    BottomLeft,
+}
+
+impl Corner {
+    fn for_orientation(o: u8) -> Self {
+        match o {
+            1 | 5 => Corner::TopLeft,
+            2 | 6 => Corner::TopRight,
+            3 | 7 => Corner::BottomRight,
+            4 | 8 => Corner::BottomLeft,
+            _ => unreachable!("orientation values are 1..=8"),
+        }
+    }
+
+    fn opposite(self) -> Self {
+        match self {
+            Corner::TopLeft => Corner::BottomRight,
+            Corner::TopRight => Corner::BottomLeft,
+            Corner::BottomRight => Corner::TopLeft,
+            Corner::BottomLeft => Corner::TopRight,
+        }
+    }
+
+    /// A sample point `inset` pixels in from this corner — far enough from
+    /// the black/white boundary to be unaffected by JPEG block ringing on
+    /// the (lossy) SOURCE encode.
+    fn sample_xy(self, w: u32, h: u32, inset: u32) -> (u32, u32) {
+        match self {
+            Corner::TopLeft => (inset, inset),
+            Corner::TopRight => (w - 1 - inset, inset),
+            Corner::BottomRight => (w - 1 - inset, h - 1 - inset),
+            Corner::BottomLeft => (inset, h - 1 - inset),
+        }
+    }
+}
+
 /// All eight EXIF orientation values (1–8), driven through `convert --format
 /// png`. 5/6/7/8 imply a 90°/270° rotation and swap dimensions; 1/2/3/4 are
 /// axis-preserving (identity/flip/180°) and do not. The current (unbaked)
 /// code applies none of them — a fix that handles only 6 is not a fix.
+///
+/// Dimensions alone are vacuous for 1/2/3/4 (an UNBAKED build also produces
+/// the source's own W×H for all four — four of eight assertions could never
+/// fail). The quadrant-marker corner check below is a genuine content-level
+/// assertion for every one of the eight: it fails if a flip/rotation is
+/// silently skipped OR applied to the wrong axis/direction, not just if the
+/// output has the wrong shape.
 #[test]
 fn all_eight_orientation_values_are_applied() {
     let dir = TempDir::new().unwrap();
     const BW: u32 = 40;
     const BH: u32 = 30;
+    const INSET: u32 = 3;
 
     for o in 1u8..=8 {
         let input = write_bytes(
             &dir,
             &format!("in_{o}.jpg"),
-            &common::jpeg_with_orientation(BW, BH, o),
+            &common::wrap_with_orientation_app1(&quadrant_marker_jpeg(BW, BH), o),
         );
         let out = dir.path().join(format!("out_{o}.png"));
 
@@ -510,6 +624,28 @@ fn all_eight_orientation_values_are_applied() {
         let swaps = matches!(o, 5..=8);
         let (want_w, want_h) = if swaps { (BH, BW) } else { (BW, BH) };
         assert_dims(&out, want_w, want_h, &format!("orientation {o}"));
+
+        let decoded = image::open(&out)
+            .unwrap_or_else(|e| panic!("orientation {o}: not decodable: {e}"))
+            .to_rgb8();
+        let (ow, oh) = decoded.dimensions();
+        let dark_corner = Corner::for_orientation(o);
+        let light_corner = dark_corner.opposite();
+        let (dx, dy) = dark_corner.sample_xy(ow, oh, INSET);
+        let (lx, ly) = light_corner.sample_xy(ow, oh, INSET);
+        let avg = |p: &image::Rgb<u8>| (p[0] as u32 + p[1] as u32 + p[2] as u32) / 3;
+        let dark_avg = avg(decoded.get_pixel(dx, dy));
+        let light_avg = avg(decoded.get_pixel(lx, ly));
+        assert!(
+            dark_avg < 80,
+            "orientation {o}: expected the baked quadrant marker at {dark_corner:?} \
+             ({dx},{dy}) to be dark, got avg {dark_avg}"
+        );
+        assert!(
+            light_avg > 175,
+            "orientation {o}: expected {light_corner:?} ({lx},{ly}) to stay light, \
+             got avg {light_avg}"
+        );
     }
 }
 
