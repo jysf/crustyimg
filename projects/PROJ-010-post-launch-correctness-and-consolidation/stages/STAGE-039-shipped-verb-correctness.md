@@ -96,7 +96,7 @@ out of STAGE-034 keeps that stage a single subject — the classifier pixel lane
 
 ## Spec Backlog
 
-- [ ] SPEC-110 (**designed 2026-08-03**) — **`convert` orientation: decide, fix, sweep.** `run_convert`
+- [x] SPEC-110 (**shipped 2026-08-06**, PR #133 / `2ba0c21`, DEC-086) — **`convert` orientation: decide, fix, sweep.** `run_convert`
   (`src/cli/optimize.rs:507`) builds `Pipeline::new()` at `:538` — *"Pure re-encode: an empty pipeline
   returns the pixels unchanged"* — and the pixel-lane re-encode drops the metadata bundle, so the
   Orientation tag is discarded while the rotation it described is never applied. `optimize`/`web` pin
@@ -123,11 +123,19 @@ out of STAGE-034 keeps that stage a single subject — the classifier pixel lane
   registry holds four ops (`src/operation/registry.rs:80-83`), none named `optimize`. The helper to
   reuse is `OPTIMIZE_STEP_OP` and its consumer at `src/cli/optimize.rs:32-41`. Self-documented in
   **DEC-070 point 4**. Complexity **S–M**.
+  **⚠ SPEC-111 gained a second reason to exist (2026-08-06, from SPEC-110's ship).** It is also
+  where the **`edit --save-recipe` divergence** lands. SPEC-110 made `edit` bake orientation on
+  the CLI path but does **not** record `auto-orient` as a recipe step, so a recipe round-tripped
+  out of `edit` no longer reproduces what `edit` did. Verify drove both sides: on `main` the edit
+  output and its replayed recipe agree at 1200×800; after SPEC-110 `edit` gives 800×1200 and the
+  replay still gives 1200×800. **SPEC-110 introduced this**, and it is recorded as such in
+  DEC-086 — it is not a pre-existing gap. Closing it is recipe-lane wiring, which is exactly this
+  spec's subject. Frame SPEC-111 against **both** halves before building.
 - [ ] (chore, may not need a spec) — **`docs/data-model.md` worked example.** `:142-182` advertises
   `op = "unsharp"` (`:161`), `op = "watermark"` (`:166`), `op = "clean-gps"` (`:174`) and the CLI flags
   `--unsharp` / `--watermark` (`:181-182`). Rewrite against the four real ops. Complexity **S**.
 
-**Count:** 0 shipped / 1 active / 1 spec + 1 chore pending
+**Count:** 1 shipped / 0 active / 1 spec + 1 chore pending
 
 ## Design Notes
 

@@ -7,7 +7,7 @@
 task:
   id: SPEC-110
   type: bug                        # epic | story | task | bug | chore
-  cycle: design                    # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: critical
   complexity: M                    # S | M | L  (L means split it)
@@ -78,6 +78,29 @@ cost:
         estimated_usd priced per component at Sonnet anchors ($3/$15 per MTok
         in/out; cache_creation x1.25 input, cache_read x0.10 input) since
         claude-sonnet-5 is the model that actually ran.
+    - cycle: verify
+      agent: claude-opus-5
+      interface: claude-code
+      tokens_total: 13726892
+      duration_minutes: 1061
+      recorded_at: 2026-08-05
+      tokens_breakdown:
+        input: 237
+        output: 103164
+        cache_creation: 1434485
+        cache_read: 12189006
+      estimated_usd: 17.64
+      note: >
+        MEASURED — summed .message.usage across 124 assistant messages in this
+        session's own transcript (not dispatched as a subagent); every message
+        reports .message.model = claude-opus-5. duration_minutes is
+        first-to-last transcript timestamp (~17h41m calendar span), which
+        includes idle time between turns, not continuous active compute.
+        estimated_usd priced per component at Opus anchors ($5/$25 per MTok
+        in/out; cache_creation x1.25 input, cache_read x0.10 input). Cache
+        reads were 88.80% of volume. Verdict: PUNCH LIST.
+        Ordered BEFORE the punch-list build below: verify ran between the two
+        build sessions and is what sent the spec back.
     - cycle: build
       agent: claude-sonnet-5
       interface: claude-code
@@ -103,10 +126,39 @@ cost:
         time between turns. estimated_usd priced per component at Sonnet anchors
         ($3/$15 per MTok in/out; cache_creation x1.25 input, cache_read x0.10
         input), same formula as the first build session.
+    - cycle: ship
+      interface: claude-code
+      tokens_total: null
+      duration_minutes: null
+      estimated_usd: null
+      note: >
+        Un-metered orchestrator main-loop cycle (AGENTS §4). Three pieces of
+        orchestrator work on this spec sit OUTSIDE the metered total below and
+        are named here rather than silently omitted: (a) driving the branch to
+        confirm the watermark finding BEFORE verify ran, which is what put it at
+        the top of the verify prompt; (b) driving the punch-list branch to
+        confirm Item 1 plus the double-rotation and no-op controls; and (c) a
+        focused confirmation pass on Opus (~$2.40, a LABELLED ESTIMATE the
+        session explicitly could not meter) that checked the record corrections
+        and the AC-5 mutation claim — it refuted two things, both fixed in
+        `b9dd4ad`.
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 124561436
+    estimated_usd: 67.94
+    session_count: 5
+    note: >
+      Sum of the three METERED cycles: build $29.58 + verify $17.64 (Opus
+      anchors) + punch-list build $20.72. Each was independently reconciled by
+      the orchestrator against its own component breakdown at the anchors of the
+      model recorded in `agent` (DEC-083); all three reproduce exactly.
+      ⚠ READ THIS BEFORE COMPARING TO PRE-SPEC-107 SPECS. `tokens_total` sums
+      per-message `cache_read`, which re-counts the same cached prefix once per
+      message — **95.7% of this figure is cache re-reads**. Non-cache-read volume
+      (input + output + cache_creation) is **5,352,083**, and that is the number
+      comparable to work. Specs before SPEC-107 recorded hand-estimated totals
+      that did not count cache reads at all (SPEC-105: 783,805, no breakdown), so
+      a raw token or dollar comparison across that boundary measures the
+      methodology change, not the work. See DEC-083.
 ---
 
 # SPEC-110: bake EXIF Orientation on every pixel-lane verb
@@ -529,10 +581,49 @@ where noted.
 *Appended during the **ship** cycle.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — **Put `watermark` in the design's measured table.** The table drove seven verbs and
+   missed one, and everything downstream inherited that hole: AC-7 existed precisely to
+   backstop the table, the build's sweep *did* find watermark, and then the finding was
+   routed back through the table and filed instead of fixed. The roster was wrong first;
+   the sweep caught it and was overruled. Cheapest fix at design: enumerate the verbs from
+   `--help` and classify every one, rather than driving the list the stage happened to name.
+   Verify did exactly that (17 subcommands, each classified) and it took minutes.
+
+   **And word universality criteria so filing is not an option.** AC-7 said "apply via a
+   shared helper, cite the sweep." It should have said: *every site the sweep finds is fixed,
+   or named as an exception in the DEC.* With the weaker wording, "found it, filed it" was a
+   defensible reading — and it shipped a Goal and a brand-new DEC-086 that were both false.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — **DEC-003 is now amended and accurate** (AC-9), and `AGENTS.md`'s glossary line with it.
+   **DEC-086** is new and, after the punch-list pass and one further correction, describes the
+   code — including watermark, and including the fact that this decision *introduces* the
+   recipe divergence rather than inheriting it.
+
+   Two records needed correcting after the punch-list pass, both caught by a confirmation pass
+   and fixed in `b9dd4ad`: `src/cli/ops.rs`'s `run_edit` NOTE still called the recipe gap
+   "pre-existing … unchanged by this spec" (it is neither), and Build Completion's AC-5
+   paragraph concluded the forced-180° mutation proved the old dimension-only assertion
+   "would have stayed green" — true of orientation 2's cell, false of the test as a whole,
+   which would still have gone RED at o=5. Both corrected **additively**, so the overreach
+   and its correction stay on the record.
+
+   No template or constraint change. But the DEC-083 cost note now carries a warning worth
+   generalising: `tokens_total` is 95.7% cache re-reads here, and pre-SPEC-107 specs recorded
+   hand-estimates that did not count cache reads at all — so cross-boundary comparisons
+   measure the methodology, not the work.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — **SPEC-111 now has a second reason to exist, and its framing should say so.** Beyond the
+   bundled-recipe wiring it was framed for, it is where the `edit --save-recipe` divergence
+   lands: `edit` bakes on the CLI path but does not record `auto-orient` as a recipe step, so
+   a recipe round-tripped out of `edit` no longer reproduces what `edit` did. Verify drove
+   both sides — on `main` they agree at 1200×800; on this branch `edit` gives 800×1200 and the
+   replay still gives 1200×800. **This spec introduced that**, and SPEC-111's pixel-lane
+   wiring is the right place to close it.
+
+   Also worth carrying: verify judged **AC-3's committed test** to prove a weaker proposition
+   than AC-3's wording — it compares no-EXIF against orientation-1 *within one build* rather
+   than branch-vs-main, so it cannot catch a change that shifts both equally. The cross-binary
+   check was done by hand at verify. Not a defect; a note for whoever next writes a
+   "byte-identical to before" criterion, which needs two binaries to mean what it says.
