@@ -87,7 +87,8 @@ crustyimg diff original.jpg compressed.jpg --fail-under 70
 ## Resize & thumbnail
 
 ### `resize <INPUT...> <MODE>`
-Resize with a SIMD backend. Exactly one **mode** is required:
+Resize with a SIMD backend. Bakes EXIF orientation first, so the mode bounds the
+visually-correct dimensions. Exactly one **mode** is required:
 
 | Mode | Meaning |
 |---|---|
@@ -105,7 +106,8 @@ crustyimg resize *.jpg --max 800 --out-dir web/
 ```
 
 ### `thumbnail <INPUT...> [--size N] [--square]`
-Convenience resize to a small bounded size. `--square` crops to a centered square.
+Convenience resize to a small bounded size. Bakes EXIF orientation first. `--square`
+crops to a centered square.
 ```sh
 crustyimg thumbnail photo.jpg --size 200 --square -o thumb.jpg
 crustyimg thumbnail *.png --size 150 --out-dir thumbs/
@@ -157,7 +159,9 @@ crustyimg optimize photo.jpg --max-size 200KB -o out.jpg
 ```
 
 ### `convert <INPUT...> --format FMT [--max-size SIZE]`
-Pure re-encode to another format (no pixel changes). `--format` is required
+Re-encode to another format. Bakes EXIF orientation first (a no-op for the
+overwhelming majority of inputs — orientation 1 or no EXIF); no other pixel
+transform runs. `--format` is required
 (`png`/`jpeg`/`gif`/`bmp`/`tiff`/`ico`/`webp`/`avif`; `avif` ships by default —
 a `--no-default-features` (lean) build needs `--features avif` to get it back).
 `--max-size` fits a byte budget (JPEG target).
@@ -168,8 +172,10 @@ crustyimg convert *.png --format webp --out-dir out/
 
 ### `responsive <INPUT> --widths W1,W2,… [--formats F1,F2,…] [--no-snippet]`
 Generate a width × format responsive set into `--out-dir` (never upscaling) and print a
-paste-ready `<picture>`/srcset snippet to stdout. `--no-snippet` suppresses the snippet.
-Single input.
+paste-ready `<picture>`/srcset snippet to stdout. Bakes EXIF orientation first, so
+requested widths are compared against the visually-correct source width (a sideways
+1200×800 source measures as 800 wide; `--widths 600` on it comes back 600×900, not a
+plain dimension swap). `--no-snippet` suppresses the snippet. Single input.
 ```sh
 crustyimg responsive hero.jpg --widths 320,640,1280 --formats webp,jpeg --out-dir web/
 ```
@@ -245,11 +251,18 @@ crustyimg watermark photo.jpg --text "© crustyimg" --size 32 --color FFFFFF -o 
 ## Recipes & batch
 
 ### `edit <INPUT> [--auto-orient] [--resize-max N] [--invert] [--save-recipe FILE]`
-Chain an ordered op list on a **single** image in one decode → ops → encode pass. Ops
-apply in a fixed canonical order regardless of flag order (`auto-orient` → `resize` →
-`invert`), so the result is deterministic. At least one op flag is required.
-`--save-recipe FILE` serializes the chain to a TOML recipe (byte-pinned to what `apply`
-of that recipe produces).
+Chain an ordered op list on a **single** image in one decode → ops → encode pass. Every
+`edit` invocation **bakes EXIF orientation first** (SPEC-110) — `edit --invert` and
+`edit --resize-max N` are never sideways. `--auto-orient` is now an **accepted no-op**:
+baking already happens unconditionally, so passing the flag changes nothing about the
+output; it stays because the CLI surface is frozen (STAGE-030) and it must keep exiting
+0. Ops apply in a fixed canonical order regardless of flag order (`auto-orient` →
+`resize` → `invert`), so the result is deterministic. At least one op flag is required
+(`--auto-orient` alone still satisfies this). `--save-recipe FILE` serializes the chain
+to a TOML recipe. The CLI-level orientation bake itself is not recorded as a step, so a
+recipe replayed via `apply` no longer matches its own `edit` invocation: `edit`
+bakes, the replay doesn't. This divergence is introduced by SPEC-110 (before it, `edit`
+never baked either); flagged, not fixed — lands in SPEC-111.
 ```sh
 crustyimg edit photo.jpg --auto-orient --resize-max 1600 -o out.jpg
 crustyimg edit hero.jpg --auto-orient --resize-max 1600 --save-recipe web.toml

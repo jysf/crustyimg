@@ -151,9 +151,15 @@ deferred follow-up.)
 Generate a responsive image set: one width-scaled variant per (width × format),
 written as `{stem}-{width}w.{ext}` into `DIR` (created if missing), plus a
 paste-ready **`<picture>`/srcset** snippet on **stdout** (suppress with
-`--no-snippet`). Resizes **by target width**, preserving aspect, **never upscaling**
-(widths above the source width are skipped with a warning; variants dedupe by actual
-width). `--formats` defaults to the input's format; a feature-gated unbuilt codec
+`--no-snippet`). Decodes once, then EXIF **orientation is baked into the pixels
+first** (SPEC-110) — the source width every requested width is compared
+against is measured AFTER baking, so a sideways source is bounded by its
+visually-correct width, not its stored one (a 1200×800 source with
+`Orientation=6` compares against 800, and `--widths 600` on it comes back
+600×**900**, not a plain dimension swap). Resizes **by target width**,
+preserving aspect, **never upscaling** (widths above the source width are
+skipped with a warning; variants dedupe by actual width). `--formats`
+defaults to the input's format; a feature-gated unbuilt codec
 exits **4** up front (DEC-004). `-q` sets the lossy quality (default 80; ignored for
 lossless). Single input (no glob/batch in v1). Reuses the resize op + per-format
 sink; no new dependency. (blurhash placeholder, perceptual-per-variant, and a
@@ -173,9 +179,12 @@ center-crop to exactly the box (i.e. fill = cover + center-crop). `--max`/
 `resize a.jpg --max 800 --out-dir web/` writes `web/a.jpg`, not `web/a.png`.
 `--format FMT` forces a format; an `-o <path>` extension also decides
 (precedence: `--format` > `-o` extension > preserve source). (DEC-015.)
-**Metadata** (EXIF/ICC/orientation) is **dropped** on the resize re-encode —
-the pixel lane does not carry container metadata; that is the STAGE-004
-container lane (DEC-003). **Batch failures:** a multi-input batch with any
+EXIF **orientation is baked into the pixels first** (SPEC-110), so the output
+is never sideways even though the tag itself does not survive; `--max`/etc.
+bound the visually-correct (post-bake) dimensions. **Metadata** (EXIF/ICC)
+is otherwise **dropped** on the resize re-encode — the pixel lane does not
+carry container metadata; that is the STAGE-004 container lane (DEC-003).
+**Batch failures:** a multi-input batch with any
 per-input failure writes the successes, prints a per-file summary to stderr,
 and exits **6**; a single-input failure keeps its natural code (3/1/4/5).
 `-q/--quality` is threaded to the encoder where the format supports it (JPEG;
@@ -188,10 +197,12 @@ Convenience resize to a small bounded size — a thin wrapper over `resize`.
 `--size N` bounds the **longest edge to N** (aspect preserved, **never
 upscaled**) — i.e. `resize --max N`. `--size` defaults to **256** when omitted.
 `--square` makes the output **exactly N×N** by covering then **center-cropping**
-— i.e. `resize --fill NxN`. Multi-input + `--out-dir` for batch (SEQUENTIAL, no
+— i.e. `resize --fill NxN`. EXIF **orientation is baked into the pixels
+first** (SPEC-110), so `--size`/`--square` bound the visually-correct
+dimensions. Multi-input + `--out-dir` for batch (SEQUENTIAL, no
 parallelism until STAGE-005). **Output format** defaults to **preserving the
 input's source format** (`--format` / `-o` extension override; DEC-015);
-**metadata is dropped** on the re-encode (pixel lane; DEC-003). **Batch
+other **metadata is dropped** on the re-encode (pixel lane; DEC-003). **Batch
 failures:** any per-input failure writes the successes, prints a per-file summary
 to stderr, and exits **6**; a single-input failure keeps its natural code
 (3/1/4/5). `-q/--quality` is not honored (encoder default); `--size 0` → exit 2.
@@ -257,15 +268,18 @@ re-encode (privacy incl. GPS); selective preservation is the STAGE-004 container
 → exit 6; missing input → 3; multi-input without `--out-dir` → 2).
 
 #### `convert <INPUT...> --format FMT [-q Q]`  *(S3)*
-Re-encode to another core format (JPEG/PNG/GIF/BMP/TIFF/ICO/WebP) — a **pure
-re-encode** (decode once, no pixel transform). `--format` is **required**
+Re-encode to another core format (JPEG/PNG/GIF/BMP/TIFF/ICO/WebP). EXIF
+**orientation is baked into the pixels first** (SPEC-110) — no OTHER pixel
+transform runs; for the overwhelming majority of inputs (orientation 1, or no
+EXIF at all) that bake is a genuine no-op, so `convert` stays byte-identical
+to a plain decode→re-encode for those. `--format` is **required**
 (omitted → exit **2**, clap) and **forces** the output format for every input,
 overriding both the DEC-015 source-preserve default and any `-o <path>`
 extension (precedence: `--format` > `-o` ext > preserve source; here `--format`
 is always present, so it wins). `-q/--quality` is threaded to the encoder where
 the format supports it (JPEG; **ignored** for lossless formats — DEC-016); unlike
 `optimize`, `convert` forces **no** default quality (encoder default unless `-q`).
-**Metadata is dropped** on the re-encode (pixel lane; DEC-003). Multi-input
+Other **metadata is dropped** on the re-encode (pixel lane; DEC-003). Multi-input
 `--out-dir` fan-out (sequential; output names take the target `{ext}`); a
 per-input **load/write** failure writes the successes, prints a per-file summary
 to stderr, and exits **6** (DEC-015); a single-input failure keeps its natural
@@ -314,11 +328,14 @@ safe no-op.
 
 ### Compositing
 
-#### `watermark <INPUT...> --image LOGO [--gravity G] [--opacity O] [--scale S] [--margin M] [--tile]`  *(SPEC-029)*
+#### `watermark <INPUT...> --image LOGO [--gravity G] [--opacity O] [--scale S] [--margin M] [--tile]`  *(SPEC-029; orientation baking SPEC-110)*
 Overlay an image watermark (`--image`, required) onto each base at a compass
 **gravity** anchor (default `southeast`; `center`/`north`/…/`southwest`). A
 pixel-lane `Operation` (DEC-002) — the first that composes a second image, loaded
-once at the CLI boundary (DEC-031). `--opacity O` (0–1, default 1) scales the
+once at the CLI boundary (DEC-031). The base image's EXIF **orientation is baked
+into the pixels first** (SPEC-110), matching every other pixel-lane verb, so the
+overlay composites onto the display-correct orientation, not the stored one.
+`--opacity O` (0–1, default 1) scales the
 overlay alpha; `--scale S` resizes the overlay to `S ×` base width; `--margin M`
 insets the anchor; `--tile` repeats the overlay across the whole base (ignores
 gravity/margin). Missing/unreadable `--image` → exit **3**; bad opacity/scale or
@@ -378,19 +395,32 @@ fan-out; XMP/IPTC not transferred.
 
 ### Recipes / batch
 
-#### `edit <INPUT> [--auto-orient] [--resize-max N] [--invert] [-o OUT | --out-dir DIR] [--format FMT] [-q Q] [-y] [--save-recipe FILE]`  *(SPEC-032)*
+#### `edit <INPUT> [--auto-orient] [--resize-max N] [--invert] [-o OUT | --out-dir DIR] [--format FMT] [-q Q] [-y] [--save-recipe FILE]`  *(SPEC-032; orientation baking SPEC-110)*
 One-shot multi-op on a single image — the "experiment like an editor" mode.
-The op flags build an ordered operation list (v1: `--auto-orient`,
-`--resize-max N`, `--invert` — only ops that round-trip through the registry,
-DEC-005). **At least one op flag is required** (else exit 2). Regardless of the
-order the flags are typed, ops apply in a fixed **canonical order: `auto-orient`
-→ `resize` → `invert`** (orientation → geometry → color), so the result — and
-any saved recipe — is deterministic. Output, format, `-q`/`-y` behave as for the
-other pixel commands (`-o`/`-o -`/`--out-dir`; `--format` › `-o` ext › preserve).
-`--save-recipe FILE` serializes the exact op chain to a TOML recipe (DEC-005,
-`version = "1"`) that `apply --recipe FILE` replays identically; a recipe write
-failure exits 5. Watermark/compose ops are not in `edit` yet (need registry
-wiring first, DEC-031).
+Every invocation **bakes EXIF orientation first** (SPEC-110), before any of the
+flag-driven ops run — so `edit --invert` and `edit --resize-max N` are never
+sideways, matching every other pixel-lane verb. `--auto-orient` is now an
+**accepted no-op**: since baking is unconditional, the flag changes nothing
+about the output whether it is passed or not (kept because the CLI surface was
+frozen in STAGE-030; no opt-out flag exists). The remaining op flags build an
+ordered operation list (v1: `--resize-max N`, `--invert` — only ops that
+round-trip through the registry, DEC-005). **At least one op flag is required**
+(else exit 2) — `--auto-orient` alone still satisfies this and exits 0.
+Regardless of the order the flags are typed, ops apply in a fixed **canonical
+order: `auto-orient` → `resize` → `invert`** (orientation → geometry → color),
+so the result — and any saved recipe — is deterministic. Output, format,
+`-q`/`-y` behave as for the other pixel commands (`-o`/`-o -`/`--out-dir`;
+`--format` › `-o` ext › preserve). `--save-recipe FILE` serializes the exact op
+chain to a TOML recipe (DEC-005, `version = "1"`) that `apply --recipe FILE`
+replays; a recipe write failure exits 5. **Note:** the CLI-level orientation
+bake is NOT itself recorded as a recipe step, so a saved recipe now diverges
+when replayed via `apply`: `edit --invert` bakes orientation, but the same
+recipe replayed via `apply` does not. **This divergence is introduced by
+SPEC-110** — before it, `edit` never baked either, so a recipe replay and the
+`edit` invocation that produced it agreed. Flagged, not fixed
+(`one-spec-per-pr`); lands in SPEC-111, which owns `apply`/recipe pixel-lane
+wiring. Watermark/compose ops are not in `edit` yet (need registry wiring
+first, DEC-031).
 
 #### `apply --recipe FILE <INPUT...> [--out-dir DIR] [--name-template T] [-j N]`  *(SPEC-031)*
 Run a saved recipe over one image or a batch. **`rayon`-parallel** across inputs

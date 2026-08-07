@@ -492,9 +492,10 @@ fn parse_size(s: &str) -> Result<u64, CliError> {
 // ── convert handler ───────────────────────────────────────────────────────────
 
 /// Wire the `convert` subcommand: resolve the REQUIRED target format ONCE up
-/// front (exit 4 for unsupported/unbuilt codec — DEC-004), then pure re-encode
-/// every input to that format via an empty `Pipeline` (no-op pixel transform)
-/// and the shared `run_pixel_op` fan-out with `forced_format` (DEC-015 / SPEC-014).
+/// front (exit 4 for unsupported/unbuilt codec — DEC-004), then bake EXIF
+/// orientation first (SPEC-110) and re-encode every input to the target format
+/// — no other pixel transform — via the shared `run_pixel_op` fan-out with
+/// `forced_format` (DEC-015 / SPEC-014).
 ///
 /// Quality threading: pass `global.quality` as-is; `convert` has NO forced
 /// default quality (the encoder default unless `-q`, per DEC-016). `--max-size`
@@ -534,8 +535,10 @@ pub(super) fn run_convert(
     // With a byte budget, the per-input search supplies the quality (pass None).
     let fixed_quality = if auto.is_some() { None } else { global.quality };
 
-    // Pure re-encode: an empty pipeline returns the pixels unchanged.
-    let pipeline = Pipeline::new();
+    // Bake EXIF orientation first (SPEC-110), then a pure format re-encode —
+    // no other pixel transform. Orientation 1 / no EXIF is a no-op, so the
+    // overwhelming majority of inputs are still byte-identical to before.
+    let pipeline = auto_orient_prefix()?;
 
     // Force `fmt` for every input; thread the quality / byte-budget search.
     run_pixel_op(pipeline, inputs, global, fixed_quality, Some(fmt), auto)
@@ -776,22 +779,43 @@ pub(super) fn run_web(
     )
 }
 
+/// The shared pixel-lane prefix (SPEC-110): every verb that re-encodes pixels
+/// bakes EXIF orientation first, matching what `web`/`optimize` already did
+/// before this spec. This is the ONE site that knows "pixel-lane pipelines
+/// start with auto-orient" (AC-7) — every construction site below builds on
+/// top of it rather than pushing its own `auto-orient` op.
+///
+/// Not applied to: `auto-orient` itself (it IS this op), or `apply`/`build`'s
+/// recipe-driven pixel lane (the recipe's own steps decide the pipeline;
+/// SPEC-111 territory). Every other pixel-lane verb — including `watermark`
+/// (`run_watermark`, `src/cli/ops.rs`) — builds on this prefix.
+pub(super) fn auto_orient_prefix() -> Result<Pipeline, CliError> {
+    let registry = OperationRegistry::with_builtins();
+    let orient = registry
+        .build("auto-orient", &OperationParams::empty())
+        .map_err(|e| match e {
+            RegistryError::InvalidParams { reason, .. } => CliError::Usage(reason),
+            RegistryError::Unknown { name } => {
+                CliError::Usage(format!("unknown operation '{name}'"))
+            }
+        })?;
+    Ok(Pipeline::new().push(orient))
+}
+
 /// Build the shared `optimize` pipeline: auto-orient (bake EXIF orientation, drop
 /// the metadata bundle, DEC-017), then an optional `--max` long-edge bound.
 fn optimize_pipeline(max: Option<u32>) -> Result<Pipeline, CliError> {
-    let registry = OperationRegistry::with_builtins();
-    let map_registry_err = |e| match e {
-        RegistryError::InvalidParams { reason, .. } => CliError::Usage(reason),
-        RegistryError::Unknown { name } => CliError::Usage(format!("unknown operation '{name}'")),
-    };
-    let orient = registry
-        .build("auto-orient", &OperationParams::empty())
-        .map_err(map_registry_err)?;
-    let mut pipeline = Pipeline::new().push(orient);
+    let mut pipeline = auto_orient_prefix()?;
     if let Some(n) = max {
+        let registry = OperationRegistry::with_builtins();
         let resize = registry
             .build("resize", &resize_max_params(n))
-            .map_err(map_registry_err)?;
+            .map_err(|e| match e {
+                RegistryError::InvalidParams { reason, .. } => CliError::Usage(reason),
+                RegistryError::Unknown { name } => {
+                    CliError::Usage(format!("unknown operation '{name}'"))
+                }
+            })?;
         pipeline = pipeline.push(resize);
     }
     Ok(pipeline)
@@ -1534,14 +1558,20 @@ fn build_picture_html(
     }
 }
 
-/// Wire the `responsive` subcommand (SPEC-024, DEC-026): decode once, write one
-/// width-scaled variant per (width × format) into the global `--out-dir`, and print
-/// a paste-ready `<picture>`/srcset snippet to stdout (unless `--no-snippet`).
+/// Wire the `responsive` subcommand (SPEC-024, DEC-026): decode once, bake EXIF
+/// orientation (SPEC-110), write one width-scaled variant per (width × format)
+/// into the global `--out-dir`, and print a paste-ready `<picture>`/srcset
+/// snippet to stdout (unless `--no-snippet`).
 ///
 /// Resizes by target WIDTH via the resize `fit` mode (preserve aspect, NEVER
 /// upscale); widths above the source width are skipped with a warning; variants
-/// dedupe by actual width. Output formats default to the input's; a feature-gated
-/// unbuilt codec exits 4 up front (DEC-004), before any file is written.
+/// dedupe by actual width. `src_w` (the width every requested width is compared
+/// against) is measured AFTER baking, so it is the visually-correct width — a
+/// 1200×800 source with `Orientation=6` compares against 800, not 1200, and
+/// `--widths 600` on it comes back 600×900 (width-pinned; NOT a plain
+/// dimension swap of the un-oriented `resize`/`thumbnail` case). Output formats
+/// default to the input's; a feature-gated unbuilt codec exits 4 up front
+/// (DEC-004), before any file is written.
 pub(super) fn run_responsive(
     input: &str,
     widths: &str,
@@ -1559,8 +1589,11 @@ pub(super) fn run_responsive(
 
     let widths = parse_widths(widths)?;
 
-    // Decode ONCE (DEC-002).
+    // Decode ONCE (DEC-002), then bake EXIF orientation (SPEC-110) before
+    // measuring the source width every requested width is compared against —
+    // otherwise a sideways source would be bounded by its un-rotated width.
     let img = Image::load(input)?;
+    let img = auto_orient_prefix()?.run(img)?;
     let src_w = img.width();
 
     // Resolve formats (default = source) and fail up front for an unbuilt codec.

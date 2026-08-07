@@ -16,7 +16,7 @@ use crate::sink::{Overwrite, Sink, SinkError, SinkInput};
 use crate::source::{self, SourceError};
 
 use super::common::resolve_format;
-use super::optimize::resolve_effective_quality;
+use super::optimize::{auto_orient_prefix, resolve_effective_quality};
 use super::{AutoQuality, CliError, GlobalArgs};
 
 /// The `view` path: resolve the single input, load the image, and render it
@@ -226,6 +226,11 @@ pub(super) struct ResizeModes<'a> {
 /// Single-input: uses the `-o`/`-o -`/`--out-dir` sink from global flags.
 /// Multi-input: requires `--out-dir`; fan-out is SEQUENTIAL (no rayon, DEC-006).
 /// Partial failures in multi-input → continue + print to stderr + exit 6 (DEC-015).
+///
+/// Bakes EXIF orientation first (SPEC-110), so `--max`/etc. bound the
+/// visually-correct dimensions rather than the stored (possibly sideways) ones
+/// — this is the verb where a stale orientation bound the wrong AXIS, not just
+/// mis-tagged the output.
 pub(super) fn run_resize(
     inputs: &[String],
     modes: &ResizeModes<'_>,
@@ -252,8 +257,8 @@ pub(super) fn run_resize(
             }
         })?;
 
-    // Build the pipeline with this single op (builder-style: push consumes self).
-    let pipeline = Pipeline::new().push(op);
+    // Build the pipeline: bake orientation first, then this single resize op.
+    let pipeline = auto_orient_prefix()?.push(op);
 
     run_pixel_op(pipeline, inputs, global, global.quality, None, None)
 }
@@ -815,12 +820,27 @@ fn build_edit_ops(
 /// 2. Capture the recipe object NOW before moving ops into the pipeline:
 ///    `Recipe::from_ops(&ops)` borrows `&[Box<dyn Operation>]`; this must
 ///    precede the `into_iter().fold` that consumes `ops`.
-/// 3. Fold ops into a `Pipeline`.
+/// 3. Fold ops onto the shared auto-orient prefix (SPEC-110) to build a
+///    `Pipeline`. `--auto-orient` is now an accepted no-op (STAGE-030 froze the
+///    CLI surface, so the flag cannot be removed): every `edit` invocation
+///    already bakes orientation via the prefix, so an explicit `auto-orient`
+///    op from `build_edit_ops` — when the flag IS passed — runs a harmless
+///    second time (the first bake already dropped the metadata bundle the op
+///    reads, so the repeat is a true no-op, not a double rotation).
 /// 4. Delegate to `run_pixel_op` for the full load→run→sink fan-out (DEC-015).
 /// 5. On success, if `--save-recipe` was given, serialize + write the recipe.
 ///    A serialization failure → `CliError::Recipe` (exit 1); an I/O write
 ///    failure → `CliError::Sink(SinkError::Io)` (exit 5). An orphan recipe is
 ///    never written when the edit itself fails.
+///
+/// NOTE: the saved recipe (step 2) captures only `ops` — the CLI-level
+/// auto-orient prefix is NOT recorded as a step. Replaying such a recipe via
+/// `apply --recipe FILE` (a plain recipe-driven pipeline, out of scope for
+/// SPEC-110) will not bake orientation unless `--auto-orient` was explicitly
+/// passed to `edit`. Baking on the CLI path is what opens this divergence: the
+/// edit output and its own replayed recipe agreed before, and now differ on any
+/// non-1 orientation. Flagged here, not fixed — closing it is recipe-lane
+/// wiring, which lands in SPEC-111.
 pub(super) fn run_edit(
     input: &str,
     auto_orient: bool,
@@ -835,8 +855,10 @@ pub(super) fn run_edit(
     // 2. Capture the recipe before consuming ops (from_ops borrows &[Box<dyn Op>]).
     let recipe = save_recipe.map(|_| Recipe::from_ops(&ops));
 
-    // 3. Fold ops into a Pipeline.
-    let pipeline = ops.into_iter().fold(Pipeline::new(), |p, op| p.push(op));
+    // 3. Fold ops onto the shared auto-orient prefix (SPEC-110).
+    let pipeline = ops
+        .into_iter()
+        .fold(auto_orient_prefix()?, |p, op| p.push(op));
 
     // 4. Load → run → sink via the established single/multi fan-out helper.
     //    `input` is a &str; wrap it in a one-element Vec<String> slice.
@@ -894,6 +916,9 @@ fn thumbnail_params(size: Option<u32>, square: bool) -> OperationParams {
 /// - `--size N` (default 256) bounds the longest edge to N, aspect preserved.
 /// - `--square` produces an exactly N×N output via cover+center-crop (`fill`).
 /// - `--size 0` → op rejects width 0 → `CliError::Usage` (exit 2).
+///
+/// Bakes EXIF orientation first (SPEC-110), so the bound applies to the
+/// visually-correct dimensions.
 pub(super) fn run_thumbnail(
     inputs: &[String],
     size: Option<u32>,
@@ -911,7 +936,7 @@ pub(super) fn run_thumbnail(
             }
         })?;
 
-    let pipeline = Pipeline::new().push(op);
+    let pipeline = auto_orient_prefix()?.push(op);
     run_pixel_op(pipeline, inputs, global, global.quality, None, None)
 }
 
@@ -1059,7 +1084,7 @@ pub(super) fn run_watermark(
     // rendered overlay pixels; the text/image label is kept for `params()`.
     let op = Watermark::new(overlay, label, gravity, opacity, scale, margin, tile);
 
-    let pipeline = Pipeline::new().push(Box::new(op));
+    let pipeline = auto_orient_prefix()?.push(Box::new(op));
     run_pixel_op(pipeline, inputs, global, global.quality, None, None)
 }
 

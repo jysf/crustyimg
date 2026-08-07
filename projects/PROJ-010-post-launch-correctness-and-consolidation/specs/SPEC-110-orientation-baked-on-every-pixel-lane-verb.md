@@ -58,6 +58,51 @@ cost:
         and read output dimensions + EXIF presence; the full table is in the
         Context. Also audited the five existing callers of the orientation
         fixture builders to establish test fallout.
+    - cycle: build
+      agent: claude-sonnet-5
+      interface: claude-code
+      tokens_total: 61879452
+      duration_minutes: 1118
+      recorded_at: 2026-08-04
+      tokens_breakdown:
+        input: 530
+        output: 235030
+        cache_creation: 2192141
+        cache_read: 59451751
+      estimated_usd: 29.58
+      note: >
+        MEASURED — summed .message.usage across 265 assistant messages in this
+        session's own transcript (not dispatched as a subagent). duration_minutes
+        is first-to-last transcript timestamp (~18h39m calendar span), which
+        includes idle time between turns, not continuous active compute.
+        estimated_usd priced per component at Sonnet anchors ($3/$15 per MTok
+        in/out; cache_creation x1.25 input, cache_read x0.10 input) since
+        claude-sonnet-5 is the model that actually ran.
+    - cycle: build
+      agent: claude-sonnet-5
+      interface: claude-code
+      tokens_total: 48955092
+      duration_minutes: 1369
+      recorded_at: 2026-08-06
+      tokens_breakdown:
+        input: 480
+        output: 111068
+        cache_creation: 1274948
+        cache_read: 47568596
+      estimated_usd: 20.72
+      note: >
+        Punch-list pass (second build session) — MEASURED, summed .message.usage
+        across 240 unique assistant message ids in this session's own transcript
+        (deduped: each API response appears as multiple JSONL lines, one per
+        content block, all carrying the same usage snapshot; summing raw lines
+        would overcount). Computed after the CI matrix went green, before this
+        session's own closing messages, so the true total is a few messages
+        higher than recorded here (this session cannot fully measure itself
+        while still running). duration_minutes is first-to-last transcript
+        timestamp, includes idle
+        time between turns. estimated_usd priced per component at Sonnet anchors
+        ($3/$15 per MTok in/out; cache_creation x1.25 input, cache_read x0.10
+        input), same formula as the first build session.
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -336,26 +381,146 @@ where noted.
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
+- **Branch:** `feat/spec-110-orientation`
+- **PR (if applicable):** [#133](https://github.com/jysf/crustyimg/pull/133) — NOT merged, handed off to verify.
+- **All acceptance criteria met?** yes — AC-1 through AC-11, including the AC-10 negative
+  control (see below) and AC-11's full matrix (see below).
+- **Punch-list pass (second build session, Sonnet, own worktree, 2026-08-05):** verify
+  returned ⚠ PUNCH LIST on PR #133 — the code was "correct, safe, and better-tested than
+  the spec asked for" on everything it measured, but it failed on the spec's own **Goal**
+  because `watermark` shipped unbaked. This pass:
+  - **Fixed the one blocking item.** `run_watermark` (`src/cli/ops.rs:1085`) built
+    `Pipeline::new().push(...)` instead of `auto_orient_prefix()?.push(...)` — the identical
+    shape as the already-fixed `resize`/`thumbnail`. One-line fix. Added a tenth test,
+    `watermark_bakes_orientation` (`tests/orientation.rs`), and drove the negative control
+    myself: reverted the fix, rebuilt (confirmed via a real recompile, not a stale binary),
+    watched it fail at exactly the wrong dimensions the punch list described (1200×800, not
+    800×1200); restored, confirmed green.
+  - **Made the records true.** DEC-086's Decision/Context/Consequences now name `watermark`
+    as a seventh baked call site (`auto_orient_prefix()` has 7 callers, not 6);
+    `src/cli/optimize.rs:782`'s doc comment dropped its watermark exception;
+    `docs/api-contract.md`'s `watermark` section now states the bake.
+  - **Corrected a mischaracterization**, not just a wording nit: this build's own Follow-up
+    work and DEC-086's Consequences called the `edit --save-recipe` recipe-replay
+    divergence "pre-existing, unchanged by this decision." Verify drove it and measured the
+    opposite — `main`: direct `edit --invert` (1200×800) and the same recipe replayed via
+    `apply` (1200×800) agree; this branch: direct `edit --invert` (800×1200) and the replay
+    (1200×800) diverge. **This decision introduces the divergence.** Corrected here, in
+    DEC-086, and (same false claim, found additively while in the files)
+    `docs/api-contract.md`'s `edit` section and `docs/moat.md`'s STAGE-005 summary; filed to
+    land in SPEC-111 in all four places. Also dropped a self-contradicting parenthetical in
+    `docs/cli-reference.md`'s `edit` section (claimed byte-pinned, then described the same
+    divergence in the next sentence).
+  - **Strengthened AC-5's test** (non-blocking, verify flagged it as worth closing cheaply).
+    `all_eight_orientation_values_are_applied` asserted dimensions only, so orientations
+    1–4 (axis-preserving) asserted the same (40,30) an UNBAKED build also produces — 4 of 8
+    assertions could never fail. Added a quadrant-marker fixture (source top-left quarter
+    black, rest white; local to this test, independent of `common::gradient_jpeg`, which
+    varies only along X and so cannot distinguish orientation 4's vertical-only flip from a
+    no-op) plus a corner-brightness check derived directly from the EXIF orientation spec's
+    transform definitions, for a content-level assertion on all eight values. Drove a
+    negative control myself: mutated `AutoOrient::apply` to always rotate 180° regardless of
+    the actual tag, rebuilt, and watched orientation 2 fail with the WRONG corner dark while
+    dimensions would have stayed correct (40×30, matching what o=2 expects).
+    Reverted the mutation, confirmed the diff against the committed file was empty, restored
+    green.
+    **CORRECTED at confirmation (2026-08-06):** the sentence originally drawn from that run —
+    "proving the old dimension-only assertion would have stayed green on exactly this class of
+    bug" — overstated it. The observation about **orientation 2's own assertion** is right, but
+    the old test *as a whole* would still have gone **RED at o=5**, where a forced 180° does
+    change dimensions. So this mutation does not prove the old assertion missed the bug; it
+    proves one of its eight cells was blind. The strengthening still closes a real hole — that
+    takes a mutation which changes no dimensions at **any** value, which the confirmation pass
+    supplied. Recorded rather than quietly reworded: the work was right and the claim drawn
+    from it reached further than the evidence.
+  - **Re-ran the full matrix** clean from fresh per-leg `CARGO_TARGET_DIR`s, sequentially,
+    every leg through `rtk proxy`, every log confirmed showing `Compiling crustyimg`:
+    **lean 805 / default 824 / webp-lossy 831 passed, 0 failed** — reconciles exactly
+    against the prior reference (804/823/830) plus the one new test (the AC-5 strengthening
+    added assertions to an existing test, not a new `#[test]` fn, so it contributes 0 to the
+    count). `clippy --all-targets -D warnings` clean on all three legs. `cargo fmt --check`
+    clean. `just wasm-test` **30/30**, unchanged (no wasm-side change this pass).
 - **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
+  - `DEC-086` — bake EXIF orientation on every pixel-lane verb (measured table + both
+    rejected alternatives; `decisions/DEC-086-bake-orientation-on-every-pixel-lane-verb.md`).
+    `DEC-003` is amended in place (dated 2026-08-04 section), not superseded — only its
+    orientation claim changes; ICC/copyright/GPS are untouched.
+    **Amended on the punch-list pass** — see above: `watermark` added as a seventh baked
+    call site, and the `edit --save-recipe` Consequences bullet corrected to say this
+    decision introduces the recipe-replay divergence rather than inheriting it.
 - **Deviations from spec:**
-  - [list]
-- **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - Went slightly beyond the `Outputs` list's named `docs/cli-reference.md` scope (which
+    named only `edit --auto-orient`'s description): also corrected the `resize`/
+    `thumbnail`/`convert`/`responsive` lines there, since they made the same now-false
+    "no pixel changes" / "preserving aspect" claims AC-8 required fixing in
+    `docs/api-contract.md`. Leaving one doc file internally inconsistent with the other
+    seemed worse than the small scope add.
+  - `edit`'s `build_edit_ops` was left unchanged (still adds an explicit `auto-orient` op
+    to its ops list when `--auto-orient` is passed) rather than making the flag contribute
+    zero ops. This means `edit --auto-orient` runs `AutoOrient::apply` twice in a row when
+    combined with the new unconditional prefix — confirmed safe/idempotent (the first bake
+    drops the metadata bundle the op reads, so the second call is a true no-op on every
+    input, not a double rotation) and it keeps `--save-recipe`'s captured recipe accurate
+    for that one flag combination. The alternative (stripping auto-orient from
+    `build_edit_ops`) would have made `edit --auto-orient` alone produce an empty `ops`
+    list, requiring a second special case in the "at least one op flag" check to avoid a
+    false usage-error — more moving parts for the same observable behavior.
+  - The build prompt's reference test totals (lean 797 / default 816 / webp-lossy 823)
+    were stale by exactly 2 in every leg: measuring a clean `origin/main` worktree directly
+    gives lean 795 (confirmed zero failures). My branch's lean total is 804 = 795 + the 9
+    tests added — reconciles exactly. Default (823) and webp-lossy (830) show the same
+    +9 delta, consistent with the same stale-by-2 reference. Not investigated further
+    (not a SPEC-110 regression — the discrepancy exists identically on `origin/main`
+    before this branch's changes).
+- **Follow-up work identified (the `edit --save-recipe` bullet corrected on the punch-list
+  pass; the watermark bullet closed out on the punch-list pass):**
+  - `edit --save-recipe`'s captured recipe does not record the CLI-level auto-orient
+    prefix as a step. A recipe saved from an `edit` invocation now diverges when replayed
+    via `apply --recipe FILE`: verify drove it and measured direct `edit --invert` on the
+    design's fixture at 800×1200 (baked) against the same recipe replayed via `apply` at
+    1200×800 (unbaked). **This PR introduces the divergence, not inherits it** — before
+    this decision `edit` never baked either, so direct invocation and a recipe replay
+    agreed (both unbaked). Flagged, not fixed (`one-spec-per-pr`; `apply`/recipe pixel-lane
+    wiring is SPEC-111's territory — filed there). Documented in `docs/api-contract.md`'s
+    `edit` section and `src/cli/ops.rs`.
+  - `watermark` (`src/cli/ops.rs::run_watermark`) was missed by the spec's measured table,
+    `Outputs`, and acceptance criteria, and shipped in PR #133 without the
+    `auto_orient_prefix()` every other pixel-lane verb got — the identical
+    `Pipeline::new().push(...)` shape as the fixed `resize`/`thumbnail`. Verify caught it
+    (17-subcommand classification) and it is fixed in this punch-list pass: `watermark`
+    now bakes via the shared prefix, with a tenth test (`watermark_bakes_orientation`,
+    `tests/orientation.rs`) alongside the original nine.
+  - DEC-003's ICC/copyright preserve claims were NOT re-investigated (out of scope,
+    explicitly declined per the build prompt's "report it, don't fix it" instruction).
+    `AGENTS.md`/every affected verb's own doc comments already state the pixel lane drops
+    ALL metadata on re-encode, which is in tension with DEC-003's ICC preserve claim
+    predating this spec — not a new finding from this sweep, just noted for whichever
+    future spec finally reconciles it.
 
 ### Build-phase reflection (3 questions, short answers)
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — Nothing structural was unclear — the design table, traps, and file/line pointers were
+   precise enough to implement directly. The one judgment call the spec left open was
+   *how* `edit --auto-orient` should become a no-op: whether the flag should still
+   contribute an explicit op to `build_edit_ops`'s list (redundant-but-safe alongside the
+   new prefix) or contribute nothing (requiring a second special case in the "at least one
+   flag" check). The spec's wording ("accepted, documented no-op") is consistent with
+   either reading; I picked the smaller, lower-risk diff (see Deviations) but a sentence
+   pinning this in the spec would have saved the analysis.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — The `edit --save-recipe` recipe-capture gap (see Follow-up work) isn't a constraint
+   that was missing so much as a consequence the spec's Outputs/AC list didn't anticipate,
+   because `edit`'s pre-change behavior never baked, so the gap didn't exist yet. Not a
+   spec defect — a genuinely new interaction surfaced by the fix itself.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Verify the "reference test totals" claim against a fresh `origin/main` build BEFORE
+   starting implementation, not after finishing the matrix. It cost one extra worktree +
+   test run to discover the stale-by-2 baseline late; doing it first would have let me
+   state "expect lean 795+9=804" up front instead of investigating a surprise mismatch at
+   the end.
 
 ---
 
