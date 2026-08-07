@@ -116,7 +116,7 @@ out of STAGE-034 keeps that stage a single subject — the classifier pixel lane
   orientation…"*), and **no test asserts orientation on any of the five broken verbs** — every
   existing orientation fixture sits on a verb that already bakes, which is why this survived.
   Complexity re-rated **M**.
-- [ ] SPEC-111 (frame) — **`build` runs bundled recipes.** `prepare_target` (`src/cli/build.rs:80`)
+- [ ] SPEC-111 (**designed 2026-08-07**) — **`build` runs bundled recipes.** `prepare_target` (`src/cli/build.rs:80`)
   calls `recipe.build_pipeline(registry)` at `:85` without stripping the terminal `optimize` marker —
   `build.rs` contains **0** references to `optimize`, `OPTIMIZE_STEP` or `strip_terminal`. Every
   bundled recipe ends with that marker (`src/recipe/bundled.rs:20`, asserted at `:91`), and the
@@ -131,11 +131,25 @@ out of STAGE-034 keeps that stage a single subject — the classifier pixel lane
   replay still gives 1200×800. **SPEC-110 introduced this**, and it is recorded as such in
   DEC-086 — it is not a pre-existing gap. Closing it is recipe-lane wiring, which is exactly this
   spec's subject. Frame SPEC-111 against **both** halves before building.
+
+  **Designed 2026-08-07 — and it DID need a design cycle**, contrary to the framing. Driven on a
+  release build: `build` exits **1** with `unknown operation 'optimize'` on a bundled recipe
+  **both by path and by name**, while `apply --recipe web` and a plain pixel recipe through
+  `build` both exit 0 — so the fault is exactly the terminal marker. **But "wire in the strip
+  helper" is necessary and not sufficient:** `encode_one` (`src/cli/common.rs:52`) hardcodes
+  `img.source_format()`, so stripping alone would write the **source** format and silently
+  discard the modernization the recipe exists to perform — a worse bug than the current loud
+  failure. Two decisions made: **(1)** `build` uses the **name template as the format pin**,
+  copying `apply`'s existing pinned-format rule (a literal extension pins and skips the decision;
+  `{ext}` lets the decision choose) — one rule across both verbs; **(2)** **`edit --save-recipe`
+  records `auto-orient` explicitly**, rather than giving `apply`/`build` an implicit prefix,
+  because a recipe must stay a complete description of its own behaviour and `recipes/web.toml`
+  already names the step. Complexity re-rated **M**.
 - [ ] (chore, may not need a spec) — **`docs/data-model.md` worked example.** `:142-182` advertises
   `op = "unsharp"` (`:161`), `op = "watermark"` (`:166`), `op = "clean-gps"` (`:174`) and the CLI flags
   `--unsharp` / `--watermark` (`:181-182`). Rewrite against the four real ops. Complexity **S**.
 
-**Count:** 1 shipped / 0 active / 1 spec + 1 chore pending
+**Count:** 1 shipped / 1 active / 1 chore pending
 
 ## Design Notes
 
