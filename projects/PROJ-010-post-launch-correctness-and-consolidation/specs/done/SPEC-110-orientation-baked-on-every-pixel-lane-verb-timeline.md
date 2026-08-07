@@ -125,6 +125,20 @@ Cycle prompts live in `prompts/SPEC-110-<cycle>.md`.
       comment (blocking), re-characterize the save-recipe gap, and drop
       `cli-reference.md`'s now-false "byte-pinned to what `apply` produces".
 
-- [ ] **ship** — bookkeeping on `main` after the PR merges: cost totals, reflection,
-      `just archive-spec SPEC-110`, stage backlog. STAGE-039 also holds SPEC-111 and a doc
-      chore, so shipping this does **not** close the stage.
+- [x] **ship** — 2026-08-06. PR **#133 merged** as `2ba0c21`. Cost totals: **124,561,436 tokens
+      / $67.94** across 3 metered cycles of 5 sessions, each reconciled by the orchestrator
+      against its own component breakdown at the anchors of the model in `agent` (DEC-083).
+      ⚠ 95.7% of that token figure is cache re-reads; non-cache-read volume is **5,352,083**,
+      and pre-SPEC-107 specs recorded hand-estimates that did not count cache reads at all —
+      so a raw comparison across that boundary measures methodology, not work.
+      **Three orchestrator interventions, all outside the metered total.** Driving the branch
+      to confirm the watermark gap *before* verify ran (which is what put it at the top of the
+      verify prompt); driving the punch-list branch to confirm Item 1 plus the
+      double-rotation and no-op controls; and a focused confirmation pass on Opus (~$2.40,
+      a labelled estimate) which **refuted two claims** — `src/cli/ops.rs`'s `run_edit` NOTE
+      still called the recipe gap "pre-existing … unchanged by this spec" (it is neither), and
+      Build Completion's AC-5 paragraph over-concluded from its forced-180° mutation (true of
+      orientation 2's cell; the old test would still have gone RED at o=5). Both fixed
+      additively in `b9dd4ad`; CI green on all three OS legs after.
+      Spec archived to `specs/done/`. **STAGE-039 stays open** — SPEC-111 and the
+      `docs/data-model.md` chore remain.
