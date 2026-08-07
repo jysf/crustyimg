@@ -421,10 +421,18 @@ where noted.
     transform definitions, for a content-level assertion on all eight values. Drove a
     negative control myself: mutated `AutoOrient::apply` to always rotate 180° regardless of
     the actual tag, rebuilt, and watched orientation 2 fail with the WRONG corner dark while
-    dimensions would have stayed correct (40×30, matching what o=2 expects) — proving the
-    old dimension-only assertion would have stayed green on exactly this class of bug.
+    dimensions would have stayed correct (40×30, matching what o=2 expects).
     Reverted the mutation, confirmed the diff against the committed file was empty, restored
     green.
+    **CORRECTED at confirmation (2026-08-06):** the sentence originally drawn from that run —
+    "proving the old dimension-only assertion would have stayed green on exactly this class of
+    bug" — overstated it. The observation about **orientation 2's own assertion** is right, but
+    the old test *as a whole* would still have gone **RED at o=5**, where a forced 180° does
+    change dimensions. So this mutation does not prove the old assertion missed the bug; it
+    proves one of its eight cells was blind. The strengthening still closes a real hole — that
+    takes a mutation which changes no dimensions at **any** value, which the confirmation pass
+    supplied. Recorded rather than quietly reworded: the work was right and the claim drawn
+    from it reached further than the evidence.
   - **Re-ran the full matrix** clean from fresh per-leg `CARGO_TARGET_DIR`s, sequentially,
     every leg through `rtk proxy`, every log confirmed showing `Compiling crustyimg`:
     **lean 805 / default 824 / webp-lossy 831 passed, 0 failed** — reconciles exactly

@@ -837,8 +837,10 @@ fn build_edit_ops(
 /// auto-orient prefix is NOT recorded as a step. Replaying such a recipe via
 /// `apply --recipe FILE` (a plain recipe-driven pipeline, out of scope for
 /// SPEC-110) will not bake orientation unless `--auto-orient` was explicitly
-/// passed to `edit`. This pre-existing recipe-capture gap is unchanged by this
-/// spec; flagged here, not fixed (one-spec-per-pr).
+/// passed to `edit`. Baking on the CLI path is what opens this divergence: the
+/// edit output and its own replayed recipe agreed before, and now differ on any
+/// non-1 orientation. Flagged here, not fixed — closing it is recipe-lane
+/// wiring, which lands in SPEC-111.
 pub(super) fn run_edit(
     input: &str,
     auto_orient: bool,
