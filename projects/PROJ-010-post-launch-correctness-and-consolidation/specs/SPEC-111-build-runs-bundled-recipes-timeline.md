@@ -41,9 +41,42 @@ Cycle prompts live in `prompts/SPEC-111-<cycle>.md`.
       with two controls, and a trace of the format path through `encode_one` →
       `lock_output_path` → `EXT_SENTINEL`.
 
-- [ ] **build** — run `prompts/SPEC-111-build.md` in a **fresh session**, own git worktree.
-      Sonnet. Touches `encode_one`, which `apply` shares — AC-6 is the guard that `apply` and the
-      plain-recipe path are unchanged.
+- [x] **build** — 2026-08-08. `feat/spec-111-build-recipes`, own worktree, Sonnet. Both design
+      decisions implemented as specified: `split_terminal_optimize` (`optimize.rs`) made
+      `pub(super)` and reused (not copied) by `build.rs`'s `prepare_target`; `encode_one`
+      (`common.rs`) gained a `format_override: Option<ImageFormat>` param (`None` on `apply_one`'s
+      call site — byte-identical, AC-6) so `build` can thread a PIN through without touching the
+      preserve-format path; a new `encode_one_optimize_decided` (`optimize.rs`) reuses
+      `optimize_decide_one` for the auto-decide case, hardcoding `Profile::Web` to match
+      `run_apply`'s own hardcode (decision 1's "one rule"). `edit --save-recipe` now prepends an
+      explicit `auto-orient` `RecipeStep` unless `--auto-orient` already put one there (decision 2).
+      **Sweep** (`.build_pipeline(` grep, 10 call sites, each classified): the only unfixed
+      production site sharing this defect class is `src/wasm.rs::transform` — explicitly out of
+      scope, named in DEC-087, not fixed.
+      **Found beyond the spec's Outputs list, driven by implementing decision 1:** two `build`
+      targets sharing one recipe file but different name templates (Pinned vs Decide) would
+      collide in the content-addressed cache under the pre-existing `recipe_hash` formula — fixed
+      via `target_recipe_hash`, scoped so a plain pixel recipe hashes exactly as before (no stale
+      cache/lockfile). Also named, not fixed: `build`'s new Decide path reaches
+      `optimize_decide_one` but doesn't thread SPEC-107's truncated-JPEG warning through.
+      AC-4 negative control driven for real: mutated `split_terminal_optimize` to drop the last
+      step unconditionally, confirmed `build_still_rejects_an_unknown_terminal_op` went RED, and
+      confirmed the mutation reached the compiled test binary (SHA-256 changed, a new dead-code
+      warning appeared), not just the source — then reverted and reconfirmed green.
+      **One pre-written failing test needed a fix, not just a pass:** AC-2's hardcoded ".avif"
+      assumption doesn't hold on the `webp-lossy` leg (a second competing lossy candidate makes
+      the byte-race winner measured, not assumed) or, for a related new test, on `lean` (falls back
+      to a baseline JPEG, no avif/webp-lossy built) — both correct decision-engine behavior, not
+      bugs. Re-gated the AVIF-specific assertion to `avif && !webp-lossy`; added an unconditional
+      `build_decided_format_matches_apply_on_every_feature_leg` proving the real "one rule"
+      requirement (byte-parity with `apply --recipe web`) on every leg.
+      **Full matrix, fresh per-leg `CARGO_TARGET_DIR`, sequential, through `rtk proxy`, "Compiling
+      crustyimg" confirmed each leg:** lean 818/818 (805 reference + 13 new), default 838/838 (824
+      + 14 — one extra test is `avif`-gated so only default/webp-lossy carry it), webp-lossy
+      844/844 (831 + 13), `clippy --all-targets -D warnings` clean on all three, `fmt --check`
+      clean, `just wasm-test` 30/30 (untouched by construction — `cli`/`build`/`source`/`lint` are
+      `#[cfg(not(target_arch = "wasm32"))]`, so nothing this spec touched compiles into wasm).
+      PR #138, not merged.
 
 - [ ] **verify** — fresh session, **Opus**. Re-derive the driven table yourself on your own
       builds of branch and `main`. Enumerate every path that builds a pipeline from a `Recipe`

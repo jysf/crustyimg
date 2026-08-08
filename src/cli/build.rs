@@ -15,18 +15,101 @@ use crate::sink::Overwrite;
 use crate::source::{self, SourceError};
 
 use super::common::{encode_one, load_recipe, write_encoded, BATCH_PROGRESS_TEMPLATE};
+use super::optimize::{encode_one_optimize_decided, split_terminal_optimize};
 use super::{CliError, GlobalArgs};
 
 // ── Build command (SPEC-063, DEC-057) ────────────────────────────────────────
 
+/// How a target's output format is chosen (SPEC-111). Computed ONCE per
+/// target at prepare time — the name template is target-level config, known
+/// before any input is touched — and applied identically to every one of the
+/// target's inputs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OutputFormatPlan {
+    /// No terminal `optimize` step: [`encode_one`] preserves each input's own
+    /// source format, exactly as `build` has always done (AC-6).
+    Preserve,
+    /// A terminal `optimize` step + a literal-extension name template
+    /// (`name = "{stem}.png"`): the pin wins over the auto-decision, matching
+    /// `apply --recipe web -o hero.png` (AC-3).
+    Pinned(::image::ImageFormat),
+    /// A terminal `optimize` step + `{ext}` in the name template (including
+    /// the default `{stem}.{ext}`): the fast AVIF-aware decision picks the
+    /// format per input, matching `apply --recipe web` (AC-2).
+    Decide,
+}
+
+/// Decision 1 (SPEC-111): a terminal-`optimize` target's name template is its
+/// format pin — the `build` twin of `apply`'s pinned-format rule
+/// (`optimize.rs:80-102`), so `build` and `apply` follow ONE rule rather than
+/// two (the lesson SPEC-110 paid three cycles for). `{ext}` (including the
+/// default `{stem}.{ext}`) means "let the fast decision choose"; any other
+/// template names its extension literally and MUST resolve to a real image
+/// format — an unresolvable literal extension fails the build at PREPARE
+/// time, before any input is touched, rather than silently shipping
+/// mismatched bytes under a name nobody asked for.
+fn target_format_plan(template: &str) -> Result<OutputFormatPlan, CliError> {
+    if template.contains(EXT_SENTINEL) {
+        return Ok(OutputFormatPlan::Decide);
+    }
+    let fmt = crate::sink::format_from_extension(Path::new(template))?;
+    Ok(OutputFormatPlan::Pinned(fmt))
+}
+
+/// The cache identity for one target: the canonical recipe hash, folded
+/// together with the output-format PLAN when (and only when) the recipe ends
+/// in the reserved terminal `optimize` step (SPEC-111).
+///
+/// A plain pixel recipe — the vast majority, and the only shape that could
+/// ever build before this spec — hashes EXACTLY as before, via the untouched
+/// [`crate::build::cache::recipe_hash`]: no prior cache entry or committed
+/// lockfile line goes stale from this change alone.
+///
+/// A terminal-`optimize` target additionally needs the PLAN in the hash: two
+/// targets can share byte-identical pixel steps (the same recipe file) but
+/// choose the output format differently — one pinned via a literal-extension
+/// name template, one auto-decided via `{ext}` — and their pixel steps
+/// agreeing says nothing about whether the shipped BYTES will. Without this,
+/// one target's cache entry could serve the other's bytes on a hit, which is
+/// exactly the silent-staleness failure [`crate::build::cache`] exists to
+/// prevent. Both the recipe TOML and the plan discriminator are
+/// length-prefixed so neither can be crafted to bleed into the other.
+fn target_recipe_hash(
+    recipe: &Recipe,
+    plan: OutputFormatPlan,
+) -> Result<crate::build::cache::Hash, CliError> {
+    use crate::build::cache::hash_bytes;
+
+    if plan == OutputFormatPlan::Preserve {
+        return Ok(crate::build::cache::recipe_hash(recipe)?);
+    }
+
+    let toml = recipe.to_toml()?;
+    let mut buf = Vec::with_capacity(toml.len() + 16);
+    buf.extend_from_slice(&(toml.len() as u64).to_le_bytes());
+    buf.extend_from_slice(toml.as_bytes());
+    match plan {
+        OutputFormatPlan::Pinned(fmt) => {
+            let ext = crate::sink::extension_for_format(fmt);
+            buf.extend_from_slice(&1u64.to_le_bytes());
+            buf.extend_from_slice(ext.as_bytes());
+        }
+        OutputFormatPlan::Decide => buf.extend_from_slice(&2u64.to_le_bytes()),
+        OutputFormatPlan::Preserve => unreachable!("handled by the early return above"),
+    }
+    Ok(hash_bytes(&buf))
+}
+
 /// A manifest target with everything resolved that could fail before a write:
-/// its recipe (parsed, pipeline-probed), its inputs (sources resolved), and the
-/// canonical hash of its recipe — computed once per target, not once per input,
-/// since every input in a target shares it (SPEC-064).
+/// its recipe (parsed, pipeline-probed, terminal-`optimize` stripped when
+/// present), its format plan, its inputs (sources resolved), and the
+/// canonical hash of its recipe — computed once per target, not once per
+/// input, since every input in a target shares it (SPEC-064).
 struct PreparedTarget<'a> {
     target: &'a crate::build::Target,
     recipe: Recipe,
     recipe_hash: crate::build::cache::Hash,
+    format_plan: OutputFormatPlan,
     inputs: Vec<crate::source::Input>,
 }
 
@@ -72,8 +155,10 @@ fn load_manifest(path: &str) -> Result<crate::build::BuildManifest, CliError> {
 }
 
 /// Resolve everything a target needs before any output is written: parse its
-/// recipe, probe its pipeline (a bad op fails here, exit 1), and resolve its
-/// sources (a missing path / empty glob fails here, exit 3/2).
+/// recipe, strip a reserved terminal `optimize` step and resolve the format
+/// plan it implies (SPEC-111), probe the resulting pipeline (a bad op fails
+/// here, exit 1), and resolve its sources (a missing path / empty glob fails
+/// here, exit 3/2).
 ///
 /// Manifest paths are relative to the process working directory (DEC-057).
 /// Stdin (`-`) is rejected at manifest validation, so an empty reader suffices.
@@ -81,9 +166,20 @@ fn prepare_target<'a>(
     target: &'a crate::build::Target,
     registry: &OperationRegistry,
 ) -> Result<PreparedTarget<'a>, CliError> {
-    let recipe = load_recipe(&target.recipe)?;
+    let loaded = load_recipe(&target.recipe)?;
+
+    // Every bundled recipe (web/gallery/product) ends with the reserved
+    // terminal `optimize` step, which is not a registry op — probing the RAW
+    // recipe here is exactly the SPEC-111 bug (`unknown operation
+    // 'optimize'`). Strip it first (reusing `run_apply`'s own helper, not a
+    // copy) and resolve how this target's format is chosen from its name
+    // template (decision 1).
+    let (recipe, format_plan) = match split_terminal_optimize(&loaded) {
+        Some(pixel_recipe) => (pixel_recipe, target_format_plan(target.template())?),
+        None => (loaded, OutputFormatPlan::Preserve),
+    };
     recipe.build_pipeline(registry)?;
-    let recipe_hash = crate::build::cache::recipe_hash(&recipe)?;
+    let recipe_hash = target_recipe_hash(&recipe, format_plan)?;
 
     let mut inputs: Vec<crate::source::Input> = Vec::new();
     for pattern in target.source.as_slice() {
@@ -99,6 +195,7 @@ fn prepare_target<'a>(
         target,
         recipe,
         recipe_hash,
+        format_plan,
         inputs,
     })
 }
@@ -112,6 +209,12 @@ fn prepare_target<'a>(
 /// reaches the error message. Two inputs whose remaining tokens agree therefore
 /// collide **regardless** of output format — over-detection, the safe direction:
 /// under-detection would silently miss `a/logo.png` + `b/logo.svg` → `logo.png`.
+///
+/// SPEC-111 reuses this same constant as the literal TOKEN to search for
+/// (`template.contains(EXT_SENTINEL)`) when deciding whether a terminal-
+/// `optimize` target's format is pinned or auto-decided (decision 1) — one
+/// spelling for both "the value substituted in" and "the token being detected"
+/// so the two cannot drift apart.
 const EXT_SENTINEL: &str = "{ext}";
 
 /// The output path one input of `target` would be written to, with `{ext}` left
@@ -314,11 +417,34 @@ fn build_one(
         }
     }
 
-    let (ext, bytes) = encode_one(&prepared.recipe, ctx.registry, input, ctx.quality)?;
-    write_encoded(&bytes, ext, input, out_dir, template, overwrite)?;
+    // SPEC-111: the format is either preserved (unchanged, AC-6), pinned by
+    // the target's literal-extension template (AC-3), or chosen per input by
+    // the same fast decision `apply --recipe web` uses (AC-2) — decided once
+    // per target at prepare time (`format_plan`), applied here per input.
+    let (ext, bytes): (String, Vec<u8>) = match prepared.format_plan {
+        OutputFormatPlan::Preserve => {
+            let (ext, bytes) =
+                encode_one(&prepared.recipe, ctx.registry, input, None, ctx.quality)?;
+            (ext.to_owned(), bytes)
+        }
+        OutputFormatPlan::Pinned(fmt) => {
+            let (ext, bytes) = encode_one(
+                &prepared.recipe,
+                ctx.registry,
+                input,
+                Some(fmt),
+                ctx.quality,
+            )?;
+            (ext.to_owned(), bytes)
+        }
+        OutputFormatPlan::Decide => {
+            encode_one_optimize_decided(&prepared.recipe, ctx.registry, input)?
+        }
+    };
+    write_encoded(&bytes, &ext, input, out_dir, template, overwrite)?;
 
     if let (Some(cache), Some(key)) = (ctx.cache, key.as_ref()) {
-        if let Err(e) = cache.store(key, ext, &bytes) {
+        if let Err(e) = cache.store(key, &ext, &bytes) {
             if !ctx.quiet {
                 eprintln!("warning: could not cache output: {e}");
             }
@@ -329,7 +455,7 @@ fn build_one(
         built: Built::Rebuilt,
         record: key
             .as_ref()
-            .and_then(|k| lock_record(prepared, input, k, ext, &bytes)),
+            .and_then(|k| lock_record(prepared, input, k, &ext, &bytes)),
     })
 }
 
@@ -882,6 +1008,7 @@ mod tests {
             target: &t,
             recipe_hash: cache::recipe_hash(&recipe).expect("recipe hashes"),
             recipe,
+            format_plan: OutputFormatPlan::Preserve,
             inputs: Vec::new(),
         };
         let input = crate::source::Input::Path(PathBuf::from("src/a.png"));
@@ -909,5 +1036,68 @@ mod tests {
             stem: "x".into(),
         };
         assert!(lock_record(&prepared, &stdin, &key, "png", b"").is_none());
+    }
+
+    // ── SPEC-111: the format plan a target's name template implies ──────────
+
+    #[test]
+    fn target_format_plan_reads_the_template() {
+        // `{ext}` anywhere in the template → let the decision choose.
+        assert_eq!(
+            target_format_plan("{stem}.{ext}").unwrap(),
+            OutputFormatPlan::Decide
+        );
+        assert_eq!(
+            target_format_plan("{parent}_{stem}.{ext}").unwrap(),
+            OutputFormatPlan::Decide
+        );
+
+        // A literal extension pins the format.
+        assert_eq!(
+            target_format_plan("{stem}.png").unwrap(),
+            OutputFormatPlan::Pinned(::image::ImageFormat::Png)
+        );
+        assert_eq!(
+            target_format_plan("{parent}_{stem}.jpg").unwrap(),
+            OutputFormatPlan::Pinned(::image::ImageFormat::Jpeg)
+        );
+
+        // A literal extension that is not a real image format fails clearly,
+        // at prepare time, rather than silently shipping mismatched bytes.
+        assert!(target_format_plan("{stem}.txt").is_err());
+    }
+
+    #[test]
+    fn target_recipe_hash_distinguishes_pinned_from_decided() {
+        use crate::build::cache;
+
+        // Two targets that would share byte-identical PIXEL recipe TOML but
+        // choose the output format differently must NOT collide in the
+        // content-addressed cache (a hit for one must never serve the other's
+        // bytes).
+        let recipe = Recipe::from_toml("version = \"1\"\n").expect("empty recipe parses");
+
+        let preserved = target_recipe_hash(&recipe, OutputFormatPlan::Preserve).unwrap();
+        let pinned_png =
+            target_recipe_hash(&recipe, OutputFormatPlan::Pinned(::image::ImageFormat::Png))
+                .unwrap();
+        let pinned_jpg = target_recipe_hash(
+            &recipe,
+            OutputFormatPlan::Pinned(::image::ImageFormat::Jpeg),
+        )
+        .unwrap();
+        let decided = target_recipe_hash(&recipe, OutputFormatPlan::Decide).unwrap();
+
+        assert_ne!(preserved.to_hex(), pinned_png.to_hex());
+        assert_ne!(preserved.to_hex(), decided.to_hex());
+        assert_ne!(pinned_png.to_hex(), pinned_jpg.to_hex());
+        assert_ne!(pinned_png.to_hex(), decided.to_hex());
+
+        // `Preserve` hashes EXACTLY as the pre-SPEC-111 formula did — no prior
+        // cache entry or committed lockfile line goes stale from this change.
+        assert_eq!(
+            preserved.to_hex(),
+            cache::recipe_hash(&recipe).unwrap().to_hex()
+        );
     }
 }
