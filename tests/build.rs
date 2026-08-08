@@ -12,6 +12,8 @@ use std::process::{Command, Output};
 use image::{DynamicImage, ImageFormat, RgbImage};
 use tempfile::TempDir;
 
+mod common;
+
 /// Path to the compiled binary, provided by Cargo.
 const BIN: &str = env!("CARGO_BIN_EXE_crustyimg");
 
@@ -470,4 +472,548 @@ out = "dist/a"
         "an empty glob should be an input-not-found error"
     );
     assert!(!root.join("dist").exists(), "nothing may be written");
+}
+
+// ── SPEC-111: `build` runs bundled recipes ──────────────────────────────────
+
+/// AC-1: `build` completes and writes output for a target bound to EACH
+/// bundled recipe, by NAME. Fails today (`unknown operation 'optimize'`) for
+/// all three.
+#[test]
+fn build_runs_each_bundled_recipe_by_name() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    write_png(root, "src/photo.png", 64, 64);
+    write_file(
+        root,
+        "crustyimg.build.toml",
+        br#"
+version = 1
+
+[[target]]
+source = "src/photo.png"
+recipe = "web"
+out = "dist/web"
+
+[[target]]
+source = "src/photo.png"
+recipe = "gallery"
+out = "dist/gallery"
+
+[[target]]
+source = "src/photo.png"
+recipe = "product"
+out = "dist/product"
+"#,
+    );
+
+    let out = run_build(root, &[]);
+    assert!(
+        out.status.success(),
+        "build must run every bundled recipe by name, stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    for name in ["web", "gallery", "product"] {
+        let written: Vec<_> = std::fs::read_dir(root.join("dist").join(name))
+            .unwrap_or_else(|e| panic!("dist/{name} should exist: {e}"))
+            .collect();
+        assert_eq!(
+            written.len(),
+            1,
+            "bundled recipe {name} should write exactly one output"
+        );
+    }
+}
+
+/// AC-1: a bundled recipe bound by FILE PATH (not just by name) also runs —
+/// today's failure is identical either way.
+#[test]
+fn build_runs_a_bundled_recipe_by_path() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    write_png(root, "src/photo.png", 64, 64);
+    write_file(root, "web.toml", include_bytes!("../recipes/web.toml"));
+    write_file(
+        root,
+        "crustyimg.build.toml",
+        br#"
+version = 1
+
+[[target]]
+source = "src/photo.png"
+recipe = "web.toml"
+out = "dist"
+"#,
+    );
+
+    let out = run_build(root, &[]);
+    assert!(
+        out.status.success(),
+        "build must run a bundled recipe bound by PATH, stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let written: Vec<_> = std::fs::read_dir(root.join("dist")).unwrap().collect();
+    assert_eq!(written.len(), 1, "should write exactly one output");
+}
+
+/// AC-2: the output is the format the DECISION chose, not the source format.
+/// On a photographic PNG source through the bundled `web` recipe, the bytes
+/// are AVIF (asserted via `image::guess_format`, not the extension alone —
+/// AVIF-in-a-`.png` would pass an extension-only check) and the file is named
+/// `.avif`, matching what `apply --recipe web` produces from the SAME input.
+///
+/// Gated to `avif` AND NOT `webp-lossy`: AVIF is the only LOSSY candidate the
+/// fast decision has on that leg, so it reliably wins for photographic
+/// content. Once `webp-lossy` is also built, lossy WebP becomes a second
+/// competing lossy candidate and the byte-race winner is a measured, not
+/// assumed, outcome (mirrors `web_equals_apply_recipe_web` in `tests/cli.rs`)
+/// — [`build_decided_format_matches_apply_on_every_feature_leg`] below covers
+/// AC-2's "one rule" requirement on every leg without assuming a winner.
+#[cfg(all(feature = "avif", not(feature = "webp-lossy")))]
+#[test]
+fn build_writes_the_decided_format_not_the_source_format() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    write_file(root, "src/photo.png", &common::detailed_png(256, 256));
+    write_file(
+        root,
+        "crustyimg.build.toml",
+        br#"
+version = 1
+
+[[target]]
+source = "src/photo.png"
+recipe = "web"
+out = "dist"
+"#,
+    );
+
+    let out = run_build(root, &[]);
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    let avif_path = root.join("dist/photo.avif");
+    assert!(
+        avif_path.exists(),
+        "the decided AVIF format must name the output .avif"
+    );
+    let build_bytes = std::fs::read(&avif_path).unwrap();
+    assert_eq!(
+        image::guess_format(&build_bytes).ok(),
+        Some(ImageFormat::Avif),
+        "the output bytes must really be AVIF, not source-format bytes under a .avif name"
+    );
+
+    // Matches `apply --recipe web` on the same input — decision 1's "one rule"
+    // requirement, checked directly rather than assumed.
+    let apply_dir = root.join("apply_out");
+    let apply = Command::new(BIN)
+        .args(["apply", "--recipe", "web", "src/photo.png", "--out-dir"])
+        .arg(&apply_dir)
+        .current_dir(root)
+        .output()
+        .expect("failed to run apply");
+    assert!(
+        apply.status.success(),
+        "apply stderr: {}",
+        String::from_utf8_lossy(&apply.stderr)
+    );
+    let apply_bytes = std::fs::read(apply_dir.join("photo.avif")).unwrap();
+    assert_eq!(
+        build_bytes, apply_bytes,
+        "build must match apply --recipe web byte-for-byte on the same input"
+    );
+}
+
+/// AC-2's "one rule" requirement (decision 1), on EVERY feature leg — unlike
+/// the test above, this does not assume which candidate the fast decision
+/// picks (that varies once `webp-lossy` adds a second competing lossy
+/// candidate). It asserts what must hold regardless: the written file's
+/// extension matches its REAL decoded bytes (not source-format bytes under a
+/// modernized name), and `build` matches `apply --recipe web` byte-for-byte
+/// on the same input.
+#[test]
+fn build_decided_format_matches_apply_on_every_feature_leg() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    write_file(root, "src/photo.png", &common::detailed_png(256, 256));
+    write_file(
+        root,
+        "crustyimg.build.toml",
+        br#"
+version = 1
+
+[[target]]
+source = "src/photo.png"
+recipe = "web"
+out = "dist"
+"#,
+    );
+
+    let out = run_build(root, &[]);
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    let written: Vec<String> = std::fs::read_dir(root.join("dist"))
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(written.len(), 1, "exactly one output written");
+    let written_name = &written[0];
+    let build_bytes = std::fs::read(root.join("dist").join(written_name)).unwrap();
+    let guessed =
+        image::guess_format(&build_bytes).expect("output must be a real, decodable image");
+    let guessed_ext = match guessed {
+        ImageFormat::Avif => "avif",
+        ImageFormat::WebP => "webp",
+        ImageFormat::Png => "png",
+        // The lean leg (no avif, no webp-lossy) has no built lossy codec of
+        // its own, so the never-bigger fallback reaches for a baseline JPEG
+        // (`fast_fallback_lossy_entry`, `src/cli/optimize.rs`).
+        ImageFormat::Jpeg => "jpg",
+        other => panic!("unexpected decided format for a photographic source: {other:?}"),
+    };
+    assert!(
+        written_name.ends_with(&format!(".{guessed_ext}")),
+        "the written file's extension must match its REAL bytes: {written_name} vs decoded {guessed_ext}"
+    );
+
+    let apply_dir = root.join("apply_out");
+    let apply = Command::new(BIN)
+        .args(["apply", "--recipe", "web", "src/photo.png", "--out-dir"])
+        .arg(&apply_dir)
+        .current_dir(root)
+        .output()
+        .expect("failed to run apply");
+    assert!(
+        apply.status.success(),
+        "apply stderr: {}",
+        String::from_utf8_lossy(&apply.stderr)
+    );
+    let apply_written: Vec<String> = std::fs::read_dir(&apply_dir)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(
+        apply_written,
+        vec![written_name.clone()],
+        "build and apply --recipe web must agree on the decided FORMAT for the same input"
+    );
+    let apply_bytes = std::fs::read(apply_dir.join(written_name)).unwrap();
+    assert_eq!(
+        build_bytes, apply_bytes,
+        "build must match apply --recipe web byte-for-byte on the same input"
+    );
+}
+
+/// AC-3: a target whose template names a LITERAL extension (`{stem}.png`)
+/// pins the format: a real PNG, decision skipped — the `build` twin of
+/// `apply --recipe web -o hero.png`. Assert the bytes are really PNG.
+#[test]
+fn build_honours_a_literal_extension_template_as_a_format_pin() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    write_file(root, "src/photo.png", &common::detailed_png(256, 256));
+    write_file(
+        root,
+        "crustyimg.build.toml",
+        br#"
+version = 1
+
+[[target]]
+source = "src/photo.png"
+recipe = "web"
+out = "dist"
+name = "{stem}.png"
+"#,
+    );
+
+    let out = run_build(root, &[]);
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    let path = root.join("dist/photo.png");
+    assert!(
+        path.exists(),
+        "the pinned literal extension must be honored"
+    );
+    let bytes = std::fs::read(&path).unwrap();
+    assert_eq!(
+        image::guess_format(&bytes).ok(),
+        Some(ImageFormat::Png),
+        "a literal-extension template must pin a REAL png, not AVIF-in-a-.png"
+    );
+}
+
+/// AC-4 negative control: a recipe whose terminal step is a genuinely UNKNOWN
+/// op (not `optimize`) still fails with `UnknownOperation` (exit 1). The
+/// strip must key on the reserved name, not "drop whatever is last".
+#[test]
+fn build_still_rejects_an_unknown_terminal_op() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    write_png(root, "src/a.png", 32, 32);
+    write_file(
+        root,
+        "bad.toml",
+        b"version = \"1\"\n\n[[step]]\nop = \"resize\"\nmode = \"max\"\nwidth = 16\n\n\
+          [[step]]\nop = \"bogus\"\n",
+    );
+    write_file(
+        root,
+        "crustyimg.build.toml",
+        br#"
+version = 1
+
+[[target]]
+source = "src/a.png"
+recipe = "bad.toml"
+out = "dist"
+"#,
+    );
+
+    let out = run_build(root, &[]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "an unknown terminal op must still fail, stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains("bogus"),
+        "error should name the unknown op: {stderr}"
+    );
+    assert!(!root.join("dist").exists(), "nothing may be written");
+}
+
+/// AC-5: an `optimize` step ANYWHERE BUT LAST still surfaces as
+/// `UnknownOperation` — the existing documented behavior of
+/// `split_terminal_optimize`, which must not regress.
+#[test]
+fn build_still_rejects_optimize_not_last() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    write_png(root, "src/a.png", 32, 32);
+    write_file(
+        root,
+        "bad.toml",
+        b"version = \"1\"\n\n[[step]]\nop = \"optimize\"\n\n\
+          [[step]]\nop = \"resize\"\nmode = \"max\"\nwidth = 16\n",
+    );
+    write_file(
+        root,
+        "crustyimg.build.toml",
+        br#"
+version = 1
+
+[[target]]
+source = "src/a.png"
+recipe = "bad.toml"
+out = "dist"
+"#,
+    );
+
+    let out = run_build(root, &[]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "optimize anywhere but last must still fail, stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains("optimize"),
+        "error should name the offending op: {stderr}"
+    );
+    assert!(!root.join("dist").exists(), "nothing may be written");
+}
+
+/// AC-6: a plain pixel recipe (no terminal `optimize`) through `build` is
+/// UNCHANGED — byte-identical to `apply` on the same recipe + input (both
+/// share `encode_one`'s `Preserve` path). The did-not-break-the-working-path
+/// guard.
+#[test]
+fn build_plain_pixel_recipe_output_is_unchanged() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    write_png(root, "src/a.png", 32, 32);
+    write_file(root, "r.toml", RESIZE_RECIPE.as_bytes());
+    write_file(
+        root,
+        "crustyimg.build.toml",
+        br#"
+version = 1
+
+[[target]]
+source = "src/a.png"
+recipe = "r.toml"
+out = "dist"
+"#,
+    );
+
+    let out = run_build(root, &[]);
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let build_bytes = std::fs::read(root.join("dist/a.png")).unwrap();
+    assert_eq!(
+        image::guess_format(&build_bytes).ok(),
+        Some(ImageFormat::Png),
+        "source format (png) must be preserved, unchanged"
+    );
+
+    let apply_out = root.join("apply.png");
+    let apply = Command::new(BIN)
+        .args(["apply", "--recipe", "r.toml", "src/a.png", "-o"])
+        .arg(&apply_out)
+        .current_dir(root)
+        .output()
+        .expect("failed to run apply");
+    assert!(
+        apply.status.success(),
+        "apply stderr: {}",
+        String::from_utf8_lossy(&apply.stderr)
+    );
+    let apply_bytes = std::fs::read(&apply_out).unwrap();
+
+    assert_eq!(
+        build_bytes, apply_bytes,
+        "a plain-pixel-recipe build must be byte-identical to apply on the same input"
+    );
+}
+
+/// AC-7: the lockfile and cache name the file that was ACTUALLY written, with
+/// the REAL decided extension — `lock_output_path` already takes `ext`, so
+/// this confirms the decided format reaches it. A cache HIT must reproduce
+/// the same output path as the miss that filled it.
+#[test]
+fn build_lock_entry_names_the_decided_extension() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    write_file(root, "src/photo.png", &common::detailed_png(128, 128));
+    write_file(
+        root,
+        "crustyimg.build.toml",
+        br#"
+version = 1
+
+[[target]]
+source = "src/photo.png"
+recipe = "web"
+out = "dist"
+"#,
+    );
+
+    // Miss: writes the output and the lockfile.
+    let miss = run_build(root, &[]);
+    assert!(
+        miss.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&miss.stderr)
+    );
+
+    let written: Vec<String> = std::fs::read_dir(root.join("dist"))
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(written.len(), 1, "exactly one output written");
+    let written_name = &written[0];
+
+    // The lock/cache extension must match what the bytes REALLY are — not an
+    // assumption about which feature-gated codec won (that varies across the
+    // lean/default/webp-lossy legs; only the self-consistency is asserted).
+    let written_bytes = std::fs::read(root.join("dist").join(written_name)).unwrap();
+    let guessed =
+        image::guess_format(&written_bytes).expect("output must be a real, decodable image");
+    let guessed_ext = match guessed {
+        ImageFormat::Avif => "avif",
+        ImageFormat::WebP => "webp",
+        ImageFormat::Png => "png",
+        // The lean leg (no avif, no webp-lossy) has no built lossy codec of
+        // its own, so the never-bigger fallback reaches for a baseline JPEG
+        // (`fast_fallback_lossy_entry`, `src/cli/optimize.rs`).
+        ImageFormat::Jpeg => "jpg",
+        other => panic!("unexpected decided format for a photographic source: {other:?}"),
+    };
+    assert!(
+        written_name.ends_with(&format!(".{guessed_ext}")),
+        "the written file's extension must match its REAL bytes: {written_name} vs decoded {guessed_ext}"
+    );
+
+    let lock_text = std::fs::read_to_string(root.join("crustyimg.build.lock")).unwrap();
+    assert!(
+        lock_text.contains(written_name.as_str()),
+        "lockfile must name the actually-written file {written_name}, got: {lock_text}"
+    );
+    assert!(
+        !lock_text.contains("{ext}"),
+        "lockfile must never contain the ext sentinel, got: {lock_text}"
+    );
+
+    // Hit (AC-10 too — `--check` on a terminal-`optimize` target): a re-run
+    // must reproduce the SAME path, not rebuild it under a different name,
+    // and `--check` must report the tree clean.
+    let hit = run_build(root, &["--check"]);
+    assert!(
+        hit.status.success(),
+        "a cache hit must reproduce the same output path; --check stderr: {}",
+        String::from_utf8_lossy(&hit.stderr)
+    );
+    let written_after_hit: Vec<String> = std::fs::read_dir(root.join("dist"))
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(
+        written_after_hit,
+        vec![written_name.clone()],
+        "the cache hit must materialize under the exact same name as the miss"
+    );
+}
+
+/// AC-10: `--frozen`/`--locked` (clap aliases of `--check`, one field —
+/// `cli/mod.rs`) also still behave on a terminal-`optimize` target, whose
+/// output extension now varies with content.
+#[test]
+fn build_check_frozen_locked_all_pass_with_a_decided_extension() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    write_file(root, "src/photo.png", &common::detailed_png(128, 128));
+    write_file(
+        root,
+        "crustyimg.build.toml",
+        br#"
+version = 1
+
+[[target]]
+source = "src/photo.png"
+recipe = "web"
+out = "dist"
+"#,
+    );
+    let seed = run_build(root, &[]);
+    assert!(
+        seed.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&seed.stderr)
+    );
+
+    for flag in ["--check", "--frozen", "--locked"] {
+        let out = run_build(root, &[flag]);
+        assert!(
+            out.status.success(),
+            "{flag} must pass on a clean tree with a decided extension, stderr: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
 }

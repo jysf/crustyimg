@@ -13,6 +13,7 @@
 use std::path::PathBuf;
 use std::process::Command;
 
+use crustyimg::recipe::Recipe;
 use tempfile::TempDir;
 
 mod common;
@@ -675,5 +676,152 @@ fn edit_auto_orient_flag_still_exits_zero() {
         Some(0),
         "edit --auto-orient should exit 0; stderr: {}",
         stderr_str(&output)
+    );
+}
+
+// ── SPEC-111 AC-8/AC-9: a saved recipe must reproduce what `edit` did ───────
+
+/// AC-8: `edit --invert --save-recipe` on an `Orientation=6` JPEG produces an
+/// output at the display-correct 800×1200 dimensions, and REPLAYING the saved
+/// recipe via `apply` reproduces the SAME dimensions.
+///
+/// Before SPEC-111: `edit` bakes orientation via the shared CLI prefix (this
+/// file's whole point) and comes back 800×1200, but the saved recipe never
+/// named `auto-orient` — only `--invert` was in `ops` — so replaying it via
+/// `apply` runs the pixel steps UNoriented and comes back 1200×800. SPEC-110
+/// introduced this divergence (DEC-086); this spec closes it.
+#[test]
+fn saved_recipe_replays_to_the_same_dimensions() {
+    let dir = TempDir::new().unwrap();
+    let input = write_bytes(
+        &dir,
+        "in.jpg",
+        &common::jpeg_with_orientation(W, H, ORIENT_6),
+    );
+    let edit_out = dir.path().join("edited.jpg");
+    let recipe_path = dir.path().join("edit.recipe.toml");
+
+    let edit = Command::new(BIN)
+        .args([
+            "edit",
+            input.to_str().unwrap(),
+            "--invert",
+            "--save-recipe",
+            recipe_path.to_str().unwrap(),
+            "-o",
+            edit_out.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run edit");
+    assert_eq!(
+        edit.status.code(),
+        Some(0),
+        "edit --invert --save-recipe should exit 0; stderr: {}",
+        stderr_str(&edit)
+    );
+    assert_dims(&edit_out, 800, 1200, "edit --invert");
+
+    let replay_out = dir.path().join("replayed.jpg");
+    let replay = Command::new(BIN)
+        .args([
+            "apply",
+            "--recipe",
+            recipe_path.to_str().unwrap(),
+            input.to_str().unwrap(),
+            "-o",
+            replay_out.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run apply");
+    assert_eq!(
+        replay.status.code(),
+        Some(0),
+        "apply --recipe <saved> should exit 0; stderr: {}",
+        stderr_str(&replay)
+    );
+    assert_dims(
+        &replay_out,
+        800,
+        1200,
+        "apply --recipe <saved edit.recipe.toml>",
+    );
+}
+
+/// AC-9: the saved recipe names `auto-orient` EXPLICITLY as its first step,
+/// matching how `recipes/web.toml` already writes it — asserted on the
+/// recipe TOML itself, not only on the replay (a replay that happens to
+/// agree for the wrong reason would still pass AC-8 alone).
+#[test]
+fn saved_recipe_names_auto_orient_explicitly() {
+    let dir = TempDir::new().unwrap();
+    let input = write_bytes(
+        &dir,
+        "in.jpg",
+        &common::jpeg_with_orientation(W, H, ORIENT_6),
+    );
+    let edit_out = dir.path().join("edited.jpg");
+    let recipe_path = dir.path().join("edit.recipe.toml");
+
+    let edit = Command::new(BIN)
+        .args([
+            "edit",
+            input.to_str().unwrap(),
+            "--invert",
+            "--save-recipe",
+            recipe_path.to_str().unwrap(),
+            "-o",
+            edit_out.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run edit");
+    assert_eq!(edit.status.code(), Some(0), "stderr: {}", stderr_str(&edit));
+
+    let recipe_toml = std::fs::read_to_string(&recipe_path).unwrap();
+    let recipe = Recipe::from_toml(&recipe_toml).expect("saved recipe must parse");
+
+    assert_eq!(
+        recipe
+            .steps
+            .iter()
+            .map(|s| s.op.as_str())
+            .collect::<Vec<_>>(),
+        vec!["auto-orient", "invert"],
+        "canonical order — auto-orient explicit, then invert — got: {recipe_toml}"
+    );
+
+    // `--auto-orient` explicitly ALSO given must not double the step: `edit`
+    // bakes exactly once via the CLI prefix either way (a duplicate would
+    // still be a harmless no-op pipeline-wise, but the RECORDED recipe should
+    // say what actually ran, not pad it).
+    let recipe_path2 = dir.path().join("edit2.recipe.toml");
+    let edit2 = Command::new(BIN)
+        .args([
+            "edit",
+            input.to_str().unwrap(),
+            "--auto-orient",
+            "--invert",
+            "--save-recipe",
+            recipe_path2.to_str().unwrap(),
+            "-o",
+            dir.path().join("edited2.jpg").to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run edit --auto-orient --invert");
+    assert_eq!(
+        edit2.status.code(),
+        Some(0),
+        "stderr: {}",
+        stderr_str(&edit2)
+    );
+    let recipe_toml2 = std::fs::read_to_string(&recipe_path2).unwrap();
+    let recipe2 = Recipe::from_toml(&recipe_toml2).expect("saved recipe must parse");
+    assert_eq!(
+        recipe2
+            .steps
+            .iter()
+            .map(|s| s.op.as_str())
+            .collect::<Vec<_>>(),
+        vec!["auto-orient", "invert"],
+        "an explicit --auto-orient must not double the step — got: {recipe_toml2}"
     );
 }

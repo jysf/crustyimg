@@ -110,8 +110,10 @@ Wired wherever a verb decodes pixels through the shared `run_pixel_op`/
 separately and does not warn), and `apply --recipe <name>` when the recipe ends
 in the terminal `optimize` step (e.g. the bundled `web` recipe). Verbs that
 decode pixels through a *different* seam do not warn yet: `diff`, `responsive`,
-`apply`/`build` with a plain pixel recipe, and `view` — filed as a follow-up
-candidate (SPEC-107 punch list), not fixed here.
+`apply`/`build` with a plain pixel recipe, `build` with a bundled/terminal-`optimize`
+recipe (SPEC-111 reaches `optimize_decide_one` here too but does not yet thread the
+warning through — a follow-up, not fixed by SPEC-111), and `view` — filed as a
+follow-up candidate (SPEC-107 punch list), not fixed here.
 
 ## Subcommand Surface (full MVP)
 
@@ -412,50 +414,75 @@ so the result — and any saved recipe — is deterministic. Output, format,
 `-q`/`-y` behave as for the other pixel commands (`-o`/`-o -`/`--out-dir`;
 `--format` › `-o` ext › preserve). `--save-recipe FILE` serializes the exact op
 chain to a TOML recipe (DEC-005, `version = "1"`) that `apply --recipe FILE`
-replays; a recipe write failure exits 5. **Note:** the CLI-level orientation
-bake is NOT itself recorded as a recipe step, so a saved recipe now diverges
-when replayed via `apply`: `edit --invert` bakes orientation, but the same
-recipe replayed via `apply` does not. **This divergence is introduced by
-SPEC-110** — before it, `edit` never baked either, so a recipe replay and the
-`edit` invocation that produced it agreed. Flagged, not fixed
-(`one-spec-per-pr`); lands in SPEC-111, which owns `apply`/recipe pixel-lane
-wiring. Watermark/compose ops are not in `edit` yet (need registry wiring
+replays; a recipe write failure exits 5. The saved recipe **names `auto-orient`
+explicitly as its first step** (SPEC-111), whether or not `--auto-orient` was
+passed — matching what the CLI prefix always bakes, and how the bundled
+`recipes/web.toml` already writes it, so a saved recipe stays a complete,
+reproducible description of what `edit` did. (Before SPEC-111 the CLI-level
+bake was NOT recorded as a step, so `edit --invert`'s output and its own
+replayed recipe disagreed — a divergence SPEC-110 introduced, DEC-086; closed
+here.) Watermark/compose ops are not in `edit` yet (need registry wiring
 first, DEC-031).
 
-#### `apply --recipe FILE <INPUT...> [--out-dir DIR] [--name-template T] [-j N]`  *(SPEC-031)*
-Run a saved recipe over one image or a batch. **`rayon`-parallel** across inputs
-(`-j N` bounds workers, DEC-006) with an **`indicatif`** progress bar on stderr
-(DEC-033; suppressed by `--quiet`). Recipe load reuses SPEC-006 validation (bad
-`version` / unknown op → exit 1; recipe file unreadable → exit 3). Single input →
-`-o`/`--out-dir`/stdout as before; **multiple inputs require `--out-dir`** (else exit
-2) and write name-templated outputs (`{stem}.{ext}`, `--name-template` honored). A
-per-input failure is summarized on stderr and exits **6** (others still written). The
-proof of the thesis: the same recipe tuned on one image runs unchanged across many.
-(`Operation` is not `Send`, so each task rebuilds its pipeline from the recipe +
-registry — no async, DEC-006.)
+#### `apply --recipe NAME_OR_FILE <INPUT...> [--out-dir DIR] [--name-template T] [-j N]`  *(SPEC-031; bundled recipes SPEC-085)*
+Run a saved recipe over one image or a batch. `--recipe` resolves a real file on disk
+first, falling back to a **bundled name** (`web`/`gallery`/`product`, SPEC-085) only
+when no such file exists. **`rayon`-parallel** across inputs (`-j N` bounds workers,
+DEC-006) with an **`indicatif`** progress bar on stderr (DEC-033; suppressed by
+`--quiet`). Recipe load reuses SPEC-006 validation (bad `version` / unknown op → exit
+1; recipe file unreadable → exit 3). Single input → `-o`/`--out-dir`/stdout as before;
+**multiple inputs require `--out-dir`** (else exit 2) and write name-templated outputs
+(`{stem}.{ext}`, `--name-template` honored). A per-input failure is summarized on
+stderr and exits **6** (others still written). The proof of the thesis: the same
+recipe tuned on one image runs unchanged across many. (`Operation` is not `Send`, so
+each task rebuilds its pipeline from the recipe + registry — no async, DEC-006.)
 
-#### `build [FILE]`  *(SPEC-063)*
+A recipe ending in the reserved terminal `optimize` step (every bundled recipe) is not
+a registry op: it is stripped before `build_pipeline`, and the preceding pixel steps
+are run through the same fast AVIF-aware decision `web` uses instead of a plain
+format-preserving write — so `apply --recipe web` == the `web` verb. A pinned format
+(`--format`, or a recognized `-o` extension) skips the decision and honors the pin
+instead (`apply --recipe web hero.jpg -o hero.png` writes a real PNG, not
+AVIF-in-a-`.png`).
+
+#### `build [FILE]`  *(SPEC-063; bundled/terminal-`optimize` recipes SPEC-111)*
 Run every `[[target]]` in a declared build manifest (default `./crustyimg.build.toml`;
 `version = 1`, DEC-057). A target binds `source` (a glob/dir/path or a list) × `recipe`
-(a recipe file) → `out` (a directory, auto-created) + optional `name` template
-(default `{stem}.{ext}`). Manifest paths resolve against the working directory.
+(a file path or a **bundled name** — `web`/`gallery`/`product`) → `out` (a directory,
+auto-created) + optional `name` template (default `{stem}.{ext}`). Manifest paths
+resolve against the working directory.
 
-Two phases: **every** target is validated first — recipe parsed + pipeline probed,
-sources resolved — so a bad target aborts the build before any output is written; then
-each target's inputs fan out over the same rayon path as `apply` (`-j N` bounds workers;
-`--quiet` suppresses progress + summary). A per-output failure is reported on stderr and
-exits **6** (others still written, DEC-015); a summary of targets run + outputs written
-goes to stderr on success.
+Two phases: **every** target is validated first — recipe parsed, a terminal `optimize`
+step stripped and its format PLAN resolved (below), pipeline probed, sources resolved
+— so a bad target aborts the build before any output is written; then each target's
+inputs fan out over the same rayon path as `apply` (`-j N` bounds workers; `--quiet`
+suppresses progress + summary). A per-output failure is reported on stderr and exits
+**6** (others still written, DEC-015); a summary of targets run + outputs written goes
+to stderr on success.
+
+**Format plan (SPEC-111):** a target whose recipe ends in the reserved terminal
+`optimize` step chooses its output format the same way `apply` does — one rule, not
+two. The target's `name` template is the pin: a template naming a **literal
+extension** (`name = "{stem}.png"`) pins that format and skips the decision, matching
+`apply --recipe web -o hero.png`; a template using **`{ext}`** (including the default
+`{stem}.{ext}`) lets the fast AVIF-aware decision choose per input, matching
+`apply --recipe web`. A plain pixel recipe (no terminal `optimize`) is unaffected —
+`build` still just preserves each input's own source format, as it always has.
 
 Unlike `apply`, `build` **overwrites its own declared outputs without `--yes`** — a build
 owns its `out` tree and must be re-runnable (DEC-057); the sink still refuses
-name-template escapes and symlinked destinations, so writes stay inside `out`.
+name-template escapes and symlinked destinations, so writes stay inside `out`. The
+committed lockfile and the content-addressed cache both record the **real, decided**
+output extension (never the unexpanded `{ext}` template token), so a cache hit
+materializes to the exact path the miss that filled it wrote.
 
 Exit codes: malformed manifest (bad TOML, unknown field, unsupported `version`, oversize,
 invalid target) → **2**; manifest or recipe file unreadable → **3**; invalid recipe
-(unknown op/params) → **1**; missing source / empty glob → **3** (invalid glob pattern →
-2); per-output failure → **6**. Manifest resource limits mirror recipes (DEC-036):
-64 KiB size cap checked before read *and* before parse, 1024-target cap.
+(unknown op/params) → **1**; a `name` template naming a literal extension that is not a
+recognized image format → **4** (same family as an unsupported `--format`/`-o`
+extension elsewhere); missing source / empty glob → **3** (invalid glob pattern → 2);
+per-output failure → **6**. Manifest resource limits mirror recipes (DEC-036): 64 KiB
+size cap checked before read *and* before parse, 1024-target cap.
 
 ## Stage Map (summary)
 

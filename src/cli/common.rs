@@ -28,12 +28,23 @@ pub(super) const BATCH_PROGRESS_TEMPLATE: &str = "{bar:40.cyan/blue} {pos}/{len}
 ///
 /// Rebuilds the pipeline from `recipe` + `registry` on every call — `Operation`
 /// is NOT `Send`, so no pipeline may cross a thread boundary (SPEC-031).
-/// The output format preserves the source format (no `--format` in the batch
-/// path, DEC-015), which is why the extension is a *result* rather than an input.
+///
+/// `format_override` (SPEC-111): `None` preserves the source format, exactly
+/// as this always did (no `--format` in the batch path, DEC-015) — `apply_one`
+/// passes `None` unconditionally, so its behavior is byte-for-byte unchanged
+/// (AC-6's sibling). `build` passes `Some(fmt)` only for a terminal-`optimize`
+/// target whose name template PINS a literal extension (decision 1): the pin
+/// wins over the source format, matching `apply --recipe web -o hero.png`.
+/// `build`'s OTHER terminal-`optimize` case — no pin, `{ext}` in the template
+/// — does not call this at all; it runs the full auto-decide engine via
+/// [`super::optimize::encode_one_optimize_decided`] instead, since choosing
+/// the format there needs the shortlist/never-bigger decision, not just a
+/// fixed target.
 pub(super) fn encode_one(
     recipe: &Recipe,
     registry: &OperationRegistry,
     input: &crate::source::Input,
+    format_override: Option<::image::ImageFormat>,
     quality: Option<u8>,
 ) -> Result<(&'static str, Vec<u8>), CliError> {
     // Load.
@@ -48,8 +59,7 @@ pub(super) fn encode_one(
     // Run.
     let out_img = pipeline.run(img.clone())?;
 
-    // Preserve the source format (no --format override in batch path v1).
-    let fmt = img.source_format();
+    let fmt = format_override.unwrap_or_else(|| img.source_format());
     let bytes = crate::sink::encode_to_bytes(&out_img, fmt, quality)?;
 
     Ok((crate::sink::extension_for_format(fmt), bytes))
@@ -69,7 +79,7 @@ pub(super) fn apply_one(
     overwrite: Overwrite,
     quality: Option<u8>,
 ) -> Result<(), CliError> {
-    let (ext, bytes) = encode_one(recipe, registry, input, quality)?;
+    let (ext, bytes) = encode_one(recipe, registry, input, None, quality)?;
     write_encoded(&bytes, ext, input, out_dir, template, overwrite)
 }
 

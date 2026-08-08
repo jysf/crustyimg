@@ -36,7 +36,13 @@ const OPTIMIZE_STEP_OP: &str = "optimize";
 /// when the recipe has no terminal `optimize` step (a plain pixel recipe). An
 /// `optimize` step anywhere but last is left in place, so `build_pipeline` surfaces
 /// it as a typed `UnknownOperation` error rather than silently reordering intent.
-fn split_terminal_optimize(recipe: &Recipe) -> Option<Recipe> {
+///
+/// `pub(super)`: `build` reuses this exact helper rather than copying it
+/// (SPEC-111) — `run_build`'s `prepare_target` faces the identical problem
+/// `run_apply` solves here (a bundled recipe's terminal marker is not a
+/// registry op), and a second copy of the "anywhere but last stays an error"
+/// rule (AC-5) is exactly the kind of drift a shared helper prevents.
+pub(super) fn split_terminal_optimize(recipe: &Recipe) -> Option<Recipe> {
     match recipe.steps.last() {
         Some(step) if step.op == OPTIMIZE_STEP_OP => {
             let mut pixel = recipe.clone();
@@ -1186,6 +1192,42 @@ fn optimize_decide_one(
     };
 
     Ok((output, Some(trace), winner_score, truncated_jpeg))
+}
+
+/// `build`'s twin of [`run_apply`]'s terminal-`optimize` split (SPEC-111):
+/// decode `input`, run the ALREADY-STRIPPED `pixel_recipe`, and pick the
+/// output format via the SAME fast AVIF-aware decision `apply --recipe web`
+/// uses — so a manifest target bound to a bundled recipe, by name or by path,
+/// produces byte-identical output to `apply --recipe <name>` on the same
+/// input (AC-2). Returns the `(ext, bytes)` shape [`encode_one`] returns, so
+/// `build_one` writes/caches/locks it exactly like any other output,
+/// regardless of how the format was chosen.
+///
+/// `Profile::Web` is hardcoded because the terminal-`optimize` branch of
+/// `run_apply` above hardcodes it too, for EVERY bundled recipe (`web`,
+/// `gallery`, `product` alike) — copying that rule is decision 1's whole
+/// point: one rule across `apply` and `build`, not two. `always_score` and
+/// `timing` are both `false`: neither affects the winner or its bytes (only
+/// the report [`optimize_decide_one`] never generates here), and `build` has
+/// no per-input audit to spend them on.
+pub(super) fn encode_one_optimize_decided(
+    pixel_recipe: &Recipe,
+    registry: &OperationRegistry,
+    input: &crate::source::Input,
+) -> Result<(String, Vec<u8>), CliError> {
+    let pipeline = pixel_recipe.build_pipeline(registry)?;
+    let (output, _trace, _score, _truncated_jpeg) = optimize_decide_one(
+        input,
+        &pipeline,
+        &AutoQuality::Fast,
+        crate::analysis::decide::Profile::Web,
+        false,
+        false,
+    )?;
+    Ok(match output {
+        OptimizeOutput::Encoded { bytes, ext } => (ext, bytes),
+        OptimizeOutput::Passthrough { raw, ext } => (ext, raw),
+    })
 }
 
 /// Render one input's report: `--explain` (json→stdout, human→stderr), else the
