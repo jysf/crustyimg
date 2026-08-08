@@ -76,6 +76,14 @@ Cycle prompts live in `prompts/SPEC-111-<cycle>.md`.
       844/844 (831 + 13), `clippy --all-targets -D warnings` clean on all three, `fmt --check`
       clean, `just wasm-test` 30/30 (untouched by construction — `cli`/`build`/`source`/`lint` are
       `#[cfg(not(target_arch = "wasm32"))]`, so nothing this spec touched compiles into wasm).
+      **Read the CI legs (not just the local matrix):** PR #138's first CI run showed 26/27
+      green and one red — "build + browser smoke" (Pages workflow's headless-Chrome demo
+      smoke), `no DevToolsActivePort`. Nothing in this PR touches the wasm-compiled surface
+      (`cli`/`build`/`source`/`lint` are all `#[cfg(not(target_arch = "wasm32"))]`) or
+      `demo/`, and the failure signature is a Chrome-launch infra hiccup (the wasm build,
+      size report, and demo assembly all succeeded before it; only spinning up the browser
+      itself failed) — but per SPEC-107's own lesson, that reasoning alone isn't a green.
+      Re-ran just the failed job with no code change: it passed. 27/27 green.
       PR #138, not merged.
 
 - [ ] **verify** — fresh session, **Opus**. Re-derive the driven table yourself on your own
