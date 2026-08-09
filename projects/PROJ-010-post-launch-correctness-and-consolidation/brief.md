@@ -94,8 +94,9 @@ Two pre-launch stages (launch-gating), three post-launch stages (optional, per m
 - [ ] STAGE-037 (proposed) — **Post-launch CLI surface** (post-launch). SPEC-092 `convert --to` + social/archive recipes. Re-homed from PROJ-008 STAGE-032 by `git mv`, content unchanged.
 - [ ] STAGE-038 (proposed) — **Post-launch polish and repo housekeeping** (post-launch). SPEC-106 completions + six CI/DCO/size/tooling chores. Re-homed from PROJ-008 STAGE-033 by `git mv`, minus SPEC-107.
 - [x] STAGE-039 (**shipped 2026-08-09**) — **Shipped-verb correctness** (D-1/D-2 launch-gating, D-3 cheap). SPEC-110 `convert` orientation + sweep (PR #133, DEC-086); SPEC-111 `build` runs bundled recipes (PR #138, DEC-087); the `docs/data-model.md` chore, now pinned by `tests/docs_ops.rs`. **This closes the last launch-gating repo work.** Each item turned out larger than framed: D-1 was seven broken verbs rather than one, D-2 needed a design cycle the stage said it did not, and D-3's test caught two flaws in itself. New stage, added 2026-07-26 from re-verified exploration findings.
+- [ ] STAGE-040 (**active**) — **Release readiness for 0.7.0.** The stage that makes PROJ-010's work reach a user: `v0.6.0` was tagged 2026-07-24 and every PROJ-010 fix landed after it, so the released CLI still has all four defects while the demo (which redeploys from `main`) does not. Two items: SPEC-112 (`wasm::transform` runs the bundled recipes — the README claims it does and it does not, driven), then the 0.7.0 cut. New stage, added 2026-08-09 at the STAGE-039 close-out; STAGE-039 is closed and cannot be reopened, so this is its continuation.
 
-**Count:** 3 shipped / 0 active / 3 pending
+**Count:** 3 shipped / 1 active / 3 pending
 
 **Launch-gating: COMPLETE.** STAGE-034 ✅, STAGE-035 ✅ and STAGE-039 ✅ are all shipped. **No launch-gating repo work remains** — what is left on `docs/launch-readiness.md` is maintainer-only: the device pass (the 60 MP RAW preview decode has never run on hardware), re-verifying the install one-liners at 0.6.0, the post draft, and the go/no-go. STAGE-036/037/038 are post-launch and optional.
 
