@@ -11,7 +11,7 @@ use crate::error::ImageError;
 use crate::image::Image;
 use crate::operation::{Gravity, OperationParams, OperationRegistry, RegistryError, Watermark};
 use crate::pipeline::Pipeline;
-use crate::recipe::Recipe;
+use crate::recipe::{Recipe, RecipeStep};
 use crate::sink::{Overwrite, Sink, SinkError, SinkInput};
 use crate::source::{self, SourceError};
 
@@ -833,14 +833,15 @@ fn build_edit_ops(
 ///    failure → `CliError::Sink(SinkError::Io)` (exit 5). An orphan recipe is
 ///    never written when the edit itself fails.
 ///
-/// NOTE: the saved recipe (step 2) captures only `ops` — the CLI-level
-/// auto-orient prefix is NOT recorded as a step. Replaying such a recipe via
-/// `apply --recipe FILE` (a plain recipe-driven pipeline, out of scope for
-/// SPEC-110) will not bake orientation unless `--auto-orient` was explicitly
-/// passed to `edit`. Baking on the CLI path is what opens this divergence: the
-/// edit output and its own replayed recipe agreed before, and now differ on any
-/// non-1 orientation. Flagged here, not fixed — closing it is recipe-lane
-/// wiring, which lands in SPEC-111.
+/// The saved recipe (step 2) records `auto-orient` EXPLICITLY as its first
+/// step whenever it is not already there from `--auto-orient` (SPEC-111
+/// decision 2), matching what the CLI prefix always bakes (step 3). SPEC-110
+/// baked orientation on the CLI path without recording it in `--save-recipe`
+/// output, so `edit`'s own replayed recipe silently stopped reproducing what
+/// `edit` did (DEC-086) — a hand-written recipe that named `auto-orient`
+/// itself replayed fine, so this closes the gap for the ones that didn't
+/// name it. A recipe is a record of what happened; `recipes/web.toml` already
+/// names `auto-orient` as an explicit first step, and saved recipes now match.
 pub(super) fn run_edit(
     input: &str,
     auto_orient: bool,
@@ -853,7 +854,23 @@ pub(super) fn run_edit(
     let ops = build_edit_ops(auto_orient, resize_max, invert)?;
 
     // 2. Capture the recipe before consuming ops (from_ops borrows &[Box<dyn Op>]).
-    let recipe = save_recipe.map(|_| Recipe::from_ops(&ops));
+    //    Record `auto-orient` explicitly (SPEC-111 decision 2) when it is not
+    //    already the first step from `--auto-orient` — `edit` always bakes it
+    //    via the shared prefix (step 3 below) regardless of that flag, so the
+    //    saved recipe must say so too, or replaying it loses the bake.
+    let recipe = save_recipe.map(|_| {
+        let mut r = Recipe::from_ops(&ops);
+        if !auto_orient {
+            r.steps.insert(
+                0,
+                RecipeStep {
+                    op: "auto-orient".to_owned(),
+                    params: OperationParams::empty(),
+                },
+            );
+        }
+        r
+    });
 
     // 3. Fold ops onto the shared auto-orient prefix (SPEC-110).
     let pipeline = ops

@@ -209,6 +209,29 @@ non-positive value is a typed error at recipe build time
 (`RecipeError::InvalidOperation`, via `RegistryError::InvalidParams`) — not a
 silent skip and not `UnknownOperation`.
 
+### The terminal `optimize` step (SPEC-085 / SPEC-111)
+
+A recipe's last `[[step]]` may name the reserved marker `op = "optimize"`. It
+is **not** a registry operation — it produces bytes plus a format choice, not
+a transformed image — so it is stripped before the remaining steps reach
+`build_pipeline`, and the preceding pixel steps run through the same fast
+AVIF-aware decision the `web`/`optimize`/`gallery`/`product` verbs use,
+instead of a plain format-preserving write. This is what makes
+`apply --recipe web` == the `web` verb, and (since SPEC-111) `build` bound to
+a bundled or hand-written recipe ending this way == the same thing again. An
+`optimize` step anywhere but last is left in place, so it surfaces as a typed
+`UnknownOperation` error rather than silently reordering intent. The three
+bundled recipes (`web`/`gallery`/`product`, resolvable by name via
+`--recipe web` or a `build` target's `recipe = "web"`) all end this way; see
+`recipes/web.toml` for a real (non-illustrative) example.
+
+Whether the chosen format reaches the write is a PIN, not a guess: an
+explicit `--format`/`-o` extension on `apply`, or — for `build` — a target's
+`name` template naming a literal extension (`name = "{stem}.png"`) rather
+than `{ext}`, skips the decision and honors the pin instead. Full behavior
+(exit codes, the pin rule, the lockfile/cache implications) is in
+`docs/api-contract.md`'s `apply`/`build` entries, not repeated here.
+
 ### Round-trip guarantee (DEC-005)
 
 `load(save(recipe)) == recipe`: serializing a recipe to TOML and reading it
