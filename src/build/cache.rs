@@ -30,11 +30,17 @@
 //! extension (RAW previews, SPEC-061/DEC-055), so the same bytes named `.nef`
 //! and `.jpg` decode to different pixels.
 //!
-//! The **output format is NOT in the key.** It is a pure function of the input
-//! bytes and extension — both already keyed — so a hit implies the same format,
-//! and computing it up front would need exactly the decode a hit exists to skip.
-//! The entry is **self-describing** instead: it records its own output
-//! extension. That inversion is what lets a hit skip decode entirely.
+//! The **output format is NOT in the key** as its own field. A hit implies the
+//! same format because the key's `recipe_hash` input already covers it: for a
+//! plain pixel recipe the format is a pure function of the input bytes and
+//! extension, but for a target whose recipe ends in the reserved terminal
+//! `optimize` step (SPEC-111), the same recipe file can be Pinned or Decided
+//! depending on the target's name template, so the caller folds that plan into
+//! the hash it passes in as `recipe_hash` (`target_recipe_hash` in
+//! `crate::cli::build`) before this module ever sees it — this module stays
+//! agnostic to which case it is. The entry is **self-describing** regardless:
+//! it records its own output extension, so computing the format up front is
+//! never required. That inversion is what lets a hit skip decode entirely.
 //!
 //! The output **destination** (`out` dir, `name` template) is not in the key
 //! either. Identical inputs produce identical bytes wherever they land, so one

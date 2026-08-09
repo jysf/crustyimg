@@ -78,6 +78,27 @@ cost:
         transcript timestamp delta (18:42 2026-08-07 -> 17:53 2026-08-08) and
         includes wall-clock gaps waiting on 3 sequential fresh-target-dir
         matrix rebuilds plus a session boundary — not continuous active work.
+    - cycle: build
+      agent: claude-sonnet-5
+      interface: claude-code
+      tokens_total: 17960846
+      duration_minutes: 155.7
+      recorded_at: 2026-08-08
+      tokens_breakdown:
+        input: 322
+        output: 91060
+        cache_creation: 281954
+        cache_read: 17587510
+      estimated_usd: 7.70
+      note: >
+        Second build session — the PUNCH LIST pass (record accuracy only, no
+        behaviour change), on the same branch/PR. MEASURED — transcript sum
+        over 161 assistant messages
+        (~/.claude/projects/-Users-jyashinsky-PSeven-experiments-crustimg-redo-plus-crustyimg/cfece98d-ac6b-4bc6-bb2a-399c4c0ee7e5.jsonl),
+        priced at the same Sonnet anchors as the first build session.
+        duration_minutes is the raw first->last transcript timestamp delta
+        (02:43 -> 05:18 UTC, 2026-08-09) and is continuous active work — no
+        matrix rebuild gaps, since only one leg (default) needed re-running.
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -401,6 +422,64 @@ noted.
   - Strip the terminal `optimize` step in `src/wasm.rs`'s `transform` (or explicitly
     document bundled/terminal-`optimize` recipes as unsupported there) — the same defect
     class this spec fixed for `build`, found by the sweep, out of scope here.
+
+### Punch-list pass (second build session) — record accuracy only, no behaviour change
+
+Verify returned ⚠ PUNCH LIST on PR #138: all 11 ACs hold under driving; two documentation
+claims were over-broad; one architect error had reached `main`. This session fixed all
+three and decided-and-recorded three further, non-blocking items. No production behaviour
+changed.
+
+- **Item 1 — DEC-087's "complete" claim, narrowed.** Verify drove `edit --invert -q 40`
+  → replay without `-q` produced different bytes than replay with `-q 40`: quality is not
+  a recipe field, so "a complete, replayable description of what `edit` did" was false as
+  written. Narrowed to "a complete, replayable description of the **pixel steps** `edit`
+  ran," with the quality caveat stated explicitly. AC-8/AC-9 were never in question — only
+  the claim's scope was wrong.
+- **Item 2 — `cache.rs`'s module doc, re-justified.** It asserted the output-format-implies-
+  hit invariant holds because format is "a pure function of the input bytes and extension."
+  SPEC-111 itself falsifies that premise (a terminal-`optimize` target's format also
+  depends on the target's Pin/Decide plan). The invariant still holds, but only because
+  `target_recipe_hash` (`src/cli/build.rs`) folds the plan into the hash passed in as
+  `recipe_hash` before this module ever sees it. Re-worded to state that basis.
+- **Item 3 — an architect error in `SPEC-111-verify.md:63`, corrected.** The archived
+  verify prompt (merged to `main` in #139) called the cache-collision risk "a real
+  pre-existing defect." Verify itself refuted that while driving it: a terminal-`optimize`
+  target cannot reach `build` on `main` at all (dies at prepare), and the closest
+  `main`-reachable shape already serves identical bytes correctly. It is a regression
+  *this spec's own new capability* would have introduced, caught and closed inside the
+  same change — not a pre-existing bug. **This was the orchestrating architect's
+  transcription error, not this build's** — DEC-087's own Consequences text never called
+  it pre-existing; the verify prompt's relay of it did. Corrected in place on this branch
+  (the file did not previously exist here; materialized from `main` with the fix applied,
+  so it will need a trivial merge reconciliation against `main`'s copy).
+- **Decided — the weak AC-7 test: strengthened.** `build_lock_entry_names_the_decided_extension`
+  asserted a cache hit using `--check` without deleting the prior output first — `--check`
+  never writes, so this proved nothing about a real hit and would have passed on a silent
+  rebuild too. Fixed (test-only, no behaviour change): the hit leg now deletes the written
+  output, re-runs a real (non-`--check`) build, and asserts both the "(1 cached, 0
+  rebuilt)" summary line and byte-identical output — reproducing verify's own manual drive
+  of this exact scenario. Test count is unchanged (strengthened in place, not added).
+- **Decided — orphaned artifacts on an extension flip: named, not fixed.** A `{ext}`/Decide
+  target whose source content change flips the winning format (e.g. `photo.avif` →
+  `photo.webp` on a later run) leaves the old file behind; `build` has never cleaned `out`.
+  Pre-existing class, newly reachable because Decide's whole point is a content-dependent
+  extension. Named in DEC-087's Consequences per verify's "at minimum, name it" floor;
+  cleaning `out` is a scope decision of its own, left for a future spec.
+- **Decided — `name = "{stem}"`: docs wording fixed.** A name template with no extension at
+  all (not `{ext}`, no literal extension either) already exits 4 via
+  `SinkError::UnknownFormat` (confirmed by reading `format_from_extension` and its exit-code
+  mapping, `src/cli/mod.rs`) — same exit code as an unrecognized literal extension, but
+  `docs/api-contract.md`'s wording only named the latter case. Broadened the wording to
+  cover both; no behaviour changed (exit 4 already covered this case, undocumented).
+- **Verification:** re-ran the default leg through `rtk proxy` — 838/838, 0 failed, exact
+  match to the build session's reference count (the AC-7 strengthening changed a test
+  body, not the test count). `cargo clippy --all-targets -- -D warnings` and `cargo fmt
+  --check` both clean. `just wasm-test` 30/30, unaffected (this pass touched no
+  `#[cfg(not(target_arch = "wasm32"))]`-gated code). Lean and webp-lossy legs relied on
+  CI rather than a local re-run, given the change surface (doc comments, markdown, one
+  test body) — read the CI legs on the PR before calling this green.
+- **PR:** #138, still not merged.
 
 ### Build-phase reflection (3 questions, short answers)
 

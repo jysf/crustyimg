@@ -961,14 +961,25 @@ out = "dist"
         "lockfile must never contain the ext sentinel, got: {lock_text}"
     );
 
-    // Hit (AC-10 too — `--check` on a terminal-`optimize` target): a re-run
-    // must reproduce the SAME path, not rebuild it under a different name,
-    // and `--check` must report the tree clean.
-    let hit = run_build(root, &["--check"]);
+    // Hit: delete the written output so a re-run has to actually MATERIALIZE
+    // from the cache rather than trivially agreeing with a file already
+    // there, then re-run for real (not `--check`, which never writes —
+    // `--check`/`--frozen`/`--locked` on a clean tree is `build_check_
+    // frozen_locked_all_pass_with_a_decided_extension`'s job, not this one's).
+    // A real hit must reproduce the SAME path with the SAME bytes, and the
+    // summary line must actually SAY "cached", not just exit 0 — exit 0 alone
+    // would also be true of a silent rebuild.
+    std::fs::remove_file(root.join("dist").join(written_name)).unwrap();
+    let hit = run_build(root, &[]);
     assert!(
         hit.status.success(),
-        "a cache hit must reproduce the same output path; --check stderr: {}",
+        "a cache hit must reproduce the deleted output; stderr: {}",
         String::from_utf8_lossy(&hit.stderr)
+    );
+    let hit_stderr = String::from_utf8_lossy(&hit.stderr);
+    assert!(
+        hit_stderr.contains("(1 cached, 0 rebuilt)"),
+        "re-running after deleting the output must be a cache HIT, not a rebuild: {hit_stderr}"
     );
     let written_after_hit: Vec<String> = std::fs::read_dir(root.join("dist"))
         .unwrap()
@@ -978,6 +989,11 @@ out = "dist"
         written_after_hit,
         vec![written_name.clone()],
         "the cache hit must materialize under the exact same name as the miss"
+    );
+    let bytes_after_hit = std::fs::read(root.join("dist").join(written_name)).unwrap();
+    assert_eq!(
+        bytes_after_hit, written_bytes,
+        "the cache hit must materialize the exact same bytes as the miss"
     );
 }
 

@@ -478,11 +478,13 @@ materializes to the exact path the miss that filled it wrote.
 
 Exit codes: malformed manifest (bad TOML, unknown field, unsupported `version`, oversize,
 invalid target) → **2**; manifest or recipe file unreadable → **3**; invalid recipe
-(unknown op/params) → **1**; a `name` template naming a literal extension that is not a
-recognized image format → **4** (same family as an unsupported `--format`/`-o`
-extension elsewhere); missing source / empty glob → **3** (invalid glob pattern → 2);
-per-output failure → **6**. Manifest resource limits mirror recipes (DEC-036): 64 KiB
-size cap checked before read *and* before parse, 1024-target cap.
+(unknown op/params) → **1**; a `name` template that pins a literal extension `build`
+cannot resolve to a real image format — either an extension that is not a recognized
+format (`{stem}.txt`) or **no extension at all** (`{stem}`, which is not the `{ext}`
+sentinel) → **4** (same family as an unsupported `--format`/`-o` extension elsewhere);
+missing source / empty glob → **3** (invalid glob pattern → 2); per-output failure →
+**6**. Manifest resource limits mirror recipes (DEC-036): 64 KiB size cap checked
+before read *and* before parse, 1024-target cap.
 
 ## Stage Map (summary)
 

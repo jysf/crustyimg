@@ -137,7 +137,10 @@ either, so a saved recipe and its own replay agreed (both unbaked).
   name and by file path — STAGE-039's last launch-gating repo item. `apply` and `build`
   share one format-decision rule (`split_terminal_optimize`, reused not copied) instead
   of two that could drift. A recipe saved by `edit` is now a complete, replayable
-  description of what `edit` did, closing DEC-086's own named follow-up.
+  description of the **pixel steps** `edit` ran — including `auto-orient` — closing
+  DEC-086's own named follow-up. Quality (`-q`) is not a recipe field, so it is not part
+  of that description: replaying a saved recipe reproduces the same pixel operations in
+  the same order, not necessarily the same encode quality the original invocation used.
 - **Negative:** a `build` target whose name template names a literal extension that is
   NOT a recognized image format (e.g. `name = "{stem}.txt"`) now fails at prepare time
   (exit 4, before any input is touched) rather than the template being silently
@@ -145,6 +148,17 @@ either, so a saved recipe and its own replay agreed (both unbaked).
   before (the whole terminal-`optimize`-through-`build` path did not exist). `edit`'s
   saved recipe now has one more step than the flag list alone would suggest, though this
   matches what actually ran.
+- **Negative, pre-existing class, newly triggerable:** `build` has never cleaned its
+  `out` tree — it only ever writes the path the current run decides on, never removes a
+  target's PRIOR output. A `{ext}`/Decide target whose source content changes such that
+  the fast decision picks a different format than last time (e.g. `photo.avif` last run,
+  `photo.webp` this run because the source changed) leaves the stale file behind; `out`
+  now holds both. This gap predates this spec, but Decide's whole point is a
+  content-dependent extension, so this spec is what makes the flip — and the orphan —
+  actually reachable. Not fixed here (cleaning `out` is a scope decision of its own, not
+  implied by "run the recipe correctly"); named so it isn't silently inherited. `--check`
+  at least surfaces it loudly (an unexpected file in a supposedly-clean tree) rather than
+  masking it.
 - **Neutral / a finding this spec's implementation surfaced, not just its design:** the
   build cache's key (`crate::build::cache::compute_key`) is documented as depending only
   on the recipe hash, quality, and input — explicitly NOT the output destination, because

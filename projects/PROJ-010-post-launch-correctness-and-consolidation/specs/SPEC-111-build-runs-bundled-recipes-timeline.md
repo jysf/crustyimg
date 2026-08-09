@@ -85,6 +85,29 @@ Cycle prompts live in `prompts/SPEC-111-<cycle>.md`.
       itself failed) — but per SPEC-107's own lesson, that reasoning alone isn't a green.
       Re-ran just the failed job with no code change: it passed. 27/27 green.
       PR #138, not merged.
+      **Second build session, 2026-08-08 — PUNCH LIST pass (record accuracy only, no
+      behaviour change).** Verify returned ⚠ PUNCH LIST on PR #138. Fixed all three
+      record-accuracy items: narrowed DEC-087's "complete" recipe claim to the pixel steps
+      (quality is not a recipe field); re-justified `cache.rs`'s module doc, which had
+      claimed the format-implies-hit invariant follows from "a pure function of the input
+      bytes and extension" — SPEC-111 itself falsifies that, the real basis is
+      `target_recipe_hash` folding the Pin/Decide plan into the key; and corrected
+      `SPEC-111-verify.md:63` (merged to `main` in #139), which called the cache-collision
+      risk "a real pre-existing defect" — it is a regression this spec's own new capability
+      would have introduced, caught inside the same change, and the mischaracterization was
+      the orchestrating architect's transcription error, not this build's. Decided and
+      recorded three further non-blocking items verify raised: strengthened the weak AC-7
+      test (it used `--check`, which never writes, so it never drove a real cache hit —
+      now deletes the output and re-runs for real, asserting the "(1 cached, 0 rebuilt)"
+      summary and byte identity); named the orphaned-artifacts gap (an extension flip on
+      `{ext}`/Decide leaves the old file in `out`; pre-existing class, newly reachable, not
+      fixed) in DEC-087; and broadened `docs/api-contract.md`'s exit-4 wording to cover a
+      no-extension `name` template (`{stem}`), not just an unrecognized literal one — same
+      exit code, previously undocumented case. Re-ran the default leg through `rtk proxy`:
+      838/838, 0 failed, exact match to the first build session's reference count; `just
+      wasm-test` 30/30; clippy/fmt clean. Lean/webp-lossy relied on CI rather than a local
+      re-run, given the change surface (doc comments, markdown, one test body, no
+      production code). PR #138, still not merged.
 
 - [ ] **verify** — fresh session, **Opus**. Re-derive the driven table yourself on your own
       builds of branch and `main`. Enumerate every path that builds a pipeline from a `Recipe`
