@@ -116,7 +116,7 @@ out of STAGE-034 keeps that stage a single subject — the classifier pixel lane
   orientation…"*), and **no test asserts orientation on any of the five broken verbs** — every
   existing orientation fixture sits on a verb that already bakes, which is why this survived.
   Complexity re-rated **M**.
-- [ ] SPEC-111 (**designed 2026-08-07**) — **`build` runs bundled recipes.** `prepare_target` (`src/cli/build.rs:80`)
+- [x] SPEC-111 (**shipped 2026-08-09**, PR #138 / `c91da7b`, DEC-087) — **`build` runs bundled recipes.** `prepare_target` (`src/cli/build.rs:80`)
   calls `recipe.build_pipeline(registry)` at `:85` without stripping the terminal `optimize` marker —
   `build.rs` contains **0** references to `optimize`, `OPTIMIZE_STEP` or `strip_terminal`. Every
   bundled recipe ends with that marker (`src/recipe/bundled.rs:20`, asserted at `:91`), and the
@@ -149,7 +149,7 @@ out of STAGE-034 keeps that stage a single subject — the classifier pixel lane
   `op = "unsharp"` (`:161`), `op = "watermark"` (`:166`), `op = "clean-gps"` (`:174`) and the CLI flags
   `--unsharp` / `--watermark` (`:181-182`). Rewrite against the four real ops. Complexity **S**.
 
-**Count:** 1 shipped / 1 active / 1 chore pending
+**Count:** 2 shipped / 0 active / 1 chore pending
 
 ## Design Notes
 

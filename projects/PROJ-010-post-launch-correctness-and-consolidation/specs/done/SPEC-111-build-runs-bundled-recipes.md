@@ -7,7 +7,7 @@
 task:
   id: SPEC-111
   type: bug                        # epic | story | task | bug | chore
-  cycle: design                    # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: critical
   complexity: M                    # S | M | L  (L means split it)
@@ -78,6 +78,31 @@ cost:
         transcript timestamp delta (18:42 2026-08-07 -> 17:53 2026-08-08) and
         includes wall-clock gaps waiting on 3 sequential fresh-target-dir
         matrix rebuilds plus a session boundary — not continuous active work.
+    - cycle: verify
+      agent: claude-opus-5
+      interface: claude-code
+      tokens_total: 16786988
+      duration_minutes: 192.4
+      recorded_at: 2026-08-08
+      tokens_breakdown:
+        input: 225
+        output: 143041
+        cache_creation: 465150
+        cache_read: 16178572
+      estimated_usd: 14.57
+      note: >
+        MEASURED — transcript sum over 121 assistant messages, every
+        `.message.model` = claude-opus-5, priced at Opus anchors ($5/$25 per
+        MTok, cache_creation x1.25 input, cache_read x0.10 input) per the
+        SPEC-107 verify precedent. 96.38% cache reads. duration_minutes is the
+        raw first->last transcript timestamp delta (21:32 2026-08-08 -> 00:45
+        2026-08-09 UTC) and includes wall-clock gaps waiting on the sequential
+        fresh-target-dir matrix, four extra release builds (branch, main,
+        webp-lossy, mutant) and two wasm runs — not continuous active work.
+        Read at write-up time, so the tail of this session's own tokens is not
+        included (same convention as prior cycles).
+        Ordered BEFORE the punch-list build below: verify ran between the two
+        build sessions and is what sent the spec back.
     - cycle: build
       agent: claude-sonnet-5
       interface: claude-code
@@ -100,12 +125,35 @@ cost:
         (02:43 -> 07:17 UTC, 2026-08-09) and includes wall-clock gaps waiting
         on two rounds of full-matrix GitHub Actions CI (12 legs each) to
         settle after two pushes — not continuous active work.
+    - cycle: ship
+      interface: claude-code
+      tokens_total: null
+      duration_minutes: null
+      estimated_usd: null
+      note: >
+        Un-metered orchestrator main-loop cycle (AGENTS §4). Orchestrator work
+        on this spec outside the metered total: driving the failure at design
+        (four invocations with two controls), reconciling each cycle's cost,
+        resolving the add/add merge conflict on `SPEC-111-verify.md` in
+        `b92feef`, and the sequencing error that caused it — the punch-list
+        prompt asked a fix session to correct a file that lives on `main`
+        rather than on its branch, which should have been a separate PR.
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
-    # NOTE: recomputed at ship (cost-snippet.md's ship-bookkeeping step),
-    # not here — this build cycle only appends its own `cost.sessions` entry.
+    tokens_total: 196572466
+    estimated_usd: 85.45
+    session_count: 5
+    note: >
+      Sum of the three METERED cycles: build $56.84 + verify $14.57 (Opus
+      anchors) + punch-list build $14.04. Each independently reconciled by the
+      orchestrator against its own component breakdown at the anchors of the
+      model recorded in `agent` (DEC-083); all three reproduce exactly.
+      ⚠ 98.0% of this token figure is cache re-reads. Non-cache-read volume is
+      **3,843,644** — and note that is LOWER than SPEC-110's 5,352,083 despite a
+      higher headline, because these sessions re-read more context rather than
+      doing more work. `tokens_total` is a faithful sum of the usage records and
+      NOT a measure of distinct work; see SPEC-110's totals note and DEC-083
+      before comparing across specs, and never against pre-SPEC-107 specs, which
+      recorded hand-estimates that did not count cache reads at all.
 ---
 
 # SPEC-111: `build` runs bundled recipes
@@ -528,10 +576,49 @@ changed.
 *Appended during the **ship** cycle.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — **Don't ask a build branch to correct a file that lives on `main`.** The punch list's
+   item 3 was a correction to `SPEC-111-verify.md`, which had merged to `main` in #139 and did
+   not exist on the build branch. The fix session did exactly what was asked, created the file
+   there, and it collided add/add — `mergeable: CONFLICTING` on an otherwise finished PR. It
+   should have been a separate one-line PR against `main`. Cheap to resolve, entirely avoidable,
+   and the orchestrator's error rather than the build's.
+
+   **The design cycle earned its keep, against the stage's own framing.** STAGE-039 said this
+   needed no design cycle — "the fix is wiring, not design." Driving it found that the framed
+   fix was *necessary but not sufficient*, and that shipping only it would have written the
+   source format and silently discarded the modernization: a **quieter** bug than the loud one
+   being fixed. The lesson generalises past this spec — "no design needed" is itself a claim
+   about code nobody has driven yet, and it costs one short cycle to falsify.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — **DEC-087** is new and, after the punch-list pass, accurate on all three counts verify
+   pushed back on: its "complete recipe" claim is narrowed to the pixel steps (quality is not a
+   recipe field — driven), the orphaned-artifact consequence is named, and the `wasm::transform`
+   exception is stated without a universality claim that would falsify it. That last point is
+   SPEC-110's hardest lesson applied one spec later, and this time it held on the first pass.
+
+   `src/build/cache.rs`'s module doc no longer justifies the cache invariant with a premise this
+   spec falsifies — it now cites `target_recipe_hash` folding the plan into the key, which is
+   the real basis.
+
+   No template or constraint change.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — **`src/wasm.rs::transform` carries the identical defect class** — an unstripped terminal
+   `optimize` step. Verify drove it (`unknown operation 'optimize'`) and confirmed it is
+   genuinely out of scope rather than conveniently so: `demo/worker.js:135` builds its own
+   terminal-step-free recipe, so the shipped demo never reaches it, and `transform` takes an
+   explicit `out_format`, making the fix a design question rather than a strip. It is reachable
+   only by a third-party npm consumer of `crustyimg-wasm`. **Worth a small spec; not launch
+   work.**
+
+   **`build`'s new auto-decide path does not thread SPEC-107's truncated-JPEG warning.** Named
+   in DEC-087 and confirmed by verify — `apply` warns, `build` does not. This is the same
+   warning-coverage sweep SPEC-107's ship already filed for `diff`, `responsive`,
+   `watermark --image`, `lint` and `meta strip`; `build` now joins that list, and one spec should
+   close all of them.
+
+   **Orphaned artifacts** when a content change flips the decided extension (`photo.avif` *and*
+   `photo.webp` both left in `out/`). Pre-existing class, newly triggerable by this change, named
+   in DEC-087. `build` has never cleaned and `--check` catches it loudly, so it is a papercut
+   rather than a defect — but it is now easier to hit.
