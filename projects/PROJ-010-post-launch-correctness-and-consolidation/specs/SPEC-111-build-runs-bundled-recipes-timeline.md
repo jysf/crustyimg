@@ -107,7 +107,15 @@ Cycle prompts live in `prompts/SPEC-111-<cycle>.md`.
       838/838, 0 failed, exact match to the first build session's reference count; `just
       wasm-test` 30/30; clippy/fmt clean. Lean/webp-lossy relied on CI rather than a local
       re-run, given the change surface (doc comments, markdown, one test body, no
-      production code). PR #138, still not merged.
+      production code). **Read the CI legs after pushing:** polled PR #138 to completion —
+      12/12 green (`build/test/clippy/fmt` × macOS/Ubuntu/Windows, `avif`/`webp-lossy`/
+      `heic` feature legs, `heic` × macOS/Ubuntu, `lean build`, `msrv`, `cargo-deny`,
+      `cost-capture audit`, `front-matter validation`), cross-checked against `rtk proxy
+      gh pr checks 138`'s raw per-job table since the plain command is itself
+      `rtk`-rewritten to a summary. PR #138, still not merged — `mergeable: CONFLICTING`
+      against `main`, an expected add/add conflict on `SPEC-111-verify.md` (this branch
+      materializes it with the Item-3 fix; `main` already has the unfixed version via
+      #139), for whoever merges to resolve.
 
 - [ ] **verify** — fresh session, **Opus**. Re-derive the driven table yourself on your own
       builds of branch and `main`. Enumerate every path that builds a pipeline from a `Recipe`

@@ -478,8 +478,18 @@ changed.
   --check` both clean. `just wasm-test` 30/30, unaffected (this pass touched no
   `#[cfg(not(target_arch = "wasm32"))]`-gated code). Lean and webp-lossy legs relied on
   CI rather than a local re-run, given the change surface (doc comments, markdown, one
-  test body) — read the CI legs on the PR before calling this green.
-- **PR:** #138, still not merged.
+  test body).
+- **CI legs read (not just the local matrix):** pushed, then polled PR #138's checks
+  through to completion — 12/12 green: `build / test / clippy / fmt` on macOS/Ubuntu/
+  Windows, `avif feature`, `webp-lossy feature`, `heic feature` on macOS/Ubuntu, `lean
+  build`, `msrv (rust 1.90.0)`, `supply-chain policy (cargo-deny)`, `cost-capture audit`,
+  `front-matter validation`. No pending, no failed. Cross-checked the summary against
+  `rtk proxy gh pr checks 138`'s raw per-job table (the summarized form is itself an
+  `rtk`-rewritten command) — both agree, 12/12 pass, confirming the docs-only + one-test-
+  body change did not move the matrix on any leg, not just the one re-run locally.
+- **PR:** #138, still not merged (`mergeable: CONFLICTING` — this branch materializes
+  `SPEC-111-verify.md`, which `main` already has a different version of via #139; a
+  normal add/add merge conflict to resolve at merge time, not a defect in this pass).
 
 ### Build-phase reflection (3 questions, short answers)
 
