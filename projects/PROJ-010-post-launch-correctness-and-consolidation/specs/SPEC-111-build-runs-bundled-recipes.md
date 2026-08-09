@@ -81,24 +81,25 @@ cost:
     - cycle: build
       agent: claude-sonnet-5
       interface: claude-code
-      tokens_total: 17960846
-      duration_minutes: 155.7
-      recorded_at: 2026-08-08
+      tokens_total: 35393900
+      duration_minutes: 274.2
+      recorded_at: 2026-08-09
       tokens_breakdown:
-        input: 322
-        output: 91060
-        cache_creation: 281954
-        cache_read: 17587510
-      estimated_usd: 7.70
+        input: 514
+        output: 142989
+        cache_creation: 380974
+        cache_read: 34869423
+      estimated_usd: 14.04
       note: >
         Second build session — the PUNCH LIST pass (record accuracy only, no
         behaviour change), on the same branch/PR. MEASURED — transcript sum
-        over 161 assistant messages
+        over 257 assistant messages
         (~/.claude/projects/-Users-jyashinsky-PSeven-experiments-crustimg-redo-plus-crustyimg/cfece98d-ac6b-4bc6-bb2a-399c4c0ee7e5.jsonl),
         priced at the same Sonnet anchors as the first build session.
         duration_minutes is the raw first->last transcript timestamp delta
-        (02:43 -> 05:18 UTC, 2026-08-09) and is continuous active work — no
-        matrix rebuild gaps, since only one leg (default) needed re-running.
+        (02:43 -> 07:17 UTC, 2026-08-09) and includes wall-clock gaps waiting
+        on two rounds of full-matrix GitHub Actions CI (12 legs each) to
+        settle after two pushes — not continuous active work.
   totals:
     tokens_total: 0
     estimated_usd: 0
