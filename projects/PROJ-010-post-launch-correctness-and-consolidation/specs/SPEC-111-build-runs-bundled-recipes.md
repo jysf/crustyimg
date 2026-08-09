@@ -78,6 +78,30 @@ cost:
         transcript timestamp delta (18:42 2026-08-07 -> 17:53 2026-08-08) and
         includes wall-clock gaps waiting on 3 sequential fresh-target-dir
         matrix rebuilds plus a session boundary — not continuous active work.
+    - cycle: verify
+      agent: claude-opus-5
+      interface: claude-code
+      tokens_total: 16786988
+      duration_minutes: 192.4
+      recorded_at: 2026-08-08
+      tokens_breakdown:
+        input: 225
+        output: 143041
+        cache_creation: 465150
+        cache_read: 16178572
+      estimated_usd: 14.57
+      note: >
+        MEASURED — transcript sum over 121 assistant messages
+        (~/.claude/projects/-Users-jyashinsky-PSeven-experiments-crustimg-redo-plus-crustyimg/1860fb9c-f1da-44b1-8892-550a06da479e.jsonl),
+        every `.message.model` = claude-opus-5, priced at Opus anchors ($5/$25
+        per MTok, cache_creation x1.25 input, cache_read x0.10 input) per the
+        SPEC-107 verify precedent. 96.38% cache reads. duration_minutes is the
+        raw first->last transcript timestamp delta (21:32 2026-08-08 -> 00:45
+        2026-08-09 UTC) and includes wall-clock gaps waiting on the sequential
+        fresh-target-dir matrix, four extra release builds (branch, main,
+        webp-lossy, mutant) and two wasm runs — not continuous active work.
+        Read at write-up time, so the tail of this session's own tokens is not
+        included (same convention as prior cycles).
   totals:
     tokens_total: 0
     estimated_usd: 0

@@ -86,10 +86,70 @@ Cycle prompts live in `prompts/SPEC-111-<cycle>.md`.
       Re-ran just the failed job with no code change: it passed. 27/27 green.
       PR #138, not merged.
 
-- [ ] **verify** — fresh session, **Opus**. Re-derive the driven table yourself on your own
-      builds of branch and `main`. Enumerate every path that builds a pipeline from a `Recipe`
-      rather than trusting this spec's list — SPEC-110's roster omitted a verb and it cost a full
-      extra build cycle.
+- [x] **verify** — 2026-08-08. Opus, own detached worktree (`crustyimg-spec111-verify`), plus two
+      throwaway worktrees for mutation controls and a `main` baseline. **⚠ PUNCH LIST** — every
+      acceptance criterion holds under driving; two documentation claims are over-broad.
+      **Re-derived, not inherited.** Built four release binaries (branch, `main`, `webp-lossy`,
+      mutant) and drove every AC on bytes: AC-1 all **six** routes (web/gallery/product × bundled
+      name and file path) exit 0 and write real `ftypavif`, with a 3000×2000 source proving the
+      three recipes are distinct (2048/2560/1600 wide, three distinct hashes) — all six fail
+      identically on `main` with `unknown operation 'optimize'`. AC-2 build == `apply --recipe X`
+      **byte-for-byte** on all three recipes. AC-3 literal-extension template writes real PNG
+      magic. AC-4/AC-5 exit 1, nothing written. AC-6 plain pixel recipe is byte-identical AND
+      **lockfile-identical** across `main` and branch (same cache key `6087044f…`), and `apply`
+      is unchanged for both a plain and a bundled recipe. AC-7 driven as a real hit: delete the
+      output, re-run, `1 cached, 0 rebuilt` re-materializes `dist/photo.avif` at the same 6755
+      bytes the lock records. AC-8/AC-9 `edit --invert --save-recipe` and its replay are
+      **byte-identical** (not merely same-dimension), recipe TOML = `[auto-orient, invert]`,
+      independent SOF parse confirms 800×1200; `main` gives `[invert]` and 1200×800.
+      **AC-10 `--watch` driven** (DEC-087 had judged it not worth a harness): initial build +
+      a debounced rebuild on a new source both write real AVIF, no lockfile under watch,
+      `--watch --check` is exit 2; `--check` also correctly reports **drift with exit 7** when a
+      content change flips the decided extension.
+      **Sweep re-run and tightened.** `grep -rn build_pipeline src/` → 17 hits, 11 real call
+      sites (7 production, 4 `#[cfg(test)]`), positive control on a misspelled token = 0. Scope
+      closed one level deeper than the build's: `registry.build(&step.op, …)` — the only route
+      from a recipe step's op *name* to an `Operation` — has exactly **one** production caller,
+      `Recipe::build_pipeline` (`src/recipe/mod.rs:280`), so no path can reach a pipeline from a
+      `Recipe` without appearing in that grep. `benches/`/`fuzz/`/`examples/` reference `Recipe`
+      zero times. The build's roster is complete; `src/wasm.rs::transform` is the only unfixed
+      production site.
+      **Mutation controls, all driven against rebuilt binaries.** (1) AC-4: drop-last-
+      unconditionally turns `build_still_rejects_an_unknown_terminal_op` RED (exit 0 vs 1),
+      test-binary SHA `3130c78c…` → `6ff1afa8…`, revert restores green. (2) The cache-key fix is
+      load-bearing: reverting `target_recipe_hash` to plain `recipe_hash` makes a Pinned target
+      serve the Decide target's cached bytes — `dist/pinned/photo.png` containing `ftypavif`,
+      both lock entries sharing key `5893c36c…`, exit 0, silent. That is the exact
+      AVIF-in-a-`.png` bug the spec exists to prevent. (3) AC-2's coverage question resolved:
+      forcing `Decide → Preserve` turns the unconditional
+      `build_decided_format_matches_apply_on_every_feature_leg` RED on **webp-lossy**
+      (`photo.webp` vs `photo.png`) *and* on **lean** (`photo.jpg` vs `photo.png`), so the
+      criterion is pinned on every leg despite the AVIF-specific assertion being single-leg.
+      (4) The wasm exception driven on the **real wasm target**, not read:
+      `transform(png, recipes/web.toml, "png")` → `unknown operation 'optimize'`.
+      **The cache collision was NOT pre-existing** — refuted. It is unreachable on `main` (the
+      terminal-`optimize` target dies at prepare), and the closest `main`-reachable shape (plain
+      recipe, two templates) shares a key and correctly serves identical bytes. DEC-087's own
+      wording ("that invariant … held before this spec") is accurate; it is a regression this PR
+      would have introduced and caught in the same change. SPEC-065 is intact and was already
+      designed for the literal-vs-`{ext}` case: same-`out` Pinned+Decide is caught post-write by
+      the lockfile collision check (exit 2, no lockfile) — untouched by this PR.
+      **Matrix, fresh per-leg `CARGO_TARGET_DIR`, sequential, `rtk proxy` from the first leg,
+      `Compiling crustyimg` present in each:** default 838/838, lean 818/818, webp-lossy 844/844
+      (34 suites, 0 failed, cross-checked with `python3`), `clippy --all-targets -D warnings`
+      0 errors / 0 warnings on all three, `fmt --check` clean, `just wasm-test` 30/30 — exactly
+      the build's numbers. `just validate` 248 blocks ✓, `just cost-audit` ✓,
+      `just decisions-audit` 0 structural errors.
+      **Punch list (both documentation-only, no code change):** (1) DEC-087 Consequences calls a
+      saved recipe "a **complete**, replayable description of what `edit` did" — driven false by
+      `edit --invert -q 40`, whose quality is not a recipe field, so the replay differs in bytes
+      unless `-q 40` is passed again. Narrow to the pixel steps. (2) `src/build/cache.rs`'s module
+      doc still asserts the output format "is a pure function of the input bytes and extension —
+      both already keyed — so a hit implies the same format." SPEC-111 falsifies the premise; the
+      conclusion now holds only because `target_recipe_hash` folds the plan into `recipe_hash`.
+      DEC-087 explicitly declines to amend it, which leaves the cache's correctness core carrying
+      a false justification for the invariant this PR had to work to preserve.
+      PR #138 not merged; verify branch `verify/spec-111-build-recipes`, unpushed.
 
 - [ ] **ship** — bookkeeping on `main` after the PR merges: cost totals, reflection,
       `just archive-spec SPEC-111`, stage backlog. STAGE-039 closes only once the
