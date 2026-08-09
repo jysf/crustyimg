@@ -6,11 +6,18 @@
 > non-overclaimed story). HN is unforgiving of rough edges and overclaims — and generous to candor.
 >
 > A Show HN launches the **demo + the pitch** (and optionally the npm lib + CLI). It does **not**
-> require 1.0. Snapshot: 2026-07-13, **de-staled 2026-07-26 at the STAGE-028/029 close-out.**
+> require 1.0. Snapshot: 2026-07-13, de-staled 2026-07-26 at the STAGE-028/029 close-out,
+> **de-staled again 2026-08-09 at the PROJ-010 launch-gating close-out.**
 >
 > ⚠ This file sat at its 2026-07-13 snapshot while **five of its blockers shipped**, so for two
 > weeks it read far redder than reality — while being the document the go/no-go keys on. If a doc
 > gates a decision, the spec that clears an item must tick it.
+>
+> ⚠ **It happened again, in the other direction.** Between 2026-07-26 and 2026-08-09 the whole
+> PROJ-010 launch-gating wave shipped — the classifier blow-up, the hostile-input pass, and
+> shipped-verb correctness — and this file recorded none of it, while still asserting "every
+> repo-side item is done". Reading *greener* than reality is the worse failure: it hid the
+> release-cut blocker below, which nobody had written down.
 
 ## Blockers — do NOT launch until these clear
 
@@ -68,6 +75,30 @@
       (was: HN *will* drop huge / garbage / unsupported files. The decode caps + clear error
       messages must hold on the live page — no hangs, no cryptic failures. (Hold natively;
       confirm in the browser.))
+- [ ] **Cut a release — the shipped CLI predates every PROJ-010 fix.** ⚠ **NEW BLOCKER, added
+      2026-08-09.** `v0.6.0` was tagged **2026-07-24**. Everything PROJ-010 fixed landed after
+      it: the 18.5× classifier blow-up, the silently-succeeding truncated JPEG, seven verbs
+      returning sideways images, and a `build` that could not run any bundled recipe — plus the
+      demo's RAW support. **63 commits and 13 `src/` files** separate the tag from `main`.
+      The **demo is fine** (`.github/workflows/pages.yml` redeploys from `main` on `src/**`), but
+      `brew install crustyimg`, `cargo install crustyimg` and the Releases downloads all still
+      hand out the binary PROJ-010 exists to fix. A post that mentions the CLI would point HN at
+      the broken build. **Cut 0.7.0** — minor, not patch: orientation baking changes output
+      dimensions and `edit --save-recipe` changes its output shape, both behaviour changes on
+      shipped verbs. Follow `RELEASING.md`; the maintainer fires the tag push.
+      *Nobody had this written down until the PROJ-010 close-out — see the second staleness note
+      at the top of this file.*
+- [ ] **The README promises something `transform()` cannot do.** README:34–36 tells readers to
+      "start from a bundled `web`/`gallery`/`product`" recipe and says "the same recipe TOML runs
+      in the browser demo too, via the wasm `transform()` binding." It does not: every bundled
+      recipe ends with the reserved terminal `optimize` step, and `wasm::transform` is the one
+      call site that still does not strip it — driven, it returns `unknown operation 'optimize'`.
+      The demo works only because `demo/worker.js` hand-builds a different, terminal-step-free
+      recipe. This was filed as out-of-scope on the grounds that the shipped demo never reaches
+      it — true of the demo UI, but the README sends readers down exactly that path, and
+      `crustyimg-wasm` is a **published npm package**. Fix `transform` (the same strip helper;
+      its format is always caller-pinned via `out_format`, so no decision is needed) or correct
+      the README. **Fix before the 0.7.0 cut** — the README renders on the crates.io crate page.
 
 ## Strengtheners — harden the reception (do if time allows)
 
@@ -102,11 +133,19 @@ gates for a demo-centric Show HN.
 
 ## Critical path
 
-**As of 2026-07-26, every repo-side item is done.** SPEC-078 ✅ → STAGE-029 ✅ (closed, 9 specs) →
-README front-door ✅ + BENCHMARKS ✅ + AVIF-in-the-binary ✅ (STAGE-028, closed) → `crustyimg-wasm`
-published ✅ → 0.6.0 live on crates.io / brew / Releases ✅.
+**As of 2026-08-09, the correctness work is done and two repo items remain.** SPEC-078 ✅ →
+STAGE-029 ✅ → README front-door ✅ + BENCHMARKS ✅ + AVIF-in-the-binary ✅ → `crustyimg-wasm`
+published ✅ → 0.6.0 live ✅ → **PROJ-010 launch-gating complete ✅** (STAGE-034 classifier,
+STAGE-035 hostile input, STAGE-039 shipped-verb correctness — 5 specs, 4 decisions).
 
-**What remains is maintainer-only and needs no repo work:**
+**Still repo work, both blockers above:**
+
+0. **Cut 0.7.0**, and **fix `wasm::transform` (or the README) first**. The released binary predates
+   every PROJ-010 fix; the README advertises a wasm path that errors. Neither was on this board
+   until 2026-08-09. Cutting also refreshes the npm package, which is version-coupled to the crate
+   (`pkg/package.json` is at 0.6.0) — that publish is maintainer-gated.
+
+**What remains after that is maintainer-only and needs no repo work:**
 
 1. **Mobile real-device test** — ✅ **done (SPEC-101)**: iOS Safari + DuckDuckGo PASS on a real
    iPhone; Android Chrome untested, accepted on maintainer judgment. Still genuinely open: does a

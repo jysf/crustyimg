@@ -7,17 +7,69 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+A correctness release. Several commands were returning the wrong file — a much
+larger one, a sideways one, or none at all — on ordinary inputs. If you use
+`web`, `convert`, `resize`, `thumbnail`, `responsive`, `edit` or `build`, the
+output for the same command and input may change, and in each case the new
+output is the correct one. Also opens RAW files in the browser demo.
+
 ### Added
+
+- **RAW files open in the browser demo.** Drop a `.dng`, `.cr2`, `.nef` or
+  `.arw` on the demo page and it extracts the camera's embedded preview, the
+  same way the CLI does. Previews above 60 megapixels are declined with a note
+  pointing at the CLI, rather than risking the tab on a decode a phone may not
+  survive.
 
 ### Changed
 
-### Deprecated
-
-### Removed
+- **Every command that re-encodes pixels now applies EXIF orientation.** This is
+  a **behavior change**. `convert`, `resize`, `thumbnail`, `responsive` and
+  `edit` previously discarded the orientation tag without applying the rotation
+  it described, so a phone photo came out sideways — and `resize --max` applied
+  the bound to the wrong edge, so the output was also the wrong size. They now
+  rotate the pixels first, matching what `web`, `optimize` and `auto-orient`
+  already did. For an image carrying a rotation tag, output dimensions will
+  differ from previous releases. Images with no orientation tag, or the default
+  one, are unaffected and produce byte-identical output.
+- **`edit --save-recipe` now records the auto-orient step.** Recipes saved by
+  `edit` gained an explicit `auto-orient` step, so replaying one with `apply`
+  reproduces what `edit` did. Previously the replay could differ from the
+  original on any image carrying a rotation tag.
+- **A truncated JPEG now says so.** Decoding one still succeeds — every image
+  viewer tolerates a partial JPEG, and so does crustyimg — but it now prints a
+  warning to stderr instead of handing back a partially-grey image silently. The
+  exit code is unchanged.
 
 ### Fixed
 
+- **Downscaling no longer turns a graphic into a much larger file.** Dithered
+  and halftoned images — scans, print artifacts, archival material — were being
+  classified from the *resized* image rather than the original, so `--max` could
+  flip an image's content type and route it to lossy AVIF. One 45 KB halftone
+  came back at 845 KB, 18.5 times larger and visibly degraded, through the
+  default `web` path with no flags. Content is now judged from the source image,
+  so the same file is classified the same way at every size.
+- **Photographs are no longer mistaken for graphics.** A black-and-white frame
+  or a photo whose metadata had been stripped could trip the palette-graphic
+  test and come out as a lossless file many times larger than a correct lossy
+  encode. High-detail images are now always treated as photographs.
+- **`build` can run the recipes crustyimg ships with.** A manifest target bound
+  to `web`, `gallery` or `product` failed outright with `unknown operation
+  'optimize'`. It now runs them, picking the output format the same way
+  `apply --recipe` does — or honouring the format when the target's name
+  template names one.
+- **`docs/data-model.md`'s example recipe used operations that do not exist.**
+  Three of its five steps would have failed. Rewritten against the real
+  operations, and a test now keeps it that way.
+
 ### Security
+
+- No advisories. Hostile and malformed inputs — truncated, zero-byte,
+  mislabelled, and decompression bombs — are now driven against a committed
+  corpus on every build, on both the CLI and the WebAssembly library. None hangs,
+  panics or exhausts memory; each produces a clear message and a documented exit
+  code.
 
 ---
 
