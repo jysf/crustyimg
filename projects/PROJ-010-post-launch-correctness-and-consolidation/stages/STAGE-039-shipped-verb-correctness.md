@@ -5,7 +5,7 @@
 
 stage:
   id: STAGE-039
-  status: active
+  status: shipped
   priority: critical
   target_complete: null
 
@@ -15,7 +15,7 @@ repo:
   id: crustyimg
 
 created_at: 2026-07-26
-shipped_at: null
+shipped_at: 2026-08-09
 
 value_contribution:
   advances: >
@@ -145,11 +145,11 @@ out of STAGE-034 keeps that stage a single subject — the classifier pixel lane
   records `auto-orient` explicitly**, rather than giving `apply`/`build` an implicit prefix,
   because a recipe must stay a complete description of its own behaviour and `recipes/web.toml`
   already names the step. Complexity re-rated **M**.
-- [ ] (chore, may not need a spec) — **`docs/data-model.md` worked example.** `:142-182` advertises
+- [x] (chore, **done 2026-08-09**) — **`docs/data-model.md` worked example.** `:142-182` advertises
   `op = "unsharp"` (`:161`), `op = "watermark"` (`:166`), `op = "clean-gps"` (`:174`) and the CLI flags
   `--unsharp` / `--watermark` (`:181-182`). Rewrite against the four real ops. Complexity **S**.
 
-**Count:** 2 shipped / 0 active / 1 chore pending
+**Count:** 2 shipped / 0 active / 0 pending — **stage complete**
 
 ## Design Notes
 
@@ -179,4 +179,48 @@ out of STAGE-034 keeps that stage a single subject — the classifier pixel lane
 
 ## Stage-Level Reflection
 
-*Filled in when status moves to shipped.*
+**Shipped 2026-08-09** — two specs and one chore. SPEC-110 (PR #133 / `2ba0c21`, DEC-086),
+SPEC-111 (PR #138 / `c91da7b`, DEC-087), and the `docs/data-model.md` worked example. **This
+closes the last launch-gating repo work in PROJ-010.**
+
+**The stage's premise held: each of these was a shipped surface behaving differently from its
+own documentation, and none was catchable by a gate.** All three were found by someone driving
+the binary. What the stage got wrong was consistently the *size* of each one.
+
+- **D-1 was framed as a `convert` defect with a sweep attached.** The sweep was where the defect
+  lived: **seven** invocations returned a sideways image, and `resize` — not `convert` — was the
+  worst case, because the `--max` bound landed on the wrong axis and produced the wrong *size*.
+- **D-2 was framed as needing no design cycle** — "the fix is wiring, not design." Driving it
+  found the framed fix was necessary but **not sufficient**: stripping the terminal step without
+  threading the decided format would have written the source format and silently discarded the
+  modernization. That is a *quieter* bug than the loud one being fixed. One short design cycle
+  caught it.
+- **D-3 was framed as a doc rewrite.** Writing the test instead cost little and immediately
+  caught two flaws in itself — that `resize` reports `InvalidParams` rather than `Unknown` on
+  empty params, and that a count-based positive control false-alarms when the example legitimately
+  shrinks.
+
+**The pattern worth carrying forward: "this one is small" is a claim about code nobody has driven
+yet.** Three for three, the framing under-estimated the work, and in two of three cases the
+under-estimate would have shipped something worse than the original defect. The cost of falsifying
+it is one short cycle; the cost of believing it was, on SPEC-110, a full extra build pass.
+
+**Where errors clustered — and it was not the engineering.** Across both specs the code was sound
+essentially every round; what drifted were *claims about* the code. A test wrongly called vacuous;
+a follow-up verb list wrong in both directions; a carve-out believed narrow that a coexisting leak
+walked through; a "pre-existing" gap the change itself introduced; a DEC asserting universality its
+own named exception falsified; a mutation control that proved less than it said. Several of those
+were the orchestrator's, not the builders'. Keeping build and verify on different models caught
+every one — and the cheap orchestrator spot-checks between cycles caught the rest, including a red
+Windows CI leg hidden behind a "full matrix clean" report.
+
+**Decision records now describe the code again.** DEC-003's falsifiability condition was false when
+this stage opened (*"Right if: a resize preserves orientation…"*) and is amended; DEC-086 and
+DEC-087 both needed correcting before they were true, and both now are. `src/build/cache.rs` no
+longer justifies its invariant with a premise SPEC-111 falsified. That decay — a record quietly
+ceasing to describe the code — was the through-line of this whole stage.
+
+**Follow-ups filed, none launch-gating:** `src/wasm.rs::transform` carries the same
+unstripped-terminal-`optimize` defect class, reachable only by a third-party npm consumer; `build`
+joins SPEC-107's warning-coverage sweep list (the truncated-JPEG warning is not threaded through its
+new auto-decide path); and orphaned artifacts when a content change flips the decided extension.

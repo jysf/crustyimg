@@ -93,11 +93,11 @@ Two pre-launch stages (launch-gating), three post-launch stages (optional, per m
 - [ ] STAGE-036 (proposed) — **Engineering quality and code health** (post-launch). The continuation of PROJ-008 STAGE-031 (which shipped 097/098/099 and closed there): the `escape_json` tail plus an unsourced candidate list to triage.
 - [ ] STAGE-037 (proposed) — **Post-launch CLI surface** (post-launch). SPEC-092 `convert --to` + social/archive recipes. Re-homed from PROJ-008 STAGE-032 by `git mv`, content unchanged.
 - [ ] STAGE-038 (proposed) — **Post-launch polish and repo housekeeping** (post-launch). SPEC-106 completions + six CI/DCO/size/tooling chores. Re-homed from PROJ-008 STAGE-033 by `git mv`, minus SPEC-107.
-- [ ] STAGE-039 (proposed) — **Shipped-verb correctness** (D-1/D-2 launch-gating, D-3 cheap). SPEC-110 `convert` orientation + sweep; SPEC-111 `build` runs bundled recipes; a doc chore. New stage, added 2026-07-26 from re-verified exploration findings. Shares no files with STAGE-034 and can run concurrently.
+- [x] STAGE-039 (**shipped 2026-08-09**) — **Shipped-verb correctness** (D-1/D-2 launch-gating, D-3 cheap). SPEC-110 `convert` orientation + sweep (PR #133, DEC-086); SPEC-111 `build` runs bundled recipes (PR #138, DEC-087); the `docs/data-model.md` chore, now pinned by `tests/docs_ops.rs`. **This closes the last launch-gating repo work.** Each item turned out larger than framed: D-1 was seven broken verbs rather than one, D-2 needed a design cycle the stage said it did not, and D-3's test caught two flaws in itself. New stage, added 2026-07-26 from re-verified exploration findings.
 
-**Count:** 2 shipped / 0 active / 4 pending
+**Count:** 3 shipped / 0 active / 3 pending
 
-**Launch-gating:** STAGE-034 ✅ and STAGE-035 ✅ are both shipped; what remains gating is **D-1/D-2 within STAGE-039** (SPEC-110 `convert` orientation, SPEC-111 `build` runs bundled recipes). Everything else is post-launch.
+**Launch-gating: COMPLETE.** STAGE-034 ✅, STAGE-035 ✅ and STAGE-039 ✅ are all shipped. **No launch-gating repo work remains** — what is left on `docs/launch-readiness.md` is maintainer-only: the device pass (the 60 MP RAW preview decode has never run on hardware), re-verifying the install one-liners at 0.6.0, the post draft, and the go/no-go. STAGE-036/037/038 are post-launch and optional.
 
 ### How the carried stages were re-homed (2026-07-26)
 

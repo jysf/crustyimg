@@ -139,14 +139,18 @@ in each `[[step]]` table are that operation's params.
 
 ### Worked example — `web.toml`
 
-A "prep for web" recipe: orient, downscale, sharpen, watermark, drop GPS.
-(Operation names are illustrative; concrete ops are defined in their stages
-and must match their registry keys.)
+A "prep for web" recipe: orient, then downscale.
+
+**Every `op` below is a real registry key.** The registry holds exactly four
+operations — `identity`, `invert`, `resize`, `auto-orient` — and
+`tests/docs_ops.rs` asserts that every `op` named in this file resolves against
+`OperationRegistry::with_builtins()`, so this example cannot drift back into
+advertising steps that do not exist.
 
 ```toml
 version = "1"
 name = "web-prep"
-description = "Downscale + sharpen + watermark + strip GPS for blog images"
+description = "Auto-orient and downscale for blog images"
 
 [[step]]
 op = "auto-orient"
@@ -156,35 +160,26 @@ op = "resize"
 mode = "max"          # max | exact | percent | fit | fill | cover
 width = 1200
 # height omitted -> aspect-preserving on the long edge
-
-[[step]]
-op = "unsharp"
-sigma = 0.8
-amount = 0.6
-
-[[step]]
-op = "watermark"
-image = "assets/logo.png"
-gravity = "south-east"  # gravity: north/south/east/west/center compass
-opacity = 0.7
-scale = 0.15            # fraction of base width
-margin = 24
-
-[[step]]
-op = "clean-gps"        # metadata-lane step; drops only GPS
 ```
 
 Running it:
 
 ```bash
 # tune on one image, save the chain
-crustyimg edit hero.jpg --resize-max 1200 --unsharp 0.8,0.6 \
-    --watermark assets/logo.png --save-recipe web.toml -o hero_web.jpg
+crustyimg edit hero.jpg --resize-max 1200 --save-recipe web.toml -o hero_web.jpg
 
 # replay unchanged across a directory, in parallel
 crustyimg apply --recipe web.toml "photos/*.jpg" \
     --out-dir optimized/ --name-template "{stem}_web.{ext}" --jobs 8
 ```
+
+> **Not recipe steps.** Sharpening (`unsharp`) and GPS-only scrubbing
+> (`clean-gps`) are **unimplemented** — no registry key, no CLI flag. Watermarking
+> **is** implemented, but as the `watermark` *verb* rather than a recipe step: it is
+> deliberately left unregistered (`src/operation/mod.rs`, `src/cli/ops.rs`), so
+> `op = "watermark"` in a recipe is an error. Earlier revisions of this example
+> showed all three as steps; a reader following it got `unknown operation` on three
+> of five.
 
 ### `resize` step param keys (PINNED — SPEC-010 / DEC-014)
 
