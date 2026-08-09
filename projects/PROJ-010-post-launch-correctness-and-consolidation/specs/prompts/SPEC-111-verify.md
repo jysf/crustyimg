@@ -59,13 +59,18 @@ Also worth a judgement: the wasm one is the same *defect class* on a shipped sur
 is genuinely out of scope rather than convenient — `wasm::transform` is reachable from the live
 demo.
 
-**4. The cache-collision bug the build found and fixed.** It reports that decision 1 exposed a
-real pre-existing defect — two targets sharing a recipe file with different name templates could
-serve each other's cached bytes. That is a **behaviour fix beyond the spec's acceptance
-criteria**, in cache code, on the launch path. Confirm: that the bug was real (drive the
-collision on `main`), that the fix is correct, that it is tested, and that it did not weaken
-SPEC-065's injective-output guarantees. An unasked-for fix in cache code deserves more scrutiny
-than an asked-for one, not less.
+**4. The cache-collision risk the build found and closed.** It reports that decision 1 surfaced a
+collision risk in the cache key — two targets sharing a recipe file with different name templates
+could serve each other's cached bytes — and that risk is a regression this spec's own new
+Pinned-vs-Decided capability would introduce, not a pre-existing defect: a terminal-`optimize`
+target cannot reach `build` on `main` at all (it dies at prepare with `unknown operation
+'optimize'`), and the closest shape `main` CAN build — a plain recipe bound to two targets with
+different name templates — already serves identical bytes correctly today. That is a **behaviour
+fix inside the spec's own blast radius**, in cache code, on the launch path, caught and closed
+inside the same change that would have introduced it. Confirm: that the collision is real for the
+branch's new capability (drive it there) and genuinely unreachable on `main`, that the fix is
+correct, that it is tested, and that it did not weaken SPEC-065's injective-output guarantees. An
+unasked-for fix in cache code deserves more scrutiny than an asked-for one, not less.
 
 ## Also check
 

@@ -58,10 +58,54 @@ cost:
         plus two controls (`apply --recipe web` and a plain pixel recipe through
         `build`) — and traced the format-choice question through `encode_one`,
         `lock_output_path` and `EXT_SENTINEL`.
+    - cycle: build
+      agent: claude-sonnet-5
+      interface: claude-code
+      tokens_total: 144391578
+      duration_minutes: 1390.9
+      recorded_at: 2026-08-08
+      tokens_breakdown:
+        input: 886
+        output: 370380
+        cache_creation: 2339485
+        cache_read: 141680827
+      estimated_usd: 56.84
+      note: >
+        MEASURED — transcript sum over 443 assistant messages
+        (~/.claude/projects/-Users-jyashinsky-PSeven-experiments-crustimg-redo-plus-crustyimg/e5a13298-502b-4c30-af59-4f49967d5398.jsonl),
+        priced at Sonnet anchors ($3/$15 per MTok, cache_creation x1.25 input,
+        cache_read x0.10 input). duration_minutes is the raw first->last
+        transcript timestamp delta (18:42 2026-08-07 -> 17:53 2026-08-08) and
+        includes wall-clock gaps waiting on 3 sequential fresh-target-dir
+        matrix rebuilds plus a session boundary — not continuous active work.
+    - cycle: build
+      agent: claude-sonnet-5
+      interface: claude-code
+      tokens_total: 35393900
+      duration_minutes: 274.2
+      recorded_at: 2026-08-09
+      tokens_breakdown:
+        input: 514
+        output: 142989
+        cache_creation: 380974
+        cache_read: 34869423
+      estimated_usd: 14.04
+      note: >
+        Second build session — the PUNCH LIST pass (record accuracy only, no
+        behaviour change), on the same branch/PR. MEASURED — transcript sum
+        over 257 assistant messages
+        (~/.claude/projects/-Users-jyashinsky-PSeven-experiments-crustimg-redo-plus-crustyimg/cfece98d-ac6b-4bc6-bb2a-399c4c0ee7e5.jsonl),
+        priced at the same Sonnet anchors as the first build session.
+        duration_minutes is the raw first->last transcript timestamp delta
+        (02:43 -> 07:17 UTC, 2026-08-09) and includes wall-clock gaps waiting
+        on two rounds of full-matrix GitHub Actions CI (12 legs each) to
+        settle after two pushes — not continuous active work.
   totals:
     tokens_total: 0
     estimated_usd: 0
     session_count: 0
+    # NOTE: recomputed at ship (cost-snippet.md's ship-bookkeeping step),
+    # not here — this build cycle only appends its own `cost.sessions` entry.
 ---
 
 # SPEC-111: `build` runs bundled recipes
@@ -324,26 +368,158 @@ noted.
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
+- **Branch:** `feat/spec-111-build-recipes` (own worktree)
+- **PR:** #138 — https://github.com/jysf/crustyimg/pull/138 (NOT merged — verify runs next)
+- **All acceptance criteria met?** yes — AC-1 through AC-11, all driven (see the matrix
+  readout below for AC-11's full legs and `just wasm-test`).
 - **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
+  - `DEC-087` — `build`'s name template is the format pin; `edit --save-recipe` records
+    the bake. Covers both design calls, the cache-key finding, and the wasm/warning
+    exceptions named below.
 - **Deviations from spec:**
-  - [list]
+  - **Split the pre-written AC-2 test.** The spec's `build_writes_the_decided_format_not_the_source_format`
+    hardcodes ".avif" for a photographic source. That holds on lean (skipped, no avif)
+    and default (avif is the only lossy candidate) but NOT on `webp-lossy` — the fast
+    decision then has two competing lossy candidates, and correctly, legitimately,
+    picked lossy WebP over AVIF for this fixture there; the negative-test-run also
+    turned up that lean's own no-avif/no-webp-lossy shortlist correctly falls back to a
+    baseline JPEG (`fast_fallback_lossy_entry`) rather than a lossless blow-up. Neither is
+    a bug — both are the documented never-bigger/format-choice logic doing its job with a
+    different codec roster. Kept the strict AVIF/bytes assertion, but re-gated it to
+    `avif && !webp-lossy` (the one leg where AVIF is guaranteed to win the race, mirroring
+    `tests/cli.rs`'s existing `web_equals_apply_recipe_web` precedent), and added an
+    unconditional `build_decided_format_matches_apply_on_every_feature_leg` that proves
+    AC-2's real "one rule" requirement — build matches `apply --recipe web` byte-for-byte,
+    whichever format wins — on every leg, including `webp-lossy`. This was caught by
+    actually running the required matrix, not by reading the spec; see reflection 2/3.
+  - **`target_recipe_hash` (cache-key fix), not named in the spec's Outputs list.**
+    Implementing decision 1 surfaced a real correctness gap: two `build` targets sharing
+    one recipe file but different name templates (one Pinned, one Decide) would compute
+    the SAME cache key for the same input yet need DIFFERENT bytes — `crate::build::cache`'s
+    own module doc asserts the output format is "a pure function of the input bytes and
+    extension," which SPEC-111 breaks for terminal-`optimize` targets specifically. Fixed
+    by folding the format PLAN into the target's effective recipe hash, but ONLY for
+    terminal-`optimize` targets (a plain pixel recipe hashes via the untouched
+    `crate::build::cache::recipe_hash`, so no prior cache/lockfile goes stale). Named and
+    reasoned through in DEC-087's Consequences; covered by a dedicated unit test
+    (`target_recipe_hash_distinguishes_pinned_from_decided`).
+  - **Sweep finding, named not fixed: `src/wasm.rs`'s `transform`.** The required
+    `.build_pipeline(` sweep found `transform` builds a pipeline from a caller-supplied
+    recipe the same unstripped way `build` did before this spec — a bundled/terminal-
+    `optimize` recipe handed to it would hit the identical `unknown operation 'optimize'`
+    failure. Same defect class, explicitly out of scope per the spec's own "wasm... work"
+    exclusion. Not fixed; named in DEC-087 rather than silently passed over or silently
+    fixed beyond scope.
+  - **Sweep finding, named not fixed: the truncated-JPEG warning gap.** `build`'s new
+    Decide path reaches `optimize_decide_one` — the same seam SPEC-107's truncated-JPEG
+    stderr warning fires from on `apply --recipe web` — but `encode_one_optimize_decided`
+    discards the `truncated_jpeg` signal rather than threading it through, so `build`
+    does not yet warn where `apply` would for the identical input. Not an AC of this
+    spec; named in `docs/api-contract.md` and DEC-087 as a follow-up rather than expanded
+    into scope.
 - **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - Thread SPEC-107's truncated-JPEG stderr warning through `build`'s terminal-
+    `optimize`/Decide path, for parity with `apply --recipe web` on the same input.
+  - Strip the terminal `optimize` step in `src/wasm.rs`'s `transform` (or explicitly
+    document bundled/terminal-`optimize` recipes as unsupported there) — the same defect
+    class this spec fixed for `build`, found by the sweep, out of scope here.
+
+### Punch-list pass (second build session) — record accuracy only, no behaviour change
+
+Verify returned ⚠ PUNCH LIST on PR #138: all 11 ACs hold under driving; two documentation
+claims were over-broad; one architect error had reached `main`. This session fixed all
+three and decided-and-recorded three further, non-blocking items. No production behaviour
+changed.
+
+- **Item 1 — DEC-087's "complete" claim, narrowed.** Verify drove `edit --invert -q 40`
+  → replay without `-q` produced different bytes than replay with `-q 40`: quality is not
+  a recipe field, so "a complete, replayable description of what `edit` did" was false as
+  written. Narrowed to "a complete, replayable description of the **pixel steps** `edit`
+  ran," with the quality caveat stated explicitly. AC-8/AC-9 were never in question — only
+  the claim's scope was wrong.
+- **Item 2 — `cache.rs`'s module doc, re-justified.** It asserted the output-format-implies-
+  hit invariant holds because format is "a pure function of the input bytes and extension."
+  SPEC-111 itself falsifies that premise (a terminal-`optimize` target's format also
+  depends on the target's Pin/Decide plan). The invariant still holds, but only because
+  `target_recipe_hash` (`src/cli/build.rs`) folds the plan into the hash passed in as
+  `recipe_hash` before this module ever sees it. Re-worded to state that basis.
+- **Item 3 — an architect error in `SPEC-111-verify.md:63`, corrected.** The archived
+  verify prompt (merged to `main` in #139) called the cache-collision risk "a real
+  pre-existing defect." Verify itself refuted that while driving it: a terminal-`optimize`
+  target cannot reach `build` on `main` at all (dies at prepare), and the closest
+  `main`-reachable shape already serves identical bytes correctly. It is a regression
+  *this spec's own new capability* would have introduced, caught and closed inside the
+  same change — not a pre-existing bug. **This was the orchestrating architect's
+  transcription error, not this build's** — DEC-087's own Consequences text never called
+  it pre-existing; the verify prompt's relay of it did. Corrected in place on this branch
+  (the file did not previously exist here; materialized from `main` with the fix applied,
+  so it will need a trivial merge reconciliation against `main`'s copy).
+- **Decided — the weak AC-7 test: strengthened.** `build_lock_entry_names_the_decided_extension`
+  asserted a cache hit using `--check` without deleting the prior output first — `--check`
+  never writes, so this proved nothing about a real hit and would have passed on a silent
+  rebuild too. Fixed (test-only, no behaviour change): the hit leg now deletes the written
+  output, re-runs a real (non-`--check`) build, and asserts both the "(1 cached, 0
+  rebuilt)" summary line and byte-identical output — reproducing verify's own manual drive
+  of this exact scenario. Test count is unchanged (strengthened in place, not added).
+- **Decided — orphaned artifacts on an extension flip: named, not fixed.** A `{ext}`/Decide
+  target whose source content change flips the winning format (e.g. `photo.avif` →
+  `photo.webp` on a later run) leaves the old file behind; `build` has never cleaned `out`.
+  Pre-existing class, newly reachable because Decide's whole point is a content-dependent
+  extension. Named in DEC-087's Consequences per verify's "at minimum, name it" floor;
+  cleaning `out` is a scope decision of its own, left for a future spec.
+- **Decided — `name = "{stem}"`: docs wording fixed.** A name template with no extension at
+  all (not `{ext}`, no literal extension either) already exits 4 via
+  `SinkError::UnknownFormat` (confirmed by reading `format_from_extension` and its exit-code
+  mapping, `src/cli/mod.rs`) — same exit code as an unrecognized literal extension, but
+  `docs/api-contract.md`'s wording only named the latter case. Broadened the wording to
+  cover both; no behaviour changed (exit 4 already covered this case, undocumented).
+- **Verification:** re-ran the default leg through `rtk proxy` — 838/838, 0 failed, exact
+  match to the build session's reference count (the AC-7 strengthening changed a test
+  body, not the test count). `cargo clippy --all-targets -- -D warnings` and `cargo fmt
+  --check` both clean. `just wasm-test` 30/30, unaffected (this pass touched no
+  `#[cfg(not(target_arch = "wasm32"))]`-gated code). Lean and webp-lossy legs relied on
+  CI rather than a local re-run, given the change surface (doc comments, markdown, one
+  test body).
+- **CI legs read (not just the local matrix):** pushed, then polled PR #138's checks
+  through to completion — 12/12 green: `build / test / clippy / fmt` on macOS/Ubuntu/
+  Windows, `avif feature`, `webp-lossy feature`, `heic feature` on macOS/Ubuntu, `lean
+  build`, `msrv (rust 1.90.0)`, `supply-chain policy (cargo-deny)`, `cost-capture audit`,
+  `front-matter validation`. No pending, no failed. Cross-checked the summary against
+  `rtk proxy gh pr checks 138`'s raw per-job table (the summarized form is itself an
+  `rtk`-rewritten command) — both agree, 12/12 pass, confirming the docs-only + one-test-
+  body change did not move the matrix on any leg, not just the one re-run locally.
+- **PR:** #138, still not merged (`mergeable: CONFLICTING` — this branch materializes
+  `SPEC-111-verify.md`, which `main` already has a different version of via #139; a
+  normal add/add merge conflict to resolve at merge time, not a defect in this pass).
 
 ### Build-phase reflection (3 questions, short answers)
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — Nothing structural — both design decisions were genuinely made and inlined, exactly
+   as promised. The one gap the spec text didn't anticipate: the SAME recipe file can be
+   bound to two different `build` targets with different name templates (one Pinned, one
+   Decide), which breaks the PRE-EXISTING cache-key invariant that the output format is a
+   pure function of (recipe, input) — `crate::build::cache`'s own module doc states this
+   explicitly. Tracing that out and designing a safe, minimal (only-when-needed) fix cost
+   real time the spec's "the format thread is the work" framing didn't quite cover, since
+   it's a step further than threading the format to the WRITE — it's threading the format
+   PLAN into the cache's correctness contract too.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — The pre-written AC-2 failing test's hardcoded ".avif" outcome is leg-dependent, and
+   nothing in the spec flagged it. It happens to hold on lean (skipped) and default (AVIF
+   is the only lossy candidate there), but not on `webp-lossy` — one of the three REQUIRED
+   matrix legs — where a second competing lossy candidate makes the byte-race winner a
+   measured outcome, not an assumed one (the exact caution `tests/cli.rs`'s
+   `web_equals_apply_recipe_web` already documents for the analogous `apply`/`web` case,
+   but that precedent wasn't cross-referenced from this spec's Failing Tests section).
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Run the full three-leg matrix against the NEW tests immediately after writing them —
+   before touching any `src/` file — rather than only smoke-testing against default. The
+   lean/webp-lossy-specific format-choice fragility (the JPEG fallback, the WebP-vs-AVIF
+   race) would have surfaced during test authoring instead of during the final matrix
+   verify pass, avoiding a rebuild-and-recheck cycle on two of the three legs.
 
 ---
 
