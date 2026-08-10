@@ -188,6 +188,13 @@ Everything below is outward-facing and deliberately **not** done here.
    preview decode has never run on hardware, and whether the demo surfaces errors legibly), the
    install one-liner re-verification **at 0.7.0**, the post draft's CLI-vs-demo RAW split fix,
    and the go/no-go.
+5. **The STAGE-040 brag is owed at stage close, not now** — the discipline is brag-at-STAGE-close,
+   and this stage does not close until step 2 passes. Deliberately held rather than forgotten:
+   two weeks and $460 of this wave went unrecorded because nobody wrote one. Figures ready for it:
+   SPEC-112 cost **109,071,623 tokens / $76.16** across 2 metered cycles (build Sonnet $39.46,
+   verify Opus $36.70); the release chore itself was un-metered main-loop work (AGENTS §4). The
+   most quotable finding is not the fix but its guard: **no CI leg runs `just wasm-test`**, so the
+   seven tests pinning SPEC-112 — and the thirty before them — run only on a maintainer's machine.
 
 ## Stage-Level Reflection
 
