@@ -32,9 +32,24 @@ Cycle prompts live in `prompts/SPEC-112-<cycle>.md`.
       helper exists, the decision is already made.
       **Un-metered main-loop cycle** (AGENTS §4).
 
-- [ ] **build** — run `prompts/SPEC-112-build.md` in a **fresh session**, own git worktree.
-      Sonnet. Small, but it touches a published surface — `just wasm-check` is the fast gate
-      before the full `just wasm-test`.
+- [x] **build** — 2026-08-09/10. PR [#144](https://github.com/jysf/crustyimg/pull/144),
+      branch `feat/spec-112-wasm-bundled-recipes`. All 10 ACs met. `transform` strips the
+      terminal marker via `split_terminal_optimize`, moved (not copied) from `cli::optimize`
+      to `src/recipe/mod.rs` — `cli` and `wasm` are mutually exclusive `#[cfg(target_arch)]`
+      module trees (SPEC-072), so a `cli`-hosted `pub(crate)` helper could not have reached
+      `wasm::transform` at any visibility; `recipe` is one of the modules compiled for both.
+      DEC-087 amended (AC-7). Full matrix green, fresh per-leg `CARGO_TARGET_DIR`s,
+      sequential, through `rtk proxy`: lean 821/821, default 841/841, webp-lossy 847/847,
+      `just wasm-test` 37/37 (30 pre-existing + 7 new) — every log confirmed
+      `Compiling crustyimg`. Note: the prompt's stated lean/webp-lossy reference numbers
+      (818/844) undercounted this branch's actual base commit (462b829) by 3 each, confirmed
+      via a git-stash positive control against that exact commit — a pre-existing drift, not
+      caused by this spec; default's reference (841) matched exactly. AC-9 negative control
+      driven and recorded (see spec). Actual agent per the session transcript's
+      `.message.model`: **claude-opus-5** (not the Sonnet the spec/orchestrator dispatch
+      note named) — cost priced at Opus anchors, flagged as a finding.
+      **CI legs on PR #144 not yet read** — hand off to verify to confirm the full required
+      matrix (not just a local pass).
 
 - [ ] **verify** — fresh session, **Opus**. Drive all three bundled recipes through the real
       wasm surface yourself rather than the native call chain; the native chain is what the
