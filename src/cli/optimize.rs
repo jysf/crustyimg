@@ -9,7 +9,7 @@ use crate::image::Image;
 use crate::operation::{OperationParams, OperationRegistry, RegistryError};
 use crate::pipeline::Pipeline;
 use crate::quality::{self, LossyFormat, SearchConfig};
-use crate::recipe::Recipe;
+use crate::recipe::{split_terminal_optimize, Recipe};
 use crate::sink::{Overwrite, Sink, SinkError, SinkInput};
 use crate::source::{self, SourceError};
 
@@ -22,36 +22,6 @@ use super::report::format_label;
 use super::{AutoQuality, CliError, ExplainFmt, GlobalArgs, ProfileArg, QualityTarget};
 
 // ── Real apply path ───────────────────────────────────────────────────────────
-
-/// The reserved terminal recipe step that encodes via the fast AVIF-aware decision
-/// (`Mode::Fast`: modernize format + never-bigger + score) instead of a plain
-/// format-preserving sink write (SPEC-085). This is what makes `apply --recipe web`
-/// == the `web` verb — the bundled flows end with it. It is NOT a registry
-/// operation (it produces bytes + a format choice, not a transformed `Image`), so it
-/// is handled here in the apply path and stripped before `build_pipeline`.
-const OPTIMIZE_STEP_OP: &str = "optimize";
-
-/// If `recipe` ends with the terminal [`OPTIMIZE_STEP_OP`] step, return a copy with
-/// that step removed — the pixel pipeline to run before the fast decision. `None`
-/// when the recipe has no terminal `optimize` step (a plain pixel recipe). An
-/// `optimize` step anywhere but last is left in place, so `build_pipeline` surfaces
-/// it as a typed `UnknownOperation` error rather than silently reordering intent.
-///
-/// `pub(super)`: `build` reuses this exact helper rather than copying it
-/// (SPEC-111) — `run_build`'s `prepare_target` faces the identical problem
-/// `run_apply` solves here (a bundled recipe's terminal marker is not a
-/// registry op), and a second copy of the "anywhere but last stays an error"
-/// rule (AC-5) is exactly the kind of drift a shared helper prevents.
-pub(super) fn split_terminal_optimize(recipe: &Recipe) -> Option<Recipe> {
-    match recipe.steps.last() {
-        Some(step) if step.op == OPTIMIZE_STEP_OP => {
-            let mut pixel = recipe.clone();
-            pixel.steps.pop();
-            Some(pixel)
-        }
-        _ => None,
-    }
-}
 
 /// The `apply --recipe` path: recipe → batch fan-out via rayon + indicatif.
 ///

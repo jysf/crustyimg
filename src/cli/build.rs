@@ -10,12 +10,12 @@ use rayon::prelude::*;
 
 use crate::error::ImageError;
 use crate::operation::OperationRegistry;
-use crate::recipe::Recipe;
+use crate::recipe::{split_terminal_optimize, Recipe};
 use crate::sink::Overwrite;
 use crate::source::{self, SourceError};
 
 use super::common::{encode_one, load_recipe, write_encoded, BATCH_PROGRESS_TEMPLATE};
-use super::optimize::{encode_one_optimize_decided, split_terminal_optimize};
+use super::optimize::encode_one_optimize_decided;
 use super::{CliError, GlobalArgs};
 
 // ── Build command (SPEC-063, DEC-057) ────────────────────────────────────────

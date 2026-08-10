@@ -291,6 +291,48 @@ impl Recipe {
     }
 }
 
+// ─── The terminal `optimize` marker (SPEC-085, SPEC-111, SPEC-112) ────────────
+
+/// The reserved terminal recipe step that encodes via the fast AVIF-aware decision
+/// (`Mode::Fast`: modernize format + never-bigger + score) instead of a plain
+/// format-preserving sink write (SPEC-085). This is what makes `apply --recipe web`
+/// == the `web` verb — the bundled flows end with it. It is NOT a registry
+/// operation (it produces bytes + a format choice, not a transformed `Image`), so
+/// every caller strips it before [`Recipe::build_pipeline`].
+const OPTIMIZE_STEP_OP: &str = "optimize";
+
+/// If `recipe` ends with the terminal [`OPTIMIZE_STEP_OP`] step, return a copy with
+/// that step removed — the pixel pipeline to run before the caller's own terminal
+/// decision (a fast auto-decide encode on the CLI side, a pinned-format encode on
+/// the wasm side). `None` when the recipe has no terminal `optimize` step (a plain
+/// pixel recipe). An `optimize` step anywhere but last is left in place, so
+/// [`Recipe::build_pipeline`] surfaces it as a typed `UnknownOperation` error rather
+/// than silently reordering intent.
+///
+/// Lives here, not in `cli`, because it is a **recipe** concern shared by every
+/// caller that hands a recipe to `build_pipeline` — and because `cli` is compiled
+/// only for native targets (`#[cfg(not(target_arch = "wasm32"))]`, `src/lib.rs`)
+/// while `wasm` is compiled only for `wasm32` (`#[cfg(target_arch = "wasm32")]`):
+/// the two module trees never coexist in one build, so a `cli`-hosted `pub(crate)`
+/// helper would not even compile into the wasm32 artifact for `wasm::transform` to
+/// call. `recipe` is one of the modules that compiles for BOTH targets (`src/lib.rs`
+/// §"the pure engine"), so it is the only home that actually reaches both callers.
+/// `pub(crate)`: `cli::optimize::run_apply` (native), `cli::build::prepare_target`
+/// (native, via `cli::optimize`'s re-export), and `wasm::transform` (wasm32) all
+/// reuse this exact function rather than each carrying its own copy — a second copy
+/// is exactly the kind of drift the "anywhere but last stays an error" rule (AC-5,
+/// SPEC-112) would silently diverge on.
+pub(crate) fn split_terminal_optimize(recipe: &Recipe) -> Option<Recipe> {
+    match recipe.steps.last() {
+        Some(step) if step.op == OPTIMIZE_STEP_OP => {
+            let mut pixel = recipe.clone();
+            pixel.steps.pop();
+            Some(pixel)
+        }
+        _ => None,
+    }
+}
+
 // ─── Tests ──────────────────────────────────────────────────────────────────
 
 #[cfg(test)]

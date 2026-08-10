@@ -123,6 +123,196 @@ op = "identity"
         assert_eq!((back.width(), back.height()), (64, 48));
     }
 
+    // ── SPEC-112: `transform` runs the bundled recipes ────────────────────────
+    //
+    // Every bundled recipe (`web`/`gallery`/`product`) ends with the reserved
+    // terminal `optimize` marker (SPEC-085) — not a registry op. Before this
+    // spec, `transform` handed the recipe to `build_pipeline` unstripped, so
+    // all three failed with `unknown operation 'optimize'` (driven at design,
+    // 2026-08-09, against the real wasm-bindgen surface, not the native call
+    // chain — this file's whole reason to exist per the module doc above).
+
+    /// A photographic-shaped fixture bigger than the SMALLEST bundled bound
+    /// (`product`'s 1600px long edge) so a `max`-mode resize actually fires.
+    /// This is AC-3's trap: a strip that dropped the WHOLE recipe, or ran no
+    /// pixel steps, would still return bytes in the right format and pass
+    /// AC-1/AC-2 — only a dimension assertion catches it. 1800×1200 (2.16 MP)
+    /// stays safely over 1600 while keeping the test cheap.
+    fn photo_1800x1200() -> Vec<u8> {
+        use image::{ImageEncoder, Rgb, RgbImage};
+        let mut img = RgbImage::new(1800, 1200);
+        for (x, y, px) in img.enumerate_pixels_mut() {
+            let gx = (x * 255 / 1800) as u8;
+            let gy = (y * 255 / 1200) as u8;
+            *px = Rgb([gx, gy, 128]);
+        }
+        let mut out = Vec::new();
+        image::codecs::png::PngEncoder::new(&mut out)
+            .write_image(img.as_raw(), 1800, 1200, image::ExtendedColorType::Rgb8)
+            .expect("encode fixture png");
+        out
+    }
+
+    /// AC-1: every bundled recipe — the EXACT TOML `bundled::resolve` hands
+    /// out, not a hand-copied shape — must run through the real wasm surface.
+    /// All three fail today with `unknown operation 'optimize'`.
+    #[wasm_bindgen_test]
+    fn transform_runs_every_bundled_recipe() {
+        let src = photo_1800x1200();
+        for name in ["web", "gallery", "product"] {
+            let toml = crustyimg::recipe::bundled::resolve(name)
+                .unwrap_or_else(|| panic!("{name} must resolve to a bundled recipe"));
+            let out = transform(&src, toml, "png").unwrap_or_else(|e| {
+                panic!(
+                    "{name} should run through transform: {:?}",
+                    wasm_bindgen::JsValue::from(e)
+                )
+            });
+            assert!(!out.is_empty(), "{name}: transform returned no bytes");
+            let back = info(&out).unwrap_or_else(|e| {
+                panic!(
+                    "{name}: output should decode: {:?}",
+                    wasm_bindgen::JsValue::from(e)
+                )
+            });
+            assert_eq!(back.format(), "png", "{name}: output format");
+        }
+    }
+
+    /// AC-2: the output honours the CALLER's `out_format`, not a decided one —
+    /// asking for `"png"` yields real PNG bytes, asking for `"jpeg"` yields
+    /// real JPEG bytes. Asserted on bytes (magic + a real decode), not on a
+    /// returned name — this is the whole reason `transform` needs no decision
+    /// path, so it is the thing to pin.
+    #[wasm_bindgen_test]
+    fn transform_honours_the_callers_out_format() {
+        let src = photo_1800x1200();
+        let toml = crustyimg::recipe::bundled::resolve("web").expect("web must resolve");
+
+        let png = transform(&src, toml, "png").expect("png transform should succeed");
+        assert_eq!(&png[..8], b"\x89PNG\r\n\x1a\n", "png magic bytes");
+        assert_eq!(
+            info(&png).expect("png output should decode").format(),
+            "png"
+        );
+
+        let jpeg = transform(&src, toml, "jpeg").expect("jpeg transform should succeed");
+        assert_eq!(&jpeg[..2], &[0xFF, 0xD8], "jpeg magic bytes");
+        assert_eq!(
+            info(&jpeg).expect("jpeg output should decode").format(),
+            "jpeg"
+        );
+    }
+
+    /// AC-3, the trap: a strip that removed the WHOLE recipe (or ran no pixel
+    /// steps) would still pass AC-1 and AC-2 — same success, same format. Only
+    /// asserting the DIMENSIONS actually changed catches it. `product`'s bound
+    /// is 1600px and the fixture's long edge is 1800px, so `max`-mode resize
+    /// math (`s = min(1600/1800, 1.0)`) must shrink it to exactly 1600×1067.
+    #[wasm_bindgen_test]
+    fn transform_actually_runs_the_pixel_steps() {
+        let src = photo_1800x1200();
+        let toml = crustyimg::recipe::bundled::resolve("product").expect("product must resolve");
+
+        let out = transform(&src, toml, "png").expect("product transform should succeed");
+        let back = info(&out).expect("output should decode");
+
+        assert_ne!(
+            (back.width(), back.height()),
+            (1800, 1200),
+            "product's resize step must actually have run, not been dropped with the marker"
+        );
+        assert_eq!(back.width(), 1600, "product caps the long edge to 1600px");
+        assert_eq!(
+            back.height(),
+            1067,
+            "height scales proportionally: round(1200 * 1600/1800)"
+        );
+    }
+
+    /// AC-4, the demo guard: a recipe with NO terminal marker —
+    /// `geometryRecipe()`'s exact shape (`demo/worker.js`: `auto-orient` +
+    /// an optional `resize max <cap>`) — must be BYTE-IDENTICAL to what
+    /// `transform` produced on `main`, not merely "still works". Reconstructed
+    /// independently here (`build_pipeline` directly on the UNSTRIPPED recipe)
+    /// rather than diffed against a checked-out `main`: `split_terminal_optimize`
+    /// is a no-op on a markerless recipe, so the independent path below IS
+    /// exactly what `main`'s `transform` did — there is no other decision left
+    /// for the two to diverge on.
+    #[wasm_bindgen_test]
+    fn transform_leaves_a_markerless_recipe_unchanged() {
+        let src = photo_1800x1200();
+        // geometryRecipe(900)'s exact shape.
+        let recipe_toml = "version = \"1\"\n\n[[step]]\nop = \"auto-orient\"\n\n[[step]]\n\
+                            op = \"resize\"\nmode = \"max\"\nwidth = 900\n";
+
+        let out =
+            transform(&src, recipe_toml, "png").expect("a markerless recipe should still work");
+
+        let recipe = crustyimg::recipe::Recipe::from_toml(recipe_toml).expect("recipe parses");
+        let img = crustyimg::image::Image::from_bytes(&src).expect("fixture decodes");
+        let pipeline = recipe
+            .build_pipeline(&crustyimg::operation::OperationRegistry::with_builtins())
+            .expect("a markerless recipe builds a pipeline directly, no split needed");
+        let expected_img = pipeline.run(img).expect("pipeline runs");
+        let expected =
+            crustyimg::sink::encode_to_bytes(&expected_img, ::image::ImageFormat::Png, None)
+                .expect("independent encode");
+
+        assert_eq!(
+            out, expected,
+            "a markerless recipe (the live demo's geometryRecipe shape) must be \
+             byte-identical to what transform produced before this spec"
+        );
+    }
+
+    /// AC-5: the strip keys on the RESERVED NAME, not "whatever step is last".
+    /// A genuinely unknown terminal op must still be rejected — the strip must
+    /// not eat it.
+    #[wasm_bindgen_test]
+    fn transform_still_rejects_an_unknown_terminal_op() {
+        let src = png_64x48();
+        let toml = "version = \"1\"\n\n[[step]]\nop = \"auto-orient\"\n\n[[step]]\n\
+                     op = \"not-a-real-op\"\n";
+
+        let err = transform(&src, toml, "png")
+            .expect_err("an unknown terminal op must still be rejected");
+        let msg = format!("{:?}", wasm_bindgen::JsValue::from(err));
+        assert!(!msg.is_empty(), "the error must carry a message");
+    }
+
+    /// AC-5: an `optimize` step that is NOT LAST still errors — the strip only
+    /// ever removes a TRAILING marker, matching `split_terminal_optimize`'s
+    /// documented contract and `build`'s behaviour (SPEC-111).
+    #[wasm_bindgen_test]
+    fn transform_still_rejects_optimize_not_last() {
+        let src = png_64x48();
+        let toml = "version = \"1\"\n\n[[step]]\nop = \"optimize\"\n\n[[step]]\n\
+                     op = \"auto-orient\"\n";
+
+        let err = transform(&src, toml, "png")
+            .expect_err("an 'optimize' step that is not last must still be rejected");
+        let msg = format!("{:?}", wasm_bindgen::JsValue::from(err));
+        assert!(!msg.is_empty(), "the error must carry a message");
+    }
+
+    /// AC-6: the module survives a rejected recipe — a later ordinary call
+    /// still succeeds. The established pattern from
+    /// `optimize_detailed_rejects_oversize_without_panic`.
+    #[wasm_bindgen_test]
+    fn the_module_survives_a_rejected_recipe() {
+        let src = png_64x48();
+        let bad = "version = \"1\"\n\n[[step]]\nop = \"not-a-real-op\"\n";
+
+        let err = transform(&src, bad, "png").expect_err("a bad recipe must be rejected");
+        let msg = format!("{:?}", wasm_bindgen::JsValue::from(err));
+        assert!(!msg.is_empty(), "the error must carry a message");
+
+        let ok = transform(&src, IDENTITY_RECIPE, "png")
+            .expect("the wasm module must survive a rejected recipe");
+        assert!(!ok.is_empty());
+    }
+
     /// `info` reports the true width/height/format of a PNG decoded in wasm.
     #[wasm_bindgen_test]
     fn info_reports_png_dimensions() {
