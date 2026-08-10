@@ -111,7 +111,8 @@
       (squoosh-cli is **abandoned** — that's the wedge).
 - [~] **CLI install one-liners verified** (cargo binstall / brew / released binary) — **0.6.0 is
       live on crates.io / brew / Releases, and SPEC-082 verified every fenced README command at
-      0.5.0. NOT re-verified end-to-end since the 0.6.0 cut — worth one pass before the post.**
+      0.5.0. NOT re-verified end-to-end since the 0.6.0 cut. 0.7.0's release commit is prepared
+      but untagged, so the channels still serve 0.6.0 — do this pass once the tag has fired.**
       (was: if the post
       mentions the CLI, it must install cleanly.
 
@@ -140,10 +141,20 @@ STAGE-035 hostile input, STAGE-039 shipped-verb correctness — 5 specs, 4 decis
 
 **Still repo work, both blockers above:**
 
-0. **Cut 0.7.0**, and **fix `wasm::transform` (or the README) first**. The released binary predates
-   every PROJ-010 fix; the README advertises a wasm path that errors. Neither was on this board
-   until 2026-08-09. Cutting also refreshes the npm package, which is version-coupled to the crate
-   (`pkg/package.json` is at 0.6.0) — that publish is maintainer-gated.
+0. **Cut 0.7.0**, and **fix `wasm::transform` first** — ✅ **repo work done 2026-08-10; the tag is
+   the only thing left, and it is yours.** `wasm::transform` now runs the bundled recipes
+   (SPEC-112, PR #144) so the README's claim is true, and the release commit
+   `chore(release): v0.7.0` is prepared on `chore/release-0-7-0` with the full `RELEASING.md`
+   gate green (test 841/0, clippy, fmt, lean build, cargo-deny, `publish --dry-run`, plus
+   `just wasm-test` 37/37 by hand — no CI leg runs that suite). **Not tagged**: `git tag -a
+   v0.7.0` + the push are maintainer-authorized and fire crates.io, Homebrew and the Release
+   page in one go.
+   **npm correction:** the package is `crustyimg-wasm` and the registry has **only 0.5.0
+   (2026-07-21)** — the 0.6.0 cut never republished it, so npm is two minors behind, not one, and
+   its sole release predates the `transform` fix. (`pkg/package.json` is a gitignored `wasm-pack`
+   artifact, not a maintained file — the earlier note here read the working tree instead of the
+   registry.) Republish at 0.7.0 is decided and recorded on STAGE-040; the publish is
+   maintainer-gated.
 
 **What remains after that is maintainer-only and needs no repo work:**
 
@@ -157,7 +168,8 @@ STAGE-035 hostile input, STAGE-039 shipped-verb correctness — 5 specs, 4 decis
    (SPEC-107)**, holds and is now driven, not assumed (the one defect found is fixed, DEC-085).
    Still genuinely open: does the demo *surface* these errors legibly in the UI, and how a phone
    behaves on the largest inputs — both fold into item 1's device pass.
-3. **Re-verify the install one-liners at 0.6.0**, if the post mentions the CLI.
+3. **Re-verify the install one-liners at 0.7.0** — after the tag fires, not before; 0.7.0 is not
+   on any channel until then. If the post mentions the CLI, it must install cleanly.
 4. **ROADMAP read + post draft** — ⚠ the draft needs a **CLI-vs-demo RAW split** fix: the CLI
    reads RAW, and since SPEC-103 the demo does too, behind a stated 60 MP gate. State it honestly.
 5. **The go/no-go itself** — moved here from STAGE-028 at that stage's close-out.

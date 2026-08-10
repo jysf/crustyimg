@@ -5,9 +5,14 @@
 
 stage:
   id: STAGE-040
-  status: proposed
+  status: active                     # proposed | active | shipped | cancelled | on_hold
   priority: critical
   target_complete: null
+  # Both backlog items are done as far as this repo can take them. The stage
+  # stays `active`, not `shipped`, because the last step is outward-facing and
+  # maintainer-authorized: the `v0.7.0` tag push (RELEASING.md steps 6-7) and
+  # the channel verification (step 8). It ships when the tag fires and
+  # crates.io / Homebrew / Releases carry 0.7.0.
 
 project:
   id: PROJ-010
@@ -97,12 +102,15 @@ Two items: one code fix that must precede the cut, and the cut itself.
   recipes returned `unknown operation 'optimize'` on `main` and succeed on the branch, and the
   markerless demo shape is byte-identical across the change. DEC-087 amended. Cost
   109,071,623 tokens / $76.16.
-- [ ] (chore) — **cut 0.7.0.** Follow `RELEASING.md`: bump `Cargo.toml`, promote the
-  `[Unreleased]` CHANGELOG section (already written), run the full gate, prepare the release
-  commit, then **stop** and hand the tag push to the maintainer. Decide the npm republish and
-  record it either way. Complexity **S–M**.
+- [x] (chore) — **cut 0.7.0.** DONE as far as this repo can take it, 2026-08-10. Release commit
+  prepared; **not tagged** — that is maintainer-authorized and is the only thing left.
+  `just release 0.7.0` bumped `Cargo.toml` + `Cargo.lock` and both guards passed (tag-matches-
+  crate-version, CHANGELOG-has-a-section). `[Unreleased]` rolled into `## [0.7.0] - 2026-08-10`.
+  Two repairs made in the same pass: the CHANGELOG had **no entry for SPEC-112** (it was written
+  before that spec landed), and the `[Unreleased]` link reference still pointed at
+  `v0.5.0...HEAD` after the 0.6.0 cut. npm republish decided — see below.
 
-**Count:** 1 shipped / 0 active / 1 chore pending
+**Count:** 1 shipped / 1 chore done-pending-maintainer / 0 pending
 
 ## Design Notes
 
@@ -143,6 +151,52 @@ Two items: one code fix that must precede the cut, and the cut itself.
 - The Show HN go/no-go, which after this is maintainer-only: the device pass, the install
   one-liner re-verification at 0.7.0, the post draft, and the decision itself.
 
+## The npm republish — decided 2026-08-10
+
+**Decision: republish `crustyimg-wasm` at 0.7.0.** Recommended, not performed — the publish is
+irreversible and maintainer-gated (SPEC-076), so it sits in the handoff below alongside the tag.
+
+The reasoning changed once the registry was checked rather than the working tree. The stage
+originally recorded "`pkg/package.json` reads 0.6.0", which is a **generated, gitignored**
+`wasm-pack` artifact, not a maintained file. On npm, `crustyimg-wasm` has **exactly one published
+version — 0.5.0, 2026-07-21**. The v0.6.0 cut (2026-07-24) never republished it.
+
+So npm is not "about to go stale"; it has been stale for a minor already, and its only release
+predates SPEC-112. A JS consumer who follows `README.md:34-36` today installs the build whose
+`transform()` answers `unknown operation 'optimize'` for every bundled recipe. **Republishing is
+what makes the README true for the audience the README is written for** — the crate and Homebrew
+channels do not reach that reader at all.
+
+Mechanics when authorized: `just wasm-npm-pkg` regenerates `pkg/` with the version copied from
+`Cargo.toml` (DEC-067 — no hand-editing, no override), `just wasm-npm-smoke` installs the packed
+tarball into a fresh project and drives it, and only then `npm publish`. Publishing 0.5.0 → 0.7.0
+skips 0.6.0 on npm, which npm permits and which is honest: there was no 0.6.0 wasm release.
+
+## Handoff — the maintainer-authorized remainder
+
+Everything below is outward-facing and deliberately **not** done here.
+
+1. **Tag and push** (RELEASING.md 6–7). The release commit is `chore(release): v0.7.0` on
+   `chore/release-0-7-0`; merge it, then from `main`:
+   `git tag -a v0.7.0 -m "crustyimg v0.7.0" && git push origin v0.7.0`. That single push fires
+   cargo-dist (binaries + checksums + GitHub Release), the Homebrew formula job, and
+   `publish-crates.yml`.
+2. **Verify the channels** (step 8): Release page with artifacts, `cargo search crustyimg`,
+   `brew install jysf/tap/crustyimg`. **The stage ships when this passes**, not before.
+3. **npm republish** at 0.7.0, per the decision above.
+4. Then the genuinely maintainer-only launch items, unchanged: the device pass (the ~60 MP RAW
+   preview decode has never run on hardware, and whether the demo surfaces errors legibly), the
+   install one-liner re-verification **at 0.7.0**, the post draft's CLI-vs-demo RAW split fix,
+   and the go/no-go.
+
 ## Stage-Level Reflection
 
-*Filled in when status moves to shipped.*
+*Filled in when status moves to shipped — i.e. after the tag fires and the channels verify.*
+
+Provisional note, recorded while it is fresh: the stage's own framing contained the error it
+existed to prevent. It asserted a version-coupling fact about npm from a **generated file in the
+working tree** instead of from the registry, and was wrong by a whole minor release. That is the
+same failure mode as the build's cost entry (read the newest transcript, not its own) and the
+three doc comments verify corrected — *the engineering was sound; the claims about it drifted*.
+The cure that keeps working is the cheap one: go to the authoritative source, not the nearest
+plausible one.
