@@ -155,8 +155,25 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
   nothing today, but it is a live trap for whoever next re-measures SPEC-074's lean wasm
   baseline — exactly the number a mislabelled banner would poison. Queued item #7.
   Complexity **S**.
+- [ ] (chore) — **no CI leg runs `just wasm-test`.** Found by SPEC-112's verify, 2026-08-10.
+  `.github/workflows/ci.yml` has **no wasm32 step at all**, and `pages.yml`'s
+  `build + browser smoke` job runs `just demo-build` + `just demo-smoke` — which drives only the
+  demo's *markerless* recipe path — so it would not catch a bundled-recipe regression either.
+  All 37 tests in `tests/wasm_roundtrip.rs` therefore execute **only on a maintainer's machine**,
+  including the 7 that pin SPEC-112. A regression of exactly the defect SPEC-112 fixed would
+  reach `main`, the crate and the npm package with every required check green. Wants a wasm32
+  CI leg running `just wasm-check` + `just wasm-test`. Queued item #8. Complexity **S–M** (the
+  runner needs the wasm32 target and `wasm-bindgen-test-runner` —
+  [[probe-load-bearing-crates-at-design]] applies to the test RUNNER for a new target).
+- [ ] (chore) — **the README does not say `transform` skips the marker's semantics.** Found by
+  SPEC-112's verify. `transform(bundled_toml, "png")` now runs the bundled recipe (SPEC-112),
+  but the terminal `optimize` marker's semantics — the fast AVIF-aware decision, never-bigger,
+  score — are *stripped*, not reproduced; `optimizeDetailed` is the decide-path counterpart, as
+  designed. `README.md:34-36` says the TOML *runs*, which is true, so SPEC-112's AC-8 holds. But
+  a JS consumer starting from `web` gets the downscale without the modernize, and nothing tells
+  them. One or two sentences. Queued item #9. Complexity **S**.
 
-**Count:** 0 shipped / 0 active / 1 spec + 6 chores pending
+**Count:** 0 shipped / 0 active / 1 spec + 8 chores pending
 
 > **Sequencing.** Nothing here is launch-gating. STAGE-034 and STAGE-035 are; run them first.
 > The old sequencing caveat is gone because the thing it protected against — a launch gate

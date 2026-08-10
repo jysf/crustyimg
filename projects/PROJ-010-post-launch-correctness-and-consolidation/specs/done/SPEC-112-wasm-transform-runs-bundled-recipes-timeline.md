@@ -44,12 +44,18 @@ Cycle prompts live in `prompts/SPEC-112-<cycle>.md`.
       `Compiling crustyimg`. Note: the prompt's stated lean/webp-lossy reference numbers
       (818/844) undercounted this branch's actual base commit (462b829) by 3 each, confirmed
       via a git-stash positive control against that exact commit — a pre-existing drift, not
-      caused by this spec; default's reference (841) matched exactly. AC-9 negative control
-      driven and recorded (see spec). Actual agent per the session transcript's
-      `.message.model`: **claude-opus-5** (not the Sonnet the spec/orchestrator dispatch
-      note named) — cost priced at Opus anchors, flagged as a finding.
-      **CI legs on PR #144 not yet read** — hand off to verify to confirm the full required
-      matrix (not just a local pass).
+      caused by this spec; default's reference (841) matched exactly. (Verify later settled
+      this more cheaply: all 7 new tests sit inside `tests/wasm_roundtrip.rs`'s
+      `#[cfg(target_arch = "wasm32")]` block, so the native delta is 0 by construction.)
+      AC-9 negative control driven and recorded (see spec).
+      **Cost correction, made by the orchestrator at ship:** the build reported running on
+      `claude-opus-5` and flagged a model mismatch. There was none — it ran on
+      **claude-sonnet-5**, exactly as `agents.implementer` pinned. It had resolved "its own
+      transcript" as the newest `.jsonl` in the project directory, which was the parent
+      orchestrator's session. Corrected figures are in the spec's `cost.sessions`
+      (81,750,802 tokens / $39.46 at Sonnet anchors, 320 messages).
+      **CI legs on PR #144 not read by the build** — handed to verify to confirm the full
+      required matrix rather than a local macOS pass.
 
 - [x] **verify** — 2026-08-10, fresh Opus session, own worktree. **⚠ PUNCH LIST → both items
       closed on the branch.** All 10 ACs met. **BEFORE was measured, not inherited:** a `main`
@@ -76,6 +82,15 @@ Cycle prompts live in `prompts/SPEC-112-<cycle>.md`.
       message — both now pin the driven strings. **Named, not fixed:** no CI leg runs
       `just wasm-test`, so the seven tests that pin this spec never execute in CI.
 
-- [ ] **ship** — bookkeeping on `main` after the PR merges: cost totals, reflection,
-      `just archive-spec SPEC-112`, stage backlog. **STAGE-040 does not close here** — the
-      0.7.0 cut is its second item, and it depends on this landing.
+- [x] **ship** — 2026-08-10. PR [#144](https://github.com/jysf/crustyimg/pull/144) merged as
+      `3bd26b5` with all 27 required CI legs green and 6 release-only jobs skipped, read
+      individually off `gh pr checks` at head `741fd16` — not inferred from a local pass.
+      **Cost corrected at ship, not accepted as reported:** the build's entry named
+      `claude-opus-5` / 8,119,424 / $6.75, measured against the parent orchestrator's
+      transcript; its own is 320 messages of `claude-sonnet-5` → 81,750,802 / $39.46. Verify's
+      own entry was re-read after completion (165 messages, not the 156 it could see while
+      still writing) → 27,320,821 / $36.70. Totals: **109,071,623 tokens / $76.16 over 2
+      metered sessions**, components summing exactly and re-priced at each session's own
+      anchors (DEC-083). Reflection appended; two follow-ups filed, the load-bearing one being
+      that **no CI leg runs `just wasm-test`**. **STAGE-040 does not close here** — the 0.7.0
+      cut is its second item, and it depended on this landing.
