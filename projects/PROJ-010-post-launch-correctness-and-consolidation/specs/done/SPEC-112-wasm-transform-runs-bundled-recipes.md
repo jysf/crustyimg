@@ -7,7 +7,7 @@
 task:
   id: SPEC-112
   type: bug                        # epic | story | task | bug | chore
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship                      # frame | design | build | verify | ship
   blocked: false
   priority: critical
   complexity: S                    # S | M | L  (L means split it)
@@ -56,31 +56,70 @@ cost:
         test, and confirmed from `parse_format` that `out_format` can never be
         `auto`.
     - cycle: build
+      agent: claude-sonnet-5
+      interface: claude-code
+      tokens_total: 81750802
+      duration_minutes: 187
+      recorded_at: 2026-08-10
+      tokens_breakdown:
+        input: 640
+        output: 84632
+        cache_creation: 3966512
+        cache_read: 77699018
+      estimated_usd: 39.46
+      note: >
+        MEASURED by the ORCHESTRATOR at ship (AGENTS §4), over the build's own
+        subagent transcript `subagents/agent-a0a1ffb97d8cbdd9d.jsonl`: 320
+        assistant messages, `.message.model` = `claude-sonnet-5` on every one.
+        Priced at Sonnet anchors ($3/$15 per MTok in/out; cache_creation x1.25
+        input, cache_read x0.10 input); components sum exactly to
+        `tokens_total`; 95.04% cache reads.
+
+        CORRECTS the build's self-reported entry, which read `claude-opus-5` /
+        8,119,424 / $6.75. That was measured against the PARENT ORCHESTRATOR's
+        transcript, not the build's own — the build resolved its transcript as
+        the newest `.jsonl` in the project directory, which was the
+        orchestrator's session (84 Opus messages at that moment). Both the
+        model and the volume were therefore wrong, in opposite directions: the
+        wrong anchors overpriced, the wrong (much smaller) transcript
+        underpriced by ~6x. The build DID run on Sonnet as the spec's
+        `agents.implementer` pinned; there was no model mismatch to flag.
+
+        Lesson, worth more than the number: identify a transcript by something
+        only that session emitted, never by recency. The verify cycle avoided
+        this by grepping for its own probe symbol — see its note below.
+    - cycle: verify
       agent: claude-opus-5
       interface: claude-code
-      tokens_total: 8119424
-      duration_minutes: 187
-      recorded_at: 2026-08-09
+      tokens_total: 27320821
+      duration_minutes: 242
+      recorded_at: 2026-08-10
       tokens_breakdown:
-        input: 165
-        output: 43328
-        cache_creation: 282578
-        cache_read: 7793353
-      estimated_usd: 6.75
+        input: 330
+        output: 65225
+        cache_creation: 3729250
+        cache_read: 23526016
+      estimated_usd: 36.70
       note: >
-        MEASURED — transcript sum over 84 assistant messages (own session
-        .jsonl). `agent` and pricing anchors are the model `.message.model`
-        actually reports (`claude-opus-5`) for every one of those messages, NOT
-        the Sonnet label the spec's `agents.implementer` field and the
-        orchestrator's dispatch note carried — AGENTS §4 is explicit that the
-        transcript wins on this exact mismatch (SPEC-108's precedent). Priced
-        at Opus anchors ($5/$25 per MTok in/out; cache_creation x1.25 input,
-        cache_read x0.10 input) — flagged to the orchestrator as a finding,
-        not silently reconciled.
+        MEASURED over the verify's own subagent transcript
+        `subagents/agent-a850dfc9f23e3e26f.jsonl`, which verify identified by
+        grepping for a probe symbol only its own session emitted rather than by
+        taking the newest `.jsonl` in the project directory — the exact mistake
+        that produced the build entry above. `.message.model` = `claude-opus-5`
+        on all 165 assistant messages, so Opus anchors apply ($5/$25 per MTok
+        in/out; cache_creation x1.25 input, cache_read x0.10 input). Components
+        sum exactly to `tokens_total`; 86.11% cache reads.
+
+        Verify self-reported 156 messages / 25,190,109 / $35.37; the
+        orchestrator re-read the completed transcript at ship and found 165 /
+        27,320,821 / $36.70. The gap is verify's own closing messages, which
+        were not yet written when it measured. A session cannot count its own
+        tail — the orchestrator's post-completion read is the accurate one, and
+        that is the number recorded here.
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 109071623
+    estimated_usd: 76.16
+    session_count: 2
 ---
 
 # SPEC-112: `wasm::transform` runs the bundled recipes
@@ -361,10 +400,37 @@ noted.
 *Appended during the **ship** cycle.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Give the build a way to identify **its own** transcript. Its one real error was a cost
+   entry read off the parent orchestrator's `.jsonl` — resolved as "the newest file in the
+   project directory" — which produced the wrong model, the wrong volume, and a confident
+   "flagged as a finding, not silently reconciled" note about a model mismatch that did not
+   exist. Verify avoided it by grepping for a probe symbol only its own session emitted. That
+   technique belongs in `projects/_templates/prompts/cost-snippet.md`, not in one agent's
+   good judgement. **Recency is not identity.**
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — Yes, `cost-snippet.md`, per above. Also worth recording: the design offered two
+   "reasonable" options for reaching `split_terminal_optimize` (widen to `pub(crate)` in
+   `cli::optimize`, or move to a neutral module) and **one of them was impossible** — `cli`
+   and `wasm` are mutually exclusive `#[cfg(target_arch)]` module trees, so no visibility on
+   a `cli`-hosted item reaches `wasm::transform`. Both the build and verify caught it
+   independently; DEC-087's amendment records it. A design that offers a false choice is a
+   design that has not been driven, which is this wave's recurring lesson landing on the
+   architect for once rather than the builder.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — **Yes, and it is the most valuable thing this spec surfaced.** Verify found that **no CI
+   leg runs `just wasm-test`**: `ci.yml` has no wasm32 step, and `pages.yml`'s
+   `build + browser smoke` runs `just demo-build` + `just demo-smoke`, which drives only the
+   demo's *markerless* path. So all 37 wasm tests — the 7 that pin this spec included — run
+   only on a maintainer's machine, and a regression of exactly the defect this spec fixed
+   would reach `main` and the npm package green. Filed for STAGE-038. Pre-existing and
+   correctly out of scope here; the gap is that the guard for a launch-gating fix is not
+   itself guarded.
+
+   Second, smaller: `transform(bundled_toml, "png")` runs the recipe but **does not reproduce
+   the marker's semantics** (fast AVIF-aware decision, never-bigger, score) — those are
+   stripped, and `optimizeDetailed` is the decide-path counterpart, exactly as designed. The
+   README says the TOML *runs*, which is now true, so AC-8 holds. But a JS consumer starting
+   from `web` gets the downscale without the modernize unless they also call
+   `optimizeDetailed`, and nothing in the README says so. A doc sentence, not a code change.

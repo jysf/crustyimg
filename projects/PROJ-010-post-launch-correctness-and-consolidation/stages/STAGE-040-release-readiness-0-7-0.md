@@ -88,16 +88,21 @@ Two items: one code fix that must precede the cut, and the cut itself.
 
 ## Spec Backlog
 
-- [ ] SPEC-112 (design written 2026-08-09) — **`wasm::transform` runs the bundled recipes.**
-  The one call site that still hands a terminal `optimize` step to `build_pipeline`. Driven:
-  all three bundled recipes fail with `unknown operation 'optimize'`. README:34–36 tells
-  readers this path works. Complexity **S**.
+- [x] SPEC-112 — **`wasm::transform` runs the bundled recipes.** SHIPPED 2026-08-10, PR #144
+  (`3bd26b5`), 27/27 required CI legs green. All 10 ACs met; verify returned ⚠ PUNCH LIST and
+  closed both items on the branch. `transform` now strips the terminal marker via
+  `split_terminal_optimize`, **moved** (not copied) to `src/recipe/mod.rs` — the spec's
+  alternative of widening it in `cli::optimize` was impossible, since `cli` and `wasm` are
+  mutually exclusive `#[cfg(target_arch)]` trees. Driven on both sides: all three bundled
+  recipes returned `unknown operation 'optimize'` on `main` and succeed on the branch, and the
+  markerless demo shape is byte-identical across the change. DEC-087 amended. Cost
+  109,071,623 tokens / $76.16.
 - [ ] (chore) — **cut 0.7.0.** Follow `RELEASING.md`: bump `Cargo.toml`, promote the
   `[Unreleased]` CHANGELOG section (already written), run the full gate, prepare the release
   commit, then **stop** and hand the tag push to the maintainer. Decide the npm republish and
   record it either way. Complexity **S–M**.
 
-**Count:** 0 shipped / 0 active / 1 spec + 1 chore pending
+**Count:** 1 shipped / 0 active / 1 chore pending
 
 ## Design Notes
 
@@ -108,9 +113,22 @@ Two items: one code fix that must precede the cut, and the cut itself.
 - **The release is larger than PROJ-010.** SPEC-103, 104 and 105 also missed the `v0.6.0`
   cut, so 0.7.0 additionally carries the demo's RAW support and the first classifier fix.
   The CHANGELOG already reflects this; do not narrow it back to PROJ-010.
-- **The npm package is version-coupled.** `pkg/package.json` reads 0.6.0 and tracks the crate
-  version, so the cut leaves npm stale unless republished — and that publish is permanent and
-  maintainer-gated.
+- **The npm package is version-coupled — and it is already TWO minors behind, not one.**
+  *Corrected 2026-08-10 against the registry; the original note here was wrong.* `pkg/` is
+  **gitignored** (`.gitignore:38`) — a generated `wasm-pack` artifact whose `version` is copied
+  from `Cargo.toml` and never hand-edited (`npm/package.overrides.json` deliberately does not
+  override `version`, DEC-067). So the local `pkg/package.json` reading 0.6.0 is a stale build
+  output, not a maintained file, and the bump propagates to it automatically on the next
+  `just wasm-npm-pkg`.
+  The registry tells the real story: the published package is **`crustyimg-wasm`** (renamed
+  from the crate by `wasm-npm-finalize.mjs`), and it has **exactly one version, 0.5.0,
+  published 2026-07-21**. There is no 0.6.0 on npm — the v0.6.0 cut (2026-07-24) never
+  republished it, and nobody noticed. `crustyimg` itself is not a published npm name.
+  This sharpens the decision rather than softening it: **npm's only release predates
+  SPEC-112**, so a JS consumer following `README.md:34-36` today installs the very build whose
+  `transform` cannot run a bundled recipe. Republishing at 0.7.0 is the only thing that makes
+  that README claim true for the audience it is written for. The publish itself stays
+  irreversible and maintainer-gated (SPEC-076; `just wasm-npm-smoke` does not publish).
 - **Why this is a new stage rather than a reopened STAGE-039.** That stage has shipped specs
   and is closed; reopening it would relocate finished work
   ([[a-stage-with-shipped-specs-cannot-be-re-homed]]). This is its continuation.
