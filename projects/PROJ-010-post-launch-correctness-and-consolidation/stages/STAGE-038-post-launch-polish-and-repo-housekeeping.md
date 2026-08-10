@@ -155,16 +155,9 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
   nothing today, but it is a live trap for whoever next re-measures SPEC-074's lean wasm
   baseline — exactly the number a mislabelled banner would poison. Queued item #7.
   Complexity **S**.
-- [ ] (chore) — **no CI leg runs `just wasm-test`.** Found by SPEC-112's verify, 2026-08-10.
-  `.github/workflows/ci.yml` has **no wasm32 step at all**, and `pages.yml`'s
-  `build + browser smoke` job runs `just demo-build` + `just demo-smoke` — which drives only the
-  demo's *markerless* recipe path — so it would not catch a bundled-recipe regression either.
-  All 37 tests in `tests/wasm_roundtrip.rs` therefore execute **only on a maintainer's machine**,
-  including the 7 that pin SPEC-112. A regression of exactly the defect SPEC-112 fixed would
-  reach `main`, the crate and the npm package with every required check green. Wants a wasm32
-  CI leg running `just wasm-check` + `just wasm-test`. Queued item #8. Complexity **S–M** (the
-  runner needs the wasm32 target and `wasm-bindgen-test-runner` —
-  [[probe-load-bearing-crates-at-design]] applies to the test RUNNER for a new target).
+- [→] (chore) — **no CI leg runs `just wasm-test`.** **MOVED to STAGE-042** (2026-08-10), which is
+  its real home: that stage's whole thesis is guards that do not run, and this is one. Left as a
+  pointer rather than deleted so the trail from SPEC-112's verify is not lost.
 - [ ] (chore) — **the README does not say `transform` skips the marker's semantics.** Found by
   SPEC-112's verify. `transform(bundled_toml, "png")` now runs the bundled recipe (SPEC-112),
   but the terminal `optimize` marker's semantics — the fast AVIF-aware decision, never-bigger,
@@ -182,7 +175,7 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
   this is a fix for the *next* cut, not a reason for a 0.7.1. Either add the dir to `exclude` or
   decide what it is and move it. Queued item #10. Complexity **S**.
 
-**Count:** 0 shipped / 0 active / 1 spec + 9 chores pending
+**Count:** 0 shipped / 0 active / 1 spec + 8 chores pending (+1 moved to STAGE-042)
 
 > **Sequencing.** Nothing here is launch-gating. STAGE-034 and STAGE-035 are; run them first.
 > The old sequencing caveat is gone because the thing it protected against — a launch gate
