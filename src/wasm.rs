@@ -53,7 +53,7 @@ use crate::analysis::{Analysis, OptBucket};
 use crate::image::Image;
 use crate::operation::OperationRegistry;
 use crate::quality::{self, LossyFormat, SearchConfig};
-use crate::recipe::Recipe;
+use crate::recipe::{split_terminal_optimize, Recipe};
 use crate::sink;
 
 /// The perceptual target `optimize` aims for when the caller doesn't say —
@@ -154,13 +154,27 @@ pub fn info(input: &[u8]) -> Result<ImageInfo, JsError> {
 /// in the browser. That equivalence is the whole point of the wasm build; it is
 /// why this function resolves operations through the registry rather than
 /// switching on a name.
+///
+/// A recipe ending in the reserved terminal `optimize` step (every bundled
+/// `web`/`gallery`/`product` recipe, SPEC-085) is NOT a plain pixel recipe — that
+/// step is not a registry op, so handing it to `build_pipeline` unstripped fails
+/// with `unknown operation 'optimize'` (SPEC-112). Unlike `build`/`apply`, this
+/// function has no format DECISION to make once the marker is gone: `out_format`
+/// is always a caller-pinned, concrete format (`parse_format` cannot accept
+/// `"auto"` or empty — see its doc), so the fix here is the pinned half of
+/// DEC-087's rule, not the auto-decide half: strip the marker via
+/// [`split_terminal_optimize`], run the remaining pixel steps, and encode straight
+/// to the caller's format. A recipe with no terminal marker (the live demo's own
+/// `geometryRecipe()` shape) is untouched — `split_terminal_optimize` returns
+/// `None` and the original recipe runs exactly as it did before this change.
 #[wasm_bindgen]
 pub fn transform(input: &[u8], recipe_toml: &str, out_format: &str) -> Result<Vec<u8>, JsError> {
     let fmt = parse_format(out_format)?;
     let img = Image::from_bytes(input).map_err(js_err)?;
 
     let recipe = Recipe::from_toml(recipe_toml).map_err(js_err)?;
-    let pipeline = recipe
+    let pixel_recipe = split_terminal_optimize(&recipe).unwrap_or(recipe);
+    let pipeline = pixel_recipe
         .build_pipeline(&OperationRegistry::with_builtins())
         .map_err(js_err)?;
     let out = pipeline.run(img).map_err(js_err)?;

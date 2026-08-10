@@ -27,6 +27,8 @@ affected_scope:
   - "src/cli/common.rs"
   - "src/cli/optimize.rs"
   - "src/cli/ops.rs"
+  - "src/wasm.rs"
+  - "src/recipe/mod.rs"
   - "docs/api-contract.md"
   - "docs/data-model.md"
 
@@ -181,12 +183,17 @@ either, so a saved recipe and its own replay agreed (both unbaked).
   handed to it via the wasm surface would hit the identical `unknown operation 'optimize'`
   failure. This is the SAME defect class SPEC-111 fixes for `build`, found by the required
   sweep of every `.build_pipeline(` call site. It is explicitly out of scope for this spec
-  ("Out of scope: … wasm … work") and is not fixed here. Also named: `build`'s new
-  terminal-`optimize`/auto-decide path reaches `optimize_decide_one` — the same seam that
-  triggers SPEC-107's truncated-JPEG stderr warning on `apply` — but this spec's
-  `encode_one_optimize_decided` wrapper discards that signal rather than threading it
-  through, so `build` does not yet warn where `apply --recipe web` would for the identical
-  input. Filed as a follow-up, not an AC of this spec.
+  ("Out of scope: … wasm … work") and is not fixed here.
+  > ⚠️ **Closed by the Amendment below (SPEC-112).** The demo reasoning that justified
+  > leaving this open was correct; the README's claim about `transform` was not — see the
+  > amendment for why the two came apart.
+
+  Also named: `build`'s new terminal-`optimize`/auto-decide path reaches
+  `optimize_decide_one` — the same seam that triggers SPEC-107's truncated-JPEG stderr
+  warning on `apply` — but this spec's `encode_one_optimize_decided` wrapper discards that
+  signal rather than threading it through, so `build` does not yet warn where
+  `apply --recipe web` would for the identical input. Filed as a follow-up, not an AC of
+  this spec.
 
 ## Validation
 
@@ -209,8 +216,10 @@ re-enters the same `run_build` this spec changes, and touches none of the watch-
 debounce/exclusion logic, so the marginal risk was judged not to justify the added
 harness). Revisit if: a real user needs a manifest-level format override independent of
 the name template (then build the `[output]`-table spec this decision declined to build
-early); or if `src/wasm.rs`'s `transform` gets a caller that hands it a bundled recipe
-(then this decision's named-not-fixed wasm gap needs its own spec).
+early).
+> **Closed, 2026-08-09 (SPEC-112).** The other trigger named here — *"if `src/wasm.rs`'s
+> `transform` gets a caller that hands it a bundled recipe"* — fired: `README.md` already
+> promised exactly that caller, so the gap got its own spec. See the Amendment below.
 
 ## References
 
@@ -230,3 +239,44 @@ early); or if `src/wasm.rs`'s `transform` gets a caller that hands it a bundled 
   assertion needs no feature gate on the default/lean split for the pin case, and does
   need one for the AVIF-bytes case).
 - External docs: none.
+
+## Amendment (2026-08-09, SPEC-112): the wasm exception is closed
+
+**The exception this decision named and left open — `src/wasm.rs`'s `transform` builds an
+arbitrary caller-supplied recipe unstripped, so a bundled/terminal-`optimize` recipe hits
+`unknown operation 'optimize'` exactly as `build` did before this spec — is now closed.**
+`transform` strips the terminal marker before `build_pipeline`, runs the remaining pixel
+steps, and encodes to the caller's `out_format`, using the SAME `split_terminal_optimize`
+helper `apply`/`build` call (not a copy).
+
+**The call to leave it open was right about the demo, and wrong about the README.** This
+decision's own text said the exception held because "the shipped demo never reaches it" —
+`demo/worker.js`'s `geometryRecipe()` hand-builds a terminal-step-free recipe. That was, and
+remains, true; SPEC-112 changes nothing about the demo (its AC-4 pins `transform`'s output
+on a markerless recipe byte-identical to before this spec). What this decision did not
+check was a second, independent claim: `README.md:34-36` — the launch front door, which
+renders on the crates.io crate page — promises "the same recipe TOML runs in the browser
+demo too, via the wasm `transform()` binding," including **starting from a bundled
+`web`/`gallery`/`product`**. The demo happening to avoid the bug was never evidence that
+claim was true for every other caller of the published `crustyimg-wasm` npm package. A JS
+consumer who follows the README literally — resolve a bundled recipe, hand it to
+`transform()` — hit exactly the failure this decision named and declined to fix. The demo
+reasoning and the README claim are two different questions; SPEC-112 is the record of the
+first being right while the second was wrong, corrected once the two were checked
+separately rather than treated as one story.
+
+**Implementation note: why `split_terminal_optimize` moved rather than just widened.** The
+Note above this decision's own Implementation ("wasm ... work" out of scope) assumed
+reaching this helper from `wasm` was a visibility question — `pub(super)` in `cli::optimize`
+to `pub(crate)`. It is not, and SPEC-112 found out why: `src/lib.rs` compiles `cli` only for
+`#[cfg(not(target_arch = "wasm32"))]` and `wasm` only for `#[cfg(target_arch = "wasm32")]`
+(the SPEC-072 target split). The two module trees never coexist in one build — a
+`cli`-hosted `pub(crate)` function simply does not exist in the wasm32 artifact `wasm`
+compiles into, no matter how it is marked. `split_terminal_optimize` (and its
+`OPTIMIZE_STEP_OP` constant) moved to `src/recipe/mod.rs` instead — one of the modules
+`src/lib.rs` compiles for **both** targets (the "pure engine," per its own module doc) — and
+stayed `pub(crate)` there, which now genuinely reaches every caller: `cli::optimize::run_apply`
+and `cli::build::prepare_target` (native) and `wasm::transform` (wasm32) all call the one
+function. This is also the more honest home for it: the helper's whole subject is a
+*recipe's* terminal marker, not a *CLI* concern, which SPEC-111's own Note had already
+observed without acting on.
