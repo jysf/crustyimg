@@ -77,6 +77,31 @@ cost:
         at Opus anchors ($5/$25 per MTok in/out; cache_creation x1.25 input,
         cache_read x0.10 input) — flagged to the orchestrator as a finding,
         not silently reconciled.
+    - cycle: verify
+      agent: claude-opus-5
+      interface: claude-code
+      tokens_total: 25190109
+      duration_minutes: 229
+      recorded_at: 2026-08-10
+      tokens_breakdown:
+        input: 312
+        output: 56136
+        cache_creation: 3721305
+        cache_read: 21412356
+      estimated_usd: 35.37
+      note: >
+        MEASURED — transcript sum over 156 assistant messages in THIS verify
+        session's own subagent transcript
+        (`subagents/agent-a850dfc9f23e3e26f.jsonl`), identified by grepping for
+        a probe symbol only this session emitted rather than by taking the
+        newest .jsonl in the project directory — which is the exact mistake
+        that produced the build entry above. `.message.model` reports
+        `claude-opus-5` for all 156, so Opus anchors apply ($5/$25 per MTok
+        in/out; cache_creation x1.25 input, cache_read x0.10 input). Components
+        sum exactly to `tokens_total`. NOTE for ship: the BUILD entry above is
+        WRONG — it was read off the parent orchestrator's transcript. The
+        orchestrator has the corrected figures (81,750,802 tokens / $39.46 at
+        SONNET anchors, agent `claude-sonnet-5`); land those, not these.
   totals:
     tokens_total: 0
     estimated_usd: 0

@@ -51,10 +51,30 @@ Cycle prompts live in `prompts/SPEC-112-<cycle>.md`.
       **CI legs on PR #144 not yet read** — hand off to verify to confirm the full required
       matrix (not just a local pass).
 
-- [ ] **verify** — fresh session, **Opus**. Drive all three bundled recipes through the real
-      wasm surface yourself rather than the native call chain; the native chain is what the
-      design used to *find* the bug, not sufficient to confirm the fix. Confirm AC-4's
-      byte-identity against `main`, since the live demo depends on it.
+- [x] **verify** — 2026-08-10, fresh Opus session, own worktree. **⚠ PUNCH LIST → both items
+      closed on the branch.** All 10 ACs met. **BEFORE was measured, not inherited:** a `main`
+      (462b829) worktree driven through the real wasm-bindgen surface in Node returns
+      `unknown operation 'optimize'` for `web`, `gallery` AND `product`; on the branch all
+      three succeed and their output decodes as PNG. **AC-4 got the real byte diff**, not only
+      the in-process reconstruction: `transform`'s output for `geometryRecipe(900)`'s exact
+      shape fingerprints identically on both sides (len 12549, FNV-1a-64 `86e971b1a8845667`,
+      CRC32 `60384d86`), with a cap-800 negative control proving the fingerprint
+      discriminates. **AC-9 re-run rather than read:** 37/0 → 34/3 → 37/0, artifact SHA-256
+      `355a2f4f…` → `929d8615…` → `355a2f4f…`, the three RED being exactly AC-1/AC-2/AC-3.
+      AC-3's 1600×1067 independently re-derived on `main` from `product`'s pixel half.
+      **The structural finding holds:** `src/lib.rs` gates `cli` and `wasm` on mutually
+      exclusive `cfg(target_arch)`, so the spec's "just widen `pub(super)`" option was never
+      available — the design named an impossible option, and DEC-087's amendment records it
+      as a finding, not an aside. Full matrix, fresh per-leg `CARGO_TARGET_DIR`, sequential,
+      through `rtk proxy`: lean 821/821, default 841/841, webp-lossy 847/847, each log
+      carrying `Compiling crustyimg`; clippy `-D warnings` and `fmt --check` clean;
+      `just wasm-test` 37/37. Two punch-list items, both **claims about the code rather than
+      the code**, fixed on the branch in `741fd16`: `src/recipe/mod.rs`'s doc block claimed
+      `build` reaches the helper "via `cli::optimize`'s re-export" (it imports it from
+      `crate::recipe`; the only `pub use` in `cli/mod.rs` is `WEB_DEFAULT_LONG_EDGE`), and the
+      two AC-5 tests asserted only `!msg.is_empty()` where the rest of that file pins the
+      message — both now pin the driven strings. **Named, not fixed:** no CI leg runs
+      `just wasm-test`, so the seven tests that pin this spec never execute in CI.
 
 - [ ] **ship** — bookkeeping on `main` after the PR merges: cost totals, reflection,
       `just archive-spec SPEC-112`, stage backlog. **STAGE-040 does not close here** — the
