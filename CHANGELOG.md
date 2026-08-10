@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-08-10
+
 A correctness release. Several commands were returning the wrong file — a much
 larger one, a sideways one, or none at all — on ordinary inputs. If you use
 `web`, `convert`, `resize`, `thumbnail`, `responsive`, `edit` or `build`, the
@@ -59,6 +61,13 @@ output is the correct one. Also opens RAW files in the browser demo.
   'optimize'`. It now runs them, picking the output format the same way
   `apply --recipe` does — or honouring the format when the target's name
   template names one.
+- **The wasm `transform()` binding can run them too.** The same defect on the
+  browser and npm surface: handing `transform()` a bundled `web`, `gallery` or
+  `product` recipe failed with `unknown operation 'optimize'`, although the
+  README points readers at exactly that. It now runs the recipe and encodes to
+  the format the caller asked for. The browser demo was never affected — it
+  builds its own recipe — and a recipe without the terminal `optimize` step,
+  which is the shape the demo sends, produces byte-identical output to before.
 - **`docs/data-model.md`'s example recipe used operations that do not exist.**
   Three of its five steps would have failed. Rewritten against the real
   operations, and a test now keeps it that way.
@@ -470,7 +479,8 @@ re-decoded, so privacy ops carry no quality cost and no recompression.
 
 ---
 
-[Unreleased]: https://github.com/jysf/crustyimg/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/jysf/crustyimg/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/jysf/crustyimg/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/jysf/crustyimg/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/jysf/crustyimg/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/jysf/crustyimg/compare/v0.3.1...v0.4.0
