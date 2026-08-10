@@ -5,14 +5,9 @@
 
 stage:
   id: STAGE-040
-  status: active                     # proposed | active | shipped | cancelled | on_hold
+  status: shipped                    # proposed | active | shipped | cancelled | on_hold
   priority: critical
-  target_complete: null
-  # Both backlog items are done as far as this repo can take them. The stage
-  # stays `active`, not `shipped`, because the last step is outward-facing and
-  # maintainer-authorized: the `v0.7.0` tag push (RELEASING.md steps 6-7) and
-  # the channel verification (step 8). It ships when the tag fires and
-  # crates.io / Homebrew / Releases carry 0.7.0.
+  target_complete: 2026-08-10
 
 project:
   id: PROJ-010
@@ -20,7 +15,7 @@ repo:
   id: crustyimg
 
 created_at: 2026-08-09
-shipped_at: null
+shipped_at: 2026-08-10
 
 value_contribution:
   advances: >
@@ -172,38 +167,85 @@ Mechanics when authorized: `just wasm-npm-pkg` regenerates `pkg/` with the versi
 tarball into a fresh project and drives it, and only then `npm publish`. Publishing 0.5.0 → 0.7.0
 skips 0.6.0 on npm, which npm permits and which is honest: there was no 0.6.0 wasm release.
 
-## Handoff — the maintainer-authorized remainder
+## 0.7.0 is live — channels verified 2026-08-10
 
-Everything below is outward-facing and deliberately **not** done here.
+The maintainer pushed the annotated tag; it points at `0c1114d`, exactly `origin/main`. All three
+tag workflows succeeded, and each channel was then checked **at its own source rather than by the
+job's exit status**:
 
-1. **Tag and push** (RELEASING.md 6–7). The release commit is `chore(release): v0.7.0` on
-   `chore/release-0-7-0`; merge it, then from `main`:
-   `git tag -a v0.7.0 -m "crustyimg v0.7.0" && git push origin v0.7.0`. That single push fires
-   cargo-dist (binaries + checksums + GitHub Release), the Homebrew formula job, and
-   `publish-crates.yml`.
-2. **Verify the channels** (step 8): Release page with artifacts, `cargo search crustyimg`,
-   `brew install jysf/tap/crustyimg`. **The stage ships when this passes**, not before.
-3. **npm republish** at 0.7.0, per the decision above.
-4. Then the genuinely maintainer-only launch items, unchanged: the device pass (the ~60 MP RAW
+- **crates.io** — `crustyimg 0.7.0` present in the sparse index (`index.crates.io/cr/us/crustyimg`),
+  `yanked=false`.
+- **GitHub Release** — published, not draft, not prerelease; **15 assets**: four platform archives
+  (aarch64/x86_64 darwin, x86_64 linux-gnu, x86_64 windows-msvc), a `.sha256` beside each, both
+  installers, `dist-manifest.json` and `source.tar.gz`.
+- **Homebrew** — `jysf/homebrew-tap`'s `Formula/crustyimg.rb` now reads `version "0.7.0"` with
+  checksums pointing at the v0.7.0 asset URLs.
+
+**Then the shipped artifact was driven, not just inspected** — the discipline this whole project
+runs on. Downloaded `crustyimg-aarch64-apple-darwin.tar.xz`; its SHA-256 matches both the published
+`.sha256` **and** the hash the Homebrew formula pins (three-way agreement,
+`8f282eef…3097`). The extracted binary reports `crustyimg 0.7.0`, and:
+
+| driven on the released binary | result |
+|---|---|
+| `apply --recipe web` on a 203,671 B photo | 4,085 B of real AVIF (`ftypavif`), exit 0 |
+| `web --max 256` on `dithered_graphic.png` (**the 18.5× defect**) | 34,346 → **31,988 B, 7% smaller**, lossless WebP, ssim 100.0 |
+
+That second row is the launch gate: on 0.6.0 this input class came back **18.5× larger and visibly
+degraded** (SSIMULACRA2 69.2) through the default `web` path with no flags. It is fixed in the
+binary a user actually installs — which was the entire point of this stage.
+
+## Remaining — maintainer-only, no repo work
+
+1. **npm republish** at 0.7.0, per the decision above. Not done; irreversible and
+   maintainer-gated (SPEC-076).
+2. Then the genuinely maintainer-only launch items, unchanged: the device pass (the ~60 MP RAW
    preview decode has never run on hardware, and whether the demo surfaces errors legibly), the
    install one-liner re-verification **at 0.7.0**, the post draft's CLI-vs-demo RAW split fix,
    and the go/no-go.
-5. **The STAGE-040 brag is owed at stage close, not now** — the discipline is brag-at-STAGE-close,
-   and this stage does not close until step 2 passes. Deliberately held rather than forgotten:
-   two weeks and $460 of this wave went unrecorded because nobody wrote one. Figures ready for it:
-   SPEC-112 cost **109,071,623 tokens / $76.16** across 2 metered cycles (build Sonnet $39.46,
-   verify Opus $36.70); the release chore itself was un-metered main-loop work (AGENTS §4). The
-   most quotable finding is not the fix but its guard: **no CI leg runs `just wasm-test`**, so the
-   seven tests pinning SPEC-112 — and the thirty before them — run only on a maintainer's machine.
+3. **The stage brag** — written at this close, per the brag-at-STAGE-close discipline. Cost:
+   SPEC-112 **109,071,623 tokens / $76.16** across 2 metered cycles (build Sonnet $39.46, verify
+   Opus $36.70); the release chore itself was un-metered main-loop work (AGENTS §4).
 
 ## Stage-Level Reflection
 
-*Filled in when status moves to shipped — i.e. after the tag fires and the channels verify.*
+**The stage delivered what it existed for.** PROJ-010 fixed four defects on the flagship paths and
+none of them had reached a user, because the released binary predated every one. That is closed:
+0.7.0 is on crates.io, Homebrew and the Releases page, and the fix was confirmed **by driving the
+downloaded artifact**, not by trusting three green workflows.
 
-Provisional note, recorded while it is fresh: the stage's own framing contained the error it
-existed to prevent. It asserted a version-coupling fact about npm from a **generated file in the
-working tree** instead of from the registry, and was wrong by a whole minor release. That is the
-same failure mode as the build's cost entry (read the newest transcript, not its own) and the
-three doc comments verify corrected — *the engineering was sound; the claims about it drifted*.
-The cure that keeps working is the cheap one: go to the authoritative source, not the nearest
-plausible one.
+**Every error this stage made was a claim about something, not the something itself.** Four, all
+the same shape — reading the nearest plausible source instead of the authoritative one:
+
+1. **The stage's own npm note** asserted version coupling from `pkg/package.json`, a *gitignored
+   `wasm-pack` artifact*. The registry said `crustyimg-wasm` had only ever published 0.5.0 — wrong
+   by a whole minor, and it inverted the conclusion: npm was not "about to go stale", it had been
+   stale since before the fix that makes the README true.
+2. **The build's cost entry** priced itself off the *parent orchestrator's* transcript, resolved as
+   "newest `.jsonl` in the directory". It reported Opus/$6.75 and raised a confident finding about
+   a model mismatch **that did not exist**; its own transcript was 320 Sonnet messages / $39.46.
+3. **Three doc comments** in the shipped code, two found by verify — including `OPTIMIZE_STEP_OP`
+   claiming "every caller strips it", which `cli::common::encode_one` falsifies.
+4. **The CHANGELOG**, written in advance, had no entry for the spec that landed after it. The
+   release would have shipped its headline fix silently.
+
+None was an engineering error. The code was right every round. What is worth institutionalising is
+the cheap cure that caught all four: **go to the authoritative source** — the registry, the
+session's own transcript, the code the comment describes, the list of specs merged since the last
+tag. And the corollary the artifact check proved: a green workflow is a claim too. The tag's three
+jobs all said success; the sparse index, the formula file and a checksum-verified binary running
+`web --max 256` are what made it a fact.
+
+**What to change.** `projects/_templates/prompts/cost-snippet.md` should carry verify's technique
+(identify your transcript by a probe symbol only your session emitted) rather than relying on an
+agent's judgement, and the orchestrator should re-read both transcripts at ship — after completion,
+since a session cannot count its own tail (verify self-reported 156 messages; the finished file had
+165). `RELEASING.md` should gain two steps it lacks: diff the CHANGELOG against the specs shipped
+since the previous tag, and run `just wasm-test`, which **no CI leg runs** — filed on STAGE-038.
+
+**One design lesson, landing on the architect rather than the builder.** SPEC-112's design offered
+two "reasonable" options for reaching `split_terminal_optimize`, and one of them was *impossible*:
+`cli` and `wasm` are mutually exclusive `#[cfg(target_arch)]` trees, so no visibility on a
+`cli`-hosted item reaches `wasm::transform`. Build and verify each caught it independently. A
+design that offers a false choice is a design that has not been driven — the same lesson this wave
+kept teaching the builders, arriving one level up.
