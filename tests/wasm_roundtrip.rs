@@ -278,7 +278,14 @@ op = "identity"
         let err = transform(&src, toml, "png")
             .expect_err("an unknown terminal op must still be rejected");
         let msg = format!("{:?}", wasm_bindgen::JsValue::from(err));
-        assert!(!msg.is_empty(), "the error must carry a message");
+        // Pin WHICH error, the convention every other error test in this file
+        // follows: an assertion that accepts any error would also pass if the
+        // strip started eating unknown terminal ops and something else failed
+        // downstream instead.
+        assert!(
+            msg.contains("not-a-real-op"),
+            "the error must name the op it could not resolve: {msg}"
+        );
     }
 
     /// AC-5: an `optimize` step that is NOT LAST still errors — the strip only
@@ -293,7 +300,12 @@ op = "identity"
         let err = transform(&src, toml, "png")
             .expect_err("an 'optimize' step that is not last must still be rejected");
         let msg = format!("{:?}", wasm_bindgen::JsValue::from(err));
-        assert!(!msg.is_empty(), "the error must carry a message");
+        // The marker must still be the thing that fails, by name — not merely
+        // "some error came back" from anywhere else in the call chain.
+        assert!(
+            msg.contains("unknown operation 'optimize'"),
+            "the leading 'optimize' step must be what fails, by name: {msg}"
+        );
     }
 
     /// AC-6: the module survives a rejected recipe — a later ordinary call

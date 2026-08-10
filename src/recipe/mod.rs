@@ -297,8 +297,8 @@ impl Recipe {
 /// (`Mode::Fast`: modernize format + never-bigger + score) instead of a plain
 /// format-preserving sink write (SPEC-085). This is what makes `apply --recipe web`
 /// == the `web` verb — the bundled flows end with it. It is NOT a registry
-/// operation (it produces bytes + a format choice, not a transformed `Image`), so
-/// every caller strips it before [`Recipe::build_pipeline`].
+/// operation (it produces bytes + a format choice, not a transformed `Image`), so it
+/// must be stripped before [`Recipe::build_pipeline`] ever sees it.
 const OPTIMIZE_STEP_OP: &str = "optimize";
 
 /// If `recipe` ends with the terminal [`OPTIMIZE_STEP_OP`] step, return a copy with
@@ -316,9 +316,9 @@ const OPTIMIZE_STEP_OP: &str = "optimize";
 /// the two module trees never coexist in one build, so a `cli`-hosted `pub(crate)`
 /// helper would not even compile into the wasm32 artifact for `wasm::transform` to
 /// call. `recipe` is one of the modules that compiles for BOTH targets (`src/lib.rs`
-/// §"the pure engine"), so it is the only home that actually reaches both callers.
-/// `pub(crate)`: `cli::optimize::run_apply` (native), `cli::build::prepare_target`
-/// (native, via `cli::optimize`'s re-export), and `wasm::transform` (wasm32) all
+/// §"the pure engine"), so it is the only home that reaches callers on both targets.
+/// `pub(crate)`: `cli::optimize::run_apply` and `cli::build::prepare_target` (native)
+/// and `wasm::transform` (wasm32) each import it straight from `crate::recipe` and
 /// reuse this exact function rather than each carrying its own copy — a second copy
 /// is exactly the kind of drift the "anywhere but last stays an error" rule (AC-5,
 /// SPEC-112) would silently diverge on.
