@@ -172,8 +172,17 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
   designed. `README.md:34-36` says the TOML *runs*, which is true, so SPEC-112's AC-8 holds. But
   a JS consumer starting from `web` gets the downscale without the modernize, and nothing tells
   them. One or two sentences. Queued item #9. Complexity **S**.
+- [ ] (chore) — **`gitignore_files_maybe/` is published to crates.io.** Found in the 0.7.0 pre-tag
+  pass. `Cargo.toml:15`'s `exclude` lists `/decisions /docs /projects /reports /guidance /feedback
+  /scripts /.github /.claude` but **not** `/gitignore_files_maybe`, so `crustyimg0.acorn` (an
+  Acorn/SQLite editor document) and `crustyimg0.jpeg` (175×175) ship in the crate. Pre-existing,
+  not a 0.7.0 regression — the `exclude` line is unchanged since `v0.6.0` and both files were in
+  the v0.6.0 tree, so 0.5.0/0.6.0/0.7.0 all published them. Cosmetic (the whole package is 163
+  files / 3.32 MB, far under the limit) and **a published version can never be re-published**, so
+  this is a fix for the *next* cut, not a reason for a 0.7.1. Either add the dir to `exclude` or
+  decide what it is and move it. Queued item #10. Complexity **S**.
 
-**Count:** 0 shipped / 0 active / 1 spec + 8 chores pending
+**Count:** 0 shipped / 0 active / 1 spec + 9 chores pending
 
 > **Sequencing.** Nothing here is launch-gating. STAGE-034 and STAGE-035 are; run them first.
 > The old sequencing caveat is gone because the thing it protected against — a launch gate
