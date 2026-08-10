@@ -75,7 +75,13 @@
       (was: HN *will* drop huge / garbage / unsupported files. The decode caps + clear error
       messages must hold on the live page — no hangs, no cryptic failures. (Hold natively;
       confirm in the browser.))
-- [ ] **Cut a release — the shipped CLI predates every PROJ-010 fix.** ⚠ **NEW BLOCKER, added
+- [x] **Cut a release — the shipped CLI predates every PROJ-010 fix.** ✅ **DONE 2026-08-10 —
+      0.7.0 is live on crates.io, Homebrew and Releases** (STAGE-040). Channels verified at their
+      own sources, then the published darwin-aarch64 binary was downloaded, checksum-matched
+      against both its `.sha256` and the hash Homebrew pins, and driven: `web --max 256` on the
+      halftone returns **31,988 B for a 34,346 B input — 7% smaller, lossless, ssim 100.0**,
+      where 0.6.0 returned 18.5× larger at SSIMULACRA2 69.2. Original blocker text below.
+      (was: ⚠ **NEW BLOCKER, added
       2026-08-09.** `v0.6.0` was tagged **2026-07-24**. Everything PROJ-010 fixed landed after
       it: the 18.5× classifier blow-up, the silently-succeeding truncated JPEG, seven verbs
       returning sideways images, and a `build` that could not run any bundled recipe — plus the
@@ -87,8 +93,15 @@
       dimensions and `edit --save-recipe` changes its output shape, both behaviour changes on
       shipped verbs. Follow `RELEASING.md`; the maintainer fires the tag push.
       *Nobody had this written down until the PROJ-010 close-out — see the second staleness note
-      at the top of this file.*
-- [ ] **The README promises something `transform()` cannot do.** README:34–36 tells readers to
+      at the top of this file.*)
+- [x] **The README promises something `transform()` cannot do.** ✅ **FIXED 2026-08-10 by
+      SPEC-112** (PR #144), before the 0.7.0 cut as required. `wasm::transform` now strips the
+      terminal marker via the shared `split_terminal_optimize` helper, so all three bundled
+      recipes run; the format stays caller-pinned, exactly as designed. Verified by driving the
+      real wasm surface on both sides — `main` returned `unknown operation 'optimize'` for
+      `web`, `gallery` and `product`; the branch returns valid output for all three — and the
+      markerless demo shape is **byte-identical** across the change, so the live demo cannot
+      regress. Original text below. (was: README:34–36 tells readers to
       "start from a bundled `web`/`gallery`/`product`" recipe and says "the same recipe TOML runs
       in the browser demo too, via the wasm `transform()` binding." It does not: every bundled
       recipe ends with the reserved terminal `optimize` step, and `wasm::transform` is the one
@@ -98,7 +111,7 @@
       it — true of the demo UI, but the README sends readers down exactly that path, and
       `crustyimg-wasm` is a **published npm package**. Fix `transform` (the same strip helper;
       its format is always caller-pinned via `out_format`, so no decision is needed) or correct
-      the README. **Fix before the 0.7.0 cut** — the README renders on the crates.io crate page.
+      the README. **Fix before the 0.7.0 cut** — the README renders on the crates.io crate page.)
 
 ## Strengtheners — harden the reception (do if time allows)
 
