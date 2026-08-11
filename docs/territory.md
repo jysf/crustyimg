@@ -37,7 +37,7 @@ Each adjacent layer has a structural gap crustyimg is shaped to fill:
 | **Build step** (Node) | sharp, squoosh, eleventy-img, plaiceholder | Node + a native addon (install/ABI/CI-breakage friction); no standalone binary; squoosh-cli is **abandoned**. | A **single self-contained binary**, no runtime, **+ a manifest** neither sharp nor ImageMagick emits. |
 | **CLI optimizer** | rimage, ImageMagick, caesium-clt | rimage is **C-backed** (mozjpeg/libavif) and narrow (optimize-only). ImageMagick is cryptic and **unsafe by default** (the ImageTragick/GhostScript RCE lineage → mandatory `policy.xml` hardening). | **Pure-Rust, safe-on-untrusted, a general engine** (decide + explain + lint + manifest), not a narrow single-purpose compressor or a cryptic Swiss-army knife. |
 | **Page audit** | Lighthouse, PageSpeed | Runs **in-browser against a deployed URL**; can't touch a source asset tree. | **Source-file, no-URL, pre-deploy `lint`** with a CI exit code. |
-| **Editor** | Photoshop, GIMP, Squoosh UI | Manual, interactive. | **NOT us** — automatic only (see anti-goals). |
+| **Editor** | Photoshop, GIMP, Squoosh UI | Manual, **interactive GUI**. | **Not us for the GUI.** The *programmable* editor is ours: `crustyimg-lab`, a second CLI/pipeline binary on the same `Operation`/recipe core (DEC-088, 2026-08-10). See the Editor-use branch in anti-goals — this was always deferred, not foreclosed. |
 
 Underneath: the **component (crate) layer is hot** — a pure-Rust imaging frontier exists
 (zune, the awxkee SIMD cluster, ravif/rav1d, ssimulacra2, jxl-oxide) — but **nobody assembles
@@ -68,12 +68,30 @@ build-time, **single local binary** — automatic, deterministic, safe, explaina
 near-term decision serves the lens *"does this help produce a better artifact automatically?"*
 
 **Deliberately deferred — open future branches (not foreclosed):**
-- **Editor use.** crustyimg already has `edit` + a recipe pipeline, and geometry/color/effects
-  ops are editor-adjacent. We are **optimization-first, not editor-first** — but manual,
-  editor-style use is a legitimate secondary use (including the maintainer's own), and a future
-  interactive/TUI surface (the ratatui recipe editor) is a *welcome differentiator*, not a
-  betrayal. The guardrail is **sequencing, not prohibition**: the automatic engine leads; the
-  editor rides on the same `Operation`/recipe core.
+- **Editor use.** — ✅ **ACTIVATED 2026-08-10 (DEC-088).** Original text kept below; its condition
+  was met, not overridden.
+  > crustyimg already has `edit` + a recipe pipeline, and geometry/color/effects
+  > ops are editor-adjacent. We are **optimization-first, not editor-first** — but manual,
+  > editor-style use is a legitimate secondary use (including the maintainer's own), and a future
+  > interactive/TUI surface (the ratatui recipe editor) is a *welcome differentiator*, not a
+  > betrayal. The guardrail is **sequencing, not prohibition**: the automatic engine leads; the
+  > editor rides on the same `Operation`/recipe core.
+
+  **Both halves of that guardrail are now satisfied.** The automatic engine led — PROJ-010 closed
+  four launch-gating stages and **0.7.0 is live** on crates.io, Homebrew and Releases. And the
+  shared core is already open: `OperationRegistry::register` is `pub`
+  (`src/operation/registry.rs:92`), which its own doc calls *"the whole point of the registry
+  seam."* So the branch is **active**, and its fence is fixed:
+
+  > **Lab may produce anything. The workhorse accepts only what generalizes across a batch.**
+
+  `crustyimg-lab` is a second CLI/pipeline binary — single static binary, pure-Rust, permissive,
+  riding the shared `Operation`/recipe core. Lab recipes are a superset; one reaching the workhorse
+  with a lab-only op exits **4**, naming the op. What stays out is unchanged: **manual interactive
+  GUI editing**. Two items remain constrained by the firm tier below — a window backend (X11/Wayland
+  is a heavy system dependency) and any external-tool delegate system (see the external-integration
+  tiers in DEC-088; tiers 1 and 2 — file interchange and pipes — are the sanctioned patterns, and
+  both already work).
 - **Possible future commercial direction.** A revenue branch may exist eventually as a
   **separate, deferred product** for a paying audience — always *additive to a different buyer*,
   never gating the free engine, never rug-pulling, never becoming a bandwidth-metered CDN. The
