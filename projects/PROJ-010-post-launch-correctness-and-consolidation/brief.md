@@ -120,7 +120,13 @@ Two pre-launch stages (launch-gating), three post-launch stages (optional, per m
 3. **STAGE-042 after.** It protects the *next* release rather than this one, and its matrix design
    should absorb STAGE-043's root cause — cross entry points with **both modes** (decide and
    pinned), not just the default one.
-4. **STAGE-036** is down to **one real item** (the `escape_json` tail); its five candidates were
+4. **STAGE-036** now holds **two real items**: the `escape_json` tail, and — added 2026-08-10 —
+   **decomposing `src/cli/optimize.rs`**, which is what `src/cli/mod.rs` was before SPEC-097 split
+   it. Measured by *production* lines (excluding test modules): **1,716**, versus 1,107 for the
+   next largest and 1,002 for `cli/mod.rs` *after* its split — so 1.55× the runner-up and 71%
+   bigger than the file that was judged to need splitting. Ranking by total lines hides this.
+   Follows SPEC-097's method (byte-identity proven by an independent oracle) and **must land after
+   STAGE-043**, which changes behaviour in that same file. Its five unsourced candidates were
    triaged and **declined 2026-08-10**, text preserved in full with a per-item reason so any can
    be revived.
 5. **STAGE-037** is **`on_hold`**, by its own long-standing criterion: pull on an adoption signal,

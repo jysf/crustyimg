@@ -82,7 +82,39 @@ The draft's "cost of deferring compounds" argument is not repeated, because each
 
 - [ ] (not yet framed) — **Strict JSON `escape_json`.** SPEC-097 follow-up: escape `0x7F` and `≥0x20` controls through the serialization path. Byte-identity is NOT the gate here — this is a deliberate behaviour change to fix a correctness issue. **This is STAGE-031's entire carried tail.**
 
-**Count:** 0 shipped / 0 active / 1 pending
+- [ ] (not yet framed, **added 2026-08-10**) — **Decompose `src/cli/optimize.rs`.** It is now what
+  `src/cli/mod.rs` was before SPEC-097 split it, and the measurement is what makes the case rather
+  than the raw line count. Ranked by **production lines** (excluding each file's `#[cfg(test)]`
+  module, measured 2026-08-10):
+
+  | file | production | total |
+  |---|---:|---:|
+  | **`src/cli/optimize.rs`** | **1,716** | 1,996 |
+  | `src/cli/ops.rs` | 1,107 | 1,371 |
+  | `src/cli/mod.rs` | 1,002 | 1,429 |
+  | `src/operation/mod.rs` | 864 | 1,800 |
+  | `src/analysis/mod.rs` | 650 | 1,340 |
+  | `src/metadata/mod.rs` | 273 | 1,408 |
+
+  **1.55× the next largest, and 71% bigger than `cli/mod.rs` is *after* its split.** Ranking by
+  *total* lines hides this — it makes the top of the list look like a tight cluster (1,996 vs
+  1,800) because `metadata/mod.rs` and `operation/mod.rs` are majority test code and
+  `optimize.rs` is not. 29 top-level fns.
+
+  **Follow SPEC-097's method exactly**, which is the reason to be confident this is safe: it took
+  `cli/mod.rs` from 6,483 → 1,426 lines with **byte-identical behaviour proven by an independent
+  oracle** (27/27 golden outputs + a function-body diff across ~170 fns), 0 tests dropped, no
+  signature or visibility change. Byte-identity is the gate; anything else is a rewrite.
+  [[fixtures-from-the-code-under-test-cannot-fail]] — the oracle must not be built from the code
+  being moved.
+
+  ⚠ **Sequencing, load-bearing: this must land AFTER STAGE-043**, which changes behaviour in this
+  same file (the pinned-path never-bigger guard). A decomposition and a behavioural fix in one
+  file, in either order but overlapping, turns a mechanical byte-identity proof into a merge
+  problem — and an unclean oracle is worse than no oracle. Do 043, ship it, then decompose against
+  a settled file. Complexity **M–L** (mechanical but wide; SPEC-097 cost ~$17.48).
+
+**Count:** 0 shipped / 0 active / 2 pending
 
 ### Candidates — TRIAGED 2026-08-10. All five DECLINED for now; text kept in full below.
 
@@ -151,7 +183,9 @@ a spec, and "declined" is a legitimate outcome for any of them.
 **Candidate count:** 5 — **all declined 2026-08-10**, none framed, none committed, none deleted.
 Revivable by a spec that supplies what each currently lacks (see the triage table above).
 
-**Stage total after triage: 1 real pending item** (the strict-JSON `escape_json` tail).
+**Stage total after triage: 2 real pending items** — the strict-JSON `escape_json` tail, and the
+`src/cli/optimize.rs` decomposition added 2026-08-10 (which is the one with real weight, and the
+one that gives this stage a spine it did not have).
 
 ## Design Notes
 
