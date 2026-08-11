@@ -170,12 +170,13 @@ STAGE-035 hostile input, STAGE-039 shipped-verb correctness — 5 specs, 4 decis
    AVIF via `apply --recipe web`, and — the launch gate — returns **31,988 B for the 34,346 B
    halftone at `--max 256`, 7% smaller and lossless at ssim 100.0**, where 0.6.0 returned 18.5×
    larger and degraded.
-   **npm correction, and the one thing still open here:** the package is `crustyimg-wasm` and the
-   registry has **only 0.5.0 (2026-07-21)** — the 0.6.0 cut never republished it, so npm is two
-   minors behind and its sole release predates the `transform` fix. (`pkg/package.json` is a
-   gitignored `wasm-pack` artifact, not a maintained file — the earlier note here read the working
-   tree instead of the registry.) Republish at 0.7.0 is decided and recorded on STAGE-040; the
-   publish itself is maintainer-gated and **not yet done**.
+   **npm: ✅ published 2026-08-11.** `crustyimg-wasm@0.7.0` is live and `latest`. Driven from the
+   registry — installed into a fresh project, all three bundled recipes run, which is precisely
+   what fails on the previously-published 0.5.0. **All four channels now carry 0.7.0.**
+   *(The correction that got us here: the package is `crustyimg-wasm`, and the registry had only
+   0.5.0 from 2026-07-21 — the 0.6.0 cut never republished it. `pkg/package.json` is a gitignored
+   `wasm-pack` artifact, not a maintained file; the earlier note here read the working tree instead
+   of the registry and was wrong by a whole minor.)*
 
 **What remains after that is maintainer-only and needs no repo work:**
 
