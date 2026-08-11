@@ -84,7 +84,29 @@ The draft's "cost of deferring compounds" argument is not repeated, because each
 
 **Count:** 0 shipped / 0 active / 1 pending
 
-### Candidates — unsourced, triage before framing
+### Candidates — TRIAGED 2026-08-10. All five DECLINED for now; text kept in full below.
+
+> **Read this before treating anything below as work.** Every candidate in this section was
+> triaged on **2026-08-10** and **declined**, with the reason recorded inline against each one.
+> Nothing is deleted — the full original text stays exactly as written so the decision can be
+> reviewed, and any of the five can be revived by a spec that supplies what it currently lacks.
+>
+> **Summary of the five decisions:**
+>
+> | candidate | decision | why |
+> |---|---|---|
+> | clippy `doc_markdown` sweep + cast audit | **declined for now** — revive post-launch | Measured and real (78 sites), but the required gate is green and 91% are doc-comment backticks. Zero user value; the stage's own note says do it when nothing else is editing those 27 files. |
+> | test-speed stratification | **declined** — needs a measurement first | Both its numbers ("50 slowest tests", "~30s dev loop") are unsourced. Revive with an actual `--report-time` distribution. |
+> | Rust 2024 edition migration | **declined** — contradicts a live decision | DEC-009 chose 2021 and rejected 2024 explicitly. Reviving needs a DEC that supersedes it, names the compelling feature, and accepts the MSRV rise from 1.90.0. |
+> | `pulp` for SIMD | **declined** — premise false | Not in the dependency tree (`grep` returns 0), so it is a **new top-level dep**, not a usage gate: needs `no-new-top-level-deps-without-decision`, a licence review (MIT-only, no explicit patent grant), `deny`, and an MSRV probe. |
+> | `zlib-rs` flate2 backend | **declined** — unmeasured | Not in the lockfile, and the "2× faster PNG encode" figure is unsourced. A backend swap's entire justification is a number nobody has produced. |
+>
+> **Why decline rather than leave them open:** a list of six items where only one is real reads
+> as planned work to anyone who has not read the caveats — including a future session. Three of
+> the five are not merely unsourced but *unsound as stated* (one contradicts a live DEC, one has
+> a false premise, one has an invented number). Recording that as a decision is the honest
+> outcome; leaving them ambient is how an unsourced claim becomes a spec.
+> [[a-criterion-nobody-claims-is-a-criterion-nobody-checks]]
 
 ⚠ **None of the items below has provenance in this repo.** They appear only in the untracked PROJ-010
 draft, attributed to a readiness-analysis session that left no committed record. They are recorded here
@@ -126,7 +148,10 @@ a spec, and "declined" is a legitimate outcome for any of them.
 - **`pulp` for SIMD in quality-metric inner loops.** ⚠ **The draft's premise is false.** `pulp` is **not** in the dependency tree — `grep 'name = "pulp"' Cargo.lock` returns **0** (positive control: `flate2` returns 1). This is a **new top-level dependency**, not "a usage gate", so it triggers the full discipline: `no-new-top-level-deps-without-decision`, a licence check (`pulp` is **MIT-only** — no explicit Apache patent grant), the `deny` gate, and an MSRV probe. Independently corroborated as a reasonable *candidate* by `docs/research/photo-preset-import-and-photographic-ops.md` §36, which also notes `std::simd` is confirmed **not** coming (rust#86656 untouched since 2025-03) — but that document reaches it as a new dependency too. Also note it sits close to the shelved D5/D6 territory below.
 - **`zlib-rs` as a flate2 backend.** `zlib-rs` is also **not** in the lockfile (count 0). The draft's "**2× faster PNG encode**" figure is **unmeasured and unsourced** — dropped. If probed, measure it here; a backend swap's whole justification is a number.
 
-**Candidate count:** 5, none framed, none committed.
+**Candidate count:** 5 — **all declined 2026-08-10**, none framed, none committed, none deleted.
+Revivable by a spec that supplies what each currently lacks (see the triage table above).
+
+**Stage total after triage: 1 real pending item** (the strict-JSON `escape_json` tail).
 
 ## Design Notes
 
