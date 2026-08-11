@@ -96,29 +96,86 @@ Also: **decomposing `src/cli/optimize.rs`** (below the line in the note) was add
 
 ---
 
-## 2. The decision that gates half the list
+## 2. The decision that gates half the list — and it is smaller than it looks
 
-**"Lab" is not a feature — it reverses a standing anti-goal.** `docs/territory.md` states the fence
-that has been killing proposals: *"Editor — Photoshop, GIMP, Squoosh UI — NOT us, automatic only."*
+> **Corrected 2026-08-10, after reading `docs/territory.md` rather than recalling it.** This section
+> first claimed *"lab reverses a standing anti-goal."* **That is wrong**, and the error is the same
+> shape as everything else this wave caught: a confident claim about a document nobody had reopened.
+> The original claim is preserved here as the correction it needed.
 
-§7 (masks), §8 (expression filters), §9 (sweeps), §10 (watch-preview), §14 (window display), §18
-(external tools) and the second demo **only exist if that fence moves.** That is roughly half the
-set, and it is a positioning decision, not an effort estimate.
+**The line everyone quotes is not an anti-goal.** *"Editor — Photoshop, GIMP, Squoosh UI — NOT us,
+automatic only"* is `docs/territory.md:40` — a **row in the competitive-landscape table**
+(`## Why the space is open`). Its columns are *Layer | Incumbents | Their shape / gap | crustyimg's
+claim*, and the gap it names is **"Manual, interactive."** The cell even defers elsewhere: *"(see
+anti-goals)."*
 
-The note proposes the right test, and it is a good one precisely because it is derived rather than
-imposed:
+**The actual anti-goals section says close to the opposite.** `## Scope discipline` has three tiers,
+and **Editor use sits in the middle one — "Deliberately deferred — open future branches (not
+foreclosed)"**:
+
+> **Editor use.** crustyimg already has `edit` + a recipe pipeline, and geometry/color/effects ops
+> are editor-adjacent. We are **optimization-first, not editor-first** — but manual, editor-style
+> use is a legitimate secondary use (including the maintainer's own), and a future interactive/TUI
+> surface (the ratatui recipe editor) is a *welcome differentiator*, not a betrayal. The guardrail
+> is **sequencing, not prohibition**: the automatic engine leads; the editor rides on the same
+> `Operation`/recipe core.
+
+**"Editor" appears zero times in the firm "What we won't be" tier.**
+
+So the lab is not a reversal. It is **executing a branch territory.md already blessed**, and its
+stated condition is already satisfied on both halves: the automatic engine led (0.7.0 shipped on all
+three channels), and the editor can ride the same core (§1.2 — the registry is already open to
+outside registration). territory.md even anticipates the surface: *the ratatui recipe editor*.
+
+### What actually needs deciding
+
+**Not "may we build lab" — "where is lab's fence, and which two items breach the firm tier."**
+
+**The fence.** The source note's own test is the right one, and good precisely because it is derived
+rather than imposed:
 
 > **Lab can produce anything; the workhorse only accepts what generalizes across a batch.**
 
-That falls out of the mask design — pixel coordinates do not survive a batch, so absolute rects and
+It falls out of the mask design: pixel coordinates do not survive a batch, so absolute rects and
 seed floods are lab-only while luminance/chroma/percent-gravity masks are safe in a `build` recipe.
-A fence that emerges from the domain holds; one that is asserted erodes.
+A fence that emerges from the domain holds; an asserted one erodes.
 
-**This wants a DEC before any lab spec**, in the same class as DEC-009 (edition) or DEC-052 (HEIC) —
-recording what the anti-goal now is, not merely that the old one was dropped. `territory.md` should
-be amended in the same change, consciously, per the note's own closing warning.
+**The two genuine collisions**, both with the firm tier's *"we don't become the thing we're
+replacing… Safe, permissive, pure-Rust, single-binary is non-negotiable"*:
 
-**Until that decision exists, every lab item below is `blocked-on-decision`, not `proposed`.**
+- **§14 window display.** A window backend pulls X11/Wayland on Linux — a heavy system dependency,
+  which is the exact property the firm tier calls non-negotiable. Allowed **only** off-by-default
+  behind `--features window`, and arguably not at all: `view` on viuer already covers the terminal
+  case (kitty graphics, iTerm2, sixel, block fallback), which is the one in regular use.
+- **§18 external tools.** This is the sharper one. The table row directly above the Editor row wins
+  the CLI-optimizer layer on the grounds that *"ImageMagick is cryptic and **unsafe by default**
+  (the ImageTragick/GhostScript RCE lineage → mandatory `policy.xml` hardening)"* — and
+  ImageMagick's delegate system **is** that lineage. `migrating.md` currently sells *"there is no
+  `policy.xml` because there is no delegate system to lock down."* Adopting one is becoming the
+  incumbent crustyimg beats. If it ever happens: lab explicitly forfeits the "safe on untrusted
+  input" claim, and external ops are forbidden in `build` recipes (exit 4 covers it) because they
+  break the cache key.
+
+Everything else in the lab group (§7 masks, §8 expression filters, §9 sweeps, §10 watch-preview,
+the lab demo) is inside the deferred-branch permission already granted, provided it rides the shared
+`Operation`/recipe core and stays pure-Rust, permissive and single-binary.
+
+### The mechanism to revisit — follow the repo's own pattern
+
+Not a rewrite. Two artifacts, matching what DEC-087 did on 2026-08-10:
+
+1. **A DEC** promoting Editor use from *deferred* to *active*, citing territory.md's own
+   "sequencing, not prohibition" condition as **now satisfied**, naming the workhorse/lab split and
+   the generalizes-across-a-batch fence, and recording the two firm-tier guards above. Same class as
+   DEC-009 or DEC-052.
+2. **A dated amendment to `territory.md`, preserving the original text** — the DEC-087 pattern: show
+   the call and its correction, never silently delete. The load-bearing edit is **`territory.md:40`**,
+   whose bare *"NOT us — automatic only"* is now misleading about what is actually excluded. It
+   should distinguish **manual interactive GUI editing** (still not us) from **the programmable CLI
+   editor** (`crustyimg-lab`, and the ratatui surface territory.md already welcomes).
+
+**Until those exist, the lab items below are `blocked-on-decision` — but the decision is a
+clarification and a fence, not a reversal.**
 
 ---
 
