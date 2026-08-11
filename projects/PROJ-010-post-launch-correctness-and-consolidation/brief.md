@@ -99,16 +99,23 @@ Two pre-launch stages (launch-gating), three post-launch stages (optional, per m
 - [x] STAGE-040 (**shipped 2026-08-10**) — see the entry above, now closed: SPEC-112 merged (PR #144) and **0.7.0 is live on crates.io, Homebrew and Releases**, verified by driving the downloaded binary rather than by reading three green workflows.
 - [ ] STAGE-041 (proposed, **added 2026-08-10**) — **Launch content and publication plan.** There is no post, no asset, no channel list and no schedule anywhere in this repo — verified by search. Scoped to *plan*, not draft: the narrative is the maintainer's voice.
 - [ ] STAGE-042 (proposed, **added 2026-08-10**) — **Release-safety instruments.** Four of PROJ-010's five defects escaped the same way — an unenumerated cell of a matrix. Delivers a conformance matrix derived from the code's own lists, a release-lag signal, a wasm CI leg, and two `RELEASING.md` steps.
+- [ ] STAGE-044 (proposed, **added 2026-08-10**) — **The `meta` lane cannot emit a broken manifest.** Driven by a spike against 0.7.0: `meta set --artist` takes a file whose Content Credentials validate `Valid` and emits one a validator reports `Invalid` / `assertion.dataHash.mismatch` — manifest fully intact, hash broken. The pixel lane drops credentials cleanly and `meta strip` drops them cleanly *by accident*; `meta set` keeps and breaks them. A bug fix, explicitly **not** the C2PA feature work.
 - [ ] STAGE-043 (proposed, **added 2026-08-10**) — **Pinned-path correctness.** Every PROJ-010 fix landed on the *decide* path; the **pinned** path kept its defects. `optimize x.jpg -o out.jpg` on an already-compressed source returns a file **2.02× larger, exit 0, empty stderr** — driven on the shipped 0.7.0 binary. Plus `build` swallowing the truncated-JPEG warning `apply` prints.
 
-**Count:** 4 shipped / 0 active / 4 pending + 1 on hold
+**Count:** 4 shipped / 0 active / 5 pending + 1 on hold
 
 **Launch-gating: COMPLETE, and delivered.** STAGE-034 ✅, STAGE-035 ✅, STAGE-039 ✅ and STAGE-040 ✅ are shipped, and 0.7.0 is live on all three channels.
 
 ### Sequence from here (decided 2026-08-10)
 
-**STAGE-043 → STAGE-041 → STAGE-042**, with the rest trimmed:
+**STAGE-043 + STAGE-044 → STAGE-041 → STAGE-042**, with the rest trimmed:
 
+0. **STAGE-044 alongside 043**, and in the same release. Both are shipped-verb correctness on lanes
+   PROJ-010 never swept — 043 the *pinned* path, 044 the *metadata* lane — and both are small. 044
+   is the more embarrassing of the two if found by someone else: emitting a manifest a validator
+   reads as **tampering** attributes a forgery to the file's signer, which is a worse failure than
+   simply dropping the credentials. It is also more niche than 043's `optimize`, so it is not a hard
+   launch gate on its own — but there is no reason to split the wave.
 1. **STAGE-043 first**, and **before the launch post.** Not because it blocks the demo — the demo
    never takes the pinned path — but because the post will name `optimize`, and
    `optimize photo.jpg -o out.jpg` silently returning a doubled file is a top comment rather than
