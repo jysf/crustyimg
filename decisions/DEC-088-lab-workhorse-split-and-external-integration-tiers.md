@@ -66,7 +66,7 @@ DEC records that the deferred branch is **active**, and fixes its fence before t
 | tier | pattern | status |
 |---|---|---|
 | **1. File interchange** | Read/write files another tool produced or consumes | **Preferred.** No process spawned, no attack surface, and **hashable — so it participates in the build cache key.** |
-| **2. Pipes** | `-` for stdin, `-o -` for stdout; the user composes the pipeline | **Sanctioned, already implemented** (`src/source/mod.rs:158`). |
+| **2. Pipes** | `-` for stdin, `-o -` for stdout; the user composes the pipeline | **Sanctioned, and already implemented across the verb set** — driven `stdin → stdout` on the released 0.7.0 binary, **11/11 exit 0** (`info`, `resize`, `thumbnail`, `convert`, `web`, `optimize`, `auto-orient`, `watermark`, `edit`, `lint`, `apply`). `src/source/mod.rs:158`. |
 | **3. Spawning a process** | crustyimg invokes an external binary | **NOT BUILT.** See Alternatives. |
 
 **Corollary, and the operative rule going forward:** a request to "use tool X" is triaged as —
@@ -166,9 +166,10 @@ Probed 2026-08-10 against the crates.io API:
     non-negotiable. Off-by-default at most (`--features window`); `view` on viuer already covers the
     terminal case, which is the one in regular use.
   - **External tools (tier 3)** — not built, per Decision 2.
-- **STAGE-042's conformance matrix gains a stdin/stdout axis.** Tier 2 is sanctioned as a supported
-  integration surface, so "`-` and `-o -` work on every verb" becomes a claim that must be driven
-  rather than assumed — the same unenumerated-cell shape as decide-vs-pinned.
+- **STAGE-042's conformance matrix gains a stdin/stdout axis.** Tier 2 works today — driven 11/11
+  on the released binary — so the axis exists to **keep** it working, not to discover whether it
+  does. Sanctioning it as an integration surface is what turns "`-o -` happens to work" into a
+  contract, and contracts need the same unenumerated-cell protection as decide-vs-pinned.
 - **Lab must not inherit the workhorse's safety claims by association.** Whatever lab ships, the
   "safe on untrusted input" language belongs to the workhorse and its threat model (PROJ-007 /
   DEC-062), and lab's own posture must be stated separately.

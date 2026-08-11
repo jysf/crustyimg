@@ -303,9 +303,30 @@ because the LUT is a file, not a process.
 cat photo.jpg | crustyimg optimize - -o - | some-other-tool
 ```
 
-⚠ One claim to **drive rather than assume**: that `-` / `-o -` work uniformly across every verb.
-That is exactly the shape of defect STAGE-042's conformance matrix exists to catch, and it should
-gain a stdin/stdout axis.
+**Driven on the released 0.7.0 binary, 2026-08-10 — it works across the whole verb set**, so this is
+a settled capability, not an aspiration. Every verb that takes an input and produces an output was
+run `stdin → stdout`:
+
+| verb | exit | stdout | | verb | exit | stdout |
+|---|---|---|---|---|---|---|
+| `info -` | 0 | 151 B | | `optimize - -o -` | 0 | 6,245 B |
+| `resize - --max 100 -o -` | 0 | 14,979 B | | `auto-orient - -o -` | 0 | 245,690 B |
+| `thumbnail - --size 64 -o -` | 0 | 6,791 B | | `watermark - --text hi -o -` | 0 | 292,030 B |
+| `convert - --format jpeg -o -` | 0 | 14,218 B | | `edit - --invert -o -` | 0 | 296,876 B |
+| `web - -o -` | 0 | 6,245 B | | `apply --recipe web - -o -` | 0 | 6,245 B |
+| `lint - --format json` | 0 | 149 B | | | | |
+
+**11/11, exit 0.** Two apparent failures during this pass were both **my own bad flags**, not
+defects — `thumbnail --max` (it is `--size`) and `edit --brightness` (it is `--invert`). Each was
+caught by a control: running the same flag from a *file* failed identically, which localises the
+fault to the argument rather than the pipe. A third apparent failure was **rtk mangling binary on
+`cat`** ("stream did not contain valid UTF-8"); re-running with `/bin/cat` passed. All three are
+worth recording because each would have become a false finding
+([[rtk-can-silently-corrupt-grep-counts]], [[a-plausible-test-result-is-not-a-checked-one]]).
+
+STAGE-042's conformance matrix should still gain a **stdin/stdout axis** — not to discover whether
+this works, but to keep it working now that DEC-088 makes it a sanctioned integration surface rather
+than a convenience.
 
 #### Tier 3 — spawning a process (the ImageMagick trap)
 
