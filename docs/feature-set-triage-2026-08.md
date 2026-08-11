@@ -255,11 +255,74 @@ Two notes worth preserving whatever is decided:
   nothing compiles the former into the latter. It also solves the architecture problem elegantly —
   the main binary never needs an evaluator, wasm stays small, and the cache key just hashes a file.
   The "no prior art found" claim is **unverified** and should be checked before it is published.
-- **§18 is a genuine hazard, not just a feature.** `migrating.md` currently sells *"there is no
-  `policy.xml` because there is no delegate system to lock down."* ImageMagick's delegate system is
-  the source of most of its CVEs. If lab ever gains external tools, lab must **not** inherit
-  crustyimg's "safe on untrusted input" claim, and external ops must be forbidden in `build` recipes
-  (exit 4 covers it) because they break the cache key.
+- **§18 should not be built — see §3.2.** The question "what external tool do we actually want?"
+  has a surprising answer: almost none, because the good candidates are permissive Rust crates and
+  the good *integration patterns* already exist.
+
+### 3.2 External integration — three tiers, and only the third is the trap
+
+Asked directly (2026-08-10): *is there anything external we would really want to use, and what is
+the right pattern for piping content to and from one?* Checked rather than assumed:
+
+**The best candidates are not external tools at all.**
+
+| candidate | finding |
+|---|---|
+| **`oxipng`** (PNG lossless recompression) | **v10.2.0, MIT, pure Rust, 1.74M downloads, updated 2026-08-09.** A *dependency* decision under DEC-018, not an external-tool decision. |
+| **`zopfli`** | **v0.8.3, Apache-2.0, pure Rust, 101M downloads.** Same. |
+| `mozjpeg` | Already on the licence watchlist as `mozjpeg-encode`, deferred, with the off-by-default feature pattern (DEC-022 / libwebp) as its way in. |
+| `gifsicle` | No `gifsicle-sys` on crates.io — a genuine external binary. But **§11 obsoletes it**: converting animated GIF → animated WebP/AVIF beats optimising the GIF. |
+| `jpegoptim` | Not on crates.io. Overlaps `mozjpeg`. |
+| ExifTool | The gold standard for metadata — and **Perl**, i.e. a required runtime, which the firm tier forbids outright. crustyimg already has its own bounded TIFF-IFD reader/writer (`src/metadata/tiff.rs`, 718 lines). |
+| ffmpeg | Out of scope: crustyimg is images. §11 covers the animation overlap. |
+
+**So the triage question for any future "can we use X" is: is it a permissive Rust crate (a
+dependency decision), a file format (tier 1 below), or a pipeline stage (tier 2)? If none of the
+three, it is probably out of scope rather than a delegate.**
+
+#### Tier 1 — file interchange (best, and already the design)
+
+Exchange *files*, spawn nothing. Already how the strongest items in this set work:
+
+- **inbound:** `.cube` LUTs authored in Resolve/Lightroom (§2); **SVG paths drawn in
+  Inkscape/Figma** as mask producers (§7) — real bezier selections with no selection UI, and the
+  mask is a version-controllable file; **grayscale PNG masks** (§7's "universal escape hatch:
+  anything that can write a PNG can now define a selection").
+- **outbound:** SARIF (`src/lint/report.rs:124`, SPEC-056) and `--json` across the verbs.
+
+**Zero attack surface, and fully cacheable — you just hash the file.** That last property is what
+makes §2's differentiator work at all: the LUT's hash in the build cache key is only possible
+because the LUT is a file, not a process.
+
+#### Tier 2 — pipes (good, and already supported)
+
+`src/source/mod.rs:158` — `arg == "-"` reads stdin into `Input::Stdin`; `-o -` writes to stdout.
+**crustyimg is already a filter in someone else's pipeline**, which is the whole pattern:
+
+```sh
+cat photo.jpg | crustyimg optimize - -o - | some-other-tool
+```
+
+⚠ One claim to **drive rather than assume**: that `-` / `-o -` work uniformly across every verb.
+That is exactly the shape of defect STAGE-042's conformance matrix exists to catch, and it should
+gain a stdin/stdout axis.
+
+#### Tier 3 — spawning a process (the ImageMagick trap)
+
+**The direction of control is the entire security story.** ImageMagick's problem was never that it
+*used* Ghostscript — it is that it *decided to*, implicitly, from file content. A pipe inverts that:
+the user composes the pipeline and crustyimg spawns nothing.
+
+`migrating.md` currently sells *"there is no `policy.xml` because there is no delegate system to
+lock down"*, and the competitive table wins the CLI-optimizer layer on ImageMagick being *"unsafe by
+default (the ImageTragick/GhostScript RCE lineage)"*. **Recommendation: do not build §18.** Tiers 1
+and 2 cover every real need above.
+
+If it is ever built anyway, the source note's own constraints are right and non-negotiable: explicit
+allowlist, args as an array never a shell string, no filename interpolation, temp file in/out — plus
+**lab forfeits the "safe on untrusted input" claim**, and external ops are **forbidden in `build`
+recipes** (exit 4), because a spawned tool breaks the cache key: `build` cannot know `oxipng` was
+upgraded.
 
 ### Below the line, unchanged
 
