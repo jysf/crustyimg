@@ -51,6 +51,13 @@ split in a way that does not follow the lane boundary anyone assumed:
 | pixel lane (`web`, `optimize`, `convert`, `auto-orient`) | re-encodes; manifest gone entirely | **OBSERVED** |
 | `meta strip` (JPEG) | drops it cleanly at the container level | **OBSERVED** |
 | **`meta set`** | **carries it and breaks it** | **OBSERVED** |
+| `meta clean` | same mechanism — APP11 kept, EXIF rewritten | **INFERRED — re-drive** |
+| `meta copy` | rewrites destination EXIF/ICC, keeps destination APP11 | **INFERRED, never run — re-drive** |
+| `meta strip` (**PNG**) | `caBX` is not in the strip list — may be the mirror image | **UNTESTED — determine** |
+
+**The bottom three rows are claims, not measurements, and the spike marks them that way on
+purpose.** Re-drive each before fixing it; do not inherit the read. `meta copy` in particular was
+*only read, never run*. [[a-claimed-failure-mode-is-as-unproven-as-a-claimed-success]]
 
 > `c2patool CA.jpg` → `Valid`
 > `crustyimg meta set CA.jpg --artist "x" -o broken.jpg -y`
@@ -90,23 +97,43 @@ a shipped verb, in the release binary.
 
 ## Scope
 
-### In scope
-- `meta set`, `meta clean`, `meta copy` — never emit a broken manifest.
-- Making `meta strip`'s APP11 drop intentional + tested.
-- The minimal detection those need: a JPEG APP11 marker scan, byte-scan only.
-- The PNG `caBX` determination.
+> ### ⚠ This section is the most important part of this stage.
+>
+> **The named failure mode: this quietly becoming the C2PA detection feature.** Every item in the
+> out-of-scope list below is individually reasonable, adjacent, and cheap-looking once the APP11
+> scan exists. That is exactly why the fence has to be explicit — a bug fix that grows a lint rule,
+> an `info` field and a stderr contract is no longer a bug fix, and it will not ship in the same
+> release as STAGE-043.
+>
+> The source prompt deliberately made scope longer than the fix. That proportion is kept here on
+> purpose; do not "tidy" it.
 
-### Explicitly out of scope — each is separately gated
-- **The `provenance/credentials-*` lint rule.**
+### In scope — four items, and nothing adjacent to them
+- `meta set`, `meta clean`, `meta copy` — never emit a retained-but-invalidated manifest.
+- Making `meta strip`'s APP11 drop **intentional and tested**, so narrowing `0xE1..=0xEF` fails a
+  test rather than silently regressing.
+- The minimal detection those need: **a JPEG APP11 marker scan — byte-scan only, no parsing**
+  (DEC-003).
+- The PNG `caBX` determination (see Design Notes).
+
+### Explicitly out of scope — each is separately gated, and each will look tempting
+- **The `provenance/credentials-*` lint rule.** The most likely thing to creep in, because once a
+  byte-scan exists a lint rule is ten lines away. Still no.
 - **C2PA reporting in `info` / `info --json`.** The spike found `info` prints `exif: no` on a file
-  that is 70% manifest. It is real, it is misleading, and it is **not this change**.
-- **Warnings on the pixel-lane verbs.** They print nothing on success today, so adding output means
-  deciding their stderr contract — a design question, not a bug fix.
-- **The `c2pa` crate.** Nothing here needs it.
-- Signing, certificates, ingredients, re-signing.
+  that is **70% manifest**. It is real, it is misleading, and it is **not this change**.
+- **Warnings on the pixel-lane verbs** (`web`/`optimize`/`convert`/`auto-orient`). They print
+  nothing at all on success today, so adding output means **deciding their stderr contract** — a
+  design question, not a bug fix.
+- **The `c2pa` crate — or any new dependency.** Nothing here needs one.
+- **Anything touching signing, certificates, ingredients, or re-signing.**
 
-> **If the build finds itself adding a dependency or editing a pixel-lane verb, it has left the
-> fix.** Stop and report.
+> **Two tripwires. If either trips, the build has left the fix — stop and report rather than
+> continuing:**
+> 1. **Adding a dependency.**
+> 2. **Editing a pixel-lane verb.**
+>
+> A third, softer one: if the diff starts *reporting* what it detects to anywhere other than the
+> stderr warning this stage authorises, that is the detection feature arriving early.
 
 ## Spec Backlog
 
