@@ -130,6 +130,32 @@ failures on documented paths.
   target and `wasm-bindgen-test-runner` — [[probe-load-bearing-crates-at-design]] applies to the
   test *runner* for a new target. Complexity **S–M**.
 
+- [ ] (chore) — **`npm publish` is the one link the build chain does not cover, so the unguarded
+  path is shorter than the guarded one.** Raised by the maintainer 2026-08-10, immediately before
+  publishing 0.7.0.
+
+  The repo already makes unsafe paths *unreachable by chaining*, and says so explicitly:
+  `wasm-npm-pkg: wasm-build` is documented as depending on the profiled build **"ON PURPOSE — the
+  packaging step must never be reachable without going through the size profile (DEC-066), or the
+  package silently ships a stock-profile .wasm, +109 KB on the wire"**, and `demo-build` likewise
+  **"REFUSES a .wasm that did not come through the profiled build."**
+
+  The chain is `wasm-build → wasm-npm-pkg → wasm-npm-smoke` — **and then it stops.** There is no
+  publish recipe (`grep publish justfile` finds only comments). So the actual publish is
+  `cd pkg && npm publish`, which runs **no** build, **no** size profile and **no** smoke test, and
+  is *easier to type* than the safe route. `pkg/` is gitignored, so nothing ties the artifact to the
+  current checkout: switching branches leaves it untouched, and the version guard in
+  `wasm-npm-finalize.mjs` (which dies if `pkg.version != Cargo.toml version`) only runs at **build**
+  time, never at publish time. A stale or wrong-branch artifact publishes silently, and npm
+  publishes are effectively irreversible.
+
+  **Fix: `wasm-npm-publish: wasm-npm-smoke`** — one more link, exactly the argument DEC-066 already
+  makes one step earlier. This does **not** weaken SPEC-076's maintainer gate; the gate is *"a human
+  decides to publish"*, not *"it must be typed as raw npm"*, and chaining strictly increases what
+  runs before bytes leave the machine. npm's OTP prompt works fine inside a recipe. Worth also
+  printing the resolved name@version and the git commit before the final step, so the maintainer
+  confirms against something rather than nothing. Queued item #11. Complexity **S**.
+
 - [ ] (chore) — **`just validate` silently skips untracked files.**
   `scripts/validate-frontmatter.sh:31` enumerates via `git ls-files`, so a **newly created** spec
   or stage — exactly the file most likely to have malformed front-matter — is invisible to the
@@ -147,7 +173,7 @@ failures on documented paths.
   silently had the roll not caught it. (b) Run `just wasm-test`, which no CI leg does. Complexity
   **S**.
 
-**Count:** 0 shipped / 0 active / 2 specs + 3 chores pending (none framed)
+**Count:** 0 shipped / 0 active / 2 specs + 4 chores pending (none framed)
 
 ## Design Notes
 
