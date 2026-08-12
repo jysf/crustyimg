@@ -101,14 +101,16 @@ Two pre-launch stages (launch-gating), three post-launch stages (optional, per m
 - [ ] STAGE-042 (proposed, **added 2026-08-10**) — **Release-safety instruments.** Four of PROJ-010's five defects escaped the same way — an unenumerated cell of a matrix. Delivers a conformance matrix derived from the code's own lists, a release-lag signal, a wasm CI leg, and two `RELEASING.md` steps.
 - [ ] STAGE-044 (proposed, **added 2026-08-10**) — **The `meta` lane cannot emit a broken manifest.** Driven by a spike against 0.7.0: `meta set --artist` takes a file whose Content Credentials validate `Valid` and emits one a validator reports `Invalid` / `assertion.dataHash.mismatch` — manifest fully intact, hash broken. The pixel lane drops credentials cleanly and `meta strip` drops them cleanly *by accident*; `meta set` keeps and breaks them. A bug fix, explicitly **not** the C2PA feature work.
 - [ ] STAGE-043 (proposed, **added 2026-08-10**) — **Pinned-path correctness.** Every PROJ-010 fix landed on the *decide* path; the **pinned** path kept its defects. `optimize x.jpg -o out.jpg` on an already-compressed source returns a file **2.02× larger, exit 0, empty stderr** — driven on the shipped 0.7.0 binary. Plus `build` swallowing the truncated-JPEG warning `apply` prints.
+- [ ] STAGE-045 (proposed, **added 2026-08-11**) — **Adopted-source-format integrity on the decide path.** The mirror image of 043: `Image::source_format()` is an *adopted label* for SVG (`Png`), HEIC (`Png`) and RAW (`Jpeg`), and the auto-decision reads it as the container on disk — so `optimize` can pass the **source container through verbatim** while reporting a format it never produced. `cat logo.svg | crustyimg optimize - --out-dir out/` writes **`out/stdin.jpg` containing XML**, described as a PNG. Driven at `08b367d` with committed fixtures; reaches `optimize`, `web`, `apply --recipe web` and `build` through one seam. Found while building SPEC-113, which hit the same adopted-label problem on the pinned side.
 
-**Count:** 4 shipped / 0 active / 5 pending + 1 on hold
+**Count:** 4 shipped / 0 active / 6 pending + 1 on hold
 
 **Launch-gating: COMPLETE, and delivered.** STAGE-034 ✅, STAGE-035 ✅, STAGE-039 ✅ and STAGE-040 ✅ are shipped, and 0.7.0 is live on all three channels.
 
 ### Sequence from here (decided 2026-08-10)
 
-**STAGE-043 + STAGE-044 → STAGE-041 → STAGE-042**, with the rest trimmed:
+**STAGE-043 + STAGE-045 + STAGE-044 → STAGE-041 → STAGE-042**, with the rest trimmed
+(STAGE-045 added to the wave 2026-08-11):
 
 0. **STAGE-044 alongside 043**, and in the same release. Both are shipped-verb correctness on lanes
    PROJ-010 never swept — 043 the *pinned* path, 044 the *metadata* lane — and both are small. 044
@@ -122,11 +124,17 @@ Two pre-launch stages (launch-gating), three post-launch stages (optional, per m
    a bug report. It is the same defect class as STAGE-034's 18.5× blow-up and, in one respect,
    worse: **the 18.5× case at least reported the size.** Ships as 0.7.1, or folds into 0.8.0
    alongside STAGE-042.
+1b. **STAGE-045 with 043, not after it.** Both change the same two files and both answer the same
+   question — *when are the raw source bytes a valid output?* SPEC-113 introduces
+   `pipeline_altered_source` as the shared answer; SPEC-115 adds its second half. Landing them far
+   apart invites a divergent second copy of the judgement. Same release, and for the same
+   launch-post reason: "it wrote my SVG into a `.jpg`" is a top comment, not a bug report.
 2. **STAGE-041 next.** The product is correct and nobody knows it exists; everything else is
    polish on a tool with no users.
 3. **STAGE-042 after.** It protects the *next* release rather than this one, and its matrix design
    should absorb STAGE-043's root cause — cross entry points with **both modes** (decide and
-   pinned), not just the default one.
+   pinned), not just the default one — **plus STAGE-045's third axis, input family**: every one of
+   SVG/HEIC/RAW was tested only in the mode that hid the defect.
 4. **STAGE-036** now holds **two real items**: the `escape_json` tail, and — added 2026-08-10 —
    **decomposing `src/cli/optimize.rs`**, which is what `src/cli/mod.rs` was before SPEC-097 split
    it. Measured by *production* lines (excluding test modules): **1,716**, versus 1,107 for the
