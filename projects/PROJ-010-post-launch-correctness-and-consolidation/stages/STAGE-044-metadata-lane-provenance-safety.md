@@ -137,7 +137,7 @@ a shipped verb, in the release binary.
 
 ## Spec Backlog
 
-- [ ] (not yet framed) — **The `meta` lane cannot emit a broken manifest.** One spec; the three
+- [ ] **SPEC-114** (design written 2026-08-11) — **The `meta` lane cannot emit a broken manifest.** One spec; the three
   verbs share `write_exif_block` (`src/metadata/mod.rs:143`), so they share the fix. Complexity
   **S–M**.
 
