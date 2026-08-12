@@ -197,8 +197,14 @@ binary a user actually installs — which was the entire point of this stage.
 
 ## Remaining — maintainer-only, no repo work
 
-1. **npm republish** at 0.7.0, per the decision above. Not done; irreversible and
-   maintainer-gated (SPEC-076).
+1. ~~**npm republish** at 0.7.0~~ — ✅ **DONE 2026-08-11.** `crustyimg-wasm@0.7.0` is published and
+   `latest`; the registry now carries `0.5.0` and `0.7.0`, closing a gap that had stood since
+   2026-07-21. Verified the same way as the other three channels — **by driving the published
+   artifact, not by reading a status**: installed from the registry into a fresh project, and all
+   three bundled recipes (`web`, `gallery`, `product`) run, which is exactly what fails on 0.5.0
+   with `unknown operation 'optimize'`. The published shasum `25c1b691…0833` matches the
+   pre-publish dry-run byte for byte, so the artifact that shipped is the one that was verified.
+   **All four channels now carry 0.7.0.**
 2. Then the genuinely maintainer-only launch items, unchanged: the device pass (the ~60 MP RAW
    preview decode has never run on hardware, and whether the demo surfaces errors legibly), the
    install one-liner re-verification **at 0.7.0**, the post draft's CLI-vs-demo RAW split fix,

@@ -96,9 +96,54 @@ Two pre-launch stages (launch-gating), three post-launch stages (optional, per m
 - [x] STAGE-039 (**shipped 2026-08-09**) — **Shipped-verb correctness** (D-1/D-2 launch-gating, D-3 cheap). SPEC-110 `convert` orientation + sweep (PR #133, DEC-086); SPEC-111 `build` runs bundled recipes (PR #138, DEC-087); the `docs/data-model.md` chore, now pinned by `tests/docs_ops.rs`. **This closes the last launch-gating repo work.** Each item turned out larger than framed: D-1 was seven broken verbs rather than one, D-2 needed a design cycle the stage said it did not, and D-3's test caught two flaws in itself. New stage, added 2026-07-26 from re-verified exploration findings.
 - [ ] STAGE-040 (**active**) — **Release readiness for 0.7.0.** The stage that makes PROJ-010's work reach a user: `v0.6.0` was tagged 2026-07-24 and every PROJ-010 fix landed after it, so the released CLI still has all four defects while the demo (which redeploys from `main`) does not. Two items: SPEC-112 (`wasm::transform` runs the bundled recipes — the README claims it does and it does not, driven), then the 0.7.0 cut. New stage, added 2026-08-09 at the STAGE-039 close-out; STAGE-039 is closed and cannot be reopened, so this is its continuation.
 
-**Count:** 3 shipped / 1 active / 3 pending
+- [x] STAGE-040 (**shipped 2026-08-10**) — see the entry above, now closed: SPEC-112 merged (PR #144) and **0.7.0 is live on crates.io, Homebrew and Releases**, verified by driving the downloaded binary rather than by reading three green workflows.
+- [ ] STAGE-041 (proposed, **added 2026-08-10**) — **Launch content and publication plan.** There is no post, no asset, no channel list and no schedule anywhere in this repo — verified by search. Scoped to *plan*, not draft: the narrative is the maintainer's voice.
+- [ ] STAGE-042 (proposed, **added 2026-08-10**) — **Release-safety instruments.** Four of PROJ-010's five defects escaped the same way — an unenumerated cell of a matrix. Delivers a conformance matrix derived from the code's own lists, a release-lag signal, a wasm CI leg, and two `RELEASING.md` steps.
+- [ ] STAGE-044 (proposed, **added 2026-08-10**) — **The `meta` lane cannot emit a broken manifest.** Driven by a spike against 0.7.0: `meta set --artist` takes a file whose Content Credentials validate `Valid` and emits one a validator reports `Invalid` / `assertion.dataHash.mismatch` — manifest fully intact, hash broken. The pixel lane drops credentials cleanly and `meta strip` drops them cleanly *by accident*; `meta set` keeps and breaks them. A bug fix, explicitly **not** the C2PA feature work.
+- [ ] STAGE-043 (proposed, **added 2026-08-10**) — **Pinned-path correctness.** Every PROJ-010 fix landed on the *decide* path; the **pinned** path kept its defects. `optimize x.jpg -o out.jpg` on an already-compressed source returns a file **2.02× larger, exit 0, empty stderr** — driven on the shipped 0.7.0 binary. Plus `build` swallowing the truncated-JPEG warning `apply` prints.
 
-**Launch-gating: COMPLETE.** STAGE-034 ✅, STAGE-035 ✅ and STAGE-039 ✅ are all shipped. **No launch-gating repo work remains** — what is left on `docs/launch-readiness.md` is maintainer-only: the device pass (the 60 MP RAW preview decode has never run on hardware), re-verifying the install one-liners at 0.6.0, the post draft, and the go/no-go. STAGE-036/037/038 are post-launch and optional.
+**Count:** 4 shipped / 0 active / 5 pending + 1 on hold
+
+**Launch-gating: COMPLETE, and delivered.** STAGE-034 ✅, STAGE-035 ✅, STAGE-039 ✅ and STAGE-040 ✅ are shipped, and 0.7.0 is live on all three channels.
+
+### Sequence from here (decided 2026-08-10)
+
+**STAGE-043 + STAGE-044 → STAGE-041 → STAGE-042**, with the rest trimmed:
+
+0. **STAGE-044 alongside 043**, and in the same release. Both are shipped-verb correctness on lanes
+   PROJ-010 never swept — 043 the *pinned* path, 044 the *metadata* lane — and both are small. 044
+   is the more embarrassing of the two if found by someone else: emitting a manifest a validator
+   reads as **tampering** attributes a forgery to the file's signer, which is a worse failure than
+   simply dropping the credentials. It is also more niche than 043's `optimize`, so it is not a hard
+   launch gate on its own — but there is no reason to split the wave.
+1. **STAGE-043 first**, and **before the launch post.** Not because it blocks the demo — the demo
+   never takes the pinned path — but because the post will name `optimize`, and
+   `optimize photo.jpg -o out.jpg` silently returning a doubled file is a top comment rather than
+   a bug report. It is the same defect class as STAGE-034's 18.5× blow-up and, in one respect,
+   worse: **the 18.5× case at least reported the size.** Ships as 0.7.1, or folds into 0.8.0
+   alongside STAGE-042.
+2. **STAGE-041 next.** The product is correct and nobody knows it exists; everything else is
+   polish on a tool with no users.
+3. **STAGE-042 after.** It protects the *next* release rather than this one, and its matrix design
+   should absorb STAGE-043's root cause — cross entry points with **both modes** (decide and
+   pinned), not just the default one.
+4. **STAGE-036** now holds **two real items**: the `escape_json` tail, and — added 2026-08-10 —
+   **decomposing `src/cli/optimize.rs`**, which is what `src/cli/mod.rs` was before SPEC-097 split
+   it. Measured by *production* lines (excluding test modules): **1,716**, versus 1,107 for the
+   next largest and 1,002 for `cli/mod.rs` *after* its split — so 1.55× the runner-up and 71%
+   bigger than the file that was judged to need splitting. Ranking by total lines hides this.
+   Follows SPEC-097's method (byte-identity proven by an independent oracle) and **must land after
+   STAGE-043**, which changes behaviour in that same file. Its five unsourced candidates were
+   triaged and **declined 2026-08-10**, text preserved in full with a per-item reason so any can
+   be revived.
+5. **STAGE-037** is **`on_hold`**, by its own long-standing criterion: pull on an adoption signal,
+   not on the launch clock. Nothing has changed, so `proposed` was overstating it.
+6. **STAGE-038** is triaged rather than flat — CI's duplicate-run job (every PR runs the 3-OS
+   matrix twice) and SPEC-106 completions are the only items with real cost or real user impact.
+
+**Still maintainer-only** on `docs/launch-readiness.md`: the device pass (the ~60 MP RAW preview
+decode has never run on hardware), re-verifying the install **paths** at 0.7.0 (the binary itself
+is confirmed), the post narrative, and the go/no-go.
 
 ### How the carried stages were re-homed (2026-07-26)
 

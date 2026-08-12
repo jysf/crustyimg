@@ -5,7 +5,13 @@
 
 stage:
   id: STAGE-037                     # stable, zero-padded within the project
-  status: proposed                  # proposed | active | shipped | cancelled | on_hold
+  status: on_hold                   # proposed | active | shipped | cancelled | on_hold
+  # PARKED 2026-08-10, by its own criterion rather than a new one. This stage has always
+  # said "pull it when there's an adoption signal or a maintainer decision to broaden the
+  # surface — not on the launch clock." 0.7.0 has shipped and no adoption signal exists
+  # yet, so the condition is unchanged and the honest status is on_hold rather than
+  # proposed — `proposed` reads as queued work. Revive when someone other than the
+  # maintainer asks for `convert --to` or for more bundled recipes.
   priority: low                     # critical | high | medium | low
   target_complete: null             # optional: YYYY-MM-DD
 

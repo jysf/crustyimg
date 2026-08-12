@@ -133,6 +133,38 @@ license_blocked:
     confidence: high
 
 # ── Deferred for NON-license reasons (capability gaps, same revisit goal) ──────────
+  - id: raw-full-demosaic
+    capability: "Full RAW develop (demosaic + white balance + colour matrices) rather than the embedded-JPEG-preview extraction crustyimg ships today — real RAW support for photographers."
+    rejected_dependency: rawler (and the imagepipe stack built on it)
+    license: LGPL-2.1
+    license_class: copyleft
+    reason: "LGPL's relinking obligation is incompatible in practice with crustyimg's defining property — a single statically-linked binary users install from Homebrew/crates.io/Releases. Distributing a static binary that links LGPL code requires shipping the means to relink, which is exactly the friction the zero-dependency identity exists to avoid. Note deny.toml CAN carry a documented per-crate LGPL exception (see the heic/libheif precedent), so this is a deliberate decline, not an automatic one."
+    status: needs-verification
+    current_fallback: "RAW embedded full-res JPEG preview extraction (PROJ-009 / SPEC-061) — no demosaic, no white balance, but enough to get a RAW into `web`/`optimize`. Gated at 64 Mpix native (DEC-063) and 60 MP in the demo (DEC-082)."
+    permissive_alternatives:
+      - "UNSURVEYED — no permissive pure-Rust demosaic crate has been probed. This is the gap to close before the capability is costed at all."
+    build_candidate: "Building a demosaic pipeline is a large jump in both scope AND in the quality expectations it invites (a photographer judges a develop against Lightroom, not against a preview). Not a small module."
+    revisit_trigger: "A permissive pure-Rust RAW develop crate matures, OR a decision that an LGPL cargo-deny exception is acceptable for this capability, OR real demand from photographers using the preview path."
+    related: [DEC-018, DEC-052, no-agpl-default-deps, SPEC-061]
+    confidence: medium   # license read from the crates.io API 2026-08-10; confirm against the repo's own LICENSE before acting
+
+  - id: expression-filter-evaluator
+    capability: "User-authored expression filters (a `[[filter]]` with an `expr` block) evaluated per pixel — the authoring half of the proposed lab/workhorse split."
+    rejected_dependency: evalexpr
+    license: AGPL-3.0-only
+    license_class: copyleft
+    reason: "AGPL would relicense the statically-linked binary. Independently, a general-purpose evaluator does a HashMap lookup per variable per evaluation, which is the wrong shape for billions of pixel evaluations — but the LICENSE is the hard blocker and the one that must be recorded here."
+    status: alternative-available
+    current_fallback: "none — expression filters do not exist. Declared convolution kernels are the permissive, bounded subset that covers neighbourhood ops without arbitrary pixel access."
+    permissive_alternatives:
+      - "Hand-rolled Pratt parser + stack VM (~600-1000 lines), optionally with `logos` (MIT OR Apache-2.0, verified healthy) for lexing. Parse once to bytecode, evaluate over SoA chunks so opcode dispatch amortises across 64+ pixels."
+      - "meval (Unlicense/MIT) — permissive, but last updated 2018 and has the same per-evaluation-lookup shape."
+    build_candidate: "The bake-to-.cube design removes most of the pressure: an expression depending only on r,g,b is a pure colour transform, so lab evaluates it once over a 33^3 grid and emits a standard .cube. The workhorse then only ever runs a lookup — no evaluator in the main binary, nothing extra in wasm, and the cache key just hashes the file."
+    revisit_trigger: "The lab/workhorse positioning decision (see docs/feature-set-triage-2026-08.md) is made in favour of lab."
+    related: [DEC-018, no-agpl-default-deps]
+    confidence: high
+
+
 deferred_non_license:
   - id: avif-decode
     capability: "Reading `.avif` INPUT (default path — PROJ-009 Wave 1), and perceptual auto-quality (--target/--ssim) on AVIF output."

@@ -112,6 +112,30 @@ stage is post-launch without exception.
 
 ## Spec Backlog
 
+> **Triaged 2026-08-10 — not everything here is equal, and the flat list hid that.**
+> Nothing is deleted or declined; the items are ranked so a future session does not treat a
+> justfile banner label as peer to a CI job that doubles every PR's cost.
+>
+> **Do first (real cost or real user impact):**
+> 1. **CI hygiene (a)** — `ci.yml` triggers on both `push:` and `pull_request:` with no branch
+>    filter, so **every PR runs the full 3-OS matrix twice**. Observed all wave: 26–27 checks
+>    where ~13 would do. Doubles CI cost and doubles the exposure to a network flake blocking a
+>    merge. The cheapest real saving in this stage.
+> 2. **SPEC-106 shell completions** — the only user-facing item here, and the only one with a
+>    maintainer report behind it.
+> 3. **`gitignore_files_maybe/` publishes to crates.io** — cosmetic per release, but permanent
+>    per release, and the next cut is the only chance to fix each one.
+> 4. **README: `transform` skips the marker's semantics** — a documentation gap on a claim
+>    SPEC-112 just made true; cheapest possible fix while the context is fresh.
+>
+> **Do when convenient (correctness of the tooling, no user impact):** DCO recurrence,
+> `just wasm-size`'s mislabelled banner, release-binary-size baseline.
+>
+> **Lowest (repo ergonomics only):** port `lifetime-report`, add `activity:` front-matter.
+>
+> CI hygiene **(b)** — the cargo-deny action pulling a Docker Hub base image — is worth keeping
+> visible but is not actionable on our side beyond pinning or replacing the action.
+
 Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
 - [ ] SPEC-106 (frame) — **shell completions: ship them, complete paths, don't rot silently.**
