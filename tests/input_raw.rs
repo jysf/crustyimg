@@ -55,6 +55,55 @@ fn optimize_raw_input_writes_webp() {
     assert_eq!(decoded.height(), 48);
 }
 
+/// SPEC-113 regression: `optimize <fixture>.nef -o out.jpg` — pinning to the
+/// SAME format the RAW preview's `source_format` reports (`Jpeg`) — must still
+/// write a REAL, decodable JPEG, never the raw `.nef` CONTAINER bytes.
+///
+/// `source_format` is an adopted label here (SPEC-061): the preview extraction
+/// reports `Jpeg` because that is what got decoded, but the bytes on disk are
+/// the whole RAW container (a TIFF-style header plus embedded thumbnail AND
+/// preview JPEGs), not a standalone JPEG file. SPEC-113's never-bigger guard
+/// must not mistake "`source_format` says Jpeg" for "the source file's raw
+/// bytes decode as JPEG" — this fixture is a hand-built blob far from any real
+/// camera's JPEG encoder, so the pinned path's re-encode of the actual PIXELS
+/// is essentially guaranteed to differ in size from the multi-segment RAW
+/// blob, exercising the guard's comparison for real (not short-circuited by a
+/// format mismatch, the way `optimize_raw_input_writes_webp`'s WebP pin is).
+#[test]
+fn optimize_raw_input_pinned_to_jpeg_writes_real_jpeg() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let in_path = dir.path().join("in.nef");
+    std::fs::write(&in_path, RAW_FIXTURE).unwrap();
+    let out_path = dir.path().join("out.jpg");
+
+    let output = Command::new(BIN)
+        .args([
+            "optimize",
+            in_path.to_str().unwrap(),
+            "-o",
+            out_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run optimize");
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "optimize should exit 0; stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let bytes = std::fs::read(&out_path).expect("read jpg output");
+    assert_eq!(
+        image::guess_format(&bytes).ok(),
+        Some(image::ImageFormat::Jpeg),
+        "output must be a real, sniffable JPEG — never the raw .nef container \
+         bytes written under a .jpg name"
+    );
+    let decoded = image::load_from_memory(&bytes).expect("output should decode as JPEG");
+    assert_eq!(decoded.width(), 64);
+    assert_eq!(decoded.height(), 48);
+}
+
 /// `convert <fixture>.nef --format png -o out.png` exits 0 and writes a valid PNG
 /// with the preview's dimensions — the extracted preview re-encodes to PNG.
 #[test]

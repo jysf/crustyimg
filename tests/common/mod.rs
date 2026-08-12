@@ -306,6 +306,23 @@ pub fn detailed_jpeg(w: u32, h: u32) -> Vec<u8> {
     )
 }
 
+/// The `detailed_rgb` pattern encoded to JPEG at an explicit quality (SPEC-113
+/// fixture): `optimize`'s pinned path re-encodes JPEG at the encoder DEFAULT
+/// quality (no `-q`, no auto-quality search on the `Fast` decision —
+/// `resolve_effective_quality`'s `AutoQuality::Fast` arm returns `quality: None`).
+/// A source pinned at a HIGHER quality than that default re-encodes smaller,
+/// which is what SPEC-113's AC-6 needs: proof the never-bigger guard does not
+/// fire when a same-format re-encode genuinely wins.
+pub fn detailed_jpeg_at_quality(w: u32, h: u32, quality: u8) -> Vec<u8> {
+    use image::codecs::jpeg::JpegEncoder;
+    let mut out = Cursor::new(Vec::new());
+    let encoder = JpegEncoder::new_with_quality(&mut out, quality);
+    DynamicImage::ImageRgb8(detailed_rgb(w, h))
+        .write_with_encoder(encoder)
+        .unwrap();
+    out.into_inner()
+}
+
 /// A flat six-colour banded graphic as PNG bytes.
 ///
 /// Deliberately a `LosslessFlat`-bucket source: every verb shortlists the same

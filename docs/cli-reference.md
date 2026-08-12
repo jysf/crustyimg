@@ -137,9 +137,12 @@ crustyimg web *.jpg --out-dir web/
 ### `optimize <INPUT...> [--max N] [--verify] [--target T | --ssim S | --max-size SIZE]`
 The keep-dimensions byte-primitive: auto-orient + strip metadata + a **fast
 fixed-quality** re-encode that picks the smallest modern format beating the source and
-**never ships a larger file**. Dimensions are preserved by default (`--max` optionally
-bounds the long edge). The default is lean and **score-free**; opt into the perceptual
-searches or a proof-of-quality readout as needed:
+**never ships a same-format file larger than the source** — the guarantee holds whether
+`optimize` picks the format itself or `-o`/`--format` pins one (a pinned re-encode that
+would not beat the source keeps the source bytes instead, and says so on stderr).
+Dimensions are preserved by default (`--max` optionally bounds the long edge). The default
+is lean and **score-free**; opt into the perceptual searches or a proof-of-quality readout
+as needed:
 
 | Option | Meaning |
 |---|---|
@@ -149,8 +152,16 @@ searches or a proof-of-quality readout as needed:
 | `--ssim <0-100>` | Opt into a perceptual search at a specific SSIMULACRA2 score. |
 | `--max-size <SIZE>` | Fit under a byte budget (e.g. `200KB`); lowers quality, then dimensions. |
 
-`-o`/`--format` pick the output format; `--profile preserve` keeps the source format.
-For downscale-and-modernize, reach for **`web`** instead.
+The one case it can still ship larger: stripping metadata or baking orientation forces a
+re-encode that cannot beat an already-tight source — the raw source would no longer be a
+*valid* output (leaked EXIF/GPS, a wrong orientation), so the smallest correct re-encode
+ships anyway, reported honestly rather than hidden.
+
+`-o`/`--format` pick the output format. `--profile preserve` is the one deliberate
+exception to the guarantee above: it keeps the source format **and** reproduces today's
+format-preserving `optimize` exactly, byte-for-byte — the engine-off regression anchor — so
+it can still grow on an already-tight source. For downscale-and-modernize, reach for
+**`web`** instead.
 ```sh
 crustyimg optimize photo.jpg -o out.avif
 crustyimg optimize photo.jpg --verify -o out.avif

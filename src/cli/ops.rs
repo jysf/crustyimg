@@ -16,7 +16,7 @@ use crate::sink::{Overwrite, Sink, SinkError, SinkInput};
 use crate::source::{self, SourceError};
 
 use super::common::resolve_format;
-use super::optimize::{auto_orient_prefix, resolve_effective_quality};
+use super::optimize::{auto_orient_prefix, pipeline_altered_source, resolve_effective_quality};
 use super::{AutoQuality, CliError, GlobalArgs};
 
 /// The `view` path: resolve the single input, load the image, and render it
@@ -260,7 +260,7 @@ pub(super) fn run_resize(
     // Build the pipeline: bake orientation first, then this single resize op.
     let pipeline = auto_orient_prefix()?.push(op);
 
-    run_pixel_op(pipeline, inputs, global, global.quality, None, None)
+    run_pixel_op(pipeline, inputs, global, global.quality, None, None, false)
 }
 
 // ── Shared pixel-op fan-out helper ───────────────────────────────────────────
@@ -282,6 +282,11 @@ pub(super) fn run_resize(
 ///   (JPEG outputs only; ignored for other formats) instead of using the fixed
 ///   `quality` — perceptual (`--target`/`--ssim`, SPEC-016) or a byte budget
 ///   (`--max-size`, SPEC-017). Used by `run_optimize` and `run_convert`.
+/// - `never_bigger`: when `true`, apply `optimize`'s pinned-path never-bigger guard
+///   (SPEC-113) — see [`write_pixel_output`]. `false` for every caller except
+///   `run_optimize`'s pinned (non-`preserve`) branch; a pin has no candidate
+///   shortlist, only "the re-encode" versus "the source".
+#[allow(clippy::too_many_arguments)]
 pub(super) fn run_pixel_op(
     pipeline: Pipeline,
     inputs: &[String],
@@ -289,6 +294,7 @@ pub(super) fn run_pixel_op(
     quality: Option<u8>,
     forced_format: Option<::image::ImageFormat>,
     auto: Option<AutoQuality>,
+    never_bigger: bool,
 ) -> Result<(), CliError> {
     // Resolve every input arg, flattening into one Vec<Input>.
     // Resolution errors (missing path / empty glob) are hard errors (exit 3/2),
@@ -329,6 +335,11 @@ pub(super) fn run_pixel_op(
         if img.is_truncated_jpeg() {
             eprintln!("warning: {label}: {}", crate::image::TRUNCATED_JPEG_WARNING);
         }
+
+        // Captured BEFORE the pipeline (which may replace the pixels) consumes
+        // `img` — only needed when `never_bigger` is set, but cheap to always take
+        // (a snapshot of already-decoded fields, no re-decode).
+        let source_info = img.info();
 
         let out_img = pipeline.run(img.clone())?;
 
@@ -373,11 +384,18 @@ pub(super) fn run_pixel_op(
             stem: input.stem(),
             path: input.path(),
         };
-        sink.write(
+        write_pixel_output(
+            &sink,
             write_img,
+            fmt,
+            plan.quality,
+            input,
             &sink_input,
             overwrite,
-            plan.quality,
+            never_bigger,
+            &source_info,
+            &label,
+            global,
             &mut std::io::stdout().lock(),
         )?;
     } else {
@@ -413,6 +431,10 @@ pub(super) fn run_pixel_op(
                     eprintln!("warning: {label}: {}", crate::image::TRUNCATED_JPEG_WARNING);
                 }
 
+                // See the single-input branch above: captured before the pipeline
+                // consumes `img`.
+                let source_info = img.info();
+
                 let out_img = pipeline.run(img.clone())?;
 
                 // Per-input format resolution (DEC-015): forced_format wins if Some; no -o path in fan-out.
@@ -437,11 +459,18 @@ pub(super) fn run_pixel_op(
                     stem: input.stem(),
                     path: input.path(),
                 };
-                sink.write(
+                write_pixel_output(
+                    &sink,
                     write_img,
+                    fmt,
+                    plan.quality,
+                    input,
                     &sink_input,
                     overwrite,
-                    plan.quality,
+                    never_bigger,
+                    &source_info,
+                    &label,
+                    global,
                     &mut std::io::stdout().lock(),
                 )?;
                 Ok(())
@@ -458,6 +487,96 @@ pub(super) fn run_pixel_op(
         }
     }
 
+    Ok(())
+}
+
+/// Write one pixel-op output through `sink`, applying `optimize`'s pinned-path
+/// never-bigger guard (SPEC-113) when `never_bigger` is set.
+///
+/// `never_bigger: false` (every caller except `run_optimize`'s pinned branch) is
+/// BYTE-FOR-BYTE the pre-SPEC-113 behavior: `sink.write` encodes `write_img` and
+/// writes it, unconditionally.
+///
+/// `never_bigger: true`: a pin has no candidate shortlist to compare, only "the
+/// re-encode" versus "the source" — so this encodes ONCE (via
+/// [`crate::sink::encode_to_bytes`], the same encoder `sink.write` would have
+/// used) so the size is known before anything is written. The source ships
+/// verbatim instead of the re-encode, with a one-line note on stderr (unless
+/// `--quiet`), only when ALL of:
+/// - the resolved output format matches the source's format (a cross-format pin
+///   — `-o out.png` from a `.jpg` — is a deliberate conversion, untouched here);
+/// - the re-encode did NOT beat the source (SPEC-084's own bar: strictly
+///   smaller — matching bytes counts as "did not beat it", same as
+///   `decide::pick_winner`'s `<` eligibility test);
+/// - the pipeline changed nothing `optimize` promised to change: see
+///   [`super::optimize::pipeline_altered_source`] — when metadata was stripped or
+///   orientation baked or the pixels resized, the raw source is not merely a
+///   BIGGER output, it is an INVALID one (leaked EXIF/ICC, wrong orientation, or
+///   the wrong dimensions), so this guard must not apply and the re-encode ships
+///   even though it is larger (matching what the auto-decide path already does
+///   in that situation, `optimize.rs`'s `optimize_decide_one`);
+/// - the raw container bytes actually sniff (`::image::guess_format`) as `fmt`.
+///   `source_info.format` can be an ADOPTED label rather than the real container
+///   format: SVG and HEIC input have no matching `ImageFormat` variant and both
+///   report `Png`, and a RAW file's embedded-preview extraction reports `Jpeg`
+///   while the bytes on disk are the whole RAW container — for any of those,
+///   `read_raw_bytes` is NOT a valid `fmt` file, and writing it under a
+///   `.png`/`.jpg` name would silently mislabel non-image (or wrong-format)
+///   bytes as the pinned format.
+///
+/// Otherwise the (already-encoded) re-encode bytes are written.
+#[allow(clippy::too_many_arguments)]
+fn write_pixel_output(
+    sink: &Sink,
+    write_img: &Image,
+    fmt: ::image::ImageFormat,
+    quality: Option<u8>,
+    input: &crate::source::Input,
+    sink_input: &SinkInput<'_>,
+    overwrite: Overwrite,
+    never_bigger: bool,
+    source_info: &crate::image::ImageInfo,
+    label: &str,
+    global: &GlobalArgs,
+    out: &mut dyn std::io::Write,
+) -> Result<(), CliError> {
+    if !never_bigger {
+        sink.write(write_img, sink_input, overwrite, quality, out)?;
+        return Ok(());
+    }
+
+    // Encode once ourselves (DEC-016's own encoder) so we can measure it before
+    // writing anything — `sink.write` would otherwise encode a second time.
+    let encoded = crate::sink::encode_to_bytes(write_img, fmt, quality)?;
+    let ext = crate::sink::extension_for_format(fmt);
+
+    if fmt == source_info.format && !pipeline_altered_source(source_info, &write_img.info()) {
+        let raw = read_raw_bytes(input)?;
+        // `source_info.format` can be an ADOPTED label, not the raw container's
+        // real format: SVG and HEIC both decode with no matching `ImageFormat`
+        // variant and report `Png`; a RAW file's embedded preview reports
+        // `Jpeg` while the file on disk is the whole RAW container. For any of
+        // those, `raw` is NOT a valid `fmt` file at all — sniff the actual
+        // bytes so the guard only ever treats a truly-matching container as
+        // "the source" (never text/RAW-container bytes written into a
+        // `.png`/`.jpg` and silently mislabeled).
+        let raw_is_really_fmt = ::image::guess_format(&raw).ok() == Some(fmt);
+        if raw_is_really_fmt && encoded.len() as u64 >= raw.len() as u64 {
+            if !global.quiet {
+                eprintln!(
+                    "{label}: note: kept the {} B source unchanged \u{2014} the {} \
+                     re-encode would have shipped {} B, not smaller",
+                    raw.len(),
+                    super::report::format_label(fmt),
+                    encoded.len(),
+                );
+            }
+            sink.write_bytes(&raw, sink_input, ext, overwrite, out)?;
+            return Ok(());
+        }
+    }
+
+    sink.write_bytes(&encoded, sink_input, ext, overwrite, out)?;
     Ok(())
 }
 
@@ -880,7 +999,15 @@ pub(super) fn run_edit(
     // 4. Load → run → sink via the established single/multi fan-out helper.
     //    `input` is a &str; wrap it in a one-element Vec<String> slice.
     let input_vec = [input.to_owned()];
-    run_pixel_op(pipeline, &input_vec, global, global.quality, None, None)?;
+    run_pixel_op(
+        pipeline,
+        &input_vec,
+        global,
+        global.quality,
+        None,
+        None,
+        false,
+    )?;
 
     // 5. On success, write the recipe file if requested.
     if let (Some(path), Some(r)) = (save_recipe, recipe) {
@@ -954,7 +1081,7 @@ pub(super) fn run_thumbnail(
         })?;
 
     let pipeline = auto_orient_prefix()?.push(op);
-    run_pixel_op(pipeline, inputs, global, global.quality, None, None)
+    run_pixel_op(pipeline, inputs, global, global.quality, None, None, false)
 }
 
 // ── auto-orient handler ───────────────────────────────────────────────────────
@@ -978,7 +1105,7 @@ pub(super) fn run_auto_orient(inputs: &[String], global: &GlobalArgs) -> Result<
         })?;
 
     let pipeline = Pipeline::new().push(op);
-    run_pixel_op(pipeline, inputs, global, global.quality, None, None)
+    run_pixel_op(pipeline, inputs, global, global.quality, None, None, false)
 }
 
 // ── watermark handler (SPEC-029, DEC-031) ─────────────────────────────────────
@@ -1102,7 +1229,7 @@ pub(super) fn run_watermark(
     let op = Watermark::new(overlay, label, gravity, opacity, scale, margin, tile);
 
     let pipeline = auto_orient_prefix()?.push(Box::new(op));
-    run_pixel_op(pipeline, inputs, global, global.quality, None, None)
+    run_pixel_op(pipeline, inputs, global, global.quality, None, None, false)
 }
 
 #[cfg(test)]

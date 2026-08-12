@@ -5795,3 +5795,234 @@ fn promoted_alpha_photo_gets_a_webp_fallback_on_the_lean_leg() {
          photo, not just PNG, got: {json}"
     );
 }
+
+// ── SPEC-113: `optimize` never silently grows a PINNED same-format output ─────
+
+/// An already-compressed JPEG (256x256), generated with ImageMagick — an
+/// INDEPENDENT tool, never crustyimg itself: a fixture produced by the code
+/// under test cannot fail
+/// ([[fixtures-from-the-code-under-test-cannot-fail]]). `sips -s formatOptions
+/// 15` (the driven reproducer in the spec) embeds a small EXIF segment by
+/// default, which would make `pipeline_altered_source` true and defeat the very
+/// scenario this fixture exists to cover — so this fixture was made with
+/// `magick -size 256x256 plasma:fractal -depth 8 base.png` then
+/// `magick base.png -strip -quality 15 already_compressed.jpg` (`-strip` drops
+/// any EXIF/ICC ImageMagick would otherwise add). 1807 bytes; re-encoding it
+/// through `optimize`'s pinned path at the encoder default JPEG quality ships
+/// ~6.3 KB (3.5x larger) on `HEAD` before SPEC-113's guard.
+const ALREADY_COMPRESSED_JPEG: &[u8] = include_bytes!("fixtures/optimize/already_compressed.jpg");
+
+/// AC-1. `optimize <already-compressed.jpg> -o out.jpg` must keep the source
+/// bytes UNCHANGED — byte-identity, not merely "smaller than before" (the whole
+/// claim is that the original was already the correct answer). FAILED on `HEAD`
+/// before the fix: it wrote a re-encode 3.5x the source size.
+#[test]
+fn optimize_keeps_the_source_when_a_same_format_reencode_would_grow_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let in_path = write_bytes(&dir, "already_compressed.jpg", ALREADY_COMPRESSED_JPEG);
+    let out_path = dir.path().join("out.jpg");
+    let out = Command::new(BIN)
+        .args([
+            "optimize",
+            in_path.to_str().unwrap(),
+            "-o",
+            out_path.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr_str(&out));
+    let written = std::fs::read(&out_path).unwrap();
+    assert_eq!(
+        written,
+        ALREADY_COMPRESSED_JPEG,
+        "the pinned path must keep the source bytes byte-for-byte unchanged \
+         (got {} B, source is {} B)",
+        written.len(),
+        ALREADY_COMPRESSED_JPEG.len()
+    );
+}
+
+/// AC-2. Keeping the source is not silent: stderr names what happened, and exit
+/// stays 0. Asserts on the actual message content, not just "stderr non-empty"
+/// ([[test-the-guard-where-the-criterion-applies]]). FAILED on `HEAD`: stderr
+/// was completely empty.
+#[test]
+fn optimize_says_so_when_it_keeps_the_source() {
+    let dir = tempfile::tempdir().unwrap();
+    let in_path = write_bytes(&dir, "already_compressed.jpg", ALREADY_COMPRESSED_JPEG);
+    let out_path = dir.path().join("out.jpg");
+    let out = Command::new(BIN)
+        .args([
+            "optimize",
+            in_path.to_str().unwrap(),
+            "-o",
+            out_path.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr_str(&out));
+    let err = stderr_str(&out);
+    let source_len = ALREADY_COMPRESSED_JPEG.len().to_string();
+    assert!(
+        err.contains("kept") && err.contains(&source_len) && err.contains("not smaller"),
+        "expected a note naming that the source was kept and the re-encode was \
+         not smaller (with the {source_len} B source byte count), got: {err:?}"
+    );
+}
+
+/// AC-3. Cross-format is untouched: `-o out.png` from a JPEG is a deliberate
+/// conversion and may legitimately grow. Pinned by asserting the output
+/// actually decodes as PNG — a size-only guard (comparing PNG bytes to the
+/// tiny JPEG source and "winning" by keeping the JPEG under a `.png` name)
+/// would fail this by producing an undecodable-as-PNG file.
+#[test]
+fn optimize_cross_format_may_still_grow() {
+    let dir = tempfile::tempdir().unwrap();
+    let in_path = write_bytes(&dir, "already_compressed.jpg", ALREADY_COMPRESSED_JPEG);
+    let out_path = dir.path().join("out.png");
+    let out = Command::new(BIN)
+        .args([
+            "optimize",
+            in_path.to_str().unwrap(),
+            "-o",
+            out_path.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr_str(&out));
+    let written = std::fs::read(&out_path).unwrap();
+    assert_eq!(
+        image::guess_format(&written).ok(),
+        Some(ImageFormat::Png),
+        "a cross-format pin must produce a real PNG, not the raw JPEG source \
+         written under a .png name"
+    );
+}
+
+/// AC-4. `--profile preserve` still grows, deliberately: it is the engine-off
+/// regression anchor (DEC-048) and must NOT get the never-bigger guard — pinned
+/// by a test rather than left to a comment
+/// ([[a-criterion-nobody-claims-is-a-criterion-nobody-checks]]), so a future
+/// "make preserve consistent with the pin" change fails loudly here.
+#[test]
+fn optimize_profile_preserve_still_grows() {
+    let dir = tempfile::tempdir().unwrap();
+    let in_path = write_bytes(&dir, "already_compressed.jpg", ALREADY_COMPRESSED_JPEG);
+    let out_path = dir.path().join("out.jpg");
+    let out = Command::new(BIN)
+        .args([
+            "optimize",
+            in_path.to_str().unwrap(),
+            "--profile",
+            "preserve",
+            "-o",
+            out_path.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr_str(&out));
+    let written = std::fs::read(&out_path).unwrap();
+    assert!(
+        written.len() > ALREADY_COMPRESSED_JPEG.len(),
+        "--profile preserve is the engine-off regression anchor: expected it to \
+         still grow ({} B source), got {} B",
+        ALREADY_COMPRESSED_JPEG.len(),
+        written.len()
+    );
+    assert!(
+        !stderr_str(&out).contains("kept the"),
+        "preserve must not emit the pinned-path keep-source note: {:?}",
+        stderr_str(&out)
+    );
+}
+
+/// AC-5. `--format jpeg` is the other spelling of a pin (both reach `pinned` at
+/// `optimize.rs:616`) and must get the SAME never-bigger guard as an `-o`
+/// extension pin (AC-1) — a fix applied to only one spelling is the
+/// unenumerated-cell defect this project keeps finding. FAILED on `HEAD` for
+/// the same reason as AC-1.
+#[test]
+fn optimize_format_flag_pin_behaves_like_output_extension_pin() {
+    let dir = tempfile::tempdir().unwrap();
+    let in_path = write_bytes(&dir, "already_compressed.jpg", ALREADY_COMPRESSED_JPEG);
+    let out = Command::new(BIN)
+        .args([
+            "optimize",
+            in_path.to_str().unwrap(),
+            "--format",
+            "jpeg",
+            "-o",
+            "-",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr_str(&out));
+    assert_eq!(
+        out.stdout, ALREADY_COMPRESSED_JPEG,
+        "--format jpeg must reach the same never-bigger guard as an -o \
+         extension pin"
+    );
+}
+
+/// AC-6. The guard does not fire when it should not: an ordinary same-format
+/// pin where the re-encode is genuinely smaller still writes the NEW bytes.
+/// Without this the fix could be "always keep the source", which would pass
+/// AC-1 and destroy the verb
+/// ([[a-harness-that-exercises-nothing-reports-green]]). The source here is
+/// encoded at quality 100 — well above the pinned path's encoder-default
+/// re-encode quality — so the re-encode reliably wins.
+#[test]
+fn optimize_still_writes_the_smaller_reencode_when_it_wins() {
+    let dir = tempfile::tempdir().unwrap();
+    let source = common::detailed_jpeg_at_quality(256, 256, 100);
+    let in_path = write_bytes(&dir, "hi_quality.jpg", &source);
+    let out_path = dir.path().join("out.jpg");
+    let out = Command::new(BIN)
+        .args([
+            "optimize",
+            in_path.to_str().unwrap(),
+            "-o",
+            out_path.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr_str(&out));
+    let written = std::fs::read(&out_path).unwrap();
+    assert_ne!(
+        written, source,
+        "a genuinely smaller re-encode must write the NEW bytes, not the source"
+    );
+    assert!(
+        written.len() < source.len(),
+        "expected the re-encode to be smaller: {} B vs {} B source",
+        written.len(),
+        source.len()
+    );
+}
+
+/// AC-7. The auto-decide path (no `-o`) already had the never-bigger guarantee
+/// before SPEC-113 and must be byte-identical after it — this change touches
+/// only the pinned branch. Uses the SAME fixture as AC-1/2/5 so the auto and
+/// pinned paths are directly comparable on identical input.
+#[test]
+fn optimize_auto_path_is_unchanged() {
+    let dir = tempfile::tempdir().unwrap();
+    let in_path = write_bytes(&dir, "already_compressed.jpg", ALREADY_COMPRESSED_JPEG);
+    let out_dir = dir.path().join("out");
+    let out = Command::new(BIN)
+        .args([
+            "optimize",
+            in_path.to_str().unwrap(),
+            "--out-dir",
+            out_dir.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr_str(&out));
+    let (_, written) = optimize_single_output(&out_dir);
+    assert_eq!(
+        written, ALREADY_COMPRESSED_JPEG,
+        "the auto-decide path's pre-existing never-bigger guarantee must be \
+         unperturbed by the pinned-path guard"
+    );
+}
