@@ -130,8 +130,8 @@ which is exactly the pattern D-1 shows on a bigger scale.
 
 ## Spec Backlog
 
-- [ ] (not yet framed) — **`optimize` keeps the source when a same-format re-encode would grow
-  it.** The guard, the note, the `--profile preserve` decision. The reproducer is committed
+- [ ] **SPEC-113** (design written 2026-08-11) — **`optimize` keeps the source when a same-format
+  re-encode would grow it.** The guard, the note, the `--profile preserve` decision. The reproducer is committed
   evidence: an already-compressed JPEG (make one with `sips -s formatOptions 15`) at
   41,862 B → 84,586 B. Needs a **committed fixture**, since the defect only appears on a source
   already compressed past crustyimg's own target quality — [[fixtures-from-the-code-under-test-cannot-fail]]
