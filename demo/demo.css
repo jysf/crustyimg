@@ -1,95 +1,253 @@
 /* The demo's whole stylesheet. Hand-written, no framework, no build step — the
-   page is three static files plus the vendored wasm package. */
+   page is three static files plus the vendored wasm package.
+
+   The skin is f/11's design system, borrowed wholesale: warm near-black surfaces,
+   warm off-white ink, structure drawn with hairlines, a serif for prose and a mono
+   for every number and label. The chrome is near-colourless on purpose — the full
+   safelight amber is spent about once per view, on the savings figure, the way the
+   site spends it on its wordmark slash. The dimmer amber does structural work:
+   link underlines and the rule beside a code block.
+
+   The crab is the one thing here allowed to be colourful. On f/11 the photographs
+   supply the colour; on this page, that's the crab's job. */
 
 :root {
-  --bg: #14110e;
-  --panel: #1e1a16;
-  --line: #3a332b;
-  --ink: #efe7dc;
-  --muted: #a2968a;
-  --rust: #d97a45;
-  --good: #7fc08a;
-  --bad: #d9705f;
-  --warn: #e0b878;
   color-scheme: dark;
+
+  /* — Surfaces · warm near-black, barely-there lifts — */
+  --bg: #0e0f11;
+  --bg-raised: #151719;
+  --bg-sunk: #090a0b;
+
+  /* — Ink · warm off-white, never pure #fff — */
+  --fg: #e9e6df;
+  --fg-muted: #9b988f;
+  --fg-faint: #61605a;
+
+  /* — Accent · safelight amber. Aim for once per view. — */
+  --accent: #e7a54b;
+  --accent-dim: #b98436;
+  --accent-ink: #120c04;
+
+  /* — Structure · hairlines, not boxes — */
+  --rule: color-mix(in oklab, var(--fg) 13%, transparent);
+  --rule-soft: color-mix(in oklab, var(--fg) 6%, transparent);
+
+  /* — Measure & rhythm — */
+  --measure: 65ch;
+  --gutter: clamp(1.1rem, 4vw, 2.75rem);
+  --step: clamp(1.4rem, 3vw, 2.2rem);
+
+  /* — Type — */
+  --serif: "Newsreader", "Iowan Old Style", Charter, Georgia, serif;
+  --mono: "Berkeley Mono", ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+
+  --fs-micro: 0.75rem;
+  --fs-meta: 0.8125rem;
+  --fs-body: 1.0625rem;
+  --fs-lead: 1.2rem;
+  --fs-h2: 1.55rem;
+  --fs-h1: clamp(2rem, 5vw, 3.1rem);
+
+  /* Two things this page needs that a photo blog does not. A muted red for the
+     states a reader must not miss — dark enough to sit in the palette, light
+     enough to clear AA on --bg (5.4:1). And the emoji stack named explicitly, so
+     the crab keeps its colour where a serif or mono face would otherwise
+     substitute a monochrome glyph. */
+  --danger: #c96f5e;
+  --emoji: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", emoji;
 }
 
-* {
+/* ---- reset-ish -------------------------------------------------- */
+
+*,
+*::before,
+*::after {
   box-sizing: border-box;
+}
+
+/* `hidden` is what the page uses to show and hide every panel, and an author
+   `display` rule silently beats the UA's `[hidden] { display: none }` — which is
+   how the busy bar came to sit on screen permanently. Settle it once, here. */
+[hidden] {
+  display: none !important;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
 }
 
 body {
   margin: 0;
-  padding: 2rem 1rem 4rem;
+  padding-block: clamp(2rem, 6vh, 3.5rem) calc(var(--step) * 2);
   background: var(--bg);
-  color: var(--ink);
-  font: 16px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  color: var(--fg);
+  font-family: var(--serif);
+  font-size: var(--fs-body);
+  line-height: 1.65;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
 }
 
+/* Wider than the measure, because the before/after panes are a two-up. Prose
+   inside is capped at the measure the same way the site's articles are. */
 main {
-  max-width: 52rem;
-  margin: 0 auto;
+  width: 100%;
+  max-width: 56rem;
+  margin-inline: auto;
+  padding-inline: var(--gutter);
+}
+
+h1,
+h2 {
+  line-height: 1.15;
+  font-weight: 500;
+  letter-spacing: -0.012em;
 }
 
 h1 {
-  margin: 0;
-  font-size: 2.2rem;
-  letter-spacing: -0.02em;
+  font-size: var(--fs-h1);
+  margin: 0 0 0.4em;
 }
 
-h1::before {
-  content: "🦀 ";
+p {
+  margin: 0 0 1em;
 }
 
-.tagline {
-  margin: 0.35rem 0 1.5rem;
-  color: var(--muted);
-  max-width: 42rem;
+a {
+  color: inherit;
+  text-decoration-color: var(--accent-dim);
+  text-underline-offset: 3px;
+  text-decoration-thickness: 1px;
 }
 
-.tagline strong {
-  color: var(--ink);
+a:hover {
+  color: var(--accent);
+  text-decoration-color: var(--accent);
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: 1px;
+}
+
+::selection {
+  background: var(--accent);
+  color: var(--accent-ink);
 }
 
 code {
-  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
-  font-size: 0.9em;
+  font-family: var(--mono);
+  font-size: 0.92em;
+}
+
+:not(pre) > code {
+  background: var(--bg-raised);
+  padding: 0.1em 0.35em;
+  border-radius: 2px;
+}
+
+/* The site's eyebrow: every label on this page is one. */
+.pane-title,
+.advanced > summary,
+.recipe > summary,
+.advanced-grid label,
+.updated-flag,
+.score-band,
+.copy-cmd {
+  font-family: var(--mono);
+  font-size: var(--fs-micro);
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--fg-muted);
+}
+
+/* ---- header ----------------------------------------------------- */
+
+header {
+  margin-bottom: var(--step);
+  padding-bottom: var(--step);
+  border-bottom: 1px solid var(--rule);
+}
+
+/* The one splash of colour on the page. */
+h1::before {
+  content: "🦀 ";
+  font-family: var(--emoji);
+}
+
+/* The site draws a line between an opening statement and a dek: the hero thesis
+   takes full ink, a lead under a heading is muted. This is the former. */
+.tagline {
+  margin: 0;
+  max-width: var(--measure);
+  font-size: var(--fs-lead);
+  line-height: 1.5;
+  color: var(--fg);
+}
+
+/* The site's hero thesis puts its emphasis in amber. Here that would spend the
+   safelight three times before the reader reaches the savings figure, so the
+   emphasis is carried by weight alone. */
+.tagline strong {
+  font-weight: 600;
+  color: var(--fg);
 }
 
 /* ── status ─────────────────────────────────────────────────────────────── */
+/* Ruled top and bottom rather than boxed, with a small square marking the state
+   so it reads at a glance without leaning on colour alone — the text says it too. */
 
 .status {
-  margin: 0 0 1.25rem;
-  padding: 0.6rem 0.85rem;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--panel);
-  font-size: 0.9rem;
-  color: var(--muted);
+  margin: 0 0 var(--step);
+  padding-block: 0.7rem;
+  border-top: 1px solid var(--rule-soft);
+  border-bottom: 1px solid var(--rule-soft);
+  font-family: var(--mono);
+  font-size: var(--fs-meta);
+  line-height: 1.5;
+  color: var(--fg-muted);
 }
 
-.status-ready {
-  border-color: color-mix(in srgb, var(--good) 40%, var(--line));
+.status::before {
+  content: "";
+  display: inline-block;
+  width: 0.4rem;
+  height: 0.4rem;
+  margin-right: 0.65rem;
+  vertical-align: 0.06em;
+  background: var(--fg-faint);
+}
+
+.status-ready::before {
+  background: var(--fg);
 }
 
 .status-error {
-  border-color: color-mix(in srgb, var(--bad) 60%, var(--line));
-  color: var(--bad);
+  border-color: color-mix(in oklab, var(--danger) 35%, transparent);
+  color: var(--danger);
+}
+
+.status-error::before {
+  background: var(--danger);
 }
 
 /* ── drop zone ──────────────────────────────────────────────────────────── */
 
 .drop {
   position: relative;
-  border: 2px dashed var(--line);
-  border-radius: 14px;
-  background: var(--panel);
+  border: 1px dashed var(--rule);
+  background: var(--bg-raised);
   transition: border-color 0.12s, background 0.12s;
 }
 
-.drop.hot {
-  border-color: var(--rust);
-  background: color-mix(in srgb, var(--rust) 10%, var(--panel));
+/* Drag-over brightens the hairline; the fill barely moves. */
+.drop.hot,
+.drop:focus-within {
+  border-color: var(--accent-dim);
+  background: color-mix(in oklab, var(--accent) 3%, var(--bg-raised));
 }
 
 .drop input[type="file"] {
@@ -105,49 +263,54 @@ code {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 0.3rem;
-  padding: 3rem 1rem;
+  gap: 0.6rem;
+  padding: clamp(2.5rem, 9vw, 4rem) var(--gutter);
   text-align: center;
   pointer-events: none;
 }
 
 .drop-headline {
-  font-size: 1.15rem;
-  font-weight: 600;
+  font-size: 1.35rem;
+  line-height: 1.15;
+  letter-spacing: -0.012em;
 }
 
 .drop-sub {
-  color: var(--muted);
-  font-size: 0.88rem;
+  font-family: var(--mono);
+  font-size: var(--fs-micro);
+  line-height: 1.6;
+  letter-spacing: 0.04em;
+  color: var(--fg-muted);
 }
 
 /* ── advanced disclosure ────────────────────────────────────────────────── */
 
 .advanced {
-  margin-top: 1rem;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: var(--panel);
+  margin-top: var(--step);
+  border-top: 1px solid var(--rule-soft);
+  border-bottom: 1px solid var(--rule-soft);
 }
 
 .advanced > summary {
-  padding: 0.7rem 0.9rem;
+  padding-block: 0.75rem;
   cursor: pointer;
-  color: var(--muted);
-  font-size: 0.9rem;
-  font-weight: 600;
   user-select: none;
+  transition: color 0.12s;
+}
+
+.advanced > summary:hover {
+  color: var(--fg);
 }
 
 .advanced[open] > summary {
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid var(--rule-soft);
 }
 
 .advanced-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 1rem;
-  padding: 1rem 0.9rem;
+  gap: 1.25rem;
+  padding-block: 1.25rem;
 }
 
 @media (max-width: 40rem) {
@@ -159,30 +322,40 @@ code {
 .advanced-grid label {
   display: flex;
   flex-direction: column;
-  gap: 0.35rem;
-  font-size: 0.85rem;
-  color: var(--muted);
+  gap: 0.45rem;
+  line-height: 1.5;
 }
 
 .advanced-grid label.checkbox {
   flex-direction: row;
   align-items: flex-start;
-  gap: 0.5rem;
+  gap: 0.55rem;
+  text-transform: none;
+  letter-spacing: 0.03em;
 }
 
 .advanced-grid label.checkbox input {
-  margin-top: 0.15rem;
+  margin-top: 0.2rem;
+  /* Amber only once it is actually checked. */
+  accent-color: var(--accent);
 }
 
 select,
 input[type="number"] {
-  padding: 0.4rem 0.55rem;
-  border: 1px solid var(--line);
-  border-radius: 7px;
-  background: var(--bg);
-  color: var(--ink);
-  font: inherit;
-  font-size: 0.9rem;
+  padding: 0.45rem 0.55rem;
+  border: 1px solid var(--rule);
+  background: var(--bg-sunk);
+  color: var(--fg);
+  font-family: var(--mono);
+  font-size: var(--fs-meta);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+select:hover,
+input[type="number"]:hover {
+  border-color: color-mix(in oklab, var(--fg) 22%, transparent);
 }
 
 select:disabled,
@@ -201,17 +374,19 @@ input:disabled {
   flex-wrap: wrap;
   align-items: center;
   gap: 0.6rem;
-  margin-top: 1rem;
-  padding: 0.7rem 0.85rem;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--panel);
-  font-size: 0.9rem;
-  color: var(--muted);
+  margin-top: var(--step);
+  padding-block: 0.75rem;
+  border-top: 1px solid var(--rule-soft);
+  border-bottom: 1px solid var(--rule-soft);
+  font-family: var(--mono);
+  font-size: var(--fs-meta);
+  line-height: 1.5;
+  color: var(--fg-muted);
 }
 
 .busy-icon {
-  font-size: 1rem;
+  font-family: var(--emoji);
+  font-size: 1.05rem;
   line-height: 1;
   animation: none;
   flex: none;
@@ -219,42 +394,43 @@ input:disabled {
 
 .mp-warning {
   width: 100%;
-  color: var(--warn);
-  font-size: 0.85rem;
+  font-size: var(--fs-micro);
+  color: var(--fg-muted);
 }
 
 .elapsed {
   margin-left: auto;
   font-variant-numeric: tabular-nums;
   font-weight: 600;
-  color: var(--ink);
+  color: var(--fg);
 }
 
 /* ── error ──────────────────────────────────────────────────────────────── */
+/* The same left-rule apparatus the site gives a code block, in the muted red.
+   The rule carries the alarm; the text stays full-strength ink, to be read. */
 
 .error {
-  margin-top: 1rem;
-  padding: 0.7rem 0.85rem;
-  border: 1px solid color-mix(in srgb, var(--bad) 60%, var(--line));
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--bad) 12%, var(--panel));
-  color: var(--ink);
-  font-size: 0.9rem;
+  margin-top: var(--step);
+  padding: 0.6rem 0 0.65rem 1rem;
+  max-width: var(--measure);
+  border-left: 2px solid var(--danger);
+  font-family: var(--mono);
+  font-size: var(--fs-meta);
+  line-height: 1.6;
+  color: var(--fg);
 }
 
 /* ── result ─────────────────────────────────────────────────────────────── */
 
 .result {
-  margin-top: 1.75rem;
+  margin-top: var(--step);
 }
 
 /* Fires once per re-convert (an Advanced control changed an already-shown result) —
    never on the first conversion, since there is nothing to update from yet. */
 .updated-flag {
-  margin: 0 0 0.6rem;
-  font-size: 0.82rem;
-  font-weight: 600;
-  color: var(--good);
+  margin: 0 0 0.75rem;
+  line-height: 1;
   opacity: 0;
   transition: opacity 0.2s ease;
 }
@@ -263,10 +439,14 @@ input:disabled {
   opacity: 1;
 }
 
+/* The site's stats-strip idiom: cells separated by a 1px gap over a rule-coloured
+   backdrop, so the divider IS a hairline rather than two borders meeting. */
 .panes {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 1rem;
+  gap: 1px;
+  border: 1px solid var(--rule);
+  background: var(--rule);
 }
 
 @media (max-width: 40rem) {
@@ -277,116 +457,129 @@ input:disabled {
 
 .pane {
   margin: 0;
-  padding: 0.75rem;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: var(--panel);
+  padding: 0.9rem;
+  background: var(--bg-raised);
 }
 
 .pane img {
   display: block;
   width: 100%;
-  height: 14rem;
+  height: 15rem;
   object-fit: contain;
-  background: repeating-conic-gradient(#2a2520 0% 25%, #221e1a 0% 50%) 50% / 16px 16px;
-  border-radius: 8px;
+  background: repeating-conic-gradient(
+      color-mix(in oklab, var(--fg) 5%, var(--bg-sunk)) 0% 25%,
+      var(--bg-sunk) 0% 50%
+    )
+    50% / 16px 16px;
 }
 
 .pane figcaption {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
-  gap: 0.5rem;
-  margin-top: 0.65rem;
+  gap: 0.65rem;
+  margin-top: 0.8rem;
+  padding-top: 0.65rem;
+  border-top: 1px solid var(--rule-soft);
 }
 
 .pane-title {
-  font-weight: 600;
   margin-right: auto;
+  line-height: 1.5;
 }
 
 .metric {
-  font-size: 0.82rem;
-  color: var(--muted);
+  font-family: var(--mono);
+  font-size: var(--fs-meta);
   font-variant-numeric: tabular-nums;
+  color: var(--fg);
 }
 
 .metric.bytes {
-  color: var(--ink);
   font-weight: 600;
 }
 
+/* The savings figure — the page's one amber, the way the wordmark's slash is
+   the site's. */
 .delta {
-  margin: 1.1rem 0 0;
-  font-size: 1.05rem;
-  font-weight: 600;
+  margin: var(--step) 0 0;
+  font-family: var(--mono);
+  font-size: 1.15rem;
+  font-weight: 500;
+  line-height: 1.4;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+  color: var(--fg);
 }
 
 .delta.smaller {
-  color: var(--good);
+  color: var(--accent);
 }
 
+/* Not a win, so not amber: the kept-original case is a lab note, not a headline. */
 .delta.kept {
-  color: var(--warn);
-  font-weight: 500;
-  font-size: 0.98rem;
+  max-width: var(--measure);
+  font-size: var(--fs-meta);
+  font-weight: 400;
+  line-height: 1.7;
+  color: var(--fg-muted);
 }
 
 .resize-note {
-  margin: 0.4rem 0 0;
-  font-size: 0.88rem;
-  color: var(--muted);
+  margin: 0.5rem 0 0;
+  max-width: var(--measure);
+  font-family: var(--mono);
+  font-size: var(--fs-micro);
+  line-height: 1.6;
+  color: var(--fg-muted);
 }
 
 /* ── the perceptual score panel (SPEC-081) ─────────────────────────────────── */
 /* RAW SSIMULACRA2, shown honestly on a labelled band. ~100 ≈ visually identical; it
    can exceed 100 and go negative — the meter fill is clamped for the bar only, the
-   number is verbatim. Built from the page's shared theme tokens so it tracks the
-   colour scheme rather than pinning its own (the demo commits to one scheme, SPEC-080). */
+   number is verbatim. Built as one of the site's receipt panels: a measured result,
+   presented as evidence. Monochrome by choice — the band is read from its word and
+   its ink, so the amber stays on the savings figure. */
 
 .score {
-  margin: 0.9rem 0 0;
-  padding: 0.75rem 0.85rem;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: var(--panel);
+  margin: var(--step) 0 0;
+  padding: 1.1rem 1.2rem;
+  border: 1px solid var(--rule);
+  background: var(--bg-raised);
 }
 
 .score-head {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
-  gap: 0.6rem;
+  gap: 0.65rem;
 }
 
 .score-value {
-  font-weight: 600;
+  font-family: var(--mono);
+  font-size: var(--fs-meta);
+  font-weight: 500;
+  line-height: 1.5;
   font-variant-numeric: tabular-nums;
-  color: var(--ink);
+  letter-spacing: 0.02em;
+  color: var(--fg);
 }
 
 .score-link {
-  color: inherit;
   text-decoration: underline dotted;
-  text-underline-offset: 0.15em;
-}
-
-.score-link:hover,
-.score-link:focus-visible {
-  color: var(--rust);
+  text-decoration-color: var(--accent-dim);
 }
 
 .score-link-secondary {
   font-weight: 400;
   font-size: 0.85em;
-  color: var(--muted);
+  color: var(--fg-muted);
   text-decoration: underline dotted;
-  text-underline-offset: 0.15em;
+  text-decoration-color: var(--rule);
 }
 
-.score-link-secondary:hover,
-.score-link-secondary:focus-visible {
-  color: var(--rust);
+.score-link-secondary:hover {
+  color: var(--accent);
 }
 
 /* When there is no honest number (lossless / kept / unavailable) the value and band
@@ -397,103 +590,117 @@ input:disabled {
 }
 
 .score-band {
-  padding: 0.05rem 0.55rem;
-  border-radius: 999px;
-  font-size: 0.78rem;
-  font-weight: 600;
-  color: var(--bg);
-  background: var(--muted);
+  padding: 0.2rem 0.6rem;
+  border: 1px solid var(--rule);
+  line-height: 1.4;
 }
 
-.score-band.band-top {
-  background: var(--good);
-}
+.score-band.band-top,
 .score-band.band-high {
-  background: color-mix(in srgb, var(--good) 65%, var(--warn));
-}
-.score-band.band-mid {
-  background: var(--warn);
-}
-.score-band.band-low {
-  background: color-mix(in srgb, var(--warn) 45%, var(--bad));
-}
-.score-band.band-bad {
-  background: var(--bad);
+  border-color: color-mix(in oklab, var(--fg) 26%, transparent);
+  color: var(--fg);
 }
 
+.score-band.band-mid {
+  color: var(--fg-muted);
+}
+
+.score-band.band-low,
+.score-band.band-bad {
+  border-color: color-mix(in oklab, var(--danger) 45%, transparent);
+  color: var(--danger);
+}
+
+/* The site's result bar, at the site's height. */
 .score-meter {
-  margin-top: 0.55rem;
+  margin-top: 0.85rem;
   height: 0.5rem;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--line) 70%, var(--bg));
+  background: var(--rule);
   overflow: hidden;
 }
 
 .score-fill {
   height: 100%;
-  border-radius: inherit;
-  background: var(--good);
+  background: var(--fg-muted);
   transition: width 0.2s ease;
 }
 
-.score-fill.band-top {
-  background: var(--good);
-}
+.score-fill.band-top,
 .score-fill.band-high {
-  background: color-mix(in srgb, var(--good) 65%, var(--warn));
+  background: var(--fg-muted);
 }
+
 .score-fill.band-mid {
-  background: var(--warn);
+  background: var(--fg-faint);
 }
-.score-fill.band-low {
-  background: color-mix(in srgb, var(--warn) 45%, var(--bad));
-}
+
+.score-fill.band-low,
 .score-fill.band-bad {
-  background: var(--bad);
+  background: var(--danger);
 }
 
 .score-source {
-  margin: 0.55rem 0 0;
-  font-size: 0.85rem;
-  color: var(--muted);
+  margin: 0.8rem 0 0;
+  max-width: var(--measure);
+  font-size: var(--fs-meta);
+  line-height: 1.55;
+  color: var(--fg-muted);
+}
+
+/* The site's tag: a hairline outline that warms on hover. No fill — the amber
+   is already spent above. */
+.download,
+.copy-cmd {
+  border: 1px solid var(--rule);
+  background: none;
+  color: var(--fg);
+  font-family: var(--mono);
+  text-decoration: none;
+  cursor: pointer;
+  transition: border-color 0.12s, color 0.12s;
+}
+
+.download:hover,
+.copy-cmd:hover {
+  color: var(--accent);
+  border-color: var(--accent-dim);
 }
 
 .download {
   display: inline-block;
-  margin-top: 1.1rem;
-  padding: 0.6rem 1.2rem;
-  border-radius: 8px;
-  background: var(--rust);
-  color: #1a1208;
-  font-weight: 600;
-  text-decoration: none;
+  margin-top: var(--step);
+  padding: 0.7rem 1.15rem;
+  font-size: var(--fs-meta);
+  font-weight: 500;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
 }
 
 /* ── the CLI adoption funnel — the point, not a footer ──────────────────── */
 
 .funnel {
-  margin-top: 1.75rem;
-  padding: 1.25rem 1.25rem 1rem;
-  border: 1px solid color-mix(in srgb, var(--rust) 35%, var(--line));
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--rust) 7%, var(--panel));
+  margin-top: calc(var(--step) * 1.5);
+  padding-top: var(--step);
+  border-top: 1px solid var(--rule);
 }
 
 .funnel h2 {
-  margin: 0 0 0.4rem;
-  font-size: 1.15rem;
+  margin: 0 0 0.5em;
+  font-size: var(--fs-h2);
 }
 
 .funnel-lead {
-  margin: 0 0 0.9rem;
-  color: var(--muted);
-  font-size: 0.9rem;
+  margin: 0 0 1.1rem;
+  max-width: var(--measure);
+  font-size: var(--fs-lead);
+  line-height: 1.5;
+  color: var(--fg-muted);
 }
 
 .cmd {
   display: flex;
   align-items: stretch;
-  gap: 0.5rem;
+  gap: 0.6rem;
 }
 
 .funnel-cmd {
@@ -501,25 +708,18 @@ input:disabled {
   min-width: 0;
   overflow-x: auto;
   white-space: nowrap;
-  padding: 0.65rem 0.8rem;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--bg);
-  color: var(--ink);
-  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
-  font-size: 0.92rem;
+  padding: 0.7rem 0.85rem;
+  border: 1px solid var(--rule);
+  border-radius: 0;
+  background: var(--bg-raised);
+  color: var(--fg);
+  font-size: var(--fs-meta);
 }
 
 .copy-cmd {
   flex: none;
   padding: 0.5rem 1rem;
-  border: 1px solid var(--rust);
-  border-radius: 8px;
-  background: var(--rust);
-  color: #1a1208;
-  font: inherit;
-  font-weight: 600;
-  cursor: pointer;
+  line-height: 1;
 }
 
 .copy-cmd:active {
@@ -527,75 +727,99 @@ input:disabled {
 }
 
 .funnel-folder {
-  margin: 0.65rem 0 0;
-  color: var(--muted);
-  font-size: 0.85rem;
+  margin: 0.75rem 0 0;
+  max-width: var(--measure);
+  font-size: var(--fs-meta);
+  color: var(--fg-muted);
 }
 
 .recipe {
-  margin-top: 0.9rem;
-  border-top: 1px solid var(--line);
-  padding-top: 0.7rem;
+  margin-top: 1.1rem;
+  padding-top: 0.85rem;
+  border-top: 1px solid var(--rule-soft);
 }
 
 .recipe > summary {
   cursor: pointer;
-  color: var(--muted);
-  font-size: 0.85rem;
   user-select: none;
+  transition: color 0.12s;
 }
 
+.recipe > summary:hover {
+  color: var(--fg);
+}
+
+.recipe > summary code {
+  font-size: 1em;
+  text-transform: none;
+}
+
+/* The site's code block: raised, and marked by a dim safelight rule. */
 .recipe-text {
-  margin: 0.7rem 0 0;
-  padding: 0.85rem;
+  margin: 0.85rem 0 0;
+  padding: 1rem 1.2rem;
   overflow-x: auto;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--bg);
-  color: var(--ink);
-  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
-  font-size: 0.8rem;
-  line-height: 1.5;
+  border-left: 2px solid var(--accent-dim);
+  background: var(--bg-raised);
+  color: var(--fg);
+  font-family: var(--mono);
+  font-size: var(--fs-meta);
+  line-height: 1.55;
 }
 
 .funnel-honest {
-  margin: 0.9rem 0 0;
-  color: var(--muted);
-  font-size: 0.83rem;
+  margin: 1.1rem 0 0;
+  max-width: var(--measure);
+  font-size: var(--fs-meta);
+  line-height: 1.6;
+  color: var(--fg-muted);
 }
 
-.funnel-honest a {
-  color: var(--rust);
+.funnel-honest strong {
+  font-weight: 500;
+  color: var(--fg);
 }
 
 /* ── footer ─────────────────────────────────────────────────────────────── */
 
 footer {
-  margin-top: 3rem;
-  padding-top: 1rem;
-  border-top: 1px solid var(--line);
-  color: var(--muted);
-  font-size: 0.85rem;
+  margin-top: calc(var(--step) * 2.5);
+  padding-top: var(--step);
+  border-top: 1px solid var(--rule);
+  color: var(--fg-muted);
+  font-size: var(--fs-meta);
 }
 
 footer p {
-  margin: 0.3rem 0;
-}
-
-footer a {
-  color: var(--rust);
+  margin: 0 0 0.4em;
+  max-width: var(--measure);
 }
 
 footer .candor {
-  margin-top: 0.9rem;
-  font-size: 0.8rem;
-  line-height: 1.5;
+  margin-top: 1.1rem;
+  font-size: var(--fs-micro);
+  line-height: 1.65;
 }
 
 footer .candor strong {
-  color: var(--ink);
+  font-weight: 500;
+  color: var(--fg);
 }
 
 .version {
+  font-family: var(--mono);
   font-variant-numeric: tabular-nums;
+  font-size: var(--fs-micro);
+  color: var(--fg-muted);
+}
+
+/* ---- motion ------------------------------------------------------ */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
+  }
 }
