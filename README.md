@@ -31,9 +31,10 @@ It's the fastest way to see what `crustyimg web` does.
   camera's embedded full-res JPEG preview. That's not a RAW develop (no demosaic, no white
   balance), but it's enough to get a RAW straight into `web` or `optimize`; sharp and squoosh
   can't open these at all.
-- Pipelines are recipes: tune one with `edit --save-recipe`, or start from a bundled
-  `web`/`gallery`/`product`, then replay it in parallel across a batch with `apply --recipe`.
-  The same recipe TOML runs in the browser demo too, via the wasm `transform()` binding.
+- Pipelines are [recipes](#recipes): tune one with `edit --save-recipe`, or start from a
+  bundled `web`/`gallery`/`product`, then replay it in parallel across a batch with
+  `apply --recipe`. The same recipe TOML runs in the browser demo too, via the wasm
+  `transform()` binding.
 - The same engine runs client-side in the browser via WebAssembly. That's the demo above.
 
 Over a corpus of 8 real photos (0.7 to 47 MP), `crustyimg web` produced files a median 97%
@@ -123,8 +124,8 @@ full rationale.
 Handy examples below; the **complete reference** (every command, flag, and exit code)
 is in **[docs/cli-reference.md](docs/cli-reference.md)**. Or run `crustyimg --help` /
 `crustyimg <cmd> --help`. Every transform accepts a single file, a glob, a directory, or
-`-` (stdin); see [**Batch & recipes**](#batch--recipes-multiple-files) below to run over
-many.
+`-` (stdin); see [**Batch**](#batch-multiple-files) and [**Recipes**](#recipes) below to run
+over many.
 
 ### View & inspect
 
@@ -214,7 +215,7 @@ crustyimg diff a.png b.png --json
 crustyimg responsive hero.jpg --widths 320,640,1280 --formats webp,jpeg --out-dir web/
 ```
 
-### Batch & recipes (multiple files)
+### Batch (multiple files)
 
 Pass many inputs (a list, a glob, or a directory) to any transform — multi-input runs
 require `--out-dir`, and `--name-template` controls output names (`{stem}`, `{ext}`):
@@ -226,21 +227,46 @@ crustyimg thumbnail *.png --size 200 --square --out-dir thumbs/
 crustyimg meta strip *.jpg --out-dir clean/ --name-template "{stem}_clean.{ext}"
 ```
 
-For a repeatable multi-step pipeline over a large set, tune it once, save a recipe, then
-replay it **in parallel** (`-j` workers, progress bar):
+> Per-command fan-outs run sequentially; `apply --recipe` (below) is the parallel path
+> (`-j N`, default = CPU count). A failed input in a batch doesn't abort the rest — the
+> run exits `6` (partial batch) with a stderr summary.
+
+### Recipes
+
+A **recipe** is an ordered pipeline of operations saved as TOML — tune it once, replay it
+anywhere. Three ship inside the binary, so there's no file to write for the common jobs:
+
+| Recipe | Pipeline |
+|---|---|
+| `web` | auto-orient → downscale long edge to **2048px** → smallest modern format |
+| `gallery` | auto-orient → downscale to **2560px** → smallest modern format (full-bleed, lightbox) |
+| `product` | auto-orient → downscale to **1600px** → smallest modern format (cards, catalogue) |
 
 ```sh
-# Tune on one image and save the recipe
-crustyimg edit hero.jpg --auto-orient --resize-max 1600 --save-recipe web.toml
-
-# Replay across a batch, in parallel
-crustyimg apply --recipe web.toml *.jpg \
-  --out-dir out/ --name-template "{stem}_web.{ext}" -j 8
+# Replay a bundled recipe across a batch, in parallel (-j workers, progress bar)
+crustyimg apply --recipe web *.jpg --out-dir out/ --name-template "{stem}_web.{ext}" -j 8
 ```
 
-> Per-command fan-outs run sequentially; `apply --recipe` is the parallel path (`-j N`,
-> default = CPU count). A failed input in a batch doesn't abort the rest — the run exits
-> `6` (partial batch) with a stderr summary.
+Or tune your own on one image, save it, and replay that:
+
+```sh
+crustyimg edit hero.jpg --auto-orient --resize-max 1600 --save-recipe mine.toml
+crustyimg apply --recipe mine.toml *.jpg --out-dir out/ -j 8
+```
+
+`--recipe` takes a **path or a bundled name**, and a real file always wins — a local
+`web.toml` unambiguously shadows the bundled `web`. The round trip is byte-stable:
+`apply`-ing a saved recipe reproduces the `edit` that wrote it byte for byte, so a recipe
+reviewed in a PR is exactly what runs in CI. The same TOML runs in the browser demo, via
+the wasm `transform()` binding.
+
+To declare many source → output pairs in one file instead of one command per batch, use
+[`crustyimg build`](docs/cli-reference.md) with a `crustyimg.build.toml` manifest — it adds
+a content-addressed cache, a lockfile, and `--watch`.
+
+**Going further:** [**docs/recipes.md**](docs/recipes.md) is the recipe cookbook — a
+copy-paste catalog of standard workflows (web prep, responsive, privacy, CI gates, bulk
+photography). [**`recipes/`**](recipes/) holds the bundled TOMLs and the recipe file format.
 
 ### Piping (stdin / stdout)
 
