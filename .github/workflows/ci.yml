@@ -2,9 +2,21 @@ name: CI
 
 # Enforces the build/test/clippy/fmt gates on the three-OS matrix (DEC-009).
 # No secrets are used (constraint no-secrets-in-code).
+# A bare `push:` fires on EVERY branch, so a PR branch ran this whole matrix
+# twice — once for its push, once for the pull_request — doubling the cost of
+# every review. Restricting push to `main` leaves each PR with exactly one run
+# and still gates what lands.
 on:
   push:
+    branches: [main]
   pull_request:
+
+# A force-push used to leave the superseded run building to completion on all
+# three OSes. Cancel the older run for a PR; never cancel on `main`, where every
+# commit's result is a record worth having.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   check:
