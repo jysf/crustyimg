@@ -29,7 +29,7 @@ value_contribution:
     - "`build` warns on a truncated JPEG, matching `apply`"
   explicitly_does_not:
     - "Change cross-format conversion. `-o out.png` is a deliberate convert; growing is legitimate there."
-    - "Touch the decide path, which already has the never-bigger guarantee and reports honestly"
+    - "Touch the decide path, which already has the never-bigger guarantee (see the correction in Design Notes)"
     - "Take on the orphaned-artifact follow-up — that needs a scope decision, not a fix"
 ---
 
@@ -146,6 +146,16 @@ which is exactly the pattern D-1 shows on a bigger scale.
 
 ## Design Notes
 
+- **Correction, 2026-08-11 — "the decide path reports honestly" was half true.** This stage's scope
+  note excluded the decide path on the grounds that it *"already has the never-bigger guarantee and
+  reports honestly."* The guarantee half holds. The reporting half does not: driven at `08b367d`,
+  `optimize` on an SVG / HEIC / RAW input can pass the **source container through verbatim** —
+  vector XML, a HEIF container, a whole camera-raw file — while reporting it as the `png`/`jpeg`
+  its decoder *adopted* as a label. On stdin it writes XML into a `.jpg`. **The scope decision here
+  is unchanged and still right** — that defect is a different root cause and belongs in its own
+  spec — but the reason recorded for it was wrong, and SPEC-113's build should not read this stage
+  as evidence that the decide path is clean. Framed as **STAGE-045 / SPEC-115**; the two stages
+  meet at `pipeline_altered_source` and should ship in the same release.
 - **Ship this before the launch post.** Not because it blocks the demo — it does not, the demo
   never takes the pinned path — but because the post will name `optimize`, and
   `optimize photo.jpg -o out.jpg` returning a silently doubled file is a top comment rather than
