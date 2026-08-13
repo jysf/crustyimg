@@ -1001,6 +1001,19 @@ enum OptimizeOutput {
     Passthrough { raw: Vec<u8>, ext: String },
 }
 
+/// The real container name to report instead of `source_format`, for the three
+/// adopted-label origins (SPEC-115, Call 4) — `None` for [`SourceContainer::Native`],
+/// whose `source_format` already names the container correctly.
+fn source_container_label(container: crate::image::SourceContainer) -> Option<&'static str> {
+    use crate::image::SourceContainer;
+    match container {
+        SourceContainer::Native => None,
+        SourceContainer::Svg => Some("svg"),
+        SourceContainer::Heic => Some("heic"),
+        SourceContainer::RawPreview => Some("raw"),
+    }
+}
+
 /// Decode → orient → auto-decide the output format for ONE input (SPEC-048/049).
 /// Runs the decision engine and returns the bytes to ship (or a passthrough)
 /// plus the `ExplainTrace` for reporting (`None` only for a degenerate image).
@@ -1062,6 +1075,12 @@ fn optimize_decide_one(
     // (which may replace the pixels) consumes `img` below.
     let truncated_jpeg = img.is_truncated_jpeg();
     let source_format = img.source_format();
+    // Whether `source_format` names the real container on disk, or is an
+    // adopted stand-in (SVG/HEIC/RAW, SPEC-115) — captured before the
+    // pipeline consumes `img` below, same as `source_info`. An adopted
+    // source's raw bytes are never a valid output, so neither passthrough
+    // exit below may ship them.
+    let source_container = img.source_container();
     // Capture the source's shape + metadata BEFORE the pipeline consumes it: a raw
     // passthrough is only faithful when the pipeline changed nothing `optimize`
     // promised to change (see `pipeline_altered_source` below).
@@ -1075,14 +1094,23 @@ fn optimize_decide_one(
     // content. On a degenerate source (no verdict) pass it through unchanged
     // rather than guessing (no trace to explain) — checked before running the
     // pipeline, since a zero-area source stays zero-area after any resize.
+    //
+    // That passthrough is only valid when the source container IS the shippable
+    // format `source_format` names (SPEC-115): a degenerate SVG/HEIC/RAW has
+    // nothing correct to emit (no pipeline ran, so there is no re-encode to fall
+    // back to either), so it fails with the typed analysis error instead of
+    // shipping the raw non-raster bytes under a raster label.
     let analysis = match crate::analysis::Analysis::compute(&img) {
         Ok(a) => a,
-        Err(_) => {
-            let output = OptimizeOutput::Passthrough {
-                raw,
-                ext: metadata_output_ext(input, &[]),
-            };
-            return Ok((output, None, None, truncated_jpeg));
+        Err(e) => {
+            if source_container.is_native() {
+                let output = OptimizeOutput::Passthrough {
+                    raw,
+                    ext: metadata_output_ext(input, &[]),
+                };
+                return Ok((output, None, None, truncated_jpeg));
+            }
+            return Err(e.into());
         }
     };
 
@@ -1123,6 +1151,11 @@ fn optimize_decide_one(
     // source is NOT a valid output (wrong orientation / un-stripped metadata) — we
     // must ship a processed, stripped result. Ship the SMALLEST CORRECT one.
     //
+    // Same branch, a FOURTH reason (SPEC-115): when the source container is an
+    // adopted stand-in (SVG/HEIC/RAW), the raw bytes are never a valid output
+    // regardless of what the pipeline did — there is no passthrough to fall back
+    // to, only "the smallest correct re-encode", exactly like `pipeline_altered`.
+    //
     // A graphic bucket offers only lossless candidates, and a lossless re-encode of a
     // *lossy* source (a photo that classified as a graphic, or any lossy source with
     // an ICC profile) blows up several-fold. So for a lossy-family source with no
@@ -1134,7 +1167,7 @@ fn optimize_decide_one(
     // ("N% larger"), it is never clamped to a break-even "0% smaller".
     let winner = match winner {
         Some(i) => Some(i),
-        None if pipeline_altered => {
+        None if pipeline_altered || !source_container.is_native() => {
             let has_lossy = solved
                 .iter()
                 .any(|s| s.outcome.disposition == Disposition::Lossy);
@@ -1228,6 +1261,7 @@ fn optimize_decide_one(
             encode_ms,
             total_ms: start.elapsed().as_secs_f64() * 1000.0,
         }),
+        source_container_label: source_container_label(source_container),
     };
 
     Ok((output, Some(trace), winner_score, truncated_jpeg))
@@ -1340,17 +1374,20 @@ fn emit_optimize_report(
     // so explicitly on stderr — on EVERY channel, including `--json` (whose report
     // goes to stdout, leaving the user no heads-up otherwise). `web` downscales to a
     // dimension bound, so an already-small large-dimension source can re-encode
-    // larger; `optimize` hits this only on the rare metadata-forced re-encode. Either
-    // way the source could not ship unchanged, so the smallest correct output was
-    // kept — and the never-bigger wording must not hide it. Respects `--quiet` like
-    // the other stderr diagnostics; the `--json` flag still carries the machine signal.
+    // larger; `optimize` hits this only on the rare metadata-forced re-encode, or
+    // (SPEC-115) a source whose container cannot ship as the format it reports at
+    // all (SVG/HEIC/RAW). Either way the source could not ship unchanged, so the
+    // smallest correct output was kept — and the never-bigger wording must not hide
+    // it. Respects `--quiet` like the other stderr diagnostics; the `--json` flag
+    // still carries the machine signal.
     if !global.quiet {
         if let Some(t) = trace {
             if t.exceeds_source() {
                 eprintln!(
                     "{label}: note: shipped {} B, larger than the {} B source ({}% larger) — the \
                      source could not ship unchanged (metadata stripped / orientation baked / \
-                     resized to the requested bound), so the smallest correct output was kept",
+                     resized to the requested bound / the source is not an image file of the \
+                     format being written), so the smallest correct output was kept",
                     t.out_bytes,
                     t.source_bytes,
                     -t.savings_percent(),

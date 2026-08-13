@@ -119,6 +119,41 @@ fn jpeg_missing_eoi(bytes: &[u8]) -> bool {
 pub(crate) const TRUNCATED_JPEG_WARNING: &str =
     "truncated JPEG: missing end-of-image marker (FF D9) — the decoded image may be incomplete";
 
+/// Where `source_format`'s value actually came from (SPEC-115).
+///
+/// Most decoders report a real `::image::ImageFormat` for the container on
+/// disk. Three do not: `::image::ImageFormat` has no SVG/HEIC variant, and a
+/// RAW container's *embedded preview* is a JPEG even though the file on disk
+/// is not — so those three decoders adopt a raster stand-in label
+/// (`source_format()` stays that label; `info` depends on it, DEC-055/AC-10).
+/// This is the fact `source_format()` alone cannot carry: whether the raw
+/// bytes on disk are actually a valid file of that label, i.e. whether they
+/// can ever be shipped verbatim under it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SourceContainer {
+    /// `source_format` names the real container on disk — the raw bytes ARE a
+    /// valid file of that format.
+    Native,
+    /// Rasterized from SVG/XML text; `source_format` reports `Png` as a
+    /// stand-in (no `ImageFormat::Svg` exists).
+    Svg,
+    /// Decoded from an ISOBMFF/HEIF container; `source_format` reports `Png`
+    /// as a stand-in (no `ImageFormat::Heic` exists).
+    Heic,
+    /// The extracted embedded preview of a RAW container; `source_format`
+    /// reports `Jpeg` (the preview's own format), but the bytes on disk are
+    /// the whole RAW container, not a standalone JPEG file.
+    RawPreview,
+}
+
+impl SourceContainer {
+    /// Whether the raw bytes on disk are actually a valid file of
+    /// `source_format` — i.e. whether they can ever be shipped verbatim.
+    pub fn is_native(self) -> bool {
+        matches!(self, SourceContainer::Native)
+    }
+}
+
 /// The one canonical in-memory image model (DEC-002).
 ///
 /// Wraps the decoded pixels, the format detected at load, and an optional raw
@@ -137,6 +172,9 @@ pub struct Image {
     /// PNG/AVIF — so a truncated JPEG decodes "successfully" here and the CLI
     /// layer is what turns this flag into a stderr warning.
     truncated_jpeg: bool,
+    /// Where `source_format` actually came from (SPEC-115) — see
+    /// [`SourceContainer`].
+    source_container: SourceContainer,
 }
 
 impl Image {
@@ -177,7 +215,7 @@ impl Image {
     /// Detect the format of an in-memory byte slice, decode it, and capture the
     /// raw metadata bundle.
     pub fn from_bytes(bytes: &[u8]) -> Result<Image> {
-        let (pixels, source_format) = decode_with_format(bytes)?;
+        let (pixels, source_format, source_container) = decode_with_format(bytes)?;
         let metadata = MetadataBundle::capture(bytes, source_format);
         let truncated_jpeg = source_format == ImageFormat::Jpeg && jpeg_missing_eoi(bytes);
         Ok(Image {
@@ -185,6 +223,7 @@ impl Image {
             source_format,
             metadata,
             truncated_jpeg,
+            source_container,
         })
     }
 
@@ -212,6 +251,13 @@ impl Image {
     /// The format detected at load.
     pub fn source_format(&self) -> ImageFormat {
         self.source_format
+    }
+
+    /// Where `source_format` actually came from (SPEC-115) — whether the raw
+    /// bytes on disk are a valid file of that format, or an adopted stand-in
+    /// label for a container `::image::ImageFormat` cannot name.
+    pub fn source_container(&self) -> SourceContainer {
+        self.source_container
     }
 
     /// The raw metadata bundle captured at load, if any segment was present.
@@ -254,7 +300,17 @@ impl Image {
             source_format,
             metadata,
             truncated_jpeg: false,
+            source_container: SourceContainer::Native,
         }
+    }
+
+    /// Set this `Image`'s [`SourceContainer`] (SPEC-115) — an additive builder
+    /// on top of [`Image::from_parts`], whose signature stays unchanged (13
+    /// call sites, mostly tests, on a published crate). Used by the three
+    /// adopting decoders to record that `source_format` is a stand-in.
+    pub fn with_source_container(mut self, container: SourceContainer) -> Image {
+        self.source_container = container;
+        self
     }
 
     /// Replace this image's pixels, preserving `source_format` and `metadata`.
@@ -268,6 +324,7 @@ impl Image {
             source_format: self.source_format,
             metadata: self.metadata,
             truncated_jpeg: self.truncated_jpeg,
+            source_container: self.source_container,
         }
     }
 
@@ -404,7 +461,7 @@ fn map_image_decode_error(e: ::image::ImageError) -> ImageError {
 fn decode_with_limits(
     bytes: &[u8],
     limits: &::image::Limits,
-) -> Result<(DynamicImage, ImageFormat)> {
+) -> Result<(DynamicImage, ImageFormat, SourceContainer)> {
     // AVIF takes a dedicated pure-Rust decode path (SPEC-058, DEC-053): the
     // `image` crate's own AVIF decoder is dav1d/C and is NOT used, so we detect
     // the container by brand and route it through `re_rav1d` + `avif-parse`,
@@ -419,7 +476,7 @@ fn decode_with_limits(
         #[cfg(not(target_arch = "wasm32"))]
         {
             let pixels = avif::decode_avif(bytes, limits)?;
-            return Ok((pixels, ImageFormat::Avif));
+            return Ok((pixels, ImageFormat::Avif, SourceContainer::Native));
         }
         #[cfg(target_arch = "wasm32")]
         {
@@ -436,7 +493,7 @@ fn decode_with_limits(
     // generic `ImageReader` path.
     if svg::is_svg(bytes) {
         let pixels = svg::decode_svg(bytes, limits)?;
-        return Ok((pixels, ImageFormat::Png));
+        return Ok((pixels, ImageFormat::Png, SourceContainer::Svg));
     }
 
     // HEIC is the ISOBMFF sibling of AVIF, dispatched AFTER it so an AVIF-in-HEIF
@@ -450,7 +507,7 @@ fn decode_with_limits(
         #[cfg(feature = "heic")]
         {
             let pixels = heic::decode_heic(bytes, limits)?;
-            return Ok((pixels, ImageFormat::Png));
+            return Ok((pixels, ImageFormat::Png, SourceContainer::Heic));
         }
         #[cfg(not(feature = "heic"))]
         {
@@ -485,13 +542,13 @@ fn decode_with_limits(
     check_pixel_budget(w, h)?;
 
     let pixels = reader.decode().map_err(map_image_decode_error)?;
-    Ok((pixels, format))
+    Ok((pixels, format, SourceContainer::Native))
 }
 
 /// Detect the format of `bytes` and decode it with production resource limits
 /// (DEC-034). Reused by every load entry so detection/decoding and limit
 /// enforcement are consistent.
-fn decode_with_format(bytes: &[u8]) -> Result<(DynamicImage, ImageFormat)> {
+fn decode_with_format(bytes: &[u8]) -> Result<(DynamicImage, ImageFormat, SourceContainer)> {
     decode_with_limits(bytes, &decode_limits())
 }
 
@@ -520,6 +577,10 @@ pub fn raw_preview(bytes: &[u8]) -> Result<Image> {
         // extracted/decoded by `raw::extract_preview` above) and is out of this
         // spec's scope (F4/F5).
         truncated_jpeg: false,
+        // The bytes on disk are the whole RAW container, not a standalone JPEG
+        // file — `source_format` (Jpeg) is the preview's format, an adopted
+        // label (SPEC-115).
+        source_container: SourceContainer::RawPreview,
     })
 }
 

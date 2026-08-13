@@ -344,6 +344,13 @@ pub struct ExplainTrace {
     /// non-`--timing` run's output is byte-identical (same discipline as
     /// [`Self::verify_score`]).
     pub timing: Option<Timing>,
+    /// The real container name to report instead of `source_format`, when the
+    /// source has no `::image::ImageFormat` variant of its own — `"svg"` /
+    /// `"heic"` / `"raw"` (SPEC-115). `None` for a genuine raster source, whose
+    /// `source_format` already names the container correctly. A plain string
+    /// (not [`crate::image::SourceContainer`]) so this module stays free of a
+    /// `crate::image` dependency.
+    pub source_container_label: Option<&'static str>,
 }
 
 impl ExplainTrace {
@@ -386,13 +393,21 @@ impl ExplainTrace {
         }
     }
 
+    /// The name to report for the SOURCE (never the candidates): the real
+    /// container (`"svg"`/`"heic"`/`"raw"`) when `source_format` is an adopted
+    /// stand-in, else `source_format`'s own name (SPEC-115, Call 4).
+    fn source_label(&self) -> &'static str {
+        self.source_container_label
+            .unwrap_or_else(|| format_name(self.source_format))
+    }
+
     /// The default one-line summary (chosen format + savings) shown when
     /// `--explain` is not set (SPEC-048). Path-free and deterministic.
     pub fn summary_line(&self) -> String {
         match self.winner {
             Some(i) => format!(
                 "{} \u{2192} {} \u{b7} {} \u{2192} {} B ({})",
-                format_name(self.source_format),
+                self.source_label(),
                 format_name(self.candidates[i].fmt),
                 self.source_bytes,
                 self.out_bytes,
@@ -400,7 +415,7 @@ impl ExplainTrace {
             ),
             None => format!(
                 "kept {} ({} B, already optimal)",
-                format_name(self.source_format),
+                self.source_label(),
                 self.source_bytes,
             ),
         }
@@ -452,10 +467,10 @@ impl ExplainTrace {
         writeln!(
             w,
             "optimize: {} \u{2192} {} ({} \u{2192} {} B, {})",
-            format_name(self.source_format),
+            self.source_label(),
             self.winner
                 .map(|i| format_name(self.candidates[i].fmt))
-                .unwrap_or_else(|| format_name(self.source_format)),
+                .unwrap_or_else(|| self.source_label()),
             self.source_bytes,
             self.out_bytes,
             self.size_delta_phrase(),
@@ -510,7 +525,7 @@ impl ExplainTrace {
              \"features\":{{\"entropy\":{:.2},\"edge_ratio\":{:.2},\"flat_ratio\":{:.2},\
              \"unique_colors\":{},\"unique_saturated\":{},\"has_alpha\":{}}},\
              \"source_bytes\":{},\"candidates\":[",
-            format_name(self.source_format),
+            self.source_label(),
             class_name(self.class),
             profile_name(self.profile),
             mode_name(self.mode),
@@ -981,6 +996,7 @@ mod tests {
             out_bytes: 6000,
             verify_score: None,
             timing: None,
+            source_container_label: None,
         }
     }
 
