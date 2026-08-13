@@ -310,13 +310,32 @@ pass before the fix, they do not cover the bug.
   reports `Jpeg` while the file on disk is the whole RAW container). That sniff check is new
   code this spec's fix introduced (`ops.rs`'s `raw_is_really_fmt`), and it has no coverage
   without a RAW fixture pinned to its adopted format — exactly what
-  `optimize_raw_input_pinned_to_jpeg_writes_real_jpeg` exercises, reusing the pre-existing
-  `synthetic_preview.nef` fixture. `detailed_jpeg_at_quality` in `tests/common/mod.rs` is the
+  `optimize_raw_input_pinned_to_jpeg_writes_real_jpeg` exercises, against the purpose-built
+  `tight_preview.nef` fixture (see the correction below).
+  `detailed_jpeg_at_quality` in `tests/common/mod.rs` is the
   helper AC-6 needs (a source encoded above the pinned path's re-encode quality, so the
   re-encode reliably wins). Both are load-bearing for ACs already in the spec (AC-6, and the
   RAW case that AC-1/AC-5's "same-format" comparison would otherwise silently mishandle); the
   spec's `Outputs` section under-enumerated the file list at design time, before this specific
   edge case was found during implementation.
+- **Correction (verify cycle, 2026-08-12): the RAW sniff test could not fail.** As first written,
+  `optimize_raw_input_pinned_to_jpeg_writes_real_jpeg` ran against `synthetic_preview.nef` and was
+  **vacuous**. The sniff is only consulted once the guard has decided the re-encode did not beat
+  the source — `re-encode >= container`. On that fixture the relationship is structurally
+  inverted: its preview is a solid colour stored at the SAME default quality the re-encode uses,
+  so the re-encode returns ~712 B while the container also carries a thumbnail and header
+  (1365 B). The comparison short-circuits on size, `raw_is_really_fmt` is never reached, and the
+  test passed whether or not the sniff existed. The build's own AC-8 control could not catch this:
+  reverting the whole guard removes the sniff too, so the test stayed green on both sides.
+  **Fixed** by adding `tests/fixtures/raw/tight_preview.nef` (`examples/gen_raw_tight_fixture.rs`)
+  — a high-frequency preview stored at low quality, 4073 B container vs a 5351 B default-quality
+  re-encode (1.31x) — and repointing the test at it. `synthetic_preview.nef` is untouched, so
+  `lint.rs`, `web_reads_raw_input` and SPEC-069 are unaffected. Driven both ways: with the sniff
+  the test passes; with `raw_is_really_fmt` forced `true` it FAILS, writing `II*\0` container bytes
+  under a `.jpg` name. The generator asserts the size relationship at regen time so the fixture
+  cannot silently decay back into a no-op. Full matrix re-run after the change: 849 / 829 / 855,
+  0 failures, clippy and fmt clean on all three legs.
+  [[a-harness-that-exercises-nothing-reports-green]]
 - **Follow-up work identified:** none new. (Aside, not a follow-up: rebuilding the identical,
   unchanged source in the same `CARGO_TARGET_DIR` twice during the AC-8 negative control produced
   two different binary hashes — expected non-determinism in an incremental debug build, not
