@@ -294,18 +294,72 @@ pass before the fix, they do not cover the bug.
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
-- **New decisions emitted:**
-- **Deviations from spec:**
-- **Follow-up work identified:**
+- **Branch:** `feat/spec-113-optimize-pinned-never-bigger` (rebased onto `main` at `1cd440c`)
+- **PR:** #155 (`feat(SPEC-113): optimize never silently grows a pinned output`)
+- **All acceptance criteria met?** yes — AC-1 through AC-10, all verified this session (a prior
+  session wrote the implementation; this session ran the full matrix, drove the AC-8 negative
+  control end to end, and confirmed the doc claim against the code).
+- **New decisions emitted:** none. The `preserve`-vs-pin split shipped exactly as the design
+  settled it (`never_bigger = pinned && profile != ProfileArg::Preserve`); no reason to deviate
+  surfaced.
+- **Deviations from spec:** none in behavior. Two files outside the spec's `Outputs` list were
+  touched — `tests/input_raw.rs` (+49 lines, one new test) and `tests/common/mod.rs` (+17 lines,
+  one new helper). Verdict: **legitimate, not scope creep.** `write_pixel_output`'s guard has to
+  sniff the raw source bytes (`::image::guess_format`) before trusting `source_info.format`,
+  because that field is an *adopted* label for RAW/SVG/HEIC input (a `.nef`'s embedded preview
+  reports `Jpeg` while the file on disk is the whole RAW container). That sniff check is new
+  code this spec's fix introduced (`ops.rs`'s `raw_is_really_fmt`), and it has no coverage
+  without a RAW fixture pinned to its adopted format — exactly what
+  `optimize_raw_input_pinned_to_jpeg_writes_real_jpeg` exercises, against the purpose-built
+  `tight_preview.nef` fixture (see the correction below).
+  `detailed_jpeg_at_quality` in `tests/common/mod.rs` is the
+  helper AC-6 needs (a source encoded above the pinned path's re-encode quality, so the
+  re-encode reliably wins). Both are load-bearing for ACs already in the spec (AC-6, and the
+  RAW case that AC-1/AC-5's "same-format" comparison would otherwise silently mishandle); the
+  spec's `Outputs` section under-enumerated the file list at design time, before this specific
+  edge case was found during implementation.
+- **Correction (verify cycle, 2026-08-12): the RAW sniff test could not fail.** As first written,
+  `optimize_raw_input_pinned_to_jpeg_writes_real_jpeg` ran against `synthetic_preview.nef` and was
+  **vacuous**. The sniff is only consulted once the guard has decided the re-encode did not beat
+  the source — `re-encode >= container`. On that fixture the relationship is structurally
+  inverted: its preview is a solid colour stored at the SAME default quality the re-encode uses,
+  so the re-encode returns ~712 B while the container also carries a thumbnail and header
+  (1365 B). The comparison short-circuits on size, `raw_is_really_fmt` is never reached, and the
+  test passed whether or not the sniff existed. The build's own AC-8 control could not catch this:
+  reverting the whole guard removes the sniff too, so the test stayed green on both sides.
+  **Fixed** by adding `tests/fixtures/raw/tight_preview.nef` (`examples/gen_raw_tight_fixture.rs`)
+  — a high-frequency preview stored at low quality, 4073 B container vs a 5351 B default-quality
+  re-encode (1.31x) — and repointing the test at it. `synthetic_preview.nef` is untouched, so
+  `lint.rs`, `web_reads_raw_input` and SPEC-069 are unaffected. Driven both ways: with the sniff
+  the test passes; with `raw_is_really_fmt` forced `true` it FAILS, writing `II*\0` container bytes
+  under a `.jpg` name. The generator asserts the size relationship at regen time so the fixture
+  cannot silently decay back into a no-op. Full matrix re-run after the change: 849 / 829 / 855,
+  0 failures, clippy and fmt clean on all three legs.
+  [[a-harness-that-exercises-nothing-reports-green]]
+- **Follow-up work identified:** none new. (Aside, not a follow-up: rebuilding the identical,
+  unchanged source in the same `CARGO_TARGET_DIR` twice during the AC-8 negative control produced
+  two different binary hashes — expected non-determinism in an incremental debug build, not
+  evidence of anything wrong; confirmed by re-running the same build a third time and getting a
+  stable hash, and independently by directly driving the binary and re-running the test suite,
+  both of which matched the pre-revert behavior exactly.)
 
 ### Build-phase reflection (3 questions, short answers)
 
-1. **What was unclear in the spec that slowed you down?**
-2. **Was there a constraint or decision that should have been listed but wasn't?**
-3. **If you did this task again, what would you do differently?**
+1. **What was unclear in the spec that slowed you down?** Nothing — the design cycle had already
+   settled the one hard call (`preserve` stays exempt, the pin does not) and the trap (metadata/
+   orientation making the raw source invalid) was flagged before code was written. Nothing in the
+   spec itself cost time in this finishing session.
+2. **Was there a constraint or decision that should have been listed but wasn't?** Not a
+   constraint, but the `Outputs` section's file list was incomplete: it didn't anticipate that
+   `source_info.format`'s adopted-label behavior (RAW/SVG/HEIC) would force a sniff check in
+   `write_pixel_output`, which in turn needed its own regression test in `tests/input_raw.rs` plus
+   a new fixture helper in `tests/common/mod.rs`. Worth flagging in future specs that touch a
+   comparison against `source_info.format`.
+3. **If you did this task again, what would you do differently?** Nothing structural — the matrix
+   ran fully sequentially per-leg with fresh `CARGO_TARGET_DIR`s as instructed, and reconciled
+   exactly (+8 tests per leg on every one of the three legs, matching the 8 new tests added). The
+   one thing I'd tighten: budget for background `cargo build`/`cargo test` legs running well past
+   the 2-minute foreground timeout from the start, rather than discovering it on the first attempt.
 
 ---
 

@@ -77,6 +77,10 @@ pub(super) fn run_apply(
                 None,
                 None,
                 Some(AutoQuality::Fast),
+                // Out of scope for SPEC-113: only `optimize`'s own pinned branch
+                // gets the never-bigger guard (the terminal-`optimize` `apply`
+                // path is a separate entry point, untouched here).
+                false,
             );
         }
 
@@ -517,7 +521,19 @@ pub(super) fn run_convert(
     let pipeline = auto_orient_prefix()?;
 
     // Force `fmt` for every input; thread the quality / byte-budget search.
-    run_pixel_op(pipeline, inputs, global, fixed_quality, Some(fmt), auto)
+    // `convert` is an explicit format conversion, not `optimize` — the
+    // never-bigger guard is SPEC-113's fix for `optimize`'s pin specifically, and
+    // does not apply here (growing is legitimate; that is the whole point of
+    // `convert`).
+    run_pixel_op(
+        pipeline,
+        inputs,
+        global,
+        fixed_quality,
+        Some(fmt),
+        auto,
+        false,
+    )
 }
 
 // ── optimize handler ──────────────────────────────────────────────────────────
@@ -612,7 +628,8 @@ pub(super) fn run_optimize(
 
     // The engine only fires when the user has NOT pinned a format (`--format` or a
     // recognized `-o` extension) and the profile is not `preserve` (DEC-048). A pin
-    // or `preserve` reproduces today's format-preserving behaviour exactly.
+    // or `preserve` reproduces today's format-preserving behaviour exactly — same
+    // quality, same per-input format resolution (DEC-015).
     let pinned = resolve_format(global.format.as_deref())?.is_some()
         || global
             .output
@@ -620,13 +637,36 @@ pub(super) fn run_optimize(
             .is_some_and(|o| o != "-" && crate::sink::format_from_extension(Path::new(o)).is_ok());
 
     if profile == ProfileArg::Preserve || pinned {
-        // Preserve / pinned: auto quality, per-input format preserved / honored
-        // from -o/--format (DEC-015). This is the strict regression anchor.
         // (--explain has no decision to describe here; it is silently ignored.)
         // The audit report needs the auto-decision, so `--json`/`--timing` here is a
         // usage error rather than a silent no-op (SPEC-088).
         reject_audit_without_autodecide(json, timing)?;
-        return run_pixel_op(pipeline, inputs, global, None, None, Some(auto));
+        // `--profile preserve` and a pin share this branch (auto quality, per-input
+        // format preserved / honored from -o/--format) but NOT the never-bigger
+        // guard below — that is a deliberate split (SPEC-113), not an oversight:
+        //
+        // - `--profile preserve` IS the engine-off regression anchor (DEC-048):
+        //   its whole job is to reproduce today's format-preserving `optimize`
+        //   EXACTLY, byte-for-byte, as a comparison baseline. Guarding it would
+        //   hand it engine behavior and destroy the property it exists to provide.
+        //   It stays exempt, and keeps growing on an already-tight source exactly
+        //   like it always has.
+        // - A pinned `-o out.jpg` / `--format jpeg` is not an anchor — it is a user
+        //   asking for a JPEG. It gets the SAME never-bigger guarantee the
+        //   auto-decide path already has (`decide::pick_winner`): a same-format
+        //   re-encode that would not beat the source keeps the source instead
+        //   (`ops::write_pixel_output`), unless the pipeline already made the raw
+        //   source an invalid output (`pipeline_altered_source`).
+        let never_bigger = pinned && profile != ProfileArg::Preserve;
+        return run_pixel_op(
+            pipeline,
+            inputs,
+            global,
+            None,
+            None,
+            Some(auto),
+            never_bigger,
+        );
     }
 
     run_optimize_autodecide(
@@ -737,7 +777,11 @@ pub(super) fn run_web(
     if pinned {
         // No auto-decision to report on the pinned path (SPEC-088).
         reject_audit_without_autodecide(json, timing)?;
-        return run_pixel_op(pipeline, inputs, global, None, None, Some(auto));
+        // `web`'s pinned path is explicitly OUT of SPEC-113's scope (it already
+        // scores and reports every run — SPEC-085 — and its default downscale
+        // means a resize very often applies, unlike `optimize`'s keep-dimensions
+        // default). Left as `false`, unchanged.
+        return run_pixel_op(pipeline, inputs, global, None, None, Some(auto), false);
     }
 
     run_optimize_autodecide(
@@ -795,6 +839,36 @@ fn optimize_pipeline(max: Option<u32>) -> Result<Pipeline, CliError> {
         pipeline = pipeline.push(resize);
     }
     Ok(pipeline)
+}
+
+/// Did an `optimize` pixel-lane pipeline alter the image in a way that makes the
+/// RAW source bytes an invalid output — not merely a *bigger* one?
+///
+/// `optimize`'s `auto-orient` prefix bakes EXIF orientation into the pixels and
+/// strips the ENTIRE metadata bundle (privacy, incl. GPS — DEC-017), and `--max`
+/// (or a `--max-size` search's own downscale) can resize. So the raw source is a
+/// faithful stand-in for the pipeline's output only when:
+/// - the source carried no EXIF or ICC to strip (an orientation flip that keeps
+///   the same width/height still carries an EXIF tag, so the metadata check alone
+///   catches it — dimensions don't need to change for the source to be invalid);
+///   AND
+/// - the output's dimensions match the source's (nothing resized).
+///
+/// Otherwise, shipping the raw source would leak metadata, keep a wrong
+/// orientation, or hand back the wrong dimensions — wrong, not just larger.
+///
+/// Shared by two call sites that both need this exact judgement: the auto-decide
+/// passthrough fallback below (`optimize_decide_one`, SPEC-084's never-bigger
+/// guarantee) and the pinned-path never-bigger guard
+/// (`ops::write_pixel_output`, SPEC-113) — so the two paths agree on what "the
+/// source is a valid output" means.
+pub(super) fn pipeline_altered_source(
+    source_info: &crate::image::ImageInfo,
+    out_info: &crate::image::ImageInfo,
+) -> bool {
+    source_info.has_exif
+        || source_info.has_icc
+        || (out_info.width, out_info.height) != (source_info.width, source_info.height)
 }
 
 /// One solved candidate: its measured outcome plus the encoded bytes to ship if
@@ -990,10 +1064,8 @@ fn optimize_decide_one(
     let source_format = img.source_format();
     // Capture the source's shape + metadata BEFORE the pipeline consumes it: a raw
     // passthrough is only faithful when the pipeline changed nothing `optimize`
-    // promised to change (see `pipeline_altered` below).
+    // promised to change (see `pipeline_altered_source` below).
     let source_info = img.info();
-    let source_dims = (source_info.width, source_info.height);
-    let source_had_metadata = source_info.has_exif || source_info.has_icc;
     let has_alpha = source_info.has_alpha;
 
     // Compute the analysis verdict from the SOURCE image, before the pipeline
@@ -1017,14 +1089,11 @@ fn optimize_decide_one(
     let out_img = pipeline.run(img)?;
 
     // Did the pipeline alter the image in a way that makes the RAW source an invalid
-    // output? `optimize` bakes EXIF orientation and strips ALL metadata (privacy,
-    // incl. GPS — DEC-017). So the raw bytes are a faithful passthrough only when the
-    // source carried no metadata AND the pixels were untouched (dims unchanged; an
-    // orientation flip that keeps dims still carries an EXIF tag, so it trips the
-    // metadata check). Otherwise a "passthrough" must ship the PROCESSED, stripped
-    // image instead of leaking metadata / a wrong orientation.
+    // output? See `pipeline_altered_source` — shared with the pinned-path
+    // never-bigger guard (SPEC-113, `ops::write_pixel_output`) so the two paths
+    // agree on what "the source is a valid output" means.
     let out_info = out_img.info();
-    let pipeline_altered = source_had_metadata || (out_info.width, out_info.height) != source_dims;
+    let pipeline_altered = pipeline_altered_source(&source_info, &out_info);
 
     let built = BuiltCodecs {
         webp_lossy: cfg!(feature = "webp-lossy"),

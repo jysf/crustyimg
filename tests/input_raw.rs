@@ -10,6 +10,11 @@
 //! TIFF header + a 16×12 embedded JPEG thumbnail + a 64×48 embedded JPEG
 //! preview), generated natively (no camera/ImageMagick, AGENTS §12).
 //! Regen: `cargo run --example gen_raw_fixture`.
+//!
+//! Second fixture: `tests/fixtures/raw/tight_preview.nef` — same shape, sized so
+//! a default-quality re-encode comes back LARGER than the whole container. Only
+//! SPEC-113's guard test needs that property; see its doc comment below.
+//! Regen: `cargo run --example gen_raw_tight_fixture`.
 
 use std::process::Command;
 
@@ -17,6 +22,7 @@ use crustyimg::source::{resolve, Input};
 
 const BIN: &str = env!("CARGO_BIN_EXE_crustyimg");
 const RAW_FIXTURE: &[u8] = include_bytes!("fixtures/raw/synthetic_preview.nef");
+const TIGHT_RAW_FIXTURE: &[u8] = include_bytes!("fixtures/raw/tight_preview.nef");
 
 /// `optimize <fixture>.nef -o out.webp` exits 0 and writes a valid WebP with the
 /// preview's (64×48) dimensions — proving RAW input flows through the pipeline on
@@ -53,6 +59,75 @@ fn optimize_raw_input_writes_webp() {
     let decoded = image::load_from_memory(&bytes).expect("output should decode as WebP");
     assert_eq!(decoded.width(), 64);
     assert_eq!(decoded.height(), 48);
+}
+
+/// SPEC-113 regression: `optimize <fixture>.nef -o out.jpg` — pinning to the
+/// SAME format the RAW preview's `source_format` reports (`Jpeg`) — must still
+/// write a REAL, decodable JPEG, never the raw `.nef` CONTAINER bytes.
+///
+/// `source_format` is an adopted label here (SPEC-061): the preview extraction
+/// reports `Jpeg` because that is what got decoded, but the bytes on disk are
+/// the whole RAW container (a TIFF-style header plus an embedded preview JPEG),
+/// not a standalone JPEG file. SPEC-113's never-bigger guard must not mistake
+/// "`source_format` says Jpeg" for "the source file's raw bytes decode as JPEG";
+/// it sniffs the container with `guess_format` (which reports Tiff here) before
+/// ever treating those bytes as shippable.
+///
+/// **Why this uses `tight_preview.nef` and not `synthetic_preview.nef`.** The
+/// sniff is only consulted once the guard has already decided the re-encode did
+/// not beat the source — the condition is `re-encode >= container`. On
+/// `synthetic_preview.nef` that is false and always will be: its preview is a
+/// solid colour stored at the SAME default quality the re-encode uses, so the
+/// re-encode comes back at roughly the preview's own size (~712 B) while the
+/// container also carries a thumbnail and header (~1365 B). The comparison
+/// short-circuits on size, the sniff is never reached, and the test passes
+/// whether or not the sniff exists — green while proving nothing.
+///
+/// `tight_preview.nef` is built to invert exactly that: a high-frequency preview
+/// stored at low quality, so the container is 4073 B while the default-quality
+/// re-encode of those pixels is 5351 B (1.31x). The guard therefore reaches the
+/// sniff for real, and deleting the sniff makes this test FAIL — it writes the
+/// `.nef` container bytes under a `.jpg` name, which the assertion below catches.
+/// The generator asserts that size relationship at regen time so it cannot
+/// silently decay back into a no-op.
+#[test]
+fn optimize_raw_input_pinned_to_jpeg_writes_real_jpeg() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let in_path = dir.path().join("in.nef");
+    std::fs::write(&in_path, TIGHT_RAW_FIXTURE).unwrap();
+    let out_path = dir.path().join("out.jpg");
+
+    let output = Command::new(BIN)
+        .args([
+            "optimize",
+            in_path.to_str().unwrap(),
+            "-o",
+            out_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run optimize");
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "optimize should exit 0; stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let bytes = std::fs::read(&out_path).expect("read jpg output");
+    assert_ne!(
+        bytes, TIGHT_RAW_FIXTURE,
+        "the guard must not ship the raw .nef container verbatim under a .jpg \
+         name just because source_format reports an adopted Jpeg label"
+    );
+    assert_eq!(
+        image::guess_format(&bytes).ok(),
+        Some(image::ImageFormat::Jpeg),
+        "output must be a real, sniffable JPEG — never the raw .nef container \
+         bytes written under a .jpg name"
+    );
+    let decoded = image::load_from_memory(&bytes).expect("output should decode as JPEG");
+    assert_eq!(decoded.width(), 224);
+    assert_eq!(decoded.height(), 168);
 }
 
 /// `convert <fixture>.nef --format png -o out.png` exits 0 and writes a valid PNG
