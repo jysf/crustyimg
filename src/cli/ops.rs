@@ -627,6 +627,7 @@ fn run_metadata_lane(
     inputs: &[String],
     global: &GlobalArgs,
     transform: impl Fn(&[u8]) -> Result<Vec<u8>, crate::metadata::MetadataError>,
+    warn_on_manifest_drop: bool,
 ) -> Result<(), CliError> {
     // Resolve + flatten every input arg (resolution errors are hard errors).
     let mut all: Vec<crate::source::Input> = Vec::new();
@@ -649,6 +650,19 @@ fn run_metadata_lane(
         let input = &all[0];
         let raw = read_raw_bytes(input)?;
         let out_bytes = transform(&raw)?;
+        if warn_on_manifest_drop
+            && crate::metadata::has_manifest(&raw)
+            && !crate::metadata::has_manifest(&out_bytes)
+        {
+            let label = input
+                .path()
+                .map(|p| p.display().to_string())
+                .unwrap_or_else(|| input.stem().to_owned());
+            eprintln!(
+                "warning: {label}: {}",
+                crate::metadata::MANIFEST_DROPPED_WARNING
+            );
+        }
         let ext = metadata_output_ext(input, &raw);
 
         let sink = if let Some(ref out) = global.output {
@@ -709,6 +723,15 @@ fn run_metadata_lane(
             let result = (|| -> Result<(), CliError> {
                 let raw = read_raw_bytes(input)?;
                 let out_bytes = transform(&raw)?;
+                if warn_on_manifest_drop
+                    && crate::metadata::has_manifest(&raw)
+                    && !crate::metadata::has_manifest(&out_bytes)
+                {
+                    eprintln!(
+                        "warning: {label}: {}",
+                        crate::metadata::MANIFEST_DROPPED_WARNING
+                    );
+                }
                 let ext = metadata_output_ext(input, &raw);
 
                 let sink = Sink::Dir {
@@ -746,8 +769,14 @@ fn run_metadata_lane(
 
 /// Wire `meta strip`: remove ALL container metadata via the container lane
 /// (DEC-003). Format is preserved; no pixel re-encode (`metadata-not-via-pixel-encode`).
+///
+/// No manifest-drop warning: `strip`'s whole contract is removing all
+/// metadata (a C2PA manifest included, same as EXIF/ICC/text chunks), so
+/// there is nothing surprising to flag — unlike `clean`/`set`/`copy`, which
+/// drop one only as a side effect of an edit that would otherwise silently
+/// break it.
 pub(super) fn run_strip(inputs: &[String], global: &GlobalArgs) -> Result<(), CliError> {
-    run_metadata_lane(inputs, global, crate::metadata::strip_all)
+    run_metadata_lane(inputs, global, crate::metadata::strip_all, false)
 }
 
 /// Wire `meta clean --gps`: remove ONLY GPS/location metadata via the container
@@ -757,7 +786,7 @@ pub(super) fn run_clean(inputs: &[String], gps: bool, global: &GlobalArgs) -> Re
     if !gps {
         return Err(CliError::Usage("clean requires --gps".into()));
     }
-    run_metadata_lane(inputs, global, crate::metadata::clean_gps)
+    run_metadata_lane(inputs, global, crate::metadata::clean_gps, true)
 }
 
 /// Wire `meta set`: write the given EXIF attribution tags into the container
@@ -783,9 +812,12 @@ pub(super) fn run_set(
         copyright,
         description,
     };
-    run_metadata_lane(inputs, global, |bytes| {
-        crate::metadata::set_tags(bytes, &tags)
-    })
+    run_metadata_lane(
+        inputs,
+        global,
+        |bytes| crate::metadata::set_tags(bytes, &tags),
+        true,
+    )
 }
 
 /// Wire `meta copy --from SRC --to DST`: graft SRC's container EXIF + ICC
@@ -807,6 +839,15 @@ pub(super) fn run_copy_metadata(from: &str, to: &str, global: &GlobalArgs) -> Re
     let to_bytes = std::fs::read(to).map_err(ImageError::Io)?;
 
     let out_bytes = crate::metadata::copy_metadata(&from_bytes, &to_bytes)?;
+
+    // DST's own manifest, not SRC's, is what can be dropped here: the graft
+    // rewrites DST's EXIF/ICC (see copy_metadata's doc comment).
+    if crate::metadata::has_manifest(&to_bytes) && !crate::metadata::has_manifest(&out_bytes) {
+        eprintln!(
+            "warning: {to}: {}",
+            crate::metadata::MANIFEST_DROPPED_WARNING
+        );
+    }
 
     // The output extension: DST's own extension, or sniff (format is preserved).
     let ext = {
