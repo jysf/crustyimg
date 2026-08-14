@@ -435,7 +435,7 @@ Written during **design**, BEFORE build. **At least one must FAIL on today's `HE
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
 - **Branch:** `feat/spec-115-optimize-never-passes-through-bytes-it-cannot-name`
-- **PR (if applicable):** opened at ship time (not merged; see repo guardrails).
+- **PR (if applicable):** https://github.com/jysf/crustyimg/pull/156 (open, not merged — build-phase guardrail).
 - **All acceptance criteria met?** Mostly yes — 12 of 13 fully met; **AC-6 met a
   different, narrower claim than specified** (see Deviations). AC-4 met in full
   (a reproducing HEIC fixture WAS built, via `heif-enc`).
