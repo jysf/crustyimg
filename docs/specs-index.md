@@ -10,7 +10,7 @@
 > cycle/cost state rather than this static snapshot, use `just status` (active project)
 > or `just specs-by-stage` (cost + ship dates, every project).
 
-**109 specs across 7 projects** (107 shipped, 2 in flight).
+**110 specs across 7 projects** (107 shipped, 3 in flight).
 
 ## Contents
 
@@ -20,7 +20,7 @@
 - [PROJ-007 — Reproducible build (build + cache + lockfile + `--watch`)](#proj-007) — shipped · 9 specs
 - [PROJ-008 — WASM core + demo page](#proj-008) — shipped · 33 specs
 - [PROJ-009 — Input reach (modern-format decode)](#proj-009) — shipped · 4 specs
-- [PROJ-010 — Post-launch correctness and consolidation](#proj-010) — active · 8 specs
+- [PROJ-010 — Post-launch correctness and consolidation](#proj-010) — active · 9 specs
 
 ---
 
@@ -313,7 +313,7 @@ Broaden what crustyimg can READ so the already-shipped engine (optimize / conver
 
 ## <a id="proj-010"></a>PROJ-010 — Post-launch correctness and consolidation
 
-*status: active · 8 specs, 6 shipped*
+*status: active · 9 specs, 6 shipped*
 
 Fix the launch-gating classifier regression (dithered/halftoned graphics promoted to lossy AVIF after resize), confirm hostile-input behavior on the native CLI and wasm builds, then deliver three carried-forward stages…
 
@@ -354,3 +354,9 @@ Fix the launch-gating classifier regression (dithered/halftoned graphics promote
 | Spec | Priority | Status | Title | Summary |
 |---|---|---|---|---|
 | [SPEC-114](../projects/PROJ-010-post-launch-correctness-and-consolidation/specs/SPEC-114-meta-lane-never-emits-a-broken-manifest.md) | critical | design | the `meta` lane never emits a broken manifest | STAGE-044. `meta set` takes a file whose Content Credentials validate and emits one a validator reports as TAMPERED. Attributing a forgery to the file's signer is a worse failure than dropping the credentials, and it is live in 0.7.0. |
+
+### STAGE-045 — adopted-source-format integrity on the decide path _(proposed)_
+
+| Spec | Priority | Status | Title | Summary |
+|---|---|---|---|---|
+| [SPEC-115](../projects/PROJ-010-post-launch-correctness-and-consolidation/specs/SPEC-115-optimize-never-passes-through-bytes-it-cannot-name.md) | high | design | `optimize` never passes through bytes it cannot name | STAGE-045's only spec. `optimize` on the three input families PROJ-009 delivered can ship the source container verbatim — vector XML, a HEIF container, a whole camera-raw file — labeled as a PNG or JPEG it never produced. On stdin it… |

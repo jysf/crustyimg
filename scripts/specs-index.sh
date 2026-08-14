@@ -25,6 +25,16 @@ if ! command -v ruby >/dev/null 2>&1; then
 fi
 
 ruby -EUTF-8 -ryaml -rdate <<'RUBY'
+# encoding: utf-8
+# ^ Required, and NOT redundant with `-EUTF-8` above. `-E` sets the encoding
+# used for I/O; the SOURCE encoding of a script read on stdin still defaults to
+# US-ASCII when the caller's locale is unset. This heredoc contains non-ASCII
+# literals (em dashes, and the truncation ellipsis below), so without this line
+# ruby aborts with "invalid multibyte char (US-ASCII)" before running a single
+# statement — by which point the redirect has already truncated
+# docs/specs-index.md. CI runners set a UTF-8 locale, so this only bites
+# locally, and it bites destructively.
+#
 # Split a file on the front-matter fence and strict-parse the YAML block,
 # same convention as validate-frontmatter.sh. Returns [frontmatter_hash,
 # body_string] or nil if the file has no front-matter / fails to parse.
