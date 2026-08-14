@@ -5,7 +5,7 @@
 
 stage:
   id: STAGE-044                     # stable, zero-padded within the project
-  status: proposed                  # proposed | active | shipped | cancelled | on_hold
+  status: active                    # proposed | active | shipped | cancelled | on_hold
   priority: critical
   target_complete: null
 
@@ -141,7 +141,7 @@ a shipped verb, in the release binary.
   verbs share `write_exif_block` (`src/metadata/mod.rs:143`), so they share the fix. Complexity
   **S–M**.
 
-**Count:** 0 shipped / 0 active / 1 pending (not framed)
+**Count:** 0 shipped / 1 designed, unbuilt (SPEC-114) / 0 pending
 
 ## Design Notes
 

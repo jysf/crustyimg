@@ -5,7 +5,7 @@
 
 stage:
   id: STAGE-045                     # stable, zero-padded within the project
-  status: proposed                  # proposed | active | shipped | cancelled | on_hold
+  status: active                    # proposed | active | shipped | cancelled | on_hold
   priority: high
   target_complete: null
 
@@ -187,7 +187,7 @@ the one nobody enumerated.**
   the SVG/RAW/HEIC tests stay green. Small: two integration tests against existing fixtures, no new
   behaviour. Not a defect today — a missing regression pin on behaviour that currently works.
 
-**Count:** 0 shipped / 0 active / 1 pending
+**Count:** 1 shipped (SPEC-115) / 0 active / 1 pending (pin `build` + `apply --recipe web`, not framed)
 
 ## Design Notes
 
