@@ -24,6 +24,8 @@ use crustyimg::source::{resolve, Input};
 
 const BIN: &str = env!("CARGO_BIN_EXE_crustyimg");
 const HEIC_FIXTURE: &[u8] = include_bytes!("fixtures/heic/solid_64x48.heic");
+#[cfg(feature = "heic")]
+const NOISE_HEIC_FIXTURE: &[u8] = include_bytes!("fixtures/heic/noise_preview_96x72.heic");
 
 /// The DEFAULT binary refuses a `.heic` with **exit 4** and tells the user exactly
 /// how to get HEIC support — no panic, no partial output file, and not the vague
@@ -123,6 +125,74 @@ fn optimize_heic_input_writes_webp() {
     let decoded = image::load_from_memory(&bytes).expect("output should decode as WebP");
     assert_eq!(decoded.width(), 64);
     assert_eq!(decoded.height(), 48);
+}
+
+/// SPEC-115 (AC-4), `--features heic` only: `optimize <fixture>.heic --out-dir
+/// out/` (the auto-decide path, no `-o`) writes a REAL raster, never the raw
+/// `.heic` ISOBMFF/HEIF container under an adopted `png` label.
+///
+/// Fixture: `tests/fixtures/heic/noise_preview_96x72.heic` — the same
+/// Floyd–Steinberg-dithered 96×72 pattern as the RAW noise fixture
+/// (`tests/fixtures/classify/RECIPES.md`'s recipe, dithered PNG written by
+/// `cargo run --example gen_heic_dither_png`), encoded to HEIC by the
+/// INDEPENDENT `heif-enc` tool (system libheif, `-q 10`), never by crustyimg.
+/// The 96×72 size classifies `Icon` (`OptBucket::LosslessFlat`), so both
+/// lossless candidates (webp 4252 B / png 12000 B) exceed the 463 B container
+/// and `pick_winner` returns `None`. **Must fail today**: this test proves RED
+/// on `main` before the fix.
+#[cfg(feature = "heic")]
+#[test]
+fn optimize_heic_auto_decide_writes_a_real_raster() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let in_path = dir.path().join("noise_preview.heic");
+    std::fs::write(&in_path, NOISE_HEIC_FIXTURE).unwrap();
+
+    let output = Command::new(BIN)
+        .args([
+            "optimize",
+            in_path.to_str().unwrap(),
+            "--out-dir",
+            dir.path().to_str().unwrap(),
+            "--explain",
+        ])
+        .output()
+        .expect("failed to run optimize");
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "optimize should exit 0; stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !stderr.contains("png \u{2192} png"),
+        "must not claim a PNG re-encode of PNG source bytes that were never \
+         produced; got:\n{stderr}"
+    );
+
+    let written: Vec<_> = std::fs::read_dir(dir.path())
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .map(|e| e.path())
+        .filter(|p| p != &in_path)
+        .collect();
+    assert_eq!(
+        written.len(),
+        1,
+        "expected exactly one output file, got {written:?}"
+    );
+    let bytes = std::fs::read(&written[0]).expect("read output");
+    let sniffed = image::guess_format(&bytes);
+    assert!(
+        sniffed.is_ok(),
+        "the written file must sniff as a real raster format, not the raw .heic \
+         ISOBMFF container; path={:?} sniff={sniffed:?}",
+        written[0]
+    );
+    assert_ne!(
+        bytes, NOISE_HEIC_FIXTURE,
+        "the .heic container bytes must never be written verbatim under a raster name"
+    );
 }
 
 /// Under `--features heic`, `convert <fixture>.heic --format png` exits 0 with the

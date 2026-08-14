@@ -578,6 +578,12 @@ pub enum CliError {
     #[error(transparent)]
     Image(#[from] ImageError),
 
+    /// An image-analysis error (SPEC-046) — only the degenerate zero-area
+    /// case. Surfaced (SPEC-115) when a degenerate SVG/HEIC/RAW source has no
+    /// shippable container to fall back to.
+    #[error(transparent)]
+    Analysis(#[from] crate::analysis::AnalysisError),
+
     /// A recipe parse / version / unknown-op error.
     #[error(transparent)]
     Recipe(#[from] RecipeError),
@@ -722,6 +728,9 @@ impl CliError {
             // A recognized format whose DECODER is feature-gated and off (HEIC
             // without `--features heic`, DEC-052) → 4, like the sink-side twin.
             CliError::Image(ImageError::CodecNotBuilt { .. }) => 4,
+            // A degenerate (zero-area) image with no shippable output → generic
+            // runtime error, like the analogous decode/limits failures above.
+            CliError::Analysis(_) => 1,
             // Recipe / operation errors → generic runtime error
             CliError::Recipe(_) => 1,
             CliError::Operation(_) => 1,

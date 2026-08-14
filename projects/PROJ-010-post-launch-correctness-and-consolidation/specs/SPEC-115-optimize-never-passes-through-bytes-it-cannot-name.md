@@ -62,10 +62,36 @@ cost:
         exits in `optimize_decide_one`, and settled the predicate question by reading
         `image`'s MAGIC_BYTES table against this crate's own `sniff::is_avif` rather
         than assuming the obvious sniff was safe.
+    - cycle: build
+      agent: claude-sonnet-5
+      interface: claude-code
+      tokens_total: 103974126
+      duration_minutes: 159
+      recorded_at: 2026-08-13
+      tokens_breakdown:
+        input: 7986
+        output: 326993
+        cache_creation: 925331
+        cache_read: 102713816
+      estimated_usd: 39.21
+      note: >
+        MEASURED, summed directly from this session's own transcript
+        (~/.claude/projects/.../2d19bb84-e014-4f1d-8f41-15e343e3afe6.jsonl), all
+        360 usage-bearing messages at claude-sonnet-5. Priced per component at
+        Sonnet anchors ($3/$15 per MTok in/out; cache_creation x1.25 input rate;
+        cache_read x0.10 input rate) — cache reads are 98.8% of volume, so the
+        flat 80/20 shortcut would badly overstate this. Ran 159 minutes against a
+        stated 90-minute budget: the RAW/HEIC fixture search (proving
+        `tight_preview.nef` and a naive noise preview do NOT reproduce this
+        spec's defect, then building ones that do, ground-truth-verified against
+        the real library) and the AC-6 AVIF trap investigation (finding
+        `avif-parse` itself blocks the predicted construction) both ran well past
+        the checkpoint; a `wip(SPEC-115):` commit landed at the 90-minute mark
+        with the SVG family green, not a hard stop.
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 103974126
+    estimated_usd: 39.21
+    session_count: 2
 ---
 
 # SPEC-115: `optimize` never passes through bytes it cannot name
@@ -408,18 +434,84 @@ Written during **design**, BEFORE build. **At least one must FAIL on today's `HE
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
-- **New decisions emitted:**
+- **Branch:** `feat/spec-115-optimize-never-passes-through-bytes-it-cannot-name`
+- **PR (if applicable):** https://github.com/jysf/crustyimg/pull/156 (open, not merged — build-phase guardrail).
+- **All acceptance criteria met?** Mostly yes — 12 of 13 fully met; **AC-6 met a
+  different, narrower claim than specified** (see Deviations). AC-4 met in full
+  (a reproducing HEIC fixture WAS built, via `heif-enc`).
+  - AC-1 ✅ AC-2 ✅ AC-3 ✅ AC-4 ✅ AC-5 ✅ AC-6 ⚠️ (see below) AC-7 ✅ (SVG
+    `optimize`/`web`; `build`/`apply --recipe web` share the same
+    `optimize_decide_one` seam but were not given their own dedicated test —
+    follow-up) AC-8 ✅ AC-9 ✅ AC-10 ✅ (unmodified, green) AC-11 ✅ (negative
+    control run and recorded below, not committed) AC-12 ✅ (all four legs:
+    test + clippy + fmt green) AC-13 ✅ (`docs/cli-reference.md` +
+    `CHANGELOG.md` updated).
+- **New decisions emitted:** `DEC-089` —
+  `decisions/DEC-089-image-records-its-container-origin-not-just-its-pixel-format.md`.
 - **Deviations from spec:**
+  1. **AC-6's exact construction does not reproduce in this codebase.** The
+     design predicted a `ftypmif1`-major, `avif`-compatible-brand AVIF would
+     still successfully decode (via `sniff::is_avif`'s permissive match) and
+     therefore exercise the `guess_format`-vs-recorded-origin divergence. It
+     does not: `avif-parse` 2.1.0 (the real container parser behind
+     `avif::decode_avif`) independently enforces `major_brand == b"avif"`
+     (`avif-parse-2.1.0/src/lib.rs:751-756`) — verified directly against both
+     `::image::guess_format` and `avif_parse::read_avif` on the identical
+     mutated bytes; both reject it identically. Such a file fails at
+     **decode** with a typed `Decode` error, before `optimize_decide_one`'s
+     guard is ever reached — on `main` and on this fix alike. The committed
+     test (`avif_mif1_major_compatible_avif_fails_typed_decode_not_panic`,
+     `tests/input_avif.rs`) instead pins what IS true here: a typed decode
+     error, never a panic, never a silent mislabel. The recorded-origin model
+     choice (Call 1) stands on its own merits regardless (see `DEC-089`), but
+     its most vivid justifying scenario is unproven in THIS repo with THIS
+     dependency version — recorded as a `DEC-089` revisit trigger.
+  2. **AC-7's `build`/`apply --recipe web` half is proven only by code-path
+     sharing, not a dedicated test.** `encode_one_optimize_decided` (the
+     function `build`/terminal-`apply --recipe web` call) delegates to the
+     exact same `optimize_decide_one` the SVG `optimize`/`web` tests already
+     drive RED-then-GREEN; no separate SVG-via-`build` or
+     SVG-via-`apply --recipe web` test was added under the 90-minute budget.
+     Low risk (one seam, four verbs, per the spec's own framing) but unproven
+     directly — follow-up.
 - **Follow-up work identified:**
+  - A dedicated `build`/`apply --recipe web` SVG test (closes the AC-7 gap
+    above).
+  - `docs/backlog.md`: revisit `DEC-089`'s AVIF scenario if `avif-parse` (or a
+    future AVIF decoder swap) ever accepts a non-`avif` major brand.
+  - Report back to SPEC-113: its pinned-path guard's `guess_format` sniff is
+    now independently confirmed safe FOR THAT PATH specifically because
+    `avif-parse` itself blocks the one input shape that would have made it
+    unsafe (a decodable non-`avif`-major AVIF does not exist in this
+    dependency graph) — worth a note in that spec's verify docs.
 
 ### Build-phase reflection (3 questions, short answers)
 
-1. **What was unclear in the spec that slowed you down?**
-2. **Was there a constraint or decision that should have been listed but wasn't?**
-3. **If you did this task again, what would you do differently?**
+1. **What was unclear in the spec that slowed you down?** The RAW fixture
+   guidance ("hand-build it like `synthetic_preview.nef`") undersold how hard
+   "noise preview, passthrough reached" actually is once the DECIDE path's
+   full shortlist (not the pinned path's single default-quality baseline) is
+   the bar: AVIF at the fast fixed quality beats almost any noise-like JPEG
+   easily, so a genuinely-noisy preview reliably escapes the passthrough
+   branch via a format switch. The fixture that actually works is not "more
+   noise," it's "few colors + adversarial dithering" (`OptBucket::LosslessFlat`,
+   which excludes AVIF/lossy-WebP by construction regardless of built
+   features) — closer to `tests/fixtures/classify/dithered_graphic.png`'s
+   recipe than to `tight_preview.nef`'s. `tests/fixtures/raw/tight_preview.nef`
+   (SPEC-113) does not reproduce this spec's defect at all, confirmed by
+   driving it before writing any fix.
+2. **Was there a constraint or decision that should have been listed but
+   wasn't?** The spec's Call 1 rationale (the AVIF `mif1`-major trap) never
+   checked whether `avif-parse` itself would decode such a file — only that
+   `::image::guess_format` and `sniff::is_avif` disagree on it. That one
+   extra hop (does the DECODER even accept what the SNIFF admits?) turned out
+   to be load-bearing and wasn't flagged as a thing to verify.
+3. **If you did this task again, what would you do differently?** Probe
+   `avif_parse::read_avif`'s own major-brand strictness during DESIGN, not
+   BUILD — a five-minute check (`cargo run` against a hand-mutated `ftyp`)
+   would have caught the AC-6 deviation before the acceptance criterion was
+   written as a hard "must pass" rather than "attempt, and report what you
+   learn."
 
 ---
 
