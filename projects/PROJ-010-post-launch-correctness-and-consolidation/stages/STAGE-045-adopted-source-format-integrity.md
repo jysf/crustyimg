@@ -170,11 +170,22 @@ the one nobody enumerated.**
 
 ## Spec Backlog
 
-- [ ] **SPEC-115** (framed 2026-08-11) — **`optimize` never passes through bytes that are not the
-  format it reports.** The guard, the honest label, and decide-path tests for all three families.
-  Complexity **M** — the code change is small and the design call is settled, but it carries a
-  fixture-construction problem (a fixture that does not reproduce is a green test over a live
-  defect) and an AVIF false-negative trap that would turn a correct passthrough into a regression.
+- [x] **SPEC-115** (framed 2026-08-11, shipped 2026-08-14, PR #156) — **`optimize` never passes
+  through bytes that are not the format it reports.** The guard, the honest label, and decide-path
+  tests for all three families. Complexity **M** — the code change is small and the design call is
+  settled, but it carries a fixture-construction problem (a fixture that does not reproduce is a
+  green test over a live defect) and an AVIF false-negative trap that would turn a correct
+  passthrough into a regression. *Both hazards materialised: two candidate fixtures failed to reach
+  the branch before a dithered `LosslessFlat` one worked, and the AVIF trap turned out to be
+  unreachable because `avif-parse` rejects a non-`avif` major brand before any guard runs.*
+
+- [ ] **Pin `build` and `apply --recipe web` against the adopted-format defect** (filed at
+  SPEC-115's verify, 2026-08-14). Both delegate unconditionally to the fixed `optimize_decide_one`,
+  and verify **drove both green on the real binary** — `apply --recipe web` on the SVG fixture
+  produces a real WebP with the new fourth reason in its note, and `build` writes
+  `rect_text_40x30.webp`. Neither is test-pinned, so a refactor could re-break them silently while
+  the SVG/RAW/HEIC tests stay green. Small: two integration tests against existing fixtures, no new
+  behaviour. Not a defect today — a missing regression pin on behaviour that currently works.
 
 **Count:** 0 shipped / 0 active / 1 pending
 
