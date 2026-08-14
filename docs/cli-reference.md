@@ -152,10 +152,17 @@ as needed:
 | `--ssim <0-100>` | Opt into a perceptual search at a specific SSIMULACRA2 score. |
 | `--max-size <SIZE>` | Fit under a byte budget (e.g. `200KB`); lowers quality, then dimensions. |
 
-The one case it can still ship larger: stripping metadata or baking orientation forces a
-re-encode that cannot beat an already-tight source — the raw source would no longer be a
-*valid* output (leaked EXIF/GPS, a wrong orientation), so the smallest correct re-encode
-ships anyway, reported honestly rather than hidden.
+Two cases it can still ship larger, both because the raw source bytes are not a *valid*
+output to fall back to: stripping metadata or baking orientation forces a re-encode that
+cannot beat an already-tight source (leaked EXIF/GPS, a wrong orientation); and an SVG,
+HEIC, or RAW input, where `source_format`/`--json`'s `source_format` name a raster stand-in
+for a container `optimize` did not itself produce (SVG is XML text; HEIC is an
+ISOBMFF/HEIF container; a RAW file's `source_format` names its *embedded preview's*
+format, not the whole camera-RAW container on disk) — there is no sink for any of those as
+an "output", so the source can never legitimately pass through unchanged. Either way the
+smallest correct re-encode ships instead, reported honestly rather than hidden.
+`source_format` in `--json`/`--explain` reports the real container in these three cases
+(`"svg"`/`"heic"`/`"raw"`), not the raster stand-in.
 
 `-o`/`--format` pick the output format. `--profile preserve` is the one deliberate
 exception to the guarantee above: it keeps the source format **and** reproduces today's

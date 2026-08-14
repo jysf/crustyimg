@@ -14,6 +14,21 @@ use crustyimg::source::{resolve, Input};
 
 const BIN: &str = env!("CARGO_BIN_EXE_crustyimg");
 const AVIF_FIXTURE: &[u8] = include_bytes!("fixtures/avif/solid_16x16.avif");
+/// A 128×128 photographic AVIF already tight enough that no fast-decision
+/// candidate beats it on bytes — the legitimate `optimize` passthrough (AC-5).
+const AVIF_ALREADY_OPTIMAL_FIXTURE: &[u8] = include_bytes!("fixtures/avif/photo_128.avif");
+
+/// Rewrite an ISOBMFF `ftyp` box's major brand (bytes 8..12) and first
+/// compatible-brand slot (bytes 16..20) — used to build the `mif1`-major,
+/// `avif`-compatible-brand AVIF (AC-6): the legal, common spelling
+/// `sniff::is_avif` accepts (compatible-brand match) but `::image::guess_format`
+/// does not (it requires the major brand literally `avif`).
+fn with_ftyp_brands(bytes: &[u8], major: &[u8; 4], compat0: &[u8; 4]) -> Vec<u8> {
+    let mut out = bytes.to_vec();
+    out[8..12].copy_from_slice(major);
+    out[16..20].copy_from_slice(compat0);
+    out
+}
 
 /// `optimize <fixture>.avif -o out.webp` exits 0 and writes a valid WebP with
 /// the fixture's dimensions — proving AVIF input flows through the pipeline on
@@ -71,6 +86,105 @@ fn directory_source_discovers_avif() {
         Input::Path(p) => assert_eq!(p.extension().and_then(|e| e.to_str()), Some("avif")),
         other => panic!("expected Path, got {other:?}"),
     }
+}
+
+/// SPEC-115 (AC-5), the regression control for Call 1: a legitimate AVIF
+/// passthrough (no candidate beats an already-tight source) still ships
+/// byte-identical to `main` — the recorded-origin guard must not turn a real
+/// AVIF container into a forced re-encode. **Passes today too**; this proves
+/// the fix does not regress the case it must leave alone.
+#[test]
+fn optimize_avif_source_still_passes_through_byte_identical() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let in_dir = dir.path().join("in");
+    let out_dir = dir.path().join("out");
+    std::fs::create_dir_all(&in_dir).unwrap();
+    let in_path = in_dir.join("photo_128.avif");
+    std::fs::write(&in_path, AVIF_ALREADY_OPTIMAL_FIXTURE).unwrap();
+
+    let output = Command::new(BIN)
+        .args([
+            "optimize",
+            in_path.to_str().unwrap(),
+            "--out-dir",
+            out_dir.to_str().unwrap(),
+            "--explain",
+        ])
+        .output()
+        .expect("failed to run optimize");
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "optimize should exit 0; stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("kept source"),
+        "expected a legitimate passthrough; got:\n{stderr}"
+    );
+
+    let bytes = std::fs::read(out_dir.join("photo_128.avif")).expect("read output");
+    assert_eq!(
+        bytes, AVIF_ALREADY_OPTIMAL_FIXTURE,
+        "a legitimate passthrough must ship byte-identical to the source"
+    );
+}
+
+/// SPEC-115 (AC-6) — **deviation, recorded in Build Completion**: the spec's
+/// exact construction (a `ftypmif1`-major AVIF carrying `avif` in its
+/// compatible brands, "still passes through byte-identical") does not
+/// reproduce in THIS codebase. `sniff::is_avif` does accept that spelling (it
+/// is what routes the bytes to the AVIF decoder at all), but the pinned
+/// `avif-parse` 2.1.0 dependency itself enforces the identical strict rule
+/// `::image::guess_format` does — `read_avif` errors `"ftyp must be 'avif'"`
+/// for ANY non-`avif` major brand (`avif-parse-2.1.0/src/lib.rs:751-756`,
+/// verified directly against both `guess_format` and `avif_parse::read_avif`
+/// on this exact byte pattern). So such a file never produces a decoded
+/// `Image` at all — it fails at LOAD, before `optimize_decide_one`'s
+/// passthrough guard is ever reached — on `main` and on this fix alike. The
+/// guess_format-vs-recorded-origin divergence Call 1 guards against is real
+/// and reachable for SVG/HEIC/RAW (AC-1/2/3/4, proven RED-then-GREEN above);
+/// for AVIF specifically, `avif-parse`'s own strictness makes the divergence
+/// unreachable. This test instead pins what IS true: the input is rejected
+/// with a typed decode error, never a panic and never a silent mislabel.
+#[test]
+fn avif_mif1_major_compatible_avif_fails_typed_decode_not_panic() {
+    let mutated = with_ftyp_brands(AVIF_ALREADY_OPTIMAL_FIXTURE, b"mif1", b"avif");
+    // This crate's OWN sniff accepts the compatible-brand spelling (it is what
+    // routes to the AVIF decoder), but the decoder itself then rejects it.
+    let result = crustyimg::image::Image::from_bytes(&mutated);
+    assert!(
+        matches!(result, Err(crustyimg::error::ImageError::Decode(_))),
+        "expected a typed Decode error, got {result:?}"
+    );
+
+    let dir = tempfile::tempdir().expect("tempdir");
+    let in_dir = dir.path().join("in");
+    let out_dir = dir.path().join("out");
+    std::fs::create_dir_all(&in_dir).unwrap();
+    let in_path = in_dir.join("mif1_major.avif");
+    std::fs::write(&in_path, &mutated).unwrap();
+
+    let output = Command::new(BIN)
+        .args([
+            "optimize",
+            in_path.to_str().unwrap(),
+            "--out-dir",
+            out_dir.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run optimize");
+    assert_ne!(
+        output.status.code(),
+        Some(0),
+        "a mif1-major/avif-compatible AVIF must fail to decode, not silently \
+         succeed with a mislabeled or wrongly-forced output"
+    );
+    assert!(
+        !out_dir.exists() || std::fs::read_dir(&out_dir).unwrap().next().is_none(),
+        "no output file should be written when decode fails"
+    );
 }
 
 /// `#[cfg(feature = "avif")]` round-trip: a natively-generated 32×32 gradient

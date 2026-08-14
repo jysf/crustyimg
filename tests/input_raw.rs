@@ -23,6 +23,7 @@ use crustyimg::source::{resolve, Input};
 const BIN: &str = env!("CARGO_BIN_EXE_crustyimg");
 const RAW_FIXTURE: &[u8] = include_bytes!("fixtures/raw/synthetic_preview.nef");
 const TIGHT_RAW_FIXTURE: &[u8] = include_bytes!("fixtures/raw/tight_preview.nef");
+const NOISE_RAW_FIXTURE: &[u8] = include_bytes!("fixtures/raw/noise_preview.nef");
 
 /// `optimize <fixture>.nef -o out.webp` exits 0 and writes a valid WebP with the
 /// preview's (64×48) dimensions — proving RAW input flows through the pipeline on
@@ -128,6 +129,77 @@ fn optimize_raw_input_pinned_to_jpeg_writes_real_jpeg() {
     let decoded = image::load_from_memory(&bytes).expect("output should decode as JPEG");
     assert_eq!(decoded.width(), 224);
     assert_eq!(decoded.height(), 168);
+}
+
+/// SPEC-115 (AC-3): `optimize <fixture>.nef --out-dir out/` (the auto-decide
+/// path, no `-o`) writes a REAL raster, never the raw `.nef` TIFF-family
+/// container under an adopted `jpeg` label.
+///
+/// Fixture: `tests/fixtures/raw/noise_preview.nef` — a Floyd–Steinberg-dithered
+/// 96×72 preview (`tests/fixtures/classify/RECIPES.md`'s recipe), few enough
+/// colours to classify `Icon`/`GraphicLogo` (`OptBucket::LosslessFlat`, no AVIF
+/// or lossy WebP admitted regardless of built features), whose dithering
+/// pattern is adversarial to PNG/WebP-lossless prediction filters — so both
+/// lossless candidates (1130 B / 2975 B) exceed the 903 B container and
+/// `pick_winner` returns `None`. `tight_preview.nef` (SPEC-113) does NOT
+/// reproduce this: its noise preview classifies `Photograph` (`OptBucket::Lossy`),
+/// so AVIF at the fast fixed quality beats the container easily (2995 B <
+/// 4073 B) — it only reproduces the PINNED-path defect. **Must fail today**:
+/// this test proves RED on `main` before the fix; if it does not, the fixture
+/// is wrong, not the defect ([[a-harness-that-exercises-nothing-reports-green]]).
+/// Regen: `cargo run --example gen_raw_noise_fixture`.
+#[test]
+fn optimize_raw_auto_decide_writes_a_real_raster() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let in_path = dir.path().join("noise_preview.nef");
+    std::fs::write(&in_path, NOISE_RAW_FIXTURE).unwrap();
+
+    let output = Command::new(BIN)
+        .args([
+            "optimize",
+            in_path.to_str().unwrap(),
+            "--out-dir",
+            dir.path().to_str().unwrap(),
+            "--explain",
+        ])
+        .output()
+        .expect("failed to run optimize");
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "optimize should exit 0; stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !stderr.contains("jpeg \u{2192} jpeg"),
+        "must not claim a JPEG re-encode of JPEG source bytes that were never \
+         produced; got:\n{stderr}"
+    );
+
+    let written: Vec<_> = std::fs::read_dir(dir.path())
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .map(|e| e.path())
+        .filter(|p| p != &in_path)
+        .collect();
+    assert_eq!(
+        written.len(),
+        1,
+        "expected exactly one output file, got {written:?}"
+    );
+    let bytes = std::fs::read(&written[0]).expect("read output");
+    let sniffed = image::guess_format(&bytes);
+    assert!(
+        sniffed.is_ok(),
+        "the written file must sniff as a real raster format, not the raw .nef \
+         TIFF-family container; path={:?} sniff={sniffed:?}",
+        written[0]
+    );
+    assert_ne!(
+        bytes, NOISE_RAW_FIXTURE,
+        "the .nef container bytes must never be written verbatim under a raster name"
+    );
 }
 
 /// `convert <fixture>.nef --format png -o out.png` exits 0 and writes a valid PNG

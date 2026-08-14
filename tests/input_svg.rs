@@ -159,7 +159,7 @@ fn optimize_svg_auto_decide_writes_a_real_raster() {
     let bytes = std::fs::read(&written[0]).expect("read output");
     let sniffed = image::guess_format(&bytes);
     assert!(
-        matches!(sniffed, Ok(_)),
+        sniffed.is_ok(),
         "the written file must sniff as a real raster format, not raw SVG/XML bytes; \
          path={:?} sniff={sniffed:?}",
         written[0]
@@ -229,7 +229,7 @@ fn optimize_svg_from_stdin_is_never_written_as_a_mislabeled_jpg() {
     );
     let bytes = std::fs::read(&written[0]).expect("read output");
     assert!(
-        matches!(image::guess_format(&bytes), Ok(_)),
+        image::guess_format(&bytes).is_ok(),
         "the written file must sniff as a real raster format; path={:?}",
         written[0]
     );
@@ -279,7 +279,7 @@ fn web_svg_auto_decide_writes_a_real_raster() {
     );
     let bytes = std::fs::read(&written[0]).expect("read output");
     assert!(
-        matches!(image::guess_format(&bytes), Ok(_)),
+        image::guess_format(&bytes).is_ok(),
         "the written file must sniff as a real raster format; path={:?}",
         written[0]
     );

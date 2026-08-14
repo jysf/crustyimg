@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`optimize`/`web`/`apply --recipe web`/`build` no longer ship an SVG, HEIC, or RAW
+  source's raw bytes under a raster label they never produced.** For these three
+  families, `optimize`'s auto-decide passthrough (no candidate beats the source on
+  bytes) could ship the ORIGINAL file — vector XML, a HEIF container, or a whole
+  camera-RAW container — labeled `png`/`jpeg` because the source's format is a
+  stand-in the decoder adopts (there is no `ImageFormat::Svg`/`Heic`, and a RAW
+  file's format names its extracted *preview*, not the container on disk). Piped
+  through stdin this wrote XML into a `.jpg`. Now the smallest correct re-encode
+  ships instead, honestly reported as larger when it is.
+
+### Changed
+
+- **`optimize --explain`'s `--json` `source_format` reports the real container**
+  (`"svg"` / `"heic"` / `"raw"`) for these three families, instead of the raster
+  stand-in it used to report. The `crustyimg.optimize.explain/v1` schema is
+  unchanged; only this field's value set widens.
+
 ## [0.7.0] - 2026-08-10
 
 A correctness release. Several commands were returning the wrong file — a much

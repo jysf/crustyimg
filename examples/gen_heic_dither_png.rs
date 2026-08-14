@@ -53,7 +53,10 @@ fn main() {
     let w: u32 = args.get(1).map(|s| s.parse().unwrap()).unwrap_or(128);
     let h: u32 = args.get(2).map(|s| s.parse().unwrap()).unwrap_or(96);
     let levels: u32 = args.get(3).map(|s| s.parse().unwrap()).unwrap_or(16);
-    let out = args.get(4).cloned().unwrap_or_else(|| "/tmp/heic_dither.png".to_string());
+    let out = args
+        .get(4)
+        .cloned()
+        .unwrap_or_else(|| "/tmp/heic_dither.png".to_string());
     let img = dither(w, h, levels);
     img.save(&out).expect("save png");
     eprintln!("wrote {out} ({w}x{h}, {levels} levels)");
