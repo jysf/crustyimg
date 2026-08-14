@@ -1,0 +1,226 @@
+#!/usr/bin/env bash
+# scripts/specs-index.sh — full spec table of contents across every project:
+# every SPEC-*.md's id, project, stage, cycle/status, priority and a one-line
+# description (value_link), grouped Project > Stage > Spec. Prints markdown to
+# stdout; `just specs-index` redirects it into docs/specs-index.md.
+#
+# Complements `status` (live snapshot of the ACTIVE project's cycle state)
+# and `specs-by-stage` (flat ledger with cost + ship date, all projects) with
+# the one thing neither gives: a browsable reference doc with a description
+# per spec — the doc equivalent of `docs/cli-reference.md`, but for specs.
+#
+# Parser: Ruby's stdlib Psych (`yaml`), same as validate-frontmatter.sh.
+# value_link front-matter mixes quoted-scalar and folded-block-scalar (`>`)
+# styles; only a real YAML parser folds both correctly, so this isn't done
+# with grep/awk like most of this repo's other bookkeeping tools.
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/_lib.sh
+source "${SCRIPT_DIR}/_lib.sh"
+
+require_initialized
+
+if ! command -v ruby >/dev/null 2>&1; then
+    die "specs-index: needs \`ruby\` (stdlib yaml) on PATH. It ships with macOS and GitHub-hosted runners; install ruby to run this locally."
+fi
+
+ruby -EUTF-8 -ryaml -rdate <<'RUBY'
+# encoding: utf-8
+# ^ Required, and NOT redundant with `-EUTF-8` above. `-E` sets the encoding
+# used for I/O; the SOURCE encoding of a script read on stdin still defaults to
+# US-ASCII when the caller's locale is unset. This heredoc contains non-ASCII
+# literals (em dashes, and the truncation ellipsis below), so without this line
+# ruby aborts with "invalid multibyte char (US-ASCII)" before running a single
+# statement — by which point the redirect has already truncated
+# docs/specs-index.md. CI runners set a UTF-8 locale, so this only bites
+# locally, and it bites destructively.
+#
+# Split a file on the front-matter fence and strict-parse the YAML block,
+# same convention as validate-frontmatter.sh. Returns [frontmatter_hash,
+# body_string] or nil if the file has no front-matter / fails to parse.
+def read_frontmatter(path)
+  txt = File.read(path, encoding: 'UTF-8')
+  return nil unless txt.start_with?('---')
+  parts = txt.split(/^---\s*$/, 3)
+  return nil if parts.length < 3
+  fm = YAML.safe_load(parts[1], permitted_classes: [Date, Time], aliases: true)
+  [fm, parts[2]]
+rescue StandardError => e
+  warn "specs-index: skipping #{path} (front-matter parse error: #{e.message.to_s.lines.first.to_s.strip})"
+  nil
+end
+
+def norm(s)
+  s.to_s.gsub(/\s+/, ' ').strip
+end
+
+# Word-boundary truncate — never cuts mid-word, so a table cell can't end on
+# a dangling fragment.
+def truncate(s, len = 240)
+  s = norm(s)
+  return s if s.length <= len
+  cut = s[0...len].sub(/\s+\S*\z/, '')
+  cut = s[0...len] if cut.empty? # single word longer than len: hard cut
+  "#{cut}…"
+end
+
+# First `# PREFIX-NNN: <title>` heading in a body. Falls back to the id.
+def heading_title(body, prefix, fallback)
+  body.to_s.each_line do |line|
+    return $1.strip if line =~ /^#\s*#{prefix}-\d+:\s*(.+?)\s*$/
+  end
+  fallback
+end
+
+def status_label(spec)
+  return 'shipped' if spec[:shipped]
+  spec[:cycle] || '?'
+end
+
+def md_escape(s)
+  s.to_s.gsub('|', '\\|')
+end
+
+# --- Gather projects (brief.md: project.status, value.thesis, H1 title) ---
+projects = {}
+Dir.glob('projects/PROJ-*').select { |d| File.directory?(d) }.sort.each do |dir|
+  id = File.basename(dir)[/^PROJ-\d+/]
+  next unless id
+  brief = File.join(dir, 'brief.md')
+  fm, body = File.file?(brief) ? (read_frontmatter(brief) || [nil, nil]) : [nil, nil]
+  projects[id] = {
+    id: id,
+    title: heading_title(body, 'PROJ', id),
+    status: fm&.dig('project', 'status'),
+    thesis: truncate(fm&.dig('value', 'thesis') || '', 220),
+  }
+end
+
+# --- Gather stages (STAGE ids are globally unique — AGENTS.md sec. on ID scope) ---
+stages = {}
+Dir.glob('projects/*/stages/STAGE-*.md').sort.each do |path|
+  fm, body = read_frontmatter(path) || [nil, nil]
+  next unless fm
+  st = fm['stage']
+  next unless st && st['id']
+  stages[st['id']] = {
+    id: st['id'],
+    title: heading_title(body, 'STAGE', st['id']),
+    status: st['status'],
+    priority: st['priority'],
+  }
+end
+
+# --- Gather specs ---
+specs = []
+Dir.glob('projects/*/specs/**/SPEC-*.md').sort.each do |path|
+  next if path.end_with?('-timeline.md')
+  next if path.include?('/prompts/')
+  fm, body = read_frontmatter(path) || [nil, nil]
+  next unless fm
+  task = fm['task']
+  project = fm['project']
+  next unless task && project && task['id'] && project['stage']
+
+  specs << {
+    id: task['id'],
+    cycle: task['cycle'],
+    priority: task['priority'],
+    project_id: project['id'],
+    stage_id: project['stage'],
+    title: heading_title(body, 'SPEC', task['id']),
+    description: truncate(fm['value_link'] || ''),
+    shipped: path.include?('/specs/done/'),
+    path: path,
+  }
+end
+
+# --- Group: project -> stage -> [specs], numeric order throughout ---
+by_project = Hash.new { |h, k| h[k] = Hash.new { |h2, k2| h2[k2] = [] } }
+unfiled = []
+specs.each do |s|
+  if projects.key?(s[:project_id])
+    by_project[s[:project_id]][s[:stage_id]] << s
+  else
+    unfiled << s
+  end
+end
+
+shipped_total = specs.count { |s| s[:shipped] }
+
+out = []
+out << '# crustyimg — spec index'
+out << ''
+out << '> **Generated by `just specs-index` — do not hand-edit, regenerate instead.** Source of'
+out << '> truth is each spec\'s front-matter (`task.*`, `project.*`, `value_link`) plus its'
+out << '> `# SPEC-NNN: <title>` heading. Scope: every `SPEC-*.md` under `projects/*/specs/`'
+out << '> (in-flight and the `specs/done/` archive) — not build/verify prompts, not timelines,'
+out << '> not patches (DEC-043; see `just specs-by-stage` for those).'
+out << '>'
+out << '> For what each CLI verb does, see [`cli-reference.md`](cli-reference.md). For live'
+out << '> cycle/cost state rather than this static snapshot, use `just status` (active project)'
+out << '> or `just specs-by-stage` (cost + ship dates, every project).'
+out << ''
+out << "**#{specs.length} specs across #{projects.length} projects** (#{shipped_total} shipped, #{specs.length - shipped_total} in flight)."
+out << ''
+out << '## Contents'
+out << ''
+projects.each_value do |p|
+  next if by_project[p[:id]].empty?
+  n = by_project[p[:id]].values.flatten.length
+  out << "- [#{p[:id]} — #{p[:title]}](##{p[:id].downcase}) — #{p[:status] || 'unknown'} · #{n} spec#{n == 1 ? '' : 's'}"
+end
+out << ''
+out << '---'
+out << ''
+
+projects.each_value do |p|
+  stage_map = by_project[p[:id]]
+  next if stage_map.empty?
+  all = stage_map.values.flatten
+  shipped_n = all.count { |s| s[:shipped] }
+
+  # Explicit anchor rather than relying on the renderer's header-slugging —
+  # the em dash in these headings makes GitHub's auto-slug unpredictable.
+  out << "## <a id=\"#{p[:id].downcase}\"></a>#{p[:id]} — #{p[:title]}"
+  out << ''
+  out << "*status: #{p[:status] || 'unknown'} · #{all.length} spec#{all.length == 1 ? '' : 's'}, #{shipped_n} shipped*"
+  out << ''
+  out << p[:thesis] unless p[:thesis].nil? || p[:thesis].empty?
+  out << ''
+
+  stage_map.keys.sort_by { |sid| sid[/\d+/].to_i }.each do |sid|
+    st = stages[sid] || { title: sid, status: nil }
+    slist = stage_map[sid].sort_by { |s| s[:id][/\d+/].to_i }
+
+    out << "### #{sid} — #{st[:title]} _(#{st[:status] || 'unknown'})_"
+    out << ''
+    out << '| Spec | Priority | Status | Title | Summary |'
+    out << '|---|---|---|---|---|'
+    slist.each do |s|
+      link = "[#{s[:id]}](../#{s[:path]})"
+      status = status_label(s)
+      status = "**#{status}**" if status == 'shipped'
+      desc = s[:description].empty? ? '—' : md_escape(s[:description])
+      out << "| #{link} | #{s[:priority] || '?'} | #{status} | #{md_escape(s[:title])} | #{desc} |"
+    end
+    out << ''
+  end
+end
+
+if unfiled.any?
+  out << '## Unfiled'
+  out << ''
+  out << 'Specs whose `project.id` does not match a project directory under `projects/` —'
+  out << 'a broken reference, worth fixing at the source rather than here.'
+  out << ''
+  out << '| Spec | Project (claimed) | Stage (claimed) | Title |'
+  out << '|---|---|---|---|'
+  unfiled.sort_by { |s| s[:id][/\d+/].to_i }.each do |s|
+    out << "| [#{s[:id]}](../#{s[:path]}) | #{s[:project_id]} | #{s[:stage_id]} | #{md_escape(s[:title])} |"
+  end
+  out << ''
+end
+
+puts out.join("\n")
+RUBY

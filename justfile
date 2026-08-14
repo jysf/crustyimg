@@ -547,6 +547,15 @@ roadmap:
 specs-by-stage *FLAGS:
     @./scripts/specs-by-stage.sh {{FLAGS}}
 
+# Regenerate docs/specs-index.md: a browsable spec table of contents —
+# every spec's id, project, stage, cycle/status, priority and a one-line
+# description — across ALL projects. The doc equivalent of
+# `cli-reference.md`, but for specs instead of CLI verbs. Re-run after
+# framing/shipping specs to keep it current; it's generated, not hand-edited.
+specs-index:
+    @./scripts/specs-index.sh > docs/specs-index.md
+    @echo "✓ Wrote docs/specs-index.md"
+
 # Audit decisions: structural lint + scope-conflict warnings (zero
 # deps; a native take on LineSpec-style provenance auditing). Lints
 # front-matter and supersession links across all DEC-* files. Pass
