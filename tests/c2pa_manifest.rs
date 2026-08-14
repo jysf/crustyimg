@@ -123,8 +123,7 @@ fn png_has_cabx(bytes: &[u8]) -> bool {
     }
     let mut i = 8;
     while i + 8 <= bytes.len() {
-        let len =
-            u32::from_be_bytes([bytes[i], bytes[i + 1], bytes[i + 2], bytes[i + 3]]) as usize;
+        let len = u32::from_be_bytes([bytes[i], bytes[i + 1], bytes[i + 2], bytes[i + 3]]) as usize;
         let ctype = &bytes[i + 4..i + 8];
         if ctype == b"caBX" {
             return true;

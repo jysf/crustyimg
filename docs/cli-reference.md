@@ -205,6 +205,12 @@ crustyimg responsive hero.jpg --widths 320,640,1280 --formats webp,jpeg --out-di
 The metadata commands operate on the image **container** — pixels are not re-decoded, so
 these carry no quality cost.
 
+`strip`/`clean`/`copy`/`set` also drop any Content Credentials (C2PA) manifest the input
+carries, since these commands rewrite bytes the manifest is signed over — keeping it would
+produce a file whose signature no longer validates. `strip` removes it silently (removing
+everything is its whole point); `clean`/`copy`/`set` print a warning naming what was
+removed and still exit 0.
+
 ### `auto-orient <INPUT...>`
 Bake the EXIF orientation into pixels, then clear the tag (fixes silent-rotation). A no-op
 when no orientation tag is present.

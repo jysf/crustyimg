@@ -1637,7 +1637,10 @@ mod tests {
 
         let out = copy_metadata(&src, &dst).expect("copy");
 
-        assert!(!has_manifest(&out), "SRC's manifest must not be grafted onto DST");
+        assert!(
+            !has_manifest(&out),
+            "SRC's manifest must not be grafted onto DST"
+        );
     }
 
     /// `meta_verbs_are_byte_identical_on_unsigned_input` (SPEC-114 failing
