@@ -7,7 +7,7 @@
 task:
   id: SPEC-113
   type: bug                        # epic | story | task | bug | chore
-  cycle: design                    # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: critical
   complexity: S                    # S | M | L  (L means split it)
@@ -110,6 +110,16 @@ cost:
         filled in Build Completion. A separate orchestrator-session verify pass
         then found the RAW sniff test was vacuous and fixed it; that work was
         main-loop and is not separately metered.
+    - cycle: ship
+      interface: claude-code
+      tokens_total: null
+      duration_minutes: null
+      estimated_usd: null
+      note: >
+        Main-loop orchestrator work, not separately metered (AGENTS §4). This
+        cycle also carried an unplanned verify finding: the RAW sniff test was
+        vacuous and was rebuilt against a purpose-made fixture before merge —
+        see the Correction in Build Completion and the Reflection below.
   totals:
     tokens_total: 35103390
     estimated_usd: 30.51
@@ -419,3 +429,48 @@ pass before the fix, they do not cover the bug.
 ## Reflection (Ship)
 
 *Appended during the **ship** cycle.*
+
+**The fix was right. The evidence for it was overstated.** Every problem this spec had was in the
+verification layer, not the change — worth stating plainly, because the shipped behaviour is sound
+and the process around it was not.
+
+1. **What would I do differently next time?**
+   — **Give the spec one owner with one working tree.** Reconstructing the transcripts, this spec
+   was worked by at least four overlapping sessions, two of them live in the **primary checkout at
+   the same time** (2026-08-12 05:06–05:31), which AGENTS §16.5 forbits in as many words. The
+   implementation was left uncommitted; a *different* session (the orchestrator) swept it into WIP
+   `dc13808` two and a half hours after it was authored. That commit message is the tell — it
+   records, in the author's own words, *"Unexplained and still owed: why tests/input_raw.rs and
+   tests/common/mod.rs are modified — neither is in the spec's Outputs list."* Nobody was wrong to
+   ask; the question was correct and it was **closed by reasoning rather than by driving**. The
+   finishing session inherited it, produced a fluent rationale for why the RAW test exercised the
+   sniff, and that rationale was false: measured, the container is 1365 B and the re-encode ~712 B,
+   so the guard short-circuits on size and the sniff is never reached. The test passed with or
+   without the thing it existed to protect. **An open question inherited across a session boundary
+   gets answered with prose, because the session that could have driven it is gone.**
+
+2. **Was there a constraint, decision or template that should have caught this?**
+   — Three, and each failed silently rather than loudly:
+   - **AC-8's control pattern is too coarse for a guard with an inner predicate.** Reverting the
+     whole guard removes the sniff too, so the RAW test stayed green on both sides of the control
+     and the control reported success. A guard with an inner condition needs a control **per
+     condition** — which is exactly what SPEC-115's verify then did, per family, with distinct
+     binary hashes proving each revert reached the artifact.
+   - **AC-8's hash evidence was a non-signal.** Build Completion itself conceded that rebuilding
+     *identical* source produced different hashes, which makes "the hashes differ" prove nothing.
+     The real evidence was the direct binary drive, and it was sound — but the record led with the
+     wrong one, and a reader would have believed the weaker claim.
+   - **`just decisions-audit --changed`, the drift check AGENTS §15 mandates, could not fail.** It
+     scopes to uncommitted changes; a verify runs on a clean checkout. So this spec's decision-drift
+     check never ran. Fixed separately.
+
+3. **Is there a follow-up I should write now before I forget?**
+   — No follow-up on the behaviour: the guard is narrow and correct, `pipeline_altered_source` is a
+   faithful extraction, three tests are demonstrably red without the fix, and SPEC-115 has since
+   extended that same helper with its own verify finding no drift. The follow-ups are all process,
+   and all filed: the `--changed` fix, the `find_spec` fix that had been silently no-op-ing
+   `advance-cycle` (which is why this spec sat at `cycle: design` through build *and* verify), and
+   the standing lesson that **a build cycle which does not own its worktree cannot be held to its
+   own evidence.** The one thing I would still buy is a re-verify of the seven `tests/cli.rs` tests
+   at SPEC-115's standard — per-AC controls rather than one coarse revert-to-`main`. That gap is
+   known and unmeasured, not known and dismissed.

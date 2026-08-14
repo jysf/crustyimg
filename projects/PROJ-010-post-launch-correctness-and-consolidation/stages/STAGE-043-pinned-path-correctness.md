@@ -5,7 +5,7 @@
 
 stage:
   id: STAGE-043                     # stable, zero-padded within the project
-  status: proposed                  # proposed | active | shipped | cancelled | on_hold
+  status: active                    # proposed | active | shipped | cancelled | on_hold
   priority: critical
   target_complete: null
 
@@ -130,7 +130,7 @@ which is exactly the pattern D-1 shows on a bigger scale.
 
 ## Spec Backlog
 
-- [ ] **SPEC-113** (design written 2026-08-11) — **`optimize` keeps the source when a same-format
+- [x] **SPEC-113** (design 2026-08-11, shipped 2026-08-14, PR #155) — **`optimize` keeps the source when a same-format
   re-encode would grow it.** The guard, the note, the `--profile preserve` decision. The reproducer is committed
   evidence: an already-compressed JPEG (make one with `sips -s formatOptions 15`) at
   41,862 B → 84,586 B. Needs a **committed fixture**, since the defect only appears on a source
@@ -142,7 +142,7 @@ which is exactly the pattern D-1 shows on a bigger scale.
 - [ ] (not yet framed) — **`build` threads the truncated-JPEG warning.** DEC-087's named
   follow-up. Assert on stderr for `build` and `apply` on the same input. Complexity **S**.
 
-**Count:** 0 shipped / 0 active / 2 pending (neither framed)
+**Count:** 1 shipped (SPEC-113) / 0 active / 1 pending (`build` truncated-JPEG warning, not framed)
 
 ## Design Notes
 

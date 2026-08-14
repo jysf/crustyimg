@@ -7,7 +7,7 @@
 task:
   id: SPEC-115
   type: bug                        # epic | story | task | bug | chore
-  cycle: design                    # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: M                    # S | M | L  (L means split it)
@@ -114,10 +114,19 @@ cost:
         minutes of wall clock (fresh per-leg target dirs, sequential, as
         AC-12 requires), and the per-family negative controls were re-driven
         from scratch rather than taken on the build's word.
+    - cycle: ship
+      interface: claude-code
+      tokens_total: null
+      duration_minutes: null
+      estimated_usd: null
+      note: >
+        Main-loop orchestrator work, not separately metered (AGENTS §4).
   totals:
     tokens_total: 113895671
     estimated_usd: 47.80
-    session_count: 3
+    # Non-null (metered) sessions only — build + verify — matching SPEC-112's
+    # shipped convention. Was 3, which counted the null design cycle.
+    session_count: 2
 ---
 
 # SPEC-115: `optimize` never passes through bytes it cannot name
@@ -396,8 +405,16 @@ Written during **design**, BEFORE build. **At least one must FAIL on today's `HE
 - **`tests/cli.rs`** (or the AVIF test home)
   - `"optimize_avif_source_still_passes_through_byte_identical"` — AC-5. **Passes today**;
     the regression control.
-  - `"optimize_avif_with_mif1_major_brand_still_passes_through"` — AC-6. **Passes today**;
-    fails the moment the guard is a bare `guess_format`.
+  - ~~`"optimize_avif_with_mif1_major_brand_still_passes_through"`~~ — AC-6. **Superseded at
+    build.** The design predicted a `mif1`-major, `avif`-compatible file would pass through and
+    break under a bare `guess_format` guard. It cannot: `avif-parse` 2.1.0 hard-rejects a
+    non-`avif` major brand (`read_avif`, `src/lib.rs:751-756`) exactly as strictly as `image`
+    does, so such a file fails to decode before any guard runs. Verified against both libraries
+    on identical bytes at build, and independently re-confirmed at verify. Shipped instead as
+    `"avif_mif1_major_compatible_avif_fails_typed_decode_not_panic"`, which mutates a real
+    fixture's `ftyp` brands and asserts a typed `Decode` error, a nonzero exit, and no output
+    file. The trap the design named is unreachable in this dependency graph — a narrower claim
+    than AC-6 asked for, and a true one.
 - **Negative control** (AC-11, run and recorded, not committed)
   - Revert the guard → the SVG, RAW and (if built) HEIC tests go RED.
 
@@ -544,3 +561,34 @@ Written during **design**, BEFORE build. **At least one must FAIL on today's `HE
 ## Reflection (Ship)
 
 *Appended during the **ship** cycle.*
+
+1. **What would I do differently next time?**
+   — **Probe the load-bearing dependency's strictness at design, not at build.** The spec's sharpest
+   call — Call 1, "record the predicate at load, do not sniff" — rested on a trap it had genuinely
+   found: `image`'s AVIF magic is narrower than this crate's own `sniff::is_avif`, so a bare
+   `guess_format` would turn a correct passthrough into a lossy re-encode. That reasoning is right
+   and the design call it produced is right. But the *specific* fixture the design demanded to prove
+   it, a `mif1`-major AVIF, cannot exist here: `avif-parse` rejects it before any guard runs. The
+   design never probed `avif-parse` itself. The build did, and said so. Half the build's 159-minute
+   overrun went to that investigation plus the fixture search — both of which were the design's work
+   arriving late.
+   [[probe-load-bearing-crates-at-design]]
+
+2. **Was there a constraint, decision or template that should have been listed but wasn't?**
+   — The fixture requirement deserved to be a first-class output with an asserted invariant, not a
+   sentence. Two candidate fixtures failed before one worked: `tight_preview.nef` (inherited from
+   SPEC-113) and a naive noise preview both fail to reach this spec's passthrough branch, because
+   the decide path's shortlist tries AVIF and lossy WebP and beats noise easily. Only dithered
+   `OptBucket::LosslessFlat` patterns reproduce. That is a real property, discovered by driving, and
+   nothing in the spec anticipated it. The generator pattern SPEC-113 landed — a fixture generator
+   that **asserts its own size invariant at regen time and fails loudly** — is the right shape for
+   any fixture whose usefulness depends on a size relationship.
+
+3. **Is there a follow-up spec I should write now before I forget?**
+   — **Yes: pin `build` and `apply --recipe web`.** Both delegate unconditionally to the fixed
+   `optimize_decide_one`, and verify drove both green on the real binary — a real WebP from an SVG
+   source, with the new fourth reason in the note. But neither is test-pinned, so a refactor could
+   re-break them in silence. Filed on STAGE-045's backlog. Also worth recording as a methodology
+   finding rather than a spec: verify caught that `just decisions-audit --changed` reports a green
+   it cannot fail on a clean checkout, which is the state every verify runs in. That is fixed
+   separately, and it is the most transferable thing this spec produced.

@@ -168,9 +168,17 @@ sed_escape_replacement() {
 # Usage: find_spec SPEC-001
 find_spec() {
     local spec_id="$1"
+    # `-not -path '*/prompts/*'` is load-bearing: cycle prompts are named
+    # `SPEC-NNN-<cycle>.md`, so they match the same glob as the spec. `find`
+    # returns them in traversal order, and `head -n1` was handing callers
+    # `prompts/SPEC-NNN-build.md` instead of the spec. `advance-cycle` then
+    # "updated" a file with no `task:` block and still printed its success
+    # hint, which is why specs sat at the wrong cycle after shipping; and
+    # `archive-spec` would have moved the prompt into `done/`.
     find "${REPO_ROOT}/projects" -type f -name "${spec_id}-*.md" \
         -not -name '*-timeline.md' \
-        -not -path '*/done/*' 2>/dev/null | head -n1
+        -not -path '*/done/*' \
+        -not -path '*/prompts/*' 2>/dev/null | head -n1
 }
 
 # Find the timeline file paired with a spec. Returns empty if none.
