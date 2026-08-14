@@ -88,10 +88,36 @@ cost:
         `avif-parse` itself blocks the predicted construction) both ran well past
         the checkpoint; a `wip(SPEC-115):` commit landed at the 90-minute mark
         with the SVG family green, not a hard stop.
+    - cycle: verify
+      agent: claude-opus-5
+      interface: claude-code
+      tokens_total: 9921545
+      duration_minutes: 135
+      recorded_at: 2026-08-13
+      tokens_breakdown:
+        input: 208
+        output: 81300
+        cache_creation: 283890
+        cache_read: 9556147
+      estimated_usd: 8.59
+      note: >
+        MEASURED, summed over this session's own 104 usage-bearing messages
+        (~/.claude/projects/.../ba81feb2-443d-4932-b9e2-13b78ae360c3.jsonl),
+        all at claude-opus-5. Transcript identified by a string only this
+        session emitted ("INDEPENDENTLY re-driven at verify", from the
+        negative-control script), which independently matched the session id
+        in this session's scratchpad path. Priced per component at Opus
+        anchors ($5/$25 per MTok in/out; cache_creation x1.25 input rate;
+        cache_read x0.10 input rate) — cache reads are 96.3% of volume, so
+        the flat 80/20 shortcut would badly overstate this. Ran 135 minutes
+        against a stated 75-minute budget: the 4-leg matrix alone took 57
+        minutes of wall clock (fresh per-leg target dirs, sequential, as
+        AC-12 requires), and the per-family negative controls were re-driven
+        from scratch rather than taken on the build's word.
   totals:
-    tokens_total: 103974126
-    estimated_usd: 39.21
-    session_count: 2
+    tokens_total: 113895671
+    estimated_usd: 47.80
+    session_count: 3
 ---
 
 # SPEC-115: `optimize` never passes through bytes it cannot name
