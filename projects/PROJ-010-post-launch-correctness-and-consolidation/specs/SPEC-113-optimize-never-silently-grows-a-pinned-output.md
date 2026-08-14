@@ -57,10 +57,63 @@ cost:
         released 0.7.0 binary, read the fork at `optimize.rs:616-631`, and
         settled the `--profile preserve` question from each flag's documented
         purpose rather than deferring it to build.
+    - cycle: build
+      agent: claude-opus-5
+      interface: claude-code
+      tokens_total: 15848889
+      duration_minutes: 1109
+      recorded_at: 2026-08-13
+      tokens_breakdown:
+        input: null
+        output: null
+        cache_creation: null
+        cache_read: null
+      estimated_usd: 20.70
+      note: >
+        ATTRIBUTED, NOT CLEANLY METERED — read this before using it in a report.
+        This build never ran as a metered subagent: the implementation was written
+        in the orchestrator's own main loop, which is why the WIP commit says
+        "MADE BY THE ORCHESTRATOR at a session boundary". No separate build
+        transcript exists in any crustyimg project directory, and the orchestrator
+        recorded no `subagent_tokens`, so a clean per-cycle figure is not
+        recoverable. The numbers here are the WHOLE orchestrator session
+        (transcript 418a2ed5, claude-opus-5, 2026-08-12T07:30Z to
+        2026-08-13T01:59Z), summed per component and priced at Opus anchors
+        ($5/$25 per MTok; cache_creation x1.25 input, cache_read x0.10 input;
+        90.4% cache reads). It therefore OVERSTATES the build cycle — it also
+        contains orchestration, review and unrelated turns — and the 18.5h span is
+        session wall clock, not build effort. Recorded rather than left null so
+        `cost-audit` measures something real; treat it as an upper bound.
+        A memory note recorded this build as "3h/$40"; that matches neither
+        measurement and is not used here.
+    - cycle: verify
+      agent: claude-sonnet-5
+      interface: claude-code
+      tokens_total: 19254501
+      duration_minutes: 310
+      recorded_at: 2026-08-13
+      tokens_breakdown:
+        input: 318
+        output: 91870
+        cache_creation: 778592
+        cache_read: 18383721
+      estimated_usd: 9.81
+      note: >
+        MEASURED. Recovered from the finishing session's own transcript
+        (f74f2983, 159 usage-bearing messages at claude-sonnet-5), which lives
+        under the `crustyimg-spec113` WORKTREE's project directory rather than the
+        primary one — that is why a first search of the main directory found
+        nothing. Priced per component at Sonnet anchors ($3/$15 per MTok;
+        cache_creation x1.25 input, cache_read x0.10 input). Cache reads are 95.5%
+        of volume, so a flat rate would read ~$290 instead of $9.81 (DEC-083).
+        This session ran the full matrix, drove AC-8's negative control, and
+        filled in Build Completion. A separate orchestrator-session verify pass
+        then found the RAW sniff test was vacuous and fixed it; that work was
+        main-loop and is not separately metered.
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 35103390
+    estimated_usd: 30.51
+    session_count: 2
 ---
 
 # SPEC-113: `optimize` never silently grows a pinned same-format output
