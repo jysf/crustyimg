@@ -180,6 +180,28 @@ if [ "${1:-}" = "--changed" ]; then
             git ls-files --others --exclude-standard
         } 2>/dev/null | sort -u )
         scope_desc="your uncommitted changes"
+
+        # A clean tree has no uncommitted changes, so a bare `--changed` would
+        # report "nothing in scope" and exit 0 — a green that cannot go red. A
+        # verify cycle runs in exactly that situation (a fresh checkout of the
+        # branch under review), and AGENTS §15 tells it to run this command, so
+        # every such audit silently checked nothing. Fall back to the default
+        # branch rather than report a vacuous success.
+        if [ "${#CHANGED[@]}" -eq 0 ]; then
+            fallback=$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null)
+            [ -z "$fallback" ] && for cand in main master; do
+                git rev-parse --verify -q "$cand" >/dev/null 2>&1 && { fallback="$cand"; break; }
+            done
+            if [ -n "$fallback" ] && ! git diff --quiet "${fallback}...HEAD" 2>/dev/null; then
+                while IFS= read -r p; do
+                    [ -n "$p" ] && CHANGED+=("$p")
+                done < <(git diff --name-only "${fallback}...HEAD" 2>/dev/null | sort -u)
+                warn "Working tree is clean, so there are no uncommitted changes to audit."
+                warn "Falling back to ${fallback}...HEAD. Pass a base ref explicitly to be sure:"
+                warn "  ./scripts/decisions-audit.sh --changed ${fallback}"
+                scope_desc="changes in ${fallback}...HEAD (fell back: working tree is clean)"
+            fi
+        fi
     fi
 
     if [ "${#CHANGED[@]}" -eq 0 ]; then
