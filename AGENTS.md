@@ -488,9 +488,15 @@ constraint violations? non-trivial choices have DEC-*? build reflection
 answered honestly? `cost.sessions` has entries for prior cycles
 (flag if missing, don't block)?
 
-For the "decision drift" check, run `just decisions-audit --changed` —
-it flags which `DEC-*` records govern the files this spec touched, so you
-can confirm the build stayed consistent with them. `just decisions-audit`
+For the "decision drift" check, run
+`./scripts/decisions-audit.sh --changed main` — it flags which `DEC-*`
+records govern the files this spec touched, so you can confirm the build
+stayed consistent with them. **Pass the base ref.** A verify cycle works
+from a clean checkout of the branch under review, and a bare `--changed`
+scopes to *uncommitted* changes — of which a clean checkout has none, so it
+reports "No changed files in scope" and exits 0. That green cannot go red.
+The script now falls back to the default branch and says so when it detects
+this, but naming the base is the reliable form. `just decisions-audit`
 (no flag) lints the records themselves. See
 `/guidance/recommended-tools.md` for optional, heavier verify tooling
 (e.g. LineSpec for protocol-level integration tests).
