@@ -276,7 +276,7 @@ written down.
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
 - **Branch:** `feat/spec-114-meta-lane-never-emits-a-broken-manifest`
-- **PR:** (opened at ship of this build; see PR description for the link)
+- **PR:** https://github.com/jysf/crustyimg/pull/162
 - **All acceptance criteria met?** yes — AC-1 through AC-9, all driven and confirmed.
 
 - **What did AC-3 and AC-4 actually show** (the two INFERRED paths)?
