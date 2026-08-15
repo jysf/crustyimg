@@ -73,17 +73,68 @@ fn sniff(bytes: &[u8]) -> Result<Lane, MetadataError> {
 
 // ── strip_all ─────────────────────────────────────────────────────────────────
 
+/// JPEG APP11 (`0xEB`) — the marker a C2PA/Content Credentials manifest's
+/// JUMBF box is embedded under. Falls inside `strip_all`'s existing
+/// `0xE1..=0xEF` sweep (removed there already); named separately here because
+/// [`write_exif_block`] and [`copy_metadata`] need to drop it on its own,
+/// without touching the other APP segments they are rewriting.
+const JPEG_MANIFEST_MARKER: u8 = 0xEB;
+
+/// PNG `caBX` — the native PNG chunk a C2PA/Content Credentials manifest's
+/// JUMBF box is embedded in (JPEG's APP11, carried over to PNG).
+const PNG_C2PA_CHUNK: [u8; 4] = *b"caBX";
+
 /// PNG chunk types that carry user/ancillary metadata and are removed by
 /// [`strip_all`]. Critical/render chunks (`IHDR`, `PLTE`, `IDAT`, `IEND`,
 /// `tRNS`, `gAMA`, `cHRM`, `sRGB`, `bKGD`, `pHYs`) are intentionally kept.
-const PNG_METADATA_CHUNKS: [[u8; 4]; 6] =
-    [*b"eXIf", *b"iCCP", *b"tEXt", *b"zTXt", *b"iTXt", *b"tIME"];
+/// Includes [`PNG_C2PA_CHUNK`] — a C2PA manifest is provenance metadata like
+/// any other, and `strip`'s contract is to remove all of it.
+const PNG_METADATA_CHUNKS: [[u8; 4]; 7] = [
+    *b"eXIf",
+    *b"iCCP",
+    *b"tEXt",
+    *b"zTXt",
+    *b"iTXt",
+    *b"tIME",
+    PNG_C2PA_CHUNK,
+];
+
+/// Whether `bytes` carries a C2PA / Content Credentials provenance manifest:
+/// a JPEG APP11 (`0xEB`, JUMBF) segment or a PNG `caBX` chunk. A **structural
+/// presence check only** (DEC-003) — this never parses the JUMBF box,
+/// validates a signature, or reads the manifest's contents; it only asks
+/// whether the segment/chunk that carries one is there. An unsupported or
+/// undeterminable format reports `false` (nothing this lane can carry a
+/// manifest in).
+pub fn has_manifest(bytes: &[u8]) -> bool {
+    match sniff(bytes) {
+        Ok(Lane::Jpeg) => Jpeg::from_bytes(Bytes::from(bytes.to_vec()))
+            .map(|jpeg| {
+                jpeg.segments_by_marker(JPEG_MANIFEST_MARKER)
+                    .next()
+                    .is_some()
+            })
+            .unwrap_or(false),
+        Ok(Lane::Png) => Png::from_bytes(Bytes::from(bytes.to_vec()))
+            .map(|png| png.chunks_by_type(PNG_C2PA_CHUNK).next().is_some())
+            .unwrap_or(false),
+        Err(_) => false,
+    }
+}
+
+/// The stderr warning the CLI prints when `set`/`clean`/`copy` drop a C2PA
+/// manifest that their edit would otherwise have invalidated — centralized so
+/// all three print identical wording and the test suite asserts on one
+/// string.
+pub(crate) const MANIFEST_DROPPED_WARNING: &str =
+    "dropped the file's Content Credentials (C2PA) manifest — this edit would have invalidated its signature";
 
 /// Remove **all** container metadata, preserving pixels exactly.
 ///
-/// - **JPEG:** drop APP1..APP15 (`0xE1..=0xEF` — EXIF/XMP/ICC/…) and COM
-///   (`0xFE`). APP0/JFIF is structural and kept.
-/// - **PNG:** drop the [`PNG_METADATA_CHUNKS`]; keep critical/render chunks.
+/// - **JPEG:** drop APP1..APP15 (`0xE1..=0xEF` — EXIF/XMP/ICC/**JUMBF/C2PA
+///   at `0xEB`**/…) and COM (`0xFE`). APP0/JFIF is structural and kept.
+/// - **PNG:** drop the [`PNG_METADATA_CHUNKS`] (EXIF/ICC/text/time/**C2PA**);
+///   keep critical/render chunks.
 ///
 /// Returns the rewritten container bytes. The compressed image data is carried
 /// verbatim — no pixel re-encode (`metadata-not-via-pixel-encode`).
@@ -140,6 +191,14 @@ fn read_exif_block(lane: Lane, bytes: &[u8]) -> Result<Option<Bytes>, MetadataEr
 
 /// Re-embed `tiff_bytes` as the EXIF block for `lane`, rewriting `bytes`'s
 /// container (JPEG APP1 / PNG `eXIf`) while leaving the pixels untouched.
+///
+/// Also drops any C2PA/Content Credentials manifest ([`JPEG_MANIFEST_MARKER`]
+/// / [`PNG_C2PA_CHUNK`]) the container carries. A rewritten EXIF block
+/// invalidates the hash a manifest is signed over, and a manifest that fails
+/// validation is worse than none — so this is unconditional, not gated on
+/// whether one is present (removal is a no-op when it isn't). The caller
+/// (`set_tags`/`clean_gps` via [`crate::cli::ops`]) diffs [`has_manifest`]
+/// before/after to decide whether to warn.
 fn write_exif_block(
     lane: Lane,
     bytes: &[u8],
@@ -151,6 +210,7 @@ fn write_exif_block(
             let mut jpeg = Jpeg::from_bytes(Bytes::from(bytes.to_vec()))
                 .map_err(|e| MetadataError::Container(e.to_string()))?;
             jpeg.set_exif(Some(Bytes::from(tiff_bytes)));
+            jpeg.remove_segments_by_marker(JPEG_MANIFEST_MARKER);
             jpeg.encoder()
                 .write_to(&mut out)
                 .map_err(|e| MetadataError::Container(e.to_string()))?;
@@ -159,6 +219,7 @@ fn write_exif_block(
             let mut png = Png::from_bytes(Bytes::from(bytes.to_vec()))
                 .map_err(|e| MetadataError::Container(e.to_string()))?;
             png.set_exif(Some(Bytes::from(tiff_bytes)));
+            png.remove_chunks_by_type(PNG_C2PA_CHUNK);
             png.encoder()
                 .write_to(&mut out)
                 .map_err(|e| MetadataError::Container(e.to_string()))?;
@@ -245,6 +306,12 @@ pub fn set_tags(bytes: &[u8], tags: &TagSet) -> Result<Vec<u8>, MetadataError> {
 /// [`MetadataError::UnsupportedFormat`]. PNG `meta copy` is deferred because
 /// `little_exif` writes PNG EXIF as a `zTXt` "Raw profile type exif" chunk while
 /// `img-parts` uses the native `eXIf` chunk, so the two can't interoperate.
+///
+/// Also drops any C2PA/Content Credentials manifest DST carries
+/// ([`JPEG_MANIFEST_MARKER`]) before encoding: grafting SRC's EXIF/ICC onto
+/// DST rewrites bytes DST's manifest is signed over, so a manifest surviving
+/// the graft would be retained-but-invalidated (`meta copy` never transplants
+/// SRC's own manifest onto DST either — only EXIF/ICC segments are grafted).
 pub fn copy_metadata(from: &[u8], to: &[u8]) -> Result<Vec<u8>, MetadataError> {
     // Both inputs must be JPEG (DEC-030). A clear message names the limitation.
     if sniff(from)? != Lane::Jpeg || sniff(to)? != Lane::Jpeg {
@@ -261,6 +328,7 @@ pub fn copy_metadata(from: &[u8], to: &[u8]) -> Result<Vec<u8>, MetadataError> {
     // Graft SRC's EXIF + ICC onto DST (Option<Bytes> flows through; None clears).
     dst.set_exif(src.exif());
     dst.set_icc_profile(src.icc_profile());
+    dst.remove_segments_by_marker(JPEG_MANIFEST_MARKER);
 
     let mut out = Vec::new();
     dst.encoder()
@@ -1403,5 +1471,267 @@ mod tests {
             copy_metadata(&png, &jpeg),
             Err(MetadataError::UnsupportedFormat(_))
         ));
+    }
+
+    // ── SPEC-114: the meta lane never emits a broken manifest ─────────────────
+    //
+    // These are unit-level, structural tests, seeding a JPEG APP11 (`0xEB`)
+    // segment / PNG `caBX` chunk directly via `img-parts` — NOT via c2patool,
+    // since DEC-003 is byte-scan-not-parse and these fixtures don't need to
+    // carry a real signed manifest to prove the removal logic fires on the
+    // right marker/chunk. The full Valid→Invalid regression, driven against
+    // REAL c2patool-signed fixtures, lives in `tests/c2pa_manifest.rs`
+    // (a unit test here can't shell out to an external validator).
+
+    /// A minimal, well-formed JUMBF box payload. Content is irrelevant to a
+    /// structural byte-scan (DEC-003: never parsed), but it needs to look
+    /// like real JUMBF bytes so this fixture can't be mistaken for a
+    /// coincidental `0xEB`/`caBX` false positive.
+    const FAKE_JUMBF: &[u8] = b"jumb\x00\x00\x00\x1ejumdc2pa\x00\x11\x00\x10\x80\x00\x00\xaasp";
+
+    /// Seed a JPEG with an APP11 (`0xEB`) segment carrying [`FAKE_JUMBF`] —
+    /// a stand-in "manifest" for structural (not validity) tests.
+    fn jpeg_with_fake_manifest() -> Vec<u8> {
+        let base = base_image(ImageFormat::Jpeg);
+        let mut jpeg = Jpeg::from_bytes(Bytes::from(base)).expect("parse jpeg");
+        let seg = img_parts::jpeg::JpegSegment::new_with_contents(0xEB, Bytes::from(FAKE_JUMBF));
+        jpeg.segments_mut().insert(1, seg);
+        let mut out = Vec::new();
+        jpeg.encoder().write_to(&mut out).expect("encode jpeg");
+        out
+    }
+
+    /// Seed a PNG with a `caBX` chunk carrying [`FAKE_JUMBF`].
+    fn png_with_fake_manifest() -> Vec<u8> {
+        let base = base_image(ImageFormat::Png);
+        let mut png = Png::from_bytes(Bytes::from(base)).expect("parse png");
+        let chunk = img_parts::png::PngChunk::new(*b"caBX", Bytes::from(FAKE_JUMBF));
+        png.chunks_mut().insert(1, chunk);
+        let mut out = Vec::new();
+        png.encoder().write_to(&mut out).expect("encode png");
+        out
+    }
+
+    #[test]
+    fn has_manifest_detects_jpeg_app11() {
+        assert!(has_manifest(&jpeg_with_fake_manifest()));
+        assert!(!has_manifest(&jpeg_with_exif()), "no APP11 here");
+        assert!(!has_manifest(&base_image(ImageFormat::Jpeg)));
+    }
+
+    #[test]
+    fn has_manifest_detects_png_cabx() {
+        assert!(has_manifest(&png_with_fake_manifest()));
+        assert!(!has_manifest(&base_image(ImageFormat::Png)));
+    }
+
+    #[test]
+    fn has_manifest_false_on_unsupported_format() {
+        assert!(!has_manifest(&base_image(ImageFormat::Bmp)));
+    }
+
+    /// The inner predicate `write_exif_block` relies on: seeding a real
+    /// `0xEB` segment and confirming `set_tags` actually removes THAT
+    /// segment specifically, not merely that no error occurred. Isolates
+    /// AC-1's mechanism from AC-1's own integration-level regression check.
+    #[test]
+    fn set_tags_drops_a_present_jpeg_manifest_segment() {
+        let input = jpeg_with_fake_manifest();
+        assert!(jpeg_has_marker(&input, 0xEB), "fixture precondition");
+
+        let out = set_tags(
+            &input,
+            &TagSet {
+                artist: Some("x".to_string()),
+                ..TagSet::default()
+            },
+        )
+        .expect("set");
+
+        assert!(!jpeg_has_marker(&out, 0xEB), "APP11 must be gone");
+        assert!(!has_manifest(&out));
+    }
+
+    /// Same inner predicate, PNG side: `caBX` must fall specifically, not
+    /// merely "the output differs".
+    #[test]
+    fn set_tags_drops_a_present_png_manifest_chunk() {
+        let input = png_with_fake_manifest();
+        assert!(png_has_chunk(&input, *b"caBX"), "fixture precondition");
+
+        let out = set_tags(
+            &input,
+            &TagSet {
+                copyright: Some("x".to_string()),
+                ..TagSet::default()
+            },
+        )
+        .expect("set");
+
+        assert!(!png_has_chunk(&out, *b"caBX"));
+        assert!(!has_manifest(&out));
+    }
+
+    /// `clean_gps`'s own rewrite path drops a present manifest too — the
+    /// SAME `write_exif_block` call, but a distinct call site, so it gets
+    /// its own positive test rather than assuming set's coverage transfers.
+    #[test]
+    fn clean_gps_drops_a_present_manifest_when_it_actually_rewrites() {
+        // Needs real EXIF (with GPS) so clean_gps takes the rewrite path,
+        // not the no-EXIF early-return no-op.
+        let base = jpeg_with_fake_manifest();
+        let mut jpeg = Jpeg::from_bytes(Bytes::from(base)).expect("parse");
+        let gps = Ifd {
+            entries: vec![ascii_entry(TAG_GPS_LAT_REF, "N")],
+            next: None,
+            thumbnail: None,
+        };
+        let ifd0 = Ifd {
+            entries: vec![pointer_entry(tiff::GPS_PTR, gps)],
+            next: None,
+            thumbnail: None,
+        };
+        let tiff_bytes = tiff::serialize(&tiff::Tiff {
+            byte_order: tiff::ByteOrder::Little,
+            ifd0,
+        });
+        jpeg.set_exif(Some(Bytes::from(tiff_bytes)));
+        let mut input = Vec::new();
+        jpeg.encoder().write_to(&mut input).expect("encode");
+        assert!(has_manifest(&input), "fixture precondition");
+
+        let out = clean_gps(&input).expect("clean");
+
+        assert!(!has_manifest(&out), "manifest must be dropped");
+        let exif = read_exif(&out).expect("reparse");
+        assert!(
+            exif.get_field(exif::Tag::GPSLatitudeRef, exif::In::PRIMARY)
+                .is_none(),
+            "GPS should still be actually removed"
+        );
+    }
+
+    /// `copy_metadata`'s own rewrite path: DST's manifest must fall even
+    /// though `copy_metadata` never touches `write_exif_block` at all — a
+    /// distinct code path from set/clean, so it needs its own direct test
+    /// rather than inheriting set's/clean's coverage by assumption.
+    #[test]
+    fn copy_metadata_drops_dst_manifest_when_present() {
+        let src = jpeg_with_copyright("Donor");
+        let dst = jpeg_with_fake_manifest();
+        assert!(has_manifest(&dst), "fixture precondition");
+
+        let out = copy_metadata(&src, &dst).expect("copy");
+
+        assert!(!has_manifest(&out), "DST's manifest must be dropped");
+        assert_eq!(jpeg_copyright(&out).as_deref(), Some("Donor"));
+    }
+
+    /// `copy_metadata` never transplants SRC's manifest onto DST either —
+    /// distinct from the drop above (this is "never invent one", not "never
+    /// keep a broken one").
+    #[test]
+    fn copy_metadata_never_transplants_src_manifest_onto_dst() {
+        let src = jpeg_with_fake_manifest();
+        let dst = base_image(ImageFormat::Jpeg);
+
+        let out = copy_metadata(&src, &dst).expect("copy");
+
+        assert!(
+            !has_manifest(&out),
+            "SRC's manifest must not be grafted onto DST"
+        );
+    }
+
+    /// `meta_verbs_are_byte_identical_on_unsigned_input` (SPEC-114 failing
+    /// test, AC-7 — the did-not-break-the-lane control): on input that never
+    /// carried a manifest, the new manifest-drop calls in
+    /// `write_exif_block`/`copy_metadata` are no-ops. Proven by
+    /// reconstructing each op's pre-fix behavior independently (the same
+    /// `img-parts`/`tiff` calls, minus the drop call) and diffing
+    /// byte-for-byte against the real function's output — not by calling the
+    /// function under test for both sides of the comparison.
+    #[test]
+    fn meta_verbs_are_byte_identical_on_unsigned_input() {
+        // strip_all (JPEG): unaffected — PNG_METADATA_CHUNKS grew a member,
+        // but the JPEG path's 0xE1..=0xEF sweep already covered 0xEB.
+        let strip_input = jpeg_with_exif();
+        assert!(!has_manifest(&strip_input), "fixture: no manifest");
+        let strip_actual = strip_all(&strip_input).expect("strip");
+        let strip_expected = {
+            let mut jpeg = Jpeg::from_bytes(Bytes::from(strip_input.clone())).expect("parse");
+            for marker in 0xE1u8..=0xEF {
+                jpeg.remove_segments_by_marker(marker);
+            }
+            jpeg.remove_segments_by_marker(0xFE);
+            let mut out = Vec::new();
+            jpeg.encoder().write_to(&mut out).expect("encode");
+            out
+        };
+        assert_eq!(
+            strip_actual, strip_expected,
+            "strip_all must be byte-identical on unsigned input"
+        );
+
+        // set_tags (JPEG, no existing EXIF): the drop call is a no-op here.
+        let set_input = base_image(ImageFormat::Jpeg);
+        assert!(!has_manifest(&set_input));
+        let tags = TagSet {
+            artist: Some("Jane".to_string()),
+            ..TagSet::default()
+        };
+        let set_actual = set_tags(&set_input, &tags).expect("set");
+        let set_expected = {
+            let mut parsed = tiff::minimal();
+            tiff::set_ascii_tag(&mut parsed.ifd0, tiff::TAG_ARTIST, "Jane");
+            let tiff_bytes = tiff::serialize(&parsed);
+            let mut jpeg = Jpeg::from_bytes(Bytes::from(set_input.clone())).expect("parse");
+            jpeg.set_exif(Some(Bytes::from(tiff_bytes)));
+            let mut out = Vec::new();
+            jpeg.encoder().write_to(&mut out).expect("encode");
+            out
+        };
+        assert_eq!(
+            set_actual, set_expected,
+            "set_tags must be byte-identical on unsigned input"
+        );
+
+        // clean_gps (JPEG, has EXIF+GPS, no manifest): the drop call is a
+        // no-op here too (the rewrite path, not the no-EXIF early return).
+        let clean_input = jpeg_with_exif();
+        let clean_actual = clean_gps(&clean_input).expect("clean");
+        let clean_expected = {
+            let exif = container_exif(&clean_input).expect("exif");
+            let mut parsed = tiff::parse(&exif).expect("parse tiff");
+            tiff::remove_gps(&mut parsed.ifd0);
+            let tiff_bytes = tiff::serialize(&parsed);
+            let mut jpeg = Jpeg::from_bytes(Bytes::from(clean_input.clone())).expect("parse");
+            jpeg.set_exif(Some(Bytes::from(tiff_bytes)));
+            let mut out = Vec::new();
+            jpeg.encoder().write_to(&mut out).expect("encode");
+            out
+        };
+        assert_eq!(
+            clean_actual, clean_expected,
+            "clean_gps must be byte-identical on unsigned input"
+        );
+
+        // copy_metadata (JPEG, both unsigned): the drop call is a no-op.
+        let src = jpeg_with_copyright("Donor");
+        let dst = base_image(ImageFormat::Jpeg);
+        let copy_actual = copy_metadata(&src, &dst).expect("copy");
+        let copy_expected = {
+            let src_jpeg = Jpeg::from_bytes(Bytes::from(src.clone())).expect("parse src");
+            let mut dst_jpeg = Jpeg::from_bytes(Bytes::from(dst.clone())).expect("parse dst");
+            dst_jpeg.set_exif(src_jpeg.exif());
+            dst_jpeg.set_icc_profile(src_jpeg.icc_profile());
+            let mut out = Vec::new();
+            dst_jpeg.encoder().write_to(&mut out).expect("encode");
+            out
+        };
+        assert_eq!(
+            copy_actual, copy_expected,
+            "copy_metadata must be byte-identical on unsigned input"
+        );
     }
 }

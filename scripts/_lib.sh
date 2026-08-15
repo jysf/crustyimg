@@ -189,6 +189,35 @@ find_spec_timeline() {
         -not -path '*/done/*' 2>/dev/null | head -n1
 }
 
+# Un-promoted backlog bullets in a stage file's `## Spec Backlog` section.
+# `extract_*` prints one raw line per bullet; `count_*` prints the count.
+#
+# A bullet is UN-PROMOTED when it is OPEN (`- [ ]`) and does not lead with a
+# bold spec id (`- [x] **SPEC-114** …` is a promoted spec, tracked elsewhere).
+#
+# Keyed on STRUCTURE, not prose. Three separate scripts (backlog, roadmap,
+# specs-by-stage) each had their own copy matching the literal string
+# `(not yet written)`. The template's stage scaffold uses that phrasing, so the
+# counters worked until stage files drifted to `(not yet framed)` -- after which
+# all three silently reported ZERO. Repo-wide that hid 35 open bullets while
+# `specs-by-stage` printed "1 not yet written" as an authoritative total.
+# One implementation, so they cannot diverge again.
+extract_unpromoted_bullets() {
+    awk '
+        /^## Spec Backlog/ { in_b = 1; next }
+        in_b && /^## / { in_b = 0 }
+        in_b && /^-[[:space:]]*\[[[:space:]]\]/ {
+            rest = $0
+            sub(/^-[[:space:]]*\[[[:space:]]\][[:space:]]*/, "", rest)
+            if (rest !~ /^\*\*SPEC-[0-9]+\*\*/) print
+        }
+    ' "$1"
+}
+
+count_unpromoted_bullets() {
+    extract_unpromoted_bullets "$1" | grep -c . || true
+}
+
 # Find a stage file by ID.
 find_stage() {
     local stage_id="$1"
@@ -200,6 +229,30 @@ find_stage() {
 # stage. Used by backlog and report_daily so they agree on what "the
 # active stage" means.
 # Usage: get_active_stage_file projects/PROJ-001-foo
+# Every stage file with `status: active`, one per line. Falls back to the
+# lexically-first stage when none is active.
+#
+# More than one stage can legitimately be active at once -- PROJ-010 ran three
+# in parallel. `get_active_stage_file` below returns only the FIRST, which made
+# `just backlog` report "(none in active stage)" while a spec was mid-flight in
+# the second. Callers that summarise work should iterate this instead.
+get_active_stage_files() {
+    local project_dir="$1"
+    local stages_dir="${project_dir}/stages"
+    [ -d "$stages_dir" ] || return
+    local s status found=0
+    for s in "${stages_dir}"/STAGE-*.md; do
+        [ -f "$s" ] || continue
+        status=$(awk '/^---$/{f=!f; next} f && /^[[:space:]]+status:/{print $2; exit}' "$s" 2>/dev/null || echo "")
+        if [ "$status" = "active" ]; then echo "$s"; found=1; fi
+    done
+    [ "$found" = "1" ] && return
+    for s in "${stages_dir}"/STAGE-*.md; do
+        [ -f "$s" ] || continue
+        echo "$s"; return
+    done
+}
+
 get_active_stage_file() {
     local project_dir="$1"
     local stages_dir="${project_dir}/stages"
