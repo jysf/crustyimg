@@ -10,7 +10,7 @@
 > cycle/cost state rather than this static snapshot, use `just status` (active project)
 > or `just specs-by-stage` (cost + ship dates, every project).
 
-**110 specs across 7 projects** (107 shipped, 3 in flight).
+**110 specs across 7 projects** (109 shipped, 1 in flight).
 
 ## Contents
 
@@ -313,7 +313,7 @@ Broaden what crustyimg can READ so the already-shipped engine (optimize / conver
 
 ## <a id="proj-010"></a>PROJ-010 — Post-launch correctness and consolidation
 
-*status: active · 9 specs, 6 shipped*
+*status: active · 9 specs, 8 shipped*
 
 Fix the launch-gating classifier regression (dithered/halftoned graphics promoted to lossy AVIF after resize), confirm hostile-input behavior on the native CLI and wasm builds, then deliver three carried-forward stages…
 
@@ -343,20 +343,20 @@ Fix the launch-gating classifier regression (dithered/halftoned graphics promote
 |---|---|---|---|---|
 | [SPEC-112](../projects/PROJ-010-post-launch-correctness-and-consolidation/specs/done/SPEC-112-wasm-transform-runs-bundled-recipes.md) | critical | **shipped** | `wasm::transform` runs the bundled recipes | STAGE-040's precondition for the 0.7.0 cut: make the README's claim about `transform()` true before that README renders on the crates.io crate page. |
 
-### STAGE-043 — pinned-path correctness _(proposed)_
+### STAGE-043 — pinned-path correctness _(active)_
 
 | Spec | Priority | Status | Title | Summary |
 |---|---|---|---|---|
-| [SPEC-113](../projects/PROJ-010-post-launch-correctness-and-consolidation/specs/SPEC-113-optimize-never-silently-grows-a-pinned-output.md) | critical | design | `optimize` never silently grows a pinned same-format output | STAGE-043's first item. `optimize` is a headline verb the launch post will name, and on its most natural invocation it can silently hand back a file twice the size of the source. Fixing it before anyone is invited to try the tool is the… |
+| [SPEC-113](../projects/PROJ-010-post-launch-correctness-and-consolidation/specs/done/SPEC-113-optimize-never-silently-grows-a-pinned-output.md) | critical | **shipped** | `optimize` never silently grows a pinned same-format output | STAGE-043's first item. `optimize` is a headline verb the launch post will name, and on its most natural invocation it can silently hand back a file twice the size of the source. Fixing it before anyone is invited to try the tool is the… |
 
-### STAGE-044 — the `meta` lane cannot emit a broken manifest _(proposed)_
+### STAGE-044 — the `meta` lane cannot emit a broken manifest _(active)_
 
 | Spec | Priority | Status | Title | Summary |
 |---|---|---|---|---|
 | [SPEC-114](../projects/PROJ-010-post-launch-correctness-and-consolidation/specs/SPEC-114-meta-lane-never-emits-a-broken-manifest.md) | critical | design | the `meta` lane never emits a broken manifest | STAGE-044. `meta set` takes a file whose Content Credentials validate and emits one a validator reports as TAMPERED. Attributing a forgery to the file's signer is a worse failure than dropping the credentials, and it is live in 0.7.0. |
 
-### STAGE-045 — adopted-source-format integrity on the decide path _(proposed)_
+### STAGE-045 — adopted-source-format integrity on the decide path _(active)_
 
 | Spec | Priority | Status | Title | Summary |
 |---|---|---|---|---|
-| [SPEC-115](../projects/PROJ-010-post-launch-correctness-and-consolidation/specs/SPEC-115-optimize-never-passes-through-bytes-it-cannot-name.md) | high | design | `optimize` never passes through bytes it cannot name | STAGE-045's only spec. `optimize` on the three input families PROJ-009 delivered can ship the source container verbatim — vector XML, a HEIF container, a whole camera-raw file — labeled as a PNG or JPEG it never produced. On stdin it… |
+| [SPEC-115](../projects/PROJ-010-post-launch-correctness-and-consolidation/specs/done/SPEC-115-optimize-never-passes-through-bytes-it-cannot-name.md) | high | **shipped** | `optimize` never passes through bytes it cannot name | STAGE-045's only spec. `optimize` on the three input families PROJ-009 delivered can ship the source container verbatim — vector XML, a HEIF container, a whole camera-raw file — labeled as a PNG or JPEG it never produced. On stdin it… |
