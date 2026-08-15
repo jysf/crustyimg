@@ -317,7 +317,7 @@ bad news for anyone expecting lab to be the big wave.
 
 ### 2.6 What to do about DEC-088
 
-Amend, do not reverse — the DEC-087 pattern this repo already uses. A short **DEC-089** recording:
+Amend, do not reverse — the DEC-087 pattern this repo already uses. A short **DEC-091** recording:
 Fence A restated at parameter level; Fence B added for non-op surface; the three contradictions in
 §2.2 named as the evidence; and the RAW exposure-compensation misplacement corrected. DEC-088's
 confidence (0.86) is about right and should not move much: its mechanism verified (F1), its scope
@@ -631,9 +631,9 @@ Ordered by likelihood. As in the RAW session, **the top risk is not technical.**
    L-01 through L-03 must be dogfooded on the Eleventy photo blog before L-04 is framed. If the
    maintainer does not reach for lab unprompted after L-03, stop and reconsider.
 2. **The fence contradiction erodes into "everything is lab."** §2.2 shows three items already sit
-   on the wrong side of the stated fence. If DEC-089 is not written, the next session resolves each
+   on the wrong side of the stated fence. If DEC-091 is not written, the next session resolves each
    case by argument, which is precisely how an anti-goal erodes silently. **Mitigation:** write
-   DEC-089 before the first lab spec, exactly as the triage said about DEC-088.
+   DEC-091 before the first lab spec, exactly as the triage said about DEC-088.
 3. **The 8-bit sRGB pipeline makes lab's grading output wrong invisibly (F8).** Lab's own tests
    cannot detect it — reference and candidate are wrong identically. **Mitigation:** the §12 spike,
    before L-05.
