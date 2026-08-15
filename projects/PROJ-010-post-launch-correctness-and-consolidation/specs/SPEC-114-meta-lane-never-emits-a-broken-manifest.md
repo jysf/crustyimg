@@ -326,6 +326,39 @@ written down.
   Post-fix, both verbs report `Error: No claim found`. "PNG is unaffected" would have been
   false; this is the evidence for the finding either way the AC asked for.
 
+- **AC-8, revisited: per-path controls, not one coarse revert.**
+
+  The build-cycle AC-8 control reverted the fix as a single coarse change: 3 tests went RED
+  (the JPEG APP11 drop covering `set`/`clean`) while the PNG and `meta copy` tests stayed
+  green. That is consistent with those two exercising a distinct code path, but a single
+  coarse revert can't distinguish "distinct path" from "vacuous test" — both produce the
+  same shape of evidence. SPEC-113 shipped a test one spec ago that was green with and
+  without its fix. Two follow-up controls, one per remaining fix site, close that gap:
+
+  - **PNG `caBX` alone.** Removed `PNG_C2PA_CHUNK` from `PNG_METADATA_CHUNKS`
+    (`src/metadata/mod.rs`), leaving the JPEG APP11 drop in `write_exif_block` and the
+    `copy_metadata` fix untouched. Rebuilt (`cargo test --test c2pa_manifest`, `Compiling
+    crustyimg` observed; binary hash changed `9ad4f0…` → `09b095…`).
+    `meta_strip_and_set_remove_the_png_cabx_manifest_chunk` went RED — panicked at its
+    `strip` assertion (line 379, `caBX` survived) before reaching its `set` assertion. All 5
+    other tests, including `meta_copy_never_retains_an_invalidated_manifest`, stayed green.
+    Restored the array, rebuilt (hash changed again, `→ f7e8f8…`), `git diff --stat` empty,
+    all 6 green.
+  - **The `copy_metadata` fix alone.** Removed
+    `dst.remove_segments_by_marker(JPEG_MANIFEST_MARKER)` from `copy_metadata`, leaving the
+    JPEG APP11 drop and the restored PNG `caBX` entry untouched. Rebuilt (`Compiling
+    crustyimg` observed; hash changed `f7e8f8…` → `48d58a…`).
+    `meta_copy_never_retains_an_invalidated_manifest` went RED — panicked at line 313
+    (direction B: plain donor → signed recipient, DST's manifest survived the graft). All 5
+    other tests, including the PNG test, stayed green. Restored the line, rebuilt (hash
+    changed again, `→ 6dc223…`), `git diff --stat` empty, all 6 green.
+
+  Both reverts landed on their predicted single test, both restores came back clean with a
+  changed binary hash each time (proving each revert and each restore reached the built
+  artifact, not just the source), and `cargo fmt --check` stayed clean throughout. Neither
+  test is vacuous — both are driven, independently of the other two fix sites, by their own
+  control. No fixture or assertion changes were needed.
+
 - **New decisions emitted:** None. Driving AC-3/AC-4/AC-6 gave every case a clean
   drop-and-warn outcome with no workflow loss — nothing pushed toward hard-error, so the
   settled design call stands as written; no DEC opened.
