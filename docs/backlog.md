@@ -620,3 +620,47 @@ but **has not framed the shape yet**.
 
 This is recorded as an **open question awaiting his framing** — deliberately *not* filed as a
 decision, and not to be acted on unprompted.
+
+## Open — `resize` resamples in sRGB, not linear light (2026-08-15)
+
+**Measured, not speculative.** `Resize::apply` converts to RGBA8 and hands
+`PixelType::U8x4` straight to `fast_image_resize` with Lanczos3
+(`src/operation/mod.rs:515`). A grep for `gamma`, `linear`, and `premultipl` across
+`src/operation/mod.rs` and `src/image/mod.rs` returns **zero hits**.
+
+So crustyimg resamples non-linear sRGB values as if they were linear. The visible effect is that
+high-contrast edges darken on downscale — worst on thin bright features against dark backgrounds.
+This is a quality defect in the **most-used operation** of a tool whose headline claim is
+quality-per-byte, so it sits closer to the `source_format`-truthfulness class than to a
+nice-to-have.
+
+**Adjacent and probably the same spec: premultiplied alpha appears absent.** Resizing
+non-premultiplied RGBA produces halos around transparent edges; `fast_image_resize` ships `MulDiv`
+for exactly this and documents the hazard. **Not confirmed** — only two files were grepped — so
+verify before treating it as a finding.
+
+**The fix does NOT require a 16-bit pipeline.** Convert to linear `f32`/`u16` *inside*
+`Resize::apply`, resample, convert back to 8-bit on the way out. The `Operation` pipeline stays
+8-bit; `fast_image_resize` 5.x already supports `U16x4`/`F32x4` and `MulDiv`, so the backend is in
+place. This is deliberately **separate** from the open "should the pipeline preserve >8 bits"
+question (16-bit PNG/TIFF inputs are truncated today — every op calls `to_rgba8()`,
+`src/operation/mod.rs:197,396,816,894`). Two projects, separately schedulable; this one is
+contained and benefits every user including the core JPEG→WebP path.
+
+**What makes it non-trivial — do not discover this during build:** fixing the resampling
+**changes output bytes for every existing recipe**, which invalidates every PROJ-007 build
+lockfile. A quality improvement becomes a breaking change needing its own DEC and a migration
+story. Open sub-question: does the build cache key need a pixel-depth / colour-pipeline-version
+component so old and new renders cannot collide in the cache?
+
+**Open question that decides whether the premise holds:** does SSIMULACRA2 (DEC-019) score the
+linear-light output *better* than the current output on a representative downscale? If it does
+not, the premise is wrong and this should be closed rather than specced. **Measure that first.**
+
+**Context:** gamma-correct scaling is a commercial product elsewhere — imazen's `zenresize`
+(9.8k downloads) ships `AGPL-3.0-only OR LicenseRef-Imazen-Commercial`, as does every codec and
+operation in that stack; only their interfaces (`zenpixels`, `zencodec`) are permissive. Fixing
+this closes a gap against a paid competitor with a permissive implementation. Related caution for
+any future "can we just use theirs" question: `crabmagick-core` (unrelated author) shipped 0.1.0
+and 0.1.1 as MIT/Apache on 2026-07-06/07, then relicensed to AGPL-3.0-or-later at 0.1.2 the next
+day after adopting that stack.
