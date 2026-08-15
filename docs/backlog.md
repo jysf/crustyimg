@@ -657,6 +657,14 @@ component so old and new renders cannot collide in the cache?
 linear-light output *better* than the current output on a representative downscale? If it does
 not, the premise is wrong and this should be closed rather than specced. **Measure that first.**
 
+**A second consumer raises the stakes (2026-08-15).** For `resize` this is a quality defect. For
+any **grading** op — `.cube` LUT above, curves, exposure — it is a **correctness** defect: the
+pipeline is 8-bit throughout (`to_rgba8()` at `src/operation/mod.rs:197,396,816,817`), so a grade
+is quantized to 256 levels per channel and evaluated against the wrong transfer function. Worse,
+such an op's own tests **cannot see it** — reference and candidate are wrong identically. So this
+question **gates** the LUT entry above, and gates the grading ops `crustyimg-lab` is premised on
+(`docs/lab-plan-2026-08.md` §F8, §12.1). Answer it before either is specced, not during.
+
 **Context:** gamma-correct scaling is a commercial product elsewhere — imazen's `zenresize`
 (9.8k downloads) ships `AGPL-3.0-only OR LicenseRef-Imazen-Commercial`, as does every codec and
 operation in that stack; only their interfaces (`zenpixels`, `zencodec`) are permissive. Fixing
@@ -664,3 +672,107 @@ this closes a gap against a paid competitor with a permissive implementation. Re
 any future "can we just use theirs" question: `crabmagick-core` (unrelated author) shipped 0.1.0
 and 0.1.1 as MIT/Apache on 2026-07-06/07, then relicensed to AGPL-3.0-or-later at 0.1.2 the next
 day after adopting that stack.
+
+---
+
+## Open — items the lab decision was accidentally holding hostage (2026-08-15)
+
+`docs/feature-set-triage-2026-08.md` opens by warning that it is *"a triage, not a backlog.
+Nothing here is committed work."* Checked 2026-08-15 with a word-boundary grep and a positive
+control (`crop`, which **is** homed at roadmap Wave 5 + the Geometry-extras table above): three of
+its strongest items are homed **nowhere** — zero hits across `backlog.md`, `roadmap.md`,
+`feature-exploration.md` and `moat.md`. All three are **workhorse** features that got parked
+behind "the lab decision" because lab was the open question, not because they belong to lab
+(DEC-091 §Consequences). Homing them here so they stop being invisible.
+
+### `.cube` LUT op — build the reader in-house
+
+**Workhorse, not lab** (Fence A: a LUT path + strength generalizes across a batch). The feature
+was never in question; only the dependency advice was, and the maintainer reversed that on
+2026-08-10 in favour of in-housing.
+
+**The differentiator is the reproducible build, not the LUT.** *"The LUT inside a reproducible
+build — the file's hash becomes part of the cache key, so changing the grade invalidates exactly
+the affected outputs and `build --check` catches an accidental grade change in review."* Nothing
+else occupies that. It is also what unlocks §16 (brand consistency as a build gate), the one
+commercial angle in the triage set.
+
+**Cost, measured rather than estimated (2026-08-15):** `lut-cube` 0.2.0 — the closest real
+comparable — is **329 lines** (`lib.rs` 53 + `cube.rs` 59 + `lut.rs` 217). The triage's "~100 to
+parse, ~50 to interpolate" is optimistic by roughly 2×. **Budget 250–350 lines** for parse +
+trilinear + typed errors, against the `src/metadata/tiff.rs` (718-line) in-housing precedent.
+
+**Two corrections to the triage's dependency note**, both checked 2026-08-15:
+- Its licence is **plain MIT** (`LICENSE`, Copyright (c) 2023 Yury Korolev). crates.io reports
+  "non-standard" only because the manifest uses `license-file` rather than `license`. The
+  practical conclusion survives — `cargo deny` still cannot read it without a clarification entry
+  — but "the licence is unclear" should not be repeated as a fact.
+- A **better, independent** reason to decline it: its only tests hardcode absolute paths into the
+  author's local DaVinci Resolve install (`src/lib.rs:28,33`), so they cannot run on any other
+  machine. That is a supply-chain quality signal the licence question distracted from.
+
+⚠ **Blocked on the colour-space question below** — a `.cube` applied in an 8-bit, non-linear
+pipeline is baked against the wrong transfer function. Settle that first.
+
+### MCP server exposing crustyimg's measurements — and its stated gate is questionable
+
+The triage calls this *"the strongest strategic idea in the set"* on the reframe that **crustyimg
+is a measurement instrument, and measurement is what LLMs are worst at**. It notes the item needs
+**no new capability**: `lint --format json`, `diff --json`, `info --json` and `build --check` all
+ship today.
+
+**The gate needs checking before it is inherited.** The triage marks §17 *"gated on §4 (lint in
+wasm)"*, and §4 on a bundle-size measurement. But a **native** MCP server needs no wasm at all.
+That gating only holds if the distribution plan is npm-via-wasm. **If it isn't, the strongest item
+in the set is unblocked right now.** Ten minutes to settle; do that before scheduling either.
+
+**Why it may outrank more lint rules:** if `lint` is under-adopted, the bottleneck is
+distribution, not breadth. This adds a new *consumer class* for output that already exists,
+rather than more output nobody consumes. See STAGE-014's replaced gate.
+
+### Perceptual dedup lint rule
+
+Triage verdict: *"best differentiation per unit of effort in the set"* — fits the existing `lint`
+framework with no new command, and image bloat in git history is permanent. Re-probed 2026-08-15:
+**`image_hasher` v3.1.1, MIT OR Apache-2.0, 821,062 downloads, updated 2026-02-21** — healthy, and
+the correct pick over `img_hash` (last updated 2021-05-04, effectively abandoned).
+
+⚠ A **new top-level dependency** → needs a `DEC-*` first (`no-new-top-level-deps-without-decision`).
+
+---
+
+## Open — the public API leaks two crates it does not re-export (2026-08-15)
+
+**A published-library correctness issue today, independent of lab.** crustyimg ships to crates.io
+as a library, and two crates appear in its **public API** without being re-exported:
+
+- `Image::pixels(&self) -> &::image::DynamicImage` (`src/image/mod.rs:269`) and
+  `Image::with_pixels` (`:321`)
+- `OperationParams::from_map(BTreeMap<String, toml::Value>)` (`src/operation/mod.rs:48`)
+
+So any consumer implementing an `Operation` must declare `image` and `toml` itself. **Measured
+consequence:** a consumer writing the obvious `image = "0.25.10"` adds **ten features** to the
+`image` crate — `dds`, `exr`, `ff`, `hdr`, `pnm`, `qoi`, `tga`, `rayon`, `default`,
+`default-formats` — because cargo features are additive across the graph. And they are
+**reachable**, not merely linked: decode dispatch is
+`ImageReader::new(..).with_guessed_format()` (`src/image/mod.rs:521-522`).
+
+**A consumer therefore silently widens crustyimg's accepted-input surface to six decoders
+`tests/hostile_inputs.rs` has never fuzzed**, without adding a crate or tripping any gate.
+
+**Fix:** `pub use ::image;` and `pub use ::toml;` in `src/lib.rs` — re-exports, not visibility
+widenings — plus a test asserting the resolved feature set. Cheap, and it closes the hole for
+every consumer, not just a future lab.
+
+### Companion: a seam-protection test
+
+DEC-088 bet that a second binary can ride the shared `Operation`/recipe core. That property was
+**verified 2026-08-15** by compiling an out-of-crate probe (implement `Operation` → `register` →
+`from_toml` → `build_pipeline` → `run` → `from_ops`/`to_toml` → `encode_to_bytes` →
+`quality::score` → `Analysis::compute`): `cargo check` exit 0, **zero `pub` widenings required**,
+with an `E0603` negative control proving the probe can fail.
+
+**Nothing keeps it true.** STAGE-042/043/045 all touch core paths. A committed version of that
+probe — with its negative control — turns "the registry seam is open" from a claim into a gate,
+and would also catch the feature-unification hole above. Reproduction recipe:
+`docs/lab-plan-2026-08.md` §Appendix.
