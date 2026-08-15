@@ -5,7 +5,7 @@
 
 stage:
   id: STAGE-042                     # stable, zero-padded within the project
-  status: proposed                  # proposed | active | shipped | cancelled | on_hold
+  status: active                    # proposed | active | shipped | cancelled | on_hold
   priority: high
   target_complete: null
 

@@ -153,6 +153,34 @@ Two pre-launch stages (launch-gating), three post-launch stages (optional, per m
 decode has never run on hardware), re-verifying the install **paths** at 0.7.0 (the binary itself
 is confirmed), the post narrative, and the go/no-go.
 
+### Amendment (2026-08-15): two STAGE-042 items pulled forward, ahead of STAGE-041
+
+The sequence above still holds for the bulk of the work — **STAGE-041 precedes the rest of
+STAGE-042**. Two of 042's items were taken early, deliberately, and this records why so the
+repo does not tell two stories:
+
+1. **The `npm publish` guard** (chore, done). The unguarded path was *shorter than the guarded
+   one*: the chain stopped at `wasm-npm-smoke`, so the real publish was `cd pkg && npm publish`
+   — no build, no size profile, no smoke test — against a gitignored `pkg/` that nothing ties to
+   the current checkout. npm publishes are effectively irreversible, and this was raised
+   immediately before the 0.7.0 publish. **Sequencing a guard behind the launch content it is
+   meant to protect gets the order backwards.**
+2. **SPEC-118, the conformance matrix** (framed, not built). Framing it early costs nothing and
+   blocks nothing; building it can still wait for 041. It was framed now because the evidence for
+   its design — SPEC-111, SPEC-112 and SPEC-115's unenumerated cells — was fresh from shipping
+   STAGE-043/044/045, and would have to be reconstructed later.
+
+**STAGE-042 is therefore `active` with work in it while STAGE-041 has not started.** That is a
+deviation from the declared order, taken knowingly rather than drifted into.
+
+**What it cost, which is the more useful record.** Running SPEC-116, SPEC-117 and SPEC-118 in
+flight across three unmerged branches broke an assumption the tooling makes: `next_id` scans only
+the working tree, so with 116 and 117 sitting in an open PR it minted **SPEC-116 a second time**.
+Stage counts also had to be hand-maintained across PRs all session. The framework assumes work is
+**serial and merged before the next begins**; it does not currently support the parallelism used
+here. Filed as a STAGE-042 item, and it belongs to the close-out discussion below — the same root
+as the multi-session concurrency question, arriving from a different direction.
+
 ### How the carried stages were re-homed (2026-07-26)
 
 `PROJ-008/brief.md` and `docs/backlog.md` both recorded STAGE-031/032/033 as deliberately left in
