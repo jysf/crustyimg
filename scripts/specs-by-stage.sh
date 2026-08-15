@@ -258,8 +258,10 @@ print_stage() {
         printf "    ${DIM}stage cost: \$%s · %s${RESET}\n" "$STAGE_USD" "$(fmt_tok "$STAGE_TOK")"
     fi
 
-    # Un-promoted "(not yet written)" backlog bullets in this stage.
-    notwritten=$(grep -cE '^- \[[ x~?]\] \(not yet written\)' "$stage_file" 2>/dev/null || true)
+    # Un-promoted backlog bullets in this stage. Uses the shared _lib.sh
+    # helper: the old private `grep` matched the literal `(not yet written)`
+    # AND counted closed `[x]` rows, so it reported 1 repo-wide against 35.
+    notwritten=$(count_unpromoted_bullets "$stage_file")
     notwritten=${notwritten:-0}
     if [ "$notwritten" -gt 0 ]; then
         printf "    ${DIM}+ %s not yet written${RESET}\n" "$notwritten"

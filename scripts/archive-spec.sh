@@ -30,6 +30,22 @@ if [ "$CYCLE" != "ship" ]; then
     fi
 fi
 
+# Did this spec's cycle field ever move? A spec reaching ship having never been
+# marked `build` or `verify` means `advance-cycle` was not run for those cycles.
+# Measured across SPEC-110..115: no build prompt ever asked for it, so the field
+# carried no signal between design and ship. Not fatal -- the work may well have
+# happened -- but silence is how it stayed invisible for six specs.
+if command -v git >/dev/null 2>&1 && git -C "$REPO_ROOT" rev-parse --git-dir >/dev/null 2>&1; then
+    seen_build=$(git -C "$REPO_ROOT" log --format=%H -S'cycle: build' -- "$SPEC_FILE" 2>/dev/null | head -n1)
+    seen_verify=$(git -C "$REPO_ROOT" log --format=%H -S'cycle: verify' -- "$SPEC_FILE" 2>/dev/null | head -n1)
+    if [ -z "$seen_build" ] && [ -z "$seen_verify" ]; then
+        warn "${SPEC_ID} reaches ship having never been marked 'build' or 'verify'."
+        warn "  advance-cycle was likely never run for those cycles, so the cycle"
+        warn "  field carried no signal while the work was in flight."
+        warn "  See projects/_templates/prompts/closing-steps-snippet.md."
+    fi
+fi
+
 SPEC_DIR=$(dirname "$SPEC_FILE")
 DONE_DIR="${SPEC_DIR}/done"
 mkdir -p "$DONE_DIR"
@@ -74,8 +90,22 @@ if [ -n "$STAGE_ID" ]; then
                 | wc -l | tr -d ' ')
     if [ "$REMAINING" = "0" ]; then
         echo ""
-        echo "${GREEN}No active specs remain for ${STAGE_ID}.${RESET}"
-        echo "If the stage's Spec Backlog is fully complete, run the Stage"
-        echo "Ship prompt (Prompt 1c) in FIRST_SESSION_PROMPTS.md."
+        # "No active specs remain" means no spec FILES outside done/ -- it says
+        # nothing about the backlog, and readers took it as "the stage is done".
+        # Both stages it fired on during PROJ-010 still had open, unframed
+        # backlog items. Count them and say so, rather than leaving a
+        # conditional the reader skims past.
+        OPEN_BULLETS=0
+        if [ -n "${STAGE_FILE:-}" ]; then
+            OPEN_BULLETS=$(count_unpromoted_bullets "$STAGE_FILE")
+        fi
+        if [ "${OPEN_BULLETS:-0}" -gt 0 ]; then
+            echo "${YELLOW}No active specs remain for ${STAGE_ID}, but its backlog is NOT complete:${RESET}"
+            echo "  ${OPEN_BULLETS} un-promoted backlog item(s) still open. The stage cannot ship yet."
+            echo "  See its ## Spec Backlog, or run: just backlog"
+        else
+            echo "${GREEN}No active specs remain for ${STAGE_ID}, and its backlog is clear.${RESET}"
+            echo "Run the Stage Ship prompt (Prompt 1c) in FIRST_SESSION_PROMPTS.md."
+        fi
     fi
 fi

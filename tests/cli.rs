@@ -6026,3 +6026,68 @@ fn optimize_auto_path_is_unchanged() {
          unperturbed by the pinned-path guard"
     );
 }
+
+/// The metadata carve-out on the pinned path — SPEC-113's own named trap, and
+/// the one inner condition its seven tests never exercised.
+///
+/// The guard keeps the source only when the pipeline did not already make those
+/// raw bytes an INVALID output. `optimize` bakes orientation and strips the whole
+/// metadata bundle (DEC-017, GPS included), so when the source carries EXIF or
+/// ICC, shipping it verbatim would leak exactly what the verb promises to remove.
+/// `pipeline_altered_source` is what stops that, and the guard must stand down
+/// even though the re-encode is LARGER.
+///
+/// Why this needed its own fixture: `already_compressed.jpg` is built with
+/// `-strip`, so every other SPEC-113 test runs with `pipeline_altered_source`
+/// false. A coarse "revert the whole guard" control cannot surface the gap
+/// either — with no guard at all this case ships the same re-encode, so the
+/// output is identical either way. Only a positive test pins it.
+///
+/// The fixture is the same `plasma:fractal` at quality 15, made with ImageMagick
+/// and then given Artist/Copyright/GPS by exiftool — both independent of
+/// crustyimg ([[fixtures-from-the-code-under-test-cannot-fail]]).
+#[test]
+fn optimize_pinned_ships_the_larger_reencode_when_the_source_carries_metadata() {
+    const EXIF_COMPRESSED_JPEG: &[u8] =
+        include_bytes!("fixtures/optimize/exif_already_compressed.jpg");
+
+    let dir = tempfile::tempdir().unwrap();
+    let in_path = write_bytes(&dir, "exif_compressed.jpg", EXIF_COMPRESSED_JPEG);
+    let out_path = dir.path().join("out.jpg");
+    let out = Command::new(BIN)
+        .args([
+            "optimize",
+            in_path.to_str().unwrap(),
+            "-o",
+            out_path.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr_str(&out));
+
+    let written = std::fs::read(&out_path).unwrap();
+    assert_ne!(
+        written, EXIF_COMPRESSED_JPEG,
+        "the guard must NOT keep a source whose metadata optimize promised to \
+         strip — shipping it verbatim leaks the EXIF/GPS this verb removes"
+    );
+    // The whole point: the re-encode is bigger, and ships anyway because it is
+    // the smallest CORRECT output.
+    assert!(
+        written.len() > EXIF_COMPRESSED_JPEG.len(),
+        "expected the larger re-encode to ship ({} B source), got {} B",
+        EXIF_COMPRESSED_JPEG.len(),
+        written.len()
+    );
+    // The privacy property, asserted on bytes rather than inferred.
+    let text = String::from_utf8_lossy(&written);
+    assert!(
+        !text.contains("crustyimg fixture") && !text.contains("GPS"),
+        "the shipped output must carry no EXIF Artist/GPS from the source"
+    );
+    assert!(
+        !stderr_str(&out).contains("kept the"),
+        "the keep-source note must not fire here: {:?}",
+        stderr_str(&out)
+    );
+}

@@ -178,3 +178,32 @@ treated alike:
 ## Project-Level Reflection
 
 *Filled in when status moves to shipped.*
+
+### Parked for the close-out discussion (added 2026-08-14)
+
+**Multi-session concurrency without ownership.** Raised deliberately here rather than
+resolved in-flight, because it is a process question, not a spec.
+
+STAGE-043's and STAGE-045's work was done across overlapping sessions — at one point two
+were live in the **primary checkout simultaneously** (2026-08-12 05:06–05:31), which
+AGENTS §16.5 forbids in as many words. The implementation was left uncommitted and swept
+into a WIP commit by an agent that had not authored it and said so in the commit message
+(*"Unexplained and still owed: why tests/input_raw.rs and tests/common/mod.rs are
+modified"*). That open question then crossed a session boundary and was closed with a
+plausible rationale instead of a measurement, which is how SPEC-113's vacuous RAW test
+reached `main`.
+
+Symptoms traced to the same root, all documented:
+- A test that passed with and without the fix it existed to protect (SPEC-113, fixed pre-merge).
+- Three specs whose `cycle:` field never moved through build or verify, where SPEC-112
+  three specs earlier had done it correctly.
+- A build cycle with no recoverable cost record, because it ran in an orchestrator's main
+  loop rather than as a metered subagent.
+
+**Questions for the discussion, not answered here:** is one-session-per-worktree
+enforceable rather than documented (a pre-commit hook refusing `feat/spec-*` commits from
+the primary checkout is the obvious candidate)? Should a spec have a single named owning
+session for its whole build cycle? And what should happen when a session ends mid-cycle —
+today the answer is "another agent sweeps it up", which is precisely what failed.
+
+See SPEC-113's ship reflection and `docs/framework-feedback/tooling-that-fails-silent.md`.
