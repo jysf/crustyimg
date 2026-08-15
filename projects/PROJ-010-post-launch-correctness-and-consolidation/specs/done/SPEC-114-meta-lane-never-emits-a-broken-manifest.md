@@ -4,7 +4,7 @@
 task:
   id: SPEC-114
   type: bug                        # epic | story | task | bug | chore
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: critical
   complexity: M                    # S | M | L  (L means split it)
@@ -58,27 +58,51 @@ cost:
     - cycle: build
       agent: claude-sonnet-5
       interface: claude-code
-      tokens_total: 62749422
-      duration_minutes: 180
-      recorded_at: 2026-08-14
-      tokens_breakdown:
-        input: 554
-        output: 276116
-        cache_creation: 831006
-        cache_read: 61641746
-      estimated_usd: 25.75
+      tokens_total: 88014146
+      duration_minutes: 311
+      recorded_at: 2026-08-15
+      estimated_usd: 34.31
       note: >
-        MEASURED, transcript sum (277 messages with .message.usage) —
-        session dae7dee7-9c57-4372-90be-565da1acd053, identified by the
-        session id in this session's own scratchpad path. Ran over the
-        120-minute build-prompt budget (~180 min); most of the overrun was
-        wall-clock time waiting on the sequential fresh-CARGO_TARGET_DIR
-        4-leg matrix plus one killed/restarted main-baseline compile, not
-        additional exploration.
+        MEASURED over the whole build session (transcript dae7dee7, 347
+        usage-bearing messages at claude-sonnet-5, 2026-08-14T18:52Z to
+        2026-08-15T00:03Z), priced per component at Sonnet anchors ($3/$15 per
+        MTok; cache_creation x1.25 input, cache_read x0.10 input). The build
+        cycle originally reported 62,749,422 / $25.75 / 180 min -- accurate when
+        it was measured, but taken MID-SESSION: the session continued afterward
+        (answering the audit, recording the PR link) and grew by 25,264,724
+        tokens / $8.56. The figure here is the session total. Lesson for the
+        cost snippet: a cost readout written before the session ends undercounts
+        itself, and the gap is not small.
+    - cycle: verify
+      agent: claude-sonnet-5
+      interface: claude-code
+      tokens_total: 6617281
+      duration_minutes: 170
+      recorded_at: 2026-08-15
+      estimated_usd: 3.28
+      note: >
+        MEASURED (transcript ade4f1ea, 66 usage-bearing messages at
+        claude-sonnet-5, 2026-08-15T02:49Z to 05:39Z). A distinct session from
+        the build, run to answer one audit finding: the build's AC-8 control was
+        a single coarse revert across three fixed paths, which cannot separate
+        "distinct code path" from "vacuous test". This session drove a control
+        PER PATH -- PNG caBX alone, then copy_metadata alone -- each turning
+        exactly its own test RED, with a binary-hash chain across every revert
+        and restore. The orchestrator's own review of this spec was main-loop
+        work and is not separately metered.
+    - cycle: ship
+      interface: claude-code
+      tokens_total: null
+      duration_minutes: null
+      estimated_usd: null
+      note: >
+        Main-loop orchestrator work, not separately metered (AGENTS §4).
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 94631427
+    estimated_usd: 37.59
+    # Non-null (metered) sessions only -- build + verify, matching SPEC-112's
+    # shipped convention.
+    session_count: 2
 ---
 
 # SPEC-114: the `meta` lane never emits a broken manifest
@@ -434,3 +458,30 @@ source:           transcript sum over 277 messages with `.message.usage`,
 ## Reflection (Ship)
 
 *Appended during the **ship** cycle.*
+
+1. **What would I do differently next time?**
+   — **Ask for a control per fix site at design, not at audit.** This spec fixed THREE paths
+   (JPEG APP11 in `write_exif_block`, PNG `caBX` in `PNG_METADATA_CHUNKS`, and the graft in
+   `copy_metadata`) but AC-8 asked for one control: *"revert the drop, confirm AC-1 goes RED."*
+   The build honoured it exactly and reported the result honestly — 3 tests red, PNG and `copy`
+   green — and that reading was correct. But a single coarse revert cannot distinguish "distinct
+   code path" from "vacuous test": both produce identical evidence, and SPEC-113 had shipped
+   precisely that mistake one spec earlier. A whole extra session was needed to close a gap the
+   spec could have closed with one sentence. **The rule: a fix with N independent sites owes N
+   controls, and the spec should say so.**
+
+2. **Was there a constraint, decision or template that should have been updated?**
+   — Two, both now filed. The **cost snippet** needs to say that a readout written before the
+   session ends undercounts itself: this build reported 62,749,422 / $25.75 mid-session and
+   finished at 88,014,146 / $34.31, a 40% gap, with nothing wrong in the measurement itself.
+   And the **closing-steps snippet** (added this cycle) now carries `advance-cycle`, which no
+   build prompt in SPEC-110…115 mentioned.
+
+3. **Is there a follow-up spec I should write now before I forget?**
+   — No new spec, but the strongest thing this build produced belongs in the record: the three
+   `meta` paths that were **inferred rather than measured** were all re-driven, and two of the
+   three inferences were confirmed while **PNG turned out to be the mirror image of JPEG** —
+   `caBX` survived `strip` *and* `set` before the fix, which is worse than JPEG's accidental
+   safety, because a user explicitly asking to strip metadata got back a manifest a validator
+   reads as tampered. The design marked those paths INFERRED deliberately so the builder would
+   re-drive them rather than inherit a read. That worked, and it is the practice worth keeping.

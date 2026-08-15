@@ -179,15 +179,14 @@ the one nobody enumerated.**
   the branch before a dithered `LosslessFlat` one worked, and the AVIF trap turned out to be
   unreachable because `avif-parse` rejects a non-`avif` major brand before any guard runs.*
 
-- [ ] **Pin `build` and `apply --recipe web` against the adopted-format defect** (filed at
-  SPEC-115's verify, 2026-08-14). Both delegate unconditionally to the fixed `optimize_decide_one`,
-  and verify **drove both green on the real binary** — `apply --recipe web` on the SVG fixture
-  produces a real WebP with the new fourth reason in its note, and `build` writes
-  `rect_text_40x30.webp`. Neither is test-pinned, so a refactor could re-break them silently while
-  the SVG/RAW/HEIC tests stay green. Small: two integration tests against existing fixtures, no new
-  behaviour. Not a defect today — a missing regression pin on behaviour that currently works.
+- [ ] **SPEC-117** (framed 2026-08-15) — **Pin `build` and `apply --recipe web` against the
+  adopted-format defect.** SPEC-115's verify DROVE both green on the real binary but pinned
+  neither; both delegate unconditionally to the fixed `optimize_decide_one`, so a change to the
+  delegation regresses two shipped verbs while every existing test stays green. Two integration
+  tests against the committed SVG fixture, no behaviour change. AC-5's per-verb negative control
+  is the load-bearing criterion, since neither test fails on HEAD. Complexity **S**.
 
-**Count:** 1 shipped (SPEC-115) / 0 active / 1 pending (pin `build` + `apply --recipe web`, not framed)
+**Count:** 1 shipped (SPEC-115) / 1 framed (SPEC-117) / 0 pending
 
 ## Design Notes
 

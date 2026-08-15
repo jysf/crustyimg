@@ -5,7 +5,7 @@
 
 stage:
   id: STAGE-044                     # stable, zero-padded within the project
-  status: active                    # proposed | active | shipped | cancelled | on_hold
+  status: shipped                   # proposed | active | shipped | cancelled | on_hold
   priority: critical
   target_complete: null
 
@@ -15,7 +15,7 @@ repo:
   id: crustyimg
 
 created_at: 2026-08-10
-shipped_at: null
+shipped_at: 2026-08-15
 
 value_contribution:
   advances: >
@@ -137,11 +137,11 @@ a shipped verb, in the release binary.
 
 ## Spec Backlog
 
-- [ ] **SPEC-114** (design written 2026-08-11) — **The `meta` lane cannot emit a broken manifest.** One spec; the three
+- [x] **SPEC-114** (design 2026-08-11, shipped 2026-08-15, PR #162) — **The `meta` lane cannot emit a broken manifest.** One spec; the three
   verbs share `write_exif_block` (`src/metadata/mod.rs:143`), so they share the fix. Complexity
   **S–M**.
 
-**Count:** 0 shipped / 1 designed, unbuilt (SPEC-114) / 0 pending
+**Count:** 1 shipped (SPEC-114) / 0 active / 0 pending — **stage complete**
 
 ## Design Notes
 
