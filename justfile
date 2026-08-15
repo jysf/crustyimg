@@ -237,10 +237,57 @@ wasm-npm-pkg: wasm-build
 # info + transform a real PNG and decode the output back. Also asserts the pitch: no
 # native addon, no postinstall build, and a .wasm that is the profiled ~1.33 MB.
 #
-# Does NOT publish. `npm publish` is outward-facing and effectively irreversible
-# (npm's unpublish window is narrow) — it is SPEC-076, gated on maintainer approval.
+# Does NOT publish -- `wasm-npm-publish` below does, and only through here.
 wasm-npm-smoke: wasm-npm-pkg
     @node tests/npm_smoke.mjs
+
+# THE PUBLISH, chained so the unguarded path is no longer the shorter one.
+#
+# `npm publish` is outward-facing and effectively irreversible (npm's unpublish window
+# is narrow), and it stays SPEC-076's maintainer-gated decision. That gate is "a human
+# decides to publish" -- NOT "it must be typed as raw npm", which is what it had
+# degenerated into: the chain stopped at wasm-npm-smoke, so the real publish was
+# `cd pkg && npm publish`, running no build, no size profile and no smoke test, and
+# EASIER TO TYPE than the safe route.
+#
+# That is the opposite of the posture the two recipes above take. `wasm-npm-pkg`
+# depends on `wasm-build` "ON PURPOSE ... or the package silently ships a stock-profile
+# .wasm", and `demo-build` "REFUSES a .wasm that did not come through the profiled
+# build". This is the same argument, one step later.
+#
+# The stale-artifact hazard is real, not theoretical: pkg/ is gitignored, so nothing
+# ties it to the current checkout -- switching branches leaves it untouched -- and
+# wasm-npm-finalize.mjs's version guard (which dies if pkg.version != Cargo.toml
+# version) runs at BUILD time, never at publish time. npm's OTP prompt works fine
+# inside a recipe.
+#
+# Prints what is about to leave the machine, so the maintainer confirms against
+# something rather than nothing.
+#
+# Publish the npm package — runs the profiled build + smoke first, refuses a stale artifact.
+wasm-npm-publish: wasm-npm-smoke
+    #!/usr/bin/env bash
+    set -euo pipefail
+    name=$(node -p "require('./pkg/package.json').name")
+    version=$(node -p "require('./pkg/package.json').version")
+    cargo_version=$(grep -m1 '^version' Cargo.toml | sed -E 's/.*\"(.*)\".*/\1/')
+    echo ""
+    echo "  package : ${name}@${version}"
+    echo "  Cargo   : ${cargo_version}"
+    echo "  commit  : $(git rev-parse --short HEAD)$(git diff --quiet || echo ' (DIRTY WORKING TREE)')"
+    echo "  branch  : $(git rev-parse --abbrev-ref HEAD)"
+    echo ""
+    if [ "${version}" != "${cargo_version}" ]; then
+        echo "REFUSING: pkg/ says ${version}, Cargo.toml says ${cargo_version}." >&2
+        echo "The package was built from a different checkout. Re-run: just wasm-npm-pkg" >&2
+        exit 1
+    fi
+    if ! git diff --quiet || ! git diff --cached --quiet; then
+        echo "REFUSING: working tree is dirty -- publish from a clean checkout so the" >&2
+        echo "published bytes correspond to a commit you can point at." >&2
+        exit 1
+    fi
+    cd pkg && npm publish
 
 # ----------------------------------------------------------------------------
 # DEMO (SPEC-077) — the wasm engine as a real web page
