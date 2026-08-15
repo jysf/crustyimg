@@ -4,7 +4,7 @@
 stage:
   id: STAGE-014
   status: on_hold                    # proposed | active | shipped | cancelled | on_hold
-  priority: low                      # deferred below the 1.0 line (2026-07-07 roadmap reconciliation)
+  priority: low                      # on_hold pending a decidable gate (see "The gate", 2026-08-15)
   target_complete: null
 
 project:
@@ -38,14 +38,65 @@ value_contribution:
 
 # STAGE-014: engine-backed rules
 
-> **Deferred below the 1.0 line — demand-gated (2026-07-07).** `lint` already shipped as a
-> 10-rule catalog in v0.4.0. This stage adds *more* lint breadth (three engine-backed rules),
-> which the adoption-first roadmap reconciliation put past 1.0: further investment in the
-> least-validated surface waits for a real adoption signal (Action/Eleventy users asking for it),
-> and the next technical work is **HEIC/RAW/SVG input reach** instead (see `docs/roadmap.md`).
-> The stage is cheap to finish (reuses the shipped engine, no new deps) and is kept **build-ready
-> in spirit but unwritten** — SPEC-054/055 are *not* yet specced. Pick it up **if pulled**, not by
-> default. Nothing here is cancelled; it is sequenced, not dropped.
+> **Deferred below the 1.0 line — demand-gated (2026-07-07). Gate replaced 2026-08-15 because it
+> could not be decided; see "The gate" below.** `lint` already shipped as a 10-rule catalog in
+> v0.4.0. This stage adds *more* lint breadth (three engine-backed rules), which the adoption-first
+> roadmap reconciliation put past 1.0. The stage is cheap to finish (reuses the shipped engine, no
+> new deps) and is kept **build-ready in spirit but unwritten** — SPEC-054/055 are *not* yet
+> specced. Nothing here is cancelled; it is sequenced, not dropped.
+
+## The gate — replaced 2026-08-15
+
+**The original gate could not turn green.** It read: *further investment in the least-validated
+surface waits for a real adoption signal (Action/Eleventy users asking for it)*. Reviewed
+2026-08-15:
+
+- `feedback/` holds two files — a bragfile project note and a process analysis. **Neither is a
+  user request**, for this or anything else.
+- **Nothing instruments the signal.** There is no mechanism that would detect "an Action/Eleventy
+  user asked", so its absence is not evidence.
+- The roadmap's own Wave 4 names **the maintainer's own Eleventy photo blog** as the dogfood
+  testbed — and it will never file a GitHub issue.
+
+So the condition was unfalsifiable in practice: an indefinite hold in a gate's clothing. **Both
+halves of its premise have also moved** — the work this was deferred *in favour of* (HEIC/RAW/SVG
+input reach, PROJ-009) has **shipped**, and 0.7.0 launched on four channels on 2026-08-11.
+
+**The replacement gate is a measurement, not a wait:**
+
+> Run `lint` over the maintainer's Eleventy photo-blog corpus and record two numbers: **what
+> fired**, and **what should have fired but did not** (assets a human judges oversized or in a
+> legacy format that the 10 shipped rules stay silent on).
+>
+> - **If the silent-miss count is non-trivial** → activate this stage, `format/legacy-format`
+>   first (see priority below).
+> - **If the shipped rules already catch essentially everything** → **close the stage** and record
+>   that lint breadth was not the gap. That is a real outcome, not a failure.
+
+This is decidable in an afternoon, needs no new code, and — unlike the original — **can return
+"no"**. Until it is run, the stage stays `on_hold`; the difference is that it is now on_hold
+pending a *specific action* rather than pending an event nobody is watching for.
+
+### Spec priority within the stage — not all three are equal
+
+`format/legacy-format` (SPEC-054) is the one carrying a **positioning claim**, and should be built
+first and possibly alone. `docs/territory.md:39` wins the Page-audit layer on being the
+source-file, no-URL Lighthouse; Lighthouse's two headline image audits are `uses-webp-images` and
+`uses-optimized-images`, and **crustyimg's 10 shipped rules answer neither** — they are metadata,
+privacy, and dimensions. This stage's own summary calls its rules "the rules that give `lint` its
+teeth"; legacy-format is the tooth that matters.
+
+`quality/excessive-jpeg-quality` and `format/indexed-png-opportunity` (SPEC-055) are materially
+weaker — the latter is explicitly advisory until a permissive quantizer ships. **Do not treat
+SPEC-055 as automatically following SPEC-054.**
+
+### The counter-argument, kept on the record
+
+The 2026-07-07 reasoning was good and has **not** been refuted: *"cheap to build is exactly why
+not to over-invest in the least-validated surface."* Three more rules do not create adoption. If
+`lint` is unused, the bottleneck is distribution, not breadth — which is why the measurement above
+gates the work, and why `docs/backlog.md`'s MCP-server entry (a new *consumer* for the existing
+lint output) may be the higher-value move even if this stage activates.
 
 ## What This Stage Is
 
