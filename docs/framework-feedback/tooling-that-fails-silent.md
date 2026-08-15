@@ -26,14 +26,48 @@ The concrete cost in this repo, measured:
 
 - **35 open backlog items were invisible.** `just specs-by-stage` reported *"1 not yet
   written"* as a repo-wide total across 43 stages and 7 projects.
-- **Two shipped specs sat at `cycle: design`** through build *and* verify, because
-  `advance-cycle` edited the wrong file and printed its success hint anyway.
+- **Two shipped specs reached ship having never been marked `build` or `verify`.**
+  SPEC-113 and SPEC-115 jumped `design → ship` in a single late commit. Note the
+  honest limit on this one: SPEC-112, three specs earlier, advanced correctly
+  with a prompt that likewise never mentioned `advance-cycle`, so the tooling gap
+  is a contributing weakness rather than the cause — see "What this does *not*
+  explain" below.
 - **The decision-drift gate never ran** on any verify cycle, in a form that could not fail.
 - A maintainer asked why work on a known file "had no spec" — it *did* have a backlog entry,
   and the tool that answers that question had been reporting zero for months.
 
 None of these was found by the tooling. All were found by hand, by accident, while doing
 something else.
+
+## What this does *not* explain
+
+An earlier draft of this doc claimed the cycle-field drift was *caused* by the
+prompt gap — no build prompt in SPEC-110…115 mentions `just advance-cycle`, and
+their AGENTS reading lists cite §4, §6, §12 and §13 but never §15, where the
+requirement lives.
+
+**The revision history falsifies that.** Measured from `git log -p` on the
+`cycle:` line:
+
+| spec | path through the field |
+|---|---|
+| SPEC-112 | `design → verify` (in its build PR) `→ ship` — correct |
+| SPEC-113 | `design → ship`, one late commit |
+| SPEC-115 | `design → ship`, one late commit |
+| SPEC-114 | never moved off `design` |
+
+SPEC-112's prompt omits `advance-cycle` too, and its builder ran it anyway. So
+the omission is a real weakness worth closing — it removes the last excuse — but
+it is not what changed. What changed is specific to the last three specs and is
+documented in SPEC-113's ship reflection: overlapping sessions in a shared
+checkout, work committed by an agent that did not author it, and no single owner
+per spec.
+
+The transferable point is narrower and stronger: **the process had no way to
+notice.** Nothing failed, nothing warned, and the field silently stopped meaning
+anything for three specs running. That is why the `archive-spec` warning below
+matters more than the prompt fix — it catches the omission at ship whether or not
+anyone reads a prompt.
 
 ---
 
