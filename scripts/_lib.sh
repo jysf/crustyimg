@@ -200,6 +200,30 @@ find_stage() {
 # stage. Used by backlog and report_daily so they agree on what "the
 # active stage" means.
 # Usage: get_active_stage_file projects/PROJ-001-foo
+# Every stage file with `status: active`, one per line. Falls back to the
+# lexically-first stage when none is active.
+#
+# More than one stage can legitimately be active at once -- PROJ-010 ran three
+# in parallel. `get_active_stage_file` below returns only the FIRST, which made
+# `just backlog` report "(none in active stage)" while a spec was mid-flight in
+# the second. Callers that summarise work should iterate this instead.
+get_active_stage_files() {
+    local project_dir="$1"
+    local stages_dir="${project_dir}/stages"
+    [ -d "$stages_dir" ] || return
+    local s status found=0
+    for s in "${stages_dir}"/STAGE-*.md; do
+        [ -f "$s" ] || continue
+        status=$(awk '/^---$/{f=!f; next} f && /^[[:space:]]+status:/{print $2; exit}' "$s" 2>/dev/null || echo "")
+        if [ "$status" = "active" ]; then echo "$s"; found=1; fi
+    done
+    [ "$found" = "1" ] && return
+    for s in "${stages_dir}"/STAGE-*.md; do
+        [ -f "$s" ] || continue
+        echo "$s"; return
+    done
+}
+
 get_active_stage_file() {
     local project_dir="$1"
     local stages_dir="${project_dir}/stages"

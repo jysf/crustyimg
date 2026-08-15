@@ -5,8 +5,9 @@
 #   1. In-flight specs (cycle ≠ ship/archived) grouped by cycle, scoped
 #      to the active stage by default.
 #   2. Stage backlog bullets that haven't been promoted to specs yet —
-#      the `(not yet written)` rows in the active stage's `## Spec
-#      Backlog`. This is the main new value vs. status.
+#      the open `- [ ]` rows in each active stage's `## Spec Backlog`
+#      that don't lead with a **SPEC-NNN** id. This is the main new
+#      value vs. status.
 #   3. Counts (not contents) of un-promoted bullets in upcoming stages.
 #
 # `--all` expands #1 and #2 to non-active stages too.
@@ -52,6 +53,19 @@ fi
 
 # --- Helpers --------------------------------------------------------
 
+# True when $1 is the id of ANY active stage. More than one stage can be
+# active; filtering in-flight specs by only the first hid SPEC-114 while it
+# was mid-build in the second.
+is_active_stage_id() {
+    local want="$1" f sid
+    while IFS= read -r f; do
+        [ -n "$f" ] || continue
+        sid=$(basename "$f" .md | sed -E 's/^(STAGE-[0-9]+).*/\1/')
+        [ "$sid" = "$want" ] && return 0
+    done < <(get_active_stage_files "$ACTIVE_DIR")
+    return 1
+}
+
 # Read complexity (S/M/L) from spec front-matter.
 get_spec_complexity() {
     awk '
@@ -74,28 +88,41 @@ get_spec_stage_id() {
     ' "$1"
 }
 
-# Extract un-promoted "(not yet written)" bullets from a stage's
-# ## Spec Backlog section. One bullet per line.
-# Convention: `- [ ] (not yet written) — <summary>` with optional
-# `[S]/[M]/[L]` complexity tag anywhere on the line.
+# Extract un-promoted bullets from a stage's ## Spec Backlog section.
+# One bullet per line.
+#
+# A bullet is UN-PROMOTED when it is open (`- [ ]`) and does not lead with a
+# bold spec id (`- [x] **SPEC-114** …` is a promoted spec, tracked elsewhere).
+#
+# This used to match the literal string `(not yet written)`. Every stage file
+# in this repo writes `(not yet framed)` instead -- 11 occurrences against 3 --
+# so every real bullet was invisible and `just backlog` reported "0 backlog
+# items" for stages that had them, including STAGE-036's `optimize.rs`
+# decomposition. Keying on the CHECKBOX and the absence of a spec id keys on
+# structure rather than on prose, so the next wording drift cannot silently
+# empty this list again.
 extract_unpromoted_bullets() {
     awk '
         /^## Spec Backlog/ { in_b = 1; next }
         in_b && /^## / { in_b = 0 }
-        in_b && /\(not yet written\)/ { print }
+        in_b && /^-[[:space:]]*\[[[:space:]]\]/ {
+            rest = $0
+            sub(/^-[[:space:]]*\[[[:space:]]\][[:space:]]*/, "", rest)
+            if (rest !~ /^\*\*SPEC-[0-9]+\*\*/) print
+        }
     ' "$1"
 }
 
-# Trim a bullet line to "summary [complexity]" form. Strips the
-# leading `- [ ] (not yet written) — ` and surfaces a complexity
-# tag if present. Best-effort; the convention isn't enforced.
+# Trim a bullet line to "summary [complexity]" form. Strips the leading
+# `- [ ] (not yet framed) — ` and surfaces a complexity tag if present.
+# Best-effort; the convention isn't enforced. Both the `framed` and `written`
+# spellings are stripped, since both appear in the corpus.
 format_unpromoted_bullet() {
     local line="$1"
     local summary
     summary=$(echo "$line" \
         | sed -E 's/^[[:space:]]*-[[:space:]]*\[[ x~?]\][[:space:]]*//' \
-        | sed -E 's/\(not yet written\)[[:space:]]*—[[:space:]]*//' \
-        | sed -E 's/\(not yet written\)[[:space:]]*-[[:space:]]*//')
+        | sed -E 's/\(not yet (written|framed)[^)]*\)[[:space:]]*(—|-|–)?[[:space:]]*//')
     # Best-effort complexity extraction: a bracketed S/M/L token.
     local complexity=""
     if [[ "$summary" =~ \[([SML])\] ]]; then
@@ -118,7 +145,12 @@ count_unpromoted_bullets() {
 # --- Output ---------------------------------------------------------
 
 echo "${BOLD}Backlog for ${ACTIVE_PROJECT}${RESET}"
-if [ -n "$ACTIVE_STAGE_NAME" ]; then
+ACTIVE_STAGE_LIST=$(get_active_stage_files "$ACTIVE_DIR" | while IFS= read -r f; do
+    basename "$f" .md
+done | /usr/bin/paste -sd, - | sed 's/,/, /g')
+if [ -n "$ACTIVE_STAGE_LIST" ]; then
+    echo "  ${DIM}Active stage(s):${RESET} ${ACTIVE_STAGE_LIST}"
+elif [ -n "$ACTIVE_STAGE_NAME" ]; then
     echo "  ${DIM}Active stage:${RESET} ${ACTIVE_STAGE_NAME}"
 else
     echo "  ${DIM}(no active stage in this project yet)${RESET}"
@@ -137,7 +169,7 @@ if [ -d "$SPECS_DIR" ]; then
         case "$cycle" in
             frame|design|build|verify|ship)
                 stage_id=$(get_spec_stage_id "$f")
-                if [ "$SHOW_ALL" = "1" ] || [ "$stage_id" = "$ACTIVE_STAGE_ID" ]; then
+                if [ "$SHOW_ALL" = "1" ] || is_active_stage_id "$stage_id"; then
                     name=$(basename "$f" .md)
                     complexity=$(get_spec_complexity "$f")
                     in_flight+=("$cycle|$name|${complexity:-?}|$stage_id")
@@ -191,18 +223,23 @@ if [ -d "$STAGES_DIR" ]; then
         done
         if [ "$any" = "0" ]; then echo "  ${DIM}(none)${RESET}"; fi
     else
-        if [ -n "$ACTIVE_STAGE_FILE" ]; then
-            bullets=$(extract_unpromoted_bullets "$ACTIVE_STAGE_FILE")
+        # Every ACTIVE stage, not just the first -- several can be active at
+        # once, and reporting only one hides in-flight work in the others.
+        active_any=0
+        while IFS= read -r stage_file; do
+            [ -n "$stage_file" ] || continue
+            sid=$(basename "$stage_file" .md | sed -E 's/^(STAGE-[0-9]+).*/\1/')
+            bullets=$(extract_unpromoted_bullets "$stage_file")
             if [ -n "$bullets" ]; then
-                echo "  ${DIM}— ${ACTIVE_STAGE_ID}${RESET}"
+                active_any=1
+                echo "  ${DIM}— ${sid}${RESET}"
                 while IFS= read -r line; do
                     echo "    $(format_unpromoted_bullet "$line")"
                 done <<< "$bullets"
-            else
-                echo "  ${DIM}(no un-promoted bullets in ${ACTIVE_STAGE_ID})${RESET}"
             fi
-        else
-            echo "  ${DIM}(no active stage)${RESET}"
+        done < <(get_active_stage_files "$ACTIVE_DIR")
+        if [ "$active_any" = "0" ]; then
+            echo "  ${DIM}(no un-promoted bullets in any active stage)${RESET}"
         fi
     fi
 else
