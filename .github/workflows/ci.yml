@@ -19,7 +19,49 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # Does this push touch anything the Rust gates can actually judge? A docs- or
+  # spec-only change ran the full three-OS matrix plus avif/webp-lossy/heic/lean/
+  # msrv -- roughly 15 minutes of compute, twice over for the two heic legs, to
+  # prove nothing about a markdown edit. Bookkeeping PRs paid that price four
+  # times in one day.
+  #
+  # The three `check` jobs are the REQUIRED status checks, so they always run and
+  # always report -- they just skip their expensive steps when no code changed.
+  # Everything else is advisory and may skip outright.
+  changes:
+    name: detect changed paths
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Classify changed paths
+        id: filter
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base="origin/${{ github.base_ref }}"
+            git fetch -q origin "${{ github.base_ref }}"
+            files=$(git diff --name-only "$base"...HEAD)
+          else
+            files=$(git diff --name-only "${{ github.event.before }}" "${{ github.sha }}" 2>/dev/null || echo "src/")
+          fi
+          echo "changed files:"; echo "$files" | sed 's/^/  /'
+          # Anything that can affect a build, a test, or a lint result.
+          if echo "$files" | grep -qE '^(src/|tests/|examples/|benches/|Cargo\.(toml|lock)|rust-toolchain|\.github/workflows/|justfile|scripts/)'; then
+            echo "code=true" >> "$GITHUB_OUTPUT"
+            echo "-> code paths touched: running the full gates"
+          else
+            echo "code=false" >> "$GITHUB_OUTPUT"
+            echo "-> docs/specs only: heavy jobs will skip"
+          fi
+
   check:
+    needs: changes
     # The default build now includes `display` (viuer terminal preview) so the
     # released binary's `view` works out of the box (DEC-027, supersedes DEC-011).
     # The `lean` job below covers the headless `--no-default-features` build.
@@ -39,15 +81,19 @@ jobs:
           components: clippy, rustfmt
 
       - name: Build
+        if: needs.changes.outputs.code == 'true'
         run: cargo build --verbose
 
       - name: Test
+        if: needs.changes.outputs.code == 'true'
         run: cargo test --verbose
 
       - name: Clippy (warnings as errors)
+        if: needs.changes.outputs.code == 'true'
         run: cargo clippy --all-targets -- -D warnings
 
       - name: Rustfmt (check only)
+        if: needs.changes.outputs.code == 'true'
         run: cargo fmt --check
 
   supply-chain:
@@ -63,6 +109,8 @@ jobs:
           command: check advisories bans sources licenses
 
   avif:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     name: avif feature (build / test / clippy)
     runs-on: ubuntu-latest
     steps:
@@ -89,6 +137,8 @@ jobs:
         run: cargo clippy --all-targets --features avif -- -D warnings
 
   webp-lossy:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     name: webp-lossy feature (build / test / clippy)
     runs-on: ubuntu-latest
     steps:
@@ -114,6 +164,8 @@ jobs:
         run: cargo clippy --all-targets --features webp-lossy -- -D warnings
 
   heic:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     name: heic feature (build / test / clippy, system libheif)
     # HEIC decode is the off-by-default `heic` feature (SPEC-062, DEC-052/DEC-056)
     # and is NEVER in a distributed artifact — this job is the only place it is
@@ -160,6 +212,8 @@ jobs:
         run: cargo clippy --all-targets --features heic -- -D warnings
 
   lean:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     name: lean build (--no-default-features)
     runs-on: ubuntu-latest
     steps:
@@ -184,6 +238,8 @@ jobs:
         run: cargo clippy --all-targets --no-default-features -- -D warnings
 
   msrv:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     # Verify the declared rust-version floor (SPEC-041, DEC-040). Pins the exact
     # toolchain declared in Cargo.toml [package] rust-version = "1.90.0" so the
     # floor is CI-enforced. 1.90.0 is the true floor of the pinned dependency tree
