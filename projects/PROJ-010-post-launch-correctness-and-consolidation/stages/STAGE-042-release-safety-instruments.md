@@ -105,7 +105,7 @@ failures on documented paths.
 
 ## Spec Backlog
 
-- [ ] (not yet framed) — **The shipped-surface conformance matrix.** Iterate
+- [ ] **SPEC-118** (framed 2026-08-15) — **The shipped-surface conformance matrix.** Iterate
   `recipe::bundled::names()` across every entry point that accepts a recipe — `apply --recipe`,
   a `build` manifest target, and `wasm::transform` — and assert each runs and produces valid
   output for the requested format. Three recipes × three entry points is nine assertions today,
@@ -130,7 +130,7 @@ failures on documented paths.
   target and `wasm-bindgen-test-runner` — [[probe-load-bearing-crates-at-design]] applies to the
   test *runner* for a new target. Complexity **S–M**.
 
-- [ ] (chore) — **`npm publish` is the one link the build chain does not cover, so the unguarded
+- [x] (chore, done 2026-08-15) — **`npm publish` is the one link the build chain does not cover, so the unguarded
   path is shorter than the guarded one.** Raised by the maintainer 2026-08-10, immediately before
   publishing 0.7.0.
 
@@ -173,7 +173,16 @@ failures on documented paths.
   silently had the roll not caught it. (b) Run `just wasm-test`, which no CI leg does. Complexity
   **S**.
 
-**Count:** 0 shipped / 0 active / 2 specs + 4 chores pending (none framed)
+- [ ] (not yet framed, **added 2026-08-15**) — **`next_id` mints duplicate spec IDs.** It scans
+  only the WORKING TREE, so any spec living on an unmerged branch is invisible to it. Driven
+  live: with SPEC-116 and SPEC-117 sitting in PR #166, `just new-spec` on a branch off `main`
+  minted **SPEC-116 again**. `next_id`'s own comment warns about a different scoping failure
+  (passing a single project dir restarts at 001), so this one was unanticipated rather than
+  accepted. Same family as the counter bugs fixed 2026-08-15: it fails by producing a plausible
+  wrong answer, silently. Fix is to consult git refs, or at minimum warn when a higher ID exists
+  on another ref. Complexity **S**.
+
+**Count:** 1 chore done (npm publish guard) / 1 framed (SPEC-118) / 1 spec + 4 chores pending
 
 ## Design Notes
 
