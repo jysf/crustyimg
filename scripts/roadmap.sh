@@ -49,15 +49,12 @@ count_in_flight_for_stage() {
     echo "$n"
 }
 
-# Count un-promoted "(not yet written)" bullets in a stage file.
+# Count un-promoted backlog bullets. Delegates to _lib.sh so this cannot
+# drift away from `backlog` and `specs-by-stage` again -- all three previously
+# kept private copies matching the literal `(not yet written)`, and all three
+# silently reported zero once stage files reworded.
 count_backlog_bullets() {
-    local f="$1"
-    awk '
-        /^## Spec Backlog/ { in_b = 1; next }
-        in_b && /^## / { in_b = 0 }
-        in_b && /\(not yet written\)/ { count++ }
-        END { print count+0 }
-    ' "$f"
+    count_unpromoted_bullets "$1"
 }
 
 echo "${BOLD}Roadmap for ${ACTIVE_PROJECT}${RESET}"

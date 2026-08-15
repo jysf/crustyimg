@@ -189,6 +189,35 @@ find_spec_timeline() {
         -not -path '*/done/*' 2>/dev/null | head -n1
 }
 
+# Un-promoted backlog bullets in a stage file's `## Spec Backlog` section.
+# `extract_*` prints one raw line per bullet; `count_*` prints the count.
+#
+# A bullet is UN-PROMOTED when it is OPEN (`- [ ]`) and does not lead with a
+# bold spec id (`- [x] **SPEC-114** …` is a promoted spec, tracked elsewhere).
+#
+# Keyed on STRUCTURE, not prose. Three separate scripts (backlog, roadmap,
+# specs-by-stage) each had their own copy matching the literal string
+# `(not yet written)`. The template's stage scaffold uses that phrasing, so the
+# counters worked until stage files drifted to `(not yet framed)` -- after which
+# all three silently reported ZERO. Repo-wide that hid 35 open bullets while
+# `specs-by-stage` printed "1 not yet written" as an authoritative total.
+# One implementation, so they cannot diverge again.
+extract_unpromoted_bullets() {
+    awk '
+        /^## Spec Backlog/ { in_b = 1; next }
+        in_b && /^## / { in_b = 0 }
+        in_b && /^-[[:space:]]*\[[[:space:]]\]/ {
+            rest = $0
+            sub(/^-[[:space:]]*\[[[:space:]]\][[:space:]]*/, "", rest)
+            if (rest !~ /^\*\*SPEC-[0-9]+\*\*/) print
+        }
+    ' "$1"
+}
+
+count_unpromoted_bullets() {
+    extract_unpromoted_bullets "$1" | grep -c . || true
+}
+
 # Find a stage file by ID.
 find_stage() {
     local stage_id="$1"

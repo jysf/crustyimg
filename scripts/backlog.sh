@@ -88,31 +88,6 @@ get_spec_stage_id() {
     ' "$1"
 }
 
-# Extract un-promoted bullets from a stage's ## Spec Backlog section.
-# One bullet per line.
-#
-# A bullet is UN-PROMOTED when it is open (`- [ ]`) and does not lead with a
-# bold spec id (`- [x] **SPEC-114** …` is a promoted spec, tracked elsewhere).
-#
-# This used to match the literal string `(not yet written)`. Every stage file
-# in this repo writes `(not yet framed)` instead -- 11 occurrences against 3 --
-# so every real bullet was invisible and `just backlog` reported "0 backlog
-# items" for stages that had them, including STAGE-036's `optimize.rs`
-# decomposition. Keying on the CHECKBOX and the absence of a spec id keys on
-# structure rather than on prose, so the next wording drift cannot silently
-# empty this list again.
-extract_unpromoted_bullets() {
-    awk '
-        /^## Spec Backlog/ { in_b = 1; next }
-        in_b && /^## / { in_b = 0 }
-        in_b && /^-[[:space:]]*\[[[:space:]]\]/ {
-            rest = $0
-            sub(/^-[[:space:]]*\[[[:space:]]\][[:space:]]*/, "", rest)
-            if (rest !~ /^\*\*SPEC-[0-9]+\*\*/) print
-        }
-    ' "$1"
-}
-
 # Trim a bullet line to "summary [complexity]" form. Strips the leading
 # `- [ ] (not yet framed) — ` and surfaces a complexity tag if present.
 # Best-effort; the convention isn't enforced. Both the `framed` and `written`
@@ -137,10 +112,6 @@ format_unpromoted_bullet() {
     fi
 }
 
-# Count un-promoted bullets in a stage file.
-count_unpromoted_bullets() {
-    extract_unpromoted_bullets "$1" | wc -l | tr -d ' '
-}
 
 # --- Output ---------------------------------------------------------
 
