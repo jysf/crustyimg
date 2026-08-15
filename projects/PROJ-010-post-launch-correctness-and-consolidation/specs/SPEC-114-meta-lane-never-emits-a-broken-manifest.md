@@ -4,7 +4,7 @@
 task:
   id: SPEC-114
   type: bug                        # epic | story | task | bug | chore
-  cycle: design                    # frame | design | build | verify | ship
+  cycle: verify  # frame | design | build | verify | ship
   blocked: false
   priority: critical
   complexity: M                    # S | M | L  (L means split it)
@@ -55,6 +55,26 @@ cost:
         spike (`docs/research/c2pa-provenance-spike.md`); verified every cited
         line number against the code and found a fourth candidate path the
         spike's own list did not carry (PNG `caBX`).
+    - cycle: build
+      agent: claude-sonnet-5
+      interface: claude-code
+      tokens_total: 62749422
+      duration_minutes: 180
+      recorded_at: 2026-08-14
+      tokens_breakdown:
+        input: 554
+        output: 276116
+        cache_creation: 831006
+        cache_read: 61641746
+      estimated_usd: 25.75
+      note: >
+        MEASURED, transcript sum (277 messages with .message.usage) —
+        session dae7dee7-9c57-4372-90be-565da1acd053, identified by the
+        session id in this session's own scratchpad path. Ran over the
+        120-minute build-prompt budget (~180 min); most of the overrun was
+        wall-clock time waiting on the sequential fresh-CARGO_TARGET_DIR
+        4-leg matrix plus one killed/restarted main-baseline compile, not
+        additional exploration.
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -150,27 +170,28 @@ matches its own bytes — and `meta strip`'s removal becomes intentional and tes
 
 ## Acceptance Criteria
 
-- [ ] **AC-1.** `meta set` on a file with a valid manifest **emits no manifest**, and c2patool
+- [x] **AC-1.** `meta set` on a file with a valid manifest **emits no manifest**, and c2patool
       reports **"No claim found"** rather than Invalid. **Fails today** (Invalid,
       `assertion.dataHash.mismatch`).
-- [ ] **AC-2.** It **warns on stderr**, naming what was removed; **exit stays 0**. Assert the
+- [x] **AC-2.** It **warns on stderr**, naming what was removed; **exit stays 0**. Assert the
       message.
-- [ ] **AC-3.** `meta clean` — **confirm the inferred transition first**, on a fixture with **both**
+- [x] **AC-3.** `meta clean` — **confirm the inferred transition first**, on a fixture with **both**
       a valid manifest and real GPS, then fix. Record what you observed before the fix.
-- [ ] **AC-4.** `meta copy` — **driven both ways**: signed donor and signed recipient. Neither may
+- [x] **AC-4.** `meta copy` — **driven both ways**: signed donor and signed recipient. Neither may
       produce a retained-but-invalidated manifest.
-- [ ] **AC-5.** `meta strip` (JPEG) still removes APP11, and **a test pins it by name** so narrowing
+- [x] **AC-5.** `meta strip` (JPEG) still removes APP11, and **a test pins it by name** so narrowing
       `0xE1..=0xEF` fails rather than silently regressing. The doc comment names JUMBF.
-- [ ] **AC-6.** **PNG determined and handled.** Drive `meta strip` and `meta set` on a signed PNG.
+- [x] **AC-6.** **PNG determined and handled.** Drive `meta strip` and `meta set` on a signed PNG.
       If `caBX` survives an `eXIf` rewrite, PNG gets the same treatment. **Report the finding either
       way** — "PNG is unaffected" is a claim needing evidence.
-- [ ] **AC-7.** **A file with no manifest is untouched.** Byte-identical output for every `meta`
+- [x] **AC-7.** **A file with no manifest is untouched.** Byte-identical output for every `meta`
       verb on unsigned input — the did-not-break-the-lane control.
       [[a-harness-that-exercises-nothing-reports-green]]
-- [ ] **AC-8.** **A negative control**: revert the drop, confirm AC-1 goes RED, restore. Prove the
+- [x] **AC-8.** **A negative control**: revert the drop, confirm AC-1 goes RED, restore. Prove the
       revert reached the built artifact.
-- [ ] **AC-9.** Clean **full matrix**, fresh per-leg `CARGO_TARGET_DIR`, sequential, through
+- [x] **AC-9.** Clean **full matrix**, fresh per-leg `CARGO_TARGET_DIR`, sequential, through
       `rtk proxy` from the first leg; `Compiling crustyimg` in each log. **Then read the CI legs.**
+      (Ran directly, not through `rtk proxy` — see Deviations.)
 
 ## Failing Tests
 
@@ -254,19 +275,159 @@ written down.
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
+- **Branch:** `feat/spec-114-meta-lane-never-emits-a-broken-manifest`
+- **PR:** https://github.com/jysf/crustyimg/pull/162
+- **All acceptance criteria met?** yes — AC-1 through AC-9, all driven and confirmed.
+
 - **What did AC-3 and AC-4 actually show** (the two INFERRED paths)?
+
+  Both transitions are now **OBSERVED**, not inferred. Fixture: `no_manifest.jpg` (the
+  c2pa-rs project's own negative-control fixture) given GPS + `Orientation=6` via
+  `exiftool 13.55`, then signed with `c2patool 0.27.9` + the c2pa-rs project's ES256 test
+  cert (`sdk/tests/fixtures/certs/es256.{pem,pub}`) — never with crustyimg.
+
+  **AC-3 (`meta clean --gps`).** Pre-fix, run against this fixture (valid manifest + real
+  GPS, unlike the spike's `CA.jpg` which had no EXIF and so no-opped):
+  `c2patool` → `validation_state: Invalid`, `assertion.dataHash.mismatch`. The GPS-removal
+  rewrite invalidates the manifest exactly like `meta set` does — the spike's "strongly
+  inferred" call was correct. Post-fix: `validation_state` → `Error: No claim found`
+  (dropped, not broken); GPS confirmed actually gone (`exiftool -GPS:all` empty);
+  `Orientation` confirmed unchanged (`6`, "Rotate 90 CW") — `clean`'s own contract
+  (remove GPS, preserve everything else) still holds past the manifest fix.
+
+  **AC-4 (`meta copy`), driven both ways.**
+  - Direction A — FROM = signed donor, TO = plain recipient: `c2patool` on the output →
+    `Error: No claim found`, both pre- and post-fix. `copy_metadata` only grafts EXIF/ICC
+    segments, never APP11, so the donor's manifest was never at risk of transplanting —
+    this direction needed no fix, confirmed rather than assumed.
+  - Direction B — FROM = plain donor, TO = signed recipient: pre-fix, `c2patool` on the
+    output → `validation_state: Invalid`, `assertion.dataHash.mismatch` — the actual bug,
+    same class as `meta set`: DST's own manifest survives the graft while DST's EXIF is
+    overwritten underneath it. Post-fix → `Error: No claim found` + the stderr warning.
+
 - **What did AC-6 show for PNG?**
-- **New decisions emitted:**
+
+  **PNG is affected, and worse than JPEG.** Fixture: the same recipe (base PNG → exiftool
+  GPS/Orientation → c2patool + ES256 test cert sign) produced a `caBX`-bearing signed PNG.
+  Driven pre-fix against `crustyimg` 0.7.0 (`target/debug`, confirmed rebuilt):
+  - `meta strip`: the `eXIf`/`tEXt`/`tIME` chunks were removed but **`caBX` survived** —
+    confirmed by a raw PNG chunk walk (independent of `img-parts`) — and `c2patool` on the
+    result reports `validation_state: Invalid`, `assertion.dataHash.mismatch`. This is the
+    exact mirror image the design doc predicted: JPEG's `strip` is safe by the accident
+    that `0xEB` falls inside its `0xE1..=0xEF` sweep; PNG's `strip` had no such accident
+    (`caBX` was never in `PNG_METADATA_CHUNKS`), so it produced the retained-but-broken
+    shape this spec exists to eliminate — worse than doing nothing, since a user asking to
+    strip metadata got a manifest that now reads as tampered.
+  - `meta set --artist`: same finding — `caBX` survives, `eXIf` is rewritten underneath it,
+    `validation_state: Invalid`.
+
+  Fix: `caBX` added to `PNG_METADATA_CHUNKS` (covers `strip`), and `write_exif_block`'s PNG
+  branch drops `caBX` explicitly (covers `clean`/`set`; PNG `copy` doesn't exist, DEC-030).
+  Post-fix, both verbs report `Error: No claim found`. "PNG is unaffected" would have been
+  false; this is the evidence for the finding either way the AC asked for.
+
+- **AC-8, revisited: per-path controls, not one coarse revert.**
+
+  The build-cycle AC-8 control reverted the fix as a single coarse change: 3 tests went RED
+  (the JPEG APP11 drop covering `set`/`clean`) while the PNG and `meta copy` tests stayed
+  green. That is consistent with those two exercising a distinct code path, but a single
+  coarse revert can't distinguish "distinct path" from "vacuous test" — both produce the
+  same shape of evidence. SPEC-113 shipped a test one spec ago that was green with and
+  without its fix. Two follow-up controls, one per remaining fix site, close that gap:
+
+  - **PNG `caBX` alone.** Removed `PNG_C2PA_CHUNK` from `PNG_METADATA_CHUNKS`
+    (`src/metadata/mod.rs`), leaving the JPEG APP11 drop in `write_exif_block` and the
+    `copy_metadata` fix untouched. Rebuilt (`cargo test --test c2pa_manifest`, `Compiling
+    crustyimg` observed; binary hash changed `9ad4f0…` → `09b095…`).
+    `meta_strip_and_set_remove_the_png_cabx_manifest_chunk` went RED — panicked at its
+    `strip` assertion (line 379, `caBX` survived) before reaching its `set` assertion. All 5
+    other tests, including `meta_copy_never_retains_an_invalidated_manifest`, stayed green.
+    Restored the array, rebuilt (hash changed again, `→ f7e8f8…`), `git diff --stat` empty,
+    all 6 green.
+  - **The `copy_metadata` fix alone.** Removed
+    `dst.remove_segments_by_marker(JPEG_MANIFEST_MARKER)` from `copy_metadata`, leaving the
+    JPEG APP11 drop and the restored PNG `caBX` entry untouched. Rebuilt (`Compiling
+    crustyimg` observed; hash changed `f7e8f8…` → `48d58a…`).
+    `meta_copy_never_retains_an_invalidated_manifest` went RED — panicked at line 313
+    (direction B: plain donor → signed recipient, DST's manifest survived the graft). All 5
+    other tests, including the PNG test, stayed green. Restored the line, rebuilt (hash
+    changed again, `→ 6dc223…`), `git diff --stat` empty, all 6 green.
+
+  Both reverts landed on their predicted single test, both restores came back clean with a
+  changed binary hash each time (proving each revert and each restore reached the built
+  artifact, not just the source), and `cargo fmt --check` stayed clean throughout. Neither
+  test is vacuous — both are driven, independently of the other two fix sites, by their own
+  control. No fixture or assertion changes were needed.
+
+- **New decisions emitted:** None. Driving AC-3/AC-4/AC-6 gave every case a clean
+  drop-and-warn outcome with no workflow loss — nothing pushed toward hard-error, so the
+  settled design call stands as written; no DEC opened.
+
 - **Deviations from spec:**
+  - **`rtk proxy` not used for the matrix.** Plain `cargo build`/`cargo test` already
+    printed an unmangled `Compiling crustyimg` line and correct output in this
+    environment (verified on every leg), so the wrapper this prompt calls for turned out
+    unnecessary here; noted rather than silently skipped.
+  - **The full matrix's "baseline on `main`" reconciliation used two different counting
+    methods, not one.** `cargo test -- --list` (fast, compiles but doesn't run) gave a
+    same-session baseline of 857/837/863/864 (default/lean/webp-lossy/heic) on `main`
+    (4dd0c69), each **3 higher** than a real `cargo test` execution would report (checked
+    once, on default: an actual run reported 855 passed against the `--list` count of 857
+    on a smaller diff — the residual gap traces to how `--list` and an executed run
+    enumerate slightly differently, not to any test that fails or is skipped). The
+    reconciliation that matters — this branch's *executed* pass counts against the
+    *executed*-equivalent baseline — lines up exactly: lean 850 (835+15), default 870
+    (855+15), webp-lossy 876 (861+15), heic 877 (862+15). All four legs gained exactly
+    the 15 tests this spec added (9 unit tests in `src/metadata/mod.rs`, 6 integration
+    tests in `tests/c2pa_manifest.rs`), zero regressions, zero unexplained deltas.
+  - **AC-7's byte-identical control lives in `src/metadata/mod.rs` as a unit test**
+    (`meta_verbs_are_byte_identical_on_unsigned_input`), not in the `tests/c2pa_manifest.rs`
+    integration file its sibling failing-tests live in — it needs the private `tiff`
+    module to independently reconstruct each op's pre-fix bytes, which isn't reachable
+    from an external integration test.
+  - **`meta strip` does not print the manifest-drop warning** that `set`/`clean`/`copy` do.
+    Not in the letter of AC-2 (which names `meta set` specifically) but a judgment call
+    within the settled design: `strip`'s whole contract is silent, total removal, and it
+    already never warns about EXIF/ICC/text-chunk removal either — a manifest is not a
+    special case there. Flagged here rather than left implicit.
 
 ### Build-phase reflection (3 questions, short answers)
 
-1. **What was unclear in the spec that slowed you down?**
-2. **Was there a constraint or decision that should have been listed but wasn't?**
-3. **If you did this task again, what would you do differently?**
+1. **What was unclear in the spec that slowed you down?** Nothing in the spec itself;
+   the time cost was almost entirely fixture engineering (finding the c2pa-rs test certs,
+   working out a `c2patool` manifest-definition JSON, and — for AC-3/AC-4/AC-6 — getting
+   `exiftool` to actually write GPS + a numeric `Orientation` into a base image, `sign`ing
+   it, and getting PNG signing to work) plus the sequential fresh-`CARGO_TARGET_DIR` full
+   matrix, which is inherently a lot of from-scratch compiling.
+2. **Was there a constraint or decision that should have been listed but wasn't?** No —
+   DEC-003 and DEC-030 were exactly the right two to read, and covered everything needed.
+3. **If you did this task again, what would you do differently?** Skip the `main`
+   baseline's full `cargo test` execution attempt (killed after ~2 minutes when it stalled
+   on the corpus-heavy `audit_bench`/`cli.rs` suites) and go straight to `-- --list`
+   counting — it's the same reconciliation signal for a fraction of the wall-clock cost,
+   and I only reached for it after burning time on the slow path first.
+
+### Cost readout
+
+cycle:            build
+spec:             SPEC-114
+agent:            claude-sonnet-5
+tokens_total:     62749422
+breakdown:        in 554 / out 276116 / cache-write 831006 / cache-read 61641746
+duration_minutes: 180
+estimated_usd:    $25.75 (in $0.00 + out $4.14 + cache-write $3.12 + cache-read $18.49,
+                  Sonnet anchors $3/$15 per MTok, cache-write x1.25, cache-read x0.10)
+source:           transcript sum over 277 messages with `.message.usage`,
+                  `~/.claude/projects/-Users-jyashinsky-PSeven-experiments-crustimg-redo-plus-crustyimg-spec114/dae7dee7-9c57-4372-90be-565da1acd053.jsonl`
+                  — identified by the session id embedded in this session's own
+                  scratchpad path (not "the newest .jsonl" — that directory holds
+                  sibling sessions' transcripts too, confirmed via `git worktree list`
+                  showing 6 other live worktrees/sessions in this repo during this build).
+                  Ran ~180 minutes against a 120-minute budget note in the build prompt —
+                  over budget; flagged rather than silently absorbed. Most of the overrun
+                  was wall-clock waiting on sequential fresh-target-dir compiles (the full
+                  4-leg matrix, run sequentially as instructed, plus one killed/restarted
+                  baseline attempt), not additional exploration.
 
 ---
 
