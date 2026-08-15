@@ -12,7 +12,7 @@ verbs to agree.
 1. **The spec** — `projects/PROJ-010-post-launch-correctness-and-consolidation/specs/SPEC-116-build-threads-the-truncated-jpeg-warning.md`,
    in full. **9 acceptance criteria, 3 settled design calls, 5 pre-written tests, a negative
    control.** Its `## The design calls` section is binding; do not reopen it.
-2. **The code** (line numbers verified at `c39022d`, the commit you branch from):
+2. **The code** (line numbers verified at `c39022d`; still current at `6395fe4`, the commit you branch from; everything between is docs- and prompt-only):
    - `src/cli/optimize.rs:1292` — the discard, inside `encode_one_optimize_decided`
      (fn starts `:1286`). The fourth element is the flag.
    - `src/cli/optimize.rs:1468-1476` — **the emitting sibling. This is the voice and the gating
@@ -26,7 +26,7 @@ verbs to agree.
 4. **DEC-087** — named this follow-up when SPEC-111 shipped. You are discharging it.
 5. **`/AGENTS.md`** — §4 cost, §6 commands, §12 testing, §13 git/PR, **§15 cycle-specific rules**.
 
-## The verified facts (this repo, `c39022d`, read — not inferred)
+## The verified facts (this repo, read — not inferred)
 
 ```
 src/cli/optimize.rs:1292
@@ -137,7 +137,7 @@ returns them in one call; do not hand-grep downloaded job logs.
 
 - **Own git worktree.** Other sessions may be live in this repo — do not work in the primary
   checkout, and do not assume `target/` is yours. Check `git branch --show-current` before any
-  commit. Branch: `feat/spec-116-build-threads-truncated-jpeg-warning`, base `main` at `c39022d`.
+  commit. Branch: `feat/spec-116-build-threads-truncated-jpeg-warning`, base `main` at `6395fe4` (or later `main`).
 - **Checkpoint early.** Push a WIP commit as soon as it compiles, **before** the matrix — a
   3-hour cycle with zero commits is unrecoverable if it is stopped.
 - **Budget:** if you are past ~90 minutes and the matrix has not started, stop and report what
