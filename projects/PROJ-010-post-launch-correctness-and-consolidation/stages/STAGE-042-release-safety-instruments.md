@@ -105,6 +105,27 @@ failures on documented paths.
 
 ## Spec Backlog
 
+- [ ] (not yet written) — [S] **A squash merge can strand a push that lands near merge time, and
+  nothing warns.** Happened on PR #170, 2026-08-15: commit `7ca85a2` pushed successfully to the
+  branch, GitHub squashed from the head it had captured (`e5aca27`), and the correction vanished
+  with **no conflict and no warning**. It then propagated — STAGE-046 and SPEC-119 were authored
+  against the resulting `main` and both inherited a dependency verdict that was already known to
+  be wrong. Recovered by #172 and `fb61a97`.
+
+  **The detector is cheap and nothing runs it:** for each merged PR compare its `headRefOid`
+  (the head GitHub actually merged) against the branch's current tip; where they differ, check
+  whether the tail commits' own content reached `main`. A full sweep of every merged PR takes
+  seconds via `gh pr list --json number,headRefName,headRefOid`.
+
+  ⚠ **Two wrong methods to skip** — both were tried first and both produce confident nonsense:
+  "commits ahead of `main`" flags *every* squash-merged branch (SHAs are rewritten), and "files
+  differing between `main` and the branch tip" reports the branch's whole drift — ~80 files for a
+  commit that touched one. Scope to the tail commits' files, then assert on content.
+
+  **Swept 2026-08-16: exactly one incident (#170, recovered) across all merged PRs.** #150 flags
+  on head-vs-tip but its tail touches no files — an amend, clean.
+
+
 - [ ] (not yet written) — [S] **A negative control's evidence is the BEHAVIOURAL FLIP, not a binary
   hash.** Measured by SPEC-117's verify, 2026-08-16: across a four-state control sequence
   (baseline → revert A → revert B → restore) the **restore produced a different binary from the
