@@ -140,11 +140,22 @@ The backlog entry left this open ("refuse … or warn loudly"). It is settled as
 decoder/encoder not built, whose messages *name a feature to rebuild with*. An
 animated GIF is recognised, decodable, and has no feature to name.
 
-> **⚠ This is the one call the maintainer may want to overturn**, and it is a
-> product judgment, not a technical one. If the ruling flips to *refuse*: AC-2
-> and AC-3 invert, the warning text becomes an error message, a new
-> `ImageError` variant is needed, and `docs/api-contract.md`'s exit table gains a
-> case. Everything else in this spec stands. **Do not flip it yourself — ask.**
+> **✅ CONFIRMED by the maintainer, 2026-08-16** — *"ok to the warn and proceed, even though I
+> don't love it."* The reservation is recorded because it is legitimate: warning and proceeding
+> still destroys the animation, it just narrates the destruction. A user piping `convert` over a
+> directory without reading stderr loses their frames exactly as they do today.
+>
+> **What answers the reservation: the strict path already exists, in the right verb.** `lint`
+> carries severities and a failing mode — `src/lint/mod.rs:49-53` (`Error` "fails CI", `Warn`
+> "fails only under `--max-warnings`") and `src/cli/report.rs:474`, where *≥1 `Error` finding, or
+> a warn count over `--max-warnings`, exits non-zero*. So
+> **`crustyimg lint --max-warnings 0` already fails on an animated GIF today.**
+>
+> That is a cleaner separation than making `convert` refuse: **`lint` is the gate, `convert` is
+> the tool.** A CI pipeline that must never flatten an animation has an existing, documented way
+> to say so, and the frozen exit-code surface stays frozen.
+>
+> **This strengthens Call 1 and it REVISES Call 4 — see below.**
 
 ### Call 2 — The signal rides on `Image`, exactly like `truncated_jpeg`.
 
@@ -204,11 +215,30 @@ correct fix**, so the finding keeps warning (an animated GIF genuinely is large)
 and its `fix:` stops naming a command that loses data — say plainly that
 crustyimg cannot yet re-encode animation without flattening it.
 
-**Do not rename or broaden the rule ID.** Rule IDs are user-visible and may
-appear in config; extending `format/animated-gif` to cover APNG and animated
-WebP is a lint-surface change that deserves its own decision. The *defect* fix
-(Calls 1–3) covers all three formats regardless of what the linter detects —
-that asymmetry is intentional and should be recorded, not smoothed over.
+**REVISED 2026-08-16, after Call 1 was confirmed.** The original text said "do not rename or
+broaden the rule ID — the asymmetry is intentional." That was written when `lint` was incidental
+to this spec. It no longer is.
+
+Call 1's confirmation makes `lint --max-warnings 0` **the designated strict path** for users who
+cannot tolerate a silent flatten. If the rule only detects GIF, then **APNG and animated-WebP
+users have no strict option at all** — the pixel verbs warn and proceed for them, and the gate
+that would have caught it is blind. That is no longer a tidy-up; it is a hole in the answer this
+spec gives the maintainer's reservation.
+
+So: **the rule must cover what the defect covers — all three formats from Call 3.** The rule
+*ID* is still a user-visible surface, so:
+
+- **Keep `format/animated-gif` firing for GIF** so existing config and output do not break.
+- **Add coverage for APNG and animated WebP.** Whether that is a broadened rule under a new
+  id (e.g. `format/animated-input`) with `format/animated-gif` kept as an alias, or two sibling
+  rules, is a **build-cycle call** — make it, justify it in Build Completion, and note whether any
+  config surface (`.crustyimg-lint.toml` or equivalent) needs a migration note.
+- **The `fix:` string stops naming a destructive command** for all of them. Until animated output
+  exists there is no correct fix; say plainly that crustyimg cannot yet re-encode animation
+  without flattening it.
+
+If broadening turns out to need a config migration, **stop and report** rather than shipping one
+inside this spec.
 
 ## Inputs
 
@@ -252,6 +282,10 @@ that asymmetry is intentional and should be recorded, not smoothed over.
       construction** here and will be rejected.
 - [ ] **AC-7.** **`lint`'s `fix:` string no longer names a command that discards
       frames**, pinned by a test asserting the absence, not just the new text.
+- [ ] **AC-7b.** **`lint` detects all three animated families**, per the revised Call 4, and
+      **`lint --max-warnings 0` exits non-zero on each** — the strict path is the answer this
+      spec gives to "warn and proceed still loses data", so it must be driven, not assumed.
+      A static counterpart of each family stays clean.
 - [ ] **AC-8.** **Byte output is unchanged** for every input that is not
       multi-frame. This spec adds a diagnostic; it must not perturb encoding.
       Compare against `main`'s binary, not against a sibling verb on the same

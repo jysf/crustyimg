@@ -12,7 +12,11 @@ Cycle prompts live in `prompts/SPEC-119-<cycle>.md`.
       **three formats (GIF, APNG, animated WebP), not one**, so complexity moved
       S → M against the stage's estimate.
 - [ ] **build** — prompt not yet written. Sonnet, own worktree.
-      ⚠ **Call 1 (warn vs refuse) is the maintainer-overturnable one.** If it
-      flips to refuse, AC-2/AC-3 invert and the exit-code table changes.
+      ✅ **Call 1 RULED 2026-08-16: warn and proceed**, maintainer-confirmed with a recorded
+      reservation. The reservation is answered by `lint --max-warnings 0`, which already exits
+      non-zero — `lint` is the gate, `convert` is the tool.
+      ⚠ **That ruling REVISED Call 4**: because `lint` is now the designated strict path, the
+      rule can no longer stay GIF-only, or APNG and animated-WebP users get no strict option at
+      all. New **AC-7b** drives `lint --max-warnings 0` on all three families.
 - [ ] **verify** — Opus, new session.
 - [ ] **ship**
