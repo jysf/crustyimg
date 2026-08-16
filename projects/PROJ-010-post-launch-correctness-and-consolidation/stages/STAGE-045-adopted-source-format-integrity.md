@@ -5,7 +5,7 @@
 
 stage:
   id: STAGE-045                     # stable, zero-padded within the project
-  status: active                    # proposed | active | shipped | cancelled | on_hold
+  status: shipped                   # proposed | active | shipped | cancelled | on_hold
   priority: high
   target_complete: null
 
@@ -15,7 +15,7 @@ repo:
   id: crustyimg
 
 created_at: 2026-08-11
-shipped_at: null
+shipped_at: 2026-08-16
 
 value_contribution:
   advances: >
@@ -179,14 +179,14 @@ the one nobody enumerated.**
   the branch before a dithered `LosslessFlat` one worked, and the AVIF trap turned out to be
   unreachable because `avif-parse` rejects a non-`avif` major brand before any guard runs.*
 
-- [ ] **SPEC-117** (framed 2026-08-15) — **Pin `build` and `apply --recipe web` against the
+- [x] **SPEC-117** (framed 2026-08-15, shipped 2026-08-16, PR #174) — **Pin `build` and `apply --recipe web` against the
   adopted-format defect.** SPEC-115's verify DROVE both green on the real binary but pinned
   neither; both delegate unconditionally to the fixed `optimize_decide_one`, so a change to the
   delegation regresses two shipped verbs while every existing test stays green. Two integration
   tests against the committed SVG fixture, no behaviour change. AC-5's per-verb negative control
   is the load-bearing criterion, since neither test fails on HEAD. Complexity **S**.
 
-**Count:** 1 shipped (SPEC-115) / 1 framed (SPEC-117) / 0 pending
+**Count:** 2 shipped (SPEC-115, SPEC-117) / 0 framed / 0 pending — **backlog complete**
 
 ## Design Notes
 
@@ -210,6 +210,101 @@ the one nobody enumerated.**
 ### Enables
 - STAGE-042's matrix gains its third axis (input family).
 
+## Stage Ship (2026-08-16)
+
+**Both delivered capabilities are live.** `optimize` no longer ships an SVG, HEIC or RAW container
+verbatim under a `png`/`jpeg` label it never produced (SPEC-115, PR #156), and the two other verbs
+that share that seam — `build` and `apply --recipe web` — are now pinned against the same defect
+(SPEC-117, PR #174).
+
+### Success criteria, checked against what shipped
+
+| criterion | verdict |
+|---|---|
+| No output claims a format its bytes are not, driven per family with an independent sniff | ✅ SPEC-115 |
+| The **stdin** spelling is covered | ✅ SPEC-115 — the case where the extension lies too |
+| A legitimate passthrough still passes through byte-identical, **without false-negating on AVIF** | ✅ SPEC-115 — the `mif1`-major trap was the spec's headline warning and was handled by recording origin at load rather than sniffing |
+| The report names the real container on **both** channels | ✅ SPEC-115 |
+| **A negative control per family** | ✅ SPEC-115 per family; SPEC-117 then extended the pattern **per verb** |
+| Full matrix clean **including the `heic` job**, CI legs read individually | ✅ both |
+
+**Six for six.** Unusually, this stage has no partial — contrast STAGE-043, which closed with one.
+
+### `value_link` check
+
+Both specs delivered what they claimed. SPEC-117 is the interesting case: its `value_link` promised
+to close the gap SPEC-115's *verify* had identified — that verify drove `build` and
+`apply --recipe web` green by hand but pinned neither — and it delivered exactly that, with zero
+source changes. **A stage item created by a previous spec's verify cycle, and discharged.**
+
+### Built vs planned, in three sentences
+
+Two specs planned, two shipped, no scope growth. Elapsed 2026-08-11 → 2026-08-16, with SPEC-115
+carrying nearly all of it — its fixture hunt was the overrun, and SPEC-117 deliberately reused the
+committed SVG fixture rather than repeating it. Cost **$79.98**: SPEC-115 $47.80 / 113.9M tokens,
+SPEC-117 $32.18 / 73.2M.
+
+### The emergent thing: a pin costs more than the fix it protects
+
+SPEC-117 was **two tests, zero source changes, complexity `S`** — and cost **$32.18**, more than
+SPEC-116's real fix with six tests and a source change ($21.94). The expense is not the work; it
+is the **verification**: two per-verb controls plus a three-leg matrix with fresh target dirs is
+six-plus full rebuilds of this crate, twice over across build and verify.
+
+Two consequences worth carrying:
+
+1. **Complexity ratings describe the change, not the cycle cost.** `S` was correct for the work
+   and useless as a budget.
+2. **Wall-clock budgets cannot see it.** The spec's "if this takes more than an hour, something is
+   wrong" line passed at 62 minutes and caught nothing. Worse, the build's own **mid-session**
+   reading was $11.76 against a session-end $23.06 — **49% low**, the second measurement of that
+   gap in this project after SPEC-114's 40%. Budget controls and rebuilds, not minutes, and
+   measure at session end.
+
+This is not an argument against the pin. SPEC-117's controls proved the tests are real, and
+verify's own re-runs proved the controls were. It is an argument for **pricing verification
+honestly at design** instead of discovering it at ship.
+
+### Follow-up
+
+- **No new stage.** The decide path's adopted-format defect is closed at the seam and pinned at
+  three of its four verbs; RAW/HEIC coverage for `build`/`apply` was scoped out deliberately as
+  four more tests for no additional signal.
+- **Two findings went to STAGE-042** from this stage's verify: a control's evidence is the
+  behavioural flip rather than a binary hash (measured, with the restore producing a different
+  binary from identical source), and the cost/wall-clock mismatch above.
+
+### Proposed updates to AGENTS / guidance
+
+1. **AGENTS §15: a negative control needs one revert per independent condition, and its evidence
+   is the behavioural flip.** Both halves are now measured — the first by STAGE-043's failure, the
+   second by this stage's verify. They should land as one amendment.
+2. **An acceptance criterion written from one verb's surface may not transfer to another.** AC-4
+   said "the summary/`--json`" and `build` has neither; verify had to rule whether that was a
+   deviation or an imprecise AC. Worth a line in the spec template: **name the surface per verb,
+   or say "the verb's report" and let the spec define it.**
+
+---
+
 ## Stage-Level Reflection
 
-*Filled in when status moves to shipped.*
+- **Did we deliver the outcome in "What This Stage Is"?** **Yes, six criteria for six.** The
+  decide path no longer emits bytes it cannot name, on any of the three input families PROJ-009
+  added, and the two sibling verbs that share the seam are pinned rather than merely observed.
+- **How many specs did it actually take?** Two, as planned — but the second existed only because
+  SPEC-115's verify noticed it had *driven* two verbs green without pinning them. **The stage's
+  second item was generated by its first item's verify cycle**, which is the process working
+  rather than scope creep.
+- **What changed between starting and shipping?** Nothing about the work. What changed is what we
+  now know about its price: a zero-source-change pin cost more than the fix it protects.
+- **Lessons that should update AGENTS.md, templates, or constraints?**
+  - **A control's evidence is the behavioural flip, not a hash** — measured here, and it revises
+    guidance the orchestrator itself wrote into SPEC-116's verify prompt.
+  - **Price verification at design.** Complexity `S` described the change correctly and predicted
+    the cost by a factor of three in the wrong direction.
+  - **Measure cost at session end** — 49% low mid-session, the second such measurement.
+- **Should any spec-level reflections be promoted to stage-level lessons?** **Yes.** SPEC-117's
+  *"matching on assertion shape is not the same as matching on the code path exercised"* — the
+  orchestrator cited a precedent that looked identical and exercised a user-pinned path rather
+  than an auto-decide one. That is a general trap in this repo, where many tests share an
+  assertion idiom across very different code paths.

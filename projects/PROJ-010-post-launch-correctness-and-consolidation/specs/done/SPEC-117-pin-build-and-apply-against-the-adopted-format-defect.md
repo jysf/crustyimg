@@ -7,7 +7,7 @@
 task:
   id: SPEC-117
   type: task                       # epic | story | task | bug | chore
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: medium
   complexity: S                    # S | M | L  (L means split it)
@@ -65,10 +65,34 @@ cost:
         with usage, covering the full cycle including the AC-6 CI-legs readout.
         Sonnet $3/$15 per MTok anchors (model actually reported by every message);
         cache_creation x1.25, cache_read x0.10.
+    - cycle: verify
+      agent: claude-opus-5
+      interface: claude-code
+      tokens_total: 10384064
+      duration_minutes: 28
+      recorded_at: 2026-08-16
+      tokens_breakdown: {input: 200, output: 92971, cache_creation: 287581, cache_read: 10003312}
+      estimated_usd: 9.12
+      note: >
+        MEASURED at session end (own transcript, identified by content — the
+        negative-control marker and baseline binary hash this session emitted),
+        100 assistant messages, every one claude-opus-5. Opus $5/$25 anchors;
+        cache_creation x1.25, cache_read x0.10. Orchestrator re-derived at ship:
+        sum and dollars both match. Covers both re-run negative controls, the
+        AC-6 baseline established by RUNNING rather than counting, and a full
+        three-leg matrix — in 28 minutes against a ~60 budget.
+    - cycle: ship
+      interface: claude-code
+      tokens_total: null
+      duration_minutes: null
+      estimated_usd: null
+      note: >
+        Un-metered main-loop ship cycle (AGENTS §4). Merge, cost totals,
+        reflection, archive, and the STAGE-045 close-out.
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 73188497
+    estimated_usd: 32.18
+    session_count: 4
 ---
 
 # SPEC-117: pin `build` and `apply --recipe web` against the adopted-format defect
@@ -291,4 +315,46 @@ a vacuous pass riding on the other's fix.
 
 ## Reflection (Ship)
 
-*Appended during the **ship** cycle.*
+**Shipped 2026-08-16.** PR #174 (squash `4c346ad`), 16/16 applicable CI checks green.
+Cost: 73,188,497 tokens / **$32.18** across four cycles (design null, build $23.06 Sonnet,
+verify $9.12 Opus, ship null).
+
+**1. Did the spec hold up?** Yes, and its unusual shape was the point. This was a **regression pin
+on working behaviour** — neither test was red on `HEAD`, by design — so the spec said outright that
+`test-before-implementation` did not apply in its usual form, and that **AC-5's per-verb negative
+control was load-bearing in its place.** Both cycles honoured that: the build ran two genuinely
+independent reverts (one at `build`'s wrapper, one at `apply`'s pinned short-circuit), each
+turning only its own verb's test red, and verify re-ran them rather than accepting the record.
+Nobody treated the absence of a red-to-green transition as a finding.
+
+**2. What did the cycle catch that the spec did not?** Three corrections, two of them to the
+architect rather than the build:
+
+- **AC-4's wording did not transfer to `build`.** The criterion says "the summary/`--json` names
+  the real container", written from `optimize`/`web`'s surface. `build` has **no `--json` at all**
+  and its stderr is aggregate-only, so the written filename plus lockfile entry are not one
+  reading among several — they are the entirety of `build`'s report. Verify ruled it satisfied as
+  written rather than a deviation, correctly: recording a deviation would have logged the AC's
+  imprecision as the build's error.
+- **The handoff's precedent was wrong.** The orchestrator cited `input_svg.rs:85` as house style
+  for an exact-format assertion; verify checked its provenance and found it is a *user-pinned*
+  `convert --format webp`, which says nothing about an auto-decide path. Exact-`WebP` is right for
+  a **structural** reason instead — `fast_fallback_lossy_entry` matches only
+  `{Avif, WebP, Jpeg}` and a rasterized SVG reports `Png`, so no lossy candidate is ever
+  shortlisted. **Matching on assertion shape is not the same as matching on the code path
+  exercised.**
+- **AC-5 bought more than vacuity protection.** Revert A patched only the `Decide` arm's callee,
+  so the test flipping RED is direct proof its target takes that arm — discharging
+  "a harness that exercises nothing reports green", not merely the vacuous-pin concern.
+
+**3. What should change?** Two things, both filed on STAGE-042:
+
+- **A control's evidence is the behavioural flip, not a binary hash.** Verify measured what
+  SPEC-116's verify assumed: across the four-state control sequence the *restore* produced a
+  different binary from byte-identical baseline source. A hash proves only that a relink happened.
+  Folds into AGENTS §15 alongside STAGE-043's "one revert per independent condition".
+- **Cost tracks rebuilds, not minutes.** This spec — two tests, zero source changes, nominally
+  `S` — cost **$32.18**, more than SPEC-116's real fix ($21.94). The build's own mid-session
+  reading was $11.76 against a session-end $23.06, **49% low**. A wall-clock budget cannot see
+  that: the spec's "if this takes more than an hour something is wrong" line passed at 62 minutes
+  and caught nothing.
