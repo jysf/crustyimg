@@ -7,7 +7,7 @@
 task:
   id: SPEC-119
   type: bug
-  cycle: design
+  cycle: verify
   blocked: false
   priority: critical               # silent data loss on shipped verbs, and the
                                    # tool's own linter recommends the command
@@ -31,6 +31,7 @@ references:
   decisions:
     - DEC-085
     - DEC-004
+    - DEC-092
   constraints:
     - clippy-fmt-clean
     - test-before-implementation
@@ -58,10 +59,28 @@ cost:
         the backlog entry asked for (result in Call 3, with its grep), settled
         the refuse-vs-warn call against DEC-085 and STAGE-030, and found the
         carrier for the signal already exists as `Image::truncated_jpeg`.
+    - cycle: build
+      agent: claude-sonnet-5
+      interface: claude-code
+      tokens_total: 135194829
+      duration_minutes: 60.1
+      recorded_at: 2026-08-16
+      tokens_breakdown:
+        input: 906
+        output: 333061
+        cache_creation: 903047
+        cache_read: 133957815
+      estimated_usd: 48.57
+      note: >
+        MEASURED — summed .message.usage over 453 assistant messages in this
+        session's own transcript, priced per-component at Sonnet anchors
+        ($3/$15 per MTok; cache_creation x1.25, cache_read x0.10). Cache reads
+        are 99.1% of tokens_total, so the flat 80/20 shortcut would badly
+        overstate this — priced by component per the pricing note.
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 135194829
+    estimated_usd: 48.57
+    session_count: 1
 ---
 
 # SPEC-119: animated input is never silently flattened
@@ -265,39 +284,39 @@ inside this spec.
 
 ## Acceptance Criteria
 
-- [ ] **AC-1.** An animated GIF through `convert`, `optimize` and `web` **warns on
+- [x] **AC-1.** An animated GIF through `convert`, `optimize` and `web` **warns on
       stderr**, naming the input and saying frames were discarded. Assert on the
       message, not on non-empty stderr.
-- [ ] **AC-2.** **Exit stays 0 and frame 1 is still written.** Per Call 1.
-- [ ] **AC-3.** **Not `--quiet`-gated**, matching DEC-085 and its sibling. Pinned
+- [x] **AC-2.** **Exit stays 0 and frame 1 is still written.** Per Call 1.
+- [x] **AC-3.** **Not `--quiet`-gated**, matching DEC-085 and its sibling. Pinned
       by a test, because the adjacent cache warning *is* quiet-gated.
-- [ ] **AC-4.** **A static GIF produces no warning.** The did-not-break-it
+- [x] **AC-4.** **A static GIF produces no warning.** The did-not-break-it
       control — without it, "always warn" passes AC-1 and ruins the verb.
       [[a-harness-that-exercises-nothing-reports-green]]
-- [ ] **AC-5.** **APNG and animated WebP warn too**, per Call 3, with their own
+- [x] **AC-5.** **APNG and animated WebP warn too**, per Call 3, with their own
       tests and their own static controls.
-- [ ] **AC-6.** **The assertion is structural, never the quality score.** Assert
+- [x] **AC-6.** **The assertion is structural, never the quality score.** Assert
       the discarded frames directly — count `ANMF` chunks / decode the output's
       frame count. A test that asserts "ssim stayed high" is **vacuous by
       construction** here and will be rejected.
-- [ ] **AC-7.** **`lint`'s `fix:` string no longer names a command that discards
+- [x] **AC-7.** **`lint`'s `fix:` string no longer names a command that discards
       frames**, pinned by a test asserting the absence, not just the new text.
-- [ ] **AC-7b.** **`lint` detects all three animated families**, per the revised Call 4, and
+- [x] **AC-7b.** **`lint` detects all three animated families**, per the revised Call 4, and
       **`lint --max-warnings 0` exits non-zero on each** — the strict path is the answer this
       spec gives to "warn and proceed still loses data", so it must be driven, not assumed.
       A static counterpart of each family stays clean.
-- [ ] **AC-8.** **Byte output is unchanged** for every input that is not
+- [x] **AC-8.** **Byte output is unchanged** for every input that is not
       multi-frame. This spec adds a diagnostic; it must not perturb encoding.
       Compare against `main`'s binary, not against a sibling verb on the same
       branch — a same-branch cross-check cannot see a change that moved both.
       [[fixtures-from-the-code-under-test-cannot-fail]]
-- [ ] **AC-9.** **A negative control per format**: revert the detection for GIF,
+- [x] **AC-9.** **A negative control per format**: revert the detection for GIF,
       APNG and WebP **independently**; confirm each format's test goes RED and
       the static controls stay green. **Three controls, not one coarse revert** —
       three detection sites are three independent claims. Prove each revert
       reached the built artifact.
       [[reverting-source-does-not-rebuild-the-binary]]
-- [ ] **AC-10.** Clean **full matrix** from fresh per-leg `CARGO_TARGET_DIR`s, run
+- [x] **AC-10.** Clean **full matrix** from fresh per-leg `CARGO_TARGET_DIR`s, run
       **sequentially**, through `rtk proxy` from the first leg: default,
       `--no-default-features`, `--features webp-lossy`. Clippy and `fmt --check`
       each. **Establish your own `main` baseline.** Then read the CI legs
@@ -395,18 +414,110 @@ transition and `test-before-implementation` applies in its usual form.
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
-- **New decisions emitted:**
+- **Branch:** `fix/spec-119-animated-input-never-silently-flattened`
+- **PR:** opened at the end of this cycle — see the PR link in the session's final message.
+- **All acceptance criteria met?** yes — all 11 (AC-1 through AC-10, including AC-7b).
+- **New decisions emitted:** DEC-092 (`decisions/DEC-092-animated-input-warns-and-proceeds-lint-is-the-strict-gate.md`)
+  — Call 1 (warn-and-proceed, DEC-085's sibling) and Call 4's separate-rule-id choice,
+  `affected_scope` covering `src/image/**`, `src/cli/**`, `src/lint/**`, and the new tests.
+- **AVIF (Call 3's open question): PROVEN SAFE, not merely unproven.** Read
+  `avif-parse` 2.1.0's `read_avif` source directly (not inferred): it checks the
+  `ftyp` major brand before touching `meta`/`iloc`, and an animated-AVIF sequence
+  (`avis`) is rejected with a typed `Error::Unsupported("Animated AVIF is not
+  supported. Please use real AV1 videos instead.")` — a hard decode error, before
+  any pixel allocation. `Image::from_bytes` therefore never constructs an `Image`
+  from an animated AVIF at all. This is a stronger finding than the spec asked
+  for ("determine whether the path can receive a sequence") — it does not merely
+  fail to receive one, it is refused with an actionable message. No code change
+  was needed on this path; `decode_avif_inner`/`map_parse_err` already surface it
+  correctly.
+- **Lint rule id (Call 4's build-cycle choice): two sibling rules, not a
+  broadened rule with an alias.** `format/animated-gif` is untouched (still
+  GIF-only, existing config/output unaffected) and a new `format/animated-input`
+  covers APNG + animated WebP. Reasoning in the `AnimatedInput` doc comment
+  (`src/lint/rules.rs`) and in DEC-092: an alias would need config-layer
+  resolution machinery (`known_rule_ids`, `select`/`ignore`/`severity`) that does
+  not exist today; two single-format rules need none, and no config migration.
+- **Detection is centralized, not duplicated.** `src/image/mod.rs`'s
+  `detect_animated_input`/`gif_is_animated`/`png_is_apng`/`webp_is_animated` are
+  the ONE place all three formats are detected — `Image::from_bytes` sets the
+  flag at decode time, and `lint`'s `AnimatedGif`/`AnimatedInput` rules read
+  `target.decoded().ok()?.is_animated_input()` (the same flag) instead of
+  re-decoding. This directly answers the spec's stated root cause ("the linter
+  knows the file is animated and the encoder path does not") — after this
+  change there is exactly one detector, consulted from both places, so they
+  cannot disagree. The AC-9 negative controls confirm the three format
+  detectors are still three independent claims (reverting one flips exactly
+  its own tests red, both the pixel-verb warning tests AND the lint tests for
+  that format, and leaves the other two formats' tests green).
 - **Deviations from spec:**
-- **Follow-up work identified:**
+  - The spec's Call 2 text names `raw_preview` **and "SVG rasterization"** as
+    the two constructors that must set the flag `false` explicitly. In the
+    implementation, only `raw_preview` needs an explicit `animated_input: false`
+    — it is a separate constructor that never calls `detect_animated_input`. SVG
+    (and HEIC) do NOT need a special case: `Image::from_bytes` computes the flag
+    generically from `(original bytes, resolved source_format)` for every decode
+    path, and since SVG/HEIC bytes are never valid GIF/PNG/WebP bytes, all three
+    format-specific detectors fail-safe to `false` on them through their normal
+    `Err(_) => false` decode-error arm — the same mechanism that makes a corrupt
+    file read as "not animated" rather than needing a dedicated branch. Same
+    effect as the spec described, fewer special cases; noted here so a future
+    reader does not go looking for an SVG-specific `animated_input: false` that
+    was never needed.
+  - `optimize_decide_one`'s return tuple grew a 5th element and tripped
+    clippy's `type_complexity` lint at the existing 4-tuple's threshold; added
+    `#[allow(clippy::type_complexity)]` with a one-line rationale rather than
+    introducing a named struct (which would still thread the same number of
+    fields through 3 call sites for no clarity gain) — matches the existing
+    `#[allow(clippy::too_many_arguments)]` precedent elsewhere in the same file.
+- **Follow-up work identified (found, not fixed — out of this spec's scope):**
+  - **`src/source/mod.rs`'s `IMAGE_EXTENSIONS` allow-list is missing `webp`.**
+    WebP decode is a default-feature, fully supported input format, but
+    directory/glob discovery (used by `lint <dir>`, `convert dir/*`, etc.)
+    silently skips `.webp` files — a directory containing only a `.webp` file
+    resolves to zero inputs (`lint` exits 3, "no resolvable inputs"). This is
+    NOT a SPEC-119 regression (reproduces identically on `main`); discovered
+    while writing AC-7b's WebP test, which had to lint the fixture by its own
+    single-file path (never extension-filtered) to work around it. Recorded in
+    DEC-092's Consequences; `tests/lint.rs`'s two SPEC-119 tests document the
+    workaround inline. Fixing `IMAGE_EXTENSIONS` changes discovery behavior for
+    every command, not just these two rules, so it deserves its own spec.
+  - `docs/roadmap.md`'s "Engine-backed lint rules" row (line ~65) says "10
+    shipped rules" — now 11 after `format/animated-input`. Its "Animated
+    output" row (line ~70) still frames the tool as flattening animations
+    "silently" — after this spec, the flatten is no longer silent (it warns),
+    though the animated-*output* capability itself is still unbuilt exactly as
+    that row describes. Neither line is load-bearing for this spec's
+    acceptance criteria; left for the ship-cycle doc pass rather than touched
+    here, matching this repo's practice of not scope-creeping into roadmap
+    prose mid-build.
+  - `docs/research/proj-002-design-lint.md`'s rule table (a PROJ-002 design
+    snapshot, not a maintained catalog) still shows `format/animated-gif`'s
+    old `fix:` — not updated; it is historical record, not a live contract.
 
 ### Build-phase reflection (3 questions, short answers)
 
-1. **What was unclear in the spec that slowed you down?**
-2. **Was there a constraint or decision that should have been listed but wasn't?**
-3. **If you did this task again, what would you do differently?**
+1. **What was unclear in the spec that slowed you down?** The fixture
+   guidance ("build them natively... or declare untested") did not anticipate
+   that `image` 0.25 has NO encode-side APNG or animated-WebP API at all (only
+   decode) — so "native" fixture construction meant hand-assembling RIFF/PNG
+   container chunks byte-by-byte against the `image-webp`/`png`-crate parsers'
+   exact acceptance rules, which took real reverse-engineering (reading
+   `image-webp` 0.2.4's `decoder.rs`/`encoder.rs` and the APNG chunk spec) that
+   the prompt's one-line pointer ("the way `rules.rs:361` already does") did
+   not prepare for — that precedent is GIF-only, where `image` DOES have an
+   encoder. This was the single largest time sink in the build.
+2. **Was there a constraint or decision that should have been listed but
+   wasn't?** The `IMAGE_EXTENSIONS`-missing-`webp` gap (above) — it directly
+   shaped how AC-7b's WebP test had to be written, and nothing in the spec or
+   its Notes anticipated that `lint <directory>` and `lint <file>` could
+   behave differently for the exact format this spec adds coverage for.
+3. **If you did this again, what would you do differently?** Read
+   `avif-parse`'s `read_avif` and `image-webp`'s `decoder.rs`/`encoder.rs`
+   source FIRST, before writing any detection or fixture code — both the AVIF
+   finding and the APNG/WebP fixture feasibility turned entirely on exact
+   upstream-crate wire-format details that no amount of API-surface reading
+   (docs, signatures) would have surfaced; only reading the parser bodies did.
 
 ---
 
