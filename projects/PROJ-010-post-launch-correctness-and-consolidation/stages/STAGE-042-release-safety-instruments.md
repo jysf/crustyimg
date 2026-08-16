@@ -105,6 +105,19 @@ failures on documented paths.
 
 ## Spec Backlog
 
+- [ ] (not yet written) — [S] **A negative control's evidence is the BEHAVIOURAL FLIP, not a binary
+  hash.** Measured by SPEC-117's verify, 2026-08-16: across a four-state control sequence
+  (baseline → revert A → revert B → restore) the **restore produced a different binary from the
+  byte-identical baseline source** (`9d4a2871…` vs `097e9526…`). So in this repo's debug profile a
+  changed hash proves only that a relink happened — exactly what a "Compiling crustyimg" line
+  already proves, and no more strongly. **Neither shows the edit reached the artifact; the test
+  going RED does**, because the reverted code is observed executing. SPEC-116's verify used the
+  hash instrument and got away with it. Fold into AGENTS §15 alongside STAGE-043's proposed
+  "one revert per independent condition" update — they are the same lesson from two directions.
+  *Scope caveat from the measurement: one incremental target dir, macOS, debug; a fresh dir and
+  the release profile were not tested.*
+
+
 - [ ] (not yet written) — [M] **`decisions-audit`'s overlap check drowns its own signal.** Measured
   2026-08-15: a full run emits **~1,200 `both govern overlapping scope` warnings** (1,187 counted
   in one complete-enough run, in 2,312 lines of output) and takes **over two minutes**. Every one
