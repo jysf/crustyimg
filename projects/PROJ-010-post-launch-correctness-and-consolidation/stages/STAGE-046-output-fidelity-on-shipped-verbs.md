@@ -127,11 +127,11 @@ Three further reasons the timing is now and not later:
 Ordered. D-A first because it is small, urgent, independent of the others, and
 carries no lockfile cost.
 
-- [ ] (not yet written) — [S] animated input is never silently flattened: detect
-      multi-frame on the pixel path, refuse or warn loudly instead of discarding
-      frames, and stop `lint` recommending the destructive command. Includes the
-      mechanical sweep for other multi-frame formats (animated WebP decode, APNG)
-      — the `format/animated-gif` rule name may itself be too narrow.
+- [ ] **SPEC-119** (design 2026-08-15) — [M] animated input is never silently flattened: warn on
+      the pixel path instead of discarding frames, and stop `lint` recommending
+      the destructive command. **The sweep ran at design and the rule name WAS
+      too narrow** — GIF, APNG and animated WebP all flatten silently, so this is
+      three formats, not one. Re-estimated S → M for that reason.
 - [ ] (not yet written) — [M] ops preserve colour type and bit depth: widen to
       work, narrow to write. Fixes D-B and D-C in one change across the three op
       bodies. Lockfile-invalidating.
@@ -143,7 +143,7 @@ carries no lockfile cost.
       conditional on the measurement above. Lockfile-invalidating; sequence with
       the colour-type spec so the migration is paid once.
 
-**Count:** 0 shipped / 0 active / 4 pending
+**Count:** 0 shipped / 1 in flight (SPEC-119, design) / 3 pending
 
 ## Design Notes
 

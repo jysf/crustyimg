@@ -105,6 +105,20 @@ failures on documented paths.
 
 ## Spec Backlog
 
+- [ ] (not yet written) — [S] **The stage template documents a bullet format `just backlog`
+  does not recognise.** `_lib.sh:212` treats a bullet as *promoted* only when it matches
+  `**SPEC-NNN**` — bold. `projects/_templates/stage.md` documents
+  `Format: `- [status] SPEC-ID (cycle) — one-line summary`` — no bold. A stage written to its
+  own template therefore double-counts every promoted spec as backlog. Hit live on STAGE-046,
+  2026-08-15. Fix the template, the matcher, or both; whichever, they must agree.
+
+- [ ] (not yet written) — [S] **`build`'s `Preserve` and `Pinned` arms never warn on a truncated
+  JPEG.** They route through `encode_one` (`src/cli/common.rs`), which has no truncation check at
+  all — so a truncated JPEG stays silent on those two arms, on `main` and after SPEC-116. Found
+  and correctly reported (not fixed) by SPEC-116's build; AC-7 put it out of scope. Same class
+  SPEC-116 closed for the Decide arm. Confirm it reproduces before speccing.
+
+
 - [ ] **SPEC-118** (framed 2026-08-15) — **The shipped-surface conformance matrix.** Iterate
   `recipe::bundled::names()` across every entry point that accepts a recipe — `apply --recipe`,
   a `build` manifest target, and `wasm::transform` — and assert each runs and produces valid
