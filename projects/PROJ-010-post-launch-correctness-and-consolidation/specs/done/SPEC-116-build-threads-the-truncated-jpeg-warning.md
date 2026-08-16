@@ -7,7 +7,7 @@
 task:
   id: SPEC-116
   type: bug                        # epic | story | task | bug | chore
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: medium
   complexity: S                    # S | M | L  (L means split it)
@@ -78,10 +78,42 @@ cost:
         (3 full-workspace `cargo test` runs, one with a slow ~193s
         `audit_bench` binary) run sequentially per the guardrail, not to
         active generation.
+    - cycle: verify
+      agent: claude-opus-5
+      interface: claude-code
+      tokens_total: 10975994
+      duration_minutes: 129
+      recorded_at: 2026-08-15
+      tokens_breakdown:
+        input: 198
+        output: 105909
+        cache_creation: 339045
+        cache_read: 10530842
+      estimated_usd: 10.03
+      note: >
+        MEASURED — transcript sum over 99 assistant messages
+        (cc2f4817-fdf7-41c7-b145-35b0e8dc1f27.jsonl), all claude-opus-5.
+        Priced per component at Opus anchors ($5/$25 per MTok;
+        cache_creation x1.25 input, cache_read x0.10 input) — 95.9% of
+        tokens were cache reads. Orchestrator re-derived it independently
+        at ship: sum and dollar figure both match to the cent. Verifier's
+        stated caveat: measured before their final report message, so it
+        excludes roughly 4k output tokens (~$0.10). Most of the wall clock
+        was the AC-9 matrix (six full test legs, sequential) plus three
+        extra rebuilds for the AC-8, test-before-implementation and
+        AC-7-vacuity controls.
+    - cycle: ship
+      interface: claude-code
+      tokens_total: null
+      duration_minutes: null
+      estimated_usd: null
+      note: >
+        Un-metered main-loop ship cycle (AGENTS §4). Merge, cost totals,
+        reflection, archive, and the STAGE-043 close-out.
   totals:
-    tokens_total: 28772199
-    estimated_usd: 11.91
-    session_count: 2
+    tokens_total: 39748193
+    estimated_usd: 21.94
+    session_count: 4
 ---
 
 # SPEC-116: `build` threads the truncated-JPEG warning
@@ -201,7 +233,10 @@ Written during **design**, BEFORE build. At least one must FAIL on today's `HEAD
   - `"build_truncated_jpeg_warning_survives_quiet"` — AC-4. **FAILS today**, and would fail
     again the moment someone quiet-gates it.
   - `"build_does_not_warn_on_a_clean_jpeg"` — AC-5. **Passes today**; the control.
-  - `"build_output_bytes_unchanged_for_a_clean_input"` — AC-6. **Passes today**.
+  - `"build_and_apply_agree_on_bytes_for_a_clean_input"` — AC-6. **Passes today.** Renamed from
+    `build_output_bytes_unchanged_for_a_clean_input` at the punch list: it pins the same-branch
+    cross-verb invariant, and the cross-version claim was driven once out of band instead —
+    see `## Build Completion`.
 - **Negative control** (AC-8, run and recorded, not committed)
   - Revert the emit → `build_warns_on_a_truncated_jpeg_like_apply_does` RED,
     `build_does_not_warn_on_a_clean_jpeg` still green.
@@ -325,4 +360,35 @@ No source changes. No new tests. `cycle:` stays at `verify` — verify re-reads 
 
 ## Reflection (Ship)
 
-*Appended during the **ship** cycle.*
+**Shipped 2026-08-15.** PR #171 (squash `016e89f`), 16/16 applicable CI checks green.
+Cost: 39,748,193 tokens / **$21.94** across four cycles (design null, build $11.91 Sonnet,
+verify $10.03 Opus, ship null).
+
+**1. Did the spec hold up?** Yes, and its three settled design calls were the reason. The build
+report says the trap — copying the `--quiet`-gated cache warning four lines below the call site
+instead of the unconditional sibling — "never became a live risk" because the spec named it. That
+is the clearest evidence this session that settling a call at design is cheaper than discovering
+it at build.
+
+**2. What did the cycle catch that the spec did not?** Three things, all from verify, and all of
+a kind the spec could not have predicted:
+- a **cache HIT swallows the warning** — `build_one` returns before the format-plan match, so
+  run 1 warns and run 2 is silent while `apply` warns every time;
+- **DEC-085's `affected_scope` was blind to its own second enforcement site**, proven with the
+  audit tool's own output on this very diff;
+- the AC-6 test was **correctly implemented and wrongly labelled** — it pins `build == apply` on
+  the branch, not byte-identity to `main`.
+
+The third is the interesting one. The build met AC-6 in substance (verify drove the bytes and
+they were identical) but the test's *name* claimed something stronger than its body checked. A
+green test with a false name is worse than a missing test, because it answers the audit question
+wrongly instead of leaving it open.
+
+**3. What should change?** Two things already have: DEC-085's scope now covers `src/cli/build.rs`,
+and STAGE-042 carries five new instrument items found this session — including that
+`decisions-audit` emits ~1,200 overlap warnings, which is how a real finding nearly went unseen.
+
+The lesson worth carrying past this spec: **the orchestrator's handoff should name what it has
+already checked.** Pre-crediting the cost arithmetic and the design-call compliance let verify
+spend its budget on the two open questions instead of re-deriving settled ones — and both new
+defects came out of that reallocated effort.

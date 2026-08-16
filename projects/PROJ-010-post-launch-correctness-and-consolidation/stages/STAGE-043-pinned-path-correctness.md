@@ -139,13 +139,13 @@ which is exactly the pattern D-1 shows on a bigger scale.
   never-bigger comparison already exists on the decide path; the work is reaching it from the
   pinned branch without disturbing cross-format).
 
-- [ ] **SPEC-116** (framed 2026-08-15) — **`build` threads the truncated-JPEG warning.**
+- [x] **SPEC-116** (framed 2026-08-15, shipped 2026-08-15, PR #171) — **`build` threads the truncated-JPEG warning.**
   DEC-087's named follow-up: `encode_one_optimize_decided` discards the flag at
   `optimize.rs:1292`, so `apply` warns and `build` is silent on the identical input. Asserts
   both verbs agree, and pins that `--quiet` does NOT suppress it (DEC-085) — the adjacent
   cache warning IS quiet-gated, which is the trap. Complexity **S**.
 
-**Count:** 1 shipped (SPEC-113) / 1 framed (SPEC-116) / 0 pending
+**Count:** 2 shipped (SPEC-113, SPEC-116) / 0 framed / 0 pending — **backlog complete**
 
 ## Design Notes
 
