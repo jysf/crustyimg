@@ -105,74 +105,38 @@ failures on documented paths.
 
 ## Spec Backlog
 
-- [ ] (not yet written) — [S] **A squash merge can strand a push that lands near merge time, and
-  nothing warns.** Happened on PR #170, 2026-08-15: commit `7ca85a2` pushed successfully to the
-  branch, GitHub squashed from the head it had captured (`e5aca27`), and the correction vanished
-  with **no conflict and no warning**. It then propagated — STAGE-046 and SPEC-119 were authored
-  against the resulting `main` and both inherited a dependency verdict that was already known to
-  be wrong. Recovered by #172 and `fb61a97`.
+- [ ] (not yet written) — [S] ⚠ **PRIORITY: the `IMAGE_EXTENSIONS` gap silently defeats the
+  strict gate that a maintainer decision rests on.** Not a new defect — the *consequence* of the
+  item below, and it is why that item is no longer routine.
 
-  **The detector is cheap and nothing runs it:** for each merged PR compare its `headRefOid`
-  (the head GitHub actually merged) against the branch's current tip; where they differ, check
-  whether the tail commits' own content reached `main`. A full sweep of every merged PR takes
-  seconds via `gh pr list --json number,headRefName,headRefOid`.
+  SPEC-119's Call 1 (animated input **warns and proceeds** rather than refusing) was accepted on
+  2026-08-16 on one argument: **`lint --max-warnings 0` is the strict path**, so a pipeline that
+  must never flatten an animation has a way to say so. Driven by SPEC-119's verify:
 
-  ⚠ **Two wrong methods to skip** — both were tried first and both produce confident nonsense:
-  "commits ahead of `main`" flags *every* squash-merged branch (SHAs are rewritten), and "files
-  differing between `main` and the branch tip" reports the branch's whole drift — ~80 files for a
-  commit that touched one. Scope to the tail commits' files, then assert on content.
+  ```
+  lint --max-warnings 0 <dir containing anim.webp>   → exit 0   "1 scanned · 0 warn"
+  lint --max-warnings 0 <dir>/anim.webp              → exit 7
+  optimize <dir>/*.webp                              → warns; 408 → 240 B, 4 frames → 1
+  ```
 
-  **Swept 2026-08-16: exactly one incident (#170, recovered) across all merged PRs.** #150 flags
-  on head-vs-tip but its tail touches no files — an amend, clean.
+  **Directory mode — the shape CI actually uses — returns a false green.** Naming the file or
+  piping stdin both work. `docs/api-contract.md` states `lint --max-warnings 0` "fails on any of
+  the three formats" **with no qualifier**, which is now false as written.
 
+  Two things follow: the contract sentence needs its qualifier (SPEC-119 punch list), and the
+  `IMAGE_EXTENSIONS` fix should be **specced rather than left in the backlog**, because a
+  maintainer ruling now depends on it.
 
-- [ ] (not yet written) — [S] **A negative control's evidence is the BEHAVIOURAL FLIP, not a binary
-  hash.** Measured by SPEC-117's verify, 2026-08-16: across a four-state control sequence
-  (baseline → revert A → revert B → restore) the **restore produced a different binary from the
-  byte-identical baseline source** (`9d4a2871…` vs `097e9526…`). So in this repo's debug profile a
-  changed hash proves only that a relink happened — exactly what a "Compiling crustyimg" line
-  already proves, and no more strongly. **Neither shows the edit reached the artifact; the test
-  going RED does**, because the reverted code is observed executing. SPEC-116's verify used the
-  hash instrument and got away with it. Fold into AGENTS §15 alongside STAGE-043's proposed
-  "one revert per independent condition" update — they are the same lesson from two directions.
-  *Scope caveat from the measurement: one incremental target dir, macOS, debug; a fresh dir and
-  the release profile were not tested.*
-
-
-- [ ] (not yet written) — [M] **`decisions-audit`'s overlap check drowns its own signal.** Measured
-  2026-08-15: a full run emits **~1,200 `both govern overlapping scope` warnings** (1,187 counted
-  in one complete-enough run, in 2,312 lines of output) and takes **over two minutes**. Every one
-  of them is the same shape, and the top pairs are trivially-shared globs:
-
-  | count | glob pair |
-  |---|---|
-  | 401 | `Cargo.toml ~ Cargo.toml` |
-  | 237 | `src/cli/mod.rs ~ src/cli/mod.rs` |
-  | 103 | `src/cli/** ~ src/cli/mod.rs` |
-
-  The check pairs every DEC against every other and warns on any prefix overlap, so it is O(n²)
-  over decisions sharing a common file — and **every dependency decision "overlaps" every other
-  dependency decision**, which is true and useless. The consequence is not cosmetic: the one
-  semantically real overlap this week (DEC-088 / DEC-091) sat near line 1,150 of 2,312 and was
-  **only noticed because a truncated `tail` happened to land on it**. An instrument that surfaces
-  its one real finding by luck is not surfacing it. Options: exclude manifest/module-root globs
-  from the pairing, warn only on globs shared by ≤N decisions, or make it a distinct opt-in
-  subcommand instead of part of the default lint. **This is a STAGE-042 instrument, so its own
-  signal-to-noise is in scope.**
-
-
-- [ ] (not yet written) — [S] **DEC-091 refines DEC-088 and neither record says so.** The audit
-  flags them as governing overlapping scope (`docs/territory.md`) and asks whether they
-  contradict. **Checked 2026-08-15: they do not.** DEC-091's own text opens *"DEC-088's
-  generalization fence is **kept**, restated at the level it actually operates on
-  (parameters)"* — it refines DEC-088's fence and adds a second one, while DEC-088's other half
-  (the three tiers of external integration) is untouched. So neither supersedes the other, and
-  `supersedes` / `superseded_by` are both `null` on both — correctly, because **the schema has no
-  way to express "refines"**. A reader arriving at DEC-088 alone gets the older, looser statement
-  of the fence with no pointer to the refinement. Fix is either a prose cross-reference in both
-  files (cheap, no schema change) or a new front-matter relation field (a framework change needing
-  its own DEC). **No adjudication needed — the relationship is already settled in the text.**
-
+- [ ] (not yet written) — [S] **`webp` is missing from `IMAGE_EXTENSIONS`, so directory and glob
+  discovery silently skips `.webp` files.** `src/source/mod.rs:105-113` lists 30+ extensions —
+  jpg/png/gif/bmp/tif/ico/avif/svg, eleven RAW families, heic/heif — and **not `webp`**, which is
+  a supported input *and* an output format the tool writes by default. So `crustyimg web ./dir/`
+  processes everything except the files crustyimg itself produced. **Reproduces on `main`,
+  confirmed 2026-08-16**; found by SPEC-119's build and recorded in DEC-093, which is not a
+  backlog anyone reads. The repo already knows this hazard class — `src/lint/mod.rs:217` cites
+  "the IMAGE_EXTENSIONS-exposes-every-decode-caller lesson" by name. Adding an extension changes
+  every decode caller, so **audit each caller and its `Err(_)` arm** rather than editing the list
+  alone.
 
 - [ ] (not yet written) — [S] **A `build` cache HIT swallows the truncated-JPEG warning.**
   `build_one` returns at `src/cli/build.rs:415` on `cache.lookup`, before the format-plan match
@@ -184,20 +148,11 @@ failures on documented paths.
   decode), so this is arguably consistent with the decision's letter. Found and driven by
   SPEC-116's verify, 2026-08-15.
 
-
-- [ ] (not yet written) — [S] **The stage template documents a bullet format `just backlog`
-  does not recognise.** `_lib.sh:212` treats a bullet as *promoted* only when it matches
-  `**SPEC-NNN**` — bold. `projects/_templates/stage.md` documents
-  `Format: `- [status] SPEC-ID (cycle) — one-line summary`` — no bold. A stage written to its
-  own template therefore double-counts every promoted spec as backlog. Hit live on STAGE-046,
-  2026-08-15. Fix the template, the matcher, or both; whichever, they must agree.
-
 - [ ] (not yet written) — [S] **`build`'s `Preserve` and `Pinned` arms never warn on a truncated
   JPEG.** They route through `encode_one` (`src/cli/common.rs`), which has no truncation check at
   all — so a truncated JPEG stays silent on those two arms, on `main` and after SPEC-116. Found
   and correctly reported (not fixed) by SPEC-116's build; AC-7 put it out of scope. Same class
   SPEC-116 closed for the Decide arm. Confirm it reproduces before speccing.
-
 
 - [ ] **SPEC-118** (framed 2026-08-15) — **The shipped-surface conformance matrix.** Iterate
   `recipe::bundled::names()` across every entry point that accepts a recipe — `apply --recipe`,
@@ -250,33 +205,18 @@ failures on documented paths.
   printing the resolved name@version and the git commit before the final step, so the maintainer
   confirms against something rather than nothing. Queued item #11. Complexity **S**.
 
-- [ ] (chore) — **`just validate` silently skips untracked files.**
-  `scripts/validate-frontmatter.sh:31` enumerates via `git ls-files`, so a **newly created** spec
-  or stage — exactly the file most likely to have malformed front-matter — is invisible to the
-  validator until it is staged. It reports success with an unchanged block count, which reads as
-  a pass. Found while writing this very stage: `just validate` said "250 blocks ✓" with two new
-  stage files on disk, and only said 252 after `git add`. Fix: warn when an untracked
-  `*.md`/`*.yaml` sits under `projects/` or `decisions/`, or enumerate the working tree and note
-  which files are untracked. **The block count should be part of the output people read**, since
-  the count not moving is the only tell. [[a-harness-that-exercises-nothing-reports-green]]
-  Complexity **S**.
-
 - [ ] (chore) — **Two `RELEASING.md` steps, both earned by the 0.7.0 cut.** (a) Diff the CHANGELOG
   against the specs merged since the previous tag — 0.7.0's `[Unreleased]` section was written in
   advance and had **no entry for SPEC-112**, so the release would have shipped its headline fix
   silently had the roll not caught it. (b) Run `just wasm-test`, which no CI leg does. Complexity
   **S**.
 
-- [ ] (not yet framed, **added 2026-08-15**) — **`next_id` mints duplicate spec IDs.** It scans
-  only the WORKING TREE, so any spec living on an unmerged branch is invisible to it. Driven
-  live: with SPEC-116 and SPEC-117 sitting in PR #166, `just new-spec` on a branch off `main`
-  minted **SPEC-116 again**. `next_id`'s own comment warns about a different scoping failure
-  (passing a single project dir restarts at 001), so this one was unanticipated rather than
-  accepted. Same family as the counter bugs fixed 2026-08-15: it fails by producing a plausible
-  wrong answer, silently. Fix is to consult git refs, or at minimum warn when a higher ID exists
-  on another ref. Complexity **S**.
+**Count:** 1 framed (SPEC-118) / 7 pending / 1 chore done
 
-**Count:** 1 chore done (npm publish guard) / 1 framed (SPEC-118) / 1 spec + 4 chores pending
+> **Nine framework-tooling items moved to STAGE-047 on 2026-08-16.** They were about `just`,
+> `next_id`, the stage template, prompt budgets and squash-merge behaviour — the harness that
+> builds crustyimg, not crustyimg or its release. Keeping them here diluted the item that
+> actually blocks a maintainer ruling.
 
 ## Design Notes
 

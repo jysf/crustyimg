@@ -11,10 +11,16 @@ Cycle prompts live in `prompts/SPEC-120-<cycle>.md`.
       measurement spike). Design found that SSIMULACRA2 cannot score a downscale
       against its source (`report.rs:329`), which reshaped the experiment: it
       needs an independently-generated reference at the target dimensions.
-- [~] **build** — prompt: `prompts/SPEC-120-build.md`. **Opus, not Sonnet** — the output is a
-      judgment about instrument validity; AC-2's positive control is load-bearing.
-      Worktree `../crustyimg-spec120` on `chore/spec-120-measure-linear-light-premise`,
-      created 2026-08-16 off `main` at `4b1192c`. **Forked to run in isolation** — no `src/`
-      changes, no overlap with SPEC-119, and nothing is blocked on it.
-- [ ] **verify** — Opus, new session.
+- [x] **build** — 2026-08-16, Opus. PR #175, `src/` and `tests/` untouched.
+      $8.69 / 11,365,430 tokens / 22 min. **Verdict: premise holds, spec the fix.**
+      AC-2 fired: −88.07% physical error registered as a **163.85-point** SSIMULACRA2 swing, so
+      the realistic rows (70.45 on `graphic_large`, 84.45 on the photo) are readable rather than
+      an uninterpretable null. DEC-092 written.
+      **The alpha half of the premise is REFUTED** — `fast_image_resize` 6.0.0's
+      `ResizeOptions::default()` sets `mul_div_alpha: true` and `new()` is `Default::default()`,
+      so `Resize::apply` has always premultiplied. The fix spec is one premise, not two.
+- [ ] **verify** — prompt: `prompts/SPEC-120-verify.md`. Opus, new session, own worktree.
+      Four open items flagged at handoff, the first load-bearing: the prototype scores ~100 partly
+      because it shares the reference's algorithm, so the verdict must rest on **today's** score
+      against an independent reference, not on the delta's size.
 - [ ] **ship**
