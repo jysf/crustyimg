@@ -824,3 +824,109 @@ become an effects backlog.**
 ⚠ **All of it is bounded by the 8-bit sRGB pipeline** (see the resampling entry above): blurs,
 gradient maps and curves band at 256 levels/channel, and compositing in non-linear space makes
 blends and glows subtly wrong.
+
+---
+
+## ⚠ Live defect — ops widen to RGBA and never narrow back (2026-08-15)
+
+**Not a roadmap candidate — wrong today, on shipped verbs, including the flagship.** Same class as
+D-1: a default path that hands the user a worse result than it received. Measured by driving
+`target/debug/crustyimg` (built 2026-08-14, newer than all three source files) against
+purpose-built PNGs and reading the output **IHDR** — a structural assertion, not a byte guess.
+
+### The measurement
+
+Source: 64×64 PNG, `bit_depth=8`, **`colour_type=2` (RGB, no alpha)**.
+
+| verb | out `colour_type` | verdict |
+|---|---|---|
+| `convert --format png` | 2 (RGB) | ✅ correct |
+| `optimize` | 2 (RGB) | ✅ correct |
+| `auto-orient` | 2 (RGB) | ✅ correct |
+| `resize --max 32` | **6 (RGBA)** | ❌ alpha invented |
+| `thumbnail --size 32` | **6 (RGBA)** | ❌ alpha invented |
+| `edit --invert` | **6 (RGBA)** | ❌ alpha invented |
+| **`web`** | **6 (RGBA)** | ❌ **the flagship verb** |
+| `watermark --text` | 6 (RGBA) | arguable — compositing genuinely needs alpha |
+
+The clean verbs are exactly the ones that run **no `Operation`** (`convert`/`optimize` use the
+decide/encode path; `AutoOrient` returns `img` unchanged or clones the variant). Every verb that
+folds a real op through the pipeline comes out RGBA.
+
+### Root cause — one call, three sites
+
+`Operation::apply` implementations widen unconditionally and never narrow back:
+
+- `Invert::apply` — `img.pixels().to_rgba8()` (`src/operation/mod.rs:197`)
+- `Resize::apply` — `img.pixels().to_rgba8()` (`src/operation/mod.rs:396`)
+- `Watermark::apply` — `src/operation/mod.rs:816-817`
+
+`web` is `auto-orient → resize → optimize`, so **fixing `Resize` fixes the flagship.**
+
+### Why it matters more than it looks
+
+**It contradicts the product's core claim.** An all-opaque alpha channel is pure waste, and
+crustyimg's whole thesis is quality-per-byte. Measured on a 512×512 representative PNG, same
+pixels: RGB **377,132 B** vs RGBA **423,756 B** — **+46,624 B, +12.4%**, for a channel carrying no
+information. `optimize` may re-decide a format and mask this on some paths, but `resize`,
+`thumbnail` and `web` write it out.
+
+### The same call also truncates 16-bit — one fix, two defects
+
+`to_rgba8()` is *also* why 16-bit input is silently halved, and the two are one code change.
+Measured on a 32×32 `bit_depth=16` RGB PNG:
+
+| verb | out | |
+|---|---|---|
+| `convert` / `auto-orient` | **16-bit, RGB** | ✅ already preserved |
+| `resize` / `edit --invert` | 8-bit, RGBA | ❌ halved **and** alpha-added |
+
+**So "crustyimg is 8-bit internally" is not accurate as stated.** Decode preserves the
+`DynamicImage` variant, `Identity` and `AutoOrient` preserve it, and the default encode path
+(`img.pixels().write_to(..)`, `src/sink/mod.rs:718`) preserves it. **Only the three op bodies
+above collapse it.** `Image` already wraps `DynamicImage`, which already has `ImageRgb16` /
+`ImageRgba16` variants — **no type change is needed anywhere.** `fast_image_resize` 5.x already
+ships `U16x4`/`F32x4` (see the resampling entry above).
+
+### What the fix has to decide
+
+- **Narrow-back policy.** Simplest correct rule: an op preserves the input's colour type and bit
+  depth unless it genuinely needs more (compositing a translucent overlay). "Widen to work, narrow
+  to write" is the shape.
+- **Lossy targets are 8-bit** (JPEG, lossy WebP) — that downgrade should be **reported**, in the
+  spirit of SPEC-090's honest size reporting, not silent.
+- ⚠ **It changes output bytes for existing recipes**, so it invalidates PROJ-007 build lockfiles —
+  the same migration cost the linear-light entry carries. **Sequence the two together**; paying
+  that migration twice would be avoidable waste. (The linear-light entry is right that they are
+  *technically* independent; this is about blast radius, not dependency.)
+- **No new flag.** The correct behaviour is "preserve what you were given when the target format
+  can hold it", which the user should not have to ask for.
+
+---
+
+## Metadata-driven text — the differentiated half of `watermark --text` (2026-08-15)
+
+`src/text/mod.rs` (351 lines) renders **one line** of text — no newline handling, no wrapping, no
+kerning (`render_text(font_bytes, text, size_px, color) -> RgbaImage`) — composited through the
+`Watermark` op's gravity.
+
+**The commodity part is compositing a string. The differentiated part is where the string comes
+from.** Stamping capture date / camera / lens / exposure from the image's own EXIF is:
+
+- **already supplied by the container lane** — `kamadak-exif` read ships today, so **zero new
+  dependencies**;
+- **Fence-A clean** — the *template* generalizes across a batch even though the *value* is
+  per-image, exactly as the sink's existing `{stem}` name template does. That precedent is the
+  design to copy: `{exif:Model}`, `{exif:DateTimeOriginal}`, `{width}`, `{stem}`;
+- **in-territory** — it produces a delivery artifact automatically, which the effects catalog's
+  stylistic filters do not.
+
+Supporting work, in rough value order: multi-line + wrapping (the natural completion of the
+existing primitive) · stroke/shadow for legibility over busy photos (`tiny_skia` can do it, already
+linked) · a caption bar that extends the canvas, which needs `pad`/`extend` from the Geometry
+extras table · contact-sheet cell labels.
+
+⛔ **Out of scope, firm tier:** OG-card rendering. `docs/territory.md:104` — *"No HTML generation,
+templating, routing, or OG-card rendering in crustyimg."* That is the separate web-content tool's
+job, with the manifest as the seam. Worth stating explicitly because it is the most obvious
+"text beyond watermark" idea and it is already excluded.
