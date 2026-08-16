@@ -1283,13 +1283,18 @@ fn optimize_decide_one(
 /// `timing` are both `false`: neither affects the winner or its bytes (only
 /// the report [`optimize_decide_one`] never generates here), and `build` has
 /// no per-input audit to spend them on.
+///
+/// Returns the truncated-JPEG flag as a third element (SPEC-116) rather than
+/// printing here: this is a pure encode helper with no label and no business
+/// writing to stderr — `build_one` has the label and emits, matching how
+/// `run_optimize`'s own call sites consume the same flag.
 pub(super) fn encode_one_optimize_decided(
     pixel_recipe: &Recipe,
     registry: &OperationRegistry,
     input: &crate::source::Input,
-) -> Result<(String, Vec<u8>), CliError> {
+) -> Result<(String, Vec<u8>, bool), CliError> {
     let pipeline = pixel_recipe.build_pipeline(registry)?;
-    let (output, _trace, _score, _truncated_jpeg) = optimize_decide_one(
+    let (output, _trace, _score, truncated_jpeg) = optimize_decide_one(
         input,
         &pipeline,
         &AutoQuality::Fast,
@@ -1297,10 +1302,11 @@ pub(super) fn encode_one_optimize_decided(
         false,
         false,
     )?;
-    Ok(match output {
+    let (ext, bytes) = match output {
         OptimizeOutput::Encoded { bytes, ext } => (ext, bytes),
         OptimizeOutput::Passthrough { raw, ext } => (ext, raw),
-    })
+    };
+    Ok((ext, bytes, truncated_jpeg))
 }
 
 /// Render one input's report: `--explain` (json→stdout, human→stderr), else the
