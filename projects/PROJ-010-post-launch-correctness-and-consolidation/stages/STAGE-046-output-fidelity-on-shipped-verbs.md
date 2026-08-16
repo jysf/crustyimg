@@ -135,15 +135,16 @@ carries no lockfile cost.
 - [ ] (not yet written) — [M] ops preserve colour type and bit depth: widen to
       work, narrow to write. Fixes D-B and D-C in one change across the three op
       bodies. Lockfile-invalidating.
-- [ ] (not yet written) — [S] measure D-D's premise: does SSIMULACRA2 score
-      linear-light output better than current output on a representative
-      downscale? **Gates the next spec** — if it does not, close D-D rather than
-      spec it.
+- [ ] **SPEC-120** (design 2026-08-15) — [S] measure D-D's premise before fixing
+      it. **Gates the next spec.** Design found SSIMULACRA2 cannot score a
+      downscale against its source (equal dimensions, `report.rs:329`), so the
+      experiment needs an independently-generated reference — and must prove the
+      scorer can see the effect at all before a null result is readable.
 - [ ] (not yet written) — [M] resize in linear light with premultiplied alpha,
       conditional on the measurement above. Lockfile-invalidating; sequence with
       the colour-type spec so the migration is paid once.
 
-**Count:** 0 shipped / 1 in flight (SPEC-119, design) / 3 pending
+**Count:** 0 shipped / 2 in flight (SPEC-119, SPEC-120 — both design) / 2 pending
 
 ## Design Notes
 
