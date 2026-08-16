@@ -90,10 +90,19 @@ bounds, and the build prompt told the builder to report it. **That part was done
 the same failure mode that cost this repo three measured defects sitting invisible in
 `docs/backlog.md` on 2026-08-15 [[a-document-is-not-a-backlog-unless-tooling-reads-it]].
 
-**Punch-list item:** it needs a bullet on **STAGE-042**'s `## Spec Backlog` in the form
-`- [ ] (not yet written) — [S] <summary>`, so `just backlog` sees it. Confirm the defect is real
-first (drive a truncated JPEG through a `Preserve` and a `Pinned` target and observe the silence)
-— **do not file a finding you have not reproduced.**
+**The orchestrator filed it on STAGE-042 on 2026-08-15**, so `just backlog` now surfaces it.
+That closes the disappearance risk but **not** the verification: it was filed on the builder's
+word, unreproduced.
+
+**Your job on this item is therefore:**
+
+1. **Confirm it reproduces** — drive a truncated JPEG through a `Preserve` target and a `Pinned`
+   target and observe the silence. If it does not reproduce, the STAGE-042 bullet is wrong and
+   should be corrected or removed; say so. **A filed finding nobody drove is still a claim**
+   [[a-claimed-failure-mode-is-as-unproven-as-a-claimed-success]].
+2. **Check whether anything else in Build Completion has the same no-reader problem.** That
+   section is prose that archives; sweep it for other findings, deviations or follow-ups that
+   need a home outside the spec, and list any you find.
 
 ## The rest of the checklist
 

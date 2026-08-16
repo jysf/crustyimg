@@ -27,6 +27,10 @@ mode = "max"
 width = 16
 "#;
 
+/// The committed text-SVG fixture (SPEC-115/SPEC-117) — see `tests/input_svg.rs`.
+/// Do not synthesize a new one.
+const SVG_FIXTURE: &[u8] = include_bytes!("fixtures/svg/rect_text_40x30.svg");
+
 // ── Fixture helpers ───────────────────────────────────────────────────────────
 
 /// Generate a solid-color RGB PNG at `dir/rel` (creating parent dirs).
@@ -57,6 +61,16 @@ fn run_build(dir: &Path, args: &[&str]) -> Output {
         .current_dir(dir)
         .output()
         .expect("binary should run")
+}
+
+/// The committed truncated-JPEG hostile fixture (SPEC-107) — see
+/// `tests/fixtures/hostile/README.md`. Do not synthesize a new one
+/// (SPEC-116).
+fn truncated_jpeg_fixture() -> Vec<u8> {
+    std::fs::read(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/hostile/truncated.jpg"),
+    )
+    .expect("tests/fixtures/hostile/truncated.jpg should exist")
 }
 
 /// Assert a written output exists and has the expected dimensions.
@@ -1032,4 +1046,359 @@ out = "dist"
             String::from_utf8_lossy(&out.stderr)
         );
     }
+}
+
+// ── SPEC-116: build threads the truncated-JPEG warning ─────────────────────────
+
+/// AC-1/AC-3: `build` on a Decide-plan target whose input is `truncated.jpg`
+/// warns on stderr, naming the input — and it is the SAME warning line
+/// `apply --recipe web` prints for the identical input, not merely a similar
+/// one. Comparing against `apply`'s own stderr (rather than a text literal
+/// duplicated in the test) is what actually pins the two verbs together; a
+/// hardcoded substring here could pass even if `TRUNCATED_JPEG_WARNING`
+/// diverged between the two call sites.
+#[test]
+fn build_warns_on_a_truncated_jpeg_like_apply_does() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    write_file(root, "src/truncated.jpg", &truncated_jpeg_fixture());
+    write_file(
+        root,
+        "crustyimg.build.toml",
+        br#"
+version = 1
+
+[[target]]
+source = "src/truncated.jpg"
+recipe = "web"
+out = "dist"
+"#,
+    );
+
+    let apply = Command::new(BIN)
+        .args(["apply", "--recipe", "web", "src/truncated.jpg", "--out-dir"])
+        .arg("apply_out")
+        .current_dir(root)
+        .output()
+        .expect("failed to run apply");
+    let apply_stderr = String::from_utf8_lossy(&apply.stderr).into_owned();
+    let apply_warning = apply_stderr
+        .lines()
+        .find(|l| l.starts_with("warning:"))
+        .unwrap_or_else(|| {
+            panic!("apply did not warn on the truncated fixture; stderr: {apply_stderr}")
+        })
+        .to_owned();
+    assert!(
+        apply_warning.contains("src/truncated.jpg"),
+        "apply's warning must name the input, got: {apply_warning}"
+    );
+
+    let out = run_build(root, &[]);
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let build_stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        build_stderr.lines().any(|l| l == apply_warning),
+        "build must emit the SAME truncated-JPEG warning apply does for the \
+         identical input; apply said {apply_warning:?}, build's stderr was: {build_stderr}"
+    );
+}
+
+/// AC-2: the warning is a diagnostic, not a failure — a truncated JPEG still
+/// decodes into a valid (if partly-grey) image, and `build` must still write
+/// it and exit 0.
+#[test]
+fn build_still_writes_output_and_exits_zero_on_a_truncated_jpeg() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    write_file(root, "src/truncated.jpg", &truncated_jpeg_fixture());
+    write_file(
+        root,
+        "crustyimg.build.toml",
+        br#"
+version = 1
+
+[[target]]
+source = "src/truncated.jpg"
+recipe = "web"
+out = "dist"
+"#,
+    );
+
+    let out = run_build(root, &[]);
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "a truncated JPEG is a diagnostic, not a failure — build must still \
+         exit 0; stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let written: Vec<_> = std::fs::read_dir(root.join("dist"))
+        .unwrap_or_else(|e| panic!("dist/ must exist: {e}"))
+        .collect();
+    assert_eq!(
+        written.len(),
+        1,
+        "the partial decode must still be written as output"
+    );
+}
+
+/// AC-4: `--quiet` suppresses the build summary (see `build_reports_summary`
+/// above) but must NOT suppress this warning — DEC-085 made it unconditional
+/// deliberately, and the cache-store warning four lines below the call site
+/// in `build.rs` IS `--quiet`-gated, which is the trap this test exists to
+/// catch [[a-criterion-nobody-claims-is-a-criterion-nobody-checks]].
+#[test]
+fn build_truncated_jpeg_warning_survives_quiet() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    write_file(root, "src/truncated.jpg", &truncated_jpeg_fixture());
+    write_file(
+        root,
+        "crustyimg.build.toml",
+        br#"
+version = 1
+
+[[target]]
+source = "src/truncated.jpg"
+recipe = "web"
+out = "dist"
+"#,
+    );
+
+    let out = run_build(root, &["--quiet"]);
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.to_lowercase().contains("truncat"),
+        "--quiet must not suppress the truncated-JPEG warning; stderr: {stderr}"
+    );
+}
+
+/// AC-5: the did-not-break-it control. Without this, "always warn" would
+/// pass AC-1 and ruin the verb
+/// [[a-harness-that-exercises-nothing-reports-green]].
+#[test]
+fn build_does_not_warn_on_a_clean_jpeg() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    write_file(root, "src/clean.jpg", &common::gradient_jpeg(64, 64));
+    write_file(
+        root,
+        "crustyimg.build.toml",
+        br#"
+version = 1
+
+[[target]]
+source = "src/clean.jpg"
+recipe = "web"
+out = "dist"
+"#,
+    );
+
+    let out = run_build(root, &[]);
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        !stderr.to_lowercase().contains("truncat"),
+        "a clean JPEG must not warn about truncation, got: {stderr}"
+    );
+}
+
+/// AC-6: this spec adds a diagnostic only — it must not perturb encoding.
+/// Pins the same-branch cross-verb invariant: `build`'s bytes for a clean
+/// input must be byte-identical to `apply --recipe web` on the identical
+/// input, checked the same way `build_writes_the_decided_format_not_the_source_format`
+/// checks format parity. The stronger cross-version claim (identical to
+/// `main`'s output before this change) was driven once out of band at
+/// verify rather than pinned here — a committed golden would go red on
+/// every `ravif`/`image` bump for reasons unrelated to this spec. See
+/// `## Build Completion` for that evidence.
+#[test]
+fn build_and_apply_agree_on_bytes_for_a_clean_input() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    write_file(root, "src/clean.jpg", &common::gradient_jpeg(64, 64));
+    write_file(
+        root,
+        "crustyimg.build.toml",
+        br#"
+version = 1
+
+[[target]]
+source = "src/clean.jpg"
+recipe = "web"
+out = "dist"
+"#,
+    );
+
+    let out = run_build(root, &[]);
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let written: Vec<String> = std::fs::read_dir(root.join("dist"))
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(written.len(), 1, "exactly one output written");
+    let build_bytes = std::fs::read(root.join("dist").join(&written[0])).unwrap();
+
+    let apply_dir = root.join("apply_out");
+    let apply = Command::new(BIN)
+        .args(["apply", "--recipe", "web", "src/clean.jpg", "--out-dir"])
+        .arg(&apply_dir)
+        .current_dir(root)
+        .output()
+        .expect("failed to run apply");
+    assert!(
+        apply.status.success(),
+        "apply stderr: {}",
+        String::from_utf8_lossy(&apply.stderr)
+    );
+    let apply_bytes = std::fs::read(apply_dir.join(&written[0])).unwrap();
+
+    assert_eq!(
+        build_bytes, apply_bytes,
+        "this spec adds a diagnostic only — output bytes for a clean input \
+         must remain byte-identical to apply --recipe web"
+    );
+}
+
+/// AC-7: `OutputFormatPlan::Pinned` goes through `encode_one`, not
+/// `encode_one_optimize_decided` — out of scope for this spec. Pin that a
+/// truncated JPEG through the pinned arm behaves exactly as it does on
+/// `main`: it still exits 0 and writes output, and (since `encode_one` has
+/// no truncation check of its own, on `main` or after this change) it still
+/// does NOT warn. That silence is a real, separate gap — reported in Build
+/// Completion for STAGE-042's conformance matrix, not fixed here.
+#[test]
+fn build_pinned_format_arm_is_untouched_by_the_decide_arm_fix() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    write_file(root, "src/truncated.jpg", &truncated_jpeg_fixture());
+    write_file(
+        root,
+        "crustyimg.build.toml",
+        br#"
+version = 1
+
+[[target]]
+source = "src/truncated.jpg"
+recipe = "web"
+out = "dist"
+name = "{stem}.png"
+"#,
+    );
+
+    let out = run_build(root, &[]);
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        !stderr.to_lowercase().contains("truncat"),
+        "the Pinned arm is out of scope for this spec (AC-7) — it must \
+         behave exactly as it does on main, which today never warns; \
+         got: {stderr}"
+    );
+    assert!(
+        root.join("dist/truncated.png").exists(),
+        "the pinned-format output must still be written"
+    );
+}
+
+/// SPEC-117 (AC-2/AC-3/AC-4): `build` shares the same auto-decide seam as
+/// `apply --recipe web` via `encode_one_optimize_decided` (the
+/// `OutputFormatPlan::Decide` arm), so SPEC-115's fix must hold there too.
+/// This pins behaviour that already works: there is no red-to-green
+/// transition to demonstrate here, and AC-5's per-verb negative control (run
+/// and recorded, not committed) is what proves the pin is real.
+#[test]
+fn build_on_svg_source_writes_a_real_raster() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    write_file(root, "src/rect_text_40x30.svg", SVG_FIXTURE);
+    write_file(
+        root,
+        "crustyimg.build.toml",
+        br#"
+version = 1
+
+[[target]]
+source = "src/rect_text_40x30.svg"
+recipe = "web"
+out = "dist"
+"#,
+    );
+
+    let out = run_build(root, &[]);
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    let written: Vec<String> = std::fs::read_dir(root.join("dist"))
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(
+        written.len(),
+        1,
+        "exactly one output written, got {written:?}"
+    );
+    let written_name = &written[0];
+    let bytes = std::fs::read(root.join("dist").join(written_name)).unwrap();
+
+    // AC-2: the written bytes are a real WebP, sniffed on the bytes — the
+    // rasterized SVG's `source_format` reports as `png` (no `ImageFormat::Svg`),
+    // which `fast_fallback_lossy_entry` does not match, so no lossy fallback
+    // candidate ever competes with the lossless WebP/PNG shortlist; WebP wins
+    // on every feature leg (verified by hand: default, --no-default-features,
+    // --features webp-lossy all agree, byte-identically).
+    assert_eq!(
+        image::guess_format(&bytes).ok(),
+        Some(ImageFormat::WebP),
+        "the written file must sniff as a real WebP, not the raw SVG container; \
+         path=dist/{written_name}"
+    );
+
+    // AC-4: the "report" for `build` is the written name and lockfile entry —
+    // they must carry the real decided extension, not an adopted `.svg`/`.png`
+    // label a broken delegation would carry.
+    assert!(
+        written_name.ends_with(".webp"),
+        "the written name must carry the real decided extension; got {written_name}"
+    );
+    let lock_text = std::fs::read_to_string(root.join("crustyimg.build.lock")).unwrap();
+    assert!(
+        lock_text.contains(written_name.as_str()),
+        "lockfile must name the actually-written file {written_name}, got: {lock_text}"
+    );
+
+    // AC-3: the defect's signature was shipping the source container verbatim
+    // under a raster name — assert against it directly rather than inferring
+    // from the format sniff alone.
+    assert_ne!(
+        bytes, SVG_FIXTURE,
+        "the SVG source bytes must never be written verbatim under a raster name"
+    );
 }

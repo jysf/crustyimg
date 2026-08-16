@@ -1,0 +1,393 @@
+---
+# Maps to ContextCore task.* semantic conventions.
+# This variant assumes Claude plays every role. The context normally
+# in a separate handoff doc lives in the ## Implementation Context
+# section below.
+
+task:
+  id: SPEC-119
+  type: bug
+  cycle: design
+  blocked: false
+  priority: critical               # silent data loss on shipped verbs, and the
+                                   # tool's own linter recommends the command
+  complexity: M                    # framed S on the stage; the design sweep
+                                   # raised it — the defect is 3 formats, not 1
+
+project:
+  id: PROJ-010
+  stage: STAGE-046
+repo:
+  id: crustyimg
+
+agents:
+  architect: claude-opus-5
+  implementer: claude-sonnet-5     # the sweep (the part Sonnet is weakest at) is
+                                   # done here and its result is binding below.
+                                   # Verify stays Opus.
+  created_at: 2026-08-15
+
+references:
+  decisions:
+    - DEC-085
+    - DEC-004
+  constraints:
+    - clippy-fmt-clean
+    - test-before-implementation
+    - one-spec-per-pr
+    - no-unwrap-on-recoverable-paths
+  related_specs:
+    - SPEC-107
+    - SPEC-116
+
+value_link: >
+  STAGE-046's first and most urgent item. The tool accepts a valid animated
+  file, discards every frame but the first, reports the loss as a 72% win with a
+  perfect quality score, and — through `lint` — actively recommends the command
+  that does it.
+
+cost:
+  sessions:
+    - cycle: design
+      interface: claude-code
+      tokens_total: null
+      duration_minutes: null
+      estimated_usd: null
+      note: >
+        Un-metered main-loop design cycle (AGENTS §4). Ran the multi-frame sweep
+        the backlog entry asked for (result in Call 3, with its grep), settled
+        the refuse-vs-warn call against DEC-085 and STAGE-030, and found the
+        carrier for the signal already exists as `Image::truncated_jpeg`.
+  totals:
+    tokens_total: 0
+    estimated_usd: 0
+    session_count: 0
+---
+
+# SPEC-119: animated input is never silently flattened
+
+## Context
+
+`crustyimg lint anim.gif` warns and tells the user to run a command. That
+command destroys their file:
+
+```
+$ crustyimg lint anim.gif
+anim.gif
+  warn format/animated-gif: animated GIF (a modern format encodes far smaller)
+    fix: crustyimg convert --format webp anim.gif        <-- the tool's own advice
+
+$ crustyimg convert anim.gif --format webp -o fixed.webp
+$ crustyimg optimize anim.gif ; crustyimg web anim.gif
+anim.gif: gif → webp · 423 → 118 B (72% smaller) · ssim 100.0
+```
+
+Output: **118 B, zero `ANMF` chunks, no `VP8X`** — a *static* WebP. **3 of 4
+frames discarded.** Exit 0, no warning, on `convert`, `optimize` **and** `web`.
+
+Driven end to end on 2026-08-15 against a valid 4-frame looping GIF built with
+`image`'s own `GifEncoder`. Full record in `docs/backlog.md`,
+`## ⚠ Live defect — animated input is silently flattened`. **Read it — the
+evidence lives there, not here.**
+
+### Why this outranks the rest of STAGE-046
+
+1. **The linter recommends the destructive command.** The other three defects
+   degrade output; this one instructs the user into data loss.
+2. **The loss is reported as a win.** "72% smaller" is true only because
+   three-quarters of the content was thrown away.
+3. **`ssim 100.0` certifies it, and structurally always will.** The score
+   compares decoded-source to output, and both are frame 1 — the quantity the
+   oracle measures is *preserved by the bug*. This is not a weak check; it is a
+   check that cannot see this class at all. **Any test asserting "the score
+   stayed high" will stay green through this defect forever**
+   [[a-self-referential-control-cannot-detect-a-broken-pipeline]].
+
+### Root cause
+
+Frame decoding exists in exactly one place, and only to count. `gif_is_animated`
+(`src/lint/rules.rs:302-310`) builds a `GifDecoder` and takes 2 frames purely to
+test `>= 2`. The pixel path never sees frame 2: `Image::from_bytes` →
+`decode_with_format` (`src/image/mod.rs:551`) → `decode_with_limits` (`:461`) →
+`ImageReader` → **one** `DynamicImage`.
+
+**The linter knows the file is animated and the encoder path does not.**
+
+## Goal
+
+No shipped verb silently discards frames. When crustyimg reduces an animation to
+a single frame, it says so on stderr, and `lint` stops recommending a command
+that does it.
+
+## The design calls — settled here, not deferred to build
+
+### Call 1 — WARN and proceed. Do not refuse.
+
+The backlog entry left this open ("refuse … or warn loudly"). It is settled as
+**warn, exit 0, still write frame 1**, for three reasons:
+
+- **DEC-085 is the precedent and it is directly on point.** SPEC-107 faced the
+  same shape — a valid-enough input that decodes to a degraded image — and chose
+  warn-don't-fail explicitly. This spec follows it rather than splitting the
+  repo's behaviour across two rules.
+- **The exit-code surface is frozen (STAGE-030).** Refusing turns commands that
+  exit 0 today into failures on three shipped verbs.
+- **PROJ-007 lockfiles reference those outputs.** A new hard failure breaks
+  existing builds for a file the user may well have wanted flattened.
+
+**Exit 4 would be the wrong code anyway.** Per `docs/api-contract.md`, 4 is
+"unsupported or undetectable format" in three senses — unrecognisable bytes, or a
+decoder/encoder not built, whose messages *name a feature to rebuild with*. An
+animated GIF is recognised, decodable, and has no feature to name.
+
+> **✅ CONFIRMED by the maintainer, 2026-08-16** — *"ok to the warn and proceed, even though I
+> don't love it."* The reservation is recorded because it is legitimate: warning and proceeding
+> still destroys the animation, it just narrates the destruction. A user piping `convert` over a
+> directory without reading stderr loses their frames exactly as they do today.
+>
+> **What answers the reservation: the strict path already exists, in the right verb.** `lint`
+> carries severities and a failing mode — `src/lint/mod.rs:49-53` (`Error` "fails CI", `Warn`
+> "fails only under `--max-warnings`") and `src/cli/report.rs:474`, where *≥1 `Error` finding, or
+> a warn count over `--max-warnings`, exits non-zero*. So
+> **`crustyimg lint --max-warnings 0` already fails on an animated GIF today.**
+>
+> That is a cleaner separation than making `convert` refuse: **`lint` is the gate, `convert` is
+> the tool.** A CI pipeline that must never flatten an animation has an existing, documented way
+> to say so, and the frozen exit-code surface stays frozen.
+>
+> **This strengthens Call 1 and it REVISES Call 4 — see below.**
+
+### Call 2 — The signal rides on `Image`, exactly like `truncated_jpeg`.
+
+`Image` already carries a per-decode degradation flag for precisely this purpose
+(`src/image/mod.rs:174`), set at decode and turned into a stderr warning by the
+CLI layer. **Add a sibling field, do not invent a mechanism.**
+
+This is deliberate leverage: SPEC-107 built the pattern, and SPEC-116 (just
+merged to `verify`) finished threading it through the last verb. **The emit sites
+already exist** — `src/cli/ops.rs:336`, `:431`, `src/cli/optimize.rs:1473`,
+`:1522`, and `src/cli/build.rs`'s Decide arm. This spec adds a second condition
+at those same sites, not a new plumbing route.
+
+Constructors that cannot produce a multi-frame source (`raw_preview`, SVG
+rasterization) set it `false` with the same one-line rationale
+`truncated_jpeg: false` carries at `:579`.
+
+### Call 3 — THREE formats are affected, not one. This sweep is binding.
+
+The backlog entry asked for a mechanical sweep and flagged that
+`format/animated-gif` "may itself be too narrow." **It is.** Swept at design
+against the pinned dependency:
+
+```
+$ grep -rn "impl.*AnimationDecoder.*for" \
+    ~/.cargo/registry/src/index.crates.io-*/image-0.25.10/src/
+.../src/codecs/gif.rs:426:          impl<'a, R: BufRead + Seek + 'a> AnimationDecoder<'a> for GifDecoder<R>
+.../src/codecs/png.rs:514:          impl<'a, R: BufRead + Seek + 'a> AnimationDecoder<'a> for ApngDecoder<R>
+.../src/codecs/webp/decoder.rs:104: impl<'a, R: 'a + BufRead + Seek> AnimationDecoder<'a> for WebPDecoder<R>
+```
+
+| format | enabled in this repo | multi-frame | cheap detection API |
+|---|---|---|---|
+| GIF | `image/gif` ✓ | ✓ | `into_frames().take(2).count() >= 2` (already used) |
+| **APNG** | `image/png` ✓ | ✓ | **`PngDecoder::is_apng() -> ImageResult<bool>`** (`png.rs:160`) |
+| **animated WebP** | `image/webp` ✓ | ✓ | **`WebPDecoder::has_animation() -> bool`** (`decoder.rs:31`) |
+| TIFF | `image/tiff` ✓ | ✗ no `AnimationDecoder` impl; multi-page not exposed | — |
+| ICO | `image/ico` ✓ | ✗ multi-*size* container, not animation | — |
+| BMP / JPEG | ✓ | ✗ single-frame | — |
+
+**Two of the three have cheaper detection than GIF's** — a boolean, with no
+frame decode — so "detection costs a decode" is not an argument against covering
+them.
+
+**AVIF is the honest gap.** AVIF sequences exist, but crustyimg decodes AVIF
+through `re_rav1d` (`src/image/avif.rs`), not `image`'s codec, so
+`AnimationDecoder` does not apply and this sweep says nothing about it.
+**Determine whether the `re_rav1d` path can receive a sequence and report the
+finding. If you cannot settle it, say so in Build Completion and state that AVIF
+is therefore unproven** — do not quietly imply coverage this spec did not earn.
+
+### Call 4 — `lint`'s advice becomes honest; the rule is NOT renamed.
+
+`format/animated-gif`'s `fix:` string (`src/lint/rules.rs:234-255`) currently
+recommends the destructive command. **Until animated output exists there is no
+correct fix**, so the finding keeps warning (an animated GIF genuinely is large)
+and its `fix:` stops naming a command that loses data — say plainly that
+crustyimg cannot yet re-encode animation without flattening it.
+
+**REVISED 2026-08-16, after Call 1 was confirmed.** The original text said "do not rename or
+broaden the rule ID — the asymmetry is intentional." That was written when `lint` was incidental
+to this spec. It no longer is.
+
+Call 1's confirmation makes `lint --max-warnings 0` **the designated strict path** for users who
+cannot tolerate a silent flatten. If the rule only detects GIF, then **APNG and animated-WebP
+users have no strict option at all** — the pixel verbs warn and proceed for them, and the gate
+that would have caught it is blind. That is no longer a tidy-up; it is a hole in the answer this
+spec gives the maintainer's reservation.
+
+So: **the rule must cover what the defect covers — all three formats from Call 3.** The rule
+*ID* is still a user-visible surface, so:
+
+- **Keep `format/animated-gif` firing for GIF** so existing config and output do not break.
+- **Add coverage for APNG and animated WebP.** Whether that is a broadened rule under a new
+  id (e.g. `format/animated-input`) with `format/animated-gif` kept as an alias, or two sibling
+  rules, is a **build-cycle call** — make it, justify it in Build Completion, and note whether any
+  config surface (`.crustyimg-lint.toml` or equivalent) needs a migration note.
+- **The `fix:` string stops naming a destructive command** for all of them. Until animated output
+  exists there is no correct fix; say plainly that crustyimg cannot yet re-encode animation
+  without flattening it.
+
+If broadening turns out to need a config migration, **stop and report** rather than shipping one
+inside this spec.
+
+## Inputs
+
+- **Files to read:** `src/image/mod.rs:164-178` (the `Image` fields and the
+  `truncated_jpeg` precedent), `:461` (`decode_with_limits`, the seam), `:551`;
+  `src/lint/rules.rs:232-310`; `src/cli/ops.rs:328-340` (the emit shape);
+  `src/image/avif.rs` for Call 3's open question.
+- **`docs/backlog.md`**, the animated-input entry — the driven evidence.
+- **DEC-085** (warn-don't-fail) and **DEC-004** / `docs/api-contract.md`'s exit
+  table (why not 4).
+- **Fixtures:** build the animated GIF natively with `image`'s `GifEncoder`, the
+  way `src/lint/rules.rs:361` already does. **Do not commit a binary fixture** and
+  do not shell out. APNG and animated WebP fixtures must likewise be generated,
+  or the format declared untested — see AC-7.
+
+## Outputs
+
+- **Files modified:** `src/image/mod.rs` (the field + detection), `src/lint/rules.rs`
+  (the `fix:` string), the four CLI emit sites, `tests/` (new + `tests/lint.rs`).
+- **New exports:** an accessor mirroring `is_truncated_jpeg`.
+- **New DEC expected:** yes — one recording Call 1 (warn, not refuse) and its
+  reasoning, since it sets policy for a whole input class. `affected_scope`
+  covering `src/image/**` and `src/cli/**`.
+
+## Acceptance Criteria
+
+- [ ] **AC-1.** An animated GIF through `convert`, `optimize` and `web` **warns on
+      stderr**, naming the input and saying frames were discarded. Assert on the
+      message, not on non-empty stderr.
+- [ ] **AC-2.** **Exit stays 0 and frame 1 is still written.** Per Call 1.
+- [ ] **AC-3.** **Not `--quiet`-gated**, matching DEC-085 and its sibling. Pinned
+      by a test, because the adjacent cache warning *is* quiet-gated.
+- [ ] **AC-4.** **A static GIF produces no warning.** The did-not-break-it
+      control — without it, "always warn" passes AC-1 and ruins the verb.
+      [[a-harness-that-exercises-nothing-reports-green]]
+- [ ] **AC-5.** **APNG and animated WebP warn too**, per Call 3, with their own
+      tests and their own static controls.
+- [ ] **AC-6.** **The assertion is structural, never the quality score.** Assert
+      the discarded frames directly — count `ANMF` chunks / decode the output's
+      frame count. A test that asserts "ssim stayed high" is **vacuous by
+      construction** here and will be rejected.
+- [ ] **AC-7.** **`lint`'s `fix:` string no longer names a command that discards
+      frames**, pinned by a test asserting the absence, not just the new text.
+- [ ] **AC-7b.** **`lint` detects all three animated families**, per the revised Call 4, and
+      **`lint --max-warnings 0` exits non-zero on each** — the strict path is the answer this
+      spec gives to "warn and proceed still loses data", so it must be driven, not assumed.
+      A static counterpart of each family stays clean.
+- [ ] **AC-8.** **Byte output is unchanged** for every input that is not
+      multi-frame. This spec adds a diagnostic; it must not perturb encoding.
+      Compare against `main`'s binary, not against a sibling verb on the same
+      branch — a same-branch cross-check cannot see a change that moved both.
+      [[fixtures-from-the-code-under-test-cannot-fail]]
+- [ ] **AC-9.** **A negative control per format**: revert the detection for GIF,
+      APNG and WebP **independently**; confirm each format's test goes RED and
+      the static controls stay green. **Three controls, not one coarse revert** —
+      three detection sites are three independent claims. Prove each revert
+      reached the built artifact.
+      [[reverting-source-does-not-rebuild-the-binary]]
+- [ ] **AC-10.** Clean **full matrix** from fresh per-leg `CARGO_TARGET_DIR`s, run
+      **sequentially**, through `rtk proxy` from the first leg: default,
+      `--no-default-features`, `--features webp-lossy`. Clippy and `fmt --check`
+      each. **Establish your own `main` baseline.** Then read the CI legs
+      individually.
+
+## Failing Tests
+
+Written during **design**, BEFORE build. **All of the AC-1/AC-5 tests FAIL on
+today's `HEAD`** — this is a real defect, so there is a genuine red-to-green
+transition and `test-before-implementation` applies in its usual form.
+
+- **`tests/hostile_inputs.rs`** (or a new `tests/animated_inputs.rs` — say which
+  and why)
+  - `"animated_gif_warns_on_every_pixel_verb"` — AC-1. **FAILS today.**
+  - `"animated_gif_still_writes_frame_one_and_exits_zero"` — AC-2. Passes today;
+    pins that the warning did not become a failure.
+  - `"animated_warning_survives_quiet"` — AC-3. **FAILS today.**
+  - `"static_gif_emits_no_animation_warning"` — AC-4. Passes today; the control.
+  - `"apng_warns_on_every_pixel_verb"` — AC-5. **FAILS today.**
+  - `"animated_webp_warns_on_every_pixel_verb"` — AC-5. **FAILS today.**
+  - `"static_png_and_static_webp_emit_no_animation_warning"` — AC-5's controls.
+  - `"animated_output_frame_count_is_asserted_structurally"` — AC-6.
+- **`tests/lint.rs`**
+  - `"animated_gif_rule_does_not_recommend_a_flattening_command"` — AC-7.
+    **FAILS today.**
+- **Negative controls** (AC-9, run and recorded, not committed) — per format.
+
+## Implementation Context
+
+### Decisions that apply
+- **DEC-085** — warn-don't-fail, unconditional gating. Binding on Calls 1 and the
+  AC-3 gating.
+- **DEC-004** / `docs/api-contract.md` exit table — why exit 4 is not this.
+
+### Constraints that apply
+- `test-before-implementation` (**blocking**) — several tests red on `HEAD`.
+- `clippy-fmt-clean`, `one-spec-per-pr`, `no-unwrap-on-recoverable-paths`
+  (detection must not `unwrap` — `is_apng()` returns `ImageResult`).
+
+### Prior related work
+- **SPEC-107** — created the warn-don't-fail pattern and `Image::truncated_jpeg`.
+- **SPEC-116** — threaded that flag through the last verb. **Read its diff**: the
+  emit sites this spec extends are exactly the ones it touched, and its
+  `apply`-vs-`build` string-equality test is the right shape for AC-1.
+
+### Out of scope
+- **Animated output** (animated WebP/AVIF encode). That is the capability;
+  `webp-animation` v0.10.0 (MIT OR Apache-2.0) is verified and filed separately.
+  This spec closes the destructive path so that work can later make the linter's
+  advice true.
+- **Renaming/broadening the lint rule ID** — Call 4.
+- The other three STAGE-046 defects. They share `Resize::apply` and a lockfile
+  blast radius; this one shares neither.
+
+## Notes for the Implementer
+
+- **The score cannot be your oracle.** AC-6 exists because the obvious assertion
+  is the one that structurally cannot fail. Count frames.
+- **Three detection sites are three claims** — AC-9 wants three reverts. One
+  coarse revert shipped a vacuous test on SPEC-113.
+- **Do not flip Call 1.** If you believe refuse is right, say so and stop; it
+  changes the exit-code surface and that is not a build-cycle decision.
+- **A piped command reports the pipe's exit code.** Redirect and read `$?`.
+- **Checkpoint early** — push a WIP once it compiles, before the matrix.
+- macOS has no `timeout(1)`. `git commit -s` (DCO). **Own git worktree.** **Do
+  not merge the PR. Do not bump the version.**
+- Follow `projects/_templates/prompts/closing-steps-snippet.md`, including
+  `just advance-cycle SPEC-119 verify` — and confirm the `cycle:` line moved.
+
+---
+
+## Build Completion
+
+*Filled in at the end of the **build** cycle, before advancing to verify.*
+
+- **Branch:**
+- **PR (if applicable):**
+- **All acceptance criteria met?** yes/no
+- **New decisions emitted:**
+- **Deviations from spec:**
+- **Follow-up work identified:**
+
+### Build-phase reflection (3 questions, short answers)
+
+1. **What was unclear in the spec that slowed you down?**
+2. **Was there a constraint or decision that should have been listed but wasn't?**
+3. **If you did this task again, what would you do differently?**
+
+---
+
+## Reflection (Ship)
+
+*Appended during the **ship** cycle.*

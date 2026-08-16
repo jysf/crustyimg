@@ -6,9 +6,15 @@ Cycle: **build**. You are NOT the architect. The design is settled; implement it
 that seam; SPEC-115 shipped tests for two. Its verify **drove** the other two — `build` and
 `apply --recipe web` — green by hand and pinned neither. Write the two pins.
 
-> **PRECONDITION — check this first.** SPEC-116 also edits `tests/build.rs`. **Do not start until
-> SPEC-116's PR has merged to `main`**, then branch from the merged `main`. If SPEC-116 is still
-> open, stop and say so rather than branching around it. (`git log --oneline -5 origin/main`)
+> **PRECONDITION — SATISFIED, no action needed.** SPEC-116 also edits `tests/build.rs`, so this
+> spec was gated on its merge. **SPEC-116 shipped 2026-08-15** (PR #171, squashed as `016e89f`);
+> STAGE-043 is closed. Your worktree is already branched from a `main` that contains it — you can
+> confirm with `git log --oneline --grep SPEC-116 -1`. **Do not wait, and do not re-check whether
+> SPEC-116 is open.**
+>
+> One consequence worth knowing: SPEC-116 added six tests to `tests/build.rs` and renamed one
+> (`build_and_apply_agree_on_bytes_for_a_clean_input`). Your `main` baseline therefore already
+> includes them — establish it yourself rather than trusting any count quoted anywhere.
 
 ## Read in order
 

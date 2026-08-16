@@ -105,6 +105,79 @@ failures on documented paths.
 
 ## Spec Backlog
 
+- [ ] (not yet written) — [S] **A negative control's evidence is the BEHAVIOURAL FLIP, not a binary
+  hash.** Measured by SPEC-117's verify, 2026-08-16: across a four-state control sequence
+  (baseline → revert A → revert B → restore) the **restore produced a different binary from the
+  byte-identical baseline source** (`9d4a2871…` vs `097e9526…`). So in this repo's debug profile a
+  changed hash proves only that a relink happened — exactly what a "Compiling crustyimg" line
+  already proves, and no more strongly. **Neither shows the edit reached the artifact; the test
+  going RED does**, because the reverted code is observed executing. SPEC-116's verify used the
+  hash instrument and got away with it. Fold into AGENTS §15 alongside STAGE-043's proposed
+  "one revert per independent condition" update — they are the same lesson from two directions.
+  *Scope caveat from the measurement: one incremental target dir, macOS, debug; a fresh dir and
+  the release profile were not tested.*
+
+
+- [ ] (not yet written) — [M] **`decisions-audit`'s overlap check drowns its own signal.** Measured
+  2026-08-15: a full run emits **~1,200 `both govern overlapping scope` warnings** (1,187 counted
+  in one complete-enough run, in 2,312 lines of output) and takes **over two minutes**. Every one
+  of them is the same shape, and the top pairs are trivially-shared globs:
+
+  | count | glob pair |
+  |---|---|
+  | 401 | `Cargo.toml ~ Cargo.toml` |
+  | 237 | `src/cli/mod.rs ~ src/cli/mod.rs` |
+  | 103 | `src/cli/** ~ src/cli/mod.rs` |
+
+  The check pairs every DEC against every other and warns on any prefix overlap, so it is O(n²)
+  over decisions sharing a common file — and **every dependency decision "overlaps" every other
+  dependency decision**, which is true and useless. The consequence is not cosmetic: the one
+  semantically real overlap this week (DEC-088 / DEC-091) sat near line 1,150 of 2,312 and was
+  **only noticed because a truncated `tail` happened to land on it**. An instrument that surfaces
+  its one real finding by luck is not surfacing it. Options: exclude manifest/module-root globs
+  from the pairing, warn only on globs shared by ≤N decisions, or make it a distinct opt-in
+  subcommand instead of part of the default lint. **This is a STAGE-042 instrument, so its own
+  signal-to-noise is in scope.**
+
+
+- [ ] (not yet written) — [S] **DEC-091 refines DEC-088 and neither record says so.** The audit
+  flags them as governing overlapping scope (`docs/territory.md`) and asks whether they
+  contradict. **Checked 2026-08-15: they do not.** DEC-091's own text opens *"DEC-088's
+  generalization fence is **kept**, restated at the level it actually operates on
+  (parameters)"* — it refines DEC-088's fence and adds a second one, while DEC-088's other half
+  (the three tiers of external integration) is untouched. So neither supersedes the other, and
+  `supersedes` / `superseded_by` are both `null` on both — correctly, because **the schema has no
+  way to express "refines"**. A reader arriving at DEC-088 alone gets the older, looser statement
+  of the fence with no pointer to the refinement. Fix is either a prose cross-reference in both
+  files (cheap, no schema change) or a new front-matter relation field (a framework change needing
+  its own DEC). **No adjudication needed — the relationship is already settled in the text.**
+
+
+- [ ] (not yet written) — [S] **A `build` cache HIT swallows the truncated-JPEG warning.**
+  `build_one` returns at `src/cli/build.rs:415` on `cache.lookup`, before the format-plan match
+  at `:424`, so SPEC-116's emit is never reached on a hit: run 1 warns, run 2 is silent, and
+  `--no-cache` warns every time. `apply` has no cache and warns always, so the two verbs
+  disagree on the second run in a project. **Severity is genuinely limited** — `.crustyimg/` is
+  gitignored so CI is always cold, a new truncated input changes the key and warns on first
+  encounter, and DEC-085's wording is "every verb that **decodes** it" (a cache hit does not
+  decode), so this is arguably consistent with the decision's letter. Found and driven by
+  SPEC-116's verify, 2026-08-15.
+
+
+- [ ] (not yet written) — [S] **The stage template documents a bullet format `just backlog`
+  does not recognise.** `_lib.sh:212` treats a bullet as *promoted* only when it matches
+  `**SPEC-NNN**` — bold. `projects/_templates/stage.md` documents
+  `Format: `- [status] SPEC-ID (cycle) — one-line summary`` — no bold. A stage written to its
+  own template therefore double-counts every promoted spec as backlog. Hit live on STAGE-046,
+  2026-08-15. Fix the template, the matcher, or both; whichever, they must agree.
+
+- [ ] (not yet written) — [S] **`build`'s `Preserve` and `Pinned` arms never warn on a truncated
+  JPEG.** They route through `encode_one` (`src/cli/common.rs`), which has no truncation check at
+  all — so a truncated JPEG stays silent on those two arms, on `main` and after SPEC-116. Found
+  and correctly reported (not fixed) by SPEC-116's build; AC-7 put it out of scope. Same class
+  SPEC-116 closed for the Decide arm. Confirm it reproduces before speccing.
+
+
 - [ ] **SPEC-118** (framed 2026-08-15) — **The shipped-surface conformance matrix.** Iterate
   `recipe::bundled::names()` across every entry point that accepts a recipe — `apply --recipe`,
   a `build` manifest target, and `wasm::transform` — and assert each runs and produces valid
