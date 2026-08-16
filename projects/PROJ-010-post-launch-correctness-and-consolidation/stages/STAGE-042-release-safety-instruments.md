@@ -105,6 +105,42 @@ failures on documented paths.
 
 ## Spec Backlog
 
+- [ ] (not yet written) — [S] **`webp` is missing from `IMAGE_EXTENSIONS`, so directory and glob
+  discovery silently skips `.webp` files.** `src/source/mod.rs:105-113` lists 30+ extensions —
+  jpg/png/gif/bmp/tif/ico/avif/svg, eleven RAW families, heic/heif — and **not `webp`**, which is
+  a supported input *and* an output format the tool writes by default. So `crustyimg web ./dir/`
+  processes everything except the files crustyimg itself produced. **Reproduces on `main`,
+  confirmed 2026-08-16**; found by SPEC-119's build and recorded in DEC-093, which is not a
+  backlog anyone reads. The repo already knows this hazard class — `src/lint/mod.rs:217` cites
+  "the IMAGE_EXTENSIONS-exposes-every-decode-caller lesson" by name. Adding an extension changes
+  every decode caller, so **audit each caller and its `Err(_)` arm** rather than editing the list
+  alone.
+
+- [ ] (not yet written) — [S] **A complexity rating is set at framing and never revisited when a
+  design call widens scope.** SPEC-119 was framed `[S]`, re-estimated to `[M]` when the design
+  sweep found 3 affected formats instead of 1 — and then **not re-estimated again** when Call 4
+  was revised post-framing to require a second lint rule. It shipped at **$51.24 / 143.5M
+  tokens**, 4.3× the cheapest build in the same wave and the most expensive of four. The rule
+  that would have caught it is one line: **if a design call is revised after framing, re-check
+  the complexity in the same edit.**
+
+- [ ] (not yet written) — [S] **Prompt budgets are written in wall-clock and cost does not track
+  wall-clock.** Measured across four builds in one wave: cost scales with the **square of message
+  count**, because every message re-reads the accumulated context (cache reads were 97–99% of
+  tokens in all four).
+
+  | spec | msgs | total tokens | msgs² | minutes | $ |
+  |---|---|---|---|---|---|
+  | SPEC-120 | 0.41× | 0.40× | 0.17× | 0.21× | 8.69 |
+  | SPEC-116 | 1.00× | 1.00× | 1.00× | 1.00× | 11.91 |
+  | SPEC-117 | 1.57× | 2.18× | 2.47× | 0.60× | 23.06 |
+  | SPEC-119 | 2.29× | **4.99×** | 5.23× | **0.59×** | 51.24 |
+
+  **Minutes anti-correlate**: SPEC-116 ran 104 minutes and cost $11.91; SPEC-119 ran 61 and cost
+  $51.24. Every prompt in this wave carried a clock budget and not one of them fired. Replace with
+  a message-count checkpoint (~250 exchanges) in `cost-snippet.md` or the prompt templates.
+
+
 - [ ] (not yet written) — [S] **A squash merge can strand a push that lands near merge time, and
   nothing warns.** Happened on PR #170, 2026-08-15: commit `7ca85a2` pushed successfully to the
   branch, GitHub squashed from the head it had captured (`e5aca27`), and the correction vanished
