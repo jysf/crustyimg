@@ -54,14 +54,15 @@ cost:
     - cycle: build
       agent: claude-sonnet-5
       interface: claude-code
-      tokens_total: 28467342
-      duration_minutes: 39
+      tokens_total: 62804433
+      duration_minutes: 62
       recorded_at: 2026-08-16
-      tokens_breakdown: {input: 364, output: 126826, cache_creation: 393686, cache_read: 27946466}
-      estimated_usd: 11.76
+      tokens_breakdown: {input: 648, output: 171232, cache_creation: 491962, cache_read: 62140591}
+      estimated_usd: 23.06
       note: >
-        MEASURED — own transcript sum (main-loop session executing the build prompt
-        directly, not dispatched as a subagent), 182 assistant messages with usage.
+        MEASURED at session end (own transcript sum — main-loop session executing the
+        build prompt directly, not dispatched as a subagent), 324 assistant messages
+        with usage, covering the full cycle including the AC-6 CI-legs readout.
         Sonnet $3/$15 per MTok anchors (model actually reported by every message);
         cache_creation x1.25, cache_read x0.10.
   totals:
