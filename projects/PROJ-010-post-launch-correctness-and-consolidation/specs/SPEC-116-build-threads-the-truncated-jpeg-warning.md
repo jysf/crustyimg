@@ -7,7 +7,7 @@
 task:
   id: SPEC-116
   type: bug                        # epic | story | task | bug | chore
-  cycle: design                    # frame | design | build | verify | ship
+  cycle: verify  # frame | design | build | verify | ship
   blocked: false
   priority: medium
   complexity: S                    # S | M | L  (L means split it)
@@ -56,10 +56,32 @@ cost:
         `optimize.rs:1292`, the emitting sibling at `:1472`, and `build.rs:441`;
         settled the label question and the `--quiet` trap from DEC-085 rather
         than deferring either to build.
+    - cycle: build
+      agent: claude-sonnet-5
+      interface: claude-code
+      tokens_total: 28772199
+      duration_minutes: 104
+      recorded_at: 2026-08-15
+      tokens_breakdown:
+        input: 412
+        output: 130633
+        cache_creation: 392886
+        cache_read: 28248268
+      estimated_usd: 11.91
+      note: >
+        MEASURED — transcript sum over 206 assistant messages
+        (d6ab563a-c8cd-4338-b4ca-8dac02344cac.jsonl), all claude-sonnet-5.
+        Priced per component at Sonnet anchors ($3/$15 per MTok;
+        cache_creation x1.25 input, cache_read x0.10 input) — 98.2% of
+        tokens were cache reads, so the flat 80/20 shortcut would badly
+        overstate this. Most of the wall-clock went to the AC-9 matrix
+        (3 full-workspace `cargo test` runs, one with a slow ~193s
+        `audit_bench` binary) run sequentially per the guardrail, not to
+        active generation.
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 28772199
+    estimated_usd: 11.91
+    session_count: 2
 ---
 
 # SPEC-116: `build` threads the truncated-JPEG warning
@@ -138,30 +160,30 @@ the comment. **Match the sibling, not the neighbour.**
 
 ## Acceptance Criteria
 
-- [ ] **AC-1.** `build` on a Decide-plan target whose input is `truncated.jpg` **warns on
+- [x] **AC-1.** `build` on a Decide-plan target whose input is `truncated.jpg` **warns on
       stderr**, naming the input, with the same `TRUNCATED_JPEG_WARNING` text `apply` uses.
       Assert on the message, not merely on non-empty stderr.
-- [ ] **AC-2.** **Exit stays 0 and the output is still written.** The warning is a diagnostic,
+- [x] **AC-2.** **Exit stays 0 and the output is still written.** The warning is a diagnostic,
       not a failure — a truncated JPEG still produces a valid, if partly-grey, output today and
       must continue to.
-- [ ] **AC-3.** **`apply` and `build` agree on the identical input.** Drive both, assert both
+- [x] **AC-3.** **`apply` and `build` agree on the identical input.** Drive both, assert both
       stderr streams carry the warning. This is the actual claim of the spec, and asserting only
       `build` would let the two drift apart again.
-- [ ] **AC-4.** **`--quiet` does NOT suppress it.** Pinned by a test, because the adjacent cache
+- [x] **AC-4.** **`--quiet` does NOT suppress it.** Pinned by a test, because the adjacent cache
       warning *is* quiet-gated and a future tidy-up will otherwise "make them consistent".
       [[a-criterion-nobody-claims-is-a-criterion-nobody-checks]]
-- [ ] **AC-5.** **A clean JPEG produces no warning.** The did-not-break-it control — without
+- [x] **AC-5.** **A clean JPEG produces no warning.** The did-not-break-it control — without
       this, "always warn" passes AC-1 and ruins the verb.
       [[a-harness-that-exercises-nothing-reports-green]]
-- [ ] **AC-6.** **Bytes are unchanged.** `build`'s output for a clean input is byte-identical to
+- [x] **AC-6.** **Bytes are unchanged.** `build`'s output for a clean input is byte-identical to
       `main`'s. This spec adds a diagnostic; it must not perturb encoding.
-- [ ] **AC-7.** **The pinned-format arm is untouched.** `OutputFormatPlan::Pinned` goes through
+- [x] **AC-7.** **The pinned-format arm is untouched.** `OutputFormatPlan::Pinned` goes through
       `encode_one`, not this wrapper, and is out of scope — assert it still behaves as it does on
       `main` so the change is provably confined to the Decide arm.
-- [ ] **AC-8.** **A negative control**: revert the emit, confirm AC-1 goes RED and AC-5 stays
+- [x] **AC-8.** **A negative control**: revert the emit, confirm AC-1 goes RED and AC-5 stays
       green. Prove the revert reached the **built artifact** (a changed binary hash shows a
       rebuild; driving shows the change took effect). [[reverting-source-does-not-rebuild-the-binary]]
-- [ ] **AC-9.** Clean **full matrix** from fresh per-leg `CARGO_TARGET_DIR`s, run **sequentially**,
+- [x] **AC-9.** Clean **full matrix** from fresh per-leg `CARGO_TARGET_DIR`s, run **sequentially**,
       through `rtk proxy` from the first leg: default, `--no-default-features`,
       `--features webp-lossy`. `clippy --all-targets -- -D warnings` and `fmt --check` each.
       **Establish your own baseline on `main` first** — do not trust a count quoted in a prompt.
@@ -230,18 +252,43 @@ Written during **design**, BEFORE build. At least one must FAIL on today's `HEAD
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
-- **New decisions emitted:**
-- **Deviations from spec:**
-- **Follow-up work identified:**
+- **Branch:** `feat/spec-116-build-threads-truncated-jpeg-warning`
+- **PR (if applicable):** TBD — opened after this commit, filled in via follow-up commit; not
+  merged, per instructions.
+- **All acceptance criteria met?** yes — AC-1 through AC-9 all verified, boxes checked above.
+- **New decisions emitted:** none. DEC-085 already governs the unconditional gating; this spec
+  obeys it rather than reopening it.
+- **Deviations from spec:** none in substance. One extra test beyond the five the prompt named:
+  `build_pinned_format_arm_is_untouched_by_the_decide_arm_fix`, added to give AC-7 (the
+  `OutputFormatPlan::Pinned` non-regression pin) its own committed assertion rather than relying
+  on it being merely "not exercised."
+- **Follow-up work identified:** `OutputFormatPlan::Preserve` and `OutputFormatPlan::Pinned` both
+  route through `encode_one` (`src/cli/common.rs`), which has **no truncation check of its own** —
+  a truncated JPEG through either arm stays silent on `build`, on `main` and unchanged after this
+  fix. That is a second, distinct instance of the same class this spec just closed for the Decide
+  arm. Confirmed out of scope for SPEC-116 by AC-7 and the spec's own "Out of scope" section;
+  recorded here, not fixed, per the build prompt's explicit instruction to report rather than
+  patch. This is exactly the class of gap STAGE-042's conformance matrix exists to catch
+  mechanically.
 
 ### Build-phase reflection (3 questions, short answers)
 
-1. **What was unclear in the spec that slowed you down?**
-2. **Was there a constraint or decision that should have been listed but wasn't?**
-3. **If you did this task again, what would you do differently?**
+1. **What was unclear in the spec that slowed you down?** Nothing substantive. The three design
+   calls were genuinely settled, the trap (matching the `--quiet`-gated cache warning four lines
+   below instead of the unconditional sibling) was flagged clearly enough that it never became a
+   live risk, and the fixture/test-style pointers (`tests/hostile_inputs.rs:387`,
+   `build_writes_the_decided_format_not_the_source_format`) mapped directly onto working test code.
+2. **Was there a constraint or decision that should have been listed but wasn't?** No — DEC-085
+   and DEC-087 covered the gating and the discard's history completely. The one thing the prompt
+   didn't spell out (whether AC-7 needed its own dedicated test or could be satisfied by
+   inspection) was a judgment call, not a missing constraint; a dedicated test was the more
+   defensible reading of "pins."
+3. **If you did this task again, what would you do differently?** Establish the full-workspace
+   `main` baseline (all three feature legs) in one pass, up front, before starting the fix — I did
+   it correctly but interleaved with the fix work, which meant an extra `git worktree add` round
+   trip that could have been queued earlier. The AC-9 matrix itself is unavoidably the long pole
+   (three full sequential `cargo test --workspace` runs, one binary with ~193s of slow
+   `audit_bench` tests each time); nothing here shortens that legitimately.
 
 ---
 
