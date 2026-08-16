@@ -1021,6 +1021,79 @@ job, with the manifest as the seam. Worth stating explicitly because it is the m
 
 ---
 
+## Animated GIF → animated AVIF — measured, and it is a 9–11x win (2026-08-16)
+
+> **Evidence for STAGE-046's animated-*output* spec** (backlog piece **(b)**), not for SPEC-119,
+> which is scoped to stopping the data loss. Probe committed at
+> `docs/probes/animated-gif-to-av1-probe.rs`. Status: **measurement, unscheduled.**
+
+### The whole path is pure Rust, patent-clear, and already in the tree
+
+Driven end to end out-of-crate, exit 0: **real animated GIF → `image`'s `AnimationDecoder` →
+`Image::from_parts` → crustyimg `Pipeline` (registered op, per frame) → `rav1e` AV1 → decoded back
+with `re_rav1d` and frame-count verified.** No C, no ffmpeg, no new system dependency. **AV1 is
+royalty-free by design**, so none of the AVC/HEVC patent problem in the assessment below applies.
+
+### Measured on real Wikimedia animations, not synthetic fixtures
+
+`Newtons_cradle_animation_book_2.gif` — 480×360, 36 frames, **GIF 308,156 B**. Quantizer swept at
+fixed speed 6, then speed swept at fixed quantizer — **one variable at a time**:
+
+| setting | AV1 bytes | ssim2 (frame 0) | vs GIF |
+|---|---:|---:|---:|
+| s6 q60 | 44,678 | 89.8 | 6.9× |
+| **s6 q80** | **34,979** | **88.5** | **8.8×** |
+| s6 q100 | 27,705 | 86.8 | 11.1× |
+| s6 q120 | 21,324 | 83.9 | 14.5× |
+| s6 q140 | 15,999 | 78.6 | 19.3× |
+
+`Rotating_earth_(large).gif` — 400×400, 44 frames, **GIF 1,001,718 B** → 93,835 B at s6/q100
+(**10.7×**), but ssim2 76.1: a harder, higher-motion source needs a lower quantizer. **Which is the
+design conclusion — drive the existing quality search (`src/quality/mod.rs:255`) per sequence, not a
+fixed quantizer.** The machinery already exists.
+
+### Finding: speed 10 is a trap for animation. Do not inherit the still-image intuition.
+
+At a fixed quantizer, holding everything else constant:
+
+| speed | bytes | ssim2 |
+|---|---:|---:|
+| 1 | 24,110 | 86.9 |
+| 4 | 25,427 | 86.6 |
+| **6** (`AVIF_SPEED`, `src/sink/mod.rs:48`) | 27,705 | 86.8 |
+| 8 | 27,563 | 86.1 |
+| **10** | **38,061** | **84.4** |
+
+**Speed 10 is 37% LARGER *and* lower quality than speed 6.** That inverts DEC-068's still-image
+finding (speed 10 ≈ 3.6× faster for ~4% more bytes), and the reason is structural: speed 10 guts
+motion estimation, and on a sequence inter-frame prediction is where the entire win lives — every
+encode above produced exactly **1 keyframe** for 36 frames. crustyimg's existing `AVIF_SPEED = 6`
+is already the right default here; the risk is a future session "optimising" animation with the
+wasm speed knob (SPEC-079/DEC-068) and silently making output both bigger and worse.
+
+**This was caught by a methodology error worth recording**: the first run varied quantizer *and*
+speed together and produced a smaller file scoring *higher*, which is impossible if quantizer were
+the only variable. Sweeping one variable at a time made it monotonic and explained it.
+[[a-control-you-never-verified-applied-is-not-a-control]]
+
+### Caveats — none change the conclusion, all change the spec
+
+- **These are raw OBU bytes, not a container.** ISO-BMFF overhead is ~1.5–3 KB at these frame counts
+  (`stsz` alone is 4 B × frames) — ~2–3% on the 94 KB payload, ~7–10% on the 28 KB one. Budget it.
+- **ssim2 is frame 0 only — the keyframe, i.e. the optimistic end.** Inter frames will score lower.
+  A real implementation must score across frames, and per [[a-self-referential-control-cannot-detect-a-broken-pipeline]]
+  the *frame count* assertion stays separate from the *quality* assertion regardless.
+- **Animated-AVIF browser support was not verified** in this session. It is the gating question for
+  choosing AVIF over animated WebP, and it is a lookup, not a probe.
+- `mp4-atom` (see the entry below) supplies the `av01`/`av1C` boxes and has a committed `avis`-brand
+  test, so the muxing half has a permissive, pure-Rust candidate. Adoption needs a DEC.
+
+### Why this matters for the defect
+
+Today the tool turns this 1,001,718 B / 44-frame GIF into a **118 B static WebP** and reports
+`72% smaller · ssim 100.0`. The honest alternative is ~94 KB carrying **all 44 frames** — a real
+10× win against the GIF instead of a fabricated one against a single frame.
+
 ## Video asset lint — a container-only rule family, with a driven field audit (2026-08-16)
 
 > Follows the DECLINED video-tool assessment below. **This is the part of the category that is not
