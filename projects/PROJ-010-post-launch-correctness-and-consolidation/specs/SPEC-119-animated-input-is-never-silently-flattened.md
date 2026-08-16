@@ -62,24 +62,27 @@ cost:
     - cycle: build
       agent: claude-sonnet-5
       interface: claude-code
-      tokens_total: 135194829
-      duration_minutes: 60.1
+      tokens_total: 143470855
+      duration_minutes: 61.2
       recorded_at: 2026-08-16
       tokens_breakdown:
-        input: 906
-        output: 333061
-        cache_creation: 903047
-        cache_read: 133957815
-      estimated_usd: 48.57
+        input: 942
+        output: 341592
+        cache_creation: 919223
+        cache_read: 142209098
+      estimated_usd: 51.24
       note: >
-        MEASURED — summed .message.usage over 453 assistant messages in this
-        session's own transcript, priced per-component at Sonnet anchors
-        ($3/$15 per MTok; cache_creation x1.25, cache_read x0.10). Cache reads
-        are 99.1% of tokens_total, so the flat 80/20 shortcut would badly
-        overstate this — priced by component per the pricing note.
+        MEASURED at session end (re-measured after the PR-link commit, per
+        "measure at session end" — an earlier mid-run read here would have
+        under-counted, the documented pattern on prior specs). Summed
+        .message.usage over 471 assistant messages in this session's own
+        transcript, priced per-component at Sonnet anchors ($3/$15 per MTok;
+        cache_creation x1.25, cache_read x0.10). Cache reads are 99.1% of
+        tokens_total, so the flat 80/20 shortcut would badly overstate this —
+        priced by component per the pricing note.
   totals:
-    tokens_total: 135194829
-    estimated_usd: 48.57
+    tokens_total: 143470855
+    estimated_usd: 51.24
     session_count: 1
 ---
 
