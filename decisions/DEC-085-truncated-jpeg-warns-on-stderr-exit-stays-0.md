@@ -27,6 +27,13 @@ affected_scope:
   - "src/cli/report.rs"
   - "src/cli/ops.rs"
   - "src/cli/optimize.rs"
+  # SPEC-116 made `build` the second place the unconditional-gating rule is
+  # ENFORCED, not merely referenced. Without these globs `decisions-audit
+  # --changed` stays silent on a PR that touches only `build.rs` — which is
+  # exactly the "let's make these two warnings consistent" tidy-up DEC-085
+  # exists to stop. Found by SPEC-116's verify via the audit tool's own output.
+  - "src/cli/build.rs"
+  - "tests/build.rs"
   - "tests/hostile_inputs.rs"
   - "tests/fixtures/hostile/"
   - "docs/api-contract.md"
