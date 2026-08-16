@@ -1021,6 +1021,54 @@ job, with the manifest as the seam. Worth stating explicitly because it is the m
 
 ---
 
+## Video tool on crustyimg — assessed and DECLINED (2026-08-15)
+
+> Full evidence: `docs/video-tool-assessment-2026-08.md`. Read-only ideation session; nothing built.
+
+**Verdict: do not build it.** The crustyimg dependency is load-bearing for *video → images* and not
+for *video → video* (the shared core is 4,145 of 28,920 src lines, and the registry's four ops
+reduce to one usable op for video — `resize`). No wedge against ffmpeg survives: the permissive-licence
+angle trades a known LGPL obligation for an unquantified AVC **patent** exposure a licence does not
+shelter, and "safe on untrusted input" would get *weaker*, since crustyimg's claim is strong precisely
+because it declines the unsafe formats. The non-audio value already ships — driven on the released
+0.7.0 binary, `crustyimg web <frames-dir> --out-dir <out>` exits 0 on 8/8 frames, which is DEC-088
+tier 1 and, because `compute_key` hashes input **bytes** (`src/build/cache.rs:245-252`), caches per
+frame.
+
+**Revisit only if all four of the assessment's §12 questions answer affirmatively** — the blocking
+one is the AVC patent position for an independently-implemented decoder, which is a lawyer question,
+not a probe. Pure-Rust H.264 decoders now exist (`rusty_h264-decoder` 0.10.0, BSD-2-Clause,
+`forbid(unsafe_code)`, fuzzed) but are **seven weeks old** and short of full JVT conformance by their
+own README.
+
+### Two items handed to STAGE-046 (not new work — inputs to work already scheduled)
+
+- **`mp4-atom` 0.15.0 is a cleared candidate for animated AVIF output.** MIT OR Apache-2.0 (both
+  LICENSE files present), pure Rust with no `-sys` crate, 243,922 downloads, updated 2026-07-31.
+  Ships the `av01` sample entry and `av1C` config box
+  (`src/moov/trak/mdia/minf/stbl/stsd/av01.rs:21,87`), the full sample table, and a committed test
+  decoding a real libavif animated AVIF (`avis` brand). crustyimg already has the AV1 encoder
+  (rav1e) and decoder (re_rav1d) in-tree. **Belongs to the later animated-*output* spec, not
+  SPEC-119** (which is scoped to stopping the data loss). Measured price of the muxing *driver* on
+  top of a box library: **~1,000 lines** (`mp4` 0.14's `writer.rs` + `track.rs`) — compare against
+  the in-house RIFF/ANMF route before choosing. Adoption needs a DEC per
+  `no-new-top-level-deps-without-decision`.
+- **SPEC-119's AC-6 was independently confirmed.** An out-of-crate probe reproduced the exact
+  failure signature on AV1: 8 frames encoded, 3 dropped, output has 5 — frame-count oracle catches
+  it, SSIMULACRA2 scores **100.0**. This adds no requirement (AC-6 already says the assertion must
+  be structural); it is a second derivation agreeing from a different direction, plus a working
+  template for the half AC-6 leaves open — that the decoder doing the counting should be one you
+  did not write ([[verify-wasm-output-with-an-independent-decoder]]).
+
+### One correction to a shipped-API note
+
+`Image::from_parts` takes `image::ImageFormat`, and `crustyimg::image::ImageFormat` is **private**
+(a `use`, not a `pub use` — `src/image/mod.rs:25`). So an out-of-crate consumer is *forced* to
+declare `image` itself, which is exactly the naive dependency the lab plan's F2 measures as adding
+six reachable decoders. This raises the priority of the recorded `pub use ::image;` /
+`pub use ::toml;` fix from ergonomics to correctness-of-guidance. Re-exports, not visibility
+widenings — the measured zero-widening result stands.
+
 ## ⚠ Live defect — animated input is silently flattened, and `lint` recommends the command that does it (2026-08-15)
 
 > **Homed on STAGE-046** (output fidelity on shipped verbs, 2026-08-15). The evidence stays
