@@ -9,8 +9,10 @@ Cycle prompts live in `prompts/SPEC-116-<cycle>.md`.
 
 - [x] **design** — 2026-08-15. Spec written; 9 ACs, 3 settled design calls, 5 pre-written tests.
       Shipped on `main` via PR #166 (design-only, with SPEC-117).
-- [ ] **build** — prompt: `prompts/SPEC-116-build.md`. Sonnet, own worktree, branch
-      `feat/spec-116-build-threads-truncated-jpeg-warning` off `main`. Runs FIRST of the two
-      remaining STAGE-043/045 specs — it edits `tests/build.rs`, which SPEC-117 also touches.
-- [ ] **verify** — Opus, new session.
+- [x] **build** — 2026-08-15. PR #171, 16/16 CI green, 6 tests added, cycle advanced.
+      $11.91 / 28,772,199 tokens / 104 min (Sonnet).
+- [ ] **verify** — prompt: `prompts/SPEC-116-verify.md`. Opus, new session, own worktree.
+      Two open items flagged at handoff: AC-6's test asserts build==apply on-branch rather
+      than byte-identity vs `main`; and the Preserve/Pinned follow-up is filed only in
+      Build Completion, which archives.
 - [ ] **ship**
