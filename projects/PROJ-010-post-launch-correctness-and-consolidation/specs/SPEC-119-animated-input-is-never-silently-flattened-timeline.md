@@ -11,7 +11,8 @@ Cycle prompts live in `prompts/SPEC-119-<cycle>.md`.
       The multi-frame sweep ran at design and changed the scope: the defect is
       **three formats (GIF, APNG, animated WebP), not one**, so complexity moved
       S → M against the stage's estimate.
-- [ ] **build** — prompt not yet written. Sonnet, own worktree.
+- [~] **build** — prompt: `prompts/SPEC-119-build.md`. Sonnet. Worktree `../crustyimg-spec119`
+      on `fix/spec-119-animated-input-never-silently-flattened`, created 2026-08-16 off `caf2739`.
       ✅ **Call 1 RULED 2026-08-16: warn and proceed**, maintainer-confirmed with a recorded
       reservation. The reservation is answered by `lint --max-warnings 0`, which already exits
       non-zero — `lint` is the gate, `convert` is the tool.
