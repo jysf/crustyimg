@@ -623,6 +623,10 @@ decision, and not to be acted on unprompted.
 
 ## Open — `resize` resamples in sRGB, not linear light (2026-08-15)
 
+> **Homed on STAGE-046** (output fidelity on shipped verbs, 2026-08-15). The evidence stays
+> here; the schedulable work lives there. Sequenced ahead of STAGE-041 by maintainer decision.
+
+
 **Measured, not speculative.** `Resize::apply` converts to RGBA8 and hands
 `PixelType::U8x4` straight to `fast_image_resize` with Lanczos3
 (`src/operation/mod.rs:515`). A grep for `gamma`, `linear`, and `premultipl` across
@@ -829,6 +833,10 @@ blends and glows subtly wrong.
 
 ## ⚠ Live defect — ops widen to RGBA and never narrow back (2026-08-15)
 
+> **Homed on STAGE-046** (output fidelity on shipped verbs, 2026-08-15). The evidence stays
+> here; the schedulable work lives there. Sequenced ahead of STAGE-041 by maintainer decision.
+
+
 **Not a roadmap candidate — wrong today, on shipped verbs, including the flagship.** Same class as
 D-1: a default path that hands the user a worse result than it received. Measured by driving
 `target/debug/crustyimg` (built 2026-08-14, newer than all three source files) against
@@ -934,6 +942,10 @@ job, with the manifest as the seam. Worth stating explicitly because it is the m
 ---
 
 ## ⚠ Live defect — animated input is silently flattened, and `lint` recommends the command that does it (2026-08-15)
+
+> **Homed on STAGE-046** (output fidelity on shipped verbs, 2026-08-15). The evidence stays
+> here; the schedulable work lives there. Sequenced ahead of STAGE-041 by maintainer decision.
+
 
 **The most severe of the current defect set: silent data loss on a path the tool itself
 recommends, reported as a success with a perfect quality score.** Same class as D-1, worse

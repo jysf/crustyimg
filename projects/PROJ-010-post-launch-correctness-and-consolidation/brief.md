@@ -181,6 +181,32 @@ Stage counts also had to be hand-maintained across PRs all session. The framewor
 here. Filed as a STAGE-042 item, and it belongs to the close-out discussion below — the same root
 as the multi-session concurrency question, arriving from a different direction.
 
+### Amendment (2026-08-15b): STAGE-046 added, and it precedes STAGE-041
+
+Three exploration sessions on 2026-08-15 drove four defects on **shipped** verbs, including the
+flagship `web`. They are recorded with their measurements in `docs/backlog.md` and homed on
+**STAGE-046 — output fidelity on shipped verbs**:
+
+- animated input is silently flattened, and `lint` recommends the command that does it;
+- ops widen to RGBA and never narrow back (`+12.4%` bytes for a channel carrying no information);
+- the same call truncates 16-bit input to 8-bit;
+- `resize` resamples in sRGB rather than linear light, with no premultiplied alpha (the alpha half
+  was filed unconfirmed and was confirmed by a repo-wide grep the same day).
+
+**STAGE-046 precedes STAGE-041** — maintainer decision, 2026-08-15. The reasoning is not that the
+defects are new (they shipped in 0.7.0 and are not regressions) but that **STAGE-041 publishes the
+claim they contradict.** The launch content promotes quality-per-byte. Putting that claim in public
+while the flagship verb measurably degrades its input is the risk the ordering avoids.
+
+This is the second time in one week that the declared order has been amended, both times for the
+same reason: **a guard or a correction sequenced behind the launch it protects is backwards.**
+Amendment 2026-08-15 (above) says it in those words about the npm guard. That is now a pattern
+worth naming at close-out rather than a one-off.
+
+**What this does NOT change:** STAGE-041 remains the next content-facing work, and its two
+reconciliation items — stale `BENCHMARKS.md` numbers, and install one-liners undriven since 0.5.0
+— are untouched and still owed.
+
 ### How the carried stages were re-homed (2026-07-26)
 
 `PROJ-008/brief.md` and `docs/backlog.md` both recorded STAGE-031/032/033 as deliberately left in
