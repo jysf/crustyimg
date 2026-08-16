@@ -174,7 +174,7 @@ follow-up, with `crop` first.
 |---|---|---|---|
 | grayscale, sepia, solarize, invert | Common quick filters; were in the prototype | S | `Operation` trait; recipes make presets trivial |
 | pixelize | Privacy/redaction + stylistic | S | `Operation` trait |
-| sobel / edges | Edge-detection effect | S–M | `Operation` trait (imageproc convolution) |
+| sobel / edges | Edge-detection effect | S–M | `Operation` trait + **`image::imageops::filter3x3`** (arbitrary 3×3 kernel, already compiled in). ⚠ This row previously read "imageproc convolution" — corrected 2026-08-15: `Cargo.toml:68` explicitly rejects imageproc ("it drags in sdl2/nalgebra"), and `filter3x3` makes it unnecessary. |
 
 ### Format / web-optimize
 
@@ -662,8 +662,8 @@ any **grading** op — `.cube` LUT above, curves, exposure — it is a **correct
 pipeline is 8-bit throughout (`to_rgba8()` at `src/operation/mod.rs:197,396,816,817`), so a grade
 is quantized to 256 levels per channel and evaluated against the wrong transfer function. Worse,
 such an op's own tests **cannot see it** — reference and candidate are wrong identically. So this
-question **gates** the LUT entry above, and gates the grading ops `crustyimg-lab` is premised on
-(`docs/lab-plan-2026-08.md` §F8, §12.1). Answer it before either is specced, not during.
+question **gates the LUT entry above**, and should be answered before it is specced, not during.
+(It gates any future grading surface for the same reason.)
 
 **Context:** gamma-correct scaling is a commercial product elsewhere — imazen's `zenresize`
 (9.8k downloads) ships `AGPL-3.0-only OR LicenseRef-Imazen-Commercial`, as does every codec and
@@ -675,15 +675,15 @@ day after adopting that stack.
 
 ---
 
-## Open — items the lab decision was accidentally holding hostage (2026-08-15)
+## Open — workhorse items with no home (2026-08-15)
 
 `docs/feature-set-triage-2026-08.md` opens by warning that it is *"a triage, not a backlog.
 Nothing here is committed work."* Checked 2026-08-15 with a word-boundary grep and a positive
 control (`crop`, which **is** homed at roadmap Wave 5 + the Geometry-extras table above): three of
 its strongest items are homed **nowhere** — zero hits across `backlog.md`, `roadmap.md`,
-`feature-exploration.md` and `moat.md`. All three are **workhorse** features that got parked
-behind "the lab decision" because lab was the open question, not because they belong to lab
-(DEC-091 §Consequences). Homing them here so they stop being invisible.
+`feature-exploration.md` and `moat.md`. Each is a crustyimg feature on its own merits and is
+recorded here as one. *(They went unhomed because they were parked behind the then-open lab
+question; that is history, not a dependency — see DEC-091 §Consequences.)*
 
 ### `.cube` LUT op — build the reader in-house
 
@@ -764,15 +764,63 @@ consequence:** a consumer writing the obvious `image = "0.25.10"` adds **ten fea
 widenings — plus a test asserting the resolved feature set. Cheap, and it closes the hole for
 every consumer, not just a future lab.
 
-### Companion: a seam-protection test
+### Companion: a public-API contract test for the registry seam
 
-DEC-088 bet that a second binary can ride the shared `Operation`/recipe core. That property was
-**verified 2026-08-15** by compiling an out-of-crate probe (implement `Operation` → `register` →
-`from_toml` → `build_pipeline` → `run` → `from_ops`/`to_toml` → `encode_to_bytes` →
-`quality::score` → `Analysis::compute`): `cargo check` exit 0, **zero `pub` widenings required**,
-with an `E0603` negative control proving the probe can fail.
+**crustyimg makes a promise to library consumers in its own shipped rustdoc.**
+`src/operation/registry.rs:60-62` tells them new operations register from outside *"without
+touching the recipe parser (the whole point of the registry seam)"*. Nothing tests that promise.
 
-**Nothing keeps it true.** STAGE-042/043/045 all touch core paths. A committed version of that
-probe — with its negative control — turns "the registry seam is open" from a claim into a gate,
-and would also catch the feature-unification hole above. Reproduction recipe:
-`docs/lab-plan-2026-08.md` §Appendix.
+The repo already tests exactly this class of claim: `tests/spec097_reexport_paths.rs` exists
+solely so that every path that was `pub` at `crustyimg::cli::*` still resolves, and it fails to
+compile if one is dropped, renamed, or narrowed. **This is that test for the `Operation` seam.**
+
+The property was **verified 2026-08-15** by compiling an out-of-crate probe (implement
+`Operation` → `register` → `from_toml` → `build_pipeline` → `run` → `from_ops`/`to_toml` →
+`encode_to_bytes` → `quality::score` → `Analysis::compute`): `cargo check` exit 0, **zero `pub`
+widenings required**, with an `E0603` negative control proving the probe can fail.
+
+**Nothing keeps it true.** STAGE-042/043/045 all touch core paths, and a consumer only finds out
+at `cargo build`. A committed version of that probe — with its negative control — turns the
+rustdoc promise into a gate, and catches the feature-unification hole above at the same time.
+Reproduction recipe: `docs/lab-plan-2026-08.md` §Appendix. (It also happens to protect DEC-088's
+premise, but the contract stands on its own.)
+
+---
+
+## Open — the pixel core uses 4 of ~48 `imageops` functions (2026-08-15)
+
+**Measured, not estimated.** `image::imageops` exposes ~48 public functions. crustyimg calls
+**four**: `resize`, `overlay`, `crop_imm`, and one bare path. Everything below is **already
+compiled into every default binary** and unused:
+
+| group | available now, unused |
+|---|---|
+| tone / colour | `brighten`, `contrast`, `huerotate`, `grayscale`, `grayscale_with_type`, `unsharpen` |
+| blur | `blur`, `fast_blur`, `blur_advanced` (+ `new_from_sigma` / `new_from_radius` kernels) |
+| geometry | `crop`, `rotate90/180/270`, `flip_horizontal/vertical`, `tile`, `replace` |
+| convolution | **`filter3x3(image, &[f32; 9])`** — arbitrary 3×3 kernels |
+| palette | `dither`, `index_colors`, the `ColorMap` trait |
+| sampling | `interpolate_bilinear`, `sample_bilinear`, `sample_nearest`, gradients |
+
+**Why this matters for planning:** the *Effects catalog* and *Geometry extras* tables above are
+costed as if each item is an implementation. Most are a **wrapper over a function already in the
+binary** plus params, `params()` round-trip, and tests. Re-cost them before they are specced —
+the work is registry wiring and test coverage, not pixel math.
+
+**`tiny_skia` is likewise under-used.** Reached today only for SVG rasterization
+(`src/image/svg.rs:55`, via resvg's re-export), it also ships linear/radial/**sweep** gradients,
+patterns, path stroking with AA, and ~15 Porter-Duff blend modes (`Screen`, `Modulate`, `Plus`,
+`Xor`, `SourceAtop`, …). Any compositing feature — duotone, glow, vignette, gradient map — has its
+engine in the binary already.
+
+⚠ **Scope guard.** Availability is not a reason to build. These pass DEC-091's two fences (their
+params generalize; their output is a build artifact), which makes the fences the *wrong* filter
+here — the operative test is `docs/territory.md`'s **"does this help produce a better artifact
+automatically?"**. On that test `dither`/`index_colors` (smaller PNGs), `unsharpen` (recovers
+downscale softening, measurable in SSIMULACRA2), `blur` (Wave 4 placeholders) and declared 3×3
+kernels earn their place; a vignette or a film-grain filter does not. **Do not let "it's free"
+become an effects backlog.**
+
+⚠ **All of it is bounded by the 8-bit sRGB pipeline** (see the resampling entry above): blurs,
+gradient maps and curves band at 256 levels/channel, and compositing in non-linear space makes
+blends and glows subtly wrong.

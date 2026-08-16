@@ -87,8 +87,29 @@ privacy, and dimensions. This stage's own summary calls its rules "the rules tha
 teeth"; legacy-format is the tooth that matters.
 
 `quality/excessive-jpeg-quality` and `format/indexed-png-opportunity` (SPEC-055) are materially
-weaker — the latter is explicitly advisory until a permissive quantizer ships. **Do not treat
-SPEC-055 as automatically following SPEC-054.**
+weaker. **Do not treat SPEC-055 as automatically following SPEC-054.**
+
+### Correction 2026-08-15 — the indexed-PNG quantizer blocker is out of date
+
+This stage says `format/indexed-png-opportunity` *"stays advisory until a permissive quantizer
+ships (PROJ-007)"*, and lists "indexed-PNG as a fix" as out of scope for that reason. **Checked
+2026-08-15: a permissive quantizer is already in the tree.**
+
+- `color_quant` **1.1.0 is in `Cargo.lock`**, pulled by `gif` → `image`. Licence **MIT**
+  (112M downloads, latest 2.0.0 published 2026-05-09).
+- `image` ships `impl ColorMap for color_quant::NeuQuant`
+  (`imageops/colorops.rs:438`), and `imageops::index_colors` + `imageops::dither` are the apply
+  path — all compiled into every default native build today.
+- `image` does **not** re-export it, so calling NeuQuant directly needs a manifest line and a
+  `DEC-*` (`no-new-top-level-deps-without-decision`) — but **zero new compiled bytes**, since it
+  is already linked. Applying a *known* palette needs no new dep at all: implement `ColorMap`.
+
+**The honest qualifier:** NeuQuant is not pngquant. `imagequant` (the quality leader) is correctly
+declined on licence, and NeuQuant's output is measurably worse. So the blocker is not "no
+permissive quantizer exists" but **"is NeuQuant good enough?"** — which is a measurement
+(SSIMULACRA2 + byte delta on a palette-friendly corpus), not a dependency wait. Run it as part of
+the stage gate above; if NeuQuant clears the savings threshold at an acceptable score, the rule
+can ship as a **fix** rather than advisory, and the PROJ-007 dependency drops.
 
 ### The counter-argument, kept on the record
 
@@ -128,7 +149,7 @@ No new compression math; these rules are a thin read over the shipped engine. It
 - `quality/excessive-jpeg-quality` + `format/indexed-png-opportunity`. **(SPEC-055)**
 
 ### Explicitly out of scope
-- SARIF / Actions / pre-commit (STAGE-015). Indexed-PNG as a fix (PROJ-007). Near-dup (v2).
+- SARIF / Actions / pre-commit (STAGE-015). Near-dup (v2). ~~Indexed-PNG as a fix (PROJ-007)~~ — **reopened 2026-08-15**, see the correction below: the quantizer is already in the tree, so this is a quality measurement, not a dependency wait.
 
 ## Spec Backlog
 
