@@ -1022,6 +1022,17 @@ path does not.
   definition), which is exactly where lossless WebP wins big. The C dependency buys lossy frames,
   which GIF sources do not need.
 
+  ⚠ **"WebP/AVIF" is not one item.** The 150–250 line estimate covers **animated WebP only** —
+  RIFF is length-prefixed chunks. **Animated AVIF is a HEIF image sequence, materially harder, and
+  has not been priced.** `rav1e` 0.8.1 is already in the tree (via `ravif`) and encodes multiple
+  frames, so the *encoder* is not the gap — the container is. Price it separately; do not let the
+  WebP number stand in for both.
+
+  **The lint rule's own claim is unverified.** `format/animated-gif` tells the user "a modern
+  format encodes far smaller" — but crustyimg cannot produce the animated format it recommends, so
+  **this repo has never measured that win**. Shipping the capability is the first opportunity to;
+  the spec should record the measured saving rather than inherit the claim.
+
 ### Scope check before either is specced
 
 Animated GIF is not the only multi-frame input the tree can decode. **Mechanically sweep** every
