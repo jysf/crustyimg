@@ -335,6 +335,11 @@ pub(super) fn run_pixel_op(
         if img.is_truncated_jpeg() {
             eprintln!("warning: {label}: {}", crate::image::TRUNCATED_JPEG_WARNING);
         }
+        // SPEC-119: unconditional, not gated on `--quiet` — same reasoning as
+        // the truncated-JPEG warning immediately above (DEC-085's sibling).
+        if img.is_animated_input() {
+            eprintln!("warning: {label}: {}", crate::image::ANIMATED_INPUT_WARNING);
+        }
 
         // Captured BEFORE the pipeline (which may replace the pixels) consumes
         // `img` — only needed when `never_bigger` is set, but cheap to always take
@@ -429,6 +434,10 @@ pub(super) fn run_pixel_op(
                 // F1 (SPEC-107, DEC-085): see the single-input branch above.
                 if img.is_truncated_jpeg() {
                     eprintln!("warning: {label}: {}", crate::image::TRUNCATED_JPEG_WARNING);
+                }
+                // SPEC-119: see the single-input branch above.
+                if img.is_animated_input() {
+                    eprintln!("warning: {label}: {}", crate::image::ANIMATED_INPUT_WARNING);
                 }
 
                 // See the single-input branch above: captured before the pipeline

@@ -12,7 +12,10 @@ use std::process::Command;
 use tempfile::TempDir;
 
 mod common;
-use common::{animated_gif, jpeg_with_gps, jpeg_with_orientation, png_16bit, solid_png};
+use common::{
+    animated_apng, animated_gif, animated_webp, jpeg_with_gps, jpeg_with_orientation, png_16bit,
+    solid_png, static_gif, webp_lossless,
+};
 
 /// Path to the compiled binary, provided by Cargo.
 const BIN: &str = env!("CARGO_BIN_EXE_crustyimg");
@@ -20,6 +23,15 @@ const BIN: &str = env!("CARGO_BIN_EXE_crustyimg");
 /// Write `bytes` to `dir/name`.
 fn write(dir: &TempDir, name: &str, bytes: &[u8]) {
     std::fs::write(dir.path().join(name), bytes).unwrap();
+}
+
+/// Write `bytes` to `dir/name` and return the written path (SPEC-119: for
+/// tests that need to `lint` a single file directly, bypassing the
+/// directory walk's extension allow-list).
+fn write_path(dir: &TempDir, name: &str, bytes: &[u8]) -> std::path::PathBuf {
+    let path = dir.path().join(name);
+    std::fs::write(&path, bytes).unwrap();
+    path
 }
 
 /// Run `crustyimg lint <path>` and return (exit code, stdout).
@@ -500,4 +512,145 @@ fn lint_still_reports_a_genuinely_corrupt_file() {
         "a truly corrupt file must still be reported, got:\n{stdout}"
     );
     assert_eq!(code, 7, "an error finding exits 7");
+}
+
+// ── SPEC-119: animated-input lint coverage (AC-7 / AC-7b) ───────────────────
+
+/// AC-7: the `fix:` string no longer names a command that discards frames —
+/// pinned by asserting the ABSENCE of the destructive advice, not just new
+/// wording (a test that only checks for new text would still pass if the
+/// old advice were printed alongside it).
+#[test]
+fn animated_gif_rule_does_not_recommend_a_flattening_command() {
+    let dir = TempDir::new().unwrap();
+    write(&dir, "anim.gif", &animated_gif(4, 4));
+
+    let (code, stdout) = lint(dir.path());
+    assert_eq!(
+        code, 0,
+        "animated-gif warns, doesn't fail by default; stdout:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("format/animated-gif"),
+        "the rule must still fire; stdout:\n{stdout}"
+    );
+    assert!(
+        !stdout.contains("convert --format webp"),
+        "the fix must no longer recommend the destructive command; stdout:\n{stdout}"
+    );
+}
+
+/// APNG and animated WebP get the sibling `format/animated-input` finding,
+/// and it carries the same no-destructive-fix property.
+///
+/// **Linted as two SINGLE-FILE arguments, not one shared directory.** `lint
+/// <dir>` walks the directory through `source::resolve_directory`, which
+/// filters to `IMAGE_EXTENSIONS` (`src/source/mod.rs`) — and that allow-list
+/// does not include `webp` (a pre-existing gap this spec did not introduce;
+/// recorded in Build Completion, not fixed here — out of scope, and fixing
+/// it changes discovery behavior for every command, not just `lint`). A
+/// single named file bypasses that filter entirely ("NOT extension-filtered
+/// — the user named it directly", same doc comment), so linting each file
+/// by its own path proves the RULE fires on WebP without depending on a
+/// directory-walk allow-list this spec does not touch.
+#[test]
+fn animated_input_rule_fires_on_apng_and_webp_with_no_destructive_fix() {
+    let dir = TempDir::new().unwrap();
+    let png = write_path(&dir, "anim.png", &animated_apng(4, 4));
+    let webp = write_path(&dir, "anim.webp", &animated_webp(4, 4));
+
+    let (png_code, png_stdout) = lint(&png);
+    assert_eq!(png_code, 0, "warns, doesn't fail; stdout:\n{png_stdout}");
+    assert!(
+        png_stdout.contains("format/animated-input"),
+        "the APNG must fire the sibling rule; stdout:\n{png_stdout}"
+    );
+
+    let (webp_code, webp_stdout) = lint(&webp);
+    assert_eq!(webp_code, 0, "warns, doesn't fail; stdout:\n{webp_stdout}");
+    assert!(
+        webp_stdout.contains("format/animated-input"),
+        "the animated WebP must fire the sibling rule; stdout:\n{webp_stdout}"
+    );
+
+    assert!(
+        !png_stdout.contains("convert --format webp") && !webp_stdout.contains("convert --format webp"),
+        "neither finding may recommend the destructive command; stdout:\n{png_stdout}\n{webp_stdout}"
+    );
+}
+
+/// AC-7b: `lint --max-warnings 0` — the strict path Call 1's confirmation
+/// leans on — fails independently on each of the three animated families,
+/// with a static counterpart of each staying clean under the same flag.
+/// This is the answer the spec gives to "warn and proceed still loses
+/// data"; an answer nobody drove is not an answer.
+///
+/// GIF/PNG are linted by DIRECTORY (matching the rest of this file's style);
+/// WebP is linted by its own single-file PATH, for the same reason
+/// `animated_input_rule_fires_on_apng_and_webp_with_no_destructive_fix`
+/// does — `webp` is not in `source::IMAGE_EXTENSIONS`, so a directory
+/// containing only a `.webp` file resolves to zero inputs (exit 3, "no
+/// resolvable inputs"), which would test the allow-list gap, not this rule.
+#[test]
+fn max_warnings_zero_fails_on_each_animated_family_clean_on_static() {
+    fn strict(dir: &TempDir) -> i32 {
+        lint_args(&[
+            dir.path().as_os_str(),
+            OsStr::new("--max-warnings"),
+            OsStr::new("0"),
+        ])
+        .0
+    }
+    fn strict_path(path: &std::path::Path) -> i32 {
+        lint_args(&[
+            path.as_os_str(),
+            OsStr::new("--max-warnings"),
+            OsStr::new("0"),
+        ])
+        .0
+    }
+
+    let gif_dir = TempDir::new().unwrap();
+    write(&gif_dir, "anim.gif", &animated_gif(4, 4));
+    assert_eq!(
+        strict(&gif_dir),
+        7,
+        "an animated GIF must fail --max-warnings 0"
+    );
+
+    let gif_static = TempDir::new().unwrap();
+    write(&gif_static, "still.gif", &static_gif(4, 4));
+    assert_eq!(
+        strict(&gif_static),
+        0,
+        "a static GIF must stay clean under --max-warnings 0"
+    );
+
+    let png_dir = TempDir::new().unwrap();
+    write(&png_dir, "anim.png", &animated_apng(4, 4));
+    assert_eq!(strict(&png_dir), 7, "an APNG must fail --max-warnings 0");
+
+    let png_static = TempDir::new().unwrap();
+    write(&png_static, "still.png", &solid_png(4, 4, [1, 2, 3]));
+    assert_eq!(
+        strict(&png_static),
+        0,
+        "a static PNG must stay clean under --max-warnings 0"
+    );
+
+    let webp_dir = TempDir::new().unwrap();
+    let webp_anim = write_path(&webp_dir, "anim.webp", &animated_webp(4, 4));
+    assert_eq!(
+        strict_path(&webp_anim),
+        7,
+        "an animated WebP must fail --max-warnings 0"
+    );
+
+    let webp_static_dir = TempDir::new().unwrap();
+    let webp_static = write_path(&webp_static_dir, "still.webp", &webp_lossless(4, 4));
+    assert_eq!(
+        strict_path(&webp_static),
+        0,
+        "a static WebP must stay clean under --max-warnings 0"
+    );
 }

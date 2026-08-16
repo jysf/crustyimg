@@ -1018,6 +1018,10 @@ fn source_container_label(container: crate::image::SourceContainer) -> Option<&'
 /// Runs the decision engine and returns the bytes to ship (or a passthrough)
 /// plus the `ExplainTrace` for reporting (`None` only for a degenerate image).
 /// Does NOT print — the caller renders the summary or `--explain`.
+// The return tuple grew a 5th element in SPEC-119 (the animated-input flag,
+// alongside SPEC-107's truncated-JPEG flag) — a named struct would need the
+// same number of fields threaded through 3 call sites for no clarity gain.
+#[allow(clippy::type_complexity)]
 fn optimize_decide_one(
     input: &crate::source::Input,
     pipeline: &Pipeline,
@@ -1044,6 +1048,10 @@ fn optimize_decide_one(
         // JPEG. Returned rather than printed here (this function's contract is
         // "does NOT print") — the caller prints the warning against the label
         // it already has.
+        bool,
+        // SPEC-119: whether the SOURCE decoded as a multi-frame animated
+        // GIF/APNG/WebP — same "returned, not printed" contract as the
+        // truncated-JPEG flag immediately above.
         bool,
     ),
     CliError,
@@ -1074,6 +1082,8 @@ fn optimize_decide_one(
     // F1 (SPEC-107, DEC-085): captured on the SOURCE, before the pipeline
     // (which may replace the pixels) consumes `img` below.
     let truncated_jpeg = img.is_truncated_jpeg();
+    // SPEC-119: same capture-before-consume reasoning as `truncated_jpeg`.
+    let animated_input = img.is_animated_input();
     let source_format = img.source_format();
     // Whether `source_format` names the real container on disk, or is an
     // adopted stand-in (SVG/HEIC/RAW, SPEC-115) — captured before the
@@ -1108,7 +1118,7 @@ fn optimize_decide_one(
                     raw,
                     ext: metadata_output_ext(input, &[]),
                 };
-                return Ok((output, None, None, truncated_jpeg));
+                return Ok((output, None, None, truncated_jpeg, animated_input));
             }
             return Err(e.into());
         }
@@ -1264,7 +1274,13 @@ fn optimize_decide_one(
         source_container_label: source_container_label(source_container),
     };
 
-    Ok((output, Some(trace), winner_score, truncated_jpeg))
+    Ok((
+        output,
+        Some(trace),
+        winner_score,
+        truncated_jpeg,
+        animated_input,
+    ))
 }
 
 /// `build`'s twin of [`run_apply`]'s terminal-`optimize` split (SPEC-111):
@@ -1284,17 +1300,18 @@ fn optimize_decide_one(
 /// the report [`optimize_decide_one`] never generates here), and `build` has
 /// no per-input audit to spend them on.
 ///
-/// Returns the truncated-JPEG flag as a third element (SPEC-116) rather than
-/// printing here: this is a pure encode helper with no label and no business
-/// writing to stderr — `build_one` has the label and emits, matching how
-/// `run_optimize`'s own call sites consume the same flag.
+/// Returns the truncated-JPEG and animated-input flags as the third and
+/// fourth elements (SPEC-116, widened by SPEC-119) rather than printing
+/// here: this is a pure encode helper with no label and no business writing
+/// to stderr — `build_one` has the label and emits, matching how
+/// `run_optimize`'s own call sites consume the same flags.
 pub(super) fn encode_one_optimize_decided(
     pixel_recipe: &Recipe,
     registry: &OperationRegistry,
     input: &crate::source::Input,
-) -> Result<(String, Vec<u8>, bool), CliError> {
+) -> Result<(String, Vec<u8>, bool, bool), CliError> {
     let pipeline = pixel_recipe.build_pipeline(registry)?;
-    let (output, _trace, _score, truncated_jpeg) = optimize_decide_one(
+    let (output, _trace, _score, truncated_jpeg, animated_input) = optimize_decide_one(
         input,
         &pipeline,
         &AutoQuality::Fast,
@@ -1306,7 +1323,7 @@ pub(super) fn encode_one_optimize_decided(
         OptimizeOutput::Encoded { bytes, ext } => (ext, bytes),
         OptimizeOutput::Passthrough { raw, ext } => (ext, raw),
     };
-    Ok((ext, bytes, truncated_jpeg))
+    Ok((ext, bytes, truncated_jpeg, animated_input))
 }
 
 /// Render one input's report: `--explain` (json→stdout, human→stderr), else the
@@ -1471,12 +1488,16 @@ fn run_optimize_autodecide(
             .path()
             .map(|p| p.display().to_string())
             .unwrap_or_else(|| input.stem().to_owned());
-        let (output, trace, score, truncated_jpeg) =
+        let (output, trace, score, truncated_jpeg, animated_input) =
             optimize_decide_one(input, pipeline, auto, profile, always_score, timing)?;
         // F1 (SPEC-107, DEC-085): unconditional, not gated on `--quiet` — see
         // `report.rs`'s `run_info` for why.
         if truncated_jpeg {
             eprintln!("warning: {label}: {}", crate::image::TRUNCATED_JPEG_WARNING);
+        }
+        // SPEC-119: same reasoning as the truncated-JPEG warning above.
+        if animated_input {
+            eprintln!("warning: {label}: {}", crate::image::ANIMATED_INPUT_WARNING);
         }
         emit_optimize_report(&label, trace.as_ref(), score, explain, global)?;
 
@@ -1521,11 +1542,15 @@ fn run_optimize_autodecide(
                 crate::source::Input::Stdin { stem, .. } => stem.clone(),
             };
             let result = (|| -> Result<(), CliError> {
-                let (output, trace, score, truncated_jpeg) =
+                let (output, trace, score, truncated_jpeg, animated_input) =
                     optimize_decide_one(input, pipeline, auto, profile, always_score, timing)?;
                 // F1 (SPEC-107, DEC-085): see the single-input branch above.
                 if truncated_jpeg {
                     eprintln!("warning: {label}: {}", crate::image::TRUNCATED_JPEG_WARNING);
+                }
+                // SPEC-119: see the single-input branch above.
+                if animated_input {
+                    eprintln!("warning: {label}: {}", crate::image::ANIMATED_INPUT_WARNING);
                 }
                 emit_optimize_report(&label, trace.as_ref(), score, explain, global)?;
                 let sink = Sink::Dir {

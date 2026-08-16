@@ -231,8 +231,18 @@ impl Rule for UnexpectedIcc {
 
 // ── format/animated-gif (warn) ──────────────────────────────────────────────
 
-/// An animated GIF that should be a modern format (WebP/video). Fix:
-/// `convert --format webp`.
+/// An animated GIF. **No runnable fix** (SPEC-119, Call 4, revised
+/// 2026-08-16): `convert --format webp` — the ONLY fix this rule used to
+/// name — is the exact command that silently discards every frame but the
+/// first (`docs/backlog.md`'s animated-input defect). Until crustyimg writes
+/// animated output, there is no correct fix to recommend, so this finding
+/// says so plainly instead of naming a destructive command.
+///
+/// Detection reads `Image::is_animated_input` (`src/image/mod.rs`) —
+/// the SAME flag the pixel verbs warn on — rather than re-decoding here, so
+/// the linter and the encoder path can no longer disagree about whether a
+/// file is animated (the root cause this spec closes: "the linter knows the
+/// file is animated and the encoder path does not").
 pub struct AnimatedGif;
 
 impl Rule for AnimatedGif {
@@ -244,17 +254,70 @@ impl Rule for AnimatedGif {
     }
     fn check(&self, target: &LintTarget) -> Option<Finding> {
         let info = target.info()?;
-        if info.format == ::image::ImageFormat::Gif && gif_is_animated(target.bytes()) {
+        let img = target.decoded().ok()?;
+        if info.format == ::image::ImageFormat::Gif && img.is_animated_input() {
             Some(Finding::new(
                 target.path().to_path_buf(),
                 self.id(),
                 self.default_severity(),
-                "animated GIF (a modern format encodes far smaller)",
-                Some("convert --format webp".to_string()),
+                "animated GIF (crustyimg cannot yet re-encode animation without \
+                 flattening it — converting or optimizing this file will discard \
+                 every frame but the first)",
+                None,
             ))
         } else {
             None
         }
+    }
+}
+
+// ── format/animated-input (warn) — APNG and animated WebP ───────────────────
+
+/// The GIF rule's sibling for the other two animated formats SPEC-119's
+/// sweep found (`src/image/mod.rs`'s `detect_animated_input`): APNG and
+/// animated WebP. **A separate rule id, not a broadened `format/animated-gif`
+/// with an alias** (SPEC-119, Call 4's build-cycle choice — see Build
+/// Completion): `format/animated-gif` stays GIF-only so existing
+/// `select`/`ignore`/`severity` config entries and `lint --json` output for
+/// GIF inputs do not change shape, and no alias-resolution machinery (and no
+/// config migration) is needed to add the other two formats.
+///
+/// GIF is deliberately excluded from this rule's `check` (even though
+/// `Image::is_animated_input()` is `true` for an animated GIF too) so a GIF
+/// input never fires both rules at once — [`AnimatedGif`] owns GIF.
+pub struct AnimatedInput;
+
+impl Rule for AnimatedInput {
+    fn id(&self) -> &'static str {
+        "format/animated-input"
+    }
+    fn default_severity(&self) -> Severity {
+        Severity::Warn
+    }
+    fn check(&self, target: &LintTarget) -> Option<Finding> {
+        let info = target.info()?;
+        let img = target.decoded().ok()?;
+        if !img.is_animated_input() {
+            return None;
+        }
+        let label = match info.format {
+            ::image::ImageFormat::Png => "animated PNG (APNG)",
+            ::image::ImageFormat::WebP => "animated WebP",
+            // GIF is `AnimatedGif`'s finding, not this rule's — and no other
+            // format `detect_animated_input` recognizes can be `true` here.
+            _ => return None,
+        };
+        Some(Finding::new(
+            target.path().to_path_buf(),
+            self.id(),
+            self.default_severity(),
+            format!(
+                "{label} (crustyimg cannot yet re-encode animation without \
+                 flattening it — converting or optimizing this file will discard \
+                 every frame but the first)"
+            ),
+            None,
+        ))
     }
 }
 
@@ -293,19 +356,6 @@ fn jpeg_component_count(bytes: &[u8]) -> Option<u8> {
         i += 2 + len;
     }
     None
-}
-
-/// Whether a GIF has ≥2 frames (animated). Reuses the shipped `image` GIF
-/// decoder (`gif` feature is on in both the default and lean builds); decodes at
-/// most two frames. A decode error ⇒ `false` (a corrupt file is a separate
-/// finding).
-fn gif_is_animated(bytes: &[u8]) -> bool {
-    use ::image::codecs::gif::GifDecoder;
-    use ::image::AnimationDecoder;
-    match GifDecoder::new(std::io::Cursor::new(bytes)) {
-        Ok(dec) => dec.into_frames().take(2).count() >= 2,
-        Err(_) => false,
-    }
 }
 
 #[cfg(test)]
@@ -557,7 +607,16 @@ mod tests {
         let f = AnimatedGif
             .check(&target(animated_gif()))
             .expect("2-frame gif fires");
-        assert_eq!(f.fix(), Some("convert --format webp"));
+        // SPEC-119: no runnable fix — `convert --format webp` is the exact
+        // command that silently discards every frame but the first, so
+        // there is nothing correct to recommend yet. Assert the ABSENCE
+        // (AC-7), not just a new string.
+        assert_eq!(f.fix(), None);
+        assert!(
+            !f.message().contains("--format webp"),
+            "the message must not name a destructive command either: {}",
+            f.message()
+        );
         assert!(AnimatedGif.check(&target(static_gif())).is_none());
         // A non-gif is never animated-gif.
         assert!(AnimatedGif.check(&target(png8(4))).is_none());

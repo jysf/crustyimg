@@ -119,6 +119,82 @@ fn jpeg_missing_eoi(bytes: &[u8]) -> bool {
 pub(crate) const TRUNCATED_JPEG_WARNING: &str =
     "truncated JPEG: missing end-of-image marker (FF D9) — the decoded image may be incomplete";
 
+/// The stderr warning the CLI prints on [`Image::is_animated_input`]
+/// (SPEC-119) — centralized so `convert`/`optimize`/`web`/`build` print
+/// identical wording. Native-only, same reasoning as
+/// [`TRUNCATED_JPEG_WARNING`]: `Image` computes and carries the flag on
+/// every target, but only the native CLI turns it into a printed warning.
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) const ANIMATED_INPUT_WARNING: &str =
+    "animated input flattened to a single frame — crustyimg does not yet write animated \
+     output, so every frame but the first was discarded";
+
+/// Whether `bytes` — already detected as `format` — is a multi-frame
+/// animated source that [`Image::from_bytes`] flattens to `pixels`' single
+/// frame (Call 2/3, SPEC-119).
+///
+/// Checked for the three `::image::AnimationDecoder` impls this repo's
+/// pinned `image` 0.25.10 build enables — GIF, APNG, and animated WebP (the
+/// SPEC-119 sweep: `grep -rn "impl.*AnimationDecoder.*for"` over the crate
+/// source). TIFF/ICO/BMP/JPEG have no such impl and fall through `_ => false`.
+///
+/// **AVIF is not in this match** — not because it is unchecked, but because
+/// it cannot reach here un-warned in the first place: an AVIF sequence
+/// (`ftyp` major brand `avis`) is rejected by `avif_parse::read_avif` with a
+/// typed `Unsupported` error *before* `decode_with_limits` returns, so
+/// `Image::from_bytes` never constructs an `Image` from one — see
+/// `avif::decode_avif_inner` and its `map_parse_err`. A single-image AVIF
+/// (`avif` brand) has nothing to flatten.
+fn detect_animated_input(bytes: &[u8], format: ImageFormat) -> bool {
+    match format {
+        ImageFormat::Gif => gif_is_animated(bytes),
+        ImageFormat::Png => png_is_apng(bytes),
+        ImageFormat::WebP => webp_is_animated(bytes),
+        _ => false,
+    }
+}
+
+/// Whether a GIF has ≥2 frames. Reuses the shipped `image` GIF decoder
+/// (`gif` is enabled in both the default and lean builds) and decodes at
+/// most two frames — cheap, no full-animation decode. A decode error ⇒
+/// `false`: a corrupt file is `lint`'s `size/truncated-or-corrupt` finding,
+/// not this one's concern, and the caller already holds a successfully
+/// decoded `pixels` buffer from a separate (non-animation-aware) decode, so
+/// failing "closed" here would contradict a frame we already have.
+fn gif_is_animated(bytes: &[u8]) -> bool {
+    use ::image::codecs::gif::GifDecoder;
+    use ::image::AnimationDecoder;
+    match GifDecoder::new(Cursor::new(bytes)) {
+        Ok(dec) => dec.into_frames().take(2).count() >= 2,
+        Err(_) => false,
+    }
+}
+
+/// Whether a PNG carries an `acTL` chunk (is an APNG). `PngDecoder::is_apng`
+/// returns `ImageResult<bool>` rather than a plain `bool`
+/// (`no-unwrap-on-recoverable-paths`: `.unwrap_or(false)`, never `.unwrap()`)
+/// — a decode error or a plain (non-animated) PNG both read as `false`, same
+/// reasoning as [`gif_is_animated`].
+fn png_is_apng(bytes: &[u8]) -> bool {
+    use ::image::codecs::png::PngDecoder;
+    match PngDecoder::new(Cursor::new(bytes)) {
+        Ok(dec) => dec.is_apng().unwrap_or(false),
+        Err(_) => false,
+    }
+}
+
+/// Whether a WebP carries an animation (`ANIM`/`ANMF` chunks). Cheaper than
+/// the GIF/APNG checks — `WebPDecoder::has_animation` reads a header flag,
+/// no frame decode at all. A decode error ⇒ `false`, same reasoning as
+/// [`gif_is_animated`].
+fn webp_is_animated(bytes: &[u8]) -> bool {
+    use ::image::codecs::webp::WebPDecoder;
+    match WebPDecoder::new(Cursor::new(bytes)) {
+        Ok(dec) => dec.has_animation(),
+        Err(_) => false,
+    }
+}
+
 /// Where `source_format`'s value actually came from (SPEC-115).
 ///
 /// Most decoders report a real `::image::ImageFormat` for the container on
@@ -172,6 +248,13 @@ pub struct Image {
     /// PNG/AVIF — so a truncated JPEG decodes "successfully" here and the CLI
     /// layer is what turns this flag into a stderr warning.
     truncated_jpeg: bool,
+    /// Set at decode time (SPEC-119) when the source is a multi-frame
+    /// animated GIF/APNG/WebP: the pixel path decodes exactly one
+    /// `DynamicImage`, so every frame after the first is silently discarded
+    /// unless the CLI layer turns this flag into a stderr warning — the
+    /// sibling of `truncated_jpeg` (same carrier, same reasoning, a
+    /// different loss).
+    animated_input: bool,
     /// Where `source_format` actually came from (SPEC-115) — see
     /// [`SourceContainer`].
     source_container: SourceContainer,
@@ -218,11 +301,13 @@ impl Image {
         let (pixels, source_format, source_container) = decode_with_format(bytes)?;
         let metadata = MetadataBundle::capture(bytes, source_format);
         let truncated_jpeg = source_format == ImageFormat::Jpeg && jpeg_missing_eoi(bytes);
+        let animated_input = detect_animated_input(bytes, source_format);
         Ok(Image {
             pixels,
             source_format,
             metadata,
             truncated_jpeg,
+            animated_input,
             source_container,
         })
     }
@@ -280,6 +365,17 @@ impl Image {
         self.truncated_jpeg
     }
 
+    /// Whether this image was decoded from a multi-frame animated GIF/APNG/
+    /// WebP (SPEC-119) — the pixel path keeps only the first frame. The CLI
+    /// layer checks this right after load (mirroring
+    /// [`Image::is_truncated_jpeg`]) to print the flattening warning on
+    /// `convert`/`optimize`/`web`/`build` — see [`ANIMATED_INPUT_WARNING`].
+    /// Native-only: no `cli` on `wasm32` to consult it.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) fn is_animated_input(&self) -> bool {
+        self.animated_input
+    }
+
     /// Build an `Image` from already-decoded pixels, carrying through the
     /// source format and metadata bundle.
     ///
@@ -300,6 +396,10 @@ impl Image {
             source_format,
             metadata,
             truncated_jpeg: false,
+            // Never itself the product of an animated-input decode, same
+            // reasoning as `truncated_jpeg` above: that flag is only ever set
+            // in `Image::from_bytes`, on the ORIGINAL loaded bytes.
+            animated_input: false,
             source_container: SourceContainer::Native,
         }
     }
@@ -324,6 +424,7 @@ impl Image {
             source_format: self.source_format,
             metadata: self.metadata,
             truncated_jpeg: self.truncated_jpeg,
+            animated_input: self.animated_input,
             source_container: self.source_container,
         }
     }
@@ -577,6 +678,10 @@ pub fn raw_preview(bytes: &[u8]) -> Result<Image> {
         // extracted/decoded by `raw::extract_preview` above) and is out of this
         // spec's scope (F4/F5).
         truncated_jpeg: false,
+        // The extracted preview is by construction a single JPEG frame — RAW
+        // containers do not carry an animated preview (SPEC-119, same
+        // reasoning as `truncated_jpeg` immediately above).
+        animated_input: false,
         // The bytes on disk are the whole RAW container, not a standalone JPEG
         // file — `source_format` (Jpeg) is the preview's format, an adopted
         // label (SPEC-115).
@@ -1317,5 +1422,80 @@ mod tests {
         let img = Image::from_bytes(&png).expect("PNG decoder ignores trailing junk");
         assert_eq!(img.source_format(), ImageFormat::Png);
         assert!(!img.is_truncated_jpeg());
+    }
+
+    // ── SPEC-119 animated-input flag ────────────────────────────────────────
+
+    /// A 2-frame GIF, built with `image`'s own `GifEncoder` (the fixture
+    /// style `src/lint/rules.rs` already uses).
+    fn animated_gif(w: u32, h: u32) -> Vec<u8> {
+        use ::image::codecs::gif::GifEncoder;
+        use ::image::Frame;
+        let mut buf = Vec::new();
+        {
+            let mut enc = GifEncoder::new(&mut buf);
+            let f1 = Frame::new(RgbaImage::from_pixel(w, h, ::image::Rgba([255, 0, 0, 255])));
+            let f2 = Frame::new(RgbaImage::from_pixel(w, h, ::image::Rgba([0, 255, 0, 255])));
+            enc.encode_frames(vec![f1, f2]).unwrap();
+        }
+        buf
+    }
+
+    fn static_gif(w: u32, h: u32) -> Vec<u8> {
+        let img = RgbImage::from_pixel(w, h, ::image::Rgb([9, 9, 9]));
+        let mut out = Cursor::new(Vec::new());
+        DynamicImage::ImageRgb8(img)
+            .write_to(&mut out, ImageFormat::Gif)
+            .unwrap();
+        out.into_inner()
+    }
+
+    /// End-to-end through `Image::from_bytes` (AC-9's GIF claim, unit level):
+    /// an animated GIF sets `is_animated_input()`; a static one does not —
+    /// the did-not-break-it control, without which "always flag" would pass
+    /// the positive half and ruin the field
+    /// [[a-harness-that-exercises-nothing-reports-green]].
+    #[test]
+    fn from_bytes_flags_an_animated_gif_but_not_a_static_one() {
+        let animated = Image::from_bytes(&animated_gif(4, 4)).expect("decode animated gif");
+        assert!(animated.is_animated_input());
+
+        let still = Image::from_bytes(&static_gif(4, 4)).expect("decode static gif");
+        assert!(!still.is_animated_input());
+    }
+
+    /// A JPEG (no `AnimationDecoder` impl at all) must never be flagged,
+    /// regardless of content — `detect_animated_input`'s `_ => false` arm.
+    #[test]
+    fn jpeg_is_never_flagged_animated() {
+        let jpeg = solid_jpeg(8, 8);
+        let img = Image::from_bytes(&jpeg).expect("decode jpeg");
+        assert!(!img.is_animated_input());
+    }
+
+    /// A pipeline operation's output (`with_pixels`) carries the SOURCE
+    /// image's `animated_input` flag through unchanged — the flag describes
+    /// what was decoded, not what a later transform produced.
+    #[test]
+    fn with_pixels_preserves_the_animated_flag() {
+        let animated = Image::from_bytes(&animated_gif(4, 4)).expect("decode animated gif");
+        assert!(animated.is_animated_input());
+        let replaced = animated
+            .clone()
+            .with_pixels(RgbImage::from_pixel(2, 2, ::image::Rgb([1, 1, 1])).into());
+        assert!(replaced.is_animated_input());
+    }
+
+    /// `from_parts` is never itself the product of a decode (an `Operation`
+    /// output), so it must never carry the flag, even when the pixels happen
+    /// to have come from an animated source upstream.
+    #[test]
+    fn from_parts_is_never_flagged_animated() {
+        let built = Image::from_parts(
+            RgbImage::from_pixel(2, 2, ::image::Rgb([1, 1, 1])).into(),
+            ImageFormat::Gif,
+            None,
+        );
+        assert!(!built.is_animated_input());
     }
 }
