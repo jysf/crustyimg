@@ -1019,3 +1019,49 @@ byte wins in web asset delivery, which is exactly "a better artifact automatical
 accepts animated GIFs, already detects them, and already destroys them. What *would* be lab is the
 per-image judgement around animation — choosing a cover frame, dropping frames by eye, previewing
 a loop — none of which is the batch conversion.
+
+## Open — RAW Tier-2 is no longer "multi-month"; three repo claims are now stale (2026-08-15)
+
+**Measured, not speculative.** A design session priced Tier-2 RAW development against real
+implementations and against a real Leica DNG. Three places in this repo now assert things the
+measurements contradict. None is urgent; all will drift if nobody records them.
+
+**1. `DEC-055` says Tier-2 needs "LGPL `rawler` … or a multi-month from-scratch effort."**
+Both halves are now wrong for a DNG-first scope. `demosaic` 0.3.0 is MIT/Apache with **zero
+dependencies** and `no_std`; its Malvar-He-Cutler implementation is **211 lines**, cited to the
+ICASSP 2004 paper. A complete Sony pipeline (`rawkit` 0.1.0, MIT/Apache) is **2,205 lines of
+src**, of which ~1,030 is TIFF machinery. A monochrome DNG needs no demosaic at all —
+`PhotometricInterpretation: Linear Raw`, `SamplesPerPixel: 1` — so that path is ~550–700 lines.
+DEC-055's Alternatives §B should be amended with the measured numbers, not deleted: the
+conclusion was right for its time, the cost estimate was not.
+
+**2. `guidance/license-watchlist.yaml` → `raw-full-demosaic` says "UNSURVEYED — no permissive
+pure-Rust demosaic crate has been probed. This is the gap to close before the capability is
+costed at all."** It is surveyed. `demosaic` 0.3.0 exists (MIT/Apache, zero deps, Bayer
+bilinear/MHC/PPG/VNG/AHD + X-Trans Markesteijn/DHT + Quad-Bayer). ⚠ **But do not adopt it**:
+`markesteijn_impl.rs:11` self-describes as *"Ported from LibRaw's `xtrans_interpolate(1)`"* —
+LibRaw is LGPL-2.1/CDDL — while the crate ships `MIT OR Apache-2.0`. **`cargo deny check
+licenses` reads the declared licence and passes it green.** That is a silent-green defect
+against `no-agpl-default-deps`, and it is the reason the sibling project writes its demosaic
+clean-room from the paper and keeps the crate as a dev-time oracle only.
+
+**3. `docs/roadmap.md` places "RAW Tier-2" at 2.0+** under "Opt-in intelligence / new
+frontends". The work is now framed and starting, so that row understates its status.
+
+**What changed externally.** A separate permissively-licensed Rust library — **`irradiance`** —
+is being built to do RAW *development* (sensor data in, pixels + metadata out; no I/O, no CLI, no
+`image` dependency). crustyimg will consume it behind an off-by-default **`raw-develop`** cargo
+feature; `crustyimg-lab` inherits it free through the shared `Operation` core. This is a
+**dependency**, not a delegate — it participates in the lockfile and the build cache key, so
+DEC-088's tier-3 objection does not apply. Its `develop_version` process-version field is what
+keeps `build --frozen` meaningful while the library's algorithms are still free to improve.
+
+**It also supplies the mechanism for a defect this file already records.**
+`docs/backlog.md`'s "RAW loses 100% of EXIF … and RAW orientation is never read" notes that the
+measured DNG's embedded previews carry **no APP1 at all**, so threading the preview's EXIF
+forward cannot work — the container's IFD0 is the only source. A DNG container parser is exactly
+what reads it.
+
+**Not a gate on anything.** Recorded so the three stale claims get amended when RAW work
+actually lands here (that is `irradiance`'s STAGE-004), rather than being discovered by someone
+trusting DEC-055's cost estimate.
