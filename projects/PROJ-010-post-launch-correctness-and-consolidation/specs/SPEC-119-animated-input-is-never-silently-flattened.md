@@ -344,10 +344,32 @@ transition and `test-before-implementation` applies in its usual form.
   `apply`-vs-`build` string-equality test is the right shape for AC-1.
 
 ### Out of scope
-- **Animated output** (animated WebP/AVIF encode). That is the capability;
-  `webp-animation` v0.10.0 (MIT OR Apache-2.0) is verified and filed separately.
-  This spec closes the destructive path so that work can later make the linter's
-  advice true.
+- **Animated output** (animated WebP/AVIF encode). That is the capability; this spec closes the
+  destructive path so that work can later make the linter's advice true.
+
+  > **CORRECTED 2026-08-16.** This section previously read *"`webp-animation` v0.10.0
+  > (MIT OR Apache-2.0) is verified and filed separately."* **Both halves were wrong**, and the
+  > error was inherited rather than made here: a correction (`7ca85a2`) was pushed to PR #170's
+  > branch after GitHub captured its head, so the squash merge dropped it silently, and this spec
+  > was authored against the resulting `main`.
+  >
+  > - **The licence is right, the verdict is not.** `webp-animation` 0.10.0 depends on
+  >   `libwebp-sys2 ^0.2`, **non-optional** — checked against the crates.io API, not the triage
+  >   note. It is a C wrapper, so it does **not** clear `pure-rust-codecs-default` and would need
+  >   an off-by-default feature on the `webp-lossy`/DEC-022 precedent.
+  > - **It was filed nowhere.** `docs/roadmap.md` contained zero occurrences of "animated"
+  >   (positive control: `crop` = 8).
+  >
+  > A **pure-Rust route needs no new dependency**: `image`'s `AnimationDecoder` for frames
+  > (already used at `src/lint/rules.rs:303` to *count* them), the existing `Pipeline` run once
+  > per frame, `image-webp` 0.2.4 already in-tree for encode, and an in-house `VP8X`/`ANIM`/`ANMF`
+  > RIFF mux estimated at 150–250 lines. **Animated AVIF is a separate, unpriced item** — a HEIF
+  > image sequence, where the container is the gap, not the encoder (`rav1e` 0.8.1 is already in
+  > the tree and encodes multiple frames).
+  >
+  > **None of this changes SPEC-119's scope** — animated output stays out. It changes what the
+  > follow-up is, so this spec should not hand the next reader a dependency decision that was
+  > never verified.
 - **Renaming/broadening the lint rule ID** — Call 4.
 - The other three STAGE-046 defects. They share `Resize::apply` and a lockfile
   blast radius; this one shares neither.
