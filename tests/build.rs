@@ -1215,11 +1215,16 @@ out = "dist"
 }
 
 /// AC-6: this spec adds a diagnostic only — it must not perturb encoding.
-/// Checked the same way `build_writes_the_decided_format_not_the_source_format`
-/// checks format parity: `build`'s bytes for a clean input must remain
-/// byte-identical to `apply --recipe web` on the identical input.
+/// Pins the same-branch cross-verb invariant: `build`'s bytes for a clean
+/// input must be byte-identical to `apply --recipe web` on the identical
+/// input, checked the same way `build_writes_the_decided_format_not_the_source_format`
+/// checks format parity. The stronger cross-version claim (identical to
+/// `main`'s output before this change) was driven once out of band at
+/// verify rather than pinned here — a committed golden would go red on
+/// every `ravif`/`image` bump for reasons unrelated to this spec. See
+/// `## Build Completion` for that evidence.
 #[test]
-fn build_output_bytes_unchanged_for_a_clean_input() {
+fn build_and_apply_agree_on_bytes_for_a_clean_input() {
     let dir = TempDir::new().unwrap();
     let root = dir.path();
     write_file(root, "src/clean.jpg", &common::gradient_jpeg(64, 64));

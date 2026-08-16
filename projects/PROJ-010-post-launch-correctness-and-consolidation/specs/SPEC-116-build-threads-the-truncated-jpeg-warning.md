@@ -271,6 +271,37 @@ Written during **design**, BEFORE build. At least one must FAIL on today's `HEAD
   patch. This is exactly the class of gap STAGE-042's conformance matrix exists to catch
   mechanically.
 
+### Punch-list follow-up (2026-08-15)
+
+Verify returned **⚠ PUNCH LIST** (3 items) on PR #171. Two were `main`-side bookkeeping and were
+applied by the orchestrator directly on `main` (a STAGE-042 backlog bullet for the cache-hit
+swallow, and `src/cli/build.rs` / `tests/build.rs` added to DEC-085's `affected_scope`) — neither
+is reflected on this branch. The third, and only branch-side item:
+
+- **Renamed** `build_output_bytes_unchanged_for_a_clean_input` to
+  `build_and_apply_agree_on_bytes_for_a_clean_input` and rewrote its doc comment. The test's body
+  checks `build`'s bytes against `apply --recipe web`'s bytes **on this branch**; the old name and
+  comment claimed byte-identity to `main`, which is not what the body checks. Verify ruled: keep
+  the invariant, fix the label — a committed golden would go red on every `ravif`/`image` bump for
+  reasons unrelated to this spec, and the repo has no such golden and should not acquire one here.
+- **Cross-version evidence for AC-6**, driven once by verify out of band rather than pinned by a
+  test:
+
+  | | |
+  |---|---|
+  | `main` binary (`7ac9f27`) | `sha256 a82bb937…` |
+  | branch binary (`7c6ff59`) | `sha256 5ed4a7c3…` |
+  | input | `bench/corpus/photo_forest_cc0.jpg` |
+  | target | `recipe = "web"`, default `{stem}.{ext}` → Decide plan |
+  | `main` output | `clean.avif` `sha256 1c5ed3f1…` |
+  | branch output | `clean.avif` `sha256 1c5ed3f1…` |
+
+  Byte-identical, with differing binary hashes as the positive control that two genuinely
+  different builds were compared. AC-6 as written holds; it is evidenced here rather than pinned
+  by a committed golden.
+
+No source changes. No new tests. `cycle:` stays at `verify` — verify re-reads and advances.
+
 ### Build-phase reflection (3 questions, short answers)
 
 1. **What was unclear in the spec that slowed you down?** Nothing substantive. The three design
