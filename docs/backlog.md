@@ -174,7 +174,7 @@ follow-up, with `crop` first.
 |---|---|---|---|
 | grayscale, sepia, solarize, invert | Common quick filters; were in the prototype | S | `Operation` trait; recipes make presets trivial |
 | pixelize | Privacy/redaction + stylistic | S | `Operation` trait |
-| sobel / edges | Edge-detection effect | S–M | `Operation` trait (imageproc convolution) |
+| sobel / edges | Edge-detection effect | S–M | `Operation` trait + **`image::imageops::filter3x3`** (arbitrary 3×3 kernel, already compiled in). ⚠ This row previously read "imageproc convolution" — corrected 2026-08-15: `Cargo.toml:68` explicitly rejects imageproc ("it drags in sdl2/nalgebra"), and `filter3x3` makes it unnecessary. |
 
 ### Format / web-optimize
 
@@ -657,6 +657,14 @@ component so old and new renders cannot collide in the cache?
 linear-light output *better* than the current output on a representative downscale? If it does
 not, the premise is wrong and this should be closed rather than specced. **Measure that first.**
 
+**A second consumer raises the stakes (2026-08-15).** For `resize` this is a quality defect. For
+any **grading** op — `.cube` LUT above, curves, exposure — it is a **correctness** defect: the
+pipeline is 8-bit throughout (`to_rgba8()` at `src/operation/mod.rs:197,396,816,817`), so a grade
+is quantized to 256 levels per channel and evaluated against the wrong transfer function. Worse,
+such an op's own tests **cannot see it** — reference and candidate are wrong identically. So this
+question **gates the LUT entry above**, and should be answered before it is specced, not during.
+(It gates any future grading surface for the same reason.)
+
 **Context:** gamma-correct scaling is a commercial product elsewhere — imazen's `zenresize`
 (9.8k downloads) ships `AGPL-3.0-only OR LicenseRef-Imazen-Commercial`, as does every codec and
 operation in that stack; only their interfaces (`zenpixels`, `zencodec`) are permissive. Fixing
@@ -664,3 +672,338 @@ this closes a gap against a paid competitor with a permissive implementation. Re
 any future "can we just use theirs" question: `crabmagick-core` (unrelated author) shipped 0.1.0
 and 0.1.1 as MIT/Apache on 2026-07-06/07, then relicensed to AGPL-3.0-or-later at 0.1.2 the next
 day after adopting that stack.
+
+---
+
+## Open — workhorse items with no home (2026-08-15)
+
+`docs/feature-set-triage-2026-08.md` opens by warning that it is *"a triage, not a backlog.
+Nothing here is committed work."* Checked 2026-08-15 with a word-boundary grep and a positive
+control (`crop`, which **is** homed at roadmap Wave 5 + the Geometry-extras table above): three of
+its strongest items are homed **nowhere** — zero hits across `backlog.md`, `roadmap.md`,
+`feature-exploration.md` and `moat.md`. Each is a crustyimg feature on its own merits and is
+recorded here as one. *(They went unhomed because they were parked behind the then-open lab
+question; that is history, not a dependency — see DEC-091 §Consequences.)*
+
+### `.cube` LUT op — build the reader in-house
+
+**Workhorse, not lab** (Fence A: a LUT path + strength generalizes across a batch). The feature
+was never in question; only the dependency advice was, and the maintainer reversed that on
+2026-08-10 in favour of in-housing.
+
+**The differentiator is the reproducible build, not the LUT.** *"The LUT inside a reproducible
+build — the file's hash becomes part of the cache key, so changing the grade invalidates exactly
+the affected outputs and `build --check` catches an accidental grade change in review."* Nothing
+else occupies that. It is also what unlocks §16 (brand consistency as a build gate), the one
+commercial angle in the triage set.
+
+**Cost, measured rather than estimated (2026-08-15):** `lut-cube` 0.2.0 — the closest real
+comparable — is **329 lines** (`lib.rs` 53 + `cube.rs` 59 + `lut.rs` 217). The triage's "~100 to
+parse, ~50 to interpolate" is optimistic by roughly 2×. **Budget 250–350 lines** for parse +
+trilinear + typed errors, against the `src/metadata/tiff.rs` (718-line) in-housing precedent.
+
+**Two corrections to the triage's dependency note**, both checked 2026-08-15:
+- Its licence is **plain MIT** (`LICENSE`, Copyright (c) 2023 Yury Korolev). crates.io reports
+  "non-standard" only because the manifest uses `license-file` rather than `license`. The
+  practical conclusion survives — `cargo deny` still cannot read it without a clarification entry
+  — but "the licence is unclear" should not be repeated as a fact.
+- A **better, independent** reason to decline it: its only tests hardcode absolute paths into the
+  author's local DaVinci Resolve install (`src/lib.rs:28,33`), so they cannot run on any other
+  machine. That is a supply-chain quality signal the licence question distracted from.
+
+⚠ **Blocked on the colour-space question below** — a `.cube` applied in an 8-bit, non-linear
+pipeline is baked against the wrong transfer function. Settle that first.
+
+### MCP server exposing crustyimg's measurements — and its stated gate is questionable
+
+The triage calls this *"the strongest strategic idea in the set"* on the reframe that **crustyimg
+is a measurement instrument, and measurement is what LLMs are worst at**. It notes the item needs
+**no new capability**: `lint --format json`, `diff --json`, `info --json` and `build --check` all
+ship today.
+
+**The gate needs checking before it is inherited.** The triage marks §17 *"gated on §4 (lint in
+wasm)"*, and §4 on a bundle-size measurement. But a **native** MCP server needs no wasm at all.
+That gating only holds if the distribution plan is npm-via-wasm. **If it isn't, the strongest item
+in the set is unblocked right now.** Ten minutes to settle; do that before scheduling either.
+
+**Why it may outrank more lint rules:** if `lint` is under-adopted, the bottleneck is
+distribution, not breadth. This adds a new *consumer class* for output that already exists,
+rather than more output nobody consumes. See STAGE-014's replaced gate.
+
+### Perceptual dedup lint rule
+
+Triage verdict: *"best differentiation per unit of effort in the set"* — fits the existing `lint`
+framework with no new command, and image bloat in git history is permanent. Re-probed 2026-08-15:
+**`image_hasher` v3.1.1, MIT OR Apache-2.0, 821,062 downloads, updated 2026-02-21** — healthy, and
+the correct pick over `img_hash` (last updated 2021-05-04, effectively abandoned).
+
+⚠ A **new top-level dependency** → needs a `DEC-*` first (`no-new-top-level-deps-without-decision`).
+
+---
+
+## Open — the public API leaks two crates it does not re-export (2026-08-15)
+
+**A published-library correctness issue today, independent of lab.** crustyimg ships to crates.io
+as a library, and two crates appear in its **public API** without being re-exported:
+
+- `Image::pixels(&self) -> &::image::DynamicImage` (`src/image/mod.rs:269`) and
+  `Image::with_pixels` (`:321`)
+- `OperationParams::from_map(BTreeMap<String, toml::Value>)` (`src/operation/mod.rs:48`)
+
+So any consumer implementing an `Operation` must declare `image` and `toml` itself. **Measured
+consequence:** a consumer writing the obvious `image = "0.25.10"` adds **ten features** to the
+`image` crate — `dds`, `exr`, `ff`, `hdr`, `pnm`, `qoi`, `tga`, `rayon`, `default`,
+`default-formats` — because cargo features are additive across the graph. And they are
+**reachable**, not merely linked: decode dispatch is
+`ImageReader::new(..).with_guessed_format()` (`src/image/mod.rs:521-522`).
+
+**A consumer therefore silently widens crustyimg's accepted-input surface to six decoders
+`tests/hostile_inputs.rs` has never fuzzed**, without adding a crate or tripping any gate.
+
+**Fix:** `pub use ::image;` and `pub use ::toml;` in `src/lib.rs` — re-exports, not visibility
+widenings — plus a test asserting the resolved feature set. Cheap, and it closes the hole for
+every consumer, not just a future lab.
+
+### Companion: a public-API contract test for the registry seam
+
+**crustyimg makes a promise to library consumers in its own shipped rustdoc.**
+`src/operation/registry.rs:60-62` tells them new operations register from outside *"without
+touching the recipe parser (the whole point of the registry seam)"*. Nothing tests that promise.
+
+The repo already tests exactly this class of claim: `tests/spec097_reexport_paths.rs` exists
+solely so that every path that was `pub` at `crustyimg::cli::*` still resolves, and it fails to
+compile if one is dropped, renamed, or narrowed. **This is that test for the `Operation` seam.**
+
+The property was **verified 2026-08-15** by compiling an out-of-crate probe (implement
+`Operation` → `register` → `from_toml` → `build_pipeline` → `run` → `from_ops`/`to_toml` →
+`encode_to_bytes` → `quality::score` → `Analysis::compute`): `cargo check` exit 0, **zero `pub`
+widenings required**, with an `E0603` negative control proving the probe can fail.
+
+**Nothing keeps it true.** STAGE-042/043/045 all touch core paths, and a consumer only finds out
+at `cargo build`. A committed version of that probe — with its negative control — turns the
+rustdoc promise into a gate, and catches the feature-unification hole above at the same time.
+Reproduction recipe: `docs/lab-plan-2026-08.md` §Appendix. (It also happens to protect DEC-088's
+premise, but the contract stands on its own.)
+
+---
+
+## Open — the pixel core uses 4 of ~48 `imageops` functions (2026-08-15)
+
+**Measured, not estimated.** `image::imageops` exposes ~48 public functions. crustyimg calls
+**four**: `resize`, `overlay`, `crop_imm`, and one bare path. Everything below is **already
+compiled into every default binary** and unused:
+
+| group | available now, unused |
+|---|---|
+| tone / colour | `brighten`, `contrast`, `huerotate`, `grayscale`, `grayscale_with_type`, `unsharpen` |
+| blur | `blur`, `fast_blur`, `blur_advanced` (+ `new_from_sigma` / `new_from_radius` kernels) |
+| geometry | `crop`, `rotate90/180/270`, `flip_horizontal/vertical`, `tile`, `replace` |
+| convolution | **`filter3x3(image, &[f32; 9])`** — arbitrary 3×3 kernels |
+| palette | `dither`, `index_colors`, the `ColorMap` trait |
+| sampling | `interpolate_bilinear`, `sample_bilinear`, `sample_nearest`, gradients |
+
+**Why this matters for planning:** the *Effects catalog* and *Geometry extras* tables above are
+costed as if each item is an implementation. Most are a **wrapper over a function already in the
+binary** plus params, `params()` round-trip, and tests. Re-cost them before they are specced —
+the work is registry wiring and test coverage, not pixel math.
+
+**`tiny_skia` is likewise under-used.** Reached today only for SVG rasterization
+(`src/image/svg.rs:55`, via resvg's re-export), it also ships linear/radial/**sweep** gradients,
+patterns, path stroking with AA, and ~15 Porter-Duff blend modes (`Screen`, `Modulate`, `Plus`,
+`Xor`, `SourceAtop`, …). Any compositing feature — duotone, glow, vignette, gradient map — has its
+engine in the binary already.
+
+⚠ **Scope guard.** Availability is not a reason to build. These pass DEC-091's two fences (their
+params generalize; their output is a build artifact), which makes the fences the *wrong* filter
+here — the operative test is `docs/territory.md`'s **"does this help produce a better artifact
+automatically?"**. On that test `dither`/`index_colors` (smaller PNGs), `unsharpen` (recovers
+downscale softening, measurable in SSIMULACRA2), `blur` (Wave 4 placeholders) and declared 3×3
+kernels earn their place; a vignette or a film-grain filter does not. **Do not let "it's free"
+become an effects backlog.**
+
+⚠ **All of it is bounded by the 8-bit sRGB pipeline** (see the resampling entry above): blurs,
+gradient maps and curves band at 256 levels/channel, and compositing in non-linear space makes
+blends and glows subtly wrong.
+
+---
+
+## ⚠ Live defect — ops widen to RGBA and never narrow back (2026-08-15)
+
+**Not a roadmap candidate — wrong today, on shipped verbs, including the flagship.** Same class as
+D-1: a default path that hands the user a worse result than it received. Measured by driving
+`target/debug/crustyimg` (built 2026-08-14, newer than all three source files) against
+purpose-built PNGs and reading the output **IHDR** — a structural assertion, not a byte guess.
+
+### The measurement
+
+Source: 64×64 PNG, `bit_depth=8`, **`colour_type=2` (RGB, no alpha)**.
+
+| verb | out `colour_type` | verdict |
+|---|---|---|
+| `convert --format png` | 2 (RGB) | ✅ correct |
+| `optimize` | 2 (RGB) | ✅ correct |
+| `auto-orient` | 2 (RGB) | ✅ correct |
+| `resize --max 32` | **6 (RGBA)** | ❌ alpha invented |
+| `thumbnail --size 32` | **6 (RGBA)** | ❌ alpha invented |
+| `edit --invert` | **6 (RGBA)** | ❌ alpha invented |
+| **`web`** | **6 (RGBA)** | ❌ **the flagship verb** |
+| `watermark --text` | 6 (RGBA) | arguable — compositing genuinely needs alpha |
+
+The clean verbs are exactly the ones that run **no `Operation`** (`convert`/`optimize` use the
+decide/encode path; `AutoOrient` returns `img` unchanged or clones the variant). Every verb that
+folds a real op through the pipeline comes out RGBA.
+
+### Root cause — one call, three sites
+
+`Operation::apply` implementations widen unconditionally and never narrow back:
+
+- `Invert::apply` — `img.pixels().to_rgba8()` (`src/operation/mod.rs:197`)
+- `Resize::apply` — `img.pixels().to_rgba8()` (`src/operation/mod.rs:396`)
+- `Watermark::apply` — `src/operation/mod.rs:816-817`
+
+`web` is `auto-orient → resize → optimize`, so **fixing `Resize` fixes the flagship.**
+
+### Why it matters more than it looks
+
+**It contradicts the product's core claim.** An all-opaque alpha channel is pure waste, and
+crustyimg's whole thesis is quality-per-byte. Measured on a 512×512 representative PNG, same
+pixels: RGB **377,132 B** vs RGBA **423,756 B** — **+46,624 B, +12.4%**, for a channel carrying no
+information. `optimize` may re-decide a format and mask this on some paths, but `resize`,
+`thumbnail` and `web` write it out.
+
+### The same call also truncates 16-bit — one fix, two defects
+
+`to_rgba8()` is *also* why 16-bit input is silently halved, and the two are one code change.
+Measured on a 32×32 `bit_depth=16` RGB PNG:
+
+| verb | out | |
+|---|---|---|
+| `convert` / `auto-orient` | **16-bit, RGB** | ✅ already preserved |
+| `resize` / `edit --invert` | 8-bit, RGBA | ❌ halved **and** alpha-added |
+
+**So "crustyimg is 8-bit internally" is not accurate as stated.** Decode preserves the
+`DynamicImage` variant, `Identity` and `AutoOrient` preserve it, and the default encode path
+(`img.pixels().write_to(..)`, `src/sink/mod.rs:718`) preserves it. **Only the three op bodies
+above collapse it.** `Image` already wraps `DynamicImage`, which already has `ImageRgb16` /
+`ImageRgba16` variants — **no type change is needed anywhere.** `fast_image_resize` 5.x already
+ships `U16x4`/`F32x4` (see the resampling entry above).
+
+### What the fix has to decide
+
+- **Narrow-back policy.** Simplest correct rule: an op preserves the input's colour type and bit
+  depth unless it genuinely needs more (compositing a translucent overlay). "Widen to work, narrow
+  to write" is the shape.
+- **Lossy targets are 8-bit** (JPEG, lossy WebP) — that downgrade should be **reported**, in the
+  spirit of SPEC-090's honest size reporting, not silent.
+- ⚠ **It changes output bytes for existing recipes**, so it invalidates PROJ-007 build lockfiles —
+  the same migration cost the linear-light entry carries. **Sequence the two together**; paying
+  that migration twice would be avoidable waste. (The linear-light entry is right that they are
+  *technically* independent; this is about blast radius, not dependency.)
+- **No new flag.** The correct behaviour is "preserve what you were given when the target format
+  can hold it", which the user should not have to ask for.
+
+---
+
+## Metadata-driven text — the differentiated half of `watermark --text` (2026-08-15)
+
+`src/text/mod.rs` (351 lines) renders **one line** of text — no newline handling, no wrapping, no
+kerning (`render_text(font_bytes, text, size_px, color) -> RgbaImage`) — composited through the
+`Watermark` op's gravity.
+
+**The commodity part is compositing a string. The differentiated part is where the string comes
+from.** Stamping capture date / camera / lens / exposure from the image's own EXIF is:
+
+- **already supplied by the container lane** — `kamadak-exif` read ships today, so **zero new
+  dependencies**;
+- **Fence-A clean** — the *template* generalizes across a batch even though the *value* is
+  per-image, exactly as the sink's existing `{stem}` name template does. That precedent is the
+  design to copy: `{exif:Model}`, `{exif:DateTimeOriginal}`, `{width}`, `{stem}`;
+- **in-territory** — it produces a delivery artifact automatically, which the effects catalog's
+  stylistic filters do not.
+
+Supporting work, in rough value order: multi-line + wrapping (the natural completion of the
+existing primitive) · stroke/shadow for legibility over busy photos (`tiny_skia` can do it, already
+linked) · a caption bar that extends the canvas, which needs `pad`/`extend` from the Geometry
+extras table · contact-sheet cell labels.
+
+⛔ **Out of scope, firm tier:** OG-card rendering. `docs/territory.md:104` — *"No HTML generation,
+templating, routing, or OG-card rendering in crustyimg."* That is the separate web-content tool's
+job, with the manifest as the seam. Worth stating explicitly because it is the most obvious
+"text beyond watermark" idea and it is already excluded.
+
+---
+
+## ⚠ Live defect — animated input is silently flattened, and `lint` recommends the command that does it (2026-08-15)
+
+**The most severe of the current defect set: silent data loss on a path the tool itself
+recommends, reported as a success with a perfect quality score.** Same class as D-1, worse
+consequence.
+
+### Driven end to end
+
+Fixture: a valid 4-frame looping GIF, 64×64, written with `image`'s own `GifEncoder`
+(`encode_frames`) — the same encoder `src/lint/rules.rs:363-369` uses in its test.
+
+```
+$ crustyimg lint anim.gif
+anim.gif
+  warn format/animated-gif: animated GIF (a modern format encodes far smaller)
+    fix: crustyimg convert --format webp anim.gif        <-- the tool's own advice
+
+$ crustyimg convert anim.gif --format webp -o fixed.webp
+$ crustyimg optimize anim.gif ; crustyimg web anim.gif
+anim.gif: gif → webp · 423 → 118 B (72% smaller) · ssim 100.0
+```
+
+Output: **118 B, zero `ANMF` chunks, no `VP8X`** — a *static* WebP. **3 of 4 frames discarded.**
+Exit 0, no warning, on `convert`, `optimize` **and `web`**.
+
+### Why this is worse than a wasted channel
+
+1. **The linter actively recommends the destructive command.** A user following the tool's own fix
+   loses their animation.
+2. **The loss is reported as a win.** "72% smaller" is true only because three-quarters of the
+   content was thrown away.
+3. **`ssim 100.0` certifies it.** The score compares decoded-source to output — and both are frame
+   1 — so the perceptual oracle **structurally cannot see this failure**. It is not that the check
+   is weak; it is measuring a quantity that is preserved by the bug
+   ([[a-self-referential-control-cannot-detect-a-broken-pipeline]]). Any future test that asserts
+   "score stayed high" will stay green through this defect forever.
+
+### Root cause
+
+**Frame decoding exists in exactly one place, and only to count:** `gif_is_animated`
+(`src/lint/rules.rs:303-306`) constructs a `GifDecoder` and takes 2 frames purely to test `>= 2`.
+The pixel pipeline never sees frame 2 — `Image::from_bytes` → `decode_with_format` →
+`ImageReader` → **one** `DynamicImage`. So the linter *knows* the file is animated and the encoder
+path does not.
+
+### Two separable pieces of work — do not conflate them
+
+- **(a) Stop the data loss — small, urgent, and independent of any new capability.** Detect
+  multi-frame input on the pixel path and refuse (a typed error → exit 4, the `CodecNotBuilt`
+  precedent) or warn loudly, instead of silently flattening. **Until animated output exists, the
+  lint rule's `fix:` string is also wrong and must stop recommending a destructive command.**
+- **(b) Animated GIF → animated WebP/AVIF** — triage §11, `webp-animation` verified
+  (v0.10.0, MIT OR Apache-2.0). This is the real capability, and §11's framing should be updated:
+  it is **not an enhancement, it is the repair** that lets the linter's advice become true.
+
+### Scope check before either is specced
+
+Animated GIF is not the only multi-frame input the tree can decode. **Mechanically sweep** every
+format the `image` feature set enables for multi-frame support (animated WebP decode is in
+`image`'s `webp`; APNG in `png`) and state the finding as a claim with its grep
+([[mechanical-sweeps-need-a-mechanical-check]]). The `format/animated-gif` rule name may itself be
+too narrow.
+
+### Placement — this is workhorse, not `crustyimg-lab`
+
+Under DEC-091: the params (quality, loop count, frame rate) generalize across a batch (**Fence A →
+workhorse**), and the output is a delivery artifact a build consumes (**Fence B → workhorse**). It
+also passes `docs/territory.md`'s test — animated GIF → animated WebP is one of the largest
+byte wins in web asset delivery, which is exactly "a better artifact automatically".
+
+**And more simply: a defect in crustyimg cannot be fixed in a different binary.** crustyimg already
+accepts animated GIFs, already detects them, and already destroys them. What *would* be lab is the
+per-image judgement around animation — choosing a cover frame, dropping frames by eye, previewing
+a loop — none of which is the batch conversion.
