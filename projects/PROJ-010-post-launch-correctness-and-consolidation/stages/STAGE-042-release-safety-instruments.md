@@ -105,6 +105,28 @@ failures on documented paths.
 
 ## Spec Backlog
 
+- [ ] (not yet written) — [S] ⚠ **PRIORITY: the `IMAGE_EXTENSIONS` gap silently defeats the
+  strict gate that a maintainer decision rests on.** Not a new defect — the *consequence* of the
+  item below, and it is why that item is no longer routine.
+
+  SPEC-119's Call 1 (animated input **warns and proceeds** rather than refusing) was accepted on
+  2026-08-16 on one argument: **`lint --max-warnings 0` is the strict path**, so a pipeline that
+  must never flatten an animation has a way to say so. Driven by SPEC-119's verify:
+
+  ```
+  lint --max-warnings 0 <dir containing anim.webp>   → exit 0   "1 scanned · 0 warn"
+  lint --max-warnings 0 <dir>/anim.webp              → exit 7
+  optimize <dir>/*.webp                              → warns; 408 → 240 B, 4 frames → 1
+  ```
+
+  **Directory mode — the shape CI actually uses — returns a false green.** Naming the file or
+  piping stdin both work. `docs/api-contract.md` states `lint --max-warnings 0` "fails on any of
+  the three formats" **with no qualifier**, which is now false as written.
+
+  Two things follow: the contract sentence needs its qualifier (SPEC-119 punch list), and the
+  `IMAGE_EXTENSIONS` fix should be **specced rather than left in the backlog**, because a
+  maintainer ruling now depends on it.
+
 - [ ] (not yet written) — [S] **`webp` is missing from `IMAGE_EXTENSIONS`, so directory and glob
   discovery silently skips `.webp` files.** `src/source/mod.rs:105-113` lists 30+ extensions —
   jpg/png/gif/bmp/tif/ico/avif/svg, eleven RAW families, heic/heif — and **not `webp`**, which is

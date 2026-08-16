@@ -163,7 +163,19 @@ carries no lockfile cost.
       conditional on the measurement above. Lockfile-invalidating; sequence with
       the colour-type spec so the migration is paid once.
 
-**Count:** 0 shipped / 2 in flight (SPEC-119, SPEC-120 — both design) / 2 pending
+- [ ] (not yet written) — [M] **Three writing paths still silently flatten animated input.**
+      SPEC-119 fixed `convert`/`optimize`/`web`/`build`(Decide)/`apply`(terminal-optimize).
+      **Driven by its verify, 2026-08-16:** `responsive anim.gif --widths 16` writes a 1-frame
+      `anim-16w.gif` from a 4-frame source, exit 0, **empty stderr** — same for APNG and WebP.
+      `apply --recipe <plain pixel recipe>` and `build` with a plain recipe are silent too.
+      **The stage's own Goal — "no shipped verb silently discards frames" — is therefore not yet
+      met.** Not a regression: `run_responsive` has its own `Image::load`
+      (`src/cli/optimize.rs:1744`) and **misses the truncated-JPEG warning as well**, so this seam
+      drops *both* diagnostics. That makes it evidence for STAGE-042's conformance matrix
+      (SPEC-118) as much as a fix in its own right — a verb-by-diagnostic matrix would have
+      surfaced it mechanically instead of at verify.
+
+**Count:** 0 shipped / 2 in flight (SPEC-119, SPEC-120 — both at verify) / 3 pending
 
 ## Design Notes
 
