@@ -1021,6 +1021,92 @@ job, with the manifest as the seam. Worth stating explicitly because it is the m
 
 ---
 
+## Video asset lint — a container-only rule family, with a driven field audit (2026-08-16)
+
+> Follows the DECLINED video-tool assessment below. **This is the part of the category that is not
+> blocked by codec patents**, because it never decodes a frame — it parses ISO-BMFF box structure
+> only. Status: **candidate, unscheduled.** Nothing committed.
+
+### The idea
+
+Extend `crustyimg lint` with a video-asset rule family. Every check below reads container metadata,
+so it needs **no codec, no C, and no patent exposure** — the wall in the assessment below is
+specifically on *decoding pixels you did not create*, and box parsing is not codec implementation.
+
+- **`moov` after `mdat` (no faststart)** — playback cannot begin until the whole file downloads.
+  The classic web-video defect; `ffmpeg -movflags +faststart` is the folk remedy.
+- **an audio track on an autoplay-muted loop** — bytes nobody ever hears.
+- **HEVC-only (`hvc1`/`hev1`)** — no Firefox support; needs a `<source>` fallback.
+- **resolution far above the display slot**; container/extension mismatch; absurd GOP length.
+
+**The faststart *fix* is also container-only**: reorder `moov` ahead of `mdat` and rewrite the
+chunk-offset tables (`stco`/`co64`). It never touches the codec bitstream. `mp4-atom`'s own
+`examples/info.rs` is the read half; its `WriteTo` trait is the other half.
+
+### Field audit — driven 2026-08-16, and the findings are not boring
+
+A throwaway ISO-BMFF walker (box structure only, HTTP ranged GETs of the first 256 KB) was pointed
+at **18 production MP4s** discovered from the homepages of ~20 major tech companies.
+
+| finding | count | consequence |
+|---|---:|---|
+| **missing faststart** | **6/18** | playback blocked until fully downloaded |
+| carries an audio track | 5/18 | bytes shipped for muted loops |
+| HEVC-only (`hvc1`) | 5/18 | Firefox cannot play it |
+| **AV1 (`av01`)** | **0/18** | nobody ships the royalty-free codec |
+
+Verified at byte level rather than trusted to the parser —
+`docker.com/.../AgenticCompose-web-1080.mp4` reads `ftyp` → `free` → `mdat` with
+`0x0039df35` = **3,792,181 bytes** of media before `moov`; its sibling `sbx-rev2-1.mp4` reads
+`ftyp` → `moov` immediately. **Same company, same CDN path, both patterns** — which is the whole
+argument for the rule: this is inconsistency between exports, not a considered choice, and it is
+exactly what an automated check catches.
+
+Two individual findings worth keeping:
+
+- `videos.ctfassets.net/.../web-homepage-hero-1920x1200_final.mp4` is **actually 3840×2400**
+  (`tkhd` raw `0x0F000000`). Scored first as a parser bug, then confirmed as a real mislabelling —
+  the *filename* is wrong, not the parse.
+- `linear.app/static/pwa.webm`, as it appears in page source, returns **HTTP 404** as `text/html`
+  with `cache-control: max-age=21600`.
+- The most concentrated example: **`webflow.com`'s home hero** — no faststart, HEVC-only, *and* an
+  audio track. Three findings on one asset.
+
+### Method notes, including a false positive of my own
+
+- **Controls first.** The faststart detector was proven to discriminate on synthesised
+  `ftyp/moov/mdat` vs `ftyp/mdat/moov` byte sequences **and** on a 64-bit `largesize` `mdat`, before
+  any real asset was fetched. [[a-plausible-test-result-is-not-a-checked-one]]
+- **Two "broken" results in the first run were my bug, not the assets'** — `\x1aE\xdf\xa3` is EBML
+  magic, i.e. legitimate WebM that an ISO-BMFF-only parser cannot read. Recorded because a linter
+  that reports "not a video" for every WebM would be worse than no linter.
+- The `tkhd` dimension parse was off by 4 bytes on the first attempt (the version-dependent block);
+  caught because a result disagreed with a filename by exactly 2×, then confirmed against raw hex.
+- **The HEVC finding is softer than the count suggests**: an `hvc1` asset may have a `<source>`
+  fallback this audit did not check. The honest rule output is *"confirm you have a fallback"*, not
+  *"broken"*. Likewise "muted" is inferred from these being marketing loops, not read from the
+  `<video>` tag.
+- 18 assets from one afternoon is suggestive, not a survey.
+
+### The open question is demand, not feasibility
+
+Every company audited has a performance team and ships these defects anyway. That reads two ways —
+nobody checks (a checker is valuable), or nobody cares (impact too small). The evidence leans to the
+first for **faststart specifically**, because it is a visible startup delay rather than a few hundred
+wasted KB, and because the same-CDN split above shows inconsistency rather than intent.
+
+### Placement
+
+**Workhorse, and specifically `lint` — not a new binary.** Fence A: the parameters (expected codec,
+max resolution, faststart required) are invariant across a batch. Fence B: the output is a decision
+a build acts on, with a CI exit code, which is exactly what `lint` already is. It extends a territory
+claim already held (`docs/territory.md`'s source-file, no-URL, pre-deploy lint against Lighthouse's
+deployed-URL shape) rather than opening a new front. **Adopting `mp4-atom` would need a DEC** under
+`no-new-top-level-deps-without-decision`.
+
+**Anti-goal, restated:** this rule family must never decode a frame. The moment it wants pixels it
+has walked into the patent problem the assessment below declines.
+
 ## Video tool on crustyimg — assessed and DECLINED (2026-08-15)
 
 > Full evidence: `docs/video-tool-assessment-2026-08.md`. Read-only ideation session; nothing built.
