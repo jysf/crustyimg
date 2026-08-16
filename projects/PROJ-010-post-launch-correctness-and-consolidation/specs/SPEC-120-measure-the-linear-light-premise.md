@@ -53,6 +53,26 @@ cost:
         cannot score a downscale against its source (equal dimensions,
         `report.rs:329`), which reshapes the whole experiment; settled the
         reference-generation and instrument-validation calls that follow from it.
+    - cycle: build
+      agent: claude-opus-5                # rate anchors: Opus $5/$25 per MTok
+      interface: claude-code
+      tokens_total: 10171210
+      duration_minutes: 21
+      recorded_at: 2026-08-16
+      tokens_breakdown:
+        input: 156
+        output: 76845
+        cache_creation: 170669
+        cache_read: 9923540
+      estimated_usd: 7.95
+      note: >
+        MEASURED — transcript sum over 78 assistant messages
+        (session 7ae3add2-8f00-4435-a9b4-714576c628d8), priced per component at
+        the Opus anchors the transcript's own `.message.model` reports:
+        input x1.00, output x1.00, cache_creation x1.25, cache_read x0.10
+        (DEC-083). Cache reads are 97.6% of volume, so the flat-rate shortcut
+        would have overstated this by ~12x. Measured after the PR was opened;
+        the final bookkeeping commit and push are not included (~$0.1).
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -271,7 +291,7 @@ The committed harness (AC-6) is the reproducibility guarantee, not the test suit
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
 - **Branch:** `chore/spec-120-measure-linear-light-premise`
-- **PR (if applicable):** PR_URL_PLACEHOLDER
+- **PR (if applicable):** https://github.com/jysf/crustyimg/pull/175
 - **All acceptance criteria met?** **yes** — all 8. See the AC map below.
 - **New decisions emitted:** **DEC-092** — *the linear-light premise holds — measured; the
   premultiplied-alpha half of the same entry does not.* `affected_scope` includes
