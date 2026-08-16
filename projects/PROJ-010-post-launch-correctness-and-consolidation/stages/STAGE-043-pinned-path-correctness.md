@@ -268,4 +268,25 @@ that shows the alternative works.
 
 ## Stage-Level Reflection
 
-*Filled in when status moves to shipped.*
+- **Did we deliver the outcome in "What This Stage Is"?** **Yes.** Both silent pinned-path defects
+  are fixed and live, and both were proven by driving the binary rather than by reading a green
+  test. The stage's framing — *every fix so far landed on the decide path; the pinned path kept the
+  defects* — held exactly, and no third instance surfaced.
+- **How many specs did it actually take?** Two, as planned. No scope growth, no split, no
+  discovered third spec. $52.45 across the two.
+- **What changed between starting and shipping?** Not the work — the **process**. SPEC-113 ran
+  across four overlapping sessions in a shared checkout and shipped a vacuous test; SPEC-116 ran
+  one owner per cycle in its own worktree and shipped clean, with a verify that found three real
+  defects.
+- **Lessons that should update AGENTS.md, templates, or constraints?**
+  - **A negative control needs one revert per independent condition**, not one coarse revert per
+    guard. A guard with an inner predicate hides a vacuous test behind a passing control.
+  - **§16.5's worktree rule needs its consequence recorded**, not just the rule. This stage is the
+    evidence that violating it produces false green, not merely mess.
+  - **A green that cannot go red is not a check** — SPEC-113's `decisions-audit --changed` ran on a
+    clean checkout and could only pass. Fixed since, but the shape recurs.
+- **Should any spec-level reflections be promoted to stage-level lessons?** **Yes, one.** SPEC-113's
+  *"an open question inherited across a session boundary gets answered with prose, because the
+  session that could have driven it is gone"* is the sharpest statement of the session-continuity
+  problem this project has produced, and it belongs in PROJ-010's close-out discussion rather than
+  buried in an archived spec.
