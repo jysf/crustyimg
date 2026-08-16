@@ -996,9 +996,31 @@ path does not.
   multi-frame input on the pixel path and refuse (a typed error → exit 4, the `CodecNotBuilt`
   precedent) or warn loudly, instead of silently flattening. **Until animated output exists, the
   lint rule's `fix:` string is also wrong and must stop recommending a destructive command.**
-- **(b) Animated GIF → animated WebP/AVIF** — triage §11, `webp-animation` verified
-  (v0.10.0, MIT OR Apache-2.0). This is the real capability, and §11's framing should be updated:
-  it is **not an enhancement, it is the repair** that lets the linter's advice become true.
+- **(b) Animated GIF → animated WebP/AVIF** — triage §11. This is the real capability, and §11's
+  framing should be updated: it is **not an enhancement, it is the repair** that lets the linter's
+  advice become true.
+
+  ⚠ **Correction to §11's dependency verdict (2026-08-15).** The triage verified `webp-animation`
+  as *"✅ v0.10.0, MIT OR Apache-2.0"* — the licence is right, but it **wraps `libwebp-sys2`, a C
+  dependency**, which the triage did not flag. That does not clear `pure-rust-codecs-default`;
+  it would have to sit behind an off-by-default feature, exactly like the existing `webp-lossy`
+  (DEC-022).
+
+  **There is a pure-Rust route that avoids it entirely**, and it fits this repo's in-housing
+  precedent:
+  - **frame decode** — `image`'s `GifDecoder` + `AnimationDecoder` (already used, to count, at
+    `src/lint/rules.rs:303-306`); animated WebP decode via `image-webp` 0.2.4 `extended.rs`
+  - **per-frame transform** — the existing `Pipeline`, run once per frame (ops are pure, so this
+    needs **no core change**)
+  - **frame encode** — `image-webp` 0.2.4, already in the tree, pure Rust, lossless
+  - **mux** — assemble `VP8X` / `ANIM` / `ANMF` RIFF chunks **in-house**. `image-webp`'s *encoder*
+    has no animation support, so this is the only new code. RIFF is length-prefixed chunks;
+    *estimated* 150–250 lines against the `src/metadata/tiff.rs` (718-line, with IFD offset
+    patching) precedent — **label this an estimate and measure it at design.**
+
+  **Lossless-only is not a compromise here:** a GIF source is palettized (≤256 colours by
+  definition), which is exactly where lossless WebP wins big. The C dependency buys lossy frames,
+  which GIF sources do not need.
 
 ### Scope check before either is specced
 
