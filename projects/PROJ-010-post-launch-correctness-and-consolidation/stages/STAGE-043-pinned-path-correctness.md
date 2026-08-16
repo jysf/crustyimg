@@ -5,7 +5,7 @@
 
 stage:
   id: STAGE-043                     # stable, zero-padded within the project
-  status: active                    # proposed | active | shipped | cancelled | on_hold
+  status: shipped                   # proposed | active | shipped | cancelled | on_hold
   priority: critical
   target_complete: null
 
@@ -15,7 +15,7 @@ repo:
   id: crustyimg
 
 created_at: 2026-08-10
-shipped_at: null
+shipped_at: 2026-08-15
 
 value_contribution:
   advances: >
@@ -186,6 +186,85 @@ which is exactly the pattern D-1 shows on a bigger scale.
 ### Enables
 - STAGE-041's post can name `optimize` without a caveat.
 - STAGE-042's matrix gains a second axis (decide vs pinned) from D-1's root cause.
+
+## Stage Ship (2026-08-15)
+
+**Both delivered capabilities are live on `main`.** `optimize` keeps an already-compressed source
+rather than silently returning a larger same-format file (SPEC-113, PR #155), and `build` warns on
+a truncated JPEG exactly as `apply` does (SPEC-116, PR #171).
+
+### Success criteria, checked against what shipped
+
+| criterion | verdict |
+|---|---|
+| `optimize` never silently ships a larger same-format output, asserted on **bytes** | ✅ SPEC-113 |
+| Cross-format untouched, **pinned by a test** not by intent | ✅ SPEC-113 |
+| `--profile preserve` gets an explicit, recorded decision | ✅ SPEC-113 — stays **exempt** as the engine-off regression anchor (DEC-048), recorded rather than left implicit |
+| `build` warns on a truncated JPEG, matching `apply`, asserted on stderr | ✅ SPEC-116, and **stronger than asked**: the test captures `apply`'s actual warning line and asserts `build` emits a string-equal one, so the two cannot drift |
+| **A negative control for each** | ⚠️ **partial — the one real miss.** SPEC-116's was re-run at verify in three stages with changed binary hashes. SPEC-113's was too coarse: reverting the whole guard removed its inner sniff too, so the RAW test stayed green on both sides and **the control reported success on a vacuous test.** Recorded in SPEC-113's own ship reflection. |
+| Full matrix clean, CI legs read individually | ✅ both |
+
+Six criteria, five clean, one honestly partial. **The partial is not a footnote** — it is the
+finding this stage should be remembered for.
+
+### `value_link` check
+
+Both specs delivered what they claimed. SPEC-113's `value_link` promised the pinned-path
+never-bigger guarantee and shipped it; SPEC-116's promised `apply`/`build` parity on the warning
+and shipped it with a stronger assertion than the criterion required. No drift between claim and
+delivery.
+
+### Built vs planned, in three sentences
+
+Two specs planned, two shipped, no scope growth and no third spec discovered. Elapsed 2026-08-10 →
+2026-08-15, but the calendar is misleading: SPEC-113's build alone ran ~3h/$40 across overlapping
+sessions, while SPEC-116 went design → shipped inside a single day. Cost: **$52.45 total** —
+SPEC-113 $30.51 / 35.1M tokens over 2 recorded sessions, SPEC-116 $21.94 / 39.7M over 4.
+
+### The emergent thing: this stage is an accidental controlled experiment
+
+Its two specs are the same size, by the same author, against the same subsystem, two weeks
+apart — and were worked under **opposite process rules**. That makes the comparison unusually
+clean:
+
+| | SPEC-113 | SPEC-116 |
+|---|---|---|
+| sessions | ≥4 overlapping, 2 live in the **primary checkout simultaneously** | 1 per cycle, own worktree |
+| specs in flight | 3, across unmerged branches | 1 |
+| commits during build | 0 until a *different* session swept it into WIP 2.5h later | WIP pushed as soon as it compiled |
+| outcome | a **vacuous test** shipped; an open question closed by prose that measurement later falsified | 6 tests, 2 proven RED on `main` first; verify found 3 real defects |
+| verify's drift check | **could not fail** (bare `--changed` on a clean checkout) | ran against the base ref, 0 contradictions |
+
+**The variable that moved was process, not difficulty.** SPEC-113's own reflection reaches this
+conclusion from the inside — *"an open question inherited across a session boundary gets answered
+with prose, because the session that could have driven it is gone"* — and SPEC-116 is the control
+that shows the alternative works.
+
+### Follow-up
+
+- **No new stage here.** The pinned path is correct; STAGE-042's conformance matrix (SPEC-118) is
+  the right instrument for catching the *next* one of this class mechanically, and it already
+  exists.
+- **Two findings from SPEC-116 are filed on STAGE-042**, not deferred quietly: `encode_one` has no
+  truncation check at all (so `Preserve`/`Pinned` stay silent), and a `build` **cache hit** returns
+  before the emit, so run 2 is silent where `apply` always warns.
+- **DEC-085's `affected_scope` was corrected** during this stage to include `src/cli/build.rs` —
+  it had gone blind to its own second enforcement site.
+
+### Proposed updates to AGENTS / guidance
+
+1. **AGENTS §15 (verify) should say a negative control needs one revert per independent
+   condition.** "Revert the guard" is insufficient for a guard with an inner predicate — the exact
+   hole SPEC-113 fell through. SPEC-115 and SPEC-116 both did it per-condition afterwards; the
+   convention is proven and unwritten.
+2. **AGENTS §16.5's one-worktree-per-session rule needs a consequence, not just a statement.** It
+   was already written when SPEC-113 violated it. The table above is the evidence that it is
+   load-bearing rather than tidy.
+3. **The `advance-cycle` step now reaches prompts via `closing-steps-snippet.md`** — SPEC-116 is
+   the first spec in this project to move through all five cycles with its `cycle:` field correct
+   at every step. That fix works; keep it in the template.
+
+---
 
 ## Stage-Level Reflection
 
