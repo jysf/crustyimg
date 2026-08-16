@@ -31,7 +31,7 @@ references:
   decisions:
     - DEC-085
     - DEC-004
-    - DEC-092
+    - DEC-093
   constraints:
     - clippy-fmt-clean
     - test-before-implementation
@@ -420,7 +420,7 @@ transition and `test-before-implementation` applies in its usual form.
 - **Branch:** `fix/spec-119-animated-input-never-silently-flattened`
 - **PR:** [#176](https://github.com/jysf/crustyimg/pull/176) (open, not merged, per prompt instructions)
 - **All acceptance criteria met?** yes — all 11 (AC-1 through AC-10, including AC-7b).
-- **New decisions emitted:** DEC-092 (`decisions/DEC-092-animated-input-warns-and-proceeds-lint-is-the-strict-gate.md`)
+- **New decisions emitted:** DEC-093 (`decisions/DEC-093-animated-input-warns-and-proceeds-lint-is-the-strict-gate.md`)
   — Call 1 (warn-and-proceed, DEC-085's sibling) and Call 4's separate-rule-id choice,
   `affected_scope` covering `src/image/**`, `src/cli/**`, `src/lint/**`, and the new tests.
 - **AVIF (Call 3's open question): PROVEN SAFE, not merely unproven.** Read
@@ -438,7 +438,7 @@ transition and `test-before-implementation` applies in its usual form.
   broadened rule with an alias.** `format/animated-gif` is untouched (still
   GIF-only, existing config/output unaffected) and a new `format/animated-input`
   covers APNG + animated WebP. Reasoning in the `AnimatedInput` doc comment
-  (`src/lint/rules.rs`) and in DEC-092: an alias would need config-layer
+  (`src/lint/rules.rs`) and in DEC-093: an alias would need config-layer
   resolution machinery (`known_rule_ids`, `select`/`ignore`/`severity`) that does
   not exist today; two single-format rules need none, and no config migration.
 - **Detection is centralized, not duplicated.** `src/image/mod.rs`'s
@@ -482,7 +482,7 @@ transition and `test-before-implementation` applies in its usual form.
     NOT a SPEC-119 regression (reproduces identically on `main`); discovered
     while writing AC-7b's WebP test, which had to lint the fixture by its own
     single-file path (never extension-filtered) to work around it. Recorded in
-    DEC-092's Consequences; `tests/lint.rs`'s two SPEC-119 tests document the
+    DEC-093's Consequences; `tests/lint.rs`'s two SPEC-119 tests document the
     workaround inline. Fixing `IMAGE_EXTENSIONS` changes discovery behavior for
     every command, not just these two rules, so it deserves its own spec.
   - `docs/roadmap.md`'s "Engine-backed lint rules" row (line ~65) says "10

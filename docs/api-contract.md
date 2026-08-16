@@ -115,7 +115,7 @@ recipe (SPEC-111 reaches `optimize_decide_one` here too but does not yet thread 
 warning through — a follow-up, not fixed by SPEC-111), and `view` — filed as a
 follow-up candidate (SPEC-107 punch list), not fixed here.
 
-**Animated-input warning (SPEC-119 / DEC-092):** print a one-line
+**Animated-input warning (SPEC-119 / DEC-093):** print a one-line
 `warning: <input>: animated input flattened to a single frame — …` to stderr
 when the input is an animated GIF, APNG, or animated WebP — the pixel path
 decodes exactly one frame, so every frame after the first is otherwise
@@ -128,7 +128,7 @@ plus `build` on a target whose output format is auto-decided. The strict
 path for a caller that cannot tolerate a silent flatten is
 `lint --max-warnings 0`, which fails on any of the three formats via
 `format/animated-gif` (GIF) or `format/animated-input` (APNG, animated WebP)
-— see DEC-092.
+— see DEC-093.
 
 ## Subcommand Surface (full MVP)
 

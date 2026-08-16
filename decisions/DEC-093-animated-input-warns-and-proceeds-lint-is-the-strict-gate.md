@@ -2,7 +2,7 @@
 # Maps to ContextCore insight.* semantic conventions.
 
 insight:
-  id: DEC-092
+  id: DEC-093
   type: decision
   confidence: 0.85
   audience:
@@ -44,7 +44,7 @@ tags:
   - lint
 ---
 
-# DEC-092: animated input warns and proceeds; `lint --max-warnings 0` is the strict gate
+# DEC-093: animated input warns and proceeds; `lint --max-warnings 0` is the strict gate
 
 ## Decision
 
