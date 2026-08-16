@@ -1021,6 +1021,73 @@ job, with the manifest as the seam. Worth stating explicitly because it is the m
 
 ---
 
+## Multi-frame format sweep — `format/animated-gif` is too narrow by FOUR, not one (2026-08-16)
+
+> The mechanical sweep the animated-input defect entry called for. **Driven on the shipped 0.7.0
+> binary**, with fixtures built independently of the code under test. Directly de-risks **SPEC-119**,
+> and finds two loss cases **outside** its AC-5 scope.
+
+### The mechanical claim, with its grep
+
+crustyimg's resolved `image` feature set is `avif, bmp, gif, ico, jpeg, png, tiff, webp`
+(`cargo tree -f '{p} FEATS[{f}]'`; `Cargo.toml:139` plus `avif` from the default feature).
+
+`AnimationDecoder` is implemented by exactly **three** decoders in `image` 0.25.10
+(`grep -rn "impl.*AnimationDecoder"`):
+
+- `GifDecoder`  — `src/codecs/gif.rs:426`
+- `ApngDecoder` — `src/codecs/png.rs:514`
+- `WebPDecoder` — `src/codecs/webp/decoder.rs:104`
+
+**But animation is not the only multi-image case**, and this is what the rule *name* cannot reach:
+
+- **TIFF** — `TiffDecoder` exposes **no multi-page API** (`grep -n 'next_image\|more_images\|fn new'
+  src/codecs/tiff.rs` → `fn new` only). Pages 2..N are unreachable *and* undetectable through
+  `image`. Reaching them needs the `tiff` crate directly.
+- **ICO** — `IcoDecoder::new` calls `best_entry(entries)` (`src/codecs/ico/decoder.rs:147,194`),
+  scoring on `(bits_per_pixel, width × height)` and **discarding every other entry**.
+
+### Driven: what actually survives a `convert`
+
+Fixtures built independently ([[fixtures-from-the-code-under-test-cannot-fail]]) — two real Wikimedia
+animations, and a hand-written TIFF/ICO whose structure was verified by walking the IFD chain and the
+icon directory *before* conversion.
+
+| source | contained | output | kept | **lost** | `lint` warns? |
+|---|---|---|---|---|---|
+| animated GIF | 44 frames | 400×400 png | frame 1 | **43 frames** | **yes** |
+| **APNG** | 20 frames (`acTL` + 20 `fcTL`) | 100×100 png | frame 1 | **19 frames** | **no** |
+| **multi-page TIFF** | 3 pages, greys 70/140/210 | 8×8 png, pixel = **70** | page 1 | **2 pages** | **no** |
+| **multi-size ICO** | 16/32/64 = red/green/blue | **64×64** png, pixel = **(0,0,255)** | the 64px | **16px + 32px** | **no** |
+
+**Every one exits 0 and says nothing.** The output pixel values are the proof, not the exit code: grey
+`70` is page 1 of 3, and blue at 64×64 is `best_entry`'s pick out of three.
+
+The GIF row doubles as the **positive control** — the linter demonstrably *can* warn, so the three
+silent rows are narrowness, not a broken harness.
+
+### What this means for SPEC-119
+
+- **AC-5 is correctly scoped for animation** (GIF + APNG + animated WebP == the `AnimationDecoder`
+  set, confirmed mechanically). No change needed there.
+- **`lint` today covers 1 of those 3.** APNG and animated WebP decode multi-frame and are flagged by
+  nothing — so AC-7's `fix:` repair must not be GIF-only either.
+- **Two cases sit outside AC-5 entirely** and should be triaged, not silently inherited:
+  - **Multi-page TIFF is the clearer gap** — scanned documents are routinely multi-page, and page 1
+    is kept with no signal. Note the constraint: `image` gives no route to the other pages, so this
+    is a *detect-and-warn* item, not a *convert-them-all* item, unless a new dependency is taken.
+  - **Multi-size ICO is arguably correct behaviour** — an `.ico` is a container of sizes and picking
+    one is the point. But the pick rule is undocumented and invisible, and "I converted my favicon
+    and got only the 64px" is a legitimate surprise. Lowest priority of the four; **state it, do not
+    necessarily fix it.**
+
+### The rule name
+
+`format/animated-gif` cannot describe any of this. The finding is **multi-image input is silently
+flattened**, of which animated GIF is one instance of four. Renaming is a `lint` rule-id change and
+therefore a compatibility surface (SARIF/JSON consumers) — flag it in SPEC-119's design rather than
+doing it incidentally.
+
 ## Animated GIF → animated AVIF — measured, and it is a 9–11x win (2026-08-16)
 
 > **Evidence for STAGE-046's animated-*output* spec** (backlog piece **(b)**), not for SPEC-119,
