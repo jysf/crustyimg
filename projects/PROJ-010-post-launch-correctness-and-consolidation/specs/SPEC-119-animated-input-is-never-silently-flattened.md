@@ -415,7 +415,7 @@ transition and `test-before-implementation` applies in its usual form.
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
 - **Branch:** `fix/spec-119-animated-input-never-silently-flattened`
-- **PR:** opened at the end of this cycle — see the PR link in the session's final message.
+- **PR:** [#176](https://github.com/jysf/crustyimg/pull/176) (open, not merged, per prompt instructions)
 - **All acceptance criteria met?** yes — all 11 (AC-1 through AC-10, including AC-7b).
 - **New decisions emitted:** DEC-092 (`decisions/DEC-092-animated-input-warns-and-proceeds-lint-is-the-strict-gate.md`)
   — Call 1 (warn-and-proceed, DEC-085's sibling) and Call 4's separate-rule-id choice,
