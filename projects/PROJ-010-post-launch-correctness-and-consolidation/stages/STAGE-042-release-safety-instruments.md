@@ -105,6 +105,41 @@ failures on documented paths.
 
 ## Spec Backlog
 
+- [ ] (not yet written) — [M] **`decisions-audit`'s overlap check drowns its own signal.** Measured
+  2026-08-15: a full run emits **~1,200 `both govern overlapping scope` warnings** (1,187 counted
+  in one complete-enough run, in 2,312 lines of output) and takes **over two minutes**. Every one
+  of them is the same shape, and the top pairs are trivially-shared globs:
+
+  | count | glob pair |
+  |---|---|
+  | 401 | `Cargo.toml ~ Cargo.toml` |
+  | 237 | `src/cli/mod.rs ~ src/cli/mod.rs` |
+  | 103 | `src/cli/** ~ src/cli/mod.rs` |
+
+  The check pairs every DEC against every other and warns on any prefix overlap, so it is O(n²)
+  over decisions sharing a common file — and **every dependency decision "overlaps" every other
+  dependency decision**, which is true and useless. The consequence is not cosmetic: the one
+  semantically real overlap this week (DEC-088 / DEC-091) sat near line 1,150 of 2,312 and was
+  **only noticed because a truncated `tail` happened to land on it**. An instrument that surfaces
+  its one real finding by luck is not surfacing it. Options: exclude manifest/module-root globs
+  from the pairing, warn only on globs shared by ≤N decisions, or make it a distinct opt-in
+  subcommand instead of part of the default lint. **This is a STAGE-042 instrument, so its own
+  signal-to-noise is in scope.**
+
+
+- [ ] (not yet written) — [S] **DEC-091 refines DEC-088 and neither record says so.** The audit
+  flags them as governing overlapping scope (`docs/territory.md`) and asks whether they
+  contradict. **Checked 2026-08-15: they do not.** DEC-091's own text opens *"DEC-088's
+  generalization fence is **kept**, restated at the level it actually operates on
+  (parameters)"* — it refines DEC-088's fence and adds a second one, while DEC-088's other half
+  (the three tiers of external integration) is untouched. So neither supersedes the other, and
+  `supersedes` / `superseded_by` are both `null` on both — correctly, because **the schema has no
+  way to express "refines"**. A reader arriving at DEC-088 alone gets the older, looser statement
+  of the fence with no pointer to the refinement. Fix is either a prose cross-reference in both
+  files (cheap, no schema change) or a new front-matter relation field (a framework change needing
+  its own DEC). **No adjudication needed — the relationship is already settled in the text.**
+
+
 - [ ] (not yet written) — [S] **A `build` cache HIT swallows the truncated-JPEG warning.**
   `build_one` returns at `src/cli/build.rs:415` on `cache.lookup`, before the format-plan match
   at `:424`, so SPEC-116's emit is never reached on a hit: run 1 warns, run 2 is silent, and
