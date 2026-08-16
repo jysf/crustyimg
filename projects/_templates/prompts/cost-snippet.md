@@ -54,6 +54,27 @@ numbers that agree is the point; if they disagree, the Agent result wins and the
 gap gets recorded.
 ```
 
+**Budget in MESSAGE COUNT, not minutes — measured, 2026-08-16.**
+
+```
+Cost scales with the SQUARE of message count, because every message re-reads the
+accumulated context. Across four builds in one wave (cache reads 97-99% of tokens
+in all four), relative to SPEC-116:
+
+  spec       msgs    total tokens   msgs^2   minutes      $
+  SPEC-120   0.41x       0.40x       0.17x    0.21x     8.69
+  SPEC-116   1.00x       1.00x       1.00x    1.00x    11.91
+  SPEC-117   1.57x       2.18x       2.47x    0.60x    23.06
+  SPEC-119   2.29x       4.99x       5.23x    0.59x    51.24
+
+MINUTES ANTI-CORRELATE. SPEC-116 ran 104 minutes for $11.91; SPEC-119 ran 61 for
+$51.24. Every prompt in that wave carried a wall-clock budget and not one fired.
+
+So write the stop condition as an exchange count -- "past ~250 exchanges without
+having started the matrix, checkpoint and report" -- which would have fired on
+SPEC-119 and correctly stayed silent on SPEC-116's slow, cheap run.
+```
+
 **Pricing — do not apply the 80/20 rule blind.**
 
 ```
