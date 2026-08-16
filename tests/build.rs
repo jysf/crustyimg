@@ -27,6 +27,10 @@ mode = "max"
 width = 16
 "#;
 
+/// The committed text-SVG fixture (SPEC-115/SPEC-117) — see `tests/input_svg.rs`.
+/// Do not synthesize a new one.
+const SVG_FIXTURE: &[u8] = include_bytes!("fixtures/svg/rect_text_40x30.svg");
+
 // ── Fixture helpers ───────────────────────────────────────────────────────────
 
 /// Generate a solid-color RGB PNG at `dir/rel` (creating parent dirs).
@@ -1318,5 +1322,83 @@ name = "{stem}.png"
     assert!(
         root.join("dist/truncated.png").exists(),
         "the pinned-format output must still be written"
+    );
+}
+
+/// SPEC-117 (AC-2/AC-3/AC-4): `build` shares the same auto-decide seam as
+/// `apply --recipe web` via `encode_one_optimize_decided` (the
+/// `OutputFormatPlan::Decide` arm), so SPEC-115's fix must hold there too.
+/// This pins behaviour that already works: there is no red-to-green
+/// transition to demonstrate here, and AC-5's per-verb negative control (run
+/// and recorded, not committed) is what proves the pin is real.
+#[test]
+fn build_on_svg_source_writes_a_real_raster() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    write_file(root, "src/rect_text_40x30.svg", SVG_FIXTURE);
+    write_file(
+        root,
+        "crustyimg.build.toml",
+        br#"
+version = 1
+
+[[target]]
+source = "src/rect_text_40x30.svg"
+recipe = "web"
+out = "dist"
+"#,
+    );
+
+    let out = run_build(root, &[]);
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    let written: Vec<String> = std::fs::read_dir(root.join("dist"))
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(
+        written.len(),
+        1,
+        "exactly one output written, got {written:?}"
+    );
+    let written_name = &written[0];
+    let bytes = std::fs::read(root.join("dist").join(written_name)).unwrap();
+
+    // AC-2: the written bytes are a real WebP, sniffed on the bytes — the
+    // rasterized SVG's `source_format` reports as `png` (no `ImageFormat::Svg`),
+    // which `fast_fallback_lossy_entry` does not match, so no lossy fallback
+    // candidate ever competes with the lossless WebP/PNG shortlist; WebP wins
+    // on every feature leg (verified by hand: default, --no-default-features,
+    // --features webp-lossy all agree, byte-identically).
+    assert_eq!(
+        image::guess_format(&bytes).ok(),
+        Some(ImageFormat::WebP),
+        "the written file must sniff as a real WebP, not the raw SVG container; \
+         path=dist/{written_name}"
+    );
+
+    // AC-4: the "report" for `build` is the written name and lockfile entry —
+    // they must carry the real decided extension, not an adopted `.svg`/`.png`
+    // label a broken delegation would carry.
+    assert!(
+        written_name.ends_with(".webp"),
+        "the written name must carry the real decided extension; got {written_name}"
+    );
+    let lock_text = std::fs::read_to_string(root.join("crustyimg.build.lock")).unwrap();
+    assert!(
+        lock_text.contains(written_name.as_str()),
+        "lockfile must name the actually-written file {written_name}, got: {lock_text}"
+    );
+
+    // AC-3: the defect's signature was shipping the source container verbatim
+    // under a raster name — assert against it directly rather than inferring
+    // from the format sniff alone.
+    assert_ne!(
+        bytes, SVG_FIXTURE,
+        "the SVG source bytes must never be written verbatim under a raster name"
     );
 }

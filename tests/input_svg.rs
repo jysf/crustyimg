@@ -286,6 +286,80 @@ fn web_svg_auto_decide_writes_a_real_raster() {
     assert_ne!(bytes, SVG_FIXTURE);
 }
 
+/// SPEC-117 (AC-1/AC-3/AC-4): `apply --recipe web` shares the same auto-decide
+/// seam as `web` and `optimize` — its terminal-`optimize` split in `run_apply`
+/// delegates to `run_optimize_autodecide` \u{2192} `optimize_decide_one`, the SAME
+/// fixed function, so SPEC-115's fix must hold there too. This pins behaviour
+/// that already works: there is no red-to-green transition to demonstrate
+/// here, and AC-5's per-verb negative control (run and recorded, not
+/// committed) is what proves the pin is real.
+#[test]
+fn apply_recipe_web_on_svg_writes_a_real_raster() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let in_path = dir.path().join("rect_text_40x30.svg");
+    std::fs::write(&in_path, SVG_FIXTURE).unwrap();
+
+    let output = Command::new(BIN)
+        .args([
+            "apply",
+            "--recipe",
+            "web",
+            in_path.to_str().unwrap(),
+            "--out-dir",
+            dir.path().to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run apply --recipe web");
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "apply --recipe web should exit 0; stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    // AC-4: the summary must report the real svg\u{2192}webp transition, not the
+    // adopted `png` label `source_format` would otherwise carry for a
+    // rasterized SVG (`source_container_label`, SPEC-115).
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("svg \u{2192} webp"),
+        "summary must report svg \u{2192} webp, not an adopted-format label; got:\n{stderr}"
+    );
+
+    let written: Vec<_> = std::fs::read_dir(dir.path())
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .map(|e| e.path())
+        .filter(|p| p != &in_path)
+        .collect();
+    assert_eq!(
+        written.len(),
+        1,
+        "expected exactly one output file, got {written:?}"
+    );
+    let bytes = std::fs::read(&written[0]).expect("read output");
+
+    // AC-1: sniff the written bytes, do not trust the extension.
+    assert_eq!(
+        image::guess_format(&bytes).ok(),
+        Some(image::ImageFormat::WebP),
+        "the written file must sniff as a real WebP, not the raw SVG container; \
+         path={:?}",
+        written[0]
+    );
+    let decoded = image::load_from_memory(&bytes).expect("output should decode as WebP");
+    assert_eq!(decoded.width(), 40);
+    assert_eq!(decoded.height(), 30);
+
+    // AC-3: the defect's signature was shipping the source container verbatim
+    // under a raster name — assert against it directly rather than inferring
+    // from the format sniff alone.
+    assert_ne!(
+        bytes, SVG_FIXTURE,
+        "the SVG source bytes must never be written verbatim under a WebP name"
+    );
+}
+
 /// The text fixture rasterizes to a non-empty raster of the expected dims using
 /// the bundled Go font (no system fonts) — `<text>` is not silently dropped.
 #[test]
