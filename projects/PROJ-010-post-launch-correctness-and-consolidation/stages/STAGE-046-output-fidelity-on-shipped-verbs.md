@@ -112,9 +112,28 @@ Three further reasons the timing is now and not later:
 
 ### Explicitly out of scope
 - **Animated output encode** (animated GIF → animated WebP/AVIF). That is the
-  capability; this stage is the repair. `webp-animation` v0.10.0
-  (MIT OR Apache-2.0) is verified and filed, and DEC-091 places it on the
-  workhorse side of the fence — but it is not this stage.
+  capability; this stage is the repair. DEC-091 places it on the workhorse side
+  of the fence. **Filed 2026-08-15 as a `docs/roadmap.md` post-1.0 row**, paired
+  with this stage — it was *not* actually filed anywhere when this line was
+  written.
+
+  ⚠ **Two corrections to the dependency line this stage originally carried.**
+  `webp-animation` v0.10.0 is **not** a clean verified take: the licence is
+  right (MIT OR Apache-2.0) but it **wraps `libwebp-sys2`, a C dependency**, so
+  it does not clear `pure-rust-codecs-default` and would need an off-by-default
+  feature (the `webp-lossy`/DEC-022 precedent). A **pure-Rust route needs no new
+  dependency at all** — `image`'s `AnimationDecoder` + the existing `Pipeline`
+  per frame + `image-webp` frame encode + an in-house RIFF mux. And **animated
+  AVIF is a separate, unpriced question** (a HEIF image sequence, materially
+  harder than RIFF) — do not treat "WebP/AVIF" as one item. See
+  `docs/backlog.md` → "animated input is silently flattened", §(b).
+
+  **Consequence for this stage's first spec:** because the capability does not
+  exist yet, the repair can only *blunt* `lint`'s advice, not correct it. The
+  rule's claim that "a modern format encodes far smaller" is also, today,
+  **unverified by this repo** — crustyimg cannot produce the animated format it
+  recommends, so it has never measured the win. Shipping the capability is the
+  first chance to.
 - A 16-bit-throughout pipeline as a goal in itself. Decode, `Identity`,
   `AutoOrient` and the default encode path already preserve the variant; only
   the three op bodies collapse it. **No type change is needed anywhere.**
