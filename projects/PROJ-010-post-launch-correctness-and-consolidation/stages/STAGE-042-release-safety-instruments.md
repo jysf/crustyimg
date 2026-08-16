@@ -105,6 +105,17 @@ failures on documented paths.
 
 ## Spec Backlog
 
+- [ ] (not yet written) — [S] **A `build` cache HIT swallows the truncated-JPEG warning.**
+  `build_one` returns at `src/cli/build.rs:415` on `cache.lookup`, before the format-plan match
+  at `:424`, so SPEC-116's emit is never reached on a hit: run 1 warns, run 2 is silent, and
+  `--no-cache` warns every time. `apply` has no cache and warns always, so the two verbs
+  disagree on the second run in a project. **Severity is genuinely limited** — `.crustyimg/` is
+  gitignored so CI is always cold, a new truncated input changes the key and warns on first
+  encounter, and DEC-085's wording is "every verb that **decodes** it" (a cache hit does not
+  decode), so this is arguably consistent with the decision's letter. Found and driven by
+  SPEC-116's verify, 2026-08-15.
+
+
 - [ ] (not yet written) — [S] **The stage template documents a bullet format `just backlog`
   does not recognise.** `_lib.sh:212` treats a bullet as *promoted* only when it matches
   `**SPEC-NNN**` — bold. `projects/_templates/stage.md` documents
