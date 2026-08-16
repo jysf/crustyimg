@@ -214,7 +214,7 @@ formality. A reviewer should treat AC-5 the way they would normally treat a fail
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
 - **Branch:** `test/spec-117-pin-build-and-apply-adopted-format`
-- **PR (if applicable):** opened, not merged (see below).
+- **PR (if applicable):** #174 (jysf/crustyimg), opened, not merged.
 - **All acceptance criteria met?** yes.
   - AC-1/AC-3/AC-4: `apply_recipe_web_on_svg_writes_a_real_raster`, added to `tests/input_svg.rs`
     (chosen over `tests/cli.rs` — that file is 207 KB and this test's siblings, including
