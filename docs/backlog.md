@@ -930,3 +930,80 @@ extras table · contact-sheet cell labels.
 templating, routing, or OG-card rendering in crustyimg."* That is the separate web-content tool's
 job, with the manifest as the seam. Worth stating explicitly because it is the most obvious
 "text beyond watermark" idea and it is already excluded.
+
+---
+
+## ⚠ Live defect — animated input is silently flattened, and `lint` recommends the command that does it (2026-08-15)
+
+**The most severe of the current defect set: silent data loss on a path the tool itself
+recommends, reported as a success with a perfect quality score.** Same class as D-1, worse
+consequence.
+
+### Driven end to end
+
+Fixture: a valid 4-frame looping GIF, 64×64, written with `image`'s own `GifEncoder`
+(`encode_frames`) — the same encoder `src/lint/rules.rs:363-369` uses in its test.
+
+```
+$ crustyimg lint anim.gif
+anim.gif
+  warn format/animated-gif: animated GIF (a modern format encodes far smaller)
+    fix: crustyimg convert --format webp anim.gif        <-- the tool's own advice
+
+$ crustyimg convert anim.gif --format webp -o fixed.webp
+$ crustyimg optimize anim.gif ; crustyimg web anim.gif
+anim.gif: gif → webp · 423 → 118 B (72% smaller) · ssim 100.0
+```
+
+Output: **118 B, zero `ANMF` chunks, no `VP8X`** — a *static* WebP. **3 of 4 frames discarded.**
+Exit 0, no warning, on `convert`, `optimize` **and `web`**.
+
+### Why this is worse than a wasted channel
+
+1. **The linter actively recommends the destructive command.** A user following the tool's own fix
+   loses their animation.
+2. **The loss is reported as a win.** "72% smaller" is true only because three-quarters of the
+   content was thrown away.
+3. **`ssim 100.0` certifies it.** The score compares decoded-source to output — and both are frame
+   1 — so the perceptual oracle **structurally cannot see this failure**. It is not that the check
+   is weak; it is measuring a quantity that is preserved by the bug
+   ([[a-self-referential-control-cannot-detect-a-broken-pipeline]]). Any future test that asserts
+   "score stayed high" will stay green through this defect forever.
+
+### Root cause
+
+**Frame decoding exists in exactly one place, and only to count:** `gif_is_animated`
+(`src/lint/rules.rs:303-306`) constructs a `GifDecoder` and takes 2 frames purely to test `>= 2`.
+The pixel pipeline never sees frame 2 — `Image::from_bytes` → `decode_with_format` →
+`ImageReader` → **one** `DynamicImage`. So the linter *knows* the file is animated and the encoder
+path does not.
+
+### Two separable pieces of work — do not conflate them
+
+- **(a) Stop the data loss — small, urgent, and independent of any new capability.** Detect
+  multi-frame input on the pixel path and refuse (a typed error → exit 4, the `CodecNotBuilt`
+  precedent) or warn loudly, instead of silently flattening. **Until animated output exists, the
+  lint rule's `fix:` string is also wrong and must stop recommending a destructive command.**
+- **(b) Animated GIF → animated WebP/AVIF** — triage §11, `webp-animation` verified
+  (v0.10.0, MIT OR Apache-2.0). This is the real capability, and §11's framing should be updated:
+  it is **not an enhancement, it is the repair** that lets the linter's advice become true.
+
+### Scope check before either is specced
+
+Animated GIF is not the only multi-frame input the tree can decode. **Mechanically sweep** every
+format the `image` feature set enables for multi-frame support (animated WebP decode is in
+`image`'s `webp`; APNG in `png`) and state the finding as a claim with its grep
+([[mechanical-sweeps-need-a-mechanical-check]]). The `format/animated-gif` rule name may itself be
+too narrow.
+
+### Placement — this is workhorse, not `crustyimg-lab`
+
+Under DEC-091: the params (quality, loop count, frame rate) generalize across a batch (**Fence A →
+workhorse**), and the output is a delivery artifact a build consumes (**Fence B → workhorse**). It
+also passes `docs/territory.md`'s test — animated GIF → animated WebP is one of the largest
+byte wins in web asset delivery, which is exactly "a better artifact automatically".
+
+**And more simply: a defect in crustyimg cannot be fixed in a different binary.** crustyimg already
+accepts animated GIFs, already detects them, and already destroys them. What *would* be lab is the
+per-image judgement around animation — choosing a cover frame, dropping frames by eye, previewing
+a loop — none of which is the batch conversion.
