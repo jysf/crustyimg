@@ -253,8 +253,8 @@ Written during **design**, BEFORE build. At least one must FAIL on today's `HEAD
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
 - **Branch:** `feat/spec-116-build-threads-truncated-jpeg-warning`
-- **PR (if applicable):** TBD — opened after this commit, filled in via follow-up commit; not
-  merged, per instructions.
+- **PR (if applicable):** [#171](https://github.com/jysf/crustyimg/pull/171) — open, not merged,
+  per instructions.
 - **All acceptance criteria met?** yes — AC-1 through AC-9 all verified, boxes checked above.
 - **New decisions emitted:** none. DEC-085 already governs the unconditional gating; this spec
   obeys it rather than reopening it.
