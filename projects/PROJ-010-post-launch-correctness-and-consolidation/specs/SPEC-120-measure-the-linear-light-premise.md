@@ -56,23 +56,25 @@ cost:
     - cycle: build
       agent: claude-opus-5                # rate anchors: Opus $5/$25 per MTok
       interface: claude-code
-      tokens_total: 10171210
-      duration_minutes: 21
+      tokens_total: 11365430
+      duration_minutes: 22
       recorded_at: 2026-08-16
       tokens_breakdown:
-        input: 156
-        output: 76845
-        cache_creation: 170669
-        cache_read: 9923540
-      estimated_usd: 7.95
+        input: 168
+        output: 80568
+        cache_creation: 179916
+        cache_read: 11104778
+      estimated_usd: 8.69
       note: >
-        MEASURED — transcript sum over 78 assistant messages
+        MEASURED — transcript sum over 84 assistant messages
         (session 7ae3add2-8f00-4435-a9b4-714576c628d8), priced per component at
         the Opus anchors the transcript's own `.message.model` reports:
         input x1.00, output x1.00, cache_creation x1.25, cache_read x0.10
-        (DEC-083). Cache reads are 97.6% of volume, so the flat-rate shortcut
-        would have overstated this by ~12x. Measured after the PR was opened;
-        the final bookkeeping commit and push are not included (~$0.1).
+        (DEC-083). Cache reads are 97.7% of volume, so the flat-rate shortcut
+        would have overstated this by ~12x ($102 flat vs $8.69 by component).
+        Re-measured at session end, per the cost snippet's own warning that
+        mid-session numbers run low: the earlier reading was $7.95, 9% low.
+        The commit carrying this figure is itself not included (~$0.15).
   totals:
     tokens_total: 0
     estimated_usd: 0
