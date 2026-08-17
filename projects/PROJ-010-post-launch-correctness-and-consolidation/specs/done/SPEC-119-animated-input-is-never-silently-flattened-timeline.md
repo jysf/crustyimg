@@ -60,9 +60,15 @@ Cycle prompts live in `prompts/SPEC-119-<cycle>.md`.
         the missing warning, its report is internally inconsistent: `file_size_bytes` covers all
         frames while `decoded_bytes`/`width`/`height`/`color_type` come from frame 1.
         **Verdict (b): true but itself a defect** — filed `[S]` on STAGE-046 in `33e3d82`.
-      ⚠ Method note: `git show`/`git cat-file` returned **truncated** file contents through the
-      shell wrapper (206 and 30 lines for files of 1547). Read from the worktree on disk instead.
-      The `rtk`-corruption hazard, hit live.
+      ⚠ Method note, **CORRECTED 2026-08-16**: I recorded that `git show`/`git cat-file` had
+      returned truncated file contents and blamed `rtk`. **That was wrong and the tooling was
+      fine.** `git show "$B:src/cli/ops.rs"` resolved to `git show "$B"` — it printed the
+      *commit*, not the file. The varying counts (206, then 7) were that commit's diff, then a
+      merge commit's header after `update-branch`; nothing was truncated. Proven three ways: the
+      literal ref returns all 1547 lines, `cat-file -p <blob-sha>` returns 1547, and
+      `rtk proxy` — the no-filter escape hatch — returned the *same* 7, which alone rules `rtk`
+      out. **The real lesson: read the output before diagnosing it.** Counting lines told me
+      "truncated"; reading seven lines of `commit/Merge:/Author:/Date:` told me the truth.
 - [ ] **ship** — **at ship:** append the verify cost entry (`agent: claude-opus-5`,
       `tokens_total: 47880996`, `duration_minutes: 28.3`, `estimated_usd: 30.99`, breakdown
       `{input: 538, output: 179350, cache_creation: 461199, cache_read: 47239909}`), compute

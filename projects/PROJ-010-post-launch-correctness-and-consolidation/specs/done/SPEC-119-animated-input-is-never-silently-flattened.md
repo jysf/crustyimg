@@ -630,7 +630,14 @@ STAGE-047: *if a design call is revised after framing, re-check complexity in th
 - **An ID collision is a parallelism cost, not a file conflict.** This spec's DEC shipped as
   DEC-092 and collided with SPEC-120's, because the two ran in parallel. They shared no files —
   which is what was checked — and shared the **ID space**, which was not.
-- **The tooling can lie about file contents.** During the second-pass review `git show` and
-  `git cat-file` returned truncated output — 206 and 30 lines for files of 1547. Caught only
-  because an emit site sat at line 341 of a supposedly 206-line file.
+- **Read the output before diagnosing it.** ⚠ **This bullet originally said "the tooling can lie
+  about file contents" and blamed `rtk`. That was false**, and it is corrected here rather than
+  quietly dropped, because a wrong lesson in a reflection is worse than none. What actually
+  happened: `git show "$B:path"` resolved to `git show "$B"` and printed the *commit*, not the
+  file. The counts I read as truncation (206, then 7) were that commit's diff, then a merge
+  commit's header. `rtk proxy` returned the identical 7 — which rules the proxy out and should
+  have stopped me. I diagnosed a symptom from line counts instead of reading seven lines of
+  `commit/Merge:/Author:/Date:`. **A shell variable in a `ref:path` argument is worth testing
+  literally once**, and "the tool is broken" deserves the same scepticism as any other claim
+  nobody drove.
 
