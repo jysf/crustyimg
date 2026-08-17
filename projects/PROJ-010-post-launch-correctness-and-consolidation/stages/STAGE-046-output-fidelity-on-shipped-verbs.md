@@ -143,28 +143,27 @@ Three further reasons the timing is now and not later:
 
 ## Spec Backlog
 
-Ordered. D-A first because it is small, urgent, independent of the others, and
-carries no lockfile cost.
-
 - [x] **SPEC-119** (design 2026-08-15, shipped 2026-08-16, PR #176) — [M] animated input is never silently flattened: warn on
       the pixel path instead of discarding frames, and stop `lint` recommending
       the destructive command. **The sweep ran at design and the rule name WAS
       too narrow** — GIF, APNG and animated WebP all flatten silently, so this is
       three formats, not one. Re-estimated S → M for that reason.
-- [ ] (not yet written) — [M] ops preserve colour type and bit depth: widen to
-      work, narrow to write. Fixes D-B and D-C in one change across the three op
-      bodies. Lockfile-invalidating.
+
+- [x] **SPEC-121** (design 2026-08-16) — [M] **ops preserve colour type and bit depth.**
+  Fixes the RGBA widening (+12.4% bytes, measured) and the 16-bit truncation in one change
+  across the three op bodies. "Widen to work, narrow to write", lossless-only.
+
 - [x] **SPEC-120** (design 2026-08-15, shipped 2026-08-16, PR #175) — [S] measured D-D's premise before fixing
       it. **Gates the next spec.** Design found SSIMULACRA2 cannot score a
       downscale against its source (equal dimensions, `report.rs:329`), so the
       experiment needs an independently-generated reference — and must prove the
       scorer can see the effect at all before a null result is readable.
-- [ ] (not yet written) — [M] ⚡ **UNBLOCKED — SPEC-120 ruled the premise HOLDS (DEC-092).**
-      And **narrowed it: the premultiplied-alpha half is FALSE** — `fast_image_resize` 6.0.0
-      already premultiplies by default, so this is **one premise, not two**. Resample in linear
-      light,
-      conditional on the measurement above. Lockfile-invalidating; sequence with
-      the colour-type spec so the migration is paid once.
+
+- [x] **SPEC-122** (design 2026-08-16) — [M] **`resize` resamples in linear light.**
+  Premise measured and confirmed by SPEC-120 (DEC-092); **one premise, not two** — the
+  premultiplied-alpha half is refuted. Starts from SPEC-120's committed prototype and
+  re-uses its harness as the acceptance test. **Paired with SPEC-121**: same function
+  family, one shared DEC, one migration paid once.
 
 - [ ] (not yet written) — [M] **Three writing paths still silently flatten animated input.**
       SPEC-119 fixed `convert`/`optimize`/`web`/`build`(Decide)/`apply`(terminal-optimize).
@@ -224,7 +223,7 @@ carries no lockfile cost.
   every decode caller, so **audit each caller and its `Err(_)` arm** rather than editing the list
   alone.
 
-**Count:** 2 shipped (SPEC-119, SPEC-120) / 0 in flight / 6 pending
+**Count:** 2 shipped (SPEC-119, SPEC-120) / 2 framed (SPEC-121, SPEC-122 — **a pair**) / 4 pending
 
 ## Design Notes
 
