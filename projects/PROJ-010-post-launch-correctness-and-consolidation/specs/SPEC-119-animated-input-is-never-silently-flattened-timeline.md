@@ -36,9 +36,33 @@ Cycle prompts live in `prompts/SPEC-119-<cycle>.md`.
       `tests/` change, `cycle:` left at verify. Went beyond the brief: found that `info` warns
       for truncated-JPEG but **not** animated-input, so the two warnings have genuinely different
       verb sets.
-- [~] **verify (re-read)** — prompt: `prompts/SPEC-119-verify-reread.md`. Opus, own worktree.
-      Deliberately narrow: close the three punch-list items, and settle the NEW unverified claim
-      about `info` — which may itself be a defect worth filing.
+- [x] **verify (re-read)** — **done by the orchestrator, 2026-08-16, NOT a separate session.**
+      A knowing deviation from the cycle model, recorded rather than drifted into: the punch list
+      changed no source, CI was green, and the first verify had already re-driven all 11 ACs,
+      three controls, 96 byte-identity pairs and the full matrix. A fresh session would have cost
+      ~$10–30 to confirm that a documentation patch says true things. The prompt
+      (`prompts/SPEC-119-verify-reread.md`) was written and is retained unused.
+      **All four items closed by reading source, not by trusting the report:**
+      · **P1** — `## Goal` amended with the exact wired list; `## Known residual` added at the
+        spec's `:523`, cross-referencing the STAGE-046 `[M]` rather than re-filing it. ✅
+      · **P2** — both verb maps verified against source. The two warnings emit at the *same five*
+        sites (`ops.rs:341/440` in `run_pixel_op`, `optimize.rs:1500/1553` in
+        `run_optimize_autodecide`, `build.rs:458` in `build_one`); truncated-JPEG has **one
+        extra**, `report.rs:257` in `run_info`. That is exactly the documented asymmetry.
+        `run_apply` splits at `optimize.rs:56`: the terminal-`optimize` branch warns on **both**
+        its pinned (`:73` → `run_pixel_op`) and unpinned (`:87` → autodecide) paths, while a plain
+        recipe falls through at `:100` to its own inline loop that never reaches `run_pixel_op` —
+        so the "silent" claim is correct for the right reason. ✅
+      · **P3** — `IMAGE_EXTENSIONS` has `gif` and `png`, and **no** `webp`; the GIF/APNG
+        exemption in the qualifier holds. ✅
+      · **The `info` claim — TRUE, and worse than documented.** `run_info` checks
+        `is_truncated_jpeg()` at `report.rs:253` and never calls `is_animated_input()`. Beyond
+        the missing warning, its report is internally inconsistent: `file_size_bytes` covers all
+        frames while `decoded_bytes`/`width`/`height`/`color_type` come from frame 1.
+        **Verdict (b): true but itself a defect** — filed `[S]` on STAGE-046 in `33e3d82`.
+      ⚠ Method note: `git show`/`git cat-file` returned **truncated** file contents through the
+      shell wrapper (206 and 30 lines for files of 1547). Read from the worktree on disk instead.
+      The `rtk`-corruption hazard, hit live.
 - [ ] **ship** — **at ship:** append the verify cost entry (`agent: claude-opus-5`,
       `tokens_total: 47880996`, `duration_minutes: 28.3`, `estimated_usd: 30.99`, breakdown
       `{input: 538, output: 179350, cache_creation: 461199, cache_read: 47239909}`), compute
