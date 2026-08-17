@@ -34,9 +34,15 @@ Cycle prompts live in `prompts/SPEC-119-<cycle>.md`.
       claim against a correctly-rebuilt binary.
       ⚠ Its cycle-advance + cost commit `c920cb9` is **local on a detached HEAD, unpushed** — the
       cost block is transcribed below and lands on `main` at ship per §13.
-- [~] **punch list** — prompt: `prompts/SPEC-119-punchlist.md`. Documentation only; no source
+- [x] **punch list** — 2026-08-16, `d9f2d8c`. All five items, documentation only; no
+      `src/` or `tests/` change, `cycle:` left at verify. Went beyond the brief: found that
+      `info` warns for truncated-JPEG but **not** animated-input, so the two warnings have
+      genuinely different verb sets.
+
       change, no re-verification, and `cycle:` stays put.
-- [ ] **verify (re-read)** — after the punch list lands.
+- [~] **verify (re-read)** — prompt: `prompts/SPEC-119-verify-reread.md`. Opus, own worktree.
+      Deliberately narrow: close the three punch-list items, and settle the NEW unverified claim
+      about `info` — which may itself be a defect worth filing.
       Five items flagged, AC-7b load-bearing: `lint --max-warnings 0` is the answer to the
       maintainer's reservation about warn-and-proceed, so it must be driven on all three
       families, not asserted.
