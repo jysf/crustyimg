@@ -7,7 +7,7 @@
 task:
   id: SPEC-119
   type: bug
-  cycle: verify
+  cycle: ship
   blocked: false
   priority: critical               # silent data loss on shipped verbs, and the
                                    # tool's own linter recommends the command
@@ -80,10 +80,35 @@ cost:
         cache_creation x1.25, cache_read x0.10). Cache reads are 99.1% of
         tokens_total, so the flat 80/20 shortcut would badly overstate this —
         priced by component per the pricing note.
+    - cycle: verify
+      agent: claude-opus-5
+      interface: claude-code
+      tokens_total: 47880996
+      duration_minutes: 28.3
+      recorded_at: 2026-08-16
+      tokens_breakdown: {input: 538, output: 179350, cache_creation: 461199, cache_read: 47239909}
+      estimated_usd: 30.99
+      note: >
+        MEASURED at session end (own transcript, identified by content — the
+        negative-control marker and baseline binary hash this session emitted),
+        100 assistant messages, all claude-opus-5. Opus $5/$25 anchors;
+        cache_creation x1.25, cache_read x0.10. Re-derived by the orchestrator at
+        ship: sum and dollars both match. Verdict ⚠ PUNCH LIST (3 items, all
+        documentation). The verify session's commit (c920cb9) was never pushed —
+        it lived on a detached worktree — so this block is transcribed from it.
+        The punch-list pass folds into the build entry (same cycle) and the
+        second-pass review was un-metered orchestrator main-loop work.
+    - cycle: ship
+      interface: claude-code
+      tokens_total: null
+      duration_minutes: null
+      estimated_usd: null
+      note: >
+        Un-metered main-loop ship cycle (AGENTS §4).
   totals:
-    tokens_total: 143470855
-    estimated_usd: 51.24
-    session_count: 1
+    tokens_total: 191351851
+    estimated_usd: 82.23
+    session_count: 4
 ---
 
 # SPEC-119: animated input is never silently flattened
@@ -576,4 +601,36 @@ of at verify.
 
 ## Reflection (Ship)
 
-*Appended during the **ship** cycle.*
+**Shipped 2026-08-16.** PR #176 (squash `b61d356`), 16/16 applicable CI green.
+Cost **191,351,851 tokens / $82.23** — more than SPEC-116, SPEC-117 and SPEC-120 combined.
+
+**1. Did the spec hold up?** The fix did. The *scope estimate* did not, and the reason is recorded
+rather than excused: framed `[S]`, re-estimated to `[M]` when the design sweep found **three**
+affected formats instead of one, then **not re-estimated again** when Call 4 was revised
+post-framing to require a second lint rule. Two scope expansions, one re-estimate. Filed on
+STAGE-047: *if a design call is revised after framing, re-check complexity in the same edit.*
+
+**2. What did the cycle catch that the spec did not?**
+
+- **The build improved on the design.** `lint` now reads `Image::is_animated_input` instead of
+  re-decoding, so the linter and the pixel path **cannot** disagree. The original defect *was*
+  that divergence — the linter knew and the encoder path did not — and the spec had only asked
+  for the `fix:` string to stop lying. Structural beats corrective.
+- **The Goal was not met, and the record said it was.** `responsive` and plain-recipe
+  `apply`/`build` still flatten silently. Amended, with the residual filed `[M]`.
+- **The strict gate has a hole.** `lint --max-warnings 0` returns a **false green in directory
+  mode** on animated WebP, because `webp` is missing from `IMAGE_EXTENSIONS`. That is not a normal
+  backlog item: Call 1's warn-and-proceed ruling was accepted *because* that gate exists. The
+  maintainer's stated reluctance was better founded than the argument used to answer it.
+- **`info` describes an animated file as a still**, and its report is internally inconsistent —
+  `file_size_bytes` covers all frames, the rest come from frame 1. Filed `[S]`.
+
+**3. What should change?**
+
+- **An ID collision is a parallelism cost, not a file conflict.** This spec's DEC shipped as
+  DEC-092 and collided with SPEC-120's, because the two ran in parallel. They shared no files —
+  which is what was checked — and shared the **ID space**, which was not.
+- **The tooling can lie about file contents.** During the second-pass review `git show` and
+  `git cat-file` returned truncated output — 206 and 30 lines for files of 1547. Caught only
+  because an emit site sat at line 341 of a supposedly 206-line file.
+

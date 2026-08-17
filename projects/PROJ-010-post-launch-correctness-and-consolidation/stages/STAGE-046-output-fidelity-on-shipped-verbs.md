@@ -146,7 +146,7 @@ Three further reasons the timing is now and not later:
 Ordered. D-A first because it is small, urgent, independent of the others, and
 carries no lockfile cost.
 
-- [ ] **SPEC-119** (design 2026-08-15) — [M] animated input is never silently flattened: warn on
+- [x] **SPEC-119** (design 2026-08-15, shipped 2026-08-16, PR #176) — [M] animated input is never silently flattened: warn on
       the pixel path instead of discarding frames, and stop `lint` recommending
       the destructive command. **The sweep ran at design and the rule name WAS
       too narrow** — GIF, APNG and animated WebP all flatten silently, so this is
@@ -188,7 +188,7 @@ carries no lockfile cost.
       size fields describe different things without saying so. The flag already exists and
       `Image` already carries it, so this is a report field plus a warning, not new detection.
 
-**Count:** 1 shipped (SPEC-120) / 1 in flight (SPEC-119, verify) / 4 pending
+**Count:** 2 shipped (SPEC-119, SPEC-120) / 0 in flight / 4 pending
 
 ## Design Notes
 
