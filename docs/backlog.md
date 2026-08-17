@@ -1021,6 +1021,84 @@ job, with the manifest as the seam. Worth stating explicitly because it is the m
 
 ---
 
+## Animated AVIF vs animated WebP — AVIF wins on all three axes (2026-08-16)
+
+> The gating decision for STAGE-046's animated-*output* spec. Measured against the **reference
+> implementations** (libavif 1.4.2 / aom 3.14.1, libwebp 1.6.0) used as oracles — **not** proposed
+> for adoption. Status: **recommendation, unscheduled.**
+
+### 1. Size at matched quality — AVIF by ~6x
+
+Same source (`Newtons_cradle`, 308,156 B GIF, 36 frames, 480×360). Every candidate scored with
+**crustyimg's own oracle** (`crustyimg diff`, SSIMULACRA2) against the *same* reference: frame 0 of
+the source GIF.
+
+| encode | bytes | ssim2 | vs GIF |
+|---|---:|---:|---:|
+| **avif (aom) q30** | **27,309** | **86.9** | **11.3×** |
+| avif q40 | 40,030 | 88.2 | 7.7× |
+| avif q80 | 95,152 | 91.0 | 3.2× |
+| webp q50 | 109,998 | 75.7 | 2.8× |
+| webp q75 | 146,154 | 81.7 | 2.1× |
+| **webp q80** (best measured) | **172,492** | **84.1** | 1.8× |
+
+**AVIF q30 beats WebP's best point on both axes at once** — higher quality (86.9 vs 84.1) in
+**6.3× fewer bytes**. AVIF q40 is 4.3× smaller *and* 4 points better. Animated WebP never reached
+86.9 in the sweep; at q90 it was 317,816 B, **larger than the source GIF**.
+
+**And the result transfers to the encoder crustyimg would actually use.** rav1e measured
+27,564 B @ ssim2 86.7 — landing essentially on top of aom's q30 (27,309 B @ 86.9). The reference
+encoder is not flattering AVIF here; rav1e is competitive on this content.
+
+The comparison is **conservative toward AVIF**: its path carries an inherent 95.92 ceiling from the
+hand-rolled YUV420 conversion feeding it (`crustyimg diff ref0 src0` = 95.92), while `gif2webp` does
+its own, likely better, RGB→YUV internally.
+
+### 2. Browser support — the axis WebP wins, and it no longer disqualifies AVIF
+
+**Animated** AVIF (distinct from still AVIF, which landed earlier in each engine): Chrome **93+**,
+Firefox **114+**, Safari **17.0+**; ~94–95% global coverage. Animated WebP is effectively universal
+(~97%). So WebP is wider, but AVIF is past the threshold where it needs to be hidden behind a flag.
+**Sourced from secondary trackers, not vendor release notes — worth one confirmation pass against
+caniuse before it becomes a spec premise.**
+
+### 3. Pure-Rust feasibility — AVIF wins this one too, which is the surprise
+
+The intuition is that WebP is the easier build. It is not:
+
+- **AVIF**: `rav1e` already encodes (in-tree, BSD-2) and `mp4-atom` already has `av01`/`av1C` plus an
+  `avis` test. Both halves exist, permissively licensed.
+- **WebP**: there is **no pure-Rust animated WebP encoder at all**. `image-webp` 0.2.4's encoder
+  writes `VP8X` (`src/encoder.rs:722`) but emits no `ANIM`/`ANMF`, so animation would need libwebp
+  (C, and `webp-animation` wraps exactly that) or a from-scratch VP8 encoder.
+
+### Recommendation
+
+**Animated AVIF as the primary output**, with the WebP-fallback question deferred rather than
+answered — crustyimg already emits multiple formats behind a manifest (`responsive`/`build`), so
+"AVIF plus a fallback" is an existing pattern, not new machinery. Shipping animated WebP *from pure
+Rust* is the genuinely blocked path, and that is the opposite of the going-in assumption.
+
+### Method — three wrong hypotheses before the real cause, all falsified by targeted tests
+
+The first AVIF numbers were **invalid** and looked plausible: scores flat at ~56–57 while bytes more
+than doubled. Recorded because the failure mode is subtle and will recur.
+
+1. *"BT.709 vs BT.601 matrix mismatch."* Falsified — switching both directions to BT.601 moved the
+   score by 0.05.
+2. *"avifdec is returning the wrong frame."* Falsified — scoring the output against source frames
+   0/5/17/35 gave 57.4/46.7/41.7/29.5, monotonically decreasing, so it *was* frame 0.
+3. **The actual cause: `avifdec -i` reported `Range: Limited`.** The y4m carried full-range 0–255
+   YUV; avifenc tagged the output limited-range 16–235, so the decoder expanded it and crushed
+   contrast — a constant error invariant to quality, which is exactly the flat curve. Fixed by
+   adding **`XCOLORRANGE=FULL`** to the y4m header.
+
+**The control that made this findable**: a near-lossless encode (`-q 100`) must score *high*. It
+scored **57.2**, which cannot be compression loss on a 322,981-byte encode of a 308,156-byte source.
+After the fix the same control scored **96.5**. Without that control the flat curve would have been
+written up as "AVIF is worse than WebP" — the exact opposite of the truth.
+[[a-control-you-never-verified-applied-is-not-a-control]]
+
 ## Multi-frame format sweep — `format/animated-gif` is too narrow by FOUR, not one (2026-08-16)
 
 > The mechanical sweep the animated-input defect entry called for. **Driven on the shipped 0.7.0
