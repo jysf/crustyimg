@@ -221,10 +221,23 @@ failures on documented paths.
   drift. `RAYON_NUM_THREADS` reaches every verb the same way.
   **Why a pin is attractive rather than just retracting the claim:** both terms of that `min` are
   machine-independent once `threads` is fixed, so `with_num_threads(Some(N))` makes tiling
-  machine-independent **while staying parallel** — unlike DEC-077's decode pin to one thread,
-  which cost a measured ~3.8×. Its sufficiency depends on SPEC-123's Call 4: stable run-to-run at
-  a fixed count → a pin is a real fix; not stable → residual nondeterminism underneath and a pin
-  only narrows it.
+  machine-independent. Unlike DEC-077's decode pin to one thread (a measured ~3.8× cost), N is a
+  free parameter, so the encode stays multi-threaded — but **this is not a performance win, and
+  should not be sold as one.** Today the encoder already takes every core; a pin can only match or
+  reduce that.
+  ⚠ **The real second axis is quality-per-byte, and it runs the other way.** A still image is one
+  frame, so rav1e's parallelism here is tile-level: `threads` and `tiles` are the same knob
+  (`:653-654`; `cfg.with_threads` at `:690` is only set when `threads` is `Some`). Tiles are coded
+  independently, so more of them costs compression efficiency — ravif's own comment concedes it:
+  *"AV1 needs all the CPU power you can give it, except when it'd create inefficiently tiny
+  tiles."* **You cannot buy encode parallelism without spending quality-per-byte**, and today
+  crustyimg picks maximum parallelism implicitly by taking the default.
+  **Which means output quality-per-byte today varies with the machine's core count** — a 4-core
+  laptop and a 32-core CI box plausibly differ, on a tool whose thesis is quality-per-byte.
+  Predicted from the source, **not yet measured**; SPEC-123's harness answers it for the cost of
+  one extra column (see its prompt).
+  A pin's sufficiency depends on SPEC-123's Call 4: stable run-to-run at a fixed count → a pin is
+  a real fix; not stable → residual nondeterminism underneath and a pin only narrows it.
   ⚠ **It changes every AVIF output byte**, so if it goes ahead it should ride STAGE-046's
   byte-changing wave (SPEC-121/122) rather than land alone. **Do not scope before SPEC-123
   reports.**

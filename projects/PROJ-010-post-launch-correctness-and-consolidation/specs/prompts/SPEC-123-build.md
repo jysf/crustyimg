@@ -100,6 +100,19 @@ On an 8-core machine, a 1 / 4 / 8 matrix over `graphic_large.png` in the 256 cas
 pick inputs where the thread term binds across your whole range.** A hash table without its clamp
 column is not interpretable.
 
+### Record OUTPUT SIZE beside the hash — one column, and it answers a second question
+
+You are already producing these artifacts at each thread count. **Record their byte size too.**
+
+Tiles are coded independently, so more tiles should cost compression efficiency — ravif's own
+comment concedes it: *"AV1 needs all the CPU power you can give it, except when it'd create
+inefficiently tiny tiles."* If that holds, **crustyimg's quality-per-byte today varies with the
+machine's core count**, which matters rather a lot on this tool.
+
+That is a prediction from reading the source, **not a measurement**. Your table converts it into
+one for the cost of a `wc -c`. Report it whichever way it comes out — including "no material size
+difference", which is equally useful and would close the question.
+
 ## Call 4 is load-bearing, not the cheap adjacent extra
 
 The spec frames run-to-run stability at a fixed thread count as one extra loop. **It now decides
