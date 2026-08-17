@@ -188,7 +188,43 @@ carries no lockfile cost.
       size fields describe different things without saying so. The flag already exists and
       `Image` already carries it, so this is a report field plus a warning, not new detection.
 
-**Count:** 2 shipped (SPEC-119, SPEC-120) / 0 in flight / 4 pending
+> **Moved from STAGE-042, 2026-08-16.** Same class as the rest of this stage: the tool
+> silently delivers less than it was given and exits 0.
+
+- [ ] (not yet written) — [S] ⚠ **PRIORITY: the `IMAGE_EXTENSIONS` gap silently defeats the
+  strict gate that a maintainer decision rests on.** Not a new defect — the *consequence* of the
+  item below, and it is why that item is no longer routine.
+
+  SPEC-119's Call 1 (animated input **warns and proceeds** rather than refusing) was accepted on
+  2026-08-16 on one argument: **`lint --max-warnings 0` is the strict path**, so a pipeline that
+  must never flatten an animation has a way to say so. Driven by SPEC-119's verify:
+
+  ```
+  lint --max-warnings 0 <dir containing anim.webp>   → exit 0   "1 scanned · 0 warn"
+  lint --max-warnings 0 <dir>/anim.webp              → exit 7
+  optimize <dir>/*.webp                              → warns; 408 → 240 B, 4 frames → 1
+  ```
+
+  **Directory mode — the shape CI actually uses — returns a false green.** Naming the file or
+  piping stdin both work. `docs/api-contract.md` states `lint --max-warnings 0` "fails on any of
+  the three formats" **with no qualifier**, which is now false as written.
+
+  Two things follow: the contract sentence needs its qualifier (SPEC-119 punch list), and the
+  `IMAGE_EXTENSIONS` fix should be **specced rather than left in the backlog**, because a
+  maintainer ruling now depends on it.
+
+- [ ] (not yet written) — [S] **`webp` is missing from `IMAGE_EXTENSIONS`, so directory and glob
+  discovery silently skips `.webp` files.** `src/source/mod.rs:105-113` lists 30+ extensions —
+  jpg/png/gif/bmp/tif/ico/avif/svg, eleven RAW families, heic/heif — and **not `webp`**, which is
+  a supported input *and* an output format the tool writes by default. So `crustyimg web ./dir/`
+  processes everything except the files crustyimg itself produced. **Reproduces on `main`,
+  confirmed 2026-08-16**; found by SPEC-119's build and recorded in DEC-093, which is not a
+  backlog anyone reads. The repo already knows this hazard class — `src/lint/mod.rs:217` cites
+  "the IMAGE_EXTENSIONS-exposes-every-decode-caller lesson" by name. Adding an extension changes
+  every decode caller, so **audit each caller and its `Err(_)` arm** rather than editing the list
+  alone.
+
+**Count:** 2 shipped (SPEC-119, SPEC-120) / 0 in flight / 6 pending
 
 ## Design Notes
 
