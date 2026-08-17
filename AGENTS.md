@@ -501,6 +501,43 @@ this, but naming the base is the reliable form. `just decisions-audit`
 `/guidance/recommended-tools.md` for optional, heavier verify tooling
 (e.g. LineSpec for protocol-level integration tests).
 
+#### Negative controls: one revert per condition, and the flip is the evidence
+
+A spec's negative control is what separates a real test from one that cannot
+fail. Two rules, both **measured** in PROJ-010 rather than assumed:
+
+**1. One revert per independent condition, not one per guard.** Reverting a
+whole guard also removes any predicate inside it, so a test that depended on
+the inner predicate stays green on *both* sides and the control reports
+success. SPEC-113 shipped a vacuous RAW test exactly this way — the guard
+short-circuited on size and never reached the sniff the test existed to
+protect. SPEC-115 (per format family), SPEC-117 (per verb) and SPEC-119 (per
+detected format) all did it correctly afterwards; each reverted one condition
+at a time and confirmed the *other* families stayed green, which is what
+proves the tests are independent rather than co-dependent.
+
+**2. The evidence is the BEHAVIOURAL FLIP, not a binary hash.** A changed
+hash proves only that a relink happened. Measured on this repo 2026-08-16: in
+the debug profile, rebuilding from **byte-identical source produced a
+different binary**, so the hash cannot distinguish "my edit reached the
+artifact" from "cargo relinked." The test going RED can, because the reverted
+code is observed executing. Cite the flip; a hash or a `Compiling crustyimg`
+line is corroborating at best.
+
+> A corollary worth stating, from SPEC-119's verify: a test that asserts a
+> **property of the defect** (e.g. "the output has one frame") is not a
+> regression guard — it stays green through a total regression of the fix.
+> Know which of your tests prove the behaviour and which merely describe it.
+
+#### An acceptance criterion may not transfer between verbs
+
+Write ACs against the surface the verb actually has. SPEC-117's AC-4 said
+"the summary/`--json` names the real container" — written from
+`optimize`/`web`'s surface, while `build` has **neither**: no `--json`, and
+aggregate-only stderr. Verify had to rule whether that was a deviation or an
+imprecise AC. Prefer "the verb's report, defined here as …" over naming a
+channel that may not exist.
+
 Append a verify cost session entry to `cost.sessions`.
 
 Output: ✅ APPROVED / ⚠ PUNCH LIST / ❌ REJECTED.

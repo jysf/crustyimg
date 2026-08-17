@@ -7,7 +7,7 @@
 task:
   id: SPEC-120
   type: task                       # a measurement spike; ships no behaviour
-  cycle: design
+  cycle: ship
   blocked: false
   priority: high                   # it GATES the linear-light fix
   complexity: S
@@ -53,10 +53,62 @@ cost:
         cannot score a downscale against its source (equal dimensions,
         `report.rs:329`), which reshapes the whole experiment; settled the
         reference-generation and instrument-validation calls that follow from it.
+    - cycle: build
+      agent: claude-opus-5                # rate anchors: Opus $5/$25 per MTok
+      interface: claude-code
+      tokens_total: 11365430
+      duration_minutes: 22
+      recorded_at: 2026-08-16
+      tokens_breakdown:
+        input: 168
+        output: 80568
+        cache_creation: 179916
+        cache_read: 11104778
+      estimated_usd: 8.69
+      note: >
+        MEASURED — transcript sum over 84 assistant messages
+        (session 7ae3add2-8f00-4435-a9b4-714576c628d8), priced per component at
+        the Opus anchors the transcript's own `.message.model` reports:
+        input x1.00, output x1.00, cache_creation x1.25, cache_read x0.10
+        (DEC-083). Cache reads are 97.7% of volume, so the flat-rate shortcut
+        would have overstated this by ~12x ($102 flat vs $8.69 by component).
+        Re-measured at session end, per the cost snippet's own warning that
+        mid-session numbers run low: the earlier reading was $7.95, 9% low.
+        The commit carrying this figure is itself not included (~$0.15).
+    - cycle: verify
+      agent: claude-opus-5                # rate anchors: Opus $5/$25 per MTok
+      interface: claude-code
+      tokens_total: 7717537
+      duration_minutes: 8
+      recorded_at: 2026-08-16
+      tokens_breakdown:
+        input: 152
+        output: 69273
+        cache_creation: 231257
+        cache_read: 7416855
+      estimated_usd: 6.89
+      note: >
+        MEASURED — transcript sum over 76 assistant messages
+        (session c5f84a09-b743-4303-88f6-ad131fa19b3a), priced per component at
+        the Opus anchors (DEC-083). Measured at session end. Verdict APPROVED.
+        Two independent cross-checks were added beyond the build's own controls
+        (ImageMagick scored against itself with only the gamma flag toggled; the
+        reference validated against the source's histogram-counted mean linear
+        luminance); neither changed the verdict. Re-derived by the orchestrator
+        at ship: sum and dollars both match. The verify session's own commit
+        (67bcf57) was never pushed — it lived on a detached worktree — so this
+        block is transcribed from it rather than merged.
+    - cycle: ship
+      interface: claude-code
+      tokens_total: null
+      duration_minutes: null
+      estimated_usd: null
+      note: >
+        Un-metered main-loop ship cycle (AGENTS §4).
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 19082967
+    estimated_usd: 15.58
+    session_count: 4
 ---
 
 # SPEC-120: measure the linear-light premise before fixing it
@@ -270,21 +322,114 @@ The committed harness (AC-6) is the reproducibility guarantee, not the test suit
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
-- **New decisions emitted:**
+- **Branch:** `chore/spec-120-measure-linear-light-premise`
+- **PR (if applicable):** https://github.com/jysf/crustyimg/pull/175
+- **All acceptance criteria met?** **yes** — all 8. See the AC map below.
+- **New decisions emitted:** **DEC-092** — *the linear-light premise holds — measured; the
+  premultiplied-alpha half of the same entry does not.* `affected_scope` includes
+  `src/operation/**` per AC-8, because the verdict is *proceed*.
 - **Deviations from spec:**
+  - **The throwaway prototype lives in `examples/spec120_linear_probe.rs`, not `src/`.** Cargo
+    compiles Rust only from `src/`, `examples/`, `benches/` and `tests/`, so `examples/` is the
+    only location that satisfies AC-7 (`src/` functionally untouched) *and* AC-6 (the number is
+    re-derivable from committed code). `src/` has **zero** changes.
+  - **The reference tool is ImageMagick, not numpy/Pillow.** The spec named either as acceptable;
+    neither numpy nor Pillow is installed for any `python3` on this machine, and installing them
+    is a network operation a measurement harness should not require. ImageMagick 7.1.2-29
+    **Q16-HDRI** carries the intermediate in float, which is what the reference actually needs.
+  - **The synthetic worst case is generated at run time, not committed to `bench/corpus/`.** That
+    directory is enumerated by `just bench` and scanned by `bench_corpus_is_license_clean`
+    (`tests/audit_bench.rs:491,562`), so adding a file there would change published benchmark
+    output for an unrelated reason. Deterministic generation from the committed harness is
+    strictly stronger for AC-6 anyway.
 - **Follow-up work identified:**
+  - **The fix spec for STAGE-046** — linearize inside `Resize::apply`, resample in `F32x4`,
+    re-encode on the way out. The prototype confirms `fast_image_resize` 6.0.0 handles `F32x4`
+    with `mul_div_alpha` in linear space.
+  - **Drop the alpha half from that spec's scope** — it is already correct (DEC-092 §Decision 2).
+  - **The fix spec must not gate on mean luminance alone.** On `graphic_large.png` the mean
+    luminance error is −0.44% while the perceptual penalty is 29.5 SSIMULACRA2 points, because the
+    error concentrates at edges (max local |luma err| 0.213 vs mean absolute 0.0023, ~90×).
+  - **The cache-key sub-question is now on the critical path**, not adjacent to it: the fix
+    changes output bytes for every recipe and invalidates every PROJ-007 build lockfile.
+  - **The prototype is not production-shaped.** It was exercised on three downscales and never on
+    upscale, tiny images, or the linear+alpha combination; the fix spec should lift the transfer
+    functions, not the code.
+
+### AC map
+
+| AC | where |
+|----|-------|
+| AC-1 independent reference, tool+version stated, generator committed | ImageMagick 7.1.2-29 Q16-HDRI; invocation in `scripts/spec120_linear_light.py::magick_resize`; version captured into every report |
+| AC-2 positive control fires; SSIMULACRA2's response explicitly reported | synthetic worst case: −88.07% mean linear luminance, SSIMULACRA2 −63.85 vs 100.00 → **the metric registers it**, Δ 163.85 |
+| AC-3 both metrics per case, ≥ synthetic + `graphic_large.png` + `photo_forest_cc0.jpg` | all three, both metrics, in the harness table and DEC-092 §Context |
+| AC-4 a plain verdict, one of three | ***premise holds, spec the fix*** |
+| AC-5 alpha number + method | **27/255 max, 0.364/255 mean** premultiplied-RGB error over the 6301-px edge band; method in DEC-092 §Context and `report["alpha"]["method"]` |
+| AC-6 reproducible from the committed harness | two clean runs, `diff` exit 0, byte-identical reports |
+| AC-7 no production behaviour change | `git diff main` touches no `src/` and no `tests/` file; `cargo test` green |
+| AC-8 a DEC either way, with the right `affected_scope` | DEC-092, `src/operation/**` (verdict is *proceed*) |
 
 ### Build-phase reflection (3 questions, short answers)
 
 1. **What was unclear in the spec that slowed you down?**
+   Very little — Call 1 in particular saved the exact dead end it names. The one genuine ambiguity
+   was **where the prototype is allowed to live**: AC-7 forbids `src/` changes, while Outputs says
+   *"no change to `src/` beyond a clearly-marked throwaway prototype that is not merged"*, which
+   reads as though the prototype belongs in `src/`. Those two only reconcile once you notice cargo
+   will not compile Rust from `scripts/` or `bench/`. One sentence naming `examples/` would have
+   removed the pause.
+
 2. **Was there a constraint or decision that should have been listed but wasn't?**
+   **DEC-008** (`fast_image_resize` as the resize backend). It is the decision the whole experiment
+   is measuring *around*, and the alpha refutation came directly out of reading that dependency's
+   own defaults. Second: the spec's Inputs section says *"Add one synthetic worst-case"* to a
+   corpus that `just bench` enumerates and `bench_corpus_is_license_clean` scans — the coupling is
+   real and unstated, and following the sentence literally would have moved an unrelated published
+   benchmark.
+
 3. **If you did this task again, what would you do differently?**
+   **Read the dependency's defaults before writing a line of code.** The premultiplied-alpha half
+   of the premise was refutable in five minutes from
+   `fast_image_resize-6.0.0/src/resizer.rs:41-59`, and it changed the shape of the follow-on fix
+   spec. I found it early, but by checking an API I needed rather than by design. The general
+   form is worth keeping: **when a backlog claim says a feature "appears absent" and the feature
+   lives in a dependency, grep the dependency's defaults first — a grep of `src/` is structurally
+   incapable of seeing a default.** The backlog entry's own hedge ("only two files were grepped")
+   named the weakness precisely and still did not point at the right file.
 
 ---
 
 ## Reflection (Ship)
 
-*Appended during the **ship** cycle.*
+**Shipped 2026-08-16.** PR #175 (squash `035e7f6`), 16/16 applicable CI green, verify **APPROVED**.
+Cost **19,082,967 tokens / $15.58** across four cycles — **the cheapest spec of the wave, and the
+only one whose product was a decision rather than code.**
+
+**1. Did the spec hold up?** Yes, and the design call that mattered was the one nobody would have
+made under time pressure: **prove the instrument can see the effect before trusting a null.** The
+positive control fired — a −88.07% physical luminance error registered as a **163.85-point**
+SSIMULACRA2 swing — so the realistic rows (70.45 on `graphic_large`, 84.45 on the photo) are
+readable rather than an uninterpretable null. Had it not fired, the verdict would have been
+*"wrong instrument"*, not *"premise false"*, and those lead to opposite decisions.
+
+**2. What did the cycle catch that the spec did not?** Two things, one of which changes the next
+spec:
+
+- **The premultiplied-alpha half of the premise is FALSE.** `fast_image_resize` 6.0.0's
+  `ResizeOptions::default()` sets `mul_div_alpha: true` and `new()` *is* `Default::default()`, so
+  `Resize::apply` — which overrides only the algorithm — has always premultiplied. **The fix spec
+  is one premise, not two.** The backlog entry had hedged *"only two files were grepped"*: it named
+  its own weakness and still pointed at the wrong file. The answer was in the dependency's
+  `Default` impl, which no grep of `src/` can see.
+- **The experiment as originally posed was not runnable.** SSIMULACRA2 requires equal dimensions,
+  so "score the downscale against its source" errors rather than answering. Design caught that;
+  a builder would have discovered it mid-cycle.
+
+**3. What should change?** Two carry-forwards:
+
+- **A falsification gate is worth writing into the backlog entry itself.** This entry set its own —
+  *"does SSIMULACRA2 score it better? If not, close it rather than spec it"* — and that single
+  sentence is what turned a plausible improvement into a measured one. More entries should carry
+  one.
+- **`AGENTS.md` §5 says `fast_image_resize` 5; the lockfile says 6.0.0**, and this DEC's argument
+  depends on 6.0.0's `Default`. Stale documentation that a decision now rests on.

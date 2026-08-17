@@ -154,16 +154,41 @@ carries no lockfile cost.
 - [ ] (not yet written) — [M] ops preserve colour type and bit depth: widen to
       work, narrow to write. Fixes D-B and D-C in one change across the three op
       bodies. Lockfile-invalidating.
-- [ ] **SPEC-120** (design 2026-08-15) — [S] measure D-D's premise before fixing
+- [x] **SPEC-120** (design 2026-08-15, shipped 2026-08-16, PR #175) — [S] measured D-D's premise before fixing
       it. **Gates the next spec.** Design found SSIMULACRA2 cannot score a
       downscale against its source (equal dimensions, `report.rs:329`), so the
       experiment needs an independently-generated reference — and must prove the
       scorer can see the effect at all before a null result is readable.
-- [ ] (not yet written) — [M] resize in linear light with premultiplied alpha,
+- [ ] (not yet written) — [M] ⚡ **UNBLOCKED — SPEC-120 ruled the premise HOLDS (DEC-092).**
+      And **narrowed it: the premultiplied-alpha half is FALSE** — `fast_image_resize` 6.0.0
+      already premultiplies by default, so this is **one premise, not two**. Resample in linear
+      light,
       conditional on the measurement above. Lockfile-invalidating; sequence with
       the colour-type spec so the migration is paid once.
 
-**Count:** 0 shipped / 2 in flight (SPEC-119, SPEC-120 — both design) / 2 pending
+- [ ] (not yet written) — [M] **Three writing paths still silently flatten animated input.**
+      SPEC-119 fixed `convert`/`optimize`/`web`/`build`(Decide)/`apply`(terminal-optimize).
+      **Driven by its verify, 2026-08-16:** `responsive anim.gif --widths 16` writes a 1-frame
+      `anim-16w.gif` from a 4-frame source, exit 0, **empty stderr** — same for APNG and WebP.
+      `apply --recipe <plain pixel recipe>` and `build` with a plain recipe are silent too.
+      **The stage's own Goal — "no shipped verb silently discards frames" — is therefore not yet
+      met.** Not a regression: `run_responsive` has its own `Image::load`
+      (`src/cli/optimize.rs:1744`) and **misses the truncated-JPEG warning as well**, so this seam
+      drops *both* diagnostics. That makes it evidence for STAGE-042's conformance matrix
+      (SPEC-118) as much as a fix in its own right — a verb-by-diagnostic matrix would have
+      surfaced it mechanically instead of at verify.
+
+- [ ] (not yet written) — [S] **`info` describes an animated file as a still.** It is the one
+      verb whose entire job is reporting, and `run_info` (`src/cli/report.rs:240-275`) checks
+      `is_truncated_jpeg()` and **never calls `is_animated_input()`** — confirmed by reading, and
+      surfaced by SPEC-119's punch list. Two consequences, the second sharper than the first:
+      it prints no animation warning where every pixel verb now does; and its report is
+      internally inconsistent — `file_size_bytes` covers **all frames** while `decoded_bytes`,
+      `width`, `height` and `color_type` come from `img.info()`, i.e. **frame 1 only**. The two
+      size fields describe different things without saying so. The flag already exists and
+      `Image` already carries it, so this is a report field plus a warning, not new detection.
+
+**Count:** 1 shipped (SPEC-120) / 1 in flight (SPEC-119, verify) / 4 pending
 
 ## Design Notes
 
