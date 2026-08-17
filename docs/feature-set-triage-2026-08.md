@@ -37,6 +37,33 @@ is consistent with batch already being threaded: the remaining gap is **within-i
 **Action: re-measure before planning.** The question to answer is where the wall-clock actually goes
 on a single large image, not whether to adopt rayon.
 
+> ### ⚠ Correction to this section, 2026-08-16
+>
+> The headline is right — crustyimg is not single-threaded — but **"already used in six source
+> files" overstates it**, and the conclusion "batch work is already parallel" is true for two verbs
+> and false for six. Counted:
+>
+> | file | real parallel fan-out |
+> |---|---|
+> | `src/cli/build.rs` | ✅ 1 |
+> | `src/cli/optimize.rs` | ✅ 2 |
+> | `src/cli/ops.rs` | **0** |
+> | `src/image/avif.rs` | **0** |
+> | `src/build/cache.rs` | **0** |
+> | `src/build/mod.rs` | **0** |
+>
+> The other four import or mention `rayon` without fanning out. `run_pixel_op`
+> (`src/cli/ops.rs:421`) is a plain `for input in &all`, and its own doc comment at `:227` says so:
+> *"fan-out is SEQUENTIAL (no rayon, DEC-006)"*. So `convert`, `resize`, `thumbnail`,
+> `auto-orient`, `edit` and `watermark` do not parallelize at all.
+>
+> **And that comment inverts its own citation.** DEC-006 says *"Batch work parallelizes with rayon
+> data parallelism across input files (landed for `apply` in STAGE-005)"* — the parenthetical notes
+> where it landed first, not a limit. So six verbs sit outside a decision meant to cover batch work
+> generally. Filed on STAGE-042 as the `par_iter run_pixel_op` item.
+>
+> The section's *action* stands unchanged: re-measure before planning.
+
 ### 1.2 The operation registry is already open (affects the whole lab packaging story)
 
 The note asks *"is the registry a closed match on a fixed set of names? If so, that's the thing to

@@ -191,7 +191,12 @@ failures on documented paths.
   **It has a measured payoff:** SPEC-091 pinned AVIF decode to one thread (DEC-077) to escape the
   `re_rav1d` DisjointMut race, which cost a **~3.8× single-decode regression**; moving this loop
   to file-level rayon (DEC-006) reclaims that *without reopening the race*, because the pin stays.
-  Pure perf, non-blocking. **Sequence after SPEC-123** — confirm file-level parallelism cannot
+  **It is also decision drift, not only perf.** `ops.rs:227`'s comment cites DEC-006 as the reason
+  it is sequential — but DEC-006 says *"Batch work parallelizes with **rayon** data parallelism
+  across input files (landed for `apply` in STAGE-005)"*. The parenthetical records where it landed
+  first; it is not a limit. So the comment inverts its own citation and six verbs sit outside the
+  decision. `decisions-audit` cannot catch this: it compares scope globs, not claims.
+  Pure perf plus drift, non-blocking. **Sequence after SPEC-123** — confirm file-level parallelism cannot
   perturb per-file output bytes before shipping it.
 
 **Count:** 1 framed (SPEC-118) / 7 pending / 1 chore done
