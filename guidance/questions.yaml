@@ -51,3 +51,91 @@ questions:
       are confirmed for JPEG/PNG. STILL OPEN: (a) encode-time ICC/orientation
       PRESERVE across the pixel lane (the `optimize` selective-preserve upgrade,
       DEC-024 follow-up), and (b) TIFF/WebP coverage. Keep open until those land.
+
+  - id: avc-patent-exposure-for-an-independent-decoder
+    question: "Does an independently-implemented (non-Cisco) H.264/H.265 decoder, distributed inside a permissively-licensed binary, carry AVC/HEVC patent-pool exposure?"
+    priority: medium
+    status: open
+    raised_by: claude
+    raised_at: 2026-08-16
+    assigned_to: null
+    notes: |
+      This is the gate on an entire DECLINED category, recorded so it is not
+      re-litigated from scratch. `docs/video-tool-assessment-2026-08.md`
+      assessed a video tool on crustyimg and declined it; §12 lists this as the
+      blocking question.
+
+      NOT ANSWERABLE BY PROBING — it is a question for counsel, not a crate
+      sweep. Recording it because the technical half already moved and will
+      keep moving: pure-Rust H.264 decoders now exist and are permissively
+      licensed (`rusty_h264-decoder` 0.10.0, BSD-2, forbid(unsafe_code),
+      fuzzed), so a future session sweeping crates.io will find them, conclude
+      the blocker has cleared, and be wrong. The blocker was never the licence
+      or the code — OpenH264's royalty-free position comes from Cisco paying
+      the pool cap and shipping prebuilt BINARIES, and that shelter does not
+      transfer to a clean-room reimplementation.
+
+      Same shape as the HEIC call already made (DEC-052/DEC-056: immature HEVC
+      + patents -> opt-in only). Resolve by asking counsel, or leave open and
+      keep the category declined. Do not resolve it by re-probing crates.io.
+
+  - id: mp4-atom-adoption
+    question: "Should `mp4-atom` be adopted as crustyimg's ISO-BMFF writer, and does it warrant a DEC?"
+    priority: low
+    status: open
+    raised_by: claude
+    raised_at: 2026-08-16
+    assigned_to: null
+    notes: |
+      Blocks any animated-AVIF output work. Nothing is scheduled, so this is
+      recorded rather than assigned.
+
+      Probed 2026-08-16: `mp4-atom` 0.15.0, MIT OR Apache-2.0 (both LICENSE
+      files present and read, not just the metadata field), 23,631 src lines,
+      243,922 downloads, updated 2026-07-31, pure Rust with no `-sys` crate.
+      Ships the `av01` sample entry and `av1C` config box
+      (`src/moov/trak/mdia/minf/stbl/stsd/av01.rs:21,87`), the full sample
+      table, and a committed test decoding a real libavif animated AVIF
+      (`avis` brand). Deliberately low-level: its README says it does the
+      binary format "without validation or interpretation... You have to know
+      what boxes to expect!" — it gives you boxes, not a muxer. Measured price
+      of the muxing DRIVER on top of a box library: ~1,000 lines.
+
+      Adoption requires a DEC per `no-new-top-level-deps-without-decision`,
+      plus `just deny`. NOTE: this is NOT a licence-watchlist item — that
+      register is for capabilities declined FOR their licence, and this crate
+      is permissive and cleared.
+
+      The related format question is ANSWERED and needs no entry here: animated
+      AVIF beats animated WebP on size at matched quality (6.3x), and is also
+      the easier pure-Rust build, since no pure-Rust animated WebP encoder
+      exists at all. Evidence in `docs/backlog.md` (2026-08-16); unscheduled
+      draft at `docs/research/draft-spec-animated-avif-output.md`.
+
+  - id: video-asset-lint-demand
+    question: "Do users want container-level video-asset linting (faststart, stray audio track, codec/resolution mismatch), or is it a real defect nobody cares about?"
+    priority: low
+    status: open
+    raised_by: claude
+    raised_at: 2026-08-16
+    assigned_to: null
+    notes: |
+      FEASIBILITY IS PROVEN; DEMAND IS NOT. This is a demand question, not a
+      technical one, and no amount of probing answers it.
+
+      A field audit of 18 production MP4s from ~20 major tech company homepages
+      (2026-08-16) found 6/18 missing faststart, 5/18 carrying an audio track
+      on muted marketing loops, 5/18 HEVC-only, and 0/18 AV1 — verified at byte
+      level, not inferred. Every check reads ISO-BMFF box structure, so it needs
+      no codec and carries no patent exposure (which is why it survived when the
+      video tool did not).
+
+      The counter-evidence is in the same data: every company audited has a
+      performance team and ships these defects anyway, which reads either as
+      "nobody checks" or "nobody cares."
+
+      Resolve by a real request in `feedback/`, or by the maintainer's own
+      dogfooding — the same evidence standard STAGE-014's gate was rewritten to
+      use on 2026-08-15. Do not build it on the strength of the audit alone.
+      Evidence in `docs/backlog.md`; probe at
+      `docs/probes/video-container-lint-probe.py`.
