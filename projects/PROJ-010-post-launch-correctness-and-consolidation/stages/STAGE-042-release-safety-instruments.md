@@ -178,6 +178,22 @@ failures on documented paths.
   silently had the roll not caught it. (b) Run `just wasm-test`, which no CI leg does. Complexity
   **S**.
 
+- [x] **SPEC-123** (design 2026-08-16) — [S] **is AVIF output byte-deterministic across thread
+  counts?** `build --frozen`, the lockfile's `hash` and the cache key all assume it; upstream
+  gives no guarantee and rav1e has a filed nondeterminism bug. **Thread count is not a cache-key
+  component and not in the lockfile's list of qualifiers.** Gates two roadmap items.
+
+- [ ] (not yet written) — [S] **`run_pixel_op` is a serial for-loop, so six batch verbs do not
+  parallelize at all.** `src/cli/ops.rs:421` (`for input in &all`). `build` and `apply --recipe`
+  fan out over rayon; `convert`, `resize`, `thumbnail`, `auto-orient`, `edit` and `watermark` do
+  not. **Filed as SPEC-091 follow-up #3 on 2026-07-18 and never done** — and it lived only in
+  STAGE-030's backlog, which is `shipped`, so no command has surfaced it since.
+  **It has a measured payoff:** SPEC-091 pinned AVIF decode to one thread (DEC-077) to escape the
+  `re_rav1d` DisjointMut race, which cost a **~3.8× single-decode regression**; moving this loop
+  to file-level rayon (DEC-006) reclaims that *without reopening the race*, because the pin stays.
+  Pure perf, non-blocking. **Sequence after SPEC-123** — confirm file-level parallelism cannot
+  perturb per-file output bytes before shipping it.
+
 **Count:** 1 framed (SPEC-118) / 7 pending / 1 chore done
 
 > **Nine framework-tooling items moved to STAGE-047 on 2026-08-16.** They were about `just`,
@@ -185,7 +201,7 @@ failures on documented paths.
 > builds crustyimg, not crustyimg or its release. Keeping them here diluted the item that
 > actually blocks a maintainer ruling.
 
-**Count:** 1 framed (SPEC-118) / 5 pending / 1 chore done
+**Count:** 2 framed (SPEC-118, SPEC-123) / 6 pending / 1 chore done
 
 > **The two `IMAGE_EXTENSIONS` items moved to STAGE-046 on 2026-08-16.** They are a defect —
 > the tool silently processes less than the user handed it and reports success — not an
