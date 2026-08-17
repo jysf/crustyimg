@@ -15,6 +15,10 @@ Cycle prompts live in `prompts/SPEC-122-<cycle>.md`.
       stability across versions (`src/build/lock.rs:32-36`), so the "invalidates every PROJ-007
       lockfile" risk both backlog entries flagged is already within the shipped contract. The
       builds drive it; they do not design it.
-- [ ] **build** — prompt not yet written. Sonnet, own worktree.
+- [ ] **build** — prompt: `prompts/SPEC-122-build.md` (2026-08-16). Sonnet, own worktree, branch
+      `fix/spec-122-resize-resamples-in-linear-light`. Third of three serial specs.
+      ⛔ **Gated on SPEC-121 being merged to `main`** — same function, and the prompt opens with
+      the check. **Amends DEC-095; does not mint a new DEC.** Its colour-type tests become
+      regression guards on this change.
 - [ ] **verify** — Opus, new session.
 - [ ] **ship**

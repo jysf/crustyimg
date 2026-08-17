@@ -126,6 +126,16 @@ lockfile actually makes, and re-confirming it costs one extra loop.
 - **DEC-077 / SPEC-091** — why AVIF *decode* is pinned to one thread. Different
   code path; read it so the two are not conflated in the write-up.
 - `bench/corpus/` for inputs; the harness shape from `scripts/spec120_linear_light.py`.
+- ⚡ **`src/sink/mod.rs:679` — the AVIF encode call, and the reason the lever is not obvious.**
+  crustyimg constructs `AvifEncoder::new_with_speed_quality(..)` and **never calls
+  `with_num_threads`**, so the encoder takes `image` 0.25.10's documented default: *"all
+  threads in the default `rayon` thread pool"* (`codecs/avif/encoder.rs:89-91`), which
+  `ravif` 0.13.0 resolves as `rayon::current_num_threads()` (`av1encoder.rs:653`).
+  So the count is the **ambient pool size**, set by `RAYON_NUM_THREADS` globally or by
+  `--jobs`'s scoped pool — which is read in exactly two places, `src/cli/build.rs:661` and
+  `src/cli/optimize.rs:177`. ⚠ **`--jobs` is silently ignored by `convert`** and the five
+  other serial verbs (STAGE-042's `run_pixel_op` item), so a matrix built on `-j` for
+  `convert` measures one thread count three times and reports a false "deterministic".
 
 ## Outputs
 
