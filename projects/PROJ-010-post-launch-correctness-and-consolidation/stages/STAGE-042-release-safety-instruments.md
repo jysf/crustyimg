@@ -196,7 +196,13 @@ failures on documented paths.
   across input files (landed for `apply` in STAGE-005)"*. The parenthetical records where it landed
   first; it is not a limit. So the comment inverts its own citation and six verbs sit outside the
   decision. `decisions-audit` cannot catch this: it compares scope globs, not claims.
-  Pure perf plus drift, non-blocking. **Sequence after SPEC-123** — confirm file-level parallelism cannot
+  **And it is user-visible: `--jobs` is silently ignored by all six.** `global.jobs` is read in
+  exactly two places (`build.rs:661`, `optimize.rs:177`), so `crustyimg resize *.jpg -j 8` accepts
+  the flag, warns nothing, and runs serially. The docs also disagree: `cli-reference.md:34` scopes
+  it to *"`apply` batch"*, while **`docs/api-contract.md:33` promises "Parallel workers for batch"
+  unscoped** — a contract line that is false for six verbs. Whatever the fix, the two docs must
+  end up agreeing with the code and with each other.
+  Perf, drift, and a false contract line — non-blocking. **Sequence after SPEC-123** — confirm file-level parallelism cannot
   perturb per-file output bytes before shipping it.
 
 **Count:** 1 framed (SPEC-118) / 7 pending / 1 chore done
