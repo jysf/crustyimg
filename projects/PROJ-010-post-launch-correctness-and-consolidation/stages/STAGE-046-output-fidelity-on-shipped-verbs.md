@@ -178,7 +178,17 @@ carries no lockfile cost.
       (SPEC-118) as much as a fix in its own right — a verb-by-diagnostic matrix would have
       surfaced it mechanically instead of at verify.
 
-**Count:** 1 shipped (SPEC-120) / 1 in flight (SPEC-119, verify) / 3 pending
+- [ ] (not yet written) — [S] **`info` describes an animated file as a still.** It is the one
+      verb whose entire job is reporting, and `run_info` (`src/cli/report.rs:240-275`) checks
+      `is_truncated_jpeg()` and **never calls `is_animated_input()`** — confirmed by reading, and
+      surfaced by SPEC-119's punch list. Two consequences, the second sharper than the first:
+      it prints no animation warning where every pixel verb now does; and its report is
+      internally inconsistent — `file_size_bytes` covers **all frames** while `decoded_bytes`,
+      `width`, `height` and `color_type` come from `img.info()`, i.e. **frame 1 only**. The two
+      size fields describe different things without saying so. The flag already exists and
+      `Image` already carries it, so this is a report field plus a warning, not new detection.
+
+**Count:** 1 shipped (SPEC-120) / 1 in flight (SPEC-119, verify) / 4 pending
 
 ## Design Notes
 
