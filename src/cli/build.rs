@@ -438,19 +438,25 @@ fn build_one(
             (ext.to_owned(), bytes)
         }
         OutputFormatPlan::Decide => {
-            let (ext, bytes, truncated_jpeg) =
+            let (ext, bytes, truncated_jpeg, animated_input) =
                 encode_one_optimize_decided(&prepared.recipe, ctx.registry, input)?;
             // F1 (SPEC-107, DEC-085): unconditional, not gated on `--quiet` — see
             // `report.rs`'s `run_info` for why. Matches the sibling emit in
             // `optimize.rs`'s `run_optimize_autodecide`, NOT the cache-store
             // warning four lines below, which IS `--quiet`-gated for a
             // different (recoverable-failure) reason.
-            if truncated_jpeg {
+            if truncated_jpeg || animated_input {
                 let label = match input {
                     crate::source::Input::Path(path) => path.display().to_string(),
                     crate::source::Input::Stdin { stem, .. } => stem.clone(),
                 };
-                eprintln!("warning: {label}: {}", crate::image::TRUNCATED_JPEG_WARNING);
+                if truncated_jpeg {
+                    eprintln!("warning: {label}: {}", crate::image::TRUNCATED_JPEG_WARNING);
+                }
+                // SPEC-119: same reasoning as the truncated-JPEG warning.
+                if animated_input {
+                    eprintln!("warning: {label}: {}", crate::image::ANIMATED_INPUT_WARNING);
+                }
             }
             (ext, bytes)
         }

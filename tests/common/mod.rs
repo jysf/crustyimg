@@ -394,6 +394,40 @@ pub fn animated_gif(w: u32, h: u32) -> Vec<u8> {
     buf
 }
 
+/// A single-frame (static) GIF — the SPEC-119/SPEC-053 did-not-break-it
+/// control: `format/animated-gif` and the animated-input warning must both
+/// stay silent on this.
+pub fn static_gif(w: u32, h: u32) -> Vec<u8> {
+    let img = RgbImage::from_pixel(w, h, image::Rgb([9, 9, 9]));
+    encode(DynamicImage::ImageRgb8(img), ImageFormat::Gif)
+}
+
+/// The standard PNG/zlib CRC-32 (bit-by-bit, no lookup table — these fixtures
+/// are tiny so the table's setup cost isn't worth it). Shared by
+/// [`png_header_declaring`] and the SPEC-119 APNG fixture below.
+fn crc32(bytes: &[u8]) -> u32 {
+    let mut crc = 0xFFFF_FFFFu32;
+    for &b in bytes {
+        crc ^= b as u32;
+        for _ in 0..8 {
+            let mask = (crc & 1).wrapping_neg();
+            crc = (crc >> 1) ^ (0xEDB8_8320 & mask);
+        }
+    }
+    !crc
+}
+
+/// One PNG chunk: `[u32 be length][fourcc][payload][u32 be crc32(fourcc ++ payload)]`.
+fn png_chunk(fourcc: &[u8; 4], payload: &[u8]) -> Vec<u8> {
+    let mut out = (payload.len() as u32).to_be_bytes().to_vec();
+    out.extend_from_slice(fourcc);
+    out.extend_from_slice(payload);
+    let mut crc_input = fourcc.to_vec();
+    crc_input.extend_from_slice(payload);
+    out.extend_from_slice(&crc32(&crc_input).to_be_bytes());
+    out
+}
+
 /// A PNG whose IHDR *declares* `w`×`h` and carries no real pixel data — the
 /// classic decompression-bomb shape: under 100 bytes claiming billions of
 /// pixels. Every chunk's CRC is computed for real, and an empty `IDAT` +
@@ -407,37 +441,151 @@ pub fn animated_gif(w: u32, h: u32) -> Vec<u8> {
 /// chunks); duplicated rather than shared across the wasm/native test
 /// targets, which do not otherwise depend on each other.
 pub fn png_header_declaring(w: u32, h: u32) -> Vec<u8> {
-    fn crc32(bytes: &[u8]) -> u32 {
-        let mut crc = 0xFFFF_FFFFu32;
-        for &b in bytes {
-            crc ^= b as u32;
-            for _ in 0..8 {
-                let mask = (crc & 1).wrapping_neg();
-                crc = (crc >> 1) ^ (0xEDB8_8320 & mask);
-            }
-        }
-        !crc
-    }
-    // `[u32 be length][fourcc][payload][u32 be crc32(fourcc ++ payload)]`.
-    fn chunk(fourcc: &[u8; 4], payload: &[u8]) -> Vec<u8> {
-        let mut out = (payload.len() as u32).to_be_bytes().to_vec();
-        out.extend_from_slice(fourcc);
-        out.extend_from_slice(payload);
-        let mut crc_input = fourcc.to_vec();
-        crc_input.extend_from_slice(payload);
-        out.extend_from_slice(&crc32(&crc_input).to_be_bytes());
-        out
-    }
-
     let mut ihdr_payload = w.to_be_bytes().to_vec();
     ihdr_payload.extend_from_slice(&h.to_be_bytes());
     ihdr_payload.extend_from_slice(&[8, 2, 0, 0, 0]); // 8-bit, truecolour, no interlace
 
     let mut png = Vec::from(*b"\x89PNG\r\n\x1a\n");
-    png.extend_from_slice(&chunk(b"IHDR", &ihdr_payload));
-    png.extend_from_slice(&chunk(b"IDAT", &[])); // empty — never actually decoded
-    png.extend_from_slice(&chunk(b"IEND", &[]));
+    png.extend_from_slice(&png_chunk(b"IHDR", &ihdr_payload));
+    png.extend_from_slice(&png_chunk(b"IDAT", &[])); // empty — never actually decoded
+    png.extend_from_slice(&png_chunk(b"IEND", &[]));
     png
+}
+
+/// Concatenate the data of every chunk in `bytes` (a PNG byte stream) whose
+/// type is `fourcc` — correct PNG behavior for a multi-`IDAT`/`fdAT` stream,
+/// and the general case a single matching chunk is a special case of.
+fn find_png_chunks(bytes: &[u8], fourcc: &[u8; 4]) -> Vec<u8> {
+    let mut out = Vec::new();
+    let mut i = 8; // past the 8-byte PNG signature
+    while i + 8 <= bytes.len() {
+        let len = u32::from_be_bytes(bytes[i..i + 4].try_into().unwrap()) as usize;
+        if &bytes[i + 4..i + 8] == fourcc {
+            out.extend_from_slice(&bytes[i + 8..i + 8 + len]);
+        }
+        i += 12 + len; // length(4) + type(4) + data(len) + crc(4)
+    }
+    out
+}
+
+/// Encode a 2-frame Animated PNG (APNG) fixture (SPEC-119): hand-assembles
+/// the `acTL`/`fcTL`/`fdAT` chunks the APNG extension adds on top of a plain
+/// PNG — `image` 0.25 only DECODES APNG (`PngDecoder::apng`/`ApngDecoder`),
+/// it has no APNG-encode API. Each frame's compressed pixel data is
+/// extracted byte-for-byte from `image`'s own single-image PNG encoder
+/// output via [`find_png_chunks`], so the only hand-rolled bytes are the
+/// chunk framing (length/type/CRC) and the `acTL`/`fcTL` control chunks the
+/// APNG spec defines — never any DEFLATE/pixel compression.
+pub fn animated_apng(w: u32, h: u32) -> Vec<u8> {
+    let frame1_idat = find_png_chunks(&solid_rgba_png(w, h, [255, 0, 0, 255]), b"IDAT");
+    let frame2_idat = find_png_chunks(&solid_rgba_png(w, h, [0, 255, 0, 255]), b"IDAT");
+
+    let mut ihdr = w.to_be_bytes().to_vec();
+    ihdr.extend_from_slice(&h.to_be_bytes());
+    ihdr.extend_from_slice(&[8, 6, 0, 0, 0]); // 8-bit depth, RGBA (colour type 6)
+
+    let mut actl = 2u32.to_be_bytes().to_vec(); // num_frames
+    actl.extend_from_slice(&0u32.to_be_bytes()); // num_plays: loop forever
+
+    let fctl = |seq: u32| -> Vec<u8> {
+        let mut p = seq.to_be_bytes().to_vec();
+        p.extend_from_slice(&w.to_be_bytes());
+        p.extend_from_slice(&h.to_be_bytes());
+        p.extend_from_slice(&0u32.to_be_bytes()); // x_offset
+        p.extend_from_slice(&0u32.to_be_bytes()); // y_offset
+        p.extend_from_slice(&1u16.to_be_bytes()); // delay_num
+        p.extend_from_slice(&10u16.to_be_bytes()); // delay_den → 100ms/frame
+        p.push(0); // dispose_op: NONE
+        p.push(0); // blend_op: SOURCE
+        p
+    };
+
+    let mut fdat2 = 2u32.to_be_bytes().to_vec(); // sequence_number (0=fcTL,1=fcTL,2=fdAT)
+    fdat2.extend_from_slice(&frame2_idat);
+
+    let mut out = Vec::from(*b"\x89PNG\r\n\x1a\n");
+    out.extend_from_slice(&png_chunk(b"IHDR", &ihdr));
+    out.extend_from_slice(&png_chunk(b"acTL", &actl));
+    out.extend_from_slice(&png_chunk(b"fcTL", &fctl(0)));
+    out.extend_from_slice(&png_chunk(b"IDAT", &frame1_idat));
+    out.extend_from_slice(&png_chunk(b"fcTL", &fctl(1)));
+    out.extend_from_slice(&png_chunk(b"fdAT", &fdat2));
+    out.extend_from_slice(&png_chunk(b"IEND", &[]));
+    out
+}
+
+fn solid_rgba_png(w: u32, h: u32, rgba: [u8; 4]) -> Vec<u8> {
+    let img = RgbaImage::from_pixel(w, h, image::Rgba(rgba));
+    encode(DynamicImage::ImageRgba8(img), ImageFormat::Png)
+}
+
+/// One RIFF chunk: `[fourcc][u32 le length][payload][pad byte if length is odd]`.
+fn riff_chunk(fourcc: &[u8; 4], payload: &[u8]) -> Vec<u8> {
+    let mut out = fourcc.to_vec();
+    out.extend_from_slice(&(payload.len() as u32).to_le_bytes());
+    out.extend_from_slice(payload);
+    if payload.len() % 2 == 1 {
+        out.push(0);
+    }
+    out
+}
+
+/// Encode a 2-frame animated WebP fixture (SPEC-119): hand-assembles the
+/// minimal `VP8X`/`ANIM`/`ANMF` container `image-webp` 0.2.4's decoder
+/// requires (verified against its source: `decoder.rs`'s `read_data` needs
+/// both an `ANIM` and at least one `ANMF` chunk when `VP8X`'s animation flag
+/// is set, or it errors `ChunkMissing`) — `image`'s own `WebPEncoder` has no
+/// animation-encode API (single-image `VP8L` only). Each frame's `VP8L`
+/// bitstream chunk is extracted byte-for-byte from `image`'s own lossless
+/// single-image WebP encoder output (which writes a bare
+/// `RIFF`/`WEBP`/`VP8L` container when no metadata is set — `image-webp`
+/// 0.2.4 `encoder.rs`'s "simple" branch), so the only hand-rolled bytes are
+/// the RIFF chunk framing and the `VP8X`/`ANIM`/`ANMF` control chunks, never
+/// any bitstream compression.
+pub fn animated_webp(w: u32, h: u32) -> Vec<u8> {
+    let vp8l_chunk = |rgba: [u8; 4]| -> Vec<u8> {
+        let single = encode(
+            DynamicImage::ImageRgba8(RgbaImage::from_pixel(w, h, image::Rgba(rgba))),
+            ImageFormat::WebP,
+        );
+        // Past "RIFF"(4) + size(4) + "WEBP"(4): the `VP8L` chunk itself.
+        single[12..].to_vec()
+    };
+
+    let anmf_payload = |frame: &[u8]| -> Vec<u8> {
+        let mut p = vec![0, 0, 0]; // frame X (2px units)
+        p.extend_from_slice(&[0, 0, 0]); // frame Y
+        p.extend_from_slice(&(w - 1).to_le_bytes()[..3]);
+        p.extend_from_slice(&(h - 1).to_le_bytes()[..3]);
+        p.extend_from_slice(&[10, 0, 0]); // duration: 10ms (24-bit LE)
+        p.push(0); // flags: reserved/blend/dispose all 0
+        p.extend_from_slice(frame);
+        p
+    };
+
+    let anmf1 = riff_chunk(b"ANMF", &anmf_payload(&vp8l_chunk([255, 0, 0, 255])));
+    let anmf2 = riff_chunk(b"ANMF", &anmf_payload(&vp8l_chunk([0, 255, 0, 255])));
+
+    let mut anim_payload = vec![0, 0, 0, 0]; // background color
+    anim_payload.extend_from_slice(&0u16.to_le_bytes()); // loop count: forever
+    let anim = riff_chunk(b"ANIM", &anim_payload);
+
+    let mut vp8x_payload = vec![0b0001_0010]; // flags: alpha(0x10) | animation(0x02)
+    vp8x_payload.extend_from_slice(&[0, 0, 0]); // reserved
+    vp8x_payload.extend_from_slice(&(w - 1).to_le_bytes()[..3]);
+    vp8x_payload.extend_from_slice(&(h - 1).to_le_bytes()[..3]);
+    let vp8x = riff_chunk(b"VP8X", &vp8x_payload);
+
+    let mut body = vp8x;
+    body.extend_from_slice(&anim);
+    body.extend_from_slice(&anmf1);
+    body.extend_from_slice(&anmf2);
+
+    let mut out = Vec::from(*b"RIFF");
+    out.extend_from_slice(&((4 + body.len()) as u32).to_le_bytes()); // "WEBP" + body
+    out.extend_from_slice(b"WEBP");
+    out.extend_from_slice(&body);
+    out
 }
 
 fn encode(img: DynamicImage, format: ImageFormat) -> Vec<u8> {

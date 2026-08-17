@@ -420,6 +420,10 @@ pub fn default_rules() -> Vec<Box<dyn Rule>> {
         Box::new(rules::MissingIcc),
         Box::new(rules::UnexpectedIcc),
         Box::new(rules::AnimatedGif),
+        // SPEC-119: the sibling covering APNG and animated WebP — see
+        // `rules::AnimatedInput`'s doc comment for why this is a separate
+        // rule id rather than a broadened `format/animated-gif`.
+        Box::new(rules::AnimatedInput),
     ]
 }
 
