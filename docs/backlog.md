@@ -1026,6 +1026,8 @@ job, with the manifest as the seam. Worth stating explicitly because it is the m
 > The gating decision for STAGE-046's animated-*output* spec. Measured against the **reference
 > implementations** (libavif 1.4.2 / aom 3.14.1, libwebp 1.6.0) used as oracles — **not** proposed
 > for adoption. Status: **recommendation, unscheduled.**
+>
+> Consolidated into the draft at `docs/research/draft-spec-animated-avif-output.md` (AC-6, AC-7).
 
 ### 1. Size at matched quality — AVIF by ~6x
 
@@ -1171,6 +1173,10 @@ doing it incidentally.
 > **Evidence for STAGE-046's animated-*output* spec** (backlog piece **(b)**), not for SPEC-119,
 > which is scoped to stopping the data loss. Probe committed at
 > `docs/probes/animated-gif-to-av1-probe.rs`. Status: **measurement, unscheduled.**
+>
+> **A drafted (unscheduled, unowned) spec consolidating this and the two entries above it is at
+> `docs/research/draft-spec-animated-avif-output.md`** — `status: idea`, no SPEC number claimed, not
+> attached to any stage.
 
 ### The whole path is pure Rust, patent-clear, and already in the tree
 
