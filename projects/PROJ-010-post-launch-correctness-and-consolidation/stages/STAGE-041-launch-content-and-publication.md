@@ -94,6 +94,56 @@ This stage closes that gap up to, and stopping at, the maintainer's own words.
 - Sustained adoption work (SEO, docs site, integrations). If this grows past a launch into a
   campaign it wants its own project under roadmap Track B, not another stage here.
 
+## Amendment (2026-08-16): what changed under this stage while it waited
+
+Written 2026-08-10. Since then PROJ-010 shipped nine more specs and framed a defect stage that
+precedes this one. Three consequences, so nobody executes the backlog below against stale
+assumptions.
+
+### 1. `BENCHMARKS.md` predates the fixes it is supposed to showcase
+
+Last written **2026-07-23**. **Thirteen specs have shipped since** — including **SPEC-108**, the
+classifier fix for the 18.5× blow-up, which is the single change most likely to move a
+quality-per-byte table, plus SPEC-110 (orientation baked on every pixel verb), SPEC-113 and
+SPEC-115 (`optimize` never grows a pinned output / never passes through bytes it cannot name).
+
+So the "honest numbers" item is not a refresh-if-convenient. **Every number in that file was
+produced by a binary that no longer exists**, and the stage's own success criterion says each one
+must trace to a command that produced it.
+
+### 2. STAGE-046 precedes this stage and will move the numbers again
+
+Maintainer decision, 2026-08-15. Two of its four items — colour-type/bit-depth preservation and
+linear-light resampling — **change output bytes for every existing recipe** by design; that is
+why they carry a lockfile-migration story. A benchmark table or an install-verification pass
+completed before they land gets redone.
+
+**What that means in practice:**
+
+| item | safe to do now | why |
+|---|---|---|
+| The publication plan | ✅ **yes** | channels, order, timing and per-channel framing do not depend on any measured number |
+| Prepared answers to hostile questions | ✅ **yes** | *why not sharp*, *it's slower*, *squoosh-cli is abandoned* are positioning, not measurement |
+| The RAW-split correction | ✅ **yes** | a factual correction that is true regardless of release |
+| The demo asset | ⚠️ **partly** | *"client-side, zero network requests"* is durable; anything showing byte counts is not |
+| The honest-numbers table | ❌ **wait** | will be re-derived after STAGE-046 |
+| Install-path verification | ❌ **wait** | STAGE-046 produces a release; verification is version-specific |
+
+### 3. Two new facts belong in the honest-limits section
+
+Both measured this week, both the kind a hostile reader finds:
+
+- **Animated input is flattened to one frame.** SPEC-119 made it warn on GIF, APNG and animated
+  WebP, and `lint --max-warnings 0` is the strict gate — **except in directory mode for animated
+  WebP**, where the `IMAGE_EXTENSIONS` gap makes it a false green (STAGE-042, PRIORITY).
+  Animated *output* does not exist yet.
+- **`resize` resamples in sRGB, not linear light** — measured, premise confirmed (DEC-092), fix
+  pending on STAGE-046. Worth knowing before publishing a quality claim, even if it stays out of
+  the copy.
+
+**Neither is a reason to delay the launch.** They are reasons the honest-limits section should be
+written after STAGE-046, not before.
+
 ## Spec Backlog
 
 - [ ] (not yet framed) — **The publication plan.** Which channels, in what order, on what
