@@ -112,11 +112,17 @@ the matrix legs differ in what they can even produce.
   becomes live the moment anyone changes it. Record it as such; do not report
   "deterministic".
 
-### Call 4 — also answer the cheaper adjacent question
+### Call 4 — run-to-run at a fixed thread count, and it decides something
 
-While the harness exists: is output byte-identical **run-to-run at a fixed thread
-count** on one machine? STAGE-021 measured that once; it is the narrower claim the
-lockfile actually makes, and re-confirming it costs one extra loop.
+Is output byte-identical **run-to-run at a fixed thread count** on one machine?
+STAGE-021 measured that once; it is the narrower claim the lockfile actually makes.
+
+⚠ **Amended 2026-08-17: this is not the cheap extra it was framed as.** Since thread
+count feeds tile partitioning (see Inputs), a *pin* is a candidate fix for any
+variance this spec finds — and whether a pin would be **sufficient** depends entirely
+on this answer. Stable run-to-run at a fixed count → a pin is a real fix. Not stable →
+there is residual nondeterminism underneath it and a pin only narrows the problem.
+Run it with enough repeats to be a claim.
 
 ## Inputs
 
@@ -136,6 +142,17 @@ lockfile actually makes, and re-confirming it costs one extra loop.
   `src/cli/optimize.rs:177`. ⚠ **`--jobs` is silently ignored by `convert`** and the five
   other serial verbs (STAGE-042's `run_pixel_op` item), so a matrix built on `-j` for
   `convert` measures one thread count three times and reports a false "deterministic".
+- ⚡ **`ravif` 0.13.0 `av1encoder.rs:651-655` — thread count is an ENCODER PARAMETER.**
+  `tiles = threads.min((w*h) / min_tile_size²)`, so the ambient count sets the **AV1 tile
+  count**, and tile boundaries reset entropy-coding contexts. A different tile count is a
+  different bitstream **by construction**, independent of rav1e's nondeterminism bug. This
+  raises the prior on a "non-deterministic" verdict; it does not replace measuring it.
+  ⚠ **The `.min(..)` is a third false-null mechanism** beyond the two Call 1 names. At
+  speed 6 `min_tile_size` is 128 or 256 (ravif's `high_quality` gate, `:544`), so the
+  size-term is **16 or 4** for `graphic_large.png` and **25 or 6** for
+  `photo_forest_cc0.jpg` — a 1/4/8 matrix can clamp two legs to the same tile count,
+  producing identical bytes that are not determinism. **Report the computed clamp beside
+  the hashes; choose inputs where the thread term binds.**
 
 ## Outputs
 
