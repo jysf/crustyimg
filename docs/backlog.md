@@ -1021,6 +1021,364 @@ job, with the manifest as the seam. Worth stating explicitly because it is the m
 
 ---
 
+## Animated AVIF vs animated WebP — AVIF wins on all three axes (2026-08-16)
+
+> The gating decision for STAGE-046's animated-*output* spec. Measured against the **reference
+> implementations** (libavif 1.4.2 / aom 3.14.1, libwebp 1.6.0) used as oracles — **not** proposed
+> for adoption. Status: **recommendation, unscheduled.**
+>
+> Consolidated into the draft at `docs/research/draft-spec-animated-avif-output.md` (AC-6, AC-7).
+
+### 1. Size at matched quality — AVIF by ~6x
+
+Same source (`Newtons_cradle`, 308,156 B GIF, 36 frames, 480×360). Every candidate scored with
+**crustyimg's own oracle** (`crustyimg diff`, SSIMULACRA2) against the *same* reference: frame 0 of
+the source GIF.
+
+| encode | bytes | ssim2 | vs GIF |
+|---|---:|---:|---:|
+| **avif (aom) q30** | **27,309** | **86.9** | **11.3×** |
+| avif q40 | 40,030 | 88.2 | 7.7× |
+| avif q80 | 95,152 | 91.0 | 3.2× |
+| webp q50 | 109,998 | 75.7 | 2.8× |
+| webp q75 | 146,154 | 81.7 | 2.1× |
+| **webp q80** (best measured) | **172,492** | **84.1** | 1.8× |
+
+**AVIF q30 beats WebP's best point on both axes at once** — higher quality (86.9 vs 84.1) in
+**6.3× fewer bytes**. AVIF q40 is 4.3× smaller *and* 4 points better. Animated WebP never reached
+86.9 in the sweep; at q90 it was 317,816 B, **larger than the source GIF**.
+
+**And the result transfers to the encoder crustyimg would actually use.** rav1e measured
+27,564 B @ ssim2 86.7 — landing essentially on top of aom's q30 (27,309 B @ 86.9). The reference
+encoder is not flattering AVIF here; rav1e is competitive on this content.
+
+The comparison is **conservative toward AVIF**: its path carries an inherent 95.92 ceiling from the
+hand-rolled YUV420 conversion feeding it (`crustyimg diff ref0 src0` = 95.92), while `gif2webp` does
+its own, likely better, RGB→YUV internally.
+
+### 2. Browser support — the axis WebP wins, and it no longer disqualifies AVIF
+
+**Animated** AVIF (distinct from still AVIF, which landed earlier in each engine): Chrome **93+**,
+Firefox **114+**, Safari **17.0+**; ~94–95% global coverage. Animated WebP is effectively universal
+(~97%). So WebP is wider, but AVIF is past the threshold where it needs to be hidden behind a flag.
+**Sourced from secondary trackers, not vendor release notes — worth one confirmation pass against
+caniuse before it becomes a spec premise.**
+
+### 3. Pure-Rust feasibility — AVIF wins this one too, which is the surprise
+
+The intuition is that WebP is the easier build. It is not:
+
+- **AVIF**: `rav1e` already encodes (in-tree, BSD-2) and `mp4-atom` already has `av01`/`av1C` plus an
+  `avis` test. Both halves exist, permissively licensed.
+- **WebP**: there is **no pure-Rust animated WebP encoder at all**. `image-webp` 0.2.4's encoder
+  writes `VP8X` (`src/encoder.rs:722`) but emits no `ANIM`/`ANMF`, so animation would need libwebp
+  (C, and `webp-animation` wraps exactly that) or a from-scratch VP8 encoder.
+
+### Recommendation
+
+**Animated AVIF as the primary output**, with the WebP-fallback question deferred rather than
+answered — crustyimg already emits multiple formats behind a manifest (`responsive`/`build`), so
+"AVIF plus a fallback" is an existing pattern, not new machinery. Shipping animated WebP *from pure
+Rust* is the genuinely blocked path, and that is the opposite of the going-in assumption.
+
+### Method — three wrong hypotheses before the real cause, all falsified by targeted tests
+
+The first AVIF numbers were **invalid** and looked plausible: scores flat at ~56–57 while bytes more
+than doubled. Recorded because the failure mode is subtle and will recur.
+
+1. *"BT.709 vs BT.601 matrix mismatch."* Falsified — switching both directions to BT.601 moved the
+   score by 0.05.
+2. *"avifdec is returning the wrong frame."* Falsified — scoring the output against source frames
+   0/5/17/35 gave 57.4/46.7/41.7/29.5, monotonically decreasing, so it *was* frame 0.
+3. **The actual cause: `avifdec -i` reported `Range: Limited`.** The y4m carried full-range 0–255
+   YUV; avifenc tagged the output limited-range 16–235, so the decoder expanded it and crushed
+   contrast — a constant error invariant to quality, which is exactly the flat curve. Fixed by
+   adding **`XCOLORRANGE=FULL`** to the y4m header.
+
+**The control that made this findable**: a near-lossless encode (`-q 100`) must score *high*. It
+scored **57.2**, which cannot be compression loss on a 322,981-byte encode of a 308,156-byte source.
+After the fix the same control scored **96.5**. Without that control the flat curve would have been
+written up as "AVIF is worse than WebP" — the exact opposite of the truth.
+[[a-control-you-never-verified-applied-is-not-a-control]]
+
+## Multi-frame format sweep — `format/animated-gif` is too narrow by FOUR, not one (2026-08-16)
+
+> The mechanical sweep the animated-input defect entry called for. **Driven on the shipped 0.7.0
+> binary**, with fixtures built independently of the code under test. Directly de-risks **SPEC-119**,
+> and finds two loss cases **outside** its AC-5 scope.
+
+### The mechanical claim, with its grep
+
+crustyimg's resolved `image` feature set is `avif, bmp, gif, ico, jpeg, png, tiff, webp`
+(`cargo tree -f '{p} FEATS[{f}]'`; `Cargo.toml:139` plus `avif` from the default feature).
+
+`AnimationDecoder` is implemented by exactly **three** decoders in `image` 0.25.10
+(`grep -rn "impl.*AnimationDecoder"`):
+
+- `GifDecoder`  — `src/codecs/gif.rs:426`
+- `ApngDecoder` — `src/codecs/png.rs:514`
+- `WebPDecoder` — `src/codecs/webp/decoder.rs:104`
+
+**But animation is not the only multi-image case**, and this is what the rule *name* cannot reach:
+
+- **TIFF** — `TiffDecoder` exposes **no multi-page API** (`grep -n 'next_image\|more_images\|fn new'
+  src/codecs/tiff.rs` → `fn new` only). Pages 2..N are unreachable *and* undetectable through
+  `image`. Reaching them needs the `tiff` crate directly.
+- **ICO** — `IcoDecoder::new` calls `best_entry(entries)` (`src/codecs/ico/decoder.rs:147,194`),
+  scoring on `(bits_per_pixel, width × height)` and **discarding every other entry**.
+
+### Driven: what actually survives a `convert`
+
+Fixtures built independently ([[fixtures-from-the-code-under-test-cannot-fail]]) — two real Wikimedia
+animations, and a hand-written TIFF/ICO whose structure was verified by walking the IFD chain and the
+icon directory *before* conversion.
+
+| source | contained | output | kept | **lost** | `lint` warns? |
+|---|---|---|---|---|---|
+| animated GIF | 44 frames | 400×400 png | frame 1 | **43 frames** | **yes** |
+| **APNG** | 20 frames (`acTL` + 20 `fcTL`) | 100×100 png | frame 1 | **19 frames** | **no** |
+| **multi-page TIFF** | 3 pages, greys 70/140/210 | 8×8 png, pixel = **70** | page 1 | **2 pages** | **no** |
+| **multi-size ICO** | 16/32/64 = red/green/blue | **64×64** png, pixel = **(0,0,255)** | the 64px | **16px + 32px** | **no** |
+
+**Every one exits 0 and says nothing.** The output pixel values are the proof, not the exit code: grey
+`70` is page 1 of 3, and blue at 64×64 is `best_entry`'s pick out of three.
+
+The GIF row doubles as the **positive control** — the linter demonstrably *can* warn, so the three
+silent rows are narrowness, not a broken harness.
+
+### What this means for SPEC-119
+
+- **AC-5 is correctly scoped for animation** (GIF + APNG + animated WebP == the `AnimationDecoder`
+  set, confirmed mechanically). No change needed there.
+- **`lint` today covers 1 of those 3.** APNG and animated WebP decode multi-frame and are flagged by
+  nothing — so AC-7's `fix:` repair must not be GIF-only either.
+- **Two cases sit outside AC-5 entirely** and should be triaged, not silently inherited:
+  - **Multi-page TIFF is the clearer gap** — scanned documents are routinely multi-page, and page 1
+    is kept with no signal. Note the constraint: `image` gives no route to the other pages, so this
+    is a *detect-and-warn* item, not a *convert-them-all* item, unless a new dependency is taken.
+  - **Multi-size ICO is arguably correct behaviour** — an `.ico` is a container of sizes and picking
+    one is the point. But the pick rule is undocumented and invisible, and "I converted my favicon
+    and got only the 64px" is a legitimate surprise. Lowest priority of the four; **state it, do not
+    necessarily fix it.**
+
+### The rule name
+
+`format/animated-gif` cannot describe any of this. The finding is **multi-image input is silently
+flattened**, of which animated GIF is one instance of four. Renaming is a `lint` rule-id change and
+therefore a compatibility surface (SARIF/JSON consumers) — flag it in SPEC-119's design rather than
+doing it incidentally.
+
+## Animated GIF → animated AVIF — measured, and it is a 9–11x win (2026-08-16)
+
+> **Evidence for STAGE-046's animated-*output* spec** (backlog piece **(b)**), not for SPEC-119,
+> which is scoped to stopping the data loss. Probe committed at
+> `docs/probes/animated-gif-to-av1-probe.rs`. Status: **measurement, unscheduled.**
+>
+> **A drafted (unscheduled, unowned) spec consolidating this and the two entries above it is at
+> `docs/research/draft-spec-animated-avif-output.md`** — `status: idea`, no SPEC number claimed, not
+> attached to any stage.
+
+### The whole path is pure Rust, patent-clear, and already in the tree
+
+Driven end to end out-of-crate, exit 0: **real animated GIF → `image`'s `AnimationDecoder` →
+`Image::from_parts` → crustyimg `Pipeline` (registered op, per frame) → `rav1e` AV1 → decoded back
+with `re_rav1d` and frame-count verified.** No C, no ffmpeg, no new system dependency. **AV1 is
+royalty-free by design**, so none of the AVC/HEVC patent problem in the assessment below applies.
+
+### Measured on real Wikimedia animations, not synthetic fixtures
+
+`Newtons_cradle_animation_book_2.gif` — 480×360, 36 frames, **GIF 308,156 B**. Quantizer swept at
+fixed speed 6, then speed swept at fixed quantizer — **one variable at a time**:
+
+| setting | AV1 bytes | ssim2 (frame 0) | vs GIF |
+|---|---:|---:|---:|
+| s6 q60 | 44,678 | 89.8 | 6.9× |
+| **s6 q80** | **34,979** | **88.5** | **8.8×** |
+| s6 q100 | 27,705 | 86.8 | 11.1× |
+| s6 q120 | 21,324 | 83.9 | 14.5× |
+| s6 q140 | 15,999 | 78.6 | 19.3× |
+
+`Rotating_earth_(large).gif` — 400×400, 44 frames, **GIF 1,001,718 B** → 93,835 B at s6/q100
+(**10.7×**), but ssim2 76.1: a harder, higher-motion source needs a lower quantizer. **Which is the
+design conclusion — drive the existing quality search (`src/quality/mod.rs:255`) per sequence, not a
+fixed quantizer.** The machinery already exists.
+
+### Finding: speed 10 is a trap for animation. Do not inherit the still-image intuition.
+
+At a fixed quantizer, holding everything else constant:
+
+| speed | bytes | ssim2 |
+|---|---:|---:|
+| 1 | 24,110 | 86.9 |
+| 4 | 25,427 | 86.6 |
+| **6** (`AVIF_SPEED`, `src/sink/mod.rs:48`) | 27,705 | 86.8 |
+| 8 | 27,563 | 86.1 |
+| **10** | **38,061** | **84.4** |
+
+**Speed 10 is 37% LARGER *and* lower quality than speed 6.** That inverts DEC-068's still-image
+finding (speed 10 ≈ 3.6× faster for ~4% more bytes), and the reason is structural: speed 10 guts
+motion estimation, and on a sequence inter-frame prediction is where the entire win lives — every
+encode above produced exactly **1 keyframe** for 36 frames. crustyimg's existing `AVIF_SPEED = 6`
+is already the right default here; the risk is a future session "optimising" animation with the
+wasm speed knob (SPEC-079/DEC-068) and silently making output both bigger and worse.
+
+**This was caught by a methodology error worth recording**: the first run varied quantizer *and*
+speed together and produced a smaller file scoring *higher*, which is impossible if quantizer were
+the only variable. Sweeping one variable at a time made it monotonic and explained it.
+[[a-control-you-never-verified-applied-is-not-a-control]]
+
+### Caveats — none change the conclusion, all change the spec
+
+- **These are raw OBU bytes, not a container.** ISO-BMFF overhead is ~1.5–3 KB at these frame counts
+  (`stsz` alone is 4 B × frames) — ~2–3% on the 94 KB payload, ~7–10% on the 28 KB one. Budget it.
+- **ssim2 is frame 0 only — the keyframe, i.e. the optimistic end.** Inter frames will score lower.
+  A real implementation must score across frames, and per [[a-self-referential-control-cannot-detect-a-broken-pipeline]]
+  the *frame count* assertion stays separate from the *quality* assertion regardless.
+- **Animated-AVIF browser support was not verified** in this session. It is the gating question for
+  choosing AVIF over animated WebP, and it is a lookup, not a probe.
+- `mp4-atom` (see the entry below) supplies the `av01`/`av1C` boxes and has a committed `avis`-brand
+  test, so the muxing half has a permissive, pure-Rust candidate. Adoption needs a DEC.
+
+### Why this matters for the defect
+
+Today the tool turns this 1,001,718 B / 44-frame GIF into a **118 B static WebP** and reports
+`72% smaller · ssim 100.0`. The honest alternative is ~94 KB carrying **all 44 frames** — a real
+10× win against the GIF instead of a fabricated one against a single frame.
+
+## Video asset lint — a container-only rule family, with a driven field audit (2026-08-16)
+
+> Follows the DECLINED video-tool assessment below. **This is the part of the category that is not
+> blocked by codec patents**, because it never decodes a frame — it parses ISO-BMFF box structure
+> only. Status: **candidate, unscheduled.** Nothing committed.
+
+### The idea
+
+Extend `crustyimg lint` with a video-asset rule family. Every check below reads container metadata,
+so it needs **no codec, no C, and no patent exposure** — the wall in the assessment below is
+specifically on *decoding pixels you did not create*, and box parsing is not codec implementation.
+
+- **`moov` after `mdat` (no faststart)** — playback cannot begin until the whole file downloads.
+  The classic web-video defect; `ffmpeg -movflags +faststart` is the folk remedy.
+- **an audio track on an autoplay-muted loop** — bytes nobody ever hears.
+- **HEVC-only (`hvc1`/`hev1`)** — no Firefox support; needs a `<source>` fallback.
+- **resolution far above the display slot**; container/extension mismatch; absurd GOP length.
+
+**The faststart *fix* is also container-only**: reorder `moov` ahead of `mdat` and rewrite the
+chunk-offset tables (`stco`/`co64`). It never touches the codec bitstream. `mp4-atom`'s own
+`examples/info.rs` is the read half; its `WriteTo` trait is the other half.
+
+### Field audit — driven 2026-08-16, and the findings are not boring
+
+A throwaway ISO-BMFF walker (box structure only, HTTP ranged GETs of the first 256 KB) was pointed
+at **18 production MP4s** discovered from the homepages of ~20 major tech companies.
+
+| finding | count | consequence |
+|---|---:|---|
+| **missing faststart** | **6/18** | playback blocked until fully downloaded |
+| carries an audio track | 5/18 | bytes shipped for muted loops |
+| HEVC-only (`hvc1`) | 5/18 | Firefox cannot play it |
+| **AV1 (`av01`)** | **0/18** | nobody ships the royalty-free codec |
+
+Verified at byte level rather than trusted to the parser —
+`docker.com/.../AgenticCompose-web-1080.mp4` reads `ftyp` → `free` → `mdat` with
+`0x0039df35` = **3,792,181 bytes** of media before `moov`; its sibling `sbx-rev2-1.mp4` reads
+`ftyp` → `moov` immediately. **Same company, same CDN path, both patterns** — which is the whole
+argument for the rule: this is inconsistency between exports, not a considered choice, and it is
+exactly what an automated check catches.
+
+Two individual findings worth keeping:
+
+- `videos.ctfassets.net/.../web-homepage-hero-1920x1200_final.mp4` is **actually 3840×2400**
+  (`tkhd` raw `0x0F000000`). Scored first as a parser bug, then confirmed as a real mislabelling —
+  the *filename* is wrong, not the parse.
+- `linear.app/static/pwa.webm`, as it appears in page source, returns **HTTP 404** as `text/html`
+  with `cache-control: max-age=21600`.
+- The most concentrated example: **`webflow.com`'s home hero** — no faststart, HEVC-only, *and* an
+  audio track. Three findings on one asset.
+
+### Method notes, including a false positive of my own
+
+- **Controls first.** The faststart detector was proven to discriminate on synthesised
+  `ftyp/moov/mdat` vs `ftyp/mdat/moov` byte sequences **and** on a 64-bit `largesize` `mdat`, before
+  any real asset was fetched. [[a-plausible-test-result-is-not-a-checked-one]]
+- **Two "broken" results in the first run were my bug, not the assets'** — `\x1aE\xdf\xa3` is EBML
+  magic, i.e. legitimate WebM that an ISO-BMFF-only parser cannot read. Recorded because a linter
+  that reports "not a video" for every WebM would be worse than no linter.
+- The `tkhd` dimension parse was off by 4 bytes on the first attempt (the version-dependent block);
+  caught because a result disagreed with a filename by exactly 2×, then confirmed against raw hex.
+- **The HEVC finding is softer than the count suggests**: an `hvc1` asset may have a `<source>`
+  fallback this audit did not check. The honest rule output is *"confirm you have a fallback"*, not
+  *"broken"*. Likewise "muted" is inferred from these being marketing loops, not read from the
+  `<video>` tag.
+- 18 assets from one afternoon is suggestive, not a survey.
+
+### The open question is demand, not feasibility
+
+Every company audited has a performance team and ships these defects anyway. That reads two ways —
+nobody checks (a checker is valuable), or nobody cares (impact too small). The evidence leans to the
+first for **faststart specifically**, because it is a visible startup delay rather than a few hundred
+wasted KB, and because the same-CDN split above shows inconsistency rather than intent.
+
+### Placement
+
+**Workhorse, and specifically `lint` — not a new binary.** Fence A: the parameters (expected codec,
+max resolution, faststart required) are invariant across a batch. Fence B: the output is a decision
+a build acts on, with a CI exit code, which is exactly what `lint` already is. It extends a territory
+claim already held (`docs/territory.md`'s source-file, no-URL, pre-deploy lint against Lighthouse's
+deployed-URL shape) rather than opening a new front. **Adopting `mp4-atom` would need a DEC** under
+`no-new-top-level-deps-without-decision`.
+
+**Anti-goal, restated:** this rule family must never decode a frame. The moment it wants pixels it
+has walked into the patent problem the assessment below declines.
+
+## Video tool on crustyimg — assessed and DECLINED (2026-08-15)
+
+> Full evidence: `docs/video-tool-assessment-2026-08.md`. Read-only ideation session; nothing built.
+
+**Verdict: do not build it.** The crustyimg dependency is load-bearing for *video → images* and not
+for *video → video* (the shared core is 4,145 of 28,920 src lines, and the registry's four ops
+reduce to one usable op for video — `resize`). No wedge against ffmpeg survives: the permissive-licence
+angle trades a known LGPL obligation for an unquantified AVC **patent** exposure a licence does not
+shelter, and "safe on untrusted input" would get *weaker*, since crustyimg's claim is strong precisely
+because it declines the unsafe formats. The non-audio value already ships — driven on the released
+0.7.0 binary, `crustyimg web <frames-dir> --out-dir <out>` exits 0 on 8/8 frames, which is DEC-088
+tier 1 and, because `compute_key` hashes input **bytes** (`src/build/cache.rs:245-252`), caches per
+frame.
+
+**Revisit only if all four of the assessment's §12 questions answer affirmatively** — the blocking
+one is the AVC patent position for an independently-implemented decoder, which is a lawyer question,
+not a probe. Pure-Rust H.264 decoders now exist (`rusty_h264-decoder` 0.10.0, BSD-2-Clause,
+`forbid(unsafe_code)`, fuzzed) but are **seven weeks old** and short of full JVT conformance by their
+own README.
+
+### Two items handed to STAGE-046 (not new work — inputs to work already scheduled)
+
+- **`mp4-atom` 0.15.0 is a cleared candidate for animated AVIF output.** MIT OR Apache-2.0 (both
+  LICENSE files present), pure Rust with no `-sys` crate, 243,922 downloads, updated 2026-07-31.
+  Ships the `av01` sample entry and `av1C` config box
+  (`src/moov/trak/mdia/minf/stbl/stsd/av01.rs:21,87`), the full sample table, and a committed test
+  decoding a real libavif animated AVIF (`avis` brand). crustyimg already has the AV1 encoder
+  (rav1e) and decoder (re_rav1d) in-tree. **Belongs to the later animated-*output* spec, not
+  SPEC-119** (which is scoped to stopping the data loss). Measured price of the muxing *driver* on
+  top of a box library: **~1,000 lines** (`mp4` 0.14's `writer.rs` + `track.rs`) — compare against
+  the in-house RIFF/ANMF route before choosing. Adoption needs a DEC per
+  `no-new-top-level-deps-without-decision`.
+- **SPEC-119's AC-6 was independently confirmed.** An out-of-crate probe reproduced the exact
+  failure signature on AV1: 8 frames encoded, 3 dropped, output has 5 — frame-count oracle catches
+  it, SSIMULACRA2 scores **100.0**. This adds no requirement (AC-6 already says the assertion must
+  be structural); it is a second derivation agreeing from a different direction, plus a working
+  template for the half AC-6 leaves open — that the decoder doing the counting should be one you
+  did not write ([[verify-wasm-output-with-an-independent-decoder]]).
+
+### One correction to a shipped-API note
+
+`Image::from_parts` takes `image::ImageFormat`, and `crustyimg::image::ImageFormat` is **private**
+(a `use`, not a `pub use` — `src/image/mod.rs:25`). So an out-of-crate consumer is *forced* to
+declare `image` itself, which is exactly the naive dependency the lab plan's F2 measures as adding
+six reachable decoders. This raises the priority of the recorded `pub use ::image;` /
+`pub use ::toml;` fix from ergonomics to correctness-of-guidance. Re-exports, not visibility
+widenings — the measured zero-widening result stands.
+
 ## ⚠ Live defect — animated input is silently flattened, and `lint` recommends the command that does it (2026-08-15)
 
 > **Homed on STAGE-046** (output fidelity on shipped verbs, 2026-08-15). The evidence stays
