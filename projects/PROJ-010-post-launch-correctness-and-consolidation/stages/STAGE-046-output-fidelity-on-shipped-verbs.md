@@ -154,12 +154,15 @@ carries no lockfile cost.
 - [ ] (not yet written) — [M] ops preserve colour type and bit depth: widen to
       work, narrow to write. Fixes D-B and D-C in one change across the three op
       bodies. Lockfile-invalidating.
-- [ ] **SPEC-120** (design 2026-08-15) — [S] measure D-D's premise before fixing
+- [x] **SPEC-120** (design 2026-08-15, shipped 2026-08-16, PR #175) — [S] measured D-D's premise before fixing
       it. **Gates the next spec.** Design found SSIMULACRA2 cannot score a
       downscale against its source (equal dimensions, `report.rs:329`), so the
       experiment needs an independently-generated reference — and must prove the
       scorer can see the effect at all before a null result is readable.
-- [ ] (not yet written) — [M] resize in linear light with premultiplied alpha,
+- [ ] (not yet written) — [M] ⚡ **UNBLOCKED — SPEC-120 ruled the premise HOLDS (DEC-092).**
+      And **narrowed it: the premultiplied-alpha half is FALSE** — `fast_image_resize` 6.0.0
+      already premultiplies by default, so this is **one premise, not two**. Resample in linear
+      light,
       conditional on the measurement above. Lockfile-invalidating; sequence with
       the colour-type spec so the migration is paid once.
 
@@ -175,7 +178,7 @@ carries no lockfile cost.
       (SPEC-118) as much as a fix in its own right — a verb-by-diagnostic matrix would have
       surfaced it mechanically instead of at verify.
 
-**Count:** 0 shipped / 2 in flight (SPEC-119, SPEC-120 — both at verify) / 3 pending
+**Count:** 1 shipped (SPEC-120) / 1 in flight (SPEC-119, verify) / 3 pending
 
 ## Design Notes
 

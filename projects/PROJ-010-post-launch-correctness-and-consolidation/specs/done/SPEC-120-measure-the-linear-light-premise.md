@@ -7,7 +7,7 @@
 task:
   id: SPEC-120
   type: task                       # a measurement spike; ships no behaviour
-  cycle: verify
+  cycle: ship
   blocked: false
   priority: high                   # it GATES the linear-light fix
   complexity: S
@@ -75,10 +75,40 @@ cost:
         Re-measured at session end, per the cost snippet's own warning that
         mid-session numbers run low: the earlier reading was $7.95, 9% low.
         The commit carrying this figure is itself not included (~$0.15).
+    - cycle: verify
+      agent: claude-opus-5                # rate anchors: Opus $5/$25 per MTok
+      interface: claude-code
+      tokens_total: 7717537
+      duration_minutes: 8
+      recorded_at: 2026-08-16
+      tokens_breakdown:
+        input: 152
+        output: 69273
+        cache_creation: 231257
+        cache_read: 7416855
+      estimated_usd: 6.89
+      note: >
+        MEASURED — transcript sum over 76 assistant messages
+        (session c5f84a09-b743-4303-88f6-ad131fa19b3a), priced per component at
+        the Opus anchors (DEC-083). Measured at session end. Verdict APPROVED.
+        Two independent cross-checks were added beyond the build's own controls
+        (ImageMagick scored against itself with only the gamma flag toggled; the
+        reference validated against the source's histogram-counted mean linear
+        luminance); neither changed the verdict. Re-derived by the orchestrator
+        at ship: sum and dollars both match. The verify session's own commit
+        (67bcf57) was never pushed — it lived on a detached worktree — so this
+        block is transcribed from it rather than merged.
+    - cycle: ship
+      interface: claude-code
+      tokens_total: null
+      duration_minutes: null
+      estimated_usd: null
+      note: >
+        Un-metered main-loop ship cycle (AGENTS §4).
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 19082967
+    estimated_usd: 15.58
+    session_count: 4
 ---
 
 # SPEC-120: measure the linear-light premise before fixing it
@@ -371,4 +401,35 @@ The committed harness (AC-6) is the reproducibility guarantee, not the test suit
 
 ## Reflection (Ship)
 
-*Appended during the **ship** cycle.*
+**Shipped 2026-08-16.** PR #175 (squash `035e7f6`), 16/16 applicable CI green, verify **APPROVED**.
+Cost **19,082,967 tokens / $15.58** across four cycles — **the cheapest spec of the wave, and the
+only one whose product was a decision rather than code.**
+
+**1. Did the spec hold up?** Yes, and the design call that mattered was the one nobody would have
+made under time pressure: **prove the instrument can see the effect before trusting a null.** The
+positive control fired — a −88.07% physical luminance error registered as a **163.85-point**
+SSIMULACRA2 swing — so the realistic rows (70.45 on `graphic_large`, 84.45 on the photo) are
+readable rather than an uninterpretable null. Had it not fired, the verdict would have been
+*"wrong instrument"*, not *"premise false"*, and those lead to opposite decisions.
+
+**2. What did the cycle catch that the spec did not?** Two things, one of which changes the next
+spec:
+
+- **The premultiplied-alpha half of the premise is FALSE.** `fast_image_resize` 6.0.0's
+  `ResizeOptions::default()` sets `mul_div_alpha: true` and `new()` *is* `Default::default()`, so
+  `Resize::apply` — which overrides only the algorithm — has always premultiplied. **The fix spec
+  is one premise, not two.** The backlog entry had hedged *"only two files were grepped"*: it named
+  its own weakness and still pointed at the wrong file. The answer was in the dependency's
+  `Default` impl, which no grep of `src/` can see.
+- **The experiment as originally posed was not runnable.** SSIMULACRA2 requires equal dimensions,
+  so "score the downscale against its source" errors rather than answering. Design caught that;
+  a builder would have discovered it mid-cycle.
+
+**3. What should change?** Two carry-forwards:
+
+- **A falsification gate is worth writing into the backlog entry itself.** This entry set its own —
+  *"does SSIMULACRA2 score it better? If not, close it rather than spec it"* — and that single
+  sentence is what turned a plausible improvement into a measured one. More entries should carry
+  one.
+- **`AGENTS.md` §5 says `fast_image_resize` 5; the lockfile says 6.0.0**, and this DEC's argument
+  depends on 6.0.0's `Default`. Stale documentation that a decision now rests on.
