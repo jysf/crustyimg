@@ -107,13 +107,13 @@ Wired wherever a verb decodes pixels through the shared `run_pixel_op`/
 `optimize_decide_one` seams — **not** an exhaustive-sounding short list:
 `info`, `web`, `convert`, `resize`, `optimize`, `thumbnail`, `auto-orient`,
 `edit`, `watermark` (its *primary* input only — the `--image` overlay loads
-separately and does not warn), and `apply --recipe <name>` when the recipe ends
-in the terminal `optimize` step (e.g. the bundled `web` recipe). Verbs that
-decode pixels through a *different* seam do not warn yet: `diff`, `responsive`,
-`apply`/`build` with a plain pixel recipe, `build` with a bundled/terminal-`optimize`
-recipe (SPEC-111 reaches `optimize_decide_one` here too but does not yet thread the
-warning through — a follow-up, not fixed by SPEC-111), and `view` — filed as a
-follow-up candidate (SPEC-107 punch list), not fixed here.
+separately and does not warn), `apply --recipe <name>` when the recipe ends
+in the terminal `optimize` step (e.g. the bundled `web` recipe), and `build`
+on a target whose output format is auto-decided (`OutputFormatPlan::Decide`
+— SPEC-116 finished threading the warning through this seam, the last one).
+Verbs that decode pixels through a *different* seam do not warn yet: `diff`,
+`responsive`, `apply`/`build` with a plain pixel recipe, and `view` — filed as
+a follow-up candidate (SPEC-107 punch list), not fixed here.
 
 **Animated-input warning (SPEC-119 / DEC-093):** print a one-line
 `warning: <input>: animated input flattened to a single frame — …` to stderr
@@ -121,14 +121,31 @@ when the input is an animated GIF, APNG, or animated WebP — the pixel path
 decodes exactly one frame, so every frame after the first is otherwise
 discarded without comment. The command still **exits `0`** and still writes
 the first frame: this is a warning, not a failure, and — like the truncated-
-JPEG warning above — is **not** suppressed by `--quiet`. Wired at the same
-seams as the truncated-JPEG warning: `convert`, `optimize`, `web`, and
+JPEG warning above — is **not** suppressed by `--quiet`. Wired at the
+`run_pixel_op`/`optimize_decide_one` seams, but **not the identical set** the
+truncated-JPEG warning above uses: `convert`, `optimize`, `web`, `resize`,
+`thumbnail`, `auto-orient`, `edit`, `watermark` (its *primary* input only),
 `apply --recipe <name>` when the recipe ends in the terminal `optimize` step,
-plus `build` on a target whose output format is auto-decided. The strict
-path for a caller that cannot tolerate a silent flatten is
-`lint --max-warnings 0`, which fails on any of the three formats via
-`format/animated-gif` (GIF) or `format/animated-input` (APNG, animated WebP)
-— see DEC-093.
+and `build` on a target whose output format is auto-decided
+(`OutputFormatPlan::Decide`). Verbs that decode pixels through a *different*
+seam, or decode pixels directly without checking this flag, do not warn yet:
+`info` (decodes via `Image::decode_path`/`from_bytes` directly, checks
+`is_truncated_jpeg()` but not `is_animated_input()`), `diff`, `responsive`,
+`apply`/`build` with a plain pixel recipe, and `view`. The strict path for a
+caller that cannot tolerate a silent flatten is `lint --max-warnings 0`, which
+fails on any of the three formats via `format/animated-gif` (GIF) or
+`format/animated-input` (APNG, animated WebP) — see DEC-093. **Qualifier
+(added 2026-08-16, SPEC-119 punch list):** this holds when `lint` is given the
+file directly, or the bytes over stdin. It does **not** currently hold for
+animated WebP in **directory-discovery mode** — `lint --max-warnings 0` on a
+directory containing an animated `.webp` exits `0` (the file is silently
+absent from the scan), while the identical bytes named directly
+(`lint --max-warnings 0 <dir>/anim.webp`) exit `7`, because `webp` is absent
+from `IMAGE_EXTENSIONS` (`src/source/mod.rs:105-113`) and directory/glob
+discovery silently skips it. GIF and APNG are unaffected (both extensions are
+present in the list). Filed as a `[S]` PRIORITY item on STAGE-042's backlog —
+"the `IMAGE_EXTENSIONS` gap silently defeats the strict gate that a
+maintainer decision rests on" — not fixed here.
 
 ## Subcommand Surface (full MVP)
 

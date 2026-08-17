@@ -141,6 +141,20 @@ No shipped verb silently discards frames. When crustyimg reduces an animation to
 a single frame, it says so on stderr, and `lint` stops recommending a command
 that does it.
 
+**AMENDED 2026-08-16, after verify (PUNCH LIST on PR #176).** What was actually
+achieved: `convert`, `optimize`, `web`, `resize`, `thumbnail`, `auto-orient`,
+`edit`, `watermark`, `apply --recipe <name>` when the recipe ends in the
+terminal `optimize` step, and `build` on a target whose output format is
+auto-decided (`OutputFormatPlan::Decide`) now warn — see `docs/api-contract.md`'s
+"Animated-input warning" paragraph for the driven, exact seam list. **Three
+writing paths remain silent** — `responsive`, and `apply`/`build` with a
+plain pixel recipe — and `lint`'s advice is honest for the seams this spec
+wired, but the Goal as originally stated ("no shipped verb") is not yet fully
+met. See `## Known residual` in Build Completion below for the driven
+evidence and scope boundary; the gap is filed as its own `[M]` follow-up on
+STAGE-046 (not this spec's scope, per Call 3/4's boundary on pixel-verb seams
+already wired by SPEC-107/SPEC-116).
+
 ## The design calls — settled here, not deferred to build
 
 ### Call 1 — WARN and proceed. Do not refuse.
@@ -333,9 +347,9 @@ transition and `test-before-implementation` applies in its usual form.
 
 - **`tests/hostile_inputs.rs`** (or a new `tests/animated_inputs.rs` — say which
   and why)
-  - `"animated_gif_warns_on_every_pixel_verb"` — AC-1. **FAILS today.**
-  - `"animated_gif_still_writes_frame_one_and_exits_zero"` — AC-2. Passes today;
-    pins that the warning did not become a failure.
+  - `"animated_gif_warns_on_every_pixel_verb"` — AC-1 **and** AC-2 (folded into
+    one test: it asserts both the warning text and that exit stays 0 / frame 1
+    is written, for every pixel verb in one pass). **FAILS today.**
   - `"animated_warning_survives_quiet"` — AC-3. **FAILS today.**
   - `"static_gif_emits_no_animation_warning"` — AC-4. Passes today; the control.
   - `"apng_warns_on_every_pixel_verb"` — AC-5. **FAILS today.**
@@ -473,6 +487,14 @@ transition and `test-before-implementation` applies in its usual form.
     introducing a named struct (which would still thread the same number of
     fields through 3 call sites for no clarity gain) — matches the existing
     `#[allow(clippy::too_many_arguments)]` precedent elsewhere in the same file.
+  - **PUNCH LIST (verify, 2026-08-16):** the `## Failing Tests` list above named
+    `animated_gif_still_writes_frame_one_and_exits_zero` as a separate test.
+    That test does not exist — AC-2 was folded into
+    `animated_gif_warns_on_every_pixel_verb`, which asserts both the warning
+    text (AC-1) and exit-0/frame-1-written (AC-2) for every pixel verb in one
+    pass. Verify confirmed the fold is real coverage, not a gap: the APNG and
+    animated-WebP tests likewise assert an output was written. The roster
+    above is corrected to match; no test or source changed.
 - **Follow-up work identified (found, not fixed — out of this spec's scope):**
   - **`src/source/mod.rs`'s `IMAGE_EXTENSIONS` allow-list is missing `webp`.**
     WebP decode is a default-feature, fully supported input format, but
@@ -497,6 +519,34 @@ transition and `test-before-implementation` applies in its usual form.
   - `docs/research/proj-002-design-lint.md`'s rule table (a PROJ-002 design
     snapshot, not a maintained catalog) still shows `format/animated-gif`'s
     old `fix:` — not updated; it is historical record, not a live contract.
+
+### Known residual
+
+**Added 2026-08-16, PUNCH LIST on PR #176.** `responsive`, and `apply`/`build`
+with a plain pixel recipe, still silently flatten animated input — driven by
+verify: `responsive anim.gif --widths 16` writes a 1-frame `anim-16w.gif` from
+a 4-frame source, exit 0, empty stderr; same for APNG and animated WebP.
+`run_responsive` has its own `Image::load` (`src/cli/optimize.rs:1744`),
+separate from the `run_pixel_op`/`optimize_decide_one` seams this spec and
+SPEC-107/SPEC-116 wired, so it also misses the truncated-JPEG warning — this
+seam drops **both** diagnostics, not just this spec's.
+
+This means the spec's `## Goal` ("no shipped verb silently discards frames")
+is not fully met by this PR — see the Goal section's amendment above. It is
+**not a regression**: none of these paths warned before this spec either, and
+the seams this spec did wire (`run_pixel_op` and `optimize_decide_one`,
+covering `convert`/`optimize`/`web`/`resize`/`thumbnail`/`auto-orient`/`edit`/
+`watermark`/terminal-optimize `apply --recipe`/`build`'s `Decide` arm) are
+exactly the ones SPEC-107/SPEC-116 had already reached for the truncated-JPEG
+warning — this spec extended existing plumbing rather than building new seams
+for `responsive` or the plain-recipe paths.
+
+**Out of this spec's scope; already filed** as a `[M]` follow-up on
+STAGE-046's backlog ("Three writing paths still silently flatten animated
+input", not yet assigned a spec number) — do not re-file it. That item also
+notes it's evidence for STAGE-042's conformance matrix (SPEC-118): a
+verb-by-diagnostic matrix would have surfaced this gap mechanically instead
+of at verify.
 
 ### Build-phase reflection (3 questions, short answers)
 

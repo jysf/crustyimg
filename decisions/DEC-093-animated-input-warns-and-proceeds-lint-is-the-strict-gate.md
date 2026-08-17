@@ -145,10 +145,15 @@ firing exactly as before for GIF (existing `.crustyimg-lint.toml` entries and `-
   own item; `tests/lint.rs`'s SPEC-119 tests work around it by linting the `.webp`
   fixture by its own single-file path (never extension-filtered) rather than by
   directory.
-- **AVIF is not a gap this decision needs to cover.** `avif_parse::read_avif` (2.1.0)
-  rejects an AVIF sequence (`ftyp` major brand `avis`) with a typed
+- **AVIF is proven safe for the major-brand-`avis` case, not for AVIF sequences in
+  general.** `avif_parse::read_avif` (2.1.0), `src/lib.rs:742-761`, keys the rejection
+  on `ftyp` major brand `avis` specifically: that brand is refused with a typed
   `Error::Unsupported("Animated AVIF is not supported. Please use real AV1 videos
   instead.")` **before** any pixel decode — confirmed by reading `read_avif`'s body,
   not inferred. `Image::from_bytes` therefore never constructs an `Image` from an
-  animated AVIF at all; there is nothing to flatten and nothing this decision's warning
-  needs to cover on that path.
+  `avis`-branded file at all; there is nothing to flatten and nothing this decision's
+  warning needs to cover on that path. The same function's `_ => skip_box_content`
+  arm means a file whose major brand is the ordinary still-image `avif` but that also
+  carries an embedded image sequence (a `moov` box) is **not** rejected — `moov` is
+  silently skipped and the file parses as a still. That shape is unproven, not
+  covered by the guarantee above, and out of this decision's scope to close.
