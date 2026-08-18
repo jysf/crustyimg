@@ -15,11 +15,26 @@ Cycle prompts live in `prompts/SPEC-121-<cycle>.md`.
       stability across versions (`src/build/lock.rs:32-36`), so the "invalidates every PROJ-007
       lockfile" risk both backlog entries flagged is already within the shipped contract. The
       builds drive it; they do not design it.
-- [ ] **build** — prompt: `prompts/SPEC-121-build.md` (2026-08-16). Sonnet, own worktree, branch
-      `fix/spec-121-ops-preserve-colour-type-and-bit-depth`. Second of three serial specs.
-      **DEC-095 is reserved in the prompt and SHARED with SPEC-122** — assigned there rather than
-      by `next_id`, which minted a duplicate DEC-092 across two parallel branches on 2026-08-16.
-      Goes before SPEC-122 because a colour-type fix under a linear-light rewrite is harder than
-      the reverse.
-- [ ] **verify** — Opus, new session.
+- [x] **build** — 2026-08-18, Sonnet, PR #181 (`4391e06`), **$58.50** / 60 min / **555 messages**.
+      Cost re-derived to the cent by the orchestrator; 99.2% cache reads. ⚠ **555 messages against
+      a ~250 budget** — the checkpoint did not fire. Second-most-expensive build in the wave despite
+      running on Sonnet's cheaper anchors; at Opus rates it would have been ~$97.
+      Three op bodies now widen to work at the input's own bit depth and narrow back losslessly.
+      `Watermark` decides RGBA-vs-RGB from the actual composited alpha (Call 2), both directions
+      tested. Call 3's 8-bit-downgrade diagnostic added at the sink. New
+      `tests/colour_type_preservation.rs` (11 tests, one op body per test, three real reverts for
+      AC-9) plus two `tests/sink.rs` tests. Full matrix clean; AC-7 driven.
+      **DEC-095 minted at the reserved id — no collision.** Sweep corrected
+      `docs/lab-plan-2026-08.md` and `docs/roadmap.md`.
+      ⚖ **AC-8 returned a finding rather than stopping:** the cache-key-changes-on-release safety
+      net **only fires on an actual version bump**, driven both ways on a real build target. Filed
+      to STAGE-042. **This is load-bearing past this spec** — SPEC-122's Call 5 and SPEC-124 rest on
+      the same "the migration already exists" reasoning.
+
+- [ ] **verify** — prompt: `prompts/SPEC-121-verify.md` (2026-08-18). Opus, new session,
+      **read-only**, detached worktree at `4391e06`. Carries **three leads the orchestrator found
+      but deliberately did not adjudicate**: (1) the sweep looks incomplete — `docs/backlog.md:700`
+      still asserts *"the pipeline is 8-bit throughout"* as a **live premise gating the LUT entry**,
+      and sweep thoroughness is Sonnet's one measured weakness here; (2) `src/image/mod.rs` is
+      touched but is not in the spec's Outputs; (3) AC-8's stop-condition ruling.
 - [ ] **ship**
