@@ -10,7 +10,7 @@
 > cycle/cost state rather than this static snapshot, use `just status` (active project)
 > or `just specs-by-stage` (cost + ship dates, every project).
 
-**110 specs across 7 projects** (109 shipped, 1 in flight).
+**118 specs across 7 projects** (114 shipped, 4 in flight).
 
 ## Contents
 
@@ -20,7 +20,7 @@
 - [PROJ-007 — Reproducible build (build + cache + lockfile + `--watch`)](#proj-007) — shipped · 9 specs
 - [PROJ-008 — WASM core + demo page](#proj-008) — shipped · 33 specs
 - [PROJ-009 — Input reach (modern-format decode)](#proj-009) — shipped · 4 specs
-- [PROJ-010 — Post-launch correctness and consolidation](#proj-010) — active · 9 specs
+- [PROJ-010 — Post-launch correctness and consolidation](#proj-010) — active · 17 specs
 
 ---
 
@@ -313,7 +313,7 @@ Broaden what crustyimg can READ so the already-shipped engine (optimize / conver
 
 ## <a id="proj-010"></a>PROJ-010 — Post-launch correctness and consolidation
 
-*status: active · 9 specs, 8 shipped*
+*status: active · 17 specs, 13 shipped*
 
 Fix the launch-gating classifier regression (dithered/halftoned graphics promoted to lossy AVIF after resize), confirm hostile-input behavior on the native CLI and wasm builds, then deliver three carried-forward stages…
 
@@ -343,20 +343,38 @@ Fix the launch-gating classifier regression (dithered/halftoned graphics promote
 |---|---|---|---|---|
 | [SPEC-112](../projects/PROJ-010-post-launch-correctness-and-consolidation/specs/done/SPEC-112-wasm-transform-runs-bundled-recipes.md) | critical | **shipped** | `wasm::transform` runs the bundled recipes | STAGE-040's precondition for the 0.7.0 cut: make the README's claim about `transform()` true before that README renders on the crates.io crate page. |
 
-### STAGE-043 — pinned-path correctness _(active)_
+### STAGE-042 — release-safety instruments _(active)_
+
+| Spec | Priority | Status | Title | Summary |
+|---|---|---|---|---|
+| [SPEC-118](../projects/PROJ-010-post-launch-correctness-and-consolidation/specs/SPEC-118-shipped-surface-conformance-matrix.md) | high | design | the shipped-surface conformance matrix | STAGE-042's central instrument. Every PROJ-010 defect so far has been an UNENUMERATED CELL — a verb × input × entry-point combination nobody listed, so nobody tested. This spec builds the enumeration itself, and it would have caught… |
+| [SPEC-123](../projects/PROJ-010-post-launch-correctness-and-consolidation/specs/SPEC-123-avif-byte-determinism-across-thread-counts.md) | high | design | is AVIF output byte-deterministic across thread counts? | The repo's reproducible-build story — `build --frozen`, the lockfile, the cache key — rests on byte-stable output. Upstream gives no such guarantee for AVIF and has a filed nondeterminism bug. Nobody has measured whether the claim we… |
+
+### STAGE-043 — pinned-path correctness _(shipped)_
 
 | Spec | Priority | Status | Title | Summary |
 |---|---|---|---|---|
 | [SPEC-113](../projects/PROJ-010-post-launch-correctness-and-consolidation/specs/done/SPEC-113-optimize-never-silently-grows-a-pinned-output.md) | critical | **shipped** | `optimize` never silently grows a pinned same-format output | STAGE-043's first item. `optimize` is a headline verb the launch post will name, and on its most natural invocation it can silently hand back a file twice the size of the source. Fixing it before anyone is invited to try the tool is the… |
+| [SPEC-116](../projects/PROJ-010-post-launch-correctness-and-consolidation/specs/done/SPEC-116-build-threads-the-truncated-jpeg-warning.md) | medium | **shipped** | `build` threads the truncated-JPEG warning | STAGE-043's second and last item. `apply --recipe web bad.jpg` warns that a truncated JPEG decoded partially; `build` on the identical input is silent. A user who moved from `apply` to `build` silently lost a warning the project already… |
 
-### STAGE-044 — the `meta` lane cannot emit a broken manifest _(active)_
+### STAGE-044 — the `meta` lane cannot emit a broken manifest _(shipped)_
 
 | Spec | Priority | Status | Title | Summary |
 |---|---|---|---|---|
-| [SPEC-114](../projects/PROJ-010-post-launch-correctness-and-consolidation/specs/SPEC-114-meta-lane-never-emits-a-broken-manifest.md) | critical | design | the `meta` lane never emits a broken manifest | STAGE-044. `meta set` takes a file whose Content Credentials validate and emits one a validator reports as TAMPERED. Attributing a forgery to the file's signer is a worse failure than dropping the credentials, and it is live in 0.7.0. |
+| [SPEC-114](../projects/PROJ-010-post-launch-correctness-and-consolidation/specs/done/SPEC-114-meta-lane-never-emits-a-broken-manifest.md) | critical | **shipped** | the `meta` lane never emits a broken manifest | STAGE-044. `meta set` takes a file whose Content Credentials validate and emits one a validator reports as TAMPERED. Attributing a forgery to the file's signer is a worse failure than dropping the credentials, and it is live in 0.7.0. |
 
-### STAGE-045 — adopted-source-format integrity on the decide path _(active)_
+### STAGE-045 — adopted-source-format integrity on the decide path _(shipped)_
 
 | Spec | Priority | Status | Title | Summary |
 |---|---|---|---|---|
 | [SPEC-115](../projects/PROJ-010-post-launch-correctness-and-consolidation/specs/done/SPEC-115-optimize-never-passes-through-bytes-it-cannot-name.md) | high | **shipped** | `optimize` never passes through bytes it cannot name | STAGE-045's only spec. `optimize` on the three input families PROJ-009 delivered can ship the source container verbatim — vector XML, a HEIF container, a whole camera-raw file — labeled as a PNG or JPEG it never produced. On stdin it… |
+| [SPEC-117](../projects/PROJ-010-post-launch-correctness-and-consolidation/specs/done/SPEC-117-pin-build-and-apply-against-the-adopted-format-defect.md) | medium | **shipped** | pin `build` and `apply --recipe web` against the adopted-format defect | STAGE-045's last item. SPEC-115 fixed the adopted-format defect at one seam that four verbs share. Its verify DROVE `build` and `apply --recipe web` green on the real binary but pinned neither, so a refactor can re-break them in silence… |
+
+### STAGE-046 — Output Fidelity on Shipped Verbs _(proposed)_
+
+| Spec | Priority | Status | Title | Summary |
+|---|---|---|---|---|
+| [SPEC-119](../projects/PROJ-010-post-launch-correctness-and-consolidation/specs/done/SPEC-119-animated-input-is-never-silently-flattened.md) | critical | **shipped** | animated input is never silently flattened | STAGE-046's first and most urgent item. The tool accepts a valid animated file, discards every frame but the first, reports the loss as a 72% win with a perfect quality score, and — through `lint` — actively recommends the command that… |
+| [SPEC-120](../projects/PROJ-010-post-launch-correctness-and-consolidation/specs/done/SPEC-120-measure-the-linear-light-premise.md) | high | **shipped** | measure the linear-light premise before fixing it | STAGE-046's falsification gate. The linear-light entry set its own premise test and this spec runs it, so the repo either fixes a measured defect or closes an unmeasured one — instead of shipping a plausible improvement. |
+| [SPEC-121](../projects/PROJ-010-post-launch-correctness-and-consolidation/specs/SPEC-121-ops-preserve-colour-type-and-bit-depth.md) | high | design | ops preserve colour type and bit depth | STAGE-046's largest correctness item. Three op bodies widen every image to RGBA8 and never narrow back, so `resize`, `thumbnail`, `edit` and the flagship `web` add an all-opaque alpha channel (+12.4% bytes, measured) and halve 16-bit input… |
+| [SPEC-122](../projects/PROJ-010-post-launch-correctness-and-consolidation/specs/SPEC-122-resize-resamples-in-linear-light.md) | high | design | `resize` resamples in linear light | STAGE-046's last defect, and the only one whose premise was measured before it was specced. `Resize::apply` resamples non-linear sRGB as if it were linear; against an independent reference the shipped downscale scores 70.45 and 84.45 where… |
