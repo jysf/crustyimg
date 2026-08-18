@@ -204,6 +204,12 @@ failures on documented paths.
   end up agreeing with the code and with each other.
   Perf, drift, and a false contract line — non-blocking. **Sequence after SPEC-123** — confirm file-level parallelism cannot
   perturb per-file output bytes before shipping it.
+  ✅ **Gate cleared — SPEC-123 / DEC-094 (2026-08-17).** It cannot, *today*: the AVIF encoder never
+  consults a rayon pool (`ravif` is built without `threading`), so pool size is invisible to it —
+  `--jobs` 1/4/14 and `RAYON_NUM_THREADS` 1/4/14 all produced identical output hashes. ⚠ **The
+  clearance is conditional on that feature staying off.** If the encoder-pin item above enables
+  `image/rayon` for the encode speed-up, a scoped `--jobs` pool becomes an encoder parameter and
+  this gate closes again — so pin `with_num_threads(Some(N))` in the same change.
 
 - [ ] (not yet written) — [S/M] **Pin the AVIF encoder's thread count so output does not depend
   on the ambient rayon pool.** ⛔ **Gated on SPEC-123's result; needs a maintainer ruling.**
@@ -214,17 +220,31 @@ failures on documented paths.
   `tiles = threads.min((w*h) / min_tile_size²)`, so the ambient count sets the **AV1 tile count**,
   and tile boundaries reset entropy-coding contexts — a different tile count is a different
   bitstream by construction, before rav1e's nondeterminism bug (#2781) is reached.
-  **The concrete exposure:** the pool size is neither a cache-key component (DEC-058) nor part of
-  the lockfile's `[env]`, so `crustyimg build -j 2` and `build -j 8` can write different bytes for
-  the same input at the same version — and `src/build/lock.rs` treats an output-hash change under
-  the **same** `env.target` as *a real regression*. The tool would flag its own thread setting as
-  drift. `RAYON_NUM_THREADS` reaches every verb the same way.
+  ✅ **MEASURED — SPEC-123 / DEC-094 (2026-08-17). Two claims below were wrong; they are corrected
+  in place rather than deleted, because the shape of the error is the useful part.**
+  **The concrete exposure — corrected.** It is *not* the thread setting. `ravif` is compiled
+  **without its `threading` feature** (reachable only through `image`'s `rayon` feature, which
+  `avif = ["image/avif"]` does not enable), so it substitutes its own `rayoff` shim: the encode is
+  **serial**, and `current_num_threads` is `std::thread::available_parallelism()` — the OS core
+  count. So `crustyimg build -j 2` and `build -j 8` write **identical** bytes (measured: `--jobs`
+  1/4/14 invariant; `RAYON_NUM_THREADS` 1/4/14 invariant across 18 cells), and `RAYON_NUM_THREADS`
+  reaches every verb's **batch pool** but reaches the **encoder** on none of them. The real exposure
+  is one step over: the pool size is neither a cache-key component (DEC-058) nor part of the
+  lockfile's `[env]` — **and neither is the core count**, which is the thing the encoder actually
+  reads. `src/build/lock.rs` treats an output-hash change under the **same** `env.target` as *a real
+  regression*, so the tool would flag a **differently-cored machine** as drift.
   **Why a pin is attractive rather than just retracting the claim:** both terms of that `min` are
   machine-independent once `threads` is fixed, so `with_num_threads(Some(N))` makes tiling
   machine-independent. Unlike DEC-077's decode pin to one thread (a measured ~3.8× cost), N is a
-  free parameter, so the encode stays multi-threaded — but **this is not a performance win, and
-  should not be sold as one.** Today the encoder already takes every core; a pin can only match or
-  reduce that.
+  free parameter, so the encode *could* stay multi-threaded — but **the pin is not a performance
+  win, and should not be sold as one.**
+  ⚠ **"Today the encoder already takes every core" was wrong — measured `cpu/wall ≈ 0.99` on every
+  shipped leg. The encode is serial, at core-count tiles: crustyimg pays the full multi-tile
+  compression penalty and collects none of the parallelism.** That splits this item in two, and the
+  halves are separable: **`image/rayon` is the performance lever** (measured 5.7× on the photo,
+  4.4× on the graphic, at byte-identical output on a 14-core host, since the tile count does not
+  move), **`with_num_threads(Some(N))` is the determinism lever** (and it changes every byte).
+  Scope them as two decisions, not one.
   ⚠ **The real second axis is quality-per-byte, and it runs the other way.** A still image is one
   frame, so rav1e's parallelism here is tile-level: `threads` and `tiles` are the same knob
   (`:653-654`; `cfg.with_threads` at `:690` is only set when `threads` is `Some`). Tiles are coded
@@ -234,13 +254,18 @@ failures on documented paths.
   crustyimg picks maximum parallelism implicitly by taking the default.
   **Which means output quality-per-byte today varies with the machine's core count** — a 4-core
   laptop and a 32-core CI box plausibly differ, on a tool whose thesis is quality-per-byte.
-  Predicted from the source, **not yet measured**; SPEC-123's harness answers it for the cost of
-  one extra column (see its prompt).
-  A pin's sufficiency depends on SPEC-123's Call 4: stable run-to-run at a fixed count → a pin is
-  a real fix; not stable → residual nondeterminism underneath and a pin only narrows it.
+  ✅ **CONFIRMED, and it is not small.** Driving the tile count directly (a `--features image/rayon`
+  probe, DEC-094 leg E) against a 1-tile encode of the same input: **+1,497 B / +1.5 %** on
+  `photo_forest_cc0.jpg`, **+412 B / +47.9 %** on `graphic_large.png` at 14 tiles. The proportional
+  cost is far worse on small/graphic content — 14 tiles over 512×512 is exactly ravif's
+  "inefficiently tiny tiles". The shipped binary sits at that end of the trade today.
+  ✅ **Call 4 answered — a pin would be *sufficient*, not merely narrowing.** Run-to-run at a fixed
+  count was stable over 10 repeats × 3 verbs (30 runs, 1 distinct hash each), so there is no
+  residual nondeterminism underneath the tiling for a pin to leave behind. rav1e #2781 did not fire
+  in any run here.
   ⚠ **It changes every AVIF output byte**, so if it goes ahead it should ride STAGE-046's
-  byte-changing wave (SPEC-121/122) rather than land alone. **Do not scope before SPEC-123
-  reports.**
+  byte-changing wave (SPEC-121/122) rather than land alone. **SPEC-123 has now reported — this is
+  scopeable, against DEC-094's numbers.**
 
 **Count:** 1 framed (SPEC-118) / 7 pending / 1 chore done
 
@@ -261,7 +286,34 @@ failures on documented paths.
 > that count sets AV1 tiling. Filed rather than acted on — it is gated on SPEC-123's verdict and
 > wants a maintainer ruling on whether to pin or to retract the reproducibility language.
 
-**Count:** 2 framed (SPEC-118, SPEC-123) / 7 pending / 1 chore done
+
+- [ ] (not yet written) — [S] **`[env]` cannot express "same machine", so `diff` reports a
+  differently-cored host as a real regression.** SPEC-123's AC-7 deferral, filed here at verify
+  because the build filed it in `docs/backlog.md`, **which no command reads** — `just backlog`
+  reads this section.
+  **The wrong text is not the one the build filed.** It filed the caveat list at
+  `src/build/lock.rs:32-37`. The directly false statement is `:124-129` — *"`[env]` exists so
+  `diff` can tell 'the encoder produced different bytes on this same machine'"* — when `env.target`
+  is `{ARCH}-{OS}`, which **cannot** establish same-machine. Combined with `HashChangedSameEnv ⇒
+  drift = true` **unconditionally** (`:459-466`, not even `strict`-gated), a same-arch host with a
+  different core count is reported as a **real regression**. That is a live false positive in
+  shipped code, not incomplete prose.
+  **Severity, measured at verify:** not reachable in this repo's own CI — no committed
+  `*.build.lock` exists and no workflow runs `build --check`/`--frozen`. It is a **user-facing**
+  exposure only. Filed-not-fixed is the right call.
+  ⚡ **The fix is NOT "add core count to `[env]`".** DEC-094's leg-F rider measured that core-count
+  sensitivity is **quantized** — a 14-core and a 16-core host emit identical bytes; 8-core and
+  14-core do not — so a raw core count would churn `[env]` between machines whose output agrees.
+  Key on the resulting tile grid, or on nothing. **That is the maintainer call**, and it is why
+  AC-7's literal "no `src/` diff" was the right reading: the correct fix was never a one-line
+  comment edit.
+  **Two shipped claims are true only while `ravif/threading` is off, and must be named conditional
+  when this lands:** `README.md:258` (*"the round trip is byte-stable"*, printed beside a `-j 8`
+  example) and `docs/USAGE.md:135` (*"`apply` replays it byte-identically across the directory, in
+  parallel"*). Both break the day `image/rayon` is enabled — so this item and the encoder-pin item
+  above move together.
+
+**Count:** 2 framed (SPEC-118, SPEC-123) / 8 pending / 1 chore done
 
 ## Design Notes
 
