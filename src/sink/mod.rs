@@ -79,6 +79,26 @@ pub const AVIF_DEFAULT_QUALITY: u8 = 80;
 /// always available, so the constant is always meaningful.
 pub const FAST_LOSSY_QUALITY: u8 = 85;
 
+// ── SPEC-121, Call 3: 8-bit-only lossy targets report the downgrade ───────────
+//
+// JPEG and lossy WebP can only hold 8 bits per channel. `image`'s own
+// `write_to`/`write_with_encoder` already silently downgrades a >8-bit
+// source for them ("methods on `DynamicImage` try to automatically convert
+// the image to some color type supported by the encoder" — `image`'s own
+// doc comment on `DynamicImage::write_with_encoder`); this only makes that
+// existing, silent downgrade visible, in the spirit of SPEC-090's honest
+// size reporting. Not a new policy — one stderr line each, at the two sites
+// Call 3 named.
+
+/// Printed on encoding a >8-bit source as JPEG.
+pub(crate) const JPEG_EIGHT_BIT_DOWNGRADE_WARNING: &str =
+    "warning: 16-bit source downgraded to 8-bit for JPEG output — JPEG does not support more than 8 bits per channel";
+
+/// Printed on encoding a >8-bit source as lossy WebP (`webp-lossy` feature).
+#[cfg(feature = "webp-lossy")]
+pub(crate) const WEBP_LOSSY_EIGHT_BIT_DOWNGRADE_WARNING: &str =
+    "warning: 16-bit source downgraded to 8-bit for lossy WebP output — WebP does not support more than 8 bits per channel";
+
 // ── Public types ──────────────────────────────────────────────────────────────
 
 /// Where a final [`Image`] is written. Constructed by the (future) CLI
@@ -649,6 +669,12 @@ pub fn encode_to_bytes_with(
     let mut cursor = Cursor::new(Vec::new());
 
     if format == ImageFormat::Jpeg {
+        // Call 3, SPEC-121: JPEG is 8-bit only regardless of whether `quality`
+        // is pinned here or left to the default `write_to` path below — warn
+        // once, before either.
+        if crate::image::color_type_bit_depth(img.pixels().color()) > 8 {
+            eprintln!("{JPEG_EIGHT_BIT_DOWNGRADE_WARNING}");
+        }
         if let Some(q) = quality {
             // Clamp to 1..=100 (JPEG quality range; avoids surprising values).
             // NOTE: `crate::quality::encode_candidate_bytes` (the auto-quality /
@@ -704,6 +730,11 @@ pub fn encode_to_bytes_with(
     #[cfg(feature = "webp-lossy")]
     if format == ImageFormat::WebP {
         if let Some(q) = quality {
+            // Call 3, SPEC-121: lossy WebP is 8-bit only (`to_rgba8()` below
+            // is the downgrade this warns about).
+            if crate::image::color_type_bit_depth(img.pixels().color()) > 8 {
+                eprintln!("{WEBP_LOSSY_EIGHT_BIT_DOWNGRADE_WARNING}");
+            }
             let rgba = img.pixels().to_rgba8();
             let (w, h) = rgba.dimensions();
             let encoder = ::webp::Encoder::from_rgba(rgba.as_raw(), w, h);

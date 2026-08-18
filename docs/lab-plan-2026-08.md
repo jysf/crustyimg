@@ -166,15 +166,24 @@ Two existing patterns are, however, exactly what lab needs, and §4 is built on 
 
 ### F8 — Two recorded constraints bite lab harder than they bite the workhorse
 
-`docs/backlog.md:624` records that `resize` resamples in sRGB, not linear light, and that the
-pipeline is 8-bit throughout (`to_rgba8()` at `src/operation/mod.rs:197,396,816,817`).
+`docs/backlog.md:624` records that `resize` resamples in sRGB, not linear light — still true,
+SPEC-122's scope. The bit-depth half of that entry is **fixed** (SPEC-121, 2026-08-18): the three
+op bodies (`Invert`/`Resize`/`Watermark`) used to call `to_rgba8()` unconditionally; they now widen
+to the input's own bit depth (8 or 16) and narrow back losslessly on the way out, so a >8-bit
+source is no longer collapsed by these ops. "The pipeline is 8-bit throughout" was never accurate
+as a description of `crustyimg`'s own encode/decode path (decode, `Identity`/`AutoOrient`, and the
+default `write_to` path all preserved bit depth already); it is now also inaccurate for the three
+ops that used to be the exception.
 
-For a resizer that is a quality defect. **For a grading tool it is a correctness defect.** Any
-curves / LUT / exposure op lab ships works on 256 levels per channel in a non-linear space:
-strong grades band visibly, and a `.cube` baked from a lab expression is baked against the wrong
-transfer function. Lab's own tests cannot see this, because both the reference and the candidate
-are wrong in the same way. **This is a pre-registered spike question (§12), not a blocker** — but
-it must be answered before §2 (LUT) or §8 (expressions) are built, not during.
+That does **not** close F8. Lab's own ops (curves/LUT/exposure) are a separate design surface from
+crustyimg's three fixed bodies — if lab's grading math works in an 8-bit RGBA buffer regardless of
+the *source's* depth (as opposed to widening the way `Resize`/`Invert`/`Watermark` now do), the
+banding risk below is unchanged. For a resizer that is a quality defect. **For a grading tool it is
+a correctness defect.** Any curves / LUT / exposure op lab ships works on 256 levels per channel in
+a non-linear space: strong grades band visibly, and a `.cube` baked from a lab expression is baked
+against the wrong transfer function. Lab's own tests cannot see this, because both the reference
+and the candidate are wrong in the same way. **This is a pre-registered spike question (§12), not a
+blocker** — but it must be answered before §2 (LUT) or §8 (expressions) are built, not during.
 
 ---
 
