@@ -31,10 +31,34 @@ Cycle prompts live in `prompts/SPEC-121-<cycle>.md`.
       to STAGE-042. **This is load-bearing past this spec** — SPEC-122's Call 5 and SPEC-124 rest on
       the same "the migration already exists" reasoning.
 
-- [ ] **verify** — prompt: `prompts/SPEC-121-verify.md` (2026-08-18). Opus, new session,
-      **read-only**, detached worktree at `4391e06`. Carries **three leads the orchestrator found
-      but deliberately did not adjudicate**: (1) the sweep looks incomplete — `docs/backlog.md:700`
-      still asserts *"the pipeline is 8-bit throughout"* as a **live premise gating the LUT entry**,
-      and sweep thoroughness is Sonnet's one measured weakness here; (2) `src/image/mod.rs` is
-      touched but is not in the spec's Outputs; (3) AC-8's stop-condition ruling.
+- [x] **verify** — 2026-08-18, Opus, **⚠ PUNCH LIST**, **$11.08** / 12 min / 110 messages
+      (cheapest verify in the wave; cost re-derived to the cent). Read-only, no commits.
+      Reproduced every headline claim on **independently hand-written PNG fixtures** (pure-Python
+      zlib, not the `image` crate under test). **The central fix holds.**
+      ✅ Confirmed genuinely good: AC-3's control **can fail** (forced "always narrow" → exactly the
+      3 alpha tests red, AC-1/AC-2 green); AC-9's three reverts are a **clean partition** (Invert 2
+      red, Resize 4 red incl. `web`, Watermark 1 red); AC-7 byte-identity re-confirmed vs its own
+      `main` build with a positive control; AC-5 warning is stderr-only, `-o -` stays pure JPEG.
+      ⚖ **Lead rulings:** (1) sweep **incomplete and wider than the orchestrator found** — 4 live
+      premises, not 1; (2) `src/image/mod.rs` **justified but unrecorded**; (3) AC-8 **"filed, not
+      stopped" was CORRECT** — the contract holds when the version moves; what fails is its
+      *precondition* under the spec's own "do not bump the version" guardrail. A release-discipline
+      finding, not a broken contract. Residual exposure: source/`main` builders mid-wave get stale
+      pre-fix bytes with `build --check` reporting exit 0. Closes at the next tag — **and SPEC-122
+      and SPEC-124 land inside that window.**
+      ⚠ **Substantive defect (item 2):** `watermark --text` on an opaque photo **still returns
+      RGBA8** — source-over onto an opaque base is mathematically always opaque, so the observed
+      alpha histogram `{255: 988, 254: 36}` is f32 rounding + a truncating cast in `image`'s
+      `Rgba::blend`. 26 px in 65,536 defeat the narrow, and both AC-4 tests use uniform overlays
+      that never exercise the float path. `--text` is untested.
+      ⚠ Also: a **false citation** in `tests/colour_type_preservation.rs:215`; the AC-7 test named
+      in `## Failing Tests` **does not exist**; AC-6's test **never runs an op** so it passes
+      identically on `main`; and grayscale `Gray8 → resize → RGB8` leaves Call 1 unmet at **13× the
+      relative cost** of the RGB→RGBA case (+165% vs `convert`) while the ACs are literally met.
+- [ ] **punch list** — prompt: `prompts/SPEC-121-punchlist.md` (2026-08-18). **Opus**, own
+      worktree, same branch. 7 items; item 1(a) is **urgent** — `docs/backlog.md:678-682` sits in
+      SPEC-122's own entry and would tell its builder to re-break this fix. `cycle:` stays at
+      `verify`; the orchestrator re-approves. 💰 Verify cost to apply at ship: 12,764,899 tokens /
+      12 min / **$11.08** / `claude-opus-5`.
+
 - [ ] **ship**
