@@ -101,6 +101,26 @@ Each of these needs its own confirmation before it is spec-able:
   deterministic; rav1e has no guarantee and a filed nondeterminism bug (#2781). If crustyimg's AVIF
   is not deterministic across thread counts, existing "reproducible" language is a false claim.
   **Measure before claiming either way.**
+  ✅ **MEASURED — SPEC-123 / DEC-094 (2026-08-17).** Verdict: **the encoder ignores the thread
+  setting.** `ravif` is compiled *without* its `threading` feature (reachable only via
+  `image`'s `rayon` feature, which `avif = ["image/avif"]` does not enable), so it uses its own
+  `rayoff` shim: the encode is **serial** and the tile count comes from
+  `std::thread::available_parallelism()`, not from a rayon pool. 18/18 matrix cells
+  (`convert`/`web`/`optimize` × 2 corpus inputs × `RAYON_NUM_THREADS` 1/4/14) produced identical
+  SHA-256s, `--jobs` likewise, and 10 repeats/verb were run-to-run stable — with `cpu/wall ≈ 0.99`
+  on every leg, i.e. the lever moved no work. Existing "reproducible" language is **not** falsified
+  by the thread axis. Two riders that are: **(a)** the knob the encoder *does* read — the machine's
+  core count — changes the bytes (positive control: a `--features image/rayon` probe moved them at
+  1/4/14 tiles, and the shipped bytes land exactly on its 14-tile point on a 14-core host), and
+  **core count is in neither the lockfile's `[env]` nor its arch/OS/codec caveat list
+  (`src/build/lock.rs:32-37`)** — so `diff` can call a same-`target` cross-machine hash change a
+  regression; **(b)** the shipped build pays the multi-tile compression penalty and collects none of
+  the parallelism — **+1.5 %** bytes (photo) / **+47.9 %** (graphic) vs a 1-tile encode, at
+  **5.3× / 4.1×** the wall clock of the same tiles encoded in parallel.
+  **Open follow-ups:** correct `lock.rs`'s caveat list (SPEC-123 shipped no `src/` change, so this
+  is filed, not done); scope `with_num_threads(Some(N))` as the *determinism* lever and
+  `image/rayon` as the separate *performance* lever. Re-derive with
+  `python3 scripts/spec123_avif_thread_determinism.py`.
 - **Gain-map (UltraHDR) input is silently discarded**, destroying HDR the user can see on their own
   display — same class as D-1. Cheapest correct move is a **detection fixture**, not integration.
 

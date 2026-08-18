@@ -214,18 +214,93 @@ load-bearing criterion in their place, exactly as in SPEC-120.
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
-- **New decisions emitted:**
-- **Deviations from spec:**
+- **Branch:** `chore/spec-123-avif-byte-determinism`
+- **PR (if applicable):** #178
+- **All acceptance criteria met?** yes (AC-6 did not fire — see below)
+- **New decisions emitted:** **DEC-094** — *AVIF thread settings never reach the encoder — the
+  machine's core count does.* `affected_scope: src/sink/**`, `src/quality/mod.rs`.
+- **Deviations from spec:** two, both deliberate.
+  1. **STAGE-042's item was corrected on this branch**, not left for main. AGENTS §13 puts stage
+     bookkeeping on main at ship, but two of that item's sentences are *claims this build
+     falsified* ("the encoder already takes every core"; "`build -j 2` and `build -j 8` can write
+     different bytes"). A disproved premise sitting in the scoping note for the very next spec is
+     the harm AC-6 exists to prevent, so it was corrected in place, with the correction marked.
+  2. **AC-6's sweep was run even though AC-6 did not fire.** The verdict is Call 3's *third* branch,
+     not "non-deterministic", so no shipped "reproducible" claim is falsified by the thread axis.
+     The sweep is reported anyway (below) because a different claim — the lockfile's caveat list —
+     turned out to be incomplete.
 - **Follow-up work identified:**
+  1. **Correct `src/build/lock.rs:32-37`'s caveat list and the `[env]` block.** The output hash is
+     qualified with arch/OS/codec version; **core count belongs in that list** and in `[env]`,
+     because it sets the AVIF tile count. Until then `diff` can flag a differently-cored machine as
+     a real regression under the same `env.target`. Not done here: AC-7 forbids a `src/` edit.
+  2. **Split STAGE-042's encoder-pin item in two.** `image/rayon` is the *performance* lever
+     (measured 5.3× / 4.1×, byte-identical on a 14-core host); `with_num_threads(Some(N))` is the
+     *determinism* lever (changes every byte). They were one item because the encoder was believed
+     to be multi-threaded already. It is not.
+  3. **Consider whether core-count tiling is the right default at all.** The shipped build takes
+     the worst cell: full multi-tile compression penalty (**+47.9 %** bytes on a 512×512 graphic),
+     zero parallelism. That is a quality-per-byte cost on a tool sold on quality-per-byte.
+  4. **`par_iter run_pixel_op` (SPEC-091 follow-up) is unblocked, conditionally.** Pool size is
+     invisible to the encoder *today*; the clearance lapses the moment `image/rayon` is enabled.
+  5. Not measured: **a second host with a different core count.** The core-count dependence is
+     established by driving `tiles` directly plus the source path, not by two hosts disagreeing.
+
+### The verdict (AC-5)
+
+> **hashes identical, control did not fire → the encoder ignores the thread setting.**
+> Moot today, live the moment anyone changes it. **Not** "deterministic".
+
+Mechanism: `ravif` is compiled without its `threading` feature (reachable only via `image`'s
+`rayon` feature, which `avif = ["image/avif"]` does not enable), so it uses its own `rayoff` shim —
+sequential `join`, and `current_num_threads()` = `std::thread::available_parallelism()`. Full
+table, controls and numbers in **DEC-094**; re-derive with
+`python3 scripts/spec123_avif_thread_determinism.py`.
+
+### AC-6's sweep, cited
+
+`/usr/bin/grep -rniE "reproducib|byte-identical|byte-stable|determinis"` over `*.rs *.md *.toml
+*.yaml *.yml`, excluding `./target`, `./projects`, `./decisions`, `docs/backlog` → **316 hits**
+across 91 files. Narrowed to the surfaces that could carry the claim under test — `src/build/`,
+`src/cli/build.rs`, `src/sink/mod.rs`, `README.md`, `CHANGELOG.md`, `docs/api-contract.md`,
+`docs/USAGE.md`, `docs/cli-reference.md` — **30 hits**. Reading them: none claims byte-stability
+across thread counts, and none is falsified by this measurement. The 316 is dominated by unrelated
+senses ("deterministic classification", "deterministic encoders" for test fixtures, "reproducible
+comparison" in benchmark prose). **`RELEASING.md`** — named by Call 3 as the first place a false
+claim would live — returns **0** hits for all five stems (positive control on the same file: 127
+lines, 20 hits for `release`), and mentions no output hash, lockfile hash or AVIF at all. ⚠ **The
+sweep's scope is itself a claim:** it cannot see a reproducibility promise phrased without any of
+those five stems.
+
+One hit is **incomplete rather than false**, and is follow-up 1 above: `src/build/lock.rs:32-37`.
 
 ### Build-phase reflection (3 questions, short answers)
 
-1. **What was unclear in the spec that slowed you down?**
-2. **Was there a constraint or decision that should have been listed but wasn't?**
-3. **If you did this task again, what would you do differently?**
+1. **What was unclear in the spec that slowed you down?** Nothing slowed me down, but the spec and
+   the prompt both asserted the mechanism one layer too shallow: *"the encoder takes `image`'s
+   documented default — all threads in the default rayon thread pool"*, cited from
+   `codecs/avif/encoder.rs:89-91`. That doc comment is true of `image` **with its `rayon` feature
+   on**, and crustyimg's build does not have it on. The prompt's *"Do not spend an hour discovering
+   this"* section was therefore itself wrong on the load-bearing point, and its predicted verdict
+   ("non-deterministic, for a structural reason") is the opposite of what the binary does. It cost
+   little, because the first smoke test showed three thread counts agreeing to the millisecond —
+   which is not what a real lever looks like — but a builder who trusted the prompt over the
+   measurement would have shipped a confident wrong answer. **A dependency's documented default is
+   a claim about a feature set, not about your build.**
+2. **Was there a constraint or decision that should have been listed but wasn't?** The **Cargo
+   feature graph** should have been an Input alongside the source lines. Everything that decides
+   this spec lives in `Cargo.toml` + `cargo tree -e features`, and the spec pointed only at `src/`
+   and the crate sources. Relatedly, the prompt's clamp analysis left `min_tile_size` at "128 or
+   256" without resolving which: it is **128** for every verb in the matrix (quality 80 and 85 both
+   land under ravif's threshold), so the size terms are 25 and 16 and no main-matrix row is
+   clamped. Transcribing `quality_to_quantizer` settled it in minutes and made the clamp column
+   cheap — and made room for leg G, which demonstrates the clamp on purpose at `-q 50`.
+3. **If you did this task again, what would you do differently?** Build the `--features
+   image/rayon` probe **first**, before the shipped matrix. It is the positive control, it takes 36
+   seconds, and it answers "can this measurement see anything at all?" — the only question that
+   makes a null worth reporting. I built it third, after reading source to explain a null I had
+   already collected. Same answer, worse order: I spent a stretch reasoning about *why* the hashes
+   were identical when one build would have told me *whether* they could ever differ.
 
 ---
 
