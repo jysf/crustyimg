@@ -29,10 +29,44 @@ Cycle prompts live in `prompts/SPEC-123-<cycle>.md`.
       lever, `with_num_threads(Some(N))` the determinism lever.
       ⚠ **Design predicted the opposite verdict, twice**, by quoting `image`'s doc comment without
       checking the feature set. Both errors are corrected in place on STAGE-042.
-- [ ] **verify** — prompt: `prompts/SPEC-123-verify.md` (2026-08-17). Opus, new session, own
-      worktree. Two ACs need an explicit ruling: **AC-6** (the thread axis is not falsified, but
-      core-count variance is a cross-machine non-determinism the caveat list misses) and **AC-7**
-      (its literal "no `src/` diff" blocked the doc-comment correction AC-6's spirit wanted).
-      The prompt warns that the spec's own Inputs and the build prompt carry design's wrong
-      predictions — the corrections are themselves under review.
+- [x] **verify** — 2026-08-17, Opus, **⚠ PUNCH LIST**, $14.16 / 14 min / 135 messages.
+      Read-only as instructed — no commits, worktree left clean and detached at `7b3b130`.
+      **The verdict stands.** Verify re-derived the mechanism by a stronger method than the DEC
+      used — `image` declares `[dependencies.ravif] default-features = false`, `ravif?/threading`
+      appears at exactly one place in `image`'s manifest (inside `rayon = [...]`), no dependent
+      enables it so feature unification cannot turn it on — and rebuilt all three binaries from
+      scratch, reproducing every hash in every leg bit-for-bit.
+      **Four items, applied to the branch by the orchestrator (`1d522f8`), `cycle:` HELD at
+      `verify` for re-approval, not advanced** (SPEC-116 precedent):
+      **P1** leg F's *"lands on the 14-tile point and nowhere else"* is **false** — `rav1e`
+      quantizes to a legal tile grid, so the graphic matches at every N ≥ 12 (including the 16 the
+      DEC said did not match) and the photo at N = 13–20. Leg F **bounds** a band, it does not
+      identify a point. ⚡ Rider: core-count sensitivity is **quantized** (14 and 16 agree, 8 and
+      14 do not), so raw core count is the wrong `[env]` key.
+      **P2** the `cargo tree` check is non-discriminating — it returns identical values on a tree
+      where threading is provably ON. Replaced with the build fingerprint.
+      **P3** Validation said 37 hashes; the spec's 43 is right.
+      **P4** the AC-7 deferral was filed in `docs/backlog.md`, which **no command reads** — now a
+      STAGE-042 checkbox, plus `src/build/lock.rs` in DEC-094's `affected_scope`.
+      **⚖ AC-6 — does not fire.** Thread axis not falsified; shipped language accurate. All three
+      sweep numbers reproduced (316/91 raw, 30 narrowed, RELEASING.md 0 against a positive
+      control); all 30 read, none falsified. ⚠ But the sharper defect is `lock.rs:124-129`, not
+      the `:32-37` the build filed: `[env]` claims to distinguish *"this same machine"* while
+      `env.target` is only `{ARCH}-{OS}`, and `:459-466` marks a same-`env` hash change as drift
+      **unconditionally**. A live false positive in shipped code — unreachable in this repo's CI
+      (no committed `*.build.lock`, no workflow runs `--check`/`--frozen`), user-facing only.
+      **⚖ AC-7 — the build read it correctly**, and it did **not** block a correction AC-6 wanted:
+      the right fix was never a comment edit but a maintainer call on whether raw core count
+      belongs in `[env]` at all — and P1 says it does not. The SPEC-117 pattern (AGENTS §15).
+      ⚠ **The trade was only sound if the deferral was tracked, and it was not** — P4 fixes that.
+      Also verified: CI green at the true head `7b3b130` (16 legs read individually, 9–16.5 min on
+      the OS legs, `scripts/` inside the changes filter so no docs-only short-circuit); the
+      in-process control is signal not noise (`web` 0.99→1.01→1.17 while sibling `optimize` stays
+      flat at 0.99 in the same run); leg E enabled the variable structurally, by fingerprint.
+      💰 **Cost to apply at ship:** 17,012,782 tokens (in 270 / out 140,172 / cache-write 385,276 /
+      cache-read 16,487,064), 14 min, **$14.16**, `claude-opus-5`, Opus anchors, measured over 135
+      assistant messages. Transcribed here per AGENTS §13 — `cost.sessions` gets it on `main`
+      after the PR merges.
+- [ ] **re-verify / ship** — punch list landed on the branch; `cycle:` still `verify`. Needs the
+      maintainer's re-approval of `1d522f8` before advancing.
 - [ ] **ship**
