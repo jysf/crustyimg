@@ -392,6 +392,19 @@ DECs are stable; specs come and go. DECs don't reciprocally list specs.
   `test(recipe): assert TOML round-trip`, `ci(matrix): add windows`).
   Imperative mood, lowercase summary, no trailing period. End commit
   messages with the Co-Authored-By trailer for the model that wrote them.
+- **Sign off every commit** — `Signed-off-by: Name <email>`, i.e. `git commit -s`.
+  This is the **DCO gate** (`CONTRIBUTING.md`), it is **enforced by CI on every
+  PR**, and a missing trailer blocks the merge until the branch is rewritten.
+  A commit therefore ends with *two* trailers:
+
+  ```
+  Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+  Signed-off-by: Your Name <you@example.com>
+  ```
+
+  Cheapest way to confirm any of this against reality rather than the doc:
+  `git log -1` on `main` shows the conventions actually in use, and cannot go
+  stale the way this section can.
 - **PR title:** conventional-commit form **carrying the spec id**, e.g.
   `feat(pipeline): decode-once executor (SPEC-003)` or
   `feat(SPEC-001): cargo project + multi-OS CI`.
@@ -589,6 +602,7 @@ Most decisions should land between 0.7 and 0.95. 1.0 only for truly locked choic
 
 ## 18. Pointers
 
+- Contributing + the DCO sign-off gate: `/CONTRIBUTING.md`
 - Constraints: `/guidance/constraints.yaml`
 - Open questions: `/guidance/questions.yaml`
 - License watchlist (capabilities declined for license + gaps to revisit): `/guidance/license-watchlist.yaml` (`just watchlist`)
