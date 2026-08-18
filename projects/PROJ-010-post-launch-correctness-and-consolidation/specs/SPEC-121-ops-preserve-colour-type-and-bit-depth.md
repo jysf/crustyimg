@@ -50,6 +50,26 @@ cost:
         the cache key carries `crate::version()` and the lockfile never
         promised hash stability across versions — which removes this spec's
         largest assumed risk.
+    - cycle: build
+      agent: claude-sonnet-5
+      interface: claude-code
+      tokens_total: 165160452
+      duration_minutes: 60
+      recorded_at: 2026-08-18
+      tokens_breakdown:
+        input: 1110
+        output: 394547
+        cache_creation: 911468
+        cache_read: 163853327
+      estimated_usd: 58.50
+      note: >
+        MEASURED — transcript sum over 555 assistant messages
+        (~/.claude/projects/.../97c194f8-72d1-4e26-bb0d-5bd5c78e562c.jsonl,
+        identified by content — 281 hits for the branch's worktree path, not
+        by recency). Priced at Sonnet anchors ($3/$15 per MTok; cache_creation
+        ×1.25 input, cache_read ×0.10 input) — the model `.message.model`
+        actually reports throughout. Re-measured at session end (last action
+        before the Cost readout block), not mid-session.
   totals:
     tokens_total: 0
     estimated_usd: 0
