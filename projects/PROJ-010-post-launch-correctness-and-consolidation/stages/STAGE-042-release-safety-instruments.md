@@ -178,7 +178,7 @@ failures on documented paths.
   silently had the roll not caught it. (b) Run `just wasm-test`, which no CI leg does. Complexity
   **S**.
 
-- [x] **SPEC-123** (design 2026-08-16) — [S] **is AVIF output byte-deterministic across thread
+- [x] **SPEC-123** (**shipped 2026-08-18**, PR #179, $60.33) — [S] **is AVIF output byte-deterministic across thread
   counts?** `build --frozen`, the lockfile's `hash` and the cache key all assume it; upstream
   gives no guarantee and rav1e has a filed nondeterminism bug. **Thread count is not a cache-key
   component and not in the lockfile's list of qualifiers.** Gates two roadmap items.
@@ -313,7 +313,7 @@ failures on documented paths.
   parallel"*). Both break the day `image/rayon` is enabled — so this item and the encoder-pin item
   above move together.
 
-**Count:** 2 framed (SPEC-118, SPEC-123) / 8 pending / 1 chore done
+**Count:** 1 framed (SPEC-118) / **1 shipped (SPEC-123)** / 8 pending / 1 chore done
 
 ## Design Notes
 

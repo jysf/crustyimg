@@ -2,7 +2,7 @@
 task:
   id: SPEC-123
   type: task
-  cycle: verify
+  cycle: ship
   blocked: false
   priority: high
   complexity: S
@@ -78,10 +78,44 @@ cost:
         cost after CI, and prefer one long wait to many short polls. Wall clock
         also includes ~35 min blocked on a full `cargo test` that had to finish
         before the timing-sensitive harness re-run.
+    - cycle: verify
+      agent: claude-opus-5
+      interface: claude-code
+      tokens_total: 17012782
+      duration_minutes: 14
+      recorded_at: 2026-08-17
+      tokens_breakdown:
+        input: 270
+        output: 140172
+        cache_creation: 385276
+        cache_read: 16487064
+      estimated_usd: 14.16
+      note: >
+        MEASURED — transcript sum over 135 assistant messages, priced per
+        component at the Opus anchors ($5/$25 per MTok; cache_creation ×1.25
+        input, cache_read ×0.10 input). Read-only cycle: it made no commits, so
+        this block was transcribed by the orchestrator from the verify readout
+        at ship, per AGENTS §13. ⚠ Verdict was **PUNCH LIST**, not APPROVED —
+        four items, all applied to the branch by the orchestrator before merge.
+        Verify re-derived the mechanism independently by a stronger method than
+        the build used (`image` declares `[dependencies.ravif] default-features
+        = false`; `ravif?/threading` appears at exactly one place in `image`'s
+        manifest, inside `rayon = [...]`), and rebuilt all three binaries from
+        scratch, reproducing every hash in every leg bit-for-bit. Cost was 30%
+        of the build's on 42% of its message count — the read-only, no-CI-watch
+        shape is measurably cheaper.
+    - cycle: ship
+      interface: claude-code
+      tokens_total: null
+      duration_minutes: null
+      estimated_usd: null
+      note: >
+        Orchestrator main-loop, not separately metered (AGENTS §4). Merged
+        PR #179, transcribed the verify cost block, computed totals, archived.
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 84315614
+    estimated_usd: 60.33
+    session_count: 4
 ---
 
 # SPEC-123: is AVIF output byte-deterministic across thread counts?
@@ -351,3 +385,35 @@ One hit is **incomplete rather than false**, and is follow-up 1 above: `src/buil
 ## Reflection (Ship)
 
 *Appended during the **ship** cycle.*
+
+**1. Did this spec deliver what it set out to?** Yes, and the answer was none of the
+two outcomes anyone expected. Call 3's **third** branch fired: the encoder ignores the
+thread setting, because `ravif` is compiled without its `threading` feature. Both the
+design cycle and the build prompt predicted *non-deterministic by construction* from
+`ravif`'s tile formula — the tile mechanism was real, but the lever driving it does
+not exist in this build. **Two riders ended up outranking the deliverable**: AVIF
+output varies with the machine's **core count** (in neither the cache key nor the
+lockfile's `[env]`, so `diff` can report a differently-cored host as a real
+regression), and the shipped build takes the worst cell on both axes — **+1.5% /
++47.9%** bytes against a 1-tile encode at **5.7× / 4.4×** the wall clock of the same
+tiles in parallel.
+
+**2. What would we do differently?** State design findings as **priors, not
+conclusions**. A confident wrong prediction in the spec's `## Inputs` and the build
+prompt meant the build had to refute a stated position rather than answer an open
+question, then correct five documents that carried the wrong version. The root cause
+is banked: *a dep's documented default is a claim about a feature set* — `image`'s
+"all threads in the default rayon pool" is true of `image` **with `rayon` on**, and
+`avif = ["image/avif"]` never enables it. `cargo tree -e features` cannot see this;
+the **build fingerprint** can.
+
+**3. What did it cost, and was it worth it?** **$60.33** across build ($46.17) and
+verify ($14.16) on a spec sized `[S]` — against SPEC-120, the same "measure a
+premise" shape, at $8.69. The 5.3× gap is not effort: SPEC-120's premise **held**
+(confirm and stop), this one's was **wrong** (refute, re-derive, correct everything
+downstream). Identifiable waste was ~$6: $5.80 watching CI, now fixed in
+`cost-snippet.md` and replaced with a backgrounded `gh pr checks --watch`. The rest
+bought a 5.7× performance lever, a compression defect on the flagship codec, and a
+live false-positive path in `diff` — none of which the spec was scoped to find. The
+durable lesson is about **sizing, not spending**: a measurement spec's cost is set by
+whether its premise survives, which is unknowable at framing.
