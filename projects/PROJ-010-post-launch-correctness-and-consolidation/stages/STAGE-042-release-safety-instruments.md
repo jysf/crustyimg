@@ -211,8 +211,11 @@ failures on documented paths.
   `image/rayon` for the encode speed-up, a scoped `--jobs` pool becomes an encoder parameter and
   this gate closes again — so pin `with_num_threads(Some(N))` in the same change.
 
-- [ ] (not yet written) — [S/M] **Pin the AVIF encoder's thread count so output does not depend
-  on the ambient rayon pool.** ⛔ **Gated on SPEC-123's result; needs a maintainer ruling.**
+- [x] **SPEC-124** (design 2026-08-18) — [S] **Pin the AVIF encoder's thread count so output does
+  not depend on the ambient rayon pool.** ✅ **Maintainer ruled 2026-08-18: pin, and ride
+  SPEC-121/122's wave** so users pay one lockfile migration rather than two. Blocked on SPEC-122
+  merging; must ship before the next tag. `image/rayon` (the 5.7×/4.4× perf lever) stays a
+  separate, later decision — and this spec is what makes it safe to take.
   `src/sink/mod.rs:679` constructs `AvifEncoder::new_with_speed_quality(..)` and **never calls
   `with_num_threads`**, so the encoder takes `image` 0.25.10's documented default — *"all threads
   in the default `rayon` thread pool"* (`codecs/avif/encoder.rs:89-91`).
@@ -313,7 +316,7 @@ failures on documented paths.
   parallel"*). Both break the day `image/rayon` is enabled — so this item and the encoder-pin item
   above move together.
 
-**Count:** 1 framed (SPEC-118) / **1 shipped (SPEC-123)** / 8 pending / 1 chore done
+**Count:** 2 framed (SPEC-118, SPEC-124) / **1 shipped (SPEC-123)** / 7 pending / 1 chore done
 
 ## Design Notes
 
