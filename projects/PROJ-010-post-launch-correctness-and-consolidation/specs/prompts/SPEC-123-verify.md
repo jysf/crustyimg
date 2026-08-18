@@ -109,9 +109,16 @@ own paths. Its mere presence proves nothing about `ravif/threading`. Do not stop
 
 ## Guardrails
 
-- **Own git worktree.** Another session is live in this repo. Do not work in the primary checkout,
-  and do not leave commits on a detached HEAD — **verify bookkeeping lands on `main` after merge**
-  (AGENTS §13), so transcribe your cost into your readout and let the orchestrator apply it.
+- **Your worktree — detached, at the PR head, read-only.** Two other sessions have been live in
+  this repo, so do not use the primary checkout:
+
+  ```
+  git worktree add --detach ~/PSeven/experiments/crustimg_redo_plus/crustyimg-spec123-verify 7b3b130
+  ```
+
+  **Detached is deliberate:** it makes it impossible to accidentally commit onto the branch you are
+  reviewing. Confirm you are at `7b3b130` (`git rev-parse HEAD`) — that is the PR head, one commit
+  past the `69c0500` the build reported CI against.
 - **Do not merge the PR. Do not bump the version. Do not fix what you find** — a punch list is an
   output, not an edit.
 - **Budget ~150 exchanges.** The build ran 318 and cost $46.17 against an S-sized $8.69 precedent.
@@ -119,10 +126,17 @@ own paths. Its mere presence proves nothing about `ravif/threading`. Do not stop
 
 ## When you finish, in this order
 
-1. Append a verify cost session entry to `cost.sessions` (see below).
-2. Run `just advance-cycle SPEC-123 ship`, and **CONFIRM it moved** — `git diff` should show the
-   `cycle:` line change. It reports success even when it changes nothing.
-3. Give the verdict: ✅ APPROVED / ⚠ PUNCH LIST / ❌ REJECTED.
+1. **MAKE NO COMMITS.** Verify is read-only here. AGENTS §13 puts verify/ship bookkeeping on
+   `main` **after** the PR merges, and you are detached — anything you write to disk goes nowhere.
+   **This has stranded a verify cost block twice** (SPEC-119, SPEC-120), because the shared
+   closing-steps template used to tell verify to do exactly that. It no longer does.
+2. **Emit your `## Cost readout` block** as the last thing you write. The orchestrator lands it in
+   `cost.sessions` on `main` at ship and runs `just advance-cycle SPEC-123 ship` there.
+3. **Give the verdict** — ✅ APPROVED / ⚠ PUNCH LIST / ❌ REJECTED. Itemize any punch list in the
+   return message; **do not apply it.**
+
+**Your return message is the deliverable.** Rulings on AC-6 and AC-7 belong in it explicitly —
+they are the two things the orchestrator cannot decide without you.
 
 ### Cost
 
