@@ -47,6 +47,28 @@ cost:
         `docs/backlog.md` entry that says "measure before claiming either way",
         and because two separate roadmap items (encoder threading, the deploy
         pipeline benchmark) are gated on the answer.
+    - cycle: build
+      agent: claude-opus-5
+      interface: claude-code
+      tokens_total: 43554091
+      duration_minutes: 189
+      recorded_at: 2026-08-17
+      tokens_breakdown:
+        input: 484
+        output: 252173
+        cache_creation: 842153
+        cache_read: 42459281
+      estimated_usd: 32.80
+      note: >
+        MEASURED — transcript sum over 242 assistant messages, priced per
+        component at the Opus anchors the transcript's `.message.model` actually
+        reports ($5/$25 per MTok; cache_creation ×1.25 input, cache_read ×0.10
+        input). Cache reads are 97.5% of volume, so a flat rate would overstate
+        this by more than an order of magnitude (DEC-083). Transcript identified
+        by content — the only one of 100 in this project containing
+        `spec123_avif_thread_determinism` — not by recency. Wall clock includes
+        ~35 min blocked on a full `cargo test` run that had to finish before the
+        timing-sensitive harness re-run.
   totals:
     tokens_total: 0
     estimated_usd: 0
