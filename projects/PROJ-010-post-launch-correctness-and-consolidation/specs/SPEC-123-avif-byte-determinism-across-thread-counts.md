@@ -50,31 +50,33 @@ cost:
     - cycle: build
       agent: claude-opus-5
       interface: claude-code
-      tokens_total: 56575252
-      duration_minutes: 194
+      tokens_total: 67302832
+      duration_minutes: 215
       recorded_at: 2026-08-17
       tokens_breakdown:
-        input: 570
-        output: 282413
-        cache_creation: 896644
-        cache_read: 55395625
-      estimated_usd: 40.37
+        input: 636
+        output: 293635
+        cache_creation: 924671
+        cache_read: 66083890
+      estimated_usd: 46.17
       note: >
-        MEASURED — transcript sum over 285 assistant messages, priced per
+        MEASURED — transcript sum over 318 assistant messages, priced per
         component at the Opus anchors the transcript's `.message.model` actually
         reports ($5/$25 per MTok; cache_creation ×1.25 input, cache_read ×0.10
-        input). Cache reads are 97.9% of volume, so a flat rate would overstate
+        input). Cache reads are 98.2% of volume, so a flat rate would overstate
         this by more than an order of magnitude (DEC-083). Transcript identified
         by content — the only one of 100 in this project containing
         `spec123_avif_thread_determinism` — not by recency. ⚠ A THIRD DATA POINT
-        FOR THE MEASURE-AT-THE-END RULE, after SPEC-114 and SPEC-117: this cycle
-        first recorded $32.80 at 242 messages, with the PR already open and only
-        CI observation left. The final figure is $40.37 — the "almost done"
-        reading was 23% low, because on a 97.9%-cache-read cycle the tail
-        exchanges each re-read the whole accumulated context. A few exchanges
-        after this measurement remain (CI settle + the closing readout), so even
-        this number is a small undercount rather than an exact total. Wall clock
-        includes ~35 min blocked on a full `cargo test` that had to finish
+        FOR THE MEASURE-AT-THE-END RULE, after SPEC-114 and SPEC-117, and this
+        one has a sharper edge: the cycle recorded $32.80 at 242 messages with
+        the PR already open and only CI observation left, then $40.37 at 285,
+        then $46.17 at 318. **The "almost done" reading was 29% low, and the
+        overrun was almost entirely spent WATCHING CI** — on a 98.2%-cache-read
+        cycle every poll re-reads the whole accumulated context, so a quiet
+        wait costs about as much as real work. Concrete lesson for the next
+        cycle prompt: watching a CI matrix settle cost **$5.80** here; measure
+        cost after CI, and prefer one long wait to many short polls. Wall clock
+        also includes ~35 min blocked on a full `cargo test` that had to finish
         before the timing-sensitive harness re-run.
   totals:
     tokens_total: 0
