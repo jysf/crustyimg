@@ -50,25 +50,32 @@ cost:
     - cycle: build
       agent: claude-opus-5
       interface: claude-code
-      tokens_total: 43554091
-      duration_minutes: 189
+      tokens_total: 56575252
+      duration_minutes: 194
       recorded_at: 2026-08-17
       tokens_breakdown:
-        input: 484
-        output: 252173
-        cache_creation: 842153
-        cache_read: 42459281
-      estimated_usd: 32.80
+        input: 570
+        output: 282413
+        cache_creation: 896644
+        cache_read: 55395625
+      estimated_usd: 40.37
       note: >
-        MEASURED — transcript sum over 242 assistant messages, priced per
+        MEASURED — transcript sum over 285 assistant messages, priced per
         component at the Opus anchors the transcript's `.message.model` actually
         reports ($5/$25 per MTok; cache_creation ×1.25 input, cache_read ×0.10
-        input). Cache reads are 97.5% of volume, so a flat rate would overstate
+        input). Cache reads are 97.9% of volume, so a flat rate would overstate
         this by more than an order of magnitude (DEC-083). Transcript identified
         by content — the only one of 100 in this project containing
-        `spec123_avif_thread_determinism` — not by recency. Wall clock includes
-        ~35 min blocked on a full `cargo test` run that had to finish before the
-        timing-sensitive harness re-run.
+        `spec123_avif_thread_determinism` — not by recency. ⚠ A THIRD DATA POINT
+        FOR THE MEASURE-AT-THE-END RULE, after SPEC-114 and SPEC-117: this cycle
+        first recorded $32.80 at 242 messages, with the PR already open and only
+        CI observation left. The final figure is $40.37 — the "almost done"
+        reading was 23% low, because on a 97.9%-cache-read cycle the tail
+        exchanges each re-read the whole accumulated context. A few exchanges
+        after this measurement remain (CI settle + the closing readout), so even
+        this number is a small undercount rather than an exact total. Wall clock
+        includes ~35 min blocked on a full `cargo test` that had to finish
+        before the timing-sensitive harness re-run.
   totals:
     tokens_total: 0
     estimated_usd: 0
