@@ -50,9 +50,79 @@ threading); it does not put anyone on hold.
      changes no pool. **A matrix built on `--jobs` for `convert` measures one thread count three
      times and reports a confident false "deterministic".**
 
-**Establish empirically which lever reaches each of the three verbs before you collect a single
-hash.** Whether a scoped `install` pool actually governs the nested rayon calls inside `ravif` is
-the kind of thing that is obvious in the docs and wrong in practice.
+**Use `RAYON_NUM_THREADS` as the primary lever.** It reaches all three verbs uniformly, including
+`convert`, where `--jobs` is inert. Run `--jobs` as a **second, confirming leg on `optimize` with a
+single input** — batch size 1, so the only thing varying is the encoder's pool and not the file
+fan-out. Both call sites do `pool.install(..)` (`optimize.rs:181`, `build.rs:666`), so nested rayon
+work should inherit the scoped pool; confirm that it does rather than assuming it.
+
+**Establish which lever reaches each verb before you collect a single hash.**
+
+## ⚡ Thread count is an ENCODER PARAMETER, not a scheduling detail
+
+Read `ravif` 0.13.0 `av1encoder.rs:651-655` before you design the matrix:
+
+```rust
+let tiles = {
+    let threads = p.threads.unwrap_or_else(rayon::current_num_threads);
+    threads.min((p.width * p.height) / (p.speed.min_tile_size as usize).pow(2))
+};
+```
+
+**The ambient thread count sets the AV1 tile count.** Tiles are a bitstream-level partitioning —
+tile boundaries reset entropy-coding contexts — so a different tile count is a different bitstream
+**by construction**, before rav1e's nondeterminism bug (#2781) enters the picture at all.
+
+So the expected verdict is **non-deterministic, for a structural reason**. That is a prior, not a
+result: **you still have to measure it.** A plausible answer is not a checked one, and this repo
+has been wrong about exactly that before. But budget for AC-6 firing — the correction sweep is the
+likely path, not the unlikely one.
+
+### The third false-null mechanism — the clamp
+
+That `.min(..)` is a trap the spec does not list. `tiles = min(threads, (w*h) / min_tile_size²)`,
+and at crustyimg's default speed 6, `min_tile_size` is **128 or 256** depending on ravif's
+`high_quality` gate (`quantizer > quality_to_quantizer(80.)`, `:544`) — which the quality search in
+`optimize`/`web` will move around under you.
+
+Computed for the corpus:
+
+| input | size-term at 128 | size-term at 256 |
+|---|---|---|
+| `graphic_large.png` (512²) | 16 | **4** |
+| `photo_forest_cc0.jpg` (800×532) | 25 | **6** |
+
+On an 8-core machine, a 1 / 4 / 8 matrix over `graphic_large.png` in the 256 case clamps to tiles
+**1 / 4 / 4** — two legs byte-identical, the timing control fires anyway, and the table reads as
+"deterministic above 4 threads" when it is only the clamp.
+
+**So: compute the size-term for each input and quality you use, report it next to the hashes, and
+pick inputs where the thread term binds across your whole range.** A hash table without its clamp
+column is not interpretable.
+
+### Record OUTPUT SIZE beside the hash — one column, and it answers a second question
+
+You are already producing these artifacts at each thread count. **Record their byte size too.**
+
+Tiles are coded independently, so more tiles should cost compression efficiency — ravif's own
+comment concedes it: *"AV1 needs all the CPU power you can give it, except when it'd create
+inefficiently tiny tiles."* If that holds, **crustyimg's quality-per-byte today varies with the
+machine's core count**, which matters rather a lot on this tool.
+
+That is a prediction from reading the source, **not a measurement**. Your table converts it into
+one for the cost of a `wc -c`. Report it whichever way it comes out — including "no material size
+difference", which is equally useful and would close the question.
+
+## Call 4 is load-bearing, not the cheap adjacent extra
+
+The spec frames run-to-run stability at a fixed thread count as one extra loop. **It now decides
+something.** If tiling explains the variance, then pinning the thread count would remove it — and
+whether that is *sufficient* depends entirely on whether output is stable run-to-run once the count
+is fixed. If it is, a pin is a real fix; if it is not, there is residual nondeterminism underneath
+(the #2781 shape) and a pin only narrows the problem.
+
+**Run it with enough repeats to mean something** — three is not a stability claim — and report it as
+its own result, not a footnote.
 
 ## Call 1 in detail, because the whole spec rests on it
 

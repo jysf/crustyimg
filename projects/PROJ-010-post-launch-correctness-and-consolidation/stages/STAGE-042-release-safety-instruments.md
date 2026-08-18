@@ -205,6 +205,43 @@ failures on documented paths.
   Perf, drift, and a false contract line — non-blocking. **Sequence after SPEC-123** — confirm file-level parallelism cannot
   perturb per-file output bytes before shipping it.
 
+- [ ] (not yet written) — [S/M] **Pin the AVIF encoder's thread count so output does not depend
+  on the ambient rayon pool.** ⛔ **Gated on SPEC-123's result; needs a maintainer ruling.**
+  `src/sink/mod.rs:679` constructs `AvifEncoder::new_with_speed_quality(..)` and **never calls
+  `with_num_threads`**, so the encoder takes `image` 0.25.10's documented default — *"all threads
+  in the default `rayon` thread pool"* (`codecs/avif/encoder.rs:89-91`).
+  **That is not merely a scheduling detail.** `ravif` 0.13.0 `av1encoder.rs:651-655` computes
+  `tiles = threads.min((w*h) / min_tile_size²)`, so the ambient count sets the **AV1 tile count**,
+  and tile boundaries reset entropy-coding contexts — a different tile count is a different
+  bitstream by construction, before rav1e's nondeterminism bug (#2781) is reached.
+  **The concrete exposure:** the pool size is neither a cache-key component (DEC-058) nor part of
+  the lockfile's `[env]`, so `crustyimg build -j 2` and `build -j 8` can write different bytes for
+  the same input at the same version — and `src/build/lock.rs` treats an output-hash change under
+  the **same** `env.target` as *a real regression*. The tool would flag its own thread setting as
+  drift. `RAYON_NUM_THREADS` reaches every verb the same way.
+  **Why a pin is attractive rather than just retracting the claim:** both terms of that `min` are
+  machine-independent once `threads` is fixed, so `with_num_threads(Some(N))` makes tiling
+  machine-independent. Unlike DEC-077's decode pin to one thread (a measured ~3.8× cost), N is a
+  free parameter, so the encode stays multi-threaded — but **this is not a performance win, and
+  should not be sold as one.** Today the encoder already takes every core; a pin can only match or
+  reduce that.
+  ⚠ **The real second axis is quality-per-byte, and it runs the other way.** A still image is one
+  frame, so rav1e's parallelism here is tile-level: `threads` and `tiles` are the same knob
+  (`:653-654`; `cfg.with_threads` at `:690` is only set when `threads` is `Some`). Tiles are coded
+  independently, so more of them costs compression efficiency — ravif's own comment concedes it:
+  *"AV1 needs all the CPU power you can give it, except when it'd create inefficiently tiny
+  tiles."* **You cannot buy encode parallelism without spending quality-per-byte**, and today
+  crustyimg picks maximum parallelism implicitly by taking the default.
+  **Which means output quality-per-byte today varies with the machine's core count** — a 4-core
+  laptop and a 32-core CI box plausibly differ, on a tool whose thesis is quality-per-byte.
+  Predicted from the source, **not yet measured**; SPEC-123's harness answers it for the cost of
+  one extra column (see its prompt).
+  A pin's sufficiency depends on SPEC-123's Call 4: stable run-to-run at a fixed count → a pin is
+  a real fix; not stable → residual nondeterminism underneath and a pin only narrows it.
+  ⚠ **It changes every AVIF output byte**, so if it goes ahead it should ride STAGE-046's
+  byte-changing wave (SPEC-121/122) rather than land alone. **Do not scope before SPEC-123
+  reports.**
+
 **Count:** 1 framed (SPEC-118) / 7 pending / 1 chore done
 
 > **Nine framework-tooling items moved to STAGE-047 on 2026-08-16.** They were about `just`,
@@ -218,6 +255,13 @@ failures on documented paths.
 > the tool silently processes less than the user handed it and reports success — not an
 > instrument for catching one. They landed here only because they were filed while looking at
 > instruments.
+
+> **One follow-on candidate filed 2026-08-17**, from a design-time read of the encoder call site
+> while writing SPEC-123's build prompt: crustyimg never pins the AVIF encoder's thread count, and
+> that count sets AV1 tiling. Filed rather than acted on — it is gated on SPEC-123's verdict and
+> wants a maintainer ruling on whether to pin or to retract the reproducibility language.
+
+**Count:** 2 framed (SPEC-118, SPEC-123) / 7 pending / 1 chore done
 
 ## Design Notes
 

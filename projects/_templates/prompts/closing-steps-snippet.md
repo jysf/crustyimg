@@ -45,17 +45,35 @@ When you finish, in this order:
 
 **For a VERIFY prompt:**
 
+> ⚠ **Rewritten 2026-08-17.** The previous version told verify to append to
+> `cost.sessions` and run `advance-cycle` — edits AGENTS §13 puts on `main` **after**
+> the PR merges, made from a detached worktree that is never pushed. **It stranded a
+> cost block twice** (SPEC-119, SPEC-120), and the handoff's workaround was to
+> transcribe from the readout by hand. The instruction, not the executors, was wrong.
+
 ```
 When you finish, in this order:
 
-1. Append a verify cost session entry to `cost.sessions` (see cost-snippet.md).
-2. Run `just advance-cycle SPEC-NNN ship`, and CONFIRM it moved (see above).
-3. Give the verdict: ✅ APPROVED / ⚠ PUNCH LIST / ❌ REJECTED.
+1. MAKE NO COMMITS. Verify is READ-ONLY. You are in a detached worktree, and
+   AGENTS §13 puts verify/ship bookkeeping on `main` after the PR merges —
+   anything you write to disk here goes nowhere.
+2. Emit your `## Cost readout` block (see cost-snippet.md) as the last thing you
+   write. The ORCHESTRATOR lands it in `cost.sessions` on `main` at ship, and
+   runs `just advance-cycle SPEC-NNN ship` there, where the change can actually
+   persist and be confirmed by a diff.
+3. Give the verdict: ✅ APPROVED / ⚠ PUNCH LIST / ❌ REJECTED. Itemize the punch
+   list in the return message — do not apply it.
+
+YOUR RETURN MESSAGE IS THE DELIVERABLE. Nothing you leave on disk survives.
 ```
 
 ---
 
 ## Why step 4 says "confirm it moved"
+
+> Step 4 is the **build** block's. Verify no longer runs `advance-cycle` at all — the
+> orchestrator does, on `main`, where the write survives. The confirm-it-moved
+> discipline transfers with it.
 
 `advance-cycle` resolves the spec through `find_spec`, which until 2026-08-14
 also matched `prompts/SPEC-NNN-<cycle>.md` — a cycle prompt shares the spec's
