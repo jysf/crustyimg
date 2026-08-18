@@ -261,7 +261,7 @@ the corpus, the verbs and the lever are all capable of registering a thread-coun
 change; leg A's null is a property of the shipped build, not of the measurement
 [[a-control-you-never-verified-applied-is-not-a-control]].
 
-### Leg F — the cross-check that names the shipped tile count
+### Leg F — the cross-check that BOUNDS the shipped tile count
 
 | input | shipped | probe @ 14 | |
 |---|---|---|---|
@@ -290,7 +290,7 @@ A 14-core and a 16-core host emit identical AVIF bytes here; an 8-core and a
 would be the wrong key — it would churn `[env]` between machines whose output
 actually agrees. Whatever lands must key on the resulting tile grid, or on nothing.
 
-Two further things fall out of this identity: the byte differences in leg E are
+Two further things fall out of the match at 14: the byte differences in leg E are
 attributable to the **tile count** and not to threading nondeterminism (same
 tiles ⇒ same bytes, serial or parallel), and `rav1e`'s #2781 did not fire in any
 run here.
