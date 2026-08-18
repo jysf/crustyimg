@@ -2,7 +2,7 @@
 task:
   id: SPEC-121
   type: bug
-  cycle: design
+  cycle: verify
   blocked: false
   priority: high
   complexity: M
@@ -248,18 +248,77 @@ Written during **design**, before build. AC-1 through AC-4 **fail on today's
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
-- **New decisions emitted:**
+- **Branch:** `fix/spec-121-ops-preserve-colour-type-and-bit-depth`
+- **PR (if applicable):** opened, not merged (see below)
+- **All acceptance criteria met?** yes, with two findings filed rather than
+  fixed (both explicitly in-scope to file, not fix — see Deviations):
+  - AC-1 through AC-6, AC-9, AC-10: met and driven.
+  - AC-7: met — `convert`/`optimize`/`auto-orient` confirmed byte-identical
+    to `main` (`cmp` on real binary output, three verbs).
+  - AC-8: driven both ways. **Without** a version bump (this build's actual
+    state, `0.7.0` unchanged) the contract does NOT hold — `--check`/`build`
+    silently serve stale pre-fix bytes. **With** a version bump (a
+    transient, uncommitted `0.7.1` experiment, reverted before any commit)
+    all four checks hold. Filed as a STAGE-042 backlog item per Call 4's
+    "report it, do not design around it."
+- **New decisions emitted:** DEC-095 (`decisions/DEC-095-ops-preserve-colour-type-and-bit-depth-the-byte-change-and-its-migration.md`),
+  shared with SPEC-122, `affected_scope: src/operation/**, src/sink/**`.
 - **Deviations from spec:**
+  - The "Failing Tests" section describes tests as "written during design,
+    before build," but no test files existed on `main` at build start (only
+    the spec doc and build prompt were committed at design —
+    `git log --all` shows no commit adding `tests/colour_type_preservation.rs`
+    or the AC-5 sink test). Wrote them during build instead, following the
+    section's descriptions; confirmed each test's RED state pre-fix via the
+    AC-9 revert exercise below rather than via an actual pre-implementation
+    run (since the fix and the tests were written in the same session).
+  - Call 3's warning lives directly in `sink::encode_to_bytes_with` via
+    `eprintln!`, not through the `Image`-carries-a-flag /
+    CLI-prints-the-warning pattern `TRUNCATED_JPEG_WARNING`/
+    `ANIMATED_INPUT_WARNING` use. DEC-090 (that pattern's proposed
+    generalization, the `log` facade) is still `type: recommendation` /
+    PROPOSED, not accepted, so there is no installed logger to route
+    through; a direct `eprintln!` matches "diagnostics go to stderr"
+    (AGENTS §11) and "a one-line diagnostic at the sink" literally, with
+    the least new machinery.
+  - `Resize::apply` still widens RGB to RGBA before resizing (does not
+    resize the narrower `Rgb8`/`Rgb16` buffer directly, though
+    `fast_image_resize`'s `IntoImageView` impls would allow it) — a
+    deliberate choice to keep one shared widen/narrow rule across all three
+    ops ahead of SPEC-122 landing in the same function. Recorded as an
+    Alternative Considered in DEC-095, not a silent omission.
 - **Follow-up work identified:**
+  - STAGE-042 backlog: the cache-key-vs-version-bump finding (AC-8, above).
+  - STAGE-042 backlog / DEC-095 Consequences: lossless WebP has the
+    identical 8-bit-only silent-downgrade gap Call 3 documents for
+    JPEG/lossy WebP, discovered while driving `web` on a 16-bit source
+    (`optimize`'s smallest-candidate search picked WebP over PNG for that
+    fixture). Call 3's settled scope does not cover it; filed, not fixed.
+  - Corrected the "pipeline is 8-bit throughout" claim (`docs/lab-plan-2026-08.md`
+    F8, `docs/roadmap.md`) per the spec's sweep requirement — grep scope:
+    `README.md`, `docs/*.md`, `decisions/*.md`, `demo/*.{html,js}`, and
+    doc-comment hits (`8.bit`/`bit depth`/`colour type`/`color type`) across
+    `src/**`; the `src/` hits (AVIF/HEIC/SVG decoder doc comments) are
+    accurate as written and left alone.
 
 ### Build-phase reflection (3 questions, short answers)
 
-1. **What was unclear in the spec that slowed you down?**
-2. **Was there a constraint or decision that should have been listed but wasn't?**
-3. **If you did this task again, what would you do differently?**
+1. **What was unclear in the spec that slowed you down?** Whether the
+   "Failing Tests" were actually written to disk during design (they
+   weren't — see Deviations). Otherwise the spec was unusually complete:
+   Call 4's migration analysis and the two controls (AC-3, AC-9) meant no
+   design-level ambiguity about *what* to build, only about test-authoring
+   mechanics.
+2. **Was there a constraint or decision that should have been listed but
+   wasn't?** DEC-090's actual status (PROPOSED, not accepted) — the spec's
+   "Implementation Context" lists DEC-090 as a decision "that applies"
+   without flagging that it is unaccepted, which shapes how Call 3's
+   diagnostic should be wired (see Deviations).
+3. **If you did this task again, what would you do differently?** Drive
+   AC-8 earlier — the finding it surfaced (cache key needs a version bump
+   to change) is exactly the kind of thing that could reshape Call 4's
+   framing if found at design time instead of build time. It didn't here
+   (Call 4's core claim holds, conditionally), but it easily could have.
 
 ---
 
