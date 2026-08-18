@@ -2,7 +2,7 @@
 task:
   id: SPEC-123
   type: task
-  cycle: design
+  cycle: verify
   blocked: false
   priority: high
   complexity: S
@@ -215,7 +215,7 @@ load-bearing criterion in their place, exactly as in SPEC-120.
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
 - **Branch:** `chore/spec-123-avif-byte-determinism`
-- **PR (if applicable):** #178
+- **PR (if applicable):** #179
 - **All acceptance criteria met?** yes (AC-6 did not fire — see below)
 - **New decisions emitted:** **DEC-094** — *AVIF thread settings never reach the encoder — the
   machine's core count does.* `affected_scope: src/sink/**`, `src/quality/mod.rs`.
@@ -235,7 +235,7 @@ load-bearing criterion in their place, exactly as in SPEC-120.
      because it sets the AVIF tile count. Until then `diff` can flag a differently-cored machine as
      a real regression under the same `env.target`. Not done here: AC-7 forbids a `src/` edit.
   2. **Split STAGE-042's encoder-pin item in two.** `image/rayon` is the *performance* lever
-     (measured 5.3× / 4.1×, byte-identical on a 14-core host); `with_num_threads(Some(N))` is the
+     (measured 5.7× / 4.4×, byte-identical on a 14-core host); `with_num_threads(Some(N))` is the
      *determinism* lever (changes every byte). They were one item because the encoder was believed
      to be multi-threaded already. It is not.
   3. **Consider whether core-count tiling is the right default at all.** The shipped build takes
@@ -256,6 +256,19 @@ Mechanism: `ravif` is compiled without its `threading` feature (reachable only v
 sequential `join`, and `current_num_threads()` = `std::thread::available_parallelism()`. Full
 table, controls and numbers in **DEC-094**; re-derive with
 `python3 scripts/spec123_avif_thread_determinism.py`.
+
+### AC ledger — each criterion and the evidence that meets it
+
+| AC | evidence | met |
+|---|---|---|
+| **AC-1** ≥3 thread counts | `RAYON_NUM_THREADS` ∈ {1, 4, 14} (1 / middle / all cores), same input, version, features, machine. Hashes reported, verdict derived after. | yes |
+| **AC-2** the control fires | ⚠ **Read carefully.** On the *shipped* build the control **does not fire on the encode** — `cpu/wall` 0.99–1.00 across every leg, timings flat to the millisecond — and *that is the verdict*, not a gap. Two controls make the null earned rather than assumed. **(i) Positive control:** the `--features image/rayon` probe, same harness, same corpus, same verbs, moves the bytes (3 distinct hashes/input), the clock (0.530 → 0.093 s) and `cpu/wall` (1.00 → 7.09) — the measurement demonstrably *can* register a thread-count change. **(ii) In-process control:** in leg A2, `web`'s auto path at 14 threads runs `cpu/wall` **1.17** against 1.00 at one thread, reproduced on three independent runs — so `RAYON_NUM_THREADS` verifiably took effect *inside the very process whose output did not move*. It reached the program; it did not reach the encoder. Leg F then pins the shipped tile count to the core count by byte-identity. | yes |
+| **AC-3** shipped binary, 3 verbs | `convert --format avif`, `web`, `optimize`, all through `target-full/release/crustyimg`; no library harness. ⚠ Disclosed weakness: with `--format` pinned, all three collapse to one identical encoder call at q80, so **leg A2** additionally drives `web`/`optimize` on their auto path (q85). | yes |
+| **AC-4** run-to-run at a fixed count | 10 repeats × 3 verbs at `RAYON_NUM_THREADS=14` → 1 distinct hash each (30 runs). Stable, so a pin would be *sufficient*, not merely narrowing. | yes |
+| **AC-5** verdict as one of three | Call 3's **third** branch, stated verbatim above. | yes |
+| **AC-6** corrections if non-deterministic | **Did not fire** — the verdict is not "non-deterministic". Sweep run and cited anyway (below); nothing falsified. | n/a |
+| **AC-7** no functional `src/` change | `git diff main -- src/` is **empty**. Shipped test suite untouched; `cargo fmt --check` rc=0, `cargo clippy --all-targets -- -D warnings` rc=0, `cargo test` green (exit codes read from `$?`, never through a pipe). | yes |
+| **AC-8** reproducible from the harness | Harness committed at `scripts/spec123_avif_thread_determinism.py`; run end to end twice on an idle machine — **43** hash occurrences, **9** distinct values, identical multiset, compared mechanically rather than by eye. | yes |
 
 ### AC-6's sweep, cited
 

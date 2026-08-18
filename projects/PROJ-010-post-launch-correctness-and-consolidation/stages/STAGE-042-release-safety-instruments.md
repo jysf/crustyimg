@@ -241,8 +241,8 @@ failures on documented paths.
   ⚠ **"Today the encoder already takes every core" was wrong — measured `cpu/wall ≈ 0.99` on every
   shipped leg. The encode is serial, at core-count tiles: crustyimg pays the full multi-tile
   compression penalty and collects none of the parallelism.** That splits this item in two, and the
-  halves are separable: **`image/rayon` is the performance lever** (measured 5.3× on the photo,
-  4.1× on the graphic, at byte-identical output on a 14-core host, since the tile count does not
+  halves are separable: **`image/rayon` is the performance lever** (measured 5.7× on the photo,
+  4.4× on the graphic, at byte-identical output on a 14-core host, since the tile count does not
   move), **`with_num_threads(Some(N))` is the determinism lever** (and it changes every byte).
   Scope them as two decisions, not one.
   ⚠ **The real second axis is quality-per-byte, and it runs the other way.** A still image is one

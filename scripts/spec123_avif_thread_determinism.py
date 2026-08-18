@@ -38,6 +38,9 @@ OS — not `RAYON_NUM_THREADS`, not `--jobs` — and the encode itself is serial
 
   A  shipped binary × {convert, web, optimize} × {photo, graphic}
      × RAYON_NUM_THREADS ∈ threads          → sha256, bytes, wall, cpu
+  A2 shipped binary, the AUTO decision path (no `--format` pin): `web` and
+     `optimize` pick AVIF themselves and encode at 85, not 80. Without this the
+     matrix is three verbs making one identical encoder call.
   B  shipped `optimize --jobs N`, batch size 1 (the scoped-pool lever;
      `src/cli/optimize.rs:177`). ⚠ `--jobs` is inert on `convert` — six serial
      verbs ignore it (STAGE-042) — so it is a confirming leg on `optimize` only.
@@ -74,6 +77,7 @@ import json
 import os
 import platform
 import resource
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -89,14 +93,27 @@ INPUTS = [
 ]
 
 # (label, argv-after-input, quality the verb encodes at)
-#   convert  → sink::AVIF_DEFAULT_QUALITY (80)      `src/sink/mod.rs:59`
-#   optimize → sink::FAST_LOSSY_QUALITY  (85)       `src/sink/mod.rs:80`
-#   web      → the same fast-mode 85, confirmed from `web --json`'s candidate
+#
+# ⚠ Pinning `--format avif` drops ALL THREE verbs to the sink default, 80
+# (`sink::AVIF_DEFAULT_QUALITY`, `src/sink/mod.rs:59`) — measured, not assumed:
+# `web --format avif` and `optimize --format avif` are byte-identical to
+# `convert -q 80` (100344 B, `db798cf…`), and NOT to `convert -q 85`
+# (125548 B, `1c5ed3f…`). So the pinned matrix is three verbs driving one
+# encoder call, which is a weaker triple than it looks.
+#
+# Their AUTO path is the one users actually touch, and it encodes at 85
+# (`sink::FAST_LOSSY_QUALITY`, `src/sink/mod.rs:80`) — `web`/`optimize --json`
+# both report `quality: 85`, and the output is byte-identical to
+# `convert -q 85`. Leg A2 drives that path so the matrix is not one encode
+# wearing three hats.
 VERBS = [
     ("convert", ["convert"], 80),
-    ("web", ["web"], 85),
-    ("optimize", ["optimize"], 85),
+    ("web", ["web"], 80),
+    ("optimize", ["optimize"], 80),
 ]
+
+# Verbs whose auto-decision picks AVIF for the photo input (leg A2).
+AUTO_VERBS = [("web", ["web"], 85), ("optimize", ["optimize"], 85)]
 
 AVIF_SPEED = 6  # src/sink/mod.rs:48
 
@@ -256,6 +273,35 @@ def leg_a(binary, work, threads_list, cores, results):
     return rows
 
 
+def leg_a2(binary, work, threads_list, cores, results):
+    """The AUTO-decision path — no `--format` pin, so the verb picks AVIF itself
+    and encodes at FAST_LOSSY_QUALITY. This is the surface users touch."""
+    rows = []
+    label, fname, w, h = INPUTS[0]
+    src = REPO_ROOT / "bench" / "corpus" / fname
+    for verb, argv, q in AUTO_VERBS:
+        for t in threads_list:
+            out_dir = work / f"A2_{verb}_t{t}"
+            out_dir.mkdir(exist_ok=True)
+            cmd = [binary, *argv, src, "--out-dir", out_dir]
+            rc, _, err, wall, cpu = run(cmd, env={"RAYON_NUM_THREADS": str(t)})
+            produced = sorted(out_dir.glob("*"))
+            dst = produced[0] if produced else None
+            r = {
+                "verb": f"{verb} (auto)", "input": label, "threads": t,
+                "quality": q, "rc": rc,
+                "produced": dst.name if dst else None,
+                "sha256": sha256(dst) if dst else None,
+                "bytes": dst.stat().st_size if dst else None,
+                "wall_s": round(wall, 4),
+                "cpu_per_wall": round(cpu / wall, 2) if wall > 0 else None,
+                **predict_tiles(t, w, h, q, cores),
+            }
+            rows.append(r)
+    results["leg_a2_auto_path"] = rows
+    return rows
+
+
 def leg_b(binary, work, threads_list, cores, results):
     """`--jobs` on `optimize`, batch size 1 — the scoped-pool lever."""
     rows = []
@@ -376,6 +422,8 @@ def print_table(res):
 
     rows("LEG A — shipped binary, RAYON_NUM_THREADS", res["leg_a_rayon_matrix"],
          ["verb", "input", "threads"])
+    rows("LEG A2 — shipped binary, AUTO decision path (no --format pin, q85)",
+         res["leg_a2_auto_path"], ["verb", "input", "threads"])
     rows("LEG B — shipped binary, optimize --jobs (batch size 1)",
          res["leg_b_jobs"], ["verb", "input", "jobs"])
 
@@ -455,6 +503,7 @@ def main():
     }}
 
     a = leg_a(binary, work, threads_list, cores, res)
+    a2 = leg_a2(binary, work, threads_list, cores, res)
     leg_b(binary, work, threads_list, cores, res)
     leg_c(binary, work, cores, args.repeats, res)
     leg_d(lean, work, res)
@@ -489,6 +538,9 @@ def main():
             {f"{k[0]}/{k[1]}": len(v) for k, v in shipped_hashes.items()},
         "shipped_invariant_across_threads":
             all(len(v) == 1 for v in shipped_hashes.values()),
+        "auto_path_distinct_hashes_per_cell": {
+            f'{v}/{INPUTS[0][0]}': len({r["sha256"] for r in a2 if r["verb"] == v})
+            for v in {r["verb"] for r in a2}},
         "jobs_invariant": len({r["sha256"] for r in res["leg_b_jobs"]}) == 1,
         "run_to_run_stable": all(r["stable"] for r in res["leg_c_run_to_run"]),
     }
@@ -507,9 +559,7 @@ def main():
         print(f"work dir: {work}" if args.keep else "")
 
     if not args.keep and not args.work:
-        for p in work.glob("*"):
-            p.unlink()
-        work.rmdir()
+        shutil.rmtree(work, ignore_errors=True)   # leg A2 writes subdirectories
     return 0
 
 

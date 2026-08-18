@@ -116,7 +116,7 @@ Each of these needs its own confirmation before it is spec-able:
   (`src/build/lock.rs:32-37`)** — so `diff` can call a same-`target` cross-machine hash change a
   regression; **(b)** the shipped build pays the multi-tile compression penalty and collects none of
   the parallelism — **+1.5 %** bytes (photo) / **+47.9 %** (graphic) vs a 1-tile encode, at
-  **5.3× / 4.1×** the wall clock of the same tiles encoded in parallel.
+  **5.7× / 4.4×** the wall clock of the same tiles encoded in parallel.
   **Open follow-ups:** correct `lock.rs`'s caveat list (SPEC-123 shipped no `src/` change, so this
   is filed, not done); scope `with_num_threads(Some(N))` as the *determinism* lever and
   `image/rayon` as the separate *performance* lever. Re-derive with

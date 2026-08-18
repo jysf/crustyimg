@@ -61,7 +61,7 @@ Two riders, both measured, and both more consequential than the null:
 2. **crustyimg is on the wrong end of that trade.** The tile count is the machine's
    core count, so the shipped binary pays the **full multi-tile compression penalty
    and collects none of the parallelism**: measured **+1.5 %** bytes on the photo and
-   **+47.9 %** on the graphic versus a 1-tile encode, at **5.3× / 4.1× the wall clock**
+   **+47.9 %** on the graphic versus a 1-tile encode, at **5.7× / 4.4× the wall clock**
    of the same tile count encoded in parallel.
 
 This decision records the measurement and its scope. It does **not** change
@@ -125,11 +125,23 @@ Host: Darwin arm64, 14 cores, crustyimg 0.7.0 release, default features.
 Corpus: `bench/corpus/photo_forest_cc0.jpg` (800×532),
 `bench/corpus/graphic_large.png` (512×512).
 
-At speed 6 and the qualities these verbs use — `convert` 80
-(`sink::AVIF_DEFAULT_QUALITY`), `web`/`optimize` 85 (`sink::FAST_LOSSY_QUALITY`,
-read off `web --json`'s winning candidate) — `min_tile_size` is **128**, so the
-size term is **25** (photo) and **16** (graphic). Both exceed 14, so **the thread
-term binds across the whole range and no row in the main matrix is clamped.**
+**Which quality, measured rather than assumed.** Pinning `--format avif` drops all
+three verbs to the sink default **80** (`sink::AVIF_DEFAULT_QUALITY`): `web --format
+avif` and `optimize --format avif` are byte-identical to `convert -q 80`
+(100344 B, `db798cfaec702270`) and not to `convert -q 85` (125548 B,
+`1c5ed3f11c6f72e3`). Their **auto** path — no pin, the surface users actually hit —
+encodes at **85** (`sink::FAST_LOSSY_QUALITY`): `web`/`optimize --json` both report
+`quality: 85`, and the output is byte-identical to `convert -q 85`.
+
+⚠ **So the pinned matrix is three verbs making one identical encoder call** — a
+weaker triple than AC-3's wording implies. Leg A2 was added to drive the auto path
+as well, so the answer does not rest on one encode wearing three hats.
+
+At speed 6, both 80 and 85 land under ravif's `high_quality` threshold
+(`quality_to_quantizer(80.) = 121`; q80 → 121, *not* > 121; q85 → 99), so
+`min_tile_size` is **128** either way and the size term is **25** (photo) and
+**16** (graphic). Both exceed 14, so **the thread term binds across the whole range
+and no row in the main matrix is clamped.**
 
 ### Leg A — shipped binary, `RAYON_NUM_THREADS` ∈ {1, 4, 14}
 
@@ -137,20 +149,42 @@ Hashes are the first 16 hex digits of the SHA-256 of the output bytes.
 
 | verb | input | threads | sha256 | bytes | wall s | cpu/wall |
 |---|---|---|---|---|---|---|
-| convert | photo | 1 | `db798cfaec702270` | 100344 | 0.545 | 0.99 |
-| convert | photo | 4 | `db798cfaec702270` | 100344 | 0.540 | 1.00 |
-| convert | photo | 14 | `db798cfaec702270` | 100344 | 0.541 | 0.99 |
-| convert | graphic | 1 | `5ad74a803a7ce1aa` | 1272 | 0.144 | 0.98 |
-| convert | graphic | 4 | `5ad74a803a7ce1aa` | 1272 | 0.143 | 0.99 |
-| convert | graphic | 14 | `5ad74a803a7ce1aa` | 1272 | 0.142 | 0.99 |
-| web | photo | 1 / 4 / 14 | `db798cfaec702270` ×3 | 100344 | 0.550 / 0.550 / 0.549 | 0.99 |
-| web | graphic | 1 / 4 / 14 | `5ad74a803a7ce1aa` ×3 | 1272 | 0.147 / 0.146 / 0.147 | 0.99 |
-| optimize | photo | 1 / 4 / 14 | `db798cfaec702270` ×3 | 100344 | 0.540 / 0.541 / 0.540 | 0.99 |
-| optimize | graphic | 1 / 4 / 14 | `5ad74a803a7ce1aa` ×3 | 1272 | 0.144 / 0.143 / 0.143 | 0.99 |
+| convert | photo | 1 / 4 / 14 | `db798cfaec702270` ×3 | 100344 | 0.530 / 0.529 / 0.529 | 1.00 |
+| convert | graphic | 1 / 4 / 14 | `5ad74a803a7ce1aa` ×3 | 1272 | 0.140 / 0.139 / 0.140 | 0.99 |
+| web | photo | 1 / 4 / 14 | `db798cfaec702270` ×3 | 100344 | 0.534 / 0.535 / 0.534 | 1.00 |
+| web | graphic | 1 / 4 / 14 | `5ad74a803a7ce1aa` ×3 | 1272 | 0.144 / 0.143 / 0.144 | 0.99 |
+| optimize | photo | 1 / 4 / 14 | `db798cfaec702270` ×3 | 100344 | 0.530 / 0.529 / 0.528 | 1.00 |
+| optimize | graphic | 1 / 4 / 14 | `5ad74a803a7ce1aa` ×3 | 1272 | 0.140 / 0.141 / 0.140 | 0.99 |
 
-**18/18 cells invariant. `cpu/wall` never leaves 0.98–1.00 — one core's worth of
+**18/18 cells invariant. `cpu/wall` never leaves 0.99–1.00 — one core's worth of
 CPU for the whole wall clock, on every leg. The encode is serial and the lever
 did not move the work.**
+
+### Leg A2 — the AUTO-decision path, and an in-process control
+
+`--format avif` is a pin, and the pinned path is not the one users hit. Driving
+`web` and `optimize` with **no pin** (they pick AVIF themselves, at quality 85):
+
+| verb | input | threads | sha256 | bytes | wall s | cpu/wall |
+|---|---|---|---|---|---|---|
+| web (auto) | photo | 1 | `1c5ed3f11c6f72e3` | 125548 | 0.630 | 1.00 |
+| web (auto) | photo | 4 | `1c5ed3f11c6f72e3` | 125548 | 0.628 | 1.01 |
+| web (auto) | photo | 14 | `1c5ed3f11c6f72e3` | 125548 | 0.632 | **1.17** |
+| optimize (auto) | photo | 1 / 4 / 14 | `1c5ed3f11c6f72e3` ×3 | 125548 | 0.550 / 0.547 / 0.547 | 1.00 |
+
+Invariant, and byte-identical to `convert -q 85` — so the auto path is the same
+encoder call at a different quality, and it is equally blind to the setting.
+
+⚠ **But look at `web (auto)` at 14 threads: `cpu/wall` 1.17, against 1.00 at one
+thread.** Monotone in the thread count and reproduced on **three** independent
+runs (1.16, 1.17, 1.17). That is `web`'s own rayon work — the full-resolution
+content analysis its `--help` calls out — actually consuming the extra threads.
+
+**This is the control that closes the last hole in the null.** A sceptic can say
+"the hashes did not move because `RAYON_NUM_THREADS` never took effect in that
+process at all." Here it demonstrably did: the same env var, the same process, the
+same run, moved ~17 % more CPU through the analysis stage **while the output bytes
+stayed fixed**. The variable reached the program. It did not reach the encoder.
 
 ### Leg B — `optimize --jobs N`, batch size 1
 
@@ -161,9 +195,9 @@ is only meaningful here.
 
 | jobs | sha256 | bytes | wall s | cpu/wall |
 |---|---|---|---|---|
-| 1 | `db798cfaec702270` | 100344 | 0.540 | 0.99 |
-| 4 | `db798cfaec702270` | 100344 | 0.541 | 0.99 |
-| 14 | `db798cfaec702270` | 100344 | 0.542 | 0.99 |
+| 1 | `db798cfaec702270` | 100344 | 0.528 | 1.00 |
+| 4 | `db798cfaec702270` | 100344 | 0.528 | 1.00 |
+| 14 | `db798cfaec702270` | 100344 | 0.528 | 1.00 |
 
 Invariant, and identical to leg A's bytes. The scoped pool reaches the batch and
 not the encoder — consistent with `ravif` never asking rayon anything.
@@ -196,12 +230,12 @@ isolated `CARGO_TARGET_DIR`, never a shared one) run over the same matrix:
 
 | input | threads | sha256 | bytes | wall s | cpu/wall |
 |---|---|---|---|---|---|
-| photo | 1 | `8440985ac135b877` | 98847 | 0.554 | 0.97 |
-| photo | 4 | `f5a10e84cf2a522f` | 99303 | 0.187 | 2.90 |
-| photo | 14 | `db798cfaec702270` | 100344 | 0.102 | 6.60 |
-| graphic | 1 | `79673ecb15623ed5` | 860 | 0.159 | 0.98 |
-| graphic | 4 | `0006a371c3cad433` | 1017 | 0.055 | 2.85 |
-| graphic | 14 | `5ad74a803a7ce1aa` | 1272 | 0.035 | 4.96 |
+| photo | 1 | `8440985ac135b877` | 98847 | 0.528 | 1.00 |
+| photo | 4 | `f5a10e84cf2a522f` | 99303 | 0.184 | 2.91 |
+| photo | 14 | `db798cfaec702270` | 100344 | 0.093 | 7.09 |
+| graphic | 1 | `79673ecb15623ed5` | 860 | 0.154 | 0.99 |
+| graphic | 4 | `0006a371c3cad433` | 1017 | 0.053 | 2.90 |
+| graphic | 14 | `5ad74a803a7ce1aa` | 1272 | 0.032 | 5.21 |
 
 **The bytes move, the clock moves, and the CPU/wall ratio moves.** So the harness,
 the corpus, the verbs and the lever are all capable of registering a thread-count
@@ -232,11 +266,11 @@ gate (`av1encoder.rs:544/584`) — which, following the maths rather than the
 identifier, means **quality below 80**. At `convert -q 50` the graphic's size term
 drops from 16 to **4**, on the probe build:
 
-| threads | tiles | sha256 | bytes |
-|---|---|---|---|
-| 1 | 1 | `cd9ceefe56119779` | 819 |
-| 4 | 4 | `ef950c25db145e7d` | 1002 |
-| 14 | **4 (clamped)** | `ef950c25db145e7d` | 1002 |
+| threads | tiles | sha256 | bytes | wall s |
+|---|---|---|---|---|
+| 1 | 1 | `cd9ceefe56119779` | 819 | 0.097 |
+| 4 | 4 | `ef950c25db145e7d` | 1002 | 0.032 |
+| 14 | **4 (clamped)** | `ef950c25db145e7d` | 1002 | 0.032 |
 
 Two legs byte-identical *while the encoder is fully thread-sensitive*. A hash
 table without its clamp column reads that as "deterministic above 4 threads".
@@ -244,9 +278,11 @@ It is the `.min(..)`.
 
 ### Reproducibility (AC-8)
 
-The harness was run twice, end to end. All **37** hash occurrences across the two
-runs form an identical multiset (8 distinct values), compared mechanically rather
-than by eye.
+The harness was run twice, end to end, on an otherwise idle machine. All **43**
+hash occurrences across the two runs form an identical multiset (**9** distinct
+values), compared mechanically rather than by eye. Every table above is the first
+of those two runs; the wall-clock figures are from that run and are the only
+numbers here that are not bit-exact between them.
 
 ## Alternatives Considered
 
@@ -285,8 +321,7 @@ than by eye.
 - **Negative — crustyimg pays for tiling and gets nothing back.** Serial encode at
   core-count tiles is the worst cell of the matrix. Against a 1-tile encode of the
   same input: **+1,497 B (+1.5 %)** on the photo and **+412 B (+47.9 %)** on the
-  graphic. Against the same 14 tiles encoded in parallel: **0.545 s → 0.102 s
-  (5.3×)** on the photo and **0.144 s → 0.035 s (4.1×)** on the graphic.
+  graphic. Against the same 14 tiles encoded in parallel: **0.530 s → 0.093 s (5.7×)** on the photo and **0.140 s → 0.032 s (4.4×)** on the graphic.
   The proportional cost is far larger on small/graphic content, where 14 tiles over
   a 512×512 image is close to `ravif`'s own "inefficiently tiny tiles" caveat.
 
@@ -317,6 +352,12 @@ than by eye.
 - The serial-encode claim rests on `cpu/wall` measured per run, plus the `cargo
   tree` feature check with its own positive control — two independent kinds of
   evidence for the same fact.
+- `scripts/decisions-audit.sh` flags this record as overlapping **12** existing
+  decisions on `src/sink/**` / `src/quality/**` (DEC-003, -004, -006, -007, -016,
+  -019, -021, -022, -023, -027, -035, -044). Checked: none is contradicted. They
+  govern *what* the encoder is and at what quality/speed it is called; this one
+  records *what the thread count does to the bytes* and asserts no new constraint
+  on any of them. Nothing is superseded.
 
 **Revisit if:** anyone enables `image/rayon` or calls `with_num_threads` (the
 verdict flips to "non-deterministic across thread counts" the same day); `ravif`
