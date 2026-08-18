@@ -117,7 +117,12 @@ Each of these needs its own confirmation before it is spec-able:
   regression; **(b)** the shipped build pays the multi-tile compression penalty and collects none of
   the parallelism — **+1.5 %** bytes (photo) / **+47.9 %** (graphic) vs a 1-tile encode, at
   **5.7× / 4.4×** the wall clock of the same tiles encoded in parallel.
-  **Open follow-ups:** correct `lock.rs`'s caveat list (SPEC-123 shipped no `src/` change, so this
+  **Open follow-ups — tracked on STAGE-042, not here** (this file is read by no command;
+  `just backlog` reads the stage's `## Spec Backlog`). ⚠ Verify found the sharper defect:
+  not the caveat list at `lock.rs:32-37` but `:124-129`, which claims `[env]` distinguishes
+  "this same machine" when `env.target` is only `{ARCH}-{OS}` — and `:459-466` marks a
+  same-`env` hash change as drift unconditionally. Original wording follows:
+  correct `lock.rs`'s caveat list (SPEC-123 shipped no `src/` change, so this
   is filed, not done); scope `with_num_threads(Some(N))` as the *determinism* lever and
   `image/rayon` as the separate *performance* lever. Re-derive with
   `python3 scripts/spec123_avif_thread_determinism.py`.

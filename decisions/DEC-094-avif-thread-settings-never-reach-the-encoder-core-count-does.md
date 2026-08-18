@@ -29,6 +29,10 @@ superseded_by: null
 affected_scope:
   - src/sink/**
   - src/quality/mod.rs
+  # Added at verify: the lockfile is where this record's consequence bites.
+  # `[env]` cannot express "same machine" (see the Consequences section), so
+  # anyone touching the lock contract needs this decision surfaced.
+  - src/build/lock.rs
 
 tags:
   - avif
@@ -108,11 +112,26 @@ So `current_num_threads` is **not rayon's pool size** — it is the OS core coun
 which no environment variable and no CLI flag moves. And `join` is sequential, so
 the encode is single-threaded no matter what `tiles` says.
 
-**Mechanical check** (`cargo tree -e features --target aarch64-apple-darwin`):
-`feature "threading"` → **0** lines, `image feature "rayon"` → **0** lines,
-`ravif` → 1 line (a bare `ravif v0.13.0` node with no feature children).
-Positive control on the same grep: `image feature "jpeg"` → 1 line, so the
-pattern form does match when the feature is present.
+**Mechanical check — ⚠ REPLACED at verify (2026-08-17). The original was
+non-discriminating.** It read `cargo tree -e features` for `feature "threading"`
+→ 0 lines, `image feature "rayon"` → 0, `ravif` → 1 bare node, with `image
+feature "jpeg"` → 1 as a positive control.
+
+**Verify ran the negative control it lacked: on the PROBE tree, where threading is
+provably ON, all three sub-checks return identical values**, and the string
+`threading` appears in neither tree. The `jpeg` control proves only that the
+pattern *form* can match. `cargo tree` cannot see this feature at all, so it was
+never evidence [[a-deps-documented-default-is-a-claim-about-a-feature-set]].
+
+**The discriminating check is the build fingerprint**, and it is unambiguous:
+
+```
+shipped  ravif → features: []
+probe    ravif → features: ["threading"]
+```
+
+That is what establishes the shipped encode is serial, and separately what proves
+leg E's probe genuinely enabled the variable rather than merely being labelled so.
 
 Because `tiles` is a **bitstream-level** partitioning — tile boundaries reset
 entropy-coding contexts — a different tile count is a different file by
@@ -249,10 +268,27 @@ change; leg A's null is a property of the shipped build, not of the measurement
 | photo | `db798cfaec702270` | `db798cfaec702270` | **identical** |
 | graphic | `5ad74a803a7ce1aa` | `5ad74a803a7ce1aa` | **identical** |
 
-The shipped bytes land exactly on the probe's **14-tile** point and nowhere else
-(1 and 4 differ on both inputs). For the graphic the size term is 16, so a
-tile count of 16 was equally available and did **not** match — the shipped count
-is 14, the core count.
+⚠ **Corrected at verify (2026-08-17) — the claim that stood here was false.** It
+read *"the shipped bytes land exactly on the probe's 14-tile point and nowhere
+else … a tile count of 16 was equally available and did not match."* Verify swept
+N ∈ {1, 2, 4, 8, 12, 13, 14, 15, 16, 20, 25, 26, 30} and measured:
+
+- **graphic** matches the shipped bytes at **every N ≥ 12** — including 16, the
+  count the original text says did not match. Byte-identical over 3 repeats;
+  negative control at N = 8 differs.
+- **photo** matches at **N = 13–20 only** (not 12, not ≥ 25).
+
+`rav1e` quantizes a requested tile count to a legal tile grid, so a range of
+requests collapses onto one layout. **Leg F therefore BOUNDS the shipped tile
+count to a band — intersection ≈ 13–20 — and is not a positive identification of
+14.** The verdict does not rest on it: it rests on the build fingerprint, the
+`rayoff` shim, and `cpu/wall ≈ 0.99`.
+
+**⚡ Rider — core-count sensitivity is QUANTIZED, and it changes the filed fix.**
+A 14-core and a 16-core host emit identical AVIF bytes here; an 8-core and a
+14-core host do not. So recording the **raw core count** in the lockfile's `[env]`
+would be the wrong key — it would churn `[env]` between machines whose output
+actually agrees. Whatever lands must key on the resulting tile grid, or on nothing.
 
 Two further things fall out of this identity: the byte differences in leg E are
 attributable to the **tile count** and not to threading nondeterminism (same
@@ -346,12 +382,21 @@ numbers here that are not bit-exact between them.
 ## Validation
 
 - Two independent full runs of `scripts/spec123_avif_thread_determinism.py`
-  reproduce all 37 hashes (AC-8).
-- The null is earned by leg E (the probe moves the bytes) and leg F (the shipped
-  bytes are the probe's 14-tile point), not by the absence of a difference.
-- The serial-encode claim rests on `cpu/wall` measured per run, plus the `cargo
-  tree` feature check with its own positive control — two independent kinds of
-  evidence for the same fact.
+  reproduce all **43** hashes (AC-8). ⚠ *Corrected at verify: this said 37. The
+  spec's AC ledger said 43 and was right — 43 table occurrences over 9 distinct
+  values (39 JSON `sha256` rows + 4 leg-F restatements), multisets identical across
+  two runs.* Verify rebuilt all three binaries from scratch and reproduced every
+  hash in every leg bit-for-bit, including leg E's probe hashes, leg F's identity
+  and leg G's clamp.
+- The null is earned by leg E (the probe moves the bytes) and by leg F **bounding**
+  the shipped tile count to a band that excludes the low counts, not by the absence
+  of a difference. *Corrected at verify — see leg F; the original wording claimed a
+  point identification the data does not support.*
+- The serial-encode claim rests on `cpu/wall ≈ 0.99` measured per run **and on the
+  build fingerprint** (`features: []` shipped vs `["threading"]` probe). ⚠ *This
+  bullet previously counted the `cargo tree` feature check as the second
+  independent kind of evidence. It is not evidence at all — verify's negative
+  control showed it returns identical values on a tree where threading is ON.*
 - `scripts/decisions-audit.sh` flags this record as overlapping **12** existing
   decisions on `src/sink/**` / `src/quality/**` (DEC-003, -004, -006, -007, -016,
   -019, -021, -022, -023, -027, -035, -044). Checked: none is contradicted. They

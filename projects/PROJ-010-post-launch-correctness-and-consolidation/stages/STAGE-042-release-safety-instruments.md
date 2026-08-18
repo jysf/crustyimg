@@ -286,7 +286,34 @@ failures on documented paths.
 > that count sets AV1 tiling. Filed rather than acted on — it is gated on SPEC-123's verdict and
 > wants a maintainer ruling on whether to pin or to retract the reproducibility language.
 
-**Count:** 2 framed (SPEC-118, SPEC-123) / 7 pending / 1 chore done
+
+- [ ] (not yet written) — [S] **`[env]` cannot express "same machine", so `diff` reports a
+  differently-cored host as a real regression.** SPEC-123's AC-7 deferral, filed here at verify
+  because the build filed it in `docs/backlog.md`, **which no command reads** — `just backlog`
+  reads this section.
+  **The wrong text is not the one the build filed.** It filed the caveat list at
+  `src/build/lock.rs:32-37`. The directly false statement is `:124-129` — *"`[env]` exists so
+  `diff` can tell 'the encoder produced different bytes on this same machine'"* — when `env.target`
+  is `{ARCH}-{OS}`, which **cannot** establish same-machine. Combined with `HashChangedSameEnv ⇒
+  drift = true` **unconditionally** (`:459-466`, not even `strict`-gated), a same-arch host with a
+  different core count is reported as a **real regression**. That is a live false positive in
+  shipped code, not incomplete prose.
+  **Severity, measured at verify:** not reachable in this repo's own CI — no committed
+  `*.build.lock` exists and no workflow runs `build --check`/`--frozen`. It is a **user-facing**
+  exposure only. Filed-not-fixed is the right call.
+  ⚡ **The fix is NOT "add core count to `[env]`".** DEC-094's leg-F rider measured that core-count
+  sensitivity is **quantized** — a 14-core and a 16-core host emit identical bytes; 8-core and
+  14-core do not — so a raw core count would churn `[env]` between machines whose output agrees.
+  Key on the resulting tile grid, or on nothing. **That is the maintainer call**, and it is why
+  AC-7's literal "no `src/` diff" was the right reading: the correct fix was never a one-line
+  comment edit.
+  **Two shipped claims are true only while `ravif/threading` is off, and must be named conditional
+  when this lands:** `README.md:258` (*"the round trip is byte-stable"*, printed beside a `-j 8`
+  example) and `docs/USAGE.md:135` (*"`apply` replays it byte-identically across the directory, in
+  parallel"*). Both break the day `image/rayon` is enabled — so this item and the encoder-pin item
+  above move together.
+
+**Count:** 2 framed (SPEC-118, SPEC-123) / 8 pending / 1 chore done
 
 ## Design Notes
 
