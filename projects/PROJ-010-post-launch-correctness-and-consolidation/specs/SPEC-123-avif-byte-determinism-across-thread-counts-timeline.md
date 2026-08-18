@@ -13,13 +13,26 @@ Cycle prompts live in `prompts/SPEC-123-<cycle>.md`.
       lockfile's `hash`, the cache key) already assume an answer nobody has measured.
       ⚠ Thread count is **not** a component of the cache key and **not** in the lockfile's
       list of things output stability is qualified against.
-- [ ] **build** — prompt: `prompts/SPEC-123-build.md` (2026-08-16). Opus, own worktree, branch
-      `chore/spec-123-avif-byte-determinism`. **DEC-094 is reserved in the prompt** rather than
-      left to `next_id`, which cannot see a record on an unmerged branch. The deliverable is a
-      judgment about whether a null result is real or an ignored setting.
-      ⚠ The prompt carries a design-time finding the spec does not: **crustyimg never calls
-      `with_num_threads`** (`src/sink/mod.rs:679`), so the lever is `RAYON_NUM_THREADS` for the
-      serial verbs and `--jobs` for the two that read it — and **`--jobs` is silently ignored by
-      `convert`**, which would have measured one thread count three times.
-- [ ] **verify** — Opus, new session.
+- [x] **build** — 2026-08-17, Opus, PR #179, $46.17 / 215 min / 318 messages.
+      Prompt: `prompts/SPEC-123-build.md`. DEC-094 was reserved in the prompt rather than left
+      to `next_id` — no collision.
+      **Verdict: Call 3's THIRD branch — the encoder ignores the thread setting.** `ravif` is
+      compiled without its `threading` feature (reachable only via `image/rayon`, which
+      `avif = ["image/avif"]` does not enable), so the encode is **serial** and the tile count is
+      `available_parallelism()`. 18/18 cells identical; `--jobs` and `RAYON_NUM_THREADS` reach the
+      batch pool on some verbs and the **encoder on none**. DEC-094. No `src/` change (AC-7).
+      ⚠ **Two riders outrank the null:** AVIF output varies with the machine's **core count**,
+      which is in neither the cache key nor the lockfile's `[env]`/caveat list — so `diff` can call
+      a differently-cored machine a regression; and the shipped build takes the worst cell,
+      **+1.5% / +47.9%** bytes vs a 1-tile encode at **5.7× / 4.4×** the wall clock of the same
+      tiles in parallel. That **splits STAGE-042's pin item**: `image/rayon` is the performance
+      lever, `with_num_threads(Some(N))` the determinism lever.
+      ⚠ **Design predicted the opposite verdict, twice**, by quoting `image`'s doc comment without
+      checking the feature set. Both errors are corrected in place on STAGE-042.
+- [ ] **verify** — prompt: `prompts/SPEC-123-verify.md` (2026-08-17). Opus, new session, own
+      worktree. Two ACs need an explicit ruling: **AC-6** (the thread axis is not falsified, but
+      core-count variance is a cross-machine non-determinism the caveat list misses) and **AC-7**
+      (its literal "no `src/` diff" blocked the doc-comment correction AC-6's spirit wanted).
+      The prompt warns that the spec's own Inputs and the build prompt carry design's wrong
+      predictions — the corrections are themselves under review.
 - [ ] **ship**

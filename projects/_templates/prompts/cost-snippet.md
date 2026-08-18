@@ -75,6 +75,26 @@ having started the matrix, checkpoint and report" -- which would have fired on
 SPEC-119 and correctly stayed silent on SPEC-116's slow, cheap run.
 ```
 
+**Watching CI settle is NOT free — measured 2026-08-17 on SPEC-123's build.**
+
+```
+On a cycle that is ~98% cache reads, every poll re-reads the whole accumulated
+context, so a quiet wait costs about as much as real work.
+
+  SPEC-123 build: $5.80 -- 13% of its $46.17 -- went on observing a CI matrix it
+  had already triggered and could not influence.
+
+Its cost was measured three times, and the "almost done" reading was the worst:
+
+  $32.80 at 242 messages   <- PR already open, only CI left to watch
+  $40.37 at 285
+  $46.17 at 318            <- final, 29% above the "almost done" reading
+
+So: PREFER ONE LONG WAIT TO MANY SHORT POLLS, and take the cost reading AFTER CI
+has settled, not when the PR opens. A cycle that reports cost at the moment it
+thinks it is finished will under-report it.
+```
+
 **Pricing — do not apply the 80/20 rule blind.**
 
 ```
