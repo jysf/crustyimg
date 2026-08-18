@@ -54,6 +54,12 @@ out/
 # cargo-fuzz build/run artifacts (the harness + targets ARE committed; the
 # generated corpus, crash artifacts, and build dir are not).
 /fuzz/target
+
+# Probe crates under docs/probes/ are standalone (their own [workspace]) and are
+# built by hand when someone re-drives a measurement. Their build output is not
+# covered by the root-anchored `/target` rule above.
+docs/probes/**/target/
+
 /fuzz/corpus
 /fuzz/artifacts
 /fuzz/Cargo.lock
