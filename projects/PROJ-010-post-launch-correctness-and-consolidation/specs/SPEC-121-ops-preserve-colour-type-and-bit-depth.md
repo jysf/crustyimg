@@ -73,26 +73,28 @@ cost:
     - cycle: build
       agent: claude-opus-5
       interface: claude-code
-      tokens_total: 25418670
-      duration_minutes: 38
+      tokens_total: 28806619
+      duration_minutes: 58
       recorded_at: 2026-08-18
       tokens_breakdown:
-        input: 316
-        output: 182365
-        cache_creation: 408067
-        cache_read: 24827922
-      estimated_usd: 19.53
+        input: 344
+        output: 193864
+        cache_creation: 423976
+        cache_read: 28188435
+      estimated_usd: 21.59
       note: >
         MEASURED — punch-list return cycle (verify returned ⚠ PUNCH LIST on
-        PR #181; seven items). Transcript sum over 158 assistant messages
+        PR #181; seven items). Transcript sum over 172 assistant messages
         (~/.claude/projects/.../c05ba4c9-b0e0-4a06-87db-139d3cc20c2c.jsonl),
         priced at OPUS anchors ($5/$25 per MTok; cache_creation ×1.25 input,
         cache_read ×0.10 input) — `.message.model` is `claude-opus-5` on all
-        158. Ran in the main loop, not as a dispatched subagent, so there is
-        no `subagent_tokens` to cross-check against. Read at the cost-append
-        step with CI still settling, so it EXCLUDES the readout messages
-        after it — under-reported by roughly one exchange, and stated rather
-        than guessed at. 158 messages against the prompt's ~150 budget.
+        172. Ran in the main loop, not as a dispatched subagent, so there is
+        no `subagent_tokens` to cross-check against. Read AFTER CI settled,
+        per the cost snippet's own warning: the earlier reading at the
+        cost-append step said $19.53 over 158 messages, so reporting at the
+        moment the work felt finished would have under-stated this cycle by
+        **9.5 %**. 172 messages against the prompt's ~150 budget; the matrix
+        and the item-2 fix were both done well before it.
         ⚠ No `verify` entry exists in this list: the verify cycle that
         produced the punch list did not append one.
   totals:
