@@ -48,6 +48,30 @@ cost:
         Un-metered main-loop design cycle (AGENTS §4). Scoped down from the
         backlog entry on two SPEC-120 findings: the premultiplied-alpha half is
         false, and the migration the entry worried about already exists.
+    - cycle: build
+      agent: claude-opus-5
+      interface: claude-code
+      tokens_total: 182177233
+      duration_minutes: 66
+      recorded_at: 2026-08-18
+      tokens_breakdown:
+        input: 1216
+        output: 354963
+        cache_creation: 662926
+        cache_read: 181158128
+      estimated_usd: 103.60
+      note: >
+        MEASURED — transcript sum over 608 assistant messages, priced per
+        component at OPUS anchors ($5/$25 per MTok; cache_creation x1.25 input,
+        cache_read x0.10 input). The spec's front matter and the build prompt
+        both name claude-sonnet-5, but `.message.model` reports claude-opus-5 on
+        all 608 messages, so the model that actually ran sets the anchors
+        (AGENTS §4). WARNING — roughly $60 of this is CI polling, not work: the
+        same transcript measured $32.01 at 231 messages, with the substantive
+        build already complete and only CI left to watch. Cache reads are 99.4%
+        of volume, so every poll re-read the whole accumulated context.
+        SPEC-123 measured this hazard at $5.80; here it was an order of
+        magnitude worse and is the single largest line item in the spec.
   totals:
     tokens_total: 0
     estimated_usd: 0
