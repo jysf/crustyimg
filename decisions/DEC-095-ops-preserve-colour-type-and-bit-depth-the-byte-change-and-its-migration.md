@@ -29,6 +29,11 @@ superseded_by: null
 affected_scope:
   - src/operation/**
   - src/sink/**
+  # `color_type_bit_depth` was widened from private to `pub(crate)` here so
+  # both of the above can read a source's depth (SPEC-121 punch-list item 5).
+  # Without this glob the record does not surface when that fn changes, and
+  # `decisions-audit --changed` attributes the file to 11 unrelated decisions.
+  - src/image/mod.rs
 
 tags:
   - colour-type
@@ -50,13 +55,29 @@ narrow to write**: each widens its input to an RGBA working buffer at the
 input's own bit depth (`RgbaImage` for 8-bit, a local `Rgba16Image` alias for
 16-bit) instead of unconditionally to `RGBA8`, and narrows back to the input's
 colour type on the way out whenever doing so is lossless. Narrowing is
-**lossless-only** — RGBA→RGB only when every alpha sample in the working
-buffer is opaque, and 16→8 **never** (that is a downgrade, not a narrowing).
-`Watermark` decides the narrow from the actual composited alpha, not by
-exemption: a fully-opaque overlay over an RGB base narrows like the other two
-ops; a genuinely translucent overlay leaves non-opaque samples and stays RGBA
-— one shared rule (`narrow_rgba8`/`narrow_rgba16`) covers both directions,
-no `Watermark`-specific carve-out.
+**lossless-only**, and it **preserves rather than minimises** — it never
+returns a narrower type than the input declared. One shared rule
+(`narrow_rgba8`/`narrow_rgba16`) answers three independent questions:
+
+- **Alpha.** Drop the channel only when the input colour type had none *and*
+  every alpha sample in the working buffer is opaque. An `Rgba8`/`La8` input
+  that happens to be entirely opaque **keeps its channel** — do not strip a
+  channel the user supplied. (The code did this from the build; the first
+  version of this record described the rule without the `has_alpha` clause,
+  and was wrong about that behaviour. Corrected here, not in the code.)
+- **Chroma.** Collapse to one channel only when the input was itself a luma
+  type (`L8`/`La8`/`L16`/`La16`) *and* every pixel still has `r == g == b`.
+  An `Rgb8` input whose pixels happen to be gray stays `Rgb8`; a colour
+  watermark over a gray base genuinely adds chroma and stays RGB.
+- **Depth.** 16→8 **never** — that is a downgrade, not a narrowing.
+
+`Watermark` decides the narrow from the composite, not by exemption.
+Source-over compositing can only *produce* a non-opaque pixel where the base
+already had one — `a_out = a_base + a_ov·(1 − a_base)` is 1 for every overlay
+alpha when `a_base` is 1 — so a base with **no alpha channel** composites to a
+fully opaque result and narrows however translucent the overlay was, and a
+base carrying genuine transparency keeps its channel. No `Watermark`-specific
+carve-out.
 
 `sink::encode_to_bytes_with` additionally reports (stderr, one line) when a
 >8-bit source is encoded to a target that can only hold 8 bits per
@@ -151,15 +172,77 @@ mechanical simplification riding the bit-depth fix, not a separate change.
   same "automatically convert" silent downgrade fires there too. Call 3's
   settled scope names JPEG and lossy WebP only; widening it to cover every
   8-bit-only format (WebP lossless, GIF, BMP, ICO) is a design call this
-  spec does not reopen. Filed rather than fixed —
-  `tests/colour_type_preservation.rs` documents the boundary inline rather
-  than asserting a claim `web` cannot keep for a 16-bit source.
+  spec does not reopen. Filed rather than fixed — as a `- [ ]` item in
+  **STAGE-042**, the backlog `just backlog` actually reads. (The build filed it
+  only in this record's prose, and a `tests/colour_type_preservation.rs`
+  comment cited a `docs/backlog.md` entry that was never written; both
+  corrected at punch-list. Re-driven then, and it is worse than first stated:
+  `convert --format webp` reaches it directly, not only `web` via `optimize`'s
+  candidate search, and the run prints `ssim 100.0` — the metric is computed on
+  8-bit renderings, so the honest-size line reads as reassurance for exactly
+  the loss it cannot see.)
 
 - **Neutral — corrects the "pipeline is 8-bit throughout" claim** in
   `docs/lab-plan-2026-08.md` (F8) and `docs/roadmap.md`, both of which cited
   the now-changed `to_rgba8()` call sites as evidence. F8's own point (lab's
   *future* ops risk the same banding if they don't widen the way these three
   now do) is preserved, not deleted.
+
+- **Positive, MEASURED at punch-list — grayscale is preserved too, and it was
+  the largest remaining gap.** AC-1/AC-2 name RGB only, so they were literally
+  met while `Gray8 → resize` still returned `Rgb8` — Call 1 was not (AGENTS
+  §15: an acceptance criterion may not transfer to a surface it was not
+  written against). It is the same narrowing mechanism, so it was **fixed, not
+  scoped out**: one extra clause in `narrow_rgba8`/`narrow_rgba16`, gated on
+  the input being a luma type so nothing is promoted. Measured on a 32×32
+  gradient, `resize --max 16`: `L8` **852 → 340 B (−60.1 %)**, `L16`
+  **1,559 → 596 B (−61.8 %)**, `La8` **962 → 447 B (−53.5 %)** — against a
+  pre-fix `main` that returned 962 B of RGBA8 for all three. Roughly 4× the
+  relative saving of the RGB→RGBA case that motivated the spec. The channel is
+  taken verbatim from the working buffer's first channel rather than through
+  `to_luma8()`, whose luminance weights round-trip an already-gray pixel only
+  approximately.
+
+- **Negative, MEASURED at punch-list, now fixed — `watermark --text` did not
+  narrow, so the verb's commonest invocation still paid the wasted channel.**
+  Source-over onto an opaque base is mathematically always opaque, but
+  `image`'s `Rgba::blend` computes `a_out` in `f32` and casts with `NumCast`,
+  which truncates: `1.0 + a − a` lands on `0.99999994` for **32 of the 254
+  possible overlay alphas** (128 among them), and `255 × 0.99999994` truncates
+  to **254**. Anti-aliased glyph edges produce exactly those samples — 36 of
+  65,536 on a 256×256 base — and defeated the opacity scan. Output was
+  **66,313 B as RGBA vs 53,970 B as RGB: 18.6 %** of the file. Fixed by
+  restoring the alpha the maths requires (`restore_opaque_alpha8`/`…16`)
+  before narrowing, gated on the base having had no alpha channel at all — so
+  no numeric tolerance is introduced and genuine transparency is never
+  touched. **The fix does not depend on `image` truncating rather than
+  rounding**, which verify flagged as a latent CI break in the old test.
+  ⚠ **Consequence worth stating: `Watermark`'s narrow decision is now
+  structural rather than empirical for an alpha-less base.** A uniformly
+  half-transparent overlay over an RGB base narrows too, where before it
+  stayed RGBA. That was never a decision — it was the same rounding artifact,
+  and 128 is one of the 32 alphas that trips it — but it flips the old
+  `watermark_keeps_alpha_when_the_overlay_is_translucent` case. That control
+  was retargeted onto a base with genuine transparency (the only base from
+  which a source-over composite can come out non-opaque) and strengthened to
+  assert the transparent pixels themselves survive, not just the channel.
+  The `f32` truncation is untouched for an alpha-bearing base: such an output
+  still carries a few 254s where 255 is correct. That is upstream compositing
+  precision, not a narrowing question, and is out of scope here.
+
+- **Neutral — `src/image/mod.rs` is in `affected_scope`.**
+  `color_type_bit_depth` moved from private to `pub(crate)` so `operation` and
+  `sink` can share it. Measured consequence of the omission, before it was
+  corrected: `just decisions-audit --changed main` attributed that file to
+  **11 unrelated decisions** and this record did not surface at all.
+
+- **Neutral — Call 3's warning names the source's real depth.** It was a pair
+  of constants reading "16-bit source downgraded to 8-bit", which is false for
+  a 32-bit-float source hitting the same branch (`Rgb32F`/`Rgba32F` are
+  constructible through the public `Image::from_parts`). Now built by a pure
+  `eight_bit_downgrade_warning(ColorType, target)` that reads the depth from
+  the image and returns `None` when nothing is lost — unit-tested at both
+  depths, since `eprintln!` is not capturable in-process.
 
 ## Alternatives Considered
 

@@ -340,7 +340,25 @@ failures on documented paths.
   component into the key), and the choice is the maintainer's, matching the pattern set by the
   `[env]` same-machine item above.
 
-**Count:** 2 framed (SPEC-118, SPEC-124) / **1 shipped (SPEC-123)** / 8 pending / 1 chore done
+- [ ] (not yet written) — [S] **Lossless WebP silently halves a >8-bit source, on the DEFAULT
+  path, and reports `ssim 100.0` while doing it.** SPEC-121's Call 3 settled its warning scope as
+  JPEG + lossy WebP only; `image`'s own *lossless* WebP encoder — no feature flag, always built —
+  has no 16-bit mode either, so it takes the same "automatically convert the image to some color
+  type supported by the encoder" path with no diagnostic.
+  **Driven on the branch binary (2026-08-18), 32×32 16-bit RGB PNG:** `convert --format webp`
+  prints `png → webp · 4791 → 686 B (86% smaller) · ssim 100.0` and the output round-trips as
+  **8-bit** RGB. `web` reaches it too — `optimize`'s smallest-candidate search picks WebP for that
+  fixture. The SSIM figure is computed on 8-bit renderings, so it cannot see the loss it is
+  reporting on; **the honest-size line reads as reassurance for the one thing that did go wrong.**
+  Same class as the JPEG/lossy-WebP gap SPEC-121 closed, and the same fix shape (one line at the
+  sink) — but widening Call 3's scope to every 8-bit-only format (lossless WebP, GIF, BMP, ICO) is
+  a design call SPEC-121 did not reopen.
+  **Filed here rather than in `docs/backlog.md`** because no command reads that file
+  ([[a-document-is-not-a-backlog-unless-tooling-reads-it]]) — `just backlog` reads this section.
+  SPEC-121 recorded it only in DEC-095's Consequences prose, and a test comment cited a
+  `docs/backlog.md` entry that was never written; both are corrected on that branch.
+
+**Count:** 2 framed (SPEC-118, SPEC-124) / **1 shipped (SPEC-123)** / 9 pending / 1 chore done
 
 ## Design Notes
 

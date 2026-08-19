@@ -15,7 +15,7 @@ use std::fmt;
 use std::str::FromStr;
 
 use ::image::imageops::{self, FilterType};
-use ::image::{ColorType, DynamicImage, ImageBuffer, Pixel, Rgba, RgbaImage};
+use ::image::{ColorType, DynamicImage, ImageBuffer, Luma, LumaA, Pixel, Rgba, RgbaImage};
 use serde::ser::SerializeMap;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use thiserror::Error;
@@ -197,29 +197,119 @@ fn is_sixteen_bit(color: ColorType) -> bool {
     crate::image::color_type_bit_depth(color) == 16
 }
 
-/// Narrow an RGBA8 working buffer back to RGB8 when doing so is lossless:
-/// `original_color` (the op's input, before widening) had no alpha, and
-/// every alpha sample in `buf` is opaque. Otherwise keeps RGBA8.
+/// Whether `color` is a grayscale (luma) type — `L8`/`La8`/`L16`/`La16`.
+///
+/// A luma source widened to an RGBA working buffer carries `r == g == b` in
+/// every pixel, so collapsing back to one channel is lossless exactly when
+/// that still holds after the op ran. A colour watermark over a gray base
+/// breaks it, and then the output stays RGB/RGBA — which is the honest
+/// answer, because the image really did gain colour.
+fn is_luma(color: ColorType) -> bool {
+    matches!(
+        color,
+        ColorType::L8 | ColorType::La8 | ColorType::L16 | ColorType::La16
+    )
+}
+
+/// Narrow an RGBA8 working buffer back to the input's own colour type when
+/// doing so is lossless. Two independent questions, in this order:
+///
+/// - **Alpha.** Drop it only when `original_color` (the op's input, before
+///   widening) had no alpha *and* every alpha sample in `buf` is opaque.
+/// - **Chroma.** Collapse to one channel only when the input was itself a
+///   luma type *and* every pixel still has `r == g == b`.
+///
+/// Neither question promotes: an RGB input whose pixels happen to be gray
+/// stays RGB, and an RGBA input the user supplied keeps its channel even if
+/// every sample is opaque. The rule preserves what it was given; it does not
+/// minimise.
 ///
 /// One rule serves both Call 1 ("narrow to write") and Call 2 (`Watermark`
-/// decides in code, not by exemption): a translucent overlay leaves
-/// non-opaque samples in `buf` after compositing, so the same check that
-/// keeps an already-RGBA input from being silently narrowed also keeps an
-/// RGB input RGBA exactly when compositing genuinely produced alpha.
+/// decides in code, not by exemption): a composite that genuinely leaves
+/// non-opaque samples in `buf` keeps its alpha through the same check that
+/// stops an already-RGBA input from being silently narrowed.
 fn narrow_rgba8(buf: RgbaImage, original_color: ColorType) -> DynamicImage {
-    if !original_color.has_alpha() && buf.pixels().all(|p| p.0[3] == u8::MAX) {
-        DynamicImage::ImageRgb8(DynamicImage::ImageRgba8(buf).to_rgb8())
-    } else {
+    let keep_alpha = original_color.has_alpha() || buf.pixels().any(|p| p.0[3] != u8::MAX);
+
+    if is_luma(original_color) && buf.pixels().all(|p| p.0[0] == p.0[1] && p.0[1] == p.0[2]) {
+        // Take channel 0 verbatim rather than `to_luma8()`: `image`'s RGB→luma
+        // conversion applies the luminance weights, which round-trips an
+        // already-gray pixel only approximately. This is exact.
+        let (w, h) = buf.dimensions();
+        return if keep_alpha {
+            DynamicImage::ImageLumaA8(ImageBuffer::from_fn(w, h, |x, y| {
+                let p = buf.get_pixel(x, y).0;
+                LumaA([p[0], p[3]])
+            }))
+        } else {
+            DynamicImage::ImageLuma8(ImageBuffer::from_fn(w, h, |x, y| {
+                Luma([buf.get_pixel(x, y).0[0]])
+            }))
+        };
+    }
+
+    if keep_alpha {
         DynamicImage::ImageRgba8(buf)
+    } else {
+        DynamicImage::ImageRgb8(DynamicImage::ImageRgba8(buf).to_rgb8())
     }
 }
 
 /// [`narrow_rgba8`], at 16 bits per channel.
 fn narrow_rgba16(buf: Rgba16Image, original_color: ColorType) -> DynamicImage {
-    if !original_color.has_alpha() && buf.pixels().all(|p| p.0[3] == u16::MAX) {
-        DynamicImage::ImageRgb16(DynamicImage::ImageRgba16(buf).to_rgb16())
-    } else {
+    let keep_alpha = original_color.has_alpha() || buf.pixels().any(|p| p.0[3] != u16::MAX);
+
+    if is_luma(original_color) && buf.pixels().all(|p| p.0[0] == p.0[1] && p.0[1] == p.0[2]) {
+        let (w, h) = buf.dimensions();
+        return if keep_alpha {
+            DynamicImage::ImageLumaA16(ImageBuffer::from_fn(w, h, |x, y| {
+                let p = buf.get_pixel(x, y).0;
+                LumaA([p[0], p[3]])
+            }))
+        } else {
+            DynamicImage::ImageLuma16(ImageBuffer::from_fn(w, h, |x, y| {
+                Luma([buf.get_pixel(x, y).0[0]])
+            }))
+        };
+    }
+
+    if keep_alpha {
         DynamicImage::ImageRgba16(buf)
+    } else {
+        DynamicImage::ImageRgb16(DynamicImage::ImageRgba16(buf).to_rgb16())
+    }
+}
+
+/// Source-over compositing onto a base that has no alpha channel is
+/// *mathematically* always opaque: `a_out = a_base + a_ov·(1 − a_base)`, which
+/// is 1 for every `a_ov` when `a_base` is 1. `image`'s `Rgba::blend` computes
+/// that in `f32` and casts with `NumCast`, which truncates: `1.0 + a − a`
+/// lands on `0.99999994` for 32 of the 254 possible overlay alphas (including
+/// the exactly-half-transparent 128), and `255 × 0.99999994` truncates to
+/// **254**. A handful of such pixels — 36 of 65,536 on a `watermark --text`
+/// run — is enough to defeat the opacity scan and keep an alpha channel the
+/// composite does not need.
+///
+/// So restore the value the maths requires, rather than testing the rounded
+/// one. This touches only the case where the base carried no alpha, so real
+/// transparency is never overwritten, and it does not depend on `image`
+/// continuing to truncate rather than round.
+fn restore_opaque_alpha8(canvas: &mut RgbaImage, original_color: ColorType) {
+    if original_color.has_alpha() {
+        return;
+    }
+    for px in canvas.pixels_mut() {
+        px.0[3] = u8::MAX;
+    }
+}
+
+/// [`restore_opaque_alpha8`], at 16 bits per channel.
+fn restore_opaque_alpha16(canvas: &mut Rgba16Image, original_color: ColorType) {
+    if original_color.has_alpha() {
+        return;
+    }
+    for px in canvas.pixels_mut() {
+        px.0[3] = u16::MAX;
     }
 }
 
@@ -960,6 +1050,10 @@ impl Operation for Watermark {
             }
 
             // Call 2: decided in code, not by exemption — see narrow_rgba16.
+            // The base carried no alpha ⇒ the composite is opaque by
+            // construction; see restore_opaque_alpha16 for why the buffer
+            // does not always say so.
+            restore_opaque_alpha16(&mut canvas, original_color);
             narrow_rgba16(canvas, original_color)
         } else {
             let mut canvas = img.pixels().to_rgba8();
@@ -1007,6 +1101,10 @@ impl Operation for Watermark {
             }
 
             // Call 2: decided in code, not by exemption — see narrow_rgba8.
+            // The base carried no alpha ⇒ the composite is opaque by
+            // construction; see restore_opaque_alpha8 for why the buffer does
+            // not always say so.
+            restore_opaque_alpha8(&mut canvas, original_color);
             narrow_rgba8(canvas, original_color)
         };
 

@@ -32,7 +32,7 @@ use std::fs::OpenOptions;
 use std::io::{BufWriter, Cursor, IsTerminal, Write};
 use std::path::{Path, PathBuf};
 
-use ::image::ImageFormat;
+use ::image::{ColorType, ImageFormat};
 
 use crate::image::Image;
 
@@ -90,14 +90,26 @@ pub const FAST_LOSSY_QUALITY: u8 = 85;
 // size reporting. Not a new policy — one stderr line each, at the two sites
 // Call 3 named.
 
-/// Printed on encoding a >8-bit source as JPEG.
-pub(crate) const JPEG_EIGHT_BIT_DOWNGRADE_WARNING: &str =
-    "warning: 16-bit source downgraded to 8-bit for JPEG output — JPEG does not support more than 8 bits per channel";
-
-/// Printed on encoding a >8-bit source as lossy WebP (`webp-lossy` feature).
-#[cfg(feature = "webp-lossy")]
-pub(crate) const WEBP_LOSSY_EIGHT_BIT_DOWNGRADE_WARNING: &str =
-    "warning: 16-bit source downgraded to 8-bit for lossy WebP output — WebP does not support more than 8 bits per channel";
+/// The warning line for a source deeper than 8 bits per channel encoded to
+/// `target`, or `None` when `color` fits in 8 bits and nothing is lost.
+///
+/// The depth is read from the image, not hard-coded: 16-bit PNG/TIFF is the
+/// common case, but `Rgb32F`/`Rgba32F` reach the same branch (they are
+/// constructible through the public `Image::from_parts`), and a message that
+/// said "16-bit" for a 32-bit-float source would be false.
+///
+/// A pure fn returning the line, so the decision is unit-testable — the
+/// caller does the `eprintln!` (AGENTS §11: diagnostics go to stderr).
+pub(crate) fn eight_bit_downgrade_warning(color: ColorType, target: &str) -> Option<String> {
+    let depth = crate::image::color_type_bit_depth(color);
+    if depth <= 8 {
+        return None;
+    }
+    Some(format!(
+        "warning: {depth}-bit source downgraded to 8-bit for {target} output — \
+         {target} does not support more than 8 bits per channel"
+    ))
+}
 
 // ── Public types ──────────────────────────────────────────────────────────────
 
@@ -672,8 +684,8 @@ pub fn encode_to_bytes_with(
         // Call 3, SPEC-121: JPEG is 8-bit only regardless of whether `quality`
         // is pinned here or left to the default `write_to` path below — warn
         // once, before either.
-        if crate::image::color_type_bit_depth(img.pixels().color()) > 8 {
-            eprintln!("{JPEG_EIGHT_BIT_DOWNGRADE_WARNING}");
+        if let Some(w) = eight_bit_downgrade_warning(img.pixels().color(), "JPEG") {
+            eprintln!("{w}");
         }
         if let Some(q) = quality {
             // Clamp to 1..=100 (JPEG quality range; avoids surprising values).
@@ -732,8 +744,8 @@ pub fn encode_to_bytes_with(
         if let Some(q) = quality {
             // Call 3, SPEC-121: lossy WebP is 8-bit only (`to_rgba8()` below
             // is the downgrade this warns about).
-            if crate::image::color_type_bit_depth(img.pixels().color()) > 8 {
-                eprintln!("{WEBP_LOSSY_EIGHT_BIT_DOWNGRADE_WARNING}");
+            if let Some(w) = eight_bit_downgrade_warning(img.pixels().color(), "lossy WebP") {
+                eprintln!("{w}");
             }
             let rgba = img.pixels().to_rgba8();
             let (w, h) = rgba.dimensions();
@@ -787,6 +799,38 @@ fn guard_overwrite(path: &Path, overwrite: Overwrite) -> Result<(), SinkError> {
 
 #[cfg(test)]
 mod tests {
+
+    // ── SPEC-121, Call 3: the downgrade line names the source's real depth ──
+    //
+    // Pins the message the encode path builds, through the same two functions
+    // it calls (`color_type_bit_depth` → `eight_bit_downgrade_warning`). The
+    // `eprintln!` itself is not capturable in-process, so the integration
+    // assertion on the real binary's stderr lives in `tests/sink.rs`; this
+    // covers the depths that test cannot produce through a decoder.
+    #[test]
+    fn eight_bit_downgrade_warning_names_the_sources_real_depth() {
+        let sixteen = super::eight_bit_downgrade_warning(ColorType::Rgb16, "JPEG")
+            .expect("a 16-bit source is downgraded for JPEG");
+        assert!(
+            sixteen.starts_with("warning: 16-bit source downgraded to 8-bit for JPEG output"),
+            "got: {sixteen}"
+        );
+
+        // The bug this pins: the message used to be a constant saying
+        // "16-bit" for every >8-bit source, and 32-bit float hits the same
+        // branch (reachable through the public `Image::from_parts`).
+        let float = super::eight_bit_downgrade_warning(ColorType::Rgb32F, "lossy WebP")
+            .expect("a 32-bit-float source is downgraded for lossy WebP");
+        assert!(
+            float.starts_with("warning: 32-bit source downgraded to 8-bit for lossy WebP output"),
+            "got: {float}"
+        );
+        assert!(!float.contains("16-bit"), "got: {float}");
+
+        // 8-bit fits: no line at all.
+        assert!(super::eight_bit_downgrade_warning(ColorType::Rgba8, "JPEG").is_none());
+        assert!(super::eight_bit_downgrade_warning(ColorType::L8, "JPEG").is_none());
+    }
     use super::*;
 
     // ── format_from_extension ──────────────────────────────────────────────

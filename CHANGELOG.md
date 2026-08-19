@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`resize`, `thumbnail`, `edit`, `watermark` and `web` no longer add an unused alpha
+  channel, flatten grayscale to colour, or halve 16-bit input.** Every verb that ran a
+  real operation converted the image to 8-bit RGBA and never converted back, so an RGB
+  photo came out RGBA, a grayscale scan came out RGB(A), and a 16-bit PNG or TIFF came
+  out 8-bit — silently, on the default path, including the flagship `web`. These verbs
+  now return the colour type and bit depth you gave them whenever that is lossless.
+  A real alpha channel, real transparency and a genuinely colour result are all kept:
+  the output is never narrower than the input declared.
+
 - **`optimize`/`web`/`apply --recipe web`/`build` no longer ship an SVG, HEIC, or RAW
   source's raw bytes under a raster label they never produced.** For these three
   families, `optimize`'s auto-decide passthrough (no candidate beats the source on
@@ -20,6 +29,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ships instead, honestly reported as larger when it is.
 
 ### Changed
+
+- **Output bytes change for these verbs, in both directions — and that is the point.**
+  Measured on 32×32 gradients: an 8-bit RGB source through `edit --invert` is
+  **1,580 → 1,323 B (−16.3 %)**; an 8-bit grayscale source **2,705 → 906 B (−66.5 %)**;
+  a 16-bit grayscale source **2,511 → 2,075 B (−17.4 %)** *and* keeps its 16 bits.
+  A **16-bit colour source gets materially bigger** — `edit --invert`
+  **1,644 → 3,510 B (+113.5 %)**, `resize --max 16` **566 → 895 B (+58.1 %)** — because
+  the previous output had thrown half the data away. That is restored fidelity, not
+  bloat. If you feed 16-bit sources to a web pipeline and want the old size, convert to
+  8-bit explicitly, or target a lossy format (JPEG and lossy WebP are 8-bit only, and
+  now say so on stderr instead of downgrading silently).
+
+- **Reproducible builds: regenerate your `*.build.lock` once for this release.** This is
+  a byte-changing release for the pixel pipeline, and the changes are deliberately
+  batched so you pay the migration once rather than per fix. `build --check` /
+  `--frozen` will report drift against a lockfile recorded before it; re-run `build` to
+  regenerate. The build cache key already includes the crate version, so old and new
+  renders cannot collide — nothing to clear by hand.
 
 - **`optimize --explain`'s `--json` `source_format` reports the real container**
   (`"svg"` / `"heic"` / `"raw"`) for these three families, instead of the raster

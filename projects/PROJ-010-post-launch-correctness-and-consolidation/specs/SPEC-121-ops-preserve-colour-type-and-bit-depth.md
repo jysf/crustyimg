@@ -282,7 +282,8 @@ Written during **design**, before build. AC-1 through AC-4 **fail on today's
     all four checks hold. Filed as a STAGE-042 backlog item per Call 4's
     "report it, do not design around it."
 - **New decisions emitted:** DEC-095 (`decisions/DEC-095-ops-preserve-colour-type-and-bit-depth-the-byte-change-and-its-migration.md`),
-  shared with SPEC-122, `affected_scope: src/operation/**, src/sink/**`.
+  shared with SPEC-122, `affected_scope: src/operation/**, src/sink/**,
+  src/image/mod.rs` (the third glob added at punch-list — see below).
 - **Deviations from spec:**
   - The "Failing Tests" section describes tests as "written during design,
     before build," but no test files existed on `main` at build start (only
@@ -301,6 +302,10 @@ Written during **design**, before build. AC-1 through AC-4 **fail on today's
     through; a direct `eprintln!` matches "diagnostics go to stderr"
     (AGENTS §11) and "a one-line diagnostic at the sink" literally, with
     the least new machinery.
+  - ⚠ **Added at punch-list (item 5), missing from this list at build:**
+    `src/image/mod.rs` is touched — `color_type_bit_depth` widened from private
+    to `pub(crate)` so `operation` and `sink` can share it. Full entry under
+    "Punch-list deviations" below.
   - `Resize::apply` still widens RGB to RGBA before resizing (does not
     resize the narrower `Rgb8`/`Rgb16` buffer directly, though
     `fast_image_resize`'s `IntoImageView` impls would allow it) — a
@@ -320,6 +325,140 @@ Written during **design**, before build. AC-1 through AC-4 **fail on today's
     doc-comment hits (`8.bit`/`bit depth`/`colour type`/`color type`) across
     `src/**`; the `src/` hits (AVIF/HEIC/SVG decoder doc comments) are
     accurate as written and left alone.
+
+### Punch-list cycle (2026-08-18) — verify returned ⚠ PUNCH LIST, seven items
+
+All seven addressed on the same branch. `cycle:` deliberately **left at
+`verify`** for re-approval; `advance-cycle` not run; PR #181 not merged.
+
+**1 — The 8-bit-pipeline sweep (urgent half first).** Re-ran verify's grep over
+all **798** tracked files and amended **four** live premises, all in
+`docs/backlog.md`: `:677-690` (inside **SPEC-122's own entry** — it told a
+builder to *"convert back to 8-bit on the way out"*, which would have re-broken
+this spec), `:700` (the grading-op stakes paragraph), `:823` (the `.cube` LUT
+gate) and `:933-934` (the effects scope guard). **Amended, not deleted, and
+deliberately conditional:** SPEC-121 preserves the depth it is *given* and does
+not promote, so the quantization worry is now conditional on an 8-bit source
+and the transfer-function worry is untouched — both still live for SPEC-122.
+The leave-alone list (spec `:115`/`:193`, the build prompt,
+`docs/backlog.md:997` and the whole Live-defect section, DEC-095's own
+description) was left alone. `STAGE-046:246` now marked ✅ with the grep and
+its scope cited inline.
+
+**2 — `watermark --text` (the substantive one) — FIXED.** Reproduced: 66,313 B
+RGBA vs 53,970 B RGB on a 256×256 opaque base, **18.6 %** of the file. Root
+cause confirmed numerically: `image`'s `Rgba::blend` computes `a_out` in `f32`
+and truncates the cast, so `1.0 + a − a` lands on `0.99999994` for **32 of the
+254 possible overlay alphas** and writes 254. Fixed structurally, not by
+tolerance: `restore_opaque_alpha8`/`…16` restore the alpha the maths requires,
+gated on the base having had **no alpha channel at all** — so real transparency
+is never touched, and the fix does not depend on `image` truncating rather than
+rounding (verify's latent-CI-break concern). New test
+`watermark_text_narrows_on_an_opaque_base` drives the float path through
+anti-aliased glyph edges.
+
+**3 — The false citation — CORRECTED, and the finding filed where a command
+reads it.** The lossless-WebP 16-bit gap is now a `- [ ]` item in **STAGE-042**
+(count 8 → 9 pending; `just backlog` confirmed to surface it), and the test
+comment cites that instead of a `docs/backlog.md` entry that never existed.
+Re-driven while filing: `convert --format webp` reaches it directly (not only
+`web` via `optimize`'s search) and prints **`ssim 100.0`** while halving the
+depth — SSIM is computed on 8-bit renderings, so the honest-size line reads as
+reassurance for the one thing that went wrong.
+
+**4 — `convert_optimize_auto_orient_bytes_unchanged` — WRITTEN.** AC-7's
+evidence was a byte diff against `main`'s binary, which a test cannot carry, so
+the test pins the property that diff was evidence *for*: the three clean verbs
+run no `Operation`, so across six colour types (`L8`, `La8`, `Rgb8`, `Rgba8`,
+`L16`, `Rgb16`) each output's colour type and bit depth equal the input's, and
+`convert --format png` is byte-identical to `auto-orient`'s output. Re-drove
+the literal AC-7 diff this cycle as well: **6 fixtures × 3 verbs, all
+byte-identical to `main`**, with `resize` as the positive control (it differs).
+
+**5 — The unlisted deviation — RECORDED.** See Deviations below and DEC-095's
+`affected_scope`, which now includes `src/image/mod.rs`. Confirmed after the
+edit: `decisions-audit --changed main` now surfaces DEC-095 for that file.
+
+**6 — DEC-095 vs the code: one fixed in code, one fixed in the description.**
+  - **Grayscale — FIXED IN CODE.** It is the same narrowing mechanism, so it
+    was not scoped out: one extra clause in `narrow_rgba8`/`narrow_rgba16`,
+    gated on the input being a luma type. Measured on a 32×32 gradient,
+    `resize --max 16`: `L8` **852 → 340 B (−60.1 %)**, `L16`
+    **1,559 → 596 B (−61.8 %)**, `La8` **962 → 447 B (−53.5 %)**. The channel
+    is taken verbatim from the working buffer rather than through `to_luma8()`,
+    whose luminance weights round-trip an already-gray pixel only
+    approximately. Two controls added: an `Rgb8` source that happens to be gray
+    stays `Rgb8` (the rule preserves, it does not minimise), and a colour
+    watermark over a gray base stays RGB (it really did gain chroma).
+  - **All-opaque RGBA input — FIXED IN THE DESCRIPTION.** The behaviour is
+    right; DEC-095 never stated the `!original_color.has_alpha()` clause. Now
+    stated, on both the colour and luma surfaces, with tests
+    (`rgba_opaque_input_keeps_its_alpha_channel`,
+    `graya_opaque_input_keeps_its_alpha_channel`).
+
+**7 — The two tests that measured the wrong thing — REWRITTEN.** AC-6's test
+now runs the op: the same `edit --invert` over the same pixels from an RGB
+source and an RGBA source, comparing what the tool writes. It passed
+identically on `main` before; it is now **RED on `main`** (verified). The
+downgrade warning is built by a pure
+`sink::eight_bit_downgrade_warning(ColorType, target)` that reads the depth from
+the image, so a 32-bit-float source says "32-bit"; unit-tested at both depths
+because `eprintln!` is not capturable in-process.
+
+**8 — Release notes — ADDED** to `CHANGELOG.md` `[Unreleased]`, in both
+directions and with the wave's shared lockfile-regeneration note (so
+SPEC-122/SPEC-124 slot into the same migration rather than adding their own).
+Measured: 8-bit RGB `edit --invert` **1,580 → 1,323 B (−16.3 %)**, 8-bit gray
+**2,705 → 906 B (−66.5 %)**, 16-bit gray **2,511 → 2,075 B (−17.4 %)**, and
+16-bit colour **1,644 → 3,510 B (+113.5 %)** / `resize --max 16`
+**566 → 895 B (+58.1 %)** — restored fidelity, stated as such.
+
+#### Punch-list deviations
+
+- **`src/image/mod.rs` (punch-list item 5).** `color_type_bit_depth` widened
+  from private to `pub(crate)` during the build so `operation` and `sink` can
+  share it. Correct change, unlisted at build; now in Deviations and in
+  DEC-095's `affected_scope`.
+- ⚠ **One punch-list instruction could not be satisfied as literally written,
+  and the reading is recorded here rather than resolved silently.** Item 2 asks
+  both that *"a genuinely opaque composite narrows"* and that *"a genuinely
+  translucent overlay must still keep RGBA."* Those are incompatible for an
+  alpha-less base: source-over onto a fully opaque base is opaque for **every**
+  overlay alpha, and `--text`'s overlay *is* translucent at every anti-aliased
+  glyph edge — so under the second rule item 2 has no fix at all. Taken as: the
+  **composite** decides, and "keep the control" means **do not introduce a
+  numeric tolerance**, which this fix does not (it is exact, and scoped to
+  bases with no alpha channel). Consequence:
+  `watermark_keeps_alpha_when_the_overlay_is_translucent` was **retargeted**
+  onto a base with genuine transparency — the only base from which a composite
+  can come out non-opaque — and **strengthened** to assert the transparent
+  pixels survive, not merely the channel. The old form passed only because of
+  the `f32` truncation artifact this cycle removed (128 is one of the 32
+  offending alphas), so it was describing the defect, not the behaviour
+  [[a-claim-that-a-test-is-vacuous-needs-driving-too]]. A new test
+  (`watermark_translucent_overlay_on_an_opaque_base_narrows`) pins the ruling
+  explicitly so it cannot be re-litigated by accident.
+- **Not changed, and named so it is not mistaken for an oversight:** `image`'s
+  `Rgba::blend` still truncates the *colour* channels (and the alpha, for an
+  alpha-bearing base) the same way. That is upstream compositing precision, not
+  a narrowing question, and touching it would change watermark output bytes
+  beyond this spec's scope.
+
+#### Punch-list negative controls
+
+- **At branch head `4391e06` (pre-punch-list): 6 of 21 RED**, and exactly the
+  right 6 — `watermark_text_narrows_on_an_opaque_base`,
+  `watermark_translucent_overlay_on_an_opaque_base_narrows`,
+  `resize_preserves_grayscale_colour_type`,
+  `edit_invert_preserves_grayscale_colour_type`,
+  `resize_preserves_sixteen_bit_grayscale`,
+  `graya_opaque_input_keeps_its_alpha_channel`. The other 15 stayed green,
+  which is what shows the new tests are independent of the ones already fixed.
+- **On `main` (`df98118`): 16 of 21 RED**, including the rewritten
+  `rgb_output_is_smaller_than_rgba_for_the_same_pixels` — the whole point of
+  item 7a, since its previous form was green on `main`. The 5 that stay green
+  are the controls and AC-7, all of which describe behaviour `main` already
+  had.
 
 ### Build-phase reflection (3 questions, short answers)
 

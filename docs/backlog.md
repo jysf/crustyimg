@@ -675,13 +675,22 @@ so it **already premultiplies**. Measured: max premultiplied-RGB error at the al
 have found this: the behaviour lives in the dependency's default, not in `src/`.
 
 **The fix does NOT require a 16-bit pipeline.** Convert to linear `f32`/`u16` *inside*
-`Resize::apply`, resample, convert back to 8-bit on the way out. The `Operation` pipeline stays
-8-bit; `fast_image_resize` (locked at **6.0.0**, not the 5.x this note first said) already
+`Resize::apply`, resample, convert back **at the depth the op was handed** on the way out;
+`fast_image_resize` (locked at **6.0.0**, not the 5.x this note first said) already
 supports `U16x4`/`F32x4` and `MulDiv`, so the backend is in place — SPEC-120's prototype drove
 `F32x4` through it and it works. This is deliberately **separate** from the open "should the
-pipeline preserve >8 bits" question (16-bit PNG/TIFF inputs are truncated today — every op calls `to_rgba8()`,
-`src/operation/mod.rs:197,396,816,894`). Two projects, separately schedulable; this one is
-contained and benefits every user including the core JPEG→WebP path.
+pipeline preserve >8 bits" question, which is about *promoting* an 8-bit source to a
+higher-precision working type for the whole pipeline.
+
+⚡ **AMENDED 2026-08-18 (SPEC-121 shipped this half — DEC-095). Do not restore the old wording.**
+This paragraph used to read *"convert back to 8-bit on the way out. The `Operation` pipeline stays
+8-bit"* and *"16-bit PNG/TIFF inputs are truncated today — every op calls `to_rgba8()`
+(`src/operation/mod.rs:197,396,816,894`)"*. **Both are now false.** `Invert`, `Resize` and
+`Watermark` widen to an RGBA buffer **at the input's own bit depth** and narrow back on the way
+out, so a 16-bit source stays 16-bit end to end. **A SPEC-122 build that reintroduces an
+unconditional `to_rgba8()`/8-bit round-trip re-breaks SPEC-121.** SPEC-121 preserves the depth it
+is *given*; it does **not promote** an 8-bit source — so the quantization worry below is now
+**conditional on an 8-bit source**, and the transfer-function worry is untouched.
 
 **What makes it non-trivial — do not discover this during build:** fixing the resampling
 **changes output bytes for every existing recipe**, which invalidates every PROJ-007 build
@@ -697,8 +706,10 @@ this should be closed rather than specced."* It does, on every case tried, by 15
 
 **A second consumer raises the stakes (2026-08-15).** For `resize` this is a quality defect. For
 any **grading** op — `.cube` LUT above, curves, exposure — it is a **correctness** defect: the
-pipeline is 8-bit throughout (`to_rgba8()` at `src/operation/mod.rs:197,396,816,817`), so a grade
-is quantized to 256 levels per channel and evaluated against the wrong transfer function. Worse,
+pipeline carries **whatever depth the source had** (SPEC-121/DEC-095 — it was unconditionally
+8-bit via `to_rgba8()` when this was written), so for the common **8-bit source** a grade is still
+quantized to 256 levels per channel, and for *every* source it is still evaluated against the
+wrong transfer function. Worse,
 such an op's own tests **cannot see it** — reference and candidate are wrong identically. So this
 question **gates the LUT entry above**, and should be answered before it is specced, not during.
 (It gates any future grading surface for the same reason.)
@@ -820,8 +831,11 @@ trilinear + typed errors, against the `src/metadata/tiff.rs` (718-line) in-housi
   author's local DaVinci Resolve install (`src/lib.rs:28,33`), so they cannot run on any other
   machine. That is a supply-chain quality signal the licence question distracted from.
 
-⚠ **Blocked on the colour-space question below** — a `.cube` applied in an 8-bit, non-linear
-pipeline is baked against the wrong transfer function. Settle that first.
+⚠ **Blocked on the colour-space question below** — a `.cube` applied in a non-linear pipeline is
+baked against the wrong transfer function. Settle that first. (Amended 2026-08-18: the *8-bit*
+half is now conditional — SPEC-121/DEC-095 makes the ops preserve the source's depth, so a 16-bit
+source is no longer quantized to 256 levels; an 8-bit source still is, because SPEC-121 preserves
+depth and does not promote. The transfer-function half is untouched and still live.)
 
 ### MCP server exposing crustyimg's measurements — and its stated gate is questionable
 
@@ -930,9 +944,11 @@ downscale softening, measurable in SSIMULACRA2), `blur` (Wave 4 placeholders) an
 kernels earn their place; a vignette or a film-grain filter does not. **Do not let "it's free"
 become an effects backlog.**
 
-⚠ **All of it is bounded by the 8-bit sRGB pipeline** (see the resampling entry above): blurs,
-gradient maps and curves band at 256 levels/channel, and compositing in non-linear space makes
-blends and glows subtly wrong.
+⚠ **All of it is bounded by the sRGB (non-linear) pipeline** (see the resampling entry above):
+compositing in non-linear space makes blends and glows subtly wrong. Amended 2026-08-18: the
+*8-bit* bound is now conditional — SPEC-121/DEC-095 makes `Invert`/`Resize`/`Watermark` preserve
+the source's bit depth, so blurs, gradient maps and curves band at 256 levels/channel **for an
+8-bit source only**; SPEC-121 preserves depth, it does not promote.
 
 ---
 
