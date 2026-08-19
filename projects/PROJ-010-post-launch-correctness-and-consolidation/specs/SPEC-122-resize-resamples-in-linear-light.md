@@ -261,7 +261,9 @@ disconfirming evidence against "the harness is comparing a file to itself".
 
 **AC-4 held structurally**: the harness generates the reference on every run and
 refuses to run without ImageMagick on `PATH`; nothing crustyimg-derived was
-committed as a reference.
+committed as a reference. The AFTER run was repeated from a clean working
+directory and the two `--json` reports are **byte-identical** (`diff` exit 0),
+the same reproducibility bar DEC-092 set for the BEFORE run.
 
 ### The negative controls (AC-7) — one revert per condition
 
