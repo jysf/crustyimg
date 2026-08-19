@@ -2188,6 +2188,59 @@ mod tests {
     ///
     /// Covers `exact 64x64`, `max 32` (no upscale on small input), and
     /// `percent 50` — all three must return `Ok`.
+    // ── SPEC-122: the sRGB transfer function ────────────────────────────
+
+    #[test]
+    fn srgb8_linear_table_matches_the_analytic_function() {
+        let table = srgb8_linear_table();
+        for value in 0u16..=255 {
+            assert_eq!(
+                table[value as usize],
+                srgb_to_linear(value as f32 / 255.0),
+                "table entry {value} must be the same f32 the per-sample \
+                 conversion produces, or the LUT is not a pure optimisation"
+            );
+        }
+    }
+
+    #[test]
+    fn srgb_round_trip_is_exact_for_every_8_bit_value() {
+        let table = srgb8_linear_table();
+        for value in 0u16..=255 {
+            assert_eq!(
+                encode_srgb8(table[value as usize]),
+                value as u8,
+                "8-bit sample {value} did not survive the linear round-trip"
+            );
+        }
+    }
+
+    #[test]
+    fn srgb_round_trip_is_exact_for_every_16_bit_value() {
+        // The same-size short-circuit in `resize_and_crop8`/`…16` means a
+        // no-op resize never takes this path, so this is not what makes AC-6
+        // hold — but it bounds the error the round-trip contributes when the
+        // image genuinely is resampled.
+        for value in 0u32..=65535 {
+            assert_eq!(
+                encode_srgb16(srgb_to_linear(value as f32 / 65535.0)),
+                value as u16,
+                "16-bit sample {value} did not survive the linear round-trip"
+            );
+        }
+    }
+
+    #[test]
+    fn averaging_in_linear_light_differs_from_averaging_the_signal() {
+        // Mid-gray from black and white: 187.5 in linear light, 127.5 if the
+        // non-linear samples are averaged directly. The gap is the defect.
+        let linear = linear_to_srgb((srgb_to_linear(1.0) + srgb_to_linear(0.0)) / 2.0) * 255.0;
+        assert!(
+            (linear - 187.5).abs() < 0.1,
+            "linear-light mean of 0 and 255 should be ~187.5, got {linear}"
+        );
+    }
+
     #[test]
     fn resize_apply_normal_outputs_succeed() {
         let img = make_image(64, 64, |_, _| [200, 100, 50, 255]);
