@@ -348,7 +348,27 @@ after each leg), through `rtk proxy`, nothing piped so no exit code is swallowed
 Nine checks, nine exit-0s, read from recorded exit codes rather than from a
 summary line. `tests/colour_type_preservation.rs`
 — SPEC-121's suite, now a regression guard on this change — is **21/21 green**,
-run explicitly as the prompt required. CI legs read individually below.
+run explicitly as the prompt required.
+
+**CI, read leg by leg rather than from the summary** (final commit; 16 pass, 0
+fail, 6 skipped — the skips are the release/publish jobs that only run on a tag):
+
+| leg | | leg | |
+|---|---|---|---|
+| build / test / clippy / fmt (ubuntu) | ✅ 10m51s | avif feature | ✅ 13m00s |
+| build / test / clippy / fmt (macos) | ✅ 13m01s | webp-lossy feature | ✅ 13m16s |
+| build / test / clippy / fmt (windows) | ✅ 14m14s | heic feature (ubuntu) | ✅ 14m57s |
+| lean build (`--no-default-features`) | ✅ 4m56s | heic feature (macos) | ✅ 11m15s |
+| msrv (rust 1.90.0) | ✅ 1m29s | **build + browser smoke** | ✅ 3m24s |
+| supply-chain policy (cargo-deny) | ✅ 37s | cost-capture audit | ✅ 4s |
+| front-matter validation | ✅ 4s | DCO sign-off | ✅ 5s |
+| detect changed paths | ✅ 7s | plan | ✅ 14s |
+
+The **windows** and **heic** legs are worth naming: they are the two the local
+matrix cannot cover, and the change touches float behaviour, which is exactly
+where a per-platform difference would show. Both green. `build + browser smoke`
+is green on the corrected wasm baseline; it was the one leg that went red, and
+its failure is written up above.
 
 ### A fourth thing the spec did not predict — the wasm bundle got 16.9% smaller
 
