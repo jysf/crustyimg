@@ -2,7 +2,7 @@
 task:
   id: SPEC-122
   type: bug
-  cycle: design
+  cycle: verify
   blocked: false
   priority: high
   complexity: M
