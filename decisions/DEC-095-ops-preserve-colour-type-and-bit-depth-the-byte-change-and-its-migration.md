@@ -22,10 +22,10 @@ created_at: 2026-08-18
 supersedes: null
 superseded_by: null
 
-# Shared with SPEC-122 (linear-light resampling lands in the same
-# `Resize::apply` function next) — this record covers the byte change and its
-# migration posture for the whole STAGE-046 wave. SPEC-122 amends this file
-# rather than minting a second decision.
+# Shared with SPEC-122 (linear-light resampling, amended in 2026-08-18) —
+# this record covers the byte change and its migration posture for the whole
+# STAGE-046 wave. Both specs rewrite `Resize::apply`; one decision, two
+# amendments, rather than two records that would have to agree with each other.
 affected_scope:
   - src/operation/**
   - src/sink/**
@@ -46,7 +46,7 @@ tags:
   - quality-per-byte
 ---
 
-# DEC-095: ops preserve colour type and bit depth — the byte change, and its migration posture
+# DEC-095: ops preserve colour type and bit depth, and `resize` resamples in linear light — the byte change, and its migration posture
 
 ## Decision
 
@@ -71,6 +71,31 @@ returns a narrower type than the input declared. One shared rule
   watermark over a gray base genuinely adds chroma and stays RGB.
 - **Depth.** 16→8 **never** — that is a downgrade, not a narrowing.
 
+**`Resize` additionally resamples in linear light (SPEC-122, amended in
+2026-08-18).** `Resize::apply` used to hand the widened RGBA buffer straight
+to `fast_image_resize` as `U8x4`/`U16x4`, so every weighted average was taken
+on non-linear sRGB samples — arithmetic on values that are not proportional to
+the physical quantity. It now **linearizes → resamples in `F32x4` → re-encodes**
+at the input's own bit depth. Alpha is deliberately not transformed (it is
+coverage, not a light value), and premultiplication is untouched — DEC-092
+refuted the premultiplied-alpha half of the same premise, and `F32x4` takes the
+same `ResizeOptions` the integer types took.
+
+**The transfer function is assumed to be sRGB, and this is the assumption
+being made explicit** (SPEC-122 Call 4). crustyimg carries ICC profiles through
+but does not interpret them, so an image tagged with a different transfer
+function is now resampled under an assumption that is wrong *for it* — better
+than the previous assumption, which was that the samples were already linear
+(wrong for essentially every image), but still an assumption. ICC-aware
+conversion is its own project and is explicitly not this one.
+
+A same-size resize short-circuits before the conversion. `fast_image_resize`
+does not resample in that case either — `Resizer::resize` falls through to a
+row copy (`resizer.rs`'s `copy_image`) — so the round-trip would be a no-op in
+exact arithmetic. It is skipped for cost, not for correctness: the round-trip
+was **measured exact for all 256 8-bit and all 65,536 16-bit values**, and
+removing the short-circuit leaves every test green (see Validation).
+
 `Watermark` decides the narrow from the composite, not by exemption.
 Source-over compositing can only *produce* a non-opaque pixel where the base
 already had one — `a_out = a_base + a_ov·(1 − a_base)` is 1 for every overlay
@@ -93,13 +118,15 @@ filed, not fixed, here).
 
 **No new cache-key component, no new migration machinery** (Call 4). The
 byte change is real and affects every existing recipe that runs `resize`,
-`thumbnail`, `edit --invert`, `web` or `watermark` — but `cache_key_for`
+`thumbnail`, `edit --invert`, `web` or `watermark` — and, since SPEC-122, for every recipe
+that runs `resize` at any scale other than 1:1 — but `cache_key_for`
 already includes `crate::version()` (`src/cli/build.rs:294`, DEC-058), so a
 version bump changes every key, and the lockfile's `hash` was never promised
 stable across versions (`src/build/lock.rs:32-36`). The normal upgrade path
 — key changes, `--frozen` fails, the user regenerates — was driven and
 confirmed, **conditionally** (see Consequences: it holds only when the
-version is actually bumped, which this build does not do).
+version is actually bumped, which neither build does), and **re-driven
+independently for SPEC-122's byte change with the same result**.
 
 ## Context
 
@@ -244,6 +271,87 @@ mechanical simplification riding the bit-depth fix, not a separate change.
   the image and returns `None` when nothing is lost — unit-tested at both
   depths, since `eprintln!` is not capturable in-process.
 
+### Amended 2026-08-18 — SPEC-122's consequences
+
+- **Positive, MEASURED — the defect the spec was written against is closed, on
+  the same harness and against the same outside tool.** Re-running
+  `scripts/spec120_linear_light.py` against the branch binary, reference
+  regenerated with ImageMagick 7.1.2-29 Q16-HDRI: SSIMULACRA2 **−63.85 →
+  100.00** (synthetic worst case), **70.45 → 100.00** (`graphic_large.png`),
+  **84.45 → 99.41** (`photo_forest_cc0.jpg`); mean signed linear-luminance
+  error −0.104350 / −0.001386 / −0.004920 → **0.000000 on all three**. The two
+  oracles agree, so there is no disagreement to report. The agreement with the
+  reference is *exact* on two cases (ImageMagick's own `compare -metric AE`
+  returns 0) — tighter than two independent implementations usually manage,
+  and explicable: the sRGB OETF's slope is below 1 above ~0.03 linear, so it
+  compresses small differences in the linear intermediate and more of them
+  round to the same 8-bit code. The photo, the least regular case, is the one
+  that does not land exactly (AE 0.00098).
+
+- **Negative, MEASURED — `resize` is 3.83× slower at the op, 1.5–2.5× slower
+  end to end, and the transfer function is not the reason.** `benches/pipeline.rs`
+  `resize` (256²→128² RGB, criterion, 100 measurements per arm, Apple M4 Pro,
+  release): **169.27 µs → 648.52 µs, +283.5% (p < 0.05)**. Whole-verb, best of
+  9: 8.1→12.2 ms (800×532 → max 400), 113.9→203.5 ms (4000×2660 → max 1600),
+  20.0→49.0 ms (2048²→256²). Decomposed with two nested diagnostic builds,
+  both discarded: the *same* `F32x4` pipeline with **no transfer function at
+  all** still costs 515.88 µs, so **72% of the added time is the `F32x4`
+  working type**, not the maths; and swapping the `powf` encode for a
+  threshold-table search recovers **7 µs of 479** while not even being
+  bit-exact (2 pixels of 160,000 move by 1). **The cheap optimisation does not
+  exist here.** Recovering the time means changing the working type — `U16x4`
+  has SIMD kernels `F32x4` does not, at the cost of quantizing the linear
+  intermediate, where 16 bits is close to the floor for 8-bit sRGB shadows.
+  That is a design call, filed for the architect, deliberately not taken during
+  build (SPEC-122 AC-9 forbids optimising out of the spec).
+
+- **Negative — AC-6 asked for the upscale path to stay byte-identical to
+  `main`, and it cannot.** An upscale *is* a resample: Lanczos3 interpolates,
+  and interpolating non-linear samples is wrong in the same way averaging them
+  is. Rather than gate the linearization on direction — which would leave a
+  discontinuity at 100%, and no answer at all for `fill`/`cover`, where one
+  axis can shrink while the other grows — the fix applies to every real
+  resample. Measured against the same independent reference, the upscale was
+  defective in the same direction and improved by the same fix:
+  `graphic_large.png` 512²→1024² **65.93 → 100.00**, `photo_forest_cc0.jpg`
+  800×532→1600×1064 **89.16 → 98.44**. The *no-op* half of AC-6 holds and is
+  asserted at four colour types.
+
+- **Neutral, MEASURED — the alpha edge improved where AC-5 predicted nothing
+  would move, and DEC-092's explanation of the residual was wrong.** Max
+  premultiplied-RGB edge error against the independent premultiplied reference
+  went **27/255 → 0**, mean **0.364 → 0.0** (`compare -metric AE` = 0
+  independently; the `use_alpha(false)` control arm still reads 68/18.34 and AE
+  346, so the oracle can still fire). DEC-092 read the residual 27 as "Lanczos
+  ringing at hard corners"; it was **8-bit quantization inside
+  `fast_image_resize`'s own premultiply/divide round-trip**, which disappears
+  when that round-trip happens in `f32`. Premultiplication itself did not move:
+  C5 still shows the shipped binary differing from the non-premultiplied arm in
+  10,512 pixels. Nothing regressed; the AC was simply written expecting a null
+  where an improvement was available.
+
+- **Neutral — the same-version cache hazard reproduces on a second byte
+  change.** AC-8 was re-driven end to end for SPEC-122: at the unbumped 0.7.0
+  the key was unchanged, `build --check` reported "lockfile is up to date"
+  **exit 0**, and a plain `build` served the **stale pre-fix bytes**
+  (`1c4ebb57…`) with no warning; at a bumped 0.7.1 the key moved
+  (`e4abb010…` → `d8abf134…`), `--check` failed **exit 7** with an explicit
+  drift message and left the lockfile untouched, and a plain `build`
+  regenerated the linear-light output (`87642f1a…`, byte-identical to a direct
+  `resize` on the branch). This is the STAGE-042 item SPEC-121 filed,
+  independently confirmed rather than assumed — two unrelated byte changes,
+  same conditional.
+
+- **Neutral — `examples/spec120_linear_probe.rs` and
+  `scripts/spec120_linear_light.py` are kept, not deleted.** They are the
+  acceptance test (SPEC-122 Call 3), they are named in DEC-092's
+  `affected_scope`, and their controls C1/C3 now serve as the negative control
+  for this change: C1 (the probe's sRGB arm reproduces the shipped binary
+  pixel-exactly) flips **PASS → FAIL** and C3 (the binary agrees with
+  ImageMagick's sRGB-space resize) goes from a mean |luma err| of 0.0003 to
+  0.1045 — both are the behavioural flip, observable without rebuilding
+  anything.
+
 ## Alternatives Considered
 
 - **A new cache-key component (e.g. a colour-pipeline-version field).**
@@ -256,12 +364,69 @@ mechanical simplification riding the bit-depth fix, not a separate change.
   as a Consequence instead of silently expanded.
 - **Resizing the source `DynamicImage` variant directly (no RGBA widening)
   in `Resize::apply`.** Considered and rejected for now — see the Consequences
-  entry above; revisit alongside SPEC-122.
+  entry above; revisit alongside SPEC-122. **Revisited at SPEC-122 and still
+  rejected:** the linear-light path converts to `F32x4` regardless, so
+  resampling the narrower source variant would save one widening pass and cost
+  a second code path, against a conversion that the AC-9 decomposition shows is
+  not where the time goes.
+- **Gating the linearization on downscale only, to keep AC-6's upscale half.**
+  Rejected — it would make the correction discontinuous at 100% and undefined
+  for `fill`/`cover`, where one axis can shrink while the other grows, and the
+  upscale direction was measured to be defective in the same way (see
+  Consequences).
+- **A `U16x4` linear intermediate instead of `F32x4`.** Not taken during build.
+  It is the plausible answer to the 3.83× cost, but it quantizes the linear
+  intermediate — where 16 bits is close to the floor for 8-bit sRGB shadows —
+  so it trades measured quality for measured speed. That is the architect's
+  call; the build's job was to measure the cost, which it did.
+- **A cheaper transfer function (threshold table, polynomial).** Measured and
+  rejected as pointless: it recovers 7 µs of 479 and is not bit-exact.
+
+## Validation (SPEC-122's half — added 2026-08-18)
+
+Three negative controls, **one revert per independent condition**, each built
+and run rather than reasoned about (AGENTS §15: the behavioural flip is the
+evidence, not a hash):
+
+- **Revert A — the linearization removed** (`git checkout main -- src/operation/mod.rs`,
+  rebuilt). The three linear-light tests go **RED** with the expected numbers
+  (`downscale_scores_better…` scores −3.99, identical to its own sRGB-space
+  control; `mean_luminance_error…` reports −54.8% of the reference mean), while
+  `translucent_edge_error_is_unchanged`,
+  `resize_does_not_apply_the_transfer_function_to_alpha` and
+  `noop_resize_is_byte_identical_to_its_source` **run and pass**. The harness on
+  the same reverted binary returns **exactly −63.85 / 70.45 / 84.45** and an
+  alpha edge error of **27** — the pre-fix numbers, to the digit.
+- **Revert B — alpha put through the transfer function too.** Only
+  `resize_does_not_apply_the_transfer_function_to_alpha` goes red; the other
+  five run and pass. The two conditions are independent, not co-dependent.
+- **Revert C — the same-size short-circuit removed.** **All six tests still
+  pass**, which is the honest result and is why the short-circuit is described
+  above as a cost measure rather than a correctness one: the transfer-function
+  round-trip is exact for every representable value, so the guard has no
+  behaviour for a test to see. Stated rather than papered over — a control that
+  cannot go red is worth knowing about.
+
+Two unit tests carry the exactness claim rather than a fixture that samples it:
+`srgb_round_trip_is_exact_for_every_8_bit_value` (all 256) and
+`srgb_round_trip_is_exact_for_every_16_bit_value` (all 65,536), plus
+`srgb8_linear_table_matches_the_analytic_function`, which asserts the lookup
+table is bit-identical to the per-sample conversion so the table is provably an
+optimisation and not a second implementation.
+
+The in-repo tests are **hermetic and are not the independent oracle**: AGENTS
+§12 forbids shelling out to ImageMagick for fixtures, so they derive their
+reference from the sRGB standard's transfer function, re-stated in the test
+file rather than imported from the code under test. The outside-tool
+measurement is `scripts/spec120_linear_light.py`, re-run per SPEC-122 Call 3
+with the reference regenerated, never substituted (AC-4).
 
 ## References
 
-- Related specs: **SPEC-121** (this spec), **SPEC-122** (linear-light
-  resampling, same function, amends this record), SPEC-090 (honest size
+- Related specs: **SPEC-121** (the colour-type/bit-depth half), **SPEC-122**
+  (the linear-light half, same function, amended into this record 2026-08-18),
+  **SPEC-120/DEC-092** (the measurement that justified SPEC-122 and refuted its
+  premultiplied-alpha half), SPEC-090 (honest size
   reporting, the precedent for Call 3's diagnostic), SPEC-123/DEC-094 (the
   sibling STAGE-042 finding this migration item sits beside).
 - `docs/backlog.md` — "⚠ Live defect — ops widen to RGBA and never narrow

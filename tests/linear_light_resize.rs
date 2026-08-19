@@ -173,7 +173,8 @@ fn downscale_scores_better_against_an_independent_reference() {
     });
 
     let score = crustyimg::quality::score(&interior(&reference), &interior(&got)).unwrap();
-    let defect_score = crustyimg::quality::score(&interior(&reference), &interior(&defect)).unwrap();
+    let defect_score =
+        crustyimg::quality::score(&interior(&reference), &interior(&defect)).unwrap();
 
     // The defect scores are the point of the control: without it, "the output
     // scores well" could just mean the metric cannot see this at all.

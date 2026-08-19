@@ -215,18 +215,233 @@ SPEC-121 so the wave is a single decision.
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
-- **New decisions emitted:**
-- **Deviations from spec:**
-- **Follow-up work identified:**
+- **Branch:** `fix/spec-122-resize-resamples-in-linear-light`
+- **PR (if applicable):** #182
+- **All acceptance criteria met?** **9 of 10 in full; AC-6 in half, deliberately
+  and with measurement.** AC-5 was met by a *better* result than it predicted,
+  which is also worth reading as a deviation rather than a pass.
+- **New decisions emitted:** **none — DEC-095 amended**, as instructed. The
+  amendment adds the linear-light change, Call 4's sRGB assumption, SPEC-122's
+  consequences and alternatives, and a Validation section covering the three
+  negative controls. `affected_scope` already covered `src/operation/**`;
+  confirmed, not widened (the diff touches `src/operation/mod.rs` and `tests/`
+  only).
+- **Deviations from spec:** three, all measured; see below.
+- **Follow-up work identified:** two, both filed rather than fixed.
+
+### The result (AC-1, AC-2, AC-3, AC-4)
+
+`scripts/spec120_linear_light.py` re-run against the **branch** binary, with the
+reference **regenerated** by the same external tool (ImageMagick 7.1.2-29
+Q16-HDRI aarch64 — the same build DEC-092 used), never substituted:
+
+| case | SSIMULACRA2 before → after | mean signed luma err before → after |
+|---|---|---|
+| synthetic worst case (**AC-3** positive control) | **−63.85 → 100.00** | −0.104350 (−88.07%) → 0.000000 |
+| `graphic_large.png` | **70.45 → 100.00** | −0.001386 (−0.44%) → 0.000000 |
+| `photo_forest_cc0.jpg` | **84.45 → 99.41** | −0.004920 (−2.63%) → 0.000000 |
+
+**AC-2 — the two metrics do not disagree.** Both go to ~zero error on all three
+cases, so there is no disagreement to report as a finding. DEC-092's warning
+that mean luminance *understates* the defect on graphics is unchanged and still
+worth carrying: on `graphic_large.png` a −0.44% mean error carried a 29.5-point
+perceptual penalty.
+
+**Read the "after" column the way DEC-092 asked.** crustyimg and ImageMagick now
+agree **pixel-exactly** on two of the three cases — ImageMagick's own
+`compare -metric AE` returns **0**, and 0.00098 on the photo. That is a genuine
+result against an outside tool (ImageMagick is not the code under test), but the
+agreement is tighter than two independent implementations usually manage, and
+there is a mechanism: the sRGB OETF's slope is below 1 above ~0.03 linear, so it
+compresses small differences in the linear intermediate and more of them round to
+the same 8-bit code. In sRGB space the two implementations do *not* agree
+exactly (AE 111 / 0.36 / 8.77 on the same three cases). The photo — the least
+regular case — is the one that still does not land exactly, which is the
+disconfirming evidence against "the harness is comparing a file to itself".
+
+**AC-4 held structurally**: the harness generates the reference on every run and
+refuses to run without ImageMagick on `PATH`; nothing crustyimg-derived was
+committed as a reference.
+
+### The negative controls (AC-7) — one revert per condition
+
+| revert | what goes red | what stays green |
+|---|---|---|
+| **A** — the linearization removed | the 3 linear-light tests | the alpha and no-op tests **run and pass** |
+| **B** — alpha put through the transfer function | `resize_does_not_apply_the_transfer_function_to_alpha` only | the other 5 **run and pass** |
+| **C** — the same-size short-circuit removed | **nothing** | all 6 pass |
+
+Revert A on the harness returns **exactly −63.85 / 70.45 / 84.45** and an alpha
+edge error of **27** — AC-7's numbers to the digit. Two harness controls flip and
+are themselves evidence: **C1** (the probe's sRGB arm reproduces the shipped
+binary pixel-exactly) goes PASS → FAIL, and **C3** (the binary agrees with
+ImageMagick's *sRGB-space* resize) goes from mean |luma err| 0.0003 to 0.1045.
+
+**Revert C is reported as a control that cannot fail, not hidden.** The
+transfer-function round-trip is exact for all 256 8-bit and all 65,536 16-bit
+values (unit-tested exhaustively), so the short-circuit has no behaviour for a
+test to observe. It is kept as a cost measure and as insurance on targets whose
+float behaviour differs, and DEC-095 says so.
+
+### AC-8 — the migration, driven
+
+Built a `crustyimg.build.toml` target with `main`'s binary, committed the
+lockfile, then ran the branch binary. **At the unbumped 0.7.0** the key was
+unchanged, `build --check` reported *"lockfile is up to date"* **exit 0**, and a
+plain `build` served the **stale pre-fix bytes** (`1c4ebb57…`) with no warning.
+**At a bumped 0.7.1** (verified applied — the binary reported `crustyimg 0.7.1`
+before the arm ran; `git checkout Cargo.toml` alone does **not** rebuild the
+version string) the key moved `e4abb010…` → `d8abf134…`, `--check` failed **exit
+7** with an explicit drift message and left the lockfile untouched, and a plain
+`build` regenerated `87642f1a…`, byte-identical to a direct branch `resize`.
+
+All four checks hold, conditionally on the version being bumped — **the same
+conditional SPEC-121 measured, now independently reproduced on a second,
+unrelated byte change.** The STAGE-042 item SPEC-121 filed is confirmed rather
+than assumed. The version was **not** bumped in this branch.
+
+### AC-9 — performance, measured, and worse than hoped
+
+`benches/pipeline.rs` `resize` (256²→128² RGB, criterion, 100 measurements per
+arm, Apple M4 Pro, release, same machine, same input):
+
+| arm | time | vs `main` |
+|---|---|---|
+| `main` — `U8x4`, sRGB space | **169.27 µs** | — |
+| `F32x4`, **no transfer function at all** (diagnostic) | 515.88 µs | +204.6% |
+| `F32x4` + threshold-table encode (diagnostic) | 641.13 µs | +279.1% |
+| **shipped** — `F32x4` + `powf` encode | **648.52 µs** | **+283.5%** (p < 0.05) |
+
+Whole-verb, best of 9 runs each, timer proven able to see a 100 ms difference
+before any figure was believed:
+
+| case | `main` | branch | ratio |
+|---|---|---|---|
+| 800×532 `--max 400` | 8.1 ms | 12.2 ms | 1.51× |
+| 4000×2660 `--max 1600` | 113.9 ms | 203.5 ms | 1.79× |
+| 4000×2660 `--max 400` | 99.0 ms | 174.6 ms | 1.76× |
+| 2048² `--exact 256x256` | 20.0 ms | 49.0 ms | 2.45× |
+| 800×532 `--exact 1600x1064` | 21.2 ms | 42.5 ms | 2.01× |
+
+**The finding is that the obvious optimisation is not available.** 72% of the
+added time is the `F32x4` working type itself, not the maths — the same pipeline
+with the transfer function removed entirely still costs 515.88 µs. Swapping the
+`powf` encode for a threshold-table search recovers **7 µs of 479** and is not
+even bit-exact (2 pixels of 160,000 move by 1). Recovering the time means
+changing the working type — `U16x4` has SIMD kernels `F32x4` does not — which
+trades measured quality for measured speed and is a design call, not a build
+one. Both diagnostic builds were discarded; the shipped code is the spec's.
+
+### AC-10 — the matrix
+
+Clean, **sequential**, fresh per-leg `CARGO_TARGET_DIR` (removed before and
+after each leg), through `rtk proxy`, nothing piped so no exit code is swallowed:
+
+| leg | `cargo test --release` | `clippy --all-targets -D warnings` | `fmt --check` |
+|---|---|---|---|
+| default | ✅ 927 passed / 0 failed (39 suites) | ✅ | ✅ |
+| `--no-default-features` | ✅ 907 passed / 0 failed (39 suites) | ✅ | ✅ |
+| `--features webp-lossy` | ✅ 835 passed / 0 failed (28 suites) | ✅ | ✅ |
+
+Nine checks, nine exit-0s, read from recorded exit codes rather than from a
+summary line. `tests/colour_type_preservation.rs`
+— SPEC-121's suite, now a regression guard on this change — is **21/21 green**,
+run explicitly as the prompt required. CI legs read individually below.
+
+### Deviations from spec
+
+1. **⚠ AC-6's upscale half is not met, deliberately.** AC-6 asks for upscale to
+   be "byte-identical to `main` where no resampling occurs" — but an upscale *is*
+   a resample: Lanczos3 interpolates, and interpolating non-linear samples is
+   wrong in the same way averaging them is. Gating the linearization on direction
+   would put a discontinuity at exactly 100% and would have no answer at all for
+   `fill`/`cover`, where one axis can shrink while the other grows. So the fix
+   applies to every real resample, and **the upscale direction turns out to have
+   been defective in the same way**: measured against the same independent
+   reference, `graphic_large.png` 512²→1024² **65.93 → 100.00** and
+   `photo_forest_cc0.jpg` 800×532→1600×1064 **89.16 → 98.44**. The **no-op** half
+   of AC-6 *is* met and is asserted at four colour types (`Rgb8`, `Rgba8`,
+   `Luma8`, `Rgb16`), byte-identical to `main`. The architect's ruling is invited;
+   the behaviour is pinned by a test either way.
+
+2. **The `Failing Tests` list is renamed by one entry.**
+   `upscale_and_noop_resize_are_byte_identical_to_main` became
+   **`noop_resize_is_byte_identical_to_its_source`** plus
+   **`upscale_is_resampled_in_linear_light_too`** — a test whose name asserts
+   something the measurement says is false would be worse than a rename. The other
+   three names are as the spec wrote them.
+
+3. **AC-5 was met by an improvement, not by a null.** It predicted the
+   translucent-edge error would "stay at SPEC-120's measured 27/255 band". It did
+   not: **max premultiplied-RGB edge error 27 → 0, mean 0.364 → 0.0**, confirmed
+   independently (`compare -metric AE` = 0 against the premultiplied reference;
+   the `use_alpha(false)` control arm still reads 68/18.34, so the oracle can
+   still fire). **DEC-092's explanation of that residual was wrong**: it read the
+   27 as "Lanczos ringing at hard corners"; it was 8-bit quantization inside
+   `fast_image_resize`'s own premultiply/divide round-trip, and doing that
+   round-trip in `f32` removes it. Premultiplication itself did not move — C5
+   still shows the binary differing from the non-premultiplied arm in 10,512
+   pixels. **Nothing regressed**; the AC expected a null where an improvement was
+   available.
+
+**Not a deviation but worth flagging: this build ran on `claude-opus-5`, not the
+`claude-sonnet-5` the spec's front matter and the build prompt both name.** The
+cost below is priced at Opus anchors accordingly, per AGENTS §4 ("the model that
+actually ran, not the one a prompt names").
+
+### On the prototype (Call 2)
+
+**Kept, not deleted.** `examples/spec120_linear_probe.rs` and
+`scripts/spec120_linear_light.py` are the acceptance test (Call 3), they are named
+in DEC-092's `affected_scope`, and their C1/C3 controls are now the cheapest
+available negative control for this change — C1 flips PASS → FAIL the moment the
+linearization is present. Deleting the probe would delete the way to re-derive
+both the before and the after. The production code carries the prototype's
+arithmetic exactly: on the synthetic case the branch binary's output is
+**pixel-identical** to the probe's linear arm, which is the evidence that Call 2's
+"start from the prototype" was actually followed rather than merely claimed.
+
+### Follow-up work identified
+
+- **The `resize` performance cost, for the architect.** A `U16x4` linear
+  intermediate is the plausible recovery and is a design call (it quantizes the
+  linear intermediate, where 16 bits is close to the floor for 8-bit sRGB
+  shadows). Recorded in DEC-095's Consequences and Alternatives with the numbers.
+- **The same-version cache hazard**, already filed on STAGE-042 by SPEC-121 and
+  now confirmed on a second byte change. Not re-filed; the existing item is
+  strengthened in DEC-095 instead.
 
 ### Build-phase reflection (3 questions, short answers)
 
-1. **What was unclear in the spec that slowed you down?**
-2. **Was there a constraint or decision that should have been listed but wasn't?**
-3. **If you did this task again, what would you do differently?**
+1. **What was unclear in the spec that slowed you down?** **AC-6.** "Upscale and
+   no-op resize are unaffected, byte-identical to `main` where no resampling
+   occurs" reads as one claim but is two, and the qualifier contradicts the first
+   half — an upscale resamples. Resolving it needed a measurement the spec did not
+   ask for (upscale against the independent reference) before I could tell whether
+   I was looking at a defect in my change or a defect in the AC. Cheap to fix at
+   design: write the criterion against the operation's actual behaviour
+   ("a same-size resize returns its input untouched") rather than against a
+   direction.
+
+2. **Was there a constraint or decision that should have been listed but
+   wasn't?** The **no-op path is a `copy_image` short-circuit inside
+   `fast_image_resize`**, not a resample — that is what makes AC-6's no-op half
+   achievable at all, and it is a fact about the dependency that no grep of `src/`
+   would surface [[a-grep-of-src-cannot-see-a-dependencys-default]]. It belonged
+   in Implementation Context next to the `F32x4`/`U16x4` note. Second: **AC-9
+   asked for performance to be measured but named no threshold and no baseline
+   input set**, so "is 3.83× bad?" is a question the build cannot answer and the
+   architect now has to.
+
+3. **If you did this task again, what would you do differently?** **Check the
+   harness's own arithmetic before trusting its first output.** The BEFORE run
+   reported the prototype at *exactly* 0.000000 luma error against the reference,
+   which I nearly accepted because it matched DEC-092's recorded 100.00 — two
+   independent implementations agreeing to the last bit should have been
+   interrogated on sight, not on the second look. It took an outside check
+   (`magick compare -metric AE`) to establish it was real. I would run that
+   cross-check *first*, as a standing control on the harness, rather than reaching
+   for it only when a number looked too good.
 
 ---
 
