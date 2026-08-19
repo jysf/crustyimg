@@ -45,18 +45,21 @@ live and a **CLI-quality pass** (Track B) folded in. Coherent, defensible, every
 people want and that we can make *excellent*.
 
 **One quality item sits inside that line, and it is a defect rather than a wave.** `resize`
-**resamples in sRGB space, not linear light** (`src/operation/mod.rs:515` hands `PixelType::U8x4`
-to `fast_image_resize`; zero hits for `gamma`/`linear`/`premultipl` in the operation and image
-modules, measured 2026-08-15). High-contrast edges darken on downscale — a quality defect in the
-**most-used operation** of a tool whose headline claim is quality-per-byte, which is why it is
-above the line and not in post-1.0 polish. The fix is contained and does **not** require a 16-bit
-pipeline: convert to linear `f32`/`u16` inside `Resize::apply`, resample, convert back on the way
-out (`fast_image_resize` 5.x already provides `U16x4`/`F32x4` and `MulDiv`). ⚠ It **changes output
-bytes for every existing recipe**, so it invalidates PROJ-007 build lockfiles and needs its own
-DEC and migration story — and its premise should be **measured with SSIMULACRA2 before it is
-specced**, not assumed. Full entry, including the probably-adjacent missing premultiplied-alpha
-handling and the separate open question of whether the pipeline should preserve >8 bits at all, is
-in `docs/backlog.md`.
+**resamples in sRGB space, not linear light** (`src/operation/mod.rs`'s `resize_and_crop`, added
+SPEC-121 2026-08-18, still hands `fast_image_resize` a plain `u8`/`u16` sRGB buffer — zero hits for
+`gamma`/`linear`/`premultipl` in the operation and image modules, measured 2026-08-15, unchanged by
+SPEC-121). High-contrast edges darken on downscale — a quality defect in the **most-used
+operation** of a tool whose headline claim is quality-per-byte, which is why it is above the line
+and not in post-1.0 polish. The fix is contained and does **not** require a 16-bit pipeline:
+convert to linear `f32`/`u16` inside `Resize::apply`, resample, convert back on the way out
+(`fast_image_resize` 5.x already provides `U16x4`/`F32x4` and `MulDiv`). ⚠ It **changes output
+bytes for every existing recipe**, so it invalidates PROJ-007 build lockfiles and needs its own DEC
+and migration story — and its premise should be **measured with SSIMULACRA2 before it is
+specced**, not assumed. Full entry, including the premultiplied-alpha question (REFUTED by
+SPEC-120, DEC-092 — `fast_image_resize` already premultiplies) and the now-answered question of
+whether the pipeline should preserve >8 bits at all (SPEC-121: yes — `Invert`/`Resize`/`Watermark`
+now preserve the input's bit depth instead of collapsing every image to 8-bit RGBA), is in
+`docs/backlog.md`.
 
 ### Post-1.0 — sequenced below the line on purpose (deferred, not dropped)
 

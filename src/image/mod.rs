@@ -691,7 +691,13 @@ pub fn raw_preview(bytes: &[u8]) -> Result<Image> {
 
 /// Bits per channel for a [`ColorType`] (e.g. `Rgb8`/`Rgba8` → 8, `Rgb16` →
 /// 16). A free fn so it is directly unit-testable.
-fn color_type_bit_depth(ct: ColorType) -> u8 {
+///
+/// `pub(crate)`: `operation` and `sink` both need this (SPEC-121, Call 1 and
+/// Call 3) — they widen/narrow by bit depth and warn on a >8-bit source
+/// hitting an 8-bit-only encoder, and both are in `crate::image`'s allowed
+/// dependency set already, so this is the shared home rather than a second
+/// copy.
+pub(crate) fn color_type_bit_depth(ct: ColorType) -> u8 {
     // bits_per_pixel / channels = bits per channel.
     let channels = ct.channel_count() as u16;
     if channels == 0 {

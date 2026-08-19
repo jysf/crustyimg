@@ -316,7 +316,49 @@ failures on documented paths.
   parallel"*). Both break the day `image/rayon` is enabled — so this item and the encoder-pin item
   above move together.
 
-**Count:** 2 framed (SPEC-118, SPEC-124) / **1 shipped (SPEC-123)** / 7 pending / 1 chore done
+- [ ] (not yet written) — [S] **The cache-key-changes-on-release safety net only fires on an
+  actual version bump; a same-version code fix is invisible to it.** SPEC-121's AC-8 drive
+  (2026-08-18): `cache_key_for` includes `crate::version()` (DEC-058), and Call 4's premise —
+  "old and new renders cannot collide in the cache" — is TRUE **only when the version changes**.
+  **Driven both ways on a real target:** built with `main`'s pre-fix binary, committed the
+  lockfile, then ran the SPEC-121 branch binary (same `0.7.0`, unbumped, per its own "do not bump
+  the version" guardrail) — `build --check` reported **"lockfile is up to date," exit 0**, and a
+  plain `build` served the stale, pre-fix bytes from cache (`0 cached` became `1 cached, 0
+  rebuilt`; `dist/photo.webp` stayed `rgba8`, not the branch's correct `rgb8`) with **zero
+  warning**. Rebuilding the identical branch source at `0.7.1` instead: key changed
+  (`b16f3ef6…` → `31d6ea01…`), `--check` failed **exit 7** with an explicit drift message, a plain
+  `build` regenerated, and the on-disk output flipped to the correct `rgb8`. All four of AC-8's
+  checks hold — conditionally.
+  **So this wave's migration story is sound only if a version bump actually lands with it.**
+  SPEC-124's stage note above ("must ship before the next tag") already assumes this; this item
+  makes the reason concrete and measured rather than assumed. Between a tag and the next one, any
+  number of behavior-changing specs can merge to `main` at an unchanged version — SPEC-121/122/124
+  among them — so a user who builds from `main` mid-wave and freezes a lockfile gets a **silent**
+  stale-cache hazard the moment the *next* same-version fix lands, not merely a hypothetical one.
+  **Not a `src/` fix** — Call 4 explicitly forbids inventing cache-key machinery in SPEC-121; this
+  is a process/release-discipline finding (bump before tagging, or thread a git-describe-style
+  component into the key), and the choice is the maintainer's, matching the pattern set by the
+  `[env]` same-machine item above.
+
+- [ ] (not yet written) — [S] **Lossless WebP silently halves a >8-bit source, on the DEFAULT
+  path, and reports `ssim 100.0` while doing it.** SPEC-121's Call 3 settled its warning scope as
+  JPEG + lossy WebP only; `image`'s own *lossless* WebP encoder — no feature flag, always built —
+  has no 16-bit mode either, so it takes the same "automatically convert the image to some color
+  type supported by the encoder" path with no diagnostic.
+  **Driven on the branch binary (2026-08-18), 32×32 16-bit RGB PNG:** `convert --format webp`
+  prints `png → webp · 4791 → 686 B (86% smaller) · ssim 100.0` and the output round-trips as
+  **8-bit** RGB. `web` reaches it too — `optimize`'s smallest-candidate search picks WebP for that
+  fixture. The SSIM figure is computed on 8-bit renderings, so it cannot see the loss it is
+  reporting on; **the honest-size line reads as reassurance for the one thing that did go wrong.**
+  Same class as the JPEG/lossy-WebP gap SPEC-121 closed, and the same fix shape (one line at the
+  sink) — but widening Call 3's scope to every 8-bit-only format (lossless WebP, GIF, BMP, ICO) is
+  a design call SPEC-121 did not reopen.
+  **Filed here rather than in `docs/backlog.md`** because no command reads that file
+  ([[a-document-is-not-a-backlog-unless-tooling-reads-it]]) — `just backlog` reads this section.
+  SPEC-121 recorded it only in DEC-095's Consequences prose, and a test comment cited a
+  `docs/backlog.md` entry that was never written; both are corrected on that branch.
+
+**Count:** 2 framed (SPEC-118, SPEC-124) / **1 shipped (SPEC-123)** / 9 pending / 1 chore done
 
 ## Design Notes
 

@@ -243,9 +243,27 @@ Three further reasons the timing is now and not later:
 - **The backend is already in place.** `fast_image_resize` 5.x ships
   `U16x4`/`F32x4` and `MulDiv`; `DynamicImage` already has `ImageRgb16` /
   `ImageRgba16`. Neither fix needs a new dependency.
-- ⚠ **"crustyimg is 8-bit internally" is not accurate as stated** and appears in
+- ✅ **"crustyimg is 8-bit internally" is not accurate as stated** and appears in
   places that outlive this stage. Correcting that claim wherever it is written is
   part of the colour-type spec, not a follow-up.
+  **Done 2026-08-18 (SPEC-121, build + punch-list).** Swept all **798** tracked
+  files — `git grep -n -i -E '8-bit (throughout|internally|pipeline|sRGB
+  pipeline)|pipeline (stays|is) 8-bit|to_rgba8|truncated today|8 ?-?bit,
+  non-linear'` — and read every hit outside `src/`/`tests/`. Corrected as
+  **live premises**: `docs/lab-plan-2026-08.md` F8 and `docs/roadmap.md` (build
+  cycle); `docs/backlog.md:677-690` (SPEC-122's own entry — it instructed a
+  builder to *"convert back to 8-bit on the way out"*, which would have
+  re-broken this spec), `:700` (the grading-op stakes paragraph), `:823` (the
+  `.cube` LUT gate) and `:933-934` (the effects scope guard) at punch-list.
+  **Amended, not deleted, and the amendments are conditional:** SPEC-121
+  preserves the depth it is *given* and does **not promote**, so an 8-bit
+  source is still quantized to 256 levels and the transfer-function half is
+  untouched — both still live for SPEC-122. Left alone as correct
+  historical/defect-describing prose: this file's D-C row, `docs/backlog.md`'s
+  Live-defect section (`:939-1018`), the SPEC-121 spec and build prompt, and
+  the `to_rgba8()` hits in `docs/research/**` + `projects/PROJ-001/**` (all
+  dated records of what the code was). ⚠ Prose, not a `- [ ]`, so nothing
+  tracked this mechanically — the citation is the audit trail.
 
 ## Dependencies
 

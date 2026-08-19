@@ -15,7 +15,7 @@ use std::fmt;
 use std::str::FromStr;
 
 use ::image::imageops::{self, FilterType};
-use ::image::{DynamicImage, RgbaImage};
+use ::image::{ColorType, DynamicImage, ImageBuffer, Luma, LumaA, Pixel, Rgba, RgbaImage};
 use serde::ser::SerializeMap;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use thiserror::Error;
@@ -172,14 +172,156 @@ impl Operation for Identity {
     }
 }
 
+// ─── Colour-type-preserving widen/narrow (SPEC-121, Call 1) ───────────────────
+//
+// "Widen to work, narrow to write": `Invert`, `Resize` and `Watermark` all
+// need a channel-addressable working buffer, but must hand back the input's
+// own colour type and bit depth when doing so loses nothing. The narrowing
+// is lossless-only — RGBA→RGB only when every alpha sample is opaque, and
+// 16→8 never (widening to work is fine; a 16-bit input returning 8-bit is
+// the downgrade this spec exists to stop).
+
+/// A 16-bit-per-channel RGBA pixel buffer. `::image` publishes `RgbaImage`
+/// (8-bit) but no 16-bit counterpart; this is the same concrete type
+/// `fast_image_resize`'s own private alias resolves to, so its blanket
+/// `IntoImageView`/`IntoImageViewMut` impls (keyed on the concrete type, not
+/// the alias name) apply to it too.
+type Rgba16Image = ImageBuffer<Rgba<u16>, Vec<u16>>;
+
+/// Whether `color` needs a 16-bit-per-channel working buffer to avoid
+/// truncating the input. `Rgb32F`/`Rgba32F` deliberately answer `false` — no
+/// op here has a floating-point working path, so a 32-bit-float source still
+/// takes the 8-bit route it took before this spec (unchanged; widening it
+/// further is out of scope — see the spec's "Out of scope").
+fn is_sixteen_bit(color: ColorType) -> bool {
+    crate::image::color_type_bit_depth(color) == 16
+}
+
+/// Whether `color` is a grayscale (luma) type — `L8`/`La8`/`L16`/`La16`.
+///
+/// A luma source widened to an RGBA working buffer carries `r == g == b` in
+/// every pixel, so collapsing back to one channel is lossless exactly when
+/// that still holds after the op ran. A colour watermark over a gray base
+/// breaks it, and then the output stays RGB/RGBA — which is the honest
+/// answer, because the image really did gain colour.
+fn is_luma(color: ColorType) -> bool {
+    matches!(
+        color,
+        ColorType::L8 | ColorType::La8 | ColorType::L16 | ColorType::La16
+    )
+}
+
+/// Narrow an RGBA8 working buffer back to the input's own colour type when
+/// doing so is lossless. Two independent questions, in this order:
+///
+/// - **Alpha.** Drop it only when `original_color` (the op's input, before
+///   widening) had no alpha *and* every alpha sample in `buf` is opaque.
+/// - **Chroma.** Collapse to one channel only when the input was itself a
+///   luma type *and* every pixel still has `r == g == b`.
+///
+/// Neither question promotes: an RGB input whose pixels happen to be gray
+/// stays RGB, and an RGBA input the user supplied keeps its channel even if
+/// every sample is opaque. The rule preserves what it was given; it does not
+/// minimise.
+///
+/// One rule serves both Call 1 ("narrow to write") and Call 2 (`Watermark`
+/// decides in code, not by exemption): a composite that genuinely leaves
+/// non-opaque samples in `buf` keeps its alpha through the same check that
+/// stops an already-RGBA input from being silently narrowed.
+fn narrow_rgba8(buf: RgbaImage, original_color: ColorType) -> DynamicImage {
+    let keep_alpha = original_color.has_alpha() || buf.pixels().any(|p| p.0[3] != u8::MAX);
+
+    if is_luma(original_color) && buf.pixels().all(|p| p.0[0] == p.0[1] && p.0[1] == p.0[2]) {
+        // Take channel 0 verbatim rather than `to_luma8()`: `image`'s RGB→luma
+        // conversion applies the luminance weights, which round-trips an
+        // already-gray pixel only approximately. This is exact.
+        let (w, h) = buf.dimensions();
+        return if keep_alpha {
+            DynamicImage::ImageLumaA8(ImageBuffer::from_fn(w, h, |x, y| {
+                let p = buf.get_pixel(x, y).0;
+                LumaA([p[0], p[3]])
+            }))
+        } else {
+            DynamicImage::ImageLuma8(ImageBuffer::from_fn(w, h, |x, y| {
+                Luma([buf.get_pixel(x, y).0[0]])
+            }))
+        };
+    }
+
+    if keep_alpha {
+        DynamicImage::ImageRgba8(buf)
+    } else {
+        DynamicImage::ImageRgb8(DynamicImage::ImageRgba8(buf).to_rgb8())
+    }
+}
+
+/// [`narrow_rgba8`], at 16 bits per channel.
+fn narrow_rgba16(buf: Rgba16Image, original_color: ColorType) -> DynamicImage {
+    let keep_alpha = original_color.has_alpha() || buf.pixels().any(|p| p.0[3] != u16::MAX);
+
+    if is_luma(original_color) && buf.pixels().all(|p| p.0[0] == p.0[1] && p.0[1] == p.0[2]) {
+        let (w, h) = buf.dimensions();
+        return if keep_alpha {
+            DynamicImage::ImageLumaA16(ImageBuffer::from_fn(w, h, |x, y| {
+                let p = buf.get_pixel(x, y).0;
+                LumaA([p[0], p[3]])
+            }))
+        } else {
+            DynamicImage::ImageLuma16(ImageBuffer::from_fn(w, h, |x, y| {
+                Luma([buf.get_pixel(x, y).0[0]])
+            }))
+        };
+    }
+
+    if keep_alpha {
+        DynamicImage::ImageRgba16(buf)
+    } else {
+        DynamicImage::ImageRgb16(DynamicImage::ImageRgba16(buf).to_rgb16())
+    }
+}
+
+/// Source-over compositing onto a base that has no alpha channel is
+/// *mathematically* always opaque: `a_out = a_base + a_ov·(1 − a_base)`, which
+/// is 1 for every `a_ov` when `a_base` is 1. `image`'s `Rgba::blend` computes
+/// that in `f32` and casts with `NumCast`, which truncates: `1.0 + a − a`
+/// lands on `0.99999994` for 32 of the 254 possible overlay alphas (including
+/// the exactly-half-transparent 128), and `255 × 0.99999994` truncates to
+/// **254**. A handful of such pixels — 36 of 65,536 on a `watermark --text`
+/// run — is enough to defeat the opacity scan and keep an alpha channel the
+/// composite does not need.
+///
+/// So restore the value the maths requires, rather than testing the rounded
+/// one. This touches only the case where the base carried no alpha, so real
+/// transparency is never overwritten, and it does not depend on `image`
+/// continuing to truncate rather than round.
+fn restore_opaque_alpha8(canvas: &mut RgbaImage, original_color: ColorType) {
+    if original_color.has_alpha() {
+        return;
+    }
+    for px in canvas.pixels_mut() {
+        px.0[3] = u8::MAX;
+    }
+}
+
+/// [`restore_opaque_alpha8`], at 16 bits per channel.
+fn restore_opaque_alpha16(canvas: &mut Rgba16Image, original_color: ColorType) {
+    if original_color.has_alpha() {
+        return;
+    }
+    for px in canvas.pixels_mut() {
+        px.0[3] = u16::MAX;
+    }
+}
+
 // ─── Invert ─────────────────────────────────────────────────────────────────
 
-/// Per-channel value inversion on 8-bit RGBA (alpha preserved).
+/// Per-channel value inversion (alpha preserved), at the input's own colour
+/// type and bit depth (SPEC-121).
 ///
-/// Converts to RGBA8, maps `[r, g, b, a] → [255-r, 255-g, 255-b, a]`
-/// with a hand-written pixel loop, and wraps the result back into a
-/// `DynamicImage`. No `imageproc` — hand-rolled as required by
-/// constraint `single-image-library`.
+/// Widens to RGBA at the input's bit depth (8 or 16), maps
+/// `[c, a] → [MAX-c, a]` per channel with a hand-written pixel loop, and
+/// narrows back (see [`narrow_rgba8`]/[`narrow_rgba16`]). No `imageproc` —
+/// hand-rolled as required by constraint `single-image-library`.
 pub struct Invert;
 
 impl Operation for Invert {
@@ -192,14 +334,71 @@ impl Operation for Invert {
     }
 
     fn apply(&self, img: Image) -> Result<Image, OperationError> {
-        // Convert to RGBA8 (lossless for the inversion; going through RGBA8 is
-        // intentionally simple — later ops can be color-type-aware).
-        let mut buf = img.pixels().to_rgba8();
-        for pixel in buf.pixels_mut() {
-            let [r, g, b, a] = pixel.0;
-            pixel.0 = [255 - r, 255 - g, 255 - b, a];
+        let original_color = img.pixels().color();
+
+        let out = if is_sixteen_bit(original_color) {
+            let mut buf = img.pixels().to_rgba16();
+            for pixel in buf.pixels_mut() {
+                let [r, g, b, a] = pixel.0;
+                pixel.0 = [u16::MAX - r, u16::MAX - g, u16::MAX - b, a];
+            }
+            narrow_rgba16(buf, original_color)
+        } else {
+            let mut buf = img.pixels().to_rgba8();
+            for pixel in buf.pixels_mut() {
+                let [r, g, b, a] = pixel.0;
+                pixel.0 = [255 - r, 255 - g, 255 - b, a];
+            }
+            narrow_rgba8(buf, original_color)
+        };
+
+        Ok(img.with_pixels(out))
+    }
+}
+
+/// Resize `src` to `dw`×`dh` via the fast_image_resize SIMD backend
+/// (Lanczos3), then — when `fill_crop` is `Some((target_w, target_h))` —
+/// center-crop to that exact box (the `fill` mode's second step). Generic
+/// over bit depth: [`Resize::apply`] calls this once at `Rgba<u8>`, once at
+/// `Rgba<u16>` (SPEC-121, Call 1), so a 16-bit source resizes at its own
+/// precision instead of being truncated to 8-bit before the resample.
+///
+/// `fast_image_resize::Resizer::resize` takes `&impl IntoImageView` /
+/// `&mut impl IntoImageViewMut` directly — both `RgbaImage` and
+/// [`Rgba16Image`] implement them (`image_crate.rs`'s blanket impls), so no
+/// manual `fast_image_resize::images::Image` wrapping is needed here, unlike
+/// the pre-SPEC-121 version of this function.
+fn resize_and_crop<P>(
+    src: ImageBuffer<P, Vec<P::Subpixel>>,
+    dw: u32,
+    dh: u32,
+    fill_crop: Option<(u32, u32)>,
+) -> Result<ImageBuffer<P, Vec<P::Subpixel>>, OperationError>
+where
+    P: Pixel + 'static,
+    P::Subpixel: 'static,
+    ImageBuffer<P, Vec<P::Subpixel>>:
+        fast_image_resize::IntoImageView + fast_image_resize::IntoImageViewMut,
+{
+    let mut dst: ImageBuffer<P, Vec<P::Subpixel>> = ImageBuffer::new(dw, dh);
+    let mut resizer = fast_image_resize::Resizer::new();
+    let opts = fast_image_resize::ResizeOptions::new().resize_alg(
+        fast_image_resize::ResizeAlg::Convolution(fast_image_resize::FilterType::Lanczos3),
+    );
+    resizer
+        .resize(&src, &mut dst, &opts)
+        .map_err(|e| OperationError::Apply {
+            op: "resize",
+            reason: e.to_string(),
+        })?;
+
+    match fill_crop {
+        Some((target_w, target_h)) => {
+            let x = dw.saturating_sub(target_w) / 2;
+            let y = dh.saturating_sub(target_h) / 2;
+            Ok(imageops::crop_imm(&dst, x, y, target_w, target_h).to_image())
         }
-        Ok(img.with_pixels(DynamicImage::ImageRgba8(buf)))
+        None => Ok(dst),
     }
 }
 
@@ -393,8 +592,8 @@ impl Operation for Resize {
     }
 
     fn apply(&self, img: Image) -> Result<Image, OperationError> {
-        let rgba = img.pixels().to_rgba8();
-        let (w, h) = (rgba.width(), rgba.height());
+        let original_color = img.pixels().color();
+        let (w, h) = (img.pixels().width(), img.pixels().height());
 
         // ── Compute target dimensions per the EXACT six-mode math ────────────
         let (tw, th) = match self.mode {
@@ -508,43 +707,20 @@ impl Operation for Resize {
             });
         }
 
-        // ── Resize via fast_image_resize (VERIFIED 5.5.0 API block) ─────────
+        // ── Resize via fast_image_resize, at the input's own bit depth ───────
+        // (SPEC-121, Call 1: widen to work, narrow to write — the resample
+        // itself now runs at 16-bit precision for a 16-bit source instead of
+        // truncating to 8-bit first. `Resize` deliberately still widens RGB
+        // to RGBA before resizing rather than resampling the narrower buffer
+        // directly — SPEC-122 lands in this same function next for the
+        // linear-light rewrite, and narrow-after-resize keeps one shared
+        // rule with `Invert`/`Watermark` instead of a second resize path.)
         let dw = tw;
         let dh = th;
 
-        let src = fast_image_resize::images::Image::from_vec_u8(
-            w,
-            h,
-            rgba.into_raw(),
-            fast_image_resize::PixelType::U8x4,
-        )
-        .map_err(|e| OperationError::Apply {
-            op: "resize",
-            reason: e.to_string(),
-        })?;
-
-        let mut dst =
-            fast_image_resize::images::Image::new(dw, dh, fast_image_resize::PixelType::U8x4);
-
-        let mut resizer = fast_image_resize::Resizer::new();
-        let opts = fast_image_resize::ResizeOptions::new().resize_alg(
-            fast_image_resize::ResizeAlg::Convolution(fast_image_resize::FilterType::Lanczos3),
-        );
-        resizer
-            .resize(&src, &mut dst, &opts)
-            .map_err(|e| OperationError::Apply {
-                op: "resize",
-                reason: e.to_string(),
-            })?;
-
-        let out =
-            ::image::RgbaImage::from_raw(dw, dh, dst.into_vec()).ok_or(OperationError::Apply {
-                op: "resize",
-                reason: "buffer/dim mismatch".into(),
-            })?;
-
-        // ── For fill: center-crop to the exact target W×H ───────────────────
-        if self.mode == ResizeMode::Fill {
+        // For `fill`, resolve the crop target now (needs `self.width`/
+        // `self.height`, validated the same way the other modes were above).
+        let fill_crop = if self.mode == ResizeMode::Fill {
             let target_w = self.width.ok_or_else(|| OperationError::Apply {
                 op: "resize",
                 reason: "internal: resize mode 'fill' requires width for crop".into(),
@@ -553,17 +729,22 @@ impl Operation for Resize {
                 op: "resize",
                 reason: "internal: resize mode 'fill' requires height for crop".into(),
             })?;
-            // rw/rh are the cover dims (dw/dh from the resize above).
-            let rw = dw;
-            let rh = dh;
-            // Centered offsets, clamped ≥ 0.
-            let x = (rw.saturating_sub(target_w)) / 2;
-            let y = (rh.saturating_sub(target_h)) / 2;
-            let cropped = ::image::imageops::crop_imm(&out, x, y, target_w, target_h).to_image();
-            return Ok(img.with_pixels(DynamicImage::ImageRgba8(cropped)));
-        }
+            Some((target_w, target_h))
+        } else {
+            None
+        };
 
-        Ok(img.with_pixels(DynamicImage::ImageRgba8(out)))
+        let out = if is_sixteen_bit(original_color) {
+            let src = img.pixels().to_rgba16();
+            let dst = resize_and_crop(src, dw, dh, fill_crop)?;
+            narrow_rgba16(dst, original_color)
+        } else {
+            let src = img.pixels().to_rgba8();
+            let dst = resize_and_crop(src, dw, dh, fill_crop)?;
+            narrow_rgba8(dst, original_color)
+        };
+
+        Ok(img.with_pixels(out))
     }
 }
 
@@ -812,51 +993,122 @@ impl Operation for Watermark {
     }
 
     fn apply(&self, img: Image) -> Result<Image, OperationError> {
-        // Work in RGBA8 (source-over compositing needs an alpha channel).
-        let mut canvas = img.pixels().to_rgba8();
-        let mut ov: RgbaImage = self.overlay.to_rgba8();
+        let original_color = img.pixels().color();
 
-        // ── Scale: overlay width = scale × base width (aspect preserved) ──────
-        if let Some(s) = self.scale {
-            let target_w = ((canvas.width() as f32 * s).round() as u32).max(1);
-            // Preserve the overlay's aspect ratio.
-            let (ow, oh) = (ov.width().max(1), ov.height().max(1));
-            let target_h = (((target_w as f32) * (oh as f32) / (ow as f32)).round() as u32).max(1);
-            ov = imageops::resize(&ov, target_w, target_h, FilterType::Lanczos3);
-        }
+        // Work in RGBA at the base's own bit depth (source-over compositing
+        // needs an alpha channel) — 16-bit when the base is 16-bit, so a
+        // 16-bit source is not truncated before it is ever composited
+        // (SPEC-121, Call 1). Two near-identical branches rather than one
+        // generic function: the opacity step needs an `as f32`/`round()`
+        // numeric conversion Rust cannot do generically over `u8`/`u16`
+        // without a `num_traits`-style crate, which this module's dependency
+        // boundary (`crate::image`, `std`, `thiserror`, `serde`, `::image`,
+        // `fast_image_resize` — see the module doc) does not admit.
+        let out = if is_sixteen_bit(original_color) {
+            let mut canvas = img.pixels().to_rgba16();
+            let mut ov: Rgba16Image = self.overlay.to_rgba16();
 
-        // ── Opacity: multiply the overlay's alpha channel ─────────────────────
-        if self.opacity < 1.0 {
-            for px in ov.pixels_mut() {
-                px.0[3] = (px.0[3] as f32 * self.opacity).round() as u8;
+            // ── Scale: overlay width = scale × base width (aspect preserved) ──
+            if let Some(s) = self.scale {
+                let target_w = ((canvas.width() as f32 * s).round() as u32).max(1);
+                // Preserve the overlay's aspect ratio.
+                let (ow, oh) = (ov.width().max(1), ov.height().max(1));
+                let target_h =
+                    (((target_w as f32) * (oh as f32) / (ow as f32)).round() as u32).max(1);
+                ov = imageops::resize(&ov, target_w, target_h, FilterType::Lanczos3);
             }
-        }
 
-        // ── Placement ─────────────────────────────────────────────────────────
-        if self.tile {
-            // Tile the overlay to cover the whole base. Edge tiles clip cleanly.
-            let (ow, oh) = (ov.width().max(1), ov.height().max(1));
-            let mut y = 0u32;
-            while y < canvas.height() {
-                let mut x = 0u32;
-                while x < canvas.width() {
-                    imageops::overlay(&mut canvas, &ov, x as i64, y as i64);
-                    x += ow;
+            // ── Opacity: multiply the overlay's alpha channel ─────────────────
+            if self.opacity < 1.0 {
+                for px in ov.pixels_mut() {
+                    px.0[3] = (px.0[3] as f32 * self.opacity).round() as u16;
                 }
-                y += oh;
             }
-        } else {
-            let (x, y) = self.gravity.placement(
-                canvas.width(),
-                canvas.height(),
-                ov.width(),
-                ov.height(),
-                self.margin,
-            );
-            imageops::overlay(&mut canvas, &ov, x, y);
-        }
 
-        Ok(img.with_pixels(DynamicImage::ImageRgba8(canvas)))
+            // ── Placement ───────────────────────────────────────────────────
+            if self.tile {
+                // Tile the overlay to cover the whole base. Edge tiles clip cleanly.
+                let (ow, oh) = (ov.width().max(1), ov.height().max(1));
+                let mut y = 0u32;
+                while y < canvas.height() {
+                    let mut x = 0u32;
+                    while x < canvas.width() {
+                        imageops::overlay(&mut canvas, &ov, x as i64, y as i64);
+                        x += ow;
+                    }
+                    y += oh;
+                }
+            } else {
+                let (x, y) = self.gravity.placement(
+                    canvas.width(),
+                    canvas.height(),
+                    ov.width(),
+                    ov.height(),
+                    self.margin,
+                );
+                imageops::overlay(&mut canvas, &ov, x, y);
+            }
+
+            // Call 2: decided in code, not by exemption — see narrow_rgba16.
+            // The base carried no alpha ⇒ the composite is opaque by
+            // construction; see restore_opaque_alpha16 for why the buffer
+            // does not always say so.
+            restore_opaque_alpha16(&mut canvas, original_color);
+            narrow_rgba16(canvas, original_color)
+        } else {
+            let mut canvas = img.pixels().to_rgba8();
+            let mut ov: RgbaImage = self.overlay.to_rgba8();
+
+            // ── Scale: overlay width = scale × base width (aspect preserved) ──
+            if let Some(s) = self.scale {
+                let target_w = ((canvas.width() as f32 * s).round() as u32).max(1);
+                // Preserve the overlay's aspect ratio.
+                let (ow, oh) = (ov.width().max(1), ov.height().max(1));
+                let target_h =
+                    (((target_w as f32) * (oh as f32) / (ow as f32)).round() as u32).max(1);
+                ov = imageops::resize(&ov, target_w, target_h, FilterType::Lanczos3);
+            }
+
+            // ── Opacity: multiply the overlay's alpha channel ─────────────────
+            if self.opacity < 1.0 {
+                for px in ov.pixels_mut() {
+                    px.0[3] = (px.0[3] as f32 * self.opacity).round() as u8;
+                }
+            }
+
+            // ── Placement ───────────────────────────────────────────────────
+            if self.tile {
+                // Tile the overlay to cover the whole base. Edge tiles clip cleanly.
+                let (ow, oh) = (ov.width().max(1), ov.height().max(1));
+                let mut y = 0u32;
+                while y < canvas.height() {
+                    let mut x = 0u32;
+                    while x < canvas.width() {
+                        imageops::overlay(&mut canvas, &ov, x as i64, y as i64);
+                        x += ow;
+                    }
+                    y += oh;
+                }
+            } else {
+                let (x, y) = self.gravity.placement(
+                    canvas.width(),
+                    canvas.height(),
+                    ov.width(),
+                    ov.height(),
+                    self.margin,
+                );
+                imageops::overlay(&mut canvas, &ov, x, y);
+            }
+
+            // Call 2: decided in code, not by exemption — see narrow_rgba8.
+            // The base carried no alpha ⇒ the composite is opaque by
+            // construction; see restore_opaque_alpha8 for why the buffer does
+            // not always say so.
+            restore_opaque_alpha8(&mut canvas, original_color);
+            narrow_rgba8(canvas, original_color)
+        };
+
+        Ok(img.with_pixels(out))
     }
 }
 

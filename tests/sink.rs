@@ -522,3 +522,92 @@ fn safe_join_rejects_parent_and_absolute() {
     let ok = safe_join(dir, "photo.png").unwrap();
     assert!(ok.starts_with(std::fs::canonicalize(dir).unwrap()));
 }
+
+// ── SPEC-121, AC-5: a lossy 8-bit target reports the downgrade (Call 3) ───────
+//
+// `encode_to_bytes`'s warning goes straight to the real process stderr
+// (`eprintln!`, AGENTS §11 "diagnostics go to stderr") — there is no stable,
+// supported way for a `#[test]` to capture its own `eprintln!` output
+// in-process (the test harness's own stdout/stderr capture is internal to
+// `libtest`). So, matching `tests/build.rs`'s established pattern for
+// stderr-warning assertions, this drives the REAL compiled binary and reads
+// its actual stderr.
+
+/// A 16-bit RGB PNG, encoded natively (no ImageMagick — AGENTS §12).
+fn solid_png_16bit(w: u32, h: u32) -> Vec<u8> {
+    let img: ::image::ImageBuffer<::image::Rgb<u16>, Vec<u16>> =
+        ::image::ImageBuffer::from_pixel(w, h, ::image::Rgb([40000u16, 20000, 10000]));
+    let mut out = Cursor::new(Vec::new());
+    DynamicImage::ImageRgb16(img)
+        .write_to(&mut out, ImageFormat::Png)
+        .unwrap();
+    out.into_inner()
+}
+
+/// lossy_target_reports_the_eight_bit_downgrade
+#[test]
+fn lossy_target_reports_the_eight_bit_downgrade() {
+    const BIN: &str = env!("CARGO_BIN_EXE_crustyimg");
+
+    let tmp = tempfile::tempdir().unwrap();
+    let src = tmp.path().join("src16.png");
+    std::fs::write(&src, solid_png_16bit(16, 16)).unwrap();
+    let out = tmp.path().join("out.jpg");
+
+    let output = std::process::Command::new(BIN)
+        .args([
+            "convert",
+            src.to_str().unwrap(),
+            "--format",
+            "jpg",
+            "-o",
+            out.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run convert");
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("16-bit source downgraded to 8-bit for JPEG output"),
+        "convert to a lossy 8-bit target must report the downgrade; stderr: {stderr}"
+    );
+}
+
+/// A lossless target (PNG) can hold the full 16 bits — no downgrade, no warning.
+#[test]
+fn lossless_target_does_not_report_a_downgrade() {
+    const BIN: &str = env!("CARGO_BIN_EXE_crustyimg");
+
+    let tmp = tempfile::tempdir().unwrap();
+    let src = tmp.path().join("src16.png");
+    std::fs::write(&src, solid_png_16bit(16, 16)).unwrap();
+    let out = tmp.path().join("out.png");
+
+    let output = std::process::Command::new(BIN)
+        .args([
+            "convert",
+            src.to_str().unwrap(),
+            "--format",
+            "png",
+            "-o",
+            out.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run convert");
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !stderr.contains("downgraded to 8-bit"),
+        "PNG can hold 16-bit — must not warn; stderr: {stderr}"
+    );
+}
