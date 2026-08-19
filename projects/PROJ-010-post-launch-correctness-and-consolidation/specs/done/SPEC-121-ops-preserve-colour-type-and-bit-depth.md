@@ -128,7 +128,7 @@ cost:
         Orchestrator main-loop, not separately metered (AGENTS §4). PR #181
         merged as 9075bc3; verify cost transcribed, totals computed, archived.
   totals:
-    tokens_total: 206732970
+    tokens_total: 206731970
     estimated_usd: 91.17
     session_count: 5
 ---
