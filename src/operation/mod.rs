@@ -182,10 +182,10 @@ impl Operation for Identity {
 // the downgrade this spec exists to stop).
 
 /// A 16-bit-per-channel RGBA pixel buffer. `::image` publishes `RgbaImage`
-/// (8-bit) but no 16-bit counterpart; this is the same concrete type
-/// `fast_image_resize`'s own private alias resolves to, so its blanket
-/// `IntoImageView`/`IntoImageViewMut` impls (keyed on the concrete type, not
-/// the alias name) apply to it too.
+/// (8-bit) but no 16-bit counterpart, so `Invert` and `Resize` name one here
+/// to widen a 16-bit source into without truncating it. It is only a working
+/// buffer: since SPEC-122 the resample itself runs in `F32x4`, so this type is
+/// no longer handed to `fast_image_resize` directly.
 type Rgba16Image = ImageBuffer<Rgba<u16>, Vec<u16>>;
 
 /// Whether `color` needs a 16-bit-per-channel working buffer to avoid
@@ -475,9 +475,11 @@ where
 ///
 /// When the target size already equals the source size the backend does not
 /// resample at all: `Resizer::resize` short-circuits to a row-by-row copy
-/// (`resizer.rs`'s `copy_image`). Doing that copy through the transfer
-/// function would be a no-op in exact arithmetic but not necessarily in `f32`,
-/// so the copy is taken here instead and the samples are returned untouched.
+/// (`resizer.rs`'s `copy_image`). Converting to linear and back around a copy
+/// is measurably a no-op — the round-trip is exact for every representable
+/// value at both depths, which the unit tests assert exhaustively — so this
+/// is a cost short-circuit, not a correctness one, and returning the samples
+/// untouched also keeps the guarantee on targets whose `f32` differs.
 fn resize_and_crop8(
     src: RgbaImage,
     dw: u32,

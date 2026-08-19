@@ -148,6 +148,10 @@ directly for `RgbaImage` and (by concrete type, not by alias name) for the
 &mut dst, &opts)` takes the pixel buffers directly, at whichever bit depth
 the caller widened to, with no manual `PixelType` bookkeeping. This is
 mechanical simplification riding the bit-depth fix, not a separate change.
+**Superseded in part by SPEC-122's amendment**: `Resize` now converts to a
+`TypedImage<F32x4>` for the resample itself, so it no longer rides those
+blanket impls — `Invert`/`Watermark` still work on the `image` buffers
+directly, and the widen/narrow rule is unchanged for all three.
 
 ## Consequences
 
