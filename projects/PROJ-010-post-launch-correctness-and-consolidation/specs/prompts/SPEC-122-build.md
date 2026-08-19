@@ -13,10 +13,17 @@ linear-light prototype scores ~100. Linearize → resample → re-encode, inside
 about to rewrite (`Resize::apply`), and you branch from `main` *after* it lands.
 
 ```bash
-git log --oneline main | grep -i 'spec-121'
+git -C ~/PSeven/experiments/crustimg_redo_plus/crustyimg log --oneline main -- src/operation/mod.rs | head -3
 ```
 
-**No SPEC-121 commit on `main` → stop and report.** Do not branch from SPEC-121's branch, and do
+**Check the CODE landed, not that a string is present.** SPEC-121's merge is
+`9075bc3 fix(SPEC-121): ops preserve colour type and bit depth (#181)` and it must appear against
+`src/operation/mod.rs`. Grepping the log for "spec-121" would also have matched design and ship
+commits that carry no code — a gate that cannot go red is not a gate.
+
+**Confirm the behaviour too**, since that is what you actually depend on: an RGB PNG through
+`resize` must come out `colour_type=2`. If it comes out RGBA, SPEC-121 is not in your tree and you
+would be rebuilding on the defect it fixed. **Stop and report.** Do not branch from SPEC-121's branch, and do
 not reimplement its narrowing yourself. This is the third of three serial specs; the sequencing is
 deliberate and the pair shares one decision.
 
@@ -121,8 +128,14 @@ than trusting a remembered number.
 
 ## Guardrails
 
-- **Own git worktree**, branch `fix/spec-122-resize-resamples-in-linear-light`, from `main` **after
-  SPEC-121 merges**.
+- **Own git worktree**, from `main` (SPEC-121 merged 2026-08-18 as `9075bc3`):
+
+  ```
+  git -C ~/PSeven/experiments/crustimg_redo_plus/crustyimg worktree add \
+    ../crustyimg-spec122 -b fix/spec-122-resize-resamples-in-linear-light main
+  ```
+
+  Do not work in the primary checkout — other sessions are live in this repo.
 - **⚡ AMEND DEC-095. Do not mint a new DEC.** SPEC-121 wrote it to cover the wave; you add the
   linear-light change and Call 4's sRGB assumption to it. **Do not run `next_id`** — it scans only
   the working tree and has already produced one collision in this project (SPEC-119 and SPEC-120
