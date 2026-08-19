@@ -43,9 +43,38 @@ Cycle prompts live in `prompts/SPEC-122-<cycle>.md`.
       instruction at all.** SPEC-121's punch list had one; SPEC-122's build prompt was written
       before the lesson existed and tightened twice afterwards without it being added. The cycle had
       the right instinct (backgrounded watchers) and undercut it by re-reading their output.
-- [ ] **verify** — prompt: `prompts/SPEC-122-verify.md` (2026-08-18). Opus, read-only, detached
-      worktree. Five targets; **AC-6 is already ruled** (confirm the basis, do not re-rule). The
-      sharp one is item 2: **a CI guard was relaxed because this change made it fire** — drive
-      whether the floor can still go red for the reason it exists.
+- [x] **verify** — 2026-08-18, Opus, **⚠ PUNCH LIST**, **$15.82** / 19 min / 149 messages
+      (re-derived to the cent). Read-only, no commits, detached at `90a7167`.
+      **Everything re-measured independently.** All three cases reproduced (100.0000 / 100.0000 /
+      99.4101, luma error 0.000000); Revert A returns **−63.8488 / 70.4507 / 84.4524 and alpha edge
+      27 — AC-7's numbers to the digit**, Δ 163.8488. ⚡ That revert is also the strongest proof of
+      AC-4: *a crustyimg-derived reference could not have scored the reverted binary at 70.45.*
+      AC-6's no-op half confirmed **harder than the in-repo test does** — verify's first fixture
+      failed its own positive control at 64→32, so it re-ran on high-contrast fixtures where all
+      four colour types differ at 64→32 and are identical at 64→64.
+      ⚖ **Item 2 ruling — the wasm guard relaxation STANDS.** Forced red: lean no-AVIF build trips
+      it at 865,980 B against the 1,087,675 B floor, 20.4% clear. The band moved for a measured
+      cause unrelated to what the guard protects, and the floor was checked **before** the move.
+      ✅ Item 1's ruling basis holds (upscale is a measured improvement, independently reproduced);
+      item 4's decomposition holds and was **understated** — verify measured 76% of the added time
+      is the `F32x4` working type, against the build's 72%.
+      ⚠ **5 items. The sharpest is 1c: the CORRECTION to DEC-092's wrong mechanism is itself
+      wrong.** The build wrote *"8-bit quantization inside `fir`'s premultiply/divide round-trip"* —
+      but alpha is never premultiplied or divided, and **control C4 with premultiplication OFF still
+      reads `max alpha err 27`**. The residual is 8-bit quantization in the integer resampling path
+      generally, the alpha channel's own convolution included. Right in kind, wrong in the specific,
+      and about to be written down as a correction.
+      Also: DEC-092 was never amended at all (and `decisions-audit` names it as governing
+      `src/operation/mod.rs`, so the next builder is pointed at the refuted record);
+      `scripts/spec120_linear_light.py:312-313` still **prints** the wrong mechanism beside
+      `max alpha err 0`; **AC-9 measured time and never memory** — peak RSS 166 → 465 MB (2.8×) and
+      266 → **1407 MB (5.3×)**, with `MAX_AREA`'s comment still describing a 512 MiB untrusted-input
+      bound whose float intermediates are now 4× that, and **half of it free** (`to_vec` makes a
+      second 576 MB copy of the destination buffer); the **AC-10 webp-lossy row is a false green**
+      (reported 835/28 where 39 suites is invariant — the real counts are 933/39 and 911/39); and
+      `affected_scope` was confirmed on a false premise (the diff also touches two `scripts/` files).
+- [ ] **punch list** — prompt: `prompts/SPEC-122-punchlist.md` (2026-08-18). Opus, own worktree,
+      same branch. 5 items. `cycle:` stays at `verify`. 💰 Verify cost to apply at ship:
+      21,844,228 tokens / 19 min / **$15.82**. **SPEC-122 to date: $119.42.**
 
 - [ ] **ship**
