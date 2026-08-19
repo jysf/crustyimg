@@ -53,7 +53,7 @@ cost:
 
 > **Status: IDEA.** Not scheduled, not owned, not attached to a stage. Every number
 > below was measured on 2026-08-16 (see `docs/backlog.md` and
-> `docs/probes/animated-gif-to-av1-probe.rs`); the *plan* is a proposal.
+> `docs/probes/animated-gif-to-av1/`); the *plan* is a proposal.
 
 ## Context
 
