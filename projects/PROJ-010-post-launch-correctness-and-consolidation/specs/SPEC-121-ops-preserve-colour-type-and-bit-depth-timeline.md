@@ -55,10 +55,37 @@ Cycle prompts live in `prompts/SPEC-121-<cycle>.md`.
       in `## Failing Tests` **does not exist**; AC-6's test **never runs an op** so it passes
       identically on `main`; and grayscale `Gray8 → resize → RGB8` leaves Call 1 unmet at **13× the
       relative cost** of the RGB→RGBA case (+165% vs `convert`) while the ACs are literally met.
-- [ ] **punch list** — prompt: `prompts/SPEC-121-punchlist.md` (2026-08-18). **Opus**, own
-      worktree, same branch. 7 items; item 1(a) is **urgent** — `docs/backlog.md:678-682` sits in
-      SPEC-122's own entry and would tell its builder to re-break this fix. `cycle:` stays at
-      `verify`; the orchestrator re-approves. 💰 Verify cost to apply at ship: 12,764,899 tokens /
-      12 min / **$11.08** / `claude-opus-5`.
+- [x] **punch list** — 2026-08-18, Opus, `d46ef37`, **$21.59** (re-derived to the cent). All 7
+      items closed. CI green on the code commit `8066c24` (18 checks); local matrix 917 / 897 / 923
+      passed, clippy and fmt clean per leg.
+      **Two behaviour changes.** `watermark --text` now narrows — **66,313 → 53,970 B, −18.6%** on
+      an opaque base. Root cause pinned exactly: `image`'s `Rgba::blend` computes result alpha in
+      f32 and **truncates** the cast, so `1.0 + a − a = 0.99999994` for **32 of 254** overlay
+      alphas — anti-aliased glyph edges hit precisely those, and 36 px in 65,536 defeated the scan.
+      Fixed by restoring the alpha the algebra requires, gated on the base having had no alpha:
+      **exact, no tolerance, and independent of whether `image` truncates or rounds** — which also
+      kills the latent CI break verify flagged.
+      **Grayscale is preserved**: `resize --max 16` L8 **852 → 340 B (−60.1%)**, L16 −61.8%, La8
+      −53.5% — roughly **4× the relative saving of the RGB→RGBA case that motivated the spec.**
+      ⚠ **Deviation, recorded not silent.** Punch-list item 2 (orchestrator-authored) asked for two
+      incompatible things: an opaque composite must narrow AND a translucent overlay must keep
+      RGBA. Source-over onto an alpha-less base is opaque for **every** overlay alpha, so under the
+      second rule the item had no fix. Read as *the composite decides, no numeric tolerance*, and
+      `watermark_keeps_alpha_when_overlay_is_translucent` retargeted onto a base with genuine
+      transparency. **The old form passed only because 128 is one of the 32 truncating alphas.**
+      Orchestrator reviewed and agrees; the contradiction was the prompt's.
+      ✅ Orchestrator checked the risk a fresh verify would have chased — the new grayscale
+      narrowing has controls in **both** directions: `rgb_input_that_happens_to_be_gray_stays_rgb`
+      (do not over-narrow) and `colour_watermark_on_a_gray_base_becomes_rgb` (widen when chroma is
+      added), plus `graya_opaque_input_keeps_its_alpha_channel`. Item 4's missing AC-7 test now
+      exists as `convert_optimize_auto_orient_bytes_unchanged`.
+      ⚠ **The lossless-WebP finding is worse than DEC-095 stated** and is now a STAGE-042 `- [ ]`:
+      `convert --format webp` reaches it on the **default path, no feature flag**, and prints
+      **`ssim 100.0` while halving the depth** — SSIM is computed on 8-bit renderings, so the
+      honest-size line reassures about exactly the loss the metric cannot see.
+      *(`cost.sessions` carries no verify entry by design — verify is read-only since 2026-08-18;
+      its $11.08 is held above and applied by the orchestrator at ship.)*
+- [ ] **re-approval / ship** — `cycle:` held at `verify`. **SPEC-121 to date: $91.17** (build
+      $58.50 + punch list $21.59 + verify $11.08).
 
 - [ ] **ship**
