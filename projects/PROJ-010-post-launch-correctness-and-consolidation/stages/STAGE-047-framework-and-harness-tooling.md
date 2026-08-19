@@ -192,6 +192,37 @@ write-ups; what it has never had is a **schedulable** home, which is exactly the
   the count not moving is the only tell. [[a-harness-that-exercises-nothing-reports-green]]
   Complexity **S**.
 
+- [ ] (⏸ **PARKED 2026-08-18 — noted, not scheduled.** Maintainer's call: this is harness tooling
+  that generalizes past this repo, so it should land at the template level rather than as crustyimg
+  work. Recorded here only so it is not lost.) — [S] **A per-spec ledger: size and cost broken down
+  by cycle, with description and outcome.**
+  **What already exists:** `just specs-by-stage` gives `spec · status · ship date · complexity ·
+  cost (usd · tokens) · description` with per-stage subtotals — four of the six columns wanted.
+  **Gap 1 — the per-cycle split is cheap.** `cost.sessions` already carries `cycle`,
+  `estimated_usd`, `tokens_total`, `agent` and `duration_minutes` per entry, and
+  `_lib.sh:413/434` (`sum_cost_tokens_for_spec`, `sum_cost_usd_for_spec`) already walks that block —
+  they just collapse it to one total. A ~60-line reader (front-matter via `pyyaml`, already
+  available) produces the table. **Prototyped 2026-08-18 and it works**; the prototype lived in a
+  session scratchpad and is gone, but the above is enough to rebuild it in minutes.
+  **Gap 2 — outcome is NOT structured, and that is the real work.** The signal is prose in
+  `## Build Completion` (*"yes"*, *"yes — AC-1 through AC-11"*, *"Mostly yes — 12 of 13"*), and the
+  verify verdict (✅/⚠/❌) is not in front-matter at all — it lives only in timeline prose. **A
+  scraper over that would be confidently wrong on exactly the interesting rows**, which is the
+  failure class this whole stage exists to eliminate. The fix is a small `outcome:` front-matter
+  block written at ship (verdict, ACs met, punch-list count, deviations), backfillable for the 13
+  archived specs since the prose is there to read once.
+  ⚠ **Two things the prototype surfaced that stand on their own, independent of whether the tool
+  is ever built:**
+  (a) **verify costs 37% of build** across PROJ-010 — $219.19 against $584.84 — a ratio nobody had
+  looked at;
+  (b) **complexity barely predicts cost.** `[S]` ran $15.58–$76.16 and `[M]` ran $37.59–$141.99,
+  heavily overlapping — SPEC-112 `[S]` cost more than five of the eight `[M]`s. That is direct
+  evidence for the complexity-rating item above, and it corroborates SPEC-123's sizing lesson: a
+  measurement spec's cost is set by whether its premise survives, which is unknowable at framing.
+  ⚠ **Any such report reads working-tree state**, so a spec whose cost sits on an unmerged branch
+  reads as $0.00 (SPEC-123 did while PR #179 was open). Whatever ships must say so rather than let
+  a reader mistake it for free.
+
 - [ ] (not yet framed, **added 2026-08-15**) — **`next_id` mints duplicate spec IDs.** It scans
   only the WORKING TREE, so any spec living on an unmerged branch is invisible to it. Driven
   live: with SPEC-116 and SPEC-117 sitting in PR #166, `just new-spec` on a branch off `main`
@@ -203,7 +234,7 @@ write-ups; what it has never had is a **schedulable** home, which is exactly the
 
 **Count:** 1 chore done (npm publish guard) / 1 framed (SPEC-118) / 1 spec + 4 chores pending
 
-**Count:** 1 landed / 8 pending
+**Count:** 1 landed / 9 pending (1 of them ⏸ parked — the per-spec cost ledger, template-level)
 
 ## Design Notes
 

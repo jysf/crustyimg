@@ -67,6 +67,15 @@ Cycle prompts live in `prompts/SPEC-123-<cycle>.md`.
       cache-read 16,487,064), 14 min, **$14.16**, `claude-opus-5`, Opus anchors, measured over 135
       assistant messages. Transcribed here per AGENTS §13 — `cost.sessions` gets it on `main`
       after the PR merges.
-- [ ] **re-verify / ship** — punch list landed on the branch; `cycle:` still `verify`. Needs the
-      maintainer's re-approval of `1d522f8` before advancing.
+- [x] **ship** — 2026-08-18. Maintainer re-approved the punch-list commits; PR #179 squash-merged
+      as `8a062a3`. Verify's cost transcribed to `cost.sessions` and **both readouts re-derived to
+      the cent** by the orchestrator (build $46.17, verify $14.16 — `cost.totals` records $60.33,
+      the sum of the recorded session values; summing unrounded gives $60.32, a 1¢ convention
+      difference, not an error). `just cost-audit` green. Archived.
+      **Total: $60.33 / 84,315,614 tokens / 4 cycles** on a spec sized `[S]` — against SPEC-120,
+      the same "measure a premise" shape, at $8.69. The gap is not effort: SPEC-120's premise
+      **held**, this one's was **wrong**. Lesson banked.
+      **STAGE-042 is NOT closed** — 8 backlog items remain, including the `[env]`/`diff`
+      false-positive item this spec filed and the ⛔-gated encoder-pin item awaiting a
+      maintainer ruling.
 - [ ] **ship**

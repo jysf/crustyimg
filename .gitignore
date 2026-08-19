@@ -32,6 +32,12 @@ out/
 # Rust
 /target
 
+# Per-leg target dirs for differently-featured builds. Two builds with different
+# feature sets must NOT share one target dir, so anything comparing a default,
+# a `--no-default-features` and a `--features ...` binary needs a dir each —
+# `scripts/spec123_avif_thread_determinism.py` documents exactly that.
+/target-*
+
 # The wasm-pack output (SPEC-072): the generated .wasm + JS bindings + npm shim.
 # A build artifact, regenerable with `just wasm-build`. STAGE-026 decides what
 # actually gets PUBLISHED to npm; nothing generated belongs in git.
