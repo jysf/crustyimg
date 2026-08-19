@@ -356,50 +356,226 @@ impl Operation for Invert {
     }
 }
 
-/// Resize `src` to `dw`×`dh` via the fast_image_resize SIMD backend
-/// (Lanczos3), then — when `fill_crop` is `Some((target_w, target_h))` —
-/// center-crop to that exact box (the `fill` mode's second step). Generic
-/// over bit depth: [`Resize::apply`] calls this once at `Rgba<u8>`, once at
-/// `Rgba<u16>` (SPEC-121, Call 1), so a 16-bit source resizes at its own
-/// precision instead of being truncated to 8-bit before the resample.
+// ─── Linear-light resampling (SPEC-122) ─────────────────────────────────────
+//
+// Resampling is a weighted average of neighbouring samples, and an average is
+// only meaningful in a space where the values are proportional to the physical
+// quantity. sRGB samples are not — they carry a ~2.2 power. Averaging them
+// directly makes every downscale too dark, worst on thin bright features
+// against dark backgrounds. Measured against an independent linear-light
+// reference (ImageMagick 7 Q16-HDRI), the pre-SPEC-122 path scored 70.45 and
+// 84.45 SSIMULACRA2 on two corpus images and −63.85 on a synthetic worst case
+// (DEC-092). So: linearize, resample, re-encode.
+//
+// The transfer function is assumed to be **sRGB**. crustyimg carries ICC
+// profiles through but does not interpret them, so an image tagged with a
+// different transfer function is resampled under an assumption that is wrong
+// for it — better than treating it as linear, still an assumption. ICC-aware
+// conversion is its own project (DEC-095).
+//
+// Alpha is deliberately NOT transformed: it is linear coverage, not a light
+// value. Premultiplication is likewise untouched — `fast_image_resize`'s
+// `ResizeOptions::default()` already sets `mul_div_alpha: true` and supports
+// `F32x4` as it does `U8x4`, so this change moves the colour channels only
+// (DEC-092 refuted the premultiplied-alpha half of the same premise).
+
+/// sRGB → linear light for one 0..1 signal value (IEC 61966-2-1).
+fn srgb_to_linear(c: f32) -> f32 {
+    if c <= 0.040_448_237 {
+        c / 12.92
+    } else {
+        ((c + 0.055) / 1.055).powf(2.4)
+    }
+}
+
+/// Linear light → sRGB, the inverse of [`srgb_to_linear`].
+fn linear_to_srgb(c: f32) -> f32 {
+    if c <= 0.003_130_8 {
+        c * 12.92
+    } else {
+        1.055 * c.powf(1.0 / 2.4) - 0.055
+    }
+}
+
+/// The 256 linear-light values an 8-bit sRGB channel can hold.
 ///
-/// `fast_image_resize::Resizer::resize` takes `&impl IntoImageView` /
-/// `&mut impl IntoImageViewMut` directly — both `RgbaImage` and
-/// [`Rgba16Image`] implement them (`image_crate.rs`'s blanket impls), so no
-/// manual `fast_image_resize::images::Image` wrapping is needed here, unlike
-/// the pre-SPEC-121 version of this function.
-fn resize_and_crop<P>(
-    src: ImageBuffer<P, Vec<P::Subpixel>>,
+/// Built per call rather than kept in a static: 256 `powf`s cost nothing
+/// beside the image itself, and the values are bit-identical to calling
+/// [`srgb_to_linear`] per sample, so the table is an optimisation with no
+/// numeric consequence. The 16-bit path has 65,536 possible values and calls
+/// [`srgb_to_linear`] directly instead.
+fn srgb8_linear_table() -> [f32; 256] {
+    let mut table = [0.0f32; 256];
+    for (value, slot) in table.iter_mut().enumerate() {
+        *slot = srgb_to_linear(value as f32 / 255.0);
+    }
+    table
+}
+
+/// Resample a **linear-light** RGBA buffer to `dw`×`dh` on the
+/// fast_image_resize SIMD backend (Lanczos3, DEC-008).
+///
+/// `F32x4` takes the same `Resizer` and the same `ResizeOptions` the 8-bit
+/// path took, so the filter and the alpha handling are unchanged and the
+/// transfer function is the only variable this spec moved.
+///
+/// `TypedImage` rather than `images::Image::from_vec_u8`: the latter takes a
+/// `Vec<u8>` and rejects it when the allocation is not `f32`-aligned, which is
+/// a runtime failure mode that depends on the allocator. A typed buffer cannot
+/// be misaligned.
+fn resample_linear_f32x4(
+    src: Vec<fast_image_resize::pixels::F32x4>,
+    w: u32,
+    h: u32,
     dw: u32,
     dh: u32,
-    fill_crop: Option<(u32, u32)>,
-) -> Result<ImageBuffer<P, Vec<P::Subpixel>>, OperationError>
-where
-    P: Pixel + 'static,
-    P::Subpixel: 'static,
-    ImageBuffer<P, Vec<P::Subpixel>>:
-        fast_image_resize::IntoImageView + fast_image_resize::IntoImageViewMut,
-{
-    let mut dst: ImageBuffer<P, Vec<P::Subpixel>> = ImageBuffer::new(dw, dh);
-    let mut resizer = fast_image_resize::Resizer::new();
+) -> Result<Vec<fast_image_resize::pixels::F32x4>, OperationError> {
+    use fast_image_resize::images::TypedImage;
+    use fast_image_resize::pixels::F32x4;
+
+    let src = TypedImage::<F32x4>::from_pixels(w, h, src).map_err(|e| OperationError::Apply {
+        op: "resize",
+        reason: e.to_string(),
+    })?;
+    let mut dst = TypedImage::<F32x4>::new(dw, dh);
     let opts = fast_image_resize::ResizeOptions::new().resize_alg(
         fast_image_resize::ResizeAlg::Convolution(fast_image_resize::FilterType::Lanczos3),
     );
-    resizer
-        .resize(&src, &mut dst, &opts)
+    fast_image_resize::Resizer::new()
+        .resize_typed(&src, &mut dst, &opts)
         .map_err(|e| OperationError::Apply {
             op: "resize",
             reason: e.to_string(),
         })?;
+    Ok(dst.pixels().to_vec())
+}
 
+/// The `fill` mode's second step: center-crop `dst` to `target_w`×`target_h`.
+fn crop_center<P>(
+    dst: ImageBuffer<P, Vec<P::Subpixel>>,
+    fill_crop: Option<(u32, u32)>,
+) -> ImageBuffer<P, Vec<P::Subpixel>>
+where
+    P: Pixel + 'static,
+    P::Subpixel: 'static,
+{
     match fill_crop {
         Some((target_w, target_h)) => {
+            let (dw, dh) = dst.dimensions();
             let x = dw.saturating_sub(target_w) / 2;
             let y = dh.saturating_sub(target_h) / 2;
-            Ok(imageops::crop_imm(&dst, x, y, target_w, target_h).to_image())
+            imageops::crop_imm(&dst, x, y, target_w, target_h).to_image()
         }
-        None => Ok(dst),
+        None => dst,
     }
+}
+
+/// Resize an 8-bit RGBA buffer to `dw`×`dh` in linear light, then — when
+/// `fill_crop` is `Some((target_w, target_h))` — center-crop to that exact box.
+///
+/// When the target size already equals the source size the backend does not
+/// resample at all: `Resizer::resize` short-circuits to a row-by-row copy
+/// (`resizer.rs`'s `copy_image`). Doing that copy through the transfer
+/// function would be a no-op in exact arithmetic but not necessarily in `f32`,
+/// so the copy is taken here instead and the samples are returned untouched.
+fn resize_and_crop8(
+    src: RgbaImage,
+    dw: u32,
+    dh: u32,
+    fill_crop: Option<(u32, u32)>,
+) -> Result<RgbaImage, OperationError> {
+    use fast_image_resize::pixels::F32x4;
+
+    let (w, h) = src.dimensions();
+    if (w, h) == (dw, dh) {
+        return Ok(crop_center(src, fill_crop));
+    }
+
+    let table = srgb8_linear_table();
+    let linear: Vec<F32x4> = src
+        .pixels()
+        .map(|p| {
+            let [r, g, b, a] = p.0;
+            F32x4::new([
+                table[r as usize],
+                table[g as usize],
+                table[b as usize],
+                a as f32 / 255.0,
+            ])
+        })
+        .collect();
+
+    let resampled = resample_linear_f32x4(linear, w, h, dw, dh)?;
+
+    let mut dst = RgbaImage::new(dw, dh);
+    for (out, sample) in dst.pixels_mut().zip(resampled.iter()) {
+        let [r, g, b, a] = sample.0;
+        out.0 = [
+            encode_srgb8(r),
+            encode_srgb8(g),
+            encode_srgb8(b),
+            (a.clamp(0.0, 1.0) * 255.0).round() as u8,
+        ];
+    }
+    Ok(crop_center(dst, fill_crop))
+}
+
+/// [`resize_and_crop8`], at 16 bits per channel (SPEC-121 widens a 16-bit
+/// source to `Rgba16` rather than truncating it, and this keeps that
+/// precision through the linear round-trip).
+fn resize_and_crop16(
+    src: Rgba16Image,
+    dw: u32,
+    dh: u32,
+    fill_crop: Option<(u32, u32)>,
+) -> Result<Rgba16Image, OperationError> {
+    use fast_image_resize::pixels::F32x4;
+
+    let (w, h) = src.dimensions();
+    if (w, h) == (dw, dh) {
+        return Ok(crop_center(src, fill_crop));
+    }
+
+    let linear: Vec<F32x4> = src
+        .pixels()
+        .map(|p| {
+            let [r, g, b, a] = p.0;
+            F32x4::new([
+                srgb_to_linear(r as f32 / 65535.0),
+                srgb_to_linear(g as f32 / 65535.0),
+                srgb_to_linear(b as f32 / 65535.0),
+                a as f32 / 65535.0,
+            ])
+        })
+        .collect();
+
+    let resampled = resample_linear_f32x4(linear, w, h, dw, dh)?;
+
+    let mut dst = Rgba16Image::new(dw, dh);
+    for (out, sample) in dst.pixels_mut().zip(resampled.iter()) {
+        let [r, g, b, a] = sample.0;
+        out.0 = [
+            encode_srgb16(r),
+            encode_srgb16(g),
+            encode_srgb16(b),
+            (a.clamp(0.0, 1.0) * 65535.0).round() as u16,
+        ];
+    }
+    Ok(crop_center(dst, fill_crop))
+}
+
+/// One linear-light sample back to an 8-bit sRGB channel value.
+///
+/// The clamp is load-bearing, not defensive: Lanczos3 has negative lobes, so a
+/// hard edge overshoots outside 0..1, and un-premultiplying a nearly
+/// transparent pixel can push a colour channel above 1 as well.
+fn encode_srgb8(linear: f32) -> u8 {
+    (linear_to_srgb(linear.clamp(0.0, 1.0)) * 255.0).round() as u8
+}
+
+/// [`encode_srgb8`], at 16 bits per channel.
+fn encode_srgb16(linear: f32) -> u16 {
+    (linear_to_srgb(linear.clamp(0.0, 1.0)) * 65535.0).round() as u16
 }
 
 // ─── Resize ─────────────────────────────────────────────────────────────────
@@ -418,8 +594,10 @@ enum ResizeMode {
 /// Geometric resize on the fast_image_resize SIMD backend (DEC-008).
 ///
 /// Constructed FROM params via `Resize::from_params` (the registry
-/// path). Converts to RGBA8 (like Invert), resizes (Lanczos3
-/// convolution), and—for `fill`—center-crops to the exact box.
+/// path). Widens to RGBA at the input's own bit depth, resamples in
+/// linear light (Lanczos3 convolution — see `resize_and_crop8`), narrows
+/// back to the input's colour type, and—for `fill`—center-crops to the
+/// exact box.
 #[derive(Debug)]
 pub struct Resize {
     mode: ResizeMode,
@@ -707,14 +885,14 @@ impl Operation for Resize {
             });
         }
 
-        // ── Resize via fast_image_resize, at the input's own bit depth ───────
-        // (SPEC-121, Call 1: widen to work, narrow to write — the resample
-        // itself now runs at 16-bit precision for a 16-bit source instead of
-        // truncating to 8-bit first. `Resize` deliberately still widens RGB
-        // to RGBA before resizing rather than resampling the narrower buffer
-        // directly — SPEC-122 lands in this same function next for the
-        // linear-light rewrite, and narrow-after-resize keeps one shared
-        // rule with `Invert`/`Watermark` instead of a second resize path.)
+        // ── Resize in linear light, at the input's own bit depth ────────────
+        // Widen to work, narrow to write (SPEC-121): the resample runs at
+        // 16-bit precision for a 16-bit source instead of truncating to 8-bit
+        // first, and `Resize` still widens RGB to RGBA before resizing rather
+        // than resampling the narrower buffer directly, so one shared
+        // narrowing rule serves `Invert`/`Watermark` too. The samples are
+        // linearized on the way in and re-encoded on the way out (SPEC-122) —
+        // see `resize_and_crop8`.
         let dw = tw;
         let dh = th;
 
@@ -736,11 +914,11 @@ impl Operation for Resize {
 
         let out = if is_sixteen_bit(original_color) {
             let src = img.pixels().to_rgba16();
-            let dst = resize_and_crop(src, dw, dh, fill_crop)?;
+            let dst = resize_and_crop16(src, dw, dh, fill_crop)?;
             narrow_rgba16(dst, original_color)
         } else {
             let src = img.pixels().to_rgba8();
-            let dst = resize_and_crop(src, dw, dh, fill_crop)?;
+            let dst = resize_and_crop8(src, dw, dh, fill_crop)?;
             narrow_rgba8(dst, original_color)
         };
 
