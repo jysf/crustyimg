@@ -1213,7 +1213,7 @@ doing it incidentally.
 
 > **Evidence for STAGE-046's animated-*output* spec** (backlog piece **(b)**), not for SPEC-119,
 > which is scoped to stopping the data loss. Probe committed at
-> `docs/probes/animated-gif-to-av1-probe.rs`. Status: **measurement, unscheduled.**
+> `docs/probes/animated-gif-to-av1/`. Status: **measurement, unscheduled.**
 >
 > **A drafted (unscheduled, unowned) spec consolidating this and the two entries above it is at
 > `docs/research/draft-spec-animated-avif-output.md`** — `status: idea`, no SPEC number claimed, not
