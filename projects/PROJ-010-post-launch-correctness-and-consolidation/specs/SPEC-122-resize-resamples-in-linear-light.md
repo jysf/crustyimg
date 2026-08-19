@@ -350,6 +350,41 @@ summary line. `tests/colour_type_preservation.rs`
 — SPEC-121's suite, now a regression guard on this change — is **21/21 green**,
 run explicitly as the prompt required. CI legs read individually below.
 
+### A fourth thing the spec did not predict — the wasm bundle got 16.9% smaller
+
+CI's `build + browser smoke` leg went **red**, and it was right to: the demo's
+`.wasm` came out **1,144,921 B brotli** against a 1,394,631 B baseline, outside
+the ±5% band on the **low** side. The guard's message diagnoses that direction as
+"the AVIF encoder is probably missing (DEC-065)" — which is **not** what happened;
+the CI log's own `wasm-pack` line carries `--features avif`.
+
+The cause is this change. `main` calls `fast_image_resize`'s **dynamic**
+`Resizer::resize`, which matches on `PixelType` and therefore monomorphizes the
+convolution and alpha-multiply kernels for **all thirteen** of them. The branch
+calls the typed entry point `resize_typed::<F32x4>` directly, so twelve
+instantiations become unreachable and the linker drops them. Measured on one
+machine, same toolchain, AVIF on both sides:
+
+| build | raw | brotli |
+|---|---|---|
+| `main` | 5,819,379 B | 1,377,233 B |
+| **branch** | 5,261,547 B | **1,144,864 B** |
+| delta | **−557,832 (−9.6%)** | **−232,369 (−16.9%)** |
+| branch, `--no-default-features` (control) | 3,266,389 B | 865,980 B |
+
+**The baseline is moved to 1,144,921 B** (the CI measurement — CI is where the
+gate runs; it and the local number agree to 57 B), with the reason recorded in
+`scripts/lib/wasm-artifact.mjs` next to the constant. **The floor keeps its
+discriminating power**, which is the check that mattered before touching a safety
+constant: the new floor is 1,087,675 B and the lean no-AVIF control measures
+865,980 B — **20.4% below it**, so a build that quietly drops the AVIF encoder
+still trips the guard.
+
+The guard's "Under:" message is also corrected. It asserted one cause and this was
+the other, which is exactly the failure mode `wasm-artifact.mjs`'s own header
+warns about ("misreport the cause"); it now names both and tells the reader to
+check the build line first.
+
 ### Deviations from spec
 
 1. **⚠ AC-6's upscale half is not met, deliberately.** AC-6 asks for upscale to

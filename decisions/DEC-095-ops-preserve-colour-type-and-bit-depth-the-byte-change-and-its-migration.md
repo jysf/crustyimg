@@ -346,6 +346,21 @@ directly, and the widen/narrow rule is unchanged for all three.
   independently confirmed rather than assumed — two unrelated byte changes,
   same conditional.
 
+- **Positive, MEASURED and unlooked-for — the demo's `.wasm` shrinks 16.9%.**
+  Calling `fast_image_resize`'s typed entry point (`resize_typed::<F32x4>`)
+  instead of the dynamic `Resizer::resize` — which matches on `PixelType` and so
+  monomorphizes the convolution and alpha kernels for all thirteen — makes twelve
+  instantiations unreachable, and the linker drops them. Same toolchain, AVIF on
+  both sides: **5,819,379 → 5,261,547 B raw, 1,377,233 → 1,144,864 B brotli**.
+  CI's size guard went red on it (the change is outside its ±5% band on the low
+  side), so `WASM_BROTLI_BASELINE` is moved to the CI-measured 1,144,921 B with
+  the reason recorded beside the constant. The floor was checked before it was
+  moved rather than after: a lean `--no-default-features` build measures 865,980 B,
+  **20.4% below the new floor**, so the guard still catches the missing AVIF
+  encoder it exists for (DEC-065). The guard's "Under:" message asserted that
+  single cause and was wrong here, so it now names both — the failure mode
+  `wasm-artifact.mjs`'s own header warns about.
+
 - **Neutral — `examples/spec120_linear_probe.rs` and
   `scripts/spec120_linear_light.py` are kept, not deleted.** They are the
   acceptance test (SPEC-122 Call 3), they are named in DEC-092's

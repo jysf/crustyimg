@@ -64,8 +64,10 @@ if (brotli > WASM_BROTLI_MAX || brotli < WASM_BROTLI_MIN) {
   die(
     `the .wasm is ${brotli} B brotli, outside ${WASM_BROTLI_TOLERANCE * 100}% of the ` +
       `${WASM_BROTLI_BASELINE} B baseline. Over: a real size regression — every visitor pays it, so ` +
-      `move the baseline deliberately and say why. Under: the AVIF encoder is probably missing ` +
-      `(DEC-065), i.e. this was built without --features avif.`,
+      `move the baseline deliberately and say why. Under: either the AVIF encoder is missing ` +
+      `(DEC-065) — check the wasm-pack line above actually carries --features avif — or something ` +
+      `genuinely got smaller, which is also a deliberate baseline move. SPEC-122 was the second ` +
+      `case and this message asserted the first, so read the build line before believing it.`,
   );
 }
 
