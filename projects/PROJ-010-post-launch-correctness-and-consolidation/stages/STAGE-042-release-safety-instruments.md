@@ -340,7 +340,7 @@ failures on documented paths.
   component into the key), and the choice is the maintainer's, matching the pattern set by the
   `[env]` same-machine item above.
 
-- [ ] (not yet written) — [S] **Lossless WebP silently halves a >8-bit source, on the DEFAULT
+- [x] **SPEC-125** (design 2026-08-18) — [S] **Lossless WebP silently halves a >8-bit source, on the DEFAULT
   path, and reports `ssim 100.0` while doing it.** SPEC-121's Call 3 settled its warning scope as
   JPEG + lossy WebP only; `image`'s own *lossless* WebP encoder — no feature flag, always built —
   has no 16-bit mode either, so it takes the same "automatically convert the image to some color
@@ -358,7 +358,7 @@ failures on documented paths.
   SPEC-121 recorded it only in DEC-095's Consequences prose, and a test comment cited a
   `docs/backlog.md` entry that was never written; both are corrected on that branch.
 
-**Count:** 2 framed (SPEC-118, SPEC-124) / **1 shipped (SPEC-123)** / 9 pending / 1 chore done
+**Count:** 3 framed (SPEC-118, SPEC-124, SPEC-125) / **1 shipped (SPEC-123)** / 8 pending / 1 chore done
 
 ## Design Notes
 

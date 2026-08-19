@@ -149,7 +149,7 @@ Three further reasons the timing is now and not later:
       too narrow** — GIF, APNG and animated WebP all flatten silently, so this is
       three formats, not one. Re-estimated S → M for that reason.
 
-- [x] **SPEC-121** (design 2026-08-16) — [M] **ops preserve colour type and bit depth.**
+- [x] **SPEC-121** (shipped 2026-08-18, $91.17) (design 2026-08-16) — [M] **ops preserve colour type and bit depth.**
   Fixes the RGBA widening (+12.4% bytes, measured) and the 16-bit truncation in one change
   across the three op bodies. "Widen to work, narrow to write", lossless-only.
 

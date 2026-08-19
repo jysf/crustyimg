@@ -2,7 +2,7 @@
 task:
   id: SPEC-121
   type: bug
-  cycle: verify
+  cycle: ship
   blocked: false
   priority: high
   complexity: M
@@ -97,10 +97,40 @@ cost:
         and the item-2 fix were both done well before it.
         ⚠ No `verify` entry exists in this list: the verify cycle that
         produced the punch list did not append one.
+    - cycle: verify
+      agent: claude-opus-5
+      interface: claude-code
+      tokens_total: 12764899
+      duration_minutes: 12
+      recorded_at: 2026-08-18
+      tokens_breakdown:
+        input: 220
+        output: 112648
+        cache_creation: 337527
+        cache_read: 12314504
+      estimated_usd: 11.08
+      note: >
+        MEASURED — transcript sum over 110 assistant messages, Opus anchors
+        ($5/$25 per MTok; cache_creation ×1.25 input, cache_read ×0.10 input).
+        Read-only cycle (no commits), so the orchestrator transcribed this from
+        the verify readout at ship per AGENTS §13 — which is why `cost.sessions`
+        carried no verify entry on the branch. Verdict ⚠ PUNCH LIST, 7 items,
+        all closed by the punch-list cycle above. **Cheapest verify in the wave
+        and it caught the substantive defect**: 110 messages against a ~200
+        budget, and it found 4 live stale premises where the orchestrator found
+        1, plus the watermark narrow that never fired on realistic input.
+    - cycle: ship
+      interface: claude-code
+      tokens_total: null
+      duration_minutes: null
+      estimated_usd: null
+      note: >
+        Orchestrator main-loop, not separately metered (AGENTS §4). PR #181
+        merged as 9075bc3; verify cost transcribed, totals computed, archived.
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 206732970
+    estimated_usd: 91.17
+    session_count: 5
 ---
 
 # SPEC-121: ops preserve colour type and bit depth
@@ -510,4 +540,32 @@ Measured: 8-bit RGB `edit --invert` **1,580 → 1,323 B (−16.3 %)**, 8-bit gra
 
 ## Reflection (Ship)
 
-*Appended during the **ship** cycle.*
+**1. Did it deliver?** Yes, and the headline inverted. The spec was motivated by
+RGB→RGBA widening (+12.4% bytes); the largest measured win turned out to be
+**grayscale — `resize --max 16` on L8: 852 → 340 B, −60.1%**, roughly **4× the
+relative saving** of the case that motivated it. `resize`, `thumbnail`,
+`edit --invert` and flagship `web` now preserve colour type and bit depth, and
+`watermark --text` narrows on an opaque base (−18.6%).
+
+**2. What would we do differently?** **Two prompt defects were mine, and both cost
+a cycle.** The build prompt's sweep instruction was too weak — it said "correct the
+claim wherever it is written" without demanding the grep be enumerated first, and
+Sonnet corrected 2 of 4 live premises. Worse, the *punch-list* item I wrote asked
+for two incompatible things (an opaque composite must narrow **and** a translucent
+overlay must keep RGBA — impossible for an alpha-less base, since source-over onto
+one is opaque for every overlay alpha). The cycle caught the contradiction,
+resolved it correctly, and recorded a deviation. **An instruction that cannot be
+satisfied is a defect in the same class as a test that cannot fail.**
+
+**3. What did it cost, and was it worth it?** **$91.17** across four metered
+cycles — build $58.50 (Sonnet, **555 messages** against a ~250 budget that never
+fired), punch list $21.59 (Opus), verify $11.08 (Opus). ⚡ **The cheapest cycle was
+the most valuable.** Verify, at 12% of the total, found four stale premises where
+the orchestrator found one — including `docs/backlog.md:678-682`, sitting inside
+**SPEC-122's own backlog entry**, telling its future builder to "convert back to
+8-bit on the way out". Left alone, this spec would have shipped an instruction to
+undo itself. It also caught the watermark narrow being green for the wrong reason:
+`image`'s `Rgba::blend` truncates the f32 alpha cast, so `1.0 + a − a` writes 254
+for **32 of 254** overlay alphas, and anti-aliased glyph edges hit exactly those.
+The lesson is not "verify more" but **"a review pass that reads the whole tracked
+tree is cheap; a builder's self-report of a sweep is not evidence."**
