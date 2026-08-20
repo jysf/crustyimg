@@ -423,13 +423,22 @@ fn srgb8_linear_table() -> [f32; 256] {
 /// `Vec<u8>` and rejects it when the allocation is not `f32`-aligned, which is
 /// a runtime failure mode that depends on the allocator. A typed buffer cannot
 /// be misaligned.
+///
+/// Returns the destination image itself rather than its pixels, because
+/// `TypedImage` has no `into_vec` and `pixels().to_vec()` would allocate a
+/// second copy of the whole float destination — 16 bytes per output pixel, so
+/// 576 MB on a 6000x6000 target. The caller only reads the samples, so it can
+/// read them in place.
 fn resample_linear_f32x4(
     src: Vec<fast_image_resize::pixels::F32x4>,
     w: u32,
     h: u32,
     dw: u32,
     dh: u32,
-) -> Result<Vec<fast_image_resize::pixels::F32x4>, OperationError> {
+) -> Result<
+    fast_image_resize::images::TypedImage<'static, fast_image_resize::pixels::F32x4>,
+    OperationError,
+> {
     use fast_image_resize::images::TypedImage;
     use fast_image_resize::pixels::F32x4;
 
@@ -447,7 +456,7 @@ fn resample_linear_f32x4(
             op: "resize",
             reason: e.to_string(),
         })?;
-    Ok(dst.pixels().to_vec())
+    Ok(dst)
 }
 
 /// The `fill` mode's second step: center-crop `dst` to `target_w`×`target_h`.
@@ -510,7 +519,7 @@ fn resize_and_crop8(
     let resampled = resample_linear_f32x4(linear, w, h, dw, dh)?;
 
     let mut dst = RgbaImage::new(dw, dh);
-    for (out, sample) in dst.pixels_mut().zip(resampled.iter()) {
+    for (out, sample) in dst.pixels_mut().zip(resampled.pixels().iter()) {
         let [r, g, b, a] = sample.0;
         out.0 = [
             encode_srgb8(r),
@@ -554,7 +563,7 @@ fn resize_and_crop16(
     let resampled = resample_linear_f32x4(linear, w, h, dw, dh)?;
 
     let mut dst = Rgba16Image::new(dw, dh);
-    for (out, sample) in dst.pixels_mut().zip(resampled.iter()) {
+    for (out, sample) in dst.pixels_mut().zip(resampled.pixels().iter()) {
         let [r, g, b, a] = sample.0;
         out.0 = [
             encode_srgb16(r),
@@ -864,9 +873,16 @@ impl Operation for Resize {
         // (including percent/cover/fill, whose output dims depend on the input).
         // MAX_AREA is the upscale-bomb defense; MAX_EDGE is a per-dimension sanity cap.
         const MAX_EDGE: u32 = 50_000;
-        // 512 MiB RGBA output (== the decode allocation cap, DEC-034/DEC-038): a
-        // resize cannot produce a buffer larger than what decode would accept.
+        // 512 MiB RGBA *output* (== the decode allocation cap, DEC-034/DEC-038):
+        // a resize cannot return a buffer larger than what decode would accept.
         // Tightened from 256 Mpx to 128 Mpx for that symmetry (SPEC-037).
+        //
+        // It bounds the OUTPUT, not the peak. The resample runs in linear
+        // `F32x4` — 16 B/px, four times RGBA8 — with the source's float copy
+        // alongside it, so a request at the cap peaks well above the 512 MiB
+        // this number reads as. Whether the bound should move is a decision
+        // about untrusted-input allocation, not a tidy-up; measured multipliers
+        // are in DEC-095.
         const MAX_AREA: u64 = 134_217_728; // 128 * 1024 * 1024 px = 512 MiB at RGBA8
 
         if tw > MAX_EDGE || th > MAX_EDGE {

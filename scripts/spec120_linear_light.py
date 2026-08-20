@@ -310,7 +310,11 @@ def print_table(r):
           f"max RGBA err {c5['max_abs_rgba_err']} "
           f"-> premultiplication is {'ON' if not c5['identical'] else 'OFF'} in the shipped binary")
     print(f"  (mean alpha err today {t['mean_alpha_err']:.4f}/255 — the two implementations' "
-          f"alpha channels agree; the max is Lanczos ringing at hard corners, not a halo)")
+          f"alpha channels agree on average. Read any residual max against the C4 line "
+          f"above, which has premultiplication OFF: where the two carry the same "
+          f"residual it is not a halo and not the premultiply/divide round-trip, but "
+          f"8-bit quantization in the integer resampling path — alpha's own "
+          f"convolution included, since alpha is never premultiplied or divided)")
 
 
 if __name__ == "__main__":

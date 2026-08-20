@@ -190,11 +190,17 @@ wasm-check:
 
 # Build the release .wasm + JS bindings via wasm-pack → pkg/ (the npm-shaped
 # artifact STAGE-026 packages). Also reports the size SPEC-074 tunes.
-wasm-build:
+#
+# `wasm-size` is a `&&` (subsequent) dependency, NOT a nested `@just wasm-size`.
+# A nested `just` is a fresh invocation and does not inherit
+# `--set _wasm_features`, so a LEAN build printed the DEFAULT feature set in its
+# own size banner — contradicting the `wasm-pack` line right above it, and the
+# size guard's failure message tells the reader to trust a feature line. A `&&`
+# dependency runs in the same invocation, so the override reaches it.
+wasm-build: && wasm-size
     @command -v wasm-pack >/dev/null 2>&1 || { echo "wasm-pack not installed (brew install wasm-pack)"; exit 1; }
     PATH="{{_wasm_bin}}:$PATH" RUSTC="{{_wasm_bin}}/rustc" {{_wasm_profile}} \
         wasm-pack build --target web --release --out-dir pkg -- {{_wasm_features}}
-    @just wasm-size
 
 # Report the .wasm size: raw, and the two COMPRESSED sizes a real host actually
 # serves (a browser downloads the encoded bytes, so gzip/brotli are the honest
