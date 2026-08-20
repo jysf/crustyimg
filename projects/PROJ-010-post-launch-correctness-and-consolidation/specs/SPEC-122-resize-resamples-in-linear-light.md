@@ -72,6 +72,37 @@ cost:
         of volume, so every poll re-read the whole accumulated context.
         SPEC-123 measured this hazard at $5.80; here it was an order of
         magnitude worse and is the single largest line item in the spec.
+    - cycle: build
+      agent: claude-opus-5
+      interface: claude-code
+      tokens_total: 28526492
+      duration_minutes: 27
+      recorded_at: 2026-08-20
+      tokens_breakdown:
+        input: 390
+        output: 161232
+        cache_creation: 343905
+        cache_read: 28020965
+      estimated_usd: 20.19
+      note: >
+        MEASURED — punch-list return cycle (verify returned ⚠ PUNCH LIST on
+        PR #182; five items). Transcript sum over 195 assistant messages
+        (~/.claude/projects/.../d4f32638-b94d-44c7-b912-c13e0d3208e2.jsonl),
+        priced at OPUS anchors ($5/$25 per MTok; cache_creation ×1.25 input,
+        cache_read ×0.10 input) — `.message.model` is `claude-opus-5` on all
+        195. Ran in the main loop, not as a dispatched subagent, so there is no
+        `subagent_tokens` to cross-check against. The build's session above is
+        untouched. Cache reads are 98.2% of volume.
+        ⚠ Read at the cost-append step, BEFORE the push and before CI settles,
+        so it under-states this cycle — SPEC-121's punch list measured that same
+        gap at 9.5%. Corrected below if the post-CI reading moves it.
+        The CI polling that cost the build ~$60 of its $103.60 did not recur:
+        the watch was backgrounded and the reading taken once. This whole cycle
+        costs a third of that one line item. 195 messages against the prompt's
+        ~150 budget, with a four-leg matrix run twice (once for the counts, once
+        on the committed code) and four release builds for the memory arms.
+        ⚠ No `verify` entry exists in this list: the verify cycle that produced
+        the punch list did not append one — the same gap SPEC-121 flagged.
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -622,8 +653,10 @@ re-litigated. `cycle:` stays at `verify`.
    override both read `--no-default-features --features avif`. Old form, same
    override: the recipe's last line is a bare `just wasm-size`, and running that
    bare invocation prints `features: --no-default-features --features avif` —
-   the contradiction, reproduced. The trap was flagged latent by **SPEC-102's**
-   verify and never fixed; SPEC-122 is what made it matter.
+   the contradiction, reproduced. `demo-build`'s ordering is unchanged — a
+   dry-run still reads wasm-pack → size report → `demo-assemble.mjs` — which is
+   what CI's `build + browser smoke` leg runs. The trap was flagged latent by
+   **SPEC-102's** verify and never fixed; SPEC-122 is what made it matter.
 
 ### On the prototype (Call 2)
 

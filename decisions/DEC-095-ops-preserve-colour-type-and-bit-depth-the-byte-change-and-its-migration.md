@@ -317,36 +317,36 @@ directly, and the widen/narrow rule is unchanged for all three.
   That is a design call, filed for the architect, deliberately not taken during
   build (SPEC-122 AC-9 forbids optimising out of the spec).
 
-- **Negative, MEASURED — `resize` also costs 2.8-3.2x the memory, which the
+- **Negative, MEASURED — `resize` also costs 2.8–3.2× the memory, which the
   spec never asked about and this record did not carry until the punch-list
   cycle added it.** Peak RSS (`/usr/bin/time -l`, 3 runs per cell, median,
-  spread <= 0.5 MiB, Apple M4 Pro, release):
+  spread ≤ 0.5 MiB, Apple M4 Pro, release):
 
   | case | `main` | `F32x4`, dst copied | `F32x4`, dst copy removed | vs `main` |
   |---|---:|---:|---:|---:|
-  | 4000x2660 `--max 400` (downscale) | 165.9 MiB | 464.8 MiB | **462.8 MiB** | 2.79x |
-  | 512² -> 6000x6000 (upscale) | 265.7 MiB | 1406.3 MiB | **857.0 MiB** | 3.23x |
+  | 4000×2660 `--max 400` (downscale) | 165.9 MiB | 464.8 MiB | **462.8 MiB** | 2.79× |
+  | 512² → 6000×6000 (upscale) | 265.7 MiB | 1406.3 MiB | **857.0 MiB** | 3.23× |
 
   One avoidable copy was found and removed: `resample_linear_f32x4` returned
   `dst.pixels().to_vec()` (`TypedImage` has no `into_vec`), a second full copy
   of the float destination at 16 B per output pixel. Returning the image and
-  reading its samples in place is **-549.3 MiB (-39.1%)** on the upscale and
-  **-2.0 MiB (-0.4%)** on the downscale, where the destination is small and the
+  reading its samples in place is **−549.3 MiB (−39.1%)** on the upscale and
+  **−2.0 MiB (−0.4%)** on the downscale, where the destination is small and the
   copy was never the cost. Output is byte-identical on both cases, so it is an
   allocation change and nothing else.
 
   What remains is the **working type**, not another copy: the downscale's peak
-  is the source-side linear buffer (4000x2660 x 16 B = 170 MiB) coexisting with
+  is the source-side linear buffer (4000×2660 × 16 B = 170 MiB) coexisting with
   the widened `Rgba8` it is built from, and a `drop(src)` probe moves nothing
-  (462.8 -> 462.8 MiB) because the peak occurs *during* the conversion. Same
-  `F32x4` decision as the 3.83x slowdown; both findings feed it, and neither was
+  (462.8 → 462.8 MiB) because the peak occurs *during* the conversion. Same
+  `F32x4` decision as the 3.83× slowdown; both findings feed it, and neither was
   taken during build.
 
   **`MAX_AREA`'s comment was made false by this change** and is corrected in the
   same commit. The 128 Mpx cap is untrusted-input hardening described as a
   "512 MiB RGBA output" bound (SPEC-010/037, DEC-034/038); it still bounds the
-  output, but the float intermediates are now 4x that number with the source's
-  own copy alongside, so a request at the cap can peak near 5x what the comment
+  output, but the float intermediates are now 4× that number with the source's
+  own copy alongside, so a request at the cap can peak near 5× what the comment
   reads as. The comment is fixed; **the bound is not moved** — that is a
   decision about untrusted-input allocation and is filed for the maintainer
   rather than taken in a punch-list cycle.
