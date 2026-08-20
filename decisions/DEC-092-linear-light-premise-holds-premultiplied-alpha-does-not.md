@@ -125,8 +125,11 @@ the visible composite error, and is background-independent when the two alphas a
 | control: same code, `use_alpha(false)` | 68 / 255 | 18.336 / 255 |
 
 The residual 27 is not a halo: the two implementations' alpha channels disagree by 0.42/255 on
-average with a 27/255 peak, i.e. Lanczos ringing at hard corners, and the peak premultiplied error
-tracks it. `max_straight_rgb_err` is 255 for **both** arms — a reminder that unassociated RGB is
+average with a 27/255 peak, and the peak premultiplied error tracks it. ⚠ **The mechanism this
+record originally named for that 27 — "Lanczos ringing at hard corners" — is refuted. See
+*Amended 2026-08-20* under Consequences; the sentence is left standing rather than rewritten so
+the correction is visible, but do not carry the ringing explanation forward.**
+`max_straight_rgb_err` is 255 for **both** arms — a reminder that unassociated RGB is
 meaningless where alpha ≈ 0, which is why the premultiplied form is the correct oracle here.
 
 ### The two metrics agree in direction but are not interchangeable
@@ -188,6 +191,47 @@ worst hit. A fix spec that gates on mean luminance alone would under-report its 
   **crustyimg-today's score against a correct reference** (−63.85 / 70.45 / 84.45), not the exact
   magnitude of the delta. A production linear-light resize will not necessarily score 100.
 
+### Amended 2026-08-20 — the residual 27 is 8-bit quantization, not Lanczos ringing
+
+**SPEC-122 fixed the resampling and the residual went to zero, which refutes the mechanism this
+record named for it.** The record read the 27/255 alpha peak as *"Lanczos ringing at hard
+corners"*. It is not ringing, and it is not premultiplication either — it is **8-bit quantization
+in the integer resampling path, the alpha channel's own convolution included.**
+
+Three pieces of evidence, all re-derived on the same harness rather than taken from the fix's
+write-up:
+
+| arm | max premul RGB err | max **alpha** err | mean alpha err |
+|---|---:|---:|---:|
+| `main` — `U8x4`, premultiplication **ON** | 27 | **27** | 0.4203 |
+| **C4** — `U8x4`, premultiplication **OFF** | 68 | **27** | 0.4203 |
+| SPEC-122 — `F32x4`, premultiplication ON | 0 | **0** | 0.0000 |
+
+- **C4 is the discriminating control.** Toggling premultiplication moves the premultiplied-RGB
+  error (27 → 68) and leaves the alpha statistics **bit-identical** — same 27 peak, same 0.4203
+  mean. A residual that does not move when the variable moves is not caused by that variable, so
+  it is not the premultiply/divide round-trip.
+- **The dependency's source says the same thing.** `fast_image_resize`'s
+  `alpha::u8x4::multiply_alpha_pixel` writes `[mul_div_255(r, a), mul_div_255(g, a),
+  mul_div_255(b, a), alpha]` — the alpha channel is copied through untouched, and `divide_alpha`
+  is symmetric. Alpha is **never premultiplied or divided**, so its own error cannot come from
+  that round-trip. Its only arithmetic is the convolution.
+- **Widening the working type is what removes it.** SPEC-122 changed nothing about
+  premultiplication or the filter; it moved the convolution from `U8x4` to `F32x4`, and the alpha
+  error went 27 → 0 along with the RGB error. Quantization of the intermediate is the only
+  variable that moved.
+
+**The correction that first replaced the ringing claim was itself wrong** and is recorded here so
+it is not re-adopted: SPEC-122's build wrote the residual up as *"8-bit quantization inside
+`fast_image_resize`'s premultiply/divide round-trip"* — right in kind, wrong in the specific, and
+falsified by C4 in the build's own harness output. Right in kind still matters: the fix and its
+justification are unaffected, and DEC-092's verdict (proceed; premultiplication is already
+correct) stands unchanged. Only the mechanism sentence moves.
+
+`scripts/spec120_linear_light.py`'s printed footnote carried this wording too — it is where the
+record's phrasing came from — and is corrected at the source in the same change, so a future
+reader of the harness output is not told the refuted thing again.
+
 ## Validation
 
 Five controls run on every invocation of the harness and are reported, not assumed:
@@ -203,7 +247,9 @@ Five controls run on every invocation of the harness and are reported, not assum
   mean |luma err| 0.000236 / 0.000013 / 0.000344. The two independent Lanczos3 implementations
   agree, so the arm-vs-reference gaps are gamma, not filter drift.
 - **C4 — the alpha oracle can fire.** `use_alpha(false)` measures 68 max / 18.34 mean against the
-  premultiplied reference, 50× the shipped path's mean.
+  premultiplied reference, 50× the shipped path's mean. Its **alpha-channel** error — 27 max /
+  0.4203 mean, identical to the premultiplying arm's — is the evidence for *Amended 2026-08-20*
+  above, and was in this control's output all along.
 - **C5 — the shipped binary is not the non-premultiplied arm.** Its output differs from that arm
   in 10,510 pixels (max RGBA err 255), independently confirming from behaviour what the
   dependency's source says about `mul_div_alpha`.
@@ -223,6 +269,9 @@ silently substituting an in-repo reference.
 ## References
 
 - **SPEC-120** — `projects/PROJ-010-post-launch-correctness-and-consolidation/specs/SPEC-120-measure-the-linear-light-premise.md`
+- **SPEC-122 / DEC-095** — the fix this record authorised. It closed the defect and, in doing so,
+  refuted this record's explanation of the alpha residual: see *Amended 2026-08-20* under
+  Consequences before quoting the 27.
 - **DEC-019** — SSIMULACRA2 as the perceptual oracle (confirmed for this question by C-control)
 - **DEC-008** — `fast_image_resize` as the resize backend
 - **DEC-074** — the committed-bench contract (why the synthetic stays out of `bench/corpus/`)

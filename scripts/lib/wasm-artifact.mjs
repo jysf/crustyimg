@@ -25,7 +25,23 @@
 //     the thing the demo is for.
 
 export const WASM_NAME_SECTION_MAX = 4_096;
-export const WASM_BROTLI_BASELINE = 1_394_631;
+// Moved 1_394_631 -> 1_144_921 by SPEC-122 (2026-08-18), deliberately and
+// downward. `Resize::apply` now calls `fast_image_resize`'s TYPED entry point
+// (`resize_typed::<F32x4>`) instead of the dynamic `Resizer::resize`, which
+// matches on PixelType and so monomorphized the convolution and alpha kernels
+// for all thirteen of them. Twelve are now unreachable and the linker drops
+// them. Measured on one machine, same toolchain, avif on both sides:
+//
+//   main    5_819_379 B raw / 1_377_233 B brotli
+//   SPEC-122 5_261_547 B raw / 1_144_864 B brotli   (-9.6% raw, -16.9% brotli)
+//
+// The baseline is set from the CI measurement (1_144_921 B) rather than the
+// local one, since CI is where the gate runs; the two agree to 57 B.
+//
+// The floor still does its job. A lean build — the thing point 3 below exists
+// to catch — measures 865_980 B brotli, which is 20.4% below the new floor of
+// 1_087_675 B, so a missing AVIF encoder still trips it with room to spare.
+export const WASM_BROTLI_BASELINE = 1_144_921;
 export const WASM_BROTLI_TOLERANCE = 0.05;
 export const WASM_BROTLI_MAX = Math.round(WASM_BROTLI_BASELINE * (1 + WASM_BROTLI_TOLERANCE));
 export const WASM_BROTLI_MIN = Math.round(WASM_BROTLI_BASELINE * (1 - WASM_BROTLI_TOLERANCE));

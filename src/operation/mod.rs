@@ -182,10 +182,10 @@ impl Operation for Identity {
 // the downgrade this spec exists to stop).
 
 /// A 16-bit-per-channel RGBA pixel buffer. `::image` publishes `RgbaImage`
-/// (8-bit) but no 16-bit counterpart; this is the same concrete type
-/// `fast_image_resize`'s own private alias resolves to, so its blanket
-/// `IntoImageView`/`IntoImageViewMut` impls (keyed on the concrete type, not
-/// the alias name) apply to it too.
+/// (8-bit) but no 16-bit counterpart, so `Invert` and `Resize` name one here
+/// to widen a 16-bit source into without truncating it. It is only a working
+/// buffer: since SPEC-122 the resample itself runs in `F32x4`, so this type is
+/// no longer handed to `fast_image_resize` directly.
 type Rgba16Image = ImageBuffer<Rgba<u16>, Vec<u16>>;
 
 /// Whether `color` needs a 16-bit-per-channel working buffer to avoid
@@ -356,50 +356,237 @@ impl Operation for Invert {
     }
 }
 
-/// Resize `src` to `dw`×`dh` via the fast_image_resize SIMD backend
-/// (Lanczos3), then — when `fill_crop` is `Some((target_w, target_h))` —
-/// center-crop to that exact box (the `fill` mode's second step). Generic
-/// over bit depth: [`Resize::apply`] calls this once at `Rgba<u8>`, once at
-/// `Rgba<u16>` (SPEC-121, Call 1), so a 16-bit source resizes at its own
-/// precision instead of being truncated to 8-bit before the resample.
+// ─── Linear-light resampling (SPEC-122) ─────────────────────────────────────
+//
+// Resampling is a weighted average of neighbouring samples, and an average is
+// only meaningful in a space where the values are proportional to the physical
+// quantity. sRGB samples are not — they carry a ~2.2 power. Averaging them
+// directly makes every downscale too dark, worst on thin bright features
+// against dark backgrounds. Measured against an independent linear-light
+// reference (ImageMagick 7 Q16-HDRI), the pre-SPEC-122 path scored 70.45 and
+// 84.45 SSIMULACRA2 on two corpus images and −63.85 on a synthetic worst case
+// (DEC-092). So: linearize, resample, re-encode.
+//
+// The transfer function is assumed to be **sRGB**. crustyimg carries ICC
+// profiles through but does not interpret them, so an image tagged with a
+// different transfer function is resampled under an assumption that is wrong
+// for it — better than treating it as linear, still an assumption. ICC-aware
+// conversion is its own project (DEC-095).
+//
+// Alpha is deliberately NOT transformed: it is linear coverage, not a light
+// value. Premultiplication is likewise untouched — `fast_image_resize`'s
+// `ResizeOptions::default()` already sets `mul_div_alpha: true` and supports
+// `F32x4` as it does `U8x4`, so this change moves the colour channels only
+// (DEC-092 refuted the premultiplied-alpha half of the same premise).
+
+/// sRGB → linear light for one 0..1 signal value (IEC 61966-2-1).
+fn srgb_to_linear(c: f32) -> f32 {
+    if c <= 0.040_448_237 {
+        c / 12.92
+    } else {
+        ((c + 0.055) / 1.055).powf(2.4)
+    }
+}
+
+/// Linear light → sRGB, the inverse of [`srgb_to_linear`].
+fn linear_to_srgb(c: f32) -> f32 {
+    if c <= 0.003_130_8 {
+        c * 12.92
+    } else {
+        1.055 * c.powf(1.0 / 2.4) - 0.055
+    }
+}
+
+/// The 256 linear-light values an 8-bit sRGB channel can hold.
 ///
-/// `fast_image_resize::Resizer::resize` takes `&impl IntoImageView` /
-/// `&mut impl IntoImageViewMut` directly — both `RgbaImage` and
-/// [`Rgba16Image`] implement them (`image_crate.rs`'s blanket impls), so no
-/// manual `fast_image_resize::images::Image` wrapping is needed here, unlike
-/// the pre-SPEC-121 version of this function.
-fn resize_and_crop<P>(
-    src: ImageBuffer<P, Vec<P::Subpixel>>,
+/// Built per call rather than kept in a static: 256 `powf`s cost nothing
+/// beside the image itself, and the values are bit-identical to calling
+/// [`srgb_to_linear`] per sample, so the table is an optimisation with no
+/// numeric consequence. The 16-bit path has 65,536 possible values and calls
+/// [`srgb_to_linear`] directly instead.
+fn srgb8_linear_table() -> [f32; 256] {
+    let mut table = [0.0f32; 256];
+    for (value, slot) in table.iter_mut().enumerate() {
+        *slot = srgb_to_linear(value as f32 / 255.0);
+    }
+    table
+}
+
+/// Resample a **linear-light** RGBA buffer to `dw`×`dh` on the
+/// fast_image_resize SIMD backend (Lanczos3, DEC-008).
+///
+/// `F32x4` takes the same `Resizer` and the same `ResizeOptions` the 8-bit
+/// path took, so the filter and the alpha handling are unchanged and the
+/// transfer function is the only variable this spec moved.
+///
+/// `TypedImage` rather than `images::Image::from_vec_u8`: the latter takes a
+/// `Vec<u8>` and rejects it when the allocation is not `f32`-aligned, which is
+/// a runtime failure mode that depends on the allocator. A typed buffer cannot
+/// be misaligned.
+///
+/// Returns the destination image itself rather than its pixels, because
+/// `TypedImage` has no `into_vec` and `pixels().to_vec()` would allocate a
+/// second copy of the whole float destination — 16 bytes per output pixel, so
+/// 576 MB on a 6000x6000 target. The caller only reads the samples, so it can
+/// read them in place.
+fn resample_linear_f32x4(
+    src: Vec<fast_image_resize::pixels::F32x4>,
+    w: u32,
+    h: u32,
     dw: u32,
     dh: u32,
-    fill_crop: Option<(u32, u32)>,
-) -> Result<ImageBuffer<P, Vec<P::Subpixel>>, OperationError>
-where
-    P: Pixel + 'static,
-    P::Subpixel: 'static,
-    ImageBuffer<P, Vec<P::Subpixel>>:
-        fast_image_resize::IntoImageView + fast_image_resize::IntoImageViewMut,
-{
-    let mut dst: ImageBuffer<P, Vec<P::Subpixel>> = ImageBuffer::new(dw, dh);
-    let mut resizer = fast_image_resize::Resizer::new();
+) -> Result<
+    fast_image_resize::images::TypedImage<'static, fast_image_resize::pixels::F32x4>,
+    OperationError,
+> {
+    use fast_image_resize::images::TypedImage;
+    use fast_image_resize::pixels::F32x4;
+
+    let src = TypedImage::<F32x4>::from_pixels(w, h, src).map_err(|e| OperationError::Apply {
+        op: "resize",
+        reason: e.to_string(),
+    })?;
+    let mut dst = TypedImage::<F32x4>::new(dw, dh);
     let opts = fast_image_resize::ResizeOptions::new().resize_alg(
         fast_image_resize::ResizeAlg::Convolution(fast_image_resize::FilterType::Lanczos3),
     );
-    resizer
-        .resize(&src, &mut dst, &opts)
+    fast_image_resize::Resizer::new()
+        .resize_typed(&src, &mut dst, &opts)
         .map_err(|e| OperationError::Apply {
             op: "resize",
             reason: e.to_string(),
         })?;
+    Ok(dst)
+}
 
+/// The `fill` mode's second step: center-crop `dst` to `target_w`×`target_h`.
+fn crop_center<P>(
+    dst: ImageBuffer<P, Vec<P::Subpixel>>,
+    fill_crop: Option<(u32, u32)>,
+) -> ImageBuffer<P, Vec<P::Subpixel>>
+where
+    P: Pixel + 'static,
+    P::Subpixel: 'static,
+{
     match fill_crop {
         Some((target_w, target_h)) => {
+            let (dw, dh) = dst.dimensions();
             let x = dw.saturating_sub(target_w) / 2;
             let y = dh.saturating_sub(target_h) / 2;
-            Ok(imageops::crop_imm(&dst, x, y, target_w, target_h).to_image())
+            imageops::crop_imm(&dst, x, y, target_w, target_h).to_image()
         }
-        None => Ok(dst),
+        None => dst,
     }
+}
+
+/// Resize an 8-bit RGBA buffer to `dw`×`dh` in linear light, then — when
+/// `fill_crop` is `Some((target_w, target_h))` — center-crop to that exact box.
+///
+/// When the target size already equals the source size the backend does not
+/// resample at all: `Resizer::resize` short-circuits to a row-by-row copy
+/// (`resizer.rs`'s `copy_image`). Converting to linear and back around a copy
+/// is measurably a no-op — the round-trip is exact for every representable
+/// value at both depths, which the unit tests assert exhaustively — so this
+/// is a cost short-circuit, not a correctness one, and returning the samples
+/// untouched also keeps the guarantee on targets whose `f32` differs.
+fn resize_and_crop8(
+    src: RgbaImage,
+    dw: u32,
+    dh: u32,
+    fill_crop: Option<(u32, u32)>,
+) -> Result<RgbaImage, OperationError> {
+    use fast_image_resize::pixels::F32x4;
+
+    let (w, h) = src.dimensions();
+    if (w, h) == (dw, dh) {
+        return Ok(crop_center(src, fill_crop));
+    }
+
+    let table = srgb8_linear_table();
+    let linear: Vec<F32x4> = src
+        .pixels()
+        .map(|p| {
+            let [r, g, b, a] = p.0;
+            F32x4::new([
+                table[r as usize],
+                table[g as usize],
+                table[b as usize],
+                a as f32 / 255.0,
+            ])
+        })
+        .collect();
+
+    let resampled = resample_linear_f32x4(linear, w, h, dw, dh)?;
+
+    let mut dst = RgbaImage::new(dw, dh);
+    for (out, sample) in dst.pixels_mut().zip(resampled.pixels().iter()) {
+        let [r, g, b, a] = sample.0;
+        out.0 = [
+            encode_srgb8(r),
+            encode_srgb8(g),
+            encode_srgb8(b),
+            (a.clamp(0.0, 1.0) * 255.0).round() as u8,
+        ];
+    }
+    Ok(crop_center(dst, fill_crop))
+}
+
+/// [`resize_and_crop8`], at 16 bits per channel (SPEC-121 widens a 16-bit
+/// source to `Rgba16` rather than truncating it, and this keeps that
+/// precision through the linear round-trip).
+fn resize_and_crop16(
+    src: Rgba16Image,
+    dw: u32,
+    dh: u32,
+    fill_crop: Option<(u32, u32)>,
+) -> Result<Rgba16Image, OperationError> {
+    use fast_image_resize::pixels::F32x4;
+
+    let (w, h) = src.dimensions();
+    if (w, h) == (dw, dh) {
+        return Ok(crop_center(src, fill_crop));
+    }
+
+    let linear: Vec<F32x4> = src
+        .pixels()
+        .map(|p| {
+            let [r, g, b, a] = p.0;
+            F32x4::new([
+                srgb_to_linear(r as f32 / 65535.0),
+                srgb_to_linear(g as f32 / 65535.0),
+                srgb_to_linear(b as f32 / 65535.0),
+                a as f32 / 65535.0,
+            ])
+        })
+        .collect();
+
+    let resampled = resample_linear_f32x4(linear, w, h, dw, dh)?;
+
+    let mut dst = Rgba16Image::new(dw, dh);
+    for (out, sample) in dst.pixels_mut().zip(resampled.pixels().iter()) {
+        let [r, g, b, a] = sample.0;
+        out.0 = [
+            encode_srgb16(r),
+            encode_srgb16(g),
+            encode_srgb16(b),
+            (a.clamp(0.0, 1.0) * 65535.0).round() as u16,
+        ];
+    }
+    Ok(crop_center(dst, fill_crop))
+}
+
+/// One linear-light sample back to an 8-bit sRGB channel value.
+///
+/// The clamp is load-bearing, not defensive: Lanczos3 has negative lobes, so a
+/// hard edge overshoots outside 0..1, and un-premultiplying a nearly
+/// transparent pixel can push a colour channel above 1 as well.
+fn encode_srgb8(linear: f32) -> u8 {
+    (linear_to_srgb(linear.clamp(0.0, 1.0)) * 255.0).round() as u8
+}
+
+/// [`encode_srgb8`], at 16 bits per channel.
+fn encode_srgb16(linear: f32) -> u16 {
+    (linear_to_srgb(linear.clamp(0.0, 1.0)) * 65535.0).round() as u16
 }
 
 // ─── Resize ─────────────────────────────────────────────────────────────────
@@ -418,8 +605,10 @@ enum ResizeMode {
 /// Geometric resize on the fast_image_resize SIMD backend (DEC-008).
 ///
 /// Constructed FROM params via `Resize::from_params` (the registry
-/// path). Converts to RGBA8 (like Invert), resizes (Lanczos3
-/// convolution), and—for `fill`—center-crops to the exact box.
+/// path). Widens to RGBA at the input's own bit depth, resamples in
+/// linear light (Lanczos3 convolution — see `resize_and_crop8`), narrows
+/// back to the input's colour type, and—for `fill`—center-crops to the
+/// exact box.
 #[derive(Debug)]
 pub struct Resize {
     mode: ResizeMode,
@@ -684,9 +873,16 @@ impl Operation for Resize {
         // (including percent/cover/fill, whose output dims depend on the input).
         // MAX_AREA is the upscale-bomb defense; MAX_EDGE is a per-dimension sanity cap.
         const MAX_EDGE: u32 = 50_000;
-        // 512 MiB RGBA output (== the decode allocation cap, DEC-034/DEC-038): a
-        // resize cannot produce a buffer larger than what decode would accept.
+        // 512 MiB RGBA *output* (== the decode allocation cap, DEC-034/DEC-038):
+        // a resize cannot return a buffer larger than what decode would accept.
         // Tightened from 256 Mpx to 128 Mpx for that symmetry (SPEC-037).
+        //
+        // It bounds the OUTPUT, not the peak. The resample runs in linear
+        // `F32x4` — 16 B/px, four times RGBA8 — with the source's float copy
+        // alongside it, so a request at the cap peaks well above the 512 MiB
+        // this number reads as. Whether the bound should move is a decision
+        // about untrusted-input allocation, not a tidy-up; measured multipliers
+        // are in DEC-095.
         const MAX_AREA: u64 = 134_217_728; // 128 * 1024 * 1024 px = 512 MiB at RGBA8
 
         if tw > MAX_EDGE || th > MAX_EDGE {
@@ -707,14 +903,14 @@ impl Operation for Resize {
             });
         }
 
-        // ── Resize via fast_image_resize, at the input's own bit depth ───────
-        // (SPEC-121, Call 1: widen to work, narrow to write — the resample
-        // itself now runs at 16-bit precision for a 16-bit source instead of
-        // truncating to 8-bit first. `Resize` deliberately still widens RGB
-        // to RGBA before resizing rather than resampling the narrower buffer
-        // directly — SPEC-122 lands in this same function next for the
-        // linear-light rewrite, and narrow-after-resize keeps one shared
-        // rule with `Invert`/`Watermark` instead of a second resize path.)
+        // ── Resize in linear light, at the input's own bit depth ────────────
+        // Widen to work, narrow to write (SPEC-121): the resample runs at
+        // 16-bit precision for a 16-bit source instead of truncating to 8-bit
+        // first, and `Resize` still widens RGB to RGBA before resizing rather
+        // than resampling the narrower buffer directly, so one shared
+        // narrowing rule serves `Invert`/`Watermark` too. The samples are
+        // linearized on the way in and re-encoded on the way out (SPEC-122) —
+        // see `resize_and_crop8`.
         let dw = tw;
         let dh = th;
 
@@ -736,11 +932,11 @@ impl Operation for Resize {
 
         let out = if is_sixteen_bit(original_color) {
             let src = img.pixels().to_rgba16();
-            let dst = resize_and_crop(src, dw, dh, fill_crop)?;
+            let dst = resize_and_crop16(src, dw, dh, fill_crop)?;
             narrow_rgba16(dst, original_color)
         } else {
             let src = img.pixels().to_rgba8();
-            let dst = resize_and_crop(src, dw, dh, fill_crop)?;
+            let dst = resize_and_crop8(src, dw, dh, fill_crop)?;
             narrow_rgba8(dst, original_color)
         };
 
@@ -2010,6 +2206,59 @@ mod tests {
     ///
     /// Covers `exact 64x64`, `max 32` (no upscale on small input), and
     /// `percent 50` — all three must return `Ok`.
+    // ── SPEC-122: the sRGB transfer function ────────────────────────────
+
+    #[test]
+    fn srgb8_linear_table_matches_the_analytic_function() {
+        let table = srgb8_linear_table();
+        for value in 0u16..=255 {
+            assert_eq!(
+                table[value as usize],
+                srgb_to_linear(value as f32 / 255.0),
+                "table entry {value} must be the same f32 the per-sample \
+                 conversion produces, or the LUT is not a pure optimisation"
+            );
+        }
+    }
+
+    #[test]
+    fn srgb_round_trip_is_exact_for_every_8_bit_value() {
+        let table = srgb8_linear_table();
+        for value in 0u16..=255 {
+            assert_eq!(
+                encode_srgb8(table[value as usize]),
+                value as u8,
+                "8-bit sample {value} did not survive the linear round-trip"
+            );
+        }
+    }
+
+    #[test]
+    fn srgb_round_trip_is_exact_for_every_16_bit_value() {
+        // The same-size short-circuit in `resize_and_crop8`/`…16` means a
+        // no-op resize never takes this path, so this is not what makes AC-6
+        // hold — but it bounds the error the round-trip contributes when the
+        // image genuinely is resampled.
+        for value in 0u32..=65535 {
+            assert_eq!(
+                encode_srgb16(srgb_to_linear(value as f32 / 65535.0)),
+                value as u16,
+                "16-bit sample {value} did not survive the linear round-trip"
+            );
+        }
+    }
+
+    #[test]
+    fn averaging_in_linear_light_differs_from_averaging_the_signal() {
+        // Mid-gray from black and white: 187.5 in linear light, 127.5 if the
+        // non-linear samples are averaged directly. The gap is the defect.
+        let linear = linear_to_srgb((srgb_to_linear(1.0) + srgb_to_linear(0.0)) / 2.0) * 255.0;
+        assert!(
+            (linear - 187.5).abs() < 0.1,
+            "linear-light mean of 0 and 255 should be ~187.5, got {linear}"
+        );
+    }
+
     #[test]
     fn resize_apply_normal_outputs_succeed() {
         let img = make_image(64, 64, |_, _| [200, 100, 50, 255]);
