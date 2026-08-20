@@ -470,6 +470,29 @@ Method, unchanged from the build: clean, **sequential**, fresh per-leg
 `CARGO_TARGET_DIR` removed before and after each leg, nothing piped so no exit
 code is swallowed.
 
+**⚠ The clippy half of that matrix was itself a false green, and CI caught it.**
+The twelve exit-0s ran through `/opt/homebrew/bin/cargo-clippy`, which pairs
+with Homebrew's rustc 1.97.1 — not the rustup stable toolchain CI installs.
+**Rust 1.98.0 was released 2026-08-18**, two days before this cycle, and adds
+`clippy::chunks_exact_to_as_chunks`. Re-run through
+`$(rustup which --toolchain stable rustc | xargs dirname)`, clippy exits **101**
+on every feature set. The test counts above are unaffected — they come from
+`cargo test` and reproduce verify's numbers exactly — but a clippy exit code is
+only as current as the toolchain behind it
+[[a-green-gate-on-one-os-is-not-the-required-matrix]]. **Resolve `cargo-clippy`
+by toolchain, not by `PATH`, when a green is going to be reported.**
+
+**What it caught is not this spec's.** Both errors are
+`src/image/avif.rs:180` and `:518` — code untouched since 2026-07-31
+(SPEC-107), absent from this branch's diff, and failing **every** code leg on
+PR #182: ubuntu/macos/windows default, lean, webp-lossy, avif and both heic
+legs. `main` is equally exposed; its green run at the same hour was docs-only,
+so `detect changed paths` skipped every clippy step. **SPEC-122's own code is
+clean under 1.98** — those two locations are the *only* errors in the whole
+run. Fixed in a separate PR against `main` rather than here, per
+`one-spec-per-PR` and [[stacked-prs-need-update-branch]]; #182 needs
+`update-branch` once it lands.
+
 **CI, read leg by leg rather than from the summary** (final commit; 16 pass, 0
 fail, 6 skipped — the skips are the release/publish jobs that only run on a tag):
 
