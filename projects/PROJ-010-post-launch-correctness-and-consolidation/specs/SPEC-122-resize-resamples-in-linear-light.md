@@ -247,11 +247,19 @@ SPEC-121 so the wave is a single decision.
 - **New decisions emitted:** **none — DEC-095 amended**, as instructed. The
   amendment adds the linear-light change, Call 4's sRGB assumption, SPEC-122's
   consequences and alternatives, and a Validation section covering the three
-  negative controls. `affected_scope` already covered `src/operation/**`;
-  confirmed, not widened (the diff touches `src/operation/mod.rs` and `tests/`
-  only).
-- **Deviations from spec:** three, all measured; see below.
-- **Follow-up work identified:** two, both filed rather than fixed.
+  negative controls. **`affected_scope` is widened, not confirmed** — the build
+  reported it as confirmed on a false premise (*"the diff touches
+  `src/operation/mod.rs` and `tests/` only"*). It does not: it also touches
+  **`scripts/lib/wasm-artifact.mjs`** and **`scripts/demo-assemble.mjs`**, where
+  a safety constant was moved. Both are now in `affected_scope`, and
+  `justfile` + `docs/backlog.md` + `scripts/spec120_linear_light.py` are also in
+  the diff (the last of those is already covered by DEC-092's scope). Corrected
+  in the punch-list cycle; see Deviation 4.
+- **Deviations from spec:** four — three from the build, all measured, plus one
+  raised by verify; see below.
+- **Follow-up work identified:** four, all filed rather than fixed — two from
+  the build, plus `MAX_AREA`'s output-vs-peak gap and the memory cost, both of
+  which ride the same `F32x4` decision as the 3.83× slowdown.
 
 ### The result (AC-1, AC-2, AC-3, AC-4)
 
@@ -358,21 +366,78 @@ changing the working type — `U16x4` has SIMD kernels `F32x4` does not — whic
 trades measured quality for measured speed and is a design call, not a build
 one. Both diagnostic builds were discarded; the shipped code is the spec's.
 
+### AC-9's other half — memory, measured (added by the punch-list cycle)
+
+**AC-9 asked for performance and the build measured only time.** `F32x4` multiplies the resize
+working set as well, and neither the spec nor DEC-095 mentioned memory anywhere. Peak RSS
+(`/usr/bin/time -l`, "maximum resident set size"; 3 runs per cell, median reported, spread
+≤ 0.5 MiB across every cell; Apple M4 Pro, release, same machine as AC-9):
+
+| case | `main` | branch as built | branch, dst copy removed | vs `main` |
+|---|---:|---:|---:|---:|
+| 4000×2660 `--max 400` (downscale) | 165.9 MiB | 464.8 MiB | **462.8 MiB** | 2.79× |
+| 512² → 6000×6000 (upscale) | 265.7 MiB | 1406.3 MiB | **857.0 MiB** | 3.23× |
+
+The `main`/as-built columns reproduce verify's numbers to the megabyte, which is the control that
+the two measurements are of the same thing.
+
+**The free half was free on one case and not the other.** `resample_linear_f32x4` returned
+`dst.pixels().to_vec()` — `TypedImage` has no `into_vec`, so that was a second full copy of the
+float destination, 16 B per output pixel. It now returns the `TypedImage` and the caller reads the
+samples in place. That is **−549.3 MiB (−39.1%)** on the upscale, where the destination is
+36 Mpx — and **−2.0 MiB (−0.4%)** on the downscale, where the destination is 106 kpx and the copy
+was never the cost. Output is **byte-identical** across all three arms on both cases (sha256), so
+this is an allocation change and nothing else.
+
+**What is left on the downscale is the working type, not a second avoidable copy.** The peak there
+is the *source*-side linear buffer — 4000×2660 × 16 B = 170 MiB — alive at the same time as the
+widened `Rgba8` source it is built from. A `drop(src)` probe (fourth diagnostic build, discarded)
+moves nothing measurable: 462.8 → 462.8 MiB and 857.0 → 856.8 MiB, because the peak happens
+*during* the `collect()`, while both buffers necessarily coexist. Measured and rejected rather
+than assumed, and **not taken** — like the 3.83× slowdown, the remainder is the `F32x4` decision
+itself, which AC-9 forbids the build from making. Both findings feed the same maintainer call.
+
+**⚠ `MAX_AREA`'s comment was made false by this change and is corrected here.**
+`src/operation/mod.rs` caps a resize at 128 Mpx and describes it as a *"512 MiB RGBA output (== the
+decode allocation cap)"* bound — untrusted-input hardening (SPEC-010/037, DEC-034/038). It bounds
+the **output**, and it always did; what changed is that the float intermediates are now 4× the
+number it quotes, with the source's own float copy alongside, so a request at the cap can peak near
+5× what the comment reads as. The **comment** is fixed to say so. The **bound** is not moved: that
+is a decision about how much an untrusted input may be allowed to allocate, it is filed for the
+maintainer, and per the punch list's own instruction it is said rather than done.
+
 ### AC-10 — the matrix
 
-Clean, **sequential**, fresh per-leg `CARGO_TARGET_DIR` (removed before and
-after each leg), through `rtk proxy`, nothing piped so no exit code is swallowed:
+**Re-run in full by the punch-list cycle (2026-08-20)** — the build's
+`webp-lossy` row was a false green and had to be replaced, and items 2 and 5
+changed code, so nothing here is inherited:
 
 | leg | `cargo test --release` | `clippy --all-targets -D warnings` | `fmt --check` |
 |---|---|---|---|
 | default | ✅ 927 passed / 0 failed (39 suites) | ✅ | ✅ |
 | `--no-default-features` | ✅ 907 passed / 0 failed (39 suites) | ✅ | ✅ |
-| `--features webp-lossy` | ✅ 835 passed / 0 failed (28 suites) | ✅ | ✅ |
+| `--features webp-lossy` | ✅ **933** passed / 0 failed (**39** suites) | ✅ | ✅ |
+| `--no-default-features --features webp-lossy` | ✅ 911 passed / 0 failed (39 suites) | ✅ | ✅ |
 
-Nine checks, nine exit-0s, read from recorded exit codes rather than from a
-summary line. `tests/colour_type_preservation.rs`
-— SPEC-121's suite, now a regression guard on this change — is **21/21 green**,
-run explicitly as the prompt required.
+**Twelve checks, twelve exit-0s**, read from recorded exit codes rather than
+from a summary line. `tests/colour_type_preservation.rs` — SPEC-121's suite, now
+a regression guard on this change — is **21/21 green**, and
+`tests/linear_light_resize.rs` is **6/6**.
+
+**⚠ The build reported `--features webp-lossy` as "835 passed / 28 suites", and
+that row matched nothing.** **39 suites is invariant** across every feature
+combination in this repo: 36 files in `tests/` + lib + bin + doc, and
+`Cargo.toml` declares **zero** `required-features` on any `[[test]]` target, so
+no suite can be feature-skipped. A 28-suite result is not a lean run or a
+different selection — it is an incomplete one. The other two rows reproduce to
+the test (927 and 907, unchanged), which is the control that says the counting
+method is sound and the third row was the outlier
+[[a-harness-that-exercises-nothing-reports-green]]. The two `webp-lossy` legs
+are now both run and both reported.
+
+Method, unchanged from the build: clean, **sequential**, fresh per-leg
+`CARGO_TARGET_DIR` removed before and after each leg, nothing piped so no exit
+code is swallowed.
 
 **CI, read leg by leg rather than from the summary** (final commit; 16 pass, 0
 fail, 6 skipped — the skips are the release/publish jobs that only run on a tag):
@@ -427,7 +492,10 @@ still trips the guard.
 The guard's "Under:" message is also corrected. It asserted one cause and this was
 the other, which is exactly the failure mode `wasm-artifact.mjs`'s own header
 warns about ("misreport the cause"); it now names both and tells the reader to
-check the build line first.
+check the build line first. **The punch-list cycle then had to make the log
+agree with it** — the lean arm's own size banner printed the *default* feature
+set, so the nearest feature line contradicted the true one. See punch-list
+item 5.
 
 ### Deviations from spec
 
@@ -457,18 +525,105 @@ check the build line first.
    not: **max premultiplied-RGB edge error 27 → 0, mean 0.364 → 0.0**, confirmed
    independently (`compare -metric AE` = 0 against the premultiplied reference;
    the `use_alpha(false)` control arm still reads 68/18.34, so the oracle can
-   still fire). **DEC-092's explanation of that residual was wrong**: it read the
-   27 as "Lanczos ringing at hard corners"; it was 8-bit quantization inside
-   `fast_image_resize`'s own premultiply/divide round-trip, and doing that
-   round-trip in `f32` removes it. Premultiplication itself did not move — C5
+   still fire). **DEC-092's explanation of that residual was wrong — and so was
+   this build's first correction of it.** DEC-092 read the 27 as "Lanczos ringing
+   at hard corners"; the build replaced that with "8-bit quantization inside
+   `fast_image_resize`'s premultiply/divide round-trip", which is right in kind
+   and wrong in the specific. **It is 8-bit quantization in the integer
+   resampling path generally — the alpha channel's own convolution included.**
+   The evidence was already in this build's own harness output, in control
+   **C4**:
+
+   | arm | max premul RGB err | max **alpha** err | mean alpha err |
+   |---|---:|---:|---:|
+   | `main` — `U8x4`, premultiplication **ON** | 27 | **27** | 0.4203 |
+   | **C4** — `U8x4`, premultiplication **OFF** | 68 | **27** | 0.4203 |
+   | branch — `F32x4` | 0 | **0** | 0.0000 |
+
+   Toggling premultiplication moves the premultiplied-RGB error and leaves the
+   alpha statistics bit-identical — a residual that does not move when the
+   variable moves is not caused by it. And `fast_image_resize`'s
+   `alpha::u8x4::multiply_alpha_pixel` copies `pixel.0[3]` through untouched, so
+   **alpha is never premultiplied or divided** and cannot pick up error from that
+   round-trip at all. Widening the convolution to `F32x4` is the only variable
+   that moved. Premultiplication itself did not move — C5
    still shows the binary differing from the non-premultiplied arm in 10,512
    pixels. **Nothing regressed**; the AC expected a null where an improvement was
-   available.
+   available. DEC-092 now carries this correction under *Amended 2026-08-20*,
+   and `scripts/spec120_linear_light.py`'s printed footnote — the source of the
+   original wording — is fixed too, so the harness stops re-emitting it.
+
+4. **`affected_scope` was reported "confirmed, not widened" on a false premise,
+   and is widened.** The build's own words were *"the diff touches
+   `src/operation/mod.rs` and `tests/` only"*. `git diff --name-only` against the
+   merge base says otherwise: it also touches **`scripts/lib/wasm-artifact.mjs`**
+   and **`scripts/demo-assemble.mjs`** — where `WASM_BROTLI_BASELINE` was moved
+   and the size guard's message rewritten — plus `docs/backlog.md` and (in this
+   cycle) `justfile` and `scripts/spec120_linear_light.py`. DEC-095 records *why*
+   the constant moved, but with those files out of scope nothing surfaced that
+   record to the next person who edits it: **the exact failure DEC-095's own
+   scope comment was written about**, repeated one spec later on the same
+   record. Both `scripts/` files are now in `affected_scope`
+   (`scripts/spec120_linear_light.py` is already covered by DEC-092's). The fix
+   for next time is mechanical, not a resolution to be more careful: diff the
+   claimed file list against `git diff --name-only`
+   [[mechanical-sweeps-need-a-mechanical-check]].
 
 **Not a deviation but worth flagging: this build ran on `claude-opus-5`, not the
 `claude-sonnet-5` the spec's front matter and the build prompt both name.** The
 cost below is priced at Opus anchors accordingly, per AGENTS §4 ("the model that
 actually ran, not the one a prompt names").
+
+### Punch-list cycle (2026-08-20) — 5 items
+
+Verify returned ⚠ PUNCH LIST on PR #182, having confirmed the fix independently
+(all three cases reproduced, AC-7's numbers to the digit, the wasm guard
+relaxation ruled legitimate after being forced red). The fix was not
+re-litigated. `cycle:` stays at `verify`.
+
+1. **The DEC-092 correction never landed, and the correction was itself wrong.**
+   The build's `decisions/` diff touched only DEC-095, so `DEC-092:127-128` still
+   read *"i.e. Lanczos ringing at hard corners"* — refuted, unamended, with no
+   forward pointer, while `decisions-audit` names DEC-092 as governing
+   `src/operation/mod.rs`. DEC-092 now carries an **`### Amended 2026-08-20`**
+   section in the convention DEC-095 uses, the refuted sentence is flagged in
+   place rather than silently rewritten, and the References gained a forward
+   pointer. The replacement mechanism is corrected in all four places it had been
+   written (DEC-092, DEC-095, this spec, `docs/backlog.md`) — see Deviation 3 for
+   the evidence, which is control **C4**, and which was in the build's own
+   harness output the whole time. The harness's printed footnote
+   (`scripts/spec120_linear_light.py`), where the wording originated, is fixed at
+   the source so it stops re-emitting the refuted claim beside `max alpha err 0`.
+
+2. **AC-9 measured time and never measured memory.** Added above, with the one
+   avoidable copy removed and re-measured, the `drop(src)` probe measured and
+   rejected, and `MAX_AREA`'s now-false comment corrected. The bound itself is
+   **not** moved — said, not done, as instructed.
+
+3. **The AC-10 `webp-lossy` row was a false green.** Re-run; the real numbers and
+   why 39 suites is invariant are above. The matrix is now four legs.
+
+4. **`affected_scope` was confirmed on a false premise.** Deviation 4 above.
+
+5. **The lean wasm log contradicted the guard message it tells you to trust.**
+   `wasm-build` ended with `@just wasm-size` — a *fresh* `just` invocation, which
+   does not inherit `--set _wasm_features`, so a lean build printed the DEFAULT
+   feature set in its own size banner three lines above the guard failure. The
+   guard's rewritten message tells the reader to check the feature line, so a
+   pre-existing cosmetic bug became load-bearing. `wasm-size` is now a **`&&`
+   (subsequent) dependency** of `wasm-build`, which runs in the same invocation
+   and does inherit the override; the guard message now names the
+   `wasm-pack build ... -- <features>` line specifically, since that is the
+   invocation and the only feature line that is always true.
+
+   Driven both ways rather than reasoned about. New form, `just --dry-run`:
+   with `--set _wasm_features " --no-default-features"` the banner interpolates
+   `features:  --no-default-features` and matches the `wasm-pack` line; with no
+   override both read `--no-default-features --features avif`. Old form, same
+   override: the recipe's last line is a bare `just wasm-size`, and running that
+   bare invocation prints `features: --no-default-features --features avif` —
+   the contradiction, reproduced. The trap was flagged latent by **SPEC-102's**
+   verify and never fixed; SPEC-122 is what made it matter.
 
 ### On the prototype (Call 2)
 
@@ -491,6 +646,17 @@ arithmetic exactly: on the synthetic case the branch binary's output is
 - **The same-version cache hazard**, already filed on STAGE-042 by SPEC-121 and
   now confirmed on a second byte change. Not re-filed; the existing item is
   strengthened in DEC-095 instead.
+- **⚠ `MAX_AREA` bounds the output, not the peak — for the architect.** The
+  128 Mpx / "512 MiB RGBA" cap is untrusted-input hardening, and the linear-light
+  change made its float intermediates 4× that number. The comment is corrected;
+  whether the *bound* should move is a decision about how much an untrusted
+  input may allocate, and is deliberately not taken here. It rides the same
+  `F32x4` call as the two findings below.
+- **The `resize` memory cost, for the architect — same decision as the time
+  cost.** 2.79×/3.23× peak RSS after the one free copy was removed. The
+  remainder is the working type; `U16x4` would halve the intermediate as well as
+  restoring the SIMD kernels, at the quality cost already recorded. Numbers in
+  DEC-095's Consequences.
 
 ### Build-phase reflection (3 questions, short answers)
 

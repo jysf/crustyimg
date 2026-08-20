@@ -34,6 +34,14 @@ affected_scope:
   # Without this glob the record does not surface when that fn changes, and
   # `decisions-audit --changed` attributes the file to 11 unrelated decisions.
   - src/image/mod.rs
+  # SPEC-122 moved WASM_BROTLI_BASELINE 1_394_631 -> 1_144_921 and rewrote the
+  # size guard's "Under:" message. The reason lives in this record's
+  # Consequences, and without these two entries nothing surfaces it when the
+  # next person edits a safety constant they did not move (SPEC-122 punch-list
+  # item 4 — the exact failure the scope comment above warns about, repeated
+  # one spec later on the same record).
+  - scripts/lib/wasm-artifact.mjs
+  - scripts/demo-assemble.mjs
 
 tags:
   - colour-type
@@ -309,6 +317,40 @@ directly, and the widen/narrow rule is unchanged for all three.
   That is a design call, filed for the architect, deliberately not taken during
   build (SPEC-122 AC-9 forbids optimising out of the spec).
 
+- **Negative, MEASURED — `resize` also costs 2.8-3.2x the memory, which the
+  spec never asked about and this record did not carry until the punch-list
+  cycle added it.** Peak RSS (`/usr/bin/time -l`, 3 runs per cell, median,
+  spread <= 0.5 MiB, Apple M4 Pro, release):
+
+  | case | `main` | `F32x4`, dst copied | `F32x4`, dst copy removed | vs `main` |
+  |---|---:|---:|---:|---:|
+  | 4000x2660 `--max 400` (downscale) | 165.9 MiB | 464.8 MiB | **462.8 MiB** | 2.79x |
+  | 512² -> 6000x6000 (upscale) | 265.7 MiB | 1406.3 MiB | **857.0 MiB** | 3.23x |
+
+  One avoidable copy was found and removed: `resample_linear_f32x4` returned
+  `dst.pixels().to_vec()` (`TypedImage` has no `into_vec`), a second full copy
+  of the float destination at 16 B per output pixel. Returning the image and
+  reading its samples in place is **-549.3 MiB (-39.1%)** on the upscale and
+  **-2.0 MiB (-0.4%)** on the downscale, where the destination is small and the
+  copy was never the cost. Output is byte-identical on both cases, so it is an
+  allocation change and nothing else.
+
+  What remains is the **working type**, not another copy: the downscale's peak
+  is the source-side linear buffer (4000x2660 x 16 B = 170 MiB) coexisting with
+  the widened `Rgba8` it is built from, and a `drop(src)` probe moves nothing
+  (462.8 -> 462.8 MiB) because the peak occurs *during* the conversion. Same
+  `F32x4` decision as the 3.83x slowdown; both findings feed it, and neither was
+  taken during build.
+
+  **`MAX_AREA`'s comment was made false by this change** and is corrected in the
+  same commit. The 128 Mpx cap is untrusted-input hardening described as a
+  "512 MiB RGBA output" bound (SPEC-010/037, DEC-034/038); it still bounds the
+  output, but the float intermediates are now 4x that number with the source's
+  own copy alongside, so a request at the cap can peak near 5x what the comment
+  reads as. The comment is fixed; **the bound is not moved** — that is a
+  decision about untrusted-input allocation and is filed for the maintainer
+  rather than taken in a punch-list cycle.
+
 - **Negative — AC-6 asked for the upscale path to stay byte-identical to
   `main`, and it cannot.** An upscale *is* a resample: Lanczos3 interpolates,
   and interpolating non-linear samples is wrong in the same way averaging them
@@ -326,10 +368,32 @@ directly, and the widen/narrow rule is unchanged for all three.
   premultiplied-RGB edge error against the independent premultiplied reference
   went **27/255 → 0**, mean **0.364 → 0.0** (`compare -metric AE` = 0
   independently; the `use_alpha(false)` control arm still reads 68/18.34 and AE
-  346, so the oracle can still fire). DEC-092 read the residual 27 as "Lanczos
-  ringing at hard corners"; it was **8-bit quantization inside
-  `fast_image_resize`'s own premultiply/divide round-trip**, which disappears
-  when that round-trip happens in `f32`. Premultiplication itself did not move:
+  346, so the oracle can still fire).
+
+  **What that residual actually was — corrected 2026-08-20, after the first
+  correction was itself refuted.** DEC-092 read the 27 as "Lanczos ringing at
+  hard corners". This record's first amendment replaced that with "8-bit
+  quantization inside `fast_image_resize`'s premultiply/divide round-trip" —
+  right in kind, wrong in the specific, and **falsified by control C4 in the
+  build's own harness output**. It is **8-bit quantization in the integer
+  resampling path generally, the alpha channel's own convolution included**:
+
+  | arm | max premul RGB err | max **alpha** err | mean alpha err |
+  |---|---:|---:|---:|
+  | `main` — `U8x4`, premultiplication **ON** | 27 | **27** | 0.4203 |
+  | **C4** — `U8x4`, premultiplication **OFF** | 68 | **27** | 0.4203 |
+  | this branch — `F32x4` | 0 | **0** | 0.0000 |
+
+  Toggling premultiplication moves the premultiplied-RGB error and leaves the
+  alpha statistics **bit-identical**, so the residual is not caused by the
+  round-trip; and `fast_image_resize`'s `alpha::u8x4::multiply_alpha_pixel`
+  copies `pixel.0[3]` through untouched, so alpha never enters that round-trip
+  in the first place. Widening the convolution to `F32x4` is the only variable
+  that moved, and it takes both errors to 0. DEC-092 carries the same correction
+  under *Amended 2026-08-20*, and the harness's own printed footnote — where the
+  wording originated — is fixed at the source.
+
+  Premultiplication itself did not move:
   C5 still shows the shipped binary differing from the non-premultiplied arm in
   10,512 pixels. Nothing regressed; the AC was simply written expecting a null
   where an improvement was available.
@@ -345,6 +409,17 @@ directly, and the widen/narrow rule is unchanged for all three.
   `resize` on the branch). This is the STAGE-042 item SPEC-121 filed,
   independently confirmed rather than assumed — two unrelated byte changes,
   same conditional.
+
+- **Process — this record's own `affected_scope` was reported "confirmed, not
+  widened" on a false premise, and is widened 2026-08-20.** SPEC-122's Build
+  Completion said the diff touched `src/operation/mod.rs` and `tests/` only. It
+  also touched `scripts/lib/wasm-artifact.mjs` and `scripts/demo-assemble.mjs`,
+  where `WASM_BROTLI_BASELINE` moved — so the record that explains *why* a safety
+  constant moved did not surface when someone next edited it. That is precisely
+  the failure the scope comment at the top of this file was written about, one
+  spec later, on the same record. Both files are now in scope. The lesson is the
+  cheap mechanical one: diff the claimed file list against `git diff --name-only`
+  rather than recalling it.
 
 - **Positive, MEASURED and unlooked-for — the demo's `.wasm` shrinks 16.9%.**
   Calling `fast_image_resize`'s typed entry point (`resize_typed::<F32x4>`)

@@ -835,11 +835,18 @@ Three riders, all measured:
 - **The alpha edge got *better*, not unchanged.** AC-5 predicted the 27/255 band would hold.
   Measured after: **max premultiplied-RGB edge error 27 → 0, mean 0.364 → 0.0**, confirmed
   independently (`compare -metric AE` = 0 against the premultiplied reference; the
-  non-premultiplied control arm still reads 346). DEC-092 attributed the residual 27 to "Lanczos
-  ringing at hard corners"; it was **8-bit quantization in fir's own premultiply/divide
-  round-trip**, and doing that round-trip in `f32` removes it. Premultiplication itself did not
-  move — C5 still shows the shipped binary differing from the non-premultiplied arm in 10,512
-  pixels.
+  non-premultiplied control arm still reads 346). DEC-092 attributed the residual 27 to "Lanczos ringing at
+  hard corners". That was wrong, and **so was this build's first correction of it** ("8-bit
+  quantization inside fir's premultiply/divide round-trip") — right in kind, wrong in the
+  specific. It is **8-bit quantization in the integer resampling path generally, alpha's own
+  convolution included**. The evidence is control **C4** in this build's own harness output:
+  with premultiplication **OFF** the alpha statistics are bit-identical to the premultiplying arm
+  (27 max / 0.4203 mean on both), so the residual does not move when premultiplication moves; and
+  fir's `multiply_alpha_pixel` copies the alpha channel through untouched, so alpha never enters
+  that round-trip at all. Widening the convolution to `F32x4` is what takes it to 0.
+  Premultiplication itself did not move — C5 still shows the shipped
+  binary differing from the non-premultiplied arm in 10,512 pixels. DEC-092 is amended
+  (2026-08-20) rather than left carrying the refuted sentence.
 
 ---
 
