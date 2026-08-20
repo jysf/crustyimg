@@ -73,8 +73,38 @@ Cycle prompts live in `prompts/SPEC-122-<cycle>.md`.
       second 576 MB copy of the destination buffer); the **AC-10 webp-lossy row is a false green**
       (reported 835/28 where 39 suites is invariant — the real counts are 933/39 and 911/39); and
       `affected_scope` was confirmed on a false premise (the diff also touches two `scripts/` files).
-- [ ] **punch list** — prompt: `prompts/SPEC-122-punchlist.md` (2026-08-18). Opus, own worktree,
-      same branch. 5 items. `cycle:` stays at `verify`. 💰 Verify cost to apply at ship:
-      21,844,228 tokens / 19 min / **$15.82**. **SPEC-122 to date: $119.42.**
+- [x] **punch list** — 2026-08-20, Opus, `1cb4f32`, **$20.19** (re-derived to the cent; the cycle
+      flags it as PROVISIONAL — the reading was taken once before CI settled, and SPEC-121 measured
+      that tail at 9.5%, so expect ~$22). All 5 items closed. `cycle:` held at `verify`.
+      **Item 1c — the corrected mechanism re-derived, not taken on trust.** C4 driven again:
+      toggling premultiplication leaves the alpha statistics **bit-identical** (max alpha err 27,
+      mean 0.4203 on both arms) while premultiplied-RGB error moves 27 → 68, and `fir`'s
+      `multiply_alpha_pixel` copies `pixel.0[3]` through untouched — so alpha never enters that
+      round-trip. The mechanism is 8-bit quantization in the integer resampling path, alpha's own
+      convolution included. **DEC-092 amended in DEC-095's `### Amended` convention, with the
+      refuted sentence flagged IN PLACE and a forward pointer rather than silently rewritten.**
+      ⚠ **The sweep found a FOURTH location** — `docs/backlog.md`, beyond the three the punch list
+      named. Second time in this wave that an orchestrator-scoped sweep was under-scoped.
+      ⚠ **Item 2 — the orchestrator's "half of it is free" was wrong**, generalised from verify's
+      single measurement. Driven on both cases: removing the `to_vec` copy saves **−549.3 MiB
+      (−39.1%)** on the upscale and **−2.0 MiB (−0.4%)** on the downscale, where the destination is
+      small and the copy was never the cost. Output byte-identical on both. A `drop(src)` probe
+      moved nothing — **the peak is during the conversion**, not the copy. `MAX_AREA`'s comment
+      fixed; the bound deliberately not moved.
+      Item 3: the false green replaced with a real run — `--features webp-lossy` **933/39**, lean
+      variant **911/39**, the 39-suite invariant confirmed mechanically from the log (2 unittests +
+      36 integration + 1 doc, zero required-features). Twelve checks, twelve exit-0s, **run twice —
+      the second time on the committed code.** Item 4: `affected_scope` widened with both `scripts/`
+      files and `decisions-audit --changed` confirmed to surface DEC-095 for each. Item 5:
+      `wasm-size` is now a `&&` dependency of `wasm-build` so it inherits `--set _wasm_features`;
+      **driven both ways, with the old form's contradiction reproduced.**
+      ✅ **No CI polling** — backgrounded watch, reading taken once. The lesson held on the cycle
+      where it was written into the prompt.
+- [ ] **re-approval / ship** — `cycle:` held at `verify`, PR #182 not merged. **SPEC-122 to date:
+      $139.61** (build $103.60 + punch list $20.19 + verify $15.82), ~$141.5 once the punch list's
+      post-CI tail lands — level with SPEC-107 as the most expensive spec in PROJ-010.
+      ⚖ **Open for the maintainer: the `F32x4` working type.** It is behind BOTH the 3.83× slowdown
+      (verify's independent decomposition: 76% of the added time) and the memory multiplier (peak
+      RSS 2.8× / 5.3×). Deliberately not changed by this spec.
 
 - [ ] **ship**
