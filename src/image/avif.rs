@@ -177,7 +177,7 @@ fn decode_avif_inner(bytes: &[u8], limits: &Limits) -> Result<DynamicImage> {
     } else {
         // No alpha: drop the (opaque) alpha channel to a compact RGB image.
         let mut rgb = Vec::with_capacity((w as usize) * (h as usize) * 3);
-        for px in rgba.chunks_exact(4) {
+        for px in rgba.as_chunks::<4>().0 {
             rgb.extend_from_slice(&px[..3]);
         }
         let buf = RgbImage::from_raw(w, h, rgb)
@@ -515,7 +515,7 @@ fn apply_alpha(rgba: &mut [u8], w: u32, h: u32, apic: &Picture) -> Result<()> {
 
 /// Convert premultiplied-alpha RGBA to straight alpha in place (MIAF `prem`).
 fn unpremultiply(rgba: &mut [u8]) {
-    for px in rgba.chunks_exact_mut(4) {
+    for px in rgba.as_chunks_mut::<4>().0 {
         let a = px[3];
         if a == 0 {
             px[0] = 0;
