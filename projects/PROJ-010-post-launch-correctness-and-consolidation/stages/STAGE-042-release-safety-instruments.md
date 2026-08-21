@@ -325,6 +325,25 @@ failures on documented paths.
   **Severity when filed, measured at SPEC-123's verify:** not reachable in this repo's own CI — no
   committed `*.build.lock` exists and no workflow runs `build --check`/`--frozen`. User-facing only.
 
+- [ ] (not yet written) — [S] ⚡ **`pages / build + browser smoke` is an intermittently red gate,
+  and it is red on `main` right now.** Diagnosed 2026-08-21. Cause is a **10-second hard cap on
+  Chrome's startup**, not anything in the demo: `tests/demo_smoke.mjs:307-312` polls for
+  `DevToolsActivePort` `for (let i = 0; i < 100 …)` at 100 ms — exactly 10 s — while **every other
+  wait in the same file uses `waitFor`'s 90 s default**. On a loaded runner a cold Chrome routinely
+  misses 10 s, and the job dies with `headless Chrome never came up (no DevToolsActivePort)` while
+  the wasm build, `demo-assemble` and the local server have all already succeeded.
+  **Three observations, all the same failure:** `2e77269` (a **docs-only** commit — nothing in the
+  diff could have caused it), then a **pass on the identical tree** at `c20c96b`, then `0107a49`
+  (the SPEC-124 merge on `main`) failed again at 04:19:33, exactly 10.03 s after the server came up.
+  ⚠ **"Flake" understates it — it is a startup race with a budget an order of magnitude tighter
+  than every sibling wait**, and a gate that goes red at random trains readers to ignore it. It also
+  sits directly in front of the 0.7.1 cut.
+  **Fix is small and in two parts:** raise the startup budget to match the file's own 90 s
+  convention, and **read `chrome.stderr`** — it is piped (`stdio: ["ignore","ignore","pipe"]`) but
+  never drained on this path, so the failure reports "never came up" while discarding Chrome's own
+  explanation. Follow the SPEC-122 precedent and **give the CI fix its own PR** (as `#183` was),
+  not a spec branch.
+
 - [ ] (not yet written) — [S] **`tests/avif_tile_pin.rs` builds a whole cargo binary inside a
   `#[test]`, and the costs are measured.** Verify ruled it **acceptable as shipped** — it is the only
   lever that discriminates a pinned build from an unpinned one (DEC-094 leg E), isolation is complete,
@@ -415,8 +434,8 @@ failures on documented paths.
   SPEC-121 recorded it only in DEC-095's Consequences prose, and a test comment cited a
   `docs/backlog.md` entry that was never written; both are corrected on that branch.
 
-**Count:** 2 framed (SPEC-118, SPEC-125) / **2 shipped (SPEC-123, SPEC-124)** / 10 pending /
-1 chore done / 1 closed-by-a-spec (the `[env]` item) = **16 items**
+**Count:** 2 framed (SPEC-118, SPEC-125) / **2 shipped (SPEC-123, SPEC-124)** / 11 pending /
+1 chore done / 1 closed-by-a-spec (the `[env]` item) = **17 items**
 
 > ⚠ The categories now **reconcile to the literal `- [ ]` + `- [x]` tally** (9 + 5 = 14). They did
 > not before: SPEC-124's build closed the `[env]` item without giving the closure a category, which
