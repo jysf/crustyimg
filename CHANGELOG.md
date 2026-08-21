@@ -18,6 +18,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   A real alpha channel, real transparency and a genuinely colour result are all kept:
   the output is never narrower than the input declared.
 
+- **Resizing now happens in linear light, so downscaled images stop coming out
+  wrong.** Every resample — `resize`, `thumbnail`, `web`, and any recipe that
+  scales — averaged pixels in gamma-encoded sRGB, which is not a linear space, so
+  the averages were wrong: fine detail shifted in brightness and high-contrast
+  edges darkened. Scored against an independent reference renderer on the same
+  images, a synthetic high-contrast case goes from **−63.85 to 100.00**, a
+  flat-colour graphic from **70.45 to 100.00**, and a photograph from **84.45 to
+  99.41** (SSIMULACRA2, where 100 is a perfect match); mean brightness error against
+  that reference is now **0.000000** on all three. Soft edges over transparency were
+  affected too — worst-case error there drops from **27/255 to 0**. The cost is
+  speed: `resize` itself is **3.8× slower** (169 → 649 µs on a small image), which
+  is **1.5–2.5× end to end** once decode and encode are counted. Output bytes change
+  for every resize.
+
 - **`optimize`/`web`/`apply --recipe web`/`build` no longer ship an SVG, HEIC, or RAW
   source's raw bytes under a raster label they never produced.** For these three
   families, `optimize`'s auto-decide passthrough (no candidate beats the source on
