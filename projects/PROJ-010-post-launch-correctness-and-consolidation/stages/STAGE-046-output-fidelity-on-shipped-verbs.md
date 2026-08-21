@@ -265,6 +265,27 @@ Three further reasons the timing is now and not later:
   dated records of what the code was). ⚠ Prose, not a `- [ ]`, so nothing
   tracked this mechanically — the citation is the audit trail.
 
+- [ ] (not yet written) — [S] **Probe whether `U16x4` recovers linear-light `resize`'s speed and
+  memory without moving the output.** SPEC-122 resamples in linear `F32x4` — **16 B/px, 4× RGBA8**
+  — which is correct and is the point of the spec, but it costs **3.83×** wall clock (169 → 649 µs)
+  and **2.8×–5.3×** peak RSS (measured: 166 → 465 MB downscale; 266 → **1407 MB** on a 512²→6000²
+  upscale). ⚠ **Verify's decomposition is the load-bearing number: 76% of the added time is the
+  WORKING TYPE, not the transfer function** — so gamma math is not where the cost is, and no
+  cheap fix exists inside the current type.
+  **The candidate is `U16x4`** (8 B/px, shipped by `fast_image_resize` 6.0.0): halves the memory
+  delta, and 16-bit linear is ample precision for 8-bit output. **Unmeasured on all three axes** —
+  does it recover the time, what does it do to a 16-bit source, and does the output move?
+  ⚡ **This is a probe, not a fix — do not scope it as one.** SPEC-123 cost $60.33 largely because
+  a measurement whose premise might be wrong was sized `[S]` and asserted in advance
+  [[a-measurement-specs-cost-lives-in-the-refutation]].
+  **Deliberately NOT in 0.7.1** (maintainer, 2026-08-20). No correctness defect; 649 µs is
+  sub-millisecond and the memory is transient and input-bounded. It is an optimization, so it can
+  carry its own lockfile migration later — unlike SPEC-121/122/124, which share one because they
+  are correctness fixes landing together.
+  **Related and separate:** `MAX_AREA` bounds the OUTPUT buffer, not the peak, and still does its
+  documented job (`src/operation/mod.rs:870-885`). Whether that bound should move for untrusted
+  input is its own decision, recorded in the comment and in DEC-095 — **not a regression.**
+
 ## Dependencies
 
 ### Depends on
