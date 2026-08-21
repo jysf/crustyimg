@@ -24,7 +24,7 @@ Cycle prompts live in `prompts/SPEC-125-<cycle>.md`.
       📌 **The backlog item this promotes lives on SPEC-121's branch, not `main`.** Mark it
       `[x] **SPEC-125**` and bump STAGE-042's count **at SPEC-121's ship**, not before — editing
       STAGE-042 on `main` now would conflict with PR #181.
-- [x] **build** — 2026-08-21, PR #TODO (opened after this commit lands). **Sonnet**, own worktree,
+- [x] **build** — 2026-08-21, PR #185. **Sonnet**, own worktree,
       branch `fix/spec-125-lossless-webp-never-silently-halves-bit-depth`. Gate cleared (PR #184
       merged before branching). All 7 ACs met — see the spec's own `## Build Completion`.
       Call 1's set widened beyond the spec's own candidate list, MEASURED not assumed: BMP/lossless

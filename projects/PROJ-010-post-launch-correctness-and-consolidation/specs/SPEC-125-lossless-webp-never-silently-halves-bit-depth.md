@@ -189,7 +189,7 @@ preserved. No `Operation` body changes.
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
 - **Branch:** `fix/spec-125-lossless-webp-never-silently-halves-bit-depth`
-- **PR (if applicable):** #TODO — opened after this commit lands
+- **PR (if applicable):** [#185](https://github.com/jysf/crustyimg/pull/185)
 - **All acceptance criteria met?** yes
   - **AC-1** — `convert --format webp` on a >8-bit source warns on stderr; `-o -`
     stdout verified to stay pure WebP bytes. Driven via the compiled binary AND
