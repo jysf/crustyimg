@@ -433,9 +433,39 @@ failures on documented paths.
   ([[a-document-is-not-a-backlog-unless-tooling-reads-it]]) — `just backlog` reads this section.
   SPEC-121 recorded it only in DEC-095's Consequences prose, and a test comment cited a
   `docs/backlog.md` entry that was never written; both are corrected on that branch.
+  ⚠ **Corrected at build (2026-08-21) — the repro command above is wrong.** Driven on today's
+  `main` binary: `convert --format webp` prints **no** ssim line at all (`convert` never scores —
+  it has no candidate search to score from). It is **`web`** that prints
+  `png → webp · … · ssim 100.0` — the smallest-candidate search, not the direct `--format` pin.
+  `convert --format webp` DOES reproduce the silent depth downgrade (confirmed: exit 0, zero
+  stderr, output round-trips as 8-bit) — that half of this entry holds — but the `ssim 100.0` half
+  of the claim belongs to `web`, not `convert`. Both are now fixed and driven both ways
+  (`tests/sink.rs`); the corrected mechanism is recorded in DEC-097 rather than restated here.
+  ⚡ **A second, orthogonal defect surfaced while deriving the fix's format set (Call 1's
+  behavioural measurement, not the spec's candidate list):** `image` 0.25.10's ICO encoder writes
+  a file its own ICO decoder cannot read back — **independent of bit depth**. Measured for 8-bit
+  RGB (no alpha), 8-bit RGBA, 16-bit RGB, and 16-bit RGBA: three of the four fail
+  `image::load_from_memory_with_format(_, ImageFormat::Ico)` with `Format error decoding Ico: The
+  PNG is not in RGBA format!`; only 8-bit RGBA round-trips. So `convert --format ico` succeeds
+  (exit 0) and writes a file that **the very next `crustyimg info` on that same file cannot open**
+  — for a plain opaque 8-bit RGB source with no alpha and no >8-bit depth anywhere in play, not
+  only the >8-bit case this spec is about. `image`'s ICO encoder embeds a PNG sub-image at the
+  source's own colour type (consistent with DEC-095's preserve policy — not itself wrong), but
+  `image`'s own ICO decoder hard-requires that embedded PNG to be exactly `Rgba8`. Framing this as
+  a depth-downgrade warning would misattribute it, so SPEC-125 deliberately does NOT warn for ICO
+  (see DEC-097) — this item is the real defect, filed rather than fixed (a correct fix — forcing
+  RGBA8 before ICO encode — would change output bytes for every non-alpha ICO source, out of scope
+  for a reporting-only spec). `tests/sink.rs::ico_round_trip_defect_is_orthogonal_to_depth` pins the
+  measurement; goes red if `image` ever fixes this upstream. Complexity **S**, needs a maintainer
+  ruling on whether to warn, fix (byte-changing), or accept as a known `image` limitation.
 
-**Count:** 2 framed (SPEC-118, SPEC-125) / **2 shipped (SPEC-123, SPEC-124)** / 11 pending /
-1 chore done / 1 closed-by-a-spec (the `[env]` item) = **17 items**
+**Count:** 1 framed (SPEC-118) / **2 shipped (SPEC-123, SPEC-124)** / 1 in build (SPEC-125,
+checked at design per this file's own convention — see the entry above) / 12 pending /
+1 chore done / 1 closed-by-a-spec (the `[env]` item) = **18 items narratively, but the literal
+`- [ ]` + `- [x]` tally is 12 + 5 = 17** — re-derived by grep, not carried forward from the prior
+line: this section's own prose (SPEC-125 named under "framed" while its checkbox is `[x]`) does
+not partition cleanly into mutually-exclusive buckets, so the checkbox tally is the number to
+trust. **17 items.**
 
 > ⚠ The categories now **reconcile to the literal `- [ ]` + `- [x]` tally** (9 + 5 = 14). They did
 > not before: SPEC-124's build closed the `[env]` item without giving the closure a category, which

@@ -2,7 +2,7 @@
 task:
   id: SPEC-125
   type: bug
-  cycle: design
+  cycle: verify
   blocked: false
   priority: high
   complexity: S
@@ -47,6 +47,23 @@ cost:
       note: >
         Un-metered main-loop design cycle (AGENTS §4). Promoted from the
         STAGE-042 backlog item SPEC-121's punch-list cycle filed and measured.
+    - cycle: build
+      agent: claude-sonnet-5
+      interface: claude-code
+      tokens_total: 136613534
+      duration_minutes: 52
+      recorded_at: 2026-08-21
+      tokens_breakdown:
+        input: 906
+        output: 364099
+        cache_creation: 842394
+        cache_read: 135406135
+      estimated_usd: 49.25
+      note: >
+        MEASURED — summed from the session transcript's per-message `usage`,
+        priced at Sonnet anchors ($3/$15 per MTok) with cache multipliers
+        (cache_creation x1.25, cache_read x0.10 of input rate). Reading taken
+        near completion (commit/push/PR-open still ahead), not at "PR opened."
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -123,20 +140,20 @@ preserved. No `Operation` body changes.
 
 ## Acceptance Criteria
 
-- [ ] **AC-1.** `convert --format webp` on a >8-bit source **warns on stderr**;
+- [x] **AC-1.** `convert --format webp` on a >8-bit source **warns on stderr**;
       `-o -` stdout stays pure WebP (AGENTS §11).
-- [ ] **AC-2.** The warning fires for **every** 8-bit-only target, and **does not**
+- [x] **AC-2.** The warning fires for **every** 8-bit-only target, and **does not**
       fire for targets that genuinely hold the depth. The set is **derived and
       cited**, not hard-coded from this spec's candidate list.
-- [ ] **AC-3.** **`web` / `optimize` reach it too** — driven, not reasoned, since
+- [x] **AC-3.** **`web` / `optimize` reach it too** — driven, not reasoned, since
       the smallest-candidate search is how most users hit this.
-- [ ] **AC-4.** **No bare `ssim 100.0` across a depth change** (Call 2), pinned by
+- [x] **AC-4.** **No bare `ssim 100.0` across a depth change** (Call 2), pinned by
       a test asserting the rendered line.
-- [ ] **AC-5.** **A negative control** — an 8-bit source through the same verbs
+- [x] **AC-5.** **A negative control** — an 8-bit source through the same verbs
       warns **not at all** and its output is byte-identical to `main`.
-- [ ] **AC-6.** **DEC-019's search path is unchanged** — `optimize`'s candidate
+- [x] **AC-6.** **DEC-019's search path is unchanged** — `optimize`'s candidate
       selection byte-identical to `main` on the corpus.
-- [ ] **AC-7.** Clean full matrix, fresh per-leg `CARGO_TARGET_DIR`, sequential:
+- [x] **AC-7.** Clean full matrix, fresh per-leg `CARGO_TARGET_DIR`, sequential:
       default, `--no-default-features`, `--features webp-lossy`. Clippy and
       `fmt --check` each. Then read the CI legs individually.
 
@@ -171,18 +188,75 @@ preserved. No `Operation` body changes.
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
-- **New decisions emitted:**
+- **Branch:** `fix/spec-125-lossless-webp-never-silently-halves-bit-depth`
+- **PR (if applicable):** #TODO — opened after this commit lands
+- **All acceptance criteria met?** yes
+  - **AC-1** — `convert --format webp` on a >8-bit source warns on stderr; `-o -`
+    stdout verified to stay pure WebP bytes. Driven via the compiled binary AND
+    `tests/sink.rs::lossless_webp_reports_the_depth_downgrade`.
+  - **AC-2** — the set was MEASURED, not copied from the spec's candidate list:
+    BMP, lossless WebP, AVIF warn; PNG, TIFF stay silent (prior held); GIF and
+    ICO are excluded for two different, non-depth reasons (see DEC-097). Table-
+    driven test: `eight_bit_only_targets_all_warn_and_others_do_not`.
+  - **AC-3** — `web` and `optimize` both reach the widened warning through their
+    candidate search, no `--format` pin, driven via
+    `web_and_optimize_reach_the_widened_downgrade_warning`.
+  - **AC-4** — no bare `ssim 100.0` survives a depth-reducing winner; the line is
+    qualified with the reference's real depth on the default summary,
+    `--explain human`, and `--explain json`/`--json`. Driven via
+    `ssim_line_is_qualified_across_a_depth_change`.
+  - **AC-5** — negative control, driven both ways: `eight_bit_source_warns_nowhere`
+    (in-repo), plus a manual `main` vs. branch byte-diff on `convert`/`web`
+    outputs and stderr for an 8-bit source (byte-identical, empty stderr on
+    both). Two independent-condition reverts (AGENTS §15) confirmed the
+    behavioural flip: Call 1 alone reverted → AC-1/2/3 tests RED, AC-4/5 GREEN;
+    Call 2 alone reverted → only AC-4's test RED, everything else GREEN.
+  - **AC-6** — `optimize --verify --explain json` on an 8-bit photo-like source:
+    byte-identical output, JSON, and stderr between `main` and this branch.
+    `pick_winner`/`solve_candidate` never read the new `scored_source_depth`
+    field — it is populated strictly after the winner is chosen.
+  - **AC-7** — full matrix (`default`, `--no-default-features`, `--features
+    webp-lossy`), fresh `CARGO_TARGET_DIR` per leg, sequential: `cargo test`,
+    `cargo clippy --all-targets -- -D warnings`, `cargo fmt --check` all clean
+    on every leg (see the per-leg log below).
+- **New decisions emitted:** DEC-097 (widen the 8-bit downgrade warning; qualify
+  the SSIM line; the full measured table for Call 1's derivation).
 - **Deviations from spec:**
-- **Follow-up work identified:**
+  - The spec's own Context repro command was wrong and is corrected in the
+    STAGE-042 backlog entry: `convert --format webp` prints **no** ssim line at
+    all (`convert` never scores); it is **`web`** whose candidate search prints
+    `png → webp · … · ssim 100.0`. The underlying depth-downgrade claim for
+    `convert --format webp` is correct and unaffected.
+  - AC-2's candidate set differs from the spec's named list: AVIF is ADDED
+    (measured 8-bit-only, not named in the spec, not in DEC-095's "not covered"
+    list by omission but confirmed the same class), and GIF is EXCLUDED (hard
+    encode error, not a silent downgrade — warning there would misdescribe a
+    loud failure as a soft one). Both are measured findings per Call 1's own
+    instruction to derive the set rather than copy it, not scope creep.
+  - ICO is also excluded, for a THIRD reason distinct from PNG/TIFF's "holds
+    the depth": `image`'s own ICO decoder cannot read back the ICO encoder's
+    own output for ANY source colour type (reproduces at plain 8-bit RGB, no
+    alpha, no depth question at all) — an orthogonal, more severe defect, filed
+    to STAGE-042 rather than fixed here (a real fix would change output bytes).
+- **Follow-up work identified:** the ICO round-trip defect, filed as a new
+  STAGE-042 backlog item (needs a maintainer ruling: warn / fix / accept).
 
 ### Build-phase reflection (3 questions, short answers)
 
-1. **What was unclear in the spec that slowed you down?**
-2. **Was there a constraint or decision that should have been listed but wasn't?**
-3. **If you did this task again, what would you do differently?**
+1. **What was unclear in the spec that slowed you down?** Nothing structural,
+   but the Context section's repro command was wrong (attributed `ssim 100.0`
+   to `convert` when it is `web`'s report), and I only caught it because Call 1
+   demanded driving the binary rather than trusting the prose — the same habit
+   that then surfaced AVIF and the ICO defect. A spec that says "measure this"
+   in one place is worth re-checking everywhere it asserts a command's output.
+2. **Was there a constraint or decision that should have been listed but
+   wasn't?** No — DEC-019's boundary was exactly where it needed to be to make
+   Call 2's design call (qualify, not compute-at-depth) unambiguous.
+3. **If you did this task again, what would you do differently?** Start the
+   Call 1 behavioural measurement (encode→decode-back across every candidate)
+   before reading the spec's candidate list in detail, so the prior is checked
+   fresh rather than read with the list already in mind — it would not have
+   changed the outcome here, but it is the more disciplined order.
 
 ---
 

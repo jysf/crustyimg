@@ -314,17 +314,20 @@ fn edit_invert_preserves_sixteen_bit() {
 // `web` is deliberately NOT covered here for the 16-bit case (unlike AC-1's
 // RGB case above): `web`'s final step is `optimize`'s smallest-candidate
 // search, which — independently of this spec — may pick WebP/JPEG/AVIF over
-// PNG, and (measured) `image`'s own *lossless* WebP encoder has no 16-bit
-// mode either, so it silently downgrades via the same "automatically
-// convert" behavior Call 3 documents for JPEG/lossy-WebP. That is a real,
-// separate silent-downgrade site Call 3's settled scope does not cover
-// (JPEG + lossy WebP only) — filed as a `- [ ]` item in
-// `projects/PROJ-010-post-launch-correctness-and-consolidation/stages/
-// STAGE-042-release-safety-instruments.md` (the backlog `just backlog`
-// actually reads) rather than folded into this spec's fix, matching AC-3's
-// own boundary discipline. The
-// backlog's own 16-bit measurement never claimed `web` either — only
-// `resize`/`edit --invert` — so this test suite doesn't overclaim it.
+// PNG, and `image`'s own *lossless* WebP encoder has no 16-bit mode either
+// (no permissive Rust encoder exists — out of scope, a dependency question,
+// not a fix here per SPEC-125's "Out of scope"), so the depth is still lost
+// the same way Call 3 documented for JPEG/lossy-WebP. What changed
+// (SPEC-125, STAGE-042): this is no longer SILENT — the sink now warns on
+// stderr for every measured 8-bit-only target (BMP/lossless-WebP/AVIF, not
+// just JPEG/lossy-WebP), and a scored winner's ssim line is qualified rather
+// than reading a false-perfect 100.0 (`tests/sink.rs`'s
+// `web_and_optimize_reach_the_widened_downgrade_warning` and
+// `ssim_line_is_qualified_across_a_depth_change` drive exactly this case).
+// This file still doesn't assert it — that coverage belongs to `sink.rs`,
+// which owns the diagnostic — but the depth loss itself is real and
+// unfixable without a 16-bit WebP encoder, so this test suite still doesn't
+// claim `web` preserves 16-bit depth.
 
 // ── AC-3: an RGBA input with genuine translucency keeps its alpha ──────────
 // translucent_rgba_input_keeps_its_alpha — the control that stops "always

@@ -24,21 +24,17 @@ Cycle prompts live in `prompts/SPEC-125-<cycle>.md`.
       📌 **The backlog item this promotes lives on SPEC-121's branch, not `main`.** Mark it
       `[x] **SPEC-125**` and bump STAGE-042's count **at SPEC-121's ship**, not before — editing
       STAGE-042 on `main` now would conflict with PR #181.
-- [ ] **build** — prompt: `prompts/SPEC-125-build.md` (2026-08-21). **Sonnet**, own worktree,
-      branch `fix/spec-125-lossless-webp-never-silently-halves-bit-depth`. **DEC-097 reserved in
-      the prompt** — DEC-096 exists only on SPEC-124's unmerged branch, so `next_id` cannot see it.
-      **Unblocked**: SPEC-121 merged (`9075bc3`).
-      ⛔ **Gated on PR #184 merging, and the prompt says stop-and-report if it has not.** SPEC-124
-      edits the same regions of `src/sink/mod.rs` — it inserts `AVIF_TILE_THREADS` immediately below
-      SPEC-121's `eight_bit_downgrade_warning` block and rewrites both existing warn call sites.
-      ⚠ **The spec's own line references have drifted** (`:216-226` is now the `SinkInput` struct;
-      the format list is at `:247-268`) — the prompt corrects them and says to locate by name.
-      ⚠ Call 1's `Tiff`/`Png` 16-bit-capable prior **cannot be settled by reading the dep's docs**
-      [[a-grep-of-src-cannot-see-a-dependencys-default]]; the prompt requires it be driven
-      behaviourally — encode, decode back, read the surviving depth — which is both AC-2's
-      derivation and the mechanical check that keeps the set from going stale.
-      **Reporting-only: no byte change** (AC-5/AC-6), which is what makes this the flexible spec
-      in the release sequence — it does not have to precede the tag.
+- [x] **build** — 2026-08-21, PR #TODO (opened after this commit lands). **Sonnet**, own worktree,
+      branch `fix/spec-125-lossless-webp-never-silently-halves-bit-depth`. Gate cleared (PR #184
+      merged before branching). All 7 ACs met — see the spec's own `## Build Completion`.
+      Call 1's set widened beyond the spec's own candidate list, MEASURED not assumed: BMP/lossless
+      WebP/AVIF warn, PNG/TIFF stay silent (prior held), GIF/ICO excluded for two different
+      non-depth reasons — GIF hard-errors instead of downgrading, ICO's own `image`-decoder
+      round-trip is broken independent of depth (filed to STAGE-042, not fixed here). Call 2's SSIM
+      qualifier lands without crossing the DEC-019 boundary — it reads the already-decoded images'
+      own depth, never touches the scorer. DEC-097 records the full measured table. Also caught: the
+      spec's own Context repro command was wrong (`convert` never prints an ssim line; that is
+      `web`'s report) — corrected in STAGE-042's backlog entry, not restated here.
 - [ ] **verify** — Opus, new session, read-only. ⚠ AC-6 (`optimize`'s candidate selection
       byte-identical to `main`) is the one that catches a reporting fix that quietly became a
       search change — drive it, do not read it.

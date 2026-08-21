@@ -1225,17 +1225,29 @@ fn optimize_decide_one(
     // downscaled reference `out_img`. It is best-effort: a decode/score failure
     // degrades to "no score", never failing the command. A passthrough (no winner)
     // and a degenerate image have nothing to score.
-    let winner_score: Option<f64> = if always_score {
-        winner.and_then(|i| {
-            Image::from_bytes(&solved[i].encoded)
-                .ok()
-                .and_then(|decoded| {
-                    crate::quality::score_winner_once(out_img.pixels(), Some(decoded.pixels())).ok()
-                })
-                .flatten()
-        })
+    // SPEC-125 Call 2: the scorer converts both sides to 8-bit sRGB before
+    // comparing (DEC-019's `to_ss_rgb`), so it cannot see a depth reduction —
+    // `scored_source_depth` carries the reference's real depth ONLY when the
+    // winner's format narrowed it, so the report can qualify a score that
+    // would otherwise read as a false perfect match. One decode serves both.
+    let (winner_score, scored_source_depth): (Option<f64>, Option<u8>) = if always_score {
+        match winner.and_then(|i| Image::from_bytes(&solved[i].encoded).ok()) {
+            Some(decoded) => {
+                let score =
+                    crate::quality::score_winner_once(out_img.pixels(), Some(decoded.pixels()))
+                        .ok()
+                        .flatten();
+                let depth = score.and_then(|_| {
+                    let source_depth = crate::image::color_type_bit_depth(out_img.pixels().color());
+                    let winner_depth = crate::image::color_type_bit_depth(decoded.pixels().color());
+                    (source_depth > winner_depth).then_some(source_depth)
+                });
+                (score, depth)
+            }
+            None => (None, None),
+        }
     } else {
-        None
+        (None, None)
     };
 
     let uc = analysis.unique_colors();
@@ -1264,6 +1276,7 @@ fn optimize_decide_one(
         winner,
         out_bytes,
         verify_score: winner_score,
+        scored_source_depth,
         // `total` is the whole decide→encode→(score) span, so it is >= encode and
         // >= decode by construction (SPEC-088). `None` unless `--timing` was set.
         timing: run_start.map(|start| crate::analysis::decide::Timing {
@@ -1342,10 +1355,20 @@ fn emit_optimize_report(
 ) -> Result<(), CliError> {
     use std::io::Write as _;
     // The score suffix shown on the human summary lines: " · ssim 88.4" for a scored
-    // lossy winner, empty otherwise (the JSON channel is schema-pinned and untouched).
-    let score_suffix = match score {
-        Some(s) => format!(" \u{b7} ssim {s:.1}"),
-        None => String::new(),
+    // lossy winner, empty otherwise. The JSON channel carries the equivalent
+    // (`"ssim"`, plus `"ssim_source_depth"` for the same qualified case — decide.rs's
+    // `write_json`) rather than this string.
+    //
+    // SPEC-125 Call 2: a score computed by comparing a >8-bit reference against an
+    // 8-bit-only winner is blind to the depth it just lost (DEC-019's scorer works in
+    // 8-bit sRGB) — `trace.scored_source_depth` is `Some` exactly then, so the line
+    // never reads a bare, falsely-perfect number.
+    let score_suffix = match (score, trace.and_then(|t| t.scored_source_depth)) {
+        (Some(s), Some(depth)) => {
+            format!(" \u{b7} ssim {s:.1} (8-bit comparison; source was {depth}-bit)")
+        }
+        (Some(s), None) => format!(" \u{b7} ssim {s:.1}"),
+        (None, _) => String::new(),
     };
     match explain {
         Some(ExplainFmt::Json) => {

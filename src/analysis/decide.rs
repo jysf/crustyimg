@@ -339,6 +339,15 @@ pub struct ExplainTrace {
     /// scoring was off, or the winner is lossless / a passthrough. Surfaced in the
     /// JSON explain only when `Some`, so a non-verify run's schema is unchanged.
     pub verify_score: Option<f64>,
+    /// The reference's real bit depth, set ONLY when [`Self::verify_score`] was
+    /// computed by comparing it against a winner whose format could not hold
+    /// that depth (SPEC-125 Call 2). SSIMULACRA2 scoring converts both sides to
+    /// 8-bit sRGB before comparing (DEC-019's settled `to_ss_rgb`), so a >8-bit
+    /// reference scored against an 8-bit-only winner is blind to the depth it
+    /// just lost — a lossless-at-8-bit winner can read a perfect 100.0 despite
+    /// real data loss. `None` when nothing was scored, or the winner's format
+    /// held the reference's full depth, so the score is trustworthy as printed.
+    pub scored_source_depth: Option<u8>,
     /// Decode/encode/total timing for this run, when `--timing` was requested
     /// (SPEC-088). Rides the JSON and the human report only when `Some`, so a
     /// non-`--timing` run's output is byte-identical (same discipline as
@@ -575,6 +584,13 @@ impl ExplainTrace {
         // run's schema byte-identical (SPEC-086).
         if let Some(s) = self.verify_score {
             write!(w, ",\"ssim\":{s:.1}")?;
+            // SPEC-125 Call 2: honest on the machine channel too, matching
+            // `larger_than_source` above — additive and gated (present only
+            // when the score is blind to a real depth reduction), so a run
+            // that scored a depth-preserving winner keeps today's schema.
+            if let Some(depth) = self.scored_source_depth {
+                write!(w, ",\"ssim_source_depth\":{depth}")?;
+            }
         }
         // The timing object rides the JSON only under `--timing`; omitting it
         // otherwise keeps a non-timing run's schema byte-identical (SPEC-088).
@@ -995,6 +1011,7 @@ mod tests {
             winner: Some(0),
             out_bytes: 6000,
             verify_score: None,
+            scored_source_depth: None,
             timing: None,
             source_container_label: None,
         }
