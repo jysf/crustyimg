@@ -270,9 +270,14 @@ preserved. No `Operation` body changes.
     instruction to derive the set rather than copy it, not scope creep.
   - ICO is also excluded, for a THIRD reason distinct from PNG/TIFF's "holds
     the depth": `image`'s own ICO decoder cannot read back the ICO encoder's
-    own output for ANY source colour type (reproduces at plain 8-bit RGB, no
-    alpha, no depth question at all) — an orthogonal, more severe defect, filed
-    to STAGE-042 rather than fixed here (a real fix would change output bytes).
+    own output for every source colour type **except `Rgba8`** (it reproduces at
+    plain 8-bit RGB with no alpha and no depth question at all) — an orthogonal,
+    more severe defect, filed to STAGE-042 rather than fixed here (a real fix
+    would change output bytes). ⚠ **"ANY source colour type" corrected at verify
+    (2026-08-21)** — `Rgba8` round-trips fine, and that it is the one working
+    case is exactly why the defect is about the encoder's `Rgba8` requirement
+    rather than about depth. The STAGE-042 entry stated this correctly from the
+    start; the claim was only overstated where it was restated.
 - **Follow-up work identified:** the ICO round-trip defect, filed as a new
   STAGE-042 backlog item (needs a maintainer ruling: warn / fix / accept).
 

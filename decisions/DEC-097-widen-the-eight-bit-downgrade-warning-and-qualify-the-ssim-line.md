@@ -26,6 +26,14 @@ affected_scope:
   - src/sink/mod.rs
   - src/analysis/decide.rs
   - src/cli/optimize.rs
+  # Added at verify (2026-08-21). Call 2's ENTIRE justification is that
+  # `to_ss_rgb` converts both sides to 8-bit sRGB before scoring (DEC-019). If
+  # that ever changes, the shipped string "(8-bit comparison; source was
+  # 16-bit)" becomes a lie and `ssim_source_depth` becomes meaningless — and
+  # without this entry, DEC-097 would not surface in `decisions-audit --changed`
+  # for whoever changed it. DEC-096, the immediately preceding record touching
+  # this same file, lists it for exactly this kind of coupling.
+  - src/quality/mod.rs
 
 tags:
   - bit-depth
@@ -78,7 +86,7 @@ build).
 | TIFF | ok | ok | **16-bit preserved** | silent (prior held) |
 | GIF | **`SinkError::Encode`** — `image`'s own error: *"the encoder or decoder for Gif does not support the color type `Rgb16`"* | — | **rejected outright**, not narrowed | **excluded** — already loud (exit 5), a warning here would misdescribe a hard failure as a soft downgrade |
 | BMP | ok | ok | **8-bit** | **now warns** |
-| ICO | ok (writes bytes, exit 0) | **fails independent of depth** — `Format error decoding Ico: The PNG is not in RGBA format!`, reproduced for 8-bit RGB (no alpha), 8-bit RGBA, 16-bit RGB, and 16-bit RGBA alike | **undetermined — the round-trip is broken for reasons that have nothing to do with bit depth** | **excluded** — see below |
+| ICO | ok (writes bytes, exit 0) | **fails independent of depth** — `Format error decoding Ico: The PNG is not in RGBA format!`, reproduced for 8-bit RGB (no alpha), 16-bit RGB and 16-bit RGBA alike — but **NOT** for `Rgba8`, which round-trips correctly. ⚠ **Corrected at verify (2026-08-21)**: this row originally listed 8-bit RGBA among the failures. It is the one case that works, which is what the mechanism sentence below and the proposed `Rgba8` pre-conversion fix both depend on | **undetermined — the round-trip is broken for reasons that have nothing to do with bit depth** | **excluded** — see below |
 | lossless WebP | ok | ok | **8-bit** | **now warns** |
 | AVIF (`avif` feature) | ok | ok | **8-bit** | **now warns** — not named in the spec's candidate list, found by measuring rather than copying it |
 

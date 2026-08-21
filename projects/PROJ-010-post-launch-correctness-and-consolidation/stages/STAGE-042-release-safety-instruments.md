@@ -468,11 +468,17 @@ checked at design per this file's own convention — see the entry above) / 13 p
 named under "framed" while its checkbox is `[x]`) does not partition cleanly into mutually-exclusive
 buckets, so the checkbox tally is the number to trust. **18 items.**
 
-> ⚠ The categories now **reconcile to the literal `- [ ]` + `- [x]` tally** (9 + 5 = 14). They did
-> not before: SPEC-124's build closed the `[env]` item without giving the closure a category, which
-> left a 14th item summing to 13 — and the build then mis-filed that as the count line
-> *undercounting*, which verify showed it never did [[mechanical-sweeps-need-a-mechanical-check]].
-> **A grep's scope is a claim too.** Re-derive both sides when you touch this line.
+> ⚠ **The checkbox tally is the number to trust — currently `13 + 5 = 18`, as re-derived above.**
+> The narrative categories do not partition cleanly (SPEC-125 sits under "framed" while its checkbox
+> is `[x]`), so when the two disagree, the grep wins.
+>
+> This note has now been wrong twice, in both directions, which is the actual lesson. SPEC-124's
+> build reported the count line as *undercounting*; verify showed it never did — the diff had added
+> an item in no category. The orchestrator then wrote "(9 + 5 = 14)" here, bumped the count line
+> three times without touching this parenthetical, and SPEC-125's verify caught it stale at 18.
+> **A grep's scope is a claim too, and so is a number you carried forward.**
+> Re-derive **both** sides — `grep -c '^- \[ \]'` and `grep -c '^- \[x\]'` — whenever you touch
+> either line, and never restate a tally you did not just run.
 
 ## Design Notes
 

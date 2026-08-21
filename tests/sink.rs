@@ -623,7 +623,8 @@ fn lossless_target_does_not_report_a_downgrade() {
 // that are neither "this format holds the depth": GIF's own encoder REJECTS a
 // >8-bit source outright (a loud, typed error — `gif_target_errors_loudly...`
 // below pins that it stays that way), and ICO's PNG-in-ICO round-trip cannot
-// be read back by `image`'s own ICO decoder for ANY source colour type — a
+// be read back by `image`'s own ICO decoder for every source colour type
+// except `Rgba8` — plain opaque 8-bit RGB included — a
 // defect orthogonal to bit depth, filed separately rather than fixed here
 // (`ico_round_trip_defect_is_orthogonal_to_depth` below pins the measurement).
 
@@ -951,10 +952,13 @@ fn gif_target_errors_loudly_instead_of_downgrading() {
 }
 
 /// Pins the ICO finding from Call 1's measurement: `image`'s own ICO decoder
-/// cannot read back a PNG-in-ICO frame for ANY source colour type — even a
-/// plain opaque 8-bit RGB source with no depth involved at all — so this is
-/// orthogonal to bit depth, not a case for the depth-downgrade warning. Filed
-/// as its own STAGE-042 backlog item rather than fixed here.
+/// cannot read back a PNG-in-ICO frame for every source colour type EXCEPT
+/// `Rgba8` — a plain opaque 8-bit RGB source, with no depth involved at all,
+/// is among the failures. `Rgba8` alone round-trips, which is precisely why
+/// the defect is orthogonal to bit depth rather than a case for the
+/// depth-downgrade warning: what decides it is the encoder's hard requirement
+/// that the embedded PNG be exactly `Rgba8`, not how many bits the source
+/// carried. Filed as its own STAGE-042 backlog item rather than fixed here.
 #[test]
 fn ico_round_trip_defect_is_orthogonal_to_depth() {
     const BIN: &str = env!("CARGO_BIN_EXE_crustyimg");

@@ -121,9 +121,11 @@ pub const AVIF_TILE_THREADS: usize = 1;
 //   exit 5) rather than silently narrowing — the user is already told loudly,
 //   so a warning here would misdescribe a hard failure as a soft downgrade.
 // - ICO's PNG-in-ICO round-trip cannot be read back by `image`'s own ICO
-//   decoder for ANY source colour type, 8-bit RGB included — a defect that is
-//   orthogonal to bit depth (filed as its own STAGE-042 backlog item, not
-//   fixed here); labelling it a depth downgrade would misattribute it.
+//   decoder for every source colour type EXCEPT `Rgba8` — plain opaque 8-bit
+//   RGB included, with no depth involved at all. That the one working case is
+//   `Rgba8` is the whole point: the defect is orthogonal to bit depth (filed as
+//   its own STAGE-042 backlog item, not fixed here), so labelling it a depth
+//   downgrade would misattribute it.
 
 /// The warning line for a source deeper than 8 bits per channel encoded to
 /// `target`, or `None` when `color` fits in 8 bits and nothing is lost.
