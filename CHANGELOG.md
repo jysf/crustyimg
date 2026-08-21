@@ -45,10 +45,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The encoder split every AVIF into as many tiles as the building machine had CPU
   cores — a 4-core laptop and a 32-core CI box could emit different bytes for the
   same input — without any speed benefit, since the encode itself has always run on
-  a single thread. It now always uses one tile: measured on a 14-core host,
+  a single thread. It now always *asks for* one tile — an image too large for a
+  single AV1 tile is still split, but by its own dimensions rather than by the
+  machine — and on content that fits in one, measured on a 14-core host,
   `photo_forest_cc0.jpg` at the default quality goes **100,344 → 98,847 B (−1.5 %)**
-  and a flat-colour graphic goes **1,272 → 860 B (−32.4 %)**, at the same wall clock,
-  because tiling costs compression proportionally more on simple/graphic content.
+  and a flat-colour graphic goes **1,272 → 860 B (−32.4 %)**, for a wall-clock
+  difference within a few percent either way, because tiling costs compression
+  proportionally more on simple/graphic content.
 
 - **Reproducible builds: regenerate your `*.build.lock` once for this release.** This is
   a byte-changing release for the pixel pipeline — including the AVIF change above —

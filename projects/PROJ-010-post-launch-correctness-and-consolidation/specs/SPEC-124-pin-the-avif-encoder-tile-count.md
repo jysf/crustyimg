@@ -54,28 +54,59 @@ cost:
     - cycle: build
       agent: claude-sonnet-5
       interface: claude-code
-      tokens_total: 150697084
-      duration_minutes: 87
-      recorded_at: 2026-08-20
+      tokens_total: 162602599
+      duration_minutes: 88
+      recorded_at: 2026-08-21
       tokens_breakdown:
-        input: 958
-        output: 389034
-        cache_creation: 858447
-        cache_read: 149448645
-      estimated_usd: 53.89
+        input: 1006
+        output: 402893
+        cache_creation: 879629
+        cache_read: 161319071
+      estimated_usd: 57.74
       note: >
-        MEASURED — transcript sum over 479 assistant messages with usage
-        (session c900b43d-a96a-4a41-8d08-2d2d7dce4d62), first→last timestamp.
+        MEASURED — full-session transcript sum over all 503 assistant messages
+        with usage (session c900b43d-a96a-4a41-8d08-2d2d7dce4d62), first→last
+        timestamp. ⚠ CORRECTED BY THE ORCHESTRATOR AT SHIP. The cycle recorded
+        150697084 / $53.89 / 87m, which prices EXACTLY right at its own snapshot
+        — 479 of 503 messages — but stopped counting before the session did: a
+        cycle cannot count the messages that write its own cost block. Delta
+        +11,905,515 tokens / +$3.85. Fourth instance of this (SPEC-114,
+        SPEC-117, SPEC-123, now this), and SPEC-123 showed the same curve
+        three times over ($32.80 at 242 → $40.37 at 285 → $46.17 at 318).
         Priced at Sonnet anchors ($3/$15 per MTok; cache_creation x1.25,
         cache_read x0.10) — the model that actually ran, per AGENTS §4, not
         the Opus anchors the build prompt named (see Build Completion
-        Deviations #1). Includes reading CI to completion after push (one
-        long background wait via `gh pr checks --watch`, read once after
+        Deviations #1). Orchestrator re-derived every component from the
+        transcript; all 503 messages report claude-sonnet-5, confirming the
+        `implementer` correction. Includes reading CI to completion after push
+        (one long background wait via `gh pr checks --watch`, read once after
         settling, not polled).
+    - cycle: verify
+      agent: claude-opus-5
+      interface: claude-code
+      tokens_total: 19002473
+      duration_minutes: 68
+      recorded_at: 2026-08-21
+      tokens_breakdown:
+        input: 268
+        output: 146418
+        cache_creation: 379214
+        cache_read: 18476573
+      estimated_usd: 15.27
+      note: >
+        MEASURED — full-session transcript sum over all 136 usage-bearing
+        assistant messages (session 016c54b7-f9d9-4ac2-8f72-4723216092b5;
+        134 claude-opus-5 + 2 synthetic), first→last timestamp. Priced at Opus
+        anchors ($5/$25 per MTok; cache_creation x1.25, cache_read x0.10).
+        The cycle recorded 17522773 / $13.74 / 65m at 129 messages and SAID SO —
+        it flagged its own snapshot and asked for re-derivation at ship, which
+        is the first cycle in this project to anticipate the undercount rather
+        than fall into it. Orchestrator re-derived: delta +1,479,700 tokens /
+        +$1.53. Verify at 26% of build cost returned a 5-item punch list.
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 181605072
+    estimated_usd: 73.01
+    session_count: 4
 ---
 
 # SPEC-124: pin the AVIF encoder's tile count
@@ -234,6 +265,10 @@ once the variance is gone.
   - `RELEASING.md` — a maintainer-facing note naming SPEC-121/122/124 as one batched migration.
   - `projects/PROJ-010-post-launch-correctness-and-consolidation/stages/STAGE-042-release-safety-instruments.md`
     — Call 5: closed the `[env]`-cannot-express-"same machine" item, re-filed its narrower remainder.
+  - `decisions/DEC-096-pin-the-avif-tile-count-to-one.md` (new) — the Call 2 measurement record.
+    (⚠ **Added at verify**: the enumeration listed 8 of the 9 files, omitting this one even though
+    the bullet above names it with its full path. `affected_scope` was not left blind, so SPEC-122's
+    lesson held — but the list was still short by one.)
   - This spec file — AC checkboxes, `implementer` corrected to the model that actually ran, this
     section.
 - **Deviations from spec:**
@@ -265,9 +300,13 @@ once the variance is gone.
      this spec's diff, and I have not independently re-verified SPEC-122's measured numbers), but
      worth flagging before the release-cut roll: `RELEASING.md`'s new note names it, the CHANGELOG
      itself does not yet describe it.
-  3. The pre-existing STAGE-042 "Count:" summary line (`8 pending`) undercounts by one against a
-     literal `- [ ]` grep (`9`) even before this spec's edit — didn't originate here (checked via
-     `git show HEAD:...`), not fixed, flagging so it isn't mistaken for something this build caused.
+  3. ~~The pre-existing STAGE-042 "Count:" summary line (`8 pending`) undercounts by one against a
+     literal `- [ ]` grep (`9`).~~ ⚠ **WITHDRAWN at verify (2026-08-21) — a false finding.** The line
+     does not undercount: the 9th `- [ ]` is SPEC-118, counted by the same line under "3 framed."
+     At the base commit it reconciles exactly — 8 pending + 3 framed + 1 shipped + 1 chore done =
+     13 = 9 `- [ ]` + 4 `- [x]`. **What this diff DOES introduce is a 14th item in no category** (the
+     newly-closed `[env]` entry), which is the real bookkeeping gap. A grep's scope is also a claim
+     [[mechanical-sweeps-need-a-mechanical-check]].
   4. `just wasm-check` fails on this machine — `rust-lld: Library not loaded: @rpath/libLLVM.dylib` —
      and reproduces identically on a clean `main` checkout with none of this diff's changes, so it is
      a pre-existing local rustup/wasm32 toolchain gap, not something this spec broke. Matches

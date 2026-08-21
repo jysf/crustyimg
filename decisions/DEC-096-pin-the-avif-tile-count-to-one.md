@@ -90,10 +90,23 @@ encoder at all on the shipped build.
 | graphic | pinned q80 | 0.142s / 860 B | 0.138s / 983 B | 0.141s / 1,017 B | 0.138s / 1,168 B | 0.132s / 1,272 B |
 | graphic | auto q85 | 0.137s / 845 B | 0.141s / 930 B | 0.137s / 1,005 B | 0.137s / 1,185 B | 0.132s / 1,295 B |
 
-**Wall clock is flat within noise across the whole sweep, on both content
-classes and both quality paths.** No trend, no monotone cost to N=1 or to
-N=14 — confirms the prior's first half: with the encode serial, requesting
-fewer tiles does not cost time on content this size. (The `n=14` bytes/hash
+**Wall clock differences across the sweep are small in absolute terms — but
+"flat within noise" is not what this table shows, and the noise floor behind
+that phrase was never measured.** ⚠ **Corrected at verify (2026-08-21).** The
+probe records `best_of_N` only (`examples/spec124_tile_count_probe.rs`,
+`best_wall.min(wall)`) and never records a spread, so nothing here establishes
+a noise floor to call these differences "within." Verify ran the sweep three
+independent times: run-to-run reproducibility is **≤0.003 s on three of the four
+rows**, while the between-cell differences above are **0.008–0.013 s — 3–10× that
+figure — with a consistent sign per content class** (graphic: 14 tiles ~4–7 %
+*faster*; photo: ~2 % *slower*). So there IS a small, real, content-dependent
+trend, and it points the same way §4b does on the graphic row.
+
+**What survives:** the effect is a few percent of a sub-second encode and runs in
+*both* directions depending on content, while §2's compression win is 1.5–47.9 %
+and runs one way at every cell. The prior's first half — "requesting fewer tiles
+does not cost meaningful time on content this size" — holds. "No trend" does not.
+(The `n=14` bytes/hash
 match DEC-094's leg A/A2 exactly — `100344`/`db798cfaec702270`,
 `1272`/`5ad74a803a7ce1aa`, `125548`/`1c5ed3f11c6f72e3`, `860`→ leg E's
 probe-at-1 row `79673ecb15623ed5` — cross-check, not re-derivation.)
@@ -167,29 +180,48 @@ crustyimg's own `resize --exact` — the effect vanishes: 21.85s/22.08s (n=1)
 vs 21.78s/21.87s (n=14), a wash, while N=1 still saves **2.02%**
 (659,917 → 673,238 B).
 
-**Read together, not separately: the serial-time cost is a property of
-content complexity, not image size.** A per-pixel-random synthetic pattern
-maximizes RDO search cost per superblock; splitting it into more, smaller
-tiles genuinely reduces total serial work (a real effect, not noise — three
-repeats agree). A photographic upscale, however busy in absolute pixel
-count, has the spatial redundancy real photos have, and the effect does not
-appear. **crustyimg's own benchmark corpus and BENCHMARKS.md are real
-photographs, not synthetic worst-case noise** — so this caveat is recorded
-for honesty and for whoever revisits N later, not because it changes the
-recommendation for the workload this tool is measured against.
+⚠ **Corrected at verify (2026-08-21) — the reading below was wrong, and it was
+the load-bearing sentence.** The original text read the two legs together as
+*"the serial-time cost is a property of content complexity, not image size,"*
+and dismissed the 17 % counter-finding on the strength of it. **That chain does
+not hold as written**, for two reasons verify measured:
+
+- **The synthetic fixture is not what it was called.** `(x%256, y%256,
+  (x+y)%256)` is a **deterministic sawtooth ramp**, not *"per-pixel-random … no
+  redundancy anywhere"*: it encodes at **0.157 bits/pixel**. True per-pixel-random
+  RGB is ~24 bpp and essentially incompressible. The fixture is a *smooth* image.
+- **The "realistic" leg carries no real 24 MP detail either.** It is
+  `photo_forest_cc0.jpg` **upscaled 7.5×** from 800×532, so by construction it
+  holds nothing above 1/7.5 of the target Nyquist — it encodes at **0.22 bpp**
+  against **1.86 bpp** for the same photograph at its native size, an 8.4× drop
+  in detail.
+
+**So §4b compared two smooth 24 MP images (0.157 and 0.22 bpp) to each other.
+Nothing with genuine 24 MP detail was measured anywhere in this record**, and the
+sentence that dismissed the 17 % regression as "a property of adversarial content"
+is **not established**. The regression itself is real and reproducible (three
+repeats agree); what is unknown is what governs it.
+
+**N = 1 still stands — on §1, §2 and §3, not on this.** The compression win is
+measured, monotone and large; the structural-safety argument is driven. This leg
+is an **open question about large-input serial timing**, not a resolved caveat.
+See "Revisit if" — the bench corpus gaining a large real photograph is the
+measurement that would settle it.
 
 ## The choice: N = 1
 
 Every axis measured points the same way for content resembling what
-crustyimg actually ships against: no serial-time cost (§1, §4b's realistic
-leg), the smallest output at every size and content class measured (§2),
+crustyimg actually ships against: no *meaningful* serial-time cost at corpus
+size, in either direction (§1 — but read its correction; the differences are
+small, not absent), the smallest output at every size and content class
+measured (§2),
 structurally safe on arbitrarily large images (§3), and the one real cost
 (§4a) is explicitly deferred to a decision this spec does not make. The one
-caveat (§4b's synthetic leg) is a property of adversarial content, not of
-this tool's measured workload, and is recorded rather than hidden so a
-future `image/rayon` decision — or a future report of the CLI running slow
-on some hostile/degenerate input — has this data rather than having to
-re-derive it.
+caveat (§4b's 24 MP leg) is **an open question, not a resolved one** — verify
+established that neither 24 MP fixture carried real detail, so the reading that
+dismissed it does not hold. It is recorded rather than hidden so a future
+`image/rayon` decision — or a report of the CLI running slow on a large real
+input — has this data rather than having to re-derive it.
 
 ## Alternatives Considered
 
@@ -225,11 +257,14 @@ re-derive it.
   ever enabled** (§4a, 5.9×–6.5× on this corpus). Explicitly accepted:
   that decision does not exist yet, gets its own measurement when it does,
   and crustyimg's batch parallelism (DEC-006) is unaffected.
-- **Neutral, flagged — a content-dependent caveat on very large synthetic
-  input** (§4b). Not a correctness issue (rav1e's own tiling clamp keeps
-  N=1 bitstream-legal regardless — §3) and not reproduced on realistic
-  content at the same size. Revisit if a real user workload — not a
-  synthetic probe — is ever reported slow on a large AVIF encode.
+- **Neutral, flagged — an OPEN question on very large input** (§4b, corrected at
+  verify). A ~17 % serial-time regression at N=1 is real and reproducible on one
+  24 MP fixture; the record's claim that it is "a property of adversarial content"
+  is **not established**, because neither 24 MP leg carried genuine 24 MP detail
+  (0.157 and 0.22 bpp, against 1.86 bpp for the same photo at native size). Not a
+  correctness issue (rav1e's own tiling clamp keeps N=1 bitstream-legal regardless
+  — §3). Revisit when the bench corpus gains a large real photograph, or if a real
+  user workload is reported slow on a large AVIF encode.
 - **Migration.** This changes every AVIF output byte, batched with
   SPEC-121/SPEC-122 into one lockfile migration (STAGE-046's wave, Call 4).
   AC-6 drove the mechanism directly rather than reasoning about it (see
@@ -260,10 +295,18 @@ re-derive it.
   sweeps `RAYON_NUM_THREADS` ∈ {1,2,4,8,14} as this repo's available proxy
   for "a differently-cored machine" (DEC-094 itself could not drive a real
   second host — its own "Not measured here"). Negative control: full revert
-  → RED, with a five-way hash spread (8 and 14 tie, matching DEC-094's
-  leg-F quantization finding); asymmetric reverts (previous bullet) → RED
-  (drives through `sink`, so it inherits that defect too); fix restored →
-  GREEN.
+  → RED. ⚠ **Corrected at verify (2026-08-21), which drove all four cells:** the
+  spread is **three-way, not five-way** (1 → `e4da97…`, 2 → `1560bb…`, 4/8/14 →
+  `7f2d9a…`), and **only the `sink`-side asymmetric revert flips this test red**.
+  The `quality`-side revert leaves it **GREEN**, because `convert --format avif`
+  — what this test drives — never enters the byte-budget search and so never
+  reaches `encode_candidate_bytes_with` at all. Fix restored → GREEN.
+
+  **Coverage is still complete, which is the point that matters:** every
+  independent condition is caught by at least one test — `sink`-only by both,
+  `quality`-only by AC-1's lockstep test (RED: 1,838 B emitted vs 2,347 B probed
+  at q84), and the symmetric full revert by AC-2. Verified as a cross-product, not
+  assumed from either test alone.
 - AC-6 (migration) driven manually per the Build Completion — not a
   committed test, matching SPEC-121's AC-8 precedent (a real target,
   temporary uncommitted version bump, discarded after).

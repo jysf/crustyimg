@@ -211,8 +211,15 @@ failures on documented paths.
   `image/rayon` for the encode speed-up, a scoped `--jobs` pool becomes an encoder parameter and
   this gate closes again — so pin `with_num_threads(Some(N))` in the same change.
 
-- [x] **SPEC-124** (design 2026-08-18) — [S] **Pin the AVIF encoder's thread count so output does
-  not depend on the ambient rayon pool.** ✅ **Maintainer ruled 2026-08-18: pin, and ride
+- [x] **SPEC-124** (**merged 2026-08-21**, PR #184 → `0107a49`, $73.01 = build $57.74 + verify
+  $15.27) — [S] **Pin the AVIF encoder's thread count so output does not depend on the ambient rayon
+  pool.** Shipped as `AVIF_TILE_THREADS = 1` on both encode arms (DEC-096); **N = 1 was measured on
+  four axes, not assumed.** ⚠ Verify returned **⚠ PUNCH LIST (5 items, all records/docs claiming
+  more than was established)** — applied by the orchestrator on `main`; `cycle:` held at `verify`
+  for maintainer re-approval, not advanced. ⚡ **§4b's large-input caveat is now an OPEN question,
+  not a resolved one**: verify measured that neither 24 MP fixture carried real 24 MP detail (0.157
+  and 0.22 bpp against 1.86 bpp native), so the reading that dismissed a real ~17 % serial-time
+  regression at N=1 does not hold. N=1 still stands on §1/§2/§3. ✅ **Maintainer ruled 2026-08-18: pin, and ride
   SPEC-121/122's wave** so users pay one lockfile migration rather than two. Blocked on SPEC-122
   merging; must ship before the next tag. `image/rayon` (the 5.7×/4.4× perf lever) stays a
   separate, later decision — and this spec is what makes it safe to take.
@@ -318,6 +325,19 @@ failures on documented paths.
   **Severity when filed, measured at SPEC-123's verify:** not reachable in this repo's own CI — no
   committed `*.build.lock` exists and no workflow runs `build --check`/`--frozen`. User-facing only.
 
+- [ ] (not yet written) — [S] **Nothing with real 24 MP detail has ever been measured through the
+  AVIF encoder, and one open finding depends on it.** SPEC-124's DEC-096 §4b measured a real,
+  reproducible **~17 % serial-time regression at N=1** on a 6000×4000 fixture, then dismissed it as
+  "a property of adversarial content." **Verify showed that dismissal is not established**: the
+  "synthetic worst case" `(x%256, y%256, (x+y)%256)` is a deterministic sawtooth encoding at **0.157
+  bpp**, and the "realistic" control is `photo_forest_cc0.jpg` upscaled 7.5× from 800×532, encoding
+  at **0.22 bpp** against **1.86 bpp** for the same photograph at native size. Both legs are smooth
+  images; neither carries 24 MP of real detail. **The cheap fix is a corpus one** — add a large
+  real photograph to `bench/corpus/` and re-run §1 and §4b against it directly. Until then, N=1's
+  large-input timing is an open question, not a closed caveat. ⚠ It does **not** threaten the pin:
+  §2's compression win and §3's structural-safety argument are independent of it, and rav1e's own
+  tiling clamp keeps N=1 bitstream-legal at any size.
+
 - [ ] (not yet written) — [S] **`lock.rs:124-129`'s "same machine" prose is still wrong on its own
   terms, independent of any known mechanism.** The remainder of the item above: `env.target` is
   `"{ARCH}-{OS}"`, which cannot establish "this is the same machine" as a general claim even with
@@ -376,7 +396,14 @@ failures on documented paths.
   SPEC-121 recorded it only in DEC-095's Consequences prose, and a test comment cited a
   `docs/backlog.md` entry that was never written; both are corrected on that branch.
 
-**Count:** 3 framed (SPEC-118, SPEC-124, SPEC-125) / **1 shipped (SPEC-123)** / 8 pending / 1 chore done
+**Count:** 2 framed (SPEC-118, SPEC-125) / **2 shipped (SPEC-123, SPEC-124)** / 9 pending /
+1 chore done / 1 closed-by-a-spec (the `[env]` item) = **15 items**
+
+> ⚠ The categories now **reconcile to the literal `- [ ]` + `- [x]` tally** (9 + 5 = 14). They did
+> not before: SPEC-124's build closed the `[env]` item without giving the closure a category, which
+> left a 14th item summing to 13 — and the build then mis-filed that as the count line
+> *undercounting*, which verify showed it never did [[mechanical-sweeps-need-a-mechanical-check]].
+> **A grep's scope is a claim too.** Re-derive both sides when you touch this line.
 
 ## Design Notes
 

@@ -1,6 +1,28 @@
 #!/usr/bin/env python3
 """SPEC-123 — is crustyimg's AVIF output byte-deterministic across thread counts?
 
+⚠ **SUPERSEDED AS A LIVE HARNESS BY SPEC-124 (DEC-096), 2026-08-21. Read this
+file as a record of what was true before the pin, not as a check you can run.**
+
+Two things below are now false, and one of them fails silently:
+
+  * The present-tense claim under "What sets the thread count" — *"crustyimg
+    never calls `with_num_threads`"* — is **no longer true**. Both AVIF encode
+    arms now pass `with_num_threads(Some(AVIF_TILE_THREADS))` with
+    `AVIF_TILE_THREADS = 1`. (The `src/sink/mod.rs:679` line reference is also
+    stale; the site moved.)
+  * ⚡ **Leg E, this harness's positive control, is DEAD.** It asserts *"if the
+    shipped null is real rather than a broken harness, this leg must show the
+    bytes moving"* — but leg E's probe is built from the same source, so it is
+    pinned too, and the bytes can no longer move. **Re-running this harness now
+    reports a green whose control cannot fail**, which is exactly the failure
+    mode the null was designed to rule out. Legs F and G's stated
+    interpretations rest on leg E and are void for the same reason.
+
+The live check for the pinned behaviour is `tests/avif_tile_pin.rs`, which
+builds its own `--features image/rayon` probe. To make THIS harness discriminate
+again, its probe would have to be built from a source tree with the pin removed.
+
 Three shipped things assume it is: `build --frozen`, the lockfile's `hash`
 (`src/build/lock.rs:32-37`), and the DEC-058 cache key (`src/cli/build.rs:294`).
 Thread count is in none of their qualifying lists. This harness measures it and
