@@ -35,7 +35,21 @@ Cycle prompts live in `prompts/SPEC-125-<cycle>.md`.
       own depth, never touches the scorer. DEC-097 records the full measured table. Also caught: the
       spec's own Context repro command was wrong (`convert` never prints an ssim line; that is
       `web`'s report) — corrected in STAGE-042's backlog entry, not restated here.
-- [ ] **verify** — Opus, new session, read-only. ⚠ AC-6 (`optimize`'s candidate selection
-      byte-identical to `main`) is the one that catches a reporting fix that quietly became a
-      search change — drive it, do not read it.
+- [ ] **verify** — prompt: `prompts/SPEC-125-verify.md` (2026-08-21). **Opus**, new session,
+      read-only. ⚠ **PR #185 MERGED to `main` at `2735f60` before verify ran** — review `main`
+      against the pre-merge base `f35e28a`, not a branch. A finding here is a follow-up commit,
+      not a blocked merge, so the prompt asks for plain statements rather than softened ones.
+      Five things pre-settled so the cycle does not re-derive them: the build's cost, that
+      `tests/colour_type_preservation.rs`'s change is comment-only (SPEC-121's guard is intact,
+      diffed), the corrected Context repro, the absence of a lossy/lossless WebP double-warn
+      (traced — the lossy arm returns before the fallback), and CI green at 15/15.
+      ⚡ **AC-6 is the item the spec lives or dies on** and the prompt puts it first: the spec
+      promised reporting-only, and the diff touches `src/cli/optimize.rs` and
+      `src/analysis/decide.rs` — the candidate-search surface. If `scored_source_depth` can reach
+      candidate ranking, a reporting fix became a silent byte-changer in a release about to be
+      tagged. Drive the corpus at both commits and diff bytes AND chosen format per file.
+      Also: the JSON contract gained a conditional `ssim_source_depth` key on a **published
+      library**; and GIF's and ICO's exclusions each rest on a strong claim about `image`'s own
+      behaviour — the ICO one (its decoder cannot read back its own encoder's output for ANY
+      colour type) is severe enough to need reproducing.
 - [ ] **ship**
