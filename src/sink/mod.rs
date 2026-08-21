@@ -79,6 +79,29 @@ pub const AVIF_DEFAULT_QUALITY: u8 = 80;
 /// always available, so the constant is always meaningful.
 pub const FAST_LOSSY_QUALITY: u8 = 85;
 
+/// The AV1 tile count pinned on every AVIF encode (SPEC-124, DEC-096).
+///
+/// `ravif` derives the tile count from `threads.unwrap_or_else(rayon::
+/// current_num_threads)` when nothing overrides it — which, with the shipped
+/// build's `threading` feature off, resolves to `std::thread::
+/// available_parallelism()`: the machine's core count (DEC-094). That made
+/// AVIF output vary by host and pay a compression penalty (+1.5–47.9%
+/// measured, worst on small/graphic content) for tiles the serial encoder
+/// never parallelizes across. `with_num_threads(Some(1))` fixes the tile
+/// count at a compile-time constant instead, so `available_parallelism()` is
+/// never consulted: measured on this branch, 1 tile costs **no** serial wall
+/// clock versus 14 (flat ~0.51s / ~0.14s either way) and is the smallest
+/// output at every N swept. `rav1e`'s own `MAX_TILE_WIDTH`/`MAX_TILE_AREA`
+/// bitstream limits (`tiling/tiler.rs`) still force more tiles when an image
+/// is too large for one — that clamp is a pure function of frame dimensions,
+/// not this constant, so it cannot reopen the machine-dependence this pins.
+/// `image/rayon` (a later, separate decision, DEC-096 Consequences) would
+/// forgo the parallel-encode speedup this constant costs in exchange —
+/// intentional: that decision gets its own fresh measurement when it exists,
+/// rather than this spec guessing at a still-hypothetical trade.
+#[cfg(feature = "avif")]
+pub const AVIF_TILE_THREADS: usize = 1;
+
 // ── SPEC-121, Call 3: 8-bit-only lossy targets report the downgrade ───────────
 //
 // JPEG and lossy WebP can only hold 8 bits per channel. `image`'s own
@@ -664,10 +687,12 @@ pub fn encode_to_bytes(
 /// more bytes (STAGE-029's measurements). DEC-020's deferral of a *CLI* `--speed`
 /// flag stands: no CLI flag is added, and the native default is still 6.
 ///
-/// **Byte-parity obligation (DEC-016/DEC-019, extended to speed):** the AVIF arm
-/// here MUST stay identical to `crate::quality::encode_candidate_bytes_with`'s
-/// AVIF arm, *including the speed*, so a candidate probed by the byte-budget
-/// search at speed S has the same length as the bytes this sink emits at speed S.
+/// **Byte-parity obligation (DEC-016/DEC-019, extended to speed by DEC-068 and
+/// to the AVIF_TILE_THREADS pin by DEC-096):** the AVIF arm here MUST stay
+/// identical to `crate::quality::encode_candidate_bytes_with`'s AVIF arm,
+/// *including the speed and the thread pin*, so a candidate probed by the
+/// byte-budget search at speed S has the same length as the bytes this sink
+/// emits at speed S.
 pub fn encode_to_bytes_with(
     img: &Image,
     format: ImageFormat,
@@ -705,16 +730,20 @@ pub fn encode_to_bytes_with(
     if format == ImageFormat::Avif {
         // AVIF output is feature-gated (SPEC-018, DEC-020). With the feature on,
         // encode via `ravif` at the requested speed (default AVIF_SPEED) and the
-        // requested quality (default 80). This encode MUST stay identical to
+        // requested quality (default 80), with the tile count pinned to
+        // AVIF_TILE_THREADS (SPEC-124, DEC-096) so output does not depend on the
+        // machine's core count. This encode MUST stay identical to
         // `crate::quality::encode_candidate_bytes_with`'s AVIF arm — same encoder,
-        // same speed, same clamp — so the auto-quality / byte-budget search probes
-        // match the bytes written here (DEC-019, extended to speed by DEC-068).
+        // same speed, same clamp, same thread pin — so the auto-quality /
+        // byte-budget search probes match the bytes written here (DEC-019,
+        // extended to speed by DEC-068 and to the thread pin by DEC-096).
         #[cfg(feature = "avif")]
         {
             let q = quality.unwrap_or(AVIF_DEFAULT_QUALITY).clamp(1, 100);
             let s = speed.unwrap_or(AVIF_SPEED).clamp(1, 10);
             let encoder =
-                ::image::codecs::avif::AvifEncoder::new_with_speed_quality(&mut cursor, s, q);
+                ::image::codecs::avif::AvifEncoder::new_with_speed_quality(&mut cursor, s, q)
+                    .with_num_threads(Some(AVIF_TILE_THREADS));
             img.pixels()
                 .write_with_encoder(encoder)
                 .map_err(|e| SinkError::Encode(e.to_string()))?;

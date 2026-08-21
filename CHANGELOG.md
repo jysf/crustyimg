@@ -41,12 +41,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   8-bit explicitly, or target a lossy format (JPEG and lossy WebP are 8-bit only, and
   now say so on stderr instead of downgrading silently).
 
+- **AVIF output no longer depends on the machine's core count, and gets smaller.**
+  The encoder split every AVIF into as many tiles as the building machine had CPU
+  cores — a 4-core laptop and a 32-core CI box could emit different bytes for the
+  same input — without any speed benefit, since the encode itself has always run on
+  a single thread. It now always uses one tile: measured on a 14-core host,
+  `photo_forest_cc0.jpg` at the default quality goes **100,344 → 98,847 B (−1.5 %)**
+  and a flat-colour graphic goes **1,272 → 860 B (−32.4 %)**, at the same wall clock,
+  because tiling costs compression proportionally more on simple/graphic content.
+
 - **Reproducible builds: regenerate your `*.build.lock` once for this release.** This is
-  a byte-changing release for the pixel pipeline, and the changes are deliberately
-  batched so you pay the migration once rather than per fix. `build --check` /
-  `--frozen` will report drift against a lockfile recorded before it; re-run `build` to
-  regenerate. The build cache key already includes the crate version, so old and new
-  renders cannot collide — nothing to clear by hand.
+  a byte-changing release for the pixel pipeline — including the AVIF change above —
+  and the changes are deliberately batched so you pay the migration once rather than
+  per fix. `build --check` / `--frozen` will report drift against a lockfile recorded
+  before it; re-run `build` to regenerate. The build cache key already includes the
+  crate version, so old and new renders cannot collide — nothing to clear by hand.
 
 - **`optimize --explain`'s `--json` `source_format` reports the real container**
   (`"svg"` / `"heic"` / `"raw"`) for these three families, instead of the raster

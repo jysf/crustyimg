@@ -290,26 +290,44 @@ failures on documented paths.
 > wants a maintainer ruling on whether to pin or to retract the reproducibility language.
 
 
-- [ ] (not yet written) — [S] **`[env]` cannot express "same machine", so `diff` reports a
-  differently-cored host as a real regression.** SPEC-123's AC-7 deferral, filed here at verify
-  because the build filed it in `docs/backlog.md`, **which no command reads** — `just backlog`
-  reads this section.
-  **The wrong text is not the one the build filed.** It filed the caveat list at
+- [x] **`[env]` cannot express "same machine" — CLOSED by SPEC-124 (2026-08-20), the concrete
+  exposure, not the prose.** SPEC-123's AC-7 deferral, filed here at verify because the build filed
+  it in `docs/backlog.md`, **which no command reads** — `just backlog` reads this section.
+  **The wrong text was not the one the build filed.** It filed the caveat list at
   `src/build/lock.rs:32-37`. The directly false statement is `:124-129` — *"`[env]` exists so
   `diff` can tell 'the encoder produced different bytes on this same machine'"* — when `env.target`
   is `{ARCH}-{OS}`, which **cannot** establish same-machine. Combined with `HashChangedSameEnv ⇒
   drift = true` **unconditionally** (`:459-466`, not even `strict`-gated), a same-arch host with a
-  different core count is reported as a **real regression**. That is a live false positive in
-  shipped code, not incomplete prose.
-  **Severity, measured at verify:** not reachable in this repo's own CI — no committed
-  `*.build.lock` exists and no workflow runs `build --check`/`--frozen`. It is a **user-facing**
-  exposure only. Filed-not-fixed is the right call.
-  ⚡ **The fix is NOT "add core count to `[env]`".** DEC-094's leg-F rider measured that core-count
-  sensitivity is **quantized** — a 14-core and a 16-core host emit identical bytes; 8-core and
-  14-core do not — so a raw core count would churn `[env]` between machines whose output agrees.
-  Key on the resulting tile grid, or on nothing. **That is the maintainer call**, and it is why
-  AC-7's literal "no `src/` diff" was the right reading: the correct fix was never a one-line
-  comment edit.
+  different core count used to be reported as a **real regression**. That was a live false
+  positive in shipped code, not incomplete prose.
+  ✅ **Call 5, answered: the mechanism is gone.** With `with_num_threads(Some(1))` pinned on both
+  AVIF encode arms (SPEC-124, DEC-096), `available_parallelism()` (the OS core-count read) is never
+  consulted — `p.threads.unwrap_or_else(rayon::current_num_threads)` never reaches its fallback when
+  `p.threads` is always `Some`. `tests/avif_tile_pin.rs::avif_output_is_identical_across_ambient_core_counts`
+  drives it directly (a probe binary standing in for a second host, since one machine cannot vary its
+  own core count) and holds; reverting the pin flips that test red. The one MEASURED route to a
+  same-arch, differently-cored false positive (DEC-094's tile-count mechanism) is closed.
+  ⚠ **What remains, precisely:** `lock.rs:124-129`'s prose is still wrong ON ITS OWN TERMS —
+  `env.target` is still `{ARCH}-{OS}`, which still cannot establish "same machine" as a general
+  claim. SPEC-124 closes the one measured route to that claim being false, not the claim itself; no
+  other codec's machine-dependence was measured here (out of scope), so this is not a claim that
+  JPEG/PNG/WebP output is machine-independent — only that this repo has no longer any *known* live
+  route to non-determinism. The prose fix is filed below, now lower-severity (no live exposure
+  identified) — still not a `src/` edit SPEC-124 owns (Call 5's out-of-scope list), matching AC-7's
+  original "no `src/` diff" reading: the correct fix was never a one-line comment edit.
+  **Severity when filed, measured at SPEC-123's verify:** not reachable in this repo's own CI — no
+  committed `*.build.lock` exists and no workflow runs `build --check`/`--frozen`. User-facing only.
+
+- [ ] (not yet written) — [S] **`lock.rs:124-129`'s "same machine" prose is still wrong on its own
+  terms, independent of any known mechanism.** The remainder of the item above: `env.target` is
+  `"{ARCH}-{OS}"`, which cannot establish "this is the same machine" as a general claim even with
+  SPEC-124's AVIF tile-count mechanism closed — it is an overclaim in the doc comment, not (as far as
+  this repo has measured) a live false-positive path today. ⚡ **The fix is NOT "add core count to
+  `[env]`".** DEC-094's leg-F rider measured that core-count sensitivity is **quantized** — a 14-core
+  and a 16-core host emit identical bytes; 8-core and 14-core do not — so a raw core count would churn
+  `[env]` between machines whose output agrees. Key on the resulting tile grid, or on nothing, or just
+  correct the prose to what `[env]` actually establishes (arch/OS, not machine identity). **That is
+  the maintainer call.**
   **Two shipped claims are true only while `ravif/threading` is off, and must be named conditional
   when this lands:** `README.md:258` (*"the round trip is byte-stable"*, printed beside a `-j 8`
   example) and `docs/USAGE.md:135` (*"`apply` replays it byte-identically across the directory, in
