@@ -1,11 +1,10 @@
 # PROJ-010 — orchestration handoff
 
-**Written 2026-08-16** at the end of a long orchestration session.
+**Rewritten 2026-08-20.** Supersedes the 2026-08-16 version, which predates the STAGE-046 wave.
 
 > **This file deliberately does NOT restate repo state.** `just status`, `just backlog`,
-> `just roadmap` and `just specs-by-stage` all report correctly now — trust them over any
-> summary, including this one. What follows is only what the tooling cannot show: what is
-> ready to run, what is waiting on a decision, and the traps this session paid for.
+> `just roadmap` and `just specs-by-stage` all report correctly — trust them over any summary,
+> including this one. What follows is only what the tooling cannot show.
 
 ---
 
@@ -13,100 +12,101 @@
 
 `/AGENTS.md`, then `just status` and `just backlog`. Then this file.
 
-**You orchestrate; you do not build.** Build and verify go to separate CLI sessions via a
-persisted prompt in `specs/prompts/`. Push the prompt to `main` before the build branches.
+**You orchestrate; you do not build.** Build and verify go to separate CLI sessions via a persisted
+prompt in `specs/prompts/`, pushed to `main` **before** the branch is cut.
 
 ---
 
-## Ready to run right now
+## Where the wave stands
 
-Three specs are framed with no prompt written yet. **Run them serially** — see Trap 1.
+**Three specs shipped this session**, all on `main`:
 
-| spec | stage | what it is |
+| spec | what | cost |
 |---|---|---|
-| **SPEC-121** `[M]` | 046 | ops preserve colour type and bit depth. Fixes the RGBA widening (+12.4% bytes, measured) and 16-bit truncation across three op bodies. |
-| **SPEC-122** `[M]` | 046 | `resize` resamples in linear light. Premise measured and confirmed by SPEC-120 (DEC-092). |
-| **SPEC-123** `[S]` | 042 | is AVIF output byte-deterministic across thread counts? Gates two roadmap items. |
+| **SPEC-123** | AVIF thread settings never reach the encoder (DEC-094) | $60.33 |
+| **SPEC-121** | ops preserve colour type and bit depth (DEC-095) | $91.17 |
+| **SPEC-122** | `resize` resamples in linear light (DEC-095 amended) | $139.61 |
 
-**SPEC-121 and SPEC-122 are a deliberate pair.** Same function family, **one shared DEC**, one
-lockfile migration. Sequencing them together pays that migration once. Build 121 first — 122
-touches the same `Resize::apply`.
+**In flight:** **PR #184 — SPEC-124**, "pin the AVIF encoder's tile count to 1". The build ran and
+opened the PR; **its readout has not been processed by an orchestrator yet.** Check the PR, get the
+cost readout, re-derive it, then write the verify prompt.
 
-**Design already removed their biggest assumed risk.** Both backlog entries flagged "this
-invalidates every PROJ-007 lockfile". It does not need new machinery: `cache_key_for` includes
-`crate::version()` (`src/cli/build.rs:294`), and the lockfile never promised output-hash
-stability across versions (`src/build/lock.rs:32-36`). The builds **drive** that (AC-8); they do
-not design it, and they stop-and-report if the contract does not hold.
+**Framed, not started:** SPEC-125 (lossless WebP silent depth halving), SPEC-118 (conformance
+matrix, still parked).
 
-**SPEC-123 is the cheapest and unblocks the most.** Its load-bearing criterion is a control: a
-"deterministic" verdict is most likely to be wrong for a boring reason — the encoder ignored the
-thread setting. Same shape as SPEC-120's positive control, which is the model to copy.
+## The release gate — this is the sequencing that matters
 
----
+**The tag is the pivot: byte-changers before it, measurements after it.**
+
+`cache_key_for` includes `crate::version()`, so the lockfile migration is keyed on a version bump.
+SPEC-121/122/124 share **one** migration only if they land in the same release.
+
+```
+SPEC-124  →  SPEC-125  →  tag 0.7.1  →  STAGE-041's measured items
+```
+
+- **SPEC-125** is reporting-only (no byte change), so it is the flexible one.
+- **STAGE-041's benchmark refresh and install verification must wait for the tag.** Its
+  `## Amendment (2026-08-16)` table said they waited on STAGE-046 — 121/122 have now shipped, so
+  they wait on **124** and the tag instead. Its three ✅ items (publication plan, hostile answers,
+  RAW-split correction) need nothing and can run any time.
+- **The `U16x4` working-type probe is deliberately NOT in 0.7.1** (maintainer, 2026-08-20). Filed
+  on STAGE-046 with the numbers. It is an optimization and may carry its own migration later.
 
 ## Open, waiting on the maintainer
 
-- **A code-review batch** was about to be shared when this session ended. It has not been seen.
-- **STAGE-041 status.** Three of its four items are substantially done **outside the repo**, and
-  the repo still reads `0 in flight, 4 backlog`. The maintainer will report; until then the stage
-  understates reality. Its `## Amendment (2026-08-16)` carries a safe-to-start-now vs
-  wait-for-STAGE-046 table — **read that before touching any launch item.**
-- **The benchmark refresh.** `BENCHMARKS.md` was written at **0.5.0** on a private, uncommitted
-  8-photo corpus, and predates thirteen shipped specs including the classifier fix. Half a day to
-  a day, needs the maintainer's machine and photos, and **must wait for SPEC-121/122** because
-  they move the numbers. Open question when it happens: whether `@squoosh/cli` stays a live row
-  (it is archived and needs Node 16) or becomes a labelled historical one.
+- **STAGE-041's real status.** The repo reads `0 in flight, 4 backlog`; three of the four are
+  substantially done **outside** the repo. Unreported since 2026-08-16. **Do not re-plan STAGE-041
+  against what the repo says.**
+- **A code-review batch**, never shared. Outstanding since 2026-08-16.
 
 ---
 
-## Sequencing that is decided, and why
+## Traps this session paid for
 
-- **STAGE-046 precedes STAGE-041.** Maintainer call. Launch content publishes a
-  quality-per-byte claim that the STAGE-046 defects contradict.
-- **SPEC-118 (conformance matrix) is parked behind STAGE-041** — but that reasoning has weakened.
-  The matrix has now missed two findings it exists to catch (`responsive` silently flattening;
-  `Preserve`/`Pinned` never warning). **Worth revisiting its position.**
-- **Threading order:** SPEC-123 → `par_iter run_pixel_op` → deploy-pipeline benchmark → only then
-  consider within-image or wasm threading. `par_iter` reclaims a measured ~3.8× regression with no
-  race risk and is also decision drift against DEC-006.
+1. **⚡ NEVER POLL CI. Background it and leave it alone.**
+   `Bash(run_in_background: true): gh pr checks <PR> --watch --interval 30`. It burns nothing while
+   waiting and re-invokes on exit. **Measured: SPEC-122's build spent ~$60 of $103.60 polling;
+   SPEC-123's spent $5.80.** SPEC-122's build prompt carried **no CI instruction at all** — the
+   punch-list cycle, run from a prompt that did, polled nothing. Cleanest controlled result here.
+2. **A green local matrix does not predict CI.** `main` went red **without a commit** when stable
+   floated to 1.98 and added the `chunks_exact` lint. A local matrix runs the toolchain installed;
+   CI resolves `stable`. SPEC-122's punch list reported twelve local exit-0s against eight red CI
+   legs. Split the CI fix to its own PR (#183), then `update-branch` the spec PR.
+3. **State design findings as PRIORS, not conclusions.** SPEC-123's spec and prompt both asserted
+   "non-deterministic by construction" from reading `ravif`'s tile formula. Wrong — the feature that
+   makes the lever exist is off. The build then had to refute a *stated position* and correct five
+   documents. **A measurement spec's cost is set by whether its premise survives**, which is
+   unknowable at framing: SPEC-120 held → $8.69; SPEC-123 was wrong → $60.33, same shape.
+4. **File findings where `just backlog` reads — a stage's `## Spec Backlog`, as `- [ ]`.**
+   Failed **three times** this session: SPEC-121's WebP finding and SPEC-123's AC-7 deferral both
+   went to `docs/backlog.md` (read by no command), and the orchestrator put an item in
+   `## Design Notes` by inserting before `## Dependencies`. **Run `just backlog` and read it back.**
+5. **Orchestrator-scoped sweeps were under-scoped twice.** SPEC-121: 4 live premises, 1 named.
+   SPEC-122: 4 locations, 3 named. **Require the grep be enumerated first, and its scope cited.**
+6. **An instruction that cannot be satisfied is a defect in the same class as a test that cannot
+   fail.** A punch-list item asked for an opaque composite to narrow AND a translucent overlay to
+   keep RGBA — impossible for an alpha-less base. The cycle caught it and recorded a deviation.
+7. **zsh, twice.** It does **not** word-split unquoted parameters, so `for f in $files` iterates
+   once over the whole blob and every per-file check silently passes — use
+   `while IFS= read -r`. And `$B:tests/...` eats `:t` as a path modifier — write `"${B}:path"`.
+   Both were caught only by a **positive control** whose answer was already known.
+8. **Keep the spec's `implementer` in sync with the dispatch.** SPEC-122's prompt said Sonnet while
+   the dispatch used `--model opus`; the cycle had to flag the mismatch itself.
 
----
+## What is working, and worth keeping
 
-## Five traps this session paid for
-
-1. **The ID space is shared even when files are not.** SPEC-119 and SPEC-120 ran in parallel,
-   touched no common file — which is what was checked — and both minted **DEC-092**. `next_id`
-   scans only the working tree, so a record on an unmerged branch is invisible. **Prefer one spec
-   in flight.** If you must parallelize, the thing to check is IDs, not files.
-2. **Cost scales with the square of message count, and anti-correlates with wall clock.**
-   Measured across four builds: SPEC-116 ran 104 minutes for $11.91; SPEC-119 ran 61 for $51.24.
-   **Budget prompts in exchanges (~250), never in minutes** — `cost-snippet.md` now says so.
-3. **Mid-session cost readings run 40–49% low.** Measured twice. Always re-measure at session end.
-4. **A squash merge can strand a push that lands near merge time.** Happened on #170 with no
-   conflict and no warning, and the dropped correction propagated into two authored documents.
-   Detector: compare each merged PR's `headRefOid` against its branch tip, then check whether the
-   tail commits' content reached `main`. Swept 2026-08-16 — one incident, recovered.
-5. **Read output before diagnosing it.** I concluded "the tooling truncates files" from line
-   counts; it was a `"$B:path"` shell-variable bug printing a commit instead of a file. `rtk` was
-   innocent and I had to retract it from two places. Counting told me one thing; reading seven
-   lines of `commit/Merge:/Author:/Date:` told me the truth.
-
----
-
-## Conventions worth not relearning
-
-- **Verify + ship bookkeeping lands on `main` after the PR merges**, never on the branch
-  (AGENTS §13). Verify sessions have twice committed cost blocks to a **detached worktree** that
-  was never pushed — transcribe from their readout into the timeline, then apply at ship.
-- **Re-derive every cost readout at ship.** All five this session matched to the cent; the check
-  is cheap and it is the orchestrator's job per `cost-snippet.md`.
-- **AGENTS §15 now carries three measured verify rules** — one revert per independent condition,
-  the behavioural flip (not a binary hash) is the evidence, and a test asserting a *property of
-  the defect* is not a regression guard.
-- **`just archive-spec` now refuses to imply a stage is done** when un-promoted backlog items
-  remain. Trust it.
-- **A stage bullet is only "promoted" if it matches `**SPEC-NNN**` in bold** (`_lib.sh:212`) —
-  the stage template documents the format without bold, so a stage written to its own template
-  double-counts. Filed on STAGE-047.
-- **Multi-line markdown bullets: rewrite the file, do not `sed`.** Line-oriented `sed` left
-  orphaned continuation lines twice.
+- **Verify is READ-ONLY** (fixed 2026-08-17). It makes no commits, emits a `## Cost readout` and a
+  verdict; the **orchestrator** applies cost and runs `advance-cycle` on `main` at ship. The old
+  template told verify to write from a detached worktree that is never pushed, and had stranded a
+  cost block twice.
+- **Verify is the cheapest and most valuable cycle, three waves running** — $11.08, $14.16, $15.82
+  against builds at $46–$104. **Every substantive defect this session came from a verify pass or a
+  punch list, not a build.** Argues for shorter builds and more review.
+- **Reserve DEC ids in the prompt.** `next_id` scans only the working tree, so a record on an
+  unmerged branch is invisible (SPEC-119 and SPEC-120 both minted DEC-092). Highest is **DEC-096**
+  (reserved for SPEC-124).
+- **Re-derive every cost readout at ship.** All of this session's matched to the cent. One
+  orchestrator arithmetic slip (a token total off by 1,000) was caught this way.
+- **Budget prompts in exchanges (~150–250), never minutes.** SPEC-121's build ran 555 against ~250
+  and the checkpoint never fired; SPEC-122's ran 608.
