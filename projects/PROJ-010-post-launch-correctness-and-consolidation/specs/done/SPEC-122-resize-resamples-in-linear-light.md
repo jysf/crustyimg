@@ -2,7 +2,7 @@
 task:
   id: SPEC-122
   type: bug
-  cycle: verify
+  cycle: ship
   blocked: false
   priority: high
   complexity: M
@@ -103,10 +103,45 @@ cost:
         on the committed code) and four release builds for the memory arms.
         ⚠ No `verify` entry exists in this list: the verify cycle that produced
         the punch list did not append one — the same gap SPEC-121 flagged.
+    - cycle: verify
+      agent: claude-opus-5
+      interface: claude-code
+      tokens_total: 21844228
+      duration_minutes: 19
+      recorded_at: 2026-08-18
+      tokens_breakdown:
+        input: 298
+        output: 117727
+        cache_creation: 349904
+        cache_read: 21376299
+      estimated_usd: 15.82
+      note: >
+        MEASURED — transcript sum over 149 assistant messages, Opus anchors
+        ($5/$25 per MTok; cache_creation ×1.25 input, cache_read ×0.10 input).
+        Read-only cycle, so the orchestrator transcribed this at ship per
+        AGENTS §13. Verdict ⚠ PUNCH LIST, 5 items, all closed. Re-measured
+        every headline number in a detached worktree rather than reading them
+        back, and its sharpest find was that the build's CORRECTION to DEC-092's
+        refuted mechanism was itself wrong — control C4 with premultiplication
+        OFF still read `max alpha err 27`, so alpha never enters that
+        round-trip. 12% of this spec's spend; the second wave running where the
+        cheapest cycle returned the most.
+    - cycle: ship
+      interface: claude-code
+      tokens_total: null
+      duration_minutes: null
+      estimated_usd: null
+      note: >
+        Orchestrator main-loop, not separately metered (AGENTS §4). PR #182
+        merged as 2bd74b0 (after #183 unblocked its matrix); verify cost
+        transcribed, totals computed, archived. ⚠ The punch-list entry's
+        post-CI correction never landed — it merged carrying the provisional
+        reading, so $20.19 may under-state by roughly the 9.5% SPEC-121
+        measured. Recorded as observed rather than adjusted upward by guess.
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 232547953
+    estimated_usd: 139.61
+    session_count: 5
 ---
 
 # SPEC-122: `resize` resamples in linear light
@@ -750,4 +785,31 @@ arithmetic exactly: on the synthetic case the branch binary's output is
 
 ## Reflection (Ship)
 
-*Appended during the **ship** cycle.*
+**1. Did it deliver?** Yes, and cleanly. All three SPEC-120 cases move to ~100
+against an independently regenerated reference, mean signed luminance error to
+**0.000000** on every case, and reverting returns **−63.8488 / 70.4507 / 84.4524
+and alpha edge 27 — AC-7's numbers to the digit**. Verify's own observation is the
+best argument for AC-4 that anyone made: *a crustyimg-derived reference could not
+have scored the reverted binary at 70.45.*
+
+**2. What would we do differently?** **Write ACs against what the code does, not
+what the spec assumes.** AC-6 said upscale was "where no resampling occurs" — an
+upscale *is* a resample, and was defective identically (65.88 → 100.00). AC-9
+measured time and never memory, and the `F32x4` working type turned out to drive
+both (3.83× slower; peak RSS 2.8× and **5.3×**). And AC-5 predicted a null where the
+result improved 27 → 0, which exposed that **DEC-092's stated mechanism was wrong**
+— then the *correction* was wrong too, caught only because verify re-drove control
+C4 instead of reading it back. Three ACs, three premises that did not survive
+contact.
+
+**3. Where did the money go?** **$139.61**, the most expensive spec in PROJ-010.
+⚠ **~$60 of the build's $103.60 was CI polling** — and that was a prompt defect,
+not a cycle defect: SPEC-122's build prompt carried **no CI instruction at all**,
+written before the lesson existed and tightened twice afterwards without it. The
+punch-list cycle, run from a prompt that *did* carry it, polled nothing. That is
+about as clean a controlled result as this project gets.
+⚠ **A second lesson arrived free:** `main` went red **without a commit** — stable
+floated to 1.98 and added the `chunks_exact` lint. The local matrix reported twelve
+checks and twelve exit-0s while CI failed all eight compile legs, because a local
+matrix runs the toolchain that is installed and CI resolves `stable`. A green local
+matrix structurally cannot predict that.

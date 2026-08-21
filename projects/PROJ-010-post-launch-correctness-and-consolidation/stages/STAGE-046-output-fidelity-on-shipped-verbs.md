@@ -159,7 +159,7 @@ Three further reasons the timing is now and not later:
       experiment needs an independently-generated reference — and must prove the
       scorer can see the effect at all before a null result is readable.
 
-- [x] **SPEC-122** (design 2026-08-16) — [M] **`resize` resamples in linear light.**
+- [x] **SPEC-122** (shipped 2026-08-20, $139.61) (design 2026-08-16) — [M] **`resize` resamples in linear light.**
   Premise measured and confirmed by SPEC-120 (DEC-092); **one premise, not two** — the
   premultiplied-alpha half is refuted. Starts from SPEC-120's committed prototype and
   re-uses its harness as the acceptance test. **Paired with SPEC-121**: same function
