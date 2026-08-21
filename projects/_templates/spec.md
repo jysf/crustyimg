@@ -137,6 +137,15 @@ Gotchas, style preferences, reuse opportunities.
 - **All acceptance criteria met?** yes/no
 - **New decisions emitted:**
   - `DEC-NNN` — <title> (if any)
+- **Files this diff touches** — **list every one**, with a phrase on what changed
+  in each. Not "src/foo and tests": the enumeration is what a verify cycle diffs
+  the real change against, and what tells you whether every affected `DEC-*` has
+  the path in its `affected_scope`. SPEC-122's Deviations claimed "`src/operation`
+  and `tests/` only" and was wrong by two `scripts/` files, which left
+  `affected_scope` blind; SPEC-124's build added this section by hand after that
+  lesson and still listed 8 of its 9 files. It is a checklist because it is easy
+  to get wrong from memory — build it from `git diff --name-only`, not recall.
+  - `path/to/file` — <what changed>
 - **Deviations from spec:**
   - [list]
 - **Follow-up work identified:**

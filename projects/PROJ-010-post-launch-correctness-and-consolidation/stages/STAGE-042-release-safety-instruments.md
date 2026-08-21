@@ -325,6 +325,23 @@ failures on documented paths.
   **Severity when filed, measured at SPEC-123's verify:** not reachable in this repo's own CI — no
   committed `*.build.lock` exists and no workflow runs `build --check`/`--frozen`. User-facing only.
 
+- [ ] (not yet written) — [S] **A multi-candidate search on a >8-bit source now prints one warning
+  per attempted candidate, so the user cannot tell which downgrade actually shipped.** Disclosed in
+  DEC-097 and correctly deferred (the real fix is a `solve_candidate` restructure, not a one-liner),
+  but **verify measured two warning lines on a 16-bit photo through `web`**, so it is more visible
+  than the record's "pre-existing" framing suggests. ⚠ Note what is NOT wrong here: at `f35e28a` the
+  only warning printed on that same input was for **JPEG — the candidate that LOST** — while the
+  AVIF downgrade that actually shipped stayed silent. The widened set is strictly better; it just
+  now needs to say which line describes the file on disk.
+
+- [ ] (not yet written) — [S] **The `/v1` JSON contract's "gated additive key" rule is precedent,
+  never written down.** `crustyimg.optimize.explain/v1` already carries three keys added under this
+  discipline — `larger_than_source` (DEC-075), `ssim` (SPEC-086), `timing` (SPEC-088) — and
+  `ssim_source_depth` (SPEC-125) now makes four. Verify confirmed the pattern holds and that this
+  repo treats a gated additive key as `/v1`-compatible, **but a downstream consumer reading
+  `docs/api-contract.md` cannot learn that**: nothing states which kinds of change are compatible
+  with a `/v1` pin. One paragraph. This is the repo's debt, not any one spec's.
+
 - [ ] (not yet written) — [S] ⚡ **`pages / build + browser smoke` is an intermittently red gate,
   and it is red on `main` right now.** Diagnosed 2026-08-21. Cause is a **10-second hard cap on
   Chrome's startup**, not anything in the demo: `tests/demo_smoke.mjs:307-312` polls for
@@ -460,22 +477,22 @@ failures on documented paths.
   measurement; goes red if `image` ever fixes this upstream. Needs a maintainer ruling on whether
   to warn, fix (byte-changing), or accept as a known `image` limitation.
 
-**Count:** 1 framed (SPEC-118) / **2 shipped (SPEC-123, SPEC-124)** / 1 in build (SPEC-125,
-checked at design per this file's own convention — see the entry above) / 13 pending
-(the ICO round-trip item added at SPEC-125's build) / 1 chore done / 1 closed-by-a-spec (the
-`[env]` item) = **19 items narratively, but the literal `- [ ]` + `- [x]` tally is 13 + 5 = 18**
-— re-derived by grep, not carried forward from the prior line: this section's own prose (SPEC-125
-named under "framed" while its checkbox is `[x]`) does not partition cleanly into mutually-exclusive
-buckets, so the checkbox tally is the number to trust. **18 items.**
+**Count:** re-derived by grep 2026-08-21, not carried forward: **15 `- [ ]` + 5 `- [x]` =
+20 items.** Narratively: 1 framed (SPEC-118) / 3 shipped (SPEC-123, SPEC-124, SPEC-125) / 15 pending
+/ 1 chore done / 1 closed-by-a-spec (the `[env]` item). ⚠ Those buckets do **not** partition cleanly
+— a shipped spec's entry is `[x]` while a framed one's is `[ ]` — so **the checkbox tally is the
+number to trust** and the narrative line is a reading aid, not an audit.
 
-> ⚠ **The checkbox tally is the number to trust — currently `13 + 5 = 18`, as re-derived above.**
-> The narrative categories do not partition cleanly (SPEC-125 sits under "framed" while its checkbox
-> is `[x]`), so when the two disagree, the grep wins.
+> ⚠ **The checkbox tally is the number to trust** — the one on the Count line above, which is
+> re-derived each time it is touched. This note deliberately restates **no** figure of its own: the
+> narrative categories do not partition cleanly, so when they disagree with a grep, the grep wins.
 >
 > This note has now been wrong twice, in both directions, which is the actual lesson. SPEC-124's
 > build reported the count line as *undercounting*; verify showed it never did — the diff had added
 > an item in no category. The orchestrator then wrote "(9 + 5 = 14)" here, bumped the count line
-> three times without touching this parenthetical, and SPEC-125's verify caught it stale at 18.
+> three times without touching that parenthetical, and SPEC-125's verify caught it stale — then the
+> replacement restated the tally again and went stale within the same session, which is why this
+> version quotes no number at all.
 > **A grep's scope is a claim too, and so is a number you carried forward.**
 > Re-derive **both** sides — `grep -c '^- \[ \]'` and `grep -c '^- \[x\]'` — whenever you touch
 > either line, and never restate a tally you did not just run.

@@ -106,7 +106,7 @@ cost:
   totals:
     tokens_total: 181605072
     estimated_usd: 73.01
-    session_count: 4
+    session_count: 3  # design + build + verify; ship appends the 4th
 ---
 
 # SPEC-124: pin the AVIF encoder's tile count

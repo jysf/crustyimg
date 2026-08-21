@@ -78,10 +78,36 @@ cost:
         Transcript identified by CONTENT (`bb308ebc`, the one carrying the
         SPEC-125 build dispatch) — a naive search matched TWO sessions, the
         other being the orchestrator's own.
+    - cycle: verify
+      agent: claude-opus-5
+      interface: claude-code
+      tokens_total: 32433819
+      duration_minutes: 35
+      recorded_at: 2026-08-21
+      tokens_breakdown:
+        input: 416
+        output: 176989
+        cache_creation: 495438
+        cache_read: 31760976
+      estimated_usd: 23.30
+      note: >
+        MEASURED — full-session transcript sum over all 208 usage-bearing
+        assistant messages (session 5d7b53e4-9930-477c-9fb9-7576ebbb5c69).
+        MIXED MODEL, priced PER MESSAGE at the anchors each one reports: 206
+        claude-opus-5 ($5/$25 per MTok) + 2 claude-sonnet-5 ($3/$15) from before
+        a `/model` switch; cache_creation x1.25 input, cache_read x0.10 input.
+        Cache reads are 97.9% of volume, so the flat 80/20 shortcut would be
+        wrong by more than an order of magnitude (DEC-083). The cycle recorded
+        30995553 / $21.96 at 202 messages, prices EXACTLY right there, and
+        FLAGGED ITS OWN RESIDUAL — it measured its cost twice 90 seconds apart,
+        saw ~470k tokens of drift, and predicted 1-3%. Actual residual 6.1%
+        (+$1.34): the right instinct, an optimistic estimate. Transcript
+        identified by CONTENT — two sessions mention SPEC-125-verify, the other
+        being the orchestrator's own.
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 279158289
+    estimated_usd: 107.88
+    session_count: 3  # design + build + verify; ship appends the 4th
 ---
 
 # SPEC-125: lossless WebP never silently halves bit depth
