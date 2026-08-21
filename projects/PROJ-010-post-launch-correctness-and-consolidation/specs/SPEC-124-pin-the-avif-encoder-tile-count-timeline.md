@@ -20,7 +20,21 @@ Cycle prompts live in `prompts/SPEC-124-<cycle>.md`.
       `image/rayon` is ever enabled.
       ⚠ **Blocked on SPEC-122 merging.** Same wave; the migration is keyed on `crate::version()`,
       so what makes it one migration is landing in the same **release**, not the same PR.
-- [ ] **build** — prompt: `prompts/SPEC-124-build.md` (2026-08-20). **Opus**, own worktree, branch
+- [x] **build** — 2026-08-21. PR [#184](https://github.com/jysf/crustyimg/pull/184), branch
+      `fix/spec-124-pin-the-avif-encoder-tile-count`, head `2e77269`. 9/9 ACs claimed, **DEC-096**
+      written. Cost **$57.74** (full session; the cycle recorded $53.89 at its own snapshot, 479 of
+      503 usage-bearing messages — re-derived by the orchestrator, corrected at ship).
+      ⚠ **The dispatch was Sonnet, not the Opus the prompt asserted** — the cycle caught the
+      mismatch itself from `.message.model` (503/503) and corrected the spec's `implementer`.
+      **N = 1 was measured, not assumed** — four axes in DEC-096, including a reported
+      counter-finding (a synthetic 24 MP worst case costs N=1 ~17% serial time) that the
+      recommendation survives only via the realistic-content distinction.
+      ⚠ **AC-9's CI claim covers `79d8615`, not the head** — the cost commit pushed afterwards
+      triggered a fresh run the build never read, and that run went red on `pages / build + browser
+      smoke`. **Resolved: a flake, proven not argued** — the same tree re-ran on the `c20c96b`
+      merge commit and passed. CI at the head is **16 pass / 6 skipping / 0 fail**. The claim was
+      still unearned when written; that is a method finding, not a code one.
+      prompt: `prompts/SPEC-124-build.md` (2026-08-20). **Opus**, own worktree, branch
       `fix/spec-124-pin-the-avif-encoder-tile-count`. **DEC-096 reserved in the prompt**, not left
       to `next_id`. The spec's `implementer` was updated to Opus to match — SPEC-122's prompt said
       Sonnet while the dispatch used Opus, and the cycle had to flag the mismatch itself.
@@ -34,5 +48,14 @@ Cycle prompts live in `prompts/SPEC-124-<cycle>.md`.
       stable floated to 1.98); and **list every file the diff touches** (SPEC-122's Deviations
       claimed `src/operation` + `tests/` only and was wrong by two `scripts/` files, which left
       `affected_scope` blind).
-- [ ] **verify** — Opus, new session, read-only.
+- [ ] **verify** — prompt: `prompts/SPEC-124-verify.md` (2026-08-21). **Opus**, new session,
+      read-only, detached worktree at **`c20c96b`** — the maintainer's *Update branch* merge, which is
+      the PR head now, not the build's `2e77269`. Three things pre-settled so the cycle does not
+      re-derive them: the build's cost, the `implementer` correction, and the (separately owned)
+      missing SPEC-122 CHANGELOG entry. Six items to drive, of which two are load-bearing:
+      **the full-symmetric-revert negative control** (AC-1's test is green through it *by design*,
+      so AC-2's test is the only thing standing), and **whether an upscaled 800×532 photo is a
+      legitimate stand-in for a real 24 MP one** — the whole N=1 recommendation rests on that one
+      distinction. Plus a ruling to make: AC-2's test shells out to `cargo build` inside a
+      `#[test]`, on a default feature, on all three OSes, in a published library.
 - [ ] **ship**
