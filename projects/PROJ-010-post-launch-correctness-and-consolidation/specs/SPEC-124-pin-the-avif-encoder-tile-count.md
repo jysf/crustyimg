@@ -15,7 +15,7 @@ repo:
 
 agents:
   architect: claude-opus-5
-  implementer: claude-sonnet-5
+  implementer: claude-opus-5
   created_at: 2026-08-18
 
 references:

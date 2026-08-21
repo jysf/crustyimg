@@ -20,7 +20,19 @@ Cycle prompts live in `prompts/SPEC-124-<cycle>.md`.
       `image/rayon` is ever enabled.
       ⚠ **Blocked on SPEC-122 merging.** Same wave; the migration is keyed on `crate::version()`,
       so what makes it one migration is landing in the same **release**, not the same PR.
-- [ ] **build** — prompt not yet written; write it once SPEC-122 is at verify. Sonnet, own
-      worktree. **DEC id to be reserved in the prompt**, not left to `next_id`.
+- [ ] **build** — prompt: `prompts/SPEC-124-build.md` (2026-08-20). **Opus**, own worktree, branch
+      `fix/spec-124-pin-the-avif-encoder-tile-count`. **DEC-096 reserved in the prompt**, not left
+      to `next_id`. The spec's `implementer` was updated to Opus to match — SPEC-122's prompt said
+      Sonnet while the dispatch used Opus, and the cycle had to flag the mismatch itself.
+      **Unblocked 2026-08-20**: SPEC-121 (`9075bc3`) and SPEC-122 (`2bd74b0`) are both merged.
+      ⚠ **Deadline-bound.** The shared lockfile migration only stays *one* migration if this lands
+      in the same release as 121/122 — the key is a function of `crate::version()`, so the window
+      closes at the next tag.
+      Carries three lessons the earlier prompts in this wave lacked: **never poll CI** (SPEC-122's
+      build spent ~$60 of $103.60 there, from a prompt that carried no CI instruction at all); **a
+      green local matrix does not predict CI** (twelve local exit-0s against eight red CI legs when
+      stable floated to 1.98); and **list every file the diff touches** (SPEC-122's Deviations
+      claimed `src/operation` + `tests/` only and was wrong by two `scripts/` files, which left
+      `affected_scope` blind).
 - [ ] **verify** — Opus, new session, read-only.
 - [ ] **ship**
