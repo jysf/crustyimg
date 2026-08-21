@@ -30,7 +30,10 @@ Cycle prompts live in `prompts/SPEC-124-<cycle>.md`.
       counter-finding (a synthetic 24 MP worst case costs N=1 ~17% serial time) that the
       recommendation survives only via the realistic-content distinction.
       ⚠ **AC-9's CI claim covers `79d8615`, not the head** — the cost commit pushed afterwards
-      triggered a fresh run the build never read.
+      triggered a fresh run the build never read, and that run went red on `pages / build + browser
+      smoke`. **Resolved: a flake, proven not argued** — the same tree re-ran on the `c20c96b`
+      merge commit and passed. CI at the head is **16 pass / 6 skipping / 0 fail**. The claim was
+      still unearned when written; that is a method finding, not a code one.
       prompt: `prompts/SPEC-124-build.md` (2026-08-20). **Opus**, own worktree, branch
       `fix/spec-124-pin-the-avif-encoder-tile-count`. **DEC-096 reserved in the prompt**, not left
       to `next_id`. The spec's `implementer` was updated to Opus to match — SPEC-122's prompt said
@@ -46,7 +49,8 @@ Cycle prompts live in `prompts/SPEC-124-<cycle>.md`.
       claimed `src/operation` + `tests/` only and was wrong by two `scripts/` files, which left
       `affected_scope` blind).
 - [ ] **verify** — prompt: `prompts/SPEC-124-verify.md` (2026-08-21). **Opus**, new session,
-      read-only, detached worktree at `2e77269`. Three things pre-settled so the cycle does not
+      read-only, detached worktree at **`c20c96b`** — the maintainer's *Update branch* merge, which is
+      the PR head now, not the build's `2e77269`. Three things pre-settled so the cycle does not
       re-derive them: the build's cost, the `implementer` correction, and the (separately owned)
       missing SPEC-122 CHANGELOG entry. Six items to drive, of which two are load-bearing:
       **the full-symmetric-revert negative control** (AC-1's test is green through it *by design*,

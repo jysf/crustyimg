@@ -8,12 +8,19 @@ with `AVIF_TILE_THREADS = 1`, so `ravif` never reaches
 `threads.unwrap_or_else(current_num_threads)`'s fallback and the AV1 tile count stops being the
 machine's core count (DEC-094). **N = 1 was measured, not assumed** — four axes, in DEC-096.
 
-**PR #184**, branch `fix/spec-124-pin-the-avif-encoder-tile-count`, head **`2e77269`**. **DEC-096**
-is new (the id was reserved in the build prompt, not minted by `next_id`). Cycle is at `verify`.
+**PR #184**, branch `fix/spec-124-pin-the-avif-encoder-tile-count`, head **`c20c96b`** — a merge
+commit the maintainer created with GitHub's *Update branch* at 03:25, merging `main` at `aa07b4d`
+into the build's last commit `2e77269`. **Review `c20c96b`, not `2e77269`.** **DEC-096** is new (the
+id was reserved in the build prompt, not minted by `next_id`). Cycle is at `verify`.
 
 ```
-git worktree add --detach ~/PSeven/experiments/crustimg_redo_plus/crustyimg-spec124-verify 2e77269
+git fetch origin pull/184/head && \
+  git worktree add --detach ~/PSeven/experiments/crustimg_redo_plus/crustyimg-spec124-verify c20c96b
 ```
+
+⚠ The PR now reads `BEHIND` again — that *Update branch* merged `aa07b4d`, and `main` has since
+advanced by two orchestrator commits (this prompt and SPEC-125's). Not your problem to fix; noted so
+you do not read it as drift.
 
 **Make no commits.** Emit your `## Cost readout` and verdict in the return message — that is the
 deliverable (AGENTS §13).
@@ -47,23 +54,26 @@ deliverable (AGENTS §13).
 
 ## Six specific things
 
-### 1 — ⚠ The build's AC-9 CI claim covers a SHA that is no longer the head
+### 1 — ✅ CI is green at the head. The gap was in the build's *method*, not its result.
 
-AC-9 says "all 16 real checks pass." That was read at run `32441039059` on commit **`79d8615`**. The
-build then pushed **`2e77269`** (the cost-session commit) and **never re-read CI**. The fresh run on
-the true head has a **failing `pages / build + browser smoke` leg**.
+**Settled, and reported here so you spend nothing on it.** AC-9 says "all 16 real checks pass" — but
+the build read that at run `32441039059` on commit `79d8615`, then pushed `2e77269` and **never
+re-read**. The fresh run on `2e77269` had a red `pages / build + browser smoke`
+(`demo-smoke: headless Chrome never came up (no DevToolsActivePort)`).
 
-**Orchestrator ruling on the failure itself: infrastructure flake, not this diff.** Evidence, so you
-can check the reasoning rather than repeat the work: `2e77269` is **docs-only** (spec markdown, no
-`src/`, no `tests/`); the log shows the wasm build, `demo-assemble`, and the local server all
-**succeeding**, and the failure is `demo-smoke: headless Chrome never came up (no
-DevToolsActivePort)`; the same job passed on this same branch 23 minutes earlier and on `main` at
-23:03.
+**It was a flake, and this is now proven rather than argued:** the same tree re-ran on the
+`c20c96b` merge commit and **passed in 3m15s**. Direct snapshot at the head: **16 pass, 6 skipping,
+0 fail** — the 3-OS `build/test/clippy/fmt` matrix, `avif`/`webp-lossy`/both `heic` legs, lean
+build, msrv, DCO, front-matter, cost-capture audit, supply-chain policy. The six `skipping` are
+release/deploy jobs, tag-only.
 
-**Your job is the part the build skipped: read CI at `2e77269` individually, and confirm the legs
-that were still pending went green** — the 3-OS `build/test/clippy/fmt` matrix, `webp-lossy`, and
-both `heic` legs. **Do not `--watch`-poll them**; take one snapshot. If `pages` is still the only
-red, say so and treat it as non-blocking; if anything else is red, that is a punch-list item.
+**So there is nothing for you to chase here — but the AC-9 claim as written was still unearned when
+it was written**, and that is a real finding about method: it asserted a green it had not observed at
+its own head. Judge whether that rises to a punch-list item or a note; do not re-run CI to decide.
+
+⚠ **Take one snapshot at most, and only if you suspect something changed.** `gh pr checks 184`
+direct — **not** `--watch`'s summary line, which on this very PR reported `451 pass / 0 fail / 223
+pending` and exited 0 while the direct snapshot disagreed (build follow-up #5, and it reproduced).
 
 ### 2 — ⚡ AC-1's test is GREEN through a full revert, by design. Drive the control that isn't.
 
@@ -170,9 +180,9 @@ says this; confirm it says it clearly enough that a future reader cannot over-re
   SPEC-122 failed by two).
 - **Build follow-up #3** — STAGE-042's `Count:` line undercounts by one **pre-existing**. Confirm
   it predates this diff (`git show main:...`) rather than counting it against the build.
-- **Build follow-up #5** — `gh pr checks --watch`'s summary line reported `451 pass / 0 fail / 223
-  pending` and exited 0 while the direct snapshot disagreed. Worth confirming; it changes what every
-  future prompt should say about reading CI.
+- **Build follow-up #5** is CONFIRMED — the orchestrator reproduced the `--watch`-summary/direct
+  snapshot disagreement on this PR. It is already written into SPEC-125's build prompt. Nothing to
+  check; noted so you do not spend on it.
 
 ## Guardrails
 
