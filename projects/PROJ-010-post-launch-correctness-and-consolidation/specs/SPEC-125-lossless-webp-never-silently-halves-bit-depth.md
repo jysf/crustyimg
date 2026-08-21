@@ -3,7 +3,7 @@ task:
   id: SPEC-125
   type: bug
   cycle: design
-  blocked: true
+  blocked: false
   priority: high
   complexity: S
 
