@@ -50,20 +50,23 @@ cost:
     - cycle: build
       agent: claude-sonnet-5
       interface: claude-code
-      tokens_total: 136613534
-      duration_minutes: 52
+      tokens_total: 227685637
+      duration_minutes: 82
       recorded_at: 2026-08-21
       tokens_breakdown:
-        input: 906
-        output: 364099
-        cache_creation: 842394
-        cache_read: 135406135
-      estimated_usd: 49.25
+        input: 1270
+        output: 456289
+        cache_creation: 1010260
+        cache_read: 226217818
+      estimated_usd: 78.50
       note: >
         MEASURED — summed from the session transcript's per-message `usage`,
         priced at Sonnet anchors ($3/$15 per MTok) with cache multipliers
         (cache_creation x1.25, cache_read x0.10 of input rate). Reading taken
-        near completion (commit/push/PR-open still ahead), not at "PR opened."
+        AFTER CI settled at the true head SHA (c7695c0), not when the PR
+        opened — an earlier snapshot at ~52 min read $49.25, 37% under this
+        figure, matching this repo's own measured pattern for premature
+        readings.
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -215,10 +218,22 @@ preserved. No `Operation` body changes.
     byte-identical output, JSON, and stderr between `main` and this branch.
     `pick_winner`/`solve_candidate` never read the new `scored_source_depth`
     field — it is populated strictly after the winner is chosen.
-  - **AC-7** — full matrix (`default`, `--no-default-features`, `--features
+  - **AC-7** — full local matrix (`default`, `--no-default-features`, `--features
     webp-lossy`), fresh `CARGO_TARGET_DIR` per leg, sequential: `cargo test`,
     `cargo clippy --all-targets -- -D warnings`, `cargo fmt --check` all clean
-    on every leg (see the per-leg log below).
+    on every leg. **CI legs read individually at the true head SHA (`c7695c0`)**:
+    every leg this spec's diff can affect is green — `build/test/clippy/fmt` on
+    macOS/Linux/Windows, `avif feature`, `webp-lossy feature`, `heic feature`
+    (both OSes), `lean build (--no-default-features)`, `msrv`, `cargo-deny`,
+    `front-matter validation`, `cost-capture audit`, `DCO`. **One RED leg,
+    unrelated:** `build + browser smoke` failed with `headless Chrome never came
+    up (no DevToolsActivePort)`, **10.03s** after `demo/` started serving
+    (`06:19:43.01` → `06:19:53.05`) — the exact pre-existing flake STAGE-042's
+    backlog already documents (a 10s hard cap on Chrome startup in
+    `tests/demo_smoke.mjs`, unrelated to any file this PR touches: no `wasm`,
+    `demo`, or browser-smoke code is in this diff). Not fixed here — it is
+    already filed as its own STAGE-042 item with its own fix, and the house
+    precedent (SPEC-122) is a CI fix gets its own PR, not a spec branch.
 - **New decisions emitted:** DEC-097 (widen the 8-bit downgrade warning; qualify
   the SSIM line; the full measured table for Call 1's derivation).
 - **Deviations from spec:**
