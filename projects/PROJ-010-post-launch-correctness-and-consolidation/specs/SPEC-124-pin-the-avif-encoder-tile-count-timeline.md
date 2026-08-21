@@ -48,14 +48,30 @@ Cycle prompts live in `prompts/SPEC-124-<cycle>.md`.
       stable floated to 1.98); and **list every file the diff touches** (SPEC-122's Deviations
       claimed `src/operation` + `tests/` only and was wrong by two `scripts/` files, which left
       `affected_scope` blind).
-- [ ] **verify** — prompt: `prompts/SPEC-124-verify.md` (2026-08-21). **Opus**, new session,
-      read-only, detached worktree at **`c20c96b`** — the maintainer's *Update branch* merge, which is
-      the PR head now, not the build's `2e77269`. Three things pre-settled so the cycle does not
-      re-derive them: the build's cost, the `implementer` correction, and the (separately owned)
-      missing SPEC-122 CHANGELOG entry. Six items to drive, of which two are load-bearing:
-      **the full-symmetric-revert negative control** (AC-1's test is green through it *by design*,
-      so AC-2's test is the only thing standing), and **whether an upscaled 800×532 photo is a
-      legitimate stand-in for a real 24 MP one** — the whole N=1 recommendation rests on that one
-      distinction. Plus a ruling to make: AC-2's test shells out to `cargo build` inside a
-      `#[test]`, on a default feature, on all three OSes, in a published library.
+- [x] **verify** — 2026-08-21, **Opus**, read-only at `c20c96b`, no commits, tree left clean.
+      **⚠ PUNCH LIST — 5 items, none blocking the mechanism.** Cost **$15.27** (full session; the
+      cycle recorded $13.74 at 129 of 136 messages **and flagged its own snapshot, asking for
+      re-derivation at ship** — the first cycle in this project to anticipate the undercount rather
+      than fall into it). **Verify at 26 % of build cost**, holding the pattern: every substantive
+      defect this wave came from a verify pass, not a build.
+      **Confirmed as claimed:** both encode arms are the only two `AvifEncoder` sites in `src/`; §2
+      replicated byte-for-byte cross-checking to DEC-094 leg E; §3's clamp driven behaviourally and
+      decoded through crustyimg's own `re_rav1d`, not just "did not panic"; the deviation away from
+      the Python harness is correct against DEC-094's actual legs; `Cargo.toml`/`Cargo.lock`
+      untouched; the lean CI leg really does cover the example (positive control run).
+      **All 5 items were records overclaiming what was established**, applied by the orchestrator on
+      `main` at `7b9b04d` — see the commit. The two that matter most: **§4b's dismissal of a real
+      ~17 % serial-time regression is not established** (neither 24 MP fixture carried real 24 MP
+      detail — 0.157 and 0.22 bpp against 1.86 bpp native), and **the SPEC-123 Python harness's
+      positive control is now dead**, so re-running it reports a green whose control cannot fail.
+      ⚡ **Verify drove the negative-control cross-product and the DEC had it wrong**: the spread is
+      three-way not five-way, and the `quality`-side asymmetric revert leaves AC-2 **green** — only
+      `sink`-side flips it. Coverage is still complete, but now because it was driven, not assumed.
+      **Item 3 ruled acceptable-with-follow-up**: the in-test `cargo build` is the only lever that
+      discriminates, but it costs ~+15–25 min CI per PR across 7 job instances, leaks a 1.3 GB dir
+      per test process (13 dirs / 16 GB reclaimed from one session), and ships to crates.io because
+      `exclude` does not cover `/tests`. Filed on STAGE-042.
+      **Withdrew build follow-up #3 as a false finding** — the `Count:` line never undercounted.
+      ⚖ **`cycle:` HELD at `verify` for maintainer re-approval, not advanced** — PR #184 merged
+      (`0107a49`) while the punch list was being processed.
 - [ ] **ship**

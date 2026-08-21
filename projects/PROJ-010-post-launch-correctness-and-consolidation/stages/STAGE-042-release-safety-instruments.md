@@ -325,6 +325,25 @@ failures on documented paths.
   **Severity when filed, measured at SPEC-123's verify:** not reachable in this repo's own CI — no
   committed `*.build.lock` exists and no workflow runs `build --check`/`--frozen`. User-facing only.
 
+- [ ] (not yet written) — [S] **`tests/avif_tile_pin.rs` builds a whole cargo binary inside a
+  `#[test]`, and the costs are measured.** Verify ruled it **acceptable as shipped** — it is the only
+  lever that discriminates a pinned build from an unpinned one (DEC-094 leg E), isolation is complete,
+  and it passes on all three OSes. But three costs were measured and should be paid down deliberately:
+  **(a) CI compute.** `avif` is a default feature, so the probe build runs in **7 job instances per
+  PR**. Against a pre-SPEC-124 run on `main` (`2bd74b02`): windows 18m→20m, ubuntu 12m→14m50s, macos
+  10m→14m, avif 13m→15m9s — roughly **+15–25 min of CI compute per PR**, on a repo whose changed-paths
+  gate exists precisely to stop paying ~15 min for nothing.
+  **(b) Nothing ever removes the probe dir.** It is **1.3 GB**, PID-named, and leaked once per test
+  process. One verify session left **13 dirs / 16 GB** in `$TMPDIR`, reclaimed by the orchestrator
+  2026-08-21 — so this is measured, not hypothetical. CI runners are ephemeral; a developer running
+  `cargo test` is not. `tempfile::TempDir` or one `remove_dir_all` fixes it.
+  **(c) `tests/` ships to crates.io.** `exclude` covers `/decisions /docs /projects /reports
+  /guidance /feedback /scripts /.github /.claude` but **not `/tests`**, and `cargo package --list`
+  confirms `tests/avif_tile_pin.rs` in the tarball. A downstream consumer or distro packager running
+  `cargo test` therefore triggers a nested `cargo build --features image/rayon`, needing `cargo` on
+  `PATH`, registry access, and a writable tree. crustyimg is a **published library**. Adding `/tests`
+  to `exclude` is one line, but it is a packaging-policy call, not a mechanical fix.
+
 - [ ] (not yet written) — [S] **Nothing with real 24 MP detail has ever been measured through the
   AVIF encoder, and one open finding depends on it.** SPEC-124's DEC-096 §4b measured a real,
   reproducible **~17 % serial-time regression at N=1** on a 6000×4000 fixture, then dismissed it as
@@ -396,8 +415,8 @@ failures on documented paths.
   SPEC-121 recorded it only in DEC-095's Consequences prose, and a test comment cited a
   `docs/backlog.md` entry that was never written; both are corrected on that branch.
 
-**Count:** 2 framed (SPEC-118, SPEC-125) / **2 shipped (SPEC-123, SPEC-124)** / 9 pending /
-1 chore done / 1 closed-by-a-spec (the `[env]` item) = **15 items**
+**Count:** 2 framed (SPEC-118, SPEC-125) / **2 shipped (SPEC-123, SPEC-124)** / 10 pending /
+1 chore done / 1 closed-by-a-spec (the `[env]` item) = **16 items**
 
 > ⚠ The categories now **reconcile to the literal `- [ ]` + `- [x]` tally** (9 + 5 = 14). They did
 > not before: SPEC-124's build closed the `[env]` item without giving the closure a category, which
