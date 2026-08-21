@@ -50,15 +50,15 @@ cost:
     - cycle: build
       agent: claude-sonnet-5
       interface: claude-code
-      tokens_total: 237961353
-      duration_minutes: 103
+      tokens_total: 246724470
+      duration_minutes: 124
       recorded_at: 2026-08-21
       tokens_breakdown:
-        input: 1308
-        output: 465113
-        cache_creation: 1028211
-        cache_read: 236466721
-      estimated_usd: 81.78
+        input: 1340
+        output: 474445
+        cache_creation: 1040103
+        cache_read: 245208582
+      estimated_usd: 84.58
       note: >
         MEASURED — summed from the session transcript's per-message `usage`,
         priced at Sonnet anchors ($3/$15 per MTok) with cache multipliers
@@ -67,6 +67,17 @@ cost:
         opened — an earlier snapshot at ~52 min read $49.25, 37% under this
         figure, matching this repo's own measured pattern for premature
         readings.
+        ⚠ CORRECTED BY THE ORCHESTRATOR (2026-08-21). The cycle recorded
+        237961353 / $81.78 / 103m, which prices EXACTLY right at its own
+        snapshot — 654 of 670 usage-bearing messages — but a cycle cannot count
+        the messages that write its own cost block. Delta +8,763,117 tokens /
+        +$2.80. This is the SMALLEST proportional undercount in the wave (3.4%,
+        against SPEC-124's 7.1%) precisely because the reading was taken after
+        CI settled rather than at "PR opened" — the discipline worked, it just
+        cannot close the last gap. All 670 messages report claude-sonnet-5.
+        Transcript identified by CONTENT (`bb308ebc`, the one carrying the
+        SPEC-125 build dispatch) — a naive search matched TWO sessions, the
+        other being the orchestrator's own.
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -80,12 +91,21 @@ cost:
 **Measured on SPEC-121's branch binary, 2026-08-18**, 32×32 16-bit RGB PNG:
 
 ```
-convert --format webp
+web
   png → webp · 4791 → 686 B (86% smaller) · ssim 100.0
 ```
 
-The output round-trips as **8-bit**. `web` reaches it too — `optimize`'s
-smallest-candidate search picks WebP for that fixture.
+The output round-trips as **8-bit**.
+
+> ⚠ **Corrected at build (2026-08-21), by driving the binary rather than trusting
+> this prose.** The original text attributed this line to `convert --format webp`.
+> **`convert` never scores at all**, so it prints no `ssim` line — the false-perfect
+> score belongs to **`web`**, whose `optimize` smallest-candidate search picks WebP
+> for this fixture and then reports on it. The depth-downgrade half of the claim is
+> correct for **both** verbs and is unaffected; only the attribution of the `ssim`
+> line was wrong. Left visible rather than silently rewritten, because it is the
+> reason Call 1's "derive it, don't copy it" instruction paid for itself: the same
+> habit that caught this then surfaced AVIF and the ICO round-trip defect.
 
 Two defects, and the second is the one that stings:
 
