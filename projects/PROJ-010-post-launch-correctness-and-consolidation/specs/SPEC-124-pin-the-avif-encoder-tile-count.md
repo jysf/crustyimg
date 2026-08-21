@@ -2,7 +2,7 @@
 task:
   id: SPEC-124
   type: story
-  cycle: design
+  cycle: verify
   blocked: true
   priority: high
   complexity: S
@@ -194,7 +194,7 @@ once the variance is gone.
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
 - **Branch:** `fix/spec-124-pin-the-avif-encoder-tile-count`
-- **PR:** #TBD (opened at the end of this build; see PR body for the link)
+- **PR:** [#184](https://github.com/jysf/crustyimg/pull/184)
 - **All acceptance criteria met?** yes — AC-1 through AC-9, see the checklist above and DEC-096.
 - **New decisions emitted:** DEC-096 — pin the AVIF tile count to 1, with the full Call 2
   measurement (`decisions/DEC-096-pin-the-avif-tile-count-to-one.md`).
