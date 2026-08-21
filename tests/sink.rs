@@ -611,3 +611,384 @@ fn lossless_target_does_not_report_a_downgrade() {
         "PNG can hold 16-bit — must not warn; stderr: {stderr}"
     );
 }
+
+// ── SPEC-125: the diagnostic widens to every MEASURED 8-bit-only target ───────
+//
+// Call 1 measured the real per-format capability behaviourally (encode a
+// >8-bit source, decode the result back, read the depth that survived) rather
+// than trusting a hand-written list — see `src/sink/mod.rs`'s module header
+// and DEC-097 for the full table. BMP, lossless WebP and AVIF are 8-bit-only
+// and now warn; PNG and TIFF hold the full depth and stay silent, confirming
+// the prior. GIF and ICO are deliberately excluded, for two DIFFERENT reasons
+// that are neither "this format holds the depth": GIF's own encoder REJECTS a
+// >8-bit source outright (a loud, typed error — `gif_target_errors_loudly...`
+// below pins that it stays that way), and ICO's PNG-in-ICO round-trip cannot
+// be read back by `image`'s own ICO decoder for ANY source colour type — a
+// defect orthogonal to bit depth, filed separately rather than fixed here
+// (`ico_round_trip_defect_is_orthogonal_to_depth` below pins the measurement).
+
+/// AC-1: `convert --format webp` on a >8-bit source warns on stderr, and `-o -`
+/// stdout stays pure WebP bytes — no diagnostic text leaks onto the pipe
+/// (AGENTS §11).
+#[test]
+fn lossless_webp_reports_the_depth_downgrade() {
+    const BIN: &str = env!("CARGO_BIN_EXE_crustyimg");
+
+    let tmp = tempfile::tempdir().unwrap();
+    let src = tmp.path().join("src16.png");
+    std::fs::write(&src, solid_png_16bit(16, 16)).unwrap();
+
+    let output = std::process::Command::new(BIN)
+        .args([
+            "convert",
+            src.to_str().unwrap(),
+            "--format",
+            "webp",
+            "-o",
+            "-",
+        ])
+        .output()
+        .expect("failed to run convert");
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("16-bit source downgraded to 8-bit for lossless WebP output"),
+        "convert to lossless WebP must report the downgrade; stderr: {stderr}"
+    );
+    assert!(
+        output.stdout.starts_with(b"RIFF") && output.stdout[8..12] == *b"WEBP",
+        "-o - stdout must stay pure WebP bytes, no diagnostic text; got {:?}",
+        &output.stdout[..output.stdout.len().min(16)]
+    );
+}
+
+/// AC-2: the warning fires for every MEASURED 8-bit-only target and stays
+/// silent for targets that genuinely hold the depth — table-driven, so a
+/// dependency capability change goes red on its own rather than a
+/// hand-maintained list quietly rotting
+/// ([[mechanical-sweeps-need-a-mechanical-check]]).
+#[test]
+fn eight_bit_only_targets_all_warn_and_others_do_not() {
+    const BIN: &str = env!("CARGO_BIN_EXE_crustyimg");
+
+    let tmp = tempfile::tempdir().unwrap();
+    let src = tmp.path().join("src16.png");
+    std::fs::write(&src, solid_png_16bit(16, 16)).unwrap();
+
+    // (extension, target label in the warning text, should this target warn?)
+    let cases: &[(&str, &str, bool)] = &[
+        ("bmp", "BMP", true),
+        ("webp", "lossless WebP", true),
+        ("png", "PNG", false),
+        ("tiff", "TIFF", false),
+    ];
+
+    for (ext, label, should_warn) in cases {
+        let out = tmp.path().join(format!("out.{ext}"));
+        let output = std::process::Command::new(BIN)
+            .args([
+                "convert",
+                src.to_str().unwrap(),
+                "--format",
+                ext,
+                "-o",
+                out.to_str().unwrap(),
+            ])
+            .output()
+            .unwrap_or_else(|e| panic!("failed to run convert --format {ext}: {e}"));
+        assert!(
+            output.status.success(),
+            "convert --format {ext} must succeed; stderr: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        if *should_warn {
+            assert!(
+                stderr.contains(&format!(
+                    "16-bit source downgraded to 8-bit for {label} output"
+                )),
+                "{ext} is measured 8-bit-only and must warn; stderr: {stderr}"
+            );
+        } else {
+            assert!(
+                !stderr.contains("downgraded to 8-bit"),
+                "{ext} is measured to hold 16-bit and must not warn; stderr: {stderr}"
+            );
+        }
+    }
+
+    // AVIF: feature-gated (default-on; absent under --no-default-features), and
+    // measured to be 8-bit-only too — same class as BMP/lossless WebP above.
+    #[cfg(feature = "avif")]
+    {
+        let out = tmp.path().join("out.avif");
+        let output = std::process::Command::new(BIN)
+            .args([
+                "convert",
+                src.to_str().unwrap(),
+                "--format",
+                "avif",
+                "-o",
+                out.to_str().unwrap(),
+            ])
+            .output()
+            .expect("failed to run convert --format avif");
+        assert!(
+            output.status.success(),
+            "stderr: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            stderr.contains("16-bit source downgraded to 8-bit for AVIF output"),
+            "AVIF is measured 8-bit-only and must warn; stderr: {stderr}"
+        );
+    }
+}
+
+/// AC-3, driven not reasoned: `web`/`optimize` reach the widened warning too —
+/// the smallest-candidate search, not `convert`'s direct `--format` pin, is how
+/// most users hit this defect.
+#[test]
+fn web_and_optimize_reach_the_widened_downgrade_warning() {
+    const BIN: &str = env!("CARGO_BIN_EXE_crustyimg");
+
+    let tmp = tempfile::tempdir().unwrap();
+    let src = tmp.path().join("src16.png");
+    // A small, near-solid 16-bit source: the smallest-candidate search picks
+    // lossless WebP for content like this (measured), reaching the widened
+    // warning without any `--format` pin.
+    std::fs::write(&src, solid_png_16bit(16, 16)).unwrap();
+
+    for verb in ["web", "optimize"] {
+        let out = tmp.path().join(format!("{verb}_out"));
+        let output = std::process::Command::new(BIN)
+            .args([verb, src.to_str().unwrap(), "-o", out.to_str().unwrap()])
+            .output()
+            .unwrap_or_else(|e| panic!("failed to run {verb}: {e}"));
+        assert!(
+            output.status.success(),
+            "{verb} must succeed; stderr: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            stderr.contains("downgraded to 8-bit"),
+            "{verb}'s candidate search must reach the widened warning; stderr: {stderr}"
+        );
+    }
+}
+
+/// AC-4 (Call 2): a depth-reducing winner must not report a bare, falsely
+/// perfect SSIMULACRA2 score — the scorer converts both sides to 8-bit sRGB
+/// (DEC-019), so it cannot see the depth it just lost, and the line must say
+/// so rather than stay silent about it.
+#[test]
+fn ssim_line_is_qualified_across_a_depth_change() {
+    const BIN: &str = env!("CARGO_BIN_EXE_crustyimg");
+
+    let tmp = tempfile::tempdir().unwrap();
+    let src = tmp.path().join("src16.png");
+    std::fs::write(&src, solid_png_16bit(16, 16)).unwrap();
+    let out = tmp.path().join("web_out");
+
+    let output = std::process::Command::new(BIN)
+        .args(["web", src.to_str().unwrap(), "-o", out.to_str().unwrap()])
+        .output()
+        .expect("failed to run web");
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let summary = stderr
+        .lines()
+        .find(|l| l.contains("ssim"))
+        .unwrap_or_else(|| panic!("no ssim line in stderr: {stderr}"));
+
+    // A bare, unqualified score ends the line right after the number — Call 2's
+    // whole point is that this must never survive a depth-reducing winner.
+    assert!(
+        !summary.trim_end().ends_with("100.0"),
+        "a depth-reducing winner must not report a bare ssim score; got: {summary}"
+    );
+    assert!(
+        summary.contains("ssim 100.0 (8-bit comparison; source was 16-bit)"),
+        "the ssim line must be qualified with the source's real depth; got: {summary}"
+    );
+}
+
+/// AC-5, the negative control, driven both ways: an 8-bit source through the
+/// same verbs as AC-1/AC-2/AC-3 warns NOWHERE, on any of the newly-widened
+/// targets or the pre-existing ones, and the ssim line stays unqualified.
+/// Byte-identity against `main` was driven separately (DEC-097): `convert`
+/// and `web` on an 8-bit source produced byte-identical output and
+/// byte-identical (empty) stderr before and after this change.
+#[test]
+fn eight_bit_source_warns_nowhere() {
+    const BIN: &str = env!("CARGO_BIN_EXE_crustyimg");
+
+    let tmp = tempfile::tempdir().unwrap();
+    let src = tmp.path().join("src8.png");
+    std::fs::write(&src, solid_png(16, 16, [40, 20, 10])).unwrap();
+
+    for ext in ["bmp", "webp", "png", "tiff"] {
+        let out = tmp.path().join(format!("out.{ext}"));
+        let output = std::process::Command::new(BIN)
+            .args([
+                "convert",
+                src.to_str().unwrap(),
+                "--format",
+                ext,
+                "-o",
+                out.to_str().unwrap(),
+            ])
+            .output()
+            .unwrap_or_else(|e| panic!("failed to run convert --format {ext}: {e}"));
+        assert!(
+            output.status.success(),
+            "stderr: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(
+            output.stderr.is_empty(),
+            "8-bit source through {ext} must warn nowhere; stderr: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    #[cfg(feature = "avif")]
+    {
+        let out = tmp.path().join("out.avif");
+        let output = std::process::Command::new(BIN)
+            .args([
+                "convert",
+                src.to_str().unwrap(),
+                "--format",
+                "avif",
+                "-o",
+                out.to_str().unwrap(),
+            ])
+            .output()
+            .expect("failed to run convert --format avif");
+        assert!(
+            output.status.success(),
+            "stderr: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(
+            output.stderr.is_empty(),
+            "8-bit source through avif must warn nowhere; stderr: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    let web_out = tmp.path().join("web_out");
+    let output = std::process::Command::new(BIN)
+        .args([
+            "web",
+            src.to_str().unwrap(),
+            "-o",
+            web_out.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run web");
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !stderr.contains("downgraded to 8-bit"),
+        "8-bit source through web must not warn; stderr: {stderr}"
+    );
+    assert!(
+        !stderr.contains("8-bit comparison"),
+        "8-bit source's ssim line must not be qualified; stderr: {stderr}"
+    );
+}
+
+/// Pins the GIF finding from Call 1's measurement: a >8-bit source is REJECTED
+/// outright (a typed encode error), not silently narrowed — so GIF correctly
+/// stays OUT of the depth-downgrade warning set. If `image` ever changes this
+/// to a silent downgrade instead, this test goes red and GIF needs revisiting.
+#[test]
+fn gif_target_errors_loudly_instead_of_downgrading() {
+    const BIN: &str = env!("CARGO_BIN_EXE_crustyimg");
+
+    let tmp = tempfile::tempdir().unwrap();
+    let src = tmp.path().join("src16.png");
+    std::fs::write(&src, solid_png_16bit(16, 16)).unwrap();
+    let out = tmp.path().join("out.gif");
+
+    let output = std::process::Command::new(BIN)
+        .args([
+            "convert",
+            src.to_str().unwrap(),
+            "--format",
+            "gif",
+            "-o",
+            out.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run convert --format gif");
+    assert!(
+        !output.status.success(),
+        "GIF must reject a >8-bit source outright, not silently narrow it"
+    );
+    assert!(
+        !out.exists(),
+        "a rejected encode must not leave a partial/mislabeled file behind"
+    );
+}
+
+/// Pins the ICO finding from Call 1's measurement: `image`'s own ICO decoder
+/// cannot read back a PNG-in-ICO frame for ANY source colour type — even a
+/// plain opaque 8-bit RGB source with no depth involved at all — so this is
+/// orthogonal to bit depth, not a case for the depth-downgrade warning. Filed
+/// as its own STAGE-042 backlog item rather than fixed here.
+#[test]
+fn ico_round_trip_defect_is_orthogonal_to_depth() {
+    const BIN: &str = env!("CARGO_BIN_EXE_crustyimg");
+
+    let tmp = tempfile::tempdir().unwrap();
+    // A plain 8-bit RGB source — no alpha, no >8-bit depth anywhere in play.
+    let src = tmp.path().join("src8.png");
+    std::fs::write(&src, solid_png(16, 16, [40, 20, 10])).unwrap();
+    let out = tmp.path().join("out.ico");
+
+    let convert_output = std::process::Command::new(BIN)
+        .args([
+            "convert",
+            src.to_str().unwrap(),
+            "--format",
+            "ico",
+            "-o",
+            out.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run convert --format ico");
+    assert!(
+        convert_output.status.success(),
+        "the encode itself succeeds (this is not the defect); stderr: {}",
+        String::from_utf8_lossy(&convert_output.stderr)
+    );
+
+    // The written file cannot be read back by `image`'s own ICO decoder —
+    // measured independent of source depth, so it is NOT this spec's fix.
+    let bytes = std::fs::read(&out).unwrap();
+    assert!(
+        ::image::load_from_memory_with_format(&bytes, ImageFormat::Ico).is_err(),
+        "documents a pre-existing `image` crate limitation (STAGE-042 backlog); \
+         if this starts passing, the ICO round-trip defect has been fixed upstream \
+         and this finding should be revisited"
+    );
+}

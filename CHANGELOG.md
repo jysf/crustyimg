@@ -32,6 +32,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   is **1.5–2.5× end to end** once decode and encode are counted. Output bytes change
   for every resize.
 
+- **`convert`/`web`/`optimize` now warn on stderr for every format that cannot hold a
+  >8-bit source, not only JPEG and lossy WebP.** Lossless WebP, BMP, and AVIF have no
+  16-bit mode either and were silently narrowing a 16-bit source to 8 bits with no
+  diagnostic — the exact defect the JPEG/lossy-WebP warning was meant to catch, on
+  three more formats. PNG and TIFF hold the full depth and stay silent, as before. GIF
+  and ICO stay unwarned too, for unrelated reasons: GIF already rejects a >8-bit source
+  outright with a clear error rather than narrowing it silently, and ICO has a
+  pre-existing round-trip defect of its own (tracked separately) that a depth warning
+  would only misdescribe.
+
+- **`web`/`optimize`'s reported SSIMULACRA2 score no longer claims a perfect match when
+  it can't see the change that just happened.** The score is computed on 8-bit
+  renderings, so a 16-bit source re-encoded to one of the formats above could read
+  `ssim 100.0` — a "pixel-perfect" verdict at the exact moment half the depth was
+  thrown away. The line now says so: `ssim 100.0 (8-bit comparison; source was
+  16-bit)`, on the default summary, `--explain human`, and `--explain json`/`--json`
+  alike (the JSON gains an additive `ssim_source_depth` field, present only then).
+  No output bytes change; this is a reporting fix only.
+
 - **`optimize`/`web`/`apply --recipe web`/`build` no longer ship an SVG, HEIC, or RAW
   source's raw bytes under a raster label they never produced.** For these three
   families, `optimize`'s auto-decide passthrough (no candidate beats the source on

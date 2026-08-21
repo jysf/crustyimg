@@ -246,7 +246,11 @@ Make an image web-ready in one step: bake EXIF orientation + strip metadata →
 **downscale** the long edge to a web-friendly default (**2048**, aspect preserved,
 never upscaled; `--max N` overrides) → the **fast AVIF-aware decision** (below) that
 picks the smallest modern format beating the **downscaled** image → **report the
-winner's SSIMULACRA2 score**. The downscale to a dimension bound is the contract, so an
+winner's SSIMULACRA2 score** — qualified when the winning format cannot hold the
+source's real bit depth, since the score is computed at 8-bit either way and would
+otherwise read a false-perfect match for a depth reduction it cannot see (`ssim 100.0
+(8-bit comparison; source was 16-bit)`, plus an additive `ssim_source_depth` in `--json`
+— SPEC-125, DEC-097). The downscale to a dimension bound is the contract, so an
 already-small source **above** that bound can re-encode **larger than the original** —
 reported honestly (`N% larger`, plus a `larger_than_source` flag in `--json`), never
 hidden (SPEC-090, DEC-075). For an *unconditional* never-bigger guarantee that keeps

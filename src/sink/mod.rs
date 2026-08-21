@@ -102,16 +102,28 @@ pub const FAST_LOSSY_QUALITY: u8 = 85;
 #[cfg(feature = "avif")]
 pub const AVIF_TILE_THREADS: usize = 1;
 
-// ── SPEC-121, Call 3: 8-bit-only lossy targets report the downgrade ───────────
+// ── SPEC-121/125: 8-bit-only targets report the downgrade ─────────────────────
 //
-// JPEG and lossy WebP can only hold 8 bits per channel. `image`'s own
-// `write_to`/`write_with_encoder` already silently downgrades a >8-bit
-// source for them ("methods on `DynamicImage` try to automatically convert
-// the image to some color type supported by the encoder" — `image`'s own
-// doc comment on `DynamicImage::write_with_encoder`); this only makes that
-// existing, silent downgrade visible, in the spirit of SPEC-090's honest
-// size reporting. Not a new policy — one stderr line each, at the two sites
-// Call 3 named.
+// `image`'s own `write_to`/`write_with_encoder` silently downgrades a >8-bit
+// source for any encoder that cannot hold more than 8 bits per channel
+// ("methods on `DynamicImage` try to automatically convert the image to some
+// color type supported by the encoder" — `image`'s own doc comment on
+// `DynamicImage::write_with_encoder`); this only makes that existing, silent
+// downgrade visible, in the spirit of SPEC-090's honest size reporting.
+//
+// SPEC-121 Call 3 covered JPEG and lossy WebP. SPEC-125 Call 1 widened this to
+// every target MEASURED to be 8-bit-only, rather than trusting a hand-written
+// list (see DEC-097 for the full table): BMP, lossless WebP, and AVIF now warn
+// too. PNG and TIFF hold the full depth (measured) and stay silent. GIF and ICO
+// are deliberately NOT covered here, for two different reasons, neither of
+// which is "this format holds the depth":
+// - GIF's encoder REJECTS a >8-bit source outright (a typed `SinkError::Encode`,
+//   exit 5) rather than silently narrowing — the user is already told loudly,
+//   so a warning here would misdescribe a hard failure as a soft downgrade.
+// - ICO's PNG-in-ICO round-trip cannot be read back by `image`'s own ICO
+//   decoder for ANY source colour type, 8-bit RGB included — a defect that is
+//   orthogonal to bit depth (filed as its own STAGE-042 backlog item, not
+//   fixed here); labelling it a depth downgrade would misattribute it.
 
 /// The warning line for a source deeper than 8 bits per channel encoded to
 /// `target`, or `None` when `color` fits in 8 bits and nothing is lost.
@@ -739,6 +751,12 @@ pub fn encode_to_bytes_with(
         // extended to speed by DEC-068 and to the thread pin by DEC-096).
         #[cfg(feature = "avif")]
         {
+            // SPEC-125, Call 1: AVIF is 8-bit-only too (measured — `image`'s
+            // AVIF encoder silently narrows a >8-bit source exactly like
+            // JPEG/lossy WebP; see DEC-097's table).
+            if let Some(w) = eight_bit_downgrade_warning(img.pixels().color(), "AVIF") {
+                eprintln!("{w}");
+            }
             let q = quality.unwrap_or(AVIF_DEFAULT_QUALITY).clamp(1, 100);
             let s = speed.unwrap_or(AVIF_SPEED).clamp(1, 10);
             let encoder =
@@ -783,6 +801,24 @@ pub fn encode_to_bytes_with(
             return Ok(memory.to_vec());
         }
         // quality == None → lossless (fall through to write_to below).
+    }
+
+    // SPEC-125, Call 1: BMP and lossless WebP are 8-bit-only too (measured —
+    // both reach this fallback `write_to` path and both silently narrow a
+    // >8-bit source, same class as JPEG/lossy WebP/AVIF above). GIF and ICO
+    // also reach this path but are deliberately NOT covered — see the module
+    // header comment for why (GIF errors instead of narrowing; ICO's defect
+    // is orthogonal to depth). PNG and TIFF hold the full depth and stay
+    // silent.
+    if matches!(format, ImageFormat::Bmp | ImageFormat::WebP) {
+        let target = if format == ImageFormat::Bmp {
+            "BMP"
+        } else {
+            "lossless WebP"
+        };
+        if let Some(w) = eight_bit_downgrade_warning(img.pixels().color(), target) {
+            eprintln!("{w}");
+        }
     }
 
     // All other (format, quality) cases: use the default write_to path.

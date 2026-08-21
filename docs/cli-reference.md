@@ -121,7 +121,10 @@ crustyimg thumbnail *.png --size 150 --out-dir thumbs/
 Make an image web-ready in one step: bake orientation + strip metadata, **downscale**
 the long edge to a web-friendly default (≤ 2048 px, never upscaling), pick the smallest
 modern format that beats the **downscaled** image (AVIF for photos, lossless WebP/PNG for
-graphics), and **report its SSIMULACRA2 score**. Size-insensitive: a 24 MP photo finishes
+graphics), and **report its SSIMULACRA2 score** — qualified (`"(8-bit comparison; source
+was N-bit)"`, and an additive `ssim_source_depth` in `--json`) when the winning format
+cannot hold the source's real bit depth, since the score itself is computed at 8-bit and
+would otherwise read a false-perfect match. Size-insensitive: a 24 MP photo finishes
 as fast as a small one because it downscales first. The downscale to a dimension bound is
 the contract, so an already-small source **above** that bound can come back **larger than
 the original** — that is reported honestly (`N% larger`, and a `larger_than_source` flag in
@@ -421,7 +424,10 @@ because they answer two different questions:
 ### The decision report — `optimize` / `web` / `apply`
 `--json` emits one line of `crustyimg.optimize.explain/v1` to stdout: the classified
 `class`, every candidate format with its bytes, the `winner`, `savings_percent`, and
-`ssim` when the run scored. On `optimize` it is a synonym for `--explain=json` (pass
+`ssim` when the run scored (plus `ssim_source_depth`, additive, when the score was taken
+against a winner whose format narrowed the source's real bit depth — the comparison runs
+at 8-bit either way, so this flags when that comparison was blind to a depth reduction).
+On `optimize` it is a synonym for `--explain=json` (pass
 one or the other, not both). Add `--timing` for a gated `timing` object
 (`decode_ms`/`encode_ms`/`total_ms`); `--timing` alone reports to stderr instead.
 
