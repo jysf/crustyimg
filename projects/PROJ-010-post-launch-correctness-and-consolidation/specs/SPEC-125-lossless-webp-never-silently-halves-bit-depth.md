@@ -50,15 +50,15 @@ cost:
     - cycle: build
       agent: claude-sonnet-5
       interface: claude-code
-      tokens_total: 227685637
-      duration_minutes: 82
+      tokens_total: 237961353
+      duration_minutes: 103
       recorded_at: 2026-08-21
       tokens_breakdown:
-        input: 1270
-        output: 456289
-        cache_creation: 1010260
-        cache_read: 226217818
-      estimated_usd: 78.50
+        input: 1308
+        output: 465113
+        cache_creation: 1028211
+        cache_read: 236466721
+      estimated_usd: 81.78
       note: >
         MEASURED — summed from the session transcript's per-message `usage`,
         priced at Sonnet anchors ($3/$15 per MTok) with cache multipliers
