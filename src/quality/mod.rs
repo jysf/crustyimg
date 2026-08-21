@@ -43,6 +43,16 @@ pub const MAX_SEARCH_ITERS: u8 = 8;
 #[cfg(feature = "avif")]
 const AVIF_SPEED: u8 = 6;
 
+/// The AV1 tile count pinned on every AVIF candidate (SPEC-124, DEC-096).
+/// MUST equal `crate::sink::AVIF_TILE_THREADS` — same cross-sync contract as
+/// [`AVIF_SPEED`] above, and for the same layering reason. A candidate probed
+/// at a different tile count than the sink ultimately writes at is a
+/// different bitstream (tile boundaries reset entropy-coding contexts), so a
+/// mismatch here breaks the byte-budget search's length guarantee, not just
+/// its determinism.
+#[cfg(feature = "avif")]
+const AVIF_TILE_THREADS: usize = 1;
+
 // ── Errors ────────────────────────────────────────────────────────────────────
 
 /// Errors from perceptual scoring or the quality search (DEC-007 style: typed,
@@ -399,16 +409,18 @@ fn encode_candidate_bytes_with(
         }
         // AVIF candidate encode (SPEC-018, DEC-020) — IDENTICAL to the sink's
         // AVIF arm (`crate::sink::encode_to_bytes_with`): same `AvifEncoder`, same
-        // speed resolution (`None` → `AVIF_SPEED`), same `1..=10` speed clamp and
-        // `1..=100` quality clamp. The byte-budget / perceptual guarantee depends
-        // on this probe matching the bytes the sink writes.
+        // speed resolution (`None` → `AVIF_SPEED`), same `1..=10` speed clamp,
+        // same `1..=100` quality clamp, and the same thread-count pin
+        // (`AVIF_TILE_THREADS`, SPEC-124/DEC-096). The byte-budget / perceptual
+        // guarantee depends on this probe matching the bytes the sink writes.
         #[cfg(feature = "avif")]
         ImageFormat::Avif => {
             let q = quality.clamp(1, 100);
             let s = speed.unwrap_or(AVIF_SPEED).clamp(1, 10);
             let mut cursor = Cursor::new(Vec::new());
             let encoder =
-                ::image::codecs::avif::AvifEncoder::new_with_speed_quality(&mut cursor, s, q);
+                ::image::codecs::avif::AvifEncoder::new_with_speed_quality(&mut cursor, s, q)
+                    .with_num_threads(Some(AVIF_TILE_THREADS));
             reference
                 .write_with_encoder(encoder)
                 .map_err(|e| QualityError::Encode(e.to_string()))?;
