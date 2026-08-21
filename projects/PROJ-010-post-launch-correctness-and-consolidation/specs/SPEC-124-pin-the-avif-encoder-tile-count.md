@@ -51,6 +51,27 @@ cost:
         Un-metered main-loop design cycle (AGENTS §4). Framed on the
         maintainer's 2026-08-18 ruling to pin now and ride SPEC-121/122's wave
         rather than pay a second lockfile migration later.
+    - cycle: build
+      agent: claude-sonnet-5
+      interface: claude-code
+      tokens_total: 150697084
+      duration_minutes: 87
+      recorded_at: 2026-08-20
+      tokens_breakdown:
+        input: 958
+        output: 389034
+        cache_creation: 858447
+        cache_read: 149448645
+      estimated_usd: 53.89
+      note: >
+        MEASURED — transcript sum over 479 assistant messages with usage
+        (session c900b43d-a96a-4a41-8d08-2d2d7dce4d62), first→last timestamp.
+        Priced at Sonnet anchors ($3/$15 per MTok; cache_creation x1.25,
+        cache_read x0.10) — the model that actually ran, per AGENTS §4, not
+        the Opus anchors the build prompt named (see Build Completion
+        Deviations #1). Includes reading CI to completion after push (one
+        long background wait via `gh pr checks --watch`, read once after
+        settling, not polled).
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -159,7 +180,11 @@ once the variance is gone.
 - [x] **AC-9.** Clean full matrix, fresh per-leg `CARGO_TARGET_DIR`, sequential:
       default, `--no-default-features`, `--features webp-lossy`. Clippy and
       `fmt --check` each. Then read the CI legs individually.
-      → all three legs green locally; CI read after push (see Build Completion).
+      → all three legs green locally; CI read individually after push (`gh pr checks 184`,
+      not the `--watch` summary — see Build Completion): all 16 real checks pass —
+      3-OS `build/test/clippy/fmt` matrix, `avif`/`webp-lossy`/`heic`×2-OS features,
+      lean build, msrv, DCO, front-matter, cost-capture audit, supply-chain policy.
+      Release/deploy jobs show `skipping` (tag-only), as expected on a PR.
 
 ## Failing Tests
 
@@ -243,6 +268,18 @@ once the variance is gone.
   3. The pre-existing STAGE-042 "Count:" summary line (`8 pending`) undercounts by one against a
      literal `- [ ]` grep (`9`) even before this spec's edit — didn't originate here (checked via
      `git show HEAD:...`), not fixed, flagging so it isn't mistaken for something this build caused.
+  4. `just wasm-check` fails on this machine — `rust-lld: Library not loaded: @rpath/libLLVM.dylib` —
+     and reproduces identically on a clean `main` checkout with none of this diff's changes, so it is
+     a pre-existing local rustup/wasm32 toolchain gap, not something this spec broke. Matches
+     STAGE-042's own "no CI leg runs `just wasm-test`" finding (still filed, still not this spec's to
+     fix) — this build could not locally verify the wasm target compiles, though nothing in the diff
+     (a builder-pattern setter call) has wasm-specific implications, and the `avif feature` CI job
+     passed, which exercises the same encode call on native.
+  5. **`gh pr checks --watch`'s own summary line is not reliable** — it reported `451 pass / 0 fail /
+     223 pending` and exited 0, but a direct `gh pr checks 184` immediately after showed every real
+     check `pass` and the rest `skipping` (release/deploy jobs, tag-only). Read the direct snapshot,
+     not the watcher's tally, for the actual verdict — worth a line in a future prompt's CI-reading
+     guardrail.
 
 ### Build-phase reflection (3 questions, short answers)
 
