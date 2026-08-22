@@ -303,13 +303,50 @@ const chrome = spawn(
 );
 cleanups.push(() => chrome.kill());
 
+// Drain Chrome's stderr. Two reasons, and the second is not cosmetic: an
+// un-drained pipe fills its buffer (~64 KB) and then BLOCKS the writer, so a
+// chatty Chrome could hang before it ever writes DevToolsActivePort. Keep only
+// the tail — the useful line ("Failed to launch", a sandbox refusal, a missing
+// shared library) is always near the end.
+let chromeErr = "";
+chrome.stderr.setEncoding("utf8");
+chrome.stderr.on("data", (d) => {
+  chromeErr = (chromeErr + d).slice(-4000);
+});
+
+// Fail fast if Chrome dies rather than waiting out the whole budget for a
+// port file that can never appear.
+let chromeExit = null;
+chrome.on("exit", (code, signal) => {
+  chromeExit = signal ? `signal ${signal}` : `exit code ${code}`;
+});
+
+// Chrome startup gets the same budget as every other wait in this file
+// (`waitFor`'s 90 s default). It previously had 100 x 100 ms = 10 s — an order
+// of magnitude tighter than its siblings, for no stated reason — and a cold
+// Chrome on a loaded CI runner misses 10 s routinely. Measured: this was the
+// sole cause of three `pages / build + browser smoke` failures on 2026-08-21,
+// including one on a DOCS-ONLY commit and one on `main`, each dying at almost
+// exactly 10.03 s after the server came up. The identical tree passed on re-run.
+const CHROME_STARTUP_MS = 90_000;
 const portFile = join(profileDir, "DevToolsActivePort");
 let devtoolsPort;
-for (let i = 0; i < 100 && !devtoolsPort; i++) {
+const startupDeadline = Date.now() + CHROME_STARTUP_MS;
+while (!devtoolsPort && chromeExit === null && Date.now() < startupDeadline) {
   await sleep(100);
   if (existsSync(portFile)) devtoolsPort = readFileSync(portFile, "utf8").split("\n")[0].trim();
 }
-if (!devtoolsPort) await die("headless Chrome never came up (no DevToolsActivePort)");
+if (!devtoolsPort) {
+  const why =
+    chromeExit !== null
+      ? `Chrome exited (${chromeExit}) before writing DevToolsActivePort`
+      : `no DevToolsActivePort after ${CHROME_STARTUP_MS / 1000}s`;
+  await die(
+    `headless Chrome never came up — ${why}\n` +
+      `  binary: ${chromePath}\n` +
+      `  chrome stderr (tail):\n${chromeErr.trim() || "    (nothing on stderr)"}`,
+  );
+}
 
 const targets = await (await fetch(`http://127.0.0.1:${devtoolsPort}/json/list`)).json();
 const page = targets.find((t) => t.type === "page");
