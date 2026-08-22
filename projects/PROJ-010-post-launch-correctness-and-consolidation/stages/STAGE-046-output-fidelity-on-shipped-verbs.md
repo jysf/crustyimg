@@ -229,6 +229,33 @@ Three further reasons the timing is now and not later:
 > **Moved from STAGE-042, 2026-08-16.** Same class as the rest of this stage: the tool
 > silently delivers less than it was given and exits 0.
 
+- [ ] (not yet written) — [S] **`size/truncated-or-corrupt` does not fire on a truncated file, and
+  the rule roster is 11 not 9.** From the read-only CLI-surface audit (F5). **A design question,
+  not a patch** — it comes back as a proposal.
+
+  Every pixel-lane verb warns on a truncated JPEG (`info` prints *"missing end-of-image marker
+  (FF D9)"*), while `lint --select size` over the same files reports `0 error · 0 warn · 0 info`,
+  exit 0. **Mechanism confirmed at source** (`src/lint/mod.rs`, `TruncatedOrCorrupt::check`): the
+  rule keys on `target.decoded()` returning `Err`, and a JPEG missing EOI **decodes successfully
+  with a warning** — `Ok` — so the rule never sees it.
+
+  ⚠ **This is a naming/scope mismatch more than a bug, and the code already knows it.** The rule
+  carries two reasoned carve-outs (`CodecNotBuilt`, `LimitsExceeded`) whose comments name the same
+  structural limit: its severity is fixed at **Error**, so it cannot carry a softer verdict. Those
+  comments already propose `meta/not-inspected` (Info) and `size/over-decode-budget` as follow-ups
+  — **a `size/decodes-with-warnings` rule would be the third of that family** and is probably the
+  right shape. **Do not widen the existing rule's scope; propose the new one.**
+
+  **Why it matters:** a photographer running `lint` over an archive gets an all-clear on files the
+  tool already knows are damaged.
+
+  ⚡ **Fix the roster count while in here — it is load-bearing.** The roster is **11 rules, not 9**:
+  `privacy/gps-metadata-leak` and `size/truncated-or-corrupt` live in `src/lint/mod.rs`, **not**
+  `src/lint/rules.rs` — **and they are the two Error-severity rules, i.e. the ones that gate CI.**
+  Any sweep or doc scoped to `rules.rs` misses exactly the load-bearing half
+  [[mechanical-sweeps-need-a-mechanical-check]]. Authoritative:
+  `grep -rn 'fn id(&self)' -A1 src/lint/`.
+
 - [ ] (not yet written) — [S] ⚠ **PRIORITY: the `IMAGE_EXTENSIONS` gap silently defeats the
   strict gate that a maintainer decision rests on.** Not a new defect — the *consequence* of the
   item below, and it is why that item is no longer routine.

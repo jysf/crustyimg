@@ -189,6 +189,25 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
   designed. `README.md:34-36` says the TOML *runs*, which is true, so SPEC-112's AC-8 holds. But
   a JS consumer starting from `web` gets the downscale without the modernize, and nothing tells
   them. One or two sentences. Queued item #9. Complexity **S**.
+- [ ] (chore) — **Every distributed binary encodes WebP LOSSLESSLY ONLY, and nothing says so.**
+  From the read-only CLI-surface audit (F2). **Not a bug — a consequence of a deliberate feature
+  set**, but an undocumented one with a measured cost. `webp-lossy` is off by default
+  (`Cargo.toml`, `default = ["display","watch","avif"]`) and `dist-workspace.toml` carries **no
+  `features` key**, so every Homebrew / shell-installer / `cargo install` binary ships without it.
+  ⚡ **Measured consequence via `responsive` at 1280w: WebP 2,415,240 B vs JPEG 331,195 B — 7.3×
+  larger — and the WebP sits ABOVE the JPEG in the emitted `<picture>`, so a WebP-capable browser
+  downloads the worse file.** `responsive --formats webp` is a documented example. Wants a docs
+  note, and a ruling on whether `responsive` should **warn** when asked for WebP on a build without
+  `webp-lossy`.
+
+- [ ] (chore) — **`diff` refuses mismatched dimensions with exit 2, and the docs do not warn.**
+  From the audit (F4), **flagged by its own reporter as the lowest-confidence of the eight and
+  possibly wontfix.** Exit 2 is defensible — it is a usage error. The hazard is that the obvious
+  first thing a user tries, diffing `web` output against the original, **always** fails this way,
+  and a CI job testing only `[ $? -eq 7 ]` reads it as a pass. At minimum a note in the `diff` docs
+  pointing at `optimize` (which keeps dimensions) as the diffable verb. ⚖ **Record the wontfix
+  reasoning if that is the call** — the value here is the decision being written down.
+
 - [ ] (chore) — **`gitignore_files_maybe/` is published to crates.io.** Found in the 0.7.0 pre-tag
   pass. `Cargo.toml:15`'s `exclude` lists `/decisions /docs /projects /reports /guidance /feedback
   /scripts /.github /.claude` but **not** `/gitignore_files_maybe`, so `crustyimg0.acorn` (an

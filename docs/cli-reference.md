@@ -96,12 +96,13 @@ visually-correct dimensions. Exactly one **mode** is required:
 | `--fit <WxH>` | Fit inside `W×H`, keeping aspect. **Never upscales.** |
 | `--exact <WxH>` | Resize to exactly `W×H` (ignores aspect). |
 | `--percent <P>` | Scale to `P` percent. |
-| `--fill <WxH>` | Scale to fill `W×H` (may exceed one dimension). |
-| `--cover <WxH>` | Scale to fill then **crop** to exactly `W×H`. |
+| `--fill <WxH>` | Scale to cover `W×H` then **crop** to exactly `W×H`. Output is always exactly `W×H`. |
+| `--cover <WxH>` | Scale until the box is covered — `s = max(W/w, H/h)`. **No crop**, so one dimension usually exceeds the box. May upscale. |
 
 ```sh
 crustyimg resize photo.jpg --max 1200 -o out.jpg
-crustyimg resize photo.jpg --cover 800x800 -o square.jpg
+crustyimg resize photo.jpg --fill 800x800 -o square.jpg   # exactly 800x800
+crustyimg resize photo.jpg --cover 800x800 -o covered.jpg  # covers the box, no crop
 crustyimg resize *.jpg --max 800 --out-dir web/
 ```
 

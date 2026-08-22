@@ -143,7 +143,7 @@ crustyimg resize photo.jpg --max 1200 -o out.jpg   # bound the long edge (never 
 crustyimg resize photo.jpg --exact 800x600 -o out.jpg
 crustyimg resize photo.jpg --percent 50 -o out.jpg
 crustyimg resize photo.jpg --fit 800x800 -o out.jpg    # fit inside, keep aspect
-crustyimg resize photo.jpg --cover 800x800 -o out.jpg  # fill + crop to exactly 800x800
+crustyimg resize photo.jpg --fill 800x800 -o out.jpg   # scale + crop to exactly 800x800
 crustyimg thumbnail photo.jpg --size 200 --square -o thumb.jpg
 ```
 

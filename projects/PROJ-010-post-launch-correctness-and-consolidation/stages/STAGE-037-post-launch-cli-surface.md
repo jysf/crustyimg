@@ -82,6 +82,51 @@ decision to broaden the surface — not on the launch clock.
 
 Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
+- [ ] (not yet written) — [M] ⚡ **`apply --recipe` ignores `--format` on a multi-input batch, and
+  disagrees with itself on the default. Re-driven on `main` at `232c9cf`, 2026-08-22.** From the
+  read-only CLI-surface audit (F6 + F7 — **one defect, not two**).
+
+  | invocation | output format |
+  |---|---|
+  | `apply` **1** JPEG, no `--format` | **PNG** — the source format is CHANGED |
+  | `apply` **2** JPEGs, no `--format` | JPEG — the source format is PRESERVED |
+  | `apply` **1** JPEG, `--format png` | PNG ✅ honoured |
+  | `apply` **2** JPEGs, `--format png` | **JPEG — the flag is SILENTLY IGNORED** |
+
+  **`apply`'s multi-input path does no format resolution at all.** It preserves the source format,
+  ignoring both the default-PNG rule the single-input path applies *and* an explicit `--format`.
+  The two paths disagree in **both** directions, which is why the audit saw it as two findings.
+  No warning, no error, exit 0. **`--name-template` is not the discriminator** (an explicit
+  `{stem}.{ext}` behaves identically) — it is purely single-input vs many.
+
+  ⚠ **Controls run by the audit:** `resize`, `thumbnail` and `watermark` given the same two inputs
+  and the same `--format` all wrote the requested format correctly. **This is specific to `apply`**
+  — the one verb whose entire purpose is running a recipe over a batch — not to the batch path.
+
+  ⚡ **Consequence beyond tidiness (audit's F7):** a `build` lockfile pins bytes the `apply`
+  spelling of the same recipe cannot reproduce, so two commands the docs present as interchangeable
+  are not. **Decide which default is intended and make the other match** — that is the design call,
+  and it is byte-changing on a shipped verb, so it wants a migration.
+
+  📌 Same class as the `--json`-with-a-pinned-format case the project deliberately raises as a
+  usage error (exit 2) — **except here it is silent**, which the report contract explicitly forbids.
+
+- [ ] (not yet written) — [S] **`--explain` goes silent exactly where `--json` raises a usage
+  error.** Re-driven on `main` at `232c9cf`:
+
+  ```
+  optimize photo.png --explain human -o out.avif -y   → exit 0, stdout 0 B, stderr 0 B
+  optimize photo.png --json          -o out.avif -y   → exit 2, "--json/--timing report the
+                                                        auto-decision and are unavailable with
+                                                        a pinned format"
+  ```
+
+  `docs/cli-reference.md:441` states the contract: a report flag under a pin is *"a **usage error
+  (exit 2)** — not a flag that silently does nothing."* **Human `--explain` violates it in exactly
+  the case the contract calls out.** Drop the `-o` pin and `--explain` emits its full report, so the
+  feature works — it fails silently only on the pinned path. Likely one line, at the guard `--json`
+  already reaches (`reject_audit_without_autodecide`).
+
 - [ ] (not yet written) — [M] ⚡ **A recognized `-o` extension silently switches `web`/`optimize` from
   auto-decide to pinned-convert — changing the quality, the score, and the report.** Reported by the
   maintainer against 0.7.0 (homebrew) while optimizing a photo for jysf.org; **re-driven on `main`
