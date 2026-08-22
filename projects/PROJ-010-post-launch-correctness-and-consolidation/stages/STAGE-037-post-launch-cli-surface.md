@@ -82,6 +82,45 @@ decision to broaden the surface — not on the launch clock.
 
 Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
+- [ ] (not yet written) — [M] ⚡ **`watermark` cannot be expressed in a recipe, and neither can the
+  output format. Recipe coverage measured on `main` at `92a60b7`, 2026-08-21.** **Maintainer decided
+  2026-08-21 that watermark must be recipe-expressible** — which is also this stage's own unpark
+  criterion (*"a maintainer decision to broaden the surface"*), so **the `on_hold` status above is
+  now stale and wants a ruling.**
+
+  **What a recipe can express — the whole list.** The built-in registry
+  (`src/operation/registry.rs:80-83`) holds **four** constructors: `identity`, `invert`, `resize`,
+  `auto-orient`. A fifth name, `optimize`, works in the bundled recipes but is **not a registered
+  operation** — it is a terminal marker (`OPTIMIZE_STEP_OP`, `src/recipe/mod.rs:302`) special-cased
+  by the recipe machinery. Driven: every other name returns `error: unknown operation '<x>'`.
+
+  | CLI capability | in a recipe? |
+  |---|---|
+  | `resize`, `auto-orient`, `edit --invert` | ✅ |
+  | `optimize` (and `web`, as resize + the marker) | ✅ via the terminal marker |
+  | **`watermark`** — image/text, font, size, colour, gravity, opacity, scale, margin, tile | ❌ **the whole verb, ~10 params** |
+  | **output format and quality** | ❌ **structural — see below** |
+  | `thumbnail --size --square` | ❌ no `thumbnail` op; `--square`'s crop semantics may not reduce to a `resize` mode |
+  | `meta` strip / clean / set | ❌ container lane (DEC-003) — possibly by design, but a recipe cannot say "strip GPS" |
+  | `responsive` | ❌ output multiplicity, not an operation |
+
+  ⚠ **The output-side gap is the one nobody asked about and it is structural.** `Recipe`
+  (`src/recipe/mod.rs:176`) has exactly four fields — `version`, `name`, `description`, `steps`.
+  **There is no format field and no quality field.** So `convert --format webp -q 80` is not
+  expressible as a recipe at all; the only way a recipe reaches an encoder decision is the
+  `optimize` marker, which *chooses* the format automatically. A user who wants "always WebP at
+  q80, applied to a directory" cannot write that recipe today. **This is a bigger hole than
+  watermark and should be scoped with it, not after it.**
+
+  📌 **Only `edit` has `--save-recipe`** (driven across all 12 verbs). So the one path that
+  *emits* a recipe covers only the three ops it can perform — which is why the gap has stayed
+  invisible: nothing that can save a recipe can do anything a recipe cannot express.
+
+  ⚠ Not a gap, but a documentation error found while checking: **AGENTS.md:452's glossary defines
+  Gravity as anchoring "a watermark or crop region"** — there is **no crop capability** anywhere in
+  the CLI (`crop` is not a verb, not an `edit` flag, and not a registry op). The glossary describes
+  something that does not exist.
+
 - [ ] SPEC-092 (deferred from STAGE-030 2026-07-20) — `convert --to` rename + social/archive recipes.
   Optional convenience surface; additive on top of the frozen ~14-verb core.
 
