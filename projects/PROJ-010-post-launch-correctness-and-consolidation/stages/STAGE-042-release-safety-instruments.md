@@ -342,8 +342,12 @@ failures on documented paths.
   `docs/api-contract.md` cannot learn that**: nothing states which kinds of change are compatible
   with a `/v1` pin. One paragraph. This is the repo's debt, not any one spec's.
 
-- [ ] (not yet written) — [S] ⚡ **`pages / build + browser smoke` is an intermittently red gate,
-  and it is red on `main` right now.** Diagnosed 2026-08-21. Cause is a **10-second hard cap on
+- [x] **FIXED 2026-08-22, PR #186 → `dcd43c8`.** ⚡ **`pages / build + browser smoke` was an
+  intermittently red gate.** Chrome's startup poll got 90 s (matching `waitFor`'s default in the
+  same file) instead of 10 s; `chrome.stderr` is now drained, so a failure reports Chrome's own
+  explanation instead of discarding it; and a Chrome that exits is detected rather than waited out.
+  ⚠ **A flake passing once is not proof it is cured** — the evidence is the diagnosis (three
+  failures at 10.03 s, one on a docs-only commit, identical tree passing on re-run), not the green. Diagnosed 2026-08-21. Cause is a **10-second hard cap on
   Chrome's startup**, not anything in the demo: `tests/demo_smoke.mjs:307-312` polls for
   `DevToolsActivePort` `for (let i = 0; i < 100 …)` at 100 ms — exactly 10 s — while **every other
   wait in the same file uses `waitFor`'s 90 s default**. On a loaded runner a cold Chrome routinely
@@ -477,8 +481,9 @@ failures on documented paths.
   measurement; goes red if `image` ever fixes this upstream. Needs a maintainer ruling on whether
   to warn, fix (byte-changing), or accept as a known `image` limitation.
 
-**Count:** re-derived by grep 2026-08-21, not carried forward: **15 `- [ ]` + 5 `- [x]` =
-20 items.** Narratively: 1 framed (SPEC-118) / 3 shipped (SPEC-123, SPEC-124, SPEC-125) / 15 pending
+**Count:** re-derived by grep 2026-08-22, not carried forward: **14 `- [ ]` + 6 `- [x]` =
+20 items.** Narratively: 1 framed (SPEC-118) / 3 shipped (SPEC-123, SPEC-124, SPEC-125) / 14 pending
+/ 1 chore fixed (the `pages` startup race, PR #186)
 / 1 chore done / 1 closed-by-a-spec (the `[env]` item). ⚠ Those buckets do **not** partition cleanly
 — a shipped spec's entry is `[x]` while a framed one's is `[ ]` — so **the checkbox tally is the
 number to trust** and the narrative line is a reading aid, not an audit.
