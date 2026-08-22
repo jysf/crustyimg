@@ -2,7 +2,7 @@
 task:
   id: SPEC-124
   type: story
-  cycle: verify
+  cycle: ship
   blocked: true
   priority: high
   complexity: S
@@ -103,10 +103,19 @@ cost:
         is the first cycle in this project to anticipate the undercount rather
         than fall into it. Orchestrator re-derived: delta +1,479,700 tokens /
         +$1.53. Verify at 26% of build cost returned a 5-item punch list.
+    - cycle: ship
+      interface: claude-code
+      tokens_total: null
+      duration_minutes: null
+      estimated_usd: null
+      note: >
+        Un-metered main-loop orchestrator cycle (AGENTS §4) — reflection, cost
+        re-derivation, totals, archive. Null-with-note is the sanctioned form
+        for design/ship; build and verify above are both MEASURED.
   totals:
     tokens_total: 181605072
     estimated_usd: 73.01
-    session_count: 3  # design + build + verify; ship appends the 4th
+    session_count: 4  # design + build + verify + ship
 ---
 
 # SPEC-124: pin the AVIF encoder's tile count
@@ -345,4 +354,44 @@ once the variance is gone.
 
 ## Reflection (Ship)
 
-*Appended during the **ship** cycle.*
+**Shipped 2026-08-21.** PR [#184](https://github.com/jysf/crustyimg/pull/184) → `0107a49`, merged
+mid-punch-list; the 5 verify items applied on `main` at `7b9b04d`. Total **$73.01**
+(build $57.74 + verify $15.27, both re-derived from transcripts at ship).
+
+1. **What would I do differently next time?**
+   — **State a measurement's fixture in terms of what it measures, not what it looks like.** The
+   whole spec was built on the right instinct — Call 2 explicitly refused to settle N at design and
+   demanded four axes be driven — and the build did drive them. It then described its 24 MP
+   fixture as *"per-pixel-random … no redundancy anywhere"* when it was a deterministic sawtooth
+   encoding at 0.157 bpp, and that single wrong adjective carried the entire argument dismissing a
+   real 17 % regression. **The measurement was sound; the sentence about it was not**, and a
+   decision record is read for its sentences. Two cheap habits would have caught it: report the
+   fixture's own encoded bits-per-pixel next to its description, and re-read every adjective in a
+   record as if it were an assertion — because it is.
+
+2. **Does any template, constraint, or decision need updating?**
+   — **Yes, and one is already done.** `projects/_templates/spec.md` gained a required *"Files this
+   diff touches"* field: both builds in this wave added one by hand after SPEC-122's lesson and
+   SPEC-124's still listed 8 of 9, which is what a field, not a habit, is for.
+   ⚠ **Still open — DEC-096's `insight.confidence` is `0.88`, set when §1 claimed "no trend" and
+   §4b claimed the regression was explained.** Both weakened at verify. The decision itself did not
+   (§2's compression win and §3's structural argument are untouched and were independently
+   replicated), so the number is defensible — but it has not been re-examined since the evidence
+   under it moved, and AGENTS §17 exists to stop exactly that drift. **A maintainer call, flagged
+   not taken.**
+   Also unresolved by design: this repo has no written rule for the case that bit twice this wave —
+   a cycle's cost block cannot count the messages that write it, so every self-reported figure
+   under-reports by 3–7 %. `cost-snippet.md` warns about premature readings; it does not say the
+   residual is structural and the orchestrator must re-derive. It should.
+
+3. **Is there a follow-up spec I should write now before I forget?**
+   — **Not a spec — a corpus item, and it is filed.** Every open question §4b left resolves the same
+   cheap way: `bench/corpus/` has no large real photograph, so nothing with genuine 24 MP detail has
+   ever been measured through this encoder. Filed on STAGE-042 with the numbers. Two other filed
+   items came out of this spec rather than a spec of their own: `tests/avif_tile_pin.rs`'s in-test
+   `cargo build` (~+15–25 min CI per PR, a 1.3 GB dir leaked per test process, and it ships to
+   crates.io because `exclude` does not cover `/tests`), and the `lock.rs:124-129` prose remainder.
+   **The one thing this spec earned that is not filed anywhere as work:** `image/rayon` is now safe
+   to enable, which was the entire point of pinning first. Whoever takes it must re-measure N
+   against real parallelism data rather than inherit DEC-096's numbers, which predate threading
+   being real.

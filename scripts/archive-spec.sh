@@ -36,8 +36,16 @@ fi
 # carried no signal between design and ship. Not fatal -- the work may well have
 # happened -- but silence is how it stayed invisible for six specs.
 if command -v git >/dev/null 2>&1 && git -C "$REPO_ROOT" rev-parse --git-dir >/dev/null 2>&1; then
-    seen_build=$(git -C "$REPO_ROOT" log --format=%H -S'cycle: build' -- "$SPEC_FILE" 2>/dev/null | head -n1)
-    seen_verify=$(git -C "$REPO_ROOT" log --format=%H -S'cycle: verify' -- "$SPEC_FILE" 2>/dev/null | head -n1)
+    # `-n 1` on git itself, NOT `| head -n1`: under `set -o pipefail`, head exits
+    # as soon as it has its line, git takes SIGPIPE, and the whole script dies
+    # with 141 once the log is long enough to still be writing. Measured here on
+    # SPEC-124/125, whose spec files had accumulated enough history to trigger it
+    # — and it is intermittent by nature, so it passed for every earlier spec.
+    # `lifetime-report.sh:93-98` already carries this fix as `|| true`; asking git
+    # for one record is better still, because `|| true` would also swallow a real
+    # git failure. [[a-piped-command-reports-the-pipes-exit-code]]
+    seen_build=$(git -C "$REPO_ROOT" log -n 1 --format=%H -S'cycle: build' -- "$SPEC_FILE" 2>/dev/null)
+    seen_verify=$(git -C "$REPO_ROOT" log -n 1 --format=%H -S'cycle: verify' -- "$SPEC_FILE" 2>/dev/null)
     if [ -z "$seen_build" ] && [ -z "$seen_verify" ]; then
         warn "${SPEC_ID} reaches ship having never been marked 'build' or 'verify'."
         warn "  advance-cycle was likely never run for those cycles, so the cycle"

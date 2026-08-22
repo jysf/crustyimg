@@ -2,7 +2,7 @@
 task:
   id: SPEC-125
   type: bug
-  cycle: verify
+  cycle: ship
   blocked: false
   priority: high
   complexity: S
@@ -104,10 +104,19 @@ cost:
         (+$1.34): the right instinct, an optimistic estimate. Transcript
         identified by CONTENT — two sessions mention SPEC-125-verify, the other
         being the orchestrator's own.
+    - cycle: ship
+      interface: claude-code
+      tokens_total: null
+      duration_minutes: null
+      estimated_usd: null
+      note: >
+        Un-metered main-loop orchestrator cycle (AGENTS §4) — reflection, cost
+        re-derivation, totals, archive. Null-with-note is the sanctioned form
+        for design/ship; build and verify above are both MEASURED.
   totals:
     tokens_total: 279158289
     estimated_usd: 107.88
-    session_count: 3  # design + build + verify; ship appends the 4th
+    session_count: 4  # design + build + verify + ship
 ---
 
 # SPEC-125: lossless WebP never silently halves bit depth
@@ -328,4 +337,44 @@ preserved. No `Operation` body changes.
 
 ## Reflection (Ship)
 
-*Appended during the **ship** cycle.*
+**Shipped 2026-08-21.** PR [#185](https://github.com/jysf/crustyimg/pull/185) → `2735f60`, merged
+before verify ran; the 3 verify items applied on `main` at `c5efcf2`. Total **$107.88**
+(build $84.58 + verify $23.30, both re-derived from transcripts at ship).
+
+1. **What would I do differently next time?**
+   — **Seed the fixtures the change is actually about, and do it in the build, not the verify.**
+   AC-6 was the acceptance criterion this spec lived or died on: reporting-only, candidate selection
+   byte-identical. The build asserted it against the corpus — but **the corpus is entirely 8-bit, so
+   `scored_source_depth` is `None` throughout it and AC-6 is a no-op there by construction.** The
+   green was real and proved almost nothing about the new path. Verify caught it, hand-seeded 16-bit
+   PNGs with raw zlib+struct, and re-ran; the result held. **A criterion has to be exercised on
+   input where the code it guards actually executes** — otherwise it is
+   [[a-harness-that-exercises-nothing-reports-green]] wearing a corpus for cover. The tell was
+   available at design: this is a >8-bit spec whose corpus has no >8-bit files.
+
+2. **Does any template, constraint, or decision need updating?**
+   — **Two, one done and one filed.** Done: `projects/_templates/spec.md` now requires a *"Files this
+   diff touches"* list — this build shipped without one, so verify could not run that check at all.
+   Filed: the `/v1` JSON contract's *"gated additive key"* rule is now four keys deep
+   (`larger_than_source`, `ssim`, `timing`, and this spec's `ssim_source_depth`) and **written down
+   nowhere a downstream consumer would find it.** `docs/api-contract.md` documents each key and never
+   says which kinds of change are compatible with a `/v1` pin. crustyimg is a published library; one
+   paragraph closes it.
+   Nothing in DEC-095 or DEC-019 needed changing — Call 2's fence held, which is the good news.
+
+3. **Is there a follow-up spec I should write now before I forget?**
+   — **Two, both filed, and one needs a maintainer ruling first.** The **ICO round-trip defect** is
+   the one: `image`'s own decoder cannot read back its own encoder's output for any colour type
+   except `Rgba8`, at plain 8-bit RGB with no depth question involved. It is more severe than the
+   bug this spec fixed and was found only because Call 1 said *derive the set, don't copy it*. It
+   needs warn / fix / accept from you before it can be specced, because a real fix changes output
+   bytes. The other: a multi-candidate search on a >8-bit source now prints one warning per attempted
+   candidate, so a user cannot tell which downgrade shipped — strictly better than the base, where
+   the only warning named **the candidate that lost** while the downgrade that shipped stayed
+   silent, but visible enough now to want an answer.
+   **What this spec proves about process, and it is the reusable part:** Call 1's instruction to
+   derive the 8-bit-only set by measurement rather than copy the spec's own list paid three times —
+   it found AVIF (absent from the spec's list), it found GIF's behaviour is a hard error rather than
+   a silent narrowing, and it found the ICO defect. It also caught that the **spec's own Context
+   repro was wrong**. An architect's candidate list is a prior, and saying so in the spec is what
+   made all four findings possible.

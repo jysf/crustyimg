@@ -69,4 +69,11 @@ Cycle prompts live in `prompts/SPEC-125-<cycle>.md`.
       **conclusion** was right, though — the *template* has no such field, so both builds added it
       by hand and SPEC-124's still listed 8 of 9. Fixed at the source: `projects/_templates/spec.md`
       now requires it, built from `git diff --name-only` rather than recall.
-- [ ] **ship**
+- [x] **ship** — 2026-08-21. `cycle: ship`, archived. **$107.88** total (build $84.58 + verify
+      $23.30, both re-derived). Verify's 3 items applied on `main` at `c5efcf2`; **maintainer
+      approved shipping on that basis.**
+      ⚡ **Blocks nothing, but needs a ruling before it can be specced: the ICO round-trip defect.**
+      `image`'s own decoder cannot read back its own encoder's output for any colour type except
+      `Rgba8` — including plain 8-bit RGB, with no depth question involved. More severe than the bug
+      this spec fixed, found only because Call 1 said *derive the set, don't copy it*, and a real
+      fix changes output bytes. **warn / fix / accept is yours.**

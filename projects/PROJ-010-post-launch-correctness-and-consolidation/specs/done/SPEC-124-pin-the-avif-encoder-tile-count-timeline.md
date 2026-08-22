@@ -74,4 +74,11 @@ Cycle prompts live in `prompts/SPEC-124-<cycle>.md`.
       **Withdrew build follow-up #3 as a false finding** — the `Count:` line never undercounted.
       ⚖ **`cycle:` HELD at `verify` for maintainer re-approval, not advanced** — PR #184 merged
       (`0107a49`) while the punch list was being processed.
-- [ ] **ship**
+- [x] **ship** — 2026-08-21. `cycle: ship`, archived. **$73.01** total (build $57.74 + verify
+      $15.27, both re-derived from transcripts; design/ship un-metered main-loop). Verify's 5 items
+      were applied by the orchestrator on `main` at `7b9b04d`, not by a re-run cycle — **maintainer
+      approved shipping on that basis** rather than paying a second verify to review prose.
+      ⚠ **Left open deliberately: DEC-096's confidence is still `0.88`**, set before §1's "no trend"
+      and §4b's dismissal both weakened. The decision is untouched (§2 and §3 carry it), so the
+      number is defensible — but it has not been re-examined since the evidence under it moved.
+      Flagged in the reflection as a maintainer call, not taken.
