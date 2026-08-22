@@ -165,6 +165,45 @@ Three further reasons the timing is now and not later:
   re-uses its harness as the acceptance test. **Paired with SPEC-121**: same function
   family, one shared DEC, one migration paid once.
 
+- [ ] (not yet written) — [M] ⚠ **PRIORITY: multi-page TIFF and multi-size ICO are SPEC-119's
+  defect on two axes SPEC-119 never covered — driven on `main` at `dcd43c8`, 2026-08-21.**
+  SPEC-119 fixed *animation* (GIF / APNG / animated WebP). **Animation is not the only multi-image
+  case**, and the two that remain behave exactly the way SPEC-119's own `value_link` described the
+  bug it fixed: *"accepts a valid file, discards every frame but the first, reports the loss as a
+  win … and — through `lint` — actively recommends the command that does it."*
+
+  Fixtures built independently of the code under test and verified before conversion (3 IFDs in the
+  TIFF chain; 3 entries in the icon directory):
+
+  | input | contains | `convert` output | kept | **lost** | exit | stderr | `lint` | `optimize` says |
+  |---|---|---|---|---|---|---|---|---|
+  | 3-page TIFF | greys 70/140/210 | 8×8 png, pixel = **70** | page 1 | **2 pages** | 0 | **none** | 0 warn | **"542 → 78 B (86% smaller)"** |
+  | 3-size ICO | 16/32/64 = R/G/B | **64×64** png, pixel = **(0,0,255)** | the 64px | **16px + 32px** | 0 | **none** | 0 warn | **"460 → 118 B (74% smaller)"** |
+
+  **The output pixel value is the proof, not the exit code.** Grey 70 is page 1; blue is the 64px
+  entry. Both verbs exit 0, print nothing to stderr, and `lint` reports `0 error · 0 warn · 0 info`.
+  `optimize` presents the data loss as a large size win.
+
+  **Mechanism** (from the #177 sweep, re-confirmed): `image` implements `AnimationDecoder` for
+  exactly three decoders — `GifDecoder`, `ApngDecoder`, `WebPDecoder` — which is why the rule name
+  `format/animated-gif` and SPEC-119's scope both stop there. **TIFF** exposes no multi-page API
+  through `image` at all (`TiffDecoder` has `fn new` only), so pages 2..N are *unreachable and
+  undetectable* without using the `tiff` crate directly. **ICO**'s `IcoDecoder::new` calls
+  `best_entry()`, scoring on `(bits_per_pixel, width × height)` and **discarding every other entry**.
+
+  ⚠ **These are two different problems wearing one description.** ICO is detectable and refusable
+  today — the icon directory is right there in the header. TIFF is not, without a new parse path.
+  Scope them separately; a spec that promises both will discover that mid-build.
+
+  ⚠ Related but distinct, seen while driving this: `optimize` reports `source_format` as **`other`**
+  for both, so it cannot name TIFF or ICO. SPEC-115 was *"never passes through bytes it cannot
+  name"* and SPEC-117 taught `source_format` the real container for svg/heic/raw. Whether `other` is
+  correct here or the same gap on two more formats is worth one look before specing.
+
+  📌 **Filed here because `docs/backlog.md` is read by NO command.** The measurement first landed
+  there via PR #177 on 2026-08-17 and was invisible to `just backlog` for four days
+  [[a-document-is-not-a-backlog-unless-tooling-reads-it]].
+
 - [ ] (not yet written) — [M] **Three writing paths still silently flatten animated input.**
       SPEC-119 fixed `convert`/`optimize`/`web`/`build`(Decide)/`apply`(terminal-optimize).
       **Driven by its verify, 2026-08-16:** `responsive anim.gif --widths 16` writes a 1-frame
