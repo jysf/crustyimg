@@ -51,6 +51,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   alike (the JSON gains an additive `ssim_source_depth` field, present only then).
   No output bytes change; this is a reporting fix only.
 
+- **Animated GIF, APNG and animated WebP are never silently flattened.** Feeding
+  an animation to `optimize`/`web` kept the first frame, threw away the rest, and
+  reported the loss as a large size win with a perfect quality score — and `lint`
+  recommended the command that did it. These verbs now refuse to discard frames
+  silently; `lint` no longer suggests a flattening command for an animated input.
+
+- **`optimize` no longer hands back a file bigger than the one you gave it.** On
+  its most natural invocation against an already-compressed source, it could
+  return an output larger than the input while reporting success. It now keeps the
+  source when nothing it can produce is smaller.
+
+- **`meta set` no longer emits a Content Credentials manifest that validates as
+  TAMPERED.** Editing metadata on a file carrying C2PA credentials kept the
+  manifest and invalidated it, which attributes a forgery to the file's signer —
+  strictly worse than dropping the credentials. Handled honestly now.
+
+- **`build` warns on a truncated JPEG, exactly as `apply` does.** `apply --recipe
+  web` warned that a truncated JPEG had decoded only partially; `build` on the
+  identical input was silent, so moving from one to the other quietly lost the
+  warning.
+
 - **`optimize`/`web`/`apply --recipe web`/`build` no longer ship an SVG, HEIC, or RAW
   source's raw bytes under a raster label they never produced.** For these three
   families, `optimize`'s auto-decide passthrough (no candidate beats the source on
