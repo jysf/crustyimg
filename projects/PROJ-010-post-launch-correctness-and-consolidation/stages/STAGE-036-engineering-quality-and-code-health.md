@@ -87,16 +87,24 @@ The draft's "cost of deferring compounds" argument is not repeated, because each
   than the raw line count. Ranked by **production lines** (excluding each file's `#[cfg(test)]`
   module, measured 2026-08-10):
 
-  | file | production | total |
-  |---|---:|---:|
-  | **`src/cli/optimize.rs`** | **1,716** | 1,996 |
-  | `src/cli/ops.rs` | 1,107 | 1,371 |
-  | `src/cli/mod.rs` | 1,002 | 1,429 |
-  | `src/operation/mod.rs` | 864 | 1,800 |
-  | `src/analysis/mod.rs` | 650 | 1,340 |
-  | `src/metadata/mod.rs` | 273 | 1,408 |
+  | file | production | total | | **re-measured 2026-08-21** | production | total |
+  |---|---:|---:|---|---|---:|---:|
+  | **`src/cli/optimize.rs`** | **1,716** | 1,996 | | **`src/cli/optimize.rs`** | **1,876** | 2,156 |
+  | `src/cli/ops.rs` | 1,107 | 1,371 | | `src/operation/mod.rs` | 1,312 | 2,301 |
+  | `src/cli/mod.rs` | 1,002 | 1,429 | | `src/cli/ops.rs` | 1,284 | 1,548 |
+  | `src/operation/mod.rs` | 864 | 1,800 | | `src/cli/mod.rs` | 1,011 | 1,438 |
+  | `src/analysis/mod.rs` | 650 | 1,340 | | `src/cli/build.rs` | 924 | 1,124 |
+  | `src/metadata/mod.rs` | 273 | 1,408 | | `src/sink/mod.rs` | 866 | 1,401 |
 
-  **1.55× the next largest, and 71% bigger than `cli/mod.rs` is *after* its split.** Ranking by
+  ⚠ **Re-measured 2026-08-21, and the case got stronger, not weaker: `optimize.rs` GREW 9.3%
+  (1,716 → 1,876 production lines) in the eleven days since this item was filed** — SPEC-125 added
+  the `scored_source_depth` plumbing, and the PROJ-010 wave touched it repeatedly. An
+  unactioned decomposition item on a file under active development is a widening gap, not a
+  static one. **It is still the largest production file in `src/` by 43%** (down from 55% only
+  because `ops.rs` and `operation/mod.rs` also grew).
+
+  **1.55× the next largest at filing (1.43× today), and 71% bigger than `cli/mod.rs` is *after*
+  its split.** Ranking by
   *total* lines hides this — it makes the top of the list look like a tight cluster (1,996 vs
   1,800) because `metadata/mod.rs` and `operation/mod.rs` are majority test code and
   `optimize.rs` is not. 29 top-level fns.
