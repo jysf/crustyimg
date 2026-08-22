@@ -82,6 +82,42 @@ decision to broaden the surface — not on the launch clock.
 
 Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
+- [ ] (not yet written) — [M] ⚡ **A recognized `-o` extension silently switches `web`/`optimize` from
+  auto-decide to pinned-convert — changing the quality, the score, and the report.** Reported by the
+  maintainer against 0.7.0 (homebrew) while optimizing a photo for jysf.org; **re-driven on `main`
+  at `4514345`**, 200×200 RGBA PNG:
+
+  | command | bytes | report |
+  |---|---:|---|
+  | `web photo.png -o a.avif` | **6,459** | **silent** |
+  | `web photo.png --out-dir od1/` | **8,932** | prints the summary |
+  | `web photo.png --out-dir od2/ --format avif` | **6,459** | silent |
+  | `convert photo.png --format avif` (default q) | **6,459** | — |
+
+  ⚠ **The report's framing is the right symptom and the wrong cause.** It is **not** `-o` vs
+  `--out-dir`, and it is **not** two code paths with independently-specified encode settings:
+  `--out-dir --format avif` is byte-identical to `-o a.avif`. The real axis is **pinned vs
+  auto-decided**, and `run_web` (`src/cli/optimize.rs:770-785`) treats *a recognized extension on
+  `-o`* as a format pin exactly as `--format` does. One deliberate rule, applied consistently at
+  three sites (`:66`, `:633`, `:772`).
+
+  **What is already correct and documented:** the pin rule and the missing report are both in
+  `docs/cli-reference.md:144` and `:441` — and the contract is stricter than the reporter saw
+  (`--json`/`--timing` under a pin is a usage error, exit 2, not a silent no-op).
+
+  ⚡ **What is NOT documented, and is the actionable gap:** pinning also moves the encode from
+  `FAST_LOSSY_QUALITY = 85` (the auto decision) to `AVIF_DEFAULT_QUALITY = 80` (`convert`'s
+  default). **Nothing user-facing says a filename extension changes the quality.** That is exactly
+  the reporter's own question 3, and the answer is: deliberate, consistent, undocumented.
+
+  **The design question worth a ruling, not just a doc fix:** `-o out.avif` reads to a user as
+  *where the file goes*, not *what codec settings to use* — yet it silently changes three things at
+  once (quality, scoring, reporting). This is the same shape as the defects STAGE-046 spent a wave
+  fixing: **a mode switch the user cannot see.** Options: warn when an extension triggers a pin;
+  require `--format` to pin and treat `-o`'s extension as destination only; or document it loudly
+  and leave the behaviour. ⚠ Any change here is **byte-changing on the flagship verb** and wants a
+  migration, so it is a 0.7.2+ item, not a tag blocker.
+
 - [ ] (not yet written) — [M] ⚡ **`watermark` cannot be expressed in a recipe, and neither can the
   output format. Recipe coverage measured on `main` at `92a60b7`, 2026-08-21.** **Maintainer decided
   2026-08-21 that watermark must be recipe-expressible** — which is also this stage's own unpark
