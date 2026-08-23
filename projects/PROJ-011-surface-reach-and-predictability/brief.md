@@ -170,6 +170,52 @@ single user-visible outcome instead. **Six measured defects were deliberately le
   📌 A relative size (percentage of the long edge) answers the batch-consistency half, but **does
   not by itself answer the silent-no-op half** — a 5 % watermark on a 24 px thumbnail is still
   unreadable. Both halves need a ruling.
+  ### The ruling — maintainer, 2026-08-23
+
+  **Watermarking exists to deter reproduction of images that have reproduction value. A thumbnail
+  has none.** So watermarking a small image is both pointless and destructive. That settles the
+  intent; what follows is the design it implies.
+
+  ⚡ **Two rules, and they are not the same rule.** Conflating them is how this gets built wrong:
+
+  | | **Damage rule** | **Value rule** |
+  |---|---|---|
+  | asks | would the watermark *wreck* this image? | is this image *worth* watermarking? |
+  | depends on | watermark size **relative to** the image | the image alone, and the user's business |
+  | who can answer | **the tool** — it is pure geometry | **only the user** — the tool cannot know what is worth protecting |
+  | so it should be | **enforced by default** | **declared, opt-in** |
+
+  **The tool enforces geometry; the user declares policy.** Hard-coding "images under 400 px never
+  get a watermark" is the tool making a business judgement it has no standing to make. Providing
+  `--min-size` so the user says it once, in a recipe, is the same outcome without the overreach.
+
+  ### What each rule does
+
+  **Damage rule — default on.** When the watermark would cover more than a threshold fraction of
+  the image, it does not silently proceed. ⚠ **The response must differ by invocation**, and this
+  is the part most likely to be got wrong:
+  - **Single explicit input** (`watermark one.jpg`) → **error, exit 2**, naming the numbers. The
+    user pointed at this file. Refusing beats damaging it, and beats today's silent no-op.
+  - **Batch or recipe** → **skip that file, report it, continue**, with a summary count.
+    ⚠ **Never abort the run.** A mixed directory of 4000 px originals and 400 px thumbnails is the
+    normal case, not the exception — erroring there makes one `build` over a real site impossible,
+    which is the outcome this whole project exists to deliver.
+
+  **Value rule — opt-in `--min-size`, and settable in a recipe.** Below it, skip and report. This
+  is what makes a single `build` over a site correct: originals get the mark, generated thumbnails
+  do not, and the manifest says so.
+
+  ### Still to settle before specing
+
+  - **The damage threshold is a number nobody has measured.** Reference points from the drive
+    above: 24 px → 47 % coverage (clearly wrecked), 64 px → 16 % (marginal), 800 px → 0.32 %
+    (fine). A ~25 % starting point separates those, **but validate it against real output rather
+    than adopting it from this note.**
+  - **Whether the threshold is a knob.** A fixed constant is simpler; a knob lets a user who wants
+    an aggressive mark have one. Default-with-override is the likely answer.
+  - ⚠ **`--tile` changes the arithmetic** — a tiled watermark covers the image by design, so the
+    coverage test cannot apply to it unmodified.
+
   📌 Why the gap stayed invisible: **only `edit` has `--save-recipe`**, so the one path that emits
   a recipe covers only ops a recipe can already express.
 
