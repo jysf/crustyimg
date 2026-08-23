@@ -93,7 +93,20 @@ The draft's "cost of deferring compounds" argument is not repeated, because each
   is the most valuable item in that batch by some distance; see
   `feedback/2026-08-23-external-review-module-scorecard.md` for why the top 5 mostly did not hold.
 
-- [ ] (not yet framed) — **Strict JSON `escape_json`.** SPEC-097 follow-up: escape `0x7F` and `≥0x20` controls through the serialization path. Byte-identity is NOT the gate here — this is a deliberate behaviour change to fix a correctness issue. **This is STAGE-031's entire carried tail.**
+- [ ] (not yet framed) — [S] **Strict JSON `escape_json` — hardening, NOT a correctness fix.**
+  ⚠ **Re-labelled 2026-08-23, and the re-label is the point.** `src/cli/report.rs:116` escapes `"`,
+  `\` and controls **below 0x20**; `0x7F` and the C1 range (U+0080–U+009F) pass through.
+  **Checked, not assumed: RFC 8259 §7 requires escaping only `"`, `\` and U+0000–U+001F**, so
+  U+007F and C1 are **legal unescaped** and the current implementation is already spec-compliant.
+  📌 **It was filed as "a deliberate behaviour change to fix a correctness issue", and that label
+  made it a PROJ-010 success-signal dependency** — i.e. a release blocker. It is not one. The signal
+  clause was withdrawn 2026-08-23; **the work is kept because the motivation is real if narrow**:
+  these bytes reach JSON from image metadata (a legacy-encoded EXIF field, a filename with DEL), and
+  a raw control character in a consumer's string — or a terminal — is unpleasant even when legal.
+  ⚠ **Byte-identity is still not its gate** — output changes for inputs carrying those bytes.
+  **Before specing, check whether any downstream consumer actually needs it** — the npm package,
+  the SARIF output, the GitHub Action. If none does, "hardening, unscheduled" is an honest resting
+  place.
 
 - [ ] (not yet framed, **added 2026-08-10**) — **Decompose `src/cli/optimize.rs`.** It is now what
   `src/cli/mod.rs` was before SPEC-097 split it, and the measurement is what makes the case rather

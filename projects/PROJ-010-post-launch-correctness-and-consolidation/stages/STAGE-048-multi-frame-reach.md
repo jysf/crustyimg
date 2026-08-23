@@ -49,7 +49,7 @@ value_contribution:
 > lane. **The body below still describes both halves; treat its animated-AVIF items, parts (a) and
 > (b), as moved rather than as scope.**
 
-# STAGE-048: Multi-Frame Reach — input side
+# STAGE-048: Multi-Image Input Completeness
 
 ## What This Stage Is
 
@@ -152,14 +152,17 @@ STAGE-046 where it already is. **(b) is the honest structure**; (a) is the fast 
 - [ ] (not yet written) — [S] **`lint` sees multi-image input.** Today: `0 error · 0 warn ·
   0 info` on both fixtures. Depends on the two above for detection.
 
-- [ ] (not yet written) — [M] **Animated AVIF, part (a): the muxer and the frame/timing
-  round-trip.** The draft's AC-1..AC-6. Needs the `mp4-atom` DEC first. ⚠ **Budget the muxer
-  honestly: ~1,000 lines measured**, not the 150–250 an in-house RIFF estimate suggests —
-  `mp4-atom` supplies boxes, not a muxer, and the sample-table bookkeeping is yours.
-
-- [ ] (not yet written) — [S] **Animated AVIF, part (b): the quality search and speed pinning.**
-  The draft's AC-7/AC-8. ⚠ **Speed 10 is a trap for animation** — do not inherit the
-  still-image intuition; the draft measured this.
+- [x] **MOVED to PROJ-012, 2026-08-23 — animated AVIF output, parts (a) and (b).** The muxer and
+  frame/timing round-trip, and the quality search and speed pinning. **PROJ-012's thesis is
+  *every defect lint can name, crustyimg can act on***, and animated output is what closes
+  `format/animated-gif` and `format/animated-input` — rules that today flag an animation the tool
+  cannot re-encode. That is a better home than "multi-frame", which grouped input and output work
+  by subject matter rather than by purpose.
+  ⚠ **The measured traps moved with it** and are recorded in PROJ-012's stage plan, not lost here:
+  budget the muxer at **~1,000 lines** (`mp4-atom` supplies boxes, not a muxer), **speed 10 is a
+  trap for animation**, assert frame count with an **independent decoder** rather than the
+  encoder's packet count, and **run a near-lossless colour-range control first** — a near-lossless
+  encode scoring 57.2 was traced to `Range: Limited` and scored 96.5 after the fix.
 
 - [ ] (not yet written) — [S] **`optimize` can name TIFF and ICO.** Seen while driving the
   defect above: `optimize` reports `source_format` as **`other`** for both. SPEC-115 was
@@ -167,8 +170,7 @@ STAGE-046 where it already is. **(b) is the honest structure**; (a) is the fast 
   container for svg/heic/raw. **Check whether `other` is correct here or the same gap on two
   more formats** — one look, before specing anything else in this stage.
 
-**Count:** 0 shipped / 0 active / **6 pending** — re-derive with
-`grep -c '^- \[ \]'` and `grep -c '^- \[x\]'` whenever you touch this line, and never restate
+**Count:** 4 pending / 1 closed-or-moved — re-derive with a grep you just ran.
 a tally you did not just run.
 
 ## Design Notes

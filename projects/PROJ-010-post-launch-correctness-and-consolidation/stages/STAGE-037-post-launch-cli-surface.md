@@ -82,34 +82,11 @@ decision to broaden the surface — not on the launch clock.
 
 Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
-- [ ] (not yet written) — [M] ⚡ **`apply --recipe` ignores `--format` on a multi-input batch, and
-  disagrees with itself on the default. Re-driven on `main` at `232c9cf`, 2026-08-22.** From the
-  read-only CLI-surface audit (F6 + F7 — **one defect, not two**).
-
-  | invocation | output format |
-  |---|---|
-  | `apply` **1** JPEG, no `--format` | **PNG** — the source format is CHANGED |
-  | `apply` **2** JPEGs, no `--format` | JPEG — the source format is PRESERVED |
-  | `apply` **1** JPEG, `--format png` | PNG ✅ honoured |
-  | `apply` **2** JPEGs, `--format png` | **JPEG — the flag is SILENTLY IGNORED** |
-
-  **`apply`'s multi-input path does no format resolution at all.** It preserves the source format,
-  ignoring both the default-PNG rule the single-input path applies *and* an explicit `--format`.
-  The two paths disagree in **both** directions, which is why the audit saw it as two findings.
-  No warning, no error, exit 0. **`--name-template` is not the discriminator** (an explicit
-  `{stem}.{ext}` behaves identically) — it is purely single-input vs many.
-
-  ⚠ **Controls run by the audit:** `resize`, `thumbnail` and `watermark` given the same two inputs
-  and the same `--format` all wrote the requested format correctly. **This is specific to `apply`**
-  — the one verb whose entire purpose is running a recipe over a batch — not to the batch path.
-
-  ⚡ **Consequence beyond tidiness (audit's F7):** a `build` lockfile pins bytes the `apply`
-  spelling of the same recipe cannot reproduce, so two commands the docs present as interchangeable
-  are not. **Decide which default is intended and make the other match** — that is the design call,
-  and it is byte-changing on a shipped verb, so it wants a migration.
-
-  📌 Same class as the `--json`-with-a-pinned-format case the project deliberately raises as a
-  usage error (exit 2) — **except here it is silent**, which the report contract explicitly forbids.
+- [x] **MOVED to PROJ-011 / SPEC-126, 2026-08-23.** `apply --recipe` ignores `--format` on a
+  multi-input batch, and `apply`/`build` disagree on the default. **One defect, not two.** It is
+  PROJ-011's entry point and its thesis exactly — *what you ask for should be what you get, however
+  you spell it*. **Removed from here rather than left in both places**: it was double-filed, which
+  is how a thing gets built twice or not at all. See `SPEC-126-apply-and-build-agree-on-output-format.md`.
 
 - [ ] (not yet written) — [S] **`--explain` goes silent exactly where `--json` raises a usage
   error.** Re-driven on `main` at `232c9cf`:
@@ -163,44 +140,11 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
   and leave the behaviour. ⚠ Any change here is **byte-changing on the flagship verb** and wants a
   migration, so it is a 0.7.2+ item, not a tag blocker.
 
-- [ ] (not yet written) — [M] ⚡ **`watermark` cannot be expressed in a recipe, and neither can the
-  output format. Recipe coverage measured on `main` at `92a60b7`, 2026-08-21.** **Maintainer decided
-  2026-08-21 that watermark must be recipe-expressible** — which is also this stage's own unpark
-  criterion (*"a maintainer decision to broaden the surface"*), so **the `on_hold` status above is
-  now stale and wants a ruling.**
-
-  **What a recipe can express — the whole list.** The built-in registry
-  (`src/operation/registry.rs:80-83`) holds **four** constructors: `identity`, `invert`, `resize`,
-  `auto-orient`. A fifth name, `optimize`, works in the bundled recipes but is **not a registered
-  operation** — it is a terminal marker (`OPTIMIZE_STEP_OP`, `src/recipe/mod.rs:302`) special-cased
-  by the recipe machinery. Driven: every other name returns `error: unknown operation '<x>'`.
-
-  | CLI capability | in a recipe? |
-  |---|---|
-  | `resize`, `auto-orient`, `edit --invert` | ✅ |
-  | `optimize` (and `web`, as resize + the marker) | ✅ via the terminal marker |
-  | **`watermark`** — image/text, font, size, colour, gravity, opacity, scale, margin, tile | ❌ **the whole verb, ~10 params** |
-  | **output format and quality** | ❌ **structural — see below** |
-  | `thumbnail --size --square` | ❌ no `thumbnail` op; `--square`'s crop semantics may not reduce to a `resize` mode |
-  | `meta` strip / clean / set | ❌ container lane (DEC-003) — possibly by design, but a recipe cannot say "strip GPS" |
-  | `responsive` | ❌ output multiplicity, not an operation |
-
-  ⚠ **The output-side gap is the one nobody asked about and it is structural.** `Recipe`
-  (`src/recipe/mod.rs:176`) has exactly four fields — `version`, `name`, `description`, `steps`.
-  **There is no format field and no quality field.** So `convert --format webp -q 80` is not
-  expressible as a recipe at all; the only way a recipe reaches an encoder decision is the
-  `optimize` marker, which *chooses* the format automatically. A user who wants "always WebP at
-  q80, applied to a directory" cannot write that recipe today. **This is a bigger hole than
-  watermark and should be scoped with it, not after it.**
-
-  📌 **Only `edit` has `--save-recipe`** (driven across all 12 verbs). So the one path that
-  *emits* a recipe covers only the three ops it can perform — which is why the gap has stayed
-  invisible: nothing that can save a recipe can do anything a recipe cannot express.
-
-  ⚠ Not a gap, but a documentation error found while checking: **AGENTS.md:452's glossary defines
-  Gravity as anchoring "a watermark or crop region"** — there is **no crop capability** anywhere in
-  the CLI (`crop` is not a verb, not an `edit` flag, and not a registry op). The glossary describes
-  something that does not exist.
+- [x] **MOVED to PROJ-011 / STAGE-050, 2026-08-23.** `watermark` cannot be expressed in a recipe,
+  and neither can an output format or quality — the registry holds four ops and `Recipe` has no
+  field for either. **This is PROJ-011's central outcome** (a declared `build` that can watermark a
+  site), not a CLI-surface item. The measured coverage matrix and the maintainer's damage/value
+  ruling live with it there.
 
 - [x] **SPEC-092 — CANCELLED 2026-08-23 (maintainer).** `convert --to` rename + social/archive
   recipes. Deferred from STAGE-030 on **2026-07-20**, making it the oldest open item in PROJ-010.

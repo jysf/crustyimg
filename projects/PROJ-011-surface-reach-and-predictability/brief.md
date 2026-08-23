@@ -219,7 +219,13 @@ single user-visible outcome instead. **Six measured defects were deliberately le
   📌 Why the gap stayed invisible: **only `edit` has `--save-recipe`**, so the one path that emits
   a recipe covers only ops a recipe can already express.
 
-**Count:** 0 shipped / 0 active / **2 pending** — re-derive with a grep you just ran; never restate
+- [ ] **STAGE-041 — launch content and publication.** ⚠ **CARRIED, NOT THESIS WORK.** Moved from
+  PROJ-010 on 2026-08-23 so it can be continued in the active project. It does **not** advance this
+  project's thesis and must not be counted toward it at reflection. ⚠ Its repo status understates
+  reality — three of its four items are reported substantially done **outside** the repo, unreported
+  since 2026-08-16. **Get the real status before re-planning it.**
+
+**Count:** 0 shipped / 0 active / **2 pending** (+ **1 carried**, STAGE-041, which is not thesis work) — re-derive with a grep you just ran; never restate
 a tally you carried forward.
 
 ## Dependencies

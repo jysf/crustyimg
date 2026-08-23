@@ -10,7 +10,7 @@ stage:
   target_complete: null
 
 project:
-  id: PROJ-010
+  id: PROJ-011
 repo:
   id: crustyimg
 
@@ -32,6 +32,25 @@ value_contribution:
     - "Publish anything. Every outward-facing post is maintainer-authorized, like the tag and the npm publish."
     - "Decide the go/no-go. That is the maintainer's call and stays on docs/launch-readiness.md."
 ---
+
+> ⚠ **MOVED from PROJ-010 to PROJ-011 on 2026-08-23, at the maintainer's request, so it can be
+> continued in the active project. Read this before counting it toward anything.**
+>
+> **This stage does NOT share PROJ-011's thesis.** PROJ-011's thesis is *a declared `build` can
+> express what the CLI can do*; launch content and publication is unrelated to it. The stage is
+> carried here for **continuity, not coherence** — its `value_contribution` advances PROJ-010's
+> thesis, which has been delivered, and it should **not** be read as advancing PROJ-011's or as
+> evidence for or against it at project reflection.
+>
+> ⚠ **Its repo status understates reality and has since 2026-08-16.** The maintainer has reported
+> that **three of its four items are substantially done outside this repo**, so `just backlog`
+> counting four open items is wrong and has been for a week. **Do not re-plan this stage against
+> what the repo says** — get the real status first, mark what is done, and see what actually
+> remains. It may be one item, or none.
+>
+> 📌 It was moved rather than closed because closing a stage whose true status is unknown would be
+> guessing. Moving it unblocked PROJ-010's closure without pretending to know something nobody
+> here knows.
 
 # STAGE-041: launch content and publication plan
 
