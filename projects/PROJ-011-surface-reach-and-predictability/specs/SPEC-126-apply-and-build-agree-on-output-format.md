@@ -50,19 +50,23 @@ cost:
     - cycle: build
       agent: claude-sonnet-5
       interface: claude-code
-      tokens_total: 81694181
-      duration_minutes: 36.3
+      tokens_total: 105258757
+      duration_minutes: 60.8
       recorded_at: 2026-08-23
       tokens_breakdown:
-        input: 636
-        output: 225477
-        cache_creation: 718327
-        cache_read: 80749741
-      estimated_usd: 30.30
+        input: 762
+        output: 262007
+        cache_creation: 789890
+        cache_read: 104206098
+      estimated_usd: 38.16
       note: >
         MEASURED — summed from the session transcript's per-message `usage`
-        (318 messages), priced at Sonnet anchors ($3/$15 per MTok,
-        cache_creation x1.25, cache_read x0.10) per `.message.model`.
+        (381 messages), priced at Sonnet anchors ($3/$15 per MTok,
+        cache_creation x1.25, cache_read x0.10) per `.message.model`. Taken
+        AFTER PR #187's CI matrix settled fully green (16/16), not at the
+        "almost done" point — an earlier mid-build reading of $30.30
+        under-reported by ~26%, matching this repo's own measured pattern
+        for readings taken before CI settles.
   totals:
     tokens_total: 0
     estimated_usd: 0
