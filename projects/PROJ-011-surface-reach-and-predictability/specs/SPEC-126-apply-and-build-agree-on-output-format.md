@@ -23,8 +23,11 @@ references:
     - DEC-005
     - DEC-002
     - DEC-058
+    - DEC-015
+    - DEC-087
   constraints:
     - clippy-fmt-clean
+    - ergonomic-defaults
     - test-before-implementation
     - one-spec-per-pr
   related_specs:
@@ -67,6 +70,28 @@ cost:
         "almost done" point — an earlier mid-build reading of $30.30
         under-reported by ~26%, matching this repo's own measured pattern
         for readings taken before CI settles.
+    - cycle: verify
+      agent: claude-opus-5
+      interface: claude-code
+      tokens_total: 22698850
+      duration_minutes: 21.6
+      recorded_at: 2026-08-23
+      tokens_breakdown:
+        input: 308
+        output: 104013
+        cache_creation: 302408
+        cache_read: 22292121
+      estimated_usd: 15.64
+      note: >
+        MEASURED — summed from the session transcript's per-message `usage`
+        (154 assistant messages), priced at Opus anchors ($5/$25 per MTok,
+        cache_creation x1.25, cache_read x0.10) per `.message.model` (DEC-083).
+        Cache reads are 98.2% of volume, so a flat rate would overstate by ~7x.
+        Transcript identified by CONTENT (it contains the SPEC-126 verify
+        prompt), not recency. Structurally under-reports: a cycle cannot count
+        the messages that write its own cost block. 41% of the build's cost;
+        returned a 7-item punch list, 2 unnamed behaviour changes and a
+        pre-existing tooling defect.
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -228,10 +253,32 @@ again. Add the `-o` vs `--out-dir` arm too; same class, and cheap here.
   - `src/cli/ops.rs`
   - `src/cli/optimize.rs`
   - `tests/apply_batch.rs`
-  - (plus `decisions/DEC-098-...md`, new/untracked, and this spec file's own
-    bookkeeping — not part of the code diff `git diff --name-only` reports
-    against `main...HEAD` for the PR branch, but part of this build's output)
-- **Deviations from spec:** None. Both design calls (Call 1: `apply`
+  - `decisions/DEC-098-apply-single-input-moves-to-preserve-format-not-build.md`
+  - this spec file
+  (Six files. An earlier draft of this list called DEC-098 "new/untracked" and
+  outside what `git diff --name-only main...HEAD` reports — both wrong, corrected
+  at verify: it is tracked at `f8deb55`, and the command reports all six.)
+- **Deviations from spec:** **Two, both found at verify, neither reworked — the code is
+  right and the record was not.**
+  1. **An exit-code change on three single-input `-o` invocations that no AC covers.** Making
+     `build_sink` take an already-resolved format means it no longer receives `None`, so
+     `apply` at one input with **`-o -` and no `--format`**, with **`-o` at a path with no
+     extension**, and with **`-o` at an unrecognised extension** went from `SinkError` **exit
+     4** to **exit 0**, preserving the source format. This is a conformance fix, not a
+     contract break — `resize` and `thumbnail` already did all three on `main`, and the old
+     `4` was outside `docs/api-contract.md`'s own enumeration of that code — but it is a
+     documented surface that moved unannounced. Now written into
+     `docs/api-contract.md`'s `apply` entry.
+  2. **A byte change at single input from a literal-extension `--name-template`.** With one
+     input and `--name-template '{stem}_w.jpg'`, `main` ignored the template and wrote **PNG
+     bytes into a `.jpg` file** — mislabelled output. The branch writes real JPEG. The
+     converse (`'{stem}_w.png'` on a JPEG source) now writes JPEG, matching multi-input
+     `apply`, `resize` and `build`, which is the documented rule for a plain pixel recipe
+     (`docs/api-contract.md`, DEC-087): a name template's literal extension names the file,
+     it does not pin the format. Nothing got worse; one case got strictly better. Filed to
+     STAGE-050 as the general question.
+
+  Both design calls (Call 1: `apply`
   single-input moves to preserve-source; Call 2: `apply` multi-input honours
   `--format`) were implemented exactly as settled, reusing
   `ops::output_format_for` (widened to `pub(super)`) rather than
@@ -263,9 +310,18 @@ again. Add the `-o` vs `--out-dir` arm too; same class, and cheap here.
    call chain (`run_apply` → `build_sink`/`apply_one` → `Sink::write`/
    `encode_one`) to the bottom.
 2. **Was there a constraint or decision that should have been listed but
-   wasn't?** No — DEC-015 (per-input format precedence) and DEC-058 (the
-   lockfile's stake in `apply`/`build` agreeing) were exactly the decisions
-   needed, and both were named.
+   wasn't?** DEC-015 (per-input format precedence) and DEC-058 (the lockfile's
+   stake in `apply`/`build` agreeing) were exactly the decisions needed —
+   **but "both were named" was wrong as written, and verify caught it.**
+   DEC-058 was in `references.decisions`; DEC-015 was named only in DEC-098's
+   own References, not in this spec's front-matter, which is where AGENTS §10
+   requires it. So was DEC-087 (a name template's literal extension does not
+   pin the format), and the constraint `ergonomic-defaults` — which this fix
+   directly satisfies, since the old behaviour made `--format` boilerplate
+   mandatory for the simple case to work at all. All four are now listed.
+   ⚠ The miss had teeth: DEC-015's `affected_scope` includes
+   `docs/api-contract.md`, which is exactly the file this spec should have
+   updated and did not.
 3. **If you did this task again, what would you do differently?** Run the
    AC-6 blast-radius comparison (main vs. fixed binary, hash-diffed corpus)
    EARLIER — as a first move right after reading the code, before writing

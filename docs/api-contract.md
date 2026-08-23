@@ -473,6 +473,21 @@ stderr and exits **6** (others still written). The proof of the thesis: the same
 recipe tuned on one image runs unchanged across many. (`Operation` is not `Send`, so
 each task rebuilds its pipeline from the recipe + registry — no async, DEC-006.)
 
+**Output format (SPEC-126, DEC-015/DEC-098).** For a plain pixel recipe, `apply` resolves its
+output format the way every other pixel-lane verb does, identically **at every arity**:
+`--format` > a recognized `-o` extension (single input only — the fan-out path has no `-o`) >
+**preserve the source format**. A literal extension in `--name-template` does **not** pin the
+format; it names the file only. Before SPEC-126 the two arities disagreed in both directions —
+one input with no `--format` wrote PNG whatever the source was, and multiple inputs ignored
+`--format` entirely.
+
+⚠ **Three single-input invocations changed exit code in SPEC-126, from `4` to `0`:** `-o -` with
+no `--format`, `-o` with a path carrying no extension, and `-o` with an unrecognised extension.
+All three now preserve the source format and succeed — which is what `resize` and `thumbnail`
+already did on the same invocations. The old `4` was outside this document's own enumeration of
+that code (above): none of its three cases is "the output format could not be inferred from the
+invocation".
+
 A recipe ending in the reserved terminal `optimize` step (every bundled recipe) is not
 a registry op: it is stripped before `build_pipeline`, and the preceding pixel steps
 are run through the same fast AVIF-aware decision `web` uses instead of a plain

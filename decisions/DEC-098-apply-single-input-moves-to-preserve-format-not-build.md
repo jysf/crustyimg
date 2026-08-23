@@ -26,6 +26,7 @@ affected_scope:
   - src/cli/optimize.rs
   - src/cli/common.rs
   - src/cli/ops.rs
+  - docs/api-contract.md
 
 tags:
   - apply
@@ -226,6 +227,25 @@ on one.
   `already_compressed.jpg` wrote `already_compressed.png` on `main` and
   `already_compressed.jpg` on this branch — the exact defect this spec
   fixes, and the one place the corpus was expected, and found, to diverge.
+
+  **⚠ The boundary of that run, stated rather than implied:** it covered four verbs
+  (`resize`, `thumbnail`, `watermark`, `build`) on four files in two formats. It did
+  **not** cover `optimize`, `web`, `convert`, `responsive`, or `apply --recipe web`.
+  The hypothesis under test was "did a shared seam move?", and the call graph bounds
+  which seams could: `build_sink` has exactly one caller (`run_apply`'s single-input
+  branch), `apply_one` has two (both inside `run_apply`), and `build.rs` reaches
+  `encode_one` **directly** with an unchanged signature — so `build` structurally
+  cannot move, and `apply --recipe web` returns from `run_apply` above the changed
+  code entirely.
+
+  **Verify closed the gap by measurement rather than by that argument** (2026-08-23),
+  extending the same corpus across both binaries to **39 output files over 9 paths**:
+  the original 16 reproduced identical; `optimize` / `web` / `convert --format webp`
+  (12) identical; `responsive --widths 64,128` (6, plus the `<picture>` snippet)
+  identical; `apply --recipe web` at 1 and N inputs (5, including a real AVIF)
+  identical; and the positive control — `apply`, 1 input, no `--format` — differing
+  `.png` → `.jpg` exactly as designed. The flagship AVIF-decision path is confirmed
+  behaviourally, not only structurally.
 - **AC-7:** full matrix (`default`, `--no-default-features`, `--features
   webp-lossy`), each in a fresh `CARGO_TARGET_DIR`, sequential; `cargo
   build`, `cargo test`, `cargo clippy --all-targets -- -D warnings` clean on

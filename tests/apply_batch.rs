@@ -503,17 +503,23 @@ height = 50000
 
 // ─── SPEC-126: apply/build output-format agreement ───────────────────────────
 
-/// `apply --format X` must be honoured identically at 1 input and at N inputs,
-/// for at least two target formats — so this cannot pass by coincidence of the
-/// source format (AC-1). Before SPEC-126 the N-input (`--out-dir`) fan-out did
-/// no format resolution at all and silently ignored `--format`.
+/// `apply --format X` must be honoured at ONE input, for two target formats —
+/// so this cannot pass by coincidence of the source format (AC-1, single-input
+/// half).
+///
+/// Split from a single every-arity test at SPEC-126's verify. Combined, a
+/// revert of the multi-input resolution killed the test at its first
+/// multi-input block and the second single-input format never ran — so the
+/// suite could not show which arity had regressed. Two tests make the
+/// independence AC-5 asserts observable in one run: this one stays green while
+/// the multi-input test goes red.
 ///
 /// Asserted on the written BYTES sniffed via `image::guess_format` (AGENTS
 /// §15 / Call 4's own reasoning) — the filename extension is produced by the
 /// same resolution this test exists to check, so it cannot be independent
 /// evidence.
 #[test]
-fn apply_honours_format_at_every_arity() {
+fn apply_honours_format_at_single_input() {
     let dir = TempDir::new().unwrap();
     let recipe = write_recipe(&dir, "r.toml", IDENTITY_RECIPE);
 
@@ -546,6 +552,54 @@ fn apply_honours_format_at_every_arity() {
         ImageFormat::Png,
         "1 input: --format png must be honoured"
     );
+
+    // Target format 2 (jpeg), driven at 1 input and at 2 inputs, from a PNG source.
+    let one_png = write_png(&dir, "one.png", 16, 16);
+    let out_one_jpg = dir.path().join("out_one_jpg");
+    std::fs::create_dir_all(&out_one_jpg).unwrap();
+    let output = Command::new(BIN)
+        .args([
+            "apply",
+            "--recipe",
+            recipe.to_str().unwrap(),
+            one_png.to_str().unwrap(),
+            "--format",
+            "jpeg",
+            "--out-dir",
+            out_one_jpg.to_str().unwrap(),
+            "-y",
+        ])
+        .output()
+        .expect("failed to run apply 1-input --format jpeg");
+    assert!(
+        output.status.success(),
+        "1 input --format jpeg: exit 0 expected; stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let bytes = std::fs::read(out_one_jpg.join("one.jpg")).expect("one.jpg must be written");
+    assert_eq!(
+        image::guess_format(&bytes).expect("must sniff a known format"),
+        ImageFormat::Jpeg,
+        "1 input: --format jpeg must be honoured"
+    );
+}
+
+/// `apply --format X` must be honoured at N inputs, for two target formats
+/// (AC-1, multi-input half). Before SPEC-126 the N-input (`--out-dir`) fan-out
+/// did no format resolution at all and silently ignored `--format` — this is
+/// the arm that carried the defect.
+///
+/// See [`apply_honours_format_at_single_input`] for why the two arities are
+/// separate tests.
+///
+/// Asserted on the written BYTES sniffed via `image::guess_format` (AGENTS
+/// §15 / Call 4's own reasoning) — the filename extension is produced by the
+/// same resolution this test exists to check, so it cannot be independent
+/// evidence.
+#[test]
+fn apply_honours_format_at_multi_input() {
+    let dir = TempDir::new().unwrap();
+    let recipe = write_recipe(&dir, "r.toml", IDENTITY_RECIPE);
 
     let two_a = write_jpeg(&dir, "two_a.jpg", 16, 16);
     let two_b = write_jpeg(&dir, "two_b.jpg", 16, 16);
@@ -581,36 +635,6 @@ fn apply_honours_format_at_every_arity() {
              (this is the multi-input arm that silently ignored --format before SPEC-126)"
         );
     }
-
-    // Target format 2 (jpeg), driven at 1 input and at 2 inputs, from a PNG source.
-    let one_png = write_png(&dir, "one.png", 16, 16);
-    let out_one_jpg = dir.path().join("out_one_jpg");
-    std::fs::create_dir_all(&out_one_jpg).unwrap();
-    let output = Command::new(BIN)
-        .args([
-            "apply",
-            "--recipe",
-            recipe.to_str().unwrap(),
-            one_png.to_str().unwrap(),
-            "--format",
-            "jpeg",
-            "--out-dir",
-            out_one_jpg.to_str().unwrap(),
-            "-y",
-        ])
-        .output()
-        .expect("failed to run apply 1-input --format jpeg");
-    assert!(
-        output.status.success(),
-        "1 input --format jpeg: exit 0 expected; stderr: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let bytes = std::fs::read(out_one_jpg.join("one.jpg")).expect("one.jpg must be written");
-    assert_eq!(
-        image::guess_format(&bytes).expect("must sniff a known format"),
-        ImageFormat::Jpeg,
-        "1 input: --format jpeg must be honoured"
-    );
 
     let two_c = write_png(&dir, "two_c.png", 16, 16);
     let two_d = write_png(&dir, "two_d.png", 16, 16);
