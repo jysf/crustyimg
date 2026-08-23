@@ -184,7 +184,12 @@ fn resize_params(
 ///
 /// An unrecognized `--format` is a typed `SinkError` (exit 4) surfaced via
 /// `resolve_format`. An unrecognized `-o` extension is `SinkError` (exit 4).
-fn output_format_for(
+///
+/// `pub(super)` (SPEC-126): `apply`'s single-input path (`optimize::run_apply`)
+/// reuses this exact resolution rather than the `Sink::Dir`
+/// default-to-PNG fallback it used to fall through to — so `apply` at one
+/// input resolves format identically to `resize`/`thumbnail`/`watermark`.
+pub(super) fn output_format_for(
     global: &GlobalArgs,
     output_path: Option<&Path>,
     source_format: ::image::ImageFormat,

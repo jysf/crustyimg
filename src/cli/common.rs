@@ -29,10 +29,11 @@ pub(super) const BATCH_PROGRESS_TEMPLATE: &str = "{bar:40.cyan/blue} {pos}/{len}
 /// Rebuilds the pipeline from `recipe` + `registry` on every call — `Operation`
 /// is NOT `Send`, so no pipeline may cross a thread boundary (SPEC-031).
 ///
-/// `format_override` (SPEC-111): `None` preserves the source format, exactly
-/// as this always did (no `--format` in the batch path, DEC-015) — `apply_one`
-/// passes `None` unconditionally, so its behavior is byte-for-byte unchanged
-/// (AC-6's sibling). `build` passes `Some(fmt)` only for a terminal-`optimize`
+/// `format_override` (SPEC-111): `None` preserves the source format. `apply_one`
+/// (SPEC-126) resolves `global.format` once in `run_apply` and threads it
+/// through here — `Some(fmt)` when `--format` was given (honoured at every
+/// arity), `None` otherwise (preserved, byte-for-byte unchanged from before
+/// SPEC-126 — AC-6's sibling). `build` passes `Some(fmt)` only for a terminal-`optimize`
 /// target whose name template PINS a literal extension (decision 1): the pin
 /// wins over the source format, matching `apply --recipe web -o hero.png`.
 /// `build`'s OTHER terminal-`optimize` case — no pin, `{ext}` in the template
@@ -70,16 +71,25 @@ pub(super) fn encode_one(
 /// Extracted from `run_apply` so it is unit-testable. [`encode_one`] does the
 /// decode→pipeline→encode; this adds the `Sink::Dir` write, which is where the
 /// name-template expansion, traversal, symlink, and overwrite guards live.
+///
+/// `format_override` (SPEC-126): threaded straight through to [`encode_one`] —
+/// `Some(fmt)` when `apply --format` was given (honoured at every arity, not
+/// just one input), `None` to preserve each input's own source format
+/// (today's behavior, and the correct default per Call 1). Resolved ONCE by
+/// the caller (`run_apply`) from `global.format`, not per input — `apply` has
+/// no `-o` in the batch path, so there is nothing per-input to resolve.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn apply_one(
     recipe: &Recipe,
     registry: &OperationRegistry,
     input: &crate::source::Input,
+    format_override: Option<::image::ImageFormat>,
     out_dir: &Path,
     template: &str,
     overwrite: Overwrite,
     quality: Option<u8>,
 ) -> Result<(), CliError> {
-    let (ext, bytes) = encode_one(recipe, registry, input, None, quality)?;
+    let (ext, bytes) = encode_one(recipe, registry, input, format_override, quality)?;
     write_encoded(&bytes, ext, input, out_dir, template, overwrite)
 }
 
@@ -173,31 +183,33 @@ pub(super) fn load_recipe(recipe_arg: &str) -> Result<Recipe, CliError> {
     )))
 }
 
-/// Build a `Sink` from the global output options.
+/// Build a `Sink` from the global output options, for an ALREADY-RESOLVED
+/// output format.
 ///
 /// Priority:
-/// - `-o -`          → `Sink::Stdout { format }` (format from `--format`; `None` → `UnknownFormat` on write).
-/// - `-o <PATH>`     → `Sink::File { path, format: optional from --format }`.
-/// - `--out-dir DIR` → `Sink::Dir { dir, template, format }`.
-/// - No output flag  → `Sink::File` with an empty path (caller's error if path is needed).
+/// - `-o -`          → `Sink::Stdout { format: Some(fmt) }`.
+/// - `-o <PATH>`     → `Sink::File { path, format: Some(fmt) }`.
+/// - `--out-dir DIR` → `Sink::Dir { dir, template, format: Some(fmt) }`.
+/// - No output flag  → `Sink::Stdout { format: Some(fmt) }`.
 ///
-/// `--format` is a lowercase extension string (e.g. `"png"`, `"jpg"`); it is
-/// converted to `image::ImageFormat` via `ImageFormat::from_extension`. An
-/// unrecognised format string results in `SinkError::UnsupportedExtension → exit 4`.
-pub(super) fn build_sink(global: &GlobalArgs) -> Result<Sink, CliError> {
-    // Convert optional `--format` string to `Option<ImageFormat>`.
-    let format_opt = resolve_format(global.format.as_deref())?;
-
+/// `fmt` is resolved by the caller (SPEC-126: `ops::output_format_for`, the
+/// same `--format` > `-o` ext > preserve-source precedence every other
+/// pixel-lane verb uses) and always passed through as `Some` — this is what
+/// stops `Sink::Dir`'s own default-to-PNG fallback (`sink::Sink::write`) from
+/// ever firing on the `apply` path, which is Call 1's actual bug: `apply` at
+/// one input left `format` unresolved into a `Sink::Dir`/`Sink::Stdout`
+/// write, so an unset `--format` silently became PNG (Dir) or `UnknownFormat`
+/// (Stdout) instead of preserving the source.
+pub(super) fn build_sink(global: &GlobalArgs, fmt: ::image::ImageFormat) -> Sink {
     if let Some(ref out) = global.output {
         if out == "-" {
-            // Stdout sink: format must be known at write time (Sink handles None → UnknownFormat).
-            return Ok(Sink::Stdout { format: format_opt });
+            return Sink::Stdout { format: Some(fmt) };
         }
         // File sink.
-        return Ok(Sink::File {
+        return Sink::File {
             path: PathBuf::from(out),
-            format: format_opt,
-        });
+            format: Some(fmt),
+        };
     }
 
     if let Some(ref dir) = global.out_dir {
@@ -205,17 +217,15 @@ pub(super) fn build_sink(global: &GlobalArgs) -> Result<Sink, CliError> {
             .name_template
             .clone()
             .unwrap_or_else(|| "{stem}.{ext}".to_owned());
-        return Ok(Sink::Dir {
+        return Sink::Dir {
             dir: PathBuf::from(dir),
             template,
-            format: format_opt,
-        });
+            format: Some(fmt),
+        };
     }
 
-    // No output specified: default to stdout (format required separately).
-    // In practice the integration tests always pass -o; returning Stdout here
-    // makes the error surface cleanly as UnknownFormat rather than a panic.
-    Ok(Sink::Stdout { format: format_opt })
+    // No output specified: default to stdout.
+    Sink::Stdout { format: Some(fmt) }
 }
 
 /// Convert an optional format string (e.g. `"png"`) to `Option<ImageFormat>`.
@@ -336,6 +346,7 @@ width = 8
             &recipe,
             &registry,
             &input,
+            None,
             &out_dir,
             "{stem}.{ext}",
             Overwrite::Allow,
