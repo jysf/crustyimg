@@ -17,6 +17,37 @@ session was handed 11 crates of which 2 did not exist and only 3 were viable.
 
 ---
 
+## 0. ⚠ Audit, 2026-08-23 — 8 of 12 decisions in this document are invisible to tooling
+
+Run after a decided LUT feature was found to have sat here unnoticed for 13 days. **Nothing reads
+this file** — not `just backlog`, not `just roadmap` (which reads *stage files*, not
+`docs/roadmap.md`). Each row below was checked by grepping every stage's `## Spec Backlog`.
+
+| decision | verdict here | in a stage backlog? |
+|---|---|---|
+| §2 LUT op, `.cube` reader in-house | **Take**, ruling in §3.1 | ✅ **filed 2026-08-23** → PROJ-011/STAGE-050 |
+| §3 Perceptual dedup lint rule | **Take** — *"best differentiation per unit of effort in the set"* | ❌ **NO** |
+| — Declared convolution kernels | **Take** | ❌ **NO** |
+| §12 ICC colour transforms (`qcms` only) | Take when pulled | ❌ **NO** |
+| §15 SVG optimization | Take when pulled | ❌ **NO** |
+| — JPEG XL decode | Take when pulled | ❌ **NO** |
+| §4 Lint in wasm | gated on a bundle-size measurement | ❌ NO |
+| §17 MCP server exposing measurements | *"strongest strategic idea in the set"*, gated on §4 | ❌ NO |
+| §16 Brand consistency as a build gate | *"the one genuinely commercial angle"*, gated on §2 | ❌ NO |
+| §1 Placeholders (blurhash/thumbhash) | → roadmap Wave 4 | ✅ yes |
+| §6 Cross-verb invariant harness | → STAGE-042 | ✅ yes |
+| §11 Animated GIF → WebP/AVIF | Take when pulled | ✅ yes |
+| — Favicon / app-icon / OG sets | → Wave 4 | ✅ yes |
+
+⚠ **The structural finding, which is bigger than any row:** the framework has **no machine-readable
+home for a decided-but-unprojected feature.** Work must belong to a project → stage → spec, so a
+feature that is decided and unscheduled has nowhere to live except a file like this one. That is
+why these went missing, and it will keep happening until such a home exists.
+
+📌 **Per AGENTS §10's rule (adopted 2026-08-23):** the five "Take" rows above are, as things stand,
+**proposals rather than decisions** — they have no home, and this document is not one. Calling them
+decided here is the thing that made them invisible.
+
 ## 1. Corrections — claims that did not survive checking
 
 These are listed first because each one changes what the item costs or whether it is possible.
