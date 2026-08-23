@@ -181,6 +181,31 @@ write-ups; what it has never had is a **schedulable** home, which is exactly the
   own template therefore double-counts every promoted spec as backlog. Hit live on STAGE-046,
   2026-08-15. Fix the template, the matcher, or both; whichever, they must agree.
 
+- [ ] (not yet written) — [S] ⚡ **`cost-audit` scopes to the ACTIVE project, so activating a new
+  one silently takes the gate out of service — and its message cannot tell you.** Found 2026-08-23,
+  the moment PROJ-011 was activated. `scripts/cost-audit.sh:23` does `project=$(get_active_project)`.
+
+  **Driven, with a positive control:**
+
+  | project | shipped specs | result | message |
+  |---|---:|---|---|
+  | PROJ-010 (via `ACTIVE_PROJECT=`) | **18** | exit 0 | *"✓ all shipped specs have build/verify cost recorded"* |
+  | PROJ-011 (now active) | **0** | exit 0 | **identical message** |
+
+  **The output cannot distinguish "checked 18 and all passed" from "checked nothing."** This is the
+  repo's own [[a-harness-that-exercises-nothing-reports-green]] lesson, in the gate that enforces
+  constraint `cost-captured-per-cycle` and backs the CI job `cost-data`.
+  ⚠ **Not currently wrong** — PROJ-010's 18 specs do all carry cost — but the gate no longer looks
+  at them, and nothing announces that.
+  **Two fixes, and the second matters more than the first:** audit **every** project rather than the
+  active one; and **report the count checked**, so a zero is visible. A gate that says how much it
+  checked cannot go vacuous unnoticed.
+  📌 ⚠ **Eleven other scripts call `get_active_project`** (`weekly-review`, `report_daily`,
+  `report_weekly`, `roadmap`, `backlog`, `status`, `info`, `lifetime-report`, `new-spec`,
+  `new-stage`, `_lib`). Scoping is *correct* for most of them — `new-spec` should target the active
+  project. **Audit which ones are reporting/gating (should span projects) versus authoring (should
+  not).** That distinction has never been drawn.
+
 - [ ] (chore) — **`just validate` silently skips untracked files.**
   `scripts/validate-frontmatter.sh:31` enumerates via `git ls-files`, so a **newly created** spec
   or stage — exactly the file most likely to have malformed front-matter — is invisible to the

@@ -17,8 +17,11 @@ Instructions for Claude working across all phases of this repository. Read this 
   `Operation` pipeline and reusable TOML recipes.
 - **Primary stakeholders:** Web/content developers prepping images; terminal
   power users; the maintainer (clean trait-based base to extend).
-- **Active project:** PROJ-001 — crustyimg MVP (clean rebuild). Active stage:
-  STAGE-001 (foundation and pipeline core).
+- **Active project:** ⚠ **do not read it from here — run `just status`.** This line claimed
+  PROJ-001/STAGE-001 from the repo's first day until 2026-08-23, through **nine** projects, because
+  nothing updates it and every session reads this file first. It now names no project on purpose:
+  a pointer that goes stale silently is worse than no pointer. `just status` derives the active
+  project from the `status:` field in each `projects/PROJ-*/brief.md` and cannot drift.
 
 See `.repo-context.yaml` for structured metadata.
 
