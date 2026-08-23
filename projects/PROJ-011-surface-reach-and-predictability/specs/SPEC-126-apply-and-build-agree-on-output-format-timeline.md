@@ -36,7 +36,7 @@ Cycle prompts live in `prompts/SPEC-126-<cycle>.md`.
       ⚠ **The `cycle: verify` advance and `## Build Completion` live only on the branch**, so
       `just status` / `just backlog` will keep reporting `cycle: design` until this merges with
       STAGE-050. This line is the trace on `main`.
-- [ ] **verify** — prompt: `prompts/SPEC-126-verify.md` (2026-08-23). **Opus**, new session,
+- [x] **verify** — prompt: `prompts/SPEC-126-verify.md` (2026-08-23). **Opus**, new session,
       read-only, own worktree, reviewing the **branch** (base ref `9b4fb80`). Ready to dispatch.
       ⚡ Leads with an **unnamed exit-code change** the orchestrator found reading the diff:
       `build_sink` now always passes `Some(fmt)`, so `apply` one input `-o -` with no `--format`
@@ -45,4 +45,25 @@ Cycle prompts live in `prompts/SPEC-126-<cycle>.md`.
       Three things are pre-settled in the prompt so verify does not re-derive them: the cost, the
       call-graph containment (`build_sink` has one caller; `build` reaches `encode_one` directly),
       and that `apply --recipe web` returns early and never touches the changed code.
+      ⚠ **2026-08-23 — PUNCH LIST, 7 items.** $15.64 / 21.6 min / 22.7M tokens (Opus), 41 % of
+      the build. **The code is right; the record and the docs were not.** Only one item touched
+      code, and only as a test split.
+      ⚡ Item 1 confirmed and **widened**: not one exit-code change but **three** — `-o -` with no
+      `--format`, `-o` at an extensionless path, and `-o` at an unrecognised extension, all
+      `4` → `0`. Ruled a **conformance fix, not a contract break**, on evidence: `resize` and
+      `thumbnail` already did all three on `main`, and the old `4` sat outside
+      `api-contract.md`'s own enumeration of that code. Now documented.
+      ⚡ A **fourth** unnamed consequence found: at single input a literal-extension
+      `--name-template` used to be ignored, so `{stem}_w.jpg` wrote **PNG bytes into a `.jpg`
+      file**. Fixed outright; the converse now matches `resize`/`build`. Nothing regressed.
+      ⚡ Verify extended AC-6 from 16 files / 4 verbs to **39 files / 9 paths**, including the
+      flagship `apply --recipe web` — all identical, positive control still diverging.
+      **Items 1–6 applied by the orchestrator on the branch** (`77f1050`); **item 7 filed on
+      `main`**. `cycle:` **HELD at verify** for re-approval, not advanced.
+
+- [ ] **re-approve** — the punch list is applied but not re-reviewed. `77f1050` needs a read
+      before this batches into the release: the api-contract wording, the two named deviations,
+      and the test split (driven — with Call 2 reverted alone, multi-input FAILED and
+      single-input ok **in one run**, which is the point of the split).
+
 - [ ] **ship**
