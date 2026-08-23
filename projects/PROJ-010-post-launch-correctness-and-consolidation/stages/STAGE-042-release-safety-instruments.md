@@ -172,6 +172,35 @@ failures on documented paths.
   printing the resolved name@version and the git commit before the final step, so the maintainer
   confirms against something rather than nothing. Queued item #11. Complexity **S**.
 
+- [ ] (not yet written) — [S] ⚡ **`display_sink_refuses_non_tty` passes in CI and FAILS in the
+  maintainer's terminal — so the release gate suite is unrunnable as RELEASING.md tells you to run
+  it.** Hit live during the 0.7.1 cut, 2026-08-22.
+
+  `tests/sink.rs:437` asserts the Display sink always refuses, on the premise stated in its own
+  comment: *"Under `cargo test` stdout is piped (non-tty)."* **That premise is false in an
+  interactive terminal.** libtest captures what a test *prints*, but it does not reopen the
+  process's fd 1, so `std::io::stdout().is_terminal()` (`src/sink/mod.rs:536`) is `true`, the sink
+  **accepts**, and `.unwrap_err()` panics on `Ok(())`.
+
+  **Driven, across two operators on the same commit and binary:**
+
+  | stdout | result |
+  |---|---|
+  | a real TTY (maintainer, `cargo test`) | **FAILED** — `called Result::unwrap_err() on an Ok value` |
+  | redirected to a file (CI, and `cargo test > log 2>&1`) | **passed** — 1 passed, exit 0 |
+
+  ⚠ **This is worse than a test that simply fails.** It is green on every CI leg, so nothing
+  upstream catches it, and it goes red exactly when a human follows the documented release
+  procedure — which teaches the reader to distrust a red gate. **Pre-existing; not from this wave.**
+
+  **Fix: make the test's condition true by construction rather than by assumption** — force a
+  non-tty (or assert conditionally on `is_terminal()`, so the test is meaningful in *both*
+  environments instead of accidentally correct in one). ⚠ **Do not "fix" it by deleting the
+  assertion**: the `NotATty` guard is real behaviour worth pinning.
+  📌 **Workaround until then:** run the gate suite with stdout redirected —
+  `cargo test > /tmp/gate.log 2>&1; echo $?` — and redirect rather than pipe, since a pipe reports
+  the pipe's exit code [[a-piped-command-reports-the-pipes-exit-code]].
+
 - [ ] (chore) — ⚡ **`RELEASING.md`'s checklist is in an order that cannot be followed.** Hit live
   during the 0.7.1 cut, 2026-08-22. **Step 3 is `cargo publish --dry-run`; step 5 is "commit the
   release".** `cargo publish` refuses a dirty working tree —
@@ -494,8 +523,8 @@ failures on documented paths.
   measurement; goes red if `image` ever fixes this upstream. Needs a maintainer ruling on whether
   to warn, fix (byte-changing), or accept as a known `image` limitation.
 
-**Count:** re-derived by grep 2026-08-22, not carried forward: **15 `- [ ]` + 6 `- [x]` =
-21 items.** Narratively: 1 framed (SPEC-118) / 3 shipped (SPEC-123, SPEC-124, SPEC-125) / 14 pending
+**Count:** re-derived by grep 2026-08-22, not carried forward: **16 `- [ ]` + 6 `- [x]` =
+22 items.** Narratively: 1 framed (SPEC-118) / 3 shipped (SPEC-123, SPEC-124, SPEC-125) / 14 pending
 / 1 chore fixed (the `pages` startup race, PR #186)
 / 1 chore done / 1 closed-by-a-spec (the `[env]` item). ⚠ Those buckets do **not** partition cleanly
 — a shipped spec's entry is `[x]` while a framed one's is `[ ]` — so **the checkbox tally is the
