@@ -202,10 +202,20 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
   the CLI (`crop` is not a verb, not an `edit` flag, and not a registry op). The glossary describes
   something that does not exist.
 
-- [ ] SPEC-092 (deferred from STAGE-030 2026-07-20) — `convert --to` rename + social/archive recipes.
+- [x] **SPEC-092 — CANCELLED 2026-08-23 (maintainer).** `convert --to` rename + social/archive
+  recipes. Deferred from STAGE-030 on **2026-07-20**, making it the oldest open item in PROJ-010.
+  **This stage's own unpark criterion is "an adoption signal or a maintainer decision to broaden
+  the surface"** — 0.7.0 and 0.7.1 have both shipped and **no adoption signal has appeared**.
+  ⚠ **A rename with no demand is churn on a frozen CLI surface** (STAGE-030), and it was carrying a
+  PROJ-010 success signal, so it had the power to keep the project open indefinitely without anyone
+  choosing that.
+  📌 **The reason to cancel rather than keep deferring:** a deferred item and a cancelled one look
+  identical in a backlog, but only one of them stops binding. This was blocking PROJ-010's closure
+  by accident. **Revisit trigger:** a real user request for `convert --to`, or a decision to
+  broaden the CLI surface — at which point re-file it fresh rather than reviving this entry.
   Optional convenience surface; additive on top of the frozen ~14-verb core.
 
-**Count:** 0 shipped / 0 active / 1 pending (SPEC-092)
+**Count:** 0 shipped / 0 active / 0 pending / **1 cancelled (SPEC-092)** — re-derive with a grep you just ran
 
 ## Design Notes
 

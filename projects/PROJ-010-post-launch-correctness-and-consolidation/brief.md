@@ -33,7 +33,7 @@ value:
     - "The classifier runs before the resize pipeline (or the entropy threshold is scale-aware), proved by re-running the re-derived negative control from the review findings — PHOTO_ENTROPY_STRONG = 5.5 must make a guard go red, which today it does not"
     - "Every input in the committed hostile corpus produces no hang, a clear user-facing message, and a documented exit code — on both native CLI and headless wasm"
     - "The strict-JSON escape_json tail from SPEC-097 ships, and every declined code-health candidate is recorded as declined with its reason"
-    - "SPEC-092 `convert --to` is live; shell completions ship via Homebrew, complete file paths on bash and zsh, and signal staleness on surface changes"
+    - "AMENDED 2026-08-23 — shell completions ship via Homebrew, complete file paths on bash and zsh, and signal staleness on surface changes. The original signal also required SPEC-092 (`convert --to` rename + social/archive recipes); SPEC-092 was CANCELLED 2026-08-23 and that half is withdrawn. A signal that binds a project to work it has decided not to do is a signal that guarantees the project cannot close — amend it or cancel the work, not neither."
   risks_to_thesis:
     - "The classifier fix is the real engineering unknown. If the correct fix is deeper than 'move classification before resize' or 'make entropy threshold scale-aware' — e.g. if the classifier needs a different metric, or the pipeline architecture makes pre-resize classification expensive — it could grow into multiple specs and expand the launch-gating timeline. Calibrated by the review findings, which narrow the fix to two concrete approaches."
     - "The hostile-input pass could find real defects (panic, hang, wrong exit code) that need triage and fixes — this is the purpose of running it, but unanticipated defects extend the stage. The committed corpus is designed to surface them cheaply."
@@ -65,7 +65,7 @@ Two pre-launch stages (launch-gating), three post-launch stages (optional, per m
 - The cascade is left internally consistent: rule 6 reachable or deleted, the `[4.0, 4.5)` contradiction band resolved, rule 5 reachable, and `--profile docs` doing something for promoted images.
 - Every hostile/edge input in the committed corpus produces no hang, a clear message, and a documented exit code — on both native CLI and headless wasm.
 - The strict-JSON `escape_json` tail ships; every declined code-health candidate is recorded as declined, with its reason.
-- SPEC-092 `convert --to` is live; shell completions ship via Homebrew, complete file paths on bash/zsh, and signal staleness.
+- ~~SPEC-092 `convert --to` is live~~ (**cancelled 2026-08-23** — see the amended signal above); shell completions ship via Homebrew, complete file paths on bash/zsh, and signal staleness.
 - The launch-readiness hostile-input blocker moves off "hold natively; confirm in the browser" to a stated, driven outcome.
 
 ## Scope

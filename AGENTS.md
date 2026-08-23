@@ -70,6 +70,16 @@ stage's value. Infrastructure specs may have
 `value_link: "infrastructure enabling X"`. Optional but encouraged —
 it surfaces specs that don't trace back to the thesis.
 
+**A success signal that names specific work binds the project to that work.**
+If the work is later cancelled or declined, **amend the signal in the same
+breath** — with the reason, visibly, the way a superseded DEC is amended. A
+signal left pointing at cancelled work does not quietly lapse: it guarantees the
+project can never close, and nobody chose that. Measured 2026-08-23 — PROJ-010
+carried a signal requiring SPEC-092, an item deferred 2026-07-20 that no one
+intended to build, and it was one of two signals keeping a delivered project
+open. **Cancel the work or amend the signal. Doing neither is how a project
+becomes immortal by accident.**
+
 Reports (`just report-daily`, `just report-weekly`) aggregate these
 signals: which stages advanced the thesis, which specs most directly
 delivered it, and where value traceability broke down.
