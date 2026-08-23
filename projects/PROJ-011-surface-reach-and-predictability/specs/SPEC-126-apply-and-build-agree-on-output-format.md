@@ -196,7 +196,7 @@ again. Add the `-o` vs `--out-dir` arm too; same class, and cheap here.
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
 - **Branch:** `fix/spec-126-apply-and-build-agree`
-- **PR:** #TBD (opened at the end of this build cycle — see the ship note below for the number)
+- **PR:** [#187](https://github.com/jysf/crustyimg/pull/187) — opened, NOT merged (batches with STAGE-050 per Call 3)
 - **All acceptance criteria met?** yes
   - AC-1 (`--format` honoured at every arity, ≥2 target formats) —
     `tests/apply_batch.rs::apply_honours_format_at_every_arity`.
