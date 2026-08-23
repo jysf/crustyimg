@@ -38,7 +38,16 @@ value_contribution:
     - "Re-open SPEC-119, which fixed the animation axis and is shipped"
 ---
 
-# STAGE-048: Multi-Frame Reach
+> ⚠ **RE-SCOPED 2026-08-23 — read this before the body below.** Animated AVIF output has been
+> **forked out** to its own design track by maintainer decision, and this stage keeps only the
+> **input** side: multi-size ICO, multi-page TIFF, `lint` detection, `info`-on-animated. Those are
+> tractable today; animated AVIF is complexity **L** with a ~1,000-line muxer and a dependency
+> needing a DEC, and forking it lets the input defects ship without waiting on it.
+> **The body below still describes both halves** — treat its animated-AVIF items (parts (a) and
+> (b) of the backlog) as moved, not as scope. This stage also **moves to PROJ-011**, where the
+> input side matches the thesis; it is filed here only until PROJ-011 activates.
+
+# STAGE-048: Multi-Frame Reach — input side
 
 ## What This Stage Is
 
