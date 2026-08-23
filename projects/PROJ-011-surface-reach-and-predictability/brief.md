@@ -16,200 +16,159 @@ shipped_at: null
 
 value:
   thesis: >
-    What you ask crustyimg for should be what you get, however you spell the
-    request — and it should never silently do less. Nine measured defects say
-    otherwise today, and every one was found by USING the tool rather than
-    auditing it: the same recipe writes a different format under `apply` than
-    under `build`; `--format` is silently ignored on a multi-input batch; a
-    recognized extension on `-o` changes the encode quality, the scoring and the
-    report; `--explain` goes silent exactly where `--json` errors; a multi-page
-    TIFF or multi-size ICO is reduced to one image and the loss is reported as a
-    size win. Underneath them sits one structural gap: a recipe cannot express a
-    watermark, a format or a quality, so the batch path is strictly weaker than
-    the single-file path it exists to automate — which is WHY `apply --format`
-    exists, and why its being broken matters. Closing these makes the tool do
-    what a user who has read `--help` would predict, which is testable in a way
-    that "improve quality" is not.
+    A declared `build` should be able to express what the CLI can already do.
+    Today it cannot: the operation registry holds four ops, so a recipe cannot
+    carry a watermark, a format or a quality — and `build` binds sources to a
+    recipe, so every one of those limits is inherited. The concrete consequence,
+    from the maintainer's own site work: **every image on theF11.com should be
+    watermarked, and that cannot be done through `build` at all.** The working
+    alternative is a hand-driven three-pass pipeline. Closing this makes the
+    declarative path as capable as the imperative one, which is the promise
+    `build` implies and does not keep.
   beneficiaries:
-    - "Anyone who feeds crustyimg a multi-page TIFF, a multi-size ICO or an animation and currently gets one image back with no diagnostic"
-    - "Anyone automating with recipes, who today cannot express watermark, an output format, or a quality — the three things the CLI does most"
-    - "Anyone reading a size or ssim number from `web`, which changes meaning depending on whether the output path had a recognized extension"
-    - "The maintainer, who found all three of these by using the tool on real work and should not have to"
+    - "The maintainer, who wants one `build` to watermark and optimize a whole photo site and currently runs a three-pass pipeline by hand"
+    - "Anyone automating crustyimg in CI, where the declarative path is the only one worth wiring up and is today the weaker one"
+    - "Anyone who has written a recipe and discovered mid-batch that a parameter was misspelled, because validation happens per-operation at apply time rather than at parse time"
+    - "Downstream readers of a `*.build.lock`, which today pins bytes the `apply` spelling of the same recipe cannot reproduce"
   success_signals:
-    - "A multi-page TIFF and a multi-size ICO are either preserved or refused with a message naming what would be lost — never exit 0 silently, never reported as a size win"
-    - "An animated GIF re-encodes to an animated AVIF whose decoded frame count equals the input's, asserted with an independent decoder (`re_rav1d`), not the encoder's packet count"
-    - "A recipe can express watermark and can pin an output format and quality — so `apply --recipe` reaches what `watermark` and `convert` reach"
-    - "A `(command x output-flag)` matrix asserts encode-identical bytes and report parity across every combination, so a divergence like the `-o` pin fails CI rather than reaching a user"
-    - "Every verb's default quality is asserted in a test, so a silent change to any of them goes red"
+    - "A single `crustyimg build` watermarks and optimizes an entire photo directory from a manifest — the theF11.com case, driven end to end"
+    - "A recipe can pin an output format and quality, so `apply --recipe` reaches what `convert` reaches"
+    - "`apply` and `build` produce byte-identical output for the same recipe and input, asserted by a test — today they disagree on the default format"
+    - "`apply --format` is honoured on a multi-input batch, which it is not today"
+    - "A malformed recipe fails at parse time with a message naming the bad key, not partway through image 37 of 50"
   risks_to_thesis:
-    - "⚠ Two of the three pillars are byte-changing on shipped verbs, so the wave carries a lockfile migration and must be batched into one release the way STAGE-046's was — sequencing this wrong costs users two migrations instead of one"
-    - "The animated-AVIF muxer is measured at ~1,000 lines and needs a new dependency (`mp4-atom`) plus its DEC. It is the largest single piece of work here and the one most likely to be under-estimated"
-    - "TIFF multi-page detection is not reachable through `image` at all, so even 'warn and refuse' is a dependency question. A stage that assumes it is a guard will stall"
-    - "⚠ 'Predictability' can rationalise almost any change. If a spec here cannot name the user-visible surprise it removes, it does not belong in this project"
+    - "⚠ Every item here is byte- or behaviour-changing on a shipped verb, so the project carries ONE lockfile migration and must ship as one release — the batching STAGE-046 used. Sequencing it wrong costs users two migrations"
+    - "⚠ `watermark --size` is ABSOLUTE PIXELS. A recipe-level watermark only behaves consistently if the recipe normalises dimensions first, so this is a design constraint on the op, not an implementation detail to meet during build"
+    - "The registry is documented as 'the single seam new operations register at', but no op with watermark's parameter richness has ever registered. If the seam turns out to need widening, that is a larger change than this brief assumes"
+    - "⚠ This project is deliberately NARROW. Nine measured defects were considered and six were left out. The temptation to pull them back in is the main way it loses its shape and its ship date"
 ---
 
-# PROJ-011: Surface Reach and Predictability
+# PROJ-011: A Declared Build Can Do What the CLI Can
 
 ## What This Project Is
 
-PROJ-010 asked whether crustyimg's shipped verbs were **correct**. This asks whether they are
-**consistent and complete** — whether a request means the same thing however it is spelled, and
-whether the batch path can express what the single-file path can do.
+`crustyimg build` is the declarative path: a manifest binds sources to a recipe, a lockfile pins
+the result, and CI can gate on it. It is the path worth automating — and it is **strictly weaker
+than typing the commands by hand.**
 
-Two clusters, and they are the same wound seen from two sides:
+The operation registry holds **four** ops (`identity`, `invert`, `resize`, `auto-orient`) plus a
+terminal `optimize` marker. So a recipe cannot express a **watermark**, and `Recipe` has no field
+for an output **format** or **quality** at all. Everything `build` can do is bounded by that.
 
-1. **Invocation inconsistency.** `apply` and `build` disagree on the default output format for the
-   same recipe. `apply --format` is honoured on one input and silently ignored on two. A
-   recognized extension on `-o` switches `web` from auto-decide to pinned-convert — changing
-   quality 85 → 80, the scoring, and the report — because a filename was read as a format request.
-   `--explain` returns exit 0 and zero bytes where `--json` raises a clear usage error.
-2. **Silent incompleteness.** A multi-page TIFF returns page 1 and `optimize` calls it *"86%
-   smaller"*; a multi-size ICO returns one entry and calls it *"74% smaller"*; `lint` reports
-   `0 error · 0 warn · 0 info` on both. And a recipe cannot carry a watermark, a format or a
-   quality at all — the registry holds four operations, and `Recipe` has no field for either.
+The concrete case that motivated this, from the maintainer's own work: **every image on
+theF11.com should carry a watermark, and there is no way to say that in a manifest.** The
+working alternative is a three-pass pipeline driven by hand — `resize --format png` →
+`watermark --format png` → `optimize --verify` — which costs +0.5% bytes and cannot be declared.
 
-⚡ **The link that makes this one project rather than two:** `apply --format` exists *because* a
-recipe cannot carry a format. It is the workaround for the structural gap — and the workaround is
-the thing that is broken. Fixing them separately would mean fixing the same wound twice.
+When this ships, one `build` does the whole job.
 
 ## Why Now
 
-**All three were found the same way: by a maintainer using the tool, not auditing it.**
-That is the signal. PROJ-010's wave was found by audit and measurement; these were found
-by someone trying to get work done and being surprised. Surprises that survive an audit
-are the ones that reach users.
+**The gap was found by using the tool for real work, not by auditing it.** That is the same
+provenance as every finding that mattered this year, and it is a different signal from a review
+batch: it means someone hit the wall while trying to get something done.
 
-**The correctness half is live and measured**, driven on `main` at `4514345` with
-fixtures built independently of the code under test: a 3-page TIFF returns page 1 and
-`optimize` calls it *"86% smaller"*; a 3-size ICO returns the 64px and calls it *"74%
-smaller"*; `lint` reports `0 error · 0 warn · 0 info` on both.
+**Two defects sit directly in the path and were measured on `main`:**
 
-**The capability half has measurements, not an idea.** A 308,156 B / 36-frame GIF →
-**27,564 B at SSIMULACRA2 86.7** — **11.2×**, and **6.3× smaller than animated WebP at
-higher quality**. The path is pure Rust and patent-clear; `rav1e` and `re_rav1d` are
-already in-tree.
+| invocation | output format |
+|---|---|
+| `apply` **1** JPEG, no `--format` | **PNG** — the source format is changed |
+| `apply` **2** JPEGs, no `--format` | JPEG — the source format is preserved |
+| `apply` **1** JPEG, `--format png` | PNG ✅ |
+| `apply` **2** JPEGs, `--format png` | **JPEG — the flag is silently ignored** |
 
-**And PROJ-010's thesis no longer covers any of it.** Its thesis is launch-gating
-correctness; the launch shipped, and its remaining stages are a mix of genuine leftovers
-and capability filed there only because `just backlog` surfaces the active project. That
-drift is what AGENTS §3 exists to catch. **This project is where the capability half goes
-so it stops borrowing a thesis that does not fit it.**
+`apply`'s multi-input path does no format resolution at all. And **`apply --format` exists
+precisely because a recipe cannot carry a format** — it is the workaround for the gap this project
+closes, and it is broken on the exact path a site build uses. ⚡ **The two are one wound seen from
+both sides**, which is why they belong in one project rather than being fixed twice.
+
+The same divergence means a `*.build.lock` pins bytes the `apply` spelling of the same recipe
+cannot reproduce — so two commands the docs present as interchangeable are not.
+
+### What this project is NOT, and why
+
+An earlier draft of PROJ-011 bundled multi-frame input, animated AVIF output and six further
+consistency defects. **That drifted into a second correctness project** — PROJ-010 already is the
+correctness lane, and it has ~24 actionable items and no end state. This brief was re-cut around a
+single user-visible outcome instead. **Six measured defects were deliberately left behind**
+(see Out of Scope); they are real, and they are not in the way of this.
 
 ## Success Criteria
 
-- A multi-page TIFF and a multi-size ICO are **preserved or refused with a reason** —
-  never silently narrowed, never reported as a size win.
-- An animated GIF re-encodes to an animated AVIF whose decoded frame count is **N**,
-  asserted with an **independent decoder**, with per-frame timing and loop count
-  round-tripping.
-- `apply --recipe` reaches what `watermark` and `convert` reach: a recipe can carry a
-  watermark step and can pin an output format and quality.
-- A **`(command × output-flag)` matrix** asserts encode-identical bytes and report parity
-  across every combination — the test that would have caught the `-o` pin divergence
-  before a user did.
-- **Every verb's default quality is asserted in a test**, so a silent change goes red.
-- `lint`'s advice is true: it never recommends a command that destroys data.
+- **One `crustyimg build` watermarks and optimizes a whole photo directory from a manifest** —
+  the theF11.com case, driven end to end rather than reasoned about.
+- A recipe can **pin an output format and quality**, so `apply --recipe` reaches what `convert`
+  reaches.
+- **`apply` and `build` produce byte-identical output** for the same recipe and input, asserted by
+  a test. They disagree today.
+- **`apply --format` is honoured on a multi-input batch.**
+- A malformed recipe **fails at parse time**, naming the bad key — not partway through image 37.
 
 ## Scope
 
 ### In scope
-- Multi-image input detection and honest handling (TIFF pages, ICO entries).
-- Animated AVIF output: muxer, frame timing, loop count, reusing the existing quality search.
-- Recipe reach: a `watermark` operation in the registry; output format and quality on `Recipe`.
-- Surface predictability: the `-o`-extension pin rule, and the documented defaults behind it.
-- The `(command × output-flag)` encode-identity and reporting-parity matrix.
+- A `watermark` operation in the registry, with its parameters.
+- `format` and `quality` as `Recipe` fields.
+- Typed per-operation parameter structs, so validation happens at parse.
+- `apply`'s multi-input format resolution, and the `apply`/`build` default-format disagreement.
+- A **targeted** encode-identity test: `apply` vs `build`, and `-o` vs `--out-dir`, for the same
+  recipe and input.
 
 ### Explicitly out of scope
-- ⚡ **Animated AVIF output** — forked to its own design track, see the Stage Plan. This project
-  neither builds nor blocks it.
-- **Video containers, and any codec not already shipped** (DEC-088).
-- **Animated WebP output** — no pure-Rust encoder exists (`image-webp` 0.2.4 writes `VP8X` but
-  emits no `ANIM`/`ANMF`).
-- **New verbs.** The surface is 18 verbs; this project widens what existing ones reach and makes
-  them agree with each other. It does not add to the roster.
-- **The engineering-quality backlog** — the three external review batches, STAGE-042's remainder,
-  the `F32x4` resource-cap gap. Real work, no user-facing thesis. ⚠ Smuggling it in here is the
-  drift this project was created to stop, and it is the single most likely way this project
-  loses its shape.
+- ⚡ **Animated AVIF output** — forked to its own design track, becomes **PROJ-012** when specced.
+  Its next work is a `mp4-atom` DEC and splitting `docs/research/draft-spec-animated-avif-output.md`
+  into buildable specs. That is design work; it runs in parallel and does not compete for build
+  sessions or touch this project's migration.
+- **The six defects left behind, all back on PROJ-010:** multi-page TIFF and multi-size ICO silent
+  data loss; the ICO round-trip defect; `IMAGE_EXTENSIONS` gaps; `info` describing an animation as
+  a still; the `-o`-extension pin ruling; `--explain`'s silence under a pin. ⚠ **Real, several of
+  them silent data loss — but none is in the way of a declared build watermarking a site.**
+- **The full `(command × output-flag)` conformance matrix**, and **SPEC-118**'s
+  `bundled_recipe × entry_point` matrix. ⚠ **These are siblings, not duplicates** — SPEC-118 varies
+  entry points and would not have caught the `-o` divergence; the output-flag matrix varies flags
+  and would not catch a bundled recipe failing through wasm. Both stay on PROJ-010. This project
+  builds only the narrow assertion its own changes need.
+- **New verbs.** The surface is 18 verbs; this widens what `build` reaches, not the roster.
+- **The engineering-quality backlog** — three external review batches, STAGE-042's remainder, the
+  `F32x4` cap gap. No user-facing thesis; it belongs in the correctness lane.
 
 ## Stage Plan
 
-**Ordered by dependency, not by appetite.** Every stage here is byte- or behaviour-changing on a
-shipped verb, so the whole project carries **one** lockfile migration and ships as **one** release
-— the same batching STAGE-046 used. That is what makes the ordering load-bearing rather than a
-preference.
+**Ordered by dependency.** Both stages are byte- or behaviour-changing, so the project carries
+**one** lockfile migration and ships as **one** release.
 
-- [ ] **STAGE-049 — the conformance matrix. FIRST, and it is not optional.**
-  A `(command × output-flag)` sweep asserting **encode-identical bytes and report parity** across
-  every combination, plus every verb's default quality asserted explicitly so a silent change goes
-  red. ⚡ **This is the regression net for the three stages after it**, all of which change encode
-  behaviour on shipped verbs — building it last would mean building it after the thing it catches.
-  It is also the test that would have caught the `-o` divergence before a user did.
-  ⛔ **Blocked on one decision: SPEC-118 already exists, framed since 2026-08-15, for
-  substantially this instrument.** Framing is the expensive part. **Resolve which absorbs which
-  before writing a line** — do not build a second matrix beside a framed one.
+- [ ] **STAGE-049 — `apply` and `build` agree.** Fix `apply`'s multi-input format resolution and
+  the `apply`/`build` default-format disagreement (**one defect, not two**), plus the targeted
+  encode-identity assertion. ⚡ **First, because it settles the semantics the `Recipe` format field
+  must then match.** Adding the field on top of two paths that already disagree would bake the
+  disagreement in.
+  📌 Controls already run and worth reusing: `resize`, `thumbnail` and `watermark` all honour
+  `--format` across the same two inputs, so the defect is specific to `apply`.
 
-- [ ] **STAGE-050 — invocation consistency.** The three defects where the spelling changes the
-  meaning: `apply --format` ignored on multi-input and the `apply`/`build` default disagreement
-  (one defect, not two — `apply`'s multi-input path does no format resolution at all);
-  the `-o`-extension pin; `--explain`'s silence under a pin.
-  ⛔ **Needs a maintainer ruling on the `-o` pin before it can be specced** — warn when an
-  extension triggers a pin, require `--format` to pin and treat `-o` as destination only, or
-  document it loudly and keep the behaviour. All three are defensible; the spec cannot be written
-  until one is chosen.
+- [ ] **STAGE-050 — recipe reach.** A `watermark` op in the registry; `format` and `quality` on
+  `Recipe`; typed per-operation parameter structs.
+  ⚠ **The design call to make first:** `watermark --size` is absolute pixels. A recipe-level
+  watermark is only consistent across a batch if the recipe normalises dimensions first — decide
+  whether the op takes a relative size, requires a preceding resize, or documents the constraint.
+  📌 Why the gap stayed invisible: **only `edit` has `--save-recipe`**, so the one path that emits
+  a recipe covers only ops a recipe can already express.
 
-- [ ] **STAGE-048 — input completeness.** ⚠ **Re-scoped: animated AVIF output has moved out**
-  (see below), leaving the input side, which is tractable today. Multi-size ICO (the entry count
-  is readable from the header — do this one first); multi-page TIFF (⚠ **materially harder** —
-  `image` exposes no multi-page API, so pages 2..N are unreachable *and undetectable*, making even
-  "warn and refuse" a dependency question); `lint` detection for both; `info` describing an
-  animation as a still; the `IMAGE_EXTENSIONS` gaps.
-  ⛔ **Needs the ICO round-trip ruling** — warn / fix / accept — because a real fix changes bytes.
-
-- [ ] **STAGE-051 — recipe reach.** A `watermark` operation in the registry with its ten
-  parameters, plus **output format and quality as `Recipe` fields**, plus typed per-operation
-  parameter structs so schema errors surface at parse time rather than partway through a batch.
-  ⚠ **Sequenced after STAGE-050 deliberately**: `apply --format` is the workaround for the missing
-  `Recipe` format field, so fixing the workaround first establishes what the field has to mean.
-  ⚠ **One design call inside it:** `watermark --size` is **absolute pixels**, so a recipe-level
-  watermark only behaves consistently if the recipe normalises dimensions first. That is a
-  constraint on the design, not a detail to discover during build.
-
-**Count:** 0 shipped / 0 active / **4 pending** — re-derive with a grep you just ran; never restate
+**Count:** 0 shipped / 0 active / **2 pending** — re-derive with a grep you just ran; never restate
 a tally you carried forward.
-
-### Forked out: animated AVIF output
-
-**Moved to its own design track by maintainer decision, 2026-08-23.** It is the highest-ceiling
-work here — measured at **11.2× vs GIF** and **6.3× smaller than animated WebP at higher quality**,
-pure Rust and patent-clear — and it is also the least ready: complexity **L** with its own draft
-saying *"L means split it"*, a **~1,000-line** muxer measured rather than guessed, and a new
-dependency needing a DEC.
-
-⚡ **Forking it does not delay it, because what blocks it is not build capacity — it is that it is
-unspecified.** The next work it needs is **design**: a `mp4-atom` DEC, and splitting
-`docs/research/draft-spec-animated-avif-output.md` into buildable specs. That runs in parallel with
-this project without competing for build sessions or touching this project's migration. It becomes
-**PROJ-012** when it is specced, and carries its own migration then.
 
 ## Dependencies
 
 ### Depends on
-- **v0.7.1 shipped** ✅ (2026-08-22, live on all three channels). Every stage here is byte- or
-  behaviour-changing, so this project's changes batch into **one** migration in a single later
-  release — the constraint that makes the stage ordering load-bearing.
-- ⛔ **Three maintainer rulings, each blocking a specific stage and none of them expensive:**
-  the **`-o` pin** (blocks STAGE-050), the **ICO round-trip** — warn / fix / accept (blocks
-  STAGE-048), and **SPEC-118 vs the conformance matrix** — which absorbs which (blocks STAGE-049,
-  which everything else depends on, so this is the one to answer first).
-- **PROJ-010 stays open.** Its triage found ~24 actionable items; it is the correctness/quality
-  lane, not a project that ships. Six of its items move here.
+- **v0.7.1 shipped** ✅ (2026-08-22, all three channels).
+- ⛔ **One design ruling, inside STAGE-050:** how a recipe-level watermark handles absolute-pixel
+  `--size`. Nothing else here is blocked on a decision.
+- **PROJ-010 stays open** as the correctness lane, and keeps the six defects this project declined.
 
 ### Enables
-- `lint` advice that is true rather than destructive.
-- The animated-image findings banked by PR #177 becoming shipped capability rather than research.
-- A recipe surface strong enough that `--save-recipe` could reasonably be offered on more
-  than one verb.
+- A `build` manifest that is worth wiring into CI, because it can express the whole job.
+- `--save-recipe` becoming defensible on more than one verb, once a recipe can express more.
+- **PROJ-012** (animated AVIF) inherits a registry that has absorbed one parameter-rich op — the
+  precedent an animated encoder's own configuration will need.
 
 ## Project-Level Reflection
 

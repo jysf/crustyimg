@@ -38,14 +38,16 @@ value_contribution:
     - "Re-open SPEC-119, which fixed the animation axis and is shipped"
 ---
 
-> ⚠ **RE-SCOPED 2026-08-23 — read this before the body below.** Animated AVIF output has been
-> **forked out** to its own design track by maintainer decision, and this stage keeps only the
-> **input** side: multi-size ICO, multi-page TIFF, `lint` detection, `info`-on-animated. Those are
-> tractable today; animated AVIF is complexity **L** with a ~1,000-line muxer and a dependency
-> needing a DEC, and forking it lets the input defects ship without waiting on it.
-> **The body below still describes both halves** — treat its animated-AVIF items (parts (a) and
-> (b) of the backlog) as moved, not as scope. This stage also **moves to PROJ-011**, where the
-> input side matches the thesis; it is filed here only until PROJ-011 activates.
+> ⚠ **RE-SCOPED AND RE-HOMED 2026-08-23. Read this before the body below.**
+> **Animated AVIF output is forked out** to its own design track (it becomes **PROJ-012** once a
+> `mp4-atom` DEC exists and `docs/research/draft-spec-animated-avif-output.md` is split into
+> buildable specs). **This stage keeps only the INPUT side** — multi-size ICO, multi-page TIFF,
+> `lint` detection, `info`-on-animated — which is tractable today.
+> ⚠ **It also STAYS IN PROJ-010.** An earlier plan moved it to PROJ-011; PROJ-011 was then re-cut
+> around a single capability outcome (a declared `build` that can watermark a site), and silent
+> multi-image data loss — real as it is — is not in the way of that. It belongs in the correctness
+> lane. **The body below still describes both halves; treat its animated-AVIF items, parts (a) and
+> (b), as moved rather than as scope.**
 
 # STAGE-048: Multi-Frame Reach — input side
 
