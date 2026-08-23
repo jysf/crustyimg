@@ -29,19 +29,44 @@ value_contribution:
 
 ## What This Stage Is
 
-⚠ **Pulled forward from PROJ-013 on 2026-08-23 because PROJ-011 needs them, not because they share
-its thesis.** Both are guards that cannot currently see the work this project is about to ship.
+⚠ **Pulled forward from PROJ-013 on 2026-08-23. Its original framing overstated the urgency, and
+this is the corrected version** — the two items are real but they are **not equally urgent, and
+neither blocks STAGE-049.**
 
-**PROJ-011 changes output-format resolution on shipped verbs and carries a lockfile migration.**
-Two gates that should catch a mistake there are blind:
+### 1 — `just wasm-test` and `wasm-check` never run in CI
 
-- **No CI leg runs `just wasm-test`.** `wasm::transform` is a real entry point sharing the same
-  engine, and SPEC-118's own matrix names it as a dimension. Shipping byte-changing format work
-  with no wasm leg is a gap **in this project specifically**, not a general nice-to-have.
-  📌 Independently requested by **two external review batches** — corroboration, not just a wish.
-- **`cost-audit` reports success having checked nothing.** It scopes to the active project;
-  PROJ-011 has zero shipped specs, so it passes trivially with a message identical to the one it
-  prints after checking 18. **This project will ship specs into that gate.**
+**What is true:** no CI job runs either recipe. **What is NOT true — and the first draft of this
+stage implied it — is that wasm is untested.** `pages.yml`'s *"build + browser smoke"* job builds
+for `wasm32` via `just demo-build` **and** drives the real engine in headless Chrome via
+`just demo-smoke` (SPEC-077/078: init over HTTP, file picker, convert, decode the output with an
+independent parser). **So there is real coverage — through the demo, of one path.** What is missing
+is the assertions in `just wasm-test`.
+
+⚠ **The connection to PROJ-011 is narrower than first claimed, and it is to STAGE-050, not
+STAGE-049.** `wasm::transform(input, recipe_toml, out_format)` (`src/wasm.rs:171`) takes the output
+format as its **own argument** and parses it itself — it does not go through the CLI's format
+resolution, so **SPEC-126 probably does not touch it at all.**
+⚡ **The real interaction is a design question STAGE-050 must answer:** if `Recipe` gains a `format`
+field, `wasm::transform` has **two sources of truth for format** — the recipe's and its own
+parameter. Which wins? That needs deciding in STAGE-050 regardless of whether this CI leg exists.
+📌 Independently requested by two external review batches, which is why it is worth doing —
+corroboration, not urgency.
+
+### 2 — `cost-audit` reports success having checked nothing
+
+`scripts/cost-audit.sh:23` scopes to the active project. PROJ-011 has zero shipped specs, so it
+passes trivially, with a message **identical** to the one it prints after checking 18.
+
+⚠ **Honest severity: this is hygiene, not a live hazard.** It becomes non-vacuous the moment
+PROJ-011 ships its first spec, and PROJ-010's 18 all carry correct cost today. The real defect is
+that **the gate cannot say what it covered**, so it went blind silently and could again. **Fix the
+reporting, not just the scope** — a gate that names its coverage cannot go vacuous unnoticed.
+
+### So why is this a stage at all?
+
+Because both are guards, both are small, and **the wasm one has a design question inside it that
+STAGE-050 needs answered anyway.** ⚠ **Do not treat this as blocking STAGE-049** — the earlier
+"do this before STAGE-049 merges" was wrong and is withdrawn.
 
 ## Spec Backlog
 
@@ -84,8 +109,11 @@ Two gates that should catch a mistake there are blind:
 - Nothing. Both are small and independent of STAGE-049/050.
 
 ### Enables
-- PROJ-011's own changes being caught by gates that can see them. ⚠ **Do this before STAGE-049
-  merges**, or the first byte-changing spec ships past both blind spots.
+- STAGE-050's `Recipe`-gains-a-format decision, which must resolve `wasm::transform`'s two sources
+  of truth whether or not this stage ships first.
+- A cost gate that reports its own coverage.
+⚠ **Blocks nothing.** An earlier version of this file said to do it before STAGE-049 merges; that
+was overstated and is withdrawn.
 
 ## Stage-Level Reflection
 

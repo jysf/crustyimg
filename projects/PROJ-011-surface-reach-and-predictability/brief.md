@@ -228,8 +228,10 @@ single user-visible outcome instead. **Six measured defects were deliberately le
 - [ ] **STAGE-053 — guards that cover this project.** ⚠ **Carried forward from PROJ-013 because
   this project needs them**, not because they share its thesis. No CI leg runs `just wasm-test`,
   and `cost-audit` passes having checked nothing. **PROJ-011 ships byte-changing code to shipped
-  verbs and carries a migration** — both gates are blind to exactly that. ⚡ **Do this before
-  STAGE-049 merges**, or the first byte-changing spec ships past both.
+  verbs and carries a migration.** ⚠ **Corrected 2026-08-23: this blocks nothing.** The wasm leg's
+  real interaction is with **STAGE-050**, not STAGE-049 — if `Recipe` gains a `format` field,
+  `wasm::transform` has two sources of truth for format and that needs deciding regardless. The
+  cost gate is hygiene, not a live hazard.
 
 **Count:** 0 shipped / 0 active / **3 pending** (of which STAGE-053 is guard work and STAGE-041 is
 carried non-thesis work — **1 stage genuinely delivers the thesis today**, plus STAGE-050) — re-derive with a grep you just ran; never restate

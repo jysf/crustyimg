@@ -81,6 +81,30 @@ anything a recipe cannot say.
 
 ## Spec Backlog
 
+- [ ] (not yet written) — [S] **A literal extension in `--name-template` does not pin the
+  output format — and single-input `apply` now makes that visible.** Surfaced by SPEC-126's
+  verify, 2026-08-23, driven on both binaries with a JPEG source and a plain pixel recipe:
+
+  | `--name-template`, 1 input | before SPEC-126 | after |
+  |---|---|---|
+  | `{stem}_w.jpg` | **PNG bytes inside `in_w.jpg`** — mislabelled | JPEG in `in_w.jpg` ✅ |
+  | `{stem}_w.png` | PNG in `in_w.png` | **JPEG in `in_w.png`** |
+
+  The old single-input path ignored the template entirely and always wrote PNG, so it was
+  already mislabelling in one direction. SPEC-126 fixes the `.jpg` row outright and makes the
+  `.png` row agree with multi-input `apply`, `resize` and `build` — the documented rule for a
+  plain pixel recipe (`docs/api-contract.md`, DEC-087): a name template's literal extension
+  names the FILE, it does not pin the FORMAT. **Nothing regressed.** But the rule is now
+  reachable at an arity where it was previously masked, and a user who writes `{stem}_w.png`
+  expecting PNG will get their source format instead.
+
+  ⚠ **This is the same family as the open `-o`-extension pin ruling**, which moved to
+  **PROJ-013 / STAGE-037** when PROJ-010 shipped — where a *recognized `-o` extension*
+  does pin and skip the decision. So the surface currently answers "does a literal extension
+  pin?" **differently for `-o` than for `--name-template`**, and only one of the two is
+  documented as deliberate. Worth ruling on together rather than separately; the maintainer
+  decision is warn / honour-the-template / document-and-keep.
+
 - [ ] (not yet written) — [M] **`watermark` becomes a registry operation.** Its ten parameters
   (image/text, font, size, colour, gravity, opacity, scale, margin, tile) are richer than any op
   the registry has taken, which is the real work — the seam itself is documented as "the single
