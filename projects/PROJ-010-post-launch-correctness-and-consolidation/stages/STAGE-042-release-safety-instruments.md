@@ -172,6 +172,19 @@ failures on documented paths.
   printing the resolved name@version and the git commit before the final step, so the maintainer
   confirms against something rather than nothing. Queued item #11. Complexity **S**.
 
+- [ ] (chore) — ⚡ **`RELEASING.md`'s checklist is in an order that cannot be followed.** Hit live
+  during the 0.7.1 cut, 2026-08-22. **Step 3 is `cargo publish --dry-run`; step 5 is "commit the
+  release".** `cargo publish` refuses a dirty working tree —
+  `error: 3 files in the working directory contain changes that were not yet committed into git:
+  CHANGELOG.md, Cargo.lock, Cargo.toml` — which are exactly the three files steps 1, 2 and the
+  `just release` shortcut just modified. **The dry-run cannot run at step 3, ever.**
+  **Fix: swap steps 3 and 5.** Committing first is safe — the commit is not the irreversible act,
+  the tag push is, and a failed dry-run or gate is answered by amending the commit. ⚠ **Do not
+  "fix" it by adding `--allow-dirty`**: that verifies a tree different from the one being tagged,
+  which is the opposite of what the step is for.
+  📌 This checklist has been followed for every release to date, so either every previous cut
+  silently deviated from it or the dry-run was skipped. Worth one look at which.
+
 - [ ] (chore) — **Two `RELEASING.md` steps, both earned by the 0.7.0 cut.** (a) Diff the CHANGELOG
   against the specs merged since the previous tag — 0.7.0's `[Unreleased]` section was written in
   advance and had **no entry for SPEC-112**, so the release would have shipped its headline fix
@@ -481,8 +494,8 @@ failures on documented paths.
   measurement; goes red if `image` ever fixes this upstream. Needs a maintainer ruling on whether
   to warn, fix (byte-changing), or accept as a known `image` limitation.
 
-**Count:** re-derived by grep 2026-08-22, not carried forward: **14 `- [ ]` + 6 `- [x]` =
-20 items.** Narratively: 1 framed (SPEC-118) / 3 shipped (SPEC-123, SPEC-124, SPEC-125) / 14 pending
+**Count:** re-derived by grep 2026-08-22, not carried forward: **15 `- [ ]` + 6 `- [x]` =
+21 items.** Narratively: 1 framed (SPEC-118) / 3 shipped (SPEC-123, SPEC-124, SPEC-125) / 14 pending
 / 1 chore fixed (the `pages` startup race, PR #186)
 / 1 chore done / 1 closed-by-a-spec (the `[env]` item). ⚠ Those buckets do **not** partition cleanly
 — a shipped spec's entry is `[x]` while a framed one's is `[ ]` — so **the checkbox tally is the
