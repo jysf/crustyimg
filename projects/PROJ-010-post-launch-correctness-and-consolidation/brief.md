@@ -4,7 +4,7 @@
 
 project:
   id: PROJ-010
-  status: active
+  status: shipped
   priority: critical
   target_ship: null
 
@@ -12,7 +12,7 @@ repo:
   id: crustyimg
 
 created_at: 2026-07-26
-shipped_at: null
+shipped_at: 2026-08-23
 
 value:
   thesis: >
@@ -251,11 +251,21 @@ before anyone triaged it as a set.
 
 ### What changed between starting and shipping?
 
-**The project stopped being about the launch and became the correctness lane**, and nobody decided
-that. It happened because a defect found mid-wave has to go *somewhere*, and the active project is
-where `just backlog` can see it. ⚠ **That is a structural pull, not a discipline failure**, and it
-will recur: the framework has no home for work that is real but does not share the active project's
-thesis. PROJ-011 and PROJ-012 were created partly to give that pull somewhere better to go.
+**The scale, not the subject.** ⚠ **An earlier draft of this reflection said the project "stopped
+being about the launch and became the correctness lane, and nobody decided that." That was wrong,
+and the maintainer corrected it:** correctness *is* launch work — it is not worth launching
+something that is not correct. The thesis said *"a correct default path on every input the `web`
+verb touches"*, and silent frame loss, silent depth halving, machine-dependent AVIF output and
+resampling in the wrong colour space **are exactly that**. All eighteen specs were on-thesis.
+
+**What actually changed is that the wave was much larger than framed** — the launch-gating
+classifier fix that motivated it is one spec of eighteen, and nobody predicted a count, so nothing
+flagged that a bounded wave had become an open lane. **The lesson is about sizing and closure
+discipline, not about drift.**
+
+📌 The structural point survives the correction, in narrower form: a defect found mid-wave has to
+go *somewhere*, and the active project is where `just backlog` can see it. That pull is real even
+when — as here — the destination is the right one.
 
 ### Lessons that should update AGENTS.md, templates, or constraints
 
@@ -305,8 +315,22 @@ thesis. PROJ-011 and PROJ-012 were created partly to give that pull somewhere be
 - **PROJ-012** took animated output and ICC transforms — the two rules `lint` can name but not fix.
 - **STAGE-041** was carried to PROJ-011 for continuity; ⚠ **it does not share that project's
   thesis** and must not be counted toward it.
-- **~24 items remain here** — see `TRIAGE-2026-08-23.md`. ⚠ **PROJ-010 does not close empty**, and
-  pretending otherwise would be the same dishonesty as a success signal pointing at cancelled work.
+- **All 53 remaining items were re-homed to PROJ-013** on 2026-08-23 — five stages moved whole
+  (036, 037, 038, 047, 048) and two continuation stages created (**STAGE-051** from STAGE-042,
+  **STAGE-052** from STAGE-046), because ⚠ **a stage with shipped specs closes in place and cannot
+  be re-homed.** STAGE-042 and STAGE-046 therefore stay here, closed, with their specs.
+  **PROJ-010 closes with zero open items — not because the work is done, but because it has a home
+  that `just backlog` can see.** ⚠ PROJ-013 is a continuation lane and its own brief says so; it
+  starts with the end-state discipline PROJ-010 lacked (*every item ships or is cancelled with a
+  reason*).
+
+### Why `shipped` and not something softer
+
+**The code shipped.** Two releases, live on three channels, 18 specs, all five success signals met
+(two of them amended — see above, with the reasoning, not silently). ⚠ **A project's status
+describes its code, not the exhaustion of its backlog** — and a backlog that outlives its project
+is a re-homing problem, which is now solved, rather than a reason to leave a delivered wave open
+forever. **PROJ-010 was held open by exactly that confusion for a week.**
 
 
 ### Parked for the close-out discussion (added 2026-08-14)

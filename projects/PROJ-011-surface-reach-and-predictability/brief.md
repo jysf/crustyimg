@@ -225,7 +225,14 @@ single user-visible outcome instead. **Six measured defects were deliberately le
   reality — three of its four items are reported substantially done **outside** the repo, unreported
   since 2026-08-16. **Get the real status before re-planning it.**
 
-**Count:** 0 shipped / 0 active / **2 pending** (+ **1 carried**, STAGE-041, which is not thesis work) — re-derive with a grep you just ran; never restate
+- [ ] **STAGE-053 — guards that cover this project.** ⚠ **Carried forward from PROJ-013 because
+  this project needs them**, not because they share its thesis. No CI leg runs `just wasm-test`,
+  and `cost-audit` passes having checked nothing. **PROJ-011 ships byte-changing code to shipped
+  verbs and carries a migration** — both gates are blind to exactly that. ⚡ **Do this before
+  STAGE-049 merges**, or the first byte-changing spec ships past both.
+
+**Count:** 0 shipped / 0 active / **3 pending** (of which STAGE-053 is guard work and STAGE-041 is
+carried non-thesis work — **1 stage genuinely delivers the thesis today**, plus STAGE-050) — re-derive with a grep you just ran; never restate
 a tally you carried forward.
 
 ## Dependencies
