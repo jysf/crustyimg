@@ -237,6 +237,17 @@ Effort labels are the source's. "Home" is where the item would live if pulled.
 
 ### 3.1 The LUT dependency call — reversed by the maintainer, 2026-08-10
 
+> 📌 **Surfaced 2026-08-23.** This decision sat here, invisible to every command, from 2026-08-10
+> until the maintainer asked where the LUT work was in the plan. **This file is read by no
+> command** — not `just backlog`, not `just status` — so a decided feature recorded only here does
+> not exist as far as the framework is concerned.
+> It is now referenced from **PROJ-011 / STAGE-050**, as the known **second** customer for the
+> registry seam `watermark` is about to widen. ⚠ **The LUT op itself remains unscheduled and
+> belongs to no project** — that is still an open maintainer call.
+> ⚠ **If one decided feature was lost in this document, assume others are.** It has not been
+> audited against the stage backlogs.
+
+
 The source note said: *"Do not write a `.cube` parser. LUT application is commodity — `wagahai_lut`,
 `lut-cube`, `lut-rs` in Rust alone… Take the crate."* **The maintainer reversed this** once the
 crate data came back, and the reversal is right:

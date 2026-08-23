@@ -107,11 +107,37 @@ anything a recipe cannot say.
   the rows above — **validate, do not adopt from this table**); whether it is a knob; and that
   **`--tile` covers the image by design**, so the coverage test cannot apply to it unmodified.
 
+- [ ] (not yet written) — [S] ⚡ **Design the registry seam for TWO parameter-rich ops, not one —
+  the LUT op is the known second customer.** ⚠ **This item is a design constraint on the watermark
+  work above, NOT a commitment to build a LUT op in this stage.**
+
+  **A `.cube` LUT op is already a decided "take"** — `docs/feature-set-triage-2026-08.md` §2, with
+  §3.1 recording the maintainer's **2026-08-10 reversal** of the "take the crate" advice once the
+  crate data landed: `lut-rs` **does not exist**; `lut-cube`'s licence is **non-standard** on
+  crates.io (a `cargo deny` question under DEC-018 before it is anything else); `wagahai_lut` is
+  **v0.1.0, one release, 544 downloads**. **Ruling: build the `.cube` reader in-house**, sized at
+  **~100 lines to parse + ~50 for trilinear interpolation** — about a fifth of the TIFF-IFD writer
+  this repo already maintains, and consistent with its in-housing precedent (`little_exif` →
+  `src/metadata/tiff.rs`, 718 lines; `ab_glyph` → `skrifa` + `zeno`, both confirmed absent from
+  `Cargo.lock`).
+
+  **Why it belongs in this stage even though it is not built here:** `watermark` is about to be the
+  **first parameter-rich op the registry has ever taken**. A LUT is the second, and it is already
+  decided. **A seam widened for one op is a seam widened twice.** Design it knowing a second
+  customer exists — parameter shape, validation, and how a typed params struct generalises — rather
+  than discovering it after.
+
+  📌 ⚠ **The LUT op itself is UNSCHEDULED and belongs to no project.** It was decided 2026-08-10 and
+  has been invisible since: `docs/feature-set-triage-2026-08.md` is **read by no command**, so
+  `just backlog` and `just status` have never seen it. This entry exists so the decision is at
+  least reachable from tooling. **Whether the LUT op gets a home is a separate maintainer call** —
+  and worth asking what else is in that triage doc, since a decided feature was lost in it once.
+
 - [ ] (not yet written) — [M] **`format` and `quality` on `Recipe`**, plus typed per-operation
   parameter structs. ⛔ **Depends on STAGE-049** — the two paths must agree on what a format means
   before the schema names one.
 
-**Count:** 0 shipped / 0 active / **3 pending** — re-derive with a grep you just ran.
+**Count:** 0 shipped / 0 active / **4 pending** — re-derive with a grep you just ran.
 
 ## Design Notes
 
