@@ -1,5 +1,12 @@
 # PROJ-010 — orchestration handoff
 
+> ⚠ **SUPERSEDED 2026-08-23 for day-to-day work.** PROJ-011 is the active project; its handoff is
+> `projects/PROJ-011-surface-reach-and-predictability/HANDOFF.md`. **Keep this file** — its measured
+> evidence and its traps still hold, and PROJ-010 remains open as the correctness lane with ~24
+> actionable items (see `TRIAGE-2026-08-22.md`). What is stale here is the *sequencing*: 0.7.1 has
+> shipped, and SPEC-124/125 are both done and archived.
+
+
 **Rewritten 2026-08-20.** Supersedes the 2026-08-16 version, which predates the STAGE-046 wave.
 
 > **This file deliberately does NOT restate repo state.** `just status`, `just backlog`,
