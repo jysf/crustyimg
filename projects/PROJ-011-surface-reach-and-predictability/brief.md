@@ -147,9 +147,29 @@ single user-visible outcome instead. **Six measured defects were deliberately le
 
 - [ ] **STAGE-050 — recipe reach.** A `watermark` op in the registry; `format` and `quality` on
   `Recipe`; typed per-operation parameter structs.
-  ⚠ **The design call to make first:** `watermark --size` is absolute pixels. A recipe-level
-  watermark is only consistent across a batch if the recipe normalises dimensions first — decide
-  whether the op takes a relative size, requires a preceding resize, or documents the constraint.
+  ⚡ **The design call to make first, and it is now a MEASURED defect, not a hypothetical.**
+  `watermark --size` is absolute pixels, and driven on `main` at `fc360c4` against flat fixtures
+  (PNG filters undone before comparing — filtered bytes differ everywhere and read as 100 %):
+
+  | input | `--size` | pixels changed | reading |
+  |---|---|---:|---|
+  | 800×600 | default | **0.32 %** | a sane watermark |
+  | 64×64 | default | **16 %** | covers a sixth of the image |
+  | 24×24 | default | **47 %** | covers nearly half the image |
+  | 24×24 | **200** | **0.00 %** | ⚡ **silently NOT APPLIED — exit 0, file written, no warning** |
+
+  **Two failure modes, both silent, and the second is the one that matters.** Asking for a
+  watermark bigger than the image produces a success exit code and an unwatermarked file. A user
+  batching a site cannot tell which outputs carry the mark. That is precisely this project's own
+  thesis — *never silently do less than you asked* — inside the op it is about to register.
+
+  **So the call is not just "relative or absolute".** It is: what happens when the watermark does
+  not fit? Refuse (exit 2), warn and skip, warn and apply, or scale to fit. ⚠ A recipe-level
+  watermark makes this sharper, not softer: one recipe over a directory of mixed sizes will hit
+  every row of that table in a single run.
+  📌 A relative size (percentage of the long edge) answers the batch-consistency half, but **does
+  not by itself answer the silent-no-op half** — a 5 % watermark on a 24 px thumbnail is still
+  unreadable. Both halves need a ruling.
   📌 Why the gap stayed invisible: **only `edit` has `--save-recipe`**, so the one path that emits
   a recipe covers only ops a recipe can already express.
 
