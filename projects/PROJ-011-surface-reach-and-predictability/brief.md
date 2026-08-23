@@ -137,6 +137,12 @@ so it stops borrowing a thesis that does not fit it.**
   structural, and a spec that closes only the first will re-open the file.
   📌 The reason this stayed invisible: **only `edit` has `--save-recipe`**, so the one path
   that emits a recipe covers only ops a recipe can already express.
+  ⚡ **Fold in typed per-operation parameters while the file is open** (external review batch 3,
+  item 2 — one of two that survived checking). `OperationParams` exposes hand-rolled `get_str`
+  (`src/operation/mod.rs:58`) and `get_u32` (`:63`), so **every operation re-implements its own
+  validation**. The payoff is not stylistic: **schema errors surface at recipe-parse time instead
+  of partway through a batch**, which is exactly the failure a batch recipe user hits — and this
+  stage already has to teach `Recipe` about format and quality, so it is the same edit.
 
 - [ ] (not yet defined) — **STAGE-050, surface predictability.** The `-o`-extension pin
   ruling and the `(command × output-flag)` matrix. ⚠ **The matrix should land FIRST** — it

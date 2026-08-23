@@ -80,6 +80,19 @@ The draft's "cost of deferring compounds" argument is not repeated, because each
 
 ### Carried forward with provenance
 
+- [ ] (not yet framed, **added 2026-08-23**) — [S] ⚡ **The three public error enums are not
+  `#[non_exhaustive]`, and crustyimg is a published crates.io library.** Confirmed:
+  `src/error.rs:20` `pub enum ImageError`, `src/quality/mod.rs:61` `pub enum QualityError`,
+  `src/sink/mod.rs:202` `pub enum SinkError` — none carries the attribute (the one occurrence in
+  `src/` is a doc comment about an unrelated struct). **Adding a single error variant is therefore
+  a breaking change for every downstream `match`.**
+  ⚠ **Adding `#[non_exhaustive]` is itself breaking** for exhaustive matchers, so it belongs at a
+  version boundary rather than mid-cycle — cheapest at the next minor bump, and it gets cheaper
+  never.
+  📌 From external review batch 3, where it sat in a scorecard footnote rather than the top 5. It
+  is the most valuable item in that batch by some distance; see
+  `feedback/2026-08-23-external-review-module-scorecard.md` for why the top 5 mostly did not hold.
+
 - [ ] (not yet framed) — **Strict JSON `escape_json`.** SPEC-097 follow-up: escape `0x7F` and `≥0x20` controls through the serialization path. Byte-identity is NOT the gate here — this is a deliberate behaviour change to fix a correctness issue. **This is STAGE-031's entire carried tail.**
 
 - [ ] (not yet framed, **added 2026-08-10**) — **Decompose `src/cli/optimize.rs`.** It is now what
