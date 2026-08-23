@@ -47,6 +47,22 @@ cost:
       note: >
         Un-metered main-loop design cycle (AGENTS §4). Framed from a defect
         driven on `main` at `232c9cf` and re-confirmed at `789e4a3`.
+    - cycle: build
+      agent: claude-sonnet-5
+      interface: claude-code
+      tokens_total: 81694181
+      duration_minutes: 36.3
+      recorded_at: 2026-08-23
+      tokens_breakdown:
+        input: 636
+        output: 225477
+        cache_creation: 718327
+        cache_read: 80749741
+      estimated_usd: 30.30
+      note: >
+        MEASURED — summed from the session transcript's per-message `usage`
+        (318 messages), priced at Sonnet anchors ($3/$15 per MTok,
+        cache_creation x1.25, cache_read x0.10) per `.message.model`.
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -179,19 +195,80 @@ again. Add the `-o` vs `--out-dir` arm too; same class, and cheap here.
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR:**
-- **All acceptance criteria met?** yes/no
-- **New decisions emitted:**
-- **Files this diff touches** — list every one, built from `git diff --name-only`, not recall:
-- **Deviations from spec:**
-- **Follow-up work identified:**
+- **Branch:** `fix/spec-126-apply-and-build-agree`
+- **PR:** #TBD (opened at the end of this build cycle — see the ship note below for the number)
+- **All acceptance criteria met?** yes
+  - AC-1 (`--format` honoured at every arity, ≥2 target formats) —
+    `tests/apply_batch.rs::apply_honours_format_at_every_arity`.
+  - AC-2 (no `--format` preserves the source at every arity, ≥2 source
+    formats) — `tests/apply_batch.rs::apply_preserves_source_format_at_every_arity`.
+  - AC-3 (`apply`/`build` byte-identical) —
+    `tests/apply_batch.rs::apply_and_build_agree_byte_for_byte`.
+  - AC-4 (`-o`/`--out-dir` agree) —
+    `tests/apply_batch.rs::apply_output_flags_agree`.
+  - AC-5 (negative controls, one revert per independent condition) — driven
+    manually, not committed as tests; see DEC-098's Validation section for
+    the full baseline + two-revert record.
+  - AC-6 (blast radius: `resize`/`thumbnail`/`watermark`/`build` unchanged) —
+    driven manually against `main` on a 4-file/2-format corpus (16 output
+    files), byte-identical; a positive control on the same corpus confirmed
+    the methodology detects a real diff where one exists (`apply`'s own
+    fixed defect). See DEC-098's Validation section.
+  - AC-7 (clean full matrix) — `default`, `--no-default-features`,
+    `--features webp-lossy`, each in a fresh `CARGO_TARGET_DIR`, run
+    sequentially: `cargo fmt --check`, `cargo build`, `cargo test`, `cargo
+    clippy --all-targets -- -D warnings` all exit 0 on every leg.
+- **New decisions emitted:** DEC-098 (`decisions/DEC-098-apply-single-input-moves-to-preserve-format-not-build.md`).
+- **Files this diff touches** — from `git diff --name-only main...HEAD`:
+  - `src/cli/common.rs`
+  - `src/cli/ops.rs`
+  - `src/cli/optimize.rs`
+  - `tests/apply_batch.rs`
+  - (plus `decisions/DEC-098-...md`, new/untracked, and this spec file's own
+    bookkeeping — not part of the code diff `git diff --name-only` reports
+    against `main...HEAD` for the PR branch, but part of this build's output)
+- **Deviations from spec:** None. Both design calls (Call 1: `apply`
+  single-input moves to preserve-source; Call 2: `apply` multi-input honours
+  `--format`) were implemented exactly as settled, reusing
+  `ops::output_format_for` (widened to `pub(super)`) rather than
+  reimplementing the resolution rule, per the spec's own steer.
+- **Follow-up work identified:** None beyond what the spec/stage/project
+  already scope out (STAGE-050's `Recipe` format/quality fields, the
+  `-o`-extension pin ruling, PROJ-010's other invocation defects). Checked
+  specifically for a second instance of the same bug class (a `Sink::Dir`/
+  `Sink::Stdout` built with an unresolved `format: None` then passed to
+  `.write()` rather than `.write_bytes()`) — every other `format: None` site
+  in `src/cli/` (the metadata lane's `run_metadata_lane`, `write_encoded`,
+  `write_optimize_output`) writes pre-encoded bytes via `.write_bytes()`,
+  where `format` is structurally unused. No second instance found; nothing
+  filed to the stage backlog.
 
 ### Build-phase reflection (3 questions, short answers)
 
-1. **What was unclear in the spec that slowed you down?**
-2. **Was there a constraint or decision that should have been listed but wasn't?**
-3. **If you did this task again, what would you do differently?**
+1. **What was unclear in the spec that slowed you down?** Nothing was
+   unclear about the two Calls themselves — the spec's own repro table and
+   "prefer reusing that path" steer pointed straight at
+   `ops::output_format_for`. The one thing that took real investigation was
+   locating WHERE each arity's bug actually lived: single-input's PNG
+   default turned out to be `Sink::Dir::write`'s generic unset-format
+   fallback (not a deliberate `apply` default anywhere), and multi-input's
+   silently-ignored `--format` turned out to be `common::apply_one` hardcoding
+   `format_override: None` into `encode_one` — whose OWN fallback logic was
+   already correct. Neither bug was where a first guess ("apply must have its
+   own bad default somewhere") would land; both required reading the actual
+   call chain (`run_apply` → `build_sink`/`apply_one` → `Sink::write`/
+   `encode_one`) to the bottom.
+2. **Was there a constraint or decision that should have been listed but
+   wasn't?** No — DEC-015 (per-input format precedence) and DEC-058 (the
+   lockfile's stake in `apply`/`build` agreeing) were exactly the decisions
+   needed, and both were named.
+3. **If you did this task again, what would you do differently?** Run the
+   AC-6 blast-radius comparison (main vs. fixed binary, hash-diffed corpus)
+   EARLIER — as a first move right after reading the code, before writing
+   the fix — since it doubles as a fast, cheap way to confirm the call-graph
+   reading (which functions `resize`/`thumbnail`/`watermark`/`build` do and
+   don't share with `apply`) is actually right, rather than only as a
+   post-hoc control.
 
 ---
 
