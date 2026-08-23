@@ -4,7 +4,7 @@
 
 project:
   id: PROJ-011
-  status: proposed
+  status: active
   priority: high
   target_ship: null
 
