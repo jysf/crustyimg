@@ -61,9 +61,19 @@ Cycle prompts live in `prompts/SPEC-126-<cycle>.md`.
       **Items 1–6 applied by the orchestrator on the branch** (`77f1050`); **item 7 filed on
       `main`**. `cycle:` **HELD at verify** for re-approval, not advanced.
 
-- [ ] **re-approve** — the punch list is applied but not re-reviewed. `77f1050` needs a read
-      before this batches into the release: the api-contract wording, the two named deviations,
-      and the test split (driven — with Call 2 reverted alone, multi-input FAILED and
-      single-input ok **in one run**, which is the point of the split).
+- [ ] **re-approve** — prompt: `prompts/SPEC-126-re-approve.md` (2026-08-23). **Opus**, new
+      session, read-only, own worktree. Scope is **`git diff f8deb55..77f1050`** and nothing else —
+      4 files, +157/−42. Ready to dispatch.
+      ⚠ **This cycle exists because the punch list was self-graded**: the orchestrator received
+      verify's 7 items, applied all 7, and wrote the record describing what it had done. The
+      posture is adversarial toward those records, not toward the fix — verify already approved
+      the fix at `f8deb55`.
+      Three things carry the most risk: prose added to `docs/api-contract.md`, which is the only
+      part that reaches users and the only part no test covers; a test split, which is the shape
+      that silently drops an assertion (a 940→941 count proves nothing about assertions); and the
+      control behind that split, re-driven rather than read.
+      📌 Known and stated in the prompt, not hidden: `just backlog --all` returns **zero** for the
+      STAGE-047 filing, because PROJ-013 is `proposed` — the item is in the right topical home but
+      invisible to tooling, which is the same class of problem it describes.
 
 - [ ] **ship**
