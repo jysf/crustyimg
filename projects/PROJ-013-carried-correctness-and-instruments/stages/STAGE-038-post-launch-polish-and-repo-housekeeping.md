@@ -10,7 +10,7 @@ stage:
   target_complete: null             # optional: YYYY-MM-DD
 
 project:
-  id: PROJ-010                      # parent project
+  id: PROJ-013                      # parent project
 repo:
   id: crustyimg
 

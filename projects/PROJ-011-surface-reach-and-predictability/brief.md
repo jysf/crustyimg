@@ -219,7 +219,22 @@ single user-visible outcome instead. **Six measured defects were deliberately le
   📌 Why the gap stayed invisible: **only `edit` has `--save-recipe`**, so the one path that emits
   a recipe covers only ops a recipe can already express.
 
-**Count:** 0 shipped / 0 active / **2 pending** — re-derive with a grep you just ran; never restate
+- [ ] **STAGE-041 — launch content and publication.** ⚠ **CARRIED, NOT THESIS WORK.** Moved from
+  PROJ-010 on 2026-08-23 so it can be continued in the active project. It does **not** advance this
+  project's thesis and must not be counted toward it at reflection. ⚠ Its repo status understates
+  reality — three of its four items are reported substantially done **outside** the repo, unreported
+  since 2026-08-16. **Get the real status before re-planning it.**
+
+- [ ] **STAGE-053 — guards that cover this project.** ⚠ **Carried forward from PROJ-013 because
+  this project needs them**, not because they share its thesis. No CI leg runs `just wasm-test`,
+  and `cost-audit` passes having checked nothing. **PROJ-011 ships byte-changing code to shipped
+  verbs and carries a migration.** ⚠ **Corrected 2026-08-23: this blocks nothing.** The wasm leg's
+  real interaction is with **STAGE-050**, not STAGE-049 — if `Recipe` gains a `format` field,
+  `wasm::transform` has two sources of truth for format and that needs deciding regardless. The
+  cost gate is hygiene, not a live hazard.
+
+**Count:** 0 shipped / 0 active / **3 pending** (of which STAGE-053 is guard work and STAGE-041 is
+carried non-thesis work — **1 stage genuinely delivers the thesis today**, plus STAGE-050) — re-derive with a grep you just ran; never restate
 a tally you carried forward.
 
 ## Dependencies

@@ -6,7 +6,7 @@ stage:
   target_complete: null
 
 project:
-  id: PROJ-010
+  id: PROJ-013
 repo:
   id: crustyimg
 
@@ -84,6 +84,37 @@ write-ups; what it has never had is a **schedulable** home, which is exactly the
 - Rewriting the framework. These are repairs, not a redesign.
 
 ## Spec Backlog
+
+- [ ] (not yet written) — [S] ⚡ **`scripts/decisions-audit.sh --changed` is blind to any
+  decision whose `affected_scope` uses the INLINE-ARRAY form — and `decisions/_template.md`
+  teaches exactly that form.** `get_affected_scope`'s awk
+  (`scripts/decisions-audit.sh:77-91`) sets its collect flag on `/^affected_scope:/` and then
+  **`next`s past that same line**, so anything written on it is discarded; only `^\s*-\s`
+  block-list items are gathered. Two LIVE decisions are written inline and therefore yield
+  **zero** globs on every run, forever: **DEC-015** (`["src/cli/**", "docs/api-contract.md"]`)
+  and **DEC-043** (`superseded_by: null`, so still binding).
+
+  **Measured with a positive control 2026-08-23** — the same awk yields 8 globs for DEC-087 and
+  2 for DEC-006, both block form. The parser is not broken in general; the failure is specific
+  to the inline form, which is why it has never announced itself.
+
+  ⚠ **Root cause is the template.** `decisions/_template.md:33` reads
+  `affected_scope: []   # e.g. ["src/lib/log.ts", "src/**/*.ts"]` — its worked example is the
+  one form the parser cannot read, so every DEC authored from it inherits the bug. AGENTS §15
+  does not specify a form either. Fixing the script without fixing the template just resets the
+  clock.
+
+  **Why this is more than tidiness:** SPEC-126's verify ran
+  `./scripts/decisions-audit.sh --changed 9b4fb80`, got 17 DECs flagged and **no drift** — while
+  **DEC-015, the decision that spec implements, was structurally invisible to the run.**
+  DEC-015's scope names `docs/api-contract.md`, and SPEC-126 had in fact failed to update it
+  (caught by a human reading the diff, not by the audit). **The instrument ran green over the
+  one decision that mattered.** That is the same "a green that cannot go red" failure AGENTS §15
+  already documents for a missing base ref — in a second, undocumented place.
+
+  Fix is small (accept both YAML forms, or normalise the template and migrate the two records)
+  but must ship with a test asserting a known inline-form DEC yields its globs — otherwise the
+  next regression is equally silent.
 
 - [ ] (not yet written) — [S] **A complexity rating is set at framing and never revisited when a
   design call widens scope.** SPEC-119 was framed `[S]`, re-estimated to `[M]` when the design
@@ -232,7 +263,7 @@ write-ups; what it has never had is a **schedulable** home, which is exactly the
   wrong answer, silently. Fix is to consult git refs, or at minimum warn when a higher ID exists
   on another ref. Complexity **S**.
 
-**Count:** 1 chore done (npm publish guard) / 1 framed (SPEC-118) / 1 spec + 4 chores pending
+**Count:** 1 closed / **9 pending** — re-derived by grep 2026-08-23.
 
 **Count:** 1 landed / 9 pending (1 of them ⏸ parked — the per-spec cost ledger, template-level)
 

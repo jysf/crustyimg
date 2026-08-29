@@ -21,7 +21,7 @@ Cycle prompts live in `prompts/SPEC-126-<cycle>.md`.
       `build` AGREE, not that `apply` writes `.jpg`. Pinning the format string pins the answer
       instead of the property, and would go green again the day someone changes the default for a
       good reason.
-- [ ] **build** — prompt: `prompts/SPEC-126-build.md` (2026-08-23). **Sonnet**, own worktree,
+- [x] **build** — prompt: `prompts/SPEC-126-build.md` (2026-08-23). **Sonnet**, own worktree,
       branch `fix/spec-126-apply-and-build-agree`. **DEC-098 reserved in the prompt** — `next_id`
       scans only the working tree and has collided here before.
       ⛔ **Byte-changing: the prompt says do not bump the version, do not cut a release.** It
@@ -30,5 +30,50 @@ Cycle prompts live in `prompts/SPEC-126-<cycle>.md`.
       `--watch` summary line is unreliable — read the direct snapshot at the true head SHA);
       `cargo test` fails `display_sink_refuses_non_tty` in an interactive terminal, so redirect
       stdout and do not try to fix it; and list every file from `git diff --name-only`, not recall.
-- [ ] **verify** — Opus, new session, read-only.
+      ✅ **2026-08-23 — PR [#187](https://github.com/jysf/crustyimg/pull/187), CI green (16/16), NOT
+      merged.** $38.16 / 60.8 min / 105.3M tokens (Sonnet), re-derived from the transcript after CI
+      settled — an earlier mid-build reading under-reported by 26 %. DEC-098 emitted.
+      ⚠ **The `cycle: verify` advance and `## Build Completion` live only on the branch**, so
+      `just status` / `just backlog` will keep reporting `cycle: design` until this merges with
+      STAGE-050. This line is the trace on `main`.
+- [x] **verify** — prompt: `prompts/SPEC-126-verify.md` (2026-08-23). **Opus**, new session,
+      read-only, own worktree, reviewing the **branch** (base ref `9b4fb80`). Ready to dispatch.
+      ⚡ Leads with an **unnamed exit-code change** the orchestrator found reading the diff:
+      `build_sink` now always passes `Some(fmt)`, so `apply` one input `-o -` with no `--format`
+      went from `UnknownFormat` **exit 4** to **exit 0**. Probably correct, but no AC covers it,
+      Build Completion claims zero deviations, and `docs/api-contract.md` is not in the diff.
+      Three things are pre-settled in the prompt so verify does not re-derive them: the cost, the
+      call-graph containment (`build_sink` has one caller; `build` reaches `encode_one` directly),
+      and that `apply --recipe web` returns early and never touches the changed code.
+      ⚠ **2026-08-23 — PUNCH LIST, 7 items.** $15.64 / 21.6 min / 22.7M tokens (Opus), 41 % of
+      the build. **The code is right; the record and the docs were not.** Only one item touched
+      code, and only as a test split.
+      ⚡ Item 1 confirmed and **widened**: not one exit-code change but **three** — `-o -` with no
+      `--format`, `-o` at an extensionless path, and `-o` at an unrecognised extension, all
+      `4` → `0`. Ruled a **conformance fix, not a contract break**, on evidence: `resize` and
+      `thumbnail` already did all three on `main`, and the old `4` sat outside
+      `api-contract.md`'s own enumeration of that code. Now documented.
+      ⚡ A **fourth** unnamed consequence found: at single input a literal-extension
+      `--name-template` used to be ignored, so `{stem}_w.jpg` wrote **PNG bytes into a `.jpg`
+      file**. Fixed outright; the converse now matches `resize`/`build`. Nothing regressed.
+      ⚡ Verify extended AC-6 from 16 files / 4 verbs to **39 files / 9 paths**, including the
+      flagship `apply --recipe web` — all identical, positive control still diverging.
+      **Items 1–6 applied by the orchestrator on the branch** (`77f1050`); **item 7 filed on
+      `main`**. `cycle:` **HELD at verify** for re-approval, not advanced.
+
+- [ ] **re-approve** — prompt: `prompts/SPEC-126-re-approve.md` (2026-08-23). **Opus**, new
+      session, read-only, own worktree. Scope is **`git diff f8deb55..77f1050`** and nothing else —
+      4 files, +157/−42. Ready to dispatch.
+      ⚠ **This cycle exists because the punch list was self-graded**: the orchestrator received
+      verify's 7 items, applied all 7, and wrote the record describing what it had done. The
+      posture is adversarial toward those records, not toward the fix — verify already approved
+      the fix at `f8deb55`.
+      Three things carry the most risk: prose added to `docs/api-contract.md`, which is the only
+      part that reaches users and the only part no test covers; a test split, which is the shape
+      that silently drops an assertion (a 940→941 count proves nothing about assertions); and the
+      control behind that split, re-driven rather than read.
+      📌 Known and stated in the prompt, not hidden: `just backlog --all` returns **zero** for the
+      STAGE-047 filing, because PROJ-013 is `proposed` — the item is in the right topical home but
+      invisible to tooling, which is the same class of problem it describes.
+
 - [ ] **ship**

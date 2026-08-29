@@ -17,6 +17,45 @@ session was handed 11 crates of which 2 did not exist and only 3 were viable.
 
 ---
 
+## 0. ⚠ Audit, 2026-08-23 — 8 of 12 decisions in this document are invisible to tooling
+
+Run after a decided LUT feature was found to have sat here unnoticed for 13 days. **Nothing reads
+this file** — not `just backlog`, not `just roadmap` (which reads *stage files*, not
+`docs/roadmap.md`). Each row below was checked by grepping every stage's `## Spec Backlog`.
+
+| decision | verdict here | in a stage backlog? |
+|---|---|---|
+| §2 LUT op, `.cube` reader in-house | **Take**, ruling in §3.1 | ✅ **filed 2026-08-23** → PROJ-011/STAGE-050 |
+| §3 Perceptual dedup lint rule | **Take** — *"best differentiation per unit of effort in the set"* | ❌ **NO** |
+| — Declared convolution kernels | **Take** | ❌ **NO** |
+| §12 ICC colour transforms (`qcms` only) | Take when pulled | ✅ **homed 2026-08-23** → PROJ-012 |
+| §15 SVG optimization | Take when pulled | ❌ **NO** |
+| — JPEG XL decode | Take when pulled | ❌ **NO** |
+| §4 Lint in wasm | gated on a bundle-size measurement | ❌ NO |
+| §17 MCP server exposing measurements | *"strongest strategic idea in the set"*, gated on §4 | ❌ NO |
+| §16 Brand consistency as a build gate | *"the one genuinely commercial angle"*, gated on §2 | ❌ NO |
+| §1 Placeholders (blurhash/thumbhash) | → roadmap Wave 4 | ✅ yes |
+| §6 Cross-verb invariant harness | → STAGE-042 | ✅ yes |
+| §11 Animated GIF → WebP/AVIF | Take when pulled | ✅ **homed 2026-08-23** → PROJ-012 (AVIF only; no pure-Rust animated WebP encoder exists) |
+| — Favicon / app-icon / OG sets | → Wave 4 | ✅ yes |
+
+⚠ **The structural finding, which is bigger than any row:** the framework has **no machine-readable
+home for a decided-but-unprojected feature.** Work must belong to a project → stage → spec, so a
+feature that is decided and unscheduled has nowhere to live except a file like this one. That is
+why these went missing, and it will keep happening until such a home exists.
+
+📌 **Per AGENTS §10's rule (adopted 2026-08-23):** a decision with no home is a **proposal**, and
+this document is not a home. **Three rows were homed on 2026-08-23** — the LUT to PROJ-011/STAGE-050
+as a design constraint, and animated output + ICC transforms to **PROJ-012**, whose thesis they
+share (*every defect lint can name, crustyimg can act on*).
+
+⚠ **The remaining rows are proposals, and that is the honest label, not a demotion.** The
+perceptual-dedup lint rule, declared convolution kernels, JPEG XL decode, SVG optimization, lint in
+wasm, the MCP server and the brand-consistency gate **do not share PROJ-012's thesis**, and parking
+them there would have made it a filing cabinet — the exact failure the rule exists to prevent.
+**They need either a project whose thesis they genuinely share, or an honest "not now".** Recording
+them as decided in this file is what made them invisible for a month.
+
 ## 1. Corrections — claims that did not survive checking
 
 These are listed first because each one changes what the item costs or whether it is possible.
@@ -236,6 +275,17 @@ Effort labels are the source's. "Home" is where the item would live if pulled.
 | §16 | Brand consistency as a build gate | **Positioning, gated on §2.** The one genuinely commercial angle surfaced. Worth recording in `territory.md` even before §2 exists. |
 
 ### 3.1 The LUT dependency call — reversed by the maintainer, 2026-08-10
+
+> 📌 **Surfaced 2026-08-23.** This decision sat here, invisible to every command, from 2026-08-10
+> until the maintainer asked where the LUT work was in the plan. **This file is read by no
+> command** — not `just backlog`, not `just status` — so a decided feature recorded only here does
+> not exist as far as the framework is concerned.
+> It is now referenced from **PROJ-011 / STAGE-050**, as the known **second** customer for the
+> registry seam `watermark` is about to widen. ⚠ **The LUT op itself remains unscheduled and
+> belongs to no project** — that is still an open maintainer call.
+> ⚠ **If one decided feature was lost in this document, assume others are.** It has not been
+> audited against the stage backlogs.
+
 
 The source note said: *"Do not write a `.cube` parser. LUT application is commodity — `wagahai_lut`,
 `lut-cube`, `lut-rs` in Rust alone… Take the crate."* **The maintainer reversed this** once the

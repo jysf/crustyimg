@@ -17,8 +17,11 @@ Instructions for Claude working across all phases of this repository. Read this 
   `Operation` pipeline and reusable TOML recipes.
 - **Primary stakeholders:** Web/content developers prepping images; terminal
   power users; the maintainer (clean trait-based base to extend).
-- **Active project:** PROJ-001 — crustyimg MVP (clean rebuild). Active stage:
-  STAGE-001 (foundation and pipeline core).
+- **Active project:** ⚠ **do not read it from here — run `just status`.** This line claimed
+  PROJ-001/STAGE-001 from the repo's first day until 2026-08-23, through **nine** projects, because
+  nothing updates it and every session reads this file first. It now names no project on purpose:
+  a pointer that goes stale silently is worse than no pointer. `just status` derives the active
+  project from the `status:` field in each `projects/PROJ-*/brief.md` and cannot drift.
 
 See `.repo-context.yaml` for structured metadata.
 
@@ -69,6 +72,16 @@ but don't contribute to the project thesis.
 stage's value. Infrastructure specs may have
 `value_link: "infrastructure enabling X"`. Optional but encouraged —
 it surfaces specs that don't trace back to the thesis.
+
+**A success signal that names specific work binds the project to that work.**
+If the work is later cancelled or declined, **amend the signal in the same
+breath** — with the reason, visibly, the way a superseded DEC is amended. A
+signal left pointing at cancelled work does not quietly lapse: it guarantees the
+project can never close, and nobody chose that. Measured 2026-08-23 — PROJ-010
+carried a signal requiring SPEC-092, an item deferred 2026-07-20 that no one
+intended to build, and it was one of two signals keeping a delivered project
+open. **Cancel the work or amend the signal. Doing neither is how a project
+becomes immortal by accident.**
 
 Reports (`just report-daily`, `just report-weekly`) aggregate these
 signals: which stages advanced the thesis, which specs most directly
@@ -314,6 +327,37 @@ Every spec has these relationships, encoded in front-matter:
 - `references.constraints` → constraints that apply
 
 DECs are stable; specs come and go. DECs don't reciprocally list specs.
+
+### A decision that survives its session gets a `- [ ]`, or it is not decided
+
+**Adopted 2026-08-23, after the fourth instance in one week.**
+
+> **A decision that outlives the session that made it gets a `- [ ]` in a stage's
+> `## Spec Backlog` — where `just backlog` reads it — or it does not count as decided.**
+
+**The only machine-readable home for work in this repo is a stage's `## Spec Backlog`.** Verified:
+`just backlog` and `just roadmap` both read **stage files**. `docs/backlog.md`, `docs/roadmap.md`
+and every `docs/*-triage-*.md` are read by **no command** — `scripts/lifetime-report.sh` lists
+them by size and nothing else parses them. A decision recorded only in one of those does not exist
+as far as the framework is concerned.
+
+**This is not hypothetical. Measured, all in one week:**
+
+| what was lost | where it sat | for how long |
+|---|---|---|
+| 358 lines of measured animated-image research, incl. a live data-loss finding | `docs/backlog.md` | days, until re-derived by hand |
+| 4 CLI-surface findings | an earlier audit, filed nowhere | **found and lost at least twice** |
+| 3 items incl. a resource-cap gap | `feedback/` and a verify readout | until a set-wide triage |
+| **A decided `.cube` LUT feature with its dependency ruling** | `docs/feature-set-triage-2026-08.md` | **13 days**, until the maintainer asked where it was |
+
+⚠ **The corollary is the useful half.** If no stage's backlog is the right home for a decision,
+that is a signal — the work has no project, so **it is a proposal, not a decision.** Say so
+plainly rather than recording it as settled in a document nothing reads. "Decided but homeless" is
+the state that goes missing.
+
+**When you make a call that outlives the session:** file the `- [ ]` first, then run
+`just backlog` and **read it back**. A file you wrote is not a file the tooling sees.
+
 
 ---
 

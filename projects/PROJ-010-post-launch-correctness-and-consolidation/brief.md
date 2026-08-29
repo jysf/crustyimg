@@ -4,7 +4,7 @@
 
 project:
   id: PROJ-010
-  status: active
+  status: shipped
   priority: critical
   target_ship: null
 
@@ -12,7 +12,7 @@ repo:
   id: crustyimg
 
 created_at: 2026-07-26
-shipped_at: null
+shipped_at: 2026-08-23
 
 value:
   thesis: >
@@ -32,8 +32,8 @@ value:
     - "A dithered/halftoned graphic that currently produces an 18.5x-larger lossy AVIF through the default `web` path instead produces a correct lossless (or smaller lossy) output — verified against the two committed boundary specimens"
     - "The classifier runs before the resize pipeline (or the entropy threshold is scale-aware), proved by re-running the re-derived negative control from the review findings — PHOTO_ENTROPY_STRONG = 5.5 must make a guard go red, which today it does not"
     - "Every input in the committed hostile corpus produces no hang, a clear user-facing message, and a documented exit code — on both native CLI and headless wasm"
-    - "The strict-JSON escape_json tail from SPEC-097 ships, and every declined code-health candidate is recorded as declined with its reason"
-    - "SPEC-092 `convert --to` is live; shell completions ship via Homebrew, complete file paths on bash and zsh, and signal staleness on surface changes"
+    - "AMENDED 2026-08-23 — every declined code-health candidate is recorded as declined with its reason. The original signal also required the strict-JSON escape_json tail from SPEC-097 to ship; that clause is WITHDRAWN, and the work is retained as a backlog item rather than a launch-readiness criterion. Reason, checked rather than assumed: RFC 8259 s7 requires escaping only quote, reverse solidus and U+0000-U+001F. 0x7F and the C1 range (U+0080-U+009F) are LEGAL UNESCAPED, so src/cli/report.rs:116 is already spec-compliant and the item is hardening, not a correctness fix. It was labelled a correctness issue, and that label is what made it look like a release blocker."
+    - "AMENDED 2026-08-23 — shell completions ship via Homebrew, complete file paths on bash and zsh, and signal staleness on surface changes. The original signal also required SPEC-092 (`convert --to` rename + social/archive recipes); SPEC-092 was CANCELLED 2026-08-23 and that half is withdrawn. A signal that binds a project to work it has decided not to do is a signal that guarantees the project cannot close — amend it or cancel the work, not neither."
   risks_to_thesis:
     - "The classifier fix is the real engineering unknown. If the correct fix is deeper than 'move classification before resize' or 'make entropy threshold scale-aware' — e.g. if the classifier needs a different metric, or the pipeline architecture makes pre-resize classification expensive — it could grow into multiple specs and expand the launch-gating timeline. Calibrated by the review findings, which narrow the fix to two concrete approaches."
     - "The hostile-input pass could find real defects (panic, hang, wrong exit code) that need triage and fixes — this is the purpose of running it, but unanticipated defects extend the stage. The committed corpus is designed to surface them cheaply."
@@ -65,7 +65,7 @@ Two pre-launch stages (launch-gating), three post-launch stages (optional, per m
 - The cascade is left internally consistent: rule 6 reachable or deleted, the `[4.0, 4.5)` contradiction band resolved, rule 5 reachable, and `--profile docs` doing something for promoted images.
 - Every hostile/edge input in the committed corpus produces no hang, a clear message, and a documented exit code — on both native CLI and headless wasm.
 - The strict-JSON `escape_json` tail ships; every declined code-health candidate is recorded as declined, with its reason.
-- SPEC-092 `convert --to` is live; shell completions ship via Homebrew, complete file paths on bash/zsh, and signal staleness.
+- ~~SPEC-092 `convert --to` is live~~ (**cancelled 2026-08-23** — see the amended signal above); shell completions ship via Homebrew, complete file paths on bash/zsh, and signal staleness.
 - The launch-readiness hostile-input blocker moves off "hold natively; confirm in the browser" to a stated, driven outcome.
 
 ## Scope
@@ -231,7 +231,107 @@ treated alike:
 
 ## Project-Level Reflection
 
-*Filled in when status moves to shipped.*
+**Written 2026-08-23.** Five stages shipped, **18 specs**, two releases (0.7.0 and 0.7.1),
+0.7.1 live on all three channels.
+
+### Did we deliver the outcome?
+
+**Yes, and the thesis held — but the outcome that mattered was not the one framed.** The brief
+promised a correct default path on every input `web` touches, documented hostile-input behaviour,
+and a codebase ready for scrutiny. All three landed. **What was not anticipated is that the wave
+would spend most of its cost on defects nobody knew existed at framing** — silent frame loss,
+silent depth halving, machine-dependent AVIF output, resampling in the wrong colour space. The
+launch-gating classifier fix that motivated the project is one of eighteen specs.
+
+### How many specs did it take?
+
+**18 shipped.** The brief did not predict a number, which in hindsight is why nothing flagged that
+the project had stopped being a bounded wave — it accumulated **61 open items across 8 stages**
+before anyone triaged it as a set.
+
+### What changed between starting and shipping?
+
+**The scale, not the subject.** ⚠ **An earlier draft of this reflection said the project "stopped
+being about the launch and became the correctness lane, and nobody decided that." That was wrong,
+and the maintainer corrected it:** correctness *is* launch work — it is not worth launching
+something that is not correct. The thesis said *"a correct default path on every input the `web`
+verb touches"*, and silent frame loss, silent depth halving, machine-dependent AVIF output and
+resampling in the wrong colour space **are exactly that**. All eighteen specs were on-thesis.
+
+**What actually changed is that the wave was much larger than framed** — the launch-gating
+classifier fix that motivated it is one spec of eighteen, and nobody predicted a count, so nothing
+flagged that a bounded wave had become an open lane. **The lesson is about sizing and closure
+discipline, not about drift.**
+
+📌 The structural point survives the correction, in narrower form: a defect found mid-wave has to
+go *somewhere*, and the active project is where `just backlog` can see it. That pull is real even
+when — as here — the destination is the right one.
+
+### Lessons that should update AGENTS.md, templates, or constraints
+
+**Already applied:**
+- ⚡ **AGENTS §10 — a decision that outlives its session gets a `- [ ]` where `just backlog` reads
+  it, or it is not decided.** Earned four times in one week, most sharply by a decided `.cube` LUT
+  feature invisible for 13 days in a file no command reads.
+- ⚡ **AGENTS §3 — a success signal naming specific work binds the project to it.** Cancel the work
+  *or* amend the signal; doing neither is how a project becomes immortal by accident. PROJ-010 was
+  held open by SPEC-092, which nobody intended to build.
+- **AGENTS §15** gained the negative-control rules: one revert per independent condition, and the
+  evidence is the behavioural flip, not a binary hash.
+- **`projects/_templates/spec.md`** now requires a file inventory built from `git diff --name-only`.
+- **`AGENTS.md` §1's "Active project" line** was stale for nine projects and now points at
+  `just status` instead of naming one.
+
+**Still unapplied, and the most valuable of them:**
+- ⚠ **A cycle's cost block structurally under-reports** — a cycle cannot count the messages that
+  write it. Four cycles in one wave, all under, by 3–7%. `cost-snippet.md` warns about *premature*
+  readings; it does not say the residual is unavoidable and the orchestrator must re-derive.
+- ⚠ **Reporting and gating scripts should span projects; authoring scripts should not.** Nobody had
+  drawn that line, and activating PROJ-011 silently made `cost-audit` vacuous — it now passes
+  having checked **zero** specs, with a message identical to the one it prints after checking 18.
+
+### Should any spec-level reflections be promoted?
+
+**Three, and they are the ones this project actually paid for:**
+
+1. ⚡ **Verify is the cheapest and most valuable cycle — five waves running.** 11–28% of build cost,
+   and **every substantive defect this project found came from a verify pass or a punch list, never
+   from a build.** The last wave's eight punch-list items contained **zero code defects** — all were
+   records claiming more than had been measured, including two decision records that contradicted
+   themselves in their own text. **The argument is for shorter builds and more review**, and it has
+   five waves of evidence.
+2. ⚡ **A test that cannot fail is worse than a missing one**, and this project shipped two before
+   learning to drive the control. The generalisation that took longest to see: **a green whose
+   control was never verified to apply is not evidence.** It recurred at the end in a new costume —
+   `cost-audit` passing having checked nothing.
+3. **Drive it before you file it.** Every finding filed late in this project carries a reproduction
+   that was re-run, and **two of eight external findings turned out sharper than reported** while
+   **three review batches each led with a flagship recommendation that did not survive contact**.
+   The provenance of a finding predicts its quality better than its source does.
+
+### What did we defer to the next project?
+
+- **PROJ-011** took the invocation-consistency defects and the recipe-reach gap.
+- **PROJ-012** took animated output and ICC transforms — the two rules `lint` can name but not fix.
+- **STAGE-041** was carried to PROJ-011 for continuity; ⚠ **it does not share that project's
+  thesis** and must not be counted toward it.
+- **All 53 remaining items were re-homed to PROJ-013** on 2026-08-23 — five stages moved whole
+  (036, 037, 038, 047, 048) and two continuation stages created (**STAGE-051** from STAGE-042,
+  **STAGE-052** from STAGE-046), because ⚠ **a stage with shipped specs closes in place and cannot
+  be re-homed.** STAGE-042 and STAGE-046 therefore stay here, closed, with their specs.
+  **PROJ-010 closes with zero open items — not because the work is done, but because it has a home
+  that `just backlog` can see.** ⚠ PROJ-013 is a continuation lane and its own brief says so; it
+  starts with the end-state discipline PROJ-010 lacked (*every item ships or is cancelled with a
+  reason*).
+
+### Why `shipped` and not something softer
+
+**The code shipped.** Two releases, live on three channels, 18 specs, all five success signals met
+(two of them amended — see above, with the reasoning, not silently). ⚠ **A project's status
+describes its code, not the exhaustion of its backlog** — and a backlog that outlives its project
+is a re-homing problem, which is now solved, rather than a reason to leave a delivered wave open
+forever. **PROJ-010 was held open by exactly that confusion for a week.**
+
 
 ### Parked for the close-out discussion (added 2026-08-14)
 
