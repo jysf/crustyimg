@@ -85,6 +85,21 @@ write-ups; what it has never had is a **schedulable** home, which is exactly the
 
 ## Spec Backlog
 
+- [ ] (not yet written) — [XS] **`archive-spec` sends you to the wrong prompt.**
+  `scripts/archive-spec.sh:116` prints *"Run the Stage Ship prompt (Prompt 1c) in
+  FIRST_SESSION_PROMPTS.md."* — but **Prompt 1c is STAGE FRAME**; STAGE SHIP is **1d**
+  (`FIRST_SESSION_PROMPTS.md:111` vs `:164`). Following it verbatim starts framing a new
+  stage at the moment you meant to close one.
+
+  Driven 2026-09-03 while shipping SPEC-126: the message fired, it was followed, and 1c
+  turned out to be the framing prompt. Off-by-one in the letter, almost certainly from
+  before 1d was inserted. **Trivial fix, but the failure is silent and points at the
+  opposite operation** — and the whole point of that line is to help someone who has just
+  closed a stage and does not yet know what comes next.
+
+  📌 Worth grepping the other scripts for prompt-letter references at the same time; a
+  reference that drifts once can have drifted elsewhere.
+
 - [ ] (not yet written) — [S] ⚡ **`scripts/decisions-audit.sh --changed` is blind to any
   decision whose `affected_scope` uses the INLINE-ARRAY form — and `decisions/_template.md`
   teaches exactly that form.** `get_affected_scope`'s awk

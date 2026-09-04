@@ -1,7 +1,7 @@
 ---
 stage:
   id: STAGE-049
-  status: active
+  status: shipped
   priority: high
   target_complete: null
 
@@ -11,7 +11,7 @@ repo:
   id: crustyimg
 
 created_at: 2026-08-23
-shipped_at: null
+shipped_at: 2026-09-03
 
 value_contribution:
   advances: >
@@ -117,4 +117,63 @@ recipe over a batch — not to the batch path in general.
 
 ## Stage-Level Reflection
 
-*Filled in when status moves to shipped.*
+**Built vs planned.** One spec against a plan of one, all four success criteria met with
+evidence rather than assertion: `--format` honoured at both arities (two tests, split apart
+at re-approve precisely so the arities fail independently), `apply` and `build` byte-identical,
+the default stated and justified in DEC-098, and a regression test confirmed RED on `main`
+before the fix and re-driven in **both** revert directions afterwards. **$68.82** and three
+cycles became four — a sixth cycle type, `re-approve`, was invented mid-stage.
+
+**Speed and shape.** The stage did what it said and nothing else. The design call was settled
+by measuring all six sibling paths rather than by argument, which is why the fix is one rule
+reused from `ops::output_format_for` instead of a second special case — and why `build`, the
+path a lockfile already pins, did not have to move at all.
+
+**Emergent behaviour, and it is the finding of the stage.** Every defect came from a review
+cycle and none from the build — but unlike previous waves, **none of the reviews found the code
+wrong.** The code was correct at `f8deb55` and stayed correct through two independent reviews.
+What they found, four times over, was records overstating what had been measured. That is a
+different failure mode than this repo has been tracking, and it is the one worth carrying
+forward.
+
+### Did the stage stay inside its own exclusions?
+
+Yes, but one deserves stating plainly rather than being ticked off. The stage said it would
+not *"touch the `-o`-extension pin"* — and it did not touch that **ruling**, which is about a
+*recognized* extension pinning the format on `web`/`optimize` and still sits open in PROJ-013
+STAGE-037. But SPEC-126 did change `-o` **behaviour** on three single-input invocations
+(no `--format`, extensionless path, unrecognised extension — all `4` → `0`). Adjacent, not the
+same thing, and ruled a conformance fix because `resize` and `thumbnail` already behaved that
+way. ⚠ **The exclusion held in substance; the wording did not anticipate the neighbourhood.**
+A future stage writing this exclusion should say *the pin ruling*, not *the `-o` extension*.
+
+The other two exclusions held cleanly: `Recipe` gained no `format`/`quality` field (STAGE-050's
+job, and it now inherits settled semantics rather than a disagreement), and neither full matrix
+was built.
+
+### What this stage hands to STAGE-050
+
+The thing it was created to produce: **`apply` and `build` now agree on what a recipe's output
+format is**, so a `format` field can be added to `Recipe` on top of one rule instead of two. The
+`*.build.lock` that pinned bytes the `apply` spelling could not reproduce no longer does.
+
+📌 Two items were filed out of this stage rather than absorbed: a literal `--name-template`
+extension does not pin the format for a plain pixel recipe (STAGE-050, and it is the same
+family as the open `-o` pin ruling — worth ruling on together), and
+`scripts/decisions-audit.sh` cannot parse an inline-array `affected_scope`, which makes DEC-015
+invisible to `--changed` (PROJ-013 STAGE-047).
+
+### Proposed process change, on evidence from this stage
+
+⚠ **A punch list applied by whoever received it is unreviewed work, and CI cannot see it.**
+`re-approve` cost $15.02 — 22 % of the build — and returned three real items, one of which was
+an overstatement in the orchestrator's own backlog filing. All sixteen CI legs were green
+throughout, because all three findings were prose. **Recommend AGENTS §15 name this case:** when
+the orchestrator applies a punch list itself rather than dispatching one, a read-only re-approve
+follows before merge. It should not be automatic for every punch list — it is the *self-applied*
+case that needs it.
+
+📌 Also worth a rule, from the pattern behind all four record defects: **when a claim covers N
+items, quote the same evidence field for all N.** An item that cannot produce that field is the
+one that was never checked. Every overstatement this stage produced is visible in its own
+sentence by that test.
