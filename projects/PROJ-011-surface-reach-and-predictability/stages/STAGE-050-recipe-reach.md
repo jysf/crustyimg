@@ -81,6 +81,24 @@ anything a recipe cannot say.
 
 ## Spec Backlog
 
+- [ ] (not yet written) — [S] ⚡ **`watermark --text` overruns the right edge, and it is NOT
+  simply a function of text width.** Driven 2026-09-03 on `main` (0.7.1 + SPEC-126), one source
+  photo, `watermark --text "© crustyimg"` with no other flags:
+
+  | canvas | result |
+  |---|---|
+  | **448×448** | final **g** reaches the right edge with **no margin — the glyph is cut** |
+  | **1200×300** | identical command, text sits inside a comfortable margin |
+
+  The text's measured extent at the default 32 px font is **~180 px**, taken from the wide canvas.
+  180 px should fit inside 448 px with room to spare, **and it does not** — so whatever positions
+  the run is not purely text width. Root cause not chased; the measurement is the finding.
+
+  ⚠ **This is a SECOND question from the coverage rule, and the damage rule must answer both.**
+  "Is the watermark proportionate to the image" and "does the watermark fit inside the image" are
+  different predicates, and a size-only rule answers only the first. A watermark that is correctly
+  sized and still clipped is just as broken to the user.
+
 - [ ] (not yet written) — [S] **A literal extension in `--name-template` does not pin the
   output format — and single-input `apply` now makes that visible.** Surfaced by SPEC-126's
   verify, 2026-08-23, driven on both binaries with a JPEG source and a plain pixel recipe:
@@ -130,6 +148,27 @@ anything a recipe cannot say.
   ⚠ Unsettled, deliberately: the coverage threshold is a number nobody has measured (~25 % separates
   the rows above — **validate, do not adopt from this table**); whether it is a knob; and that
   **`--tile` covers the image by design**, so the coverage test cannot apply to it unmodified.
+
+  **Two design inputs measured 2026-09-03, before any spec is written:**
+
+  ⚡ **SSIMULACRA2 is the WRONG instrument for this rule.** Driven across the same six sizes, the
+  score is **not monotonic in the damage**: 24 px scores **+50.7** while 64 px scores **−82.0**,
+  though the 24 px output is visibly the more destroyed. The metric is perceptual and is not built
+  for canvases this small — at 24 px most of the glyph run falls *outside* the frame, so there is
+  less **measured** difference exactly where there is more actual damage. **The coverage rule needs
+  a GEOMETRIC measure — the fraction of pixels the glyphs cover — not a perceptual one.** Anything
+  built on `diff`/SSIM2 will be wrong at precisely the sizes the rule exists to protect.
+
+  ⚠ **The `--size 200` on 24 px row did NOT reproduce as a silent no-op.** Same flags on
+  `tests/fixtures/classify/color_photo_fuji.png` downscaled to 24 px: the output differs
+  perceptibly from the input (SSIM2 **74.96**), not 0.00 %. Either the no-op depends on the
+  specific text or gravity, or it needs a different input to surface. **The table above is a set of
+  reference points to re-drive, not measurements to build against** — which is what this entry
+  already said, now confirmed the hard way.
+
+  📌 Visual evidence for all of the above, one image per cell at native size and 4×:
+  see the contact sheet generated 2026-09-03 (artifact, linked from the session; regenerate with
+  the commands in this entry rather than trusting the link to persist).
 
 - [ ] (not yet written) — [S] ⚡ **Design the registry seam for TWO parameter-rich ops, not one —
   the LUT op is the known second customer.** ⚠ **This item is a design constraint on the watermark
