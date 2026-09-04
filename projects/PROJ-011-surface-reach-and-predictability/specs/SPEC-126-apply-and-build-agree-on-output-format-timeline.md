@@ -61,7 +61,7 @@ Cycle prompts live in `prompts/SPEC-126-<cycle>.md`.
       **Items 1–6 applied by the orchestrator on the branch** (`77f1050`); **item 7 filed on
       `main`**. `cycle:` **HELD at verify** for re-approval, not advanced.
 
-- [ ] **re-approve** — prompt: `prompts/SPEC-126-re-approve.md` (2026-08-23). **Opus**, new
+- [x] **re-approve** — prompt: `prompts/SPEC-126-re-approve.md` (2026-08-23). **Opus**, new
       session, read-only, own worktree. Scope is **`git diff f8deb55..77f1050`** and nothing else —
       4 files, +157/−42. Ready to dispatch.
       ⚠ **This cycle exists because the punch list was self-graded**: the orchestrator received
@@ -76,4 +76,26 @@ Cycle prompts live in `prompts/SPEC-126-<cycle>.md`.
       STAGE-047 filing, because PROJ-013 is `proposed` — the item is in the right topical home but
       invisible to tooling, which is the same class of problem it describes.
 
-- [ ] **ship**
+      ⚠ **2026-09-03 — PUNCH LIST, 3 items, all text, no code.** $15.02 / 19.1M tokens (Opus).
+      The fix and the test split came through **clean** — the reviewer did a normalised multiset
+      diff of the split rather than trusting the 940→941 count, found **zero assertions dropped**
+      (8 before, 4+4 after), and re-drove the control in **both** directions, not just the one
+      claimed. The Call-1 revert passed the first `--format png` block by coincidence and failed
+      on the jpeg block — which is exactly what AC-1's two-format requirement exists for, now
+      demonstrated rather than asserted.
+      ⚡ **The gate caught an error in the orchestrator's own filing.** STAGE-047 claimed **two**
+      live decisions lose globs to the inline-array parser. **Only DEC-015 does.** DEC-043's
+      scope is `affected_scope: []` — an EMPTY array, which yields zero because it has no globs,
+      and AGENTS §15 explicitly sanctions that form. The tell was visible in the filing itself:
+      it quoted DEC-015's scope contents but quoted `superseded_by:` for DEC-043, because only
+      DEC-043's *liveness* had been checked and its scope never had. **This is exactly what the
+      cycle was created to catch**, and it is the argument for keeping it.
+      ⚡ Also caught: a **false universal** in `docs/api-contract.md` ("every other pixel-lane
+      verb" — `web`/`optimize` measurably do not preserve, `ftypavif` on a photo source, and the
+      winning format is **content-dependent**), and a file list stale **by its own stated
+      derivation** (six shown, seven returned; the missing one was the user-facing file).
+      **All 3 applied by the orchestrator** — items 1–2 on the branch (`08b37ac`), item 3 on
+      `main`. `cycle:` still **HELD at verify**.
+
+- [ ] **ship** — merge #187, then ship. ⛔ **NO TAG.** Batches with STAGE-050 as PROJ-011's one
+      lockfile migration. Running total across build + verify + re-approve: **$68.82**.
