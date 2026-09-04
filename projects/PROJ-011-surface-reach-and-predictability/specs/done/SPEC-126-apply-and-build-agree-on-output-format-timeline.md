@@ -97,5 +97,11 @@ Cycle prompts live in `prompts/SPEC-126-<cycle>.md`.
       **All 3 applied by the orchestrator** — items 1–2 on the branch (`08b37ac`), item 3 on
       `main`. `cycle:` still **HELD at verify**.
 
-- [ ] **ship** — merge #187, then ship. ⛔ **NO TAG.** Batches with STAGE-050 as PROJ-011's one
+- [x] **ship** — merge #187, then ship. ⛔ **NO TAG.** Batches with STAGE-050 as PROJ-011's one
       lockfile migration. Running total across build + verify + re-approve: **$68.82**.
+      ✅ **2026-09-03 — MERGED and SHIPPED.** PR #187 squashed to `main` as **`dd60ef5`**.
+      The branch needed `gh pr update-branch` first (it had fallen behind `main`) — **not
+      `--admin`**, which would have bypassed the protection this repo relies on; CI re-ran and
+      was re-confirmed green at the true head before the merge. `cost.totals` = 147,088,502
+      tokens / **$68.82** / 3 metered sessions. ⛔ **No tag, version still 0.7.1** — batches
+      with STAGE-050 as PROJ-011's single lockfile migration.

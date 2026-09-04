@@ -2,7 +2,7 @@
 task:
   id: SPEC-126
   type: bug
-  cycle: verify
+  cycle: ship
   blocked: false
   priority: high
   complexity: S
@@ -92,10 +92,41 @@ cost:
         the messages that write its own cost block. 41% of the build's cost;
         returned a 7-item punch list, 2 unnamed behaviour changes and a
         pre-existing tooling defect.
+    - cycle: re-approve
+      agent: claude-opus-5
+      interface: claude-code
+      tokens_total: 19130895
+      duration_minutes: null
+      recorded_at: 2026-09-03
+      tokens_breakdown:
+        input: 312
+        output: 136135
+        cache_creation: 367797
+        cache_read: 18626651
+      estimated_usd: 15.02
+      note: >
+        MEASURED — summed from the session transcript's per-message `usage`
+        (156 assistant messages), priced at Opus anchors ($5/$25 per MTok,
+        cache_creation x1.25, cache_read x0.10) per `.message.model` (DEC-083).
+        Cache reads 97.4% of volume; a flat rate would say $95.65, overstating
+        6.4x. An EXTRA gate, not one of the five cycles — added because the
+        orchestrator applied verify's punch list itself. It paid for itself:
+        it caught an overstatement in the orchestrator's own STAGE-047 filing
+        (two decisions claimed blind to the decisions-audit parser, only
+        DEC-015 actually is), a false universal in `docs/api-contract.md`, and
+        a file list stale by its own stated derivation.
+    - cycle: ship
+      interface: claude-code
+      tokens_total: null
+      duration_minutes: null
+      estimated_usd: null
+      note: >
+        Un-metered main-loop ship cycle (AGENTS §4) — merge, reflection,
+        totals, archive.
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 147088502
+    estimated_usd: 68.82
+    session_count: 3
 ---
 
 # SPEC-126: `apply` and `build` agree on output format
@@ -338,4 +369,43 @@ again. Add the `-o` vs `--out-dir` arm too; same class, and cheap here.
 
 ## Reflection (Ship)
 
-*Appended during the **ship** cycle.*
+**1. What went right, and would you do it the same way again?**
+
+The design call was settled by driving all six sibling paths rather than by arguing about
+which default is nicer, and that is the only reason the fix is one rule instead of a second
+special case. "PNG avoids JPEG→JPEG generation loss" is a genuinely defensible position; it
+lost to a measured table showing `apply` at one input was the sole outlier on the entire
+surface. Do that again. Reusing `ops::output_format_for` instead of reimplementing followed
+directly from the same table — once five paths were shown to share a rule, the only open
+question was where to call it from.
+
+**2. What went wrong, and what would you change?**
+
+Every finding came from a review cycle and none from the build — five waves of the same
+result. But the sharper version here is that **each review found the previous cycle's
+RECORDS overstating what had been measured, never the code being wrong.** The code was
+correct at `f8deb55` and stayed correct through two reviews. What kept failing was claims:
+"Deviations: None" when three exit codes had moved; "both were named" when DEC-015 was not;
+"two live decisions" when only one is; "every other pixel-lane verb" when two measurably
+are not.
+
+One pattern produced all four: **a half-verified claim stated with the confidence of a
+fully-verified one.** The DEC-043 error is the clearest specimen — its liveness was checked,
+its `affected_scope` never was, and the write-up quoted `superseded_by:` for it while
+quoting scope contents for DEC-015. The tell was legible in the sentence itself. The fix is
+mechanical: when a claim covers N items, quote the *same evidence field* for all N, and if
+one of them cannot produce that field, that is the signal it was never checked.
+
+**3. What should the next spec know?**
+
+⚠ **A punch list applied by whoever received it is unreviewed work.** This spec added a
+sixth cycle, `re-approve`, for exactly that, and it returned three real items for $15.02 —
+22 % of the build. It should not become automatic, but when the orchestrator applies its
+own punch list something has to read it, because **CI cannot**: all three findings were in
+prose, and all sixteen legs were green throughout.
+
+📌 **`docs/api-contract.md` is the highest-leverage file in a spec like this and the easiest
+to forget.** It was not in the original diff at all, and DEC-015 — the decision this spec
+implements — names it in `affected_scope`. The audit could not say so, because of the
+inline-array parser defect (filed, PROJ-013 STAGE-047): **the one instrument that should
+have caught it ran green over the one decision that mattered.**

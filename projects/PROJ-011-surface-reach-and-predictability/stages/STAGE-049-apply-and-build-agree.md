@@ -86,12 +86,14 @@ recipe over a batch — not to the batch path in general.
 
 ## Spec Backlog
 
-- [ ] **SPEC-126** (design) — **`apply` and `build` agree on output format.** The defect above,
-  plus the regression test. ⚡ **The design call inside it is which default is correct** — `apply`'s
-  single-input PNG or `build`'s source-preserving — and it is a **byte-changing** choice on a
-  shipped verb either way.
+- [x] **SPEC-126** (shipped on 2026-09-03) — **`apply` and `build` agree on output format.**
+  PR #187 → `dd60ef5`. **$68.82** across build ($38.16, Sonnet), verify ($15.64, Opus) and a
+  sixth **re-approve** cycle ($15.02, Opus) added because the orchestrator applied verify's own
+  punch list. **The design call was settled by measurement:** `apply` at one input was the sole
+  outlier across six sibling paths, so it moved to preserve the source and `build` did not move.
+  ⚠ **Not released** — batches with STAGE-050 as PROJ-011's single lockfile migration.
 
-**Count:** 0 shipped / **1 in design** / 0 pending — re-derive with a grep you just ran.
+**Count:** **1 shipped** / 0 in flight / 0 pending — re-derive with a grep you just ran.
 
 ## Design Notes
 
