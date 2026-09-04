@@ -90,9 +90,17 @@ write-ups; what it has never had is a **schedulable** home, which is exactly the
   teaches exactly that form.** `get_affected_scope`'s awk
   (`scripts/decisions-audit.sh:77-91`) sets its collect flag on `/^affected_scope:/` and then
   **`next`s past that same line**, so anything written on it is discarded; only `^\s*-\s`
-  block-list items are gathered. Two LIVE decisions are written inline and therefore yield
-  **zero** globs on every run, forever: **DEC-015** (`["src/cli/**", "docs/api-contract.md"]`)
-  and **DEC-043** (`superseded_by: null`, so still binding).
+  block-list items are gathered. **One live decision actually loses globs to this: DEC-015**
+  (`["src/cli/**", "docs/api-contract.md"]`), which is therefore governed by nothing.
+
+  ⚠ **Corrected at SPEC-126's re-approve, 2026-09-03. An earlier version of this item said
+  "two decisions" and named DEC-043 as the second. That was wrong.** DEC-043's scope is
+  `affected_scope: []` — an EMPTY array. It yields zero because it has no globs, not because
+  the parser cannot read them, and AGENTS §15 explicitly sanctions `[]` for a decision not
+  tied to particular files. The tell was in the original wording: it quoted DEC-015's scope
+  contents but quoted `superseded_by:` for DEC-043 — because only DEC-043's *liveness* had
+  been checked and its scope never had. A sweep of all 94 decision records puts the real
+  count at **exactly one**.
 
   **Measured with a positive control 2026-08-23** — the same awk yields 8 globs for DEC-087 and
   2 for DEC-006, both block form. The parser is not broken in general; the failure is specific
@@ -112,7 +120,7 @@ write-ups; what it has never had is a **schedulable** home, which is exactly the
   one decision that mattered.** That is the same "a green that cannot go red" failure AGENTS §15
   already documents for a missing base ref — in a second, undocumented place.
 
-  Fix is small (accept both YAML forms, or normalise the template and migrate the two records)
+  Fix is small (accept both YAML forms, or normalise the template and migrate the one record)
   but must ship with a test asserting a known inline-form DEC yields its globs — otherwise the
   next regression is equally silent.
 
