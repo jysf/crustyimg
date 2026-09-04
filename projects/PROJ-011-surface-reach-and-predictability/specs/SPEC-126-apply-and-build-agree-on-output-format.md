@@ -254,10 +254,14 @@ again. Add the `-o` vs `--out-dir` arm too; same class, and cheap here.
   - `src/cli/optimize.rs`
   - `tests/apply_batch.rs`
   - `decisions/DEC-098-apply-single-input-moves-to-preserve-format-not-build.md`
+  - `docs/api-contract.md`
   - this spec file
-  (Six files. An earlier draft of this list called DEC-098 "new/untracked" and
-  outside what `git diff --name-only main...HEAD` reports — both wrong, corrected
-  at verify: it is tracked at `f8deb55`, and the command reports all six.)
+  (Seven files. Corrected twice. An earlier draft called DEC-098 "new/untracked"
+  and outside what `git diff --name-only main...HEAD` reports — both wrong, fixed
+  at verify. Then the punch-list commit that fixed it added `docs/api-contract.md`
+  and did not add it to this list three lines above, so the list showed six where
+  its own stated derivation returned seven — caught at re-approve, and the missing
+  file was the user-facing one.)
 - **Deviations from spec:** **Two, both found at verify, neither reworked — the code is
   right and the record was not.**
   1. **An exit-code change on three single-input `-o` invocations that no AC covers.** Making

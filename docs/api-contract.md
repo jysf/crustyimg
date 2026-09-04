@@ -474,7 +474,7 @@ recipe tuned on one image runs unchanged across many. (`Operation` is not `Send`
 each task rebuilds its pipeline from the recipe + registry — no async, DEC-006.)
 
 **Output format (SPEC-126, DEC-015/DEC-098).** For a plain pixel recipe, `apply` resolves its
-output format the way every other pixel-lane verb does, identically **at every arity**:
+output format the way `resize`, `thumbnail` and `watermark` do, identically **at every arity**:
 `--format` > a recognized `-o` extension (single input only — the fan-out path has no `-o`) >
 **preserve the source format**. A literal extension in `--name-template` does **not** pin the
 format; it names the file only. Before SPEC-126 the two arities disagreed in both directions —
