@@ -2,7 +2,7 @@
 task:
   id: SPEC-126
   type: bug
-  cycle: design
+  cycle: verify
   blocked: false
   priority: high
   complexity: S
@@ -23,8 +23,11 @@ references:
     - DEC-005
     - DEC-002
     - DEC-058
+    - DEC-015
+    - DEC-087
   constraints:
     - clippy-fmt-clean
+    - ergonomic-defaults
     - test-before-implementation
     - one-spec-per-pr
   related_specs:
@@ -47,6 +50,48 @@ cost:
       note: >
         Un-metered main-loop design cycle (AGENTS §4). Framed from a defect
         driven on `main` at `232c9cf` and re-confirmed at `789e4a3`.
+    - cycle: build
+      agent: claude-sonnet-5
+      interface: claude-code
+      tokens_total: 105258757
+      duration_minutes: 60.8
+      recorded_at: 2026-08-23
+      tokens_breakdown:
+        input: 762
+        output: 262007
+        cache_creation: 789890
+        cache_read: 104206098
+      estimated_usd: 38.16
+      note: >
+        MEASURED — summed from the session transcript's per-message `usage`
+        (381 messages), priced at Sonnet anchors ($3/$15 per MTok,
+        cache_creation x1.25, cache_read x0.10) per `.message.model`. Taken
+        AFTER PR #187's CI matrix settled fully green (16/16), not at the
+        "almost done" point — an earlier mid-build reading of $30.30
+        under-reported by ~26%, matching this repo's own measured pattern
+        for readings taken before CI settles.
+    - cycle: verify
+      agent: claude-opus-5
+      interface: claude-code
+      tokens_total: 22698850
+      duration_minutes: 21.6
+      recorded_at: 2026-08-23
+      tokens_breakdown:
+        input: 308
+        output: 104013
+        cache_creation: 302408
+        cache_read: 22292121
+      estimated_usd: 15.64
+      note: >
+        MEASURED — summed from the session transcript's per-message `usage`
+        (154 assistant messages), priced at Opus anchors ($5/$25 per MTok,
+        cache_creation x1.25, cache_read x0.10) per `.message.model` (DEC-083).
+        Cache reads are 98.2% of volume, so a flat rate would overstate by ~7x.
+        Transcript identified by CONTENT (it contains the SPEC-126 verify
+        prompt), not recency. Structurally under-reports: a cycle cannot count
+        the messages that write its own cost block. 41% of the build's cost;
+        returned a 7-item punch list, 2 unnamed behaviour changes and a
+        pre-existing tooling defect.
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -179,19 +224,115 @@ again. Add the `-o` vs `--out-dir` arm too; same class, and cheap here.
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR:**
-- **All acceptance criteria met?** yes/no
-- **New decisions emitted:**
-- **Files this diff touches** — list every one, built from `git diff --name-only`, not recall:
-- **Deviations from spec:**
-- **Follow-up work identified:**
+- **Branch:** `fix/spec-126-apply-and-build-agree`
+- **PR:** [#187](https://github.com/jysf/crustyimg/pull/187) — opened, NOT merged (batches with STAGE-050 per Call 3)
+- **All acceptance criteria met?** yes
+  - AC-1 (`--format` honoured at every arity, ≥2 target formats) —
+    `tests/apply_batch.rs::apply_honours_format_at_every_arity`.
+  - AC-2 (no `--format` preserves the source at every arity, ≥2 source
+    formats) — `tests/apply_batch.rs::apply_preserves_source_format_at_every_arity`.
+  - AC-3 (`apply`/`build` byte-identical) —
+    `tests/apply_batch.rs::apply_and_build_agree_byte_for_byte`.
+  - AC-4 (`-o`/`--out-dir` agree) —
+    `tests/apply_batch.rs::apply_output_flags_agree`.
+  - AC-5 (negative controls, one revert per independent condition) — driven
+    manually, not committed as tests; see DEC-098's Validation section for
+    the full baseline + two-revert record.
+  - AC-6 (blast radius: `resize`/`thumbnail`/`watermark`/`build` unchanged) —
+    driven manually against `main` on a 4-file/2-format corpus (16 output
+    files), byte-identical; a positive control on the same corpus confirmed
+    the methodology detects a real diff where one exists (`apply`'s own
+    fixed defect). See DEC-098's Validation section.
+  - AC-7 (clean full matrix) — `default`, `--no-default-features`,
+    `--features webp-lossy`, each in a fresh `CARGO_TARGET_DIR`, run
+    sequentially: `cargo fmt --check`, `cargo build`, `cargo test`, `cargo
+    clippy --all-targets -- -D warnings` all exit 0 on every leg.
+- **New decisions emitted:** DEC-098 (`decisions/DEC-098-apply-single-input-moves-to-preserve-format-not-build.md`).
+- **Files this diff touches** — from `git diff --name-only main...HEAD`:
+  - `src/cli/common.rs`
+  - `src/cli/ops.rs`
+  - `src/cli/optimize.rs`
+  - `tests/apply_batch.rs`
+  - `decisions/DEC-098-apply-single-input-moves-to-preserve-format-not-build.md`
+  - `docs/api-contract.md`
+  - this spec file
+  (Seven files. Corrected twice. An earlier draft called DEC-098 "new/untracked"
+  and outside what `git diff --name-only main...HEAD` reports — both wrong, fixed
+  at verify. Then the punch-list commit that fixed it added `docs/api-contract.md`
+  and did not add it to this list three lines above, so the list showed six where
+  its own stated derivation returned seven — caught at re-approve, and the missing
+  file was the user-facing one.)
+- **Deviations from spec:** **Two, both found at verify, neither reworked — the code is
+  right and the record was not.**
+  1. **An exit-code change on three single-input `-o` invocations that no AC covers.** Making
+     `build_sink` take an already-resolved format means it no longer receives `None`, so
+     `apply` at one input with **`-o -` and no `--format`**, with **`-o` at a path with no
+     extension**, and with **`-o` at an unrecognised extension** went from `SinkError` **exit
+     4** to **exit 0**, preserving the source format. This is a conformance fix, not a
+     contract break — `resize` and `thumbnail` already did all three on `main`, and the old
+     `4` was outside `docs/api-contract.md`'s own enumeration of that code — but it is a
+     documented surface that moved unannounced. Now written into
+     `docs/api-contract.md`'s `apply` entry.
+  2. **A byte change at single input from a literal-extension `--name-template`.** With one
+     input and `--name-template '{stem}_w.jpg'`, `main` ignored the template and wrote **PNG
+     bytes into a `.jpg` file** — mislabelled output. The branch writes real JPEG. The
+     converse (`'{stem}_w.png'` on a JPEG source) now writes JPEG, matching multi-input
+     `apply`, `resize` and `build`, which is the documented rule for a plain pixel recipe
+     (`docs/api-contract.md`, DEC-087): a name template's literal extension names the file,
+     it does not pin the format. Nothing got worse; one case got strictly better. Filed to
+     STAGE-050 as the general question.
+
+  Both design calls (Call 1: `apply`
+  single-input moves to preserve-source; Call 2: `apply` multi-input honours
+  `--format`) were implemented exactly as settled, reusing
+  `ops::output_format_for` (widened to `pub(super)`) rather than
+  reimplementing the resolution rule, per the spec's own steer.
+- **Follow-up work identified:** None beyond what the spec/stage/project
+  already scope out (STAGE-050's `Recipe` format/quality fields, the
+  `-o`-extension pin ruling, PROJ-010's other invocation defects). Checked
+  specifically for a second instance of the same bug class (a `Sink::Dir`/
+  `Sink::Stdout` built with an unresolved `format: None` then passed to
+  `.write()` rather than `.write_bytes()`) — every other `format: None` site
+  in `src/cli/` (the metadata lane's `run_metadata_lane`, `write_encoded`,
+  `write_optimize_output`) writes pre-encoded bytes via `.write_bytes()`,
+  where `format` is structurally unused. No second instance found; nothing
+  filed to the stage backlog.
 
 ### Build-phase reflection (3 questions, short answers)
 
-1. **What was unclear in the spec that slowed you down?**
-2. **Was there a constraint or decision that should have been listed but wasn't?**
-3. **If you did this task again, what would you do differently?**
+1. **What was unclear in the spec that slowed you down?** Nothing was
+   unclear about the two Calls themselves — the spec's own repro table and
+   "prefer reusing that path" steer pointed straight at
+   `ops::output_format_for`. The one thing that took real investigation was
+   locating WHERE each arity's bug actually lived: single-input's PNG
+   default turned out to be `Sink::Dir::write`'s generic unset-format
+   fallback (not a deliberate `apply` default anywhere), and multi-input's
+   silently-ignored `--format` turned out to be `common::apply_one` hardcoding
+   `format_override: None` into `encode_one` — whose OWN fallback logic was
+   already correct. Neither bug was where a first guess ("apply must have its
+   own bad default somewhere") would land; both required reading the actual
+   call chain (`run_apply` → `build_sink`/`apply_one` → `Sink::write`/
+   `encode_one`) to the bottom.
+2. **Was there a constraint or decision that should have been listed but
+   wasn't?** DEC-015 (per-input format precedence) and DEC-058 (the lockfile's
+   stake in `apply`/`build` agreeing) were exactly the decisions needed —
+   **but "both were named" was wrong as written, and verify caught it.**
+   DEC-058 was in `references.decisions`; DEC-015 was named only in DEC-098's
+   own References, not in this spec's front-matter, which is where AGENTS §10
+   requires it. So was DEC-087 (a name template's literal extension does not
+   pin the format), and the constraint `ergonomic-defaults` — which this fix
+   directly satisfies, since the old behaviour made `--format` boilerplate
+   mandatory for the simple case to work at all. All four are now listed.
+   ⚠ The miss had teeth: DEC-015's `affected_scope` includes
+   `docs/api-contract.md`, which is exactly the file this spec should have
+   updated and did not.
+3. **If you did this task again, what would you do differently?** Run the
+   AC-6 blast-radius comparison (main vs. fixed binary, hash-diffed corpus)
+   EARLIER — as a first move right after reading the code, before writing
+   the fix — since it doubles as a fast, cheap way to confirm the call-graph
+   reading (which functions `resize`/`thumbnail`/`watermark`/`build` do and
+   don't share with `apply`) is actually right, rather than only as a
+   post-hoc control.
 
 ---
 

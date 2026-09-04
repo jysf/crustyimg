@@ -17,7 +17,7 @@ use super::common::{
     apply_one, build_sink, fmt_bytes, load_recipe, require_out_dir_for_batch, resolve_format,
     BATCH_PROGRESS_TEMPLATE,
 };
-use super::ops::{metadata_output_ext, read_raw_bytes, run_pixel_op};
+use super::ops::{metadata_output_ext, output_format_for, read_raw_bytes, run_pixel_op};
 use super::report::format_label;
 use super::{AutoQuality, CliError, ExplainFmt, GlobalArgs, ProfileArg, QualityTarget};
 
@@ -25,8 +25,15 @@ use super::{AutoQuality, CliError, ExplainFmt, GlobalArgs, ProfileArg, QualityTa
 
 /// The `apply --recipe` path: recipe → batch fan-out via rayon + indicatif.
 ///
-/// Single resolved input: preserves the original single-input behavior exactly
-/// (writes to `-o`/`--out-dir`/stdout; no progress bar needed).
+/// Output format resolution (SPEC-126) is now IDENTICAL at every arity:
+/// `--format` > `-o` extension (single input only) > preserve the source
+/// format — matching `build` and every other pixel-lane verb. Before
+/// SPEC-126 the two arities disagreed in both directions: one input with no
+/// `--format` defaulted to PNG (a `Sink::Dir`/`Sink::Stdout` fallback, not a
+/// deliberate default), and N inputs never resolved `--format` at all.
+///
+/// Single resolved input: writes to `-o`/`--out-dir`/stdout; no progress bar
+/// needed.
 ///
 /// Multiple resolved inputs: requires `--out-dir` (else exit 2); replays the
 /// recipe in parallel (rayon, `--jobs`); indicatif progress on stderr (hidden
@@ -129,16 +136,25 @@ pub(super) fn run_apply(
         Overwrite::Forbid
     };
 
-    // ── Single-input: preserve existing behavior exactly ─────────────────────
+    // ── Single input ───────────────────────────────────────────────────────
     if all.len() == 1 {
         let input = &all[0];
         let img = match input {
             crate::source::Input::Path(p) => Image::load(p)?,
             crate::source::Input::Stdin { bytes, .. } => Image::from_bytes(bytes)?,
         };
+        // Captured before `pipeline.run` consumes `img` — DEC-015's per-input
+        // resolution (SPEC-126, Call 1): `--format` > `-o` ext > PRESERVE the
+        // source format. The same rule `resize`/`thumbnail`/`watermark` already
+        // use (`output_format_for`), reused here rather than reimplemented — it
+        // is what stops `apply` at one input from falling through to
+        // `Sink::Dir`'s own default-to-PNG (or `Sink::Stdout`'s `UnknownFormat`).
+        let source_format = img.source_format();
         let pipeline = recipe.build_pipeline(&registry)?;
         let out_img = pipeline.run(img)?;
-        let sink = build_sink(global)?;
+        let output_path = global.output.as_deref().map(Path::new);
+        let fmt = output_format_for(global, output_path, source_format)?;
+        let sink = build_sink(global, fmt);
         let sink_input = SinkInput {
             stem: input.stem(),
             path: input.path(),
@@ -161,6 +177,16 @@ pub(super) fn run_apply(
         .clone()
         .unwrap_or_else(|| "{stem}.{ext}".to_owned());
     let total = all.len();
+
+    // SPEC-126, Call 2: resolve `--format` ONCE, uniformly, for the whole
+    // batch — `apply` has no `-o` in the fan-out path, so there is no
+    // per-input path extension to consider (mirrors `run_pixel_op`'s own
+    // multi-input resolution, `ops.rs`). `Some(fmt)` when `--format` was
+    // given: honoured at every arity now, not just one input. `None`
+    // preserves each input's own source format via `encode_one`'s existing
+    // fallback — this was ALREADY correct; the bug was that nothing upstream
+    // of it ever passed the resolved `--format` through.
+    let format_override = resolve_format(global.format.as_deref())?;
 
     // Build indicatif progress bar on stderr (hidden when --quiet or non-TTY).
     let bar = if global.quiet {
@@ -186,6 +212,7 @@ pub(super) fn run_apply(
                         &recipe,
                         &registry,
                         input,
+                        format_override,
                         &out_dir,
                         &template,
                         overwrite,
@@ -210,6 +237,7 @@ pub(super) fn run_apply(
                     &recipe,
                     &registry,
                     input,
+                    format_override,
                     &out_dir,
                     &template,
                     overwrite,

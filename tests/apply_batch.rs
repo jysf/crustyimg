@@ -28,6 +28,23 @@ fn write_png(dir: &TempDir, name: &str, w: u32, h: u32) -> PathBuf {
     path
 }
 
+/// Generate a tiny gradient RGB JPEG and write it to `dir/name`. Returns the
+/// path. Mirrors `write_png` for JPEG fixtures (SPEC-126: the format-agreement
+/// tests need a source format distinct from PNG, so preserving it can't be
+/// mistaken for defaulting to PNG).
+fn write_jpeg(dir: &TempDir, name: &str, w: u32, h: u32) -> PathBuf {
+    let img = RgbImage::from_fn(w, h, |x, _y| {
+        image::Rgb([(x * 255 / w.max(1)) as u8, 100u8, 150u8])
+    });
+    let mut buf = Cursor::new(Vec::new());
+    DynamicImage::ImageRgb8(img)
+        .write_to(&mut buf, ImageFormat::Jpeg)
+        .unwrap();
+    let path = dir.path().join(name);
+    std::fs::write(&path, buf.into_inner()).unwrap();
+    path
+}
+
 /// Write a recipe TOML string to `dir/name`. Returns the path.
 fn write_recipe(dir: &TempDir, name: &str, content: &str) -> PathBuf {
     let path = dir.path().join(name);
@@ -482,4 +499,433 @@ height = 50000
         "oversized resize via recipe must exit 1; stderr: {}",
         String::from_utf8_lossy(&output.stderr)
     );
+}
+
+// ─── SPEC-126: apply/build output-format agreement ───────────────────────────
+
+/// `apply --format X` must be honoured at ONE input, for two target formats —
+/// so this cannot pass by coincidence of the source format (AC-1, single-input
+/// half).
+///
+/// Split from a single every-arity test at SPEC-126's verify. Combined, a
+/// revert of the multi-input resolution killed the test at its first
+/// multi-input block and the second single-input format never ran — so the
+/// suite could not show which arity had regressed. Two tests make the
+/// independence AC-5 asserts observable in one run: this one stays green while
+/// the multi-input test goes red.
+///
+/// Asserted on the written BYTES sniffed via `image::guess_format` (AGENTS
+/// §15 / Call 4's own reasoning) — the filename extension is produced by the
+/// same resolution this test exists to check, so it cannot be independent
+/// evidence.
+#[test]
+fn apply_honours_format_at_single_input() {
+    let dir = TempDir::new().unwrap();
+    let recipe = write_recipe(&dir, "r.toml", IDENTITY_RECIPE);
+
+    // Target format 1 (png), driven at 1 input and at 2 inputs, from a JPEG source.
+    let one_jpeg = write_jpeg(&dir, "one.jpg", 16, 16);
+    let out_one_png = dir.path().join("out_one_png");
+    std::fs::create_dir_all(&out_one_png).unwrap();
+    let output = Command::new(BIN)
+        .args([
+            "apply",
+            "--recipe",
+            recipe.to_str().unwrap(),
+            one_jpeg.to_str().unwrap(),
+            "--format",
+            "png",
+            "--out-dir",
+            out_one_png.to_str().unwrap(),
+            "-y",
+        ])
+        .output()
+        .expect("failed to run apply 1-input --format png");
+    assert!(
+        output.status.success(),
+        "1 input --format png: exit 0 expected; stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let bytes = std::fs::read(out_one_png.join("one.png")).expect("one.png must be written");
+    assert_eq!(
+        image::guess_format(&bytes).expect("must sniff a known format"),
+        ImageFormat::Png,
+        "1 input: --format png must be honoured"
+    );
+
+    // Target format 2 (jpeg), driven at 1 input and at 2 inputs, from a PNG source.
+    let one_png = write_png(&dir, "one.png", 16, 16);
+    let out_one_jpg = dir.path().join("out_one_jpg");
+    std::fs::create_dir_all(&out_one_jpg).unwrap();
+    let output = Command::new(BIN)
+        .args([
+            "apply",
+            "--recipe",
+            recipe.to_str().unwrap(),
+            one_png.to_str().unwrap(),
+            "--format",
+            "jpeg",
+            "--out-dir",
+            out_one_jpg.to_str().unwrap(),
+            "-y",
+        ])
+        .output()
+        .expect("failed to run apply 1-input --format jpeg");
+    assert!(
+        output.status.success(),
+        "1 input --format jpeg: exit 0 expected; stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let bytes = std::fs::read(out_one_jpg.join("one.jpg")).expect("one.jpg must be written");
+    assert_eq!(
+        image::guess_format(&bytes).expect("must sniff a known format"),
+        ImageFormat::Jpeg,
+        "1 input: --format jpeg must be honoured"
+    );
+}
+
+/// `apply --format X` must be honoured at N inputs, for two target formats
+/// (AC-1, multi-input half). Before SPEC-126 the N-input (`--out-dir`) fan-out
+/// did no format resolution at all and silently ignored `--format` — this is
+/// the arm that carried the defect.
+///
+/// See [`apply_honours_format_at_single_input`] for why the two arities are
+/// separate tests.
+///
+/// Asserted on the written BYTES sniffed via `image::guess_format` (AGENTS
+/// §15 / Call 4's own reasoning) — the filename extension is produced by the
+/// same resolution this test exists to check, so it cannot be independent
+/// evidence.
+#[test]
+fn apply_honours_format_at_multi_input() {
+    let dir = TempDir::new().unwrap();
+    let recipe = write_recipe(&dir, "r.toml", IDENTITY_RECIPE);
+
+    let two_a = write_jpeg(&dir, "two_a.jpg", 16, 16);
+    let two_b = write_jpeg(&dir, "two_b.jpg", 16, 16);
+    let out_two_png = dir.path().join("out_two_png");
+    std::fs::create_dir_all(&out_two_png).unwrap();
+    let output = Command::new(BIN)
+        .args([
+            "apply",
+            "--recipe",
+            recipe.to_str().unwrap(),
+            two_a.to_str().unwrap(),
+            two_b.to_str().unwrap(),
+            "--format",
+            "png",
+            "--out-dir",
+            out_two_png.to_str().unwrap(),
+            "-y",
+        ])
+        .output()
+        .expect("failed to run apply 2-input --format png");
+    assert!(
+        output.status.success(),
+        "N inputs --format png: exit 0 expected; stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    for name in ["two_a.png", "two_b.png"] {
+        let bytes = std::fs::read(out_two_png.join(name))
+            .unwrap_or_else(|e| panic!("{name} must be written: {e}"));
+        assert_eq!(
+            image::guess_format(&bytes).expect("must sniff a known format"),
+            ImageFormat::Png,
+            "N inputs: --format png must be honoured for {name} \
+             (this is the multi-input arm that silently ignored --format before SPEC-126)"
+        );
+    }
+
+    let two_c = write_png(&dir, "two_c.png", 16, 16);
+    let two_d = write_png(&dir, "two_d.png", 16, 16);
+    let out_two_jpg = dir.path().join("out_two_jpg");
+    std::fs::create_dir_all(&out_two_jpg).unwrap();
+    let output = Command::new(BIN)
+        .args([
+            "apply",
+            "--recipe",
+            recipe.to_str().unwrap(),
+            two_c.to_str().unwrap(),
+            two_d.to_str().unwrap(),
+            "--format",
+            "jpeg",
+            "--out-dir",
+            out_two_jpg.to_str().unwrap(),
+            "-y",
+        ])
+        .output()
+        .expect("failed to run apply 2-input --format jpeg");
+    assert!(
+        output.status.success(),
+        "N inputs --format jpeg: exit 0 expected; stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    for name in ["two_c.jpg", "two_d.jpg"] {
+        let bytes = std::fs::read(out_two_jpg.join(name))
+            .unwrap_or_else(|e| panic!("{name} must be written: {e}"));
+        assert_eq!(
+            image::guess_format(&bytes).expect("must sniff a known format"),
+            ImageFormat::Jpeg,
+            "N inputs: --format jpeg must be honoured for {name}"
+        );
+    }
+}
+
+/// With no `--format`, `apply` must preserve the source format at 1 input and
+/// at N inputs — driven on a JPEG source AND a PNG source (AC-2), so
+/// "preserved" cannot be indistinguishable from "always PNG" (the exact
+/// defect this spec fixes: before SPEC-126, 1 input with no `--format`
+/// defaulted to PNG regardless of the source).
+#[test]
+fn apply_preserves_source_format_at_every_arity() {
+    let dir = TempDir::new().unwrap();
+    let recipe = write_recipe(&dir, "r.toml", IDENTITY_RECIPE);
+
+    // JPEG source, 1 input.
+    let j1 = write_jpeg(&dir, "j1.jpg", 16, 16);
+    let out_j1 = dir.path().join("out_j1");
+    std::fs::create_dir_all(&out_j1).unwrap();
+    let output = Command::new(BIN)
+        .args([
+            "apply",
+            "--recipe",
+            recipe.to_str().unwrap(),
+            j1.to_str().unwrap(),
+            "--out-dir",
+            out_j1.to_str().unwrap(),
+            "-y",
+        ])
+        .output()
+        .expect("failed to run apply 1-input jpeg no-format");
+    assert!(output.status.success(), "exit 0 expected");
+    let bytes = std::fs::read(out_j1.join("j1.jpg")).expect("j1.jpg must be written");
+    assert_eq!(
+        image::guess_format(&bytes).expect("must sniff a known format"),
+        ImageFormat::Jpeg,
+        "1 JPEG input, no --format: source format must be preserved, not defaulted to PNG"
+    );
+
+    // JPEG source, 2 inputs.
+    let j2a = write_jpeg(&dir, "j2a.jpg", 16, 16);
+    let j2b = write_jpeg(&dir, "j2b.jpg", 16, 16);
+    let out_j2 = dir.path().join("out_j2");
+    std::fs::create_dir_all(&out_j2).unwrap();
+    let output = Command::new(BIN)
+        .args([
+            "apply",
+            "--recipe",
+            recipe.to_str().unwrap(),
+            j2a.to_str().unwrap(),
+            j2b.to_str().unwrap(),
+            "--out-dir",
+            out_j2.to_str().unwrap(),
+            "-y",
+        ])
+        .output()
+        .expect("failed to run apply 2-input jpeg no-format");
+    assert!(output.status.success(), "exit 0 expected");
+    for name in ["j2a.jpg", "j2b.jpg"] {
+        let bytes = std::fs::read(out_j2.join(name))
+            .unwrap_or_else(|e| panic!("{name} must be written: {e}"));
+        assert_eq!(
+            image::guess_format(&bytes).expect("must sniff a known format"),
+            ImageFormat::Jpeg,
+            "N JPEG inputs, no --format: source format must be preserved for {name}"
+        );
+    }
+
+    // PNG source, 1 input.
+    let p1 = write_png(&dir, "p1.png", 16, 16);
+    let out_p1 = dir.path().join("out_p1");
+    std::fs::create_dir_all(&out_p1).unwrap();
+    let output = Command::new(BIN)
+        .args([
+            "apply",
+            "--recipe",
+            recipe.to_str().unwrap(),
+            p1.to_str().unwrap(),
+            "--out-dir",
+            out_p1.to_str().unwrap(),
+            "-y",
+        ])
+        .output()
+        .expect("failed to run apply 1-input png no-format");
+    assert!(output.status.success(), "exit 0 expected");
+    let bytes = std::fs::read(out_p1.join("p1.png")).expect("p1.png must be written");
+    assert_eq!(
+        image::guess_format(&bytes).expect("must sniff a known format"),
+        ImageFormat::Png,
+        "1 PNG input, no --format: source format must be preserved"
+    );
+
+    // PNG source, 2 inputs.
+    let p2a = write_png(&dir, "p2a.png", 16, 16);
+    let p2b = write_png(&dir, "p2b.png", 16, 16);
+    let out_p2 = dir.path().join("out_p2");
+    std::fs::create_dir_all(&out_p2).unwrap();
+    let output = Command::new(BIN)
+        .args([
+            "apply",
+            "--recipe",
+            recipe.to_str().unwrap(),
+            p2a.to_str().unwrap(),
+            p2b.to_str().unwrap(),
+            "--out-dir",
+            out_p2.to_str().unwrap(),
+            "-y",
+        ])
+        .output()
+        .expect("failed to run apply 2-input png no-format");
+    assert!(output.status.success(), "exit 0 expected");
+    for name in ["p2a.png", "p2b.png"] {
+        let bytes = std::fs::read(out_p2.join(name))
+            .unwrap_or_else(|e| panic!("{name} must be written: {e}"));
+        assert_eq!(
+            image::guess_format(&bytes).expect("must sniff a known format"),
+            ImageFormat::Png,
+            "N PNG inputs, no --format: source format must be preserved for {name}"
+        );
+    }
+}
+
+/// `apply --recipe` and `build` (same recipe, same input, no `--format`
+/// anywhere) must produce BYTE-IDENTICAL output (AC-3). Asserted on the raw
+/// bytes, not the extension or the summary line (Call 4) — a test pinning
+/// `apply` to a format string would go green again the day a good-faith
+/// default change let the two paths silently diverge; comparing bytes catches
+/// that.
+#[test]
+fn apply_and_build_agree_byte_for_byte() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    std::fs::write(root.join("r.toml"), RESIZE_RECIPE).unwrap();
+    // JPEG source (the spec's own repro format) at the manifest root, so
+    // `build`'s relative `source` resolves it directly (DEC-057).
+    write_jpeg_at(root, "in.jpg", 32, 32);
+
+    let apply_out = root.join("apply_out");
+    std::fs::create_dir_all(&apply_out).unwrap();
+    let apply_output = Command::new(BIN)
+        .args([
+            "apply",
+            "--recipe",
+            "r.toml",
+            "in.jpg",
+            "--out-dir",
+            "apply_out",
+            "-y",
+        ])
+        .current_dir(root)
+        .output()
+        .expect("failed to run apply");
+    assert!(
+        apply_output.status.success(),
+        "apply exit 0 expected; stderr: {}",
+        String::from_utf8_lossy(&apply_output.stderr)
+    );
+
+    std::fs::write(
+        root.join("crustyimg.build.toml"),
+        br#"
+version = 1
+
+[[target]]
+source = "in.jpg"
+recipe = "r.toml"
+out = "build_out"
+"#,
+    )
+    .unwrap();
+    let build_output = Command::new(BIN)
+        .arg("build")
+        .current_dir(root)
+        .output()
+        .expect("failed to run build");
+    assert!(
+        build_output.status.success(),
+        "build exit 0 expected; stderr: {}",
+        String::from_utf8_lossy(&build_output.stderr)
+    );
+
+    let apply_bytes = std::fs::read(apply_out.join("in.jpg")).expect("apply output must exist");
+    let build_bytes =
+        std::fs::read(root.join("build_out").join("in.jpg")).expect("build output must exist");
+    assert_eq!(
+        apply_bytes, build_bytes,
+        "apply and build must produce byte-identical output for the same \
+         recipe, input, and settings"
+    );
+}
+
+/// `-o PATH` and `--out-dir DIR` must agree byte-for-byte for the same `apply`
+/// invocation (AC-4, Call 4's sibling assertion) — same recipe, same JPEG
+/// input, no `--format`.
+#[test]
+fn apply_output_flags_agree() {
+    let dir = TempDir::new().unwrap();
+    let recipe = write_recipe(&dir, "r.toml", RESIZE_RECIPE);
+    let src = write_jpeg(&dir, "in.jpg", 32, 32);
+
+    let o_path = dir.path().join("o_out.jpg");
+    let output = Command::new(BIN)
+        .args([
+            "apply",
+            "--recipe",
+            recipe.to_str().unwrap(),
+            src.to_str().unwrap(),
+            "-o",
+            o_path.to_str().unwrap(),
+            "-y",
+        ])
+        .output()
+        .expect("failed to run apply -o");
+    assert!(
+        output.status.success(),
+        "-o run: exit 0 expected; stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let dir_out = dir.path().join("dir_out");
+    std::fs::create_dir_all(&dir_out).unwrap();
+    let output = Command::new(BIN)
+        .args([
+            "apply",
+            "--recipe",
+            recipe.to_str().unwrap(),
+            src.to_str().unwrap(),
+            "--out-dir",
+            dir_out.to_str().unwrap(),
+            "-y",
+        ])
+        .output()
+        .expect("failed to run apply --out-dir");
+    assert!(
+        output.status.success(),
+        "--out-dir run: exit 0 expected; stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let o_bytes = std::fs::read(&o_path).expect("-o output must exist");
+    let dir_bytes = std::fs::read(dir_out.join("in.jpg")).expect("--out-dir output must exist");
+    assert_eq!(
+        o_bytes, dir_bytes,
+        "-o and --out-dir must agree byte-for-byte for the same apply invocation \
+         (before SPEC-126, --out-dir defaulted to PNG while -o preserved JPEG)"
+    );
+}
+
+/// Write a tiny gradient RGB JPEG directly to `root/name` (no tempdir
+/// wrapper) — used by tests that need `build`'s relative-path resolution
+/// (DEC-057), which requires the CWD to be the manifest root.
+fn write_jpeg_at(root: &std::path::Path, name: &str, w: u32, h: u32) -> PathBuf {
+    let img = RgbImage::from_fn(w, h, |x, _y| {
+        image::Rgb([(x * 255 / w.max(1)) as u8, 100u8, 150u8])
+    });
+    let mut buf = Cursor::new(Vec::new());
+    DynamicImage::ImageRgb8(img)
+        .write_to(&mut buf, ImageFormat::Jpeg)
+        .unwrap();
+    let path = root.join(name);
+    std::fs::write(&path, buf.into_inner()).unwrap();
+    path
 }
