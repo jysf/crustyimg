@@ -1,7 +1,7 @@
 ---
 stage:
   id: STAGE-050
-  status: proposed
+  status: active
   priority: high
   target_complete: null
 
@@ -240,9 +240,26 @@ anything a recipe cannot say.
   least reachable from tooling. **Whether the LUT op gets a home is a separate maintainer call** —
   and worth asking what else is in that triage doc, since a decided feature was lost in it once.
 
-- [ ] (not yet written) — [M] **`format` and `quality` on `Recipe`**, plus typed per-operation
-  parameter structs. ⛔ **Depends on STAGE-049** — the two paths must agree on what a format means
-  before the schema names one.
+- [ ] **SPEC-127** (design, 2026-09-04) — **`format` and `quality` on `Recipe`.** ⛔ Depended on
+  STAGE-049; **unblocked, and specced.** 9 ACs, 4 settled design calls, 7 failing tests.
+  ⚡ **Call 1 was settled by measurement:** the new fields require `version = "2"` rather than
+  riding as optional v1 fields, because `Recipe` is `deny_unknown_fields` — an old binary handed a
+  v1-plus-`format` recipe fails with a **TOML parse error at line 2**, while the same binary
+  handed `version = "2"` says *"unsupported recipe version '2' (supported: 1)"*. Driven on `main`
+  at `7181eed`. v1 stays valid and must keep serialising as `"1"`.
+  ⚠ **Byte-changing on the surface**, so it batches into PROJ-011's single lockfile migration.
+
+- [ ] (not yet written) — [M] **Typed per-operation parameter structs.** ⚡ **Split out of the
+  item above by SPEC-127's design (Call 4), not deferred by accident.** `OperationParams` is a
+  `BTreeMap<String, toml::Value>` with hand-rolled `get_str`/`get_u32`/`get_f32`
+  (`src/operation/mod.rs:39-71`), so **every op re-implements its own validation**. The payoff is
+  not stylistic: schema errors would surface at parse time, which is exactly the failure a batch
+  recipe user hits — one bad param discovered on input 400 of 500.
+
+  **Why it is its own spec:** typing the map touches every operation in the registry, carries its
+  own round-trip risk under DEC-005, and has **no dependency in either direction** on SPEC-127's
+  schema change. Bundling the two turns an M into an L, and AGENTS §2 says split an L.
+  (Originally arrived via external review batch 3 — one of the two items that survived checking.)
 
 **Count:** 0 shipped / 0 active / **4 pending** — re-derive with a grep you just ran.
 
