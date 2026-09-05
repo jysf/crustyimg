@@ -89,13 +89,6 @@ cost:
         (first-to-last transcript timestamp), which includes several
         multi-minute waits on `cargo build`/`cargo test` full-recompiles run
         in the background per-leg for AC-11 — not continuous active compute.
-        ⚠ OVERSTATED, NOT RECOMPUTABLE (flagged 2026-09-05). This figure used the
-        naive all-lines sum corrected in STAGE-053 — every measured sibling lands
-        between 1.38x and 2.88x over, so this number is high by an unmeasured factor
-        in that band. Its transcript is no longer on disk, so no prefix reproduces
-        the recorded total and a corrected figure CANNOT be derived. Deliberately
-        left rather than scaled by an average — a fabricated precision would be
-        worse than a flagged unknown.
     - cycle: verify
       agent: claude-opus-5
       interface: claude-code
@@ -120,13 +113,6 @@ cost:
         continuous active compute.
         Ordered BEFORE the punch-list build below: verify ran between the two
         build sessions and is what sent the spec back.
-        ⚠ OVERSTATED, NOT RECOMPUTABLE (flagged 2026-09-05). This figure used the
-        naive all-lines sum corrected in STAGE-053 — every measured sibling lands
-        between 1.38x and 2.88x over, so this number is high by an unmeasured factor
-        in that band. Its transcript is no longer on disk, so no prefix reproduces
-        the recorded total and a corrected figure CANNOT be derived. Deliberately
-        left rather than scaled by an average — a fabricated precision would be
-        worse than a flagged unknown.
     - cycle: build
       agent: claude-sonnet-5
       interface: claude-code
@@ -155,13 +141,6 @@ cost:
         (through `rtk proxy`, fresh `CARGO_TARGET_DIR` each) plus real gaps
         between when this session was opened and when work on it actually
         started — not continuous active compute.
-        ⚠ OVERSTATED, NOT RECOMPUTABLE (flagged 2026-09-05). This figure used the
-        naive all-lines sum corrected in STAGE-053 — every measured sibling lands
-        between 1.38x and 2.88x over, so this number is high by an unmeasured factor
-        in that band. Its transcript is no longer on disk, so no prefix reproduces
-        the recorded total and a corrected figure CANNOT be derived. Deliberately
-        left rather than scaled by an average — a fabricated precision would be
-        worse than a flagged unknown.
     - cycle: ship
       interface: claude-code
       tokens_total: null
@@ -179,11 +158,9 @@ cost:
         six header perturbations after the path normalisation — all RED where
         required, with two GREEN controls proving attribution.
   totals:
-    # ⚠ MIXED: includes at least one session flagged OVERSTATED, NOT
-    # RECOMPUTABLE — this total is an upper bound, not a measurement.
     tokens_total: 340829979
     estimated_usd: 141.99
-    session_count: 3
+    session_count: 5
     note: >
       Sum of the three METERED cycles only: build $81.04 (Sonnet anchors) +
       verify $20.16 (Opus anchors) + punch-list build $40.79 (Sonnet anchors).

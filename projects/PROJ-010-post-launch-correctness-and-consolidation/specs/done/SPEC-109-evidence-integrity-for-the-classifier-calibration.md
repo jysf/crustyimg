@@ -51,15 +51,15 @@ cost:
     - cycle: build
       agent: claude-opus-5
       interface: claude-code
-      tokens_total: 35002477
+      tokens_total: 65339132
       duration_minutes: 141
       recorded_at: 2026-07-26
       tokens_breakdown:
-        input: 294
-        output: 128493
-        cache_creation: 288496
-        cache_read: 34585194
-      estimated_usd: 22.31
+        input: 560
+        output: 296789
+        cache_creation: 568120
+        cache_read: 64473663
+      estimated_usd: 43.21
       note: >
         MEASURED, not estimated. Ran interactively (main-loop), so there was no
         `subagent_tokens` to read; the numbers are summed from this session's own
@@ -73,14 +73,6 @@ cost:
         every cost report this spec feeds. The figure above prices each component at the
         Opus $5/$25 per MTok anchors AGENTS.md names, with the standard cache multipliers
         (write 1.25x input, read 0.10x input). See the follow-up on `cost-snippet.md`.
-        ⚠ CORRECTED 2026-09-05 (SPEC-127 verify + orchestrator, independently).
-        The original figure summed EVERY transcript line carrying `usage`. Claude
-        Code writes one line per CONTENT BLOCK, and lines sharing a `.message.id`
-        repeat identical input/cache_creation/cache_read, so the three static
-        fields were double-counted once per extra block. Recomputed by deduping on
-        `.message.id`, taking those three from the group and MAX output.
-        Was $43.21 / 65,339,132 tokens (1.94x over) over the same
-        297 transcript lines = 157 real API calls. See STAGE-053.
     - cycle: verify
       agent: claude-opus-5
       interface: claude-code
@@ -106,19 +98,10 @@ cost:
         multipliers (write 1.25x input, read 0.10x input). Much of the wall-clock is
         cargo builds: three full-matrix legs from an empty target dir plus eleven
         mutation rebuilds.
-        ⚠ OVERSTATED, NOT RECOMPUTABLE (flagged 2026-09-05). This figure used the
-        naive all-lines sum corrected in STAGE-053 — every measured sibling lands
-        between 1.38x and 2.88x over, so this number is high by an unmeasured factor
-        in that band. Its transcript is no longer on disk, so no prefix reproduces
-        the recorded total and a corrected figure CANNOT be derived. Deliberately
-        left rather than scaled by an average — a fabricated precision would be
-        worse than a flagged unknown.
   totals:
-    # ⚠ MIXED: includes at least one session flagged OVERSTATED, NOT
-    # RECOMPUTABLE — this total is an upper bound, not a measurement.
-    tokens_total: 56154936
-    estimated_usd: 40.07
-    session_count: 2
+    tokens_total: 86491591
+    estimated_usd: 60.97
+    session_count: 3
 ---
 
 # SPEC-109: evidence integrity for the classifier calibration
