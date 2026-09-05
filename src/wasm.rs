@@ -159,27 +159,52 @@ pub fn info(input: &[u8]) -> Result<ImageInfo, JsError> {
 /// `web`/`gallery`/`product` recipe, SPEC-085) is NOT a plain pixel recipe — that
 /// step is not a registry op, so handing it to `build_pipeline` unstripped fails
 /// with `unknown operation 'optimize'` (SPEC-112). Unlike `build`/`apply`, this
-/// function has no format DECISION to make once the marker is gone: `out_format`
-/// is always a caller-pinned, concrete format (`parse_format` cannot accept
-/// `"auto"` or empty — see its doc), so the fix here is the pinned half of
+/// function has no format DECISION to make once the marker is gone: the format
+/// is always a concrete, pinned format, so the fix here is the pinned half of
 /// DEC-087's rule, not the auto-decide half: strip the marker via
 /// [`split_terminal_optimize`], run the remaining pixel steps, and encode straight
-/// to the caller's format. A recipe with no terminal marker (the live demo's own
+/// to the resolved format. A recipe with no terminal marker (the live demo's own
 /// `geometryRecipe()` shape) is untouched — `split_terminal_optimize` returns
 /// `None` and the original recipe runs exactly as it did before this change.
+///
+/// **`out_format` (SPEC-127, Call 3): the CLI-flag equivalent, and it wins;
+/// `recipe.format` is the fallback** — the one precedence rule `apply`/`build`
+/// also follow, extended to wasm so a recipe tuned with a `format` behaves the
+/// same in the browser as at the terminal. An empty `out_format` means "no
+/// override" (the same empty-string sentinel [`optimize`]/[`optimize_detailed`]
+/// already use in this module for "let something else decide") and defers to
+/// `recipe.format`; if BOTH are absent there is no format to encode to at all,
+/// which is a typed error rather than a guess. `recipe.quality`, when set, is
+/// threaded to the encoder the same way — there is no CLI-flag equivalent for
+/// quality on this surface, so it is the only rung below the format's own
+/// default.
 #[wasm_bindgen]
 pub fn transform(input: &[u8], recipe_toml: &str, out_format: &str) -> Result<Vec<u8>, JsError> {
-    let fmt = parse_format(out_format)?;
     let img = Image::from_bytes(input).map_err(js_err)?;
 
     let recipe = Recipe::from_toml(recipe_toml).map_err(js_err)?;
+
+    let fmt = if out_format.is_empty() {
+        match recipe.format.as_deref() {
+            Some(f) => parse_format(f)?,
+            None => {
+                return Err(JsError::new(
+                    "transform needs an output format: pass one, or set `format` in the recipe",
+                ))
+            }
+        }
+    } else {
+        parse_format(out_format)?
+    };
+    let quality = recipe.quality;
+
     let pixel_recipe = split_terminal_optimize(&recipe).unwrap_or(recipe);
     let pipeline = pixel_recipe
         .build_pipeline(&OperationRegistry::with_builtins())
         .map_err(js_err)?;
     let out = pipeline.run(img).map_err(js_err)?;
 
-    sink::encode_to_bytes(&out, fmt, None).map_err(js_err)
+    sink::encode_to_bytes(&out, fmt, quality).map_err(js_err)
 }
 
 /// Decode `input` and re-encode it well: pick the format (when `out_format` is

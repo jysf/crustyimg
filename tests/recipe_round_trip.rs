@@ -139,6 +139,8 @@ fn recipe_drives_pipeline_same_as_direct() {
         version: SUPPORTED_VERSION.to_owned(),
         name: None,
         description: None,
+        format: None,
+        quality: None,
         steps: vec![
             RecipeStep {
                 op: "invert".to_owned(),
@@ -188,6 +190,8 @@ fn resize_recipe_round_trips() {
         version: SUPPORTED_VERSION.to_owned(),
         name: None,
         description: None,
+        format: None,
+        quality: None,
         steps: vec![RecipeStep {
             op: "resize".to_owned(),
             params,
