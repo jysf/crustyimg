@@ -43,10 +43,26 @@ use crate::pipeline::Pipeline;
 
 // ─── SUPPORTED_VERSION ──────────────────────────────────────────────────────
 
-/// The only recipe schema version this build understands.
-///
-/// `from_toml` rejects any `version` value other than this string.
+/// The original recipe schema version: `version`, `name`, `description`,
+/// `steps` — no `format`/`quality`. `from_ops` still emits this (SPEC-127
+/// changes nothing about what `edit --save-recipe` writes).
 pub const SUPPORTED_VERSION: &str = "1";
+
+/// The recipe schema version required to set `format` and/or `quality`
+/// (SPEC-127, Call 1). `from_toml` rejects a recipe that sets either field
+/// without declaring this version — see [`RecipeError::NewFieldNeedsVersion2`].
+pub const SUPPORTED_VERSION_2: &str = "2";
+
+/// Every version this build understands, for the "supported: …" half of
+/// [`RecipeError::UnsupportedVersion`]'s message.
+const SUPPORTED_VERSIONS_DISPLAY: &str = "1, 2";
+
+/// Is `v` one of the versions this build understands (`from_toml`'s FIRST
+/// gate — a value outside this set is [`RecipeError::UnsupportedVersion`],
+/// checked before the narrower "new field needs v2" rule below).
+fn is_supported_version(v: &str) -> bool {
+    v == SUPPORTED_VERSION || v == SUPPORTED_VERSION_2
+}
 
 // ─── Resource limits (DEC-036) ───────────────────────────────────────────────
 
@@ -137,6 +153,22 @@ pub enum RecipeError {
         /// The cap that was exceeded (`RECIPE_MAX_STEPS`).
         max: usize,
     },
+
+    /// `format` and/or `quality` were set without declaring `version = "2"`
+    /// (SPEC-127, Call 1).
+    ///
+    /// Those fields are new in schema version 2, gated deliberately: a v1
+    /// recipe that sets them anyway (rather than a v1 recipe that simply
+    /// omits them, which parses unchanged) gets this actionable message
+    /// instead of a `deny_unknown_fields` TOML parse error pointing at an
+    /// arbitrary line — the asymmetry SPEC-127's design measured on `main`.
+    #[error("recipe field '{field}' requires `version = \"2\"` (found version \"{found}\")")]
+    NewFieldNeedsVersion2 {
+        /// Which new field triggered the gate: `"format"` or `"quality"`.
+        field: &'static str,
+        /// The `version` value the recipe actually declared.
+        found: String,
+    },
 }
 
 // ─── RecipeStep ─────────────────────────────────────────────────────────────
@@ -174,7 +206,11 @@ pub struct RecipeStep {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Recipe {
-    /// Schema version. Only `"1"` is supported; `from_toml` rejects others.
+    /// Schema version. `"1"` and `"2"` are both accepted; `from_toml` rejects
+    /// any other value. `"2"` is required by a recipe that sets `format`
+    /// and/or `quality` (SPEC-127, Call 1) — an older binary handed a
+    /// `version = "2"` recipe fails with a message naming the version, not a
+    /// generic TOML parse error.
     pub version: String,
 
     /// Optional human label for the recipe (the `name` key in the TOML).
@@ -184,6 +220,27 @@ pub struct Recipe {
     /// Optional free-text description of what the recipe does.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub description: Option<String>,
+
+    /// The output format to encode to (e.g. `"png"`, `"jpeg"`, `"webp"`,
+    /// `"avif"`) — a string resolved the same way `--format` is
+    /// (`crate::cli::common::resolve_format`), so the recipe layer stays free
+    /// of any format-specific validation of its own. Requires
+    /// `version = "2"` (SPEC-127, Call 1): `from_toml` rejects a `"1"`
+    /// recipe that sets this.
+    ///
+    /// One rung in the precedence chain `--format` > `-o` ext >
+    /// `recipe.format` > preserve source (DEC-015, extended by SPEC-127
+    /// Call 2) — resolved at the CALL SITE (`apply`/`build`/`wasm::transform`),
+    /// never inside `encode_one`, so the decision stays where the CLI flags
+    /// that can override it also live.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub format: Option<String>,
+
+    /// The output encoder quality (0-100, where the resolved format supports
+    /// one). Same version-2 gate as `format`. One rung in the precedence
+    /// chain `-q` > `recipe.quality` > the format's own default.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub quality: Option<u8>,
 
     /// Ordered list of operation steps. Serialized as `[[step]]` (TOML
     /// array-of-tables). Empty is valid — an empty recipe builds an empty
@@ -212,6 +269,8 @@ impl Recipe {
             version: SUPPORTED_VERSION.to_owned(),
             name: None,
             description: None,
+            format: None,
+            quality: None,
             steps,
         }
     }
@@ -228,10 +287,15 @@ impl Recipe {
     /// - String length exceeds [`RECIPE_MAX_BYTES`] → [`RecipeError::TooLarge`]
     ///   (checked **before** `toml::from_str` to avoid parse-time DoS).
     /// - Malformed TOML → [`RecipeError::Parse`].
-    /// - Any `version` other than [`SUPPORTED_VERSION`] → [`RecipeError::UnsupportedVersion`].
+    /// - Any `version` other than [`SUPPORTED_VERSION`]/[`SUPPORTED_VERSION_2`]
+    ///   → [`RecipeError::UnsupportedVersion`].
+    /// - `format`/`quality` set without `version = "2"` →
+    ///   [`RecipeError::NewFieldNeedsVersion2`] (SPEC-127, Call 1; checked
+    ///   after the version-support check so a version this build does not
+    ///   recognize at all is still `UnsupportedVersion`).
     /// - Step count exceeds [`RECIPE_MAX_STEPS`] → [`RecipeError::TooManySteps`]
-    ///   (checked after the version check so a bad-version recipe is still
-    ///   `UnsupportedVersion`, not `TooManySteps`).
+    ///   (checked after both version checks so a bad-version recipe is still
+    ///   `UnsupportedVersion`/`NewFieldNeedsVersion2`, not `TooManySteps`).
     ///
     /// Op name resolution does **not** happen here; call [`Recipe::build_pipeline`]
     /// to resolve ops through a registry.
@@ -246,17 +310,38 @@ impl Recipe {
 
         let recipe: Recipe = toml::from_str(s).map_err(|e| RecipeError::Parse(e.to_string()))?;
 
-        // Version check must occur before op resolution so callers get a clear
-        // "unsupported version" error rather than a cascade of unknown-op errors.
-        if recipe.version != SUPPORTED_VERSION {
+        // Version-support check must occur before op resolution so callers get
+        // a clear "unsupported version" error rather than a cascade of
+        // unknown-op errors.
+        if !is_supported_version(&recipe.version) {
             return Err(RecipeError::UnsupportedVersion {
                 found: recipe.version,
-                supported: SUPPORTED_VERSION,
+                supported: SUPPORTED_VERSIONS_DISPLAY,
             });
         }
 
-        // Step count check AFTER version check: an over-version recipe is UnsupportedVersion,
-        // not TooManySteps.
+        // SPEC-127, Call 1: `format`/`quality` require version "2". Gated
+        // here (a domain rule), not via serde — a v1 recipe that simply omits
+        // both fields keeps parsing exactly as it did before this spec; only
+        // a v1 recipe that SETS one is rejected, with a message naming the
+        // field and the version, not a `deny_unknown_fields` parse error.
+        if recipe.version != SUPPORTED_VERSION_2 {
+            if recipe.format.is_some() {
+                return Err(RecipeError::NewFieldNeedsVersion2 {
+                    field: "format",
+                    found: recipe.version,
+                });
+            }
+            if recipe.quality.is_some() {
+                return Err(RecipeError::NewFieldNeedsVersion2 {
+                    field: "quality",
+                    found: recipe.version,
+                });
+            }
+        }
+
+        // Step count check AFTER both version checks: an over-version or
+        // needs-v2 recipe reports THAT problem, not TooManySteps.
         if recipe.steps.len() > RECIPE_MAX_STEPS {
             return Err(RecipeError::TooManySteps {
                 count: recipe.steps.len(),
@@ -364,6 +449,8 @@ mod tests {
             version: SUPPORTED_VERSION.to_owned(),
             name: None,
             description: None,
+            format: None,
+            quality: None,
             steps: vec![],
         };
         // Round-trip through TOML.
@@ -525,13 +612,98 @@ mod tests {
 
     /// An unsupported version must still be rejected as UnsupportedVersion even
     /// after the size/step caps are added (existing behavior unchanged).
+    ///
+    /// SPEC-127 made `"2"` a real, supported version — this test now probes a
+    /// version genuinely outside the supported set (`"3"`), not `"2"` (which
+    /// this file's own `from_toml_unsupported_version_still_rejected`
+    /// predecessor used before this spec).
     #[test]
     fn from_toml_unsupported_version_still_rejected() {
-        let toml_str = "version = \"2\"\n";
+        let toml_str = "version = \"3\"\n";
         let result = Recipe::from_toml(toml_str);
         assert!(
-            matches!(result, Err(RecipeError::UnsupportedVersion { ref found, .. }) if found == "2"),
-            "expected UnsupportedVersion with found=\"2\", got {result:?}"
+            matches!(result, Err(RecipeError::UnsupportedVersion { ref found, .. }) if found == "3"),
+            "expected UnsupportedVersion with found=\"3\", got {result:?}"
+        );
+    }
+
+    // ─── SPEC-127: version-2 gate and the new fields ─────────────────────────
+
+    /// `version = "2"` alone (no `format`/`quality`) is now accepted — Call 1
+    /// widens the supported set, it does not narrow it.
+    #[test]
+    fn version_2_with_no_new_fields_is_accepted() {
+        let toml_str = "version = \"2\"\n\n[[step]]\nop = \"identity\"\n";
+        let result = Recipe::from_toml(toml_str);
+        assert!(result.is_ok(), "version 2 alone must parse, got {result:?}");
+    }
+
+    /// A `version = "1"` recipe that sets `format` is rejected with the new
+    /// typed error, naming the field and the declared version — not a
+    /// `deny_unknown_fields` TOML parse error (the pre-SPEC-127 asymmetry the
+    /// design measured on `main`).
+    #[test]
+    fn v1_with_format_is_rejected() {
+        let toml_str = "version = \"1\"\nformat = \"png\"\n";
+        let result = Recipe::from_toml(toml_str);
+        assert!(
+            matches!(
+                &result,
+                Err(RecipeError::NewFieldNeedsVersion2 { field, found })
+                    if *field == "format" && found == "1"
+            ),
+            "expected NewFieldNeedsVersion2 {{ field: \"format\", found: \"1\" }}, got {result:?}"
+        );
+    }
+
+    /// Same gate, `quality` half.
+    #[test]
+    fn v1_with_quality_is_rejected() {
+        let toml_str = "version = \"1\"\nquality = 80\n";
+        let result = Recipe::from_toml(toml_str);
+        assert!(
+            matches!(
+                &result,
+                Err(RecipeError::NewFieldNeedsVersion2 { field, found })
+                    if *field == "quality" && found == "1"
+            ),
+            "expected NewFieldNeedsVersion2 {{ field: \"quality\", found: \"1\" }}, got {result:?}"
+        );
+    }
+
+    /// `version = "2"` with both fields round-trips and carries them.
+    #[test]
+    fn v2_round_trips_format_and_quality_unit() {
+        let toml_str = "version = \"2\"\nformat = \"webp\"\nquality = 90\n";
+        let recipe = Recipe::from_toml(toml_str).expect("v2 with format+quality should parse");
+        assert_eq!(recipe.format.as_deref(), Some("webp"));
+        assert_eq!(recipe.quality, Some(90));
+
+        let serialized = recipe.to_toml().expect("to_toml should succeed");
+        let reloaded = Recipe::from_toml(&serialized).expect("re-parse should succeed");
+        assert_eq!(recipe, reloaded, "v2 recipe must round-trip through TOML");
+    }
+
+    /// A recipe using neither `format` nor `quality` still serializes as
+    /// `version = "1"` — `to_toml` never bumps the version on its own (the
+    /// highest-consequence line in the spec: doing so unconditionally would
+    /// strand every existing recipe on its next `--save-recipe`).
+    #[test]
+    fn to_toml_does_not_bump_version_without_new_fields() {
+        let r = Recipe::from_ops(&[]);
+        assert_eq!(r.version, "1");
+        let toml_str = r.to_toml().expect("to_toml should succeed");
+        assert!(
+            toml_str.contains("version = \"1\""),
+            "a recipe using neither new field must still serialize as version \"1\", got:\n{toml_str}"
+        );
+        assert!(
+            !toml_str.contains("format"),
+            "format must not appear when unset, got:\n{toml_str}"
+        );
+        assert!(
+            !toml_str.contains("quality"),
+            "quality must not appear when unset, got:\n{toml_str}"
         );
     }
 }
