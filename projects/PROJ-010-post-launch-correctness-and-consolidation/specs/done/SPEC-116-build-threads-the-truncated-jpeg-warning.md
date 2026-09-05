@@ -78,18 +78,24 @@ cost:
         (3 full-workspace `cargo test` runs, one with a slow ~193s
         `audit_bench` binary) run sequentially per the guardrail, not to
         active generation.
+        ⚠ OVERSTATED, NOT RECOMPUTABLE (flagged 2026-09-05). Produced by the naive
+        all-lines sum corrected in STAGE-053. Every recomputable sibling lands between
+        1.38x and 2.88x over, so this is high by an unmeasured factor in that band. Its
+        transcript is no longer on disk — no prefix reproduces the recorded total, so no
+        corrected figure can be derived. Left flagged rather than scaled by an average:
+        a fabricated precision would be worse than a stated unknown.
     - cycle: verify
       agent: claude-opus-5
       interface: claude-code
-      tokens_total: 10975994
+      tokens_total: 4617817
       duration_minutes: 129
       recorded_at: 2026-08-15
       tokens_breakdown:
-        input: 198
-        output: 105909
-        cache_creation: 339045
-        cache_read: 10530842
-      estimated_usd: 10.03
+        input: 82
+        output: 40352
+        cache_creation: 139368
+        cache_read: 4438015
+      estimated_usd: 4.10
       note: >
         MEASURED — transcript sum over 99 assistant messages
         (cc2f4817-fdf7-41c7-b145-35b0e8dc1f27.jsonl), all claude-opus-5.
@@ -102,6 +108,13 @@ cost:
         was the AC-9 matrix (six full test legs, sequential) plus three
         extra rebuilds for the AC-8, test-before-implementation and
         AC-7-vacuity controls.
+        ⚠ CORRECTED 2026-09-05 (SPEC-127 verify + orchestrator, independently).
+        The original summed EVERY transcript line carrying `usage`. Claude Code writes
+        one line per CONTENT BLOCK; lines sharing a `.message.id` repeat identical
+        input/cache_creation/cache_read, so those three were double-counted once per
+        extra block. Recomputed by deduping on `.message.id` — those three taken from
+        the group, output taken as MAX. Was $10.03 / 10,975,994 (2.45x over) across
+        the same 99 transcript lines = 41 real API calls. See STAGE-053.
     - cycle: ship
       interface: claude-code
       tokens_total: null
@@ -111,8 +124,10 @@ cost:
         Un-metered main-loop ship cycle (AGENTS §4). Merge, cost totals,
         reflection, archive, and the STAGE-043 close-out.
   totals:
-    tokens_total: 39748193
-    estimated_usd: 21.94
+    # ⚠ MIXED: includes a session flagged OVERSTATED, NOT RECOMPUTABLE —
+    # this total is an upper bound, not a measurement.
+    tokens_total: 33390016
+    estimated_usd: 16.01
     session_count: 4
 ---
 

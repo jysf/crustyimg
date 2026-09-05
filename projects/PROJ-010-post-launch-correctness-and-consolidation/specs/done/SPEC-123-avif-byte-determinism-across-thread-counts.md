@@ -50,15 +50,15 @@ cost:
     - cycle: build
       agent: claude-opus-5
       interface: claude-code
-      tokens_total: 67302832
+      tokens_total: 37877874
       duration_minutes: 215
       recorded_at: 2026-08-17
       tokens_breakdown:
-        input: 636
-        output: 293635
-        cache_creation: 924671
-        cache_read: 66083890
-      estimated_usd: 46.17
+        input: 342
+        output: 136074
+        cache_creation: 408711
+        cache_read: 37332747
+      estimated_usd: 24.62
       note: >
         MEASURED — transcript sum over 318 assistant messages, priced per
         component at the Opus anchors the transcript's `.message.model` actually
@@ -78,6 +78,13 @@ cost:
         cost after CI, and prefer one long wait to many short polls. Wall clock
         also includes ~35 min blocked on a full `cargo test` that had to finish
         before the timing-sensitive harness re-run.
+        ⚠ CORRECTED 2026-09-05 (SPEC-127 verify + orchestrator, independently).
+        The original summed EVERY transcript line carrying `usage`. Claude Code writes
+        one line per CONTENT BLOCK; lines sharing a `.message.id` repeat identical
+        input/cache_creation/cache_read, so those three were double-counted once per
+        extra block. Recomputed by deduping on `.message.id` — those three taken from
+        the group, output taken as MAX. Was $46.17 / 67,302,832 (1.88x over) across
+        the same 322 transcript lines = 175 real API calls. See STAGE-053.
     - cycle: verify
       agent: claude-opus-5
       interface: claude-code
@@ -104,6 +111,12 @@ cost:
         scratch, reproducing every hash in every leg bit-for-bit. Cost was 30%
         of the build's on 42% of its message count — the read-only, no-CI-watch
         shape is measurably cheaper.
+        ⚠ OVERSTATED, NOT RECOMPUTABLE (flagged 2026-09-05). Produced by the naive
+        all-lines sum corrected in STAGE-053. Every recomputable sibling lands between
+        1.38x and 2.88x over, so this is high by an unmeasured factor in that band. Its
+        transcript is no longer on disk — no prefix reproduces the recorded total, so no
+        corrected figure can be derived. Left flagged rather than scaled by an average:
+        a fabricated precision would be worse than a stated unknown.
     - cycle: ship
       interface: claude-code
       tokens_total: null
@@ -113,8 +126,10 @@ cost:
         Orchestrator main-loop, not separately metered (AGENTS §4). Merged
         PR #179, transcribed the verify cost block, computed totals, archived.
   totals:
-    tokens_total: 84315614
-    estimated_usd: 60.33
+    # ⚠ MIXED: includes a session flagged OVERSTATED, NOT RECOMPUTABLE —
+    # this total is an upper bound, not a measurement.
+    tokens_total: 54890656
+    estimated_usd: 38.78
     session_count: 4
 ---
 

@@ -68,6 +68,12 @@ cost:
         same token counts give ~$42.03. The token counts are the reliable half;
         the dollar figure is high by ~67% if Sonnet is the correct attribution.
         See the note on totals.
+        ⚠ OVERSTATED, NOT RECOMPUTABLE (flagged 2026-09-05). Produced by the naive
+        all-lines sum corrected in STAGE-053. Every recomputable sibling lands between
+        1.38x and 2.88x over, so this is high by an unmeasured factor in that band. Its
+        transcript is no longer on disk — no prefix reproduces the recorded total, so no
+        corrected figure can be derived. Left flagged rather than scaled by an average:
+        a fabricated precision would be worse than a stated unknown.
     - cycle: verify
       agent: claude-sonnet-5
       interface: claude-code
@@ -86,7 +92,15 @@ cost:
         claude-sonnet-5 attribution; Sonnet anchors give ~$20.19. Covers both the
         full verify cycle and the focused re-verify of the orchestrator's
         follow-up commit.
+        ⚠ OVERSTATED, NOT RECOMPUTABLE (flagged 2026-09-05). Produced by the naive
+        all-lines sum corrected in STAGE-053. Every recomputable sibling lands between
+        1.38x and 2.88x over, so this is high by an unmeasured factor in that band. Its
+        transcript is no longer on disk — no prefix reproduces the recorded total, so no
+        corrected figure can be derived. Left flagged rather than scaled by an average:
+        a fabricated precision would be worse than a stated unknown.
   totals:
+    # ⚠ MIXED: includes a session flagged OVERSTATED, NOT RECOMPUTABLE —
+    # this total is an upper bound, not a measurement.
     tokens_total: 149070662
     estimated_usd: 103.69
     session_count: 3
