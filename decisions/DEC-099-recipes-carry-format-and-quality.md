@@ -223,32 +223,59 @@ STAGE-050's backlog as its own `[M]` item (splitting an L into two, per AGENTS �
 
 ### AC-7's negative controls
 
-Reverted each of the three independent conditions ALONE, on a clean rebuild, and confirmed only
-that condition's own tests flip (never a hash — the behavioural flip is the evidence, per AGENTS
-§15):
+Reverted each of the three conditions ALONE (on top of the same commit, restored via
+`git checkout -- <file>` between each), rebuilt, and re-ran the affected suites. The evidence is
+the behavioural flip, never a hash (AGENTS §15). **Measured, not assumed** — the actual results
+below, including one genuine asymmetry that is worth stating rather than smoothing over:
 
-- **Call 1 (version gate) reverted** — restoring `from_toml`'s pre-spec version check (no
-  `is_supported_version`/`NewFieldNeedsVersion2` gate) — turns `tests/recipe_v2.rs::v1_still_round_trips_and_stays_v1`'s
-  sibling `new_field_without_v2_is_rejected` RED (a v1-plus-`format` recipe now parses instead of
-  erroring) while `apply_honours_recipe_format_at_one_input`/`_at_n_inputs` and
-  `apply_and_build_agree_on_v2_recipe` stay GREEN — confirming the version gate is independent of
-  the precedence wiring.
-- **Call 2 (precedence) reverted** — restoring `output_format_for`'s 3-argument (pre-recipe-format)
-  signature and `run_apply`'s/`prepare_target`'s recipe.format resolution — turns
-  `apply_honours_recipe_format_at_one_input`, `_at_n_inputs`, `cli_format_overrides_recipe_format`,
-  and `apply_and_build_agree_on_v2_recipe` RED (recipe.format is silently ignored, both binaries
-  preserve source instead) while `tests/recipe_v2.rs`'s round-trip/gate tests stay GREEN —
-  confirming precedence is independent of the schema gate.
-- **Call 3 (wasm) reverted** — restoring `transform`'s pre-spec 3-line body (parse `out_format`
-  unconditionally, `quality: None` always) — turns
-  `tests/wasm_roundtrip.rs::transform_falls_back_to_recipe_format_when_out_format_empty`,
-  `::transform_errors_when_neither_format_is_given`, and `::transform_honours_recipe_quality` RED
-  (an empty `out_format` now fails `parse_format` instead of falling back; quality never reaches
-  the encoder) while every native test and `transform_out_format_wins_over_recipe_format` stay
-  GREEN (an explicit `out_format` was already honored before this spec) — confirming the wasm
-  rung is independent of both native calls.
+- **Call 2 (precedence, `src/cli/ops.rs` + `src/cli/optimize.rs` + `src/cli/build.rs`) reverted
+  alone** (`recipe.format`/`recipe.quality` made inert at every call site; Call 1's schema and
+  Call 3's wasm code left untouched): `tests/apply_batch.rs::apply_honours_recipe_format_at_one_input`,
+  `::apply_honours_recipe_format_at_n_inputs`, and `::apply_and_build_agree_on_v2_recipe`, plus
+  `tests/optimize.rs::terminal_optimize_honours_an_explicit_recipe_format`, go **RED** (recipe.format
+  is silently ignored: single-input writes `.png` when `.jpg` is expected — "one.png must be
+  written: No such file or directory"; the terminal-`optimize` carve-out auto-decides AVIF instead
+  of honouring the PNG pin). `cli_format_overrides_recipe_format` stays **GREEN** (`--format`
+  already won unconditionally, so it cannot tell the two states apart — a correctly-scoped
+  observation, not a gap). `tests/recipe_v2.rs`'s 3 tests stay **GREEN**, and all 41
+  `wasm_roundtrip.rs` tests stay **GREEN** — confirming Call 2 is independent of Call 1's schema
+  gate and of Call 3's wasm wiring.
+- **Call 3 (wasm, `src/wasm.rs::transform` only) reverted alone** (restored to its pre-spec
+  3-statement body: parse `out_format` unconditionally, `quality: None` always): exactly 2 of the 3
+  new wasm tests go **RED** —
+  `tests/wasm_roundtrip.rs::transform_falls_back_to_recipe_format_when_out_format_empty` and
+  `::transform_honours_recipe_quality` — both call `transform` with an empty `out_format` (asking
+  it to fall back to the recipe's own `format`/`quality`), and both now fail with the SAME clean
+  typed error, `unsupported output extension` (from `parse_format("")`), rather than either falling
+  back or panicking — the reverted code is byte-for-byte `main`'s pre-spec `transform`, so this is
+  the expected, honest failure mode, not a new one this spec introduced.
+  ⚠ **`::transform_errors_when_neither_format_is_given` stays GREEN in BOTH states** — an empty
+  `out_format` is already an error with no `recipe.format` involved at all (a bare `parse_format("")`
+  fails either way), so this one test cannot by itself discriminate Call 3 present vs. reverted;
+  the other two tests are what carries the control. All native tests (`recipe_v2.rs`,
+  `apply_batch.rs`, `optimize.rs`) stay **GREEN** — confirming Call 3 is independent of the two
+  native calls.
   ⚠ `just wasm-test` runs in **no CI job** — this negative control, like the wasm assertions
   themselves, is not covered by the required matrix (AC-9). Driven manually in this build cycle.
+- **Call 1 (version gate, `src/recipe/mod.rs::from_toml`'s version check) reverted alone**
+  (restored to accepting only `SUPPORTED_VERSION = "1"`, no `NewFieldNeedsVersion2` rule; Calls 2
+  and 3's code left untouched): `tests/recipe_v2.rs::new_field_without_v2_is_rejected` goes **RED**
+  as its own direct guard (a v1-plus-`format` recipe now parses instead of erroring) — but so does
+  **every other v2-dependent test**: `::v2_round_trips_format_and_quality`,
+  `apply_batch.rs`'s four new tests (including `cli_format_overrides_recipe_format`, which passed
+  under the Call-2 revert but not this one), and `optimize.rs`'s carve-out test, ALL fail with
+  `unsupported recipe version '2' (supported: 1)` — because a `version = "2"` recipe can no longer
+  even be constructed to exercise Calls 2/3 at all. Only `::v1_still_round_trips_and_stays_v1`
+  stays **GREEN**. ⚠ **This is a real, worth-stating asymmetry, not a control that failed:** Call 1
+  is a genuine PRECONDITION for Calls 2/3 being reachable through a real recipe file, not a
+  parallel independent branch the way Calls 2 and 3 are independent of EACH OTHER (as the two
+  reverts above demonstrate — reverting either one leaves the other's tests, and Call 1's own
+  schema tests, green). The meaningful independence claim for Call 1 is narrower and still holds:
+  reverting Call 2 or Call 3 alone never flips Call 1's OWN regression guards
+  (`v1_still_round_trips_and_stays_v1`, `v2_round_trips_format_and_quality`,
+  `new_field_without_v2_is_rejected` — all three stayed green under both other reverts), proving
+  Calls 2/3 are downstream consumers of Call 1's schema, not entangled with its own validation
+  logic.
 
 ## References
 
