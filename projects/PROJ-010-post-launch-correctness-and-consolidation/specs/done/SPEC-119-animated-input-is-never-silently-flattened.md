@@ -80,6 +80,13 @@ cost:
         cache_creation x1.25, cache_read x0.10). Cache reads are 99.1% of
         tokens_total, so the flat 80/20 shortcut would badly overstate this —
         priced by component per the pricing note.
+        ⚠ OVERSTATED, NOT RECOMPUTABLE (flagged 2026-09-05). This figure used the
+        naive all-lines sum corrected in STAGE-053 — every measured sibling lands
+        between 1.38x and 2.88x over, so this number is high by an unmeasured factor
+        in that band. Its transcript is no longer on disk, so no prefix reproduces
+        the recorded total and a corrected figure CANNOT be derived. Deliberately
+        left rather than scaled by an average — a fabricated precision would be
+        worse than a flagged unknown.
     - cycle: verify
       agent: claude-opus-5
       interface: claude-code
@@ -98,6 +105,13 @@ cost:
         it lived on a detached worktree — so this block is transcribed from it.
         The punch-list pass folds into the build entry (same cycle) and the
         second-pass review was un-metered orchestrator main-loop work.
+        ⚠ OVERSTATED, NOT RECOMPUTABLE (flagged 2026-09-05). This figure used the
+        naive all-lines sum corrected in STAGE-053 — every measured sibling lands
+        between 1.38x and 2.88x over, so this number is high by an unmeasured factor
+        in that band. Its transcript is no longer on disk, so no prefix reproduces
+        the recorded total and a corrected figure CANNOT be derived. Deliberately
+        left rather than scaled by an average — a fabricated precision would be
+        worse than a flagged unknown.
     - cycle: ship
       interface: claude-code
       tokens_total: null
@@ -106,9 +120,11 @@ cost:
       note: >
         Un-metered main-loop ship cycle (AGENTS §4).
   totals:
+    # ⚠ MIXED: includes at least one session flagged OVERSTATED, NOT
+    # RECOMPUTABLE — this total is an upper bound, not a measurement.
     tokens_total: 191351851
     estimated_usd: 82.23
-    session_count: 4
+    session_count: 2
 ---
 
 # SPEC-119: animated input is never silently flattened

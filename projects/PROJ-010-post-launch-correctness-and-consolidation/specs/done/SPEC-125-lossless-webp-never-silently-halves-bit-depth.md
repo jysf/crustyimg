@@ -50,15 +50,15 @@ cost:
     - cycle: build
       agent: claude-sonnet-5
       interface: claude-code
-      tokens_total: 246724470
+      tokens_total: 119630423
       duration_minutes: 124
       recorded_at: 2026-08-21
       tokens_breakdown:
-        input: 1340
-        output: 474445
-        cache_creation: 1040103
-        cache_read: 245208582
-      estimated_usd: 84.58
+        input: 668
+        output: 209939
+        cache_creation: 516460
+        cache_read: 118903356
+      estimated_usd: 40.76
       note: >
         MEASURED — summed from the session transcript's per-message `usage`,
         priced at Sonnet anchors ($3/$15 per MTok) with cache multipliers
@@ -78,18 +78,26 @@ cost:
         Transcript identified by CONTENT (`bb308ebc`, the one carrying the
         SPEC-125 build dispatch) — a naive search matched TWO sessions, the
         other being the orchestrator's own.
+        ⚠ CORRECTED 2026-09-05 (SPEC-127 verify + orchestrator, independently).
+        The original figure summed EVERY transcript line carrying `usage`. Claude
+        Code writes one line per CONTENT BLOCK, and lines sharing a `.message.id`
+        repeat identical input/cache_creation/cache_read, so the three static
+        fields were double-counted once per extra block. Recomputed by deduping on
+        `.message.id`, taking those three from the group and MAX output.
+        Was $84.58 / 246,724,470 tokens (2.08x over) over the same
+        670 transcript lines = 334 real API calls. See STAGE-053.
     - cycle: verify
       agent: claude-opus-5
       interface: claude-code
-      tokens_total: 32433819
+      tokens_total: 16286785
       duration_minutes: 35
       recorded_at: 2026-08-21
       tokens_breakdown:
-        input: 416
-        output: 176989
-        cache_creation: 495438
-        cache_read: 31760976
-      estimated_usd: 23.30
+        input: 206
+        output: 84781
+        cache_creation: 229144
+        cache_read: 15972654
+      estimated_usd: 11.54
       note: >
         MEASURED — full-session transcript sum over all 208 usage-bearing
         assistant messages (session 5d7b53e4-9930-477c-9fb9-7576ebbb5c69).
@@ -104,6 +112,14 @@ cost:
         (+$1.34): the right instinct, an optimistic estimate. Transcript
         identified by CONTENT — two sessions mention SPEC-125-verify, the other
         being the orchestrator's own.
+        ⚠ CORRECTED 2026-09-05 (SPEC-127 verify + orchestrator, independently).
+        The original figure summed EVERY transcript line carrying `usage`. Claude
+        Code writes one line per CONTENT BLOCK, and lines sharing a `.message.id`
+        repeat identical input/cache_creation/cache_read, so the three static
+        fields were double-counted once per extra block. Recomputed by deduping on
+        `.message.id`, taking those three from the group and MAX output.
+        Was $23.30 / 32,433,819 tokens (2.02x over) over the same
+        208 transcript lines = 103 real API calls. See STAGE-053.
     - cycle: ship
       interface: claude-code
       tokens_total: null
@@ -114,9 +130,9 @@ cost:
         re-derivation, totals, archive. Null-with-note is the sanctioned form
         for design/ship; build and verify above are both MEASURED.
   totals:
-    tokens_total: 279158289
-    estimated_usd: 107.88
-    session_count: 4  # design + build + verify + ship
+    tokens_total: 135917208
+    estimated_usd: 52.30
+    session_count: 2  # design + build + verify + ship
 ---
 
 # SPEC-125: lossless WebP never silently halves bit depth

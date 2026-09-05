@@ -88,6 +88,13 @@ cost:
         `avif-parse` itself blocks the predicted construction) both ran well past
         the checkpoint; a `wip(SPEC-115):` commit landed at the 90-minute mark
         with the SVG family green, not a hard stop.
+        ⚠ OVERSTATED, NOT RECOMPUTABLE (flagged 2026-09-05). This figure used the
+        naive all-lines sum corrected in STAGE-053 — every measured sibling lands
+        between 1.38x and 2.88x over, so this number is high by an unmeasured factor
+        in that band. Its transcript is no longer on disk, so no prefix reproduces
+        the recorded total and a corrected figure CANNOT be derived. Deliberately
+        left rather than scaled by an average — a fabricated precision would be
+        worse than a flagged unknown.
     - cycle: verify
       agent: claude-opus-5
       interface: claude-code
@@ -114,6 +121,13 @@ cost:
         minutes of wall clock (fresh per-leg target dirs, sequential, as
         AC-12 requires), and the per-family negative controls were re-driven
         from scratch rather than taken on the build's word.
+        ⚠ OVERSTATED, NOT RECOMPUTABLE (flagged 2026-09-05). This figure used the
+        naive all-lines sum corrected in STAGE-053 — every measured sibling lands
+        between 1.38x and 2.88x over, so this number is high by an unmeasured factor
+        in that band. Its transcript is no longer on disk, so no prefix reproduces
+        the recorded total and a corrected figure CANNOT be derived. Deliberately
+        left rather than scaled by an average — a fabricated precision would be
+        worse than a flagged unknown.
     - cycle: ship
       interface: claude-code
       tokens_total: null

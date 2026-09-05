@@ -65,6 +65,13 @@ cost:
         with usage, covering the full cycle including the AC-6 CI-legs readout.
         Sonnet $3/$15 per MTok anchors (model actually reported by every message);
         cache_creation x1.25, cache_read x0.10.
+        ⚠ OVERSTATED, NOT RECOMPUTABLE (flagged 2026-09-05). This figure used the
+        naive all-lines sum corrected in STAGE-053 — every measured sibling lands
+        between 1.38x and 2.88x over, so this number is high by an unmeasured factor
+        in that band. Its transcript is no longer on disk, so no prefix reproduces
+        the recorded total and a corrected figure CANNOT be derived. Deliberately
+        left rather than scaled by an average — a fabricated precision would be
+        worse than a flagged unknown.
     - cycle: verify
       agent: claude-opus-5
       interface: claude-code
@@ -81,6 +88,13 @@ cost:
         sum and dollars both match. Covers both re-run negative controls, the
         AC-6 baseline established by RUNNING rather than counting, and a full
         three-leg matrix — in 28 minutes against a ~60 budget.
+        ⚠ OVERSTATED, NOT RECOMPUTABLE (flagged 2026-09-05). This figure used the
+        naive all-lines sum corrected in STAGE-053 — every measured sibling lands
+        between 1.38x and 2.88x over, so this number is high by an unmeasured factor
+        in that band. Its transcript is no longer on disk, so no prefix reproduces
+        the recorded total and a corrected figure CANNOT be derived. Deliberately
+        left rather than scaled by an average — a fabricated precision would be
+        worse than a flagged unknown.
     - cycle: ship
       interface: claude-code
       tokens_total: null
@@ -90,9 +104,11 @@ cost:
         Un-metered main-loop ship cycle (AGENTS §4). Merge, cost totals,
         reflection, archive, and the STAGE-045 close-out.
   totals:
+    # ⚠ MIXED: includes at least one session flagged OVERSTATED, NOT
+    # RECOMPUTABLE — this total is an upper bound, not a measurement.
     tokens_total: 73188497
     estimated_usd: 32.18
-    session_count: 4
+    session_count: 2
 ---
 
 # SPEC-117: pin `build` and `apply --recipe web` against the adopted-format defect

@@ -121,7 +121,7 @@ recipe over a batch — not to the batch path in general.
 evidence rather than assertion: `--format` honoured at both arities (two tests, split apart
 at re-approve precisely so the arities fail independently), `apply` and `build` byte-identical,
 the default stated and justified in DEC-098, and a regression test confirmed RED on `main`
-before the fix and re-driven in **both** revert directions afterwards. **$68.82** and three
+before the fix and re-driven in **both** revert directions afterwards. **$33.16** (recorded at the time as $68.82; see the correction note below) and three
 cycles became four — a sixth cycle type, `re-approve`, was invented mid-stage.
 
 **Speed and shape.** The stage did what it said and nothing else. The design call was settled
@@ -177,3 +177,14 @@ case that needs it.
 items, quote the same evidence field for all N.** An item that cannot produce that field is the
 one that was never checked. Every overstatement this stage produced is visible in its own
 sentence by that test.
+
+### ⚠ Cost correction, 2026-09-05
+
+Every figure this stage recorded was produced by summing **every** transcript line carrying
+`usage`. Claude Code writes one line per **content block**, and lines sharing a `.message.id`
+repeat identical `input`/`cache_creation`/`cache_read` — so those three were double-counted once
+per extra block. SPEC-126's real total is **$33.16**, not $68.82 (build $18.02, verify $9.18,
+re-approve $5.96). Found by SPEC-127's verify, reproduced independently by the orchestrator on a
+third transcript, and filed as a project-wide item on STAGE-053. **The corrected figures do not
+change any conclusion in this reflection** — the two review cycles are still ~80 % of the build,
+and they still produced every finding.

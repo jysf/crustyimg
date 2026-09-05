@@ -88,6 +88,13 @@ cost:
         Lesson, worth more than the number: identify a transcript by something
         only that session emitted, never by recency. The verify cycle avoided
         this by grepping for its own probe symbol — see its note below.
+        ⚠ OVERSTATED, NOT RECOMPUTABLE (flagged 2026-09-05). This figure used the
+        naive all-lines sum corrected in STAGE-053 — every measured sibling lands
+        between 1.38x and 2.88x over, so this number is high by an unmeasured factor
+        in that band. Its transcript is no longer on disk, so no prefix reproduces
+        the recorded total and a corrected figure CANNOT be derived. Deliberately
+        left rather than scaled by an average — a fabricated precision would be
+        worse than a flagged unknown.
     - cycle: verify
       agent: claude-opus-5
       interface: claude-code
@@ -116,7 +123,16 @@ cost:
         were not yet written when it measured. A session cannot count its own
         tail — the orchestrator's post-completion read is the accurate one, and
         that is the number recorded here.
+        ⚠ OVERSTATED, NOT RECOMPUTABLE (flagged 2026-09-05). This figure used the
+        naive all-lines sum corrected in STAGE-053 — every measured sibling lands
+        between 1.38x and 2.88x over, so this number is high by an unmeasured factor
+        in that band. Its transcript is no longer on disk, so no prefix reproduces
+        the recorded total and a corrected figure CANNOT be derived. Deliberately
+        left rather than scaled by an average — a fabricated precision would be
+        worse than a flagged unknown.
   totals:
+    # ⚠ MIXED: includes at least one session flagged OVERSTATED, NOT
+    # RECOMPUTABLE — this total is an upper bound, not a measurement.
     tokens_total: 109071623
     estimated_usd: 76.16
     session_count: 2

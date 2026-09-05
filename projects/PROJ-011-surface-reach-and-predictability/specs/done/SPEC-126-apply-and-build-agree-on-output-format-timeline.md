@@ -5,6 +5,14 @@ they go. Status markers: `[ ]` not started · `[~]` in progress · `[x]` complet
 
 Cycle prompts live in `prompts/SPEC-126-<cycle>.md`.
 
+> ⚠ **Cost correction, 2026-09-05.** Every dollar figure below was summed over every
+> transcript line carrying `usage`; Claude Code writes one line per **content block**, so
+> `input`/`cache_creation`/`cache_read` were double-counted once per extra block. Corrected:
+> build **$18.02** (was $38.16), verify **$9.18** (was $15.64), re-approve **$5.96** (was
+> $15.02), total **$33.16** (was $68.82). The spec's `cost.sessions` carries the recomputed
+> numbers; the lines below are left as written so the record of what was believed at the
+> time survives. Project-wide item on STAGE-053.
+
 ## Instructions
 
 - [x] **design** — 2026-08-23. 7 ACs, 4 settled design calls, 4 failing tests. **PROJ-011's entry

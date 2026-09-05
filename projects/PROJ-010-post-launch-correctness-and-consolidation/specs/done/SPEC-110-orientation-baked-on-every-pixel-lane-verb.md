@@ -61,15 +61,15 @@ cost:
     - cycle: build
       agent: claude-sonnet-5
       interface: claude-code
-      tokens_total: 61879452
+      tokens_total: 33061021
       duration_minutes: 1118
       recorded_at: 2026-08-04
       tokens_breakdown:
-        input: 530
-        output: 235030
-        cache_creation: 2192141
-        cache_read: 59451751
-      estimated_usd: 29.58
+        input: 282
+        output: 107788
+        cache_creation: 1229138
+        cache_read: 31723813
+      estimated_usd: 15.74
       note: >
         MEASURED — summed .message.usage across 265 assistant messages in this
         session's own transcript (not dispatched as a subagent). duration_minutes
@@ -78,18 +78,26 @@ cost:
         estimated_usd priced per component at Sonnet anchors ($3/$15 per MTok
         in/out; cache_creation x1.25 input, cache_read x0.10 input) since
         claude-sonnet-5 is the model that actually ran.
+        ⚠ CORRECTED 2026-09-05 (SPEC-127 verify + orchestrator, independently).
+        The original figure summed EVERY transcript line carrying `usage`. Claude
+        Code writes one line per CONTENT BLOCK, and lines sharing a `.message.id`
+        repeat identical input/cache_creation/cache_read, so the three static
+        fields were double-counted once per extra block. Recomputed by deduping on
+        `.message.id`, taking those three from the group and MAX output.
+        Was $29.58 / 61,879,452 tokens (1.88x over) over the same
+        265 transcript lines = 141 real API calls. See STAGE-053.
     - cycle: verify
       agent: claude-opus-5
       interface: claude-code
-      tokens_total: 13726892
+      tokens_total: 6537501
       duration_minutes: 1061
       recorded_at: 2026-08-05
       tokens_breakdown:
-        input: 237
-        output: 103164
-        cache_creation: 1434485
-        cache_read: 12189006
-      estimated_usd: 17.64
+        input: 113
+        output: 44317
+        cache_creation: 888612
+        cache_read: 5604459
+      estimated_usd: 9.46
       note: >
         MEASURED — summed .message.usage across 124 assistant messages in this
         session's own transcript (not dispatched as a subagent); every message
@@ -101,6 +109,14 @@ cost:
         reads were 88.80% of volume. Verdict: PUNCH LIST.
         Ordered BEFORE the punch-list build below: verify ran between the two
         build sessions and is what sent the spec back.
+        ⚠ CORRECTED 2026-09-05 (SPEC-127 verify + orchestrator, independently).
+        The original figure summed EVERY transcript line carrying `usage`. Claude
+        Code writes one line per CONTENT BLOCK, and lines sharing a `.message.id`
+        repeat identical input/cache_creation/cache_read, so the three static
+        fields were double-counted once per extra block. Recomputed by deduping on
+        `.message.id`, taking those three from the group and MAX output.
+        Was $17.64 / 13,726,892 tokens (1.86x over) over the same
+        124 transcript lines = 60 real API calls. See STAGE-053.
     - cycle: build
       agent: claude-sonnet-5
       interface: claude-code
@@ -126,6 +142,13 @@ cost:
         time between turns. estimated_usd priced per component at Sonnet anchors
         ($3/$15 per MTok in/out; cache_creation x1.25 input, cache_read x0.10
         input), same formula as the first build session.
+        ⚠ OVERSTATED, NOT RECOMPUTABLE (flagged 2026-09-05). This figure used the
+        naive all-lines sum corrected in STAGE-053 — every measured sibling lands
+        between 1.38x and 2.88x over, so this number is high by an unmeasured factor
+        in that band. Its transcript is no longer on disk, so no prefix reproduces
+        the recorded total and a corrected figure CANNOT be derived. Deliberately
+        left rather than scaled by an average — a fabricated precision would be
+        worse than a flagged unknown.
     - cycle: ship
       interface: claude-code
       tokens_total: null
@@ -143,9 +166,11 @@ cost:
         and the AC-5 mutation claim — it refuted two things, both fixed in
         `b9dd4ad`.
   totals:
-    tokens_total: 124561436
-    estimated_usd: 67.94
-    session_count: 5
+    # ⚠ MIXED: includes at least one session flagged OVERSTATED, NOT
+    # RECOMPUTABLE — this total is an upper bound, not a measurement.
+    tokens_total: 88553614
+    estimated_usd: 45.92
+    session_count: 3
     note: >
       Sum of the three METERED cycles: build $29.58 + verify $17.64 (Opus
       anchors) + punch-list build $20.72. Each was independently reconciled by

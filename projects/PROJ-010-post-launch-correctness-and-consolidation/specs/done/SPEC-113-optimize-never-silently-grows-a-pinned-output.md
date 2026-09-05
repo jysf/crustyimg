@@ -60,7 +60,7 @@ cost:
     - cycle: build
       agent: claude-opus-5
       interface: claude-code
-      tokens_total: 15848889
+      tokens_total: 5478043
       duration_minutes: 1109
       recorded_at: 2026-08-13
       tokens_breakdown:
@@ -68,7 +68,7 @@ cost:
         output: null
         cache_creation: null
         cache_read: null
-      estimated_usd: 20.70
+      estimated_usd: 7.20
       note: >
         ATTRIBUTED, NOT CLEANLY METERED — read this before using it in a report.
         This build never ran as a metered subagent: the implementation was written
@@ -86,6 +86,14 @@ cost:
         `cost-audit` measures something real; treat it as an upper bound.
         A memory note recorded this build as "3h/$40"; that matches neither
         measurement and is not used here.
+        ⚠ CORRECTED 2026-09-05 (SPEC-127 verify + orchestrator, independently).
+        The original figure summed EVERY transcript line carrying `usage`. Claude
+        Code writes one line per CONTENT BLOCK, and lines sharing a `.message.id`
+        repeat identical input/cache_creation/cache_read, so the three static
+        fields were double-counted once per extra block. Recomputed by deduping on
+        `.message.id`, taking those three from the group and MAX output.
+        Was $20.70 / 15,848,889 tokens (2.88x over) over the same
+        131 transcript lines = 44 real API calls. See STAGE-053.
     - cycle: verify
       agent: claude-sonnet-5
       interface: claude-code
@@ -110,6 +118,13 @@ cost:
         filled in Build Completion. A separate orchestrator-session verify pass
         then found the RAW sniff test was vacuous and fixed it; that work was
         main-loop and is not separately metered.
+        ⚠ OVERSTATED, NOT RECOMPUTABLE (flagged 2026-09-05). This figure used the
+        naive all-lines sum corrected in STAGE-053 — every measured sibling lands
+        between 1.38x and 2.88x over, so this number is high by an unmeasured factor
+        in that band. Its transcript is no longer on disk, so no prefix reproduces
+        the recorded total and a corrected figure CANNOT be derived. Deliberately
+        left rather than scaled by an average — a fabricated precision would be
+        worse than a flagged unknown.
     - cycle: ship
       interface: claude-code
       tokens_total: null
@@ -121,8 +136,10 @@ cost:
         vacuous and was rebuilt against a purpose-made fixture before merge —
         see the Correction in Build Completion and the Reflection below.
   totals:
-    tokens_total: 35103390
-    estimated_usd: 30.51
+    # ⚠ MIXED: includes at least one session flagged OVERSTATED, NOT
+    # RECOMPUTABLE — this total is an upper bound, not a measurement.
+    tokens_total: 24732544
+    estimated_usd: 17.01
     session_count: 2
 ---
 
