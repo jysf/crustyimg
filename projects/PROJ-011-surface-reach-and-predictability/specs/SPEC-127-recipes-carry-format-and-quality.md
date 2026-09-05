@@ -59,6 +59,15 @@ value_link: >
 # claude-ai | api | ollama | other.
 cost:
   sessions:
+    - cycle: design
+      interface: claude-code
+      tokens_total: null
+      duration_minutes: null
+      estimated_usd: null
+      note: >
+        Un-metered main-loop design cycle (AGENTS §4). Added 2026-09-05 — verify
+        found it missing; a null-with-note entry is required, an absent one is not
+        the same thing.
     - cycle: build
       agent: claude-sonnet-5
       interface: claude-code
@@ -238,9 +247,19 @@ Filed back to STAGE-050 as its own item by this spec's design cycle.
 - [ ] **AC-4.** **`apply` and `build` produce byte-identical output** for the same v2 recipe and
       input — the SPEC-126 property, re-asserted against the new field. This is the one that
       catches a `build` path that reads the recipe differently.
-- [ ] **AC-5.** A recipe using `format` or `quality` **without** `version = "2"` is rejected with
-      a typed error, and a `version = "2"` recipe is rejected by a binary built from `main` before
-      this spec with **`unsupported recipe version`** — the message, not just a non-zero exit.
+- [~] **AC-5.** ⚠ **First half MET, second half NOT MET — and it was unachievable as written.**
+      *Met:* a recipe using `format` or `quality` without `version = "2"` is rejected with a typed
+      error (`RecipeError::NewFieldNeedsVersion2`), covered by
+      `tests/recipe_v2.rs::new_field_without_v2_is_rejected`.
+      *Not met:* a pre-spec binary does **not** say `unsupported recipe version` for a real v2
+      recipe. `deny_unknown_fields` fires during deserialization **before** `from_toml`'s version
+      check, so a v2 recipe carrying `format` gets `TOML parse error … unknown field 'format'`.
+      The promised message appears only for a v2 recipe using **neither** new field — the case
+      where v2 buys nothing. **No change on this branch can alter what an already-released
+      0.7.0/0.7.1 binary prints**, so this criterion could not have been satisfied by any
+      implementation. The design call that rested on it is corrected in DEC-099; the version gate
+      stands on schema hygiene, not on forward-compatibility ergonomics.
+      Found by SPEC-127's verify, re-driven by the orchestrator 2026-09-05.
 - [ ] **AC-6.** The terminal `optimize` carve-out (Call 2): a bundled recipe with an explicit
       `format` **skips the auto-decision and honours the pin**; the same recipe without one still
       auto-decides and its output is **byte-identical to `main`**.
@@ -368,6 +387,13 @@ release.**
     override wins, the neither-given error, quality threading).
   - `tests/recipe_round_trip.rs` — two existing `Recipe` struct literals updated for the two new
     fields (no behavior change).
+  - `decisions/DEC-099-recipes-carry-format-and-quality.md` (new) — the decision record.
+  - `projects/.../specs/SPEC-127-recipes-carry-format-and-quality.md` — this spec's own
+    `## Build Completion`, cycle advance and cost entry.
+  - `projects/.../specs/SPEC-127-recipes-carry-format-and-quality-timeline.md` — the build mark.
+  (⚠ **Sixteen files.** The first thirteen bullets above were the whole list until 2026-09-05;
+  verify found that `git diff --name-only main` — this entry's own stated derivation — returns
+  **16**, and the three records the build itself wrote were missing from it.)
 - **Deviations from spec:** none from the settled design calls. Two judgment calls the spec left
   open (recorded in `DEC-099`, not quietly re-decided):
   - Call 3's exact "no override" spelling for `out_format` wasn't specified in the spec text beyond

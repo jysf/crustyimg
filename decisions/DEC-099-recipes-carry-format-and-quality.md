@@ -82,11 +82,28 @@ Driven on `main` at `7181eed` (0.7.1 + SPEC-126), with a recipe emitted by `edit
 
 `Recipe` was `#[serde(deny_unknown_fields)]`, so the old binary rejected any recipe carrying a
 `format` key with a TOML parse error pointing at an arbitrary line — no hint that a newer
-crustyimg was needed. The version check, given a clean recipe, already produced the right
-message. That asymmetry is what decides the version gate below: making `format`/`quality`
-optional v1 fields (`skip_serializing_if`) would have kept existing recipes serializing
-unchanged, but it is the WRONG answer — it throws away the one case (`version = "2"`) that
-already produces an actionable message, in favor of the one case that doesn't.
+crustyimg was needed.
+
+⚠ **CORRECTED 2026-09-05 by SPEC-127's verify. The row above is a CONTROL, not the scenario, and
+the design reasoning built on it was wrong.** The third row was driven with a `version = "2"`
+recipe that used **neither new field** — the one case where declaring v2 buys nothing. Re-driven
+with a *real* v2 recipe:
+
+| recipe handed to a pre-spec binary | result |
+|---|---|
+| `version = "2"` **+ `format`** (a real v2 recipe) | `TOML parse error … unknown field 'format'` |
+| `version = "2"` **+ `quality`** | same parse error |
+| `version = "2"`, neither field | `unsupported recipe version '2' (supported: 1)` ✅ |
+
+`deny_unknown_fields` fires during **deserialization, before** `from_toml`'s version check ever
+runs. So the actionable message is reachable **only** for a v2 recipe that uses neither new
+field, and **no change on this branch can make an already-released 0.7.0/0.7.1 binary say
+anything better.**
+
+**The gate still stands, on a narrower rationale:** it is schema hygiene — the *new* binary
+rejects `format` on a v1 recipe explicitly and by domain rule rather than by serde accident, and
+the version field then honestly records which schema a file uses. **The "an old binary gives an
+actionable message" benefit is not real and must not be cited again.**
 
 `apply --recipe` and `build` only agree on what "format" means as of STAGE-049 (SPEC-126,
 DEC-098): before that, adding a schema field for it would have baked a disagreement into the
@@ -96,10 +113,13 @@ schema itself. STAGE-050 unblocked this spec once that landed.
 
 ### Call 1 — the version gate
 
-- **`format`/`quality` as plain optional v1 fields.** Rejected: measured above — an old binary
-  handed a v1-plus-`format` recipe fails with a parse error at an arbitrary line, not a message
-  that says "upgrade crustyimg." A recipe is a file people commit and share, and crustyimg has two
-  shipped releases in the wild, so a forward recipe **will** meet an old binary eventually.
+- **`format`/`quality` as plain optional v1 fields.** Rejected — but ⚠ **the original reason was
+  wrong** (corrected 2026-09-05). It claimed the version gate buys a better message on an old
+  binary. It does not: a real v2 recipe carries `format`, and `deny_unknown_fields` rejects it
+  with the same parse error either way, before the version check runs. **On the message an old
+  binary emits, the two options are indistinguishable.** The gate is kept for schema hygiene —
+  an explicit domain-rule rejection in the new binary, and a version field that honestly records
+  which schema a file uses — not for forward-compatibility ergonomics.
 - **Bump `to_toml` to always emit `version = "2"`.** Rejected outright: this would strand every
   recipe currently in the wild the next time it is resaved via `--save-recipe`, and the
   correctness would look fine right up until an old binary tried to read the "upgraded" file.
@@ -218,7 +238,12 @@ STAGE-050's backlog as its own `[M]` item (splitting an L into two, per AGENTS �
   new parameter defaults to `None` at every non-recipe-aware call site, `build`'s
   `OutputFormatPlan::Preserve`/`Pinned`-via-template arms are unchanged when `recipe.format` is
   `None`, and `wasm::transform`'s `out_format` behavior for a non-empty string is unchanged.
-- **AC-9** (clean matrix): see the spec's `## Build Completion` for the per-leg outcome, plus
+- **AC-9** (clean matrix): ⚠ **the per-leg outcome this line used to point at does not exist in
+  `## Build Completion`** (corrected 2026-09-05 — a dangling pointer, found by verify). The
+  substance is covered by CI at head `a626ec0`: 16 required checks green, spanning default on
+  three OS, `avif`, `webp-lossy`, `heic`, and the lean `--no-default-features` leg, each running
+  clippy plus `fmt --check`. Verify additionally ran `fmt --check`, `clippy --all-targets` on
+  default and lean, and `just wasm-check` locally, all clean. Also
   `just wasm-check`.
 
 ### AC-7's negative controls
