@@ -60,16 +60,37 @@ value_link: >
 cost:
   sessions:
     - cycle: build
+      agent: claude-sonnet-5
       interface: claude-code
-      model: claude-sonnet-5
-      tokens_total: null
-      duration_minutes: null
-      estimated_usd: null
-      note: "metered subagent dispatched by orchestrator; real tokens_total/duration/cost to be filled in by the orchestrator from the Agent tool result per AGENTS.md §4"
+      tokens_total: 120553651
+      duration_minutes: 53.4
+      recorded_at: 2026-09-04
+      tokens_breakdown:
+        input: 508
+        output: 7116
+        cache_creation: 643816
+        cache_read: 119902211
+      estimated_usd: 38.49
+      note: >
+        MEASURED post-hoc by the orchestrator from the subagent's saved task
+        transcript (254 distinct API calls, deduped by `.message.id` — the raw
+        JSONL has 498 lines carrying `usage`, ~2 content-block lines per real
+        call, and summing without dedup would double-count), priced at Sonnet
+        anchors ($3/$15 per MTok, cache_creation x1.25, cache_read x0.10) per
+        `.message.model` (DEC-083). The build prompt did not include the
+        self-measurement instructions from `cost-snippet.md`, so the
+        orchestrator reconstructed this from the Agent tool's saved output
+        file rather than a `## Cost readout` block. ⚠ The Agent tool result's
+        own `subagent_tokens` field read 649005 — ~185x smaller than the
+        measured total, and within 0.6% of the LAST call's own cumulative
+        usage alone (645167). That strongly suggests `subagent_tokens`
+        reflects only the final turn's context snapshot, not a sum billed
+        across the session, and is not a reliable cost source for a
+        multi-turn subagent — flagged upstream, not used here.
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 120553651
+    estimated_usd: 38.49
+    session_count: 1
 ---
 
 # SPEC-127: recipes carry format and quality
