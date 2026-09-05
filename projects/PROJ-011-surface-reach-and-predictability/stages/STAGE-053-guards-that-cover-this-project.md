@@ -70,6 +70,54 @@ STAGE-050 needs answered anyway.** ⚠ **Do not treat this as blocking STAGE-049
 
 ## Spec Backlog
 
+- [ ] (not yet written) — [M] ⚡ **Every cost figure this repo has recorded is wrong, and most are
+  ~2× overstated.** Found by SPEC-127's verify 2026-09-05, independently reproduced by the
+  orchestrator on a third transcript.
+
+  **The mechanism.** Claude Code writes **one JSONL line per content block**, not per API call.
+  Lines sharing a `.message.id` carry **identical** `input` / `cache_creation` / `cache_read`;
+  only `output_tokens` grows across them (early lines are in-flight snapshots, the last is final).
+  So the naive "sum every line with `.message.usage`" method **double-counts the three static
+  fields on every multi-block call**, and the inflation factor is that session's mean
+  lines-per-call.
+
+  **The correct method:** dedup by `.message.id`; take `input`/`cache_creation`/`cache_read` from
+  any line of the group; take **max** (= last) `output_tokens`.
+
+  | figure | recorded | correct | error |
+  |---|---:|---:|---|
+  | SPEC-123 verify | $14.16 | $5.29 | 2.68× over |
+  | SPEC-126 build | $38.16 | $18.02 | 2.12× over |
+  | SPEC-126 verify | $15.64 | $9.18 | 1.70× over |
+  | SPEC-126 re-approve | $15.02 | $5.96 | 2.52× over |
+  | **SPEC-126 `cost.totals`** | **$68.82** | **$33.16** | **2.08× over** |
+  | SPEC-127 build | $38.49 | $39.63 | 0.97× **under** |
+
+  SPEC-127's build is the only cycle that deduped at all — it kept the **first** line's output
+  instead of the max, so it lands ~3 % low rather than ~2× high.
+
+  ⚠ **Two hypotheses were tested and one was refuted, so do not re-litigate it.** `cache_read` is
+  **per-call, not cumulative**: `cr[N] == cr[N−1] + cc[N−1]` holds exactly on 223/247 adjacent
+  pairs of one orchestrator transcript (the rest differ by a small positive uncached tail), and
+  the last call's `cache_read` is **148×** smaller than the session sum — cumulative would make
+  those equal. Summing per-call `cache_read` **is** correct billing.
+
+  📌 **`subagent_tokens` from the Agent tool result is a last-turn context snapshot, not a session
+  bill** — 649,005 against a real 123.9M on SPEC-127's build, and within 0.8 % of that call's own
+  context. SPEC-127's build was right to reject it. ⚠ There is a memory note claiming the reverse
+  reading; this entry is the measured one.
+
+  **Blast radius, which is why this is [M] and not [S]:** `cost.totals` on **18 shipped PROJ-010
+  specs** plus SPEC-126, `just cost-audit`, the `cost-data` CI job, `just specs-by-stage`, and both
+  reports. ⚠ **It also invalidates the two ratio-derived findings the parked cost-ledger design
+  rests on** — "verify = 37 % of build" and "complexity barely predicts cost" — because those were
+  computed across figures produced by *different* methods with *different* inflation factors, so
+  they were never comparable to each other.
+
+  **Do not silently restate the numbers.** Decide first whether shipped specs are corrected in
+  place with a note, or left with an errata record — the figures are cited in brag entries and
+  release notes that cannot be edited retroactively.
+
 - [ ] (chore) — **A wasm32 CI leg** running `just wasm-check` + `just wasm-test`. Currently filed
   as STAGE-038 item #8 and **moved here**, because it is the same thesis as this stage rather
   than housekeeping: a guard that does not run. The runner needs the `wasm32-unknown-unknown`
