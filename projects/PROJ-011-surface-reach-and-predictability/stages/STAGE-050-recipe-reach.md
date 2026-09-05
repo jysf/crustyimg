@@ -85,14 +85,25 @@ anything a recipe cannot say.
   simply a function of text width.** Driven 2026-09-03 on `main` (0.7.1 + SPEC-126), one source
   photo, `watermark --text "© crustyimg"` with no other flags:
 
-  | canvas | result |
-  |---|---|
-  | **448×448** | final **g** reaches the right edge with **no margin — the glyph is cut** |
-  | **1200×300** | identical command, text sits inside a comfortable margin |
+  ⚠ **CORRECTED 2026-09-04 by geometric measurement — the first version of this entry was WRONG.**
+  It claimed the glyph was *cut* at 448×448. It is not. The changed-pixel bounding box at 448 is
+  **168×31 at (279,417)**, so the run ends at x=446 on a 0..447 canvas: **flush, with a 1 px
+  margin, but not clipped.** I read a glyph sitting hard against the edge, in a 448 px image
+  displayed small, as a glyph that had been cut — a visual read written up with the confidence of
+  a measurement. That is the exact failure SPEC-126's ship reflection named hours earlier.
 
-  The text's measured extent at the default 32 px font is **~180 px**, taken from the wide canvas.
-  180 px should fit inside 448 px with room to spare, **and it does not** — so whatever positions
-  the run is not purely text width. Root cause not chased; the measurement is the finding.
+  **What is actually true, measured:**
+
+  | fact | evidence |
+  |---|---|
+  | The run is anchored **flush bottom-right, ~1 px margin** | bbox `TOUCHES bottom` at **every** canvas ≥128 px |
+  | The glyph run is **168×31 px**, constant | identical bbox from 192 px to 1200 px canvas |
+  | It **is** clipped when the text is wider than the canvas | 168 px bbox at x=0 touching left+right for canvases ≤168 px; first clean fit at **172 px** |
+  | The boundary is **string-dependent**, not a canvas size | on one 256 px canvas: `"©"` → 24 px bbox; `"© crustyimg"` → 168 px, fits; `"© 2026 crustyimg all rights reserved"` → 248 px, **already clipped** |
+
+  So "does it fit" is a real predicate and a **separate** one from coverage — but it cannot be
+  expressed as a canvas-size threshold, because it is a function of the RENDERED TEXT EXTENT.
+  The rule needs that extent, which the text layer already computes.
 
   ⚠ **This is a SECOND question from the coverage rule, and the damage rule must answer both.**
   "Is the watermark proportionate to the image" and "does the watermark fit inside the image" are
@@ -150,6 +161,39 @@ anything a recipe cannot say.
   **`--tile` covers the image by design**, so the coverage test cannot apply to it unmodified.
 
   **Two design inputs measured 2026-09-03, before any spec is written:**
+
+  ⚡ **THE COVERAGE CURVE IS NOW MEASURED — and ~25 % is far too permissive.** Driven 2026-09-04
+  with a geometric measure (decode both to RGBA8, count differing pixels; harness + controls in
+  the session record). **The threshold is the ruling this stage still needs, and here is the data
+  it should be ruled on:**
+
+  | canvas | coverage | canvas | coverage |
+  |---:|---:|---:|---:|
+  | 24 px | **45.31 %** | 256 px | 2.51 % |
+  | 32 px | **25.20 %** | 384 px | 1.12 % |
+  | 48 px | 17.23 % | 448 px | 0.82 % |
+  | 64 px | 13.11 % | 640 px | 0.40 % |
+  | 96 px | 9.25 % | 800 px | 0.26 % |
+  | 128 px | 7.18 % | 1200 px | 0.11 % |
+  | 192 px | 4.47 % | | |
+
+  Above the clipping boundary the glyph run is a **constant 1647 px**, so coverage is exactly
+  `glyph_area / canvas_area` — no second render needed once the extent is known.
+
+  ⚠ **The backlog's ~25 % lands at a 32 px canvas.** A 25 % rule would reject **only** 24 px and
+  32 px, and pass 48 px (17 %), 64 px (13 %) and 128 px (7 %) — all of which are visibly ruined in
+  the contact sheet. **~25 % is not a validated threshold; it is the value that happened to
+  separate the two most extreme rows of the original three-row table.** The visual read puts the
+  acceptable boundary nearer **2–5 %** (192–256 px). That gap is the ruling.
+
+  📌 **The old reference points re-derived close but all high:** 24 px 47 %→**45.3 %**,
+  64 px 16 %→**13.1 %**, 800 px 0.32 %→**0.26 %**. Right ballpark, wrong for building a rule on.
+
+  ⚡ **Consider making CLIPPING the primary damage rule instead of coverage.** It needs no
+  threshold at all — the text either fits the canvas or it does not — it is objective, and it
+  tracks the visual read better than any percentage: everything below ~170 px for the default
+  string is clipped, which is exactly the band that looks broken. Coverage would then be the
+  secondary rule for the sizes where the text fits but still dominates.
 
   ⚡ **SSIMULACRA2 is the WRONG instrument for this rule.** Driven across the same six sizes, the
   score is **not monotonic in the damage**: 24 px scores **+50.7** while 64 px scores **−82.0**,
