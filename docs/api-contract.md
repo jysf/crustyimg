@@ -473,13 +473,15 @@ stderr and exits **6** (others still written). The proof of the thesis: the same
 recipe tuned on one image runs unchanged across many. (`Operation` is not `Send`, so
 each task rebuilds its pipeline from the recipe + registry — no async, DEC-006.)
 
-**Output format (SPEC-126, DEC-015/DEC-098).** For a plain pixel recipe, `apply` resolves its
-output format the way `resize`, `thumbnail` and `watermark` do, identically **at every arity**:
-`--format` > a recognized `-o` extension (single input only — the fan-out path has no `-o`) >
+**Output format (SPEC-126, DEC-015/DEC-098; the `recipe.format` rung is SPEC-127, Call 2).** For a
+plain pixel recipe, `apply` resolves its output format the way `resize`, `thumbnail` and
+`watermark` do, identically **at every arity**: `--format` > a recognized `-o` extension (single
+input only — the fan-out path has no `-o`) > **the recipe's own `format` field, if set** >
 **preserve the source format**. A literal extension in `--name-template` does **not** pin the
 format; it names the file only. Before SPEC-126 the two arities disagreed in both directions —
 one input with no `--format` wrote PNG whatever the source was, and multiple inputs ignored
-`--format` entirely.
+`--format` entirely. Quality follows the same shape: `-q` > **the recipe's own `quality` field, if
+set** > the format's own default.
 
 ⚠ **Three single-input invocations changed exit code in SPEC-126, from `4` to `0`:** `-o -` with
 no `--format`, `-o` with a path carrying no extension, and `-o` with an unrecognised extension.
@@ -492,9 +494,18 @@ A recipe ending in the reserved terminal `optimize` step (every bundled recipe) 
 a registry op: it is stripped before `build_pipeline`, and the preceding pixel steps
 are run through the same fast AVIF-aware decision `web` uses instead of a plain
 format-preserving write — so `apply --recipe web` == the `web` verb. A pinned format
-(`--format`, or a recognized `-o` extension) skips the decision and honors the pin
-instead (`apply --recipe web hero.jpg -o hero.png` writes a real PNG, not
-AVIF-in-a-`.png`).
+(`--format`, a recognized `-o` extension, **or the recipe's own `format` field** — SPEC-127)
+skips the decision and honors the pin instead (`apply --recipe web hero.jpg -o hero.png` writes a
+real PNG, not AVIF-in-a-`.png`). A recipe that both ends in `optimize` and declares `format` is
+asking for two contradictory things (the auto-decision AND a pin); the explicit field wins and the
+decision is skipped, matching what `--format`/`-o` already do on this path.
+
+**`Recipe.format` / `Recipe.quality` (SPEC-127).** A recipe may declare its own output `format`
+(a string, resolved the same way `--format` is) and/or `quality` (0-100). Both are gated behind
+`version = "2"`: a `version = "1"` recipe that sets either is rejected with a typed error naming
+the field and the declared version — never a generic TOML parse failure — and `version = "1"`
+stays valid, unchanged, and is still what a recipe using neither field serializes as. See
+`data-model.md`'s Recipe Schema for the full field table.
 
 #### `build [FILE]`  *(SPEC-063; bundled/terminal-`optimize` recipes SPEC-111)*
 Run every `[[target]]` in a declared build manifest (default `./crustyimg.build.toml`;
@@ -511,14 +522,20 @@ suppresses progress + summary). A per-output failure is reported on stderr and e
 **6** (others still written, DEC-015); a summary of targets run + outputs written goes
 to stderr on success.
 
-**Format plan (SPEC-111):** a target whose recipe ends in the reserved terminal
-`optimize` step chooses its output format the same way `apply` does — one rule, not
-two. The target's `name` template is the pin: a template naming a **literal
+**Format plan (SPEC-111; the `recipe.format` rung is SPEC-127, Call 2):** a target whose recipe
+ends in the reserved terminal `optimize` step chooses its output format the same way `apply`
+does — one rule, not two. The target's `name` template is the pin: a template naming a **literal
 extension** (`name = "{stem}.png"`) pins that format and skips the decision, matching
 `apply --recipe web -o hero.png`; a template using **`{ext}`** (including the default
 `{stem}.{ext}`) lets the fast AVIF-aware decision choose per input, matching
-`apply --recipe web`. A plain pixel recipe (no terminal `optimize`) is unaffected —
-`build` still just preserves each input's own source format, as it always has.
+`apply --recipe web` — **unless the recipe itself declares `format`**, in which case that pins
+too (`build` has no `--format`/`-o` of its own — DEC-098 — so the template and the recipe's
+`format` are its only two ways to pin; the template wins when both are present). A plain pixel
+recipe (no terminal `optimize`) is likewise pinned by its own `format`, if set; otherwise `build`
+preserves each input's own source format, as it always has. **Quality:** the global `-q` (if
+given) applies uniformly to every target in the build, exactly as before; a target's
+`recipe.quality`, if set, applies only when `-q` is absent — so it is the only way to give one
+target a different quality than another in the same build.
 
 Unlike `apply`, `build` **overwrites its own declared outputs without `--yes`** — a build
 owns its `out` tree and must be re-runnable (DEC-057); the sink still refuses

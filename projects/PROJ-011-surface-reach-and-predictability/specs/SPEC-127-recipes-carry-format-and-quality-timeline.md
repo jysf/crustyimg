@@ -25,7 +25,13 @@ Cycle prompts live in `prompts/SPEC-127-<cycle>.md`.
       ⚠ Driving the Context table through `| head` first reported `exit=0` on all three rows —
       the pipe's code, not the binary's. Redirected and re-read; the prompt carries the warning.
 
-- [ ] **build** — prompt: `prompts/SPEC-127-build.md` (2026-09-04). **Sonnet**, own worktree,
+- [x] **build** — 2026-09-04. PR #188 (`feat/spec-127-recipe-format-quality` → `main`), head
+      `b4a7d63`, CI 16/16 green, mergeable/clean. All 9 ACs met (AC-7's per-condition reverts and
+      AC-8's two-binary byte-identical corpus both driven, not assumed); DEC-099 filed with
+      block-list `affected_scope`. $38.49, 120,553,651 tokens, 53.4 min (measured post-hoc by the
+      orchestrator from the subagent's saved transcript — the dispatch prompt omitted the
+      self-measurement snippet). Cycle advanced to `verify`.
+      prompt: `prompts/SPEC-127-build.md` (2026-09-04). **Sonnet**, own worktree,
       branch `feat/spec-127-recipe-format-quality`. **DEC-099 reserved in the prompt** —
       `next_id` scans only the working tree and has collided here before, and the prompt requires
       the **block-list** `affected_scope` form because the audit silently drops inline arrays.

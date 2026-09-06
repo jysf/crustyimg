@@ -204,6 +204,75 @@ op = "identity"
         );
     }
 
+    // ── SPEC-127, Call 3: `recipe.format`/`recipe.quality` on `transform` ─────
+
+    /// An empty `out_format` (the same "no override" sentinel `optimize`/
+    /// `optimize_detailed` already use in this module) defers to the recipe's
+    /// own `format` — the wasm twin of `apply`'s `recipe.format` rung.
+    #[wasm_bindgen_test]
+    fn transform_falls_back_to_recipe_format_when_out_format_empty() {
+        let src = png_64x48();
+        let recipe = "version = \"2\"\nformat = \"jpeg\"\n\n[[step]]\nop = \"identity\"\n";
+
+        let out = transform(&src, recipe, "").expect("empty out_format should defer to recipe");
+        assert_eq!(&out[..2], &[0xFF, 0xD8], "jpeg magic bytes");
+        assert_eq!(
+            info(&out).expect("output should decode").format(),
+            "jpeg",
+            "recipe.format must have been honoured"
+        );
+    }
+
+    /// `out_format` is the CLI-flag equivalent and WINS over `recipe.format` —
+    /// the same ranking `apply`'s `--format` follows over `recipe.format`.
+    #[wasm_bindgen_test]
+    fn transform_out_format_wins_over_recipe_format() {
+        let src = png_64x48();
+        let recipe = "version = \"2\"\nformat = \"jpeg\"\n\n[[step]]\nop = \"identity\"\n";
+
+        let out = transform(&src, recipe, "png").expect("explicit out_format should win");
+        assert_eq!(&out[..8], b"\x89PNG\r\n\x1a\n", "png magic bytes, not jpeg");
+        assert_eq!(info(&out).expect("output should decode").format(), "png");
+    }
+
+    /// Neither an explicit `out_format` nor a recipe `format`: there is no
+    /// format to encode to at all, so this is a typed error, not a guess.
+    #[wasm_bindgen_test]
+    fn transform_errors_when_neither_format_is_given() {
+        let src = png_64x48();
+
+        let err = transform(&src, IDENTITY_RECIPE, "")
+            .expect_err("no out_format and no recipe.format must be an Err, not a guess");
+        let msg = format!("{:?}", wasm_bindgen::JsValue::from(err));
+        assert!(!msg.is_empty(), "the error must carry a message");
+
+        // The module survives — a later ordinary call still succeeds.
+        let ok = transform(&src, IDENTITY_RECIPE, "png").expect("module must survive");
+        assert!(!ok.is_empty());
+    }
+
+    /// `recipe.quality`, when set, reaches the encoder — the RETURNED BYTES
+    /// equal an independent encode at that same quality, not merely a
+    /// plausible-looking success (the standard this file holds every
+    /// quality-threading claim to, e.g. `wasm_default_avif_quality_is_web_fast_quality`
+    /// below).
+    #[wasm_bindgen_test]
+    fn transform_honours_recipe_quality() {
+        let src = photo_1800x1200();
+        let recipe =
+            "version = \"2\"\nformat = \"jpeg\"\nquality = 40\n\n[[step]]\nop = \"identity\"\n";
+
+        let out = transform(&src, recipe, "").expect("v2 recipe with quality should transform");
+
+        let img = crustyimg::image::Image::from_bytes(&src).expect("fixture decodes");
+        let expected = crustyimg::sink::encode_to_bytes(&img, ::image::ImageFormat::Jpeg, Some(40))
+            .expect("independent q40 encode");
+        assert_eq!(
+            out, expected,
+            "recipe.quality must actually reach the encoder, not just parse"
+        );
+    }
+
     /// AC-3, the trap: a strip that removed the WHOLE recipe (or ran no pixel
     /// steps) would still pass AC-1 and AC-2 — same success, same format. Only
     /// asserting the DIMENSIONS actually changed catches it. `product`'s bound

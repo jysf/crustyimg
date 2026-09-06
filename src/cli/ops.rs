@@ -177,21 +177,30 @@ fn resize_params(
     ))
 }
 
-/// Decide the output `ImageFormat` for one input (DEC-015):
+/// Decide the output `ImageFormat` for one input (DEC-015, extended by
+/// SPEC-127 Call 2):
 ///   1. `--format FMT`       → that format (force; FMT via resolve_format).
 ///   2. else `-o <path>` ext → inferred from the path extension.
-///   3. else                 → PRESERVE the input's source_format().
+///   3. else `recipe.format` → the recipe's own pin, if any (SPEC-127).
+///   4. else                 → PRESERVE the input's source_format().
 ///
 /// An unrecognized `--format` is a typed `SinkError` (exit 4) surfaced via
 /// `resolve_format`. An unrecognized `-o` extension is `SinkError` (exit 4).
+/// An unrecognized `recipe_format` string is likewise a typed `SinkError`,
+/// but ONLY reached when rungs 1-2 are both absent (matching how a `-o`
+/// extension pin already short-circuits past whatever `recipe.format` says,
+/// unvalidated, when it wins).
 ///
 /// `pub(super)` (SPEC-126): `apply`'s single-input path (`optimize::run_apply`)
 /// reuses this exact resolution rather than the `Sink::Dir`
 /// default-to-PNG fallback it used to fall through to — so `apply` at one
 /// input resolves format identically to `resize`/`thumbnail`/`watermark`.
+/// Those three callers (via `run_pixel_op`, below) have no recipe at all and
+/// pass `recipe_format: None`, leaving rungs 1/2/4 exactly as before SPEC-127.
 pub(super) fn output_format_for(
     global: &GlobalArgs,
     output_path: Option<&Path>,
+    recipe_format: Option<&str>,
     source_format: ::image::ImageFormat,
 ) -> Result<::image::ImageFormat, CliError> {
     // 1. Explicit --format wins.
@@ -208,7 +217,13 @@ pub(super) fn output_format_for(
         // rather than erroring — consistent with single-input behavior.
     }
 
-    // 3. Preserve source format.
+    // 3. The recipe's own `format` (SPEC-127, Call 2): a default the file
+    // carries, beaten by anything more specific/immediate above.
+    if let Some(fmt) = resolve_format(recipe_format)? {
+        return Ok(fmt);
+    }
+
+    // 4. Preserve source format.
     Ok(source_format)
 }
 
@@ -357,7 +372,9 @@ pub(super) fn run_pixel_op(
         let output_path = global.output.as_ref().map(|s| Path::new(s.as_str()));
         let fmt = match forced_format {
             Some(f) => f,
-            None => output_format_for(global, output_path, img.source_format())?,
+            // No recipe on this path (`resize`/`thumbnail`/`watermark`/`edit`/
+            // `auto-orient` build their pipeline directly from CLI flags).
+            None => output_format_for(global, output_path, None, img.source_format())?,
         };
 
         // Build the sink with the resolved format.
@@ -454,7 +471,8 @@ pub(super) fn run_pixel_op(
                 // Per-input format resolution (DEC-015): forced_format wins if Some; no -o path in fan-out.
                 let fmt = match forced_format {
                     Some(f) => f,
-                    None => output_format_for(global, None, img.source_format())?,
+                    // No recipe on this path either — see the single-input branch above.
+                    None => output_format_for(global, None, None, img.source_format())?,
                 };
 
                 let sink = Sink::Dir {
@@ -1411,6 +1429,7 @@ mod tests {
         let result = output_format_for(
             &global,
             Some(Path::new("/x/a.jpg")),
+            None,
             ::image::ImageFormat::Jpeg,
         )
         .unwrap();
@@ -1427,6 +1446,7 @@ mod tests {
         let result = output_format_for(
             &global,
             Some(Path::new("/x/a.png")),
+            None,
             ::image::ImageFormat::Jpeg,
         )
         .unwrap();
@@ -1440,11 +1460,54 @@ mod tests {
     #[test]
     fn output_format_for_preserves_source() {
         let global = make_global(None);
-        let result = output_format_for(&global, None, ::image::ImageFormat::Jpeg).unwrap();
+        let result = output_format_for(&global, None, None, ::image::ImageFormat::Jpeg).unwrap();
         assert_eq!(
             result,
             ::image::ImageFormat::Jpeg,
             "source format should be preserved when no override"
+        );
+    }
+
+    // ── SPEC-127: recipe.format is a new rung between -o ext and preserve ────
+
+    #[test]
+    fn output_format_for_recipe_format_beats_preserve() {
+        let global = make_global(None);
+        let result =
+            output_format_for(&global, None, Some("webp"), ::image::ImageFormat::Jpeg).unwrap();
+        assert_eq!(
+            result,
+            ::image::ImageFormat::WebP,
+            "recipe.format must beat preserve-source when nothing higher-ranked is set"
+        );
+    }
+
+    #[test]
+    fn output_format_for_o_ext_beats_recipe_format() {
+        let global = make_global(None);
+        let result = output_format_for(
+            &global,
+            Some(Path::new("/x/a.png")),
+            Some("webp"),
+            ::image::ImageFormat::Jpeg,
+        )
+        .unwrap();
+        assert_eq!(
+            result,
+            ::image::ImageFormat::Png,
+            "-o's recognized extension must beat recipe.format"
+        );
+    }
+
+    #[test]
+    fn output_format_for_cli_flag_beats_recipe_format() {
+        let global = make_global(Some("png"));
+        let result =
+            output_format_for(&global, None, Some("webp"), ::image::ImageFormat::Jpeg).unwrap();
+        assert_eq!(
+            result,
+            ::image::ImageFormat::Png,
+            "--format must beat recipe.format"
         );
     }
 

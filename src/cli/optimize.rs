@@ -64,17 +64,27 @@ pub(super) fn run_apply(
         let registry = OperationRegistry::with_builtins();
         let pipeline = pixel_recipe.build_pipeline(&registry)?;
 
-        // A pinned format (`--format` or a recognized `-o` extension) is an explicit
+        // A pinned format (`--format`, a recognized `-o` extension, or the
+        // recipe's own `format` — SPEC-127 Call 2's carve-out) is an explicit
         // override: honor it and skip the auto-decision (and the score), exactly like
         // the `web`/`optimize` verbs do. Without this diversion the terminal-`optimize`
         // path would auto-decide to AVIF and write those bytes to a `.png` path — so
         // `apply --recipe web hero.jpg -o hero.png` must match `web hero.jpg -o hero.png`
-        // (a real PNG of the downscaled image, not AVIF-in-a-`.png`).
-        let pinned = resolve_format(global.format.as_deref())?.is_some()
-            || global.output.as_deref().is_some_and(|o| {
-                o != "-" && crate::sink::format_from_extension(Path::new(o)).is_ok()
-            });
-        if pinned {
+        // (a real PNG of the downscaled image, not AVIF-in-a-`.png`). A recipe that
+        // both ends in `optimize` and declares `format` is asking for two
+        // contradictory things (the auto-decision AND a pin) — the explicit field
+        // wins and the decision is skipped, matching what `--format`/`-o` already do
+        // here (DEC-087). Ranked exactly like `ops::output_format_for`: the CLI
+        // flag beats a recognized `-o` extension beats `recipe.format`.
+        let cli_pin = resolve_format(global.format.as_deref())?.or_else(|| {
+            global
+                .output
+                .as_deref()
+                .filter(|o| *o != "-")
+                .and_then(|o| crate::sink::format_from_extension(Path::new(o)).ok())
+        });
+        let pinned_format = cli_pin.or(resolve_format(recipe.format.as_deref())?);
+        if let Some(fmt) = pinned_format {
             // No auto-decision to report on the pinned path (SPEC-088).
             reject_audit_without_autodecide(json, timing)?;
             return run_pixel_op(
@@ -82,7 +92,11 @@ pub(super) fn run_apply(
                 inputs,
                 global,
                 None,
-                None,
+                // Forced uniformly (not left to `run_pixel_op`'s own per-input
+                // resolution) so a recipe.format-only pin applies at every
+                // arity, including the N-input fan-out where there is no `-o`
+                // to re-derive it from.
+                Some(fmt),
                 Some(AutoQuality::Fast),
                 // Out of scope for SPEC-113: only `optimize`'s own pinned branch
                 // gets the never-bigger guard (the terminal-`optimize` `apply`
@@ -144,26 +158,30 @@ pub(super) fn run_apply(
             crate::source::Input::Stdin { bytes, .. } => Image::from_bytes(bytes)?,
         };
         // Captured before `pipeline.run` consumes `img` — DEC-015's per-input
-        // resolution (SPEC-126, Call 1): `--format` > `-o` ext > PRESERVE the
-        // source format. The same rule `resize`/`thumbnail`/`watermark` already
-        // use (`output_format_for`), reused here rather than reimplemented — it
-        // is what stops `apply` at one input from falling through to
-        // `Sink::Dir`'s own default-to-PNG (or `Sink::Stdout`'s `UnknownFormat`).
+        // resolution (SPEC-126 Call 1, widened by SPEC-127 Call 2): `--format` >
+        // `-o` ext > `recipe.format` > PRESERVE the source format. The same rule
+        // `resize`/`thumbnail`/`watermark` already use (`output_format_for`),
+        // reused here rather than reimplemented — it is what stops `apply` at
+        // one input from falling through to `Sink::Dir`'s own default-to-PNG
+        // (or `Sink::Stdout`'s `UnknownFormat`).
         let source_format = img.source_format();
         let pipeline = recipe.build_pipeline(&registry)?;
         let out_img = pipeline.run(img)?;
         let output_path = global.output.as_deref().map(Path::new);
-        let fmt = output_format_for(global, output_path, source_format)?;
+        let fmt = output_format_for(global, output_path, recipe.format.as_deref(), source_format)?;
         let sink = build_sink(global, fmt);
         let sink_input = SinkInput {
             stem: input.stem(),
             path: input.path(),
         };
+        // Quality precedence (SPEC-127, Call 2): `-q` > `recipe.quality` > the
+        // format's own default.
+        let quality = global.quality.or(recipe.quality);
         sink.write(
             &out_img,
             &sink_input,
             overwrite,
-            global.quality,
+            quality,
             &mut std::io::stdout().lock(),
         )?;
         return Ok(());
@@ -178,15 +196,21 @@ pub(super) fn run_apply(
         .unwrap_or_else(|| "{stem}.{ext}".to_owned());
     let total = all.len();
 
-    // SPEC-126, Call 2: resolve `--format` ONCE, uniformly, for the whole
-    // batch — `apply` has no `-o` in the fan-out path, so there is no
-    // per-input path extension to consider (mirrors `run_pixel_op`'s own
-    // multi-input resolution, `ops.rs`). `Some(fmt)` when `--format` was
-    // given: honoured at every arity now, not just one input. `None`
-    // preserves each input's own source format via `encode_one`'s existing
-    // fallback — this was ALREADY correct; the bug was that nothing upstream
-    // of it ever passed the resolved `--format` through.
-    let format_override = resolve_format(global.format.as_deref())?;
+    // SPEC-126, Call 2 (widened by SPEC-127, Call 2): resolve `--format` >
+    // `recipe.format` ONCE, uniformly, for the whole batch — `apply` has no
+    // `-o` in the fan-out path, so there is no per-input path extension to
+    // consider (mirrors `run_pixel_op`'s own multi-input resolution,
+    // `ops.rs`). `Some(fmt)` when `--format` was given, or else `recipe.format`:
+    // honoured at every arity now, not just one input. `None` preserves each
+    // input's own source format via `encode_one`'s existing fallback.
+    let format_override = match resolve_format(global.format.as_deref())? {
+        Some(fmt) => Some(fmt),
+        None => resolve_format(recipe.format.as_deref())?,
+    };
+    // Quality precedence (SPEC-127, Call 2): `-q` > `recipe.quality` > the
+    // format's own default. Resolved once for the whole batch, same reasoning
+    // as `format_override` above.
+    let quality = global.quality.or(recipe.quality);
 
     // Build indicatif progress bar on stderr (hidden when --quiet or non-TTY).
     let bar = if global.quiet {
@@ -216,7 +240,7 @@ pub(super) fn run_apply(
                         &out_dir,
                         &template,
                         overwrite,
-                        global.quality,
+                        quality,
                     );
                     if let Err(ref e) = r {
                         let label = match input {
@@ -241,7 +265,7 @@ pub(super) fn run_apply(
                     &out_dir,
                     &template,
                     overwrite,
-                    global.quality,
+                    quality,
                 );
                 if let Err(ref e) = r {
                     let label = match input {

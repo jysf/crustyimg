@@ -161,6 +161,8 @@ mod tests {
                 "Downscale to 2048px, modernize (AVIF/lossless-WebP), and score (size reported honestly)."
                     .to_string(),
             ),
+            format: None,
+            quality: None,
             steps: vec![
                 RecipeStep {
                     op: "auto-orient".to_string(),

@@ -44,6 +44,8 @@ classDiagram
     }
     class Recipe {
         +String version
+        +Option~String~ format
+        +Option~u8~ quality
         +Vec~RecipeStep~ steps
     }
     class RecipeStep {
@@ -130,12 +132,27 @@ in each `[[step]]` table are that operation's params.
 
 | Key | Type | Required | Description |
 |---|---|---|---|
-| `version` | string | yes | Recipe schema version, e.g. `"1"`. Lets the loader reject incompatible recipes. |
+| `version` | string | yes | Recipe schema version: `"1"` or `"2"`. Lets the loader reject incompatible recipes. |
 | `name` | string | no | Human label for the recipe. |
 | `description` | string | no | Free text. |
+| `format` | string | no | Output format to encode to (e.g. `"png"`, `"jpeg"`, `"webp"`, `"avif"`), resolved the same way `--format` is. **Requires `version = "2"`** (SPEC-127) — a `"1"` recipe that sets this is rejected with a typed error naming the field and the declared version, not a generic parse failure. |
+| `quality` | integer (0-100) | no | Output encoder quality, where the resolved format supports one. Same `version = "2"` gate as `format`. |
 | `[[step]]` | array of tables | yes (≥1) | Ordered operations. |
 | `step.op` | string | yes | Operation registry name. |
 | `step.<param>` | per-op | per-op | Parameters for that operation. |
+
+**`format`/`quality` precedence (SPEC-127, Call 2), extending DEC-015's chain:**
+`--format` (`apply` only) > a recognized `-o` extension (`apply`, single input only) >
+**`recipe.format`** > preserve the source format. Quality: `-q` > **`recipe.quality`** > the
+format's own default. `build` has neither `--format` nor `-o`/`-q` per-target (DEC-098), so
+`recipe.format`/`recipe.quality` are its only way to vary either per target; the global `-q`, when
+given, still applies uniformly across every target. A recipe ending in the reserved terminal
+`optimize` step (below) that ALSO declares `format` skips the auto-decision entirely — the
+explicit field wins, matching what a `--format`/`-o` pin already does on that path.
+
+⚠ **A recipe using neither `format` nor `quality` keeps serializing as `version = "1"`** —
+`to_toml` never bumps the version on its own. Emitting `"2"` unconditionally would strand every
+recipe already in the wild the next time it is re-saved.
 
 ### Worked example — `web.toml`
 
@@ -255,6 +272,10 @@ if no out-dir). Templates may not contain path separators that escape
 - New operations are additive: they register a new `name`; old recipes are
   unaffected. Removing or renaming an op is a breaking change and must bump
   the recipe `version` and ship a migration note.
+- **`version = "2"` (SPEC-127)** is additive in the same sense: it exists
+  solely to gate `format`/`quality`, two fields a `"1"` recipe cannot use. A
+  `"1"` recipe that never touches them is untouched by this change and keeps
+  serializing as `"1"`.
 
 ## Data Lifecycle
 

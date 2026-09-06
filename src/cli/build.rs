@@ -14,7 +14,9 @@ use crate::recipe::{split_terminal_optimize, Recipe};
 use crate::sink::Overwrite;
 use crate::source::{self, SourceError};
 
-use super::common::{encode_one, load_recipe, write_encoded, BATCH_PROGRESS_TEMPLATE};
+use super::common::{
+    encode_one, load_recipe, resolve_format, write_encoded, BATCH_PROGRESS_TEMPLATE,
+};
 use super::optimize::encode_one_optimize_decided;
 use super::{CliError, GlobalArgs};
 
@@ -26,16 +28,24 @@ use super::{CliError, GlobalArgs};
 /// target's inputs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum OutputFormatPlan {
-    /// No terminal `optimize` step: [`encode_one`] preserves each input's own
-    /// source format, exactly as `build` has always done (AC-6).
+    /// No terminal `optimize` step, and the recipe declares no `format`:
+    /// [`encode_one`] preserves each input's own source format, exactly as
+    /// `build` has always done (AC-6).
     Preserve,
-    /// A terminal `optimize` step + a literal-extension name template
-    /// (`name = "{stem}.png"`): the pin wins over the auto-decision, matching
-    /// `apply --recipe web -o hero.png` (AC-3).
+    /// Either: a terminal `optimize` step + a literal-extension name template
+    /// (`name = "{stem}.png"`), where the pin wins over the auto-decision,
+    /// matching `apply --recipe web -o hero.png` (AC-3); OR (SPEC-127, Call 2)
+    /// a recipe — terminal-`optimize` or plain — that declares its own
+    /// `format`, which pins exactly the same way. `build` has no `--format`/
+    /// `-o` (those are `apply`-only, DEC-098), so a literal template extension
+    /// and `recipe.format` are its only two ways to pin; the template wins
+    /// when both are present, matching `apply`'s `-o` ext > `recipe.format`
+    /// ranking.
     Pinned(::image::ImageFormat),
     /// A terminal `optimize` step + `{ext}` in the name template (including
-    /// the default `{stem}.{ext}`): the fast AVIF-aware decision picks the
-    /// format per input, matching `apply --recipe web` (AC-2).
+    /// the default `{stem}.{ext}`) + no recipe `format`: the fast AVIF-aware
+    /// decision picks the format per input, matching `apply --recipe web`
+    /// (AC-2).
     Decide,
 }
 
@@ -173,10 +183,37 @@ fn prepare_target<'a>(
     // recipe here is exactly the SPEC-111 bug (`unknown operation
     // 'optimize'`). Strip it first (reusing `run_apply`'s own helper, not a
     // copy) and resolve how this target's format is chosen from its name
-    // template (decision 1).
+    // template (decision 1) — widened by SPEC-127 Call 2 to also let the
+    // recipe's own `format` pin, `build`'s only other format rung (no
+    // `--format`/`-o` here, DEC-098).
     let (recipe, format_plan) = match split_terminal_optimize(&loaded) {
-        Some(pixel_recipe) => (pixel_recipe, target_format_plan(target.template())?),
-        None => (loaded, OutputFormatPlan::Preserve),
+        Some(pixel_recipe) => {
+            // The template's literal extension is build's twin of `apply`'s
+            // `-o` pin (DEC-087) and wins when it ALSO pins; only when the
+            // template defers (`{ext}`) does `recipe.format` get a say — the
+            // terminal-`optimize` carve-out (SPEC-127, Call 2): a recipe that
+            // both ends in `optimize` and declares `format` skips the
+            // auto-decision, matching what a `--format`/`-o` pin already does
+            // on `apply`'s twin path.
+            let plan = match target_format_plan(target.template())? {
+                OutputFormatPlan::Decide => match resolve_format(pixel_recipe.format.as_deref())? {
+                    Some(fmt) => OutputFormatPlan::Pinned(fmt),
+                    None => OutputFormatPlan::Decide,
+                },
+                pinned => pinned,
+            };
+            (pixel_recipe, plan)
+        }
+        None => {
+            // A plain pixel recipe (no terminal `optimize`): `recipe.format`,
+            // if set, pins; otherwise each input's source format is preserved
+            // exactly as before (SPEC-127, Call 2).
+            let plan = match resolve_format(loaded.format.as_deref())? {
+                Some(fmt) => OutputFormatPlan::Pinned(fmt),
+                None => OutputFormatPlan::Preserve,
+            };
+            (loaded, plan)
+        }
     };
     recipe.build_pipeline(registry)?;
     let recipe_hash = target_recipe_hash(&recipe, format_plan)?;
@@ -403,7 +440,14 @@ fn build_one(
     // also what lets a hit restore an output the user deleted.
     let overwrite = Overwrite::Allow;
 
-    let key = cache_key_for(prepared, input, ctx.quality)?;
+    // Quality precedence (SPEC-127, Call 2): `-q` (global, if any) > this
+    // target's `recipe.quality` — the same ranking `apply` follows. Resolved
+    // per target (not once for the whole build) because `quality` lives on
+    // each TARGET's own recipe, and different targets can declare different
+    // values.
+    let quality = ctx.quality.or(prepared.recipe.quality);
+
+    let key = cache_key_for(prepared, input, quality)?;
 
     if let (Some(cache), Some(key)) = (ctx.cache, key.as_ref()) {
         if let Ok(Some(hit)) = cache.lookup(key) {
@@ -423,18 +467,12 @@ fn build_one(
     // per target at prepare time (`format_plan`), applied here per input.
     let (ext, bytes): (String, Vec<u8>) = match prepared.format_plan {
         OutputFormatPlan::Preserve => {
-            let (ext, bytes) =
-                encode_one(&prepared.recipe, ctx.registry, input, None, ctx.quality)?;
+            let (ext, bytes) = encode_one(&prepared.recipe, ctx.registry, input, None, quality)?;
             (ext.to_owned(), bytes)
         }
         OutputFormatPlan::Pinned(fmt) => {
-            let (ext, bytes) = encode_one(
-                &prepared.recipe,
-                ctx.registry,
-                input,
-                Some(fmt),
-                ctx.quality,
-            )?;
+            let (ext, bytes) =
+                encode_one(&prepared.recipe, ctx.registry, input, Some(fmt), quality)?;
             (ext.to_owned(), bytes)
         }
         OutputFormatPlan::Decide => {

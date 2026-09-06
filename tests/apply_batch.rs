@@ -914,6 +914,232 @@ fn apply_output_flags_agree() {
     );
 }
 
+// ─── SPEC-127: recipe.format / recipe.quality ────────────────────────────────
+
+/// A v2 recipe naming `format = "png"`, no pixel steps beyond identity —
+/// isolates the format rung from anything else the recipe does.
+const V2_PNG_FORMAT_RECIPE: &str = r#"
+version = "2"
+format = "png"
+
+[[step]]
+op = "identity"
+"#;
+
+/// `apply --recipe` (no `--format`) must honour `recipe.format` at ONE input
+/// — AC-2's single-input half. Driven from a JPEG source so "the output is
+/// PNG" cannot be coincidence of the source format.
+///
+/// Split from a combined every-arity test (per SPEC-126's own re-approve
+/// finding, restated in this spec's Failing Tests): a revert of the
+/// multi-input resolution must not kill the single-input assertion too.
+#[test]
+fn apply_honours_recipe_format_at_one_input() {
+    let dir = TempDir::new().unwrap();
+    let recipe = write_recipe(&dir, "r.toml", V2_PNG_FORMAT_RECIPE);
+    let src = write_jpeg(&dir, "one.jpg", 16, 16);
+    let out_dir = dir.path().join("out");
+    std::fs::create_dir_all(&out_dir).unwrap();
+
+    let output = Command::new(BIN)
+        .args([
+            "apply",
+            "--recipe",
+            recipe.to_str().unwrap(),
+            src.to_str().unwrap(),
+            "--out-dir",
+            out_dir.to_str().unwrap(),
+            "-y",
+        ])
+        .output()
+        .expect("failed to run apply 1-input recipe.format");
+    assert!(
+        output.status.success(),
+        "exit 0 expected; stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let bytes = std::fs::read(out_dir.join("one.png")).expect("one.png must be written");
+    assert_eq!(
+        image::guess_format(&bytes).expect("must sniff a known format"),
+        ImageFormat::Png,
+        "1 input: recipe.format must be honoured with no --format flag"
+    );
+}
+
+/// Same, at N inputs (AC-2's multi-input half) — the arm SPEC-126 found
+/// silently ignoring `--format`; recipe.format threads through the same
+/// call site (`format_override`, resolved once for the batch), so it needs
+/// its own control.
+#[test]
+fn apply_honours_recipe_format_at_n_inputs() {
+    let dir = TempDir::new().unwrap();
+    let recipe = write_recipe(&dir, "r.toml", V2_PNG_FORMAT_RECIPE);
+    let a = write_jpeg(&dir, "a.jpg", 16, 16);
+    let b = write_jpeg(&dir, "b.jpg", 16, 16);
+    let out_dir = dir.path().join("out");
+    std::fs::create_dir_all(&out_dir).unwrap();
+
+    let output = Command::new(BIN)
+        .args([
+            "apply",
+            "--recipe",
+            recipe.to_str().unwrap(),
+            a.to_str().unwrap(),
+            b.to_str().unwrap(),
+            "--out-dir",
+            out_dir.to_str().unwrap(),
+            "-y",
+        ])
+        .output()
+        .expect("failed to run apply N-input recipe.format");
+    assert!(
+        output.status.success(),
+        "exit 0 expected; stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    for name in ["a.png", "b.png"] {
+        let bytes = std::fs::read(out_dir.join(name))
+            .unwrap_or_else(|e| panic!("{name} must be written: {e}"));
+        assert_eq!(
+            image::guess_format(&bytes).expect("must sniff a known format"),
+            ImageFormat::Png,
+            "N inputs: recipe.format must be honoured for {name}"
+        );
+    }
+}
+
+/// AC-3: `--format` overrides `recipe.format` — the CLI flag beats the
+/// recipe's own default, in both directions of the chain. Driven at 1 input;
+/// the multi-input override path shares `apply_honours_format_at_multi_input`'s
+/// existing coverage of `--format` itself and needs no separate arity split
+/// (unlike AC-2, there is no "silently ignored" history to guard against here
+/// — `--format` already won at both arities before this spec; only the NEW
+/// rung, recipe.format, needed the per-arity split above).
+#[test]
+fn cli_format_overrides_recipe_format() {
+    let dir = TempDir::new().unwrap();
+    // The recipe pins png; --format jpeg must win instead.
+    let recipe = write_recipe(&dir, "r.toml", V2_PNG_FORMAT_RECIPE);
+    let src = write_jpeg(&dir, "in.jpg", 16, 16);
+    let out_dir = dir.path().join("out");
+    std::fs::create_dir_all(&out_dir).unwrap();
+
+    let output = Command::new(BIN)
+        .args([
+            "apply",
+            "--recipe",
+            recipe.to_str().unwrap(),
+            src.to_str().unwrap(),
+            "--format",
+            "jpeg",
+            "--out-dir",
+            out_dir.to_str().unwrap(),
+            "-y",
+        ])
+        .output()
+        .expect("failed to run apply --format over recipe.format");
+    assert!(
+        output.status.success(),
+        "exit 0 expected; stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let bytes = std::fs::read(out_dir.join("in.jpg")).expect("in.jpg must be written");
+    assert_eq!(
+        image::guess_format(&bytes).expect("must sniff a known format"),
+        ImageFormat::Jpeg,
+        "--format jpeg must override recipe.format = \"png\""
+    );
+}
+
+/// AC-4, re-asserted against a v2 recipe: `apply` and `build` must produce
+/// byte-identical output for the same recipe (declaring BOTH `format` and
+/// `quality`) and the same input, with no CLI overrides anywhere. This is the
+/// test that catches a `build` path reading the recipe's new fields
+/// differently from `apply` — both must resolve to the exact same encode.
+#[test]
+fn apply_and_build_agree_on_v2_recipe() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    let recipe_toml = r#"
+version = "2"
+format = "jpeg"
+quality = 55
+
+[[step]]
+op = "resize"
+mode = "max"
+width = 16
+"#;
+    std::fs::write(root.join("r.toml"), recipe_toml).unwrap();
+    // A PNG source, so the recipe's format pin is what changes the container
+    // (not source preservation coinciding with the pin by luck).
+    let img = image::RgbImage::from_pixel(32, 32, image::Rgb([10u8, 20u8, 30u8]));
+    let mut buf = Cursor::new(Vec::new());
+    DynamicImage::ImageRgb8(img)
+        .write_to(&mut buf, ImageFormat::Png)
+        .unwrap();
+    std::fs::write(root.join("in.png"), buf.into_inner()).unwrap();
+
+    let apply_out = root.join("apply_out");
+    std::fs::create_dir_all(&apply_out).unwrap();
+    let apply_output = Command::new(BIN)
+        .args([
+            "apply",
+            "--recipe",
+            "r.toml",
+            "in.png",
+            "--out-dir",
+            "apply_out",
+            "-y",
+        ])
+        .current_dir(root)
+        .output()
+        .expect("failed to run apply");
+    assert!(
+        apply_output.status.success(),
+        "apply exit 0 expected; stderr: {}",
+        String::from_utf8_lossy(&apply_output.stderr)
+    );
+
+    std::fs::write(
+        root.join("crustyimg.build.toml"),
+        br#"
+version = 1
+
+[[target]]
+source = "in.png"
+recipe = "r.toml"
+out = "build_out"
+"#,
+    )
+    .unwrap();
+    let build_output = Command::new(BIN)
+        .arg("build")
+        .current_dir(root)
+        .output()
+        .expect("failed to run build");
+    assert!(
+        build_output.status.success(),
+        "build exit 0 expected; stderr: {}",
+        String::from_utf8_lossy(&build_output.stderr)
+    );
+
+    // The recipe pins jpeg, so both outputs must be named/encoded as jpeg.
+    let apply_bytes = std::fs::read(apply_out.join("in.jpg")).expect("apply output must exist");
+    let build_bytes =
+        std::fs::read(root.join("build_out").join("in.jpg")).expect("build output must exist");
+    assert_eq!(
+        image::guess_format(&apply_bytes).expect("apply output must sniff as a known format"),
+        ImageFormat::Jpeg,
+        "apply must have honoured recipe.format = \"jpeg\""
+    );
+    assert_eq!(
+        apply_bytes, build_bytes,
+        "apply and build must produce byte-identical output for the same v2 \
+         recipe (format + quality) and input"
+    );
+}
+
 /// Write a tiny gradient RGB JPEG directly to `root/name` (no tempdir
 /// wrapper) — used by tests that need `build`'s relative-path resolution
 /// (DEC-057), which requires the CWD to be the manifest root.
