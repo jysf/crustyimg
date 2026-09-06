@@ -1200,8 +1200,7 @@ mod tests {
         let registry = OperationRegistry::with_builtins();
         let recipe = Recipe::from_toml("version = \"1\"\n").expect("empty recipe parses");
 
-        let preserved =
-            target_recipe_hash(&recipe, OutputFormatPlan::Preserve, &registry).unwrap();
+        let preserved = target_recipe_hash(&recipe, OutputFormatPlan::Preserve, &registry).unwrap();
         let pinned_png = target_recipe_hash(
             &recipe,
             OutputFormatPlan::Pinned(::image::ImageFormat::Png),
@@ -1258,8 +1257,7 @@ mod tests {
     #[test]
     fn target_recipe_hash_changes_when_resolved_asset_bytes_change() {
         let registry = OperationRegistry::with_builtins();
-        let recipe_toml =
-            "version = \"1\"\n\n[[step]]\nop = \"watermark\"\nimage = \"logo.png\"\n";
+        let recipe_toml = "version = \"1\"\n\n[[step]]\nop = \"watermark\"\nimage = \"logo.png\"\n";
 
         let unresolved = Recipe::from_toml(recipe_toml).unwrap();
         let hash_unresolved =

@@ -172,7 +172,11 @@ fn build_rebuilds_when_overlay_bytes_change() {
     let dir = image_watermark_project();
     let root = dir.path();
 
-    assert_eq!(build_ok(root, &[]), (0, 2), "a cold build rebuilds everything");
+    assert_eq!(
+        build_ok(root, &[]),
+        (0, 2),
+        "a cold build rebuilds everything"
+    );
     let a_before = std::fs::read(root.join("dist/a.png")).unwrap();
     let b_before = std::fs::read(root.join("dist/b.png")).unwrap();
 
@@ -233,7 +237,11 @@ fn build_rebuilds_when_font_bytes_change() {
     let dir = font_watermark_project(font_v1);
     let root = dir.path();
 
-    assert_eq!(build_ok(root, &[]), (0, 2), "a cold build rebuilds everything");
+    assert_eq!(
+        build_ok(root, &[]),
+        (0, 2),
+        "a cold build rebuilds everything"
+    );
 
     let mut font_v2 = font_v1.to_vec();
     font_v2.push(0);
