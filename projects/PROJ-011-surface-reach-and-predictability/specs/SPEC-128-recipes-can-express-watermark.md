@@ -70,16 +70,18 @@ cost:
     - cycle: build
       agent: claude-sonnet-5
       interface: claude-code
-      tokens_total: 74887145
-      estimated_usd: 26.72
+      tokens_total: 123802069
+      estimated_usd: 42.29
       duration_minutes: null
-      recorded_at: 2026-09-05
+      recorded_at: 2026-09-06
       notes: >
         Interactive session (not an orchestrated Agent call), measured from the session's own
-        transcript JSONL, deduped by `.message.id` (217 unique ids), taking input/cache_creation/
+        transcript JSONL, deduped by `.message.id` (308 unique ids), taking input/cache_creation/
         cache_read from the group and MAX output_tokens per id (summing every line over-counts;
         the first line's output under-counts). Priced by component at Sonnet $3/$15 per MTok,
-        cache_creation x1.25, cache_read x0.10 — never a flat rate on tokens_total.
+        cache_creation x1.25, cache_read x0.10 — never a flat rate on tokens_total. Includes the
+        post-PR CI-failure investigation (DCO sign-off amend + a real wasm bundle-size regression
+        this spec caused, both fixed on the branch before this figure was recorded).
   totals:
     tokens_total: 0
     estimated_usd: 0
