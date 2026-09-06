@@ -140,6 +140,34 @@ The wasm surface has no filesystem. Silently dropping the watermark step would b
 outcome — the caller gets an unwatermarked image and no signal. ⚠ Refuse with a typed error naming
 the step and the asset. Supplying assets over the wasm boundary is **explicitly out of scope**.
 
+### Call 3b — ⚡ text mode's `params()` is WRONG today and must change
+
+Found while checking what a watermark step would actually look like in TOML. `watermark_overlay`
+(`src/cli/ops.rs:1220-1262`) returns the rendered pixels **plus a label**, and for `--text` **the
+label is the text itself** (`Ok((… , text.to_owned()))`). `Watermark::params()` then writes that
+label under the key **`image`**.
+
+So a text watermark serialises today as:
+
+```toml
+[[step]]
+op = "watermark"
+image = "© crustyimg"      # ← the TEXT, in the field that means FILE PATH
+```
+
+Round-tripping that would try to **load a file named after the text**. It has never mattered
+because watermark is unregistered and no recipe could carry it — this spec is what makes it matter.
+
+**Rule: the two modes get distinct, non-overlapping keys.** Image mode keeps `image = "<path>"`.
+Text mode emits `text`, plus `font` (path, optional — the bundled default when absent), `size` and
+`color`, and **must not emit `image` at all**. A step carrying both, or neither, is a typed
+`InvalidOperation` at build-pipeline time — the same XOR the CLI already enforces between
+`--image` and `--text`.
+
+⚠ **`Watermark` must therefore carry enough to round-trip text mode**, which its current fields
+cannot: `overlay_path: String` is a single slot doing double duty. Widening that struct is part of
+this spec, not a follow-up.
+
 ### Call 4 — this spec registers WATERMARK ONLY; the LUT op is a design constraint, not a deliverable
 
 STAGE-050 already says the seam must be designed knowing a second customer exists. It must not be
@@ -150,7 +178,12 @@ in a test **without changing the seam** — a fixture op, not the real LUT.
 
 - [ ] **AC-1.** A recipe with a `watermark` step (image mode) round-trips losslessly —
       `from_toml(to_toml(r)) == r` — and the emitted TOML contains the **path**, never overlay bytes.
-- [ ] **AC-2.** The same for text mode (`text`, `font`, `size`, `color` + placement).
+- [ ] **AC-2.** The same for text mode — emitting `text`/`font`/`size`/`color` + placement, and
+      **never `image`** (Call 3b). ⚠ Assert the round-tripped step still renders the same pixels,
+      not merely that the TOML parses: today `params()` puts the TEXT under `image`, so a test that
+      only checks parseability would pass on the broken behaviour.
+- [ ] **AC-2b.** A `watermark` step carrying **both** `image` and `text`, or **neither**, is a
+      typed error at build-pipeline time — matching the CLI's existing XOR.
 - [ ] **AC-3.** `apply --recipe` with a watermark step produces **byte-identical** output to the
       equivalent `watermark` CLI invocation, at **1 input and at N inputs**, as two tests.
 - [ ] **AC-4.** `apply` and `build` agree byte-for-byte on the same watermark recipe (the SPEC-126
@@ -178,7 +211,9 @@ in a test **without changing the seam** — a fixture op, not the real LUT.
 Written at design, made to pass at build. **All confirmed RED against `main` first**, baseline recorded.
 
 - `tests/recipe_watermark.rs::watermark_recipe_round_trips_with_path_not_bytes` — AC-1, the guard.
-- `tests/recipe_watermark.rs::text_watermark_recipe_round_trips` — AC-2.
+- `tests/recipe_watermark.rs::text_watermark_round_trips_without_an_image_key` — AC-2, the
+  guard on Call 3b's defect.
+- `tests/recipe_watermark.rs::watermark_step_requires_exactly_one_source` — AC-2b.
 - `tests/recipe_watermark.rs::missing_overlay_fails_before_any_output` — AC-5.
 - `tests/apply_batch.rs::apply_watermark_recipe_matches_cli_at_one_input` — AC-3.
 - `tests/apply_batch.rs::apply_watermark_recipe_matches_cli_at_n_inputs` — AC-3, second arity.

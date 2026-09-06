@@ -23,6 +23,13 @@ Cycle prompts live in `prompts/SPEC-128-<cycle>.md`.
       bytes), and the decided `.cube` LUT op. That is why it is a seam. **Call 4 keeps LUT a design
       constraint, not a deliverable**, and AC-7 enforces it: a second asset-bearing op must register
       in a test *without changing the seam*.
+      ⚡ **Call 3b was found by asking what the TOML would actually look like** — text mode's
+      `params()` is wrong today. `watermark_overlay` returns the rendered pixels plus a label, and
+      for `--text` the label **is the text**, which `params()` then writes under the key `image`.
+      A text watermark serialises as `image = "© crustyimg"` — the text in the field that means
+      file path — so a round-trip would try to load a file by that name. It has never mattered
+      because watermark is unregistered; this spec is what makes it matter. The two modes now get
+      distinct, non-overlapping keys, and `Watermark`'s single `overlay_path` slot has to widen.
       ⚠ **Highest-consequence line: the loaded bytes must never round-trip into the params.**
       `to_toml` emits the path, never the bytes — same shape as SPEC-127's
       `to_toml`-must-emit-`"1"` guard, and it has its own test.

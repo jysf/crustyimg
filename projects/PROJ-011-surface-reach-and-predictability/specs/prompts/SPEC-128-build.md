@@ -52,6 +52,22 @@ becomes enormous and `from_toml(to_toml(r)) == r` breaks. This is the same shape
 `to_toml`-must-emit-`"1"` guard and it is the highest-consequence line here.
 `watermark_recipe_round_trips_with_path_not_bytes` is that test.
 
+### 1b — ⚡ Text mode's `params()` is WRONG today; fixing it is in scope
+
+`watermark_overlay` (`src/cli/ops.rs:1220-1262`) returns the overlay pixels **plus a label**, and
+for `--text` that label **is the text**. `Watermark::params()` writes it under the key **`image`**
+— the field that means *file path*. Nothing has broken because watermark is unregistered; this
+spec is what makes it break.
+
+Give the two modes **distinct, non-overlapping keys**: image mode keeps `image = "<path>"`; text
+mode emits `text`, `font` (optional), `size`, `color`, and **must not emit `image`**. `Watermark`'s
+single `overlay_path: String` slot cannot express both — **widening that struct is part of this
+spec, not a follow-up.** A step with both sources, or neither, is a typed error at build-pipeline
+time, matching the CLI's existing XOR.
+
+⚠ **AC-2 asserts the round-tripped step renders the same PIXELS**, not merely that the TOML parses
+— a parseability-only test passes on today's broken behaviour.
+
 ### 2 — `apply` and `build` must use the SAME resolver
 
 Two paths resolving the same thing separately is exactly how they drifted before SPEC-126. One
