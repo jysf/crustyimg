@@ -33,6 +33,7 @@ affected_scope:
   - src/wasm.rs
   - docs/api-contract.md
   - docs/data-model.md
+  - scripts/lib/wasm-artifact.mjs
 
 tags:
   - recipe
@@ -164,6 +165,13 @@ but unscheduled STAGE-050 backlog item) to register through it with no further c
   `crate::text` is itself file-free and already wasm32-safe, so this does not reopen the filesystem
   question DEC-064/AGENTS §11 protect; `src/operation/**` still has zero `std::fs`/`Image::load` calls
   (AC-8, `just wasm-check` green).
+- **The wasm bundle grew: `WASM_BROTLI_BASELINE` moved 1,144,921 → 1,266,535 B brotli (+10.6%),
+  measured by CI, not chosen.** `crate::text` (`skrifa`, `zeno`, the bundled `Go-Regular.ttf`) was
+  previously reachable only from `cli::ops.rs` (native-only) — registering `watermark` in
+  `with_builtins()`, the ONE constructor set both native and wasm use, is what pulls it into the
+  `.wasm` for the first time. This is the real, necessary cost of a text-only watermark (no `font`
+  key) running on the wasm surface with zero asset resolution — not a regression to chase down. Moved
+  in `scripts/lib/wasm-artifact.mjs`, same pattern SPEC-122/DEC-095 used the other direction.
 
 ## Validation
 

@@ -330,6 +330,10 @@ not cut a release.**
   - `tests/apply_batch.rs` — three new tests (AC-3 ×2 arities, AC-4).
   - `tests/wasm_roundtrip.rs` — two new tests (AC-6: the refusal itself, and a text-only step that
     needs no resolution and must still run).
+  - `scripts/lib/wasm-artifact.mjs` — `WASM_BROTLI_BASELINE` moved 1,144,921 → 1,266,535 B (CI-measured,
+    +10.6%): registering `watermark` pulls `crate::text`/`skrifa`/`zeno`/the bundled font into the
+    `.wasm` for the first time (CI's "build + browser smoke" gate caught this; not anticipated by any
+    design call — see the reflection below).
   - `decisions/DEC-100-watermark-registers-via-resolve-at-io-boundary-seam.md` (new) — the decision
     record.
   - `projects/.../specs/SPEC-128-recipes-can-express-watermark.md` — this spec's own
@@ -368,13 +372,24 @@ not cut a release.**
    spec text alone doesn't pin it down.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — No. DEC-031 and DEC-064 were exactly what was needed; STAGE-050's backlog entry naming the
-   `.cube` LUT op as the seam's second customer directly motivated AC-7's shape (a fixture, not the
-   real op).
+   — Yes, one real miss, caught by CI rather than by me: DEC-066's wasm bundle-size gate
+   (`WASM_BROTLI_BASELINE`, `scripts/lib/wasm-artifact.mjs`) isn't referenced by SPEC-128, DEC-031, or
+   DEC-064 anywhere, and none of AC-8/AC-11 (the wasm-related ACs) name it — they only require
+   `just wasm-check` (compiles) and `just wasm-test` (passes), neither of which measures bundle size.
+   Registering `watermark` in `with_builtins()` pulls `crate::text`/`skrifa`/`zeno`/the bundled font
+   into the wasm build for the first time (needed so a text-only watermark runs on wasm with zero
+   asset resolution), which is a real +10.6% brotli regression against the committed baseline — caught
+   by the PR's "build + browser smoke" CI job, not by anything in the local matrix this spec's ACs
+   asked for. Fixed by moving the baseline deliberately (same pattern SPEC-122/DEC-095 used), but the
+   spec should have named this check as part of its own verification surface.
 
 3. **If you did this task again, what would you do differently?**
-   — Nothing structural. I'd write `transform_refuses_asset_bearing_recipe`'s STRONGER assertion (the
-   dedicated-wording check) on the first pass instead of tightening it after noticing, mid-AC-9, that
-   the weaker version couldn't discriminate Call 3's revert from the constructor's own fallback error
-   — a smaller version of the same "a claim that a test isn't vacuous needs driving too" lesson this
-   repo has hit before.
+   — Run `just demo-build` (or check `scripts/lib/wasm-artifact.mjs`'s baseline) locally before
+   opening the PR, not after CI's "build + browser smoke" job failed on it — the AC-11 matrix as
+   written (`wasm-check` + `wasm-test`) doesn't cover bundle size at all, and this repo has a
+   documented, deliberate-move convention for exactly this gate (DEC-095/SPEC-122) that I should have
+   anticipated applying to my own change. Separately, I'd write `transform_refuses_asset_bearing_recipe`'s
+   STRONGER assertion (the dedicated-wording check) on the first pass instead of tightening it after
+   noticing, mid-AC-9, that the weaker version couldn't discriminate Call 3's revert from the
+   constructor's own fallback error — a smaller version of the same "a claim that a test isn't vacuous
+   needs driving too" lesson this repo has hit before.

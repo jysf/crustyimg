@@ -41,7 +41,19 @@ export const WASM_NAME_SECTION_MAX = 4_096;
 // The floor still does its job. A lean build — the thing point 3 below exists
 // to catch — measures 865_980 B brotli, which is 20.4% below the new floor of
 // 1_087_675 B, so a missing AVIF encoder still trips it with room to spare.
-export const WASM_BROTLI_BASELINE = 1_144_921;
+//
+// Moved 1_144_921 -> 1_266_535 by SPEC-128 (2026-09-06), deliberately and
+// upward. `watermark` is now registered in `OperationRegistry::with_builtins()`
+// (DEC-100) — the ONE constructor set both native and wasm use — and a
+// text-mode watermark with no `font` key must run on the wasm surface with no
+// asset resolution at all (the bundled default font, compiled in). That is
+// only possible if the text-rendering stack (`crate::text`, `skrifa`, `zeno`,
+// the bundled Go-Regular.ttf) is linked into the .wasm, which it was not
+// before this spec — `crate::text` was previously reachable only from
+// `cli::ops.rs` (native-only). +121_614 B brotli (+10.6%) is the real,
+// deliberate cost of that capability, not a regression to chase down.
+// CI-measured (the number the gate itself reported, PR #189).
+export const WASM_BROTLI_BASELINE = 1_266_535;
 export const WASM_BROTLI_TOLERANCE = 0.05;
 export const WASM_BROTLI_MAX = Math.round(WASM_BROTLI_BASELINE * (1 + WASM_BROTLI_TOLERANCE));
 export const WASM_BROTLI_MIN = Math.round(WASM_BROTLI_BASELINE * (1 - WASM_BROTLI_TOLERANCE));
