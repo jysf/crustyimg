@@ -54,15 +54,15 @@ cost:
     - cycle: build
       agent: claude-sonnet-5
       interface: claude-code
-      tokens_total: 162602599
+      tokens_total: 89964179
       duration_minutes: 88
       recorded_at: 2026-08-21
       tokens_breakdown:
-        input: 1006
-        output: 402893
-        cache_creation: 879629
-        cache_read: 161319071
-      estimated_usd: 57.74
+        input: 562
+        output: 207301
+        cache_creation: 466341
+        cache_read: 89289975
+      estimated_usd: 31.65
       note: >
         MEASURED — full-session transcript sum over all 503 assistant messages
         with usage (session c900b43d-a96a-4a41-8d08-2d2d7dce4d62), first→last
@@ -81,18 +81,25 @@ cost:
         `implementer` correction. Includes reading CI to completion after push
         (one long background wait via `gh pr checks --watch`, read once after
         settling, not polled).
+        ⚠ CORRECTED 2026-09-05 (SPEC-127 verify + orchestrator, independently).
+        The original summed EVERY transcript line carrying `usage`. Claude Code writes
+        one line per CONTENT BLOCK; lines sharing a `.message.id` repeat identical
+        input/cache_creation/cache_read, so those three were double-counted once per
+        extra block. Recomputed by deduping on `.message.id` — those three taken from
+        the group, output taken as MAX. Was $57.74 / 162,602,599 (1.82x over) across
+        the same 503 transcript lines = 281 real API calls. See STAGE-053.
     - cycle: verify
       agent: claude-opus-5
       interface: claude-code
-      tokens_total: 19002473
+      tokens_total: 9773993
       duration_minutes: 68
       recorded_at: 2026-08-21
       tokens_breakdown:
-        input: 268
-        output: 146418
-        cache_creation: 379214
-        cache_read: 18476573
-      estimated_usd: 15.27
+        input: 140
+        output: 67911
+        cache_creation: 186090
+        cache_read: 9519852
+      estimated_usd: 7.62
       note: >
         MEASURED — full-session transcript sum over all 136 usage-bearing
         assistant messages (session 016c54b7-f9d9-4ac2-8f72-4723216092b5;
@@ -103,6 +110,13 @@ cost:
         is the first cycle in this project to anticipate the undercount rather
         than fall into it. Orchestrator re-derived: delta +1,479,700 tokens /
         +$1.53. Verify at 26% of build cost returned a 5-item punch list.
+        ⚠ CORRECTED 2026-09-05 (SPEC-127 verify + orchestrator, independently).
+        The original summed EVERY transcript line carrying `usage`. Claude Code writes
+        one line per CONTENT BLOCK; lines sharing a `.message.id` repeat identical
+        input/cache_creation/cache_read, so those three were double-counted once per
+        extra block. Recomputed by deduping on `.message.id` — those three taken from
+        the group, output taken as MAX. Was $15.27 / 19,002,473 (2.00x over) across
+        the same 136 transcript lines = 72 real API calls. See STAGE-053.
     - cycle: ship
       interface: claude-code
       tokens_total: null
@@ -113,8 +127,8 @@ cost:
         re-derivation, totals, archive. Null-with-note is the sanctioned form
         for design/ship; build and verify above are both MEASURED.
   totals:
-    tokens_total: 181605072
-    estimated_usd: 73.01
+    tokens_total: 99738172
+    estimated_usd: 39.27
     session_count: 4  # design + build + verify + ship
 ---
 

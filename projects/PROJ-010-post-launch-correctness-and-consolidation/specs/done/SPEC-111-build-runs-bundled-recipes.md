@@ -61,15 +61,15 @@ cost:
     - cycle: build
       agent: claude-sonnet-5
       interface: claude-code
-      tokens_total: 144391578
+      tokens_total: 74613896
       duration_minutes: 1390.9
       recorded_at: 2026-08-08
       tokens_breakdown:
-        input: 886
-        output: 370380
-        cache_creation: 2339485
-        cache_read: 141680827
-      estimated_usd: 56.84
+        input: 462
+        output: 183060
+        cache_creation: 1217865
+        cache_read: 73212509
+      estimated_usd: 29.28
       note: >
         MEASURED — transcript sum over 443 assistant messages
         (~/.claude/projects/-Users-jyashinsky-PSeven-experiments-crustimg-redo-plus-crustyimg/e5a13298-502b-4c30-af59-4f49967d5398.jsonl),
@@ -78,18 +78,25 @@ cost:
         transcript timestamp delta (18:42 2026-08-07 -> 17:53 2026-08-08) and
         includes wall-clock gaps waiting on 3 sequential fresh-target-dir
         matrix rebuilds plus a session boundary — not continuous active work.
+        ⚠ CORRECTED 2026-09-05 (SPEC-127 verify + orchestrator, independently).
+        The original summed EVERY transcript line carrying `usage`. Claude Code writes
+        one line per CONTENT BLOCK; lines sharing a `.message.id` repeat identical
+        input/cache_creation/cache_read, so those three were double-counted once per
+        extra block. Recomputed by deduping on `.message.id` — those three taken from
+        the group, output taken as MAX. Was $56.84 / 144,391,578 (1.94x over) across
+        the same 443 transcript lines = 231 real API calls. See STAGE-053.
     - cycle: verify
       agent: claude-opus-5
       interface: claude-code
-      tokens_total: 16786988
+      tokens_total: 7920453
       duration_minutes: 192.4
       recorded_at: 2026-08-08
       tokens_breakdown:
-        input: 225
-        output: 143041
-        cache_creation: 465150
-        cache_read: 16178572
-      estimated_usd: 14.57
+        input: 103
+        output: 62724
+        cache_creation: 189605
+        cache_read: 7668021
+      estimated_usd: 6.59
       note: >
         MEASURED — transcript sum over 121 assistant messages, every
         `.message.model` = claude-opus-5, priced at Opus anchors ($5/$25 per
@@ -103,18 +110,25 @@ cost:
         included (same convention as prior cycles).
         Ordered BEFORE the punch-list build below: verify ran between the two
         build sessions and is what sent the spec back.
+        ⚠ CORRECTED 2026-09-05 (SPEC-127 verify + orchestrator, independently).
+        The original summed EVERY transcript line carrying `usage`. Claude Code writes
+        one line per CONTENT BLOCK; lines sharing a `.message.id` repeat identical
+        input/cache_creation/cache_read, so those three were double-counted once per
+        extra block. Recomputed by deduping on `.message.id` — those three taken from
+        the group, output taken as MAX. Was $14.57 / 16,786,988 (2.21x over) across
+        the same 121 transcript lines = 55 real API calls. See STAGE-053.
     - cycle: build
       agent: claude-sonnet-5
       interface: claude-code
-      tokens_total: 35393900
+      tokens_total: 18584813
       duration_minutes: 274.2
       recorded_at: 2026-08-09
       tokens_breakdown:
-        input: 514
-        output: 142989
-        cache_creation: 380974
-        cache_read: 34869423
-      estimated_usd: 14.04
+        input: 272
+        output: 70607
+        cache_creation: 172168
+        cache_read: 18341766
+      estimated_usd: 7.21
       note: >
         Second build session — the PUNCH LIST pass (record accuracy only, no
         behaviour change), on the same branch/PR. MEASURED — transcript sum
@@ -125,6 +139,13 @@ cost:
         (02:43 -> 07:17 UTC, 2026-08-09) and includes wall-clock gaps waiting
         on two rounds of full-matrix GitHub Actions CI (12 legs each) to
         settle after two pushes — not continuous active work.
+        ⚠ CORRECTED 2026-09-05 (SPEC-127 verify + orchestrator, independently).
+        The original summed EVERY transcript line carrying `usage`. Claude Code writes
+        one line per CONTENT BLOCK; lines sharing a `.message.id` repeat identical
+        input/cache_creation/cache_read, so those three were double-counted once per
+        extra block. Recomputed by deduping on `.message.id` — those three taken from
+        the group, output taken as MAX. Was $14.04 / 35,393,900 (1.95x over) across
+        the same 257 transcript lines = 136 real API calls. See STAGE-053.
     - cycle: ship
       interface: claude-code
       tokens_total: null
@@ -139,8 +160,8 @@ cost:
         prompt asked a fix session to correct a file that lives on `main`
         rather than on its branch, which should have been a separate PR.
   totals:
-    tokens_total: 196572466
-    estimated_usd: 85.45
+    tokens_total: 101119162
+    estimated_usd: 43.08
     session_count: 5
     note: >
       Sum of the three METERED cycles: build $56.84 + verify $14.57 (Opus

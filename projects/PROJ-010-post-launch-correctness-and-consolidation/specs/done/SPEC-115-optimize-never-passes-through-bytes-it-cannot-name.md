@@ -88,6 +88,12 @@ cost:
         `avif-parse` itself blocks the predicted construction) both ran well past
         the checkpoint; a `wip(SPEC-115):` commit landed at the 90-minute mark
         with the SVG family green, not a hard stop.
+        ⚠ OVERSTATED, NOT RECOMPUTABLE (flagged 2026-09-05). Produced by the naive
+        all-lines sum corrected in STAGE-053. Every recomputable sibling lands between
+        1.38x and 2.88x over, so this is high by an unmeasured factor in that band. Its
+        transcript is no longer on disk — no prefix reproduces the recorded total, so no
+        corrected figure can be derived. Left flagged rather than scaled by an average:
+        a fabricated precision would be worse than a stated unknown.
     - cycle: verify
       agent: claude-opus-5
       interface: claude-code
@@ -114,6 +120,12 @@ cost:
         minutes of wall clock (fresh per-leg target dirs, sequential, as
         AC-12 requires), and the per-family negative controls were re-driven
         from scratch rather than taken on the build's word.
+        ⚠ OVERSTATED, NOT RECOMPUTABLE (flagged 2026-09-05). Produced by the naive
+        all-lines sum corrected in STAGE-053. Every recomputable sibling lands between
+        1.38x and 2.88x over, so this is high by an unmeasured factor in that band. Its
+        transcript is no longer on disk — no prefix reproduces the recorded total, so no
+        corrected figure can be derived. Left flagged rather than scaled by an average:
+        a fabricated precision would be worse than a stated unknown.
     - cycle: ship
       interface: claude-code
       tokens_total: null
@@ -122,6 +134,8 @@ cost:
       note: >
         Main-loop orchestrator work, not separately metered (AGENTS §4).
   totals:
+    # ⚠ MIXED: includes a session flagged OVERSTATED, NOT RECOMPUTABLE —
+    # this total is an upper bound, not a measurement.
     tokens_total: 113895671
     estimated_usd: 47.80
     # Non-null (metered) sessions only — build + verify — matching SPEC-112's

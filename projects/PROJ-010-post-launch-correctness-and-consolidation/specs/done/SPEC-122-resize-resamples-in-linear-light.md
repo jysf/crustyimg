@@ -51,15 +51,15 @@ cost:
     - cycle: build
       agent: claude-opus-5
       interface: claude-code
-      tokens_total: 182177233
+      tokens_total: 135830332
       duration_minutes: 66
       recorded_at: 2026-08-18
       tokens_breakdown:
-        input: 1216
-        output: 354963
-        cache_creation: 662926
-        cache_read: 181158128
-      estimated_usd: 103.60
+        input: 862
+        output: 199445
+        cache_creation: 382594
+        cache_read: 135247431
+      estimated_usd: 75.01
       note: >
         MEASURED — transcript sum over 608 assistant messages, priced per
         component at OPUS anchors ($5/$25 per MTok; cache_creation x1.25 input,
@@ -72,18 +72,25 @@ cost:
         of volume, so every poll re-read the whole accumulated context.
         SPEC-123 measured this hazard at $5.80; here it was an order of
         magnitude worse and is the single largest line item in the spec.
+        ⚠ CORRECTED 2026-09-05 (SPEC-127 verify + orchestrator, independently).
+        The original summed EVERY transcript line carrying `usage`. Claude Code writes
+        one line per CONTENT BLOCK; lines sharing a `.message.id` repeat identical
+        input/cache_creation/cache_read, so those three were double-counted once per
+        extra block. Recomputed by deduping on `.message.id` — those three taken from
+        the group, output taken as MAX. Was $103.60 / 182,177,233 (1.38x over) across
+        the same 608 transcript lines = 431 real API calls. See STAGE-053.
     - cycle: build
       agent: claude-opus-5
       interface: claude-code
-      tokens_total: 28526492
+      tokens_total: 17043158
       duration_minutes: 27
       recorded_at: 2026-08-20
       tokens_breakdown:
-        input: 390
-        output: 161232
-        cache_creation: 343905
-        cache_read: 28020965
-      estimated_usd: 20.19
+        input: 230
+        output: 83057
+        cache_creation: 195348
+        cache_read: 16764523
+      estimated_usd: 11.68
       note: >
         MEASURED — punch-list return cycle (verify returned ⚠ PUNCH LIST on
         PR #182; five items). Transcript sum over 195 assistant messages
@@ -103,18 +110,25 @@ cost:
         on the committed code) and four release builds for the memory arms.
         ⚠ No `verify` entry exists in this list: the verify cycle that produced
         the punch list did not append one — the same gap SPEC-121 flagged.
+        ⚠ CORRECTED 2026-09-05 (SPEC-127 verify + orchestrator, independently).
+        The original summed EVERY transcript line carrying `usage`. Claude Code writes
+        one line per CONTENT BLOCK; lines sharing a `.message.id` repeat identical
+        input/cache_creation/cache_read, so those three were double-counted once per
+        extra block. Recomputed by deduping on `.message.id` — those three taken from
+        the group, output taken as MAX. Was $20.19 / 28,526,492 (1.73x over) across
+        the same 195 transcript lines = 115 real API calls. See STAGE-053.
     - cycle: verify
       agent: claude-opus-5
       interface: claude-code
-      tokens_total: 21844228
+      tokens_total: 12743516
       duration_minutes: 19
       recorded_at: 2026-08-18
       tokens_breakdown:
-        input: 298
-        output: 117727
-        cache_creation: 349904
-        cache_read: 21376299
-      estimated_usd: 15.82
+        input: 172
+        output: 62735
+        cache_creation: 186985
+        cache_read: 12493624
+      estimated_usd: 8.98
       note: >
         MEASURED — transcript sum over 149 assistant messages, Opus anchors
         ($5/$25 per MTok; cache_creation ×1.25 input, cache_read ×0.10 input).
@@ -126,6 +140,13 @@ cost:
         OFF still read `max alpha err 27`, so alpha never enters that
         round-trip. 12% of this spec's spend; the second wave running where the
         cheapest cycle returned the most.
+        ⚠ CORRECTED 2026-09-05 (SPEC-127 verify + orchestrator, independently).
+        The original summed EVERY transcript line carrying `usage`. Claude Code writes
+        one line per CONTENT BLOCK; lines sharing a `.message.id` repeat identical
+        input/cache_creation/cache_read, so those three were double-counted once per
+        extra block. Recomputed by deduping on `.message.id` — those three taken from
+        the group, output taken as MAX. Was $15.82 / 21,844,228 (1.76x over) across
+        the same 149 transcript lines = 86 real API calls. See STAGE-053.
     - cycle: ship
       interface: claude-code
       tokens_total: null
@@ -139,8 +160,8 @@ cost:
         reading, so $20.19 may under-state by roughly the 9.5% SPEC-121
         measured. Recorded as observed rather than adjusted upward by guess.
   totals:
-    tokens_total: 232547953
-    estimated_usd: 139.61
+    tokens_total: 165617006
+    estimated_usd: 95.67
     session_count: 5
 ---
 

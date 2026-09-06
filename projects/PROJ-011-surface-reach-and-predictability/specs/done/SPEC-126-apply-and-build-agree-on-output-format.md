@@ -53,15 +53,15 @@ cost:
     - cycle: build
       agent: claude-sonnet-5
       interface: claude-code
-      tokens_total: 105258757
+      tokens_total: 50219356
       duration_minutes: 60.8
       recorded_at: 2026-08-23
       tokens_breakdown:
-        input: 762
-        output: 262007
-        cache_creation: 789890
-        cache_read: 104206098
-      estimated_usd: 38.16
+        input: 368
+        output: 118306
+        cache_creation: 353003
+        cache_read: 49747679
+      estimated_usd: 18.02
       note: >
         MEASURED — summed from the session transcript's per-message `usage`
         (381 messages), priced at Sonnet anchors ($3/$15 per MTok,
@@ -70,6 +70,13 @@ cost:
         "almost done" point — an earlier mid-build reading of $30.30
         under-reported by ~26%, matching this repo's own measured pattern
         for readings taken before CI settles.
+        ⚠ CORRECTED 2026-09-05 (SPEC-127 verify + orchestrator, independently).
+        The original summed EVERY transcript line carrying `usage`. Claude Code writes
+        one line per CONTENT BLOCK; lines sharing a `.message.id` repeat identical
+        input/cache_creation/cache_read, so those three were double-counted once per
+        extra block. Recomputed by deduping on `.message.id` — those three taken from
+        the group, output taken as MAX. Was $38.16 / 105,258,757 (2.12x over) across
+        the same 381 transcript lines = 184 real API calls. See STAGE-053.
     - cycle: verify
       agent: claude-opus-5
       interface: claude-code
@@ -92,6 +99,12 @@ cost:
         the messages that write its own cost block. 41% of the build's cost;
         returned a 7-item punch list, 2 unnamed behaviour changes and a
         pre-existing tooling defect.
+        ⚠ OVERSTATED, NOT RECOMPUTABLE (flagged 2026-09-05). Produced by the naive
+        all-lines sum corrected in STAGE-053. Every recomputable sibling lands between
+        1.38x and 2.88x over, so this is high by an unmeasured factor in that band. Its
+        transcript is no longer on disk — no prefix reproduces the recorded total, so no
+        corrected figure can be derived. Left flagged rather than scaled by an average:
+        a fabricated precision would be worse than a stated unknown.
     - cycle: re-approve
       agent: claude-opus-5
       interface: claude-code
@@ -115,6 +128,12 @@ cost:
         (two decisions claimed blind to the decisions-audit parser, only
         DEC-015 actually is), a false universal in `docs/api-contract.md`, and
         a file list stale by its own stated derivation.
+        ⚠ OVERSTATED, NOT RECOMPUTABLE (flagged 2026-09-05). Produced by the naive
+        all-lines sum corrected in STAGE-053. Every recomputable sibling lands between
+        1.38x and 2.88x over, so this is high by an unmeasured factor in that band. Its
+        transcript is no longer on disk — no prefix reproduces the recorded total, so no
+        corrected figure can be derived. Left flagged rather than scaled by an average:
+        a fabricated precision would be worse than a stated unknown.
     - cycle: ship
       interface: claude-code
       tokens_total: null
@@ -124,8 +143,10 @@ cost:
         Un-metered main-loop ship cycle (AGENTS §4) — merge, reflection,
         totals, archive.
   totals:
-    tokens_total: 147088502
-    estimated_usd: 68.82
+    # ⚠ MIXED: includes a session flagged OVERSTATED, NOT RECOMPUTABLE —
+    # this total is an upper bound, not a measurement.
+    tokens_total: 92049101
+    estimated_usd: 48.68
     session_count: 3
 ---
 

@@ -80,6 +80,12 @@ cost:
         cache_creation x1.25, cache_read x0.10). Cache reads are 99.1% of
         tokens_total, so the flat 80/20 shortcut would badly overstate this —
         priced by component per the pricing note.
+        ⚠ OVERSTATED, NOT RECOMPUTABLE (flagged 2026-09-05). Produced by the naive
+        all-lines sum corrected in STAGE-053. Every recomputable sibling lands between
+        1.38x and 2.88x over, so this is high by an unmeasured factor in that band. Its
+        transcript is no longer on disk — no prefix reproduces the recorded total, so no
+        corrected figure can be derived. Left flagged rather than scaled by an average:
+        a fabricated precision would be worse than a stated unknown.
     - cycle: verify
       agent: claude-opus-5
       interface: claude-code
@@ -98,6 +104,12 @@ cost:
         it lived on a detached worktree — so this block is transcribed from it.
         The punch-list pass folds into the build entry (same cycle) and the
         second-pass review was un-metered orchestrator main-loop work.
+        ⚠ OVERSTATED, NOT RECOMPUTABLE (flagged 2026-09-05). Produced by the naive
+        all-lines sum corrected in STAGE-053. Every recomputable sibling lands between
+        1.38x and 2.88x over, so this is high by an unmeasured factor in that band. Its
+        transcript is no longer on disk — no prefix reproduces the recorded total, so no
+        corrected figure can be derived. Left flagged rather than scaled by an average:
+        a fabricated precision would be worse than a stated unknown.
     - cycle: ship
       interface: claude-code
       tokens_total: null
@@ -106,6 +118,8 @@ cost:
       note: >
         Un-metered main-loop ship cycle (AGENTS §4).
   totals:
+    # ⚠ MIXED: includes a session flagged OVERSTATED, NOT RECOMPUTABLE —
+    # this total is an upper bound, not a measurement.
     tokens_total: 191351851
     estimated_usd: 82.23
     session_count: 4
