@@ -267,6 +267,16 @@ op = "identity"
             msg.contains("watermark") && msg.contains("image"),
             "the error must name the step and the asset key, got: {msg}"
         );
+        // Specifically the DEDICATED refusal (Call 3), not merely the fallback
+        // "not resolved" error `Watermark::from_params` would raise anyway if
+        // this check were removed — without the dedicated refusal, that
+        // fallback error ALSO happens to name "watermark"/"image", so it would
+        // pass the assertion above too. This phrase is unique to Call 3's own
+        // code path and is what makes a revert of Call 3 alone flip this test.
+        assert!(
+            msg.contains("filesystem") && msg.contains("out of scope"),
+            "expected Call 3's dedicated refusal wording, got: {msg}"
+        );
 
         // The module survives — a later ordinary call still succeeds.
         let ok = transform(&src, IDENTITY_RECIPE, "png").expect("module must survive");

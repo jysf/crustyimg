@@ -12,7 +12,9 @@ use std::collections::BTreeMap;
 use tempfile::TempDir;
 
 use crustyimg::image::Image;
-use crustyimg::operation::{Operation, OperationError, OperationParams, OperationRegistry, RegistryError};
+use crustyimg::operation::{
+    Operation, OperationError, OperationParams, OperationRegistry, RegistryError,
+};
 
 /// A minimal op whose only param, `asset`, names a file. `apply` is
 /// irrelevant to this test (identity) — what's under test is CONSTRUCTION via
@@ -52,12 +54,13 @@ fn a_second_asset_op_registers_without_seam_change() {
     registry.register_with_assets(
         "fixture-asset",
         |params| {
-            let bytes = params.resolved_bytes("asset").ok_or_else(|| {
-                RegistryError::InvalidParams {
-                    op: "fixture-asset",
-                    reason: "'asset' was not resolved before construction".to_owned(),
-                }
-            })?;
+            let bytes =
+                params
+                    .resolved_bytes("asset")
+                    .ok_or_else(|| RegistryError::InvalidParams {
+                        op: "fixture-asset",
+                        reason: "'asset' was not resolved before construction".to_owned(),
+                    })?;
             Ok(Box::new(FixtureAssetOp {
                 resolved_as_text: String::from_utf8_lossy(bytes).into_owned(),
             }))

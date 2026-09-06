@@ -1205,7 +1205,15 @@ fn apply_watermark_recipe_matches_cli_at_one_input() {
 
     let recipe_out = root.join("recipe_out.png");
     let recipe_output = Command::new(BIN)
-        .args(["apply", "--recipe", "r.toml", "in.png", "-o", "recipe_out.png", "-y"])
+        .args([
+            "apply",
+            "--recipe",
+            "r.toml",
+            "in.png",
+            "-o",
+            "recipe_out.png",
+            "-y",
+        ])
         .current_dir(root)
         .output()
         .expect("failed to run apply --recipe");

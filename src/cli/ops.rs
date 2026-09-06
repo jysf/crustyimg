@@ -1280,8 +1280,7 @@ fn watermark_overlay(src: &WatermarkSource<'_>) -> Result<ResolvedOverlay, CliEr
     }
 
     // Rasterize the text into a transparent RGBA overlay (pure; no file IO).
-    let rendered =
-        crate::text::render_text(font_bytes, &text, size, color).map_err(text_error)?;
+    let rendered = crate::text::render_text(font_bytes, &text, size, color).map_err(text_error)?;
     Ok(ResolvedOverlay::Text {
         overlay: ::image::DynamicImage::ImageRgba8(rendered),
         text,

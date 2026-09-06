@@ -1306,7 +1306,12 @@ impl Watermark {
                 let overlay = ::image::load_from_memory(bytes).map_err(|e| {
                     invalid(format!("could not decode overlay image '{path}': {e}"))
                 })?;
-                (overlay, WatermarkSource::Image { path: path.to_owned() })
+                (
+                    overlay,
+                    WatermarkSource::Image {
+                        path: path.to_owned(),
+                    },
+                )
             }
             (None, Some(text)) => {
                 let font_path = params.get_str("font").map(str::to_owned);
@@ -1334,8 +1339,8 @@ impl Watermark {
                     return Err(invalid(format!("'size' must be > 0, got {size}")));
                 }
                 let color_str = params.get_str("color").unwrap_or("ffffff");
-                let color = crate::text::parse_color(color_str)
-                    .map_err(|e| invalid(e.to_string()))?;
+                let color =
+                    crate::text::parse_color(color_str).map_err(|e| invalid(e.to_string()))?;
 
                 let rendered = crate::text::render_text(font_bytes, text, size, color)
                     .map_err(|e| invalid(e.to_string()))?;
@@ -1405,10 +1410,7 @@ impl Operation for Watermark {
             } => {
                 map.insert("text".to_owned(), toml::Value::String(text.clone()));
                 if let Some(font_path) = font_path {
-                    map.insert(
-                        "font".to_owned(),
-                        toml::Value::String(font_path.clone()),
-                    );
+                    map.insert("font".to_owned(), toml::Value::String(font_path.clone()));
                 }
                 map.insert("size".to_owned(), toml::Value::Float(*size as f64));
                 map.insert(

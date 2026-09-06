@@ -212,13 +212,14 @@ pub(super) fn resolve_recipe_assets(
     for (index, step) in resolved.steps.iter_mut().enumerate() {
         for &key in registry.asset_keys(&step.op) {
             if let Some(path) = step.params.get_str(key).map(str::to_owned) {
-                let bytes = std::fs::read(&path).map_err(|source| CliError::RecipeAssetUnreadable {
-                    step: index,
-                    op: step.op.clone(),
-                    key,
-                    path,
-                    source,
-                })?;
+                let bytes =
+                    std::fs::read(&path).map_err(|source| CliError::RecipeAssetUnreadable {
+                        step: index,
+                        op: step.op.clone(),
+                        key,
+                        path,
+                        source,
+                    })?;
                 step.params.set_resolved_bytes(key, bytes);
             }
         }
