@@ -7,7 +7,7 @@
 task:
   id: SPEC-129
   type: bug                        # epic | story | task | bug | chore
-  cycle: design                    # frame | design | build | verify | ship
+  cycle: verify  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: S                    # S | M | L  (L means split it)
@@ -67,10 +67,29 @@ cost:
       estimated_usd: null
       note: >
         Un-metered main-loop design cycle (AGENTS §4).
+    - cycle: build
+      agent: claude-sonnet-5
+      interface: claude-code
+      tokens_total: 27931672
+      tokens_breakdown:
+        input: 234
+        output: 98169
+        cache_creation: 293929
+        cache_read: 27539340
+      estimated_usd: 10.84
+      duration_minutes: null
+      recorded_at: 2026-09-06
+      note: >
+        Interactive session (not an orchestrated Agent call), measured from the session's own
+        transcript JSONL, deduped by `.message.id` (117 unique ids), taking input/cache_creation/
+        cache_read from the group and MAX output_tokens per id (summing every line over-counts;
+        the first line's output under-counts). Priced by component at Sonnet $3/$15 per MTok,
+        cache_creation x1.25, cache_read x0.10 — never a flat rate on tokens_total. Ran in its
+        own git worktree (feat/spec-129-build-cache-asset-hash), per the prompt.
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 1
+    tokens_total: 27931672
+    estimated_usd: 10.84
+    session_count: 2
 ---
 
 # SPEC-129: build cache hashes watermark asset content
@@ -387,33 +406,82 @@ byte-identical (AC-4 + AC-6). This still batches into PROJ-011's single lockfile
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
+- **Branch:** `feat/spec-129-build-cache-asset-hash`
+- **PR (if applicable):** opened at the end of this build cycle (see the repo's PR list).
+- **All acceptance criteria met?** yes — AC-1 through AC-10, all measured (see below).
 - **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
-- **Files this diff touches** — **list every one**, with a phrase on what changed
-  in each. Not "src/foo and tests": the enumeration is what a verify cycle diffs
-  the real change against, and what tells you whether every affected `DEC-*` has
-  the path in its `affected_scope`. Build it from `git diff --name-only`, not recall.
-  - `path/to/file` — <what changed>
+  - `DEC-101` — `build`'s cache key hashes resolved-asset CONTENT, not just the recipe's path;
+    `CACHE_SCHEMA_VERSION` stays unchanged (amends DEC-058 clause 4).
+- **Files this diff touches** — from `git diff main --name-only` plus untracked additions:
+  - `src/build/cache.rs` — widened `absorb` from private to `pub(crate)` (so
+    `target_recipe_hash` in `cli::build` can reuse the same tag+length-prefix discipline for its
+    asset fingerprint); added `Hash::from_hasher`, a `pub(crate)` constructor that finalizes an
+    externally-composed running `Sha256` into a `Hash`.
+  - `src/cli/build.rs` — widened `target_recipe_hash`'s signature to take `&OperationRegistry`;
+    rewrote its body to compose one running `Sha256` hasher (reproducing the exact pre-SPEC-129
+    byte sequence for each `OutputFormatPlan` branch, then appending the new asset fingerprint)
+    instead of returning early via `cache::recipe_hash`/building a `Vec<u8>` + `hash_bytes`; added
+    `absorb_resolved_assets` + the local `TAG_ASSET` constant; updated the one production call
+    site (`prepare_target`) and the one existing unit test
+    (`target_recipe_hash_distinguishes_pinned_from_decided`) to pass a registry; added three new
+    unit tests (`target_recipe_hash_matches_recipe_hash_for_watermarkfree_recipe`,
+    `target_recipe_hash_changes_when_resolved_asset_bytes_change`,
+    `target_recipe_hash_hashes_each_asset_once_per_target`).
+  - `tests/build_watermark_cache.rs` — new integration test file, 5 tests: AC-1
+    (`build_rebuilds_when_overlay_bytes_change`), AC-2
+    (`build_hits_when_overlay_bytes_unchanged`), AC-3 and its no-`font`-key subcase
+    (`build_rebuilds_when_font_bytes_change`, `build_hits_when_bundled_font_is_used`), AC-5
+    (`missing_overlay_still_fails_before_hashing`).
+  - `docs/api-contract.md` — one paragraph under the content-addressed cache prose (~line 559)
+    naming resolved-asset content as part of the cache key for asset-bearing recipes.
+    `docs/data-model.md` was NOT touched, per the spec (the recipe schema is unchanged).
+  - `decisions/DEC-101-build-cache-key-hashes-resolved-asset-content.md` — new decision, block-list
+    `affected_scope` (`src/cli/build.rs`, `src/build/cache.rs`, `docs/api-contract.md`).
+  - `projects/PROJ-011-surface-reach-and-predictability/specs/SPEC-129-build-cache-hashes-watermark-asset-content.md`
+    — this file: `cost.sessions` build entry + totals, and this Build Completion section.
 - **Deviations from spec:**
-  - [list]
+  - None of the seven design calls needed re-deciding; all held as designed. One implementation
+    detail beyond what the spec's illustrative code showed: the illustrative
+    `absorb_resolved_assets` snippet implied building a fresh digest from scratch; to satisfy
+    Call 4/Call 5's promise for **every** `OutputFormatPlan` (not just `Preserve`, which is the
+    only one AC-4's named test drives), the actual implementation composes ONE running `Sha256`
+    hasher across the whole function — reproducing the exact old byte sequence for whichever plan
+    applies, then appending the asset fingerprint only if one exists — rather than computing the
+    recipe hash and the asset fingerprint as two separate digests and combining them. This was
+    necessary because `cache::recipe_hash` is a bare, untagged `hash_bytes(toml_bytes)` with no
+    length prefix at all; any composition that re-hashed its OUTPUT (rather than replaying its
+    INPUT bytes into a shared hasher) would not reproduce that exact digest, which is what AC-4
+    requires byte-for-byte.
+  - The AC-7 unit test does not literally count hasher invocations (the spec's first suggested
+    method); it asserts the alternative the spec explicitly allows — "asserting `target_recipe_hash`
+    is called once per target" — mechanically, via a source-text match against this file's own
+    production call graph (excluding the test module), so a future change that added a second call
+    site (e.g. inlining the hash into the per-input path) would fail this test.
 - **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - None. This closes STAGE-050's SPEC-129 backlog item outright — no new correctness gap was
+    found while building it.
 
 ### Build-phase reflection (3 questions, short answers)
 
 Process-focused: how did the build go? What friction did the spec create?
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — Nothing was unclear; the one place that needed real thought rather than transcription was
+   Call 4's "compose from the same primitives" language, which (read literally) could suggest
+   re-hashing `cache::recipe_hash`'s 32-byte digest rather than replaying the TOML bytes — that
+   would have broken AC-4's exact-equality requirement for a plain recipe. Working out that the
+   composition has to be a single streaming hasher fed the OLD byte sequence, with the new
+   fingerprint appended only conditionally, took a few minutes of reasoning about SHA-256's
+   Merkle–Damgård construction before writing any code.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — No. DEC-058, DEC-100, DEC-031, DEC-064, DEC-005 were exactly the right five, in the right
+   order to read them.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Nothing. Reasoning through the byte-composition constraint before writing any code (rather
+   than transcribing the spec's illustrative snippet literally and discovering the mismatch via a
+   failing AC-4 test) is the order I'd repeat.
 
 ---
 

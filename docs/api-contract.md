@@ -560,6 +560,12 @@ committed lockfile and the content-addressed cache both record the **real, decid
 output extension (never the unexpanded `{ext}` template token), so a cache hit
 materializes to the exact path the miss that filled it wrote.
 
+**The cache key covers a resolved asset's content, not just its path** (SPEC-129, DEC-101,
+amending DEC-058 clause 4): for a recipe whose steps name a file (a `watermark` step's `image`/
+`font`) the per-target key also hashes the resolved bytes, so editing the overlay or font on disk
+— same path, same recipe — is a miss and rebuilds. A recipe with no such steps hashes identically
+to before this spec, so no existing cache entry or committed lockfile line goes stale.
+
 Exit codes: malformed manifest (bad TOML, unknown field, unsupported `version`, oversize,
 invalid target) → **2**; manifest or recipe file unreadable → **3**; invalid recipe
 (unknown op/params) → **1**; a `name` template that pins a literal extension `build`
