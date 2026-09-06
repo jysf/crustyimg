@@ -34,11 +34,19 @@ Cycle prompts live in `prompts/SPEC-128-<cycle>.md`.
       `to_toml` emits the path, never the bytes — same shape as SPEC-127's
       `to_toml`-must-emit-`"1"` guard, and it has its own test.
 
-- [ ] **build** — prompt: `prompts/SPEC-128-build.md` (2026-09-05). **Sonnet**, own worktree.
-      **DEC-100 reserved**, block-list `affected_scope` form required.
-      ⚠ **Sized honestly this time: the code is M, the verification is heavier than the code.**
-      Budget ~250 exchanges. AC-10's sweep must cover the verbs that reach `run_pixel_op` —
-      `run_convert`/`run_optimize`/`run_web` do, which is what SPEC-127's narrowing got wrong.
+- [x] **build** — prompt: `prompts/SPEC-128-build.md` (2026-09-05). **Sonnet**, own worktree.
+      All 11 ACs met; `DEC-100` created (block-list `affected_scope`). Nine failing tests written
+      (the build prompt said eight — the spec's own `## Failing Tests` list has nine; built all of
+      them). Native suite green across default/`--no-default-features`/`webp-lossy` (fresh
+      `CARGO_TARGET_DIR` each), `just wasm-check` + `just wasm-test` green (43/43, incl. 2 new).
+      AC-9's three negative controls (Calls 1/2/3) each reverted alone and confirmed to flip only
+      their own tests — Call 3's needed a stronger assertion to actually discriminate from the
+      constructor's own fallback error (see spec's Build Completion reflection). AC-10's sweep: built
+      `main` (`ed48efa`) and this branch as separate release binaries, 8 verbs × 4 files × 2 formats
+      + a plain-recipe `apply`/`build` pair — 39/39 byte-identical, plus a positive control
+      (`main` rejects a watermark recipe, branch accepts it) proving the methodology can detect a
+      real difference. One follow-up filed to STAGE-050's backlog: `build`'s cache key doesn't hash
+      a watermark asset's own file content, only the recipe's declared path. See PR for the link.
 
 - [ ] **verify** — Opus, new session, read-only.
 - [ ] **ship**

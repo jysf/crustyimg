@@ -378,17 +378,33 @@ overlay alpha; `--scale S` resizes the overlay to `S ×` base width; `--margin M
 insets the anchor; `--tile` repeats the overlay across the whole base (ignores
 gravity/margin). Missing/unreadable `--image` → exit **3**; bad opacity/scale or
 unknown gravity → exit **2**. Standard fan-out (single → stdout/`-o`/`--out-dir`,
-multi → `--out-dir`, per-input failure → exit 6). **Not recipe-round-trippable until
-STAGE-005** (DEC-031).
+multi → `--out-dir`, per-input failure → exit 6). **Recipe-round-trippable as of
+SPEC-128** — see "Watermark in a recipe" below (DEC-031's registry gap is closed).
 
 **Text mode (SPEC-030, DEC-032):** `watermark <INPUT...> --text STRING [--font PATH]
 [--size N] [--color HEX] [--gravity G] [--opacity O] [--margin M]` rasterizes the
-text (via `ab_glyph`) into an overlay composited through the same path. `--image` and
+text into an overlay composited through the same path. `--image` and
 `--text` are mutually exclusive — exactly one required (neither/both → exit **2**).
 Default font is the **bundled BSD-3 Go font**; `--font PATH` (a TTF/OTF) overrides it
 (missing/unreadable → exit **3**). `--size` (px, default 32; `≤0` → exit 2);
-`--color` (`RRGGBB`/`#RRGGBB`/`RRGGBBAA`, default white; malformed → exit 2). No
-`imageproc` (it pulls sdl2/nalgebra) — DEC-032.
+`--color` (`RRGGBB`/`#RRGGBB`/`RRGGBBAA`, default white; malformed → exit 2).
+
+**Watermark in a recipe (SPEC-128).** `op = "watermark"` is now a registered
+operation — a recipe step takes the same two mutually-exclusive modes
+(`image` XOR `text`; both or neither → typed `RecipeError::InvalidOperation`
+at build-pipeline time, exit 1) plus the shared placement keys. Full param
+keys and an example are in `docs/data-model.md`. Two behaviors specific to
+the recipe path:
+- **`apply --recipe`/`build` resolve `image`/`font` from a file BEFORE any
+  output is written** — an unreadable overlay/font is `CliError::RecipeAssetUnreadable`,
+  exit **1** (a bad recipe, not a bad input — never exit 3, and never a
+  partial-batch exit 6, even across N inputs: every input shares the one bad
+  recipe).
+- **`wasm::transform` REFUSES a recipe whose steps need a resolvable asset**,
+  with a typed error naming the step — the wasm surface has no filesystem, and
+  silently dropping the watermark step would be the worst outcome. A
+  `text`-only step with no `font` key needs nothing resolved and runs fine on
+  wasm (it falls back to the bundled font, compiled in).
 
 ### Metadata lane *(container-level; no pixel decode — DEC-003)*
 

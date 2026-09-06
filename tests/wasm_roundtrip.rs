@@ -251,6 +251,54 @@ op = "identity"
         assert!(!ok.is_empty());
     }
 
+    /// AC-6 (SPEC-128, Call 3): a recipe whose `watermark` step needs an
+    /// overlay resolved from a file is REFUSED with a typed error naming the
+    /// step — never a silently unwatermarked image. The wasm surface has no
+    /// filesystem, and supplying assets over this boundary is out of scope.
+    #[wasm_bindgen_test]
+    fn transform_refuses_asset_bearing_recipe() {
+        let src = png_64x48();
+        let recipe = "version = \"1\"\n\n[[step]]\nop = \"watermark\"\nimage = \"logo.png\"\n";
+
+        let err = transform(&src, recipe, "png")
+            .expect_err("an asset-bearing recipe must be refused on the wasm surface");
+        let msg = format!("{:?}", wasm_bindgen::JsValue::from(err));
+        assert!(
+            msg.contains("watermark") && msg.contains("image"),
+            "the error must name the step and the asset key, got: {msg}"
+        );
+        // Specifically the DEDICATED refusal (Call 3), not merely the fallback
+        // "not resolved" error `Watermark::from_params` would raise anyway if
+        // this check were removed — without the dedicated refusal, that
+        // fallback error ALSO happens to name "watermark"/"image", so it would
+        // pass the assertion above too. This phrase is unique to Call 3's own
+        // code path and is what makes a revert of Call 3 alone flip this test.
+        assert!(
+            msg.contains("filesystem") && msg.contains("out of scope"),
+            "expected Call 3's dedicated refusal wording, got: {msg}"
+        );
+
+        // The module survives — a later ordinary call still succeeds.
+        let ok = transform(&src, IDENTITY_RECIPE, "png").expect("module must survive");
+        assert!(!ok.is_empty());
+    }
+
+    /// The wasm refusal above must NOT fire for a text-mode watermark with no
+    /// `font` key — it needs nothing resolved (the bundled default font is
+    /// compiled in), so it must run to completion on the wasm surface exactly
+    /// like any other pixel recipe.
+    #[wasm_bindgen_test]
+    fn transform_runs_a_text_only_watermark_with_no_font_key() {
+        let src = png_64x48();
+        let recipe =
+            "version = \"1\"\n\n[[step]]\nop = \"watermark\"\ntext = \"hi\"\nsize = 12.0\n";
+
+        let out = transform(&src, recipe, "png")
+            .expect("a text-only watermark with no font path needs no asset resolution");
+        assert!(!out.is_empty());
+        assert_eq!(info(&out).expect("output should decode").format(), "png");
+    }
+
     /// `recipe.quality`, when set, reaches the encoder — the RETURNED BYTES
     /// equal an independent encode at that same quality, not merely a
     /// plausible-looking success (the standard this file holds every

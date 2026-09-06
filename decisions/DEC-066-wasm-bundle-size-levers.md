@@ -26,6 +26,7 @@ affected_scope:
   - "Cargo.toml"
   - "justfile"
   - "tests/wasm_roundtrip.rs"
+  - "scripts/lib/wasm-artifact.mjs"
 
 tags:
   - wasm
@@ -87,6 +88,7 @@ Deltas are against the row's stated base, not against each other.
 | `opt-level = "z"` | −247,936 | 1,515,128 → 1,267,192 | AVIF encode 350 ms → **956 ms** (2.8×) |
 | `opt-level = "s"` | −169,552 | 1,515,128 → 1,345,576 | AVIF encode 350 ms → 537 ms (1.5×) |
 | drop `ssimulacra2` | −23,540 | 1,430,801 → 1,407,261 | kills the perceptual auto-quality search — the engine's differentiator, for 1.7% of the bundle |
+| **register `watermark`** (SPEC-128, 2026-09-06) | **+121,614 BOUGHT** | 1,144,921 → 1,266,535 | ⚠ **A purchase, not a saving — the only + row in this table.** Links `crate::text` + `skrifa` + `zeno` + the bundled font so a text-only watermark runs on wasm with no asset resolution. A `#[cfg]`-gate recovering **117,173 B (9.26 %)** was built and measured at verify and **refused on product grounds**: the artifact exists to demo the tool's features. Note this is **5× the `ssimulacra2` lever this table declined to sell** — the difference is that one *removed* a differentiator and this one *adds* one. If a lean demo is wanted, ship two artifacts (filed). |
 
 ### Levers that did nothing
 

@@ -183,6 +183,50 @@ pub(super) fn load_recipe(recipe_arg: &str) -> Result<Recipe, CliError> {
     )))
 }
 
+/// Resolve every asset a recipe's steps name (SPEC-128, Call 1) — the recipe
+/// IO boundary the registry itself must never cross (DEC-031, DEC-064).
+///
+/// For each step, reads the file named by any of that op's
+/// [`OperationRegistry::asset_keys`] present (as a string) in the step's own
+/// params, and attaches the bytes to a CLONE of the recipe via
+/// [`crate::operation::OperationParams::set_resolved_bytes`] — a side
+/// channel `to_toml`/`Serialize` never see. The returned `Recipe` is for
+/// `build_pipeline` only; nothing round-trips it, and the caller's original
+/// (unresolved) `recipe` is untouched.
+///
+/// Called ONCE per recipe — by `run_apply` before its terminal-`optimize`
+/// branch/probe/fan-out, and by `prepare_target` before its own probe — so
+/// **both** `apply` and `build` resolve through the exact same function.
+/// Two paths resolving the same thing separately is exactly how they drifted
+/// before SPEC-126.
+///
+/// A missing/unreadable asset is [`CliError::RecipeAssetUnreadable`] (exit
+/// 1): a bad recipe, not a bad input (Call 2) — surfaced here, before the
+/// caller has touched a single input, so a batch never writes a partial
+/// result for a recipe that can never succeed.
+pub(super) fn resolve_recipe_assets(
+    recipe: &Recipe,
+    registry: &OperationRegistry,
+) -> Result<Recipe, CliError> {
+    let mut resolved = recipe.clone();
+    for (index, step) in resolved.steps.iter_mut().enumerate() {
+        for &key in registry.asset_keys(&step.op) {
+            if let Some(path) = step.params.get_str(key).map(str::to_owned) {
+                let bytes =
+                    std::fs::read(&path).map_err(|source| CliError::RecipeAssetUnreadable {
+                        step: index,
+                        op: step.op.clone(),
+                        key,
+                        path,
+                        source,
+                    })?;
+                step.params.set_resolved_bytes(key, bytes);
+            }
+        }
+    }
+    Ok(resolved)
+}
+
 /// Build a `Sink` from the global output options, for an ALREADY-RESOLVED
 /// output format.
 ///

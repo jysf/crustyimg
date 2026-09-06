@@ -7,7 +7,7 @@
 task:
   id: SPEC-128
   type: story                      # epic | story | task | bug | chore
-  cycle: design                    # frame | design | build | verify | ship
+  cycle: verify  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: M                    # S | M | L  (L means split it)
@@ -58,7 +58,41 @@ value_link: >
 # See AGENTS.md §4 and docs/cost-tracking.md. interface: claude-code |
 # claude-ai | api | ollama | other.
 cost:
-  sessions: []
+  sessions:
+    - cycle: design
+      interface: claude-code
+      tokens_total: null
+      duration_minutes: null
+      estimated_usd: null
+      note: >
+        Un-metered main-loop design cycle (AGENTS §4) — backfilled by the build session, which found
+        it missing on starting SPEC-128's build.
+    - cycle: build
+      agent: claude-sonnet-5
+      interface: claude-code
+      tokens_total: 134940086
+      tokens_breakdown:
+        input: 654
+        output: 228400
+        cache_creation: 555413
+        cache_read: 134155619
+      estimated_usd: 45.76
+      duration_minutes: null
+      recorded_at: 2026-09-06
+      note: >
+        Interactive session (not an orchestrated Agent call), measured from the session's own
+        transcript JSONL, deduped by `.message.id` (308 unique ids), taking input/cache_creation/
+        cache_read from the group and MAX output_tokens per id (summing every line over-counts;
+        the first line's output under-counts). Priced by component at Sonnet $3/$15 per MTok,
+        cache_creation x1.25, cache_read x0.10 — never a flat rate on tokens_total. Includes the
+        post-PR CI-failure investigation (DCO sign-off amend + a real wasm bundle-size regression
+        this spec caused, both fixed on the branch before this figure was recorded).
+        ⚠ CORRECTED at verify + orchestrator: the original snapshot ($42.29 /
+        123,802,069 over 308 ids) reproduces to the cent and its METHOD was right — it
+        simply stopped 20 ids early. Topped up to the complete 328-id transcript and a
+        `tokens_breakdown` added, which the entry lacked. Per-component is exactly where
+        SPEC-127's 11.7x error lived, so a figure that cannot be re-derived is not a
+        checked one.
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -178,6 +212,11 @@ in a test **without changing the seam** — a fixture op, not the real LUT.
 
 - [ ] **AC-1.** A recipe with a `watermark` step (image mode) round-trips losslessly —
       `from_toml(to_toml(r)) == r` — and the emitted TOML contains the **path**, never overlay bytes.
+      📌 Extended 2026-09-06: `placement_params_round_trip_and_reach_the_op` covers `tile`,
+      `scale`, `margin`, `opacity` and a non-default `gravity`, none of which any test touched
+      (`get_bool` never returned a value in the suite). It carries its own positive control —
+      tiled output must differ from untiled — so "the params round-trip" cannot pass while the
+      resolved op ignores them.
 - [ ] **AC-2.** The same for text mode — emitting `text`/`font`/`size`/`color` + placement, and
       **never `image`** (Call 3b). ⚠ Assert the round-tripped step still renders the same pixels,
       not merely that the TOML parses: today `params()` puts the TEXT under `image`, so a test that
@@ -190,6 +229,16 @@ in a test **without changing the seam** — a fixture op, not the real LUT.
       property, extended to an asset-bearing op).
 - [ ] **AC-5.** A recipe naming an unreadable overlay/font fails **before any output is written**,
       driven on a batch of ≥2 inputs, with a typed error and the documented exit code (Call 2).
+      ⚠ **Was HALF met until 2026-09-06.** The criterion says "overlay/**font**"; only the overlay
+      half had a test — half the asset mechanism shipped untested (verify drove the font half by
+      hand and it worked, but nothing guarded it). Closed with two tests:
+      `font_key_resolves_and_renders_identically_to_the_bundled_default` (writes the bundled font's
+      own bytes to a temp `.ttf`, so "renders the same" is exact rather than approximate, and
+      asserts the registry declares `font` as an asset key at all) and
+      `unreadable_font_fails_before_any_output`.
+      **Both driven, not just green:** removing `font` from `asset_keys` turns the first RED while
+      the others stay green; and the same recipe with a READABLE font exits 0 and writes 2 files,
+      proving the second detects unreadability rather than failing on any font-bearing recipe.
 - [ ] **AC-6.** `wasm::transform` on an asset-bearing recipe returns a **typed error naming the
       step**, never a silently unwatermarked image (Call 3).
 - [ ] **AC-7.** ⚡ **The seam takes a SECOND asset-bearing op with no seam change.** A fixture op is
@@ -199,10 +248,26 @@ in a test **without changing the seam** — a fixture op, not the real LUT.
       a grep for `std::fs`/`Image::load` under `src/operation/` stays empty.
 - [ ] **AC-9.** Negative control, one revert per independent condition (Calls 1, 2, 3); each flips
       only its own tests. Evidence is the behavioural flip, never a hash.
+      ⚠ **CORRECTED at verify — Call 2's control does NOT discriminate.** Reverted alone, a
+      2-input batch with a missing overlay still exits **1** with **zero files written**,
+      because the pre-existing upfront `build_pipeline` probe already catches it; the claimed
+      1→6 flip appears only when the probe is ALSO disabled. Two conditions — which AGENTS §15
+      rule 1 forbids. **Calls 1 and 3 hold** (3 tests and 1 test flip respectively). What Call 2
+      actually buys is the **message** — a clear `could not read 'image' file "…"` rather than an
+      internal-error phrasing shown to a user — and **no test asserts it.**
 - [ ] **AC-10.** **Nothing else changes bytes.** Every pixel-lane verb and a watermark-free recipe
       through `apply`/`build` produce output byte-identical to `main`, with a positive control.
       ⚠ **Sweep the verbs that reach `run_pixel_op`, not just the ones in `ops.rs`** — SPEC-127's
       narrowing was wrong because `run_convert`/`run_optimize`/`run_web` all reach it.
+      📌 **Corpus boundary, stated HERE because it was recoverable from nowhere** — DEC-100 said
+      "see Build Completion", Build Completion said "see DEC-100". Circular; caught at verify and
+      independently re-swept there: **all 8 pixel-lane verbs reaching `run_pixel_op`** —
+      `resize`, `thumbnail`, `convert`, `optimize`, `web`, `responsive`, `auto-orient`,
+      `watermark` (image **and** text) — over **4 fixtures / 3 container formats**, plus a
+      watermark-free recipe through `apply` and `build`: **41/41 byte-identical**, with a live
+      positive control (base rejects `unknown operation 'watermark'`, branch accepts and writes).
+      The call graph WAS followed — those 8 are exactly the `run_pixel_op` set, including the
+      `convert`/`optimize`/`web` trio SPEC-127's narrowing missed.
 - [ ] **AC-11.** Clean matrix — default, `--no-default-features`, `--features webp-lossy`, fresh
       `CARGO_TARGET_DIR` each, sequential; clippy + `fmt --check` each; plus `just wasm-check`.
 
@@ -258,3 +323,120 @@ not cut a release.**
   contaminated a leg that way and had to re-run it from a clean tree.
 - `cargo test` fails `display_sink_refuses_non_tty` in an interactive terminal: redirect stdout. A
   piped command reports the **pipe's** exit code — redirect and read `$?`. Never poll CI.
+
+## Build Completion
+
+*Filled in at the end of the **build** cycle, before advancing to verify.*
+
+- **Branch:** `feat/spec-128-recipe-watermark`
+- **PR:** opened against `main` (see PR description / URL in the build session's final report).
+- **All acceptance criteria met?** yes (AC-1 through AC-11; see `DEC-100`'s `## Validation` for the
+  test-by-test mapping and the AC-9/AC-10/AC-11 measured results).
+- **New decisions emitted:**
+  - `DEC-100` — `watermark` registers via a resolve-at-recipe-IO-boundary seam; the registry stays
+    file-free.
+- **Files this diff touches** — from `git diff --name-only main`, not recall:
+  - `src/operation/mod.rs` — `OperationParams` gains a resolved-bytes side channel
+    (`set_resolved_bytes`/`resolved_bytes`) plus `get_bool`; the module's allowed-dependency doc
+    widened to `crate::text` (Call 3b); `Watermark` replaces its single `overlay_path: String` with
+    a `WatermarkSource` enum (`Image{path}` / `Text{text,font_path,size,color}`); `new` split into
+    `new_image`/`new_text`; a new `from_params` constructor (image mode decodes resolved bytes, text
+    mode renders via `crate::text`, falling back to the bundled font when `font` is absent); `params()`
+    rewritten to emit each mode's distinct key set; a `color_to_hex` helper; the existing
+    `watermark()` test helper repointed to `new_image`.
+  - `src/operation/registry.rs` — `OperationRegistry` gains an `asset_keys` map,
+    `register_with_assets`, and the `asset_keys(name)` query; `with_builtins()` registers
+    `"watermark"` via `register_with_assets("watermark", ..., &["image", "font"])`; four new tests.
+  - `src/cli/ops.rs` — `watermark_overlay` returns a new `ResolvedOverlay` enum (image path / text +
+    rendering flags) instead of the old flattened `(DynamicImage, String)` label; `run_watermark`
+    dispatches to `Watermark::new_image`/`new_text` accordingly.
+  - `src/cli/common.rs` — new `resolve_recipe_assets(recipe, registry)`: clones the recipe, reads
+    the file named by each asset-bearing step's declared keys, attaches the bytes via
+    `set_resolved_bytes`. The one resolver both `apply` and `build` call.
+  - `src/cli/mod.rs` — new `CliError::RecipeAssetUnreadable` variant (exit 1) + its `code()` mapping.
+  - `src/cli/optimize.rs` — `run_apply` builds the registry once and calls `resolve_recipe_assets`
+    immediately after `load_recipe`, before the terminal-`optimize` branch and the upfront probe
+    (removing the old duplicate `OperationRegistry::with_builtins()` call further down).
+  - `src/cli/build.rs` — `prepare_target` calls `resolve_recipe_assets` right before its existing
+    `build_pipeline` probe, so `PreparedTarget.recipe` (and therefore every `encode_one` call
+    downstream) is already resolved.
+  - `src/wasm.rs` — `transform` queries `OperationRegistry::asset_keys` for every step via a new
+    `first_unresolvable_asset` helper and refuses with a typed, step-naming error before
+    `build_pipeline` when any step needs a file it cannot resolve.
+  - `docs/api-contract.md` — the `watermark` entry documents recipe support: the resolve-before-write
+    behavior, the new exit-1 error, and the wasm refusal; drops the stale `ab_glyph` mention (SPEC-044
+    already swapped the rasterizer) and the stale "not recipe-round-trippable until STAGE-005" line.
+  - `docs/data-model.md` — the worked-example intro now names five registry ops (not four); the "not
+    a recipe step" callout for watermark is replaced with a new `watermark` step param-key section and
+    a two-step (image + text) TOML example.
+  - `tests/recipe_watermark.rs` (new) — AC-1, AC-2, AC-2b, AC-5 (four tests).
+  - `tests/registry_seam.rs` (new) — AC-7 (one test, a fixture asset-bearing op).
+  - `tests/apply_batch.rs` — three new tests (AC-3 ×2 arities, AC-4).
+  - `tests/wasm_roundtrip.rs` — two new tests (AC-6: the refusal itself, and a text-only step that
+    needs no resolution and must still run).
+  - `scripts/lib/wasm-artifact.mjs` — `WASM_BROTLI_BASELINE` moved 1,144,921 → 1,266,535 B (CI-measured,
+    +10.6%): registering `watermark` pulls `crate::text`/`skrifa`/`zeno`/the bundled font into the
+    `.wasm` for the first time (CI's "build + browser smoke" gate caught this; not anticipated by any
+    design call — see the reflection below).
+  - `decisions/DEC-100-watermark-registers-via-resolve-at-io-boundary-seam.md` (new) — the decision
+    record.
+  - `projects/.../specs/SPEC-128-recipes-can-express-watermark.md` — this spec's own
+    `## Build Completion`, cycle advance, and cost entry.
+  - `projects/.../specs/SPEC-128-recipes-can-express-watermark-timeline.md` — the build mark.
+  - `projects/PROJ-011-surface-reach-and-predictability/stages/STAGE-050-recipe-reach.md`
+  (⚠ **Nineteen files.** This list states it comes from `git diff --name-only` and returned
+  **18** — the stage file was missing. Caught at verify.)
+- **Deviations from spec:** none from the four settled design calls. One correction to the build
+  prompt itself: it says "write the eight failing tests," but the spec's own `## Failing Tests`
+  section lists **nine** (`watermark_recipe_round_trips_with_path_not_bytes`,
+  `text_watermark_round_trips_without_an_image_key`, `watermark_step_requires_exactly_one_source`,
+  `missing_overlay_fails_before_any_output`, `apply_watermark_recipe_matches_cli_at_one_input`,
+  `apply_watermark_recipe_matches_cli_at_n_inputs`, `apply_and_build_agree_on_watermark_recipe`,
+  `transform_refuses_asset_bearing_recipe`, `a_second_asset_op_registers_without_seam_change`). Built
+  all nine — the spec is the contract, and the prompt's count was simply off by one.
+  One judgment call the spec left open, recorded in `DEC-100` rather than quietly decided: the
+  wasm refusal (Call 3) is checked at the constructor's OWN fallback error path too (a
+  `RegistryError::InvalidParams` fires there regardless of the dedicated refusal, since resolved
+  bytes are simply absent on wasm) — so `transform_refuses_asset_bearing_recipe` had to assert the
+  DEDICATED wording ("no filesystem" / "out of scope"), not just that an `Err` naming "watermark" and
+  "image" came back, or a revert of Call 3 alone would not have been a real negative control.
+- **Follow-up work identified:** the `build` cache key does not hash a watermark asset's own file
+  CONTENT — only the recipe's `to_toml()` (the path). Editing `logo.png` in place without touching
+  the recipe/manifest is invisible to `build`'s cache. No AC names this; filed to STAGE-050's backlog
+  below rather than fixed here (its own design surface: which hash, computed where, at what
+  per-target cost).
+
+### Build-phase reflection (3 questions, short answers)
+
+1. **What was unclear in the spec that slowed you down?**
+   — Nothing genuinely ambiguous, but one design step needed working out rather than being handed to
+   me: HOW resolved bytes get from the CLI's resolver to a pure `fn(&OperationParams) -> Result<...>`
+   registry constructor without widening `Constructor`'s signature or letting bytes leak into
+   `to_toml`. The spec says "hands the bytes to the registry alongside the params" but doesn't say
+   *how*; the answer (a second, non-serialized field on `OperationParams`, populated by
+   `set_resolved_bytes`/read by `resolved_bytes`) is what makes AC-7's fixture-op test possible
+   without touching `registry.rs` further, so I'm fairly confident it's the intended shape, but the
+   spec text alone doesn't pin it down.
+
+2. **Was there a constraint or decision that should have been listed but wasn't?**
+   — Yes, one real miss, caught by CI rather than by me: DEC-066's wasm bundle-size gate
+   (`WASM_BROTLI_BASELINE`, `scripts/lib/wasm-artifact.mjs`) isn't referenced by SPEC-128, DEC-031, or
+   DEC-064 anywhere, and none of AC-8/AC-11 (the wasm-related ACs) name it — they only require
+   `just wasm-check` (compiles) and `just wasm-test` (passes), neither of which measures bundle size.
+   Registering `watermark` in `with_builtins()` pulls `crate::text`/`skrifa`/`zeno`/the bundled font
+   into the wasm build for the first time (needed so a text-only watermark runs on wasm with zero
+   asset resolution), which is a real +10.6% brotli regression against the committed baseline — caught
+   by the PR's "build + browser smoke" CI job, not by anything in the local matrix this spec's ACs
+   asked for. Fixed by moving the baseline deliberately (same pattern SPEC-122/DEC-095 used), but the
+   spec should have named this check as part of its own verification surface.
+
+3. **If you did this task again, what would you do differently?**
+   — Run `just demo-build` (or check `scripts/lib/wasm-artifact.mjs`'s baseline) locally before
+   opening the PR, not after CI's "build + browser smoke" job failed on it — the AC-11 matrix as
+   written (`wasm-check` + `wasm-test`) doesn't cover bundle size at all, and this repo has a
+   documented, deliberate-move convention for exactly this gate (DEC-095/SPEC-122) that I should have
+   anticipated applying to my own change. Separately, I'd write `transform_refuses_asset_bearing_recipe`'s
+   STRONGER assertion (the dedicated-wording check) on the first pass instead of tightening it after
+   noticing, mid-AC-9, that the weaker version couldn't discriminate Call 3's revert from the
+   constructor's own fallback error — a smaller version of the same "a claim that a test isn't vacuous
+   needs driving too" lesson this repo has hit before.
