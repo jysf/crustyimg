@@ -134,7 +134,7 @@ anything a recipe cannot say.
   documented as deliberate. Worth ruling on together rather than separately; the maintainer
   decision is warn / honour-the-template / document-and-keep.
 
-- [ ] **SPEC-128** (design, 2026-09-05) — **recipes can express watermark.**
+- [x] **SPEC-128** (shipped on 2026-09-06) — **recipes can express watermark.**
   ⚡ **Retitled from "`watermark` becomes a registry operation" — that description was wrong.**
   `Watermark` is already an `Operation`; it is *deliberately* unregistered (DEC-031), because the
   registry constructor cannot load the overlay file and `src/operation/**` must stay
@@ -230,7 +230,7 @@ anything a recipe cannot say.
   see the contact sheet generated 2026-09-03 (artifact, linked from the session; regenerate with
   the commands in this entry rather than trusting the link to persist).
 
-- [ ] (not yet written) — [S] ⚡ **Design the registry seam for TWO parameter-rich ops, not one —
+- [x] **CLOSED by SPEC-128** (2026-09-06) — ⚡ **Design the registry seam for TWO parameter-rich ops, not one —
   the LUT op is the known second customer.** ⚠ **This item is a design constraint on the watermark
   work above, NOT a commitment to build a LUT op in this stage.**
 
@@ -277,7 +277,7 @@ anything a recipe cannot say.
   schema change. Bundling the two turns an M into an L, and AGENTS §2 says split an L.
   (Originally arrived via external review batch 3 — one of the two items that survived checking.)
 
-**Count:** **1 shipped** / **1 in design** / 5 pending — re-derive with a grep you just ran.
+**Count:** **2 shipped / 1 closed** / 0 in flight / 5 pending — re-derive with a grep you just ran.
 
 ## Design Notes
 

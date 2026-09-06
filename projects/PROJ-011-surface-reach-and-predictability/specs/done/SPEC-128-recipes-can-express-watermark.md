@@ -7,7 +7,7 @@
 task:
   id: SPEC-128
   type: story                      # epic | story | task | bug | chore
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: M                    # S | M | L  (L means split it)
@@ -93,10 +93,36 @@ cost:
         `tokens_breakdown` added, which the entry lacked. Per-component is exactly where
         SPEC-127's 11.7x error lived, so a figure that cannot be re-derived is not a
         checked one.
+    - cycle: verify
+      agent: claude-opus-5
+      interface: claude-code
+      tokens_total: 44195797
+      duration_minutes: 50
+      recorded_at: 2026-09-06
+      tokens_breakdown:
+        input: 388
+        output: 102391
+        cache_creation: 295609
+        cache_read: 43797409
+      estimated_usd: 26.31
+      note: >
+        MEASURED by the verify session from its own transcript, deduped by
+        `.message.id` (194 ids), static fields from the group and MAX output.
+        Priced per component at Opus anchors (DEC-083); a flat rate would read
+        $221. Arithmetic re-checked by the orchestrator: components sum to
+        tokens_total and price to the cent.
+    - cycle: ship
+      interface: claude-code
+      tokens_total: null
+      duration_minutes: null
+      estimated_usd: null
+      note: >
+        Un-metered main-loop ship cycle (AGENTS §4) — merge, punch-list
+        application, reflection, totals, archive.
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 179135883
+    estimated_usd: 72.07
+    session_count: 4
 ---
 
 # SPEC-128: recipes can express watermark
@@ -440,3 +466,49 @@ not cut a release.**
    noticing, mid-AC-9, that the weaker version couldn't discriminate Call 3's revert from the
    constructor's own fallback error — a smaller version of the same "a claim that a test isn't vacuous
    needs driving too" lesson this repo has hit before.
+
+---
+
+## Reflection (Ship)
+
+**1. What went right, and would you do it the same way again?**
+
+⚡ **Reading the code before writing the spec changed what the spec was.** The backlog said
+"`watermark` becomes a registry operation"; `Watermark` was already an `Operation`, deliberately
+unregistered, with DEC-031 stating why. The real work was one level down — widening the seam for
+ops whose params name a file. **A design cycle that only reads the backlog item would have specced
+the wrong thing.**
+
+And **verify built the alternative instead of arguing for it.** Asked whether a cheaper option than
+a +10.6 % bundle existed, it produced a `#[cfg]`-gated variant, measured it at 117,173 B smaller
+with AC-6 still passing, and handed over a real trade rather than an opinion. That is what made the
+maintainer's ruling a decision rather than a guess.
+
+**2. What went wrong, and what would you change?**
+
+**Two ACs were only half-met and the build did not notice.** AC-5 says "overlay/**font**" and only
+overlay had a test — half the asset mechanism shipped unguarded. AC-9's Call 2 control does not
+discriminate: reverted alone it flips **zero** tests, because the pre-existing `build_pipeline`
+probe already catches the case; the claimed flip needs two conditions, which AGENTS §15 forbids.
+Both were caught at verify, neither by the build's own matrix.
+
+📌 **The generalisable form: an AC naming two things needs a test per thing.** "overlay/font",
+"both or neither", "at 1 input and at N" — each conjunction is a place a half-implementation
+passes. Cheap to check at design time by counting nouns in the AC against tests in the list.
+
+⚠ **CI caught two things the local gate cannot see** — DCO sign-off (4th recurrence) and a real
+10.6 % bundle regression. `just check` never runs the wasm size gate. Filed on STAGE-053; until
+it lands, every size regression costs a CI round-trip to discover.
+
+**3. What should the next spec know?**
+
+⚡ **A moved size gate is a purchase, and it belongs in DEC-066's ledger.** That DEC is the record
+of "what we cut, what we paid for, what we refused to sell", and it had *declined* to drop
+`ssimulacra2` for 23,540 B. This spec bought **5× that** and would have left no row — and DEC-066's
+own `affected_scope` omitted the gate file, so the audit could not have flagged it. Both fixed.
+**If you move a gate, the ledger entry is part of the change, not follow-up.**
+
+📌 **`build` serves a stale watermark from cache** — reproduced at verify with a verified control
+(overlay bytes changed; `build` reports "1 cached, 0 rebuilt" and emits byte-identical pre-edit
+output). `apply` is unaffected. Filed to STAGE-050, correctly out of scope here, but it is a
+**silent wrong-output path that arrived with this capability** and should be the next thing specced.

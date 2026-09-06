@@ -48,5 +48,21 @@ Cycle prompts live in `prompts/SPEC-128-<cycle>.md`.
       real difference. One follow-up filed to STAGE-050's backlog: `build`'s cache key doesn't hash
       a watermark asset's own file content, only the recipe's declared path. See PR for the link.
 
-- [ ] **verify** — Opus, new session, read-only.
-- [ ] **ship**
+- [x] **verify** — 2026-09-06, Opus, read-only. **$26.31** / 44.2M tokens / 50 min.
+      ⚠ **PUNCH LIST, 13 items — no behavioural defect.** "I exercised more of it than the test
+      suite does and found no behavioural defect in what it claims."
+      ⚡ **It BUILT the cheaper alternative rather than arguing for one:** a `#[cfg]`-gated
+      registration recovering **117,173 B (9.26 % of the bundle)**, inside the ±5 % window so no
+      baseline move, AC-6's refusal still passing. **Maintainer ruled to keep the +121,614 B** —
+      the wasm artifact exists to demo the tool and a watermark is worth demoing. Recorded in
+      DEC-100's alternatives and as the only `+` row in DEC-066's ledger.
+      ⚡ Caught **AC-5 half-met** (the `font` key had no test — half the mechanism) and **AC-9's
+      Call 2 control flipping ZERO tests** (the upfront probe already catches it; the claimed flip
+      needs two conditions). Also the stale floor note, a circular corpus reference, an 18-of-19
+      file list, and that **`build` serves a stale watermark from cache** — reproduced, filed.
+
+- [x] **ship** — 2026-09-06. PR [#189](https://github.com/jysf/crustyimg/pull/189) merged as
+      **`7f7fed0`**; punch list applied at `b72db1f` (records) and `2e1eae9` (three tests closing
+      AC-5, both driven with controls). `cost.totals` **$72.07** / 179,135,883 — build **$45.76**
+      (corrected from $42.29: right method, stopped 20 ids early) + verify **$26.31**.
+      ⛔ **No tag, version still 0.7.1** — batches with the rest of STAGE-050.
