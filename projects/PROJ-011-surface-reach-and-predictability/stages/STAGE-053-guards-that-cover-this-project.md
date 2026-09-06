@@ -70,6 +70,31 @@ STAGE-050 needs answered anyway.** ⚠ **Do not treat this as blocking STAGE-049
 
 ## Spec Backlog
 
+- [ ] (not yet written) — [S] ⚡ **`just check` never runs the wasm bundle-size gate, so CI is the
+  first thing that sees a size regression.** SPEC-128 shipped a real +10.6 % bundle growth and the
+  **local matrix was clean** — the gate lives only in `scripts/demo-assemble.mjs`, not in `just
+  check` or `just lint-all`. The build found out from a red PR, not from its own machine.
+  ⚠ **Second instance in one cycle:** DCO sign-off was the other CI-only catch (already filed at
+  STAGE-038 — this is its 4th recurrence, which is itself the signal).
+  **Fix shape:** a `just wasm-size` recipe the developer can run, and name it in CLAUDE.md's
+  "`just check` is a weaker gate than CI" list, which today enumerates the feature legs but not
+  this. A gate whose only trigger is CI is a gate that costs a round-trip every time it fires.
+
+- [ ] (not yet written) — [M] **Ship TWO wasm artifacts — a full demo and a lean one.**
+  ⚡ **Maintainer's idea, 2026-09-06, raised while ruling on SPEC-128's bundle growth.** The
+  artifact grew 121,614 B (+10.6 %) to carry text watermarks, and that was accepted *because the
+  demo exists to showcase features*. But the two goals genuinely conflict: a demo wants every
+  capability, an embedder wants the smallest possible engine.
+  **Two artifacts resolves it without either side losing.** The measured lever already exists and
+  is proven: SPEC-128's verify **built** the `#[cfg]`-gated variant and measured it at
+  **117,173 B smaller (9.26 %)**, with `AC-6`'s wasm refusal still passing — so the lean build is
+  not hypothetical, it compiles and passes today.
+  ⚠ **The real work is not the flag, it is everything downstream:** two artifacts mean two size
+  gates (`scripts/lib/wasm-artifact.mjs` holds ONE baseline), two `wasm-pack` invocations, a demo
+  that picks one, and a story for which one `npm/` publishes. Size that before assuming it is small.
+  📌 Related: DEC-066's ledger (the size levers), and the item above — a second artifact doubles
+  the reason to have a local size gate.
+
 - [ ] (not yet written) — [M] ⚡ **Every cost figure this repo has recorded is wrong, and most are
   ~2× overstated.** Found by SPEC-127's verify 2026-09-05, independently reproduced by the
   orchestrator on a third transcript.
