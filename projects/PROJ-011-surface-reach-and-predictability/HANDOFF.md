@@ -1,7 +1,7 @@
 # PROJ-011 — orchestration handoff
 
-**Written 2026-08-23.** First handoff for this project. PROJ-010's handoff is superseded for
-day-to-day work but keep it for its measured evidence.
+**Rewritten 2026-09-06.** Supersedes the 2026-08-23 version entirely — that one was written
+before STAGE-049 existed as shipped work and before the cost ledger was known to be wrong.
 
 > **This file deliberately does NOT restate repo state.** `just status`, `just backlog`,
 > `just roadmap` and `just specs-by-stage` all report correctly — **trust them over any summary,
@@ -20,90 +20,119 @@ prompt in `specs/prompts/`, pushed to `main` **before** the branch is cut.
 
 ## Where this stands
 
-**v0.7.1 shipped 2026-08-22** and is verified live on all three channels — GitHub release (15
-assets), crates.io `max_version 0.7.1`, Homebrew formula at `0.7.1`. Thirteen user-visible fixes on
-**one** lockfile migration.
-
-**PROJ-011 is active. SPEC-126 is designed and its build prompt is on `main`, ready to dispatch.**
+**SPEC-126, SPEC-127 and SPEC-128 all shipped** (2026-09-03 → 09-06). STAGE-049 is **shipped**;
+STAGE-050 is **active** with 2 shipped / 1 closed / **5 pending**.
 
 ### The one sequencing rule that matters
 
 ⛔ **Everything in PROJ-011 is byte-changing on a shipped verb, so the whole project carries ONE
 lockfile migration and ships as ONE release.** The key is a function of `crate::version()`, so what
-makes it one migration is landing in the same *release*, not the same PR.
+makes it one migration is landing in the same *release*, not the same PR. **Merging is fine and
+expected; tagging is not.** Version is still **0.7.1** and must stay there until STAGE-050 closes.
 
-**Do not cut a release for SPEC-126 alone.** STAGE-049 → STAGE-050 → then tag.
+### What a recipe can express now, which is the whole point of the stage
+
+```toml
+version = "2"          # required by format/quality (SPEC-127)
+format  = "jpeg"
+
+[[step]]
+op = "watermark"       # SPEC-128
+image = "assets/logo.png"
+gravity = "southeast"
+opacity = 0.6
+```
+
+---
+
+## ⚡ The one thing I would spec next
+
+**`build` serves a stale watermark from cache.** Reproduced at SPEC-128's verify with a verified
+control: change the overlay's bytes, and `build` reports *"1 cached, 0 rebuilt"* and emits
+byte-identical pre-edit output. **`apply` is unaffected.** Filed on STAGE-050, visible to
+`just backlog`.
+
+It is a **silent wrong-output path that arrived with the watermark capability** — the cache key does
+not cover a step's resolved assets. Everything else pending in STAGE-050 is a feature; this is a
+correctness bug in a shipped verb.
 
 ---
 
 ## Open, waiting on the maintainer
 
-- **The watermark coverage threshold** — a number nobody has measured. Reference points driven
-  2026-08-23: 24 px → 47 % coverage, 64 px → 16 %, 800 px → 0.32 %. ~25 % separates them.
-  **Validate against real output; do not adopt that number from a note.** Needed by STAGE-050.
-- **`mp4-atom` DEC** — blocks the animated-AVIF fork (PROJ-012) from being specced at all.
-- **The ICO round-trip ruling** — warn / fix / accept. A real fix changes bytes. PROJ-010.
-- **The `-o`-extension pin ruling** — warn / re-trigger / document-and-keep. PROJ-010.
-- **STAGE-041's real status.** The handoff has said since **2026-08-16** that three of its four
-  items are substantially done outside the repo. **A week unreported.** `just backlog` reports four
-  open items that may be one. **Do not re-plan STAGE-041 against what the repo says.**
-- **The jysf.org project page** — a fourth public surface, in no release checklist, now a version
-  behind. A refresh prompt exists (written 2026-08-23, in the session scratchpad, not committed).
+Batching these in one sitting unblocks more than anything an orchestrator can do alone.
+
+- **The watermark coverage threshold.** ⚡ **No longer an open question — it is now a choice between
+  two numbers.** Measured 2026-09-03 with a geometric measure (decode both to RGBA8, count differing
+  pixels; SSIMULACRA2 is the WRONG instrument — it is non-monotonic at small canvases, scoring 24 px
+  as *less* damaged than 64 px). The backlog's **~25 % lands at a 32 px canvas** and would pass
+  48 px (17 %), 64 px (13 %) and 128 px (7 %), all visibly ruined. **The visual read puts it nearer
+  2–5 %.** Full curve on STAGE-050. A **clipping** predicate may be the better primary rule — it
+  needs no threshold at all.
+- **The `--name-template` pin ruling** — warn / honour-the-template / document-and-keep. Same family
+  as the `-o`-extension pin ruling, which moved to PROJ-013 STAGE-037. Worth ruling together.
+- **STAGE-041's real status.** The repo has understated it since 2026-08-16. **Do not re-plan it
+  against what the repo says.**
+- **`mp4-atom` DEC** — blocks PROJ-012 from being specced at all.
+- **The two GitHub Action releases are still DRAFTS.** `v1.0.1` on `jysf/setup-crustyimg` and
+  `jysf/crustyimg-action`, self-tests green, finished since **2026-08-12**. Publishing is a click
+  and it is the smallest-effort/highest-visibility item on the board.
+- **The jysf.org project page** — a fourth public surface, in no release checklist.
 
 ---
 
-## Traps this session paid for
+## Traps this wave paid for
 
-1. **⚡ RELEASING.md had never been executed as written. Running it end to end broke three times.**
-   Its `cargo publish --dry-run` is step 3 and "commit the release" is step 5 — **cargo refuses a
-   dirty tree**, and the three files it names are the ones steps 1–2 just modified, so the dry-run
-   **cannot run** at step 3. Then `cargo test` failed on a test that is **green in CI and red in a
-   terminal**. Then every push reported **"Bypassed rule violations"**, because branch protection
-   requires PRs while AGENTS §13 says design/docs commit to `main` directly.
-   **A checklist that has only ever been read is not a checklist.** All three are filed.
-2. **⚡ NEVER PUSH DURING SOMEONE ELSE'S RELEASE.** The maintainer ran `git commit -am` while I was
-   committing a stage-file edit; `-a` swept my file into their release commit, and **my subsequent
-   `git push` sent their release commit to `main` before the dry-run and gates had run.** Nothing
-   irreversible, but it removed their option to amend freely. **If a release is in flight, commit
-   with an explicit pathspec and do not push at all.**
-3. **`str.index()` on a repeated anchor ate ten backlog items.** A slice from `s.index("**Count:**
-   1 framed…")` matched an *earlier* Count line and deleted everything between. Caught only by the
-   tally check afterwards. **Use anchors verified unique with `s.count(x)==1`, and re-derive the
-   `- [ ]` / `- [x]` tally after every stage edit.**
-4. **PNG filtered bytes are not pixels.** A first measurement of what `watermark` drew reported
-   "100 % of pixels changed" on every image, because adaptive row filters make the raw IDAT bytes
-   differ everywhere. **Undo the filters before comparing**, or the measurement is noise — and it
-   hid the real finding, which was a 0.00 % silent no-op.
-5. **A cycle's cost block ALWAYS under-reports, structurally** — a cycle cannot count the messages
-   that write its own cost block. Four cycles this wave, all under. Re-derive at ship from the
-   transcript, **identified by content, not recency** — a naive search matched the orchestrator's
-   own session as well as the build's.
-6. **Three external review batches, and all three led with an inferred flagship.** Batch 1 asked
-   for three fuzz targets that already exist; batch 2's headline optimizer concern did not
-   reproduce; batch 3's top recommendation (unify `sink` duplication) describes a refactor **that
-   is already the architecture**. ⚠ **In all three, the genuinely valuable items were the quiet
-   ones.** Treat any recommendation containing *"likely"*, *"inferred"* or *"assumed"* as a
-   hypothesis to drive, never a finding to schedule.
-7. **I did the same thing.** I told the maintainer to rule on "SPEC-118 vs the conformance matrix"
-   as duplicates — **from the title, without reading the spec.** They are different matrices on
-   different axes and neither would catch the other's defect. **Read the artifact before asking for
-   a decision about it.**
-8. **The same findings keep resurfacing because nowhere machine-readable holds them.** Four of the
-   eight CLI-surface findings filed this session match notes from an **earlier** audit marked "5
-   unfiled findings". `docs/backlog.md` is read by **no command**, and 358 lines of measured
-   research sat there invisible to `just backlog` for days.
+1. **⚡ MEASURE THE SCENARIO, NOT THE CONTROL.** Three times in three specs I drove a table and the
+   row carrying the argument did not use the feature the argument was about. SPEC-127's Call 1 was
+   settled on a `version = "2"` recipe **with no `format` key** — the one case where v2 buys nothing
+   — so AC-5's second half was unachievable and the rationale was wrong. **When a claim rests on a
+   driven table, the row carrying it must use the feature.**
+2. **⚡ AN AC NAMING TWO THINGS NEEDS A TEST PER THING.** SPEC-128's AC-5 said "overlay/**font**" and
+   only overlay was tested — half the asset mechanism shipped unguarded. Count the nouns in each AC
+   against the tests listed; it is free at design time.
+3. **⚡ THE COST LEDGER WAS ~2× WRONG AND IS NOW FIXED — do not regress it.** Claude Code writes one
+   JSONL line **per content block**. Lines sharing a `.message.id` repeat identical
+   `input`/`cache_creation`/`cache_read` while `output_tokens` **grows**. Correct method: dedup by
+   id, take those three from the group, take **MAX** output. Summing every line over-counts ~2×;
+   taking the first line's output under-counts ~11×. **Both mistakes are on record here.** 32 records
+   were corrected in place; 10 remain flagged because no transcript reproduces them.
+   📌 **Transcripts live in a project dir PER WORKTREE** (`~/.claude/projects/<slug>/`), and a
+   subagent's is under `<session-id>/subagents/`. Searching only the main dir wrongly concluded 22
+   records were unrecoverable; 12 were in sibling dirs.
+4. **VERIFY BEFORE YOU COMMIT — read back what you wrote and diff it against what you intended.** A
+   regex using a lazy `(?:.*\n)*?` spanned across YAML block boundaries and scattered 20 corrections
+   onto the wrong entries. It reached `main` because I checked that the edit *succeeded* and not that
+   it was *right*. Reverted and redone with a block parser. This one rule has since caught a phantom
+   backlog bullet, an invented DEC filename, and an invented `tokens_breakdown`.
+5. **`just check` is weaker than CI in a way CLAUDE.md does not list:** it never runs the **wasm
+   bundle-size gate**. SPEC-128's local matrix was clean while the PR was red on a real 10.6 %
+   regression. Filed on STAGE-053. DCO sign-off is the other CI-only catch — **4th recurrence**.
+6. **A moved size gate is a purchase and belongs in DEC-066's ledger** — the record of what was cut,
+   paid for, and refused. It had *declined* to drop `ssimulacra2` for 23,540 B; SPEC-128 bought 5×
+   that and would have left no row. DEC-066's own `affected_scope` omitted the gate file, so the
+   audit could not have flagged it. Both fixed.
+7. **`scripts/decisions-audit.sh` silently drops an INLINE-ARRAY `affected_scope`.** `DEC-015` is
+   invisible to `--changed`, forever, and DEC-015 governs `docs/api-contract.md`. Root cause is
+   `decisions/_template.md:33`, whose example uses the unreadable form. **Always write the
+   block-list form.** Filed, PROJ-013 STAGE-047.
+8. **PROJ-013 is invisible to `just backlog`, including `--all`** — 54 items, because the project is
+   still `proposed`. Anything filed there is git-safe and framework-invisible.
 
 ## What is working, and worth keeping
 
-- **Drive it before you file it.** Every finding filed this session carries a reproduction that was
-  re-run, and two of eight turned out **sharper** than reported. The one design call in SPEC-126
-  was settled by measuring all six sibling verbs rather than by argument.
-- **Verify remains the cheapest and most valuable cycle — five waves running.** 26 % and 28 % of
-  build cost this wave, and it produced **every** finding: 8 punch-list items, none of them a code
-  defect, all records claiming more than had been measured.
-- **Reserve DEC ids in the prompt.** `next_id` scans only the working tree, so a record on an
-  unmerged branch is invisible. **Highest is DEC-097; DEC-098 is reserved for SPEC-126.**
-- **Budget prompts in exchanges (~150), never minutes.** Four consecutive cycles blew it without
-  the checkpoint firing.
-- **File findings where `just backlog` reads** — a stage's `## Spec Backlog`, as `- [ ]`. Then run
-  `just backlog` and **read it back.**
+- **Read the code before writing the spec.** SPEC-128's backlog title was wrong — `Watermark` was
+  already an `Operation`, deliberately unregistered. A design cycle that only read the item would
+  have specced the wrong thing.
+- **Ask what the user actually sees.** "What would this look like in a TOML file?" found a defect
+  two design reviews had missed (text mode wrote the *text* under the `image` key).
+- **Verify earns its cost every single time — five waves running.** It has now refuted an
+  orchestrator hypothesis, established the repo's cost method, caught an unachievable AC, a
+  non-discriminating control, and a half-tested mechanism. **SPEC-128's verify BUILT the alternative
+  it was asked about** rather than arguing for it, which is what turned a judgement call into a
+  decision.
+- **Reserve DEC ids in the prompt.** `next_id` scans only the working tree. **Highest is DEC-100.**
+- **Size the VERIFICATION, not just the code.** SPEC-127 was marked M off its implementation while
+  its AC matrix was L-shaped; the builder said so, and was right.
+- **Inline the cost-measurement rule in the dispatch prompt** — do not reference `cost-snippet.md`.
+  SPEC-127's build had to reconstruct its cost post-hoc because the prompt only pointed at it.
