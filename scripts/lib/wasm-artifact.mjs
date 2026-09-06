@@ -38,9 +38,8 @@ export const WASM_NAME_SECTION_MAX = 4_096;
 // The baseline is set from the CI measurement (1_144_921 B) rather than the
 // local one, since CI is where the gate runs; the two agree to 57 B.
 //
-// The floor still does its job. A lean build — the thing point 3 below exists
-// to catch — measures 865_980 B brotli, which is 20.4% below the new floor of
-// 1_087_675 B, so a missing AVIF encoder still trips it with room to spare.
+// (Floor note superseded by the SPEC-128 block below — 1_087_675 was the floor
+// under SPEC-122's baseline and is no longer the floor.)
 //
 // Moved 1_144_921 -> 1_266_535 by SPEC-128 (2026-09-06), deliberately and
 // upward. `watermark` is now registered in `OperationRegistry::with_builtins()`
@@ -52,7 +51,21 @@ export const WASM_NAME_SECTION_MAX = 4_096;
 // before this spec — `crate::text` was previously reachable only from
 // `cli::ops.rs` (native-only). +121_614 B brotli (+10.6%) is the real,
 // deliberate cost of that capability, not a regression to chase down.
-// CI-measured (the number the gate itself reported, PR #189).
+// CI-measured (the number the gate itself reported, PR #189); independently
+// rebuilt at verify as 1_265_435 B, 0.09% from this figure.
+//
+// ⚠ The floor still does its job, RE-DERIVED against THIS baseline (the
+// SPEC-122 note above quoted the old one): floor = 1_266_535 x 0.95 =
+// 1_203_208 B, and a lean build (no AVIF) measures 987_244 B — 17.9% below,
+// so a missing AVIF encoder still trips it. Absolute headroom is essentially
+// unchanged across the move (221_695 -> 215_964 B).
+//
+// The cheaper option was measured and REFUSED, not missed. A #[cfg] split in
+// with_builtins() keeping the asset_keys declaration but not linking the
+// native constructor on wasm recovers 117_173 B (9.26% of the delivered
+// bundle) and needs no baseline move — but it costs text-only watermarks on
+// the wasm surface. The demo exists to show the tool's good features, so that
+// capability is the point rather than an overhead. See DEC-066's ledger.
 export const WASM_BROTLI_BASELINE = 1_266_535;
 export const WASM_BROTLI_TOLERANCE = 0.05;
 export const WASM_BROTLI_MAX = Math.round(WASM_BROTLI_BASELINE * (1 + WASM_BROTLI_TOLERANCE));

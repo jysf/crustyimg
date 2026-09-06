@@ -96,6 +96,22 @@ but unscheduled STAGE-050 backlog item) to register through it with no further c
 
 ## Alternatives Considered
 
+### The wasm bundle cost — measured, and refused deliberately
+
+- **`#[cfg]`-gate the registration so wasm keeps the lean bundle.** ⚠ **Measured at verify, not
+  estimated: it recovers 117,173 B — 9.26 % of the delivered bundle — lands INSIDE the existing
+  ±5 % window so no baseline move is needed at all, and AC-6's refusal still passes.** The single
+  casualty is `transform_runs_a_text_only_watermark_with_no_font_key`, a capability **no AC
+  required** (the Goal's "where the assets can be supplied" is a defensible reading, but it was
+  never priced).
+  **Rejected by the maintainer, 2026-09-06, on product grounds:** the wasm artifact exists to
+  *demo the tool*, and a watermark is one of the features worth demoing. Paying 121,614 B to show
+  it is the point of the artifact, not overhead on it. ⚠ **This is a purchase, not an oversight** —
+  it is the first upward move in this gate's life (SPEC-077 created it, SPEC-122 moved it down
+  16.9 %), and it is now a row in DEC-066's ledger so the next person can see what was bought.
+  📌 **Follow-up raised in the same breath and filed, not lost:** if a strictly light demo is ever
+  wanted, ship **two artifacts** (full + lean) rather than removing the capability from the one.
+
 ### Call 1 — where does resolution happen
 
 - **Pass a loader/IO trait into `build_pipeline`.** Rejected: changes the signature of the one

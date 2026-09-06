@@ -105,6 +105,22 @@ touches no files, and the overlay loads once per invocation (SPEC-029 tests). Re
 when STAGE-005 adds recipes: extend the recipe loader to resolve `watermark`'s overlay
 path (the deferred half of this decision), and update this DEC.
 
+⚠ **AMENDED 2026-09-06 by SPEC-128 (DEC-100) — the revisit above has happened.** The
+deferred half is built: a resolve-at-IO-boundary seam loads a step's declared assets
+before `build_pipeline`, and **`watermark` IS now registered in
+`OperationRegistry::with_builtins()`**, in both image and text modes.
+
+**What this DEC got right and still holds:** the op carries **in-memory pixels**, its
+`apply()` **never reads a file**, and `src/operation/**` remains free of `std::fs` — the
+property that keeps the engine compiling for `wasm32` (DEC-064). Loading still happens at
+a construction boundary; SPEC-128 added a *second* such boundary (the recipe resolver)
+rather than moving IO into the operation.
+
+**What is now superseded:** the sentences below stating that watermark is NOT registered
+and that recipe support is a future STAGE-005 concern. Read them as history.
+Not marked `superseded_by`, because the decision's substance — overlay pixels injected at
+an IO boundary, never loaded by the op — is exactly what SPEC-128 preserved.
+
 ## References
 
 - Related specs: SPEC-029 (`watermark` image overlay); STAGE-005 (recipes — the
