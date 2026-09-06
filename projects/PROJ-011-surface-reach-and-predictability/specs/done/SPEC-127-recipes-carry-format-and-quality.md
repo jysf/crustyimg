@@ -7,7 +7,7 @@
 task:
   id: SPEC-127
   type: story                      # epic | story | task | bug | chore
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: M                    # S | M | L  (L means split it)
@@ -71,15 +71,15 @@ cost:
     - cycle: build
       agent: claude-sonnet-5
       interface: claude-code
-      tokens_total: 120553651
+      tokens_total: 123877199
       duration_minutes: 53.4
       recorded_at: 2026-09-04
       tokens_breakdown:
-        input: 508
-        output: 7116
-        cache_creation: 643816
-        cache_read: 119902211
-      estimated_usd: 38.49
+        input: 518
+        output: 83709
+        cache_creation: 1297146
+        cache_read: 122495826
+      estimated_usd: 42.87
       note: >
         MEASURED post-hoc by the orchestrator from the subagent's saved task
         transcript (254 distinct API calls, deduped by `.message.id` — the raw
@@ -96,10 +96,41 @@ cost:
         reflects only the final turn's context snapshot, not a sum billed
         across the session, and is not a reliable cost source for a
         multi-turn subagent — flagged upstream, not used here.
+        ⚠ CORRECTED 2026-09-05. The build deduped by `.message.id` — the right idea,
+        and the only cycle in this repo that tried — but kept the FIRST line's
+        `output_tokens` instead of the max, so output read 7,131 against a real
+        83,709 (11.7x low). Recomputed over the complete 259-call subagent
+        transcript: $42.87. Independently reproduces SPEC-127 verify's figure.
+    - cycle: verify
+      agent: claude-opus-5
+      interface: claude-code
+      tokens_total: 20549594
+      duration_minutes: 34.7
+      recorded_at: 2026-09-05
+      tokens_breakdown:
+        input: 218
+        output: 89261
+        cache_creation: 249901
+        cache_read: 20210214
+      estimated_usd: 13.90
+      note: >
+        MEASURED by the verify session from its own transcript, deduped by
+        `.message.id` with output taken as MAX — the correct method, which this
+        cycle established. 109 API calls, priced per component at Opus anchors
+        (DEC-083); a flat rate would say $102.75, 7.4x over. Structurally
+        under-reports: a cycle cannot count the messages that write its own block.
+    - cycle: ship
+      interface: claude-code
+      tokens_total: null
+      duration_minutes: null
+      estimated_usd: null
+      note: >
+        Un-metered main-loop ship cycle (AGENTS §4) — merge, reflection, totals,
+        archive.
   totals:
-    tokens_total: 120553651
-    estimated_usd: 38.49
-    session_count: 1
+    tokens_total: 144426793
+    estimated_usd: 56.77
+    session_count: 4
 ---
 
 # SPEC-127: recipes carry format and quality
@@ -430,3 +461,54 @@ release.**
    Caught by re-deriving from a positive control rather than trusting the first red, and fixed by
    re-running the leg from a byte-for-byte clean tree — but sequencing background builds and
    source edits more deliberately would have avoided the detour.
+
+---
+
+## Reflection (Ship)
+
+**1. What went right, and would you do it the same way again?**
+
+The build was strong: 1505 insertions across 16 files, all nine ACs addressed, and verify found
+**no code defect on any axis it could drive** — 957/957 native tests, 41/41 wasm, three negative
+controls each flipping only their own condition, and byte-identity intact across the whole shipped
+surface including flagship `web`. It wrote `docs/api-contract.md` **and** `docs/data-model.md` in
+the same change, which the spec only half-required and which SPEC-126 had to be corrected for.
+
+**2. What went wrong, and what would you change?**
+
+⚠ **A design call was settled on a measurement of the wrong case, and it survived into the DEC.**
+Call 1 gated the new fields behind `version = "2"` on a driven table showing an old binary gives a
+clean `unsupported recipe version` message. It does not. `deny_unknown_fields` fires during
+deserialization **before** the version check, so a *real* v2 recipe — one carrying `format` — gets a
+TOML parse error either way. The recipe driven at design time was built by swapping the version
+string in a valid recipe, so it had **no `format` key**: the control was measured and written up as
+the scenario. AC-5's second half was therefore unachievable by any implementation.
+
+The gate survives on a narrower, honest rationale — schema hygiene — and DEC-099 now says the
+forward-compatibility benefit must not be cited again.
+
+**The generalisable fix, because this is the third instance across two specs:** when a claim rests
+on a driven table, **the row carrying the argument must use the feature the argument is about.** A
+control that omits the feature proves the control, not the claim.
+
+**3. What should the next spec know?**
+
+📌 **Size the verification, not just the code.** This was marked **M** off its implementation; the
+AC matrix was L-shaped — AC-8 alone was eight verbs × a corpus × two binaries, and verify drove 44
+files across 10 legs. The orchestrator's attempt to narrow AC-8 to six on a call-graph argument was
+**wrong** (`run_convert`, `run_optimize` and `run_web` all reach the changed `run_pixel_op`), and
+verify drove all eight anyway. Being unchanged in one file says nothing about what it calls in
+another.
+
+⚡ **This cycle found the cost-measurement defect that reaches the whole repo.** Verify was asked to
+rule on one figure and instead established the method: Claude Code writes one JSONL line per
+**content block**, so naive all-lines summing double-counts `input`/`cache_creation`/`cache_read`
+once per extra block. Most recorded figures were ~2× overstated; this spec's own build was 11.7×
+**low** on `output` for the mirror-image reason. Filed on STAGE-053, and 32 records corrected in
+place. **The verify cycle paid for the entire project's cost ledger.**
+
+⚠ **Also from the build's own reflection, worth carrying:** a backgrounded `--features webp-lossy`
+build was mid-compile while source files were being edited for a negative-control revert, and the
+two races contaminated that leg. Caught by a positive control rather than by trusting the first red.
+**Sequence background builds and source edits deliberately** — the same class as this repo's
+existing warning about concurrent differently-featured builds sharing a target dir.

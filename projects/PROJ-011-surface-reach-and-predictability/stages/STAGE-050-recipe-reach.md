@@ -240,7 +240,7 @@ anything a recipe cannot say.
   least reachable from tooling. **Whether the LUT op gets a home is a separate maintainer call** —
   and worth asking what else is in that triage doc, since a decided feature was lost in it once.
 
-- [ ] **SPEC-127** (design, 2026-09-04) — **`format` and `quality` on `Recipe`.** ⛔ Depended on
+- [x] **SPEC-127** (shipped on 2026-09-05) — **`format` and `quality` on `Recipe`.** ⛔ Depended on
   STAGE-049; **unblocked, and specced.** 9 ACs, 4 settled design calls, 7 failing tests.
   ⚡ **Call 1 was settled by measurement:** the new fields require `version = "2"` rather than
   riding as optional v1 fields, because `Recipe` is `deny_unknown_fields` — an old binary handed a
@@ -261,7 +261,7 @@ anything a recipe cannot say.
   schema change. Bundling the two turns an M into an L, and AGENTS §2 says split an L.
   (Originally arrived via external review batch 3 — one of the two items that survived checking.)
 
-**Count:** 0 shipped / 0 active / **4 pending** — re-derive with a grep you just ran.
+**Count:** **1 shipped** / 0 in flight / **6 pending** — re-derive with a grep you just ran.
 
 ## Design Notes
 

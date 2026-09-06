@@ -44,5 +44,23 @@ Cycle prompts live in `prompts/SPEC-127-<cycle>.md`.
       when it is missed; and `just wasm-test` runs in no CI job, so a wasm assertion is not
       covered by the required matrix and Build Completion must say so.
 
-- [ ] **verify** — Opus, new session, read-only.
-- [ ] **ship**
+- [x] **verify** — 2026-09-05, Opus, read-only. **$13.90** / 20.5M tokens / 34.7 min.
+      ⚠ **PUNCH LIST, 7 items, none of them a code defect** — 957/957 native, 41/41 wasm, three
+      negative controls each flipping only their own condition, byte-identity intact across the
+      whole shipped surface incl. flagship `web`.
+      ⚡ **It refuted the orchestrator's lead hypothesis and established the repo's cost method.**
+      `cache_read` is per-call, not cumulative (proved two ways); the real defect is that Claude
+      Code writes one JSONL line per CONTENT BLOCK, so naive all-lines summing double-counts three
+      fields per extra block. Most figures in this repo were ~2x over; this spec's own build was
+      11.7x LOW on `output` for the mirror reason. **32 records corrected in place**, filed on
+      STAGE-053.
+      ⚡ It also found **AC-5's second half was unachievable**, which took the orchestrator's Call 1
+      rationale with it, and showed the orchestrator's AC-8 narrowing was **wrong** — it drove all
+      eight verbs anyway, 44 files across 10 legs, byte-identical.
+
+- [x] **ship** — 2026-09-05. PR [#188](https://github.com/jysf/crustyimg/pull/188) merged to `main`
+      as **`2e4e6ad`**; punch-list items applied at `4055dbc` (records only, no code). `cost.totals`
+      **$56.77** / 144,426,793 tokens — build **$42.87** (corrected from $38.49; the build deduped
+      but kept first-line output) + verify **$13.90**.
+      ⛔ **No tag, version still 0.7.1** — batches with the rest of STAGE-050 as PROJ-011's single
+      lockfile migration.
