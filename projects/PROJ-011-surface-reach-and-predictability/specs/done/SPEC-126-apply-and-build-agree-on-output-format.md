@@ -80,15 +80,15 @@ cost:
     - cycle: verify
       agent: claude-opus-5
       interface: claude-code
-      tokens_total: 22698850
+      tokens_total: 13612310
       duration_minutes: 21.6
       recorded_at: 2026-08-23
       tokens_breakdown:
-        input: 308
-        output: 104013
-        cache_creation: 302408
-        cache_read: 22292121
-      estimated_usd: 15.64
+        input: 184
+        output: 55272
+        cache_creation: 177407
+        cache_read: 13379447
+      estimated_usd: 9.18
       note: >
         MEASURED — summed from the session transcript's per-message `usage`
         (154 assistant messages), priced at Opus anchors ($5/$25 per MTok,
@@ -99,24 +99,24 @@ cost:
         the messages that write its own cost block. 41% of the build's cost;
         returned a 7-item punch list, 2 unnamed behaviour changes and a
         pre-existing tooling defect.
-        ⚠ OVERSTATED, NOT RECOMPUTABLE (flagged 2026-09-05). Produced by the naive
-        all-lines sum corrected in STAGE-053. Every recomputable sibling lands between
-        1.38x and 2.88x over, so this is high by an unmeasured factor in that band. Its
-        transcript is no longer on disk — no prefix reproduces the recorded total, so no
-        corrected figure can be derived. Left flagged rather than scaled by an average:
-        a fabricated precision would be worse than a stated unknown.
+        ⚠ CORRECTED 2026-09-05 (second pass). Naive all-lines sum; recomputed by
+        deduping on `.message.id` — input/cache_creation/cache_read from the group,
+        output as MAX. Was $15.64 / 22,698,850 (1.70x over) across 154
+        transcript lines = 92 real API calls. ⚠ An earlier pass flagged this entry
+        unrecoverable; that was wrong — only ONE project directory had been searched,
+        and this cycle's transcript lives in its own worktree dir. See STAGE-053.
     - cycle: re-approve
       agent: claude-opus-5
       interface: claude-code
-      tokens_total: 19130895
+      tokens_total: 7834250
       duration_minutes: null
       recorded_at: 2026-09-03
       tokens_breakdown:
-        input: 312
-        output: 136135
-        cache_creation: 367797
-        cache_read: 18626651
-      estimated_usd: 15.02
+        input: 128
+        output: 50848
+        cache_creation: 138230
+        cache_read: 7645044
+      estimated_usd: 5.96
       note: >
         MEASURED — summed from the session transcript's per-message `usage`
         (156 assistant messages), priced at Opus anchors ($5/$25 per MTok,
@@ -128,12 +128,12 @@ cost:
         (two decisions claimed blind to the decisions-audit parser, only
         DEC-015 actually is), a false universal in `docs/api-contract.md`, and
         a file list stale by its own stated derivation.
-        ⚠ OVERSTATED, NOT RECOMPUTABLE (flagged 2026-09-05). Produced by the naive
-        all-lines sum corrected in STAGE-053. Every recomputable sibling lands between
-        1.38x and 2.88x over, so this is high by an unmeasured factor in that band. Its
-        transcript is no longer on disk — no prefix reproduces the recorded total, so no
-        corrected figure can be derived. Left flagged rather than scaled by an average:
-        a fabricated precision would be worse than a stated unknown.
+        ⚠ CORRECTED 2026-09-05 (second pass). Naive all-lines sum; recomputed by
+        deduping on `.message.id` — input/cache_creation/cache_read from the group,
+        output as MAX. Was $15.02 / 19,130,895 (2.52x over) across 156
+        transcript lines = 64 real API calls. ⚠ An earlier pass flagged this entry
+        unrecoverable; that was wrong — only ONE project directory had been searched,
+        and this cycle's transcript lives in its own worktree dir. See STAGE-053.
     - cycle: ship
       interface: claude-code
       tokens_total: null
@@ -143,10 +143,8 @@ cost:
         Un-metered main-loop ship cycle (AGENTS §4) — merge, reflection,
         totals, archive.
   totals:
-    # ⚠ MIXED: includes a session flagged OVERSTATED, NOT RECOMPUTABLE —
-    # this total is an upper bound, not a measurement.
-    tokens_total: 92049101
-    estimated_usd: 48.68
+    tokens_total: 71665916
+    estimated_usd: 33.16
     session_count: 3
 ---
 

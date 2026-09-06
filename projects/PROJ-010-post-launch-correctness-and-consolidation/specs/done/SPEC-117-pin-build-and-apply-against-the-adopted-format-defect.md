@@ -54,31 +54,31 @@ cost:
     - cycle: build
       agent: claude-sonnet-5
       interface: claude-code
-      tokens_total: 62804433
+      tokens_total: 35158332
       duration_minutes: 62
       recorded_at: 2026-08-16
       tokens_breakdown: {input: 648, output: 171232, cache_creation: 491962, cache_read: 62140591}
-      estimated_usd: 23.06
+      estimated_usd: 12.49
       note: >
         MEASURED at session end (own transcript sum — main-loop session executing the
         build prompt directly, not dispatched as a subagent), 324 assistant messages
         with usage, covering the full cycle including the AC-6 CI-legs readout.
         Sonnet $3/$15 per MTok anchors (model actually reported by every message);
         cache_creation x1.25, cache_read x0.10.
-        ⚠ OVERSTATED, NOT RECOMPUTABLE (flagged 2026-09-05). Produced by the naive
-        all-lines sum corrected in STAGE-053. Every recomputable sibling lands between
-        1.38x and 2.88x over, so this is high by an unmeasured factor in that band. Its
-        transcript is no longer on disk — no prefix reproduces the recorded total, so no
-        corrected figure can be derived. Left flagged rather than scaled by an average:
-        a fabricated precision would be worse than a stated unknown.
+        ⚠ CORRECTED 2026-09-05 (second pass). Naive all-lines sum; recomputed by
+        deduping on `.message.id` — input/cache_creation/cache_read from the group,
+        output as MAX. Was $23.06 / 62,804,433 (1.85x over) across 324
+        transcript lines = 176 real API calls. ⚠ An earlier pass flagged this entry
+        unrecoverable; that was wrong — only ONE project directory had been searched,
+        and this cycle's transcript lives in its own worktree dir. See STAGE-053.
     - cycle: verify
       agent: claude-opus-5
       interface: claude-code
-      tokens_total: 10384064
+      tokens_total: 4575013
       duration_minutes: 28
       recorded_at: 2026-08-16
       tokens_breakdown: {input: 200, output: 92971, cache_creation: 287581, cache_read: 10003312}
-      estimated_usd: 9.12
+      estimated_usd: 3.94
       note: >
         MEASURED at session end (own transcript, identified by content — the
         negative-control marker and baseline binary hash this session emitted),
@@ -87,12 +87,12 @@ cost:
         sum and dollars both match. Covers both re-run negative controls, the
         AC-6 baseline established by RUNNING rather than counting, and a full
         three-leg matrix — in 28 minutes against a ~60 budget.
-        ⚠ OVERSTATED, NOT RECOMPUTABLE (flagged 2026-09-05). Produced by the naive
-        all-lines sum corrected in STAGE-053. Every recomputable sibling lands between
-        1.38x and 2.88x over, so this is high by an unmeasured factor in that band. Its
-        transcript is no longer on disk — no prefix reproduces the recorded total, so no
-        corrected figure can be derived. Left flagged rather than scaled by an average:
-        a fabricated precision would be worse than a stated unknown.
+        ⚠ CORRECTED 2026-09-05 (second pass). Naive all-lines sum; recomputed by
+        deduping on `.message.id` — input/cache_creation/cache_read from the group,
+        output as MAX. Was $9.12 / 10,384,064 (2.31x over) across 100
+        transcript lines = 43 real API calls. ⚠ An earlier pass flagged this entry
+        unrecoverable; that was wrong — only ONE project directory had been searched,
+        and this cycle's transcript lives in its own worktree dir. See STAGE-053.
     - cycle: ship
       interface: claude-code
       tokens_total: null
@@ -102,10 +102,8 @@ cost:
         Un-metered main-loop ship cycle (AGENTS §4). Merge, cost totals,
         reflection, archive, and the STAGE-045 close-out.
   totals:
-    # ⚠ MIXED: includes a session flagged OVERSTATED, NOT RECOMPUTABLE —
-    # this total is an upper bound, not a measurement.
-    tokens_total: 73188497
-    estimated_usd: 32.18
+    tokens_total: 39733345
+    estimated_usd: 16.43
     session_count: 4
 ---
 

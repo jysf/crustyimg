@@ -75,24 +75,25 @@ cost:
         Re-measured at session end, per the cost snippet's own warning that
         mid-session numbers run low: the earlier reading was $7.95, 9% low.
         The commit carrying this figure is itself not included (~$0.15).
-        ⚠ OVERSTATED, NOT RECOMPUTABLE (flagged 2026-09-05). Produced by the naive
-        all-lines sum corrected in STAGE-053. Every recomputable sibling lands between
-        1.38x and 2.88x over, so this is high by an unmeasured factor in that band. Its
-        transcript is no longer on disk — no prefix reproduces the recorded total, so no
-        corrected figure can be derived. Left flagged rather than scaled by an average:
-        a fabricated precision would be worse than a stated unknown.
+        ⚠ OVERSTATED, NOT RECOMPUTABLE (flagged 2026-09-05, wording corrected same
+        day). Produced by the naive all-lines sum corrected in STAGE-053; every
+        recomputable sibling lands 1.38x-2.68x over, so this is high by an unmeasured
+        factor in that band. No transcript prefix across **70 transcripts in 18 project
+        directories** reproduces the recorded total, so no corrected figure can be
+        derived. Left flagged rather than scaled: a fabricated precision would be worse
+        than a stated unknown.
     - cycle: verify
       agent: claude-opus-5                # rate anchors: Opus $5/$25 per MTok
       interface: claude-code
-      tokens_total: 7717537
+      tokens_total: 3631600
       duration_minutes: 8
       recorded_at: 2026-08-16
       tokens_breakdown:
-        input: 152
-        output: 69273
-        cache_creation: 231257
-        cache_read: 7416855
-      estimated_usd: 6.89
+        input: 72
+        output: 28396
+        cache_creation: 111007
+        cache_read: 3492125
+      estimated_usd: 3.15
       note: >
         MEASURED — transcript sum over 76 assistant messages
         (session c5f84a09-b743-4303-88f6-ad131fa19b3a), priced per component at
@@ -104,12 +105,12 @@ cost:
         at ship: sum and dollars both match. The verify session's own commit
         (67bcf57) was never pushed — it lived on a detached worktree — so this
         block is transcribed from it rather than merged.
-        ⚠ OVERSTATED, NOT RECOMPUTABLE (flagged 2026-09-05). Produced by the naive
-        all-lines sum corrected in STAGE-053. Every recomputable sibling lands between
-        1.38x and 2.88x over, so this is high by an unmeasured factor in that band. Its
-        transcript is no longer on disk — no prefix reproduces the recorded total, so no
-        corrected figure can be derived. Left flagged rather than scaled by an average:
-        a fabricated precision would be worse than a stated unknown.
+        ⚠ CORRECTED 2026-09-05 (second pass). Naive all-lines sum; recomputed by
+        deduping on `.message.id` — input/cache_creation/cache_read from the group,
+        output as MAX. Was $6.89 / 7,717,537 (2.19x over) across 76
+        transcript lines = 36 real API calls. ⚠ An earlier pass flagged this entry
+        unrecoverable; that was wrong — only ONE project directory had been searched,
+        and this cycle's transcript lives in its own worktree dir. See STAGE-053.
     - cycle: ship
       interface: claude-code
       tokens_total: null
@@ -120,8 +121,8 @@ cost:
   totals:
     # ⚠ MIXED: includes a session flagged OVERSTATED, NOT RECOMPUTABLE —
     # this total is an upper bound, not a measurement.
-    tokens_total: 19082967
-    estimated_usd: 15.58
+    tokens_total: 14997030
+    estimated_usd: 11.84
     session_count: 4
 ---
 

@@ -65,15 +65,15 @@ cost:
     - cycle: build
       agent: claude-sonnet-5
       interface: claude-code
-      tokens_total: 103974126
+      tokens_total: 54574385
       duration_minutes: 159
       recorded_at: 2026-08-13
       tokens_breakdown:
-        input: 7986
-        output: 326993
-        cache_creation: 925331
-        cache_read: 102713816
-      estimated_usd: 39.21
+        input: 4001
+        output: 153404
+        cache_creation: 379979
+        cache_read: 54037001
+      estimated_usd: 19.95
       note: >
         MEASURED, summed directly from this session's own transcript
         (~/.claude/projects/.../2d19bb84-e014-4f1d-8f41-15e343e3afe6.jsonl), all
@@ -88,24 +88,24 @@ cost:
         `avif-parse` itself blocks the predicted construction) both ran well past
         the checkpoint; a `wip(SPEC-115):` commit landed at the 90-minute mark
         with the SVG family green, not a hard stop.
-        ⚠ OVERSTATED, NOT RECOMPUTABLE (flagged 2026-09-05). Produced by the naive
-        all-lines sum corrected in STAGE-053. Every recomputable sibling lands between
-        1.38x and 2.88x over, so this is high by an unmeasured factor in that band. Its
-        transcript is no longer on disk — no prefix reproduces the recorded total, so no
-        corrected figure can be derived. Left flagged rather than scaled by an average:
-        a fabricated precision would be worse than a stated unknown.
+        ⚠ CORRECTED 2026-09-05 (second pass). Naive all-lines sum; recomputed by
+        deduping on `.message.id` — input/cache_creation/cache_read from the group,
+        output as MAX. Was $39.21 / 103,974,126 (1.97x over) across 360
+        transcript lines = 184 real API calls. ⚠ An earlier pass flagged this entry
+        unrecoverable; that was wrong — only ONE project directory had been searched,
+        and this cycle's transcript lives in its own worktree dir. See STAGE-053.
     - cycle: verify
       agent: claude-opus-5
       interface: claude-code
-      tokens_total: 9921545
+      tokens_total: 3885542
       duration_minutes: 135
       recorded_at: 2026-08-13
       tokens_breakdown:
-        input: 208
-        output: 81300
-        cache_creation: 283890
-        cache_read: 9556147
-      estimated_usd: 8.59
+        input: 82
+        output: 28450
+        cache_creation: 105294
+        cache_read: 3751716
+      estimated_usd: 3.25
       note: >
         MEASURED, summed over this session's own 104 usage-bearing messages
         (~/.claude/projects/.../ba81feb2-443d-4932-b9e2-13b78ae360c3.jsonl),
@@ -120,12 +120,12 @@ cost:
         minutes of wall clock (fresh per-leg target dirs, sequential, as
         AC-12 requires), and the per-family negative controls were re-driven
         from scratch rather than taken on the build's word.
-        ⚠ OVERSTATED, NOT RECOMPUTABLE (flagged 2026-09-05). Produced by the naive
-        all-lines sum corrected in STAGE-053. Every recomputable sibling lands between
-        1.38x and 2.88x over, so this is high by an unmeasured factor in that band. Its
-        transcript is no longer on disk — no prefix reproduces the recorded total, so no
-        corrected figure can be derived. Left flagged rather than scaled by an average:
-        a fabricated precision would be worse than a stated unknown.
+        ⚠ CORRECTED 2026-09-05 (second pass). Naive all-lines sum; recomputed by
+        deduping on `.message.id` — input/cache_creation/cache_read from the group,
+        output as MAX. Was $8.59 / 9,921,545 (2.64x over) across 104
+        transcript lines = 41 real API calls. ⚠ An earlier pass flagged this entry
+        unrecoverable; that was wrong — only ONE project directory had been searched,
+        and this cycle's transcript lives in its own worktree dir. See STAGE-053.
     - cycle: ship
       interface: claude-code
       tokens_total: null
@@ -134,10 +134,8 @@ cost:
       note: >
         Main-loop orchestrator work, not separately metered (AGENTS §4).
   totals:
-    # ⚠ MIXED: includes a session flagged OVERSTATED, NOT RECOMPUTABLE —
-    # this total is an upper bound, not a measurement.
-    tokens_total: 113895671
-    estimated_usd: 47.80
+    tokens_total: 58459927
+    estimated_usd: 23.20
     # Non-null (metered) sessions only — build + verify — matching SPEC-112's
     # shipped convention. Was 3, which counted the null design cycle.
     session_count: 2

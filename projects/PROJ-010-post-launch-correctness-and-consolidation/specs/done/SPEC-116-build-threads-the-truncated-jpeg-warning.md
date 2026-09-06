@@ -59,15 +59,15 @@ cost:
     - cycle: build
       agent: claude-sonnet-5
       interface: claude-code
-      tokens_total: 28772199
+      tokens_total: 14553714
       duration_minutes: 104
       recorded_at: 2026-08-15
       tokens_breakdown:
-        input: 412
-        output: 130633
-        cache_creation: 392886
-        cache_read: 28248268
-      estimated_usd: 11.91
+        input: 202
+        output: 61932
+        cache_creation: 165853
+        cache_read: 14325727
+      estimated_usd: 5.85
       note: >
         MEASURED — transcript sum over 206 assistant messages
         (d6ab563a-c8cd-4338-b4ca-8dac02344cac.jsonl), all claude-sonnet-5.
@@ -78,12 +78,12 @@ cost:
         (3 full-workspace `cargo test` runs, one with a slow ~193s
         `audit_bench` binary) run sequentially per the guardrail, not to
         active generation.
-        ⚠ OVERSTATED, NOT RECOMPUTABLE (flagged 2026-09-05). Produced by the naive
-        all-lines sum corrected in STAGE-053. Every recomputable sibling lands between
-        1.38x and 2.88x over, so this is high by an unmeasured factor in that band. Its
-        transcript is no longer on disk — no prefix reproduces the recorded total, so no
-        corrected figure can be derived. Left flagged rather than scaled by an average:
-        a fabricated precision would be worse than a stated unknown.
+        ⚠ CORRECTED 2026-09-05 (second pass). Naive all-lines sum; recomputed by
+        deduping on `.message.id` — input/cache_creation/cache_read from the group,
+        output as MAX. Was $11.91 / 28,772,199 (2.04x over) across 206
+        transcript lines = 101 real API calls. ⚠ An earlier pass flagged this entry
+        unrecoverable; that was wrong — only ONE project directory had been searched,
+        and this cycle's transcript lives in its own worktree dir. See STAGE-053.
     - cycle: verify
       agent: claude-opus-5
       interface: claude-code
@@ -124,10 +124,8 @@ cost:
         Un-metered main-loop ship cycle (AGENTS §4). Merge, cost totals,
         reflection, archive, and the STAGE-043 close-out.
   totals:
-    # ⚠ MIXED: includes a session flagged OVERSTATED, NOT RECOMPUTABLE —
-    # this total is an upper bound, not a measurement.
-    tokens_total: 33390016
-    estimated_usd: 16.01
+    tokens_total: 19171531
+    estimated_usd: 9.95
     session_count: 4
 ---
 

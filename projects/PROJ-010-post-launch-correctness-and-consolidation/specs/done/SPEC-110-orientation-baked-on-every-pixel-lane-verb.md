@@ -140,12 +140,13 @@ cost:
         time between turns. estimated_usd priced per component at Sonnet anchors
         ($3/$15 per MTok in/out; cache_creation x1.25 input, cache_read x0.10
         input), same formula as the first build session.
-        ⚠ OVERSTATED, NOT RECOMPUTABLE (flagged 2026-09-05). Produced by the naive
-        all-lines sum corrected in STAGE-053. Every recomputable sibling lands between
-        1.38x and 2.88x over, so this is high by an unmeasured factor in that band. Its
-        transcript is no longer on disk — no prefix reproduces the recorded total, so no
-        corrected figure can be derived. Left flagged rather than scaled by an average:
-        a fabricated precision would be worse than a stated unknown.
+        ⚠ OVERSTATED, NOT RECOMPUTABLE (flagged 2026-09-05, wording corrected same
+        day). Produced by the naive all-lines sum corrected in STAGE-053; every
+        recomputable sibling lands 1.38x-2.68x over, so this is high by an unmeasured
+        factor in that band. No transcript prefix across **70 transcripts in 18 project
+        directories** reproduces the recorded total, so no corrected figure can be
+        derived. Left flagged rather than scaled: a fabricated precision would be worse
+        than a stated unknown.
     - cycle: ship
       interface: claude-code
       tokens_total: null

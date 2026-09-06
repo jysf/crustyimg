@@ -62,15 +62,15 @@ cost:
     - cycle: build
       agent: claude-sonnet-5
       interface: claude-code
-      tokens_total: 143470855
+      tokens_total: 73851043
       duration_minutes: 61.2
       recorded_at: 2026-08-16
       tokens_breakdown:
-        input: 942
-        output: 341592
-        cache_creation: 919223
-        cache_read: 142209098
-      estimated_usd: 51.24
+        input: 486
+        output: 169644
+        cache_creation: 432123
+        cache_read: 73248790
+      estimated_usd: 26.14
       note: >
         MEASURED at session end (re-measured after the PR-link commit, per
         "measure at session end" — an earlier mid-run read here would have
@@ -80,20 +80,20 @@ cost:
         cache_creation x1.25, cache_read x0.10). Cache reads are 99.1% of
         tokens_total, so the flat 80/20 shortcut would badly overstate this —
         priced by component per the pricing note.
-        ⚠ OVERSTATED, NOT RECOMPUTABLE (flagged 2026-09-05). Produced by the naive
-        all-lines sum corrected in STAGE-053. Every recomputable sibling lands between
-        1.38x and 2.88x over, so this is high by an unmeasured factor in that band. Its
-        transcript is no longer on disk — no prefix reproduces the recorded total, so no
-        corrected figure can be derived. Left flagged rather than scaled by an average:
-        a fabricated precision would be worse than a stated unknown.
+        ⚠ CORRECTED 2026-09-05 (second pass). Naive all-lines sum; recomputed by
+        deduping on `.message.id` — input/cache_creation/cache_read from the group,
+        output as MAX. Was $51.24 / 143,470,855 (1.96x over) across 471
+        transcript lines = 243 real API calls. ⚠ An earlier pass flagged this entry
+        unrecoverable; that was wrong — only ONE project directory had been searched,
+        and this cycle's transcript lives in its own worktree dir. See STAGE-053.
     - cycle: verify
       agent: claude-opus-5
       interface: claude-code
-      tokens_total: 47880996
+      tokens_total: 26687848
       duration_minutes: 28.3
       recorded_at: 2026-08-16
       tokens_breakdown: {input: 538, output: 179350, cache_creation: 461199, cache_read: 47239909}
-      estimated_usd: 30.99
+      estimated_usd: 17.08
       note: >
         MEASURED at session end (own transcript, identified by content — the
         negative-control marker and baseline binary hash this session emitted),
@@ -104,12 +104,12 @@ cost:
         it lived on a detached worktree — so this block is transcribed from it.
         The punch-list pass folds into the build entry (same cycle) and the
         second-pass review was un-metered orchestrator main-loop work.
-        ⚠ OVERSTATED, NOT RECOMPUTABLE (flagged 2026-09-05). Produced by the naive
-        all-lines sum corrected in STAGE-053. Every recomputable sibling lands between
-        1.38x and 2.88x over, so this is high by an unmeasured factor in that band. Its
-        transcript is no longer on disk — no prefix reproduces the recorded total, so no
-        corrected figure can be derived. Left flagged rather than scaled by an average:
-        a fabricated precision would be worse than a stated unknown.
+        ⚠ CORRECTED 2026-09-05 (second pass). Naive all-lines sum; recomputed by
+        deduping on `.message.id` — input/cache_creation/cache_read from the group,
+        output as MAX. Was $30.99 / 47,880,996 (1.81x over) across 269
+        transcript lines = 150 real API calls. ⚠ An earlier pass flagged this entry
+        unrecoverable; that was wrong — only ONE project directory had been searched,
+        and this cycle's transcript lives in its own worktree dir. See STAGE-053.
     - cycle: ship
       interface: claude-code
       tokens_total: null
@@ -118,10 +118,8 @@ cost:
       note: >
         Un-metered main-loop ship cycle (AGENTS §4).
   totals:
-    # ⚠ MIXED: includes a session flagged OVERSTATED, NOT RECOMPUTABLE —
-    # this total is an upper bound, not a measurement.
-    tokens_total: 191351851
-    estimated_usd: 82.23
+    tokens_total: 100538891
+    estimated_usd: 43.22
     session_count: 4
 ---
 
