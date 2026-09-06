@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 
 use indicatif::{ProgressBar, ProgressStyle};
 use rayon::prelude::*;
+use sha2::{Digest as _, Sha256};
 
 use crate::error::ImageError;
 use crate::operation::OperationRegistry;
@@ -69,12 +70,16 @@ fn target_format_plan(template: &str) -> Result<OutputFormatPlan, CliError> {
 
 /// The cache identity for one target: the canonical recipe hash, folded
 /// together with the output-format PLAN when (and only when) the recipe ends
-/// in the reserved terminal `optimize` step (SPEC-111).
+/// in the reserved terminal `optimize` step (SPEC-111), and with the content
+/// of every resolved asset a watermark (or future asset-bearing) step names
+/// (SPEC-129, DEC-101).
 ///
-/// A plain pixel recipe — the vast majority, and the only shape that could
-/// ever build before this spec — hashes EXACTLY as before, via the untouched
-/// [`crate::build::cache::recipe_hash`]: no prior cache entry or committed
-/// lockfile line goes stale from this change alone.
+/// A recipe with no asset-bearing steps hashes EXACTLY as before this spec —
+/// [`absorb_resolved_assets`] contributes zero bytes when there is nothing to
+/// resolve, and every byte fed to the hasher ahead of it reproduces the exact
+/// sequence [`crate::build::cache::recipe_hash`] (the `Preserve` case) or the
+/// pre-SPEC-129 buffer (`Pinned`/`Decide`) hashed — so no prior cache entry or
+/// committed lockfile line goes stale from this change alone.
 ///
 /// A terminal-`optimize` target additionally needs the PLAN in the hash: two
 /// targets can share byte-identical pixel steps (the same recipe file) but
@@ -83,32 +88,84 @@ fn target_format_plan(template: &str) -> Result<OutputFormatPlan, CliError> {
 /// agreeing says nothing about whether the shipped BYTES will. Without this,
 /// one target's cache entry could serve the other's bytes on a hit, which is
 /// exactly the silent-staleness failure [`crate::build::cache`] exists to
-/// prevent. Both the recipe TOML and the plan discriminator are
-/// length-prefixed so neither can be crafted to bleed into the other.
+/// prevent. The recipe TOML, the plan discriminator, and the asset fingerprint
+/// are all length-prefixed so none can be crafted to bleed into another.
 fn target_recipe_hash(
     recipe: &Recipe,
     plan: OutputFormatPlan,
+    registry: &OperationRegistry,
 ) -> Result<crate::build::cache::Hash, CliError> {
-    use crate::build::cache::hash_bytes;
-
-    if plan == OutputFormatPlan::Preserve {
-        return Ok(crate::build::cache::recipe_hash(recipe)?);
-    }
-
     let toml = recipe.to_toml()?;
-    let mut buf = Vec::with_capacity(toml.len() + 16);
-    buf.extend_from_slice(&(toml.len() as u64).to_le_bytes());
-    buf.extend_from_slice(toml.as_bytes());
+    let mut hasher = Sha256::new();
+
+    // Reproduce, byte-for-byte, what each branch hashed before this spec —
+    // ONLY appending [`absorb_resolved_assets`]'s output afterward. A recipe
+    // with no resolved assets therefore finalizes to the exact same digest as
+    // before, on every plan (Call 4/Call 5).
     match plan {
+        OutputFormatPlan::Preserve => {
+            hasher.update(toml.as_bytes());
+        }
         OutputFormatPlan::Pinned(fmt) => {
             let ext = crate::sink::extension_for_format(fmt);
-            buf.extend_from_slice(&1u64.to_le_bytes());
-            buf.extend_from_slice(ext.as_bytes());
+            hasher.update((toml.len() as u64).to_le_bytes());
+            hasher.update(toml.as_bytes());
+            hasher.update(1u64.to_le_bytes());
+            hasher.update(ext.as_bytes());
         }
-        OutputFormatPlan::Decide => buf.extend_from_slice(&2u64.to_le_bytes()),
-        OutputFormatPlan::Preserve => unreachable!("handled by the early return above"),
+        OutputFormatPlan::Decide => {
+            hasher.update((toml.len() as u64).to_le_bytes());
+            hasher.update(toml.as_bytes());
+            hasher.update(2u64.to_le_bytes());
+        }
     }
-    Ok(hash_bytes(&buf))
+
+    absorb_resolved_assets(&mut hasher, recipe, registry);
+
+    Ok(crate::build::cache::Hash::from_hasher(hasher))
+}
+
+/// The one-byte field tag [`absorb_resolved_assets`] uses for all three of its
+/// fields (step index, asset-key name, content hash). Scoped to this
+/// function's own hasher stream only — it need not (and does not) avoid
+/// colliding with [`crate::build::cache::compute_key`]'s tags, which are a
+/// separate hash computation entirely.
+const TAG_ASSET: u8 = 0;
+
+/// Absorb every step's resolved-asset content into `hasher`, in step order,
+/// tagged so no two field values can concatenate into a third (SPEC-129,
+/// Call 3).
+///
+/// Walks `recipe.steps` in the same order `to_toml`/`resolve_recipe_assets`/
+/// `build_pipeline` do, and for each step, `registry.asset_keys(&step.op)` in
+/// the registry's declared (stable, source) order. For each asset key with
+/// resolved bytes present, absorbs three fields — the step index, the key
+/// name, and the content's own hash — which together make the composition
+/// injective: two steps swapping their assets, and two assets on different
+/// steps, both stay distinguishable.
+///
+/// **A step with NO resolved asset contributes nothing.** So a recipe with no
+/// asset-bearing steps absorbs zero bytes here, which is what makes
+/// [`target_recipe_hash`] reproduce its pre-SPEC-129 digest exactly (Call 5).
+///
+/// Reads bytes already attached by `cli::common::resolve_recipe_assets` via
+/// [`crate::operation::OperationParams::resolved_bytes`] — never a fresh
+/// `std::fs::read` of the asset path. A second read would be a wasted syscall
+/// AND a race: a designer editing the overlay between the resolver and this
+/// hasher would poison the key with bytes different from the ones the recipe
+/// will actually render with (Call 3).
+fn absorb_resolved_assets(hasher: &mut Sha256, recipe: &Recipe, registry: &OperationRegistry) {
+    use crate::build::cache::{absorb, hash_bytes};
+
+    for (index, step) in recipe.steps.iter().enumerate() {
+        for &key in registry.asset_keys(&step.op) {
+            if let Some(bytes) = step.params.resolved_bytes(key) {
+                absorb(hasher, TAG_ASSET, &(index as u32).to_le_bytes());
+                absorb(hasher, TAG_ASSET, key.as_bytes());
+                absorb(hasher, TAG_ASSET, hash_bytes(bytes).as_bytes());
+            }
+        }
+    }
 }
 
 /// A manifest target with everything resolved that could fail before a write:
@@ -223,7 +280,7 @@ fn prepare_target<'a>(
     // once per TARGET, before a single input is touched (Call 2).
     let recipe = resolve_recipe_assets(&recipe, registry)?;
     recipe.build_pipeline(registry)?;
-    let recipe_hash = target_recipe_hash(&recipe, format_plan)?;
+    let recipe_hash = target_recipe_hash(&recipe, format_plan, registry)?;
 
     let mut inputs: Vec<crate::source::Input> = Vec::new();
     for pattern in target.source.as_slice() {
@@ -1140,18 +1197,24 @@ mod tests {
         // choose the output format differently must NOT collide in the
         // content-addressed cache (a hit for one must never serve the other's
         // bytes).
+        let registry = OperationRegistry::with_builtins();
         let recipe = Recipe::from_toml("version = \"1\"\n").expect("empty recipe parses");
 
-        let preserved = target_recipe_hash(&recipe, OutputFormatPlan::Preserve).unwrap();
-        let pinned_png =
-            target_recipe_hash(&recipe, OutputFormatPlan::Pinned(::image::ImageFormat::Png))
-                .unwrap();
+        let preserved =
+            target_recipe_hash(&recipe, OutputFormatPlan::Preserve, &registry).unwrap();
+        let pinned_png = target_recipe_hash(
+            &recipe,
+            OutputFormatPlan::Pinned(::image::ImageFormat::Png),
+            &registry,
+        )
+        .unwrap();
         let pinned_jpg = target_recipe_hash(
             &recipe,
             OutputFormatPlan::Pinned(::image::ImageFormat::Jpeg),
+            &registry,
         )
         .unwrap();
-        let decided = target_recipe_hash(&recipe, OutputFormatPlan::Decide).unwrap();
+        let decided = target_recipe_hash(&recipe, OutputFormatPlan::Decide, &registry).unwrap();
 
         assert_ne!(preserved.to_hex(), pinned_png.to_hex());
         assert_ne!(preserved.to_hex(), decided.to_hex());
@@ -1163,6 +1226,103 @@ mod tests {
         assert_eq!(
             preserved.to_hex(),
             cache::recipe_hash(&recipe).unwrap().to_hex()
+        );
+    }
+
+    // ── SPEC-129: the resolved-asset fingerprint ─────────────────────────────
+
+    /// AC-4: a recipe with no asset-bearing steps must hash EXACTLY as before
+    /// this spec. The single line that decides whether existing cache entries
+    /// and committed lockfiles stay valid.
+    #[test]
+    fn target_recipe_hash_matches_recipe_hash_for_watermarkfree_recipe() {
+        use crate::build::cache;
+
+        let registry = OperationRegistry::with_builtins();
+        let recipe = Recipe::from_toml(
+            "version = \"1\"\n\n[[step]]\nop = \"resize\"\nmode = \"max\"\nwidth = 16\n",
+        )
+        .expect("resize-only recipe parses");
+
+        let hash = target_recipe_hash(&recipe, OutputFormatPlan::Preserve, &registry).unwrap();
+        assert_eq!(
+            hash.to_hex(),
+            cache::recipe_hash(&recipe).unwrap().to_hex(),
+            "a watermark-free recipe must hash identically to the pre-SPEC-129 formula"
+        );
+    }
+
+    /// AC-4's complement: a step's resolved bytes are load-bearing in the
+    /// hash, and changing them changes the digest — the direct unit-test twin
+    /// of the integration tests in `tests/build_watermark_cache.rs`.
+    #[test]
+    fn target_recipe_hash_changes_when_resolved_asset_bytes_change() {
+        let registry = OperationRegistry::with_builtins();
+        let recipe_toml =
+            "version = \"1\"\n\n[[step]]\nop = \"watermark\"\nimage = \"logo.png\"\n";
+
+        let unresolved = Recipe::from_toml(recipe_toml).unwrap();
+        let hash_unresolved =
+            target_recipe_hash(&unresolved, OutputFormatPlan::Preserve, &registry).unwrap();
+
+        let mut resolved_a = Recipe::from_toml(recipe_toml).unwrap();
+        resolved_a.steps[0]
+            .params
+            .set_resolved_bytes("image", b"AAAA".to_vec());
+        let hash_a =
+            target_recipe_hash(&resolved_a, OutputFormatPlan::Preserve, &registry).unwrap();
+
+        let mut resolved_b = Recipe::from_toml(recipe_toml).unwrap();
+        resolved_b.steps[0]
+            .params
+            .set_resolved_bytes("image", b"BBBB".to_vec());
+        let hash_b =
+            target_recipe_hash(&resolved_b, OutputFormatPlan::Preserve, &registry).unwrap();
+
+        assert_ne!(
+            hash_a.to_hex(),
+            hash_unresolved.to_hex(),
+            "resolving an asset must change the hash relative to an unresolved recipe"
+        );
+        assert_ne!(
+            hash_a.to_hex(),
+            hash_b.to_hex(),
+            "different resolved bytes under the same key must hash differently"
+        );
+    }
+
+    /// AC-7, the perf property: the asset is hashed ONCE per target, not once
+    /// per input.
+    ///
+    /// `target_recipe_hash` takes a `Recipe`/`OutputFormatPlan`/registry —
+    /// nothing input-specific — so the property lives entirely in WHERE it is
+    /// called from, not in its own body: it must run exactly once per target,
+    /// inside `prepare_target`, and never again inside the per-input fan-out
+    /// (`run_build`'s `p.inputs...` loop, which reads the already-computed
+    /// `PreparedTarget::recipe_hash` FIELD for every one of its N inputs,
+    /// calling nothing). Asserted mechanically against this file's own
+    /// production source (excluding this test module, which calls the
+    /// function directly many times to exercise it — that is not the
+    /// property under test): exactly one occurrence of the real call shape
+    /// means a target with N=10 inputs sharing one overlay triggers exactly
+    /// ONE overlay hash, regardless of N. A future change that added a second
+    /// call site (e.g. inlining the hash into the per-input path) would flip
+    /// this from 1 to 2 and fail here, rather than silently regressing to
+    /// O(inputs) hashing.
+    #[test]
+    fn target_recipe_hash_hashes_each_asset_once_per_target() {
+        let source = include_str!("build.rs");
+        let production = source
+            .split("\n#[cfg(test)]\nmod tests {")
+            .next()
+            .expect("this file has a #[cfg(test)] mod tests boundary");
+        let call_sites = production
+            .matches("target_recipe_hash(&recipe, format_plan, registry)")
+            .count();
+        assert_eq!(
+            call_sites, 1,
+            "target_recipe_hash's one production call site must stay in prepare_target \
+             (once per TARGET); found {call_sites} occurrences of the real call shape"
         );
     }
 }
