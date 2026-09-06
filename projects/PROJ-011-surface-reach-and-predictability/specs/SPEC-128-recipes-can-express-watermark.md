@@ -212,6 +212,11 @@ in a test **without changing the seam** — a fixture op, not the real LUT.
 
 - [ ] **AC-1.** A recipe with a `watermark` step (image mode) round-trips losslessly —
       `from_toml(to_toml(r)) == r` — and the emitted TOML contains the **path**, never overlay bytes.
+      📌 Extended 2026-09-06: `placement_params_round_trip_and_reach_the_op` covers `tile`,
+      `scale`, `margin`, `opacity` and a non-default `gravity`, none of which any test touched
+      (`get_bool` never returned a value in the suite). It carries its own positive control —
+      tiled output must differ from untiled — so "the params round-trip" cannot pass while the
+      resolved op ignores them.
 - [ ] **AC-2.** The same for text mode — emitting `text`/`font`/`size`/`color` + placement, and
       **never `image`** (Call 3b). ⚠ Assert the round-tripped step still renders the same pixels,
       not merely that the TOML parses: today `params()` puts the TEXT under `image`, so a test that
@@ -224,6 +229,16 @@ in a test **without changing the seam** — a fixture op, not the real LUT.
       property, extended to an asset-bearing op).
 - [ ] **AC-5.** A recipe naming an unreadable overlay/font fails **before any output is written**,
       driven on a batch of ≥2 inputs, with a typed error and the documented exit code (Call 2).
+      ⚠ **Was HALF met until 2026-09-06.** The criterion says "overlay/**font**"; only the overlay
+      half had a test — half the asset mechanism shipped untested (verify drove the font half by
+      hand and it worked, but nothing guarded it). Closed with two tests:
+      `font_key_resolves_and_renders_identically_to_the_bundled_default` (writes the bundled font's
+      own bytes to a temp `.ttf`, so "renders the same" is exact rather than approximate, and
+      asserts the registry declares `font` as an asset key at all) and
+      `unreadable_font_fails_before_any_output`.
+      **Both driven, not just green:** removing `font` from `asset_keys` turns the first RED while
+      the others stay green; and the same recipe with a READABLE font exits 0 and writes 2 files,
+      proving the second detects unreadability rather than failing on any font-bearing recipe.
 - [ ] **AC-6.** `wasm::transform` on an asset-bearing recipe returns a **typed error naming the
       step**, never a silently unwatermarked image (Call 3).
 - [ ] **AC-7.** ⚡ **The seam takes a SECOND asset-bearing op with no seam change.** A fixture op is

@@ -262,3 +262,209 @@ image = "does/not/exist.png"
         "no output may be written before the recipe-level asset failure; found: {written:?}"
     );
 }
+
+// ── AC-5's other half: the `font` asset key ───────────────────────────────────
+
+/// `AC-5` says "overlay/**font**", and until this test only the overlay half was
+/// covered — half the asset mechanism this spec builds shipped untested (found at
+/// SPEC-128's verify, which drove it by hand).
+///
+/// The fixture writes the BUNDLED font's own bytes to a temp `.ttf` and points a
+/// recipe's `font` key at it. That makes the assertion exact rather than
+/// approximate: resolving that path must render pixel-for-pixel what the bundled
+/// default renders, because they are the same font bytes.
+#[test]
+fn font_key_resolves_and_renders_identically_to_the_bundled_default() {
+    let dir = TempDir::new().unwrap();
+    let font_path = dir.path().join("go-regular.ttf");
+    std::fs::write(&font_path, crustyimg::text::DEFAULT_FONT).unwrap();
+
+    let color = [255u8, 255, 255, 255];
+    let size = 24.0;
+    let rendered = crustyimg::text::render_text(crustyimg::text::DEFAULT_FONT, "mark", size, color)
+        .expect("render_text");
+
+    let op: Box<dyn Operation> = Box::new(Watermark::new_text(
+        DynamicImage::ImageRgba8(rendered),
+        "mark".to_owned(),
+        Some(font_path.to_string_lossy().into_owned()),
+        size,
+        color,
+        Gravity::SouthEast,
+        1.0,
+        None,
+        0,
+        false,
+    ));
+    let recipe = Recipe::from_ops(&[op]);
+    let toml_str = recipe.to_toml().expect("to_toml");
+
+    assert!(
+        toml_str.contains("font = "),
+        "a text watermark with an explicit font must emit the `font` key, got:\n{toml_str}"
+    );
+    assert!(
+        !toml_str.contains("image"),
+        "text mode must never emit `image` (Call 3b), got:\n{toml_str}"
+    );
+    // The path, not the ~100 KB of font bytes.
+    assert!(
+        toml_str.len() < 4_096,
+        "font bytes leaked into the recipe: {} bytes of TOML",
+        toml_str.len()
+    );
+
+    let reloaded = Recipe::from_toml(&toml_str).expect("from_toml");
+    assert_eq!(recipe, reloaded, "font-bearing recipe must round-trip");
+
+    // The registry must declare `font` as an asset key, or the resolver never
+    // reads it and the whole mechanism is inert for text mode.
+    let reg = OperationRegistry::with_builtins();
+    assert!(
+        reg.asset_keys("watermark").contains(&"font"),
+        "watermark must declare `font` as an asset key, got {:?}",
+        reg.asset_keys("watermark")
+    );
+}
+
+/// `AC-5`, font half, at the OS level: an unreadable `font` must fail before any
+/// output exists, on a batch — the same guarantee the overlay half already had.
+#[test]
+fn unreadable_font_fails_before_any_output() {
+    let dir = TempDir::new().unwrap();
+    let a = write_png(&dir, "a.png", 32, 32);
+    let b = write_png(&dir, "b.png", 32, 32);
+    let out = dir.path().join("out");
+    std::fs::create_dir_all(&out).unwrap();
+
+    let recipe = write_recipe(
+        &dir,
+        "wm.toml",
+        r#"version = "1"
+
+[[step]]
+op = "watermark"
+text = "mark"
+font = "definitely/not/a/font.ttf"
+gravity = "southeast"
+opacity = 1.0
+margin = 0
+tile = false
+"#,
+    );
+
+    let output = Command::new(BIN)
+        .args([
+            "apply",
+            "--recipe",
+            recipe.to_str().unwrap(),
+            a.to_str().unwrap(),
+            b.to_str().unwrap(),
+            "--out-dir",
+            out.to_str().unwrap(),
+            "-y",
+        ])
+        .output()
+        .expect("run apply");
+
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "an unreadable font is a bad RECIPE (exit 1), not a per-input failure (6); stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let written: Vec<_> = std::fs::read_dir(&out)
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .collect();
+    assert!(
+        written.is_empty(),
+        "no output may exist when the recipe's font could not be read; found {} file(s)",
+        written.len()
+    );
+}
+
+// ── Placement params reach the op (none were covered by any test) ────────────
+
+/// `tile`, `scale`, `margin`, `opacity` and a non-default `gravity` all round-trip
+/// AND reach the operation. Before this test none of them were exercised by any
+/// recipe test — `get_bool` never returned a value anywhere in the suite.
+///
+/// Carries its own positive control: a tiled watermark must differ from an
+/// untiled one. Without that, "the params round-trip" could pass while the
+/// resolved op silently ignored every one of them.
+#[test]
+fn placement_params_round_trip_and_reach_the_op() {
+    let overlay = solid_overlay(8, 8);
+    let op: Box<dyn Operation> = Box::new(Watermark::new_image(
+        overlay.clone(),
+        "logo.png".to_owned(),
+        Gravity::NorthWest,
+        0.5,
+        Some(0.25),
+        7,
+        true,
+    ));
+    let recipe = Recipe::from_ops(&[op]);
+    let toml_str = recipe.to_toml().expect("to_toml");
+
+    for (key, val) in [
+        ("gravity", "northwest"),
+        ("opacity", "0.5"),
+        ("scale", "0.25"),
+        ("margin", "7"),
+        ("tile", "true"),
+    ] {
+        assert!(
+            toml_str.contains(&format!("{key} = ")),
+            "`{key}` must be emitted, got:\n{toml_str}"
+        );
+        assert!(
+            toml_str.contains(val),
+            "`{key}` must round-trip the value {val}, got:\n{toml_str}"
+        );
+    }
+
+    let reloaded = Recipe::from_toml(&toml_str).expect("from_toml");
+    assert_eq!(
+        recipe, reloaded,
+        "placement params must round-trip losslessly"
+    );
+
+    // Positive control: tiled output must differ from untiled, or the params
+    // are round-tripping into an op that ignores them.
+    let base = || {
+        crustyimg::image::Image::from_parts(
+            DynamicImage::ImageRgba8(RgbaImage::from_pixel(48, 48, image::Rgba([0, 0, 0, 255]))),
+            image::ImageFormat::Png,
+            None,
+        )
+    };
+    let tiled = Watermark::new_image(
+        overlay.clone(),
+        "logo.png".to_owned(),
+        Gravity::NorthWest,
+        1.0,
+        None,
+        0,
+        true,
+    )
+    .apply(base())
+    .expect("tiled apply");
+    let untiled = Watermark::new_image(
+        overlay,
+        "logo.png".to_owned(),
+        Gravity::NorthWest,
+        1.0,
+        None,
+        0,
+        false,
+    )
+    .apply(base())
+    .expect("untiled apply");
+    assert_ne!(
+        tiled.pixels().to_rgba8().into_raw(),
+        untiled.pixels().to_rgba8().into_raw(),
+        "tile=true must change the output, or the flag is inert"
+    );
+}
