@@ -145,15 +145,21 @@ anything a recipe cannot say.
   the registry has taken, which is the real work — the seam itself is documented as "the single
   seam new operations register at", but no parameter-rich op has ever used it.
 
-- [ ] (not yet written) — [S] ⚡ **`build`'s cache key does not hash a watermark asset's own file
-  CONTENT, only the recipe's `to_toml()` (the path).** Found during SPEC-128's build (2026-09-05):
-  `target_recipe_hash` hashes the recipe text, which — by SPEC-128's own highest-consequence guard —
-  carries only the overlay/font PATH, never its bytes. So editing `logo.png` in place (same path,
-  different pixels) without touching the recipe or manifest is invisible to `build`'s cache: a
-  stale, pre-edit watermark can be served from a cache hit. No SPEC-128 AC named this (it is about
-  registering the op, not the cache), so it was filed rather than fixed inline. Needs its own design
-  surface: which hash (content? mtime+size?), computed where (once per target, like the recipe hash
-  itself, or per input), and at what cost for a batch of many targets sharing one overlay.
+- [~] **SPEC-129** (designed 2026-09-06) — ⚡ **`build`'s cache key does not hash a watermark
+  asset's own file CONTENT, only the recipe's `to_toml()` (the path).** Found during SPEC-128's
+  build (2026-09-05), reproduced at SPEC-128's verify with a verified control: editing `logo.png`
+  in place (same path, different bytes) makes `build` report *"1 cached, 0 rebuilt"* and emit
+  byte-identical pre-edit output. `apply` is unaffected (no cache). No SPEC-128 AC named this (it
+  is about registering the op, not the cache), so it was filed. The mechanism is one function:
+  `target_recipe_hash` hashes `to_toml()` + `plan`, and SPEC-128's `set_resolved_bytes` side
+  channel is deliberately invisible to `Serialize` (DEC-100's highest-consequence guard).
+  📌 *Original design surface asked:* which hash (content? mtime+size?), computed where (once per
+  target, or per input), at what cost for a batch of many targets sharing one overlay.
+  **Settled by SPEC-129's design:** SHA-256 (matches source-input precedent, DEC-058); once per
+  target (fold into `target_recipe_hash`, dominated by decode+encode); watermark-free recipes
+  hash identically to `main` (AC-4 pin, so no existing cache entry is invalidated).
+  Amends DEC-058 clause 4 via reserved DEC-101 (`CACHE_SCHEMA_VERSION` deliberately unchanged;
+  the departure from DEC-058's suggested remedy is written down).
 
 - [ ] (not yet written) — [S] ⚡ **`watermark` stops silently doing nothing.** A **measured
   defect**, driven on `main` (PNG filters undone before comparing):
@@ -277,7 +283,7 @@ anything a recipe cannot say.
   schema change. Bundling the two turns an M into an L, and AGENTS §2 says split an L.
   (Originally arrived via external review batch 3 — one of the two items that survived checking.)
 
-**Count:** **2 shipped / 1 closed** / 0 in flight / 5 pending — re-derive with a grep you just ran.
+**Count:** **2 shipped / 1 closed** / 1 in flight (SPEC-129, design) / 4 pending — re-derive with a grep you just ran.
 
 ## Design Notes
 
