@@ -15,7 +15,7 @@ use crate::source::{self, SourceError};
 
 use super::common::{
     apply_one, build_sink, fmt_bytes, load_recipe, require_out_dir_for_batch, resolve_format,
-    BATCH_PROGRESS_TEMPLATE,
+    resolve_recipe_assets, BATCH_PROGRESS_TEMPLATE,
 };
 use super::ops::{metadata_output_ext, output_format_for, read_raw_bytes, run_pixel_op};
 use super::report::format_label;
@@ -54,6 +54,15 @@ pub(super) fn run_apply(
     // Steps 0-2: resolve (file path OR bundled name), size-guard, read, and parse.
     let recipe = load_recipe(recipe_path)?;
 
+    // Step 3 (moved up from below, SPEC-128): build the registry ONCE, then
+    // resolve every asset the recipe's steps name (watermark's `image`/`font`)
+    // BEFORE any branch below ever calls `build_pipeline` — the SAME resolver
+    // `prepare_target` (`build`) uses, so the two paths cannot independently
+    // decide an asset is/isn't resolvable (Call 1). A missing/unreadable asset
+    // surfaces here, before a single input is touched (Call 2).
+    let registry = OperationRegistry::with_builtins();
+    let recipe = resolve_recipe_assets(&recipe, &registry)?;
+
     // A recipe ending in the terminal `optimize` step (the bundled web/gallery/product
     // flows, SPEC-085) encodes via the fast AVIF-aware decision instead of a plain
     // format-preserving write — so `apply --recipe web` == the `web` verb. Run the
@@ -61,7 +70,6 @@ pub(super) fn run_apply(
     // fan-out `web` uses (always scoring the downscaled winner). This path is
     // sequential (like `optimize`/`web`), not the rayon batch below.
     if let Some(pixel_recipe) = split_terminal_optimize(&recipe) {
-        let registry = OperationRegistry::with_builtins();
         let pipeline = pixel_recipe.build_pipeline(&registry)?;
 
         // A pinned format (`--format`, a recognized `-o` extension, or the
@@ -122,11 +130,9 @@ pub(super) fn run_apply(
     // report — `--json`/`--timing` here is a usage error, not a silent no-op (SPEC-088).
     reject_audit_without_autodecide(json, timing)?;
 
-    // Step 3: build registry ONCE; shared via & across rayon tasks (fn ptrs → Sync).
-    let registry = OperationRegistry::with_builtins();
-
     // Step 4: probe the pipeline now so a bad recipe/op fails BEFORE we touch any
-    // inputs (exit 1 rather than exit 6 per-input).
+    // inputs (exit 1 rather than exit 6 per-input). `registry` was already built,
+    // and `recipe` already resolved, above (Step 3).
     recipe.build_pipeline(&registry)?;
 
     // Step 5: resolve every positional input via source::resolve, flattening to

@@ -1217,28 +1217,50 @@ fn text_error(e: crate::text::TextError) -> CliError {
     CliError::Usage(e.to_string())
 }
 
-/// Build the watermark overlay (`DynamicImage`) + its label from the source mode.
+/// The result of resolving a [`WatermarkSource`] into an overlay: the
+/// decoded/rendered pixels plus everything the corresponding `Watermark`
+/// needs to round-trip via `params()` (SPEC-128, Call 3b) — distinct from the
+/// pre-SPEC-128 single flattened "label" string, which conflated the two
+/// modes under one key (`image`, even for text).
+enum ResolvedOverlay {
+    Image {
+        overlay: ::image::DynamicImage,
+        path: String,
+    },
+    Text {
+        overlay: ::image::DynamicImage,
+        text: String,
+        font_path: Option<String>,
+        size: f32,
+        color: [u8; 4],
+    },
+}
+
+/// Build the watermark overlay (`DynamicImage`) + its round-trip identity from
+/// the source mode.
 ///
 /// - Image mode (`--image PATH`): load the overlay once at the IO boundary
-///   (→ exit 3 on failure, DEC-031); label is the path (for `params()` round-trip).
+///   (→ exit 3 on failure, DEC-031); the path is kept for `params()` round-trip.
 /// - Text mode (`--text STR`): read `--font PATH` at the IO boundary (→ exit 3) or
 ///   fall back to the bundled font; parse `--color` (default `ffffff`) and `--size`
 ///   (default 32.0, `≤0` → exit 2); rasterize via `text::render_text` (pure) into a
-///   transparent RGBA overlay (→ exit 2 on a text error). The label is the text.
-fn watermark_overlay(
-    src: &WatermarkSource<'_>,
-) -> Result<(::image::DynamicImage, String), CliError> {
+///   transparent RGBA overlay (→ exit 2 on a text error).
+fn watermark_overlay(src: &WatermarkSource<'_>) -> Result<ResolvedOverlay, CliError> {
     if let Some(image) = src.image {
         // Image mode: load the overlay once at the IO boundary (DEC-031).
         let overlay = Image::load(image)?;
-        return Ok((overlay.pixels().clone(), image.to_owned()));
+        return Ok(ResolvedOverlay::Image {
+            overlay: overlay.pixels().clone(),
+            path: image.to_owned(),
+        });
     }
 
     // Text mode. clap guarantees `--text` is present when `--image` is not.
-    let text = src.text.unwrap_or("");
+    let text = src.text.unwrap_or("").to_owned();
+    let font_path = src.font.map(str::to_owned);
 
     // Load the font at the IO boundary (--font → exit 3) or use the bundled default.
-    let font_owned: Option<Vec<u8>> = match src.font {
+    let font_owned: Option<Vec<u8>> = match &font_path {
         Some(path) => Some(std::fs::read(path).map_err(ImageError::Io)?),
         None => None,
     };
@@ -1258,8 +1280,15 @@ fn watermark_overlay(
     }
 
     // Rasterize the text into a transparent RGBA overlay (pure; no file IO).
-    let rendered = crate::text::render_text(font_bytes, text, size, color).map_err(text_error)?;
-    Ok((::image::DynamicImage::ImageRgba8(rendered), text.to_owned()))
+    let rendered =
+        crate::text::render_text(font_bytes, &text, size, color).map_err(text_error)?;
+    Ok(ResolvedOverlay::Text {
+        overlay: ::image::DynamicImage::ImageRgba8(rendered),
+        text,
+        font_path,
+        size,
+        color,
+    })
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1273,8 +1302,8 @@ pub(super) fn run_watermark(
     tile: bool,
     global: &GlobalArgs,
 ) -> Result<(), CliError> {
-    // Build the overlay (image load OR text rasterization) + its label.
-    let (overlay, label) = watermark_overlay(src)?;
+    // Build the overlay (image load OR text rasterization) + its round-trip identity.
+    let resolved = watermark_overlay(src)?;
 
     // Validate placement params BEFORE constructing the op (→ Usage, exit 2).
     let gravity: Gravity = gravity
@@ -1298,8 +1327,22 @@ pub(super) fn run_watermark(
     let margin = margin.unwrap_or(0);
 
     // Build the op directly (NOT via the registry — DEC-031) with the decoded /
-    // rendered overlay pixels; the text/image label is kept for `params()`.
-    let op = Watermark::new(overlay, label, gravity, opacity, scale, margin, tile);
+    // rendered overlay pixels; the mode-specific identity is kept for `params()`
+    // (SPEC-128, Call 3b: image mode's path, text mode's text + rendering flags).
+    let op = match resolved {
+        ResolvedOverlay::Image { overlay, path } => {
+            Watermark::new_image(overlay, path, gravity, opacity, scale, margin, tile)
+        }
+        ResolvedOverlay::Text {
+            overlay,
+            text,
+            font_path,
+            size,
+            color,
+        } => Watermark::new_text(
+            overlay, text, font_path, size, color, gravity, opacity, scale, margin, tile,
+        ),
+    };
 
     let pipeline = auto_orient_prefix()?.push(Box::new(op));
     run_pixel_op(pipeline, inputs, global, global.quality, None, None, false)

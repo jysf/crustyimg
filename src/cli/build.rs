@@ -15,7 +15,8 @@ use crate::sink::Overwrite;
 use crate::source::{self, SourceError};
 
 use super::common::{
-    encode_one, load_recipe, resolve_format, write_encoded, BATCH_PROGRESS_TEMPLATE,
+    encode_one, load_recipe, resolve_format, resolve_recipe_assets, write_encoded,
+    BATCH_PROGRESS_TEMPLATE,
 };
 use super::optimize::encode_one_optimize_decided;
 use super::{CliError, GlobalArgs};
@@ -215,6 +216,12 @@ fn prepare_target<'a>(
             (loaded, plan)
         }
     };
+    // Resolve every asset the recipe's steps name (watermark's `image`/`font`)
+    // BEFORE probing the pipeline — the SAME resolver `run_apply` uses
+    // (SPEC-128, Call 1), so `apply` and `build` cannot independently decide
+    // an asset is/isn't resolvable. A missing/unreadable asset surfaces here,
+    // once per TARGET, before a single input is touched (Call 2).
+    let recipe = resolve_recipe_assets(&recipe, registry)?;
     recipe.build_pipeline(registry)?;
     let recipe_hash = target_recipe_hash(&recipe, format_plan)?;
 

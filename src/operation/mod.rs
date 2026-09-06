@@ -1,9 +1,13 @@
 //! The `Operation` trait and its concrete implementations (DEC-002).
 //!
-//! Layering: this module depends only on `crate::image`, `std`, `thiserror`,
-//! `serde`, `::image`, and `fast_image_resize`. It must NOT touch `clap`,
-//! `recipe`, `source`, `sink`, `std::fs`, `std::path`, or any terminal types.
-//! Ops are pure in-memory transforms (constraint `decode-once-no-per-op-disk`).
+//! Layering: this module depends only on `crate::image`, `crate::text`, `std`,
+//! `thiserror`, `serde`, `::image`, and `fast_image_resize`. It must NOT touch
+//! `clap`, `recipe`, `source`, `sink`, `std::fs`, `std::path`, or any terminal
+//! types. Ops are pure in-memory transforms (constraint
+//! `decode-once-no-per-op-disk`). `crate::text` was added by SPEC-128 (Call
+//! 3b): it is itself file-free (font bytes are an input, DEC-031) and already
+//! compiles for wasm32, so widening the allowed-dependency list here does not
+//! reopen the filesystem question this module's layering exists to close.
 //!
 //! # Module / crate name collision
 //!
@@ -35,21 +39,32 @@ pub use registry::{OperationRegistry, RegistryError};
 /// validates its own keys in its constructor via the typed accessors
 /// below — there is no per-op logic in the serde impls (the flatten
 /// boundary has no `op` context).
+///
+/// The second field is a **resolved-asset side channel** (SPEC-128, Call 1):
+/// bytes read from a file one of `self.0`'s string values names (e.g.
+/// watermark's `image`/`font`), attached by the CLI's recipe-IO-boundary
+/// resolver — never by `src/operation/**` itself, which stays filesystem-free
+/// (DEC-064). `Serialize`/`Deserialize` below touch only `self.0`; `self.1` is
+/// never written by `to_toml` and never read back by `from_toml` — a fresh
+/// parse always carries an empty side channel. This is what keeps the highest-
+/// consequence guarantee in the spec: a recipe's TOML holds the PATH, never
+/// the bytes.
 #[derive(Debug, Clone, PartialEq)]
-pub struct OperationParams(BTreeMap<String, toml::Value>);
+pub struct OperationParams(BTreeMap<String, toml::Value>, BTreeMap<String, Vec<u8>>);
 
 impl OperationParams {
     /// The empty param set (parameterless ops: Identity, Invert).
     pub fn empty() -> Self {
-        OperationParams(BTreeMap::new())
+        OperationParams(BTreeMap::new(), BTreeMap::new())
     }
 
     /// Build from an ordered map (used by ops recording their params).
     pub fn from_map(map: BTreeMap<String, toml::Value>) -> Self {
-        OperationParams(map)
+        OperationParams(map, BTreeMap::new())
     }
 
-    /// Whether any params are present.
+    /// Whether any params are present. (The resolved-asset side channel does
+    /// not count — it is never present without a corresponding TOML key.)
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
@@ -74,6 +89,28 @@ impl OperationParams {
             toml::Value::Integer(i) => Some(*i as f32),
             _ => None,
         })
+    }
+
+    /// Extract a `bool` param, if present.
+    pub fn get_bool(&self, key: &str) -> Option<bool> {
+        self.0.get(key).and_then(toml::Value::as_bool)
+    }
+
+    /// Attach resolved bytes for `key` — the CLI recipe-IO-boundary resolver's
+    /// half of SPEC-128's seam. `key` is normally one of `self.0`'s own string
+    /// values (the param that names the file these bytes came from), but
+    /// nothing here reads the TOML map — an asset-bearing op's constructor is
+    /// what pairs the two back up via [`OperationParams::resolved_bytes`].
+    pub fn set_resolved_bytes(&mut self, key: &str, bytes: Vec<u8>) {
+        self.1.insert(key.to_owned(), bytes);
+    }
+
+    /// Read back bytes attached under `key` by [`OperationParams::set_resolved_bytes`],
+    /// if any. An asset-bearing op's constructor (e.g. `Watermark::from_params`)
+    /// calls this to get the actual file content — `src/operation/**` never
+    /// opens the file itself (DEC-031, DEC-064).
+    pub fn resolved_bytes(&self, key: &str) -> Option<&[u8]> {
+        self.1.get(key).map(Vec::as_slice)
     }
 }
 
@@ -102,7 +139,7 @@ impl<'de> Deserialize<'de> for OperationParams {
         // in each op's constructor (DEC-014). The old "error on non-empty map"
         // branch is intentionally dropped here.
         let map: BTreeMap<String, toml::Value> = BTreeMap::deserialize(deserializer)?;
-        Ok(OperationParams(map))
+        Ok(OperationParams(map, BTreeMap::new()))
     }
 }
 
@@ -1104,22 +1141,60 @@ impl Gravity {
 
 // ─── Watermark ────────────────────────────────────────────────────────────────
 
+/// Which of watermark's two modes produced `overlay`, and enough to
+/// round-trip `params()` back to that mode (SPEC-128, Call 3b).
+///
+/// The two modes get **distinct, non-overlapping** key sets: `Image` emits
+/// only `image`; `Text` emits `text`/`font`(optional)/`size`/`color` and MUST
+/// NOT emit `image`. Before this spec `Watermark` had one `overlay_path:
+/// String` slot doing double duty — for text mode that slot held the TEXT,
+/// and `params()` wrote it under the `image` key (the field that means FILE
+/// PATH). Nothing broke only because watermark was unregistered and no
+/// recipe could carry it.
+#[derive(Debug, Clone, PartialEq)]
+enum WatermarkSource {
+    /// `--image PATH`. `path` is kept only for `params()` round-trip; the
+    /// decoded pixels already live in `Watermark::overlay`.
+    Image { path: String },
+    /// `--text STR`, optionally `--font PATH` (the bundled default when
+    /// `font_path` is `None`), `--size`, `--color`.
+    Text {
+        text: String,
+        font_path: Option<String>,
+        size: f32,
+        color: [u8; 4],
+    },
+}
+
+/// Render `color` back to the hex string `params()`/`--color` accept
+/// (`RRGGBBAA`, lowercase, always 8 digits so alpha round-trips even when
+/// opaque) — the reverse of [`crate::text::parse_color`].
+fn color_to_hex(color: [u8; 4]) -> String {
+    format!(
+        "{:02x}{:02x}{:02x}{:02x}",
+        color[0], color[1], color[2], color[3]
+    )
+}
+
 /// Composite an overlay image onto each base at a gravity anchor (SPEC-029).
 ///
 /// The first `Operation` that composes a **second** image. Per DEC-031 the
-/// overlay is loaded at the IO boundary (`run_watermark` in `src/cli/`) and
-/// handed in as in-memory `DynamicImage` pixels, so `apply()` never touches a
-/// file. The source `overlay_path` is stored purely so `params()` can serialize
-/// it for the future recipe round-trip (STAGE-005).
+/// overlay is loaded/rendered at the IO boundary — `run_watermark` in
+/// `src/cli/` for the direct CLI verb, the recipe-IO-boundary resolver
+/// (`cli::common::resolve_recipe_assets`) plus [`Watermark::from_params`] for
+/// the recipe path (SPEC-128) — and handed in as in-memory `DynamicImage`
+/// pixels, so `apply()` never touches a file. `source` is stored purely so
+/// `params()` can serialize enough to round-trip (image mode: the path; text
+/// mode: the text + rendering flags).
 ///
 /// Compositing uses `image::imageops` only (no new dependency): `overlay`
 /// (source-over alpha), `resize` for `--scale`, and an alpha multiply for
 /// `--opacity`.
 pub struct Watermark {
-    /// The decoded overlay pixels (loaded at the CLI boundary, DEC-031).
+    /// The decoded/rendered overlay pixels (loaded at the IO boundary, DEC-031).
     overlay: DynamicImage,
-    /// The overlay's source path, kept only for `params()` round-trip.
-    overlay_path: String,
+    /// Which mode produced `overlay`, and its round-trippable identity.
+    source: WatermarkSource,
     gravity: Gravity,
     /// Alpha multiplier in `[0.0, 1.0]` (validated at the CLI).
     opacity: f32,
@@ -1132,14 +1207,14 @@ pub struct Watermark {
 }
 
 impl Watermark {
-    /// Build a `Watermark` from an already-decoded overlay and its placement.
+    /// Build an image-mode `Watermark` from an already-decoded overlay.
     ///
     /// Validation of `opacity`/`scale`/`gravity` happens at the CLI boundary
     /// (`run_watermark`) before this is called, so the constructor is total.
     #[allow(clippy::too_many_arguments)]
-    pub fn new(
+    pub fn new_image(
         overlay: DynamicImage,
-        overlay_path: String,
+        path: String,
         gravity: Gravity,
         opacity: f32,
         scale: Option<f32>,
@@ -1148,13 +1223,166 @@ impl Watermark {
     ) -> Self {
         Watermark {
             overlay,
-            overlay_path,
+            source: WatermarkSource::Image { path },
             gravity,
             opacity,
             scale,
             margin,
             tile,
         }
+    }
+
+    /// Build a text-mode `Watermark` from an already-rendered overlay.
+    ///
+    /// Validation happens at the CLI boundary (`run_watermark`) or in
+    /// [`Watermark::from_params`] (the recipe path) before this is called.
+    #[allow(clippy::too_many_arguments)]
+    pub fn new_text(
+        overlay: DynamicImage,
+        text: String,
+        font_path: Option<String>,
+        size: f32,
+        color: [u8; 4],
+        gravity: Gravity,
+        opacity: f32,
+        scale: Option<f32>,
+        margin: u32,
+        tile: bool,
+    ) -> Self {
+        Watermark {
+            overlay,
+            source: WatermarkSource::Text {
+                text,
+                font_path,
+                size,
+                color,
+            },
+            gravity,
+            opacity,
+            scale,
+            margin,
+            tile,
+        }
+    }
+
+    /// Construct a `Watermark` from recipe step params (SPEC-128, Call 1).
+    ///
+    /// Exactly one of `image`/`text` must be set (Call 2b) — matching the
+    /// CLI's existing XOR between `--image` and `--text`. Image mode reads
+    /// the overlay bytes from [`OperationParams::resolved_bytes`] under the
+    /// `"image"` key — the recipe IO boundary must have resolved them BEFORE
+    /// calling this (`cli::common::resolve_recipe_assets`); this constructor
+    /// never touches a file itself (DEC-031, DEC-064). Text mode's `font` key
+    /// is optional and, when absent, falls back to
+    /// [`crate::text::DEFAULT_FONT`] — no resolution needed at all in that
+    /// case, which is why a text-only recipe never has to reach the
+    /// filesystem (Call 6/AC-6's wasm path relies on exactly this).
+    pub fn from_params(params: &OperationParams) -> Result<Self, RegistryError> {
+        const OP: &str = "watermark";
+        let invalid = |reason: String| RegistryError::InvalidParams { op: OP, reason };
+
+        let image = params.get_str("image");
+        let text = params.get_str("text");
+
+        let (overlay, source) = match (image, text) {
+            (Some(_), Some(_)) => {
+                return Err(invalid(
+                    "watermark step must set exactly one of 'image' or 'text', found both"
+                        .to_owned(),
+                ));
+            }
+            (None, None) => {
+                return Err(invalid(
+                    "watermark step must set exactly one of 'image' or 'text'".to_owned(),
+                ));
+            }
+            (Some(path), None) => {
+                let bytes = params.resolved_bytes("image").ok_or_else(|| {
+                    invalid(format!(
+                        "overlay image '{path}' was not resolved before pipeline construction \
+                         (internal error: the recipe IO boundary must resolve 'image' first)"
+                    ))
+                })?;
+                let overlay = ::image::load_from_memory(bytes).map_err(|e| {
+                    invalid(format!("could not decode overlay image '{path}': {e}"))
+                })?;
+                (overlay, WatermarkSource::Image { path: path.to_owned() })
+            }
+            (None, Some(text)) => {
+                let font_path = params.get_str("font").map(str::to_owned);
+                let font_bytes_owned: Option<Vec<u8>> = match &font_path {
+                    Some(p) => Some(
+                        params
+                            .resolved_bytes("font")
+                            .ok_or_else(|| {
+                                invalid(format!(
+                                    "font '{p}' was not resolved before pipeline construction \
+                                     (internal error: the recipe IO boundary must resolve \
+                                     'font' first)"
+                                ))
+                            })?
+                            .to_vec(),
+                    ),
+                    None => None,
+                };
+                let font_bytes: &[u8] = font_bytes_owned
+                    .as_deref()
+                    .unwrap_or(crate::text::DEFAULT_FONT);
+
+                let size = params.get_f32("size").unwrap_or(32.0);
+                if size <= 0.0 {
+                    return Err(invalid(format!("'size' must be > 0, got {size}")));
+                }
+                let color_str = params.get_str("color").unwrap_or("ffffff");
+                let color = crate::text::parse_color(color_str)
+                    .map_err(|e| invalid(e.to_string()))?;
+
+                let rendered = crate::text::render_text(font_bytes, text, size, color)
+                    .map_err(|e| invalid(e.to_string()))?;
+                (
+                    DynamicImage::ImageRgba8(rendered),
+                    WatermarkSource::Text {
+                        text: text.to_owned(),
+                        font_path,
+                        size,
+                        color,
+                    },
+                )
+            }
+        };
+
+        let gravity: Gravity = params
+            .get_str("gravity")
+            .unwrap_or("southeast")
+            .parse()
+            .map_err(invalid)?;
+
+        let opacity = params.get_f32("opacity").unwrap_or(1.0);
+        if !(0.0..=1.0).contains(&opacity) {
+            return Err(invalid(format!(
+                "'opacity' must be in 0.0..=1.0, got {opacity}"
+            )));
+        }
+
+        let scale = params.get_f32("scale");
+        if let Some(s) = scale {
+            if s <= 0.0 {
+                return Err(invalid(format!("'scale' must be > 0, got {s}")));
+            }
+        }
+
+        let margin = params.get_u32("margin").unwrap_or(0);
+        let tile = params.get_bool("tile").unwrap_or(false);
+
+        Ok(Watermark {
+            overlay,
+            source,
+            gravity,
+            opacity,
+            scale,
+            margin,
+            tile,
+        })
     }
 }
 
@@ -1165,10 +1393,30 @@ impl Operation for Watermark {
 
     fn params(&self) -> OperationParams {
         let mut map = BTreeMap::new();
-        map.insert(
-            "image".to_owned(),
-            toml::Value::String(self.overlay_path.clone()),
-        );
+        match &self.source {
+            WatermarkSource::Image { path } => {
+                map.insert("image".to_owned(), toml::Value::String(path.clone()));
+            }
+            WatermarkSource::Text {
+                text,
+                font_path,
+                size,
+                color,
+            } => {
+                map.insert("text".to_owned(), toml::Value::String(text.clone()));
+                if let Some(font_path) = font_path {
+                    map.insert(
+                        "font".to_owned(),
+                        toml::Value::String(font_path.clone()),
+                    );
+                }
+                map.insert("size".to_owned(), toml::Value::Float(*size as f64));
+                map.insert(
+                    "color".to_owned(),
+                    toml::Value::String(color_to_hex(*color)),
+                );
+            }
+        }
         map.insert(
             "gravity".to_owned(),
             toml::Value::String(self.gravity.to_string()),
@@ -1955,7 +2203,7 @@ mod tests {
         margin: u32,
         tile: bool,
     ) -> Watermark {
-        Watermark::new(
+        Watermark::new_image(
             overlay,
             "logo.png".to_owned(),
             gravity,

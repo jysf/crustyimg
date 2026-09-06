@@ -1155,3 +1155,208 @@ fn write_jpeg_at(root: &std::path::Path, name: &str, w: u32, h: u32) -> PathBuf 
     std::fs::write(&path, buf.into_inner()).unwrap();
     path
 }
+
+/// Write a tiny solid-color RGBA PNG directly to `root/name`. Used as the
+/// watermark overlay for the SPEC-128 tests below — RGBA (not RGB) so
+/// compositing has a real alpha channel to work with.
+fn write_overlay_at(root: &std::path::Path, name: &str, w: u32, h: u32) -> PathBuf {
+    let img = image::RgbaImage::from_pixel(w, h, image::Rgba([255u8, 0u8, 0u8, 200u8]));
+    let path = root.join(name);
+    DynamicImage::ImageRgba8(img).save(&path).unwrap();
+    path
+}
+
+// ─── SPEC-128: recipes can express watermark ─────────────────────────────────
+
+/// AC-3: `apply --recipe` (image-mode watermark, all-default placement) at ONE
+/// input must produce BYTE-IDENTICAL output to the equivalent `watermark`
+/// CLI invocation.
+#[test]
+fn apply_watermark_recipe_matches_cli_at_one_input() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    write_overlay_at(root, "logo.png", 8, 8);
+    write_png(&dir, "in.png", 32, 32);
+    std::fs::write(
+        root.join("r.toml"),
+        "version = \"1\"\n\n[[step]]\nop = \"watermark\"\nimage = \"logo.png\"\n",
+    )
+    .unwrap();
+
+    let cli_out = root.join("cli_out.png");
+    let cli_output = Command::new(BIN)
+        .args([
+            "watermark",
+            "in.png",
+            "--image",
+            "logo.png",
+            "-o",
+            "cli_out.png",
+            "-y",
+        ])
+        .current_dir(root)
+        .output()
+        .expect("failed to run watermark verb");
+    assert!(
+        cli_output.status.success(),
+        "watermark verb exit 0 expected; stderr: {}",
+        String::from_utf8_lossy(&cli_output.stderr)
+    );
+
+    let recipe_out = root.join("recipe_out.png");
+    let recipe_output = Command::new(BIN)
+        .args(["apply", "--recipe", "r.toml", "in.png", "-o", "recipe_out.png", "-y"])
+        .current_dir(root)
+        .output()
+        .expect("failed to run apply --recipe");
+    assert!(
+        recipe_output.status.success(),
+        "apply --recipe exit 0 expected; stderr: {}",
+        String::from_utf8_lossy(&recipe_output.stderr)
+    );
+
+    let cli_bytes = std::fs::read(&cli_out).expect("watermark verb output must exist");
+    let recipe_bytes = std::fs::read(&recipe_out).expect("apply --recipe output must exist");
+    assert_eq!(
+        cli_bytes, recipe_bytes,
+        "apply --recipe watermark must be byte-identical to the watermark verb (1 input)"
+    );
+}
+
+/// AC-3, second arity: the same equivalence at N (2) inputs — `apply`'s batch
+/// fan-out must resolve the overlay exactly once and reuse it across both.
+#[test]
+fn apply_watermark_recipe_matches_cli_at_n_inputs() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    write_overlay_at(root, "logo.png", 8, 8);
+    write_png(&dir, "a.png", 32, 32);
+    write_png(&dir, "b.png", 32, 32);
+    std::fs::write(
+        root.join("r.toml"),
+        "version = \"1\"\n\n[[step]]\nop = \"watermark\"\nimage = \"logo.png\"\n",
+    )
+    .unwrap();
+
+    let cli_out = root.join("cli_out");
+    std::fs::create_dir_all(&cli_out).unwrap();
+    let cli_output = Command::new(BIN)
+        .args([
+            "watermark",
+            "a.png",
+            "b.png",
+            "--image",
+            "logo.png",
+            "--out-dir",
+            "cli_out",
+            "-y",
+        ])
+        .current_dir(root)
+        .output()
+        .expect("failed to run watermark verb (batch)");
+    assert!(
+        cli_output.status.success(),
+        "watermark verb (batch) exit 0 expected; stderr: {}",
+        String::from_utf8_lossy(&cli_output.stderr)
+    );
+
+    let recipe_out = root.join("recipe_out");
+    std::fs::create_dir_all(&recipe_out).unwrap();
+    let recipe_output = Command::new(BIN)
+        .args([
+            "apply",
+            "--recipe",
+            "r.toml",
+            "a.png",
+            "b.png",
+            "--out-dir",
+            "recipe_out",
+            "-y",
+        ])
+        .current_dir(root)
+        .output()
+        .expect("failed to run apply --recipe (batch)");
+    assert!(
+        recipe_output.status.success(),
+        "apply --recipe (batch) exit 0 expected; stderr: {}",
+        String::from_utf8_lossy(&recipe_output.stderr)
+    );
+
+    for name in ["a.png", "b.png"] {
+        let cli_bytes = std::fs::read(cli_out.join(name)).expect("watermark verb output missing");
+        let recipe_bytes =
+            std::fs::read(recipe_out.join(name)).expect("apply --recipe output missing");
+        assert_eq!(
+            cli_bytes, recipe_bytes,
+            "apply --recipe watermark must be byte-identical to the watermark verb ({name}, N inputs)"
+        );
+    }
+}
+
+/// AC-4, extended to an asset-bearing op: `apply` and `build` must agree
+/// byte-for-byte on the SAME watermark recipe and input — the SPEC-126
+/// property, now exercised on a step whose params name a file.
+#[test]
+fn apply_and_build_agree_on_watermark_recipe() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    write_overlay_at(root, "logo.png", 8, 8);
+    write_jpeg_at(root, "in.jpg", 32, 32);
+    std::fs::write(
+        root.join("r.toml"),
+        "version = \"1\"\n\n[[step]]\nop = \"watermark\"\nimage = \"logo.png\"\n",
+    )
+    .unwrap();
+
+    let apply_out = root.join("apply_out");
+    std::fs::create_dir_all(&apply_out).unwrap();
+    let apply_output = Command::new(BIN)
+        .args([
+            "apply",
+            "--recipe",
+            "r.toml",
+            "in.jpg",
+            "--out-dir",
+            "apply_out",
+            "-y",
+        ])
+        .current_dir(root)
+        .output()
+        .expect("failed to run apply");
+    assert!(
+        apply_output.status.success(),
+        "apply exit 0 expected; stderr: {}",
+        String::from_utf8_lossy(&apply_output.stderr)
+    );
+
+    std::fs::write(
+        root.join("crustyimg.build.toml"),
+        br#"
+version = 1
+
+[[target]]
+source = "in.jpg"
+recipe = "r.toml"
+out = "build_out"
+"#,
+    )
+    .unwrap();
+    let build_output = Command::new(BIN)
+        .arg("build")
+        .current_dir(root)
+        .output()
+        .expect("failed to run build");
+    assert!(
+        build_output.status.success(),
+        "build exit 0 expected; stderr: {}",
+        String::from_utf8_lossy(&build_output.stderr)
+    );
+
+    let apply_bytes = std::fs::read(apply_out.join("in.jpg")).expect("apply output must exist");
+    let build_bytes =
+        std::fs::read(root.join("build_out").join("in.jpg")).expect("build output must exist");
+    assert_eq!(
+        apply_bytes, build_bytes,
+        "apply and build must produce byte-identical output for the same watermark recipe and input"
+    );
+}

@@ -79,6 +79,28 @@ fn js_err(e: impl std::fmt::Display) -> JsError {
     JsError::new(&e.to_string())
 }
 
+/// The first step in `recipe` whose op needs a file the wasm surface cannot
+/// resolve — `(0-based step index, op name, asset key)` — or `None` when
+/// every step's asset params (if it has any) are all unset (SPEC-128, Call 3).
+///
+/// Reuses [`OperationRegistry::asset_keys`], the exact query the native
+/// recipe-IO-boundary resolver (`cli::common::resolve_recipe_assets`) uses to
+/// decide which files to read — so this refusal and that resolver can never
+/// independently decide an op is/isn't asset-bearing.
+fn first_unresolvable_asset(
+    recipe: &Recipe,
+    registry: &OperationRegistry,
+) -> Option<(usize, String, &'static str)> {
+    for (index, step) in recipe.steps.iter().enumerate() {
+        for &key in registry.asset_keys(&step.op) {
+            if step.params.get_str(key).is_some() {
+                return Some((index, step.op.clone(), key));
+            }
+        }
+    }
+    None
+}
+
 /// Resolve an output-format name (`"png"`, `"jpeg"`, `"webp"`, …) the way the CLI
 /// resolves an output file's extension — through [`sink::format_from_extension`],
 /// so the wasm surface and the CLI accept exactly the same format spellings and
@@ -199,9 +221,24 @@ pub fn transform(input: &[u8], recipe_toml: &str, out_format: &str) -> Result<Ve
     let quality = recipe.quality;
 
     let pixel_recipe = split_terminal_optimize(&recipe).unwrap_or(recipe);
-    let pipeline = pixel_recipe
-        .build_pipeline(&OperationRegistry::with_builtins())
-        .map_err(js_err)?;
+
+    // Refuse a recipe whose steps need a file this surface cannot read (SPEC-128,
+    // Call 3) — the wasm boundary has no filesystem, and silently dropping the
+    // step (e.g. skipping a watermark) would be the worst outcome: the caller
+    // gets an unmarked image and no signal. Uses the SAME query the native
+    // resolver does (`OperationRegistry::asset_keys`), so this refusal and that
+    // resolver can never independently decide an op is/isn't asset-bearing.
+    // Supplying assets over the wasm boundary is explicitly out of scope.
+    let registry = OperationRegistry::with_builtins();
+    if let Some((index, op, key)) = first_unresolvable_asset(&pixel_recipe, &registry) {
+        return Err(JsError::new(&format!(
+            "recipe step {index} ('{op}') needs its '{key}' asset resolved from a file, \
+             which the wasm surface cannot do (no filesystem) — supplying assets over this \
+             boundary is out of scope (SPEC-128)"
+        )));
+    }
+
+    let pipeline = pixel_recipe.build_pipeline(&registry).map_err(js_err)?;
     let out = pipeline.run(img).map_err(js_err)?;
 
     sink::encode_to_bytes(&out, fmt, quality).map_err(js_err)

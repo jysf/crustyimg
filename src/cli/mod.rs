@@ -604,6 +604,27 @@ pub enum CliError {
     #[error("could not read recipe file")]
     RecipeIo(std::io::Error),
 
+    /// A recipe step names a file (an asset param — e.g. watermark's
+    /// `image`/`font`) that could not be read, resolved ONCE before any
+    /// output is written (SPEC-128, Call 1/2) — a bad asset is a bad recipe,
+    /// not a bad input, so this is `1` (generic runtime error), never `3`
+    /// (which names the PRIMARY input) or `6` (which implies some inputs
+    /// could have succeeded — an unreadable recipe-level asset dooms every
+    /// input in the batch identically).
+    #[error("recipe step {step} ('{op}'): could not read '{key}' file \"{path}\": {source}")]
+    RecipeAssetUnreadable {
+        /// 0-based index of the offending step in the recipe.
+        step: usize,
+        /// The step's operation name.
+        op: String,
+        /// Which of the op's params named the unreadable file.
+        key: &'static str,
+        /// The path that could not be read.
+        path: String,
+        /// The underlying I/O failure.
+        source: std::io::Error,
+    },
+
     /// A build-manifest parse / version / invalid-target error (SPEC-063).
     /// Every variant is a manifest *content* error → exit 2 (usage).
     #[error(transparent)]
@@ -743,6 +764,10 @@ impl CliError {
             CliError::NotImplemented(_) => 1,
             // Recipe file read I/O → input not found / unreadable
             CliError::RecipeIo(_) => 3,
+            // An unreadable recipe ASSET (watermark's image/font) is a bad
+            // recipe, not a bad input → generic runtime error, like other
+            // recipe/operation errors (SPEC-128, Call 2).
+            CliError::RecipeAssetUnreadable { .. } => 1,
             // A malformed build manifest is a usage error, like a bad flag → 2.
             // (Reading the manifest file is CliError::BuildManifestIo → 3.)
             CliError::Build(_) => 2,

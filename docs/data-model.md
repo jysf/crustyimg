@@ -158,11 +158,11 @@ recipe already in the wild the next time it is re-saved.
 
 A "prep for web" recipe: orient, then downscale.
 
-**Every `op` below is a real registry key.** The registry holds exactly four
-operations — `identity`, `invert`, `resize`, `auto-orient` — and
-`tests/docs_ops.rs` asserts that every `op` named in this file resolves against
-`OperationRegistry::with_builtins()`, so this example cannot drift back into
-advertising steps that do not exist.
+**Every `op` below is a real registry key.** The registry holds five
+operations — `identity`, `invert`, `resize`, `auto-orient`, `watermark`
+(SPEC-128) — and `tests/docs_ops.rs` asserts that every `op` named in this
+file resolves against `OperationRegistry::with_builtins()`, so this example
+cannot drift back into advertising steps that do not exist.
 
 ```toml
 version = "1"
@@ -191,12 +191,58 @@ crustyimg apply --recipe web.toml "photos/*.jpg" \
 ```
 
 > **Not recipe steps.** Sharpening (`unsharp`) and GPS-only scrubbing
-> (`clean-gps`) are **unimplemented** — no registry key, no CLI flag. Watermarking
-> **is** implemented, but as the `watermark` *verb* rather than a recipe step: it is
-> deliberately left unregistered (`src/operation/mod.rs`, `src/cli/ops.rs`), so
-> `op = "watermark"` in a recipe is an error. Earlier revisions of this example
-> showed all three as steps; a reader following it got `unknown operation` on three
-> of five.
+> (`clean-gps`) are **unimplemented** — no registry key, no CLI flag. Earlier
+> revisions of this example also listed `watermark` here: until SPEC-128, the
+> registry constructor was a pure `fn(&OperationParams) -> Result<...>` that
+> could not load the overlay file (DEC-031), so `op = "watermark"` in a recipe
+> was an error. **`watermark` is now a registry operation** — see the next
+> section for its param keys.
+
+### `watermark` step param keys (SPEC-128, Call 3b)
+
+`watermark` has **two modes with distinct, non-overlapping key sets** — a step
+must set exactly one of `image`/`text`, or it is a typed error at
+build-pipeline time (`RecipeError::InvalidOperation`), matching the CLI's own
+`--image`/`--text` XOR:
+
+| Mode | Keys | Notes |
+|---|---|---|
+| Image | `image` (path, required) | The overlay file. Resolved (read into bytes) by the recipe IO boundary **before** the registry ever runs — `src/operation/**` never touches a file (DEC-031, DEC-064). |
+| Text | `text` (required), `font` (path, optional), `size` (float, default `32.0`), `color` (`RRGGBB`/`RRGGBBAA` hex, default `ffffff`/opaque) | `font` absent → the bundled default font, resolved at compile time, so a text-only watermark step needs **no** file at all. |
+
+Both modes share placement keys: `gravity` (default `southeast`), `opacity`
+(`0.0..=1.0`, default `1.0`), `scale` (optional, aspect-preserving), `margin`
+(pixels, default `0`), `tile` (bool, default `false`).
+
+⚠ **`image`'s and `font`'s VALUES are paths, never bytes.** `to_toml` always
+emits the path a step named — the CLI's recipe-IO-boundary resolver
+(`cli::common::resolve_recipe_assets`, native only) attaches the actual file
+content to a transient, never-serialized side channel on `OperationParams`,
+used only to construct the `Watermark` operation for THIS run. A saved/re-read
+recipe is exactly the TOML you'd expect — the path, nothing else.
+
+⚠ **`apply --recipe`/`build` resolve `image`/`font` from a file; `wasm::transform`
+refuses a recipe that needs either, with a typed error naming the step** — the
+wasm surface has no filesystem, and supplying assets over that boundary is out
+of scope (SPEC-128, Call 3). A `text`-only step with no `font` needs nothing
+resolved and runs on every surface, including wasm.
+
+```toml
+version = "1"
+
+[[step]]
+op = "watermark"
+image = "assets/logo.png"
+gravity = "southeast"
+opacity = 0.8
+
+[[step]]
+op = "watermark"
+text = "© crustyimg"
+size = 24.0
+color = "ffffffcc"
+gravity = "southeast"
+```
 
 ### `resize` step param keys (PINNED — SPEC-010 / DEC-014)
 

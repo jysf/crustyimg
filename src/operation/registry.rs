@@ -13,7 +13,7 @@ use std::collections::HashMap;
 
 use thiserror::Error;
 
-use super::{AutoOrient, Identity, Invert, Operation, OperationParams, Resize};
+use super::{AutoOrient, Identity, Invert, Operation, OperationParams, Resize, Watermark};
 
 // ─── Constructor type alias ─────────────────────────────────────────────────
 
@@ -57,11 +57,19 @@ pub enum RegistryError {
 ///
 /// Constructed via [`OperationRegistry::new`] (empty) or
 /// [`OperationRegistry::with_builtins`] (pre-populated with `identity`,
-/// `invert`, and `resize`). New operations call
+/// `invert`, `resize`, `auto-orient`, and `watermark`). New operations call
 /// [`OperationRegistry::register`] to add themselves — without touching the
-/// recipe parser (the whole point of the registry seam).
+/// recipe parser (the whole point of the registry seam). An operation whose
+/// params name a FILE (an "asset-bearing" op — `watermark`'s `image`/`font`,
+/// and the `.cube` LUT op STAGE-050 anticipates) registers via
+/// [`OperationRegistry::register_with_assets`] instead (SPEC-128, Call 1):
+/// the registry itself never gains IO — it only records WHICH param keys
+/// name a file, so a native caller can resolve them before construction, and
+/// `wasm::transform` can refuse a recipe that needs them (Call 3), both
+/// through the same query, [`OperationRegistry::asset_keys`].
 pub struct OperationRegistry {
     map: HashMap<&'static str, Constructor>,
+    asset_keys: HashMap<&'static str, &'static [&'static str]>,
 }
 
 impl OperationRegistry {
@@ -69,28 +77,72 @@ impl OperationRegistry {
     pub fn new() -> Self {
         OperationRegistry {
             map: HashMap::new(),
+            asset_keys: HashMap::new(),
         }
     }
 
     /// Create a registry pre-populated with the built-in operations:
-    /// `"identity"`, `"invert"` (SPEC-003), `"resize"` (SPEC-010), and
-    /// `"auto-orient"` (SPEC-015).
+    /// `"identity"`, `"invert"` (SPEC-003), `"resize"` (SPEC-010),
+    /// `"auto-orient"` (SPEC-015), and `"watermark"` (SPEC-128 — registered
+    /// only now; DEC-031 explains why it was not registrable before).
     pub fn with_builtins() -> Self {
         let mut reg = Self::new();
         reg.register("identity", |_params| Ok(Box::new(Identity)));
         reg.register("invert", |_params| Ok(Box::new(Invert)));
         reg.register("resize", |p| Ok(Box::new(Resize::from_params(p)?)));
         reg.register("auto-orient", |_params| Ok(Box::new(AutoOrient)));
+        reg.register_with_assets(
+            "watermark",
+            |p| Watermark::from_params(p).map(|w| Box::new(w) as Box<dyn Operation>),
+            &["image", "font"],
+        );
         reg
     }
 
     /// Register a constructor under `name`.
     ///
-    /// Overwrites any previous registration for the same name. Names are
-    /// `'static` str references — typically string literals — matching the
-    /// `Operation::name()` contract.
+    /// Overwrites any previous registration for the same name (including any
+    /// asset-key declaration — use [`OperationRegistry::register_with_assets`]
+    /// if this op needs one). Names are `'static` str references — typically
+    /// string literals — matching the `Operation::name()` contract.
     pub fn register(&mut self, name: &'static str, ctor: Constructor) {
         self.map.insert(name, ctor);
+        self.asset_keys.remove(name);
+    }
+
+    /// Register an operation whose params name one or more FILES (SPEC-128,
+    /// Call 1) — e.g. watermark's `image`/`font`.
+    ///
+    /// `asset_keys` lists the param keys that, when a step sets one to a
+    /// string, name a file that must be resolved (read into bytes, attached
+    /// via [`OperationParams::set_resolved_bytes`]) at the recipe IO boundary
+    /// **before** `ctor` runs — never inside this registry, which stays pure
+    /// so it keeps compiling for `wasm32` (DEC-064). `ctor` reads the
+    /// resolved bytes back via [`OperationParams::resolved_bytes`] (see
+    /// `Watermark::from_params` for the pattern). A key absent from a given
+    /// step (e.g. `font`, whose default is the bundled font) is simply
+    /// nothing to resolve — this is not a validation rule, just a resolution
+    /// hint.
+    pub fn register_with_assets(
+        &mut self,
+        name: &'static str,
+        ctor: Constructor,
+        asset_keys: &'static [&'static str],
+    ) {
+        self.map.insert(name, ctor);
+        self.asset_keys.insert(name, asset_keys);
+    }
+
+    /// The param keys that name a file for `name`'s constructor.
+    ///
+    /// Empty for an operation with no asset params, **including an unknown
+    /// name** — never panics. This is the ONE query both the native resolver
+    /// (which files to read before `build_pipeline`) and `wasm::transform`'s
+    /// refusal (Call 3 — a non-empty result for any step means that recipe
+    /// cannot run on the wasm surface, which has no filesystem) share, so the
+    /// two can never independently decide an op is/isn't asset-bearing.
+    pub fn asset_keys(&self, name: &str) -> &'static [&'static str] {
+        self.asset_keys.get(name).copied().unwrap_or(&[])
     }
 
     /// Whether `name` has a registered constructor.
@@ -239,5 +291,37 @@ mod tests {
             .build("auto-orient", &OperationParams::empty())
             .expect("build('auto-orient', empty) should succeed");
         assert_eq!(op.name(), "auto-orient");
+    }
+
+    // ── SPEC-128 registry tests ───────────────────────────────────────────────
+
+    #[test]
+    fn with_builtins_contains_watermark() {
+        let reg = OperationRegistry::with_builtins();
+        assert!(
+            reg.contains("watermark"),
+            "expected 'watermark' to be registered (SPEC-128)"
+        );
+    }
+
+    #[test]
+    fn watermark_declares_image_and_font_as_asset_keys() {
+        let reg = OperationRegistry::with_builtins();
+        assert_eq!(reg.asset_keys("watermark"), &["image", "font"]);
+    }
+
+    #[test]
+    fn an_ordinary_op_has_no_asset_keys() {
+        let reg = OperationRegistry::with_builtins();
+        assert!(
+            reg.asset_keys("resize").is_empty(),
+            "resize has no file-shaped params"
+        );
+    }
+
+    #[test]
+    fn unknown_op_has_no_asset_keys_and_does_not_panic() {
+        let reg = OperationRegistry::with_builtins();
+        assert!(reg.asset_keys("bogus").is_empty());
     }
 }
