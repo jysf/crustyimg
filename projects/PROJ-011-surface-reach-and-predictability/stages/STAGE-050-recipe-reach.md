@@ -134,7 +134,13 @@ anything a recipe cannot say.
   documented as deliberate. Worth ruling on together rather than separately; the maintainer
   decision is warn / honour-the-template / document-and-keep.
 
-- [ ] (not yet written) — [M] **`watermark` becomes a registry operation.** Its ten parameters
+- [ ] **SPEC-128** (design, 2026-09-05) — **recipes can express watermark.**
+  ⚡ **Retitled from "`watermark` becomes a registry operation" — that description was wrong.**
+  `Watermark` is already an `Operation`; it is *deliberately* unregistered (DEC-031), because the
+  registry constructor cannot load the overlay file and `src/operation/**` must stay
+  filesystem-free for wasm32. The real work is widening the seam for ops whose params name a file
+  — with image watermark, text watermark and the `.cube` LUT as its three customers.
+  📌 *Original wording, kept for the record:* "**`watermark` becomes a registry operation.** Its ten parameters
   (image/text, font, size, colour, gravity, opacity, scale, margin, tile) are richer than any op
   the registry has taken, which is the real work — the seam itself is documented as "the single
   seam new operations register at", but no parameter-rich op has ever used it.
@@ -261,7 +267,7 @@ anything a recipe cannot say.
   schema change. Bundling the two turns an M into an L, and AGENTS §2 says split an L.
   (Originally arrived via external review batch 3 — one of the two items that survived checking.)
 
-**Count:** **1 shipped** / 0 in flight / **6 pending** — re-derive with a grep you just ran.
+**Count:** **1 shipped** / **1 in design** / 5 pending — re-derive with a grep you just ran.
 
 ## Design Notes
 
