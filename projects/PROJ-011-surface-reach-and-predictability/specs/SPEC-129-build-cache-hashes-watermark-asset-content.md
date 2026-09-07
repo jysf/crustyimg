@@ -457,6 +457,15 @@ byte-identical (AC-4 + AC-6). This still batches into PROJ-011's single lockfile
     is called once per target" — mechanically, via a source-text match against this file's own
     production call graph (excluding the test module), so a future change that added a second call
     site (e.g. inlining the hash into the per-input path) would fail this test.
+  - ⚠ **That AC-7 test was itself buggy on first push, caught by CI's `windows-latest` leg, not
+    locally.** `include_str!("build.rs")` splits out the test module on a literal LF pattern
+    (`"\n#[cfg(test)]\nmod tests {"`); a Windows checkout writes the file with CRLF, so the split
+    silently failed to match and left the WHOLE file — this test's own source included — as
+    "production". That file then self-matched its own search-string literal
+    (`"target_recipe_hash(&recipe, format_plan, registry)"`, written inside the test as the needle),
+    inflating the count from 1 to 2 — green on macOS/Linux, `found 2` on windows-latest. Fixed by
+    normalizing `\r\n` → `\n` before splitting, verified against a simulated CRLF copy of the file
+    before pushing the fix (`git rebase --signoff`, same push as the DCO fix below).
 - **Follow-up work identified:**
   - None. This closes STAGE-050's SPEC-129 backlog item outright — no new correctness gap was
     found while building it.

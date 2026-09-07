@@ -1309,7 +1309,13 @@ mod tests {
     /// O(inputs) hashing.
     #[test]
     fn target_recipe_hash_hashes_each_asset_once_per_target() {
-        let source = include_str!("build.rs");
+        // Normalize line endings before splitting: a Windows checkout (CRLF) would
+        // otherwise silently fail to match the LF-only pattern below, splitting on
+        // nothing and leaving the WHOLE file — this test's own source included —
+        // as "production". That self-includes this very test's search-string
+        // literal, inflating the count by one (found the hard way on CI: green on
+        // macOS/Linux, `found 2` on windows-latest).
+        let source = include_str!("build.rs").replace("\r\n", "\n");
         let production = source
             .split("\n#[cfg(test)]\nmod tests {")
             .next()
