@@ -167,6 +167,17 @@ impl Hash {
     pub fn as_bytes(&self) -> &[u8; 32] {
         &self.0
     }
+
+    /// Finalize a running hasher into a `Hash`.
+    ///
+    /// `pub(crate)` (SPEC-129): lets `target_recipe_hash` in `crate::cli::build`
+    /// compose several length-prefixed sections — the canonical recipe TOML,
+    /// the format plan, and (only for an asset-bearing recipe) a resolved-asset
+    /// fingerprint — into ONE hasher before finalizing, without this module
+    /// knowing what those sections are.
+    pub(crate) fn from_hasher(hasher: Sha256) -> Hash {
+        Hash(hasher.finalize().into())
+    }
 }
 
 /// SHA-256 of `bytes` — a source file's contents, a canonical recipe, or an
@@ -223,7 +234,11 @@ pub fn feature_signature() -> String {
 /// The tag and length are what make the composition injective: without them
 /// `("ab", "c")` and `("a", "bc")` would hash identically, so one field's change
 /// could be masked by another's.
-fn absorb(hasher: &mut Sha256, tag: u8, bytes: &[u8]) {
+///
+/// `pub(crate)` (SPEC-129, DEC-101): `target_recipe_hash` in `crate::cli::build`
+/// composes a resolved-asset fingerprint into its own running hasher using this
+/// same tag+length discipline, rather than duplicating it.
+pub(crate) fn absorb(hasher: &mut Sha256, tag: u8, bytes: &[u8]) {
     hasher.update([tag]);
     hasher.update((bytes.len() as u64).to_le_bytes());
     hasher.update(bytes);
