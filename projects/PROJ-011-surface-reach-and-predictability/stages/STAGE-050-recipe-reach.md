@@ -145,21 +145,46 @@ anything a recipe cannot say.
   the registry has taken, which is the real work — the seam itself is documented as "the single
   seam new operations register at", but no parameter-rich op has ever used it.
 
-- [~] **SPEC-129** (designed 2026-09-06) — ⚡ **`build`'s cache key does not hash a watermark
+- [x] **SPEC-129** (merged 2026-09-07, PR #190) — ⚡ **`build`'s cache key did not hash a watermark
   asset's own file CONTENT, only the recipe's `to_toml()` (the path).** Found during SPEC-128's
   build (2026-09-05), reproduced at SPEC-128's verify with a verified control: editing `logo.png`
-  in place (same path, different bytes) makes `build` report *"1 cached, 0 rebuilt"* and emit
+  in place (same path, different bytes) made `build` report *"1 cached, 0 rebuilt"* and emit
   byte-identical pre-edit output. `apply` is unaffected (no cache). No SPEC-128 AC named this (it
-  is about registering the op, not the cache), so it was filed. The mechanism is one function:
-  `target_recipe_hash` hashes `to_toml()` + `plan`, and SPEC-128's `set_resolved_bytes` side
+  is about registering the op, not the cache), so it was filed. The mechanism was one function:
+  `target_recipe_hash` hashed `to_toml()` + `plan`, and SPEC-128's `set_resolved_bytes` side
   channel is deliberately invisible to `Serialize` (DEC-100's highest-consequence guard).
-  📌 *Original design surface asked:* which hash (content? mtime+size?), computed where (once per
-  target, or per input), at what cost for a batch of many targets sharing one overlay.
-  **Settled by SPEC-129's design:** SHA-256 (matches source-input precedent, DEC-058); once per
-  target (fold into `target_recipe_hash`, dominated by decode+encode); watermark-free recipes
-  hash identically to `main` (AC-4 pin, so no existing cache entry is invalidated).
-  Amends DEC-058 clause 4 via reserved DEC-101 (`CACHE_SCHEMA_VERSION` deliberately unchanged;
-  the departure from DEC-058's suggested remedy is written down).
+  **Shipped:** SHA-256 of the resolved bytes (matches source-input precedent, DEC-058); folded in
+  once per target (`target_recipe_hash`, dominated by decode+encode — AC-7 pins it); watermark-free
+  recipes hash identically to `main` on every format plan (AC-4 pin, so no existing cache entry or
+  lockfile line is invalidated). Amends DEC-058 clause 4 via DEC-101
+  (`CACHE_SCHEMA_VERSION` deliberately unchanged; the departure from DEC-058's suggested remedy is
+  written down).
+  ⚠ **Merged before its verify cycle ran** (the maintainer merged on green CI, believing it was
+  ready); verify ran retroactively against the merged commit and returned ⚠ PUNCH LIST, not a
+  rejection — the over-invalidation guard (AC-4) was independently re-driven and held, including
+  on the `Pinned`/`Decide` plans the named unit test doesn't cover. Two real findings from that
+  punch list shipped as a same-day follow-up fix (`fix/spec-129-verify-punchlist`): AC-7's own test
+  was a source-text check that verify proved wouldn't catch the exact regression it named (the
+  hash call moved into a per-input loop) — replaced with a real dynamic counter driven by an
+  actual multi-input build; and a doc comment on `target_recipe_hash` overstated a length-prefix
+  guarantee the `Preserve` branch doesn't provide (harmless today — closed by TOML's own escaping
+  rules, not by the hasher — but the comment was wrong and is now corrected). The third finding is
+  filed below as its own backlog item.
+
+- [ ] (not yet written) — [S] ⚡ **`build --watch` never watches a recipe's asset paths.**
+  Found by SPEC-129's (retroactive) verify cycle, 2026-09-07, driven with a real positive
+  control: `WatchSet` (`src/build/watch.rs:106-114`) is built from the manifest's own directory
+  (shallow), each source root (recursive), and each recipe's directory (shallow) — never the
+  path a recipe step's `image`/`font` key names. With the overlay at `brand/logo.png` and the
+  recipe at `recipes/r.toml`, editing `src/a.png` triggers a rebuild (control fired); editing
+  `brand/logo.png` triggers **none**. SPEC-129 makes the CACHE correct once a build runs; the
+  watch loop still never asks the question at all — a designer iterating on a logo under
+  `--watch` sees no rebuild, silently, until they touch a source file for an unrelated reason.
+  ⚠ **Configuration-dependent, so easy to miss**: if the overlay happens to sit inside a source
+  root or beside its recipe, the existing shallow/recursive watch catches the edit by accident.
+  📌 The fix shape is probably small — extend `WatchSet`'s construction to also resolve each
+  target's recipe (the same `resolve_recipe_assets`/`registry.asset_keys` walk `build` already
+  does) and add each resolved asset's path — but sizing and design are for whoever picks this up.
 
 - [ ] (not yet written) — [S] ⚡ **`watermark` stops silently doing nothing.** A **measured
   defect**, driven on `main` (PNG filters undone before comparing):
@@ -283,7 +308,7 @@ anything a recipe cannot say.
   schema change. Bundling the two turns an M into an L, and AGENTS §2 says split an L.
   (Originally arrived via external review batch 3 — one of the two items that survived checking.)
 
-**Count:** **2 shipped / 1 closed** / 1 in flight (SPEC-129, design) / 4 pending — re-derive with a grep you just ran.
+**Count:** **3 shipped / 1 closed** / 0 in flight / 5 pending — re-derive with a grep you just ran.
 
 ## Design Notes
 

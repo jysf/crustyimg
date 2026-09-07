@@ -7,7 +7,7 @@
 task:
   id: SPEC-129
   type: bug                        # epic | story | task | bug | chore
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: S                    # S | M | L  (L means split it)
@@ -86,10 +86,36 @@ cost:
         the first line's output under-counts). Priced by component at Sonnet $3/$15 per MTok,
         cache_creation x1.25, cache_read x0.10 — never a flat rate on tokens_total. Ran in its
         own git worktree (feat/spec-129-build-cache-asset-hash), per the prompt.
+    - cycle: verify
+      agent: claude-opus-5
+      interface: claude-code
+      tokens_total: 9854093
+      tokens_breakdown:
+        input: 128
+        output: 30809
+        cache_creation: 402528
+        cache_read: 9420628
+      estimated_usd: 8.00
+      duration_minutes: 25
+      recorded_at: 2026-09-07
+      note: >
+        Dispatched as a fresh (non-fork) agent, no context from the build session — retroactive:
+        PR #190 had already merged (squash-merge to `main`) before verify ran, so it checked out
+        `main` before/after the merge commit as its two baselines instead of an open PR branch.
+        Measured from its own transcript (subagents/agent-a96b98a6bc5872a12.jsonl), deduped by
+        `.message.id` (297 lines -> 64 unique ids), MAX output_tokens per id. Priced at Opus
+        $5/$25 per MTok, cache_creation x1.25, cache_read x0.10. Verdict: PUNCH LIST, not a
+        rejection — AC-4's over-invalidation guard independently re-driven and held (including
+        on Pinned/Decide plans the named unit test doesn't cover); the bug/fix/font/sweep/matrix
+        all reconfirmed, an 84-case independent sweep byte-clean. Three real findings: AC-7's own
+        test was a source-text check proven (by mutation testing) not to catch the regression it
+        named; a doc comment overstated a length-prefix guarantee on the `Preserve` branch; and
+        `build --watch` never watches a recipe's asset path (filed as its own STAGE-050 backlog
+        item, not a SPEC-129 defect). First two fixed same-day on `fix/spec-129-verify-punchlist`.
   totals:
-    tokens_total: 27931672
-    estimated_usd: 10.84
-    session_count: 2
+    tokens_total: 37785765
+    estimated_usd: 18.84
+    session_count: 3
 ---
 
 # SPEC-129: build cache hashes watermark asset content
@@ -500,10 +526,23 @@ Process-focused: how did the build go? What friction did the spec create?
 from the process-focused build reflection above.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Not merge on green CI alone. The PR merged before its verify cycle ran (the maintainer's
+   own call, made in good faith on a fully green matrix) — and verify, run retroactively, still
+   found a real gap: the AC-7 test looked like a guard but wasn't one. CI green proves the tests
+   that exist pass; it says nothing about whether the tests that exist are actually testing the
+   right thing. That's exactly what an independent verify is for, and skipping it (even
+   accidentally, by timing) let a hollow test through.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — Worth a note in whatever the maintainer's own merge checklist is: "CI green" and "verify
+   cycle complete" are different gates, and only one of them is enforced by GitHub. No repo-level
+   template change needed — `AGENTS.md` §15 already describes the cycle order correctly; this was
+   a process slip, not a documentation gap.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — Filed to STAGE-050's backlog directly rather than as a spec draft here (it's a small, clearly-
+   scoped item, not yet worth a full design cycle): `build --watch` never watches a recipe's
+   asset paths (`src/build/watch.rs`'s `WatchSet` covers the manifest, source globs, and each
+   recipe's own directory — never a step's `image`/`font` key). Found by the retroactive verify
+   cycle with a real positive control. Same user story as this spec (a designer iterating on a
+   watermark overlay), still open.
