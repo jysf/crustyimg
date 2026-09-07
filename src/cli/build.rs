@@ -88,8 +88,22 @@ fn target_format_plan(template: &str) -> Result<OutputFormatPlan, CliError> {
 /// agreeing says nothing about whether the shipped BYTES will. Without this,
 /// one target's cache entry could serve the other's bytes on a hit, which is
 /// exactly the silent-staleness failure [`crate::build::cache`] exists to
-/// prevent. The recipe TOML, the plan discriminator, and the asset fingerprint
-/// are all length-prefixed so none can be crafted to bleed into another.
+/// prevent.
+///
+/// On `Pinned`/`Decide`, the TOML is itself length-prefixed ahead of the plan
+/// discriminator that follows it, and [`absorb_resolved_assets`]'s own fields
+/// are internally tag+length-prefixed (Call 3) — nothing there can be crafted
+/// to bleed into another. **`Preserve` is the one exception, by design**: its
+/// TOML is absorbed RAW, with no length prefix, so a watermark-free recipe on
+/// that plan reproduces [`crate::build::cache::recipe_hash`]'s digest
+/// byte-for-byte (Call 5's guarantee, pinned by
+/// `target_recipe_hash_matches_recipe_hash_for_watermarkfree_recipe`). What
+/// still stops a crafted recipe from forging an asset-fingerprint section on
+/// THAT branch is TOML's own grammar, not this hasher: [`absorb`]'s tag byte
+/// is a raw control byte, and no string a `Recipe` can serialize contains one
+/// literally — TOML requires a control byte written as an escape sequence,
+/// never the raw byte — so no recipe text can produce the exact bytes `absorb`
+/// writes.
 fn target_recipe_hash(
     recipe: &Recipe,
     plan: OutputFormatPlan,
@@ -160,6 +174,8 @@ fn absorb_resolved_assets(hasher: &mut Sha256, recipe: &Recipe, registry: &Opera
     for (index, step) in recipe.steps.iter().enumerate() {
         for &key in registry.asset_keys(&step.op) {
             if let Some(bytes) = step.params.resolved_bytes(key) {
+                #[cfg(test)]
+                tests::ASSET_HASH_CALLS.with(|c| c.set(c.get() + 1));
                 absorb(hasher, TAG_ASSET, &(index as u32).to_le_bytes());
                 absorb(hasher, TAG_ASSET, key.as_bytes());
                 absorb(hasher, TAG_ASSET, hash_bytes(bytes).as_bytes());
@@ -1289,44 +1305,89 @@ mod tests {
         );
     }
 
-    /// AC-7, the perf property: the asset is hashed ONCE per target, not once
-    /// per input.
-    ///
-    /// `target_recipe_hash` takes a `Recipe`/`OutputFormatPlan`/registry —
-    /// nothing input-specific — so the property lives entirely in WHERE it is
-    /// called from, not in its own body: it must run exactly once per target,
-    /// inside `prepare_target`, and never again inside the per-input fan-out
-    /// (`run_build`'s `p.inputs...` loop, which reads the already-computed
-    /// `PreparedTarget::recipe_hash` FIELD for every one of its N inputs,
-    /// calling nothing). Asserted mechanically against this file's own
-    /// production source (excluding this test module, which calls the
-    /// function directly many times to exercise it — that is not the
-    /// property under test): exactly one occurrence of the real call shape
-    /// means a target with N=10 inputs sharing one overlay triggers exactly
-    /// ONE overlay hash, regardless of N. A future change that added a second
-    /// call site (e.g. inlining the hash into the per-input path) would flip
-    /// this from 1 to 2 and fail here, rather than silently regressing to
-    /// O(inputs) hashing.
+    // Counts real invocations of the per-asset hashing work inside
+    // `absorb_resolved_assets` (SPEC-129 verify punch-list #1). A prior version
+    // of `target_recipe_hash_hashes_each_asset_once_per_target` asserted this
+    // property by counting a literal call-site STRING in this file's own
+    // source via `include_str!` — which not only broke on a CRLF (Windows)
+    // checkout (it self-matched its own search-string literal, a separate bug
+    // fixed earlier), but the independent SPEC-129 verify cycle proved it
+    // wouldn't even catch the regression it was meant to guard: moving the one
+    // call site into a per-input loop left the source-text count at 1,
+    // invisible to the check. A REAL counter, driven by a REAL multi-input
+    // build, is not fooled by where the call happens to sit in the file.
+    thread_local! {
+        pub(super) static ASSET_HASH_CALLS: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+    }
+
+    /// AC-7, the perf property, driven end-to-end: `prepare_target` (called
+    /// once per TARGET, never per input — SPEC-064) must hash a target's
+    /// resolved overlay exactly ONCE, regardless of how many inputs that
+    /// target has. A target whose source glob resolves to N=10 files sharing
+    /// one watermark overlay must still trigger exactly one overlay hash: if
+    /// the call were ever moved inside the per-input fan-out instead of
+    /// staying in `prepare_target`, this counter would read 10, not 1.
     #[test]
     fn target_recipe_hash_hashes_each_asset_once_per_target() {
-        // Normalize line endings before splitting: a Windows checkout (CRLF) would
-        // otherwise silently fail to match the LF-only pattern below, splitting on
-        // nothing and leaving the WHOLE file — this test's own source included —
-        // as "production". That self-includes this very test's search-string
-        // literal, inflating the count by one (found the hard way on CI: green on
-        // macOS/Linux, `found 2` on windows-latest).
-        let source = include_str!("build.rs").replace("\r\n", "\n");
-        let production = source
-            .split("\n#[cfg(test)]\nmod tests {")
-            .next()
-            .expect("this file has a #[cfg(test)] mod tests boundary");
-        let call_sites = production
-            .matches("target_recipe_hash(&recipe, format_plan, registry)")
-            .count();
+        let dir = tempfile::TempDir::new().unwrap();
+        let root = dir.path();
+
+        let overlay_path = root.join("logo.png");
+        std::fs::write(&overlay_path, {
+            let img = ::image::RgbImage::from_pixel(4, 4, ::image::Rgb([1, 2, 3]));
+            let mut buf = std::io::Cursor::new(Vec::new());
+            ::image::DynamicImage::ImageRgb8(img)
+                .write_to(&mut buf, ::image::ImageFormat::Png)
+                .unwrap();
+            buf.into_inner()
+        })
+        .unwrap();
+
+        let recipe_path = root.join("r.toml");
+        std::fs::write(
+            &recipe_path,
+            format!(
+                "version = \"1\"\n\n[[step]]\nop = \"watermark\"\nimage = {:?}\n",
+                overlay_path.to_str().unwrap()
+            ),
+        )
+        .unwrap();
+
+        let src_dir = root.join("src");
+        std::fs::create_dir_all(&src_dir).unwrap();
+        const N_INPUTS: usize = 10;
+        for i in 0..N_INPUTS {
+            let img = ::image::RgbImage::from_pixel(2, 2, ::image::Rgb([i as u8, 0, 0]));
+            let mut buf = std::io::Cursor::new(Vec::new());
+            ::image::DynamicImage::ImageRgb8(img)
+                .write_to(&mut buf, ::image::ImageFormat::Png)
+                .unwrap();
+            std::fs::write(src_dir.join(format!("{i}.png")), buf.into_inner()).unwrap();
+        }
+
+        let target = crate::build::Target {
+            source: crate::build::SourceSpec::One(
+                src_dir.join("*.png").to_str().unwrap().to_owned(),
+            ),
+            recipe: recipe_path.to_str().unwrap().to_owned(),
+            out: root.join("dist").to_str().unwrap().to_owned(),
+            name: None,
+        };
+
+        ASSET_HASH_CALLS.with(|c| c.set(0));
+        let registry = OperationRegistry::with_builtins();
+        let prepared = prepare_target(&target, &registry).expect("target should prepare");
+
         assert_eq!(
-            call_sites, 1,
-            "target_recipe_hash's one production call site must stay in prepare_target \
-             (once per TARGET); found {call_sites} occurrences of the real call shape"
+            prepared.inputs.len(),
+            N_INPUTS,
+            "sanity: the glob must have actually resolved all {N_INPUTS} inputs"
+        );
+        assert_eq!(
+            ASSET_HASH_CALLS.with(|c| c.get()),
+            1,
+            "one target with {N_INPUTS} inputs sharing one overlay must hash that overlay \
+             EXACTLY ONCE, not once per input"
         );
     }
 }
