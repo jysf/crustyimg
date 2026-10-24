@@ -265,8 +265,9 @@ embedded preview). HEIC is only available in builds compiled with the `heic` fea
 (otherwise exit 4). `-` reads from stdin; `-o -` writes to stdout with all diagnostics on
 stderr.
 
-**WebP inputs must be named one file at a time** in 0.7.x: a directory or glob skips
-`.webp` files (a folder of only WebP exits 3). To batch them, loop in the shell:
+**In crustyimg 0.7.1 and earlier, WebP inputs must be named one file at a time:** a
+directory or glob skips `.webp` files (a folder of only WebP exits 3). Releases after
+0.7.1 fix this. Check `crustyimg --version`; on an affected version, loop in the shell:
 
 ```sh
 for f in img/*.webp; do crustyimg optimize "$f" --out-dir out/ -y; done
