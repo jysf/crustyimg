@@ -121,7 +121,7 @@ came with them; nothing was summarised away.
   Any sweep or doc scoped to `rules.rs` misses exactly the load-bearing half
   [[mechanical-sweeps-need-a-mechanical-check]]. Authoritative:
   `grep -rn 'fn id(&self)' -A1 src/lint/`.
-- [ ] (not yet written) — [S] ⚠ **PRIORITY: the `IMAGE_EXTENSIONS` gap silently defeats the
+- [ ] SPEC-130 (build, PR open) — [S] ⚠ **PRIORITY: the `IMAGE_EXTENSIONS` gap silently defeats the
   strict gate that a maintainer decision rests on.** Not a new defect — the *consequence* of the
   item below, and it is why that item is no longer routine.
 
@@ -142,7 +142,7 @@ came with them; nothing was summarised away.
   Two things follow: the contract sentence needs its qualifier (SPEC-119 punch list), and the
   `IMAGE_EXTENSIONS` fix should be **specced rather than left in the backlog**, because a
   maintainer ruling now depends on it.
-- [ ] (not yet written) — [S] **`webp` is missing from `IMAGE_EXTENSIONS`, so directory and glob
+- [ ] SPEC-130 (build, PR open) — [S] **`webp` is missing from `IMAGE_EXTENSIONS`, so directory and glob
   discovery silently skips `.webp` files.** `src/source/mod.rs:105-113` lists 30+ extensions —
   jpg/png/gif/bmp/tif/ico/avif/svg, eleven RAW families, heic/heif — and **not `webp`**, which is
   a supported input *and* an output format the tool writes by default. So `crustyimg web ./dir/`

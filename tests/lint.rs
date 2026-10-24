@@ -543,16 +543,12 @@ fn animated_gif_rule_does_not_recommend_a_flattening_command() {
 /// APNG and animated WebP get the sibling `format/animated-input` finding,
 /// and it carries the same no-destructive-fix property.
 ///
-/// **Linted as two SINGLE-FILE arguments, not one shared directory.** `lint
-/// <dir>` walks the directory through `source::resolve_directory`, which
-/// filters to `IMAGE_EXTENSIONS` (`src/source/mod.rs`) — and that allow-list
-/// does not include `webp` (a pre-existing gap this spec did not introduce;
-/// recorded in Build Completion, not fixed here — out of scope, and fixing
-/// it changes discovery behavior for every command, not just `lint`). A
-/// single named file bypasses that filter entirely ("NOT extension-filtered
-/// — the user named it directly", same doc comment), so linting each file
-/// by its own path proves the RULE fires on WebP without depending on a
-/// directory-walk allow-list this spec does not touch.
+/// **Linted as two SINGLE-FILE arguments, not one shared directory.** A
+/// single named file bypasses the directory walk's extension allow-list, so
+/// this proves the RULE fires on a named WebP file. Directory mode is covered
+/// separately by `max_warnings_zero_fails_on_animated_webp_in_directory_mode`
+/// (SPEC-130 added `webp` to that allow-list; before it, a directory walk
+/// skipped `.webp` files entirely).
 #[test]
 fn animated_input_rule_fires_on_apng_and_webp_with_no_destructive_fix() {
     let dir = TempDir::new().unwrap();
@@ -586,11 +582,8 @@ fn animated_input_rule_fires_on_apng_and_webp_with_no_destructive_fix() {
 /// data"; an answer nobody drove is not an answer.
 ///
 /// GIF/PNG are linted by DIRECTORY (matching the rest of this file's style);
-/// WebP is linted by its own single-file PATH, for the same reason
-/// `animated_input_rule_fires_on_apng_and_webp_with_no_destructive_fix`
-/// does — `webp` is not in `source::IMAGE_EXTENSIONS`, so a directory
-/// containing only a `.webp` file resolves to zero inputs (exit 3, "no
-/// resolvable inputs"), which would test the allow-list gap, not this rule.
+/// WebP is linted by its own single-file PATH here, and by directory in
+/// `max_warnings_zero_fails_on_animated_webp_in_directory_mode`.
 #[test]
 fn max_warnings_zero_fails_on_each_animated_family_clean_on_static() {
     fn strict(dir: &TempDir) -> i32 {
@@ -652,5 +645,49 @@ fn max_warnings_zero_fails_on_each_animated_family_clean_on_static() {
         strict_path(&webp_static),
         0,
         "a static WebP must stay clean under --max-warnings 0"
+    );
+}
+
+/// SPEC-130: the strict gate DEC-093 rests on holds in DIRECTORY mode for
+/// animated WebP. Before `webp` joined the source allow-list, a directory
+/// holding an animated `.webp` resolved to zero inputs and the file was never
+/// linted; with a sibling image present the run exited 0 — a false green.
+///
+/// The animated directory carries a static PNG beside the WebP so the
+/// pre-fix behaviour is that false green (exit 0), not an "input not found"
+/// exit 3 that would also fail this assertion for a different reason.
+#[test]
+fn max_warnings_zero_fails_on_animated_webp_in_directory_mode() {
+    let anim_dir = TempDir::new().unwrap();
+    write(&anim_dir, "anim.webp", &animated_webp(4, 4));
+    write(&anim_dir, "still.png", &solid_png(4, 4, [1, 2, 3]));
+    let (code, stdout) = lint_args(&[
+        anim_dir.path().as_os_str(),
+        OsStr::new("--max-warnings"),
+        OsStr::new("0"),
+    ]);
+    assert!(
+        stdout.contains("format/animated-input") && stdout.contains("anim.webp"),
+        "the directory walk must lint anim.webp and fire the rule; stdout:\n{stdout}"
+    );
+    assert_eq!(
+        code, 7,
+        "an animated WebP in a directory must fail --max-warnings 0; stdout:\n{stdout}"
+    );
+
+    let static_dir = TempDir::new().unwrap();
+    write(&static_dir, "still.webp", &webp_lossless(4, 4));
+    let (code, stdout) = lint_args(&[
+        static_dir.path().as_os_str(),
+        OsStr::new("--max-warnings"),
+        OsStr::new("0"),
+    ]);
+    assert_eq!(
+        code, 0,
+        "a directory of one static WebP must stay clean; stdout:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("1 scanned"),
+        "the static WebP must actually be scanned, not skipped; stdout:\n{stdout}"
     );
 }

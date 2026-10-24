@@ -6091,3 +6091,44 @@ fn optimize_pinned_ships_the_larger_reencode_when_the_source_carries_metadata() 
         stderr_str(&out)
     );
 }
+
+/// SPEC-130: a batch verb over a directory holding only `.webp` files processes
+/// every file. Before the fix this exited 3 ("input not found") because
+/// directory discovery skipped the `.webp` extension.
+#[test]
+fn resize_batch_over_webp_only_directory() {
+    let input_dir = TempDir::new().unwrap();
+    let out_dir = TempDir::new().unwrap();
+    for name in ["a.webp", "b.webp"] {
+        std::fs::write(input_dir.path().join(name), common::webp_lossless(8, 4)).unwrap();
+    }
+
+    let out = Command::new(BIN)
+        .args(["resize"])
+        .arg(input_dir.path())
+        .args(["--max", "2", "--out-dir"])
+        .arg(out_dir.path())
+        .output()
+        .unwrap();
+
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "resize over a WebP-only directory must succeed; stderr: {}",
+        stderr_str(&out)
+    );
+    let mut written: Vec<PathBuf> = std::fs::read_dir(out_dir.path())
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .collect();
+    written.sort();
+    assert_eq!(written.len(), 2, "one output per input; got {written:?}");
+    for path in &written {
+        let (w, h) = image::image_dimensions(path).unwrap();
+        assert!(
+            w <= 2 && h <= 2,
+            "{} is {w}x{h}, not bounded by --max 2",
+            path.display()
+        );
+    }
+}

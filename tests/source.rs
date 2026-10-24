@@ -227,3 +227,52 @@ fn invalid_glob_pattern_is_typed_error() {
         "expected InvalidPattern, got {err:?}"
     );
 }
+
+// ── WebP discovery (SPEC-130) ─────────────────────────────────────────────────
+
+/// Encode a solid 2×2 RGB image as lossless WebP (the pure-Rust encoder in the
+/// default build) and return the bytes.
+fn solid_webp_bytes() -> Vec<u8> {
+    use ::image::{DynamicImage, ImageFormat, RgbImage};
+    let img = RgbImage::from_pixel(2, 2, ::image::Rgb([128u8, 64, 32]));
+    let mut out = Cursor::new(Vec::new());
+    DynamicImage::ImageRgb8(img)
+        .write_to(&mut out, ImageFormat::WebP)
+        .unwrap();
+    out.into_inner()
+}
+
+/// A directory of only WebP files resolves to every one of them, whatever the
+/// extension's case, and still skips non-image siblings. Before SPEC-130 this
+/// resolved to an empty list because `webp` was not in the allow-list.
+#[test]
+fn directory_discovers_webp_case_insensitively() {
+    let dir = tempfile::tempdir().unwrap();
+    let webp = solid_webp_bytes();
+    write_file(dir.path(), "a.webp", &webp);
+    write_file(dir.path(), "B.WEBP", &webp);
+    write_file(dir.path(), "note.txt", b"not an image");
+
+    let dir_str = dir.path().to_string_lossy().into_owned();
+    let result = resolve(&dir_str, &mut std::io::empty()).unwrap();
+
+    // Byte-order sort puts the uppercase name first.
+    let stems: Vec<&str> = result.iter().map(|i| i.stem()).collect();
+    assert_eq!(stems, vec!["B", "a"], "got {result:?}");
+}
+
+/// The glob branch filters through the same allow-list, so `<dir>/*.webp`
+/// must find the WebP files too (it was a `NotFound` error before SPEC-130).
+#[test]
+fn glob_discovers_webp() {
+    let dir = tempfile::tempdir().unwrap();
+    let webp = solid_webp_bytes();
+    write_file(dir.path(), "y.webp", &webp);
+    write_file(dir.path(), "x.webp", &webp);
+
+    let pattern = format!("{}/*.webp", dir.path().display());
+    let result = resolve(&pattern, &mut std::io::empty()).unwrap();
+
+    let stems: Vec<&str> = result.iter().map(|i| i.stem()).collect();
+    assert_eq!(stems, vec!["x", "y"], "got {result:?}");
+}
