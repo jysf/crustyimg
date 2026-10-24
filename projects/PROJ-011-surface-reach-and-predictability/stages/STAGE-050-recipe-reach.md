@@ -257,6 +257,18 @@ anything a recipe cannot say.
   reference points to re-drive, not measurements to build against** — which is what this entry
   already said, now confirmed the hard way.
 
+  ⚡ **RE-DRIVEN 2026-10-24 on a release build of `main` at `0ee7921`** (geometric diff via BMP,
+  negative control = self-diff 0 px). Every coverage row above reproduced **to the hundredth**, and
+  `main` is identical to 0.7.1 on every row, so the table is safe to rule on. Two things it adds:
+  - **The silent no-op DOES reproduce, geometrically:** 24 px, `--size 200` changes **6 pixels
+    (1.04 %)**. The SSIM2 74.96 above was the metric misreading again, not a disproof. **No
+    coverage cap can catch this case** — only a fit test on the rendered text width (~1,050 px).
+  - **Clipping loses words, not just edges:** `"© 2026 crustyimg all rights reserved"` on 256 px
+    renders as `© 2026 crustyimg` — the whole rights clause is gone — at **3.73 %** coverage,
+    which passes a 5 % cap. At 128 px the default string reads `© crustyi`.
+  So coverage alone misses both kinds of failure that matter most; the fit test is necessary, and
+  coverage can only be the secondary rule.
+
   📌 Visual evidence for all of the above, one image per cell at native size and 4×:
   see the contact sheet generated 2026-09-03 (artifact, linked from the session; regenerate with
   the commands in this entry rather than trusting the link to persist).

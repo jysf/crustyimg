@@ -159,7 +159,7 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
   broaden the CLI surface — at which point re-file it fresh rather than reviving this entry.
   Optional convenience surface; additive on top of the frozen ~14-verb core.
 
-**Count:** 0 shipped / 0 active / 0 pending / **1 cancelled (SPEC-092)** — re-derive with a grep you just ran
+**Count:** 0 shipped / 0 active / **2 pending** / **1 cancelled (SPEC-092)** — re-derive with a grep you just ran (re-derived 2026-10-24: it said 0 pending while listing 2)
 
 ## Design Notes
 
