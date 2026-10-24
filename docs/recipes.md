@@ -51,14 +51,15 @@ For every flag and exit code, see [`docs/cli-reference.md`](cli-reference.md).
 ## 3. Resize / thumbnail / crop
 
 - **Cap the long edge** **[today]** — `crustyimg resize photo.jpg --max 1200` (never upscales)
-- **Exact box, cover-crop** **[today]** — `crustyimg resize photo.jpg --cover 800x800`
-  Scales to fill, then center-crops to exactly 800×800. The resize modes are **mutually
+- **Exact box, cropped** **[today]** — `crustyimg resize photo.jpg --fill 800x800`
+  Scales to cover the box, then center-crops to exactly 800×800. (`--cover` scales to cover the
+  box **without** cropping, so one side usually comes out larger than the box.) The resize modes are **mutually
   exclusive** — pass exactly one of `--max`, `--fit`, `--fill`, `--cover`, `--exact`, `--percent`.
 - **Fit inside a box, keeping aspect** **[today]** — `crustyimg resize photo.jpg --fit 800x600`
 - **Thumbnail** **[today]** — `crustyimg thumbnail photo.jpg --size 256` (`--square` to crop square)
 - **Crop to an arbitrary rect / gravity / aspect** **[planned — PROJ-006]**
   `crustyimg crop photo.jpg --gravity center --aspect 1:1`
-  Today `resize --cover WxH` covers the common center-crop-to-a-box case.
+  Today `resize --fill WxH` covers the common center-crop-to-a-box case.
 - **Rotate / flip / trim / pad** **[planned — PROJ-006]**
 - **Smart (content-aware) crop** **[planned — PROJ-006]**
   `crustyimg crop photo.jpg --smart attention --aspect 16:9`
@@ -123,10 +124,10 @@ crustyimg apply --recipe web "assets/**/*.{jpg,png}" --out-dir dist/img -j 8
   `crustyimg edit in.jpg --auto-orient --resize-max 1600 --save-recipe mine.toml`
   then `crustyimg apply --recipe mine.toml "assets/**/*.jpg" --out-dir dist/img -j 8`.
   `edit` records only the ops it exposes — `--auto-orient`, `--resize-max`, `--invert`.
-- **Write one by hand for anything else** **[today]** — a cover-crop, or the terminal
+- **Write one by hand for anything else** **[today]** — a crop to an exact box, or the terminal
   `optimize` step the bundled recipes end in, is written directly as TOML. Format and op
   vocabulary: [`recipes/README.md`](../recipes/README.md). An `avatar` recipe (square 256×256
-  then modernize) is `auto-orient` → `resize` `mode="cover"` → `optimize`.
+  then modernize) is `auto-orient` → `resize` `mode="fill"` → `optimize`.
 - **The round-trip is byte-stable** — `edit` output == `apply`-of-the-saved-recipe output, so a
   recipe reviewed in a PR is exactly what runs in CI.
 - **Many targets in one declarative file** **[today]** — `crustyimg build` reads
