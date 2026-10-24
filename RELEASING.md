@@ -83,6 +83,14 @@ or delegate them.
    > 0.7.0 shipped with SPEC-112 missing from its `[Unreleased]` section, and
    > the roll only caught it by luck.
 
+2a. **Update the agent skill** — [`skills/crustyimg/SKILL.md`](skills/crustyimg/SKILL.md)
+   teaches AI coding agents how to use the CLI, and it drifts silently. Walk the
+   CHANGELOG section you just rolled: for every added, renamed, or removed command or
+   flag, changed default, or changed exit code, update the skill to match, and bump the
+   "Written against crustyimg X.Y" line on a minor release. Remove a caveat once it's
+   fixed (e.g. the WebP-in-a-glob note). If the skill is listed on any external
+   marketplace, re-upload it there after the tag ships.
+
 3. **Dry-run publish check** — verify the crate is publish-ready:
    ```
    cargo publish --dry-run
@@ -98,7 +106,7 @@ or delegate them.
    cargo deny check                    # supply-chain gate
    ```
 
-5. **Commit the release** — stage `Cargo.toml`, `Cargo.lock`, and `CHANGELOG.md`;
+5. **Commit the release** — stage `Cargo.toml`, `Cargo.lock`, `CHANGELOG.md`, and the skill if it changed;
    commit with a message like:
    ```
    chore(release): v0.2.0
