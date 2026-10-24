@@ -49,7 +49,7 @@ The round trip is **byte-stable** — replaying the saved recipe reproduces the 
 byte for byte, so a recipe reviewed in a PR is exactly what runs in CI.
 
 `edit` only records the ops it exposes (`--auto-orient`, `--resize-max`, `--invert`). For
-anything else — a cover-crop, or the terminal `optimize` step the bundled recipes end in —
+anything else — a crop to an exact box, or the terminal `optimize` step the bundled recipes end in —
 write the TOML directly:
 
 ```toml
@@ -62,7 +62,7 @@ op = "auto-orient"
 
 [[step]]
 op = "resize"
-mode = "cover"
+mode = "fill"
 width = 256
 height = 256
 
@@ -94,8 +94,8 @@ Operations available in a recipe:
 |---|---|---|
 | `max` | `width` | Bound the long edge. Never upscales. |
 | `fit` | `width`, `height` | Fit inside the box, keeping aspect. |
-| `fill` | `width`, `height` | Scale to fill the box (may exceed one dimension). |
-| `cover` | `width`, `height` | Scale to fill, then crop to exactly `width`×`height`. |
+| `fill` | `width`, `height` | Scale to cover the box, then crop to exactly `width`×`height`. |
+| `cover` | `width`, `height` | Scale to cover the box, **no crop** — one dimension usually exceeds it. May upscale. |
 | `exact` | `width`, `height` | Resize to exactly `width`×`height`, ignoring aspect. |
 | `percent` | `percent` | Scale by a percentage. |
 
