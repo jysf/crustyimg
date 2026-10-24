@@ -101,9 +101,13 @@ pub enum SourceError {
 // routes them by extension to embedded-JPEG-preview extraction, so directory/glob
 // sources discover `.nef`/`.cr2`/`.cr3`/… like any other image. Kept in sync with
 // `raw::RAW_EXTENSIONS`.
+// `webp` is a DEFAULT-decodable input (SPEC-019, DEC-021) and a format crustyimg
+// writes by default; it was missing here until SPEC-130, so directory/glob batches
+// silently skipped `.webp` files and `lint --max-warnings 0 <dir>` passed over an
+// animated WebP (the strict gate DEC-093 relies on).
 #[rustfmt::skip]
 const IMAGE_EXTENSIONS: &[&str] = &[
-    "jpg", "jpeg", "png", "gif", "bmp", "tif", "tiff", "ico", "avif", "svg",
+    "jpg", "jpeg", "png", "gif", "bmp", "tif", "tiff", "ico", "webp", "avif", "svg",
     // RAW (SPEC-061): Nikon, Canon, Sony, Adobe, Fuji, Panasonic, Olympus, Pentax, Samsung, Leica, generic.
     "nef", "nrw", "cr2", "cr3", "arw", "srf", "sr2", "dng", "raf", "rw2", "orf", "pef", "srw", "rwl", "raw",
     // HEIC/HEIF (SPEC-062): discovered in BOTH builds. Decoding needs `--features heic`

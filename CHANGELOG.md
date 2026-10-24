@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Directory and glob inputs now include `.webp` files.** `crustyimg resize photos/ …`
+  or `'photos/*.webp'` skipped WebP files — silently in a mixed folder, and with exit `3`
+  "input not found" in a folder of only WebP — although a single named `.webp` worked.
+  Every batch verb, `apply` and `build` now pick them up. `lint <dir>` now scans `.webp`
+  too, so `lint --max-warnings 0` catches an animated WebP in a directory, and a CI job
+  linting a tree with WebP assets may see new findings on them.
+
 ## [0.7.1] - 2026-08-22
 
 ### Fixed
