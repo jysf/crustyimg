@@ -395,7 +395,7 @@ anything a recipe cannot say.
   the format on every other encoding verb, so `responsive` is now the one verb where it does
   nothing.
 
-- [ ] (not yet written) — [S] **`meta … -o x.png` writes the input's own container into `x.png`.**
+- [ ] **Absorbed into SPEC-134 as AC-22** (maintainer ruling 2026-10-25) — [S] **`meta … -o x.png` writes the input's own container into `x.png`.**
   Filed by SPEC-134's design (2026-10-25), driven on `main`: `meta strip in.jpg -o E.png` → JPEG
   bytes in `E.png`, exit 0. SPEC-134 refuses the same mismatch when it comes from
   `--name-template` (exit 4, before writing; maintainer ruling 2026-10-25), but `-o` was outside
