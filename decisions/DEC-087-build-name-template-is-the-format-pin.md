@@ -232,6 +232,8 @@ early).
   `edit --save-recipe` divergence this spec closes; also the source of this spec's
   process warnings — a design table that omits one verb, or a sweep that is filed but
   not honored, both cost a full extra cycle).
+- Extended by: **DEC-105** (2026-10-25) — the same rule on every verb that encodes and on plain
+  `build` targets. This decision is not superseded; its terminal-`optimize` plan is unchanged.
 - Related decisions: DEC-057 (manifest paths resolve relative to the process CWD —
   unchanged by this spec), DEC-058/DEC-059 (the cache key composition and lockfile
   contract this spec's cache-key finding amends), DEC-070 point 4 (self-documented this
