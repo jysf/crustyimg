@@ -20,7 +20,10 @@ Code quality is the reason: a clean session per step stops one step's context fr
 the next. Each session's brief is a persisted prompt in `specs/prompts/SPEC-NNN-<phase>.md`,
 pushed to `main` **before** that session cuts its branch. **The loop:** the orchestrator writes
 the prompt and hands it to the maintainer, who pastes it into a fresh CLI session
-(`claude -w <name>`) and pastes the session's final report back. So every prompt must be
+(`just wt <branch>` from any checkout: it cuts a worktree from a fresh `origin/main` and starts
+`claude` in it) and pastes the session's final report back. `just wt-ls` shows every worktree's
+state; `just wt-rm <name>` / `just wt-clean --yes` remove the ones that are merged, clean and
+not in use. So every prompt must be
 self-contained and end with a stand-alone report spec. A sub-session (subagent) is the exception,
 not the default. Release-prep work (CHANGELOG, docs, skill) follows the same rule. When a session reports
 back, check its actual result (diff, PR, CI legs, completion table) before advancing — a session's

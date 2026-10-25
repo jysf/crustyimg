@@ -1,6 +1,6 @@
 # SPEC-131 — DESIGN prompt: typed per-operation parameter structs
 
-Cycle: **design**. Fresh CLI session, own worktree (`claude -w spec-131-design`). Starts from
+Cycle: **design**. Fresh CLI session, own worktree (`just wt docs/spec-131-design`). Starts from
 the stub the frame session pushed to `main`. **Reserved: SPEC-131, DEC-102.**
 STAGE-050 backlog item: "[M] **Typed per-operation parameter structs**".
 

@@ -1,6 +1,6 @@
 # SPEC-132 — FRAME prompt: `build --watch` watches recipe asset paths
 
-Cycle: **frame**. Fresh CLI session, own worktree (`claude -w spec-132-frame`). **Reserved:
+Cycle: **frame**. Fresh CLI session, own worktree (`just wt docs/spec-132-frame`). **Reserved:
 SPEC-132** (DEC-103 is reserved for the design session, if one is needed at all).
 STAGE-050 backlog item: "[S] ⚡ **`build --watch` never watches a recipe's asset paths.**"
 
@@ -31,7 +31,7 @@ The maintainer will paste this prompt into a fresh CLI session and paste your fi
 the orchestrator, so your final message must stand on its own.
 
 ### Step 0 — get onto current `main`
-You should be in your own worktree (`claude -w <name>`). Run `git fetch origin`, then
+You should be in your own worktree (made with `just wt <branch>`). Run `git fetch origin`, then
 `git rebase origin/main` (a fresh worktree has nothing to conflict). If `git status` shows you are
 in the maintainer's main checkout rather than a worktree, stop and say so.
 

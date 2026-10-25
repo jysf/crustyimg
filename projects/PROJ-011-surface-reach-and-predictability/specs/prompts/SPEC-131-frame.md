@@ -1,6 +1,6 @@
 # SPEC-131 — FRAME prompt: typed per-operation parameter structs
 
-Cycle: **frame**. Fresh CLI session, own worktree (`claude -w spec-131-frame`). **Reserved:
+Cycle: **frame**. Fresh CLI session, own worktree (`just wt docs/spec-131-frame`). **Reserved:
 SPEC-131** (DEC-102 is reserved for the design session, not you).
 STAGE-050 backlog item: "[M] **Typed per-operation parameter structs**" (the last entry in the
 Spec Backlog).
@@ -39,7 +39,7 @@ The maintainer will paste this prompt into a fresh CLI session and paste your fi
 the orchestrator, so your final message must stand on its own.
 
 ### Step 0 — get onto current `main`
-You should be in your own worktree (`claude -w <name>`). Run `git fetch origin`, then
+You should be in your own worktree (made with `just wt <branch>`). Run `git fetch origin`, then
 `git rebase origin/main` (a fresh worktree has nothing to conflict). If `git status` shows you are
 in the maintainer's main checkout rather than a worktree, stop and say so.
 

@@ -1,6 +1,6 @@
 # SPEC-134 — FRAME prompt: a `--name-template` extension pins the output format
 
-Cycle: **frame**. Fresh CLI session, own worktree (`claude -w spec-134-frame`). **Reserved:
+Cycle: **frame**. Fresh CLI session, own worktree (`just wt docs/spec-134-frame`). **Reserved:
 SPEC-134** (DEC-105, which amends DEC-087, is reserved for the design session).
 STAGE-050 backlog item: "[S] **A literal extension in `--name-template` does not pin the output
 format**".
@@ -34,7 +34,7 @@ The maintainer will paste this prompt into a fresh CLI session and paste your fi
 the orchestrator, so your final message must stand on its own.
 
 ### Step 0 — get onto current `main`
-You should be in your own worktree (`claude -w <name>`). Run `git fetch origin`, then
+You should be in your own worktree (made with `just wt <branch>`). Run `git fetch origin`, then
 `git rebase origin/main` (a fresh worktree has nothing to conflict). If `git status` shows you are
 in the maintainer's main checkout rather than a worktree, stop and say so.
 

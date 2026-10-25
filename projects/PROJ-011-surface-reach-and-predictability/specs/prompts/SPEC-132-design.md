@@ -1,6 +1,6 @@
 # SPEC-132 — DESIGN prompt: `build --watch` watches recipe asset paths
 
-Cycle: **design**. Fresh CLI session, own worktree (`claude -w spec-132-design`). Starts from
+Cycle: **design**. Fresh CLI session, own worktree (`just wt docs/spec-132-design`). Starts from
 the stub the frame session pushed to `main`. **Reserved: SPEC-132, DEC-103** (only if a DEC is
 warranted; likely none for an S).
 STAGE-050 backlog item: "[S] ⚡ **`build --watch` never watches a recipe's asset paths.**"
