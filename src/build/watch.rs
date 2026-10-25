@@ -578,7 +578,7 @@ out = "dist/thumb"
         assert_eq!(
             set.shallow
                 .iter()
-                .filter(|p| **p == PathBuf::from("brand"))
+                .filter(|p| p.as_path() == Path::new("brand"))
                 .count(),
             1,
             "two assets in one directory add one root: {:?}",
