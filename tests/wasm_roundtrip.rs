@@ -1569,7 +1569,8 @@ mod strict_step_params {
     #[wasm_bindgen_test]
     fn transform_refuses_an_unknown_step_key() {
         let src = png_8x8();
-        let bad = "version = \"1\"\n\n[[step]]\nop = \"resize\"\nmode = \"max\"\nwidth = 4\nbogus = 1\n";
+        let bad =
+            "version = \"1\"\n\n[[step]]\nop = \"resize\"\nmode = \"max\"\nwidth = 4\nbogus = 1\n";
         let err = transform(&src, bad, "png").expect_err("an unknown step key must be refused");
         let msg = format!("{:?}", wasm_bindgen::JsValue::from(err));
         assert!(

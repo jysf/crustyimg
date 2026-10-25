@@ -27,7 +27,7 @@ use thiserror::Error;
 use crate::image::Image;
 
 pub mod registry;
-pub use registry::{OperationRegistry, RegistryError};
+pub use registry::{OperationRegistry, ParamKind, ParamSpec, RegistryError};
 
 // ─── OperationParams ────────────────────────────────────────────────────────
 
@@ -35,10 +35,12 @@ pub use registry::{OperationRegistry, RegistryError};
 ///
 /// Flatten-serialized into the `[[step]]` table by `RecipeStep`. An
 /// empty map emits zero keys (so `op = "invert"` stays clean); a
-/// populated map round-trips verbatim. Each `Operation` parses and
-/// validates its own keys in its constructor via the typed accessors
-/// below — there is no per-op logic in the serde impls (the flatten
-/// boundary has no `op` context).
+/// populated map round-trips verbatim — checking a step never rewrites it.
+/// Each op publishes the keys it accepts (a [`ParamSpec`] table), the
+/// registry refuses any key, type or range outside that table, and the
+/// constructor then reads its keys via the typed accessors below — there is
+/// no per-op logic in the serde impls (the flatten boundary has no `op`
+/// context).
 ///
 /// The second field is a **resolved-asset side channel** (SPEC-128, Call 1):
 /// bytes read from a file one of `self.0`'s string values names (e.g.
@@ -67,6 +69,16 @@ impl OperationParams {
     /// not count — it is never present without a corresponding TOML key.)
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
+    }
+
+    /// Every key and value, in key order.
+    pub fn iter(&self) -> impl Iterator<Item = (&str, &toml::Value)> {
+        self.0.iter().map(|(k, v)| (k.as_str(), v))
+    }
+
+    /// Whether `key` is set, whatever its value.
+    pub fn contains(&self, key: &str) -> bool {
+        self.0.contains_key(key)
     }
 
     /// Borrow a string param, if present and a string.
@@ -656,17 +668,50 @@ pub struct Resize {
     percent: Option<f32>,
 }
 
+/// The step keys `resize` accepts. Which of them a step needs depends on
+/// `mode` (see [`Resize::from_params`]).
+pub const RESIZE_PARAMS: &[ParamSpec] = &[
+    ParamSpec {
+        key: "mode",
+        kind: ParamKind::OneOf(&["max", "exact", "percent", "fit", "fill", "cover"]),
+    },
+    ParamSpec {
+        key: "width",
+        kind: ParamKind::UInt { min: 1 },
+    },
+    ParamSpec {
+        key: "height",
+        kind: ParamKind::UInt { min: 1 },
+    },
+    ParamSpec {
+        key: "percent",
+        kind: ParamKind::Number {
+            min: 0.0,
+            min_inclusive: false,
+            max: None,
+        },
+    },
+];
+
 impl Resize {
     /// Parse + validate params (DEC-014). Returns a typed
-    /// `RegistryError::InvalidParams` on a missing/wrong/out-of-range
-    /// param. Never panics.
+    /// `RegistryError::InvalidParams` naming the offending key on an unknown,
+    /// wrong-typed, out-of-range, missing, or mode-unused key. Never panics.
+    ///
+    /// `mode = "max"` reads only `width`; `"percent"` reads only `percent`;
+    /// the other four read `width` and `height`. A key the mode never reads
+    /// is refused rather than ignored.
     pub fn from_params(params: &OperationParams) -> Result<Self, RegistryError> {
+        let invalid = |reason: String| RegistryError::InvalidParams {
+            op: "resize",
+            reason,
+        };
+        // The same key/type/range checks the registry runs, for direct callers.
+        registry::check_params("resize", RESIZE_PARAMS, params).map_err(invalid)?;
+
         let mode_str = params
             .get_str("mode")
-            .ok_or_else(|| RegistryError::InvalidParams {
-                op: "resize",
-                reason: "missing required param 'mode'".to_owned(),
-            })?;
+            .ok_or_else(|| invalid("missing required key 'mode'".to_owned()))?;
 
         let mode = match mode_str {
             "max" => ResizeMode::Max,
@@ -676,25 +721,30 @@ impl Resize {
             "fill" => ResizeMode::Fill,
             "cover" => ResizeMode::Cover,
             other => {
-                return Err(RegistryError::InvalidParams {
-                    op: "resize",
-                    reason: format!("unknown mode '{other}'; expected one of: max, exact, percent, fit, fill, cover"),
-                });
+                return Err(invalid(format!(
+                    "'mode' must be one of: max, exact, percent, fit, fill, cover; got {other:?}"
+                )));
             }
         };
 
+        let unused: &[&str] = match mode {
+            ResizeMode::Max => &["height", "percent"],
+            ResizeMode::Percent => &["width", "height"],
+            ResizeMode::Exact | ResizeMode::Fit | ResizeMode::Fill | ResizeMode::Cover => {
+                &["percent"]
+            }
+        };
+        if let Some(key) = unused.iter().find(|k| params.contains(k)) {
+            return Err(invalid(format!("'{key}' is not used by mode '{mode_str}'")));
+        }
+
+        // Types and ranges are already checked: a present key is valid, so
+        // `None` here means only "absent".
         match mode {
             ResizeMode::Max => {
-                let width = params.get_u32("width").ok_or_else(|| RegistryError::InvalidParams {
-                    op: "resize",
-                    reason: "mode 'max' requires a positive integer 'width' param (the long-edge cap)".to_owned(),
+                let width = params.get_u32("width").ok_or_else(|| {
+                    invalid("mode 'max' requires 'width' (the long-edge cap)".to_owned())
                 })?;
-                if width == 0 {
-                    return Err(RegistryError::InvalidParams {
-                        op: "resize",
-                        reason: "mode 'max' requires 'width' > 0".to_owned(),
-                    });
-                }
                 Ok(Resize {
                     mode,
                     width: Some(width),
@@ -704,38 +754,12 @@ impl Resize {
             }
 
             ResizeMode::Exact | ResizeMode::Fit | ResizeMode::Fill | ResizeMode::Cover => {
-                let width =
-                    params
-                        .get_u32("width")
-                        .ok_or_else(|| RegistryError::InvalidParams {
-                            op: "resize",
-                            reason: format!(
-                                "mode '{}' requires a positive integer 'width' param",
-                                mode_str
-                            ),
-                        })?;
-                if width == 0 {
-                    return Err(RegistryError::InvalidParams {
-                        op: "resize",
-                        reason: format!("mode '{}' requires 'width' > 0", mode_str),
-                    });
-                }
-                let height =
-                    params
-                        .get_u32("height")
-                        .ok_or_else(|| RegistryError::InvalidParams {
-                            op: "resize",
-                            reason: format!(
-                                "mode '{}' requires a positive integer 'height' param",
-                                mode_str
-                            ),
-                        })?;
-                if height == 0 {
-                    return Err(RegistryError::InvalidParams {
-                        op: "resize",
-                        reason: format!("mode '{}' requires 'height' > 0", mode_str),
-                    });
-                }
+                let width = params
+                    .get_u32("width")
+                    .ok_or_else(|| invalid(format!("mode '{mode_str}' requires 'width'")))?;
+                let height = params
+                    .get_u32("height")
+                    .ok_or_else(|| invalid(format!("mode '{mode_str}' requires 'height'")))?;
                 Ok(Resize {
                     mode,
                     width: Some(width),
@@ -745,20 +769,9 @@ impl Resize {
             }
 
             ResizeMode::Percent => {
-                let percent =
-                    params
-                        .get_f32("percent")
-                        .ok_or_else(|| RegistryError::InvalidParams {
-                            op: "resize",
-                            reason: "mode 'percent' requires a positive numeric 'percent' param"
-                                .to_owned(),
-                        })?;
-                if percent <= 0.0 {
-                    return Err(RegistryError::InvalidParams {
-                        op: "resize",
-                        reason: "mode 'percent' requires 'percent' > 0.0".to_owned(),
-                    });
-                }
+                let percent = params
+                    .get_f32("percent")
+                    .ok_or_else(|| invalid("mode 'percent' requires 'percent'".to_owned()))?;
                 Ok(Resize {
                     mode,
                     width: None,
@@ -1067,6 +1080,19 @@ pub enum Gravity {
     SouthWest,
 }
 
+/// The nine gravity names, in the order errors list them.
+const GRAVITY_NAMES: &[&str] = &[
+    "center",
+    "north",
+    "south",
+    "east",
+    "west",
+    "northeast",
+    "northwest",
+    "southeast",
+    "southwest",
+];
+
 impl FromStr for Gravity {
     type Err = String;
 
@@ -1140,6 +1166,64 @@ impl Gravity {
 }
 
 // ─── Watermark ────────────────────────────────────────────────────────────────
+
+/// The step keys `watermark` accepts. Exactly one of `image`/`text` selects
+/// the mode; `font`, `size` and `color` apply only to a text watermark (see
+/// [`Watermark::from_params`]).
+pub const WATERMARK_PARAMS: &[ParamSpec] = &[
+    ParamSpec {
+        key: "image",
+        kind: ParamKind::Asset,
+    },
+    ParamSpec {
+        key: "text",
+        kind: ParamKind::Text,
+    },
+    ParamSpec {
+        key: "font",
+        kind: ParamKind::Asset,
+    },
+    ParamSpec {
+        key: "size",
+        kind: ParamKind::Number {
+            min: 0.0,
+            min_inclusive: false,
+            max: None,
+        },
+    },
+    ParamSpec {
+        key: "color",
+        kind: ParamKind::Text,
+    },
+    ParamSpec {
+        key: "gravity",
+        kind: ParamKind::OneOf(GRAVITY_NAMES),
+    },
+    ParamSpec {
+        key: "opacity",
+        kind: ParamKind::Number {
+            min: 0.0,
+            min_inclusive: true,
+            max: Some(1.0),
+        },
+    },
+    ParamSpec {
+        key: "scale",
+        kind: ParamKind::Number {
+            min: 0.0,
+            min_inclusive: false,
+            max: None,
+        },
+    },
+    ParamSpec {
+        key: "margin",
+        kind: ParamKind::UInt { min: 0 },
+    },
+    ParamSpec {
+        key: "tile",
+        kind: ParamKind::Bool,
+    },
+];
 
 /// Which of watermark's two modes produced `overlay`, and enough to
 /// round-trip `params()` back to that mode (SPEC-128, Call 3b).
@@ -1277,9 +1361,17 @@ impl Watermark {
     /// [`crate::text::DEFAULT_FONT`] — no resolution needed at all in that
     /// case, which is why a text-only recipe never has to reach the
     /// filesystem (Call 6/AC-6's wasm path relies on exactly this).
+    ///
+    /// Every key is checked against [`WATERMARK_PARAMS`] first, so a present
+    /// optional key is always well-typed and in range — a default applies only
+    /// when the key is absent. An image watermark refuses the text-only keys
+    /// (`font`, `size`, `color`). `tile` ignoring `gravity`/`margin`, and
+    /// `center` ignoring `margin`, are documented behaviour and accepted.
     pub fn from_params(params: &OperationParams) -> Result<Self, RegistryError> {
         const OP: &str = "watermark";
         let invalid = |reason: String| RegistryError::InvalidParams { op: OP, reason };
+        // The same key/type/range checks the registry runs, for direct callers.
+        registry::check_params(OP, WATERMARK_PARAMS, params).map_err(invalid)?;
 
         let image = params.get_str("image");
         let text = params.get_str("text");
@@ -1297,6 +1389,14 @@ impl Watermark {
                 ));
             }
             (Some(path), None) => {
+                if let Some(key) = ["font", "size", "color"]
+                    .into_iter()
+                    .find(|k| params.contains(k))
+                {
+                    return Err(invalid(format!(
+                        "'{key}' only applies to a text watermark (this step sets 'image')"
+                    )));
+                }
                 let bytes = params.resolved_bytes("image").ok_or_else(|| {
                     invalid(format!(
                         "overlay image '{path}' was not resolved before pipeline construction \
@@ -1335,15 +1435,16 @@ impl Watermark {
                     .unwrap_or(crate::text::DEFAULT_FONT);
 
                 let size = params.get_f32("size").unwrap_or(32.0);
-                if size <= 0.0 {
-                    return Err(invalid(format!("'size' must be > 0, got {size}")));
-                }
                 let color_str = params.get_str("color").unwrap_or("ffffff");
-                let color =
-                    crate::text::parse_color(color_str).map_err(|e| invalid(e.to_string()))?;
+                let color = crate::text::parse_color(color_str).map_err(|_| {
+                    invalid(format!(
+                        "'color' must be a hex colour RRGGBB, #RRGGBB or RRGGBBAA, \
+                         got {color_str:?}"
+                    ))
+                })?;
 
                 let rendered = crate::text::render_text(font_bytes, text, size, color)
-                    .map_err(|e| invalid(e.to_string()))?;
+                    .map_err(|e| invalid(format!("could not render 'text': {e}")))?;
                 (
                     DynamicImage::ImageRgba8(rendered),
                     WatermarkSource::Text {
@@ -1361,21 +1462,8 @@ impl Watermark {
             .unwrap_or("southeast")
             .parse()
             .map_err(invalid)?;
-
         let opacity = params.get_f32("opacity").unwrap_or(1.0);
-        if !(0.0..=1.0).contains(&opacity) {
-            return Err(invalid(format!(
-                "'opacity' must be in 0.0..=1.0, got {opacity}"
-            )));
-        }
-
         let scale = params.get_f32("scale");
-        if let Some(s) = scale {
-            if s <= 0.0 {
-                return Err(invalid(format!("'scale' must be > 0, got {s}")));
-            }
-        }
-
         let margin = params.get_u32("margin").unwrap_or(0);
         let tile = params.get_bool("tile").unwrap_or(false);
 

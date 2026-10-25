@@ -13,7 +13,10 @@ use std::collections::HashMap;
 
 use thiserror::Error;
 
-use super::{AutoOrient, Identity, Invert, Operation, OperationParams, Resize, Watermark};
+use super::{
+    AutoOrient, Identity, Invert, Operation, OperationParams, Resize, Watermark, RESIZE_PARAMS,
+    WATERMARK_PARAMS,
+};
 
 // ─── Constructor type alias ─────────────────────────────────────────────────
 
@@ -51,25 +54,214 @@ pub enum RegistryError {
     },
 }
 
+// ─── Param schema ───────────────────────────────────────────────────────────
+
+/// One key an operation accepts in a recipe step, and what its value must be.
+///
+/// An op publishes its whole accepted-key table when it registers
+/// ([`OperationRegistry::register_with_params`]). The registry checks every
+/// step against that table before the op's constructor runs, so a key the op
+/// does not take, a value of the wrong TOML type, or a value out of range is
+/// refused by name instead of being ignored or replaced by a default.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ParamSpec {
+    /// The step key, as written in the recipe.
+    pub key: &'static str,
+    /// What the key's value must be.
+    pub kind: ParamKind,
+}
+
+/// The value a [`ParamSpec`] key takes. Every rule here depends only on the
+/// value itself; rules that depend on other keys (which keys a mode needs or
+/// ignores) stay in the op's constructor.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ParamKind {
+    /// Any string.
+    Text,
+    /// A string from a fixed list.
+    OneOf(&'static [&'static str]),
+    /// A string naming a file. The registry never reads it: the caller resolves
+    /// it into bytes ([`OperationParams::set_resolved_bytes`]) before the
+    /// constructor runs.
+    Asset,
+    /// A TOML integer in `min..=u32::MAX`. A float is refused, not truncated.
+    UInt {
+        /// The smallest accepted value.
+        min: u32,
+    },
+    /// A TOML integer or float, always finite (and finite as an `f32`, the
+    /// width ops read it at), above `min` (or at it, when `min_inclusive`) and
+    /// at most `max`.
+    Number {
+        /// The lower bound.
+        min: f64,
+        /// Whether `min` itself is accepted.
+        min_inclusive: bool,
+        /// The inclusive upper bound, if any.
+        max: Option<f64>,
+    },
+    /// `true` or `false`.
+    Bool,
+}
+
+impl ParamKind {
+    /// The phrase after "must be" in an error.
+    fn expectation(&self) -> String {
+        match self {
+            ParamKind::Text => "a string".to_owned(),
+            ParamKind::OneOf(values) => format!("one of: {}", values.join(", ")),
+            ParamKind::Asset => "a string naming a file".to_owned(),
+            ParamKind::UInt { min } => format!("an integer >= {min}"),
+            ParamKind::Number {
+                min,
+                min_inclusive,
+                max,
+            } => match (min_inclusive, max) {
+                (true, Some(max)) => format!("a number in {min:?}..={max:?}"),
+                (false, Some(max)) => format!("a number > {min} and <= {max}"),
+                (true, None) => format!("a finite number >= {min}"),
+                (false, None) => format!("a finite number > {min}"),
+            },
+            ParamKind::Bool => "true or false".to_owned(),
+        }
+    }
+
+    /// `Ok` when `value` satisfies this kind, else the `got …` description of
+    /// what was found.
+    fn check(&self, value: &toml::Value) -> Result<(), String> {
+        use toml::Value;
+        match (self, value) {
+            (ParamKind::Text | ParamKind::Asset, Value::String(_)) => Ok(()),
+            (ParamKind::OneOf(values), Value::String(s)) => {
+                if values.contains(&s.as_str()) {
+                    Ok(())
+                } else {
+                    Err(format!("{s:?}"))
+                }
+            }
+            (ParamKind::UInt { min }, Value::Integer(i)) => {
+                // TOML integers are 64-bit: refuse negatives and anything past
+                // u32::MAX rather than wrapping or dropping them.
+                if *i >= i64::from(*min) && *i <= i64::from(u32::MAX) {
+                    Ok(())
+                } else {
+                    Err(i.to_string())
+                }
+            }
+            (
+                ParamKind::Number {
+                    min,
+                    min_inclusive,
+                    max,
+                },
+                Value::Integer(_) | Value::Float(_),
+            ) => {
+                let (n, shown) = match value {
+                    Value::Integer(i) => (*i as f64, i.to_string()),
+                    Value::Float(f) => (*f, float_text(*f)),
+                    _ => unreachable!("matched Integer | Float above"),
+                };
+                let above_min = if *min_inclusive { n >= *min } else { n > *min };
+                let below_max = max.is_none_or(|m| n <= m);
+                // `n as f32` overflows to inf for a finite f64 past f32::MAX.
+                if n.is_finite() && (n as f32).is_finite() && above_min && below_max {
+                    Ok(())
+                } else {
+                    Err(shown)
+                }
+            }
+            (ParamKind::Bool, Value::Boolean(_)) => Ok(()),
+            (_, other) => Err(describe_value(other)),
+        }
+    }
+}
+
+/// A float as a recipe author would write it: `nan`, `inf`, `1.5`, `100.0`.
+fn float_text(f: f64) -> String {
+    if f.is_nan() {
+        "nan".to_owned()
+    } else if f.is_infinite() {
+        if f > 0.0 { "inf" } else { "-inf" }.to_owned()
+    } else {
+        format!("{f:?}")
+    }
+}
+
+/// A value of the wrong type, named by its TOML type.
+fn describe_value(value: &toml::Value) -> String {
+    use toml::Value;
+    match value {
+        Value::String(s) => format!("the string {s:?}"),
+        Value::Integer(i) => format!("the integer {i}"),
+        Value::Float(f) => format!("the float {}", float_text(*f)),
+        Value::Boolean(b) => b.to_string(),
+        Value::Datetime(_) => "a date-time".to_owned(),
+        Value::Array(_) => "an array".to_owned(),
+        Value::Table(_) => "a table".to_owned(),
+    }
+}
+
+/// Check every key in `params` against `specs`, in the map's (sorted) order,
+/// and return the first failure as a one-line reason naming the key.
+///
+/// For each key: unknown, then type, then range. `op` names the op in the
+/// "takes no keys" wording. [`OperationRegistry::build`] runs this before
+/// every constructor; the built-in constructors also run it themselves, so a
+/// direct caller gets the same checks.
+pub fn check_params(op: &str, specs: &[ParamSpec], params: &OperationParams) -> Result<(), String> {
+    for (key, value) in params.iter() {
+        let Some(spec) = specs.iter().find(|s| s.key == key) else {
+            return Err(if specs.is_empty() {
+                format!("unknown key '{key}'; '{op}' takes no keys")
+            } else {
+                let keys: Vec<&str> = specs.iter().map(|s| s.key).collect();
+                format!("unknown key '{key}'; expected one of: {}", keys.join(", "))
+            });
+        };
+        if let Err(got) = spec.kind.check(value) {
+            let sep = if matches!(spec.kind, ParamKind::OneOf(_)) {
+                ";"
+            } else {
+                ","
+            };
+            return Err(format!(
+                "'{key}' must be {}{sep} got {got}",
+                spec.kind.expectation()
+            ));
+        }
+    }
+    Ok(())
+}
+
 // ─── OperationRegistry ──────────────────────────────────────────────────────
+
+/// One registered op: its constructor and its accepted-key table.
+struct Entry {
+    ctor: Constructor,
+    params: Vec<ParamSpec>,
+    /// The `Asset` keys of `params`, in table order.
+    asset_keys: Vec<&'static str>,
+}
 
 /// Maps operation names to constructor functions (DEC-005).
 ///
 /// Constructed via [`OperationRegistry::new`] (empty) or
 /// [`OperationRegistry::with_builtins`] (pre-populated with `identity`,
-/// `invert`, `resize`, `auto-orient`, and `watermark`). New operations call
-/// [`OperationRegistry::register`] to add themselves — without touching the
-/// recipe parser (the whole point of the registry seam). An operation whose
-/// params name a FILE (an "asset-bearing" op — `watermark`'s `image`/`font`,
-/// and the `.cube` LUT op STAGE-050 anticipates) registers via
-/// [`OperationRegistry::register_with_assets`] instead (SPEC-128, Call 1):
-/// the registry itself never gains IO — it only records WHICH param keys
-/// name a file, so a native caller can resolve them before construction, and
-/// `wasm::transform` can refuse a recipe that needs them (Call 3), both
-/// through the same query, [`OperationRegistry::asset_keys`].
+/// `invert`, `resize`, `auto-orient`, and `watermark`). New operations
+/// register themselves without touching the recipe parser (the whole point of
+/// the registry seam), and each publishes the step keys it accepts:
+///
+/// - [`OperationRegistry::register`] — an op that takes no keys;
+/// - [`OperationRegistry::register_with_params`] — an op with a key table;
+/// - [`OperationRegistry::register_with_assets`] — shorthand for a table whose
+///   every key names a file.
+///
+/// The registry itself never gains IO. It only records which keys name a
+/// file ([`OperationRegistry::asset_keys`], derived from the table), so a
+/// native caller can resolve them before construction and `wasm::transform`
+/// can refuse a recipe that needs them, both through the same query.
 pub struct OperationRegistry {
-    map: HashMap<&'static str, Constructor>,
-    asset_keys: HashMap<&'static str, &'static [&'static str]>,
+    map: HashMap<&'static str, Entry>,
 }
 
 impl OperationRegistry {
@@ -77,72 +269,116 @@ impl OperationRegistry {
     pub fn new() -> Self {
         OperationRegistry {
             map: HashMap::new(),
-            asset_keys: HashMap::new(),
         }
     }
 
     /// Create a registry pre-populated with the built-in operations:
-    /// `"identity"`, `"invert"` (SPEC-003), `"resize"` (SPEC-010),
-    /// `"auto-orient"` (SPEC-015), and `"watermark"` (SPEC-128 — registered
-    /// only now; DEC-031 explains why it was not registrable before).
+    /// `"identity"`, `"invert"`, `"resize"`, `"auto-orient"` and
+    /// `"watermark"`.
     pub fn with_builtins() -> Self {
         let mut reg = Self::new();
         reg.register("identity", |_params| Ok(Box::new(Identity)));
         reg.register("invert", |_params| Ok(Box::new(Invert)));
-        reg.register("resize", |p| Ok(Box::new(Resize::from_params(p)?)));
+        reg.register_with_params(
+            "resize",
+            |p| Ok(Box::new(Resize::from_params(p)?)),
+            RESIZE_PARAMS,
+        );
         reg.register("auto-orient", |_params| Ok(Box::new(AutoOrient)));
-        reg.register_with_assets(
+        reg.register_with_params(
             "watermark",
             |p| Watermark::from_params(p).map(|w| Box::new(w) as Box<dyn Operation>),
-            &["image", "font"],
+            WATERMARK_PARAMS,
         );
         reg
     }
 
-    /// Register a constructor under `name`.
+    /// Register a constructor for an op that takes **no** step keys: any key
+    /// on its step is refused.
     ///
-    /// Overwrites any previous registration for the same name (including any
-    /// asset-key declaration — use [`OperationRegistry::register_with_assets`]
-    /// if this op needs one). Names are `'static` str references — typically
-    /// string literals — matching the `Operation::name()` contract.
+    /// Overwrites any previous registration for the same name. Names are
+    /// `'static` str references — typically string literals — matching the
+    /// `Operation::name()` contract.
     pub fn register(&mut self, name: &'static str, ctor: Constructor) {
-        self.map.insert(name, ctor);
-        self.asset_keys.remove(name);
+        self.register_with_params(name, ctor, &[]);
     }
 
-    /// Register an operation whose params name one or more FILES (SPEC-128,
-    /// Call 1) — e.g. watermark's `image`/`font`.
+    /// Register an op with its accepted-key table. A step key not in `params`,
+    /// or a value that does not satisfy its [`ParamKind`], is refused before
+    /// `ctor` runs. Every [`ParamKind::Asset`] key is listed by
+    /// [`OperationRegistry::asset_keys`].
+    pub fn register_with_params(
+        &mut self,
+        name: &'static str,
+        ctor: Constructor,
+        params: &'static [ParamSpec],
+    ) {
+        self.insert(name, ctor, params.to_vec());
+    }
+
+    /// Register an operation whose step keys all name FILES — e.g. an op that
+    /// reads one asset and nothing else. Shorthand for a
+    /// [`OperationRegistry::register_with_params`] table of those keys as
+    /// [`ParamKind::Asset`].
     ///
-    /// `asset_keys` lists the param keys that, when a step sets one to a
-    /// string, name a file that must be resolved (read into bytes, attached
-    /// via [`OperationParams::set_resolved_bytes`]) at the recipe IO boundary
-    /// **before** `ctor` runs — never inside this registry, which stays pure
-    /// so it keeps compiling for `wasm32` (DEC-064). `ctor` reads the
-    /// resolved bytes back via [`OperationParams::resolved_bytes`] (see
-    /// `Watermark::from_params` for the pattern). A key absent from a given
-    /// step (e.g. `font`, whose default is the bundled font) is simply
-    /// nothing to resolve — this is not a validation rule, just a resolution
-    /// hint.
+    /// Each key, when a step sets it, names a file that must be resolved (read
+    /// into bytes, attached via [`OperationParams::set_resolved_bytes`]) at the
+    /// recipe IO boundary **before** `ctor` runs — never inside this registry,
+    /// which stays pure so it keeps compiling for `wasm32` (DEC-064). `ctor`
+    /// reads the bytes back via [`OperationParams::resolved_bytes`]. A key
+    /// absent from a given step is simply nothing to resolve.
     pub fn register_with_assets(
         &mut self,
         name: &'static str,
         ctor: Constructor,
         asset_keys: &'static [&'static str],
     ) {
-        self.map.insert(name, ctor);
-        self.asset_keys.insert(name, asset_keys);
+        let params = asset_keys
+            .iter()
+            .map(|&key| ParamSpec {
+                key,
+                kind: ParamKind::Asset,
+            })
+            .collect();
+        self.insert(name, ctor, params);
     }
 
-    /// The param keys that name a file for `name`'s constructor.
+    fn insert(&mut self, name: &'static str, ctor: Constructor, params: Vec<ParamSpec>) {
+        let asset_keys = params
+            .iter()
+            .filter(|s| s.kind == ParamKind::Asset)
+            .map(|s| s.key)
+            .collect();
+        self.map.insert(
+            name,
+            Entry {
+                ctor,
+                params,
+                asset_keys,
+            },
+        );
+    }
+
+    /// The step keys `name` accepts (empty for an op that takes none), or
+    /// `None` for an unregistered name.
+    pub fn param_specs(&self, name: &str) -> Option<&[ParamSpec]> {
+        self.map.get(name).map(|e| e.params.as_slice())
+    }
+
+    /// The param keys that name a file for `name`'s constructor: every
+    /// [`ParamKind::Asset`] key of its table, in table order.
     ///
     /// Empty for an operation with no asset params, **including an unknown
     /// name** — never panics. This is the ONE query both the native resolver
     /// (which files to read before `build_pipeline`) and `wasm::transform`'s
-    /// refusal (Call 3 — a non-empty result for any step means that recipe
-    /// cannot run on the wasm surface, which has no filesystem) share, so the
-    /// two can never independently decide an op is/isn't asset-bearing.
-    pub fn asset_keys(&self, name: &str) -> &'static [&'static str] {
-        self.asset_keys.get(name).copied().unwrap_or(&[])
+    /// refusal (a non-empty result for any step means that recipe cannot run
+    /// on the wasm surface, which has no filesystem) share, so the two can
+    /// never independently decide an op is/isn't asset-bearing.
+    pub fn asset_keys(&self, name: &str) -> &[&'static str] {
+        self.map
+            .get(name)
+            .map(|e| e.asset_keys.as_slice())
+            .unwrap_or(&[])
     }
 
     /// Whether `name` has a registered constructor.
@@ -154,17 +390,23 @@ impl OperationRegistry {
     /// constructor and the supplied `params`.
     ///
     /// Returns [`RegistryError::Unknown`] if `name` is not registered.
-    /// Returns [`RegistryError::InvalidParams`] if the constructor rejects
-    /// the params. Never panics on a missing name.
+    /// Returns [`RegistryError::InvalidParams`] if a key fails the op's
+    /// published table ([`check_params`]) or the constructor rejects the
+    /// params. Never panics on a missing name.
     pub fn build(
         &self,
         name: &str,
         params: &OperationParams,
     ) -> Result<Box<dyn Operation>, RegistryError> {
-        let ctor = self.map.get(name).ok_or_else(|| RegistryError::Unknown {
-            name: name.to_owned(),
-        })?;
-        ctor(params)
+        let (&op, entry) = self
+            .map
+            .get_key_value(name)
+            .ok_or_else(|| RegistryError::Unknown {
+                name: name.to_owned(),
+            })?;
+        check_params(op, &entry.params, params)
+            .map_err(|reason| RegistryError::InvalidParams { op, reason })?;
+        (entry.ctor)(params)
     }
 }
 
@@ -358,7 +600,11 @@ mod tests {
 
         // The old entry point records its keys as assets in the schema too.
         let mut custom = OperationRegistry::new();
-        custom.register_with_assets("fixture", |_p| Ok(Box::new(crate::operation::Identity)), &["a", "b"]);
+        custom.register_with_assets(
+            "fixture",
+            |_p| Ok(Box::new(crate::operation::Identity)),
+            &["a", "b"],
+        );
         let specs = custom.param_specs("fixture").expect("schema");
         assert!(specs.iter().all(|s| s.kind == ParamKind::Asset));
         assert_eq!(custom.asset_keys("fixture"), &["a", "b"]);
@@ -377,7 +623,10 @@ mod tests {
                 };
                 for value in values {
                     let mut m = BTreeMap::new();
-                    m.insert(spec.key.to_owned(), toml::Value::String((*value).to_owned()));
+                    m.insert(
+                        spec.key.to_owned(),
+                        toml::Value::String((*value).to_owned()),
+                    );
                     match (op, *value) {
                         ("resize", "max") => {
                             m.insert("width".to_owned(), toml::Value::Integer(8));
@@ -393,9 +642,10 @@ mod tests {
                             m.insert("text".to_owned(), toml::Value::String("hi".into()));
                         }
                     }
-                    reg.build(op, &OperationParams::from_map(m)).unwrap_or_else(|e| {
-                        panic!("{op}: published {}='{value}' was refused: {e}", spec.key)
-                    });
+                    reg.build(op, &OperationParams::from_map(m))
+                        .unwrap_or_else(|e| {
+                            panic!("{op}: published {}='{value}' was refused: {e}", spec.key)
+                        });
                     checked += 1;
                 }
             }

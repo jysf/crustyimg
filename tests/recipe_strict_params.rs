@@ -18,8 +18,7 @@ use image::{DynamicImage, ImageFormat, RgbImage, RgbaImage};
 use tempfile::TempDir;
 
 use crustyimg::operation::{
-    AutoOrient, Gravity, Identity, Invert, Operation, OperationParams, OperationRegistry,
-    Watermark,
+    AutoOrient, Gravity, Identity, Invert, Operation, OperationParams, OperationRegistry, Watermark,
 };
 use crustyimg::pipeline::Pipeline;
 use crustyimg::recipe::{Recipe, RecipeError};
@@ -171,7 +170,11 @@ fn wrong_type_is_refused_for_every_key() {
     let rows: &[(&str, &str, &str)] = &[
         ("resize", "mode = 5\nwidth = 8", "mode"),
         ("resize", "mode = \"max\"\nwidth = 100.0", "width"),
-        ("resize", "mode = \"exact\"\nwidth = 8\nheight = \"8\"", "height"),
+        (
+            "resize",
+            "mode = \"exact\"\nwidth = 8\nheight = \"8\"",
+            "height",
+        ),
         ("resize", "mode = \"percent\"\npercent = \"50\"", "percent"),
         ("watermark", "image = 5", "image"),
         ("watermark", "text = 5", "text"),
@@ -215,7 +218,11 @@ fn integer_for_a_number_key_is_accepted() {
 fn out_of_range_is_refused_for_every_ranged_key() {
     let rows: &[(&str, &str, &str)] = &[
         ("resize", "mode = \"max\"\nwidth = 0", "width"),
-        ("resize", "mode = \"exact\"\nwidth = 8\nheight = 0", "height"),
+        (
+            "resize",
+            "mode = \"exact\"\nwidth = 8\nheight = 0",
+            "height",
+        ),
         ("resize", "mode = \"percent\"\npercent = 0", "percent"),
         ("resize", "mode = \"percent\"\npercent = nan", "percent"),
         ("resize", "mode = \"percent\"\npercent = inf", "percent"),
@@ -257,6 +264,24 @@ fn an_integer_past_u32_max_is_refused() {
         let (_, reason) = refusal(&one_step(op, body));
         assert!(
             reason.contains(&format!("'{key}' must be an integer")),
+            "{op}: got: {reason}"
+        );
+    }
+}
+
+/// Number keys are read as 32-bit floats. A finite TOML float past `f32::MAX`
+/// would become `inf` there, so it is refused like `inf` itself.
+#[test]
+fn a_number_past_f32_range_is_refused() {
+    let rows: &[(&str, &str, &str)] = &[
+        ("watermark", "text = \"hi\"\nsize = 1e300", "size"),
+        ("resize", "mode = \"percent\"\npercent = 1e300", "percent"),
+    ];
+    assert_eq!(rows.len(), 2);
+    for (op, body, key) in rows {
+        let (_, reason) = refusal(&one_step(op, body));
+        assert!(
+            reason.contains(&format!("'{key}' must be a finite number")),
             "{op}: got: {reason}"
         );
     }
@@ -330,7 +355,10 @@ fn documented_interplay_is_not_refused() {
             "text = \"hi\"\ntile = true\ngravity = \"west\"\nmargin = 3",
         ),
         // `center` ignores margin.
-        one_step("watermark", "text = \"hi\"\ngravity = \"center\"\nmargin = 5"),
+        one_step(
+            "watermark",
+            "text = \"hi\"\ngravity = \"center\"\nmargin = 5",
+        ),
     ];
     assert_eq!(rows.len(), 3);
     for toml in &rows {
@@ -368,10 +396,9 @@ fn versions_1_and_2_validate_identically() {
         .collect();
     assert_eq!(errs.len(), 2);
     match &errs[0] {
-        RecipeError::InvalidOperation { reason, .. } => assert!(
-            reason.contains("unknown key 'opactiy'"),
-            "got: {reason}"
-        ),
+        RecipeError::InvalidOperation { reason, .. } => {
+            assert!(reason.contains("unknown key 'opactiy'"), "got: {reason}")
+        }
         other => panic!("expected InvalidOperation, got {other:?}"),
     }
     // Debug carries every field (step, name, reason).

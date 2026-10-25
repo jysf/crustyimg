@@ -136,12 +136,13 @@ fn a_lut_shaped_op_is_strict_and_resolvable_through_one_table() {
     registry.register_with_params(
         "fixture-lut",
         |params| {
-            let bytes = params
-                .resolved_bytes("file")
-                .ok_or_else(|| RegistryError::InvalidParams {
-                    op: "fixture-lut",
-                    reason: "'file' was not resolved before construction".to_owned(),
-                })?;
+            let bytes =
+                params
+                    .resolved_bytes("file")
+                    .ok_or_else(|| RegistryError::InvalidParams {
+                        op: "fixture-lut",
+                        reason: "'file' was not resolved before construction".to_owned(),
+                    })?;
             Ok(Box::new(FixtureAssetOp {
                 resolved_as_text: String::from_utf8_lossy(bytes).into_owned(),
             }))
@@ -176,7 +177,10 @@ fn a_lut_shaped_op_is_strict_and_resolvable_through_one_table() {
         match registry.build("fixture-lut", &params_with(&[(key, value)])) {
             Err(RegistryError::InvalidParams { op, reason }) => {
                 assert_eq!(op, "fixture-lut");
-                assert!(reason.contains(phrase), "expected `{phrase}`, got: {reason}");
+                assert!(
+                    reason.contains(phrase),
+                    "expected `{phrase}`, got: {reason}"
+                );
             }
             Err(other) => panic!("expected InvalidParams, got {other:?}"),
             Ok(_) => panic!("`{key}` must be refused"),
@@ -190,8 +194,5 @@ fn a_lut_shaped_op_is_strict_and_resolvable_through_one_table() {
             &params_with(&[("strength", toml::Value::Float(0.5))]),
         )
         .expect("a valid LUT step must build");
-    assert_eq!(
-        op.params().get_str("resolved_as_text"),
-        Some("lut-bytes")
-    );
+    assert_eq!(op.params().get_str("resolved_as_text"), Some("lut-bytes"));
 }
