@@ -116,6 +116,13 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
   | `web photo.png --out-dir od2/ --format avif` | **6,459** | silent |
   | `convert photo.png --format avif` (default q) | **6,459** | — |
 
+  📌 **Cross-reference, 2026-10-24:** the maintainer ruled on PROJ-011 / STAGE-050's
+  `--name-template` item that **a recognised extension pins the output format** — in a template as
+  it already does on `-o`. That settles this item's *direction*: `-o out.avif` pinning is now the
+  deliberate rule, not a quirk, so "require `--format` to pin" is off the table. **Still open here:**
+  the pin silently moves quality from 85 to 80 and drops the report, and nothing user-facing says
+  so — warn, align the quality, or document it loudly.
+
   ⚠ **The report's framing is the right symptom and the wrong cause.** It is **not** `-o` vs
   `--out-dir`, and it is **not** two code paths with independently-specified encode settings:
   `--out-dir --format avif` is byte-identical to `-o a.avif`. The real axis is **pinned vs
@@ -159,7 +166,7 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
   broaden the CLI surface — at which point re-file it fresh rather than reviving this entry.
   Optional convenience surface; additive on top of the frozen ~14-verb core.
 
-**Count:** 0 shipped / 0 active / 0 pending / **1 cancelled (SPEC-092)** — re-derive with a grep you just ran
+**Count:** 0 shipped / 0 active / **2 pending** / **1 cancelled (SPEC-092)** — re-derive with a grep you just ran (re-derived 2026-10-24: it said 0 pending while listing 2)
 
 ## Design Notes
 

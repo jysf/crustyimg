@@ -148,7 +148,7 @@ The draft's "cost of deferring compounds" argument is not repeated, because each
   problem — and an unclean oracle is worse than no oracle. Do 043, ship it, then decompose against
   a settled file. Complexity **M–L** (mechanical but wide; SPEC-097 cost ~$17.48).
 
-**Count:** 0 shipped / 0 active / 2 pending
+**Count:** 0 shipped / 0 active / **3 pending** — re-derived 2026-10-24 with `grep -c '^- \[ \]'` (it said 2 while listing 3)
 
 ### Candidates — TRIAGED 2026-08-10. All five DECLINED for now; text kept in full below.
 
