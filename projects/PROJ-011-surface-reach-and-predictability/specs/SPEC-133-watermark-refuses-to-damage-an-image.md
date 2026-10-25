@@ -271,7 +271,13 @@ SPEC-134 builds in parallel.** No overlap expected with SPEC-132 (`src/build/wat
 one existing combination an error (`text` with `tile`/`scale`), which SPEC-131's strict schema must
 not re-permit.
 
-### Open maintainer questions
+### Maintainer rulings (2026-10-25) — both questions below are settled
+1. **A skipped image is written without the mark**, with the recipe's other steps applied; it is
+   never left unwritten, and a skip is not a failure (no exit 6, `build` still writes its lockfile).
+2. **A batch or `build` whose only problem is skips exits 0**, with one stderr line per skipped
+   image and a skip count in the summary (precedent: DEC-085).
+
+### Open maintainer questions (as asked at frame)
 1. **"Skip" — is a skipped image written without the mark, or not written at all?** The ruling's
    word does not settle it. **Recommend: written without the mark** (its other recipe steps still
    applied), reported on stderr. Why: the case the ruling protects is one `build` over a whole

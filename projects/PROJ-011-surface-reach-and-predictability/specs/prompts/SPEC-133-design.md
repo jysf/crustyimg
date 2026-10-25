@@ -1,58 +1,94 @@
 # SPEC-133 — DESIGN prompt: `watermark` refuses to damage an image (fit test + 5 % coverage cap)
 
-Cycle: **design**. Fresh CLI session, own worktree (`just wt docs/spec-133-design`). Starts from
-the stub the frame session pushed to `main`. **Reserved: SPEC-133, DEC-104.**
+Cycle: **design**. Fresh CLI session, own worktree (`just wt docs/spec-133-design -- --model opus`).
+Starts from the stub the frame session pushed to `main` (ca19da3). **Reserved: SPEC-133, DEC-104.**
 STAGE-050 backlog items — **both, as one spec**: "[S] ⚡ **`watermark --text` overruns the right
-edge**" and "[S] ⚡ **`watermark` stops silently doing nothing.**" The fit test *is* the first
-item's fix. Read both entries in full; they hold the measured curve and the re-drive of
-2026-10-24.
+edge**" and "[S] ⚡ **`watermark` stops silently doing nothing.**"
 
-## The ruling (settled — do not re-open)
+**Read the stub's `## Frame` section first** — it holds the reproduction and is your binding scope.
+This prompt was rewritten 2026-10-25 to match it and to carry two new maintainer rulings.
+
+## Rulings (settled — do not re-open)
 **Option D (maintainer, 2026-10-24):**
-- **Fit (primary, no threshold):** refuse when the rendered text extent plus margin does not fit
-  inside the image. Catches the 24 px `--size 200` case (6 px changed, exit 0 today) and clipped
-  words (`"© 2026 crustyimg all rights reserved"` on 256 px loses the rights clause at 3.73 %).
-- **Coverage (secondary):** refuse when the watermark would change more than **5 %** of the pixels.
-- **Refusal behaviour (2026-08-23 ruling):** single explicit input → error, **exit 2**, naming the
-  numbers. Batch, recipe, or `build` → **skip, report, continue; never abort a run** (a mixed
-  directory of originals and thumbnails is the normal case).
-- **Measure geometrically** (the fraction of pixels the mark covers / changes). **Never
-  SSIMULACRA2** — it is non-monotonic at small canvases (24 px scores +50.7, 64 px −82.0).
+- **Fit (primary, no threshold):** refuse when the rendered mark plus margin does not fit inside
+  the image. Frame found **image overlays fail the same way** (a 256 px overlay on a 24 px image
+  changes 99.65 % at exit 0), so fit covers **text and image** overlays, measured after `scale`.
+- **Coverage (secondary):** refuse when the mark would change more than **5 %** of the pixels.
+  **Fixed, not a setting** (frame scope; a user-settable threshold is out).
+- **Single explicit input → error, exit 2, naming the numbers**, on every surface including wasm
+  `transform`.
+- **Measure geometrically** (count changed pixels / glyph area). **Never SSIMULACRA2**.
 
-## Design calls the ruling left to you
-- **Is 5 % fixed or a setting?** Default: **fixed**. If you make it a knob, justify it.
-- **`--tile`** covers the image by design, so the coverage cap cannot apply unmodified. Decide
-  (per-tile fit? exempt from coverage? something else) and drive it.
-- **Image overlays, not just `--text`.** The evidence is all text. Decide whether and how fit and
-  coverage apply to an `image` watermark (scaled overlay larger than the canvas, overlay coverage).
-- **What "skip" means in each lane** — is the output not written, or written without the mark?
-  How does `build`'s cache and lockfile treat a skipped target, and what does the run's report /
-  exit code say when some inputs were skipped? If the ruling's word "skip" is genuinely ambiguous
-  between those, **do not pick silently**: put it in your report as a maintainer question with your
-  recommendation, and design the spec around your recommendation so it can proceed.
-- **Computing the measure cheaply.** Above the clipping boundary the default glyph run is a
-  constant 1647 px, so coverage is `glyph_area / canvas_area` once the extent is known; the text
-  layer already computes the extent. Decide whether the check runs before rendering (preferred) or
-  after, and keep `src/operation/**` filesystem-free (DEC-031).
-- **The value rule (`--min-size`, opt-in, settable in a recipe)** is part of the same 2026-08-23
-  ruling in the stage file. It is ruled behaviour, not a new idea. Decide whether it belongs in
-  this spec; if including it makes the spec L, say so in your report **before** splitting, and the
-  orchestrator will decide. Do not silently drop it.
-- Every surface that applies a watermark: the `watermark` verb (single + batch), `apply --recipe`
-  (single + batch), and `build`. Write ACs against each verb's actual report surface.
-- Reproduce the measured table rows the ACs rest on, on a release build of `main`, with the
-  negative control the stage entry used (self-diff = 0 px).
+**What "skip" means (maintainer, 2026-10-25):**
+1. **A skipped image is written without the mark**, with the recipe's other steps still applied.
+   It is not left unwritten. So a skip is not a failure: it does not count toward `failed`, does
+   not produce exit 6, and does not stop `build` writing its lockfile (`src/cli/build.rs` ~823-829
+   returns `PartialBatch` and skips the lock when `failed > 0`; a skip must not reach that path).
+2. **A batch or `build` whose only problem is skips exits 0.** Each skipped image gets one stderr
+   line naming the image and the numbers, and the run's summary carries a skip count. Precedent:
+   DEC-085 (a truncated JPEG warns on stderr, exit 0).
+
+## Scope (from the frame — binding)
+- **In:** fit check (text + image, after scale); the 5 % cap; a rule for `--tile`; **recipe text
+  mode refuses `tile` and `scale`** (the CLI already refuses them; a recipe accepts them today, 52.7 %
+  and 56.2 % changed, and would otherwise get round a tile exemption); single-input refusal on
+  every surface; batch/`build` skip as ruled above; **a watermark that fits produces output
+  byte-identical to `main`**; docs.
+- **Out:** `--min-size` (now its own STAGE-050 item; do not build it), a relative `--size`, a
+  user-settable threshold, `--watch` (SPEC-132), the strict-params mechanism itself (SPEC-131).
+
+## Design calls that are yours
+- **Where the decision is made.** Frame: in `Watermark::apply` (`src/operation/mod.rs` ~1441),
+  before anything is drawn, keeping `src/operation/**` filesystem-free (DEC-031). But `apply()` can
+  only return an image or an error; there is no "skipped" result today. Design the shape: how the
+  op tells its caller "refused, here are the numbers", and how each surface turns that into an
+  exit-2 error (single input) or an unmarked write + report (batch/`build`). Keep it one decision
+  point, not one per surface.
+- **The cap and `--tile`.** Frame's suggestion, yours to settle: the cap applies when the mark's
+  size is fixed (text, or an image without `scale`); a scaled image is proportional by
+  construction. `--tile` is exempt from the cap, but one tile must still fit. Drive whichever you
+  choose on a release build.
+- **⚠ A cached image never runs the pipeline** (`src/cli/build.rs` ~531-540 writes the hit and
+  returns). With an unmarked write, the output is deterministic and caches normally, so the skip
+  line would print on the first `build` and never again. Decide: accept that and document it, or
+  carry the skip into the cache entry / lockfile record so a cached run still reports it. If the
+  second option needs a `CACHE_SCHEMA_VERSION` or lockfile change, say so as a design call with its
+  reason (PROJ-011 ships as one release, so it rides 0.8.0's single migration).
+- **Every surface that applies a watermark** — frame found the original list was short:
+  `watermark` (single + batch), `apply --recipe` (single + batch), **`apply --recipe` ending in
+  `optimize`** (the pinned-format branch and the auto-decide branch are separate loops), `build`,
+  and **wasm `transform`** (single input, so error). Write ACs against each verb's actual report
+  surface.
+- **Size.** Frame: M at the top of M, and it stays M only if the tests **add up rather than
+  multiply**: each rule tested once on the op, then one refusal test per surface and one skip test
+  per batch surface. If you find every rule must be tested on every surface, it is L. Then stop
+  and report before writing, with the frame's fallback split: (a) the rule + single-input refusal
+  everywhere, (b) batch/`build` skip handling.
+- **Count the nouns.** Fit and coverage are two rules; text and image are two modes; refusal and
+  skip are two behaviours. Each AC naming two of them needs a test per thing.
+- Reproduce the rows the ACs rest on (24 px `--size 200` → 6 px / 1.04 %, exit 0; the 256 px long
+  string → 3.73 %, clipped; the 256 px overlay on 24 px → 99.65 %) on a release build of `main`,
+  with the self-diff = 0 px control.
 
 ## Overlap the orchestrator needs to know about
-SPEC-131 (typed per-op params) is being designed in parallel and rewrites how every op, watermark
-included, reads its params; SPEC-134 touches CLI output naming. Your build will likely run after
-SPEC-131's. Design against the current param API, but **if you add any recipe-visible watermark
-parameter, name it explicitly** in the spec so the typed struct can carry it. List every file the
-build touches.
+- **SPEC-131** (strict recipe step params, designed `63fbfc0`, building now) rewrites how
+  `Watermark` reads its params and adds a per-op key table (`WATERMARK_PARAMS`, with an
+  unused-by-mode check). **SPEC-133 builds after SPEC-131 merges.** Design against SPEC-131's
+  specified API, not today's: read its spec. The text-mode `tile`/`scale` refusal belongs in its
+  unused-by-mode mechanism; say exactly where, so SPEC-131's table cannot re-allow it.
+- **SPEC-134** (`--name-template` pins format) shares ~7 files with you (`src/cli/{ops,optimize,
+  common,build}.rs`, tests, docs). **Not in parallel with SPEC-134's build.** List every file and,
+  for the shared CLI files, the functions you touch.
+Frame's estimated file list: `src/operation/mod.rs`, `src/cli/{ops,optimize,common,build,mod}.rs`,
+maybe `src/pipeline/mod.rs`, `src/build/{cache,lock}.rs`, `src/wasm.rs`; tests: new
+`tests/watermark_damage.rs` plus `tests/{recipe_watermark,build,apply_batch,wasm_roundtrip}.rs`;
+docs: `docs/api-contract.md`, `recipes/README.md`, `CHANGELOG.md`; DEC-104.
 
 ## DECs to read
-DEC-003 (lanes stay separate), DEC-031, DEC-100, DEC-064, and any DEC governing
-`src/operation/**` watermark and `src/text/**`.
+DEC-003 (lanes stay separate), DEC-031, DEC-100, DEC-064, **DEC-085** (the warn-and-exit-0
+precedent), DEC-015 (exit codes), DEC-058/DEC-059/DEC-101 (cache and lockfile, for the cached-skip
+call), and any DEC governing `src/operation/**` watermark and `src/text/**`
+(`./scripts/decisions-audit.sh`).
 
 ---
 
