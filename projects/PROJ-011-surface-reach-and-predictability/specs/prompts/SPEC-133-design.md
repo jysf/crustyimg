@@ -1,6 +1,6 @@
 # SPEC-133 — DESIGN prompt: `watermark` refuses to damage an image (fit test + 5 % coverage cap)
 
-Cycle: **design**. Fresh CLI session, own worktree (`claude -w spec-133-design`). Starts from
+Cycle: **design**. Fresh CLI session, own worktree (`just wt docs/spec-133-design`). Starts from
 the stub the frame session pushed to `main`. **Reserved: SPEC-133, DEC-104.**
 STAGE-050 backlog items — **both, as one spec**: "[S] ⚡ **`watermark --text` overruns the right
 edge**" and "[S] ⚡ **`watermark` stops silently doing nothing.**" The fit test *is* the first

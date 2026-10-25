@@ -86,3 +86,6 @@ coverage/
 tmp/
 temp/
 *.tmp
+
+# Per-session git worktrees (just wt)
+.claude/worktrees/

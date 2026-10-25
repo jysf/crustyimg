@@ -533,6 +533,23 @@ new-stage TITLE PROJECT_ID="":
 advance-cycle SPEC_ID NEW_CYCLE:
     @./scripts/advance-cycle.sh "{{SPEC_ID}}" "{{NEW_CYCLE}}"
 
+# Worktrees: one per session, always cut from a fresh origin/main.
+# `just wt feat/spec-131-typed-params` creates it and starts claude inside; --no-claude only creates.
+wt NAME *FLAGS:
+    @./scripts/wt.sh new "{{NAME}}" {{FLAGS}}
+
+# List session worktrees with branch, uncommitted changes, merged-to-main and in-use state.
+wt-ls:
+    @./scripts/wt.sh ls
+
+# Remove a worktree and its branch; refuses if dirty, in use, or holding unmerged commits.
+wt-rm NAME *FLAGS:
+    @./scripts/wt.sh rm "{{NAME}}" {{FLAGS}}
+
+# Remove every worktree that is safe to remove. Dry run unless --yes.
+wt-clean *FLAGS:
+    @./scripts/wt.sh clean {{FLAGS}}
+
 # Archive a shipped spec: move to done/ and update stage backlog.
 # Usage: just archive-spec SPEC-NNN
 archive-spec SPEC_ID:

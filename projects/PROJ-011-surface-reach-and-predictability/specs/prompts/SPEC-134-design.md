@@ -1,6 +1,6 @@
 # SPEC-134 — DESIGN prompt: a `--name-template` extension pins the output format
 
-Cycle: **design**. Fresh CLI session, own worktree (`claude -w spec-134-design`). Starts from
+Cycle: **design**. Fresh CLI session, own worktree (`just wt docs/spec-134-design`). Starts from
 the stub the frame session pushed to `main`. **Reserved: SPEC-134, DEC-105.**
 STAGE-050 backlog item: "[S] **A literal extension in `--name-template` does not pin the output
 format**". Read it in full.
