@@ -7,7 +7,7 @@
 task:
   id: SPEC-132
   type: bug                        # epic | story | task | bug | chore
-  cycle: design  # frame | design | build | verify | ship
+  cycle: build  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: S                    # S | M | L  (L means split it)
@@ -30,6 +30,7 @@ references:
     - DEC-100
     - DEC-101
     - DEC-057
+    - DEC-058
   constraints:
     - test-before-implementation
     - one-spec-per-pr
@@ -77,6 +78,25 @@ cost:
         x0.10 ($0.50). Measured before the commit/push turns, so it slightly under-counts. Ran
         long in wall-clock because the shell auto-mode classifier returned no verdict on ~15
         calls and ended one turn; the release build and three watch repro runs are included.
+    - cycle: design
+      agent: claude-opus-5-5
+      interface: claude-code
+      tokens_total: 4249300
+      tokens_breakdown:
+        input: 68
+        output: 40035
+        cache_creation: 132689
+        cache_read: 4076508
+      estimated_usd: 3.87
+      duration_minutes: null
+      recorded_at: 2026-10-25
+      note: >
+        Interactive design session in its own worktree (docs/spec-132-design). Measured from the
+        session's transcript (9b7be2b7-….jsonl, identified by content), deduped by `.message.id`
+        (34 unique ids), input/cache_creation/cache_read once per id, MAX output_tokens per id.
+        Priced by component at Opus $5/$25 per MTok, cache_creation x1.25 ($6.25), cache_read
+        x0.10 ($0.50). Includes a release build of `main` and 6 driven watch rows. Measured
+        before the commit/push turns, so it slightly under-counts.
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -291,57 +311,378 @@ None. Every open call is answered by code or a DEC, or is a design detail:
 - An asset path outside the manifest dir (`../shared/logo.png`): DEC-061's ruling for sources
   (roots follow the manifest, no clamp) applies the same way. Recommend following it.
 
+## Design (2026-10-25)
+
+### What design measured on top of the frame
+
+Release build of `main` at `5caaffa` (`cargo build --release`, reports `crustyimg 0.7.1`), macOS
+(FSEvents). Layout as in the frame: manifest at the root (shallow `.`), `source = "src/*.png"`
+(recursive `src`), recipe `recipes/r.toml` (shallow `recipes`), every asset in a directory that
+is **none** of those. "Attempts" counts `^built ` + `^error` lines in a stderr log kept outside
+the project. Driver: the frame's `repro.sh` plus `drive2.sh` (same shape; scratchpad, not
+committed).
+
+| row | layout / action | attempts before → after | verdict on `main` |
+|---|---|---|---|
+| frame row, `image` | edit `brand/logo.png` ×3 | 1 → 1 | **no rebuild** (re-confirmed) |
+| frame row, `font` | rewrite `brand/Go.ttf` ×3 | 2 → 2 | **no rebuild** (re-confirmed) |
+| positive control (both) | edit `src/a.png` | +1 | rebuilds |
+| negative control (both) | idle 3 s | +0 | no self-trigger |
+| **re-point `image`** | rewrite recipe `image = "art/b.png"`, then edit `art/b.png` ×3 | 1 → 2 → **2** | re-point rebuilds (recipe dir is watched); every later edit of the new asset is missed |
+| **re-point `font`** | rewrite recipe `font = "art/Go.ttf"`, then corrupt `art/Go.ttf` ×3 | 1 → 2 → **2** | same; and the corrupt font is never reported |
+| **asset dir absent at start** | `image = "brand/logo.png"`, no `brand/`; create it, touch recipe, then edit ×3 | 2 → 3 → 4 → **4** | creating `brand/` wakes the shallow `.` watch, the build recovers, but `brand/` is never registered, so every later edit is missed |
+| missing root warning | `source = "nope/*.png"` | — | `warning: cannot watch nope: No path was found. about ["nope"]`: FSEvents refuses a missing path, like inotify |
+| observable check | corrupt font, one-shot `build` | — | `error: invalid operation 'watermark': could not parse font: …`, exit 1; restoring it → `(1 cached, 0 rebuilt)`; a second run (self-diff) → same, exit 0 |
+
+**Two findings that shape the tests:**
+
+1. ⚠ **A spurious build at startup.** The frame's `font` run logged a second `built … (1 cached,
+   0 rebuilt)` line within ~2 s of start, before any edit (attempts = 2 at "settled"; the `image`
+   run had 1). FSEvents delivered events from the fixture writes made just before the watcher
+   started. So **counting `built` lines from start can fake a pass.** Every end-to-end test below
+   (a) waits for the log to *settle* before taking its baseline and (b) asserts an observable only
+   the asset edit can produce: changed output bytes for `image`, a new `error:` line from a
+   corrupted font for `font`. A cache-hit spurious build changes no bytes and prints no error.
+2. **The missing-directory case is a third independent bug**, not the frame's "today's warning
+   path applies". A fix that adds asset dirs at startup and recomputes on recipe edits still
+   misses it: the dir is in the computed set from the start (lexically), registration fails once,
+   the set never *differs* again, so nothing re-registers. Measured on `main` as the last row.
+   This spec fixes it (Call 3); it is in the frame's scope ("Design decides whether that is
+   enough"). It is not enough.
+
+### Call 1 — the watch set gains asset directories, shallow, as a third input to `watch_roots`
+
+`watch_roots(manifest, manifest_path, assets: &[PathBuf]) -> WatchSet`. `watch_roots` stays pure
+and filesystem-free (module docs, `src/build/watch.rs:1-23`): it takes the asset paths as given
+and never opens a recipe. For each asset path:
+
+- watch its **containing directory** (`containing_dir`, `watch.rs:210`), never the bare file
+  (DEC-060: an editor's atomic save replaces the inode);
+- **shallow** (`WatchSet::shallow`), never recursive. An asset's directory can be the project
+  root (`image = "logo.png"` → `.`), and a recursive `.` covers `.crustyimg/` and `dist/`, which
+  is the inotify flood DEC-060's two-tier rule exists to prevent. A shallow watch on the
+  directory sees every save of the file;
+- **dropped when a recursive root already covers it** (the asset dir equals a recursive root or
+  sits under one, compared by components after `lexical_clean`). A recursive watch is a superset,
+  and registering the same inode twice can clobber a Linux inotify descriptor (DEC-060). Today's
+  exact-equality dedupe (`watch.rs:120`) stays as it is for manifest/recipe dirs; the
+  covered-by check applies to asset dirs only, so no existing root changes;
+- **unclamped**: `../shared/logo.png` watches `../shared`, the same rule DEC-061 accepted risk #2
+  applies to sources. No warning (that item stays parked with the sources' one);
+- de-duplicated with `push_unique`, so two steps naming files in one dir add one root.
+
+`assets` is empty → the result is exactly today's. The five existing `watch_roots` test calls
+gain `&[]` and must otherwise pass **unedited**. That is the regression guard.
+
+**Rejected:** a second pure function that patches a `WatchSet` afterwards. Two functions would
+each need the recursive/shallow dedupe, and the ordering between them becomes a rule to remember.
+
+### Call 2 — the CLI collects asset paths with `asset_keys` + the string value; never the resolver
+
+New in `src/cli/build.rs`, behind `#[cfg(feature = "watch")]`:
+
+```rust
+/// Every file a target's recipe names through an asset key (a watermark's `image` or `font`),
+/// spelled as the recipe wrote it. Reads recipes, never the assets themselves. A recipe that
+/// does not load contributes nothing: the build reports that error, and the recipe's own
+/// directory is watched anyway, so fixing it brings its assets into the watch set.
+fn recipe_asset_paths(manifest: &BuildManifest, registry: &OperationRegistry) -> Vec<PathBuf>
+```
+
+For each `target`: `load_recipe(&target.recipe)` (`src/cli/common.rs:156`) → on `Err`, skip; for
+each `step`, `for &key in registry.asset_keys(&step.op)`, push `PathBuf::from(s)` when
+`step.params.get_str(key)` is `Some(s)`. The raw loaded recipe is walked (no terminal-`optimize`
+strip needed: `asset_keys("optimize")` is empty, `registry.rs:144-146`). A bundled recipe name
+(`recipe = "web"`) loads from the bundle and names no asset.
+
+- **Not `resolve_recipe_assets`** (settled at frame): it reads bytes and fails on a missing
+  asset, and a missing asset is exactly a case that must still be watched.
+- **No shared helper in `src/cli/common.rs`.** "Which keys are assets" already has one
+  definition (`asset_keys`), and "is the value a path" is `get_str` in both walks. The
+  duplicated part is a three-line loop. Extracting it would put this build into `common.rs` for
+  no behaviour gain.
+- Paths stay relative to the process working directory, the base `resolve_recipe_assets` reads
+  from (`std::fs::read(&path)`, `common.rs:214`) and the base `is_excluded` absolutizes against
+  (`normalize_abs`, `watch.rs:233`). So the watched dir is the dir the build reads.
+- One `OperationRegistry::with_builtins()` is built at `watch_impl` start and reused.
+
+A small `fn watch_set_for(manifest, manifest_path, registry) -> WatchSet` (also `watch`-gated)
+composes the two, so startup and the loop compute the set the same way.
+
+### Call 3 — recompute after every non-excluded batch; re-register when the set differs or a failed root now exists
+
+Today (`src/cli/build.rs:1028-1037`) the set is recomputed only when the batch touched the
+manifest, and then always re-registered. New loop tail, after `run_build`:
+
+```rust
+// (illustrative)
+if let Ok(m) = load_manifest(path) {
+    let next = watch_set_for(&m, Path::new(path), &registry);
+    let retry = unwatched.iter().any(|root| root.is_dir());
+    if next != set || retry {
+        set = next;
+        watcher = make_watcher(&tx)?;
+        unwatched = register_roots(&mut watcher, &set);
+    }
+}
+```
+
+- **Recompute on every non-excluded batch**, not "did this batch touch a recipe file". It costs
+  one manifest parse and one small TOML read per recipe per rebuild, which is nothing next to the
+  build that just ran. It cannot miss a trigger: a manifest edit, a recipe edit, a recipe that
+  goes from broken to valid (its assets appear) and a newly created directory all go through the
+  same path. Matching the batch against recipe paths would need the *current* recipe list and a
+  second normalization rule, and would still miss the broken→valid case when the fix was made
+  via some other file.
+- **Re-register only when the set differs, or a root that failed to register now exists as a
+  directory.** `register_roots` (`build.rs:964`) returns the roots it could not watch
+  (`Vec<PathBuf>`), keeping its `warning: cannot watch …` line. The retry is what fixes the
+  missing-directory row. Re-registering is the existing mechanism (fresh watcher, the receiver
+  survives, `make_watcher` `build.rs:938`); events in the swap window can be lost, as they already
+  can on a manifest edit (DEC-060 accepted this).
+- A manifest edit that changes nothing in the set no longer re-registers. That is safe: the
+  watched roots are identical, and the retry still covers a root that was missing.
+- A still-missing root does not re-register and does not re-print its warning on each rebuild.
+  It warns once per registration.
+- A manifest that fails to load mid-session keeps the current set (today's behaviour).
+- `manifest_prefix` (`build.rs:1015`) goes away; nothing else uses it.
+
+**Rejected:** re-register after *every* batch. It needs no comparison, but it recreates the
+watcher on every save, reprints every missing-root warning on every rebuild, and widens the
+lost-event window to every cycle. On FSEvents a fresh stream can also re-deliver the burst that
+woke it (finding 1 above), which can turn one edit into two builds.
+
+**What the user sees when the asset's directory does not exist** (AC-5): at start, one
+`warning: cannot watch brand: …` line, then the existing build error
+`error: recipe step 0 ('watermark'): could not read 'image' file "brand/logo.png": …`. The loop
+keeps running (DEC-060: a cycle failure is not a hard exit). When the user creates the file, the
+next change the loop sees re-registers `brand/`: creating `brand/` in a watched directory
+(here, the shallow `.`), or touching the recipe or a source. From then on edits rebuild. If
+nothing watched changes, nothing wakes the loop. That is the same reach a missing source root
+has today, and it is stated in the docs line (below), not hidden.
+
+### Call 4 — tests: pure unit tests on the set and the walk, plus end-to-end rows in `tests/build_watch.rs`
+
+- **Unit, `src/build/watch.rs`** (unconditional, run in the lean build too): the set's shape for
+  asset paths. Deterministic, no timing.
+- **Unit, `src/cli/build.rs`** (`watch`-gated): `recipe_asset_paths` over recipes written to a
+  `tempfile::TempDir` and referenced by **absolute** path in a `BuildManifest` built from a TOML
+  string, so no test changes the process CWD.
+- **End-to-end, `tests/build_watch.rs`**: the file's pattern is reliable. Seven tests use it,
+  they run on all three CI OSes, and it was hardened against the Linux inotify flood (DEC-060,
+  `nudge_until`). Reuse `spawn_watch`, `poll_until`, `nudge_until`, `write_png`, `bytes`. Add
+  two helpers:
+  - `fn attempts(log: &Path) -> usize`: count of lines starting `built ` or `error`;
+  - `fn settled_attempts(log: &Path) -> usize`: poll until `attempts` has not changed for 2 s,
+    return it; **panic** if it never settles within `DEADLINE`. A self-trigger loop never settles,
+    so every test that settles also guards against one.
+  - a `brand_project(recipe: &str)` fixture: `src/a.png`, `recipes/r.toml` = `recipe`,
+    manifest at the root, `out = "dist"`, and **no** asset written (each test writes its own).
+- ⚠ **Every end-to-end test puts the asset outside every watched path**: in `brand/` or `art/`,
+  never beside the recipe, under `src/`, or at the root. The frame's trap row (asset beside the
+  recipe) passes on `main` by accident. Each test's doc comment says so.
+
+### Call 5 — DEC-060 is amended at design, not a new DEC-103
+
+This is DEC-060's rule ("watch the directory, two tiers, re-register on change") applied to a new
+input. No new principle, dependency or trade-off. An amendment section in
+`decisions/DEC-060-build-watch-dependency-debounce-and-loop-semantics.md` records Calls 1–3, and
+its `affected_scope` gains `src/cli/build.rs` (block-list form). `src/cli/mod.rs` stays in scope:
+it still holds the `--watch` flag, `CliError::Watch` and the build-only guard
+(`src/cli/mod.rs:141-143,697-701,830-834`). Written in this design commit, so
+`decisions-audit --changed` flags DEC-060 on the build's diff. **DEC-103 is not used**; the
+orchestrator can release the reservation.
+
+### Call 6 — no cache, lockfile or version change
+
+The cache already hashes asset content (SPEC-129/DEC-101). This spec only starts builds.
+`CACHE_SCHEMA_VERSION`, the lockfile and every non-watch code path are unchanged. Ships in 0.8.0
+with the rest of PROJ-011.
+
 ## Inputs
 
-*Design fills this in.*
+- **Files to read:** `src/build/watch.rs` (all), `src/cli/build.rs:890-1040` (`run_build_watching`,
+  `make_watcher`, `register_roots`, `watch_impl`), `src/cli/common.rs:156-228` (`load_recipe`,
+  `resolve_recipe_assets`, read only), `src/operation/registry.rs:85-150` (`asset_keys`),
+  `tests/build_watch.rs` (all), `decisions/DEC-060-*.md`, DEC-061 accepted risk #2.
+- **External APIs:** `notify` 8.2.0 (`Watcher::watch` error on a missing path, confirmed above on
+  FSEvents).
+- **Related code paths:** SPEC-131's registry change (`asset_keys` return lifetime narrows to
+  `&self`; `get_str` unchanged). See Implementation Context.
 
 ## Outputs
 
-*Design fills this in.*
+- **Files created:** none.
+- **Files modified:** see Implementation Context → "Files the build touches".
+- **New exports:** none public. `watch::watch_roots` gains a third parameter (`pub` in a
+  `pub(crate)`-used module; only `src/cli/build.rs` calls it).
+- **Database changes:** none. No `CACHE_SCHEMA_VERSION`, lockfile or manifest-format change.
 
 ## Acceptance Criteria
 
-Testable outcomes. Cover happy path, error cases, edge cases.
+Every AC applies to **`build --watch`** only, on a binary with the default `watch` feature. No
+other verb has a watch loop (`apply` has none, `build` without `--watch` registers no watcher).
+In every end-to-end AC the asset sits in a directory that is **not** the manifest's dir, a
+recipe's dir, or under a source root.
 
-- [ ] Criterion 1 (testable)
-- [ ] Criterion 2 (testable)
+- [ ] **AC-1. `image` present at start.** With `image = "brand/logo.png"`, rewriting
+      `brand/logo.png` with different pixels makes the running watch loop rebuild, and
+      `dist/a.png`'s bytes change from the settled pre-edit output. RED on `main` (measured:
+      no rebuild).
+- [ ] **AC-2. `font` present at start.** With `text = …` + `font = "brand/Go.ttf"`, overwriting
+      `brand/Go.ttf` with bytes that are not a font makes the running loop rebuild and report it: a
+      new `error:` line appears in stderr after the settled baseline, and the process is still
+      running. RED on `main` (nothing is reported).
+- [ ] **AC-3. `image` re-pointed mid-session.** Start on `image = "brand/logo.png"`; rewrite the
+      recipe to `image = "art/b.png"` (an existing file, `art/` watched by nothing at start); after
+      that rebuild settles, rewriting `art/b.png` with different pixels rebuilds and changes
+      `dist/a.png`'s bytes. RED on `main` (measured).
+- [ ] **AC-4. `font` re-pointed mid-session.** Start on `font = "brand/Go.ttf"`; rewrite the
+      recipe to `font = "art/Go.ttf"` (a valid copy); after that rebuild settles, corrupting
+      `art/Go.ttf` produces a new `error:` line. RED on `main` (measured).
+- [ ] **AC-5. Asset directory absent at start.** With `image = "brand/logo.png"` and no `brand/`:
+      stderr contains a `cannot watch` line naming `brand`, the initial build reports the existing
+      unreadable-asset error, and the loop keeps running. After `brand/logo.png` is created and the
+      loop has rebuilt successfully (`dist/a.png` exists), rewriting `brand/logo.png` with
+      different pixels rebuilds and changes `dist/a.png`'s bytes. RED on `main` (measured: the
+      last step never rebuilds).
+- [ ] **AC-6. No self-trigger with asset roots registered, including after a re-registration**
+      (control; GREEN on `main`, must stay GREEN). With `brand/` watched, after a re-point to
+      `art/` has settled, a 3 s idle window adds **zero** attempts and leaves `dist/a.png`
+      byte-identical. `settled_attempts` returning at all is the guard that the loop settles.
+- [ ] **AC-7. Watch-set shape** (unit, `watch_roots`). For asset paths given to `watch_roots`:
+      (a) each asset's containing dir is in `shallow` and not in `recursive`, for an `image`-style
+      and a `font`-style path in **two different** dirs; (b) a root-level asset (`logo.png`) gives
+      a shallow `.`, never a recursive one; (c) `../shared/logo.png` gives `../shared`
+      (unclamped); (d) an asset under a recursive source root (`src/brand/logo.png` with
+      `source = "src/**/*.png"`) adds no shallow root; (e) two assets in one dir add one root; (f)
+      with `&[]`, every existing `watch_roots` test passes with only the added argument.
+- [ ] **AC-8. Asset walk** (unit, `recipe_asset_paths`). (a) A two-target manifest whose recipes
+      hold a `watermark` `image` step, a `watermark` `text`+`font` step and a `resize` step yields
+      exactly the `image` and `font` paths, in target then step order; (b) a target whose recipe
+      file does not exist, and one whose recipe does not parse, contribute nothing and do not
+      error; (c) an asset path that does not exist on disk is still listed (the walk never reads
+      asset bytes); (d) a non-string value (`image = 5`) is skipped.
+- [ ] **AC-9. Negative control per independent condition** (AGENTS §15). Three conditions, each
+      reverted alone on the build branch, release binary rebuilt from scratch, behavioural flip
+      recorded:
+      - **C1, asset dirs reach the set:** make `recipe_asset_paths` return empty → AC-1…AC-5 RED,
+        AC-8 RED; AC-6, AC-7 (pure) GREEN.
+      - **C2, recompute after every batch:** restore the manifest-only gate → AC-3, AC-4, AC-5
+        RED; AC-1, AC-2 GREEN.
+      - **C3, retry a failed root that now exists:** drop `|| retry` → AC-5 RED; AC-1…AC-4 GREEN.
+- [ ] **AC-10. Nothing outside `build --watch` changes.** Existing `tests/build_watch.rs`,
+      `tests/build.rs`, `tests/build_cache.rs`, `tests/build_watermark_cache.rs` and
+      `tests/apply_batch.rs` stay green unedited. `src/cli/common.rs`, `src/build/cache.rs`,
+      `src/build/lock.rs` and `src/operation/**` are not in the diff.
+- [ ] **AC-11. Clean matrix**: default, `--no-default-features` (the new e2e tests and
+      `recipe_asset_paths` are compiled out; the new `watch.rs` unit tests still run),
+      `--features webp-lossy`; fresh `CARGO_TARGET_DIR` each, run sequentially; clippy
+      `-D warnings` and `fmt --check` on each. The 3-OS CI is the gate for the end-to-end rows
+      (Linux inotify and Windows are where watch timing differs); read every leg.
+- [ ] **AC-12. Docs.** `docs/cli-reference.md`'s `--watch` paragraph says a file a recipe names
+      (a watermark's image or font) is watched too, and that a directory that does not exist yet
+      is picked up at the next rebuild. `CHANGELOG.md` `[Unreleased] → Fixed` gets one entry
+      (wording below). The DEC-060 amendment is already on `main` (this design commit).
 
 ## Failing Tests
 
-Written during **design**, BEFORE build. The implementer's job in
-**build** is to make these pass.
+All new. Each end-to-end test's doc comment states where the asset sits and why that directory is
+not otherwise watched.
 
-- **`path/to/test.file`**
-  - `"test description 1"` — asserts: ...
+- **`src/build/watch.rs`** (unit, unconditional)
+  - `watch_roots_watches_each_asset_directory_shallow`: AC-7(a)(e). RED: does not compile
+    (`watch_roots` takes two arguments on `main`).
+  - `watch_roots_keeps_a_root_level_asset_dir_shallow`: AC-7(b). RED: does not compile.
+  - `watch_roots_asset_outside_the_manifest_dir_is_unclamped`: AC-7(c). RED: does not compile.
+  - `watch_roots_drops_an_asset_dir_a_source_root_covers`: AC-7(d). RED: does not compile.
+- **`src/cli/build.rs`** (unit, in a new `#[cfg(all(test, feature = "watch"))] mod watch_tests`)
+  - `recipe_asset_paths_lists_image_and_font_in_order`: AC-8(a). RED: no such function.
+  - `recipe_asset_paths_skips_a_recipe_that_does_not_load`: AC-8(b). RED: no such function.
+  - `recipe_asset_paths_lists_an_asset_that_does_not_exist`: AC-8(c). RED: no such function.
+  - `recipe_asset_paths_skips_a_non_string_value`: AC-8(d). RED: no such function.
+- **`tests/build_watch.rs`** (end-to-end, `watch` feature)
+  - `watch_rebuilds_when_the_watermark_image_changes`: AC-1. RED: `brand/` is never watched,
+    the bytes never change (frame row; re-measured above).
+  - `watch_rebuilds_when_the_watermark_font_changes`: AC-2. RED: no rebuild, no `error:` line.
+  - `watch_follows_a_recipe_repointed_to_a_new_image`: AC-3. RED: the set is recomputed only on
+    manifest edits (measured).
+  - `watch_follows_a_recipe_repointed_to_a_new_font`: AC-4. RED: same (measured).
+  - `watch_picks_up_an_asset_directory_created_mid_session`: AC-5. RED: `brand/` is never
+    registered (measured); also RED on a fix without C3.
+  - `watch_with_asset_roots_does_not_self_trigger`: AC-6. **Control, GREEN on `main`.** Listed
+    so verify runs it under each revert. It is not a failing test.
+
+Noun count: `image` × {at start, re-pointed} = AC-1, AC-3; `font` × {at start, re-pointed} = AC-2,
+AC-4; missing dir = AC-5 (`image` only: the missing-dir path is key-independent, the dir is what
+fails to register); idle = AC-6. Unit: 4 shape cases + 4 walk cases.
 
 ## Implementation Context
 
-*Read this section (and the files it points to) before starting
-the build cycle. It is the equivalent of a handoff document, folded
-into the spec since there is no separate receiving agent.*
+*Read this section (and the files it points to) before starting the build cycle.*
+
+### Files the build touches (best estimate; the orchestrator schedules on this)
+
+- `src/build/watch.rs`: `watch_roots` gains `assets: &[PathBuf]` (Call 1); `WatchSet` and
+  module docs say "shallow = the manifest's, recipes' and recipe assets' directories"; the five
+  existing test calls gain `&[]`; four new unit tests.
+- `src/cli/build.rs`: **these functions only**: `register_roots` (returns the roots it could
+  not watch), `watch_impl` (registry once; `watch_set_for` at start and in the loop; Call 3's
+  re-register rule; `manifest_prefix` removed); new `recipe_asset_paths` and `watch_set_for`
+  next to them; new `mod watch_tests` placed **directly after `watch_impl`**, not appended to
+  the existing `mod tests` at the end of the file. ⚠ **Shared file with SPEC-134**, which
+  edits `prepare_target` and `target_format_plan` (its Implementation Context). Different
+  functions, and keeping the new tests out of `mod tests` avoids an end-of-file conflict.
+  Whichever merges second rebases trivially.
+- `tests/build_watch.rs`: helpers `attempts`, `settled_attempts`, `brand_project`; six new tests.
+  No other spec in flight touches this file.
+- `docs/cli-reference.md`: the `--watch` paragraph (`:343-349`), one sentence.
+- `CHANGELOG.md`: one `[Unreleased] → Fixed` bullet (SPEC-131/133/134 add their own bullets;
+  separate entries, trivial merge).
+- **Not touched:** `src/cli/common.rs`, `src/cli/mod.rs`, `src/operation/**`, `src/recipe/**`,
+  `src/build/{cache,lock,mod}.rs`, `decisions/**` (DEC-060 is amended in this design commit).
+
+### SPEC-131 interplay: designed against its API, so either merge order is trivial
+
+SPEC-131 (designed, `63fbfc0`) changes `OperationRegistry::asset_keys` to return
+`&[&'static str]` borrowed from `&self` (was `&'static [&'static str]`) and derives it from a
+param schema. It does **not** change `OperationParams::get_str`, and it leaves `src/cli/**`
+alone. The walk in Call 2 is written to compile against both:
+`for &key in registry.asset_keys(&step.op)` copies each `&'static str` out, and `registry` lives
+for the whole of `watch_impl`. Do not store the slice itself anywhere that outlives the registry
+borrow. Behaviour is the same on both: SPEC-131 refuses `image = 5` at `build_pipeline`, and
+this walk skips it via `get_str` → `None` (AC-8(d)). That keeps the watch set from depending on
+validation order. A recipe SPEC-131 refuses at `Recipe::from_toml` (a key on the terminal
+`optimize` marker) fails `load_recipe` and contributes no assets, which is AC-8(b)'s rule.
 
 ### Decisions that apply
 
-- `DEC-NNN` — <one-line summary of why this matters here>
-- `DEC-MMM` — <one-line summary>
+- `DEC-060`: watch semantics; directory never file, two tiers, re-register on change. **Amended
+  in this design commit** with Calls 1–3. Read the amendment; it is the build's contract.
+- `DEC-061`: accepted risk #2, watch roots follow the manifest unclamped. Applied to assets
+  (AC-7(c)).
+- `DEC-057`: manifest paths are relative to the working directory, the same base the asset
+  resolver reads from.
+- `DEC-058`: the cache prunes a full re-run, so there is no per-asset target graph.
+- `DEC-100`: the asset seam; `asset_keys` is the one definition of "which keys are files".
+- `DEC-101`: the cache key hashes asset bytes, so a rebuild this spec starts is correct.
 
 ### Constraints that apply
 
-These constraints apply to the paths touched by this task (see
-`/guidance/constraints.yaml` for full text):
-
-- `constraint-id-1` — <one-line summary>
-- `constraint-id-2` — <one-line summary>
+- `test-before-implementation`: write the 14 tests (13 failing + the AC-6 control), see the 13 RED (or not compile) on `main`, then
+  implement.
+- `one-spec-per-pr`.
+- `no-unwrap-on-recoverable-paths`: a recipe that fails to load and a root that fails to
+  register are both recoverable; neither may panic or end the loop.
 
 ### Prior related work
 
-- `SPEC-YYY` (shipped) — <one-line summary, if relevant>
-- `PR #NNN` — <link, if relevant>
+- `SPEC-067` (shipped): `build --watch`, the loop and `tests/build_watch.rs`.
+- `SPEC-128` (shipped, PR #189): watermark in recipes, `asset_keys`, `resolve_recipe_assets`.
+- `SPEC-129` (shipped, PR #190/#191): cache hashes asset content; its verify found this bug.
+- `SPEC-131` (designed): see interplay above.
 
 ### Out of scope (for this spec specifically)
-
-Explicit list of what this spec does NOT include. If any of these feel
-necessary during build, create a new spec rather than expanding this one.
 
 - **Cache correctness for an edited asset**: shipped in SPEC-129 / DEC-101. This spec only makes
   the watch loop start the build.
@@ -356,10 +697,44 @@ necessary during build, create a new spec rather than expanding this one.
   someone hits it.
 - **Future asset-bearing ops** (the `.cube` LUT): covered automatically if the walk uses
   `registry.asset_keys`. No op-specific code.
+- **Watching a missing directory's nearest existing parent** so its creation always wakes the
+  loop. Call 3's retry covers the common layouts (a top-level dir under the shallow root);
+  anything deeper waits for the next watched change, as a missing source root does today.
+- **Widening the covered-by-a-recursive-root dedupe to recipe/manifest dirs.** Today's
+  exact-equality rule stays for them; changing it is not this bug.
 
 ## Notes for the Implementer
 
-Gotchas, style preferences, reuse opportunities.
+- **The fake-pass trap is the main risk.** If any end-to-end test puts its asset beside the
+  recipe, under `src/`, or at the project root, it passes on `main`. Before implementing, run all
+  five failing e2e tests on `main` and confirm each is RED **for the asserted reason** (a
+  deadline on the bytes/`error:` observable, not a setup panic).
+- **Never baseline on a raw attempt count from start** (finding 1). Take baselines with
+  `settled_attempts`, and assert the content observable (bytes for `image`, `error:` for
+  `font`). An AC-2/AC-4 assertion of "attempts went up" alone is a fake pass on macOS.
+- Write images with `write_png` at a **different colour** for each edit so the bytes really
+  differ. `nudge_until` re-issues the same write, which is fine: a repeat is a cache hit.
+- For the font, copy `assets/fonts/Go-Regular.ttf` (the repo's only TTF) via
+  `env!("CARGO_MANIFEST_DIR")`. The edit is `std::fs::write(path, b"not a font")`. Match only the
+  start of an `error` line, not the message text: SPEC-131 may reword constructor messages.
+- AC-5's `cannot watch` line comes from `notify`'s error text, which differs per OS (FSEvents:
+  `No path was found. about ["brand"]`). Assert only `cannot watch` + `brand` on the same line.
+- AC-5 wake-up: after creating `brand/logo.png`, use `nudge_until` that rewrites the recipe with
+  identical bytes until `dist/a.png` exists. Don't rely on the `brand/` creation event alone (it
+  depends on the shallow `.` watch, which is incidental to the layout).
+- `register_roots` keeps printing `warning: cannot watch {root}: {e}` exactly as today; it only
+  also collects the root.
+- Keep `recipe_asset_paths` and `watch_set_for` behind `#[cfg(feature = "watch")]`, or the lean
+  build fails clippy on dead code. `watch::watch_roots` stays unconditional.
+- Comments read behaviour-first, with no spec or DEC ids (repo rule).
+- CHANGELOG wording (adapt freely, keep it behaviour-first):
+  > **`build --watch` now rebuilds when a watermark's image or font changes.** A recipe's
+  > `image` or `font` file was never watched, so editing a logo under `--watch` did nothing until
+  > a source changed, unless the file happened to sit beside the recipe or among the sources.
+  > The file's folder is now watched wherever it is, including a file the recipe is changed to
+  > point at mid-session and a folder created after the watch started.
+- **Checkpoint:** push a WIP commit once it compiles with the unit tests green, before the
+  end-to-end runs and the matrix.
 
 ---
 

@@ -24,6 +24,7 @@ superseded_by: null
 
 affected_scope:
   - src/build/watch.rs
+  - src/cli/build.rs
   - src/cli/mod.rs
   - Cargo.toml
   - deny.toml
@@ -188,3 +189,30 @@ suite; the 3-OS CI covers Linux/Windows.
 - **Follow-ups (out of scope here):** a verify-on-change `--watch --check` mode; a dev
   HTTP/live-preview server (Wave 3); hot-reloading the binary; if the 200 ms window
   proves too tight on some editor/OS, adopt `notify-debouncer-mini`.
+
+## Amendment (2026-10-25): files a recipe names are watched too
+
+A recipe step can name a file (a watermark's `image` or `font`). The watch set never included
+them, so editing that file under `--watch` started no build unless it happened to sit beside the
+recipe or under a source root. The loop now covers them with the rules above, unchanged:
+
+- **What is watched:** for every asset key (`OperationRegistry::asset_keys`) whose value in a
+  step is a string, the file's **containing directory**, **shallow**. Never the bare file (atomic
+  save), never recursive (an asset can sit at the project root, beside `.crustyimg/` and the
+  output). A directory a recursive source root already covers is not added again. Roots follow
+  the recipe unclamped, as DEC-061 accepted risk #2 rules for sources.
+- **How the paths are found:** the CLI loads each target's recipe and reads the asset keys'
+  string values. It never reads the asset bytes, so a missing asset is still watched. A recipe
+  that does not load contributes nothing; its own directory is watched, so fixing it brings its
+  assets in. `watch_roots` stays pure and takes the paths as an input.
+- **When the set is recomputed:** after every rebuild the loop runs (every non-excluded batch),
+  not only after a manifest edit, so a recipe re-pointed at a new file is followed. The watcher is
+  re-created only when the computed set differs, or when a root that could not be registered (it
+  did not exist) now exists. A root that is still missing causes no re-registration, and its warning is not
+  repeated on each rebuild.
+- **Accepted:** a directory that does not exist yet is picked up at the next change the loop
+  sees, not the moment it is created, unless its creation lands in a watched directory. That is
+  the reach a missing source root already has. Events during a watcher swap can be lost, as they
+  already could on a manifest edit.
+- `src/cli/build.rs` now holds the loop (it moved out of `src/cli/mod.rs`), so it joins
+  `affected_scope`.
