@@ -1,0 +1,14 @@
+{
+  "name": "crustyimg",
+  "owner": { "name": "jysf", "url": "https://github.com/jysf" },
+  "description": "Skill for the crustyimg image CLI: make images web-ready from your coding agent.",
+  "plugins": [
+    {
+      "name": "crustyimg",
+      "source": "./skills/crustyimg",
+      "description": "Teach your agent to optimize, resize, convert, and strip metadata from images with the crustyimg CLI.",
+      "category": "development",
+      "tags": ["images", "avif", "webp", "web-performance", "cli"]
+    }
+  ]
+}
