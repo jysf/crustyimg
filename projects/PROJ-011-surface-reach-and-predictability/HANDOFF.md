@@ -13,8 +13,15 @@ before STAGE-049 existed as shipped work and before the cost ledger was known to
 
 `/AGENTS.md`, then `just status` and `just backlog`. Then this file.
 
-**You orchestrate; you do not build.** Build and verify go to separate CLI sessions via a persisted
-prompt in `specs/prompts/`, pushed to `main` **before** the branch is cut.
+**You orchestrate; you never design, build, or verify yourself.** ⛔ **Maintainer rule
+(2026-10-24): every step of every spec's cycle runs in its own separate Claude session** —
+design, build, verify, and ship bookkeeping each get a fresh session (context "fresh", own
+worktree). Each session's brief is a persisted prompt in `specs/prompts/SPEC-NNN-<phase>.md`,
+pushed to `main` **before** that session cuts its branch; a one-line brief pointing at the file is
+enough. Release-prep work (CHANGELOG, docs, skill) follows the same rule. When a session reports
+back, check its actual result (diff, PR, CI legs, completion table) before advancing — a session's
+note is a claim, not proof. Never poll CI. Every commit in every session is DCO signed off
+(`git commit -s`).
 
 ---
 
@@ -131,7 +138,11 @@ Batching these in one sitting unblocks more than anything an orchestrator can do
   non-discriminating control, and a half-tested mechanism. **SPEC-128's verify BUILT the alternative
   it was asked about** rather than arguing for it, which is what turned a judgement call into a
   decision.
-- **Reserve DEC ids in the prompt.** `next_id` scans only the working tree. **Highest is DEC-100.**
+- **Reserve DEC ids in the prompt.** `next_id` scans only the working tree. **Highest on `main` is
+  DEC-101 (2026-10-24).** Reserved for the 0.8.0 wave: SPEC-131 typed params / DEC-102 ·
+  SPEC-132 `build --watch` assets / DEC-103 · SPEC-133 watermark damage rule / DEC-104 ·
+  SPEC-134 `--name-template` pins format / DEC-105 (amends DEC-087). Same for SPEC ids, which
+  `just new-spec` also allocates from the working tree.
 - **Size the VERIFICATION, not just the code.** SPEC-127 was marked M off its implementation while
   its AC matrix was L-shaped; the builder said so, and was right.
 - **Inline the cost-measurement rule in the dispatch prompt** — do not reference `cost-snippet.md`.
