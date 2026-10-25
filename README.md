@@ -326,6 +326,25 @@ crustyimg completions elvish >> ~/.config/elvish/lib/completions.elv
 Where to install the script is your (or your package manager's) step — the
 command writes the script to stdout only.
 
+## AI coding agents
+
+[`skills/crustyimg/SKILL.md`](skills/crustyimg/SKILL.md) teaches a coding agent when to
+reach for crustyimg and how to call it: which command fits the job, the output rules
+that avoid a failed run, recipes, and CI checks. It's a standard `SKILL.md`, so it works
+with any agent that reads skills.
+
+In Claude Code, install it as a plugin:
+
+```sh
+/plugin install crustyimg --marketplace jysf/crustyimg
+```
+
+Older Claude Code versions use two steps: `/plugin marketplace add jysf/crustyimg`, then
+`/plugin install crustyimg@crustyimg`. For other agents, copy the `skills/crustyimg/`
+folder into the agent's skills directory (for example `~/.claude/skills/`).
+
+The skill needs the `crustyimg` binary installed (see [Install](#install)).
+
 ## Continuous integration
 
 `crustyimg lint` is a **format-aware, no-URL, per-file** image-asset linter — the pre-deploy
