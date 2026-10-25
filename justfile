@@ -535,8 +535,10 @@ advance-cycle SPEC_ID NEW_CYCLE:
 
 # Worktrees: one per session, always cut from a fresh origin/main.
 # `just wt feat/spec-131-typed-params` creates it and starts claude inside; --no-claude only creates.
+# Options after `--` go to claude: `just wt docs/spec-131-frame -- --model opus --effort high`.
+[positional-arguments]
 wt NAME *FLAGS:
-    @./scripts/wt.sh new "{{NAME}}" {{FLAGS}}
+    @./scripts/wt.sh new "$@"
 
 # List session worktrees with branch, uncommitted changes, merged-to-main and in-use state.
 wt-ls:
