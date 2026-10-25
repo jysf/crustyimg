@@ -110,7 +110,7 @@ anything a recipe cannot say.
   different predicates, and a size-only rule answers only the first. A watermark that is correctly
   sized and still clipped is just as broken to the user.
 
-- [ ] **SPEC-134** (framed 2026-10-24) — [S] **A literal extension in `--name-template` does not pin the
+- [ ] **SPEC-134** (designed 2026-10-25) — [S] **A literal extension in `--name-template` does not pin the
   output format — and single-input `apply` now makes that visible.** Surfaced by SPEC-126's
   verify, 2026-08-23, driven on both binaries with a JPEG source and a plain pixel recipe:
 
@@ -126,16 +126,19 @@ anything a recipe cannot say.
   the source format; it rides 0.8.0's single lockfile migration. ⚠ This also settles the
   *direction* of the PROJ-013 / STAGE-037 `-o` item (extensions pin, deliberately) — see the
   cross-reference recorded there; that item's undocumented quality change remains open.
-  **For the spec:** this reverses the rule documented in `docs/api-contract.md` / DEC-087 ("a name
-  template's literal extension names the FILE, it does not pin the FORMAT") — amend DEC-087, don't
-  just change code. Also decide what a template extension does on `web`/`optimize` batches, where
+  **For the spec:** this reverses the rule documented in `docs/api-contract.md` ("a name
+  template's literal extension names the FILE, it does not pin the FORMAT"). ⚠ **Corrected
+  2026-10-25 (SPEC-134 design): no DEC held that sentence — DEC-087 says the opposite** (a `build`
+  terminal-`optimize` target's literal template IS its format pin). DEC-105 **extends** DEC-087 to
+  every verb; it does not reverse or supersede it. Also decide what a template extension does on `web`/`optimize` batches, where
   a `-o` extension pins *and skips the auto-decision*: consistency says the same, but that turns
   `web --out-dir d/ --name-template '{stem}.webp'` from auto-decide into a pinned convert.
 
   The old single-input path ignored the template entirely and always wrote PNG, so it was
   already mislabelling in one direction. SPEC-126 fixes the `.jpg` row outright and makes the
   `.png` row agree with multi-input `apply`, `resize` and `build` — the documented rule for a
-  plain pixel recipe (`docs/api-contract.md`, DEC-087): a name template's literal extension
+  plain pixel recipe (`docs/api-contract.md` only — mis-attributed here to DEC-087 until
+  2026-10-25): a name template's literal extension
   names the FILE, it does not pin the FORMAT. **Nothing regressed.** But the rule is now
   reachable at an arity where it was previously masked, and a user who writes `{stem}_w.png`
   expecting PNG will get their source format instead.
@@ -383,6 +386,21 @@ anything a recipe cannot say.
   small inputs at exit 0 (the text raster is enormous); `watermark --size` shares it. A
   resource-limit question in DEC-036's family, not a malformed-recipe one, so SPEC-131 refuses
   only `size <= 0` and non-finite values. Open: the cap, and whether it lives in the schema.
+
+- [ ] (not yet written) — [S] **`responsive` accepts `--name-template` and silently ignores it.**
+  Filed by SPEC-134's design (2026-10-25), driven on `main`: `responsive in.jpg --widths 32
+  --out-dir rp --name-template '{stem}.png'` writes `rp/in-32w.jpg`, exit 0 — the flag is a global
+  arg (`src/cli/mod.rs:80-82`) that `responsive` never reads. Open: refuse it (exit 2, the flag
+  means nothing here) or honour it (it would need a `{w}` token). SPEC-134 makes the template pin
+  the format on every other encoding verb, so `responsive` is now the one verb where it does
+  nothing.
+
+- [ ] **Absorbed into SPEC-134 as AC-22** (maintainer ruling 2026-10-25) — [S] **`meta … -o x.png` writes the input's own container into `x.png`.**
+  Filed by SPEC-134's design (2026-10-25), driven on `main`: `meta strip in.jpg -o E.png` → JPEG
+  bytes in `E.png`, exit 0. SPEC-134 refuses the same mismatch when it comes from
+  `--name-template` (exit 4, before writing; maintainer ruling 2026-10-25), but `-o` was outside
+  that ruling. Recommend the same refusal for `-o`, reusing SPEC-134's `meta` pre-flight; needs a
+  maintainer yes.
 
 **Count:** **3 shipped / 1 closed** / 0 in flight / 5 pending — re-derive with a grep you just ran.
 
