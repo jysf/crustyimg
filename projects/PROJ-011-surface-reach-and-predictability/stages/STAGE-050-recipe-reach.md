@@ -81,7 +81,7 @@ anything a recipe cannot say.
 
 ## Spec Backlog
 
-- [ ] **SPEC-133** (framed 2026-10-24) — [S] ⚡ **`watermark --text` overruns the right edge, and it is NOT
+- [ ] **SPEC-133** (designed 2026-10-25) — [S] ⚡ **`watermark --text` overruns the right edge, and it is NOT
   simply a function of text width.** Driven 2026-09-03 on `main` (0.7.1 + SPEC-126), one source
   photo, `watermark --text "© crustyimg"` with no other flags:
 
@@ -199,7 +199,7 @@ anything a recipe cannot say.
   target's recipe (the same `resolve_recipe_assets`/`registry.asset_keys` walk `build` already
   does) and add each resolved asset's path — but sizing and design are for whoever picks this up.
 
-- [ ] **SPEC-133** (framed 2026-10-24) — [S] ⚡ **`watermark` stops silently doing nothing.** A **measured
+- [ ] **SPEC-133** (designed 2026-10-25) — [S] ⚡ **`watermark` stops silently doing nothing.** A **measured
   defect**, driven on `main` (PNG filters undone before comparing):
 
   | input | `--size` | pixels changed |
@@ -298,6 +298,20 @@ anything a recipe cannot say.
   📌 Visual evidence for all of the above, one image per cell at native size and 4×:
   see the contact sheet generated 2026-09-03 (artifact, linked from the session; regenerate with
   the commands in this entry rather than trusting the link to persist).
+
+- [ ] (not yet written) — [S] **A cached `build` replays no per-input warnings.** Filed by
+  SPEC-133's design (2026-10-25, Call 4). A cache hit writes the stored bytes and returns before the
+  pipeline (`src/cli/build.rs:531-540`), so three warnings print on the build that produced an
+  output and never on a cached re-run: SPEC-133's "watermark skipped, image written without it",
+  DEC-085's truncated JPEG, and SPEC-119's animated input (the last two only on the Decide plan's
+  rebuild path today — the Preserve/Pinned plans never print them at all, `encode_one` drops the
+  flags). The output stays correct and locked; what is lost is the *report*: a second `build`
+  says `(N cached, 0 rebuilt)` over images that are unmarked or truncated. Fix shape: the cache
+  entry carries the output's warnings (frame field after `ext`, `src/build/cache.rs:455-503`),
+  `CACHE_SCHEMA_VERSION` 1 → 2 + new magic, and `build_one` replays them on a hit. A schema bump
+  is only a one-time rebuild, so this is not tied to 0.8.0's lockfile migration. SPEC-133 ships
+  the limitation documented (`docs/api-contract.md`, `build`) with a test pinning it, which this
+  item flips on purpose.
 
 - [ ] (not yet written) — [S] **`watermark --min-size`: the opt-in value rule, settable in a
   recipe.** Split out of SPEC-133 by its frame (2026-10-24); the orchestrator confirms the split.

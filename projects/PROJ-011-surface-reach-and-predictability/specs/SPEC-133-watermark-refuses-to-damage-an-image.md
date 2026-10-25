@@ -7,7 +7,7 @@
 task:
   id: SPEC-133
   type: bug                        # epic | story | task | bug | chore
-  cycle: design  # frame | design | build | verify | ship
+  cycle: build  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: M                    # S | M | L  (L means split it)
@@ -25,6 +25,7 @@ agents:
 
 references:
   decisions:
+    - DEC-002
     - DEC-003
     - DEC-015
     - DEC-031
@@ -85,6 +86,27 @@ cost:
         ("SPEC-133 — FRAME prompt"), 40 assistant messages deduped by .message.id (input /
         cache_creation / cache_read taken once per id, MAX output_tokens). Measured just before
         the frame commit, so the final commit/push/read-back turns are not included.
+    - cycle: design
+      agent: claude-opus-5-5
+      interface: claude-code
+      tokens_total: 13392428
+      tokens_breakdown:
+        input: 144
+        output: 82288
+        cache_creation: 240587
+        cache_read: 13069409
+      estimated_usd: 10.10
+      rate_anchors: "Opus $5/$25 per MTok; cache_creation x1.25 input; cache_read x0.10 input"
+      duration_minutes: null
+      recorded_at: 2026-10-25
+      note: >
+        Interactive design session in its own worktree (docs/spec-133-design). Measured from the
+        session transcript b3fea33a-f11d-4abc-9f8a-fae74fb5cf19.jsonl, found by content
+        ("SPEC-133 — DESIGN prompt"), 72 assistant messages deduped by .message.id (input /
+        cache_creation / cache_read taken once per id, MAX output_tokens). Includes a release
+        build of main and a full prototype test run (both in the scratchpad, never committed).
+        Measured just before the design commit, so the final commit/push/report turns are not
+        included.
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -309,63 +331,647 @@ not re-permit.
 - `--min-size` is out of this spec (filed separately); the prompt's "decide whether it belongs"
   is answered.
 
+## Design (2026-10-25)
+
+### What the design measured on top of the frame
+
+Driven on a release build of `main` at `e917380` (`crustyimg 0.7.1`), same method as the frame:
+bases are `tests/fixtures/classify/color_photo_fuji.png` through `resize --exact`; every output
+and its base are converted with `convert --format bmp` and diffed pixel by pixel (RGB).
+**Negative control: each base diffed against itself → 0 px at 24 px and at 256 px.** Script:
+the design session's scratchpad `drive.sh`; reproducible from this table alone.
+
+| row | command (abridged) | exit | changed px | bbox |
+|---|---|---:|---:|---|
+| control | base vs itself, 24 / 256 px | — | **0** | none |
+| A | `watermark b24 --text "© crustyimg" --size 200` | 0 | 6 (1.04 %) | 3×3 at (21,21) |
+| A, recipe | same via `apply --recipe` (`size = 200.0`) | 0 | 6 (1.04 %) | 3×3 at (21,21) |
+| B | `watermark b256 --text "© 2026 crustyimg all rights reserved"` | 0 | 2446 (3.73 %) | 248×31 at **(0,225)** |
+| B′ | `watermark b256 --text "© crustyimg"` | 0 | 1647 (2.51 %) | 168×31 at (87,225) |
+| C | `watermark b24 --image b256.png` | 0 | 574 (99.65 %) | 24×24 at (0,0) |
+| D | recipe `text = "x"`, `tile = true`, on 256 | 0 | 34536 (52.70 %) | whole canvas |
+| E | recipe `text = "x"`, `scale = 0.9`, on 256 | 0 | 36851 (56.23 %) | 230×244 |
+| F | `watermark b24 b256 --text … --size 200 --out-dir` | 0 | — | both written, empty stderr |
+| **CNT** | `watermark black800 --text "© crustyimg"` (white on solid black) | 0 | **1661** | 168×31 |
+| K172 | default text on 172 px | 0 | 1647 (5.57 %) | 168×31 at (3,141) |
+| K192 | default text on 192 px | 0 | 1647 (4.47 %) | 168×31 at (23,161) |
+| J800 | default text on 800×600 | 0 | 1647 (0.34 %) | 168×31 at (631,569) |
+| M | `watermark b256 --text "© crustyimg" --margin 100` | 0 | 1647 | 168×31 at **(0,125)** — margin silently not honoured |
+| G | `watermark b256 --image logo64 --tile` | 0 | 65536 (100 %) | whole canvas |
+| G3 | `watermark b256 --image logo64` (opaque 64×64) | 0 | 4096 (6.25 %) | 64×64 |
+| H | `watermark b24 --image b256.png --scale 0.5` | 0 | 141 (24.48 %) | 12×12 at (12,12) |
+| I | `watermark b24 --image b256.png --tile` | 0 | 574 (99.65 %) | same bytes as C |
+
+Every frame row (A–F) reproduced exactly. What the new rows add:
+
+1. **"Changed pixels" depends on the image, not just the mark (row CNT).** The same white mark
+   changes 1661 px on solid black but 1647 on the photo — 14 glyph pixels land on photo pixels
+   that were already white. A rule built on changed pixels would refuse a mark on a dark image
+   and pass the same mark on a light one. **So coverage counts the mark's own non-transparent
+   pixels** (≥ every pixel it can change), which depends only on the mark and the image's size.
+   This corrects the frame's note that "1647 px is exactly" the overlay count. On that count the
+   default string is a 169×31 mark with 1661 non-transparent px (read from the prototype):
+   172 px → 5.61 % (refused), 192 px → 4.51 % (passes). Row A's mark is 1050×189.
+2. **Margin is a fit failure the frame's table did not show (row M).** `placement` saturates the
+   right inset to 0, so a 100 px margin on a 256 px image puts the mark flush left, at exit 0.
+3. **A tile larger than the image is row C again (row I, byte-identical output).** So "one tile
+   must fit" is a real rule, not a formality.
+4. **A scaled overlay can be proportionate and still large (row H, 24.5 %).** That is the user's
+   chosen `scale` doing what it says on every image; capping it would refuse every image at
+   `scale ≥ 0.23` regardless of size. Scale stays coverage-exempt.
+
+**Prototype of the rule against the existing suite** (throwaway, in a scratch worktree, never
+committed): the fit + coverage predicate below, added to `Watermark::apply` as a plain error, then
+`cargo test --no-fail-fast` (default features). This is how the "Existing tests that change"
+list below was built — measured, not guessed.
+
+### Call 1 — the rule (one predicate, pure geometry)
+
+Decided once per image, in `Watermark`, from three things only: the image entering the step
+(`bw×bh`), the mark's size **after `scale`** (`mw×mh`, computed by the same arithmetic `apply`
+uses — extract it into one helper both bit-depth branches call, so the check and the composite
+cannot disagree), and the mark's non-transparent pixel count. Nothing is drawn first.
+
+1. **Fit (always).** Effective margins: `mx = margin` when gravity anchors a left/right edge
+   (`east`, `west`, any corner), else 0; `my = margin` when it anchors a top/bottom edge
+   (`north`, `south`, any corner), else 0 — exactly the axes `Gravity::placement` insets. `center`
+   uses neither; `tile` uses neither (it ignores margin). **Refuse when `mw + mx > bw` or
+   `mh + my > bh`** (`u64` arithmetic). Equality fits. For `tile` this is "one tile fits".
+2. **Coverage (only when the mark's size is fixed: not `tile`, no `scale`).** `covered` = the
+   number of the mark's pixels with alpha > 0, at the overlay's own bit depth (count on
+   `to_rgba16()`, which is exact for 8- and 16-bit overlays), **before** `opacity` is applied —
+   opacity changes a mark's strength, not its footprint. **Refuse when
+   `covered × 100 > bw × bh × 5`** (integer; exactly 5 % passes). The cap is a `const` (5), not a
+   setting (frame scope).
+3. **Order.** Fit first; if both fail, the fit refusal is reported.
+
+The count does not depend on the image, so `Watermark` stores it at construction (`new_image`,
+`new_text`, `from_params`) rather than rescanning the overlay per image.
+
+**What the rule does to the measured rows:** A, A+, B, C, I, M → refused (fit). K172, G3 →
+refused (coverage). B′, K192, the 800 px default, G (tile), H (scaled) → applied, byte-identical
+to `main`.
+
+**Rejected:** changed-pixel counting (measured above: content-dependent); SSIMULACRA2 (ruled out);
+a glyph-bounding-box fit (the text overlay is already tight to the glyphs — `render_text` sizes
+its canvas to the union of glyph bounds, `src/text/mod.rs:126-130,197-199` — and an image overlay's
+transparent border is the user's own choice of file, which `placement` already treats as part of
+the mark); coverage on a scaled image (finding 4); applying margin to `tile`/`center` (they ignore
+it when placing, so the check must too).
+
+### Call 2 — how the op says "refused", and how each surface turns that into a result
+
+`apply()` can only return an image or an error, and an error consumes the image — so a skipping
+caller would lose the pixels it needs to keep going. **The decision is exposed before `apply`, as
+one defaulted trait method, and the pipeline chooses what to do with it:**
+
+```rust
+// src/operation/mod.rs (illustrative — names may differ, behaviour may not)
+pub const WATERMARK_COVERAGE_CAP_PERCENT: u64 = 5;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Refusal {
+    /// The mark (plus the margin on the anchored axes) is larger than the image.
+    DoesNotFit { mark: (u32, u32), margin: u32, image: (u32, u32) },
+    /// The mark would cover more than the cap of the image's pixels.
+    CoverageAboveCap { covered: u64, image: (u32, u32) },
+}
+// Display:
+//   the 1050×189 px mark does not fit inside the 24×24 px image
+//   the 169×31 px mark plus its 100 px margin does not fit inside the 256×256 px image
+//   the mark would cover 5.61 % of the 172×172 px image (1661 of 29584 px); the limit is 5 %
+
+pub enum OperationError {
+    Apply { .. },                                   // unchanged
+    #[error("{op} refused: {refusal}")]
+    Refused { op: &'static str, refusal: Refusal }, // new
+}
+
+pub trait Operation {
+    // name / params / apply unchanged
+    /// Whether this operation declines to run on `img`, and why. Pure; checked
+    /// before `apply`. The default never declines.
+    fn refusal(&self, _img: &Image) -> Option<Refusal> { None }
+}
+```
+
+- `Watermark::refusal` is **the one decision point** (Call 1). `Watermark::apply` calls it first
+  and returns `Refused` — so any direct caller of `apply` is refused too, and nothing is drawn.
+- `margin` in `DoesNotFit` is the effective margin (0 for `tile`/`center`); Display omits the
+  "plus its N px margin" clause when it is 0.
+
+```rust
+// src/pipeline/mod.rs
+pub enum OnRefusal { Fail, Skip }
+pub struct SkippedStep { pub step: usize, pub op: &'static str, pub refusal: Refusal }
+pub struct PipelineRun { pub image: Image, pub skipped: Vec<SkippedStep> }
+
+impl Pipeline {
+    /// Unchanged signature and meaning: a refusal is an error (Fail).
+    pub fn run(&self, img: Image) -> Result<Image, OperationError>;
+    /// Fail: as `run`. Skip: a step whose `refusal` is Some is not applied, is
+    /// recorded, and the remaining steps still run on the unchanged image.
+    pub fn run_with(&self, img: Image, on_refusal: OnRefusal) -> Result<PipelineRun, OperationError>;
+}
+```
+
+`run` stays the default, so every caller that is not touched below keeps today's behaviour plus
+the refusal-as-error (wasm, single inputs). **Which policy each driver uses — the whole surface
+table:**
+
+| surface | code path | policy | user sees on a refused image |
+|---|---|---|---|
+| `watermark`, 1 input | `run_pixel_op` single (`src/cli/ops.rs:369`) | `run` (Fail) | `error: watermark refused: …`, **exit 2**, nothing written |
+| `watermark`, N inputs | `run_pixel_op` batch (`:469`) | Skip | written unmarked + warning line; exit 0 |
+| `apply --recipe`, plain, 1 | `run_apply` single (`src/cli/optimize.rs:175`) | Fail | exit 2 |
+| `apply --recipe`, plain, N | `apply_one` → `encode_one` (`src/cli/common.rs:61`) | Skip | written unmarked + warning; exit 0 |
+| `apply --recipe` + `optimize`, pinned, 1 / N | `run_pixel_op` (`src/cli/optimize.rs:98`) | Fail / Skip | as `watermark` |
+| `apply --recipe` + `optimize`, auto-decide, 1 / N | `run_optimize_autodecide` → `optimize_decide_one` (`:1185`) | Fail / Skip | as above |
+| `build`, plans Preserve / Pinned | `build_one` → `encode_one` | Skip | written unmarked + warning; exit 0; lockfile written |
+| `build`, plan Decide | `build_one` → `encode_one_optimize_decided` → `optimize_decide_one` | Skip | same |
+| wasm `transform` | `src/wasm.rs:242` `pipeline.run` | Fail | `JsError` text `watermark refused: …` — **no `src/wasm.rs` change** |
+
+- `encode_one` is only ever called on batch paths (`apply_one`, `build_one`; `run_apply`'s single
+  input runs its own pipeline at `src/cli/optimize.rs:175`), so it always uses Skip and returns the
+  skipped steps alongside `(ext, bytes)`. `optimize_decide_one` gains an `OnRefusal` parameter
+  (single branch Fail, batch branch Skip, `encode_one_optimize_decided` Skip) and returns the
+  skipped steps — add to its tuple or turn the tuple into a named struct, builder's choice.
+  `optimize`/`web` reach `optimize_decide_one` too; their pipelines hold no refusing op, so the
+  parameter changes nothing for them.
+- **Exit 2** for a refused single input: `CliError::code()` gains
+  `CliError::Operation(OperationError::Refused { .. }) => 2` above the generic `Operation(_) => 1`
+  arm. No new `CliError` variant.
+
+**Rejected:** a `Refused` error that carries the image back (an error type holding a pixel buffer,
+printed by `Debug`); cloning the image before every step so a skipper can recover it (a full copy
+per step per image, for every op, to serve one); per-surface checks (seven copies of the rule);
+re-running the pipeline without the watermark step (a second decode and a second set of rules
+for "which step").
+
+DEC-002 keeps the trait "small": this adds one **defaulted** method, so no implementor changes. The
+new DEC records that.
+
+### Call 3 — what a batch prints
+
+Matching DEC-085 (an incomplete output with no downstream signal warns unconditionally):
+
+- **One line per skipped image, on stderr, never `--quiet`-gated:**
+  `warning: <label>: watermark skipped, image written without it: <refusal Display>`
+  (`<label>` = the input path, as every other per-input line uses). The verb's name in the line is
+  the skipped op's `name()` — `watermark` is the only op that can refuse.
+- **The run's summary carries the count**, defined per verb because the verbs report differently
+  (AGENTS §15, an AC may not transfer between verbs):
+  - `build` already has a summary line; it gains `, watermark skipped on K` after the
+    `(… cached, … rebuilt)` group and before `, F failed`:
+    `built 1 target, 3 outputs (0 cached, 3 rebuilt), watermark skipped on 1`. Omitted when K = 0,
+    so a run with no skip prints exactly today's line. `--quiet`-gated like the line it extends.
+  - `watermark`, `apply --recipe` (all three batch loops) have **no** summary on success today. They
+    gain one closing stderr line **only when K > 0**: `watermark skipped on K of N images`,
+    `--quiet`-gated. A run with no skip prints exactly what it prints today.
+  - K counts **images** with at least one skipped step, not steps.
+- `--json` / `--explain json` reports are unchanged (no schema change); the warning lines go to
+  stderr as every other warning does.
+- A batch with skips **and** failures: the failures alone set `failed` and exit 6; the skip lines
+  and count are still printed; `PartialBatch { failed, total }` counts only the failures. A skip
+  never reaches `failed`, so `build`'s lockfile phase (`src/cli/build.rs:823-829`) runs whenever
+  the only problem is skips.
+
+### Call 4 — a cached `build` does not repeat the skip line (accepted, documented, filed)
+
+A cache hit writes the stored bytes and returns before the pipeline (`src/cli/build.rs:531-540`).
+With an unmarked write the output is deterministic, so it caches like any other: **the first
+`build` prints the skip line; a cached re-run prints `(N cached, 0 rebuilt)` and no skip line.**
+
+**Settled: accept it and document it** (`docs/api-contract.md`, the `build` section; the
+CHANGELOG line). Why:
+- It is the repo's existing contract for per-input warnings: a cache hit does not replay DEC-085's
+  truncated-JPEG or SPEC-119's animated-input warnings either (both are emitted only on the
+  rebuild path's Decide branch, `src/cli/build.rs:558-578`). Replaying only the skip would make one warning out of
+  three cache-aware.
+- Carrying it needs a cache-entry frame change (`write_entry`/`parse_entry` carry only `ext` +
+  payload, `src/build/cache.rs:455-503`) → `CACHE_SCHEMA_VERSION` 1 → 2, a new magic, and its own
+  corruption tests. That is the right fix **for all three warnings together**, not for one.
+- The output is still correct and locked: the lockfile pins the unmarked bytes, so `build --check`
+  is clean, and `--no-cache` lists every skip again.
+
+**Filed** on STAGE-050 by this design: "a cached `build` replays no per-input warnings (skipped
+watermark, truncated JPEG, animated input)". A cache-schema bump is cheap whenever it lands (a
+miss is a rebuild), so it is not coupled to 0.8.0.
+
+**No `CACHE_SCHEMA_VERSION` change, no lockfile change** in this spec. ⚠ One dev-only consequence,
+stated so nobody is surprised: until 0.8.0 is tagged the cache key still embeds `0.7.1`, so a dev
+build carrying this spec can serve a `.crustyimg/cache` entry written by an older 0.7.1 build — the
+pre-fix, damaged-mark bytes — for an image that would now be skipped. Released users never see it
+(0.8.0 changes every key); developers clear `.crustyimg/` once. Same as every other byte-changing
+PROJ-011 spec.
+
+### Call 5 — recipe text mode refuses `scale` and `tile = true`, inside SPEC-131's mode check
+
+Rows D/E: a `text` step with `tile`/`scale` runs at 52.7 % / 56.2 % today, and with `tile` exempt
+from the cap it would bypass coverage entirely. The CLI already refuses both (`conflicts_with =
+"text"`, `src/cli/mod.rs:422-427`).
+
+**Where:** in `Watermark::from_params`'s **unused-by-mode check** (SPEC-131 Call 4 — the
+constructor, which knows the mode), not in `WATERMARK_PARAMS`. SPEC-131's schema is
+mode-independent by design (every range is mode-free), so `scale`/`tile` stay legal keys in the
+table and the refusal cannot be re-allowed by editing it. Messages in SPEC-131's existing shape:
+- `recipe step 0 ('watermark'): 'scale' only applies to an image watermark (this step sets 'text')`
+- `recipe step 0 ('watermark'): 'tile = true' only applies to an image watermark (this step sets 'text')`
+
+⚠ **Only `tile = true` is refused, not the key.** `Watermark::params()` writes `tile = false` for
+every mark, text included (`src/operation/mod.rs:1436`), so refusing the key would refuse
+crustyimg's own text recipes (SPEC-131 AC-11(b)). `scale` is written only when set, and nothing
+crustyimg writes sets it on a text mark (clap refuses `--text --scale`), so refusing any `scale`
+on a text step is safe. Surfaces: a recipe error at load — exit 1 on `apply`/`build`, the same
+`JsError` on wasm — via SPEC-131's `InvalidOperation`, before any input is read.
+
+⚠ **This turns two SPEC-131 tests red, by design** — both are on `feat/spec-131-…`
+(`tests/recipe_strict_params.rs`, built from SPEC-131's spec):
+- `recipes_crustyimg_writes_are_never_refused` builds a text mark with `scale: Some(0.5)` via
+  `Watermark::new_text`. No crustyimg surface can write that. SPEC-133 moves that row's
+  `Some(0.5)` to `None` (the image row two above already covers `scale`).
+- `documented_interplay_is_not_refused` has `text = "hi"` + `tile = true` + `gravity`/`margin`.
+  SPEC-133 removes that row (the image-mode row above it keeps the interplay covered) and updates
+  the row-count assertion.
+
+### Call 6 — DEC-104 is written at **build**
+
+It describes code as merged (DEC-101/DEC-102 precedent). Contents: the rule (Call 1, the 5 % cap
+as a fixed constant, mark-pixel counting and why not changed pixels); the seam (Call 2 — a
+defaulted `Operation::refusal`, extending DEC-002's trait by one method; `Pipeline::run_with`);
+the behaviour split (single explicit input → exit 2; batch / `build` → skip, written unmarked,
+warning, count; a skip is not a failure — amends DEC-015's partial-batch rule for this one
+outcome); and Call 4's cached-run limitation with its backlog pointer. `supersedes: null`.
+Block-list `affected_scope`:
+```yaml
+affected_scope:
+  - src/operation/mod.rs
+  - src/pipeline/mod.rs
+  - src/cli/mod.rs
+  - src/cli/ops.rs
+  - src/cli/optimize.rs
+  - src/cli/common.rs
+  - src/cli/build.rs
+  - docs/api-contract.md
+```
+
+### Call 7 — size: M (top of M), the matrix adds up
+
+Each rule is tested once on the op (14 unit tests), the two policies once on the pipeline (3),
+one refusal test per single-input surface (6, including one coverage row), one skip test per
+batch surface (6), plus skip-vs-failure, the cached re-run, the recipe mode check, the byte-identity
+guard and the exit-code row. No rule is tested per surface: the surfaces share
+`Watermark::refusal`, so a surface test proves the *lane* (exit 2 vs skip), using fit only. The
+existing-test churn (12 tests in 5 files, measured) is mechanical — larger bases, no behavioural
+assertion changes. Not L.
+
 ## Inputs
 
-- **Files to read:** see `## Frame` → Rough build file list.
-- **Related code paths:** `src/operation/mod.rs` (`Watermark`, `Gravity::placement`),
-  `src/cli/{ops,optimize,build,common}.rs`, `src/wasm.rs`, `src/text/mod.rs`.
+- **Files to read:** `src/operation/mod.rs:146-190` (`OperationError`, `Operation`), `:1109-1145`
+  (`Gravity::placement`), `:1150-1565` (`Watermark`: `from_params`, `params`, `apply`);
+  `src/pipeline/mod.rs` (whole, 223 lines); `src/cli/ops.rs:286-520` (`run_pixel_op`),
+  `:1290-1350` (`run_watermark`); `src/cli/optimize.rs:44-300` (`run_apply`), `:1083-1250`
+  (`optimize_decide_one`), `:1370-1398` (`encode_one_optimize_decided`), `:1535-1655`
+  (`run_optimize_autodecide`); `src/cli/common.rs:21-100` (`encode_one`, `apply_one`);
+  `src/cli/build.rs:500-600` (`build_one`), `:735-830` (execute, summary, lockfile gate);
+  `src/cli/mod.rs:735-800` (`code()`), `:1090-1150` (its mapping test);
+  `src/text/mod.rs:121-200` (`render_text` — the overlay is tight to the glyphs).
+- **After SPEC-131 merges:** its `WATERMARK_PARAMS`, the unused-by-mode check in
+  `Watermark::from_params`, and `tests/recipe_strict_params.rs` (the two rows in Call 5).
+- **Related, not edited:** `src/wasm.rs:204-245`; `src/build/cache.rs:455-503`.
 
 ## Outputs
 
-- **Files created:** *(design)*
-- **Files modified:** *(design)*
-- **New exports:** *(design)*
+- **Files created:** `tests/watermark_damage.rs`; `decisions/DEC-104-watermark-refuses-a-mark-that-does-not-fit-or-covers-over-5-percent.md`.
+- **Files modified:** see Implementation Context → Files the build touches.
+- **New exports:** `operation::Refusal`, `operation::WATERMARK_COVERAGE_CAP_PERCENT`,
+  `OperationError::Refused`, `Operation::refusal` (defaulted), `pipeline::{OnRefusal,
+  PipelineRun, SkippedStep}`, `Pipeline::run_with`.
 
 ## Acceptance Criteria
 
-*Written at design.*
+"Refused" on the op = `Watermark::refusal(&img)` returns `Some(..)` **and** `apply` returns
+`OperationError::Refused` with the same `Refusal`. Op rows use synthetic overlays (exact sizes and
+alpha patterns built with `RgbaImage::from_fn`) unless a row names text; text rows use the bundled
+font. Numbers asserted are the `Refusal` fields, not Display, except where Display is the subject.
 
-- [ ] Criterion 1 (testable)
+**The rule — library, `Watermark` (one test per rule × mode):**
+- [ ] **AC-1. Fit refuses a text mark wider than the image, and one taller.** (a) Row A: `"© crustyimg"`
+      at size 200 on 24×24 → `DoesNotFit { mark: <the rendered overlay's own size>, image: (24,24) }`.
+      (b) Row B: the long string at default size on 256×256 (width-only overflow) → `DoesNotFit`.
+      (c) a text mark whose height alone exceeds a short wide image (default string on 400×20).
+- [ ] **AC-2. Fit refuses an image mark, on each axis.** 256×256 overlay on 24×24 (row C); 10×40
+      overlay on 64×32 (height only); 70×5 on 64×32 (width only).
+- [ ] **AC-3. Margin applies only on the axes the gravity anchors.** With a 100×10 overlay that has
+      one non-transparent pixel (so coverage cannot interfere), on 120×120: `southeast`
+      margin 20 → fits (equality); margin 21 → refused, `margin: 21`; `center` margin 50 → fits;
+      `north` margin 50 → fits (x is centred and ignores margin; 10 + 50 ≤ 120); `east`
+      margin 50 → refused (100 + 50 > 120).
+- [ ] **AC-4. Coverage refuses above 5 % — text and image both.** Image: on 100×100, an overlay
+      with exactly 500 non-transparent pixels → applied; 501 → `CoverageAboveCap { covered: 501 }`.
+      Transparent pixels do not count: a 40×40 overlay with 400 non-transparent pixels (16 % area,
+      4 % coverage) → applied. Text: the default string on 172×172 → refused, `covered` equal to
+      the rendered overlay's alpha > 0 count (1661, measured at design); on 192×192 → applied.
+- [ ] **AC-5. Opacity does not change coverage.** The 501-pixel overlay at `opacity = 0.01`
+      (where most alphas round to 0 when composited) is still refused with `covered: 501`.
+- [ ] **AC-6. `scale` is fit-checked after scaling and exempt from coverage.** (a) Row H: 256×256
+      overlay, `scale = 0.5`, on 24×24 → applied (12×12, 25 % covered). (b) 10×100 overlay,
+      `scale = 1.0`, on 64×32 → `DoesNotFit { mark: (64, 640) }` — the post-scale size.
+- [ ] **AC-7. `tile`: one tile must fit; coverage exempt; margin ignored.** (a) Row G: 64×64
+      opaque overlay tiled on 256×256 → applied. (b) Row I: 256×256 tiled on 24×24 → `DoesNotFit`.
+      (c) a 120×120 overlay tiled on 120×120 with `margin = 30` → applied (tile ignores margin).
+- [ ] **AC-8. Fit is reported before coverage; nothing is drawn on refusal.** A mark failing both
+      (row A+ style: default string on 24×24) → `DoesNotFit`. `apply` returns `Err` (no image).
+- [ ] **AC-9. Display names the numbers.** `DoesNotFit` with margin 0 / margin 21 and
+      `CoverageAboveCap` render exactly the three Call 2 shapes (mark size, image size, margin
+      when > 0; percent to 2 dp, covered, area, "the limit is 5 %"); `OperationError::Refused`
+      prefixes `watermark refused: `.
+- [ ] **AC-10. A mark that passes is byte-identical to `main`.** Decoded-pixel hashes of
+      `Watermark::apply` for six passing cases — text default on 256 (B′) and 800×600; opaque
+      64×64 on 800×600; tile (G); scale (H); a 16-bit base with a fitting image mark — equal
+      goldens captured from unmodified `main` in the build's first commit.
+
+**The pipeline — library:**
+- [ ] **AC-11. `run` (and `run_with(Fail)`) stops at a refusal; `run_with(Skip)` skips it and runs
+      the rest.** Pipeline `[invert, watermark(refuses), invert]`: `run` → `Err(Refused)`;
+      `run_with(Skip)` → `Ok`, image equals the input (two inverts), `skipped == [SkippedStep
+      { step: 1, op: "watermark", .. }]`. A pipeline whose watermark fits returns the same image and
+      empty `skipped` under both policies.
+
+**The recipe — library + load:**
+- [ ] **AC-12. A `text` step refuses `scale` and `tile = true` at load; `tile = false` and image
+      mode are unaffected.** `build_pipeline` → `InvalidOperation` naming `'scale'` / `'tile = true'`
+      for rows D and E; a text step with `tile = false` builds; an image step with `scale` and
+      `tile = true` builds; `Recipe::from_ops` over a text mark (as the CLI builds it) →
+      `to_toml` → `build_pipeline` builds.
+
+**Single explicit input → error, exit 2, nothing written** (stderr is one `error:` line):
+- [ ] **AC-13. `watermark`, one input.** Row A → exit 2, no `-o` file, stderr contains
+      `watermark refused`, `does not fit` and `24×24 px`. **And coverage reaches the surface:**
+      default string on 172×172 → exit 2, stderr contains `5.61 %` (1661 of 29584 px, measured
+      at design) and `the limit is 5 %`.
+- [ ] **AC-14. `apply --recipe`, plain, one input.** Row A's step as a recipe → exit 2, no output.
+- [ ] **AC-15. `apply --recipe` ending in `optimize`, one input — both branches.** Row A's step
+      followed by a terminal `optimize` step. (a) pinned (`-o out.png`) → exit 2, no output; (b) auto-decide (`--out-dir d`) → exit 2, `d` empty.
+- [ ] **AC-16. wasm `transform`** (under `just wasm-test`): a 24×24 PNG + a text recipe with
+      `size = 200.0` → `Err` whose text contains `watermark refused` and `24×24`; a following
+      valid call on the same module succeeds.
+
+**Batch / `build` → skip: written without the mark, other steps applied, reported, exit 0:**
+- [ ] **AC-17. `watermark`, N inputs.** `b24.png` + `b256.png` (24×24 and 256×256
+      generated bases), default text, `--out-dir`: exit 0;
+      both outputs exist; `b24`'s output pixels equal its input's; `b256`'s output is byte-identical
+      to the single-input run on `b256.png`; stderr has exactly one
+      `warning: …b24.png: watermark skipped, image written without it: …` line and the closing
+      `watermark skipped on 1 of 2 images`. **With `--quiet`:** the warning line is still there; the
+      closing line is not.
+- [ ] **AC-18. `apply --recipe`, plain, N inputs — other steps still apply.** Recipe
+      `[resize percent 50, watermark text]` over a 48×48 and a 512×512 input: exit 0; the small
+      input's output is byte-identical to the same recipe **without** the watermark step; one
+      warning line; `watermark skipped on 1 of 2 images`.
+- [ ] **AC-19. `apply --recipe` ending in `optimize`, N inputs — both branches.** AC-18's recipe
+      plus a terminal `optimize` step, AC-18's inputs. (a) pinned (`--format png`) and (b) auto-decide: exit 0, 2 outputs, one warning line naming the small
+      input, the closing count line.
+- [ ] **AC-20. `build`, a plain recipe (Preserve plan).** One target, recipe as AC-18, inputs as
+      AC-18: exit 0; the skipped output is byte-identical to the watermark-free recipe's; one
+      warning line; summary `built 1 target, 2 outputs (0 cached, 2 rebuilt), watermark skipped on 1`;
+      `crustyimg.build.lock` written with 2 records; a following `build --check` exits 0.
+- [ ] **AC-21. `build`, terminal-`optimize` recipe (Decide plan).** AC-19's recipe and
+      inputs, target name `{stem}.{ext}`:
+      exit 0, one warning line, the summary suffix, lockfile written.
+- [ ] **AC-22. A skip is not a failure.** `build` over [small (skips), corrupt.png (fails),
+      large]: exit **6**; summary ends `watermark skipped on 1, 1 failed`; the final error reports
+      1 failed of 3 (not 2); no lockfile written (unchanged failure rule).
+- [ ] **AC-23. A cached re-run (Call 4, the documented behaviour).** Re-running AC-20's `build`:
+      exit 0, `(2 cached, 0 rebuilt)`, outputs byte-identical, **no** skip line, no suffix. Then
+      `build --no-cache`: the skip line and suffix are back.
+
+**Exit mapping, docs, controls, matrix:**
+- [ ] **AC-24. `CliError::Operation(OperationError::Refused { .. }).code() == 2`**;
+      `Operation(Apply { .. })` stays 1 (`exit_code_mapping_is_total` gains the row).
+- [ ] **AC-25. Docs.** `docs/api-contract.md`: the `watermark` section states the rule (fit with
+      margin on anchored axes; 5 % of the image's pixels for a fixed-size mark; `tile` and `scale`
+      exempt from the 5 %), exit 2 on one explicit input, the batch skip line and count, and the
+      cached-run behaviour under `build`; the exit-code table's row for 2 mentions a refused
+      watermark. `recipes/README.md` (watermark keys) and `docs/data-model.md` (watermark table):
+      the rule in one paragraph, and `scale`/`tile = true` image-only. The `watermark` command's
+      help text (`src/cli/mod.rs` doc comment) gains one sentence. `CHANGELOG.md`: one **Changed**
+      line (refusal + skip), one **Fixed** line (text no longer clipped / silently tiny; recipe text
+      with `tile`/`scale` refused). DEC-104 exists (Call 6).
+- [ ] **AC-26. Negative controls, one revert per independent condition** (table under Failing
+      Tests). Evidence is the behavioural flip, never a hash.
+- [ ] **AC-27. Clean matrix.** Default, `--no-default-features`, `--features webp-lossy`, each in a
+      fresh `CARGO_TARGET_DIR`, **sequential**; `clippy -D warnings`, `fmt --check`;
+      `just wasm-check`, `just wasm-test`, **`just demo-build`** (bundle-size gate; this reaches wasm
+      through `src/operation/**`). `src/operation/**` and `src/pipeline/**` gain no
+      `std::fs`/`std::path` (grep stays empty).
 
 ## Failing Tests
 
-*Written at design, BEFORE build.*
+Written at design, made to pass at build. "RED on `main`" says why each fails today; **guard** =
+green on `main`, must stay green.
 
-- **`path/to/test.file`**
-  - `"test description 1"` — asserts: ...
+- **`src/operation/mod.rs`** (unit; synthetic overlays via `RgbaImage::from_fn`, text via
+  `crate::text::render_text` + `Watermark::new_text`)
+  - `fit_refuses_text_wider_or_taller_than_the_image` — AC-1 (3 rows). RED: no `refusal`/`Refused`.
+  - `fit_refuses_an_image_mark_on_each_axis` — AC-2 (3 rows). RED: same.
+  - `margin_applies_only_on_anchored_axes` — AC-3 (5 rows). RED: same.
+  - `coverage_cap_is_5_percent_of_image_pixels` — AC-4 image rows (500 / 501 / 400-of-1600). RED.
+  - `coverage_cap_applies_to_text` — AC-4 text rows (172 / 192). RED.
+  - `opacity_does_not_change_coverage` — AC-5. RED.
+  - `scale_is_fit_checked_after_scaling` — AC-6(b). RED.
+  - `scale_is_exempt_from_coverage` — AC-6(a). **Guard** (applies on `main`; must still).
+  - `one_tile_must_fit` — AC-7(b). RED.
+  - `tile_is_exempt_from_coverage_and_margin` — AC-7(a)(c). **Guard.**
+  - `fit_is_reported_before_coverage` — AC-8. RED.
+  - `refusal_display_names_the_numbers` — AC-9 (3 shapes + the `Refused` prefix). RED.
+  - `passing_marks_are_byte_identical_to_main` — AC-10. **Guard** (goldens from `main`).
+  - `bless_watermark_goldens` — `#[ignore]`, writes AC-10's goldens only under
+    `CRUSTYIMG_BLESS=1`; verify re-runs it on `main` and diffs to zero.
+- **`src/pipeline/mod.rs`** (unit; a stub op whose `refusal` always returns `Some`)
+  - `run_fails_on_a_refusal_and_stops` — AC-11. RED: `refusal` does not exist.
+  - `run_with_skip_skips_the_step_and_runs_the_rest` — AC-11. RED: `run_with` does not exist.
+  - `policies_agree_when_nothing_refuses` — AC-11. RED: does not compile.
+- **`src/cli/mod.rs`** (unit)
+  - `exit_code_mapping_is_total` — gains the AC-24 row. RED: `Refused` does not exist.
+- **`tests/watermark_damage.rs`** (new; library half via `Recipe::from_toml` +
+  `build_pipeline(&OperationRegistry::with_builtins())`; CLI half drives
+  `env!("CARGO_BIN_EXE_crustyimg")`; bases generated natively — a gradient, not a solid colour, so
+  "pixels equal the input" is not trivially true)
+  - `text_step_refuses_scale_and_tile_true` — AC-12 (D, E). RED: both build `Ok`.
+  - `text_step_accepts_tile_false_and_image_steps_keep_scale_and_tile` — AC-12 positives. **Guard.**
+  - `watermark_one_input_refused_exits_2` — AC-13 fit row. RED: exit 0, file written.
+  - `watermark_one_input_over_the_cap_exits_2` — AC-13 coverage row. RED: exit 0.
+  - `apply_one_input_refused_exits_2` — AC-14. RED: exit 0.
+  - `apply_optimize_pinned_one_input_refused_exits_2` — AC-15(a). RED: exit 0.
+  - `apply_optimize_autodecide_one_input_refused_exits_2` — AC-15(b). RED: exit 0.
+  - `watermark_batch_skips_and_reports` — AC-17 (incl. `--quiet`). RED: no warning line.
+  - `apply_batch_skip_keeps_the_other_steps` — AC-18. RED: the small output is marked (differs).
+  - `apply_optimize_pinned_batch_skips` — AC-19(a). RED: no warning line.
+  - `apply_optimize_autodecide_batch_skips` — AC-19(b). RED: no warning line.
+  - `build_skip_writes_unmarked_output_and_the_lockfile` — AC-20. RED: no suffix, marked output.
+  - `build_decide_plan_skips` — AC-21. RED: no warning line.
+  - `build_skip_is_not_counted_as_a_failure` — AC-22. RED: summary lacks the skip suffix (exit 6
+    and the missing lockfile hold on `main` too, for the corrupt input — the suffix and the
+    `1 failed` count are what flip).
+  - `build_cached_rerun_does_not_repeat_the_skip` — AC-23. RED: the first run has no skip line.
+- **`tests/wasm_roundtrip.rs`** (wasm half)
+  - `transform_refuses_a_mark_that_does_not_fit` — AC-16. RED: returns `Ok`.
+
+**Existing tests that change (measured by the prototype, not guessed) — fixture changes only, no
+assertion is weakened:**
+- `tests/apply_batch.rs`: `apply_watermark_recipe_matches_cli_at_one_input`,
+  `apply_watermark_recipe_matches_cli_at_n_inputs`, `apply_and_build_agree_on_watermark_recipe` —
+  an 8×8 overlay on 32×32 bases is 6.25 %. Raise the bases to 64×64 (1.56 %).
+- `tests/build_watermark_cache.rs`: `build_hits_when_overlay_bytes_unchanged`,
+  `build_rebuilds_when_overlay_bytes_change` (8×8 overlay on 32×32 = 6.25 % → 64×64 bases);
+  `build_hits_when_bundled_font_is_used`, `build_rebuilds_when_font_bytes_change` (a 70×26 text
+  mark on 32×32 / 48×48 does not fit → bases of 128×128 or more).
+- `tests/colour_type_preservation.rs`: `watermark_text_narrows_on_an_opaque_base` (775 of 9216 px
+  = 8.41 % → a base of 160×160 or more).
+- `tests/recipe_watermark.rs`: `text_watermark_round_trips_without_an_image_key` (278 of 4096 =
+  6.79 % → 96×96 or more).
+- `tests/watermark.rs`: `text_watermark_writes_output`, `text_watermark_default_font`,
+  `text_watermark_custom_font` (the default 169×31 mark on an 80×40 base does not fit → e.g.
+  320×160, 3.2 %; check the custom font's mark too).
+- Prototype totals: **12 tests in 5 files flip; all 486 unit tests and every other integration
+  test stay green** (default features). The wasm half was not run by `cargo test`; its one text
+  case (`transform_runs_a_text_only_watermark_with_no_font_key`: `"hi"`, size 12, on 64×48) was
+  driven through the prototype binary and passes (a size-40 control on the same base refuses at
+  12.50 %, so the check did run). Change each fixture's size and any assertion on that size only;
+  no behavioural assertion is weakened.
+- `tests/recipe_strict_params.rs` (SPEC-131's): the two rows in Call 5.
+
+**Negative controls (AC-26) — revert one condition, expect exactly these RED:**
+
+| # | condition (revert only this) | flips RED | must stay GREEN |
+|---|---|---|---|
+| N1 | fit check, both axes | AC-1, AC-2, AC-3, AC-6(b), AC-7(b), AC-8, every single-input fit test (AC-13 fit, 14, 15, 16), every batch test (AC-17–23 — they all skip on fit) | the coverage tests (AC-4, 5), AC-13 coverage row |
+| N2 | coverage check | AC-4, AC-5, AC-13 coverage row | every fit and surface test |
+| N3 | margin only on anchored axes (revert: margin on both axes always) | AC-3's `center`/`north` rows, AC-7(c) | the rest |
+| N4 | `scale` exempt from coverage (revert: cap scaled marks too) | AC-6(a) | the rest |
+| N5 | `tile` exempt from coverage (revert: cap tiles too) | AC-7(a) | the rest |
+| N6 | `run_with(Skip)` skips (revert: behaves as Fail) | AC-11 skip test, AC-17–23 (exit 6, no lockfile) | every single-input test, AC-24 |
+| N7 | exit 2 for `Refused` (revert: falls to the generic 1) | AC-13, 14, 15, AC-24 | AC-16 (wasm has no exit code), every batch test |
+| N8 | text mode refuses `scale` / `tile = true` | `text_step_refuses_scale_and_tile_true` | the rest |
+| N9 | batch warning + count lines (revert: don't print) | the stderr assertions of AC-17–22 | AC-23's `--no-cache` half also flips; nothing else |
+
+Two rules make the table hold: every surface test uses a **fit** failure (row A or a 48 px input
+under the default string) except the one coverage row, so N1/N2 split cleanly; and each library
+table asserts `Refusal` fields, not Display, except AC-9.
 
 ## Implementation Context
 
-*Written at design.*
+*Read this section (and the files it points to) before starting the build cycle.*
+
+### Files the build touches (best estimate — the orchestrator schedules on this)
+
+- `src/operation/mod.rs` — `Refusal`, the cap const, `OperationError::Refused`, defaulted
+  `Operation::refusal`; `Watermark`: stored mark-pixel count, `refusal` impl, the guard at the top
+  of `apply`, the shared post-scale-size helper used by both bit-depth branches; text-mode
+  `scale` / `tile = true` refusal inside SPEC-131's unused-by-mode check in `from_params`; unit
+  tests. ⚠ **SPEC-131 edits `Watermark::from_params` too — build after it merges.**
+- `src/pipeline/mod.rs` — `OnRefusal`, `SkippedStep`, `PipelineRun`, `run_with`; `run` delegates;
+  module doc; unit tests.
+- `src/cli/mod.rs` — one `code()` arm; the mapping test row; one sentence in the `watermark`
+  command's doc comment (help text).
+- `src/cli/ops.rs` — **`run_pixel_op` batch loop only** (Skip, warning line, count, closing line).
+  The single-input branch is unchanged (it already calls `run`).
+- `src/cli/optimize.rs` — **`run_apply`** (batch closures print warnings, count, closing line),
+  **`optimize_decide_one`** (an `OnRefusal` parameter; returns the skipped steps),
+  **`encode_one_optimize_decided`** (Skip; returns them), **`run_optimize_autodecide`** (single
+  Fail; batch Skip + lines + count).
+- `src/cli/common.rs` — **`encode_one`** (Skip; returns the skipped steps), **`apply_one`**
+  (returns them).
+- `src/cli/build.rs` — **`build_one`** (collect skips from both encode paths; warning lines),
+  `BuildOutcome` (a skipped field, empty on a hit), **`run_build`'s summary** (the suffix). The
+  lockfile phase is untouched.
+- **Not touched:** `src/wasm.rs`, `src/build/**`, `src/text/**`, `src/operation/registry.rs`
+  (SPEC-131's `WATERMARK_PARAMS` is unchanged — Call 5).
+- Tests: `tests/watermark_damage.rs` (new), `tests/wasm_roundtrip.rs` (one test appended),
+  `tests/recipe_strict_params.rs` (two rows, Call 5), `tests/apply_batch.rs` (three fixtures),
+  `tests/build_watermark_cache.rs`, `tests/colour_type_preservation.rs`,
+  `tests/recipe_watermark.rs`, `tests/watermark.rs` (fixture sizes only — the measured list under
+  Failing Tests).
+- Docs: `docs/api-contract.md`, `recipes/README.md`, `docs/data-model.md`, `CHANGELOG.md`.
+- Decisions: `decisions/DEC-104-watermark-refuses-a-mark-that-does-not-fit-or-covers-over-5-percent.md` (new).
+
+**Overlap with SPEC-134 (`--name-template` pins format) — do not build in parallel.** Shared
+functions: `run_pixel_op` (it edits format resolution at `:377`/`:475`; this spec edits the batch
+loop's run/report lines), `run_apply` (single + batch format resolution vs this spec's batch
+reporting), `encode_one` / `apply_one` (possible signature changes on both sides — the likeliest
+conflict), `build_one` / `run_build`'s summary; files `tests/apply_batch.rs`,
+`docs/api-contract.md`, `CHANGELOG.md`. **Overlap with SPEC-131:** `src/operation/mod.rs`
+(`Watermark::from_params`), `tests/recipe_strict_params.rs` — sequential, SPEC-131 first.
+No overlap with SPEC-132 (`src/build/watch.rs`).
 
 ### Decisions that apply
 
-- `DEC-NNN` — *(design)*
+- `DEC-002` — the `Operation` trait stays small; one defaulted method is added (Call 2), recorded
+  in DEC-104.
+- `DEC-015` — exit codes and the partial-batch rule; a refused single input is exit 2, and a skip
+  is not a per-input failure (DEC-104 amends the batch rule for this one outcome).
+- `DEC-085` — the warn-and-exit-0 precedent; skip lines are unconditional like it.
+- `DEC-031` / `DEC-064` — `src/operation/**` stays filesystem-free and wasm32-clean; the rule is
+  pure geometry on in-memory pixels; `src/pipeline/**` likewise.
+- `DEC-032` / `DEC-045` — the text overlay is rendered tight to its glyphs, which is why the
+  overlay's size is the mark's extent.
+- `DEC-100` — the recipe watermark seam; unchanged.
+- `DEC-057` / `DEC-058` / `DEC-059` / `DEC-101` — `build`'s cache and lockfile; unchanged (Call 4).
+- `DEC-003` — the pixel lane only; no metadata involvement.
+- `DEC-102` (SPEC-131, written at its build) — the unused-by-mode check this spec extends.
 
 ### Constraints that apply
 
-- `constraint-id` — *(design)*
+- `test-before-implementation` — goldens first (own commit, on an untouched tree), then RED tests.
+- `no-unwrap-on-recoverable-paths` — refusals are typed values, never panics.
+- `decode-once-no-per-op-disk` — the check reads the in-memory image; skip keeps one decode.
+- `untrusted-input-hardening` — `u64` arithmetic for areas and sums (a 65535×65535 image times 100
+  overflows `u32`).
+- `one-spec-per-pr`.
 
 ### Prior related work
 
 - `SPEC-029` (shipped) — the `Watermark` op and `Gravity::placement`.
+- `SPEC-030` — text mode; `render_text`.
 - `SPEC-128` (shipped) — watermark reachable from recipes / `build` (DEC-100).
 - `SPEC-129` (shipped) — `build` cache key hashes asset content (DEC-101).
+- `SPEC-131` (building) — strict step params; Call 5 extends its mode check.
+- `SPEC-107` / DEC-085 — the warning precedent.
 
 ### Out of scope (for this spec specifically)
 
-- `--min-size`, the opt-in value rule — its own STAGE-050 backlog item (filed by this frame).
-- A relative / percent `--size` — not ruled; needs filing only if wanted.
-- A user-settable coverage threshold — fixed 5 % unless design justifies a knob.
-- Any change to how a mark that fits is placed, composited or rendered.
-- `build --watch` watching asset paths — SPEC-132.
-- Typed per-op params / unknown-key rejection — SPEC-131 (this spec only adds the text-mode
-  `tile`/`scale` rejection).
+- `--min-size`, the opt-in value rule — its own STAGE-050 item; it will reuse `OnRefusal::Skip`.
+- A relative / percent `--size`; a user-settable cap.
+- Replaying per-input warnings from the `build` cache — filed by this design (Call 4).
+- Any change to how a mark that passes is placed, composited or rendered (AC-10 pins it).
+- A skip field in `--json` / `--explain json` reports.
+- `build --watch` asset watching — SPEC-132.
 - SSIMULACRA2 or any perceptual measure — ruled out.
 
 ## Notes for the Implementer
 
-*(design)*
+- **Wait for SPEC-131 to merge**, rebase, and read its `Watermark::from_params` before editing it.
+- **Start with the goldens** (AC-10): an `#[ignore]`d bless test, run on an untouched tree, in its
+  own commit. Then the RED tests. Then `src/`.
+- **One helper for the post-scale size.** Both bit-depth branches of `apply` compute it today with
+  identical arithmetic (`src/operation/mod.rs:1458-1465`, `:1509-1516`); move that into one
+  function and call it from both branches **and** from `refusal`. AC-10 proves the move changed
+  no byte.
+- **Count on `to_rgba16()`**, not `to_rgba8()` — a 16-bit overlay's alpha 1..=256 becomes 0 in
+  8 bits, and those pixels still change the image.
+- **Integer comparisons only** for the cap (`covered * 100 > w * h * 5`, all `u64`); the percent
+  in the message is formatting only.
+- The warning line's label is the same `label` each loop already builds for its `error:` lines.
+- Print a skip's warning line where the loop prints its `error:` line (inside the rayon closures
+  for `apply`/`build`), so it lands next to its image's other output.
+- **`build --check` after a skip must stay clean** — the lock records the unmarked bytes; do not
+  add anything to the lock record.
+- Run the clean matrix **sequentially, each leg in its own `CARGO_TARGET_DIR`**; redirect test
+  output to a file and read `$?` (never `cargo test | tail`).
+- **Push a WIP commit once it compiles**, before the matrix.
+- Comments and user-facing text are behaviour-first — no spec/DEC ids in messages or doc comments.
+- Every commit `git commit -s`.
 
 ---
 
