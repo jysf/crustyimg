@@ -1,0 +1,10 @@
+version = "1"
+
+[[step]]
+op = "watermark"
+gravity = "northwest"
+image = "assets/logo.png"
+margin = 12
+opacity = 0.6
+scale = 0.25
+tile = true

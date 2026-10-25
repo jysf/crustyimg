@@ -1,0 +1,14 @@
+version = "1"
+name = "web"
+description = "Downscale to 2048px, modernize (AVIF/lossless-WebP), and score (size reported honestly)."
+
+[[step]]
+op = "auto-orient"
+
+[[step]]
+op = "resize"
+mode = "max"
+width = 2048
+
+[[step]]
+op = "optimize"
