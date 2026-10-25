@@ -42,7 +42,7 @@ use super::BuildManifest;
 ///
 /// - `recursive` — source-root directories, watched **recursively** (a source tree
 ///   nests: `assets/**/*.png`). These contain only inputs, never the build's output.
-/// - `shallow` — the manifest's and recipes' directories, watched
+/// - `shallow` — the manifest's, recipes' and recipe assets' directories, watched
 ///   **non-recursively**. We only care about *those files* changing; a recursive
 ///   watch here would also cover the sibling `.crustyimg/` cache tree, whose
 ///   high-churn writes on a fresh build can overflow Linux inotify and degrade
@@ -56,7 +56,8 @@ use super::BuildManifest;
 pub struct WatchSet {
     /// Source-root directories, watched recursively.
     pub recursive: Vec<PathBuf>,
-    /// The manifest's and recipes' directories, watched non-recursively.
+    /// The manifest's, recipes' and recipe assets' directories, watched
+    /// non-recursively.
     pub shallow: Vec<PathBuf>,
     /// Prefixes whose events are ignored: each target's `out` dir, the `.crustyimg`
     /// metadata dir, and the lockfile. A build's own writes land here.
@@ -95,7 +96,12 @@ pub enum WatchError {
 /// the cache turns a redundant rebuild into a no-op, whereas *under*-watching would
 /// silently miss a real edit. Source roots are recursive; the manifest/recipe dirs
 /// are shallow (see [`WatchSet`] for why).
-pub fn watch_roots(manifest: &BuildManifest, manifest_path: &Path) -> WatchSet {
+///
+/// `assets` are the files recipes name (a watermark's image or font), spelled as the
+/// recipe wrote them. Each one's directory is watched shallow, wherever it is (a path
+/// that leaves the manifest's tree is followed, like a source), unless a recursive
+/// source root already covers it. The function never opens a recipe or an asset.
+pub fn watch_roots(manifest: &BuildManifest, manifest_path: &Path, assets: &[PathBuf]) -> WatchSet {
     let mut recursive: Vec<PathBuf> = Vec::new();
     let mut shallow: Vec<PathBuf> = Vec::new();
     let mut excluded: Vec<PathBuf> = Vec::new();
@@ -118,6 +124,16 @@ pub fn watch_roots(manifest: &BuildManifest, manifest_path: &Path) -> WatchSet {
     // recursive watch is a superset). This also avoids registering the same inode
     // twice, which on Linux inotify can share/clobber a watch descriptor.
     shallow.retain(|s| !recursive.contains(s));
+
+    // A recipe asset's directory, shallow: `.` is a legal home for a logo, and a
+    // recursive `.` would cover the output and cache trees. Skipped when a recursive
+    // root already covers it, so the same inode is not registered twice.
+    for asset in assets {
+        let dir = containing_dir(asset);
+        if !recursive.iter().any(|root| covers(root, &dir)) {
+            push_unique(&mut shallow, dir);
+        }
+    }
 
     // The build's own metadata dir (cache entries + temp files) and the lockfile.
     push_unique(&mut excluded, cache_exclusion());
@@ -204,6 +220,16 @@ fn source_root(src: &str) -> PathBuf {
         // A bare path or slash-less directory name → watch its parent.
         containing_dir(Path::new(literal))
     }
+}
+
+/// Whether the recursive watch root `root` covers directory `dir` (equal to it, or an
+/// ancestor of it). Both are lexically clean and relative to the same base, so `.`
+/// covers every directory that does not climb out with `..`.
+fn covers(root: &Path, dir: &Path) -> bool {
+    if root == Path::new(".") {
+        return dir.is_relative() && !dir.starts_with("..");
+    }
+    dir.starts_with(root)
 }
 
 /// The directory that contains `p` (its parent), or `.` when `p` has no parent.
@@ -361,7 +387,7 @@ out = "dist/thumb"
     #[test]
     fn watch_roots_covers_sources_recipes_manifest() {
         let m = manifest_2();
-        let set = watch_roots(&m, Path::new("crustyimg.build.toml"));
+        let set = watch_roots(&m, Path::new("crustyimg.build.toml"), &[]);
 
         // Source-root directories are watched RECURSIVELY: the glob prefix, the
         // trailing-slash dir, and the bare `logo.png` source's parent (".").
@@ -404,7 +430,7 @@ out = "dist/thumb"
             "version = 1\n\n[[target]]\nsource = \"src/*.png\"\nrecipe = \"r.toml\"\nout = \"dist\"\n",
         )
         .unwrap();
-        let set = watch_roots(&m, Path::new("crustyimg.build.toml"));
+        let set = watch_roots(&m, Path::new("crustyimg.build.toml"), &[]);
         assert!(
             set.recursive.contains(&PathBuf::from("src")),
             "{:?}",
@@ -428,7 +454,7 @@ out = "dist/thumb"
     #[test]
     fn watch_roots_excludes_outputs_cache_and_lock() {
         let m = manifest_2();
-        let set = watch_roots(&m, Path::new("crustyimg.build.toml"));
+        let set = watch_roots(&m, Path::new("crustyimg.build.toml"), &[]);
 
         // Each target's output directory.
         assert!(
@@ -490,7 +516,7 @@ out = "dist/thumb"
             "version = 1\n[[target]]\nsource = \"../../**/*.png\"\nrecipe = \"r.toml\"\nout = \"dist\"\n",
         )
         .expect("an escaping source is a valid manifest — `build` resolves it too");
-        let set = watch_roots(&m, Path::new("crustyimg.build.toml"));
+        let set = watch_roots(&m, Path::new("crustyimg.build.toml"), &[]);
         assert!(
             set.recursive.contains(&PathBuf::from("../..")),
             "the escaping source's root follows the manifest (not clamped): {:?}",
@@ -501,7 +527,7 @@ out = "dist/thumb"
     #[test]
     fn empty_manifest_still_watches_its_own_directory() {
         let m = BuildManifest::from_toml("version = 1\n").unwrap();
-        let set = watch_roots(&m, Path::new("sub/crustyimg.build.toml"));
+        let set = watch_roots(&m, Path::new("sub/crustyimg.build.toml"), &[]);
         // Nothing to build, but the manifest's dir is watched (shallow) so a later
         // edit that adds a target is seen.
         assert!(
@@ -514,6 +540,115 @@ out = "dist/thumb"
         assert!(set
             .excluded
             .contains(&PathBuf::from("crustyimg.build.lock")));
+    }
+
+    // ── watch_roots: recipe asset directories ────────────────────────────────────
+
+    /// One target: `src/*.png` sources, a recipe in `recipes/`.
+    fn manifest_src_only() -> BuildManifest {
+        BuildManifest::from_toml(
+            "version = 1\n\n[[target]]\nsource = \"src/*.png\"\nrecipe = \"recipes/r.toml\"\nout = \"dist\"\n",
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn watch_roots_watches_each_asset_directory_shallow() {
+        let m = manifest_src_only();
+        let assets = [
+            PathBuf::from("brand/logo.png"),
+            PathBuf::from("fonts/Go.ttf"),
+            // A second file in an already-listed directory adds no second root.
+            PathBuf::from("brand/mark.png"),
+        ];
+        let set = watch_roots(&m, Path::new("crustyimg.build.toml"), &assets);
+
+        for dir in ["brand", "fonts"] {
+            assert!(
+                set.shallow.contains(&PathBuf::from(dir)),
+                "{dir} must be a shallow root: {:?}",
+                set.shallow
+            );
+            assert!(
+                !set.recursive.contains(&PathBuf::from(dir)),
+                "{dir} must not be recursive: {:?}",
+                set.recursive
+            );
+        }
+        assert_eq!(
+            set.shallow
+                .iter()
+                .filter(|p| **p == PathBuf::from("brand"))
+                .count(),
+            1,
+            "two assets in one directory add one root: {:?}",
+            set.shallow
+        );
+    }
+
+    #[test]
+    fn watch_roots_keeps_a_root_level_asset_dir_shallow() {
+        // A bare `logo.png` lives in `.`; a recursive `.` would cover the build's own
+        // output and cache trees.
+        let m = manifest_src_only();
+        let set = watch_roots(
+            &m,
+            Path::new("crustyimg.build.toml"),
+            &[PathBuf::from("logo.png")],
+        );
+        assert!(
+            set.shallow.contains(&PathBuf::from(".")),
+            "{:?}",
+            set.shallow
+        );
+        assert!(
+            !set.recursive.contains(&PathBuf::from(".")),
+            "{:?}",
+            set.recursive
+        );
+    }
+
+    #[test]
+    fn watch_roots_asset_outside_the_manifest_dir_is_unclamped() {
+        // Same reach a source has: the root follows the recipe's spelling.
+        let m = manifest_src_only();
+        let set = watch_roots(
+            &m,
+            Path::new("crustyimg.build.toml"),
+            &[PathBuf::from("../shared/logo.png")],
+        );
+        assert!(
+            set.shallow.contains(&PathBuf::from("../shared")),
+            "{:?}",
+            set.shallow
+        );
+    }
+
+    #[test]
+    fn watch_roots_drops_an_asset_dir_a_source_root_covers() {
+        let m = BuildManifest::from_toml(
+            "version = 1\n\n[[target]]\nsource = \"src/**/*.png\"\nrecipe = \"recipes/r.toml\"\nout = \"dist\"\n",
+        )
+        .unwrap();
+        let set = watch_roots(
+            &m,
+            Path::new("crustyimg.build.toml"),
+            &[
+                PathBuf::from("src/brand/logo.png"),
+                PathBuf::from("src/mark.png"),
+            ],
+        );
+        assert!(
+            !set.shallow.contains(&PathBuf::from("src/brand"))
+                && !set.shallow.contains(&PathBuf::from("src")),
+            "a recursive source root already covers its asset dirs: {:?}",
+            set.shallow
+        );
+        assert!(
+            set.recursive.contains(&PathBuf::from("src")),
+            "{:?}",
+            set.recursive
+        );
     }
 
     // ── debounce ─────────────────────────────────────────────────────────────────
