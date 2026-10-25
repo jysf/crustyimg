@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # scripts/wt.sh — create, list and remove per-session git worktrees.
 #
-#   wt.sh new NAME [--no-claude]   worktree + branch NAME from fresh origin/main, then start claude
+#   wt.sh new NAME [--no-claude] [-- CLAUDE_ARGS...]
+#                                  worktree + branch NAME from fresh origin/main, then start
+#                                  claude in it with CLAUDE_ARGS (e.g. -- --model opus)
 #   wt.sh ls                       list managed worktrees: branch, dirty, merged, in use
 #   wt.sh rm NAME [--force]        remove a worktree and its branch, if that is safe
 #   wt.sh clean [--yes]            remove every managed worktree that is safe to remove
@@ -16,7 +18,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/_lib.sh"
 
 usage() {
-    sed -n '3,7p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+    sed -n '3,9p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
     exit 1
 }
 
@@ -85,8 +87,16 @@ resolve_dir() {
 
 cmd_new() {
     local name="" launch=1
-    for a in "$@"; do
-        case "$a" in --no-claude) launch=0 ;; -*) usage ;; *) name="$a" ;; esac
+    # Everything after `--` belongs to claude, untouched.
+    local claude_args=()
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --) shift; claude_args=("$@"); break ;;
+            --no-claude) launch=0 ;;
+            -*) usage ;;
+            *) name="$1" ;;
+        esac
+        shift
     done
     [ -n "$name" ] || usage
     local dir; dir="$(dir_for "$name")"
@@ -108,9 +118,9 @@ cmd_new() {
     fi
 
     if [ "$launch" -eq 1 ] && [ -t 0 ] && command -v claude >/dev/null 2>&1; then
-        cd "$dir" && exec claude
+        cd "$dir" && exec claude ${claude_args[@]+"${claude_args[@]}"}
     fi
-    echo "cd ${dir} && claude"
+    echo "cd ${dir} && claude${claude_args[*]+ ${claude_args[*]}}"
 }
 
 cmd_ls() {
