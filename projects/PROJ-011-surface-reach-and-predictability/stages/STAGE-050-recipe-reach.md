@@ -110,7 +110,7 @@ anything a recipe cannot say.
   different predicates, and a size-only rule answers only the first. A watermark that is correctly
   sized and still clipped is just as broken to the user.
 
-- [ ] (not yet written) — [S] **A literal extension in `--name-template` does not pin the
+- [ ] **SPEC-134** (framed 2026-10-24) — [S] **A literal extension in `--name-template` does not pin the
   output format — and single-input `apply` now makes that visible.** Surfaced by SPEC-126's
   verify, 2026-08-23, driven on both binaries with a JPEG source and a plain pixel recipe:
 
