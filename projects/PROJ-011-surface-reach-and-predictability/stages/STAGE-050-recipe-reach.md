@@ -334,7 +334,7 @@ anything a recipe cannot say.
   at `7181eed`. v1 stays valid and must keep serialising as `"1"`.
   ⚠ **Byte-changing on the surface**, so it batches into PROJ-011's single lockfile migration.
 
-- [ ] (not yet written) — [M] **Typed per-operation parameter structs.** ⚡ **Split out of the
+- [ ] **SPEC-131** (framed 2026-10-24) — [M] **Typed per-operation parameter structs.** ⚡ **Split out of the
   item above by SPEC-127's design (Call 4), not deferred by accident.** `OperationParams` is a
   `BTreeMap<String, toml::Value>` with hand-rolled `get_str`/`get_u32`/`get_f32`
   (`src/operation/mod.rs:39-71`), so **every op re-implements its own validation**. The payoff is
