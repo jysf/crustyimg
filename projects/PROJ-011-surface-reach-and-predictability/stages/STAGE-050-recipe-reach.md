@@ -184,7 +184,7 @@ anything a recipe cannot say.
   rules, not by the hasher — but the comment was wrong and is now corrected). The third finding is
   filed below as its own backlog item.
 
-- [ ] (not yet written) — [S] ⚡ **`build --watch` never watches a recipe's asset paths.**
+- [ ] **SPEC-132** (framed 2026-10-24) — [S] ⚡ **`build --watch` never watches a recipe's asset paths.**
   Found by SPEC-129's (retroactive) verify cycle, 2026-09-07, driven with a real positive
   control: `WatchSet` (`src/build/watch.rs:106-114`) is built from the manifest's own directory
   (shallow), each source root (recursive), and each recipe's directory (shallow) — never the
