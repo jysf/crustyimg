@@ -1,42 +1,64 @@
 # SPEC-132 — DESIGN prompt: `build --watch` watches recipe asset paths
 
 Cycle: **design**. Fresh CLI session, own worktree (`just wt docs/spec-132-design`). Starts from
-the stub the frame session pushed to `main`. **Reserved: SPEC-132, DEC-103** (only if a DEC is
-warranted; likely none for an S).
+the stub the frame session pushed to `main` (4056304). **Reserved: SPEC-132, DEC-103** (only if a
+new DEC is warranted; an amendment to DEC-060 may be enough, and that is your call).
 STAGE-050 backlog item: "[S] ⚡ **`build --watch` never watches a recipe's asset paths.**"
 
-## What this spec is for
-`WatchSet` (`src/build/watch.rs`, ~106-114) watches the manifest's directory (shallow), each
-source root (recursive) and each recipe's directory (shallow) — never the file a recipe step's
-`image` / `font` key names. With the overlay at `brand/logo.png` and the recipe at
-`recipes/r.toml`, editing a source rebuilds; editing `brand/logo.png` triggers nothing, silently.
-SPEC-129 made the cache correct once a build runs; this spec makes `--watch` start one.
+**Read the stub's `## Frame` section first** — it holds the reproduction (script and trap layout)
+and is your binding scope. This prompt was rewritten 2026-10-25 to match it.
+
+## What this spec is for (confirmed at frame)
+Under `build --watch`, editing a watermark step's overlay (`image`) or `font` that lives outside
+every watched directory triggers **no rebuild**, silently. Frame drove it on a release build of
+`main` with the assets in `brand/`: image edit → 0 rebuilds, font edit → 0, positive control
+(edit `src/a.png`) → 1, idle control → 0, and the trap (overlay beside the recipe) → caught by
+accident. Two causes:
+1. `watch_roots` (`src/build/watch.rs:98-131`) never includes an asset's directory.
+2. `watch_impl` (`src/cli/build.rs` ~1020-1037) recomputes the watch set **only when the manifest
+   changes**. A recipe edit that re-points `image`/`font` at a new file is missed too. The
+   re-register code already exists for the manifest case.
+
+## Settled — not design calls
+- **Watch the containing directory, never the bare file.** DEC-060 already rules this (an
+  editor's atomic save replaces the file). What is left is **shallow vs recursive**; the frame
+  recommends shallow.
+- **Assets outside the manifest's directory are watched where they are, unclamped**, the same rule
+  DEC-061 applies to sources.
+- **Do not reuse `resolve_recipe_assets`** (`src/cli/common.rs:207`) to list what to watch: it
+  reads the bytes and errors on a missing asset. Enumerate with `registry.asset_keys` plus the
+  key's string value, so "which keys are assets" still has one definition.
 
 ## Design calls that are yours
-- **Watch the file or its directory?** Editors often save by rename (write temp + rename), which a
-  file-level watch can miss. Drive it.
-- **When the asset set changes** — a recipe edit points `image` at a new file, or an asset is
-  deleted / does not exist yet. Is the `WatchSet` recomputed after each rebuild?
-- Reuse the asset walk `build` already does (`resolve_recipe_assets` / `registry.asset_keys`,
-  `src/cli/common.rs`) rather than a second definition of "which keys are assets".
-- ⚠ **Configuration-dependent, so easy to fake-pass:** if the overlay sits inside a source root or
-  beside its recipe, today's watch already catches it by accident. The failing tests must put the
-  asset **outside** every currently-watched path, and the spec must say so.
-- **Count the nouns:** `image` and `font` are two assets → at least one test each (the exact trap
-  SPEC-128 fell into).
-- Prefer a test that does not depend on filesystem-event timing where possible (e.g. assert the
-  computed watch set), plus one end-to-end watch test if the existing watch tests show a reliable
-  pattern — read `src/build/watch.rs`'s tests and say which pattern you chose and why.
+- **Recompute on recipe edits:** how `watch_impl` detects that a batch touched a recipe file, and
+  re-registers, reusing the manifest path's mechanism.
+- **An asset that does not exist yet / is deleted:** frame's scope says its directory is still
+  watched if the directory exists. Say what happens when the directory does not exist either.
+- **Test pattern.** Unit tests on the computed watch set (no filesystem-event timing) plus
+  end-to-end tests in `tests/build_watch.rs` if that file's existing pattern is reliable; say which
+  and why. ⚠ Every failing test must put the asset **outside** every currently-watched path — the
+  frame's trap row shows the fake pass. **Count the nouns:** `image` and `font` are two assets, and
+  "present at start" vs "recipe re-pointed mid-session" are two conditions → at least the frame's 4
+  rows, plus the idle control.
+- **DEC-060's stale `affected_scope`** lists `src/cli/mod.rs`, but the watch loop moved to
+  `src/cli/build.rs`, so `decisions-audit --changed` will not flag DEC-060 for this build. Fix the
+  scope (block-list form) in your design commit, and decide amendment-to-DEC-060 vs DEC-103.
 
 ## Overlap the orchestrator needs to know about
-Three other STAGE-050 specs (SPEC-131 typed params, SPEC-133 watermark damage rule, SPEC-134
-name-template) touch `src/cli/**` and `src/operation/**`. If yours can stay inside
-`src/build/watch.rs` (plus tests) it builds in parallel with them; if it must touch
-`src/cli/build.rs` or `src/cli/common.rs`, list it — that decides the order.
+This build **cannot** stay inside `src/build/watch.rs`; it touches `src/cli/build.rs` too.
+- **SPEC-131** (strict recipe step params) is designed (`63fbfc0`) and builds first or in
+  parallel. It changes how step params are read (`get_str` and friends), which your asset-key walk
+  calls. Read SPEC-131's spec and design your walk against the API it specifies, not today's, and
+  say so in Implementation Context, so whichever build merges second has a trivial rebase.
+- **SPEC-134** (`--name-template`) may edit build's naming code in `src/cli/build.rs` — different
+  functions, same file. List the exact functions you touch.
+- **SPEC-133**: no overlap expected.
+Frame's estimated file list: `src/build/watch.rs`, `src/cli/build.rs`, `src/cli/common.rs` (only
+for a shared helper), `tests/build_watch.rs`, `decisions/DEC-060-*.md`, `CHANGELOG.md`.
 
 ## DECs to read
-DEC-100 (the asset seam), DEC-101, DEC-058, and any DEC governing `src/build/watch.rs`
-(`./scripts/decisions-audit.sh` lists them).
+**DEC-060** (watch semantics — it settles file-vs-directory), DEC-061 (accepted risk #2: watch
+roots follow the manifest, unclamped), DEC-100 (the asset seam), DEC-101, DEC-058.
 
 ---
 
