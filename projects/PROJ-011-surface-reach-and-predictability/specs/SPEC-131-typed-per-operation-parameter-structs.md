@@ -844,7 +844,7 @@ Display; and each CLI/wasm test uses the one condition its row names (the range 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
 - **Branch:** `feat/spec-131-strict-recipe-step-params`
-- **PR (if applicable):** PR_PLACEHOLDER
+- **PR (if applicable):** #200
 - **All acceptance criteria met?** yes — AC-1..AC-15 (AC-15's matrix: see below).
 - **New decisions emitted:**
   - `DEC-102` — Recipe step params are validated at load against a schema each op publishes
