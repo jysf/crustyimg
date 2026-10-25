@@ -361,7 +361,7 @@ impl Recipe {
         // The terminal `optimize` marker is recipe syntax, not a registry op,
         // so the registry never sees its keys: refuse them here. (An `optimize`
         // step anywhere else stays an `UnknownOperation` from `build_pipeline`.)
-        if let Some((index, step)) = recipe.steps.iter().enumerate().last() {
+        if let Some((index, step)) = recipe.steps.iter().enumerate().next_back() {
             if step.op == OPTIMIZE_STEP_OP {
                 if let Some((key, _)) = step.params.iter().next() {
                     return Err(RecipeError::InvalidOperation {
