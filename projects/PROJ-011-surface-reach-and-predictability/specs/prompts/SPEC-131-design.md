@@ -1,48 +1,78 @@
 # SPEC-131 — DESIGN prompt: typed per-operation parameter structs
 
 Cycle: **design**. Fresh CLI session, own worktree (`just wt docs/spec-131-design`). Starts from
-the stub the frame session pushed to `main`. **Reserved: SPEC-131, DEC-102.**
+the stub the frame session pushed to `main` (9cccf69). **Reserved: SPEC-131, DEC-102.**
 STAGE-050 backlog item: "[M] **Typed per-operation parameter structs**".
 
-## What this spec is for
-`OperationParams` is a `BTreeMap<String, toml::Value>` with hand-rolled `get_str` / `get_u32` /
-`get_f32` (`src/operation/mod.rs`, ~39-71), so every op re-implements its own validation and a
-malformed recipe is discovered when the op runs — on input 400 of 500. When this ships, **a
-malformed recipe fails at parse time, naming the bad key** (and which step), before any image is
-decoded, on every surface that loads a recipe: `apply --recipe`, `build`, and the wasm
-`validate()` surface in `src/wasm.rs`.
+**Read the stub's `## Frame` section first.** It corrected this prompt's original premise, and
+it is your binding scope. This prompt was rewritten 2026-10-25 to match it.
+
+## What this spec is for (as the frame found it)
+The backlog said a malformed recipe fails late, on input 400 of 500. **That is wrong**: `apply` and
+`build` build the recipe's pipeline before reading any input (`src/cli/optimize.rs:136`,
+`src/cli/build.rs:298`), and bad required params already fail with exit 1 before writing.
+The real defect is that **bad keys are silently accepted**:
+- **Unknown keys are ignored on every op**, the `optimize` marker included (`bogus = "x"` → exit 0,
+  same output as without it). Pinned by `from_toml_tolerates_unknown_step_param_by_design`
+  (`src/recipe/mod.rs:597`).
+- **Watermark's optional keys fall back to defaults when misspelled or wrong-typed**
+  (`opactiy = 0.5`, `opacity = "0.5"`, `margin = -5`, `tile = "yes"`, `size = "big"` all exit 0
+  with default output), because the accessors return the same `None` for a missing key and a
+  wrong-typed one and every call site does `.unwrap_or(default)` (`src/operation/mod.rs`
+  ~1337-1380). That is a silent wrong output.
+- **The errors that do fire name neither the step nor the key** (a misspelled `widht` is reported
+  as "requires 'width'").
+
+When this ships: **an unknown, wrong-typed or out-of-range step value is refused when the recipe
+is loaded, and the error names the step index, the op and the key.**
+
+## Maintainer rulings (2026-10-25 — settled, do not re-open)
+1. **Unknown step keys become a load-time error.** This retires DEC-061's **accepted risk #1**
+   ("Recipe step params stay tolerant"), which rested on an unknown key being "inert … never a
+   wrong output", which watermark has since made false, and which explicitly deferred strict
+   per-step validation as a feature. **DEC-102 supersedes that accepted risk** (not the whole of
+   DEC-061): mark the clause, follow `decisions/_template.md` and how DEC-101 amended DEC-058.
+   The pin test flips on purpose.
+2. **No "new in 0.8.0" hint on the error.** A **Breaking** line in the CHANGELOG is enough.
 
 ## Design calls that are yours
-- **Struct shape and how it generalises.** Watermark (~10 params, image/text modes, the
-  `image`/`font` asset keys and DEC-100's `resolved_bytes` side channel, which is deliberately
-  invisible to `Serialize`) is the richest op. The `.cube` LUT op is a decided-but-unscheduled
-  second asset-bearing customer (STAGE-050, the CLOSED item) — design the shape so it fits without
-  another seam widening. Do not build the LUT op.
-- **Round-trip under DEC-005, measured.** Recipes round-trip through the parsed form, and
-  `to_toml()` feeds the build cache key and lockfile (DEC-058, DEC-101; SPEC-129's AC-4 pinned
-  that a watermark-free recipe hashes exactly as before). Decide, and pin with a test, whether
-  `to_toml()` of every existing recipe shape stays **byte-identical** (key order, default
-  emission, float formatting). If it cannot, say exactly what changes and why that is acceptable
-  inside 0.8.0's single lockfile migration. Use the recipes under `recipes/` and the test fixtures
-  as the corpus, and state the corpus boundary.
-- **Error wording and where it surfaces** (exit code, stderr text naming key + step index), per
-  verb. Unknown key vs wrong type vs out-of-range value: which are parse-time, and is anything
-  still left to run time (e.g. an asset file that does not exist)?
-- `version = "1"` and `"2"` recipes (SPEC-127 / DEC-099) must both keep parsing; say what the
-  typed layer does with each.
-- The terminal `optimize` marker is not an operation — say how it is treated.
+- **Validate at load, keep the map as the stored form** — the frame's recommendation, and the
+  reason this stays M. If you find that impossible and typed structs must become the serialized
+  form, stop: that is the L split ("reject at load" here vs "typed storage" as a follow-up), and
+  it goes in your report before you write it. Either way, the per-op accepted-key/type/range table
+  must be published through the registry (the mechanism DEC-061 said this needs); say how, so the
+  `.cube` LUT op (decided, unscheduled) fits without another seam widening. Do not build the LUT op.
+- **Round-trip under DEC-005, measured.** With the map kept, `to_toml()` should stay byte-identical
+  for every recipe that still parses. Pin it with a test over the corpus (`recipes/` + test
+  fixtures; state the boundary). `to_toml()` feeds the build cache key and lockfile (DEC-058,
+  DEC-101; SPEC-129's AC-4 pinned that a watermark-free recipe hashes exactly as before).
+- **Error wording and exit code** per surface. Unknown key vs wrong type vs out of range: one
+  shape or three? "Did you mean…?" suggestions are your call.
+- **Surfaces:** `apply --recipe` (single + batch), `build`, and wasm **`transform`**. ⚠ There is no
+  wasm `validate()` export (that is roadmap item #6; give it a backlog line, do not build it), and
+  wasm `transform` **decodes the image before building the pipeline**, so "refused before any
+  image is decoded" is false there today: either check the recipe first in `transform`, or word
+  that surface's AC to what it actually guarantees.
+- `version = "1"` and `"2"` recipes (SPEC-127 / DEC-099) are validated the same way; the terminal
+  `optimize` marker is validated too.
+- **Size the verification.** The frame counted 5 ops, 14 keys, ~30 condition rows. All three
+  surfaces go through `Recipe::build_pipeline`, so plan table-driven unit tests per op plus one
+  integration test per surface plus the round-trip pin, not op × condition × surface. Count the
+  nouns in each AC against that list.
 
 ## Overlap the orchestrator needs to know about
-Two other STAGE-050 specs are being designed right now and will build **after** yours if they
-touch the same files: SPEC-133 (watermark refuses to damage an image — may add watermark checks,
-not new recipe params by default) and SPEC-134 (`--name-template` extension pins format — CLI
-output naming). Your Implementation Context file list decides the build order, so make it
-complete. If you see a hard interaction with either (e.g. SPEC-133 needs a typed watermark field),
-note it in the spec and in your report.
+SPEC-131 and SPEC-133 (watermark damage rule) both edit `Watermark` in `src/operation/mod.rs`, so
+**SPEC-131 builds first** and SPEC-133's build follows it; any recipe key SPEC-133 adds goes in
+under your strict checks, so make adding a key to the table a one-line change and say where. Your
+build may run in parallel with SPEC-132 and SPEC-134 if your file list stays off theirs, so make
+the Implementation Context list complete. Frame's estimate: `src/operation/mod.rs`,
+`src/operation/registry.rs`, `src/recipe/mod.rs`, `src/wasm.rs`, maybe `src/cli/mod.rs`; tests
+`recipe_round_trip`, `recipe_watermark`, `registry_seam`, `build`, `apply_batch`, `wasm_roundtrip`
++ a new strict-params file; docs `recipes/README.md`, `docs/api-contract.md`, `CHANGELOG.md`.
 
 ## DECs to read
-DEC-005, DEC-031 (why `src/operation/**` cannot touch the filesystem — wasm32), DEC-064,
-DEC-099, DEC-100, DEC-101, DEC-058.
+DEC-005, DEC-031 (why `src/operation/**` cannot touch the filesystem — wasm32), **DEC-061**
+(accepted risk #1 and its "Alternatives" entry), DEC-064, DEC-099, DEC-100, DEC-101, DEC-058.
 
 ---
 

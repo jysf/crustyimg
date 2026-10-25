@@ -81,7 +81,7 @@ anything a recipe cannot say.
 
 ## Spec Backlog
 
-- [ ] (not yet written) — [S] ⚡ **`watermark --text` overruns the right edge, and it is NOT
+- [ ] **SPEC-133** (framed 2026-10-24) — [S] ⚡ **`watermark --text` overruns the right edge, and it is NOT
   simply a function of text width.** Driven 2026-09-03 on `main` (0.7.1 + SPEC-126), one source
   photo, `watermark --text "© crustyimg"` with no other flags:
 
@@ -110,7 +110,7 @@ anything a recipe cannot say.
   different predicates, and a size-only rule answers only the first. A watermark that is correctly
   sized and still clipped is just as broken to the user.
 
-- [ ] (not yet written) — [S] **A literal extension in `--name-template` does not pin the
+- [ ] **SPEC-134** (framed 2026-10-24) — [S] **A literal extension in `--name-template` does not pin the
   output format — and single-input `apply` now makes that visible.** Surfaced by SPEC-126's
   verify, 2026-08-23, driven on both binaries with a JPEG source and a plain pixel recipe:
 
@@ -199,7 +199,7 @@ anything a recipe cannot say.
   target's recipe (the same `resolve_recipe_assets`/`registry.asset_keys` walk `build` already
   does) and add each resolved asset's path — but sizing and design are for whoever picks this up.
 
-- [ ] (not yet written) — [S] ⚡ **`watermark` stops silently doing nothing.** A **measured
+- [ ] **SPEC-133** (framed 2026-10-24) — [S] ⚡ **`watermark` stops silently doing nothing.** A **measured
   defect**, driven on `main` (PNG filters undone before comparing):
 
   | input | `--size` | pixels changed |
@@ -298,6 +298,17 @@ anything a recipe cannot say.
   📌 Visual evidence for all of the above, one image per cell at native size and 4×:
   see the contact sheet generated 2026-09-03 (artifact, linked from the session; regenerate with
   the commands in this entry rather than trusting the link to persist).
+
+- [ ] (not yet written) — [S] **`watermark --min-size`: the opt-in value rule, settable in a
+  recipe.** Split out of SPEC-133 by its frame (2026-10-24); the orchestrator confirms the split.
+  It is the second half of the 2026-08-23 ruling above ("Value rule — opt-in `--min-size`,
+  settable in a recipe … only the user knows what is worth protecting"), which is settled; it is
+  not a new idea. Why separate: it adds a CLI flag on `watermark` and a recipe key on the step, so
+  it couples to SPEC-131's strict param schema (land it after SPEC-131 and the key goes straight
+  into the schema), and it needs its own single-input rule, which the ruling does not state (below
+  the floor on one explicit input: error like the damage rule, or write unmarked?). It reuses
+  SPEC-133's batch *skipped* outcome, so build it after SPEC-133. Open for its spec: what "size"
+  means (shorter edge? longer edge? area?) and whether `apply --recipe` gets a CLI override.
 
 - [x] **CLOSED by SPEC-128** (2026-09-06) — ⚡ **Design the registry seam for TWO parameter-rich ops, not one —
   the LUT op is the known second customer.** ⚠ **This item is a design constraint on the watermark
