@@ -147,7 +147,7 @@ Batching these in one sitting unblocks more than anything an orchestrator can do
   decision.
 - **Reserve DEC ids in the prompt.** `next_id` scans only the working tree. **Highest on `main` is
   DEC-101 (2026-10-24).** Reserved for the 0.8.0 wave: SPEC-131 typed params / DEC-102 ·
-  SPEC-132 `build --watch` assets / DEC-103 · SPEC-133 watermark damage rule / DEC-104 ·
+  SPEC-132 `build --watch` assets / DEC-103 (released unused: DEC-060 amended instead) · SPEC-133 watermark damage rule / DEC-104 ·
   SPEC-134 `--name-template` pins format / DEC-105 (EXTENDS DEC-087 to every verb; DEC-087 already makes `build`'s template the format pin, and the "names the file only" rule lived only in `docs/api-contract.md`). Same for SPEC ids, which
   `just new-spec` also allocates from the working tree.
 - **Size the VERIFICATION, not just the code.** SPEC-127 was marked M off its implementation while

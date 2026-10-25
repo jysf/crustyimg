@@ -17,6 +17,7 @@ Cycle prompts live in `prompts/SPEC-132-<cycle>.md`.
       dir created mid-session are also never watched (3 independent conditions, one negative
       control each). Watch set gains asset dirs (shallow); recompute after every rebuild,
       re-register on a changed set or a now-existing failed root. DEC-060 amended (no DEC-103).
-- [ ] **build**
+- [ ] **build** — prompt: `prompts/SPEC-132-build.md`. **Sonnet**, own worktree, branch
+      `feat/spec-132-watch-recipe-assets`.
 - [ ] **verify**
 - [ ] **ship**
