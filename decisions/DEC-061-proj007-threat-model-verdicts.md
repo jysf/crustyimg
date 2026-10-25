@@ -142,6 +142,7 @@ test-completeness patch, not a totality hole).
    operation to publish its accepted param names through the registry; that is a
    feature, filed as a new backlog item (#7), not a hardening fix. Pinned by
    `from_toml_tolerates_unknown_step_param_by_design`.
+   **Superseded by DEC-102 (2026-10-25): unknown step keys are now refused at load.**
 2. **`--watch` roots follow the declared manifest (un-clamped).** `--watch` is a
    local, interactive dev loop (DEC-060), not the CI surface (`build --check` is, and
    it registers no watcher). An out-of-tree root's only effect is extra inotify
@@ -202,6 +203,7 @@ real binary rather than constructing Rust structs.
   spec keeps the LEAD focused (per the spec's boundaries).
 - **A `deny_unknown_fields`-equivalent for recipe step params.** Deferred: needs
   registry-published per-op param names — a feature, filed as backlog #7.
+  **Superseded by DEC-102 (2026-10-25): unknown step keys are now refused at load.**
 - **Convert the `.to_str()→""` seams to typed errors now.** Deferred to the
   unusual-filename sweep: no seam is reachable to a silent wrong output the injectivity
   check doesn't already catch.

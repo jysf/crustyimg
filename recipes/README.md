@@ -104,6 +104,20 @@ choice, not a transformed image. Anywhere else it is rejected as `unknown operat
 'optimize'` (exit `1`) rather than silently reordered. A trailing `optimize` is also what
 makes `apply --recipe web` identical to the `web` verb, and what `--json` reports on.
 
+### Step keys are checked
+
+A step key its op does not take, a value of the wrong type or out of range (`nan`/`inf`
+included), or a key the step's mode never reads (`height` with `mode = "max"`) refuses the
+recipe when it is loaded — exit `1`, nothing written — rather than being ignored. The error
+names the step, **numbered from 0**, the op and the key:
+
+```text
+error: recipe step 1 ('resize'): unknown key 'widht'; expected one of: mode, width, height, percent
+```
+
+An integer is fine where a number is expected (`percent = 50`). Every key's type and range
+is listed in [`docs/data-model.md`](../docs/data-model.md).
+
 ## Beyond one recipe
 
 - **Many source → output pairs in one file:** `crustyimg build` reads a
