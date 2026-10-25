@@ -766,7 +766,7 @@ validation order. A recipe SPEC-131 refuses at `Recipe::from_toml` (a key on the
 - **New decisions emitted:** none
 - **Files this diff touches** (from `git diff --name-only origin/main...HEAD`):
   - `src/build/watch.rs` — `watch_roots` takes `assets`; shallow asset dirs, dropped when a recursive root covers them (`covers`); 4 new unit tests, 5 existing calls gain `&[]`
-  - `src/cli/build.rs` — `register_roots` returns failed roots; new `recipe_asset_paths`, `watch_set_for`; `watch_impl` recomputes after every non-excluded batch and re-registers on a changed set or a retryable root; `manifest_prefix` removed; new `mod watch_tests`
+  - `src/cli/build.rs` — `make_watcher` skips read-only access events (new `is_read_only_access`); `register_roots` returns failed roots; new `recipe_asset_paths`, `watch_set_for`; `watch_impl` recomputes after every non-excluded batch and re-registers on a changed set or a retryable root; `manifest_prefix` removed; new `mod watch_tests`
   - `tests/build_watch.rs` — helpers `attempts`, `settled_attempts`, `brand_project` (+ `start_and_settle`); 6 new tests
   - `docs/cli-reference.md` — `--watch` paragraph
   - `CHANGELOG.md` — one `[Unreleased] → Fixed` entry
@@ -778,6 +778,14 @@ validation order. A recipe SPEC-131 refuses at `Recipe::from_toml` (a key on the
 - **Matrix** (fresh `CARGO_TARGET_DIR` each, sequential, fmt --check + clippy --all-targets -D warnings + test): default, `--no-default-features`, `--features webp-lossy` all green locally. CI is the gate for Linux/Windows timing.
 - **Deviations from spec:**
   - AC-10 diff check: `src/cli/common.rs`, `src/build/cache.rs`, `src/build/lock.rs`, `src/operation/**` are not in the diff.
+  - **`make_watcher` (outside the spec's function list) now drops read-only access events.** CI
+    (Linux) showed `build --watch` waking itself: `notify`'s inotify backend watches `OPEN`, so
+    the build's own reads of the manifest, recipe and assets re-triggered it (~216 attempts in
+    45 s). Reproduced in Docker on unmodified `origin/main` with the control test, so it predates
+    this spec; the existing tests compare output bytes only, and a hot loop of cache hits leaves
+    them unchanged, which hid it. `settled_attempts` exposed it. Open / read / read-close events
+    are skipped; a write-close, modify, create and rename still wake the loop. Unit test
+    `reads_are_not_changes_but_writes_are`; verified green in Docker (Linux) for all 13 tests.
   - Extra helper `start_and_settle` in the e2e file (not in the spec's helper list).
 - **Follow-up work identified:** none.
 

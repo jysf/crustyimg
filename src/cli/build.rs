@@ -946,6 +946,12 @@ fn make_watcher(
         // than crashing the loop; a real edit fires another event. Each event's
         // paths are forwarded for the debounce + exclusion filter to judge.
         if let Ok(event) = res {
+            // Reading a watched file (the build opens the manifest, recipes and
+            // assets every cycle) is not a change. inotify reports opens and
+            // read-closes, which would wake the loop on its own build forever.
+            if is_read_only_access(&event.kind) {
+                return;
+            }
             for p in event.paths {
                 let _ = tx.send(p);
             }
@@ -953,6 +959,20 @@ fn make_watcher(
     })
     .map_err(|e| CliError::from(WatchError::Watcher(e.to_string())))?;
     Ok(watcher)
+}
+
+/// Whether `kind` only reports a file being read (opened, read, or closed after a
+/// read), which changes nothing. A write-close still counts as a change.
+#[cfg(feature = "watch")]
+fn is_read_only_access(kind: &notify::EventKind) -> bool {
+    use notify::event::{AccessKind, AccessMode};
+    use notify::EventKind;
+    matches!(
+        kind,
+        EventKind::Access(
+            AccessKind::Open(_) | AccessKind::Read | AccessKind::Close(AccessMode::Read)
+        )
+    )
 }
 
 /// Register every root in `set` with `watcher`: source roots recursively, the
@@ -1104,6 +1124,22 @@ mod watch_tests {
         let p = dir.join(name);
         std::fs::write(&p, text).unwrap();
         p
+    }
+
+    #[test]
+    fn reads_are_not_changes_but_writes_are() {
+        use notify::event::{AccessKind, AccessMode, CreateKind, DataChange, ModifyKind};
+        use notify::EventKind;
+        let open = EventKind::Access(AccessKind::Open(AccessMode::Any));
+        let read_close = EventKind::Access(AccessKind::Close(AccessMode::Read));
+        let write_close = EventKind::Access(AccessKind::Close(AccessMode::Write));
+        let modify = EventKind::Modify(ModifyKind::Data(DataChange::Any));
+        let create = EventKind::Create(CreateKind::File);
+        assert!(is_read_only_access(&open));
+        assert!(is_read_only_access(&read_close));
+        assert!(!is_read_only_access(&write_close));
+        assert!(!is_read_only_access(&modify));
+        assert!(!is_read_only_access(&create));
     }
 
     #[test]
