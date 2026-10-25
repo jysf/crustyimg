@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`build --watch` now rebuilds when a watermark's image or font changes.** A recipe's
+  `image` or `font` file was never watched, so editing a logo under `--watch` did nothing
+  until a source changed, unless the file happened to sit beside the recipe or among the
+  sources. The file's folder is now watched wherever it is, including a file the recipe is
+  changed to point at mid-session and a folder created after the watch started.
+
 - **Directory and glob inputs now include `.webp` files.** `crustyimg resize photos/ …`
   or `'photos/*.webp'` skipped WebP files — silently in a mixed folder, and with exit `3`
   "input not found" in a folder of only WebP — although a single named `.webp` worked.
