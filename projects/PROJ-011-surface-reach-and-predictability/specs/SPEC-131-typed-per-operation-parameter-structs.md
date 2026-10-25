@@ -292,6 +292,10 @@ parallel with both, unless design routes the error through `src/cli/common.rs`.
    accepted risk.
 2. **No** "new in 0.8.0" hint on the error; a **Breaking** CHANGELOG line is enough.
 
+### Maintainer rulings on the design (2026-10-25)
+3. **Keep** the unused-by-mode refusal (AC-5), which goes beyond the frame's three conditions.
+4. **No `size` upper bound in this spec**; it stays its own STAGE-050 item.
+
 ### Open maintainer questions (as asked at frame)
 - **Reverse DEC-061 verdict #1 (unknown step keys become errors)?** Recommend **yes** — the stage
   item and DEC-061 itself anticipate it, and a warning would be ignored in CI. Only the maintainer

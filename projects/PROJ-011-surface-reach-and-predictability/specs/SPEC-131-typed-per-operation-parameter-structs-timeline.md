@@ -17,6 +17,7 @@ Cycle prompts live in `prompts/SPEC-131-<cycle>.md`.
       form (`to_toml()` pinned by a golden corpus). Widened by measurement: `nan`/`inf` and keys
       unused by the step's mode are refused too. 15 ACs, 6 revert conditions. No `src/wasm.rs` or
       `src/cli/**` edit → parallel with SPEC-132/134, before SPEC-133. DEC-102 written at build.
-- [ ] **build**
+- [ ] **build** — prompt: `prompts/SPEC-131-build.md`. **Opus**, own worktree, branch
+      `feat/spec-131-strict-recipe-step-params`.
 - [ ] **verify**
 - [ ] **ship**
