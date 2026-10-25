@@ -7,7 +7,7 @@
 task:
   id: SPEC-132
   type: bug                        # epic | story | task | bug | chore
-  cycle: build  # frame | design | build | verify | ship
+  cycle: verify  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: S                    # S | M | L  (L means split it)
@@ -20,7 +20,7 @@ repo:
 
 agents:
   architect: claude-opus-5-5
-  implementer: null                # chosen at build dispatch
+  implementer: claude-sonnet-5-5
   created_at: 2026-10-24
 
 references:
@@ -97,6 +97,24 @@ cost:
         Priced by component at Opus $5/$25 per MTok, cache_creation x1.25 ($6.25), cache_read
         x0.10 ($0.50). Includes a release build of `main` and 6 driven watch rows. Measured
         before the commit/push turns, so it slightly under-counts.
+    - cycle: build
+      agent: claude-sonnet-5-5
+      interface: claude-code
+      tokens_total: 4205527
+      tokens_breakdown:
+        input: 70
+        output: 22707
+        cache_creation: 126615
+        cache_read: 4056135
+      estimated_usd: 2.03
+      duration_minutes: null
+      recorded_at: 2026-10-25
+      note: >
+        Build session in its own worktree (feat/spec-132-watch-recipe-assets). Measured from the
+        session's transcript (4c7af3cf-….jsonl, identified by content), deduped by `.message.id`
+        (32 unique ids), input/cache_creation/cache_read once per id, MAX output_tokens per id.
+        Priced by component at Sonnet $3/$15 per MTok, cache_creation x1.25 ($3.75), cache_read
+        x0.10 ($0.30). Measured before the final commit/PR turns, so it slightly under-counts.
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -742,37 +760,37 @@ validation order. A recipe SPEC-131 refuses at `Recipe::from_toml` (a key on the
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
-- **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
-- **Files this diff touches** — **list every one**, with a phrase on what changed
-  in each. Not "src/foo and tests": the enumeration is what a verify cycle diffs
-  the real change against, and what tells you whether every affected `DEC-*` has
-  the path in its `affected_scope`. SPEC-122's Deviations claimed "`src/operation`
-  and `tests/` only" and was wrong by two `scripts/` files, which left
-  `affected_scope` blind; SPEC-124's build added this section by hand after that
-  lesson and still listed 8 of its 9 files. It is a checklist because it is easy
-  to get wrong from memory — build it from `git diff --name-only`, not recall.
-  - `path/to/file` — <what changed>
+- **Branch:** feat/spec-132-watch-recipe-assets
+- **PR (if applicable):** see PR title `fix(build): --watch watches recipe asset paths (SPEC-132)`
+- **All acceptance criteria met?** yes (AC-11's 3-OS CI leg is the open gate)
+- **New decisions emitted:** none
+- **Files this diff touches** (from `git diff --name-only origin/main...HEAD`):
+  - `src/build/watch.rs` — `watch_roots` takes `assets`; shallow asset dirs, dropped when a recursive root covers them (`covers`); 4 new unit tests, 5 existing calls gain `&[]`
+  - `src/cli/build.rs` — `register_roots` returns failed roots; new `recipe_asset_paths`, `watch_set_for`; `watch_impl` recomputes after every non-excluded batch and re-registers on a changed set or a retryable root; `manifest_prefix` removed; new `mod watch_tests`
+  - `tests/build_watch.rs` — helpers `attempts`, `settled_attempts`, `brand_project` (+ `start_and_settle`); 6 new tests
+  - `docs/cli-reference.md` — `--watch` paragraph
+  - `CHANGELOG.md` — one `[Unreleased] → Fixed` entry
+- **RED baseline (unmodified `src/`):** the 4 `watch.rs` and 4 `recipe_asset_paths` unit tests fail to compile only on the `watch_roots` arity and the missing function. On the unmodified binary the five end-to-end tests fail on their asserted observable (image bytes unchanged; no new `error:` line; AC-5's final rebuild never happens), not a setup panic. AC-6 passes (control). AC-5's `cannot watch` assertion was moved to the end of the test so the final step's own failure is what `main` reports.
+- **Negative controls** (`cargo clean -p crustyimg` before each run, restored with `git checkout`):
+  - C1 (`recipe_asset_paths` empty): AC-1..AC-5 RED (5 e2e), AC-8 three of four RED (the non-string case passes on an empty list); AC-6 and the pure AC-7 tests GREEN.
+  - C2 (manifest-only recompute gate): AC-3, AC-4, AC-5 RED; AC-1, AC-2, AC-6, AC-8 GREEN.
+  - C3 (drop `|| retry`): AC-5 RED only; AC-1..AC-4, AC-6 GREEN.
+- **Matrix** (fresh `CARGO_TARGET_DIR` each, sequential, fmt --check + clippy --all-targets -D warnings + test): default, `--no-default-features`, `--features webp-lossy` all green locally. CI is the gate for Linux/Windows timing.
 - **Deviations from spec:**
-  - [list]
-- **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - AC-10 diff check: `src/cli/common.rs`, `src/build/cache.rs`, `src/build/lock.rs`, `src/operation/**` are not in the diff.
+  - Extra helper `start_and_settle` in the e2e file (not in the spec's helper list).
+- **Follow-up work identified:** none.
 
 ### Build-phase reflection (3 questions, short answers)
 
-Process-focused: how did the build go? What friction did the spec create?
-
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — Nothing blocking. AC-5 as written is red on `main` at its `cannot watch` line first, which hides the final step; ordering the assertion last fixed it.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — No. All six design calls held; none turned out wrong.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Run clippy on the test target before the first matrix leg: one `cmp_owned` lint in a new test cost a full leg rerun.
 
 ---
 
