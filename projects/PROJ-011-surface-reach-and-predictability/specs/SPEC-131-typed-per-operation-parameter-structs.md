@@ -266,7 +266,13 @@ parallel with both, unless design routes the error through `src/cli/common.rs`.
   decodes `input` before it builds the pipeline (`src/wasm.rs:241`). Design decides whether to
   validate first there (cheap reorder) or to word that surface's AC as "before any pipeline runs".
 
-### Open maintainer questions
+### Maintainer rulings (2026-10-25) — both questions below are settled
+1. **Yes:** unknown step keys become a load-time error. DEC-102 supersedes DEC-061's **accepted
+   risk #1** ("Recipe step params stay tolerant"); the frame's "verdict #1" label below means that
+   accepted risk.
+2. **No** "new in 0.8.0" hint on the error; a **Breaking** CHANGELOG line is enough.
+
+### Open maintainer questions (as asked at frame)
 - **Reverse DEC-061 verdict #1 (unknown step keys become errors)?** Recommend **yes** — the stage
   item and DEC-061 itself anticipate it, and a warning would be ignored in CI. Only the maintainer
   can retire a recorded accepted risk.
