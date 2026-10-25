@@ -119,6 +119,19 @@ anything a recipe cannot say.
   | `{stem}_w.jpg` | **PNG bytes inside `in_w.jpg`** — mislabelled | JPEG in `in_w.jpg` ✅ |
   | `{stem}_w.png` | PNG in `in_w.png` | **JPEG in `in_w.png`** |
 
+  ✅ **RULED 2026-10-24 (maintainer): honour the template.** A recognised extension in
+  `--name-template` pins the output format, exactly as a recognised `-o` extension already does —
+  a file named `.png` contains a PNG. Rationale: effectively no users yet, so make it right going
+  forward rather than carry the trap. ⚠ Byte-changing for a template whose extension differs from
+  the source format; it rides 0.8.0's single lockfile migration. ⚠ This also settles the
+  *direction* of the PROJ-013 / STAGE-037 `-o` item (extensions pin, deliberately) — see the
+  cross-reference recorded there; that item's undocumented quality change remains open.
+  **For the spec:** this reverses the rule documented in `docs/api-contract.md` / DEC-087 ("a name
+  template's literal extension names the FILE, it does not pin the FORMAT") — amend DEC-087, don't
+  just change code. Also decide what a template extension does on `web`/`optimize` batches, where
+  a `-o` extension pins *and skips the auto-decision*: consistency says the same, but that turns
+  `web --out-dir d/ --name-template '{stem}.webp'` from auto-decide into a pinned convert.
+
   The old single-input path ignored the template entirely and always wrote PNG, so it was
   already mislabelling in one direction. SPEC-126 fixes the `.jpg` row outright and makes the
   `.png` row agree with multi-input `apply`, `resize` and `build` — the documented rule for a
@@ -195,6 +208,19 @@ anything a recipe cannot say.
   | 64×64 | default | **16 %** |
   | 24×24 | default | **47 %** |
   | 24×24 | **200** | **0.00 % — exit 0, file written, no warning** |
+
+  ✅ **RULED 2026-10-24 (maintainer): option D — fit test PLUS a 5 % coverage cap.**
+  - **Fit (primary, no threshold):** refuse when the rendered text extent (plus margin) does not
+    fit inside the image. Catches the `--size 200` 6-px no-op and clipped words, which no coverage
+    cap can.
+  - **Coverage (secondary):** refuse when the text would change more than **5 %** of the pixels.
+    For the default string this adds only ~172–180 px canvases (text fits but dominates).
+  - Refusal behaviour is the 2026-08-23 ruling below: single input → error naming the numbers;
+    batch / recipe / `build` → skip, report, continue, never abort.
+  - Rationale (maintainer): small images don't make sense to watermark; revisit if a real
+    request appears. **Open for the spec, not the ruling:** whether 5 % is fixed or a knob
+    (default fixed), and how `--tile` is treated (it covers the image by design).
+  - Spec this together with the `--text` clipping item above: the fit test *is* that item's fix.
 
   **Two rules, and they are not the same rule** (maintainer ruling, 2026-08-23):
   - **Damage rule — default on, the tool enforces it** because it is pure geometry. Single explicit
