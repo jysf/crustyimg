@@ -1,47 +1,86 @@
 # SPEC-134 — DESIGN prompt: a `--name-template` extension pins the output format
 
-Cycle: **design**. Fresh CLI session, own worktree (`just wt docs/spec-134-design`). Starts from
-the stub the frame session pushed to `main`. **Reserved: SPEC-134, DEC-105.**
+Cycle: **design**. Fresh CLI session, own worktree (`just wt docs/spec-134-design -- --model opus`).
+Starts from the stub the frame session pushed to `main` (ee96747). **Reserved: SPEC-134, DEC-105.**
 STAGE-050 backlog item: "[S] **A literal extension in `--name-template` does not pin the output
-format**". Read it in full.
+format**".
 
-## The ruling (settled — do not re-open)
-**Honour the template (maintainer, 2026-10-24):** a recognised extension in `--name-template` pins
-the output format exactly as a recognised `-o` extension already does — a file named `.png`
-contains a PNG. Byte-changing for any template whose extension differs from the source format;
-rides 0.8.0's single release.
+**Read the stub's `## Frame` section first** — it holds the reproduction across every verb and is
+your binding scope. This prompt was rewritten 2026-10-25 to match it and to carry two new rulings.
 
-## This reverses a documented rule
-`docs/api-contract.md` and **DEC-087** say a name template's literal extension names the FILE and
-does not pin the FORMAT. **Amend DEC-087 with DEC-105** (a new record that names the clause it
-reverses and why; set `superseded_by` / `supersedes` per `decisions/_template.md` and how earlier
-amendments in this repo did it, e.g. DEC-101 amending DEC-058), and change `docs/api-contract.md`
-in the same build. Do not just change code.
+## What the frame found
+The bug is wider than the backlog: **every verb that encodes ignores the template's extension, at
+one input and at many** (`resize`, `thumbnail`, `auto-orient`, `apply` single + multi, plain-recipe
+`build`), writing the source format into a `.png`/`.webp` name. `web`, `optimize` and `apply
+--recipe web` write **AVIF** into `.png`/`.webp` names while stderr says "jpeg → avif". And `apply`
+and `build` disagree today: a `build` target with `recipe = "web"`, `name = "{stem}.png"` already
+writes a real PNG.
+
+## ⚠ Correction: DEC-087 is not reversed — it is EXTENDED
+The earlier prompt (and STAGE-050, SPEC-126, SPEC-127) said DEC-087 holds the rule "a template's
+literal extension names the file, it does not pin the format". **It does not.** DEC-087 is titled
+"`build`'s name template **is** the format pin" (a literal extension pins and skips the AVIF-aware
+decision; `{ext}` preserves). The "names the file only" rule exists only in
+`docs/api-contract.md` (~line 490), and no DEC contains it. So:
+- **DEC-105 extends DEC-087's rule to every verb that encodes.** It does not supersede DEC-087. Set
+  `supersedes` / links accordingly, and say in DEC-105 that the contrary sentence in the API
+  contract was undocumented by any DEC.
+- `docs/api-contract.md` changes in the same build.
+- Correct the misattribution in the STAGE-050 entry for your item (only your item).
+
+## Rulings (settled — do not re-open)
+1. **Honour the template (maintainer, 2026-10-24):** a recognised extension in `--name-template`
+   pins the output format, exactly as a recognised `-o` extension does, on every verb that encodes,
+   at both arities, and on plain-recipe `build` targets.
+2. **(2026-10-25) On `web`, `optimize` and `apply --recipe web`, a recognised template extension
+   pins the format and skips the automatic choice**, as `-o` and `build` (DEC-087) already do.
+   `{ext}` or no extension keeps the automatic choice.
+3. **(2026-10-25) `meta` refuses, exit 4, before writing anything**, when the template names a
+   different format than the source: the metadata lane cannot convert without re-encoding pixels
+   (constraint `metadata-not-via-pixel-encode`). The message says to convert first. Same format →
+   unchanged.
 
 ## Design calls that are yours
-- **`web` / `optimize` batches.** There a recognised `-o` extension pins *and skips the
-  auto-decision*. Consistency says a template extension does the same — which turns
-  `web --out-dir d/ --name-template '{stem}.webp'` from auto-decide into a pinned convert. Decide,
-  drive both behaviours on `main`, and write the reason into DEC-105.
-- **Precedence** when the template extension disagrees with an explicit `--format` (and with a
-  recipe's `format`, SPEC-127 / DEC-099): error, or which wins? Match the `-o` precedent and cite it.
-- **What counts as recognised** — reuse the exact set `-o` uses (`.jpg`/`.jpeg`, case), and say
-  what an unrecognised or missing extension does (presumably unchanged: names the file only).
-- **Every verb that takes `--name-template`**: grep `src/cli/**` (`ops.rs`, `common.rs`,
-  `optimize.rs`, `build.rs`) and `src/sink/mod.rs`. Does `build`'s manifest carry a name template?
-  One AC row per verb, single and multi input (the stage table's two rows are the RED baseline for
-  `apply`).
-- **Cross-reference** PROJ-013 / STAGE-037's `-o` item (this ruling settles its direction; its
-  undocumented quality change stays open there) — note it, do not absorb it.
+- **One helper, about six call sites.** `build` already has `target_format_plan`
+  (`src/cli/build.rs:63`). ⚠ Reusing it as-is breaks two must-not-change cases: plain `build` with
+  `name = "{stem}"` or `"{stem}.txt"` exits 0 today and would exit 4. Design the shared helper so
+  those stay as they are.
+- **Unrecognised or missing extension.** `-o` silently falls through on an unrecognised extension,
+  while `build`'s terminal-`optimize` template exits 4. Pick one behaviour per surface, state it
+  per surface, and keep `{name}`, `{ext}` and extensionless templates as they are.
+- **`{ext}` templates must stay byte-identical** to `main`. Pin it with a test.
+- **Precedence**, three cases: template vs `--format`, vs the recipe's `format` (SPEC-127 /
+  DEC-099), and vs `-o`. Match the `-o` precedent and cite it; say whether a disagreement is an
+  error or which wins.
+- **`build`'s cache key changes** when a plain target moves from preserve to pinned. Pin that
+  consequence with a test, and say how it rides 0.8.0's single lockfile migration (no
+  `CACHE_SCHEMA_VERSION` bump unless you can show one is needed).
+- **One table-driven test** checks the real thing (the output's magic bytes match the template's
+  extension) across 9 encoding verbs × {1, N} inputs, plus the precedence and must-not-change
+  rows. Count the rows against the frame's roster, and make the test assert its row count.
+- **File `responsive`** as a new STAGE-050 backlog item: it accepts `--name-template` and silently
+  ignores it (exit 0); it should refuse (exit 2) or honour it. Do not fix it here.
+- Cross-reference PROJ-013 / STAGE-037's `-o` item (pinned `web` quality drops 85→80 and loses its
+  report): note it, do not absorb it.
 
 ## Overlap the orchestrator needs to know about
-SPEC-131 (typed op params) and SPEC-133 (watermark damage rule) are being designed in parallel and
-also touch `src/cli/**`; their builds and yours will be sequenced by your file lists, so make
-yours complete.
+- **SPEC-133** (watermark damage rule) shares ~7 files with you (`src/cli/{ops,optimize,common,
+  build}.rs`, tests, docs). The two **will not build in parallel**. List, for each shared CLI
+  file, the functions you touch, so the order can be chosen and the second build's rebase stays
+  small.
+- **SPEC-131** (strict recipe params, building now) stays out of `src/cli/**`; you can build in
+  parallel with it. Shared only by append: `CHANGELOG.md`, `docs/api-contract.md`.
+- **SPEC-132** (`build --watch`) edits `watch_impl` in `src/cli/build.rs`; name the `build.rs`
+  functions you touch.
+Frame's estimated file list: `src/cli/{ops,optimize,common,build,mod}.rs`, `src/sink/mod.rs`;
+tests `tests/{apply_batch,build,build_cache,optimize,sink}.rs` + new
+`tests/name_template_pins_format.rs`; docs `docs/api-contract.md`, `CHANGELOG.md`; new DEC-105.
 
 ## DECs to read
-DEC-087, DEC-098, DEC-099, DEC-064, and whatever `./scripts/decisions-audit.sh` reports for the
-files you list.
+**DEC-087** (the rule you extend — read it, do not trust a summary of it), DEC-098, DEC-099,
+DEC-064, DEC-015 (exit codes), DEC-058/DEC-101 (cache key), and whatever
+`./scripts/decisions-audit.sh` reports for the files you list. Constraint
+`metadata-not-via-pixel-encode` in `/guidance/constraints.yaml`.
 
 ---
 

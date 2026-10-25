@@ -294,7 +294,13 @@ stays inside `src/operation/**`.
    through silently on an unrecognised extension (`ops.rs:213-217`) while `build`'s
    terminal-`optimize` template errors (exit 4). Two existing answers; design picks per surface.
 
-### Open maintainer questions
+### Maintainer rulings (2026-10-25) — both questions below are settled
+1. **Pin it:** on `web`, `optimize` and `apply --recipe web`, a recognised template extension pins
+   the format and skips the automatic choice, as `-o` and `build` (DEC-087) already do.
+2. **`meta` refuses, exit 4, before writing**, when the template names a different format than
+   the source; it says to convert first.
+
+### Open maintainer questions (as asked at frame)
 
 1. **`web` / `optimize` / `apply --recipe web` with a literal template: pin and skip the
    auto-decision?** Recommend **yes** — it is what `build` already does with the identical
