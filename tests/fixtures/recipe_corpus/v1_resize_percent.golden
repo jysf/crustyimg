@@ -1,0 +1,11 @@
+version = "1"
+
+[[step]]
+op = "resize"
+mode = "percent"
+percent = 37.5
+
+[[step]]
+op = "resize"
+mode = "percent"
+percent = 50

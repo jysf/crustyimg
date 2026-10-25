@@ -214,6 +214,28 @@ Both modes share placement keys: `gravity` (default `southeast`), `opacity`
 (`0.0..=1.0`, default `1.0`), `scale` (optional, aspect-preserving), `margin`
 (pixels, default `0`), `tile` (bool, default `false`).
 
+Every key's type and range (checked at load — see "Step keys are checked at
+load" below; a default applies only when the key is **absent**, never to a
+wrong-typed value):
+
+| Key | Type | Range |
+|---|---|---|
+| `image` | string (a file path) | — |
+| `text` | string | — |
+| `font` | string (a file path) | — |
+| `size` | number (integer or float) | finite, `> 0` |
+| `color` | string | hex `RRGGBB`, `#RRGGBB` or `RRGGBBAA` |
+| `gravity` | string | one of `center`, `north`, `south`, `east`, `west`, `northeast`, `northwest`, `southeast`, `southwest` |
+| `opacity` | number (integer or float) | `0.0..=1.0` |
+| `scale` | number (integer or float) | finite, `> 0` |
+| `margin` | integer (a float is refused) | `0..=4294967295` |
+| `tile` | boolean | — |
+
+**Unused by mode:** an `image` step that also sets `font`, `size` or `color`
+is refused (`'size' only applies to a text watermark`). `tile = true` ignoring
+`gravity`/`margin`, and `gravity = "center"` ignoring `margin`, are documented
+behaviour and accepted.
+
 ⚠ **`image`'s and `font`'s VALUES are paths, never bytes.** `to_toml` always
 emits the path a step named — the CLI's recipe-IO-boundary resolver
 (`cli::common::resolve_recipe_assets`, native only) attaches the actual file
@@ -262,10 +284,45 @@ the step round-trips minimally (e.g. `max` records `mode` + `width`, with
 | `cover` | `width`, `height` | cover W×H (aspect kept; may upscale); no crop |
 | `fill` | `width`, `height` | `cover` then center-crop to exactly W×H |
 
-A missing/unknown `mode`, a missing required key, a wrong-typed key, or a
-non-positive value is a typed error at recipe build time
-(`RecipeError::InvalidOperation`, via `RegistryError::InvalidParams`) — not a
-silent skip and not `UnknownOperation`.
+| Key | Type | Range |
+|---|---|---|
+| `mode` | string | one of `max`, `exact`, `percent`, `fit`, `fill`, `cover` |
+| `width` | integer (a float is refused) | `1..=4294967295` |
+| `height` | integer (a float is refused) | `1..=4294967295` |
+| `percent` | number (integer or float) | finite, `> 0` |
+
+**Unused by mode:** a key the mode never reads is refused, not ignored —
+`height` or `percent` under `max`, `width` or `height` under `percent`,
+`percent` under the other four (`'height' is not used by mode 'max'`).
+
+A missing/unknown `mode`, a missing required key, an unknown key, a
+wrong-typed or out-of-range value, or a key the mode does not read is a typed
+error at recipe build time (`RecipeError::InvalidOperation`, via
+`RegistryError::InvalidParams`) — not a silent skip and not
+`UnknownOperation`. (Before 0.8.0 a wrong-typed key was refused only when it
+was a required one, and with a message about the missing key.)
+
+### Step keys are checked at load
+
+Every op publishes the step keys it accepts (`OperationRegistry::param_specs`,
+a table of `ParamSpec { key, kind }`), and the registry checks each step
+against that table **before** the op is constructed: a key the op does not
+take, a value of the wrong TOML type, or a value out of range is refused.
+Numbers must be finite (`nan`/`inf` are refused); an integer is accepted for
+a number key and keeps serializing as an integer. `identity`, `invert` and
+`auto-orient` take no keys, and the terminal `optimize` marker takes none
+either (checked by `Recipe::from_toml`). Keys are checked in sorted order and
+the first failure is reported, as one line naming the step (numbered from 0),
+the op and the key:
+
+```text
+recipe step 0 ('resize'): unknown key 'widht'; expected one of: mode, width, height, percent
+recipe step 1 ('watermark'): 'opacity' must be a number in 0.0..=1.0, got the string "0.5"
+```
+
+Checking never rewrites a step, so `to_toml()` — and the `build` cache key and
+lockfile hash computed from it — is unchanged for every recipe that loads
+(DEC-102).
 
 ### The terminal `optimize` step (SPEC-085 / SPEC-111)
 

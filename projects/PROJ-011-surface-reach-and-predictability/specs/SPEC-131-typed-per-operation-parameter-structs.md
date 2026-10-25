@@ -7,7 +7,7 @@
 task:
   id: SPEC-131
   type: story                      # epic | story | task | bug | chore
-  cycle: build  # frame | design | build | verify | ship
+  cycle: verify  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: M                    # S | M | L  (L means split it)
@@ -102,6 +102,25 @@ cost:
         Priced by component at Opus $5/$25 per MTok, cache_creation x1.25, cache_read x0.10.
         Includes a release build of main and the driven measurement table. Measured before the
         commit/push turns, so it slightly under-counts.
+    - cycle: build
+      agent: claude-opus-5-5
+      interface: claude-code
+      tokens_total: 15746017
+      tokens_breakdown:
+        input: 170
+        output: 76900
+        cache_creation: 220444
+        cache_read: 15448503
+      estimated_usd: 11.03
+      duration_minutes: null
+      recorded_at: 2026-10-25
+      note: >
+        Build session in its own worktree (feat/spec-131-strict-recipe-step-params). Measured from
+        the session's transcript (8b455304-….jsonl, identified by content), deduped by
+        `.message.id` (82 unique ids), input/cache_creation/cache_read once per id, MAX
+        output_tokens per id. Priced by component at Opus $5/$25 per MTok, cache_creation x1.25
+        ($6.25), cache_read x0.10 ($0.50). Measured before the PR/report turns, so it slightly
+        under-counts.
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -824,37 +843,108 @@ Display; and each CLI/wasm test uses the one condition its row names (the range 
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
+- **Branch:** `feat/spec-131-strict-recipe-step-params`
+- **PR (if applicable):** #200
+- **All acceptance criteria met?** yes — AC-1..AC-15 (AC-15's matrix: see below).
 - **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
-- **Files this diff touches** — **list every one**, with a phrase on what changed
-  in each. Not "src/foo and tests": the enumeration is what a verify cycle diffs
-  the real change against, and what tells you whether every affected `DEC-*` has
-  the path in its `affected_scope`. SPEC-122's Deviations claimed "`src/operation`
-  and `tests/` only" and was wrong by two `scripts/` files, which left
-  `affected_scope` blind; SPEC-124's build added this section by hand after that
-  lesson and still listed 8 of its 9 files. It is a checklist because it is easy
-  to get wrong from memory — build it from `git diff --name-only`, not recall.
-  - `path/to/file` — <what changed>
+  - `DEC-102` — Recipe step params are validated at load against a schema each op publishes
+    through the registry (block-list `affected_scope`; supersedes DEC-061's accepted risk #1).
+- **Files this diff touches** (from `git diff --name-only origin/main...HEAD`, 36 files):
+  - `src/operation/registry.rs` — `ParamSpec`/`ParamKind`, `check_params` (unknown → type →
+    range, first failure wins), per-op `Entry` (ctor + table + derived asset keys),
+    `register_with_params`, `param_specs`, `register`/`register_with_assets` now build tables,
+    `asset_keys` derived and returning `&[&'static str]`, `build` checks before the ctor; 4 unit
+    tests (`every_builtin_publishes_a_param_schema`, `asset_keys_are_derived_from_the_schema`,
+    `one_of_values_are_accepted_by_their_constructors`, `register_without_params_refuses_any_key`).
+  - `src/operation/mod.rs` — re-exports `ParamKind`/`ParamSpec`; `OperationParams::iter`/
+    `contains`; `RESIZE_PARAMS`, `WATERMARK_PARAMS`, `GRAVITY_NAMES`; `Resize::from_params` and
+    `Watermark::from_params` run the table check, refuse mode-unused keys, name the key in every
+    message (`color` wrapped), drop their now-redundant range checks.
+  - `src/recipe/mod.rs` — `InvalidOperation.step`, Display `recipe step {step} ('{name}'): …`,
+    `build_pipeline` passes the index, terminal-marker check in `from_toml`, module doc's
+    "Accepted" paragraph rewritten, pin test replaced by `build_pipeline_rejects_unknown_step_param`.
+  - `tests/recipe_strict_params.rs` (new) — 16 tests: the 14 Failing Tests plus
+    `an_integer_past_u32_max_is_refused` and `a_number_past_f32_range_is_refused`.
+  - `tests/recipe_round_trip.rs` — `to_toml_is_byte_identical_to_main_over_the_corpus`,
+    `bless_recipe_corpus_goldens` (`#[ignore]`, `CRUSTYIMG_BLESS=1`).
+  - `tests/fixtures/recipe_corpus/` (new) — 10 `.toml` + 10 `.golden`, and
+    `bundled_{web,gallery,product}.golden` (23 files).
+  - `tests/registry_seam.rs` — `a_lut_shaped_op_is_strict_and_resolvable_through_one_table`
+    appended; the existing test unedited.
+  - `tests/wasm_roundtrip.rs` — appended `mod strict_step_params` with
+    `transform_refuses_an_unknown_step_key`.
+  - `decisions/DEC-102-recipe-step-params-are-validated-at-load.md` (new).
+  - `decisions/DEC-061-proj007-threat-model-verdicts.md` — two one-line superseded markers.
+  - `docs/data-model.md` — resize/watermark type+range tables, the unused-by-mode rule, a
+    "Step keys are checked at load" section, the wrong-typed-key sentence corrected.
+  - `docs/api-contract.md` — "Recipe step errors" paragraph (exit 1, one line, step/op/key; wasm).
+  - `recipes/README.md` — "Step keys are checked" (strict keys, 0-based steps).
+  - `CHANGELOG.md` — one **Breaking** line, one **Fixed** line under Unreleased.
+  - `projects/…/SPEC-131-….md` — this section, cycle, cost.
+- **RED baseline** (tests written and run against unmodified `src/` logic, commit `dff5159`
+  before `80094b3`; per-row probe of every table on main):
+  - `unknown_key_…`: 5 `bogus` rows LOADED OK; `widht` refused as "requires … 'width'".
+  - `wrong_type_…`: required rows refused without `must be` (`missing required param 'mode'`,
+    `requires a positive integer 'width'`, …); **8** optional watermark rows (`font`, `size`,
+    `color`, `gravity`, `opacity`, `scale`, `margin`, `tile`) LOADED OK with defaults.
+  - `out_of_range_…`: exactly `percent = nan|inf`, `size = nan|inf`, `scale = nan`,
+    `margin = -5` LOADED OK; the rest refused with old wording.
+  - `key_unused_…`: all 6 LOADED OK. `terminal_optimize_…`, `error_display_…`,
+    `versions_1_and_2_…`: loaded OK. CLI: apply single exit 0, batch exit 0 (3 outputs),
+    build exit 0. wasm `transform_refuses_…`: returned PNG bytes. `register_without_params_…`,
+    `build_pipeline_rejects_…`: built Ok. `registry_seam` new test and the three schema unit
+    tests: compile errors on exactly the missing `ParamKind`/`ParamSpec`/`param_specs`/
+    `register_with_params`.
+  - Guards GREEN on main: `keyless_terminal_…`, `integer_for_a_number_key_…`,
+    `documented_interplay_…`, `recipes_crustyimg_writes_…`, the corpus golden test,
+    `a_second_asset_op_registers_without_seam_change`.
+- **Negative controls (AC-14)** — one condition reverted, full native suites (lib +
+  strict/seam/round-trip/watermark/edit) and `just wasm-test` re-run, then restored:
+  - C1 unknown-key → exactly `unknown_key_…`, `register_without_params_…`, `apply_batch_…`,
+    `build_pipeline_rejects_…`, `error_display_…`, `versions_1_and_2_…`, `transform_refuses_…`,
+    `a_lut_shaped_op_…` RED (8/8); everything else green.
+  - C2 type → `wrong_type_…`, `apply_single_input_…` RED; wasm green.
+  - C3 range+finiteness → `out_of_range_…`, `build_refuses_a_non_finite_…`, `a_lut_shaped_op_…`
+    RED, plus the two added range tests and the existing `resize_from_params_nonpositive_dim`
+    (width = 0 is now the schema's range, not the constructor's) — expected, all C3 conditions.
+  - C4 unused-by-mode → only `key_unused_by_the_mode_…`. C5 marker → only
+    `terminal_optimize_marker_…`.
+  - C6 Display prefix → `error_display_…`, the three CLI tests, `transform_refuses_…`; every
+    library table stayed green.
+- **Matrix (AC-15)** — at `6369dd7`, sequential, each leg a fresh `CARGO_TARGET_DIR`:
+  default / `--no-default-features` / `--features webp-lossy` each `cargo test` exit 0 (46 suites
+  ok, 0 failed) and `clippy --all-targets -D warnings` exit 0; `fmt --check` 0; `just wasm-check`
+  0; `just wasm-test` 0 (44 passed); `just demo-build` 0 — brotli **1,268,238 B** vs `main`'s
+  **1,265,435 B** (fresh `just wasm-build` of `origin/main`): **+2,803 B (+0.22%)**, inside the
+  gate, gate not moved. `src/operation/**` std::fs/std::path grep: only the pre-existing module
+  doc line forbidding them. (A first run at `0d34393` failed one clippy lint,
+  `double_ended_iterator_last`; fixed in `6369dd7` and the whole matrix re-run clean.)
 - **Deviations from spec:**
-  - [list]
+  - Constructors also run `check_params` themselves (`Resize::from_params` is `pub` and called
+    directly by unit tests), so a direct caller gets the registry's checks; their old range
+    checks were removed as redundant. Not a design change; the registry check still runs first.
+  - `Number` also refuses a finite float past `f32::MAX` (`size = 1e300` → `inf` as `f32`),
+    found while implementing; same silent-wrong-output class as `inf`. Two extra tests.
+  - DEC-102's `affected_scope` adds `docs/data-model.md` (Call 8 lists it; the prompt's
+    example listed three paths).
+  - The spec said 7 optional watermark rows default silently; measured 8 (`font` too).
 - **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - None new; the wasm `validate()` export and the `size` upper bound are already filed on
+    STAGE-050.
 
 ### Build-phase reflection (3 questions, short answers)
 
-Process-focused: how did the build go? What friction did the spec create?
-
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — Asserting `step` in the library tables without the field existing on main; I read it from
+   Debug so the RED run could be behavioural rather than a compile error.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — That numbers are consumed as `f32`: "finite" has to mean finite after the cast.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Run `clippy --all-targets` before the long matrix, not inside it; one lint cost a re-run.
+
+No design call turned out wrong.
 
 ---
 

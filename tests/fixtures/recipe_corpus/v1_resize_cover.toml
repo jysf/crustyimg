@@ -1,0 +1,9 @@
+# Resize, mode "cover": width and height.
+version = "1"
+description = "corpus: resize cover"
+
+[[step]]
+op = "resize"
+mode = "cover"
+width = 640
+height = 480

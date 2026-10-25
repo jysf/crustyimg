@@ -1,0 +1,9 @@
+# Resize, mode "exact": width and height.
+version = "1"
+description = "corpus: resize exact"
+
+[[step]]
+op = "resize"
+mode = "exact"
+width = 640
+height = 480

@@ -1,0 +1,8 @@
+version = "1"
+description = "corpus: resize fit"
+
+[[step]]
+op = "resize"
+height = 480
+mode = "fit"
+width = 640

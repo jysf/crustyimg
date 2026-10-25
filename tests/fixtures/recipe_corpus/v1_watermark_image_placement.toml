@@ -1,0 +1,12 @@
+# Image watermark with every placement key, tiled (tile ignores gravity and
+# margin, which is documented and accepted).
+version = "1"
+
+[[step]]
+op = "watermark"
+image = "assets/logo.png"
+gravity = "northwest"
+opacity = 0.6
+scale = 0.25
+margin = 12
+tile = true

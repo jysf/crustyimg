@@ -7,7 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Breaking
+
+- **A recipe step with a key its op does not take, a wrong-typed value, or a key its mode
+  never reads is now refused when the recipe is loaded** (exit `1`, nothing written), on
+  `apply --recipe`, `build` and wasm `transform`. Such a recipe used to run, ignoring the
+  key. The error names the step (numbered from 0), the op and the key:
+  `recipe step 0 ('resize'): unknown key 'widht'; expected one of: mode, width, height, percent`.
+
 ### Fixed
+
+- **Watermark recipe keys no longer silently fall back to their defaults.** A wrong-typed
+  `opacity = "0.5"`, `margin = 5.0` or `tile = "yes"`, or a negative `margin`, used to run
+  with the default at exit `0`; it is now refused. `nan`/`inf` are refused on every number
+  key — `size = nan` used to drop the watermark entirely and `percent = nan` wrote 1×1
+  images, both at exit `0`.
 
 - **Directory and glob inputs now include `.webp` files.** `crustyimg resize photos/ …`
   or `'photos/*.webp'` skipped WebP files — silently in a mixed folder, and with exit `3`

@@ -1,0 +1,16 @@
+# Integers for number keys must stay valid and serialize as integers.
+version = "2"
+format = "png"
+
+[[step]]
+op = "resize"
+mode = "max"
+width = 1024
+
+[[step]]
+op = "watermark"
+text = "hi"
+size = 24
+opacity = 1
+scale = 1
+color = "ffffff"

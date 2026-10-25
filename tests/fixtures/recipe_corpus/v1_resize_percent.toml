@@ -1,0 +1,13 @@
+# Resize, mode "percent", with a fractional percentage, then a second
+# integer-percent resize.
+version = "1"
+
+[[step]]
+op = "resize"
+mode = "percent"
+percent = 37.5
+
+[[step]]
+op = "resize"
+mode = "percent"
+percent = 50
