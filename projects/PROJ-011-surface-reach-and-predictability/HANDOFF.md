@@ -15,10 +15,14 @@ before STAGE-049 existed as shipped work and before the cost ledger was known to
 
 **You orchestrate; you never design, build, or verify yourself.** ⛔ **Maintainer rule
 (2026-10-24): every step of every spec's cycle runs in its own separate Claude session** —
-design, build, verify, and ship bookkeeping each get a fresh session (context "fresh", own
-worktree). Each session's brief is a persisted prompt in `specs/prompts/SPEC-NNN-<phase>.md`,
-pushed to `main` **before** that session cuts its branch; a one-line brief pointing at the file is
-enough. Release-prep work (CHANGELOG, docs, skill) follows the same rule. When a session reports
+**frame**, design, build, verify, and ship bookkeeping each get a fresh session (own worktree).
+Code quality is the reason: a clean session per step stops one step's context from leaking into
+the next. Each session's brief is a persisted prompt in `specs/prompts/SPEC-NNN-<phase>.md`,
+pushed to `main` **before** that session cuts its branch. **The loop:** the orchestrator writes
+the prompt and hands it to the maintainer, who pastes it into a fresh CLI session
+(`claude -w <name>`) and pastes the session's final report back. So every prompt must be
+self-contained and end with a stand-alone report spec. A sub-session (subagent) is the exception,
+not the default. Release-prep work (CHANGELOG, docs, skill) follows the same rule. When a session reports
 back, check its actual result (diff, PR, CI legs, completion table) before advancing — a session's
 note is a claim, not proof. Never poll CI. Every commit in every session is DCO signed off
 (`git commit -s`).

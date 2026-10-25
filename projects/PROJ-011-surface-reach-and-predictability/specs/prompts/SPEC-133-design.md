@@ -1,6 +1,7 @@
 # SPEC-133 — DESIGN prompt: `watermark` refuses to damage an image (fit test + 5 % coverage cap)
 
-Cycle: **design**. New session, own worktree. **Reserved: SPEC-133, DEC-104.**
+Cycle: **design**. Fresh CLI session, own worktree (`claude -w spec-133-design`). Starts from
+the stub the frame session pushed to `main`. **Reserved: SPEC-133, DEC-104.**
 STAGE-050 backlog items — **both, as one spec**: "[S] ⚡ **`watermark --text` overruns the right
 edge**" and "[S] ⚡ **`watermark` stops silently doing nothing.**" The fit test *is* the first
 item's fix. Read both entries in full; they hold the measured curve and the re-drive of
@@ -57,7 +58,14 @@ DEC-003 (lanes stay separate), DEC-031, DEC-100, DEC-064, and any DEC governing
 
 ## Rules every 0.8.0 design session follows
 
-**You are the design cycle only.** Write the spec; do not build it. A separate session builds it
+**You are the design cycle only.** Write the spec; do not build it. The maintainer pastes this
+prompt into a fresh CLI session and pastes your final message back to the orchestrator, so that
+message must stand on its own.
+
+### Step 0 — get onto current `main`
+`git fetch origin && git rebase origin/main`. The frame stub for your spec must now be in
+`projects/PROJ-011-surface-reach-and-predictability/specs/` at your reserved id with
+`cycle: design`. If it is missing or still `cycle: frame`, stop and report — do not create it. A separate session builds it
 from your spec alone, and another verifies it, so everything the builder needs must be in the spec
 (AGENTS §15). The orchestrator (another session) sequences builds; it does not design.
 
@@ -95,10 +103,10 @@ from your spec alone, and another verifies it, so everything the builder needs m
 - Comments and user-facing text read behaviour-first, with no spec/DEC ids in them.
 
 ### Ids are reserved — use exactly these
-`just new-spec` and `next_id` allocate ids by scanning the working tree, and four design sessions
-are running in parallel, so the allocator WILL hand you the wrong id. Run
-`just new-spec "<title>" STAGE-050 PROJ-011`, and if it allocates anything other than your reserved
-SPEC id, `git mv` both files (spec + timeline) to the reserved id and fix the id inside them.
+The frame session already created your spec and timeline at the reserved SPEC id; do not run
+`just new-spec`. Its `## Frame` section (verdict, sizing, scope in/out, rough file list) is your
+binding scope. If you find it wrong, say so in your report rather than silently widening or
+narrowing it. Fill Acceptance Criteria, Failing Tests and Implementation Context; keep `## Frame`.
 Highest DEC on `main` is DEC-101. Write any DEC with the **block-list** `affected_scope` form
 (an inline array is silently dropped by `scripts/decisions-audit.sh`):
 ```yaml
@@ -110,8 +118,8 @@ Whether a DEC is written at design or at build is your call; say which in the sp
 ### Landing the design
 Design commits go to `main` directly (AGENTS §13), no PR. You are in your own worktree:
 1. Set the spec's `cycle:` to `build` (`just advance-cycle SPEC-NNN build`).
-2. In the STAGE-050 backlog, change **only your item's** `- [ ] (not yet written)` marker to name
-   your spec id (match how SPEC-129's entry reads). Touch no other item — other design sessions are
+2. In the STAGE-050 backlog, change **only your two items'** markers (the frame left each as
+   `- [ ] **SPEC-NNN** (framed <date>)`) to `(designed <date>)`. Touch no other item — other design sessions are
    editing their own entries in the same file right now.
 3. `git commit -s` (**DCO sign-off is mandatory** — CI fails without it; it has bitten this repo
    four times), conventional message `docs(SPEC-NNN): design <short title>`.
@@ -119,8 +127,9 @@ Design commits go to `main` directly (AGENTS §13), no PR. You are in your own w
    conflicts in STAGE-050, keep every other session's edits and re-apply only yours.
 
 ### Measure your own cost
-Your transcript is `~/.claude/projects/<cwd-slug>/<session-id>.jsonl`; the session id is the last
-path component of your scratchpad directory. ⚠ **Dedup by `.message.id`**: Claude Code writes one
+Your transcript is a JSONL under `~/.claude/projects/<slug>/`, where `<slug>` is your working
+directory's absolute path with every `/` and `.` replaced by `-`. **Identify it by content, not
+recency**: `grep -l "SPEC-133 — DESIGN prompt" ~/.claude/projects/<slug>/*.jsonl`. ⚠ **Dedup by `.message.id`**: Claude Code writes one
 JSONL line per *content block*, and lines sharing an id repeat identical `input_tokens` /
 `cache_creation_input_tokens` / `cache_read_input_tokens` while `output_tokens` grows — take those
 three once per id and the **MAX** output. Summing every line over-counts ~2×; taking the first
@@ -129,7 +138,7 @@ actually ran (Opus $5/$25 per MTok, Sonnet $3/$15; cache_creation ×1.25 input, 
 input), never a flat rate. Append a `design` entry to the spec's `cost.sessions` with real numbers
 and a `tokens_breakdown`, before your final commit.
 
-### Report back (your final message)
+### Report back (your final message — it is pasted to the orchestrator)
 First line: spec id, path, and the commit SHA on `main`. Then: AC count and failing-test count;
 each design call and how you settled it; the file list the build will touch; anything that needs a
 **maintainer** ruling (one line each, with your recommendation); your measured cost. Keep it short —
