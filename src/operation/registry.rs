@@ -320,6 +320,114 @@ mod tests {
     }
 
     #[test]
+    fn every_builtin_publishes_a_param_schema() {
+        let reg = OperationRegistry::with_builtins();
+        let keys = |name: &str| -> Vec<&'static str> {
+            reg.param_specs(name)
+                .unwrap_or_else(|| panic!("'{name}' must publish a schema"))
+                .iter()
+                .map(|s| s.key)
+                .collect()
+        };
+        assert_eq!(keys("resize"), ["mode", "width", "height", "percent"]);
+        assert_eq!(
+            keys("watermark"),
+            [
+                "image", "text", "font", "size", "color", "gravity", "opacity", "scale", "margin",
+                "tile"
+            ]
+        );
+        for paramless in ["identity", "invert", "auto-orient"] {
+            assert!(keys(paramless).is_empty(), "'{paramless}' takes no keys");
+        }
+        assert!(reg.param_specs("bogus").is_none());
+    }
+
+    #[test]
+    fn asset_keys_are_derived_from_the_schema() {
+        let reg = OperationRegistry::with_builtins();
+        let from_schema: Vec<&str> = reg
+            .param_specs("watermark")
+            .expect("watermark schema")
+            .iter()
+            .filter(|s| s.kind == ParamKind::Asset)
+            .map(|s| s.key)
+            .collect();
+        assert_eq!(from_schema, ["image", "font"]);
+        assert_eq!(reg.asset_keys("watermark"), from_schema.as_slice());
+
+        // The old entry point records its keys as assets in the schema too.
+        let mut custom = OperationRegistry::new();
+        custom.register_with_assets("fixture", |_p| Ok(Box::new(crate::operation::Identity)), &["a", "b"]);
+        let specs = custom.param_specs("fixture").expect("schema");
+        assert!(specs.iter().all(|s| s.kind == ParamKind::Asset));
+        assert_eq!(custom.asset_keys("fixture"), &["a", "b"]);
+    }
+
+    /// Every value a `OneOf` key publishes is one its constructor accepts, so
+    /// the published list cannot drift from the parser (e.g. `Gravity::from_str`).
+    #[test]
+    fn one_of_values_are_accepted_by_their_constructors() {
+        let reg = OperationRegistry::with_builtins();
+        let mut checked = 0;
+        for op in ["resize", "watermark"] {
+            for spec in reg.param_specs(op).expect("schema") {
+                let ParamKind::OneOf(values) = spec.kind else {
+                    continue;
+                };
+                for value in values {
+                    let mut m = BTreeMap::new();
+                    m.insert(spec.key.to_owned(), toml::Value::String((*value).to_owned()));
+                    match (op, *value) {
+                        ("resize", "max") => {
+                            m.insert("width".to_owned(), toml::Value::Integer(8));
+                        }
+                        ("resize", "percent") => {
+                            m.insert("percent".to_owned(), toml::Value::Integer(50));
+                        }
+                        ("resize", _) => {
+                            m.insert("width".to_owned(), toml::Value::Integer(8));
+                            m.insert("height".to_owned(), toml::Value::Integer(8));
+                        }
+                        _ => {
+                            m.insert("text".to_owned(), toml::Value::String("hi".into()));
+                        }
+                    }
+                    reg.build(op, &OperationParams::from_map(m)).unwrap_or_else(|e| {
+                        panic!("{op}: published {}='{value}' was refused: {e}", spec.key)
+                    });
+                    checked += 1;
+                }
+            }
+        }
+        assert_eq!(checked, 6 + 9, "6 resize modes + 9 gravities");
+    }
+
+    #[test]
+    fn register_without_params_refuses_any_key() {
+        let mut reg = OperationRegistry::new();
+        reg.register("sentinel", |_p| Ok(Box::new(crate::operation::Identity)));
+        let params = OperationParams::from_map({
+            let mut m = BTreeMap::new();
+            m.insert("bogus".to_owned(), toml::Value::Integer(1));
+            m
+        });
+        match reg.build("sentinel", &params) {
+            Err(RegistryError::InvalidParams { op, reason }) => {
+                assert_eq!(op, "sentinel");
+                assert!(
+                    reason.contains("unknown key 'bogus'") && reason.contains("takes no keys"),
+                    "got: {reason}"
+                );
+            }
+            Err(other) => panic!("expected InvalidParams, got {other:?}"),
+            Ok(_) => panic!("an op registered without params must refuse any key"),
+        }
+        // No keys at all still builds.
+        assert!(reg.build("sentinel", &OperationParams::empty()).is_ok());
+    }
+
+    #[test]
     fn unknown_op_has_no_asset_keys_and_does_not_panic() {
         let reg = OperationRegistry::with_builtins();
         assert!(reg.asset_keys("bogus").is_empty());

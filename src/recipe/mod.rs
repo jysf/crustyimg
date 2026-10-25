@@ -589,24 +589,35 @@ mod tests {
         }
     }
 
-    /// PINS the accepted risk (SPEC-068 / DEC-061): an unknown **step** param is
-    /// tolerated by design — `RecipeStep`'s `#[serde(flatten)] params` absorbs it,
-    /// and it is inert. If a future spec adds strict per-op param validation, this
-    /// test flips deliberately, not by accident.
+    /// An unknown **step** key is refused when the pipeline is built, on a
+    /// param-taking op and on a paramless one alike. (It used to be tolerated:
+    /// `RecipeStep`'s flattened params absorb any key, so the check lives in the
+    /// registry, which knows each op's keys.)
     #[test]
-    fn from_toml_tolerates_unknown_step_param_by_design() {
-        // An extra key on a param-taking op (resize) and on a paramless op (invert):
-        // both parse and build a working pipeline; the extra key is dropped.
-        for toml_str in [
-            "version = \"1\"\n[[step]]\nop = \"resize\"\nmode = \"max\"\nwidth = 8\nbogus = \"x\"\n",
-            "version = \"1\"\n[[step]]\nop = \"invert\"\nbogus = \"x\"\n",
+    fn build_pipeline_rejects_unknown_step_param() {
+        for (toml_str, op) in [
+            (
+                "version = \"1\"\n[[step]]\nop = \"resize\"\nmode = \"max\"\nwidth = 8\nbogus = \"x\"\n",
+                "resize",
+            ),
+            (
+                "version = \"1\"\n[[step]]\nop = \"invert\"\nbogus = \"x\"\n",
+                "invert",
+            ),
         ] {
-            let recipe = Recipe::from_toml(toml_str)
-                .expect("an unknown STEP param is tolerated (flatten), not rejected");
+            let recipe = Recipe::from_toml(toml_str).expect("the TOML itself parses");
             let registry = OperationRegistry::with_builtins();
-            recipe
-                .build_pipeline(&registry)
-                .expect("the pipeline still builds; the extra param is inert");
+            match recipe.build_pipeline(&registry) {
+                Err(RecipeError::InvalidOperation { name, reason, .. }) => {
+                    assert_eq!(name, op);
+                    assert!(
+                        reason.contains("unknown key 'bogus'"),
+                        "reason must name the key, got: {reason}"
+                    );
+                }
+                Err(other) => panic!("expected InvalidOperation, got {other:?}"),
+                Ok(_) => panic!("an unknown step key must be refused for '{op}'"),
+            }
         }
     }
 

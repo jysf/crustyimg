@@ -1545,3 +1545,40 @@ fn convert_avif_default_unchanged() {
          AVIF_DEFAULT_QUALITY (q80) encode — SPEC-095 must not move convert's bytes"
     );
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// WASM: a recipe step with a key its op does not take is refused
+// ─────────────────────────────────────────────────────────────────────────────
+#[cfg(target_arch = "wasm32")]
+mod strict_step_params {
+    use crustyimg::wasm::transform;
+    use wasm_bindgen_test::wasm_bindgen_test;
+
+    fn png_8x8() -> Vec<u8> {
+        use image::{ImageEncoder, Rgba, RgbaImage};
+        let img = RgbaImage::from_pixel(8, 8, Rgba([200, 30, 30, 255]));
+        let mut out = Vec::new();
+        image::codecs::png::PngEncoder::new(&mut out)
+            .write_image(img.as_raw(), 8, 8, image::ExtendedColorType::Rgba8)
+            .expect("encode fixture png");
+        out
+    }
+
+    /// The same message the CLI prints reaches the wasm caller, and the module
+    /// keeps working afterwards.
+    #[wasm_bindgen_test]
+    fn transform_refuses_an_unknown_step_key() {
+        let src = png_8x8();
+        let bad = "version = \"1\"\n\n[[step]]\nop = \"resize\"\nmode = \"max\"\nwidth = 4\nbogus = 1\n";
+        let err = transform(&src, bad, "png").expect_err("an unknown step key must be refused");
+        let msg = format!("{:?}", wasm_bindgen::JsValue::from(err));
+        assert!(
+            msg.contains("recipe step 0 ('resize')") && msg.contains("unknown key 'bogus'"),
+            "the error must name the step, op and key, got: {msg}"
+        );
+
+        let good = "version = \"1\"\n\n[[step]]\nop = \"resize\"\nmode = \"max\"\nwidth = 4\n";
+        let ok = transform(&src, good, "png").expect("a valid call after a refusal must work");
+        assert!(!ok.is_empty());
+    }
+}

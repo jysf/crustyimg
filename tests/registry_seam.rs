@@ -109,3 +109,89 @@ fn a_second_asset_op_registers_without_seam_change() {
         Some("fixture-asset-bytes")
     );
 }
+
+/// A `.cube`-LUT-shaped op — a file to read plus a 0..=1 strength — registers
+/// through one table that makes it both strict and resolvable, with no other
+/// registry change.
+#[test]
+fn a_lut_shaped_op_is_strict_and_resolvable_through_one_table() {
+    use crustyimg::operation::{ParamKind, ParamSpec};
+
+    const LUT_PARAMS: &[ParamSpec] = &[
+        ParamSpec {
+            key: "file",
+            kind: ParamKind::Asset,
+        },
+        ParamSpec {
+            key: "strength",
+            kind: ParamKind::Number {
+                min: 0.0,
+                min_inclusive: true,
+                max: Some(1.0),
+            },
+        },
+    ];
+
+    let mut registry = OperationRegistry::new();
+    registry.register_with_params(
+        "fixture-lut",
+        |params| {
+            let bytes = params
+                .resolved_bytes("file")
+                .ok_or_else(|| RegistryError::InvalidParams {
+                    op: "fixture-lut",
+                    reason: "'file' was not resolved before construction".to_owned(),
+                })?;
+            Ok(Box::new(FixtureAssetOp {
+                resolved_as_text: String::from_utf8_lossy(bytes).into_owned(),
+            }))
+        },
+        LUT_PARAMS,
+    );
+    assert_eq!(registry.param_specs("fixture-lut"), Some(LUT_PARAMS));
+    assert_eq!(registry.asset_keys("fixture-lut"), &["file"]);
+
+    let params_with = |extra: &[(&str, toml::Value)]| {
+        let mut m = BTreeMap::new();
+        m.insert("file".to_owned(), toml::Value::String("look.cube".into()));
+        for (k, v) in extra {
+            m.insert((*k).to_owned(), v.clone());
+        }
+        let mut p = OperationParams::from_map(m);
+        for &key in registry.asset_keys("fixture-lut") {
+            if p.get_str(key).is_some() {
+                p.set_resolved_bytes(key, b"lut-bytes".to_vec());
+            }
+        }
+        p
+    };
+
+    // Strict: an unknown key and an out-of-range strength are both refused.
+    let refused = [
+        ("bogus", toml::Value::Integer(1), "unknown key 'bogus'"),
+        ("strength", toml::Value::Float(2.0), "'strength' must be"),
+    ];
+    assert_eq!(refused.len(), 2);
+    for (key, value, phrase) in refused {
+        match registry.build("fixture-lut", &params_with(&[(key, value)])) {
+            Err(RegistryError::InvalidParams { op, reason }) => {
+                assert_eq!(op, "fixture-lut");
+                assert!(reason.contains(phrase), "expected `{phrase}`, got: {reason}");
+            }
+            Err(other) => panic!("expected InvalidParams, got {other:?}"),
+            Ok(_) => panic!("`{key}` must be refused"),
+        }
+    }
+
+    // Resolvable: the file's bytes reach the constructor.
+    let op = registry
+        .build(
+            "fixture-lut",
+            &params_with(&[("strength", toml::Value::Float(0.5))]),
+        )
+        .expect("a valid LUT step must build");
+    assert_eq!(
+        op.params().get_str("resolved_as_text"),
+        Some("lut-bytes")
+    );
+}
