@@ -17,7 +17,13 @@ Cycle prompts live in `prompts/SPEC-131-<cycle>.md`.
       form (`to_toml()` pinned by a golden corpus). Widened by measurement: `nan`/`inf` and keys
       unused by the step's mode are refused too. 15 ACs, 6 revert conditions. No `src/wasm.rs` or
       `src/cli/**` edit → parallel with SPEC-132/134, before SPEC-133. DEC-102 written at build.
-- [ ] **build** — prompt: `prompts/SPEC-131-build.md`. **Opus**, own worktree, branch
-      `feat/spec-131-strict-recipe-step-params`.
-- [ ] **verify**
-- [ ] **ship**
+- [x] **build** — prompt: `prompts/SPEC-131-build.md`. **Opus**, branch
+      `feat/spec-131-strict-recipe-step-params`. PR #200, $11.03, completed 2026-10-25. CI green
+      on all 16 required legs at `c98b032`.
+      ⚠ **Merged 2026-10-25 as `ba8b740` BEFORE verify ran** (head `48185da` = `c98b032` + an
+      update-branch merge of docs only). Cause: the merge gate lived only inside prompts. Fixed:
+      builds now open DRAFT PRs, marked ready only after verify approves.
+- [~] **verify** — prompt: `prompts/SPEC-131-verify.md`. **Opus**, read-only, **retroactive** (on
+      `main`, compares against `ba8b740^`). A punch list becomes a follow-up fix PR before 0.8.0.
+- [ ] **ship** — prompt: `prompts/SPEC-131-ship.md`. Runs after verify approves (or after its
+      follow-up fix merges).

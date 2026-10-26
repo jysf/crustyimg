@@ -132,13 +132,16 @@ List every file it governs.
    MTok, Sonnet $3/$15; cache_creation ×1.25 the input rate, cache_read ×0.10), never a flat rate.
    Append a `build` entry to `cost.sessions` with `tokens_total`, a `tokens_breakdown`,
    `estimated_usd` and the rate anchors.
-3. `just advance-cycle SPEC-133 verify`. Open the PR: title
+3. `just advance-cycle SPEC-133 verify`. Open the PR **as a draft** (`gh pr create --draft …`).
+   ⛔ A draft cannot be merged; it stays a draft until a separate verify session approves it and
+   the orchestrator marks it ready. Never mark it ready yourself. Do **not** edit the spec's
+   timeline file: it lives on `main`, and the orchestrator keeps it. Title
    `feat(watermark): refuse a mark that does not fit or covers over 5% (SPEC-133)`, body per
    AGENTS §13 (Summary, Spec metadata, Decisions referenced, Constraints checked, New decisions:
    DEC-104), ending with the Claude Code footer.
 
 ## Report back (your final message — it is pasted to the orchestrator)
-First line: `SPEC-133 build: PR #NNN at <head SHA> — CI <green | red: legs>`. Then, short: AC
+First line: `SPEC-133 build: draft PR #NNN at <head SHA> — CI <green | red: legs>`. Then, short: AC
 completion (27 rows); RED baseline confirmed; N1–N9 flips; the changed existing tests (sizes
 only — say so, or name any that needed more); matrix + `demo-build` result; files changed vs the
 spec's list; any design call that turned out wrong; your measured cost.

@@ -123,6 +123,9 @@ untestable. The CHANGELOG has exactly one Breaking and one Fixed line for this s
 - Never run a background build while editing source for a mutation.
 - **Budget ~120 exchanges.** If you are past it, stop and report what you covered.
 
+Do **not** edit the spec or its timeline: the orchestrator records your verdict and cost on
+`main`.
+
 ## Measure your own cost
 Your transcript is a JSONL under `~/.claude/projects/<slug>/`, where `<slug>` is your working
 directory's absolute path with every `/` and `.` replaced by `-`. Identify it **by content, not
@@ -136,8 +139,11 @@ cache_creation ×1.25 the input rate, cache_read ×0.10), never flat. Report `to
 `tokens_breakdown`, `estimated_usd` and the rate anchors.
 
 ## Report back (your final message — it is pasted to the orchestrator)
-First line: **✅ APPROVED / ⚠ PUNCH LIST / ❌ REJECTED** — SPEC-131 (merged as `ba8b740`) at `main` `<SHA verified>`. Then lead
-with **item 1** (goldens re-blessed on `ba8b740^`: identical or not; plain + watermark cache hits on
-upgrade: yes or no), then **item 2** (every CLI-verb behaviour change, pre-merge vs `main`). Then items
+First line, exactly one of:
+- `✅ APPROVED — SPEC-131 as merged (ba8b740) holds at main <SHA>; no follow-up needed.`
+- `⚠ PUNCH LIST — SPEC-131 needs a follow-up fix PR before 0.8.0 is tagged.`
+- `❌ REJECTED — <reason>.`
+Then lead with **item 1** (goldens re-blessed on `ba8b740^`: identical or not; plain + watermark
+cache hits on upgrade: yes or no), then **item 2** (every CLI-verb behaviour change, pre-merge vs `main`). Then items
 3–8, short. A punch list is numbered, each item with the evidence and a suggested fix. End with
 your cost readout.
