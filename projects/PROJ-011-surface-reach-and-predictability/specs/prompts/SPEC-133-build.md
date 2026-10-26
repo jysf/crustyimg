@@ -122,7 +122,7 @@ List every file it governs.
    fixture size, the matrix legs, the `demo-build` result, and an honest reflection naming any
    design call that turned out wrong.
 2. **Measure your own cost.** Your transcript is a JSONL under `~/.claude/projects/<slug>/`, where
-   `<slug>` is your working directory's absolute path with every `/` and `.` replaced by `-`.
+   `<slug>` is your working directory's absolute path with every `/`, `.` and `_` replaced by `-`.
    Identify it **by content, not recency**: `grep -l "SPEC-133 — BUILD prompt" ~/.claude/projects/<slug>/*.jsonl`.
    ⚠ **Dedup by `.message.id`**: Claude Code writes one JSONL line per *content block*; lines sharing
    an id repeat identical `input_tokens` / `cache_creation_input_tokens` / `cache_read_input_tokens`

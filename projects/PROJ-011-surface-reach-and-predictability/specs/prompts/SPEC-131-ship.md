@@ -61,7 +61,7 @@ STAGE-050 is **not** finished (SPEC-132/133/134 are open), so do not run Stage S
 
 ## Measure your own cost
 Your transcript is a JSONL under `~/.claude/projects/<slug>/`, where `<slug>` is your working
-directory's absolute path with every `/` and `.` replaced by `-`. Identify it **by content, not
+directory's absolute path with every `/`, `.` and `_` replaced by `-`. Identify it **by content, not
 recency**: `grep -l "SPEC-131 — SHIP prompt" ~/.claude/projects/<slug>/*.jsonl`. ⚠ **Dedup by
 `.message.id`**: Claude Code writes one JSONL line per *content block*; lines sharing an id repeat
 identical `input_tokens` / `cache_creation_input_tokens` / `cache_read_input_tokens` while

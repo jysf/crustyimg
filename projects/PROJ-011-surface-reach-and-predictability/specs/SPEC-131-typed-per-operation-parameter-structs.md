@@ -141,6 +141,40 @@ cost:
         `.message.id` (58 ids), input/cache_creation/cache_read once per id, MAX output per id.
         Priced by component at Opus $5/$25 per MTok, cache_creation x1.25 ($6.25), cache_read
         x0.10 ($0.50). Recorded on main by the orchestrator. Slightly under-counts (final turn).
+    - cycle: build
+      agent: claude-sonnet-5-5
+      interface: claude-code
+      tokens_total: 3513714
+      tokens_breakdown:
+        input: 98
+        output: 10071
+        cache_creation: 68249
+        cache_read: 3435296
+      estimated_usd: 1.44
+      duration_minutes: null
+      recorded_at: 2026-10-26
+      note: >
+        Punch-list fix (follow-up PR #203, branch fix/spec-131-punch-list), fresh session in its
+        own worktree. Measured from its transcript (f631de28….jsonl, by content), deduped by
+        `.message.id`, priced by component at Sonnet $3/$15 per MTok, cache_creation x1.25,
+        cache_read x0.10. Recorded on main by the orchestrator.
+    - cycle: verify
+      agent: claude-opus-5-5
+      interface: claude-code
+      tokens_total: 2330361
+      tokens_breakdown:
+        input: 58
+        output: 11573
+        cache_creation: 64439
+        cache_read: 2254291
+      estimated_usd: 1.82
+      duration_minutes: null
+      recorded_at: 2026-10-26
+      note: >
+        Re-verify of the punch-list fix (PR #203 at ee004f6), fresh session in its own worktree,
+        read-only. APPROVED. Deduped by `.message.id` (28 ids), priced by component at Opus
+        $5/$25 per MTok, cache_creation x1.25, cache_read x0.10. Recorded on main by the
+        orchestrator.
   totals:
     tokens_total: 0
     estimated_usd: 0
