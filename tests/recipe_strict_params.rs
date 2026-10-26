@@ -148,6 +148,24 @@ fn terminal_optimize_marker_with_a_key_is_refused() {
     assert_eq!(step_index(&err), Some(2), "the marker is step 2: {err:?}");
 }
 
+/// The marker check must also run on a recipe whose only step is the marker.
+#[test]
+fn a_one_step_recipe_with_a_keyed_optimize_marker_is_refused() {
+    let toml = "version = \"1\"\n\n[[step]]\nop = \"optimize\"\nquality = \"max\"\n";
+    let err = Recipe::from_toml(toml).expect_err("a keyed lone optimize must be refused");
+    match &err {
+        RecipeError::InvalidOperation { name, reason, .. } => {
+            assert_eq!(name, "optimize");
+            assert!(
+                reason.contains("'quality'"),
+                "reason must name the key, got: {reason}"
+            );
+        }
+        other => panic!("expected InvalidOperation, got {other:?}"),
+    }
+    assert_eq!(step_index(&err), Some(0), "the marker is step 0: {err:?}");
+}
+
 #[test]
 fn keyless_terminal_optimize_marker_still_parses() {
     let bundled = [
@@ -285,6 +303,30 @@ fn a_number_past_f32_range_is_refused() {
             "{op}: got: {reason}"
         );
     }
+}
+
+/// A tiny positive float passes `> 0` as an `f64` but reads as `0.0` as the
+/// `f32` the ops use, so the range is checked on the value as it is read.
+#[test]
+fn a_positive_number_that_reads_as_zero_is_refused() {
+    let rows: &[(&str, &str, &str)] = &[
+        ("resize", "mode = \"percent\"\npercent = 1e-50", "percent"),
+        ("watermark", "text = \"hi\"\nsize = 1e-50", "size"),
+        ("watermark", "text = \"hi\"\nscale = 1e-50", "scale"),
+    ];
+    assert_eq!(rows.len(), 3);
+    // Collect every failing row so one run shows which of the three load.
+    let mut failures = Vec::new();
+    for (op, body, key) in rows {
+        match load(&one_step(op, body)) {
+            Ok(_) => failures.push(format!("{op} {key}: the recipe loaded")),
+            Err(RecipeError::InvalidOperation { reason, .. })
+                if reason.contains(&format!("'{key}' must be")) && reason.contains("got 1e-50") => {
+            }
+            Err(other) => failures.push(format!("{op} {key}: wrong refusal: {other:?}")),
+        }
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
 }
 
 // ── AC-5: a key the step's mode never reads ─────────────────────────────────

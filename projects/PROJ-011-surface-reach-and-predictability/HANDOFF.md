@@ -164,6 +164,14 @@ Batching these in one sitting unblocks more than anything an orchestrator can do
 8. **PROJ-013 is invisible to `just backlog`, including `--all`** — 54 items, because the project is
    still `proposed`. Anything filed there is git-safe and framework-invisible.
 
+9. **⚡ A CHECK REMOVED AS "REDUNDANT" MUST BE RE-PROVEN AT THE TYPE IT GUARDS.** SPEC-131's build
+   moved range checks from the typed constructors into a schema and deleted the constructors' own
+   checks as redundant. The schema checked the f64; the ops read an f32; `1e-50 > 0` passed and
+   read as `0.0` — a silent 1×1 image / unmarked output, exit 0. None of the build's six negative
+   controls could see it (each reverted a check that still existed); the retroactive verify's
+   own probes did. **When a check moves across a type boundary, add a test row just past the
+   boundary of the type the code actually reads** (here: below f32's smallest positive value).
+
 ## What is working, and worth keeping
 
 - **Read the code before writing the spec.** SPEC-128's backlog title was wrong — `Watermark` was

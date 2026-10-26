@@ -71,7 +71,7 @@ End the file with a cost footer for this review session (method below).
 
 ## Measure your own cost
 Your transcript is a JSONL under `~/.claude/projects/<slug>/`, where `<slug>` is your working
-directory's absolute path with every `/` and `.` replaced by `-`. Identify it **by content, not
+directory's absolute path with every `/`, `.` and `_` replaced by `-`. Identify it **by content, not
 recency**: `grep -l "WEEKLY REVIEW — session prompt" ~/.claude/projects/<slug>/*.jsonl`. ⚠ **Dedup
 by `.message.id`**: one JSONL line per *content block*; lines sharing an id repeat identical
 `input_tokens` / `cache_creation_input_tokens` / `cache_read_input_tokens` while `output_tokens`
