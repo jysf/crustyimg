@@ -216,3 +216,16 @@ recipe or under a source root. The loop now covers them with the rules above, un
   already could on a manifest edit.
 - `src/cli/build.rs` now holds the loop (it moved out of `src/cli/mod.rs`), so it joins
   `affected_scope`.
+
+## Amendment (2026-10-26): which event kinds count as a change
+
+The watcher callback drops events that only describe a read, and forwards the rest:
+
+- **Not changes:** open, read and read-close notifications. The build reads the manifest,
+  recipes and assets it watches, and inotify reports each read; treating them as changes made an
+  idle `--watch` rebuild itself continuously on Linux (207 builds in 45 s).
+- **Changes:** write-close, modify, create, rename and remove. These cover every way an editor or
+  tool saves a file (in-place write, temp file plus rename, `cp` over, delete and recreate,
+  `touch`); each still rebuilds exactly once.
+- Only the inotify backend sends the dropped kinds, so FSEvents (macOS) and ReadDirectoryChangesW
+  (Windows) are unaffected.
