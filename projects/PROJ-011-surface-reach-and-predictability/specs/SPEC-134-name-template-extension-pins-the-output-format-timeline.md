@@ -13,8 +13,9 @@ Cycle prompts live in `prompts/SPEC-134-<cycle>.md`.
       targets (DEC-087), so `apply` and `build` disagree on the same recipe + template. The rule
       being reversed lives in `docs/api-contract.md:490`, not in DEC-087.
 - [ ] **design** — `prompts/SPEC-134-design.md`
-- [~] **build** — prompt: `prompts/SPEC-134-build.md`. **Opus**, own worktree, branch
-      `feat/spec-134-name-template-pins-format`. Builds before SPEC-133. AC-22 added after design
-      (meta -o). Prompt handed out 2026-10-26; opens a draft PR.
-- [ ] **verify**
+- [x] **build** — prompt: `prompts/SPEC-134-build.md`. **Opus**, draft PR #202 at `635adfb`,
+      $11.43, completed 2026-10-26. 22/22 ACs; 41-row table (28 RED baseline rows); NC-1…NC-10
+      flipped; CI 16/16 green. DEC-105 updated at build for AC-22. NC-7 has two readings (verify
+      judges).
+- [~] **verify** — prompt: `prompts/SPEC-134-verify.md`. **Opus**, read-only.
 - [ ] **ship**
