@@ -26,6 +26,10 @@ Cycle prompts live in `prompts/SPEC-134-<cycle>.md`.
       ruled in by the maintainer 2026-10-26: at N inputs with `-o`, the pin check reads `-o` while
       the write uses the template (JPEG / AVIF inside `in.png`; also on 0.7.x). Verify cost goes
       into `cost.sessions` at ship.
-- [ ] **fix** — prompt: `prompts/SPEC-134-fix.md`. Sonnet, same draft PR #202; then a short
-      re-verify.
+- [x] **fix** — prompt: `prompts/SPEC-134-fix.md`. Sonnet, 2026-10-26, draft PR #202 at
+      `a3547cc`: three doc fixes; `name_pinned_format` reads only the template at N inputs (new
+      `resolved_input_count`); 5 rows added (41 → 46), 4 RED before / green after, negative control
+      flips exactly those 4; Fixed entry + DEC-105 bullet; matrix green; CI 16/16. ~$1.29.
+- [~] **re-verify** — prompt: `prompts/SPEC-134-reverify.md`. Opus, read-only. Also judges the
+      double resolution in `resolved_input_count`.
 - [ ] **ship**
