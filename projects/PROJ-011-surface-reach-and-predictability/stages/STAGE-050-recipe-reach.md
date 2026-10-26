@@ -387,6 +387,14 @@ anything a recipe cannot say.
   resource-limit question in DEC-036's family, not a malformed-recipe one, so SPEC-131 refuses
   only `size <= 0` and non-finite values. Open: the cap, and whether it lives in the schema.
 
+- [ ] (not yet written) — [S] ⚡ **The `watermark` CLI verb silently drops the mark for
+  `--size nan` / `--size inf`, and accepts `--scale nan`.** Filed by SPEC-131's verify
+  (2026-10-26), driven on release builds before and after SPEC-131 (identical): `watermark
+  --size nan` exits 0 and writes output byte-equal to `--opacity 0`. The CLI twin of what SPEC-131
+  fixed for recipes; the CLI builds the op with `new_image`/`new_text`, bypassing the recipe
+  schema. ⚠ **Check against SPEC-133 first:** its fit test may already refuse a non-finite mark
+  size; if so, this closes with SPEC-133 and needs only a test row.
+
 - [ ] (not yet written) — [S] **`responsive` accepts `--name-template` and silently ignores it.**
   Filed by SPEC-134's design (2026-10-25), driven on `main`: `responsive in.jpg --widths 32
   --out-dir rp --name-template '{stem}.png'` writes `rp/in-32w.jpg`, exit 0 — the flag is a global

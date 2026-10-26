@@ -23,7 +23,14 @@ Cycle prompts live in `prompts/SPEC-131-<cycle>.md`.
       ⚠ **Merged 2026-10-25 as `ba8b740` BEFORE verify ran** (head `48185da` = `c98b032` + an
       update-branch merge of docs only). Cause: the merge gate lived only inside prompts. Fixed:
       builds now open DRAFT PRs, marked ready only after verify approves.
-- [~] **verify** — prompt: `prompts/SPEC-131-verify.md`. **Opus**, read-only, **retroactive** (on
-      `main`, compares against `ba8b740^`). A punch list becomes a follow-up fix PR before 0.8.0.
+- [x] **verify** — prompt: `prompts/SPEC-131-verify.md`. Opus, retroactive, $6.83, 2026-10-26.
+      **⚠ PUNCH LIST**: (1) regression — `1e-50` passes the range check and reads as 0.0 in f32
+      (`percent`/`size`/`scale`, silent wrong output); (2) no one-step keyed-marker test; (3)
+      CHANGELOG wording. Everything else holds (see the spec's Verify Readout).
+- [x] **fix** — prompt: `prompts/SPEC-131-fix.md`. Sonnet, draft PR #203 at `ee004f6`, ~$1.44,
+      2026-10-26. All 3 punch items done; the 1e-50 rows RED before / GREEN after; both mutations
+      (f32 revert, M10) flip exactly their new test; CI 16/16 green.
+- [~] **re-verify** — prompt: `prompts/SPEC-131-reverify.md`. Opus, read-only. Approves PR #203
+      before merge.
 - [ ] **ship** — prompt: `prompts/SPEC-131-ship.md`. Runs after verify approves (or after its
       follow-up fix merges).
