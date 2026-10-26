@@ -316,6 +316,19 @@ criterion = "=0.8.2"
 name = "pipeline"
 harness = false
 
+# Optimize dev and test builds. Image codecs (AVIF encoding especially) run
+# 10-50x slower unoptimized, so the test suite spent most of its time in codec
+# loops: 437s unoptimized vs 78s with these settings, same 1006 tests passing.
+# Overflow checks and debug assertions stay on (they are separate settings), so
+# tests catch the same bugs. opt-level 1 for our own code keeps rebuilds quick
+# and most variables visible in a debugger; dependencies rarely change, so they
+# get full optimization once and stay cached.
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3
+
 # Release profile used by cargo-dist (DEC-040). Inherits from release with thin
 # LTO for smaller, faster binaries. Inert for normal `cargo build`/`cargo test`.
 [profile.dist]
