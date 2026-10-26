@@ -7,7 +7,7 @@
 task:
   id: SPEC-134
   type: story                      # epic | story | task | bug | chore
-  cycle: build  # frame | design | build | verify | ship
+  cycle: verify  # frame | design | build | verify | ship
   blocked: false
   priority: medium
   complexity: M                    # S | M | L  (L means split it)
@@ -102,6 +102,25 @@ cost:
         (67 unique ids), input/cache_creation/cache_read once per id, MAX output_tokens per id.
         Priced by component at Opus $5/$25 per MTok, cache_creation x1.25 ($6.25), cache_read
         x0.10 ($0.50). Measured before the commit/push turns, so it slightly under-counts.
+    - cycle: build
+      agent: claude-opus-5-5
+      interface: claude-code
+      tokens_total: 16946052
+      tokens_breakdown:
+        input: 192
+        output: 71145
+        cache_creation: 211729
+        cache_read: 16662986
+      estimated_usd: 11.43
+      duration_minutes: null
+      recorded_at: 2026-10-25
+      note: >
+        Build session in its own worktree (feat/spec-134-name-template-pins-format). Measured from
+        the session's transcript (3116809f-….jsonl, identified by content), deduped by
+        `.message.id` (94 unique ids), input/cache_creation/cache_read once per id, MAX
+        output_tokens per id. Priced by component at Opus $5/$25 per MTok, cache_creation x1.25
+        ($6.25), cache_read x0.10 ($0.50). Includes a short mis-pasted first exchange in the same
+        session; measured before the PR turns, so it slightly under-counts.
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -366,23 +385,23 @@ Every AC names its verb surface (AGENTS §15). "JPEG source" is a photograph-lik
 "Template" is `--out-dir d --name-template T`. "N" is two inputs.
 
 **Pin — the pixel verbs (`run_pixel_op`)**
-- [ ] **AC-1** — `resize --max 64`, `thumbnail`, `auto-orient` and `watermark --text hi`, at 1 and
+- [x] **AC-1** — `resize --max 64`, `thumbnail`, `auto-orient` and `watermark --text hi`, at 1 and
   at N inputs, and `edit --invert` (1 input; `edit` takes one), with T = `{stem}.png` on a JPEG
   source, write **PNG** bytes to `d/<stem>.png`, exit 0.
 
 **Pin — `apply`, plain recipe**
-- [ ] **AC-2** — `apply --recipe r.toml` (one `resize` step, no `format`) at 1 and N inputs with
+- [x] **AC-2** — `apply --recipe r.toml` (one `resize` step, no `format`) at 1 and N inputs with
   T = `{stem}.png` writes **PNG**, exit 0.
 
 **Pin — the automatic-choice verbs (ruling 2)**
-- [ ] **AC-3** — `apply --recipe web` at 1 and N inputs with T = `{stem}.png` writes **PNG** (not
+- [x] **AC-3** — `apply --recipe web` at 1 and N inputs with T = `{stem}.png` writes **PNG** (not
   AVIF), exit 0.
-- [ ] **AC-4** — `optimize` at 1 and N inputs with T = `{stem}.png` writes **PNG**, exit 0; and
+- [x] **AC-4** — `optimize` at 1 and N inputs with T = `{stem}.png` writes **PNG**, exit 0; and
   `optimize --profile preserve` (1 input) with T = `{stem}.png` writes **PNG** (as it does with
   `-o x.png` today).
-- [ ] **AC-5** — `web` with T = `{stem}.webp` at 1 input writes **WEBP**; `web` with
+- [x] **AC-5** — `web` with T = `{stem}.webp` at 1 input writes **WEBP**; `web` with
   T = `{stem}.png` at N inputs writes **PNG**; exit 0 both.
-- [ ] **AC-6** — **The report on a template pin**, defined per verb as the per-file stderr summary
+- [x] **AC-6** — **The report on a template pin**, defined per verb as the per-file stderr summary
   line (`<file>: jpeg → <fmt> · …`): on a template-pinned `web` (1 and N), `optimize` (1 and N)
   and `apply --recipe web` (1 and N), stderr contains **no** decision line (no `→`), exactly like
   the `-o`-pinned path today (driven: `web in.jpg -o C.png` prints nothing). And `--json` with a
@@ -391,27 +410,27 @@ Every AC names its verb surface (AGENTS §15). "JPEG source" is a photograph-lik
   `optimize` (1 input), `web` (1 input) and `apply --recipe web` (1 input). Today all three exit 0.
 
 **Precedence (match the `-o` rung)**
-- [ ] **AC-7** — **`--format` beats the template**, silently, exit 0, on: `resize --format webp`
+- [x] **AC-7** — **`--format` beats the template**, silently, exit 0, on: `resize --format webp`
   (1 input), `apply --recipe r.toml --format webp` (N), and `convert --format webp` (1 and N —
   `convert` requires `--format`, so on `convert` the template can never pin). Output is **WEBP**
   in `d/<stem>.png`. This is today's `-o` answer (driven: `resize --format webp -o A.png` → WebP,
   exit 0).
-- [ ] **AC-8** — **The template beats `recipe.format`**, on `apply --recipe r2.toml`
+- [x] **AC-8** — **The template beats `recipe.format`**, on `apply --recipe r2.toml`
   (`version = "2"`, `format = "webp"`) at 1 and N inputs with T = `{stem}.png`: **PNG**. Matches
   `-o` (driven: `apply --recipe r2.toml in.jpg -o J2.png` → PNG) and `build`'s terminal-`optimize`
   ranking (`src/cli/build.rs:43-45`). Today the template row writes WEBP.
-- [ ] **AC-9** — **`-o` beats the template** (the template is not the output's name, so it does
+- [x] **AC-9** — **`-o` beats the template** (the template is not the output's name, so it does
   not pin): `resize --max 64 in.jpg -o o.jpg --out-dir d --name-template '{stem}.png'` writes
   **JPEG** to `o.jpg` and creates nothing under `d`; `web in.jpg -o o.jpg` with the same template
   writes **JPEG** to `o.jpg`.
 
 **Must not change**
-- [ ] **AC-10** — **`{ext}` is byte-identical to the default.** With T = `{stem}.{ext}` the output
+- [x] **AC-10** — **`{ext}` is byte-identical to the default.** With T = `{stem}.{ext}` the output
   bytes equal the no-template run's bytes, on `resize` (N), `apply --recipe r.toml` (N) and
   `meta strip` (1); and, with the AVIF encoder built, on `web` (N, T = `{stem}_w.{ext}`, output
   **AVIF**) and `apply --recipe web` (1, output **AVIF**, stderr has the `jpeg → avif` line), and
   `optimize --json` with T = `{stem}.{ext}` still exits 0.
-- [ ] **AC-11** — **No recognised literal extension names the file only**, exit 0, on the
+- [x] **AC-11** — **No recognised literal extension names the file only**, exit 0, on the
   non-`build` verbs: `resize` with T = `{stem}.txt` → JPEG in `in.txt`; `resize` with T = `{stem}`
   → JPEG in `in`; `resize --format png` with T = `{name}` → PNG in `in.jpg` (frame row 16);
   `resize` (1 input) with a template and **no** `--out-dir` writes JPEG to stdout (the template is
@@ -419,16 +438,16 @@ Every AC names its verb surface (AGENTS §15). "JPEG source" is a photograph-lik
   `web -o D.txt` does today).
 
 **`meta` (ruling 3)**
-- [ ] **AC-12** — `meta strip`, `meta clean --gps` and `meta set --artist x`, 1 input, JPEG
+- [x] **AC-12** — `meta strip`, `meta clean --gps` and `meta set --artist x`, 1 input, JPEG
   source, T = `{stem}.png`: **exit 4**, **no file written** (`d` empty or absent), stderr names
   the input, the format the template names, and says to convert first.
-- [ ] **AC-13** — `meta strip` at N inputs **refuses before writing anything**: two JPEGs with
+- [x] **AC-13** — `meta strip` at N inputs **refuses before writing anything**: two JPEGs with
   T = `{stem}.png` → exit 4, nothing written; a mixed batch (`a.png` + `in.jpg`, `a.png` listed
   **first**) with T = `{stem}.png` → exit 4 and `d/a.png` is **not** written either. (Exit 4,
   not 6: the batch is refused whole.)
-- [ ] **AC-14** — `meta strip` with T = `{stem}.jpg` on a JPEG (same format) and with
+- [x] **AC-14** — `meta strip` with T = `{stem}.jpg` on a JPEG (same format) and with
   T = `{stem}_c.{ext}`: exit 0, JPEG, unchanged.
-- [ ] **AC-22** (added by maintainer ruling 2026-10-25, after design) — `meta strip in.jpg -o
+- [x] **AC-22** (added by maintainer ruling 2026-10-25, after design) — `meta strip in.jpg -o
   E.png` (1 input, JPEG source, `-o` with a recognised extension naming another format): **exit
   4**, `E.png` **not written**, same stderr shape as AC-12. `meta strip in.jpg -o E.jpg` (same
   format) and an `-o` with an unrecognised extension (`E.bin`): exit 0, unchanged. Reuses the
@@ -437,14 +456,14 @@ Every AC names its verb surface (AGENTS §15). "JPEG source" is a photograph-lik
   NC-6 (deleting the pre-flight) must also flip this test.
 
 **`build`**
-- [ ] **AC-15** — A plain-recipe `build` target (`recipe = "r.toml"`) with `name = "{stem}.png"`
+- [x] **AC-15** — A plain-recipe `build` target (`recipe = "r.toml"`) with `name = "{stem}.png"`
   writes **PNG**; with `recipe = "r2.toml"` (`format = "webp"`) and `name = "{stem}.png"` writes
   **PNG** (template beats `recipe.format`, as on the terminal-`optimize` branch).
-- [ ] **AC-16** — A plain-recipe target with `name = "{stem}"` and with `name = "{stem}.txt"` still
+- [x] **AC-16** — A plain-recipe target with `name = "{stem}"` and with `name = "{stem}.txt"` still
   **exits 0** and writes JPEG (frame row 18).
-- [ ] **AC-17** — A terminal-`optimize` target (`recipe = "web"`) is unchanged: `name =
+- [x] **AC-17** — A terminal-`optimize` target (`recipe = "web"`) is unchanged: `name =
   "{stem}.png"` → PNG; `name = "{stem}.txt"` → **exit 4**, nothing written.
-- [ ] **AC-18** — **Cache key.** One manifest, two plain targets sharing `r.toml` over the same
+- [x] **AC-18** — **Cache key.** One manifest, two plain targets sharing `r.toml` over the same
   source: `outA` with `name = "{stem}.png"`, `outB` with the default name. The lockfile's two
   `key`s **differ** (identical on `main` today — driven: both `65304eca…`), `outA/in.png` is PNG
   and `outB/in.jpg` is JPEG on a cold run **and** on a second, all-cached run; and `outB`'s key
@@ -453,21 +472,21 @@ Every AC names its verb surface (AGENTS §15). "JPEG source" is a photograph-lik
   `git diff main -- src/build/cache.rs` → empty.
 
 **Helpers, docs, roster**
-- [ ] **AC-19** — `sink::template_literal_format` returns the format for `{stem}.png`,
+- [x] **AC-19** — `sink::template_literal_format` returns the format for `{stem}.png`,
   `{stem}.PNG`, `{stem}.jpeg`, `{parent}_{stem}.webp`, `{name}.webp`, and `None` for
   `{stem}.{ext}`, `{stem}_w.{ext}`, `{stem}.{ext}.png` (contains `{ext}` — matches
   `target_format_plan`), `{stem}`, `{stem}.txt`, `{name}`. `common::name_pinned_format` returns
   the `-o` extension's format when `-o` is a path; `None` for `-o -`; `None` for an unrecognised
   `-o` even when a template is set; the template's format when `-o` is absent and `--out-dir` is
   set; `None` when neither `-o` nor `--out-dir` is set.
-- [ ] **AC-20** — Docs say the new rule and nothing contradicts it: `docs/api-contract.md` :490
+- [x] **AC-20** — Docs say the new rule and nothing contradicts it: `docs/api-contract.md` :490
   (the "does **not** pin" sentence) replaced by the DEC-105 chain; :565-570 (the exit-4 sentence)
   scoped to a terminal-`optimize` target; the global-options `--format` row (:33);
   `docs/cli-reference.md` global table (:31); `docs/data-model.md` :286-291; the `--format` help
   text (`src/cli/mod.rs:88`); a `CHANGELOG.md` `[Unreleased]` entry (byte-changing; names the new
   exit 2 and the `meta` exit 4). Checked by verify with `grep -n 'does \*\*not\*\* pin'
   docs/api-contract.md` → 0 hits; no comment or user-facing string names a SPEC/DEC id.
-- [ ] **AC-21** — The table test asserts its own row count (`ROWS.len() == 41`), and every roster
+- [x] **AC-21** — The table test asserts its own row count (`ROWS.len() == 41`), and every roster
   surface in Implementation Context → "Roster" maps to at least one row or named test.
 
 ## Failing Tests
@@ -659,6 +678,7 @@ into the spec since there is no separate receiving agent.*
 | `optimize` (1, N, `--profile preserve`) | `run_optimize` | AC-4, AC-6, AC-10 | 4 rows + gated guard |
 | `web` (1, N) | `run_web` | AC-5, AC-6, AC-9, AC-10, AC-11 | 4 rows + gated guard |
 | `meta strip` / `clean` / `set` | `run_metadata_lane` | AC-12–14 | 7 rows + `{ext}` guard |
+| `meta strip -o` (1 input; added at build for AC-22) | `run_metadata_lane` pre-flight | AC-22 | 2 named tests (outside the 41-row table) |
 | `build`, plain target | `prepare_target` plain | AC-15, AC-16, AC-18 | 3 + 1 tests |
 | `build`, terminal-`optimize` target | `prepare_target` terminal | AC-17 | 1 new + 1 existing |
 | `meta copy` | does not read the template | — | — |
@@ -775,37 +795,133 @@ necessary during build, create a new spec rather than expanding this one.
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
+- **Branch:** `feat/spec-134-name-template-pins-format`
+- **PR (if applicable):** PR_PLACEHOLDER
+- **All acceptance criteria met?** yes — 22/22, each mapped below.
 - **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
-- **Files this diff touches** — **list every one**, with a phrase on what changed
-  in each. Not "src/foo and tests": the enumeration is what a verify cycle diffs
-  the real change against, and what tells you whether every affected `DEC-*` has
-  the path in its `affected_scope`. SPEC-122's Deviations claimed "`src/operation`
-  and `tests/` only" and was wrong by two `scripts/` files, which left
-  `affected_scope` blind; SPEC-124's build added this section by hand after that
-  lesson and still listed 8 of its 9 files. It is a checklist because it is easy
-  to get wrong from memory — build it from `git diff --name-only`, not recall.
-  - `path/to/file` — <what changed>
+  - `DEC-105` — an output name's literal extension pins the format on every verb that encodes
+    (written at design; the build updated point 5 and Consequences for AC-22's `-o` ruling).
+
+| AC | test(s) |
+|---|---|
+| AC-1 | table: 9 rows (resize/thumbnail/auto-orient/watermark 1+N, edit 1) |
+| AC-2 | table: apply 1, apply N |
+| AC-3 | table: apply web 1, N (both also `stderr_lacks "→"`) |
+| AC-4 | table: optimize 1, N, `--profile preserve` 1 |
+| AC-5 | table: web 1 `.webp`, web N `.png` |
+| AC-6 | table: `stderr_lacks "→"` on the AC-3/4/5 rows + 3 `--json` exit-2 rows |
+| AC-7 | table: 4 rows (resize, apply N, convert 1, convert N) |
+| AC-8 | table: apply r2 1, N |
+| AC-9 | table: resize `-o o.jpg` (`d` absent), web `-o o.jpg` |
+| AC-10 | `name_template_ext_placeholder_is_byte_identical_to_the_default` (resize N, apply N, meta strip 1); `name_template_ext_placeholder_keeps_the_automatic_choice` (web N AVIF + bytes equal, apply web 1 AVIF + `jpeg → avif`, optimize `--json` exit 0) |
+| AC-11 | table: 5 rows (`{stem}.txt`, `{stem}`, `--format png {name}`, stdout, N `{stem}.{ext}`); gated guard: web `{stem}.txt` → AVIF |
+| AC-12 | table: meta strip / clean --gps / set --artist (exit 4, nothing written, stderr names input, PNG, JPEG, convert) |
+| AC-13 | table: meta strip N two JPEGs, N mixed (`a.png` first, not written) |
+| AC-14 | table: meta strip `{stem}.jpg`, `{stem}_c.{ext}` |
+| AC-15 | `build_plain_target_literal_extension_pins_the_format`, `build_plain_target_template_beats_recipe_format` |
+| AC-16 | `build_plain_target_without_a_recognised_extension_still_preserves` |
+| AC-17 | `build_honours_a_literal_extension_template_as_a_format_pin` (existing), `build_terminal_optimize_unrecognised_template_still_exits_4` |
+| AC-18 | `plain_targets_sharing_a_recipe_are_keyed_by_their_template_pin`; `git diff origin/main -- src/build/cache.rs` empty |
+| AC-19 | `template_literal_format_reads_only_a_recognised_literal_extension`, `name_pinned_format_follows_the_name_the_output_is_written_under` |
+| AC-20 | docs below; `grep -n 'does \*\*not\*\* pin' docs/api-contract.md` → 0 hits |
+| AC-21 | `assert_eq!(ROWS.len(), 41)`; roster above gains the `meta -o` row, covered by two named tests |
+| AC-22 | `meta_dash_o_naming_another_format_refuses` (RED on `main`: exit 0, JPEG written into `E.png`), `meta_dash_o_same_or_unrecognised_extension_is_unchanged` (`E.jpg`, `E.bin`) |
+
+**RED baseline (unmodified `src/`, debug build of `7322227`):** the table reported **28 of 41 rows
+wrong** — exactly the 28 the spec marks ✗ — each for the stated reason (pixel/apply rows: JPEG in
+`.png`; apply web/optimize/web: AVIF in `.png`/`.webp` with a `→` line; `--json`: exit 0 and AVIF
+written; r2 rows: WebP; meta rows: exit 0 and the file written, `a.png` included). The 13 guard
+rows passed. `meta_dash_o_naming_another_format_refuses` RED (exit 0). Both `build_plain_*` RED
+(JPEG; WebP). The cache test RED: the cold run reported `(1 cached, 1 rebuilt)` — the second target
+was served the first's entry because the keys were equal. The three unit tests did not compile
+(functions absent). Guards green: both AC-10 guards (the AVIF-gated one listed as **run**, `ok`,
+not filtered), the AC-22 guard, AC-16 and AC-17 build guards.
+
+**Negative controls** (one at a time, binary rebuilt each time — every NC binary hash differs;
+source restored from the commit after each; `scratchpad/nc.py`):
+
+| NC | went RED | stayed green (checked) |
+|---|---|---|
+| NC-1 template rung out of `output_format_for` | AC-1 ×9, AC-2 1, AC-4 ×3, AC-5 ×2, AC-8 1 | AC-2/AC-8 N, AC-3, meta, build |
+| NC-2 template rung out of `run_apply` N | AC-2 N, AC-8 N | AC-2/AC-8 1 |
+| NC-3 `run_web` `-o`-only | AC-5 ×2, AC-6 web `--json` | optimize, apply web |
+| NC-4 `run_optimize` `-o`-only | AC-4 1, N, AC-6 optimize `--json` | `--profile preserve`, web |
+| NC-5 `run_apply` terminal `-o`-only | AC-3 ×2, AC-6 apply web `--json` | plain apply |
+| NC-6 delete the `meta` pre-flight | AC-12 ×3, AC-13 ×2, **AC-22** | AC-14, AC-22 guard |
+| NC-7 check moved into the per-input loop | AC-13 mixed row only | AC-12, AC-13 two-JPEG |
+| NC-8 restore `prepare_target`'s plain branch | both `build_plain_*`, cache test | AC-16, AC-17 |
+| NC-9 strict plain plan | AC-16 guard | AC-15, every table row |
+| NC-10 hash `Pinned` like `Preserve` | cache test | AC-15 |
+
+Every flip matches the spec's prediction.
+
+**Matrix (clean, sequential, a fresh `CARGO_TARGET_DIR` per leg):** `cargo fmt --check` clean;
+default — `cargo test` 1020 passed / 0 failed (the AVIF-gated guard listed and `ok`), clippy
+`--all-targets -D warnings` clean; `--no-default-features` — 997 passed / 0 failed, clippy clean;
+`--features webp-lossy` — 1025 passed / 0 failed, clippy clean.
+
+- **Files this diff touches** (from `git diff --name-only origin/main...HEAD`):
+  - `src/sink/mod.rs` — new `template_literal_format` + unit test.
+  - `src/cli/common.rs` — new `name_pinned_format` + unit test.
+  - `src/cli/ops.rs` — `output_format_for` gains a `template` parameter and the rung (doc fixed:
+    an unrecognised `-o` falls through, it is not exit 4); its two `run_pixel_op` calls; the
+    `meta` pre-flight (`refuse_a_name_asking_for_another_format`, `container_format`,
+    `format_name`) called from `run_metadata_lane` before the arity split; unit tests updated + one
+    new case.
+  - `src/cli/optimize.rs` — `run_apply` (terminal `cli_pin`, single-input template, N-input
+    `format_override`), `run_optimize` and `run_web` `pinned` via `name_pinned_format`; the
+    `--json` refusal message gains "or name template".
+  - `src/cli/build.rs` — `target_format_plan` rebuilt on the sink helper (same error), new
+    `plain_target_plan`, `prepare_target`'s plain branch, `OutputFormatPlan` docs, unit test.
+  - `src/cli/mod.rs` — `--format` help text; `CliError::MetaFormatMismatch` (exit 4) + mapping +
+    `exit_code_mapping_is_total`.
+  - `tests/name_template_pins_format.rs` — new: the 41-row table, two AC-10 guards, two AC-22 tests.
+  - `tests/build.rs` — 4 new tests.
+  - `tests/build_cache.rs` — 1 new test.
+  - `docs/api-contract.md` — global `--format` row; the `apply` output-format paragraph (the
+    "does not pin" sentence replaced by the rule); `build` exit-4 sentence scoped to
+    terminal-`optimize` targets.
+  - `docs/cli-reference.md` — global `--format` row.
+  - `docs/data-model.md` — the recipe `format` precedence chain, the terminal-`optimize` pin
+    paragraph, and the name-templates section (the spec's `:286-291` now points at the `resize`
+    key table after SPEC-131 merged; the passages it meant are these three).
+  - `CHANGELOG.md` — `[Unreleased]` → Breaking entry (new exit 2, `meta` exit 4, cache re-key).
+  - `decisions/DEC-105-…md` — point 5 and Consequences updated for AC-22 (`-o` now refuses).
+  - this spec — Build Completion, AC ticks, roster row, cost entry, cycle.
 - **Deviations from spec:**
-  - [list]
+  - **AC-22 lives outside the table** as two named tests (refusal + guard), so `ROWS.len()` stays
+    41 and the count assertion stays honest; the roster gains a row for it.
+  - **Fixture is the photo downscaled to 224 px** (by the `image` crate) rather than 448 px: debug
+    AVIF encodes were ~9 s per run at 448 px. It still auto-decides to AVIF — the gated guard
+    checks that on a no-template control before relying on it. Table rows run on ≤8 threads.
+  - **`meta` with N inputs reads the template even if `-o` is also given**, because the N-input
+    write path ignores `-o`; one input uses `name_pinned_format` (so `-o` wins there). The check
+    names which name asked (`-o` or "the name template").
+  - **NC-7's shape matters.** Moving the check inside the per-input *error-capturing* closure would
+    turn the two-JPEG row into exit 6 as well; the spec's "two-JPEG row stays green" holds for the
+    check moved into the loop but outside the capture (as run). Either shape flips the mixed row.
+  - Design call 5's "`meta … -o x.png` is **not** covered (filed)" is superseded by the
+    maintainer's AC-22 ruling; implemented by reusing the same pre-flight (no second check).
 - **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - None new. Still open from design: `responsive` ignores `--name-template` (filed, STAGE-050);
+    a warning when `--format` and the output name disagree (both `-o` and the template).
 
 ### Build-phase reflection (3 questions, short answers)
 
 Process-focused: how did the build go? What friction did the spec create?
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — Very little. The design calls, call sites and NC table were exact. Stale line numbers
+   (SPEC-131 shifted `docs/`) cost a grep; `docs/data-model.md :286-291` pointed at the wrong
+   table. NC-7's wording admits two mutations with different outcomes (see Deviations).
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — No. One fact worth carrying: the `meta` lane's own sniffer is `image::guess_format` and it
+   only handles JPEG/PNG, so the pre-flight uses the same sniffer (no AVIF special case needed).
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Time one debug AVIF encode before sizing the fixture; I did, and it set the 224 px choice.
+   Nothing else — no design call turned out wrong.
 
 ---
 
