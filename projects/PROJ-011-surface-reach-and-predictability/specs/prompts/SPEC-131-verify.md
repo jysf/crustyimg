@@ -31,7 +31,7 @@ find; report it, with the evidence and a suggested fix.
 
 ## Read first
 The spec (`projects/PROJ-011-surface-reach-and-predictability/specs/SPEC-131-typed-per-operation-parameter-structs.md`,
-on the PR branch: all of it, including `## Build Completion`), DEC-102 (new), DEC-061 (accepted
+on `main`: all of it, including `## Build Completion`), DEC-102 (new), DEC-061 (accepted
 risk #1 and its alternative, now marked superseded), DEC-005, DEC-058/DEC-101, and HANDOFF.md's
 "Traps this wave paid for".
 
@@ -47,7 +47,7 @@ risk #1 and its alternative, now marked superseded), DEC-005, DEC-058/DEC-101, a
   (populates `.crustyimg/cache/`), then the **current `main`** binary on the same project: it must report
   every output cached, 0 rebuilt. Repeat with a valid watermark recipe. A miss means `to_toml()`
   changed and every existing cache entry is invalidated on upgrade.
-- Drive every bundled recipe and every `recipes/README.md` example through the branch binary;
+- Drive every bundled recipe and every `recipes/README.md` example through the current `main` binary;
   each must load.
 
 ### 2 — ⚡ The build's deviation reaches the CLI verbs (not in the spec's ACs)
