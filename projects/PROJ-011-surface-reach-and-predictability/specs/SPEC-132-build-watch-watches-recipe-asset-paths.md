@@ -115,6 +115,24 @@ cost:
         (32 unique ids), input/cache_creation/cache_read once per id, MAX output_tokens per id.
         Priced by component at Sonnet $3/$15 per MTok, cache_creation x1.25 ($3.75), cache_read
         x0.10 ($0.30). Measured before the final commit/PR turns, so it slightly under-counts.
+    - cycle: build
+      agent: claude-sonnet-5-5
+      interface: claude-code
+      tokens_total: 1916598
+      tokens_breakdown:
+        input: 46
+        output: 9065
+        cache_creation: 71873
+        cache_read: 1835614
+      estimated_usd: 0.96
+      duration_minutes: null
+      recorded_at: 2026-10-26
+      note: >
+        Punch-list fix session (SPEC-132-fix.md) on the same branch. Measured from the session's
+        transcript (76c157fa-….jsonl, identified by content), deduped by `.message.id` (23 unique
+        ids), input/cache_creation/cache_read once per id, MAX output_tokens per id. Priced by
+        component at Sonnet $3/$15 per MTok, cache_creation x1.25, cache_read x0.10. Measured
+        before the final commit/CI turns, so it slightly under-counts.
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -787,6 +805,7 @@ validation order. A recipe SPEC-131 refuses at `Recipe::from_toml` (a key on the
     are skipped; a write-close, modify, create and rename still wake the loop. Unit test
     `reads_are_not_changes_but_writes_are`; verified green in Docker (Linux) for all 13 tests.
   - Extra helper `start_and_settle` in the e2e file (not in the spec's helper list).
+- **Verify punch-list fix (2026-10-26):** the Linux self-trigger fix now has its own `[Unreleased] → Fixed` CHANGELOG entry and a dated DEC-060 amendment (which event kinds count as a change). Three tests tightened, each shown failing under its mutation: AC-8(d) asserts exactly the one string path; AC-7(d) adds a root-level-source case (`*.png`, `brand/logo.png`); AC-5 adds `watch_warns_once_about_a_root_that_stays_missing`. No `src/` behaviour change.
 - **Follow-up work identified:** none.
 
 ### Build-phase reflection (3 questions, short answers)
