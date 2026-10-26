@@ -34,6 +34,7 @@ Cycle prompts live in `prompts/SPEC-131-<cycle>.md`.
       **✅ APPROVED — merge PR #203 at `ee004f6`.** Bug reproduced on `main` (exit 0, 1×1 / unmarked)
       and gone on the PR (exit 1, names the key); edges right (1e-40 accepted, 1e-46 and
       opacity 1.00000001 refused); each mutation fails exactly its one test in the full suite
-      (1007/1008); CI green on every leg. Marked ready for the maintainer to merge.
-- [ ] **ship** — prompt: `prompts/SPEC-131-ship.md`. Runs after verify approves (or after its
+      (1007/1008); CI green on every leg. **Merged 2026-10-26 as `13ed6d7`** (code identical to the
+      approved `ee004f6`).
+- [~] **ship** — prompt: `prompts/SPEC-131-ship.md`. Runs after verify approves (or after its
       follow-up fix merges).
