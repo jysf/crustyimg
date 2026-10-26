@@ -14,8 +14,8 @@ use crate::sink::{Overwrite, Sink, SinkError, SinkInput};
 use crate::source::{self, SourceError};
 
 use super::common::{
-    apply_one, build_sink, fmt_bytes, load_recipe, require_out_dir_for_batch, resolve_format,
-    resolve_recipe_assets, BATCH_PROGRESS_TEMPLATE,
+    apply_one, build_sink, fmt_bytes, load_recipe, name_pinned_format, require_out_dir_for_batch,
+    resolve_format, resolve_recipe_assets, BATCH_PROGRESS_TEMPLATE,
 };
 use super::ops::{metadata_output_ext, output_format_for, read_raw_bytes, run_pixel_op};
 use super::report::format_label;
@@ -72,8 +72,9 @@ pub(super) fn run_apply(
     if let Some(pixel_recipe) = split_terminal_optimize(&recipe) {
         let pipeline = pixel_recipe.build_pipeline(&registry)?;
 
-        // A pinned format (`--format`, a recognized `-o` extension, or the
-        // recipe's own `format` — SPEC-127 Call 2's carve-out) is an explicit
+        // A pinned format (`--format`, the output name's recognized extension —
+        // `-o`, else the `--out-dir` name template — or the recipe's own `format`,
+        // SPEC-127 Call 2's carve-out) is an explicit
         // override: honor it and skip the auto-decision (and the score), exactly like
         // the `web`/`optimize` verbs do. Without this diversion the terminal-`optimize`
         // path would auto-decide to AVIF and write those bytes to a `.png` path — so
@@ -83,14 +84,9 @@ pub(super) fn run_apply(
         // contradictory things (the auto-decision AND a pin) — the explicit field
         // wins and the decision is skipped, matching what `--format`/`-o` already do
         // here (DEC-087). Ranked exactly like `ops::output_format_for`: the CLI
-        // flag beats a recognized `-o` extension beats `recipe.format`.
-        let cli_pin = resolve_format(global.format.as_deref())?.or_else(|| {
-            global
-                .output
-                .as_deref()
-                .filter(|o| *o != "-")
-                .and_then(|o| crate::sink::format_from_extension(Path::new(o)).ok())
-        });
+        // flag beats the output name's recognized extension beats `recipe.format`.
+        let cli_pin =
+            resolve_format(global.format.as_deref())?.or_else(|| name_pinned_format(global));
         let pinned_format = cli_pin.or(resolve_format(recipe.format.as_deref())?);
         if let Some(fmt) = pinned_format {
             // No auto-decision to report on the pinned path (SPEC-088).
@@ -174,7 +170,19 @@ pub(super) fn run_apply(
         let pipeline = recipe.build_pipeline(&registry)?;
         let out_img = pipeline.run(img)?;
         let output_path = global.output.as_deref().map(Path::new);
-        let fmt = output_format_for(global, output_path, recipe.format.as_deref(), source_format)?;
+        // The template names the output only when it goes into --out-dir.
+        let template = if output_path.is_none() && global.out_dir.is_some() {
+            global.name_template.as_deref()
+        } else {
+            None
+        };
+        let fmt = output_format_for(
+            global,
+            output_path,
+            template,
+            recipe.format.as_deref(),
+            source_format,
+        )?;
         let sink = build_sink(global, fmt);
         let sink_input = SinkInput {
             stem: input.stem(),
@@ -209,9 +217,14 @@ pub(super) fn run_apply(
     // `ops.rs`). `Some(fmt)` when `--format` was given, or else `recipe.format`:
     // honoured at every arity now, not just one input. `None` preserves each
     // input's own source format via `encode_one`'s existing fallback.
+    // The name template's recognized extension sits between the two, on the
+    // rung `-o` takes at one input.
     let format_override = match resolve_format(global.format.as_deref())? {
         Some(fmt) => Some(fmt),
-        None => resolve_format(recipe.format.as_deref())?,
+        None => match crate::sink::template_literal_format(&template) {
+            Some(fmt) => Some(fmt),
+            None => resolve_format(recipe.format.as_deref())?,
+        },
     };
     // Quality precedence (SPEC-127, Call 2): `-q` > `recipe.quality` > the
     // format's own default. Resolved once for the whole batch, same reasoning
@@ -684,15 +697,13 @@ pub(super) fn run_optimize(
     // dimensions; the op also drops the metadata bundle after baking (DEC-017).
     let pipeline = optimize_pipeline(max)?;
 
-    // The engine only fires when the user has NOT pinned a format (`--format` or a
-    // recognized `-o` extension) and the profile is not `preserve` (DEC-048). A pin
+    // The engine only fires when the user has NOT pinned a format (`--format`, or
+    // the output name's recognized extension: `-o`, else the `--out-dir` name
+    // template) and the profile is not `preserve` (DEC-048). A pin
     // or `preserve` reproduces today's format-preserving behaviour exactly — same
     // quality, same per-input format resolution (DEC-015).
-    let pinned = resolve_format(global.format.as_deref())?.is_some()
-        || global
-            .output
-            .as_deref()
-            .is_some_and(|o| o != "-" && crate::sink::format_from_extension(Path::new(o)).is_ok());
+    let pinned =
+        resolve_format(global.format.as_deref())?.is_some() || name_pinned_format(global).is_some();
 
     if profile == ProfileArg::Preserve || pinned {
         // (--explain has no decision to describe here; it is silently ignored.)
@@ -751,7 +762,7 @@ fn reject_audit_without_autodecide(json: bool, timing: bool) -> Result<(), CliEr
     if json || timing {
         return Err(CliError::Usage(
             "--json/--timing report the auto-decision and are unavailable with a pinned \
-             -o/--format, --profile preserve, or a plain pixel recipe"
+             -o/--format or name template, --profile preserve, or a plain pixel recipe"
                 .to_owned(),
         ));
     }
@@ -824,14 +835,12 @@ pub(super) fn run_web(
     let long_edge = max.unwrap_or(WEB_DEFAULT_LONG_EDGE);
     let pipeline = optimize_pipeline(Some(long_edge))?;
 
-    // A pinned format (`--format` or a recognized `-o` extension) is an explicit
-    // override: honor it and skip the auto-decision (and the score), mirroring
-    // `optimize`'s pin behaviour.
-    let pinned = resolve_format(global.format.as_deref())?.is_some()
-        || global
-            .output
-            .as_deref()
-            .is_some_and(|o| o != "-" && crate::sink::format_from_extension(Path::new(o)).is_ok());
+    // A pinned format (`--format`, or the output name's recognized extension:
+    // `-o`, else the `--out-dir` name template) is an explicit override: honor it
+    // and skip the auto-decision (and the score), mirroring `optimize`'s pin
+    // behaviour.
+    let pinned =
+        resolve_format(global.format.as_deref())?.is_some() || name_pinned_format(global).is_some();
     if pinned {
         // No auto-decision to report on the pinned path (SPEC-088).
         reject_audit_without_autodecide(json, timing)?;

@@ -465,3 +465,119 @@ fn summary_reports_cached_and_rebuilt_and_quiet_suppresses_it() {
         "--quiet must suppress the summary"
     );
 }
+
+// ── A plain target's template pin is part of its key ─────────────────────────
+
+/// The lockfile's `(path, key)` pairs.
+fn lock_keys(dir: &Path) -> Vec<(String, String)> {
+    let text = std::fs::read_to_string(dir.join(crustyimg::build::lock::DEFAULT_LOCK_FILE))
+        .expect("the build writes a lockfile");
+    let lock = crustyimg::build::lock::BuildLock::from_toml(&text).expect("lockfile parses");
+    lock.output.into_iter().map(|o| (o.path, o.key)).collect()
+}
+
+fn key_for(keys: &[(String, String)], path: &str) -> String {
+    keys.iter()
+        .find(|(p, _)| p == path)
+        .map(|(_, k)| k.clone())
+        .unwrap_or_else(|| panic!("no lockfile entry for {path}: {keys:?}"))
+}
+
+fn sniff_output(path: &Path) -> Option<ImageFormat> {
+    let bytes = std::fs::read(path)
+        .unwrap_or_else(|e| panic!("expected output at {}: {e}", path.display()));
+    image::guess_format(&bytes).ok()
+}
+
+/// A JPEG source, encoded by the `image` crate.
+fn write_jpeg(dir: &Path, rel: &str) {
+    let img = RgbImage::from_fn(48, 32, |x, y| {
+        image::Rgb([(x * 5) as u8, (y * 7) as u8, 90])
+    });
+    let mut buf = Cursor::new(Vec::new());
+    DynamicImage::ImageRgb8(img)
+        .write_to(&mut buf, ImageFormat::Jpeg)
+        .unwrap();
+    write_file(dir, rel, &buf.into_inner());
+}
+
+#[test]
+fn plain_targets_sharing_a_recipe_are_keyed_by_their_template_pin() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    write_jpeg(root, "bsrc/in.jpg");
+    write_file(root, "r.toml", RESIZE_16.as_bytes());
+    write_file(
+        root,
+        "crustyimg.build.toml",
+        br#"
+version = 1
+
+[[target]]
+source = "bsrc/*.jpg"
+recipe = "r.toml"
+out = "outA"
+name = "{stem}.png"
+
+[[target]]
+source = "bsrc/*.jpg"
+recipe = "r.toml"
+out = "outB"
+"#,
+    );
+
+    // Cold run: both targets rebuild, each in its own format.
+    assert_eq!(build_ok(root, &[]), (0, 2));
+    let keys = lock_keys(root);
+    let key_a = key_for(&keys, "outA/in.png");
+    let key_b = key_for(&keys, "outB/in.jpg");
+    assert_ne!(
+        key_a, key_b,
+        "a pinning template and a default one must not share a cache key"
+    );
+    assert_eq!(
+        sniff_output(&root.join("outA/in.png")),
+        Some(ImageFormat::Png)
+    );
+    assert_eq!(
+        sniff_output(&root.join("outB/in.jpg")),
+        Some(ImageFormat::Jpeg)
+    );
+
+    // Warm run: every output is served from the cache, still in its own format.
+    std::fs::remove_dir_all(root.join("outA")).unwrap();
+    std::fs::remove_dir_all(root.join("outB")).unwrap();
+    assert_eq!(
+        build_ok(root, &[]),
+        (2, 0),
+        "the second run is all cache hits"
+    );
+    assert_eq!(
+        sniff_output(&root.join("outA/in.png")),
+        Some(ImageFormat::Png)
+    );
+    assert_eq!(
+        sniff_output(&root.join("outB/in.jpg")),
+        Some(ImageFormat::Jpeg)
+    );
+
+    // A default-named target's key does not depend on its neighbour.
+    let solo = TempDir::new().unwrap();
+    let solo_root = solo.path();
+    write_jpeg(solo_root, "bsrc/in.jpg");
+    write_file(solo_root, "r.toml", RESIZE_16.as_bytes());
+    write_file(
+        solo_root,
+        "crustyimg.build.toml",
+        br#"
+version = 1
+
+[[target]]
+source = "bsrc/*.jpg"
+recipe = "r.toml"
+out = "outB"
+"#,
+    );
+    assert_eq!(build_ok(solo_root, &[]), (0, 1));
+    assert_eq!(key_for(&lock_keys(solo_root), "outB/in.jpg"), key_b);
+}

@@ -272,6 +272,28 @@ pub(super) fn build_sink(global: &GlobalArgs, fmt: ::image::ImageFormat) -> Sink
     Sink::Stdout { format: Some(fmt) }
 }
 
+/// The format the output's own name asks for, read in the order the
+/// single-input sink picks that name ([`build_sink`]): `-o PATH` names the
+/// output, so its recognised extension pins (`-o -` is stdout and names
+/// nothing); otherwise, with `--out-dir`, the name template's recognised
+/// literal extension pins; otherwise the output goes to stdout and nothing
+/// pins. An unrecognised extension names the file only (`None`).
+pub(super) fn name_pinned_format(global: &GlobalArgs) -> Option<::image::ImageFormat> {
+    if let Some(ref out) = global.output {
+        if out == "-" {
+            return None;
+        }
+        return crate::sink::format_from_extension(Path::new(out)).ok();
+    }
+    if global.out_dir.is_some() {
+        return global
+            .name_template
+            .as_deref()
+            .and_then(crate::sink::template_literal_format);
+    }
+    None
+}
+
 /// Convert an optional format string (e.g. `"png"`) to `Option<ImageFormat>`.
 ///
 /// A `None` input returns `Ok(None)`. A non-empty string that is not a
@@ -308,6 +330,41 @@ pub(super) fn fmt_bytes(n: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── The format the output's own name asks for ────────────────────────────
+    #[test]
+    fn name_pinned_format_follows_the_name_the_output_is_written_under() {
+        let with = |output: Option<&str>, out_dir: Option<&str>, template: Option<&str>| {
+            let mut g = global_no_out_dir();
+            g.output = output.map(str::to_owned);
+            g.out_dir = out_dir.map(str::to_owned);
+            g.name_template = template.map(str::to_owned);
+            name_pinned_format(&g)
+        };
+        // -o is the output's name: its recognised extension pins.
+        assert_eq!(
+            with(Some("x.png"), None, None),
+            Some(::image::ImageFormat::Png)
+        );
+        // -o - is stdout: no name, no pin.
+        assert_eq!(with(Some("-"), Some("d"), Some("{stem}.png")), None);
+        // An unrecognised -o names the file only, and the template is not the
+        // output's name, so it does not pin either.
+        assert_eq!(with(Some("x.bin"), Some("d"), Some("{stem}.png")), None);
+        // No -o, --out-dir set: the template is the name.
+        assert_eq!(
+            with(None, Some("d"), Some("{stem}.webp")),
+            Some(::image::ImageFormat::WebP)
+        );
+        assert_eq!(with(None, Some("d"), Some("{stem}.{ext}")), None);
+        assert_eq!(
+            with(None, Some("d"), None),
+            None,
+            "the default template defers"
+        );
+        // Neither: the output goes to stdout and the template is unused.
+        assert_eq!(with(None, None, Some("{stem}.png")), None);
+    }
 
     #[test]
     fn fmt_bytes_renders_units() {

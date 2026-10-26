@@ -1402,3 +1402,155 @@ out = "dist"
         "the SVG source bytes must never be written verbatim under a raster name"
     );
 }
+
+// ── A plain target's literal name extension pins the format ──────────────────
+
+/// A JPEG source for the plain-target pin tests, encoded by the `image` crate.
+fn write_jpeg_source(root: &Path) {
+    write_file(root, "bsrc/in.jpg", &common::detailed_jpeg(64, 64));
+}
+
+/// The sniffed format of a written output, by magic bytes.
+fn sniffed(path: &Path) -> Option<ImageFormat> {
+    let bytes = std::fs::read(path)
+        .unwrap_or_else(|e| panic!("expected output at {}: {e}", path.display()));
+    image::guess_format(&bytes).ok()
+}
+
+#[test]
+fn build_plain_target_literal_extension_pins_the_format() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    write_jpeg_source(root);
+    write_file(root, "r.toml", RESIZE_RECIPE.as_bytes());
+    write_file(
+        root,
+        "crustyimg.build.toml",
+        br#"
+version = 1
+
+[[target]]
+source = "bsrc/*.jpg"
+recipe = "r.toml"
+out = "out"
+name = "{stem}.png"
+"#,
+    );
+
+    let out = run_build(root, &[]);
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert_eq!(
+        sniffed(&root.join("out/in.png")),
+        Some(ImageFormat::Png),
+        "a plain target named {{stem}}.png must write a real PNG, not JPEG-in-a-.png"
+    );
+}
+
+#[test]
+fn build_plain_target_template_beats_recipe_format() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    write_jpeg_source(root);
+    write_file(
+        root,
+        "r2.toml",
+        b"version = \"2\"\nformat = \"webp\"\n\n[[step]]\nop = \"resize\"\nmode = \"max\"\nwidth = 16\n",
+    );
+    write_file(
+        root,
+        "crustyimg.build.toml",
+        br#"
+version = 1
+
+[[target]]
+source = "bsrc/*.jpg"
+recipe = "r2.toml"
+out = "out"
+name = "{stem}.png"
+"#,
+    );
+
+    let out = run_build(root, &[]);
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert_eq!(
+        sniffed(&root.join("out/in.png")),
+        Some(ImageFormat::Png),
+        "the name's extension beats the recipe's own format"
+    );
+}
+
+#[test]
+fn build_plain_target_without_a_recognised_extension_still_preserves() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    write_jpeg_source(root);
+    write_file(root, "r.toml", RESIZE_RECIPE.as_bytes());
+    write_file(
+        root,
+        "crustyimg.build.toml",
+        br#"
+version = 1
+
+[[target]]
+source = "bsrc/*.jpg"
+recipe = "r.toml"
+out = "out"
+name = "{stem}"
+
+[[target]]
+source = "bsrc/*.jpg"
+recipe = "r.toml"
+out = "out2"
+name = "{stem}.txt"
+"#,
+    );
+
+    let out = run_build(root, &[]);
+    assert!(
+        out.status.success(),
+        "a plain target with no recognised extension still builds; stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert_eq!(sniffed(&root.join("out/in")), Some(ImageFormat::Jpeg));
+    assert_eq!(sniffed(&root.join("out2/in.txt")), Some(ImageFormat::Jpeg));
+}
+
+#[test]
+fn build_terminal_optimize_unrecognised_template_still_exits_4() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    write_jpeg_source(root);
+    write_file(
+        root,
+        "crustyimg.build.toml",
+        br#"
+version = 1
+
+[[target]]
+source = "bsrc/*.jpg"
+recipe = "web"
+out = "out"
+name = "{stem}.txt"
+"#,
+    );
+
+    let out = run_build(root, &[]);
+    assert_eq!(
+        out.status.code(),
+        Some(4),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let written: Vec<_> = std::fs::read_dir(root.join("out"))
+        .map(|rd| rd.filter_map(Result::ok).map(|e| e.path()).collect())
+        .unwrap_or_default();
+    assert!(written.is_empty(), "nothing may be written: {written:?}");
+}

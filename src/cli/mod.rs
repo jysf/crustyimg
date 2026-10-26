@@ -694,6 +694,27 @@ pub enum CliError {
     #[error(transparent)]
     Metadata(#[from] crate::metadata::MetadataError),
 
+    /// `meta` keeps each input's own container, so it refuses, before writing
+    /// anything, when the output's name (`-o`, or the `--out-dir` name
+    /// template) asks for a different format: writing the source's bytes under
+    /// that name would mislabel the file. Exit 4, like an unsupported format.
+    #[error(
+        "{input}: {via} names a {wanted} file, but meta keeps the input's own format \
+         ({found}); convert it first, e.g. crustyimg convert --format {suggest}"
+    )]
+    MetaFormatMismatch {
+        /// The input whose container differs.
+        input: String,
+        /// Which name asked for the format: `-o` or the name template.
+        via: &'static str,
+        /// The format the name asks for, e.g. `PNG`.
+        wanted: String,
+        /// The input's own container format, e.g. `JPEG`.
+        found: String,
+        /// The `--format` value that would convert it, e.g. `png`.
+        suggest: String,
+    },
+
     /// A `build --watch` setup failure: the OS filesystem watcher could not be
     /// created or a root could not be registered (SPEC-067, DEC-060). A generic
     /// runtime failure of the watch machinery → exit 1.
@@ -796,6 +817,8 @@ impl CliError {
             // Container-lane metadata errors (SPEC-026, DEC-029):
             // unsupported format → 4; container/exif parse/rewrite → 1.
             CliError::Metadata(crate::metadata::MetadataError::UnsupportedFormat(_)) => 4,
+            // `meta` cannot change the format an output name asks for → 4.
+            CliError::MetaFormatMismatch { .. } => 4,
             CliError::Metadata(crate::metadata::MetadataError::Container(_)) => 1,
             CliError::Metadata(crate::metadata::MetadataError::Exif(_)) => 1,
         }
@@ -1328,6 +1351,18 @@ mod tests {
         assert_eq!(
             CliError::Metadata(crate::metadata::MetadataError::Exif("bad tag".into())).code(),
             1
+        );
+        // `meta` refusing an output name that asks for another format → 4.
+        assert_eq!(
+            CliError::MetaFormatMismatch {
+                input: "in.jpg".into(),
+                via: "the name template",
+                wanted: "PNG".into(),
+                found: "JPEG".into(),
+                suggest: "png".into(),
+            }
+            .code(),
+            4
         );
     }
 

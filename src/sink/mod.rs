@@ -270,6 +270,21 @@ pub struct SinkInput<'a> {
 
 // ── Free helpers (each exported and unit-tested) ──────────────────────────────
 
+/// The output format an UNEXPANDED name template asks for: a recognised literal
+/// extension (`{stem}.png` → PNG), read with [`format_from_extension`].
+///
+/// `None` when the template contains `{ext}` anywhere (it defers to the
+/// format chosen elsewhere, including the default `{stem}.{ext}`), when it has
+/// no extension, or when the extension is not a recognised image format
+/// (`{stem}.txt`). `{name}` is not a literal extension: it expands to the
+/// source's own file name, so `{name}` alone is `None`.
+pub fn template_literal_format(template: &str) -> Option<ImageFormat> {
+    if template.contains("{ext}") {
+        return None;
+    }
+    format_from_extension(Path::new(template)).ok()
+}
+
 /// Infer an [`ImageFormat`] from a path's extension (case-insensitive), over
 /// the DEC-004 core set: png / jpg / jpeg / gif / bmp / tif / tiff / ico.
 ///
@@ -866,6 +881,32 @@ fn guard_overwrite(path: &Path, overwrite: Overwrite) -> Result<(), SinkError> {
 
 #[cfg(test)]
 mod tests {
+
+    // ── A template's literal extension ──────────────────────────────────────
+    #[test]
+    fn template_literal_format_reads_only_a_recognised_literal_extension() {
+        use super::template_literal_format as f;
+        assert_eq!(f("{stem}.png"), Some(ImageFormat::Png));
+        assert_eq!(f("{stem}.PNG"), Some(ImageFormat::Png));
+        assert_eq!(f("{stem}.jpeg"), Some(ImageFormat::Jpeg));
+        assert_eq!(f("{parent}_{stem}.webp"), Some(ImageFormat::WebP));
+        assert_eq!(f("{name}.webp"), Some(ImageFormat::WebP));
+
+        assert_eq!(f("{stem}.{ext}"), None);
+        assert_eq!(f("{stem}_w.{ext}"), None);
+        assert_eq!(
+            f("{stem}.{ext}.png"),
+            None,
+            "any {{ext}} defers to the source"
+        );
+        assert_eq!(f("{stem}"), None);
+        assert_eq!(f("{stem}.txt"), None);
+        assert_eq!(
+            f("{name}"),
+            None,
+            "{{name}} carries the source's extension, not a literal one"
+        );
+    }
 
     // ── SPEC-121, Call 3: the downgrade line names the source's real depth ──
     //
