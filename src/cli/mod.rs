@@ -312,8 +312,9 @@ pub enum Commands {
     /// full-resolution content analysis is a visible share of the time.
     ///
     /// Equivalent to `apply --recipe web`. `--max` overrides the downscale bound;
-    /// `-o`/`--format` pin the output format (bypassing the auto-decision); the
-    /// global `--out-dir`/`--name-template`/`-j` drive batch output as elsewhere.
+    /// `-o`/`--format`, or a `--name-template` extension, pin the output format (bypassing the
+    /// auto-decision); the global `--out-dir`/`--name-template`/`-j` drive batch output as
+    /// elsewhere.
     Web {
         inputs: Vec<String>,
         /// Override the downscale long-edge bound (default 2048; never upscales).

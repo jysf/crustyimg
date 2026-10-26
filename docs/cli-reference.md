@@ -131,7 +131,7 @@ the contract, so an already-small source **above** that bound can come back **la
 the original** — that is reported honestly (`N% larger`, and a `larger_than_source` flag in
 `--json`), not hidden. For an *unconditional* never-bigger guarantee that keeps dimensions,
 use **`optimize`**. Equivalent to `apply --recipe web`. `--max` overrides the downscale
-bound; `-o`/`--format` pin the output format (bypassing the auto-decision).
+bound; `-o`/`--format`, or a `--name-template` extension, pin the output format (bypassing the auto-decision).
 ```sh
 crustyimg web photo.jpg -o out.avif
 crustyimg web photo.jpg --max 1200 -o out.avif
@@ -441,7 +441,7 @@ crustyimg optimize photo.jpg --json --verify --out-dir out/     # adds "ssim"
 
 Two deliberate rules keep the surface honest rather than quietly useless:
 
-* **The report needs a decision to report.** With a pinned `-o`/`--format`,
+* **The report needs a decision to report.** With a pinned `-o`/`--format` (or a `--name-template` extension),
   `--profile preserve`, or a plain (non-`optimize`) recipe, the engine never
   auto-decides, so `--json`/`--timing` is a **usage error (exit 2)** — not a flag
   that silently does nothing.

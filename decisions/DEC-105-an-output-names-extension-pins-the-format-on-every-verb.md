@@ -126,6 +126,11 @@ depending on the verb. The maintainer ruled on 2026-10-24: honour the template.
 - **New exit 2:** `--json` / `--timing` with a template pin on `web`, `optimize` and
   `apply --recipe web` is now a usage error, as it already is with an `-o` pin: there is no
   automatic choice to report.
+- **Several inputs read the template, not `-o`.** `-o` is ignored at N inputs and the write uses
+  the template, so the pin check on `web` / `optimize` / `apply --recipe web` now counts the
+  resolved inputs and reads the template when there is more than one (one input keeps `-o` >
+  template). Before, `-o x.jpg` or `-o x.bin` at N inputs mislabelled the files (JPEG or AVIF
+  bytes inside `in.png`); `meta` already read the template there.
 - **`optimize --profile preserve`** with a literal template now pins, as it already does with `-o`.
 - **The template-pinned report** is the `-o`-pinned one: no per-file decision line. The pinned
   path's quality (85 → 80) and its missing report are PROJ-013 / STAGE-037's `-o` item, not this

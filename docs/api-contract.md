@@ -511,8 +511,9 @@ the automatic choice, so no per-file decision line is printed and `--json`/`--ti
 usage error (**exit 2**), as with an `-o` pin. A template containing `{ext}` (including the
 default `{stem}.{ext}`) never pins and is byte-identical to no template; a template with no
 recognized extension (`{stem}`, `{stem}.txt`) names the file only; `{name}` carries the
-source's own extension and is not a literal one. With `-o` given, or with no `--out-dir`
-(stdout), the template is not the output's name and does not pin. `meta strip`/`clean`/`set`
+source's own extension and is not a literal one. With one input and `-o` given, or with no `--out-dir`
+(stdout), the template is not the output's name and does not pin; with several inputs `-o` is
+ignored, so the template is always the name and pins. `meta strip`/`clean`/`set`
 cannot convert (they keep the input's container), so they refuse with **exit 4**, before
 writing anything, when `-o` or the template names a different recognized format than an
 input's own; a refused batch writes nothing. Not yet covered: `responsive` accepts

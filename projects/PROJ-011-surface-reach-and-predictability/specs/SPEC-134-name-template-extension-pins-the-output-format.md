@@ -121,6 +121,23 @@ cost:
         output_tokens per id. Priced by component at Opus $5/$25 per MTok, cache_creation x1.25
         ($6.25), cache_read x0.10 ($0.50). Includes a short mis-pasted first exchange in the same
         session; measured before the PR turns, so it slightly under-counts.
+    - cycle: build
+      agent: claude-sonnet-5-5
+      interface: claude-code
+      tokens_total: 2784506
+      tokens_breakdown:
+        input: 64
+        output: 12841
+        cache_creation: 76939
+        cache_read: 2694662
+      estimated_usd: 1.29
+      duration_minutes: null
+      recorded_at: 2026-10-26
+      note: >
+        Verify punch-list fix pass on the same PR. Measured from this session's transcript
+        (48e4385a-….jsonl, identified by content), deduped by `.message.id` (32 unique ids),
+        input/cache_creation/cache_read once per id, MAX output_tokens per id; Sonnet $3/$15 per
+        MTok, cache_creation x1.25, cache_read x0.10. Measured before the commit/push turns.
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -486,7 +503,7 @@ Every AC names its verb surface (AGENTS §15). "JPEG source" is a photograph-lik
   text (`src/cli/mod.rs:88`); a `CHANGELOG.md` `[Unreleased]` entry (byte-changing; names the new
   exit 2 and the `meta` exit 4). Checked by verify with `grep -n 'does \*\*not\*\* pin'
   docs/api-contract.md` → 0 hits; no comment or user-facing string names a SPEC/DEC id.
-- [x] **AC-21** — The table test asserts its own row count (`ROWS.len() == 41`), and every roster
+- [x] **AC-21** — The table test asserts its own row count (`ROWS.len() == 46` after the fix pass; 41 at build), and every roster
   surface in Implementation Context → "Roster" maps to at least one row or named test.
 
 ## Failing Tests
@@ -674,9 +691,9 @@ into the spec since there is no separate receiving agent.*
 | `resize`, `thumbnail`, `auto-orient`, `watermark` (1, N), `edit` (1) | `run_pixel_op` single/N | AC-1 | 9 rows |
 | `convert` (1, N) | `run_pixel_op`, `forced_format` | AC-7 | 2 rows (`--format` wins) |
 | `apply`, plain (1, N) | `run_apply` | AC-2, AC-7, AC-8 | 5 rows |
-| `apply --recipe web` (1, N) | `run_apply` terminal pin | AC-3, AC-6, AC-10 | 3 rows + gated guard |
-| `optimize` (1, N, `--profile preserve`) | `run_optimize` | AC-4, AC-6, AC-10 | 4 rows + gated guard |
-| `web` (1, N) | `run_web` | AC-5, AC-6, AC-9, AC-10, AC-11 | 4 rows + gated guard |
+| `apply --recipe web` (1, N) | `run_apply` terminal pin | AC-3, AC-6, AC-10 | 3 rows + gated guard; fix pass: +2 N-input `-o` rows |
+| `optimize` (1, N, `--profile preserve`) | `run_optimize` | AC-4, AC-6, AC-10 | 4 rows + gated guard; fix pass: +1 N-input `-o x.bin` row |
+| `web` (1, N) | `run_web` | AC-5, AC-6, AC-9, AC-10, AC-11 | 4 rows + gated guard; fix pass: +2 N-input `-o` rows |
 | `meta strip` / `clean` / `set` | `run_metadata_lane` | AC-12–14 | 7 rows + `{ext}` guard |
 | `meta strip -o` (1 input; added at build for AC-22) | `run_metadata_lane` pre-flight | AC-22 | 2 named tests (outside the 41-row table) |
 | `build`, plain target | `prepare_target` plain | AC-15, AC-16, AC-18 | 3 + 1 tests |
@@ -824,7 +841,7 @@ necessary during build, create a new spec rather than expanding this one.
 | AC-18 | `plain_targets_sharing_a_recipe_are_keyed_by_their_template_pin`; `git diff origin/main -- src/build/cache.rs` empty |
 | AC-19 | `template_literal_format_reads_only_a_recognised_literal_extension`, `name_pinned_format_follows_the_name_the_output_is_written_under` |
 | AC-20 | docs below; `grep -n 'does \*\*not\*\* pin' docs/api-contract.md` → 0 hits |
-| AC-21 | `assert_eq!(ROWS.len(), 41)`; roster above gains the `meta -o` row, covered by two named tests |
+| AC-21 | `assert_eq!(ROWS.len(), 46)`; roster above gains the `meta -o` row, covered by two named tests |
 | AC-22 | `meta_dash_o_naming_another_format_refuses` (RED on `main`: exit 0, JPEG written into `E.png`), `meta_dash_o_same_or_unrecognised_extension_is_unchanged` (`E.jpg`, `E.bin`) |
 
 **RED baseline (unmodified `src/`, debug build of `7322227`):** the table reported **28 of 41 rows
@@ -875,7 +892,7 @@ default — `cargo test` 1020 passed / 0 failed (the AVIF-gated guard listed and
     `plain_target_plan`, `prepare_target`'s plain branch, `OutputFormatPlan` docs, unit test.
   - `src/cli/mod.rs` — `--format` help text; `CliError::MetaFormatMismatch` (exit 4) + mapping +
     `exit_code_mapping_is_total`.
-  - `tests/name_template_pins_format.rs` — new: the 41-row table, two AC-10 guards, two AC-22 tests.
+  - `tests/name_template_pins_format.rs` — new: the table (41 rows at build, 46 after the fix pass), two AC-10 guards, two AC-22 tests.
   - `tests/build.rs` — 4 new tests.
   - `tests/build_cache.rs` — 1 new test.
   - `docs/api-contract.md` — global `--format` row; the `apply` output-format paragraph (the
@@ -905,6 +922,27 @@ default — `cargo test` 1020 passed / 0 failed (the AVIF-gated guard listed and
 - **Follow-up work identified:**
   - None new. Still open from design: `responsive` ignores `--name-template` (filed, STAGE-050);
     a warning when `--format` and the output name disagree (both `-o` and the template).
+
+### Fix pass (verify punch list, 2026-10-26)
+
+- **Item 4, code:** at several inputs `-o` is ignored and the write uses the template, but the
+  pin check on `web` / `optimize` / `apply --recipe web` still read `-o`, so `-o x.jpg` put JPEG
+  bytes in `in.png` and `-o x.bin` put AVIF there (the same on `main`). `name_pinned_format` now
+  takes the resolved input count and reads only the template above one input; the three callers
+  count inputs with a new `resolved_input_count` (stdin counts as one, unread). One input keeps
+  `-o` > template.
+- **Tests:** 5 rows added to the table (46): `apply --recipe web` / `web` with `-o x.jpg` and
+  `-o x.bin`, and `optimize -o x.bin`, each asserting the sniffed format of both outputs and no
+  decision line. RED before the fix: 4 of the 5 (the `web -o x.jpg` row passed already, because
+  `web`'s pin is a boolean there). GREEN after. Negative control (only the N-input branch
+  reverted, fresh target dir): exactly those 4 rows went RED; restored.
+- **Items 1-3, docs:** CHANGELOG now says every literal template on `web` / `optimize` /
+  `apply --recipe web` takes the pinned encode; `docs/cli-reference.md` (2 places) and the `web`
+  help text name a `--name-template` extension as an exit-2 trigger; the `docs/api-contract.md`
+  sentence is scoped to one input and gains the N-input rule. DEC-105 gains a Consequences bullet.
+- **Outside the stated boundary, forced by item 4:** the three `name_pinned_format` call sites
+  changed (`src/cli/optimize.rs` x3 and `src/cli/ops.rs` x1, passing `1`: it is already inside the
+  one-input branch), plus a `resolved_input_count` helper beside the function in `common.rs`.
 
 ### Build-phase reflection (3 questions, short answers)
 

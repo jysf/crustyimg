@@ -681,7 +681,7 @@ fn refuse_a_name_asking_for_another_format(
         } else {
             "the name template"
         };
-        name_pinned_format(global).map(|fmt| (fmt, via))
+        name_pinned_format(global, 1).map(|fmt| (fmt, via))
     } else {
         global
             .out_dir

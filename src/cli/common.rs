@@ -272,18 +272,29 @@ pub(super) fn build_sink(global: &GlobalArgs, fmt: ::image::ImageFormat) -> Sink
     Sink::Stdout { format: Some(fmt) }
 }
 
-/// The format the output's own name asks for, read in the order the
-/// single-input sink picks that name ([`build_sink`]): `-o PATH` names the
-/// output, so its recognised extension pins (`-o -` is stdout and names
-/// nothing); otherwise, with `--out-dir`, the name template's recognised
-/// literal extension pins; otherwise the output goes to stdout and nothing
-/// pins. An unrecognised extension names the file only (`None`).
-pub(super) fn name_pinned_format(global: &GlobalArgs) -> Option<::image::ImageFormat> {
-    if let Some(ref out) = global.output {
-        if out == "-" {
-            return None;
+/// The format the output's own name asks for, read in the order the sink
+/// picks that name ([`build_sink`]).
+///
+/// With one input, `-o PATH` names the output, so its recognised extension
+/// pins (`-o -` is stdout and names nothing); otherwise, with `--out-dir`,
+/// the name template's recognised literal extension pins; otherwise the
+/// output goes to stdout and nothing pins. With several inputs `-o` is
+/// ignored and every output is named by the template, so only the template
+/// is read. An unrecognised extension names the file only (`None`).
+///
+/// `input_count` is the number of *resolved* inputs (see
+/// [`resolved_input_count`]).
+pub(super) fn name_pinned_format(
+    global: &GlobalArgs,
+    input_count: usize,
+) -> Option<::image::ImageFormat> {
+    if input_count <= 1 {
+        if let Some(ref out) = global.output {
+            if out == "-" {
+                return None;
+            }
+            return crate::sink::format_from_extension(Path::new(out)).ok();
         }
-        return crate::sink::format_from_extension(Path::new(out)).ok();
     }
     if global.out_dir.is_some() {
         return global
@@ -292,6 +303,21 @@ pub(super) fn name_pinned_format(global: &GlobalArgs) -> Option<::image::ImageFo
             .and_then(crate::sink::template_literal_format);
     }
     None
+}
+
+/// How many inputs the arguments resolve to (a glob or directory can expand
+/// to several), for callers that must decide before they resolve for real.
+/// Stdin counts as one without being read. A resolution error counts as the
+/// argument count; the real resolution reports it.
+pub(super) fn resolved_input_count(inputs: &[String]) -> usize {
+    let mut empty = std::io::empty();
+    let mut total = 0;
+    for arg in inputs {
+        total += crate::source::resolve(arg, &mut empty)
+            .map(|resolved| resolved.len())
+            .unwrap_or(1);
+    }
+    total
 }
 
 /// Convert an optional format string (e.g. `"png"`) to `Option<ImageFormat>`.
@@ -339,7 +365,7 @@ mod tests {
             g.output = output.map(str::to_owned);
             g.out_dir = out_dir.map(str::to_owned);
             g.name_template = template.map(str::to_owned);
-            name_pinned_format(&g)
+            name_pinned_format(&g, 1)
         };
         // -o is the output's name: its recognised extension pins.
         assert_eq!(
@@ -364,6 +390,17 @@ mod tests {
         );
         // Neither: the output goes to stdout and the template is unused.
         assert_eq!(with(None, None, Some("{stem}.png")), None);
+        // Several inputs ignore -o: the template is the name, whatever -o says.
+        let many = |output: &str| {
+            let mut g = global_no_out_dir();
+            g.output = Some(output.to_owned());
+            g.out_dir = Some("d".to_owned());
+            g.name_template = Some("{stem}.png".to_owned());
+            name_pinned_format(&g, 2)
+        };
+        assert_eq!(many("x.jpg"), Some(::image::ImageFormat::Png));
+        assert_eq!(many("x.bin"), Some(::image::ImageFormat::Png));
+        assert_eq!(many("-"), Some(::image::ImageFormat::Png));
     }
 
     #[test]

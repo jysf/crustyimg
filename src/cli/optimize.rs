@@ -15,7 +15,7 @@ use crate::source::{self, SourceError};
 
 use super::common::{
     apply_one, build_sink, fmt_bytes, load_recipe, name_pinned_format, require_out_dir_for_batch,
-    resolve_format, resolve_recipe_assets, BATCH_PROGRESS_TEMPLATE,
+    resolve_format, resolve_recipe_assets, resolved_input_count, BATCH_PROGRESS_TEMPLATE,
 };
 use super::ops::{metadata_output_ext, output_format_for, read_raw_bytes, run_pixel_op};
 use super::report::format_label;
@@ -85,8 +85,8 @@ pub(super) fn run_apply(
         // wins and the decision is skipped, matching what `--format`/`-o` already do
         // here (DEC-087). Ranked exactly like `ops::output_format_for`: the CLI
         // flag beats the output name's recognized extension beats `recipe.format`.
-        let cli_pin =
-            resolve_format(global.format.as_deref())?.or_else(|| name_pinned_format(global));
+        let cli_pin = resolve_format(global.format.as_deref())?
+            .or_else(|| name_pinned_format(global, resolved_input_count(inputs)));
         let pinned_format = cli_pin.or(resolve_format(recipe.format.as_deref())?);
         if let Some(fmt) = pinned_format {
             // No auto-decision to report on the pinned path (SPEC-088).
@@ -702,8 +702,8 @@ pub(super) fn run_optimize(
     // template) and the profile is not `preserve` (DEC-048). A pin
     // or `preserve` reproduces today's format-preserving behaviour exactly — same
     // quality, same per-input format resolution (DEC-015).
-    let pinned =
-        resolve_format(global.format.as_deref())?.is_some() || name_pinned_format(global).is_some();
+    let pinned = resolve_format(global.format.as_deref())?.is_some()
+        || name_pinned_format(global, resolved_input_count(inputs)).is_some();
 
     if profile == ProfileArg::Preserve || pinned {
         // (--explain has no decision to describe here; it is silently ignored.)
@@ -839,8 +839,8 @@ pub(super) fn run_web(
     // `-o`, else the `--out-dir` name template) is an explicit override: honor it
     // and skip the auto-decision (and the score), mirroring `optimize`'s pin
     // behaviour.
-    let pinned =
-        resolve_format(global.format.as_deref())?.is_some() || name_pinned_format(global).is_some();
+    let pinned = resolve_format(global.format.as_deref())?.is_some()
+        || name_pinned_format(global, resolved_input_count(inputs)).is_some();
     if pinned {
         // No auto-decision to report on the pinned path (SPEC-088).
         reject_audit_without_autodecide(json, timing)?;
