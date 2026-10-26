@@ -7,7 +7,7 @@
 task:
   id: SPEC-131
   type: story                      # epic | story | task | bug | chore
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: M                    # S | M | L  (L means split it)
@@ -175,10 +175,28 @@ cost:
         read-only. APPROVED. Deduped by `.message.id` (28 ids), priced by component at Opus
         $5/$25 per MTok, cache_creation x1.25, cache_read x0.10. Recorded on main by the
         orchestrator.
+    - cycle: ship
+      agent: claude-sonnet-5-5
+      interface: claude-code
+      tokens_total: 583948
+      tokens_breakdown:
+        input: 16
+        output: 2885
+        cache_creation: 52450
+        cache_read: 528597
+      estimated_usd: 0.4
+      duration_minutes: null
+      recorded_at: 2026-10-26
+      note: >
+        Ship session in its own worktree (docs/spec-131-ship). Measured from its transcript
+        (1cffa110-….jsonl, identified by content), deduped by `.message.id` (8 ids),
+        input/cache_creation/cache_read once per id, MAX output_tokens per id. Priced by component
+        at Sonnet $3/$15 per MTok, cache_creation x1.25, cache_read x0.10. Measured before the
+        final commit/push turns, so it slightly under-counts.
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 48014374
+    estimated_usd: 33.7
+    session_count: 7
 ---
 
 # SPEC-131: typed per-operation parameter structs
@@ -1030,10 +1048,21 @@ No design call turned out wrong.
 from the process-focused build reflection above.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Hold the merge until verify runs: #200 merged as `ba8b740` before its verify because the gate
+   lived only in prompts; builds now open DRAFT PRs, marked ready only after verify approves.
+   And treat "the constructor's check is redundant" as a claim to test: the build removed the
+   constructors' f32 range checks because the schema checks the f64, so `1e-50` passed and read as
+   0 in f32 (silent wrong output on `percent`/`size`/`scale`); none of the build's six negative
+   controls could see it, only the retroactive verify did. The build's own reflection even
+   named the cause ("numbers are consumed as f32") without acting on it.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — None required: DEC-102 was written at build and DEC-061's risk #1 is marked superseded. One
+   proposal for the orchestrator: a build-prompt line that a range check moved from a typed
+   constructor to a schema must be re-asserted on the post-cast value, with a boundary row below
+   the type's smallest positive value.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — None new. The wasm `validate()` export and the watermark `size` upper bound (both filed by the
+   design) and the `watermark` CLI `--size nan|inf` / `--scale nan` item (filed by verify) are
+   already `- [ ]` entries in STAGE-050's `## Spec Backlog`; none duplicated.

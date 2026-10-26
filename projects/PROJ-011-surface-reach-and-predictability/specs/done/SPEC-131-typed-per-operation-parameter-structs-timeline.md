@@ -36,5 +36,8 @@ Cycle prompts live in `prompts/SPEC-131-<cycle>.md`.
       opacity 1.00000001 refused); each mutation fails exactly its one test in the full suite
       (1007/1008); CI green on every leg. **Merged 2026-10-26 as `13ed6d7`** (code identical to the
       approved `ee004f6`).
-- [~] **ship** — prompt: `prompts/SPEC-131-ship.md`. Runs after verify approves (or after its
-      follow-up fix merges).
+- [x] **ship** — prompt: `prompts/SPEC-131-ship.md`. Sonnet, ~$0.40, 2026-10-26. Merged: PR #200
+      on 2026-10-25 (`ba8b740`), fix PR #203 on 2026-10-26 (`13ed6d7`). Total cost $33.70 over 7
+      sessions (frame $3.94, design $8.24, build $11.03, verify $6.83, fix $1.44, re-verify $1.82,
+      ship $0.40). No new follow-ups: the wasm `validate()` export, the watermark `size` cap and
+      the CLI `--size nan` item were already on STAGE-050's backlog.

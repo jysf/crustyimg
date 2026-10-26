@@ -362,7 +362,12 @@ anything a recipe cannot say.
   at `7181eed`. v1 stays valid and must keep serialising as `"1"`.
   ⚠ **Byte-changing on the surface**, so it batches into PROJ-011's single lockfile migration.
 
-- [ ] **SPEC-131** (designed 2026-10-24) — [M] **Typed per-operation parameter structs.** ⚡ **Split out of the
+- [x] **SPEC-131** (merged 2026-10-25, PR #200; fix #203 2026-10-26) — [M] **Recipe step params are
+  validated at load** (DEC-102): each op publishes a key/type/range schema through the registry,
+  checked before its constructor; unknown, wrong-typed, non-finite, out-of-range and mode-unused
+  keys are refused with `recipe step N ('op'): …`. The retroactive verify caught a regression (a
+  tiny positive f64 passed the range check and read as 0 in f32); #203 fixed it. $33.70 over 7
+  sessions. Original framing: ⚡ **Split out of the
   item above by SPEC-127's design (Call 4), not deferred by accident.** `OperationParams` is a
   `BTreeMap<String, toml::Value>` with hand-rolled `get_str`/`get_u32`/`get_f32`
   (`src/operation/mod.rs:39-71`), so **every op re-implements its own validation**. The payoff is
