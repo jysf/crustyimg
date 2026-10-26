@@ -121,6 +121,26 @@ cost:
         output_tokens per id. Priced by component at Opus $5/$25 per MTok, cache_creation x1.25
         ($6.25), cache_read x0.10 ($0.50). Measured before the PR/report turns, so it slightly
         under-counts.
+    - cycle: verify
+      agent: claude-opus-5-5
+      interface: claude-code
+      tokens_total: 9519112
+      tokens_breakdown:
+        input: 122
+        output: 41093
+        cache_creation: 184701
+        cache_read: 9293196
+      estimated_usd: 6.83
+      duration_minutes: null
+      recorded_at: 2026-10-26
+      note: >
+        Retroactive verify (PR #200 squash-merged as ba8b740 before verify ran), fresh session in
+        its own worktree, read-only. Verdict PUNCH LIST (3 items; #1 a regression: a positive
+        f64 below f32's smallest value passes the range check and reads as 0.0). Measured from
+        the session's transcript (31a6a830-….jsonl, identified by content), deduped by
+        `.message.id` (58 ids), input/cache_creation/cache_read once per id, MAX output per id.
+        Priced by component at Opus $5/$25 per MTok, cache_creation x1.25 ($6.25), cache_read
+        x0.10 ($0.50). Recorded on main by the orchestrator. Slightly under-counts (final turn).
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -838,6 +858,28 @@ Display; and each CLI/wasm test uses the one condition its row names (the range 
 - Every commit `git commit -s`.
 
 ---
+
+## Verify Readout (2026-10-26, retroactive, recorded by the orchestrator)
+
+**⚠ PUNCH LIST** at `main` `7322227` (= `ba8b740` + docs). Holds: goldens re-blessed on
+`ba8b740^` are byte-identical (13/13); plain and watermark `build` caches hit on upgrade (4/4 each,
+with a rebuild control); C1–C6 reproduce; 7 of 8 own mutations caught; AC rows match; RED baseline
+real; error wording, boundaries, DEC-102/DEC-061, wasm gate (1,268,238 B, unchanged baseline) and
+23 driven docs claims all hold. CLI verbs `resize`/`thumbnail`/`edit` now get the schema check
+(wording changes; `--percent nan` now refused, `inf` exits 2 instead of 1): improvements, no
+regression.
+
+1. **Regression — a tiny positive number passes, then reads as 0.** The schema compares the f64,
+   the ops read f32, and the constructors' f32 range checks were removed: `percent = 1e-50` →
+   exit 0, 1×1 image (was exit 1); `size = 1e-50` → exit 0, no watermark; `scale = 1e-50` → exit 0.
+   Fix: apply min/max to `(n as f32) as f64` as well in `ParamKind::Number`'s check
+   (`src/operation/registry.rs`), with the three rows as tests.
+2. **Missing coverage:** a one-step recipe whose only step is a keyed `optimize` marker — no test
+   (mutation M10 survived). Add that row.
+3. **CHANGELOG wording:** the Breaking line says such recipes "used to run, ignoring the key",
+   untrue for wrong-typed required keys, and omits the `optimize` marker.
+
+Fixed by a follow-up PR (`prompts/SPEC-131-fix.md`), then a short re-verify, then ship.
 
 ## Build Completion
 
