@@ -75,8 +75,9 @@ recipe `build` target's `name`:
    except a `build` terminal-`optimize` target, which keeps DEC-087's exit 4. This matches `-o`,
    which falls through silently on an unrecognised extension on the same verbs.
 5. **`meta strip` / `meta clean` / `meta set` refuse, exit 4, before writing anything**, when the
-   template names a recognised format different from an input's container (maintainer ruling,
-   2026-10-25). The metadata lane cannot convert without re-encoding pixels
+   output's name — the template, or `-o` (maintainer ruling after design, SPEC-134 AC-22) — names
+   a recognised format different from an input's container (maintainer ruling, 2026-10-25). One
+   pre-flight checks every input before any write, so a refused batch writes nothing. The metadata lane cannot convert without re-encoding pixels
    (`metadata-not-via-pixel-encode`); the message says to convert first. Same format, `{ext}`, or
    an unrecognised extension: unchanged.
 6. **`build`'s cache:** a plain target whose `name` pins moves from the `Preserve` plan to the
@@ -129,8 +130,8 @@ depending on the verb. The maintainer ruled on 2026-10-24: honour the template.
 - **The template-pinned report** is the `-o`-pinned one: no per-file decision line. The pinned
   path's quality (85 → 80) and its missing report are PROJ-013 / STAGE-037's `-o` item, not this
   decision's.
-- **Not covered, filed:** `meta … -o x.png` on a JPEG still writes JPEG into `x.png`; `responsive`
-  accepts `--name-template` and ignores it.
+- **Not covered, filed:** `responsive` accepts `--name-template` and ignores it. (`meta … -o x.png`
+  was filed at design and then folded in by maintainer ruling: it refuses like the template.)
 - **Unchanged:** `build` still never removes a target's previous output when its extension
   changes (DEC-087 Consequences).
 

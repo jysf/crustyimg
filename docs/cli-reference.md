@@ -29,7 +29,7 @@ Available on every command (before or after the subcommand):
 | `--output <PATH>` | `-o` | Output file for single-input commands. `-` = stdout. |
 | `--out-dir <DIR>` | | Output directory for multi-input / batch commands (created if missing). |
 | `--name-template <T>` | | Output name template, e.g. `{stem}_web.{ext}` (`{stem}`, `{ext}`). |
-| `--format <FMT>` | | Force the output format (else inferred from `-o`'s extension, or kept). |
+| `--format <FMT>` | | Force the output format (else inferred from the output name's extension — `-o`, or the `--name-template` — or kept). |
 | `--quality <0-100>` | `-q` | Encoder quality where the format supports it (e.g. JPEG). |
 | `--jobs <N>` | `-j` | Parallel workers for `apply` batch (default = CPU count). |
 | `--yes` | `-y` | Assume "yes" to overwrite prompts (non-interactive). |

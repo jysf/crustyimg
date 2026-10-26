@@ -85,7 +85,7 @@ pub struct GlobalArgs {
     #[arg(short = 'j', long, global = true)]
     pub jobs: Option<usize>,
 
-    /// Force output format (else inferred from `-o` extension or kept).
+    /// Force output format (else inferred from the output name's extension — `-o` or `--name-template` — or kept).
     #[arg(long, global = true)]
     pub format: Option<String>,
 

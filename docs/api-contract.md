@@ -31,7 +31,7 @@ Apply to all subcommands (parsed before/around the subcommand).
 | `--out-dir <DIR>` | | Output directory for multi-input/batch commands. |
 | `--name-template <T>` | | Output name template, e.g. `{stem}_web.{ext}` (see data-model). |
 | `--jobs <N>` | `-j` | Parallel workers for batch (rayon). Default = CPU count. Placeholder in STAGE-001; honored in STAGE-005. |
-| `--format <FMT>` | | Force output format (else inferred from `-o` extension or kept). |
+| `--format <FMT>` | | Force output format (else inferred from the output name's extension — `-o`, or the `--name-template` — or kept). |
 | `--quality <0-100>` | `-q` | Encoder quality where the format supports it (e.g. JPEG). |
 | `--verbose` | `-v` | Increase verbosity (repeatable: `-vv`). Logs to stderr. |
 | `--quiet` | `-Q` | Suppress non-error output. |
@@ -495,10 +495,30 @@ first, so a bad input and a bad recipe report the decode error.
 
 **Output format (SPEC-126, DEC-015/DEC-098; the `recipe.format` rung is SPEC-127, Call 2).** For a
 plain pixel recipe, `apply` resolves its output format the way `resize`, `thumbnail` and
-`watermark` do, identically **at every arity**: `--format` > a recognized `-o` extension (single
-input only — the fan-out path has no `-o`) > **the recipe's own `format` field, if set** >
-**preserve the source format**. A literal extension in `--name-template` does **not** pin the
-format; it names the file only. Before SPEC-126 the two arities disagreed in both directions —
+`watermark` do, identically **at every arity**: `--format` > the output name's recognized
+extension (`-o` at a single input; else, with `--out-dir`, a literal extension in
+`--name-template`) > **the recipe's own `format` field, if set** > **preserve the source format**.
+
+**A recognized literal extension in the output name pins the format, on every verb that
+encodes (DEC-105, extending DEC-087).** `--name-template '{stem}.png'` writes a real PNG from
+`resize`, `thumbnail`, `auto-orient`, `watermark`, `edit`, `apply` (plain recipe, at one input
+and at many), `optimize`, `web` and `apply --recipe web` — exactly as `-o x.png` already does.
+"Recognized" is the same extension set `-o` uses. The chain is one: `--format` > the output
+name's extension (`-o` when given, else the template) > `recipe.format` > the verb's default
+(preserve the source, or the automatic choice). A disagreement is not an error — `--format`
+wins silently, as it does over `-o`. On `web`, `optimize` and `apply --recipe web` the pin skips
+the automatic choice, so no per-file decision line is printed and `--json`/`--timing` is a
+usage error (**exit 2**), as with an `-o` pin. A template containing `{ext}` (including the
+default `{stem}.{ext}`) never pins and is byte-identical to no template; a template with no
+recognized extension (`{stem}`, `{stem}.txt`) names the file only; `{name}` carries the
+source's own extension and is not a literal one. With `-o` given, or with no `--out-dir`
+(stdout), the template is not the output's name and does not pin. `meta strip`/`clean`/`set`
+cannot convert (they keep the input's container), so they refuse with **exit 4**, before
+writing anything, when `-o` or the template names a different recognized format than an
+input's own; a refused batch writes nothing. Not yet covered: `responsive` accepts
+`--name-template` and ignores it.
+
+Before SPEC-126 the two arities disagreed in both directions —
 one input with no `--format` wrote PNG whatever the source was, and multiple inputs ignored
 `--format` entirely. Quality follows the same shape: `-q` > **the recipe's own `quality` field, if
 set** > the format's own default.
@@ -572,10 +592,12 @@ to before this spec, so no existing cache entry or committed lockfile line goes 
 
 Exit codes: malformed manifest (bad TOML, unknown field, unsupported `version`, oversize,
 invalid target) → **2**; manifest or recipe file unreadable → **3**; invalid recipe
-(unknown op/params) → **1**; a `name` template that pins a literal extension `build`
-cannot resolve to a real image format — either an extension that is not a recognized
-format (`{stem}.txt`) or **no extension at all** (`{stem}`, which is not the `{ext}`
-sentinel) → **4** (same family as an unsupported `--format`/`-o` extension elsewhere);
+(unknown op/params) → **1**; on a target whose recipe ends in the terminal `optimize` step,
+a `name` template that `build` cannot resolve to a real image format — either an extension
+that is not a recognized format (`{stem}.txt`) or **no extension at all** (`{stem}`, which is
+not the `{ext}` sentinel) → **4** (same family as an unsupported `--format`/`-o` extension
+elsewhere; a plain-recipe target with such a name just keeps the source format, as
+`--name-template` does on the other verbs);
 missing source / empty glob → **3** (invalid glob pattern → 2); per-output failure →
 **6**. Manifest resource limits mirror recipes (DEC-036): 64 KiB size cap checked
 before read *and* before parse, 1024-target cap.
