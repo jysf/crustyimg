@@ -11,8 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **A recipe step with a key its op does not take, a wrong-typed value, or a key its mode
   never reads is now refused when the recipe is loaded** (exit `1`, nothing written), on
-  `apply --recipe`, `build` and wasm `transform`. Such a recipe used to run, ignoring the
-  key. The error names the step (numbered from 0), the op and the key:
+  `apply --recipe`, `build` and wasm `transform`. Such a recipe used to run ignoring the
+  key, or fail with a message that did not name it; this includes keys on a recipe's final
+  `optimize` step. The error names the step (numbered from 0), the op and the key:
   `recipe step 0 ('resize'): unknown key 'widht'; expected one of: mode, width, height, percent`.
 
 ### Fixed

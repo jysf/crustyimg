@@ -30,6 +30,37 @@ back, check its actual result (diff, PR, CI legs, completion table) before advan
 note is a claim, not proof. Never poll CI. Every commit in every session is DCO signed off
 (`git commit -s`).
 
+### The cycle at a glance (re-read 2026-10-26 from `AGENTS.md` §8/§9/§15 and `FIRST_SESSION_PROMPTS.md`)
+
+| Cycle | Fresh session does | Lands | Ends with |
+|---|---|---|---|
+| frame | go/no-go, size, scope, rough file list; creates the stub | `main` directly | `SPEC-NNN frame: GO …` |
+| design | ACs, failing tests, implementation context | `main` directly | spec at `cycle: build` |
+| build | makes the tests pass, Build Completion, cost | **draft** PR | `… build: draft PR #NNN …` |
+| verify | reviews the PR cold, read-only, own mutations | nothing (verdict in report) | `✅ APPROVED` / `⚠ PUNCH LIST` / `❌ REJECTED` |
+| *merge* | **the maintainer**, only after ✅ | squash to `main` | |
+| ship | ship reflection, cost totals, `just archive-spec` | `main` directly | spec in `done/` |
+
+After the last spec in a stage ships: **Stage Ship** (`FIRST_SESSION_PROMPTS.md` prompt 1d). For
+0.8.0: then release prep, then `just release 0.8.0`, then the maintainer tags.
+
+**Rules added 2026-10-26, after SPEC-131 (#200) merged before its verify ran:**
+1. ⛔ **Builds open DRAFT PRs.** A draft cannot be merged by accident. Only after verify's ✅ does
+   the orchestrator run `gh pr ready <N>` and tell the maintainer "merge #N". The merge gate used
+   to live only inside prompts the maintainer never reads.
+2. **The orchestrator keeps the timelines on `main`.** `[~]` when it hands out a prompt, `[x]`
+   (PR, cost, date) when the report checks out. Builds and verifies do not edit the timeline,
+   because AGENTS §13 keeps it off feature branches. Frame and design commit to `main`, so they
+   mark their own.
+3. **Verify and ship bookkeeping:** the orchestrator records verify's verdict and cost in the spec
+   on `main`; a separate ship session writes the ship reflection, totals and archive.
+4. **One next action per message to the maintainer.** End every message with one "Your next
+   step" block: one command and one paste line. Never bundle a launch command with another
+   task or a question; the SPEC-131 verify prompt was missed that way.
+5. **At most two builds at once,** never two on the same files. Verify is read-only and may run
+   alongside. Remove a session's worktree by name (`just wt-rm <branch>`) once its report checks
+   out.
+
 ---
 
 ## Where this stands
@@ -132,6 +163,14 @@ Batching these in one sitting unblocks more than anything an orchestrator can do
    block-list form.** Filed, PROJ-013 STAGE-047.
 8. **PROJ-013 is invisible to `just backlog`, including `--all`** — 54 items, because the project is
    still `proposed`. Anything filed there is git-safe and framework-invisible.
+
+9. **⚡ A CHECK REMOVED AS "REDUNDANT" MUST BE RE-PROVEN AT THE TYPE IT GUARDS.** SPEC-131's build
+   moved range checks from the typed constructors into a schema and deleted the constructors' own
+   checks as redundant. The schema checked the f64; the ops read an f32; `1e-50 > 0` passed and
+   read as `0.0` — a silent 1×1 image / unmarked output, exit 0. None of the build's six negative
+   controls could see it (each reverted a check that still existed); the retroactive verify's
+   own probes did. **When a check moves across a type boundary, add a test row just past the
+   boundary of the type the code actually reads** (here: below f32's smallest positive value).
 
 ## What is working, and worth keeping
 

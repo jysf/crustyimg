@@ -7,7 +7,7 @@
 task:
   id: SPEC-131
   type: story                      # epic | story | task | bug | chore
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: M                    # S | M | L  (L means split it)
@@ -121,10 +121,82 @@ cost:
         output_tokens per id. Priced by component at Opus $5/$25 per MTok, cache_creation x1.25
         ($6.25), cache_read x0.10 ($0.50). Measured before the PR/report turns, so it slightly
         under-counts.
+    - cycle: verify
+      agent: claude-opus-5-5
+      interface: claude-code
+      tokens_total: 9519112
+      tokens_breakdown:
+        input: 122
+        output: 41093
+        cache_creation: 184701
+        cache_read: 9293196
+      estimated_usd: 6.83
+      duration_minutes: null
+      recorded_at: 2026-10-26
+      note: >
+        Retroactive verify (PR #200 squash-merged as ba8b740 before verify ran), fresh session in
+        its own worktree, read-only. Verdict PUNCH LIST (3 items; #1 a regression: a positive
+        f64 below f32's smallest value passes the range check and reads as 0.0). Measured from
+        the session's transcript (31a6a830-….jsonl, identified by content), deduped by
+        `.message.id` (58 ids), input/cache_creation/cache_read once per id, MAX output per id.
+        Priced by component at Opus $5/$25 per MTok, cache_creation x1.25 ($6.25), cache_read
+        x0.10 ($0.50). Recorded on main by the orchestrator. Slightly under-counts (final turn).
+    - cycle: build
+      agent: claude-sonnet-5-5
+      interface: claude-code
+      tokens_total: 3513714
+      tokens_breakdown:
+        input: 98
+        output: 10071
+        cache_creation: 68249
+        cache_read: 3435296
+      estimated_usd: 1.44
+      duration_minutes: null
+      recorded_at: 2026-10-26
+      note: >
+        Punch-list fix (follow-up PR #203, branch fix/spec-131-punch-list), fresh session in its
+        own worktree. Measured from its transcript (f631de28….jsonl, by content), deduped by
+        `.message.id`, priced by component at Sonnet $3/$15 per MTok, cache_creation x1.25,
+        cache_read x0.10. Recorded on main by the orchestrator.
+    - cycle: verify
+      agent: claude-opus-5-5
+      interface: claude-code
+      tokens_total: 2330361
+      tokens_breakdown:
+        input: 58
+        output: 11573
+        cache_creation: 64439
+        cache_read: 2254291
+      estimated_usd: 1.82
+      duration_minutes: null
+      recorded_at: 2026-10-26
+      note: >
+        Re-verify of the punch-list fix (PR #203 at ee004f6), fresh session in its own worktree,
+        read-only. APPROVED. Deduped by `.message.id` (28 ids), priced by component at Opus
+        $5/$25 per MTok, cache_creation x1.25, cache_read x0.10. Recorded on main by the
+        orchestrator.
+    - cycle: ship
+      agent: claude-sonnet-5-5
+      interface: claude-code
+      tokens_total: 583948
+      tokens_breakdown:
+        input: 16
+        output: 2885
+        cache_creation: 52450
+        cache_read: 528597
+      estimated_usd: 0.4
+      duration_minutes: null
+      recorded_at: 2026-10-26
+      note: >
+        Ship session in its own worktree (docs/spec-131-ship). Measured from its transcript
+        (1cffa110-….jsonl, identified by content), deduped by `.message.id` (8 ids),
+        input/cache_creation/cache_read once per id, MAX output_tokens per id. Priced by component
+        at Sonnet $3/$15 per MTok, cache_creation x1.25, cache_read x0.10. Measured before the
+        final commit/push turns, so it slightly under-counts.
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 48014374
+    estimated_usd: 33.7
+    session_count: 7
 ---
 
 # SPEC-131: typed per-operation parameter structs
@@ -839,6 +911,28 @@ Display; and each CLI/wasm test uses the one condition its row names (the range 
 
 ---
 
+## Verify Readout (2026-10-26, retroactive, recorded by the orchestrator)
+
+**⚠ PUNCH LIST** at `main` `7322227` (= `ba8b740` + docs). Holds: goldens re-blessed on
+`ba8b740^` are byte-identical (13/13); plain and watermark `build` caches hit on upgrade (4/4 each,
+with a rebuild control); C1–C6 reproduce; 7 of 8 own mutations caught; AC rows match; RED baseline
+real; error wording, boundaries, DEC-102/DEC-061, wasm gate (1,268,238 B, unchanged baseline) and
+23 driven docs claims all hold. CLI verbs `resize`/`thumbnail`/`edit` now get the schema check
+(wording changes; `--percent nan` now refused, `inf` exits 2 instead of 1): improvements, no
+regression.
+
+1. **Regression — a tiny positive number passes, then reads as 0.** The schema compares the f64,
+   the ops read f32, and the constructors' f32 range checks were removed: `percent = 1e-50` →
+   exit 0, 1×1 image (was exit 1); `size = 1e-50` → exit 0, no watermark; `scale = 1e-50` → exit 0.
+   Fix: apply min/max to `(n as f32) as f64` as well in `ParamKind::Number`'s check
+   (`src/operation/registry.rs`), with the three rows as tests.
+2. **Missing coverage:** a one-step recipe whose only step is a keyed `optimize` marker — no test
+   (mutation M10 survived). Add that row.
+3. **CHANGELOG wording:** the Breaking line says such recipes "used to run, ignoring the key",
+   untrue for wrong-typed required keys, and omits the `optimize` marker.
+
+Fixed by a follow-up PR (`prompts/SPEC-131-fix.md`), then a short re-verify, then ship.
+
 ## Build Completion
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
@@ -954,10 +1048,21 @@ No design call turned out wrong.
 from the process-focused build reflection above.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Hold the merge until verify runs: #200 merged as `ba8b740` before its verify because the gate
+   lived only in prompts; builds now open DRAFT PRs, marked ready only after verify approves.
+   And treat "the constructor's check is redundant" as a claim to test: the build removed the
+   constructors' f32 range checks because the schema checks the f64, so `1e-50` passed and read as
+   0 in f32 (silent wrong output on `percent`/`size`/`scale`); none of the build's six negative
+   controls could see it, only the retroactive verify did. The build's own reflection even
+   named the cause ("numbers are consumed as f32") without acting on it.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — None required: DEC-102 was written at build and DEC-061's risk #1 is marked superseded. One
+   proposal for the orchestrator: a build-prompt line that a range check moved from a typed
+   constructor to a schema must be re-asserted on the post-cast value, with a boundary row below
+   the type's smallest positive value.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — None new. The wasm `validate()` export and the watermark `size` upper bound (both filed by the
+   design) and the `watermark` CLI `--size nan|inf` / `--scale nan` item (filed by verify) are
+   already `- [ ]` entries in STAGE-050's `## Spec Backlog`; none duplicated.

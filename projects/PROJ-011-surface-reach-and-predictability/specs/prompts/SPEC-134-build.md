@@ -111,13 +111,16 @@ design). If any of those is missing, stop and report.
    MTok, Sonnet $3/$15; cache_creation ×1.25 the input rate, cache_read ×0.10), never a flat rate.
    Append a `build` entry to `cost.sessions` with `tokens_total`, a `tokens_breakdown`,
    `estimated_usd` and the rate anchors.
-3. `just advance-cycle SPEC-134 verify`. Open the PR: title
+3. `just advance-cycle SPEC-134 verify`. Open the PR **as a draft** (`gh pr create --draft …`).
+   ⛔ A draft cannot be merged; it stays a draft until a separate verify session approves it and
+   the orchestrator marks it ready. Never mark it ready yourself. Do **not** edit the spec's
+   timeline file: it lives on `main`, and the orchestrator keeps it. Title
    `feat(cli): a --name-template extension pins the output format (SPEC-134)`, body per AGENTS §13
    (Summary, Spec metadata, Decisions referenced: DEC-087 extended by DEC-105, Constraints checked,
    New decisions: DEC-105, written at design), ending with the Claude Code footer.
 
 ## Report back (your final message — it is pasted to the orchestrator)
-First line: `SPEC-134 build: PR #NNN at <head SHA> — CI <green | red: legs>`. Then, short: AC
+First line: `SPEC-134 build: draft PR #NNN at <head SHA> — CI <green | red: legs>`. Then, short: AC
 completion (22 rows); RED baseline confirmed; NC flips; the table's final row count; matrix
 result; files changed vs the spec's list; any design call that turned out wrong; your measured
 cost.
