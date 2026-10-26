@@ -161,10 +161,15 @@ impl ParamKind {
                     Value::Float(f) => (*f, float_text(*f)),
                     _ => unreachable!("matched Integer | Float above"),
                 };
-                let above_min = if *min_inclusive { n >= *min } else { n > *min };
-                let below_max = max.is_none_or(|m| n <= m);
+                // The ops read the value as an f32, so the range applies to what
+                // they will see: `1e-50` is above 0 as an f64 but reads as 0.0.
+                let read = f64::from(n as f32);
+                let in_range = |v: f64| {
+                    let above_min = if *min_inclusive { v >= *min } else { v > *min };
+                    above_min && max.is_none_or(|m| v <= m)
+                };
                 // `n as f32` overflows to inf for a finite f64 past f32::MAX.
-                if n.is_finite() && (n as f32).is_finite() && above_min && below_max {
+                if n.is_finite() && read.is_finite() && in_range(n) && in_range(read) {
                     Ok(())
                 } else {
                     Err(shown)
