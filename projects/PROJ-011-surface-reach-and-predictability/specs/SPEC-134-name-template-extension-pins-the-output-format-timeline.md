@@ -13,6 +13,7 @@ Cycle prompts live in `prompts/SPEC-134-<cycle>.md`.
       targets (DEC-087), so `apply` and `build` disagree on the same recipe + template. The rule
       being reversed lives in `docs/api-contract.md:490`, not in DEC-087.
 - [ ] **design** — `prompts/SPEC-134-design.md`
-- [ ] **build**
+- [ ] **build** — prompt: `prompts/SPEC-134-build.md`. **Opus**, own worktree, branch
+      `feat/spec-134-name-template-pins-format`. Builds before SPEC-133. AC-22 added after design (meta -o).
 - [ ] **verify**
 - [ ] **ship**

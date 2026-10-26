@@ -483,6 +483,16 @@ stderr and exits **6** (others still written). The proof of the thesis: the same
 recipe tuned on one image runs unchanged across many. (`Operation` is not `Send`, so
 each task rebuilds its pipeline from the recipe + registry — no async, DEC-006.)
 
+**Recipe step errors (0.8.0, DEC-102).** A step key the op does not take, a wrong-typed or
+out-of-range value (`nan`/`inf` included), a key the step's mode never reads, or any key on
+the terminal `optimize` step refuses the whole recipe **at load**: `apply --recipe` (single
+input and batch) exits **1** before any input is decoded and writes nothing; `build` exits
+**1** while preparing targets, writes nothing, and keeps its `error: target #N (…)` line
+above the step's. The step's error is **one line** naming the step index (from 0), the op
+and the key — `recipe step 1 ('watermark'): 'opacity' must be a number in 0.0..=1.0, got the
+string "0.5"`. wasm `transform` returns the same text as its error; it decodes the input
+first, so a bad input and a bad recipe report the decode error.
+
 **Output format (SPEC-126, DEC-015/DEC-098; the `recipe.format` rung is SPEC-127, Call 2).** For a
 plain pixel recipe, `apply` resolves its output format the way `resize`, `thumbnail` and
 `watermark` do, identically **at every arity**: `--format` > a recognized `-o` extension (single

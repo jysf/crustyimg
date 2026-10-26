@@ -1,0 +1,13 @@
+# Text watermark with a font file, a size and a colour; centered, with a
+# margin (center ignores margin, which is documented and accepted).
+version = "1"
+
+[[step]]
+op = "watermark"
+text = "© crustyimg"
+font = "assets/font.ttf"
+size = 48.5
+color = "ff000080"
+gravity = "center"
+margin = 4
+tile = false

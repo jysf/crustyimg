@@ -1,0 +1,8 @@
+version = "1"
+description = "corpus: resize exact"
+
+[[step]]
+op = "resize"
+height = 480
+mode = "exact"
+width = 640

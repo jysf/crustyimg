@@ -1,0 +1,14 @@
+version = "1"
+name = "product"
+description = "Downscale to 1600px for product cards/thumbnails, then modernize (size reported honestly)."
+
+[[step]]
+op = "auto-orient"
+
+[[step]]
+op = "resize"
+mode = "max"
+width = 1600
+
+[[step]]
+op = "optimize"

@@ -1,0 +1,11 @@
+# Resize, mode "max": only the long-edge cap.
+version = "1"
+name = "corpus-resize-max"
+
+[[step]]
+op = "auto-orient"
+
+[[step]]
+op = "resize"
+mode = "max"
+width = 800

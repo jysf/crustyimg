@@ -1,0 +1,11 @@
+version = "1"
+
+[[step]]
+op = "watermark"
+color = "ff000080"
+font = "assets/font.ttf"
+gravity = "center"
+margin = 4
+size = 48.5
+text = "© crustyimg"
+tile = false

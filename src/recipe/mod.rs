@@ -25,12 +25,15 @@
 //! - Unknown op name → [`RecipeError::UnknownOperation`] (checked at
 //!   `build_pipeline` time, never silently skipped).
 //!
-//! **Accepted (SPEC-068 / DEC-061):** an unknown **step** key is still tolerated.
-//! [`RecipeStep`] cannot carry `deny_unknown_fields` — its `#[serde(flatten)]
-//! params` (a `BTreeMap`) absorbs every extra key — and a strict per-step check
-//! needs each operation to publish its accepted param names through the registry.
-//! An extra step key is inert (never a path, a panic, or a wrong output), so it is
-//! recorded as an accepted risk and filed as a follow-up, not fixed here.
+//! - A **step** key the op does not take, a value of the wrong TOML type, a value
+//!   out of range (including `nan`/`inf`), or a key the step's mode never reads →
+//!   [`RecipeError::InvalidOperation`] at `build_pipeline` time, naming the step
+//!   index (from 0), the op and the key. [`RecipeStep`] cannot carry
+//!   `deny_unknown_fields` — its `#[serde(flatten)] params` absorbs every extra
+//!   key — so the check runs against the table each op publishes through the
+//!   registry. The terminal `optimize` marker takes no keys and is checked in
+//!   [`Recipe::from_toml`], since the registry never sees it. Checking never
+//!   rewrites a step, so `to_toml()` of a recipe that loads is unchanged.
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -110,12 +113,18 @@ pub enum RecipeError {
         name: String,
     },
 
-    /// An op name resolved but its params were invalid (DEC-014).
+    /// A step's op name resolved but its params were refused (DEC-014): a key
+    /// the op does not take, a wrong-typed or out-of-range value, a missing
+    /// required key, or a key the step's mode never reads. Also raised for a
+    /// terminal `optimize` step that carries any key.
     ///
     /// Distinct from `UnknownOperation` so callers can distinguish a typo in the
-    /// op name from a valid op name with bad params.
-    #[error("invalid operation '{name}': {reason}")]
+    /// op name from a valid op name with bad params. Displays as one line naming
+    /// the step (numbered from 0), the op and, in `reason`, the key.
+    #[error("recipe step {step} ('{name}'): {reason}")]
     InvalidOperation {
+        /// The 0-based index of the refused step in the recipe.
+        step: usize,
         /// The op name that resolved but whose params were rejected.
         name: String,
         /// Human-readable reason the params were rejected.
@@ -349,6 +358,25 @@ impl Recipe {
             });
         }
 
+        // The terminal `optimize` marker is recipe syntax, not a registry op,
+        // so the registry never sees its keys: refuse them here. (An `optimize`
+        // step anywhere else stays an `UnknownOperation` from `build_pipeline`.)
+        if let Some((index, step)) = recipe.steps.iter().enumerate().next_back() {
+            if step.op == OPTIMIZE_STEP_OP {
+                if let Some((key, _)) = step.params.iter().next() {
+                    return Err(RecipeError::InvalidOperation {
+                        step: index,
+                        name: OPTIMIZE_STEP_OP.to_owned(),
+                        reason: format!(
+                            "unknown key '{key}'; the terminal 'optimize' step takes no keys \
+                             (set 'format'/'quality' at the top of the recipe, with \
+                             version = \"2\")"
+                        ),
+                    });
+                }
+            }
+        }
+
         Ok(recipe)
     }
 
@@ -357,15 +385,18 @@ impl Recipe {
     ///
     /// An op name not found in `registry` surfaces immediately as
     /// [`RecipeError::UnknownOperation`] — never silently skipped
-    /// (`untrusted-input-hardening`).
+    /// (`untrusted-input-hardening`). A step whose keys the op refuses
+    /// surfaces as [`RecipeError::InvalidOperation`] carrying that step's
+    /// index; the first refused step wins.
     pub fn build_pipeline(&self, registry: &OperationRegistry) -> Result<Pipeline, RecipeError> {
         let mut pipeline = Pipeline::new();
-        for step in &self.steps {
+        for (index, step) in self.steps.iter().enumerate() {
             let op = registry
                 .build(&step.op, &step.params)
                 .map_err(|e| match e {
                     RegistryError::Unknown { name } => RecipeError::UnknownOperation { name },
                     RegistryError::InvalidParams { op, reason } => RecipeError::InvalidOperation {
+                        step: index,
                         name: op.to_owned(),
                         reason,
                     },
@@ -589,24 +620,35 @@ mod tests {
         }
     }
 
-    /// PINS the accepted risk (SPEC-068 / DEC-061): an unknown **step** param is
-    /// tolerated by design — `RecipeStep`'s `#[serde(flatten)] params` absorbs it,
-    /// and it is inert. If a future spec adds strict per-op param validation, this
-    /// test flips deliberately, not by accident.
+    /// An unknown **step** key is refused when the pipeline is built, on a
+    /// param-taking op and on a paramless one alike. (It used to be tolerated:
+    /// `RecipeStep`'s flattened params absorb any key, so the check lives in the
+    /// registry, which knows each op's keys.)
     #[test]
-    fn from_toml_tolerates_unknown_step_param_by_design() {
-        // An extra key on a param-taking op (resize) and on a paramless op (invert):
-        // both parse and build a working pipeline; the extra key is dropped.
-        for toml_str in [
-            "version = \"1\"\n[[step]]\nop = \"resize\"\nmode = \"max\"\nwidth = 8\nbogus = \"x\"\n",
-            "version = \"1\"\n[[step]]\nop = \"invert\"\nbogus = \"x\"\n",
+    fn build_pipeline_rejects_unknown_step_param() {
+        for (toml_str, op) in [
+            (
+                "version = \"1\"\n[[step]]\nop = \"resize\"\nmode = \"max\"\nwidth = 8\nbogus = \"x\"\n",
+                "resize",
+            ),
+            (
+                "version = \"1\"\n[[step]]\nop = \"invert\"\nbogus = \"x\"\n",
+                "invert",
+            ),
         ] {
-            let recipe = Recipe::from_toml(toml_str)
-                .expect("an unknown STEP param is tolerated (flatten), not rejected");
+            let recipe = Recipe::from_toml(toml_str).expect("the TOML itself parses");
             let registry = OperationRegistry::with_builtins();
-            recipe
-                .build_pipeline(&registry)
-                .expect("the pipeline still builds; the extra param is inert");
+            match recipe.build_pipeline(&registry) {
+                Err(RecipeError::InvalidOperation { name, reason, .. }) => {
+                    assert_eq!(name, op);
+                    assert!(
+                        reason.contains("unknown key 'bogus'"),
+                        "reason must name the key, got: {reason}"
+                    );
+                }
+                Err(other) => panic!("expected InvalidOperation, got {other:?}"),
+                Ok(_) => panic!("an unknown step key must be refused for '{op}'"),
+            }
         }
     }
 

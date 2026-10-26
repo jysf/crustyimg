@@ -1,0 +1,16 @@
+version = "2"
+name = "corpus-v2"
+format = "webp"
+quality = 80
+
+[[step]]
+op = "identity"
+
+[[step]]
+op = "invert"
+
+[[step]]
+op = "auto-orient"
+
+[[step]]
+op = "optimize"

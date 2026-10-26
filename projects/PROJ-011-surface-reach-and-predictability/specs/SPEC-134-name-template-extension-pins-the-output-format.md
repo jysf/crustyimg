@@ -316,7 +316,9 @@ stays inside `src/operation/**`.
    through silently on an unrecognised extension (`ops.rs:213-217`) while `build`'s
    terminal-`optimize` template errors (exit 4). Two existing answers; design picks per surface.
 
-### Maintainer rulings (2026-10-25) — both questions below are settled
+### Maintainer rulings (2026-10-25) — settled
+0. (after design) **`meta … -o` also refuses** a recognised extension naming another format, in
+   this spec (AC-22), reusing the same pre-flight.
 1. **Pin it:** on `web`, `optimize` and `apply --recipe web`, a recognised template extension pins
    the format and skips the automatic choice, as `-o` and `build` (DEC-087) already do.
 2. **`meta` refuses, exit 4, before writing**, when the template names a different format than
@@ -426,6 +428,13 @@ Every AC names its verb surface (AGENTS §15). "JPEG source" is a photograph-lik
   not 6: the batch is refused whole.)
 - [ ] **AC-14** — `meta strip` with T = `{stem}.jpg` on a JPEG (same format) and with
   T = `{stem}_c.{ext}`: exit 0, JPEG, unchanged.
+- [ ] **AC-22** (added by maintainer ruling 2026-10-25, after design) — `meta strip in.jpg -o
+  E.png` (1 input, JPEG source, `-o` with a recognised extension naming another format): **exit
+  4**, `E.png` **not written**, same stderr shape as AC-12. `meta strip in.jpg -o E.jpg` (same
+  format) and an `-o` with an unrecognised extension (`E.bin`): exit 0, unchanged. Reuses the
+  AC-12 pre-flight; no second check. Test: `meta_dash_o_naming_another_format_refuses` (RED: today
+  writes JPEG into `E.png`, exit 0) + its same-format / unrecognised guard rows. Negative control:
+  NC-6 (deleting the pre-flight) must also flip this test.
 
 **`build`**
 - [ ] **AC-15** — A plain-recipe `build` target (`recipe = "r.toml"`) with `name = "{stem}.png"`

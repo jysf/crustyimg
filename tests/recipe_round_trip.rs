@@ -243,3 +243,142 @@ fn resize_invalid_params_is_invalid_operation() {
         "expected RecipeError::InvalidOperation {{ name: \"resize\" }}"
     );
 }
+
+// ─── Golden corpus: `to_toml()` stays byte-identical ─────────────────────────
+//
+// Every recipe in `tests/fixtures/recipe_corpus/*.toml` plus the bundled
+// `recipes/*.toml` is parsed and re-emitted; the result must equal its
+// `.golden` sibling byte for byte. The goldens were captured from code that
+// predates strict step-param validation, so a validation change that rewrote
+// a step's map (and so the cache key and lockfile hash built from it) fails
+// here. Regenerate only with `CRUSTYIMG_BLESS=1`, and only on the code the
+// goldens are meant to describe.
+
+/// The corpus recipes, in a stable order. Asserted against the directory so a
+/// new file cannot be silently skipped.
+const CORPUS: &[&str] = &[
+    "v1_resize_cover",
+    "v1_resize_exact",
+    "v1_resize_fill",
+    "v1_resize_fit",
+    "v1_resize_max",
+    "v1_resize_percent",
+    "v1_watermark_image_placement",
+    "v1_watermark_text_font",
+    "v2_format_quality_optimize",
+    "v2_watermark_integer_numbers",
+];
+
+/// The bundled recipes shipped in `recipes/`.
+const BUNDLED: &[&str] = &["gallery", "product", "web"];
+
+fn corpus_dir() -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/recipe_corpus")
+}
+
+/// `(source path, golden path)` for every recipe under the golden pin.
+fn golden_pairs() -> Vec<(std::path::PathBuf, std::path::PathBuf)> {
+    let dir = corpus_dir();
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let mut pairs: Vec<_> = CORPUS
+        .iter()
+        .map(|stem| {
+            (
+                dir.join(format!("{stem}.toml")),
+                dir.join(format!("{stem}.golden")),
+            )
+        })
+        .collect();
+    pairs.extend(BUNDLED.iter().map(|name| {
+        (
+            root.join(format!("recipes/{name}.toml")),
+            dir.join(format!("bundled_{name}.golden")),
+        )
+    }));
+    pairs
+}
+
+/// Read a recipe as text with line endings normalized, so a Windows checkout
+/// that converts to CRLF still parses to the same recipe.
+fn read_text(path: &std::path::Path) -> String {
+    std::fs::read_to_string(path)
+        .unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()))
+        .replace("\r\n", "\n")
+}
+
+/// A tiny decodable PNG to stand in for a watermark `image` asset.
+fn tiny_png() -> Vec<u8> {
+    let mut out = std::io::Cursor::new(Vec::new());
+    DynamicImage::ImageRgba8(RgbaImage::from_pixel(4, 4, ::image::Rgba([1, 2, 3, 255])))
+        .write_to(&mut out, ImageFormat::Png)
+        .expect("encode tiny png");
+    out.into_inner()
+}
+
+#[test]
+fn to_toml_is_byte_identical_to_main_over_the_corpus() {
+    // The corpus list must match the directory exactly.
+    let mut on_disk: Vec<String> = std::fs::read_dir(corpus_dir())
+        .expect("corpus dir")
+        .filter_map(|e| {
+            let name = e.ok()?.file_name().to_string_lossy().into_owned();
+            name.strip_suffix(".toml").map(str::to_owned)
+        })
+        .collect();
+    on_disk.sort();
+    assert_eq!(on_disk, CORPUS, "CORPUS must list every corpus recipe");
+
+    let pairs = golden_pairs();
+    assert_eq!(pairs.len(), 13, "10 corpus recipes + 3 bundled recipes");
+
+    let registry = OperationRegistry::with_builtins();
+    let png = tiny_png();
+    for (src, golden) in &pairs {
+        let recipe = Recipe::from_toml(&read_text(src))
+            .unwrap_or_else(|e| panic!("{} must parse: {e}", src.display()));
+        let emitted = recipe.to_toml().expect("to_toml");
+        assert_eq!(
+            emitted,
+            read_text(golden),
+            "{}: to_toml() changed from its golden",
+            src.display()
+        );
+
+        // It must also still build a pipeline. Asset keys get stand-in bytes,
+        // as the CLI's resolver would attach; a terminal `optimize` marker is
+        // recipe syntax, not an op, so it is dropped first.
+        let mut pixel = recipe.clone();
+        if pixel.steps.last().is_some_and(|s| s.op == "optimize") {
+            pixel.steps.pop();
+        }
+        for step in &mut pixel.steps {
+            if step.params.get_str("image").is_some() {
+                step.params.set_resolved_bytes("image", png.clone());
+            }
+            if step.params.get_str("font").is_some() {
+                step.params
+                    .set_resolved_bytes("font", crustyimg::text::DEFAULT_FONT.to_vec());
+            }
+        }
+        pixel
+            .build_pipeline(&registry)
+            .unwrap_or_else(|e| panic!("{} must build a pipeline: {e}", src.display()));
+    }
+}
+
+/// Writes the `.golden` files. Not an assertion: run it with
+/// `CRUSTYIMG_BLESS=1 cargo test --test recipe_round_trip -- --ignored bless`
+/// only when the goldens should describe the current code.
+#[test]
+#[ignore]
+fn bless_recipe_corpus_goldens() {
+    if std::env::var_os("CRUSTYIMG_BLESS").is_none() {
+        eprintln!("CRUSTYIMG_BLESS is not set; not writing goldens");
+        return;
+    }
+    for (src, golden) in golden_pairs() {
+        let recipe = Recipe::from_toml(&read_text(&src))
+            .unwrap_or_else(|e| panic!("{} must parse: {e}", src.display()));
+        std::fs::write(&golden, recipe.to_toml().expect("to_toml")).expect("write golden");
+    }
+}

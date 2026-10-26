@@ -299,6 +299,11 @@ not re-permit.
 2. **A batch or `build` whose only problem is skips exits 0**, with one stderr line per skipped
    image and a skip count in the summary (precedent: DEC-085).
 
+### Maintainer rulings on the design (2026-10-25)
+3. **Keep** the 5 % cap on unscaled image overlays (a 64×64 opaque logo on 256×256 is refused).
+4. Orchestrator (no product change): the cached-skip-line gap is accepted as documented (AC-23),
+   fixed by its own item; SPEC-133's build edits SPEC-131's two affected test rows (Call 5).
+
 ### Open maintainer questions (as asked at frame)
 1. **"Skip" — is a skipped image written without the mark, or not written at all?** The ruling's
    word does not settle it. **Recommend: written without the mark** (its other recipe steps still

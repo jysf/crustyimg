@@ -1,0 +1,9 @@
+# Resize, mode "fill": width and height.
+version = "1"
+description = "corpus: resize fill"
+
+[[step]]
+op = "resize"
+mode = "fill"
+width = 640
+height = 480
