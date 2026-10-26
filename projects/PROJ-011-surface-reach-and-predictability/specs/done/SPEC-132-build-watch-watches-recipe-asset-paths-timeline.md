@@ -40,5 +40,7 @@ Cycle prompts live in `prompts/SPEC-132-<cycle>.md`.
       narrow form (empty only for a non-string value) turns only AC-8(d) red; AC-5's count reads
       1 on unmutated code (not vacuous); `build_watch.rs` 3/3 clean runs; CI every leg green.
       ~$1.31. PR #201 squash-merged as `7eca94b`, 2026-10-26.
-- [~] **ship** — prompt: `prompts/SPEC-132-ship.md`. Sonnet. Records 4 unrecorded sessions'
-      costs (2 verify, 1 no-op fix, re-verify) from their transcripts.
+- [x] **ship** — prompt: `prompts/SPEC-132-ship.md`. Sonnet, 2026-10-26. PR #201 merged
+      2026-10-26 (`7eca94b`). Recorded 4 unrecorded sessions' costs (2 verify, 1 no-op fix,
+      re-verify) from their transcripts plus this one. Total $25.29 over 9 sessions. Reflected,
+      archived.
