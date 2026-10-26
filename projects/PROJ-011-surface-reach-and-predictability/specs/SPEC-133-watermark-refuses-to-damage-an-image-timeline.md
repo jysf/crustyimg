@@ -22,6 +22,7 @@ Cycle prompts live in `prompts/SPEC-133-<cycle>.md`.
       SPEC-131's mode check — edits two SPEC-131 test rows. Builds after SPEC-131; not parallel
       with SPEC-134. DEC-104 at build.
 - [ ] **build** — prompt: `prompts/SPEC-133-build.md`. **Opus**, own worktree, branch
-      `feat/spec-133-watermark-damage-rule`. ⛔ Starts only after SPEC-131 merges.
+      `feat/spec-133-watermark-damage-rule`. ⛔ Starts after SPEC-134 merges (shared CLI code);
+      SPEC-131 is merged. Opens a draft PR.
 - [ ] **verify**
 - [ ] **ship**
