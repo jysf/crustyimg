@@ -1201,11 +1201,12 @@ mod watch_tests {
         let r = write(
             dir.path(),
             "r.toml",
-            "version = \"1\"\n\n[[step]]\nop = \"watermark\"\nimage = 5\n",
+            "version = \"1\"\n\n[[step]]\nop = \"watermark\"\nimage = 5\nfont = \"f.ttf\"\n",
         );
         let m = manifest_for(&[&r]);
         let got = recipe_asset_paths(&m, &OperationRegistry::with_builtins());
-        assert!(got.is_empty(), "{got:?}");
+        // Only the string value comes back; an empty result must not pass.
+        assert_eq!(got, vec![PathBuf::from("f.ttf")]);
     }
 }
 

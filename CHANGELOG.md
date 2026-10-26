@@ -18,6 +18,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`build --watch` no longer rebuilds itself in a loop on Linux.** Its own reads of the
+  manifest, recipes and watermark files were reported as changes, so the loop re-ran
+  continuously while idle.
+
 - **`build --watch` now rebuilds when a watermark's image or font changes.** A recipe's
   `image` or `font` file was never watched, so editing a logo under `--watch` did nothing
   until a source changed, unless the file happened to sit beside the recipe or among the

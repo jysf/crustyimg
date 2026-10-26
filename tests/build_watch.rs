@@ -651,6 +651,44 @@ fn watch_picks_up_an_asset_directory_created_mid_session() {
 }
 
 #[test]
+fn watch_warns_once_about_a_root_that_stays_missing() {
+    // `brand/` never appears, so it cannot be registered. The warning is for the
+    // start, not for every rebuild that finds it still missing.
+    let dir = brand_project(&image_recipe("brand/logo.png"));
+    let root = dir.path().to_path_buf();
+
+    let (_guard, _logdir, log) = spawn_watch(&root, &[]);
+    assert!(
+        poll_until(|| attempts(&log) >= 1),
+        "the initial build should run"
+    );
+    let settled = settled_attempts(&log);
+
+    // Two further rebuilds, each from a recipe whose bytes differ.
+    for n in 1..=2 {
+        let recipe = format!("{}# edit {n}\n", image_recipe("brand/logo.png"));
+        let want = settled + n;
+        assert!(
+            nudge_until(
+                || {
+                    write_file(&root, "recipes/r.toml", recipe.as_bytes());
+                },
+                || attempts(&log) >= want,
+            ),
+            "edit {n} should start a build"
+        );
+        settled_attempts(&log);
+    }
+
+    let warnings = std::fs::read_to_string(&log)
+        .unwrap()
+        .lines()
+        .filter(|l| l.contains("cannot watch") && l.contains("brand"))
+        .count();
+    assert_eq!(warnings, 1, "one warning across all rebuilds");
+}
+
+#[test]
 fn watch_with_asset_roots_does_not_self_trigger() {
     // Control: asset roots registered, including after a re-registration, must not
     // wake the loop on their own.

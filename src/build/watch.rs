@@ -651,6 +651,34 @@ out = "dist/thumb"
         );
     }
 
+    #[test]
+    fn watch_roots_root_level_source_covers_an_asset_dir_once() {
+        // `*.png` makes `.` a recursive root, which covers `brand`; registering
+        // `brand` as well would watch the same inode twice.
+        let m = BuildManifest::from_toml(
+            "version = 1\n\n[[target]]\nsource = \"*.png\"\nrecipe = \"recipes/r.toml\"\nout = \"dist\"\n",
+        )
+        .unwrap();
+        let set = watch_roots(
+            &m,
+            Path::new("crustyimg.build.toml"),
+            &[PathBuf::from("brand/logo.png")],
+        );
+        assert!(
+            set.recursive.contains(&PathBuf::from(".")),
+            "{:?}",
+            set.recursive
+        );
+        let brand = PathBuf::from("brand");
+        let registered = set
+            .recursive
+            .iter()
+            .chain(set.shallow.iter())
+            .filter(|r| **r == brand)
+            .count();
+        assert_eq!(registered, 0, "{set:?}");
+    }
+
     // ── debounce ─────────────────────────────────────────────────────────────────
 
     #[test]
