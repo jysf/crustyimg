@@ -35,5 +35,10 @@ Cycle prompts live in `prompts/SPEC-132-<cycle>.md`.
       `1e88c8d` (`775a4c9`): CHANGELOG Fixed entry, DEC-060 event-kind amendment, AC-8(d) /
       AC-7(d) / AC-5 tests tightened; tests only in `src/`; CI 16/16 green. $0.96 (in the spec's
       `cost.sessions` on the branch). The reporting session did not re-run the mutations itself.
-- [~] **re-verify** — prompt: `prompts/SPEC-132-reverify.md`. Opus, read-only.
-- [ ] **ship**
+- [x] **re-verify** — prompt: `prompts/SPEC-132-reverify.md`. Opus, 2026-10-26. **✅ APPROVED
+      at `1e88c8d`.** Fix scope tests-only; M4 and M5 each turn exactly their new test red; M3's
+      narrow form (empty only for a non-string value) turns only AC-8(d) red; AC-5's count reads
+      1 on unmutated code (not vacuous); `build_watch.rs` 3/3 clean runs; CI every leg green.
+      ~$1.31. PR #201 squash-merged as `7eca94b`, 2026-10-26.
+- [~] **ship** — prompt: `prompts/SPEC-132-ship.md`. Sonnet. Records 4 unrecorded sessions'
+      costs (2 verify, 1 no-op fix, re-verify) from their transcripts.
