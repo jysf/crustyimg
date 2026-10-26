@@ -31,6 +31,9 @@ Cycle prompts live in `prompts/SPEC-132-<cycle>.md`.
       macOS/Windows unaffected. Optional: 3 test strengthenings (surviving mutations M4, M5,
       AC-8(d)). Both verify costs go into `cost.sessions` at ship (not now: the PR branch also
       edits that list, so a `main` edit would conflict at merge).
-- [~] **fix** — prompt: `prompts/SPEC-132-fix.md`. Sonnet, same draft PR #201; then a short
-      re-verify.
+- [x] **fix** — prompt: `prompts/SPEC-132-fix.md`. Sonnet, 2026-10-26, draft PR #201 at
+      `1e88c8d` (`775a4c9`): CHANGELOG Fixed entry, DEC-060 event-kind amendment, AC-8(d) /
+      AC-7(d) / AC-5 tests tightened; tests only in `src/`; CI 16/16 green. $0.96 (in the spec's
+      `cost.sessions` on the branch). The reporting session did not re-run the mutations itself.
+- [~] **re-verify** — prompt: `prompts/SPEC-132-reverify.md`. Opus, read-only.
 - [ ] **ship**
