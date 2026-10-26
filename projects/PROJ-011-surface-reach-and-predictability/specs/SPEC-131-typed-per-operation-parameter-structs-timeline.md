@@ -27,7 +27,10 @@ Cycle prompts live in `prompts/SPEC-131-<cycle>.md`.
       **⚠ PUNCH LIST**: (1) regression — `1e-50` passes the range check and reads as 0.0 in f32
       (`percent`/`size`/`scale`, silent wrong output); (2) no one-step keyed-marker test; (3)
       CHANGELOG wording. Everything else holds (see the spec's Verify Readout).
-- [~] **fix** — prompt: `prompts/SPEC-131-fix.md`. Follow-up PR for the punch list (draft),
-      branch `fix/spec-131-punch-list`; then `prompts/SPEC-131-reverify.md`.
+- [x] **fix** — prompt: `prompts/SPEC-131-fix.md`. Sonnet, draft PR #203 at `ee004f6`, ~$1.44,
+      2026-10-26. All 3 punch items done; the 1e-50 rows RED before / GREEN after; both mutations
+      (f32 revert, M10) flip exactly their new test; CI 16/16 green.
+- [~] **re-verify** — prompt: `prompts/SPEC-131-reverify.md`. Opus, read-only. Approves PR #203
+      before merge.
 - [ ] **ship** — prompt: `prompts/SPEC-131-ship.md`. Runs after verify approves (or after its
       follow-up fix merges).
