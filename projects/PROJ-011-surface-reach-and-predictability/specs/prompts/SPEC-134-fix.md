@@ -14,8 +14,9 @@ the **same draft PR #202**. The maintainer pasted this prompt into a fresh sessi
 your final message back to the orchestrator, so it must stand on its own.
 
 ## Step 0
-`git fetch origin && git status` (must be clean); `git log -1` (expect `635adfb` or later on this
-branch). Then `git merge origin/main` (not rebase: the PR is shared) and resolve any
+`git fetch origin && git status` (must be clean), then `git pull --ff-only`: the old build
+worktree may be behind its own PR branch, which already has a merge of `main` (`33912eb`).
+`git log -1` (expect `33912eb` or later). Then `git merge origin/main` (not rebase: the PR is shared) and resolve any
 `CHANGELOG.md` / `docs/api-contract.md` conflict by keeping every other spec's lines. Read the spec
 (`projects/PROJ-011-surface-reach-and-predictability/specs/SPEC-134-name-template-extension-pins-the-output-format.md`,
 especially `## Build Completion`) and DEC-105.

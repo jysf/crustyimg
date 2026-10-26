@@ -60,6 +60,12 @@ After the last spec in a stage ships: **Stage Ship** (`FIRST_SESSION_PROMPTS.md`
 5. **At most two builds at once,** never two on the same files. Verify is read-only and may run
    alongside. Remove a session's worktree by name (`just wt-rm <branch>`) once its report checks
    out.
+6. **A bug found outside the spec is recorded when it is found** (from SPEC-132's ship). The
+   build names it under an **Out-of-spec finding** line in `## Build Completion`: what it is,
+   whether released versions have it, and the CHANGELOG / DEC lines it needs. If the build fixes
+   it, it writes those lines in the same PR; if not, it files a STAGE-050 backlog item. SPEC-132
+   fixed a Linux `--watch` loop in released 0.7.x and recorded it only as a deviation, which cost
+   a punch-list round.
 
 ---
 

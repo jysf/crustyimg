@@ -7,7 +7,7 @@
 task:
   id: SPEC-132
   type: bug                        # epic | story | task | bug | chore
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: S                    # S | M | L  (L means split it)
@@ -133,10 +133,95 @@ cost:
         ids), input/cache_creation/cache_read once per id, MAX output_tokens per id. Priced by
         component at Sonnet $3/$15 per MTok, cache_creation x1.25, cache_read x0.10. Measured
         before the final commit/CI turns, so it slightly under-counts.
+    - cycle: verify
+      agent: claude-opus-5-5
+      interface: claude-code
+      tokens_total: 6783187
+      tokens_breakdown:
+        input: 112
+        output: 33336
+        cache_creation: 130187
+        cache_read: 6619552
+      estimated_usd: 4.96
+      duration_minutes: null
+      recorded_at: 2026-10-26
+      note: >
+        First of two independent verify sessions on the same head (SPEC-132-verify.md); it never reported back, so its cost was unrecorded until ship. Returned PUNCH LIST at 1a18a01 per the second session's matching result. Measured from the session's transcript (c50ceccb-….jsonl, identified by
+        content), deduped by `.message.id` (52 unique ids), input/cache_creation/cache_read once
+        per id, MAX output_tokens per id. Priced by component at Opus $5/$25 per MTok, cache_creation
+        x1.25, cache_read x0.10.
+    - cycle: verify
+      agent: claude-opus-5-5
+      interface: claude-code
+      tokens_total: 7532301
+      tokens_breakdown:
+        input: 110
+        output: 37963
+        cache_creation: 137505
+        cache_read: 7356723
+      estimated_usd: 5.49
+      duration_minutes: null
+      recorded_at: 2026-10-26
+      note: >
+        Second verify session on the same head (SPEC-132-verify.md); the one that reported back. PUNCH LIST at 1a18a01. Measured from the session's transcript (613a8d01-….jsonl, identified by
+        content), deduped by `.message.id` (55 unique ids), input/cache_creation/cache_read once
+        per id, MAX output_tokens per id. Priced by component at Opus $5/$25 per MTok, cache_creation
+        x1.25, cache_read x0.10.
+    - cycle: build
+      agent: claude-sonnet-5-5
+      interface: claude-code
+      tokens_total: 341493
+      tokens_breakdown:
+        input: 10
+        output: 2064
+        cache_creation: 43590
+        cache_read: 295829
+      estimated_usd: 0.28
+      duration_minutes: null
+      recorded_at: 2026-10-26
+      note: >
+        Second punch-list fix session (SPEC-132-fix.md): found the work already done by the first fix session and changed nothing. Labelled build, as the first fix session is. Measured from the session's transcript (3aba645b-….jsonl, identified by
+        content), deduped by `.message.id` (5 unique ids), input/cache_creation/cache_read once
+        per id, MAX output_tokens per id. Priced by component at Sonnet $3/$15 per MTok, cache_creation
+        x1.25, cache_read x0.10.
+    - cycle: verify
+      agent: claude-opus-5-5
+      interface: claude-code
+      tokens_total: 1763632
+      tokens_breakdown:
+        input: 44
+        output: 9361
+        cache_creation: 60541
+        cache_read: 1693686
+      estimated_usd: 1.46
+      duration_minutes: null
+      recorded_at: 2026-10-26
+      note: >
+        Re-verify session (SPEC-132-reverify.md) at 1e88c8d: APPROVED. Re-ran the mutations M3/M4/M5 and the Linux loop check. Measured from the session's transcript (9358f573-….jsonl, identified by
+        content), deduped by `.message.id` (22 unique ids), input/cache_creation/cache_read once
+        per id, MAX output_tokens per id. Priced by component at Opus $5/$25 per MTok, cache_creation
+        x1.25, cache_read x0.10.
+    - cycle: ship
+      agent: claude-sonnet-5-5
+      interface: claude-code
+      tokens_total: 1348688
+      tokens_breakdown:
+        input: 32
+        output: 8999
+        cache_creation: 67861
+        cache_read: 1271796
+      estimated_usd: 0.77
+      duration_minutes: null
+      recorded_at: 2026-10-26
+      note: >
+        This ship session (SPEC-132-ship.md), in its own worktree (docs/spec-132-ship). Measured before the final commit/push turns, so it slightly under-counts. Measured from the session's transcript (55d83d03-….jsonl, identified by
+        content), deduped by `.message.id` (16 unique ids), input/cache_creation/cache_read once
+        per id, MAX output_tokens per id. Priced by component at Sonnet $3/$15 per MTok, cache_creation
+        x1.25, cache_read x0.10.
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 36245850
+    estimated_usd: 25.29
+    session_count: 9
 ---
 
 # SPEC-132: build --watch watches recipe asset paths
@@ -827,10 +912,25 @@ validation order. A recipe SPEC-131 refuses at `Recipe::from_toml` (a key on the
 from the process-focused build reflection above.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Treat an out-of-spec bug found mid-build as its own item the moment it is found. The build
+   hit a bug in released 0.7.x on Linux (inotify reported the build's own reads, so `--watch`
+   rebuilt in a loop while idle: 207 builds in 45 s, reproduced on unmodified `main`), fixed it
+   in the same PR and recorded it only as a "deviation". Verify then had to demand a CHANGELOG
+   entry and a DEC-060 amendment, and the fix PR's tests were then found weak by three surviving
+   mutations (AC-8(d), AC-7(d), AC-5). Two verify sessions also ran on the same head because the
+   first never reported back (~$4.96 duplicated). The frame found the original bug only by
+   accident: it shows only when an asset sits beside its recipe, and the existing tests compared
+   output bytes, which a hot loop of cache hits leaves unchanged.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — DEC-060 was already amended twice by this spec (asset dirs; which event kinds count as a
+   change); no further DEC change. One template candidate, for the orchestrator to decide: the
+   build prompt template should say what to do with an out-of-spec bug found mid-build (stop
+   and record it in `## Build Completion` under a named "Out-of-spec finding" line with a
+   CHANGELOG/DEC note, or file it as its own backlog item) so verify does not have to ask for
+   the paperwork. No constraint change.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — None new. The Linux self-trigger is fixed and guarded by `settled_attempts` and
+   `reads_are_not_changes_but_writes_are`; STAGE-050's `## Spec Backlog` has no watch item to
+   duplicate. It ships in the next release, which the CHANGELOG `Fixed` entry already covers.
