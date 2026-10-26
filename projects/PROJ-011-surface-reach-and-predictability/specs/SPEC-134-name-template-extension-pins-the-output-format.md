@@ -796,7 +796,7 @@ necessary during build, create a new spec rather than expanding this one.
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
 - **Branch:** `feat/spec-134-name-template-pins-format`
-- **PR (if applicable):** PR_PLACEHOLDER
+- **PR (if applicable):** #202 (draft)
 - **All acceptance criteria met?** yes — 22/22, each mapped below.
 - **New decisions emitted:**
   - `DEC-105` — an output name's literal extension pins the format on every verb that encodes
