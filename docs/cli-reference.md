@@ -341,8 +341,10 @@ crustyimg build --watch         # rebuild on every change; Ctrl-C to stop
 #### `--watch`
 
 `build --watch` runs the build, then re-runs it whenever a source, a recipe, or the
-manifest changes. Edits are debounced (an editor's save burst is one rebuild), and the
-build's own outputs, `.crustyimg/`, and the lockfile are ignored — so a rebuild never
+manifest changes, or a file a recipe names (a watermark's image or font). A folder that
+does not exist yet is picked up at the next rebuild. Edits are debounced (an editor's save
+burst is one rebuild), and the build's own outputs, `.crustyimg/`, and the
+lockfile are ignored — so a rebuild never
 triggers itself. The cache makes each re-run incremental. A failing cycle is reported and
 the loop keeps watching; `Ctrl-C` stops it. A `--watch` cycle does **not** rewrite the
 lockfile, and `--watch` cannot be combined with `--check`/`--frozen`/`--locked` (a watch

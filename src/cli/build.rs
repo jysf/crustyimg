@@ -972,6 +972,12 @@ fn make_watcher(
         // than crashing the loop; a real edit fires another event. Each event's
         // paths are forwarded for the debounce + exclusion filter to judge.
         if let Ok(event) = res {
+            // Reading a watched file (the build opens the manifest, recipes and
+            // assets every cycle) is not a change. inotify reports opens and
+            // read-closes, which would wake the loop on its own build forever.
+            if is_read_only_access(&event.kind) {
+                return;
+            }
             for p in event.paths {
                 let _ = tx.send(p);
             }
@@ -981,14 +987,32 @@ fn make_watcher(
     Ok(watcher)
 }
 
-/// Register every root in `set` with `watcher`: source roots recursively, the
-/// manifest/recipe dirs non-recursively (so the sibling output/cache tree is not
-/// recursively watched — see `WatchSet`). A root that cannot be watched (e.g. it
-/// does not exist yet) is a warning, not a failure — the others still watch, and a
-/// later manifest edit can bring it into range.
+/// Whether `kind` only reports a file being read (opened, read, or closed after a
+/// read), which changes nothing. A write-close still counts as a change.
 #[cfg(feature = "watch")]
-fn register_roots(watcher: &mut notify::RecommendedWatcher, set: &crate::build::watch::WatchSet) {
+fn is_read_only_access(kind: &notify::EventKind) -> bool {
+    use notify::event::{AccessKind, AccessMode};
+    use notify::EventKind;
+    matches!(
+        kind,
+        EventKind::Access(
+            AccessKind::Open(_) | AccessKind::Read | AccessKind::Close(AccessMode::Read)
+        )
+    )
+}
+
+/// Register every root in `set` with `watcher`: source roots recursively, the
+/// manifest/recipe/asset dirs non-recursively (so the sibling output/cache tree is
+/// not recursively watched — see `WatchSet`). A root that cannot be watched (e.g. it
+/// does not exist yet) is a warning, not a failure — the others still watch. The
+/// roots that failed are returned so the loop can retry them once they exist.
+#[cfg(feature = "watch")]
+fn register_roots(
+    watcher: &mut notify::RecommendedWatcher,
+    set: &crate::build::watch::WatchSet,
+) -> Vec<PathBuf> {
     use notify::{RecursiveMode, Watcher};
+    let mut unwatched = Vec::new();
     for (roots, mode) in [
         (&set.recursive, RecursiveMode::Recursive),
         (&set.shallow, RecursiveMode::NonRecursive),
@@ -996,9 +1020,49 @@ fn register_roots(watcher: &mut notify::RecommendedWatcher, set: &crate::build::
         for root in roots {
             if let Err(e) = watcher.watch(root, mode) {
                 eprintln!("warning: cannot watch {}: {e}", root.display());
+                unwatched.push(root.clone());
             }
         }
     }
+    unwatched
+}
+
+/// Every file a target's recipe names through an asset key (a watermark's `image` or
+/// `font`), spelled as the recipe wrote it. Reads recipes, never the assets
+/// themselves, so a file that does not exist yet is still listed. A recipe that does
+/// not load contributes nothing: the build reports that error, and the recipe's own
+/// directory is watched anyway, so fixing it brings its assets into the watch set.
+#[cfg(feature = "watch")]
+fn recipe_asset_paths(
+    manifest: &crate::build::BuildManifest,
+    registry: &OperationRegistry,
+) -> Vec<PathBuf> {
+    let mut paths = Vec::new();
+    for target in &manifest.target {
+        let Ok(recipe) = load_recipe(&target.recipe) else {
+            continue;
+        };
+        for step in &recipe.steps {
+            for &key in registry.asset_keys(&step.op) {
+                if let Some(value) = step.params.get_str(key) {
+                    paths.push(PathBuf::from(value));
+                }
+            }
+        }
+    }
+    paths
+}
+
+/// The watch set for `manifest`, including the directories of the files its recipes
+/// name. Used at start and after every rebuild so both compute it the same way.
+#[cfg(feature = "watch")]
+fn watch_set_for(
+    manifest: &crate::build::BuildManifest,
+    manifest_path: &Path,
+    registry: &OperationRegistry,
+) -> crate::build::watch::WatchSet {
+    let assets = recipe_asset_paths(manifest, registry);
+    crate::build::watch::watch_roots(manifest, manifest_path, &assets)
 }
 
 /// The real `--watch` loop (behind the `watch` feature): set up the watcher, run an
@@ -1008,16 +1072,17 @@ fn watch_impl(file: Option<&str>, global: &GlobalArgs) -> Result<(), CliError> {
     use crate::build::watch;
 
     let path = file.unwrap_or(crate::build::DEFAULT_MANIFEST_FILE);
+    let registry = OperationRegistry::with_builtins();
 
     // A missing/unparseable manifest at start is a HARD exit — there is nothing to
     // derive a watch set from. (A *build* failure with a valid manifest is NOT a
     // hard exit; see the initial build below.)
     let manifest = load_manifest(path)?;
-    let mut set = watch::watch_roots(&manifest, Path::new(path));
+    let mut set = watch_set_for(&manifest, Path::new(path), &registry);
 
     let (tx, rx) = std::sync::mpsc::channel::<PathBuf>();
     let mut watcher = make_watcher(&tx)?;
-    register_roots(&mut watcher, &set);
+    let mut unwatched = register_roots(&mut watcher, &set);
 
     // Initial build. A build FAILURE (bad recipe, undecodable input) with a valid
     // manifest still enters the loop — print and wait so the user can fix it and
@@ -1033,7 +1098,6 @@ fn watch_impl(file: Option<&str>, global: &GlobalArgs) -> Result<(), CliError> {
     // The debounced rebuild loop. `debounce` returns `None` when the watcher hangs
     // up (its thread died), which ends the loop. Ctrl-C exits via the default SIGINT
     // (exit 130) — no `ctrlc` dependency (DEC-060).
-    let manifest_prefix = [PathBuf::from(path)];
     while let Some(batch) = watch::debounce(&rx, WATCH_DEBOUNCE) {
         // Drop a batch that is entirely the build's OWN writes, so a build never
         // wakes itself (the correctness crux; see `watch::is_excluded`).
@@ -1045,25 +1109,131 @@ fn watch_impl(file: Option<&str>, global: &GlobalArgs) -> Result<(), CliError> {
             eprintln!("error: {e}");
         }
 
-        // A manifest edit can change the target set → re-derive the watch set and
-        // re-register the watcher (acceptable per DEC-060). `run_build` already
-        // re-reads the manifest each cycle, so the BUILD is always current; this
-        // only refreshes WHICH directories are watched. Reusing `is_excluded` with
-        // the manifest as the sole prefix answers "did this batch touch the
-        // manifest?" with the same path-normalization the exclusion uses.
-        let manifest_changed = batch
-            .iter()
-            .any(|p| watch::is_excluded(p, &manifest_prefix));
-        if manifest_changed {
-            if let Ok(m) = load_manifest(path) {
-                set = watch::watch_roots(&m, Path::new(path));
+        // The manifest or a recipe may have changed what is watched (a new target, a
+        // recipe now naming another logo), and a directory that was missing may exist
+        // now. `run_build` already re-reads everything, so the BUILD is always
+        // current; this only refreshes WHICH directories are watched. Re-register
+        // only when the set differs or a root that failed can be watched now, so a
+        // still-missing root is not re-warned about on every rebuild.
+        if let Ok(m) = load_manifest(path) {
+            let next = watch_set_for(&m, Path::new(path), &registry);
+            let retry = unwatched.iter().any(|root| root.is_dir());
+            if next != set || retry {
+                set = next;
                 watcher = make_watcher(&tx)?;
-                register_roots(&mut watcher, &set);
+                unwatched = register_roots(&mut watcher, &set);
             }
         }
     }
 
     Ok(())
+}
+
+#[cfg(all(test, feature = "watch"))]
+mod watch_tests {
+    use super::*;
+
+    /// A manifest with one target per recipe path; the recipes are referenced by
+    /// absolute path so no test changes the process working directory.
+    fn manifest_for(recipes: &[&Path]) -> crate::build::BuildManifest {
+        let mut toml = String::from("version = 1\n");
+        for (i, r) in recipes.iter().enumerate() {
+            toml.push_str(&format!(
+                "\n[[target]]\nsource = \"src/*.png\"\nrecipe = {:?}\nout = \"dist{i}\"\n",
+                r.to_str().unwrap()
+            ));
+        }
+        crate::build::BuildManifest::from_toml(&toml).expect("a valid manifest")
+    }
+
+    fn write(dir: &Path, name: &str, text: &str) -> PathBuf {
+        let p = dir.join(name);
+        std::fs::write(&p, text).unwrap();
+        p
+    }
+
+    #[test]
+    fn reads_are_not_changes_but_writes_are() {
+        use notify::event::{AccessKind, AccessMode, CreateKind, DataChange, ModifyKind};
+        use notify::EventKind;
+        let open = EventKind::Access(AccessKind::Open(AccessMode::Any));
+        let read_close = EventKind::Access(AccessKind::Close(AccessMode::Read));
+        let write_close = EventKind::Access(AccessKind::Close(AccessMode::Write));
+        let modify = EventKind::Modify(ModifyKind::Data(DataChange::Any));
+        let create = EventKind::Create(CreateKind::File);
+        assert!(is_read_only_access(&open));
+        assert!(is_read_only_access(&read_close));
+        assert!(!is_read_only_access(&write_close));
+        assert!(!is_read_only_access(&modify));
+        assert!(!is_read_only_access(&create));
+    }
+
+    #[test]
+    fn recipe_asset_paths_lists_image_and_font_in_order() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let first = write(
+            dir.path(),
+            "a.toml",
+            "version = \"1\"\n\n[[step]]\nop = \"watermark\"\nimage = \"brand/logo.png\"\n\n\
+             [[step]]\nop = \"resize\"\nmode = \"max\"\nwidth = 16\n",
+        );
+        let second = write(
+            dir.path(),
+            "b.toml",
+            "version = \"1\"\n\n[[step]]\nop = \"watermark\"\ntext = \"x\"\nfont = \"fonts/Go.ttf\"\n",
+        );
+        let m = manifest_for(&[&first, &second]);
+        let got = recipe_asset_paths(&m, &OperationRegistry::with_builtins());
+        assert_eq!(
+            got,
+            vec![
+                PathBuf::from("brand/logo.png"),
+                PathBuf::from("fonts/Go.ttf")
+            ]
+        );
+    }
+
+    #[test]
+    fn recipe_asset_paths_skips_a_recipe_that_does_not_load() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let broken = write(dir.path(), "broken.toml", "this is not valid {{{\n");
+        let missing = dir.path().join("missing.toml");
+        let good = write(
+            dir.path(),
+            "good.toml",
+            "version = \"1\"\n\n[[step]]\nop = \"watermark\"\nimage = \"brand/logo.png\"\n",
+        );
+        let m = manifest_for(&[&broken, &missing, &good]);
+        let got = recipe_asset_paths(&m, &OperationRegistry::with_builtins());
+        assert_eq!(got, vec![PathBuf::from("brand/logo.png")]);
+    }
+
+    #[test]
+    fn recipe_asset_paths_lists_an_asset_that_does_not_exist() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let r = write(
+            dir.path(),
+            "r.toml",
+            "version = \"1\"\n\n[[step]]\nop = \"watermark\"\nimage = \"nowhere/at/all.png\"\n",
+        );
+        let m = manifest_for(&[&r]);
+        let got = recipe_asset_paths(&m, &OperationRegistry::with_builtins());
+        assert_eq!(got, vec![PathBuf::from("nowhere/at/all.png")]);
+    }
+
+    #[test]
+    fn recipe_asset_paths_skips_a_non_string_value() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let r = write(
+            dir.path(),
+            "r.toml",
+            "version = \"1\"\n\n[[step]]\nop = \"watermark\"\nimage = 5\nfont = \"f.ttf\"\n",
+        );
+        let m = manifest_for(&[&r]);
+        let got = recipe_asset_paths(&m, &OperationRegistry::with_builtins());
+        // Only the string value comes back; an empty result must not pass.
+        assert_eq!(got, vec![PathBuf::from("f.ttf")]);
+    }
 }
 
 #[cfg(test)]

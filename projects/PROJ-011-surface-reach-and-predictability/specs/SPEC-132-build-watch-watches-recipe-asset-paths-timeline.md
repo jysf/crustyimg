@@ -23,6 +23,17 @@ Cycle prompts live in `prompts/SPEC-132-<cycle>.md`.
       change:** a `make_watcher` filter dropping inotify open/read-close events, because
       `build --watch` re-triggered itself on Linux (~216 attempts / 45 s), reproduced on
       unmodified `main`, so the bug is in released 0.7.x. Verify judges it.
-- [~] **verify** — prompt: `prompts/SPEC-132-verify.md`. **Opus**, read-only. Leads with the
-      out-of-spec Linux watcher filter.
+- [x] **verify** — prompt: `prompts/SPEC-132-verify.md`. Opus, 2026-10-26. **Two independent
+      verify sessions ran** (the first, c50ceccb, ~$4.79, never reported back; the second,
+      613a8d01, $5.22) and **both returned ⚠ PUNCH LIST at `1a18a01`**: (1) no CHANGELOG Fixed
+      entry for the Linux self-trigger, (2) DEC-060 lacks the event-kind rule. Linux loop
+      measured: 207 idle builds / 45 s before, 0 after; all five edit kinds still rebuild once;
+      macOS/Windows unaffected. Optional: 3 test strengthenings (surviving mutations M4, M5,
+      AC-8(d)). Both verify costs go into `cost.sessions` at ship (not now: the PR branch also
+      edits that list, so a `main` edit would conflict at merge).
+- [x] **fix** — prompt: `prompts/SPEC-132-fix.md`. Sonnet, 2026-10-26, draft PR #201 at
+      `1e88c8d` (`775a4c9`): CHANGELOG Fixed entry, DEC-060 event-kind amendment, AC-8(d) /
+      AC-7(d) / AC-5 tests tightened; tests only in `src/`; CI 16/16 green. $0.96 (in the spec's
+      `cost.sessions` on the branch). The reporting session did not re-run the mutations itself.
+- [~] **re-verify** — prompt: `prompts/SPEC-132-reverify.md`. Opus, read-only.
 - [ ] **ship**
