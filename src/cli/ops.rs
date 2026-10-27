@@ -675,21 +675,12 @@ fn refuse_a_name_asking_for_another_format(
     all: &[crate::source::Input],
     global: &GlobalArgs,
 ) -> Result<(), CliError> {
-    let asked = if all.len() == 1 {
-        let via = if global.output.is_some() {
-            "-o"
-        } else {
-            "the name template"
-        };
-        name_pinned_format(global, 1).map(|fmt| (fmt, via))
+    let via = if all.len() == 1 && global.output.is_some() {
+        "-o"
     } else {
-        global
-            .out_dir
-            .as_ref()
-            .and(global.name_template.as_deref())
-            .and_then(crate::sink::template_literal_format)
-            .map(|fmt| (fmt, "the name template"))
+        "the name template"
     };
+    let asked = name_pinned_format(global, all.len()).map(|fmt| (fmt, via));
     let Some((wanted, via)) = asked else {
         return Ok(());
     };

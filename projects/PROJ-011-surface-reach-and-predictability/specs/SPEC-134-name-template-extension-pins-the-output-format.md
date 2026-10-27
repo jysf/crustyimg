@@ -138,6 +138,23 @@ cost:
         (48e4385a-….jsonl, identified by content), deduped by `.message.id` (32 unique ids),
         input/cache_creation/cache_read once per id, MAX output_tokens per id; Sonnet $3/$15 per
         MTok, cache_creation x1.25, cache_read x0.10. Measured before the commit/push turns.
+    - cycle: build
+      agent: claude-sonnet-5-5
+      interface: claude-code
+      tokens_total: 1496145
+      tokens_breakdown:
+        input: 40
+        output: 5629
+        cache_creation: 53288
+        cache_read: 1437188
+      estimated_usd: 0.72
+      duration_minutes: null
+      recorded_at: 2026-10-26
+      note: >
+        Fix 2 (glob rows for the N-input pin, `ops.rs` cleanup). Measured from this session's
+        transcript (239a9161-….jsonl, identified by content), deduped by `.message.id` (20 unique
+        ids), MAX output_tokens per id; Sonnet $3/$15 per MTok, cache_creation x1.25, cache_read
+        x0.10. Measured before the commit/push turns.
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -503,7 +520,7 @@ Every AC names its verb surface (AGENTS §15). "JPEG source" is a photograph-lik
   text (`src/cli/mod.rs:88`); a `CHANGELOG.md` `[Unreleased]` entry (byte-changing; names the new
   exit 2 and the `meta` exit 4). Checked by verify with `grep -n 'does \*\*not\*\* pin'
   docs/api-contract.md` → 0 hits; no comment or user-facing string names a SPEC/DEC id.
-- [x] **AC-21** — The table test asserts its own row count (`ROWS.len() == 46` after the fix pass; 41 at build), and every roster
+- [x] **AC-21** — The table test asserts its own row count (`ROWS.len() == 51` after fix 2; 46 after the fix pass; 41 at build), and every roster
   surface in Implementation Context → "Roster" maps to at least one row or named test.
 
 ## Failing Tests
@@ -841,7 +858,7 @@ necessary during build, create a new spec rather than expanding this one.
 | AC-18 | `plain_targets_sharing_a_recipe_are_keyed_by_their_template_pin`; `git diff origin/main -- src/build/cache.rs` empty |
 | AC-19 | `template_literal_format_reads_only_a_recognised_literal_extension`, `name_pinned_format_follows_the_name_the_output_is_written_under` |
 | AC-20 | docs below; `grep -n 'does \*\*not\*\* pin' docs/api-contract.md` → 0 hits |
-| AC-21 | `assert_eq!(ROWS.len(), 46)`; roster above gains the `meta -o` row, covered by two named tests |
+| AC-21 | `assert_eq!(ROWS.len(), 51)`; roster above gains the `meta -o` row, covered by two named tests |
 | AC-22 | `meta_dash_o_naming_another_format_refuses` (RED on `main`: exit 0, JPEG written into `E.png`), `meta_dash_o_same_or_unrecognised_extension_is_unchanged` (`E.jpg`, `E.bin`) |
 
 **RED baseline (unmodified `src/`, debug build of `7322227`):** the table reported **28 of 41 rows
@@ -892,7 +909,7 @@ default — `cargo test` 1020 passed / 0 failed (the AVIF-gated guard listed and
     `plain_target_plan`, `prepare_target`'s plain branch, `OutputFormatPlan` docs, unit test.
   - `src/cli/mod.rs` — `--format` help text; `CliError::MetaFormatMismatch` (exit 4) + mapping +
     `exit_code_mapping_is_total`.
-  - `tests/name_template_pins_format.rs` — new: the table (41 rows at build, 46 after the fix pass), two AC-10 guards, two AC-22 tests.
+  - `tests/name_template_pins_format.rs` — new: the table (41 rows at build, 46 after the fix pass, 51 after fix 2), two AC-10 guards, two AC-22 tests.
   - `tests/build.rs` — 4 new tests.
   - `tests/build_cache.rs` — 1 new test.
   - `docs/api-contract.md` — global `--format` row; the `apply` output-format paragraph (the
@@ -943,6 +960,22 @@ default — `cargo test` 1020 passed / 0 failed (the AVIF-gated guard listed and
 - **Outside the stated boundary, forced by item 4:** the three `name_pinned_format` call sites
   changed (`src/cli/optimize.rs` x3 and `src/cli/ops.rs` x1, passing `1`: it is already inside the
   one-input branch), plus a `resolved_input_count` helper beside the function in `common.rs`.
+
+### Fix 2 (re-verify punch list, 2026-10-26)
+
+- **Test gap:** every N-input row passed literal paths, so the argument count equalled the resolved
+  count; mutation M2 (`resolved_input_count` returns `inputs.len()`) left the suite green. Five rows
+  added (51): one unexpanded glob `in*.jpg` resolving to two inputs on `web -o x.bin`,
+  `apply --recipe web -o x.jpg` and `optimize -o x.bin` (PNG sniffed in both outputs, no `x.*`
+  written), plus two `meta strip -o x.png --name-template {stem}.jpg` rows (literal paths and a
+  glob) asserting `-o` is ignored and JPEG is written. No directory-argument row: the fixture's
+  working dir also holds the `d/` outputs.
+- **Proof (fresh `CARGO_TARGET_DIR` each build):** under M2, 3 of 51 rows RED, exactly the three
+  glob rows; the meta rows do not use `resolved_input_count`. Restored, rebuilt fresh: GREEN.
+- **Cleanup:** `refuse_a_name_asking_for_another_format` (`src/cli/ops.rs`) now calls
+  `name_pinned_format(global, all.len())` for both branches; `via` is `-o` only when
+  `all.len() == 1 && global.output.is_some()`. N-input `meta` is covered by `AC-13 meta strip N`,
+  `AC-13 ... mixed`, and the two new `meta ... -o x.png ignored` rows.
 
 ### Build-phase reflection (3 questions, short answers)
 
