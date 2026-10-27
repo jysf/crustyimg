@@ -47,7 +47,9 @@ ships **before 0.8.0**. The rest has no release deadline and must not hold the t
 ## Success Criteria
 
 - `watermark --size nan|inf` and `--scale nan|inf` are refused with a plain message, on one
-  input and in a batch; no CLI or recipe path draws an invisible mark at exit 0.
+  input and in a batch, before any input is read; a size or scale the CLI accepts, a recipe
+  accepts too. (Narrowed 2026-10-27, maintainer: marks that draw nothing on *both* paths, such as
+  `opacity = 0` or blank text, are a separate backlog item for 0.8.1.)
 - A text mark's `size` has an upper bound, the same on the CLI and in a recipe.
 - A second `build` over unchanged inputs prints the warnings the first one printed.
 

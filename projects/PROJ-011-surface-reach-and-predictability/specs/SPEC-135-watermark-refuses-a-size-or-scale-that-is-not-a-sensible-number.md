@@ -308,6 +308,17 @@ table, `--size` help text), CHANGELOG (**Fixed**: the CLI non-finite rows and th
    0.8.0's note should say "non-finite or oversized size/scale is refused", not "no invisible
    mark at exit 0" — STAGE-054's first success criterion promises the latter.
 
+### Maintainer rulings (2026-10-27, settled)
+1. **Cap: `size <= 1024`**, as a range row in the shared schema (`WATERMARK_PARAMS`), so the CLI
+   and recipes share one bound.
+2. **Marks that draw nothing on both paths stay out of 0.8.0** (`opacity = 0`, blank text, a tiny
+   `size` such as 0.01). They are filed on STAGE-054 for 0.8.1. STAGE-054's first success
+   criterion is narrowed to match, and 0.8.0's notes say "a non-finite or oversized size or scale
+   is refused", not "never an invisible mark".
+3. **Keep `f32` parsing on the CLI** and document the residual: a value within one `f32` step of
+   a bound (`--opacity 1.00000001`, `--size 1024.00001`) is accepted on the CLI and refused in a
+   recipe. Parsing as `f64` could change bytes for marks accepted today.
+
 ## Inputs
 
 - **Files to read:** `path/to/file.ext` — why
