@@ -104,8 +104,8 @@ unreleased, so fixing it before 0.8.0 means no user meets the silent-default pat
   `&'static`); every caller copies the key out, so none changed.
 - `Resize::from_params` / `Watermark::from_params` run the same table check themselves, so a
   direct caller gets the registry's guarantees.
-- An upper bound on watermark `size` is **not** set here (a resource-limit question in DEC-036's
-  family); nor a "did you mean…?" suggestion (the `expected one of` list shows the spelling).
+- An upper bound on watermark `size` (1024) is set by DEC-106, as a row in this table; a
+  "did you mean…?" suggestion is not (the `expected one of` list shows the spelling).
 
 ## Revisit if
 

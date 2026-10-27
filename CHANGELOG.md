@@ -40,6 +40,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     whole, before any file is written. Convert first, then edit the metadata.
   - A `build` target whose `name` now pins gets a new cache key, so it rebuilds once.
 
+- **A text watermark's `size` is now at most 1024**, on the CLI (`--size`) and in a recipe
+  (`size = …`). A larger value is refused: exit `2` on the CLI, exit `1` when the recipe
+  loads. Before, it was accepted; a mark that size only fits an image of about 34 megapixels
+  or more, and much larger sizes could exhaust memory or crash.
+
 ### Changed
 
 - **`watermark` refuses a mark that would damage the image.** A mark that does not fit
@@ -91,6 +96,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Every batch verb, `apply` and `build` now pick them up. `lint <dir>` now scans `.webp`
   too, so `lint --max-warnings 0` catches an animated WebP in a directory, and a CI job
   linting a tree with WebP assets may see new findings on them.
+
+- **`watermark --size nan`, `--size inf` and `--scale nan` no longer write the image with no
+  visible mark.** They exited `0` with the mark missing (or one pixel); they are now refused
+  with exit `2` before any file is read, as the same values in a recipe already were.
+
+- **`watermark --text "© crustyimg" --size 100000`, and the same `size` in a recipe, no longer
+  crash** (exit `101` in 0.7.1). It is now refused before any text is drawn.
+
+- **A watermark scaled far past the image reports a meaningful refusal.** `--scale 4294967296`
+  (or `scale = 4294967296` in a recipe) was refused with a meaningless size,
+  `the 4294967295×2147483648 px mark …`. It now reads
+  `the scaled mark does not fit inside the W×H px image`.
+
+- **A bad `watermark` flag is now reported before a missing file.** A bad `--size`, `--scale`,
+  `--opacity`, `--gravity` or `--color` is reported before a missing `--font` or `--image`
+  (exit `2`, was `3`), and before any input is read.
 
 ## [0.7.1] - 2026-08-22
 

@@ -370,8 +370,7 @@ overlay composites onto the display-correct orientation, not the stored one.
 `--opacity O` (0–1, default 1) scales the
 overlay alpha; `--scale S` resizes the overlay to `S ×` base width; `--margin M`
 insets the anchor; `--tile` repeats the overlay across the whole base (ignores
-gravity/margin). Missing/unreadable `--image` → exit **3**; bad opacity/scale or
-unknown gravity → exit **2**. Standard fan-out (single → stdout/`-o`/`--out-dir`,
+gravity/margin). Missing/unreadable `--image` → exit **3**. Standard fan-out (single → stdout/`-o`/`--out-dir`,
 multi → `--out-dir`, per-input failure → exit 6). **Recipe-round-trippable as of
 SPEC-128** — see "Watermark in a recipe" below (DEC-031's registry gap is closed).
 
@@ -380,8 +379,14 @@ SPEC-128** — see "Watermark in a recipe" below (DEC-031's registry gap is clos
 text into an overlay composited through the same path. `--image` and
 `--text` are mutually exclusive — exactly one required (neither/both → exit **2**).
 Default font is the **bundled BSD-3 Go font**; `--font PATH` (a TTF/OTF) overrides it
-(missing/unreadable → exit **3**). `--size` (px, default 32; `≤0` → exit 2);
-`--color` (`RRGGBB`/`#RRGGBB`/`RRGGBBAA`, default white; malformed → exit 2).
+(missing/unreadable → exit **3**). `--size` (px, default 32) must be above 0 and at most
+1024; `--scale` above 0 and finite; `--opacity` in 0–1; `--color`
+(`RRGGBB`/`#RRGGBB`/`RRGGBBAA`, default white). A bad `--size`, `--scale`, `--opacity`,
+`--gravity` or `--color` is a usage error (exit **2**) reported **before any file is read** —
+before the inputs, `--font` and `--image` — so it wins over a missing file (exit **3**). The
+ranges are the ones a recipe step is held to (`docs/data-model.md`). The CLI reads these
+flags as 32-bit floats, so a value within one f32 step of a bound (`--size 1024.00001`) reads
+as the bound and is accepted, while the same value in a recipe is refused.
 
 **Watermark in a recipe (SPEC-128).** `op = "watermark"` is now a registered
 operation — a recipe step takes the same two mutually-exclusive modes
@@ -418,6 +423,9 @@ anything is drawn, `watermark` checks the mark against each image, in pure geome
 - Fit is checked first; the message names the numbers:
   `watermark refused: the 1050×189 px mark does not fit inside the 24×24 px image`, or
   `… the mark would cover 5.61 % of the 172×172 px image (1661 of 29584 px); the limit is 5 %`.
+  A `--scale` so large that the mark's size cannot be represented is refused as
+  `watermark refused: the scaled mark does not fit inside the 64×48 px image`, with no size
+  for the mark.
 
 What happens next depends on the run:
 - **One input** (`watermark`, `apply --recipe` with or without a terminal
