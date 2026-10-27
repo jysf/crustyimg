@@ -128,6 +128,26 @@ cost:
         message claude-opus-5-5. Measured just before the PR, so the final commit/PR/report
         turns are not included. Includes the clean three-leg matrix, wasm-test x3 and
         demo-build.
+    - cycle: build
+      agent: claude-sonnet-5-5
+      interface: claude-code
+      tokens_total: 6455755
+      tokens_breakdown:
+        input: 122
+        output: 26966
+        cache_creation: 112137
+        cache_read: 6316530
+      estimated_usd: 2.72
+      rate_anchors: "Sonnet $3/$15 per MTok; cache_creation x1.25 input; cache_read x0.10 input"
+      duration_minutes: null
+      recorded_at: 2026-10-26
+      note: >
+        Fix session for the verify punch list (same branch, draft PR #206). Measured from the
+        session transcript e832cf11-e841-4f2a-b89b-102d7a362133.jsonl, found by content
+        ("SPEC-133 — FIX prompt"), 61 assistant messages deduped by .message.id (input /
+        cache_creation / cache_read taken once per id, MAX output_tokens), every message
+        claude-sonnet-5-5. Measured before the final commit/push/CI turns, so those are not
+        included. Includes the clean three-leg matrix, wasm-test and demo-build.
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -1159,6 +1179,26 @@ No overlap with SPEC-132 (`src/build/watch.rs`).
 - **Follow-up work identified:**
   - None new. The cached-run gap is the design's filed item; the `--size nan` item stays open
     (above).
+
+### Fix pass (verify punch list, same draft PR #206)
+
+- Items 1–4 each have a test that goes RED under the named mutation (fresh `CARGO_TARGET_DIR`,
+  non-empty `git diff` first) and GREEN once the source is restored:
+  M2 → `opacity_does_not_change_coverage` (now `opacity = 0.001`); M1 →
+  `coverage_counts_a_sixteen_bit_overlay_at_its_own_depth`; M7 →
+  `rule_judges_the_image_entering_the_step_when_it_grew` (the shrink test stays green under M7
+  because `apply`'s own guard backs it up, as the prompt predicted); M5 →
+  `skipped_count_is_per_image_not_per_step`.
+- Docs: the `watermark --help` 5 % clause is scoped to a fixed-size mark; "one explicit input"
+  became "one input, counted after globs and directories resolve" in `docs/api-contract.md`,
+  `recipes/README.md` and DEC-104; the CHANGELOG Fixed sentence states only the rule; DEC-104
+  records that a faint 16-bit mark on an 8-bit base is refused by its pixel count.
+- Cleanups: `optimize_decide_one` returns a named `DecideOne`; `run_apply`'s input label is one
+  `input_label` helper, computed only when a line is printed; SPEC-131's `scale` rows (the
+  range rows and the `scale = true` type row) moved to an image step, each now also asserting it
+  is not the mode message; `scale = 1` on an image step is back in the integer corpus recipe.
+- **Out-of-spec finding:** `docs/data-model.md:248` still says "On one explicit input"; it is
+  outside the fix prompt's boundaries. Proposed: reword it like `docs/api-contract.md`.
 
 ### Build-phase reflection (3 questions, short answers)
 
