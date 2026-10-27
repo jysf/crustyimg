@@ -21,8 +21,18 @@ Cycle prompts live in `prompts/SPEC-133-<cycle>.md`.
       replay the skip line (documented; filed). Text-mode `scale`/`tile = true` refused inside
       SPEC-131's mode check — edits two SPEC-131 test rows. Builds after SPEC-131; not parallel
       with SPEC-134. DEC-104 at build.
-- [~] **build** — prompt: `prompts/SPEC-133-build.md`. **Opus**, own worktree, branch
-      `feat/spec-133-watermark-damage-rule`. ⛔ Starts after SPEC-134 merges (shared CLI code);
-      SPEC-131 is merged. Opens a draft PR.
-- [ ] **verify**
+- [x] **build** — 2026-10-26 (`prompts/SPEC-133-build.md`). Opus. Draft PR #206 at `3dd23ff`, CI
+      green on all 16 legs. 27/27 ACs; N1–N9 flipped; goldens blessed on untouched `src/`
+      (`ab94505`). Deviations: corpus recipe `v2_watermark_integer_numbers` lost `scale = 1` (a
+      text step; needs verify's ruling); 4 predicted flips passed hollow under Skip, re-fixtured
+      and probed. `--size nan` item stays open. $22.18 (measured before the PR).
+- [x] **verify** — 2026-10-26 (`prompts/SPEC-133-verify.md`). Opus. **⚠ PUNCH LIST** at `3dd23ff`.
+      Code correct on every surface; passing marks byte-identical to `main` (9 cases); skip
+      probe over all integration tests hits only the 8 skip tests. Mutations M1 (16-bit count),
+      M2 (count after opacity — AC-5 hollow), M5 (K per step), M7 (judge the original input)
+      survive. Docs: `--help` 5 % sentence false for `--tile`; glob/dir-of-one → exit 2
+      undocumented; a CHANGELOG sentence describes behaviour no release had. Ruling: the recipe
+      `text` + `scale` refusal breaks no released user (0.7.1 has no recipe watermark). $11.16.
+- [~] **fix** — prompt: `prompts/SPEC-133-fix.md`. **Sonnet**, the build worktree, same draft PR
+      #206. Items 1–7 + cleanups 8–12 (orchestrator's call).
 - [ ] **ship**
