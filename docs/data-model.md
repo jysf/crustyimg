@@ -245,9 +245,9 @@ is refused (`'size' only applies to a text watermark`); a `text` step that sets
 at its drawn size (after `scale`) plus `margin` on the axes the gravity anchors must fit
 inside the image; a tile must fit on its own. A mark of fixed size (no `scale`, no
 `tile`) may cover at most 5 % of the image's pixels, counting the mark's visible
-pixels. On one explicit input that is an error (exit 2); in a batch or `build` the
-image is written without the mark, its other steps applied, with a warning — see
-`docs/api-contract.md`, `watermark`.
+pixels. The input count is taken after globs and directories resolve: one resulting image
+is refused with exit 2; with two or more, or in `build`, the image is written without the
+mark, its other steps applied, with a warning — see `docs/api-contract.md`, `watermark`.
 
 ⚠ **`image`'s and `font`'s VALUES are paths, never bytes.** `to_toml` always
 emits the path a step named — the CLI's recipe-IO-boundary resolver
