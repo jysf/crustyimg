@@ -7,7 +7,7 @@
 task:
   id: SPEC-135
   type: bug                        # epic | story | task | bug | chore
-  cycle: design  # frame | design | build | verify | ship
+  cycle: build  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: S                    # S | M | L  (L means split it)
@@ -30,6 +30,9 @@ references:
     - DEC-036   # recipe resource limits; the family the size cap was filed under
     - DEC-063   # peak-decode memory budget; the yardstick for the cap
     - DEC-031   # CLI builds the watermark op directly, not via the registry
+    - DEC-015   # exit codes: 2 usage, 3 missing input, 1 recipe load
+    - DEC-045   # skrifa + zeno rasteriser; where the size-100000 panic is
+    - DEC-106   # written by the build: CLI flags checked through the op's key table, before IO
   constraints:
     - untrusted-input-hardening
     - no-unwrap-on-recoverable-paths
@@ -74,6 +77,25 @@ cost:
         output_tokens per id. Priced by component at Opus $5/$25 per MTok, cache_creation x1.25
         ($6.25), cache_read x0.10 ($0.50): $0.0004 + $0.80 + $2.20 + $0.93. Measured before
         the commit/push turns, so it slightly under-counts.
+    - cycle: design
+      agent: claude-opus-5-5
+      interface: claude-code
+      tokens_total: 6193024
+      tokens_breakdown:
+        input: 96
+        output: 53454
+        cache_creation: 159114
+        cache_read: 5980360
+      estimated_usd: 5.32
+      duration_minutes: null
+      recorded_at: 2026-10-27
+      note: >
+        Interactive design session in its own worktree (docs/spec-135-design). Measured from the
+        session's transcript (941792af-….jsonl, identified by content), deduped by `.message.id`
+        (48 unique ids, all claude-opus-5-5), input/cache_creation/cache_read once per id, MAX
+        output_tokens per id. Priced by component at Opus $5/$25 per MTok, cache_creation x1.25
+        ($6.25), cache_read x0.10 ($0.50): $0.0005 + $1.34 + $0.99 + $2.99. Measured before the
+        commit/push turns, so it slightly under-counts.
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -319,33 +341,428 @@ table, `--size` help text), CHANGELOG (**Fixed**: the CLI non-finite rows and th
    a bound (`--opacity 1.00000001`, `--size 1024.00001`) is accepted on the CLI and refused in a
    recipe. Parsing as `f64` could change bytes for marks accepted today.
 
+## Design
+
+Design session 2026-10-27 (Opus), on `main` @ `f926440`. Every row below was driven on a release
+build of `main` in a fresh `CARGO_TARGET_DIR` (deleted afterwards), and the panic row also on the
+**released `v0.7.1` asset** (`crustyimg-aarch64-apple-darwin.tar.xz`, sha256 checked). Inputs:
+ImageMagick `gradient:` PNGs 400×300 (`small`), 1200×1000 (`mid`), 2048×1536 (`big`), a 60×30
+white `logo`. Changed pixels counted with ImageMagick (control: input vs itself → 0 px).
+
+### What `main` does today (the RED baseline every test below is measured against)
+
+| Command (CLI `watermark` unless noted) | `main` exit | `main` stderr / effect |
+|---|---|---|
+| `small --text hi --size nan` / `inf` / `1e39` / `4294967296` | **0** | nothing drawn |
+| `mid --text . --size 1025` | **0** | drawn (cap does not exist) |
+| `mid --text . --size 1024` | 0 | drawn, 16,641 px changed |
+| `mid --text . --size 1024.00001` | 0 | **byte-equal** to `--size 1024` (f32 reads 1024.0) |
+| `small --text "© crustyimg" --size 100000` | **101** | `thread 'main' panicked at …zeno-0.3.3/src/raster.rs:144:42` |
+| same, **released 0.7.1 binary**, on `small` and on `big` | **101** | same panic — the CHANGELOG **Fixed** line is true of the release |
+| `small --text hi --size 100000` (control) | 2 | fit refusal, no panic: the panic needs the longer string |
+| `small --text hi --size=-1` | 2 | `error: --size must be > 0, got -1` |
+| `small --image logo --scale nan` | **0** | 1×1 mark |
+| `small --image logo --scale inf` | 2 | `…the 4294967295×2147483648 px mark does not fit inside the 400×300 px image` |
+| `big --image logo --scale 4294967296` / `1e30` | 2 | `…the 4294967295×2147483648 px mark does not fit inside the 2048×1536 px image` |
+| `small --image logo --opacity 1.5` | 2 | `error: --opacity must be in 0.0..=1.0, got 1.5` |
+| `--size nan` on: batch dir / glob→1 / missing input / stdin (empty) | 0 / 0 / 3 / 4 | read before the check |
+| `--scale nan` on: batch dir / glob→1 / missing input / stdin (empty) | 0 / 0 / 3 / 4 | read before the check |
+| `--text hi --font /no/f.ttf --size nan` | **3** | `could not read image input` (font read first) |
+| `--image /no/l.png --scale nan` | **3** | overlay read first |
+| `--image /no/l.png --gravity bogus` | **3** | overlay read first |
+| `--text hi --font /no/f.ttf --color zzz` | **3** | font read first |
+| `apply --recipe` `text="."`, `size = 1025` / `1024.00001` on `mid` | **0** / **0** | loads; the recipe has no cap either |
+| `apply --recipe` `text="© crustyimg"`, `size = 100000` | **101** | the same panic, through a recipe |
+| `apply --recipe` `image="logo.png"`, `scale = 4294967296` / `1e30` on `big` | 2 | the saturated message |
+| CLI vs `apply --recipe`, default size / `size = 1024` / `scale = 0.1` | 0 | `cmp`: byte-equal pairwise |
+
+`1e30` matters: `1e30 × 2048` is past `u64::MAX` too, so computing the mark in `u64` would still
+saturate. That settles Call 2.
+
+### Call 1 — how the CLI reaches the table: a public per-key check, not `OperationParams`
+
+The CLI checks `--size`, `--scale` and `--opacity` one flag at a time against their rows in
+`WATERMARK_PARAMS`, through three items `src/operation/registry.rs` makes public:
+
+```rust
+impl ParamKind {
+    /// Whether `value` satisfies this kind (the check `check_params` runs per key).
+    pub fn accepts(&self, value: &toml::Value) -> bool { self.check(value).is_ok() }
+    /// The phrase after "must be" in an error, e.g. `a number > 0 and <= 1024`.
+    pub fn expectation(&self) -> String { /* today's private fn, unchanged */ }
+}
+/// The row for `key` in `specs`, if there is one.
+pub fn param_spec<'a>(specs: &'a [ParamSpec], key: &str) -> Option<&'a ParamSpec>;
+```
+
+`check_params` keeps calling the private `check` and keeps its wording byte-for-byte. Why not
+build the flags into `OperationParams` and run `check_params` (the `resize` precedent)?
+- Its message names the recipe key: `'size' must be …`. The user typed `--size`.
+- The CLI holds an `f32`; `toml::Value::Float(f64::from(1.1f32))` prints as
+  `got 1.100000023841858`. The per-key check lets the CLI print the value it parsed (`got 1.1`).
+- `Watermark` is built directly (DEC-031); the overlay is pixels, not a path, so a params map
+  would carry dummy `image`/`text` entries only to satisfy the table's mode rules.
+
+The CLI side, in `src/cli/ops.rs` (new private helpers; names are the builder's):
+
+```rust
+/// Check one watermark flag against the key table a recipe step is checked against.
+fn check_watermark_flag(flag: &str, key: &str, value: Option<f32>) -> Result<(), CliError> {
+    let Some(v) = value else { return Ok(()) };
+    let Some(spec) = registry::param_spec(WATERMARK_PARAMS, key) else {
+        return Err(CliError::Usage(format!("internal error: no watermark key '{key}'")));
+    };
+    if spec.kind.accepts(&toml::Value::Float(f64::from(v))) { return Ok(()) }
+    Err(CliError::Usage(format!("{flag} must be {}, got {}", spec.kind.expectation(), flag_value_text(v))))
+}
+/// `nan`, `inf`, `-inf`, or the value as parsed (`1025`, `1.5`).
+fn flag_value_text(v: f32) -> String;
+```
+
+`f64::from(v)` is exact, so the table's `as f32` re-read is a no-op and the check is exactly the
+f32 range check — **ruling 3's residual, by construction**: `--size 1024.00001` parses to
+`1024.0` and passes; the recipe's `size = 1024.00001` is an f64 above 1024 and is refused.
+
+**What replaces each hand-written check** (`src/cli/ops.rs` on `main`):
+| `main` | replaced by |
+|---|---|
+| `size <= 0.0` (`:1382-1385`, in `watermark_overlay`, after the font read) | `check_watermark_flag("--size", "size", src.size)`, first line of `run_watermark` |
+| `!(0.0..=1.0).contains(&opacity)` (`:1418-1423`, after the overlay load) | `check_watermark_flag("--opacity", "opacity", opacity)`, same place |
+| `s <= 0.0` (`:1425-1429`, after the overlay load) | `check_watermark_flag("--scale", "scale", scale)`, same place |
+| `--gravity` parse (`:1413-1416`, after the overlay load) | the same `Gravity::from_str`, moved ahead of all IO (not table-routed: the parser is the source of truth for both paths already) |
+| `--color` parse (`:1378-1381`, after the font read) | the same `parse_color`, moved ahead of all IO; `watermark_overlay` takes the parsed colour and size |
+| `--margin` | unchanged: clap's `u32` already is the table's `UInt { min: 0 }` range |
+
+**Order in `run_watermark` after the change:** the five flag checks → `watermark_overlay` (font
+read or overlay load) → op construction → `run_pixel_op` (where inputs, globs, dirs and stdin are
+resolved and read). No file is opened before the five checks.
+
+**Exact CLI messages** (stderr is this one line; exit 2):
+```
+error: --size must be a number > 0 and <= 1024, got nan
+error: --size must be a number > 0 and <= 1024, got inf        # also for --size 1e39 (clap parses it to inf)
+error: --size must be a number > 0 and <= 1024, got 1025
+error: --size must be a number > 0 and <= 1024, got -1
+error: --size must be a number > 0 and <= 1024, got 100000
+error: --scale must be a finite number > 0, got nan
+error: --scale must be a finite number > 0, got inf            # also for --scale 1e39
+error: --opacity must be a number in 0.0..=1.0, got 1.5
+```
+The `--opacity` and `--size -1` wordings change (`must be in` → `must be a number in`; `> 0` →
+`a number > 0 and <= 1024`): they now come from the same table phrase a recipe prints.
+
+### Call 2 — the oversized mark: say it does not fit, without a number
+
+`Watermark::mark_size` returns `Option<(u32, u32)>`. It computes exactly today's expressions in
+`f32`, and returns `None` when a dimension's rounded `f32` value is not below `2^32`
+(`u32::MAX as f32` is exactly `4294967296.0`), i.e. exactly where today's `as u32` saturates (or
+the value is NaN):
+
+```rust
+let w = (base_width as f32 * s).round();
+if !(w < u32::MAX as f32) { return None; }          // NaN fails this too
+let target_w = (w as u32).max(1);
+let h = ((target_w as f32) * (oh as f32) / (ow as f32)).round();
+if !(h < u32::MAX as f32) { return None; }
+Some((target_w, (h as u32).max(1)))
+```
+
+For every `Some`, the values are bit-for-bit today's (same expressions, an in-range cast), so no
+accepted mark changes. `None` in `refusal()` yields a new variant
+`Refusal::ScaledMarkTooLarge { image: (u32, u32) }`, displayed as
+`the scaled mark does not fit inside the {w}×{h} px image`; `apply` already returns
+`OperationError::Refused` from `refusal()` first, and its two composite-time `mark_size` calls
+(16-bit and 8-bit branches) take the `None` arm as the same refusal (no `unwrap`/`expect`).
+`Refusal` is new in 0.8.0 (SPEC-133, unreleased), so adding a variant breaks no released API.
+
+Why not `u64`: `--scale 1e30` on 2048 px is 2.0e33, past `u64::MAX` — driven above, it prints the
+same saturated pair. Why not print the scale: `4294967296f32` displays as `4294967300`, and after
+the flag check only finite scales reach here; the image size is the actionable number.
+
+**Exact message**, CLI `watermark --image logo.png --scale 4294967296` on a 64×48 input, exit 2:
+```
+error: watermark refused: the scaled mark does not fit inside the 64×48 px image
+```
+`apply --recipe` with `scale = 4294967296` prints the same line. `--scale inf` / `1e39` never get
+here now: the flag check (CLI) or the schema (recipe) refuses them first.
+
+### Call 3 — help text and docs (worded now, written at build)
+
+- `--size` help (`src/cli/mod.rs:418`): `/// Font size in px for \`--text\`: above 0, at most 1024 (default 32).`
+- `docs/data-model.md:229`: `| \`size\` | number (integer or float) | \`> 0\` and \`<= 1024\` |`, and
+  under the table: "The `watermark` CLI checks `--size`, `--scale` and `--opacity` against these
+  same rows, before it reads any file. It parses them as 32-bit floats, so a value within one f32
+  step of a bound (`--size 1024.00001`, `--opacity 1.00000001`) reads as the bound and is
+  accepted on the CLI, while the same value in a recipe is refused."
+- `docs/api-contract.md` §`watermark` (`:372-374`, `:382-383`): replace "`≤0` → exit 2" and
+  "bad opacity/scale … → exit 2" with: "`--size` (px, default 32) must be above 0 and at most
+  1024; `--scale` above 0 and finite; `--opacity` in 0–1. A bad `--size`, `--scale`, `--opacity`,
+  `--gravity` or `--color` is a usage error (exit **2**) reported **before any file is read** —
+  before the inputs, `--font` and `--image` — so it wins over a missing file (exit 3)." Add the
+  f32 residual sentence, and in the refusal list (`:419`) the `the scaled mark does not fit inside
+  the W×H px image` form.
+
+### Call 4 — DEC-106, written at build
+
+DEC-106, not an amendment: DEC-102 says *what* the table checks; the new rule is that a CLI verb
+which builds its op directly (DEC-031) still validates its flags through that op's table, before
+any IO. That is a refinement of both. **Written at build**, in the same PR as the code: a DEC on
+`main` describing a check that does not exist yet would be false until the merge, and the build
+also has to edit DEC-102's Consequences line, which design may not touch.
+- Title: `A CLI verb that builds its op directly checks its flags through the op's key table, before any file is read`.
+- Decision: the three-item public per-key check (Call 1); flag messages name the flag; all
+  `watermark` flag checks precede all file IO; `size <= 1024` is a schema row (ruling 1); the
+  `f32` residual (ruling 3) is accepted and documented; an unrepresentable scaled mark is
+  `ScaledMarkTooLarge` (Call 2).
+- Alternatives: `OperationParams` + `check_params` (Call 1's three reasons); CLI `f64` parsing
+  (ruling 3: changes bytes); `u64` mark size (`1e30`); a DEC-036 resource limit (DEC-036 bounds
+  the document, not a key; only the table is read by both paths).
+- `affected_scope` (block list): `src/cli/ops.rs`, `src/operation/registry.rs`,
+  `src/operation/mod.rs`, `src/cli/mod.rs`, `docs/api-contract.md`, `docs/data-model.md`.
+- DEC-102 Consequences, the line "An upper bound on watermark `size` is **not** set here (a
+  resource-limit question in DEC-036's family)" becomes: "An upper bound on watermark `size`
+  (1024) is set by DEC-106, as a row in this table; …" (keep the "did you mean" clause).
+- Revisit if: another verb grows hand-written flag checks; or the CLI moves to `f64` parsing.
+
+### Call 5 — CHANGELOG lines (written at build under `## [Unreleased]`)
+
+**Breaking:**
+- A text watermark's `size` is now at most 1024, on the CLI (`--size`) and in a recipe
+  (`size = …`). A larger value is refused: exit 2 on the CLI, exit 1 when the recipe loads.
+  Before, it was accepted; a mark that size only fits an image of about 34 megapixels or more,
+  and much larger sizes could exhaust memory or crash.
+
+**Fixed:**
+- `watermark --size nan`, `--size inf` and `--scale nan` exited 0 and wrote the image with no
+  visible mark (or a 1-pixel one). They are now refused with exit 2 before any file is read, as
+  the same values in a recipe already were.
+- `watermark --text "© crustyimg" --size 100000`, and the same `size` in a recipe, crashed
+  (exit 101) in 0.7.1. It is now refused before any text is drawn.
+- A watermark scaled far past the image (`--scale 4294967296`, or `scale = 4294967296` in a
+  recipe) was refused with a meaningless size, `the 4294967295×2147483648 px mark …`. It now
+  reads `the scaled mark does not fit inside the W×H px image`.
+- A bad `--size`, `--scale`, `--opacity`, `--gravity` or `--color` is now reported before a
+  missing `--font` or `--image` (exit 2, was 3), and before any input is read.
+
+### Call 6 — wasm: covered by the schema row, no AC of its own
+
+`wasm::transform` builds through `pixel_recipe.build_pipeline(&OperationRegistry::with_builtins())`
+(`src/wasm.rs:232`, `:241`) — the same call `tests/recipe_strict_params.rs`'s `load` makes. There
+is no wasm-specific param code, so the cap reaches wasm iff the schema row exists, and AC-1's
+library rows fail exactly when wasm would. Verify confirms by reading `src/wasm.rs:225-245` that
+the build still goes through `build_pipeline` (a read check, not a test).
+
+### Size
+
+**[S], upper end — no cut applied.** Code: one schema row, three `pub` items, two CLI helpers and a
+reorder, one `Option` and one `Refusal` variant (≈ 80 lines). The matrix is ~50 rows (the frame
+estimated 29): I added the `--opacity` row (its check is replaced), the `--gravity`/`--color`
+ordering rows (moved by the same reorder), the height-only overflow row (trap 10) and a batch
+row for the message. 46 of them sit in five table-driven tests. The frame's cut line (font/overlay
+ordering, f32 docs) is **not** used: both are already cheap rows here.
+
 ## Inputs
 
-- **Files to read:** `path/to/file.ext` — why
-- **External APIs:** <name, docs link, auth>
-- **Related code paths:** `src/some/module/`
+- **Files to read:** `src/cli/ops.rs:1320-1460` (`watermark_overlay`, `run_watermark`,
+  `text_error`); `src/cli/ops.rs:254-283` (`run_resize`, the registry precedent);
+  `src/operation/registry.rs:60-240` (`ParamSpec`, `ParamKind::{expectation, check}`,
+  `check_params`); `src/operation/mod.rs:195-240` (`Refusal` + Display), `:1255-1317`
+  (`WATERMARK_PARAMS`), `:1391-1404` (`mark_size`), `:1670-1790` (`refusal`, `apply`);
+  `src/cli/mod.rs:396-433` (the `Watermark` args); `tests/watermark_damage.rs:81-192` (the golden
+  pattern to copy); `tests/recipe_strict_params.rs:56-75`, `:235-272`, `:549-600` (helpers, the
+  range table, the CLI shape).
+- **External APIs:** none.
+- **Related code paths:** `src/wasm.rs:225-245` (read only, Call 6); `src/text/mod.rs` (not
+  changed; `render_text` is where the panic happens).
 
 ## Outputs
 
-- **Files created:** `path/to/new.ext` — purpose
-- **Files modified:** `path/to/existing.ext` — what changes
-- **New exports:** <names and signatures>
-- **Database changes:** <migrations>
+- **Files created:** `tests/watermark_cli_params.rs`; `tests/fixtures/watermark/cli_params.golden`;
+  `decisions/DEC-106-<slug>.md`.
+- **Files modified:**
+  - `src/operation/registry.rs` — `ParamKind::accepts` (new, pub), `ParamKind::expectation` (pub),
+    `param_spec` (new, pub fn); a unit test.
+  - `src/operation/mod.rs` — `WATERMARK_PARAMS` `size` row `max: Some(1024.0)`;
+    `Refusal::ScaledMarkTooLarge` + its Display arm; `Watermark::mark_size` → `Option`;
+    `Watermark::refusal` and `Watermark::apply` (both composite branches) handle `None`; the
+    doc comments on `new_image`/`new_text` that say validation happens in `run_watermark`
+    (still true, reworded to "against `WATERMARK_PARAMS`"); unit tests.
+  - `src/cli/ops.rs` — `run_watermark` (flag checks first, gravity/colour moved up),
+    `watermark_overlay` (takes the parsed size and colour; its `size <= 0.0` check and colour
+    parse removed), new `check_watermark_flag` + `flag_value_text`; one unit test.
+  - `src/cli/mod.rs` — `--size` help line.
+  - `tests/recipe_strict_params.rs` — rows in the range table, two new tests.
+  - `docs/api-contract.md`, `docs/data-model.md`, `CHANGELOG.md`,
+    `decisions/DEC-102-recipe-step-params-are-validated-at-load.md` (Consequences line).
+  - Not `recipes/README.md`: it states no `size` range (checked).
+- **New exports:** `ParamKind::accepts(&self, &toml::Value) -> bool`,
+  `ParamKind::expectation(&self) -> String` (now pub),
+  `operation::registry::param_spec(&[ParamSpec], &str) -> Option<&ParamSpec>`,
+  `Refusal::ScaledMarkTooLarge { image: (u32, u32) }`.
+- **Database changes:** none. **No** `Cargo.lock`, `Cargo.toml` version, or
+  `CACHE_SCHEMA_VERSION` change (checking never rewrites `OperationParams`, DEC-102).
 
 ## Acceptance Criteria
 
-Testable outcomes. Cover happy path, error cases, edge cases.
+Surfaces: **CLI** = `crustyimg watermark`; **recipe** = `crustyimg apply --recipe`; **lib** = the
+library API. "Refused on the CLI" = exit 2, stderr is exactly one line (the one quoted), no
+output file written. Inputs are generated in-test: `G(w,h)` an RGB gradient PNG, `logo` a 60×30
+opaque RGBA **gradient** PNG (not a flat colour: a resize-filter change must show in AC-12). "RED on `main`" quotes `main`'s exit as driven in `## Design`.
 
-- [ ] Criterion 1 (testable)
-- [ ] Criterion 2 (testable)
+**The schema cap — lib + recipe**
+- [ ] **AC-1. `size` is capped at 1024 in `WATERMARK_PARAMS`, inclusive.** Recipe load
+      (`Recipe::from_toml` + `build_pipeline`): `size = 1025`, `size = 1024.00001`,
+      `size = 4294967296`, and `text = "© crustyimg"` + `size = 100000` are refused, reason
+      `'size' must be a number > 0 and <= 1024, got …` (the last without panicking); `size = 1024`
+      and `size = 1024.0` build. RED on `main`: the four load (the last panics).
+- [ ] **AC-2. `apply --recipe` refuses `size > 1024` before any output.** `text = "."`,
+      `size = 1025` on `G(1200,1000)` → exit 1, one `error:` line containing
+      `recipe step 0 ('watermark'): 'size' must be a number > 0 and <= 1024, got 1025`, no output.
+      `text = "© crustyimg"`, `size = 100000` → exit 1, no panic text in stderr. RED: 0 and 101.
+
+**The per-key check — lib**
+- [ ] **AC-3. The public per-key check agrees with `check_params`.** For every `Number` key of
+      `WATERMARK_PARAMS` (`size`, `opacity`, `scale`) and each of
+      `nan, inf, -inf, 0, -1, 1e-50, 0.5, 1, 1.5, 1024, 1024.00001, 1025, 4294967296, 1e39`
+      as a `toml::Value::Float`: `param_spec(..).kind.accepts(v)` equals
+      `check_params("watermark", WATERMARK_PARAMS, {key: v}).is_ok()`. `param_spec(.., "nope")`
+      is `None`. (New API: RED = does not compile on `main`.)
+
+**The CLI refuses a bad flag, naming the flag, before any IO**
+- [ ] **AC-4. Each bad value is a usage error with the table's phrase.** CLI on `G(400,300)`
+      (`--text hi`) or `G(1200,1000)` (`--text .`, for 1025) → exit 2 and exactly:
+      | args | stderr | `main` |
+      |---|---|---|
+      | `--text hi --size nan` | `error: --size must be a number > 0 and <= 1024, got nan` | 0 |
+      | `--text hi --size inf` | `… got inf` | 0 |
+      | `--text hi --size 1e39` | `… got inf` | 0 |
+      | `--text . --size 1025` (on 1200×1000) | `… got 1025` | 0 |
+      | `--text hi --size=-1` | `… got -1` | 2, other words |
+      | `--text "© crustyimg" --size 100000` | `… got 100000` | **101** |
+      | `--image logo --scale nan` | `error: --scale must be a finite number > 0, got nan` | 0 |
+      | `--image logo --scale inf` | `… got inf` | 2, saturated |
+      | `--image logo --scale 1e39` | `… got inf` | 2, saturated |
+      | `--image logo --opacity 1.5` | `error: --opacity must be a number in 0.0..=1.0, got 1.5` | 2, other words |
+- [ ] **AC-5. Boundary at the f32 the op reads, and the documented residual.** CLI
+      `--text . --size 1024` on `G(1200,1000)` → exit 0 and a mark is drawn (output pixels ≠
+      input pixels); `--size 1025` refused (AC-4). `--size 1024.00001` → exit 0, output
+      **byte-identical** to the `--size 1024` output (the residual, pinned); the same value in a
+      recipe is refused (AC-1). RED: `--size 1025` exits 0 on `main`.
+- [ ] **AC-6. Input arity does not change the answer.** For `--text hi --size nan` **and**
+      `--image logo --scale nan`, each of: one input file; a batch directory of two PNGs
+      (`--out-dir`); a quoted glob resolving to one file; stdin `-` fed a valid PNG (`-o out.png`);
+      a missing input `/no/such.png` → exit 2, stderr exactly that flag's AC-4 line, nothing
+      written. RED on `main`: 0 / 0 / 0 / 0 / 3 for both flags (stdin with a valid PNG: driven,
+      exit 0).
+- [ ] **AC-7. A bad flag wins over a missing font or overlay.** CLI on `G(400,300)` → exit 2:
+      `--text hi --font /no/f.ttf --size nan` (stderr the AC-4 `--size` line);
+      `--image /no/l.png --scale nan` (the `--scale` line); `--image /no/l.png --opacity 2`
+      (the `--opacity` phrase, `got 2`); `--image /no/l.png --gravity bogus` (stderr contains
+      `bogus`); `--text hi --font /no/f.ttf --color zzz` (stderr contains `zzz`). RED: all 3.
+- [ ] **AC-8. `--size` help states the cap.** `watermark --help` has a `--size` line containing
+      `1024`. RED: it says only "default 32.0".
+
+**The oversized-mark message — lib, CLI, recipe**
+- [ ] **AC-9. A scaled mark that cannot be represented is `ScaledMarkTooLarge`.** lib,
+      `Watermark::new_image` on `G(64,48)`: (a) 60×30 overlay, `scale 4294967296` and (b)
+      `scale 1e30` → `refusal()` is `ScaledMarkTooLarge { image: (64, 48) }` and `apply` returns
+      `Refused` with it; (c) **height-only overflow** — 1×100 overlay, `scale 1562500` → width
+      `1e8` fits a `u32`, height `1e10` does not → `ScaledMarkTooLarge` (a width-only check would
+      print `the 100000000×4294967295 px mark`); (d) 60×30 overlay, `scale 1000` →
+      `DoesNotFit { mark: (64000, 32000), .. }`, unchanged.
+- [ ] **AC-10. Its Display names no size.** `ScaledMarkTooLarge { image: (64, 48) }` displays
+      exactly `the scaled mark does not fit inside the 64×48 px image`.
+- [ ] **AC-11. No refusal prints a saturated size, on either path.** On `G(64,48)`, exit 2, stderr
+      exactly `error: watermark refused: the scaled mark does not fit inside the 64×48 px image`
+      and not containing `4294967295`: CLI `--image logo --scale 4294967296`; CLI `--scale 1e30`;
+      recipe `image = "logo.png"`, `scale = 4294967296`; recipe `scale = 1e30`. Batch: CLI over
+      two inputs with different names (one name twice collides in `--out-dir`), with
+      `--scale 4294967296 --out-dir` → exit 0, two `warning:` lines each ending
+      in `the scaled mark does not fit inside the 64×48 px image`, none containing `4294967295`.
+      RED: every row prints `4294967295×2147483648`.
+
+**Nothing accepted changes**
+- [ ] **AC-12. Accepted marks are byte-identical to `main`, on both paths.** Decoded-pixel
+      SHA-256 (the `tests/watermark_damage.rs` `pixel_hash` scheme, applied to the decoded output
+      file) equals a golden captured from **unmodified `main`** for: (1) `--text "© crustyimg"` at
+      the default size on `G(400,300)`; (2) `--text . --size 1024` on `G(1200,1000)`;
+      (3) `--image logo --scale 0.25` on `G(400,300)`; and the same three as one-step recipes via
+      `apply --recipe` (each recipe output hash equals its CLI case's golden — driven equal on
+      `main`). 3 goldens, 6 runs.
+- [ ] **AC-13. Recipes that loaded before still load** (every existing
+      `tests/recipe_strict_params.rs` and `tests/watermark_damage.rs` test stays green, unchanged
+      except the range table's row count), and no `Cargo.lock` / version / `CACHE_SCHEMA_VERSION`
+      change appears in the diff.
+
+**Docs and record** (verify reads these; documentation has no green)
+- [ ] **AC-14.** `docs/data-model.md` (range row + CLI/f32 paragraph), `docs/api-contract.md`
+      (`watermark` ranges, before-any-IO order, residual, new refusal form), `CHANGELOG.md` (Call 5
+      lines), `DEC-106` (Call 4, block-list `affected_scope`), DEC-102's Consequences line. No
+      spec or DEC ids in user-facing text (help, messages, CHANGELOG).
 
 ## Failing Tests
 
-Written during **design**, BEFORE build. The implementer's job in
-**build** is to make these pass.
+Written during **design**, BEFORE build. Each is RED on `main` for the reason given.
 
-- **`path/to/test.file`**
-  - `"test description 1"` — asserts: ...
+- **`tests/watermark_cli_params.rs`** (new; drives the real binary like `tests/recipe_strict_params.rs`)
+  - `"a bad flag value is a usage error naming the flag"` — AC-4: the 10-row table; asserts exit 2,
+    `error_lines(stderr) == [expected]`, no output file. Asserts the row count is 10.
+    RED: rows 1–4, 7 exit 0; row 6 exits 101; rows 5, 8–10 print other words.
+  - `"size 1024 is accepted and 1025 refused on the cli"` — AC-5: 1024 → exit 0, output pixels ≠
+    input; 1025 → exit 2. RED: 1025 exits 0.
+  - `"the f32 residual is accepted on the cli"` — AC-5: `--size 1024.00001` exit 0 and its output
+    bytes equal `--size 1024`'s. (Green on `main` too: it pins documented behaviour, not a fix;
+    its mutation is the CLI moving to `f64`.)
+  - `"a bad flag is refused before any input is read"` — AC-6: 2 flags × 5 shapes = 10 rows; exit
+    2, exact line, no output (dir empty / `-o` absent). Asserts 10 rows. RED: 8 rows exit 0, 2 exit 3.
+  - `"a bad flag is refused before the font or overlay is read"` — AC-7: 5 rows. RED: all exit 3.
+  - `"size help states the cap"` — AC-8.
+  - `"an oversized scale names no saturated size"` — AC-11: 2 CLI + 2 recipe single-input rows,
+    1 batch row. RED: `4294967295` in every row.
+  - `"accepted marks are byte-identical to main"` — AC-12: 6 runs vs 3 goldens; asserts the
+    golden file has 3 lines. Green on `main` **by construction** (goldens captured there); it is
+    the guard that the build changes no accepted pixel.
+  - `"bless cli params goldens"` — `#[ignore]`, writes the golden only with `CRUSTYIMG_BLESS=1`
+    (copy `tests/watermark_damage.rs:174-187`).
+- **`tests/recipe_strict_params.rs`**
+  - `out_of_range_is_refused_for_every_ranged_key` — add rows `text="hi"`+`size = 1025`,
+    `size = 1024.00001`, `size = 4294967296`, `text="© crustyimg"`+`size = 100000`; count 17 → 21.
+    RED: the four load (the last panics).
+  - `"the size cap is inclusive"` (new) — AC-1: `size = 1024` and `size = 1024.0` build.
+  - `"apply refuses a size past the cap before any output"` (new) — AC-2: both rows. RED: 0 / 101.
+- **`src/operation/registry.rs`** (unit)
+  - `"per key check agrees with check params"` (new) — AC-3. RED: does not compile.
+- **`src/operation/mod.rs`** (unit)
+  - `"a scale past u32 refuses as scaled mark too large"` (new) — AC-9 (a)–(c), refusal and
+    `apply`. RED: does not compile (new variant); semantically, (c) is the trap-10 row.
+  - `"a large representable scale still names its size"` (new) — AC-9 (d). Green on `main`; the
+    guard against "always say scaled mark".
+  - `refusal_display_names_the_numbers` — extend with AC-10's exact string.
+- **`src/cli/ops.rs`** (unit)
+  - `"every checked watermark flag has a table row"` (new) — `param_spec(WATERMARK_PARAMS, k)` is
+    `Some` and a `Number` for `size`, `scale`, `opacity` (guards a key typo turning into the
+    "internal error" branch).
+
+### Negative controls for verify (one per independent condition)
+
+Each is a source mutation on the build branch; rebuild **clean** (`cargo clean -p crustyimg` or
+a fresh target dir) before running, and confirm the binary changed.
+1. **The CLI bypasses the table** — restore the three hand checks (`size <= 0.0`,
+   `!(0.0..=1.0).contains`, `s <= 0.0`) in place of the `check_watermark_flag` calls → RED:
+   AC-4 rows (nan, inf, 1e39, 1025, 100000, scale nan), `"size 1024 is accepted and 1025 refused"`.
+2. **The cap row is removed** (`max: None` on `size`) → RED: the four new range-table rows,
+   `"apply refuses a size past the cap…"`, AC-4's 1025 and 100000 rows, AC-5's 1025, AC-3.
+3. **The saturated message is restored** (`mark_size` back to the saturating `as u32`, no
+   `None`) → RED: `"an oversized scale names no saturated size"`, AC-9 (a)–(c).
+   **3b. Only the width is checked** (drop the `h` guard) → RED: AC-9 (c) only. This is the
+   trap-10 pair: the derived height differs from the width check.
+4. **The flag checks move back after the IO** (call them after `watermark_overlay`) → RED: AC-7's
+   five rows (exit 3). AC-6 stays green under this mutation, correctly: inputs are read in
+   `run_pixel_op`, after both positions, so only the font/overlay rows can see this order.
+5. **The CLI parses `f64`** (clap `Option<f64>`, `as f32` at the op) → RED: `"the f32 residual
+   is accepted on the cli"` (1024.00001 is then refused).
+6. **Byte identity** — change the scaled overlay's `FilterType::Lanczos3` to `Triangle` (both
+   composite branches) → RED: AC-12 case 3 (CLI and recipe). This needs the gradient `logo`.
 
 ## Implementation Context
 
@@ -355,21 +772,29 @@ into the spec since there is no separate receiving agent.*
 
 ### Decisions that apply
 
-- `DEC-NNN` — <one-line summary of why this matters here>
-- `DEC-MMM` — <one-line summary>
+- `DEC-102` — the per-op key table checked at load; this spec adds a row and exposes a per-key
+  check. Its Consequences line about the `size` bound is amended (Call 4).
+- `DEC-106` — **written by this build** (Call 4).
+- `DEC-031` — the CLI builds `Watermark` directly and loads the overlay at the IO boundary; it
+  still does, but validates through the table first.
+- `DEC-104` — the fit/coverage refusal whose message Call 2 fixes; refusal before drawing.
+- `DEC-015` — exit codes: 2 usage, 3 missing input, 1 recipe load error, 6 partial batch.
+- `DEC-036` — recipe *document* limits; explicitly **not** where the cap goes.
+- `DEC-063` — 64 MP / 1 GiB decode budget; the yardstick for 1024 (frame).
+- `DEC-045` — `skrifa` + `zeno` rasteriser; where the panic is. Not changed.
 
 ### Constraints that apply
 
-These constraints apply to the paths touched by this task (see
-`/guidance/constraints.yaml` for full text):
-
-- `constraint-id-1` — <one-line summary>
-- `constraint-id-2` — <one-line summary>
+- `untrusted-input-hardening` — a flag value or recipe key is untrusted; refuse, never panic.
+- `no-unwrap-on-recoverable-paths` — `mark_size`'s `None` and the missing-table-row branch return
+  errors; no `unwrap`/`expect` in `src/**`.
 
 ### Prior related work
 
-- `SPEC-YYY` (shipped) — <one-line summary, if relevant>
-- `PR #NNN` — <link, if relevant>
+- `SPEC-131` (shipped) — the schema and `check_params`; trap 9 (f32 boundary) came from its verify.
+- `SPEC-133` (shipped) — `Refusal`, fit/coverage, batch skip; `tests/watermark_damage.rs`'s
+  golden-hash pattern this spec copies.
+- `SPEC-128` (shipped) — watermark in a recipe; `run_resize` as the registry-from-CLI precedent.
 
 ### Out of scope (for this spec specifically)
 
@@ -383,16 +808,36 @@ necessary during build, create a new spec rather than expanding this one.
 - **A bound on the text raster as a whole.** The size cap bounds one glyph; peak memory grows
   with text length × size², and `--text` has no length limit (a recipe's is 64 KiB, DEC-036).
   Filed on STAGE-054: "A text watermark's raster has no memory bound beyond `size`".
+- **`text::render_text` itself still panics** for a direct library caller passing a huge size
+  (the `zeno` index panic). Both shipped surfaces (CLI, recipe/wasm) are capped first. Design
+  reports it to the orchestrator for filing; the build does not fix it.
 - **The font-read error wording** ("could not read image input" for a missing `--font`).
   Filed on STAGE-054.
 - **An upper bound on `--scale`.** Not needed: the fit test already refuses every scale too big
   to fit, in pure geometry. Only its message is in scope.
-- **`opacity` / `margin` changes.** Both paths already agree on every swept value.
+- **`margin` changes**; routing `--gravity`/`--color` through the table (only their position moves).
 - **`--min-size`**, the cached-`build` warnings, and every other STAGE-054 item.
 
 ## Notes for the Implementer
 
-Gotchas, style preferences, reuse opportunities.
+- **Commit order matters for AC-12.** Commit 1 adds `tests/watermark_cli_params.rs` with only the
+  byte-identity test + bless + `tests/fixtures/watermark/cli_params.golden`, blessed with
+  `CRUSTYIMG_BLESS=1 cargo test --test watermark_cli_params -- --ignored bless` **before any
+  `src/` change**. Commit 1 must touch no `src/` file (verify checks). Then the source change and
+  the rest of the tests. Push a WIP once it compiles, before the full matrix.
+- `pixel_hash` decodes the output PNG with `image::open` and hashes width, height, `color()` Debug
+  and raw bytes, as `tests/watermark_damage.rs:139-150` does. PNG file bytes are not hashed.
+- `stdin` row: spawn with `Stdio::piped()`, write a valid `G(400,300)` PNG, close it.
+- Glob row: pass the pattern as one argument (`dir/a*.png`), no shell.
+- `error_lines` is in `tests/recipe_strict_params.rs:566`; copy it.
+- The 1200×1000 input is needed only where `size` 1024/1025 must otherwise be *accepted*: on
+  400×300 a 1025 mark is refused by the fit test on `main` too, so the row would pass hollow.
+- The `© crustyimg` string is load-bearing in the 100000 rows: `hi` at 100000 does not panic on
+  `main` (it is fit-refused), so it would not be RED.
+- `cargo test` fails `display_sink_refuses_non_tty` in an interactive terminal: redirect stdout to
+  a file. Read `$?`, not a pipe's. Commits need `git commit -s`.
+- Out-of-spec finding rule (HANDOFF rule 6): record anything else you find under **Out-of-spec
+  finding** in Build Completion.
 
 ---
 

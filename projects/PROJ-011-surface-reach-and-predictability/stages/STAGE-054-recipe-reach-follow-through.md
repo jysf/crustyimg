@@ -66,7 +66,7 @@ ships **before 0.8.0**. The rest has no release deadline and must not hold the t
 
 Ordered. ⚡ Only the first item gates 0.8.0.
 
-- [ ] **SPEC-135** (framed 2026-10-27) — [S] ⚡ **Before 0.8.0: a `watermark` size or scale that is not a
+- [ ] **SPEC-135** (designed 2026-10-27) — [S] ⚡ **Before 0.8.0: a `watermark` size or scale that is not a
   sensible number is refused, never silently drawn as nothing.** One spec for two filings that
   share the same validation code on the same verb (maintainer ruling 2026-10-27, after STAGE-050's
   Stage Ship judged criterion 4 only *partly* met because of the first one). Scope: refuse
