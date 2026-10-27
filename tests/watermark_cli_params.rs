@@ -498,13 +498,19 @@ fn size_help_states_the_cap() {
         .output()
         .unwrap();
     let help = String::from_utf8_lossy(&output.stdout);
-    let line = help
-        .lines()
-        .find(|l| l.contains("--size"))
-        .expect("a --size line");
-    // The description may wrap onto the next line; take both.
-    let after = help.split(line).nth(1).unwrap_or("");
-    let described = format!("{line}\n{}", after.lines().next().unwrap_or(""));
+    // The option's own entry, not the prose that mentions the flag.
+    let lines: Vec<&str> = help.lines().collect();
+    let at = lines
+        .iter()
+        .position(|l| l.trim_start().starts_with("--size"))
+        .expect("a --size entry");
+    // The description sits on the lines after the flag, up to the next entry.
+    let described = lines[at..]
+        .iter()
+        .take(3)
+        .copied()
+        .collect::<Vec<_>>()
+        .join("\n");
     assert!(described.contains("1024"), "help: {described}");
 }
 
