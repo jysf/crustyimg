@@ -2888,14 +2888,36 @@ mod tests {
 
     #[test]
     fn opacity_does_not_change_coverage() {
+        // Alpha 255 at opacity 0.001 composites as round(0.255) = 0: no pixel
+        // of the mark would change, yet the count must still be 501. (At 0.01
+        // the alpha is round(2.55) = 3, so a count taken after opacity would
+        // not differ from the true one.)
         let op = watermark(
             overlay_with_visible(50, 20, 501),
             Gravity::SouthEast,
-            0.01,
+            0.001,
             None,
             0,
             false,
         );
+        assert_eq!(
+            assert_refused(&op, base(100, 100)),
+            Refusal::CoverageAboveCap {
+                covered: 501,
+                image: (100, 100)
+            }
+        );
+    }
+
+    #[test]
+    fn coverage_counts_a_sixteen_bit_overlay_at_its_own_depth() {
+        // 501 pixels at 16-bit alpha 128 (of 65535): in 8 bits that is 0, so
+        // a count taken on `to_rgba8()` would call the mark invisible.
+        let overlay = DynamicImage::ImageRgba16(::image::ImageBuffer::from_fn(50, 20, |x, y| {
+            let a = if y * 50 + x < 501 { 128 } else { 0 };
+            ::image::Rgba([1000u16, 50000, 3000, a])
+        }));
+        let op = watermark(overlay, Gravity::SouthEast, 1.0, None, 0, false);
         assert_eq!(
             assert_refused(&op, base(100, 100)),
             Refusal::CoverageAboveCap {
