@@ -74,7 +74,9 @@ fn golden_path() -> PathBuf {
 }
 
 /// `(case name, base size, CLI args, recipe step body)`.
-fn accepted_cases() -> Vec<(&'static str, (u32, u32), Vec<&'static str>, &'static str)> {
+type AcceptedCase = (&'static str, (u32, u32), Vec<&'static str>, &'static str);
+
+fn accepted_cases() -> Vec<AcceptedCase> {
     vec![
         (
             "text_default_size",

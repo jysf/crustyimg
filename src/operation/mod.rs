@@ -1399,6 +1399,12 @@ fn visible_pixels(overlay: &DynamicImage) -> u64 {
     overlay.to_rgba16().pixels().filter(|p| p.0[3] > 0).count() as u64
 }
 
+/// Whether a rounded side survives a cast to `u32` without saturating.
+/// `u32::MAX as f32` is exactly 2^32; NaN and infinity do not fit.
+fn fits_u32(side: f32) -> bool {
+    side.is_finite() && side < u32::MAX as f32
+}
+
 impl Watermark {
     /// The mark's size as drawn on an image `base_width` wide: the overlay's
     /// own size, or — with `scale` — `scale × base_width` wide with the
@@ -1412,14 +1418,13 @@ impl Watermark {
         match self.scale {
             Some(s) => {
                 let w = (base_width as f32 * s).round();
-                // `u32::MAX as f32` is exactly 2^32; NaN fails this too.
-                if !(w < u32::MAX as f32) {
+                if !fits_u32(w) {
                     return None;
                 }
                 let target_w = (w as u32).max(1);
                 let (ow, oh) = (ow.max(1), oh.max(1));
                 let h = ((target_w as f32) * (oh as f32) / (ow as f32)).round();
-                if !(h < u32::MAX as f32) {
+                if !fits_u32(h) {
                     return None;
                 }
                 Some((target_w, (h as u32).max(1)))
