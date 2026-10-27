@@ -178,6 +178,15 @@ Batching these in one sitting unblocks more than anything an orchestrator can do
    own probes did. **When a check moves across a type boundary, add a test row just past the
    boundary of the type the code actually reads** (here: below f32's smallest positive value).
 
+10. **⚡ A HELPER THAT DERIVES A VALUE NEEDS AN INPUT WHERE THE DERIVED AND NAIVE VALUES DIFFER.**
+    SPEC-134's fix added `resolved_input_count`, but every N-input row passed literal paths, so
+    swapping it for `inputs.len()` stayed green — a second fix + re-verify. SPEC-133 repeated the
+    shape: AC-5's `opacity = 0.01` never rounded an alpha to 0, and a resize-then-watermark test
+    whose mark fit neither size could not tell the input from the image entering the step. **Every
+    build or fix prompt that adds or relies on a derived value (a count, a resolved list, the image
+    a step sees) asks for one test row where it differs from the naive value, and a mutation that
+    swaps the two.** Trap 9 is the same lesson for a removed check.
+
 ## What is working, and worth keeping
 
 - **Read the code before writing the spec.** SPEC-128's backlog title was wrong — `Watermark` was
