@@ -1,7 +1,7 @@
 ---
 stage:
   id: STAGE-050
-  status: active
+  status: shipped
   priority: high
   target_complete: null
 
@@ -11,7 +11,7 @@ repo:
   id: crustyimg
 
 created_at: 2026-08-23
-shipped_at: null
+shipped_at: 2026-10-27
 
 value_contribution:
   advances: >
@@ -486,4 +486,98 @@ anything a recipe cannot say.
 
 ## Stage-Level Reflection
 
-*Filled in when status moves to shipped.*
+**Built vs planned.** The scope named three things: a `watermark` op in a recipe, `format` and
+`quality` on `Recipe`, and typed parameters. Seven specs shipped: those three (SPEC-128, 127,
+131) plus four the work itself turned up. SPEC-129 fixed a stale cache key, SPEC-132 made
+`--watch` see asset edits, SPEC-133 added the damage rule, and SPEC-134 made a template extension
+pin the format. **$300.36 over 44 sessions**, summed from the seven `cost.totals` blocks. The
+work came in two bursts: 2026-09-04 → 09-07 (127, 128, 129), then 2026-10-24 → 10-27 (131 to
+134).
+
+### Success criteria, driven 2026-10-27 on a release build of `main` at `1e63016` (fresh target dir)
+
+| criterion | verdict | evidence |
+|---|---|---|
+| 1. One `build` watermarks and optimizes a photo directory | **met** | 7 inputs (4 JPEG incl. a 14.8 MB camera original, 3 PNG, one 96 px). `build` exit 0, `built 1 target, 7 outputs (0 cached, 7 rebuilt), watermark skipped on 1`, with a skip line naming the 96 px image. `build --check` exit 0, lockfile up to date; re-run `7 cached, 0 rebuilt`. `file` sniffs six AVIF + one WebP. The mark is in the pixels: a geometric diff against the same recipe without the watermark step changes 0.19 % at the southeast corner (self-diff control 0 px). |
+| 2. A recipe pins format and quality; `apply --recipe` reaches `convert` | **met** | `format = "jpeg"`, `quality = 70` and `format = "avif"`, `quality = 55`: both outputs byte-identical to `convert --format … --quality …`. Control: a q90 recipe differs from the q70 `convert`. |
+| 3. A malformed recipe fails at load, naming the key | **met** | Unknown key (`sizee`), wrong type (`size = "big"`), out of range (`opacity = 1.5`), each over a 7-input directory: exit 1, `recipe step 1 ('watermark'): …` naming the key, 0 files written. Through `build`: same message under `target #0`, 0 files. |
+| 4. A watermark that cannot sensibly be applied is refused or skipped, never silently dropped | **partly** | One input: `watermark` and `apply --recipe` exit 2, `the 169×31 px mark does not fit inside the 96×96 px image`, nothing written. Batches (`watermark dir/`, multi-input `apply`, `build`): skip line and `watermark skipped on 1 of 2 images`, exit 0. ⚠ **But the `watermark` CLI verb still drops the mark silently at exit 0** for `--size nan` and `--size inf` (output byte-equal to `--opacity 0`) and for `--scale nan` (1 px changed out of 3.2 M). `--scale inf` is refused, but the message reads `4294967295×4294967295 px mark`. The recipe path refuses `size = nan` and `size = inf` at load. A cached `build` re-run prints no skip line. |
+
+Criterion 4 is **partly** met, not met: every recipe and `build` path holds, and the gap is the
+CLI verb, which builds the op without the recipe schema. It is still a direct counter-example to
+"never silently dropped", which is why it is not ticked. The item is open on this stage's backlog.
+
+### Did the `value_contribution` hold?
+
+All four `delivers` lines are shipped. The fourth is partly met, for the reason above. Two
+`value_link`s claim more than the stage delivered:
+- **SPEC-133** says that without it a `build` writes "unmarked-but-reported-as-marked thumbnails
+  at exit 0". The `build` and recipe paths are fixed, but the CLI `--size nan` path still does
+  exactly that.
+- **SPEC-134** cites "STAGE-050's predictability outcome". No `delivers` line names one; it is
+  PROJ-011's. The behaviour it claims holds when driven: `{stem}_w.png` on JPEG input writes PNG,
+  at 1 input and at 2.
+
+The three `explicitly_does_not` lines held:
+- **No metadata write.** `watermark` on an EXIF-free JPEG writes no EXIF, ICC, XMP or C2PA (`info`
+  plus a `strings` scan).
+- **No new `--save-recipe`.** The flag is still declared only on `edit` (`src/cli/mod.rs:468`).
+- **No change to `optimize`'s choice.** `src/analysis/` and `src/quality/` have no commits since
+  the stage began; `decide.rs` was last touched 2026-08-21. The `src/cli/optimize.rs` diff is
+  format-pin and skip-count plumbing.
+
+### Patterns that repeated across specs
+
+1. **Tests that passed hollow.** This is the stage's main finding. Four specs shipped a test that
+   looked like a guard and was not:
+   - **SPEC-129:** AC-7's test checked the source text. Retroactive verify showed it could not
+     catch the regression it named (the hash call moving into a per-input loop).
+   - **SPEC-133:** four of the tests predicted to flip passed hollow once refusal became a *skip*.
+     The mark was skipped and the test stayed green; only an "abort on any skip" probe found them.
+     AC-5's `opacity = 0.01` never rounded an alpha to 0.
+   - **SPEC-134:** under mutation M2 (`resolved_input_count` replaced by `inputs.len()`) the
+     suite stayed green, because every N-input row used literal paths.
+   - **SPEC-131** is the same family one level up. The build deleted a check as redundant, and
+     none of its six negative controls could see that a schema checking the f64 let `1e-50` reach
+     the op as `0.0` in f32.
+
+   HANDOFF traps 9 and 10 record the two shapes. The common cause: **a test whose input does not
+   make the old and new behaviour differ cannot fail.** CI green said nothing about it. Each one
+   was found by a verify cycle's own mutation, never by the build's matrix. SPEC-129 merged
+   before its verify ran, and so did SPEC-131.
+2. **Edges the design's surface table missed.** In both SPEC-133 and SPEC-134, the edge was
+   input arity reached indirectly:
+   - **SPEC-133:** a glob or directory that resolves to one file takes the single-input exit 2,
+     which was undocumented.
+   - **SPEC-134:** the argument count is not the input count. A glob, a directory or stdin
+     changes it, which is the whole reason `resolved_input_count` exists.
+
+   Neither design's surface table had a row for an input reached through a glob, a directory or
+   stdin.
+3. **Reading the code changed the spec.** SPEC-128's backlog title was wrong: `Watermark` was
+   already an `Operation`, deliberately unregistered under DEC-031. SPEC-134's frame named DEC-087
+   as holding a rule that lived only in `docs/api-contract.md`, and DEC-087 says the opposite.
+   Both times, a claim about where a fact lives was wrong until someone grepped for it.
+4. **Work found mid-build, outside the spec.** SPEC-132 fixed a released 0.7.x Linux loop
+   (inotify reported the build's own reads: 207 builds in 45 s while idle) and recorded it only
+   as a deviation, which cost a punch-list round. HANDOFF rule 6 now names that line. SPEC-134's
+   fourth fix was a 0.7.x bug too: at N inputs the pin check read `-o` while the write used the
+   template, so JPEG or AVIF bytes landed in `in.png`.
+
+### Emergent behaviour
+
+The unplanned work outweighed the planned. Three things shipped that no `delivers` line asked
+for:
+- the SPEC-132 Linux idle-rebuild fix, which reached released 0.7.x;
+- the SPEC-134 N-input mislabel fix, which also reached 0.7.x;
+- the `meta … -o x.png` refusal, absorbed into SPEC-134 as AC-22.
+
+SPEC-127's verify went further: it found that the repo's cost ledger was about 2× wrong
+(HANDOFF trap 3) and established the dedup-by-`.message.id` method that every total above
+relies on.
+
+### What this stage hands on
+
+All of it ships as **one release, 0.8.0**, with one lockfile migration. Nine backlog items stay
+open here and none blocks the release. A cached `build` replaying no warnings is the one a user
+of criterion 1 will notice first.
