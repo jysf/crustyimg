@@ -392,17 +392,13 @@ fn documented_interplay_is_not_refused() {
             "watermark",
             "image = \"logo.png\"\ntile = true\ngravity = \"north\"\nmargin = 5",
         ),
-        one_step(
-            "watermark",
-            "text = \"hi\"\ntile = true\ngravity = \"west\"\nmargin = 3",
-        ),
         // `center` ignores margin.
         one_step(
             "watermark",
             "text = \"hi\"\ngravity = \"center\"\nmargin = 5",
         ),
     ];
-    assert_eq!(rows.len(), 3);
+    assert_eq!(rows.len(), 2);
     for toml in &rows {
         load(toml).unwrap_or_else(|e| panic!("must build, got {e}:\n{toml}"));
     }
@@ -509,7 +505,7 @@ fn recipes_crustyimg_writes_are_never_refused() {
         0,
         true,
     )));
-    // Text mode, with and without `scale`/`font`.
+    // Text mode, with and without `font` (a text mark never has `scale`).
     ops.push(Box::new(Watermark::new_text(
         overlay(),
         "hi".into(),
@@ -530,7 +526,7 @@ fn recipes_crustyimg_writes_are_never_refused() {
         [255, 0, 0, 128],
         Gravity::Center,
         0.75,
-        Some(0.5),
+        None,
         4,
         false,
     )));

@@ -182,7 +182,7 @@ const GO_FONT: &str = "assets/fonts/Go-Regular.ttf";
 #[test]
 fn text_watermark_writes_output() {
     let dir = TempDir::new().unwrap();
-    let base = write_png(dir.path(), "base.png", 80, 40, [255, 0, 0, 255]);
+    let base = write_png(dir.path(), "base.png", 320, 160, [255, 0, 0, 255]);
     let out = dir.path().join("out.png");
 
     let output = Command::new(BIN)
@@ -216,7 +216,7 @@ fn text_watermark_writes_output() {
 #[test]
 fn text_watermark_default_font() {
     let dir = TempDir::new().unwrap();
-    let base = write_png(dir.path(), "base.png", 80, 40, [255, 0, 0, 255]);
+    let base = write_png(dir.path(), "base.png", 320, 160, [255, 0, 0, 255]);
     let out = dir.path().join("out.png");
 
     let output = Command::new(BIN)
@@ -241,7 +241,7 @@ fn text_watermark_default_font() {
 #[test]
 fn text_watermark_custom_font() {
     let dir = TempDir::new().unwrap();
-    let base = write_png(dir.path(), "base.png", 80, 40, [255, 0, 0, 255]);
+    let base = write_png(dir.path(), "base.png", 320, 160, [255, 0, 0, 255]);
     let out = dir.path().join("out.png");
 
     let output = Command::new(BIN)

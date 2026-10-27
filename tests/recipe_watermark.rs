@@ -126,7 +126,7 @@ fn text_watermark_round_trips_without_an_image_key() {
     // is used, exactly like the original) and compare its output against a
     // freshly-constructed equivalent op applied directly.
     let base = crustyimg::image::Image::from_parts(
-        DynamicImage::ImageRgba8(RgbaImage::from_pixel(64, 64, image::Rgba([0, 0, 0, 255]))),
+        DynamicImage::ImageRgba8(RgbaImage::from_pixel(96, 96, image::Rgba([0, 0, 0, 255]))),
         image::ImageFormat::Png,
         None,
     );

@@ -110,7 +110,7 @@ margin = 0
 tile = false
 "#,
     );
-    write_png(root, "src/a.png", 32, 32, [200, 30, 30]);
+    write_png(root, "src/a.png", 64, 64, [200, 30, 30]);
     write_png(root, "src/b.png", 48, 48, [30, 30, 200]);
     write_file(
         root,
@@ -145,8 +145,8 @@ text = "mark"
 font = "font.ttf"
 "#,
     );
-    write_png(root, "src/a.png", 32, 32, [200, 30, 30]);
-    write_png(root, "src/b.png", 48, 48, [30, 30, 200]);
+    write_png(root, "src/a.png", 128, 128, [200, 30, 30]);
+    write_png(root, "src/b.png", 144, 144, [30, 30, 200]);
     write_file(
         root,
         "crustyimg.build.toml",
@@ -272,8 +272,8 @@ op = "watermark"
 text = "mark"
 "#,
     );
-    write_png(root, "src/a.png", 32, 32, [200, 30, 30]);
-    write_png(root, "src/b.png", 48, 48, [30, 30, 200]);
+    write_png(root, "src/a.png", 128, 128, [200, 30, 30]);
+    write_png(root, "src/b.png", 144, 144, [30, 30, 200]);
     write_file(
         root,
         "crustyimg.build.toml",

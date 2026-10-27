@@ -12,5 +12,4 @@ op = "watermark"
 text = "hi"
 size = 24
 opacity = 1
-scale = 1
 color = "ffffff"

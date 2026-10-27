@@ -1176,7 +1176,7 @@ fn apply_watermark_recipe_matches_cli_at_one_input() {
     let dir = TempDir::new().unwrap();
     let root = dir.path();
     write_overlay_at(root, "logo.png", 8, 8);
-    write_png(&dir, "in.png", 32, 32);
+    write_png(&dir, "in.png", 64, 64);
     std::fs::write(
         root.join("r.toml"),
         "version = \"1\"\n\n[[step]]\nop = \"watermark\"\nimage = \"logo.png\"\n",
@@ -1238,8 +1238,8 @@ fn apply_watermark_recipe_matches_cli_at_n_inputs() {
     let dir = TempDir::new().unwrap();
     let root = dir.path();
     write_overlay_at(root, "logo.png", 8, 8);
-    write_png(&dir, "a.png", 32, 32);
-    write_png(&dir, "b.png", 32, 32);
+    write_png(&dir, "a.png", 64, 64);
+    write_png(&dir, "b.png", 64, 64);
     std::fs::write(
         root.join("r.toml"),
         "version = \"1\"\n\n[[step]]\nop = \"watermark\"\nimage = \"logo.png\"\n",
@@ -1309,7 +1309,7 @@ fn apply_and_build_agree_on_watermark_recipe() {
     let dir = TempDir::new().unwrap();
     let root = dir.path();
     write_overlay_at(root, "logo.png", 8, 8);
-    write_jpeg_at(root, "in.jpg", 32, 32);
+    write_jpeg_at(root, "in.jpg", 64, 64);
     std::fs::write(
         root.join("r.toml"),
         "version = \"1\"\n\n[[step]]\nop = \"watermark\"\nimage = \"logo.png\"\n",
