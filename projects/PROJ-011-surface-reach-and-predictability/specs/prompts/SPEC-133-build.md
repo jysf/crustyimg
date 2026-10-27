@@ -120,7 +120,9 @@ List every file it governs.
 1. Fill `## Build Completion`: every file from `git diff --name-only origin/main...HEAD` (not from
    memory), the RED baseline, the N1–N9 flips, each changed existing test with its before/after
    fixture size, the matrix legs, the `demo-build` result, and an honest reflection naming any
-   design call that turned out wrong.
+   design call that turned out wrong. If you found a bug outside this spec, add an
+   **Out-of-spec finding** line: what it is, whether 0.7.x has it, and either the CHANGELOG / DEC
+   lines you wrote for your fix or the STAGE-050 backlog item you filed (HANDOFF rule 6).
 2. **Measure your own cost.** Your transcript is a JSONL under `~/.claude/projects/<slug>/`, where
    `<slug>` is your working directory's absolute path with every `/`, `.` and `_` replaced by `-`.
    Identify it **by content, not recency**: `grep -l "SPEC-133 — BUILD prompt" ~/.claude/projects/<slug>/*.jsonl`.

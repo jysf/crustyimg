@@ -187,7 +187,13 @@ anything a recipe cannot say.
   rules, not by the hasher — but the comment was wrong and is now corrected). The third finding is
   filed below as its own backlog item.
 
-- [ ] **SPEC-132** (designed 2026-10-25) — [S] ⚡ **`build --watch` never watches a recipe's asset paths.**
+- [x] **SPEC-132** (merged 2026-10-26, PR #201) — [S] ⚡ **`build --watch` never watches a recipe's asset paths.**
+  **Shipped:** every recipe `image`/`font` asset's containing directory is a shallow watch root,
+  the set is recomputed after every non-excluded batch, and a root that failed to register is
+  retried. The build also fixed a Linux bug in released 0.7.x (inotify reported the build's own
+  reads, so `--watch` rebuilt in a loop while idle: 207 builds / 45 s); verify required its
+  CHANGELOG entry and a DEC-060 amendment, and tightened three weak tests. $25.29 over 9
+  sessions. Original framing:
   Found by SPEC-129's (retroactive) verify cycle, 2026-09-07, driven with a real positive
   control: `WatchSet` (`src/build/watch.rs:106-114`) is built from the manifest's own directory
   (shallow), each source root (recursive), and each recipe's directory (shallow) — never the
@@ -415,7 +421,16 @@ anything a recipe cannot say.
   that ruling. Recommend the same refusal for `-o`, reusing SPEC-134's `meta` pre-flight; needs a
   maintainer yes.
 
-**Count:** **3 shipped / 1 closed** / 0 in flight / 5 pending — re-derive with a grep you just ran.
+- [ ] (not yet written) — [S] **Encoding verbs resolve their inputs twice.** Filed by SPEC-134's
+  re-verify (2026-10-26). To decide the format pin before branching, `web`, `optimize` and
+  `apply --recipe` call `resolved_input_count` (`src/cli/common.rs`), which runs `source::resolve`
+  on every argument; the chosen branch (`run_pixel_op` or `run_optimize_autodecide`) then resolves
+  the same `&[String]` again. Same function both times and stdin is never drained by the count, so
+  it is correct today; the cost is a second directory walk and two passes that could drift.
+  Refactor: resolve once and pass `&[Input]` into both branches. Code quality, not a bug; a
+  candidate for the maintainer's queued Rust cleanup.
+
+**Count:** **5 shipped / 1 closed** / 0 in flight / 5 pending — re-derive with a grep you just ran.
 
 ## Design Notes
 
