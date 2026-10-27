@@ -776,6 +776,9 @@ impl CliError {
             CliError::Analysis(_) => 1,
             // Recipe / operation errors → generic runtime error
             CliError::Recipe(_) => 1,
+            // A watermark the image cannot take, on one explicit input: the
+            // input asked for something unusable, like a bad flag value.
+            CliError::Operation(OperationError::Refused { .. }) => 2,
             CliError::Operation(_) => 1,
             // Sink errors: format/codec errors → 4; everything else → 5
             CliError::Sink(SinkError::UnsupportedExtension(_)) => 4,

@@ -7,15 +7,16 @@ use std::path::{Path, PathBuf};
 
 use crate::image::Image;
 use crate::operation::{OperationParams, OperationRegistry, RegistryError};
-use crate::pipeline::Pipeline;
+use crate::pipeline::{OnRefusal, Pipeline, SkippedStep};
 use crate::quality::{self, LossyFormat, SearchConfig};
 use crate::recipe::{split_terminal_optimize, Recipe};
 use crate::sink::{Overwrite, Sink, SinkError, SinkInput};
 use crate::source::{self, SourceError};
 
 use super::common::{
-    apply_one, build_sink, fmt_bytes, load_recipe, name_pinned_format, require_out_dir_for_batch,
-    resolve_format, resolve_recipe_assets, resolved_input_count, BATCH_PROGRESS_TEMPLATE,
+    apply_one, build_sink, fmt_bytes, load_recipe, name_pinned_format, report_skipped_images,
+    require_out_dir_for_batch, resolve_format, resolve_recipe_assets, resolved_input_count,
+    warn_skipped_steps, BATCH_PROGRESS_TEMPLATE,
 };
 use super::ops::{metadata_output_ext, output_format_for, read_raw_bytes, run_pixel_op};
 use super::report::format_label;
@@ -243,7 +244,7 @@ pub(super) fn run_apply(
     };
 
     // Run the batch — with or without a bounded thread pool.
-    let results: Vec<Result<(), CliError>> = if let Some(n) = global.jobs {
+    let results: Vec<Result<Vec<SkippedStep>, CliError>> = if let Some(n) = global.jobs {
         let pool = rayon::ThreadPoolBuilder::new()
             .num_threads(n)
             .build()
@@ -261,12 +262,13 @@ pub(super) fn run_apply(
                         overwrite,
                         quality,
                     );
-                    if let Err(ref e) = r {
-                        let label = match input {
-                            crate::source::Input::Path(p) => p.display().to_string(),
-                            crate::source::Input::Stdin { stem, .. } => stem.clone(),
-                        };
-                        eprintln!("error: {label}: {e}");
+                    let label = match input {
+                        crate::source::Input::Path(p) => p.display().to_string(),
+                        crate::source::Input::Stdin { stem, .. } => stem.clone(),
+                    };
+                    match &r {
+                        Err(e) => eprintln!("error: {label}: {e}"),
+                        Ok(skipped) => warn_skipped_steps(&label, skipped),
                     }
                     bar.inc(1);
                     r
@@ -286,12 +288,13 @@ pub(super) fn run_apply(
                     overwrite,
                     quality,
                 );
-                if let Err(ref e) = r {
-                    let label = match input {
-                        crate::source::Input::Path(p) => p.display().to_string(),
-                        crate::source::Input::Stdin { stem, .. } => stem.clone(),
-                    };
-                    eprintln!("error: {label}: {e}");
+                let label = match input {
+                    crate::source::Input::Path(p) => p.display().to_string(),
+                    crate::source::Input::Stdin { stem, .. } => stem.clone(),
+                };
+                match &r {
+                    Err(e) => eprintln!("error: {label}: {e}"),
+                    Ok(skipped) => warn_skipped_steps(&label, skipped),
                 }
                 bar.inc(1);
                 r
@@ -300,6 +303,13 @@ pub(super) fn run_apply(
     };
 
     bar.finish_and_clear();
+
+    // A skipped watermark is not a failure: the image was written.
+    let skipped = results
+        .iter()
+        .filter(|r| matches!(r, Ok(steps) if !steps.is_empty()))
+        .count();
+    report_skipped_images(skipped, total, global.quiet);
 
     let failed = results.iter().filter(|r| r.is_err()).count();
     if failed > 0 {
@@ -1103,6 +1113,9 @@ fn optimize_decide_one(
     // false, no `Instant`s are taken and the trace's `timing` stays `None`, so a
     // non-`--timing` run's report is byte-identical.
     timing: bool,
+    // What to do with a step that declines the image (a watermark it cannot
+    // take): an error for one explicit input, skipped in a batch.
+    on_refusal: OnRefusal,
 ) -> Result<
     (
         OptimizeOutput,
@@ -1120,6 +1133,9 @@ fn optimize_decide_one(
         // GIF/APNG/WebP — same "returned, not printed" contract as the
         // truncated-JPEG flag immediately above.
         bool,
+        // The steps left out under `OnRefusal::Skip` — returned, not printed,
+        // for the same reason as the two flags above.
+        Vec<SkippedStep>,
     ),
     CliError,
 > {
@@ -1185,13 +1201,22 @@ fn optimize_decide_one(
                     raw,
                     ext: metadata_output_ext(input, &[]),
                 };
-                return Ok((output, None, None, truncated_jpeg, animated_input));
+                return Ok((
+                    output,
+                    None,
+                    None,
+                    truncated_jpeg,
+                    animated_input,
+                    Vec::new(),
+                ));
             }
             return Err(e.into());
         }
     };
 
-    let out_img = pipeline.run(img)?;
+    let run = pipeline.run_with(img, on_refusal)?;
+    let skipped = run.skipped;
+    let out_img = run.image;
 
     // Did the pipeline alter the image in a way that makes the RAW source an invalid
     // output? See `pipeline_altered_source` — shared with the pinned-path
@@ -1360,6 +1385,7 @@ fn optimize_decide_one(
         winner_score,
         truncated_jpeg,
         animated_input,
+        skipped,
     ))
 }
 
@@ -1389,21 +1415,23 @@ pub(super) fn encode_one_optimize_decided(
     pixel_recipe: &Recipe,
     registry: &OperationRegistry,
     input: &crate::source::Input,
-) -> Result<(String, Vec<u8>, bool, bool), CliError> {
+) -> Result<(String, Vec<u8>, bool, bool, Vec<SkippedStep>), CliError> {
     let pipeline = pixel_recipe.build_pipeline(registry)?;
-    let (output, _trace, _score, truncated_jpeg, animated_input) = optimize_decide_one(
+    // `build` is always a batch: a watermark an image cannot take is skipped.
+    let (output, _trace, _score, truncated_jpeg, animated_input, skipped) = optimize_decide_one(
         input,
         &pipeline,
         &AutoQuality::Fast,
         crate::analysis::decide::Profile::Web,
         false,
         false,
+        OnRefusal::Skip,
     )?;
     let (ext, bytes) = match output {
         OptimizeOutput::Encoded { bytes, ext } => (ext, bytes),
         OptimizeOutput::Passthrough { raw, ext } => (ext, raw),
     };
-    Ok((ext, bytes, truncated_jpeg, animated_input))
+    Ok((ext, bytes, truncated_jpeg, animated_input, skipped))
 }
 
 /// Render one input's report: `--explain` (json→stdout, human→stderr), else the
@@ -1578,8 +1606,15 @@ fn run_optimize_autodecide(
             .path()
             .map(|p| p.display().to_string())
             .unwrap_or_else(|| input.stem().to_owned());
-        let (output, trace, score, truncated_jpeg, animated_input) =
-            optimize_decide_one(input, pipeline, auto, profile, always_score, timing)?;
+        let (output, trace, score, truncated_jpeg, animated_input, _skipped) = optimize_decide_one(
+            input,
+            pipeline,
+            auto,
+            profile,
+            always_score,
+            timing,
+            OnRefusal::Fail,
+        )?;
         // F1 (SPEC-107, DEC-085): unconditional, not gated on `--quiet` — see
         // `report.rs`'s `run_info` for why.
         if truncated_jpeg {
@@ -1625,15 +1660,24 @@ fn run_optimize_autodecide(
             .unwrap_or_else(|| "{stem}.{ext}".to_owned());
         let total = all.len();
         let mut failed = 0usize;
+        let mut skipped_images = 0usize;
 
         for input in &all {
             let label = match input {
                 crate::source::Input::Path(p) => p.display().to_string(),
                 crate::source::Input::Stdin { stem, .. } => stem.clone(),
             };
-            let result = (|| -> Result<(), CliError> {
-                let (output, trace, score, truncated_jpeg, animated_input) =
-                    optimize_decide_one(input, pipeline, auto, profile, always_score, timing)?;
+            let result = (|| -> Result<Vec<SkippedStep>, CliError> {
+                let (output, trace, score, truncated_jpeg, animated_input, skipped) =
+                    optimize_decide_one(
+                        input,
+                        pipeline,
+                        auto,
+                        profile,
+                        always_score,
+                        timing,
+                        OnRefusal::Skip,
+                    )?;
                 // F1 (SPEC-107, DEC-085): see the single-input branch above.
                 if truncated_jpeg {
                     eprintln!("warning: {label}: {}", crate::image::TRUNCATED_JPEG_WARNING);
@@ -1648,13 +1692,24 @@ fn run_optimize_autodecide(
                     template: template.clone(),
                     format: None,
                 };
-                write_optimize_output(&output, input, &sink, overwrite)
+                write_optimize_output(&output, input, &sink, overwrite)?;
+                Ok(skipped)
             })();
-            if let Err(e) = result {
-                eprintln!("error: {label}: {e}");
-                failed += 1;
+            match result {
+                Err(e) => {
+                    eprintln!("error: {label}: {e}");
+                    failed += 1;
+                }
+                Ok(skipped) => {
+                    warn_skipped_steps(&label, &skipped);
+                    if !skipped.is_empty() {
+                        skipped_images += 1;
+                    }
+                }
             }
         }
+        // A skipped watermark is not a failure: the image was written.
+        report_skipped_images(skipped_images, total, global.quiet);
         if failed > 0 {
             return Err(CliError::PartialBatch { failed, total });
         }

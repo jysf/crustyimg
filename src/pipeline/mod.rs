@@ -5,12 +5,47 @@
 //! (constraint `decode-once-no-per-op-disk`). If any operation fails, the
 //! `Err` is returned immediately and later operations do not run.
 //!
+//! An operation can also *decline* an image (see `Operation::refusal`, e.g. a
+//! watermark too large for it). [`Pipeline::run`] treats that as an error;
+//! [`Pipeline::run_with`] with [`OnRefusal::Skip`] leaves that one step out,
+//! records it, and runs the remaining steps on the unchanged image — what a
+//! batch needs to keep every image written.
+//!
 //! Layering: this module imports `crate::image::Image` and
 //! `crate::operation::{Operation, OperationError}`. It must NOT depend on
 //! `clap`, `recipe`, `source`, `sink`, `std::fs`, or `std::path`.
 
 use crate::image::Image;
-use crate::operation::{Operation, OperationError};
+use crate::operation::{Operation, OperationError, Refusal};
+
+// ─── Refusal policy ─────────────────────────────────────────────────────────
+
+/// What [`Pipeline::run_with`] does when a step declines the image.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OnRefusal {
+    /// Stop with [`OperationError::Refused`], as [`Pipeline::run`] does.
+    Fail,
+    /// Leave the step out, record it, and run the rest.
+    Skip,
+}
+
+/// A step [`OnRefusal::Skip`] left out, and why.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SkippedStep {
+    /// The step's position in the pipeline, from 0.
+    pub step: usize,
+    /// The step's op name, e.g. `"watermark"`.
+    pub op: &'static str,
+    /// Why the step declined.
+    pub refusal: Refusal,
+}
+
+/// The result of [`Pipeline::run_with`]: the final image, and every step
+/// that was left out (always empty under [`OnRefusal::Fail`]).
+pub struct PipelineRun {
+    pub image: Image,
+    pub skipped: Vec<SkippedStep>,
+}
 
 // ─── Pipeline ───────────────────────────────────────────────────────────────
 
@@ -48,12 +83,50 @@ impl Pipeline {
     /// `OperationError` (later operations do **not** run — the `?` operator
     /// provides halt-on-first-error). An empty pipeline returns `img`
     /// unchanged. No disk I/O; no intermediate clone of the image.
+    ///
+    /// A step that declines the image stops the run with
+    /// [`OperationError::Refused`], exactly as `run_with(img, OnRefusal::Fail)`.
     pub fn run(&self, img: Image) -> Result<Image, OperationError> {
+        self.run_with(img, OnRefusal::Fail).map(|run| run.image)
+    }
+
+    /// Fold every operation over `img`, asking each step first whether it
+    /// declines the image. Under [`OnRefusal::Fail`] a refusal is an error;
+    /// under [`OnRefusal::Skip`] that step is not applied, is recorded, and
+    /// the remaining steps still run. Any other error stops the run either
+    /// way.
+    pub fn run_with(
+        &self,
+        img: Image,
+        on_refusal: OnRefusal,
+    ) -> Result<PipelineRun, OperationError> {
         let mut current = img;
-        for op in &self.ops {
+        let mut skipped = Vec::new();
+        for (step, op) in self.ops.iter().enumerate() {
+            if let Some(refusal) = op.refusal(&current) {
+                match on_refusal {
+                    OnRefusal::Fail => {
+                        return Err(OperationError::Refused {
+                            op: op.name(),
+                            refusal,
+                        });
+                    }
+                    OnRefusal::Skip => {
+                        skipped.push(SkippedStep {
+                            step,
+                            op: op.name(),
+                            refusal,
+                        });
+                        continue;
+                    }
+                }
+            }
             current = op.apply(current)?;
         }
-        Ok(current)
+        Ok(PipelineRun {
+            image: current,
+            skipped,
+        })
     }
 }
 
