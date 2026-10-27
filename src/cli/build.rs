@@ -589,8 +589,13 @@ fn build_one(
             (ext.to_owned(), bytes, skipped)
         }
         OutputFormatPlan::Decide => {
-            let (ext, bytes, truncated_jpeg, animated_input, skipped) =
-                encode_one_optimize_decided(&prepared.recipe, ctx.registry, input)?;
+            let super::optimize::DecidedEncode {
+                ext,
+                bytes,
+                truncated_jpeg,
+                animated_input,
+                skipped,
+            } = encode_one_optimize_decided(&prepared.recipe, ctx.registry, input)?;
             // F1 (SPEC-107, DEC-085): unconditional, not gated on `--quiet` — see
             // `report.rs`'s `run_info` for why. Matches the sibling emit in
             // `optimize.rs`'s `run_optimize_autodecide`, NOT the cache-store

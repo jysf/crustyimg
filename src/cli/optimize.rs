@@ -1406,16 +1406,16 @@ fn optimize_decide_one(
 /// the report [`optimize_decide_one`] never generates here), and `build` has
 /// no per-input audit to spend them on.
 ///
-/// Returns the truncated-JPEG and animated-input flags as the third and
-/// fourth elements (SPEC-116, widened by SPEC-119) rather than printing
-/// here: this is a pure encode helper with no label and no business writing
+/// Returns the truncated-JPEG and animated-input flags, and any skipped steps
+/// (a watermark the image could not take — `build` is a batch, so it skips),
+/// rather than printing here: this is a pure encode helper with no label and no business writing
 /// to stderr — `build_one` has the label and emits, matching how
 /// `run_optimize`'s own call sites consume the same flags.
 pub(super) fn encode_one_optimize_decided(
     pixel_recipe: &Recipe,
     registry: &OperationRegistry,
     input: &crate::source::Input,
-) -> Result<(String, Vec<u8>, bool, bool, Vec<SkippedStep>), CliError> {
+) -> Result<DecidedEncode, CliError> {
     let pipeline = pixel_recipe.build_pipeline(registry)?;
     // `build` is always a batch: a watermark an image cannot take is skipped.
     let (output, _trace, _score, truncated_jpeg, animated_input, skipped) = optimize_decide_one(
@@ -1431,7 +1431,27 @@ pub(super) fn encode_one_optimize_decided(
         OptimizeOutput::Encoded { bytes, ext } => (ext, bytes),
         OptimizeOutput::Passthrough { raw, ext } => (ext, raw),
     };
-    Ok((ext, bytes, truncated_jpeg, animated_input, skipped))
+    Ok(DecidedEncode {
+        ext,
+        bytes,
+        truncated_jpeg,
+        animated_input,
+        skipped,
+    })
+}
+
+/// What [`encode_one_optimize_decided`] produced for one input.
+pub(super) struct DecidedEncode {
+    /// The chosen format's extension.
+    pub(super) ext: String,
+    /// The bytes to write (a re-encode, or the source passed through).
+    pub(super) bytes: Vec<u8>,
+    /// The source decoded as a truncated JPEG.
+    pub(super) truncated_jpeg: bool,
+    /// The source decoded as a multi-frame animation.
+    pub(super) animated_input: bool,
+    /// Steps left out because they declined the image.
+    pub(super) skipped: Vec<SkippedStep>,
 }
 
 /// Render one input's report: `--explain` (json→stdout, human→stderr), else the
