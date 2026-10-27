@@ -733,3 +733,112 @@ fn build_cached_rerun_does_not_repeat_the_skip() {
     assert_one_skip_line(&err, "small.png");
     assert!(err.contains(SKIP_SUFFIX), "{err}");
 }
+
+// ── The rule judges the image entering the step ──
+
+/// The default text mark on a 48×48 input, preceded by an enlarging resize:
+/// the mark does not fit the 48 px input but fits the 192 px image the step
+/// actually receives, so it is drawn.
+#[test]
+fn rule_judges_the_image_entering_the_step_when_it_grew() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    write_base(root, "small.png", 48, 48);
+    let grow = "[[step]]\nop = \"resize\"\nmode = \"percent\"\npercent = 400\n";
+    write_text(root, "marked.toml", &recipe(&[grow, DEFAULT_TEXT_STEP]));
+    write_text(root, "plain.toml", &recipe(&[grow]));
+
+    let out = run(
+        root,
+        &["apply", "--recipe", "marked.toml", "small.png", "-o", "m.png"],
+    );
+    let err = stderr(&out);
+    assert_eq!(out.status.code(), Some(0), "stderr:\n{err}");
+    assert!(skip_lines(&err).is_empty(), "{err}");
+    let plain = run(
+        root,
+        &["apply", "--recipe", "plain.toml", "small.png", "-o", "p.png"],
+    );
+    assert!(plain.status.success(), "{}", stderr(&plain));
+    let (marked, unmarked) = (decoded(&root.join("m.png")), decoded(&root.join("p.png")));
+    assert_eq!(marked.dimensions(), (192, 192));
+    assert_ne!(marked, unmarked, "the mark is drawn");
+}
+
+/// The converse: a mark that fits the 400 px input stops fitting after a
+/// shrinking resize, and the refusal names the shrunken image.
+#[test]
+fn rule_judges_the_image_entering_the_step_when_it_shrank() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    write_base(root, "big.png", 400, 400);
+    let shrink = "[[step]]\nop = \"resize\"\nmode = \"percent\"\npercent = 25\n";
+    write_text(root, "r.toml", &recipe(&[shrink, DEFAULT_TEXT_STEP]));
+
+    let out = run(
+        root,
+        &["apply", "--recipe", "r.toml", "big.png", "-o", "out.png"],
+    );
+    let err = stderr(&out);
+    assert_eq!(out.status.code(), Some(2), "stderr:\n{err}");
+    assert!(err.contains("watermark refused"), "{err}");
+    assert!(err.contains("100×100 px"), "{err}");
+    assert!(!root.join("out.png").exists(), "nothing written");
+}
+
+// ── K counts images, not steps ──
+
+#[test]
+fn skipped_count_is_per_image_not_per_step() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    small_and_large(root);
+    write_text(
+        root,
+        "two.toml",
+        &recipe(&[DEFAULT_TEXT_STEP, DEFAULT_TEXT_STEP]),
+    );
+
+    let out = run(
+        root,
+        &[
+            "apply",
+            "--recipe",
+            "two.toml",
+            "in/small.png",
+            "in/large.png",
+            "--out-dir",
+            "o",
+        ],
+    );
+    let err = stderr(&out);
+    assert_eq!(out.status.code(), Some(0), "stderr:\n{err}");
+    let lines = skip_lines(&err);
+    assert_eq!(lines.len(), 2, "one warning per skipped step:\n{err}");
+    assert!(lines.iter().all(|l| l.contains("small.png")), "{err}");
+    assert!(err.contains("watermark skipped on 1 of 2 images"), "{err}");
+}
+
+// ── The input count is taken after globs and directories resolve ──
+
+#[test]
+fn a_directory_resolving_to_one_file_is_refused_with_exit_2() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    write_base(root, "one/b24.png", 24, 24);
+    let out = run(
+        root,
+        &[
+            "watermark",
+            "one/",
+            "--text",
+            "© crustyimg",
+            "--size",
+            "200",
+            "--out-dir",
+            "o",
+        ],
+    );
+    assert_refused_exit_2(&out);
+    assert!(!root.join("o/b24.png").exists(), "nothing written");
+}
