@@ -40,7 +40,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     whole, before any file is written. Convert first, then edit the metadata.
   - A `build` target whose `name` now pins gets a new cache key, so it rebuilds once.
 
+### Changed
+
+- **`watermark` refuses a mark that would damage the image.** A mark that does not fit
+  inside the image (after `--scale`, plus `--margin` on the edges it is anchored to), or a
+  fixed-size mark whose visible pixels would cover more than 5 % of it, is now refused
+  before anything is drawn. On one input — `watermark`, `apply --recipe` and wasm
+  `transform` — that is an `error:` naming the sizes, exit `2`, nothing written. Over several
+  inputs, and in `build`, that image is written without the mark (the recipe's other steps
+  still apply) with a `warning: … watermark skipped, image written without it: …` line, a
+  closing `watermark skipped on K of N images` (on `build`, `, watermark skipped on K` in the
+  summary), and exit `0`: a skip is not a failure, and `build` still writes its lockfile.
+  `--scale` and `--tile` marks are not held to the 5 %, but a tile must fit. A cached `build`
+  re-run does not repeat the skip line (`--no-cache` does).
+
 ### Fixed
+
+- **A text watermark is no longer clipped or reduced to a few stray pixels.** A run wider
+  than the image lost its right side (`© 2026 crustyimg all rights reserved` on a 256 px image
+  wrote `© 2026 crustyimg` flush left), a `--margin` larger than the room left was silently
+  ignored, and `--size 200` on a 24 px image changed 6 pixels — all at exit `0`. These are now
+  refused (see Changed). A recipe `text` step with `tile = true` or `scale` — which the CLI
+  already refused — is refused at load too (exit `1`) instead of covering half the image.
 
 - **With several inputs, `web`, `optimize` and `apply --recipe web` no longer let `-o` pick
   the output format.** `-o` is ignored at several inputs and the template names the files, but

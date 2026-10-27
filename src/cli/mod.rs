@@ -399,6 +399,10 @@ pub enum Commands {
     /// Exactly one of `--image` or `--text` is required;
     /// they are mutually exclusive. `--scale`/`--tile` are image-only;
     /// `--font`/`--size`/`--color` are text-only.
+    ///
+    /// A mark that does not fit inside an image (with its margin), or that would
+    /// cover more than 5% of it, is refused: an error on one input; over several
+    /// inputs that image is written without the mark, with a warning.
     Watermark {
         inputs: Vec<String>,
         /// Overlay image path (image mode; XOR `--text`).

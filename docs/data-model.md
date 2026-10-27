@@ -212,8 +212,10 @@ build-pipeline time (`RecipeError::InvalidOperation`), matching the CLI's own
 | Text | `text` (required), `font` (path, optional), `size` (float, default `32.0`), `color` (`RRGGBB`/`RRGGBBAA` hex, default `ffffff`/opaque) | `font` absent → the bundled default font, resolved at compile time, so a text-only watermark step needs **no** file at all. |
 
 Both modes share placement keys: `gravity` (default `southeast`), `opacity`
-(`0.0..=1.0`, default `1.0`), `scale` (optional, aspect-preserving), `margin`
-(pixels, default `0`), `tile` (bool, default `false`).
+(`0.0..=1.0`, default `1.0`), `margin` (pixels, default `0`). Two more are
+**image-only**: `scale` (optional, aspect-preserving) and `tile = true` (bool,
+default `false`) — a `text` step that sets `scale`, or `tile = true`, is refused,
+matching the CLI's `--text` conflicts.
 
 Every key's type and range (checked at load — see "Step keys are checked at
 load" below; a default applies only when the key is **absent**, never to a
@@ -233,9 +235,19 @@ wrong-typed value):
 | `tile` | boolean | — |
 
 **Unused by mode:** an `image` step that also sets `font`, `size` or `color`
-is refused (`'size' only applies to a text watermark`). `tile = true` ignoring
-`gravity`/`margin`, and `gravity = "center"` ignoring `margin`, are documented
-behaviour and accepted.
+is refused (`'size' only applies to a text watermark`); a `text` step that sets
+`scale` or `tile = true` is refused (`'scale' only applies to an image watermark`).
+`tile = false` on a text step is accepted (crustyimg writes it for every mark).
+`tile = true` ignoring `gravity`/`margin`, and `gravity = "center"` ignoring
+`margin`, are documented behaviour and accepted.
+
+**A mark the image cannot take is refused, per image (SPEC-133, DEC-104).** The mark
+at its drawn size (after `scale`) plus `margin` on the axes the gravity anchors must fit
+inside the image; a tile must fit on its own. A mark of fixed size (no `scale`, no
+`tile`) may cover at most 5 % of the image's pixels, counting the mark's visible
+pixels. On one explicit input that is an error (exit 2); in a batch or `build` the
+image is written without the mark, its other steps applied, with a warning — see
+`docs/api-contract.md`, `watermark`.
 
 ⚠ **`image`'s and `font`'s VALUES are paths, never bytes.** `to_toml` always
 emits the path a step named — the CLI's recipe-IO-boundary resolver
