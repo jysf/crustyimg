@@ -21,8 +21,11 @@ Cycle prompts live in `prompts/SPEC-133-<cycle>.md`.
       replay the skip line (documented; filed). Text-mode `scale`/`tile = true` refused inside
       SPEC-131's mode check — edits two SPEC-131 test rows. Builds after SPEC-131; not parallel
       with SPEC-134. DEC-104 at build.
-- [~] **build** — prompt: `prompts/SPEC-133-build.md`. **Opus**, own worktree, branch
-      `feat/spec-133-watermark-damage-rule`. ⛔ Starts after SPEC-134 merges (shared CLI code);
-      SPEC-131 is merged. Opens a draft PR.
-- [ ] **verify**
+- [x] **build** — 2026-10-26 (`prompts/SPEC-133-build.md`). Opus. Draft PR #206 at `3dd23ff`, CI
+      green on all 16 legs. 27/27 ACs; N1–N9 flipped; goldens blessed on untouched `src/`
+      (`ab94505`). Deviations: corpus recipe `v2_watermark_integer_numbers` lost `scale = 1` (a
+      text step; needs verify's ruling); 4 predicted flips passed hollow under Skip, re-fixtured
+      and probed. `--size nan` item stays open. $22.18 (measured before the PR).
+- [~] **verify** — prompt: `prompts/SPEC-133-verify.md`. **Opus**, read-only, own worktree
+      `verify/spec-133`, on PR #206 at `3dd23ff`.
 - [ ] **ship**
