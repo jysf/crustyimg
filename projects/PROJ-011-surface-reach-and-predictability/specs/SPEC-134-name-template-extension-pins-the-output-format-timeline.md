@@ -26,6 +26,16 @@ Cycle prompts live in `prompts/SPEC-134-<cycle>.md`.
       ruled in by the maintainer 2026-10-26: at N inputs with `-o`, the pin check reads `-o` while
       the write uses the template (JPEG / AVIF inside `in.png`; also on 0.7.x). Verify cost goes
       into `cost.sessions` at ship.
-- [ ] **fix** — prompt: `prompts/SPEC-134-fix.md`. Sonnet, same draft PR #202; then a short
-      re-verify.
+- [x] **fix** — prompt: `prompts/SPEC-134-fix.md`. Sonnet, 2026-10-26, draft PR #202 at
+      `a3547cc`: three doc fixes; `name_pinned_format` reads only the template at N inputs (new
+      `resolved_input_count`); 5 rows added (41 → 46), 4 RED before / green after, negative control
+      flips exactly those 4; Fixed entry + DEC-105 bullet; matrix green; CI 16/16. ~$1.29.
+- [x] **re-verify** — prompt: `prompts/SPEC-134-reverify.md`. Opus, 2026-10-26, ~$1.99. **⚠ PUNCH
+      LIST at `a3547cc`**: behaviour, docs, CI all correct (bug gone on 3 verbs; one-input order
+      kept; glob/dir-of-one, stdin, missing-path edges right). Gap: every N-input row uses literal
+      paths, so `resolved_input_count` → `inputs.len()` (M2) stays green while the mislabel returns
+      for `'in*.jpg'`. Double resolution judged acceptable (backlog item filed); `meta`'s duplicate
+      N-input branch: optional cleanup, taken into fix 2.
+- [~] **fix 2** — prompt: `prompts/SPEC-134-fix2.md`. Sonnet, same draft PR #202: glob rows killing
+      M2; `meta` pre-flight calls `name_pinned_format`. Then a short re-verify.
 - [ ] **ship**

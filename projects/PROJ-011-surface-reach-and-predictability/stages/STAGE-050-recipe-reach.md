@@ -421,6 +421,15 @@ anything a recipe cannot say.
   that ruling. Recommend the same refusal for `-o`, reusing SPEC-134's `meta` pre-flight; needs a
   maintainer yes.
 
+- [ ] (not yet written) — [S] **Encoding verbs resolve their inputs twice.** Filed by SPEC-134's
+  re-verify (2026-10-26). To decide the format pin before branching, `web`, `optimize` and
+  `apply --recipe` call `resolved_input_count` (`src/cli/common.rs`), which runs `source::resolve`
+  on every argument; the chosen branch (`run_pixel_op` or `run_optimize_autodecide`) then resolves
+  the same `&[String]` again. Same function both times and stdin is never drained by the count, so
+  it is correct today; the cost is a second directory walk and two passes that could drift.
+  Refactor: resolve once and pass `&[Input]` into both branches. Code quality, not a bug; a
+  candidate for the maintainer's queued Rust cleanup.
+
 **Count:** **5 shipped / 1 closed** / 0 in flight / 5 pending — re-derive with a grep you just ran.
 
 ## Design Notes
