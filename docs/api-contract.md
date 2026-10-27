@@ -54,7 +54,7 @@ Apply to all subcommands (parsed before/around the subcommand).
 |---|---|
 | `0` | Success. |
 | `1` | Generic runtime error (decode/encode/op failed; includes an input that exceeds decode resource limits — see below). |
-| `2` | Usage error (bad args) — clap's standard code. Also a watermark refused on one explicit input: a mark that does not fit inside the image, or would cover more than 5 % of it (see `watermark` below). |
+| `2` | Usage error (bad args) — clap's standard code. Also a watermark refused on one input (counted after globs and directories resolve): a mark that does not fit inside the image, or would cover more than 5 % of it (see `watermark` below). |
 | `3` | Input not found / unreadable. |
 | `4` | Unsupported or undetectable format. Three cases: the input bytes are not a recognisable image at all (zero-byte file, arbitrary text/bytes) — the message just says so, there is no feature to name; a DECODER is recognized but not built (a `.heic` input without `--features heic`, SPEC-062/DEC-052) — the message names the feature to rebuild with; or an ENCODER is not built (AVIF output on a `--no-default-features` lean build) — likewise names the feature. |
 | `5` | Output write failed / refused (exists without `--yes`; name/path traversal; a symlinked destination, refused even with `--yes` — SPEC-034 / DEC-035). |
@@ -420,9 +420,11 @@ anything is drawn, `watermark` checks the mark against each image, in pure geome
   `… the mark would cover 5.61 % of the 172×172 px image (1661 of 29584 px); the limit is 5 %`.
 
 What happens next depends on the run:
-- **One explicit input** (`watermark`, `apply --recipe` with or without a terminal
+- **One input** (`watermark`, `apply --recipe` with or without a terminal
   `optimize`, wasm `transform`): an `error:` line, exit **2**, nothing written. wasm
-  returns the same message as its error.
+  returns the same message as its error. The count is taken after globs and directories
+  resolve: `watermark 'one/*.png'` or `watermark one/` that resolves to a single image is
+  refused with exit 2; two or more resulting images are skipped.
 - **A batch** (`watermark` / `apply --recipe` over several inputs) **or `build`**: that
   image is **written without the mark**, with the recipe's other steps applied, and
   stderr gets one line per such image — `warning: <input>: watermark skipped, image

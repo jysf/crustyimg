@@ -201,7 +201,7 @@ fn wrong_type_is_refused_for_every_key() {
         ("watermark", "text = \"hi\"\ncolor = 255", "color"),
         ("watermark", "text = \"hi\"\ngravity = 3", "gravity"),
         ("watermark", "text = \"hi\"\nopacity = \"0.5\"", "opacity"),
-        ("watermark", "text = \"hi\"\nscale = true", "scale"),
+        ("watermark", "image = \"logo.png\"\nscale = true", "scale"),
         ("watermark", "text = \"hi\"\nmargin = 5.0", "margin"),
         ("watermark", "text = \"hi\"\ntile = \"yes\"", "tile"),
     ];
@@ -247,8 +247,8 @@ fn out_of_range_is_refused_for_every_ranged_key() {
         ("watermark", "text = \"hi\"\nsize = 0", "size"),
         ("watermark", "text = \"hi\"\nsize = nan", "size"),
         ("watermark", "text = \"hi\"\nsize = inf", "size"),
-        ("watermark", "text = \"hi\"\nscale = 0", "scale"),
-        ("watermark", "text = \"hi\"\nscale = nan", "scale"),
+        ("watermark", "image = \"logo.png\"\nscale = 0", "scale"),
+        ("watermark", "image = \"logo.png\"\nscale = nan", "scale"),
         ("watermark", "text = \"hi\"\nopacity = 1.5", "opacity"),
         ("watermark", "text = \"hi\"\nopacity = -0.1", "opacity"),
         ("watermark", "text = \"hi\"\nopacity = nan", "opacity"),
@@ -302,6 +302,10 @@ fn a_number_past_f32_range_is_refused() {
             reason.contains(&format!("'{key}' must be a finite number")),
             "{op}: got: {reason}"
         );
+        assert!(
+            !reason.contains("is not used by"),
+            "{op} {key}: the range message, not the mode message, got: {reason}"
+        );
     }
 }
 
@@ -312,7 +316,7 @@ fn a_positive_number_that_reads_as_zero_is_refused() {
     let rows: &[(&str, &str, &str)] = &[
         ("resize", "mode = \"percent\"\npercent = 1e-50", "percent"),
         ("watermark", "text = \"hi\"\nsize = 1e-50", "size"),
-        ("watermark", "text = \"hi\"\nscale = 1e-50", "scale"),
+        ("watermark", "image = \"logo.png\"\nscale = 1e-50", "scale"),
     ];
     assert_eq!(rows.len(), 3);
     // Collect every failing row so one run shows which of the three load.
@@ -321,8 +325,9 @@ fn a_positive_number_that_reads_as_zero_is_refused() {
         match load(&one_step(op, body)) {
             Ok(_) => failures.push(format!("{op} {key}: the recipe loaded")),
             Err(RecipeError::InvalidOperation { reason, .. })
-                if reason.contains(&format!("'{key}' must be")) && reason.contains("got 1e-50") => {
-            }
+                if reason.contains(&format!("'{key}' must be"))
+                    && reason.contains("got 1e-50")
+                    && !reason.contains("is not used by") => {}
             Err(other) => failures.push(format!("{op} {key}: wrong refusal: {other:?}")),
         }
     }

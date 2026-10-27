@@ -12,3 +12,8 @@ color = "ffffff"
 opacity = 1
 size = 24
 text = "hi"
+
+[[step]]
+op = "watermark"
+image = "logo.png"
+scale = 1

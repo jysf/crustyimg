@@ -750,14 +750,28 @@ fn rule_judges_the_image_entering_the_step_when_it_grew() {
 
     let out = run(
         root,
-        &["apply", "--recipe", "marked.toml", "small.png", "-o", "m.png"],
+        &[
+            "apply",
+            "--recipe",
+            "marked.toml",
+            "small.png",
+            "-o",
+            "m.png",
+        ],
     );
     let err = stderr(&out);
     assert_eq!(out.status.code(), Some(0), "stderr:\n{err}");
     assert!(skip_lines(&err).is_empty(), "{err}");
     let plain = run(
         root,
-        &["apply", "--recipe", "plain.toml", "small.png", "-o", "p.png"],
+        &[
+            "apply",
+            "--recipe",
+            "plain.toml",
+            "small.png",
+            "-o",
+            "p.png",
+        ],
     );
     assert!(plain.status.success(), "{}", stderr(&plain));
     let (marked, unmarked) = (decoded(&root.join("m.png")), decoded(&root.join("p.png")));

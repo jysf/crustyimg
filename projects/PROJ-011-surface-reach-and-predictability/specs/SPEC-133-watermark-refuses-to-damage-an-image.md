@@ -698,8 +698,10 @@ font. Numbers asserted are the `Refusal` fields, not Display, except where Displ
       Transparent pixels do not count: a 40×40 overlay with 400 non-transparent pixels (16 % area,
       4 % coverage) → applied. Text: the default string on 172×172 → refused, `covered` equal to
       the rendered overlay's alpha > 0 count (1661, measured at design); on 192×192 → applied.
-- [ ] **AC-5. Opacity does not change coverage.** The 501-pixel overlay at `opacity = 0.01`
-      (where most alphas round to 0 when composited) is still refused with `covered: 501`.
+- [ ] **AC-5. Opacity does not change coverage.** The 501-pixel overlay (alpha 255) at `opacity = 0.001`
+      — where every alpha composites as round(255 × 0.001) = 0, so the mark changes no pixel —
+      is still refused with `covered: 501`. (At 0.01 the alpha is round(2.55) = 3, which a count
+      taken after opacity would still see; only a value that rounds to 0 can tell the two apart.)
 - [ ] **AC-6. `scale` is fit-checked after scaling and exempt from coverage.** (a) Row H: 256×256
       overlay, `scale = 0.5`, on 24×24 → applied (12×12, 25 % covered). (b) 10×100 overlay,
       `scale = 1.0`, on 64×32 → `DoesNotFit { mark: (64, 640) }` — the post-scale size.

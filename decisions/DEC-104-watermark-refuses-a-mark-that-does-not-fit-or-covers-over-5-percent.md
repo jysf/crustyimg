@@ -71,8 +71,9 @@ error (`Pipeline::run` is exactly this), `Skip` leaves the step out, records a
 `SkippedStep { step, op, refusal }`, and runs the remaining steps on the unchanged image.
 
 **The behaviour split.**
-- **One explicit input** (`watermark`, `apply --recipe` plain or ending in `optimize`, wasm
-  `transform`): `Fail` → `error: watermark refused: …`, **exit 2**, nothing written. Exit 2
+- **One input** (`watermark`, `apply --recipe` plain or ending in `optimize`, wasm
+  `transform`). The count is taken after globs and directories resolve (as SPEC-134's is):
+  one resulting image is refused with exit 2, two or more are skipped. `Fail` → `error: watermark refused: …`, **exit 2**, nothing written. Exit 2
   because the user's input asked for something the image cannot take, like a bad flag value;
   `CliError::code()` maps `Operation(Refused { .. })` to 2 above the generic `Operation(_) => 1`.
 - **A batch or `build`**: `Skip` → the image is written **without the mark**, its other steps
@@ -83,6 +84,9 @@ error (`Pipeline::run` is exactly this), `Skip` leaves the step out, records a
 - **A skip is not a failure.** This amends DEC-015's partial-batch rule for this one outcome:
   a skip never counts toward exit 6, a batch whose only problem is skips exits 0, and `build`
   still writes (or checks) its lockfile, which records the unmarked bytes.
+- A faint 16-bit mark on an 8-bit base is refused by its pixel count (alpha > 0, counted at
+  the overlay's own depth) even when it would change 0 px of the base. That is conservative,
+  and by design.
 - A recipe `text` step refuses `scale` and `tile = true` at load (DEC-102's unused-by-mode
   check), matching the CLI's `--text` conflicts; otherwise a text mark could bypass the cap
   through `tile`.

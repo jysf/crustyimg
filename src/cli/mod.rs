@@ -400,9 +400,10 @@ pub enum Commands {
     /// they are mutually exclusive. `--scale`/`--tile` are image-only;
     /// `--font`/`--size`/`--color` are text-only.
     ///
-    /// A mark that does not fit inside an image (with its margin), or that would
-    /// cover more than 5% of it, is refused: an error on one input; over several
-    /// inputs that image is written without the mark, with a warning.
+    /// A mark that does not fit inside an image (with its margin) is refused; so
+    /// is a fixed-size mark (no `--scale`, no `--tile`) that would cover more than
+    /// 5% of it. That is an error on one input; over several inputs the image is
+    /// written without the mark, with a warning.
     Watermark {
         inputs: Vec<String>,
         /// Overlay image path (image mode; XOR `--text`).

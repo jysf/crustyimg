@@ -126,7 +126,8 @@ a `text` step that sets either is refused the same way.
 A `watermark` step is checked against each image before it is drawn: the mark (after
 `scale`) plus its `margin` must fit inside the image, and a mark of fixed size (no `scale`,
 no `tile`) may cover at most 5 % of the image's pixels. On one input a mark that fails is an
-error (exit 2). Over several inputs, or in `build`, that image is written **without** the
+error (exit 2); the input count is taken after globs and directories resolve, so one
+resulting image is refused and two or more are skipped. Over several inputs, or in `build`, that image is written **without** the
 mark — every other step still applies — and stderr says so:
 
 ```text

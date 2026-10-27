@@ -60,8 +60,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   than the image lost its right side (`© 2026 crustyimg all rights reserved` on a 256 px image
   wrote `© 2026 crustyimg` flush left), a `--margin` larger than the room left was silently
   ignored, and `--size 200` on a 24 px image changed 6 pixels — all at exit `0`. These are now
-  refused (see Changed). A recipe `text` step with `tile = true` or `scale` — which the CLI
-  already refused — is refused at load too (exit `1`) instead of covering half the image.
+  refused (see Changed). A recipe `text` step refuses `scale` and `tile = true` at load
+  (exit `1`), as the CLI's `--text` already does.
 
 - **With several inputs, `web`, `optimize` and `apply --recipe web` no longer let `-o` pick
   the output format.** `-o` is ignored at several inputs and the template names the files, but
