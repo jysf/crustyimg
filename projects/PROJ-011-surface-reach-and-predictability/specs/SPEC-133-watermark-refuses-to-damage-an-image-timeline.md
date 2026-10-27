@@ -33,6 +33,11 @@ Cycle prompts live in `prompts/SPEC-133-<cycle>.md`.
       survive. Docs: `--help` 5 % sentence false for `--tile`; glob/dir-of-one → exit 2
       undocumented; a CHANGELOG sentence describes behaviour no release had. Ruling: the recipe
       `text` + `scale` refusal breaks no released user (0.7.1 has no recipe watermark). $11.16.
-- [~] **fix** — prompt: `prompts/SPEC-133-fix.md`. **Sonnet**, the build worktree, same draft PR
-      #206. Items 1–7 + cleanups 8–12 (orchestrator's call).
+- [x] **fix** — 2026-10-26 (`prompts/SPEC-133-fix.md`). Sonnet. PR #206 at `458254d`, CI green.
+      M1/M2/M5/M7 each killed by a new or corrected test (RED/GREEN in fresh target dirs);
+      `--help`, glob/dir-of-one and CHANGELOG fixed; cleanups 8–12 done. Out-of-spec:
+      `docs/data-model.md:248` still says "one explicit input" — sent back to the fix session.
+      $2.72.
+- [~] **re-verify** — prompt: `prompts/SPEC-133-reverify.md`. **Opus**, read-only, own worktree
+      `verify/spec-133-fix`.
 - [ ] **ship**
