@@ -319,8 +319,10 @@ op = "identity"
             transform(&src, recipe, "png").expect_err("a mark wider than the image is refused");
         let msg = format!("{:?}", wasm_bindgen::JsValue::from(err));
         assert!(
-            msg.contains("watermark refused") && msg.contains("24×24"),
-            "the error must say the mark was refused and name the image size, got: {msg}"
+            msg.contains("watermark refused")
+                && msg.contains("does not fit")
+                && msg.contains("24×24"),
+            "the error must say the mark was refused, why, and name the image size, got: {msg}"
         );
 
         let ok = transform(&src, IDENTITY_RECIPE, "png").expect("module must survive");
