@@ -405,6 +405,9 @@ anything a recipe cannot say.
   fixed for recipes; the CLI builds the op with `new_image`/`new_text`, bypassing the recipe
   schema. ⚠ **Check against SPEC-133 first:** its fit test may already refuse a non-finite mark
   size; if so, this closes with SPEC-133 and needs only a test row.
+  **Checked 2026-10-26 (SPEC-133 build + verify): NOT closed.** `--size nan`, `--size inf` and
+  `--scale nan` still exit 0 (the mark renders tiny and fits); only `--scale inf` is now refused,
+  and its message reads `the 4294967295×4294967295 px mark` — fix that wording here too.
 
 - [ ] (not yet written) — [S] **`responsive` accepts `--name-template` and silently ignores it.**
   Filed by SPEC-134's design (2026-10-25), driven on `main`: `responsive in.jpg --widths 32
@@ -429,6 +432,27 @@ anything a recipe cannot say.
   it is correct today; the cost is a second directory walk and two passes that could drift.
   Refactor: resolve once and pass `&[Input]` into both branches. Code quality, not a bug; a
   candidate for the maintainer's queued Rust cleanup.
+
+- [ ] (not yet written) — [S] **SPEC-133's three test gaps that re-verify left optional.** Filed
+  by SPEC-133's re-verify (2026-10-26, PR #206 at `f1a46d3`); the behaviour is correct, these are
+  tests that would not catch a regression:
+  (1) counting a **16-bit** overlay's visible pixels after `opacity` survives:
+  `opacity_does_not_change_coverage` uses 0.001, and 65535 × 0.001 ≈ 66 ≠ 0 — use an opacity
+  below ~7.6e-6 (e.g. 1e-6) so both bit depths are caught;
+  (2) "K counts images, not steps" is untested on the `apply … optimize` auto-decide batch path —
+  making `run_optimize_autodecide`'s `skipped_images` per-step (`src/cli/optimize.rs` ~1742)
+  passes every `watermark_damage` test; add a two-step row there;
+  (3) a dead assertion in `tests/recipe_strict_params.rs`: `!reason.contains("is not used by")`
+  can never match a watermark message (its mode message reads "only applies to an image
+  watermark"); assert against that text instead, or drop it. Each fix: apply the mutation in a
+  fresh target dir, show RED, restore, GREEN.
+
+- [ ] (not yet written) — [S] **`watermark` prints absolute paths in batch lines; `apply` prints
+  relative ones.** Filed by SPEC-133's re-verify (2026-10-26): `watermark two/` labels its skip
+  warnings with absolute paths, `apply --recipe … two/` with the path as given. Pre-existing
+  (identical at `3dd23ff`; `src/cli/ops.rs` unchanged by SPEC-133). Pick one labelling rule for
+  every per-input line and use it in `run_pixel_op` too; check the error lines as well as the
+  skip lines.
 
 **Count:** **5 shipped / 1 closed** / 0 in flight / 5 pending — re-derive with a grep you just ran.
 

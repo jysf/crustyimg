@@ -38,6 +38,9 @@ Cycle prompts live in `prompts/SPEC-133-<cycle>.md`.
       `--help`, glob/dir-of-one and CHANGELOG fixed; cleanups 8–12 done. Out-of-spec:
       `docs/data-model.md:248` still says "one explicit input" — sent back to the fix session.
       $2.72.
-- [~] **re-verify** — prompt: `prompts/SPEC-133-reverify.md`. **Opus**, read-only, own worktree
-      `verify/spec-133-fix`.
-- [ ] **ship**
+- [x] **re-verify** — 2026-10-27 (`prompts/SPEC-133-reverify.md`). Opus. **✅ APPROVED** at
+      `f1a46d3` (after a one-line `docs/data-model.md` fix). M1/M2/M5/M7 each RED then green;
+      the refactor's stderr byte-identical to `3dd23ff` over six batches; SPEC-131's moved rows
+      fail for their own reason. Three optional test gaps + a path-label inconsistency filed on
+      STAGE-050. $3.22. **Merged 2026-10-27 as `75f82e7` (PR #206).**
+- [~] **ship** — prompt: `prompts/SPEC-133-ship.md`. Sonnet, own worktree `docs/spec-133-ship`.
