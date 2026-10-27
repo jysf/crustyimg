@@ -1006,7 +1006,7 @@ No overlap with SPEC-132 (`src/build/watch.rs`).
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
 - **Branch:** `feat/spec-133-watermark-damage-rule`
-- **PR (if applicable):** PR_PLACEHOLDER (draft)
+- **PR (if applicable):** #206 (draft)
 - **All acceptance criteria met?** yes — AC-1…AC-27, with the deviations below. AC-27's legs
   are listed under "Matrix".
 - **New decisions emitted:**
