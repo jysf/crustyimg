@@ -10,12 +10,14 @@ use std::path::{Path, PathBuf};
 use crate::error::ImageError;
 use crate::image::Image;
 use crate::operation::{Gravity, OperationParams, OperationRegistry, RegistryError, Watermark};
-use crate::pipeline::Pipeline;
+use crate::pipeline::{OnRefusal, Pipeline, SkippedStep};
 use crate::recipe::{Recipe, RecipeStep};
 use crate::sink::{Overwrite, Sink, SinkError, SinkInput};
 use crate::source::{self, SourceError};
 
-use super::common::{name_pinned_format, resolve_format};
+use super::common::{
+    name_pinned_format, report_skipped_images, resolve_format, warn_skipped_steps,
+};
 use super::optimize::{auto_orient_prefix, pipeline_altered_source, resolve_effective_quality};
 use super::{AutoQuality, CliError, GlobalArgs};
 
@@ -455,6 +457,7 @@ pub(super) fn run_pixel_op(
 
         let total = all.len();
         let mut failed: usize = 0;
+        let mut skipped_images: usize = 0;
 
         for input in &all {
             // Label for error messages.
@@ -464,7 +467,7 @@ pub(super) fn run_pixel_op(
             };
 
             // Load, run, resolve format, build sink, write — catch per-input errors.
-            let result = (|| -> Result<(), CliError> {
+            let result = (|| -> Result<Vec<SkippedStep>, CliError> {
                 let img = match input {
                     crate::source::Input::Path(p) => Image::load(p)?,
                     crate::source::Input::Stdin { bytes, .. } => Image::from_bytes(bytes)?,
@@ -482,7 +485,10 @@ pub(super) fn run_pixel_op(
                 // consumes `img`.
                 let source_info = img.info();
 
-                let out_img = pipeline.run(img.clone())?;
+                // A watermark this image cannot take is left off; the image
+                // is still written (the batch keeps going).
+                let run = pipeline.run_with(img.clone(), OnRefusal::Skip)?;
+                let out_img = run.image;
 
                 // Per-input format resolution (DEC-015): forced_format wins if Some; no -o path in fan-out.
                 let fmt = match forced_format {
@@ -523,15 +529,25 @@ pub(super) fn run_pixel_op(
                     global,
                     &mut std::io::stdout().lock(),
                 )?;
-                Ok(())
+                Ok(run.skipped)
             })();
 
-            if let Err(e) = result {
-                eprintln!("error: {label}: {e}");
-                failed += 1;
+            match result {
+                Err(e) => {
+                    eprintln!("error: {label}: {e}");
+                    failed += 1;
+                }
+                Ok(skipped) => {
+                    warn_skipped_steps(&label, &skipped);
+                    if !skipped.is_empty() {
+                        skipped_images += 1;
+                    }
+                }
             }
         }
 
+        // A skipped watermark is not a failure: the image was written.
+        report_skipped_images(skipped_images, total, global.quiet);
         if failed > 0 {
             return Err(CliError::PartialBatch { failed, total });
         }

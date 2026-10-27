@@ -54,7 +54,7 @@ Apply to all subcommands (parsed before/around the subcommand).
 |---|---|
 | `0` | Success. |
 | `1` | Generic runtime error (decode/encode/op failed; includes an input that exceeds decode resource limits — see below). |
-| `2` | Usage error (bad args) — clap's standard code. |
+| `2` | Usage error (bad args) — clap's standard code. Also a watermark refused on one input (counted after globs and directories resolve): a mark that does not fit inside the image, or would cover more than 5 % of it (see `watermark` below). |
 | `3` | Input not found / unreadable. |
 | `4` | Unsupported or undetectable format. Three cases: the input bytes are not a recognisable image at all (zero-byte file, arbitrary text/bytes) — the message just says so, there is no feature to name; a DECODER is recognized but not built (a `.heic` input without `--features heic`, SPEC-062/DEC-052) — the message names the feature to rebuild with; or an ENCODER is not built (AVIF output on a `--no-default-features` lean build) — likewise names the feature. |
 | `5` | Output write failed / refused (exists without `--yes`; name/path traversal; a symlinked destination, refused even with `--yes` — SPEC-034 / DEC-035). |
@@ -399,6 +399,40 @@ the recipe path:
   silently dropping the watermark step would be the worst outcome. A
   `text`-only step with no `font` key needs nothing resolved and runs fine on
   wasm (it falls back to the bundled font, compiled in).
+- **A `text` step refuses `scale` and `tile = true`**, matching the CLI (`--text`
+  conflicts with `--scale`/`--tile`): `recipe step N ('watermark'): 'scale' only
+  applies to an image watermark (this step sets 'text')`, exit **1**, before any input
+  is read. `tile = false` is accepted (crustyimg writes it for every mark).
+
+**A mark that would damage the image is refused (SPEC-133, DEC-104).** Before
+anything is drawn, `watermark` checks the mark against each image, in pure geometry:
+- **Fit.** The mark — at the size it is drawn, after `--scale` — plus `--margin` on
+  the edges the gravity anchors must fit inside the image on both axes. `north`/`south`
+  inset only the vertical axis, `east`/`west` only the horizontal, a corner both,
+  `center` neither; `--tile` ignores margin, and one tile must fit. A mark exactly the
+  image's size fits.
+- **Coverage.** A mark of fixed size (no `--scale`, no `--tile`) may cover at most
+  **5 %** of the image's pixels, counting the mark's own visible pixels (alpha > 0,
+  before `--opacity`), not the pixels it happens to change. `--scale` and `--tile` are
+  exempt: their size follows the image by design.
+- Fit is checked first; the message names the numbers:
+  `watermark refused: the 1050×189 px mark does not fit inside the 24×24 px image`, or
+  `… the mark would cover 5.61 % of the 172×172 px image (1661 of 29584 px); the limit is 5 %`.
+
+What happens next depends on the run:
+- **One input** (`watermark`, `apply --recipe` with or without a terminal
+  `optimize`, wasm `transform`): an `error:` line, exit **2**, nothing written. wasm
+  returns the same message as its error. The count is taken after globs and directories
+  resolve: `watermark 'one/*.png'` or `watermark one/` that resolves to a single image is
+  refused with exit 2; two or more resulting images are skipped.
+- **A batch** (`watermark` / `apply --recipe` over several inputs) **or `build`**: that
+  image is **written without the mark**, with the recipe's other steps applied, and
+  stderr gets one line per such image — `warning: <input>: watermark skipped, image
+  written without it: <reason>` — unconditionally (not hidden by `--quiet`, like the
+  truncated-JPEG warning). A skip is **not a failure**: it never counts toward exit 6,
+  and a batch whose only problem is skips exits **0**. `watermark`/`apply` close with
+  `watermark skipped on K of N images` (only when K > 0; hidden by `--quiet`); `build`
+  adds `, watermark skipped on K` to its summary line (see `build` below).
 
 ### Metadata lane *(container-level; no pixel decode — DEC-003)*
 
@@ -562,6 +596,17 @@ inputs fan out over the same rayon path as `apply` (`-j N` bounds workers; `--qu
 suppresses progress + summary). A per-output failure is reported on stderr and exits
 **6** (others still written, DEC-015); a summary of targets run + outputs written goes
 to stderr on success.
+
+**A skipped watermark under `build` (SPEC-133, DEC-104).** An input whose watermark step is
+refused (see `watermark`) is written without the mark, cached and locked like any other
+output, with one `warning:` line; the summary gains `, watermark skipped on K` after the
+`(… cached, … rebuilt)` group (`built 1 target, 2 outputs (0 cached, 2 rebuilt), watermark
+skipped on 1`), before any `, F failed`. A skip is not a failure, so the lockfile is still
+written and a following `build --check` is clean. ⚠ **A cached re-run does not repeat the
+skip line or the suffix**: a cache hit writes the stored (unmarked) bytes without running the
+pipeline, so it cannot know a step was skipped — the same as the truncated-JPEG and
+animated-input warnings, which a hit does not replay either. `--no-cache` lists every skip
+again.
 
 **Format plan (SPEC-111; the `recipe.format` rung is SPEC-127, Call 2):** a target whose recipe
 ends in the reserved terminal `optimize` step chooses its output format the same way `apply`

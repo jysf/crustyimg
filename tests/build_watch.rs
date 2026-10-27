@@ -412,7 +412,7 @@ fn brand_project(recipe: &str) -> TempDir {
     let dir = TempDir::new().unwrap();
     let root = dir.path();
     write_file(root, "recipes/r.toml", recipe.as_bytes());
-    write_png(root, "src/a.png", 64, 64, [200, 200, 200]);
+    write_png(root, "src/a.png", 128, 128, [200, 200, 200]);
     write_file(
         root,
         "crustyimg.build.toml",

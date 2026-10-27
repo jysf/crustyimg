@@ -16,11 +16,12 @@ use crate::sink::Overwrite;
 use crate::source::{self, SourceError};
 
 use super::common::{
-    encode_one, load_recipe, resolve_format, resolve_recipe_assets, write_encoded,
-    BATCH_PROGRESS_TEMPLATE,
+    encode_one, load_recipe, resolve_format, resolve_recipe_assets, warn_skipped_steps,
+    write_encoded, BATCH_PROGRESS_TEMPLATE,
 };
 use super::optimize::encode_one_optimize_decided;
 use super::{CliError, GlobalArgs};
+use crate::pipeline::SkippedStep;
 
 // ── Build command (SPEC-063, DEC-057) ────────────────────────────────────────
 
@@ -521,6 +522,10 @@ struct BuildCtx<'a> {
 struct BuildOutcome {
     built: Built,
     record: Option<crate::build::lock::LockOutput>,
+    /// Steps left out of this output because they declined the image (a
+    /// watermark it could not take). Always empty on a cache hit: a hit never
+    /// runs the pipeline, so it cannot know.
+    skipped: Vec<SkippedStep>,
 }
 
 /// Build one input: a cache hit materializes the stored bytes, a miss runs the
@@ -563,6 +568,7 @@ fn build_one(
             return Ok(BuildOutcome {
                 built: Built::Cached,
                 record: lock_record(prepared, input, key, &hit.ext, &hit.bytes),
+                skipped: Vec::new(),
             });
         }
     }
@@ -571,19 +577,25 @@ fn build_one(
     // the target's literal-extension template (AC-3), or chosen per input by
     // the same fast decision `apply --recipe web` uses (AC-2) — decided once
     // per target at prepare time (`format_plan`), applied here per input.
-    let (ext, bytes): (String, Vec<u8>) = match prepared.format_plan {
+    let (ext, bytes, skipped): (String, Vec<u8>, Vec<SkippedStep>) = match prepared.format_plan {
         OutputFormatPlan::Preserve => {
-            let (ext, bytes) = encode_one(&prepared.recipe, ctx.registry, input, None, quality)?;
-            (ext.to_owned(), bytes)
+            let (ext, bytes, skipped) =
+                encode_one(&prepared.recipe, ctx.registry, input, None, quality)?;
+            (ext.to_owned(), bytes, skipped)
         }
         OutputFormatPlan::Pinned(fmt) => {
-            let (ext, bytes) =
+            let (ext, bytes, skipped) =
                 encode_one(&prepared.recipe, ctx.registry, input, Some(fmt), quality)?;
-            (ext.to_owned(), bytes)
+            (ext.to_owned(), bytes, skipped)
         }
         OutputFormatPlan::Decide => {
-            let (ext, bytes, truncated_jpeg, animated_input) =
-                encode_one_optimize_decided(&prepared.recipe, ctx.registry, input)?;
+            let super::optimize::DecidedEncode {
+                ext,
+                bytes,
+                truncated_jpeg,
+                animated_input,
+                skipped,
+            } = encode_one_optimize_decided(&prepared.recipe, ctx.registry, input)?;
             // F1 (SPEC-107, DEC-085): unconditional, not gated on `--quiet` — see
             // `report.rs`'s `run_info` for why. Matches the sibling emit in
             // `optimize.rs`'s `run_optimize_autodecide`, NOT the cache-store
@@ -602,7 +614,7 @@ fn build_one(
                     eprintln!("warning: {label}: {}", crate::image::ANIMATED_INPUT_WARNING);
                 }
             }
-            (ext, bytes)
+            (ext, bytes, skipped)
         }
     };
     write_encoded(&bytes, &ext, input, out_dir, template, overwrite)?;
@@ -620,6 +632,7 @@ fn build_one(
         record: key
             .as_ref()
             .and_then(|k| lock_record(prepared, input, k, &ext, &bytes)),
+        skipped,
     })
 }
 
@@ -786,12 +799,13 @@ pub(super) fn run_build(file: Option<&str>, global: &GlobalArgs) -> Result<(), C
                 .par_iter()
                 .map(|input| {
                     let r = build_one(&ctx, p, input);
-                    if let Err(ref e) = r {
-                        let label = match input {
-                            crate::source::Input::Path(path) => path.display().to_string(),
-                            crate::source::Input::Stdin { stem, .. } => stem.clone(),
-                        };
-                        eprintln!("error: {label}: {e}");
+                    let label = match input {
+                        crate::source::Input::Path(path) => path.display().to_string(),
+                        crate::source::Input::Stdin { stem, .. } => stem.clone(),
+                    };
+                    match &r {
+                        Err(e) => eprintln!("error: {label}: {e}"),
+                        Ok(o) => warn_skipped_steps(&label, &o.skipped),
                     }
                     bar.inc(1);
                     r
@@ -823,6 +837,12 @@ pub(super) fn run_build(file: Option<&str>, global: &GlobalArgs) -> Result<(), C
         .iter()
         .filter(|r| matches!(r, Ok(o) if o.built == Built::Rebuilt))
         .count();
+    // A skipped watermark is not a failure: the output was written and is
+    // locked like any other.
+    let skipped = outcomes
+        .iter()
+        .filter(|r| matches!(r, Ok(o) if !o.skipped.is_empty()))
+        .count();
 
     // ── Summary (stderr; stdout stays clean for pipes) ───────────────────────
     if !global.quiet {
@@ -835,11 +855,14 @@ pub(super) fn run_build(file: Option<&str>, global: &GlobalArgs) -> Result<(), C
             );
         }
         // A no-change re-run reads "(N cached, 0 rebuilt)" — the zero-work signal.
-        let summary = format!(
+        let mut summary = format!(
             "built {}, {} ({cached} cached, {rebuilt} rebuilt)",
             plural(prepared.len(), "target"),
             plural(cached + rebuilt, "output")
         );
+        if skipped > 0 {
+            summary.push_str(&format!(", watermark skipped on {skipped}"));
+        }
         if failed > 0 {
             eprintln!("{summary}, {failed} failed");
         } else {

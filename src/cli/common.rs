@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 
 use crate::image::Image;
 use crate::operation::OperationRegistry;
+use crate::pipeline::{OnRefusal, SkippedStep};
 use crate::recipe::{Recipe, RecipeError};
 use crate::sink::{Overwrite, Sink, SinkInput};
 
@@ -18,8 +19,35 @@ use super::{CliError, GlobalArgs};
 /// in non-test code rather than an `unwrap` on an arbitrary user-supplied string.
 pub(super) const BATCH_PROGRESS_TEMPLATE: &str = "{bar:40.cyan/blue} {pos}/{len} {msg}";
 
+/// Print one warning per step a batch left out of `label`'s image (a
+/// watermark the image could not take), after the image was written.
+///
+/// Unconditional, not gated on `--quiet`: like the truncated-JPEG warning, the
+/// output itself carries no sign that the mark is missing.
+pub(super) fn warn_skipped_steps(label: &str, skipped: &[SkippedStep]) {
+    for s in skipped {
+        eprintln!(
+            "warning: {label}: {} skipped, image written without it: {}",
+            s.op, s.refusal
+        );
+    }
+}
+
+/// The closing line of a batch that left the watermark off `skipped` of its
+/// `total` images. Printed only when that happened; hidden by `--quiet`.
+pub(super) fn report_skipped_images(skipped: usize, total: usize, quiet: bool) {
+    if skipped > 0 && !quiet {
+        eprintln!("watermark skipped on {skipped} of {total} images");
+    }
+}
+
 /// The decode→pipeline→encode half of [`apply_one`]: everything up to, but not
-/// including, the write. Returns the output's extension and its encoded bytes.
+/// including, the write. Returns the output's extension, its encoded bytes,
+/// and the steps left out because they declined the image.
+///
+/// Only batch paths call this, so a declining step (a watermark the image
+/// cannot take) is skipped rather than failing the input: the image is still
+/// encoded, with the recipe's other steps applied.
 ///
 /// This is the *worker* both callers share. `apply_one` writes its result
 /// straight through; `run_build`'s cache-miss path writes it AND stores it under
@@ -47,7 +75,7 @@ pub(super) fn encode_one(
     input: &crate::source::Input,
     format_override: Option<::image::ImageFormat>,
     quality: Option<u8>,
-) -> Result<(&'static str, Vec<u8>), CliError> {
+) -> Result<(&'static str, Vec<u8>, Vec<SkippedStep>), CliError> {
     // Load.
     let img = match input {
         crate::source::Input::Path(p) => Image::load(p)?,
@@ -58,12 +86,12 @@ pub(super) fn encode_one(
     let pipeline = recipe.build_pipeline(registry)?;
 
     // Run.
-    let out_img = pipeline.run(img.clone())?;
+    let run = pipeline.run_with(img.clone(), OnRefusal::Skip)?;
 
     let fmt = format_override.unwrap_or_else(|| img.source_format());
-    let bytes = crate::sink::encode_to_bytes(&out_img, fmt, quality)?;
+    let bytes = crate::sink::encode_to_bytes(&run.image, fmt, quality)?;
 
-    Ok((crate::sink::extension_for_format(fmt), bytes))
+    Ok((crate::sink::extension_for_format(fmt), bytes, run.skipped))
 }
 
 /// Apply one input through the recipe and write the result to `out_dir`.
@@ -71,6 +99,7 @@ pub(super) fn encode_one(
 /// Extracted from `run_apply` so it is unit-testable. [`encode_one`] does the
 /// decode→pipeline→encode; this adds the `Sink::Dir` write, which is where the
 /// name-template expansion, traversal, symlink, and overwrite guards live.
+/// Returns the steps left out of this image (see [`encode_one`]).
 ///
 /// `format_override` (SPEC-126): threaded straight through to [`encode_one`] —
 /// `Some(fmt)` when `apply --format` was given (honoured at every arity, not
@@ -88,9 +117,10 @@ pub(super) fn apply_one(
     template: &str,
     overwrite: Overwrite,
     quality: Option<u8>,
-) -> Result<(), CliError> {
-    let (ext, bytes) = encode_one(recipe, registry, input, format_override, quality)?;
-    write_encoded(&bytes, ext, input, out_dir, template, overwrite)
+) -> Result<Vec<SkippedStep>, CliError> {
+    let (ext, bytes, skipped) = encode_one(recipe, registry, input, format_override, quality)?;
+    write_encoded(&bytes, ext, input, out_dir, template, overwrite)?;
+    Ok(skipped)
 }
 
 /// Write already-encoded output `bytes` into `out_dir` under `template`.

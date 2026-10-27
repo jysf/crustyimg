@@ -118,6 +118,22 @@ error: recipe step 1 ('resize'): unknown key 'widht'; expected one of: mode, wid
 An integer is fine where a number is expected (`percent = 50`). Every key's type and range
 is listed in [`docs/data-model.md`](../docs/data-model.md).
 
+A `watermark` step's `scale` and `tile = true` apply only to an image mark (`image = …`);
+a `text` step that sets either is refused the same way.
+
+### A watermark that does not fit is left off
+
+A `watermark` step is checked against each image before it is drawn: the mark (after
+`scale`) plus its `margin` must fit inside the image, and a mark of fixed size (no `scale`,
+no `tile`) may cover at most 5 % of the image's pixels. On one input a mark that fails is an
+error (exit 2); the input count is taken after globs and directories resolve, so one
+resulting image is refused and two or more are skipped. Over several inputs, or in `build`, that image is written **without** the
+mark — every other step still applies — and stderr says so:
+
+```text
+warning: in/small.png: watermark skipped, image written without it: the 169×31 px mark does not fit inside the 24×24 px image
+```
+
 ## Beyond one recipe
 
 - **Many source → output pairs in one file:** `crustyimg build` reads a

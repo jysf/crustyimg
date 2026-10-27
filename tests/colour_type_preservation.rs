@@ -427,7 +427,7 @@ fn watermark_narrows_when_composite_is_opaque() {
 #[test]
 fn watermark_text_narrows_on_an_opaque_base() {
     let dir = tempfile::tempdir().unwrap();
-    let base = write_fixture(dir.path(), "base.png", &rgb8_gradient_png(96, 96));
+    let base = write_fixture(dir.path(), "base.png", &rgb8_gradient_png(160, 160));
     let out = dir.path().join("out.png");
     assert_eq!(
         run_ok_and_load_color(

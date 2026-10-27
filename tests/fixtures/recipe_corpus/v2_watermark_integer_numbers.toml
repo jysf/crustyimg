@@ -1,4 +1,5 @@
-# Integers for number keys must stay valid and serialize as integers.
+# Integers for number keys must stay valid and serialize as integers
+# (`scale` lives on an image step: a text step refuses it).
 version = "2"
 format = "png"
 
@@ -12,5 +13,9 @@ op = "watermark"
 text = "hi"
 size = 24
 opacity = 1
-scale = 1
 color = "ffffff"
+
+[[step]]
+op = "watermark"
+image = "logo.png"
+scale = 1

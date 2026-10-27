@@ -399,6 +399,11 @@ pub enum Commands {
     /// Exactly one of `--image` or `--text` is required;
     /// they are mutually exclusive. `--scale`/`--tile` are image-only;
     /// `--font`/`--size`/`--color` are text-only.
+    ///
+    /// A mark that does not fit inside an image (with its margin) is refused; so
+    /// is a fixed-size mark (no `--scale`, no `--tile`) that would cover more than
+    /// 5% of it. That is an error on one input; over several inputs the image is
+    /// written without the mark, with a warning.
     Watermark {
         inputs: Vec<String>,
         /// Overlay image path (image mode; XOR `--text`).
@@ -776,6 +781,9 @@ impl CliError {
             CliError::Analysis(_) => 1,
             // Recipe / operation errors → generic runtime error
             CliError::Recipe(_) => 1,
+            // A watermark the image cannot take, on one explicit input: the
+            // input asked for something unusable, like a bad flag value.
+            CliError::Operation(OperationError::Refused { .. }) => 2,
             CliError::Operation(_) => 1,
             // Sink errors: format/codec errors → 4; everything else → 5
             CliError::Sink(SinkError::UnsupportedExtension(_)) => 4,
@@ -1170,6 +1178,20 @@ mod tests {
             })
             .code(),
             1
+        );
+        // A refused watermark on one explicit input → 2 (the user's input
+        // asked for something the image cannot take).
+        assert_eq!(
+            CliError::Operation(OperationError::Refused {
+                op: "watermark",
+                refusal: crate::operation::Refusal::DoesNotFit {
+                    mark: (50, 10),
+                    margin: 0,
+                    image: (24, 24),
+                },
+            })
+            .code(),
+            2
         );
 
         // Sink UnsupportedExtension / UnknownFormat → 4; others → 5.

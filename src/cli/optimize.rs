@@ -7,15 +7,16 @@ use std::path::{Path, PathBuf};
 
 use crate::image::Image;
 use crate::operation::{OperationParams, OperationRegistry, RegistryError};
-use crate::pipeline::Pipeline;
+use crate::pipeline::{OnRefusal, Pipeline, SkippedStep};
 use crate::quality::{self, LossyFormat, SearchConfig};
 use crate::recipe::{split_terminal_optimize, Recipe};
 use crate::sink::{Overwrite, Sink, SinkError, SinkInput};
 use crate::source::{self, SourceError};
 
 use super::common::{
-    apply_one, build_sink, fmt_bytes, load_recipe, name_pinned_format, require_out_dir_for_batch,
-    resolve_format, resolve_recipe_assets, resolved_input_count, BATCH_PROGRESS_TEMPLATE,
+    apply_one, build_sink, fmt_bytes, load_recipe, name_pinned_format, report_skipped_images,
+    require_out_dir_for_batch, resolve_format, resolve_recipe_assets, resolved_input_count,
+    warn_skipped_steps, BATCH_PROGRESS_TEMPLATE,
 };
 use super::ops::{metadata_output_ext, output_format_for, read_raw_bytes, run_pixel_op};
 use super::report::format_label;
@@ -243,7 +244,7 @@ pub(super) fn run_apply(
     };
 
     // Run the batch — with or without a bounded thread pool.
-    let results: Vec<Result<(), CliError>> = if let Some(n) = global.jobs {
+    let results: Vec<Result<Vec<SkippedStep>, CliError>> = if let Some(n) = global.jobs {
         let pool = rayon::ThreadPoolBuilder::new()
             .num_threads(n)
             .build()
@@ -261,12 +262,12 @@ pub(super) fn run_apply(
                         overwrite,
                         quality,
                     );
-                    if let Err(ref e) = r {
-                        let label = match input {
-                            crate::source::Input::Path(p) => p.display().to_string(),
-                            crate::source::Input::Stdin { stem, .. } => stem.clone(),
-                        };
-                        eprintln!("error: {label}: {e}");
+                    match &r {
+                        Err(e) => eprintln!("error: {}: {e}", input_label(input)),
+                        Ok(skipped) if !skipped.is_empty() => {
+                            warn_skipped_steps(&input_label(input), skipped)
+                        }
+                        Ok(_) => {}
                     }
                     bar.inc(1);
                     r
@@ -286,12 +287,12 @@ pub(super) fn run_apply(
                     overwrite,
                     quality,
                 );
-                if let Err(ref e) = r {
-                    let label = match input {
-                        crate::source::Input::Path(p) => p.display().to_string(),
-                        crate::source::Input::Stdin { stem, .. } => stem.clone(),
-                    };
-                    eprintln!("error: {label}: {e}");
+                match &r {
+                    Err(e) => eprintln!("error: {}: {e}", input_label(input)),
+                    Ok(skipped) if !skipped.is_empty() => {
+                        warn_skipped_steps(&input_label(input), skipped)
+                    }
+                    Ok(_) => {}
                 }
                 bar.inc(1);
                 r
@@ -300,6 +301,13 @@ pub(super) fn run_apply(
     };
 
     bar.finish_and_clear();
+
+    // A skipped watermark is not a failure: the image was written.
+    let skipped = results
+        .iter()
+        .filter(|r| matches!(r, Ok(steps) if !steps.is_empty()))
+        .count();
+    report_skipped_images(skipped, total, global.quiet);
 
     let failed = results.iter().filter(|r| r.is_err()).count();
     if failed > 0 {
@@ -1081,14 +1089,18 @@ fn source_container_label(container: crate::image::SourceContainer) -> Option<&'
     }
 }
 
+/// How a batch line names `input`: its path, or the stem of a stdin input.
+fn input_label(input: &crate::source::Input) -> String {
+    match input {
+        crate::source::Input::Path(p) => p.display().to_string(),
+        crate::source::Input::Stdin { stem, .. } => stem.clone(),
+    }
+}
+
 /// Decode → orient → auto-decide the output format for ONE input (SPEC-048/049).
 /// Runs the decision engine and returns the bytes to ship (or a passthrough)
 /// plus the `ExplainTrace` for reporting (`None` only for a degenerate image).
 /// Does NOT print — the caller renders the summary or `--explain`.
-// The return tuple grew a 5th element in SPEC-119 (the animated-input flag,
-// alongside SPEC-107's truncated-JPEG flag) — a named struct would need the
-// same number of fields threaded through 3 call sites for no clarity gain.
-#[allow(clippy::type_complexity)]
 fn optimize_decide_one(
     input: &crate::source::Input,
     pipeline: &Pipeline,
@@ -1103,26 +1115,10 @@ fn optimize_decide_one(
     // false, no `Instant`s are taken and the trace's `timing` stays `None`, so a
     // non-`--timing` run's report is byte-identical.
     timing: bool,
-) -> Result<
-    (
-        OptimizeOutput,
-        Option<crate::analysis::decide::ExplainTrace>,
-        // The winner's achieved SSIMULACRA2 score, for the default (fast) path's
-        // report — `Some` only for a lossy fast winner that could be decoded and
-        // scored; `None` for lossless, passthrough, or the opt-in search modes.
-        Option<f64>,
-        // F1 (SPEC-107, DEC-085): whether the SOURCE decoded as a truncated
-        // JPEG. Returned rather than printed here (this function's contract is
-        // "does NOT print") — the caller prints the warning against the label
-        // it already has.
-        bool,
-        // SPEC-119: whether the SOURCE decoded as a multi-frame animated
-        // GIF/APNG/WebP — same "returned, not printed" contract as the
-        // truncated-JPEG flag immediately above.
-        bool,
-    ),
-    CliError,
-> {
+    // What to do with a step that declines the image (a watermark it cannot
+    // take): an error for one input, skipped in a batch.
+    on_refusal: OnRefusal,
+) -> Result<DecideOne, CliError> {
     use crate::analysis::decide::{
         self, BuiltCodecs, CandidateTrace, Disposition, ExplainTrace, Mode,
     };
@@ -1185,13 +1181,22 @@ fn optimize_decide_one(
                     raw,
                     ext: metadata_output_ext(input, &[]),
                 };
-                return Ok((output, None, None, truncated_jpeg, animated_input));
+                return Ok(DecideOne {
+                    output,
+                    trace: None,
+                    score: None,
+                    truncated_jpeg,
+                    animated_input,
+                    skipped: Vec::new(),
+                });
             }
             return Err(e.into());
         }
     };
 
-    let out_img = pipeline.run(img)?;
+    let run = pipeline.run_with(img, on_refusal)?;
+    let skipped = run.skipped;
+    let out_img = run.image;
 
     // Did the pipeline alter the image in a way that makes the RAW source an invalid
     // output? See `pipeline_altered_source` — shared with the pinned-path
@@ -1354,13 +1359,34 @@ fn optimize_decide_one(
         source_container_label: source_container_label(source_container),
     };
 
-    Ok((
+    Ok(DecideOne {
         output,
-        Some(trace),
-        winner_score,
+        trace: Some(trace),
+        score: winner_score,
         truncated_jpeg,
         animated_input,
-    ))
+        skipped,
+    })
+}
+
+/// What [`optimize_decide_one`] produced for one input. Everything but
+/// `output` is returned rather than printed, because that function does not
+/// print: the caller renders the report and the warnings against its label.
+struct DecideOne {
+    output: OptimizeOutput,
+    /// The `ExplainTrace` for reporting; `None` only for a degenerate image.
+    trace: Option<crate::analysis::decide::ExplainTrace>,
+    /// The winner's achieved SSIMULACRA2 score, for the default (fast) path's
+    /// report — `Some` only for a lossy fast winner that could be decoded and
+    /// scored; `None` for lossless, passthrough, or the opt-in search modes.
+    score: Option<f64>,
+    /// F1 (SPEC-107, DEC-085): whether the SOURCE decoded as a truncated JPEG.
+    truncated_jpeg: bool,
+    /// SPEC-119: whether the SOURCE decoded as a multi-frame animated
+    /// GIF/APNG/WebP.
+    animated_input: bool,
+    /// The steps left out under `OnRefusal::Skip`.
+    skipped: Vec<SkippedStep>,
 }
 
 /// `build`'s twin of [`run_apply`]'s terminal-`optimize` split (SPEC-111):
@@ -1380,30 +1406,58 @@ fn optimize_decide_one(
 /// the report [`optimize_decide_one`] never generates here), and `build` has
 /// no per-input audit to spend them on.
 ///
-/// Returns the truncated-JPEG and animated-input flags as the third and
-/// fourth elements (SPEC-116, widened by SPEC-119) rather than printing
-/// here: this is a pure encode helper with no label and no business writing
+/// Returns the truncated-JPEG and animated-input flags, and any skipped steps
+/// (a watermark the image could not take — `build` is a batch, so it skips),
+/// rather than printing here: this is a pure encode helper with no label and no business writing
 /// to stderr — `build_one` has the label and emits, matching how
 /// `run_optimize`'s own call sites consume the same flags.
 pub(super) fn encode_one_optimize_decided(
     pixel_recipe: &Recipe,
     registry: &OperationRegistry,
     input: &crate::source::Input,
-) -> Result<(String, Vec<u8>, bool, bool), CliError> {
+) -> Result<DecidedEncode, CliError> {
     let pipeline = pixel_recipe.build_pipeline(registry)?;
-    let (output, _trace, _score, truncated_jpeg, animated_input) = optimize_decide_one(
+    // `build` is always a batch: a watermark an image cannot take is skipped.
+    let DecideOne {
+        output,
+        truncated_jpeg,
+        animated_input,
+        skipped,
+        ..
+    } = optimize_decide_one(
         input,
         &pipeline,
         &AutoQuality::Fast,
         crate::analysis::decide::Profile::Web,
         false,
         false,
+        OnRefusal::Skip,
     )?;
     let (ext, bytes) = match output {
         OptimizeOutput::Encoded { bytes, ext } => (ext, bytes),
         OptimizeOutput::Passthrough { raw, ext } => (ext, raw),
     };
-    Ok((ext, bytes, truncated_jpeg, animated_input))
+    Ok(DecidedEncode {
+        ext,
+        bytes,
+        truncated_jpeg,
+        animated_input,
+        skipped,
+    })
+}
+
+/// What [`encode_one_optimize_decided`] produced for one input.
+pub(super) struct DecidedEncode {
+    /// The chosen format's extension.
+    pub(super) ext: String,
+    /// The bytes to write (a re-encode, or the source passed through).
+    pub(super) bytes: Vec<u8>,
+    /// The source decoded as a truncated JPEG.
+    pub(super) truncated_jpeg: bool,
+    /// The source decoded as a multi-frame animation.
+    pub(super) animated_input: bool,
+    /// Steps left out because they declined the image.
+    pub(super) skipped: Vec<SkippedStep>,
 }
 
 /// Render one input's report: `--explain` (json→stdout, human→stderr), else the
@@ -1578,8 +1632,22 @@ fn run_optimize_autodecide(
             .path()
             .map(|p| p.display().to_string())
             .unwrap_or_else(|| input.stem().to_owned());
-        let (output, trace, score, truncated_jpeg, animated_input) =
-            optimize_decide_one(input, pipeline, auto, profile, always_score, timing)?;
+        let DecideOne {
+            output,
+            trace,
+            score,
+            truncated_jpeg,
+            animated_input,
+            ..
+        } = optimize_decide_one(
+            input,
+            pipeline,
+            auto,
+            profile,
+            always_score,
+            timing,
+            OnRefusal::Fail,
+        )?;
         // F1 (SPEC-107, DEC-085): unconditional, not gated on `--quiet` — see
         // `report.rs`'s `run_info` for why.
         if truncated_jpeg {
@@ -1625,15 +1693,27 @@ fn run_optimize_autodecide(
             .unwrap_or_else(|| "{stem}.{ext}".to_owned());
         let total = all.len();
         let mut failed = 0usize;
+        let mut skipped_images = 0usize;
 
         for input in &all {
-            let label = match input {
-                crate::source::Input::Path(p) => p.display().to_string(),
-                crate::source::Input::Stdin { stem, .. } => stem.clone(),
-            };
-            let result = (|| -> Result<(), CliError> {
-                let (output, trace, score, truncated_jpeg, animated_input) =
-                    optimize_decide_one(input, pipeline, auto, profile, always_score, timing)?;
+            let label = input_label(input);
+            let result = (|| -> Result<Vec<SkippedStep>, CliError> {
+                let DecideOne {
+                    output,
+                    trace,
+                    score,
+                    truncated_jpeg,
+                    animated_input,
+                    skipped,
+                } = optimize_decide_one(
+                    input,
+                    pipeline,
+                    auto,
+                    profile,
+                    always_score,
+                    timing,
+                    OnRefusal::Skip,
+                )?;
                 // F1 (SPEC-107, DEC-085): see the single-input branch above.
                 if truncated_jpeg {
                     eprintln!("warning: {label}: {}", crate::image::TRUNCATED_JPEG_WARNING);
@@ -1648,13 +1728,24 @@ fn run_optimize_autodecide(
                     template: template.clone(),
                     format: None,
                 };
-                write_optimize_output(&output, input, &sink, overwrite)
+                write_optimize_output(&output, input, &sink, overwrite)?;
+                Ok(skipped)
             })();
-            if let Err(e) = result {
-                eprintln!("error: {label}: {e}");
-                failed += 1;
+            match result {
+                Err(e) => {
+                    eprintln!("error: {label}: {e}");
+                    failed += 1;
+                }
+                Ok(skipped) => {
+                    warn_skipped_steps(&label, &skipped);
+                    if !skipped.is_empty() {
+                        skipped_images += 1;
+                    }
+                }
             }
         }
+        // A skipped watermark is not a failure: the image was written.
+        report_skipped_images(skipped_images, total, global.quiet);
         if failed > 0 {
             return Err(CliError::PartialBatch { failed, total });
         }
