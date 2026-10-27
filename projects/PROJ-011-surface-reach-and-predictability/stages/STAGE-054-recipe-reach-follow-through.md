@@ -169,7 +169,17 @@ Ordered. ⚡ Only the first item gates 0.8.0.
   with `error: could not read image input`; the file is a font. The font read maps to
   `ImageError::Io` (`src/cli/ops.rs:1369`). Pre-existing. Name the font in the message.
 
-**Count:** 0 shipped / 1 active / 9 pending
+- [ ] (not yet written) — [S] **`text::render_text` panics for a library caller that passes a huge
+  size.** Filed by SPEC-135's design (2026-10-27; maintainer ruling, filed by the orchestrator).
+  On `main`, `--text "© crustyimg" --size 100000` panics in `zeno` (`raster.rs:144`, exit 101),
+  and so does released 0.7.1 (driven on the release asset). SPEC-135 caps `size <= 1024` on the
+  CLI and in recipes (and so in wasm) before `render_text` runs, but the library function itself
+  still has no bound: a direct caller of `Watermark::new_text` or `render_text` can still crash
+  the process. Fix shape: refuse (return an error) inside `render_text` / `new_text` for a size
+  past the cap, so the library cannot panic whichever caller reaches it
+  (`untrusted-input-hardening`).
+
+**Count:** 0 shipped / 1 active / 10 pending
 
 ## Design Notes
 

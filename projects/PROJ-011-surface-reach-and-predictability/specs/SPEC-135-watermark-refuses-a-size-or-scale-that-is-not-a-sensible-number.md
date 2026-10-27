@@ -341,6 +341,17 @@ table, `--size` help text), CHANGELOG (**Fixed**: the CLI non-finite rows and th
    a bound (`--opacity 1.00000001`, `--size 1024.00001`) is accepted on the CLI and refused in a
    recipe. Parsing as `f64` could change bytes for marks accepted today.
 
+**After design (2026-10-27, settled):**
+4. **The ~50-row matrix stays [S], with no cut.** The font/overlay ordering rows and the `f32`
+   documentation ship in this spec.
+5. **The two reworded CLI messages are accepted**, because they now come from the shared table:
+   `--opacity must be in …` → `--opacity must be a number in …`, and `--size must be > 0` →
+   `--size must be a number > 0 and <= 1024`. No test, doc or skill outside `src/cli/ops.rs`
+   quotes the old wording (grep of `tests/ src/ docs/ skills/ recipes/ README.md`, 2026-10-27).
+6. **`text::render_text` still panics for a direct library caller passing a huge size.** It is
+   filed on STAGE-054 for 0.8.1. This build does not fix it.
+7. **The build runs on Sonnet; verify on Opus.**
+
 ## Design
 
 Design session 2026-10-27 (Opus), on `main` @ `f926440`. Every row below was driven on a release
