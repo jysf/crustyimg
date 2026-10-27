@@ -36,6 +36,9 @@ Cycle prompts live in `prompts/SPEC-134-<cycle>.md`.
       paths, so `resolved_input_count` → `inputs.len()` (M2) stays green while the mislabel returns
       for `'in*.jpg'`. Double resolution judged acceptable (backlog item filed); `meta`'s duplicate
       N-input branch: optional cleanup, taken into fix 2.
-- [~] **fix 2** — prompt: `prompts/SPEC-134-fix2.md`. Sonnet, same draft PR #202: glob rows killing
-      M2; `meta` pre-flight calls `name_pinned_format`. Then a short re-verify.
+- [x] **fix 2** — prompt: `prompts/SPEC-134-fix2.md`. Sonnet, 2026-10-26, draft PR #202 at
+      `ca8a961`: 3 glob rows (RED under M2, exactly those) + 2 `meta` N-input rows (46 → 51);
+      `meta` pre-flight calls `name_pinned_format(global, all.len())`; matrix green; CI 16/16.
+      ~$0.72.
+- [~] **re-verify 2** — prompt: `prompts/SPEC-134-reverify2.md`. Opus, read-only.
 - [ ] **ship**
