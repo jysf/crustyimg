@@ -7,7 +7,7 @@
 task:
   id: SPEC-133
   type: bug                        # epic | story | task | bug | chore
-  cycle: build  # frame | design | build | verify | ship
+  cycle: verify  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: M                    # S | M | L  (L means split it)
@@ -107,6 +107,27 @@ cost:
         build of main and a full prototype test run (both in the scratchpad, never committed).
         Measured just before the design commit, so the final commit/push/report turns are not
         included.
+    - cycle: build
+      agent: claude-opus-5-5
+      interface: claude-code
+      tokens_total: 35328702
+      tokens_breakdown:
+        input: 306
+        output: 114157
+        cache_creation: 298867
+        cache_read: 34915372
+      estimated_usd: 22.18
+      rate_anchors: "Opus $5/$25 per MTok; cache_creation x1.25 input; cache_read x0.10 input"
+      duration_minutes: null
+      recorded_at: 2026-10-26
+      note: >
+        Interactive build session in its own worktree (feat/spec-133-watermark-damage-rule).
+        Measured from the session transcript 7ade2af7-0cc3-48b8-a9f9-6ddf8605ce1f.jsonl, found
+        by content ("SPEC-133 — BUILD prompt"), 150 assistant messages deduped by .message.id
+        (input / cache_creation / cache_read taken once per id, MAX output_tokens), every
+        message claude-opus-5-5. Measured just before the PR, so the final commit/PR/report
+        turns are not included. Includes the clean three-leg matrix, wasm-test x3 and
+        demo-build.
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -984,37 +1005,178 @@ No overlap with SPEC-132 (`src/build/watch.rs`).
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
+- **Branch:** `feat/spec-133-watermark-damage-rule`
+- **PR (if applicable):** PR_PLACEHOLDER (draft)
+- **All acceptance criteria met?** yes — AC-1…AC-27, with the deviations below. AC-27's legs
+  are listed under "Matrix".
 - **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
-- **Files this diff touches** — **list every one**, with a phrase on what changed
-  in each. Not "src/foo and tests": the enumeration is what a verify cycle diffs
-  the real change against, and what tells you whether every affected `DEC-*` has
-  the path in its `affected_scope`. SPEC-122's Deviations claimed "`src/operation`
-  and `tests/` only" and was wrong by two `scripts/` files, which left
-  `affected_scope` blind; SPEC-124's build added this section by hand after that
-  lesson and still listed 8 of its 9 files. It is a checklist because it is easy
-  to get wrong from memory — build it from `git diff --name-only`, not recall.
-  - `path/to/file` — <what changed>
+  - `DEC-104` — A watermark refuses a mark that does not fit or covers over 5 % of the image;
+    a batch skips it and writes the image without it
+- **Files this diff touches** (from `git diff --name-only origin/main...HEAD`, 24 files):
+  - `src/operation/mod.rs` — `Refusal` + Display, `WATERMARK_COVERAGE_CAP_PERCENT`,
+    `OperationError::Refused`, defaulted `Operation::refusal`; `Gravity::inset_axes`;
+    `Watermark`: a `visible` count set by all three constructors, `mark_size` (the one
+    post-`scale` size helper, called by both bit-depth branches and by `refusal`), `refusal`,
+    the guard at the top of `apply`, the text-mode `scale` / `tile = true` refusal in
+    `from_params`; 12 unit tests.
+  - `src/pipeline/mod.rs` — `OnRefusal`, `SkippedStep`, `PipelineRun`, `run_with`; `run`
+    delegates to `run_with(Fail)`; module doc; 3 unit tests.
+  - `src/cli/mod.rs` — `Operation(Refused) => 2` arm; the exit-mapping test row; one help
+    sentence on the `watermark` command.
+  - `src/cli/common.rs` — `warn_skipped_steps`, `report_skipped_images`; `encode_one` runs
+    `Skip` and returns the skipped steps; `apply_one` returns them.
+  - `src/cli/ops.rs` — `run_pixel_op` batch loop only: `Skip`, warning lines, count, closing
+    line. The single-input branch is unchanged.
+  - `src/cli/optimize.rs` — `run_apply` batch closures (warnings, count, closing line);
+    `optimize_decide_one` takes an `OnRefusal` and returns the skipped steps (6th tuple
+    element); `encode_one_optimize_decided` uses `Skip` and returns a named `DecidedEncode`;
+    `run_optimize_autodecide` single `Fail`, batch `Skip` + lines + count.
+  - `src/cli/build.rs` — `BuildOutcome.skipped` (empty on a hit), `build_one` collects skips
+    from both encode paths, the rayon closure prints the warning, the summary suffix. The
+    lockfile phase is untouched.
+  - `tests/watermark_damage.rs` — new: AC-10 goldens + bless, AC-12, AC-13…AC-15, AC-17…AC-23.
+  - `tests/fixtures/watermark/passing_marks.golden` — new: the six AC-10 hashes, blessed on
+    untouched `src/` (`origin/main` `65cb95d`, commit `ab94505`).
+  - `tests/wasm_roundtrip.rs` — `transform_refuses_a_mark_that_does_not_fit` (AC-16).
+  - `tests/recipe_strict_params.rs` — Call 5's two rows.
+  - `tests/apply_batch.rs`, `tests/build_watermark_cache.rs`, `tests/colour_type_preservation.rs`,
+    `tests/recipe_watermark.rs`, `tests/watermark.rs`, `tests/build_watch.rs` — fixture sizes only.
+  - `tests/fixtures/recipe_corpus/v2_watermark_integer_numbers.{toml,golden}` — one line
+    (`scale = 1`) removed from each (Deviation 2).
+  - `docs/api-contract.md` — exit-code row 2; the `watermark` rule, single-input vs batch
+    behaviour, the recipe text-mode refusal; the `build` skip paragraph incl. the cached run.
+  - `docs/data-model.md` — watermark keys: `scale` / `tile = true` image-only, the rule.
+  - `recipes/README.md` — `scale` / `tile = true` image-only; "A watermark that does not fit
+    is left off".
+  - `CHANGELOG.md` — a new Unreleased `### Changed` (refusal + skip) and one `### Fixed` line.
+  - `decisions/DEC-104-…md` — new, block-list `affected_scope`.
+
+- **RED baseline (on unmodified `src/`, commit `7bfecb4`'s parent tree for `src/`):**
+  `cargo test --lib` does not compile — `refusal`, `Refusal`, `Refused`, `OnRefusal`,
+  `SkippedStep`, `run_with` do not exist (every op/pipeline unit test and the AC-24 row).
+  `cargo test --test '*'`: only `watermark_damage` fails — 14 of 16, each for the reason the
+  spec gives (single inputs exit 0 instead of 2; batch/build print no skip line; AC-17/18's small
+  output is marked; AC-12 D/E load `Ok`); its 2 guards (AC-10 goldens, AC-12 positives) pass.
+  Every other integration test green. `just wasm-test`: `transform_refuses_a_mark_that_does_not_fit`
+  fails (`transform` returns `Ok`), 44 others pass. Guards `scale_is_exempt_from_coverage` /
+  `tile_is_exempt_from_coverage_and_margin` are in the lib target, so on `main` they were
+  uncompilable rather than green; they pass after the build.
+
+- **Negative controls (AC-26)** — each a single revert, binary rebuilt by the run, `src/`
+  restored with `git checkout` after; run on `--lib` + `--test watermark_damage` (+ `just
+  wasm-test` for N1):
+
+  | # | reverted | flipped RED | stayed green as required |
+  |---|---|---|---|
+  | N1 | fit check | 6 op tests (AC-1, 2, 3, 6b, 7b, 8); AC-13 fit, 14, 15a, 15b; AC-17…23 (8 tests); wasm AC-16 | AC-4, AC-5, AC-13 coverage row |
+  | N2 | coverage check | AC-4 image + text, AC-5, AC-13 coverage row | all fit + surface tests |
+  | N3 | margin on both axes always | AC-3 (`center` row), AC-7(c) | the rest |
+  | N4 | cap scaled marks too | AC-6(a) **and AC-10** (its golden includes row H) | the rest |
+  | N5 | cap tiles too | AC-7(a) **and AC-10** (its golden includes row G) | the rest |
+  | N6 | `Skip` behaves as `Fail` | AC-11 skip test; AC-17…23 | single-input tests, AC-24 |
+  | N7 | exit 2 arm | AC-13 (both rows), 14, 15a, 15b, AC-24 | every batch test (AC-16 has no exit code) |
+  | N8 | text-mode `scale` / `tile = true` | `text_step_refuses_scale_and_tile_true` | the rest |
+  | N9 | warning + count lines (+ `build` suffix) | AC-17…22, AC-23 | the rest |
+
+  N4/N5's extra AC-10 flip is the golden doing its job, not a leak: two of its six passing
+  cases are the scaled and tiled marks.
+
+- **Existing tests changed** (fixture sizes only unless said; each still asserts what it did):
+  - `tests/apply_batch.rs`: `apply_watermark_recipe_matches_cli_at_one_input` base 32→64;
+    `…_at_n_inputs` both bases 32→64; `apply_and_build_agree_on_watermark_recipe` 32→64.
+  - `tests/build_watermark_cache.rs`: image project `src/a.png` 32→64 (`b` 48 already at
+    2.8 %, unchanged) — covers `build_hits_when_overlay_bytes_unchanged`,
+    `build_rebuilds_when_overlay_bytes_change`; both text projects `a` 32→128, `b` 48→144
+    (`"mark"` is 70×26 with 707 visible px: 96 px is 7.67 %, 128 px 4.3 %) — covers
+    `build_rebuilds_when_font_bytes_change`, `build_hits_when_bundled_font_is_used`.
+  - `tests/colour_type_preservation.rs`: `watermark_text_narrows_on_an_opaque_base` 96→160.
+  - `tests/recipe_watermark.rs`: `text_watermark_round_trips_without_an_image_key` 64→96.
+  - `tests/watermark.rs`: `text_watermark_writes_output`, `text_watermark_default_font`,
+    `text_watermark_custom_font` 80×40→320×160.
+  - `tests/build_watch.rs` (**not on the spec's list** — SPEC-132 landed after the design's
+    prototype): `brand_project`'s `src/a.png` 64→128 (a 16×16 opaque logo on 64×64 is 6.25 %).
+    Fixes `watch_rebuilds_when_the_watermark_image_changes`,
+    `watch_follows_a_recipe_repointed_to_a_new_image`,
+    `watch_picks_up_an_asset_directory_created_mid_session`,
+    `watch_with_asset_roots_does_not_self_trigger`.
+  - `tests/recipe_strict_params.rs` (Call 5): `recipes_crustyimg_writes_are_never_refused`'s
+    text row `Some(0.5)` → `None` (+ its comment); `documented_interplay_is_not_refused` drops
+    the `text` + `tile = true` row, count 3 → 2.
+  - `tests/fixtures/recipe_corpus/v2_watermark_integer_numbers.{toml,golden}` — see Deviation 2.
+  - **Proof none of them passes by skipping:** with `warn_skipped_steps` temporarily made to
+    `exit(99)` on any skip, `apply_batch`, `build_watermark_cache`, `build_watch`, `watermark`
+    and `colour_type_preservation` all passed (no skip reached), while the 8 skip tests in
+    `watermark_damage` hit it (the probe could fire). Reverted.
+
+- **Matrix (AC-27):** run sequentially, each feature leg in its own fresh `CARGO_TARGET_DIR`,
+  deleted after the leg, at `2e0a4cc`:
+  - default — `cargo test --no-fail-fast` 48/48 test binaries ok, 0 failed; `clippy --all-targets -D warnings` clean
+  - `--no-default-features` — 48/48 ok, 0 failed; clippy clean
+  - `--features webp-lossy` — 48/48 ok, 0 failed; clippy clean
+  - `cargo fmt --check` clean; `just wasm-check` ok; `just wasm-test` 45 passed, 0 failed
+  - `just demo-build` ok: **1,270,008 B brotli** vs the gate's baseline 1,266,535 B
+    (+3,473 B, +0.27 %, inside ±5 %; the baseline is the gate's anchor, not a fresh `main`
+    build). The gate file is untouched.
+  - `grep -rnE 'std::fs|std::path' src/operation src/pipeline` (excluding the two `//!`
+    module-doc lines that already name them as forbidden): empty.
+  - `scripts/decisions-audit.sh`: 0 structural errors; DEC-104 overlap warnings with
+    DEC-102 (`src/operation/mod.rs`; DEC-104 extends its mode check) and DEC-105
+    (`src/cli/mod.rs`; unrelated rules). No contradiction.
+
+- **`--size nan` backlog item (HANDOFF rule 6):** driven on this build —
+  `watermark b192.png --text "© crustyimg" --size nan` and `--size inf` exit **0**, and
+  `--image logo16.png --scale nan` exits **0**: the fit check does **not** refuse them (the mark
+  renders tiny and fits). `--scale inf` is now refused (`the 4294967295×4294967295 px mark does
+  not fit…`). The STAGE-050 item stays open; it is not closed by this spec.
+
 - **Deviations from spec:**
-  - [list]
+  1. **AC-10's golden and bless tests live in `tests/watermark_damage.rs`, not in
+     `src/operation/mod.rs`.** They read and write a file, and AC-27 requires
+     `src/operation/**` to gain no `std::fs`/`std::path`. Same cases, same rule (blessed on
+     untouched `src/`, own commit `ab94505`).
+  2. **A third Call-5 conflict the design did not list:** SPEC-131's corpus recipe
+     `v2_watermark_integer_numbers.toml` puts `scale = 1` on a `text` step, so it no longer
+     loads. I removed that one line from the `.toml` and the `.golden` (the golden is otherwise
+     byte-identical). Its purpose — integers in number keys serialize as integers — still holds
+     through `size = 24` and `opacity = 1`; integer `scale` is no longer in the corpus.
+     **This is more than a fixture-size change**; flagging it for verify to rule on.
+  3. **Four predicted flips passed vacuously instead.** The design's prototype made a refusal a
+     plain error, so batch tests failed (exit 6). With the real `Skip` policy,
+     `apply_watermark_recipe_matches_cli_at_n_inputs`, `build_hits_when_overlay_bytes_unchanged`,
+     `build_hits_when_bundled_font_is_used` and `build_rebuilds_when_font_bytes_change` stayed
+     green **with the mark silently skipped** — hollow. Their fixtures were changed anyway, and
+     the probe above proves they mark again.
+  4. The coverage comparison is `u128`, not `u64`: `width × height × 5` can exceed `u64` for
+     `u32` dimensions. Same integer semantics.
+  5. `tests/wasm_roundtrip.rs`'s new test also asserts `does not fit`: without it, N1 left it
+     green (the coverage cap refuses the same size-200 mark with the same two words).
+  6. AC-13's coverage row asserts `5.61 %`, `(1661 of 29584 px)` and `the limit is 5 %`, and
+     the AC-4 text row asserts the count equals 1661 as well as the rendered overlay's count.
+  7. `CHANGELOG.md` had no Unreleased `### Changed`; one was added. DEC-104's `affected_scope`
+     also lists `docs/data-model.md` and `recipes/README.md`.
 - **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - None new. The cached-run gap is the design's filed item; the `--size nan` item stays open
+    (above).
 
 ### Build-phase reflection (3 questions, short answers)
 
 Process-focused: how did the build go? What friction did the spec create?
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — The "existing tests that change" list was measured on a prototype whose refusal was an
+   *error*, not the final *skip*. So four of its predicted flips never flipped: they went green
+   while skipping the mark. Finding them took a probe (abort on any skip), not a test run. And
+   the list predated SPEC-132 (`build_watch.rs`) and SPEC-131's corpus recipe.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — AC-27's "no `std::fs` in `src/operation/**`" conflicts with putting a file-writing bless
+   test there (the Failing Tests list did). Also, SPEC-131's recipe corpus is a third place
+   Call 5 bites.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Run the "abort on any skip" probe straight after implementing, before touching fixtures:
+   it splits "flips RED" from "passes hollow" in one run, and it is cheaper than reading each
+   test.
 
 ---
 
