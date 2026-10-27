@@ -81,7 +81,7 @@ anything a recipe cannot say.
 
 ## Spec Backlog
 
-- [ ] **SPEC-133** (designed 2026-10-25) — [S] ⚡ **`watermark --text` overruns the right edge, and it is NOT
+- [x] **SPEC-133** (merged 2026-10-27, PR #206 — history of the overrun item; shipped entry below, under "`watermark` stops silently doing nothing") — [S] ⚡ **`watermark --text` overruns the right edge, and it is NOT
   simply a function of text width.** Driven 2026-09-03 on `main` (0.7.1 + SPEC-126), one source
   photo, `watermark --text "© crustyimg"` with no other flags:
 
@@ -208,7 +208,13 @@ anything a recipe cannot say.
   target's recipe (the same `resolve_recipe_assets`/`registry.asset_keys` walk `build` already
   does) and add each resolved asset's path — but sizing and design are for whoever picks this up.
 
-- [ ] **SPEC-133** (designed 2026-10-25) — [S] ⚡ **`watermark` stops silently doing nothing.** A **measured
+- [x] **SPEC-133** (merged 2026-10-27, PR #206) — [S] ⚡ **`watermark` refuses to damage an image.**
+  **Shipped:** a watermark that does not fit the image (margin included) or that would change
+  more than 5 % of the mark's own non-transparent pixels is refused: on one explicit input an
+  error naming the sizes, exit 2; on a batch, multi-input `apply --recipe` or `build` the image
+  is skipped with one stderr line and the run continues. Verify's punch list (four surviving
+  mutations, three doc fixes) was fixed in the same PR; re-verify approved. $59.26 over 8
+  sessions. Re-verify's leftovers are filed below. Original framing: ⚡ **`watermark` stops silently doing nothing.** A **measured
   defect**, driven on `main` (PNG filters undone before comparing):
 
   | input | `--size` | pixels changed |
@@ -454,7 +460,7 @@ anything a recipe cannot say.
   every per-input line and use it in `run_pixel_op` too; check the error lines as well as the
   skip lines.
 
-**Count:** **6 shipped / 1 closed** / 0 in flight / 4 pending — re-derive with a grep you just ran.
+**Count:** **7 shipped / 2 closed** / 0 in flight / 9 pending — re-derived 2026-10-27 with `grep '^- \[x\] \*\*SPEC-'` (8 lines, minus SPEC-133's history line at the top), `grep '^- \[x\] \*\*\(CLOSED\|Absorbed\)'` (2) and `grep -c '^- \[ \]'` (9).
 
 ## Design Notes
 

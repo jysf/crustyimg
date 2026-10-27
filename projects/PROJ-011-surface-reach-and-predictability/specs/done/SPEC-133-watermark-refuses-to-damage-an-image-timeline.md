@@ -43,4 +43,7 @@ Cycle prompts live in `prompts/SPEC-133-<cycle>.md`.
       the refactor's stderr byte-identical to `3dd23ff` over six batches; SPEC-131's moved rows
       fail for their own reason. Three optional test gaps + a path-label inconsistency filed on
       STAGE-050. $3.22. **Merged 2026-10-27 as `75f82e7` (PR #206).**
-- [~] **ship** — prompt: `prompts/SPEC-133-ship.md`. Sonnet, own worktree `docs/spec-133-ship`.
+- [x] **ship** — 2026-10-27 (`prompts/SPEC-133-ship.md`). Sonnet. Reflection written; cost
+      re-measured (build $22.18 → $24.81, fix $2.72 → $3.57) and the verify, aborted-fix and
+      re-verify sessions added; spec advanced and archived. PR #206 merged 2026-10-27 as
+      `75f82e7`. **Total $59.26 over 8 sessions** (91,239,114 tokens).

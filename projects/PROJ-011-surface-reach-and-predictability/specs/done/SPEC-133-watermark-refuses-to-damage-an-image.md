@@ -7,7 +7,7 @@
 task:
   id: SPEC-133
   type: bug                        # epic | story | task | bug | chore
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: M                    # S | M | L  (L means split it)
@@ -110,48 +110,122 @@ cost:
     - cycle: build
       agent: claude-opus-5-5
       interface: claude-code
-      tokens_total: 35328702
+      tokens_total: 40067139
       tokens_breakdown:
-        input: 306
-        output: 114157
-        cache_creation: 298867
-        cache_read: 34915372
-      estimated_usd: 22.18
+        input: 338
+        output: 122479
+        cache_creation: 307763
+        cache_read: 39636559
+      estimated_usd: 24.81
       rate_anchors: "Opus $5/$25 per MTok; cache_creation x1.25 input; cache_read x0.10 input"
       duration_minutes: null
       recorded_at: 2026-10-26
       note: >
         Interactive build session in its own worktree (feat/spec-133-watermark-damage-rule).
         Measured from the session transcript 7ade2af7-0cc3-48b8-a9f9-6ddf8605ce1f.jsonl, found
-        by content ("SPEC-133 — BUILD prompt"), 150 assistant messages deduped by .message.id
+        by content ("SPEC-133-build.md exactly"), 164 assistant messages deduped by .message.id
         (input / cache_creation / cache_read taken once per id, MAX output_tokens), every
-        message claude-opus-5-5. Measured just before the PR, so the final commit/PR/report
-        turns are not included. Includes the clean three-leg matrix, wasm-test x3 and
-        demo-build.
+        message claude-opus-5-5. Re-measured at ship from the full transcript (was 35328702
+        tokens / $22.18, measured before the PR). Includes the clean three-leg matrix,
+        wasm-test x3 and demo-build.
     - cycle: build
       agent: claude-sonnet-5-5
       interface: claude-code
-      tokens_total: 6455755
+      tokens_total: 8944578
       tokens_breakdown:
-        input: 122
-        output: 26966
-        cache_creation: 112137
-        cache_read: 6316530
-      estimated_usd: 2.72
+        input: 160
+        output: 32318
+        cache_creation: 120307
+        cache_read: 8791793
+      estimated_usd: 3.57
       rate_anchors: "Sonnet $3/$15 per MTok; cache_creation x1.25 input; cache_read x0.10 input"
       duration_minutes: null
       recorded_at: 2026-10-26
       note: >
         Fix session for the verify punch list (same branch, draft PR #206). Measured from the
         session transcript e832cf11-e841-4f2a-b89b-102d7a362133.jsonl, found by content
-        ("SPEC-133 — FIX prompt"), 61 assistant messages deduped by .message.id (input /
+        ("SPEC-133 — FIX prompt"), 78 assistant messages deduped by .message.id (input /
         cache_creation / cache_read taken once per id, MAX output_tokens), every message
-        claude-sonnet-5-5. Measured before the final commit/push/CI turns, so those are not
-        included. Includes the clean three-leg matrix, wasm-test and demo-build.
+        claude-sonnet-5-5. Re-measured at ship from the full transcript (was 6455755 tokens /
+        $2.72, measured before the final turns); now also covers the follow-up turn that fixed
+        docs/data-model.md. Includes the clean three-leg matrix, wasm-test and demo-build.
+    - cycle: verify
+      agent: claude-opus-5-5
+      interface: claude-code
+      tokens_total: 17032820
+      tokens_breakdown:
+        input: 188
+        output: 70043
+        cache_creation: 214034
+        cache_read: 16748555
+      estimated_usd: 11.46
+      rate_anchors: "Opus $5/$25 per MTok; cache_creation x1.25 input; cache_read x0.10 input"
+      duration_minutes: null
+      recorded_at: 2026-10-27
+      note: >
+        Verify session (worktree verify-spec-133, verdict PUNCH LIST at 3dd23ff). Measured from
+        transcript a446ba7b-e3b1-406c-9f79-07a2e1fceef2.jsonl, found by content
+        ("SPEC-133 — VERIFY prompt"), 94 assistant messages deduped by .message.id, every message
+        claude-opus-5-5. Measured at ship from the full transcript (the session reported $11.16).
+    - cycle: build
+      agent: claude-opus-5-5
+      interface: claude-code
+      tokens_total: 569730
+      tokens_breakdown:
+        input: 18
+        output: 2435
+        cache_creation: 41508
+        cache_read: 525769
+      estimated_usd: 0.58
+      rate_anchors: "Opus $5/$25 per MTok; cache_creation x1.25 input; cache_read x0.10 input"
+      duration_minutes: null
+      recorded_at: 2026-10-27
+      note: >
+        Aborted fix: the fix prompt was pasted into the verify worktree by mistake, then /exit.
+        Nothing was built. Measured from transcript e07e474f-02c1-47f0-bc0e-1c4796a3e0bb.jsonl,
+        found by content ("SPEC-133 — FIX prompt"), 8 assistant messages deduped by
+        .message.id, every message claude-opus-5-5.
+    - cycle: verify
+      agent: claude-opus-5-5
+      interface: claude-code
+      tokens_total: 4438803
+      tokens_breakdown:
+        input: 86
+        output: 25460
+        cache_creation: 101423
+        cache_read: 4311834
+      estimated_usd: 3.43
+      rate_anchors: "Opus $5/$25 per MTok; cache_creation x1.25 input; cache_read x0.10 input"
+      duration_minutes: null
+      recorded_at: 2026-10-27
+      note: >
+        Re-verify session (worktree verify-spec-133-fix, verdict APPROVED at f1a46d3). Measured
+        from transcript 07fa8377-e921-49c4-aeac-317440893ed4.jsonl, found by content
+        ("SPEC-133 — RE-VERIFY prompt"), 43 assistant messages deduped by .message.id, every
+        message claude-opus-5-5. Measured at ship from the full transcript (the session
+        reported $3.22).
+    - cycle: ship
+      agent: claude-sonnet-5-5
+      interface: claude-code
+      tokens_total: 1041586
+      tokens_breakdown:
+        input: 26
+        output: 8568
+        cache_creation: 59333
+        cache_read: 973659
+      estimated_usd: 0.64
+      rate_anchors: "Sonnet $3/$15 per MTok; cache_creation x1.25 input; cache_read x0.10 input"
+      duration_minutes: null
+      recorded_at: 2026-10-27
+      note: >
+        Ship session (worktree docs/spec-133-ship). Measured from its own transcript, found by
+        content ("SPEC-133 — SHIP prompt"), deduped by .message.id, every message
+        claude-sonnet-5-5. Measured just before the ship commit, so the final commit/push/report
+        turns are not included.
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 91239114
+    estimated_usd: 59.26
+    session_count: 8
 ---
 
 # SPEC-133: watermark refuses to damage an image
@@ -1228,10 +1302,21 @@ Process-focused: how did the build go? What friction did the spec create?
 from the process-focused build reflection above.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Design would probe the change under the behaviour that ships, not the prototype's. The list
+   of tests that would flip was measured with a refusal as an *error*; under the real *skip*,
+   four of them passed hollow (the mark was skipped, the test stayed green), and only an
+   "abort on any skip" probe found them. Verify's own mutations then found four more gaps (M1
+   16-bit count, M2 count after opacity, M5 K per step, M7 judging the original input), and
+   AC-5's premise was wrong: opacity 0.01 never rounds an alpha to 0. The design's surface table
+   also missed the glob or directory that resolves to one file (exit 2, undocumented), the same
+   kind of edge SPEC-134 hit. Re-verify left three optional test gaps, filed rather than fixed.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — Proposed, not made (the orchestrator decides): (a) the design template should ask for an
+   "abort on any skip" style probe whenever a change turns an error into a silent fallback or
+   skip; (b) a design's surface table should always include "one input reached through a glob
+   or directory, and stdin". No DEC or constraint change.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — None new. Re-verify already filed "SPEC-133's three test gaps…" and "`watermark` prints
+   absolute paths…" on STAGE-050's Spec Backlog, and the `--size nan` item is updated there.
