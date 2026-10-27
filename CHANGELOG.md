@@ -16,7 +16,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `optimize` step. The error names the step (numbered from 0), the op and the key:
   `recipe step 0 ('resize'): unknown key 'widht'; expected one of: mode, width, height, percent`.
 
+- **A file extension in `--name-template` now sets the output format**, as an `-o`
+  extension already did. `--name-template '{stem}.png'` used to write the source format
+  (or, on `web`/`optimize`/`apply --recipe web`, the automatically chosen AVIF) into a file
+  named `.png`; it now writes a real PNG, on `resize`, `thumbnail`, `auto-orient`,
+  `watermark`, `edit`, `apply`, `optimize`, `web` and `apply --recipe web`, at one input and
+  at many. A plain-recipe `build` target's `name = "{stem}.png"` does the same. `--format`
+  still wins over the extension, and the extension wins over a recipe's `format`. Templates
+  with `{ext}` (including the default `{stem}.{ext}`), or with an extension that is not an
+  image format (`{stem}.txt`), are unchanged. Output bytes change for any such template whose
+  extension differs from what was written before; on `web`, `optimize` and
+  `apply --recipe web` they change for **every** literal-extension template, even one that
+  matches the automatic choice (`--name-template '{stem}.avif'` now takes the pinned encode,
+  not the automatic one). What else you may notice:
+  - On `web`, `optimize` and `apply --recipe web`, a template extension skips the automatic
+    choice, so no `jpeg → avif …` summary line is printed for those files, and `--json` or
+    `--timing` with such a template is now a usage error (exit `2`), as with `-o x.png`.
+  - `optimize --profile preserve` with `--name-template '{stem}.png'` now writes PNG, as it
+    already did with `-o x.png`.
+  - `meta strip`, `meta clean` and `meta set` keep the input's own format, so they now refuse
+    (exit `4`, nothing written) when `-o` or the template names a different format —
+    `meta strip in.jpg -o out.png` used to write JPEG into `out.png`. A batch is refused
+    whole, before any file is written. Convert first, then edit the metadata.
+  - A `build` target whose `name` now pins gets a new cache key, so it rebuilds once.
+
 ### Fixed
+
+- **With several inputs, `web`, `optimize` and `apply --recipe web` no longer let `-o` pick
+  the output format.** `-o` is ignored at several inputs and the template names the files, but
+  the format check still read `-o`, so `apply --recipe web a.jpg b.jpg -o x.jpg --out-dir d
+  --name-template '{stem}.png'` wrote JPEG bytes into `a.png`, and an unrecognised `-o x.bin`
+  wrote AVIF into it. The files now hold the format their names say.
 
 - **`build --watch` no longer rebuilds itself in a loop on Linux.** Its own reads of the
   manifest, recipes and watermark files were reported as changes, so the loop re-ran

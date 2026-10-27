@@ -15,7 +15,7 @@ use crate::recipe::{Recipe, RecipeStep};
 use crate::sink::{Overwrite, Sink, SinkError, SinkInput};
 use crate::source::{self, SourceError};
 
-use super::common::resolve_format;
+use super::common::{name_pinned_format, resolve_format};
 use super::optimize::{auto_orient_prefix, pipeline_altered_source, resolve_effective_quality};
 use super::{AutoQuality, CliError, GlobalArgs};
 
@@ -180,16 +180,22 @@ fn resize_params(
 /// Decide the output `ImageFormat` for one input (DEC-015, extended by
 /// SPEC-127 Call 2):
 ///   1. `--format FMT`       → that format (force; FMT via resolve_format).
-///   2. else `-o <path>` ext → inferred from the path extension.
+///   2. else the output name's recognised extension: `-o <path>` when given,
+///      else the `--out-dir` name `template` (`{stem}.png` pins PNG; a
+///      template with `{ext}` never pins).
 ///   3. else `recipe.format` → the recipe's own pin, if any (SPEC-127).
 ///   4. else                 → PRESERVE the input's source_format().
 ///
 /// An unrecognized `--format` is a typed `SinkError` (exit 4) surfaced via
-/// `resolve_format`. An unrecognized `-o` extension is `SinkError` (exit 4).
-/// An unrecognized `recipe_format` string is likewise a typed `SinkError`,
-/// but ONLY reached when rungs 1-2 are both absent (matching how a `-o`
-/// extension pin already short-circuits past whatever `recipe.format` says,
-/// unvalidated, when it wins).
+/// `resolve_format`. An unrecognized `-o` or template extension names the file
+/// only and falls through to rung 3. An unrecognized `recipe_format` string is
+/// a typed `SinkError`, but ONLY reached when rungs 1-2 are both absent
+/// (matching how an output-name pin already short-circuits past whatever
+/// `recipe.format` says, unvalidated, when it wins).
+///
+/// `template` is the name template the output is written under, or `None`
+/// when the output is not written into `--out-dir` (with `-o` given, the
+/// template is not the output's name and is never consulted).
 ///
 /// `pub(super)` (SPEC-126): `apply`'s single-input path (`optimize::run_apply`)
 /// reuses this exact resolution rather than the `Sink::Dir`
@@ -200,6 +206,7 @@ fn resize_params(
 pub(super) fn output_format_for(
     global: &GlobalArgs,
     output_path: Option<&Path>,
+    template: Option<&str>,
     recipe_format: Option<&str>,
     source_format: ::image::ImageFormat,
 ) -> Result<::image::ImageFormat, CliError> {
@@ -208,13 +215,14 @@ pub(super) fn output_format_for(
         return Ok(fmt);
     }
 
-    // 2. -o <path> extension.
+    // 2. The output name's extension: -o <path>, else the --out-dir template.
+    // An unrecognized extension names the file only and falls through.
     if let Some(path) = output_path {
         if let Ok(fmt) = crate::sink::format_from_extension(path) {
             return Ok(fmt);
         }
-        // If extension is unrecognized, fall through to source format
-        // rather than erroring — consistent with single-input behavior.
+    } else if let Some(fmt) = template.and_then(crate::sink::template_literal_format) {
+        return Ok(fmt);
     }
 
     // 3. The recipe's own `format` (SPEC-127, Call 2): a default the file
@@ -374,7 +382,15 @@ pub(super) fn run_pixel_op(
             Some(f) => f,
             // No recipe on this path (`resize`/`thumbnail`/`watermark`/`edit`/
             // `auto-orient` build their pipeline directly from CLI flags).
-            None => output_format_for(global, output_path, None, img.source_format())?,
+            None => {
+                // The template names the output only when it goes into --out-dir.
+                let template = if output_path.is_none() && global.out_dir.is_some() {
+                    global.name_template.as_deref()
+                } else {
+                    None
+                };
+                output_format_for(global, output_path, template, None, img.source_format())?
+            }
         };
 
         // Build the sink with the resolved format.
@@ -472,7 +488,9 @@ pub(super) fn run_pixel_op(
                 let fmt = match forced_format {
                     Some(f) => f,
                     // No recipe on this path either — see the single-input branch above.
-                    None => output_format_for(global, None, None, img.source_format())?,
+                    None => {
+                        output_format_for(global, None, Some(&template), None, img.source_format())?
+                    }
                 };
 
                 let sink = Sink::Dir {
@@ -645,6 +663,75 @@ pub(super) fn read_raw_bytes(input: &crate::source::Input) -> Result<Vec<u8>, Cl
     }
 }
 
+/// The container lane writes each input's own bytes, so it cannot honour an
+/// output name that asks for a different format. Check every input BEFORE any
+/// write, so a refused batch leaves nothing behind (not even the inputs that
+/// would have matched).
+///
+/// The name is `-o` (one input) or, with `--out-dir`, the name template — the
+/// same name the write below uses. A container that cannot be identified
+/// counts as different: it cannot be shown to match.
+fn refuse_a_name_asking_for_another_format(
+    all: &[crate::source::Input],
+    global: &GlobalArgs,
+) -> Result<(), CliError> {
+    let via = if all.len() == 1 && global.output.is_some() {
+        "-o"
+    } else {
+        "the name template"
+    };
+    let asked = name_pinned_format(global, all.len()).map(|fmt| (fmt, via));
+    let Some((wanted, via)) = asked else {
+        return Ok(());
+    };
+
+    for input in all {
+        let found = container_format(input)?;
+        if found != Some(wanted) {
+            let label = input
+                .path()
+                .map(|p| p.display().to_string())
+                .unwrap_or_else(|| input.stem().to_owned());
+            return Err(CliError::MetaFormatMismatch {
+                input: label,
+                via,
+                wanted: format_name(wanted),
+                found: found.map_or_else(|| "unrecognised".to_owned(), format_name),
+                suggest: wanted
+                    .extensions_str()
+                    .first()
+                    .copied()
+                    .unwrap_or("png")
+                    .to_owned(),
+            });
+        }
+    }
+    Ok(())
+}
+
+/// An input's container format from its leading bytes (no pixel decode), with
+/// the same sniffer the metadata lane itself uses.
+fn container_format(
+    input: &crate::source::Input,
+) -> Result<Option<::image::ImageFormat>, CliError> {
+    match input {
+        crate::source::Input::Path(p) => {
+            use std::io::Read;
+            let mut header = Vec::with_capacity(64);
+            std::fs::File::open(p)
+                .and_then(|f| f.take(64).read_to_end(&mut header))
+                .map_err(ImageError::Io)?;
+            Ok(::image::guess_format(&header).ok())
+        }
+        crate::source::Input::Stdin { bytes, .. } => Ok(::image::guess_format(bytes).ok()),
+    }
+}
+
+/// A format's name for messages: `PNG`, `JPEG`, `WEBP`.
+fn format_name(fmt: ::image::ImageFormat) -> String {
+    format!("{fmt:?}").to_ascii_uppercase()
+}
+
 /// The shared container-lane fan-out (SPEC-026), mirroring [`run_pixel_op`] but
 /// reading RAW bytes and transforming via a byte→byte metadata `transform`
 /// (no pixel decode — `metadata-not-via-pixel-encode`).
@@ -671,6 +758,8 @@ fn run_metadata_lane(
     if all.is_empty() {
         return Err(CliError::Source(SourceError::NotFound(inputs.join(" "))));
     }
+
+    refuse_a_name_asking_for_another_format(&all, global)?;
 
     let overwrite = if global.yes {
         Overwrite::Allow
@@ -1472,6 +1561,7 @@ mod tests {
             &global,
             Some(Path::new("/x/a.jpg")),
             None,
+            None,
             ::image::ImageFormat::Jpeg,
         )
         .unwrap();
@@ -1489,6 +1579,7 @@ mod tests {
             &global,
             Some(Path::new("/x/a.png")),
             None,
+            None,
             ::image::ImageFormat::Jpeg,
         )
         .unwrap();
@@ -1502,7 +1593,8 @@ mod tests {
     #[test]
     fn output_format_for_preserves_source() {
         let global = make_global(None);
-        let result = output_format_for(&global, None, None, ::image::ImageFormat::Jpeg).unwrap();
+        let result =
+            output_format_for(&global, None, None, None, ::image::ImageFormat::Jpeg).unwrap();
         assert_eq!(
             result,
             ::image::ImageFormat::Jpeg,
@@ -1515,8 +1607,14 @@ mod tests {
     #[test]
     fn output_format_for_recipe_format_beats_preserve() {
         let global = make_global(None);
-        let result =
-            output_format_for(&global, None, Some("webp"), ::image::ImageFormat::Jpeg).unwrap();
+        let result = output_format_for(
+            &global,
+            None,
+            None,
+            Some("webp"),
+            ::image::ImageFormat::Jpeg,
+        )
+        .unwrap();
         assert_eq!(
             result,
             ::image::ImageFormat::WebP,
@@ -1530,6 +1628,7 @@ mod tests {
         let result = output_format_for(
             &global,
             Some(Path::new("/x/a.png")),
+            None,
             Some("webp"),
             ::image::ImageFormat::Jpeg,
         )
@@ -1544,12 +1643,75 @@ mod tests {
     #[test]
     fn output_format_for_cli_flag_beats_recipe_format() {
         let global = make_global(Some("png"));
-        let result =
-            output_format_for(&global, None, Some("webp"), ::image::ImageFormat::Jpeg).unwrap();
+        let result = output_format_for(
+            &global,
+            None,
+            None,
+            Some("webp"),
+            ::image::ImageFormat::Jpeg,
+        )
+        .unwrap();
         assert_eq!(
             result,
             ::image::ImageFormat::Png,
             "--format must beat recipe.format"
+        );
+    }
+
+    #[test]
+    fn output_format_for_template_takes_the_output_name_rung() {
+        let jpeg = ::image::ImageFormat::Jpeg;
+        let png = ::image::ImageFormat::Png;
+        let webp = ::image::ImageFormat::WebP;
+        let no_flag = make_global(None);
+        // The template's recognised extension beats recipe.format and the source.
+        assert_eq!(
+            output_format_for(&no_flag, None, Some("{stem}.png"), Some("webp"), jpeg).unwrap(),
+            png
+        );
+        // --format beats the template.
+        assert_eq!(
+            output_format_for(
+                &make_global(Some("webp")),
+                None,
+                Some("{stem}.png"),
+                None,
+                jpeg
+            )
+            .unwrap(),
+            webp
+        );
+        // {ext}, or no recognised extension, names the file only.
+        for template in ["{stem}.{ext}", "{stem}.txt", "{stem}", "{name}"] {
+            assert_eq!(
+                output_format_for(&no_flag, None, Some(template), None, jpeg).unwrap(),
+                jpeg,
+                "{template}"
+            );
+        }
+        // With -o, the template is not the output's name and is ignored, even
+        // when -o's own extension is unrecognised.
+        assert_eq!(
+            output_format_for(
+                &no_flag,
+                Some(Path::new("o.jpg")),
+                Some("{stem}.png"),
+                None,
+                jpeg
+            )
+            .unwrap(),
+            jpeg
+        );
+        assert_eq!(
+            output_format_for(
+                &no_flag,
+                Some(Path::new("o.bin")),
+                Some("{stem}.png"),
+                None,
+                jpeg
+            )
+            .unwrap(),
+            jpeg
         );
     }
 

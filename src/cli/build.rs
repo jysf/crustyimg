@@ -30,13 +30,15 @@ use super::{CliError, GlobalArgs};
 /// target's inputs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum OutputFormatPlan {
-    /// No terminal `optimize` step, and the recipe declares no `format`:
-    /// [`encode_one`] preserves each input's own source format, exactly as
-    /// `build` has always done (AC-6).
+    /// No terminal `optimize` step, no recognised literal extension in the
+    /// name template, and the recipe declares no `format`: [`encode_one`]
+    /// preserves each input's own source format (AC-6).
     Preserve,
-    /// Either: a terminal `optimize` step + a literal-extension name template
-    /// (`name = "{stem}.png"`), where the pin wins over the auto-decision,
-    /// matching `apply --recipe web -o hero.png` (AC-3); OR (SPEC-127, Call 2)
+    /// Either: a recognised literal-extension name template
+    /// (`name = "{stem}.png"`) on any target — on a terminal-`optimize`
+    /// target the pin wins over the auto-decision, matching
+    /// `apply --recipe web -o hero.png` (AC-3), and on a plain target it
+    /// matches `apply --name-template '{stem}.png'`; OR (SPEC-127, Call 2)
     /// a recipe — terminal-`optimize` or plain — that declares its own
     /// `format`, which pins exactly the same way. `build` has no `--format`/
     /// `-o` (those are `apply`-only, DEC-098), so a literal template extension
@@ -61,11 +63,38 @@ enum OutputFormatPlan {
 /// time, before any input is touched, rather than silently shipping
 /// mismatched bytes under a name nobody asked for.
 fn target_format_plan(template: &str) -> Result<OutputFormatPlan, CliError> {
+    if let Some(fmt) = crate::sink::template_literal_format(template) {
+        return Ok(OutputFormatPlan::Pinned(fmt));
+    }
     if template.contains(EXT_SENTINEL) {
         return Ok(OutputFormatPlan::Decide);
     }
-    let fmt = crate::sink::format_from_extension(Path::new(template))?;
-    Ok(OutputFormatPlan::Pinned(fmt))
+    // Neither: report why the literal extension is not an image format, with
+    // the sink's own error (unsupported vs missing extension).
+    let err = crate::sink::format_from_extension(Path::new(template))
+        .err()
+        .unwrap_or(crate::sink::SinkError::UnknownFormat);
+    Err(err.into())
+}
+
+/// The format plan for a plain recipe target (no terminal `optimize` step).
+///
+/// The same "literal extension" rule as [`target_format_plan`], but lenient:
+/// a recognised literal extension in the name pins; otherwise the recipe's own
+/// `format`, if any, pins; otherwise each input keeps its source format. A
+/// name with no recognised extension (`{stem}`, `{stem}.txt`) is just a name
+/// here, as it always has been for plain targets.
+fn plain_target_plan(
+    template: &str,
+    recipe_format: Option<&str>,
+) -> Result<OutputFormatPlan, CliError> {
+    if let Some(fmt) = crate::sink::template_literal_format(template) {
+        return Ok(OutputFormatPlan::Pinned(fmt));
+    }
+    Ok(match resolve_format(recipe_format)? {
+        Some(fmt) => OutputFormatPlan::Pinned(fmt),
+        None => OutputFormatPlan::Preserve,
+    })
 }
 
 /// The cache identity for one target: the canonical recipe hash, folded
@@ -279,13 +308,10 @@ fn prepare_target<'a>(
             (pixel_recipe, plan)
         }
         None => {
-            // A plain pixel recipe (no terminal `optimize`): `recipe.format`,
-            // if set, pins; otherwise each input's source format is preserved
-            // exactly as before (SPEC-127, Call 2).
-            let plan = match resolve_format(loaded.format.as_deref())? {
-                Some(fmt) => OutputFormatPlan::Pinned(fmt),
-                None => OutputFormatPlan::Preserve,
-            };
+            // A plain pixel recipe (no terminal `optimize`): the name's
+            // recognised extension pins, else `recipe.format`, else each
+            // input's source format is preserved.
+            let plan = plain_target_plan(target.template(), loaded.format.as_deref())?;
             (loaded, plan)
         }
     };
@@ -1347,6 +1373,33 @@ mod tests {
     }
 
     // ── SPEC-111: the format plan a target's name template implies ──────────
+
+    #[test]
+    fn plain_target_plan_pins_on_a_recognised_extension_only() {
+        use ::image::ImageFormat;
+        assert_eq!(
+            plain_target_plan("{stem}.png", None).unwrap(),
+            OutputFormatPlan::Pinned(ImageFormat::Png)
+        );
+        // No recognised literal extension: the name is just a name.
+        for template in ["{stem}", "{stem}.txt", "{stem}.{ext}"] {
+            assert_eq!(
+                plain_target_plan(template, None).unwrap(),
+                OutputFormatPlan::Preserve,
+                "{template}"
+            );
+        }
+        // The recipe's own format pins when the name does not ...
+        assert_eq!(
+            plain_target_plan("{stem}.txt", Some("webp")).unwrap(),
+            OutputFormatPlan::Pinned(ImageFormat::WebP)
+        );
+        // ... and the name's extension beats it when both pin.
+        assert_eq!(
+            plain_target_plan("{stem}.png", Some("webp")).unwrap(),
+            OutputFormatPlan::Pinned(ImageFormat::Png)
+        );
+    }
 
     #[test]
     fn target_format_plan_reads_the_template() {

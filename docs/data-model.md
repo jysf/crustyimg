@@ -142,8 +142,9 @@ in each `[[step]]` table are that operation's params.
 | `step.<param>` | per-op | per-op | Parameters for that operation. |
 
 **`format`/`quality` precedence (SPEC-127, Call 2), extending DEC-015's chain:**
-`--format` (`apply` only) > a recognized `-o` extension (`apply`, single input only) >
-**`recipe.format`** > preserve the source format. Quality: `-q` > **`recipe.quality`** > the
+`--format` (`apply` only) > the output name's recognized extension (`-o`, else a literal
+extension in `--name-template`, or a `build` target's `name`) > **`recipe.format`** > preserve
+the source format. Quality: `-q` > **`recipe.quality`** > the
 format's own default. `build` has neither `--format` nor `-o`/`-q` per-target (DEC-098), so
 `recipe.format`/`recipe.quality` are its only way to vary either per target; the global `-q`, when
 given, still applies uniformly across every target. A recipe ending in the reserved terminal
@@ -341,9 +342,9 @@ bundled recipes (`web`/`gallery`/`product`, resolvable by name via
 `recipes/web.toml` for a real (non-illustrative) example.
 
 Whether the chosen format reaches the write is a PIN, not a guess: an
-explicit `--format`/`-o` extension on `apply`, or — for `build` — a target's
-`name` template naming a literal extension (`name = "{stem}.png"`) rather
-than `{ext}`, skips the decision and honors the pin instead. Full behavior
+explicit `--format`, or a recognized extension in the output's name (`-o`,
+`--name-template`, or a `build` target's `name = "{stem}.png"`) rather than
+`{ext}`, skips the decision and honors the pin instead. Full behavior
 (exit codes, the pin rule, the lockfile/cache implications) is in
 `docs/api-contract.md`'s `apply`/`build` entries, not repeated here.
 
@@ -365,7 +366,9 @@ Batch output names come from a template string over the input path:
 | `{parent}` | input's parent directory name |
 
 Default template: `{stem}.{ext}` into `--out-dir` (or alongside the input
-if no out-dir). Templates may not contain path separators that escape
+if no out-dir). A recognized literal extension in the template
+(`{stem}.png`) also **pins the output format**, like an `-o` extension; a
+template using `{ext}`, or with no recognized extension, names the file only. Templates may not contain path separators that escape
 `--out-dir` (path-traversal guard — see `SECURITY.md`).
 
 ## Schema Evolution
