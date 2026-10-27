@@ -204,6 +204,9 @@ pub enum Refusal {
     /// The mark's visible pixels would cover more than
     /// [`WATERMARK_COVERAGE_CAP_PERCENT`] of the image.
     CoverageAboveCap { covered: u64, image: (u32, u32) },
+    /// `scale` makes a mark too large to represent (a side past `u32`), so
+    /// there is no honest size to report.
+    ScaledMarkTooLarge { image: (u32, u32) },
 }
 
 impl fmt::Display for Refusal {
@@ -235,6 +238,12 @@ impl fmt::Display for Refusal {
                     f,
                     "the mark would cover {percent:.2} % of the {bw}×{bh} px image \
                      ({covered} of {area} px); the limit is {WATERMARK_COVERAGE_CAP_PERCENT} %"
+                )
+            }
+            Refusal::ScaledMarkTooLarge { image: (bw, bh) } => {
+                write!(
+                    f,
+                    "the scaled mark does not fit inside the {bw}×{bh} px image"
                 )
             }
         }
@@ -1276,7 +1285,9 @@ pub const WATERMARK_PARAMS: &[ParamSpec] = &[
         kind: ParamKind::Number {
             min: 0.0,
             min_inclusive: false,
-            max: None,
+            // A glyph raster grows with size²; past this no decodable image
+            // could take the mark anyway.
+            max: Some(1024.0),
         },
     },
     ParamSpec {
@@ -1393,24 +1404,35 @@ impl Watermark {
     /// own size, or — with `scale` — `scale × base_width` wide with the
     /// overlay's aspect ratio. The one place this is computed, so the fit
     /// check and the composite cannot disagree.
-    fn mark_size(&self, base_width: u32) -> (u32, u32) {
+    ///
+    /// `None` when a scaled side would not fit a `u32` (or is not a number):
+    /// exactly where a saturating cast would have produced a made-up size.
+    fn mark_size(&self, base_width: u32) -> Option<(u32, u32)> {
         let (ow, oh) = (self.overlay.width(), self.overlay.height());
         match self.scale {
             Some(s) => {
-                let target_w = ((base_width as f32 * s).round() as u32).max(1);
+                let w = (base_width as f32 * s).round();
+                // `u32::MAX as f32` is exactly 2^32; NaN fails this too.
+                if !(w < u32::MAX as f32) {
+                    return None;
+                }
+                let target_w = (w as u32).max(1);
                 let (ow, oh) = (ow.max(1), oh.max(1));
-                let target_h =
-                    (((target_w as f32) * (oh as f32) / (ow as f32)).round() as u32).max(1);
-                (target_w, target_h)
+                let h = ((target_w as f32) * (oh as f32) / (ow as f32)).round();
+                if !(h < u32::MAX as f32) {
+                    return None;
+                }
+                Some((target_w, (h as u32).max(1)))
             }
-            None => (ow, oh),
+            None => Some((ow, oh)),
         }
     }
 
     /// Build an image-mode `Watermark` from an already-decoded overlay.
     ///
-    /// Validation of `opacity`/`scale`/`gravity` happens at the CLI boundary
-    /// (`run_watermark`) before this is called, so the constructor is total.
+    /// `opacity` and `scale` are checked against [`WATERMARK_PARAMS`] at the CLI
+    /// boundary (`run_watermark`) before this is called, so the constructor is
+    /// total.
     #[allow(clippy::too_many_arguments)]
     pub fn new_image(
         overlay: DynamicImage,
@@ -1436,7 +1458,8 @@ impl Watermark {
 
     /// Build a text-mode `Watermark` from an already-rendered overlay.
     ///
-    /// Validation happens at the CLI boundary (`run_watermark`) or in
+    /// Checking against [`WATERMARK_PARAMS`] happens at the CLI boundary
+    /// (`run_watermark`) or in
     /// [`Watermark::from_params`] (the recipe path) before this is called.
     #[allow(clippy::too_many_arguments)]
     pub fn new_text(
@@ -1675,7 +1698,9 @@ impl Operation for Watermark {
     /// strength, not its footprint, so it does not change the count.
     fn refusal(&self, img: &Image) -> Option<Refusal> {
         let (bw, bh) = (img.width(), img.height());
-        let (mw, mh) = self.mark_size(bw);
+        let Some((mw, mh)) = self.mark_size(bw) else {
+            return Some(Refusal::ScaledMarkTooLarge { image: (bw, bh) });
+        };
         let (inset_x, inset_y) = if self.tile {
             (false, false)
         } else {
@@ -1730,7 +1755,16 @@ impl Operation for Watermark {
 
             // ── Scale: overlay width = scale × base width (aspect preserved) ──
             if self.scale.is_some() {
-                let (target_w, target_h) = self.mark_size(canvas.width());
+                // `refusal` ran first, so `None` cannot reach here; it is the
+                // same refusal rather than a panic if it ever does.
+                let Some((target_w, target_h)) = self.mark_size(canvas.width()) else {
+                    return Err(OperationError::Refused {
+                        op: "watermark",
+                        refusal: Refusal::ScaledMarkTooLarge {
+                            image: (canvas.width(), canvas.height()),
+                        },
+                    });
+                };
                 ov = imageops::resize(&ov, target_w, target_h, FilterType::Lanczos3);
             }
 
@@ -1777,7 +1811,16 @@ impl Operation for Watermark {
 
             // ── Scale: overlay width = scale × base width (aspect preserved) ──
             if self.scale.is_some() {
-                let (target_w, target_h) = self.mark_size(canvas.width());
+                // `refusal` ran first, so `None` cannot reach here; it is the
+                // same refusal rather than a panic if it ever does.
+                let Some((target_w, target_h)) = self.mark_size(canvas.width()) else {
+                    return Err(OperationError::Refused {
+                        op: "watermark",
+                        refusal: Refusal::ScaledMarkTooLarge {
+                            image: (canvas.width(), canvas.height()),
+                        },
+                    });
+                };
                 ov = imageops::resize(&ov, target_w, target_h, FilterType::Lanczos3);
             }
 
@@ -3021,6 +3064,59 @@ mod tests {
     }
 
     #[test]
+    fn a_scale_past_u32_refuses_as_scaled_mark_too_large() {
+        let too_large = Refusal::ScaledMarkTooLarge { image: (64, 48) };
+        // (a) width overflows; (b) both overflow, past even u64.
+        for scale in [4_294_967_296.0_f32, 1e30] {
+            let op = watermark(
+                solid_overlay(60, 30, [1, 2, 3, 255]),
+                Gravity::SouthEast,
+                1.0,
+                Some(scale),
+                0,
+                false,
+            );
+            assert_eq!(
+                assert_refused(&op, base(64, 48)),
+                too_large,
+                "scale {scale}"
+            );
+        }
+        // (c) Height only: a 1×100 overlay at 1562500 is 100000000 px wide,
+        // which fits a u32, and 1e10 px tall, which does not. A check on the
+        // width alone would print the saturated height.
+        let op = watermark(
+            solid_overlay(1, 100, [1, 2, 3, 255]),
+            Gravity::SouthEast,
+            1.0,
+            Some(1_562_500.0),
+            0,
+            false,
+        );
+        assert_eq!(assert_refused(&op, base(64, 48)), too_large, "height only");
+    }
+
+    #[test]
+    fn a_large_representable_scale_still_names_its_size() {
+        let op = watermark(
+            solid_overlay(60, 30, [1, 2, 3, 255]),
+            Gravity::SouthEast,
+            1.0,
+            Some(1000.0),
+            0,
+            false,
+        );
+        assert_eq!(
+            assert_refused(&op, base(64, 48)),
+            Refusal::DoesNotFit {
+                mark: (64000, 32000),
+                margin: 0,
+                image: (64, 48)
+            }
+        );
+    }
+
+    #[test]
     fn refusal_display_names_the_numbers() {
         let plain = Refusal::DoesNotFit {
             mark: (1050, 189),
@@ -3039,6 +3135,10 @@ mod tests {
         assert_eq!(
             with_margin.to_string(),
             "the 100×10 px mark plus its 21 px margin does not fit inside the 120×120 px image"
+        );
+        assert_eq!(
+            Refusal::ScaledMarkTooLarge { image: (64, 48) }.to_string(),
+            "the scaled mark does not fit inside the 64×48 px image"
         );
         let covered = Refusal::CoverageAboveCap {
             covered: 1661,

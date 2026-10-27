@@ -105,8 +105,14 @@ pub enum ParamKind {
 }
 
 impl ParamKind {
-    /// The phrase after "must be" in an error.
-    fn expectation(&self) -> String {
+    /// Whether `value` satisfies this kind (the check `check_params` runs per
+    /// key), for a caller that holds one value rather than a params map.
+    pub fn accepts(&self, value: &toml::Value) -> bool {
+        self.check(value).is_ok()
+    }
+
+    /// The phrase after "must be" in an error, e.g. `a number > 0 and <= 1024`.
+    pub fn expectation(&self) -> String {
         match self {
             ParamKind::Text => "a string".to_owned(),
             ParamKind::OneOf(values) => format!("one of: {}", values.join(", ")),
@@ -204,6 +210,11 @@ fn describe_value(value: &toml::Value) -> String {
         Value::Array(_) => "an array".to_owned(),
         Value::Table(_) => "a table".to_owned(),
     }
+}
+
+/// The row for `key` in `specs`, if there is one.
+pub fn param_spec<'a>(specs: &'a [ParamSpec], key: &str) -> Option<&'a ParamSpec> {
+    specs.iter().find(|s| s.key == key)
 }
 
 /// Check every key in `params` against `specs`, in the map's (sorted) order,
@@ -432,6 +443,46 @@ mod tests {
 
     use super::*;
     use crate::operation::OperationParams;
+
+    #[test]
+    fn per_key_check_agrees_with_check_params() {
+        use crate::operation::WATERMARK_PARAMS;
+        let values = [
+            f64::NAN,
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+            0.0,
+            -1.0,
+            1e-50,
+            0.5,
+            1.0,
+            1.5,
+            1024.0,
+            1024.00001,
+            1025.0,
+            4_294_967_296.0,
+            1e39,
+        ];
+        let keys = ["size", "opacity", "scale"];
+        let mut rows = 0;
+        for key in keys {
+            let spec = param_spec(WATERMARK_PARAMS, key).expect("a table row");
+            assert!(matches!(spec.kind, ParamKind::Number { .. }), "{key}");
+            for v in values {
+                rows += 1;
+                let value = toml::Value::Float(v);
+                let params =
+                    OperationParams::from_map(BTreeMap::from([(key.to_owned(), value.clone())]));
+                assert_eq!(
+                    spec.kind.accepts(&value),
+                    check_params("watermark", WATERMARK_PARAMS, &params).is_ok(),
+                    "{key} = {v}"
+                );
+            }
+        }
+        assert_eq!(rows, 42, "three keys × fourteen values");
+        assert!(param_spec(WATERMARK_PARAMS, "nope").is_none());
+    }
 
     #[test]
     fn with_builtins_contains_identity_and_invert() {
