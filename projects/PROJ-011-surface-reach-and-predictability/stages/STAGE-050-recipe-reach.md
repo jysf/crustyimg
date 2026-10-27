@@ -110,7 +110,7 @@ anything a recipe cannot say.
   different predicates, and a size-only rule answers only the first. A watermark that is correctly
   sized and still clipped is just as broken to the user.
 
-- [ ] **SPEC-134** (designed 2026-10-25) — [S] **A literal extension in `--name-template` does not pin the
+- [x] **SPEC-134** (merged 2026-10-26, PR #202) — [S] **A literal extension in `--name-template` does not pin the
   output format — and single-input `apply` now makes that visible.** Surfaced by SPEC-126's
   verify, 2026-08-23, driven on both binaries with a JPEG source and a plain pixel recipe:
 
@@ -417,7 +417,7 @@ anything a recipe cannot say.
   the format on every other encoding verb, so `responsive` is now the one verb where it does
   nothing.
 
-- [ ] **Absorbed into SPEC-134 as AC-22** (maintainer ruling 2026-10-25) — [S] **`meta … -o x.png` writes the input's own container into `x.png`.**
+- [x] **Absorbed into SPEC-134 as AC-22** (maintainer ruling 2026-10-25; shipped in SPEC-134) — [S] **`meta … -o x.png` writes the input's own container into `x.png`.**
   Filed by SPEC-134's design (2026-10-25), driven on `main`: `meta strip in.jpg -o E.png` → JPEG
   bytes in `E.png`, exit 0. SPEC-134 refuses the same mismatch when it comes from
   `--name-template` (exit 4, before writing; maintainer ruling 2026-10-25), but `-o` was outside
@@ -454,7 +454,7 @@ anything a recipe cannot say.
   every per-input line and use it in `run_pixel_op` too; check the error lines as well as the
   skip lines.
 
-**Count:** **5 shipped / 1 closed** / 0 in flight / 5 pending — re-derive with a grep you just ran.
+**Count:** **6 shipped / 1 closed** / 0 in flight / 4 pending — re-derive with a grep you just ran.
 
 ## Design Notes
 

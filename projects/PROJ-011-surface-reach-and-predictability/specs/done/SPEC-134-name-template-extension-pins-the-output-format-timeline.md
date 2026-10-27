@@ -45,5 +45,6 @@ Cycle prompts live in `prompts/SPEC-134-<cycle>.md`.
       every case (driven on `meta strip`); full suite 1039/0; CI green. Branch then updated with
       `main` (#205, `Cargo.toml` only) to `7bfcbe9`; PR #202 squash-merged as `7034d94`,
       2026-10-26 PDT.
-- [~] **ship** — prompt: `prompts/SPEC-134-ship.md`. Sonnet. Records 3 unrecorded verify
-      sessions' costs from their transcripts.
+- [x] **ship** — prompt: `prompts/SPEC-134-ship.md`. Sonnet, 2026-10-27. Reflected; recorded the 3
+      unrecorded verify sessions plus ship in `cost.sessions`. PR #202 merged 2026-10-26 PDT
+      (`7034d94`). Total cost $34.43 across 9 sessions.

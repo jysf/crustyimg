@@ -7,7 +7,7 @@
 task:
   id: SPEC-134
   type: story                      # epic | story | task | bug | chore
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: medium
   complexity: M                    # S | M | L  (L means split it)
@@ -155,10 +155,66 @@ cost:
         transcript (239a9161-….jsonl, identified by content), deduped by `.message.id` (20 unique
         ids), MAX output_tokens per id; Sonnet $3/$15 per MTok, cache_creation x1.25, cache_read
         x0.10. Measured before the commit/push turns.
+    - cycle: verify
+      agent: claude-opus-5-5
+      interface: claude-code
+      tokens_total: 7716583
+      tokens_breakdown:
+        input: 106
+        output: 40961
+        cache_creation: 156417
+        cache_read: 7519099
+      estimated_usd: 5.76
+      duration_minutes: null
+      recorded_at: 2026-10-27
+      note: >
+        Verify of PR #202 at 635adfb (punch list). Measured from this session's transcript (22adad68-….jsonl, identified by content), deduped by `.message.id` (52 unique ids), input/cache_creation/cache_read once per id, MAX output_tokens per id; Opus $5/$25 per MTok, cache_creation x1.25, cache_read x0.10. Recorded at ship; the session's own report was $5.14.
+    - cycle: verify
+      agent: claude-opus-5-5
+      interface: claude-code
+      tokens_total: 2385540
+      tokens_breakdown:
+        input: 54
+        output: 18555
+        cache_creation: 80887
+        cache_read: 2286044
+      estimated_usd: 2.11
+      duration_minutes: null
+      recorded_at: 2026-10-27
+      note: >
+        Re-verify at a3547cc (punch list). Measured from this session's transcript (a9419ffd-….jsonl, identified by content), deduped by `.message.id` (27 unique ids), input/cache_creation/cache_read once per id, MAX output_tokens per id; Opus $5/$25 per MTok, cache_creation x1.25, cache_read x0.10. Recorded at ship; the session's own report was $1.99.
+    - cycle: verify
+      agent: claude-opus-5-5
+      interface: claude-code
+      tokens_total: 1167159
+      tokens_breakdown:
+        input: 30
+        output: 7773
+        cache_creation: 57148
+        cache_read: 1102208
+      estimated_usd: 1.1
+      duration_minutes: null
+      recorded_at: 2026-10-27
+      note: >
+        Re-verify 2 at ca8a961 (approved). Measured from this session's transcript (d3cf82b6-….jsonl, identified by content), deduped by `.message.id` (15 unique ids), input/cache_creation/cache_read once per id, MAX output_tokens per id; Opus $5/$25 per MTok, cache_creation x1.25, cache_read x0.10. Recorded at ship; the session's own report was $1.02.
+    - cycle: ship
+      agent: claude-sonnet-5-5
+      interface: claude-code
+      tokens_total: 427769
+      tokens_breakdown:
+        input: 12
+        output: 2419
+        cache_creation: 49664
+        cache_read: 375674
+      estimated_usd: 0.34
+      duration_minutes: null
+      recorded_at: 2026-10-27
+      note: >
+        Ship bookkeeping session (docs/spec-134-ship). Measured from this session's transcript (fdcfdaf0-….jsonl, identified by content), deduped by `.message.id` (6 unique ids), input/cache_creation/cache_read once per id, MAX output_tokens per id; Sonnet $3/$15 per MTok, cache_creation x1.25, cache_read x0.10. Measured before the commit/push turns, so it slightly under-counts.
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 48715449
+    estimated_usd: 34.43
+    session_count: 9
 ---
 
 # SPEC-134: a `--name-template` extension pins the output format
@@ -1002,10 +1058,27 @@ Process-focused: how did the build go? What friction did the spec create?
 from the process-focused build reflection above.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Verify found the code sound but returned three doc fixes, and the maintainer ruled in a
+   fourth: a real bug that also existed on 0.7.x, where at N inputs the pin check read `-o`
+   while the write used the template, so JPEG/AVIF bytes landed in `in.png`. Fix 1 added
+   `resolved_input_count`, but every N-input row used literal paths, so replacing it with
+   `inputs.len()` stayed green; re-verify caught that and fix 2 added 3 glob rows (two extra
+   fix/re-verify rounds, about $2.7 of the $34.43 total). The rule being extended lived only in
+   `docs/api-contract.md`, not in DEC-087, and frame misattributed it; grep for the sentence
+   itself before naming the DEC that holds it. Next time: when a fix adds a function that turns
+   arguments into a derived value, write the test with an input where the derived value and the
+   raw one differ, before declaring the fix done.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — No DEC, constraint or code change is needed (DEC-105 already extends DEC-087 and was updated
+   at build). One proposal for the orchestrator: add a line to the fix-prompt template that a fix
+   introducing a derived-value helper (a count, a resolved list) must come with a test whose
+   input makes the helper's result differ from the naive value it replaced, plus a mutation
+   check that swaps one for the other. This is the SPEC-131 "removed check must be re-proven at
+   the type it guards" lesson, applied to added helpers.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — No new follow-up. Already in STAGE-050's backlog from this spec: "Encoding verbs resolve
+   their inputs twice" and "`responsive` accepts `--name-template` and silently ignores it".
+   The backlog item "`meta … -o x.png` writes the input's own container" was done by this spec
+   as AC-22 and is marked `[x]`.
