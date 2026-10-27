@@ -174,7 +174,22 @@ STAGE-050 needs answered anyway.** ⚠ **Do not treat this as blocking STAGE-049
   project. **Audit which ones are reporting/gating (should span projects) versus authoring (should
   not).** That distinction has never been drawn.
 
-**Count:** 0 shipped / 0 active / **2 pending** — re-derive with a grep you just ran.
+- [ ] (not yet written) — [S] **SPEC-133's three test gaps that re-verify left optional.** Filed
+  by SPEC-133's re-verify (2026-10-26, PR #206 at `f1a46d3`); the behaviour is correct, these are
+  tests that would not catch a regression:
+  (1) counting a **16-bit** overlay's visible pixels after `opacity` survives:
+  `opacity_does_not_change_coverage` uses 0.001, and 65535 × 0.001 ≈ 66 ≠ 0 — use an opacity
+  below ~7.6e-6 (e.g. 1e-6) so both bit depths are caught;
+  (2) "K counts images, not steps" is untested on the `apply … optimize` auto-decide batch path —
+  making `run_optimize_autodecide`'s `skipped_images` per-step (`src/cli/optimize.rs` ~1742)
+  passes every `watermark_damage` test; add a two-step row there;
+  (3) a dead assertion in `tests/recipe_strict_params.rs`: `!reason.contains("is not used by")`
+  can never match a watermark message (its mode message reads "only applies to an image
+  watermark"); assert against that text instead, or drop it. Each fix: apply the mutation in a
+  fresh target dir, show RED, restore, GREEN.
+  Moved here from STAGE-050 at its Stage Ship (2026-10-27): guards, not behaviour.
+
+**Count:** 0 shipped / 0 active / **6 pending** — re-derived 2026-10-27 with `grep -c '^- \[ \]'` (6) and `grep -c '^- \[x\]'` (0); it read 2 before this, already stale.
 
 ## Dependencies
 

@@ -314,7 +314,7 @@ anything a recipe cannot say.
   see the contact sheet generated 2026-09-03 (artifact, linked from the session; regenerate with
   the commands in this entry rather than trusting the link to persist).
 
-- [ ] (not yet written) — [S] **A cached `build` replays no per-input warnings.** Filed by
+- [x] **Moved to STAGE-054** (2026-10-27) — [S] **A cached `build` replays no per-input warnings.** Filed by
   SPEC-133's design (2026-10-25, Call 4). A cache hit writes the stored bytes and returns before the
   pipeline (`src/cli/build.rs:531-540`), so three warnings print on the build that produced an
   output and never on a cached re-run: SPEC-133's "watermark skipped, image written without it",
@@ -328,7 +328,7 @@ anything a recipe cannot say.
   the limitation documented (`docs/api-contract.md`, `build`) with a test pinning it, which this
   item flips on purpose.
 
-- [ ] (not yet written) — [S] **`watermark --min-size`: the opt-in value rule, settable in a
+- [x] **Moved to STAGE-054** (2026-10-27) — [S] **`watermark --min-size`: the opt-in value rule, settable in a
   recipe.** Split out of SPEC-133 by its frame (2026-10-24); the orchestrator confirms the split.
   It is the second half of the 2026-08-23 ruling above ("Value rule — opt-in `--min-size`,
   settable in a recipe … only the user knows what is worth protecting"), which is settled; it is
@@ -391,20 +391,20 @@ anything a recipe cannot say.
   schema change. Bundling the two turns an M into an L, and AGENTS §2 says split an L.
   (Originally arrived via external review batch 3 — one of the two items that survived checking.)
 
-- [ ] (not yet written) — [S] **wasm `validate(recipe_toml)` export returning structured,
+- [x] **Moved to STAGE-054** (2026-10-27) — [S] **wasm `validate(recipe_toml)` export returning structured,
   per-step recipe errors.** Filed by SPEC-131's design (2026-10-24). Roadmap row #6's (recipe
   playground) prerequisite: no wasm export checks a recipe without an image today, and
   `transform` decodes its input before it builds the pipeline. Consumes SPEC-131's
   `OperationRegistry::param_specs` and its `recipe step N ('op'): …` errors; the natural home for
   "did you mean …?" key suggestions, which SPEC-131 declined.
 
-- [ ] (not yet written) — [S] **No upper bound on a text watermark's `size`.** Filed by SPEC-131's
+- [x] **Moved to STAGE-054** (2026-10-27) — [S] **No upper bound on a text watermark's `size`.** Filed by SPEC-131's
   design (2026-10-24): `size = 100000.0` in a recipe is accepted and took 52 s of wall time over 3
   small inputs at exit 0 (the text raster is enormous); `watermark --size` shares it. A
   resource-limit question in DEC-036's family, not a malformed-recipe one, so SPEC-131 refuses
   only `size <= 0` and non-finite values. Open: the cap, and whether it lives in the schema.
 
-- [ ] (not yet written) — [S] ⚡ **The `watermark` CLI verb silently drops the mark for
+- [x] **Moved to STAGE-054** (2026-10-27) — [S] ⚡ **The `watermark` CLI verb silently drops the mark for
   `--size nan` / `--size inf`, and accepts `--scale nan`.** Filed by SPEC-131's verify
   (2026-10-26), driven on release builds before and after SPEC-131 (identical): `watermark
   --size nan` exits 0 and writes output byte-equal to `--opacity 0`. The CLI twin of what SPEC-131
@@ -415,7 +415,7 @@ anything a recipe cannot say.
   `--scale nan` still exit 0 (the mark renders tiny and fits); only `--scale inf` is now refused,
   and its message reads `the 4294967295×4294967295 px mark` — fix that wording here too.
 
-- [ ] (not yet written) — [S] **`responsive` accepts `--name-template` and silently ignores it.**
+- [x] **Moved to STAGE-054** (2026-10-27) — [S] **`responsive` accepts `--name-template` and silently ignores it.**
   Filed by SPEC-134's design (2026-10-25), driven on `main`: `responsive in.jpg --widths 32
   --out-dir rp --name-template '{stem}.png'` writes `rp/in-32w.jpg`, exit 0 — the flag is a global
   arg (`src/cli/mod.rs:80-82`) that `responsive` never reads. Open: refuse it (exit 2, the flag
@@ -430,7 +430,7 @@ anything a recipe cannot say.
   that ruling. Recommend the same refusal for `-o`, reusing SPEC-134's `meta` pre-flight; needs a
   maintainer yes.
 
-- [ ] (not yet written) — [S] **Encoding verbs resolve their inputs twice.** Filed by SPEC-134's
+- [x] **Moved to STAGE-054** (2026-10-27) — [S] **Encoding verbs resolve their inputs twice.** Filed by SPEC-134's
   re-verify (2026-10-26). To decide the format pin before branching, `web`, `optimize` and
   `apply --recipe` call `resolved_input_count` (`src/cli/common.rs`), which runs `source::resolve`
   on every argument; the chosen branch (`run_pixel_op` or `run_optimize_autodecide`) then resolves
@@ -439,7 +439,7 @@ anything a recipe cannot say.
   Refactor: resolve once and pass `&[Input]` into both branches. Code quality, not a bug; a
   candidate for the maintainer's queued Rust cleanup.
 
-- [ ] (not yet written) — [S] **SPEC-133's three test gaps that re-verify left optional.** Filed
+- [x] **Moved to STAGE-053** (2026-10-27) — [S] **SPEC-133's three test gaps that re-verify left optional.** Filed
   by SPEC-133's re-verify (2026-10-26, PR #206 at `f1a46d3`); the behaviour is correct, these are
   tests that would not catch a regression:
   (1) counting a **16-bit** overlay's visible pixels after `opacity` survives:
@@ -453,14 +453,14 @@ anything a recipe cannot say.
   watermark"); assert against that text instead, or drop it. Each fix: apply the mutation in a
   fresh target dir, show RED, restore, GREEN.
 
-- [ ] (not yet written) — [S] **`watermark` prints absolute paths in batch lines; `apply` prints
+- [x] **Moved to STAGE-054** (2026-10-27) — [S] **`watermark` prints absolute paths in batch lines; `apply` prints
   relative ones.** Filed by SPEC-133's re-verify (2026-10-26): `watermark two/` labels its skip
   warnings with absolute paths, `apply --recipe … two/` with the path as given. Pre-existing
   (identical at `3dd23ff`; `src/cli/ops.rs` unchanged by SPEC-133). Pick one labelling rule for
   every per-input line and use it in `run_pixel_op` too; check the error lines as well as the
   skip lines.
 
-**Count:** **7 shipped / 2 closed** / 0 in flight / 9 pending — re-derived 2026-10-27 with `grep '^- \[x\] \*\*SPEC-'` (8 lines, minus SPEC-133's history line at the top), `grep '^- \[x\] \*\*\(CLOSED\|Absorbed\)'` (2) and `grep -c '^- \[ \]'` (9).
+**Count:** **7 shipped / 2 closed** / 0 in flight / 0 pending — the 9 open items were moved at Stage Ship (2026-10-27): 8 to STAGE-054 (Recipe reach follow-through), SPEC-133's three test gaps to STAGE-053. Each keeps its text here as history, marked `Moved to`.
 
 ## Design Notes
 

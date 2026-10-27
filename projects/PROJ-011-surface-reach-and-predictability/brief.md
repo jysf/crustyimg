@@ -219,6 +219,11 @@ single user-visible outcome instead. **Six measured defects were deliberately le
   📌 Why the gap stayed invisible: **only `edit` has `--save-recipe`**, so the one path that emits
   a recipe covers only ops a recipe can already express.
 
+- [ ] **STAGE-054 — recipe reach follow-through.** Created 2026-10-27 at STAGE-050's Stage Ship
+  to hold the 8 items that stage turned up. ⚡ Its first item (refuse a non-finite `watermark`
+  size or scale on the CLI, cap a text mark's size) ships **before 0.8.0** (maintainer ruling
+  2026-10-27); the rest does not hold the tag.
+
 - [ ] **STAGE-041 — launch content and publication.** ⚠ **CARRIED, NOT THESIS WORK.** Moved from
   PROJ-010 on 2026-08-23 so it can be continued in the active project. It does **not** advance this
   project's thesis and must not be counted toward it at reflection. ⚠ Its repo status understates
