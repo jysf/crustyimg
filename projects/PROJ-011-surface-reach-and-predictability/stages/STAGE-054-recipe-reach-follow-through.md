@@ -64,7 +64,7 @@ ships **before 0.8.0**. The rest has no release deadline and must not hold the t
 
 Ordered. ⚡ Only the first item gates 0.8.0.
 
-- [ ] (not yet written) — [S] ⚡ **Before 0.8.0: a `watermark` size or scale that is not a
+- [ ] **SPEC-135** (framed 2026-10-27) — [S] ⚡ **Before 0.8.0: a `watermark` size or scale that is not a
   sensible number is refused, never silently drawn as nothing.** One spec for two filings that
   share the same validation code on the same verb (maintainer ruling 2026-10-27, after STAGE-050's
   Stage Ship judged criterion 4 only *partly* met because of the first one). Scope: refuse
@@ -143,7 +143,31 @@ Ordered. ⚡ Only the first item gates 0.8.0.
   Refactor: resolve once and pass `&[Input]` into both branches. Code quality, not a bug; a
   candidate for the maintainer's queued Rust cleanup.
 
-**Count:** 0 shipped / 0 active / 7 pending
+- [ ] (not yet written) — [S] **A watermark with no visible pixels is drawn as nothing at exit 0.**
+  Filed by SPEC-135's frame (2026-10-27), driven on a release build of `main` @ `4d6808b`: on
+  **both** paths, `--text " "` / `text = " "` and `--size 0.01` / `size = 0.01` exit 0 with 0
+  pixels changed, and `--opacity 0` / `opacity = 0.0` the same. Cause for the first two:
+  `render_text` returns a 1×1 transparent canvas when no glyph is drawable
+  (`src/text/mod.rs:194-197`), and nothing refuses a mark whose visible-pixel count (already
+  computed at construction, `visible_pixels`) is 0. The same fallback is in the `v0.7.1` tag (not driven on the released binary). Fix shape:
+  refuse a mark with 0 visible pixels at construction (invocation-level: exit 2 CLI, exit 1
+  recipe); `opacity = 0` needs a ruling (refuse, or keep as an explicit no-op). Out of SPEC-135
+  because both paths agree; it is what STAGE-054's first success criterion literally promises
+  ("no CLI or recipe path draws an invisible mark at exit 0").
+
+- [ ] (not yet written) — [S] **A text watermark's raster has no memory bound beyond `size`.**
+  Filed by SPEC-135's frame (2026-10-27). Peak RSS grows with text length × size²: for an 11-char
+  mark, 106 MiB at size 1024, 1,031 MiB at 4096, 5,887 MiB at 10 000, paid before any input is
+  read. SPEC-135 caps `size` (one glyph); `--text` has no length limit on the CLI, and a recipe's
+  text is bounded only by DEC-036's 64 KiB. Fix shape: bound the canvas area (or the string
+  length) before allocating, in DEC-034/DEC-063's resource-limit family.
+
+- [ ] (not yet written) — [S] **A missing `--font` reports "could not read image input".**
+  Filed by SPEC-135's frame (2026-10-27): `watermark in.png --text hi --font /no/font.ttf` exits 3
+  with `error: could not read image input`; the file is a font. The font read maps to
+  `ImageError::Io` (`src/cli/ops.rs:1369`). Pre-existing. Name the font in the message.
+
+**Count:** 0 shipped / 1 active / 9 pending
 
 ## Design Notes
 
