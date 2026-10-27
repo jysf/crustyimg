@@ -185,3 +185,551 @@ fn bless_watermark_goldens() {
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
     std::fs::write(&path, current_hashes()).unwrap();
 }
+
+// ─── The recipe: text mode refuses `scale` and `tile = true` ─────────────────
+
+use crustyimg::operation::OperationRegistry;
+use crustyimg::recipe::{Recipe, RecipeError};
+
+/// Parse and build a recipe the way `apply` does (an `image` key gets
+/// stand-in overlay bytes, as the CLI's resolver attaches).
+fn load(toml: &str) -> Result<crustyimg::pipeline::Pipeline, RecipeError> {
+    let mut recipe = Recipe::from_toml(toml)?;
+    for step in &mut recipe.steps {
+        if step.params.get_str("image").is_some() {
+            step.params
+                .set_resolved_bytes("image", png_bytes(&gradient(4, 4)));
+        }
+    }
+    recipe.build_pipeline(&OperationRegistry::with_builtins())
+}
+
+fn watermark_step(body: &str) -> String {
+    format!("version = \"1\"\n\n[[step]]\nop = \"watermark\"\n{body}\n")
+}
+
+#[test]
+fn text_step_refuses_scale_and_tile_true() {
+    let rows = [
+        (
+            "text = \"x\"\ntile = true",
+            "'tile = true' only applies to an image watermark (this step sets 'text')",
+        ),
+        (
+            "text = \"x\"\nscale = 0.9",
+            "'scale' only applies to an image watermark (this step sets 'text')",
+        ),
+    ];
+    for (body, expected) in rows {
+        match load(&watermark_step(body)) {
+            Err(RecipeError::InvalidOperation { name, reason, .. }) => {
+                assert_eq!(name, "watermark");
+                assert_eq!(reason, expected, "for `{body}`");
+            }
+            Err(other) => panic!("`{body}`: expected InvalidOperation, got {other:?}"),
+            Ok(_) => panic!("`{body}`: a text step must refuse it"),
+        }
+    }
+}
+
+#[test]
+fn text_step_accepts_tile_false_and_image_steps_keep_scale_and_tile() {
+    load(&watermark_step("text = \"x\"\ntile = false")).expect("tile = false is the default");
+    load(&watermark_step(
+        "image = \"logo.png\"\nscale = 0.5\ntile = true",
+    ))
+    .expect("an image step takes scale and tile");
+    // A text mark as the CLI builds it survives a recipe round trip.
+    let (op, _) = text_op("hi", 32.0);
+    let ops: Vec<Box<dyn Operation>> = vec![Box::new(op)];
+    let recipe = Recipe::from_ops(&ops);
+    let toml = recipe.to_toml().unwrap();
+    load(&toml).unwrap_or_else(|e| panic!("crustyimg's own text recipe must load: {e}\n{toml}"));
+}
+
+fn text_op(text: &str, size: f32) -> (Watermark, (u32, u32)) {
+    let color = [255, 255, 255, 255];
+    let rendered =
+        crustyimg::text::render_text(crustyimg::text::DEFAULT_FONT, text, size, color).unwrap();
+    let dims = rendered.dimensions();
+    let op = Watermark::new_text(
+        DynamicImage::ImageRgba8(rendered),
+        text.to_owned(),
+        None,
+        size,
+        color,
+        Gravity::SouthEast,
+        1.0,
+        None,
+        0,
+        false,
+    );
+    (op, dims)
+}
+
+// ─── The CLI ─────────────────────────────────────────────────────────────────
+
+use std::process::{Command, Output};
+use tempfile::TempDir;
+
+const BIN: &str = env!("CARGO_BIN_EXE_crustyimg");
+
+fn png_bytes(img: &RgbaImage) -> Vec<u8> {
+    let mut out = std::io::Cursor::new(Vec::new());
+    DynamicImage::ImageRgba8(img.clone())
+        .write_to(&mut out, ImageFormat::Png)
+        .unwrap();
+    out.into_inner()
+}
+
+/// Write an opaque gradient PNG `w×h` at `dir/name`.
+fn write_base(dir: &Path, name: &str, w: u32, h: u32) -> PathBuf {
+    let path = dir.join(name);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).unwrap();
+    }
+    std::fs::write(&path, png_bytes(&gradient(w, h))).unwrap();
+    path
+}
+
+fn write_text(dir: &Path, name: &str, text: &str) -> PathBuf {
+    let path = dir.join(name);
+    std::fs::write(&path, text).unwrap();
+    path
+}
+
+fn run(dir: &Path, args: &[&str]) -> Output {
+    Command::new(BIN)
+        .args(args)
+        .current_dir(dir)
+        .output()
+        .expect("binary should run")
+}
+
+fn stderr(out: &Output) -> String {
+    String::from_utf8_lossy(&out.stderr).into_owned()
+}
+
+fn decoded(path: &Path) -> RgbaImage {
+    image::open(path)
+        .unwrap_or_else(|e| panic!("{} should decode: {e}", path.display()))
+        .to_rgba8()
+}
+
+/// The lines of `stderr` that are skip warnings.
+fn skip_lines(err: &str) -> Vec<&str> {
+    err.lines()
+        .filter(|l| l.contains("watermark skipped, image written without it"))
+        .collect()
+}
+
+/// Exactly one skip warning, and it names `name`.
+fn assert_one_skip_line(err: &str, name: &str) {
+    let lines = skip_lines(err);
+    assert_eq!(lines.len(), 1, "one skip line expected, stderr:\n{err}");
+    assert!(
+        lines[0].starts_with("warning: ") && lines[0].contains(name),
+        "the skip line must be a warning naming {name}: {}",
+        lines[0]
+    );
+    assert!(
+        lines[0].contains("does not fit inside"),
+        "the skip line names the reason: {}",
+        lines[0]
+    );
+}
+
+const ROW_A_STEP: &str = "[[step]]\nop = \"watermark\"\ntext = \"© crustyimg\"\nsize = 200.0\n";
+const RESIZE_HALF: &str = "[[step]]\nop = \"resize\"\nmode = \"percent\"\npercent = 50\n";
+const DEFAULT_TEXT_STEP: &str = "[[step]]\nop = \"watermark\"\ntext = \"© crustyimg\"\n";
+const OPTIMIZE_STEP: &str = "[[step]]\nop = \"optimize\"\n";
+
+fn recipe(steps: &[&str]) -> String {
+    format!("version = \"1\"\n\n{}", steps.join("\n"))
+}
+
+/// An `error:` refusal on one input: exit 2, one `error:` line naming the
+/// reason, and nothing written.
+fn assert_refused_exit_2(out: &Output) {
+    let err = stderr(out);
+    assert_eq!(out.status.code(), Some(2), "stderr:\n{err}");
+    let errors: Vec<&str> = err.lines().filter(|l| l.starts_with("error:")).collect();
+    assert_eq!(errors.len(), 1, "one error line, stderr:\n{err}");
+    assert!(errors[0].contains("watermark refused"), "{}", errors[0]);
+    assert!(errors[0].contains("does not fit"), "{}", errors[0]);
+    assert!(errors[0].contains("24×24 px"), "{}", errors[0]);
+}
+
+// ── Single explicit input → exit 2 ──
+
+#[test]
+fn watermark_one_input_refused_exits_2() {
+    let dir = TempDir::new().unwrap();
+    write_base(dir.path(), "b24.png", 24, 24);
+    let out = run(
+        dir.path(),
+        &[
+            "watermark",
+            "b24.png",
+            "--text",
+            "© crustyimg",
+            "--size",
+            "200",
+            "-o",
+            "out.png",
+        ],
+    );
+    assert_refused_exit_2(&out);
+    assert!(!dir.path().join("out.png").exists(), "nothing written");
+}
+
+#[test]
+fn watermark_one_input_over_the_cap_exits_2() {
+    let dir = TempDir::new().unwrap();
+    write_base(dir.path(), "b172.png", 172, 172);
+    let out = run(
+        dir.path(),
+        &[
+            "watermark",
+            "b172.png",
+            "--text",
+            "© crustyimg",
+            "-o",
+            "out.png",
+        ],
+    );
+    let err = stderr(&out);
+    assert_eq!(out.status.code(), Some(2), "stderr:\n{err}");
+    assert!(err.contains("watermark refused"), "{err}");
+    assert!(err.contains("5.61 %"), "{err}");
+    assert!(err.contains("(1661 of 29584 px)"), "{err}");
+    assert!(err.contains("the limit is 5 %"), "{err}");
+    assert!(!dir.path().join("out.png").exists(), "nothing written");
+}
+
+#[test]
+fn apply_one_input_refused_exits_2() {
+    let dir = TempDir::new().unwrap();
+    write_base(dir.path(), "b24.png", 24, 24);
+    write_text(dir.path(), "r.toml", &recipe(&[ROW_A_STEP]));
+    let out = run(
+        dir.path(),
+        &["apply", "--recipe", "r.toml", "b24.png", "-o", "out.png"],
+    );
+    assert_refused_exit_2(&out);
+    assert!(!dir.path().join("out.png").exists(), "nothing written");
+}
+
+#[test]
+fn apply_optimize_pinned_one_input_refused_exits_2() {
+    let dir = TempDir::new().unwrap();
+    write_base(dir.path(), "b24.png", 24, 24);
+    write_text(dir.path(), "r.toml", &recipe(&[ROW_A_STEP, OPTIMIZE_STEP]));
+    let out = run(
+        dir.path(),
+        &["apply", "--recipe", "r.toml", "b24.png", "-o", "out.png"],
+    );
+    assert_refused_exit_2(&out);
+    assert!(!dir.path().join("out.png").exists(), "nothing written");
+}
+
+#[test]
+fn apply_optimize_autodecide_one_input_refused_exits_2() {
+    let dir = TempDir::new().unwrap();
+    write_base(dir.path(), "b24.png", 24, 24);
+    write_text(dir.path(), "r.toml", &recipe(&[ROW_A_STEP, OPTIMIZE_STEP]));
+    std::fs::create_dir(dir.path().join("d")).unwrap();
+    let out = run(
+        dir.path(),
+        &["apply", "--recipe", "r.toml", "b24.png", "--out-dir", "d"],
+    );
+    assert_refused_exit_2(&out);
+    assert_eq!(
+        std::fs::read_dir(dir.path().join("d")).unwrap().count(),
+        0,
+        "nothing written to d"
+    );
+}
+
+// ── Batch → skip, written without the mark ──
+
+#[test]
+fn watermark_batch_skips_and_reports() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    let b24 = write_base(root, "in/b24.png", 24, 24);
+    write_base(root, "in/b256.png", 256, 256);
+
+    let out = run(
+        root,
+        &[
+            "watermark",
+            "in/b24.png",
+            "in/b256.png",
+            "--text",
+            "© crustyimg",
+            "--out-dir",
+            "out",
+        ],
+    );
+    let err = stderr(&out);
+    assert_eq!(out.status.code(), Some(0), "stderr:\n{err}");
+    assert_eq!(
+        decoded(&root.join("out/b24.png")),
+        decoded(&b24),
+        "b24 written unmarked"
+    );
+    // The image that fits is marked exactly as a single-input run marks it.
+    let single = run(
+        root,
+        &[
+            "watermark",
+            "in/b256.png",
+            "--text",
+            "© crustyimg",
+            "-o",
+            "single.png",
+        ],
+    );
+    assert!(single.status.success(), "{}", stderr(&single));
+    assert_eq!(
+        std::fs::read(root.join("out/b256.png")).unwrap(),
+        std::fs::read(root.join("single.png")).unwrap()
+    );
+    assert_one_skip_line(&err, "b24.png");
+    assert!(err.contains("watermark skipped on 1 of 2 images"), "{err}");
+
+    // `--quiet` keeps the warning and drops the closing count.
+    let quiet = run(
+        root,
+        &[
+            "watermark",
+            "in/b24.png",
+            "in/b256.png",
+            "--text",
+            "© crustyimg",
+            "--out-dir",
+            "q",
+            "--quiet",
+        ],
+    );
+    let err = stderr(&quiet);
+    assert_eq!(quiet.status.code(), Some(0), "stderr:\n{err}");
+    assert_one_skip_line(&err, "b24.png");
+    assert!(!err.contains("watermark skipped on"), "{err}");
+}
+
+/// AC-18's fixture: a 48 px and a 512 px input, halved, then marked.
+fn small_and_large(root: &Path) {
+    write_base(root, "in/small.png", 48, 48);
+    write_base(root, "in/large.png", 512, 512);
+}
+
+#[test]
+fn apply_batch_skip_keeps_the_other_steps() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    small_and_large(root);
+    write_text(
+        root,
+        "marked.toml",
+        &recipe(&[RESIZE_HALF, DEFAULT_TEXT_STEP]),
+    );
+    write_text(root, "plain.toml", &recipe(&[RESIZE_HALF]));
+
+    let out = run(
+        root,
+        &[
+            "apply",
+            "--recipe",
+            "marked.toml",
+            "in/small.png",
+            "in/large.png",
+            "--out-dir",
+            "m",
+        ],
+    );
+    let err = stderr(&out);
+    assert_eq!(out.status.code(), Some(0), "stderr:\n{err}");
+    let plain = run(
+        root,
+        &[
+            "apply",
+            "--recipe",
+            "plain.toml",
+            "in/small.png",
+            "in/large.png",
+            "--out-dir",
+            "p",
+        ],
+    );
+    assert!(plain.status.success(), "{}", stderr(&plain));
+    assert_eq!(
+        std::fs::read(root.join("m/small.png")).unwrap(),
+        std::fs::read(root.join("p/small.png")).unwrap(),
+        "the resize still applied; only the mark was skipped"
+    );
+    assert_ne!(
+        std::fs::read(root.join("m/large.png")).unwrap(),
+        std::fs::read(root.join("p/large.png")).unwrap(),
+        "the large input is marked"
+    );
+    assert_one_skip_line(&err, "small.png");
+    assert!(err.contains("watermark skipped on 1 of 2 images"), "{err}");
+}
+
+fn apply_optimize_batch(extra: &[&str]) {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    small_and_large(root);
+    write_text(
+        root,
+        "r.toml",
+        &recipe(&[RESIZE_HALF, DEFAULT_TEXT_STEP, OPTIMIZE_STEP]),
+    );
+    let mut args = vec![
+        "apply",
+        "--recipe",
+        "r.toml",
+        "in/small.png",
+        "in/large.png",
+        "--out-dir",
+        "d",
+    ];
+    args.extend_from_slice(extra);
+    let out = run(root, &args);
+    let err = stderr(&out);
+    assert_eq!(out.status.code(), Some(0), "stderr:\n{err}");
+    assert_eq!(
+        std::fs::read_dir(root.join("d")).unwrap().count(),
+        2,
+        "two outputs"
+    );
+    assert_one_skip_line(&err, "small.png");
+    assert!(err.contains("watermark skipped on 1 of 2 images"), "{err}");
+}
+
+#[test]
+fn apply_optimize_pinned_batch_skips() {
+    apply_optimize_batch(&["--format", "png"]);
+}
+
+#[test]
+fn apply_optimize_autodecide_batch_skips() {
+    apply_optimize_batch(&[]);
+}
+
+// ── build ──
+
+const MANIFEST: &str =
+    "version = 1\n\n[[target]]\nsource = \"in/*.png\"\nrecipe = \"r.toml\"\nout = \"dist\"\n";
+
+fn build_project(steps: &[&str]) -> TempDir {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    small_and_large(root);
+    write_text(root, "r.toml", &recipe(steps));
+    write_text(root, "crustyimg.build.toml", MANIFEST);
+    dir
+}
+
+fn lock_records(root: &Path) -> usize {
+    std::fs::read_to_string(root.join("crustyimg.build.lock"))
+        .unwrap()
+        .matches("[[output]]")
+        .count()
+}
+
+const SKIP_SUFFIX: &str = ", watermark skipped on 1";
+
+#[test]
+fn build_skip_writes_unmarked_output_and_the_lockfile() {
+    let dir = build_project(&[RESIZE_HALF, DEFAULT_TEXT_STEP]);
+    let root = dir.path();
+    let out = run(root, &["build", "--no-cache"]);
+    let err = stderr(&out);
+    assert_eq!(out.status.code(), Some(0), "stderr:\n{err}");
+    assert_one_skip_line(&err, "small.png");
+    assert!(
+        err.contains("built 1 target, 2 outputs (0 cached, 2 rebuilt), watermark skipped on 1\n"),
+        "{err}"
+    );
+    assert_eq!(lock_records(root), 2);
+
+    // The skipped output is the watermark-free recipe's output.
+    let marked = std::fs::read(root.join("dist/small.png")).unwrap();
+    let plain = TempDir::new().unwrap();
+    small_and_large(plain.path());
+    write_text(plain.path(), "r.toml", &recipe(&[RESIZE_HALF]));
+    write_text(plain.path(), "crustyimg.build.toml", MANIFEST);
+    let p = run(plain.path(), &["build", "--no-cache"]);
+    assert!(p.status.success(), "{}", stderr(&p));
+    assert_eq!(
+        marked,
+        std::fs::read(plain.path().join("dist/small.png")).unwrap()
+    );
+
+    let check = run(root, &["build", "--check", "--no-cache"]);
+    assert_eq!(check.status.code(), Some(0), "stderr:\n{}", stderr(&check));
+}
+
+#[test]
+fn build_decide_plan_skips() {
+    let dir = build_project(&[RESIZE_HALF, DEFAULT_TEXT_STEP, OPTIMIZE_STEP]);
+    let root = dir.path();
+    let out = run(root, &["build", "--no-cache"]);
+    let err = stderr(&out);
+    assert_eq!(out.status.code(), Some(0), "stderr:\n{err}");
+    assert_one_skip_line(&err, "small.png");
+    assert!(
+        err.contains("(0 cached, 2 rebuilt), watermark skipped on 1\n"),
+        "{err}"
+    );
+    assert_eq!(lock_records(root), 2);
+}
+
+#[test]
+fn build_skip_is_not_counted_as_a_failure() {
+    let dir = build_project(&[RESIZE_HALF, DEFAULT_TEXT_STEP]);
+    let root = dir.path();
+    write_text(root, "in/corrupt.png", "this is not a png");
+    let out = run(root, &["build", "--no-cache"]);
+    let err = stderr(&out);
+    assert_eq!(out.status.code(), Some(6), "stderr:\n{err}");
+    assert_one_skip_line(&err, "small.png");
+    assert!(err.contains("watermark skipped on 1, 1 failed\n"), "{err}");
+    assert!(err.contains("1 of 3 inputs failed"), "{err}");
+    assert!(
+        !root.join("crustyimg.build.lock").exists(),
+        "no lockfile on a failure"
+    );
+}
+
+#[test]
+fn build_cached_rerun_does_not_repeat_the_skip() {
+    let dir = build_project(&[RESIZE_HALF, DEFAULT_TEXT_STEP]);
+    let root = dir.path();
+    let first = run(root, &["build"]);
+    let err = stderr(&first);
+    assert_eq!(first.status.code(), Some(0), "stderr:\n{err}");
+    assert_one_skip_line(&err, "small.png");
+    let small = std::fs::read(root.join("dist/small.png")).unwrap();
+    let large = std::fs::read(root.join("dist/large.png")).unwrap();
+
+    // A cache hit never runs the pipeline, so the skip is not reported again.
+    let cached = run(root, &["build"]);
+    let err = stderr(&cached);
+    assert_eq!(cached.status.code(), Some(0), "stderr:\n{err}");
+    assert!(err.contains("(2 cached, 0 rebuilt)\n"), "{err}");
+    assert!(skip_lines(&err).is_empty(), "{err}");
+    assert!(!err.contains(SKIP_SUFFIX), "{err}");
+    assert_eq!(std::fs::read(root.join("dist/small.png")).unwrap(), small);
+    assert_eq!(std::fs::read(root.join("dist/large.png")).unwrap(), large);
+
+    // Bypassing the cache lists the skip again.
+    let fresh = run(root, &["build", "--no-cache"]);
+    let err = stderr(&fresh);
+    assert_eq!(fresh.status.code(), Some(0), "stderr:\n{err}");
+    assert_one_skip_line(&err, "small.png");
+    assert!(err.contains(SKIP_SUFFIX), "{err}");
+}

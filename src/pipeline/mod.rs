@@ -133,6 +133,107 @@ mod tests {
         }
     }
 
+    // ── test-only helper: a mark that may decline ───────────────────────
+
+    /// Stands in for a watermark: when `refuse` is set it declines every
+    /// image (and `apply` refuses too, as the real op does); otherwise it
+    /// passes the image through untouched.
+    struct Mark {
+        refuse: bool,
+    }
+
+    fn mark_refusal() -> crate::operation::Refusal {
+        crate::operation::Refusal::DoesNotFit {
+            mark: (50, 10),
+            margin: 0,
+            image: (3, 3),
+        }
+    }
+
+    impl Operation for Mark {
+        fn name(&self) -> &'static str {
+            "watermark"
+        }
+
+        fn params(&self) -> OperationParams {
+            OperationParams::empty()
+        }
+
+        fn refusal(&self, _img: &Image) -> Option<crate::operation::Refusal> {
+            self.refuse.then(mark_refusal)
+        }
+
+        fn apply(&self, img: Image) -> Result<Image, OperationError> {
+            match self.refusal(&img) {
+                Some(refusal) => Err(OperationError::Refused {
+                    op: "watermark",
+                    refusal,
+                }),
+                None => Ok(img),
+            }
+        }
+    }
+
+    /// `[invert, mark, invert]`: the image comes back unchanged whenever the
+    /// mark is skipped or passes through.
+    fn invert_mark_invert(refuse: bool) -> Pipeline {
+        Pipeline::new()
+            .push(Box::new(Invert))
+            .push(Box::new(Mark { refuse }))
+            .push(Box::new(Invert))
+    }
+
+    #[test]
+    fn run_fails_on_a_refusal_and_stops() {
+        for result in [
+            invert_mark_invert(true).run(make_image(3, 3)),
+            invert_mark_invert(true)
+                .run_with(make_image(3, 3), OnRefusal::Fail)
+                .map(|run| run.image),
+        ] {
+            match result {
+                Err(OperationError::Refused {
+                    op: "watermark",
+                    refusal,
+                }) => assert_eq!(refusal, mark_refusal()),
+                other => panic!("expected Refused, got {:?}", other.map(|_| "an image")),
+            }
+        }
+    }
+
+    #[test]
+    fn run_with_skip_skips_the_step_and_runs_the_rest() {
+        let img = make_image(3, 3);
+        let original_raw = img.pixels().to_rgba8().into_raw();
+        let run = invert_mark_invert(true)
+            .run_with(img, OnRefusal::Skip)
+            .expect("a skipped step is not an error");
+        // Both inverts ran, so the image is back where it started.
+        assert_eq!(run.image.pixels().to_rgba8().into_raw(), original_raw);
+        assert_eq!(
+            run.skipped,
+            vec![SkippedStep {
+                step: 1,
+                op: "watermark",
+                refusal: mark_refusal(),
+            }]
+        );
+    }
+
+    #[test]
+    fn policies_agree_when_nothing_refuses() {
+        let original_raw = make_image(3, 3).pixels().to_rgba8().into_raw();
+        let plain = invert_mark_invert(false).run(make_image(3, 3)).unwrap();
+        assert_eq!(plain.pixels().to_rgba8().into_raw(), original_raw);
+        for policy in [OnRefusal::Fail, OnRefusal::Skip] {
+            let run = invert_mark_invert(false)
+                .run_with(make_image(3, 3), policy)
+                .unwrap();
+            assert_eq!(run.image.pixels().to_rgba8().into_raw(), original_raw);
+            assert!(run.skipped.is_empty());
+        }
+    }
+
     // ── unit tests ───────────────────────────────────────────────────────
 
     #[test]

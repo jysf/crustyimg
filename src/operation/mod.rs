@@ -2498,6 +2498,367 @@ mod tests {
         assert_eq!(p.0.get("tile"), Some(&toml::Value::Boolean(true)));
     }
 
+    // ── The damage rule: fit and the 5 % coverage cap ────────────────────────
+
+    /// An opaque-ish RGBA gradient base (every pixel distinct enough that a
+    /// stray composite would show).
+    fn base(w: u32, h: u32) -> Image {
+        make_image(w, h, |x, y| [(x % 256) as u8, (y % 256) as u8, 90, 255])
+    }
+
+    /// A `w×h` overlay whose first `visible` pixels (row-major) have alpha 255
+    /// and the rest alpha 0.
+    fn overlay_with_visible(w: u32, h: u32, visible: u32) -> DynamicImage {
+        DynamicImage::ImageRgba8(RgbaImage::from_fn(w, h, |x, y| {
+            let a = if y * w + x < visible { 255 } else { 0 };
+            ::image::Rgba([10, 200, 30, a])
+        }))
+    }
+
+    /// A text mark as `watermark --text` builds it (bundled font, white,
+    /// southeast, no margin), plus the rendered overlay's size and its count
+    /// of pixels with alpha > 0.
+    fn text_mark(text: &str, size: f32) -> (Watermark, (u32, u32), u64) {
+        let color = [255, 255, 255, 255];
+        let rendered =
+            crate::text::render_text(crate::text::DEFAULT_FONT, text, size, color).unwrap();
+        let dims = rendered.dimensions();
+        let visible = rendered.pixels().filter(|p| p.0[3] > 0).count() as u64;
+        let op = Watermark::new_text(
+            DynamicImage::ImageRgba8(rendered),
+            text.to_owned(),
+            None,
+            size,
+            color,
+            Gravity::SouthEast,
+            1.0,
+            None,
+            0,
+            false,
+        );
+        (op, dims, visible)
+    }
+
+    /// The op refuses `img`: `refusal` says so, and `apply` returns the same
+    /// refusal as an error (nothing drawn). Returns the refusal.
+    fn assert_refused(op: &Watermark, img: Image) -> Refusal {
+        let refusal = op
+            .refusal(&img)
+            .unwrap_or_else(|| panic!("expected a refusal for {:?}", (img.width(), img.height())));
+        match op.apply(img) {
+            Err(OperationError::Refused {
+                op: "watermark",
+                refusal: r,
+            }) => {
+                assert_eq!(r, refusal, "apply must refuse for the same reason");
+            }
+            other => panic!(
+                "apply must return Refused, got {:?}",
+                other.map(|_| "an image")
+            ),
+        }
+        refusal
+    }
+
+    /// The op accepts `img`: no refusal, and `apply` draws.
+    fn assert_applies(op: &Watermark, img: Image) {
+        let dims = (img.width(), img.height());
+        assert_eq!(op.refusal(&img), None, "expected no refusal on {dims:?}");
+        let out = op.apply(img).expect("a passing mark must apply");
+        assert_eq!((out.width(), out.height()), dims);
+    }
+
+    #[test]
+    fn fit_refuses_text_wider_or_taller_than_the_image() {
+        // (a) A size-200 mark on a 24 px image.
+        let (op, dims, _) = text_mark("© crustyimg", 200.0);
+        assert_eq!(
+            assert_refused(&op, base(24, 24)),
+            Refusal::DoesNotFit {
+                mark: dims,
+                margin: 0,
+                image: (24, 24)
+            }
+        );
+        // (b) A long string at the default size: too wide only.
+        let (op, dims, _) = text_mark("© 2026 crustyimg all rights reserved", 32.0);
+        assert!(
+            dims.0 > 256 && dims.1 <= 256,
+            "width-only overflow: {dims:?}"
+        );
+        assert_eq!(
+            assert_refused(&op, base(256, 256)),
+            Refusal::DoesNotFit {
+                mark: dims,
+                margin: 0,
+                image: (256, 256)
+            }
+        );
+        // (c) The default string on a short, wide image: too tall only.
+        let (op, dims, _) = text_mark("© crustyimg", 32.0);
+        assert!(
+            dims.0 <= 400 && dims.1 > 20,
+            "height-only overflow: {dims:?}"
+        );
+        assert_eq!(
+            assert_refused(&op, base(400, 20)),
+            Refusal::DoesNotFit {
+                mark: dims,
+                margin: 0,
+                image: (400, 20)
+            }
+        );
+    }
+
+    #[test]
+    fn fit_refuses_an_image_mark_on_each_axis() {
+        let cases = [
+            ((256, 256), (24, 24)), // both axes
+            ((10, 40), (64, 32)),   // height only
+            ((70, 5), (64, 32)),    // width only
+        ];
+        for ((ow, oh), (bw, bh)) in cases {
+            let op = watermark(
+                solid_overlay(ow, oh, [0, 0, 255, 255]),
+                Gravity::SouthEast,
+                1.0,
+                None,
+                0,
+                false,
+            );
+            assert_eq!(
+                assert_refused(&op, base(bw, bh)),
+                Refusal::DoesNotFit {
+                    mark: (ow, oh),
+                    margin: 0,
+                    image: (bw, bh)
+                },
+                "{ow}×{oh} on {bw}×{bh}"
+            );
+        }
+    }
+
+    #[test]
+    fn margin_applies_only_on_anchored_axes() {
+        // One visible pixel, so coverage can never be the reason.
+        let mark = |gravity, margin| {
+            watermark(
+                overlay_with_visible(100, 10, 1),
+                gravity,
+                1.0,
+                None,
+                margin,
+                false,
+            )
+        };
+        // 100 + 20 = 120: equality fits.
+        assert_applies(&mark(Gravity::SouthEast, 20), base(120, 120));
+        assert_eq!(
+            assert_refused(&mark(Gravity::SouthEast, 21), base(120, 120)),
+            Refusal::DoesNotFit {
+                mark: (100, 10),
+                margin: 21,
+                image: (120, 120)
+            }
+        );
+        // Centre ignores margin on both axes.
+        assert_applies(&mark(Gravity::Center, 50), base(120, 120));
+        // North insets y only: x is centred (100 ≤ 120), 10 + 50 ≤ 120.
+        assert_applies(&mark(Gravity::North, 50), base(120, 120));
+        // East insets x only: 100 + 50 > 120.
+        assert_eq!(
+            assert_refused(&mark(Gravity::East, 50), base(120, 120)),
+            Refusal::DoesNotFit {
+                mark: (100, 10),
+                margin: 50,
+                image: (120, 120)
+            }
+        );
+    }
+
+    #[test]
+    fn coverage_cap_is_5_percent_of_image_pixels() {
+        let mark = |overlay| watermark(overlay, Gravity::SouthEast, 1.0, None, 0, false);
+        // Exactly 5 % of 100×100 passes.
+        assert_applies(&mark(overlay_with_visible(50, 20, 500)), base(100, 100));
+        assert_eq!(
+            assert_refused(&mark(overlay_with_visible(50, 20, 501)), base(100, 100)),
+            Refusal::CoverageAboveCap {
+                covered: 501,
+                image: (100, 100)
+            }
+        );
+        // Transparent pixels do not count: 16 % of the area, 4 % covered.
+        assert_applies(&mark(overlay_with_visible(40, 40, 400)), base(100, 100));
+    }
+
+    #[test]
+    fn coverage_cap_applies_to_text() {
+        let (op, _, visible) = text_mark("© crustyimg", 32.0);
+        assert_eq!(visible, 1661, "the default mark's visible pixel count");
+        // 1661 / 29584 = 5.61 %.
+        assert_eq!(
+            assert_refused(&op, base(172, 172)),
+            Refusal::CoverageAboveCap {
+                covered: visible,
+                image: (172, 172)
+            }
+        );
+        // 1661 / 36864 = 4.51 %.
+        assert_applies(&op, base(192, 192));
+    }
+
+    #[test]
+    fn opacity_does_not_change_coverage() {
+        let op = watermark(
+            overlay_with_visible(50, 20, 501),
+            Gravity::SouthEast,
+            0.01,
+            None,
+            0,
+            false,
+        );
+        assert_eq!(
+            assert_refused(&op, base(100, 100)),
+            Refusal::CoverageAboveCap {
+                covered: 501,
+                image: (100, 100)
+            }
+        );
+    }
+
+    #[test]
+    fn scale_is_fit_checked_after_scaling() {
+        // 10×100 at scale 1.0 on a 64-wide image is 64×640 once scaled.
+        let op = watermark(
+            solid_overlay(10, 100, [0, 0, 255, 255]),
+            Gravity::SouthEast,
+            1.0,
+            Some(1.0),
+            0,
+            false,
+        );
+        assert_eq!(
+            assert_refused(&op, base(64, 32)),
+            Refusal::DoesNotFit {
+                mark: (64, 640),
+                margin: 0,
+                image: (64, 32)
+            }
+        );
+    }
+
+    #[test]
+    fn scale_is_exempt_from_coverage() {
+        // A 256 px overlay at half the image's width: 12×12 on 24×24, 25 %.
+        let op = watermark(
+            solid_overlay(256, 256, [0, 0, 255, 255]),
+            Gravity::SouthEast,
+            1.0,
+            Some(0.5),
+            0,
+            false,
+        );
+        assert_applies(&op, base(24, 24));
+    }
+
+    #[test]
+    fn one_tile_must_fit() {
+        let op = watermark(
+            solid_overlay(256, 256, [0, 0, 255, 255]),
+            Gravity::SouthEast,
+            1.0,
+            None,
+            0,
+            true,
+        );
+        assert_eq!(
+            assert_refused(&op, base(24, 24)),
+            Refusal::DoesNotFit {
+                mark: (256, 256),
+                margin: 0,
+                image: (24, 24)
+            }
+        );
+    }
+
+    #[test]
+    fn tile_is_exempt_from_coverage_and_margin() {
+        // (a) Tiling covers the whole image by design.
+        let tiled = watermark(
+            solid_overlay(64, 64, [0, 0, 255, 255]),
+            Gravity::SouthEast,
+            1.0,
+            None,
+            0,
+            true,
+        );
+        assert_applies(&tiled, base(256, 256));
+        // (c) A tile exactly the image's size fits; tiling ignores margin.
+        let flush = watermark(
+            solid_overlay(120, 120, [0, 0, 255, 255]),
+            Gravity::SouthEast,
+            1.0,
+            None,
+            30,
+            true,
+        );
+        assert_applies(&flush, base(120, 120));
+    }
+
+    #[test]
+    fn fit_is_reported_before_coverage() {
+        // The default mark on 24×24 fails both fit and coverage.
+        let (op, dims, _) = text_mark("© crustyimg", 32.0);
+        assert_eq!(
+            assert_refused(&op, base(24, 24)),
+            Refusal::DoesNotFit {
+                mark: dims,
+                margin: 0,
+                image: (24, 24)
+            }
+        );
+    }
+
+    #[test]
+    fn refusal_display_names_the_numbers() {
+        let plain = Refusal::DoesNotFit {
+            mark: (1050, 189),
+            margin: 0,
+            image: (24, 24),
+        };
+        assert_eq!(
+            plain.to_string(),
+            "the 1050×189 px mark does not fit inside the 24×24 px image"
+        );
+        let with_margin = Refusal::DoesNotFit {
+            mark: (100, 10),
+            margin: 21,
+            image: (120, 120),
+        };
+        assert_eq!(
+            with_margin.to_string(),
+            "the 100×10 px mark plus its 21 px margin does not fit inside the 120×120 px image"
+        );
+        let covered = Refusal::CoverageAboveCap {
+            covered: 1661,
+            image: (172, 172),
+        };
+        assert_eq!(
+            covered.to_string(),
+            "the mark would cover 5.61 % of the 172×172 px image (1661 of 29584 px); \
+             the limit is 5 %"
+        );
+        let err = OperationError::Refused {
+            op: "watermark",
+            refusal: plain,
+        };
+        assert_eq!(
+            err.to_string(),
+            "watermark refused: the 1050×189 px mark does not fit inside the 24×24 px image"
+        );
+    }
+
     // ── SPEC-037 unit tests — resize output byte cap (DEC-038) ───────────────
 
     /// A 2×2 input, `exact 40000x40000` → rejected before allocation.

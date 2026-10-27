@@ -299,6 +299,34 @@ op = "identity"
         assert_eq!(info(&out).expect("output should decode").format(), "png");
     }
 
+    /// A text mark too large for the image is refused with the same message
+    /// the CLI prints, rather than written as a few stray pixels. The module
+    /// survives the refusal.
+    #[wasm_bindgen_test]
+    fn transform_refuses_a_mark_that_does_not_fit() {
+        use image::{ImageEncoder, Rgba, RgbaImage};
+        let img = RgbaImage::from_fn(24, 24, |x, y| {
+            Rgba([(x * 10) as u8, (y * 10) as u8, 90, 255])
+        });
+        let mut src = Vec::new();
+        image::codecs::png::PngEncoder::new(&mut src)
+            .write_image(img.as_raw(), 24, 24, image::ExtendedColorType::Rgba8)
+            .expect("encode 24x24 png");
+        let recipe =
+            "version = \"1\"\n\n[[step]]\nop = \"watermark\"\ntext = \"© crustyimg\"\nsize = 200.0\n";
+
+        let err =
+            transform(&src, recipe, "png").expect_err("a mark wider than the image is refused");
+        let msg = format!("{:?}", wasm_bindgen::JsValue::from(err));
+        assert!(
+            msg.contains("watermark refused") && msg.contains("24×24"),
+            "the error must say the mark was refused and name the image size, got: {msg}"
+        );
+
+        let ok = transform(&src, IDENTITY_RECIPE, "png").expect("module must survive");
+        assert!(!ok.is_empty());
+    }
+
     /// `recipe.quality`, when set, reaches the encoder — the RETURNED BYTES
     /// equal an independent encode at that same quality, not merely a
     /// plausible-looking success (the standard this file holds every

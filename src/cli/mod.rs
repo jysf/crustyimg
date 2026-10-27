@@ -1171,6 +1171,20 @@ mod tests {
             .code(),
             1
         );
+        // A refused watermark on one explicit input → 2 (the user's input
+        // asked for something the image cannot take).
+        assert_eq!(
+            CliError::Operation(OperationError::Refused {
+                op: "watermark",
+                refusal: crate::operation::Refusal::DoesNotFit {
+                    mark: (50, 10),
+                    margin: 0,
+                    image: (24, 24),
+                },
+            })
+            .code(),
+            2
+        );
 
         // Sink UnsupportedExtension / UnknownFormat → 4; others → 5.
         assert_eq!(
