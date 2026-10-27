@@ -12,7 +12,7 @@ Cycle prompts live in `prompts/SPEC-134-<cycle>.md`.
       --recipe web` write AVIF into `.png`/`.webp`; `build` already pins on terminal-`optimize`
       targets (DEC-087), so `apply` and `build` disagree on the same recipe + template. The rule
       being reversed lives in `docs/api-contract.md:490`, not in DEC-087.
-- [ ] **design** — `prompts/SPEC-134-design.md`
+- [x] **design** — `prompts/SPEC-134-design.md`. Opus, 2026-10-25, $7.30 (in `cost.sessions`).
 - [x] **build** — prompt: `prompts/SPEC-134-build.md`. **Opus**, draft PR #202 at `635adfb`,
       $11.43, completed 2026-10-26. 22/22 ACs; 41-row table (28 RED baseline rows); NC-1…NC-10
       flipped; CI 16/16 green. DEC-105 updated at build for AC-22. NC-7 has two readings (verify
@@ -40,5 +40,10 @@ Cycle prompts live in `prompts/SPEC-134-<cycle>.md`.
       `ca8a961`: 3 glob rows (RED under M2, exactly those) + 2 `meta` N-input rows (46 → 51);
       `meta` pre-flight calls `name_pinned_format(global, all.len())`; matrix green; CI 16/16.
       ~$0.72.
-- [~] **re-verify 2** — prompt: `prompts/SPEC-134-reverify2.md`. Opus, read-only.
-- [ ] **ship**
+- [x] **re-verify 2** — prompt: `prompts/SPEC-134-reverify2.md`. Opus, 2026-10-26, ~$1.02. **✅
+      APPROVED at `ca8a961`.** M2 → exactly the 3 glob rows RED; `ops.rs` cleanup equivalent in
+      every case (driven on `meta strip`); full suite 1039/0; CI green. Branch then updated with
+      `main` (#205, `Cargo.toml` only) to `7bfcbe9`; PR #202 squash-merged as `7034d94`,
+      2026-10-26 PDT.
+- [~] **ship** — prompt: `prompts/SPEC-134-ship.md`. Sonnet. Records 3 unrecorded verify
+      sessions' costs from their transcripts.

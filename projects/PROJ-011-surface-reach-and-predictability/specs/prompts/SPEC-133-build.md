@@ -22,7 +22,8 @@ byte-identical to `main`.
 ⛔ **SPEC-131 must be merged to `main` first.** Run `git fetch origin` and check
 `git log origin/main --oneline | grep SPEC-131` shows its merged PR (a `feat(recipe): … (SPEC-131)
 (#NNN)` commit). If it does not, **stop and report** — do not build against SPEC-131's branch.
-Then `git rebase origin/main`. The spec must be at `cycle: build` with design commit `d0d10bd` in
+SPEC-132 (#201, `7eca94b`) and SPEC-134 (#202, `7034d94`) are also merged; your branch starts on
+top of both. Then `git rebase origin/main`. The spec must be at `cycle: build` with design commit `d0d10bd` in
 your history.
 
 ## Read in order, before any code
@@ -93,10 +94,16 @@ List every file it governs.
   surface; a test passing on one loop says nothing about the others.
 - **`build --check` after a skip must stay clean**: the lock records the unmarked bytes. Add
   nothing to the lock record.
-- **Shared files.** SPEC-134 (`--name-template`) edits the same CLI functions you do
-  (`run_pixel_op`, `run_apply`, `encode_one`/`apply_one`, `build_one`, the build summary). It will
-  not build at the same time as you, but if it merged first, rebase onto it and keep both
-  behaviours; if you merge first, it rebases onto you. Touch only the functions the spec lists.
+- **Shared files.** SPEC-134 (`--name-template` pins the format) is **already merged** and edited
+  the same CLI functions you do (`run_pixel_op`, `run_apply`, `run_optimize`, `run_web`,
+  `encode_one`/`apply_one`, `build_one`, the build summary). The spec's line references predate
+  it, so re-read each function on `main` before editing it. Keep its behaviour intact:
+  `name_pinned_format(global, input_count)` and `resolved_input_count` in `src/cli/common.rs`
+  decide the pinned branch; `tests/name_template_pins_format.rs` (51 rows) must stay green
+  unchanged. Touch only the functions the spec lists.
+- **Out-of-spec findings** (HANDOFF rule 6). One backlog item names you: "The `watermark` CLI verb
+  silently drops the mark for `--size nan`/`inf`" says check SPEC-133 first. Drive it once on
+  your build and state in Build Completion whether your fit check refuses it.
 - **`just demo-build` is the wasm bundle-size gate** and `just check` never runs it. If it moves,
   stop and report the byte delta; do not edit the gate (DEC-066's ledger).
 
@@ -110,7 +117,8 @@ List every file it governs.
   a file. A piped command reports the **pipe's** exit code: redirect and read `$?`.
 - zsh does not word-split unquoted parameters: loop with `while IFS= read -r`. macOS has no
   `timeout(1)`.
-- Matrix legs **sequentially**, each with a fresh `CARGO_TARGET_DIR`. Never run a background build
+- Matrix legs **sequentially**, each with a fresh `CARGO_TARGET_DIR`; delete each when its leg is
+  done (a recent session filled the disk). Never run a background build
   while editing source for a revert.
 - Comments and user-facing text are behaviour-first, with no spec/DEC ids.
 - **Budget ~180 exchanges.** This is the largest spec in the release. If the matrix is green and
