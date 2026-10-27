@@ -26,6 +26,13 @@ Cycle prompts live in `prompts/SPEC-133-<cycle>.md`.
       (`ab94505`). Deviations: corpus recipe `v2_watermark_integer_numbers` lost `scale = 1` (a
       text step; needs verify's ruling); 4 predicted flips passed hollow under Skip, re-fixtured
       and probed. `--size nan` item stays open. $22.18 (measured before the PR).
-- [~] **verify** — prompt: `prompts/SPEC-133-verify.md`. **Opus**, read-only, own worktree
-      `verify/spec-133`, on PR #206 at `3dd23ff`.
+- [x] **verify** — 2026-10-26 (`prompts/SPEC-133-verify.md`). Opus. **⚠ PUNCH LIST** at `3dd23ff`.
+      Code correct on every surface; passing marks byte-identical to `main` (9 cases); skip
+      probe over all integration tests hits only the 8 skip tests. Mutations M1 (16-bit count),
+      M2 (count after opacity — AC-5 hollow), M5 (K per step), M7 (judge the original input)
+      survive. Docs: `--help` 5 % sentence false for `--tile`; glob/dir-of-one → exit 2
+      undocumented; a CHANGELOG sentence describes behaviour no release had. Ruling: the recipe
+      `text` + `scale` refusal breaks no released user (0.7.1 has no recipe watermark). $11.16.
+- [~] **fix** — prompt: `prompts/SPEC-133-fix.md`. **Sonnet**, the build worktree, same draft PR
+      #206. Items 1–7 + cleanups 8–12 (orchestrator's call).
 - [ ] **ship**
