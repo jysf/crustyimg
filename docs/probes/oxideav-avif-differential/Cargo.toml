@@ -1,0 +1,28 @@
+# Standalone probe: oxideav-avif (MIT, clean-room AV1) vs re_rav1d (crustyimg's AVIF
+# decoder) — a byte-for-byte differential over raw YUV/alpha planes, plus a mutation sweep.
+# Recorded with docs/research/oxideav-adoption-assessment-2026-10.md (2026-10-28) so the
+# numbers there can be re-driven rather than taken on trust.
+#
+#   cd docs/probes/oxideav-avif-differential
+#   ./make-corpus.sh /tmp/oxcorpus                       # needs avifenc, magick, crustyimg
+#   cargo run --release --bin cmp -- /tmp/oxcorpus/*.avif
+#   cargo run --release --bin cmp -- --mutate /tmp/oxcorpus/fuji_d8_420_q60.avif   # negative control
+#   cargo run --release --bin fuzzlite -- 300 /tmp/oxcorpus/fuji_d8_420_q60.avif
+#   cargo run --release --bin cmp -- ../../../tests/fixtures/hostile/*.avif
+#
+# The wasm32 half lives in ./wasm (see its Cargo.toml). Not part of the crustyimg build:
+# `docs/` is excluded from the package and this is its own workspace.
+[package]
+name = "oxideav-avif-differential"
+version = "0.0.0"
+edition = "2021"
+publish = false
+license = "MIT OR Apache-2.0"
+
+[workspace]
+
+[dependencies]
+oxideav-avif = "=0.0.16"
+# Same pins and features as crustyimg's own AVIF decode (DEC-053).
+re_rav1d = { version = "=0.1.3", default-features = false, features = ["bitdepth_8", "bitdepth_16"] }
+avif-parse = "=2.1.0"

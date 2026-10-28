@@ -139,3 +139,42 @@ questions:
       use on 2026-08-15. Do not build it on the strength of the audit alone.
       Evidence in `docs/backlog.md`; probe at
       `docs/probes/video-container-lint-probe.py`.
+
+  - id: oxideav-avif-adoption
+    question: "Should crustyimg adopt `oxideav-avif` + `oxideav-av1` (MIT, pure Rust) for AVIF decode — on wasm32 only, or to replace `re_rav1d` natively?"
+    priority: low
+    status: open
+    raised_by: claude
+    raised_at: 2026-10-28
+    assigned_to: null
+    notes: |
+      TECHNICALLY NEARLY THERE; NOT NEEDED YET. Assessed in
+      `docs/research/oxideav-adoption-assessment-2026-10.md`; reproducible probe
+      at `docs/probes/oxideav-avif-differential/`.
+
+      Measured 2026-10-28: byte-exact vs re_rav1d on 36/36 non-grid files (raw
+      planes) and vs libaom on a grid file re_rav1d rejects; 0 panics on
+      crustyimg's hostile fixtures plus 1,500 mutants; `cargo deny` green with
+      zero exceptions. On wasm32-unknown-unknown it compiles but panics at the
+      first decode (unconditional std::time::Instant stage timing in
+      oxideav-av1); with that one call site stubbed it decodes byte-identical to
+      native in a wasm VM (~337 KB brotli, standalone upper bound).
+
+      Why not now: the demo already gets AVIF decode free from the browser
+      (DEC-065); natively it is 2.6x slower than re_rav1d and raises MSRV
+      1.90 -> 1.95; oxideav-av1 was reset to a scaffold by its own clean-room
+      audit on 2026-05-20, so the decoder is ~5 months old with one committer.
+
+      Revisit when ANY fires: T1 oxideav-av1 runs on wasm32 with no shim (the
+      probe's wasm/ tests pass unpatched); T2 a real request for `.avif` input
+      in crustyimg-wasm under Node/edge, or a spec wanting AVIF --target/--ssim
+      inside the wasm module; T3 oxideav-avif >= 0.1 AND no orphan/purge event
+      on -av1/-avif/-heif for 12 months (earliest 2027-05-20) AND a second
+      maintainer; T4 re_rav1d unmaintained / RUSTSEC / blocks a toolchain;
+      T5 a user report of a grid AVIF crustyimg rejects. Before adopting:
+      re-run the differential, a debug-profile mutation sweep and real-world
+      phone/camera AVIFs, then write the DEC (new top-level dep).
+
+      HEIC is NOT part of this question: no trigger here clears the HEVC
+      patent axis (DEC-052, see `avc-patent-exposure-for-an-independent-decoder`
+      for the same shape). Do not re-open HEIC by re-probing oxideav-heif.
