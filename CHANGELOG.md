@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **A recipe can watermark.** A `[[step]]` with `op = "watermark"` takes either
+  `image = "logo.png"` or `text = "© Studio"` (with optional `font`, `size` and `color`), plus
+  `gravity`, `opacity` and `margin`; an image mark also takes `scale` and `tile`. It runs
+  through `apply --recipe` and `build`, and writes the same bytes as the `watermark` command
+  with the same flags. `image` and `font` paths are read from the directory you run
+  crustyimg in, not the recipe's own folder. A step that sets both `image` and `text`, or
+  neither, is refused when the recipe loads (exit `1`), and an `image` or `font` file that
+  cannot be read fails before any output is written (exit `1`), naming the step and the file.
+  crustyimg 0.7.1 and earlier refuse such a recipe with `unknown operation 'watermark'`.
+
+- **`build` rebuilds when a watermark's image or font file changes.** The cache key covers
+  the file's content, not only its path, so editing `logo.png` in place rebuilds every output
+  that uses it on the next `build` (`0 cached, N rebuilt`). An unchanged re-run is still served
+  from the cache, and recipes without a watermark keep the cache keys they had.
+
+- **A recipe can set its output `format` and `quality`.** Declare `version = "2"` and add
+  `format = "webp"` and/or `quality = 80` at the top of the file. `apply --recipe` (at one
+  input or many) and `build` both honour them and write the same bytes. `--format` still wins,
+  then an `-o` or `--name-template` extension, then the recipe's `format`, then the source's
+  own format; `-q` wins over the recipe's `quality`. On a recipe ending in `optimize`, a
+  `format` pins the encode and skips the automatic choice. A `version = "1"` recipe that sets
+  either key is refused when it loads (exit `1`):
+  ``recipe field 'format' requires `version = "2"` (found version "1")``. Recipes that use
+  neither key are unchanged, and `edit --save-recipe` still writes `version = "1"`.
+  crustyimg 0.7.1 and earlier cannot read a recipe that uses them (`unknown field 'format'`).
+
 ### Breaking
 
 - **A recipe step with a key its op does not take, a wrong-typed value, or a key its mode
@@ -47,6 +75,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`apply --recipe` keeps the source format at every input count, as `build` does.** With
+  one input and no `--format`, `apply` wrote PNG (`--out-dir d` turned `hero.jpg` into
+  `d/hero.png`), and with `-o -`, an `-o` with no extension or an unrecognised one it exited
+  `4` (now exit `0`, in the source format); with several inputs it ignored `--format`. Now the same rule applies at one input and at
+  many: `--format`, else the output name's extension, else the recipe's `format`, else the
+  source's own format. `apply` and `build` write the same bytes for the same recipe and input.
+  Output changes for a one-input `apply` that relied on the PNG default; pass `--format png`
+  to keep it.
+
 - **`watermark` refuses a mark that would damage the image.** A mark that does not fit
   inside the image (after `--scale`, plus `--margin` on the edges it is anchored to), or a
   fixed-size mark whose visible pixels would cover more than 5 % of it, is now refused
@@ -61,11 +98,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **A text watermark is no longer clipped or reduced to a few stray pixels.** A run wider
-  than the image lost its right side (`© 2026 crustyimg all rights reserved` on a 256 px image
-  wrote `© 2026 crustyimg` flush left), a `--margin` larger than the room left was silently
-  ignored, and `--size 200` on a 24 px image changed 6 pixels — all at exit `0`. These are now
-  refused (see Changed). A recipe `text` step refuses `scale` and `tile = true` at load
+- **A text watermark too big for its image is no longer clipped or reduced to a few stray
+  pixels.** A run wider than the image lost its right side (`© 2026 crustyimg all rights
+  reserved` on a 256 px image wrote `© 2026 crustyimg` flush left), a `--margin` larger than
+  the room left was silently ignored, and `--size 200` on a 24 px image changed 6 pixels — all
+  at exit `0`. These are now refused (see Changed). A mark that is simply very small or faint
+  (`--size 0.01`, `--opacity 0`) is still drawn as asked, even when that leaves no visible
+  mark. A recipe `text` step refuses `scale` and `tile = true` at load
   (exit `1`), as the CLI's `--text` already does.
 
 - **With several inputs, `web`, `optimize` and `apply --recipe web` no longer let `-o` pick
