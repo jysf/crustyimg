@@ -263,16 +263,24 @@ or `--text` is required (mutually exclusive).
 | `--gravity <G>` | both | Anchor: `north`/`south`/`east`/`west`/`center`/`northeast`/… (default `southeast`). |
 | `--opacity <O>` | both | Opacity `0.0`–`1.0`. |
 | `--margin <M>` | both | Margin from the edge, in px. |
-| `--scale <S>` | image | Scale the overlay proportionally (e.g. `0.1`). |
+| `--scale <S>` | image | Overlay width as a fraction of the image's width (e.g. `0.1`), aspect kept. A finite number above `0`. |
 | `--tile` | image | Tile the overlay across the image. |
 | `--font <PATH>` | text | TTF/OTF font (default: bundled Go font). |
-| `--size <N>` | text | Font size in px (default `32`). |
+| `--size <N>` | text | Font size in px, above `0` and at most `1024` (default `32`). |
 | `--color <HEX>` | text | `RRGGBB` / `#RRGGBB` / `RRGGBBAA` (default `ffffff`). |
 
 ```sh
 crustyimg watermark photo.jpg --image logo.png --gravity southeast --opacity 0.6 -o out.jpg
 crustyimg watermark photo.jpg --text "© crustyimg" --size 32 --color FFFFFF -o out.jpg
 ```
+
+A bad `--size`, `--scale`, `--opacity`, `--gravity` or `--color` exits `2` before any file
+is read. The mark must suit each image: the mark plus `--margin` must fit inside it, and a
+fixed-size mark (no `--scale`, no `--tile`) may cover at most 5 % of its pixels. On one input
+a mark that fails is an `error:` naming the sizes, exit `2`, nothing written. Over several
+inputs that image is written without the mark, with a `warning: … watermark skipped …` line
+and a closing `watermark skipped on K of N images`, at exit `0`. A mark that fits is drawn as
+asked, even one too small or faint to see.
 
 ---
 
@@ -300,7 +308,11 @@ crustyimg edit hero.jpg --auto-orient --resize-max 1600 --save-recipe web.toml
 Replay a saved recipe across a file, glob, or directory **in parallel** (rayon; `-j N`
 bounds workers, default = CPU count) with a progress bar on stderr. Honors the global
 `--out-dir` and `--name-template`. Per-input failures are summarized and exit `6`; other
-inputs still write.
+inputs still write. The output format is the same at one input and at many: `--format`, else
+the extension of `-o` or `--name-template`, else the recipe's own `format` (a
+`version = "2"` recipe), else the source's format. A recipe that fails to load, including a
+bad step key, exits `1` before anything is written. Recipe keys:
+[`recipes/README.md`](../recipes/README.md).
 ```sh
 crustyimg apply --recipe web.toml *.jpg --out-dir out/ --name-template "{stem}_web.{ext}" -j 8
 ```
