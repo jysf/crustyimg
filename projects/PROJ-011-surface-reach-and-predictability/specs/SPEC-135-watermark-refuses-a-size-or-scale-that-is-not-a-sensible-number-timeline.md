@@ -28,5 +28,10 @@ Cycle prompts live in `prompts/SPEC-135-<cycle>.md`.
   (`2aa78a4` test, `b11dd40` docs, `161b637` cost). Two f32-inexact rows in AC-4 (12 rows);
   M-c went RED on both; no `src/` change since `8922f31`; three sentences corrected. Full CI
   green at `161b637`, 13 jobs (the `b11dd40` run was cancelled when the next push replaced it). ~$0.82.
-- [~] **re-verify** — `prompts/SPEC-135-reverify.md` (handed out 2026-10-27, Opus; worktree `verify/spec-135-fix`)
-- [ ] **ship**
+- [x] **re-verify** — `prompts/SPEC-135-reverify.md` (2026-10-27, Opus). ✅ APPROVED at `161b637`.
+  M-c caught by each new row alone; no `src/` change since `8922f31`; three sentences true; CI
+  green on every required leg. Two optional cleanups. $1.45. Marked ready; the maintainer
+  updated the branch (it brought in only orchestrator docs commits; `src/`, tests and docs
+  identical to `161b637`) and squash-merged it as `df91f7e` (PR #207, 2026-10-27).
+- [~] **ship** — `prompts/SPEC-135-ship.md` (handed out 2026-10-27, Sonnet)
+
