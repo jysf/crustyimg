@@ -20,5 +20,11 @@ Cycle prompts live in `prompts/SPEC-135-<cycle>.md`.
   CI green (16 pass, 6 skipped). Commit 1 `d1484cf` holds the goldens and touches no `src/`. 14/14 ACs;
   every negative control flipped except AC-3 under "cap removed" (it compares the table with
   itself, so the design's prediction was wrong). Measured $4.52 before the final turns.
-- [~] **verify** — `prompts/SPEC-135-verify.md` (handed out 2026-10-27, Opus; worktree `verify/spec-135`)
+- [x] **verify** — `prompts/SPEC-135-verify.md` (2026-10-27, Opus). ⚠ PUNCH LIST at `8922f31`:
+  one item, M-c (a message printing the value widened to f64) survives every test because every
+  row's value is exact in f32. Everything else held: 14/14 ACs driven on both binaries, all six
+  controls flipped, byte identity vs `main` by ImageMagick AE = 0. Three wording cleanups. $4.31.
+- [~] **fix** — `prompts/SPEC-135-fix.md` (handed out 2026-10-27, Sonnet; build worktree). Two
+  f32-inexact rows (`--opacity 1.1`, `--size 1024.1`), M-c proven, three sentences corrected; no `src/` change.
+- [ ] **re-verify**
 - [ ] **ship**
