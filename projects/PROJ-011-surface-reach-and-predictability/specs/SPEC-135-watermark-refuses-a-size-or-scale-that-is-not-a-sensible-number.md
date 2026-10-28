@@ -114,6 +114,24 @@ cost:
         (73 unique ids, all claude-sonnet-5-5), input/cache_creation/cache_read once per id, MAX
         output_tokens per id. Priced by component at Sonnet $3/$15 per MTok, cache_creation x1.25,
         cache_read x0.10. Measured before the final commit/PR turns, so it slightly under-counts.
+    - cycle: build
+      agent: claude-sonnet-5-5
+      interface: claude-code
+      tokens_total: 1596360
+      tokens_breakdown:
+        input: 44
+        output: 9407
+        cache_creation: 59641
+        cache_read: 1527268
+      estimated_usd: 0.82
+      duration_minutes: null
+      recorded_at: 2026-10-27
+      note: >
+        Build cycle, verify punch-list fix (two AC-4 rows, M-c, three wording fixes). Measured from
+        the session transcript (70cf330a-….jsonl, identified by content), deduped by
+        `.message.id` (21 unique ids, all claude-sonnet-5-5), MAX output_tokens per id. Priced at
+        Sonnet $3/$15 per MTok, cache_creation x1.25, cache_read x0.10. Measured before the final
+        commit/push turns.
   totals:
     tokens_total: 0
     estimated_usd: 0
