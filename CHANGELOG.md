@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-10-27
+
 ### Added
 
 - **A recipe can watermark.** A `[[step]]` with `op = "watermark"` takes either
@@ -741,7 +743,8 @@ re-decoded, so privacy ops carry no quality cost and no recompression.
 
 ---
 
-[Unreleased]: https://github.com/jysf/crustyimg/compare/v0.7.1...HEAD
+[Unreleased]: https://github.com/jysf/crustyimg/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/jysf/crustyimg/compare/v0.7.1...v0.8.0
 [0.7.1]: https://github.com/jysf/crustyimg/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/jysf/crustyimg/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/jysf/crustyimg/compare/v0.5.0...v0.6.0
