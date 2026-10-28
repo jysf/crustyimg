@@ -9,7 +9,10 @@ use std::path::{Path, PathBuf};
 
 use crate::error::ImageError;
 use crate::image::Image;
-use crate::operation::{Gravity, OperationParams, OperationRegistry, RegistryError, Watermark};
+use crate::operation::registry::param_spec;
+use crate::operation::{
+    Gravity, OperationParams, OperationRegistry, RegistryError, Watermark, WATERMARK_PARAMS,
+};
 use crate::pipeline::{OnRefusal, Pipeline, SkippedStep};
 use crate::recipe::{Recipe, RecipeStep};
 use crate::sink::{Overwrite, Sink, SinkError, SinkInput};
@@ -1341,16 +1344,54 @@ enum ResolvedOverlay {
     },
 }
 
+/// Check one watermark flag against the key table a recipe step is checked
+/// against, so the CLI and a recipe accept the same values. The message names
+/// the flag the user typed and prints the value as it parsed. `None` (flag not
+/// given) is always fine.
+fn check_watermark_flag(flag: &str, key: &str, value: Option<f32>) -> Result<(), CliError> {
+    let Some(v) = value else { return Ok(()) };
+    let Some(spec) = param_spec(WATERMARK_PARAMS, key) else {
+        return Err(CliError::Usage(format!(
+            "internal error: no watermark key '{key}'"
+        )));
+    };
+    // `f64::from(f32)` is exact, so the table's own re-read as f32 is a no-op:
+    // this is the check on the value the op will actually see.
+    if spec.kind.accepts(&toml::Value::Float(f64::from(v))) {
+        return Ok(());
+    }
+    Err(CliError::Usage(format!(
+        "{flag} must be {}, got {}",
+        spec.kind.expectation(),
+        flag_value_text(v)
+    )))
+}
+
+/// `nan`, `inf`, `-inf`, or the value as parsed (`1025`, `1.5`).
+fn flag_value_text(v: f32) -> String {
+    if v.is_nan() {
+        "nan".to_owned()
+    } else if v.is_infinite() {
+        if v > 0.0 { "inf" } else { "-inf" }.to_owned()
+    } else {
+        v.to_string()
+    }
+}
+
 /// Build the watermark overlay (`DynamicImage`) + its round-trip identity from
-/// the source mode.
+/// the source mode. Every flag has been checked by now; this is where files
+/// are first read.
 ///
 /// - Image mode (`--image PATH`): load the overlay once at the IO boundary
 ///   (→ exit 3 on failure, DEC-031); the path is kept for `params()` round-trip.
 /// - Text mode (`--text STR`): read `--font PATH` at the IO boundary (→ exit 3) or
-///   fall back to the bundled font; parse `--color` (default `ffffff`) and `--size`
-///   (default 32.0, `≤0` → exit 2); rasterize via `text::render_text` (pure) into a
-///   transparent RGBA overlay (→ exit 2 on a text error).
-fn watermark_overlay(src: &WatermarkSource<'_>) -> Result<ResolvedOverlay, CliError> {
+///   fall back to the bundled font; rasterize via `text::render_text` (pure)
+///   into a transparent RGBA overlay (→ exit 2 on a text error).
+fn watermark_overlay(
+    src: &WatermarkSource<'_>,
+    color: [u8; 4],
+    size: f32,
+) -> Result<ResolvedOverlay, CliError> {
     if let Some(image) = src.image {
         // Image mode: load the overlay once at the IO boundary (DEC-031).
         let overlay = Image::load(image)?;
@@ -1374,16 +1415,6 @@ fn watermark_overlay(src: &WatermarkSource<'_>) -> Result<ResolvedOverlay, CliEr
         None => crate::text::DEFAULT_FONT,
     };
 
-    // Color (default white) and size (default 32.0; ≤0 → exit 2).
-    let color = match src.color {
-        Some(s) => crate::text::parse_color(s).map_err(text_error)?,
-        None => [255, 255, 255, 255],
-    };
-    let size = src.size.unwrap_or(32.0);
-    if size <= 0.0 {
-        return Err(CliError::Usage(format!("--size must be > 0, got {size}")));
-    }
-
     // Rasterize the text into a transparent RGBA overlay (pure; no file IO).
     let rendered = crate::text::render_text(font_bytes, &text, size, color).map_err(text_error)?;
     Ok(ResolvedOverlay::Text {
@@ -1406,27 +1437,24 @@ pub(super) fn run_watermark(
     tile: bool,
     global: &GlobalArgs,
 ) -> Result<(), CliError> {
-    // Build the overlay (image load OR text rasterization) + its round-trip identity.
-    let resolved = watermark_overlay(src)?;
-
-    // Validate placement params BEFORE constructing the op (→ Usage, exit 2).
+    // Check every flag before any file is read, so a bad flag is the answer
+    // whatever the inputs, `--font` or `--image` turn out to be (→ Usage, exit 2).
+    check_watermark_flag("--size", "size", src.size)?;
+    check_watermark_flag("--scale", "scale", scale)?;
+    check_watermark_flag("--opacity", "opacity", opacity)?;
     let gravity: Gravity = gravity
         .unwrap_or("southeast")
         .parse()
         .map_err(CliError::Usage)?;
-
+    let color = match src.color {
+        Some(s) => crate::text::parse_color(s).map_err(text_error)?,
+        None => [255, 255, 255, 255],
+    };
+    let size = src.size.unwrap_or(32.0);
     let opacity = opacity.unwrap_or(1.0);
-    if !(0.0..=1.0).contains(&opacity) {
-        return Err(CliError::Usage(format!(
-            "--opacity must be in 0.0..=1.0, got {opacity}"
-        )));
-    }
 
-    if let Some(s) = scale {
-        if s <= 0.0 {
-            return Err(CliError::Usage(format!("--scale must be > 0, got {s}")));
-        }
-    }
+    // Build the overlay (image load OR text rasterization) + its round-trip identity.
+    let resolved = watermark_overlay(src, color, size)?;
 
     let margin = margin.unwrap_or(0);
 
@@ -1455,6 +1483,16 @@ pub(super) fn run_watermark(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn every_checked_watermark_flag_has_a_table_row() {
+        use crate::operation::registry::param_spec;
+        use crate::operation::{ParamKind, WATERMARK_PARAMS};
+        for key in ["size", "scale", "opacity"] {
+            let spec = param_spec(WATERMARK_PARAMS, key).expect("a table row");
+            assert!(matches!(spec.kind, ParamKind::Number { .. }), "{key}");
+        }
+    }
 
     // ── parse_wxh tests ───────────────────────────────────────────────────────
 

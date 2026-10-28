@@ -226,13 +226,18 @@ wrong-typed value):
 | `image` | string (a file path) | — |
 | `text` | string | — |
 | `font` | string (a file path) | — |
-| `size` | number (integer or float) | finite, `> 0` |
+| `size` | number (integer or float) | finite, `> 0` and `<= 1024` |
 | `color` | string | hex `RRGGBB`, `#RRGGBB` or `RRGGBBAA` |
 | `gravity` | string | one of `center`, `north`, `south`, `east`, `west`, `northeast`, `northwest`, `southeast`, `southwest` |
 | `opacity` | number (integer or float) | `0.0..=1.0` |
 | `scale` | number (integer or float) | finite, `> 0` |
 | `margin` | integer (a float is refused) | `0..=4294967295` |
 | `tile` | boolean | — |
+
+The `watermark` CLI checks `--size`, `--scale` and `--opacity` against these same rows,
+before it reads any file. It parses them as 32-bit floats, so a value within one f32 step of a
+bound (`--size 1024.00001`, `--opacity 1.00000001`) reads as the bound and is accepted on the
+CLI, while the same value in a recipe is refused.
 
 **Unused by mode:** an `image` step that also sets `font`, `size` or `color`
 is refused (`'size' only applies to a text watermark`); a `text` step that sets

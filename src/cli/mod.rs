@@ -415,7 +415,7 @@ pub enum Commands {
         /// Font file (TTF/OTF) for `--text`; defaults to the bundled Go font.
         #[arg(long, conflicts_with = "image")]
         font: Option<String>,
-        /// Font size in px for `--text` (default 32.0).
+        /// Font size in px for `--text`: above 0, at most 1024 (default 32).
         #[arg(long, conflicts_with = "image")]
         size: Option<f32>,
         /// Text color hex (RRGGBB / #RRGGBB / RRGGBBAA) for `--text` (default ffffff).

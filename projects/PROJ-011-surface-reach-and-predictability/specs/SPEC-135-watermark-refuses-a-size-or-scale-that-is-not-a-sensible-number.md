@@ -7,7 +7,7 @@
 task:
   id: SPEC-135
   type: bug                        # epic | story | task | bug | chore
-  cycle: build  # frame | design | build | verify | ship
+  cycle: verify  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: S                    # S | M | L  (L means split it)
@@ -96,6 +96,42 @@ cost:
         output_tokens per id. Priced by component at Opus $5/$25 per MTok, cache_creation x1.25
         ($6.25), cache_read x0.10 ($0.50): $0.0005 + $1.34 + $0.99 + $2.99. Measured before the
         commit/push turns, so it slightly under-counts.
+    - cycle: build
+      agent: claude-sonnet-5-5
+      interface: claude-code
+      tokens_total: 11038237
+      tokens_breakdown:
+        input: 150
+        output: 43550
+        cache_creation: 164015
+        cache_read: 10830522
+      estimated_usd: 4.52
+      duration_minutes: null
+      recorded_at: 2026-10-27
+      note: >
+        Build session in its own worktree (feat-spec-135-watermark-flag-checks). Measured from the
+        session's transcript (f090942b-….jsonl, identified by content), deduped by `.message.id`
+        (73 unique ids, all claude-sonnet-5-5), input/cache_creation/cache_read once per id, MAX
+        output_tokens per id. Priced by component at Sonnet $3/$15 per MTok, cache_creation x1.25,
+        cache_read x0.10. Measured before the final commit/PR turns, so it slightly under-counts.
+    - cycle: build
+      agent: claude-sonnet-5-5
+      interface: claude-code
+      tokens_total: 1596360
+      tokens_breakdown:
+        input: 44
+        output: 9407
+        cache_creation: 59641
+        cache_read: 1527268
+      estimated_usd: 0.82
+      duration_minutes: null
+      recorded_at: 2026-10-27
+      note: >
+        Build cycle, verify punch-list fix (two AC-4 rows, M-c, three wording fixes). Measured from
+        the session transcript (70cf330a-….jsonl, identified by content), deduped by
+        `.message.id` (21 unique ids, all claude-sonnet-5-5), MAX output_tokens per id. Priced at
+        Sonnet $3/$15 per MTok, cache_creation x1.25, cache_read x0.10. Measured before the final
+        commit/push turns.
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -654,6 +690,8 @@ opaque RGBA **gradient** PNG (not a flat colour: a resize-filter change must sho
       | `--image logo --scale inf` | `… got inf` | 2, saturated |
       | `--image logo --scale 1e39` | `… got inf` | 2, saturated |
       | `--image logo --opacity 1.5` | `error: --opacity must be a number in 0.0..=1.0, got 1.5` | 2, other words |
+      | `--image logo --opacity 1.1` | `error: --opacity must be a number in 0.0..=1.0, got 1.1` | 2, other words (pins the as-parsed text: f32 widened to f64 prints `1.100000023841858`) |
+      | `--text . --size 1024.1` (on 1200×1000) | `… got 1024.1` | 0 on `main` (pins the as-parsed text: widened prints `1024.0999755859375`) |
 - [ ] **AC-5. Boundary at the f32 the op reads, and the documented residual.** CLI
       `--text . --size 1024` on `G(1200,1000)` → exit 0 and a mark is drawn (output pixels ≠
       input pixels); `--size 1025` refused (AC-4). `--size 1024.00001` → exit 0, output
@@ -716,9 +754,9 @@ opaque RGBA **gradient** PNG (not a flat colour: a resize-filter change must sho
 Written during **design**, BEFORE build. Each is RED on `main` for the reason given.
 
 - **`tests/watermark_cli_params.rs`** (new; drives the real binary like `tests/recipe_strict_params.rs`)
-  - `"a bad flag value is a usage error naming the flag"` — AC-4: the 10-row table; asserts exit 2,
-    `error_lines(stderr) == [expected]`, no output file. Asserts the row count is 10.
-    RED: rows 1–4, 7 exit 0; row 6 exits 101; rows 5, 8–10 print other words.
+  - `"a bad flag value is a usage error naming the flag"` — AC-4: the 12-row table; asserts exit 2,
+    `error_lines(stderr) == [expected]`, no output file. Asserts the row count is 12.
+    RED: rows 1–4, 7 exit 0; row 6 exits 101; rows 5, 8–10 print other words; rows 11–12 are green on the fix and pin the message text (M-c).
   - `"size 1024 is accepted and 1025 refused on the cli"` — AC-5: 1024 → exit 0, output pixels ≠
     input; 1025 → exit 2. RED: 1025 exits 0.
   - `"the f32 residual is accepted on the cli"` — AC-5: `--size 1024.00001` exit 0 and its output
@@ -854,39 +892,67 @@ necessary during build, create a new spec rather than expanding this one.
 
 ## Build Completion
 
-*Filled in at the end of the **build** cycle, before advancing to verify.*
-
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
+- **Branch:** `feat/spec-135-watermark-flag-checks`
+- **PR (if applicable):** draft, see the PR for the number
+- **All acceptance criteria met?** yes (AC-1..14; see the table below)
 - **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
-- **Files this diff touches** — **list every one**, with a phrase on what changed
-  in each. Not "src/foo and tests": the enumeration is what a verify cycle diffs
-  the real change against, and what tells you whether every affected `DEC-*` has
-  the path in its `affected_scope`. SPEC-122's Deviations claimed "`src/operation`
-  and `tests/` only" and was wrong by two `scripts/` files, which left
-  `affected_scope` blind; SPEC-124's build added this section by hand after that
-  lesson and still listed 8 of its 9 files. It is a checklist because it is easy
-  to get wrong from memory — build it from `git diff --name-only`, not recall.
-  - `path/to/file` — <what changed>
+  - `DEC-106` — A CLI verb that builds its op directly checks its flags through the op's key table, before any file is read (DEC-102's Consequences line amended)
+- **Commit 1:** `d1484cf` — `git show --stat` lists only `tests/fixtures/watermark/cli_params.golden` and `tests/watermark_cli_params.rs`; no `src/`. Golden has 3 lines, blessed on unmodified `src/`.
+- **Files this diff touches** (from `git diff --name-only origin/main...HEAD`):
+  - `CHANGELOG.md` — one Breaking and four Fixed lines under Unreleased
+  - `decisions/DEC-102-recipe-step-params-are-validated-at-load.md` — Consequences line points at DEC-106
+  - `decisions/DEC-106-…md` — new; block-list `affected_scope`
+  - `docs/api-contract.md` — watermark ranges, before-any-IO order, f32 residual, new refusal form
+  - `docs/data-model.md` — `size` row `> 0` and `<= 1024`, CLI/f32 paragraph
+  - `src/cli/mod.rs` — `--size` help line
+  - `src/cli/ops.rs` — `check_watermark_flag`, `flag_value_text`, flag checks first in `run_watermark`, `watermark_overlay` takes parsed colour and size, three hand checks removed, one unit test
+  - `src/operation/mod.rs` — `size` row `max: Some(1024.0)`, `Refusal::ScaledMarkTooLarge` + Display, `mark_size` → `Option` (+ `fits_u32`), `refusal`/`apply` handle `None`, doc comments, unit tests
+  - `src/operation/registry.rs` — `ParamKind::accepts`, `ParamKind::expectation` (pub), `param_spec`, one unit test
+  - `tests/fixtures/watermark/cli_params.golden` — new, 3 lines
+  - `tests/recipe_strict_params.rs` — 4 range rows (17 → 21), `the_size_cap_is_inclusive`, `apply_refuses_a_size_past_the_cap_before_any_output`
+  - `tests/watermark_cli_params.rs` — new
+  - (the spec, its prompts and timeline are the orchestrator's; `Cargo.lock`, version and `CACHE_SCHEMA_VERSION` untouched)
+- **RED baseline on unmodified `src/`** (exit codes driven on `main`): `--size nan/inf/1e39` 0; `--text . --size 1025` on 1200×1000 0; `--size=-1` 2 (old words); `© crustyimg --size 100000` 101; `--scale nan` 0; `--scale inf/1e39` 2 (saturated); `--opacity 1.5` 2 (old words); font/overlay rows (`--size nan`, `--scale nan`, `--opacity 2`, `--gravity bogus`, `--color zzz`) all 3; missing input 3; help says only "default 32.0". Recipe: `size = 1025` loads, exit 0; `size = 100000` panics. New-API unit tests (AC-3, AC-9, AC-10, the CLI row check) fail to compile on `main`. Green on `main` as designed: byte-identity, the f32 residual, `the_size_cap_is_inclusive`, AC-9 (d).
+- **Negative controls** (each rebuilt with `cargo clean -p crustyimg`, diff non-empty, restored and shown green):
+  1. hand checks restored → RED: AC-4 table, AC-5 (1024/1025), AC-6, AC-7.
+  2. cap row `max: None` → RED: range table, `apply_refuses…`, `a_number_past_f32_range_is_refused`, AC-4, AC-5, AC-6, AC-7. **AC-3 stays green** (it compares the table with itself, so it cannot see the row's value; the spec predicted RED).
+  3. saturating `as u32` → RED: `an_oversized_scale_names_no_saturated_size`, `a_scale_past_u32_refuses_as_scaled_mark_too_large`.
+  3b. height guard dropped → RED: only the unit test, on its `height only` assertion (row (c)).
+  4. checks after `watermark_overlay` → RED: AC-7's five rows, and the AC-4 table (its `© crustyimg --size 100000` row panics in the rasteriser before the check). AC-6 stays green, as predicted.
+  5. clap `f64` → RED: `the_f32_residual_is_accepted_on_the_cli` only.
+  6. Lanczos3 → Triangle → RED: `accepted_marks_are_byte_identical_to_main` (only the `image_scale_quarter` hash differs) and `watermark_damage`'s passing-marks test.
+  7. (M-c, punch-list fix) `flag_value_text` widens to `f64` (`f64::from(v).to_string()`) → RED: the AC-4 table's `--opacity 1.1` row (`got 1.100000023841858`) and `--size 1024.1` row (`got 1024.0999755859375`); no older row.
+- **Table row counts:** AC-4 12, AC-6 10, AC-7 5, recipe range table 21, AC-3 42 (3 keys × 14 values), AC-12 3 goldens (6 runs).
+- **Matrix** (fresh `CARGO_TARGET_DIR` per leg, sequential): default, `--no-default-features`, `--features webp-lossy`; fmt, clippy `-D warnings` and tests all exit 0 (1089 / 1054 / 1094 passed, 0 failed). A first run was red on clippy only (`neg_cmp_op_on_partial_ord`, `type_complexity`), fixed in `48b6409` and the whole matrix re-run.
 - **Deviations from spec:**
-  - [list]
-- **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - `a_number_past_f32_range_is_refused` (existing) pinned the phrase `a finite number` for watermark `size`; that phrase becomes `a number > 0 and <= 1024`, so its watermark row now carries its own phrase. No other existing test changed.
+  - `size_help_states_the_cap` reads the `--size` entry's following lines, since the first line naming `--size` is prose.
+  - `accepted_marks_are_byte_identical_to_main` also asserts each recipe hash equals its CLI hash.
+  - `fits_u32` helper added in `src/operation/mod.rs` for clippy; not the same semantics as the design's `!(w < u32::MAX as f32)`: they differ at −inf, which the design form treats as a fit and `fits_u32` refuses. Only a direct library caller can reach it (the CLI and the schema refuse a scale of 0 or less first).
+  - Not run: the wasm bundle-size gate (CI only).
+- **Follow-up work identified:** `text::render_text` still panics for a direct library caller with a huge size (ruling 6, filed for 0.8.1).
 
 ### Build-phase reflection (3 questions, short answers)
 
-Process-focused: how did the build go? What friction did the spec create?
-
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — Nothing blocking. AC-3 was listed under control 2 but cannot flip (self-consistent by construction).
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — clippy's `neg_cmp_op_on_partial_ord` rejects the design's literal `!(w < MAX)`; worth noting in future float-guard designs.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Run clippy once before the first matrix; I paid a full three-leg matrix to learn it.
+
+No design call turned out wrong.
+
+### Verify punch list (fix)
+
+Verify at `8922f31` found one item: mutation M-c (`flag_value_text` widens to `f64`) survived,
+because every AC-4 value is exact in `f32`. Fix: two rows `f32` cannot hold (`--opacity 1.1`,
+`--size 1024.1`; the latter reads as 1024.0999755859375, above the cap, and is refused), row-count
+assertion 10 → 12, M-c driven RED on both and restored, and three sentences corrected (DEC-106's
+`mark_size` claim, the `fits_u32` deviation line, `size` "finite" in `docs/data-model.md`). No `src/`
+change. Commits: see `git log 8922f31..HEAD`.
 
 ---
 

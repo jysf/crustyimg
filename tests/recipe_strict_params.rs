@@ -256,8 +256,14 @@ fn out_of_range_is_refused_for_every_ranged_key() {
         ("resize", "mode = \"big\"\nwidth = 8", "mode"),
         ("watermark", "text = \"hi\"\ngravity = \"up\"", "gravity"),
         ("watermark", "text = \"hi\"\ncolor = \"xyz\"", "color"),
+        ("watermark", "text = \"hi\"\nsize = 1025", "size"),
+        ("watermark", "text = \"hi\"\nsize = 1024.00001", "size"),
+        ("watermark", "text = \"hi\"\nsize = 4294967296", "size"),
+        // The longer string is load-bearing: `hi` at this size is fit-refused
+        // later, only this one reaches the rasteriser and used to panic.
+        ("watermark", "text = \"© crustyimg\"\nsize = 100000", "size"),
     ];
-    assert_eq!(rows.len(), 17, "every ranged key, non-finite rows included");
+    assert_eq!(rows.len(), 21, "every ranged key, non-finite rows included");
 
     for (op, body, key) in rows {
         let (name, reason) = refusal(&one_step(op, body));
@@ -266,6 +272,19 @@ fn out_of_range_is_refused_for_every_ranged_key() {
             reason.contains(&format!("'{key}' must be")),
             "{op}: `{body}` must be refused naming '{key}', got: {reason}"
         );
+    }
+}
+
+/// The cap is inclusive: 1024 builds, as an integer and as a float.
+#[test]
+fn the_size_cap_is_inclusive() {
+    let rows = [
+        one_step("watermark", "text = \"hi\"\nsize = 1024"),
+        one_step("watermark", "text = \"hi\"\nsize = 1024.0"),
+    ];
+    assert_eq!(rows.len(), 2);
+    for toml in &rows {
+        load(toml).unwrap_or_else(|e| panic!("must build, got {e}:\n{toml}"));
     }
 }
 
@@ -291,15 +310,26 @@ fn an_integer_past_u32_max_is_refused() {
 /// would become `inf` there, so it is refused like `inf` itself.
 #[test]
 fn a_number_past_f32_range_is_refused() {
-    let rows: &[(&str, &str, &str)] = &[
-        ("watermark", "text = \"hi\"\nsize = 1e300", "size"),
-        ("resize", "mode = \"percent\"\npercent = 1e300", "percent"),
+    // Watermark `size` is capped, so its range phrase names the cap.
+    let rows: &[(&str, &str, &str, &str)] = &[
+        (
+            "watermark",
+            "text = \"hi\"\nsize = 1e300",
+            "size",
+            "a number > 0 and <= 1024",
+        ),
+        (
+            "resize",
+            "mode = \"percent\"\npercent = 1e300",
+            "percent",
+            "a finite number",
+        ),
     ];
     assert_eq!(rows.len(), 2);
-    for (op, body, key) in rows {
+    for (op, body, key, phrase) in rows {
         let (_, reason) = refusal(&one_step(op, body));
         assert!(
-            reason.contains(&format!("'{key}' must be a finite number")),
+            reason.contains(&format!("'{key}' must be {phrase}")),
             "{op}: got: {reason}"
         );
         assert!(
@@ -565,6 +595,53 @@ fn files_in(dir: &Path) -> usize {
 
 fn error_lines(stderr: &str) -> Vec<&str> {
     stderr.lines().filter(|l| l.starts_with("error:")).collect()
+}
+
+// ── `apply` refuses a size past the cap before any output ───────────────────
+
+#[test]
+fn apply_refuses_a_size_past_the_cap_before_any_output() {
+    let rows: &[(&str, &str)] = &[
+        // On a 1200×1000 input a 1025 mark would otherwise be accepted.
+        ("text = \".\"\nsize = 1025", "1025"),
+        ("text = \"© crustyimg\"\nsize = 100000", "100000"),
+    ];
+    assert_eq!(rows.len(), 2);
+    for (body, got) in rows {
+        let dir = TempDir::new().unwrap();
+        let input = dir.path().join("in.png");
+        DynamicImage::ImageRgb8(RgbImage::from_pixel(1200, 1000, image::Rgb([42, 100, 200])))
+            .save(&input)
+            .unwrap();
+        let recipe = dir.path().join("r.toml");
+        std::fs::write(&recipe, one_step("watermark", body)).unwrap();
+        let out = dir.path().join("out.png");
+
+        let output = Command::new(BIN)
+            .arg("apply")
+            .arg("--recipe")
+            .arg(&recipe)
+            .arg(&input)
+            .arg("-o")
+            .arg(&out)
+            .arg("-y")
+            .output()
+            .expect("run apply");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+
+        assert_eq!(output.status.code(), Some(1), "{body}: {stderr}");
+        assert!(!out.exists(), "no output may be written");
+        assert!(!stderr.contains("panicked"), "no panic text: {stderr}");
+        let errors = error_lines(&stderr);
+        assert_eq!(errors.len(), 1, "one error line, got: {stderr}");
+        assert!(
+            errors[0].contains(&format!(
+                "recipe step 0 ('watermark'): 'size' must be a number > 0 and <= 1024, got {got}"
+            )),
+            "{}",
+            errors[0]
+        );
+    }
 }
 
 // ── AC-7: `apply --recipe` refuses before writing anything ──────────────────
