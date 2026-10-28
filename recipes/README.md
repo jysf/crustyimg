@@ -125,12 +125,15 @@ width = 1200
 ```
 
 `apply --recipe` (at one input or many) and `build` both honour it and write the same bytes.
-The flags still win, in this order:
+On `apply --recipe` the flags still win, in this order:
 
 1. `--format`;
 2. the extension of `-o`, or of a `--name-template` (`'{stem}.png'` writes PNG);
 3. the recipe's `format`;
 4. otherwise the source's own format.
+
+On `build`, the order is: the extension of the target's `name` (`name = "{stem}.png"` writes
+PNG), then the recipe's `format`, then the source's own format. `build` ignores `--format`.
 
 `-q` wins over the recipe's `quality`. On a recipe that ends in `optimize`, a `format` pins the
 encode and the automatic choice is skipped. A `version = "1"` recipe that sets either key is

@@ -58,7 +58,9 @@ Prebuilt binaries: https://github.com/jysf/crustyimg/releases
 - **The output format** comes from `--format`, else the extension of `-o` or of
   `--name-template` (`'{stem}.png'` writes PNG), else a recipe's `format`, else the source's
   own format is kept. `web` and `optimize` choose the format themselves unless you pin one.
-  To keep each file's format in a template, use `{ext}`.
+  To keep each file's format in a template, use `{ext}`. **`build` is different:** the
+  target's `name` extension decides, else the recipe's `format`, else the source's format.
+  `--format` does nothing on `build`, so do not reach for it there.
 - **GPS is dropped by default** on any command that re-encodes pixels. Pass `--keep-gps`
   only if the user asks to keep location data.
 - **Work on copies** when the user's originals are precious; crustyimg only writes the
@@ -81,10 +83,10 @@ back **larger** — crustyimg says so ("N% larger"). When the user needs "never 
 keep my dimensions", use `optimize`:
 
 ```sh
-crustyimg optimize photo.jpg -o photo.avif               # fast, never bigger
-crustyimg optimize photo.jpg --verify -o photo.avif      # also report the quality score
-crustyimg optimize photo.jpg --target high -o photo.jpg  # search for a quality target
-crustyimg optimize photo.jpg --max-size 200KB -o photo.jpg
+crustyimg optimize photo.jpg -o photo.avif                   # fast, never bigger
+crustyimg optimize photo.jpg --verify -o photo.avif          # also report the quality score
+crustyimg optimize photo.jpg --target high -o photo.jpg -y   # search for a quality target
+crustyimg optimize photo.jpg --max-size 200KB -o photo.jpg -y
 ```
 
 If `optimize` can't beat the source, it keeps the original bytes and says so.
@@ -241,8 +243,9 @@ margin = 16
 ```
 
 A `text` mark uses `text = "…"` with optional `font`, `size` and `color` instead of `image`.
-`--format`, `-o` and a template extension still win over the recipe's `format`; `-q` wins over
-its `quality`. Keep `version = "1"` and leave both keys out if crustyimg 0.7.x must run it.
+On `apply --recipe`, `--format`, `-o` and a template extension still win over the recipe's
+`format`; on `build`, the target's name extension wins over it and `--format` does nothing.
+`-q` wins over its `quality`. Keep `version = "1"` and leave both keys out if crustyimg 0.7.x must run it.
 
 Every step key is checked when the recipe loads. A misspelt or unknown key, a wrong type or
 range, or a key the step's mode never reads exits 1 with nothing written, naming the step

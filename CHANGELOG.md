@@ -26,14 +26,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **A recipe can set its output `format` and `quality`.** Declare `version = "2"` and add
   `format = "webp"` and/or `quality = 80` at the top of the file. `apply --recipe` (at one
-  input or many) and `build` both honour them and write the same bytes. `--format` still wins,
-  then an `-o` or `--name-template` extension, then the recipe's `format`, then the source's
-  own format; `-q` wins over the recipe's `quality`. On a recipe ending in `optimize`, a
+  input or many) and `build` both honour them and write the same bytes. On `apply --recipe`,
+  `--format` still wins, then an `-o` or `--name-template` extension, then the recipe's
+  `format`, then the source's own format. On `build`, the target's name extension wins, then
+  the recipe's `format`, then the source's own format; `--format` has no effect on `build`.
+  `-q` wins over the recipe's `quality`. On a recipe ending in `optimize`, a
   `format` pins the encode and skips the automatic choice. A `version = "1"` recipe that sets
   either key is refused when it loads (exit `1`):
   ``recipe field 'format' requires `version = "2"` (found version "1")``. Recipes that use
   neither key are unchanged, and `edit --save-recipe` still writes `version = "1"`.
-  crustyimg 0.7.1 and earlier cannot read a recipe that uses them (`unknown field 'format'`).
+  crustyimg 0.7.1 and earlier cannot read a recipe that uses them (``unknown field `format`, expected one of …``).
 
 ### Breaking
 
@@ -49,8 +51,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (or, on `web`/`optimize`/`apply --recipe web`, the automatically chosen AVIF) into a file
   named `.png`; it now writes a real PNG, on `resize`, `thumbnail`, `auto-orient`,
   `watermark`, `edit`, `apply`, `optimize`, `web` and `apply --recipe web`, at one input and
-  at many. A plain-recipe `build` target's `name = "{stem}.png"` does the same. `--format`
-  still wins over the extension, and the extension wins over a recipe's `format`. Templates
+  at many. A plain-recipe `build` target's `name = "{stem}.png"` does the same. On the verbs
+  that take `--format`, it still wins over the extension (it does not apply to `build`), and
+  the extension wins over a recipe's `format`. Templates
   with `{ext}` (including the default `{stem}.{ext}`), or with an extension that is not an
   image format (`{stem}.txt`), are unchanged. Output bytes change for any such template whose
   extension differs from what was written before; on `web`, `optimize` and
