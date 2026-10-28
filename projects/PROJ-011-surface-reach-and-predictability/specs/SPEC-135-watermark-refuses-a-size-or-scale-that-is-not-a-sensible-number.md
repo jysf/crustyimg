@@ -672,6 +672,8 @@ opaque RGBA **gradient** PNG (not a flat colour: a resize-filter change must sho
       | `--image logo --scale inf` | `… got inf` | 2, saturated |
       | `--image logo --scale 1e39` | `… got inf` | 2, saturated |
       | `--image logo --opacity 1.5` | `error: --opacity must be a number in 0.0..=1.0, got 1.5` | 2, other words |
+      | `--image logo --opacity 1.1` | `error: --opacity must be a number in 0.0..=1.0, got 1.1` | 2, other words (pins the as-parsed text: f32 widened to f64 prints `1.100000023841858`) |
+      | `--text . --size 1024.1` (on 1200×1000) | `… got 1024.1` | 0 on `main` (pins the as-parsed text: widened prints `1024.0999755859375`) |
 - [ ] **AC-5. Boundary at the f32 the op reads, and the documented residual.** CLI
       `--text . --size 1024` on `G(1200,1000)` → exit 0 and a mark is drawn (output pixels ≠
       input pixels); `--size 1025` refused (AC-4). `--size 1024.00001` → exit 0, output
@@ -734,9 +736,9 @@ opaque RGBA **gradient** PNG (not a flat colour: a resize-filter change must sho
 Written during **design**, BEFORE build. Each is RED on `main` for the reason given.
 
 - **`tests/watermark_cli_params.rs`** (new; drives the real binary like `tests/recipe_strict_params.rs`)
-  - `"a bad flag value is a usage error naming the flag"` — AC-4: the 10-row table; asserts exit 2,
-    `error_lines(stderr) == [expected]`, no output file. Asserts the row count is 10.
-    RED: rows 1–4, 7 exit 0; row 6 exits 101; rows 5, 8–10 print other words.
+  - `"a bad flag value is a usage error naming the flag"` — AC-4: the 12-row table; asserts exit 2,
+    `error_lines(stderr) == [expected]`, no output file. Asserts the row count is 12.
+    RED: rows 1–4, 7 exit 0; row 6 exits 101; rows 5, 8–10 print other words; rows 11–12 are green on the fix and pin the message text (M-c).
   - `"size 1024 is accepted and 1025 refused on the cli"` — AC-5: 1024 → exit 0, output pixels ≠
     input; 1025 → exit 2. RED: 1025 exits 0.
   - `"the f32 residual is accepted on the cli"` — AC-5: `--size 1024.00001` exit 0 and its output
@@ -901,13 +903,14 @@ necessary during build, create a new spec rather than expanding this one.
   4. checks after `watermark_overlay` → RED: AC-7's five rows, and the AC-4 table (its `© crustyimg --size 100000` row panics in the rasteriser before the check). AC-6 stays green, as predicted.
   5. clap `f64` → RED: `the_f32_residual_is_accepted_on_the_cli` only.
   6. Lanczos3 → Triangle → RED: `accepted_marks_are_byte_identical_to_main` (only the `image_scale_quarter` hash differs) and `watermark_damage`'s passing-marks test.
-- **Table row counts:** AC-4 10, AC-6 10, AC-7 5, recipe range table 21, AC-3 42 (3 keys × 14 values), AC-12 3 goldens (6 runs).
+  7. (M-c, punch-list fix) `flag_value_text` widens to `f64` (`f64::from(v).to_string()`) → RED: the AC-4 table's `--opacity 1.1` row (`got 1.100000023841858`) and `--size 1024.1` row (`got 1024.0999755859375`); no older row.
+- **Table row counts:** AC-4 12, AC-6 10, AC-7 5, recipe range table 21, AC-3 42 (3 keys × 14 values), AC-12 3 goldens (6 runs).
 - **Matrix** (fresh `CARGO_TARGET_DIR` per leg, sequential): default, `--no-default-features`, `--features webp-lossy`; fmt, clippy `-D warnings` and tests all exit 0 (1089 / 1054 / 1094 passed, 0 failed). A first run was red on clippy only (`neg_cmp_op_on_partial_ord`, `type_complexity`), fixed in `48b6409` and the whole matrix re-run.
 - **Deviations from spec:**
   - `a_number_past_f32_range_is_refused` (existing) pinned the phrase `a finite number` for watermark `size`; that phrase becomes `a number > 0 and <= 1024`, so its watermark row now carries its own phrase. No other existing test changed.
   - `size_help_states_the_cap` reads the `--size` entry's following lines, since the first line naming `--size` is prose.
   - `accepted_marks_are_byte_identical_to_main` also asserts each recipe hash equals its CLI hash.
-  - `fits_u32` helper added in `src/operation/mod.rs` for clippy; same semantics as the spec's `!(w < u32::MAX as f32)`.
+  - `fits_u32` helper added in `src/operation/mod.rs` for clippy; not the same semantics as the design's `!(w < u32::MAX as f32)`: they differ at −inf, which the design form treats as a fit and `fits_u32` refuses. Only a direct library caller can reach it (the CLI and the schema refuse a scale of 0 or less first).
   - Not run: the wasm bundle-size gate (CI only).
 - **Follow-up work identified:** `text::render_text` still panics for a direct library caller with a huge size (ruling 6, filed for 0.8.1).
 
@@ -923,6 +926,15 @@ necessary during build, create a new spec rather than expanding this one.
    — Run clippy once before the first matrix; I paid a full three-leg matrix to learn it.
 
 No design call turned out wrong.
+
+### Verify punch list (fix)
+
+Verify at `8922f31` found one item: mutation M-c (`flag_value_text` widens to `f64`) survived,
+because every AC-4 value is exact in `f32`. Fix: two rows `f32` cannot hold (`--opacity 1.1`,
+`--size 1024.1`; the latter reads as 1024.0999755859375, above the cap, and is refused), row-count
+assertion 10 → 12, M-c driven RED on both and restored, and three sentences corrected (DEC-106's
+`mark_size` claim, the `fits_u32` deviation line, `size` "finite" in `docs/data-model.md`). No `src/`
+change. Commits: see `git log 8922f31..HEAD`.
 
 ---
 

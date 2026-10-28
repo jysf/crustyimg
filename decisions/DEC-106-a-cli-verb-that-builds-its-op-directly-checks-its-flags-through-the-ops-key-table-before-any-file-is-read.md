@@ -69,9 +69,11 @@ reads any file.
   the bound and is accepted, while the same value in a recipe (an f64) is refused.
 - **A scaled mark whose size cannot be represented** (a side past `u32`) is
   `Refusal::ScaledMarkTooLarge`, displayed as `the scaled mark does not fit inside the W×H px
-  image`. `Watermark::mark_size` returns `None` exactly where the old saturating cast produced
-  `4294967295`; for every size that is representable it computes the same values, so no accepted
-  mark changes.
+  image`. `Watermark::mark_size` returns `None` wherever a side would not fit a `u32`. That covers the
+  old saturating-cast cases (which produced `4294967295`) plus NaN and −inf, which the old cast
+  turned into a 1×1 mark; only a direct library caller can reach those two, because the CLI and
+  the schema refuse a scale of 0 or less first. For every size that is representable it computes
+  the same values, so no accepted mark changes.
 
 ## Context
 

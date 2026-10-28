@@ -226,7 +226,7 @@ wrong-typed value):
 | `image` | string (a file path) | — |
 | `text` | string | — |
 | `font` | string (a file path) | — |
-| `size` | number (integer or float) | `> 0` and `<= 1024` |
+| `size` | number (integer or float) | finite, `> 0` and `<= 1024` |
 | `color` | string | hex `RRGGBB`, `#RRGGBB` or `RRGGBBAA` |
 | `gravity` | string | one of `center`, `north`, `south`, `east`, `west`, `northeast`, `northwest`, `southeast`, `southwest` |
 | `opacity` | number (integer or float) | `0.0..=1.0` |
