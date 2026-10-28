@@ -2,7 +2,7 @@
 
 > A catalog of standard, obvious workflows — the copy-paste "how do I…" reference. Two kinds:
 > **one-liners** (single commands) and **saved recipes** (an op pipeline in TOML, replayed with
-> `apply`). Each item is marked **[today]** (works in the shipped v0.7.x, or with the noted
+> `apply`). Each item is marked **[today]** (works in the shipped v0.8.x, or with the noted
 > feature flag) or **[planned — PROJ-00N]** (unlocked by a roadmap project; see
 > `docs/roadmap.md`). Living doc — add recipes as workflows appear. Snapshot: 2026-08-11.
 
