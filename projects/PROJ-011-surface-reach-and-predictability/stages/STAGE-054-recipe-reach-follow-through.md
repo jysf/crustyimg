@@ -216,8 +216,23 @@ Ordered. ⚡ Only the first item gates 0.8.0.
   an image or font file ends with `… is out of scope (SPEC-128)` (`src/wasm.rs:237`).
   User-facing text carries no spec or DEC ids. Reword it to say what to do instead, and check
   every other user-facing string for the same: `grep -rn 'SPEC-\|DEC-' src/` outside comments.
+  ⚠ **"Outside comments" misses `--help`.** clap builds help text from `///` doc comments, and
+  `crustyimg --help` shows `build … (SPEC-063, DEC-057)` and `lint … (SPEC-050, DEC-050)` today
+  (seen by the orchestrator on 0.7.1, 2026-10-28). Check every verb's `--help` output, not the
+  source: loop over the verbs and grep the rendered help for `SPEC-` and `DEC-`.
 
-**Count:** 1 shipped / 0 active / 15 pending
+- [ ] (not yet written) — [S] **An SVG font family other than Go draws no text.** Filed by the
+  PR #211 (resvg 0.49) verify, 2026-10-28. It's the same on 0.7.1, so #211 didn't cause it.
+  `<text font-family="sans-serif">`, `serif`, `Helvetica` or `"Helvetica, sans-serif"` renders
+  **zero ink**, exits 0, and prints no warning. Only no family, `Go`, or a list that contains
+  `Go` renders. The bundled-font-only rule (no system fonts) holds: installed Helvetica and
+  Zapfino are not read. Most real SVGs name a family, so their text silently vanishes. Likely
+  fix: point `fontdb`'s generic families (`sans-serif`, `serif`, `monospace`, …) at Go in
+  `hardened_options()` (`src/image/svg.rs`). If an unknown named family still draws nothing
+  after that, fall back to Go too. Test with an independent check that ink is present. Keep a
+  negative control proving no system font is read.
+
+**Count:** 1 shipped / 0 active / 16 pending
 
 ## Design Notes
 
