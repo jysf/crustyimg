@@ -128,6 +128,8 @@ Ordered. ⚡ Only the first item gates 0.8.0.
   (identical at `3dd23ff`; `src/cli/ops.rs` unchanged by SPEC-133). Pick one labelling rule for
   every per-input line and use it in `run_pixel_op` too; check the error lines as well as the
   skip lines.
+  The 0.8.0 release-notes session (2026-10-27) added that the same warning prints an absolute
+  path for a directory input but a relative one for a glob, on `watermark` alone.
 
 - [ ] (not yet written) — [S] **wasm `validate(recipe_toml)` export returning structured,
   per-step recipe errors.** Filed by SPEC-131's design (2026-10-24). Roadmap row #6's (recipe
@@ -187,7 +189,35 @@ Ordered. ⚡ Only the first item gates 0.8.0.
   stops at its first failing row. Collect every row's failure and assert once, so a mutation that
   breaks several rows shows all of them. Docs and test only, no behaviour change.
 
-**Count:** 1 shipped / 0 active / 11 pending
+- [ ] (not yet written) — [S] **A recipe's `format = "bogus"` is refused as an "extension".**
+  Filed by the 0.8.0 release-notes session (2026-10-27): it exits 4 with
+  `unsupported output extension: bogus`, but the user wrote a recipe key, not a file extension.
+  Name the key and the step, as other recipe load errors do (DEC-102), and check whether it
+  should be refused at load (exit 1) instead of at encode (exit 4).
+
+- [ ] (not yet written) — [S] **A recipe's `quality = 101` is accepted and treated as 100.**
+  Filed by the 0.8.0 release-notes session (2026-10-27), consistent with `-q 101` on the CLI.
+  `recipes/README.md` now documents 0–100, so the schema accepts a value the guide calls out of
+  range. Decide: refuse it at load, as every other ranged recipe key is refused (DEC-102), and
+  `-q` too; or document the clamp.
+
+- [ ] (not yet written) — [S] **`build --format` is accepted and silently ignored.**
+  Filed by the 0.8.0 release-notes verify (2026-10-27), driven on `main`'s release binary:
+  `build --format png` exits 0 and writes the target's own format (GIF, WebP or JPEG), with or
+  without a name extension or a recipe `format`. `--format` is a **global** flag
+  (`src/cli/mod.rs:88-90`), so `build --help` lists it as "Force output format", but
+  `src/cli/build.rs` never reads it. `apply --recipe` honours it. Decide: make `build` honour it,
+  above the name and the recipe's `format`, as `apply` does (the cache key must include it); or
+  refuse it on `build` with exit 2. Then correct the docs, which 0.8.0 words as "on `build`, the
+  target's name or the recipe's `format` sets the format". Check whether 0.7.1 ignores it too.
+
+- [ ] (not yet written) — [S] **The browser's asset refusal shows a spec id to users.** Filed by
+  the 0.8.0 release-notes verify (2026-10-27). The wasm `transform` error for a recipe that needs
+  an image or font file ends with `… is out of scope (SPEC-128)` (`src/wasm.rs:237`).
+  User-facing text carries no spec or DEC ids. Reword it to say what to do instead, and check
+  every other user-facing string for the same: `grep -rn 'SPEC-\|DEC-' src/` outside comments.
+
+**Count:** 1 shipped / 0 active / 15 pending
 
 ## Design Notes
 
