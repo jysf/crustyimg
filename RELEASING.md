@@ -73,22 +73,18 @@ or delegate them.
    [X.Y.Z]: https://github.com/jysf/crustyimg/releases/tag/vX.Y.Z
    ```
 
-   > **This next release batches three AVIF/pixel-lane byte-changing specs on
-   > purpose** — SPEC-121 (colour type / bit depth preserved through ops),
-   > SPEC-122 (resize resamples in linear light), and SPEC-124 (the AVIF
-   > encoder's tile count is pinned, so output no longer depends on the
-   > machine's core count) — so users pay one `*.build.lock` migration
-   > instead of three. Diff the CHANGELOG against the specs merged since the
-   > previous tag before rolling it (the step (a) chore STAGE-042 filed):
-   > 0.7.0 shipped with SPEC-112 missing from its `[Unreleased]` section, and
-   > the roll only caught it by luck.
+   > **Before rolling, diff the CHANGELOG against what merged since the previous
+   > tag.** List the code-bearing commits (`git log --oneline vPREV..HEAD --no-merges
+   > -- src/ Cargo.toml`) and check that every user-visible change among them has an
+   > entry in `[Unreleased]`. Changes are not always written up when they merge: 0.7.0
+   > shipped with one missing, and 0.8.0's prep found four with no entry.
 
 2a. **Update the agent skill** — [`skills/crustyimg/SKILL.md`](skills/crustyimg/SKILL.md)
    teaches AI coding agents how to use the CLI, and it drifts silently. Walk the
    CHANGELOG section you just rolled: for every added, renamed, or removed command or
    flag, changed default, or changed exit code, update the skill to match, and bump the
    "Written against crustyimg X.Y" line on a minor release. Remove a caveat once it's
-   fixed (e.g. the WebP-in-a-glob note). If the skill is listed on any external
+   fixed (e.g. the WebP-in-a-glob note, removed for 0.8.0). If the skill is listed on any external
    marketplace, re-upload it there after the tag ships.
 
 3. **Dry-run publish check** — verify the crate is publish-ready:
