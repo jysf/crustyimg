@@ -16,6 +16,9 @@ Cycle prompts live in `prompts/SPEC-135-<cycle>.md`.
   CLI checks `--size`/`--scale`/`--opacity` through a public per-key table check, naming the flag,
   before any file IO; `size <= 1024` schema row; an unrepresentable scaled mark is refused as
   `the scaled mark does not fit inside the W×H px image`. Released 0.7.1 panics at size 100000.
-- [~] **build** — `prompts/SPEC-135-build.md` — draft PR (handed out 2026-10-27, Sonnet; branch `feat/spec-135-watermark-flag-checks`). Rulings 4–7 recorded after design: ~50 rows stay [S] with no cut; the two reworded messages are accepted; the `render_text` library panic is filed on STAGE-054.
-- [ ] **verify**
+- [x] **build** — `prompts/SPEC-135-build.md` (2026-10-27, Sonnet). Draft PR #207 at `8922f31`,
+  CI green (16 pass, 6 skipped). Commit 1 `d1484cf` holds the goldens and touches no `src/`. 14/14 ACs;
+  every negative control flipped except AC-3 under "cap removed" (it compares the table with
+  itself, so the design's prediction was wrong). Measured $4.52 before the final turns.
+- [~] **verify** — `prompts/SPEC-135-verify.md` (handed out 2026-10-27, Opus; worktree `verify/spec-135`)
 - [ ] **ship**
