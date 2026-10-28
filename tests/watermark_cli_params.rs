@@ -268,8 +268,20 @@ fn a_bad_flag_value_is_a_usage_error_naming_the_flag() {
             vec!["--image", "logo.png", "--opacity", "1.5"],
             "error: --opacity must be a number in 0.0..=1.0, got 1.5".to_owned(),
         ),
+        (
+            // 1.1 and 1024.1 are not exact in f32; the message must print the
+            // value as parsed, not the widened f64 (1.100000023841858).
+            (400, 300),
+            vec!["--image", "logo.png", "--opacity", "1.1"],
+            "error: --opacity must be a number in 0.0..=1.0, got 1.1".to_owned(),
+        ),
+        (
+            (1200, 1000),
+            vec!["--text", ".", "--size", "1024.1"],
+            format!("error: --size must be {SIZE_PHRASE}, got 1024.1"),
+        ),
     ];
-    assert_eq!(rows.len(), 10, "ten rows");
+    assert_eq!(rows.len(), 12, "twelve rows");
 
     for (base, args, expected) in rows {
         let dir = TempDir::new().unwrap();
