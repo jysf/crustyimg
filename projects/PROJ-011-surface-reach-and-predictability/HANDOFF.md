@@ -186,6 +186,11 @@ Batching these in one sitting unblocks more than anything an orchestrator can do
     build or fix prompt that adds or relies on a derived value (a count, a resolved list, the image
     a step sees) asks for one test row where it differs from the naive value, and a mutation that
     swaps the two.** Trap 9 is the same lesson for a removed check.
+    **Formatted output is a derived value too.** In SPEC-135 every message-row value (`nan`, `1025`,
+    `1.5`) was exact in `f32`, so printing the value widened to `f64` (`got 1.100000023841858`)
+    passed every test. A punch list and a re-verify followed. A test of printed or formatted
+    output uses at least one value whose naive and correct renderings differ: an `f32`-inexact
+    number such as `1.1`, or one past a cap by less than one step of the narrower type.
 
 ## What is working, and worth keeping
 
