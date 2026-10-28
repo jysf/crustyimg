@@ -1,0 +1,40 @@
+# wasm32-unknown-unknown half of the probe. Run with the rustup stable toolchain (the one
+# with the wasm32 target), as crustyimg's `just wasm-test` does:
+#
+#   ../make-corpus.sh /tmp/oxcorpus && cp /tmp/oxcorpus/{fuji_d8_420_q60,fuji_alpha_10b,gps_grid2x2,ravif_fuji_q40}.avif tests/
+#   TC=$(rustup which --toolchain stable rustc | xargs dirname)
+#   PATH=$TC:$PATH RUSTC=$TC/rustc CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER=wasm-bindgen-test-runner \
+#     $TC/cargo test --release --target wasm32-unknown-unknown
+#
+# As published (oxideav-av1 0.1.21) both tests FAIL: the AV1 frame driver calls
+# `std::time::Instant::now()` unconditionally, which panics on bare wasm32. Run
+# `../patch-av1.sh` and uncomment the [patch] block to stub that one call site; both
+# tests then pass, byte-identical to the native decode.
+[package]
+name = "oxideav-avif-wasm-probe"
+version = "0.0.0"
+edition = "2021"
+publish = false
+license = "MIT OR Apache-2.0"
+
+[workspace]
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+oxideav-avif = "=0.0.16"
+wasm-bindgen = "=0.2.126"
+
+[dev-dependencies]
+wasm-bindgen-test = "=0.3.76"
+
+# Same size settings as crustyimg's wasm profile (`_wasm_profile` in the justfile).
+[profile.release]
+opt-level = "s"
+lto = "fat"
+codegen-units = 1
+strip = true
+
+# [patch.crates-io]
+# oxideav-av1 = { path = "patched-av1" }

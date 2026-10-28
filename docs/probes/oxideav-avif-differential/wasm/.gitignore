@@ -1,0 +1,3 @@
+patched-av1/
+tests/*.avif
+target/
