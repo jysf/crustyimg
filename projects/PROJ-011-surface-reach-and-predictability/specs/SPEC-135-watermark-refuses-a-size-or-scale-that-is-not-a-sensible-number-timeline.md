@@ -24,7 +24,9 @@ Cycle prompts live in `prompts/SPEC-135-<cycle>.md`.
   one item, M-c (a message printing the value widened to f64) survives every test because every
   row's value is exact in f32. Everything else held: 14/14 ACs driven on both binaries, all six
   controls flipped, byte identity vs `main` by ImageMagick AE = 0. Three wording cleanups. $4.31.
-- [~] **fix** — `prompts/SPEC-135-fix.md` (handed out 2026-10-27, Sonnet; build worktree). Two
-  f32-inexact rows (`--opacity 1.1`, `--size 1024.1`), M-c proven, three sentences corrected; no `src/` change.
-- [ ] **re-verify**
+- [x] **fix** — `prompts/SPEC-135-fix.md` (2026-10-27, Sonnet). PR #207 at `161b637`
+  (`2aa78a4` test, `b11dd40` docs, `161b637` cost). Two f32-inexact rows in AC-4 (12 rows);
+  M-c went RED on both; no `src/` change since `8922f31`; three sentences corrected. Full CI
+  green at `161b637`, 13 jobs (the `b11dd40` run was cancelled when the next push replaced it). ~$0.82.
+- [~] **re-verify** — `prompts/SPEC-135-reverify.md` (handed out 2026-10-27, Opus; worktree `verify/spec-135-fix`)
 - [ ] **ship**
