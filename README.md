@@ -218,7 +218,9 @@ crustyimg responsive hero.jpg --widths 320,640,1280 --formats webp,jpeg --out-di
 ### Batch (multiple files)
 
 Pass many inputs (a list, a glob, or a directory) to any transform — multi-input runs
-require `--out-dir`, and `--name-template` controls output names (`{stem}`, `{ext}`):
+require `--out-dir`, and `--name-template` controls output names (`{stem}`, `{ext}`). A
+literal extension in the template (`'{stem}.png'`) also sets the output format, as an `-o`
+extension does:
 
 ```sh
 crustyimg web *.jpg --out-dir web/                               # a glob
@@ -233,7 +235,8 @@ crustyimg meta strip *.jpg --out-dir clean/ --name-template "{stem}_clean.{ext}"
 
 ### Recipes
 
-A **recipe** is an ordered pipeline of operations saved as TOML — tune it once, replay it
+A **recipe** is an ordered pipeline of operations saved as TOML — resize, watermark and
+more, optionally with the output format and quality to write. Tune it once, replay it
 anywhere. Three ship inside the binary, so there's no file to write for the common jobs:
 
 | Recipe | Pipeline |
@@ -258,7 +261,8 @@ crustyimg apply --recipe mine.toml *.jpg --out-dir out/ -j 8
 `web.toml` unambiguously shadows the bundled `web`. The round trip is byte-stable:
 `apply`-ing a saved recipe reproduces the `edit` that wrote it byte for byte, so a recipe
 reviewed in a PR is exactly what runs in CI. The same TOML runs in the browser demo, via
-the wasm `transform()` binding.
+the wasm `transform()` binding, unless a step needs a file (a watermark `image` or `font`):
+the browser has no files to read, so `transform()` refuses that recipe and names the step.
 
 To declare many source → output pairs in one file instead of one command per batch, use
 [`crustyimg build`](docs/cli-reference.md) with a `crustyimg.build.toml` manifest — it adds

@@ -124,8 +124,9 @@ crustyimg apply --recipe web "assets/**/*.{jpg,png}" --out-dir dist/img -j 8
   `crustyimg edit in.jpg --auto-orient --resize-max 1600 --save-recipe mine.toml`
   then `crustyimg apply --recipe mine.toml "assets/**/*.jpg" --out-dir dist/img -j 8`.
   `edit` records only the ops it exposes — `--auto-orient`, `--resize-max`, `--invert`.
-- **Write one by hand for anything else** **[today]** — a crop to an exact box, or the terminal
-  `optimize` step the bundled recipes end in, is written directly as TOML. Format and op
+- **Write one by hand for anything else** **[today]** — a crop to an exact box, a watermark,
+  a pinned output `format`/`quality` (`version = "2"`), or the terminal `optimize` step the
+  bundled recipes end in, is written directly as TOML. Format and op
   vocabulary: [`recipes/README.md`](../recipes/README.md). An `avatar` recipe (square 256×256
   then modernize) is `auto-orient` → `resize` `mode="fill"` → `optimize`.
 - **The round-trip is byte-stable** — `edit` output == `apply`-of-the-saved-recipe output, so a
