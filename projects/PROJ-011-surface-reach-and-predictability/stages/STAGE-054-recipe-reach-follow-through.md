@@ -201,7 +201,23 @@ Ordered. ⚡ Only the first item gates 0.8.0.
   range. Decide: refuse it at load, as every other ranged recipe key is refused (DEC-102), and
   `-q` too; or document the clamp.
 
-**Count:** 1 shipped / 0 active / 13 pending
+- [ ] (not yet written) — [S] **`build --format` is accepted and silently ignored.**
+  Filed by the 0.8.0 release-notes verify (2026-10-27), driven on `main`'s release binary:
+  `build --format png` exits 0 and writes the target's own format (GIF, WebP or JPEG), with or
+  without a name extension or a recipe `format`. `--format` is a **global** flag
+  (`src/cli/mod.rs:88-90`), so `build --help` lists it as "Force output format", but
+  `src/cli/build.rs` never reads it. `apply --recipe` honours it. Decide: make `build` honour it,
+  above the name and the recipe's `format`, as `apply` does (the cache key must include it); or
+  refuse it on `build` with exit 2. Then correct the docs, which 0.8.0 words as "on `build`, the
+  target's name or the recipe's `format` sets the format". Check whether 0.7.1 ignores it too.
+
+- [ ] (not yet written) — [S] **The browser's asset refusal shows a spec id to users.** Filed by
+  the 0.8.0 release-notes verify (2026-10-27). The wasm `transform` error for a recipe that needs
+  an image or font file ends with `… is out of scope (SPEC-128)` (`src/wasm.rs:237`).
+  User-facing text carries no spec or DEC ids. Reword it to say what to do instead, and check
+  every other user-facing string for the same: `grep -rn 'SPEC-\|DEC-' src/` outside comments.
+
+**Count:** 1 shipped / 0 active / 15 pending
 
 ## Design Notes
 
