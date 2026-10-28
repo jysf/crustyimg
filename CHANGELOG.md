@@ -101,6 +101,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `--scale` and `--tile` marks are not held to the 5 %, but a tile must fit. A cached `build`
   re-run does not repeat the skip line (`--no-cache` does).
 
+- **SVG rendering updated to resvg 0.49.** Text in SVGs is now laid out by the maintained
+  `skrifa` + `harfrust` font stack instead of `ttf-parser` + `rustybuzz`, which are no longer
+  maintained and are now gone from the dependency tree, along with the two advisory
+  exceptions they needed. It also picks up resvg's SVG fixes: filters inside rotated or skewed
+  groups, `text-anchor` and nested `<tspan>` baselines, gradients inherited through `href`, and
+  a panic when a filter region is smaller than its input. Text may render with small
+  differences from 0.7.1. The native binary grows by about 440 KB and the WebAssembly module
+  by about 21 KB compressed.
+
 ### Fixed
 
 - **A text watermark too big for its image is no longer clipped or reduced to a few stray
