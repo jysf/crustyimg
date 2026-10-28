@@ -9,7 +9,7 @@ description: Prepare images for the web with the crustyimg CLI — downscale and
 whenever a task involves shrinking, resizing, converting, or cleaning image files —
 it replaces ad-hoc chains of ImageMagick, cwebp, avifenc and exiftool.
 
-Written against crustyimg **0.7.x**. Run `crustyimg <command> --help` when in doubt;
+Written against crustyimg **0.8.x**. Run `crustyimg <command> --help` when in doubt;
 the binary is the source of truth.
 
 ## Check it is installed
@@ -55,8 +55,10 @@ Prebuilt binaries: https://github.com/jysf/crustyimg/releases
   non-interactive runs, but only when overwriting is what the user wants.
 - **Quote globs** so crustyimg expands them, including recursive `**`:
   `'assets/**/*.jpg'`. A directory works as an input too.
-- **The output format** comes from `-o`'s extension, or `--format`. `web` and `optimize`
-  choose the format themselves unless you pin one.
+- **The output format** comes from `--format`, else the extension of `-o` or of
+  `--name-template` (`'{stem}.png'` writes PNG), else a recipe's `format`, else the source's
+  own format is kept. `web` and `optimize` choose the format themselves unless you pin one.
+  To keep each file's format in a template, use `{ext}`.
 - **GPS is dropped by default** on any command that re-encodes pixels. Pass `--keep-gps`
   only if the user asks to keep location data.
 - **Work on copies** when the user's originals are precious; crustyimg only writes the
@@ -138,9 +140,12 @@ These edit the file container only — no re-encode, no quality loss (JPEG and P
 crustyimg meta strip photo.jpg -o clean.jpg           # remove all EXIF/IPTC/XMP/ICC
 crustyimg meta clean photo.jpg --gps -o nogeo.jpg     # remove only location tags
 crustyimg meta set photo.jpg --artist "Jane Doe" --copyright "© 2026" -o tagged.jpg
-crustyimg meta copy --from original.jpg --to edited.jpg
+crustyimg meta copy --from original.jpg --to edited.jpg -o merged.jpg  # without -o it rewrites edited.jpg, so needs -y
 crustyimg auto-orient photo.jpg -o upright.jpg        # bake rotation into pixels
 ```
+
+`meta strip`, `meta clean` and `meta set` keep the input's format: an `-o` or template that
+names another format is refused (exit 4, nothing written). Convert first, then edit metadata.
 
 These commands drop any Content Credentials (C2PA) manifest, since editing the file
 would break its signature; `clean`/`copy`/`set` print a warning when they do.
@@ -159,7 +164,21 @@ crustyimg watermark photo.jpg --text "© Studio" --size 32 --color FFFFFF -o out
 ```
 
 Use exactly one of `--image` or `--text`. Gravity: `north`, `south`, `east`, `west`,
-`center`, `northeast`, … (default `southeast`).
+`center`, `northeast`, … (default `southeast`). `--scale` sets the logo's width as a fraction
+of the image's width (`0.1` = a tenth); `--scale` and `--tile` are image-only.
+
+The mark must suit each image, or crustyimg refuses it rather than damage the picture:
+
+- The mark, plus `--margin`, must fit inside the image.
+- A fixed-size mark (no `--scale`, no `--tile`) may cover at most 5 % of the image. For a logo
+  over images of mixed sizes, use `--scale` (e.g. `0.1`), which is not held to the 5 %.
+- On one input (`watermark` or `apply --recipe`) a refused mark is an error, exit 2, nothing
+  written. With several inputs, or in `build`, that image is written **without** the mark,
+  with a `warning: … watermark skipped …` line, and the run still exits 0 — read stderr.
+- `--size` is a number above 0 and at most 1024. A bad `--size`, `--scale`, `--opacity`,
+  `--gravity` or `--color` exits 2 before any file is read.
+
+A mark that fits is drawn as asked, even if too small or faint to see; check the output.
 
 ## Recipes: one pipeline, many files
 
@@ -198,9 +217,41 @@ op = "optimize"    # optional; must be the last step
 ```
 
 Ops: `auto-orient`, `resize` (`mode` = `max` + `width`; `fit`/`fill`/`cover`/`exact` +
-`width` + `height`; `percent` + `percent`), `invert`, `identity`, `optimize`.
+`width` + `height`; `percent` + `percent`), `watermark`, `invert`, `identity`, `optimize`.
 
-Name outputs with `--name-template '{stem}_web.{ext}'`.
+A recipe can also watermark, and pin its output format and quality. `format`/`quality` need
+`version = "2"`:
+
+```toml
+version = "2"
+format = "webp"
+quality = 80
+
+[[step]]
+op = "resize"
+mode = "max"
+width = 1600
+
+[[step]]
+op = "watermark"
+image = "logo.png"   # read from the directory you run crustyimg in
+scale = 0.1
+opacity = 0.8
+margin = 16
+```
+
+A `text` mark uses `text = "…"` with optional `font`, `size` and `color` instead of `image`.
+`--format`, `-o` and a template extension still win over the recipe's `format`; `-q` wins over
+its `quality`. Keep `version = "1"` and leave both keys out if crustyimg 0.7.x must run it.
+
+Every step key is checked when the recipe loads. A misspelt or unknown key, a wrong type or
+range, or a key the step's mode never reads exits 1 with nothing written, naming the step
+(numbered from 0) and the key, e.g.
+`recipe step 1 ('resize'): unknown key 'widht'; expected one of: mode, width, height, percent`.
+Fix the recipe; nothing is ignored silently.
+
+Name outputs with `--name-template '{stem}_web.{ext}'`. A literal extension in the template
+(`'{stem}.png'`) sets the output format.
 
 ## Project builds (repeatable, cached)
 
@@ -224,7 +275,8 @@ crustyimg build --check    # CI: exit 7 if outputs drifted from crustyimg.build.
 ```
 
 `build` overwrites its own outputs without `-y`. Commit `crustyimg.build.lock`; add
-`.crustyimg/` (the local cache) to `.gitignore`.
+`.crustyimg/` (the local cache) to `.gitignore`. `recipe` can be a path to your own recipe
+file; editing a watermark's logo or font rebuilds the outputs that use it.
 
 ## Verify and gate in CI
 
@@ -243,17 +295,19 @@ medium.
 - `info --json`, `diff --json`, `lint --format json`.
 - `web`/`optimize --json` prints a decision report (candidates, winner, bytes, savings,
   score). The image must go to `-o FILE` or `--out-dir` — with no output, stdout is
-  already the image and `--json` is refused (exit 2). Add `--timing` for timings.
+  already the image and `--json` is refused (exit 2). It is also refused when the format is
+  pinned (`--format`, an `-o` or template extension), since nothing was decided. Add
+  `--timing` for timings.
 
 ## Exit codes
 
 | Code | Meaning | What to do |
 |---|---|---|
 | 0 | Success | — |
-| 1 | Runtime error (decode/encode failed, resource limit) | Read stderr |
-| 2 | Usage error | Fix the flags; check `--help` |
+| 1 | Runtime error (decode/encode failed, resource limit), or a recipe that fails to load | Read stderr; fix the named recipe step |
+| 2 | Usage error, or a watermark refused on a single input | Fix the flags; check `--help` |
 | 3 | Input not found, or the glob matched nothing | Check the path / quoting |
-| 4 | Format not built into this binary (e.g. HEIC, or AVIF on a lean build) | Use another format or rebuild with the feature |
+| 4 | Format not available: not built into this binary (e.g. HEIC, or AVIF on a lean build), or `meta` asked to change it | Use another format, rebuild with the feature, or `convert` first |
 | 5 | Output write refused (exists, symlink, path traversal) | Add `-y` if overwriting is intended |
 | 6 | Some inputs in a batch failed | Others were written; read the summary |
 | 7 | A check failed (`diff --fail-under`, `build --check`, `lint` error) | Report it; this is a gate, not a crash |
@@ -264,11 +318,3 @@ Reads JPEG, PNG, WebP, AVIF, GIF, BMP, TIFF, ICO, SVG, and camera RAW (via the
 embedded preview). HEIC is only available in builds compiled with the `heic` feature
 (otherwise exit 4). `-` reads from stdin; `-o -` writes to stdout with all diagnostics on
 stderr.
-
-**In crustyimg 0.7.1 and earlier, WebP inputs must be named one file at a time:** a
-directory or glob skips `.webp` files (a folder of only WebP exits 3). Releases after
-0.7.1 fix this. Check `crustyimg --version`; on an affected version, loop in the shell:
-
-```sh
-for f in img/*.webp; do crustyimg optimize "$f" --out-dir out/ -y; done
-```
