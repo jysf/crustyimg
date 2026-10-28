@@ -7,7 +7,7 @@
 task:
   id: SPEC-135
   type: bug                        # epic | story | task | bug | chore
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: S                    # S | M | L  (L means split it)
@@ -99,43 +99,98 @@ cost:
     - cycle: build
       agent: claude-sonnet-5-5
       interface: claude-code
-      tokens_total: 11038237
+      tokens_total: 12626616
       tokens_breakdown:
-        input: 150
-        output: 43550
-        cache_creation: 164015
-        cache_read: 10830522
-      estimated_usd: 4.52
+        input: 168
+        output: 50569
+        cache_creation: 171402
+        cache_read: 12404477
+      estimated_usd: 5.12
       duration_minutes: null
       recorded_at: 2026-10-27
       note: >
         Build session in its own worktree (feat-spec-135-watermark-flag-checks). Measured from the
         session's transcript (f090942b-….jsonl, identified by content), deduped by `.message.id`
-        (73 unique ids, all claude-sonnet-5-5), input/cache_creation/cache_read once per id, MAX
+        (81 unique ids, all claude-sonnet-5-5), input/cache_creation/cache_read once per id, MAX
         output_tokens per id. Priced by component at Sonnet $3/$15 per MTok, cache_creation x1.25,
-        cache_read x0.10. Measured before the final commit/PR turns, so it slightly under-counts.
+        cache_read x0.10. Re-measured at ship from the full transcript (was 11,038,237 tokens /
+        $4.52, measured before the final turns).
     - cycle: build
       agent: claude-sonnet-5-5
       interface: claude-code
-      tokens_total: 1596360
+      tokens_total: 2445970
       tokens_breakdown:
-        input: 44
-        output: 9407
-        cache_creation: 59641
-        cache_read: 1527268
-      estimated_usd: 0.82
+        input: 66
+        output: 13199
+        cache_creation: 67568
+        cache_read: 2365137
+      estimated_usd: 1.16
       duration_minutes: null
       recorded_at: 2026-10-27
       note: >
         Build cycle, verify punch-list fix (two AC-4 rows, M-c, three wording fixes). Measured from
         the session transcript (70cf330a-….jsonl, identified by content), deduped by
-        `.message.id` (21 unique ids, all claude-sonnet-5-5), MAX output_tokens per id. Priced at
+        `.message.id` (30 unique ids, all claude-sonnet-5-5), MAX output_tokens per id. Priced at
+        Sonnet $3/$15 per MTok, cache_creation x1.25, cache_read x0.10. Re-measured at ship from
+        the full transcript (was 1,596,360 tokens / $0.82, measured before the final turns).
+    - cycle: verify
+      agent: claude-opus-5-5
+      interface: claude-code
+      tokens_total: 6050878
+      tokens_breakdown:
+        input: 92
+        output: 39748
+        cache_creation: 145708
+        cache_read: 5865330
+      estimated_usd: 4.84
+      duration_minutes: null
+      recorded_at: 2026-10-27
+      note: >
+        Verify session in its own worktree (verify-spec-135). Measured at ship from the transcript
+        (748a7643-….jsonl, identified by content: 'SPEC-135 — VERIFY prompt'), deduped by
+        `.message.id` (44 unique ids, all claude-opus-5-5), input/cache_creation/cache_read once
+        per id, MAX output_tokens per id. Priced at Opus $5/$25 per MTok, cache_creation x1.25,
+        cache_read x0.10. Punch list at 8922f31 (M-c).
+    - cycle: verify
+      agent: claude-opus-5-5
+      interface: claude-code
+      tokens_total: 1720579
+      tokens_breakdown:
+        input: 44
+        output: 13251
+        cache_creation: 64175
+        cache_read: 1643109
+      estimated_usd: 1.55
+      duration_minutes: null
+      recorded_at: 2026-10-27
+      note: >
+        Re-verify of the punch-list fix, in its own worktree (verify-spec-135-fix). Measured at
+        ship from the transcript (c08fd840-….jsonl, identified by content: 'SPEC-135 —
+        RE-VERIFY prompt'), deduped by `.message.id` (21 unique ids, all claude-opus-5-5),
+        MAX output_tokens per id. Priced at Opus $5/$25 per MTok, cache_creation x1.25,
+        cache_read x0.10. Approved at 161b637.
+    - cycle: ship
+      agent: claude-sonnet-5-5
+      interface: claude-code
+      tokens_total: 1306730
+      tokens_breakdown:
+        input: 32
+        output: 10522
+        cache_creation: 64796
+        cache_read: 1231380
+      estimated_usd: 0.77
+      duration_minutes: null
+      recorded_at: 2026-10-27
+      note: >
+        Ship session in its own worktree (docs-spec-135-ship). Measured from its own transcript
+        (1f17b8a4-….jsonl, identified by content: 'SPEC-135 — SHIP prompt'), deduped by
+        `.message.id` (16 unique ids, all claude-sonnet-5-5), MAX output_tokens per id. Priced at
         Sonnet $3/$15 per MTok, cache_creation x1.25, cache_read x0.10. Measured before the final
-        commit/push turns.
+        commit/push turns, so it slightly under-counts.
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 34915116
+    estimated_usd: 22.69
+    session_count: 7
 ---
 
 # SPEC-135: watermark refuses a size or scale that is not a sensible number
@@ -962,10 +1017,29 @@ change. Commits: see `git log 8922f31..HEAD`.
 from the process-focused build reflection above.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Trap 10 struck again in a new form: every test value was exact in `f32`, so a message that
+   printed the value widened to `f64` passed all of them (verify's mutation M-c), because the
+   design said "prints the value as parsed" without a row where "as parsed" and "widened"
+   differ; I would put an inexact value (`1.1`, `1024.1`) in the first draft of any
+   formatted-output table. The design also predicted AC-3 would go RED with the cap row removed;
+   it cannot, since it compares the table with itself (another library-level test caught that
+   mutation), so a predicted control flip needs a reason it can flip, not just a list. Three
+   reports stated what they had not observed (the fix's "CI green at `b11dd40`" was a cancelled
+   run; its guess that docs-only commits skip the heavy jobs was wrong, the full 13-job run at
+   `161b637` passed; verify first reported a row whose binary was already deleted, exit 127,
+   then re-drove it and corrected itself), and the build left five scratch files in `~` after
+   a failed `cd` and deleted them. What held: the goldens were committed before any `src/`
+   change, every row ran on both binaries, and released 0.7.1's crash was driven on the release
+   asset before the CHANGELOG claimed it.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — No change applied. Proposed for the orchestrator to decide: add to HANDOFF trap 10 that
+   "a test of printed or formatted output uses a value whose naive and correct renderings
+   differ" (an `f32`-inexact number, a value past a cap by less than one ULP of the narrower
+   type). DEC-106 needs one wording fix, filed below rather than edited here.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — One new entry filed at the end of STAGE-054's backlog: re-verify's two optional cleanups
+   (DEC-106's description of the old cast; the AC-4 table test stopping at its first failing
+   row). Already filed, not duplicated: `render_text` panics for a library caller, marks with
+   no visible pixels, the text raster memory bound, the `--font` error wording.

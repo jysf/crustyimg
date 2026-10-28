@@ -66,7 +66,7 @@ ships **before 0.8.0**. The rest has no release deadline and must not hold the t
 
 Ordered. ⚡ Only the first item gates 0.8.0.
 
-- [ ] **SPEC-135** (designed 2026-10-27) — [S] ⚡ **Before 0.8.0: a `watermark` size or scale that is not a
+- [x] **SPEC-135** (merged 2026-10-27, PR #207) — [S] ⚡ **Before 0.8.0: a `watermark` size or scale that is not a
   sensible number is refused, never silently drawn as nothing.** One spec for two filings that
   share the same validation code on the same verb (maintainer ruling 2026-10-27, after STAGE-050's
   Stage Ship judged criterion 4 only *partly* met because of the first one). Scope: refuse
@@ -179,7 +179,15 @@ Ordered. ⚡ Only the first item gates 0.8.0.
   past the cap, so the library cannot panic whichever caller reaches it
   (`untrusted-input-hardening`).
 
-**Count:** 0 shipped / 1 active / 10 pending
+- [ ] (not yet written) — [S] **SPEC-135's two optional cleanups: DEC-106's account of the old
+  cast, and the AC-4 table test stopping at its first failing row.** Filed by SPEC-135's
+  re-verify (2026-10-27). (1) DEC-106 says the old cast "turned NaN and −inf into a 1×1 mark".
+  The old code computed the height as `round(oh/ow).max(1)`, so a tall overlay became 1×N, not
+  1×1; make the sentence accurate. (2) The AC-4 table test in `tests/watermark_cli_params.rs`
+  stops at its first failing row. Collect every row's failure and assert once, so a mutation that
+  breaks several rows shows all of them. Docs and test only, no behaviour change.
+
+**Count:** 1 shipped / 0 active / 11 pending
 
 ## Design Notes
 

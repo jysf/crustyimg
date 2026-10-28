@@ -33,5 +33,7 @@ Cycle prompts live in `prompts/SPEC-135-<cycle>.md`.
   green on every required leg. Two optional cleanups. $1.45. Marked ready; the maintainer
   updated the branch (it brought in only orchestrator docs commits; `src/`, tests and docs
   identical to `161b637`) and squash-merged it as `df91f7e` (PR #207, 2026-10-27).
-- [~] **ship** — `prompts/SPEC-135-ship.md` (handed out 2026-10-27, Sonnet)
+- [x] **ship** — `prompts/SPEC-135-ship.md` (2026-10-27, Sonnet). Merged as `df91f7e` (PR #207,
+  2026-10-27). Reflected, archived. Total cost $22.69 over 7 sessions (build and fix re-measured:
+  $4.52 → $5.12, $0.82 → $1.16).
 
