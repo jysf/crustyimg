@@ -42,6 +42,7 @@ out/
 # A build artifact, regenerable with `just wasm-build`. STAGE-026 decides what
 # actually gets PUBLISHED to npm; nothing generated belongs in git.
 /pkg/
+/pkg-slim/
 
 # The demo's vendored copy of that same wasm package (SPEC-077). Regenerated from
 # scratch by `just demo-build`, which is also what guarantees it is the size-profiled

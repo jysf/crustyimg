@@ -62,13 +62,15 @@ See [RELEASING.md](RELEASING.md) for the versioning policy and release channels.
 
 ### Feature notes
 
-The `view` command (terminal image preview) and **AVIF output** are both **on by
-default** — a plain `cargo install` or release binary includes them. For a
-headless, smaller binary (CI / server / container), build without either:
+The `view` command (terminal image preview), **AVIF output** and **SVG input** are
+all **on by default** — a plain `cargo install` or release binary includes them. For a
+headless, smaller binary (CI / server / container), build without them:
 
 ```sh
 cargo install --git https://github.com/jysf/crustyimg --no-default-features
 ```
+
+Add back what you need with `--features`, e.g. `--features avif,svg`.
 
 Two additional codecs are opt-in (compile-time features):
 

@@ -151,7 +151,14 @@ _wasm_bin := `rustup which --toolchain stable rustc | xargs dirname`
 # "unexpected argument"). The space is required, not decorative; the recipe's
 # shell command collapses the resulting double space harmlessly.
 #     just --set _wasm_features " --no-default-features" wasm-build
-_wasm_features := "--no-default-features --features avif"
+#
+# `svg` is listed for the same reason as `avif`: it is a default NATIVE feature, so
+# `--no-default-features` would otherwise drop SVG input from the shipped artifact.
+_wasm_features := "--no-default-features --features avif,svg"
+
+# Where `wasm-build` writes the package. The slim build below overrides it so the
+# shipped `pkg/` is never replaced by a variant.
+_wasm_out := "pkg"
 
 # The SIZE PROFILE for the wasm artifact (SPEC-074, DEC-066) — fat LTO across the
 # whole graph with a single codegen unit, worth ~116 KB brotli at zero cost to
@@ -200,7 +207,7 @@ wasm-check:
 wasm-build: && wasm-size
     @command -v wasm-pack >/dev/null 2>&1 || { echo "wasm-pack not installed (brew install wasm-pack)"; exit 1; }
     PATH="{{_wasm_bin}}:$PATH" RUSTC="{{_wasm_bin}}/rustc" {{_wasm_profile}} \
-        wasm-pack build --target web --release --out-dir pkg -- {{_wasm_features}}
+        wasm-pack build --target web --release --out-dir {{_wasm_out}} -- {{_wasm_features}}
 
 # Report the .wasm size: raw, and the two COMPRESSED sizes a real host actually
 # serves (a browser downloads the encoded bytes, so gzip/brotli are the honest
@@ -209,12 +216,19 @@ wasm-build: && wasm-size
 # `wasm-opt` does NOT run (DEC-066): on this binary it trades 340 KB of raw size for
 # 36 KB MORE on the wire, and buys no speed. The brotli line is the one to watch.
 wasm-size:
-    @test -f pkg/crustyimg_bg.wasm || { echo "no pkg/crustyimg_bg.wasm — run 'just wasm-build' first"; exit 1; }
+    @test -f {{_wasm_out}}/crustyimg_bg.wasm || { echo "no {{_wasm_out}}/crustyimg_bg.wasm — run 'just wasm-build' (or wasm-build-slim) first"; exit 1; }
     @echo ""
     @echo "── .wasm size (features: {{ if _wasm_features == '' { 'none (lean)' } else { _wasm_features } }}) ──"
-    @awk 'BEGIN{printf "  raw:     %8.2f MB  (%d B)\n", '"$(wc -c < pkg/crustyimg_bg.wasm)"'/1048576, '"$(wc -c < pkg/crustyimg_bg.wasm)"'}'
-    @awk 'BEGIN{printf "  gzip:    %8.2f MB  (%d B)\n", '"$(gzip -9 -c pkg/crustyimg_bg.wasm | wc -c)"'/1048576, '"$(gzip -9 -c pkg/crustyimg_bg.wasm | wc -c)"'}'
-    @command -v brotli >/dev/null 2>&1 && awk 'BEGIN{printf "  brotli:  %8.2f MB  (%d B)  ← the number that matters\n", '"$(brotli -q 11 -c pkg/crustyimg_bg.wasm 2>/dev/null | wc -c)"'/1048576, '"$(brotli -q 11 -c pkg/crustyimg_bg.wasm 2>/dev/null | wc -c)"'}' || echo "  brotli:  (brotli not installed)"
+    @awk 'BEGIN{printf "  raw:     %8.2f MB  (%d B)\n", '"$(wc -c < {{_wasm_out}}/crustyimg_bg.wasm)"'/1048576, '"$(wc -c < {{_wasm_out}}/crustyimg_bg.wasm)"'}'
+    @awk 'BEGIN{printf "  gzip:    %8.2f MB  (%d B)\n", '"$(gzip -9 -c {{_wasm_out}}/crustyimg_bg.wasm | wc -c)"'/1048576, '"$(gzip -9 -c {{_wasm_out}}/crustyimg_bg.wasm | wc -c)"'}'
+    @command -v brotli >/dev/null 2>&1 && awk 'BEGIN{printf "  brotli:  %8.2f MB  (%d B)  ← the number that matters\n", '"$(brotli -q 11 -c {{_wasm_out}}/crustyimg_bg.wasm 2>/dev/null | wc -c)"'/1048576, '"$(brotli -q 11 -c {{_wasm_out}}/crustyimg_bg.wasm 2>/dev/null | wc -c)"'}' || echo "  brotli:  (brotli not installed)"
+
+# A SLIM wasm for apps that never feed it an SVG (the ddphotos edit page): the
+# shipped feature set minus `svg`, written to pkg-slim/ so pkg/ is untouched. An
+# SVG input to this build is detected and refused with "rebuild with --features
+# svg", never silently mis-decoded. Everything else matches the shipped build.
+wasm-build-slim:
+    @just --set _wasm_features " --no-default-features --features avif" --set _wasm_out pkg-slim wasm-build
 
 # Run the #[wasm_bindgen_test] round-trip in Node — the REAL decode → transform →
 # encode proof. A green `wasm-check` only says it compiles; this says it works.
@@ -336,8 +350,8 @@ demo-serve port="8080": demo-build
 # the next site build; any other directory is used as the edit/ folder itself.
 # See integrations/ddphotos/README.md.
 # Install the ddphotos edit page into a ddphotos site (or any folder)
-ddphotos-edit-install dir: wasm-build
-    @node scripts/ddphotos-edit-install.mjs "{{dir}}"
+ddphotos-edit-install dir: wasm-build-slim
+    @node scripts/ddphotos-edit-install.mjs "{{dir}}" pkg-slim
 
 # The demo's earned verdict (SPEC-077, SPEC-078): serve it, load it in a REAL headless
 # Chrome, and drive the actual user path — init() the engine over HTTP, put a PNG in
