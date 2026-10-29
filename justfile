@@ -332,6 +332,13 @@ demo-build: wasm-build
 demo-serve port="8080": demo-build
     @node scripts/serve.mjs demo {{port}}
 
+# A ddphotos config directory gets the page in static/edit/, which becomes /edit/ on
+# the next site build; any other directory is used as the edit/ folder itself.
+# See integrations/ddphotos/README.md.
+# Install the ddphotos edit page into a ddphotos site (or any folder)
+ddphotos-edit-install dir: wasm-build
+    @node scripts/ddphotos-edit-install.mjs "{{dir}}"
+
 # The demo's earned verdict (SPEC-077, SPEC-078): serve it, load it in a REAL headless
 # Chrome, and drive the actual user path — init() the engine over HTTP, put a PNG in
 # the file picker, convert it, and decode the downloaded bytes with an independent
