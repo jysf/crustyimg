@@ -86,8 +86,27 @@ A `cargo-fuzz` target (`fuzz/fuzz_targets/raw_preview.rs`) exercises the scan +
 decode path.
 
 **Tier-2 RAW development stays out** (demosaic / white-balance / color-matrix):
-it needs LGPL `rawler` (DEC-018, `no-agpl-default-deps`, watchlist
-`raw-camera-decode`) or a multi-month from-scratch effort — deliberately deferred.
+~~it needs LGPL `rawler` (DEC-018, `no-agpl-default-deps`, watchlist
+`raw-camera-decode`) or a multi-month from-scratch effort~~ — deliberately deferred.
+
+> **⚠ AMENDED 2026-10-28 (DEC-107): the cost note above offered a false
+> dichotomy, and the third option now exists.** "LGPL `rawler` **or** a
+> multi-month from-scratch effort" treated those as the only routes. The
+> from-scratch effort was in fact made — **outside this repo**, as
+> `irradiance`, a permissive (MIT/Apache) pure-Rust zero-runtime-dependency
+> RAW develop library verified bit-exact against an independent
+> implementation. So the estimate was not wrong about the *size* of the work;
+> it was wrong to assume that work could only land here or under copyleft.
+>
+> Tier 2 arrives as an **off-by-default `raw-develop` feature** consuming that
+> library, with this record's Tier 1 remaining both the default and the
+> fallback. The relationship between the tiers, which this record never
+> specified, is **DEC-107**. The `rawler` route is not taken and
+> `raw-camera-decode` stays on the watchlist unexercised. Scope: `irradiance`
+> 0.1.0 is **monochrome DNG only** — the demosaic / white-balance /
+> colour-matrix pipeline this paragraph names genuinely does not exist yet in
+> any form crustyimg can call, so for colour RAW the deferral above still
+> holds on its own terms.
 
 This spec adds **NO new crate** (`Cargo.toml`/`deny.toml` unchanged; `just deny`
 green), so `no-new-top-level-deps-without-decision` is not tripped — but DEC-055
@@ -178,9 +197,13 @@ dims; a directory source discovers `.nef`; an oversize-only preview is
 `LimitsExceeded` and a no-preview RAW is `Decode` (never a panic); a file stuffed
 with fake SOIs decodes at most `MAX_PREVIEW_CANDIDATES` times; `just deny` stays
 green with **no new crate/license/advisory**; the fuzz target finds no panics.
-Revisit when: (a) Tier-2 RAW **development** is wanted (opt-in `rawler` feature,
-watchlist `raw-camera-decode`); (b) RAW **via stdin** / a `--format raw` hint is
-wanted; (c) RAW-container **EXIF/orientation** passthrough or a faithful
+Revisit when: (a) ~~Tier-2 RAW **development** is wanted (opt-in `rawler` feature,
+watchlist `raw-camera-decode`)~~ — **(a) and (c) both fired 2026-10-28; see
+DEC-107 and PROJ-016. (a) is answered by an `irradiance` feature, NOT `rawler`;
+(c) is in the same project's scope, with `EXIF/orientation` taken and the
+`SourceFormat` enum deliberately still deferred**; (b) RAW **via stdin** / a
+`--format raw` hint is wanted; (c) RAW-container **EXIF/orientation**
+passthrough or a faithful
 `SourceFormat` enum is wanted (each a follow-up spec); (d) a real-camera corpus
 surfaces a vendor whose preview the scan misses.
 

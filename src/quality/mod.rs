@@ -302,10 +302,11 @@ where
 ///   candidate AND **decodes it back** to score the round-trip with SSIMULACRA2 —
 ///   it needs both an encoder knob and a DECODER.
 ///
-/// AVIF (SPEC-018) is the case that forces the split: with `--features avif` it
-/// has an encoder quality knob (so the byte-budget search works) but **no decoder
-/// is built** (AVIF decode needs `dav1d`/`avif-native`, deferred — DEC-020), so
-/// the perceptual search cannot score AVIF round-trips. JPEG has both.
+/// AVIF on wasm32 is the case that forces the split: the build has an AVIF
+/// encoder quality knob (so the byte-budget search works) but **no AVIF decoder**
+/// (`re_rav1d` does not compile for wasm32), so the perceptual search cannot
+/// score AVIF round-trips there. Native builds have both, as do JPEG everywhere
+/// and WebP with `webp-lossy`.
 ///
 /// These are the **single seams** the CLI guard (`resolve_effective_quality`) and
 /// the per-format candidate encode ([`encode_candidate_bytes`]) read. When a new
@@ -341,11 +342,13 @@ impl LossyFormat for ImageFormat {
         // The perceptual search must DECODE each candidate to score it, so this
         // needs both an encoder knob AND a built-in decoder. JPEG always. WebP
         // with `webp-lossy` qualifies because the pure-Rust WebP DECODER ships by
-        // default (SPEC-019). AVIF does NOT (output-only, no decoder — DEC-020),
-        // so it is excluded even with the `avif` feature (perceptual AVIF defers
-        // with AVIF decode).
+        // default. AVIF qualifies when its encoder is built (`avif`) on a native
+        // target: the AVIF decoder is native-only, so the wasm build has an AVIF
+        // encoder but nothing to read the candidates back with.
         match self {
             ImageFormat::Jpeg => true,
+            #[cfg(all(feature = "avif", not(target_arch = "wasm32")))]
+            ImageFormat::Avif => true,
             #[cfg(feature = "webp-lossy")]
             ImageFormat::WebP => true,
             _ => false,
@@ -452,8 +455,14 @@ fn encode_candidate_bytes_with(
 /// search uses.
 fn score_at(reference: &DynamicImage, fmt: ImageFormat, quality: u8) -> Result<f64, QualityError> {
     let bytes = encode_candidate_bytes(reference, fmt, quality)?;
-    let decoded =
-        ::image::load_from_memory(&bytes).map_err(|e| QualityError::Encode(e.to_string()))?;
+    let decoded = match fmt {
+        // The `image` crate's generic decoder cannot read AVIF here; the crate's
+        // own pure-Rust AVIF decoder can (native only).
+        ImageFormat::Avif => {
+            crate::image::decode_pixels(&bytes).map_err(|e| QualityError::Encode(e.to_string()))?
+        }
+        _ => ::image::load_from_memory(&bytes).map_err(|e| QualityError::Encode(e.to_string()))?,
+    };
     score(reference, &decoded)
 }
 
@@ -1051,8 +1060,8 @@ mod tests {
     }
 
     /// The PERCEPTUAL search works on WebP — `auto_quality` encodes a lossy WebP
-    /// candidate, DECODES it (the decoder is built), and scores it. This is what
-    /// AVIF cannot do (no decoder). Proves the round-trip path, not just a number.
+    /// candidate, DECODES it (the decoder is built), and scores it. Proves the
+    /// round-trip path, not just a number.
     #[cfg(feature = "webp-lossy")]
     #[test]
     fn auto_quality_webp_succeeds() {
@@ -1063,6 +1072,43 @@ mod tests {
             (MIN_SEARCH_QUALITY..=MAX_SEARCH_QUALITY).contains(&choice.quality),
             "chosen quality {} must be in range",
             choice.quality
+        );
+    }
+
+    // ── perceptual AVIF (native builds with the `avif` encoder) ──────────────
+
+    /// A native build with the AVIF encoder also has the AVIF decoder, so AVIF
+    /// supports BOTH searches. (The wasm build has the encoder but no decoder, so
+    /// this predicate is `false` there; the wasm suite covers that side.)
+    #[cfg(all(feature = "avif", not(target_arch = "wasm32")))]
+    #[test]
+    fn avif_supports_lossy_and_perceptual_on_native() {
+        assert!(ImageFormat::Avif.supports_lossy_quality());
+        assert!(
+            ImageFormat::Avif.supports_perceptual_quality(),
+            "native AVIF has a decoder, so the perceptual search must be allowed"
+        );
+    }
+
+    /// The perceptual search runs end to end on AVIF: each candidate is encoded,
+    /// decoded back through the crate's own AVIF decoder, and scored. Before the
+    /// decoder was wired in, the first candidate failed to decode and this errored.
+    #[cfg(all(feature = "avif", not(target_arch = "wasm32")))]
+    #[test]
+    fn auto_quality_avif_succeeds() {
+        let img = detailed_rgb(96, 96);
+        let target = 70.0;
+        let choice = auto_quality(&img, ImageFormat::Avif, &SearchConfig::for_target(target))
+            .expect("perceptual AVIF search must succeed (encode + decode + score)");
+        assert!(
+            choice.met_target,
+            "a 70 target is reachable on AVIF; got {choice:?}"
+        );
+        assert!(
+            choice.score >= target,
+            "chosen AVIF quality {} scored {} < target {target}",
+            choice.quality,
+            choice.score
         );
     }
 

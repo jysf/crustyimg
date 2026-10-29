@@ -207,7 +207,7 @@ Ordered. ⚡ Only the first item gates 0.8.0.
   range. Decide: refuse it at load, as every other ranged recipe key is refused (DEC-102), and
   `-q` too; or document the clamp.
 
-- [ ] **SPEC-138** (framed 2026-10-28) — [S] **`build --format` is accepted and silently ignored.**
+- [ ] **SPEC-138** (designed 2026-10-28) — [S] **`build --format` is accepted and silently ignored.**
   Filed by the 0.8.0 release-notes verify (2026-10-27), driven on `main`'s release binary:
   `build --format png` exits 0 and writes the target's own format (GIF, WebP or JPEG), with or
   without a name extension or a recipe `format`. `--format` is a **global** flag
@@ -227,7 +227,7 @@ Ordered. ⚡ Only the first item gates 0.8.0.
   (seen by the orchestrator on 0.7.1, 2026-10-28). Check every verb's `--help` output, not the
   source: loop over the verbs and grep the rendered help for `SPEC-` and `DEC-`.
 
-- [ ] **SPEC-137** (framed 2026-10-28) — [S] **An SVG font family other than Go draws no text.** Filed by the
+- [ ] **SPEC-137** (designed 2026-10-28) — [S] **An SVG font family other than Go draws no text.** Filed by the
   PR #211 (resvg 0.49) verify, 2026-10-28. It's the same on 0.7.1, so #211 didn't cause it.
   `<text font-family="sans-serif">`, `serif`, `Helvetica` or `"Helvetica, sans-serif"` renders
   **zero ink**, exits 0, and prints no warning. Only no family, `Go`, or a list that contains
