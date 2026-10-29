@@ -138,7 +138,7 @@ libheif-rs = { version = "2.7.0", optional = true, default-features = false, fea
 image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "gif", "bmp", "tiff", "ico", "webp"] }
 #   `resvg` WITH `text`: native `crustyimg` renders SVG `<text>` as real glyphs
 #   (DEC-054), using only the bundled Go font. Unchanged.
-resvg = { version = "0.49.0", default-features = false, features = ["text"] }
+resvg = { version = "0.49.0", default-features = false, features = ["text"], optional = true }
 # AVIF DECODE on the default, pure-Rust path (SPEC-058, DEC-053). Two CODEC deps
 # feeding the canonical `Image` (the webp-lossy precedent, DEC-021/DEC-022) — NOT
 # a second pixel library, so `single-image-library` is not tripped. AV1/AVIF is
@@ -238,9 +238,11 @@ image = { version = "0.25.10", default-features = false, features = ["png", "jpe
 # "silent-wrong-output footgun"; 287 KB does not buy the right to ship one. A demo
 # that quietly eats your labels is worse than a demo that loads a beat slower.
 # `svg_text_renders_glyphs_in_wasm` is the guardrail that makes a future accidental
-# drop go RED instead of silent. DEC-066 records the number so STAGE-026 can revisit
-# it behind a lazy chunk, with the price tag already known.
-resvg = { version = "0.49.0", default-features = false, features = ["text"] }
+# drop of `text` go RED instead of silent. That test is gated on the `svg` feature, so
+# dropping `svg` itself is caught by `tests/shipped_feature_sets.rs` instead. DEC-066
+# records the number so STAGE-026 can revisit it behind a lazy chunk, with the price
+# tag already known.
+resvg = { version = "0.49.0", default-features = false, features = ["text"], optional = true }
 # The JS ↔ Rust boundary for the WASM build (SPEC-072, DEC-064). Pure-Rust and
 # permissive (MIT OR Apache-2.0), so DEC-004 holds and `just deny` needs no new
 # exception. It is GLUE, not a codec — `single-image-library` is not tripped: the
@@ -257,7 +259,7 @@ wasm-bindgen-test = "=0.3.76"
 # `display` (terminal preview via viuer) is ON BY DEFAULT so `view` works out of the
 # box in the released binary — it is a headline command (DEC-027, supersedes DEC-011).
 # Headless/server/CI builds that don't want viuer's tree use `--no-default-features`.
-default = ["display", "watch", "avif"]
+default = ["display", "watch", "avif", "svg"]
 display = ["dep:viuer"]
 webp-lossy = ["dep:webp"]
 # AVIF output is a DEFAULT feature (SPEC-102, DEC-081 — supersedes DEC-020's
@@ -279,6 +281,13 @@ webp-lossy = ["dep:webp"]
 #   AVIF DECODE is a different codec (`re_rav1d`, native-only, unconditional
 #   since SPEC-058/DEC-053) and is unaffected by this feature either way.
 avif = ["image/avif"]
+# SVG input (SPEC-060, DEC-054) behind a DEFAULT-ON feature, so every existing
+# build keeps it. It exists for size-sensitive wasm builds that never see an SVG:
+# resvg and its text stack are about 30% of the .wasm's code. Without it, SVG is
+# still DETECTED and answered with "rebuild with --features svg" (exit 4), the
+# HEIC pattern, never a vague "unsupported format". The shipped wasm and npm
+# package pass it explicitly (`_wasm_features` in the justfile).
+svg = ["dep:resvg"]
 # HEIC/HEIF INPUT behind an off-by-default feature (SPEC-062, DEC-052/DEC-056).
 # Requires a system libheif (≥ 1.17) at build and run time — `brew install libheif`
 # / `apt-get install libheif-dev`. Local-build-only: no released binary, Homebrew

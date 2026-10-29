@@ -38,6 +38,7 @@ mod wasm {
     /// The SVG fixture the native suite uses (SPEC-060) — a 40×30 plain-text SVG.
     /// `include_bytes!` bakes it into the `.wasm`: there is no filesystem to read
     /// it from at test time, which is the point.
+    #[cfg(feature = "svg")]
     const SVG: &[u8] = include_bytes!("fixtures/svg/rect_text_40x30.svg");
 
     /// The AVIF fixture the native suite uses (SPEC-058) — a 16×16 solid AVIF.
@@ -490,6 +491,7 @@ op = "identity"
     ///
     /// A rasterized SVG reports `source_format = png` (SPEC-060's
     /// materialized-raster convention), and the fixture's intrinsic size is 40×30.
+    #[cfg(feature = "svg")]
     #[wasm_bindgen_test]
     fn svg_rasterizes_in_wasm() {
         let i = info(SVG).expect("svg should rasterize");
@@ -503,11 +505,14 @@ op = "identity"
 
     /// SVG text in a named family that is not bundled still draws in the browser
     /// build: the family resolves to the bundled font instead of to no face.
+    #[cfg(feature = "svg")]
     const SVG_NAMED_FAMILY: &[u8] = br#"<svg xmlns="http://www.w3.org/2000/svg" width="40" height="30"><text x="4" y="20" font-size="10" font-family="Helvetica">Hi</text></svg>"#;
     /// The same SVG with the text removed: draws nothing.
+    #[cfg(feature = "svg")]
     const SVG_NAMED_FAMILY_NO_TEXT: &[u8] = br#"<svg xmlns="http://www.w3.org/2000/svg" width="40" height="30"><text x="4" y="20" font-size="10" font-family="Helvetica"></text></svg>"#;
 
     /// Pixels with alpha > 0 in a PNG, counted by the upstream decoder.
+    #[cfg(feature = "svg")]
     fn alpha_ink(png: &[u8]) -> usize {
         image::load_from_memory(png)
             .expect("output should decode")
@@ -517,6 +522,7 @@ op = "identity"
             .count()
     }
 
+    #[cfg(feature = "svg")]
     #[wasm_bindgen_test]
     fn svg_text_in_a_named_family_draws_in_wasm() {
         let drawn = transform(SVG_NAMED_FAMILY, IDENTITY_RECIPE, "png").expect("named family svg");
@@ -614,6 +620,7 @@ op = "identity"
 
     /// The same SVG as the fixture with the `<text>` element REMOVED — the control
     /// for `svg_text_renders_glyphs_in_wasm` below.
+    #[cfg(feature = "svg")]
     const SVG_NO_TEXT: &str = r##"<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="40" height="30" viewBox="0 0 40 30">
   <rect x="0" y="0" width="40" height="30" fill="#3366cc"/>
@@ -638,6 +645,7 @@ op = "identity"
     /// removed. With the text stack linked, the two rasters differ (glyphs are drawn
     /// over the rect). Without it, both render identically — and this goes RED, which
     /// is exactly the alarm DEC-066 is owed. It fails LOUD on a silent capability loss.
+    #[cfg(feature = "svg")]
     #[wasm_bindgen_test]
     fn svg_text_renders_glyphs_in_wasm() {
         let with_text = transform(SVG, IDENTITY_RECIPE, "png").expect("text SVG rasterizes");
@@ -1052,6 +1060,25 @@ op = "identity"
         assert_eq!((ok.width(), ok.height()), (64, 48));
     }
 
+    /// The slim build (no `svg` feature) still RECOGNISES an SVG and refuses it
+    /// with the precise "rebuild with --features svg" error, never a generic
+    /// "unsupported format", a garbage raster, or a panic. Then the module keeps
+    /// working. Asserting on the feature name is what tells this error apart from
+    /// every other decode failure.
+    #[cfg(not(feature = "svg"))]
+    #[wasm_bindgen_test]
+    fn slim_wasm_refuses_svg_with_the_feature_hint() {
+        let svg = b"<svg xmlns='http://www.w3.org/2000/svg' width='40' height='30'></svg>";
+        let msg = info_err_message(svg, "an SVG in the slim build must be an Err");
+        assert!(
+            msg.contains("SVG") && msg.contains("--features svg"),
+            "expected the codec-not-built hint, got {msg}"
+        );
+
+        let ok = info(&png_64x48()).expect("the wasm module must survive a refused SVG");
+        assert_eq!((ok.width(), ok.height()), (64, 48));
+    }
+
     /// Plain text bytes under an image call — same contract as the zero-byte
     /// case, a different way of not being an image at all.
     #[wasm_bindgen_test]
@@ -1431,7 +1458,7 @@ fn native_still_decodes_the_codecs_wasm_trimmed() {
 /// now declared per-target, so this pins that the NATIVE build still renders SVG
 /// `<text>` as real glyphs (DEC-054) — the wasm-side feature line cannot be edited
 /// into taking native's text stack with it.
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(not(target_arch = "wasm32"), feature = "svg"))]
 #[test]
 fn native_svg_text_still_renders_glyphs() {
     use crustyimg::image::Image;

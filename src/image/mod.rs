@@ -592,9 +592,23 @@ fn decode_with_limits(
     // There is no `ImageFormat::Svg`, so a rasterized SVG reports `Png` (its
     // pixels are now a lossless RGBA raster). Dispatch happens before the
     // generic `ImageReader` path.
+    //
+    // Decoding lives behind the default-on `svg` feature; detection is compiled
+    // into every build, so a build without it answers an SVG with "rebuild with
+    // --features svg" (the HEIC pattern below), not "unsupported format".
     if svg::is_svg(bytes) {
-        let pixels = svg::decode_svg(bytes, limits)?;
-        return Ok((pixels, ImageFormat::Png, SourceContainer::Svg));
+        #[cfg(feature = "svg")]
+        {
+            let pixels = svg::decode_svg(bytes, limits)?;
+            return Ok((pixels, ImageFormat::Png, SourceContainer::Svg));
+        }
+        #[cfg(not(feature = "svg"))]
+        {
+            return Err(ImageError::CodecNotBuilt {
+                codec: "SVG",
+                feature: "svg",
+            });
+        }
     }
 
     // HEIC is the ISOBMFF sibling of AVIF, dispatched AFTER it so an AVIF-in-HEIF
@@ -651,6 +665,14 @@ fn decode_with_limits(
 /// enforcement are consistent.
 fn decode_with_format(bytes: &[u8]) -> Result<(DynamicImage, ImageFormat, SourceContainer)> {
     decode_with_limits(bytes, &decode_limits())
+}
+
+/// Decode `bytes` to pixels with the same format dispatch and limits as
+/// [`Image::from_bytes`], without capturing metadata. The perceptual quality
+/// search uses it to read AVIF candidates back, which the `image` crate's own
+/// generic decoder cannot do in this build.
+pub(crate) fn decode_pixels(bytes: &[u8]) -> Result<DynamicImage> {
+    decode_with_format(bytes).map(|(pixels, _, _)| pixels)
 }
 
 /// Extract the embedded full-res JPEG preview from RAW `bytes` as a canonical
@@ -1170,9 +1192,30 @@ mod tests {
 
     // ── SPEC-060 SVG rasterize (default, pure-Rust) ───────────────────────────
 
+    /// A build without the `svg` feature still DETECTS an SVG and answers with the
+    /// precise `CodecNotBuilt` (exit 4, "rebuild with --features svg"), never
+    /// `UnsupportedFormat`, a decode error, or a panic. The HEIC pattern.
+    #[cfg(not(feature = "svg"))]
+    #[test]
+    fn svg_without_feature_is_codec_not_built() {
+        let svg = b"<svg xmlns='http://www.w3.org/2000/svg' width='40' height='30'></svg>";
+        let result = Image::from_bytes(svg);
+        assert!(
+            matches!(
+                result,
+                Err(ImageError::CodecNotBuilt {
+                    codec: "SVG",
+                    feature: "svg"
+                })
+            ),
+            "expected CodecNotBuilt, got {result:?}"
+        );
+    }
+
     /// The DEFAULT build rasterizes a real `.svg` to the canonical `Image` at its
     /// intrinsic `width`/`height`, reporting `source_format == Png` (no
     /// `ImageFormat::Svg` exists).
+    #[cfg(feature = "svg")]
     #[test]
     fn svg_decodes_to_intrinsic_dimensions() {
         let svg = b"<svg xmlns='http://www.w3.org/2000/svg' width='40' height='30'></svg>";
@@ -1183,6 +1226,7 @@ mod tests {
     }
 
     /// With no `width`/`height`, the intrinsic size comes from the `viewBox`.
+    #[cfg(feature = "svg")]
     #[test]
     fn svg_uses_viewbox_when_no_width_height() {
         let svg = b"<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 50'></svg>";
@@ -1193,6 +1237,7 @@ mod tests {
 
     /// An SVG declaring a dimension above `MAX_IMAGE_DIMENSION` is rejected with
     /// `LimitsExceeded` via the production caps — before any raster allocation.
+    #[cfg(feature = "svg")]
     #[test]
     fn oversize_svg_is_limits_exceeded() {
         let svg = b"<svg xmlns='http://www.w3.org/2000/svg' width='70000' height='10'></svg>";
@@ -1204,6 +1249,7 @@ mod tests {
     }
 
     /// A malformed (unclosed) SVG is a typed decode error, never a panic.
+    #[cfg(feature = "svg")]
     #[test]
     fn malformed_svg_is_decode_error_not_panic() {
         let svg = b"<svg xmlns='http://www.w3.org/2000/svg'><rect";
@@ -1217,6 +1263,7 @@ mod tests {
     /// An SVG referencing an external file rasterizes WITHOUT reading it: the
     /// href resolver refuses the reference (transparent region), the local file
     /// is never opened, and decode still returns `Ok` with the intrinsic dims.
+    #[cfg(feature = "svg")]
     #[test]
     fn svg_external_file_ref_is_ignored() {
         let svg = b"<svg xmlns='http://www.w3.org/2000/svg' xmlns:xlink='http://www.w3.org/1999/xlink' width='10' height='10'>\

@@ -52,18 +52,24 @@
 //! re-adds `ttf-parser` (the RUSTSEC-2026-0192 advisory ignore in `deny.toml`)
 //! via usvg's text stack.
 
+#[cfg(feature = "svg")]
 use std::sync::Arc;
 
+#[cfg(feature = "svg")]
 use ::image::{DynamicImage, Limits, RgbaImage};
+#[cfg(feature = "svg")]
 use resvg::{tiny_skia, usvg};
 
+#[cfg(feature = "svg")]
 use crate::error::{ImageError, Result};
 
 /// The bundled default font for SVG `<text>` (BSD-3 Go, DEC-045). Embedded so
 /// the render needs no filesystem/system-font access.
+#[cfg(feature = "svg")]
 const FONT_DATA: &[u8] = include_bytes!("../../assets/fonts/Go-Regular.ttf");
 
 /// The font family name registered for [`FONT_DATA`] and used as the default.
+#[cfg(feature = "svg")]
 const FONT_FAMILY: &str = "Go";
 
 /// Bound the content-sniff scan so we never walk an unbounded buffer looking
@@ -137,6 +143,7 @@ fn starts_with_ci(hay: &[u8], needle: &[u8]) -> bool {
 /// Rasterize an SVG byte stream to a straight-alpha 8-bit RGBA [`DynamicImage`]
 /// at intrinsic (1x) size, enforcing the decode caps in `limits` (DEC-034)
 /// before allocating pixels and refusing all external resource references.
+#[cfg(feature = "svg")]
 pub(crate) fn decode_svg(bytes: &[u8], limits: &Limits) -> Result<DynamicImage> {
     let opt = hardened_options();
 
@@ -179,6 +186,7 @@ pub(crate) fn decode_svg(bytes: &[u8], limits: &Limits) -> Result<DynamicImage> 
 /// loaded (no system fonts). Every font family a text can name, generic or
 /// specific, known or not, resolves to that one font, so text never vanishes for
 /// want of a face. Bold and italic draw upright in its Regular face.
+#[cfg(feature = "svg")]
 fn hardened_options() -> usvg::Options<'static> {
     let mut opt = usvg::Options {
         // No filesystem resolution of relative paths.
@@ -216,6 +224,7 @@ fn hardened_options() -> usvg::Options<'static> {
 /// The allocation estimate uses the 8-bit RGBA raster buffer (`w * h * 4`), the
 /// largest buffer this module allocates. The pixel budget is the tighter, uniform
 /// bound across all four decode paths. Mirrors `avif::check_caps`.
+#[cfg(feature = "svg")]
 fn check_caps(w: u32, h: u32, limits: &Limits) -> Result<()> {
     super::check_pixel_budget(w, h)?;
     if let Some(max_w) = limits.max_image_width {
@@ -266,6 +275,7 @@ mod tests {
         assert!(!is_svg(b"<svgnot>")); // not a real svg root tag
     }
 
+    #[cfg(feature = "svg")]
     #[test]
     fn svg_dimension_cap_rejects_before_raster() {
         // A 100000×100000 SVG parses fine but must be rejected by the cap, never
@@ -281,6 +291,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "svg")]
     #[test]
     fn corrupt_svg_bytes_are_decode_error_not_panic() {
         // Truncated / non-SVG-but-SVG-sniffed input is a typed decode error.
@@ -299,6 +310,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "svg")]
     #[test]
     fn hardened_fontdb_resolves_each_generic_family_to_go() {
         use usvg::fontdb::{Family, Query};
@@ -327,6 +339,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "svg")]
     #[test]
     fn hardened_options_hold_only_the_bundled_face() {
         let opt = hardened_options();
@@ -337,6 +350,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "svg")]
     #[test]
     fn check_caps_rejects_oversize() {
         let mut limits = Limits::default();
@@ -359,6 +373,7 @@ mod tests {
     /// SPEC-070: a render size that passes EVERY DEC-034 cap (each side < 65 535,
     /// the RGBA pixmap under the 512 MiB alloc cap) is still rejected when it
     /// exceeds the DEC-063 pixel budget — an SVG `viewBox` is free to declare it.
+    #[cfg(feature = "svg")]
     #[test]
     fn check_caps_rejects_over_pixel_budget() {
         let mut prod = Limits::default();

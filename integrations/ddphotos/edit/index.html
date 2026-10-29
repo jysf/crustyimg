@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <title>Edit a copy</title>
+    <script>
+      // Match the theme the ddphotos site saved, so the page does not flash.
+      try {
+        var t = localStorage.getItem("ddp_theme");
+        if (t) document.documentElement.setAttribute("data-theme", t);
+      } catch (e) {}
+    </script>
+    <link rel="stylesheet" href="./edit.css" />
+    <script type="module" src="./edit.js"></script>
+  </head>
+  <body>
+    <header class="bar">
+      <a id="back" class="back" href="/">&larr; Albums</a>
+      <span id="site-name" class="site-name"></span>
+      <span id="engine" class="engine" aria-live="polite">Loading the engine&hellip;</span>
+    </header>
+
+    <main>
+      <h1 id="heading">Edit a copy</h1>
+      <p class="lede">
+        Make a resized, watermarked or re-encoded copy of a photo. It all runs in your browser:
+        nothing is uploaded.
+      </p>
+
+      <p id="error" class="error" role="alert" hidden></p>
+
+      <!-- Album and photo picker, shown when the URL names no photo. -->
+      <section id="picker" hidden>
+        <ul id="tiles" class="tiles"></ul>
+      </section>
+
+      <!-- The editor, shown for ?album=<slug>&photo=<n>. -->
+      <section id="editor" class="editor" hidden>
+        <figure class="preview">
+          <div class="frame">
+            <img id="preview" alt="" />
+            <span id="busy" class="busy" hidden>Updating&hellip;</span>
+          </div>
+          <figcaption id="caption"></figcaption>
+        </figure>
+
+        <form id="controls" class="controls" autocomplete="off">
+          <fieldset>
+            <legend>Size</legend>
+            <label>
+              Long edge
+              <select id="size" name="size"></select>
+            </label>
+          </fieldset>
+
+          <fieldset>
+            <legend>
+              <label class="inline"
+                ><input type="checkbox" id="wm-on" name="wm-on" /> Watermark</label
+              >
+            </legend>
+            <div id="wm-fields" class="wm-fields">
+              <label>
+                Text
+                <input type="text" id="wm-text" name="wm-text" maxlength="120" />
+              </label>
+              <div class="row">
+                <label>
+                  Position
+                  <select id="wm-gravity" name="wm-gravity">
+                    <option value="southeast">Bottom right</option>
+                    <option value="southwest">Bottom left</option>
+                    <option value="south">Bottom</option>
+                    <option value="northeast">Top right</option>
+                    <option value="northwest">Top left</option>
+                    <option value="north">Top</option>
+                    <option value="center">Centre</option>
+                  </select>
+                </label>
+                <label>
+                  Size
+                  <select id="wm-size" name="wm-size">
+                    <option value="0.025">Small</option>
+                    <option value="0.04" selected>Medium</option>
+                    <option value="0.06">Large</option>
+                  </select>
+                </label>
+                <label>
+                  Colour
+                  <input type="color" id="wm-color" name="wm-color" value="#ffffff" />
+                </label>
+              </div>
+              <label>
+                Opacity <output id="wm-opacity-out">60%</output>
+                <input
+                  type="range"
+                  id="wm-opacity"
+                  name="wm-opacity"
+                  min="0.1"
+                  max="1"
+                  step="0.05"
+                  value="0.6"
+                />
+              </label>
+            </div>
+          </fieldset>
+
+          <fieldset>
+            <legend>Format</legend>
+            <label>
+              Save as
+              <select id="format" name="format">
+                <option value="jpeg" selected>JPEG (works everywhere)</option>
+                <option value="webp">WebP (lossless, large)</option>
+                <option value="avif">AVIF (smallest)</option>
+                <option value="png">PNG (lossless)</option>
+                <option value="">Let the engine choose</option>
+              </select>
+            </label>
+            <p class="hint">
+              JPEG is tuned to the smallest file that still looks like the edit. AVIF uses a
+              fixed high quality. The similarity score is out of 100, where 100 is identical.
+            </p>
+          </fieldset>
+
+          <button id="make" type="submit" disabled>Make the copy</button>
+        </form>
+
+        <section id="result" class="result" hidden aria-live="polite">
+          <p id="result-summary"></p>
+          <a id="download" class="download" download>Download</a>
+          <details>
+            <summary>Do this to the original with the crustyimg CLI</summary>
+            <p class="hint">
+              This page edits the web copy the site publishes. The same recipe, run on the
+              original file, makes the same edit from a better source. File sizes will differ:
+              the CLI's <code>optimize</code> step uses a fast fixed quality, while this page
+              searches for the smallest file that still looks like the edit.
+            </p>
+            <pre><code id="cli"></code></pre>
+            <pre><code id="recipe"></code></pre>
+            <button id="copy" type="button">Copy recipe</button>
+          </details>
+        </section>
+      </section>
+    </main>
+
+    <footer class="foot">
+      Powered by <a href="https://github.com/jysf/crustyimg">crustyimg</a>, running as
+      WebAssembly. <span id="engine-version"></span>
+    </footer>
+  </body>
+</html>

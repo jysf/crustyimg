@@ -76,7 +76,7 @@ pub struct ShortlistEntry {
 pub struct BuiltCodecs {
     /// The `webp-lossy` feature (lossy WebP encode + a WebP decoder to score it).
     pub webp_lossy: bool,
-    /// The `avif` feature (AVIF encode; still no decoder — byte-budget only).
+    /// The `avif` feature (AVIF encode).
     pub avif: bool,
 }
 
@@ -116,8 +116,9 @@ pub fn avif_admissible(bucket: OptBucket, built: BuiltCodecs) -> bool {
 /// lossy-family buckets** (see [`avif_admissible`]) in the two non-perceptual
 /// modes: [`Mode::SizeBudget`] (the byte-budget search, appended) and
 /// [`Mode::Fast`] (the default decision, prepended so the [`MAX_SHORTLIST`]
-/// truncation can never drop it). It never appears in [`Mode::Perceptual`] — it has
-/// no decoder to score a round-trip against (DEC-020). The result is never empty —
+/// truncation can never drop it). It is not shortlisted in [`Mode::Perceptual`]:
+/// when AVIF had no decoder the search could not score it, and admitting it now
+/// that native builds can is a separate format-choice decision. The result is never empty —
 /// it always contains at least one always-available lossless entry (PNG).
 pub fn format_shortlist(
     bucket: OptBucket,
@@ -796,7 +797,7 @@ mod tests {
 
     #[test]
     fn shortlist_avif_never_in_perceptual_and_gated_on_built() {
-        // Perceptual never admits AVIF (no decoder to score a round-trip, DEC-020).
+        // Perceptual never shortlists AVIF (see `format_shortlist`).
         let perceptual = format_shortlist(
             OptBucket::Lossy,
             false,

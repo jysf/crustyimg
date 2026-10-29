@@ -335,15 +335,15 @@ pub(super) struct EncodePlan {
 /// - `SizeBudget` + a byte-budget-drivable format → run the byte-budget search;
 ///   warn (unless `--quiet`) if even minimum quality exceeds the budget
 ///   (best-effort smallest file).
-/// - `Perceptual` + a format with a knob but NO decoder (AVIF, output-only —
-///   DEC-020) → cannot score round-trips; warn and use the encoder default.
+/// - `Perceptual` + a format with a knob but NO decoder in this build (AVIF on
+///   wasm32) → cannot score round-trips; warn and use the encoder default.
 /// - any auto mode + a format without a quality knob → ignore it (encoder
 ///   default); a `SizeBudget` on such a format additionally warns. (Mirrors how
 ///   `-q` is ignored for lossless formats, DEC-016.)
 ///
 /// The two seams are [`LossyFormat::supports_lossy_quality`] (byte budget;
 /// JPEG + AVIF-with-feature) and [`LossyFormat::supports_perceptual_quality`]
-/// (perceptual; JPEG only — AVIF perceptual defers with AVIF decode, DEC-020).
+/// (perceptual; also needs a decoder, so AVIF qualifies on native builds only).
 ///
 /// `label` names the input in the warnings.
 pub(super) fn resolve_effective_quality(
@@ -408,11 +408,10 @@ pub(super) fn resolve_effective_quality(
                 image,
             })
         }
-        // Perceptual target on a format with a knob but no decoder (AVIF): the
-        // SSIMULACRA2 search must decode each candidate to score it, and AVIF
-        // decode is not built (output-only v1, DEC-020). Fall back to the encoder
-        // default and warn so the silent downgrade is visible; --max-size still
-        // works on AVIF (encode-only).
+        // Perceptual target on a format with a knob but no decoder in this build
+        // (AVIF on wasm32): the SSIMULACRA2 search must decode each candidate to
+        // score it. Fall back to the encoder default and warn so the silent
+        // downgrade is visible; --max-size still works (encode-only).
         Some(AutoQuality::Perceptual(_)) if supports_lossy => {
             if !global.quiet {
                 eprintln!(

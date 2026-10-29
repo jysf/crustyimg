@@ -32,7 +32,9 @@
 //!
 //!   So the wasm build's input reach is **PNG, JPEG, GIF, WebP, and SVG** (resvg
 //!   rasterizes in wasm, `<text>` and all — DEC-066 priced dropping the text stack
-//!   at 287 KB and kept it rather than silently eat your labels).
+//!   at 287 KB and kept it rather than silently eat your labels). The slim build
+//!   (`just wasm-build-slim`, no `svg` feature) drops SVG whole instead: an SVG
+//!   input there is detected and refused with a typed error, never mis-decoded.
 //! - **The filesystem.** There is no `source`/`sink` path handling in wasm: bytes
 //!   in, bytes out. The caller (JS) owns the `File`/`Blob`.
 //!
@@ -305,8 +307,9 @@ pub fn optimize(input: &[u8], out_format: &str) -> Result<Vec<u8>, JsError> {
     // ([`sink::FAST_LOSSY_QUALITY`], SPEC-095), not the encoder's own bare default
     // (`AVIF_DEFAULT_QUALITY`, which stays `convert`-only, DEC-071). Without this,
     // this legacy no-search path would quietly ship a worse file than the CLI.
-    // `supports_perceptual_quality` is the same seam the CLI guards on, so wasm and
-    // native agree about which formats are searchable.
+    // `supports_perceptual_quality` is the same seam the CLI guards on; it is
+    // `false` for AVIF here only because this target has no AVIF decoder (native
+    // builds do, and search AVIF).
     if !fmt.supports_perceptual_quality() {
         return sink::encode_to_bytes(&img, fmt, Some(sink::FAST_LOSSY_QUALITY)).map_err(js_err);
     }

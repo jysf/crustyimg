@@ -120,6 +120,16 @@ decodes, both already in the tree. ⚠ **There is no pure-Rust animated WebP enc
   first** — a near-lossless encode scoring 57.2 was traced to `Range: Limited` against full-range
   input and scored 96.5 after the fix.
 - [ ] (not yet defined) — **ICC colour transforms (`qcms`).** Closes `color/wrong-colorspace`.
+  📌 **A real consumer needs more than the lint fix** (found 2026-10-28). ddphotos, a static
+  photo-site generator whose `photogen` step uses libvips, converts every wide-gamut source
+  (Adobe RGB, Display P3, or an embedded profile it does not recognise as sRGB) to sRGB while
+  writing its web copies, then strips the profile. crustyimg would need the same thing in the
+  output path (`web`, `optimize`, recipes), not only a `lint` fix, before it could stand in for
+  libvips there. It is the main blocker to that.
+  ⚠ **Ready-made test:** ddphotos' sample album `antarctica/icebergs_12.jpg` carries a
+  560-byte embedded profile that photogen converts. Its 1600px output differs from an
+  unconverted resize by about −6 on mean red and +2 on mean blue. Reproduce with
+  `vips icc_transform <in> <out> srgb --embedded` as the reference.
 - [ ] (not yet defined) — **The rule-roster completeness test.** ⚠ Cheap, and it should land
   **first** — it is what turns this thesis into something that stays true.
   📌 The roster is **11 rules, not 9**: `privacy/gps-metadata-leak` and `size/truncated-or-corrupt`

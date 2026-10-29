@@ -1,4 +1,4 @@
-#![cfg(not(target_arch = "wasm32"))]
+#![cfg(all(feature = "svg", not(target_arch = "wasm32")))]
 //! SVG `<text>` in any `font-family` draws in the bundled Go font.
 //!
 //! Every test drives the real binary (`convert X.svg --format png`) and reads

@@ -56,7 +56,7 @@ Apply to all subcommands (parsed before/around the subcommand).
 | `1` | Generic runtime error (decode/encode/op failed; includes an input that exceeds decode resource limits — see below). |
 | `2` | Usage error (bad args) — clap's standard code. Also a watermark refused on one input (counted after globs and directories resolve): a mark that does not fit inside the image, or would cover more than 5 % of it (see `watermark` below). |
 | `3` | Input not found / unreadable. |
-| `4` | Unsupported or undetectable format. Three cases: the input bytes are not a recognisable image at all (zero-byte file, arbitrary text/bytes) — the message just says so, there is no feature to name; a DECODER is recognized but not built (a `.heic` input without `--features heic`, SPEC-062/DEC-052) — the message names the feature to rebuild with; or an ENCODER is not built (AVIF output on a `--no-default-features` lean build) — likewise names the feature. |
+| `4` | Unsupported or undetectable format. Three cases: the input bytes are not a recognisable image at all (zero-byte file, arbitrary text/bytes) — the message just says so, there is no feature to name; a DECODER is recognized but not built (a `.heic` input without `--features heic`, SPEC-062/DEC-052, or a `.svg` input on a build without the default-on `svg` feature) — the message names the feature to rebuild with; or an ENCODER is not built (AVIF output on a `--no-default-features` lean build) — likewise names the feature. |
 | `5` | Output write failed / refused (exists without `--yes`; name/path traversal; a symlinked destination, refused even with `--yes` — SPEC-034 / DEC-035). |
 | `6` | Partial batch failure (some inputs failed; summary on stderr). |
 | `7` | A check/gate was not satisfied (e.g. `diff --fail-under` scored below the threshold). Distinct from a runtime error so CI can tell "regression detected" from "couldn't run" (S9/SPEC-023, DEC-025). |
@@ -265,14 +265,14 @@ opts in to a single **SSIMULACRA2** readout for this run (reported on the summar
 in the JSON explain). For downscale-and-modernize, use **`web`**.
 
 **Perceptual auto-quality** (SPEC-016, DEC-019 — opt-in): `--target
-<visually-lossless|high|medium>` / `--ssim <0-100>` auto-tune the **JPEG** encode
+<visually-lossless|high|medium>` / `--ssim <0-100>` auto-tune the **JPEG** or **AVIF** (and, with `webp-lossy`, lossy **WebP**) encode
 quality to a perceptual **SSIMULACRA2** target — the command binary-searches the
 **lowest** quality whose decoded round-trip scores at/above the target (capped at
 8 in-memory candidate evaluations; the original is still decoded once, DEC-002).
 The presets map to SSIMULACRA2 scores (visually-lossless ≈ 90, high ≈ 70, medium ≈
 50; tunable). `--target`, `--ssim`, and `-q` are **mutually exclusive** (you either
 pin a quality or search for one → exit **2** if combined; `--ssim` outside 0–100 →
-exit **2**). For a **non-JPEG** output format the target is
+exit **2**). For an output format with no quality knob (PNG, lossless WebP) the target is
 **ignored** (encoder default), mirroring `-q` on lossless formats (DEC-016). If the
 target is unreachable even at quality 100, `optimize` emits the highest-quality encode
 (best-effort). A scoring failure (e.g. a pathologically tiny image) is a typed error
@@ -323,7 +323,8 @@ single exit 4, **not** a partial-batch exit 6. **AVIF** output is a **default**
 plain build encodes `--format avif` (and `-o x.avif`) — pure-Rust via `ravif`, no
 system deps — while a `--no-default-features` (lean) build keeps AVIF output at
 exit 4 with a "rebuild with --features avif" hint. **AVIF
-input (decode) is not supported** (output-only v1; reading an `.avif` fails). **WebP**
+input** decodes natively in every build via pure-Rust `re_rav1d` (SPEC-058/DEC-053);
+the wasm build cannot decode AVIF. **WebP**
 is a **pure-Rust DEFAULT format** (SPEC-019, DEC-021): `.webp` reads as INPUT (lossy +
 lossless) everywhere, and `--format webp` / `-o x.webp` write **lossless** WebP
 (smaller than PNG). In the DEFAULT build lossless WebP has no quality knob, so
@@ -332,16 +333,16 @@ the off-by-default **`webp-lossy`** feature (libwebp, SPEC-020/DEC-022) WebP gai
 quality knob: a WebP output is encoded **lossy** when a quality is set — an explicit
 `-q`, or one chosen by `--max-size`/`--target`/`--ssim` — and stays **lossless** for a
 bare `convert --format webp`. (Because the WebP decoder ships by default, BOTH the
-byte-budget AND the perceptual searches drive WebP — the AVIF contrast.) `--max-size
+byte-budget AND the perceptual searches drive WebP.) `--max-size
 <SIZE>` (SPEC-017 + SPEC-021) fits the output under a byte budget for **every**
 format: a lossy target (**JPEG**, **AVIF** (default), **WebP**
 `--features webp-lossy`) lowers quality first, and any target — lossy that still
 overflows, or a **lossless** one (PNG, lossless WebP) — then **downscales dimensions**
 until it fits (DEC-023), warning `scaled to WxH` (unless `--quiet`). Mutually
 exclusive with `-q` → exit 2; see `optimize` for the size-unit and best-effort
-semantics. (The perceptual `--target`/`--ssim` auto-quality is `optimize`-only and, for
-AVIF, falls back to the encoder default with a warning because it needs an AVIF
-decoder — use `--max-size` for an AVIF byte budget.)
+semantics. (The perceptual `--target`/`--ssim` auto-quality is `optimize`-only. It drives
+AVIF on native builds; the wasm build has no AVIF decoder to score candidates
+with, so there it falls back to the encoder default with a warning.)
 
 #### `auto-orient <INPUT...>`  *(S3)*
 Apply the EXIF orientation to pixels, then clear the tag — fixes the most common
