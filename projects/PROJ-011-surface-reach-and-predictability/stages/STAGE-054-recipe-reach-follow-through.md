@@ -207,7 +207,7 @@ Ordered. ⚡ Only the first item gates 0.8.0.
   range. Decide: refuse it at load, as every other ranged recipe key is refused (DEC-102), and
   `-q` too; or document the clamp.
 
-- [ ] (not yet written) — [S] **`build --format` is accepted and silently ignored.**
+- [ ] **SPEC-138** (framed 2026-10-28) — [S] **`build --format` is accepted and silently ignored.**
   Filed by the 0.8.0 release-notes verify (2026-10-27), driven on `main`'s release binary:
   `build --format png` exits 0 and writes the target's own format (GIF, WebP or JPEG), with or
   without a name extension or a recipe `format`. `--format` is a **global** flag
@@ -227,7 +227,7 @@ Ordered. ⚡ Only the first item gates 0.8.0.
   (seen by the orchestrator on 0.7.1, 2026-10-28). Check every verb's `--help` output, not the
   source: loop over the verbs and grep the rendered help for `SPEC-` and `DEC-`.
 
-- [ ] (not yet written) — [S] **An SVG font family other than Go draws no text.** Filed by the
+- [ ] **SPEC-137** (framed 2026-10-28) — [S] **An SVG font family other than Go draws no text.** Filed by the
   PR #211 (resvg 0.49) verify, 2026-10-28. It's the same on 0.7.1, so #211 didn't cause it.
   `<text font-family="sans-serif">`, `serif`, `Helvetica` or `"Helvetica, sans-serif"` renders
   **zero ink**, exits 0, and prints no warning. Only no family, `Go`, or a list that contains
@@ -238,7 +238,20 @@ Ordered. ⚡ Only the first item gates 0.8.0.
   after that, fall back to Go too. Test with an independent check that ink is present. Keep a
   negative control proving no system font is read.
 
-**Count:** 1 shipped / 0 active / 16 pending
+- [ ] (not yet written) — [S] **`--keep-gps` and `-v`/`--verbose` are read by no verb.** Filed by
+  the SPEC-137/138 frame (2026-10-28), from `build`'s global-flag sweep. Both are `GlobalArgs`
+  fields (`src/cli/mod.rs:98`, `:110`), but `grep -rn 'keep_gps\|verbose' src` finds them only in
+  that struct and two test fixtures that set them (`src/cli/ops.rs:1600-1603`,
+  `src/cli/common.rs:454-457`). Driven on `main`: `convert signed_gps.jpg --format jpeg --keep-gps`
+  exits 0 and the output has **0 EXIF keys** (the source has `GPSLatitude 50/1,29/1,1113/25`).
+  The pixel lane drops all metadata (`metadata-not-via-pixel-encode`), so the flag cannot do what
+  `docs/cli-reference.md:21,38`, `README.md:193` and `CHANGELOG.md:711` promise. `-vv` changes no
+  output either; no logger is installed, so usvg's own `log::warn!`s are never shown. Released
+  versions not driven. Decide per flag: implement it, refuse it, or remove it and its docs. Sibling,
+  minor: `build --strict` without `--check` exits 0 and does nothing (its help says "With
+  `--check`").
+
+**Count:** 1 shipped / 2 active / 15 pending
 
 ## Design Notes
 
