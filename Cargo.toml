@@ -90,10 +90,9 @@ webp = { version = "0.3.1", optional = true, default-features = false }
 #   (and the gif/webp/jpeg raster decoders they pull) — SVG rasterize stays lean
 #   and deterministic. `features = ["text"]` keeps SVG `<text>` rendering, using
 #   ONLY the bundled BSD-3 Go font (assets/fonts/Go-Regular.ttf, DEC-045) via an
-#   explicit fontdb — no system-font enumeration. That text stack re-adds the
-#   unmaintained `ttf-parser` (usvg -> fontdb/rustybuzz), covered by the documented
-#   RUSTSEC-2026-0192 advisory ignore in deny.toml (parse-time only; upstream is
-#   migrating font parsing onto fontations/HarfRust, which will delete it for us).
+#   explicit fontdb — no system-font enumeration. Since resvg 0.48 that text stack
+#   is skrifa + harfrust (fontations), sharing the `skrifa` we already use for
+#   watermark text; the unmaintained `ttf-parser`/`rustybuzz` are gone from the tree.
 # Hostile-input safety lives in src/image/svg.rs: external file/URL hrefs refused
 # (resources_dir=None + href resolver), output dims capped from usvg Tree::size()
 # BEFORE Pixmap allocation (DEC-034). Non-optional (default path); no new feature.
@@ -139,7 +138,7 @@ libheif-rs = { version = "2.7.0", optional = true, default-features = false, fea
 image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "gif", "bmp", "tiff", "ico", "webp"] }
 #   `resvg` WITH `text`: native `crustyimg` renders SVG `<text>` as real glyphs
 #   (DEC-054), using only the bundled Go font. Unchanged.
-resvg = { version = "0.47.0", default-features = false, features = ["text"] }
+resvg = { version = "0.49.0", default-features = false, features = ["text"] }
 # AVIF DECODE on the default, pure-Rust path (SPEC-058, DEC-053). Two CODEC deps
 # feeding the canonical `Image` (the webp-lossy precedent, DEC-021/DEC-022) — NOT
 # a second pixel library, so `single-image-library` is not tripped. AV1/AVIF is
@@ -241,7 +240,7 @@ image = { version = "0.25.10", default-features = false, features = ["png", "jpe
 # `svg_text_renders_glyphs_in_wasm` is the guardrail that makes a future accidental
 # drop go RED instead of silent. DEC-066 records the number so STAGE-026 can revisit
 # it behind a lazy chunk, with the price tag already known.
-resvg = { version = "0.47.0", default-features = false, features = ["text"] }
+resvg = { version = "0.49.0", default-features = false, features = ["text"] }
 # The JS ↔ Rust boundary for the WASM build (SPEC-072, DEC-064). Pure-Rust and
 # permissive (MIT OR Apache-2.0), so DEC-004 holds and `just deny` needs no new
 # exception. It is GLUE, not a codec — `single-image-library` is not tripped: the

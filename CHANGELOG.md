@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.8.0] - 2026-10-27
+## [0.8.0] - 2026-10-28
 
 ### Added
 
@@ -100,6 +100,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   summary), and exit `0`: a skip is not a failure, and `build` still writes its lockfile.
   `--scale` and `--tile` marks are not held to the 5 %, but a tile must fit. A cached `build`
   re-run does not repeat the skip line (`--no-cache` does).
+
+- **SVG rendering updated to resvg 0.49.** Text in SVGs is now laid out by the maintained
+  `skrifa` + `harfrust` font stack instead of `ttf-parser` + `rustybuzz`, which are no longer
+  maintained and are now gone from the dependency tree, along with the two advisory
+  exceptions they needed. It also picks up resvg's SVG fixes. A hostile SVG with an
+  `feComposite` filter (`operator="arithmetic"`) whose region extends past the image no
+  longer crashes `crustyimg`; 0.7.1 panicked and wrote no file. Also fixed: filters inside
+  rotated or skewed groups, clipping when a filter region is smaller than its input, gradients
+  and patterns that inherit `gradientTransform` or `patternTransform` through `href`,
+  `text-anchor` combined with `dx`, and nested `<tspan>` baselines under
+  `dominant-baseline`. SVGs that use these features render differently from 0.7.1, now as the
+  SVG specification describes. The native binary grows by about 440 KB and the WebAssembly
+  module by about 21 KB compressed.
 
 ### Fixed
 
