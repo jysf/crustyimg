@@ -71,41 +71,33 @@ After the last spec in a stage ships: **Stage Ship** (`FIRST_SESSION_PROMPTS.md`
 
 ## Where this stands
 
-**SPEC-126, SPEC-127 and SPEC-128 all shipped** (2026-09-03 → 09-06). STAGE-049 is **shipped**;
-STAGE-050 is **active** with 2 shipped / 1 closed / **5 pending**.
+**0.8.0 is released (2026-10-28, `v0.8.0` → `139b381`).** It's the one release this project
+promised: SPEC-126 to SPEC-135, plus resvg 0.49 (PR #211, which the maintainer folded in at the
+end). All five surfaces show 0.8.0: crates.io, the GitHub Release, the Homebrew tap, npm
+`crustyimg-wasm` and the jysf.org page. Main's CI on the tagged commit passed all 13 jobs. The
+one-lockfile-migration rule this section used to carry is now discharged.
 
-### The one sequencing rule that matters
+How the release went, for next time:
+- Release prep ran as two parts: notes (Opus) → verify → fix, then the cut (Sonnet), each as a
+  draft PR. The notes verify caught a false claim (`build --format`); the code bug was filed,
+  and the docs were reworded.
+- A late dependency PR moves the tag target. Re-verify it like code, and tag its merge commit,
+  not the release commit. The #211 verify found the CHANGELOG had named the wrong resvg panic,
+  and that 0.7.1 crashes on a hostile `feComposite` SVG (fixed by #211).
+- `just wt <branch>` for a branch that exists only on the remote creates a *new* branch from
+  `main`. A fix prompt for a maintainer-opened PR must fetch and reset to `origin/<branch>`.
+- npm returned **404 on PUT** for a logged-in owner: the saved token could read but not
+  publish. `npm login`, then re-run. Publish npm from a detached worktree at the tag
+  (`git worktree add ../crustyimg-vX.Y.Z vX.Y.Z`), so a dirty main checkout doesn't block it.
 
-⛔ **Everything in PROJ-011 is byte-changing on a shipped verb, so the whole project carries ONE
-lockfile migration and ships as ONE release.** The key is a function of `crate::version()`, so what
-makes it one migration is landing in the same *release*, not the same PR. **Merging is fine and
-expected; tagging is not.** Version is still **0.7.1** and must stay there until STAGE-050 closes.
-
-### What a recipe can express now, which is the whole point of the stage
-
-```toml
-version = "2"          # required by format/quality (SPEC-127)
-format  = "jpeg"
-
-[[step]]
-op = "watermark"       # SPEC-128
-image = "assets/logo.png"
-gravity = "southeast"
-opacity = 0.6
-```
-
----
-
-## ⚡ The one thing I would spec next
-
-**`build` serves a stale watermark from cache.** Reproduced at SPEC-128's verify with a verified
-control: change the overlay's bytes, and `build` reports *"1 cached, 0 rebuilt"* and emits
-byte-identical pre-edit output. **`apply` is unaffected.** Filed on STAGE-050, visible to
-`just backlog`.
-
-It is a **silent wrong-output path that arrived with the watermark capability** — the cache key does
-not cover a step's resolved assets. Everything else pending in STAGE-050 is a feature; this is a
-correctness bug in a shipped verb.
+### What is open now
+- **STAGE-054:** 1 shipped / 0 active / **16 pending**. These are the 0.8.1 candidates, including
+  `build --format` being ignored, the `render_text` library panic, spec ids in `--help` and the
+  wasm message, and SVG font families other than Go drawing no text.
+- **STAGE-053** (guards, proposed) and **STAGE-055** (the `.cube` LUT op, proposed, homed by
+  #212).
+- **PROJ-014 / Wave 4** (manifest, `{hash}`, placeholders, favicon) is the post-0.8.0 feature
+  plan.
 
 ---
 
@@ -128,7 +120,8 @@ Batching these in one sitting unblocks more than anything an orchestrator can do
 - **The two GitHub Action releases are still DRAFTS.** `v1.0.1` on `jysf/setup-crustyimg` and
   `jysf/crustyimg-action`, self-tests green, finished since **2026-08-12**. Publishing is a click
   and it is the smallest-effort/highest-visibility item on the board.
-- **The jysf.org project page** — a fourth public surface, in no release checklist.
+- **The jysf.org project page** — a fourth public surface. Updated for 0.8.0 (2026-10-28), but
+  it's still in no release checklist. Adding it to `RELEASING.md` step 6 is a one-line change.
 
 ---
 

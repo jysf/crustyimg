@@ -246,6 +246,9 @@ a tally you carried forward.
 
 ### Depends on
 - **v0.7.1 shipped** ✅ (2026-08-22, all three channels).
+- **v0.8.0 shipped** ✅ (2026-10-28, `v0.8.0` → `139b381`). This project's release: SPEC-126 to
+  SPEC-135 plus resvg 0.49 (PR #211). It's live on crates.io, the GitHub Release, Homebrew, npm
+  (`crustyimg-wasm`) and the jysf.org page.
 - ⛔ **One design ruling, inside STAGE-050:** how a recipe-level watermark handles absolute-pixel
   `--size`. Nothing else here is blocked on a decision.
 - **PROJ-010 stays open** as the correctness lane, and keeps the six defects this project declined.

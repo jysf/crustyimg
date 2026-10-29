@@ -44,6 +44,12 @@ silently dropped") only **partly** met: `watermark --size nan` still writes an u
 exit 0. 0.8.0 headlines that rule, so the maintainer ruled (2026-10-27) that the first item
 ships **before 0.8.0**. The rest has no release deadline and must not hold the tag.
 
+**0.8.0 released 2026-10-28** (`v0.8.0` → `139b381`). It carried SPEC-135 (this stage's first
+item) and, at the maintainer's call, resvg 0.49 (PR #211, verified with a CHANGELOG-only punch
+list). All five surfaces show 0.8.0: crates.io, the GitHub Release (15 assets), the Homebrew
+tap, npm `crustyimg-wasm`, and jysf.org. Main's CI on the tagged commit passed all 13 jobs. The
+remaining items here are 0.8.1 candidates.
+
 ## Success Criteria
 
 - `watermark --size nan|inf` and `--scale nan|inf` are refused with a plain message, on one
@@ -246,7 +252,7 @@ Ordered. ⚡ Only the first item gates 0.8.0.
   refusal and skip.
 
 ### Enables
-- 0.8.0's release prep, once the first item ships.
+- 0.8.0's release prep, once the first item ships. **Done: 0.8.0 released 2026-10-28.**
 - Roadmap row #6, the recipe playground, through the wasm `validate` export.
 
 ## Stage-Level Reflection
