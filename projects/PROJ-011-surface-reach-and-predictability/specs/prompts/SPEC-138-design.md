@@ -132,7 +132,7 @@ spec (AGENTS §15).
 ### Ids are reserved — use exactly these
 Do not run `just new-spec`. Fill Acceptance Criteria, Failing Tests and Implementation Context;
 keep `## Frame`. If you find the frame wrong, say so in your report rather than silently widening or
-narrowing it. Highest DEC on `main` is DEC-106. If you write DEC-108, use the **block-list**
+narrowing it. Highest DEC on `main` was DEC-107 when this was written. Other projects (PROJ-015, PROJ-016) are adding DECs on `main` in parallel, so if you write a new DEC, re-check `ls decisions/` after your last rebase and take the next free id (DEC-108 unless it is gone). Use the **block-list**
 `affected_scope` form (an inline array is silently dropped by `scripts/decisions-audit.sh`):
 ```yaml
 affected_scope:
