@@ -505,7 +505,7 @@ op = "identity"
     /// build: the family resolves to the bundled font instead of to no face.
     const SVG_NAMED_FAMILY: &[u8] = br#"<svg xmlns="http://www.w3.org/2000/svg" width="40" height="30"><text x="4" y="20" font-size="10" font-family="Helvetica">Hi</text></svg>"#;
     /// The same SVG with the text removed: draws nothing.
-    const SVG_NO_TEXT: &[u8] = br#"<svg xmlns="http://www.w3.org/2000/svg" width="40" height="30"><text x="4" y="20" font-size="10" font-family="Helvetica"></text></svg>"#;
+    const SVG_NAMED_FAMILY_NO_TEXT: &[u8] = br#"<svg xmlns="http://www.w3.org/2000/svg" width="40" height="30"><text x="4" y="20" font-size="10" font-family="Helvetica"></text></svg>"#;
 
     /// Pixels with alpha > 0 in a PNG, counted by the upstream decoder.
     fn alpha_ink(png: &[u8]) -> usize {
@@ -522,7 +522,8 @@ op = "identity"
         let drawn = transform(SVG_NAMED_FAMILY, IDENTITY_RECIPE, "png").expect("named family svg");
         assert!(alpha_ink(&drawn) > 0, "text in a named family drew nothing");
 
-        let blank = transform(SVG_NO_TEXT, IDENTITY_RECIPE, "png").expect("text-free svg");
+        let blank =
+            transform(SVG_NAMED_FAMILY_NO_TEXT, IDENTITY_RECIPE, "png").expect("text-free svg");
         assert_eq!(alpha_ink(&blank), 0, "the text-free twin must draw nothing");
     }
 
