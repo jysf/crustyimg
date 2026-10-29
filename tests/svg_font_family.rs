@@ -278,7 +278,7 @@ fn alpha_with_only_font(svg: &str, font: Vec<u8>, family: &str) -> Vec<u8> {
         tiny_skia::Transform::identity(),
         &mut pixmap.as_mut(),
     );
-    pixmap.data().chunks_exact(4).map(|px| px[3]).collect()
+    pixmap.pixels().iter().map(|p| p.alpha()).collect()
 }
 
 /// A font installed on the host is never read: naming it still draws Go.
