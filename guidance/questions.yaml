@@ -178,3 +178,91 @@ questions:
       HEIC is NOT part of this question: no trigger here clears the HEVC
       patent axis (DEC-052, see `avc-patent-exposure-for-an-independent-decoder`
       for the same shape). Do not re-open HEIC by re-probing oxideav-heif.
+
+  # --- Raised 2026-09-30 from a pngquant / gifski comparison. All three are
+  # --- investigation items, not decided work. Animated AVIF is NOT repeated here:
+  # --- it is already tracked as PROJ-012 (proposed) and blocked on mp4-atom-adoption.
+
+  - id: lossy-png-quantizer
+    question: "Should crustyimg offer lossy (palette-quantized) PNG output, and if so via which permissive quantizer?"
+    priority: low
+    status: open
+    raised_by: human
+    raised_at: 2026-09-30
+    assigned_to: null
+    notes: |
+      The gap versus pngquant: PNG output is lossless 24/32-bit only, while
+      pngquant typically saves ~70% on PNGs. pngquant and libimagequant are
+      GPL-3.0-or-later / commercial, so they are excluded as defaults by
+      DEC-018 (`imagequant` is named there). Spawning the `pngquant` binary
+      is also out for `build` recipes: a spawned tool breaks the cache key.
+
+      Candidates to probe, not yet probed: a permissive pure-Rust quantizer
+      (NeuQuant via `color_quant`, or another). Price it in lines against
+      quality, and prove quality with a perceptual metric plus a near-lossless
+      control. Adoption needs a DEC (`no-new-top-level-deps-without-decision`).
+
+      Check demand first: converting PNG to WebP/AVIF already covers most web
+      cases, so this only matters where a PNG is required. Do not build it on
+      the strength of the comparison alone.
+
+      MEASURED 2026-10-01 (pngquant 3.0.3 vs `crustyimg convert` built from
+      main with `avif webp-lossy`; 13 images; bytes interpolated at equal
+      SSIMULACRA2, C reference grader on the DECODED output; alpha scored
+      worst-of black/white background). Result: a crossover, not a winner.
+      - At score >=90, pngquant wins on flat graphics: screenshot_text 4.2x
+        smaller than AVIF, a dithered graphic 2.6x, a dashboard screenshot 1.9x.
+        AVIF wins on alpha/gradient logos (0.37-0.93x of pngquant).
+      - At score 80, AVIF beats pngquant on 8 of the 10 images where both
+        reach 80 (0.14-0.88x), and WebP on 7 of those 10. At 70, AVIF is 0.02-0.09x on photos.
+      - pngquant cannot reach 80 on photos at all (max 75.9 and 78.3) — the
+        palette ceiling. WebP reaches 90 on only 2 of 13 images (4:2:0 ceiling,
+        81-90 elsewhere); AVIF reaches 90 on 9 of 13.
+      Controls passed: lossless AVIF/WebP score 100.00 through the same path;
+      crustyimg's WebP q100 is byte-identical to `cwebp -q 100`; its AVIF q100
+      scores within 0.5 of `avifenc -q 100 --yuv 444` — so no colour bug.
+      NOT measured: speed/memory, `optimize`'s auto-decide engine (only fixed
+      `convert -q`), more than one run, or a corpus beyond these 13 images.
+      Harness + raw points: session scratchpad `pq_vs_crusty.py`, `points.csv`
+      (not committed). The existing imgbench harness has no pngquant adapter.
+
+  - id: oxipng-adoption
+    question: "Should `oxipng` (lossless PNG recompression) be adopted, and behind which feature?"
+    priority: medium
+    status: open
+    raised_by: human
+    raised_at: 2026-09-30
+    assigned_to: null
+    notes: |
+      docs/feature-set-triage-2026-08.md records oxipng 10.2.0 as MIT, pure
+      Rust, a dependency decision under DEC-018. That document is read by no
+      command, so this entry is what makes the decision visible.
+
+      The cheapest PNG improvement with no licence problem. It will NOT match
+      pngquant's savings: lossless recompression is a smaller win. `zopfli`
+      (Apache-2.0) is the sibling entry in the same table. Needs a DEC, and a
+      measurement on the repo's own PNG fixtures before it is believed.
+      Check the effect on the wasm engine target (`just wasm-check`) and the
+      lean `--no-default-features` build.
+
+  - id: webp-lossy-default-gating
+    question: "Is shipping only lossless WebP encode in the released binaries the right default, and can lossy WebP be offered without a C dependency?"
+    priority: medium
+    status: open
+    raised_by: human
+    raised_at: 2026-09-30
+    assigned_to: null
+    notes: |
+      Lossy WebP encode lives behind the off-by-default `webp-lossy` feature
+      (libwebp via `libwebp-sys`, a vendored C dependency; SPEC-020, DEC-022),
+      so default builds encode only lossless WebP. The 2026-08 CLI surface
+      audit recorded the same thing as "lossless-WebP-only in every shipped
+      binary".
+
+      WebP is a common web target, so this may matter more in practice than
+      PNG quantization. Questions to answer: (a) what do users get from
+      `optimize`/`web` when WebP would win but only lossless is available;
+      (b) is there a pure-Rust lossy encoder worth probing (do not assume one
+      exists, and do not resolve by re-probing crates.io without a stated
+      reason); (c) should any release channel ship `webp-lossy`. The default
+      stays constrained by `pure-rust-codecs-default`.
