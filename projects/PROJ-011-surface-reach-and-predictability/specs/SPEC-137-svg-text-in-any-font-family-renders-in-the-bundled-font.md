@@ -100,6 +100,24 @@ cost:
         per id, MAX output_tokens. Priced at Sonnet $3/$15 per MTok, cache_creation x1.25 ($3.75),
         cache_read x0.10 ($0.30). Measured before the final commit/PR turns, so it slightly
         under-counts.
+    - cycle: punchlist
+      agent: claude-sonnet-5-5
+      interface: claude-code
+      tokens_total: 1931155
+      tokens_breakdown:
+        input: 52
+        output: 7408
+        cache_creation: 61362
+        cache_read: 1862333
+      estimated_usd: 0.90
+      duration_minutes: null
+      recorded_at: 2026-10-29
+      note: >
+        Measured from the transcript (7e0a7c0a-….jsonl, identified by content), deduped by
+        `.message.id` (24 unique ids, all claude-sonnet-5-5), input/cache_creation/cache_read once
+        per id, MAX output_tokens. Priced at Sonnet $3/$15 per MTok, cache_creation x1.25 ($3.75),
+        cache_read x0.10 ($0.30). Measured before the final docs commit, so it slightly
+        under-counts.
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -817,6 +835,19 @@ necessary during build, create a new spec rather than expanding this one.
   - The wasm constants are `SVG_NAMED_FAMILY` / `SVG_NAMED_FAMILY_NO_TEXT` because `SVG_NO_TEXT` already exists in that module.
   - Clippy rejected `chunks_exact(4)` in the test; it reads `pixmap.pixels()` alpha instead.
 - **Follow-up work identified:** none.
+
+### Punch list (verify)
+
+- **Fix:** `host_font()` in `tests/svg_font_family.rs` now panics on Linux when no candidate font exists and `CRUSTYIMG_REQUIRE_SYSTEM_FONT` is set; without it the SKIP line stays. CI installs `fonts-dejavu-core` on `ubuntu-latest` and re-runs the row alone on all three OSes with the variable set (step `System-font row (prints the font it used)`). Text cleanups: blank-render hash `bd30b081…` in the two table/RED lines; mixed-tspan hash `1accc9c7…` (verify measured it, same recipe as `6e4d6b08…`); the `opt.font_family` assertion in `hardened_options_hold_only_the_bundled_face` now has a message. (The deviation note above still quotes the old `bb918147…` on purpose, as the record of the error.)
+- **Controls (Docker, `rust:1-slim`, read-only mount, fresh target dir):**
+  - no variable, no font: `SKIP an_installed_system_font_is_never_read: no known font file on this host; checked: DejaVu Sans, Liberation Sans, Noto Sans` (test passed)
+  - variable set, no font: `panicked at tests/svg_font_family.rs:266:9: expected one of [("DejaVu Sans", "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"), ("Liberation Sans", …), ("Noto Sans", …)] to exist on this OS` (test FAILED)
+  - variable set, `fonts-dejavu-core` installed: `an_installed_system_font_is_never_read: using DejaVu Sans from /usr/share/fonts/truetype/dejavu/DejaVuSans.ttf` (test passed)
+  - macOS, no variable, full `cargo test --test svg_font_family` redirected: `$?` = 0, 4 passed.
+- **CI (run 40931258121, head `5cfd87f`, all green):**
+  - ubuntu: `an_installed_system_font_is_never_read: using DejaVu Sans from /usr/share/fonts/truetype/dejavu/DejaVuSans.ttf`
+  - macos: `an_installed_system_font_is_never_read: using Helvetica from /System/Library/Fonts/Helvetica.ttc`
+  - windows: `an_installed_system_font_is_never_read: using Arial from C:\Windows\Fonts\arial.ttf`
 
 ### Build-phase reflection (3 questions, short answers)
 
