@@ -863,7 +863,7 @@ question; that is history, not a dependency — see DEC-091 §Consequences.)*
 ### `.cube` LUT op — build the reader in-house
 
 > **✅ HOMED 2026-10-28 — this entry is now history, not a backlog item.** It lives at
-> **PROJ-011 / STAGE-055 / SPEC-136** (`cycle: design`) and **roadmap Wave 7**. Everything below
+> **PROJ-015 / STAGE-055 / SPEC-136** (`cycle: design`) and **roadmap Wave 7**. Everything below
 > is kept because the measurements and the two dependency corrections are still the evidence the
 > spec rests on; the ⚠ blocker at the end of this entry is **cleared** and marked so. Work the
 > spec, not this entry.

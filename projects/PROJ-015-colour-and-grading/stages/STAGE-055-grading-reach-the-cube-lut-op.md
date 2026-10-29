@@ -10,7 +10,7 @@ stage:
   target_complete: null             # optional: YYYY-MM-DD
 
 project:
-  id: PROJ-011                      # parent project
+  id: PROJ-015                      # parent project
 repo:
   id: crustyimg
 
@@ -209,9 +209,12 @@ which is a test, not an aspiration.
 ## Dependencies
 
 ### Depends on
-- **STAGE-050** (shipped) — the asset-op registry seam (SPEC-128/DEC-100) and
-  asset-content cache hashing (SPEC-129/DEC-101). This stage is its
-  continuation; STAGE-050 is closed in place and is not reopened.
+- **PROJ-011 / STAGE-050** (shipped) — the asset-op registry seam
+  (SPEC-128/DEC-100) and asset-content cache hashing (SPEC-129/DEC-101). This
+  stage is that stage's continuation **across a project boundary**: STAGE-050
+  is closed in place and is not reopened, and its project went on to ship
+  without waiting for this. The cross-project dependency is the point of the
+  re-home — a post-1.0 grading feature should not hold PROJ-011 open.
 - **STAGE-046 / SPEC-121 + SPEC-122** (shipped, DEC-095) — depth preservation
   and the linear-light helpers
 - **SPEC-131** (shipped) — typed per-operation parameter structs, which the
