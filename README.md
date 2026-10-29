@@ -371,8 +371,12 @@ jobs:
       - uses: actions/checkout@v4
       - uses: jysf/crustyimg-action@v1
         with:
-          paths: assets content
+          paths: assets/**/* content/**/*
 ```
+
+A directory in `paths` covers only the images directly inside it. Use a recursive glob such as
+`assets/**/*` to include subfolders. The same holds when you call `crustyimg lint` directly: quote
+the glob (`'assets/**/*'`) so crustyimg expands it rather than the shell.
 
 Other inputs: `mode: optimize` re-encodes the tree instead of linting it, `args` passes extra
 flags straight to crustyimg (`--select privacy`, `--config path`), `fail-level: warn|never`
@@ -400,7 +404,7 @@ The format-aware upgrade from `check-added-large-files` — lint image assets be
 ```yaml
 repos:
   - repo: https://github.com/jysf/crustyimg
-    rev: v0.4.0            # a crustyimg release that ships `lint`
+    rev: v0.8.0            # a crustyimg release that ships `lint` (0.4.0+)
     hooks:
       - id: crustyimg-lint
 ```
