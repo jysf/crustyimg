@@ -17,6 +17,6 @@ Cycle prompts live in `prompts/SPEC-138-<cycle>.md`.
       exact (no clap default, no env feature). Every refused flag gets its own line, fixed order.
       No golden lock: a two-binary `compare-builds.sh` run, proven red by a one-byte key mutant.
       DEC-057 and DEC-105 amended; DEC-108 released. `Breaking` CHANGELOG entry.
-- [ ] **build** — prompt: `prompts/SPEC-138-build.md`.
+- [~] **build** — prompt: `prompts/SPEC-138-build.md` (Sonnet). Handed out 2026-10-29, after SPEC-137 merged (`71b4f38`).
 - [ ] **verify** — prompt: `prompts/SPEC-138-verify.md`.
 - [ ] **ship** — prompt: `prompts/SPEC-138-ship.md`.
