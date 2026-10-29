@@ -181,6 +181,31 @@ advisory ignore; (b) SVGZ / a `--size`/`--dpi` render override / a faithful
 `SourceFormat` enum is wanted (each a follow-up spec); or (c) resvg is abandoned
 (pin + thin glue make the swap cheap).
 
+## Amendment (2026-10-28): every font family draws in the bundled font
+
+"The default family is set to the bundled font" covered only text that names no family. Text
+that named any other family, including `sans-serif` and `serif`, found no face and drew
+nothing, exit 0, in every release with SVG input (0.5.0 to 0.8.0). That was the
+silent-wrong-output this decision set out to prevent. The rule is now:
+
+- **SVG text always draws in the bundled Go font, whatever `font-family` it names:** generic,
+  named, installed on the host or not, a list, a CSS property, or a `<style>` rule.
+- **How:** `hardened_options()` points fontdb's five generic families (`serif`, `sans-serif`,
+  `monospace`, `cursive`, `fantasy`) at Go, and keeps `font_family = "Go"` for text with no
+  family. usvg's default selector tries `serif` after every family a text names
+  (`usvg-0.49.0/src/text/mod.rs:114`), so `serif` → Go catches every named or unknown family. No
+  custom font resolver is needed. **Revisit on a usvg bump** if that fallback line changes:
+  `tests/svg_font_family.rs` goes red on the named-family rows if it does.
+- **Substitution is silent** (maintainer ruling, 2026-10-28). A warning would fire on nearly
+  every real SVG, which names Arial or Helvetica. An opt-in `lint` rule is the place for that
+  signal if it is ever wanted.
+- **Accepted limits:** bold and italic draw upright in Go Regular, with no synthetic bold or
+  oblique and no extra faces bundled (ruling, 2026-10-28; bundling faces would be a DEC-066
+  purchase). Characters Go lacks (CJK, emoji) still do not draw correctly.
+- **System fonts cannot be read**, structurally: `fontdb` builds with no features (fingerprint
+  `"features": []`), so `load_system_fonts` and the other filesystem loaders are not compiled in.
+  `tests/svg_font_family.rs` also checks it behaviourally with an installed font per CI OS.
+
 ## References
 
 - Related specs: SPEC-060 (this), SPEC-058/DEC-053 (AVIF decode — the default-input

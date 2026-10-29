@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **SVG text in any font family draws again.** Every release with SVG input (0.5.0 through
+  0.8.0) drew no text at all for `<text>` whose `font-family` was anything but `Go`, including
+  `sans-serif`, `serif`, `Arial`, `Helvetica` and lists without `Go`. It exited 0 with no
+  warning. That text now draws in the bundled Go font, on the command line and in the browser
+  build. System fonts are still never read, and bold and italic draw upright in Go Regular.
+
 ## [0.8.0] - 2026-10-28
 
 ### Added

@@ -19,6 +19,10 @@ crustyimg [GLOBAL OPTIONS] <COMMAND> [INPUT...] [OPTIONS]
 - **Per-command fan-out is sequential;** `apply --recipe` is the parallel path (`-j N`).
 - **Pipes stay clean:** with `-o -` (stdout) all diagnostics go to stderr.
 - **Default drop-GPS:** pixel-lane encodes strip GPS unless you pass `--keep-gps`.
+- **SVG text always draws in the bundled Go font.** crustyimg never reads the fonts installed on
+  your system, so `<text>` in any `font-family` (`sans-serif`, `Arial`, a family you do not
+  have) draws in Go. Bold and italic draw upright in Go Regular, and characters Go does not
+  contain (CJK, emoji) do not draw correctly.
 
 ## Global options
 
