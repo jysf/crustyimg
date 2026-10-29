@@ -8,6 +8,10 @@
 //! Fixture: `tests/fixtures/svg/rect_text_40x30.svg` — a 40×30 plain-text SVG
 //! with a rect, a semi-transparent circle, and a `<text>` element. Committed
 //! verbatim as text (no encoder feature or ImageMagick needed).
+//!
+//! Needs the default-on `svg` feature; without it, see
+//! `svg_without_feature_is_codec_not_built` in `src/image/mod.rs`.
+#![cfg(feature = "svg")]
 
 use std::process::Command;
 

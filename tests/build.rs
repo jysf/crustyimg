@@ -29,6 +29,7 @@ width = 16
 
 /// The committed text-SVG fixture (SPEC-115/SPEC-117) — see `tests/input_svg.rs`.
 /// Do not synthesize a new one.
+#[cfg(feature = "svg")]
 const SVG_FIXTURE: &[u8] = include_bytes!("fixtures/svg/rect_text_40x30.svg");
 
 // ── Fixture helpers ───────────────────────────────────────────────────────────
@@ -1331,6 +1332,7 @@ name = "{stem}.png"
 /// This pins behaviour that already works: there is no red-to-green
 /// transition to demonstrate here, and AC-5's per-verb negative control (run
 /// and recorded, not committed) is what proves the pin is real.
+#[cfg(feature = "svg")]
 #[test]
 fn build_on_svg_source_writes_a_real_raster() {
     let dir = TempDir::new().unwrap();

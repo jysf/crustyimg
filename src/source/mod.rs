@@ -97,6 +97,9 @@ pub enum SourceError {
 // `svg` is a DEFAULT-rasterizable input (SPEC-060, DEC-054) — pure-Rust rasterize
 // via `resvg`/`usvg`/`tiny-skia`, so directory/glob sources discover `.svg` too.
 // (`.svgz` gzip is out of scope for v1 — the content sniff keys on `<svg`/`<?xml`.)
+// Like `heic`, it is discovered in every build: one built without the default-on
+// `svg` feature reports "codec not built" with a "--features svg" hint rather than
+// silently skipping it (exit 4 for one file; a batch with other files exits 6).
 // The RAW extensions are DEFAULT Tier-1 inputs (SPEC-061, DEC-055) — `Image::load`
 // routes them by extension to embedded-JPEG-preview extraction, so directory/glob
 // sources discover `.nef`/`.cr2`/`.cr3`/… like any other image. Kept in sync with

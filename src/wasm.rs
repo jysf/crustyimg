@@ -32,7 +32,9 @@
 //!
 //!   So the wasm build's input reach is **PNG, JPEG, GIF, WebP, and SVG** (resvg
 //!   rasterizes in wasm, `<text>` and all — DEC-066 priced dropping the text stack
-//!   at 287 KB and kept it rather than silently eat your labels).
+//!   at 287 KB and kept it rather than silently eat your labels). The slim build
+//!   (`just wasm-build-slim`, no `svg` feature) drops SVG whole instead: an SVG
+//!   input there is detected and refused with a typed error, never mis-decoded.
 //! - **The filesystem.** There is no `source`/`sink` path handling in wasm: bytes
 //!   in, bytes out. The caller (JS) owns the `File`/`Blob`.
 //!

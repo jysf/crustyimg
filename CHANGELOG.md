@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **SVG input is now the `svg` feature, on by default.** Release binaries, `cargo install`,
+  the npm package and the browser demo all still read SVG. A `--no-default-features` build
+  no longer does: an SVG input there exits `4` with "rebuild with --features svg", the
+  same answer a HEIC input gets without `heic`. Add it back with `--features svg`.
+
+### Added
+
+- **A slim browser build.** `just wasm-build-slim` builds the wasm package without SVG
+  input into `pkg-slim/`, for pages that never see an SVG. See
+  `integrations/ddphotos/` for the first user.
+
 ## [0.8.0] - 2026-10-28
 
 ### Added
