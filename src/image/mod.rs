@@ -653,6 +653,14 @@ fn decode_with_format(bytes: &[u8]) -> Result<(DynamicImage, ImageFormat, Source
     decode_with_limits(bytes, &decode_limits())
 }
 
+/// Decode `bytes` to pixels with the same format dispatch and limits as
+/// [`Image::from_bytes`], without capturing metadata. The perceptual quality
+/// search uses it to read AVIF candidates back, which the `image` crate's own
+/// generic decoder cannot do in this build.
+pub(crate) fn decode_pixels(bytes: &[u8]) -> Result<DynamicImage> {
+    decode_with_format(bytes).map(|(pixels, _, _)| pixels)
+}
+
 /// Extract the embedded full-res JPEG preview from RAW `bytes` as a canonical
 /// [`Image`] under the production DEC-034 caps (SPEC-061, DEC-055).
 ///
