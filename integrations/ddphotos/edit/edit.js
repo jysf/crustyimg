@@ -5,9 +5,9 @@
 //   /albums/albums.json         album list (absent when the whole site is encrypted)
 //   /albums/<slug>/index.json   photos, with src.full (1600px WebP) and src.grid
 //
-// URL: /edit/                          pick an album
-//      /edit/?album=<slug>             pick a photo
-//      /edit/?album=<slug>&photo=<n>   edit photo n (1-based, like ddphotos permalinks)
+// URL: /edit/index.html                          pick an album
+//      /edit/index.html?album=<slug>             pick a photo
+//      /edit/index.html?album=<slug>&photo=<n>   edit photo n (1-based, like permalinks)
 
 const $ = (id) => document.getElementById(id);
 
@@ -104,7 +104,9 @@ async function showAlbums(config) {
     $("tiles").append(
       tile({
         href: `?album=${encodeURIComponent(a.slug)}`,
-        img: a.cover ? albumFileUrl(`${a.slug}/${a.cover}`, a.coverVersion) : null,
+        // albums.json cover paths already start with the album folder
+        // (index.json paths do not).
+        img: a.cover ? albumFileUrl(a.cover, a.coverVersion) : null,
         title: a.title,
         sub: a.dateSpan,
       }),

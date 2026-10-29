@@ -11,10 +11,14 @@ publishes, and it is installed through ddphotos' own `config/static/` folder, wh
 the site build copies to the web root.
 
 ```
-/edit/                          pick an album
-/edit/?album=<slug>             pick a photo
-/edit/?album=<slug>&photo=<n>   edit photo n (1-based, like ddphotos permalinks)
+/edit/index.html                          pick an album
+/edit/index.html?album=<slug>             pick a photo
+/edit/index.html?album=<slug>&photo=<n>   edit photo n (1-based, like ddphotos permalinks)
 ```
+
+Link to `/edit/index.html`, not `/edit/`. ddphotos' dev server (`./ddphotos run`) only
+serves files from `config/static/`, so a folder URL falls through to the site's 404 page.
+Production servers usually map `/edit/` to `index.html`, but the full name works everywhere.
 
 ## Install
 
@@ -22,11 +26,14 @@ the site build copies to the web root.
 just ddphotos-edit-install ~/my-ddphotos/config
 ```
 
-That builds the wasm package and copies the page into `config/static/edit/`. Rebuild
-the site (`./ddphotos photogen`, then `./ddphotos build`) and open `/edit/`.
+That builds the slim wasm package (below) and copies the page into
+`config/static/edit/`. Rebuild the site (`./ddphotos photogen`, then `./ddphotos build`)
+and open `/edit/index.html`.
 
-The page and its JavaScript are about 70 KB. The engine is a separate `.wasm` of about
-5.8 MB, or 1.3 MB with Brotli. It only downloads when someone opens `/edit/`, never on the gallery pages.
+The page and its JavaScript are about 70 KB. The engine is a separate `.wasm`: the
+**slim build**, 3.9 MB raw or 0.78 MB with Brotli, 37% smaller than the full browser
+build (1.23 MB). It is the full build without SVG input, which a ddphotos site never
+feeds it (`just wasm-build-slim`, into `pkg-slim/`). It only downloads when someone opens `/edit/`, never on the gallery pages.
 Serve `.wasm` as `application/wasm`. Apache, nginx, Cloudflare Pages and S3 do this by
 default. ddphotos' Vite dev server does not, so in `./ddphotos run` the browser logs a
 warning and loads it more slowly, but it still works.
@@ -41,7 +48,9 @@ warning and loads it more slowly, but it still works.
 | **Preview** | Live, re-rendered by the engine about 200 ms after each change. |
 | **CLI** | Every result shows the same edit as a crustyimg recipe, plus the `crustyimg apply` command to run on the original file. |
 
-Work runs in a Web Worker, so the page stays responsive during an encode.
+Work runs in a Web Worker, so the page stays responsive during an encode. On a 1200px
+copy of a real sample photo, AVIF took 7.5 s (142 KB) and JPEG took 19.8 s (402 KB):
+the JPEG quality search is the slow part in wasm.
 
 ## Limits
 
@@ -68,6 +77,9 @@ ddphotos code. It only reads the JSON a ddphotos site publishes
 
 ## How it was tested
 
-Against a mock site built in the JSON shape of ddphotos' `pkg/photogen/json.go`, using
-ddphotos' sample photos as 1600 px lossy WebPs. It has **not** been run against real
-`photogen` output, because `photogen` needs libvips.
+Against ddphotos' own sample site, built with its real tools: `make sample-photogen`
+(needs libvips) and `make sample-build`, then served by its Vite dev server with this
+page in `sample/config/static/edit/`. Album, photo and editor views, JPEG and AVIF
+downloads (checked with the browser's own decoder), recursive-album photos, and videos
+being skipped were all exercised there. Not yet tested on Apache, nginx or Cloudflare
+Pages.
