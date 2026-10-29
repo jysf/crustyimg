@@ -862,9 +862,28 @@ question; that is history, not a dependency — see DEC-091 §Consequences.)*
 
 ### `.cube` LUT op — build the reader in-house
 
+> **✅ HOMED 2026-10-28 — this entry is now history, not a backlog item.** It lives at
+> **PROJ-011 / STAGE-055 / SPEC-136** (`cycle: design`) and **roadmap Wave 7**. Everything below
+> is kept because the measurements and the two dependency corrections are still the evidence the
+> spec rests on; the ⚠ blocker at the end of this entry is **cleared** and marked so. Work the
+> spec, not this entry.
+
 **Workhorse, not lab** (Fence A: a LUT path + strength generalizes across a batch). The feature
 was never in question; only the dependency advice was, and the maintainer reversed that on
 2026-08-10 in favour of in-housing.
+
+**The engine stays crustyimg's — reviewed and settled 2026-10-28.** A sibling-repo proposal
+(`irradiance` DEC-028) asked for the `.cube` parser and interpolator to live there, with crustyimg
+calling into it. Declined, on four grounds: `single-image-library` is a **blocking** constraint and
+`irradiance` transforming pixels crustyimg already holds would be the second pixel-processing
+library (as a *decoder* it is fine, and precedented by `re_rav1d`/`libheif-rs`); the recorded
+integration seam is bytes-in/pixels-out one way only, and `irradiance` has no `image` dependency by
+design, so each grade would cost two buffer conversions; the wasm build is
+`--no-default-features --features avif`, so a feature-gated engine could never reach the browser;
+and the shared kernel is only ~40 lines of grid interpolation, since a DCP `HueSatMap` is indexed
+in HSV and returns hue/sat/value scales while a `.cube` is indexed in RGB and returns RGB —
+`irradiance` needs no `.cube` parser at all. The develop **tone curve** on linear sensor data
+remains `irradiance`'s.
 
 **The differentiator is the reproducible build, not the LUT.** *"The LUT inside a reproducible
 build — the file's hash becomes part of the cache key, so changing the grade invalidates exactly
@@ -886,11 +905,27 @@ trilinear + typed errors, against the `src/metadata/tiff.rs` (718-line) in-housi
   author's local DaVinci Resolve install (`src/lib.rs:28,33`), so they cannot run on any other
   machine. That is a supply-chain quality signal the licence question distracted from.
 
-⚠ **Blocked on the colour-space question below** — a `.cube` applied in a non-linear pipeline is
+~~⚠ **Blocked on the colour-space question below** — a `.cube` applied in a non-linear pipeline is
 baked against the wrong transfer function. Settle that first. (Amended 2026-08-18: the *8-bit*
 half is now conditional — SPEC-121/DEC-095 makes the ops preserve the source's depth, so a 16-bit
 source is no longer quantized to 256 levels; an 8-bit source still is, because SPEC-121 preserves
-depth and does not promote. The transfer-function half is untouched and still live.)
+depth and does not promote. The transfer-function half is untouched and still live.)~~
+
+**✅ CLEARED 2026-10-28 — both halves.** The 8-bit half went conditional at SPEC-121, as the
+2026-08-18 amendment recorded. The transfer-function half closed when **SPEC-122 shipped**:
+`src/operation/mod.rs` now carries `srgb_to_linear` / `linear_to_srgb` / `srgb8_linear_table` /
+`encode_srgb8` / `encode_srgb16`, and `Resize` uses them — so a grade can run through the same
+linearize → transform → re-encode round trip, in the module the op will live in, with that round
+trip **measured exact for all 256 8-bit and all 65,536 16-bit values** (DEC-095, Validation).
+The amendment above was written 2026-08-18, *before* SPEC-122 landed, which is why it read as
+still-live for two months after it stopped being true.
+
+⚠ **One real caveat survives, and it is a cost rather than a blocker.** SPEC-122's own benchmark:
+`resize` went 169.27 µs → 648.52 µs (+283.5%, Apple M4 Pro, criterion, 100 measurements/arm), and
+the same `F32x4` pipeline with **no transfer function at all** still cost 515.88 µs — so **72% of
+the added time is the `F32x4` working type, not the maths**, and `U16x4` has SIMD kernels `F32x4`
+does not. A LUT is more arithmetic per pixel than a resample. SPEC-136 **measures and reports**
+(AC-12); changing the working type is its own spec, because it would move `Resize` too.
 
 ### MCP server exposing crustyimg's measurements — and its stated gate is questionable
 
