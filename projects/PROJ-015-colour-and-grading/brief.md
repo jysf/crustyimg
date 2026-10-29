@@ -130,7 +130,8 @@ shipping.
 
 ## Stage Plan
 
-Ordered. Only the first is framed.
+Ordered by dependency, **not by priority** — and stage two carries an explicit
+exception to that ordering, for the reason given under it.
 
 - [ ] STAGE-055 (proposed) — Grading reach: the `.cube` LUT op (`SPEC-136`, [M], `cycle: design`)
 - [ ] (not yet defined) — **The working type, closed by measurement.** `F32x4`
@@ -140,6 +141,19 @@ Ordered. Only the first is framed.
   cost is the working type, not the maths**. ⚠ Shared-code change — it moves
   `Resize` and `Watermark`, not just the grading path, so it needs a clean
   full-matrix verify rather than an incremental one.
+
+  ⚠⚠ **This stage's position is NOT the project's position — decide it
+  separately.** PROJ-015 sits post-1.0 (roadmap Wave 7) because a *grade* is
+  not table-stakes for "a complete local toolchain." That argument does not
+  cover this stage, which is not a grading feature at all: it is a **shipped
+  performance regression in the most-used verb**. `resize` is **1.51–2.45×
+  slower end-to-end in 0.8.0** than before SPEC-122, and users have it today.
+  `docs/roadmap.md` put the resize *quality* defect above the 1.0 line on the
+  reasoning that resize is "the most-used operation of a tool whose headline
+  claim is quality-per-byte" — that reasoning applies unchanged to the fix for
+  it having tripled the cost. **Pulling this stage forward does not require
+  pulling the LUT forward with it**, and the two should not be sequenced as a
+  unit just because they share a project.
 - [ ] (not yet defined) — **The float working path.** Whether `Rgb32F` /
   `Rgba32F` get a real working buffer. Today `is_sixteen_bit` answers `false`
   for them deliberately, so a float source silently takes the 8-bit route —
