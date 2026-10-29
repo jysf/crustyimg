@@ -260,7 +260,7 @@ encode). Worth doing, clearly later.
 | Item | Value | Complexity | Enabling architecture in place |
 |---|---|---|---|
 | ratatui TUI live-preview editor → exports a recipe | "Experiment like an editor" with live preview, then save the tuned chain as a recipe — additive, not a rewrite | L | Recipe (de)serialization + registry; the editor just builds an op list and saves it |
-| ICC color conversion (lcms2) | True color-managed conversion (MVP only preserves ICC, never converts) | L | Metadata/ICC container lane already preserves ICC (DEC-003); conversion adds an `Operation`/encode step |
+| ICC color conversion → **homed in PROJ-012** (`qcms` only) | True color-managed conversion (MVP only preserves ICC, never converts). This row once said `lcms2`; PROJ-012 rules that out, because `lcms2` bindings would add a system library (DEC-088). See PROJ-012's "ICC colour transforms (`qcms`)" stage | L | Metadata/ICC container lane already preserves ICC (DEC-003); conversion adds an `Operation`/encode step |
 | mozjpeg / turbojpeg native encode (feature) | Best-in-class JPEG size/quality | L | Codec policy already reserves native codecs behind off-by-default cargo features (DEC-004) |
 
 ---
