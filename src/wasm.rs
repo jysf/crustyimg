@@ -305,8 +305,9 @@ pub fn optimize(input: &[u8], out_format: &str) -> Result<Vec<u8>, JsError> {
     // ([`sink::FAST_LOSSY_QUALITY`], SPEC-095), not the encoder's own bare default
     // (`AVIF_DEFAULT_QUALITY`, which stays `convert`-only, DEC-071). Without this,
     // this legacy no-search path would quietly ship a worse file than the CLI.
-    // `supports_perceptual_quality` is the same seam the CLI guards on, so wasm and
-    // native agree about which formats are searchable.
+    // `supports_perceptual_quality` is the same seam the CLI guards on; it is
+    // `false` for AVIF here only because this target has no AVIF decoder (native
+    // builds do, and search AVIF).
     if !fmt.supports_perceptual_quality() {
         return sink::encode_to_bytes(&img, fmt, Some(sink::FAST_LOSSY_QUALITY)).map_err(js_err);
     }

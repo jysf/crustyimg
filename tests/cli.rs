@@ -2372,50 +2372,187 @@ fn convert_to_avif_produces_avif() {
     );
 }
 
-/// FEATURE build: a perceptual target (`--target`) on AVIF degrades GRACEFULLY.
-/// The SSIMULACRA2 search must DECODE each candidate to score it, but AVIF decode
-/// is not built (output-only v1, DEC-020) — so the run still succeeds (exit 0),
-/// writes valid AVIF at the encoder default, and warns that perceptual targeting
-/// needs a decoder. (Byte-budget AVIF, which is encode-only, works — see
-/// `avif_max_size_fits`.) Uses `optimize` with a pinned `-o out.avif`, since
-/// `--target`/`--ssim` are the opt-in perceptual searches (SPEC-016); `convert`
-/// carries only `--max-size`.
+/// Score `b` against `a` with `crustyimg diff --json`. This decodes the files as
+/// written to disk, so it checks what was shipped, not what the quality search
+/// reported about itself.
 #[cfg(feature = "avif")]
-#[test]
-fn avif_target_high() {
-    let dir = tempfile::tempdir().expect("tempdir");
-    let in_path = dir.path().join("in.png");
-    std::fs::write(&in_path, common::detailed_png(64, 64)).unwrap();
-    let out_path = dir.path().join("out.avif");
-
+fn diff_score(a: &std::path::Path, b: &std::path::Path) -> f64 {
     let output = Command::new(BIN)
-        .args([
-            "optimize",
-            in_path.to_str().unwrap(),
-            "--target",
-            "high",
-            "-o",
-            out_path.to_str().unwrap(),
-        ])
+        .args(["diff", a.to_str().unwrap(), b.to_str().unwrap(), "--json"])
         .output()
-        .expect("failed to run optimize --target high -o out.avif");
-
+        .expect("failed to run diff --json");
     assert_eq!(
         output.status.code(),
         Some(0),
-        "optimize --target high to .avif (feature) should exit 0 (graceful fallback); stderr: {}",
+        "diff --json should exit 0; stderr: {}",
         stderr_str(&output)
     );
-    let bytes = std::fs::read(&out_path).expect("AVIF output file");
+    let json: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("diff --json must print JSON");
+    json["score"]
+        .as_f64()
+        .unwrap_or_else(|| panic!("diff --json must carry a score: {json}"))
+}
+
+/// FEATURE build: a perceptual target (`--ssim`) on an AVIF output runs the real
+/// SSIMULACRA2 search. Each candidate is decoded back with the native AVIF decoder
+/// to score it. Three checks, each catching a different way to get this wrong:
+/// - the WRITTEN file, scored independently with `diff`, meets the target (catches
+///   a search that scores wrongly or a final write at a different quality);
+/// - a higher target gives a strictly larger file (the encoder-default fallback
+///   writes both at the same quality, so they would be identical);
+/// - no "no decoder" warning appears.
+///
+/// `optimize` with a pinned `-o out.avif`, since `--target`/`--ssim` are the opt-in
+/// perceptual searches; `convert` carries only `--max-size`.
+#[cfg(feature = "avif")]
+#[test]
+fn avif_ssim_target_runs_the_perceptual_search() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let in_path = dir.path().join("in.png");
+    std::fs::write(&in_path, common::detailed_png(96, 96)).unwrap();
+
+    let run = |ssim: u8| -> Vec<u8> {
+        let out_path = dir.path().join(format!("out-{ssim}.avif"));
+        let output = Command::new(BIN)
+            .args([
+                "optimize",
+                in_path.to_str().unwrap(),
+                "--format",
+                "avif",
+                "--ssim",
+                &ssim.to_string(),
+                "-o",
+                out_path.to_str().unwrap(),
+            ])
+            .output()
+            .expect("failed to run optimize --format avif --ssim");
+        let stderr = stderr_str(&output);
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "optimize --format avif --ssim {ssim} should exit 0; stderr: {stderr}"
+        );
+        assert!(
+            !stderr.contains("decoder"),
+            "native AVIF has a decoder, so --ssim must not warn about one; got: {stderr}"
+        );
+        let bytes = std::fs::read(&out_path).expect("AVIF output file");
+        assert_eq!(
+            image::guess_format(&bytes).expect("guess format"),
+            ImageFormat::Avif,
+            "output should be AVIF"
+        );
+        let score = diff_score(&in_path, &out_path);
+        assert!(
+            score >= f64::from(ssim),
+            "the written AVIF must meet --ssim {ssim}; it scores {score}"
+        );
+        bytes
+    };
+
+    let low = run(50);
+    let high = run(90);
+    assert!(
+        high.len() > low.len(),
+        "a higher --ssim target must pick a higher AVIF quality (larger file): \
+         --ssim 50 = {} B, --ssim 90 = {} B",
+        low.len(),
+        high.len()
+    );
+}
+
+/// FEATURE build: `optimize` with NO `--format` on a lossy AVIF source that
+/// classifies as a graphic, re-encoded because `--max` resizes it. The graphic
+/// shortlist is lossless only, every lossless candidate is larger than the source,
+/// so `optimize` adds one compact lossy re-encode in the source's own family:
+/// AVIF. Under `--ssim` that AVIF candidate is searched. Before native AVIF
+/// candidates could be decoded for scoring, this exited 1 with "The image format
+/// Avif is not supported". It must now write an AVIF that meets the target.
+#[cfg(feature = "avif")]
+#[test]
+fn optimize_ssim_on_resized_avif_graphic_searches_the_avif_fallback() {
+    let dir = tempfile::tempdir().expect("tempdir");
+
+    // A flat four-colour checkerboard: classifies as a graphic, and a lossy AVIF
+    // of it is smaller than any lossless re-encode of the resized image.
+    let palette = [[255, 255, 255], [0, 0, 0], [200, 30, 30], [30, 160, 60]];
+    let png_path = dir.path().join("graphic.png");
+    RgbImage::from_fn(256, 256, |x, y| {
+        image::Rgb(palette[((x / 16 + y / 16) % 4) as usize])
+    })
+    .save(&png_path)
+    .expect("write graphic png");
+
+    let src_path = dir.path().join("graphic.avif");
+    let made = Command::new(BIN)
+        .args([
+            "convert",
+            png_path.to_str().unwrap(),
+            "--format",
+            "avif",
+            "-q",
+            "30",
+            "-o",
+            src_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run convert --format avif");
+    assert_eq!(made.status.code(), Some(0), "{}", stderr_str(&made));
+
+    let out_dir = dir.path().join("out");
+    let output = Command::new(BIN)
+        .args([
+            "optimize",
+            src_path.to_str().unwrap(),
+            "--max",
+            "128",
+            "--ssim",
+            "80",
+            "--out-dir",
+            out_dir.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run optimize --max --ssim");
+    let stderr = stderr_str(&output);
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "optimize <avif graphic> --max 128 --ssim 80 should exit 0; stderr: {stderr}"
+    );
+    let (out_path, bytes) = optimize_single_output(&out_dir);
     assert_eq!(
         image::guess_format(&bytes).expect("guess format"),
         ImageFormat::Avif,
-        "output should be AVIF (written at encoder default)"
+        "the compact lossy fallback for an AVIF source is AVIF; got {out_path:?}"
     );
-    let stderr = stderr_str(&output);
+
+    // Reference: the same resize, written losslessly, so `diff` compares the
+    // shipped AVIF with the exact pixels the search scored against.
+    let ref_path = dir.path().join("ref.png");
+    let reference = Command::new(BIN)
+        .args([
+            "optimize",
+            src_path.to_str().unwrap(),
+            "--max",
+            "128",
+            "--format",
+            "png",
+            "-o",
+            ref_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to write the resized reference");
+    assert_eq!(
+        reference.status.code(),
+        Some(0),
+        "{}",
+        stderr_str(&reference)
+    );
+    let score = diff_score(&ref_path, &out_path);
     assert!(
-        stderr.contains("decoder") || stderr.contains("--max-size"),
-        "stderr should warn that perceptual AVIF needs a decoder; got: {stderr}"
+        score >= 80.0,
+        "the written AVIF must meet --ssim 80; it scores {score}"
     );
 }
 
