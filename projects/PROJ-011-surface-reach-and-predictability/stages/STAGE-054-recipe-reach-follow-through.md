@@ -227,7 +227,7 @@ Ordered. ⚡ Only the first item gates 0.8.0.
   (seen by the orchestrator on 0.7.1, 2026-10-28). Check every verb's `--help` output, not the
   source: loop over the verbs and grep the rendered help for `SPEC-` and `DEC-`.
 
-- [ ] **SPEC-137** (designed 2026-10-28) — [S] **An SVG font family other than Go draws no text.** Filed by the
+- [x] **SPEC-137** (merged 2026-10-29, PR #217) — [S] **An SVG font family other than Go draws no text.** Filed by the
   PR #211 (resvg 0.49) verify, 2026-10-28. It's the same on 0.7.1, so #211 didn't cause it.
   `<text font-family="sans-serif">`, `serif`, `Helvetica` or `"Helvetica, sans-serif"` renders
   **zero ink**, exits 0, and prints no warning. Only no family, `Go`, or a list that contains
@@ -251,7 +251,7 @@ Ordered. ⚡ Only the first item gates 0.8.0.
   minor: `build --strict` without `--check` exits 0 and does nothing (its help says "With
   `--check`").
 
-**Count:** 1 shipped / 2 active / 15 pending
+**Count:** 2 shipped / 1 active / 15 pending
 
 ## Design Notes
 

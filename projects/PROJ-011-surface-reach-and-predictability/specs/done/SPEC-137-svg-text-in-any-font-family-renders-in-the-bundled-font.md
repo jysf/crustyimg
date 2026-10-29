@@ -7,7 +7,7 @@
 task:
   id: SPEC-137
   type: bug                        # epic | story | task | bug | chore
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: S                    # S | M | L  (L means split it)
@@ -85,21 +85,20 @@ cost:
     - cycle: build
       agent: claude-sonnet-5-5
       interface: claude-code
-      tokens_total: 5230823
+      tokens_total: 6234597
       tokens_breakdown:
-        input: 98
-        output: 21093
-        cache_creation: 110211
-        cache_read: 5099421
-      estimated_usd: 2.26
+        input: 114
+        output: 26795
+        cache_creation: 117139
+        cache_read: 6090549
+      estimated_usd: 2.67
       duration_minutes: null
       recorded_at: 2026-10-29
       note: >
         Measured from the transcript (5fc6f6d2-….jsonl, identified by content), deduped by
-        `.message.id` (44 unique ids, all claude-sonnet-5-5), input/cache_creation/cache_read once
-        per id, MAX output_tokens. Priced at Sonnet $3/$15 per MTok, cache_creation x1.25 ($3.75),
-        cache_read x0.10 ($0.30). Measured before the final commit/PR turns, so it slightly
-        under-counts.
+        `.message.id` (51 unique ids, all claude-sonnet-5-5), input/cache_creation/cache_read once
+        per id, MAX output_tokens. Priced at Sonnet $3/$15 per MTok, cache_creation x1.25, cache_read x0.10.
+        Re-measured at ship from the full transcript; the earlier $2.26 (44 ids) was taken before the final commit/PR turns.
     - cycle: punchlist
       agent: claude-sonnet-5-5
       interface: claude-code
@@ -118,10 +117,44 @@ cost:
         per id, MAX output_tokens. Priced at Sonnet $3/$15 per MTok, cache_creation x1.25 ($3.75),
         cache_read x0.10 ($0.30). Measured before the final docs commit, so it slightly
         under-counts.
+    - cycle: verify
+      agent: claude-opus-5-5
+      interface: claude-code
+      tokens_total: 6976504
+      tokens_breakdown:
+        input: 114
+        output: 31601
+        cache_creation: 129272
+        cache_read: 6815517
+      estimated_usd: 5.01
+      duration_minutes: null
+      recorded_at: 2026-10-29
+      note: >
+        Measured from the transcript (0e634256-….jsonl, identified by content), deduped by
+        `.message.id` (54 unique ids, all claude-opus-5-5), input/cache_creation/cache_read once
+        per id, MAX output_tokens. Priced at Opus $5/$25 per MTok, cache_creation x1.25, cache_read x0.10.
+        Added at ship; the session's own estimate was $4.75.
+    - cycle: ship
+      agent: claude-sonnet-5-5
+      interface: claude-code
+      tokens_total: 934079
+      tokens_breakdown:
+        input: 24
+        output: 5066
+        cache_creation: 59010
+        cache_read: 869979
+      estimated_usd: 0.56
+      duration_minutes: null
+      recorded_at: 2026-10-29
+      note: >
+        Measured from the transcript (ce527b2b-….jsonl, identified by content), deduped by
+        `.message.id` (12 unique ids, all claude-sonnet-5-5), input/cache_creation/cache_read once
+        per id, MAX output_tokens. Priced at Sonnet $3/$15 per MTok, cache_creation x1.25, cache_read x0.10.
+        Measured before the commit/push turns, so it slightly under-counts.
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 26638097
+    estimated_usd: 17.61
+    session_count: 6
 ---
 
 # SPEC-137: SVG text in any font family renders in the bundled font
@@ -868,10 +901,42 @@ necessary during build, create a new spec rather than expanding this one.
 from the process-focused build reflection above.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — The design asked for evidence CI cannot show. It said a Linux SKIP was expected and told the
+   build to quote the SKIP line from the CI log, but libtest hides stderr for passing tests, so
+   neither a SKIP line nor a `using` line could ever appear. The build inferred it from green CI
+   and only verify caught it; the fix made the skip fail when coverage is required
+   (`CRUSTYIMG_REQUIRE_SYSTEM_FONT`) and printed the font with `--show-output`, giving
+   `using DejaVu Sans` / `Helvetica` / `Arial` on the three OSes. Next time I would check that an
+   asked-for log line can reach the log before asking for it. Two hashes in the spec were also
+   typed, not pasted from a run: the blank render `bb918147…` (really `bd30b081…`) and the mixed
+   `<tspan>` row `6893dab3…` (really `1accc9c7…`); no assertion used either, so nothing went red.
+   Other misses: commit 1's wasm test did not compile (a duplicate constant) until `d830c58`, so
+   the build could not run the wasm row on unmodified code and said so (verify then ran it: RED, as
+   it should be); verify's first PR-head wasm run hit a stale library from a target dir shared
+   with the baseline worktree, a known trap that struck again; and the PR binary served a blank
+   cached `build` output made by `main`, because both report 0.8.0. The spec accepted that in
+   Call 7, and it closes when 0.8.1 bumps the version. What held: every negative control and
+   mutation M-a to M-d flipped as predicted; ink was counted with ImageMagick on both binaries;
+   released 0.7.1 and 0.8.0 were driven before the CHANGELOG claimed "0.5.0 through 0.8.0"; the
+   pinned hash held on all three OSes.
+   *Changed at merge, not a defect:* PR #218 (merged just before #217) put SVG decoding behind a
+   default-on `svg` feature (`Cargo.toml:262`, `svg = ["dep:resvg"]`). `tests/svg_font_family.rs` is
+   therefore gated `#![cfg(all(feature = "svg", not(target_arch = "wasm32")))]`, and the wasm row
+   carries `#[cfg(feature = "svg")]`. The `--no-default-features` (lean) CI leg no longer runs these
+   tests, by design: a lean build refuses SVG input outright. `just wasm-test` still passes `svg`
+   through `_wasm_features` (`--no-default-features --features avif,svg`), so the wasm row still
+   runs there. All read from `71b4f38`.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — None applied. Proposed, for the orchestrator to decide: one HANDOFF trap (or design-template)
+   line, "a test that can skip must fail where its coverage is required, not print; libtest hides
+   stderr for passing tests, so a printed SKIP is invisible in CI." It is general, not
+   crustyimg-specific: it holds for any libtest/Rust project, and the same shape (a printed skip or
+   note that a passing test swallows) exists in other runners. The design-side corollary: a spec
+   must not ask the build to quote a log line unless the check says how that line reaches the log.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — None. Verify's cleanups were all done in the punch list. The two things nearby are already
+   settled: the substituted-family warning was ruled out (maintainer ruling 1; an opt-in `lint`
+   rule is unscheduled and not filed here), and running `just wasm-test` in CI belongs to
+   STAGE-053. STAGE-054's backlog has no entry that this work leaves wrong.
