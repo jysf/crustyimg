@@ -9,7 +9,7 @@
 #
 #   repos:
 #     - repo: https://github.com/jysf/crustyimg
-#       rev: v0.4.0            # a crustyimg release tag that ships `lint`
+#       rev: v0.8.0            # a crustyimg release tag that ships `lint` (0.4.0+)
 #       hooks:
 #         - id: crustyimg-lint
 #
