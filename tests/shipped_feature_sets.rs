@@ -7,24 +7,29 @@
 //! not gated: it reads the two feature lists from source and fails if either loses
 //! `svg` (or `avif`, which is in both lists for the same reason).
 
-/// The quoted names inside the brackets of the one line starting with `prefix`.
+/// The quoted names in the TOML array that starts on the one line beginning with
+/// `prefix` (which ends in `[`). The array may span several lines; `#` comments
+/// inside or after it are ignored.
 fn feature_names(source: &str, prefix: &str, what: &str) -> Vec<String> {
     // Normalize CRLF so a Windows checkout parses the same way.
     let source = source.replace("\r\n", "\n");
-    let lines: Vec<&str> = source
-        .lines()
-        .filter(|l| l.trim_start().starts_with(prefix))
+    let starts: Vec<usize> = source
+        .match_indices('\n')
+        .map(|(i, _)| i + 1)
+        .chain(std::iter::once(0))
+        .filter(|&i| source[i..].starts_with(prefix))
         .collect();
     assert_eq!(
-        lines.len(),
+        starts.len(),
         1,
-        "expected exactly one `{prefix}` line in {what}, found {lines:?}"
+        "expected exactly one line starting `{prefix}` in {what}"
     );
-    // `default = ["display", "svg"]`: every other `"`-split piece is a name.
-    lines[0]
-        .split('"')
-        .skip(1)
-        .step_by(2)
+    // From just after the `[` to the first `]`, with comments dropped line by line.
+    let rest = &source[starts[0] + prefix.len()..];
+    let body = &rest[..rest.find(']').expect("the array has a closing `]`")];
+    body.lines()
+        .map(|l| l.split('#').next().unwrap_or(""))
+        .flat_map(|l| l.split('"').skip(1).step_by(2))
         .map(str::to_owned)
         .collect()
 }
