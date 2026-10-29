@@ -30,7 +30,7 @@ That builds the slim wasm package (below) and copies the page into
 `config/static/edit/`. Rebuild the site (`./ddphotos photogen`, then `./ddphotos build`)
 and open `/edit/index.html`.
 
-The page and its JavaScript are about 70 KB. The engine is a separate `.wasm`: the
+The page and its JavaScript are about 30 KB. The engine is a separate `.wasm`: the
 **slim build**, 3.9 MB raw or 0.78 MB with Brotli, 37% smaller than the full browser
 build (1.23 MB). It is the full build without SVG input, which a ddphotos site never
 feeds it (`just wasm-build-slim`, into `pkg-slim/`). It only downloads when someone opens `/edit/`, never on the gallery pages.

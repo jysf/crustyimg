@@ -45,4 +45,4 @@ for (const f of ["crustyimg.js", "crustyimg_bg.wasm"]) {
 }
 
 console.log(`edit page installed in ${out} (engine from ${pkg})`);
-if (isConfigDir) console.log("rebuild the site and open /edit/");
+if (isConfigDir) console.log("rebuild the site and open /edit/index.html");

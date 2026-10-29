@@ -200,8 +200,10 @@ function pixelRecipe(edit) {
 /// The recipe for the CLI, to run on the original file. The original is usually
 /// much larger than the published copy, and the watermark size is in pixels, so
 /// this recipe always resizes to the long edge the page made: the result matches
-/// what the user saw, built from a better source. The terminal `optimize` step
-/// runs the same perceptual search the page ran.
+/// what the user saw, built from a better source. `format` is the one the page
+/// actually wrote, so "let the engine choose" gives the CLI the same answer. The
+/// terminal `optimize` step uses the CLI's own fast quality choice, not the page's
+/// similarity search, so the file sizes can differ.
 function cliRecipe(edit) {
   let r = pixelRecipe({ ...edit, resize: edit.outLong });
   if (edit.format) r = r.replace('version = "2"\n', `version = "2"\nformat = "${edit.format}"\n`);
@@ -240,6 +242,11 @@ async function runPreview() {
 
 const EXT = { jpeg: "jpg", webp: "webp", avif: "avif", png: "png", gif: "gif" };
 
+/// Single-quote a string for a POSIX shell.
+function shellQuote(s) {
+  return `'${s.replace(/'/g, "'\\''")}'`;
+}
+
 function kb(n) {
   return n >= 1048576 ? `${(n / 1048576).toFixed(2)} MB` : `${Math.round(n / 1024)} KB`;
 }
@@ -269,10 +276,11 @@ async function makeCopy(event) {
     parts.push(`${(r.ms / 1000).toFixed(1)} s`);
     $("result-summary").textContent = parts.join(" · ");
 
-    const recipe = cliRecipe(edit);
+    const recipe = cliRecipe({ ...edit, format: edit.format || r.format });
     $("recipe").textContent = recipe;
     const src = photo.entry.sourcePath || photo.entry.fileName;
-    $("cli").textContent = `crustyimg apply --recipe edit.toml '${src.replace(/'/g, "'\\''")}'`;
+    // Without -o, `apply` writes the image to stdout.
+    $("cli").textContent = `crustyimg apply --recipe edit.toml ${shellQuote(src)} -o ${shellQuote(name)}`;
     $("result").hidden = false;
   } catch (e) {
     showError(`Could not make the copy: ${e.message}`);

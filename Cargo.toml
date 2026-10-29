@@ -238,8 +238,10 @@ image = { version = "0.25.10", default-features = false, features = ["png", "jpe
 # "silent-wrong-output footgun"; 287 KB does not buy the right to ship one. A demo
 # that quietly eats your labels is worse than a demo that loads a beat slower.
 # `svg_text_renders_glyphs_in_wasm` is the guardrail that makes a future accidental
-# drop go RED instead of silent. DEC-066 records the number so STAGE-026 can revisit
-# it behind a lazy chunk, with the price tag already known.
+# drop of `text` go RED instead of silent. That test is gated on the `svg` feature, so
+# dropping `svg` itself is caught by `tests/shipped_feature_sets.rs` instead. DEC-066
+# records the number so STAGE-026 can revisit it behind a lazy chunk, with the price
+# tag already known.
 resvg = { version = "0.49.0", default-features = false, features = ["text"], optional = true }
 # The JS ↔ Rust boundary for the WASM build (SPEC-072, DEC-064). Pure-Rust and
 # permissive (MIT OR Apache-2.0), so DEC-004 holds and `just deny` needs no new

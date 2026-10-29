@@ -242,6 +242,11 @@ wasm-test:
     PATH="{{_wasm_bin}}:$PATH" RUSTC="{{_wasm_bin}}/rustc" \
         "{{_wasm_bin}}/cargo" test --target wasm32-unknown-unknown --test wasm_roundtrip {{_wasm_features}}
 
+# The same round-trip against the slim feature set (`wasm-build-slim`): proves the
+# slim build still works and refuses SVG with the "--features svg" hint.
+wasm-test-slim:
+    @just --set _wasm_features " --no-default-features --features avif" wasm-test
+
 # Build the FINAL npm package into pkg/ (SPEC-075, DEC-067): the size-profiled
 # `wasm-build` above, plus the npm identity wasm-pack cannot know — it names the
 # package after the crate (`crustyimg`, which is the CLI) and describes it as a CLI.
