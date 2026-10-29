@@ -7,7 +7,7 @@
 task:
   id: SPEC-137
   type: bug                        # epic | story | task | bug | chore
-  cycle: build  # frame | design | build | verify | ship
+  cycle: verify  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: S                    # S | M | L  (L means split it)
@@ -82,6 +82,42 @@ cost:
         `.message.id` (54 unique ids, all claude-opus-5-5), input/cache_creation/cache_read once
         per id, MAX output_tokens. Priced at Opus $5/$25 per MTok, cache_creation x1.25,
         cache_read x0.10. Measured before the commit/push turns, so it slightly under-counts.
+    - cycle: build
+      agent: claude-sonnet-5-5
+      interface: claude-code
+      tokens_total: 5230823
+      tokens_breakdown:
+        input: 98
+        output: 21093
+        cache_creation: 110211
+        cache_read: 5099421
+      estimated_usd: 2.26
+      duration_minutes: null
+      recorded_at: 2026-10-29
+      note: >
+        Measured from the transcript (5fc6f6d2-….jsonl, identified by content), deduped by
+        `.message.id` (44 unique ids, all claude-sonnet-5-5), input/cache_creation/cache_read once
+        per id, MAX output_tokens. Priced at Sonnet $3/$15 per MTok, cache_creation x1.25 ($3.75),
+        cache_read x0.10 ($0.30). Measured before the final commit/PR turns, so it slightly
+        under-counts.
+    - cycle: punchlist
+      agent: claude-sonnet-5-5
+      interface: claude-code
+      tokens_total: 1931155
+      tokens_breakdown:
+        input: 52
+        output: 7408
+        cache_creation: 61362
+        cache_read: 1862333
+      estimated_usd: 0.90
+      duration_minutes: null
+      recorded_at: 2026-10-29
+      note: >
+        Measured from the transcript (7e0a7c0a-….jsonl, identified by content), deduped by
+        `.message.id` (24 unique ids, all claude-sonnet-5-5), input/cache_creation/cache_read once
+        per id, MAX output_tokens. Priced at Sonnet $3/$15 per MTok, cache_creation x1.25 ($3.75),
+        cache_read x0.10 ($0.30). Measured before the final docs commit, so it slightly
+        under-counts.
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -266,7 +302,7 @@ defined under Call 3 (SHA-256 of width LE u32, height LE u32 and the RGBA8 sampl
 | Go + bold | `"Go"` + `font-weight="bold"` | 738 | `6e4d6b08` |
 | Go + italic | `"Go"` + `font-style="italic"` | 738 | `6e4d6b08` |
 | Go tspan in Go text | `font-family="Go">Hel<tspan font-family="Go">lo</tspan>` | 738 | `6e4d6b08` |
-| `sans-serif`, `serif`, `monospace`, `cursive`, `fantasy` | each alone | **0** each | `bb918147` (blank) |
+| `sans-serif`, `serif`, `monospace`, `cursive`, `fantasy` | each alone | **0** each | `bd30b081` (blank) |
 | `Helvetica` / `Arial` / `DejaVu Sans` | named | **0** each | blank |
 | `NoSuchFontXyz` | unknown | **0** | blank |
 | list without Go | `"Helvetica, sans-serif"` | **0** | blank |
@@ -276,7 +312,7 @@ defined under Call 3 (SHA-256 of width LE u32, height LE u32 and the RGBA8 sampl
 | lowercase | `"go"` | **0** | blank |
 | inherited | `<g font-family="sans-serif"><text T>Hello</text></g>` | **0** | blank |
 | generic + bold | `"sans-serif"` + bold | **0** | blank |
-| mixed tspan | `font-family="Arial">Hel<tspan font-family="Go">lo</tspan>` | **253** (only "lo") | `6893dab3` |
+| mixed tspan | `font-family="Arial">Hel<tspan font-family="Go">lo</tspan>` | **253** (only "lo") | `1accc9c7` (verify measured; same recipe as `6e4d6b08`) |
 | text-free (control) | `<text T></text>`, the same with `font-family="sans-serif"`, and `> </text>` | 0 each | blank |
 
 Released binaries (official `aarch64-apple-darwin` assets, sha256 checked): **0.5.0** and
@@ -611,7 +647,7 @@ must stay green. Every table test asserts its own row count, so a dropped row is
   - `every_family_form_draws_the_go_render`: **AC-1, AC-3**. 18 rows, `assert_eq!(rows.len(),
     18)`. Per row, in this order: exit 0; stderr empty; ink == 738; pixels == the in-run `Go`
     render; hash == `GO_HELLO_PIXELS_SHA256`. The message names the row. **RED on `main`:** ink
-    0 (the tspan row 253), hash `bb918147…`.
+    0 (the tspan row 253), hash `bd30b081…`.
   - `working_family_forms_keep_their_pinned_bytes`: **AC-2, AC-3**. 6 rows, count asserted. Exit
     0, stderr empty, ink == 738, hash == `GO_HELLO_PIXELS_SHA256`. **GREEN on `main`** (driven:
     all six hash `6e4d6b08…` on arm64 `main` and on x86-64 0.8.0). **Confirm it green on `main`
@@ -775,37 +811,54 @@ necessary during build, create a new spec rather than expanding this one.
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
-- **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
-- **Files this diff touches** — **list every one**, with a phrase on what changed
-  in each. Not "src/foo and tests": the enumeration is what a verify cycle diffs
-  the real change against, and what tells you whether every affected `DEC-*` has
-  the path in its `affected_scope`. SPEC-122's Deviations claimed "`src/operation`
-  and `tests/` only" and was wrong by two `scripts/` files, which left
-  `affected_scope` blind; SPEC-124's build added this section by hand after that
-  lesson and still listed 8 of its 9 files. It is a checklist because it is easy
-  to get wrong from memory — build it from `git diff --name-only`, not recall.
-  - `path/to/file` — <what changed>
+- **Branch:** feat/spec-137-svg-font-family
+- **PR (if applicable):** see the PR opened from this branch (draft)
+- **All acceptance criteria met?** yes (AC-7 runs under `just wasm-test`, not in CI; AC-8..10 are documents)
+- **New decisions emitted:** none (DEC-054 amended)
+- **Files this diff touches** (from `git diff --name-only origin/main...HEAD`, plus the spec itself):
+  - `src/image/svg.rs` — five `set_*_family` lines, doc comments, two unit tests
+  - `tests/svg_font_family.rs` — new: 18/6/3-row tables and the system-font row
+  - `tests/wasm_roundtrip.rs` — one wasm row and two constants
+  - `docs/cli-reference.md` — Conventions bullet
+  - `README.md` — paragraph before the HEIC heading
+  - `CHANGELOG.md` — `### Fixed` under Unreleased
+  - `decisions/DEC-054-svg-rasterize-dependency-resvg-usvg-tiny-skia.md` — amendment
+  - this spec — Build Completion and the build cost entry
+- **Commit 1:** `51156ab`; `git show 51156ab -- src/` has a single hunk, inside `#[cfg(test)] mod tests`.
+- **RED/GREEN on unmodified code:** RED — `every_family_form_draws_the_go_render` (first row `sans-serif`: ink 0), `an_installed_system_font_is_never_read` (Helvetica, blank render), `hardened_fontdb_resolves_each_generic_family_to_go` (`Serif` resolves to no face), wasm row (checked by control 1 below). GREEN — `working_family_forms_keep_their_pinned_bytes` (so the hash recipe matches the constant), `text_free_svgs_draw_no_ink`, `hardened_options_hold_only_the_bundled_face`. Mixed `Arial`+`Go` tspan measured 253 px on `main` (matches the design).
+- **Negative controls** (clean rebuild each, restored and re-run green): 1 no serif → AC-1 `serif` row ink, system-font row, unit `Serif`, and the wasm row RED; 2 no monospace → unit test (`Monospace`) only; 3 no `font_family` → `hardened_options_hold_only_the_bundled_face` only; 4 load Helvetica → system-font row, AC-1 `Helvetica`, AC-2 `list with Go`, one-face unit test; 5 ink counter `true` → all three table tests; 6 flipped pin digit → AC-1, AC-2 and system-font rows on the hash assertion, with the in-run equality passing first. Table tests stop at the first failing row, so lists above name the first row each.
+- **Row counts:** 18, 6, 3.
+- **Matrix (sequential, fresh target dir each):** default, `--no-default-features`, `--features webp-lossy`: fmt, clippy `-D warnings` and tests all green. `just wasm-test`: 46 passed. `decisions-audit.sh`: 0 structural errors.
+- **System-font row, `--nocapture`:** `an_installed_system_font_is_never_read: using Helvetica from /System/Library/Fonts/Helvetica.ttc` (macOS).
 - **Deviations from spec:**
-  - [list]
-- **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - The spec gives the blank 200x60 render's pixel hash as `bb918147…`; the SHA-256 of 200, 60 and 48,000 zero bytes is `bd30b081…`, which is what the tests saw. The pinned Go hash is unaffected.
+  - The wasm constants are `SVG_NAMED_FAMILY` / `SVG_NAMED_FAMILY_NO_TEXT` because `SVG_NO_TEXT` already exists in that module.
+  - Clippy rejected `chunks_exact(4)` in the test; it reads `pixmap.pixels()` alpha instead.
+- **Follow-up work identified:** none.
+
+### Punch list (verify)
+
+- **Fix:** `host_font()` in `tests/svg_font_family.rs` now panics on Linux when no candidate font exists and `CRUSTYIMG_REQUIRE_SYSTEM_FONT` is set; without it the SKIP line stays. CI installs `fonts-dejavu-core` on `ubuntu-latest` and re-runs the row alone on all three OSes with the variable set (step `System-font row (prints the font it used)`). Text cleanups: blank-render hash `bd30b081…` in the two table/RED lines; mixed-tspan hash `1accc9c7…` (verify measured it, same recipe as `6e4d6b08…`); the `opt.font_family` assertion in `hardened_options_hold_only_the_bundled_face` now has a message. (The deviation note above still quotes the old `bb918147…` on purpose, as the record of the error.)
+- **Controls (Docker, `rust:1-slim`, read-only mount, fresh target dir):**
+  - no variable, no font: `SKIP an_installed_system_font_is_never_read: no known font file on this host; checked: DejaVu Sans, Liberation Sans, Noto Sans` (test passed)
+  - variable set, no font: `panicked at tests/svg_font_family.rs:266:9: expected one of [("DejaVu Sans", "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"), ("Liberation Sans", …), ("Noto Sans", …)] to exist on this OS` (test FAILED)
+  - variable set, `fonts-dejavu-core` installed: `an_installed_system_font_is_never_read: using DejaVu Sans from /usr/share/fonts/truetype/dejavu/DejaVuSans.ttf` (test passed)
+  - macOS, no variable, full `cargo test --test svg_font_family` redirected: `$?` = 0, 4 passed.
+- **CI (run 40931258121, head `5cfd87f`, all green):**
+  - ubuntu: `an_installed_system_font_is_never_read: using DejaVu Sans from /usr/share/fonts/truetype/dejavu/DejaVuSans.ttf`
+  - macos: `an_installed_system_font_is_never_read: using Helvetica from /System/Library/Fonts/Helvetica.ttc`
+  - windows: `an_installed_system_font_is_never_read: using Arial from C:\Windows\Fonts\arial.ttf`
 
 ### Build-phase reflection (3 questions, short answers)
 
-Process-focused: how did the build go? What friction did the spec create?
-
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — Only the blank-hash prefix mismatch above; the rest was exact.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — No. The wasm module's existing `SVG_NO_TEXT` name was the one collision.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Run clippy on the test file before the first matrix pass. No design call turned out wrong.
 
 ---
 

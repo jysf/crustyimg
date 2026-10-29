@@ -81,6 +81,10 @@ Two additional codecs are opt-in (compile-time features):
 
 Enable with `--features webp-lossy` at build/install time.
 
+SVG input is rasterized at its own size. Its text always draws in the bundled Go font,
+whatever `font-family` it names: crustyimg never reads your system's fonts, and bold or italic
+text draws upright in Go Regular.
+
 #### HEIC is opt-in and never in a released binary
 
 crustyimg **reads** AVIF, SVG, and RAW out of the box, but **not HEIC**. HEVC — the

@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **A slim browser build.** `just wasm-build-slim` builds the wasm package without SVG
+  input into `pkg-slim/`, for pages that never see an SVG. See
+  `integrations/ddphotos/` for the first user.
+
 ### Changed
 
 - **SVG input is now the `svg` feature, on by default.** Release binaries, `cargo install`,
@@ -14,11 +20,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   no longer does: an SVG input there exits `4` with "rebuild with --features svg", the
   same answer a HEIC input gets without `heic`. Add it back with `--features svg`.
 
-### Added
+### Fixed
 
-- **A slim browser build.** `just wasm-build-slim` builds the wasm package without SVG
-  input into `pkg-slim/`, for pages that never see an SVG. See
-  `integrations/ddphotos/` for the first user.
+- **SVG text in any font family draws again.** Every release with SVG input (0.5.0 through
+  0.8.0) drew no text at all for `<text>` whose `font-family` was anything but `Go`, including
+  `sans-serif`, `serif`, `Arial`, `Helvetica` and lists without `Go`. It exited 0 with no
+  warning. That text now draws in the bundled Go font, on the command line and in the browser
+  build. System fonts are still never read, and bold and italic draw upright in Go Regular.
 
 ## [0.8.0] - 2026-10-28
 

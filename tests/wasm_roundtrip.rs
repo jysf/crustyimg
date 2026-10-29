@@ -503,6 +503,36 @@ op = "identity"
         assert_eq!((back.width(), back.height()), (32, 24));
     }
 
+    /// SVG text in a named family that is not bundled still draws in the browser
+    /// build: the family resolves to the bundled font instead of to no face.
+    #[cfg(feature = "svg")]
+    const SVG_NAMED_FAMILY: &[u8] = br#"<svg xmlns="http://www.w3.org/2000/svg" width="40" height="30"><text x="4" y="20" font-size="10" font-family="Helvetica">Hi</text></svg>"#;
+    /// The same SVG with the text removed: draws nothing.
+    #[cfg(feature = "svg")]
+    const SVG_NAMED_FAMILY_NO_TEXT: &[u8] = br#"<svg xmlns="http://www.w3.org/2000/svg" width="40" height="30"><text x="4" y="20" font-size="10" font-family="Helvetica"></text></svg>"#;
+
+    /// Pixels with alpha > 0 in a PNG, counted by the upstream decoder.
+    #[cfg(feature = "svg")]
+    fn alpha_ink(png: &[u8]) -> usize {
+        image::load_from_memory(png)
+            .expect("output should decode")
+            .to_rgba8()
+            .pixels()
+            .filter(|p| p.0[3] > 0)
+            .count()
+    }
+
+    #[cfg(feature = "svg")]
+    #[wasm_bindgen_test]
+    fn svg_text_in_a_named_family_draws_in_wasm() {
+        let drawn = transform(SVG_NAMED_FAMILY, IDENTITY_RECIPE, "png").expect("named family svg");
+        assert!(alpha_ink(&drawn) > 0, "text in a named family drew nothing");
+
+        let blank =
+            transform(SVG_NAMED_FAMILY_NO_TEXT, IDENTITY_RECIPE, "png").expect("text-free svg");
+        assert_eq!(alpha_ink(&blank), 0, "the text-free twin must draw nothing");
+    }
+
     /// An AVIF input ERRORS — cleanly, with a typed message — instead of panicking.
     ///
     /// This is the one capability the wasm build gives up (`re_rav1d` does not
