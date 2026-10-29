@@ -35,4 +35,6 @@ Cycle prompts live in `prompts/SPEC-137-<cycle>.md`.
       `--show-output` on all three OSes. The fix also corrects three text items in the spec.
       Note for release prep: a `build` cache made by a 0.8.0 binary serves blank SVG
       text until the 0.8.1 version bump changes the key.
-- [ ] **ship** — prompt: `prompts/SPEC-137-ship.md`.
+- [~] **ship** — prompt: `prompts/SPEC-137-ship.md` (Sonnet). Merged 2026-10-29 as `71b4f38` (PR #217);
+      CI on `main` green. #218 merged just before and gated these tests on the new default-on `svg`
+      feature.
