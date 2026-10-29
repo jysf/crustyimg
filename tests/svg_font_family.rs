@@ -256,8 +256,14 @@ fn host_font() -> Option<(&'static str, &'static str)> {
         .iter()
         .copied()
         .find(|(_, path)| Path::new(path).exists());
-    if found.is_none() && (cfg!(target_os = "macos") || cfg!(target_os = "windows")) {
-        panic!("expected {candidates:?} to exist on this OS");
+    // CI sets CRUSTYIMG_REQUIRE_SYSTEM_FONT on the one step that must prove this
+    // row ran; without it a Linux host with no font skips, which a passing test
+    // log cannot tell apart from a run.
+    let required = cfg!(target_os = "macos")
+        || cfg!(target_os = "windows")
+        || std::env::var_os("CRUSTYIMG_REQUIRE_SYSTEM_FONT").is_some();
+    if found.is_none() && required {
+        panic!("expected one of {candidates:?} to exist on this OS");
     }
     found
 }

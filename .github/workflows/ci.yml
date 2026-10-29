@@ -84,9 +84,23 @@ jobs:
         if: needs.changes.outputs.code == 'true'
         run: cargo build --verbose
 
+      # The system-font row of svg_font_family skips on a Linux host with no
+      # known font; the runner image does not guarantee one.
+      - name: Install a system font (Linux)
+        if: needs.changes.outputs.code == 'true' && matrix.os == 'ubuntu-latest'
+        run: sudo apt-get update && sudo apt-get install -y fonts-dejavu-core
+
       - name: Test
         if: needs.changes.outputs.code == 'true'
         run: cargo test --verbose
+
+      # Re-run alone so the log shows the `using <font>` line, and fail if the
+      # row would skip instead of running.
+      - name: System-font row (prints the font it used)
+        if: needs.changes.outputs.code == 'true'
+        env:
+          CRUSTYIMG_REQUIRE_SYSTEM_FONT: "1"
+        run: cargo test --test svg_font_family an_installed_system_font_is_never_read -- --exact --show-output
 
       - name: Clippy (warnings as errors)
         if: needs.changes.outputs.code == 'true'

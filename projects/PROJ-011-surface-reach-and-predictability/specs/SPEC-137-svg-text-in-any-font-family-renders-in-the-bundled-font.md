@@ -284,7 +284,7 @@ defined under Call 3 (SHA-256 of width LE u32, height LE u32 and the RGBA8 sampl
 | Go + bold | `"Go"` + `font-weight="bold"` | 738 | `6e4d6b08` |
 | Go + italic | `"Go"` + `font-style="italic"` | 738 | `6e4d6b08` |
 | Go tspan in Go text | `font-family="Go">Hel<tspan font-family="Go">lo</tspan>` | 738 | `6e4d6b08` |
-| `sans-serif`, `serif`, `monospace`, `cursive`, `fantasy` | each alone | **0** each | `bb918147` (blank) |
+| `sans-serif`, `serif`, `monospace`, `cursive`, `fantasy` | each alone | **0** each | `bd30b081` (blank) |
 | `Helvetica` / `Arial` / `DejaVu Sans` | named | **0** each | blank |
 | `NoSuchFontXyz` | unknown | **0** | blank |
 | list without Go | `"Helvetica, sans-serif"` | **0** | blank |
@@ -294,7 +294,7 @@ defined under Call 3 (SHA-256 of width LE u32, height LE u32 and the RGBA8 sampl
 | lowercase | `"go"` | **0** | blank |
 | inherited | `<g font-family="sans-serif"><text T>Hello</text></g>` | **0** | blank |
 | generic + bold | `"sans-serif"` + bold | **0** | blank |
-| mixed tspan | `font-family="Arial">Hel<tspan font-family="Go">lo</tspan>` | **253** (only "lo") | `6893dab3` |
+| mixed tspan | `font-family="Arial">Hel<tspan font-family="Go">lo</tspan>` | **253** (only "lo") | `1accc9c7` (verify measured; same recipe as `6e4d6b08`) |
 | text-free (control) | `<text T></text>`, the same with `font-family="sans-serif"`, and `> </text>` | 0 each | blank |
 
 Released binaries (official `aarch64-apple-darwin` assets, sha256 checked): **0.5.0** and
@@ -629,7 +629,7 @@ must stay green. Every table test asserts its own row count, so a dropped row is
   - `every_family_form_draws_the_go_render`: **AC-1, AC-3**. 18 rows, `assert_eq!(rows.len(),
     18)`. Per row, in this order: exit 0; stderr empty; ink == 738; pixels == the in-run `Go`
     render; hash == `GO_HELLO_PIXELS_SHA256`. The message names the row. **RED on `main`:** ink
-    0 (the tspan row 253), hash `bb918147…`.
+    0 (the tspan row 253), hash `bd30b081…`.
   - `working_family_forms_keep_their_pinned_bytes`: **AC-2, AC-3**. 6 rows, count asserted. Exit
     0, stderr empty, ink == 738, hash == `GO_HELLO_PIXELS_SHA256`. **GREEN on `main`** (driven:
     all six hash `6e4d6b08…` on arm64 `main` and on x86-64 0.8.0). **Confirm it green on `main`

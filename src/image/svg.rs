@@ -331,7 +331,10 @@ mod tests {
     fn hardened_options_hold_only_the_bundled_face() {
         let opt = hardened_options();
         assert_eq!(opt.fontdb.len(), 1, "only the bundled face may be loaded");
-        assert_eq!(opt.font_family, FONT_FAMILY);
+        assert_eq!(
+            opt.font_family, FONT_FAMILY,
+            "text with no family of its own must default to the bundled face"
+        );
     }
 
     #[test]
