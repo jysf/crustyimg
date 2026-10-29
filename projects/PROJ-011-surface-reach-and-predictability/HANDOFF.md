@@ -184,6 +184,15 @@ Batching these in one sitting unblocks more than anything an orchestrator can do
     passed every test. A punch list and a re-verify followed. A test of printed or formatted
     output uses at least one value whose naive and correct renderings differ: an `f32`-inexact
     number such as `1.1`, or one past a cap by less than one step of the narrower type.
+11. **⚡ A TEST THAT CAN SKIP MUST FAIL WHERE ITS COVERAGE IS REQUIRED; A PRINTED SKIP IS
+    INVISIBLE IN CI.** SPEC-137's system-font row printed a SKIP line on a Linux host with no
+    font, and its design asked the build to quote that line from the CI log. libtest hides stderr
+    for passing tests, so neither the SKIP line nor the `using <font>` line ever reached the log.
+    The build inferred coverage from green CI, and only verify caught it, which cost a punch
+    list. **A design never asks for a log line without saying how it reaches the log**
+    (`--show-output` on a dedicated step). **A row that may skip locally fails when an
+    environment variable says its coverage is required**, and CI sets that variable on the step
+    that must prove it ran (`CRUSTYIMG_REQUIRE_SYSTEM_FONT`).
 
 ## What is working, and worth keeping
 
