@@ -17,6 +17,9 @@ Cycle prompts live in `prompts/SPEC-137-<cycle>.md`.
       green guards). Driven: `set_serif_family` alone fixes every row (usvg appends `serif`), so the
       other four setters get a unit row. One pinned pixel hash, identical on x86-64 Linux and arm64
       macOS. fontdb builds with no features: no system-font loader. DEC-054 amendment worded, written at build; DEC-107 released.
-- [ ] **build** — prompt: `prompts/SPEC-137-build.md`.
-- [ ] **verify** — prompt: `prompts/SPEC-137-verify.md`.
+- [x] **build** — 2026-10-28 (`prompts/SPEC-137-build.md`, Sonnet, ~$2.26). Draft PR #217 at
+      `fb09421`, CI green on every leg. Commit 1 `51156ab` (tests only). 4 red / 3 green baseline,
+      all six controls flipped. Unchecked: the wasm row on unmodified code, and the per-OS CI log
+      lines for the system-font row.
+- [~] **verify** — prompt: `prompts/SPEC-137-verify.md`.
 - [ ] **ship** — prompt: `prompts/SPEC-137-ship.md`.
