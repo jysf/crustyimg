@@ -21,5 +21,14 @@ Cycle prompts live in `prompts/SPEC-137-<cycle>.md`.
       `fb09421`, CI green on every leg. Commit 1 `51156ab` (tests only). 4 red / 3 green baseline,
       all six controls flipped. Unchecked: the wasm row on unmodified code, and the per-OS CI log
       lines for the system-font row.
-- [~] **verify** — prompt: `prompts/SPEC-137-verify.md`.
+- [x] **verify** — 2026-10-29 (`prompts/SPEC-137-verify.md`, Opus, ~$4.75). ⚠ PUNCH LIST at `fb09421`.
+      Everything held: the baseline (the wasm row is RED on unmodified code), all six controls, and
+      the full AC-1 row set driven under controls 1 and 4. M-a to M-d were caught, ImageMagick ink counts matched
+      (main 0 / PR 738), and 0.7.1 and 0.8.0 draw 0 px. The one item: the Linux system-font row
+      passes silently in CI, so the log can't show whether it found a font or skipped.
+- [~] **punch list** — prompt: `prompts/SPEC-137-punchlist.md` (Sonnet). On Linux the row panics
+      when `CRUSTYIMG_REQUIRE_SYSTEM_FONT` is set; CI installs DejaVu and runs it with
+      `--show-output` on all three OSes. The fix also corrects three text items in the spec.
+      Note for release prep: a `build` cache made by a 0.8.0 binary serves blank SVG
+      text until the 0.8.1 version bump changes the key.
 - [ ] **ship** — prompt: `prompts/SPEC-137-ship.md`.
