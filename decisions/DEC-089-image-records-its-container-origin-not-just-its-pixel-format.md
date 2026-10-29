@@ -132,6 +132,25 @@ That is deliberately NOT what this decision does, for reasons Alternatives detai
   default; or if `avif-parse`/the AVIF decoder is swapped for one that accepts a non-`avif` major
   brand, making the AC-6 scenario this decision anticipated finally reachable and worth a live test.
 
+  > **✅ The first clause FIRED, 2026-10-28 — and the anticipation held.**
+  > `SourceContainer::RawDeveloped` is that fourth family: a DNG developed from its
+  > sensor plane by `irradiance` behind the off-by-default `raw-develop` feature,
+  > with no matching `::image::ImageFormat` variant (it reports `Tiff`, the
+  > container it really is, while the bytes on disk are a RAW container rather than
+  > a plain TIFF). It sets `SourceContainer` explicitly rather than leaning on
+  > `Native`, exactly as this clause required — which is the evidence that writing
+  > the clause was worth it, since the alternative default would have claimed the
+  > bytes were shippable verbatim.
+  >
+  > ⚠ **Note the two RAW variants are not interchangeable.** `RawPreview` reports
+  > `source_format` as `Jpeg` (the preview's own format); `RawDeveloped` reports
+  > `Tiff`. Same input file, same extension, different label and different
+  > `source_format`, decided by a compile-time feature and a runtime fallback.
+  > Any code keying on "is this RAW" must handle both, and
+  > `SourceContainer::is_native()` is false for each.
+  >
+  > Governed by **DEC-107** (the two-tier rule); built in **PROJ-016 / STAGE-056**.
+
 ## References
 
 - SPEC-115 (this build); SPEC-113 (`pipeline_altered_source`, the pinned-path sibling guard this
