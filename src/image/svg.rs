@@ -284,6 +284,41 @@ mod tests {
     }
 
     #[test]
+    fn hardened_fontdb_resolves_each_generic_family_to_go() {
+        use usvg::fontdb::{Family, Query};
+        let opt = hardened_options();
+        for f in [
+            Family::Serif,
+            Family::SansSerif,
+            Family::Monospace,
+            Family::Cursive,
+            Family::Fantasy,
+        ] {
+            // The generic alone: no `Serif` fallback appended as usvg does.
+            let id = opt
+                .fontdb
+                .query(&Query {
+                    families: &[f],
+                    ..Query::default()
+                })
+                .unwrap_or_else(|| panic!("{f:?} resolves to no face"));
+            let face = opt.fontdb.face(id).expect("queried face exists");
+            assert!(
+                face.families.iter().any(|(name, _)| name == FONT_FAMILY),
+                "{f:?} resolved to {:?}, not {FONT_FAMILY}",
+                face.families
+            );
+        }
+    }
+
+    #[test]
+    fn hardened_options_hold_only_the_bundled_face() {
+        let opt = hardened_options();
+        assert_eq!(opt.fontdb.len(), 1, "only the bundled face may be loaded");
+        assert_eq!(opt.font_family, FONT_FAMILY);
+    }
+
+    #[test]
     fn check_caps_rejects_oversize() {
         let mut limits = Limits::default();
         limits.max_image_width = Some(10);
