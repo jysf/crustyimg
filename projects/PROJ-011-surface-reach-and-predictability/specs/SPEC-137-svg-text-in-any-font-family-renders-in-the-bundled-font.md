@@ -218,6 +218,14 @@ a CHANGELOG `Fixed` line.
    size-gated wasm bundle)? Recommend **accept**, and document
    it. Bundling faces is a DEC-066 size purchase, not a bug fix.
 
+### Maintainer rulings (2026-10-28, settled)
+
+1. **Silent fallback.** Every family, generic or named, known or unknown, renders in the bundled Go
+   font with no message. No warning in this spec; an opt-in `lint` rule for SVG fonts would be a
+   separate, unscheduled item.
+2. **Accept Go Regular.** Bold and italic text draws in Go Regular, upright, with no synthetic bold.
+   Document it. No extra faces are bundled.
+
 ## Inputs
 
 - **Files to read:** `path/to/file.ext` — why

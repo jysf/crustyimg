@@ -237,6 +237,13 @@ global-flags line if it implies `build`; correcting 0.8.0's wording ("`--format`
    and `--name-template` are the same silent ignore, and one guard covers them. Cost: a script that
    passes them to `build` goes from 0 to exit 2.
 
+### Maintainer rulings (2026-10-28, settled)
+
+1. **Refuse.** `build --format` exits 2 with a message saying where the format is set in the
+   manifest. It is not honoured.
+2. **All four.** `--format`, `-o`, `--out-dir` and `--name-template` are refused on `build` and
+   `build --watch`, through one guard.
+
 ## Inputs
 
 - **Files to read:** `path/to/file.ext` — why
