@@ -260,6 +260,16 @@ global-flags line if it implies `build`; correcting 0.8.0's wording ("`--format`
 2. **All four.** `--format`, `-o`, `--out-dir` and `--name-template` are refused on `build` and
    `build --watch`, through one guard.
 
+Added after design (2026-10-28):
+
+3. **The message names `-o/--output`** (Call 2), whichever spelling was typed. It follows the
+   existing `-q/--quality` message (`src/cli/optimize.rs:497`). No argv re-parse.
+4. **No committed golden lockfile.** Call 6's two-binary `compare-builds.sh` plus the empty
+   `git diff --stat` of `src/build/` and `src/cli/build.rs` replace it.
+5. **DEC-057's stale "output format follows the source" bullet** is fixed in the same amendment
+   (Call 8).
+6. **All 15 tests ship, at [S].** FT-6 stays.
+
 ## Design
 
 Driven 2026-10-28 on a release build of `main` @ `7e7a3f0` (`crustyimg 0.8.0`), fresh
