@@ -46,8 +46,11 @@
 //! (`load_system_fonts` is never called), keeping the render deterministic and
 //! free of filesystem/font-enumeration surface. Rendering text to *nothing*
 //! would be a silent-wrong-output footgun, so text is on with a guaranteed
-//! font. This is what re-adds `ttf-parser` (the RUSTSEC-2026-0192 advisory
-//! ignore in `deny.toml`) via usvg's text stack.
+//! font. Every `font-family` resolves to it: the five generic families point at
+//! Go, and usvg falls back to `serif` after any family it cannot find. Bold and
+//! italic have no face of their own and draw upright in Go Regular. This is what
+//! re-adds `ttf-parser` (the RUSTSEC-2026-0192 advisory ignore in `deny.toml`)
+//! via usvg's text stack.
 
 use std::sync::Arc;
 
@@ -173,7 +176,9 @@ pub(crate) fn decode_svg(bytes: &[u8], limits: &Limits) -> Result<DynamicImage> 
 
 /// Build the hardened [`usvg::Options`]: no filesystem resource resolution, all
 /// external `href`s refused (data: URIs kept), and only the bundled Go font
-/// loaded (no system fonts).
+/// loaded (no system fonts). Every font family a text can name, generic or
+/// specific, known or not, resolves to that one font, so text never vanishes for
+/// want of a face. Bold and italic draw upright in its Regular face.
 fn hardened_options() -> usvg::Options<'static> {
     let mut opt = usvg::Options {
         // No filesystem resolution of relative paths.
@@ -189,6 +194,17 @@ fn hardened_options() -> usvg::Options<'static> {
     // Load ONLY the bundled font; never enumerate system fonts.
     let mut db = usvg::fontdb::Database::new();
     db.load_font_data(FONT_DATA.to_vec());
+    // Text in any font family draws in the bundled font. The generic families
+    // (`serif`, `sans-serif`, ...) default to fonts that are never loaded, so
+    // each one points at Go. usvg also tries `serif` after every family a text
+    // names, so the `serif` line is what turns a named or unknown family
+    // (`Helvetica`, `Arial`, a typo) into Go instead of into no text at all.
+    db.set_serif_family(FONT_FAMILY);
+    db.set_sans_serif_family(FONT_FAMILY);
+    db.set_monospace_family(FONT_FAMILY);
+    db.set_cursive_family(FONT_FAMILY);
+    db.set_fantasy_family(FONT_FAMILY);
+    // Text that names no family at all.
     opt.font_family = FONT_FAMILY.to_string();
     opt.fontdb = Arc::new(db);
     opt
