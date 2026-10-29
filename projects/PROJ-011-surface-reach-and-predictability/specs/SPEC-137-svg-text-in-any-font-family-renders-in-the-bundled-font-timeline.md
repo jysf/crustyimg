@@ -13,7 +13,10 @@ Cycle prompts live in `prompts/SPEC-137-<cycle>.md`.
       probe build proved the fix: five `fontdb` `set_*_family("Go")` calls, since usvg appends
       `Serif` as a last resort. Every row draws, and the working forms stay byte-identical.
       Recommend silent fallback (a warning is [M], its own spec).
-- [ ] **design** — prompt: `prompts/SPEC-137-design.md`.
+- [x] **design** — 2026-10-28 (`prompts/SPEC-137-design.md`). 10 ACs, 7 tests (4 red on `main`, 3
+      green guards). Driven: `set_serif_family` alone fixes every row (usvg appends `serif`), so the
+      other four setters get a unit row. One pinned pixel hash, identical on x86-64 Linux and arm64
+      macOS. fontdb builds with no features: no system-font loader. DEC-054 amendment worded, written at build; DEC-107 released.
 - [ ] **build** — prompt: `prompts/SPEC-137-build.md`.
 - [ ] **verify** — prompt: `prompts/SPEC-137-verify.md`.
 - [ ] **ship** — prompt: `prompts/SPEC-137-ship.md`.
