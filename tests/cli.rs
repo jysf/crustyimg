@@ -2372,50 +2372,63 @@ fn convert_to_avif_produces_avif() {
     );
 }
 
-/// FEATURE build: a perceptual target (`--target`) on AVIF degrades GRACEFULLY.
-/// The SSIMULACRA2 search must DECODE each candidate to score it, but AVIF decode
-/// is not built (output-only v1, DEC-020) — so the run still succeeds (exit 0),
-/// writes valid AVIF at the encoder default, and warns that perceptual targeting
-/// needs a decoder. (Byte-budget AVIF, which is encode-only, works — see
-/// `avif_max_size_fits`.) Uses `optimize` with a pinned `-o out.avif`, since
-/// `--target`/`--ssim` are the opt-in perceptual searches (SPEC-016); `convert`
-/// carries only `--max-size`.
+/// FEATURE build: a perceptual target (`--ssim`) on an AVIF output runs the real
+/// SSIMULACRA2 search. Each candidate is decoded back with the native AVIF decoder
+/// to score it. Proof the search ran rather than falling back to the encoder
+/// default: a higher target must give a strictly larger file (the fallback writes
+/// both at the same default quality, so they would be identical), and no
+/// "no decoder" warning may appear. `optimize` with a pinned `-o out.avif`, since
+/// `--target`/`--ssim` are the opt-in perceptual searches; `convert` carries only
+/// `--max-size`.
 #[cfg(feature = "avif")]
 #[test]
-fn avif_target_high() {
+fn avif_ssim_target_runs_the_perceptual_search() {
     let dir = tempfile::tempdir().expect("tempdir");
     let in_path = dir.path().join("in.png");
-    std::fs::write(&in_path, common::detailed_png(64, 64)).unwrap();
-    let out_path = dir.path().join("out.avif");
+    std::fs::write(&in_path, common::detailed_png(96, 96)).unwrap();
 
-    let output = Command::new(BIN)
-        .args([
-            "optimize",
-            in_path.to_str().unwrap(),
-            "--target",
-            "high",
-            "-o",
-            out_path.to_str().unwrap(),
-        ])
-        .output()
-        .expect("failed to run optimize --target high -o out.avif");
+    let run = |ssim: &str| -> Vec<u8> {
+        let out_path = dir.path().join(format!("out-{ssim}.avif"));
+        let output = Command::new(BIN)
+            .args([
+                "optimize",
+                in_path.to_str().unwrap(),
+                "--format",
+                "avif",
+                "--ssim",
+                ssim,
+                "-o",
+                out_path.to_str().unwrap(),
+            ])
+            .output()
+            .expect("failed to run optimize --format avif --ssim");
+        let stderr = stderr_str(&output);
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "optimize --format avif --ssim {ssim} should exit 0; stderr: {stderr}"
+        );
+        assert!(
+            !stderr.contains("decoder"),
+            "native AVIF has a decoder, so --ssim must not warn about one; got: {stderr}"
+        );
+        let bytes = std::fs::read(&out_path).expect("AVIF output file");
+        assert_eq!(
+            image::guess_format(&bytes).expect("guess format"),
+            ImageFormat::Avif,
+            "output should be AVIF"
+        );
+        bytes
+    };
 
-    assert_eq!(
-        output.status.code(),
-        Some(0),
-        "optimize --target high to .avif (feature) should exit 0 (graceful fallback); stderr: {}",
-        stderr_str(&output)
-    );
-    let bytes = std::fs::read(&out_path).expect("AVIF output file");
-    assert_eq!(
-        image::guess_format(&bytes).expect("guess format"),
-        ImageFormat::Avif,
-        "output should be AVIF (written at encoder default)"
-    );
-    let stderr = stderr_str(&output);
+    let low = run("50");
+    let high = run("90");
     assert!(
-        stderr.contains("decoder") || stderr.contains("--max-size"),
-        "stderr should warn that perceptual AVIF needs a decoder; got: {stderr}"
+        high.len() > low.len(),
+        "a higher --ssim target must pick a higher AVIF quality (larger file): \
+         --ssim 50 = {} B, --ssim 90 = {} B",
+        low.len(),
+        high.len()
     );
 }
 
