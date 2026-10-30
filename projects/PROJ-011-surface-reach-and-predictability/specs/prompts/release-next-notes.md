@@ -14,15 +14,14 @@ the orchestrator, so that message must stand on its own.
 ## Where things stand
 - The release is **everything on `main` since `v0.8.0`, and nothing else.** Both specs planned
   for it have shipped: SPEC-137 (`71b4f38`, PR #217) and SPEC-138 (`fc05ef9`, PR #221).
-- ⚠ **The version number is not settled.** It was planned as 0.8.1, but `RELEASING.md`'s
-  versioning policy says a patch bump has "no new commands, no changed flags, no changed exit
-  codes", and `[Unreleased]` holds a `### Breaking` entry, a `### Changed` default-feature change
-  and an `### Added` build recipe. The maintainer is ruling between 0.8.1 and 0.9.0. **Write
-  nothing that names the next version number:**
-  - no `0.8.1` or `0.9.0` in any file you change;
-  - leave the skill's "Written against crustyimg **0.8.x**" line as it is.
-
-  Step 4 below asks for the facts the ruling needs.
+- **The version is 0.8.1 (maintainer, 2026-10-30).** `RELEASING.md`'s policy says a patch bump
+  has "no changed flags, no changed exit codes", and `[Unreleased]` holds a `### Breaking`
+  entry. The maintainer ruled it a patch anyway: the four `build` flags were silently ignored, so
+  refusing them fixes a bug. Do not re-open this, and do not edit the policy. Two consequences:
+  - the Breaking entry must say plainly that a script passing those flags to `build` now fails
+    with exit 2, so a patch-level upgrade does not surprise anyone;
+  - write no version number in any file you change (part 2 rolls `[Unreleased]` into
+    `[0.8.1]`), and leave the skill's "Written against crustyimg **0.8.x**" line as it is.
 - **Part 2 is not yours.** A later session runs `just release X.Y.Z`, rolls `[Unreleased]`, and
   writes the release commit.
 - ⛔ **Creating and pushing the tag is maintainer-only.** No session does it.
@@ -109,12 +108,6 @@ Find sentences that these five PRs made false. Grep at least for:
 Fix each one. **The jysf.org project page and the two GitHub Actions repos are out of your
 reach.** If a claim there is now false, list it for the maintainer.
 
-### 4 — Facts for the version ruling (report only; change nothing for it)
-For each `[Unreleased]` entry, say which RELEASING policy line it touches: new command, changed
-flag, changed exit code, changed default, or bug fix only. Quote the policy text. For the
-Breaking entry, also say what `build --format png` did on 0.8.0: exit 0, and what it wrote. Give
-no recommendation; the maintainer decides.
-
 ## Land it
 - Branch `docs/release-next-notes`. Commit with `git commit -s` and end each message with
   `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`. **The DCO sign-off is mandatory.**
@@ -162,5 +155,4 @@ First line: `Release notes: draft PR #NNN at <head SHA> — CI <green | red: leg
 - the overclaim grep and what you changed;
 - the skill changes, and every skill example's exit code (count, plus any that failed);
 - other false sentences you fixed, and any for the maintainer (jysf.org, the Actions repos);
-- the step 4 table for the version ruling;
 - your cost.
