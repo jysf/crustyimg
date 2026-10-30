@@ -31,11 +31,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`optimize --ssim` and `--target` now search for AVIF output.** In 0.8.0, an AVIF output
+  (`--format avif` or `-o x.avif`) skipped the quality search: `optimize` exited `0`, warned
+  "no avif decoder is built", and wrote the file at the encoder's default quality, so `--ssim 50`
+  and `--ssim 90` wrote the same file. It now searches as it does for JPEG and WebP, with no
+  warning: on an 800×532 photo, `--ssim 50` writes 52 KB scoring 50.7 and `--ssim 90` writes
+  177 KB scoring 90.2. An AVIF graphic input resized with `--max` and given `--ssim` but no `--format`
+  could exit `1` with "The image format Avif is not supported"; it now writes the file. The
+  browser build has no AVIF decoder, so its `optimize` still writes AVIF at a fixed quality.
 - **SVG text in any font family draws again.** Every release with SVG input (0.5.0 through
-  0.8.0) drew no text at all for `<text>` whose `font-family` was anything but `Go`, including
-  `sans-serif`, `serif`, `Arial`, `Helvetica` and lists without `Go`. It exited 0 with no
-  warning. That text now draws in the bundled Go font, on the command line and in the browser
-  build. System fonts are still never read, and bold and italic draw upright in Go Regular.
+  0.8.0) drew no text at all for `<text>` whose `font-family` named only families other than
+  `Go`, such as `sans-serif`, `serif`, `Arial`, `Helvetica` or `Arial, Helvetica`. It exited 0
+  with no warning. (Text with no `font-family` did draw.) That text now draws in the bundled Go
+  font, on the command line and in the browser build. System fonts are still never read, and
+  bold and italic draw upright in Go Regular. A `build` cache written by 0.8.0 holds the blank
+  outputs; the next `build` with this release re-renders them once.
 
 ## [0.8.0] - 2026-10-28
 
