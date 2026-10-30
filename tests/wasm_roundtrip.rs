@@ -330,6 +330,28 @@ op = "identity"
         assert!(!ok.is_empty());
     }
 
+    /// A mark that would draw nothing is thrown as an error, with the same
+    /// line `apply` prints, rather than returned as an unmarked image. The
+    /// module survives each refusal.
+    #[wasm_bindgen_test]
+    fn transform_refuses_a_mark_that_draws_nothing() {
+        let src = png_64x48();
+        let rows = [
+            ("text = \"hi\"\nopacity = 0", "'opacity' = 0 draws no mark"),
+            ("text = \" \"", "'text' has no visible characters"),
+        ];
+        for (body, want) in rows {
+            let recipe = format!("version = \"1\"\n\n[[step]]\nop = \"watermark\"\n{body}\n");
+            let err =
+                transform(&src, &recipe, "png").expect_err("a mark that draws nothing is refused");
+            let msg = format!("{:?}", wasm_bindgen::JsValue::from(err));
+            assert!(msg.contains(want), "{body:?}: got {msg}");
+
+            let ok = transform(&src, IDENTITY_RECIPE, "png").expect("module must survive");
+            assert!(!ok.is_empty());
+        }
+    }
+
     /// `recipe.quality`, when set, reaches the encoder — the RETURNED BYTES
     /// equal an independent encode at that same quality, not merely a
     /// plausible-looking success (the standard this file holds every

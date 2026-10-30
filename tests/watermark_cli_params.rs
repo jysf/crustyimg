@@ -707,3 +707,371 @@ fn an_oversized_scale_names_no_saturated_size() {
     }
     assert_eq!(files_in(&dir.path().join("outdir")), 2);
 }
+
+// ─── A mark that draws nothing is refused ────────────────────────────────────
+//
+// "Draws nothing" is decided from the mark alone, at 16-bit precision, so the
+// boundary rows run on a black 16-bit base: a white pixel that keeps any alpha
+// changes a sample there, and one that keeps none changes nothing.
+
+/// A black 16-bit RGB PNG, `w×h`. 400×300, because a 60×30 mark on a smaller
+/// base trips the coverage cap.
+fn write_black16(dir: &Path, name: &str, w: u32, h: u32) -> PathBuf {
+    let img = image::ImageBuffer::<Rgb<u16>, Vec<u16>>::from_pixel(w, h, Rgb([0, 0, 0]));
+    let path = dir.join(name);
+    DynamicImage::ImageRgb16(img).save(&path).unwrap();
+    assert_eq!(
+        image::open(&path).unwrap().color(),
+        image::ColorType::Rgb16,
+        "control: {name} is a 16-bit file"
+    );
+    path
+}
+
+/// A 60×30 white 8-bit RGBA overlay whose every pixel has alpha `alpha`.
+fn write_white_overlay(dir: &Path, name: &str, alpha: u8) -> PathBuf {
+    let img = RgbaImage::from_pixel(60, 30, Rgba([255, 255, 255, alpha]));
+    let path = dir.join(name);
+    DynamicImage::ImageRgba8(img).save(&path).unwrap();
+    path
+}
+
+/// A 60×30 white 16-bit RGBA overlay whose every pixel has alpha16 4: no
+/// alpha at 8 bits, a little at 16.
+fn write_faint16(dir: &Path) -> PathBuf {
+    let img = image::ImageBuffer::<Rgba<u16>, Vec<u16>>::from_pixel(
+        60,
+        30,
+        Rgba([65535, 65535, 65535, 4]),
+    );
+    let path = dir.join("faint16.png");
+    DynamicImage::ImageRgba16(img).save(&path).unwrap();
+    let back = image::open(&path).unwrap();
+    assert_eq!(
+        back.color(),
+        image::ColorType::Rgba16,
+        "control: faint16 is a 16-bit file"
+    );
+    assert_eq!(
+        back.to_rgba16().get_pixel(0, 0).0[3],
+        4,
+        "control: alpha16 4"
+    );
+    path
+}
+
+/// The fixtures every refusal row may name, written into `dir`.
+fn write_refusal_fixtures(dir: &Path) {
+    write_logo(dir);
+    write_gradient(dir, "in.png", 400, 300);
+    write_black16(dir, "black16.png", 400, 300);
+    write_white_overlay(dir, "white.png", 255);
+    write_white_overlay(dir, "logo1.png", 1);
+    write_white_overlay(dir, "clear.png", 0);
+    write_faint16(dir);
+}
+
+/// Runs `watermark <input> <args…> -o out.png -y` in `dir`.
+fn watermark_to_out(dir: &Path, input: &str, args: &[&str]) -> std::process::Output {
+    watermark(dir, &[input], &[args, &["-o", "out.png", "-y"]].concat())
+}
+
+/// Asserts a refusal: exit 2, exactly `expected` on stderr, nothing written and
+/// the input untouched.
+fn assert_refused_on_cli(dir: &Path, input: &str, args: &[&str], expected: &str) {
+    let before = std::fs::read(dir.join(input)).ok();
+    let output = watermark_to_out(dir, input, args);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(2), "{args:?}: {stderr}");
+    assert_eq!(error_lines(&stderr), vec![expected], "{args:?}");
+    assert!(!dir.join("out.png").exists(), "{args:?}: nothing written");
+    assert_eq!(std::fs::read(dir.join(input)).ok(), before, "{args:?}");
+}
+
+/// Asserts the mark is drawn: exit 0 and an output that differs from the input.
+fn assert_drawn_on_cli(dir: &Path, input: &str, args: &[&str]) {
+    let _ = std::fs::remove_file(dir.join("out.png"));
+    let output = watermark_to_out(dir, input, args);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(0), "{args:?}: {stderr}");
+    assert_ne!(
+        pixel_hash(&dir.join("out.png")),
+        pixel_hash(&dir.join(input)),
+        "{args:?}: the mark changes a sample"
+    );
+}
+
+const OPACITY_ZERO_LINE: &str =
+    "error: --opacity 0 draws no mark; to leave an image unmarked, do not run watermark";
+const BLANK_TEXT_LINE: &str =
+    "error: --text has no visible characters; use text with at least one visible character";
+const TRANSPARENT_COLOR_LINE: &str =
+    "error: --color ffffff00 is fully transparent; use an alpha above 00, or RRGGBB";
+const TRANSPARENT_IMAGE_LINE: &str =
+    "error: --image clear.png is fully transparent; use an image with visible pixels";
+
+#[test]
+fn a_mark_that_draws_nothing_is_refused_on_the_cli() {
+    let faint = |opacity: &str| {
+        format!(
+            "error: --opacity {opacity} is too faint: the mark would draw no visible pixel; \
+             use a larger --opacity"
+        )
+    };
+    let rows: Vec<(Vec<&str>, String)> = vec![
+        (
+            vec!["--text", "hi", "--opacity", "0"],
+            OPACITY_ZERO_LINE.into(),
+        ),
+        (
+            vec!["--image", "logo.png", "--opacity", "0"],
+            OPACITY_ZERO_LINE.into(),
+        ),
+        (
+            vec!["--image", "white.png", "--opacity", "0.000001"],
+            faint("0.000001"),
+        ),
+        (
+            vec!["--image", "faint16.png", "--opacity", "0.1"],
+            faint("0.1"),
+        ),
+        (vec!["--text", " "], BLANK_TEXT_LINE.into()),
+        // A no-break space maps to an empty glyph, like a plain space.
+        (vec!["--text", " \u{a0}"], BLANK_TEXT_LINE.into()),
+        (
+            vec!["--text", "© crustyimg", "--size", "0.01"],
+            "error: --text draws no visible pixel at --size 0.01; use a larger --size".into(),
+        ),
+        (
+            vec!["--text", "hi", "--color", "ffffff00"],
+            TRANSPARENT_COLOR_LINE.into(),
+        ),
+        (
+            vec!["--text", "hi", "--color", "#ffffff00"],
+            "error: --color #ffffff00 is fully transparent; use an alpha above 00, or RRGGBB"
+                .into(),
+        ),
+        (vec!["--image", "clear.png"], TRANSPARENT_IMAGE_LINE.into()),
+    ];
+    assert_eq!(rows.len(), 10, "ten rows");
+
+    let dir = TempDir::new().unwrap();
+    write_refusal_fixtures(dir.path());
+    for (args, expected) in &rows {
+        assert_refused_on_cli(dir.path(), "in.png", args, expected);
+    }
+}
+
+#[test]
+fn the_opacity_threshold_is_where_the_last_alpha_rounds_away_on_the_cli() {
+    let dir = TempDir::new().unwrap();
+    write_refusal_fixtures(dir.path());
+
+    // An opaque mark keeps alpha16 1 from 0.0000077 (65535 × 0.0000077 = 0.505).
+    assert_refused_on_cli(
+        dir.path(),
+        "black16.png",
+        &["--image", "white.png", "--opacity", "0.0000076"],
+        "error: --opacity 0.0000076 is too faint: the mark would draw no visible pixel; \
+         use a larger --opacity",
+    );
+    assert_drawn_on_cli(
+        dir.path(),
+        "black16.png",
+        &["--image", "white.png", "--opacity", "0.0000077"],
+    );
+
+    // A mark of alpha8 1 (alpha16 257) needs 0.002: 257 × 0.0019 = 0.488. A
+    // threshold taken from 65535 alone would accept 0.0019.
+    assert_refused_on_cli(
+        dir.path(),
+        "black16.png",
+        &[
+            "--text",
+            "© crustyimg",
+            "--color",
+            "ffffff01",
+            "--opacity",
+            "0.0019",
+        ],
+        "error: --opacity 0.0019 is too faint: the mark would draw no visible pixel; \
+         use a larger --opacity",
+    );
+    assert_drawn_on_cli(
+        dir.path(),
+        "black16.png",
+        &[
+            "--text",
+            "© crustyimg",
+            "--color",
+            "ffffff01",
+            "--opacity",
+            "0.002",
+        ],
+    );
+}
+
+#[test]
+fn the_size_threshold_is_where_the_text_first_draws() {
+    let dir = TempDir::new().unwrap();
+    write_refusal_fixtures(dir.path());
+    assert_refused_on_cli(
+        dir.path(),
+        "black16.png",
+        &["--text", "© crustyimg", "--size", "0.17"],
+        "error: --text draws no visible pixel at --size 0.17; use a larger --size",
+    );
+    assert_drawn_on_cli(
+        dir.path(),
+        "black16.png",
+        &["--text", "© crustyimg", "--size", "0.18"],
+    );
+}
+
+#[test]
+fn a_mark_that_draws_nothing_is_refused_before_any_input_is_read() {
+    let dir = TempDir::new().unwrap();
+    write_refusal_fixtures(dir.path());
+    let mut rows = 0;
+
+    // (input, args, expected exit, expected line)
+    let single: Vec<(&str, Vec<&str>, i32, Option<&str>)> = vec![
+        // Flag checks come before the input read…
+        (
+            "/no/such.png",
+            vec!["--text", "hi", "--opacity", "0"],
+            2,
+            Some(OPACITY_ZERO_LINE),
+        ),
+        // …and before the overlay read…
+        (
+            "in.png",
+            vec!["--image", "/no/l.png", "--opacity", "0"],
+            2,
+            Some(OPACITY_ZERO_LINE),
+        ),
+        // …and before the font read.
+        (
+            "in.png",
+            vec!["--text", "hi", "--font", "/no/f.ttf", "--color", "ffffff00"],
+            2,
+            Some(TRANSPARENT_COLOR_LINE),
+        ),
+        // A mark check needs the rendered mark, and comes before the input.
+        (
+            "/no/such.png",
+            vec!["--text", " "],
+            2,
+            Some(BLANK_TEXT_LINE),
+        ),
+        (
+            "/no/such.png",
+            vec!["--image", "clear.png"],
+            2,
+            Some(TRANSPARENT_IMAGE_LINE),
+        ),
+        // Blank text is not a flag check (a tab draws a box), so the font is
+        // read first and a missing one is an input error.
+        (
+            "in.png",
+            vec!["--text", " ", "--font", "/no/f.ttf"],
+            3,
+            None,
+        ),
+    ];
+    for (input, args, code, line) in &single {
+        rows += 1;
+        let _ = std::fs::remove_file(dir.path().join("out.png"));
+        let output = watermark_to_out(dir.path(), input, args);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert_eq!(output.status.code(), Some(*code), "{args:?}: {stderr}");
+        if let Some(line) = line {
+            assert_eq!(error_lines(&stderr), vec![*line], "{args:?}");
+        }
+        assert!(!dir.path().join("out.png").exists(), "{args:?}");
+    }
+
+    // A batch: refused as a whole, nothing written, every input untouched.
+    rows += 1;
+    let batch = dir.path().join("batch");
+    std::fs::create_dir(&batch).unwrap();
+    write_gradient(&batch, "b1.png", 400, 300);
+    write_gradient(&batch, "b2.png", 400, 300);
+    let before: Vec<Vec<u8>> = ["b1.png", "b2.png"]
+        .iter()
+        .map(|n| std::fs::read(batch.join(n)).unwrap())
+        .collect();
+    let output = watermark(
+        dir.path(),
+        &["batch"],
+        &["--text", "hi", "--opacity", "0", "--out-dir", "out"],
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(2), "batch: {stderr}");
+    assert_eq!(error_lines(&stderr), vec![OPACITY_ZERO_LINE], "batch");
+    assert_eq!(
+        files_in(&dir.path().join("out")),
+        0,
+        "batch: nothing written"
+    );
+    for (n, bytes) in ["b1.png", "b2.png"].iter().zip(&before) {
+        assert_eq!(&std::fs::read(batch.join(n)).unwrap(), bytes, "{n}");
+    }
+    assert_eq!(rows, 7, "seven rows");
+}
+
+#[test]
+fn a_faint_or_odd_mark_that_draws_is_accepted() {
+    let dir = TempDir::new().unwrap();
+    write_refusal_fixtures(dir.path());
+    write_gradient16(dir.path(), "g16.png", 400, 300);
+    let mut rows = 0;
+
+    // A faint mark that keeps alpha at 16 bits is drawn on a 16-bit image.
+    rows += 1;
+    assert_drawn_on_cli(
+        dir.path(),
+        "g16.png",
+        &["--image", "logo.png", "--opacity", "0.001"],
+    );
+    // A 16-bit overlay with no alpha at 8 bits draws at opacity 1.
+    rows += 1;
+    assert_drawn_on_cli(dir.path(), "black16.png", &["--image", "faint16.png"]);
+    // Whitespace the bundled font has no glyph for draws its fallback box.
+    for text in ["\t", "\u{3000}", "\u{200d}"] {
+        rows += 1;
+        assert_drawn_on_cli(dir.path(), "in.png", &["--text", text]);
+    }
+    // White on white changes nothing, and is still drawn as asked.
+    rows += 1;
+    write_white(dir.path(), "white_base.png", 400, 300);
+    let output = watermark_to_out(dir.path(), "white_base.png", &["--text", "© crustyimg"]);
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(rows, 6, "six rows");
+}
+
+#[test]
+fn opacity_help_states_the_range() {
+    let output = Command::new(BIN)
+        .args(["watermark", "--help"])
+        .output()
+        .unwrap();
+    let help = String::from_utf8_lossy(&output.stdout);
+    let lines: Vec<&str> = help.lines().collect();
+    let at = lines
+        .iter()
+        .position(|l| l.trim_start().starts_with("--opacity"))
+        .expect("an --opacity entry");
+    let described = lines[at..]
+        .iter()
+        .take(3)
+        .copied()
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(described.contains("above 0"), "help: {described}");
+}

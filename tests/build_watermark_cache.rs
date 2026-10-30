@@ -351,3 +351,55 @@ out = "dist"
         "the cache store must not even open before the recipe-level failure"
     );
 }
+
+// ── A mark that draws nothing is refused before anything is written ─────────
+
+/// `build` refuses a recipe whose watermark would draw nothing, naming the
+/// target and the step, before any output or cache entry exists.
+#[test]
+fn build_refuses_a_mark_that_draws_nothing_before_writing() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    write_file(
+        root,
+        "r.toml",
+        br#"
+version = "1"
+
+[[step]]
+op = "watermark"
+text = "hi"
+opacity = 0
+"#,
+    );
+    write_png(root, "src/a.png", 64, 64, [1, 2, 3]);
+    write_png(root, "src/b.png", 64, 64, [4, 5, 6]);
+    write_file(
+        root,
+        "crustyimg.build.toml",
+        br#"
+version = 1
+
+[[target]]
+source = "src/*.png"
+recipe = "r.toml"
+out = "dist"
+"#,
+    );
+
+    let out = build(root, &[]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(out.status.code(), Some(1), "stderr: {stderr}");
+    let errors: Vec<&str> = stderr.lines().filter(|l| l.starts_with("error:")).collect();
+    assert_eq!(errors.len(), 1, "one error line: {stderr}");
+    assert!(errors[0].contains("target #0"), "{}", errors[0]);
+    assert!(
+        errors[0].contains(
+            "recipe step 0 ('watermark'): 'opacity' = 0 draws no mark; \
+             to leave images unmarked, remove this step"
+        ),
+        "{}",
+        errors[0]
+    );
+    assert!(!root.join("dist").exists(), "no output is written");
+}
