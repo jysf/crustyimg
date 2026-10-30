@@ -1399,6 +1399,11 @@ fn visible_pixels(overlay: &DynamicImage) -> u64 {
     overlay.to_rgba16().pixels().filter(|p| p.0[3] > 0).count() as u64
 }
 
+/// An opacity applied to one 16-bit alpha, exactly as the composite applies it.
+fn faded_alpha16(alpha: u16, opacity: f32) -> u16 {
+    (alpha as f32 * opacity).round() as u16
+}
+
 /// Whether a rounded side survives a cast to `u32` without saturating.
 /// `u32::MAX as f32` is exactly 2^32; NaN and infinity do not fit.
 fn fits_u32(side: f32) -> bool {
@@ -1776,7 +1781,7 @@ impl Operation for Watermark {
             // ── Opacity: multiply the overlay's alpha channel ─────────────────
             if self.opacity < 1.0 {
                 for px in ov.pixels_mut() {
-                    px.0[3] = (px.0[3] as f32 * self.opacity).round() as u16;
+                    px.0[3] = faded_alpha16(px.0[3], self.opacity);
                 }
             }
 
