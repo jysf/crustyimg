@@ -7,7 +7,7 @@
 task:
   id: SPEC-141
   type: task                       # epic | story | task | bug | chore
-  cycle: build  # frame | design | build | verify | ship
+  cycle: verify  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: S                    # S | M | L  (L means split it)
@@ -85,6 +85,24 @@ cost:
         output_tokens per id. Priced by component at Opus $5/$25 per MTok, cache_creation x1.25
         ($6.25), cache_read x0.10 ($0.50): $0.0004 + $1.18 + $3.24 + $1.80. Measured before
         the commit/push turns, so it slightly under-counts.
+    - cycle: build
+      agent: claude-sonnet-5-5
+      interface: claude-code
+      tokens_total: 10792771
+      tokens_breakdown:
+        input: 152
+        output: 49445
+        cache_creation: 158838
+        cache_read: 10584336
+      estimated_usd: 4.51
+      duration_minutes: null
+      recorded_at: 2026-10-30
+      note: >
+        Build session in worktree test-spec-141-recipe-output-guard. Measured from the session
+        transcript (84d491ec-….jsonl, identified by content), deduped by `.message.id` (73 unique
+        ids, all claude-sonnet-5-5), input/cache_creation/cache_read once per id, MAX output_tokens
+        per id. Sonnet $3/$15 per MTok, cache_creation x1.25, cache_read x0.10. Measured before the
+        final commit/push turns, so it slightly under-counts.
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -971,29 +989,69 @@ says stop and report).
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
-- **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
-- **Files this diff touches** — **list every one**, with a phrase on what changed
-  in each. Build it from `git diff --name-only`, not recall.
-  - `path/to/file` — <what changed>
+- **Branch:** `test/spec-141-recipe-output-guard`
+- **PR (if applicable):** #233 (draft)
+- **All acceptance criteria met?** yes, under outcome (ii) (per-target goldens). See below.
+- **New decisions emitted:** none
+- **Files this diff touches** (from `git diff --name-only origin/main...HEAD`):
+  - `tests/recipe_corpus_output.rs` — new: the guard (FT-1 to FT-8) and the `#[ignore]` bless
+  - `tests/recipe_round_trip.rs` — `CORPUS` gains `v2_ddphotos_cli_shape`; count 13 → 14
+  - `tests/fixtures/recipe_corpus/v2_ddphotos_cli_shape.toml` — new corpus recipe (Call 2, byte for byte)
+  - `tests/fixtures/recipe_corpus/v2_ddphotos_cli_shape.golden` — its canonical TOML
+  - `tests/fixtures/recipe_corpus/README.md` — new: the rules
+  - `tests/fixtures/recipe_corpus/<stem>.{linux-x86_64,macos-aarch64,windows-x86_64}.output` — 42 new goldens
+- **`src/` diff:** `git diff --stat origin/main...HEAD -- src/` is empty. No `Cargo.toml`/`Cargo.lock` change.
+- **Outcome: (ii), per-target.** Checkpoint 1 run
+  https://github.com/jysf/crustyimg/actions/runs/41134312226 (head `5fdf103`, Mac goldens in the
+  shared layout). macos-latest `test` passed. Red on a pixel/byte row: ubuntu `test`, avif, heic-ubuntu,
+  webp-lossy, lean (26 of 48 rows changed on the Linux legs), and windows.
+  The macOS heic leg died earlier on `avif_tile_pin` (unrelated), so it never reached this test. All five
+  Linux legs printed byte-identical dumps, so no two legs on one target disagreed. Linux, Windows and
+  Mac differ pairwise on 12 of 14 recipes (the two that agree are the ones with no resize). Goldens for
+  Linux and Windows were copied from that log's marker blocks.
+  Second run (head `886d388`, the per-target layout):
+  https://github.com/jysf/crustyimg/actions/runs/41136772264, green on all 8 `cargo test` legs plus msrv.
+  Wall time of the corpus-output test per leg: macos 34.0 s, ubuntu 50.4 s, windows 29.8 s, avif 52.3 s,
+  heic-macos 41.9 s, heic-ubuntu 33.9 s, webp-lossy 22.1 s (7 tests), lean 16.9 s (7 tests).
+- **Fixture hashes** (FT-2, full 64 digits): `94daa4af…`, `7df0cef0…`, `75dfcd86…`, matching AC-2 on every leg.
+- **Mutations** (each applied by content, built clean per target dir, reverted and shown green):
+  - M1 (`src/operation/mod.rs:584` Lanczos3→CatmullRom): FT-1 36 lines = 33 `pixels changed` + 3 `png bytes
+    changed (pixels also changed)`, `36 of 48 rows changed`; FT-4 png red; FT-5 green. Matches the table.
+  - M2 (`src/operation/mod.rs:1629` unwrap_or(1.0)→0.9): 9 lines = 6 pixels + 3 png; FT-4 png red. Matches.
+  - M3 (`src/pipeline/mod.rs:105` `.take(0)`, re-blessed under it): 33 `dims …, expected …` + 9 `output equals
+    the fixture` + 54 `changed nothing` (= 18 non-exempt steps × 3). Matches after one test fix (below).
+    Goldens restored with `git checkout`; status clean.
+  - M4 (delete `v1_resize_fit` from `RECIPES`): FT-1 `rows checked 45, expected 48`; FT-6 reports the stray
+    golden set. It stops at the file-set assert, so the "48 ≠ 51 lines" half is not reported separately.
+  - M5 (`CI=true` bless): exit 101, `refusing to bless recipe goldens in CI (CI is set)`; golden shasums
+    identical before/after; the same command with `CI` unset exits 0 and rewrites files, `git status` clean.
+  - M6 (`src/sink/mod.rs` ~841 PNG encoder settings): 3 lines `png bytes changed (pixels unchanged)`; FT-4 png red;
+    FT-5 green. Matches.
+  - M7 (`src/cli/optimize.rs:91` `pinned_format = cli_pin`): FT-4 red on the webp row
+    (`rgb8_2600x1730.avif` written, expected `.webp`); all of FT-1 and FT-5 green. Matches.
+  M1–M7 were driven on the shared layout (before the checkpoint result); the per-target switch only changed
+  which golden file is read, and a final clean run of the whole test is green.
+- **Matrix** (each in a fresh `CARGO_TARGET_DIR`, fmt `--check` and clippy `--all-targets -D warnings` clean):
+  default 8 passed; `--no-default-features` 7 passed (FT-5 compiled out); `--features webp-lossy` 7 passed.
 - **Deviations from spec:**
-  - [list]
-- **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - AC-4 (b) "output equals the fixture" is reported only when the dims check held, which is the only way
+    M3's listed 33 + 9 lines come out.
+  - The first push failed the lean leg on a dead-code error (`BUNDLED` is used only where FT-5 exists). Fixed by
+    gating it with the same cfg.
+  - `N of 48 rows changed` counts mismatch lines, which exceeds 48 under M3 (96).
+- **Follow-up work identified:** none. The macOS heic leg's `avif_tile_pin` failure on the first run passed
+  on rerun; it is worth a look as possibly flaky, but it is outside this spec.
 
 ### Build-phase reflection (3 questions, short answers)
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — Whether M3's `output equals the fixture` line applies to resizers too; the listed counts only work if it does not.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — The lean/webp-lossy dead-code rule: anything used only by the cfg-gated tests must be gated too.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Run clippy on `--no-default-features` before the first push, so checkpoint 1 measures pixels and nothing else. No design call turned out wrong; the per-target outcome was the one the spec anticipated.
 
 ---
 
