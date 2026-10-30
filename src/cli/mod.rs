@@ -1517,4 +1517,59 @@ mod tests {
             1
         );
     }
+
+    // ── refused_build_flags ──────────────────────────────────────────────────
+
+    /// The guard reads `Option::is_some()`, which is exact only while none of the four
+    /// flags has a clap default: a default would make a bare `build` look like it was
+    /// given the flag. The bare-`build` row below goes red if one is added.
+    #[test]
+    fn refused_build_flags_lists_only_the_given_flags_in_order() {
+        const OUTPUT: &str = "-o/--output: the manifest says where a build writes; set the target's out and name instead";
+        const OUT_DIR: &str =
+            "--out-dir: the manifest says where a build writes; set the target's out instead";
+        const NAME_TEMPLATE: &str =
+            "--name-template: the manifest names a build's outputs; set the target's name instead";
+        const FORMAT: &str = "--format: the manifest sets a build's output format; give the target's name an extension (name = \"{stem}.png\") or set format in its recipe instead";
+        let refused = |args: &[&str]| {
+            let cli = Cli::try_parse_from(args).expect("should parse");
+            refused_build_flags(&cli.global)
+                .into_iter()
+                .map(|line| {
+                    line.strip_prefix("build does not take ")
+                        .unwrap()
+                        .to_owned()
+                })
+                .collect::<Vec<_>>()
+        };
+
+        let bare = Cli::try_parse_from(["crustyimg", "build"]).unwrap();
+        assert!(bare.global.output.is_none());
+        assert!(bare.global.out_dir.is_none());
+        assert!(bare.global.name_template.is_none());
+        assert!(bare.global.format.is_none());
+        assert!(refused(&["crustyimg", "build"]).is_empty());
+
+        assert_eq!(
+            refused(&["crustyimg", "build", "--format", "png"]),
+            [FORMAT]
+        );
+        assert_eq!(
+            refused(&[
+                "crustyimg",
+                "build",
+                "--format",
+                "png",
+                "--name-template",
+                "{stem}.png",
+                "--out-dir",
+                "d",
+                "-o",
+                "x.png",
+            ]),
+            [OUTPUT, OUT_DIR, NAME_TEMPLATE, FORMAT]
+        );
+        // `build`'s own flags are not refused.
+        assert!(refused(&["crustyimg", "build", "-q", "50", "--no-cache"]).is_empty());
+    }
 }
