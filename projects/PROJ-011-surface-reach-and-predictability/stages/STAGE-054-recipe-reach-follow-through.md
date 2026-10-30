@@ -161,7 +161,8 @@ Ordered. ⚡ Only the first item gates 0.8.0.
   (`src/text/mod.rs:194-197`), and nothing refuses a mark whose visible-pixel count (already
   computed at construction, `visible_pixels`) is 0. The same fallback is in the `v0.7.1` tag (not driven on the released binary). Fix shape:
   refuse a mark with 0 visible pixels at construction (invocation-level: exit 2 CLI, exit 1
-  recipe); `opacity = 0` needs a ruling (refuse, or keep as an explicit no-op). Out of SPEC-135
+  recipe). **Ruled 2026-10-30 (maintainer): `opacity = 0` is refused too**, with the same exit
+  codes; to turn a watermark off, remove the step. Out of SPEC-135
   because both paths agree; it is what STAGE-054's first success criterion literally promises
   ("no CLI or recipe path draws an invisible mark at exit 0").
 

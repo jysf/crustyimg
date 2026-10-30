@@ -79,7 +79,7 @@ crop control (STAGE-060) waits only for this stage's crop spec.
 
 In build order. Each is framed in its own session first.
 
-- [ ] (not yet written) — [S] **The no-bytes-changed guard, first.** A golden test that runs
+- [ ] **SPEC-141** (framed 2026-10-30) — [S] **The no-bytes-changed guard, first.** A golden test that runs
   the repo's existing recipe corpus (bundled recipes, `docs/recipes.md` examples, the build
   fixtures) and pins output hashes, so every later spec in this project can prove it moved
   nothing. ⚡ Check `scripts/cli-golden.py` first: it may already be most of this, and the spec
@@ -118,7 +118,13 @@ In build order. Each is framed in its own session first.
   geometry. Design picks one and writes it down. `--save-recipe` must write steps that `apply`
   replays to the same pixels: that is the test.
 
-**Count:** 0 shipped / 0 active / 6 pending
+- [ ] (not yet written) — [S] **`docs/recipes.md` still advertises a `crustyimg crop` verb.**
+  Found at SPEC-141's frame. `docs/recipes.md:60-65` lists "Crop to an arbitrary rect / gravity
+  / aspect **[planned — PROJ-006]**" as `crustyimg crop …`, and smart crop the same way. The verb
+  set is frozen at 14 (STAGE-030), and PROJ-017 delivers crop as a recipe step plus an `edit`
+  flag. Fold it into the `crop` spec's docs entries, or fix it on its own if `crop` slips.
+
+**Count:** 0 shipped / 0 active / 7 pending — re-derived 2026-10-30 with `grep -c '^- \[ \]'` (7) and `grep -c '^- \[x\]'` (0); SPEC-141 is framed, not active
 
 ## Design Notes
 
