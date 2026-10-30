@@ -12,7 +12,10 @@ Cycle prompts live in `prompts/SPEC-143-<cycle>.md`.
   all exit 0 with 0 px changed. `visible_pixels` is counted before opacity, so design adds a
   separate post-opacity max-alpha predicate, decided from the mark (as DEC-104 is), at two call
   sites: `run_watermark` and `from_params`.
-- [ ] **design**: `prompts/SPEC-143-design.md`
-- [ ] **build**
+- [x] **design** (2026-10-30, `prompts/SPEC-143-design.md`): 14 ACs, 16 failing tests, DEC-109.
+  `Watermark::invisible_mark()` (additive) refuses at 16-bit precision via the composite's own
+  `faded_alpha16`, at the end of `from_params` and in `run_watermark`. Only opacity 0 and colour
+  alpha 00 are flag checks: tab and U+3000 draw the font's fallback box, so blank text is not.
+- [ ] **build**: `prompts/SPEC-143-build.md`
 - [ ] **verify**
 - [ ] **ship**

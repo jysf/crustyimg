@@ -153,7 +153,7 @@ Ordered. ⚡ Only the first item gates 0.8.0.
   Refactor: resolve once and pass `&[Input]` into both branches. Code quality, not a bug; a
   candidate for the maintainer's queued Rust cleanup.
 
-- [ ] **SPEC-143** (framed 2026-10-30) — [S] **A watermark with no visible pixels is drawn as nothing at exit 0.**
+- [ ] **SPEC-143** (designed 2026-10-30) — [S] **A watermark with no visible pixels is drawn as nothing at exit 0.**
   Filed by SPEC-135's frame (2026-10-27), driven on a release build of `main` @ `4d6808b`: on
   **both** paths, `--text " "` / `text = " "` and `--size 0.01` / `size = 0.01` exit 0 with 0
   pixels changed, and `--opacity 0` / `opacity = 0.0` the same. Cause for the first two:

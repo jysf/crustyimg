@@ -7,7 +7,7 @@
 task:
   id: SPEC-143
   type: bug                        # epic | story | task | bug | chore
-  cycle: design  # frame | design | build | verify | ship
+  cycle: build  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: S                    # S | M | L  (L means split it)
@@ -29,6 +29,9 @@ references:
     - DEC-106   # every CLI watermark flag check precedes every file read; opacity 0 / blank text / alpha-00 colour are flag checks
     - DEC-102   # recipe step params validated at load; the `recipe step N ('watermark'):` prefix and exit 1
     - DEC-031   # the CLI builds the op directly, so the check needs a call site there as well as in from_params
+    - DEC-109   # a watermark that would draw nothing is refused, decided from the mark at 16-bit precision (this design)
+    - DEC-015   # exit codes: 2 usage, 1 recipe, 3 input
+    - DEC-045   # the bundled font; its .notdef box is why tab and U+3000 draw
   constraints:
     - test-before-implementation
     - untrusted-input-hardening
@@ -74,6 +77,25 @@ cost:
         MAX output_tokens per id. Priced by component at Opus $5/$25 per MTok, cache_creation
         x1.25 ($6.25), cache_read x0.10 ($0.50): $0.0006 + $0.90 + $3.48 + $1.17. Measured
         before the commit/push turns, so it slightly under-counts.
+    - cycle: design
+      agent: claude-opus-5-5
+      interface: claude-code
+      tokens_total: 4115263
+      tokens_breakdown:
+        input: 60
+        output: 67627
+        cache_creation: 158602
+        cache_read: 3888974
+      estimated_usd: 4.63
+      duration_minutes: null
+      recorded_at: 2026-10-30
+      note: >
+        Interactive design session in its own worktree (docs/spec-143-design). Measured from the
+        session's transcript (99391a8f-….jsonl, identified by content), deduped by `.message.id`
+        (30 unique ids, all claude-opus-5-5): input/cache_creation/cache_read once per id, MAX
+        output_tokens per id. Priced by component at Opus $5/$25 per MTok, cache_creation x1.25,
+        cache_read x0.10: $0.0003 + $0.99 + $1.94 + $1.69. Measured before the commit/push turns,
+        so it slightly under-counts.
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -384,33 +406,498 @@ under DEC-106. The docs, help, CHANGELOG and DEC listed in 7.
 3. **`new_image` / `new_text` stay public and infallible in 0.8.2.** The library-caller gap is
    the STAGE-054 entry the frame filed, for the next minor release.
 
+## Design
+
+Design session 2026-10-30 (Opus 5.5), own worktree `docs/spec-143-design`, on `main` @ `6cfdbf9`.
+Every row below was driven on a release build of that commit (`crustyimg 0.8.1`) in a fresh
+`CARGO_TARGET_DIR`, deleted afterwards. Changed pixels were counted exactly with ImageMagick
+(difference, max over channels, threshold 0, count); negative control: a base against itself
+counts 0. Fixtures: 400×300 `dark` (#202020, 8-bit), `dark16` (#202020, 16-bit), **`black16`**
+(black, 16-bit), `white`; `logo.png` (60×30 opaque white), `logo1.png` (60×30 white, alpha8 1),
+`clear.png` (60×30, alpha 0).
+
+**`black16` is the detector for "the mark kept some alpha".** On a black 16-bit base, a white
+pixel with alpha16 = 1 changes a sample (measured: `--opacity 0.0000077` changes 1800 px there and
+0 px on `dark16`, whose truncating blend swallows alpha16 = 1). So a 0-px count on `black16` means
+"no alpha survived", and a non-zero count means "some did". Every boundary row uses it.
+
+### What `main` does today (the RED baseline)
+
+Every refusal row below exits **0** on `main` with **0 px changed** and no stderr; every order row
+exits **3**. Driven:
+
+| Row | Base | `main` |
+|---|---|---|
+| CLI `--text " "`, `--text $' '` | dark16 | 0, 0 px |
+| CLI `--image logo.png --opacity 0.0000076` | black16 | 0, **0 px** |
+| CLI `--image logo.png --opacity 0.0000077` | black16 | 0, **1800 px** |
+| CLI `--text "© crustyimg" --color ffffff01 --opacity 0.0019` | black16 | 0, **0 px** |
+| CLI `--text "© crustyimg" --color ffffff01 --opacity 0.002` | black16 | 0, **1133 px** |
+| CLI `--image logo1.png --opacity 0.0019` / `0.002` | black16 | 0, 0 px / 0, 1800 px |
+| CLI `--text "© crustyimg" --size 0.17` / `0.18` | black16 | 0, **0 px** / 0, **1 px** |
+| CLI `--image logo.png --opacity 0.001` | dark (8-bit) / dark16 | 0, **0 px** / 0, **1800 px** |
+| recipe `opacity = 0` (integer), `opacity = 1e-50`, `opacity = 0.000001`, `opacity = 0.0000076`, `text = "  "`, `image = "clear.png"`, `color = "#ffffff00"` | black16 | 0, 0 px each |
+| recipe `opacity = 0.0000077` (image) | black16 | 0, 1800 px |
+| CLI `watermark /no/such.png --text hi --opacity 0` | — | **3** `input not found or unreadable` |
+| CLI `--image /no/l.png --opacity 0` | — | **3** `could not read image input` |
+| CLI `--text " " --font /no/f.ttf` | — | **3** (stays 3 after the fix, see Call 3) |
+| `apply --recipe` (`opacity = 0`) `/no/such.png` | — | **3** |
+
+**Odd characters (bundled Go font), `--text <c>` on dark16, opacity 1:**
+
+| Text | px | Why |
+|---|---|---|
+| `" "` (U+0020), U+00A0 NBSP | **0** | mapped to an empty glyph: no outline, the 1×1 fallback |
+| U+00A0 + `a` | 186 | draws the `a` |
+| U+0009 tab, U+000B, U+0085, U+1680, U+2000, U+2003, U+200A, U+2028, U+202F, U+205F, U+3000 | **68** each | `char::is_whitespace` is true, but the font has no glyph: the `.notdef` box is drawn |
+| U+200B ZWSP, U+200D ZWJ, U+2060, U+034F, U+180E, U+FE0F, U+FEFF, U+0001, U+4E2D (CJK), U+1F600 (emoji) | **68** each | no glyph: `.notdef` box |
+| U+00AD soft hyphen | 27 | the font draws it |
+
+So with the bundled font, the only texts that draw nothing at a normal size are runs of U+0020 and
+U+00A0. **Blank text is not decidable from the flag:** `--text $'\t'` and `--text $'　'` are
+whitespace by every definition and still draw a 68-px mark. A pre-render `is_whitespace` check
+would refuse marks that draw, against ruling 2. This corrects the frame (§4 listed blank text as
+flag-decidable); see Call 3.
+
+### Call 1 — the predicate, and why it cannot disagree with the composite
+
+**The 8-bit vs 16-bit numbers.** For an overlay whose largest alpha is `a8` (8-bit overlay, so its
+16-bit view is `a16 = 257·a8`), the two composite branches leave every pixel at alpha 0 when:
+
+| Branch (chosen by the **base** image's bit depth, `is_sixteen_bit(original_color)`, `src/operation/mod.rs:1758`) | zero alpha when | opaque mark (`a8 = 255`) | `a8 = 1` mark |
+|---|---|---|---|
+| 16-bit (`:1777-1780`, `(a16 as f32 * op).round() as u16`) | `op < 0.5 / (257·a8)` | `op < 7.6295e-6` | `op < 1.9455e-3` |
+| 8-bit (`:1833-1836`, `(a8 as f32 * op).round() as u8`) | `op < 0.5 / a8` | `op < 1.9608e-3` | `op < 0.5` |
+
+- **The gap exists one way.** For `0.5/(257·a8) ≤ op < 0.5/a8` the mark keeps alpha at 16 bits but
+  rounds to 0 at 8 bits. Driven: `--image logo.png --opacity 0.001` changes 1800 px of `dark16`
+  and 0 px of `dark`.
+- **The reverse cannot happen.** If `round(a16·op) = 0` then `a16·op < 0.5`. For an 8-bit overlay
+  `a8·op = a16·op/257 < 0.002`, so `round(a8·op) = 0`. For a 16-bit overlay `to_rgba8` gives
+  `a8 ≤ (a16 + 128)/257`, so `a8·op < 0.5·(1 + 128/a16)/257 ≤ 0.251`, which rounds to 0. A mark
+  the 16-bit rule refuses is always drawn as nothing on the 8-bit branch too.
+- **The predicate follows the 16-bit branch, not the stricter 8-bit one**, for three reasons.
+  (1) The branch is chosen by the image, and ruling 2 says the rule is decided from the mark.
+  (2) The 8-bit rule would refuse `--opacity 0.001`, which draws all 1800 px of a 16-bit image.
+  (3) It would not make 8-bit output change anyway: on `dark` an alpha8 of 1 changes 0 px (the
+  frame measured the first change at alpha 2, `op ≥ 0.00589`). An 8-bit output that a faint mark
+  leaves unchanged is exactly the "faint mark that changes nothing on one particular image" that
+  ruling 2 draws as asked. **On the 16-bit branch the predicate and the composite cannot disagree,
+  because they call the same function** (below). On the 8-bit branch an accepted mark may draw
+  zero alpha, by ruling; the docs say so.
+
+**The code.** All in `src/operation/mod.rs`:
+
+```rust
+/// An opacity applied to one 16-bit alpha, exactly as the composite applies it.
+fn faded_alpha16(alpha: u16, opacity: f32) -> u16 {
+    (alpha as f32 * opacity).round() as u16
+}
+
+/// The overlay's largest alpha, on its 16-bit view (exact for 8- and 16-bit overlays).
+fn max_alpha16(overlay: &DynamicImage) -> u16 {
+    overlay.to_rgba16().pixels().map(|p| p.0[3]).max().unwrap_or(0)
+}
+
+/// Why a watermark would draw no visible pixel. Checked in this order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum InvisibleMark {
+    /// `opacity` is 0.
+    OpacityZero,
+    /// A text mark's colour has alpha 0.
+    TransparentColor,
+    /// A text mark whose text is all whitespace, and draws nothing.
+    BlankText,
+    /// A text mark that draws nothing at its size.
+    TextTooSmall,
+    /// An image mark with no pixel of alpha > 0.
+    TransparentImage,
+    /// The mark has visible pixels, but `opacity` rounds every alpha to 0.
+    TooFaint,
+}
+
+impl Watermark {
+    /// Why this mark would draw no visible pixel, or `None` when it draws one.
+    /// Decided from the mark alone, at 16-bit precision. A faint mark can still
+    /// change nothing on a particular image (white on white, or an 8-bit image).
+    pub fn invisible_mark(&self) -> Option<InvisibleMark> { … }
+}
+```
+
+- The 16-bit composite branch's opacity loop (`:1777-1780`) becomes
+  `px.0[3] = faded_alpha16(px.0[3], self.opacity);`. It is the same expression, so no byte changes
+  (AC-11 proves it). The 8-bit branch (`:1833-1836`) is **not** touched.
+- `Watermark` gains one private field `max_alpha: u16`, set by `max_alpha16(&overlay)` in all three
+  constructors (`new_image` `:1451`, `new_text` `:1482`, `from_params` `:1634`), next to `visible`.
+  `visible_pixels` and `visible` are untouched (a separate pass over the overlay; the mark is small).
+  This keeps DEC-104's coverage figure out of reach.
+- `invisible_mark()`, in this order:
+  1. `self.opacity == 0.0` → `OpacityZero` (also true for `-0.0`, and for an f64 below f32's
+     smallest positive value, which reads as `0.0`);
+  2. text mode and `color[3] == 0` → `TransparentColor`;
+  3. `self.visible == 0` → text mode: `text.chars().all(char::is_whitespace)` → `BlankText`,
+     otherwise `TextTooSmall`; image mode → `TransparentImage`;
+  4. `faded_alpha16(self.max_alpha, self.opacity) == 0` → `TooFaint`;
+  5. otherwise `None`.
+- Step 4 is monotone: `round(a·op)` never decreases as `a` grows, so the max alpha decides it for
+  every pixel. `TooFaint` implies `0 < opacity < 1`: at opacity 1, `faded_alpha16(max, 1.0) = max ≥ 1`
+  whenever `visible > 0`.
+- **Additive only:** a new public enum (`#[non_exhaustive]` from day one), a new public method, a
+  new private field, two private functions. `new_image`/`new_text` keep their signatures and stay
+  infallible; `Refusal` is untouched. Re-export `InvisibleMark` wherever `Watermark` is exported.
+
+### Call 2 — where it runs
+
+- **Recipe (`apply`, `build`, `--watch`, wasm `transform`):** at the end of
+  `Watermark::from_params` (`src/operation/mod.rs`, after `let visible = …` at `:1634`, before
+  `Ok(Watermark { … })`): build the struct, call `invisible_mark()`, and on `Some(cause)` return
+  `RegistryError::InvalidParams { op: "watermark", reason }` with the recipe line from Call 4. The
+  message is built **in `from_params`**, from the params as written (`color` and `image` strings,
+  `size` and `opacity` as the f32 the op holds). One call site covers every recipe surface, since
+  all four reach `from_params` through the registry (`src/operation/registry.rs:306`).
+- **CLI `watermark`:** in `run_watermark` (`src/cli/ops.rs:1430`), two places (Call 3).
+- The CLI message is built in `src/cli/ops.rs` from the flags as typed; the recipe message in
+  `src/operation/mod.rs` from the keys. Two private `match`es over `InvisibleMark`, one per surface.
+  No shared template: each line says what to do on its own surface ("do not run watermark" vs
+  "remove this step").
+
+### Call 3 — the CLI order (DEC-106)
+
+`run_watermark` becomes:
+
+1. the existing flag checks, unchanged: `--size`, `--scale`, `--opacity` (table range), `--gravity`,
+   `--color` (parse);
+2. **new flag checks**, right after the colour parses: `opacity == Some(0.0)` → the `OpacityZero`
+   line; text mode (`src.image.is_none()`) with `color[3] == 0` → the `TransparentColor` line;
+3. `watermark_overlay` (reads `--font` or `--image`: a missing file is exit 3, as today);
+4. build the op (unchanged);
+5. **new:** `if let Some(cause) = op.invisible_mark()` → `CliError::Usage(<CLI line>)`, exit 2;
+6. `run_pixel_op` (the first read of any input).
+
+- **Only opacity 0 and colour alpha 00 are flag checks.** Both are true of the mark whatever the font
+  or overlay. Blank text is not (tab and U+3000 draw a box), nor is a too-small size or a transparent
+  image. These three are mark checks: after the font/overlay read, before any input.
+- Step 5 also re-checks causes 1–2 (the predicate is complete on its own). Under mutation M3 below,
+  that is what keeps the opacity-0 and colour rows passing with the same words, which is why M3 is
+  only caught by the order rows.
+- **Rows that prove each order** (FT-4): `watermark /no/such.png --text hi --opacity 0` → 2
+  (flag check before input); `--image /no/l.png --opacity 0` → 2 (flag check before the overlay
+  read); `--text hi --font /no/f.ttf --color ffffff00` → 2 (before the font read);
+  `watermark /no/such.png --text " "` → 2 and `watermark /no/such.png --image clear.png` → 2 (mark
+  check before input); `--text " " --font /no/f.ttf` → **3** (the font is read before blankness is
+  known; pinned so a pre-render whitespace check shows up).
+
+### Call 4 — the twelve messages
+
+CLI: exit 2, stderr is exactly the one line. Recipe: exit 1, the line follows DEC-102's prefix,
+`error: recipe step N ('watermark'): ` (in `build`, after `error: target #N (recipe …) `).
+
+| Cause | CLI (exit 2) | Recipe (exit 1, after the prefix) |
+|---|---|---|
+| `OpacityZero` | `error: --opacity 0 draws no mark; to leave an image unmarked, do not run watermark` | `'opacity' = 0 draws no mark; to leave images unmarked, remove this step` |
+| `TooFaint` | `error: --opacity 0.000001 is too faint: the mark would draw no visible pixel; use a larger --opacity` | `'opacity' = 0.000001 is too faint: the mark would draw no visible pixel; use a larger opacity` |
+| `BlankText` | `error: --text has no visible characters; use text with at least one visible character` | `'text' has no visible characters; use text with at least one visible character` |
+| `TextTooSmall` | `error: --text draws no visible pixel at --size 0.01; use a larger --size` | `'text' draws no visible pixel at 'size' = 0.01; use a larger size` |
+| `TransparentColor` | `error: --color ffffff00 is fully transparent; use an alpha above 00, or RRGGBB` | `'color' "ffffff00" is fully transparent; use an alpha above 00, or RRGGBB` |
+| `TransparentImage` | `error: --image clear.png is fully transparent; use an image with visible pixels` | `'image' "clear.png" is fully transparent; use an image with visible pixels` |
+
+- **Values.** `OpacityZero` prints a literal `0`, never the value (so `-0` and `opacity = 1e-50`
+  both read `0`; the f32 the op holds is 0). `TooFaint`'s opacity and `TextTooSmall`'s size print
+  the f32 with `{}` (Rust's shortest round-trip form: `0.000001`, `0.1`, `0.0000076`), via the
+  existing `flag_value_text` on the CLI. **Never widen to f64**: `f64::from(0.000001_f32)` prints
+  `0.0000009999999974752427`, and `0.1_f32` prints `0.10000000149011612` (trap 10; FT-1 has both).
+  `--color` and `--image` print the string as typed (`#ffffff00` stays `#ffffff00`); the recipe
+  wraps it in `"…"` (`{:?}`), as DEC-102's other string messages do. `TextTooSmall` with no
+  `size` key prints the default, `'size' = 32`.
+- **`TextTooSmall` names the size, not a cause it cannot prove.** With the bundled font, a
+  non-whitespace text that draws nothing at opacity 1 only happens at a small size. With a custom
+  `--font` that maps a character to an empty glyph, "draws no visible pixel at --size 32" is still
+  true.
+- **`--text` is not echoed** in `BlankText`: it is whitespace, and printing it shows nothing.
+
+### Call 5 — the boundary rows (trap 10)
+
+| Mark | Largest refused | Smallest accepted | Arithmetic (`round(a16·op)`) | `main` on black16 |
+|---|---|---|---|---|
+| opaque (`a16 = 65535`) | `0.0000076` | `0.0000077` | 0.498 → 0 / 0.505 → 1 | 0 px / 1800 px |
+| alpha8 1 (`a16 = 257`): `--color ffffff01`, `logo1.png` | `0.0019` | `0.002` | 0.488 → 0 / 0.514 → 1 | 0 px / 1133 px (text), 1800 px (image) |
+| 16-bit overlay, `a16 = 4` (lib + CLI `faint16.png`) | `0.1` | `0.13` | 0.4 → 0 / 0.52 → 1 | 0 px / 1800 px (and 0 px on 8-bit `dark` even at opacity 1) |
+| text `"© crustyimg"`, opacity 1 | size `0.17` | size `0.18` | `visible` 0 / > 0 | 0 px / 1 px |
+
+The alpha8-1 row is where the naive shortcut differs: `op × 65535` gives 124.5 at `0.0019` and
+would accept a mark that draws nothing. The 16-bit-overlay row is where 8-bit and 16-bit
+precision differ at opacity 1: its 8-bit view has alpha 0. Each pair is a test (FT-2, FT-3, FT-14)
+and each has a mutation (M6–M8). A row refusing only `0.000001` could not tell this threshold from
+"refuse below 0.01".
+
+### Call 6 — bytes
+
+- **In repo (CI-guarded):** extend `accepted_cases()` in `tests/watermark_cli_params.rs` (the
+  existing golden test, `tests/fixtures/watermark/cli_params.golden`) from 3 cases to 12. Change the
+  tuple's base `(u32, u32)` into a small `Base` enum: `Gradient(w, h)` (today's `write_gradient`),
+  `Gradient16(w, h)` (the same gradient written as `Rgb16`, each sample ×257), `White(w, h)`. New
+  cases, each run on the CLI and as a one-step recipe:
+
+  | name | base | CLI args | recipe body |
+  |---|---|---|---|
+  | `image_opacity_0_6` | Gradient(400,300) | `--image logo.png --opacity 0.6` | `image = "logo.png"`, `opacity = 0.6` |
+  | `image_tile` | Gradient(400,300) | `--image logo.png --tile` | `image = "logo.png"`, `tile = true` |
+  | `image_scale_tenth` | Gradient(400,300) | `--image logo.png --scale 0.1` | `scale = 0.1` |
+  | `text_16bit` | Gradient16(400,300) | `--text "© crustyimg"` | `text = "© crustyimg"` |
+  | `faint_opacity` | Gradient16(400,300) | `--image logo.png --opacity 0.00001` | `opacity = 0.00001` |
+  | `faint_opacity_boundary` | Gradient16(400,300) | `--image logo.png --opacity 0.0000077` | `opacity = 0.0000077` |
+  | `faint_size` | Gradient16(400,300) | `--text "© crustyimg" --size 0.2` | `size = 0.2` |
+  | `faint_8bit` | Gradient(400,300) | `--image logo.png --opacity 0.001` | `opacity = 0.001` |
+  | `white_on_white` | White(400,300) | `--text "© crustyimg"` | `text = "© crustyimg"` |
+
+  **The goldens are blessed on unmodified `main` source**, in the build's **first commit** (test
+  changes only, no `src/` change), with `CRUSTYIMG_BLESS=1 cargo test --test watermark_cli_params
+  bless -- --ignored`. The fix comes in later commits. The test asserts the golden has 12 lines.
+  It is green on `main` by construction; it is the guard that the fix changes no accepted pixel.
+  **Mutations that turn it red:** (a) in the 16-bit branch, `faded_alpha16` using `.floor()`
+  instead of `.round()` → `faint_opacity` (0.655 → 0) and `faint_opacity_boundary` (0.505 → 0)
+  red: each now draws nothing, which hashes differently from the golden that drew (`text_16bit`
+  stays green: at opacity 1 the loop does not run); (b) M6 (8-bit predicate) → `faint_opacity`, `faint_opacity_boundary`, `faint_8bit` red
+  (`run_case` asserts exit 0). The `0.00001` and `0.001` faint rows guard against over-refusal.
+- **At verify (out of repo):** build `main` and the branch in separate fresh target dirs; run each
+  recipe-corpus fixture (`tests/fixtures/recipe_corpus/v1_watermark_image_placement.toml`,
+  `v1_watermark_text_font.toml`, `v2_watermark_integer_numbers.toml`, assets from
+  `tests/fixtures/recipe_corpus/` as `tests/recipe_round_trip.rs` resolves them) through
+  `apply --recipe` with both binaries on the same input and `cmp` the outputs. Negative control:
+  the same `cmp` against the output of the fixture with its `opacity`/`size` nudged must differ.
+  The 0.8.2 version bump is not part of this spec; it changes cache keys (crate version), not
+  watermark pixels.
+
+### Call 7 — CHANGELOG: **Breaking**
+
+Scripts that use `opacity 0` as an off switch go from exit 0 to exit 2 (CLI) or 1 (recipe). That is
+the same shape as 0.8.1's `build` flags entry, which went under **Breaking**. Text for
+`## [Unreleased]`:
+
+```markdown
+### Breaking
+
+- **`watermark` refuses a mark that would draw nothing** (exit `2`; in a recipe, `apply` and
+  `build` exit `1`; nothing is written). This covers `--opacity 0` / `opacity = 0`, an opacity
+  too small to leave any visible pixel, text with no visible characters (`--text " "`), text too
+  small to draw at its `--size`, a fully transparent `--color` (alpha `00`) and a fully
+  transparent `--image`. These used to exit `0` and write the image without a mark. To leave
+  images unmarked, remove the watermark step, or do not run `watermark`. A faint mark that still
+  has a visible pixel is drawn as before, even where it changes nothing on a particular image
+  (white text on a white photo, or a very low opacity on an 8-bit image).
+```
+
+### Call 8 — the DEC: new DEC-109
+
+DEC-109 (written in this design commit) records the rule, the 16-bit precision with the gap
+numbers, the six causes and their order, the two call sites, and the CLI order. It is a new DEC
+rather than an amendment to DEC-104. DEC-104's refusals are per image (a batch skips the image and
+carries on); this one is per invocation (exit 2, nothing written). It also refines DEC-106's
+order: opacity 0 and colour alpha 00 join the flag checks, and the three mark checks sit between
+the font/overlay read and the inputs. The build adds one line to DEC-106's Consequences pointing
+to DEC-109 (doc edit, listed in Outputs).
+
+### Size: [S], upper end
+
+About 90 lines of code (the enum, the predicate, two message `match`es, three call points). The
+test matrix is 16 failing tests, most of them table rows in existing files. The frame's cut is
+already applied: `build` and wasm get one test each (two wasm rows). All six causes are kept.
+
 ## Inputs
 
-- **Files to read:** `path/to/file.ext` — why
-- **External APIs:** <name, docs link, auth>
-- **Related code paths:** `src/some/module/`
+- **Files to read:** `src/operation/mod.rs` (`Watermark`, `visible_pixels` `:1398`, constructors
+  `:1440-1500`, `from_params` `:1518-1644`, `refusal`/`apply` `:1700-1860`);
+  `src/cli/ops.rs` (`check_watermark_flag` `:1351`, `flag_value_text` `:1371`,
+  `watermark_overlay` `:1390`, `run_watermark` `:1430`); `src/text/mod.rs` (`render_text` `:133`,
+  the 1×1 fallback `:197`; read only, untouched); `src/wasm.rs:243`;
+  `tests/watermark_cli_params.rs` (helpers, golden scheme); `tests/recipe_watermark.rs`;
+  `tests/build_watermark_cache.rs` (build harness); `tests/wasm_roundtrip.rs:307`
+  (`transform_refuses_a_mark_that_does_not_fit`, the shape to copy).
+- **Related code paths:** `src/operation/registry.rs:306` (`from_params` registration).
 
 ## Outputs
 
-- **Files created:** `path/to/new.ext` — purpose
-- **Files modified:** `path/to/existing.ext` — what changes
-- **New exports:** <names and signatures>
-- **Database changes:** <migrations>
+- **Files created:** none (the golden file exists; it gains 9 lines).
+- **Files modified:**
+  - `src/operation/mod.rs`: `faded_alpha16`, `max_alpha16`, `InvisibleMark`, the `max_alpha`
+    field, `invisible_mark()`, the `from_params` call and its recipe messages, the 16-bit
+    branch's opacity loop calling `faded_alpha16`; unit tests FT-13 to FT-16.
+  - `src/cli/ops.rs`: the two flag checks and the post-build call in `run_watermark`, the CLI
+    message `match`.
+  - `src/cli/mod.rs:426-427`: `--opacity` help `/// Mark opacity: above 0, at most 1 (default 1).`
+    `:412` `--text` help: `Text to render; must draw at least one visible character (text mode;
+    XOR --image).`
+  - `src/lib.rs` (or wherever `Watermark` is re-exported): re-export `InvisibleMark`, if
+    `Watermark` is re-exported there.
+  - `tests/watermark_cli_params.rs`, `tests/fixtures/watermark/cli_params.golden`,
+    `tests/recipe_watermark.rs`, `tests/build_watermark_cache.rs`, `tests/wasm_roundtrip.rs`.
+  - Docs: `recipes/README.md:185` and `:236-237`; `docs/cli-reference.md:266`, `:268`, `:281`;
+    `skills/crustyimg/SKILL.md:186`; `docs/data-model.md` (one sentence under the key table near
+    `:232`; the `0.0..=1.0` row stays); `docs/api-contract.md:371`, `:384-385`, and the refusal
+    list `:415-426`; `CHANGELOG.md` (Call 7); `decisions/DEC-106-…md` (one Consequences line).
+- **New exports:** `pub enum InvisibleMark` (`#[non_exhaustive]`, six unit variants) and
+  `pub fn Watermark::invisible_mark(&self) -> Option<InvisibleMark>`.
+- **Database changes:** none. No recipe key, no `params()` change, no `Cargo.lock`, version or
+  `CACHE_SCHEMA_VERSION` change.
 
 ## Acceptance Criteria
 
-Testable outcomes. Cover happy path, error cases, edge cases.
+Surfaces: **CLI** = `crustyimg watermark`; **apply** = `crustyimg apply --recipe`; **build** =
+`crustyimg build`; **wasm** = `transform`; **lib** = the library API. "Refused" on the CLI = exit 2,
+stderr exactly the one Call 4 line, no output file, every input file byte-identical to before. On
+apply = exit 1, one `error:` line equal to the prefix plus the Call 4 recipe line, no output, inputs
+unchanged. Test inputs are generated in-test: `G(w,h)` an 8-bit RGB gradient, `black16` a 400×300
+16-bit black RGB PNG, `logo` the existing 60×30 opaque gradient (`write_logo`), `logo1` 60×30
+white with alpha8 1, `clear` 60×30 all alpha 0, `faint16` 60×30 16-bit RGBA white with alpha16 4.
+"RED on `main`" means exit 0 with nothing refused, as driven in `## Design`.
 
-- [ ] Criterion 1 (testable)
-- [ ] Criterion 2 (testable)
+**Refusals, every cause, every surface**
+- [ ] **AC-1. CLI refuses each of the six causes.** On `G(400,300)` (boundary rows on `black16`):
+      `--text hi --opacity 0`; `--image logo --opacity 0`; `--image logo --opacity 0.000001`;
+      `--image faint16 --opacity 0.1`; `--text " "`; `--text $'  '`;
+      `--text "© crustyimg" --size 0.01`; `--text hi --color ffffff00`;
+      `--text hi --color '#ffffff00'`; `--image clear`. Each refused with its line (Call 4, values
+      as in AC-8). RED: all exit 0.
+- [ ] **AC-2. apply refuses each of the six causes.** One-step recipes on `black16`:
+      `text = "hi"` + `opacity = 0` (integer); `image = "logo.png"` + `opacity = 1e-50` (below
+      f32's smallest positive, trap 9: reads as `0`, reported as `'opacity' = 0`);
+      `image` + `opacity = 0.000001`; `text = " "`; `text = "  "`; `text` + `size = 0.01`;
+      `text` + `color = "ffffff00"`; `image = "clear.png"`. Each refused with its recipe line.
+      RED: all exit 0.
+- [ ] **AC-3. build refuses before writing anything.** A manifest with one target over two inputs
+      whose recipe has `text = "hi"`, `opacity = 0` → exit 1; stderr has one `error:` line
+      containing `target #0` and `recipe step 0 ('watermark'): 'opacity' = 0 draws no mark; to
+      leave images unmarked, remove this step`; the output directory holds no file. RED: exit 0.
+- [ ] **AC-4. wasm throws, and the module survives.** `transform` on a 24×24 PNG with
+      `text = "hi"` + `opacity = 0`, and with `text = " "`: each returns `Err` whose message
+      contains the recipe line (`'opacity' = 0 draws no mark`, `'text' has no visible characters`);
+      no panic or abort; a following identity `transform` succeeds. Runner: `just wasm-test`
+      (wasm-bindgen-test-runner). RED: both return `Ok`.
+
+**The threshold (Call 1, Call 5)**
+- [ ] **AC-5. The opacity threshold is where the mark's largest alpha rounds to 0 at 16 bits.**
+      CLI on `black16`: `--image logo --opacity 0.0000076` refused (`TooFaint`, prints
+      `0.0000076`); `--opacity 0.0000077` exit 0 and output ≠ input; `--text "© crustyimg"
+      --color ffffff01 --opacity 0.0019` refused (`TooFaint`); `--opacity 0.002` exit 0 and
+      output ≠ input. apply: `opacity = 0.0000076` (image) refused; `0.0000077` exit 0 and output
+      ≠ input; `color = "ffffff01"` + `opacity = 0.002` exit 0 and output ≠ input. lib: the Call 5
+      table rows (opaque, `a16 = 257`, `a16 = 4`) on both sides. RED: the refused rows exit 0.
+- [ ] **AC-6. The size threshold is where the text first draws.** CLI on `black16`:
+      `--text "© crustyimg" --size 0.17` refused (`TextTooSmall`, prints `0.17`); `--size 0.18`
+      exit 0 and output ≠ input. RED: 0.17 exits 0.
+- [ ] **AC-7. The predicate agrees with the 16-bit composite.** lib: for three white overlays
+      (4×4, 8-bit opaque, 8-bit alpha 1, 16-bit alpha16 4; small enough that DEC-104's 5 % cap never fires) and the opacities
+      `0, 0.000001, 0.0000076, 0.0000077, 0.0001, 0.0019, 0.002, 0.1, 0.13, 1.0`,
+      `invisible_mark().is_none()` equals "`apply` on a 64×48 16-bit black RGB image changes at
+      least one sample". 30 pairs, both outcomes present.
+
+**Order and messages**
+- [ ] **AC-8. Values print as typed, never widened.** The AC-1 lines read `--opacity 0.000001`,
+      `--opacity 0.1` (the `faint16` row), `--color ffffff00`, `--color #ffffff00`,
+      `--image clear.png`, `--size 0.01`; the AC-2 lines read `'opacity' = 0.000001`,
+      `'opacity' = 0` (for both `0` and `1e-50`), `'color' "ffffff00"`, `'image' "clear.png"`,
+      `'size' = 0.01`. None contains `0.0000009999999974752427` or `0.10000000149011612`.
+- [ ] **AC-9. CLI: flag causes precede the font/overlay read; mark causes precede any input read.**
+      `watermark /no/such.png --text hi --opacity 0` → 2 (`OpacityZero` line);
+      `G --image /no/l.png --opacity 0` → 2 (`OpacityZero`);
+      `G --text hi --font /no/f.ttf --color ffffff00` → 2 (`TransparentColor`);
+      `/no/such.png --text " "` → 2 (`BlankText`); `/no/such.png --image clear` → 2
+      (`TransparentImage`); a directory of two PNGs with `--opacity 0 --out-dir out` → 2, `out`
+      absent or empty, both inputs unchanged; `G --text " " --font /no/f.ttf` → **3** (pinned).
+      RED: the first six exit 3, 3, 3, 3, 3, 0.
+- [ ] **AC-10. apply: the refusal precedes the input read.** `apply --recipe <opacity = 0>
+      /no/such.png` → exit 1 with the `OpacityZero` recipe line. RED: exit 3.
+
+**Nothing that draws is refused, and nothing accepted changes**
+- [ ] **AC-11. Faint and odd marks that draw are accepted.** CLI: `--image logo --opacity 0.001`
+      on a 16-bit gradient (exit 0, output ≠ input); `--image faint16` at opacity 1 on `black16`
+      (exit 0, output ≠ input); `--text $'\t'`, `--text $'　'`, `--text $'‍'` on
+      `G(400,300)` (exit 0, output ≠ input: the font's fallback box); `--text "© crustyimg"` on a
+      white base (exit 0). apply: `text = "　"` (exit 0, output ≠ input).
+- [ ] **AC-12. Accepted marks are byte-identical to `main`, on both paths.** The 12-case golden
+      test (Call 6) passes, with goldens blessed on unmodified `main` in the build's first commit;
+      the verify-time corpus `cmp` (Call 6) shows no difference.
+- [ ] **AC-13. Nothing else moves.** `opacity_does_not_change_coverage` passes with no edit;
+      every existing test in `tests/watermark_cli_params.rs` (including the `--opacity 1.5` /
+      `1.1` rows), `tests/recipe_strict_params.rs`, `tests/watermark_damage.rs` and
+      `tests/recipe_watermark.rs` passes unedited (except the golden count); `Watermark::new_image`
+      and `new_text` keep their signatures (existing callers compile unchanged); no
+      `Cargo.lock`, version, `CACHE_SCHEMA_VERSION` or `WATERMARK_PARAMS` change in the diff.
+
+**Help, docs and record** (verify reads these; documentation has no green)
+- [ ] **AC-14.** `watermark --help` has an `--opacity` line containing `above 0` (FT-7; RED: no
+      line). The doc rows in Outputs are written, `recipes/README.md:236-237` no longer says
+      `opacity = 0` is drawn, the CHANGELOG has the Call 7 entry under **Breaking**, DEC-106 has
+      its pointer line, and no help text, message or CHANGELOG line carries a spec or DEC id.
 
 ## Failing Tests
 
-Written during **design**, BEFORE build. The implementer's job in
-**build** is to make these pass.
+Written during **design**, BEFORE build. Each is RED on `main` for the reason given.
 
-- **`path/to/test.file`**
-  - `"test description 1"` — asserts: ...
+- **`tests/watermark_cli_params.rs`** (extend)
+  - **FT-1** `"a mark that draws nothing is refused on the cli"`: AC-1 + AC-8, the 10-row table;
+    asserts exit 2, `error_lines(stderr) == [expected]`, no `-o` file, input bytes unchanged.
+    Asserts the row count is 10. RED: every row exits 0.
+  - **FT-2** `"the opacity threshold is where the last alpha rounds away on the cli"`: AC-5 CLI,
+    4 rows on `black16`. RED: the two refused rows exit 0.
+  - **FT-3** `"the size threshold is where the text first draws"`: AC-6. RED: 0.17 exits 0.
+  - **FT-4** `"a mark that draws nothing is refused before any input is read"`: AC-9, 7 rows.
+    RED: 3, 3, 3, 3, 3, 0 (the pinned `--font` row is 3 on `main` too).
+  - **FT-5** `"a faint or odd mark that draws is accepted"`: AC-11 CLI, 6 rows. Green on `main`;
+    it is the guard against over-refusal (M6 and M9b turn it red).
+  - **FT-6** `accepted_marks_are_byte_identical_to_main` (extend): AC-12, 12 cases, golden count
+    12. Green on `main` by construction.
+  - **FT-7** `"opacity help states the range"`: AC-14's help half. RED: no `--opacity` help line.
+- **`tests/recipe_watermark.rs`** (extend)
+  - **FT-8** `"a recipe mark that draws nothing is refused before any output"`: AC-2 + AC-8 (8
+    rows) and AC-5's refused apply row (`opacity = 0.0000076`): 9 rows, exit 1, exact line, no
+    output, input unchanged; asserts 9 rows. RED: all exit 0.
+  - **FT-9** `"a recipe refusal wins over a missing input"`: AC-10. RED: exit 3.
+  - **FT-10** `"a faint recipe mark is drawn"`: AC-5's accepted apply rows (2) and AC-11's
+    `text = "　"` row. Green on `main`; guard.
+- **`tests/build_watermark_cache.rs`** (extend)
+  - **FT-11** `"build refuses a mark that draws nothing before writing"`: AC-3. RED: exit 0.
+- **`tests/wasm_roundtrip.rs`** (extend; `just wasm-test`)
+  - **FT-12** `"transform refuses a mark that draws nothing"`: AC-4, 2 rows plus the survival
+    call. RED: both `Ok`.
+- **`src/operation/mod.rs`** (unit, beside `opacity_does_not_change_coverage`)
+  - **FT-13** `"invisible mark names each cause"`: every cause from `new_text`/`new_image`, plus
+    `None` for a normal text and a normal image mark (the negative controls), plus the order:
+    opacity 0 with colour alpha 0 → `OpacityZero`; colour alpha 0 with `" "` → `TransparentColor`;
+    `" "` at size 0.01 → `BlankText`; `"© crustyimg"` at size 0.01 → `TextTooSmall`;
+    `"\u{3000}"` → `None`. RED: does not compile (new API).
+  - **FT-14** `"invisible mark threshold follows the largest alpha"`: the Call 5 lib rows (opaque
+    `0.0000076`/`0.0000077`; `a16 = 257` `0.0019`/`0.002`; opaque `0.001` → `None`; `a16 = 4` at
+    `1.0` → `None` and `0.1` → `TooFaint`). RED: does not compile.
+  - **FT-15** `"invisible mark agrees with the composite"`: AC-7. RED: does not compile.
+  - **FT-16** `"from params refuses a mark that draws nothing"`: `from_params` with `text = "hi"`,
+    `opacity = 0` → `Err(InvalidParams)` whose reason equals the `OpacityZero` recipe line; with
+    `image` bytes resolved and `opacity = 0.000001` → reason equals the `TooFaint` line. RED: `Ok`.
+
+Normal-mark negative controls on every path: FT-6's text and image cases (CLI + apply), FT-13's
+`None` rows (lib), and the existing `transform_runs_a_text_only_watermark_with_no_font_key`
+(wasm) and `build_hits_when_overlay_bytes_unchanged` (build), all of which stay green.
+
+### Mutation table (for verify; trap 12)
+
+Apply each on the build branch, rebuild **clean** (fresh `CARGO_TARGET_DIR`), confirm the binary
+changed, run the full list, and record which tests went red. "Recipe rows" = FT-8, FT-9, FT-11,
+FT-12, FT-16. "CLI rows" = FT-1, FT-2, FT-3, FT-4.
+
+| # | Mutation | Exact location | Expected red | Expected green |
+|---|---|---|---|---|
+| M1 | Drop the predicate from `from_params` | the `invisible_mark()` call at the end of `Watermark::from_params`, `src/operation/mod.rs` | FT-8 (9 rows), FT-9, FT-11, FT-12 (both rows; wasm), FT-16 | all CLI rows, FT-13 to FT-15 |
+| M2 | Drop the post-build call from the CLI | step 5 of `run_watermark`, `src/cli/ops.rs` | FT-1 rows 3–7 and 10 (too faint ×2, blank ×2, too small, clear image), FT-2 refused rows, FT-3 0.17, FT-4 `/no/such.png --text " "` and `--image clear` (exit 3) | FT-1 rows 1–2, 8–9 (early checks), FT-4's flag rows, all recipe rows |
+| M3 | Drop the CLI flag checks | step 2 of `run_watermark` | FT-4 `--image /no/l.png --opacity 0` and `--font /no/f.ttf --color ffffff00` (exit 3) | every other row (step 5 refuses with the same words), recipe rows |
+| M4a | `visible == 0` alone, no post-opacity check | delete step 4 of `invisible_mark()` | FT-1 `0.000001` and `faint16 0.1` rows, FT-2 refused rows, FT-8 `0.000001` and `0.0000076` rows, FT-14 `TooFaint` rows, FT-15, FT-16's `TooFaint` half | `OpacityZero` rows (step 1), blank/small/colour/image rows |
+| M5 | Check per image, not per invocation | remove the three call points (CLI steps 2 and 5, `from_params`) and return an `OperationError` at the top of `Watermark::apply` when `invisible_mark()` is `Some` | every CLI and recipe row (message words and exit codes change; FT-4 and FT-9 exit 3), FT-12 (message), FT-11 | FT-13 to FT-15 |
+| M6 | 8-bit precision | `max_alpha16` reads `to_rgba8()` and step 4 compares `round(a8·op)` | FT-5 (`0.001`, `faint16`), FT-6 (`faint_opacity`, `faint_opacity_boundary`, `faint_8bit`), FT-2 and FT-10 accepted rows (`0.0000077`, `ffffff01 0.002`), FT-14 accepted rows, FT-15 | refused rows |
+| M7 | The naive shortcut | step 4 compares `round(65535·op) == 0` (ignores the max alpha) | FT-2 `ffffff01 0.0019` row, FT-1 `faint16 0.1` row, FT-14 `a16 = 257` and `a16 = 4` refused rows, FT-15 | the opaque-mark rows |
+| M8 | Floor instead of round | step 4 uses `(a·op) < 1.0` | FT-2 and FT-10 `0.0000077` / `0.002` rows, FT-6 `faint_opacity` (0.655) and `faint_opacity_boundary`, FT-14 accepted rows, FT-15 | refused rows |
+| M9a | Classifier order swapped | step 3 tests "too small" before whitespace (always `TextTooSmall` for text) | FT-1 blank rows (2), FT-4 `/no/such.png --text " "`, FT-8 blank rows (2), FT-12 blank row, FT-13 | all other causes |
+| M9b | Blank text as a flag check | step 2 also refuses `text.chars().all(char::is_whitespace)` before rendering | FT-4 pinned `--font` row (2, not 3), FT-5 tab / U+3000 rows, FT-10 U+3000 row | the blank rows (same words) |
+| M10 | Widen to f64 in a message | `TooFaint` prints `f64::from(opacity)` (CLI and recipe) | FT-1 `0.000001` and `0.1` rows, FT-2 `0.0000076` row, FT-8 `0.000001` and `0.0000076` rows, FT-16 `TooFaint` half | all other rows |
 
 ## Implementation Context
 
@@ -420,21 +907,32 @@ into the spec since there is no separate receiving agent.*
 
 ### Decisions that apply
 
-- `DEC-NNN` — <one-line summary of why this matters here>
-- `DEC-MMM` — <one-line summary>
+- `DEC-109` (new, this design) — the rule, the 16-bit precision, the six causes and their order,
+  the two call sites, the CLI order.
+- `DEC-104` — `visible` and the 5 % cap are decided from the mark, before opacity; untouched.
+- `DEC-106` — every watermark flag check before every file read; opacity 0 and colour alpha 00
+  join that set; the build adds a pointer line.
+- `DEC-102` — the recipe key table and its `recipe step N ('watermark'):` prefix; `opacity` stays
+  `0.0..=1.0` so the `--opacity 1.5` message is unchanged.
+- `DEC-031` — the CLI builds the op directly, hence two call sites.
+- `DEC-015` — exit codes: 2 usage, 1 recipe/pipeline, 3 input.
+- `DEC-045` — the bundled Go font and the skrifa/zeno rasterizer; its `.notdef` box is why
+  tab and U+3000 draw.
 
 ### Constraints that apply
 
-These constraints apply to the paths touched by this task (see
-`/guidance/constraints.yaml` for full text):
-
-- `constraint-id-1` — <one-line summary>
-- `constraint-id-2` — <one-line summary>
+- `test-before-implementation` — the failing tests above, and the goldens blessed on `main`
+  before any `src/` change.
+- `untrusted-input-hardening` — a recipe from anywhere must not produce an unmarked image at
+  exit 0.
 
 ### Prior related work
 
-- `SPEC-YYY` (shipped) — <one-line summary, if relevant>
-- `PR #NNN` — <link, if relevant>
+- `SPEC-135` (shipped) — the flag checks at the top of `run_watermark`, `flag_value_text`, the
+  golden scheme in `tests/watermark_cli_params.rs`, trap 10's widened-print lesson.
+- `SPEC-133` (shipped) — DEC-104's fit and coverage refusals; `mark_size` as the
+  one-helper-for-check-and-composite precedent `faded_alpha16` follows.
+- `SPEC-131`, `SPEC-128` (shipped) — the recipe schema and `from_params`.
 
 ### Out of scope (for this spec specifically)
 
@@ -450,10 +948,26 @@ necessary during build, create a new spec rather than expanding this one.
   8-bit image, size 0.2). They are drawn as asked; the docs say so.
 - A `scale` resize that leaves an image mark with no alpha (per image, at `apply`; not observed).
 - Any change to `visible`, the 5 % coverage cap, or DEC-102's `opacity` table row.
+- The 8-bit composite branch's opacity loop (`:1833-1836`) and `src/text/mod.rs`: read, not changed.
+- The font-read error wording (`could not read image input` for a missing `--font`): existing.
 
 ## Notes for the Implementer
 
-Gotchas, style preferences, reuse opportunities.
+- **Commit order matters.** Commit 1: the extended `accepted_cases()`, the `Base` enum and the
+  blessed golden, with no `src/` change, blessed on that tree. Then the failing tests, then the
+  fix. Verify checks the golden commit has no `src/` diff against `main`.
+- **Write `faded_alpha16` first and switch the 16-bit loop to it** before writing the predicate;
+  FT-6 must stay green at that point (it is a pure refactor).
+- Messages: copy them from Call 4 character for character; FT-1 and FT-8 compare whole lines.
+- `faint16`: write it with `image::ImageBuffer::<Rgba<u16>, _>` and save as PNG; check in the test
+  that it decodes back as 16-bit with alpha 4 (a control that the fixture is what the row needs).
+- `black16`: an `Rgb<u16>` all-zero 400×300 PNG (a 60×30 mark on a smaller base trips the 5 % cap). Every boundary row asserts output ≠ input on it,
+  which is how "the mark kept alpha" is observed.
+- wasm: copy `transform_refuses_a_mark_that_does_not_fit` (`tests/wasm_roundtrip.rs:307`); format
+  the error with `format!("{:?}", JsValue::from(err))`.
+- `cargo test` fails `display_sink_refuses_non_tty` in an interactive terminal: redirect stdout to
+  a file. A piped command reports the pipe's exit code.
+- Push a WIP commit once it compiles, before the full matrix.
 
 ---
 
