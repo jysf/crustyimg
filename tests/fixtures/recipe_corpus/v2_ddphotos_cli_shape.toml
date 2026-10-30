@@ -1,0 +1,25 @@
+# The ddphotos edit page's CLI recipe: auto-orient, a long-edge resize, then a
+# text watermark placed with gravity, size, margin, colour and opacity, a
+# pinned format and the terminal optimize step.
+version = "2"
+format = "jpeg"
+
+[[step]]
+op = "auto-orient"
+
+[[step]]
+op = "resize"
+mode = "max"
+width = 1000
+
+[[step]]
+op = "watermark"
+text = "© ddphotos"
+gravity = "southeast"
+size = 40
+margin = 20
+color = "ffffff"
+opacity = 0.85
+
+[[step]]
+op = "optimize"

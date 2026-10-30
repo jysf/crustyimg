@@ -1,0 +1,6 @@
+# v1_resize_exact: what this recipe produces on each fixture.
+# Written by `CRUSTYIMG_BLESS=1 cargo test --test recipe_corpus_output -- --ignored bless`.
+# A changed line means an existing recipe's output changed.
+rgb8_2600x1730 pixels dims=640x480 colour=Rgb8 depth=8 sha256=bf32833b3e5bd18a96dc79ad3a6ef7528fa0ee09ef2b9d9c987915fd42ab00ed
+rgba8_1730x2600 pixels dims=640x480 colour=Rgba8 depth=8 sha256=e521818a573368142f394c9d48afaccfffae32bffa17ccd238aad86c8b9180a7
+rgba16_2600x1730 pixels dims=640x480 colour=Rgba16 depth=16 sha256=dd3a92c60eb401f23fb3c4af305b882f77049365771caa1cb163bf36392434d3
