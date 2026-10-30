@@ -709,7 +709,10 @@ ddphotos-parity:
     CARGO_TARGET_DIR="$out/native" cargo build --release
     CARGO_TARGET_DIR="$out/wasm-target" just --set _wasm_features " --no-default-features --features avif" \
         --set _wasm_out "$PWD/$out/pkg-slim" wasm-build
-    [ -x "$out/venv/bin/python" ] || python3 -m venv "$out/venv"
+    # Always a fresh venv: CI restores target/ from a cache that keeps venv/bin/python but
+    # not pip, so "is there a python" is not "is there a working venv".
+    rm -rf "$out/venv"
+    python3 -m venv "$out/venv"
     "$out/venv/bin/pip" install --quiet "pillow=={{_ddphotos_pillow}}"
     args=(--pkg "$out/pkg-slim" --bin "$out/native/release/crustyimg" --python "$out/venv/bin/python")
     node tests/ddphotos_parity.mjs "${args[@]}"
