@@ -7,8 +7,8 @@
 task:
   id: SPEC-142
   type: task                       # epic | story | task | bug | chore
-  cycle: design  # frame | design | build | verify | ship
-  blocked: true                   # design finding: native and wasm resize differ by 1/255; needs a ruling (A) exact-engine-fix or (B) bound DEC
+  cycle: build  # frame | design | build | verify | ship
+  blocked: false                  # ruled (B) 2026-10-30: parity is bounded, DEC-110
   priority: high
   complexity: S                    # S | M | L  (L means split it)
 
@@ -35,6 +35,7 @@ references:
     - DEC-092   # resize in linear light, f32 + powf: the other probable seat
     - DEC-009   # CI matrix + single-runner extra jobs; the new job is advisory
     - DEC-018   # licence policy covers crates; Pillow is a CI-only test tool
+    - DEC-110   # Rule B: dimensions exact; no-resample rows exact; resampled rows within 1/255 on at most K pixels (cap 78)
   constraints:
     - test-before-implementation
   related_specs:
@@ -96,6 +97,26 @@ cost:
         cache_read once per id, MAX output_tokens per id. Priced by component at Opus $5/$25 per
         MTok, cache_creation x1.25 ($6.25), cache_read x0.10 ($0.50). Measured before the
         commit/push turns, so it slightly under-counts.
+    - cycle: design-amend
+      agent: claude-opus-5-5
+      interface: claude-code
+      tokens_total: 3505009
+      tokens_breakdown:
+        input: 56
+        output: 26403
+        cache_creation: 129195
+        cache_read: 3349355
+      estimated_usd: 3.14
+      duration_minutes: null
+      recorded_at: 2026-10-30
+      note: >
+        Interactive design-amend session in its own worktree (docs/spec-142-design-amend): wrote
+        DEC-110 (Rule B), amended AC-3/FT-3/FT-4/Comparator/x86 outcomes, filed two findings.
+        Measured from the session's transcript (03bc18f1-….jsonl, identified by content), deduped
+        by `.message.id` (28 unique ids, all claude-opus-5-5), input/cache_creation/cache_read once
+        per id, MAX output_tokens per id. Priced at Opus $5/$25 per MTok, cache_creation x1.25,
+        cache_read x0.10: $0.0003 + $0.66 + $0.81 + $1.67. Measured before the commit/push turns,
+        so it slightly under-counts.
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -410,7 +431,16 @@ All three recommendations above were accepted:
 2. Move the recipe code into `integrations/ddphotos/edit/recipe.js` now.
 3. Keep STAGE-053's wasm-test leg out of this job. Shape the job so that leg becomes one added step.
 
+### Maintainer rulings (2026-10-30, continued)
+4. **Rule B, bounded, through a DEC (DEC-110).** Dimensions are always exact. Rows with no
+   resampling step (1, 3, 9, 11) are exact. Resampling rows may differ by at most 1/255 per
+   channel on at most K pixels, where K comes from the build's runs and is capped at 0.01 % of the
+   row's pixels (78 at 1080×723). (A), the exact engine fix, is filed against PROJ-015's
+   working-type stage, not dropped.
+
 ## Design finding: blocked on a ruling (2026-10-30)
+
+**Ruled (B), 2026-10-30, DEC-110.** This section is kept as the record of why.
 
 ⛔ **The frame's premise does not hold at the page's own sizes.** On aarch64, native `apply` and
 the slim wasm `transform` differ by **one pixel, by 1/255 in one channel**, after a `resize` to
@@ -543,20 +573,32 @@ Rows 15–16 assert the observed sizes, and P1 records the transposed prediction
   `transform` (the real `.wasm` in Node, `initSync`) and through native `crustyimg apply
   --recipe <file> <input> -o <out> -Q` on the same input bytes. It prints one line per row and
   fails unless exactly **16** rows ran.
-- [ ] **AC-3 Comparator** (⛔ pending the ruling; Rule E or Rule B, see the design finding).
-  - Dimensions are compared first and are always exact. A mismatch prints both sizes and skips
-    the pixel check.
-  - Then the per-format rule:
-    - PNG: bytes and pixels.
-    - JPEG: decoded pixels; bytes are reported, and asserted only under x86 outcome (i).
+- [ ] **AC-3 Comparator: Rule B (DEC-110).**
+  - **Dimensions first, always exact.** A mismatch prints both sizes and fails the row. The pixel
+    comparison never runs on that row.
+  - **Which rows are exact.** A row is *resampling* when its recipe text has an `op = "resize"`
+    step. The harness derives this from the recipe text, not from the edit: `cliRecipe` always
+    resizes, so rows 5 and 7 resample although their edits ask for no new size. It then asserts
+    that the derived no-resample set equals the literal `{1, 3, 9, 11}`.
+  - **No-resample rows:** 0 differing pixels.
+  - **Resampling rows:** every channel difference ≤ 1, and at most **K** differing pixels.
+    - K is one literal in the harness. The build sets it to the largest count observed on any
+      resampling row, over both targets it has run (aarch64 locally, then the first x86_64 CI
+      run). It records K in Build Completion and in DEC-110's Validation section.
+    - K must be ≤ 78, the cap (0.01 % of 1080×723, the smallest resampling row). A row above the
+      cap is BLOCKED, not a reason to raise it.
+  - **Per format, on top of the pixel rule:**
+    - PNG: bytes asserted on the no-resample rows (1, 3). On resampling rows bytes are reported
+      only, because a 1/255 pixel within the bound changes the bytes.
+    - JPEG: decoded pixels. Bytes are reported, and asserted on rows 9–12 only under x86
+      outcome (i).
     - WebP: decoded pixels, never bytes.
     - AVIF: decoded pixels.
   - Pixels are decoded RGBA from `tests/ddphotos_decode.py`, never from crustyimg. The harness
-    counts the differing pixels and the largest channel difference itself; it does not use
+    counts the differing pixels and the largest channel difference itself. It does not use
     ImageMagick's AE.
-  - Under **Rule E**, 0 differing pixels.
-  - Under **Rule B**, at most 1/255 on at most K pixels, with K as a literal in the harness.
-    Rows 1, 3, 9 and 11 stay at 0 under either rule.
+  - N1 (opacity 0.6 → 0.61, 3/255 lossless, 13–22/255 lossy) is above the 1/255 limb, so it stays
+    red under this rule.
 - [ ] **AC-4 A failing row is readable.** The line names the row id, both sizes, the
   differing-pixel count, the largest channel difference and whether the bytes match. The recipe
   text that produced it follows, indented. The exit status is non-zero.
@@ -576,8 +618,10 @@ Rows 15–16 assert the observed sizes, and P1 records the transposed prediction
   - with N1, native recipe `opacity = 0.6` → `0.61`;
   - with N2, native recipe `width = 1080` → `1079`.
 
-  Each must report exactly the rows the mutation table lists as red, and the self-test exits 0
-  only if both do. CI runs the plain run and `--self-test`.
+  Each must report exactly the rows the mutation table lists as red. Before those two runs,
+  `--self-test` feeds the comparator the synthetic cases B1–B7 (FT-3), which need no binary.
+  The self-test exits 0 only if every case and both runs give their listed verdicts. CI runs the
+  plain run and `--self-test`.
 - [ ] **AC-7 Nothing silently passes.** The harness exits non-zero and names the cause when:
   - the wasm package is missing or fails `initSync`;
   - `recipe.js` fails to import, or lacks an export that `edit.js` or `worker.js` imports;
@@ -626,9 +670,27 @@ cites.
 - **FT-1 `rows`.** The 16 rows below run. It asserts the count literal 16 (AC-2, P4).
 - **FT-2 `dims`.** Per row, native and wasm sizes are equal, and equal the row's literal (AC-3
   dims, P1).
-- **FT-3 `pixels`.** Per row, the per-format rule under the ruled comparator (AC-3).
-- **FT-4 `bytes`.** PNG rows' bytes are equal. JPEG rows' byte equality is printed, and
-  asserted only under x86 outcome (i) (AC-3).
+- **FT-3 `pixels`.** Per row, Rule B (AC-3, DEC-110): exact on rows 1, 3, 9 and 11; at most
+  1/255 on at most K pixels on the other twelve. It also asserts that the no-resample set derived
+  from the recipe texts is `{1, 3, 9, 11}`. Each limb of the rule has a case that must go red.
+  These are comparator self-tests, run by `--self-test` (AC-6) on synthetic RGBA buffers, with
+  no binary involved. Every red case has a green twin one step inside the limit (HANDOFF trap 10):
+
+  | case | input to the comparator | row kind | expected |
+  |---|---|---|---|
+  | B1 | one pixel differs by **2/255** | resampling | **red** (max limb) |
+  | B2 | one pixel differs by 1/255 | resampling | green |
+  | B3 | **K+1** pixels differ by 1/255 | resampling | **red** (count limb) |
+  | B4 | exactly K pixels differ by 1/255 | resampling | green |
+  | B5 | one pixel differs by 1/255 | **no-resample** | **red** (exact limb) |
+  | B6 | identical buffers | no-resample | green |
+  | B7 | sizes 1080×723 vs 1080×722, with buffers that would throw if compared | resampling | **red, reason `dims`**, and the pixel comparison never ran |
+
+  For B3 and B4 at K = 0, B4 is "0 pixels" and B3 is "1 pixel", which B2 also covers. The cases
+  still run.
+- **FT-4 `bytes`.** PNG bytes are equal on the no-resample PNG rows (1, 3). On the resampling PNG
+  rows bytes are printed, not asserted. JPEG rows' byte equality is printed, and asserted only
+  under x86 outcome (i) (AC-3).
 - **FT-5 `prediction`.** `planEdit`'s `outW × outH` equals the literal on rows 1–14, and its
   transpose on rows 15–16 (P1).
 - **FT-6 `resize-moves`.** P2.
@@ -667,13 +729,13 @@ picture as a JPEG with EXIF orientation 6. The edits use `planEdit` with the pag
 | # | id | input | edit | recipe | out | asserts | size literal | aarch64 today |
 |---|---|---|---|---|---|---|---|---|
 | 1 | `W/none/pixel/png` | W | none | pixelRecipe | png | bytes + dims | 1600×1071 | equal |
-| 2 | `W/resize/pixel/png` | W | resize | pixelRecipe | png | bytes + dims (Rule E) or bound (B) | 1200×803 | **1 px, 1/255** |
+| 2 | `W/resize/pixel/png` | W | resize | pixelRecipe | png | dims + bound; bytes reported | 1200×803 | **1 px, 1/255** |
 | 3 | `W/wm/pixel/png` | W | wm | pixelRecipe | png | bytes + dims | 1600×1071 | equal (`size = 64`) |
-| 4 | `W/both/pixel/png` | W | both | pixelRecipe | png | bytes + dims | 1080×723 | equal (`size = 43`) |
-| 5 | `W/none/cli/png` | W | none | cliRecipe (png) | png | bytes + dims | 1600×1071 | equal |
+| 4 | `W/both/pixel/png` | W | both | pixelRecipe | png | as row 2 | 1080×723 | equal (`size = 43`) |
+| 5 | `W/none/cli/png` | W | none | cliRecipe (png) | png | as row 2 (cliRecipe resizes) | 1600×1071 | equal |
 | 6 | `W/resize/cli/png` | W | resize | cliRecipe (png) | png | as row 2 | 1200×803 | **1 px, 1/255** |
-| 7 | `W/wm/cli/png` | W | wm | cliRecipe (png) | png | bytes + dims | 1600×1071 | equal |
-| 8 | `W/both/cli/png` | W | both | cliRecipe (png) | png | bytes + dims | 1080×723 | equal |
+| 7 | `W/wm/cli/png` | W | wm | cliRecipe (png) | png | as row 2 (cliRecipe resizes) | 1600×1071 | equal |
+| 8 | `W/both/cli/png` | W | both | cliRecipe (png) | png | as row 2 | 1080×723 | equal |
 | 9 | `W/none/preview/jpeg` | W | none | previewRecipe | jpeg | pixels; bytes reported | 1600×1071 | equal, bytes too |
 | 10 | `W/resize/preview/jpeg` | W | resize | previewRecipe | jpeg | pixels | 1200×803 | equal, bytes too |
 | 11 | `W/wm/preview/jpeg` | W | wm | previewRecipe | jpeg | pixels | 1600×1071 | equal, bytes too |
@@ -683,8 +745,10 @@ picture as a JPEG with EXIF orientation 6. The edits use `planEdit` with the pag
 | 15 | `R/resize/pixel/png` | R | resize | pixelRecipe | png | as row 2 | 803×1200 | **1 px, 1/255** |
 | 16 | `R/both/pixel/png` | R | both | pixelRecipe | png | as row 2 | 723×1080 | **1 px, 1/255** |
 
-- **Rows 2, 6, 15 and 16 are the design finding.** Under Rule E they are red until (A) lands.
-  Under Rule B they are green at K ≥ 1.
+- **Rows 2, 6, 15 and 16 are the design finding.** Under Rule B (DEC-110) they are green at
+  K ≥ 1.
+- **Rows 1, 3, 9 and 11 are the only rows with no `resize` step**, so they stay exact. Every
+  other row resamples and is held to the bound.
 - **Rows 1, 3, 5, 7 and 9–14 matched exactly on aarch64**, so the frame's exact claim holds on
   them. Row 10 is the JPEG preview of row 2: the 1/255 pixel vanished in quantisation, and the
   bytes were equal.
@@ -730,7 +794,7 @@ named.
 
 | id | mutation | applied where | expected red | expected green |
 |---|---|---|---|---|
-| N1 | native `opacity = 0.6` → `0.61` | `tests/ddphotos_parity.mjs`, in the native input only: the string replace on the recipe text **after** it leaves `recipe.js` and **before** it is written to the `.toml` that `apply` reads. Never in `recipe.js`, or both sides move together | FT-3 on 3, 4, 7, 8, 11, 12, 13, 14, 16 (lossless max 3/255; JPEG 13–16; AVIF 22) | 1, 2, 5, 6, 9, 10, 15 (under Rule E: 2, 6, 15 stay red on the finding) |
+| N1 | native `opacity = 0.6` → `0.61` | `tests/ddphotos_parity.mjs`, in the native input only: the string replace on the recipe text **after** it leaves `recipe.js` and **before** it is written to the `.toml` that `apply` reads. Never in `recipe.js`, or both sides move together | FT-3 on 3, 4, 7, 8, 11, 12, 13, 14, 16 (lossless max 3/255; JPEG 13–16; AVIF 22) | 1, 2, 5, 6, 9, 10, 15 (2, 6 and 15 are green under Rule B at K ≥ 1) |
 | N2 | native `width = 1080` → `1079` | the same place as N1 | FT-2 on 4, 8, 12, 13, 14, 16 (native 1079×722, rotated 722×1079) | 1, 2, 3, 5, 6, 7, 9, 10, 11, 15 |
 | S1 | `pixelRecipe` emits `width = ${edit.resize - 1}` | `recipe.js` (both sides move) | FT-2 literal on 2, 4, 5, 6, 7, 8, 10, 12, 13, 14, 15, 16 (cliRecipe always resizes, so 5 and 7 too), plus FT-8 | FT-3 parity on all 16; FT-2 on 1, 3, 9, 11 |
 | S2 | margin `0.02` → `0.03` in `planEdit` | `recipe.js` | FT-8 only | FT-2, FT-3 and FT-5 on all 16 |
@@ -743,16 +807,22 @@ named.
 | H4 | no Pillow (system `python3` on `PATH`) | the harness environment | the run (exit ≠ 0, names the decoder) | — |
 | C1 | drop `integrations/ddphotos/` from the regex | `scripts/ci-code-paths.sh` | FT-12, the `edit.js` case | the other three cases |
 | C2 | the regex becomes `.` | `scripts/ci-code-paths.sh` | FT-12, the two docs and spec cases | the code cases |
+| B-max | drop the max limb: a resampling row passes on count alone | the comparator function in `tests/ddphotos_parity.mjs` | FT-3 self-test case B1 (so FT-9) | B2–B7; the plain run's 16 rows |
+| B-count | count limb `n <= K` → `n <= K + 1` | the comparator function | FT-3 case B3 (so FT-9) | B1, B2, B4–B7; the plain run |
+| B-edge | count limb `n <= K` → `n < K` | the comparator function | FT-3 case B4 (so FT-9); the plain run, on the target where K was observed, on each row where n = K | B1–B3, B5–B7 |
+| B-exact | no-resample rows use the bound too | the comparator function | FT-3 case B5 (so FT-9) | B1–B4, B6, B7; the plain run (rows 1, 3, 9, 11 are equal anyway, which is why B5 exists) |
+| B-dims | compare pixels before dims, or skip the dims check | the comparator function | FT-3 case B7 (throws, or a reason other than `dims`); N2's rows in FT-9 | B1–B6 |
+| B-derive | derive "resamples" from the edit (`edit.resize != null`), not the recipe text | the row classifier in `tests/ddphotos_parity.mjs` | FT-3's set assert (`{1, 3, 5, 7, 9, 11}` ≠ `{1, 3, 9, 11}`) | B1–B7 (synthetic, classifier not used) |
 
 ## Implementation Context
 
 *Read this section (and the files it points to) before starting the build cycle.*
 
-### ⛔ Before anything: the ruling
+### The ruling: Rule B (DEC-110)
 
-Don't build until the maintainer rules (A) or (B) (see the design finding). Under (B), the DEC
-is written first: by a design-amend session, or by the orchestrator. Name its id in
-`references`. The build reads K's cap from it.
+Ruled 2026-10-30. Read DEC-110 before the comparator. It holds the rule, the exact rows, K's
+provenance and the cap (78). The build sets K and writes it back into DEC-110's Validation
+section. It never edits the rule or the cap.
 
 ### The independent decoder: Pillow 12.3.0
 
@@ -800,9 +870,19 @@ is written first: by a design-amend session, or by the orchestrator. Name its id
 - **It writes to a fresh `fs.mkdtempSync` dir per run.** `apply` refuses to overwrite: driven, it
   exits 5 with "output file already exists". Remove the dir on success; keep it and print its
   path on failure.
-- **Comparator:** dimensions first. Then bytes (`Buffer.compare`). Then, for the formats that
-  need it, the RGBA buffers: count the pixels where any channel differs, and take the largest
-  absolute channel difference.
+- **Comparator (Rule B, DEC-110):**
+  - Dimensions first. On a mismatch, fail with reason `dims` and return without touching the
+    buffers.
+  - Then bytes (`Buffer.compare`), reported on every row and asserted only where AC-3 says so.
+  - Then the RGBA buffers: count the pixels where any channel differs, and take the largest
+    absolute channel difference.
+  - The verdict:
+    - a no-resample row (no `op = "resize"` in its recipe text) needs `px == 0`;
+    - a resampling row needs `max <= 1 && px <= K`.
+  - `K` and the cap `78` are named constants at the top of the file, each with a comment citing
+    DEC-110, and the harness asserts `K <= 78` at start.
+  - The verdict is one pure function of `(dims, bytesEqual, px, max, resamples, format)`, so
+    `--self-test` can drive cases B1–B7 through it without a binary.
 - **The one-line format:** `PASS|FAIL <id> native WxH wasm WxH bytes same|differ px=<n> max=<d>`.
   The output reaches the CI log because it is plain stdout from a `run:` step, not libtest
   (HANDOFF trap 11). Put the self-test in its own step so its lines are separate.
@@ -878,21 +958,32 @@ The build's **first checkpoint**: a WIP **draft PR** with the harness, the fixtu
 `recipe.js` and the CI job, pushed as soon as `just ddphotos-parity` passes locally. Read its
 first run with a backgrounded `gh pr checks <n> --watch`, never a poll loop. That run decides:
 
-- **(i) x86 agrees with the aarch64 table:**
-  - JPEG bytes equal → assert JPEG bytes on rows 9–12.
-  - Under Rule B, set K to the observed maximum on rows 2, 6, 15 and 16 (≤ the cap).
-- **(ii) x86 differs.** Each format has its own answer:
-  - **JPEG bytes differ, pixels equal:** assert pixels only on rows 9–12 (the designed rule).
-    Not a finding.
-  - **WebP bytes differ:** already not asserted.
-  - **A pixel difference on a PNG row, or on the decoded JPEG, WebP or AVIF rows**, beyond the
-    ruled comparator: a finding. **Don't loosen the rule.** Push the WIP and report BLOCKED,
-    with the row, its numbers and whether its PNG twin also moved. Under Rule B, a row over the
-    cap is the same finding.
-  - **AVIF row 14 differs:** the same finding; don't drop the row.
+Set K on the first local run to the aarch64 maximum (1 today, from rows 2, 6, 15 and 16), and
+push. Then:
+
+- **(i) x86 agrees** (every row within Rule B, and JPEG rows 9–12 byte-equal on both targets):
+  - assert JPEG bytes on rows 9–12;
+  - set K to the largest differing-pixel count on any resampling row over **both** targets
+    (≤ 78);
+  - record K, the targets and the CI run id in Build Completion and in DEC-110.
+- **(ii) JPEG bytes differ, but every row's pixels are within the bound:**
+  - assert pixels only on rows 9–12, which is the designed rule; this is not a finding;
+  - set and record K as in (i). WebP bytes are never asserted anyway.
+- **Anything over the bound is BLOCKED.** That is:
+  - any difference on a no-resample row (1, 3, 9, 11);
+  - a channel difference above 1/255 on any row, including a lossy row where a 1/255
+    pre-encode difference grew through JPEG or AVIF;
+  - a differing-pixel count above 78 on any row;
+  - a dimension difference.
+
+  **Don't loosen the rule and don't raise the cap.** Push the WIP and report BLOCKED with the
+  row, its numbers and whether its PNG twin also moved. AVIF row 14 is held to the same rule:
+  don't drop the row.
 
 ### Decisions that apply
 
+- `DEC-110`: Rule B, the comparator. Dimensions exact; rows 1, 3, 9 and 11 exact; resampling rows
+  within 1/255 on at most K pixels, K ≤ 78. The build sets K and records it there.
 - `DEC-064`: `transform` runs the same core as `apply`. This spec measures that claim.
 - `DEC-065`: wasm can't decode AVIF, so row 14 is decoded by Pillow.
 - `DEC-066`: the size profile. The job builds through `wasm-build-slim`'s path, so it tests the
