@@ -1,0 +1,424 @@
+# guidance/ideas.yaml
+# Feature ideas and proposals that have no stage yet. Read by `just ideas`.
+#
+# Why this file exists: AGENTS.md §10 says the only home for tracked work is a
+# stage's `## Spec Backlog`, and that a decision with no stage is a proposal.
+# Proposals still need somewhere a command can find them, or they get lost in
+# documents nothing reads (it happened four times in one week in August). This
+# is that place. An entry here is NOT a decision and NOT scheduled.
+#
+# Every idea MUST have:
+#   - id: stable kebab-case identifier
+#   - title: one line
+#   - status: idea | proposed | homed | deferred | declined
+#       idea      — suggested, nobody has argued for it yet
+#       proposed  — has evidence or a consumer, waiting for a project
+#       homed     — now a `- [ ]` in a stage; `home` names it. Kept for the trail
+#       deferred  — wanted, but gated on something named in `gate`
+#       declined  — decided against; `notes` says why, so it is not re-proposed
+#   - source: where it came from (a session, a review, a doc, with a date)
+#   - home: the stage that owns it (homed only), else null
+#   - likely_home: the project it would probably join, or null
+#   - gate: what must be true before it can be scheduled, or null
+#
+# To promote an idea: add the `- [ ]` to the stage first, run `just backlog`
+# (or read the stage) to confirm it is there, then set status: homed and home.
+
+ideas:
+  # ── Homed: on a stage's backlog now ─────────────────────────────────────
+  - id: geometry-ops
+    title: "crop, rotate (quarter turns and any angle), flip, trim, pad as recipe steps and `edit` flags"
+    status: homed
+    source: "docs/roadmap.md Wave 5; rewritten in #219 (2026-10-29)"
+    home: "PROJ-017 / STAGE-058, STAGE-059"
+    likely_home: PROJ-017
+    gate: null
+
+  - id: ddphotos-crop-straighten
+    title: "The ddphotos edit page gains crop and straighten, and its recipe replays on the original"
+    status: homed
+    source: "#219 (2026-10-29), from the edit page shipped in #218"
+    home: "PROJ-017 / STAGE-060"
+    likely_home: PROJ-017
+    gate: null
+
+  - id: animated-avif-output
+    title: "Animated GIF/input to animated AVIF, every frame kept"
+    status: homed
+    source: "docs/research/draft-spec-animated-avif-output.md (2026-08-16); unblocked by DEC-108 (2026-10-30)"
+    home: "PROJ-012 / STAGE-061"
+    likely_home: PROJ-012
+    gate: null
+
+  - id: icc-colour-transforms
+    title: "ICC colour transforms with `qcms`, closing `color/wrong-colorspace` and the ddphotos editor's colour caveat"
+    status: homed
+    source: "docs/feature-set-triage-2026-08.md §12; ddphotos consumer found 2026-10-28"
+    home: "PROJ-012 (stage not yet defined)"
+    likely_home: PROJ-012
+    gate: null
+
+  - id: cube-lut-op
+    title: "A `.cube` LUT op with the file's content in the build cache key"
+    status: homed
+    source: "docs/feature-set-triage-2026-08.md §2"
+    home: "PROJ-015 / STAGE-055 (SPEC-136)"
+    likely_home: PROJ-015
+    gate: null
+
+  - id: linear-light-working-buffer
+    title: "Pixel ops in linear light at the source's bit depth"
+    status: homed
+    source: "docs/research/draft-stage-linear-working-buffer.md (2026-07-25)"
+    home: "Mostly shipped (SPEC-121 depth, SPEC-122 linear resize). The remainder, the working-type speed fix, is PROJ-015's second stage (not yet defined)"
+    likely_home: PROJ-015
+    gate: null
+    notes: |
+      SPEC-122's F32x4 path made `resize` 1.5-2.5x slower in 0.8.0; 72% of
+      that is the working type. PROJ-015's brief says to pull that stage
+      forward on its own, and PROJ-017 / STAGE-059 (straighten) depends on it.
+
+  - id: multi-image-input-data-loss
+    title: "Multi-size ICO and multi-page TIFF are silently reduced to one image"
+    status: homed
+    source: "PROJ-010 measurement, 2026-08-21"
+    home: "PROJ-013 / STAGE-048"
+    likely_home: PROJ-013
+    gate: null
+    notes: "Fix the ICO half before PROJ-014's favicon work, which writes ICO."
+
+  - id: batch-report
+    title: "A batch `--report` summarising every file a batch verb touched"
+    status: homed
+    source: "maintainer request 2026-07-25; 2026-10-25 feature review"
+    home: "PROJ-013 / STAGE-036"
+    likely_home: PROJ-013
+    gate: null
+
+  - id: wasm-validate-export
+    title: "A wasm `validate(recipe_toml)` export returning structured errors"
+    status: homed
+    source: "docs/roadmap.md Wave 6"
+    home: "PROJ-011 / STAGE-054"
+    likely_home: PROJ-011
+    gate: null
+
+  # ── Proposed: evidence or a consumer, waiting for a project ─────────────
+  - id: manifest-placeholders-favicon
+    title: "Web-asset manifest, a `{hash}` name-template token, thumbhash placeholders, dominant colour, a favicon set"
+    status: proposed
+    source: "docs/roadmap.md Wave 4; two outside feature lists, 2026-10-25"
+    home: null
+    likely_home: PROJ-014
+    gate: "PROJ-014 framed; the ICO fix in STAGE-048 first"
+    notes: "Numbered PROJ-014 by maintainer ruling (2026-10-25), not PROJ-005 as the roadmap still says in places."
+
+  - id: og-card-preset
+    title: "A 1200x630 og-card fit/crop preset"
+    status: proposed
+    source: "2026-10-25 feature review"
+    home: null
+    likely_home: PROJ-014
+    gate: "PROJ-017 crop (STAGE-058)"
+
+  - id: art-direction-picture
+    title: "Art direction: `<picture>` output with explicit per-breakpoint crops"
+    status: proposed
+    source: "2026-10-25 feature review"
+    home: null
+    likely_home: PROJ-014
+    gate: "PROJ-017 crop, and the PROJ-014 manifest"
+
+  - id: html-before-after-report
+    title: "An HTML before/after report (2-3 quality points, slider, score, bytes) rendered from the batch report's data"
+    status: proposed
+    source: "2026-10-25 feature review"
+    home: null
+    likely_home: PROJ-014
+    gate: "batch-report"
+
+  - id: eleventy-plugin
+    title: "`eleventy-crustyimg`, built on the manifest; the maintainer's Eleventy photo blog is the dogfood"
+    status: proposed
+    source: "docs/roadmap.md Wave 4; 2026-10-25 feature review"
+    home: null
+    likely_home: PROJ-014
+    gate: "the manifest"
+
+  - id: astro-image-service
+    title: "An Astro image service on the manifest, after Eleventy; Vite later"
+    status: idea
+    source: "2026-10-25 feature review"
+    home: null
+    likely_home: PROJ-014
+    gate: "eleventy-plugin"
+
+  - id: ddphotos-recipe-sidecar-save
+    title: "The ddphotos editor saves a recipe sidecar next to the original instead of a baked copy"
+    status: proposed
+    source: "docs/roadmap.md row 6b (#219, 2026-10-29)"
+    home: null
+    likely_home: null
+    gate: "PROJ-017 STAGE-060, so the saved edit is worth saving; `build` needs per-photo recipe discovery"
+
+  - id: ddphotos-prebuilt-edit-page-zip
+    title: "Ship the built edit page (page, worker, slim wasm) as a zip on each GitHub release"
+    status: proposed
+    source: "#225 (2026-10-29)"
+    home: null
+    likely_home: null
+    gate: "`release.yml` is cargo-dist-generated, so it needs dist's custom-job hook or its own workflow"
+    notes: "For DD Photos app users, who have Docker but not just/rustup/wasm-pack."
+
+  - id: ddphotos-lightbox-edit-button
+    title: "An Edit button in ddphotos' lightbox linking to the edit page"
+    status: proposed
+    source: "ddphotos edit-page sessions, 2026-10-29"
+    home: null
+    likely_home: null
+    gate: "Doug's decision, not ours. The 'test bed green' contact gate was met by #227"
+
+  - id: recipe-playground
+    title: "The browser tool as a real tool, plus a recipe playground on the CLI's own validator"
+    status: proposed
+    source: "docs/roadmap.md Wave 6"
+    home: null
+    likely_home: null
+    gate: "wasm-validate-export"
+
+  - id: brand-consistency-build-gate
+    title: "Brand consistency as a build gate: `build --check` fails on an unintended grade or colour change"
+    status: proposed
+    source: "docs/feature-set-triage-2026-08.md §16, 'the one genuinely commercial angle'"
+    home: null
+    likely_home: PROJ-015
+    gate: "cube-lut-op"
+
+  # ── Ideas: suggested, not yet argued for ─────────────────────────────────
+  - id: perceptual-dedup-lint-rule
+    title: "A lint rule that flags near-duplicate images in a site's assets"
+    status: idea
+    source: "docs/feature-set-triage-2026-08.md §3, 'best differentiation per unit of effort in the set'"
+    home: null
+    likely_home: null
+    gate: null
+
+  - id: declared-convolution-kernels
+    title: "Declared convolution kernels as a recipe op (blur/sharpen without arbitrary pixel access)"
+    status: idea
+    source: "docs/feature-set-triage-2026-08.md §3"
+    home: null
+    likely_home: null
+    gate: null
+
+  - id: jpeg-xl-decode
+    title: "JPEG XL decode via `jxl-oxide`"
+    status: idea
+    source: "docs/feature-set-triage-2026-08.md §3, crate checked healthy then"
+    home: null
+    likely_home: null
+    gate: "a pull from users; re-probe the crate before scheduling"
+
+  - id: lint-in-wasm
+    title: "`lint` compiled into the wasm build"
+    status: deferred
+    source: "docs/feature-set-triage-2026-08.md §4"
+    home: null
+    likely_home: null
+    gate: "a wasm bundle-size measurement"
+
+  - id: mcp-server-measurements
+    title: "An MCP server exposing crustyimg's measurements to agents"
+    status: deferred
+    source: "docs/feature-set-triage-2026-08.md §17, 'strongest strategic idea in the set'"
+    home: null
+    likely_home: null
+    gate: "lint-in-wasm"
+
+  - id: lighthouse-named-lint-rules
+    title: "Engine-backed lint rules named after Lighthouse audits (`legacy-format` first)"
+    status: deferred
+    source: "STAGE-014; 2026-10-25 feature review"
+    home: null
+    likely_home: "PROJ-004 / STAGE-014"
+    gate: "run `lint` over the Eleventy photo-blog corpus and count the silent misses (docs/roadmap.md post-1.0 table)"
+
+  - id: dark-mode-logo-contrast-lint
+    title: "A lint rule for transparent logos that vanish on a dark background"
+    status: idea
+    source: "2026-10-25 feature review"
+    home: null
+    likely_home: null
+    gate: null
+
+  - id: npm-native-binary
+    title: "Ship the native binary through npm the way esbuild does"
+    status: idea
+    source: "2026-10-25 feature review"
+    home: null
+    likely_home: null
+    gate: null
+
+  - id: action-usage-question
+    title: "A one-line 'what are you using this for?' in the GitHub Action's output or README"
+    status: idea
+    source: "monetization strategy session, 2026-10-30"
+    home: null
+    likely_home: null
+    gate: null
+    notes: "Cheap demand signal from Marketplace installs. Nothing instruments adoption today."
+
+  - id: marketplace-image-compliance-lint
+    title: "Lint rules for marketplace image rules (white background, product fill, minimum pixels)"
+    status: idea
+    source: "monetization strategy session, 2026-10-30"
+    home: null
+    likely_home: null
+    gate: "check for existing tooling first"
+
+  - id: provenance-survives-screenshot
+    title: "An invisible robust watermark plus a signed C2PA manifest, recoverable after a screenshot"
+    status: deferred
+    source: "docs/roadmap.md Wave 9"
+    home: null
+    likely_home: null
+    gate: "the dependency research; and fix `meta set`'s broken C2PA manifests first"
+
+  - id: source-provenance-hash
+    title: "Record the source file's content hash in outputs"
+    status: idea
+    source: "docs/research/draft-spec-source-provenance-hash.md"
+    home: null
+    likely_home: null
+    gate: null
+
+  - id: container-video-lint
+    title: "Container-level video-asset lint (faststart, stray audio, codec mismatch)"
+    status: deferred
+    source: "docs/video-tool-assessment-2026-08.md; guidance/questions.yaml video-asset-lint-demand"
+    home: null
+    likely_home: null
+    gate: "demand. Feasibility is proven"
+
+  - id: animated-avif-alpha
+    title: "Alpha in animated AVIF output"
+    status: deferred
+    source: "PROJ-012 scope"
+    home: null
+    likely_home: PROJ-012
+    gate: "animated-avif-output shipped"
+
+  - id: smart-crop
+    title: "Smart crop / auto-colour / redaction"
+    status: deferred
+    source: "docs/roadmap.md post-1.0 table"
+    home: null
+    likely_home: null
+    gate: "post-1.0, behind a beta flag; judgment-bound tuning loop"
+    notes: "docs/research/photo-preset-import-and-photographic-ops.md §4 recommends against smart crop outright."
+
+  - id: serve
+    title: "`serve`, a self-hostable image server"
+    status: deferred
+    source: "docs/roadmap.md post-1.0 table"
+    home: null
+    likely_home: null
+    gate: "2.0, demand-gated"
+
+  # ── Declined: kept so they are not re-proposed ───────────────────────────
+  - id: lightroom-preset-import
+    title: "Import Lightroom presets"
+    status: declined
+    source: "docs/research/photo-preset-import-and-photographic-ops.md (2026-07-25)"
+    home: null
+    likely_home: null
+    gate: null
+    notes: "Measured overlap with crustyimg's ops is zero."
+
+  - id: svg-optimization
+    title: "An SVGO-equivalent optimizer, and sprites"
+    status: declined
+    source: "2026-10-25 feature review"
+    home: null
+    likely_home: null
+    gate: null
+    notes: |
+      usvg rewrites the SVG and breaks classes and CSS. This supersedes the
+      triage doc's §15 "take when pulled" (2026-08-10).
+
+  - id: lcp-estimate
+    title: "An LCP estimate"
+    status: declined
+    source: "2026-10-25 feature review"
+    home: null
+    likely_home: null
+    gate: null
+    notes: "It is `size/oversized-bytes` relabeled."
+
+  - id: codemod-fix-scripts
+    title: "sed/jscodeshift scripts that rewrite markup to the optimised images"
+    status: declined
+    source: "2026-10-25 feature review"
+    home: null
+    likely_home: null
+    gate: null
+
+  - id: dev-server
+    title: "A `dev` server"
+    status: declined
+    source: "2026-10-25 feature review"
+    home: null
+    likely_home: null
+    gate: null
+
+  - id: framework-profiles
+    title: "Per-framework config profiles"
+    status: declined
+    source: "2026-10-25 feature review"
+    home: null
+    likely_home: null
+    gate: null
+
+  - id: wcag-text-in-image-contrast
+    title: "WCAG contrast checks on text inside images"
+    status: declined
+    source: "2026-10-25 feature review"
+    home: null
+    likely_home: null
+    gate: null
+
+  - id: lhci-output-format
+    title: "A `--format lhci` output"
+    status: declined
+    source: "2026-10-25 feature review"
+    home: null
+    likely_home: null
+    gate: null
+    notes: "Lighthouse CI has no input for outside results."
+
+  - id: nextjs-on-demand-loader
+    title: "A Next.js on-demand image loader"
+    status: declined
+    source: "2026-10-25 feature review"
+    home: null
+    likely_home: null
+    gate: null
+    notes: "It is a running service, against the territory guardrail."
+
+  - id: video-tool
+    title: "A video tool"
+    status: declined
+    source: "docs/video-tool-assessment-2026-08.md (PR #177, 2026-08-15)"
+    home: null
+    likely_home: null
+    gate: null
+    notes: "No wedge against ffmpeg; pure-Rust H.264 is young and patent-encumbered."
+
+  - id: animated-webp-output
+    title: "Animated WebP output"
+    status: declined
+    source: "PROJ-012 scope"
+    home: null
+    likely_home: null
+    gate: null
+    notes: "No pure-Rust animated WebP encoder exists; animated AVIF is 6.3x smaller anyway."

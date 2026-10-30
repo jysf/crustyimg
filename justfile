@@ -667,6 +667,11 @@ watchlist:
     @echo "License watchlist (guidance/license-watchlist.yaml) — id · status · what:"
     @grep -E '^  - id:|^    capability:|^    status:|^    rejected_dependency:|^    deferred_dependency:|^    revisit_trigger:' guidance/license-watchlist.yaml
 
+# Show feature ideas and proposals with no stage yet (guidance/ideas.yaml),
+# grouped by status. Usage: just ideas [idea|proposed|homed|deferred|declined]
+ideas *STATUS:
+    @./scripts/ideas.sh {{STATUS}}
+
 # ----------------------------------------------------------------------------
 # HELPERS
 # ----------------------------------------------------------------------------

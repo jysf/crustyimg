@@ -28,6 +28,7 @@ echo "- AGENTS.md"
 echo "- .repo-context.yaml"
 echo "- guidance/constraints.yaml"
 echo "- guidance/questions.yaml"
+echo "- guidance/ideas.yaml (\`just ideas\`)"
 echo ""
 
 # All file lists below are emitted as paths relative to the repo root

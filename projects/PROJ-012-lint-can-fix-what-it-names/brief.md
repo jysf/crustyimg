@@ -110,10 +110,11 @@ decodes, both already in the tree. ⚠ **There is no pure-Rust animated WebP enc
 
 ## Stage Plan
 
-- [ ] (not yet defined) — **Animated output.** The muxer and the frame/timing round-trip, then the
-  quality search and speed pinning. ⛔ **Blocked on a `mp4-atom` DEC** (`no-new-top-level-deps-without-decision`,
-  licence gate DEC-018) **and on splitting `docs/research/draft-spec-animated-avif-output.md`**,
-  which is marked complexity **L** with its own note saying *"L means split it"*.
+- [ ] STAGE-061 (proposed) — **Animated output.** The muxer and the frame/timing round-trip, then the
+  quality search and speed pinning, then `lint` naming the fix. ✅ **Unblocked 2026-10-30:**
+  DEC-108 adopts `mp4-atom` on four conditions the first design session verifies, and the
+  stage splits `docs/research/draft-spec-animated-avif-output.md` (complexity **L**) into three
+  specs.
   ⚠ **Budget the muxer at ~1,000 lines, measured** — `mp4-atom` supplies boxes, not a muxer, and
   the sample-table bookkeeping is yours. ⚠ **Speed 10 is a trap for animation** — do not inherit
   the still-image intuition; the draft measured this. ⚠ **Run a near-lossless colour-range control
@@ -155,7 +156,9 @@ decodes, both already in the tree. ⚠ **There is no pure-Rust animated WebP enc
 ## Dependencies
 
 ### Depends on
-- ⛔ **A `mp4-atom` DEC** — blocks the animated stage entirely.
+- ✅ **DEC-108** (2026-10-30) — adopts `mp4-atom` for the animated stage, conditional on four
+  checks its first design session runs (licence files, the AV1 boxes in 0.16.x, the dependency
+  cost, MSRV and wasm). If one fails, the fallback is an in-house box writer.
 - **PROJ-011 landing first is preferable but not required.** PROJ-011 teaches the registry its
   first parameter-rich op; an animated encoder's configuration is the same shape, so inheriting
   that precedent is cheaper than inventing it.
