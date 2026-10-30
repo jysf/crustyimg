@@ -262,7 +262,31 @@ Ordered. ⚡ Only the first item gates 0.8.0.
   whether a `build`-specific help note is worth the clap work, or leave the docs as the answer.
   Tests and docs only, apart from (4).
 
-**Count:** 3 shipped / 0 active / 16 pending
+- [ ] (not yet written) — [S] **`lint`'s suggested `fix:` commands write the image to stdout.**
+  Filed by the orchestrator (2026-10-30), from the `jysf/crustyimg-example` demo site
+  (2026-10-29). `lint` names a runnable fix for each finding, such as `meta clean --gps <f>`,
+  `optimize <f>`, `auto-orient <f>` or a `resize`. Run exactly as printed, each writes the
+  encoded image to **stdout**, even on a TTY, so the file is not fixed. The form that works is
+  `-o <f> -y`. Not yet driven on 0.8.1. Decide whether the printed fix should carry
+  `-o <f> -y`, or whether these verbs should refuse to write binary to a TTY. Then test that
+  every printed `fix:` line, run verbatim in a shell, changes the file and clears the finding.
+
+- [ ] (not yet written) — [S] **`privacy/gps-metadata-leak` fires on a GPS block with no
+  coordinates.** Filed by the orchestrator (2026-10-30), from the `jysf/crustyimg-example` demo
+  site (2026-10-29). A Nikon P1100 JPEG writes a GPS IFD holding only `GPSVersionID`, with no
+  latitude or longitude, and `lint` flags it as a location leak. Not yet driven on 0.8.1. Decide
+  whether the rule keys on coordinate tags (`GPSLatitude`/`GPSLongitude`) rather than on the IFD's
+  presence, and keep a positive control: a file with real coordinates must still be flagged.
+
+- [ ] (not yet written) — [S] **A folder that holds only subfolders reports "input not found or
+  unreadable".** Filed by the orchestrator (2026-10-30), from the 0.8.1 release-notes verify. A
+  directory input reads only its top-level images (documented in the skill since 0.8.1). For
+  `lint d/` or `optimize d/` where `d/` has only subfolders, both exit 3 with "input not found
+  or unreadable", which is misleading: the folder exists and is readable. Say instead that the
+  folder has no images at its top level, and suggest a recursive glob (`'d/**/*'`). Keep exit 3
+  unless a ruling changes it.
+
+**Count:** 3 shipped / 0 active / 19 pending
 
 ## Design Notes
 
