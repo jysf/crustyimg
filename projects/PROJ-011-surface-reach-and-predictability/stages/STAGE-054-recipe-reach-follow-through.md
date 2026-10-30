@@ -207,7 +207,7 @@ Ordered. ⚡ Only the first item gates 0.8.0.
   range. Decide: refuse it at load, as every other ranged recipe key is refused (DEC-102), and
   `-q` too; or document the clamp.
 
-- [ ] **SPEC-138** (designed 2026-10-28) — [S] **`build --format` is accepted and silently ignored.**
+- [x] **SPEC-138** (merged 2026-10-30, PR #221) — [S] **`build --format` is accepted and silently ignored.**
   Filed by the 0.8.0 release-notes verify (2026-10-27), driven on `main`'s release binary:
   `build --format png` exits 0 and writes the target's own format (GIF, WebP or JPEG), with or
   without a name extension or a recipe `format`. `--format` is a **global** flag
@@ -251,7 +251,18 @@ Ordered. ⚡ Only the first item gates 0.8.0.
   minor: `build --strict` without `--check` exits 0 and does nothing (its help says "With
   `--check`").
 
-**Count:** 2 shipped / 1 active / 15 pending
+- [ ] (not yet written) — [S] **SPEC-138's verify cleanups, and `build --help` still lists the four
+  refused flags.** Filed by the SPEC-138 ship (2026-10-30), one entry for what verify found.
+  (1) FT-13 should assert its snapshot diff names a `.crustyimg/` path: today `snapshot()` could
+  skip dotfiles and no test would notice a write there (mutation M-d, a gap; low risk, since a
+  build that slips past the guard also writes its outputs). (2) `snapshot()` records files only,
+  so a new empty directory is invisible to it. (3) The DEC-105 rule-2 line and the
+  `docs/api-contract.md:626` line run past the wrap width. (4) `build --help` still lists
+  `--format`, `-o`, `--out-dir` and `--name-template` although `build` now exits 2 on them; decide
+  whether a `build`-specific help note is worth the clap work, or leave the docs as the answer.
+  Tests and docs only, apart from (4).
+
+**Count:** 3 shipped / 0 active / 16 pending
 
 ## Design Notes
 

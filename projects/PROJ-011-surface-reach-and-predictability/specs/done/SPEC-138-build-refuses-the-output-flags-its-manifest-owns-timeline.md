@@ -29,4 +29,6 @@ Cycle prompts live in `prompts/SPEC-138-<cycle>.md`.
       `--watch` is refused there anyway, but FT-11 still goes red through its stderr check, so it is
       not hollow. M-a to M-c caught; M-d (`snapshot()` skipping dotfiles) is a gap, listed as an
       optional cleanup. Full suite 1115 / 1053; Windows FT-11/12 ran in 0.22 s. PR marked ready.
-- [ ] **ship** — prompt: `prompts/SPEC-138-ship.md`.
+- [x] **ship** — 2026-10-30 (`prompts/SPEC-138-ship.md`, Sonnet, ~$0.45). Merged `fc05ef9`, PR #221,
+      2026-10-30. Reflected, archived. Spec text fixed (mutation table, hunk header); one STAGE-054
+      backlog entry filed for verify's cleanups. Total cost $16.43 across 5 sessions.

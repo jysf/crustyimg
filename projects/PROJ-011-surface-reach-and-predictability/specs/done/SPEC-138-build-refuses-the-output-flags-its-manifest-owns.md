@@ -7,7 +7,7 @@
 task:
   id: SPEC-138
   type: bug                        # epic | story | task | bug | chore
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: S                    # S | M | L  (L means split it)
@@ -91,26 +91,60 @@ cost:
     - cycle: build
       agent: claude-sonnet-5-5
       interface: claude-code
-      tokens_total: 5060494
+      tokens_total: 7776381
       tokens_breakdown:
-        input: 88
-        output: 25070
-        cache_creation: 112941
-        cache_read: 4922395
-      estimated_usd: 2.28
+        input: 134
+        output: 32140
+        cache_creation: 127133
+        cache_read: 7616974
+      estimated_usd: 3.24
       duration_minutes: null
       recorded_at: 2026-10-29
       note: >
-        Worktree feat-spec-138-build-refuses-output-flags. Measured from the transcript
-        identified by content ("SPEC-138 — BUILD prompt"), deduped by `.message.id` (42 unique
-        ids, all claude-sonnet-5-5), input/cache_creation/cache_read once per id, MAX
-        output_tokens. Priced at Sonnet $3/$15 per MTok, cache_creation x1.25, cache_read
-        x0.10. Measured before the final commit/PR turns, so it slightly under-counts.
-        Excludes machine time for the release builds and the three-leg matrix.
+        Worktree feat-spec-138-build-refuses-output-flags. Re-measured at ship from the full
+        transcript (8813cf27-....jsonl, identified by content "BUILD prompt: "), deduped by
+        `.message.id` (60 unique ids, all claude-sonnet-5-5), input/cache_creation/cache_read once
+        per id, MAX output_tokens. Priced at Sonnet $3/$15 per MTok, cache_creation x1.25,
+        cache_read x0.10. Replaces the earlier 5,060,494 / $2.28, which was taken before the final
+        commit/PR turns. Excludes machine time for the release builds and the three-leg matrix.
+    - cycle: verify
+      agent: claude-opus-5-5
+      interface: claude-code
+      tokens_total: 8602182
+      tokens_breakdown:
+        input: 126
+        output: 38128
+        cache_creation: 165765
+        cache_read: 8398163
+      estimated_usd: 6.19
+      duration_minutes: null
+      recorded_at: 2026-10-29
+      note: >
+        Worktree verify-spec-138. Measured from the transcript (5199f3ee-....jsonl, identified by
+        content "VERIFY prompt: "), deduped by `.message.id` (59 unique ids, all claude-opus-5-5),
+        input/cache_creation/cache_read once per id, MAX output_tokens. Priced at Opus $5/$25 per
+        MTok, cache_creation x1.25, cache_read x0.10.
+    - cycle: ship
+      agent: claude-sonnet-5-5
+      interface: claude-code
+      tokens_total: 670030
+      tokens_breakdown:
+        input: 18
+        output: 4923
+        cache_creation: 52195
+        cache_read: 612894
+      estimated_usd: 0.45
+      duration_minutes: null
+      recorded_at: 2026-10-30
+      note: >
+        Worktree docs-spec-138-ship. Measured from the transcript (22a3922c-....jsonl, identified
+        by content "SHIP prompt: "), deduped by `.message.id` (9 unique ids, all
+        claude-sonnet-5-5), same method and Sonnet pricing as build. Measured before the final
+        commit/push turns, so it slightly under-counts.
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 24829946
+    estimated_usd: 16.43
+    session_count: 5
 ---
 
 # SPEC-138: build refuses the output flags its manifest owns
@@ -682,9 +716,9 @@ Each mutation is one edit to the guard or its position; rebuild, then run
 | drop `name_template` | FT-4, FT-5 (`{stem}.{ext}`), FT-7, FT-11 (second flag), FT-15 |
 | drop `format` | FT-1, FT-5, FT-6, FT-7, FT-8, FT-10, FT-11, FT-15 |
 | move the guard into `run_build` only (not the watch path) | FT-11, FT-12 |
-| move the guard after the manifest is loaded | FT-8 (exit 3) and FT-9 (parse message) |
+| move the guard after the manifest is loaded | FT-8 (exit 3), FT-9 (parse message) and FT-12 (the `--watch`/`--check` conflict check runs before the manifest loads) |
 | print only the first refused flag | FT-7 |
-| make the guard also refuse `quality` | FT-13 |
+| make the guard also refuse `quality` | FT-13, FT-15 |
 | `hasher.update(b"x");` in `target_recipe_hash`'s `Preserve` arm | `compare-builds.sh` (AC-16), exit 1 `LOCKFILE DIFFERS` |
 
 ## Implementation Context
@@ -795,7 +829,7 @@ clap's global propagation, not this guard), but it is a cheap guard against a fu
   - `CHANGELOG.md`: `### Breaking` entry under `[Unreleased]`
   - `decisions/DEC-057-build-manifest-format-and-build-semantics.md`: two Neutral bullets amended
   - `decisions/DEC-105-an-output-names-extension-pins-the-format-on-every-verb.md`: rule 2 clause
-- **Commit 1:** `277391d`; `git show 277391d -- src/` is one hunk (`@@ -1517,4 +1517,55 @@`),
+- **Commit 1:** `277391d`; `git show 277391d -- src/` is one hunk (`@@ -1517,4 +1517,59 @@`),
   inside `mod tests` (opens at line 1069). No other `src/` change.
 - **RED baseline on `main`** (integration tests run against unmodified `src/`; FT-15 does not
   compile, as the spec says): FT-1, 2, 3, 4, 5, 6, 7: exit 0 (and 7 files written);
@@ -822,6 +856,7 @@ clap's global propagation, not this guard), but it is a cheap guard against a fu
 - **README.md:** `grep -n 'build' README.md` shows no flag line that names these four; no change.
 - **Deviations from spec:** none.
 - **Follow-up work identified:** none.
+- **Corrected at ship** (verify found these): the mutation-table rows for "after the manifest is loaded" (add FT-12) and "also refuse `quality`" (add FT-15), and the hunk header (`+1517,59`, not `+1517,55`).
 
 ### Build-phase reflection (3 questions, short answers)
 
@@ -844,10 +879,23 @@ Process-focused: how did the build go? What friction did the spec create?
 from the process-focused build reflection above.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Make the design's mutation table name *where* each mutation is applied, not just what it
+   does: "move the guard after the manifest loads" was worded for both paths, the build applied it
+   in `run_build` only (off the watch path) and got FT-11 and FT-12 red as well, and verify applying
+   it on both paths got FT-8, 9 and 12 red with FT-11 green. Both were valid reads of one row, and
+   only verify's run caught that FT-12 depends on the conflict check preceding the manifest load.
+   Also, ask at design whether each watch-path test still reaches the watcher in the lean leg: it
+   does not (`watch` is not compiled in), so FT-11 passes there through its stderr assertion alone,
+   and only verify could say so.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — Proposed, not applied: add one line to the design template's mutation-table guidance, "name
+   the code location (path) where each mutation is applied, and list every test expected red,
+   including tests on the other path". No constraint or DEC change; DEC-057 and DEC-105 were
+   already amended in the build.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — Yes, one small backlog entry in STAGE-054 grouping verify's cleanups 1 to 3 (close mutation
+   M-d in FT-13, make `snapshot()` see empty directories, re-wrap two long lines) with the
+   `build --help` listing of the four refused flags. Not one entry per cleanup: all are tests or
+   docs and none changes behaviour.
