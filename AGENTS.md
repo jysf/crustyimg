@@ -193,9 +193,26 @@ cargo test <name>                   # single test or module, e.g. `cargo test re
 cargo clippy --all-targets -- -D warnings         # lint, warnings are errors
 cargo fmt --check                   # formatting gate (CI); `cargo fmt` to fix
 
-# native-codec feature build (off by default)
-cargo build --features mozjpeg
+# off-by-default feature builds (each has its own CI job)
+cargo build --features webp-lossy   # lossy WebP via libwebp (C)
+cargo build --features heic         # HEIC decode, needs system libheif
+cargo build --no-default-features   # lean / headless build
+
+# wasm engine target
+just wasm-check                     # run after touching any engine module
 ```
+
+**`just check` is a weaker gate than CI.** `just lint` runs clippy without
+`--all-targets` (use `just lint-all` for CI's version), and `just check` builds
+only the default features. CI adds separate jobs for `--features avif`,
+`--features webp-lossy`, `--features heic`, `--no-default-features`, MSRV,
+`cargo-deny` and `cost-data`. A green `just check` can still fail CI: run the
+job your change affects. The feature jobs test different behaviour, not just
+different dependencies. For example, the lean build rejects
+`convert --format avif` with exit 4.
+
+**Builds with different features must not share a `target/` at the same time.**
+Give each build its own `CARGO_TARGET_DIR`, or run them one after another.
 
 ---
 
@@ -234,21 +251,33 @@ cargo build --features mozjpeg
 ├── Cargo.toml                         # crate manifest + deps (pinned at SPEC-001)
 ├── tests/                             # integration tests + image fixtures
 └── src/                               # the crustyimg crate (lib + binary)
+    ├── lib.rs                         # module list; splits engine from shell by target
     ├── main.rs                        # parse args, dispatch, map errors → exit codes
+    ├── wasm.rs                        # wasm-bindgen surface over the engine
+    │   # engine: compiles for native AND wasm32-unknown-unknown
     ├── error.rs                       # crate-wide error/result aliases (thiserror)
+    ├── analysis/                      # image analysis + the pure format-decision core (decide.rs)
     ├── image/                         # canonical Image (wraps image::DynamicImage), load, ImageInfo
+    ├── metadata/                      # container lane: read/edit EXIF/ICC (separate from pixel lane)
     ├── operation/                     # Operation trait, params, registry (extension point)
     ├── pipeline/                      # Pipeline executor: decode once → ops → result
+    ├── quality/                       # perceptual scoring
     ├── recipe/                        # Recipe struct + TOML (de)serialization
-    ├── source/                        # Source: file | glob | dir | stdin
-    ├── sink/                          # Sink: file | dir+template | stdout | display (viuer)
-    ├── metadata/                      # container lane: read/edit EXIF/ICC (separate from pixel lane)
-    └── cli/                           # clap types, subcommand surface, arg → pipeline wiring
+    ├── sink/                          # encoders + outputs (only the viuer display arm is native-only)
+    ├── text/                          # text rendering for `watermark --text`
+    │   # shell: native only, bound to the filesystem and argv
+    ├── build/                         # declared multi-target builds, cache, lockfile
+    ├── cli/                           # clap types, subcommand surface, arg → pipeline wiring
+    ├── lint/                          # the `lint` verb's rules
+    └── source/                        # Source: file | glob | dir | stdin
 ```
 
-> The `src/` layout above is the **planned** structure; no application code
-> is scaffolded yet (it lands in STAGE-001 build cycles). See
-> `docs/architecture.md` for the module/layer rationale.
+> **The crate splits by target** (DEC-064). Shell modules sit behind
+> `#[cfg(not(target_arch = "wasm32"))]` in `src/lib.rs`; engine modules must
+> compile for wasm, so adding `std::fs` or `clap` to one breaks the wasm
+> target. Run `just wasm-check` after touching an engine module.
+> `docs/architecture.md` predates this split. Read it for the layer rationale,
+> not the module list.
 
 ---
 
