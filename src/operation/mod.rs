@@ -1390,6 +1390,10 @@ pub struct Watermark {
     /// How many of the overlay's pixels are visible (alpha > 0), counted once
     /// at construction — it depends only on the mark, not on the image.
     visible: u64,
+    /// The overlay's largest alpha on its 16-bit view, counted once at
+    /// construction like `visible`. With `opacity` it decides whether any
+    /// alpha survives (see [`Watermark::invisible_mark`]).
+    max_alpha: u16,
 }
 
 /// The overlay's pixels with alpha > 0, at its own bit depth: counted on the
@@ -1397,6 +1401,36 @@ pub struct Watermark {
 /// alpha of 1..=256 would read as 0 in 8 bits, yet still changes the image).
 fn visible_pixels(overlay: &DynamicImage) -> u64 {
     overlay.to_rgba16().pixels().filter(|p| p.0[3] > 0).count() as u64
+}
+
+/// The overlay's largest alpha, on its 16-bit view (exact for 8- and 16-bit
+/// overlays alike).
+fn max_alpha16(overlay: &DynamicImage) -> u16 {
+    overlay
+        .to_rgba16()
+        .pixels()
+        .map(|p| p.0[3])
+        .max()
+        .unwrap_or(0)
+}
+
+/// Why a watermark would draw no visible pixel, in the order the causes are
+/// checked.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum InvisibleMark {
+    /// `opacity` is 0.
+    OpacityZero,
+    /// A text mark whose colour has alpha 0.
+    TransparentColor,
+    /// A text mark whose text is all whitespace and draws nothing.
+    BlankText,
+    /// A text mark that draws nothing at its size.
+    TextTooSmall,
+    /// An image mark with no pixel of alpha > 0.
+    TransparentImage,
+    /// The mark has visible pixels, but `opacity` rounds every alpha to 0.
+    TooFaint,
 }
 
 /// An opacity applied to one 16-bit alpha, exactly as the composite applies it.
@@ -1454,6 +1488,7 @@ impl Watermark {
         tile: bool,
     ) -> Self {
         let visible = visible_pixels(&overlay);
+        let max_alpha = max_alpha16(&overlay);
         Watermark {
             overlay,
             source: WatermarkSource::Image { path },
@@ -1463,6 +1498,7 @@ impl Watermark {
             margin,
             tile,
             visible,
+            max_alpha,
         }
     }
 
@@ -1485,6 +1521,7 @@ impl Watermark {
         tile: bool,
     ) -> Self {
         let visible = visible_pixels(&overlay);
+        let max_alpha = max_alpha16(&overlay);
         Watermark {
             overlay,
             source: WatermarkSource::Text {
@@ -1499,6 +1536,7 @@ impl Watermark {
             margin,
             tile,
             visible,
+            max_alpha,
         }
     }
 
@@ -1637,7 +1675,8 @@ impl Watermark {
         let tile = params.get_bool("tile").unwrap_or(false);
 
         let visible = visible_pixels(&overlay);
-        Ok(Watermark {
+        let max_alpha = max_alpha16(&overlay);
+        let mark = Watermark {
             overlay,
             source,
             gravity,
@@ -1646,7 +1685,79 @@ impl Watermark {
             margin,
             tile,
             visible,
-        })
+            max_alpha,
+        };
+        // Every recipe surface (`apply`, `build`, `--watch`, wasm) builds the
+        // mark here, before any input is read.
+        if let Some(cause) = mark.invisible_mark() {
+            return Err(invalid(mark.recipe_invisible_line(cause, params)));
+        }
+        Ok(mark)
+    }
+
+    /// Why this mark would draw no visible pixel, or `None` when it draws one.
+    ///
+    /// Decided from the mark alone, at 16-bit precision, through the same
+    /// opacity step the 16-bit composite uses. A faint mark can still change
+    /// nothing on a particular image (white on white, or an 8-bit image).
+    pub fn invisible_mark(&self) -> Option<InvisibleMark> {
+        if self.opacity == 0.0 {
+            return Some(InvisibleMark::OpacityZero);
+        }
+        if let WatermarkSource::Text { color, .. } = &self.source {
+            if color[3] == 0 {
+                return Some(InvisibleMark::TransparentColor);
+            }
+        }
+        if self.visible == 0 {
+            return Some(match &self.source {
+                // The font draws its fallback box for a whitespace character
+                // it has no glyph for, so only a mark that draws nothing gets
+                // here.
+                WatermarkSource::Text { text, .. } => {
+                    if text.chars().all(char::is_whitespace) {
+                        InvisibleMark::BlankText
+                    } else {
+                        InvisibleMark::TextTooSmall
+                    }
+                }
+                WatermarkSource::Image { .. } => InvisibleMark::TransparentImage,
+            });
+        }
+        if faded_alpha16(self.max_alpha, self.opacity) == 0 {
+            return Some(InvisibleMark::TooFaint);
+        }
+        None
+    }
+
+    /// The refusal line for a recipe step, naming the key as written.
+    fn recipe_invisible_line(&self, cause: InvisibleMark, params: &OperationParams) -> String {
+        match (cause, &self.source) {
+            (InvisibleMark::OpacityZero, _) => {
+                "'opacity' = 0 draws no mark; to leave images unmarked, remove this step".to_owned()
+            }
+            (InvisibleMark::TooFaint, _) => format!(
+                "'opacity' = {} is too faint: the mark would draw no visible pixel; \
+                 use a larger opacity",
+                self.opacity
+            ),
+            (InvisibleMark::BlankText, _) => {
+                "'text' has no visible characters; use text with at least one visible character"
+                    .to_owned()
+            }
+            (InvisibleMark::TextTooSmall, WatermarkSource::Text { size, .. }) => {
+                format!("'text' draws no visible pixel at 'size' = {size}; use a larger size")
+            }
+            (InvisibleMark::TransparentColor, _) => format!(
+                "'color' {:?} is fully transparent; use an alpha above 00, or RRGGBB",
+                params.get_str("color").unwrap_or_default()
+            ),
+            (InvisibleMark::TransparentImage, WatermarkSource::Image { path }) => {
+                format!("'image' {path:?} is fully transparent; use an image with visible pixels")
+            }
+            // A cause only its own mode produces; never reached.
+            _ => "the mark would draw no visible pixel".to_owned(),
+        }
     }
 }
 
@@ -2959,6 +3070,223 @@ mod tests {
                 covered: 501,
                 image: (100, 100)
             }
+        );
+    }
+
+    // ── A mark that draws nothing ────────────────────────────────────────────
+
+    /// A text mark as `watermark --text` builds it, with `color` and `opacity`.
+    fn text_mark_with(text: &str, size: f32, color: [u8; 4], opacity: f32) -> Watermark {
+        let rendered =
+            crate::text::render_text(crate::text::DEFAULT_FONT, text, size, color).unwrap();
+        Watermark::new_text(
+            DynamicImage::ImageRgba8(rendered),
+            text.to_owned(),
+            None,
+            size,
+            color,
+            Gravity::SouthEast,
+            opacity,
+            None,
+            0,
+            false,
+        )
+    }
+
+    /// A 4×4 white overlay of 8-bit alpha `alpha`.
+    fn white_overlay8(alpha: u8) -> DynamicImage {
+        DynamicImage::ImageRgba8(RgbaImage::from_pixel(
+            4,
+            4,
+            ::image::Rgba([255, 255, 255, alpha]),
+        ))
+    }
+
+    /// A 4×4 white 16-bit overlay of 16-bit alpha `alpha` (no alpha at 8 bits
+    /// when `alpha` is small).
+    fn white_overlay16(alpha: u16) -> DynamicImage {
+        DynamicImage::ImageRgba16(::image::ImageBuffer::from_pixel(
+            4,
+            4,
+            ::image::Rgba([65535u16, 65535, 65535, alpha]),
+        ))
+    }
+
+    fn image_mark(overlay: DynamicImage, opacity: f32) -> Watermark {
+        watermark(overlay, Gravity::SouthEast, opacity, None, 0, false)
+    }
+
+    /// A black 16-bit RGB image: any alpha that survives changes a sample.
+    fn black16(w: u32, h: u32) -> Image {
+        Image::from_parts(
+            DynamicImage::ImageRgb16(::image::ImageBuffer::from_pixel(
+                w,
+                h,
+                ::image::Rgb([0u16, 0, 0]),
+            )),
+            ImageFormat::Png,
+            None,
+        )
+    }
+
+    #[test]
+    fn invisible_mark_names_each_cause() {
+        let white = [255, 255, 255, 255];
+        let clear = [255, 255, 255, 0];
+        // Negative controls: a normal text and a normal image mark draw.
+        assert_eq!(
+            text_mark_with("hi", 32.0, white, 1.0).invisible_mark(),
+            None
+        );
+        assert_eq!(image_mark(white_overlay8(255), 1.0).invisible_mark(), None);
+        // Ideographic space has no glyph, so the font's fallback box is drawn.
+        assert_eq!(
+            text_mark_with("\u{3000}", 32.0, white, 1.0).invisible_mark(),
+            None
+        );
+
+        assert_eq!(
+            text_mark_with("hi", 32.0, white, 0.0).invisible_mark(),
+            Some(InvisibleMark::OpacityZero)
+        );
+        assert_eq!(
+            image_mark(white_overlay8(255), 0.0).invisible_mark(),
+            Some(InvisibleMark::OpacityZero)
+        );
+        assert_eq!(
+            text_mark_with("hi", 32.0, clear, 1.0).invisible_mark(),
+            Some(InvisibleMark::TransparentColor)
+        );
+        assert_eq!(
+            text_mark_with(" ", 32.0, white, 1.0).invisible_mark(),
+            Some(InvisibleMark::BlankText)
+        );
+        assert_eq!(
+            text_mark_with("© crustyimg", 0.01, white, 1.0).invisible_mark(),
+            Some(InvisibleMark::TextTooSmall)
+        );
+        assert_eq!(
+            image_mark(white_overlay8(0), 1.0).invisible_mark(),
+            Some(InvisibleMark::TransparentImage)
+        );
+        assert_eq!(
+            image_mark(white_overlay8(255), 0.000001).invisible_mark(),
+            Some(InvisibleMark::TooFaint)
+        );
+
+        // The order: opacity, then colour, then blank text before too small.
+        assert_eq!(
+            text_mark_with("hi", 32.0, clear, 0.0).invisible_mark(),
+            Some(InvisibleMark::OpacityZero)
+        );
+        assert_eq!(
+            text_mark_with(" ", 32.0, clear, 1.0).invisible_mark(),
+            Some(InvisibleMark::TransparentColor)
+        );
+        assert_eq!(
+            text_mark_with(" ", 0.01, white, 1.0).invisible_mark(),
+            Some(InvisibleMark::BlankText)
+        );
+    }
+
+    #[test]
+    fn invisible_mark_threshold_follows_the_largest_alpha() {
+        let cause = |overlay, opacity| image_mark(overlay, opacity).invisible_mark();
+        // Opaque: alpha16 65535, so round(65535 × op) is 0 below 0.0000077.
+        assert_eq!(
+            cause(white_overlay8(255), 0.0000076),
+            Some(InvisibleMark::TooFaint)
+        );
+        assert_eq!(cause(white_overlay8(255), 0.0000077), None);
+        assert_eq!(cause(white_overlay8(255), 0.001), None);
+        // Alpha8 1 is alpha16 257: it needs 0.002, where `65535 × op` would
+        // already pass at 0.0019.
+        assert_eq!(
+            cause(white_overlay8(1), 0.0019),
+            Some(InvisibleMark::TooFaint)
+        );
+        assert_eq!(cause(white_overlay8(1), 0.002), None);
+        // A 16-bit overlay of alpha16 4 has no alpha at 8 bits and still draws
+        // at opacity 1.
+        assert_eq!(cause(white_overlay16(4), 1.0), None);
+        assert_eq!(cause(white_overlay16(4), 0.13), None);
+        assert_eq!(
+            cause(white_overlay16(4), 0.1),
+            Some(InvisibleMark::TooFaint)
+        );
+    }
+
+    #[test]
+    fn invisible_mark_agrees_with_the_composite() {
+        let overlays: [(&str, DynamicImage); 3] = [
+            ("opaque", white_overlay8(255)),
+            ("alpha8 1", white_overlay8(1)),
+            ("alpha16 4", white_overlay16(4)),
+        ];
+        let opacities = [
+            0.0, 0.000001, 0.0000076, 0.0000077, 0.0001, 0.0019, 0.002, 0.1, 0.13, 1.0,
+        ];
+        let (mut drawn, mut refused) = (0, 0);
+        for (name, overlay) in &overlays {
+            for opacity in opacities {
+                let op = image_mark(overlay.clone(), opacity);
+                let input = black16(64, 48);
+                let before = input.pixels().as_bytes().to_vec();
+                let out = op
+                    .apply(input)
+                    .expect("a 4×4 mark fits and is under the cap");
+                let changed = out.pixels().as_bytes() != before.as_slice();
+                assert_eq!(
+                    op.invisible_mark().is_none(),
+                    changed,
+                    "{name} at opacity {opacity}"
+                );
+                if changed {
+                    drawn += 1;
+                } else {
+                    refused += 1;
+                }
+            }
+        }
+        assert_eq!(drawn + refused, 30);
+        assert!(drawn > 0 && refused > 0, "both outcomes: {drawn}/{refused}");
+    }
+
+    #[test]
+    fn from_params_refuses_a_mark_that_draws_nothing() {
+        let reason = |params: &OperationParams| match Watermark::from_params(params) {
+            Err(RegistryError::InvalidParams {
+                op: "watermark",
+                reason,
+            }) => reason,
+            Err(other) => panic!("expected InvalidParams, got {other:?}"),
+            Ok(_) => panic!("expected a refusal"),
+        };
+
+        let mut map = BTreeMap::new();
+        map.insert("text".to_owned(), toml::Value::String("hi".to_owned()));
+        map.insert("opacity".to_owned(), toml::Value::Integer(0));
+        assert_eq!(
+            reason(&OperationParams::from_map(map)),
+            "'opacity' = 0 draws no mark; to leave images unmarked, remove this step"
+        );
+
+        let mut png = Vec::new();
+        white_overlay8(255)
+            .write_to(&mut std::io::Cursor::new(&mut png), ImageFormat::Png)
+            .unwrap();
+        let mut map = BTreeMap::new();
+        map.insert(
+            "image".to_owned(),
+            toml::Value::String("logo.png".to_owned()),
+        );
+        map.insert("opacity".to_owned(), toml::Value::Float(0.000001));
+        let mut params = OperationParams::from_map(map);
+        params.set_resolved_bytes("image", png);
+        assert_eq!(
+            reason(&params),
+            "'opacity' = 0.000001 is too faint: the mark would draw no visible pixel; \
+             use a larger opacity"
         );
     }
 

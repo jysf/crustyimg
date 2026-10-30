@@ -390,16 +390,14 @@ out = "dist"
     let out = build(root, &[]);
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert_eq!(out.status.code(), Some(1), "stderr: {stderr}");
+    // `build` names the target on one line and the step on the next.
     let errors: Vec<&str> = stderr.lines().filter(|l| l.starts_with("error:")).collect();
-    assert_eq!(errors.len(), 1, "one error line: {stderr}");
+    assert_eq!(errors.len(), 2, "target line and step line: {stderr}");
     assert!(errors[0].contains("target #0"), "{}", errors[0]);
-    assert!(
-        errors[0].contains(
-            "recipe step 0 ('watermark'): 'opacity' = 0 draws no mark; \
-             to leave images unmarked, remove this step"
-        ),
-        "{}",
-        errors[0]
+    assert_eq!(
+        errors[1],
+        "error: recipe step 0 ('watermark'): 'opacity' = 0 draws no mark; \
+         to leave images unmarked, remove this step"
     );
     assert!(!root.join("dist").exists(), "no output is written");
 }

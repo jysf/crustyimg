@@ -780,6 +780,7 @@ fn watermark_to_out(dir: &Path, input: &str, args: &[&str]) -> std::process::Out
 /// the input untouched.
 fn assert_refused_on_cli(dir: &Path, input: &str, args: &[&str], expected: &str) {
     let before = std::fs::read(dir.join(input)).ok();
+    let _ = std::fs::remove_file(dir.join("out.png"));
     let output = watermark_to_out(dir, input, args);
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert_eq!(output.status.code(), Some(2), "{args:?}: {stderr}");
