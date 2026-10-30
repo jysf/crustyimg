@@ -153,20 +153,55 @@ jobs:
 
 ### Shrink images when you deploy
 
-`setup-crustyimg` puts the CLI on `PATH`, so any crustyimg command can run in a build. This resizes
-every photo to at most 1600 px and re-encodes it, keeping the original format so your links still
-work:
+`setup-crustyimg` puts the CLI on `PATH`, so any crustyimg command can run in a build. The
+simplest is `crustyimg web`, which runs the bundled `web` recipe on each image: it turns the
+photo upright, removes its metadata, shrinks it, and writes the smallest modern format (AVIF for
+photos, lossless WebP or PNG for graphics):
 
 ```yaml
       - uses: jysf/setup-crustyimg@v1
-      - run: crustyimg optimize 'assets/photos/*' --profile preserve --max 1600 --out-dir _site/assets/photos -y
+      - run: crustyimg web 'assets/photos/*' --max 1600 --out-dir _site/assets/photos -y
 ```
 
-`--out-dir` puts every output file directly in that folder, so run it once per folder if you want
-to keep subfolders. Without `--profile preserve`, `optimize` picks the smallest format for each
-image (often AVIF), which changes file extensions. The example repo's
-[`pages.yml`](https://github.com/jysf/crustyimg-example/blob/main/.github/workflows/pages.yml) also
-writes a before-and-after size table to the run summary.
+`web` picks the format per image, so `photo.jpg` usually comes out as `photo.avif`, and your
+pages need to link to the new name. To keep a JPEG for browsers that can't show AVIF, write both
+and serve them in a `<picture>`. `--out-dir` puts every output file directly in that folder, so
+run it once per folder if you want to keep subfolders.
+
+To keep the original format and file names instead, use
+`crustyimg optimize 'assets/photos/*' --profile preserve --max 1600 --out-dir _site/assets/photos -y`.
+
+#### Your own recipes, with `crustyimg build`
+
+For more than one kind of output, write the steps as TOML recipes and list them in a
+`crustyimg.build.toml`:
+
+```toml
+# crustyimg.build.toml
+version = 1
+
+[[target]]                       # the smallest modern format
+source = "assets/photos/*.jpg"
+recipe = "recipes/portfolio.toml"
+out    = "_site/assets/photos"
+
+[[target]]                       # the same recipe, as a JPEG fallback
+source = "assets/photos/*.jpg"
+recipe = "recipes/portfolio.toml"
+out    = "_site/assets/photos"
+name   = "{stem}.jpg"
+```
+
+Then the workflow step is just `crustyimg build`. A recipe can crop to an exact size, add a text
+or logo watermark, and pin its output format. The example repo's
+[`recipes/`](https://github.com/jysf/crustyimg-example/tree/main/recipes) folder has three: signed
+portfolio photos, plain guest photos, and a 1200×630 JPEG card for link previews. Its
+[`pages.yml`](https://github.com/jysf/crustyimg-example/blob/main/.github/workflows/pages.yml)
+writes a before-and-after size table to the run summary. The recipe format is in
+[`recipes/README.md`](../recipes/README.md).
+
+A target whose `source` matches no files stops the whole build. If a folder can be empty, put its
+targets in a second manifest and run that one only when the folder has images.
 
 ### Catch problems before they're committed
 
