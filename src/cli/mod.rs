@@ -852,6 +852,40 @@ pub fn run() -> ExitCode {
     }
 }
 
+/// The output flags `build` refuses that were given, one message each, in the order
+/// `GlobalArgs` declares them. None of the four has a clap default, so `is_some()`
+/// means the user typed the flag, whatever its value. clap does not record which
+/// spelling matched, so `-o` names both (`-o/--output`), as `--help` lists it.
+fn refused_build_flags(global: &GlobalArgs) -> Vec<&'static str> {
+    let mut refused = Vec::new();
+    if global.output.is_some() {
+        refused.push(
+            "build does not take -o/--output: the manifest says where a build writes; \
+             set the target's out and name instead",
+        );
+    }
+    if global.out_dir.is_some() {
+        refused.push(
+            "build does not take --out-dir: the manifest says where a build writes; \
+             set the target's out instead",
+        );
+    }
+    if global.name_template.is_some() {
+        refused.push(
+            "build does not take --name-template: the manifest names a build's outputs; \
+             set the target's name instead",
+        );
+    }
+    if global.format.is_some() {
+        refused.push(
+            "build does not take --format: the manifest sets a build's output format; \
+             give the target's name an extension (name = \"{stem}.png\") or set format \
+             in its recipe instead",
+        );
+    }
+    refused
+}
+
 // ── Dispatch ─────────────────────────────────────────────────────────────────
 
 /// Route the parsed CLI to the real handler or a stub.
@@ -870,6 +904,18 @@ fn dispatch(cli: &Cli) -> Result<(), CliError> {
              this subcommand"
                 .to_owned(),
         ));
+    }
+
+    // `build` takes its outputs from the manifest, so a global flag that would set an
+    // output's path, name or format is refused rather than ignored: exit 0 with the
+    // wrong output is the worse failure. This runs before the manifest, the lockfile
+    // or any input is read, and ahead of both `run_build` and `run_build_watching`.
+    if matches!(cli.command, Commands::Build { .. }) {
+        let refused = refused_build_flags(&cli.global);
+        if !refused.is_empty() {
+            // `run` prefixes the first line with `error: `; the join prefixes the rest.
+            return Err(CliError::Usage(refused.join("\nerror: ")));
+        }
     }
 
     match &cli.command {
