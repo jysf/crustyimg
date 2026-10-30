@@ -19,7 +19,7 @@
     <header class="bar">
       <a id="back" class="back" href="/">&larr; Albums</a>
       <span id="site-name" class="site-name"></span>
-      <span id="engine" class="engine" aria-live="polite">Loading the engine&hellip;</span>
+      <span id="engine" class="engine" aria-live="polite"></span>
     </header>
 
     <main>
@@ -92,6 +92,10 @@
                   <input type="color" id="wm-color" name="wm-color" value="#ffffff" />
                 </label>
               </div>
+              <p id="wm-capped" class="hint" hidden>
+                Made smaller to fit this photo: at the chosen size the text would be wider
+                than the image.
+              </p>
               <label>
                 Opacity <output id="wm-opacity-out">60%</output>
                 <input
@@ -120,8 +124,11 @@
               </select>
             </label>
             <p class="hint">
-              JPEG is tuned to the smallest file that still looks like the edit. AVIF uses a
-              fixed high quality. The similarity score is out of 100, where 100 is identical.
+              JPEG searches for the smallest file that scores 90 for similarity to the edit,
+              out of 100 where 100 is identical. On a photo that is already a lossy web copy
+              this often means a high quality and a large file. AVIF uses a fixed high
+              quality. "Let the engine choose" picks the smallest file at a high but not
+              identical quality, usually AVIF.
             </p>
           </fieldset>
 
@@ -139,7 +146,18 @@
               the CLI's <code>optimize</code> step uses a fast fixed quality, while this page
               searches for the smallest file that still looks like the edit.
             </p>
+            <p class="hint caveat">
+              <strong>Colours:</strong> the CLI does not yet convert colour profiles. On an
+              original in Display P3 (most iPhone photos) or Adobe RGB, it drops the profile
+              without converting the colours, so the copy looks duller than this page's. Use
+              the page's download for those photos, or convert the original to sRGB first.
+            </p>
             <pre><code id="cli"></code></pre>
+            <p class="hint">
+              Run it in the folder your album's <code>base:</code> points to in
+              <code>albums.yaml</code>, with the recipe below saved there as
+              <code>edit.toml</code>. The photo's path is relative to that folder.
+            </p>
             <pre><code id="recipe"></code></pre>
             <button id="copy" type="button">Copy recipe</button>
           </details>

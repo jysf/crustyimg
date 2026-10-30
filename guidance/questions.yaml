@@ -52,6 +52,12 @@ questions:
       PRESERVE across the pixel lane (the `optimize` selective-preserve upgrade,
       DEC-024 follow-up), and (b) TIFF/WebP coverage. Keep open until those land.
 
+      2026-10-29: (a) is answered NO on 0.8.0. `resize`, `optimize` and `apply`
+      write no ICC segment for a Display P3 JPEG, and the colours shift because
+      the pixels are not converted either. Filed as a spec-backlog item in
+      PROJ-013 STAGE-052 (keep the profile now; convert via PROJ-012's `qcms`
+      item later). Close this question when that spec ships.
+
   - id: avc-patent-exposure-for-an-independent-decoder
     question: "Does an independently-implemented (non-Cisco) H.264/H.265 decoder, distributed inside a permissively-licensed binary, carry AVC/HEVC patent-pool exposure?"
     priority: medium
