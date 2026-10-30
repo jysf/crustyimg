@@ -624,7 +624,7 @@ extension** (`name = "{stem}.png"`) pins that format and skips the decision, mat
 `apply --recipe web -o hero.png`; a template using **`{ext}`** (including the default
 `{stem}.{ext}`) lets the fast AVIF-aware decision choose per input, matching
 `apply --recipe web` — **unless the recipe itself declares `format`**, in which case that pins
-too (`build` has no `--format`/`-o` of its own — DEC-098 — so the template and the recipe's
+too (`build` has no `--format`/`-o` of its own, and refuses them with exit 2 — DEC-098 — so the template and the recipe's
 `format` are its only two ways to pin; the template wins when both are present). A plain pixel
 recipe (no terminal `optimize`) is likewise pinned by its own `format`, if set; otherwise `build`
 preserves each input's own source format, as it always has. **Quality:** the global `-q` (if

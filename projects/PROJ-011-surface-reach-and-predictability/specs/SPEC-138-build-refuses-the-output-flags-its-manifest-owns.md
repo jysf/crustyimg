@@ -7,7 +7,7 @@
 task:
   id: SPEC-138
   type: bug                        # epic | story | task | bug | chore
-  cycle: build  # frame | design | build | verify | ship
+  cycle: verify  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: S                    # S | M | L  (L means split it)
@@ -88,6 +88,25 @@ cost:
         Priced at Opus $5/$25 per MTok, cache_creation x1.25, cache_read x0.10. Measured before
         the commit/push turns, so it slightly under-counts. Excludes the two release builds
         (main + key mutant), which cost machine time, not tokens.
+    - cycle: build
+      agent: claude-sonnet-5-5
+      interface: claude-code
+      tokens_total: 5060494
+      tokens_breakdown:
+        input: 88
+        output: 25070
+        cache_creation: 112941
+        cache_read: 4922395
+      estimated_usd: 2.28
+      duration_minutes: null
+      recorded_at: 2026-10-29
+      note: >
+        Worktree feat-spec-138-build-refuses-output-flags. Measured from the transcript
+        identified by content ("SPEC-138 — BUILD prompt"), deduped by `.message.id` (42 unique
+        ids, all claude-sonnet-5-5), input/cache_creation/cache_read once per id, MAX
+        output_tokens. Priced at Sonnet $3/$15 per MTok, cache_creation x1.25, cache_read
+        x0.10. Measured before the final commit/PR turns, so it slightly under-counts.
+        Excludes machine time for the release builds and the three-leg matrix.
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -764,37 +783,58 @@ clap's global propagation, not this guard), but it is a cheap guard against a fu
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
-- **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
-- **Files this diff touches** — **list every one**, with a phrase on what changed
-  in each. Not "src/foo and tests": the enumeration is what a verify cycle diffs
-  the real change against, and what tells you whether every affected `DEC-*` has
-  the path in its `affected_scope`. SPEC-122's Deviations claimed "`src/operation`
-  and `tests/` only" and was wrong by two `scripts/` files, which left
-  `affected_scope` blind; SPEC-124's build added this section by hand after that
-  lesson and still listed 8 of its 9 files. It is a checklist because it is easy
-  to get wrong from memory — build it from `git diff --name-only`, not recall.
-  - `path/to/file` — <what changed>
-- **Deviations from spec:**
-  - [list]
-- **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+- **Branch:** `feat/spec-138-build-refuses-output-flags`
+- **PR (if applicable):** draft, see the PR description
+- **All acceptance criteria met?** yes (AC-1 to AC-15 by FT-1 to FT-15; AC-16 and AC-17 below)
+- **New decisions emitted:** none (DEC-057 and DEC-105 amended)
+- **Files this diff touches** (from `git diff --name-only origin/main...HEAD`):
+  - `src/cli/mod.rs`: the guard in `dispatch`, private `refused_build_flags`, FT-15 in `mod tests`
+  - `tests/build_refuses_output_flags.rs`: new, FT-1 to FT-14
+  - `docs/cli-reference.md`: four global-option rows end "Refused by `build` (exit `2`)."; paragraph in `build [FILE]`
+  - `docs/api-contract.md`: one clause on line 626
+  - `CHANGELOG.md`: `### Breaking` entry under `[Unreleased]`
+  - `decisions/DEC-057-build-manifest-format-and-build-semantics.md`: two Neutral bullets amended
+  - `decisions/DEC-105-an-output-names-extension-pins-the-format-on-every-verb.md`: rule 2 clause
+- **Commit 1:** `277391d`; `git show 277391d -- src/` is one hunk (`@@ -1517,4 +1517,55 @@`),
+  inside `mod tests` (opens at line 1069). No other `src/` change.
+- **RED baseline on `main`** (integration tests run against unmodified `src/`; FT-15 does not
+  compile, as the spec says): FT-1, 2, 3, 4, 5, 6, 7: exit 0 (and 7 files written);
+  FT-8: exit 3; FT-9: exit 2 with "could not parse build manifest"; FT-10: exit 7;
+  FT-11: still running at the 20 s deadline; FT-12: exit 2 with "--watch cannot be combined".
+  FT-13 and FT-14 GREEN. 12 RED, 2 GREEN, each for the spec's reason.
+- **Mutations** (clean rebuild each; source restored, `git status` clean for `src/`):
+  - drop `out_dir`: FT-3, FT-5, FT-6, FT-7, FT-9, FT-15
+  - drop `output`: FT-2, FT-5, FT-7, FT-10, FT-12, FT-15
+  - drop `name_template`: FT-4, FT-5, FT-7, FT-11, FT-15
+  - drop `format`: FT-1, FT-5, FT-6, FT-7, FT-8, FT-10, FT-11, FT-15
+  - guard skipped on the watch path: FT-11, FT-12
+  - guard moved into `run_build` after the manifest loads: FT-8, FT-9, plus FT-11 and FT-12
+    (superset: `run_build` is not on the watch path)
+  - print only the first refused flag: FT-7
+  - also refuse `quality`: FT-13, FT-15
+  - `hasher.update(b"x")` in the `Preserve` arm: `compare-builds.sh` exit 1, `LOCKFILE DIFFERS`,
+    one `key =` line; restored build prints `IDENTICAL`.
+- **Byte identity:** `git diff --stat origin/main...HEAD -- src/build/ src/cli/build.rs` is empty.
+  `compare-builds.sh` (merge-base release binary vs head): `IDENTICAL: lockfile and 3 outputs`.
+- **Matrix** (fresh `CARGO_TARGET_DIR` each, sequential; `fmt --check` clean): default 1115 pass,
+  `--no-default-features` 1053 pass, `--features webp-lossy` 1120 pass; clippy `-D warnings`
+  clean on all three. `decisions-audit.sh`: warnings only, all existing scope overlaps.
+- **README.md:** `grep -n 'build' README.md` shows no flag line that names these four; no change.
+- **Deviations from spec:** none.
+- **Follow-up work identified:** none.
 
 ### Build-phase reflection (3 questions, short answers)
 
 Process-focused: how did the build go? What friction did the spec create?
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — Nothing; the exact messages and the mutation table made it mechanical.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — No.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Nothing material. No design call turned out wrong.
 
 ---
 

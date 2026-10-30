@@ -132,10 +132,16 @@ boundary); DEC-015 (partial-batch exit 6).
 - **Neutral:**
   - `version` is an **integer** here (`version = 1`), where a recipe's is a string
     (`version = "1"`). The manifest is new, so it gets the type it should have had.
-  - `-o`/`--out-dir`/`--name-template` are ignored by `build` — the manifest declares them.
+  - `-o`/`--output`, `--out-dir`, `--name-template` and `--format` are **refused** by `build`
+    and `build --watch` (exit 2, before the manifest is read): the manifest declares each
+    target's `out`, `name` and, through the name's extension or the recipe's `format`, its
+    output format. *(Amended 2026-10-28: through 0.8.0 they were accepted and silently
+    ignored.)*
   - Targets run sequentially; each target's inputs fan out over rayon (`-j` bounds the pool).
   - Output format follows the source format (as `apply`'s batch path does). A per-target
     `format`/`quality` override is deliberate future scope, not an oversight.
+    *(Since then the target's `name` extension and the recipe's `format` pin it: DEC-087,
+    DEC-099, DEC-105.)*
 
 ## Hardening
 

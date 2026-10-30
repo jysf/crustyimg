@@ -852,6 +852,40 @@ pub fn run() -> ExitCode {
     }
 }
 
+/// The output flags `build` refuses that were given, one message each, in the order
+/// `GlobalArgs` declares them. None of the four has a clap default, so `is_some()`
+/// means the user typed the flag, whatever its value. clap does not record which
+/// spelling matched, so `-o` names both (`-o/--output`), as `--help` lists it.
+fn refused_build_flags(global: &GlobalArgs) -> Vec<&'static str> {
+    let mut refused = Vec::new();
+    if global.output.is_some() {
+        refused.push(
+            "build does not take -o/--output: the manifest says where a build writes; \
+             set the target's out and name instead",
+        );
+    }
+    if global.out_dir.is_some() {
+        refused.push(
+            "build does not take --out-dir: the manifest says where a build writes; \
+             set the target's out instead",
+        );
+    }
+    if global.name_template.is_some() {
+        refused.push(
+            "build does not take --name-template: the manifest names a build's outputs; \
+             set the target's name instead",
+        );
+    }
+    if global.format.is_some() {
+        refused.push(
+            "build does not take --format: the manifest sets a build's output format; \
+             give the target's name an extension (name = \"{stem}.png\") or set format \
+             in its recipe instead",
+        );
+    }
+    refused
+}
+
 // ── Dispatch ─────────────────────────────────────────────────────────────────
 
 /// Route the parsed CLI to the real handler or a stub.
@@ -870,6 +904,18 @@ fn dispatch(cli: &Cli) -> Result<(), CliError> {
              this subcommand"
                 .to_owned(),
         ));
+    }
+
+    // `build` takes its outputs from the manifest, so a global flag that would set an
+    // output's path, name or format is refused rather than ignored: exit 0 with the
+    // wrong output is the worse failure. This runs before the manifest, the lockfile
+    // or any input is read, and ahead of both `run_build` and `run_build_watching`.
+    if matches!(cli.command, Commands::Build { .. }) {
+        let refused = refused_build_flags(&cli.global);
+        if !refused.is_empty() {
+            // `run` prefixes the first line with `error: `; the join prefixes the rest.
+            return Err(CliError::Usage(refused.join("\nerror: ")));
+        }
     }
 
     match &cli.command {
@@ -1516,5 +1562,60 @@ mod tests {
             CliError::Image(ImageError::LimitsExceeded("x".into())).code(),
             1
         );
+    }
+
+    // ── refused_build_flags ──────────────────────────────────────────────────
+
+    /// The guard reads `Option::is_some()`, which is exact only while none of the four
+    /// flags has a clap default: a default would make a bare `build` look like it was
+    /// given the flag. The bare-`build` row below goes red if one is added.
+    #[test]
+    fn refused_build_flags_lists_only_the_given_flags_in_order() {
+        const OUTPUT: &str = "-o/--output: the manifest says where a build writes; set the target's out and name instead";
+        const OUT_DIR: &str =
+            "--out-dir: the manifest says where a build writes; set the target's out instead";
+        const NAME_TEMPLATE: &str =
+            "--name-template: the manifest names a build's outputs; set the target's name instead";
+        const FORMAT: &str = "--format: the manifest sets a build's output format; give the target's name an extension (name = \"{stem}.png\") or set format in its recipe instead";
+        let refused = |args: &[&str]| {
+            let cli = Cli::try_parse_from(args).expect("should parse");
+            refused_build_flags(&cli.global)
+                .into_iter()
+                .map(|line| {
+                    line.strip_prefix("build does not take ")
+                        .unwrap()
+                        .to_owned()
+                })
+                .collect::<Vec<_>>()
+        };
+
+        let bare = Cli::try_parse_from(["crustyimg", "build"]).unwrap();
+        assert!(bare.global.output.is_none());
+        assert!(bare.global.out_dir.is_none());
+        assert!(bare.global.name_template.is_none());
+        assert!(bare.global.format.is_none());
+        assert!(refused(&["crustyimg", "build"]).is_empty());
+
+        assert_eq!(
+            refused(&["crustyimg", "build", "--format", "png"]),
+            [FORMAT]
+        );
+        assert_eq!(
+            refused(&[
+                "crustyimg",
+                "build",
+                "--format",
+                "png",
+                "--name-template",
+                "{stem}.png",
+                "--out-dir",
+                "d",
+                "-o",
+                "x.png",
+            ]),
+            [OUTPUT, OUT_DIR, NAME_TEMPLATE, FORMAT]
+        );
+        // `build`'s own flags are not refused.
+        assert!(refused(&["crustyimg", "build", "-q", "50", "--no-cache"]).is_empty());
     }
 }

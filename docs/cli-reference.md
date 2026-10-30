@@ -30,10 +30,10 @@ Available on every command (before or after the subcommand):
 
 | Option | Short | Description |
 |---|---|---|
-| `--output <PATH>` | `-o` | Output file for single-input commands. `-` = stdout. |
-| `--out-dir <DIR>` | | Output directory for multi-input / batch commands (created if missing). |
-| `--name-template <T>` | | Output name template, e.g. `{stem}_web.{ext}` (`{stem}`, `{ext}`). |
-| `--format <FMT>` | | Force the output format (else inferred from the output name's extension — `-o`, or the `--name-template` — or kept). |
+| `--output <PATH>` | `-o` | Output file for single-input commands. `-` = stdout. Refused by `build` (exit `2`). |
+| `--out-dir <DIR>` | | Output directory for multi-input / batch commands (created if missing). Refused by `build` (exit `2`). |
+| `--name-template <T>` | | Output name template, e.g. `{stem}_web.{ext}` (`{stem}`, `{ext}`). Refused by `build` (exit `2`). |
+| `--format <FMT>` | | Force the output format (else inferred from the output name's extension — `-o`, or the `--name-template` — or kept). Refused by `build` (exit `2`). |
 | `--quality <0-100>` | `-q` | Encoder quality where the format supports it (e.g. JPEG). |
 | `--jobs <N>` | `-j` | Parallel workers for `apply` batch (default = CPU count). |
 | `--yes` | `-y` | Assume "yes" to overwrite prompts (non-interactive). |
@@ -335,6 +335,11 @@ and exit `6`; a malformed manifest exits `2`; a missing manifest or recipe exits
 Unlike `apply`, `build` **overwrites its own declared outputs without `--yes`** — a build
 owns its output tree and must be re-runnable (DEC-057). It only ever writes inside each
 target's `out` directory.
+
+`build` takes no `-o`/`--output`, `--out-dir`, `--name-template` or `--format`: each
+target's `out` and `name` say where it writes, and the name's extension or the recipe's
+`format` sets the output format. Passing one of those flags is a usage error (exit `2`) and
+nothing is built.
 
 ```toml
 # crustyimg.build.toml

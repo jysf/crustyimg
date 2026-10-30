@@ -13,6 +13,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   input into `pkg-slim/`, for pages that never see an SVG. See
   `integrations/ddphotos/` for the first user.
 
+### Breaking
+
+- **`build` now refuses `--format`, `-o`/`--output`, `--out-dir` and `--name-template`**
+  (exit `2`, nothing written), including with `--watch` and `--check`. A build's outputs are
+  declared in its manifest, and these flags used to be accepted and silently ignored:
+  `build --format png` exited `0` and wrote no PNG. Set the format with the target's `name`
+  extension (`name = "{stem}.png"`) or the recipe's `format`, and the location with the
+  target's `out` and `name`. Drop these flags from any script that passes them to `build`.
+
 ### Changed
 
 - **SVG input is now the `svg` feature, on by default.** Release binaries, `cargo install`,
