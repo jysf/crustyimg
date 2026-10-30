@@ -172,8 +172,34 @@ came with them; nothing was summarised away.
   **Related and separate:** `MAX_AREA` bounds the OUTPUT buffer, not the peak, and still does its
   documented job (`src/operation/mod.rs:870-885`). Whether that bound should move for untrusted
   input is its own decision, recorded in the comment and in DEC-095 — **not a regression.**
+- [ ] (not yet written) — [S] ⚠ **PRIORITY: pixel-lane verbs drop a non-sRGB ICC profile without
+  converting the pixels, so Display P3 and Adobe RGB photos come out visibly duller.** iPhone photos
+  are Display P3, so this is the common case, not an edge one. Found 2026-10-29 by the ddphotos test
+  bed (the edit page prints a `crustyimg apply` command to run on the original), and re-driven here
+  on the released 0.8.0 binary with a Display P3 JPEG: `resize --max 800`, `optimize`, and `apply`
+  with a resize recipe (with and without an `optimize` step) all write **no ICC segment** (checked
+  for the `ICC_PROFILE` APP2 marker; `sips` reports "sRGB" for a file with no profile, so it cannot
+  see this). The test bed measured the colour error against a colour-managed conversion: mean
+  **2.6 levels (P3) and 4.1 (Adobe RGB)**, about **60 levels in saturated areas**.
+  **This contradicts two records**: DEC-003 says ICC survives transforms (its 2026-08-04 amendment
+  kept that claim and said a contrary finding gets its own spec, not a fix inside another), and
+  DEC-095 says "crustyimg carries ICC profiles through but does not interpret them".
+  `metadata-icc-coverage` in `guidance/questions.yaml` already lists "encode-time ICC PRESERVE
+  across the pixel lane" as still open.
+  **Two fixes, and they are not the same size:**
+  1. **Keep the profile** on pixel-lane encodes. The pixels stay in the source's space and a
+     colour-managed viewer shows them right. This is what DEC-003 and DEC-095 already claim, so it
+     needs no new decision. P3 and Adobe RGB use near-sRGB transfer curves, so DEC-095's
+     assumed-sRGB resampling stays close for them. Open: what each encoder can embed (JPEG APP2,
+     PNG `iCCP`, WebP `ICCP`, AVIF `colr`), and whether `optimize`'s metadata stripping keeps it.
+  2. **Convert to sRGB when stripping** — the right answer for the web, and what photogen does. That
+     is PROJ-012's "ICC colour transforms (`qcms` only)" item; do not duplicate it here.
+  The proposal is 1 now, 2 when PROJ-012 runs. ⚠ Prove it with a decoder crustyimg did not write
+  (`exiftool`/`vips` for the profile, a colour-managed render for the colours) and a negative
+  control that fails on today's binary. Until it lands, the ddphotos edit page's CLI hint carries
+  the caveat (`integrations/ddphotos/edit/index.html`).
 
-**Count:** 0 shipped / 0 active / **7 pending** — re-derive with a grep you just ran.
+**Count:** 0 shipped / 0 active / **8 pending** — re-derive with a grep you just ran.
 
 ## Stage-Level Reflection
 

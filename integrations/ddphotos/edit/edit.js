@@ -13,29 +13,37 @@ const $ = (id) => document.getElementById(id);
 
 // ── the engine, in a worker ──────────────────────────────────────────────────
 
-const worker = new Worker(new URL("./worker.js", import.meta.url), { type: "module" });
+// The worker, and so the multi-megabyte .wasm, starts only when the editor opens.
+// The album and photo pickers never need it.
+let worker = null;
 const pending = new Map();
 let nextId = 1;
-let engineReady;
-const engineBooted = new Promise((resolve, reject) => (engineReady = { resolve, reject }));
 
-worker.onmessage = ({ data }) => {
-  if (data.type === "ready") {
-    $("engine").textContent = "Engine ready";
-    $("engine-version").textContent = `v${data.version}`;
-    engineReady.resolve();
-    return;
-  }
-  if (data.type === "failed") {
-    $("engine").textContent = "Engine failed to load";
-    engineReady.reject(new Error(data.message));
-    return;
-  }
-  const p = pending.get(data.id);
-  if (!p) return;
-  pending.delete(data.id);
-  data.ok ? p.resolve(data) : p.reject(new Error(data.message));
-};
+/// Start the engine. Resolves once it is ready to take requests.
+function startEngine() {
+  $("engine").textContent = "Loading the engine…";
+  worker = new Worker(new URL("./worker.js", import.meta.url), { type: "module" });
+  let engineReady;
+  const booted = new Promise((resolve, reject) => (engineReady = { resolve, reject }));
+  worker.onmessage = ({ data }) => {
+    if (data.type === "ready") {
+      $("engine").textContent = "Engine ready";
+      $("engine-version").textContent = `v${data.version}`;
+      engineReady.resolve();
+      return;
+    }
+    if (data.type === "failed") {
+      $("engine").textContent = "Engine failed to load";
+      engineReady.reject(new Error(`The image engine could not start: ${data.message}`));
+      return;
+    }
+    const p = pending.get(data.id);
+    if (!p) return;
+    pending.delete(data.id);
+    data.ok ? p.resolve(data) : p.reject(new Error(data.message));
+  };
+  return booted;
+}
 
 function ask(type, payload = {}, transfer = []) {
   const id = nextId++;
@@ -60,11 +68,20 @@ function albumFileUrl(path, version) {
   return version ? `${url}?v=${encodeURIComponent(version)}` : url;
 }
 
-function showError(text, kind = "error") {
+/// Show a message above the page. `from` names what raised it, so the same thing
+/// can clear it once it works again (see clearError).
+function showError(text, kind = "error", from = "") {
   const el = $("error");
   el.className = kind; // "error", or "note" for information that is not a failure
   el.textContent = text;
+  el.dataset.from = from;
   el.hidden = false;
+}
+
+/// Hide the message, if `from` raised it.
+function clearError(from) {
+  const el = $("error");
+  if (el.dataset.from === from) el.hidden = true;
 }
 
 function tile({ href, img, title, sub }) {
@@ -157,23 +174,74 @@ function tomlString(s) {
 
 let photo; // { album, entry, index, width, height }
 
+// Advance widths of crustyimg's bundled watermark font (Go Regular, 2048 units per
+// em) for U+0020..U+00FF; 0 marks the unused control range. The engine lays text
+// out as the plain sum of these advances (no kerning), so the page can tell how
+// wide a mark will be before asking for it. Characters outside this range use the
+// font's widest advance, which can only overestimate.
+// prettier-ignore
+const GO_ADVANCE = [
+  569,569,727,1139,1139,1821,1366,391,682,682,1196,1196,648,1196,648,569,1139,1139,1139,1139,1139,1139,1139,1139,1139,1139,627,627,1196,1196,1196,1139,
+  2079,1366,1366,1479,1479,1366,1251,1593,1479,817,1015,1366,1139,1706,1479,1593,1366,1593,1479,1366,1251,1479,1366,1933,1366,1366,1251,569,569,569,960,1139,
+  682,1139,1139,1024,1139,1139,569,1139,1139,505,519,1024,548,1706,1139,1139,1139,1139,682,1024,579,1139,1024,1479,1024,1024,1024,684,532,684,1196,0,
+  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+  569,682,1139,1139,1139,1139,532,1139,682,1509,758,1139,1196,682,1509,1139,819,1196,933,933,682,1139,1100,547,682,933,748,1139,1708,1708,1708,1251,
+  1366,1366,1366,1366,1366,1366,2048,1479,1366,1366,1366,1366,817,817,817,817,1489,1479,1593,1593,1593,1593,1593,1196,1593,1479,1479,1479,1479,1366,1366,1251,
+  1139,1139,1139,1139,1139,1139,1821,1024,1139,1139,1139,1139,505,505,505,505,1139,1139,1139,1139,1139,1139,1139,1196,1251,1139,1139,1139,1139,1024,1139,1024,
+];
+const GO_WIDEST = 2240;
+
+/// The width of `text` in ems of the bundled font.
+function textEms(text) {
+  let units = 0;
+  for (const ch of text) {
+    const cp = ch.codePointAt(0);
+    units += cp >= 0x20 && cp <= 0xff ? GO_ADVANCE[cp - 0x20] : GO_WIDEST;
+  }
+  return units / 2048;
+}
+
+/// The watermark's font size in pixels for an output of `outW` × `outH`.
+///
+/// The chosen size (Small, Medium, Large) is a fraction of the long edge, so the
+/// mark looks the same at any output size. On a portrait or a narrow photo that
+/// can make the text wider than the image, which the engine refuses. So the size
+/// is capped to keep the text within 90% of the width (after the margin), and to
+/// a tenth of the short edge, which keeps the mark's height and its share of the
+/// image well inside the engine's limits. `capped` says the cap applied.
+function watermarkSize(text, outW, outH, margin) {
+  const outLong = Math.max(outW, outH);
+  const wanted = Math.max(8, Math.round(outLong * Number($("wm-size").value)));
+  const fitsWidth = Math.floor((0.9 * (outW - margin)) / textEms(text));
+  const fitsHeight = Math.floor(0.1 * Math.min(outW, outH));
+  const size = Math.max(1, Math.min(wanted, fitsWidth, fitsHeight));
+  return { size, capped: size < wanted };
+}
+
 /// The edit as a crustyimg recipe: the same TOML the CLI reads.
 function readEdit() {
   const longEdge = Math.max(photo.width, photo.height);
   const target = Number($("size").value) || longEdge;
   const outLong = Math.min(target, longEdge);
-  const wm = $("wm-on").checked && $("wm-text").value.trim() !== "";
+  // The output's sides, as `resize` (mode "max") computes them.
+  const s = outLong / longEdge;
+  const outW = Math.round(photo.width * s);
+  const outH = Math.round(photo.height * s);
+  const text = $("wm-text").value.trim().replace(/[\r\n]+/g, " ");
+  const wm = $("wm-on").checked && text !== "";
+  // Margin scales with the output, like the size.
+  const margin = Math.round(outLong * 0.02);
+  const fit = wm ? watermarkSize(text, outW, outH, margin) : null;
   return {
     resize: target < longEdge ? target : null,
     outLong,
     watermark: wm
       ? {
-          text: $("wm-text").value.trim().replace(/[\r\n]+/g, " "),
+          text,
           gravity: $("wm-gravity").value,
-          // Size and margin scale with the output, so the mark looks the same at
-          // any size the user picks.
-          size: Math.max(8, Math.round(outLong * Number($("wm-size").value))),
-          margin: Math.round(outLong * 0.02),
+          size: fit.size,
+          capped: fit.capped,
+          margin,
           color: $("wm-color").value,
           opacity: Number($("wm-opacity").value),
         }
@@ -228,19 +296,25 @@ async function runPreview() {
   const seq = ++previewSeq;
   $("busy").hidden = false;
   try {
-    const reply = await ask("preview", { recipe: pixelRecipe(readEdit()) });
+    const edit = readEdit();
+    $("wm-capped").hidden = !edit.watermark?.capped;
+    const reply = await ask("preview", { recipe: pixelRecipe(edit) });
     if (seq !== previewSeq) return; // a newer edit superseded this one
     if (previewUrl) URL.revokeObjectURL(previewUrl);
     previewUrl = URL.createObjectURL(new Blob([reply.bytes], { type: "image/jpeg" }));
     $("preview").src = previewUrl;
+    clearError("preview"); // an earlier preview's failure no longer applies
   } catch (e) {
-    if (seq === previewSeq) showError(`Preview failed: ${e.message}`);
+    if (seq === previewSeq) showError(`Preview failed: ${e.message}`, "error", "preview");
   } finally {
     if (seq === previewSeq) $("busy").hidden = true;
   }
 }
 
 const EXT = { jpeg: "jpg", webp: "webp", avif: "avif", png: "png", gif: "gif" };
+
+// The similarity the engine's JPEG search aims for (its default target).
+const SIMILARITY_TARGET = 90;
 
 /// Single-quote a string for a POSIX shell.
 function shellQuote(s) {
@@ -274,7 +348,13 @@ async function makeCopy(event) {
     if (r.encoderQuality !== undefined) parts.push(`quality ${r.encoderQuality}`);
     if (r.score !== undefined) parts.push(`similarity ${r.score.toFixed(1)} / 100`);
     parts.push(`${(r.ms / 1000).toFixed(1)} s`);
-    $("result-summary").textContent = parts.join(" · ");
+    let summary = parts.join(" · ");
+    // The JPEG search aims for SIMILARITY_TARGET and stops at quality 100. Say so
+    // when even that could not reach it, rather than imply the target was met.
+    if (r.format === "jpeg" && r.score !== undefined && r.score < SIMILARITY_TARGET) {
+      summary += `. JPEG could not reach the ${SIMILARITY_TARGET} target on this photo, even at its highest quality.`;
+    }
+    $("result-summary").textContent = summary;
 
     const recipe = cliRecipe({ ...edit, format: edit.format || r.format });
     $("recipe").textContent = recipe;
@@ -322,7 +402,7 @@ async function showEditor(album, index, config) {
       if (!r.ok) throw new Error(`${url}: ${r.status}`);
       return r.arrayBuffer();
     }),
-    engineBooted,
+    startEngine(),
   ]);
   const meta = await ask("load", { bytes }, [bytes]);
   photo = { album, entry, index, width: meta.width, height: meta.height };
@@ -375,5 +455,4 @@ async function main() {
   return showEditor(album, n - 1, config);
 }
 
-engineBooted.catch((e) => showError(`The image engine could not start: ${e.message}`));
 main().catch((e) => showError(e.message));
