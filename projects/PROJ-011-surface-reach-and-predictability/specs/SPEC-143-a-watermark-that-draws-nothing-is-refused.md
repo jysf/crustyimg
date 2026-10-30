@@ -7,7 +7,7 @@
 task:
   id: SPEC-143
   type: bug                        # epic | story | task | bug | chore
-  cycle: build  # frame | design | build | verify | ship
+  cycle: verify  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: S                    # S | M | L  (L means split it)
@@ -96,6 +96,25 @@ cost:
         output_tokens per id. Priced by component at Opus $5/$25 per MTok, cache_creation x1.25,
         cache_read x0.10: $0.0003 + $0.99 + $1.94 + $1.69. Measured before the commit/push turns,
         so it slightly under-counts.
+    - cycle: build
+      agent: claude-sonnet-5-5
+      interface: claude-code
+      tokens_total: 8667901
+      tokens_breakdown:
+        input: 114
+        output: 47581
+        cache_creation: 167000
+        cache_read: 8453206
+      estimated_usd: 3.88
+      duration_minutes: null
+      recorded_at: 2026-10-30
+      note: >
+        Build session in its own worktree (feat-spec-143-refuse-invisible-watermark). Measured
+        from the session's transcript (8e0c9f1c-….jsonl, identified by content), deduped by
+        `.message.id` (57 unique ids, all claude-sonnet-5-5): input/cache_creation/cache_read once
+        per id, MAX output_tokens per id. Priced by component at Sonnet $3/$15 per MTok,
+        cache_creation x1.25 ($3.75), cache_read x0.10 ($0.30): $0.0003 + $0.63 + $2.54 + $0.71.
+        Measured before the commit/push of the record and the PR turns, so it slightly under-counts.
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -975,37 +994,93 @@ necessary during build, create a new spec rather than expanding this one.
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
-- **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
-- **Files this diff touches** — **list every one**, with a phrase on what changed
-  in each. Not "src/foo and tests": the enumeration is what a verify cycle diffs
-  the real change against, and what tells you whether every affected `DEC-*` has
-  the path in its `affected_scope`. SPEC-122's Deviations claimed "`src/operation`
-  and `tests/` only" and was wrong by two `scripts/` files, which left
-  `affected_scope` blind; SPEC-124's build added this section by hand after that
-  lesson and still listed 8 of its 9 files. It is a checklist because it is easy
-  to get wrong from memory — build it from `git diff --name-only`, not recall.
-  - `path/to/file` — <what changed>
+- **Branch:** `feat/spec-143-refuse-invisible-watermark`
+- **PR (if applicable):** draft, opened after this record (number in the build report)
+- **All acceptance criteria met?** yes (AC-1 to AC-14; two wording notes under Deviations)
+- **New decisions emitted:** none beyond DEC-109 (from design)
+- **Commits (in order, all `-s`):**
+  - `2ccbdaf` golden: 12 accepted cases and the `Base` enum, blessed on unmodified `src/`
+    (`git show 2ccbdaf -- src/` is empty)
+  - `a028d9d` integration tests FT-1 to FT-12, against unmodified `src/`
+  - `8a91c83` refactor: `faded_alpha16`, the 16-bit opacity loop calls it (FT-6 and
+    `opacity_does_not_change_coverage` green at this commit)
+  - `fe5d0de` the fix, with unit tests FT-13 to FT-16 (pushed as the WIP once it compiled)
+  - `9bb4d6e` docs, CHANGELOG and the DEC-106 pointer line
+- **Files this diff touches** (`git diff --name-only origin/main...HEAD`):
+  - `src/operation/mod.rs` — `faded_alpha16`, `max_alpha16`, `InvisibleMark`, the `max_alpha`
+    field, `invisible_mark()`, the `from_params` call and recipe messages, unit tests FT-13 to FT-16
+  - `src/cli/ops.rs` — the opacity-0 and colour-alpha-00 flag checks, the post-build call, the CLI
+    message `match`
+  - `src/cli/mod.rs` — `--opacity` help line, `--text` help
+  - `tests/watermark_cli_params.rs` — `Base` enum, 12-case golden, FT-1 to FT-5, FT-7
+  - `tests/fixtures/watermark/cli_params.golden` — 9 new lines
+  - `tests/recipe_watermark.rs` — FT-8 to FT-10
+  - `tests/build_watermark_cache.rs` — FT-11
+  - `tests/wasm_roundtrip.rs` — FT-12
+  - `CHANGELOG.md` — Unreleased, Breaking entry (Call 7)
+  - `docs/api-contract.md`, `docs/cli-reference.md`, `docs/data-model.md`,
+    `recipes/README.md`, `skills/crustyimg/SKILL.md` — the refusal, the opacity range, the
+    faint-mark sentence; `recipes/README.md` no longer says `opacity = 0` is drawn
+  - `decisions/DEC-106-….md` — one Consequences line pointing at DEC-109
+  - this spec file
+- **RED baseline on `main` (commits 1–2, unmodified `src/`):**
+  FT-1, FT-2, FT-3 RED (first refused row exits 0, nothing refused); FT-4 rows exit 3, 3, 3, 3, 3, 0
+  and the pinned `--font` row 3 (probed on the `main` binary); FT-7 RED (no `--opacity` help
+  line); FT-8 RED (exit 0); FT-9 RED (exit 3); FT-11 RED (exit 0); FT-12 RED (`transform`
+  returned `Ok`, wasm runner). FT-5, FT-6, FT-10 GREEN (the guards). FT-13 to FT-16 call the new API,
+  so they landed with the fix.
+- **Mutations** (each: patch applied, `git diff` non-empty, fresh `CARGO_TARGET_DIR`, restored,
+  tree clean after). Names are the tests that went red:
+  - M1 (no call in `from_params`): FT-8, FT-9, FT-11, FT-16; wasm FT-12 red. CLI rows green.
+  - M2 (no post-build call): FT-1, FT-2, FT-3, FT-4. Early-check rows and recipe rows green.
+  - M3 (no CLI flag checks): FT-4 only.
+  - M4a (no post-opacity step): FT-1, FT-2, FT-8, FT-13, FT-14, FT-15, FT-16. FT-3, FT-4 green.
+  - M5 (per-image check in `apply`): FT-1, FT-2, FT-3, FT-4, FT-8, FT-9, FT-11, FT-16, **and
+    FT-15** (see Deviations); wasm FT-12 red.
+  - M6 (8-bit precision): FT-2, FT-5, FT-6 (red at `faint_opacity`, which now exits 2),
+    FT-10, FT-14, FT-15.
+  - M7 (`65535 × op` shortcut): FT-1, FT-2, FT-14, FT-15.
+  - M8 (floor, `< 1.0`): FT-2, FT-6, FT-10, FT-14, FT-15.
+  - M9a (classifier order): FT-1, FT-4, FT-8, FT-13; wasm FT-12 red.
+  - M9b (blank text as a flag check, CLI and recipe): FT-4, FT-5, FT-10.
+  - M10 (`f64` in the message): FT-1, FT-2, FT-8, FT-16.
+  - Golden mutation (a), `.floor()` in `faded_alpha16`: FT-6 (at `faint_opacity`: the predicate now
+    refuses it first), FT-2, FT-10, FT-14. Golden mutation (b) is M6: FT-6 as above.
+- **Matrix** (each leg a fresh target dir, deleted after; fmt `--check` clean, clippy `-D warnings`
+  clean on every native leg): default 1129 passed / 0 failed; `--no-default-features` 1067 / 0;
+  `--features webp-lossy` 1134 / 0; `just wasm-test` 47 passed / 0 failed. `decisions-audit.sh`
+  exits 0 (existing advisory scope-overlap warnings only).
 - **Deviations from spec:**
-  - [list]
+  - AC-3 says `build` prints "one `error:` line" with `target #0` and the step text. It prints
+    two lines (`error: target #0 (recipe r.toml, out dist)` then `error: recipe step 0
+    ('watermark'): …`). FT-11 asserts those two lines. The behaviour is as designed; only the
+    AC's count was loose.
+  - M5's expected-green list says FT-13 to FT-15. FT-15 calls `apply` on every row, and under M5
+    `apply` errors for a refused mark, so it goes red. FT-13 and FT-14 stay green.
+  - M4a also turns FT-13 red (it asserts a `TooFaint` row); the table did not list it.
+  - Golden mutations: under both, `run_case` fails on its exit-0 assertion at `faint_opacity`
+    before any hash is compared, so FT-6 is red for "refused", not for a different hash.
+  - `src/lib.rs` needed no change: `Watermark` is not re-exported there, and `InvisibleMark` is
+    public at `operation::`.
 - **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - The library-caller gap (a caller of `new_image`/`new_text` that never calls
+    `invisible_mark()`) stays the STAGE-054 entry the frame filed, for the next minor.
 
 ### Build-phase reflection (3 questions, short answers)
 
 Process-focused: how did the build go? What friction did the spec create?
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — Only the AC-3 "one error line" count (`build` prints two) and what "FT-13 to FT-15 green"
+   means under M5 when FT-15 applies the op. Everything else, messages and boundaries included,
+   could be copied.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — No. The golden-first order and the `black16` detector were both in the design and both held.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Nothing design-level; no design call turned out wrong. I would write a per-case golden diff
+   helper, since the golden test reports one string and a mutation hides which case flipped.
 
 ---
 
