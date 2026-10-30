@@ -141,6 +141,10 @@
           <details>
             <summary>Do this to the original with the crustyimg CLI</summary>
             <p class="hint">
+              Optional, and only if you have the crustyimg command-line tool installed. The
+              download above is the finished copy.
+            </p>
+            <p class="hint">
               This page edits the web copy the site publishes. The same recipe, run on the
               original file, makes the same edit from a better source. File sizes will differ:
               the CLI's <code>optimize</code> step uses a fast fixed quality, while this page
@@ -154,9 +158,10 @@
             </p>
             <pre><code id="cli"></code></pre>
             <p class="hint">
-              Run it in the folder your album's <code>base:</code> points to in
-              <code>albums.yaml</code>, with the recipe below saved there as
-              <code>edit.toml</code>. The photo's path is relative to that folder.
+              Run it in the folder named by your album's <code>base:</code> entry, which
+              <code>albums.yaml</code> lists under <code>bases:</code> as a path relative to
+              your site folder. Save the recipe below there as <code>edit.toml</code>. The
+              photo's path in the command is relative to that folder.
             </p>
             <pre><code id="recipe"></code></pre>
             <button id="copy" type="button">Copy recipe</button>
