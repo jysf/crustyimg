@@ -159,6 +159,11 @@ files).
 
 Total: 13 specs (3 M, 10 S). Lines 1–8 need nothing outside this project.
 
+**Reserved ids (2026-10-30):** line 1 is **SPEC-141** and line 3 is **SPEC-142**. Their frame
+prompts are `specs/prompts/SPEC-141-frame.md` and `SPEC-142-frame.md`, and the two can run at
+the same time. SPEC-139 is taken on another branch, and SPEC-140 is left for PROJ-016 (DEC-107).
+Later lines get their ids at frame.
+
 ## Dependencies
 
 ### Depends on
