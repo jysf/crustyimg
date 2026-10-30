@@ -193,6 +193,12 @@ Batching these in one sitting unblocks more than anything an orchestrator can do
     (`--show-output` on a dedicated step). **A row that may skip locally fails when an
     environment variable says its coverage is required**, and CI sets that variable on the step
     that must prove it ran (`CRUSTYIMG_REQUIRE_SYSTEM_FONT`).
+12. **⚡ A MUTATION ROW NAMES WHERE IT IS APPLIED, AND EVERY TEST EXPECTED RED, ON BOTH PATHS.**
+    SPEC-138's row "move the guard after the manifest loads" could be applied two ways. The build
+    moved it into `run_build` only, which is off the watch path, and FT-11 and FT-12 went red. Verify
+    applied it on both paths, and FT-8, FT-9 and FT-12 went red while FT-11 stayed green. Neither
+    result matched the table. **A design names the code location for each mutation and lists every
+    test expected red, including tests on the other path** (plain vs `--watch`, native vs wasm).
 
 ## What is working, and worth keeping
 
