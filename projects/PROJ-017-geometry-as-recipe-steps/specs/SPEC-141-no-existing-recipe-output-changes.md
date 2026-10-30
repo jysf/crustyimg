@@ -301,6 +301,12 @@ No `src/` change.
    recipe STAGE-060 will extend with crop and rotate, it is the only shape in use with no
    corpus entry, and it costs one file.
 
+### Maintainer rulings (2026-10-30)
+All three recommendations above were accepted:
+1. If the CI legs give different pixels, pin exactly per OS and architecture. Never a tolerance.
+2. No byte pins for AVIF or the `optimize` search (DEC-059 Option A).
+3. Add the ddphotos-shaped recipe to the corpus now.
+
 ### Out of scope (for this spec specifically)
 
 - **Encoded-byte pins for AVIF and lossy encoders** (see the pin rule; maintainer question 2).

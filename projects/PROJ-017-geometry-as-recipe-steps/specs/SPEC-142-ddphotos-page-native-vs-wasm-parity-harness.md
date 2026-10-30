@@ -381,6 +381,12 @@ Out (and where it lives):
 3. **Fold STAGE-053's `wasm-test` CI leg into the same job?** Recommend no, to keep this [S];
    shape the job so that chore is one added step.
 
+### Maintainer rulings (2026-10-30)
+All three recommendations above were accepted:
+1. A new `ci.yml` job, plus a `just` recipe.
+2. Move the recipe code into `integrations/ddphotos/edit/recipe.js` now.
+3. Keep STAGE-053's wasm-test leg out of this job. Shape the job so that leg becomes one added step.
+
 ## Inputs
 
 - **Files to read:** `path/to/file.ext` — why
