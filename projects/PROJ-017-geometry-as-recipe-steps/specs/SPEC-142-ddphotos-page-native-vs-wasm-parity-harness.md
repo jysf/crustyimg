@@ -590,8 +590,9 @@ Rows 15–16 assert the observed sizes, and P1 records the transposed prediction
   - **Per format, on top of the pixel rule:**
     - PNG: bytes asserted on the no-resample rows (1, 3). On resampling rows bytes are reported
       only, because a 1/255 pixel within the bound changes the bytes.
-    - JPEG: decoded pixels. Bytes are reported, and asserted on rows 9–12 only under x86
-      outcome (i).
+    - JPEG: decoded pixels. Bytes are reported, and asserted only on the no-resample JPEG rows
+      (9, 11), and only under x86 outcome (i). Rows 10 and 12 resample, so their bytes are
+      reported only, for the same reason as PNG (orchestrator ruling, 2026-10-30).
     - WebP: decoded pixels, never bytes.
     - AVIF: decoded pixels.
   - Pixels are decoded RGBA from `tests/ddphotos_decode.py`, never from crustyimg. The harness
@@ -689,8 +690,8 @@ cites.
   For B3 and B4 at K = 0, B4 is "0 pixels" and B3 is "1 pixel", which B2 also covers. The cases
   still run.
 - **FT-4 `bytes`.** PNG bytes are equal on the no-resample PNG rows (1, 3). On the resampling PNG
-  rows bytes are printed, not asserted. JPEG rows' byte equality is printed, and asserted only
-  under x86 outcome (i) (AC-3).
+  rows bytes are printed, not asserted. JPEG rows' byte equality is printed on all four, and
+  asserted on rows 9 and 11 only, under x86 outcome (i) (AC-3).
 - **FT-5 `prediction`.** `planEdit`'s `outW × outH` equals the literal on rows 1–14, and its
   transpose on rows 15–16 (P1).
 - **FT-6 `resize-moves`.** P2.
@@ -961,8 +962,8 @@ first run with a backgrounded `gh pr checks <n> --watch`, never a poll loop. Tha
 Set K on the first local run to the aarch64 maximum (1 today, from rows 2, 6, 15 and 16), and
 push. Then:
 
-- **(i) x86 agrees** (every row within Rule B, and JPEG rows 9–12 byte-equal on both targets):
-  - assert JPEG bytes on rows 9–12;
+- **(i) x86 agrees** (every row within Rule B, and JPEG rows 9 and 11 byte-equal on both targets):
+  - assert JPEG bytes on rows 9 and 11 (rows 10 and 12 resample, so their bytes are reported only);
   - set K to the largest differing-pixel count on any resampling row over **both** targets
     (≤ 78);
   - record K, the targets and the CI run id in Build Completion and in DEC-110.
