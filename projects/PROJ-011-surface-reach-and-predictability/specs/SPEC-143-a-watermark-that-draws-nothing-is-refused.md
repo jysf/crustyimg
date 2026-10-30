@@ -375,6 +375,15 @@ under DEC-106. The docs, help, CHANGELOG and DEC listed in 7.
 3. **Leave the public constructors `new_image`/`new_text` infallible in 0.8.2, and close the
    library-caller gap at the next minor?** **Recommend yes.** Filed as a STAGE-054 entry.
 
+### Maintainer rulings (2026-10-30, settled)
+
+1. **Decided from the mark.** A mark with no pixel of alpha > 0 after opacity is refused. A faint
+   mark that changes nothing on a particular image (white on white, a low opacity on 8-bit) is
+   drawn as asked.
+2. **A positive opacity too small to keep any alpha is refused too**, with the "too faint" cause.
+3. **`new_image` / `new_text` stay public and infallible in 0.8.2.** The library-caller gap is
+   the STAGE-054 entry the frame filed, for the next minor release.
+
 ## Inputs
 
 - **Files to read:** `path/to/file.ext` — why
