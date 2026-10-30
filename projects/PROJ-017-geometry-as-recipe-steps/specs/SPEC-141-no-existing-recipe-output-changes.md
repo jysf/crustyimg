@@ -240,6 +240,10 @@ output.
 4. **The corpus list.** The new test asserts its row count (as `recipe_round_trip.rs:329-332` already does), so a
    recipe dropped from the list goes red.
 
+Per HANDOFF trap 12 (added the day of this frame), design names the exact code location for
+controls 2 and 3 and lists every row expected red **and** every row expected green. The guard has
+one path (in-process library), so there is no second path to cover.
+
 ### Blessing
 
 Extend the existing switch rather than adding a second one:
