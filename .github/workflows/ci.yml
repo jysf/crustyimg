@@ -51,14 +51,47 @@ jobs:
             files=$(git diff --name-only "${{ github.event.before }}" "${{ github.sha }}" 2>/dev/null || echo "src/")
           fi
           echo "changed files:"; echo "$files" | sed 's/^/  /'
-          # Anything that can affect a build, a test, or a lint result.
-          if echo "$files" | grep -qE '^(src/|tests/|examples/|benches/|Cargo\.(toml|lock)|rust-toolchain|\.github/workflows/|justfile|scripts/)'; then
+          # Anything that can affect a build, a test, or a lint result. The regex lives
+          # in the script so its self-test checks the one the workflow uses.
+          scripts/ci-code-paths.sh --self-test
+          if [ "$(echo "$files" | scripts/ci-code-paths.sh)" = "true" ]; then
             echo "code=true" >> "$GITHUB_OUTPUT"
             echo "-> code paths touched: running the full gates"
           else
             echo "code=false" >> "$GITHUB_OUTPUT"
             echo "-> docs/specs only: heavy jobs will skip"
           fi
+
+  # The ddphotos edit page's recipes, run through native `apply` and the slim wasm
+  # `transform`, must give the same pixels (tests/ddphotos_parity.mjs). Advisory: not a
+  # required check.
+  ddphotos-parity:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    name: ddphotos page parity (native vs wasm)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Runner CPU
+        run: |
+          grep -m1 'model name' /proc/cpuinfo
+          grep -ow 'avx512f\|avx2\|sse4_1' /proc/cpuinfo | sort -u
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: taiki-e/install-action@just
+      - uses: taiki-e/install-action@wasm-pack # as pages.yml; wasm-pack fetches wasm-bindgen from Cargo.lock
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ddphotos-parity
+      - name: Parity harness
+        run: just ddphotos-parity
+      # A wasm32 test leg adds ONE step here:
+      #   - run: cargo install wasm-bindgen-cli --version 0.2.126 --locked && just wasm-check && just wasm-test
+      #     (or taiki-e/install-action with tool: wasm-bindgen@0.2.126)
 
   check:
     needs: changes

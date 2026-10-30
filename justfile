@@ -687,3 +687,30 @@ info:
 # so the canonical `just test` runs the app's `cargo test`.)
 template-test:
     @./scripts/test.sh
+
+# ----------------------------------------------------------------------------
+# ddphotos edit page: native vs wasm parity
+# ----------------------------------------------------------------------------
+
+# The Pillow the harness decodes with. Pillow shares no code with crustyimg, so a
+# decoding bug in the engine cannot hide on both sides of the comparison.
+_ddphotos_pillow := "12.3.0"
+
+# Run the page's recipes through native `apply` and the slim wasm `transform`, and
+# compare the decoded pixels (tests/ddphotos_parity.mjs). Everything is built under
+# target/ddphotos-parity/, so the repo's pkg-slim/ (what ddphotos-edit-install copies)
+# and the default target dir are untouched. The wasm package goes through
+# wasm-build-slim's feature set and the size profile, not a bare cargo call.
+ddphotos-parity:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    out="target/ddphotos-parity"
+    mkdir -p "$out"
+    CARGO_TARGET_DIR="$out/native" cargo build --release
+    CARGO_TARGET_DIR="$out/wasm-target" just --set _wasm_features " --no-default-features --features avif" \
+        --set _wasm_out "$PWD/$out/pkg-slim" wasm-build
+    [ -x "$out/venv/bin/python" ] || python3 -m venv "$out/venv"
+    "$out/venv/bin/pip" install --quiet "pillow=={{_ddphotos_pillow}}"
+    args=(--pkg "$out/pkg-slim" --bin "$out/native/release/crustyimg" --python "$out/venv/bin/python")
+    node tests/ddphotos_parity.mjs "${args[@]}"
+    node tests/ddphotos_parity.mjs "${args[@]}" --self-test
