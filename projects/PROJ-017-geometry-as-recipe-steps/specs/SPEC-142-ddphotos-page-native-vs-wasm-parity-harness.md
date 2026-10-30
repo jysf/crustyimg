@@ -7,7 +7,7 @@
 task:
   id: SPEC-142
   type: task                       # epic | story | task | bug | chore
-  cycle: build  # frame | design | build | verify | ship
+  cycle: verify  # frame | design | build | verify | ship
   blocked: false                  # ruled (B) 2026-10-30: parity is bounded, DEC-110
   priority: high
   complexity: S                    # S | M | L  (L means split it)
@@ -117,6 +117,25 @@ cost:
         per id, MAX output_tokens per id. Priced at Opus $5/$25 per MTok, cache_creation x1.25,
         cache_read x0.10: $0.0003 + $0.66 + $0.81 + $1.67. Measured before the commit/push turns,
         so it slightly under-counts.
+    - cycle: build
+      agent: claude-sonnet-5-5
+      interface: claude-code
+      tokens_total: 11187823
+      tokens_breakdown:
+        input: 140
+        output: 48161
+        cache_creation: 170111
+        cache_read: 10969411
+      estimated_usd: 4.65
+      duration_minutes: null
+      recorded_at: 2026-10-30
+      note: >
+        Build session in its own worktree (test/spec-142-ddphotos-parity), Sonnet. Measured from the
+        session's transcript (8cdf0742-....jsonl, identified by content), deduped by `.message.id`
+        (70 unique ids, all claude-sonnet-5-5), input/cache_creation/cache_read once per id, MAX
+        output_tokens per id. Priced at Sonnet $3/$15 per MTok, cache_creation x1.25 ($3.75),
+        cache_read x0.10 ($0.30): $0.0004 + $0.64 + $3.29 + $0.72. Measured before the final
+        commit/push turns, so it slightly under-counts.
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -1064,37 +1083,67 @@ neither is applied.
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
-- **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
-- **Files this diff touches** — **list every one**, with a phrase on what changed
-  in each. Not "src/foo and tests": the enumeration is what a verify cycle diffs
-  the real change against, and what tells you whether every affected `DEC-*` has
-  the path in its `affected_scope`. SPEC-122's Deviations claimed "`src/operation`
-  and `tests/` only" and was wrong by two `scripts/` files, which left
-  `affected_scope` blind; SPEC-124's build added this section by hand after that
-  lesson and still listed 8 of its 9 files. It is a checklist because it is easy
-  to get wrong from memory — build it from `git diff --name-only`, not recall.
-  - `path/to/file` — <what changed>
+- **Branch:** `test/spec-142-ddphotos-parity`
+- **PR (if applicable):** #234 (draft), head `f204d43` at the last CI check
+- **All acceptance criteria met?** yes (table below)
+- **New decisions emitted:** none. DEC-110 gains its measured K (Validation section).
+- **Files this diff touches** (from `git diff --name-only origin/main...HEAD`, plus this spec file):
+  - `.github/workflows/ci.yml`: `changes` step calls the classifier and its self-test; new advisory `ddphotos-parity` job (first step logs the runner CPU).
+  - `decisions/DEC-110-native-and-wasm-agree-on-dimensions-exactly-and-on-resampled-pixels-within-1-255.md`: Validation section records K = 1.
+  - `integrations/ddphotos/README.md`: names the harness under "How it was tested"; page size line re-measured to about 38 KB (38,228 B across the five page files).
+  - `integrations/ddphotos/edit/edit.js`: imports `cliRecipe`, `pixelRecipe`, `planEdit` from `recipe.js`; `readEdit` is the DOM reads plus `planEdit`.
+  - `integrations/ddphotos/edit/recipe.js`: new, the page's recipe code as a DOM-free module.
+  - `integrations/ddphotos/edit/worker.js`: imports `previewRecipe`; its own `withQuality` and `PREVIEW_QUALITY` are gone.
+  - `justfile`: `ddphotos-parity` recipe and the Pillow pin.
+  - `scripts/ci-code-paths.sh`: new, the one path regex with `--self-test`.
+  - `tests/ddphotos_decode.py`: new, the Pillow decoder.
+  - `tests/ddphotos_parity.mjs`: new, the harness, comparator and `--self-test`.
+  - `tests/fixtures/ddphotos/README.md`, `photo.webp` (23,424 B), `photo_rot.jpg` (128,696 B): new fixtures and provenance.
+  - this spec file: cost entry, this section.
+  - **`git diff --stat origin/main...HEAD -- src/ Cargo.toml Cargo.lock` is empty.**
+- **Outcome: (i).** Every row is within Rule B on both targets and JPEG rows 9 and 11 are byte-equal, so JPEG bytes are asserted on those two rows (`JPEG_BYTES_ASSERTED = true`).
+  - **K = 1** (rows 2, 6, 15, 16: 1 pixel, max 1; every other row `px=0 max=0`), identical on both targets.
+  - Targets: aarch64-apple-darwin locally, and x86_64 `ubuntu-latest`, `AMD EPYC 9V45 96-Core Processor`, flags avx2, avx512f, sse4_1. CI run 41144102452 (first), 41147305687 (head `f204d43`).
+  - **The 16 wasm output SHA-256 hashes are identical on the Mac and on the runner** (diffed line by line), as are the per-row `px`/`max`.
+  - Job wall time: 3m22s cold (first run; 3m07s of that is `just ddphotos-parity`), 1m45s warm (`f204d43`).
+- **Golden recipe texts:** the literals in the harness are the spec's two texts; `recipe.js` output equals them (P5 green on the first run), so there is no difference to report.
+- **Mutation rows** (red/green sets are as the table lists unless noted; each was applied with a non-empty `git diff`, run, then restored and shown green):
+  - N1 red {3,4,7,8,11,12,13,14,16}; N2 red {4,8,12,13,14,16}. Both are asserted by `--self-test` and pass.
+  - S1 red (literal size) {2,4,5,6,7,8,10,12,13,14,15,16} + P5; parity green on all 16.
+  - S2 red P5 only. S3 red {4,8,12,13,14,16} (size prediction), P5 green (confirmed). S4 red on every resize row, P2, P5, plus the no-resample-set assert. S5 red P3 (both sides) and P5.
+  - H1 exit 1 "wasm package missing or empty". H2 exit 1 "edit.js imports pixelRecipe, which recipe.js lacks". H3 exit 1 "P4: 15 rows ran, expected 16" (the other 15 pass). H4 exit 1 "the Pillow decoder failed".
+  - C1 red on the `edit.js` case only. C2 red on the two docs/spec cases only.
+  - B-max red B1. B-count red B3. B-exact red B5. B-dims red B7 ("pixels were read"). B-derive red on the set assert ({1,3,5,7,9,11}). B-edge red B4 and, in the plain run, rows 2, 6, 15, 16 (n = K = 1).
+  - **Note on B-edge:** at K = 1, B2 ("one pixel off by 1") is the same input as B4, so B2 goes red too. The table lists B2 as green. At K = 0 they would differ.
+  - **Added (not in the table):** B8, B9, B10 for the byte limbs. `JPEG_BYTES_ASSERTED = false` turns B8 red; dropping PNG from the byte check turns B10 red.
+- **FT-11, by hand (exit 1 each):**
+  - empty package dir: `FATAL: wasm package missing or empty: expected …/crustyimg.js and …/crustyimg_bg.wasm`
+  - renamed export: `FAIL modules: edit.js imports pixelRecipe, which recipe.js lacks`
+  - system python without Pillow: `FATAL: the Pillow decoder failed (/usr/bin/python3): … No module named 'PIL'`
+  - row 16 deleted: `FAIL P4: 15 rows ran, expected 16`
+- **FT-13, the browser round:** `just retest <this worktree>`, headless, on the test bed's own servers. Browser checks: dev 40 pass / 0 fail, static 40 / 0, apache 40 / 0 (21 `editor:` checks each, none skipped). **The test bed's automated stage then crashed**: `scripts/check.py:247: RuntimeError: edit.js has no GO_ADVANCE / GO_WIDEST`. It reads the font table out of `edit.js`, and the table now lives in `recipe.js`. That is the test bed's gap (it also names files one by one, so it will not list `recipe.js`'s MIME type); not edited here.
+- **CI:** the matrix legs ran (not skipped): ubuntu, macos, windows, avif, webp-lossy, heic, lean, msrv all green on the second run, `changes` job included.
 - **Deviations from spec:**
-  - [list]
+  - `JPEG_BYTES_ASSERTED` flag and comparator cases B8-B10 added (outcome (i) needs a test that goes red).
+  - The recipe always recreates its venv. The warm CI run failed with `venv/bin/pip: No such file`: `rust-cache` restored `target/` with `venv/bin/python` but without pip, and the "is there a python" guard passed.
+  - The justfile recipe runs the plain run and `--self-test` in one step, so the self-test is not in its own CI step as the spec suggested; both print into the same log.
 - **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - The test bed's `check.py` must read the font table from `recipe.js` (and list `recipe.js` in its HTTP check).
+  - S4 shows a recipe that never resizes also trips the resample-set assert; harmless.
+  - STAGE-060 crop/straighten specs add rows to `TABLE`; K and the cap are DEC-110's.
 
 ### Build-phase reflection (3 questions, short answers)
 
 Process-focused: how did the build go? What friction did the spec create?
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — Very little. The row table, comparator and mutation table were complete. No design call turned out wrong; the x86_64 run agreed with aarch64 on every row.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — The test bed reads `edit.js` for the font table, so moving the recipe code breaks its automated stage; and `rust-cache` restores `target/` partially, which breaks any venv kept there.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Commit before running mutation scripts that restore with `git checkout -- file` (it reverted uncommitted edits once), and recreate the venv from the start.
 
 ---
 
