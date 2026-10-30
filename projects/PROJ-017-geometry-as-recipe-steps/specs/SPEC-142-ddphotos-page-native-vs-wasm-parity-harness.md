@@ -8,7 +8,7 @@ task:
   id: SPEC-142
   type: task                       # epic | story | task | bug | chore
   cycle: design  # frame | design | build | verify | ship
-  blocked: false
+  blocked: true                   # design finding: native and wasm resize differ by 1/255; needs a ruling (A) exact-engine-fix or (B) bound DEC
   priority: high
   complexity: S                    # S | M | L  (L means split it)
 
@@ -31,6 +31,10 @@ references:
     - DEC-094   # AVIF bytes depend on tile count; SPEC-124 pinned it, which is why wasm AVIF matched here
     - DEC-059   # no cross-arch byte pins; the frame's evidence is aarch64 only, CI is x86_64
     - DEC-104   # watermark refuses a mark that does not fit; the page's size cap exists because of it
+    - DEC-008   # resize backend fast_image_resize (SIMD): probable seat of the 1/255 native-vs-wasm finding
+    - DEC-092   # resize in linear light, f32 + powf: the other probable seat
+    - DEC-009   # CI matrix + single-runner extra jobs; the new job is advisory
+    - DEC-018   # licence policy covers crates; Pillow is a CI-only test tool
   constraints:
     - test-before-implementation
   related_specs:
@@ -73,6 +77,25 @@ cost:
         output_tokens per id. Priced by component at Opus $5/$25 per MTok, cache_creation x1.25
         ($6.25), cache_read x0.10 ($0.50): $0.0006 + $0.84 + $3.41 + $1.10. Measured before
         the commit/push turns, so it slightly under-counts.
+    - cycle: design
+      agent: claude-opus-5-5
+      interface: claude-code
+      tokens_total: 7670372
+      tokens_breakdown:
+        input: 106
+        output: 63021
+        cache_creation: 175792
+        cache_read: 7431453
+      estimated_usd: 6.39
+      duration_minutes: null
+      recorded_at: 2026-10-30
+      note: >
+        Interactive design session in its own worktree (docs/spec-142-design), ended BLOCKED on a
+        ruling. Measured from the session's transcript (c346905b-….jsonl, identified by content),
+        deduped by `.message.id` (53 unique ids, all claude-opus-5-5), input/cache_creation/
+        cache_read once per id, MAX output_tokens per id. Priced by component at Opus $5/$25 per
+        MTok, cache_creation x1.25 ($6.25), cache_read x0.10 ($0.50). Measured before the
+        commit/push turns, so it slightly under-counts.
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -387,78 +410,561 @@ All three recommendations above were accepted:
 2. Move the recipe code into `integrations/ddphotos/edit/recipe.js` now.
 3. Keep STAGE-053's wasm-test leg out of this job. Shape the job so that leg becomes one added step.
 
+## Design finding: blocked on a ruling (2026-10-30)
+
+⛔ **The frame's premise does not hold at the page's own sizes.** On aarch64, native `apply` and
+the slim wasm `transform` differ by **one pixel, by 1/255 in one channel**, after a `resize` to
+1200 px, which is the page's first option below "as published". The frame drove only 1024 px,
+and 1024 is not a page option (`fillSizes`, `edit.js:386–392`, offers 1200, 1080, 800, 400).
+
+Driven 2026-10-30 at `9fbfbe1`. The native release build (23 s) and the slim wasm (48 s, 0.78 MB
+brotli) were built in fresh scratch `CARGO_TARGET_DIR`s, deleted after. The inputs are the
+fixtures below. Decoding is Pillow 12.3.0, which uses no crustyimg code. The recipe is
+`auto-orient` + `resize mode = "max"`, PNG out, and each case ran twice:
+
+| input | 1200 | 1080 | 800 | 400 |
+|---|---|---|---|---|
+| landscape WebP 1600×1071 | **1 px, max 1** (both runs) | 0 | 0 | 0 |
+| portrait WebP 1071×1600 (no EXIF tag) | **1 px, max 1** | 0 | **2 px, max 1** | 0 |
+| JPEG 1600×1071, EXIF orientation 6 | **1 px, max 1** | **1 px, max 1** | 0 | 0 |
+| the same JPEG, tag stripped | 0 | 0 | 0 | 0 |
+
+- **It is deterministic.** Both runs gave the same result. The full wasm build (the frame's
+  package) gives the same table, so the slim build is not the cause.
+- **The pixel:** landscape at 1200 differs at (507, 417): native `(66, 56, 37, 255)`, wasm
+  `(66, 55, 37, 255)`. That is a rounding boundary.
+- **The JPEG decode is not the cause.** The stripped JPEG matches at every size. The JPEG
+  rows' differences come from `auto-orient` changing the shape the resize sees.
+- **Probable cause, not proven:** `resize` works in linear light in `f32` (`src/operation/mod.rs`,
+  the linear-light block around `:500–575`, DEC-092): `powf` for the sRGB curve, then Lanczos3
+  on `fast_image_resize`'s per-architecture SIMD backend (DEC-008). Either can round
+  differently on native and wasm32. x86_64 (AVX2, glibc `powf`) is unmeasured and may differ
+  more.
+
+So "zero differing pixels" is false today on a recipe the page makes for any photo at 1200 px.
+The maintainer's ruling ("the property is engine parity, **exactly**") can't be met without a
+change to `src/`, which the frame ruled out. Per the design prompt, this design does **not**
+loosen the rule and does **not** write the tolerance DEC. It stops for a ruling:
+
+- **(A) Exact: fix the engine first.** Make resampling bit-identical across targets: one `powf`
+  implementation on every target, and an `f32` convolution with the same evaluation order on
+  every backend (or the portable backend everywhere). This changes native output bytes for every
+  resize (SPEC-141's guard would flag it). It may cost native resize speed, the reason for
+  DEC-008, and needs its own spec and a DEC-008 amendment. SPEC-142 then ships as designed below
+  with **Rule E**. Straighten, which interpolates too, inherits exactness for free.
+- **(B) Bounded (recommended): a DEC that defines parity as a bound, and SPEC-142 asserts it.**
+  **Rule B:** dimensions are always exact. Decoded pixels may differ by **at most 1/255 per
+  channel**, on **at most K pixels**. A row whose recipe has no resampling step (rows 1, 3, 9 and
+  11 below) stays exact. K is set from the build's first x86_64 run. The cap is 0.01 % of the
+  row's pixels (77 at 1080×723), and above the cap the build stops. The driven negative control
+  still fails under Rule B: opacity 0.6 → 0.61 differs by 3/255 on lossless rows and 13–22 on
+  lossy ones. A 1/255 step on a few pixels in a million is invisible on the page and well
+  inside the native-vs-wasm noise DEC-059 already declines to pin. (A) is filed as a bug either
+  way, so exactness stays a target and not a forgotten claim.
+
+Everything else in this design is the same under (A) and (B). Only the comparator rule (AC-3)
+and, for (B), the DEC id in `references` change. The resuming session (a short design amend, or
+the build, once ruled) edits AC-3, FT-3 and the "Comparator" note, and nothing else.
+
+A second finding, not blocking: **wasm `info()` reports the stored size of an EXIF-rotated
+JPEG**, 1600×1071 for an orientation-6 file whose output is 1071×1600. `readEdit`
+(`edit.js:235–264`) takes the photo's size from `info` (`edit.js:420–421`). So for such an input
+the page predicts landscape output dimensions, and it sizes the watermark for a landscape image
+(`size = 43` for a portrait output). This is harmless today, because ddphotos publishes WebP
+copies photogen has already oriented. **The crop spec must know about it**: crop coordinates on
+a rotated original are in the space `auto-orient` produces, not the space `info` reports.
+Rows 15–16 assert the observed sizes, and P1 records the transposed prediction (see below).
+
 ## Inputs
 
-- **Files to read:** `path/to/file.ext` — why
-- **External APIs:** <name, docs link, auth>
-- **Related code paths:** `src/some/module/`
+- **Files to read:** `integrations/ddphotos/edit/edit.js` (the recipe section `:181–293`,
+  `readEdit` `:235–264`, `fillSizes` `:386–392`), `integrations/ddphotos/edit/worker.js`
+  (`withQuality` `:40–42`, `PREVIEW_QUALITY` `:22`, the preview call `:56`, the copy `:66`),
+  `integrations/ddphotos/edit/index.html:16` (`<script type="module" src="./edit.js">`) and the
+  form defaults (`:84–108`: size `0.04` selected, colour `#ffffff`, opacity `0.6`),
+  `scripts/ddphotos-edit-install.mjs:42` (copies every file in `edit/` with `readdirSync`), `.github/workflows/ci.yml:31–61`
+  (the `changes` job) and `:125–151` (`avif`, the shape to copy), `.github/workflows/pages.yml`
+  (toolchain + `taiki-e/install-action@wasm-pack` + `Swatinem/rust-cache@v2`), `justfile:137–231`
+  (`_wasm_bin`, `wasm-build`, `wasm-build-slim`, `wasm-test`), `tests/demo_smoke.mjs` (the Node-test
+  precedent in `tests/`).
+- **External tools:** Pillow **12.3.0** (PyPI, 2026-07-01; its manylinux x86_64 cp312 wheel
+  bundles libjpeg-turbo, libwebp and libavif; `features.check` gives jpg, webp, avif and zlib all
+  True, checked locally). `ubuntu-latest` = Ubuntu 24.04, image 20261026.354.1. Its runner-images
+  manifest lists Python 3.12.3, Pip 24.0 and Node.js 22.23.4, and **no ImageMagick and no
+  Pillow** (`grep -i "imagemagick\|pillow"` finds nothing in `Ubuntu2404-Readme.md`).
+- **Related code paths:** `src/wasm.rs` (`transform`, `info`, `initSync`), read only.
+  `src/operation/mod.rs` (resize), read only. **No change to `src/`.**
 
 ## Outputs
 
-- **Files created:** `path/to/new.ext` — purpose
-- **Files modified:** `path/to/existing.ext` — what changes
-- **New exports:** <names and signatures>
-- **Database changes:** <migrations>
+- **Files created:**
+  - `integrations/ddphotos/edit/recipe.js`: the page's recipe code as a DOM-free ES module.
+  - `tests/ddphotos_parity.mjs`: the harness.
+  - `tests/ddphotos_decode.py`: the independent decoder (Pillow), about 15 lines.
+  - `tests/fixtures/ddphotos/photo.webp` (23,424 B) and `tests/fixtures/ddphotos/photo_rot.jpg`
+    (≈128,700 B after exiftool).
+  - `tests/fixtures/ddphotos/README.md`: how the fixtures were made, and their provenance.
+  - `scripts/ci-code-paths.sh`: the `changes` classifier with a `--self-test`.
+- **Files modified:**
+  - `integrations/ddphotos/edit/edit.js`: imports from `recipe.js`; `readEdit` keeps only the
+    DOM reads.
+  - `integrations/ddphotos/edit/worker.js`: imports `previewRecipe` from `./recipe.js`, and its
+    own `withQuality` and `PREVIEW_QUALITY` go.
+  - `justfile`: a `ddphotos-parity` recipe.
+  - `.github/workflows/ci.yml`: the `changes` step calls the script and runs its self-test, plus
+    a new `ddphotos-parity` job.
+  - `integrations/ddphotos/README.md`: "How it was tested" names the harness. The page-size
+    line ("about 35 KB") gets re-measured.
+- **New exports** (`recipe.js`, all pure; nothing reads `document`):
+  - `tomlString(s)`
+  - `textEms(text)`
+  - `watermarkSize(text, outW, outH, margin, sizeFraction)`: takes the size fraction as a
+    parameter, where today it reads `$("wm-size")`.
+  - `planEdit(photo, form)`: the arithmetic half of `readEdit`, line for line.
+    - `photo`: `{width, height}`.
+    - `form`: `{size, wmOn, wmText, wmGravity, wmSize, wmColor, wmOpacity, format}`, the raw
+      form values.
+    - It returns today's `edit` object **plus** `outW` and `outH`.
+  - `pixelRecipe(edit)`
+  - `cliRecipe(edit)`
+  - `previewRecipe(recipe)`: `withQuality(recipe, PREVIEW_QUALITY)`, with `PREVIEW_QUALITY = 88`.
+  - `PREVIEW_QUALITY`
+- **Database changes:** none.
 
 ## Acceptance Criteria
 
-Testable outcomes. Cover happy path, error cases, edge cases.
+- [ ] **AC-1 `recipe.js` is the only copy of the recipe code.** `edit.js` and `worker.js`
+  import from it. Neither defines `tomlString`, `textEms`, `watermarkSize`, `pixelRecipe`,
+  `cliRecipe`, `withQuality` or `PREVIEW_QUALITY`, and the harness defines none of them either.
+  `recipe.js` contains no `document`, `$(` or `window`.
+- [ ] **AC-2 The harness runs the 16-row table below and asserts the count.** Each row builds
+  its recipe with `planEdit` plus `pixelRecipe`, `cliRecipe` or `previewRecipe`, all imported
+  from `recipe.js`, and nothing re-typed. It runs that recipe through the slim wasm package's
+  `transform` (the real `.wasm` in Node, `initSync`) and through native `crustyimg apply
+  --recipe <file> <input> -o <out> -Q` on the same input bytes. It prints one line per row and
+  fails unless exactly **16** rows ran.
+- [ ] **AC-3 Comparator** (⛔ pending the ruling; Rule E or Rule B, see the design finding).
+  - Dimensions are compared first and are always exact. A mismatch prints both sizes and skips
+    the pixel check.
+  - Then the per-format rule:
+    - PNG: bytes and pixels.
+    - JPEG: decoded pixels; bytes are reported, and asserted only under x86 outcome (i).
+    - WebP: decoded pixels, never bytes.
+    - AVIF: decoded pixels.
+  - Pixels are decoded RGBA from `tests/ddphotos_decode.py`, never from crustyimg. The harness
+    counts the differing pixels and the largest channel difference itself; it does not use
+    ImageMagick's AE.
+  - Under **Rule E**, 0 differing pixels.
+  - Under **Rule B**, at most 1/255 on at most K pixels, with K as a literal in the harness.
+    Rows 1, 3, 9 and 11 stay at 0 under either rule.
+- [ ] **AC-4 A failing row is readable.** The line names the row id, both sizes, the
+  differing-pixel count, the largest channel difference and whether the bytes match. The recipe
+  text that produced it follows, indented. The exit status is non-zero.
+- [ ] **AC-5 Positive controls** (each a separate assertion, each red under a named mutation):
+  - **P1:** each row's output size equals a per-row literal.
+    - For rows 1–14, the literal also equals `planEdit`'s `outW × outH`.
+    - For rows 15–16, it equals that prediction **transposed** (the `info` finding).
+  - **P2:** row 2's output (1200×803) is not the input's size (1600×1071).
+  - **P3:** row 3's decoded pixels (the watermark) differ from row 1's (none) on both the native
+    and the wasm side.
+  - **P4:** the row count is 16.
+  - **P5:** the recipe text for row 4 (`pixelRecipe`, edit `both`) and row 8 (`cliRecipe`, png)
+    each equal a literal string in the harness, so a change to `recipe.js` that moves both sides
+    together still goes red.
+- [ ] **AC-6 Negative controls, run by the harness itself.** `--self-test` runs the table twice
+  more:
+  - with N1, native recipe `opacity = 0.6` → `0.61`;
+  - with N2, native recipe `width = 1080` → `1079`.
 
-- [ ] Criterion 1 (testable)
-- [ ] Criterion 2 (testable)
+  Each must report exactly the rows the mutation table lists as red, and the self-test exits 0
+  only if both do. CI runs the plain run and `--self-test`.
+- [ ] **AC-7 Nothing silently passes.** The harness exits non-zero and names the cause when:
+  - the wasm package is missing or fails `initSync`;
+  - `recipe.js` fails to import, or lacks an export that `edit.js` or `worker.js` imports;
+  - the native binary is missing;
+  - `tests/ddphotos_decode.py` fails, or Pillow is absent;
+  - any row throws.
+
+  There is no skip path anywhere.
+- [ ] **AC-8 The page still loads (module check).** The harness:
+  - imports `recipe.js` in Node;
+  - parses `edit.js` and `worker.js` as ES modules (copy each to a temp `.mjs` and run
+    `node --check`);
+  - asserts that every name each one imports from `./recipe.js` is an export of `recipe.js`.
+
+  **Browser check (one-time, build):** run the test bed's `just retest <build worktree path>`
+  (headless Chromium, its own servers, never the maintainer's browser). Paste the browser-check
+  pass/fail counts per server into the PR. A missing `recipe.js` would fail every editor check
+  there.
+- [ ] **AC-9 `just ddphotos-parity` runs the whole thing locally.**
+  - It builds the slim package into its own output dir, through `wasm-build-slim`'s feature set
+    and DEC-066's profile, never a bare cargo call.
+  - It builds native release.
+  - It makes a venv with the pinned Pillow under `target/ddphotos-parity/`.
+  - It runs the harness, then `--self-test`.
+- [ ] **AC-10 CI job `ddphotos-parity`** in `ci.yml`.
+  - It runs on `ubuntu-latest`, `needs: changes`, `if: needs.changes.outputs.code == 'true'`.
+  - It runs in parallel with the matrix and is not a required check.
+  - It runs `just ddphotos-parity`.
+- [ ] **AC-11 The path filter counts the page.** `scripts/ci-code-paths.sh` holds the single
+  regex, the old one plus `integrations/ddphotos/`. The `changes` job calls it, and first runs
+  `scripts/ci-code-paths.sh --self-test`, which checks fixed file lists:
+  - `integrations/ddphotos/edit/edit.js` → code;
+  - `docs/x.md` → not code;
+  - `projects/PROJ-017-geometry-as-recipe-steps/specs/SPEC-142-x.md` → not code;
+  - `src/lib.rs` → code.
+- [ ] **AC-12 Fixtures are committed bytes.** They were made outside crustyimg, with the exact
+  commands and provenance in `tests/fixtures/ddphotos/README.md`. CI needs no generator.
+- [ ] **AC-13 The README names the harness** under "How it was tested", and the install list is
+  still right (the installer copies `edit/` whole, so `recipe.js` travels with no change).
 
 ## Failing Tests
 
-Written during **design**, BEFORE build. The implementer's job in
-**build** is to make these pass.
+All in `tests/ddphotos_parity.mjs` unless named. "FT" ids are what the build's completion table
+cites.
 
-- **`path/to/test.file`**
-  - `"test description 1"` — asserts: ...
+- **FT-1 `rows`.** The 16 rows below run. It asserts the count literal 16 (AC-2, P4).
+- **FT-2 `dims`.** Per row, native and wasm sizes are equal, and equal the row's literal (AC-3
+  dims, P1).
+- **FT-3 `pixels`.** Per row, the per-format rule under the ruled comparator (AC-3).
+- **FT-4 `bytes`.** PNG rows' bytes are equal. JPEG rows' byte equality is printed, and
+  asserted only under x86 outcome (i) (AC-3).
+- **FT-5 `prediction`.** `planEdit`'s `outW × outH` equals the literal on rows 1–14, and its
+  transpose on rows 15–16 (P1).
+- **FT-6 `resize-moves`.** P2.
+- **FT-7 `watermark-draws`.** P3, on both sides.
+- **FT-8 `golden-recipes`.** P5. The literals are the texts below.
+- **FT-9 `self-test`.** `--self-test`: N1 and N2 each give exactly their listed red rows
+  (AC-6).
+- **FT-10 `module-imports`.** AC-8's Node checks: the import, the `.mjs` parse and the export
+  names.
+- **FT-11 `no-silent-pass`.** Run by the build by hand, and kept as driven evidence in the PR,
+  not as a CI step. Each case must exit non-zero with a message naming the cause:
+  - the harness pointed at an empty package dir;
+  - a `recipe.js` with an export renamed;
+  - `PATH` without the venv's python;
+  - a row table with row 16 deleted (needs P4, which goes red).
+- **FT-12 `scripts/ci-code-paths.sh --self-test`.** AC-11's four cases. This one runs in the
+  `changes` job.
+- **FT-13 the browser round.** The test bed's browser-check counts (AC-8), pasted. This one is
+  manual.
+
+### Row table (one fixture pair; form values are the page defaults)
+
+`W` = `photo.webp`, 1600×1071 lossy, the shape ddphotos publishes. `R` = `photo_rot.jpg`, the same
+picture as a JPEG with EXIF orientation 6. The edits use `planEdit` with the page defaults:
+
+- watermark text `© Jane Doe 2026`, gravity `southeast`, size `0.04`, colour `#ffffff`,
+  opacity `0.6`;
+- `none` = as published, no watermark;
+- `resize` = size 1200;
+- `wm` = as published, with the watermark;
+- `both` = size 1080, with the watermark.
+
+1080 is there because 1071 × 0.675 = 722.9 rounds to 723 but floors to 722 (HANDOFF trap 10).
+1200 is there because it is the page's first size and it diverges today.
+
+| # | id | input | edit | recipe | out | asserts | size literal | aarch64 today |
+|---|---|---|---|---|---|---|---|---|
+| 1 | `W/none/pixel/png` | W | none | pixelRecipe | png | bytes + dims | 1600×1071 | equal |
+| 2 | `W/resize/pixel/png` | W | resize | pixelRecipe | png | bytes + dims (Rule E) or bound (B) | 1200×803 | **1 px, 1/255** |
+| 3 | `W/wm/pixel/png` | W | wm | pixelRecipe | png | bytes + dims | 1600×1071 | equal (`size = 64`) |
+| 4 | `W/both/pixel/png` | W | both | pixelRecipe | png | bytes + dims | 1080×723 | equal (`size = 43`) |
+| 5 | `W/none/cli/png` | W | none | cliRecipe (png) | png | bytes + dims | 1600×1071 | equal |
+| 6 | `W/resize/cli/png` | W | resize | cliRecipe (png) | png | as row 2 | 1200×803 | **1 px, 1/255** |
+| 7 | `W/wm/cli/png` | W | wm | cliRecipe (png) | png | bytes + dims | 1600×1071 | equal |
+| 8 | `W/both/cli/png` | W | both | cliRecipe (png) | png | bytes + dims | 1080×723 | equal |
+| 9 | `W/none/preview/jpeg` | W | none | previewRecipe | jpeg | pixels; bytes reported | 1600×1071 | equal, bytes too |
+| 10 | `W/resize/preview/jpeg` | W | resize | previewRecipe | jpeg | pixels | 1200×803 | equal, bytes too |
+| 11 | `W/wm/preview/jpeg` | W | wm | previewRecipe | jpeg | pixels | 1600×1071 | equal, bytes too |
+| 12 | `W/both/preview/jpeg` | W | both | previewRecipe | jpeg | pixels | 1080×723 | equal, bytes too |
+| 13 | `W/both/pixel/webp` | W | both | pixelRecipe | webp (lossless) | pixels, never bytes | 1080×723 | equal |
+| 14 | `W/both/pixel/avif` | W | both | pixelRecipe | avif | pixels | 1080×723 | equal (wasm 1.1 s) |
+| 15 | `R/resize/pixel/png` | R | resize | pixelRecipe | png | as row 2 | 803×1200 | **1 px, 1/255** |
+| 16 | `R/both/pixel/png` | R | both | pixelRecipe | png | as row 2 | 723×1080 | **1 px, 1/255** |
+
+- **Rows 2, 6, 15 and 16 are the design finding.** Under Rule E they are red until (A) lands.
+  Under Rule B they are green at K ≥ 1.
+- **Rows 1, 3, 5, 7 and 9–14 matched exactly on aarch64**, so the frame's exact claim holds on
+  them. Row 10 is the JPEG preview of row 2: the 1/255 pixel vanished in quantisation, and the
+  bytes were equal.
+- **cliRecipe rows run as PNG**, so no terminal `optimize`.
+- **The full wasm build gets no row.** The page ships slim, and the full build gave identical
+  results to the slim one here. The full build belongs to STAGE-053's wasm-test leg.
+- **Measured runtime:** the 16 rows took about 3.5 s of wasm time and 1.7 s of native time,
+  plus 0.4 s of Pillow decoding, on the Mac. The AVIF row is the slow one.
+
+### Golden recipe texts (FT-8)
+
+Row 4, `pixelRecipe(both)`:
+```
+version = "2"
+
+[[step]]
+op = "auto-orient"
+
+[[step]]
+op = "resize"
+mode = "max"
+width = 1080
+
+[[step]]
+op = "watermark"
+text = "© Jane Doe 2026"
+gravity = "southeast"
+size = 43
+margin = 22
+color = "#ffffff"
+opacity = 0.6
+```
+
+Row 8 is `cliRecipe({...both, format: "png"})`: the same text with `format = "png"` as the
+second line. Both texts were driven in the design probe (`size = 43`, `margin = 22` at 1080). The
+build pastes the literals from its own first run of `recipe.js`, then checks them against these.
+
+### Mutation table (HANDOFF trap 12: where it is applied, every row red and green)
+
+All rows below were driven on aarch64 in the design probe, except the S-, H- and C-rows, which
+are the build's to drive. "Red" means FT-3 or FT-2 fails on that row, unless another FT is
+named.
+
+| id | mutation | applied where | expected red | expected green |
+|---|---|---|---|---|
+| N1 | native `opacity = 0.6` → `0.61` | `tests/ddphotos_parity.mjs`, in the native input only: the string replace on the recipe text **after** it leaves `recipe.js` and **before** it is written to the `.toml` that `apply` reads. Never in `recipe.js`, or both sides move together | FT-3 on 3, 4, 7, 8, 11, 12, 13, 14, 16 (lossless max 3/255; JPEG 13–16; AVIF 22) | 1, 2, 5, 6, 9, 10, 15 (under Rule E: 2, 6, 15 stay red on the finding) |
+| N2 | native `width = 1080` → `1079` | the same place as N1 | FT-2 on 4, 8, 12, 13, 14, 16 (native 1079×722, rotated 722×1079) | 1, 2, 3, 5, 6, 7, 9, 10, 11, 15 |
+| S1 | `pixelRecipe` emits `width = ${edit.resize - 1}` | `recipe.js` (both sides move) | FT-2 literal on 2, 4, 5, 6, 7, 8, 10, 12, 13, 14, 15, 16 (cliRecipe always resizes, so 5 and 7 too), plus FT-8 | FT-3 parity on all 16; FT-2 on 1, 3, 9, 11 |
+| S2 | margin `0.02` → `0.03` in `planEdit` | `recipe.js` | FT-8 only | FT-2, FT-3 and FT-5 on all 16 |
+| S3 | `outH = Math.floor(…)` for `Math.round(…)` in `planEdit` | `recipe.js` | FT-5 on 4, 8, 12, 13, 14, 16 (722 vs 723) | FT-5 on 1–3, 5–7, 9–11, 15 (803.25 floors to 803); FT-2, FT-3 on all; FT-8 green (fitsHeight floors to 72 either way; the build confirms) |
+| S4 | `pixelRecipe` never emits `resize` | `recipe.js` | FT-2 literal on every resize row, FT-6, FT-8 | FT-3 parity on all 16 |
+| S5 | `pixelRecipe` never emits `watermark` | `recipe.js` | FT-7, FT-8 | FT-3 parity on all 16 |
+| H1 | `--pkg` points at an empty directory | the harness invocation | the whole run (exit ≠ 0, "wasm package" in the message) | — |
+| H2 | rename the `pixelRecipe` export | `recipe.js` | FT-10 and the run (import fails) | — |
+| H3 | delete row 16 from the table | `tests/ddphotos_parity.mjs` | FT-1 (15 ≠ 16) | the other 15 rows |
+| H4 | no Pillow (system `python3` on `PATH`) | the harness environment | the run (exit ≠ 0, names the decoder) | — |
+| C1 | drop `integrations/ddphotos/` from the regex | `scripts/ci-code-paths.sh` | FT-12, the `edit.js` case | the other three cases |
+| C2 | the regex becomes `.` | `scripts/ci-code-paths.sh` | FT-12, the two docs and spec cases | the code cases |
 
 ## Implementation Context
 
-*Read this section (and the files it points to) before starting
-the build cycle. It is the equivalent of a handoff document, folded
-into the spec since there is no separate receiving agent.*
+*Read this section (and the files it points to) before starting the build cycle.*
+
+### ⛔ Before anything: the ruling
+
+Don't build until the maintainer rules (A) or (B) (see the design finding). Under (B), the DEC
+is written first: by a design-amend session, or by the orchestrator. Name its id in
+`references`. The build reads K's cap from it.
+
+### The independent decoder: Pillow 12.3.0
+
+- **Why Pillow:**
+  - It decodes all four output formats with libraries that are not crustyimg's: libjpeg-turbo,
+    libwebp, libavif with dav1d, and zlib.
+  - It installs from one pinned wheel in about 5 s.
+  - It works on both the Mac and the runner.
+- **Why not the alternatives:**
+  - ImageMagick is not on `ubuntu-latest`, and apt's 6.9 is old and slow to install.
+  - A Node package would mean the repo's first `package.json` for tests; there is none.
+  - An in-harness PNG reader can't decode the JPEG, WebP or AVIF rows.
+- **`tests/ddphotos_decode.py`** takes paths. For each one it writes `<path>.rgba` (raw RGBA8,
+  `Image.open(p).convert("RGBA").tobytes()`) and prints one JSON line `{path, width, height}`.
+  It runs once per harness run, with every output file, under `python -I`.
+- **CI:**
+  - `actions/setup-python@v5` with `python-version: "3.12"`. Ubuntu's system pip is externally
+    managed, so it is not used.
+  - Then the just recipe: `python3 -m venv target/ddphotos-parity/venv` and
+    `venv/bin/pip install pillow==12.3.0`. The pin is one `justfile` variable.
+  - Locally the same recipe makes the same venv; it needs `python3`.
+
+### The `recipe.js` import shape
+
+- `edit.js` is already loaded as a module (`index.html:16`), so it can just add
+  `import { planEdit, pixelRecipe, cliRecipe } from "./recipe.js";`. It keeps its other
+  functions, and `readEdit()` becomes the DOM reads plus `planEdit(photo, form)`.
+- `worker.js` is a module worker (`edit.js:25`, `{ type: "module" }`), so it can add
+  `import { previewRecipe } from "./recipe.js";`. Its preview becomes
+  `transform(source, previewRecipe(req.recipe), "jpeg")`.
+- There is no build step, and the page stays a static file set.
+- The installer copies `edit/` whole (`scripts/ddphotos-edit-install.mjs:42`). The README's
+  "replace the whole `edit` folder" and the DD Photos app steps already move every file. Nothing
+  in the README or #224/#227 assumed one file.
+- ⚠ **One test-bed gap, theirs to fix, not ours:** the test bed's HTTP check lists `edit.js`,
+  `worker.js`, `edit.css` and `vendor/*` by name (e.g. `results/2026-10-29-71b4f38/check.md:7–10`),
+  so it will not report `recipe.js`'s MIME type. Its browser check still fails if `recipe.js` is
+  missing. Tell the maintainer; never edit the test bed.
+
+### The harness
+
+- **Invocation:**
+  `node tests/ddphotos_parity.mjs --pkg <slim pkg dir> --bin <crustyimg> --python <venv python> [--self-test]`.
+  Every argument is required, with no defaults that could point at a stale build.
+- **It writes to a fresh `fs.mkdtempSync` dir per run.** `apply` refuses to overwrite: driven, it
+  exits 5 with "output file already exists". Remove the dir on success; keep it and print its
+  path on failure.
+- **Comparator:** dimensions first. Then bytes (`Buffer.compare`). Then, for the formats that
+  need it, the RGBA buffers: count the pixels where any channel differs, and take the largest
+  absolute channel difference.
+- **The one-line format:** `PASS|FAIL <id> native WxH wasm WxH bytes same|differ px=<n> max=<d>`.
+  The output reaches the CI log because it is plain stdout from a `run:` step, not libtest
+  (HANDOFF trap 11). Put the self-test in its own step so its lines are separate.
+
+### The CI job (`ci.yml`)
+
+```yaml
+  ddphotos-parity:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    name: ddphotos page parity (native vs wasm)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: taiki-e/install-action@just
+      - uses: taiki-e/install-action@wasm-pack   # as pages.yml; wasm-pack fetches wasm-bindgen 0.2.126 from Cargo.lock
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ddphotos-parity
+      - name: Parity harness
+        run: just ddphotos-parity
+      # STAGE-053's wasm32 leg adds ONE step here:
+      #   - run: cargo install wasm-bindgen-cli --version 0.2.126 --locked && just wasm-check && just wasm-test
+      #     (or taiki-e/install-action with tool: wasm-bindgen@0.2.126)
+```
+
+- **Minutes, estimated (not measured on CI).** Measured on the Mac: native release 23 s, and
+  slim wasm with fat LTO 48 s, from fresh target dirs. On a 4-vCPU runner without cache, expect
+  about 3–4 min native and 3 min wasm. Setup takes about 1 min, and the harness under 30 s.
+  - Cold: **about 8–9 min**.
+  - With `rust-cache` warm: **about 4–5 min**.
+  - Comparisons:
+    - `pages.yml`'s full-wasm job took 178 s on its last green run.
+    - The Windows check leg, which sets time to green, took 649–1129 s on recent code runs.
+  - So the job runs in parallel and time to green does not move. Runner-minutes grow by about
+    5–9 per code PR.
+- **The build's first run gives the real number.** Record it in the PR.
+- **STAGE-053's chore** becomes one added step in this job: the `wasm-bindgen-cli 0.2.126`
+  install, then `just wasm-check && just wasm-test`. The toolchain, the wasm target and the
+  cache are already there. The comment in the YAML above marks the spot.
+
+### Fixtures (`tests/fixtures/ddphotos/`)
+
+Made with ImageMagick 7.1.2-34 and exiftool from `tests/fixtures/classify/color_photo_fuji.png`,
+which is maintainer-owned and EXIF-stripped (`tests/fixtures/classify/RECIPES.md:91–92`). They
+carry the repo's licence (MIT or Apache-2.0).
+
+```
+magick tests/fixtures/classify/color_photo_fuji.png -gravity center -crop 448x300+0+0 +repage \
+  -resize 1600x -strip -quality 82 -define webp:lossless=false photo.webp
+magick tests/fixtures/classify/color_photo_fuji.png -gravity center -crop 448x300+0+0 +repage \
+  -resize 1600x -strip -quality 90 photo_rot.jpg
+exiftool -q -n -Orientation=6 -overwrite_original photo_rot.jpg
+```
+
+- **Sizes:** `photo.webp` is 23,424 B at 1600×1071. `photo_rot.jpg` is about 128,700 B, also
+  stored as 1600×1071, with Orientation 6. Together that is about 150 KB, against 1.1 MB of
+  fixtures today.
+- **Commit the bytes and record the commands** in the fixture README. CI needs no ImageMagick.
+- **Rebuilding them does not reproduce the bytes.** ImageMagick's version shows in the encoder
+  output, so a rebuild changes the row literals' *pixels*, not their sizes. Don't regenerate
+  them casually.
+
+### x86_64: both outcomes pre-specified
+
+The build's **first checkpoint**: a WIP **draft PR** with the harness, the fixtures,
+`recipe.js` and the CI job, pushed as soon as `just ddphotos-parity` passes locally. Read its
+first run with a backgrounded `gh pr checks <n> --watch`, never a poll loop. That run decides:
+
+- **(i) x86 agrees with the aarch64 table:**
+  - JPEG bytes equal → assert JPEG bytes on rows 9–12.
+  - Under Rule B, set K to the observed maximum on rows 2, 6, 15 and 16 (≤ the cap).
+- **(ii) x86 differs.** Each format has its own answer:
+  - **JPEG bytes differ, pixels equal:** assert pixels only on rows 9–12 (the designed rule).
+    Not a finding.
+  - **WebP bytes differ:** already not asserted.
+  - **A pixel difference on a PNG row, or on the decoded JPEG, WebP or AVIF rows**, beyond the
+    ruled comparator: a finding. **Don't loosen the rule.** Push the WIP and report BLOCKED,
+    with the row, its numbers and whether its PNG twin also moved. Under Rule B, a row over the
+    cap is the same finding.
+  - **AVIF row 14 differs:** the same finding; don't drop the row.
 
 ### Decisions that apply
 
-- `DEC-NNN` — <one-line summary of why this matters here>
-- `DEC-MMM` — <one-line summary>
+- `DEC-064`: `transform` runs the same core as `apply`. This spec measures that claim.
+- `DEC-065`: wasm can't decode AVIF, so row 14 is decoded by Pillow.
+- `DEC-066`: the size profile. The job builds through `wasm-build-slim`'s path, so it tests the
+  shipped profile and moves no size gate.
+- `DEC-008`: resizing goes through `fast_image_resize`'s SIMD backend. That is the probable seat
+  of the finding (Rule A would amend it).
+- `DEC-092`: resizing is done in linear light, in `f32` (the `powf` half of the finding).
+- `DEC-059`: there are no cross-arch byte pins. The harness only ever compares native and wasm on
+  one runner.
+- `DEC-094`: the AVIF tile count is pinned, which is why AVIF bytes matched.
+- `DEC-104`: the watermark refuses a mark that doesn't fit; `watermarkSize`'s cap exists because
+  of it.
+- `DEC-009`: CI is the three-OS matrix plus single-runner extra jobs. This job is one more
+  advisory job, like `avif` and `lean`, and the required checks don't change.
+- `DEC-018`: the licence policy for Rust crates. Pillow (MIT-CMU, permissive) is a CI-only
+  test tool, never shipped or linked, so cargo-deny doesn't see it and needs no exception.
 
 ### Constraints that apply
 
-These constraints apply to the paths touched by this task (see
-`/guidance/constraints.yaml` for full text):
-
-- `constraint-id-1` — <one-line summary>
-- `constraint-id-2` — <one-line summary>
+- `test-before-implementation`: the harness and its self-test land before, or with, the
+  `recipe.js` move. The move is proven by FT-10 and the row table.
+- **No change to `src/` and no shipped-binary change.** This was confirmed at design: the harness
+  is test-only, and `recipe.js` is page code.
 
 ### Prior related work
 
-- `SPEC-YYY` (shipped) — <one-line summary, if relevant>
-- `PR #NNN` — <link, if relevant>
+- `SPEC-124` (shipped): pinned the AVIF tile count.
+- `SPEC-127` (shipped): set `transform`'s `out_format` / `recipe.format` precedence (the cli
+  rows' `format = "png"` meets `transform(…, "png")`).
+- `SPEC-128` (shipped): `transform` refuses steps that carry assets; there are none here.
+- PR #218: the page. PRs #224 and #227: the test-bed rounds.
+
+### Size
+
+S stays S under (B). There is about 40 lines more than the frame's estimate: `planEdit`, the
+self-test and the classifier script. Under (A), SPEC-142 stays S, but it **waits** on a new engine
+spec, probably [M], that is not in PROJ-017's build order. Neither frame cut is needed, and
+neither is applied.
 
 ### Out of scope (for this spec specifically)
 
-Explicit list of what this spec does NOT include. If any of these feel
-necessary during build, create a new spec rather than expanding this one.
-
 - **Replay parity (b)**, `cliRecipe` on a 4x original vs `pixelRecipe` on the published copy:
-  STAGE-060's crop spec, which owns the 4x replay and is the first spec that can break it.
-- **Crop and straighten rows:** added by STAGE-060's crop and straighten specs.
-- **Parity of the page's final encode with the CLI's**: the page's `optimizeDetailed` search and
+  STAGE-060's crop spec, which owns the 4x replay and is the first spec that can break it. Two
+  cautions to record there:
+  - ddphotos' real photogen resizer sets the bound, not ImageMagick's.
+  - The original's and the copy's aspect ratios round independently, so the output can be off
+    by ±1 px in one dimension.
+- **Crop and straighten rows:** added by STAGE-060's crop and straighten specs. The crop spec
+  must handle the `info`-reports-stored-size finding.
+- **Parity of the page's final encode with the CLI's:** the page's `optimizeDetailed` search and
   the CLI's terminal `optimize` differ by design (README "Limits"). Not a promised property.
-- **Running `just wasm-test` / `wasm-check` in CI:** STAGE-053's "A wasm32 CI leg" chore. Shape
-  the new job so that chore is one more step.
-- **The three-server test-bed browser round:** STAGE-060's last item. This spec needs one
-  browser load check of the page after the `recipe.js` move, no more.
-- **Any change to `src/`:** the premise held, so there is nothing to fix. If the x86_64 run finds
-  a divergence, file it as a bug; do not fix it here.
+- **Running `just wasm-test` / `wasm-check` in CI:** STAGE-053's "A wasm32 CI leg" chore, which
+  becomes one step in this job.
+- **The three-server test-bed browser round:** STAGE-060's last item. This spec needs one run,
+  for AC-8, no more.
+- **Any change to `src/`:** under (A), that is a separate engine spec. If the x86_64 run finds a
+  divergence beyond the ruled comparator, file it as a bug; don't fix it here.
 
 ## Notes for the Implementer
 
-Gotchas, style preferences, reuse opportunities.
+- **`node --check` on a `.js` file without `"type": "module"`** may parse it as CommonJS. Copy it
+  to a temp `.mjs` first; the `.mjs` extension forces an ES module.
+- **Point `--bin` at a release build of this checkout** made in a target dir the harness owns
+  (`target/ddphotos-parity/`), never a `crustyimg` off `PATH`. A released binary and a `main`
+  build report the same version.
+- **Build the wasm package into `target/ddphotos-parity/pkg-slim`** through
+  `just --set _wasm_out … wasm-build-slim`'s feature set. Don't overwrite the repo's `pkg-slim/`
+  that `ddphotos-edit-install` uses.
+- **Prettier-ignore** stays on the advance table when it moves.
+- **`recipe.js` comments describe behaviour**, with no spec or DEC ids.
+- **Commit with `git commit -s`.** Push a WIP once the harness compiles and runs (the first
+  checkpoint above).
 
 ---
 
