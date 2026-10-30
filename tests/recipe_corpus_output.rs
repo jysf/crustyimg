@@ -90,6 +90,7 @@ const EXPECTED_DIMS: [(&str, [&str; 3]); 14] = [
 ];
 
 /// The bundled recipes, whose `optimize` choice is read through the binary.
+#[cfg(all(feature = "avif", not(feature = "webp-lossy")))]
 const BUNDLED: [&str; 3] = ["gallery", "product", "web"];
 
 /// The recipe that ends in a PNG byte row, and the one that ends in WebP.
@@ -305,7 +306,9 @@ fn compute(
     };
     let mut computed = Computed::of(&out);
 
-    // (a) dimensions against a literal table
+    // (a) dimensions against a literal table; (b) a recipe that draws
+    // something does not return its input. (b) is reported only when (a) held:
+    // a wrong size already says the recipe did not run.
     let index = FIXTURES
         .iter()
         .position(|f| *f == fixture_name)
@@ -320,9 +323,7 @@ fn compute(
             "{who}: dims {}, expected {expected} (expected-dims table)",
             computed.dims
         ));
-    }
-    // (b) a recipe that draws something does not return its input
-    if computed.sha == pixel_sha(fx) {
+    } else if computed.sha == pixel_sha(fx) {
         lines.push(format!("{who}: output equals the fixture"));
     }
     // (c) + (d) one step at a time, each fed the previous output
@@ -441,8 +442,29 @@ fn pixel_fields(rest: &str) -> Option<[String; 4]> {
     ])
 }
 
+/// The targets with committed goldens. Resize and compositing run on float
+/// maths whose last bits differ by OS and CPU, so each target is pinned exactly
+/// on its own file rather than loosened to a tolerance.
+const TARGETS: &[&str] = &["linux-x86_64", "macos-aarch64", "windows-x86_64"];
+
+/// The golden for `stem` on a target. A target without goldens is an error,
+/// never a skip.
+fn golden_path_for(stem: &str, os: &str, arch: &str) -> Result<PathBuf, String> {
+    let target = format!("{os}-{arch}");
+    let path = corpus_dir().join(format!("{stem}.{target}.output"));
+    if !TARGETS.contains(&target.as_str()) || !path.exists() {
+        return Err(format!(
+            "no recipe golden for {target}: goldens exist for {}; bless on this target and add it to TARGETS",
+            TARGETS.join(", ")
+        ));
+    }
+    Ok(path)
+}
+
+/// This target's golden for `stem`; panics when there is none.
 fn golden_path(stem: &str) -> PathBuf {
-    corpus_dir().join(format!("{stem}.output"))
+    golden_path_for(stem, std::env::consts::OS, std::env::consts::ARCH)
+        .unwrap_or_else(|msg| panic!("{msg}"))
 }
 
 /// Compare a `pixels` row. The first field that moved wins, in the order
@@ -928,17 +950,28 @@ fn every_golden_line_is_checked_and_no_golden_is_stray() {
         })
         .collect();
     on_disk.sort();
-    let mut want: Vec<String> = RECIPES.iter().map(|s| (*s).to_owned()).collect();
+    let mut want: Vec<String> = RECIPES
+        .iter()
+        .flat_map(|stem| TARGETS.iter().map(move |t| format!("{stem}.{t}")))
+        .collect();
     want.sort();
     assert_eq!(
         on_disk, want,
-        "the .output files must be exactly the recipes under the pin"
+        "the .output files must be exactly the recipes under the pin, once per target"
     );
 
+    for target in TARGETS {
+        check_target_goldens(target);
+    }
+}
+
+fn check_target_goldens(target: &str) {
     let mut total = 0;
     for stem in RECIPES {
-        let golden =
-            parse_golden(&read_text(&golden_path(stem))).unwrap_or_else(|e| panic!("{stem}: {e}"));
+        let golden = parse_golden(&read_text(
+            &corpus_dir().join(format!("{stem}.{target}.output")),
+        ))
+        .unwrap_or_else(|e| panic!("{stem}.{target}: {e}"));
         let count = |kind: &str| golden.rows.keys().filter(|(_, k)| k == kind).count();
         assert_eq!(count("pixels"), 3, "{stem}: pixels lines");
         assert_eq!(
@@ -958,7 +991,7 @@ fn every_golden_line_is_checked_and_no_golden_is_stray() {
         );
         total += golden.lines.len();
     }
-    assert_eq!(total, GOLDEN_LINES);
+    assert_eq!(total, GOLDEN_LINES, "{target}: golden lines");
 }
 
 // ─── Blessing ───────────────────────────────────────────────────────────────
@@ -1029,7 +1062,22 @@ fn bless_all() {
                 )
             })
             .collect();
-        std::fs::write(golden_path(stem), render_file(stem, &rows, &optimize))
-            .expect("write golden");
+        let path = corpus_dir().join(format!(
+            "{stem}.{}-{}.output",
+            std::env::consts::OS,
+            std::env::consts::ARCH
+        ));
+        std::fs::write(path, render_file(stem, &rows, &optimize)).expect("write golden");
     }
+}
+
+#[test]
+fn a_target_without_goldens_fails() {
+    let err = golden_path_for("v1_resize_max", "linux", "riscv64").expect_err("no riscv64 golden");
+    assert_eq!(
+        err,
+        "no recipe golden for linux-riscv64: goldens exist for linux-x86_64, macos-aarch64, windows-x86_64; bless on this target and add it to TARGETS"
+    );
+    let ok = golden_path_for("v1_resize_max", "macos", "aarch64").expect("mac golden");
+    assert!(ok.ends_with("v1_resize_max.macos-aarch64.output"), "{ok:?}");
 }

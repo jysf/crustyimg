@@ -6,7 +6,7 @@ Every recipe here is pinned twice, by two files that answer different questions.
 |---|---|---|
 | `<stem>.toml` | the recipe as written | `tests/recipe_round_trip.rs` parses it |
 | `<stem>.golden` | the recipe's canonical TOML (`to_toml()`), which is an input to the cache key | `tests/recipe_round_trip.rs` |
-| `<stem>.output` | what the recipe produces on three fixed fixtures | `tests/recipe_corpus_output.rs` |
+| `<stem>.<target>.output` | what the recipe produces on three fixed fixtures | `tests/recipe_corpus_output.rs` |
 
 The three bundled recipes in `recipes/` are pinned the same way, under the names
 `bundled_gallery`, `bundled_product` and `bundled_web`.
@@ -25,8 +25,8 @@ One line per fixture and kind: `<fixture> <kind> <fields>`. Lines starting with 
 The fixtures are built inside the test from seeded raw samples, so no decoder or encoder produces
 an input. Each is larger than every size bound in the corpus, so every resize actually resizes.
 
-Each `.output` file is exact on every CI target. If the targets ever disagree, the pin becomes one
-file per target (`<stem>.<os>-<arch>.output`), still exact. It is never loosened to a tolerance.
+Resize and compositing use float maths whose last bits differ by OS and CPU, so the pin is one
+file per target (`<stem>.<os>-<arch>.output`: linux-x86_64, macos-aarch64, windows-x86_64), each exact. It is never loosened to a tolerance. A target with no file fails the test; bless on that machine and add it to `TARGETS`. Goldens for a CI target you cannot run locally come from the failing log: each `----- BEGIN … -----` block is a file.
 
 ## Running and blessing
 
