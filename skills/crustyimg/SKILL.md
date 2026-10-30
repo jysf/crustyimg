@@ -184,7 +184,9 @@ The mark must suit each image, or crustyimg refuses it rather than damage the pi
   written. With several inputs, or in `build`, that image is written **without** the mark,
   with a `warning: … watermark skipped …` line, and the run still exits 0 — read stderr.
 - `--size` is a number above 0 and at most 1024. A bad `--size`, `--scale`, `--opacity`,
-  `--gravity` or `--color` exits 2 before any file is read.
+  `--gravity` or `--color` exits 2 before any file is read. So does a mark that would draw
+  no visible pixel (`--opacity 0`, blank `--text`, a too-small `--size`, a `--color` with
+  alpha `00`, a fully transparent `--image`): to leave images unmarked, do not run `watermark`.
 
 A mark that fits is drawn as asked, even if too small or faint to see; check the output.
 

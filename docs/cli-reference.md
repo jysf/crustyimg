@@ -263,9 +263,9 @@ or `--text` is required (mutually exclusive).
 | Option | Applies to | Meaning |
 |---|---|---|
 | `--image <PATH>` | image | Overlay image. |
-| `--text <STRING>` | text | Text to render. |
+| `--text <STRING>` | text | Text to render; it must draw at least one visible character. |
 | `--gravity <G>` | both | Anchor: `north`/`south`/`east`/`west`/`center`/`northeast`/… (default `southeast`). |
-| `--opacity <O>` | both | Opacity `0.0`–`1.0`. |
+| `--opacity <O>` | both | Opacity above `0`, at most `1`. |
 | `--margin <M>` | both | Margin from the edge, in px. |
 | `--scale <S>` | image | Overlay width as a fraction of the image's width (e.g. `0.1`), aspect kept. A finite number above `0`. |
 | `--tile` | image | Tile the overlay across the image. |
@@ -279,7 +279,10 @@ crustyimg watermark photo.jpg --text "© crustyimg" --size 32 --color FFFFFF -o 
 ```
 
 A bad `--size`, `--scale`, `--opacity`, `--gravity` or `--color` exits `2` before any file
-is read. The mark must suit each image: the mark plus `--margin` must fit inside it, and a
+is read. So does a mark that would draw no visible pixel (`--opacity 0` or too small to leave
+any alpha, blank `--text`, a `--size` too small to draw the text, a `--color` with alpha `00`,
+a fully transparent `--image`): nothing is written. A faint mark that still has a visible
+pixel is drawn, even where it changes nothing on a particular image. The mark must suit each image: the mark plus `--margin` must fit inside it, and a
 fixed-size mark (no `--scale`, no `--tile`) may cover at most 5 % of its pixels. On one input
 a mark that fails is an `error:` naming the sizes, exit `2`, nothing written. Over several
 inputs that image is written without the mark, with a `warning: … watermark skipped …` line

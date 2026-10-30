@@ -368,7 +368,7 @@ pixel-lane `Operation` (DEC-002) — the first that composes a second image, loa
 once at the CLI boundary (DEC-031). The base image's EXIF **orientation is baked
 into the pixels first** (SPEC-110), matching every other pixel-lane verb, so the
 overlay composites onto the display-correct orientation, not the stored one.
-`--opacity O` (0–1, default 1) scales the
+`--opacity O` (above 0, at most 1; default 1) scales the
 overlay alpha; `--scale S` resizes the overlay to `S ×` base width; `--margin M`
 insets the anchor; `--tile` repeats the overlay across the whole base (ignores
 gravity/margin). Missing/unreadable `--image` → exit **3**. Standard fan-out (single → stdout/`-o`/`--out-dir`,
@@ -381,7 +381,7 @@ text into an overlay composited through the same path. `--image` and
 `--text` are mutually exclusive — exactly one required (neither/both → exit **2**).
 Default font is the **bundled BSD-3 Go font**; `--font PATH` (a TTF/OTF) overrides it
 (missing/unreadable → exit **3**). `--size` (px, default 32) must be above 0 and at most
-1024; `--scale` above 0 and finite; `--opacity` in 0–1; `--color`
+1024; `--scale` above 0 and finite; `--opacity` above 0 and at most 1; `--color`
 (`RRGGBB`/`#RRGGBB`/`RRGGBBAA`, default white). A bad `--size`, `--scale`, `--opacity`,
 `--gravity` or `--color` is a usage error (exit **2**) reported **before any file is read** —
 before the inputs, `--font` and `--image` — so it wins over a missing file (exit **3**). The
@@ -409,6 +409,20 @@ the recipe path:
   conflicts with `--scale`/`--tile`): `recipe step N ('watermark'): 'scale' only
   applies to an image watermark (this step sets 'text')`, exit **1**, before any input
   is read. `tile = false` is accepted (crustyimg writes it for every mark).
+
+**A mark that would draw nothing is refused.** Decided from the mark alone, before any
+input is read, so it is an error for the whole invocation (nothing is written), not a
+per-image skip: exit **2** on `watermark`, exit **1** in a recipe (`apply`, `build`,
+`--watch`), and a thrown error from wasm `transform`. The mark has no visible pixel when its
+opacity is `0`, when its opacity is too small to leave any alpha (counted at 16-bit
+precision, from the mark's largest alpha), when `--text` has no visible characters, when
+`--size` is too small to draw the text, when `--color` has alpha `00`, or when `--image` is
+fully transparent. `--opacity 0` and `--color …00` are checked with the flags, before any
+file is read; the other causes need the rendered or loaded mark and are checked before any
+input is. A faint mark that still has a visible pixel is drawn as asked, even where it changes
+nothing on a particular image (white text on a white photo, or a very low opacity on an
+8-bit image). The library exposes the check as `Watermark::invisible_mark()`; the public
+constructors `new_image` and `new_text` stay infallible, so a caller must ask.
 
 **A mark that would damage the image is refused (SPEC-133, DEC-104).** Before
 anything is drawn, `watermark` checks the mark against each image, in pure geometry:

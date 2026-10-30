@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Breaking
+
+- **`watermark` refuses a mark that would draw nothing** (exit `2`; in a recipe, `apply` and
+  `build` exit `1`; nothing is written). This covers `--opacity 0` / `opacity = 0`, an opacity
+  too small to leave any visible pixel, text with no visible characters (`--text " "`), text too
+  small to draw at its `--size`, a fully transparent `--color` (alpha `00`) and a fully
+  transparent `--image`. These used to exit `0` and write the image without a mark. To leave
+  images unmarked, remove the watermark step, or do not run `watermark`. A faint mark that still
+  has a visible pixel is drawn as before, even where it changes nothing on a particular image
+  (white text on a white photo, or a very low opacity on an 8-bit image).
+
 ## [0.8.1] - 2026-10-30
 
 ### Added
