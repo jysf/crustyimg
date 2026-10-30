@@ -67,7 +67,8 @@ recipe `build` target's `name`:
    format, or the automatic choice on `web` / `optimize` / `apply --recipe web` / a `build`
    terminal-`optimize` target). A disagreement is **not an error**: `--format` wins silently,
    because that is what `--format webp -o x.png` does today (driven 2026-10-25: WebP bytes in
-   `x.png`, exit 0), and the template takes `-o`'s rung, not a new one.
+   `x.png`, exit 0), and the template takes `-o`'s rung, not a new one. On `build`, `--format` is refused (exit 2), so the
+   chain there starts at the target's `name` extension.
 3. **A pin skips the automatic choice** on `web`, `optimize` and `apply --recipe web` (maintainer
    ruling, 2026-10-25), as `-o` and DEC-087 already do. `{ext}` or no extension keeps the
    automatic choice.
