@@ -16,16 +16,20 @@ the site build copies to the web root.
 /edit/index.html?album=<slug>&photo=<n>   edit photo n (1-based, like ddphotos permalinks)
 ```
 
-Always link `/edit/index.html`, never `/edit/`. The folder URL fails on both of
+Always link `/edit/index.html`, never `/edit/`. The folder URL fails on all three of
 ddphotos' own servers:
 
-- **Dev server** (`./ddphotos run`): it serves only the files in `config/static/`, so
-  `/edit/` falls through to the site's 404 page.
-- **ddphotos' Apache image**: its `.htaccess` strips trailing slashes, so `/edit/`
-  redirects to `/edit`, which shows an Apache directory listing of the page's files.
-  An `edit.html` redirect next to the folder does not help.
+- **Dev server** (`./ddphotos run`, the app's Run tab): it serves only the files in
+  `config/static/`, so `/edit/` falls through to the site's 404 page.
+- **`./ddphotos serve`** (the Apache inside ddphotos' main Docker image, and the app's
+  Serve tab): ddphotos' `.htaccess` strips trailing slashes, so `/edit/` redirects to
+  `/edit`, which answers **403 Forbidden** (directory listings are off).
+- **`photos-apache`** (ddphotos' optional deploy image, `web/apache.dockerfile`, plain
+  `httpd`): the same redirect, but `/edit` shows a **directory listing** of the page's
+  files.
 
-A plain static server maps `/edit/` to `index.html`, but the full name works everywhere.
+An `edit.html` redirect next to the folder does not help. A plain static server maps
+`/edit/` to `index.html`, but the full name works everywhere.
 
 ## Install
 
@@ -63,10 +67,14 @@ How much a visitor downloads depends on the server:
 
 | Server | `.wasm` transfer |
 |---|---|
-| Compresses `application/wasm` (Cloudflare Pages does, with Brotli) | 0.78 MB |
-| Does not compress it (ddphotos' Apache image and its `nginx.conf`, as shipped) | 3.9 MB |
+| Brotli (Cloudflare Pages does this) | 0.78 MB |
+| gzip (`./ddphotos serve`: Debian's Apache with its stock `deflate.conf`) | 1.17 MB |
+| Not compressed (`photos-apache`, ddphotos' optional deploy image; a plain static server) | 3.9 MB |
 
-On Apache, one line in the site config or `.htaccess` compresses it (needs `mod_deflate`):
+ddphotos' `nginx.conf` sets no `gzip` either, so expect 3.9 MB there too (not tested).
+
+On an Apache that does not compress it, one line in the site config or `.htaccess`
+fixes that (needs `mod_deflate`):
 
 ```
 AddOutputFilterByType DEFLATE application/wasm
@@ -78,6 +86,24 @@ Serve `.wasm` as `application/wasm`. Apache, nginx, Cloudflare Pages and S3 do t
 default. ddphotos' Vite dev server does not, so in `./ddphotos run` the browser logs a
 warning and loads it more slowly, but it still works.
 
+## With the DD Photos app
+
+The [DD Photos app](https://github.com/dougdonohoe/ddphotos-app) runs ddphotos' commands
+for you in Docker, and the page works on a site it builds (tested with app 1.0.20): its
+Build tab copies the page into the site, and its Serve, Run and Export tabs (including
+the Cloudflare export) all carry it. The app never creates or mentions
+`config/static/`, so:
+
+1. Build the page as above, or take a built `edit/` folder from someone who has.
+2. Open your site folder (`~/my-ddphotos` by default), go into `config`, and make a
+   folder named exactly `static` if there is none.
+3. Copy the `edit` folder into it. Check the path: it must be
+   `config/static/edit/index.html`, not `config/static/edit/edit/index.html`.
+4. Press **Build** (Photogen alone is not enough), then **Serve**, and open
+   `/edit/index.html`.
+
+To update the page, replace the whole `edit` folder, then Build (and Export) again.
+
 ## What it can do
 
 | | |
@@ -86,7 +112,7 @@ warning and loads it more slowly, but it still works.
 | **Watermark** | Text, position, size (scaled to the output, and made smaller when the text would not fit a portrait or narrow photo), colour, opacity. Uses crustyimg's bundled font. |
 | **Format** | JPEG (searched for the smallest file that scores 90 for similarity), AVIF (fixed high quality), PNG, WebP (lossless only in this build), or let the engine choose (the smallest file at high, not identical, quality: usually AVIF). |
 | **Preview** | Live, re-rendered by the engine about 200 ms after each change. |
-| **CLI** | Every result shows the same edit as a crustyimg recipe, plus the `crustyimg apply` command to run on the original file. Run it in the folder the album's `base:` points to in `albums.yaml`, with the recipe saved as `edit.toml`: the command uses the photo's path relative to that folder. |
+| **CLI** | Every result shows the same edit as a crustyimg recipe, plus the `crustyimg apply` command to run on the original file. Optional: only for people with the crustyimg CLI installed. Run it in the folder named by the album's `base:` entry (listed under `bases:` in `albums.yaml`, relative to the site folder), with the recipe saved there as `edit.toml`: the command uses the photo's path relative to that folder. |
 
 Work runs in a Web Worker, so the page stays responsive during an encode. The JPEG
 quality search is the slow part in wasm: on 1200 px copies in headless Chromium on an
@@ -130,4 +156,6 @@ password-protected), built with ddphotos' own tools and served three ways: its V
 server, the exported site on a plain static server, and ddphotos' own Apache Docker
 image. The album and photo pickers, preview, every format choice, and the page's CLI
 command on the originals were all exercised in headless Chromium, and every download
-was decoded with independent decoders. Not yet tested on nginx or Cloudflare Pages.
+was decoded with independent decoders. The picker, editor and a JPEG export were also
+run on a site built with the DD Photos app's Build and Serve tabs. Not yet tested on
+nginx or on a live Cloudflare Pages deploy.

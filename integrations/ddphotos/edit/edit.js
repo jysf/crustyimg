@@ -84,16 +84,23 @@ function clearError(from) {
   if (el.dataset.from === from) el.hidden = true;
 }
 
+/// A picker tile. With no `href` it is shown but cannot be opened, and with no
+/// `img` it gets an empty placeholder of the same shape.
 function tile({ href, img, title, sub }) {
   const li = document.createElement("li");
-  const a = document.createElement("a");
-  a.href = href;
+  const a = document.createElement(href ? "a" : "div");
+  if (href) a.href = href;
+  else a.className = "tile-off";
   if (img) {
     const i = document.createElement("img");
     i.src = img;
     i.alt = "";
     i.loading = "lazy";
     a.append(i);
+  } else {
+    const blank = document.createElement("span");
+    blank.className = "tile-blank";
+    a.append(blank);
   }
   const t = document.createElement("span");
   t.className = "tile-title";
@@ -118,14 +125,19 @@ async function showAlbums(config) {
   const albums = await getJson("/albums/albums.json");
   const open = albums.filter((a) => !a.encrypted);
   for (const a of open) {
+    // `count` includes videos, which cannot be edited. An album with no stills
+    // stays listed, like on the site's home page, but cannot be opened. Older
+    // sites may not publish a count; then the album is offered as usual.
+    const stills = a.count === undefined ? undefined : a.count - (a.videoCount ?? 0);
+    const editable = stills === undefined || stills > 0;
     $("tiles").append(
       tile({
-        href: `?album=${encodeURIComponent(a.slug)}`,
+        href: editable ? `?album=${encodeURIComponent(a.slug)}` : null,
         // albums.json cover paths already start with the album folder
         // (index.json paths do not).
         img: a.cover ? albumFileUrl(a.cover, a.coverVersion) : null,
         title: a.title,
-        sub: a.dateSpan,
+        sub: editable ? a.dateSpan : "No photos to edit",
       }),
     );
   }
@@ -157,6 +169,7 @@ function showPhotos(album) {
     );
   });
   $("tiles").classList.add("photos");
+  if (!$("tiles").children.length) showError("This album has no photos to edit.", "note");
   $("picker").hidden = false;
 }
 
