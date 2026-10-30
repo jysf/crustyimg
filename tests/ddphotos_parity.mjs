@@ -43,9 +43,9 @@ const K = 1;
 // A row above it is a failure to report, never a reason to raise this (DEC-110).
 const K_CAP = 78;
 
-// Whether JPEG bytes are asserted on the rows without a resize. Set only when the
-// first x86_64 run showed them equal on both targets; until then they are reported.
-const JPEG_BYTES_ASSERTED = false;
+// Whether JPEG bytes are asserted on the rows without a resize. The first x86_64 run
+// (AMD EPYC runner) gave the same JPEG bytes as the aarch64 Mac, so they are.
+const JPEG_BYTES_ASSERTED = true;
 
 if (K > K_CAP) {
   console.error(`K (${K}) is above the cap (${K_CAP})`);
@@ -476,6 +476,24 @@ function comparatorCases() {
       false,
       "dims",
     ],
+    [
+      "B8 jpeg bytes differ, no resize",
+      () => compareImages(...flat(8, 8), false, false, "jpeg"),
+      false,
+      "bytes",
+    ],
+    [
+      "B9 jpeg bytes differ, resizes",
+      () => compareImages(...flat(8, 8), false, true, "jpeg"),
+      true,
+      "",
+    ],
+    [
+      "B10 png bytes differ, no resize",
+      () => compareImages(...flat(8, 8), false, false, "png"),
+      false,
+      "bytes",
+    ],
   ];
   const results = [];
   for (const [name, run, ok, reason] of cases) {
@@ -488,7 +506,7 @@ function comparatorCases() {
     const good = got.ok === ok && got.reason === reason;
     results.push({ name, good });
     console.log(
-      `${good ? "PASS" : "FAIL"} ${name}: ${got.ok ? "green" : "red"}${got.reason ? ` (${got.reason})` : ""}`,
+      `${good ? "PASS" : "FAIL"} ${name}: ${got.ok === "threw" ? "threw" : got.ok ? "green" : "red"}${got.reason ? ` (${got.reason})` : ""}`,
     );
   }
   return results.every((r) => r.good);
