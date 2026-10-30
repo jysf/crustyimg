@@ -256,6 +256,19 @@ label.inline {
   font-size: 1rem;
 }
 
+/* The watermark switch sits in a legend; give it a full-size touch target. */
+legend label.inline {
+  min-height: 44px;
+  padding-right: 0.5rem;
+  cursor: pointer;
+}
+
+legend label.inline input {
+  width: 1.25rem;
+  height: 1.25rem;
+  margin: 0;
+}
+
 .row {
   display: flex;
   gap: 8px;
