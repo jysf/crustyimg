@@ -152,6 +152,23 @@ h1 {
   background: var(--surface);
 }
 
+/* An album with nothing to edit: listed, but not a link. */
+.tiles .tile-off {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  opacity: 0.6;
+}
+
+.tile-blank {
+  display: block;
+  width: 100%;
+  aspect-ratio: 3 / 2;
+  border-radius: 6px;
+  background: var(--surface);
+  border: 1px dashed var(--border);
+}
+
 .tiles a:hover img,
 .tiles a:focus-visible img {
   outline: 2px solid var(--accent);
