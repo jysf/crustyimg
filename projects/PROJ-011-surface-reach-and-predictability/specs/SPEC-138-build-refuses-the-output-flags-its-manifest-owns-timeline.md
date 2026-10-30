@@ -17,6 +17,16 @@ Cycle prompts live in `prompts/SPEC-138-<cycle>.md`.
       exact (no clap default, no env feature). Every refused flag gets its own line, fixed order.
       No golden lock: a two-binary `compare-builds.sh` run, proven red by a one-byte key mutant.
       DEC-057 and DEC-105 amended; DEC-108 released. `Breaking` CHANGELOG entry.
-- [~] **build** — prompt: `prompts/SPEC-138-build.md` (Sonnet). Handed out 2026-10-29, after SPEC-137 merged (`71b4f38`).
-- [ ] **verify** — prompt: `prompts/SPEC-138-verify.md`.
+- [x] **build** — 2026-10-29 (`prompts/SPEC-138-build.md`, Sonnet, ~$2.28). Draft PR #221 at
+      `5118362`, CI green on every leg. Commit 1 `277391d` (tests only). 12 red / 2 green, and FT-15
+      does not compile on `main`. Every mutation flipped as predicted. The build moved the guard into
+      `run_build` for the after-manifest row, so FT-11 and FT-12 went red too. Byte identity: empty
+      `src/build/` diff and `compare-builds.sh` IDENTICAL. README unchanged.
+- [x] **verify** — 2026-10-29 (`prompts/SPEC-138-verify.md`, Opus, ~$5.99). ✅ APPROVED at
+      `5118362`. Baseline 12 red / 2 green, FT-11 red at its 20 s deadline. Every AC row exits 2 on
+      the PR and gives the baseline on `main`; `compare-builds.sh` IDENTICAL, key mutant DIFFERS.
+      The spec's after-manifest row (both paths) turned FT-8, 9 and 12 red, FT-11 green. Lean leg:
+      `--watch` is refused there anyway, but FT-11 still goes red through its stderr check, so it is
+      not hollow. M-a to M-c caught; M-d (`snapshot()` skipping dotfiles) is a gap, listed as an
+      optional cleanup. Full suite 1115 / 1053; Windows FT-11/12 ran in 0.22 s. PR marked ready.
 - [ ] **ship** — prompt: `prompts/SPEC-138-ship.md`.
