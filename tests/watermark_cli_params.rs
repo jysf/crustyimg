@@ -33,6 +33,30 @@ fn write_gradient(dir: &Path, name: &str, w: u32, h: u32) -> PathBuf {
     path
 }
 
+/// The same gradient as 16-bit RGB: every 8-bit sample times 257, so the
+/// 8-bit view is the 8-bit gradient exactly.
+fn write_gradient16(dir: &Path, name: &str, w: u32, h: u32) -> PathBuf {
+    let img = image::ImageBuffer::<Rgb<u16>, Vec<u16>>::from_fn(w, h, |x, y| {
+        Rgb([
+            (x * 255 / w.max(1)) as u16 * 257,
+            (y * 255 / h.max(1)) as u16 * 257,
+            ((x + y) * 7 % 256) as u16 * 257,
+        ])
+    });
+    let path = dir.join(name);
+    DynamicImage::ImageRgb16(img).save(&path).unwrap();
+    path
+}
+
+/// An all-white 8-bit RGB PNG, `w×h`, written to `dir/name`.
+fn write_white(dir: &Path, name: &str, w: u32, h: u32) -> PathBuf {
+    let path = dir.join(name);
+    DynamicImage::ImageRgb8(RgbImage::from_pixel(w, h, Rgb([255, 255, 255])))
+        .save(&path)
+        .unwrap();
+    path
+}
+
 /// A 60×30 opaque RGBA *gradient* overlay. A flat colour would hide a change
 /// of resize filter, so every pixel differs from its neighbours.
 fn write_logo(dir: &Path) -> PathBuf {
@@ -63,7 +87,7 @@ fn pixel_hash(path: &Path) -> String {
 
 // ─── Byte identity of a mark that is accepted ────────────────────────────────
 //
-// Three marks the CLI accepts, each also run as a one-step recipe. Their
+// Twelve marks the CLI accepts, each also run as a one-step recipe. Their
 // decoded output is hashed and compared with goldens captured from code that
 // predates the flag checks, so a change to size, scale, resize filter or
 // placement fails here. Regenerate only with `CRUSTYIMG_BLESS=1`, and only on
@@ -73,38 +97,115 @@ fn golden_path() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/watermark/cli_params.golden")
 }
 
-/// `(case name, base size, CLI args, recipe step body)`.
-type AcceptedCase = (&'static str, (u32, u32), Vec<&'static str>, &'static str);
+/// The base image a case marks.
+#[derive(Clone, Copy)]
+enum Base {
+    /// 8-bit RGB gradient.
+    Gradient(u32, u32),
+    /// The same gradient as 16-bit RGB.
+    Gradient16(u32, u32),
+    /// 8-bit RGB, every sample 255.
+    White(u32, u32),
+}
+
+impl Base {
+    fn write(self, dir: &Path, name: &str) -> PathBuf {
+        match self {
+            Base::Gradient(w, h) => write_gradient(dir, name, w, h),
+            Base::Gradient16(w, h) => write_gradient16(dir, name, w, h),
+            Base::White(w, h) => write_white(dir, name, w, h),
+        }
+    }
+}
+
+/// `(case name, base, CLI args, recipe step body)`.
+type AcceptedCase = (&'static str, Base, Vec<&'static str>, &'static str);
 
 fn accepted_cases() -> Vec<AcceptedCase> {
     vec![
         (
             "text_default_size",
-            (400, 300),
+            Base::Gradient(400, 300),
             vec!["--text", "© crustyimg"],
             "text = \"© crustyimg\"",
         ),
         (
             "text_size_1024",
-            (1200, 1000),
+            Base::Gradient(1200, 1000),
             vec!["--text", ".", "--size", "1024"],
             "text = \".\"\nsize = 1024",
         ),
         (
             "image_scale_quarter",
-            (400, 300),
+            Base::Gradient(400, 300),
             vec!["--image", "logo.png", "--scale", "0.25"],
             "image = \"logo.png\"\nscale = 0.25",
+        ),
+        (
+            "image_opacity_0_6",
+            Base::Gradient(400, 300),
+            vec!["--image", "logo.png", "--opacity", "0.6"],
+            "image = \"logo.png\"\nopacity = 0.6",
+        ),
+        (
+            "image_tile",
+            Base::Gradient(400, 300),
+            vec!["--image", "logo.png", "--tile"],
+            "image = \"logo.png\"\ntile = true",
+        ),
+        (
+            "image_scale_tenth",
+            Base::Gradient(400, 300),
+            vec!["--image", "logo.png", "--scale", "0.1"],
+            "image = \"logo.png\"\nscale = 0.1",
+        ),
+        (
+            "text_16bit",
+            Base::Gradient16(400, 300),
+            vec!["--text", "© crustyimg"],
+            "text = \"© crustyimg\"",
+        ),
+        // The faint rows are marks with a visible pixel that a refusal of
+        // "draws nothing" must not touch.
+        (
+            "faint_opacity",
+            Base::Gradient16(400, 300),
+            vec!["--image", "logo.png", "--opacity", "0.00001"],
+            "image = \"logo.png\"\nopacity = 0.00001",
+        ),
+        (
+            "faint_opacity_boundary",
+            Base::Gradient16(400, 300),
+            vec!["--image", "logo.png", "--opacity", "0.0000077"],
+            "image = \"logo.png\"\nopacity = 0.0000077",
+        ),
+        (
+            "faint_size",
+            Base::Gradient16(400, 300),
+            vec!["--text", "© crustyimg", "--size", "0.2"],
+            "text = \"© crustyimg\"\nsize = 0.2",
+        ),
+        (
+            "faint_8bit",
+            Base::Gradient(400, 300),
+            vec!["--image", "logo.png", "--opacity", "0.001"],
+            "image = \"logo.png\"\nopacity = 0.001",
+        ),
+        (
+            "white_on_white",
+            Base::White(400, 300),
+            vec!["--text", "© crustyimg"],
+            "text = \"© crustyimg\"",
         ),
     ]
 }
 
 /// Runs one case through the CLI and through a one-step recipe; returns both
 /// output hashes.
-fn run_case(args: &[&str], recipe_body: &str, base: (u32, u32)) -> (String, String) {
+fn run_case(args: &[&str], recipe_body: &str, base: Base) -> (String, String) {
     let dir = TempDir::new().unwrap();
     write_logo(dir.path());
-    let input = write_gradient(dir.path(), "in.png", base.0, base.1);
+    let input = base.write(dir.path(), "in.png");
 
     let cli_out = dir.path().join("cli.png");
     let status = Command::new(BIN)
@@ -167,7 +268,7 @@ fn accepted_marks_are_byte_identical_to_main() {
     let golden = std::fs::read_to_string(golden_path())
         .expect("golden file")
         .replace("\r\n", "\n");
-    assert_eq!(golden.lines().count(), 3, "three goldens");
+    assert_eq!(golden.lines().count(), 12, "twelve goldens");
     assert_eq!(current_hashes(), golden);
 }
 
