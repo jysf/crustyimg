@@ -153,7 +153,7 @@ Ordered. ⚡ Only the first item gates 0.8.0.
   Refactor: resolve once and pass `&[Input]` into both branches. Code quality, not a bug; a
   candidate for the maintainer's queued Rust cleanup.
 
-- [ ] (not yet written) — [S] **A watermark with no visible pixels is drawn as nothing at exit 0.**
+- [ ] **SPEC-143** (framed 2026-10-30) — [S] **A watermark with no visible pixels is drawn as nothing at exit 0.**
   Filed by SPEC-135's frame (2026-10-27), driven on a release build of `main` @ `4d6808b`: on
   **both** paths, `--text " "` / `text = " "` and `--size 0.01` / `size = 0.01` exit 0 with 0
   pixels changed, and `--opacity 0` / `opacity = 0.0` the same. Cause for the first two:
@@ -287,7 +287,17 @@ Ordered. ⚡ Only the first item gates 0.8.0.
   folder has no images at its top level, and suggest a recursive glob (`'d/**/*'`). Keep exit 3
   unless a ruling changes it.
 
-**Count:** 3 shipped / 0 active / 19 pending
+- [ ] (not yet written) — [S] **A library caller of `Watermark::new_image` / `new_text` can still
+  build a mark that draws nothing.** Filed by SPEC-143's frame (2026-10-30). SPEC-143 refuses a
+  mark with no visible pixel after opacity on the CLI and in `from_params` (recipes, `build`, wasm).
+  But the two public constructors are infallible (`-> Self`) in released 0.8.1
+  (`src/operation/mod.rs:1442`, `:1470`), and `Refusal` is not `#[non_exhaustive]`. So a direct
+  library caller that skips SPEC-143's predicate still composites nothing with `Ok`. Closing it
+  changes the public API (fallible constructors, or a new `Refusal` variant that `apply` returns),
+  so it waits for the next minor (0.9), not a patch. The same shape as the `render_text`
+  library-panic entry above (`untrusted-input-hardening`).
+
+**Count:** 3 shipped / 1 active / 19 pending
 
 ## Design Notes
 
