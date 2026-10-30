@@ -19,3 +19,4 @@ meant to be edited into your own voice before publishing.
 | 2026-07-06 | [crustyimg 0.3.0: `optimize` picks the format for you](2026-07-06-crustyimg-optimize-picks-the-format.md) — the local `f_auto` | draft |
 | 2026-07-06 | [How `optimize` picks a format](2026-07-06-how-optimize-picks-a-format.md) — shortlist, search, winner (feature deep-dive) | draft |
 | 2026-07-06 | [Deciding photo-vs-graphic without ML](2026-07-06-deciding-photo-vs-graphic-without-ml.md) — the analysis layer | draft |
+| 2026-10-29 | [A cat's portfolio proves the GitHub Actions work](2026-10-29-a-cat-portfolio-proves-the-github-actions.md) — three bugs a green self-test missed, and the demo repo | draft |
