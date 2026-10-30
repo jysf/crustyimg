@@ -7,7 +7,7 @@
 task:
   id: SPEC-141
   type: task                       # epic | story | task | bug | chore
-  cycle: design  # frame | design | build | verify | ship
+  cycle: build  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: S                    # S | M | L  (L means split it)
@@ -65,6 +65,25 @@ cost:
         (46 unique ids, all claude-opus-5-5), input/cache_creation/cache_read once per id, MAX
         output_tokens per id. Priced by component at Opus $5/$25 per MTok, cache_creation x1.25
         ($6.25), cache_read x0.10 ($0.50): $0.0005 + $0.77 + $2.55 + $0.86. Measured before
+        the commit/push turns, so it slightly under-counts.
+    - cycle: design
+      agent: claude-opus-5-5
+      interface: claude-code
+      tokens_total: 6735818
+      tokens_breakdown:
+        input: 90
+        output: 71913
+        cache_creation: 189133
+        cache_read: 6474682
+      estimated_usd: 6.22
+      duration_minutes: null
+      recorded_at: 2026-10-30
+      note: >
+        Interactive design session in its own worktree (docs/spec-141-design). Measured from the
+        session's transcript (1cdb629e-….jsonl, identified by content), deduped by `.message.id`
+        (45 unique ids, all claude-opus-5-5), input/cache_creation/cache_read once per id, MAX
+        output_tokens per id. Priced by component at Opus $5/$25 per MTok, cache_creation x1.25
+        ($6.25), cache_read x0.10 ($0.50): $0.0004 + $1.18 + $3.24 + $1.80. Measured before
         the commit/push turns, so it slightly under-counts.
   totals:
     tokens_total: 0
@@ -323,48 +342,630 @@ All three recommendations above were accepted:
   orientation cheaply, design may add one row. Otherwise it stays out.
 - **Pinning any op PROJ-017 adds.** Each new op adds its own corpus row in its own spec.
 
+## Design
+
+*(design, 2026-10-30, Opus.) Measured on `main` @ `a448a61` in a fresh `CARGO_TARGET_DIR`
+(deleted after), with a throwaway probe test (`tests/zz_probe_141.rs`, never committed,
+deleted) that used the library API exactly as the guard will. Profile: `test` (the dev
+profile, `opt-level = 1`, `Cargo.toml:335-336`), which is what CI's `cargo test` runs.*
+
+### What design measured
+
+**1. The frame's RGBA fixtures make six rows pin a no-op.** On `rgba8_1100x700` and
+`rgba16_1100x700`, all three bundled recipes' `resize max` (2560/2048/1600) left the image
+unchanged (probe: `[1:resize:NOOP]`, output hash = input hash). That is six pins over a step
+that never ran: the frame's own question-4 warning, and it contradicts the accepted rule
+"every recipe step must actually do something on each fixture". **Design changes the two RGBA
+fixtures** (see Call 1). With the new fixtures every `resize`, `watermark` and `invert` step
+changed the image on every fixture (42/42 rows, each step checked one at a time). Every
+watermark row was accepted (no DEC-104 refusal: the tiled and scaled marks are exempt from the
+5% cap, `src/operation/mod.rs:1725`, and the two unscaled text marks are small).
+
+The only steps that never change a fixture are `auto-orient` (the fixtures carry no
+orientation; the frame put that out of scope) and `identity` (by definition). The guard exempts
+exactly those two by name.
+
+**2. Cost (dev profile, Mac).** Each pixel row took 3–362 ms; all 42 rows ≈ 7.5 s, plus
+≤ 0.23 s per PNG/WebP encode. The bundled recipes' `optimize` decision is not reachable from the
+library (see Call 3), so its cost was measured through the dev binary:
+`apply --recipe <web|gallery|product> <fixture>.png --out-dir … --json` took 5–23 s per row, 107 s
+for all nine. Every one of the nine picked **AVIF**, by a wide margin: on `rgba16`, AVIF 61,656
+bytes vs lossless WebP 1,960,536 vs PNG 8,223,863 (`--json` report).
+
+**3. The library seam writes the bytes `apply` writes.** On `rgb8_2600x1730`, the dev binary's
+`apply --recipe <corpus file> rgb8.png --out-dir o` wrote `rgb8.png` with SHA-256 prefix
+`a8584eba` for `v2_watermark_integer_numbers`, and `rgb8.webp` = `72991b30` for
+`v2_format_quality_optimize`. The probe's `sink::encode_to_bytes(img, Png, None)` and
+`encode_to_bytes(img, WebP, None)` on the in-process pipeline output gave the same two prefixes.
+This also shows that `v2_format_quality_optimize`'s `quality = 80` never reaches the WebP
+encoder on `apply`'s path (see Call 3).
+
+**4. Both required mutations, driven against the probe** (applied with `sed`, reverted with
+`git checkout`, tree clean afterwards):
+
+| mutation | pixel rows changed | pixel rows unchanged |
+|---|---|---|
+| `src/operation/mod.rs:584` `FilterType::Lanczos3` → `CatmullRom` | **33**: the 11 recipes that resize × 3 fixtures. Their PNG/WebP encodes changed too | **9**: `v1_watermark_image_placement`, `v1_watermark_text_font`, `v2_format_quality_optimize` × 3 fixtures |
+| `src/operation/mod.rs:1629` `opacity … unwrap_or(1.0)` → `unwrap_or(0.9)` | **6**: `v1_watermark_text_font` and `v2_watermark_integer_numbers` × 3 (the two recipes with a watermark step that has no `opacity` key) | **36**: every other row, including `v1_watermark_image_placement` (`opacity = 0.6`) and the ddphotos shape (`opacity = 0.85`) |
+
+The scaled image watermark resizes its mark with `image`'s own `imageops::resize`
+(`src/operation/mod.rs:1773`, `:1829`), not the `fast_image_resize` call at `:584`. That is why
+`v1_watermark_image_placement` stays unchanged under the filter mutation.
+
+### Call 1 — fixtures: three, every one over every bound
+
+| name | colour | size | why |
+|---|---|---|---|
+| `rgb8_2600x1730` | `Rgb8` | 2600×1730 landscape | unchanged from the frame |
+| `rgba8_1730x2600` | `Rgba8` | 1730×2600 **portrait** | was 1100×700. Long edge 2600 > 2560, so every bundled resize runs. Portrait also drives `max`/`fit`/`cover` on the height-bound branch, which no other fixture does |
+| `rgba16_2600x1730` | `Rgba16` | 2600×1730 | was 1100×700, for the same reason. Keeps DEC-095's 16-bit path (`resize_and_crop16`, `src/operation/mod.rs:670`, called at `:1069`) |
+
+**Report to the orchestrator:** this departs from an accepted frame line (the 1100×700
+sizes). The accepted rule "every step must do something on each fixture" cannot hold with
+them, so design kept the rule and changed the sizes. Cost: about +2 s per run.
+
+The generator is part of the spec, so the goldens can be reproduced (copy it verbatim):
+
+```rust
+struct XorShift(u64);
+impl XorShift {
+    fn next(&mut self) -> u64 {
+        self.0 ^= self.0 << 13;
+        self.0 ^= self.0 >> 7;
+        self.0 ^= self.0 << 17;
+        self.0
+    }
+}
+
+/// A seeded gradient-plus-noise image, built from raw samples (no encoder or decoder involved).
+fn fixture(kind: &str, w: u32, h: u32) -> Image {
+    let mut r = XorShift(0x5EED_0141 ^ (u64::from(w) << 20) ^ u64::from(h));
+    let px = match kind {
+        "rgb8" => DynamicImage::ImageRgb8(ImageBuffer::from_fn(w, h, |x, y| {
+            let n = (r.next() & 31) as u32;
+            Rgb([((x * 255 / w + n) % 256) as u8, ((y * 255 / h + n) % 256) as u8,
+                 (((x + y) / 7 + n) % 256) as u8])
+        })),
+        "rgba8" => DynamicImage::ImageRgba8(RgbaImage::from_fn(w, h, |x, y| {
+            let n = (r.next() & 31) as u32;
+            Rgba([((x * 255 / w + n) % 256) as u8, ((y * 255 / h + n) % 256) as u8, 90,
+                  (128 + (x + y) % 128) as u8])
+        })),
+        "rgba16" => DynamicImage::ImageRgba16(ImageBuffer::from_fn(w, h, |x, y| {
+            let n = (r.next() & 2047) as u32;
+            Rgba([((x * 65535 / w + n) % 65536) as u16, ((y * 65535 / h + n) % 65536) as u16,
+                  20000, (32768 + (x * 7 + y) % 32768) as u16])
+        })),
+        other => panic!("unknown fixture kind {other}"),
+    };
+    Image::from_parts(px, ImageFormat::Png, None)
+}
+```
+
+SHA-256 of `pixels().as_bytes()`, as measured at design (first 8 hex digits). The build must
+reproduce them, which proves it copied the generator: `rgb8_2600x1730` `94daa4af…`,
+`rgba8_1730x2600` `7df0cef0…`, `rgba16_2600x1730` `75dfcd86…`. The test pins all 64 digits.
+
+**Assets.** The image watermark's `image` key gets a seeded 64×32 RGBA logo, encoded to PNG
+bytes in the test (`XorShift(0x1060)`, each pixel `[v, v>>8, v>>16, 128 | v>>24]` as `u8`, from
+one `next()` per pixel). This asset is an input to the watermark step, not a fixture, and the
+watermark decodes it. A `font` key gets `crustyimg::text::DEFAULT_FONT`. Both go in through
+`OperationParams::set_resolved_bytes`, as `tests/recipe_round_trip.rs:354-362` already does
+(the DEC-100 seam).
+
+### Call 2 — the new corpus recipe: `v2_ddphotos_cli_shape.toml`
+
+The exact shape `cliRecipe` builds (`integrations/ddphotos/edit/edit.js:266-292`) for a
+1000-px output at the page's defaults: format `jpeg` (selected by default,
+`integrations/ddphotos/edit/index.html:119`), size `round(1000 × 0.04)` = 40
+(`edit.js:227`), and margin `round(1000 × 0.02)` = 20 (`edit.js:246`). Byte for byte:
+
+```toml
+# The ddphotos edit page's CLI recipe: auto-orient, a long-edge resize, then a
+# text watermark placed with gravity, size, margin, colour and opacity, a
+# pinned format and the terminal optimize step.
+version = "2"
+format = "jpeg"
+
+[[step]]
+op = "auto-orient"
+
+[[step]]
+op = "resize"
+mode = "max"
+width = 1000
+
+[[step]]
+op = "watermark"
+text = "© ddphotos"
+gravity = "southeast"
+size = 40
+margin = 20
+color = "ffffff"
+opacity = 0.85
+
+[[step]]
+op = "optimize"
+```
+
+JPEG is not byte-pinned (frame pin rule), so this recipe gets pixel rows only.
+
+### Call 3 — the seam: in-process library for pixels and bytes; the binary for what only it can do
+
+How `apply` runs a recipe (`src/cli/optimize.rs:45-203`): it loads and resolves assets
+(`:56`, `:65`). A recipe that ends in `optimize` has the marker popped (`:73`, via
+`split_terminal_optimize`, `src/recipe/mod.rs:441`, which is `pub(crate)`). Then:
+- with a pinned format (the recipe's `format`, `:89-91`): `run_pixel_op(…, quality: None,
+  Some(fmt), Some(AutoQuality::Fast), false)` (`:95-110`). The Fast plan's quality is `None`
+  (`:437-440`), so the encode is `sink::encode_to_bytes(img, fmt, None)`;
+- without one: `run_optimize_autodecide` (`:113`). That encodes every shortlisted candidate
+  (`:1217-1224`, each through `encode_to_bytes`, `:1025`) and picks by size against the source
+  file's bytes (`decide::pick_winner`, `:1229`). It is `pub(super)`, and so is everything it
+  calls (`optimize_decide_one`, `encode_one_optimize_decided`, `:1413`);
+- a plain recipe with no marker: `pipeline.run` (`:172`), then `Sink::write` (`:195`) with
+  quality `global.quality.or(recipe.quality)` (`:194`). `Sink::write` encodes through the same
+  public `sink::encode_to_bytes` (`src/sink/mod.rs:492`, `:526`, defined at `:698`).
+
+**The seam, therefore:**
+- **Pixel rows (42) and byte rows (6): in-process.** `Recipe::from_toml`, pop a terminal
+  `optimize` exactly as `recipe_round_trip.rs:351-353` does, attach the asset bytes,
+  `build_pipeline`, run, pin the `Image`. Byte rows call the same public
+  `crustyimg::sink::encode_to_bytes` that `Sink::write` and the candidate solver call, with the
+  quality `apply` passes: `None` for both byte-pinned recipes (for `v2_format_quality_optimize`
+  because of the pinned path, `:95-110`; for `v2_watermark_integer_numbers` because neither
+  `-q` nor `recipe.quality` is set, `:194`). Any change to the encoder settings inside
+  `encode_to_bytes` therefore reds a byte row. This is negative control M6.
+- **The seam check (2 rows): the binary.** For the two byte-pinned recipes on
+  `rgb8_2600x1730`, run `env!("CARGO_BIN_EXE_crustyimg") apply --recipe <copy of the corpus
+  file> rgb8_2600x1730.png --out-dir out` and assert the output file's SHA-256 equals the
+  golden byte pin. This shows the in-process call is the call `apply` makes. It catches a change
+  in `apply`'s routing, for example a quality starting to flow to `encode_to_bytes`, that the
+  in-process rows alone cannot see. Design measured both rows equal (finding 3).
+- **The bundled format rows (3): the binary.** The `optimize` decision is CLI-private (above),
+  and the frame said no `src/` change, so the chosen format can only be read from
+  `apply --recipe <name> … --json`: `candidates[winner].format`. The dimensions and the
+  pre-encode pixels of these rows are already pinned in-process. **The rows run on
+  `rgb8_2600x1730` only.** All nine took 107 s on the Mac in the dev profile; three take
+  about 32 s, and the test may run them on three threads. **This is a cut, reported:** the
+  ruling says "pin the chosen format", and design pins it for one fixture per bundled recipe,
+  not three. The other six measured AVIF too.
+  The decision depends on which codecs are built (`BuiltCodecs`, `src/cli/optimize.rs:1207-1210`).
+  So this test is `#[cfg(all(feature = "avif", not(feature = "webp-lossy")))]`. It is compiled
+  and runs on the six default-codec legs (test ×3, avif, heic ×2), and is absent on webp-lossy
+  and lean, where a different answer would be correct. That is a compile-time scope, not a
+  runtime skip: where the test exists it always runs, and the lines it checks are still parsed
+  and counted on every leg (AC-8).
+
+To feed the binary, the test writes the fixture to a `tempfile::tempdir()` as PNG (with
+`image`'s encoder; `tempfile` is already a dev-dependency, `Cargo.toml:316`). It then asserts
+that `Image::load` of that file has the fixture's SHA-256: a check on the transport, so the
+binary provably sees the same pixels. Asset paths resolve against the working directory
+(`std::fs::read(&path)`, `src/cli/common.rs:237-258`), so the test runs the binary with
+`current_dir(tempdir)` and writes `logo.png` there for `v2_watermark_integer_numbers`.
+
+### Call 4 — the golden: one readable file per recipe
+
+`tests/fixtures/recipe_corpus/<stem>.output` (bundled: `bundled_<name>.output`). It uses LF,
+and the reader normalizes `\r\n`, because the repo has no `.gitattributes` and Windows may
+check out CRLF. `#` lines and blank lines are comments. Every other line is one row, keyed by
+`<fixture> <kind>`:
+
+```
+# v2_watermark_integer_numbers: what this recipe produces on each fixture.
+# Written by `CRUSTYIMG_BLESS=1 cargo test --test recipe_corpus_output -- --ignored bless`.
+# A changed line means an existing recipe's output changed.
+rgb8_2600x1730 pixels dims=1024x681 colour=Rgb8 depth=8 sha256=<64 hex>
+rgb8_2600x1730 png sha256=<64 hex>
+rgba8_1730x2600 pixels dims=681x1024 colour=Rgba8 depth=8 sha256=<64 hex>
+rgba8_1730x2600 png sha256=<64 hex>
+rgba16_2600x1730 pixels dims=1024x681 colour=Rgba16 depth=16 sha256=<64 hex>
+rgba16_2600x1730 png sha256=<64 hex>
+```
+
+The kinds are `pixels` (every recipe), `png` and `webp` (the byte rows), and `optimize`, which
+appears only in the three bundled files, as `rgb8_2600x1730 optimize format=avif`. `colour` is
+`{:?}` of `image::ColorType`. `depth` is bits per channel
+(`bytes_per_pixel() * 8 / channel_count()`). `sha256` is over `pixels().as_bytes()` for
+`pixels`, and over the encoded file for `png`/`webp`. **51 lines in all:** 42 `pixels` + 3
+`png` + 3 `webp` + 3 `optimize`.
+
+**Failure message.** The test checks every row before it fails, then panics once with every
+mismatch. Each mismatch is one line naming recipe × fixture × the first field that moved, in the
+order dims, colour, depth, pixels. Exactly:
+
+```
+v1_resize_max × rgb8_2600x1730: dims changed: golden 800x532, actual 801x532
+v1_resize_max × rgb8_2600x1730: colour changed: golden Rgb8, actual Rgba8
+v1_resize_max × rgb8_2600x1730: depth changed: golden 8, actual 16
+v1_resize_max × rgb8_2600x1730: pixels changed (dims 800x532, colour Rgb8, depth 8 unchanged)
+v2_watermark_integer_numbers × rgb8_2600x1730: png bytes changed (pixels unchanged)
+v2_watermark_integer_numbers × rgb8_2600x1730: png bytes changed (pixels also changed)
+bundled_web × rgb8_2600x1730: optimize chose webp, golden avif
+v1_resize_max × rgb8_2600x1730: no golden line (bless to add it)
+v1_resize_max × rgb8_2600x1730: step 1 ('resize') changed nothing
+```
+
+After the lines comes `N of 48 rows changed`, then the **actual** content of every recipe file
+for this target, between marker lines:
+
+```
+----- BEGIN tests/fixtures/recipe_corpus/v1_resize_max.<os>-<arch>.output -----
+…every line the test computed, plus the golden's `optimize` lines carried over unchanged…
+----- END -----
+```
+
+The marker always uses the per-target file name (`<os>-<arch>` from `std::env::consts::OS`
+and `ARCH`), in either layout, so outcome (ii) can write those files straight from a CI log.
+The dump is part of the panic message, and libtest prints a failing test's output, so it
+reaches the CI log. (HANDOFF trap 11: a passing test's output does not.)
+
+### Call 5 — cross-leg: both outcomes specified; the build's first checkpoint decides
+
+Nothing pins resize pixels across machines today, and design pushed nothing. The CI legs that
+run `cargo test` (`.github/workflows/ci.yml`): `test` on `[ubuntu-latest, macos-latest,
+windows-latest]` (`:72-95`), `avif` (`:129`, `:148`), `webp-lossy` (`:157`, `:175`), `heic` on
+`[ubuntu-latest, macos-latest]` (`:196-223`), and `lean` (`:232`, `:249`). That is **eight legs
+on three targets**: `linux-x86_64` (ubuntu-latest), `macos-aarch64` (macos-latest),
+`windows-x86_64` (windows-latest).
+
+**Checkpoint 1 (first push of the build):** commit the test and goldens blessed on the Mac
+(shared layout), push, and open a **draft** PR. Wait with a backgrounded
+`gh pr checks <n> --watch` (Bash `run_in_background`), never a poll loop. Then read the eight
+legs:
+- **(i) every leg green → shared layout.** One `<stem>.output` per recipe, 14 files. The test's
+  `const LAYOUT: Layout = Layout::Shared;`.
+- **(ii) any leg red on `recipe_corpus_output` → per-target layout.**
+  `const LAYOUT: Layout = Layout::PerTarget;` with
+  `const TARGETS: &[&str] = &["linux-x86_64", "macos-aarch64", "windows-x86_64"];`.
+  - **Naming:** `<stem>.<os>-<arch>.output`, for **every** recipe on **every** target (42
+    files), even recipes whose lines agree. One selection rule, no fallback to a shared file.
+    The shared files are deleted.
+  - **Selection:** `format!("{stem}.{}-{}.output", std::env::consts::OS, std::env::consts::ARCH)`.
+  - **No golden for this target → fail, never skip.** If the running target is not in `TARGETS`,
+    or its file is missing, the test panics with
+    `no recipe golden for <os>-<arch>: goldens exist for linux-x86_64, macos-aarch64, windows-x86_64; bless on this target and add it to TARGETS`.
+  - **Blessing a leg without that machine: from the CI log.**
+    `gh run view <run-id> --log-failed > leg.log`. Strip GitHub's per-line prefix
+    (`<job>\t<step>\t<timestamp> `) with `sed -E 's/^[^\t]*\t[^\t]*\t[^ ]+ //'`, then write each
+    `----- BEGIN <path> -----` … `----- END -----` block to `<path>`. The Mac's own files come
+    from a local bless with `LAYOUT = PerTarget`. Then push again. **The goldens are accepted only
+    when that second CI run is green on all eight legs.** A log-copied golden that is wrong goes
+    red there.
+  - **Not designed: two legs on the same target disagreeing** (e.g. `lean` ≠ `test` on
+    ubuntu). Features touch codecs, not pixel ops, so design expects this not to happen. If it
+    does, **stop and report**: it would need per-feature goldens, which is a frame-level change.
+
+Either way, the build records the checkpoint's run URL and each leg's result for
+`recipe_corpus_output` in Build Completion, plus each leg's wall-clock time for the test.
+
+**AVIF bytes (ruling 2's exception).** The format rows print nothing about AVIF bytes. The build
+does not add an AVIF byte pin. If the build wants to show the legs agree on AVIF bytes, that is
+a verify question, per the ruling.
+
+### Call 6 — blessing, and why CI can't do it
+
+`#[test] #[ignore] fn bless_recipe_corpus_outputs()`. Run it with
+`CRUSTYIMG_BLESS=1 cargo test --test recipe_corpus_output -- --ignored bless`.
+- `CRUSTYIMG_BLESS` unset: writes nothing and returns. This copies the existing convention
+  (`tests/recipe_round_trip.rs:374-378`), so a bare `cargo test -- --ignored` stays harmless.
+- **`CI` set to any non-empty value: panics before writing a byte**, with
+  `refusing to bless recipe goldens in CI (CI is set)`. A panic, not a printed skip, so the
+  attempt is red (trap 11). GitHub Actions always sets `CI=true`.
+- Built without the default codecs (`not(all(feature = "avif", not(feature = "webp-lossy")))`):
+  panics with `bless needs the default codec set (avif on, webp-lossy off)`, because it cannot
+  compute the `optimize` lines.
+- Writes this target's files only: `<stem>.output` in (i), `<stem>.<os>-<arch>.output` in (ii).
+  The gate is one small function, `bless_gate(bless: Option<&OsStr>, ci: Option<&OsStr>) ->
+  Result<bool, String>`, unit-tested directly (FT-7).
+
+### Call 7 — the row count is a literal, and who updates it
+
+The pixel test asserts `assert_eq!(rows_checked, 48, "14 recipes × 3 fixtures + 6 byte rows")`.
+The completeness test asserts 51 golden lines and the exact file set. All three numbers are
+**typed literals**, never `RECIPES.len() * 3`, so a recipe dropped from the list goes red.
+**Each later spec that adds a corpus recipe** (the PROJ-017 op specs) adds its stem to `RECIPES`,
+its expected dims to the dims table, and its `.output` file. It raises the literals by
+3 × (new recipes) plus any new byte rows, in the same diff, and names the new numbers in an AC.
+Verify recomputes them from `RECIPES` and the golden files, and checks the old lines are
+unchanged (the frame's blessing rule).
+
+### Size
+
+[S] holds. No `src/` change. About 350 lines of test, more than the frame's ~250: the dims table
+is 42 lines, plus the two binary tests and the message unit test. Plus 14 golden files (42 in
+(ii)), one corpus recipe, its `.golden`, a 4-line change to `recipe_round_trip.rs` and a new
+README. Runtime per leg: pixel test ≈ 15 s on the Mac (the rows run twice; see FT-1), binary
+tests ≈ 35 s, or ≈ 15 s with the three format rows on threads. Windows is likely 2–3× that.
+
+### Where design departs from the frame (for the orchestrator)
+
+1. **The RGBA fixtures are 1730×2600 and 2600×1730, not 1100×700** (Call 1). Measured: the
+   frame's sizes left 6 rows pinning a resize that never ran.
+2. **The chosen-format pin runs through the binary, on one fixture.** The library cannot reach
+   the decision without a `src/` change (Call 3).
+3. **`tests/fixtures/recipe_corpus/README.md` does not exist.** The frame's file list says
+   "document … in README.md", so the build creates it.
+4. **The pin is exact per target, but not per feature set** (Call 5). If two legs on one target
+   disagree, the build stops.
+
+
 ## Inputs
 
-*(design)*
+- The 10 corpus recipes (`tests/fixtures/recipe_corpus/*.toml`), the 3 bundled recipes
+  (`recipes/{gallery,product,web}.toml`), and the new `v2_ddphotos_cli_shape.toml` (Call 2).
+- Three fixtures generated in the test from raw samples (Call 1), a seeded 64×32 logo, and
+  `crustyimg::text::DEFAULT_FONT`.
+- The library API: `Recipe::from_toml`, `OperationParams::set_resolved_bytes`,
+  `Recipe::build_pipeline`, `Pipeline::run`, `Image::pixels`, `crustyimg::sink::encode_to_bytes`.
+- The built binary (`env!("CARGO_BIN_EXE_crustyimg")`), for FT-4 and FT-5 only.
 
 ## Outputs
 
-*(design)*
+- `tests/recipe_corpus_output.rs`: the guard (FT-1 to FT-7, FT-8 in outcome (ii) only) and the
+  `#[ignore]` bless.
+- 14 golden files `tests/fixtures/recipe_corpus/{<stem>,bundled_<name>}.output` in outcome (i),
+  or 42 `….<os>-<arch>.output` files in outcome (ii). 51 non-comment lines per target.
+- `tests/fixtures/recipe_corpus/v2_ddphotos_cli_shape.toml` and its `.golden`.
+- `tests/recipe_round_trip.rs`: `CORPUS` gains `"v2_ddphotos_cli_shape"`, and the count goes
+  13 → 14.
+- `tests/fixtures/recipe_corpus/README.md` (new).
+- No `src/` change. No change to `CACHE_SCHEMA_VERSION`, the lockfile format or the version.
 
 ## Acceptance Criteria
 
-*(design)*
+Notation: **the 11 resizers** = `v1_resize_{cover,exact,fill,fit,max,percent}`,
+`v2_watermark_integer_numbers`, `bundled_{gallery,product,web}`, `v2_ddphotos_cli_shape`.
+**The 3 non-resizers** = `v1_watermark_image_placement`, `v1_watermark_text_font`,
+`v2_format_quality_optimize`. **F** = the three fixtures `rgb8_2600x1730`, `rgba8_1730x2600`,
+`rgba16_2600x1730`. The guard is new, so nothing in it is "RED on `main`". Its failing tests
+are the mutation rows under Failing Tests, each run against the built test.
 
-- [ ] Criterion 1 (testable)
+**The corpus**
+- [ ] **AC-1. The ddphotos shape joins the corpus.** `tests/fixtures/recipe_corpus/v2_ddphotos_cli_shape.toml`
+      is byte-identical to Call 2. Its `.golden` is `to_toml()` of it, written by the existing
+      bless (`tests/recipe_round_trip.rs:374`). `CORPUS` lists it in sorted position (after
+      `v1_watermark_text_font`, before `v2_format_quality_optimize`). `:332` reads
+      `assert_eq!(pairs.len(), 14, "11 corpus recipes + 3 bundled recipes")`.
+      `to_toml_is_byte_identical_to_main_over_the_corpus` passes. The 13 existing `.golden` files
+      are unchanged byte for byte.
+
+**The fixtures**
+- [ ] **AC-2. The fixtures are generated, not decoded, and pinned.** The test builds F with
+      Call 1's generator verbatim, from raw samples, with no crustyimg decode or encode. FT-2
+      asserts each fixture's dims, colour type and full 64-digit SHA-256 as literals. Their first
+      8 digits are `94daa4af`, `7df0cef0` and `75dfcd86`, the values measured at design.
+
+**The pin**
+- [ ] **AC-3. Every existing recipe is pinned on every fixture, at the pre-encode image.** For each
+      of the 14 recipes × F (42 rows): parse, pop a terminal `optimize` as
+      `tests/recipe_round_trip.rs:351-353` does, attach assets (Call 1), `build_pipeline`, run.
+      Pin `dims`, `colour`, `depth` and `sha256` of `pixels().as_bytes()`. Plus 6 byte rows:
+      `v2_watermark_integer_numbers` × F → `png`, and `v2_format_quality_optimize` × F → `webp`.
+      Each is the SHA-256 of `crustyimg::sink::encode_to_bytes(&out, fmt, None)` (Call 3 says why
+      `None`). FT-1 asserts `rows_checked == 48` as a literal.
+- [ ] **AC-4. The pin cannot pass over a guard that ran nothing.** For every one of the 42
+      rows, FT-1 also asserts the following. A failure is a mismatch line, not a skip:
+      (a) **dims** equal a literal table in the test, keyed by recipe and fixture, with exactly
+      42 entries (FT-1 checks the count). The table is the "dims" column of the golden as
+      measured at design:
+
+      | recipe | `rgb8_2600x1730` | `rgba8_1730x2600` | `rgba16_2600x1730` |
+      |---|---|---|---|
+      | `v1_resize_cover` | 721x480 | 640x962 | 721x480 |
+      | `v1_resize_exact` | 640x480 | 640x480 | 640x480 |
+      | `v1_resize_fill` | 640x480 | 640x480 | 640x480 |
+      | `v1_resize_fit` | 640x426 | 319x480 | 640x426 |
+      | `v1_resize_max` | 800x532 | 532x800 | 800x532 |
+      | `v1_resize_percent` | 488x325 | 325x488 | 488x325 |
+      | `v1_watermark_image_placement` | 2600x1730 | 1730x2600 | 2600x1730 |
+      | `v1_watermark_text_font` | 2600x1730 | 1730x2600 | 2600x1730 |
+      | `v2_ddphotos_cli_shape` | 1000x665 | 665x1000 | 1000x665 |
+      | `v2_format_quality_optimize` | 2600x1730 | 1730x2600 | 2600x1730 |
+      | `v2_watermark_integer_numbers` | 1024x681 | 681x1024 | 1024x681 |
+      | `bundled_gallery` | 2560x1703 | 1703x2560 | 2560x1703 |
+      | `bundled_product` | 1600x1065 | 1065x1600 | 1600x1065 |
+      | `bundled_web` | 2048x1363 | 1363x2048 | 2048x1363 |
+
+      (b) the output's SHA-256 ≠ the fixture's. (c) **Each step acts:** the recipe runs one step
+      at a time (a one-step pipeline per step, each fed the previous output), and every step
+      except `auto-orient` and `identity` changes the SHA-256. (d) The step-by-step result equals
+      `build_pipeline(..).run(fixture)` on the whole recipe, the real pipeline. (e) A refusal or
+      error is a mismatch line naming it. The exact control lines are
+      `<recipe> × <fixture>: dims <actual>, expected <literal> (expected-dims table)`,
+      `<recipe> × <fixture>: output equals the fixture`, and
+      `<recipe> × <fixture>: step <i> ('<op>') changed nothing`.
+- [ ] **AC-5. A red row names recipe, fixture and field.** FT-1 checks all 48 rows before it fails,
+      then panics once with one line per mismatch, using the exact wording of Call 4. The fields
+      are checked in the order dims, colour, depth, pixels, then bytes. The lines are followed
+      by `<N> of 48 rows changed` and by the actual content of every recipe file for this
+      target, between `----- BEGIN tests/fixtures/recipe_corpus/<stem>.<os>-<arch>.output -----`
+      and `----- END -----`. FT-3 checks the nine message lines of Call 4 and one dump block
+      exactly, as strings, against a pure function the test exposes to itself.
+- [ ] **AC-6. The library seam is the call `apply` makes.** FT-4 runs the binary
+      `apply --recipe <copy of the corpus file> rgb8_2600x1730.png --out-dir out`, in a temp dir
+      holding `logo.png` (the test's logo bytes), for `v2_watermark_integer_numbers` and
+      `v2_format_quality_optimize`. It asserts the single output is named
+      `rgb8_2600x1730.png` (respectively `.webp`) and that its SHA-256 equals the golden's
+      `rgb8_2600x1730 png` (respectively `webp`) line. Before running, it asserts `Image::load`
+      of the written fixture PNG has the fixture's SHA-256 (the transport check). It asserts 2
+      rows checked.
+- [ ] **AC-7. The bundled recipes' chosen format is pinned.** FT-5,
+      `#[cfg(all(feature = "avif", not(feature = "webp-lossy")))]`, runs
+      `apply --recipe <gallery|product|web> rgb8_2600x1730.png --out-dir out --json` and reads
+      `candidates[winner].format` from stdout. It asserts that equals the golden's
+      `rgb8_2600x1730 optimize format=…` line (`avif` for all three, as measured), and that the
+      output file's extension matches. It asserts 3 rows checked. It runs on the test ×3, avif
+      and heic ×2 legs, and does not exist on webp-lossy or lean (Call 3).
+
+**The goldens**
+- [ ] **AC-8. Each golden line is checked, and no golden is stray.** FT-6, on every leg: the
+      `.output` files on disk are exactly the set `LAYOUT` requires (14 shared, or 14 × `TARGETS`),
+      derived from `RECIPES`. Every non-comment line parses as Call 4's grammar. Keys are unique
+      per file. Each recipe has exactly 3 `pixels` lines. `png` lines exist only for
+      `v2_watermark_integer_numbers`, `webp` only for `v2_format_quality_optimize`, and
+      `optimize` only for the three bundled files. Total non-comment lines per target is
+      **51**, a literal. CRLF is normalized on read. Bless writes LF.
+- [ ] **AC-9. The CI layout is the one the CI run picked.** The build's checkpoint 1 is a draft PR
+      with the test and the Mac goldens (Call 5). The PR's Build Completion records the run URL
+      and each of the 8 `cargo test` legs' result for `recipe_corpus_output`. Verify re-reads
+      the legs from `.github/workflows/ci.yml` (`:72`, `:129`, `:157`, `:196`, `:232`), not from
+      this list. Then, whichever lands:
+      **(i)** `LAYOUT = Shared`, 14 files, and the final head's CI run is green on all 8 legs; or
+      **(ii)** `LAYOUT = PerTarget`, `TARGETS` = exactly `linux-x86_64`, `macos-aarch64`,
+      `windows-x86_64` (the `runs-on` labels above map to those), 42 files, FT-8 green, and
+      the run *after* the log-blessed goldens were pushed is green on all 8 legs.
+      Two legs on one target disagreeing is a **stop and report**, not a landing.
+
+**Blessing**
+- [ ] **AC-10. A bless cannot happen in CI.** `CRUSTYIMG_BLESS=1 cargo test --test recipe_corpus_output -- --ignored bless`
+      rewrites this target's goldens (a second run leaves `git status` clean). With `CI` set
+      to a non-empty value it panics with `refusing to bless recipe goldens in CI (CI is set)`
+      before writing anything. Without `CRUSTYIMG_BLESS` it writes nothing and returns. Without
+      the default codec set it panics with `bless needs the default codec set (avif on,
+      webp-lossy off)`. FT-7 unit-tests `bless_gate` on all four cases, and control M5 drives the
+      real command.
+
+**Docs and scope**
+- [ ] **AC-11. The corpus README states the rules.** The new `tests/fixtures/recipe_corpus/README.md`
+      covers: what `.toml`/`.golden`/`.output` each pin; the bless command and its CI refusal;
+      the layout in force; and the rule that **a changed `.output` line in a PROJ-017 PR is a
+      verify finding unless that spec's ACs name the recipe and say why**. A new file or line
+      for a new recipe is not a re-bless. Verify checks with
+      `git diff --name-only origin/main -- 'tests/fixtures/recipe_corpus/*.output'`.
+      It also covers the literal-count update rule (Call 7). Behaviour-first wording, no spec or
+      DEC ids.
+- [ ] **AC-12. Nothing else moves.** `git diff --name-only origin/main` on the build branch
+      lists only Outputs' files. No `src/` path. `scripts/cli-golden.py`, `docs/recipes.md`,
+      `.github/workflows/` and the 13 existing `.golden` files are untouched.
+- [ ] **AC-13. Every negative control below gives exactly its listed red and green sets.** The
+      build drives M1–M7 and pastes each red output into Build Completion. Verify re-drives at
+      least M1 (required), M3 and M5, on a clean build.
 
 ## Failing Tests
 
-*(design)*
+Written during **design**. The guard is new: its "RED" is the mutation table below, each row run
+against the built test.
 
-- **`path/to/test.file`**
-  - `"test description 1"` — asserts: ...
+- **`tests/recipe_corpus_output.rs`** (new)
+  - FT-1 `every_recipe_output_matches_its_golden`: AC-3, AC-4, AC-5. 48 rows; literal
+    `rows_checked == 48`; the dims table has 42 entries; collects every mismatch, then panics
+    once with the dump.
+  - FT-2 `the_fixtures_are_the_ones_the_goldens_were_blessed_on`: AC-2. 3 × (dims, colour,
+    full SHA-256) literals.
+  - FT-3 `a_row_mismatch_names_the_field_that_moved`: AC-5. The 9 lines of Call 4 plus the AC-4
+    control lines, each built from a constructed golden/actual pair, compared as exact strings.
+    Also one dump block (markers, per-target name, and an `optimize` line carried through).
+    Covers trap 10: one case has the dims unchanged and the pixels changed, so a message that
+    always says "dims" fails.
+  - FT-4 `the_library_seam_writes_the_bytes_apply_writes`: AC-6. Binary, 2 rows, plus the
+    transport check.
+  - FT-5 `optimize_picks_the_pinned_format_for_each_bundled_recipe`: AC-7. Binary,
+    cfg-gated, 3 rows; may run the three on threads.
+  - FT-6 `every_golden_line_is_checked_and_no_golden_is_stray`: AC-8. Literal 51.
+  - FT-7 `bless_refuses_in_ci_and_without_the_switch`: AC-10. Covers
+    `bless_gate(None, None)` → `Ok(false)`, `(Some("1"), None)` → `Ok(true)`,
+    `(Some("1"), Some("true"))` → `Err` containing `refusing to bless`, and
+    `(Some("1"), Some(""))` → `Ok(true)`.
+  - FT-8 `a_target_without_goldens_fails`: AC-9 (ii), **outcome (ii) only**.
+    `golden_path("v1_resize_max", "linux", "riscv64")` is `Err` with exactly Call 5's message,
+    and `("macos", "aarch64")` is `Ok(…/v1_resize_max.macos-aarch64.output)`. This is the
+    trap-10 row: the derived path differs from the naive shared one.
+  - `bless_recipe_corpus_outputs`: `#[ignore]`, Call 6.
+- **`tests/recipe_round_trip.rs`**
+  - `to_toml_is_byte_identical_to_main_over_the_corpus`: AC-1 (`CORPUS` + 14). RED with the new
+    `.toml` present but `CORPUS` not updated (`CORPUS must list every corpus recipe`).
+
+### Negative controls (HANDOFF trap 12: location, every red, every green)
+
+Apply each on the build branch, rebuild (the binary too: `cargo test` rebuilds it), run
+`cargo test --test recipe_corpus_output > out.txt 2>&1; echo $?` (redirect, never pipe), record,
+and revert with `git checkout <paths>`. Then confirm `git status --short` is empty. "Lines"
+means FT-1's mismatch lines. FT-2, FT-3, FT-6 and FT-7 are green under every row unless listed.
+
+| # | mutation (exact location) | RED | GREEN |
+|---|---|---|---|
+| M1 **required at verify** | `src/operation/mod.rs:584` `FilterType::Lanczos3` → `FilterType::CatmullRom` | FT-1 with exactly **36 lines**: 33 × `pixels changed (dims … unchanged)` (the 11 resizers × F) + 3 × `png bytes changed (pixels also changed)` (`v2_watermark_integer_numbers` × F), and `36 of 48 rows changed`. FT-4's `png` row | FT-1's 9 pixel rows of the 3 non-resizers × F and its 3 `webp` rows. FT-4's `webp` row. FT-5 **expected** green: AVIF wins by about 30×, but this was not driven at design, so a red here is reported, not explained away. `recipe_round_trip` stays green, which is the gap this guard closes |
+| M2 | `src/operation/mod.rs:1629` `params.get_f32("opacity").unwrap_or(1.0)` → `unwrap_or(0.9)` | FT-1 with exactly **9 lines**: 6 × `pixels changed` (`v1_watermark_text_font`, `v2_watermark_integer_numbers` × F) + 3 × `png bytes changed (pixels also changed)`. FT-4's `png` row | FT-1's other 36 pixel rows (including `v1_watermark_image_placement`, `opacity = 0.6`, and `v2_ddphotos_cli_shape`, `opacity = 0.85`) and its 3 `webp` rows. FT-4's `webp` row. FT-5 |
+| M3 positive control | `src/pipeline/mod.rs:105` `self.ops.iter().enumerate()` → `self.ops.iter().enumerate().take(0)`. Then **re-bless under the mutation** (local, `CI` unset), so the goldens describe "nothing ran". Then run | FT-1 on **all 42 pixel rows** through AC-4's controls alone: 33 × `dims …, expected …` (the resizers) + 9 × `output equals the fixture` (the non-resizers), plus a `step <i> ('<op>') changed nothing` line for every non-exempt step | The golden comparisons themselves (they were blessed on the mutation). FT-4 and FT-5 (the binary and the goldens are mutated alike). Revert with `git checkout src/pipeline/mod.rs tests/fixtures/recipe_corpus/` |
+| M4 row count | delete `"v1_resize_fit"` from `RECIPES` in the test | FT-1: `rows checked 45, expected 48`. FT-6: `v1_resize_fit.output` is a stray golden, and 48 lines ≠ 51 | FT-2, FT-3, FT-4, FT-5, FT-7 |
+| M5 bless in CI | none. Run `CI=true CRUSTYIMG_BLESS=1 cargo test --test recipe_corpus_output -- --ignored bless > b.txt 2>&1; echo $?`, with `shasum -a 256 tests/fixtures/recipe_corpus/*.output` before and after | exit ≠ 0; `b.txt` contains `refusing to bless recipe goldens in CI (CI is set)` | the two `shasum` listings are identical, and `git status --short` is empty. **The scenario's control:** the same command with `CI` unset exits 0 and rewrites the files (mtimes change), leaving `git status` clean. So the CI variable is what stopped it |
+| M6 encoder settings | `src/sink/mod.rs:841-845`, the default `write_to` arm: for `ImageFormat::Png` only, encode with `image::codecs::png::PngEncoder::new_with_quality(&mut cursor, CompressionType::Best, FilterType::Adaptive)` instead | FT-1 with exactly **3 lines**: `png bytes changed (pixels unchanged)` × F. FT-4's `png` row | all 42 pixel rows, the 3 `webp` rows, FT-4's `webp` row, FT-5 (PNG never wins the decision; it lost by about 130× at design) |
+| M7 `apply` routing | `src/cli/optimize.rs:91` `let pinned_format = cli_pin.or(resolve_format(recipe.format.as_deref())?);` → `let pinned_format = cli_pin;` | FT-4's `webp` row: `apply` no longer writes `rgb8_2600x1730.webp`. The recipe falls through to the auto-decision | **All of FT-1** (the in-process rows cannot see `apply`'s routing, which is why FT-4 exists). FT-4's `png` row (the plain path, `:172`, is untouched). FT-5 (bundled recipes have no `format`) |
 
 ## Implementation Context
 
-*(design)*
+*Read this section (and the files it points to) before starting the build cycle. It is the
+equivalent of a handoff document, folded into the spec since there is no separate receiving
+agent.*
 
 ### Decisions that apply
 
-- `DEC-NNN` — <one-line summary of why this matters here>
+- `DEC-059`: Option A. Pin the robust, record the fragile. That is why AVIF and the `optimize`
+  search get no byte pin, and why the bundled rows pin pixels + format.
+- `DEC-058`: canonical recipe TOML is a cache-key input. `recipe_round_trip.rs` already pins it,
+  and this spec adds one recipe to that pin.
+- `DEC-094`/`DEC-096`: the AVIF encoder is deterministic per machine, with the tile count pinned.
+  The format rows lean on the decision's wide margin, not on AVIF bytes.
+- `DEC-095`: ops preserve colour type and bit depth. Hence the `colour`/`depth` fields and the
+  `Rgba16` fixture.
+- `DEC-100`: assets are resolved at the IO boundary. The test attaches bytes with
+  `set_resolved_bytes`, as the CLI's resolver does.
+- `DEC-102`: params are validated at load. Every corpus recipe must still load (FT-1 fails a
+  row on a load error).
+- `DEC-104`: watermark refusals. Every watermark row was accepted on the new fixtures; a refusal
+  is a red row.
+- `DEC-008`: Lanczos3 via `fast_image_resize`, the target of M1.
 
 ### Constraints that apply
 
-- `constraint-id-1` — <one-line summary>
+- `test-before-implementation`: the guard is the test. Its failing set is the mutation table.
+- `single-image-library`: the fixtures and logo use `image`. No second imaging crate.
 
 ### Prior related work
 
-- `SPEC-YYY` (shipped) — <one-line summary, if relevant>
+- `SPEC-131` (shipped): the corpus and the TOML golden this spec extends.
+- `SPEC-097` (shipped): `scripts/cli-golden.py`, a same-machine before/after tool. It stays out
+  of CI and untouched.
+- `SPEC-122` (shipped): the linear-light resize whose cross-leg stability checkpoint 1 measures.
+- `SPEC-124` (shipped): AVIF tile count pinned.
+- `SPEC-142` (framed/designing): native-vs-wasm parity of the ddphotos recipes. A different
+  question, different files.
+
+### Out of scope
+
+See `## Frame` → "Out of scope". Also: the `docs/recipes.md` crop-verb finding (filed on
+STAGE-058); an AVIF byte pin (a verify question only, ruling 2); per-feature goldens (Call 5
+says stop and report).
 
 ## Notes for the Implementer
 
-*(design)*
+- **Push a WIP draft PR as checkpoint 1** as soon as the test compiles and passes on the Mac
+  with blessed goldens, before anything else (Call 5). That push is also the long-build
+  checkpoint. Wait on CI with `gh pr checks <n> --watch` run in the background, never a poll
+  loop. Read failures with `gh run view <id> --log-failed`.
+- **Bless order.** Add the `.toml`, update `CORPUS` and the count, then run
+  `CRUSTYIMG_BLESS=1 cargo test --test recipe_round_trip -- --ignored bless`. `git status` must
+  show **only** the new `v2_ddphotos_cli_shape.golden`; any other `.golden` changing is a stop.
+  Then bless the `.output` files.
+- Bless computes and writes; it does not run AC-4's controls. M3 depends on that: goldens can be
+  blessed over a mutated pipeline and the controls still catch it.
+- The probe's per-step fold is the cheap way to do AC-4 (c). Build a one-step `Recipe` clone per
+  step, as the probe did. Then run the whole recipe once more through `build_pipeline` for
+  (d).
+- `cargo test` in an interactive terminal fails `display_sink_refuses_non_tty`, so redirect
+  stdout to a file. A piped command reports the pipe's exit status. zsh does not word-split
+  unquoted parameters. macOS has no `timeout`. Use `/usr/bin/grep` and `/usr/bin/git` for
+  anything you count (`rtk` can truncate).
+- On Windows, `tempfile` paths and `current_dir` work as on Unix. Compare file names, not full
+  paths, in FT-4/FT-5.
+- 16-bit inputs to the lossless-WebP and AVIF encoders print an 8-bit downgrade warning on
+  stderr. That is expected, not a failure.
+- `git commit -s` on every commit (DCO). Comments read behaviour-first, with no spec or DEC ids.
+- Record in Build Completion: the checkpoint run URL, each leg's result and wall-clock time for
+  this test, the outcome (i)/(ii), and M1–M7's red output.
 
 ---
+
 
 ## Build Completion
 
