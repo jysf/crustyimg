@@ -17,6 +17,10 @@ Cycle prompts live in `prompts/SPEC-138-<cycle>.md`.
       exact (no clap default, no env feature). Every refused flag gets its own line, fixed order.
       No golden lock: a two-binary `compare-builds.sh` run, proven red by a one-byte key mutant.
       DEC-057 and DEC-105 amended; DEC-108 released. `Breaking` CHANGELOG entry.
-- [~] **build** — prompt: `prompts/SPEC-138-build.md` (Sonnet). Handed out 2026-10-29, after SPEC-137 merged (`71b4f38`).
-- [ ] **verify** — prompt: `prompts/SPEC-138-verify.md`.
+- [x] **build** — 2026-10-29 (`prompts/SPEC-138-build.md`, Sonnet, ~$2.28). Draft PR #221 at
+      `5118362`, CI green on every leg. Commit 1 `277391d` (tests only). 12 red / 2 green, and FT-15
+      does not compile on `main`. Every mutation flipped as predicted. The build moved the guard into
+      `run_build` for the after-manifest row, so FT-11 and FT-12 went red too. Byte identity: empty
+      `src/build/` diff and `compare-builds.sh` IDENTICAL. README unchanged.
+- [~] **verify** — prompt: `prompts/SPEC-138-verify.md` (Opus).
 - [ ] **ship** — prompt: `prompts/SPEC-138-ship.md`.
