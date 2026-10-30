@@ -365,6 +365,10 @@ CI-native gate). Drop it into any CI in three lines:
 
 ### GitHub Actions
 
+**Setting this up on a repo? Follow the [GitHub Actions guide](docs/github-actions.md)**, which
+covers budgets, required checks, pull requests from forks and fixing findings. A working example
+lives at [`jysf/crustyimg-example`](https://github.com/jysf/crustyimg-example).
+
 The lint wrapper — installs crustyimg and annotates findings inline in the PR:
 
 ```yaml
