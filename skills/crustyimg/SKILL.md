@@ -54,13 +54,16 @@ Prebuilt binaries: https://github.com/jysf/crustyimg/releases
 - **Existing outputs are not overwritten** without `-y` (exit 5). Add `-y` in
   non-interactive runs, but only when overwriting is what the user wants.
 - **Quote globs** so crustyimg expands them, including recursive `**`:
-  `'assets/**/*.jpg'`. A directory works as an input too.
+  `'assets/**/*.jpg'`. A directory works as an input too, but reads only the images directly
+  inside it, not its subfolders (a folder of only subfolders exits 3); use `'assets/**/*'`
+  for a whole tree.
 - **The output format** comes from `--format`, else the extension of `-o` or of
   `--name-template` (`'{stem}.png'` writes PNG), else a recipe's `format`, else the source's
   own format is kept. `web` and `optimize` choose the format themselves unless you pin one.
   To keep each file's format in a template, use `{ext}`. **`build` is different:** the
   target's `name` extension decides, else the recipe's `format`, else the source's format.
-  `--format` does nothing on `build`, so do not reach for it there.
+  `build` refuses `--format`, `-o`, `--out-dir` and `--name-template` (exit 2, nothing
+  written): set them in `crustyimg.build.toml` instead (see Project builds).
 - **GPS is dropped by default** on any command that re-encodes pixels. Pass `--keep-gps`
   only if the user asks to keep location data.
 - **Work on copies** when the user's originals are precious; crustyimg only writes the
@@ -87,9 +90,12 @@ crustyimg optimize photo.jpg -o photo.avif                   # fast, never bigge
 crustyimg optimize photo.jpg --verify -o photo.avif          # also report the quality score
 crustyimg optimize photo.jpg --target high -o photo.jpg -y   # search for a quality target
 crustyimg optimize photo.jpg --max-size 200KB -o photo.jpg -y
+crustyimg optimize photo.jpg --ssim 80 -o photo.avif         # AVIF at a quality score
 ```
 
 If `optimize` can't beat the source, it keeps the original bytes and says so.
+`--target` and `--ssim` search for the lowest quality that meets the score on JPEG, AVIF
+and lossy WebP outputs.
 
 ## Resize and thumbnails
 
@@ -244,7 +250,7 @@ margin = 16
 
 A `text` mark uses `text = "…"` with optional `font`, `size` and `color` instead of `image`.
 On `apply --recipe`, `--format`, `-o` and a template extension still win over the recipe's
-`format`; on `build`, the target's name extension wins over it and `--format` does nothing.
+`format`; on `build`, the target's name extension wins over it.
 `-q` wins over its `quality`. Keep `version = "1"` and leave both keys out if crustyimg 0.7.x must run it.
 
 Every step key is checked when the recipe loads. A misspelt or unknown key, a wrong type or
@@ -277,6 +283,11 @@ crustyimg build --watch    # rebuild on change
 crustyimg build --check    # CI: exit 7 if outputs drifted from crustyimg.build.lock
 ```
 
+The manifest owns every output: the folder is `out`, the file name is `name`, and the
+format is `name`'s extension (`"{stem}.webp"`), else the recipe's `format`. `build` refuses
+`--format`, `-o`/`--output`, `--out-dir` and `--name-template` with exit 2 and writes nothing,
+including with `--watch` and `--check`.
+
 `build` overwrites its own outputs without `-y`. Commit `crustyimg.build.lock`; add
 `.crustyimg/` (the local cache) to `.gitignore`. `recipe` can be a path to your own recipe
 file; editing a watermark's logo or font rebuilds the outputs that use it.
@@ -286,8 +297,8 @@ file; editing a watermark's logo or font rebuilds the outputs that use it.
 ```sh
 crustyimg diff original.jpg out.avif                    # SSIMULACRA2 score, higher = closer
 crustyimg diff original.jpg out.avif --fail-under 70    # exit 7 if below 70
-crustyimg lint assets/                                  # report problems, each with a fix
-crustyimg lint assets/ --format sarif > results.sarif   # GitHub code scanning
+crustyimg lint 'assets/**/*'                            # report problems, each with a fix
+crustyimg lint 'assets/**/*' --format sarif > results.sarif   # GitHub code scanning
 ```
 
 As a rough guide to the score: ~90 is visually lossless, ~70 is high quality, ~50 is
@@ -319,5 +330,10 @@ medium.
 
 Reads JPEG, PNG, WebP, AVIF, GIF, BMP, TIFF, ICO, SVG, and camera RAW (via the
 embedded preview). HEIC is only available in builds compiled with the `heic` feature
-(otherwise exit 4). `-` reads from stdin; `-o -` writes to stdout with all diagnostics on
+(otherwise exit 4). SVG needs the `svg` feature, which is on by default; only a source build
+with `--no-default-features` lacks it (exit 4, "rebuild with --features svg").
+
+An SVG is rasterized at its own size. Its `<text>` draws in the bundled Go font whatever
+`font-family` it names, upright and regular even when bold or italic: crustyimg never reads
+system fonts. If the user needs a particular typeface, convert the text to paths first. `-` reads from stdin; `-o -` writes to stdout with all diagnostics on
 stderr.
