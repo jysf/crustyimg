@@ -23,5 +23,14 @@ Cycle prompts live in `prompts/SPEC-142-<cycle>.md`.
 - [x] **punch list** (`prompts/SPEC-142-punchlist.md`, 2026-10-30, Sonnet, $1.47). PR #234 code head `e71acbd`, CI green.
   The `changes` step fails on a classifier crash; P5 pins row 12; native hashes and a K summary line print. A third
   x86 CPU (Xeon 8370C) agreed at K = 1.
-- [ ] **re-verify** (`prompts/SPEC-142-reverify.md`, Opus)
-- [ ] **ship**
+- [x] **re-verify** (`prompts/SPEC-142-reverify.md`, 2026-10-31, Opus, $2.34). ⚠ PUNCH LIST at `474c9fc`: both
+  items closed (classifier crash now fails the step; P5's derived row-12 literal pins placement, byte-equal to the
+  pasted text; native hashes match Mac vs Xeon on all 16 rows). One spec sentence named the wrong run for the 7763.
+- [x] **punch list 2** (`prompts/SPEC-142-punchlist-2.md`, 2026-10-31, Sonnet, ~$0.75). PR head `1001831`, CI green.
+  The sentence corrected against all three run logs; the summary line counts and names table failures
+  (`rows-threw` and `resize-set` labels added).
+- [x] **re-verify 2** (`prompts/SPEC-142-reverify-2.md`, 2026-10-31, Opus, $1.39). ✅ APPROVED at `1001831`: every
+  table check counted and named, N1/N2/B1–B10 unchanged, clean run `0 row failures, 0 table failures, K=1`.
+  The orchestrator updated the branch from `main` (head `e26339b`, CI green) and kept it a draft: the merge waits
+  on the test bed's `check.py` fix (it reads GO_ADVANCE from `edit.js`).
+- [ ] **ship** (`prompts/SPEC-142-ship.md`)
