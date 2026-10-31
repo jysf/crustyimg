@@ -79,7 +79,7 @@ crop control (STAGE-060) waits only for this stage's crop spec.
 
 In build order. Each is framed in its own session first.
 
-- [ ] **SPEC-141** (re-verified with a second punch list 2026-10-31, PR #233) — [S] **The no-bytes-changed guard, first.** A golden test that runs
+- [ ] **SPEC-141** (second punch list done 2026-10-31, PR #233) — [S] **The no-bytes-changed guard, first.** A golden test that runs
   the repo's existing recipe corpus (bundled recipes, `docs/recipes.md` examples, the build
   fixtures) and pins output hashes, so every later spec in this project can prove it moved
   nothing. ⚡ Check `scripts/cli-golden.py` first: it may already be most of this, and the spec
