@@ -7,7 +7,7 @@
 task:
   id: SPEC-143
   type: bug                        # epic | story | task | bug | chore
-  cycle: build  # frame | design | build | verify | ship
+  cycle: verify  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: S                    # S | M | L  (L means split it)
@@ -96,6 +96,44 @@ cost:
         output_tokens per id. Priced by component at Opus $5/$25 per MTok, cache_creation x1.25,
         cache_read x0.10: $0.0003 + $0.99 + $1.94 + $1.69. Measured before the commit/push turns,
         so it slightly under-counts.
+    - cycle: build
+      agent: claude-sonnet-5-5
+      interface: claude-code
+      tokens_total: 8667901
+      tokens_breakdown:
+        input: 114
+        output: 47581
+        cache_creation: 167000
+        cache_read: 8453206
+      estimated_usd: 3.88
+      duration_minutes: null
+      recorded_at: 2026-10-30
+      note: >
+        Build session in its own worktree (feat-spec-143-refuse-invisible-watermark). Measured
+        from the session's transcript (8e0c9f1c-….jsonl, identified by content), deduped by
+        `.message.id` (57 unique ids, all claude-sonnet-5-5): input/cache_creation/cache_read once
+        per id, MAX output_tokens per id. Priced by component at Sonnet $3/$15 per MTok,
+        cache_creation x1.25 ($3.75), cache_read x0.10 ($0.30): $0.0003 + $0.63 + $2.54 + $0.71.
+        Measured before the commit/push of the record and the PR turns, so it slightly under-counts.
+    - cycle: punchlist
+      agent: claude-sonnet-5-5
+      interface: claude-code
+      tokens_total: 4081425
+      tokens_breakdown:
+        input: 88
+        output: 21259
+        cache_creation: 92634
+        cache_read: 3967444
+      estimated_usd: 1.86
+      duration_minutes: null
+      recorded_at: 2026-10-30
+      note: >
+        Punch-list session in its own worktree (fix-spec-143-punch). Measured from the session's
+        transcript (6219b4c5-….jsonl, identified by content), deduped by `.message.id` (44 unique
+        ids, all claude-sonnet-5-5): input/cache_creation/cache_read once per id, MAX output_tokens
+        per id. Priced by component at Sonnet $3/$15 per MTok, cache_creation x1.25 ($3.75),
+        cache_read x0.10 ($0.30): $0.0003 + $0.32 + $0.35 + $1.19. Measured before the commit,
+        push and CI turns, so it slightly under-counts.
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -634,7 +672,7 @@ and each has a mutation (M6–M8). A row refusing only `0.000001` could not tell
 ### Call 6 — bytes
 
 - **In repo (CI-guarded):** extend `accepted_cases()` in `tests/watermark_cli_params.rs` (the
-  existing golden test, `tests/fixtures/watermark/cli_params.golden`) from 3 cases to 12. Change the
+  existing golden test, `tests/fixtures/watermark/cli_params.golden`) from 3 cases to 13. Change the
   tuple's base `(u32, u32)` into a small `Base` enum: `Gradient(w, h)` (today's `write_gradient`),
   `Gradient16(w, h)` (the same gradient written as `Rgb16`, each sample ×257), `White(w, h)`. New
   cases, each run on the CLI and as a one-step recipe:
@@ -766,9 +804,10 @@ white with alpha8 1, `clear` 60×30 all alpha 0, `faint16` 60×30 16-bit RGBA wh
       `text` + `color = "ffffff00"`; `image = "clear.png"`. Each refused with its recipe line.
       RED: all exit 0.
 - [ ] **AC-3. build refuses before writing anything.** A manifest with one target over two inputs
-      whose recipe has `text = "hi"`, `opacity = 0` → exit 1; stderr has one `error:` line
-      containing `target #0` and `recipe step 0 ('watermark'): 'opacity' = 0 draws no mark; to
-      leave images unmarked, remove this step`; the output directory holds no file. RED: exit 0.
+      whose recipe has `text = "hi"`, `opacity = 0` → exit 1; stderr has two `error:` lines, the
+      target (`target #0`) and then the step (`recipe step 0 ('watermark'): 'opacity' = 0 draws no
+      mark; to leave images unmarked, remove this step`); the output directory holds no file.
+      RED: exit 0.
 - [ ] **AC-4. wasm throws, and the module survives.** `transform` on a 24×24 PNG with
       `text = "hi"` + `opacity = 0`, and with `text = " "`: each returns `Err` whose message
       contains the recipe line (`'opacity' = 0 draws no mark`, `'text' has no visible characters`);
@@ -846,13 +885,15 @@ Written during **design**, BEFORE build. Each is RED on `main` for the reason gi
     RED: 3, 3, 3, 3, 3, 0 (the pinned `--font` row is 3 on `main` too).
   - **FT-5** `"a faint or odd mark that draws is accepted"`: AC-11 CLI, 6 rows. Green on `main`;
     it is the guard against over-refusal (M6 and M9b turn it red).
-  - **FT-6** `accepted_marks_are_byte_identical_to_main` (extend): AC-12, 12 cases, golden count
-    12. Green on `main` by construction.
+  - **FT-6** `accepted_marks_are_byte_identical_to_main` (extend): AC-12, 13 cases (the 13th, `image_opacity_0_6_16bit`, is a 16-bit mid-opacity
+    composite), golden count 13. Green on `main` by construction.
   - **FT-7** `"opacity help states the range"`: AC-14's help half. RED: no `--opacity` help line.
 - **`tests/recipe_watermark.rs`** (extend)
   - **FT-8** `"a recipe mark that draws nothing is refused before any output"`: AC-2 + AC-8 (8
-    rows) and AC-5's refused apply row (`opacity = 0.0000076`): 9 rows, exit 1, exact line, no
-    output, input unchanged; asserts 9 rows. RED: all exit 0.
+    rows), AC-5's refused apply row (`opacity = 0.0000076`) and two low-alpha rows
+    (`color = "ffffff01"` at `opacity = 0.0019`; the 16-bit alpha-4 `faint16` image at
+    `opacity = 0.1`): 11 rows, exit 1, exact line, no
+    output, input unchanged; asserts 11 rows. RED: all exit 0.
   - **FT-9** `"a recipe refusal wins over a missing input"`: AC-10. RED: exit 3.
   - **FT-10** `"a faint recipe mark is drawn"`: AC-5's accepted apply rows (2) and AC-11's
     `text = "　"` row. Green on `main`; guard.
@@ -887,11 +928,11 @@ FT-12, FT-16. "CLI rows" = FT-1, FT-2, FT-3, FT-4.
 
 | # | Mutation | Exact location | Expected red | Expected green |
 |---|---|---|---|---|
-| M1 | Drop the predicate from `from_params` | the `invisible_mark()` call at the end of `Watermark::from_params`, `src/operation/mod.rs` | FT-8 (9 rows), FT-9, FT-11, FT-12 (both rows; wasm), FT-16 | all CLI rows, FT-13 to FT-15 |
+| M1 | Drop the predicate from `from_params` | the `invisible_mark()` call at the end of `Watermark::from_params`, `src/operation/mod.rs` | FT-8 (11 rows), FT-9, FT-11, FT-12 (both rows; wasm), FT-16 | all CLI rows, FT-13 to FT-15 |
 | M2 | Drop the post-build call from the CLI | step 5 of `run_watermark`, `src/cli/ops.rs` | FT-1 rows 3–7 and 10 (too faint ×2, blank ×2, too small, clear image), FT-2 refused rows, FT-3 0.17, FT-4 `/no/such.png --text " "` and `--image clear` (exit 3) | FT-1 rows 1–2, 8–9 (early checks), FT-4's flag rows, all recipe rows |
 | M3 | Drop the CLI flag checks | step 2 of `run_watermark` | FT-4 `--image /no/l.png --opacity 0` and `--font /no/f.ttf --color ffffff00` (exit 3) | every other row (step 5 refuses with the same words), recipe rows |
-| M4a | `visible == 0` alone, no post-opacity check | delete step 4 of `invisible_mark()` | FT-1 `0.000001` and `faint16 0.1` rows, FT-2 refused rows, FT-8 `0.000001` and `0.0000076` rows, FT-14 `TooFaint` rows, FT-15, FT-16's `TooFaint` half | `OpacityZero` rows (step 1), blank/small/colour/image rows |
-| M5 | Check per image, not per invocation | remove the three call points (CLI steps 2 and 5, `from_params`) and return an `OperationError` at the top of `Watermark::apply` when `invisible_mark()` is `Some` | every CLI and recipe row (message words and exit codes change; FT-4 and FT-9 exit 3), FT-12 (message), FT-11 | FT-13 to FT-15 |
+| M4a | `visible == 0` alone, no post-opacity check | delete step 4 of `invisible_mark()` | FT-1 `0.000001` and `faint16 0.1` rows, FT-2 refused rows, FT-8 `0.000001` and `0.0000076` rows, FT-13, FT-14 `TooFaint` rows, FT-15, FT-16's `TooFaint` half | `OpacityZero` rows (step 1), blank/small/colour/image rows |
+| M5 | Check per image, not per invocation | remove the three call points (CLI steps 2 and 5, `from_params`) and return an `OperationError` at the top of `Watermark::apply` when `invisible_mark()` is `Some` | every CLI and recipe row (message words and exit codes change; FT-4 and FT-9 exit 3), FT-12 (message), FT-11, FT-15 (it calls `apply`) | FT-13, FT-14 |
 | M6 | 8-bit precision | `max_alpha16` reads `to_rgba8()` and step 4 compares `round(a8·op)` | FT-5 (`0.001`, `faint16`), FT-6 (`faint_opacity`, `faint_opacity_boundary`, `faint_8bit`), FT-2 and FT-10 accepted rows (`0.0000077`, `ffffff01 0.002`), FT-14 accepted rows, FT-15 | refused rows |
 | M7 | The naive shortcut | step 4 compares `round(65535·op) == 0` (ignores the max alpha) | FT-2 `ffffff01 0.0019` row, FT-1 `faint16 0.1` row, FT-14 `a16 = 257` and `a16 = 4` refused rows, FT-15 | the opaque-mark rows |
 | M8 | Floor instead of round | step 4 uses `(a·op) < 1.0` | FT-2 and FT-10 `0.0000077` / `0.002` rows, FT-6 `faint_opacity` (0.655) and `faint_opacity_boundary`, FT-14 accepted rows, FT-15 | refused rows |
@@ -975,37 +1016,138 @@ necessary during build, create a new spec rather than expanding this one.
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
-- **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
-- **Files this diff touches** — **list every one**, with a phrase on what changed
-  in each. Not "src/foo and tests": the enumeration is what a verify cycle diffs
-  the real change against, and what tells you whether every affected `DEC-*` has
-  the path in its `affected_scope`. SPEC-122's Deviations claimed "`src/operation`
-  and `tests/` only" and was wrong by two `scripts/` files, which left
-  `affected_scope` blind; SPEC-124's build added this section by hand after that
-  lesson and still listed 8 of its 9 files. It is a checklist because it is easy
-  to get wrong from memory — build it from `git diff --name-only`, not recall.
-  - `path/to/file` — <what changed>
+- **Branch:** `feat/spec-143-refuse-invisible-watermark`
+- **PR (if applicable):** draft, opened after this record (number in the build report)
+- **All acceptance criteria met?** yes (AC-1 to AC-14; two wording notes under Deviations)
+- **New decisions emitted:** none beyond DEC-109 (from design)
+- **Commits (in order, all `-s`):**
+  - `2ccbdaf` golden: 12 accepted cases and the `Base` enum, blessed on unmodified `src/`
+    (`git show 2ccbdaf -- src/` is empty)
+  - `a028d9d` integration tests FT-1 to FT-12, against unmodified `src/`
+  - `8a91c83` refactor: `faded_alpha16`, the 16-bit opacity loop calls it (FT-6 and
+    `opacity_does_not_change_coverage` green at this commit)
+  - `fe5d0de` the fix, with unit tests FT-13 to FT-16 (pushed as the WIP once it compiled)
+  - `9bb4d6e` docs, CHANGELOG and the DEC-106 pointer line
+- **Files this diff touches** (`git diff --name-only origin/main...HEAD`):
+  - `src/operation/mod.rs` — `faded_alpha16`, `max_alpha16`, `InvisibleMark`, the `max_alpha`
+    field, `invisible_mark()`, the `from_params` call and recipe messages, unit tests FT-13 to FT-16
+  - `src/cli/ops.rs` — the opacity-0 and colour-alpha-00 flag checks, the post-build call, the CLI
+    message `match`
+  - `src/cli/mod.rs` — `--opacity` help line, `--text` help
+  - `tests/watermark_cli_params.rs` — `Base` enum, 12-case golden, FT-1 to FT-5, FT-7
+  - `tests/fixtures/watermark/cli_params.golden` — 9 new lines
+  - `tests/recipe_watermark.rs` — FT-8 to FT-10
+  - `tests/build_watermark_cache.rs` — FT-11
+  - `tests/wasm_roundtrip.rs` — FT-12
+  - `CHANGELOG.md` — Unreleased, Breaking entry (Call 7)
+  - `docs/api-contract.md`, `docs/cli-reference.md`, `docs/data-model.md`,
+    `recipes/README.md`, `skills/crustyimg/SKILL.md` — the refusal, the opacity range, the
+    faint-mark sentence; `recipes/README.md` no longer says `opacity = 0` is drawn
+  - `decisions/DEC-106-….md` — one Consequences line pointing at DEC-109
+  - this spec file
+- **RED baseline on `main` (commits 1–2, unmodified `src/`):**
+  FT-1, FT-2, FT-3 RED (first refused row exits 0, nothing refused); FT-4 rows exit 3, 3, 3, 3, 3, 0
+  and the pinned `--font` row 3 (probed on the `main` binary); FT-7 RED (no `--opacity` help
+  line); FT-8 RED (exit 0); FT-9 RED (exit 3). FT-11 and FT-12 as first written were red on
+  `main` for the wrong reason: the 5 % coverage cap (FT-12's 64×48 base threw "the mark would
+  cover 9.05 %"; FT-11's 64×64 inputs skipped the mark at "6.79 %"), not because a mark drew
+  nothing. After the punch list enlarged the bases (FT-11 256×256, FT-12 256×192, mark under
+  5 %), on `main`'s `src/`: FT-11 RED at exit 0 (`built 1 target, 2 outputs (0 cached, 2
+  rebuilt)`, no coverage message) and FT-12 RED because `transform` returned `Ok` (the wasm
+  runner's `expect_err` received the PNG bytes), no coverage message in either. FT-5, FT-6, FT-10 GREEN (the guards). FT-13 to FT-16 call the new API,
+  so they landed with the fix.
+- **Mutations** (each: patch applied, `git diff` non-empty, fresh `CARGO_TARGET_DIR`, restored,
+  tree clean after). Names are the tests that went red:
+  - M1 (no call in `from_params`): FT-8, FT-9, FT-11, FT-16; wasm FT-12 red. CLI rows green.
+  - M2 (no post-build call): FT-1, FT-2, FT-3, FT-4. Early-check rows and recipe rows green.
+  - M3 (no CLI flag checks): FT-4 only.
+  - M4a (no post-opacity step): FT-1, FT-2, FT-8, FT-13, FT-14, FT-15, FT-16. FT-3, FT-4 green.
+  - M5 (per-image check in `apply`): FT-1, FT-2, FT-3, FT-4, FT-8, FT-9, FT-11, FT-16, **and
+    FT-15** (see Deviations); wasm FT-12 red.
+  - M6 (8-bit precision): FT-2, FT-5, FT-6 (red at `faint_opacity`, which now exits 2),
+    FT-10, FT-14, FT-15.
+  - M7 (`65535 × op` shortcut): FT-1, FT-2, FT-14, FT-15.
+  - M8 (floor, `< 1.0`): FT-2, FT-6, FT-10, FT-14, FT-15.
+  - M9a (classifier order): FT-1, FT-4, FT-8, FT-13; wasm FT-12 red.
+  - M9b (blank text as a flag check, CLI and recipe): FT-4, FT-5, FT-10.
+  - M10 (`f64` in the message): FT-1, FT-2, FT-8, FT-16.
+  - Golden mutation (a), `.floor()` in `faded_alpha16`: FT-6 (at `faint_opacity`: the predicate now
+    refuses it first), FT-2, FT-10, FT-14. Golden mutation (b) is M6: FT-6 as above.
+- **Matrix** (each leg a fresh target dir, deleted after; fmt `--check` clean, clippy `-D warnings`
+  clean on every native leg): default 1129 passed / 0 failed; `--no-default-features` 1067 / 0;
+  `--features webp-lossy` 1134 / 0; `just wasm-test` 47 passed / 0 failed. `decisions-audit.sh`
+  exits 0 (existing advisory scope-overlap warnings only).
 - **Deviations from spec:**
-  - [list]
+  - AC-3 says `build` prints "one `error:` line" with `target #0` and the step text. It prints
+    two lines (`error: target #0 (recipe r.toml, out dist)` then `error: recipe step 0
+    ('watermark'): …`). FT-11 asserts those two lines. The behaviour is as designed; only the
+    AC's count was loose (AC-3 now says two lines).
+  - M5's expected-green list said FT-13 to FT-15. FT-15 calls `apply` on every row, and under M5
+    `apply` errors for a refused mark, so it goes red. FT-13 and FT-14 stay green.
+  - M4a also turns FT-13 red (it asserts a `TooFaint` row); the table did not list it.
+  - (The mutation table now carries both corrections.)
+  - Golden mutations: under both, `run_case` fails on its exit-0 assertion at `faint_opacity`
+    before any hash is compared, so FT-6 is red for "refused", not for a different hash.
+  - `src/lib.rs` needed no change: `Watermark` is not re-exported there, and `InvisibleMark` is
+    public at `operation::`.
 - **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - The library-caller gap (a caller of `new_image`/`new_text` that never calls
+    `invisible_mark()`) stays the STAGE-054 entry the frame filed, for the next minor.
+
+### Punch list (verify)
+
+Docs and tests only; `git diff --stat` touches nothing in `src/`.
+
+**The four fixes**
+1. Docs: `docs/cli-reference.md` and `skills/crustyimg/SKILL.md` no longer say a mark "is drawn as
+   asked, even one too small or faint to see", and now say that only `--opacity 0` and a colour
+   alpha `00` exit 2 before any file is read; blank text, a too-small size and a transparent image
+   are refused after the `--font`/`--image` read and before any input (so `--text " " --font
+   /no/f.ttf` exits 3). DEC-109 and `docs/api-contract.md` say `--watch` reports the error lines
+   and keeps watching (it does not exit 1). The long line in `cli-reference.md` is wrapped.
+2. FT-8 gained `color = "ffffff01"` at `opacity = 0.0019` and the 16-bit alpha-4 `faint16` image
+   at `opacity = 0.1` (11 rows).
+3. FT-6 gained `image_opacity_0_6_16bit` (13 cases, 13 golden lines).
+4. FT-11 now uses 256×256 inputs and FT-12 a 256×192 base, so the mark is under the 5 % cap.
+
+**Prove it can fail** (each: `git diff` non-empty, fresh `CARGO_TARGET_DIR`, restored, green after)
+- Item 2, `max_alpha` set to `65535` in `from_params`: `recipe_watermark` goes red at
+  `"text = \"hi\"\ncolor = \"ffffff01\"\nopacity = 0.0019": left: Some(0) right: Some(1)`. The
+  loop stops at the first failure, so the `faint16 0.1` row was run alone (first new row removed
+  temporarily) and went red the same way (`left: Some(0) right: Some(1)`). Verify found this mutation
+  green before the change (not re-run here).
+- Item 3, `self.opacity * 0.999` in the 16-bit opacity loop (not in `faded_alpha16`): FT-6 red at
+  `tests/watermark_cli_params.rs:280`, `assertion \`left == right\` failed` comparing the hash
+  lists; the only line that differs is `image_opacity_0_6_16bit` (a hash mismatch, not an exit
+  code).
+- Item 4, enlarged FT-11 and FT-12 against `main`'s `src/`: FT-11 fails at `assertion \`left ==
+  right\` failed: stderr: target #0: 2 inputs × r.toml → dist / built 1 target, 2 outputs (0
+  cached, 2 rebuilt)`, `left: Some(0) right: Some(1)`. FT-12 fails at `tests/wasm_roundtrip.rs:353`,
+  `a mark that draws nothing is refused: [137, 80, 78, 71, …` (the `Ok` PNG bytes). No coverage
+  message in either. On the head with M1 (the `invisible_mark()` call in `from_params` dropped):
+  FT-11 red at `tests/build_watermark_cache.rs:394` and wasm FT-12 red at line 353.
+- The 16-bit 0.6 golden line (`39edaae5…c799`) blessed on the head passes unchanged on `origin/main`
+  (`accepted_marks_are_byte_identical_to_main`, 13 goldens, run not blessed).
+
+**Matrix** (fresh target dir per leg, run sequentially, deleted after; `cargo fmt --check` and
+`cargo clippy --all-targets -- -D warnings` clean): default 1129 passed / 0 failed;
+`--no-default-features` 1067 / 0; `just wasm-test` 47 / 0.
 
 ### Build-phase reflection (3 questions, short answers)
 
 Process-focused: how did the build go? What friction did the spec create?
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — Only the AC-3 "one error line" count (`build` prints two) and what "FT-13 to FT-15 green"
+   means under M5 when FT-15 applies the op. Everything else, messages and boundaries included,
+   could be copied.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — No. The golden-first order and the `black16` detector were both in the design and both held.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Nothing design-level; no design call turned out wrong. I would write a per-case golden diff
+   helper, since the golden test reports one string and a mutation hides which case flipped.
 
 ---
 

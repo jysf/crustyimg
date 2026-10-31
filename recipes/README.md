@@ -182,7 +182,7 @@ margin = 16
 | `size` | text | Font size in pixels, a finite number `> 0` and `<= 1024`. Default `32`. |
 | `color` | text | Hex `RRGGBB`, `#RRGGBB` or `RRGGBBAA`. Default `ffffff`. |
 | `gravity` | both | `center`, `north`, `south`, `east`, `west`, `northeast`, `northwest`, `southeast` or `southwest`. Default `southeast`. |
-| `opacity` | both | `0.0`–`1.0`. Default `1.0`. |
+| `opacity` | both | Above `0`, up to `1.0`. Default `1.0`. `0` is refused: to leave images unmarked, remove the step. |
 | `margin` | both | Pixels from the anchored edges, a whole number `>= 0`. Default `0`. |
 | `scale` | image only | Overlay width as a fraction of the image's width (`0.1` = a tenth), aspect kept. A finite number `> 0`. Without it the overlay keeps its own size. |
 | `tile` | image only | `true` repeats the overlay across the image. Default `false`. |
@@ -233,8 +233,12 @@ the mark would cover 100.00 % of the 800×532 px image (425600 of 425600 px); th
 the scaled mark does not fit inside the 800×532 px image
 ```
 
-The second is for a `scale` so large the mark could never fit. A mark that fits is drawn as
-asked, even one too small or faint to see (`opacity = 0`, a tiny `size`).
+The second is for a `scale` so large the mark could never fit. A mark that would draw no
+visible pixel at all is refused before any image is read: `opacity = 0`, an opacity too small
+to leave any alpha, text with no visible characters, a `size` too small to draw the text, a
+`color` with alpha `00`, or a fully transparent `image`. A faint mark that still has a visible
+pixel is drawn as asked, even where it changes nothing on a particular image (white text on a
+white photo, or a very low opacity on an 8-bit image).
 
 ## Beyond one recipe
 
