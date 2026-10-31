@@ -211,7 +211,7 @@ crustyimg ships a [pre-commit](https://pre-commit.com/) hook:
 # .pre-commit-config.yaml
 repos:
   - repo: https://github.com/jysf/crustyimg
-    rev: v0.8.1
+    rev: v0.8.2
     hooks:
       - id: crustyimg-lint
 ```
