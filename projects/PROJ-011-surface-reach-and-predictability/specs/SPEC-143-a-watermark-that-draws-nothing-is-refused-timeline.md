@@ -16,6 +16,8 @@ Cycle prompts live in `prompts/SPEC-143-<cycle>.md`.
   `Watermark::invisible_mark()` (additive) refuses at 16-bit precision via the composite's own
   `faded_alpha16`, at the end of `from_params` and in `run_watermark`. Only opacity 0 and colour
   alpha 00 are flag checks: tab and U+3000 draw the font's fallback box, so blank text is not.
-- [ ] **build**: `prompts/SPEC-143-build.md`
-- [ ] **verify**
+- [x] **build** (2026-10-30, `prompts/SPEC-143-build.md`, Sonnet, $3.88): draft PR #235 at
+  `c467490`, CI green. Golden blessed on unmodified `src/` (`2ccbdaf`); refactor `8a91c83` kept FT-6
+  green. 14/14 ACs; three mutation-table deviations reported (AC-3 two lines, M5/FT-15, M4a/FT-13).
+- [ ] **verify**: `prompts/SPEC-143-verify.md`
 - [ ] **ship**
