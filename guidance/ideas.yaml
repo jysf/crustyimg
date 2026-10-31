@@ -195,13 +195,13 @@ ideas:
     gate: "cube-lut-op"
 
   - id: native-wasm-resize-exactness
-    title: "Native and wasm resize agree bit for bit, so the ddphotos parity harness can go back to exact (K = 0)"
+    title: "A deterministic powf on native: resize agrees bit for bit across Linux, macOS, Windows and wasm (K = 0, shared goldens)"
     status: proposed
     source: "SPEC-142 design finding, ruled (B) 2026-10-30; DEC-110 Alternatives, Option A"
     home: null
     likely_home: "PROJ-015 / the working-type stage (F32x4 -> U16x4), not yet framed"
     gate: "That stage must re-measure native-vs-wasm resize parity with `just ddphotos-parity` and record the new maximum against DEC-110's K. If native resize pixels move, it re-blesses SPEC-141's native goldens. If the difference goes to zero, supersede DEC-110 with an exact rule."
-    notes: "Today native and wasm differ by 1/255 on 1-2 pixels after a resize at the page's sizes (1200, 1080, 800), deterministically. Probable seat: f32 powf for the sRGB curve, or fast_image_resize's per-arch SIMD convolution (a prior, not proven). Not fixed now because the working-type change rewrites that path anyway."
+    notes: "Today native and wasm differ by 1/255 on 1-2 pixels after a resize at the page's sizes (1200, 1080, 800), deterministically. Probable seat: f32 powf for the sRGB curve, or fast_image_resize's per-arch SIMD convolution (a prior, not proven). Not fixed now because the working-type change rewrites that path anyway. UPDATE 2026-10-30, SPEC-141 verify (PR #233): native resampled pixels also differ ACROSS the three CI targets (12 of 14 corpus recipes; mostly the 16-bit rows), so SPEC-141 pins per-target goldens. CPU dispatch is ruled out (fast_image_resize 6.0.0 F32x4 has no NEON path, driven equal on an M4 Pro; SSE4.1 and AVX2 share one form). The prior is the platform powf in srgb_to_linear / linear_to_srgb: the platform's and the libm crate's powf disagree on 6,261 of 65,536 16-bit inputs and 23 of 256 8-bit entries, and wasm uses the libm crate. SPEC-142's build measured K = 1 on both aarch64 and x86_64 with identical wasm hashes, which fits. Remedy: route the transfer functions through libm::powf (libm 0.2.16 is already in Cargo.lock), a src change that re-blesses SPEC-141's goldens once on all three targets and supersedes DEC-110 if K goes to 0. Cheaper stopgap: pin the runner images in ci.yml. Until then a one-target red with no code change is libm drift after a runner-image update. MEASURED 2026-10-30, SPEC-142 verify (PR #234): with libm::powf swapped into native's srgb_to_linear and linear_to_srgb on aarch64 (a scratch edit), all 16 parity rows came out px=0 max=0 and byte-equal, and wasm did not move. Both sites matter: the decode table alone fixed 1 of the 4 rows. Not yet driven: x86's F32x4 convolution against wasm's."
 
   # ── Ideas: suggested, not yet argued for ─────────────────────────────────
   - id: perceptual-dedup-lint-rule

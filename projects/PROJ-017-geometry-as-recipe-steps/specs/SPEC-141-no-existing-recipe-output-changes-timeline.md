@@ -16,6 +16,13 @@ Cycle prompts live in `prompts/SPEC-141-<cycle>.md`.
   pins 42 pixel rows + 6 PNG/WebP byte rows; the binary checks the seam (2 rows) and the bundled `optimize`
   format (3 rows, `rgb8` only, cfg default codecs). RGBA fixtures enlarged to 1730×2600 / 2600×1730: the frame's
   1100×700 left 6 bundled resizes as no-ops. Both outcomes (shared vs per-target goldens) specified; M1–M7 driven/listed.
-- [ ] **build**: `prompts/SPEC-141-build.md`
-- [ ] **verify**: `prompts/SPEC-141-verify.md`
+- [x] **build**: `prompts/SPEC-141-build.md` (2026-10-30, Sonnet, ~$4.51). Draft PR #233, code head `886d388`.
+  Outcome (ii): checkpoint 1 went red on Linux and Windows, so goldens are per target (42 files). 12 of 14 recipes
+  differ pairwise across targets (every resampler); the text watermark and the format recipe match everywhere.
+  M1–M7 driven on the shared layout; M4's line-count literal was never seen red alone. Empty `src/` diff.
+- [x] **verify**: `prompts/SPEC-141-verify.md` (2026-10-30, Opus, $7.54). ⚠ PUNCH LIST at `dfaa28b`: all
+  mutations matched (M4b proves the 51 literal live), goldens are stable per target, CPU dispatch ruled out; the
+  goldens pin each runner image's libm `powf`. Gaps: a missing golden prints no CI-log dump, FT-3 skips the control
+  lines, and the README doesn't name the literals to bump.
+- [ ] **punch list**: `prompts/SPEC-141-punchlist.md` (Sonnet). Then a short re-verify.
 - [ ] **ship**: `prompts/SPEC-141-ship.md`
