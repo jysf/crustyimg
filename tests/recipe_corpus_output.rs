@@ -930,7 +930,7 @@ fn seam_row(fx: &Image, stem: &str, ext: &str, kind: &str) -> Result<(), String>
     let actual = format!("sha256={}", sha_hex(&bytes));
     if actual != golden_row(stem, FIXTURES[0], kind) {
         return Err(format!(
-            "{stem}: apply wrote different bytes than the library seam"
+            "{stem}: apply wrote bytes that differ from the golden's {kind} row"
         ));
     }
     Ok(())
@@ -1046,9 +1046,12 @@ fn every_golden_line_is_checked_and_no_golden_is_stray() {
         .flat_map(|stem| TARGETS.iter().map(move |t| format!("{stem}.{t}")))
         .collect();
     want.sort();
-    assert_eq!(
-        on_disk, want,
-        "the .output files must be exactly the recipes under the pin, once per target"
+    let missing: Vec<&String> = want.iter().filter(|w| !on_disk.contains(w)).collect();
+    let extra: Vec<&String> = on_disk.iter().filter(|d| !want.contains(d)).collect();
+    assert!(
+        missing.is_empty() && extra.is_empty(),
+        "the .output files must be exactly the recipes under the pin, once per target; \
+         missing: {missing:?}; extra: {extra:?}"
     );
 
     for target in TARGETS {
@@ -1171,6 +1174,17 @@ fn a_target_without_goldens_fails() {
     );
     let ok = golden_path_for("v1_resize_max", "macos", "aarch64").expect("mac golden");
     assert!(ok.ends_with("v1_resize_max.macos-aarch64.output"), "{ok:?}");
+
+    // The real lookup, not a closure: a known target whose file is absent
+    // still returns its path, so `check_recipes` can report it missing and
+    // print the dump. The stem can never exist, so no fixture is touched.
+    let absent = golden_path_for("__no_such_recipe__", "macos", "aarch64")
+        .expect("a known target must return Ok even when the file is absent");
+    assert!(!absent.exists(), "{absent:?}");
+    assert_eq!(
+        absent,
+        corpus_dir().join("__no_such_recipe__.macos-aarch64.output")
+    );
 }
 
 #[test]
