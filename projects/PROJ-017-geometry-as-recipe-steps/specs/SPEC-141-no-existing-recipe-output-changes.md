@@ -136,6 +136,38 @@ cost:
         claude-sonnet-5-5), input/cache_creation/cache_read once per id, MAX output_tokens per id.
         Sonnet $3/$15 per MTok, cache_creation x1.25, cache_read x0.10. Measured before the final
         doc commit, so it slightly under-counts.
+    - cycle: verify
+      agent: claude-opus-5-5
+      interface: claude-code
+      tokens_total: 3429171
+      tokens_breakdown:
+        input: 62
+        output: 17722
+        cache_creation: 103188
+        cache_read: 3308199
+      estimated_usd: 2.74
+      duration_minutes: null
+      recorded_at: 2026-10-31
+      note: >
+        Re-verify of punch list 1 (read-only; measured by that session, recorded here by
+        punchlist-2). Opus $5/$25 per MTok, cache_creation x1.25, cache_read x0.10.
+    - cycle: punchlist-2
+      agent: claude-sonnet-5-5
+      interface: claude-code
+      tokens_total: 1362074
+      tokens_breakdown:
+        input: 36
+        output: 6132
+        cache_creation: 54513
+        cache_read: 1301393
+      estimated_usd: 0.69
+      duration_minutes: null
+      recorded_at: 2026-10-31
+      note: >
+        Punch-list-2 session in worktree fix-spec-141-punch2. Measured from its transcript
+        (71542bc3-….jsonl, identified by content), deduped by `.message.id` (18 unique ids, all
+        claude-sonnet-5-5), MAX output_tokens per id. Sonnet $3/$15 per MTok, cache_creation
+        x1.25, cache_read x0.10. Measured before the final doc commit, so it slightly under-counts.
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -1116,6 +1148,35 @@ goldens for the other recipes so it is independent of what the pipeline draws.
 
 CI run 41152445637 at `f6d297b`: green on every leg. `recipe_corpus_output` ran 9 tests on
 windows, ubuntu, macos and avif; 8 on lean and webp-lossy.
+
+### Punch list 2 (re-verify)
+
+Test-only; PR #233 head was `6b90d71`, now `6376d65`. Diff touches `tests/recipe_corpus_output.rs`,
+`tests/fixtures/recipe_corpus/README.md` and this spec only.
+
+1. **The real lookup is pinned.** `a_target_without_goldens_fails` (extended, not a new test; the
+   count stays 9) now calls `golden_path_for("__no_such_recipe__", "macos", "aarch64")` and
+   requires `Ok` with the expected path and no file on disk. FT-8 (unknown target, Call 5's
+   message) unchanged.
+2. **The stray-file check names files**: `missing: [...]; extra: [...]`.
+3. **FT-4's message** reads `apply wrote bytes that differ from the golden's <kind> row`.
+4. **README comment list** gains the `GOLDEN_LINES` doc comment.
+
+Controls (clean builds, stdout redirected, `$?` read):
+- Mutation (A), `|| !path.exists()` put back in `golden_path_for`: the test goes red, exit 101,
+  `a known target must return Ok even when the file is absent: "no recipe golden for
+  macos-aarch64: ..."`. Restored: green.
+- `bundled_web.linux-x86_64.output` moved aside: red, `missing: ["bundled_web.linux-x86_64"];
+  extra: []`. A copy named `zz_extra.linux-x86_64.output`: red, `missing: []; extra:
+  ["zz_extra.linux-x86_64"]`. Both restored; the tree held only the intended edits.
+- M1 re-driven (`src/operation/mod.rs:584` Lanczos3 to CatmullRom): FT-4 `png row red:
+  v2_watermark_integer_numbers: apply wrote bytes that differ from the golden's png row`; the
+  `webp` row did not fire. Reverted with `git checkout`.
+- Whole `recipe_corpus_output`: 9 passed, 1 ignored (default); 8 passed, 1 ignored (lean).
+  clippy and fmt clean, default and `--no-default-features`.
+
+CI run 41229750086 at `6376d65`: green on every leg. `recipe_corpus_output` ran 9 tests on
+ubuntu and avif, 8 on lean.
 
 ### Build-phase reflection (3 questions, short answers)
 
