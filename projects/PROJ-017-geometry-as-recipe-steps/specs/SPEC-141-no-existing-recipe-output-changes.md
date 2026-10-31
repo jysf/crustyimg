@@ -7,7 +7,7 @@
 task:
   id: SPEC-141
   type: task                       # epic | story | task | bug | chore
-  cycle: build  # frame | design | build | verify | ship
+  cycle: verify  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: S                    # S | M | L  (L means split it)
@@ -85,6 +85,89 @@ cost:
         output_tokens per id. Priced by component at Opus $5/$25 per MTok, cache_creation x1.25
         ($6.25), cache_read x0.10 ($0.50): $0.0004 + $1.18 + $3.24 + $1.80. Measured before
         the commit/push turns, so it slightly under-counts.
+    - cycle: build
+      agent: claude-sonnet-5-5
+      interface: claude-code
+      tokens_total: 10792771
+      tokens_breakdown:
+        input: 152
+        output: 49445
+        cache_creation: 158838
+        cache_read: 10584336
+      estimated_usd: 4.51
+      duration_minutes: null
+      recorded_at: 2026-10-30
+      note: >
+        Build session in worktree test-spec-141-recipe-output-guard. Measured from the session
+        transcript (84d491ec-….jsonl, identified by content), deduped by `.message.id` (73 unique
+        ids, all claude-sonnet-5-5), input/cache_creation/cache_read once per id, MAX output_tokens
+        per id. Sonnet $3/$15 per MTok, cache_creation x1.25, cache_read x0.10. Measured before the
+        final commit/push turns, so it slightly under-counts.
+    - cycle: verify
+      agent: claude-opus-5-5
+      interface: claude-code
+      tokens_total: 10590053
+      tokens_breakdown:
+        input: 130
+        output: 47860
+        cache_creation: 186613
+        cache_read: 10355450
+      estimated_usd: 7.54
+      duration_minutes: null
+      recorded_at: 2026-10-30
+      note: >
+        Read-only verify session; measured by the verify and recorded here by the punch-list
+        session. Opus $5/$25 per MTok, cache_creation x1.25, cache_read x0.10.
+    - cycle: punchlist
+      agent: claude-sonnet-5-5
+      interface: claude-code
+      tokens_total: 5200322
+      tokens_breakdown:
+        input: 92
+        output: 25365
+        cache_creation: 109720
+        cache_read: 5065145
+      estimated_usd: 2.31
+      duration_minutes: null
+      recorded_at: 2026-10-30
+      note: >
+        Punch-list session in worktree fix-spec-141-punch. Measured from its transcript
+        (f6d20d96-….jsonl, identified by content), deduped by `.message.id` (43 unique ids, all
+        claude-sonnet-5-5), input/cache_creation/cache_read once per id, MAX output_tokens per id.
+        Sonnet $3/$15 per MTok, cache_creation x1.25, cache_read x0.10. Measured before the final
+        doc commit, so it slightly under-counts.
+    - cycle: verify
+      agent: claude-opus-5-5
+      interface: claude-code
+      tokens_total: 3429171
+      tokens_breakdown:
+        input: 62
+        output: 17722
+        cache_creation: 103188
+        cache_read: 3308199
+      estimated_usd: 2.74
+      duration_minutes: null
+      recorded_at: 2026-10-31
+      note: >
+        Re-verify of punch list 1 (read-only; measured by that session, recorded here by
+        punchlist-2). Opus $5/$25 per MTok, cache_creation x1.25, cache_read x0.10.
+    - cycle: punchlist-2
+      agent: claude-sonnet-5-5
+      interface: claude-code
+      tokens_total: 1362074
+      tokens_breakdown:
+        input: 36
+        output: 6132
+        cache_creation: 54513
+        cache_read: 1301393
+      estimated_usd: 0.69
+      duration_minutes: null
+      recorded_at: 2026-10-31
+      note: >
+        Punch-list-2 session in worktree fix-spec-141-punch2. Measured from its transcript
+        (71542bc3-….jsonl, identified by content), deduped by `.message.id` (18 unique ids, all
+        claude-sonnet-5-5), MAX output_tokens per id. Sonnet $3/$15 per MTok, cache_creation
+        x1.25, cache_read x0.10. Measured before the final doc commit, so it slightly under-counts.
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -664,9 +747,19 @@ The pixel test asserts `assert_eq!(rows_checked, 48, "14 recipes × 3 fixtures +
 The completeness test asserts 51 golden lines and the exact file set. All three numbers are
 **typed literals**, never `RECIPES.len() * 3`, so a recipe dropped from the list goes red.
 **Each later spec that adds a corpus recipe** (the PROJ-017 op specs) adds its stem to `RECIPES`,
-its expected dims to the dims table, and its `.output` file. It raises the literals by
-3 × (new recipes) plus any new byte rows, in the same diff, and names the new numbers in an AC.
-Verify recomputes them from `RECIPES` and the golden files, and checks the old lines are
+its expected dims to `EXPECTED_DIMS`, and its `.output` files. In the same diff it raises every
+literal the test counts with: `ROWS` (48), `GOLDEN_LINES` (51), the `[…; 14]` length of
+`EXPECTED_DIMS`, the `42` in FT-1's `EXPECTED_DIMS.len() * FIXTURES.len()` assert, and the
+doc comments that quote them; `recipe_round_trip.rs` has its own `CORPUS` and `14`. It names
+the new numbers in an AC. The README lists them by identifier (grep the test for numeric
+literals and array lengths).
+
+The two targets the author cannot run come from CI: bless the local target, push, and the run
+fails on the others, printing each missing file's dump (FT-9). Copy each `BEGIN`/`END` block
+from `gh run view <run> --log-failed` into its file and push; the second run is green on every
+leg. A red on one target alone with no code change is libm drift: re-bless that target only,
+in its own commit.
+Verify recomputes the numbers from `RECIPES` and the golden files, and checks the old lines are
 unchanged (the frame's blessing rule).
 
 ### Size
@@ -777,9 +870,9 @@ are the mutation rows under Failing Tests, each run against the built test.
 - [ ] **AC-5. A red row names recipe, fixture and field.** FT-1 checks all 48 rows before it fails,
       then panics once with one line per mismatch, using the exact wording of Call 4. The fields
       are checked in the order dims, colour, depth, pixels, then bytes. The lines are followed
-      by `<N> of 48 rows changed` and by the actual content of every recipe file for this
+      by `<N> of 48 rows changed` (N counts rows with at least one mismatch line, not lines) and by the actual content of every recipe file for this
       target, between `----- BEGIN tests/fixtures/recipe_corpus/<stem>.<os>-<arch>.output -----`
-      and `----- END -----`. FT-3 checks the nine message lines of Call 4 and one dump block
+      and `----- END -----`. FT-3 checks the nine message lines of Call 4, the three control lines of AC-4 and one dump block
       exactly, as strings, against a pure function the test exposes to itself.
 - [ ] **AC-6. The library seam is the call `apply` makes.** FT-4 runs the binary
       `apply --recipe <copy of the corpus file> rgb8_2600x1730.png --out-dir out`, in a temp dir
@@ -870,6 +963,10 @@ against the built test.
     `golden_path("v1_resize_max", "linux", "riscv64")` is `Err` with exactly Call 5's message,
     and `("macos", "aarch64")` is `Ok(…/v1_resize_max.macos-aarch64.output)`. This is the
     trap-10 row: the derived path differs from the naive shared one.
+  - FT-9 `a_missing_golden_fails_and_still_prints_its_dump`: AC-9. Drives the report builder
+    as a pure function with one recipe's golden absent: exactly one missing-file line naming
+    the expected path, counted in the failures, and every recipe's `BEGIN … END` block present
+    and complete, the one with no golden included.
   - `bless_recipe_corpus_outputs`: `#[ignore]`, Call 6.
 - **`tests/recipe_round_trip.rs`**
   - `to_toml_is_byte_identical_to_main_over_the_corpus`: AC-1 (`CORPUS` + 14). RED with the new
@@ -971,29 +1068,126 @@ says stop and report).
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
-- **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
-- **Files this diff touches** — **list every one**, with a phrase on what changed
-  in each. Build it from `git diff --name-only`, not recall.
-  - `path/to/file` — <what changed>
+- **Branch:** `test/spec-141-recipe-output-guard`
+- **PR (if applicable):** #233 (draft)
+- **All acceptance criteria met?** yes, under outcome (ii) (per-target goldens). See below.
+- **New decisions emitted:** none
+- **Files this diff touches** (from `git diff --name-only origin/main...HEAD`):
+  - `tests/recipe_corpus_output.rs` — new: the guard (FT-1 to FT-8) and the `#[ignore]` bless
+  - `tests/recipe_round_trip.rs` — `CORPUS` gains `v2_ddphotos_cli_shape`; count 13 → 14
+  - `tests/fixtures/recipe_corpus/v2_ddphotos_cli_shape.toml` — new corpus recipe (Call 2, byte for byte)
+  - `tests/fixtures/recipe_corpus/v2_ddphotos_cli_shape.golden` — its canonical TOML
+  - `tests/fixtures/recipe_corpus/README.md` — new: the rules
+  - `tests/fixtures/recipe_corpus/<stem>.{linux-x86_64,macos-aarch64,windows-x86_64}.output` — 42 new goldens
+- **`src/` diff:** `git diff --stat origin/main...HEAD -- src/` is empty. No `Cargo.toml`/`Cargo.lock` change.
+- **Outcome: (ii), per-target.** Checkpoint 1 run
+  https://github.com/jysf/crustyimg/actions/runs/41134312226 (head `5fdf103`, Mac goldens in the
+  shared layout). macos-latest `test` passed. Red on a pixel/byte row: ubuntu `test`, avif, heic-ubuntu,
+  webp-lossy, lean (26 of 48 rows changed on the Linux legs), and windows.
+  The macOS heic leg died earlier on `avif_tile_pin` (unrelated), so it never reached this test. All five
+  Linux legs printed byte-identical dumps, so no two legs on one target disagreed. Linux, Windows and
+  Mac differ pairwise on 12 of 14 recipes (the two that agree are the ones with no resize). Goldens for
+  Linux and Windows were copied from that log's marker blocks.
+  Second run (head `886d388`, the per-target layout):
+  https://github.com/jysf/crustyimg/actions/runs/41136772264, green on all 8 `cargo test` legs plus msrv.
+  Wall time of the corpus-output test per leg: macos 34.0 s, ubuntu 50.4 s, windows 29.8 s, avif 52.3 s,
+  heic-macos 41.9 s, heic-ubuntu 33.9 s, webp-lossy 22.1 s (7 tests), lean 16.9 s (7 tests).
+- **Fixture hashes** (FT-2, full 64 digits): `94daa4af…`, `7df0cef0…`, `75dfcd86…`, matching AC-2 on every leg.
+- **Mutations** (each applied by content, built clean per target dir, reverted and shown green):
+  - M1 (`src/operation/mod.rs:584` Lanczos3→CatmullRom): FT-1 36 lines = 33 `pixels changed` + 3 `png bytes
+    changed (pixels also changed)`, `36 of 48 rows changed`; FT-4 png red; FT-5 green. Matches the table.
+  - M2 (`src/operation/mod.rs:1629` unwrap_or(1.0)→0.9): 9 lines = 6 pixels + 3 png; FT-4 png red. Matches.
+  - M3 (`src/pipeline/mod.rs:105` `.take(0)`, re-blessed under it): 33 `dims …, expected …` + 9 `output equals
+    the fixture` + 54 `changed nothing` (= 18 non-exempt steps × 3). Matches after one test fix (below).
+    Goldens restored with `git checkout`; status clean.
+  - M4 (delete `v1_resize_fit` from `RECIPES`): FT-1 `rows checked 45, expected 48`; FT-6 reports the stray
+    golden set. It stops at the file-set assert, so the "48 ≠ 51 lines" half is not reported separately.
+  - M5 (`CI=true` bless): exit 101, `refusing to bless recipe goldens in CI (CI is set)`; golden shasums
+    identical before/after; the same command with `CI` unset exits 0 and rewrites files, `git status` clean.
+  - M6 (`src/sink/mod.rs` ~841 PNG encoder settings): 3 lines `png bytes changed (pixels unchanged)`; FT-4 png red;
+    FT-5 green. Matches.
+  - M7 (`src/cli/optimize.rs:91` `pinned_format = cli_pin`): FT-4 red on the webp row
+    (`rgb8_2600x1730.avif` written, expected `.webp`); all of FT-1 and FT-5 green. Matches.
+  M1–M7 were driven on the shared layout (before the checkpoint result); the per-target switch only changed
+  which golden file is read, and a final clean run of the whole test is green.
+- **Matrix** (each in a fresh `CARGO_TARGET_DIR`, fmt `--check` and clippy `--all-targets -D warnings` clean):
+  default 8 passed; `--no-default-features` 7 passed (FT-5 compiled out); `--features webp-lossy` 7 passed.
 - **Deviations from spec:**
-  - [list]
-- **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - AC-4 (b) "output equals the fixture" is reported only when the dims check held, which is the only way
+    M3's listed 33 + 9 lines come out.
+  - The first push failed the lean leg on a dead-code error (`BUNDLED` is used only where FT-5 exists). Fixed by
+    gating it with the same cfg.
+  - `N of 48 rows changed` counts mismatch lines, which exceeds 48 under M3 (96).
+- **Follow-up work identified:** none. The macOS heic leg's `avif_tile_pin` failure on the first run passed
+  on rerun; it is worth a look as possibly flaky, but it is outside this spec.
+
+### Punch list (verify)
+
+Test-only; head `f6d297b` on PR #233 (draft). No `.output` file and no `src/` change.
+
+1. **A missing golden fails and still prints every dump.** `check_recipes` (a pure function over
+   a golden loader) turns a missing `.output` into one line naming the file, carries on with an
+   empty golden, and prints that recipe's `BEGIN`/`END` block. `golden_path_for` now errors only
+   for a target outside `TARGETS` (FT-8 unchanged), so the "goldens exist for …" message can no
+   longer contradict a file that is merely missing. FT-9 added.
+2. **FT-3 covers AC-4's control lines.** `dims_control_line`, `equals_fixture_line` and
+   `step_unchanged_line`; `compute` calls them.
+3. **`<N> of 48 rows changed` counts rows** (distinct recipe, fixture, kind with a mismatch line).
+4. **FT-4 collects both rows** and prints `png row red/green`, `webp row red/green`.
+5. **README and Call 7** name the literals (`ROWS`, `GOLDEN_LINES`, the `[…; 14]` length, the
+   `42`, `CORPUS` and its `14` in `recipe_round_trip.rs`), the CI bless procedure and the
+   libm-drift rule.
+
+Controls (each on a clean build): missing `v1_resize_max.macos-aarch64.output` moved aside:
+exit 101, one `no golden file …` line, 14 `BEGIN` blocks, the `v1_resize_max` block equals the
+moved file (diff empty), restored and green. FT-9 with the old panic back: red. FT-3 with one
+character changed in each of the three formatters: red each time. M3 re-driven: `42 of 48 rows
+changed` (96 lines: 33 + 9 + 54). M1 re-driven: `36 of 48`, FT-4 `png` red and `webp` green.
+During the work FT-9 first read the real goldens and went red under M1; it now uses empty
+goldens for the other recipes so it is independent of what the pipeline draws.
+
+CI run 41152445637 at `f6d297b`: green on every leg. `recipe_corpus_output` ran 9 tests on
+windows, ubuntu, macos and avif; 8 on lean and webp-lossy.
+
+### Punch list 2 (re-verify)
+
+Test-only; PR #233 head was `6b90d71`, now `6376d65`. Diff touches `tests/recipe_corpus_output.rs`,
+`tests/fixtures/recipe_corpus/README.md` and this spec only.
+
+1. **The real lookup is pinned.** `a_target_without_goldens_fails` (extended, not a new test; the
+   count stays 9) now calls `golden_path_for("__no_such_recipe__", "macos", "aarch64")` and
+   requires `Ok` with the expected path and no file on disk. FT-8 (unknown target, Call 5's
+   message) unchanged.
+2. **The stray-file check names files**: `missing: [...]; extra: [...]`.
+3. **FT-4's message** reads `apply wrote bytes that differ from the golden's <kind> row`.
+4. **README comment list** gains the `GOLDEN_LINES` doc comment.
+
+Controls (clean builds, stdout redirected, `$?` read):
+- Mutation (A), `|| !path.exists()` put back in `golden_path_for`: the test goes red, exit 101,
+  `a known target must return Ok even when the file is absent: "no recipe golden for
+  macos-aarch64: ..."`. Restored: green.
+- `bundled_web.linux-x86_64.output` moved aside: red, `missing: ["bundled_web.linux-x86_64"];
+  extra: []`. A copy named `zz_extra.linux-x86_64.output`: red, `missing: []; extra:
+  ["zz_extra.linux-x86_64"]`. Both restored; the tree held only the intended edits.
+- M1 re-driven (`src/operation/mod.rs:584` Lanczos3 to CatmullRom): FT-4 `png row red:
+  v2_watermark_integer_numbers: apply wrote bytes that differ from the golden's png row`; the
+  `webp` row did not fire. Reverted with `git checkout`.
+- Whole `recipe_corpus_output`: 9 passed, 1 ignored (default); 8 passed, 1 ignored (lean).
+  clippy and fmt clean, default and `--no-default-features`.
+
+CI run 41229750086 at `6376d65`: green on every leg. `recipe_corpus_output` ran 9 tests on
+ubuntu and avif, 8 on lean.
 
 ### Build-phase reflection (3 questions, short answers)
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — Whether M3's `output equals the fixture` line applies to resizers too; the listed counts only work if it does not.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — The lean/webp-lossy dead-code rule: anything used only by the cfg-gated tests must be gated too.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Run clippy on `--no-default-features` before the first push, so checkpoint 1 measures pixels and nothing else. No design call turned out wrong; the per-target outcome was the one the spec anticipated.
 
 ---
 
