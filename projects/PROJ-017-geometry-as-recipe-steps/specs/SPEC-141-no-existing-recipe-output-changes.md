@@ -103,6 +103,39 @@ cost:
         ids, all claude-sonnet-5-5), input/cache_creation/cache_read once per id, MAX output_tokens
         per id. Sonnet $3/$15 per MTok, cache_creation x1.25, cache_read x0.10. Measured before the
         final commit/push turns, so it slightly under-counts.
+    - cycle: verify
+      agent: claude-opus-5-5
+      interface: claude-code
+      tokens_total: 10590053
+      tokens_breakdown:
+        input: 130
+        output: 47860
+        cache_creation: 186613
+        cache_read: 10355450
+      estimated_usd: 7.54
+      duration_minutes: null
+      recorded_at: 2026-10-30
+      note: >
+        Read-only verify session; measured by the verify and recorded here by the punch-list
+        session. Opus $5/$25 per MTok, cache_creation x1.25, cache_read x0.10.
+    - cycle: punchlist
+      agent: claude-sonnet-5-5
+      interface: claude-code
+      tokens_total: 5200322
+      tokens_breakdown:
+        input: 92
+        output: 25365
+        cache_creation: 109720
+        cache_read: 5065145
+      estimated_usd: 2.31
+      duration_minutes: null
+      recorded_at: 2026-10-30
+      note: >
+        Punch-list session in worktree fix-spec-141-punch. Measured from its transcript
+        (f6d20d96-….jsonl, identified by content), deduped by `.message.id` (43 unique ids, all
+        claude-sonnet-5-5), input/cache_creation/cache_read once per id, MAX output_tokens per id.
+        Sonnet $3/$15 per MTok, cache_creation x1.25, cache_read x0.10. Measured before the final
+        doc commit, so it slightly under-counts.
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -1055,6 +1088,34 @@ says stop and report).
   - `N of 48 rows changed` counts mismatch lines, which exceeds 48 under M3 (96).
 - **Follow-up work identified:** none. The macOS heic leg's `avif_tile_pin` failure on the first run passed
   on rerun; it is worth a look as possibly flaky, but it is outside this spec.
+
+### Punch list (verify)
+
+Test-only; head `f6d297b` on PR #233 (draft). No `.output` file and no `src/` change.
+
+1. **A missing golden fails and still prints every dump.** `check_recipes` (a pure function over
+   a golden loader) turns a missing `.output` into one line naming the file, carries on with an
+   empty golden, and prints that recipe's `BEGIN`/`END` block. `golden_path_for` now errors only
+   for a target outside `TARGETS` (FT-8 unchanged), so the "goldens exist for …" message can no
+   longer contradict a file that is merely missing. FT-9 added.
+2. **FT-3 covers AC-4's control lines.** `dims_control_line`, `equals_fixture_line` and
+   `step_unchanged_line`; `compute` calls them.
+3. **`<N> of 48 rows changed` counts rows** (distinct recipe, fixture, kind with a mismatch line).
+4. **FT-4 collects both rows** and prints `png row red/green`, `webp row red/green`.
+5. **README and Call 7** name the literals (`ROWS`, `GOLDEN_LINES`, the `[…; 14]` length, the
+   `42`, `CORPUS` and its `14` in `recipe_round_trip.rs`), the CI bless procedure and the
+   libm-drift rule.
+
+Controls (each on a clean build): missing `v1_resize_max.macos-aarch64.output` moved aside:
+exit 101, one `no golden file …` line, 14 `BEGIN` blocks, the `v1_resize_max` block equals the
+moved file (diff empty), restored and green. FT-9 with the old panic back: red. FT-3 with one
+character changed in each of the three formatters: red each time. M3 re-driven: `42 of 48 rows
+changed` (96 lines: 33 + 9 + 54). M1 re-driven: `36 of 48`, FT-4 `png` red and `webp` green.
+During the work FT-9 first read the real goldens and went red under M1; it now uses empty
+goldens for the other recipes so it is independent of what the pipeline draws.
+
+CI run 41152445637 at `f6d297b`: green on every leg. `recipe_corpus_output` ran 9 tests on
+windows, ubuntu, macos and avif; 8 on lean and webp-lossy.
 
 ### Build-phase reflection (3 questions, short answers)
 
