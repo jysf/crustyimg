@@ -19,5 +19,10 @@ Cycle prompts live in `prompts/SPEC-143-<cycle>.md`.
 - [x] **build** (2026-10-30, `prompts/SPEC-143-build.md`, Sonnet, $3.88): draft PR #235 at
   `c467490`, CI green. Golden blessed on unmodified `src/` (`2ccbdaf`); refactor `8a91c83` kept FT-6
   green. 14/14 ACs; three mutation-table deviations reported (AC-3 two lines, M5/FT-15, M4a/FT-13).
-- [ ] **verify**: `prompts/SPEC-143-verify.md`
+- [x] **verify** (2026-10-30, `prompts/SPEC-143-verify.md`, Opus, $9.85): ⚠ PUNCH LIST at
+  `c467490`. Code right on every path (36 cause rows, boundaries, 18/18 out-of-repo `cmp`). Docs and
+  tests only: two stale doc promises, a surviving recipe-side `max_alpha` mutation, a 16-bit
+  mid-opacity golden gap, and FT-11/FT-12 failing on `main` for the 5 % cap, not the mark.
+- [ ] **punch list**: `prompts/SPEC-143-punchlist.md`
+- [ ] **re-verify**
 - [ ] **ship**
