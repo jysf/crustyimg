@@ -188,8 +188,18 @@ STAGE-050 needs answered anyway.** ⚠ **Do not treat this as blocking STAGE-049
   watermark"); assert against that text instead, or drop it. Each fix: apply the mutation in a
   fresh target dir, show RED, restore, GREEN.
   Moved here from STAGE-050 at its Stage Ship (2026-10-27): guards, not behaviour.
+- [ ] (not yet written) — [S] **`avif_tile_pin`'s probe build: a failure prints no error, and every
+  run leaks a target dir.** Filed by SPEC-141's verify (2026-10-30, PR #233). `probe_binary()`
+  (`tests/avif_tile_pin.rs` ~:157) builds a second `crustyimg` with `--features image/rayon` into
+  `std::env::temp_dir()`. (1) On SPEC-141's checkpoint run the macOS heic leg failed
+  `avif_output_is_identical_across_ambient_core_counts` (~:169) with only "probe build failed":
+  the nested cargo's stderr is not in the log (job 124332899560; once in the last 25 failed runs,
+  so a one-off so far). Print the child's stderr on failure. (2) The probe target dir is never
+  removed: 93 `crustyimg-spec124-probe-target-*` dirs had piled up in `$TMPDIR` on the maintainer's
+  Mac. Remove it after the run, or use one fixed, reused dir. Prove each with a driven failure
+  (a bad feature name) and a dir count before and after.
 
-**Count:** 0 shipped / 0 active / **6 pending** — re-derived 2026-10-27 with `grep -c '^- \[ \]'` (6) and `grep -c '^- \[x\]'` (0); it read 2 before this, already stale.
+**Count:** 0 shipped / 0 active / **7 pending** — re-derived 2026-10-30 with `grep -c '^- \[ \]'` (7) and `grep -c '^- \[x\]'` (0).
 
 ## Dependencies
 
