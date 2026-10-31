@@ -583,8 +583,8 @@ Rows 15–16 assert the observed sizes, and P1 records the transposed prediction
 ## Acceptance Criteria
 
 - [ ] **AC-1 `recipe.js` is the only copy of the recipe code.** `edit.js` and `worker.js`
-  import from it. Neither defines `tomlString`, `textEms`, `watermarkSize`, `pixelRecipe`,
-  `cliRecipe`, `withQuality` or `PREVIEW_QUALITY`, and the harness defines none of them either.
+  import from it. Neither defines `tomlString`, `GO_ADVANCE`, `GO_WIDEST`, `textEms`, `watermarkSize`,
+  `planEdit`, `pixelRecipe`, `cliRecipe`, `withQuality` or `PREVIEW_QUALITY`, and the harness defines none of them either.
   `recipe.js` contains no `document`, `$(` or `window`.
 - [ ] **AC-2 The harness runs the 16-row table below and asserts the count.** Each row builds
   its recipe with `planEdit` plus `pixelRecipe`, `cliRecipe` or `previewRecipe`, all imported
@@ -630,8 +630,8 @@ Rows 15–16 assert the observed sizes, and P1 records the transposed prediction
   - **P3:** row 3's decoded pixels (the watermark) differ from row 1's (none) on both the native
     and the wasm side.
   - **P4:** the row count is 16.
-  - **P5:** the recipe text for row 4 (`pixelRecipe`, edit `both`) and row 8 (`cliRecipe`, png)
-    each equal a literal string in the harness, so a change to `recipe.js` that moves both sides
+  - **P5:** the recipe text for row 4 (`pixelRecipe`, edit `both`), row 8 (`cliRecipe`, png) and
+    row 12 (`previewRecipe(pixelRecipe(both))`) each equal a literal string in the harness, so a change to `recipe.js` that moves both sides
     together still goes red.
 - [ ] **AC-6 Negative controls, run by the harness itself.** `--self-test` runs the table twice
   more:
@@ -715,7 +715,7 @@ cites.
   transpose on rows 15–16 (P1).
 - **FT-6 `resize-moves`.** P2.
 - **FT-7 `watermark-draws`.** P3, on both sides.
-- **FT-8 `golden-recipes`.** P5. The literals are the texts below.
+- **FT-8 `golden-recipes`.** P5, rows 4, 8 and 12. The literals are the texts below.
 - **FT-9 `self-test`.** `--self-test`: N1 and N2 each give exactly their listed red rows
   (AC-6).
 - **FT-10 `module-imports`.** AC-8's Node checks: the import, the `.mjs` parse and the export
@@ -803,7 +803,32 @@ opacity = 0.6
 ```
 
 Row 8 is `cliRecipe({...both, format: "png"})`: the same text with `format = "png"` as the
-second line. Both texts were driven in the design probe (`size = 43`, `margin = 22` at 1080). The
+second line.
+
+Row 12 is `previewRecipe(pixelRecipe(both))`: the row-4 text with `quality = 88` as the second line
+(pasted from a real run of `recipe.js`; the harness derives it from the row-4 literal):
+```
+version = "2"
+quality = 88
+
+[[step]]
+op = "auto-orient"
+
+[[step]]
+op = "resize"
+mode = "max"
+width = 1080
+
+[[step]]
+op = "watermark"
+text = "© Jane Doe 2026"
+gravity = "southeast"
+size = 43
+margin = 22
+color = "#ffffff"
+opacity = 0.6
+```
+ Rows 4 and 8 were driven in the design probe (`size = 43`, `margin = 22` at 1080). The
 build pastes the literals from its own first run of `recipe.js`, then checks them against these.
 
 ### Mutation table (HANDOFF trap 12: where it is applied, every row red and green)
@@ -829,10 +854,14 @@ named.
 | C2 | the regex becomes `.` | `scripts/ci-code-paths.sh` | FT-12, the two docs and spec cases | the code cases |
 | B-max | drop the max limb: a resampling row passes on count alone | the comparator function in `tests/ddphotos_parity.mjs` | FT-3 self-test case B1 (so FT-9) | B2–B7; the plain run's 16 rows |
 | B-count | count limb `n <= K` → `n <= K + 1` | the comparator function | FT-3 case B3 (so FT-9) | B1, B2, B4–B7; the plain run |
-| B-edge | count limb `n <= K` → `n < K` | the comparator function | FT-3 case B4 (so FT-9); the plain run, on the target where K was observed, on each row where n = K | B1–B3, B5–B7 |
+| B-edge | count limb `n <= K` → `n < K` | the comparator function | FT-3 cases B4 and, when K = 1, **B2** (B2 equals B4 then; at K = 0 they differ) (so FT-9); the plain run, on the target where K was observed, on each row where n = K | B1, B3, B5–B7 (B2 too when K ≠ 1) |
 | B-exact | no-resample rows use the bound too | the comparator function | FT-3 case B5 (so FT-9) | B1–B4, B6, B7; the plain run (rows 1, 3, 9, 11 are equal anyway, which is why B5 exists) |
-| B-dims | compare pixels before dims, or skip the dims check | the comparator function | FT-3 case B7 (throws, or a reason other than `dims`); N2's rows in FT-9 | B1–B6 |
+| B-dims | compare pixels before dims, or skip the dims check | the comparator function | FT-3 case **B7 only** (throws, or a reason other than `dims`). N2's rows are not caught by B-dims: the per-row size literals (FT-2) catch them | B1–B6 |
 | B-derive | derive "resamples" from the edit (`edit.resize != null`), not the recipe text | the row classifier in `tests/ddphotos_parity.mjs` | FT-3's set assert (`{1, 3, 5, 7, 9, 11}` ≠ `{1, 3, 9, 11}`) | B1–B7 (synthetic, classifier not used) |
+
+**For the next spec that changes K or adds rows:** the B-edge and B-dims expectations above depend
+on K = 1 and on the per-row size literals. Re-derive which of B2/B4 go red when K moves, and add
+the size literal for every new row, because B-dims does not cover it.
 
 ## Implementation Context
 
@@ -903,7 +932,11 @@ section. It never edits the rule or the cap.
     DEC-110, and the harness asserts `K <= 78` at start.
   - The verdict is one pure function of `(dims, bytesEqual, px, max, resamples, format)`, so
     `--self-test` can drive cases B1–B7 through it without a binary.
-- **The one-line format:** `PASS|FAIL <id> native WxH wasm WxH bytes same|differ px=<n> max=<d>`.
+- **The one-line format:** `PASS|FAIL <id> native WxH wasm WxH bytes same|differ px=<n> max=<d>
+  <resamples|exact> wasm-sha256=<hex> native-sha256=<hex>`. The prefix up to `max=` is the contract;
+  both hashes are printed so the cross-target check reads straight from the CI log. The run also
+  prints one informational summary line, `largest differing-pixel count on a resampling row: <n>
+  (K = <K>)`, so a K raised without new evidence shows in review (it is not an assertion).
   The output reaches the CI log because it is plain stdout from a `run:` step, not libtest
   (HANDOFF trap 11). Put the self-test in its own step so its lines are separate.
 

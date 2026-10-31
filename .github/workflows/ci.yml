@@ -54,7 +54,15 @@ jobs:
           # Anything that can affect a build, a test, or a lint result. The regex lives
           # in the script so its self-test checks the one the workflow uses.
           scripts/ci-code-paths.sh --self-test
-          if [ "$(echo "$files" | scripts/ci-code-paths.sh)" = "true" ]; then
+          # Assign first: a failing command substitution inside `[ ... ]` does not stop a
+          # `bash -e` step, so a crashing classifier would read as "docs only" and skip
+          # every heavy job green.
+          code=$(echo "$files" | scripts/ci-code-paths.sh)
+          if [ "$code" != "true" ] && [ "$code" != "false" ]; then
+            echo "::error::scripts/ci-code-paths.sh printed '$code', expected true or false"
+            exit 1
+          fi
+          if [ "$code" = "true" ]; then
             echo "code=true" >> "$GITHUB_OUTPUT"
             echo "-> code paths touched: running the full gates"
           else

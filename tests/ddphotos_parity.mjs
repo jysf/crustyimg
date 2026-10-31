@@ -182,6 +182,9 @@ color = "#ffffff"
 opacity = 0.6
 `;
 const GOLDEN_CLI_BOTH = GOLDEN_PIXEL_BOTH.replace('version = "2"\n', 'version = "2"\nformat = "png"\n');
+// Row 12: the preview path, `previewRecipe(pixelRecipe(both))`. Without it a
+// previewRecipe that dropped its quality would stay green, native and wasm moving together.
+const GOLDEN_PREVIEW_BOTH = GOLDEN_PIXEL_BOTH.replace('version = "2"\n', 'version = "2"\nquality = 88\n');
 
 // ── the run ──────────────────────────────────────────────────────────────────
 
@@ -221,8 +224,11 @@ function checkModules(recipes) {
   const problems = [];
   const owned = [
     "tomlString",
+    "GO_ADVANCE",
+    "GO_WIDEST",
     "textEms",
     "watermarkSize",
+    "planEdit",
     "pixelRecipe",
     "cliRecipe",
     "withQuality",
@@ -333,6 +339,7 @@ function runTable({ recipes, transform, bin, python, mutateNative = (t) => t }) 
     r.wasm = wasm;
     r.bytesEqual = Buffer.compare(readFileSync(r.nativeOut), wasmBytes) === 0;
     r.sha = createHash("sha256").update(wasmBytes).digest("hex");
+    r.nativeSha = createHash("sha256").update(readFileSync(r.nativeOut)).digest("hex");
     r.cmp = compareImages(native, wasm, r.bytesEqual, r.resamples, r.row.format);
     r.fail = [];
     if (!r.cmp.ok) r.fail.push(`comparator: ${r.cmp.reason}`);
@@ -389,9 +396,10 @@ function tableChecks({ rows }) {
     failures.push(`the rows without a resize step are {${exact}}, expected {${NO_RESAMPLE_ROWS}}`);
   }
   const byN = (n) => rows.find((r) => r.row.n === n);
-  const [r1, r2, r3, r4, r8] = [1, 2, 3, 4, 8].map(byN);
+  const [r1, r2, r3, r4, r8, r12] = [1, 2, 3, 4, 8, 12].map(byN);
   if (r4 && r4.text !== GOLDEN_PIXEL_BOTH) failures.push("P5: row 4's recipe text moved");
   if (r8 && r8.text !== GOLDEN_CLI_BOTH) failures.push("P5: row 8's recipe text moved");
+  if (r12 && r12.text !== GOLDEN_PREVIEW_BOTH) failures.push("P5: row 12's recipe text moved");
   if (r2?.wasm && r2.wasm.width === STORED_SIZE.width && r2.wasm.height === STORED_SIZE.height) {
     failures.push("P2: row 2's resize left the size unchanged");
   }
@@ -417,7 +425,7 @@ function report(table) {
       `${verdict} ${String(r.row.n).padStart(2)} ${r.row.id} ` +
         `native ${r.native.width}x${r.native.height} wasm ${r.wasm.width}x${r.wasm.height} ` +
         `bytes ${r.bytesEqual ? "same" : "differ"} px=${c.px ?? "-"} max=${c.max ?? "-"} ` +
-        `${r.resamples ? "resamples" : "exact"} wasm-sha256=${r.sha}`,
+        `${r.resamples ? "resamples" : "exact"} wasm-sha256=${r.sha} native-sha256=${r.nativeSha}`,
     );
     if (r.fail.length) {
       for (const f of r.fail) console.log(`     ${f}`);
@@ -563,6 +571,11 @@ const failures = tableChecks(table);
 const rowsFailed = table.rows.filter((r) => r.fail.length > 0).length;
 for (const f of failures) console.log(`FAIL ${f}`);
 console.log(`${table.rows.length} rows, ${rowsFailed} failed, K=${K} (cap ${K_CAP})`);
+// Informational, not an assertion: raising K up to the cap turns nothing red, so this
+// line is how a K raised without new evidence shows in review.
+const resampled = table.rows.filter((r) => r.cmp && r.resamples && r.cmp.px !== null);
+const largest = Math.max(0, ...resampled.map((r) => r.cmp.px));
+console.log(`largest differing-pixel count on a resampling row: ${largest} (K = ${K})`);
 if (rowsFailed > 0 || failures.length > 0) {
   console.log(`outputs kept in ${table.dir}`);
   process.exit(1);

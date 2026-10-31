@@ -191,6 +191,15 @@ This decision is wrong, and must be revisited, if any of these happens:
   the Mac and on the runner, and the two targets' per-row `px`/`max` were identical.
 - The resizer picks its SIMD path from the CPU at run time, so a runner with a different CPU model
   could in principle give another count. The cap (78) is unchanged.
+- **A second x86 CPU agreed.** The AMD EPYC 7763 from run `41147581056` gave the same per-row
+  numbers and hashes as the EPYC 9V45.
+- **K is guarded by review only.** Raising K up to the cap turns nothing red, so a slide from 1
+  pixel to 78 would pass. The harness prints `largest differing-pixel count on a resampling row:
+  <n> (K = <K>)` so a K raised without new evidence is visible in review.
+- **The measured remedy, and a revisit trigger.** Swapping `libm::powf` into native's
+  `srgb_to_linear` and `linear_to_srgb` on aarch64 gave all 16 rows `px=0 max=0` and byte-equal
+  output. Both powf sites contribute: the decode table alone fixed row 15 only. If native adopts a
+  deterministic powf, re-measure and set K = 0.
 
 ## References
 
