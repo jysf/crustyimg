@@ -682,9 +682,19 @@ The pixel test asserts `assert_eq!(rows_checked, 48, "14 recipes × 3 fixtures +
 The completeness test asserts 51 golden lines and the exact file set. All three numbers are
 **typed literals**, never `RECIPES.len() * 3`, so a recipe dropped from the list goes red.
 **Each later spec that adds a corpus recipe** (the PROJ-017 op specs) adds its stem to `RECIPES`,
-its expected dims to the dims table, and its `.output` file. It raises the literals by
-3 × (new recipes) plus any new byte rows, in the same diff, and names the new numbers in an AC.
-Verify recomputes them from `RECIPES` and the golden files, and checks the old lines are
+its expected dims to `EXPECTED_DIMS`, and its `.output` files. In the same diff it raises every
+literal the test counts with: `ROWS` (48), `GOLDEN_LINES` (51), the `[…; 14]` length of
+`EXPECTED_DIMS`, the `42` in FT-1's `EXPECTED_DIMS.len() * FIXTURES.len()` assert, and the
+doc comments that quote them; `recipe_round_trip.rs` has its own `CORPUS` and `14`. It names
+the new numbers in an AC. The README lists them by identifier (grep the test for numeric
+literals and array lengths).
+
+The two targets the author cannot run come from CI: bless the local target, push, and the run
+fails on the others, printing each missing file's dump (FT-9). Copy each `BEGIN`/`END` block
+from `gh run view <run> --log-failed` into its file and push; the second run is green on every
+leg. A red on one target alone with no code change is libm drift: re-bless that target only,
+in its own commit.
+Verify recomputes the numbers from `RECIPES` and the golden files, and checks the old lines are
 unchanged (the frame's blessing rule).
 
 ### Size
@@ -795,9 +805,9 @@ are the mutation rows under Failing Tests, each run against the built test.
 - [ ] **AC-5. A red row names recipe, fixture and field.** FT-1 checks all 48 rows before it fails,
       then panics once with one line per mismatch, using the exact wording of Call 4. The fields
       are checked in the order dims, colour, depth, pixels, then bytes. The lines are followed
-      by `<N> of 48 rows changed` and by the actual content of every recipe file for this
+      by `<N> of 48 rows changed` (N counts rows with at least one mismatch line, not lines) and by the actual content of every recipe file for this
       target, between `----- BEGIN tests/fixtures/recipe_corpus/<stem>.<os>-<arch>.output -----`
-      and `----- END -----`. FT-3 checks the nine message lines of Call 4 and one dump block
+      and `----- END -----`. FT-3 checks the nine message lines of Call 4, the three control lines of AC-4 and one dump block
       exactly, as strings, against a pure function the test exposes to itself.
 - [ ] **AC-6. The library seam is the call `apply` makes.** FT-4 runs the binary
       `apply --recipe <copy of the corpus file> rgb8_2600x1730.png --out-dir out`, in a temp dir
@@ -888,6 +898,10 @@ against the built test.
     `golden_path("v1_resize_max", "linux", "riscv64")` is `Err` with exactly Call 5's message,
     and `("macos", "aarch64")` is `Ok(…/v1_resize_max.macos-aarch64.output)`. This is the
     trap-10 row: the derived path differs from the naive shared one.
+  - FT-9 `a_missing_golden_fails_and_still_prints_its_dump`: AC-9. Drives the report builder
+    as a pure function with one recipe's golden absent: exactly one missing-file line naming
+    the expected path, counted in the failures, and every recipe's `BEGIN … END` block present
+    and complete, the one with no golden included.
   - `bless_recipe_corpus_outputs`: `#[ignore]`, Call 6.
 - **`tests/recipe_round_trip.rs`**
   - `to_toml_is_byte_identical_to_main_over_the_corpus`: AC-1 (`CORPUS` + 14). RED with the new

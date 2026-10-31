@@ -12,7 +12,7 @@
 //! them with `CRUSTYIMG_BLESS=1 cargo test --test recipe_corpus_output --
 //! --ignored bless`, and only when an output is meant to change.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -281,6 +281,26 @@ fn label(recipe: &str, fixture: &str) -> String {
     format!("{recipe} × {fixture}")
 }
 
+// The control lines: what a run says when the pipeline did not do its job.
+
+fn dims_control_line(recipe: &str, fixture: &str, actual: &str, expected: &str) -> String {
+    format!(
+        "{}: dims {actual}, expected {expected} (expected-dims table)",
+        label(recipe, fixture)
+    )
+}
+
+fn equals_fixture_line(recipe: &str, fixture: &str) -> String {
+    format!("{}: output equals the fixture", label(recipe, fixture))
+}
+
+fn step_unchanged_line(recipe: &str, fixture: &str, index: usize, op: &str) -> String {
+    format!(
+        "{}: step {index} ('{op}') changed nothing",
+        label(recipe, fixture)
+    )
+}
+
 /// Run `stem` on `fx`. Returns the computed row (when the pipeline ran) and
 /// the control lines of "it must be able to fail": expected dimensions, output
 /// differs from the input, every acting step acts, and the step-by-step result
@@ -319,12 +339,14 @@ fn compute(
         .map(|(_, dims)| dims[index])
         .unwrap_or_else(|| panic!("{stem} has no expected dims"));
     if computed.dims != expected {
-        lines.push(format!(
-            "{who}: dims {}, expected {expected} (expected-dims table)",
-            computed.dims
+        lines.push(dims_control_line(
+            stem,
+            fixture_name,
+            &computed.dims,
+            expected,
         ));
     } else if computed.sha == pixel_sha(fx) {
-        lines.push(format!("{who}: output equals the fixture"));
+        lines.push(equals_fixture_line(stem, fixture_name));
     }
     // (c) + (d) one step at a time, each fed the previous output
     let mut current = fx.clone();
@@ -339,7 +361,7 @@ fn compute(
             Ok(next) => {
                 if !INERT_OPS.contains(&step.op.as_str()) && pixel_sha(&next) == pixel_sha(&current)
                 {
-                    lines.push(format!("{who}: step {i} ('{}') changed nothing", step.op));
+                    lines.push(step_unchanged_line(stem, fixture_name, i, &step.op));
                 }
                 current = next;
             }
@@ -447,12 +469,14 @@ fn pixel_fields(rest: &str) -> Option<[String; 4]> {
 /// on its own file rather than loosened to a tolerance.
 const TARGETS: &[&str] = &["linux-x86_64", "macos-aarch64", "windows-x86_64"];
 
-/// The golden for `stem` on a target. A target without goldens is an error,
-/// never a skip.
+/// Where the golden for `stem` on a target lives. A target outside `TARGETS` is
+/// an error, never a skip and never another target's file. A known target whose
+/// file is missing still gets its path: `check_recipes` reports the file as
+/// missing and prints the dump to bless it from.
 fn golden_path_for(stem: &str, os: &str, arch: &str) -> Result<PathBuf, String> {
     let target = format!("{os}-{arch}");
     let path = corpus_dir().join(format!("{stem}.{target}.output"));
-    if !TARGETS.contains(&target.as_str()) || !path.exists() {
+    if !TARGETS.contains(&target.as_str()) {
         return Err(format!(
             "no recipe golden for {target}: goldens exist for {}; bless on this target and add it to TARGETS",
             TARGETS.join(", ")
@@ -461,7 +485,7 @@ fn golden_path_for(stem: &str, os: &str, arch: &str) -> Result<PathBuf, String> 
     Ok(path)
 }
 
-/// This target's golden for `stem`; panics when there is none.
+/// This target's golden path for `stem`; panics when the target is unknown.
 fn golden_path(stem: &str) -> PathBuf {
     golden_path_for(stem, std::env::consts::OS, std::env::consts::ARCH)
         .unwrap_or_else(|msg| panic!("{msg}"))
@@ -580,36 +604,63 @@ fn dump_block(stem: &str, os: &str, arch: &str, content: &str) -> String {
 
 struct Report {
     mismatches: Vec<String>,
+    /// The rows with at least one mismatch line: `(recipe, fixture, kind)`.
+    changed_rows: BTreeSet<(String, String, &'static str)>,
     rows_checked: usize,
     dump: String,
 }
 
-fn check_all() -> Report {
+impl Report {
+    /// Record `line` against the row it belongs to.
+    fn flag(&mut self, recipe: &str, fixture: &str, kind: &'static str, line: Option<String>) {
+        if let Some(line) = line {
+            self.mismatches.push(line);
+            self.changed_rows
+                .insert((recipe.to_owned(), fixture.to_owned(), kind));
+        }
+    }
+}
+
+/// Check `recipes` against the goldens `golden_text` hands back (`None` when the
+/// file does not exist). A missing file is one mismatch line, and the rows
+/// still compute against an empty golden so its dump block is still printed.
+fn check_recipes(
+    recipes: &[&str],
+    os: &str,
+    arch: &str,
+    golden_text: &dyn Fn(&str) -> Option<String>,
+) -> Report {
     let logo = logo_png();
     let fxs = fixtures();
     let mut report = Report {
         mismatches: Vec::new(),
+        changed_rows: BTreeSet::new(),
         rows_checked: 0,
         dump: String::new(),
     };
-    for stem in RECIPES {
-        let path = golden_path(stem);
-        let golden = if path.exists() {
-            match parse_golden(&read_text(&path)) {
+    for stem in recipes {
+        let golden = match golden_text(stem) {
+            Some(text) => match parse_golden(&text) {
                 Ok(g) => g,
                 Err(e) => {
                     report.mismatches.push(format!("{stem}: {e}"));
                     Golden::default()
                 }
+            },
+            None => {
+                report.mismatches.push(format!(
+                    "{stem}: no golden file tests/fixtures/recipe_corpus/{stem}.{os}-{arch}.output (bless this target from this run's dump below)"
+                ));
+                Golden::default()
             }
-        } else {
-            Golden::default()
         };
         let mut rows = Vec::new();
         let mut optimize = BTreeMap::new();
         for (fixture_name, fx) in &fxs {
             let (computed, controls) = compute(stem, fixture_name, fx, &logo);
-            report.mismatches.extend(controls);
+            for line in controls {
+                report.flag(stem, fixture_name, "pixels", Some(line));
+            }
             if let Some(rest) = golden
                 .rows
                 .get(&((*fixture_name).to_owned(), "optimize".to_owned()))
@@ -630,28 +681,34 @@ fn check_all() -> Report {
             report.rows_checked += 1;
             let pixel = pixel_mismatch(stem, fixture_name, get("pixels"), &c);
             let pixels_changed = pixel.is_some();
-            report.mismatches.extend(pixel);
+            report.flag(stem, fixture_name, "pixels", pixel);
             if let Some((kind, sha)) = &c.bytes {
                 report.rows_checked += 1;
-                report.mismatches.extend(bytes_mismatch(
-                    stem,
-                    fixture_name,
-                    kind,
-                    get(kind),
-                    sha,
-                    pixels_changed,
-                ));
+                let line = bytes_mismatch(stem, fixture_name, kind, get(kind), sha, pixels_changed);
+                report.flag(stem, fixture_name, kind, line);
             }
             rows.push((*fixture_name, c));
         }
         report.dump.push_str(&dump_block(
             stem,
-            std::env::consts::OS,
-            std::env::consts::ARCH,
+            os,
+            arch,
             &render_file(stem, &rows, &optimize),
         ));
     }
     report
+}
+
+fn check_all() -> Report {
+    check_recipes(
+        RECIPES,
+        std::env::consts::OS,
+        std::env::consts::ARCH,
+        &|stem| {
+            let path = golden_path(stem);
+            path.exists().then(|| read_text(&path))
+        },
+    )
 }
 
 #[test]
@@ -667,7 +724,7 @@ fn every_recipe_output_matches_its_golden() {
         panic!(
             "{}\n{} of {ROWS} rows changed\n{}",
             report.mismatches.join("\n"),
-            report.mismatches.len(),
+            report.changed_rows.len(),
             report.dump
         );
     }
@@ -775,6 +832,20 @@ fn a_row_mismatch_names_the_field_that_moved() {
         None
     );
 
+    // The control lines `compute` records.
+    assert_eq!(
+        dims_control_line(rec, fx, "1x1", "800x532"),
+        "v1_resize_max × rgb8_2600x1730: dims 1x1, expected 800x532 (expected-dims table)"
+    );
+    assert_eq!(
+        equals_fixture_line(rec, fx),
+        "v1_resize_max × rgb8_2600x1730: output equals the fixture"
+    );
+    assert_eq!(
+        step_unchanged_line(rec, fx, 2, "resize"),
+        "v1_resize_max × rgb8_2600x1730: step 2 ('resize') changed nothing"
+    );
+
     // The dump names the running target and carries an `optimize` line through.
     let mut optimize = BTreeMap::new();
     optimize.insert(fx.to_owned(), "format=avif".to_owned());
@@ -823,49 +894,69 @@ fn crustyimg(dir: &Path) -> Command {
     cmd
 }
 
+/// Run `apply` on `stem` and compare what it wrote with the golden bytes row.
+fn seam_row(fx: &Image, stem: &str, ext: &str, kind: &str) -> Result<(), String> {
+    let dir = tempfile::tempdir().expect("tempdir");
+    write_fixture_png(dir.path(), FIXTURES[0], fx);
+    std::fs::write(dir.path().join("logo.png"), logo_png()).expect("write logo");
+    std::fs::copy(recipe_source(stem), dir.path().join("recipe.toml")).expect("copy recipe");
+
+    let out = crustyimg(dir.path())
+        .args(["apply", "--recipe", "recipe.toml"])
+        .arg(format!("{}.png", FIXTURES[0]))
+        .args(["--out-dir", "out"])
+        .output()
+        .expect("run crustyimg");
+    if !out.status.success() {
+        return Err(format!(
+            "{stem}: apply failed: {}",
+            String::from_utf8_lossy(&out.stderr)
+        ));
+    }
+
+    let mut written: Vec<_> = std::fs::read_dir(dir.path().join("out"))
+        .expect("out dir")
+        .map(|e| e.expect("entry").file_name().to_string_lossy().into_owned())
+        .collect();
+    written.sort();
+    let name = format!("{}.{ext}", FIXTURES[0]);
+    if written != [name.clone()] {
+        return Err(format!(
+            "{stem}: apply output files {written:?}, expected [{name:?}]"
+        ));
+    }
+
+    let bytes = std::fs::read(dir.path().join("out").join(&name)).expect("read output");
+    let actual = format!("sha256={}", sha_hex(&bytes));
+    if actual != golden_row(stem, FIXTURES[0], kind) {
+        return Err(format!(
+            "{stem}: apply wrote different bytes than the library seam"
+        ));
+    }
+    Ok(())
+}
+
 #[test]
 fn the_library_seam_writes_the_bytes_apply_writes() {
     let fx = fixture("rgb8", 2600, 1730);
-    let mut rows_checked = 0;
-    for (stem, ext, kind) in [(PNG_RECIPE, "png", "png"), (WEBP_RECIPE, "webp", "webp")] {
-        let dir = tempfile::tempdir().expect("tempdir");
-        write_fixture_png(dir.path(), FIXTURES[0], &fx);
-        std::fs::write(dir.path().join("logo.png"), logo_png()).expect("write logo");
-        std::fs::copy(recipe_source(stem), dir.path().join("recipe.toml")).expect("copy recipe");
-
-        let out = crustyimg(dir.path())
-            .args(["apply", "--recipe", "recipe.toml"])
-            .arg(format!("{}.png", FIXTURES[0]))
-            .args(["--out-dir", "out"])
-            .output()
-            .expect("run crustyimg");
-        assert!(
-            out.status.success(),
-            "{stem}: apply failed: {}",
-            String::from_utf8_lossy(&out.stderr)
-        );
-
-        let mut written: Vec<_> = std::fs::read_dir(dir.path().join("out"))
-            .expect("out dir")
-            .map(|e| e.expect("entry").file_name().to_string_lossy().into_owned())
-            .collect();
-        written.sort();
-        let name = format!("{}.{ext}", FIXTURES[0]);
-        assert_eq!(
-            written,
-            std::slice::from_ref(&name),
-            "{stem}: apply output files"
-        );
-
-        let bytes = std::fs::read(dir.path().join("out").join(&name)).expect("read output");
-        assert_eq!(
-            format!("sha256={}", sha_hex(&bytes)),
-            golden_row(stem, FIXTURES[0], kind),
-            "{stem}: apply wrote different bytes than the library seam"
-        );
-        rows_checked += 1;
-    }
-    assert_eq!(rows_checked, 2);
+    // Both rows run before the test fails, so one red row cannot hide the other.
+    let results: Vec<_> = [(PNG_RECIPE, "png", "png"), (WEBP_RECIPE, "webp", "webp")]
+        .into_iter()
+        .map(|(stem, ext, kind)| (kind, seam_row(&fx, stem, ext, kind)))
+        .collect();
+    assert_eq!(results.len(), 2);
+    let report: Vec<_> = results
+        .iter()
+        .map(|(kind, r)| match r {
+            Ok(()) => format!("{kind} row green"),
+            Err(e) => format!("{kind} row red: {e}"),
+        })
+        .collect();
+    assert!(
+        results.iter().all(|(_, r)| r.is_ok()),
+        "{}",
+        report.join("\n")
+    );
 }
 
 /// The format `optimize` chose for each bundled recipe on the 8-bit fixture.
@@ -1080,4 +1171,55 @@ fn a_target_without_goldens_fails() {
     );
     let ok = golden_path_for("v1_resize_max", "macos", "aarch64").expect("mac golden");
     assert!(ok.ends_with("v1_resize_max.macos-aarch64.output"), "{ok:?}");
+}
+
+#[test]
+fn a_missing_golden_fails_and_still_prints_its_dump() {
+    let (os, arch) = (std::env::consts::OS, std::env::consts::ARCH);
+    let recipes = ["v1_resize_max", "v1_resize_exact", "v1_resize_fit"];
+    // Only the first recipe's golden is absent. The others are present but
+    // empty, so what the test counts does not depend on what the pipeline draws.
+    let report = check_recipes(&recipes, os, arch, &|stem| {
+        (stem != "v1_resize_max").then(String::new)
+    });
+
+    let missing: Vec<_> = report
+        .mismatches
+        .iter()
+        .filter(|l| l.contains("no golden file"))
+        .collect();
+    let want = format!(
+        "v1_resize_max: no golden file tests/fixtures/recipe_corpus/v1_resize_max.{os}-{arch}.output (bless this target from this run's dump below)"
+    );
+    assert_eq!(missing, [&want]);
+    // The failure count includes the missing-file line, plus a "no golden line"
+    // for each of the 3 pixels rows of each of the 3 recipes.
+    let no_line = report
+        .mismatches
+        .iter()
+        .filter(|l| l.contains("no golden line"))
+        .count();
+    assert_eq!(no_line, 9);
+    assert!(report.mismatches.len() > 9, "{:#?}", report.mismatches);
+    assert!(report.changed_rows.len() >= 9);
+
+    // Every recipe's block is printed, complete, including the one with no golden.
+    for stem in recipes {
+        let begin =
+            format!("----- BEGIN tests/fixtures/recipe_corpus/{stem}.{os}-{arch}.output -----\n");
+        let start = report
+            .dump
+            .find(&begin)
+            .unwrap_or_else(|| panic!("no block for {stem}"));
+        let block = &report.dump[start + begin.len()..];
+        let end = block.find("----- END -----\n").expect("block is closed");
+        let content = &block[..end];
+        assert!(content.starts_with(&format!("# {stem}:")), "{stem}: header");
+        assert_eq!(
+            content.lines().filter(|l| l.contains(" pixels ")).count(),
+            3,
+            "{stem}: one pixels line per fixture"
+        );
+    }
+    assert_eq!(report.dump.matches("----- BEGIN").count(), recipes.len());
 }
