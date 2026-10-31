@@ -297,7 +297,14 @@ Ordered. ⚡ Only the first item gates 0.8.0.
   so it waits for the next minor (0.9), not a patch. The same shape as the `render_text`
   library-panic entry above (`untrusted-input-hardening`).
 
-**Count:** 3 shipped / 1 active / 19 pending
+- [ ] (not yet written) — [S] **No CI job runs the wasm round-trip tests.** Filed by SPEC-143's
+  verify (2026-10-30). `tests/wasm_roundtrip.rs` (47 tests, including SPEC-143's FT-12) runs only
+  under `just wasm-test`, which needs `wasm-bindgen-test-runner`; no workflow in
+  `.github/workflows/` invokes it. So a wasm-only regression merges on green CI. Add a CI job that
+  installs the pinned `wasm-bindgen-cli` and runs `just wasm-test` (and `wasm-test-slim`), gated on
+  the code-paths filter like the native legs. Measure its runtime before making it required.
+
+**Count:** 3 shipped / 1 active / 20 pending
 
 ## Design Notes
 

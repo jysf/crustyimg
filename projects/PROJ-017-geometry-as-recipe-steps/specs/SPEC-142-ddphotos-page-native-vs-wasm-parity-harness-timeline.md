@@ -14,6 +14,14 @@ Cycle prompts live in `prompts/SPEC-142-<cycle>.md`.
 - [x] **design** (2026-10-30, `prompts/SPEC-142-design.md`; amend `prompts/SPEC-142-design-amend.md`)
   — Ruled (B), **DEC-110**: dimensions exact, no-resample rows (1, 3, 9, 11) exact, resampling rows
   within 1/255 on at most K pixels (K from the build's runs, cap 78). FT-3 gains comparator cases B1–B7.
-- [ ] **build** (`prompts/SPEC-142-build.md`)
-- [ ] **verify**
+- [x] **build** (`prompts/SPEC-142-build.md`, 2026-10-30, Sonnet, ~$4.65). Draft PR #234, code head `f204d43`.
+  Outcome (i), K = 1 on aarch64 and x86_64 (AMD EPYC 9V45); wasm hashes identical on both; JPEG bytes asserted on
+  rows 9 and 11. The test bed's automated stage now fails: it reads GO_ADVANCE from `edit.js`, which moved to `recipe.js`.
+- [x] **verify** (`prompts/SPEC-142-verify.md`, 2026-10-30, Opus, ~$5.20). ⚠ PUNCH LIST at `1b1c010`: K = 1 reproduced,
+  every mutation matched, a second x86 CPU (EPYC 7763) agreed. Gaps: a crashing classifier makes the `changes` step
+  report docs-only (CI skips green), and no golden text pins the preview recipe. Native `libm::powf` measured K = 0.
+- [x] **punch list** (`prompts/SPEC-142-punchlist.md`, 2026-10-30, Sonnet, $1.47). PR #234 code head `e71acbd`, CI green.
+  The `changes` step fails on a classifier crash; P5 pins row 12; native hashes and a K summary line print. A third
+  x86 CPU (Xeon 8370C) agreed at K = 1.
+- [ ] **re-verify** (`prompts/SPEC-142-reverify.md`, Opus)
 - [ ] **ship**
