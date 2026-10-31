@@ -26,5 +26,13 @@ Cycle prompts live in `prompts/SPEC-141-<cycle>.md`.
   lines, and the README doesn't name the literals to bump.
 - [x] **punch list**: `prompts/SPEC-141-punchlist.md` (2026-10-30, Sonnet, $2.31). PR #233 code head `f6d297b`, CI green.
   A missing golden now fails with its CI-log dump (FT-9); FT-3 covers the control lines; README names every literal.
-- [ ] **re-verify**: `prompts/SPEC-141-reverify.md` (Opus). Simulates adding a recipe by the README alone.
+- [x] **re-verify**: `prompts/SPEC-141-reverify.md` (2026-10-31, Opus, $2.74). ⚠ PUNCH LIST at `6b90d71`: the
+  README's procedure alone took a simulated new recipe green, but FT-9 never calls `golden_path_for`, so the old
+  `|| !path.exists()` panic put back verbatim left every test green.
+- [x] **punch list 2**: `prompts/SPEC-141-punchlist-2.md` (2026-10-31, Sonnet, $0.69). Code head `6376d65`, PR head
+  `dec2c6a`. `a_target_without_goldens_fails` asserts a known target with an absent file returns the exact `Ok` path;
+  the stray-file check names missing and extra files; FT-4 names the golden.
+- [x] **re-verify 2**: `prompts/SPEC-141-reverify-2.md` (2026-10-31, Opus, $0.82). ✅ APPROVED at `dec2c6a`: mutation
+  (A) killed (exit 101, only the extended test red), full suite 1124/0/6. The orchestrator updated the branch from
+  `main` (SPEC-143's #235 had landed) and marked PR #233 ready at `d96995c` once that CI run was green.
 - [ ] **ship**: `prompts/SPEC-141-ship.md`
