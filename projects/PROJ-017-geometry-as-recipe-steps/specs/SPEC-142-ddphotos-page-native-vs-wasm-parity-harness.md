@@ -170,6 +170,39 @@ cost:
         per id, MAX output_tokens per id. Priced at Sonnet $3/$15 per MTok, cache_creation x1.25,
         cache_read x0.10: $0.0002 + $0.30 + $0.97 + $0.20. Measured before the final docs commit,
         so it slightly under-counts.
+    - cycle: reverify
+      agent: claude-opus-5-5
+      interface: claude-code
+      tokens_total: 3093733
+      tokens_breakdown:
+        input: 70
+        output: 15114
+        cache_creation: 77893
+        cache_read: 2940676
+      estimated_usd: 2.34
+      duration_minutes: null
+      recorded_at: 2026-10-31
+      note: >
+        Read-only re-verify session (Opus) after punch list 1. Measured by the re-verify itself
+        but not written there (read-only); recorded by the punchlist-2 session from its figures.
+    - cycle: punchlist-2
+      agent: claude-sonnet-5-5
+      interface: claude-code
+      tokens_total: 1535845
+      tokens_breakdown:
+        input: 40
+        output: 6850
+        cache_creation: 54820
+        cache_read: 1474135
+      estimated_usd: 0.75
+      duration_minutes: null
+      recorded_at: 2026-10-31
+      note: >
+        Second punch-list session in its own worktree (fix/spec-142-punch2), Sonnet. Measured from
+        the session's transcript (cffaf2c6-....jsonl, identified by content), deduped by
+        `.message.id` (20 unique ids, all claude-sonnet-5-5), input/cache_creation/cache_read once
+        per id, MAX output_tokens per id. Priced at Sonnet $3/$15 per MTok, cache_creation x1.25,
+        cache_read x0.10. Measured before the final commit/push turns, so it slightly under-counts.
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -971,6 +1004,10 @@ section. It never edits the rule or the cap.
   both hashes are printed so the cross-target check reads straight from the CI log. The run also
   prints one informational summary line, `largest differing-pixel count on a resampling row: <n>
   (K = <K>)`, so a K raised without new evidence shows in review (it is not an assertion).
+  The closing count line is `<N> rows, <R> row failures, <T> table failures (<names>), K=<K>
+  (cap <cap>)`: `<R>` counts red row lines, `<T>` counts the table-level checks (P2–P5, the row
+  count, the no-resize set, rows that threw), each named; `(<names>)` is omitted when `<T>` is 0.
+  Any failure exits non-zero.
   The output reaches the CI log because it is plain stdout from a `run:` step, not libtest
   (HANDOFF trap 11). Put the self-test in its own step so its lines are separate.
 
@@ -1221,8 +1258,9 @@ commit `e71acbd` (a docs-only commit follows with this section).
    measured `libm::powf` remedy and its revisit trigger).
 6. AC-1's owned list gains `planEdit`, `GO_ADVANCE`, `GO_WIDEST` (spec and harness).
 
-**Build Completion correction:** the head run `41147305687` (`f204d43`) ran on an AMD EPYC 7763,
-not the EPYC 9V45 the first run recorded. The run on `e71acbd` landed on a third CPU, an
+**Build Completion correction:** the build's head run `41147305687` (`f204d43`) ran on an AMD
+EPYC 9V45, as recorded, and so did the first run `41144102452`. The second CPU, an AMD EPYC 7763,
+was verify's run `41147581056` (`1b1c010`). The run on `e71acbd` landed on a third CPU, an
 Intel Xeon Platinum 8370C @ 2.80GHz, and gave the same result (K = 1, all 16 rows pass).
 
 **Controls** (each run on its own, then restored; scratch scripts deleted)
@@ -1247,6 +1285,27 @@ Intel Xeon Platinum 8370C @ 2.80GHz, and gave the same result (K = 1, all 16 row
 - Row 12: `PASS 12 W/both/preview/jpeg native 1080x723 wasm 1080x723 bytes same px=0 max=0 resamples
   wasm-sha256=4dd41146f0cd957450ef2662c378dafc3ac260e8a459bff74ce45c34f8acbbc4
   native-sha256=4dd41146f0cd957450ef2662c378dafc3ac260e8a459bff74ce45c34f8acbbc4`
+
+### Punch list 2 (re-verify)
+
+Re-verify confirmed both punch-list-1 items closed; two things remained. Fixed on top of `474c9fc`:
+
+1. **The Build Completion correction named the wrong run.** It now says the build's head run
+   `41147305687` (`f204d43`) and the first run `41144102452` ran on an AMD EPYC 9V45, and the
+   AMD EPYC 7763 was verify's run `41147581056` (`1b1c010`). Each run's CPU line was read once in its
+   log first: `41144102452` and `41147305687` read `AMD EPYC 9V45 96-Core Processor`,
+   `41147581056` reads `AMD EPYC 7763 64-Core Processor`.
+2. **The closing count line counts every failure.** `<N> rows, <R> row failures, <T> table failures
+   (<names>), K=<K> (cap <cap>)`. Table-level checks are named by the label before the first colon
+   (P2–P5, `rows-threw`, `resize-set`). Exit status unchanged. The one-line-format note is updated.
+
+**Controls** (one at a time; output redirected, `$?` read; harness restored after each)
+- Preview mutation (`previewRecipe` returns its input): exit 1,
+  `FAIL P5: row 12's recipe text moved`, then `16 rows, 0 row failures, 1 table failure (P5), K=1 (cap 78)`.
+- Row failure (N1, native opacity 0.6 -> 0.61, driven on the plain run): exit 1, red rows
+  `3 4 7 8 11 12 13 14 16`, `16 rows, 9 row failures, 0 table failures, K=1 (cap 78)`.
+- `--self-test`: B1–B10 pass; N1 red `{3,4,7,8,11,12,13,14,16}`, N2 red `{4,8,12,13,14,16}`; exit 0.
+- Clean `just ddphotos-parity` from no `target/`: green, `16 rows, 0 row failures, 0 table failures, K=1 (cap 78)`.
 
 ### Build-phase reflection (3 questions, short answers)
 

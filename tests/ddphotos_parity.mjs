@@ -390,10 +390,10 @@ function tableChecks({ rows }) {
   const failures = [];
   const ran = rows.filter((r) => !r.error).length;
   if (rows.length !== ROW_COUNT) failures.push(`P4: ${rows.length} rows ran, expected ${ROW_COUNT}`);
-  if (ran !== rows.length) failures.push(`${rows.length - ran} rows threw`);
+  if (ran !== rows.length) failures.push(`rows-threw: ${rows.length - ran} rows threw`);
   const exact = rows.filter((r) => !r.resamples).map((r) => r.row.n);
   if (JSON.stringify(exact) !== JSON.stringify(NO_RESAMPLE_ROWS)) {
-    failures.push(`the rows without a resize step are {${exact}}, expected {${NO_RESAMPLE_ROWS}}`);
+    failures.push(`resize-set: the rows without a resize step are {${exact}}, expected {${NO_RESAMPLE_ROWS}}`);
   }
   const byN = (n) => rows.find((r) => r.row.n === n);
   const [r1, r2, r3, r4, r8, r12] = [1, 2, 3, 4, 8, 12].map(byN);
@@ -570,7 +570,13 @@ report(table);
 const failures = tableChecks(table);
 const rowsFailed = table.rows.filter((r) => r.fail.length > 0).length;
 for (const f of failures) console.log(`FAIL ${f}`);
-console.log(`${table.rows.length} rows, ${rowsFailed} failed, K=${K} (cap ${K_CAP})`);
+// Every failure is counted: row lines, then table-level checks (P1-P5 and the rest), each
+// named by the label before its first colon.
+const tableNames = failures.map((f) => f.split(":")[0]).join(", ");
+console.log(
+  `${table.rows.length} rows, ${rowsFailed} row failures, ${failures.length} table failure${failures.length === 1 ? "" : "s"}` +
+    `${failures.length ? ` (${tableNames})` : ""}, K=${K} (cap ${K_CAP})`,
+);
 // Informational, not an assertion: raising K up to the cap turns nothing red, so this
 // line is how a K raised without new evidence shows in review.
 const resampled = table.rows.filter((r) => r.cmp && r.resamples && r.cmp.px !== null);
