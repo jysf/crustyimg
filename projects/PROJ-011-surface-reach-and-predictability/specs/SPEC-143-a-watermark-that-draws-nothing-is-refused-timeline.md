@@ -23,6 +23,8 @@ Cycle prompts live in `prompts/SPEC-143-<cycle>.md`.
   `c467490`. Code right on every path (36 cause rows, boundaries, 18/18 out-of-repo `cmp`). Docs and
   tests only: two stale doc promises, a surviving recipe-side `max_alpha` mutation, a 16-bit
   mid-opacity golden gap, and FT-11/FT-12 failing on `main` for the 5 % cap, not the mark.
-- [ ] **punch list**: `prompts/SPEC-143-punchlist.md`
-- [ ] **re-verify**
+- [x] **punch list** (2026-10-30, `prompts/SPEC-143-punchlist.md`, Sonnet, $1.86): `36c3b66`, CI
+  green, no `src/` change. Two low-alpha FT-8 rows, a 16-bit 0.6 golden (matches `main`), FT-11/FT-12
+  enlarged past the 5 % cap; each proven red by its mutation. Confirmed by the orchestrator (docs-and-
+  tests only, no re-verify); PR #235 marked ready.
 - [ ] **ship**
