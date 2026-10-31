@@ -109,6 +109,9 @@ an 11-character string), so the bound belongs where both paths read it.
   shipped surfaces are capped before it. Filed separately.
 - No `Cargo.lock`, version or `CACHE_SCHEMA_VERSION` change: checking never rewrites
   `OperationParams`.
+- `--opacity 0` and a colour with alpha `00` join the flag checks that come before any file read;
+  the checks that need the rendered or loaded mark sit between the font/overlay read and the
+  inputs: see DEC-109.
 
 ## Validation
 

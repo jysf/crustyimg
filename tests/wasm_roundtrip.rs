@@ -53,8 +53,13 @@ mod wasm {
     /// fixtures, never shell out). A 64×48 two-tone image — enough for a resize to
     /// be observable and for the analysis layer to have something to look at.
     fn png_64x48() -> Vec<u8> {
+        png_two_tone(64, 48)
+    }
+
+    /// The same two-tone image at any size.
+    fn png_two_tone(w: u32, h: u32) -> Vec<u8> {
         use image::{ImageEncoder, Rgba, RgbaImage};
-        let mut img = RgbaImage::new(64, 48);
+        let mut img = RgbaImage::new(w, h);
         for (x, y, px) in img.enumerate_pixels_mut() {
             *px = if (x / 8 + y / 8) % 2 == 0 {
                 Rgba([220, 40, 40, 255])
@@ -64,7 +69,7 @@ mod wasm {
         }
         let mut out = Vec::new();
         image::codecs::png::PngEncoder::new(&mut out)
-            .write_image(img.as_raw(), 64, 48, image::ExtendedColorType::Rgba8)
+            .write_image(img.as_raw(), w, h, image::ExtendedColorType::Rgba8)
             .expect("encode fixture png");
         out
     }
@@ -328,6 +333,30 @@ op = "identity"
 
         let ok = transform(&src, IDENTITY_RECIPE, "png").expect("module must survive");
         assert!(!ok.is_empty());
+    }
+
+    /// A mark that would draw nothing is thrown as an error, with the same
+    /// line `apply` prints, rather than returned as an unmarked image. The
+    /// module survives each refusal.
+    #[wasm_bindgen_test]
+    fn transform_refuses_a_mark_that_draws_nothing() {
+        // Large enough that the default-size mark is under the 5 % coverage cap,
+        // so a missing refusal would return a marked image rather than the cap's error.
+        let src = png_two_tone(256, 192);
+        let rows = [
+            ("text = \"hi\"\nopacity = 0", "'opacity' = 0 draws no mark"),
+            ("text = \" \"", "'text' has no visible characters"),
+        ];
+        for (body, want) in rows {
+            let recipe = format!("version = \"1\"\n\n[[step]]\nop = \"watermark\"\n{body}\n");
+            let err =
+                transform(&src, &recipe, "png").expect_err("a mark that draws nothing is refused");
+            let msg = format!("{:?}", wasm_bindgen::JsValue::from(err));
+            assert!(msg.contains(want), "{body:?}: got {msg}");
+
+            let ok = transform(&src, IDENTITY_RECIPE, "png").expect("module must survive");
+            assert!(!ok.is_empty());
+        }
     }
 
     /// `recipe.quality`, when set, reaches the encoder — the RETURNED BYTES

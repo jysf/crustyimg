@@ -234,6 +234,11 @@ wrong-typed value):
 | `margin` | integer (a float is refused) | `0..=4294967295` |
 | `tile` | boolean | — |
 
+A watermark step whose mark would draw no visible pixel (`opacity = 0`, an opacity too small
+to leave any alpha, blank `text`, a `size` too small to draw it, a `color` with alpha `00`, a
+fully transparent `image`) is refused at load, though each key is in range here. A faint
+mark that still has a visible pixel is accepted.
+
 The `watermark` CLI checks `--size`, `--scale` and `--opacity` against these same rows,
 before it reads any file. It parses them as 32-bit floats, so a value within one f32 step of a
 bound (`--size 1024.00001`, `--opacity 1.00000001`) reads as the bound and is accepted on the

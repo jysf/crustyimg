@@ -199,6 +199,15 @@ Batching these in one sitting unblocks more than anything an orchestrator can do
     applied it on both paths, and FT-8, FT-9 and FT-12 went red while FT-11 stayed green. Neither
     result matched the table. **A design names the code location for each mutation and lists every
     test expected red, including tests on the other path** (plain vs `--watch`, native vs wasm).
+13. **⚡ A RED ROW IS RED FOR ITS REASON ONLY IF ITS FAILURE MESSAGE SAYS SO, AND A GOLDEN GUARDS
+    THE BYTES ONLY IF ONE MUTATION TURNS IT RED BY HASH.** SPEC-143's FT-11 and FT-12 failed on
+    `main` because their small bases tripped the 5 % coverage cap, not because the mark drew
+    nothing. The build recorded them as RED, and FT-12 as "returned Ok", which was false. Its golden
+    test (FT-6) went red under every recorded mutation, but only because the mark was refused first.
+    `opacity × 0.999` on the 16-bit composite line stayed green. **The baseline quotes each RED row's
+    failure message, and the prompt names the likely wrong-reason message** (here, the coverage
+    cap). **A golden needs at least one mutation that goes red on a hash mismatch**, not on a
+    refusal or an exit code.
 
 ## What is working, and worth keeping
 

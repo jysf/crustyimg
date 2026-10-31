@@ -80,7 +80,7 @@ spec ships; the straighten half waits for STAGE-059.
 
 In build order.
 
-- [ ] **SPEC-142** (designed 2026-10-30) — [S] **The parity harness, first.** Before any UI: a test that takes
+- [ ] **SPEC-142** (second punch list done 2026-10-31, PR #234) — [S] **The parity harness, first.** Before any UI: a test that takes
   a recipe string, runs it through native `apply` and wasm `transform` on the same fixture,
   and compares. Run it on today's resize + watermark recipes so it's green before geometry
   arrives. Then each later spec adds a row. ⚠ Assert it can fail: feed it two recipes that

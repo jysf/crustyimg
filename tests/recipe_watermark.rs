@@ -468,3 +468,200 @@ fn placement_params_round_trip_and_reach_the_op() {
         "tile=true must change the output, or the flag is inert"
     );
 }
+
+// ── A mark that draws nothing is refused ─────────────────────────────────────
+//
+// Like the CLI, a recipe step is refused when its mark would draw no visible
+// pixel, before any input is read and before anything is written. The boundary
+// rows run on a black 16-bit base, where any alpha that survives changes a
+// sample.
+
+/// A black 16-bit RGB PNG, 400×300 (a 60×30 mark on a smaller base trips the
+/// coverage cap).
+fn write_black16(dir: &TempDir, name: &str) -> PathBuf {
+    let img = image::ImageBuffer::<image::Rgb<u16>, Vec<u16>>::from_pixel(
+        400,
+        300,
+        image::Rgb([0, 0, 0]),
+    );
+    let path = dir.path().join(name);
+    DynamicImage::ImageRgb16(img).save(&path).unwrap();
+    assert_eq!(
+        image::open(&path).unwrap().color(),
+        image::ColorType::Rgb16,
+        "control: {name} is a 16-bit file"
+    );
+    path
+}
+
+/// A 60×30 white overlay whose every pixel has alpha `alpha`.
+fn write_white_overlay(dir: &TempDir, name: &str, alpha: u8) {
+    let img = RgbaImage::from_pixel(60, 30, image::Rgba([255, 255, 255, alpha]));
+    DynamicImage::ImageRgba8(img)
+        .save(dir.path().join(name))
+        .unwrap();
+}
+
+/// A 60×30 white 16-bit overlay whose every pixel has 16-bit alpha 4 (below
+/// one 8-bit step, so only a 16-bit read sees it).
+fn write_faint16(dir: &TempDir, name: &str) {
+    let img = image::ImageBuffer::<image::Rgba<u16>, Vec<u16>>::from_pixel(
+        60,
+        30,
+        image::Rgba([65535, 65535, 65535, 4]),
+    );
+    let path = dir.path().join(name);
+    DynamicImage::ImageRgba16(img).save(&path).unwrap();
+    assert_eq!(
+        image::open(&path).unwrap().color(),
+        image::ColorType::Rgba16,
+        "control: {name} is a 16-bit file"
+    );
+}
+
+/// Runs `apply --recipe r.toml in.png -o out.png -y` in `dir`.
+fn apply_step(dir: &TempDir, input: &str, step_body: &str) -> std::process::Output {
+    write_recipe(
+        dir,
+        "r.toml",
+        &format!("version = \"1\"\n\n[[step]]\nop = \"watermark\"\n{step_body}\n"),
+    );
+    Command::new(BIN)
+        .current_dir(dir.path())
+        .args(["apply", "--recipe", "r.toml", input, "-o", "out.png", "-y"])
+        .output()
+        .expect("run apply")
+}
+
+fn error_lines(stderr: &str) -> Vec<&str> {
+    stderr.lines().filter(|l| l.starts_with("error:")).collect()
+}
+
+fn pixel_hash(path: &std::path::Path) -> Vec<u8> {
+    let img = image::open(path).unwrap();
+    let mut bytes = format!("{}x{} {:?} ", img.width(), img.height(), img.color()).into_bytes();
+    bytes.extend_from_slice(img.as_bytes());
+    bytes
+}
+
+const OPACITY_ZERO_RECIPE_LINE: &str =
+    "'opacity' = 0 draws no mark; to leave images unmarked, remove this step";
+
+#[test]
+fn a_recipe_mark_that_draws_nothing_is_refused_before_any_output() {
+    let faint = |opacity: &str| {
+        format!(
+            "'opacity' = {opacity} is too faint: the mark would draw no visible pixel; \
+             use a larger opacity"
+        )
+    };
+    let rows: Vec<(&str, String)> = vec![
+        (
+            "text = \"hi\"\nopacity = 0",
+            OPACITY_ZERO_RECIPE_LINE.into(),
+        ),
+        // Below f32's smallest positive number: reads as 0 and is reported as 0.
+        (
+            "image = \"white.png\"\nopacity = 1e-50",
+            OPACITY_ZERO_RECIPE_LINE.into(),
+        ),
+        (
+            "image = \"white.png\"\nopacity = 0.000001",
+            faint("0.000001"),
+        ),
+        (
+            "text = \" \"",
+            "'text' has no visible characters; use text with at least one visible character".into(),
+        ),
+        (
+            "text = \"  \"",
+            "'text' has no visible characters; use text with at least one visible character".into(),
+        ),
+        (
+            "text = \"© crustyimg\"\nsize = 0.01",
+            "'text' draws no visible pixel at 'size' = 0.01; use a larger size".into(),
+        ),
+        (
+            "text = \"hi\"\ncolor = \"ffffff00\"",
+            "'color' \"ffffff00\" is fully transparent; use an alpha above 00, or RRGGBB".into(),
+        ),
+        (
+            "image = \"clear.png\"",
+            "'image' \"clear.png\" is fully transparent; use an image with visible pixels".into(),
+        ),
+        (
+            "image = \"white.png\"\nopacity = 0.0000076",
+            faint("0.0000076"),
+        ),
+        // Low-alpha marks: a recipe whose mark has a visible alpha only before
+        // opacity. 1/255 × 0.0019 and 4/65535 × 0.1 both round to alpha16 = 0.
+        (
+            "text = \"hi\"\ncolor = \"ffffff01\"\nopacity = 0.0019",
+            faint("0.0019"),
+        ),
+        ("image = \"faint16.png\"\nopacity = 0.1", faint("0.1")),
+    ];
+    assert_eq!(rows.len(), 11, "eleven rows");
+
+    let dir = TempDir::new().unwrap();
+    write_white_overlay(&dir, "white.png", 255);
+    write_white_overlay(&dir, "clear.png", 0);
+    write_faint16(&dir, "faint16.png");
+    let input = write_black16(&dir, "in.png");
+    let before = std::fs::read(&input).unwrap();
+
+    for (body, line) in &rows {
+        let output = apply_step(&dir, "in.png", body);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert_eq!(output.status.code(), Some(1), "{body:?}: {stderr}");
+        assert_eq!(
+            error_lines(&stderr),
+            vec![format!("error: recipe step 0 ('watermark'): {line}")],
+            "{body:?}"
+        );
+        assert!(!dir.path().join("out.png").exists(), "{body:?}: no output");
+        assert_eq!(std::fs::read(&input).unwrap(), before, "{body:?}");
+    }
+}
+
+#[test]
+fn a_recipe_refusal_wins_over_a_missing_input() {
+    let dir = TempDir::new().unwrap();
+    let output = apply_step(&dir, "/no/such.png", "text = \"hi\"\nopacity = 0");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(1), "{stderr}");
+    assert_eq!(
+        error_lines(&stderr),
+        vec![format!(
+            "error: recipe step 0 ('watermark'): {OPACITY_ZERO_RECIPE_LINE}"
+        )]
+    );
+}
+
+#[test]
+fn a_faint_recipe_mark_is_drawn() {
+    let dir = TempDir::new().unwrap();
+    write_white_overlay(&dir, "white.png", 255);
+    let input = write_black16(&dir, "in.png");
+
+    let rows = [
+        // One alpha16 survives at the boundary.
+        "image = \"white.png\"\nopacity = 0.0000077",
+        // A mark of alpha8 1 survives at 0.002.
+        "text = \"© crustyimg\"\ncolor = \"ffffff01\"\nopacity = 0.002",
+        // Ideographic space has no glyph in the bundled font, so its fallback
+        // box is drawn.
+        "text = \"\u{3000}\"",
+    ];
+    for body in rows {
+        let _ = std::fs::remove_file(dir.path().join("out.png"));
+        let output = apply_step(&dir, "in.png", body);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert_eq!(output.status.code(), Some(0), "{body:?}: {stderr}");
+        assert_ne!(
+            pixel_hash(&dir.path().join("out.png")),
+            pixel_hash(&input),
+            "{body:?}: the mark changes a sample"
+        );
+    }
+}

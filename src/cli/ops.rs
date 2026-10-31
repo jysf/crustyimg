@@ -11,7 +11,8 @@ use crate::error::ImageError;
 use crate::image::Image;
 use crate::operation::registry::param_spec;
 use crate::operation::{
-    Gravity, OperationParams, OperationRegistry, RegistryError, Watermark, WATERMARK_PARAMS,
+    Gravity, InvisibleMark, OperationParams, OperationRegistry, RegistryError, Watermark,
+    WATERMARK_PARAMS,
 };
 use crate::pipeline::{OnRefusal, Pipeline, SkippedStep};
 use crate::recipe::{Recipe, RecipeStep};
@@ -1378,6 +1379,41 @@ fn flag_value_text(v: f32) -> String {
     }
 }
 
+/// The refusal for a mark that would draw nothing, naming the flags as typed.
+fn invisible_mark_error(
+    cause: InvisibleMark,
+    src: &WatermarkSource<'_>,
+    size: f32,
+    opacity: f32,
+) -> CliError {
+    CliError::Usage(match cause {
+        InvisibleMark::OpacityZero => {
+            "--opacity 0 draws no mark; to leave an image unmarked, do not run watermark".to_owned()
+        }
+        InvisibleMark::TooFaint => format!(
+            "--opacity {} is too faint: the mark would draw no visible pixel; \
+             use a larger --opacity",
+            flag_value_text(opacity)
+        ),
+        InvisibleMark::BlankText => {
+            "--text has no visible characters; use text with at least one visible character"
+                .to_owned()
+        }
+        InvisibleMark::TextTooSmall => format!(
+            "--text draws no visible pixel at --size {}; use a larger --size",
+            flag_value_text(size)
+        ),
+        InvisibleMark::TransparentColor => format!(
+            "--color {} is fully transparent; use an alpha above 00, or RRGGBB",
+            src.color.unwrap_or_default()
+        ),
+        InvisibleMark::TransparentImage => format!(
+            "--image {} is fully transparent; use an image with visible pixels",
+            src.image.unwrap_or_default()
+        ),
+    })
+}
+
 /// Build the watermark overlay (`DynamicImage`) + its round-trip identity from
 /// the source mode. Every flag has been checked by now; this is where files
 /// are first read.
@@ -1452,6 +1488,24 @@ pub(super) fn run_watermark(
     };
     let size = src.size.unwrap_or(32.0);
     let opacity = opacity.unwrap_or(1.0);
+    // The two causes the flags alone decide: both are true whatever the font
+    // or overlay turns out to be, so they come before either is read.
+    if opacity == 0.0 {
+        return Err(invisible_mark_error(
+            InvisibleMark::OpacityZero,
+            src,
+            size,
+            opacity,
+        ));
+    }
+    if src.image.is_none() && color[3] == 0 {
+        return Err(invisible_mark_error(
+            InvisibleMark::TransparentColor,
+            src,
+            size,
+            opacity,
+        ));
+    }
 
     // Build the overlay (image load OR text rasterization) + its round-trip identity.
     let resolved = watermark_overlay(src, color, size)?;
@@ -1475,6 +1529,11 @@ pub(super) fn run_watermark(
             overlay, text, font_path, size, color, gravity, opacity, scale, margin, tile,
         ),
     };
+
+    // The rest need the rendered or loaded mark; still before any input is read.
+    if let Some(cause) = op.invisible_mark() {
+        return Err(invisible_mark_error(cause, src, size, opacity));
+    }
 
     let pipeline = auto_orient_prefix()?.push(Box::new(op));
     run_pixel_op(pipeline, inputs, global, global.quality, None, None, false)

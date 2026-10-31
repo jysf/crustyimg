@@ -409,7 +409,7 @@ pub enum Commands {
         /// Overlay image path (image mode; XOR `--text`).
         #[arg(long, conflicts_with = "text")]
         image: Option<String>,
-        /// Text to render (text mode; XOR `--image`).
+        /// Text to render; must draw at least one visible character (text mode; XOR `--image`).
         #[arg(long, required_unless_present = "image")]
         text: Option<String>,
         /// Font file (TTF/OTF) for `--text`; defaults to the bundled Go font.
@@ -423,6 +423,7 @@ pub enum Commands {
         color: Option<String>,
         #[arg(long)]
         gravity: Option<String>,
+        /// Mark opacity: above 0, at most 1 (default 1).
         #[arg(long)]
         opacity: Option<f32>,
         #[arg(long, conflicts_with = "text")]
