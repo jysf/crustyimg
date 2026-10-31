@@ -88,13 +88,19 @@ questions:
   - id: mp4-atom-adoption
     question: "Should `mp4-atom` be adopted as crustyimg's ISO-BMFF writer, and does it warrant a DEC?"
     priority: low
-    status: open
+    status: answered
     raised_by: claude
     raised_at: 2026-08-16
     assigned_to: null
+    answered_by: DEC-108
     notes: |
-      Blocks any animated-AVIF output work. Nothing is scheduled, so this is
-      recorded rather than assigned.
+      ANSWERED 2026-10-30 (maintainer ruling): adopt, recorded in DEC-108,
+      conditional on four checks the first design session of PROJ-012 /
+      STAGE-061 runs (licence files, the AV1 boxes in 0.16.x, the dependency
+      cost, MSRV + wasm). If one fails, DEC-108 falls back to an in-house box
+      writer. The probe notes below are kept as that record's evidence.
+
+      Was blocking any animated-AVIF output work.
 
       Probed 2026-08-16: `mp4-atom` 0.15.0, MIT OR Apache-2.0 (both LICENSE
       files present and read, not just the metadata field), 23,631 src lines,

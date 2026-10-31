@@ -94,8 +94,8 @@ crustyimg optimize photo.jpg --ssim 80 -o photo.avif         # AVIF at a quality
 ```
 
 If `optimize` can't beat the source, it keeps the original bytes and says so.
-`--target` and `--ssim` search for the lowest quality that meets the score on JPEG, AVIF
-and lossy WebP outputs.
+`--target` and `--ssim` search for the lowest quality that meets the score on JPEG and AVIF
+outputs. WebP output is lossless and ignores them, without a warning.
 
 ## Resize and thumbnails
 
@@ -331,9 +331,11 @@ medium.
 Reads JPEG, PNG, WebP, AVIF, GIF, BMP, TIFF, ICO, SVG, and camera RAW (via the
 embedded preview). HEIC is only available in builds compiled with the `heic` feature
 (otherwise exit 4). SVG needs the `svg` feature, which is on by default; only a source build
-with `--no-default-features` lacks it (exit 4, "rebuild with --features svg").
+with `--no-default-features`, and the slim browser build, lack it (exit 4, "rebuild with --features svg").
 
 An SVG is rasterized at its own size. Its `<text>` draws in the bundled Go font whatever
 `font-family` it names, upright and regular even when bold or italic: crustyimg never reads
-system fonts. If the user needs a particular typeface, convert the text to paths first. `-` reads from stdin; `-o -` writes to stdout with all diagnostics on
+system fonts. If the user needs a particular typeface, convert the text to paths first.
+
+`-` reads from stdin; `-o -` writes to stdout with all diagnostics on
 stderr.

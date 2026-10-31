@@ -358,6 +358,14 @@ the state that goes missing.
 **When you make a call that outlives the session:** file the `- [ ]` first, then run
 `just backlog` and **read it back**. A file you wrote is not a file the tooling sees.
 
+**A proposal with no stage goes in `guidance/ideas.yaml`, and `just ideas` lists it.** (Added
+2026-10-30.) That file is the register for ideas, proposals and declined features that have no
+stage yet. It is not a decision and not a schedule. Its header defines the statuses. Promote an
+idea by filing its `- [ ]` in a stage first, then set it to `homed` with the stage named. Keep
+declined entries, with the reason, so they are not re-proposed. ⚠ `just backlog` reads only the
+**active** project's stages, so a `- [ ]` in a proposed project is tracked but not listed there.
+Read the stage, or `just backlog --all` once that project is active.
+
 
 ---
 

@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-10-30
+
 ### Added
 
 - **A slim browser build.** `just wasm-build-slim` builds the wasm package without SVG
@@ -34,11 +36,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`optimize --ssim` and `--target` now search for AVIF output.** In 0.8.0, an AVIF output
   (`--format avif` or `-o x.avif`) skipped the quality search: `optimize` exited `0`, warned
   "no avif decoder is built", and wrote the file at the encoder's default quality, so `--ssim 50`
-  and `--ssim 90` wrote the same file. It now searches as it does for JPEG and WebP, with no
+  and `--ssim 90` wrote the same file. It now searches as it does for JPEG, with no
   warning: on an 800×532 photo, `--ssim 50` writes 52 KB scoring 50.7 and `--ssim 90` writes
   177 KB scoring 90.2. An AVIF graphic input resized with `--max` and given `--ssim` but no `--format`
   could exit `1` with "The image format Avif is not supported"; it now writes the file. The
-  browser build has no AVIF decoder, so its `optimize` still writes AVIF at a fixed quality.
+  browser build has no AVIF decoder, so its `optimize` still writes AVIF at a fixed quality when asked for
+  a score.
 - **SVG text in any font family draws again.** Every release with SVG input (0.5.0 through
   0.8.0) drew no text at all for `<text>` whose `font-family` named only families other than
   `Go`, such as `sans-serif`, `serif`, `Arial`, `Helvetica` or `Arial, Helvetica`. It exited 0
@@ -796,7 +799,8 @@ re-decoded, so privacy ops carry no quality cost and no recompression.
 
 ---
 
-[Unreleased]: https://github.com/jysf/crustyimg/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/jysf/crustyimg/compare/v0.8.1...HEAD
+[0.8.1]: https://github.com/jysf/crustyimg/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/jysf/crustyimg/compare/v0.7.1...v0.8.0
 [0.7.1]: https://github.com/jysf/crustyimg/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/jysf/crustyimg/compare/v0.6.0...v0.7.0

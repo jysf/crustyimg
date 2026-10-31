@@ -414,7 +414,7 @@ The format-aware upgrade from `check-added-large-files` — lint image assets be
 ```yaml
 repos:
   - repo: https://github.com/jysf/crustyimg
-    rev: v0.8.0            # a crustyimg release that ships `lint` (0.4.0+)
+    rev: v0.8.1            # a crustyimg release that ships `lint` (0.4.0+)
     hooks:
       - id: crustyimg-lint
 ```

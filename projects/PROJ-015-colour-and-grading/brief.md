@@ -141,6 +141,8 @@ exception to that ordering, for the reason given under it.
   cost is the working type, not the maths**. ⚠ Shared-code change — it moves
   `Resize` and `Watermark`, not just the grading path, so it needs a clean
   full-matrix verify rather than an incremental one.
+  ⚠ It must also re-measure native-vs-wasm resize parity (DEC-110's bound, K; idea
+  `native-wasm-resize-exactness`), and re-bless SPEC-141's goldens if native pixels move.
 
   ⚠⚠ **This stage's position is NOT the project's position — decide it
   separately.** PROJ-015 sits post-1.0 (roadmap Wave 7) because a *grade* is

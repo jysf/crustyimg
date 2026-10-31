@@ -153,7 +153,7 @@ Ordered. ⚡ Only the first item gates 0.8.0.
   Refactor: resolve once and pass `&[Input]` into both branches. Code quality, not a bug; a
   candidate for the maintainer's queued Rust cleanup.
 
-- [ ] (not yet written) — [S] **A watermark with no visible pixels is drawn as nothing at exit 0.**
+- [ ] **SPEC-143** (designed 2026-10-30) — [S] **A watermark with no visible pixels is drawn as nothing at exit 0.**
   Filed by SPEC-135's frame (2026-10-27), driven on a release build of `main` @ `4d6808b`: on
   **both** paths, `--text " "` / `text = " "` and `--size 0.01` / `size = 0.01` exit 0 with 0
   pixels changed, and `--opacity 0` / `opacity = 0.0` the same. Cause for the first two:
@@ -161,7 +161,8 @@ Ordered. ⚡ Only the first item gates 0.8.0.
   (`src/text/mod.rs:194-197`), and nothing refuses a mark whose visible-pixel count (already
   computed at construction, `visible_pixels`) is 0. The same fallback is in the `v0.7.1` tag (not driven on the released binary). Fix shape:
   refuse a mark with 0 visible pixels at construction (invocation-level: exit 2 CLI, exit 1
-  recipe); `opacity = 0` needs a ruling (refuse, or keep as an explicit no-op). Out of SPEC-135
+  recipe). **Ruled 2026-10-30 (maintainer): `opacity = 0` is refused too**, with the same exit
+  codes; to turn a watermark off, remove the step. Out of SPEC-135
   because both paths agree; it is what STAGE-054's first success criterion literally promises
   ("no CLI or recipe path draws an invisible mark at exit 0").
 
@@ -262,7 +263,41 @@ Ordered. ⚡ Only the first item gates 0.8.0.
   whether a `build`-specific help note is worth the clap work, or leave the docs as the answer.
   Tests and docs only, apart from (4).
 
-**Count:** 3 shipped / 0 active / 16 pending
+- [ ] (not yet written) — [S] **`lint`'s suggested `fix:` commands write the image to stdout.**
+  Filed by the orchestrator (2026-10-30), from the `jysf/crustyimg-example` demo site
+  (2026-10-29). `lint` names a runnable fix for each finding, such as `meta clean --gps <f>`,
+  `optimize <f>`, `auto-orient <f>` or a `resize`. Run exactly as printed, each writes the
+  encoded image to **stdout**, even on a TTY, so the file is not fixed. The form that works is
+  `-o <f> -y`. Not yet driven on 0.8.1. Decide whether the printed fix should carry
+  `-o <f> -y`, or whether these verbs should refuse to write binary to a TTY. Then test that
+  every printed `fix:` line, run verbatim in a shell, changes the file and clears the finding.
+
+- [ ] (not yet written) — [S] **`privacy/gps-metadata-leak` fires on a GPS block with no
+  coordinates.** Filed by the orchestrator (2026-10-30), from the `jysf/crustyimg-example` demo
+  site (2026-10-29). A Nikon P1100 JPEG writes a GPS IFD holding only `GPSVersionID`, with no
+  latitude or longitude, and `lint` flags it as a location leak. Not yet driven on 0.8.1. Decide
+  whether the rule keys on coordinate tags (`GPSLatitude`/`GPSLongitude`) rather than on the IFD's
+  presence, and keep a positive control: a file with real coordinates must still be flagged.
+
+- [ ] (not yet written) — [S] **A folder that holds only subfolders reports "input not found or
+  unreadable".** Filed by the orchestrator (2026-10-30), from the 0.8.1 release-notes verify. A
+  directory input reads only its top-level images (documented in the skill since 0.8.1). For
+  `lint d/` or `optimize d/` where `d/` has only subfolders, both exit 3 with "input not found
+  or unreadable", which is misleading: the folder exists and is readable. Say instead that the
+  folder has no images at its top level, and suggest a recursive glob (`'d/**/*'`). Keep exit 3
+  unless a ruling changes it.
+
+- [ ] (not yet written) — [S] **A library caller of `Watermark::new_image` / `new_text` can still
+  build a mark that draws nothing.** Filed by SPEC-143's frame (2026-10-30). SPEC-143 refuses a
+  mark with no visible pixel after opacity on the CLI and in `from_params` (recipes, `build`, wasm).
+  But the two public constructors are infallible (`-> Self`) in released 0.8.1
+  (`src/operation/mod.rs:1442`, `:1470`), and `Refusal` is not `#[non_exhaustive]`. So a direct
+  library caller that skips SPEC-143's predicate still composites nothing with `Ok`. Closing it
+  changes the public API (fallible constructors, or a new `Refusal` variant that `apply` returns),
+  so it waits for the next minor (0.9), not a patch. The same shape as the `render_text`
+  library-panic entry above (`untrusted-input-hardening`).
+
+**Count:** 3 shipped / 1 active / 19 pending
 
 ## Design Notes
 
