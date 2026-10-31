@@ -136,6 +136,40 @@ cost:
         output_tokens per id. Priced at Sonnet $3/$15 per MTok, cache_creation x1.25 ($3.75),
         cache_read x0.10 ($0.30): $0.0004 + $0.64 + $3.29 + $0.72. Measured before the final
         commit/push turns, so it slightly under-counts.
+    - cycle: verify
+      agent: claude-opus-5-5
+      interface: claude-code
+      tokens_total: 7142148
+      tokens_breakdown:
+        input: 98
+        output: 31059
+        cache_creation: 151338
+        cache_read: 6959653
+      estimated_usd: 5.20
+      duration_minutes: null
+      recorded_at: 2026-10-30
+      note: >
+        Read-only verify session (Opus). Measured by the verify itself but not written there
+        (read-only); recorded by the punch-list session from the verify's own figures.
+    - cycle: punchlist
+      agent: claude-sonnet-5-5
+      interface: claude-code
+      tokens_total: 3318294
+      tokens_breakdown:
+        input: 70
+        output: 13459
+        cache_creation: 80854
+        cache_read: 3223911
+      estimated_usd: 1.47
+      duration_minutes: null
+      recorded_at: 2026-10-30
+      note: >
+        Punch-list session in its own worktree (fix/spec-142-punch), Sonnet. Measured from the
+        session's transcript (7922ec85-....jsonl, identified by content), deduped by
+        `.message.id` (35 unique ids, all claude-sonnet-5-5), input/cache_creation/cache_read once
+        per id, MAX output_tokens per id. Priced at Sonnet $3/$15 per MTok, cache_creation x1.25,
+        cache_read x0.10: $0.0002 + $0.30 + $0.97 + $0.20. Measured before the final docs commit,
+        so it slightly under-counts.
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -1164,6 +1198,55 @@ neither is applied.
   - The test bed's `check.py` must read the font table from `recipe.js` (and list `recipe.js` in its HTTP check).
   - S4 shows a recipe that never resizes also trips the resample-set assert; harmless.
   - STAGE-060 crop/straighten specs add rows to `TABLE`; K and the cap are DEC-110's.
+
+### Punch list (verify)
+
+Verify passed the comparator, harness, fixtures, page and parity job; two items failed. Fixed in
+commit `e71acbd` (a docs-only commit follows with this section).
+
+**The six fixes**
+1. `ci.yml`, `changes` step only: `code=$(echo "$files" | scripts/ci-code-paths.sh)`, then require
+   exactly `true` or `false` (anything else prints the value and exits 1), then branch on
+   `"$code"`. The self-test still runs first. A crashing classifier used to read as "docs only".
+2. P5 gains row 12's literal (`previewRecipe(pixelRecipe(both))`, the row-4 text plus
+   `quality = 88`). Pasted from a real run of `recipe.js`; the harness derives it from the row-4
+   literal. Added to "Golden recipe texts (FT-8)", FT-8 and AC-5.
+3. Each row line also prints `native-sha256=` after `wasm-sha256=`; the `PASS|FAIL <id> …` prefix
+   is unchanged. The spec's one-line-format note is updated.
+4. One summary line: `largest differing-pixel count on a resampling row: <n> (K = <K>)`.
+   Informational, not an assertion.
+5. Text only: the mutation table (B-edge also turns B2 red at K = 1; B-dims turns only B7, N2's
+   rows are caught by the per-row size literals; note for the next spec that changes K or adds
+   rows); DEC-110 Validation gains three bullets (second x86 CPU, K guarded by review only, the
+   measured `libm::powf` remedy and its revisit trigger).
+6. AC-1's owned list gains `planEdit`, `GO_ADVANCE`, `GO_WIDEST` (spec and harness).
+
+**Build Completion correction:** the head run `41147305687` (`f204d43`) ran on an AMD EPYC 7763,
+not the EPYC 9V45 the first run recorded. The run on `e71acbd` landed on a third CPU, an
+Intel Xeon Platinum 8370C @ 2.80GHz, and gave the same result (K = 1, all 16 rows pass).
+
+**Controls** (each run on its own, then restored; scratch scripts deleted)
+- Classifier crash, new step, driven under `bash -e` with a bad `grep` flag added only to the
+  classify path after the self-test (which passed): exit 2, `GITHUB_OUTPUT` empty (no `code=`).
+- New step, classifier printing `maybe`: exit 1, `::error::scripts/ci-code-paths.sh printed
+  'maybe', expected true or false`, no `code=` line.
+- Restored classifier: `files=src/lib.rs` gives `code=true`; `files=docs/x.md` gives `code=false`.
+- **Old** step body with the crashing classifier: exit 0, `code=false`, "docs/specs only: heavy
+  jobs will skip". The control tells the two apart.
+- P5 row 12: `previewRecipe` made to return its input: the plain run went red with
+  `FAIL P5: row 12's recipe text moved` (rows 9–12 themselves stayed green, which is the gap this
+  closes). Restored.
+- Summary line, plain run: `largest differing-pixel count on a resampling row: 1 (K = 1)`.
+  With K = 2: `… 1 (K = 2)`. Restored.
+- `rm -rf target/ddphotos-parity; just ddphotos-parity`: green (16 rows, 0 failed; N1 and N2
+  self-test pass).
+
+**CI** (run `41154144464`, head `e71acbd`, all green)
+- `changes`: `-> code paths touched: running the full gates`
+- `ddphotos-parity`: `largest differing-pixel count on a resampling row: 1 (K = 1)`
+- Row 12: `PASS 12 W/both/preview/jpeg native 1080x723 wasm 1080x723 bytes same px=0 max=0 resamples
+  wasm-sha256=4dd41146f0cd957450ef2662c378dafc3ac260e8a459bff74ce45c34f8acbbc4
+  native-sha256=4dd41146f0cd957450ef2662c378dafc3ac260e8a459bff74ce45c34f8acbbc4`
 
 ### Build-phase reflection (3 questions, short answers)
 
