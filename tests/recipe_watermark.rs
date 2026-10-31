@@ -502,6 +502,23 @@ fn write_white_overlay(dir: &TempDir, name: &str, alpha: u8) {
         .unwrap();
 }
 
+/// A 60×30 white 16-bit overlay whose every pixel has 16-bit alpha 4 (below
+/// one 8-bit step, so only a 16-bit read sees it).
+fn write_faint16(dir: &TempDir, name: &str) {
+    let img = image::ImageBuffer::<image::Rgba<u16>, Vec<u16>>::from_pixel(
+        60,
+        30,
+        image::Rgba([65535, 65535, 65535, 4]),
+    );
+    let path = dir.path().join(name);
+    DynamicImage::ImageRgba16(img).save(&path).unwrap();
+    assert_eq!(
+        image::open(&path).unwrap().color(),
+        image::ColorType::Rgba16,
+        "control: {name} is a 16-bit file"
+    );
+}
+
 /// Runs `apply --recipe r.toml in.png -o out.png -y` in `dir`.
 fn apply_step(dir: &TempDir, input: &str, step_body: &str) -> std::process::Output {
     write_recipe(
@@ -576,12 +593,20 @@ fn a_recipe_mark_that_draws_nothing_is_refused_before_any_output() {
             "image = \"white.png\"\nopacity = 0.0000076",
             faint("0.0000076"),
         ),
+        // Low-alpha marks: a recipe whose mark has a visible alpha only before
+        // opacity. 1/255 × 0.0019 and 4/65535 × 0.1 both round to alpha16 = 0.
+        (
+            "text = \"hi\"\ncolor = \"ffffff01\"\nopacity = 0.0019",
+            faint("0.0019"),
+        ),
+        ("image = \"faint16.png\"\nopacity = 0.1", faint("0.1")),
     ];
-    assert_eq!(rows.len(), 9, "nine rows");
+    assert_eq!(rows.len(), 11, "eleven rows");
 
     let dir = TempDir::new().unwrap();
     write_white_overlay(&dir, "white.png", 255);
     write_white_overlay(&dir, "clear.png", 0);
+    write_faint16(&dir, "faint16.png");
     let input = write_black16(&dir, "in.png");
     let before = std::fs::read(&input).unwrap();
 

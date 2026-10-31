@@ -165,6 +165,14 @@ fn accepted_cases() -> Vec<AcceptedCase> {
             vec!["--text", "© crustyimg"],
             "text = \"© crustyimg\"",
         ),
+        // A mid-opacity mark on a 16-bit base runs the 16-bit composite at an
+        // opacity that is neither 1 nor faded to alpha16 = 1.
+        (
+            "image_opacity_0_6_16bit",
+            Base::Gradient16(400, 300),
+            vec!["--image", "logo.png", "--opacity", "0.6"],
+            "image = \"logo.png\"\nopacity = 0.6",
+        ),
         // The faint rows are marks with a visible pixel that a refusal of
         // "draws nothing" must not touch.
         (
@@ -268,7 +276,7 @@ fn accepted_marks_are_byte_identical_to_main() {
     let golden = std::fs::read_to_string(golden_path())
         .expect("golden file")
         .replace("\r\n", "\n");
-    assert_eq!(golden.lines().count(), 12, "twelve goldens");
+    assert_eq!(golden.lines().count(), 13, "thirteen goldens");
     assert_eq!(current_hashes(), golden);
 }
 

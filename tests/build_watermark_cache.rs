@@ -372,8 +372,10 @@ text = "hi"
 opacity = 0
 "#,
     );
-    write_png(root, "src/a.png", 64, 64, [1, 2, 3]);
-    write_png(root, "src/b.png", 64, 64, [4, 5, 6]);
+    // Large enough that the mark is under the 5 % coverage cap, so a missing
+    // refusal would draw it rather than skip it.
+    write_png(root, "src/a.png", 256, 256, [1, 2, 3]);
+    write_png(root, "src/b.png", 256, 256, [4, 5, 6]);
     write_file(
         root,
         "crustyimg.build.toml",

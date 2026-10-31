@@ -412,9 +412,9 @@ the recipe path:
 
 **A mark that would draw nothing is refused.** Decided from the mark alone, before any
 input is read, so it is an error for the whole invocation (nothing is written), not a
-per-image skip: exit **2** on `watermark`, exit **1** in a recipe (`apply`, `build`,
-`--watch`), and a thrown error from wasm `transform`. The mark has no visible pixel when its
-opacity is `0`, when its opacity is too small to leave any alpha (counted at 16-bit
+per-image skip: exit **2** on `watermark`, exit **1** in a recipe (`apply`, `build`), and a thrown error from wasm `transform`.
+`--watch` reports the error lines and keeps watching; it does not exit. The mark has no
+visible pixel when its opacity is `0`, when its opacity is too small to leave any alpha (counted at 16-bit
 precision, from the mark's largest alpha), when `--text` has no visible characters, when
 `--size` is too small to draw the text, when `--color` has alpha `00`, or when `--image` is
 fully transparent. `--opacity 0` and `--color …00` are checked with the flags, before any
