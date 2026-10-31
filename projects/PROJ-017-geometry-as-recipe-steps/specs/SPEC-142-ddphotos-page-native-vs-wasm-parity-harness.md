@@ -7,7 +7,7 @@
 task:
   id: SPEC-142
   type: task                       # epic | story | task | bug | chore
-  cycle: build  # frame | design | build | verify | ship
+  cycle: verify  # frame | design | build | verify | ship
   blocked: false                  # ruled (B) 2026-10-30: parity is bounded, DEC-110
   priority: high
   complexity: S                    # S | M | L  (L means split it)
@@ -117,6 +117,92 @@ cost:
         per id, MAX output_tokens per id. Priced at Opus $5/$25 per MTok, cache_creation x1.25,
         cache_read x0.10: $0.0003 + $0.66 + $0.81 + $1.67. Measured before the commit/push turns,
         so it slightly under-counts.
+    - cycle: build
+      agent: claude-sonnet-5-5
+      interface: claude-code
+      tokens_total: 11187823
+      tokens_breakdown:
+        input: 140
+        output: 48161
+        cache_creation: 170111
+        cache_read: 10969411
+      estimated_usd: 4.65
+      duration_minutes: null
+      recorded_at: 2026-10-30
+      note: >
+        Build session in its own worktree (test/spec-142-ddphotos-parity), Sonnet. Measured from the
+        session's transcript (8cdf0742-....jsonl, identified by content), deduped by `.message.id`
+        (70 unique ids, all claude-sonnet-5-5), input/cache_creation/cache_read once per id, MAX
+        output_tokens per id. Priced at Sonnet $3/$15 per MTok, cache_creation x1.25 ($3.75),
+        cache_read x0.10 ($0.30): $0.0004 + $0.64 + $3.29 + $0.72. Measured before the final
+        commit/push turns, so it slightly under-counts.
+    - cycle: verify
+      agent: claude-opus-5-5
+      interface: claude-code
+      tokens_total: 7142148
+      tokens_breakdown:
+        input: 98
+        output: 31059
+        cache_creation: 151338
+        cache_read: 6959653
+      estimated_usd: 5.20
+      duration_minutes: null
+      recorded_at: 2026-10-30
+      note: >
+        Read-only verify session (Opus). Measured by the verify itself but not written there
+        (read-only); recorded by the punch-list session from the verify's own figures.
+    - cycle: punchlist
+      agent: claude-sonnet-5-5
+      interface: claude-code
+      tokens_total: 3318294
+      tokens_breakdown:
+        input: 70
+        output: 13459
+        cache_creation: 80854
+        cache_read: 3223911
+      estimated_usd: 1.47
+      duration_minutes: null
+      recorded_at: 2026-10-30
+      note: >
+        Punch-list session in its own worktree (fix/spec-142-punch), Sonnet. Measured from the
+        session's transcript (7922ec85-....jsonl, identified by content), deduped by
+        `.message.id` (35 unique ids, all claude-sonnet-5-5), input/cache_creation/cache_read once
+        per id, MAX output_tokens per id. Priced at Sonnet $3/$15 per MTok, cache_creation x1.25,
+        cache_read x0.10: $0.0002 + $0.30 + $0.97 + $0.20. Measured before the final docs commit,
+        so it slightly under-counts.
+    - cycle: reverify
+      agent: claude-opus-5-5
+      interface: claude-code
+      tokens_total: 3093733
+      tokens_breakdown:
+        input: 70
+        output: 15114
+        cache_creation: 77893
+        cache_read: 2940676
+      estimated_usd: 2.34
+      duration_minutes: null
+      recorded_at: 2026-10-31
+      note: >
+        Read-only re-verify session (Opus) after punch list 1. Measured by the re-verify itself
+        but not written there (read-only); recorded by the punchlist-2 session from its figures.
+    - cycle: punchlist-2
+      agent: claude-sonnet-5-5
+      interface: claude-code
+      tokens_total: 1535845
+      tokens_breakdown:
+        input: 40
+        output: 6850
+        cache_creation: 54820
+        cache_read: 1474135
+      estimated_usd: 0.75
+      duration_minutes: null
+      recorded_at: 2026-10-31
+      note: >
+        Second punch-list session in its own worktree (fix/spec-142-punch2), Sonnet. Measured from
+        the session's transcript (cffaf2c6-....jsonl, identified by content), deduped by
+        `.message.id` (20 unique ids, all claude-sonnet-5-5), input/cache_creation/cache_read once
+        per id, MAX output_tokens per id. Priced at Sonnet $3/$15 per MTok, cache_creation x1.25,
+        cache_read x0.10. Measured before the final commit/push turns, so it slightly under-counts.
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -564,8 +650,8 @@ Rows 15–16 assert the observed sizes, and P1 records the transposed prediction
 ## Acceptance Criteria
 
 - [ ] **AC-1 `recipe.js` is the only copy of the recipe code.** `edit.js` and `worker.js`
-  import from it. Neither defines `tomlString`, `textEms`, `watermarkSize`, `pixelRecipe`,
-  `cliRecipe`, `withQuality` or `PREVIEW_QUALITY`, and the harness defines none of them either.
+  import from it. Neither defines `tomlString`, `GO_ADVANCE`, `GO_WIDEST`, `textEms`, `watermarkSize`,
+  `planEdit`, `pixelRecipe`, `cliRecipe`, `withQuality` or `PREVIEW_QUALITY`, and the harness defines none of them either.
   `recipe.js` contains no `document`, `$(` or `window`.
 - [ ] **AC-2 The harness runs the 16-row table below and asserts the count.** Each row builds
   its recipe with `planEdit` plus `pixelRecipe`, `cliRecipe` or `previewRecipe`, all imported
@@ -611,8 +697,8 @@ Rows 15–16 assert the observed sizes, and P1 records the transposed prediction
   - **P3:** row 3's decoded pixels (the watermark) differ from row 1's (none) on both the native
     and the wasm side.
   - **P4:** the row count is 16.
-  - **P5:** the recipe text for row 4 (`pixelRecipe`, edit `both`) and row 8 (`cliRecipe`, png)
-    each equal a literal string in the harness, so a change to `recipe.js` that moves both sides
+  - **P5:** the recipe text for row 4 (`pixelRecipe`, edit `both`), row 8 (`cliRecipe`, png) and
+    row 12 (`previewRecipe(pixelRecipe(both))`) each equal a literal string in the harness, so a change to `recipe.js` that moves both sides
     together still goes red.
 - [ ] **AC-6 Negative controls, run by the harness itself.** `--self-test` runs the table twice
   more:
@@ -696,7 +782,7 @@ cites.
   transpose on rows 15–16 (P1).
 - **FT-6 `resize-moves`.** P2.
 - **FT-7 `watermark-draws`.** P3, on both sides.
-- **FT-8 `golden-recipes`.** P5. The literals are the texts below.
+- **FT-8 `golden-recipes`.** P5, rows 4, 8 and 12. The literals are the texts below.
 - **FT-9 `self-test`.** `--self-test`: N1 and N2 each give exactly their listed red rows
   (AC-6).
 - **FT-10 `module-imports`.** AC-8's Node checks: the import, the `.mjs` parse and the export
@@ -784,7 +870,32 @@ opacity = 0.6
 ```
 
 Row 8 is `cliRecipe({...both, format: "png"})`: the same text with `format = "png"` as the
-second line. Both texts were driven in the design probe (`size = 43`, `margin = 22` at 1080). The
+second line.
+
+Row 12 is `previewRecipe(pixelRecipe(both))`: the row-4 text with `quality = 88` as the second line
+(pasted from a real run of `recipe.js`; the harness derives it from the row-4 literal):
+```
+version = "2"
+quality = 88
+
+[[step]]
+op = "auto-orient"
+
+[[step]]
+op = "resize"
+mode = "max"
+width = 1080
+
+[[step]]
+op = "watermark"
+text = "© Jane Doe 2026"
+gravity = "southeast"
+size = 43
+margin = 22
+color = "#ffffff"
+opacity = 0.6
+```
+ Rows 4 and 8 were driven in the design probe (`size = 43`, `margin = 22` at 1080). The
 build pastes the literals from its own first run of `recipe.js`, then checks them against these.
 
 ### Mutation table (HANDOFF trap 12: where it is applied, every row red and green)
@@ -810,10 +921,14 @@ named.
 | C2 | the regex becomes `.` | `scripts/ci-code-paths.sh` | FT-12, the two docs and spec cases | the code cases |
 | B-max | drop the max limb: a resampling row passes on count alone | the comparator function in `tests/ddphotos_parity.mjs` | FT-3 self-test case B1 (so FT-9) | B2–B7; the plain run's 16 rows |
 | B-count | count limb `n <= K` → `n <= K + 1` | the comparator function | FT-3 case B3 (so FT-9) | B1, B2, B4–B7; the plain run |
-| B-edge | count limb `n <= K` → `n < K` | the comparator function | FT-3 case B4 (so FT-9); the plain run, on the target where K was observed, on each row where n = K | B1–B3, B5–B7 |
+| B-edge | count limb `n <= K` → `n < K` | the comparator function | FT-3 cases B4 and, when K = 1, **B2** (B2 equals B4 then; at K = 0 they differ) (so FT-9); the plain run, on the target where K was observed, on each row where n = K | B1, B3, B5–B7 (B2 too when K ≠ 1) |
 | B-exact | no-resample rows use the bound too | the comparator function | FT-3 case B5 (so FT-9) | B1–B4, B6, B7; the plain run (rows 1, 3, 9, 11 are equal anyway, which is why B5 exists) |
-| B-dims | compare pixels before dims, or skip the dims check | the comparator function | FT-3 case B7 (throws, or a reason other than `dims`); N2's rows in FT-9 | B1–B6 |
+| B-dims | compare pixels before dims, or skip the dims check | the comparator function | FT-3 case **B7 only** (throws, or a reason other than `dims`). N2's rows are not caught by B-dims: the per-row size literals (FT-2) catch them | B1–B6 |
 | B-derive | derive "resamples" from the edit (`edit.resize != null`), not the recipe text | the row classifier in `tests/ddphotos_parity.mjs` | FT-3's set assert (`{1, 3, 5, 7, 9, 11}` ≠ `{1, 3, 9, 11}`) | B1–B7 (synthetic, classifier not used) |
+
+**For the next spec that changes K or adds rows:** the B-edge and B-dims expectations above depend
+on K = 1 and on the per-row size literals. Re-derive which of B2/B4 go red when K moves, and add
+the size literal for every new row, because B-dims does not cover it.
 
 ## Implementation Context
 
@@ -884,7 +999,15 @@ section. It never edits the rule or the cap.
     DEC-110, and the harness asserts `K <= 78` at start.
   - The verdict is one pure function of `(dims, bytesEqual, px, max, resamples, format)`, so
     `--self-test` can drive cases B1–B7 through it without a binary.
-- **The one-line format:** `PASS|FAIL <id> native WxH wasm WxH bytes same|differ px=<n> max=<d>`.
+- **The one-line format:** `PASS|FAIL <id> native WxH wasm WxH bytes same|differ px=<n> max=<d>
+  <resamples|exact> wasm-sha256=<hex> native-sha256=<hex>`. The prefix up to `max=` is the contract;
+  both hashes are printed so the cross-target check reads straight from the CI log. The run also
+  prints one informational summary line, `largest differing-pixel count on a resampling row: <n>
+  (K = <K>)`, so a K raised without new evidence shows in review (it is not an assertion).
+  The closing count line is `<N> rows, <R> row failures, <T> table failures (<names>), K=<K>
+  (cap <cap>)`: `<R>` counts red row lines, `<T>` counts the table-level checks (P2–P5, the row
+  count, the no-resize set, rows that threw), each named; `(<names>)` is omitted when `<T>` is 0.
+  Any failure exits non-zero.
   The output reaches the CI log because it is plain stdout from a `run:` step, not libtest
   (HANDOFF trap 11). Put the self-test in its own step so its lines are separate.
 
@@ -1064,37 +1187,138 @@ neither is applied.
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
-- **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
-- **Files this diff touches** — **list every one**, with a phrase on what changed
-  in each. Not "src/foo and tests": the enumeration is what a verify cycle diffs
-  the real change against, and what tells you whether every affected `DEC-*` has
-  the path in its `affected_scope`. SPEC-122's Deviations claimed "`src/operation`
-  and `tests/` only" and was wrong by two `scripts/` files, which left
-  `affected_scope` blind; SPEC-124's build added this section by hand after that
-  lesson and still listed 8 of its 9 files. It is a checklist because it is easy
-  to get wrong from memory — build it from `git diff --name-only`, not recall.
-  - `path/to/file` — <what changed>
+- **Branch:** `test/spec-142-ddphotos-parity`
+- **PR (if applicable):** #234 (draft), head `f204d43` at the last CI check
+- **All acceptance criteria met?** yes (table below)
+- **New decisions emitted:** none. DEC-110 gains its measured K (Validation section).
+- **Files this diff touches** (from `git diff --name-only origin/main...HEAD`, plus this spec file):
+  - `.github/workflows/ci.yml`: `changes` step calls the classifier and its self-test; new advisory `ddphotos-parity` job (first step logs the runner CPU).
+  - `decisions/DEC-110-native-and-wasm-agree-on-dimensions-exactly-and-on-resampled-pixels-within-1-255.md`: Validation section records K = 1.
+  - `integrations/ddphotos/README.md`: names the harness under "How it was tested"; page size line re-measured to about 38 KB (38,228 B across the five page files).
+  - `integrations/ddphotos/edit/edit.js`: imports `cliRecipe`, `pixelRecipe`, `planEdit` from `recipe.js`; `readEdit` is the DOM reads plus `planEdit`.
+  - `integrations/ddphotos/edit/recipe.js`: new, the page's recipe code as a DOM-free module.
+  - `integrations/ddphotos/edit/worker.js`: imports `previewRecipe`; its own `withQuality` and `PREVIEW_QUALITY` are gone.
+  - `justfile`: `ddphotos-parity` recipe and the Pillow pin.
+  - `scripts/ci-code-paths.sh`: new, the one path regex with `--self-test`.
+  - `tests/ddphotos_decode.py`: new, the Pillow decoder.
+  - `tests/ddphotos_parity.mjs`: new, the harness, comparator and `--self-test`.
+  - `tests/fixtures/ddphotos/README.md`, `photo.webp` (23,424 B), `photo_rot.jpg` (128,696 B): new fixtures and provenance.
+  - this spec file: cost entry, this section.
+  - **`git diff --stat origin/main...HEAD -- src/ Cargo.toml Cargo.lock` is empty.**
+- **Outcome: (i).** Every row is within Rule B on both targets and JPEG rows 9 and 11 are byte-equal, so JPEG bytes are asserted on those two rows (`JPEG_BYTES_ASSERTED = true`).
+  - **K = 1** (rows 2, 6, 15, 16: 1 pixel, max 1; every other row `px=0 max=0`), identical on both targets.
+  - Targets: aarch64-apple-darwin locally, and x86_64 `ubuntu-latest`, `AMD EPYC 9V45 96-Core Processor`, flags avx2, avx512f, sse4_1. CI run 41144102452 (first), 41147305687 (head `f204d43`).
+  - **The 16 wasm output SHA-256 hashes are identical on the Mac and on the runner** (diffed line by line), as are the per-row `px`/`max`.
+  - Job wall time: 3m22s cold (first run; 3m07s of that is `just ddphotos-parity`), 1m45s warm (`f204d43`).
+- **Golden recipe texts:** the literals in the harness are the spec's two texts; `recipe.js` output equals them (P5 green on the first run), so there is no difference to report.
+- **Mutation rows** (red/green sets are as the table lists unless noted; each was applied with a non-empty `git diff`, run, then restored and shown green):
+  - N1 red {3,4,7,8,11,12,13,14,16}; N2 red {4,8,12,13,14,16}. Both are asserted by `--self-test` and pass.
+  - S1 red (literal size) {2,4,5,6,7,8,10,12,13,14,15,16} + P5; parity green on all 16.
+  - S2 red P5 only. S3 red {4,8,12,13,14,16} (size prediction), P5 green (confirmed). S4 red on every resize row, P2, P5, plus the no-resample-set assert. S5 red P3 (both sides) and P5.
+  - H1 exit 1 "wasm package missing or empty". H2 exit 1 "edit.js imports pixelRecipe, which recipe.js lacks". H3 exit 1 "P4: 15 rows ran, expected 16" (the other 15 pass). H4 exit 1 "the Pillow decoder failed".
+  - C1 red on the `edit.js` case only. C2 red on the two docs/spec cases only.
+  - B-max red B1. B-count red B3. B-exact red B5. B-dims red B7 ("pixels were read"). B-derive red on the set assert ({1,3,5,7,9,11}). B-edge red B4 and, in the plain run, rows 2, 6, 15, 16 (n = K = 1).
+  - **Note on B-edge:** at K = 1, B2 ("one pixel off by 1") is the same input as B4, so B2 goes red too. The table lists B2 as green. At K = 0 they would differ.
+  - **Added (not in the table):** B8, B9, B10 for the byte limbs. `JPEG_BYTES_ASSERTED = false` turns B8 red; dropping PNG from the byte check turns B10 red.
+- **FT-11, by hand (exit 1 each):**
+  - empty package dir: `FATAL: wasm package missing or empty: expected …/crustyimg.js and …/crustyimg_bg.wasm`
+  - renamed export: `FAIL modules: edit.js imports pixelRecipe, which recipe.js lacks`
+  - system python without Pillow: `FATAL: the Pillow decoder failed (/usr/bin/python3): … No module named 'PIL'`
+  - row 16 deleted: `FAIL P4: 15 rows ran, expected 16`
+- **FT-13, the browser round:** `just retest <this worktree>`, headless, on the test bed's own servers. Browser checks: dev 40 pass / 0 fail, static 40 / 0, apache 40 / 0 (21 `editor:` checks each, none skipped). **The test bed's automated stage then crashed**: `scripts/check.py:247: RuntimeError: edit.js has no GO_ADVANCE / GO_WIDEST`. It reads the font table out of `edit.js`, and the table now lives in `recipe.js`. That is the test bed's gap (it also names files one by one, so it will not list `recipe.js`'s MIME type); not edited here.
+- **CI:** the matrix legs ran (not skipped): ubuntu, macos, windows, avif, webp-lossy, heic, lean, msrv all green on the second run, `changes` job included.
 - **Deviations from spec:**
-  - [list]
+  - `JPEG_BYTES_ASSERTED` flag and comparator cases B8-B10 added (outcome (i) needs a test that goes red).
+  - The recipe always recreates its venv. The warm CI run failed with `venv/bin/pip: No such file`: `rust-cache` restored `target/` with `venv/bin/python` but without pip, and the "is there a python" guard passed.
+  - The justfile recipe runs the plain run and `--self-test` in one step, so the self-test is not in its own CI step as the spec suggested; both print into the same log.
 - **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - The test bed's `check.py` must read the font table from `recipe.js` (and list `recipe.js` in its HTTP check).
+  - S4 shows a recipe that never resizes also trips the resample-set assert; harmless.
+  - STAGE-060 crop/straighten specs add rows to `TABLE`; K and the cap are DEC-110's.
+
+### Punch list (verify)
+
+Verify passed the comparator, harness, fixtures, page and parity job; two items failed. Fixed in
+commit `e71acbd` (a docs-only commit follows with this section).
+
+**The six fixes**
+1. `ci.yml`, `changes` step only: `code=$(echo "$files" | scripts/ci-code-paths.sh)`, then require
+   exactly `true` or `false` (anything else prints the value and exits 1), then branch on
+   `"$code"`. The self-test still runs first. A crashing classifier used to read as "docs only".
+2. P5 gains row 12's literal (`previewRecipe(pixelRecipe(both))`, the row-4 text plus
+   `quality = 88`). Pasted from a real run of `recipe.js`; the harness derives it from the row-4
+   literal. Added to "Golden recipe texts (FT-8)", FT-8 and AC-5.
+3. Each row line also prints `native-sha256=` after `wasm-sha256=`; the `PASS|FAIL <id> …` prefix
+   is unchanged. The spec's one-line-format note is updated.
+4. One summary line: `largest differing-pixel count on a resampling row: <n> (K = <K>)`.
+   Informational, not an assertion.
+5. Text only: the mutation table (B-edge also turns B2 red at K = 1; B-dims turns only B7, N2's
+   rows are caught by the per-row size literals; note for the next spec that changes K or adds
+   rows); DEC-110 Validation gains three bullets (second x86 CPU, K guarded by review only, the
+   measured `libm::powf` remedy and its revisit trigger).
+6. AC-1's owned list gains `planEdit`, `GO_ADVANCE`, `GO_WIDEST` (spec and harness).
+
+**Build Completion correction:** the build's head run `41147305687` (`f204d43`) ran on an AMD
+EPYC 9V45, as recorded, and so did the first run `41144102452`. The second CPU, an AMD EPYC 7763,
+was verify's run `41147581056` (`1b1c010`). The run on `e71acbd` landed on a third CPU, an
+Intel Xeon Platinum 8370C @ 2.80GHz, and gave the same result (K = 1, all 16 rows pass).
+
+**Controls** (each run on its own, then restored; scratch scripts deleted)
+- Classifier crash, new step, driven under `bash -e` with a bad `grep` flag added only to the
+  classify path after the self-test (which passed): exit 2, `GITHUB_OUTPUT` empty (no `code=`).
+- New step, classifier printing `maybe`: exit 1, `::error::scripts/ci-code-paths.sh printed
+  'maybe', expected true or false`, no `code=` line.
+- Restored classifier: `files=src/lib.rs` gives `code=true`; `files=docs/x.md` gives `code=false`.
+- **Old** step body with the crashing classifier: exit 0, `code=false`, "docs/specs only: heavy
+  jobs will skip". The control tells the two apart.
+- P5 row 12: `previewRecipe` made to return its input: the plain run went red with
+  `FAIL P5: row 12's recipe text moved` (rows 9–12 themselves stayed green, which is the gap this
+  closes). Restored.
+- Summary line, plain run: `largest differing-pixel count on a resampling row: 1 (K = 1)`.
+  With K = 2: `… 1 (K = 2)`. Restored.
+- `rm -rf target/ddphotos-parity; just ddphotos-parity`: green (16 rows, 0 failed; N1 and N2
+  self-test pass).
+
+**CI** (run `41154144464`, head `e71acbd`, all green)
+- `changes`: `-> code paths touched: running the full gates`
+- `ddphotos-parity`: `largest differing-pixel count on a resampling row: 1 (K = 1)`
+- Row 12: `PASS 12 W/both/preview/jpeg native 1080x723 wasm 1080x723 bytes same px=0 max=0 resamples
+  wasm-sha256=4dd41146f0cd957450ef2662c378dafc3ac260e8a459bff74ce45c34f8acbbc4
+  native-sha256=4dd41146f0cd957450ef2662c378dafc3ac260e8a459bff74ce45c34f8acbbc4`
+
+### Punch list 2 (re-verify)
+
+Re-verify confirmed both punch-list-1 items closed; two things remained. Fixed on top of `474c9fc`:
+
+1. **The Build Completion correction named the wrong run.** It now says the build's head run
+   `41147305687` (`f204d43`) and the first run `41144102452` ran on an AMD EPYC 9V45, and the
+   AMD EPYC 7763 was verify's run `41147581056` (`1b1c010`). Each run's CPU line was read once in its
+   log first: `41144102452` and `41147305687` read `AMD EPYC 9V45 96-Core Processor`,
+   `41147581056` reads `AMD EPYC 7763 64-Core Processor`.
+2. **The closing count line counts every failure.** `<N> rows, <R> row failures, <T> table failures
+   (<names>), K=<K> (cap <cap>)`. Table-level checks are named by the label before the first colon
+   (P2–P5, `rows-threw`, `resize-set`). Exit status unchanged. The one-line-format note is updated.
+
+**Controls** (one at a time; output redirected, `$?` read; harness restored after each)
+- Preview mutation (`previewRecipe` returns its input): exit 1,
+  `FAIL P5: row 12's recipe text moved`, then `16 rows, 0 row failures, 1 table failure (P5), K=1 (cap 78)`.
+- Row failure (N1, native opacity 0.6 -> 0.61, driven on the plain run): exit 1, red rows
+  `3 4 7 8 11 12 13 14 16`, `16 rows, 9 row failures, 0 table failures, K=1 (cap 78)`.
+- `--self-test`: B1–B10 pass; N1 red `{3,4,7,8,11,12,13,14,16}`, N2 red `{4,8,12,13,14,16}`; exit 0.
+- Clean `just ddphotos-parity` from no `target/`: green, `16 rows, 0 row failures, 0 table failures, K=1 (cap 78)`.
 
 ### Build-phase reflection (3 questions, short answers)
 
 Process-focused: how did the build go? What friction did the spec create?
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — Very little. The row table, comparator and mutation table were complete. No design call turned out wrong; the x86_64 run agreed with aarch64 on every row.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — The test bed reads `edit.js` for the font table, so moving the recipe code breaks its automated stage; and `rust-cache` restores `target/` partially, which breaks any venv kept there.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Commit before running mutation scripts that restore with `git checkout -- file` (it reverted uncommitted edits once), and recreate the venv from the start.
 
 ---
 

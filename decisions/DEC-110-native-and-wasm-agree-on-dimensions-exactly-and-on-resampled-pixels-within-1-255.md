@@ -180,8 +180,26 @@ This decision is wrong, and must be revisited, if any of these happens:
 - **PROJ-015's working-type change lands.** Re-measure. If the difference goes to zero, Option A
   arrived for free: set K = 0 and supersede this DEC with an exact one.
 
-**K as set by the SPEC-142 build:** _(not yet set. The build fills it in: the value, the targets
-it was observed on, and the CI run id.)_
+**K as set by the SPEC-142 build: K = 1.**
+
+- **Where it was observed:** 1 differing pixel, 1/255 in one channel, on each of rows 2, 6, 15 and
+  16, on both targets. Every other row matched exactly.
+  - aarch64-apple-darwin (the maintainer's Mac).
+  - x86_64-unknown-linux-gnu, GitHub-hosted `ubuntu-latest`: AMD EPYC 9V45 96-Core Processor,
+    with avx2, avx512f and sse4_1. CI run 41144102452 (job `ddphotos page parity`, draft PR #234).
+- **Wasm agreed with itself across targets:** all 16 wasm output SHA-256 hashes were identical on
+  the Mac and on the runner, and the two targets' per-row `px`/`max` were identical.
+- The resizer picks its SIMD path from the CPU at run time, so a runner with a different CPU model
+  could in principle give another count. The cap (78) is unchanged.
+- **A second x86 CPU agreed.** The AMD EPYC 7763 from run `41147581056` gave the same per-row
+  numbers and hashes as the EPYC 9V45.
+- **K is guarded by review only.** Raising K up to the cap turns nothing red, so a slide from 1
+  pixel to 78 would pass. The harness prints `largest differing-pixel count on a resampling row:
+  <n> (K = <K>)` so a K raised without new evidence is visible in review.
+- **The measured remedy, and a revisit trigger.** Swapping `libm::powf` into native's
+  `srgb_to_linear` and `linear_to_srgb` on aarch64 gave all 16 rows `px=0 max=0` and byte-equal
+  output. Both powf sites contribute: the decode table alone fixed row 15 only. If native adopts a
+  deterministic powf, re-measure and set K = 0.
 
 ## References
 
