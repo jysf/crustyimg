@@ -20,5 +20,8 @@ Cycle prompts live in `prompts/SPEC-142-<cycle>.md`.
 - [x] **verify** (`prompts/SPEC-142-verify.md`, 2026-10-30, Opus, ~$5.20). ⚠ PUNCH LIST at `1b1c010`: K = 1 reproduced,
   every mutation matched, a second x86 CPU (EPYC 7763) agreed. Gaps: a crashing classifier makes the `changes` step
   report docs-only (CI skips green), and no golden text pins the preview recipe. Native `libm::powf` measured K = 0.
-- [ ] **punch list** (`prompts/SPEC-142-punchlist.md`, Sonnet). Then a short re-verify.
+- [x] **punch list** (`prompts/SPEC-142-punchlist.md`, 2026-10-30, Sonnet, $1.47). PR #234 code head `e71acbd`, CI green.
+  The `changes` step fails on a classifier crash; P5 pins row 12; native hashes and a K summary line print. A third
+  x86 CPU (Xeon 8370C) agreed at K = 1.
+- [ ] **re-verify** (`prompts/SPEC-142-reverify.md`, Opus)
 - [ ] **ship**

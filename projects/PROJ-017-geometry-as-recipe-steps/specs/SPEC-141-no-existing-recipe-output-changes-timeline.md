@@ -24,5 +24,7 @@ Cycle prompts live in `prompts/SPEC-141-<cycle>.md`.
   mutations matched (M4b proves the 51 literal live), goldens are stable per target, CPU dispatch ruled out; the
   goldens pin each runner image's libm `powf`. Gaps: a missing golden prints no CI-log dump, FT-3 skips the control
   lines, and the README doesn't name the literals to bump.
-- [ ] **punch list**: `prompts/SPEC-141-punchlist.md` (Sonnet). Then a short re-verify.
+- [x] **punch list**: `prompts/SPEC-141-punchlist.md` (2026-10-30, Sonnet, $2.31). PR #233 code head `f6d297b`, CI green.
+  A missing golden now fails with its CI-log dump (FT-9); FT-3 covers the control lines; README names every literal.
+- [ ] **re-verify**: `prompts/SPEC-141-reverify.md` (Opus). Simulates adding a recipe by the README alone.
 - [ ] **ship**: `prompts/SPEC-141-ship.md`
