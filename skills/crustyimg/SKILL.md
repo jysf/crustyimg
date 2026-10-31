@@ -184,9 +184,15 @@ The mark must suit each image, or crustyimg refuses it rather than damage the pi
   written. With several inputs, or in `build`, that image is written **without** the mark,
   with a `warning: … watermark skipped …` line, and the run still exits 0 — read stderr.
 - `--size` is a number above 0 and at most 1024. A bad `--size`, `--scale`, `--opacity`,
-  `--gravity` or `--color` exits 2 before any file is read.
+  `--gravity` or `--color` exits 2 before any file is read, and so do `--opacity 0` and a
+  `--color` with alpha `00`. A mark that would draw no visible pixel for another reason
+  (blank `--text`, a too-small `--size`, a fully transparent `--image`, an opacity too small to
+  leave any alpha) also exits 2 and writes nothing, after the `--font` / `--image` read and
+  before any input is read (`--text " " --font /no/f.ttf` exits 3). To leave images unmarked,
+  do not run `watermark`.
 
-A mark that fits is drawn as asked, even if too small or faint to see; check the output.
+A faint mark that still has a visible pixel is drawn, even where it changes nothing on a
+particular image; check the output.
 
 ## Recipes: one pipeline, many files
 

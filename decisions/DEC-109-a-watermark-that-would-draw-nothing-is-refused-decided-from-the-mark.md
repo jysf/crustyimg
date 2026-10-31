@@ -54,9 +54,9 @@ references:
 ## Decision
 
 **The rule.** A watermark whose mark has no pixel with alpha > 0 once its opacity is applied is
-refused before any input image is read: exit 2 on the CLI, exit 1 for a recipe (`apply`, `build`,
-`--watch`), and a thrown error from wasm `transform`. Nothing is written. It is decided from the
-mark alone, like DEC-104's coverage count, never from the image it would be drawn on.
+refused before any input image is read: exit 2 on the CLI, exit 1 for a recipe (`apply`, `build`), and a thrown
+error from wasm `transform`. `--watch` reports the error lines and keeps watching. Nothing is written.
+It is decided from the mark alone, like DEC-104's coverage count, never from the image it would be drawn on.
 
 **Precision: 16 bits.** "Alpha after opacity" is `round(a16 × opacity)` on the overlay's 16-bit
 view, the expression the 16-bit composite branch uses. One private function, `faded_alpha16`,

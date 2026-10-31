@@ -80,7 +80,7 @@ spec ships; the straighten half waits for STAGE-059.
 
 In build order.
 
-- [?] **SPEC-142** (framed 2026-10-30; design blocked 2026-10-30: native vs wasm resize differs by 1/255, needs a ruling) — [S] **The parity harness, first.** Before any UI: a test that takes
+- [ ] **SPEC-142** (second punch list done 2026-10-31, PR #234) — [S] **The parity harness, first.** Before any UI: a test that takes
   a recipe string, runs it through native `apply` and wasm `transform` on the same fixture,
   and compares. Run it on today's resize + watermark recipes so it's green before geometry
   arrives. Then each later spec adds a row. ⚠ Assert it can fail: feed it two recipes that
@@ -90,6 +90,13 @@ In build order.
   `cliRecipe` (`integrations/ddphotos/edit/edit.js`). Parity rows for each preset, plus the
   4× replay. ⚠ The page's existing "Made smaller to fit this photo" watermark logic runs after
   the crop. Check that a crop which shrinks the image re-triggers it.
+  ⚠ **The page takes the photo's size from wasm `info()`, which reports the stored size.** For
+  an EXIF-rotated JPEG that is 1600×1071 when the output is 1071×1600, so `planEdit` predicts
+  landscape and sizes the watermark for it. Crop coordinates must live in the space `auto-orient`
+  produces. This is a page workaround and belongs to this spec, not an `info()` bug: native
+  `crustyimg info` reports the stored size too, and wasm `info()` is its twin. Found in SPEC-142's
+  design; rows 15–16 of its harness pin the transposed prediction. Harmless today, because
+  photogen publishes WebP copies that are already oriented.
 - [ ] (not yet written) — [S] **Straighten on the page.** An angle control emitting a
   `rotate` step in `crop-to-fit` mode, ordered before `crop` so a straighten-then-crop is the
   natural flow. Parity rows within STAGE-059's stated bound. Waits for STAGE-059.

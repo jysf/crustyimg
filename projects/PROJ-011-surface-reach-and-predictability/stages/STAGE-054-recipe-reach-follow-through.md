@@ -153,7 +153,7 @@ Ordered. ⚡ Only the first item gates 0.8.0.
   Refactor: resolve once and pass `&[Input]` into both branches. Code quality, not a bug; a
   candidate for the maintainer's queued Rust cleanup.
 
-- [ ] **SPEC-143** (designed 2026-10-30) — [S] **A watermark with no visible pixels is drawn as nothing at exit 0.**
+- [x] **SPEC-143** (merged 2026-10-31, PR #235) — [S] **A watermark with no visible pixels is drawn as nothing at exit 0.**
   Filed by SPEC-135's frame (2026-10-27), driven on a release build of `main` @ `4d6808b`: on
   **both** paths, `--text " "` / `text = " "` and `--size 0.01` / `size = 0.01` exit 0 with 0
   pixels changed, and `--opacity 0` / `opacity = 0.0` the same. Cause for the first two:
@@ -297,7 +297,23 @@ Ordered. ⚡ Only the first item gates 0.8.0.
   so it waits for the next minor (0.9), not a patch. The same shape as the `render_text`
   library-panic entry above (`untrusted-input-hardening`).
 
-**Count:** 3 shipped / 1 active / 19 pending
+- [ ] (not yet written) — [S] **No CI job runs the wasm round-trip tests.** Filed by SPEC-143's
+  verify (2026-10-30). `tests/wasm_roundtrip.rs` (47 tests, including SPEC-143's FT-12) runs only
+  under `just wasm-test`, which needs `wasm-bindgen-test-runner`; no workflow in
+  `.github/workflows/` invokes it. So a wasm-only regression merges on green CI. Add a CI job that
+  installs the pinned `wasm-bindgen-cli` and runs `just wasm-test` (and `wasm-test-slim`), gated on
+  the code-paths filter like the native legs. Measure its runtime before making it required.
+
+- [ ] (not yet written) — [S] **SPEC-143's verify leftovers: a boundary golden row that does not
+  guard the boundary, and one unwrapped `--watch` line.** Filed by SPEC-143's ship (2026-10-31),
+  from verify's notes. (1) In `tests/fixtures/watermark/cli_params.golden`, `faint_opacity`
+  (`--opacity 0.00001`) and `faint_opacity_boundary` (`--opacity 0.0000077`) hash identically
+  (`6f10ba3e…`), so the boundary row cannot tell a boundary shift from none; pick an opacity just
+  either side of the 16-bit boundary that differs by hash, or drop the row. (2) `docs/api-contract.md`
+  has one unwrapped line about `--watch` (the line verify named; not located at ship). Both are
+  test or docs polish with no `src/` change.
+
+**Count:** 4 shipped / 0 active / 21 pending
 
 ## Design Notes
 
