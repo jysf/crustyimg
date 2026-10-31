@@ -27,4 +27,4 @@ Cycle prompts live in `prompts/SPEC-143-<cycle>.md`.
   green, no `src/` change. Two low-alpha FT-8 rows, a 16-bit 0.6 golden (matches `main`), FT-11/FT-12
   enlarged past the 5 % cap; each proven red by its mutation. Confirmed by the orchestrator (docs-and-
   tests only, no re-verify); PR #235 marked ready.
-- [ ] **ship**: `prompts/SPEC-143-ship.md` (PR #235 merged as `06eb552`, 2026-10-31)
+- [x] **ship** (2026-10-31, `prompts/SPEC-143-ship.md`, Sonnet, $0.66): PR #235 merged as `06eb552`, 2026-10-31. Reflection written; one backlog entry filed (verify leftovers); cost re-measured (build $4.70, punch list $2.39), verify added ($10.25). Total $28.18 across 6 sessions.

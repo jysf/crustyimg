@@ -7,7 +7,7 @@
 task:
   id: SPEC-143
   type: bug                        # epic | story | task | bug | chore
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: S                    # S | M | L  (L means split it)
@@ -99,45 +99,63 @@ cost:
     - cycle: build
       agent: claude-sonnet-5-5
       interface: claude-code
-      tokens_total: 8667901
+      tokens_total: 10917598
       tokens_breakdown:
-        input: 114
-        output: 47581
-        cache_creation: 167000
-        cache_read: 8453206
-      estimated_usd: 3.88
+        input: 140
+        output: 55453
+        cache_creation: 176437
+        cache_read: 10685568
+      estimated_usd: 4.7
       duration_minutes: null
-      recorded_at: 2026-10-30
+      recorded_at: 2026-10-31
       note: >
-        Build session in its own worktree (feat-spec-143-refuse-invisible-watermark). Measured
-        from the session's transcript (8e0c9f1c-….jsonl, identified by content), deduped by
-        `.message.id` (57 unique ids, all claude-sonnet-5-5): input/cache_creation/cache_read once
-        per id, MAX output_tokens per id. Priced by component at Sonnet $3/$15 per MTok,
-        cache_creation x1.25 ($3.75), cache_read x0.10 ($0.30): $0.0003 + $0.63 + $2.54 + $0.71.
-        Measured before the commit/push of the record and the PR turns, so it slightly under-counts.
+        Build session in its own worktree (feat-spec-143-refuse-invisible-watermark). Re-measured at ship from the full transcript (8e0c9f1c-….jsonl, identified by content: 'BUILD prompt: a watermark'), deduped by `.message.id` (68 unique ids, all claude-sonnet-5-5): input/cache_creation/cache_read once per id, MAX output_tokens per id. Priced by component at Sonnet $3/$15 per MTok, cache_creation x1.25, cache_read x0.10: $0.0004 + $0.66 + $3.21 + $0.83. Replaces the earlier $3.88 / 8,667,901 tokens, which was measured before the final turns.
+    - cycle: verify
+      agent: claude-opus-5-5
+      interface: claude-code
+      tokens_total: 14588346
+      tokens_breakdown:
+        input: 166
+        output: 72981
+        cache_creation: 202142
+        cache_read: 14313057
+      estimated_usd: 10.25
+      duration_minutes: null
+      recorded_at: 2026-10-31
+      note: >
+        Verify session in its own worktree (verify-spec-143). Measured at ship from the full transcript (644d2ca8-….jsonl, identified by content: 'VERIFY prompt: a watermark'), deduped by `.message.id` (83 unique ids, all claude-opus-5-5): input/cache_creation/cache_read once per id, MAX output_tokens per id. Priced by component at Opus $5/$25 per MTok, cache_creation x1.25, cache_read x0.10: $0.0008 + $1.26 + $7.16 + $1.82. Outcome: punch list (docs and tests only).
     - cycle: punchlist
       agent: claude-sonnet-5-5
       interface: claude-code
-      tokens_total: 4081425
+      tokens_total: 5491020
       tokens_breakdown:
-        input: 88
-        output: 21259
-        cache_creation: 92634
-        cache_read: 3967444
-      estimated_usd: 1.86
+        input: 114
+        output: 27154
+        cache_creation: 99820
+        cache_read: 5363932
+      estimated_usd: 2.39
       duration_minutes: null
-      recorded_at: 2026-10-30
+      recorded_at: 2026-10-31
       note: >
-        Punch-list session in its own worktree (fix-spec-143-punch). Measured from the session's
-        transcript (6219b4c5-….jsonl, identified by content), deduped by `.message.id` (44 unique
-        ids, all claude-sonnet-5-5): input/cache_creation/cache_read once per id, MAX output_tokens
-        per id. Priced by component at Sonnet $3/$15 per MTok, cache_creation x1.25 ($3.75),
-        cache_read x0.10 ($0.30): $0.0003 + $0.32 + $0.35 + $1.19. Measured before the commit,
-        push and CI turns, so it slightly under-counts.
+        Punch-list session in its own worktree (fix-spec-143-punch). Re-measured at ship from the full transcript (6219b4c5-….jsonl, identified by content: 'PUNCH LIST prompt: docs that match'), deduped by `.message.id` (55 unique ids, all claude-sonnet-5-5): input/cache_creation/cache_read once per id, MAX output_tokens per id. Priced by component at Sonnet $3/$15 per MTok, cache_creation x1.25, cache_read x0.10: $0.0003 + $0.37 + $1.61 + $0.41. Replaces the earlier $1.86 / 4,081,425 tokens, which was measured before the final turns.
+    - cycle: ship
+      agent: claude-sonnet-5-5
+      interface: claude-code
+      tokens_total: 1195190
+      tokens_breakdown:
+        input: 28
+        output: 5581
+        cache_creation: 63717
+        cache_read: 1125864
+      estimated_usd: 0.66
+      duration_minutes: null
+      recorded_at: 2026-10-31
+      note: >
+        Ship session in its own worktree (docs-spec-143-ship). Measured from the session's transcript (7963ea1d-….jsonl, identified by content: 'SHIP prompt: a watermark'), deduped by `.message.id` (14 unique ids, all claude-sonnet-5-5), priced at Sonnet $3/$15 per MTok with cache_creation x1.25 and cache_read x0.10. Measured before the final cost-edit, commit and push turns, so it slightly under-counts.
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 43467305
+    estimated_usd: 28.18
+    session_count: 6
 ---
 
 # SPEC-143: a watermark that draws nothing is refused
@@ -1157,10 +1175,38 @@ Process-focused: how did the build go? What friction did the spec create?
 from the process-focused build reflection above.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — The code was right on every path, and the problems were all in how the evidence was
+   recorded. (a) The build recorded its RED baseline by exit code, so FT-11 and FT-12 passed
+   review while failing on `main` for the 5 % coverage cap, not because the mark drew nothing;
+   it even wrote FT-12 up as "returned Ok", which was false. A RED row is only RED for its reason
+   if its failure message says so, so the baseline should quote the message and a coverage-cap
+   message should count as a wrong-reason red. (b) The golden's mutations went red only through
+   a refusal (`run_case` failed its exit-0 assertion at `faint_opacity`) and never by hash, so
+   `opacity × 0.999` in the 16-bit loop stayed green until verify added a 16-bit 0.6 case. A
+   golden should have one mutation that turns it red by hash, and the build should say which.
+   (c) Two of verify's four items were things the design could have listed: a recipe-side
+   mutation (`max_alpha = 65535`) that no FT-8 row could see because every too-faint row used an
+   opaque logo, and two doc sentences that the changed behaviour made false.
+   All three of the build's mutation-table deviations were spec errors, so the table needed a
+   second pass at design.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — Proposed, not applied. HANDOFF traps 1–12 do not cover either failure. Trap 10 (a derived
+   value needs an input where it differs from the naive one) is the nearest to the 16-bit
+   mid-opacity gap, but it is about derived values, not about what a golden proves. Trap 11 is
+   about skips, and trap 12 is about where a mutation is applied and which tests go red. Propose
+   one new trap, 13: **"A RED baseline row is RED for its reason only if its failure message says
+   so, and a golden guards the bytes only if one mutation turns it red by hash."** Its rule: the
+   build's baseline quotes each RED row's failure message and the prompt names the message that
+   would be a wrong reason (here, the coverage cap); and the prompt for a golden asks for one
+   mutation whose red is a hash mismatch rather than a refusal or an exit code. No constraint or
+   DEC change: DEC-109 and DEC-106 stand as designed. The two stale doc sentences were fixed by
+   the punch list.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — One small backlog entry, filed in STAGE-054 and grouping verify's leftovers: `faint_opacity`
+   and `faint_opacity_boundary` hash identically in the golden (both composite to the same bytes,
+   `6f10ba3e…`), so the boundary row does not guard the boundary by hash; and `docs/api-contract.md`
+   has one unwrapped line about `--watch` (from verify's notes; I did not locate it). The two
+   existing entries stay as they were: the library-constructor gap (waits for 0.9) and "no CI job
+   runs the wasm round-trip tests" (filed by the orchestrator, 2764a24; not filed again).
