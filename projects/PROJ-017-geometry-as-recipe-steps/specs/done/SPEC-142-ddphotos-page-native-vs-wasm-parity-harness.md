@@ -7,7 +7,7 @@
 task:
   id: SPEC-142
   type: task                       # epic | story | task | bug | chore
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false                  # ruled (B) 2026-10-30: parity is bounded, DEC-110
   priority: high
   complexity: S                    # S | M | L  (L means split it)
@@ -62,151 +62,187 @@ cost:
     - cycle: frame
       agent: claude-opus-5-5
       interface: claude-code
-      tokens_total: 7002258
+      tokens_total: 7862355
       tokens_breakdown:
-        input: 116
-        output: 43937
-        cache_creation: 135171
-        cache_read: 6823034
-      estimated_usd: 5.36
+        input: 126
+        output: 48160
+        cache_creation: 138752
+        cache_read: 7675317
+      estimated_usd: 5.91
       duration_minutes: null
       recorded_at: 2026-10-30
       note: >
-        Interactive frame session in its own worktree (docs/spec-142-frame). Measured from the
-        session's transcript (1726bd18-….jsonl, identified by content), deduped by `.message.id`
-        (58 unique ids, all claude-opus-5-5), input/cache_creation/cache_read once per id, MAX
-        output_tokens per id. Priced by component at Opus $5/$25 per MTok, cache_creation x1.25
-        ($6.25), cache_read x0.10 ($0.50): $0.0006 + $0.84 + $3.41 + $1.10. Measured before
-        the commit/push turns, so it slightly under-counts.
+        Interactive frame session, worktree docs/spec-142-frame. Re-measured at ship (2026-11-01) from the transcript(s) 1726bd18-....jsonl, found
+        by the prompt file named in the first user message, deduped by `.message.id` (63 unique
+        ids, all claude-opus-5-5), input/cache_creation/cache_read once per id, MAX output_tokens per id.
+        Priced at Opus $5/$25 per MTok, cache_creation x1.25, cache_read x0.10. Any earlier entry
+        for this cycle was measured before the session's final turns and is superseded.
     - cycle: design
       agent: claude-opus-5-5
       interface: claude-code
-      tokens_total: 7670372
+      tokens_total: 8522920
       tokens_breakdown:
-        input: 106
-        output: 63021
-        cache_creation: 175792
-        cache_read: 7431453
-      estimated_usd: 6.39
+        input: 114
+        output: 68096
+        cache_creation: 179557
+        cache_read: 8275153
+      estimated_usd: 6.96
       duration_minutes: null
       recorded_at: 2026-10-30
       note: >
-        Interactive design session in its own worktree (docs/spec-142-design), ended BLOCKED on a
-        ruling. Measured from the session's transcript (c346905b-….jsonl, identified by content),
-        deduped by `.message.id` (53 unique ids, all claude-opus-5-5), input/cache_creation/
-        cache_read once per id, MAX output_tokens per id. Priced by component at Opus $5/$25 per
-        MTok, cache_creation x1.25 ($6.25), cache_read x0.10 ($0.50). Measured before the
-        commit/push turns, so it slightly under-counts.
+        Interactive design session, ended BLOCKED on a ruling, worktree docs/spec-142-design. Re-measured at ship (2026-11-01) from the transcript(s) c346905b-....jsonl, found
+        by the prompt file named in the first user message, deduped by `.message.id` (57 unique
+        ids, all claude-opus-5-5), input/cache_creation/cache_read once per id, MAX output_tokens per id.
+        Priced at Opus $5/$25 per MTok, cache_creation x1.25, cache_read x0.10. Any earlier entry
+        for this cycle was measured before the session's final turns and is superseded.
     - cycle: design-amend
       agent: claude-opus-5-5
       interface: claude-code
-      tokens_total: 3505009
+      tokens_total: 4982612
       tokens_breakdown:
-        input: 56
-        output: 26403
-        cache_creation: 129195
-        cache_read: 3349355
-      estimated_usd: 3.14
+        input: 78
+        output: 31560
+        cache_creation: 139511
+        cache_read: 4811463
+      estimated_usd: 4.07
       duration_minutes: null
       recorded_at: 2026-10-30
       note: >
-        Interactive design-amend session in its own worktree (docs/spec-142-design-amend): wrote
-        DEC-110 (Rule B), amended AC-3/FT-3/FT-4/Comparator/x86 outcomes, filed two findings.
-        Measured from the session's transcript (03bc18f1-….jsonl, identified by content), deduped
-        by `.message.id` (28 unique ids, all claude-opus-5-5), input/cache_creation/cache_read once
-        per id, MAX output_tokens per id. Priced at Opus $5/$25 per MTok, cache_creation x1.25,
-        cache_read x0.10: $0.0003 + $0.66 + $0.81 + $1.67. Measured before the commit/push turns,
-        so it slightly under-counts.
+        Interactive design-amend session: wrote DEC-110 (Rule B), amended AC-3/FT-3/FT-4/Comparator/x86 outcomes, filed two findings, worktree docs/spec-142-design-amend. Re-measured at ship (2026-11-01) from the transcript(s) 03bc18f1-....jsonl, found
+        by the prompt file named in the first user message, deduped by `.message.id` (37 unique
+        ids, all claude-opus-5-5), input/cache_creation/cache_read once per id, MAX output_tokens per id.
+        Priced at Opus $5/$25 per MTok, cache_creation x1.25, cache_read x0.10. Any earlier entry
+        for this cycle was measured before the session's final turns and is superseded.
     - cycle: build
       agent: claude-sonnet-5-5
       interface: claude-code
-      tokens_total: 11187823
+      tokens_total: 12218150
       tokens_breakdown:
-        input: 140
-        output: 48161
-        cache_creation: 170111
-        cache_read: 10969411
-      estimated_usd: 4.65
+        input: 150
+        output: 54957
+        cache_creation: 176804
+        cache_read: 11986239
+      estimated_usd: 5.08
       duration_minutes: null
       recorded_at: 2026-10-30
       note: >
-        Build session in its own worktree (test/spec-142-ddphotos-parity), Sonnet. Measured from the
-        session's transcript (8cdf0742-....jsonl, identified by content), deduped by `.message.id`
-        (70 unique ids, all claude-sonnet-5-5), input/cache_creation/cache_read once per id, MAX
-        output_tokens per id. Priced at Sonnet $3/$15 per MTok, cache_creation x1.25 ($3.75),
-        cache_read x0.10 ($0.30): $0.0004 + $0.64 + $3.29 + $0.72. Measured before the final
-        commit/push turns, so it slightly under-counts.
+        Build session (Sonnet), worktree test/spec-142-ddphotos-parity. Re-measured at ship (2026-11-01) from the transcript(s) 8cdf0742-....jsonl, found
+        by the prompt file named in the first user message, deduped by `.message.id` (75 unique
+        ids, all claude-sonnet-5-5), input/cache_creation/cache_read once per id, MAX output_tokens per id.
+        Priced at Sonnet $3/$15 per MTok, cache_creation x1.25, cache_read x0.10. Any earlier entry
+        for this cycle was measured before the session's final turns and is superseded.
     - cycle: verify
       agent: claude-opus-5-5
       interface: claude-code
-      tokens_total: 7142148
+      tokens_total: 8278324
       tokens_breakdown:
-        input: 98
-        output: 31059
-        cache_creation: 151338
-        cache_read: 6959653
-      estimated_usd: 5.20
+        input: 114
+        output: 36755
+        cache_creation: 157162
+        cache_read: 8084293
+      estimated_usd: 5.94
       duration_minutes: null
       recorded_at: 2026-10-30
       note: >
-        Read-only verify session (Opus). Measured by the verify itself but not written there
-        (read-only); recorded by the punch-list session from the verify's own figures.
+        Read-only verify session (Opus), worktree verify-spec-142. Re-measured at ship (2026-11-01) from the transcript(s) 27632ab1-....jsonl, found
+        by the prompt file named in the first user message, deduped by `.message.id` (55 unique
+        ids, all claude-opus-5-5), input/cache_creation/cache_read once per id, MAX output_tokens per id.
+        Priced at Opus $5/$25 per MTok, cache_creation x1.25, cache_read x0.10. Any earlier entry
+        for this cycle was measured before the session's final turns and is superseded.
     - cycle: punchlist
       agent: claude-sonnet-5-5
       interface: claude-code
-      tokens_total: 3318294
+      tokens_total: 4020029
       tokens_breakdown:
-        input: 70
-        output: 13459
-        cache_creation: 80854
-        cache_read: 3223911
-      estimated_usd: 1.47
+        input: 82
+        output: 21448
+        cache_creation: 88664
+        cache_read: 3909835
+      estimated_usd: 1.83
       duration_minutes: null
       recorded_at: 2026-10-30
       note: >
-        Punch-list session in its own worktree (fix/spec-142-punch), Sonnet. Measured from the
-        session's transcript (7922ec85-....jsonl, identified by content), deduped by
-        `.message.id` (35 unique ids, all claude-sonnet-5-5), input/cache_creation/cache_read once
-        per id, MAX output_tokens per id. Priced at Sonnet $3/$15 per MTok, cache_creation x1.25,
-        cache_read x0.10: $0.0002 + $0.30 + $0.97 + $0.20. Measured before the final docs commit,
-        so it slightly under-counts.
+        Punch-list session (Sonnet), worktree fix/spec-142-punch. Re-measured at ship (2026-11-01) from the transcript(s) 7922ec85-....jsonl, found
+        by the prompt file named in the first user message, deduped by `.message.id` (41 unique
+        ids, all claude-sonnet-5-5), input/cache_creation/cache_read once per id, MAX output_tokens per id.
+        Priced at Sonnet $3/$15 per MTok, cache_creation x1.25, cache_read x0.10. Any earlier entry
+        for this cycle was measured before the session's final turns and is superseded.
     - cycle: reverify
       agent: claude-opus-5-5
       interface: claude-code
-      tokens_total: 3093733
+      tokens_total: 3148277
       tokens_breakdown:
-        input: 70
-        output: 15114
-        cache_creation: 77893
-        cache_read: 2940676
-      estimated_usd: 2.34
+        input: 72
+        output: 17272
+        cache_creation: 78659
+        cache_read: 3052274
+      estimated_usd: 2.45
       duration_minutes: null
       recorded_at: 2026-10-31
       note: >
-        Read-only re-verify session (Opus) after punch list 1. Measured by the re-verify itself
-        but not written there (read-only); recorded by the punchlist-2 session from its figures.
+        Read-only re-verify session (Opus) after punch list 1, worktree verify-spec-142-re. Re-measured at ship (2026-11-01) from the transcript(s) 0eed37a7-....jsonl, found
+        by the prompt file named in the first user message, deduped by `.message.id` (34 unique
+        ids, all claude-opus-5-5), input/cache_creation/cache_read once per id, MAX output_tokens per id.
+        Priced at Opus $5/$25 per MTok, cache_creation x1.25, cache_read x0.10. Any earlier entry
+        for this cycle was measured before the session's final turns and is superseded.
     - cycle: punchlist-2
       agent: claude-sonnet-5-5
       interface: claude-code
-      tokens_total: 1535845
+      tokens_total: 2634604
       tokens_breakdown:
-        input: 40
-        output: 6850
-        cache_creation: 54820
-        cache_read: 1474135
-      estimated_usd: 0.75
+        input: 70
+        output: 11335
+        cache_creation: 65412
+        cache_read: 2557787
+      estimated_usd: 1.18
       duration_minutes: null
       recorded_at: 2026-10-31
       note: >
-        Second punch-list session in its own worktree (fix/spec-142-punch2), Sonnet. Measured from
-        the session's transcript (cffaf2c6-....jsonl, identified by content), deduped by
-        `.message.id` (20 unique ids, all claude-sonnet-5-5), input/cache_creation/cache_read once
-        per id, MAX output_tokens per id. Priced at Sonnet $3/$15 per MTok, cache_creation x1.25,
-        cache_read x0.10. Measured before the final commit/push turns, so it slightly under-counts.
+        Second punch-list session (Sonnet), worktree fix/spec-142-punch2. Re-measured at ship (2026-11-01) from the transcript(s) cffaf2c6-....jsonl, found
+        by the prompt file named in the first user message, deduped by `.message.id` (32 unique
+        ids, all claude-sonnet-5-5), input/cache_creation/cache_read once per id, MAX output_tokens per id.
+        Priced at Sonnet $3/$15 per MTok, cache_creation x1.25, cache_read x0.10. Any earlier entry
+        for this cycle was measured before the session's final turns and is superseded.
+    - cycle: reverify-2
+      agent: claude-opus-5-5
+      interface: claude-code
+      tokens_total: 1792348
+      tokens_breakdown:
+        input: 48
+        output: 9477
+        cache_creation: 61051
+        cache_read: 1721772
+      estimated_usd: 1.48
+      duration_minutes: null
+      recorded_at: 2026-10-31
+      note: >
+        Read-only second re-verify session (Opus); it approved, worktree verify-spec-142-re2. Re-measured at ship (2026-11-01) from the transcript(s) dfbcdcd4-....jsonl, found
+        by the prompt file named in the first user message, deduped by `.message.id` (22 unique
+        ids, all claude-opus-5-5), input/cache_creation/cache_read once per id, MAX output_tokens per id.
+        Priced at Opus $5/$25 per MTok, cache_creation x1.25, cache_read x0.10. Any earlier entry
+        for this cycle was measured before the session's final turns and is superseded.
+    - cycle: ship
+      agent: claude-sonnet-5-5
+      interface: claude-code
+      tokens_total: 3736508
+      tokens_breakdown:
+        input: 76
+        output: 20065
+        cache_creation: 131755
+        cache_read: 3584612
+      estimated_usd: 1.87
+      duration_minutes: null
+      recorded_at: 2026-11-01
+      note: >
+        Ship session (Sonnet): bookkeeping only. Two transcripts, summed: ca8d39e7 (3 ids, a first attempt that stopped before any edit) and this one, worktree docs/spec-142-ship. Re-measured at ship (2026-11-01) from the transcript(s) ca8d39e7-....jsonl, 2ba88b77-....jsonl, found
+        by the prompt file named in the first user message, deduped by `.message.id` (38 unique
+        ids, all claude-sonnet-5-5), input/cache_creation/cache_read once per id, MAX output_tokens per id.
+        Priced at Sonnet $3/$15 per MTok, cache_creation x1.25, cache_read x0.10. Any earlier entry
+        for this cycle was measured before the session's final turns and is superseded.
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 57196127
+    estimated_usd: 36.77
+    session_count: 10
 ---
 
 # SPEC-142: ddphotos page native-vs-wasm parity harness
@@ -1328,10 +1364,31 @@ Process-focused: how did the build go? What friction did the spec create?
 from the process-focused build reflection above.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Three things reached verify that design could have caught. (a) The CI classifier path
+   (`scripts/ci-code-paths.sh`) was added with a self-test of its answers but no test of its
+   crash: a crashing classifier made the `changes` step report docs-only, heavy jobs skipped and
+   CI showed green. Verify found it only by driving the crash; the mutation table should have
+   listed "the classifier exits non-zero" as a row. (b) The summary line printed `0 failed` while
+   a table check failed and the run exited 1; two sessions tripped on it, and it cost punch
+   list 2. A count line is a claim, so the table's own checks should have been counted from the
+   start. (c) Moving the recipe code from `edit.js` to `recipe.js` broke the ddphotos test bed's
+   `check.py` (it read `GO_ADVANCE` from `edit.js`); the build found it only by running the test
+   bed, and the merge waited for a separate session. A refactor that moves code a downstream
+   consumer reads should grep that consumer at design. Net: two verify rounds and two punch
+   lists on a spec sized [S].
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — Proposed, not applied. (a) A new HANDOFF trap (PROJ-011 HANDOFF.md, after 14): "A CI step
+   that branches on a command's output assigns it first, then validates it, and its design lists
+   the command crashing as a mutation row." Trap 12 covers where a mutation is applied and which
+   tests go red, trap 11 covers a skip that CI cannot see; neither covers a branch that fails
+   open. `guidance/constraints.yaml` has nothing on it either. (b) The same trap should carry one more clause: a summary count line counts every failure kind. (c) DEC-110 needs no change: its
+   Validation section already records K = 1, the three x86 CPUs and the `libm::powf` remedy.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — One small backlog entry in STAGE-060: the harness's table-level checks are hard to tell
+   apart. The three P5 checks (rows 4, 8, 12) all print `P5:`, and a code comment says "P1-P5"
+   though there is no P1. The count line names them by label, so three P5 failures show as
+   `P5, P5, P5`. No behaviour change; label each check distinctly and fix the comment. The
+   native-resize exactness follow-up is already `native-wasm-resize-exactness` in
+   `guidance/ideas.yaml`, so I did not file it again.

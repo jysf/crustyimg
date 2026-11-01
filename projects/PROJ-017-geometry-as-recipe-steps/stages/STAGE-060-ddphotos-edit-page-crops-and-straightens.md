@@ -80,7 +80,7 @@ spec ships; the straighten half waits for STAGE-059.
 
 In build order.
 
-- [ ] **SPEC-142** (approved 2026-10-31, PR #234 ready) — [S] **The parity harness, first.** Before any UI: a test that takes
+- [x] **SPEC-142** (merged 2026-11-01, PR #234) — [S] **The parity harness, first.** Before any UI: a test that takes
   a recipe string, runs it through native `apply` and wasm `transform` on the same fixture,
   and compares. Run it on today's resize + watermark recipes so it's green before geometry
   arrives. Then each later spec adds a row. ⚠ Assert it can fail: feed it two recipes that
@@ -103,8 +103,13 @@ In build order.
 - [ ] (not yet written) — [S] **Test-bed round and README.** Rerun the test bed's browser
   checks on all three servers with the new controls. Update the README and the CLI panel's
   wording. Record the wasm size delta.
+- [ ] (not yet written) — [S] **Label the parity harness's table checks.** The three P5 checks
+  (rows 4, 8, 12) all print `P5:`, so the closing count line shows `P5, P5, P5` and cannot say
+  which recipe text moved. A comment in `tests/ddphotos_parity.mjs` also says "P1-P5" though there
+  is no P1. Give each check its own label and fix the comment; no behaviour change. Found by
+  SPEC-142's re-verify. Do it alongside the crop spec's first harness rows, not on its own.
 
-**Count:** 0 shipped / 0 active / 4 pending
+**Count:** 1 shipped / 0 active / 4 pending
 
 ## Design Notes
 

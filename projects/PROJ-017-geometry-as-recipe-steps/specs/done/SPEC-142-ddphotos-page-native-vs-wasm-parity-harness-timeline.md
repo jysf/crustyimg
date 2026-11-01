@@ -34,4 +34,6 @@ Cycle prompts live in `prompts/SPEC-142-<cycle>.md`.
   The orchestrator updated the branch from `main` (head `e26339b`, CI green) and kept it a draft for the test bed's
   `check.py` fix. That session had not run by 2026-11-01; on the maintainer's call the orchestrator marked PR #234
   ready at `5d20736` (CI green). Until the test-bed fix runs, its automated stage crashes on `GO_ADVANCE`.
-- [ ] **ship** (`prompts/SPEC-142-ship.md`)
+- [x] **ship** (`prompts/SPEC-142-ship.md`, 2026-11-01, Sonnet, ~$1.6). PR #234 merged 2026-11-01 as `c8aa9c03c9f49d34b3633d36f3e2f0af9f46e418`.
+  Reflected and archived. Total spec cost ~$36.5 across 10 sessions (cost entries re-measured from transcripts at ship).
+  One follow-up filed in STAGE-060 (label the harness's P5 checks); HANDOFF trap proposed, not applied.
