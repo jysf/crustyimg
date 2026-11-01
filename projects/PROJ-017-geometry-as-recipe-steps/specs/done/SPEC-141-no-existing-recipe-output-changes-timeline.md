@@ -35,4 +35,5 @@ Cycle prompts live in `prompts/SPEC-141-<cycle>.md`.
 - [x] **re-verify 2**: `prompts/SPEC-141-reverify-2.md` (2026-10-31, Opus, $0.82). ✅ APPROVED at `dec2c6a`: mutation
   (A) killed (exit 101, only the extended test red), full suite 1124/0/6. The orchestrator updated the branch from
   `main` (SPEC-143's #235 had landed) and marked PR #233 ready at `d96995c` once that CI run was green.
-- [ ] **ship**: `prompts/SPEC-141-ship.md`
+- [x] **ship**: `prompts/SPEC-141-ship.md` (2026-10-31, Sonnet). Merged as `d41ec904` (PR #233). Reflected, 9 sessions
+  re-measured, total $33.36; archived.

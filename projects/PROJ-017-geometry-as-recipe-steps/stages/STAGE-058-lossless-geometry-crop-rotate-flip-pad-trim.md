@@ -79,7 +79,7 @@ crop control (STAGE-060) waits only for this stage's crop spec.
 
 In build order. Each is framed in its own session first.
 
-- [ ] **SPEC-141** (approved 2026-10-31, PR #233 ready) — [S] **The no-bytes-changed guard, first.** A golden test that runs
+- [x] **SPEC-141** (merged 2026-10-31, PR #233) — [S] **The no-bytes-changed guard, first.** A golden test that runs
   the repo's existing recipe corpus (bundled recipes, `docs/recipes.md` examples, the build
   fixtures) and pins output hashes, so every later spec in this project can prove it moved
   nothing. ⚡ Check `scripts/cli-golden.py` first: it may already be most of this, and the spec
@@ -123,8 +123,13 @@ In build order. Each is framed in its own session first.
   / aspect **[planned — PROJ-006]**" as `crustyimg crop …`, and smart crop the same way. The verb
   set is frozen at 14 (STAGE-030), and PROJ-017 delivers crop as a recipe step plus an `edit`
   flag. Fold it into the `crop` spec's docs entries, or fix it on its own if `crop` slips.
+- [ ] (not yet written) — [S] **Recipe-output guard: report the file-set and line-count failures together.**
+  Found at SPEC-141's ship. `every_golden_line_is_checked_and_no_golden_is_stray` stops at the
+  file-set assertion, so a change that also breaks the golden line count (`GOLDEN_LINES`) reports
+  only the first (M4 in the spec's Build Completion). Test-only; optional, and only worth doing if
+  a later spec trips both at once.
 
-**Count:** 0 shipped / 0 active / 7 pending — re-derived 2026-10-30 with `grep -c '^- \[ \]'` (7) and `grep -c '^- \[x\]'` (0); SPEC-141 is framed, not active
+**Count:** 1 shipped / 0 active / 7 pending — re-derived 2026-10-31 with `grep -c '^- \[ \]'` (7, which includes the guard-report entry filed at SPEC-141's ship) and `grep -c '^- \[x\]'` (1)
 
 ## Design Notes
 
