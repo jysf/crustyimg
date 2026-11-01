@@ -313,7 +313,22 @@ Ordered. ⚡ Only the first item gates 0.8.0.
   has one unwrapped line about `--watch` (the line verify named; not located at ship). Both are
   test or docs polish with no `src/` change.
 
-**Count:** 4 shipped / 0 active / 21 pending
+- [ ] **SPEC-144** (framed 2026-10-31) — [M] **A tag push publishes every channel, on runners that
+  exist.** cargo-dist puts the Apple Silicon build on `macos-14`, retired 2026-11-02 (0.8.2's run
+  was cancelled twice in a brownout); npm is published by hand; crates.io and npm went out ~2 h
+  before the binaries. Fix: `macos-15` override; npm (OIDC trusted publishing) and crates.io as
+  cargo-dist publish jobs after `host`. Must land before the next tag. DEC-111 reserved.
+
+- [ ] (not yet written) — [S] **The release pipeline runs on `ubuntu-22.04`, which retires
+  2027-04-17.** Filed by SPEC-144's frame (2026-10-31), from actions/runner-images#14254
+  (brownouts in March 2027). cargo-dist 0.32.0 through 0.33.1 default `plan`, `host`,
+  `build-global-artifacts`, Homebrew, `announce` and the Linux build to it. The global jobs can
+  move with `[dist.github-custom-runners] global = "ubuntu-24.04"`; the Linux build moving raises
+  the released binary's glibc floor (2.35 → 2.39), a user-visible change that needs a ruling
+  (or a container/older-glibc build). Released versions are unaffected. Must land before
+  March 2027.
+
+**Count:** 4 shipped / 0 active / 23 pending
 
 ## Design Notes
 
