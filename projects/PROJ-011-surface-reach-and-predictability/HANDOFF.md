@@ -216,6 +216,14 @@ Batching these in one sitting unblocks more than anything an orchestrator can do
     new mutation. **A bless or golden guard's design also drives the next user's path:** add a new
     case by the README alone and record where it first goes green. That one row would have found
     SPEC-141's missing dump and unnamed literals at design, not over two verify rounds.
+15. **⚡ A CI STEP THAT BRANCHES ON A COMMAND'S OUTPUT ASSIGNS IT FIRST, THEN VALIDATES IT; A
+    SUMMARY LINE COUNTS EVERY FAILURE KIND.** SPEC-142's `changes` step compared
+    `"$(… | scripts/ci-code-paths.sh)"` inside `[ … ]`. Under `bash -e` a failing substitution there
+    does not stop the step, so a crashing classifier reported docs-only and every heavy job skipped
+    green. Its harness also printed `16 rows, 0 failed` while a table check failed and the run
+    exited 1. **The design lists the command crashing (and printing junk) as mutation rows**, and a
+    summary count names each failure kind it can fail on. **Before moving code, grep its downstream
+    readers** (here the test bed's `check.py`, which read `GO_ADVANCE` from `edit.js`).
 
 ## What is working, and worth keeping
 
