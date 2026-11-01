@@ -31,6 +31,7 @@ Cycle prompts live in `prompts/SPEC-142-<cycle>.md`.
   (`rows-threw` and `resize-set` labels added).
 - [x] **re-verify 2** (`prompts/SPEC-142-reverify-2.md`, 2026-10-31, Opus, $1.39). ✅ APPROVED at `1001831`: every
   table check counted and named, N1/N2/B1–B10 unchanged, clean run `0 row failures, 0 table failures, K=1`.
-  The orchestrator updated the branch from `main` (head `e26339b`, CI green) and kept it a draft: the merge waits
-  on the test bed's `check.py` fix (it reads GO_ADVANCE from `edit.js`).
+  The orchestrator updated the branch from `main` (head `e26339b`, CI green) and kept it a draft for the test bed's
+  `check.py` fix. That session had not run by 2026-11-01; on the maintainer's call the orchestrator marked PR #234
+  ready at `5d20736` (CI green). Until the test-bed fix runs, its automated stage crashes on `GO_ADVANCE`.
 - [ ] **ship** (`prompts/SPEC-142-ship.md`)

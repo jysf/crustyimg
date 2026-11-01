@@ -328,7 +328,13 @@ Ordered. ⚡ Only the first item gates 0.8.0.
   (or a container/older-glibc build). Released versions are unaffected. Must land before
   March 2027.
 
-**Count:** 4 shipped / 0 active / 23 pending
+- [ ] (not yet written) — [S] **crates.io is still published with a stored token.** Filed from
+  SPEC-144's ruling 4 (2026-11-01). crates.io supports trusted publishing (OIDC from GitHub
+  Actions), which would drop `CARGO_REGISTRY_TOKEN`. That token expired once already (0.8.1's
+  publish failed 403 until it was replaced). SPEC-144 keeps the token so each release changes one
+  credential path. Do this after SPEC-144's first real tag has published both registries from CI.
+
+**Count:** 4 shipped / 0 active / 24 pending
 
 ## Design Notes
 
