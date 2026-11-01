@@ -265,6 +265,7 @@ const CORPUS: &[&str] = &[
     "v1_resize_percent",
     "v1_watermark_image_placement",
     "v1_watermark_text_font",
+    "v2_ddphotos_cli_shape",
     "v2_format_quality_optimize",
     "v2_watermark_integer_numbers",
 ];
@@ -329,7 +330,7 @@ fn to_toml_is_byte_identical_to_main_over_the_corpus() {
     assert_eq!(on_disk, CORPUS, "CORPUS must list every corpus recipe");
 
     let pairs = golden_pairs();
-    assert_eq!(pairs.len(), 13, "10 corpus recipes + 3 bundled recipes");
+    assert_eq!(pairs.len(), 14, "11 corpus recipes + 3 bundled recipes");
 
     let registry = OperationRegistry::with_builtins();
     let png = tiny_png();
