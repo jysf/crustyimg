@@ -29,8 +29,9 @@ assumed the old layout.
    request `recipe.js`. A server that failed to serve it, or served it with the wrong MIME type,
    would go unreported. The browser checks would still fail, but less clearly.
 
-The fix must pass **both before and after** #234 merges. crustyimg `main` has no `recipe.js`
-yet, and the PR branch does.
+The fix must pass **both before and after** #234. #234 merged on 2026-11-01 as `c8aa9c0`, so
+crustyimg `main` now has `recipe.js`, and the commit before it, `53954d4`, does not. Until this fix
+lands, the test bed's automated stage crashes against `main`.
 
 ## The fix (settled, do not re-decide)
 1. **`go_advances()` reads the table from whichever installed editor file defines it.**
@@ -55,15 +56,15 @@ yet, and the PR branch does.
 ## Prove it
 Read `scripts/editor.sh` first, so you know how it takes a crustyimg ref or path. The crustyimg
 checkout is `~/PSeven/experiments/crustimg_redo_plus/crustyimg`. Don't change anything in it. If
-you need the PR's code, make a **detached worktree** of
-`origin/test/spec-142-ddphotos-parity` under `/tmp`, and remove it afterwards.
+`scripts/editor.sh` can't take a ref, make a **detached worktree** of `53954d4` under `/tmp` for the
+"before" run, and remove it afterwards.
 
 Run each step below once, in order, and record its result.
-1. **Before #234 (crustyimg `main`):** run `just editor main`, then `just stop`, `just serve-all`
+1. **Before #234 (crustyimg `53954d4`):** run `just editor 53954d4` (or the detached worktree path), then `just stop`, `just serve-all`
    and `just check`.
    - The run must be green, with no `recipe.js` row.
    - `go_advances()` reports reading `edit.js`.
-2. **After #234 (the PR's code):** run `just editor <the detached worktree path>`, then
+2. **After #234 (crustyimg `main`):** run `just editor main`, then
    `just stop`, `just serve-all` and `just check`.
    - The run must be green.
    - `GET /edit/recipe.js` is 200 with a JavaScript type, on every server that answers.
@@ -74,12 +75,12 @@ Run each step below once, in order, and record its result.
    - Then copy the two `const` lines into the installed `edit.js` too, so both files define the
      names. `just check` must raise the "more than one" error.
    - Then re-run `just editor <path>` to restore.
-4. **One full `just retest <the detached worktree path>`.**
+4. **One full `just retest main`.**
    - Record the browser-check pass/fail counts per server. The build saw 40/0 on dev, static and
      apache, with no editor check skipped.
    - Record whether the automated stage now completes.
    - If Docker isn't running, apache is skipped. Say so.
-5. Run `just stop`. Confirm `pgrep -f serve.sh` is empty, and remove the `/tmp` worktree
+5. Run `just stop`. Confirm `pgrep -f serve.sh` is empty, and remove any `/tmp` worktree you made
    (`git -C <crustyimg> worktree remove …`).
 
 ## Guardrails
