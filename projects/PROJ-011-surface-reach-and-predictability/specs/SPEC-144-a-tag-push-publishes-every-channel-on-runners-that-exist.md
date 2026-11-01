@@ -307,6 +307,16 @@ Q7.
 4. crates.io also offers trusted publishing (OIDC), which would drop `CARGO_REGISTRY_TOKEN`. Do it
    here? **Recommend no.** Keep the token this time, and change one credential path per release.
 
+
+### Maintainer rulings (2026-11-01, settled)
+1. **crates.io moves behind the binaries too.** It becomes a cargo-dist custom publish job after
+   `host`, and `publish-crates.yml` as a tag-triggered workflow goes away.
+2. **npm "disallow tokens" is turned on after the first green CI publish,** not before. Until
+   then the hand fallback (`just wasm-npm-publish`) stays usable.
+3. **No GitHub Environment or required reviewer.** Pushing the tag is the one deliberate act.
+4. **crates.io keeps `CARGO_REGISTRY_TOKEN` in this spec.** Its trusted publishing is a later
+   spec (filed in STAGE-054), so each release changes one credential path.
+
 ## Inputs
 
 - **Files to read:** `path/to/file.ext` — why
