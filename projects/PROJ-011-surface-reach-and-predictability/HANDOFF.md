@@ -208,6 +208,14 @@ Batching these in one sitting unblocks more than anything an orchestrator can do
     failure message, and the prompt names the likely wrong-reason message** (here, the coverage
     cap). **A golden needs at least one mutation that goes red on a hash mismatch**, not on a
     refusal or an exit code.
+14. **⚡ A TEST FOR A FIXED PATH CALLS THE PRODUCTION FUNCTION, AND THE OLD CODE PUT BACK VERBATIM
+    TURNS IT RED.** SPEC-141's first punch list fixed a missing-golden panic in `golden_path_for`,
+    and its new test (FT-9) drove the report builder through a closure that never called it. The
+    re-verify put the old line back unchanged: all 9 tests stayed green. A second punch list and a
+    second re-verify paid for it. **The control for a fix is the old code restored exactly**, not a
+    new mutation. **A bless or golden guard's design also drives the next user's path:** add a new
+    case by the README alone and record where it first goes green. That one row would have found
+    SPEC-141's missing dump and unnamed literals at design, not over two verify rounds.
 
 ## What is working, and worth keeping
 
