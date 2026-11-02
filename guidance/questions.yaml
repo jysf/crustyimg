@@ -191,6 +191,41 @@ questions:
       patent axis (DEC-052, see `avc-patent-exposure-for-an-independent-decoder`
       for the same shape). Do not re-open HEIC by re-probing oxideav-heif.
 
+  - id: heifer-heic-backend
+    question: "Should the opt-in `heic` feature switch from system libheif (`libheif-rs`) to the pure-Rust `heifer` decoder?"
+    priority: low
+    status: open
+    raised_by: human
+    raised_at: 2026-11-02
+    assigned_to: null
+    notes: |
+      STRONGEST CANDIDATE YET; NOT NEEDED YET. Assessed in
+      `docs/research/heifer-heic-assessment-2026-11.md`; reproducible probe at
+      `docs/probes/heifer-heic-differential/`.
+
+      Measured 2026-11-02 at heifer 0.3.20: all 223 HEVC items in 8 files (two
+      real iPhone grids, one with a gain map; macOS 36-tile wallpapers; alpha)
+      are byte-identical to ffmpeg raw YUV, with a negative control that
+      differs; 4:2:0/4:2:2/4:4:4 at 8/10/12-bit also identical; RGB differs from
+      libheif only by chroma upsampling; 13 corrupt files error cleanly.
+
+      Would buy: no system libheif, no LGPL notice, `heic` on Windows, and a C
+      decoder removed from the feature's attack surface. Would NOT buy any
+      distributed HEIC (DEC-052 patents), including the hosted wasm demo.
+
+      Why not now: 4 weeks old with one author and 28 releases; the `heifer`
+      facade always compiles its HEVC encoder (no feature to drop it); and no
+      user has asked.
+
+      Revisit when ANY fires: H1 a request for `heic` without libheif or on
+      Windows; H2 libheif-rs/system libheif breaks the `heic` CI job, or a
+      libheif/libde265 CVE hits the decode path; H3 heifer >= 0.4 AND an
+      optional encoder feature AND 6 months with no breaking change (earliest
+      2027-05-02). Before adopting: re-run the probe at the candidate version,
+      add Android, real 10-bit and rotated photos, run the `heic_decode` fuzz
+      target in a debug profile, then write the DEC superseding DEC-056's
+      libheif choice. Do not use this to re-open the patent question.
+
   # --- Raised 2026-09-30 from a pngquant / gifski comparison. All three are
   # --- investigation items, not decided work. Animated AVIF is NOT repeated here:
   # --- it is already tracked as PROJ-012 (proposed) and blocked on mp4-atom-adoption.
