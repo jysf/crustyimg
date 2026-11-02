@@ -1,13 +1,12 @@
 //! Integration tests for HEIC/HEIF as an OPT-IN input (SPEC-062, DEC-052).
 //!
-//! HEIC decode is gated behind the off-by-default `heic` cargo feature (system
-//! libheif, decode-only) and never ships in a distributed artifact: HEVC is
-//! patent-encumbered on every decode path, and the mature pure-Rust decoders are
-//! AGPL. So these tests come in two halves:
+//! HEIC decode is gated behind the off-by-default `heic` cargo feature (the pure-
+//! Rust `heifer` decoder) and never ships in a distributed artifact: HEVC is
+//! patent-encumbered on every decode path. So these tests come in two halves:
 //!
 //! - **Default build** (`cargo test`): a `.heic` is DETECTED by container brand
 //!   and rejected with exit 4 and a message naming `--features heic`.
-//! - **`cargo test --features heic`** (needs a system libheif ≥ 1.17): the same
+//! - **`cargo test --features heic`** (pure Rust, no system library): the same
 //!   `.heic` flows through the pipeline like any other input.
 //!
 //! Extension discovery works in both builds, so a directory of photos does not

@@ -450,8 +450,8 @@ install-display:
 # cargo-fuzz, a one-time setup:
 #     rustup toolchain install nightly
 #     cargo install cargo-fuzz
-# HEIC additionally needs a system libheif (`brew install libheif`) and
-# `--features heic` (best-effort; see DEC-062).
+# HEIC additionally needs `--features heic` (the pure-Rust `heifer` decoder;
+# best-effort; see DEC-062) and no system library.
 #
 # The DURABLE, per-PR guard is `cargo test` (tests/fuzz_regressions.rs — the
 # regressions + the fuzz_corpus_never_panics smoke run on every PR, 3 OSes,

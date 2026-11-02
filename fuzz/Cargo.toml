@@ -13,7 +13,7 @@
 # Run:  cargo +nightly fuzz run raw_preview -- -runs=100000
 # Seed: cargo +nightly fuzz run raw_preview ../tests/fixtures/raw
 #
-# HEIC needs its off-by-default feature AND a system libheif (SPEC-062, DEC-052):
+# HEIC needs its off-by-default feature (SPEC-062, DEC-052):
 # Run:  cargo +nightly fuzz run --features heic heic_decode -- -runs=100000
 # Seed: cargo +nightly fuzz run --features heic heic_decode ../tests/fixtures/heic
 
@@ -62,8 +62,8 @@ bench = false
 
 [features]
 # Forwards to the library's off-by-default `heic` feature so `heic_decode` can
-# reach the system-libheif decoder. Off here too: `cargo fuzz build` must not
-# require libheif to be installed.
+# reach the `heifer` decoder. Off here too: `cargo fuzz build` stays lean and
+# pulls in no extra decoder.
 heic = ["crustyimg/heic"]
 
 [workspace]
