@@ -25,6 +25,14 @@ use super::common::{
 use super::optimize::{auto_orient_prefix, pipeline_altered_source, resolve_effective_quality};
 use super::{AutoQuality, CliError, GlobalArgs};
 
+/// The stderr warning printed when `set`/`clean`/`copy` drop a C2PA manifest
+/// that their edit would otherwise have invalidated — shared so all three
+/// print identical wording and the test suite asserts on one string. It lives
+/// with the CLI, not in `metadata`, because only the CLI prints it and the CLI
+/// is not compiled for wasm32.
+const MANIFEST_DROPPED_WARNING: &str =
+    "dropped the file's Content Credentials (C2PA) manifest — this edit would have invalidated its signature";
+
 /// The `view` path: resolve the single input, load the image, and render it
 /// via the display Sink. Resolves the FIRST input when a directory/glob yields
 /// many (single-image command). A non-tty stdout refuses with
@@ -799,10 +807,7 @@ fn run_metadata_lane(
                 .path()
                 .map(|p| p.display().to_string())
                 .unwrap_or_else(|| input.stem().to_owned());
-            eprintln!(
-                "warning: {label}: {}",
-                crate::metadata::MANIFEST_DROPPED_WARNING
-            );
+            eprintln!("warning: {label}: {}", MANIFEST_DROPPED_WARNING);
         }
         let ext = metadata_output_ext(input, &raw);
 
@@ -868,10 +873,7 @@ fn run_metadata_lane(
                     && crate::metadata::has_manifest(&raw)
                     && !crate::metadata::has_manifest(&out_bytes)
                 {
-                    eprintln!(
-                        "warning: {label}: {}",
-                        crate::metadata::MANIFEST_DROPPED_WARNING
-                    );
+                    eprintln!("warning: {label}: {}", MANIFEST_DROPPED_WARNING);
                 }
                 let ext = metadata_output_ext(input, &raw);
 
@@ -984,10 +986,7 @@ pub(super) fn run_copy_metadata(from: &str, to: &str, global: &GlobalArgs) -> Re
     // DST's own manifest, not SRC's, is what can be dropped here: the graft
     // rewrites DST's EXIF/ICC (see copy_metadata's doc comment).
     if crate::metadata::has_manifest(&to_bytes) && !crate::metadata::has_manifest(&out_bytes) {
-        eprintln!(
-            "warning: {to}: {}",
-            crate::metadata::MANIFEST_DROPPED_WARNING
-        );
+        eprintln!("warning: {to}: {}", MANIFEST_DROPPED_WARNING);
     }
 
     // The output extension: DST's own extension, or sniff (format is preserved).

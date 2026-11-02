@@ -195,6 +195,13 @@ wasm-check:
     PATH="{{_wasm_bin}}:$PATH" RUSTC="{{_wasm_bin}}/rustc" \
         "{{_wasm_bin}}/cargo" build --lib --target wasm32-unknown-unknown {{_wasm_features}}
 
+# Lint the library as wasm32 sees it. Native clippy never compiles `wasm.rs` or
+# the other wasm-only code, so the crate's lint rules only reach it through this
+# build. Same feature set as the shipped artifact.
+wasm-clippy:
+    PATH="{{_wasm_bin}}:$PATH" RUSTC="{{_wasm_bin}}/rustc" \
+        "{{_wasm_bin}}/cargo" clippy --lib --target wasm32-unknown-unknown {{_wasm_features}} -- -D warnings
+
 # Build the release .wasm + JS bindings via wasm-pack → pkg/ (the npm-shaped
 # artifact STAGE-026 packages). Also reports the size SPEC-074 tunes.
 #
