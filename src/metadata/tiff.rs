@@ -256,7 +256,7 @@ fn parse_ifd(
 
         let inline_slot: [u8; 4] = get_slice(buf, entry_off + 8, 4)?
             .try_into()
-            .expect("get_slice(_, _, 4) yields exactly 4 bytes");
+            .map_err(|_| Error::OutOfBounds)?;
 
         let value = if vlen <= 4 {
             inline_slot[..vlen].to_vec()

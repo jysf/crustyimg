@@ -228,15 +228,12 @@ pub fn pick_winner(
     let eligible: Vec<usize> = (0..cands.len())
         .filter(|&i| cands[i].met_target && cands[i].bytes < source_bytes)
         .collect();
-    if eligible.is_empty() {
-        return None;
-    }
-
     // Smallest bytes, then earliest shortlist order (index is unique ⇒ total order).
-    let best = *eligible
+    // No eligible candidate means no winner.
+    let best = eligible
         .iter()
-        .min_by_key(|&&i| (cands[i].bytes, i))
-        .expect("eligible is non-empty");
+        .copied()
+        .min_by_key(|&i| (cands[i].bytes, i))?;
 
     if cands[best].fmt == source_format {
         return Some(best);
