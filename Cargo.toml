@@ -27,6 +27,10 @@ crate-type = ["cdylib", "rlib"]
 name = "crustyimg"
 path = "src/main.rs"
 
+# No unsafe code anywhere in this crate, tests included.
+[lints.rust]
+unsafe_code = "forbid"
+
 # Runtime crates arrive with the specs that use them. `image` is pinned to the
 # pure-Rust formats only (DEC-004, `pure-rust-codecs-default`): default features
 # off, no avif/mozjpeg/native. `webp` (SPEC-019, DEC-021) is in the default set —
