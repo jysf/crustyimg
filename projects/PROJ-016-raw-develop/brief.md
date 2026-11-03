@@ -140,12 +140,15 @@ needs one feature flag. This change gives it its own wave.
 ## Stage Plan
 
 - [ ] STAGE-056 (proposed) — RAW develop behind a feature, and truthful RAW metadata
+- [ ] STAGE-062 (proposed) — Sensor forensics: geometry, warp, and the preview delta (added 2026-11-02; needs `irradiance` 0.2)
 
-**Count:** 0 shipped / 0 active / 1 pending
+**Count:** 0 shipped / 0 active / 2 pending
 
-One stage, because the two specs in it are a capability and the truthfulness
-that capability makes possible, and shipping the first without the second
-leaves `info` lying about a file it can now read properly.
+STAGE-056 is one stage, because the two specs in it are a capability and the
+truthfulness that capability makes possible, and shipping the first without
+the second leaves `info` lying about a file it can now read properly.
+STAGE-062 is separate because it waits on an unpublished irradiance release
+and must not hold STAGE-056.
 
 ## Dependencies
 
