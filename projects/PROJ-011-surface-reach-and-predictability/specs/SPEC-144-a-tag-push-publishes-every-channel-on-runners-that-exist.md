@@ -334,6 +334,13 @@ Q7.
 3. **No GitHub Environment or required reviewer.** Pushing the tag is the one deliberate act.
 4. **crates.io keeps `CARGO_REGISTRY_TOKEN` in this spec.** Its trusted publishing is a later
    spec (filed in STAGE-054), so each release changes one credential path.
+5. **(2026-11-03, after design) Least privilege: the crates.io job holds no `id-token`.** This
+   overrides the design's pick (Call 2, `publish-crates.yml`). `publish-crates` gets
+   `{ contents = "read" }` only, in `[dist.github-custom-job-permissions]` and in its `publish`
+   job. `publish-npm` keeps `{ contents: read, id-token: write }`. The crates.io trusted-publishing
+   spec adds `id-token` when it uses it. AC-4, AC-7, C4 and C7 check the two jobs' permissions
+   separately; the build applies this to Call 1, Call 2, those ACs and checks, and the mutation
+   table, and records the edits in Build Completion.
 
 ## Design
 
