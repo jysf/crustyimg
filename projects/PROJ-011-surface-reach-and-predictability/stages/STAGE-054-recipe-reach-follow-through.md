@@ -313,7 +313,7 @@ Ordered. ⚡ Only the first item gates 0.8.0.
   has one unwrapped line about `--watch` (the line verify named; not located at ship). Both are
   test or docs polish with no `src/` change.
 
-- [ ] **SPEC-144** (framed 2026-10-31) — [M] **A tag push publishes every channel, on runners that
+- [ ] **SPEC-144** (designed 2026-11-02) — [M] **A tag push publishes every channel, on runners that
   exist.** cargo-dist puts the Apple Silicon build on `macos-14`, retired 2026-11-02 (0.8.2's run
   was cancelled twice in a brownout); npm is published by hand; crates.io and npm went out ~2 h
   before the binaries. Fix: `macos-15` override; npm (OIDC trusted publishing) and crates.io as
