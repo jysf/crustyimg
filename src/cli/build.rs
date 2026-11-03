@@ -1152,7 +1152,10 @@ fn watch_impl(file: Option<&str>, global: &GlobalArgs) -> Result<(), CliError> {
     Ok(())
 }
 
-#[cfg(all(test, feature = "watch"))]
+// Two attributes, not `cfg(all(test, ...))`: clippy only treats a plain
+// `cfg(test)` module as test code, where unwrap is allowed.
+#[cfg(test)]
+#[cfg(feature = "watch")]
 mod watch_tests {
     use super::*;
 

@@ -165,7 +165,7 @@ impl ParamKind {
                 let (n, shown) = match value {
                     Value::Integer(i) => (*i as f64, i.to_string()),
                     Value::Float(f) => (*f, float_text(*f)),
-                    _ => unreachable!("matched Integer | Float above"),
+                    other => return Err(describe_value(other)),
                 };
                 // The ops read the value as an f32, so the range applies to what
                 // they will see: `1e-50` is above 0 as an f64 but reads as 0.0.
