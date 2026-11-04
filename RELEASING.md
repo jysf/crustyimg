@@ -20,13 +20,18 @@ Releases are marked with **annotated** git tags named `vMAJOR.MINOR.PATCH`
 The release pipeline (cargo-dist, `dist-workspace.toml`) triggers on these tags
 to build cross-platform binaries, checksummed archives, and shell/powershell
 installers, and creates a GitHub Release automatically; do not create
-bare/lightweight tags. Pushing a version tag ALSO (SPEC-042):
+bare/lightweight tags.
 
-- pushes an updated Homebrew formula to the **`jysf/homebrew-tap`** tap
-  (`brew install jysf/tap/crustyimg`), via the cargo-dist `publish-homebrew-formula`
-  job; and
-- **publishes to crates.io** (`cargo publish --locked`) via the separate
-  `.github/workflows/publish-crates.yml` workflow.
+Pushing a version tag is the one decision to publish (DEC-111). After every target has built
+and the GitHub Release exists, the same workflow run publishes, in parallel:
+
+- the Homebrew formula to **`jysf/homebrew-tap`** (`publish-homebrew-formula`;
+  `brew install jysf/tap/crustyimg`);
+- **crates.io** (`custom-publish-crates`, `cargo publish --locked`);
+- **npm** `crustyimg-wasm` (`custom-publish-npm`, `just wasm-npm-publish` by trusted publishing).
+
+If any build fails, nothing publishes. A prerelease tag (`v0.9.0-rc.1`) creates a GitHub
+prerelease and publishes nowhere else.
 
 ## One-time setup (done — kept for reference) — **[MAINTAINER-AUTHORIZED]**
 
@@ -39,9 +44,16 @@ fork or a credential rotation has the checklist.
    (the cargo-dist job creates the `Formula/` dir + commits `crustyimg.rb` on release).
 2. **Add repo secrets** to `jysf/crustyimg` (Settings → Secrets and variables → Actions):
    - **`CARGO_REGISTRY_TOKEN`** — a crates.io API token (crates.io → Account Settings →
-     API Tokens), used by `publish-crates.yml`.
+     API Tokens), used by the `custom-publish-crates` job.
    - **`HOMEBREW_TAP_TOKEN`** — a GitHub PAT with **write access to `jysf/homebrew-tap`**
      (a fine-grained PAT scoped to that repo is ideal), used by the cargo-dist homebrew job.
+3. **npm trusted publisher**: on npmjs.com, open `crustyimg-wasm` → **Settings** → **Trusted
+   publisher** → **GitHub Actions**, then enter user **`jysf`**, repository **`crustyimg`** and
+   workflow filename **`release.yml`**. Name `release.yml`, the workflow the tag starts, **not**
+   `publish-npm.yml`: npm checks the *calling* workflow. Leave the environment empty.
+4. **After the first tag publishes npm from CI**, and only then: `crustyimg-wasm` →
+   **Settings** → **Publishing access** → "Require two-factor authentication and disallow
+   tokens". Until that first green publish, the hand fallback below must keep working.
 
 A crates.io publish is **irreversible** — a given version can never be re-published. The
 `cargo publish --dry-run` + full gate suite below are the guard; run them before tagging.
@@ -118,17 +130,46 @@ or delegate them.
    ```
    git push origin vX.Y.Z
    ```
-   This single push fires all three channels (SPEC-042): the cargo-dist pipeline
-   builds cross-platform binaries + checksums and creates the **GitHub Release**;
-   the `publish-homebrew-formula` job pushes the formula to **`jysf/homebrew-tap`**;
-   and `publish-crates.yml` **publishes to crates.io**. Confirm the one-time setup
-   (tap repo + both secrets, above) is done first.
+   This single push fires all four channels, in this order: the builds (four targets) → `host`
+   creates the **GitHub Release** → **Homebrew**, **crates.io** and **npm** in parallel →
+   `announce`. Watch it on the Actions page (workflow **Release**). Confirm the one-time setup
+   above first.
 
-8. **Verify the channels** — after the tag's workflows finish, confirm: the GitHub
-   Release exists with artifacts + checksums; `cargo search crustyimg` shows the new
-   version on crates.io; and `brew install jysf/tap/crustyimg` installs it. If the
-   crates.io job ever needs to be run by hand (e.g. a token issue), the manual
-   fallback is `cargo publish --locked` — **[MAINTAINER-AUTHORIZED]** (irreversible).
+8. **Verify the channels.** When the Release run is green: the GitHub Release has its artifacts
+   and checksums; `cargo search crustyimg` and `npm view crustyimg-wasm version` both show the
+   new version; `brew install jysf/tap/crustyimg` installs it.
+
+   **If one publish job fails:** open the run and click **Re-run failed jobs**. Each publish job
+   first asks its registry whether the version is already there. If it is, the job prints
+   `SKIP: … already on …` and passes. If the registry could not be asked, the job fails with
+   `COULD NOT ASK …` and publishes nothing; re-run it later. A failed *build* publishes nothing at
+   all. Re-run it the same way.
+
+   **Hand fallback (recovery only, [MAINTAINER-AUTHORIZED], irreversible).** Use it only when a
+   re-run cannot succeed, for example a revoked token or a broken npm trusted-publisher setting.
+   From a clean checkout of the tag (`git worktree add ../crustyimg-vX.Y.Z vX.Y.Z`), run
+   `scripts/release-publish-guard.sh npm vX.Y.Z`. If it prints `action=publish`, run `npm login`
+   and then `just wasm-npm-publish`. For crates.io, run `scripts/release-publish-guard.sh crates
+   vX.Y.Z`, then `cargo publish --locked`. Once "disallow tokens" is on, the npm hand path needs a
+   token-free login; fix the trusted-publisher setting and re-run the job instead.
+
+### The first tag after the publish jobs moved into the Release workflow (one time)
+
+The pull request that moved npm and crates.io behind `host` proved the four builds and both
+dry runs. Only a real tag proves the npm OIDC exchange and the two real publishes. For that tag:
+
+- [ ] Before tagging: one-time setup item 3 is done (the npm trusted publisher names
+      **`release.yml`**). Item 4 ("disallow tokens") is **not** done yet.
+- [ ] Before tagging: `npm whoami` works on your machine, so the hand fallback is ready.
+- [ ] After pushing the tag, in the Release run: four `build-local-artifacts` jobs green
+      (Apple Silicon on `macos-15`), then `host`, then `custom-publish-crates / guard` and
+      `custom-publish-npm / guard` print `PUBLISH: …`, then both `… / publish` jobs green.
+- [ ] `npm view crustyimg-wasm@X.Y.Z dist.attestations` shows a provenance attestation (trusted
+      publishing adds it).
+- [ ] If `custom-publish-npm / publish` fails on authentication: check the trusted-publisher
+      workflow filename first (`release.yml`), then **Re-run failed jobs**. Use the hand fallback
+      only if that cannot work.
+- [ ] Once both registries show the version from CI: turn on one-time setup item 4.
 
 ## After the release
 

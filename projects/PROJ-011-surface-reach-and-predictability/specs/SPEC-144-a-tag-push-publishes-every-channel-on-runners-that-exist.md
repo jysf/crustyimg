@@ -353,7 +353,7 @@ the repo's own `dist 0.32.0`, and the scratch copy was then discarded.*
 | # | Probe | Result | Consequence |
 |---|---|---|---|
 | P1 | `publish-jobs = ["homebrew", "./publish-crates", "./publish-npm"]` + `dist generate --mode=ci` | Adds `custom-publish-crates` and `custom-publish-npm` (`needs: [plan, host]`, prerelease `if:`, `uses: ./.github/workflows/publish-*.yml`, `with: plan`, `secrets: inherit`). `announce` gains both in `needs` and `if`. No other job changes. | Option B is what the frame said. |
-| P2 | The same, default permissions | Each custom job gets `{ id-token: write, packages: write }` and **no `contents`**. A job-level `permissions` block sets every unlisted scope to `none`, so the called workflow could not request `contents: read` (a startup failure that would surface only on the tag). | **Add `[dist.github-custom-job-permissions]`** (Call 1). With it, both jobs get exactly `{ contents: read, id-token: write }`. The default `packages: write` is dropped, since nothing here pushes a package to GHCR. |
+| P2 | The same, default permissions | Each custom job gets `{ id-token: write, packages: write }` and **no `contents`**. A job-level `permissions` block sets every unlisted scope to `none`, so the called workflow could not request `contents: read` (a startup failure that would surface only on the tag). | **Add `[dist.github-custom-job-permissions]`** (Call 1). With it, both jobs get exactly what the table lists: after ruling 5, `publish-crates` gets `{ contents: read }` and `publish-npm` gets `{ contents: read, id-token: write }`. The default `packages: write` is dropped, since nothing here pushes a package to GHCR. |
 | P3 | `[dist.github-custom-runners] aarch64-apple-darwin = "macos-15"`, then `dist plan --output-format=json` | `aarch64-apple-darwin → macos-15`, `x86_64-apple-darwin → macos-15-intel`, `x86_64-pc-windows-msvc → windows-2022`, `x86_64-unknown-linux-gnu → ubuntu-22.04`. `release.yml` is byte-identical. | The runner lives in `plan`'s JSON, **not** in `release.yml`. A check of the runner must run `dist plan`. Grepping the YAML cannot see it. |
 | P4 | Hand-edit `release.yml` (append a line), then `dist plan` and `dist generate --mode=ci --check` | Both exit **255**: "out of date … run 'dist init' to update the file". In sync, `--check` exits 0. | **CI already has a drift check.** `release.yml` runs on every `pull_request`, and its `plan` job runs `dist plan`, which fails on a stale workflow. `--check` is the non-mutating local form. |
 | P5 | `npm view crustyimg-wasm@9.9.9 version` (absent) vs the registry at `127.0.0.1:9` (unreachable) | **Both exit 1.** | `npm view` **cannot** tell "absent" from "could not ask". The guard reads the package document instead (Call 4). |
@@ -379,11 +379,12 @@ publish-jobs = ["homebrew", "./publish-crates", "./publish-npm"]
 [dist.github-custom-runners]
 aarch64-apple-darwin = "macos-15"
 
-# The registry publish jobs read the repo (contents) and mint an OIDC token for npm
-# trusted publishing (id-token). dist's default grants id-token + packages and no
-# contents, which a called workflow cannot raise.
+# Least privilege for the registry publish jobs. Both read the repo (contents). Only
+# npm mints an OIDC token, for trusted publishing (id-token); crates.io still uses
+# CARGO_REGISTRY_TOKEN. dist's default grants id-token + packages and no contents,
+# which a called workflow cannot raise.
 [dist.github-custom-job-permissions]
-"publish-crates" = { contents = "read", id-token = "write" }
+"publish-crates" = { contents = "read" }
 "publish-npm" = { contents = "read", id-token = "write" }
 ```
 
@@ -413,7 +414,7 @@ jobs:
   guard:    if: github.event_name == 'push' && github.ref_type == 'tag'
   publish:  needs: guard
             if: github.event_name == 'push' && github.ref_type == 'tag' && needs.guard.outputs.action == 'publish'
-            permissions: { contents: read, id-token: write }
+            permissions: { contents: read, id-token: write }   # npm; crates: { contents: read } (ruling 5)
   dry-run:  if: github.event_name == 'pull_request'
             permissions: { contents: read }
 ```
@@ -423,8 +424,8 @@ jobs:
   `github.ref_type == 'tag'` and `GITHUB_REF_NAME` is the tag (`v0.8.3`), so the guard reads the
   tag from `GITHUB_REF_NAME`. `inputs.plan` (dist's manifest JSON) is declared because dist passes
   it. The jobs do not need it; the guard decides from the tag and the tree.
-- **Permissions.** The caller grants `{contents: read, id-token: write}` (Call 1). Only `publish`
-  asks for `id-token`. `guard` and `dry-run` hold `contents: read` only, so **a PR run never holds
+- **Permissions.** The npm caller grants `{contents: read, id-token: write}` and the crates caller
+  `{contents: read}` (Call 1, ruling 5). Only npm's `publish` asks for `id-token`. `guard` and `dry-run` hold `contents: read` only, so **a PR run never holds
   an OIDC token.**
 - **`secrets: inherit`** (generated) passes `CARGO_REGISTRY_TOKEN` into the called workflow. Only
   the `publish` job's publish *step* names it, in that step's `env`. The `dry-run` job references
@@ -487,7 +488,7 @@ jobs:
     needs: guard
     if: github.event_name == 'push' && github.ref_type == 'tag' && needs.guard.outputs.action == 'publish'
     runs-on: ubuntu-latest
-    permissions: { contents: read, id-token: write }
+    permissions: { contents: read }
     steps:
       - uses: actions/checkout@v6
         with: { persist-credentials: false }
@@ -514,10 +515,10 @@ jobs:
         run: cargo publish --dry-run --locked
 ```
 
-`publish` holds `id-token` although crates.io still uses a token (ruling 4). That is deliberate:
-crates.io trusted publishing (the STAGE-054 entry) then changes only that job's step. If the
-builder prefers least privilege now, `contents: read` alone is acceptable, but the
-`github-custom-job-permissions` entry for `publish-crates` must match it, and C4 checks them.
+`publish` holds `contents: read` only (ruling 5, least privilege): crates.io still uses a token
+(ruling 4), so no crates job holds `id-token`. The crates.io trusted-publishing spec (the STAGE-054
+entry) adds `id-token` to this job and to the `github-custom-job-permissions` entry together. C4
+checks the entry and C7 checks this job, each separately for crates and npm.
 
 #### `publish-npm.yml`
 
@@ -590,7 +591,17 @@ jobs:
           grep -q '(dry-run)' "$RUNNER_TEMP/npm.log" || { echo "::error::npm publish did not run as a dry run"; exit 1; }
 ```
 
-**Can the PR dry run reach a real publish? No, behind three independent locks.** (1) `publish` has
+*(Build, 2026-11-03: the `dry-run` job above does not work as designed. A step-wide
+`npm_config_dry_run` also turns the smoke test's `npm pack` into a dry run, so no tarball is
+written and the smoke fails; and npm 11 refuses even a dry run of a version the real registry
+already has (`You cannot publish over the previously published versions: 0.8.2`), which a PR
+usually carries. P8 probed `npm publish` alone, against an unreachable registry. The built job
+puts a small `npm` wrapper on `PATH` that sets `npm_config_dry_run=true` and
+`npm_config_registry=http://127.0.0.1:9/` for `npm publish` only. The recipe is still unchanged.
+See Build Completion.)*
+
+**Can the PR dry run reach a real publish? No, behind three independent locks** (four as built: the
+publish call also points at an address where nothing listens). (1) `publish` has
 `if: github.event_name == 'push' && …`, and a `pull_request` run has `event_name ==
 'pull_request'`. (2) `dry-run` holds no `id-token` and no `NODE_AUTH_TOKEN`, so a non-dry
 `npm publish` there fails `ENEEDAUTH` (P8). (3) npm's trusted publisher names `release.yml`, and a
@@ -846,10 +857,10 @@ Workflows, not `src/`: each AC names its check(s) (§ Checks) and what turns tha
 - [ ] **AC-1** `dist plan` maps `aarch64-apple-darwin` to `macos-15`. *(C2. Red: runner ≠ macos-15. Live: L1's aarch64 job label.)*
 - [ ] **AC-2** The other three targets keep `macos-15-intel`, `ubuntu-22.04` and `windows-2022`. *(C2's exact four-entry map. L1's three other labels.)*
 - [ ] **AC-3** `release.yml` is exactly what `dist generate --mode=ci` at 0.32.0 produces. *(C1; V1 `git diff` empty. Red: any hand edit.)*
-- [ ] **AC-4** `custom-publish-crates` **and** `custom-publish-npm` each: `needs == [plan, host]`; `uses` its own `publish-*.yml`; `permissions == {contents: read, id-token: write}`; `secrets: inherit`; `with.plan`; and an `if:` that contains `announcement_is_prerelease`. *(C3 and C4, one assertion per job per property.)*
+- [ ] **AC-4** `custom-publish-crates` **and** `custom-publish-npm` each: `needs == [plan, host]`; `uses` its own `publish-*.yml`; `permissions` exactly `{contents: read}` for crates and `{contents: read, id-token: write}` for npm (ruling 5); `secrets: inherit`; `with.plan`; and an `if:` that contains `announcement_is_prerelease`. *(C3 and C4, one assertion per job per property.)*
 - [ ] **AC-5** `announce.needs` includes both custom jobs, and its `if:` names both custom jobs' `.result`. Every other job's `needs` equals today's. *(C3 exact needs table, C5.)*
 - [ ] **AC-6** No workflow has a tag-push trigger that publishes: `publish-crates.yml` and `publish-npm.yml` have **no** `push` trigger, and `cargo publish` / `npm publish` / `wasm-npm-publish` appear in no workflow file except those two. *(C6.)*
-- [ ] **AC-7** In **each** publish workflow: `publish` runs only when `event_name == 'push' && ref_type == 'tag'` and the guard said `publish`, and it is the only job holding `id-token: write`; `dry-run` runs only on `pull_request` and names no secret; and `guard`'s script step is followed by the verdict-validation step. *(C7, per file.)*
+- [ ] **AC-7** In **each** publish workflow: `publish` runs only when `event_name == 'push' && ref_type == 'tag'` and the guard said `publish`, and in `publish-npm.yml` it is the only job holding `id-token: write`, while in `publish-crates.yml` no job holds `id-token` (`publish` is exactly `{contents: read}`, ruling 5); `dry-run` runs only on `pull_request` and names no secret; and `guard`'s script step is followed by the verdict-validation step. *(C7, per file.)*
 - [ ] **AC-8** The guard refuses, with exit 1 and its line: a malformed tag, a prerelease tag, tag ≠ `Cargo.toml`, and a dirty tracked tree. *(Self-test G1–G4, plus local runs R1–R4 against a scratch checkout.)*
 - [ ] **AC-9** Idempotent: a version that **is** on the registry gives exit 0, `SKIP:` and `action=skip`; one that is **not** gives exit 0, `PUBLISH:` and `action=publish`. Proved for **npm and crates.io**. *(G5, G6, G11, G12. Local R5 against the real registries with `v0.8.2` / Cargo.toml 0.8.2: SKIP on both.)*
 - [ ] **AC-10** Could not ask means exit 3, `COULD NOT ASK`, and no `action=` written. Covered: unreachable, a 404 for the package, a 503, an unreadable 200 (npm); unreachable and a 503 (crates). *(G7–G10, G13, G14. Local R6: `RELEASE_GUARD_NPM_URL=http://127.0.0.1:9/x`.)*
@@ -857,7 +868,7 @@ Workflows, not `src/`: each AC names its check(s) (§ Checks) and what turns tha
 - [ ] **AC-12** The PR dry runs pass: `publish-npm / dry-run` (`(dry-run)` in its log) and `publish-crates / dry-run` (`aborting upload due to dry run`). *(D1, D2, quoted.)*
 - [ ] **AC-13** The build PR's Release run (with `pr-run-mode = "upload"`) builds all four targets green, with the runner labels and the artifact list quoted from the API, the aarch64 binary is arm64, and `host` plus every publish job is skipped. *(L1, L2, L3.)*
 - [ ] **AC-14** The merged state has no `pr-run-mode` key. `release.yml` is regenerated, and its diff from the run's version is only the upload-mode lines. *(C2 `pr_run_mode == "plan"`, L4.)*
-- [ ] **AC-15** `actionlint` reports zero findings on `release.yml`, `publish-npm.yml` and `publish-crates.yml`. *(A1.)*
+- [ ] **AC-15** `actionlint` reports zero findings on `release.yml`, `publish-npm.yml` and `publish-crates.yml`. *(A1.)* *(Build: with shellcheck installed, actionlint reports 6 shellcheck findings inside dist's generated `release.yml`, the same 6 as on `main`. They cannot be fixed without a hand edit. A1 runs `-shellcheck=` on all three, plus full actionlint with shellcheck on the two hand-written files.)*
 - [ ] **AC-16** DEC-111 exists (design). DEC-067, DEC-041 and DEC-040 carry the Call 8 amendments. `./scripts/decisions-audit.sh --changed` lists DEC-111 for the changed workflow and script paths. *(V2.)*
 - [ ] **AC-17** Docs: RELEASING.md has each Call 9 item. Each one is checked by a `grep -n` the build quotes: `release.yml` in the trusted-publisher step; the order line; "Re-run failed jobs"; "disallow tokens" with "after"; "recovery only". Plus the three comment edits and the HANDOFF bullet. *(V3.)*
 - [ ] **AC-18 (post-merge, maintainer; not a build gate)** The first real tag publishes both registries from CI after `host`, per RELEASING.md step 8. The ship cycle records the run id and both publish jobs' logs.
@@ -882,10 +893,10 @@ command's output to a variable **before** testing it (trap 15). No `[ "$(cmd)" �
 | C1 | `dist generate --mode=ci --check` exits 0 | green (in sync today) |
 | C2 | `dist plan --output-format=json` `.ci.github.artifacts_matrix.include[]` maps to **exactly** `{aarch64-apple-darwin: macos-15, x86_64-apple-darwin: macos-15-intel, x86_64-unknown-linux-gnu: ubuntu-22.04, x86_64-pc-windows-msvc: windows-2022}`, and `.ci.github.pr_run_mode == "plan"` | `FAIL C2: aarch64-apple-darwin runs on macos-14, expected macos-15` |
 | C3 | `release.yml` job ids are exactly the 8 below, and each `needs` equals: `plan` none; `build-local-artifacts` [plan]; `build-global-artifacts` [plan, build-local-artifacts]; `host` [plan, build-local-artifacts, build-global-artifacts]; `publish-homebrew-formula` [plan, host]; `custom-publish-crates` [plan, host]; `custom-publish-npm` [plan, host]; `announce` [plan, host, publish-homebrew-formula, custom-publish-crates, custom-publish-npm] | `FAIL C3: job custom-publish-crates missing` (and npm), `FAIL C3: announce needs [plan,host,publish-homebrew-formula] …` |
-| C4 | For **each** custom job: `uses == "./.github/workflows/publish-<x>.yml"`, `permissions == {contents: read, id-token: write}`, `secrets == "inherit"`, `with.plan` present, and `if` contains `announcement_is_prerelease` | `FAIL C4: custom-publish-crates missing` ×2 |
+| C4 | For **each** custom job: `uses == "./.github/workflows/publish-<x>.yml"`, `permissions` exactly `{contents: read}` for `custom-publish-crates` and exactly `{contents: read, id-token: write}` for `custom-publish-npm` (ruling 5; a crates job that gains `id-token` is red), `secrets == "inherit"`, `with.plan` present, and `if` contains `announcement_is_prerelease` | `FAIL C4: custom-publish-crates missing` ×2 |
 | C5 | `announce.if` contains `needs.custom-publish-crates.result` and `needs.custom-publish-npm.result` | FAIL ×2 |
 | C6 | `publish-crates.yml` and `publish-npm.yml` both exist, and neither `on` has a `push` key. `grep -lE 'cargo publish\|npm publish\|wasm-npm-publish' .github/workflows/*.yml` returns exactly those two files | `FAIL C6: publish-crates.yml has a push trigger`; `FAIL C6: publish-npm.yml missing` |
-| C7 | Per file: `on.workflow_call.inputs.plan` and `on.pull_request` exist; job `publish`'s `if` contains `github.event_name == 'push'`, `github.ref_type == 'tag'` and `needs.guard.outputs.action == 'publish'`, and its permissions include `id-token: write`; jobs `guard` and `dry-run` have **no** `id-token`; `dry-run.if` contains `pull_request`; no step in `dry-run` contains `secrets.`; `guard` has a step with `release-publish-guard.sh <npm\|crates>` whose **next** step's `run` contains `expected publish or skip`; npm only: `dry-run` has `npm_config_dry_run: "true"` and both npm jobs use `node-version: '24'` | FAIL (files missing) |
+| C7 | Per file: `on.workflow_call.inputs.plan` and `on.pull_request` exist; job `publish`'s `if` contains `github.event_name == 'push'`, `github.ref_type == 'tag'` and `needs.guard.outputs.action == 'publish'`, and its permissions are exactly `{contents: read, id-token: write}` in `publish-npm.yml` and exactly `{contents: read}` in `publish-crates.yml` (ruling 5; checked per file, so a crates `publish` that gains `id-token` is red); jobs `guard` and `dry-run`, and the workflow-level `permissions`, have **no** `id-token`; `dry-run.if` contains `pull_request`; no step in `dry-run` contains `secrets.`; `guard` has a step with `release-publish-guard.sh <npm\|crates>` whose **next** step's `run` contains `expected publish or skip`; npm only: `dry-run` has `npm_config_dry_run: "true"` *(as built: its npm wrapper sets `npm_config_dry_run=true` and `npm_config_registry=http://127.0.0.1:9/`, and comes before the recipe step)* and both npm jobs use `node-version: '24'` | FAIL (files missing) |
 
 ### `scripts/release-publish-guard.sh --self-test` (G1–G14)
 
@@ -975,12 +986,14 @@ noted), record every red check with its quoted line, then revert and confirm gre
 | M8 | The verdict is junk | the guard writes `action=yes` | G5, G6, G11, G12 (`action=yes, expected action=publish`) | exit-code and message checks on those rows; G1–G4, G7–G10 |
 | M9 | Drop the verdict-validation step | `publish-crates.yml` → `guard`: delete the "expected publish or skip" step | C7 (`FAIL C7: publish-crates.yml guard step is not followed by the verdict check`) | the rest |
 | M10 | `publish` loses its event gate | `publish-npm.yml` → `publish.if`: delete `github.event_name == 'push' && github.ref_type == 'tag' &&` | C7 (`… publish.if lacks github.event_name == 'push'`) | the rest. (Live, `guard` is still event-gated, so `publish` would skip on its `needs`. This is why C7 checks both gates.) |
-| M11 | Default custom-job permissions | delete `[dist.github-custom-job-permissions]`, then `dist generate --mode=ci` | C4 ×2 (`permissions {id-token: write, packages: write}, expected {contents: read, id-token: write}`) | **C1** (regenerated), C2, C3, C5–C7 |
+| M11 | Default custom-job permissions | delete `[dist.github-custom-job-permissions]`, then `dist generate --mode=ci` | C4 ×2 (crates: `permissions {id-token: write, packages: write}, expected {contents: read}`; npm: `…, expected {contents: read, id-token: write}`) | **C1** (regenerated), C2, C3, C5–C7 |
 | M12 | The self-test summary undercounts | in `--self-test`, increment the failure count only on exit-code mismatches (message and action mismatches still print `FAIL`), then also apply M8 | under M8 alone: self-test exit 1, summary `(exit: 0, message: 0, action: 4)`. Under M12+M8: it prints 4 `FAIL` lines and **exits 0**, so verify's cross-check **V-M12** goes red. V-M12 is run for every row of this table: the self-test exits 1 **iff** its output has a line starting `FAIL` | — |
 | M13 | `pr-run-mode` left at upload | add `pr-run-mode = "upload"` under `[dist]`, then regenerate | C2 (`FAIL C2: pr_run_mode is upload, expected plan`) | C1, C3–C7 |
 | M14 | A tag trigger comes back | `publish-crates.yml`: add `push: { tags: ['v*'] }` under `on` | C6 (`FAIL C6: publish-crates.yml has a push trigger`) | the rest |
-| M15 | The PR dry run is not dry | `publish-npm.yml` → `dry-run`: delete the `npm_config_dry_run` env | C7 (`… dry-run lacks npm_config_dry_run`). Live (verify may push it to a scratch PR, optional): `ENEEDAUTH`, red | the rest |
+| M15 | The PR dry run is not dry | `publish-npm.yml` → `dry-run`: delete the `npm_config_dry_run` env *(as built: delete `npm_config_dry_run=true` from the npm wrapper step)* | C7 (`… dry-run lacks npm_config_dry_run`). Live (verify may push it to a scratch PR, optional): `ENEEDAUTH`, red | the rest |
 | M16 | The guard crashes before writing a verdict (trap 15) | insert `exit 7` as the guard's first line after `set -euo pipefail` | every G row (`exit 7, expected …`); live, the `guard` step fails red, never a silent skip | C1–C7 |
+| M17 | The crates job gains `id-token` in its workflow (ruling 5) | `publish-crates.yml` → `publish.permissions`: add `id-token: write` | C7 (`FAIL C7: publish-crates.yml publish permissions {"contents":"read","id-token":"write"}, expected {"contents":"read"}`) | C1–C6, self-test |
+| M18 | The crates job gains `id-token` in the config (ruling 5) | `dist-workspace.toml` → `"publish-crates" = { contents = "read", id-token = "write" }`, then `dist generate --mode=ci` | C4 (`FAIL C4: custom-publish-crates permissions {"contents":"read","id-token":"write"}, expected {"contents":"read"}`) | C1 (regenerated), C2, C3, C5–C7, self-test |
 
 ## Implementation Context
 

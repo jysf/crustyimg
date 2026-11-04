@@ -15,7 +15,8 @@
 // --target wasm32` silently ships +109 KB on the wire.
 //
 // Publishing is NOT this script's job and never will be (DEC-067): it stops at a
-// finalized pkg/. `npm publish` is gated on maintainer approval (SPEC-076).
+// finalized pkg/. `npm publish` happens only through `just wasm-npm-publish`, which CI
+// runs on a tag (DEC-111).
 
 import { copyFileSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
