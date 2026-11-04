@@ -7,7 +7,7 @@
 task:
   id: SPEC-144
   type: chore                      # epic | story | task | bug | chore
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: M                    # S | M | L  (L means split it)
@@ -58,62 +58,97 @@ cost:
     - cycle: frame
       agent: claude-opus-5-5
       interface: claude-code
-      tokens_total: 5399925
+      tokens_total: 6700859
       tokens_breakdown:
-        input: 90
-        output: 28573
-        cache_creation: 129976
-        cache_read: 5241286
-      estimated_usd: 4.15
+        input: 106
+        output: 33682
+        cache_creation: 135707
+        cache_read: 6531364
+      estimated_usd: 4.96
       duration_minutes: null
       recorded_at: 2026-10-31
-      rate_anchors: "claude-opus-5-5: input $5/MTok, output $25/MTok, cache_creation x1.25 ($6.25), cache_read x0.10 ($0.50)"
+      rate_anchors: "claude-opus-5-5: input $5/MTok, output $25/MTok, cache_creation x1.25 ($6.25), cache_read x0.10 ($0.5)"
       note: >
-        Interactive frame session in its own worktree (docs/spec-144-frame). Measured from the
-        session's transcript (8805a15c-….jsonl, identified by content), deduped by `.message.id`
-        (44 unique ids, all claude-opus-5-5), input/cache_creation/cache_read once per id, MAX
-        output_tokens per id. Measured before the commit/push turns, so it slightly under-counts.
+        Interactive frame session in its own worktree (docs/spec-144-frame). Measured from the session's
+        transcript (8805a15c-….jsonl, identified by content), deduped by `.message.id`
+        (52 unique ids, all claude-opus-5-5), input/cache_creation/cache_read once per id, MAX
+        output_tokens per id. Re-measured at ship from the full transcript (was 5399925 tokens / $4.15, measured before the last turns).
     - cycle: design
       agent: claude-opus-5-5
       interface: claude-code
-      tokens_total: 4369768
+      tokens_total: 5558438
       tokens_breakdown:
-        input: 68
-        output: 67372
-        cache_creation: 163683
-        cache_read: 4138645
-      estimated_usd: 4.78
+        input: 82
+        output: 72325
+        cache_creation: 171334
+        cache_read: 5314697
+      estimated_usd: 5.54
       duration_minutes: null
       recorded_at: 2026-11-02
-      rate_anchors: "claude-opus-5-5: input $5/MTok, output $25/MTok, cache_creation x1.25 ($6.25), cache_read x0.10 ($0.50)"
+      rate_anchors: "claude-opus-5-5: input $5/MTok, output $25/MTok, cache_creation x1.25 ($6.25), cache_read x0.10 ($0.5)"
       note: >
-        Interactive design session in its own worktree (docs/spec-144-design). Measured from the
-        session's transcript (90249c55-….jsonl, identified by content), deduped by `.message.id`
-        (34 unique ids, all claude-opus-5-5), input/cache_creation/cache_read once per id, MAX
-        output_tokens per id. Measured before the commit/push turns, so it slightly under-counts.
+        Interactive design session in its own worktree (docs/spec-144-design). Measured from the session's
+        transcript (90249c55-….jsonl, identified by content), deduped by `.message.id`
+        (40 unique ids, all claude-opus-5-5), input/cache_creation/cache_read once per id, MAX
+        output_tokens per id. Re-measured at ship from the full transcript (was 4369768 tokens / $4.78).
     - cycle: build
       agent: claude-opus-5-5
       interface: claude-code
-      tokens_total: 16914104
+      tokens_total: 20690381
       tokens_breakdown:
-        input: 178
-        output: 88759
-        cache_creation: 233383
-        cache_read: 16591784
-      estimated_usd: 11.97
+        input: 210
+        output: 98387
+        cache_creation: 244315
+        cache_read: 20347469
+      estimated_usd: 14.16
       duration_minutes: null
       recorded_at: 2026-11-03
-      rate_anchors: "claude-opus-5-5: input $5/MTok, output $25/MTok, cache_creation x1.25 ($6.25), cache_read x0.10 ($0.50)"
+      rate_anchors: "claude-opus-5-5: input $5/MTok, output $25/MTok, cache_creation x1.25 ($6.25), cache_read x0.10 ($0.5)"
       note: >
-        Interactive build session in its own worktree (feat/spec-144-release-pipeline). Measured
-        from the session's transcript (86638582-….jsonl, identified by content), deduped by
-        `.message.id` (86 unique ids, all claude-opus-5-5), input/cache_creation/cache_read once
-        per id, MAX output_tokens per id. Measured before the final advance/commit/PR-body turns,
-        so it slightly under-counts. CI minutes (two Release runs, four target builds) not included.
+        Interactive build session in its own worktree (feat/spec-144-release-pipeline). Measured from the session's
+        transcript (86638582-….jsonl, identified by content), deduped by `.message.id`
+        (100 unique ids, all claude-opus-5-5), input/cache_creation/cache_read once per id, MAX
+        output_tokens per id. Re-measured at ship from the full transcript (was 16914104 tokens / $11.97). CI minutes (two Release runs, four target builds) not included.
+    - cycle: verify
+      agent: claude-opus-5-5
+      interface: claude-code
+      tokens_total: 7405031
+      tokens_breakdown:
+        input: 98
+        output: 38636
+        cache_creation: 175771
+        cache_read: 7190526
+      estimated_usd: 5.66
+      duration_minutes: null
+      recorded_at: 2026-11-04
+      rate_anchors: "claude-opus-5-5: input $5/MTok, output $25/MTok, cache_creation x1.25 ($6.25), cache_read x0.10 ($0.5)"
+      note: >
+        Interactive verify session in its own worktree (verify-spec-144). Measured from the session's
+        transcript (91387cb9-….jsonl, identified by content), deduped by `.message.id`
+        (46 unique ids, all claude-opus-5-5), input/cache_creation/cache_read once per id, MAX
+        output_tokens per id. Added at ship. The session reported $5.30 before its last turns.
+    - cycle: ship
+      agent: claude-sonnet-5-5
+      interface: claude-code
+      tokens_total: 2085503
+      tokens_breakdown:
+        input: 48
+        output: 11422
+        cache_creation: 74211
+        cache_read: 1999822
+      estimated_usd: 1.05
+      duration_minutes: null
+      recorded_at: 2026-11-04
+      rate_anchors: "claude-sonnet-5-5: input $3/MTok, output $15/MTok, cache_creation x1.25 ($3.75), cache_read x0.10 ($0.3)"
+      note: >
+        Interactive ship session in its own worktree (docs/spec-144-ship). Measured from the session's
+        transcript (d5e8b1aa-….jsonl, identified by content), deduped by `.message.id`
+        (24 unique ids, all claude-sonnet-5-5), input/cache_creation/cache_read once per id, MAX
+        output_tokens per id. Measured before the final commit and push turns, so it slightly under-counts.
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 42440212
+    estimated_usd: 31.37
+    session_count: 5
 ---
 
 # SPEC-144: a tag push publishes every channel, on runners that exist
@@ -890,7 +925,7 @@ Workflows, not `src/`: each AC names its check(s) (§ Checks) and what turns tha
 - [ ] **AC-15** `actionlint` reports zero findings on `release.yml`, `publish-npm.yml` and `publish-crates.yml`. *(A1.)* *(Build: with shellcheck installed, actionlint reports 6 shellcheck findings inside dist's generated `release.yml`, the same 6 as on `main`. They cannot be fixed without a hand edit. A1 runs `-shellcheck=` on all three, plus full actionlint with shellcheck on the two hand-written files.)*
 - [ ] **AC-16** DEC-111 exists (design). DEC-067, DEC-041 and DEC-040 carry the Call 8 amendments. `./scripts/decisions-audit.sh --changed` lists DEC-111 for the changed workflow and script paths. *(V2.)*
 - [ ] **AC-17** Docs: RELEASING.md has each Call 9 item. Each one is checked by a `grep -n` the build quotes: `release.yml` in the trusted-publisher step; the order line; "Re-run failed jobs"; "disallow tokens" with "after"; "recovery only". Plus the three comment edits and the HANDOFF bullet. *(V3.)*
-- [ ] **AC-18 (post-merge, maintainer; not a build gate)** The first real tag publishes both registries from CI after `host`, per RELEASING.md step 8. The ship cycle records the run id and both publish jobs' logs.
+- [ ] **AC-18 (post-merge, maintainer; not a build gate)** The first real tag publishes both registries from CI after `host`, per RELEASING.md step 8. The ship cycle records the run id and both publish jobs' logs. **PENDING, not met at ship (2026-11-04).** Only the first real tag can prove the npm OIDC exchange, a real npm publish and `cargo publish` from the new job. Checklist: RELEASING.md, "The first tag after the publish jobs moved into the Release workflow (one time)". Whoever cuts that tag records the run id and both publish jobs' logs here.
 
 ## Checks (in place of Failing Tests)
 
@@ -1286,10 +1321,36 @@ noted), record every red check with its quoted line, then revert and confirm gre
 from the process-focused build reflection above.*
 
 1. **What would I do differently next time?**
-   — <answer>
-
+   — Three things, each from this spec's record.
+   - **Run the whole recipe under the designed environment at design.** Design set
+     `npm_config_dry_run=true` for the whole dry-run step. P8 had probed only `npm publish`, so the
+     flag's effect on the smoke test's `npm pack` (no tarball, exit 0) and npm 11's refusal of a
+     dry run of an already-published version both surfaced at build. The build replaced it with a
+     wrapper that fakes only `publish`, and no design reviewed that wrapper. Next time a design
+     that sets an environment variable names every command in the scope it applies to, and runs
+     that scope end to end before the call is written.
+   - **Ask for the least-privilege ruling before design closes.** Ruling 5 (the crates.io job holds
+     no `id-token`) arrived after design and was threaded through Call 1, Call 2, AC-4, AC-7, C4,
+     C7, M11 and two new rows (M17, M18). Any design that grants a permission puts "what is the
+     least this job needs?" to the maintainer as a question in the frame.
+   - **Check an orchestrator premise against the workflows before it goes in a prompt.** The verify
+     prompt said no CI job runs the check scripts; `publish-crates.yml`'s PR dry-run job runs both,
+     path-filtered. Verify caught it, but a `grep` of `.github/workflows/` at prompt time would have
+     cost nothing.
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
-
+   — Proposed, not applied. I read HANDOFF traps 1–15 first. Neither candidate is covered. Trap 1
+   (measure the scenario) and trap 15 (a CI step's shape) are the nearest; neither says it.
+   - **Propose a trap 16:** "An environment variable set on a step applies to every command in the
+     step. A design that sets one names each command in the step and runs the whole step with it
+     before it is written into a call." Evidence: SPEC-144's `npm_config_dry_run` and `npm pack`.
+   - **Optional trap 17:** "Inside a reusable workflow, `github.*` is the caller's context, so a
+     gate that reads `github.event_name` or `github.ref_type` sees the Release run's values."
+     SPEC-144 relied on this and verify confirmed it, so it cost nothing this time. It is a
+     reminder, not a paid trap, and the orchestrator can leave it out.
+   - **No further change.** DEC-111's missing ruling-5 and wrapper sentence is already in the filed
+     STAGE-054 entry. No template or constraint change is proposed.
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — None. I read STAGE-054's backlog. Three entries already cover what this spec leaves open: the
+   crates.io trusted-publishing entry, the "tighten the release-pipeline checks" entry (verify's
+   five gaps), and the `ubuntu-22.04` retirement entry. dist's `github-release = "announce"` move is
+   already guarded by C3 and M19. AC-18 is a tag to cut, not a spec.

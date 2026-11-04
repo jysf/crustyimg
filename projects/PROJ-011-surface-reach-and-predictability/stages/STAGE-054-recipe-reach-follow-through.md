@@ -313,7 +313,7 @@ Ordered. ⚡ Only the first item gates 0.8.0.
   has one unwrapped line about `--watch` (the line verify named; not located at ship). Both are
   test or docs polish with no `src/` change.
 
-- [ ] **SPEC-144** (designed 2026-11-02) — [M] **A tag push publishes every channel, on runners that
+- [x] **SPEC-144** (merged 2026-11-04, PR #243) — [M] **A tag push publishes every channel, on runners that
   exist.** cargo-dist puts the Apple Silicon build on `macos-14`, retired 2026-11-02 (0.8.2's run
   was cancelled twice in a brownout); npm is published by hand; crates.io and npm went out ~2 h
   before the binaries. Fix: `macos-15` override; npm (OIDC trusted publishing) and crates.io as
@@ -343,7 +343,7 @@ Ordered. ⚡ Only the first item gates 0.8.0.
   actionlint (`-shellcheck=`) in CI; A1 runs nowhere automatically. (5) DEC-111: one sentence on
   ruling 5 (only npm holds `id-token`) and on the PR dry-run wrapper.
 
-**Count:** 4 shipped / 0 active / 25 pending
+**Count:** 5 shipped / 0 active / 24 pending
 
 ## Design Notes
 

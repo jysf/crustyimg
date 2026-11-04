@@ -24,5 +24,7 @@ Cycle prompts live in `prompts/SPEC-144-<cycle>.md`.
   wrapper cannot reach npm, M1a–M19 reproduce, M-a/M-c/M-e caught. The checks already run in
   `publish-crates.yml`'s PR dry-run (not a punch item). Five optional cleanups filed to STAGE-054.
   PR marked ready.
-- [ ] **ship**: `prompts/SPEC-144-ship.md`. Merged as `a13d568` (PR #243, 2026-11-04) after a
-  re-run of the macOS leg (no arm64 runner free). AC-18 waits for the first real tag.
+- [x] **ship** (2026-11-04, `prompts/SPEC-144-ship.md`, Sonnet): merged as `a13d568` (PR #243,
+  2026-11-04) after a re-run of the macOS leg (no arm64 runner free). Total cost $31.37 across five
+  sessions (frame, design, build, verify, ship). **AC-18 pending the first real tag** (RELEASING.md
+  checklist). Reflection written; trap 16 proposed to the orchestrator, not applied.
