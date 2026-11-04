@@ -15,6 +15,13 @@ Cycle prompts live in `prompts/SPEC-144-<cycle>.md`.
   Checks: C1–C7, G1–G14, R1–R6, L1–L4, D1–D2, A1, V1–V3, 16 mutations. Probes found that custom
   jobs get no `contents` (fixed by `github-custom-job-permissions`), that `npm view` cannot tell absent from
   unreachable (the guard reads the package document and the sparse index), and that `dist plan` is already a drift check. DEC-111 written.
-- [ ] **build** (`prompts/SPEC-144-build.md`): draft PR; one-time `pr-run-mode = "upload"` proof of all four builds.
-- [ ] **verify**
+- [x] **build** (2026-11-04, `prompts/SPEC-144-build.md`, Opus, $11.97): draft PR #243 at `17c8b8a`,
+  CI green. Upload-mode run 41786007198 built all four targets (aarch64 on `macos-15`, arm64
+  binary); (b) `400092f` removed it. Two design calls changed: an npm wrapper for the PR dry run,
+  and AC-15 relaxed for dist's generated-file shellcheck findings. M1a–M19 red for their reason.
+- [x] **verify** (2026-11-04, `prompts/SPEC-144-verify.md`, Opus, $5.30): ✅ APPROVED at `17c8b8a`.
+  The tag-path gate holds inside `workflow_call` (the github context is the caller's), the PR
+  wrapper cannot reach npm, M1a–M19 reproduce, M-a/M-c/M-e caught. The checks already run in
+  `publish-crates.yml`'s PR dry-run (not a punch item). Five optional cleanups filed to STAGE-054.
+  PR marked ready.
 - [ ] **ship**
