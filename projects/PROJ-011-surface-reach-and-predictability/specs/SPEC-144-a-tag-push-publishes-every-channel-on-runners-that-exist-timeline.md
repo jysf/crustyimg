@@ -19,5 +19,9 @@ Cycle prompts live in `prompts/SPEC-144-<cycle>.md`.
   CI green. Upload-mode run 41786007198 built all four targets (aarch64 on `macos-15`, arm64
   binary); (b) `400092f` removed it. Two design calls changed: an npm wrapper for the PR dry run,
   and AC-15 relaxed for dist's generated-file shellcheck findings. M1a–M19 red for their reason.
-- [ ] **verify**: `prompts/SPEC-144-verify.md`
+- [x] **verify** (2026-11-04, `prompts/SPEC-144-verify.md`, Opus, $5.30): ✅ APPROVED at `17c8b8a`.
+  The tag-path gate holds inside `workflow_call` (the github context is the caller's), the PR
+  wrapper cannot reach npm, M1a–M19 reproduce, M-a/M-c/M-e caught. The checks already run in
+  `publish-crates.yml`'s PR dry-run (not a punch item). Five optional cleanups filed to STAGE-054.
+  PR marked ready.
 - [ ] **ship**

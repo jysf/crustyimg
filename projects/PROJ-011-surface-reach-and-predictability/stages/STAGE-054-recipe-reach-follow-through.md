@@ -334,7 +334,16 @@ Ordered. ⚡ Only the first item gates 0.8.0.
   publish failed 403 until it was replaced). SPEC-144 keeps the token so each release changes one
   credential path. Do this after SPEC-144's first real tag has published both registries from CI.
 
-**Count:** 4 shipped / 0 active / 24 pending
+- [ ] (not yet written) — [S] **Tighten the release-pipeline checks SPEC-144's verify left open.**
+  Filed from SPEC-144's verify (2026-11-04); none can cause a wrong publish. (1) The npm guard
+  reads a 200 with no `.versions` key as "publish"; make it could-not-ask, as design Call 4 and
+  DEC-111 say, with G rows for that and for an empty versions list. (2) C7 should fail on any
+  workflow-level or publish-job `npm_config_*` env (verify's M-d2, M-d3 went undetected).
+  (3) Add `.github/workflows/**` and `justfile` to `publish-crates.yml`'s path filter. (4) Run
+  actionlint (`-shellcheck=`) in CI; A1 runs nowhere automatically. (5) DEC-111: one sentence on
+  ruling 5 (only npm holds `id-token`) and on the PR dry-run wrapper.
+
+**Count:** 4 shipped / 0 active / 25 pending
 
 ## Design Notes
 
