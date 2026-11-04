@@ -19,9 +19,6 @@ targets = [
   "x86_64-pc-windows-msvc",
 ]
 install-path = "CARGO_HOME"
-# TEMPORARY, build PR only: build all four targets on this PR to prove the runners.
-# The next commit removes it (scripts/check-release-pipeline.sh C2 fails while it is set).
-pr-run-mode = "upload"
 
 # cargo-dist 0.32.0 puts aarch64-apple-darwin on macos-14, which GitHub retired on
 # 2026-11-02. The other three targets keep dist's defaults (DEC-111, extends DEC-040).
