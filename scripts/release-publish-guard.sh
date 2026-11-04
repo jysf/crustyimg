@@ -181,6 +181,8 @@ with open(sys.argv[1], "w") as f:
 srv.serve_forever()
 ' "$port_file" &
   SELF_TEST_SERVER_PID=$!
+  # Out of the job table, so bash prints no "Terminated" notice when the trap kills it.
+  disown "$SELF_TEST_SERVER_PID"
   local i=0
   while [ ! -s "$port_file" ]; do
     i=$((i + 1))

@@ -137,8 +137,15 @@ else
       bad C3 "$job needs [$got], expected [$want]"
     fi
   done
+  # The publish jobs need `host`, so the GitHub Release must be created IN host.
+  # dist's `github-release = "announce"` moves it into announce, after the publishes,
+  # without changing any `needs`.
+  release_jobs=$(q "$release_json" '[.jobs | to_entries[] | select([.value.steps // [] | .[] | .run // "" | test("gh release create")] | any) | .key] | sort | join(",")')
+  if [ "$release_jobs" != "host" ]; then
+    bad C3 "gh release create runs in [$release_jobs], expected [host]"
+  fi
 fi
-end C3 "release.yml jobs and needs graph"
+end C3 "release.yml jobs, needs graph, and the GitHub Release created in host"
 
 # --- C4 -------------------------------------------------------------------
 # Least privilege: crates.io still publishes with a token, so its job holds no
