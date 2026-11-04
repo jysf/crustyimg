@@ -87,8 +87,9 @@ How the release went, for next time:
 - `just wt <branch>` for a branch that exists only on the remote creates a *new* branch from
   `main`. A fix prompt for a maintainer-opened PR must fetch and reset to `origin/<branch>`.
 - npm returned **404 on PUT** for a logged-in owner: the saved token could read but not
-  publish. `npm login`, then re-run. Publish npm from a detached worktree at the tag
-  (`git worktree add ../crustyimg-vX.Y.Z vX.Y.Z`), so a dirty main checkout doesn't block it.
+  publish. npm is now published by CI on the tag (SPEC-144, DEC-111). The hand route
+  (`npm login`, then `just wasm-npm-publish` from a detached worktree at the tag) is recovery
+  only; see RELEASING.md step 8.
 
 ### What is open now
 - **STAGE-054:** 1 shipped / 0 active / **16 pending**. These are the 0.8.1 candidates, including

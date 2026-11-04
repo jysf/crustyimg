@@ -113,3 +113,9 @@ new tag.
 - **Neutral:** No runtime code/dependency change; the shipped binary is unaffected.
   `#7` remains open in the backlog. cargo-dist and the crates.io workflow are release
   tooling, not runtime deps (cf. DEC-037/DEC-040) — `cargo deny` unaffected.
+
+## Amendment — 2026-11-03 (SPEC-144): crates.io moves behind host (DEC-111)
+
+Point 2 is superseded. crates.io publishes from `release.yml`'s `custom-publish-crates` job, a
+cargo-dist *custom* publish job (`./publish-crates`), after `host`. `publish-crates.yml` is now a
+`workflow_call` workflow with no tag trigger. Point 1 (Homebrew) and point 3 stand.
