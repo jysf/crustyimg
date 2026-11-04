@@ -7,7 +7,7 @@
 task:
   id: SPEC-144
   type: chore                      # epic | story | task | bug | chore
-  cycle: build  # frame | design | build | verify | ship
+  cycle: verify  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: M                    # S | M | L  (L means split it)
@@ -91,6 +91,25 @@ cost:
         session's transcript (90249c55-….jsonl, identified by content), deduped by `.message.id`
         (34 unique ids, all claude-opus-5-5), input/cache_creation/cache_read once per id, MAX
         output_tokens per id. Measured before the commit/push turns, so it slightly under-counts.
+    - cycle: build
+      agent: claude-opus-5-5
+      interface: claude-code
+      tokens_total: 16914104
+      tokens_breakdown:
+        input: 178
+        output: 88759
+        cache_creation: 233383
+        cache_read: 16591784
+      estimated_usd: 11.97
+      duration_minutes: null
+      recorded_at: 2026-11-03
+      rate_anchors: "claude-opus-5-5: input $5/MTok, output $25/MTok, cache_creation x1.25 ($6.25), cache_read x0.10 ($0.50)"
+      note: >
+        Interactive build session in its own worktree (feat/spec-144-release-pipeline). Measured
+        from the session's transcript (86638582-….jsonl, identified by content), deduped by
+        `.message.id` (86 unique ids, all claude-opus-5-5), input/cache_creation/cache_read once
+        per id, MAX output_tokens per id. Measured before the final advance/commit/PR-body turns,
+        so it slightly under-counts. CI minutes (two Release runs, four target builds) not included.
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -1070,37 +1089,194 @@ noted), record every red check with its quoted line, then revert and confirm gre
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
-- **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
-- **Files this diff touches** — **list every one**, with a phrase on what changed
-  in each. Not "src/foo and tests": the enumeration is what a verify cycle diffs
-  the real change against, and what tells you whether every affected `DEC-*` has
-  the path in its `affected_scope`. SPEC-122's Deviations claimed "`src/operation`
-  and `tests/` only" and was wrong by two `scripts/` files, which left
-  `affected_scope` blind; SPEC-124's build added this section by hand after that
-  lesson and still listed 8 of its 9 files. It is a checklist because it is easy
-  to get wrong from memory — build it from `git diff --name-only`, not recall.
-  - `path/to/file` — <what changed>
+- **Branch:** `feat/spec-144-release-pipeline`
+- **PR (if applicable):** #243 (draft). Commits: `1839fce` (checks first), `df93971` (config,
+  regenerate, workflows), **(a) `2f53b5d`** (docs, DECs, `pr-run-mode = "upload"`), `e88db1e`
+  (C3 Release-in-host assertion found by the mutation pass, quieter self-test), **(b) `400092f`**
+  (drops `pr-run-mode`; the head).
+- **All acceptance criteria met?** yes for AC-1 to AC-17, with two corrections recorded below
+  (the npm dry-run mechanism, and A1's scope). AC-18 is post-merge (maintainer, first real tag).
+- **New decisions emitted:** none at build. DEC-111 was written at design. DEC-067, DEC-041 and
+  DEC-040 carry `## Amendment — 2026-11-03 (SPEC-144)` sections; `superseded_by` stays `null`.
+- **Files this diff touches** (from `git diff --name-only origin/main...HEAD`, 15 files, all on the
+  spec's Outputs list):
+  - `.github/workflows/publish-crates.yml`: tag trigger removed; `workflow_call` + path-filtered
+    `pull_request`; `guard` → verdict check, `publish` (`contents: read` only, ruling 5),
+    `dry-run` (C1–C7, self-test, `cargo publish --dry-run --locked`).
+  - `.github/workflows/publish-npm.yml`: new; same shape; `publish` holds `{contents: read,
+    id-token: write}`; `dry-run` wraps `npm` so only `npm publish` is a dry run (see Deviations).
+  - `.github/workflows/release.yml`: regenerated only (`dist generate --mode=ci`, 0.32.0):
+    `custom-publish-crates`, `custom-publish-npm`, `announce` needs/if.
+  - `dist-workspace.toml`: `publish-jobs` += `./publish-crates`, `./publish-npm`;
+    `[dist.github-custom-runners]`; `[dist.github-custom-job-permissions]` (ruling 5).
+  - `scripts/check-release-pipeline.sh`: new, C1–C7.
+  - `scripts/release-publish-guard.sh`: new, the guard + `--self-test` (G1–G14).
+  - `RELEASING.md`: Call 9 (Git tags, one-time setup items 3–4, step 7 order, step 8 re-run and
+    hand fallback) plus the first-real-tag checklist.
+  - `projects/PROJ-011-…/HANDOFF.md`: the npm bullet becomes recovery-only.
+  - `justfile`, `scripts/wasm-npm-finalize.mjs`, `tests/npm_smoke.mjs`: comments only (DEC-111).
+  - `decisions/DEC-040-…`, `DEC-041-…`, `DEC-067-…`: amendment sections; DEC-067's
+    `affected_scope` gains `.github/workflows/publish-npm.yml`.
+  - this spec: ruling 5's edits, build notes, M17–M19, and this section.
+- **Ruling 5's spec edits:** P2's consequence line; Call 1's TOML (`"publish-crates" = {
+  contents = "read" }`) and comment; Call 2's shape block and its Permissions bullet; the
+  `publish-crates.yml` YAML (`publish: permissions: { contents: read }`) and the paragraph after it
+  (rewritten from "holds `id-token` deliberately" to least privilege); AC-4 and AC-7 (per-job
+  permissions); C4 and C7 (exact per-job sets, each able to go red if crates gains `id-token`);
+  M11's expected lines; new rows **M17** (workflow) and **M18** (config) prove C7 and C4 fail when
+  the crates job gains `id-token`.
 - **Deviations from spec:**
-  - [list]
+  - **The npm dry-run job (Call 2) did not work as designed. Design call wrong.** Two probes at
+    build: (1) a step-wide `npm_config_dry_run=true` also makes the smoke test's `npm pack` a dry
+    run, which writes no tarball (`ls out` empty, exit 0), so the smoke fails; (2) npm 11.11.0
+    refuses even a dry run of a version already on the registry: `npm error You cannot publish
+    over the previously published versions: 0.8.2.` P8 probed only `npm publish` against an
+    unreachable registry. **Built instead:** a step writes an `npm` wrapper to
+    `$RUNNER_TEMP/npm-shim` and puts it on `PATH`; for `npm publish` only it exports
+    `npm_config_dry_run=true npm_config_registry=http://127.0.0.1:9/ npm_config_fetch_retries=0`.
+    The recipe step first asserts `command -v npm` is the wrapper. The recipe is unchanged. This
+    adds a fourth lock (the publish call cannot reach npm). C7's npm assertion checks the wrapper
+    sets both values and comes before the recipe step; M15 deletes the flag from the wrapper.
+    Proved locally (scratch worktree, empty npm user config) and on the PR (D1).
+  - **A1 / AC-15 scope.** With shellcheck installed (0.11.0), actionlint 1.7.12 reports 6
+    shellcheck findings (SC2086 ×3, SC2129 ×2, SC2001) **inside dist's generated `release.yml`**.
+    `main`'s `release.yml` gives the identical 6. They cannot be fixed without a hand edit. A1 is
+    therefore `actionlint -shellcheck=` on all three files (exit 0, no output) plus full actionlint
+    with shellcheck on the two hand-written files (exit 0). No CI job runs actionlint.
+  - **C3 gained an assertion (found by the mutation pass, out of the table).** dist 0.32.0's
+    `github-release = "announce"` moves `gh release create` from `host` into `announce`, after the
+    registry publishes, with no `needs` change; C1–C7 stayed green. C3 now requires `host` to be
+    the only job with a `gh release create` step. Row **M19** added.
+  - **C7 asserts a little more than its row:** `guard.if` carries both event gates, and the
+    workflow-level `permissions` holds no `id-token`.
+  - **M16's location.** "First line after `set -euo pipefail`" taken literally (M16-top) also kills
+    `--self-test` itself (exit 7, no summary line, no row output). Applied at the top of `guard()`
+    instead, every G row goes red. Both recorded.
+  - **The guard's crates.io parse is stricter than Call 4:** an empty sparse-index file, or a line
+    without `"vers"`, is "could not ask" (exit 3), not "absent".
+  - One commit between (a) and (b) (`e88db1e`, the C3 fix). (b) is still the head, and L4 is still
+    only the upload-mode lines.
 - **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - Consider an actionlint job in CI (it would need `-shellcheck=` or an ignore for dist's file).
+  - Verify may push M15 to a scratch PR to see the live `ENEEDAUTH`/refusal (optional, per table).
+
+### Build evidence
+
+- **Step 0:** spec at `cycle: build`; `bb8398c` in history; rulings 1–5; `cargo-dist 0.32.0`;
+  actionlint 1.7.12 (shellcheck 0.11.0).
+- **C1–C7 RED on `main`** (`1839fce`'s scripts against `main`'s pipeline), exit 1:
+  ```
+  ok C1: release.yml matches dist generate --mode=ci
+  FAIL C2: aarch64-apple-darwin runs on macos-14, expected macos-15
+  FAIL C3: release.yml jobs are [announce,build-global-artifacts,build-local-artifacts,host,plan,publish-homebrew-formula], expected [...custom-publish-crates,custom-publish-npm...]
+  FAIL C3: job custom-publish-crates missing
+  FAIL C3: job custom-publish-npm missing
+  FAIL C3: announce needs [plan,host,publish-homebrew-formula], expected [plan,host,publish-homebrew-formula,custom-publish-crates,custom-publish-npm]
+  FAIL C4: custom-publish-crates missing
+  FAIL C4: custom-publish-npm missing
+  FAIL C5: announce.if does not check needs.custom-publish-crates.result
+  FAIL C5: announce.if does not check needs.custom-publish-npm.result
+  FAIL C6: publish-crates.yml has a push trigger
+  FAIL C6: publish-npm.yml missing
+  FAIL C6: workflows that publish are [.github/workflows/publish-crates.yml], expected [...publish-crates.yml,...publish-npm.yml]
+  FAIL C7: publish-crates.yml has no on.workflow_call.inputs.plan   (+ 10 more C7 lines for the old file)
+  FAIL C7: publish-npm.yml missing
+  7 checks, 6 failed
+  ```
+  C1 is green on `main`, as the table says. The C3 Release-in-host assertion (added later) is green
+  on `main` too: `main` creates the Release in `host`.
+- **G1–G14 RED on `main`:** at a detached `origin/main` worktree,
+  `scripts/release-publish-guard.sh --self-test` → `no such file or directory:
+  scripts/release-publish-guard.sh`, exit 127.
+- **GREEN** at (b): `7 checks, 0 failed`; `14 rows, 0 failed (exit: 0, message: 0, action: 0)`.
+- **`dist plan` at (b):** `{"aarch64-apple-darwin":"macos-15","x86_64-apple-darwin":"macos-15-intel","x86_64-pc-windows-msvc":"windows-2022","x86_64-unknown-linux-gnu":"ubuntu-22.04"}`.
+- **R1–R6** (scratch worktrees, output redirected, `$?` read directly):
+  - R1 `npm v9.9.9` → `REFUSING: tag v9.9.9 says 9.9.9, Cargo.toml says 0.8.2.` `$?=1`
+  - R2 README edited, `npm v0.8.2` → `REFUSING: the working tree has uncommitted changes; publish from a clean checkout of the tag.` `$?=1`
+  - R3 `crates v0.9.0-rc.1` → `REFUSING: v0.9.0-rc.1 is a prerelease; DEC-111 publishes stable versions only to crates.io.` `$?=1`
+  - R4 `npm main` → `REFUSING: tag 'main' is not vMAJOR.MINOR.PATCH.` `$?=1`
+  - R5 at a `v0.8.2` worktree, real registries: `SKIP: crustyimg-wasm@0.8.2 is already on npm; nothing to publish.` / `action=skip` `$?=0`; `SKIP: crustyimg@0.8.2 is already on crates.io; nothing to publish.` / `action=skip` `$?=0`
+  - R6 `RELEASE_GUARD_NPM_URL=http://127.0.0.1:9/x … npm v0.8.2` → `COULD NOT ASK npm: curl exit 7: curl: (7) Failed to connect to 127.0.0.1 port 9 after 0 ms: Couldn't connect to server (http://127.0.0.1:9/x). Not publishing; re-run this job when the registry answers.` `$?=3`; the crates form → `COULD NOT ASK crates.io: curl exit 7: …` `$?=3`
+- **C2 on (a)**, from `publish-crates / dry-run` (run 41786007169): `FAIL C2: pr_run_mode is upload, expected plan` / `7 checks, 1 failed` / `Process completed with exit code 1.` Red by design.
+- **L1** (Release run 41786007198 at (a), `gh api …/jobs`):
+  ```
+  plan	success	ubuntu-22.04
+  build-local-artifacts (x86_64-unknown-linux-gnu)	success	ubuntu-22.04
+  build-local-artifacts (x86_64-pc-windows-msvc)	success	windows-2022
+  build-local-artifacts (aarch64-apple-darwin)	success	macos-15
+  build-local-artifacts (x86_64-apple-darwin)	success	macos-15-intel
+  build-global-artifacts	success	ubuntu-22.04
+  custom-publish-crates	skipped
+  custom-publish-npm	skipped
+  host	skipped	ubuntu-22.04
+  announce	skipped	ubuntu-22.04
+  publish-homebrew-formula	skipped	ubuntu-22.04
+  ```
+- **L2:** `artifacts-build-local-aarch64-apple-darwin`, `artifacts-build-local-x86_64-apple-darwin`,
+  `cargo-dist-cache`, `artifacts-build-local-x86_64-pc-windows-msvc`,
+  `artifacts-build-local-x86_64-unknown-linux-gnu`, `artifacts-build-global`,
+  `artifacts-plan-dist-manifest`.
+- **L3:** `crustyimg-aarch64-apple-darwin/crustyimg: Mach-O 64-bit executable arm64`.
+- **L4:** `git diff 2f53b5d 400092f -- .github/workflows/release.yml` removes exactly the four
+  upload-mode lines: `- uses: swatinem/rust-cache@v2` / `with:` / `key: ${{ join(matrix.targets, '-') }}` / `cache-provider: ${{ matrix.cache_provider }}`.
+- **D1** (`publish-npm / dry-run`, run 41786007236): `npm-smoke: crustyimg-wasm@0.8.2 packs, installs clean, and runs. ✓` / `npm notice Publishing to http://127.0.0.1:9/ with tag latest and default access (dry-run)` / `+ crustyimg-wasm@0.8.2`.
+- **D2** (`publish-crates / dry-run` at (b)): run 41787367567: `7 checks, 0 failed` / `14 rows, 0 failed (exit: 0, message: 0, action: 0)` / `Packaged 278 files, 4.7MiB (2.1MiB compressed)` / `warning: aborting upload due to dry run`. CI at `400092f`: every check green (all three OS legs, msrv, heic, lean, pages, DCO, both dry runs); the Release run builds nothing again (plan mode).
+- **A1:** `actionlint -shellcheck= .github/workflows/release.yml .github/workflows/publish-npm.yml .github/workflows/publish-crates.yml` → no output, exit 0; `actionlint .github/workflows/publish-npm.yml .github/workflows/publish-crates.yml` (shellcheck on) → exit 0. Version 1.7.12.
+- **V1:** `dist generate --mode=ci && git diff --exit-code .github/workflows/release.yml` → exit 0 at (b).
+- **V2:** `./scripts/decisions-audit.sh --changed origin/main` lists DEC-111 for
+  `.github/workflows/publish-crates.yml`, `publish-npm.yml`, `release.yml`, `dist-workspace.toml`,
+  `justfile`, `RELEASING.md`, `scripts/check-release-pipeline.sh`, `scripts/release-publish-guard.sh`;
+  DEC-040 / DEC-041 / DEC-067 for their paths (also DEC-009, -028, -037, -051, -056, -062, -064,
+  -065, -066, -074, -081, -083 for `justfile` / workflows / `dist-workspace.toml` / the spec;
+  advisory, none affected). Bare `--changed` only sees uncommitted files.
+- **V3** (`grep -n`): `RELEASING.md:52` workflow filename **`release.yml`**; `:133` "fires all four
+  channels, in this order"; `:142` and `:170` "Re-run failed jobs"; `:54` "**After the first tag
+  publishes npm from CI**" with `:55` "disallow tokens"; `:148` "Hand fallback (recovery only";
+  `justfile:272`, `scripts/wasm-npm-finalize.mjs:19`, `tests/npm_smoke.mjs:18` cite DEC-111;
+  `HANDOFF.md:90-92` "npm is now published by CI on the tag … is recovery only".
+- **Mutations** (scratch worktree at the final state; every row: `git diff` non-empty, then
+  reverted and confirmed GREEN on C1–C7 + self-test + A1; V-M12 ok on every row but M12+M8):
+  | Row | Red (quoted) | Matches table? |
+  |---|---|---|
+  | M1a | `FAIL C1: dist generate --mode=ci --check exit 255: │ out of date contents…`; `FAIL C2: dist plan exit 255, expected 0`; `FAIL C3: custom-publish-npm needs [plan], expected [plan,host]` | + C2 (dist plan refuses a stale release.yml, P4) |
+  | M1b | confirmed: dist 0.32.0's `github-*` keys are `action-commits, actions, attestations(-filters,-phase), build-setup, build-step, custom-job-permissions, custom-runners, release, releases-repo, releases-submodule-path`; none overrides `needs`. `github-release` moves the Release instead → M19 | yes |
+  | M2 | `FAIL C1: … exit 255`; `FAIL C2: dist plan exit 255, expected 0` | + C2 (same reason) |
+  | M3 | `FAIL C2: aarch64-apple-darwin runs on macos-14, expected macos-15`; C1 green | yes |
+  | M4a | `FAIL G3: exit 0, expected 1` / `output lacks 'tag v1.2.4 says…'` / `GITHUB_OUTPUT 'action=publish', expected ''` | yes |
+  | M4b | `FAIL C7: publish-npm.yml guard has no release-publish-guard.sh step`; A1 `property "guard" is not defined in object type {}` ×2 | yes |
+  | M5 | G8, G13: `exit 0, expected 3` / `GITHUB_OUTPUT 'action=publish', expected ''`; G7 green | yes |
+  | M6 | G7 only | yes |
+  | M7 | G7–G10 (`exit 0, expected 3`) **and G6** (`GITHUB_OUTPUT 'action=publish', expected 'action=skip'`: real npm has no 1.2.3) | + G6 |
+  | M8 | `14 rows, 4 failed (exit: 0, message: 0, action: 4)`, G5/G6/G11/G12 `GITHUB_OUTPUT 'action=yes', expected …` | yes |
+  | M9 | `FAIL C7: publish-crates.yml guard step is not followed by the verdict check` | yes |
+  | M10 | `FAIL C7: publish-npm.yml publish.if lacks github.event_name == 'push'` and `… lacks github.ref_type == 'tag'` | yes |
+  | M11 | `FAIL C4: custom-publish-crates permissions {"id-token":"write","packages":"write"}, expected {"contents":"read"}`; npm `…, expected {"contents":"read","id-token":"write"}`; C1 green | yes |
+  | M12+M8 | self-test **exit 0**, `14 rows, 0 failed (exit: 0, message: 0, action: 0)` with 4 `FAIL` lines → **V-M12 RED** | yes |
+  | M13 | `FAIL C2: pr_run_mode is upload, expected plan` | yes |
+  | M14 | `FAIL C6: publish-crates.yml has a push trigger` | yes |
+  | M15 | `FAIL C7: publish-npm.yml dry-run lacks npm_config_dry_run=true in its npm wrapper` | yes (as-built location) |
+  | M16 | at top of `guard()`: `14 rows, 14 failed (exit: 14, message: 14, action: 4)`, each `exit 7, expected …`. M16-top: self-test exit 7, no summary | see Deviations |
+  | M17 | `FAIL C7: publish-crates.yml publish permissions {"contents":"read","id-token":"write"}, expected {"contents":"read"}` | new (ruling 5) |
+  | M18 | `FAIL C4: custom-publish-crates permissions {"contents":"read","id-token":"write"}, expected {"contents":"read"}` | new (ruling 5) |
+  | M19 | `FAIL C3: gh release create runs in [announce], expected [host]` | new (found at build) |
 
 ### Build-phase reflection (3 questions, short answers)
 
-Process-focused: how did the build go? What friction did the spec create?
-
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — Nothing was unclear. One design probe was too narrow: P8 tested `npm publish` alone, so the
+   npm dry-run job broke twice (the env var leaks into `npm pack`, and npm 11 refuses a dry run of
+   a published version). Running the whole recipe locally under the designed env would have caught
+   both at design.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — DEC-111 rests on "the Release exists before any registry publishes", but the checks guarded
+   only `needs`. dist's `github-release` key can move Release creation without touching `needs`.
+   A design that names an ordering guarantee should list every config key that can change it.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Before writing the workflow, list a dist binary's config keys (`strings | grep github-`) and
+   run each publish recipe end to end under the dry-run setup. Both findings came from those two
+   cheap probes, and both came late.
 
 ---
 
