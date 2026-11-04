@@ -225,6 +225,12 @@ Batching these in one sitting unblocks more than anything an orchestrator can do
     exited 1. **The design lists the command crashing (and printing junk) as mutation rows**, and a
     summary count names each failure kind it can fail on. **Before moving code, grep its downstream
     readers** (here the test bed's `check.py`, which read `GO_ADVANCE` from `edit.js`).
+16. **⚡ AN ENVIRONMENT VARIABLE SET ON A STEP APPLIES TO EVERY COMMAND IN THE STEP.** SPEC-144's
+    design set `npm_config_dry_run=true` on the PR dry-run step to make `npm publish` safe. The same
+    step's smoke test runs `npm pack`, which then wrote no tarball, so the step would have failed in
+    CI. The build replaced it with an `npm` wrapper that fakes only `publish`. **A design that sets
+    a step-level variable names every command in that step, and runs the whole step with the
+    variable set before writing it into a call.**
 
 ## What is working, and worth keeping
 
