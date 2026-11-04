@@ -11,7 +11,7 @@ cargo-dist-version = "0.32.0"
 ci = "github"
 installers = ["shell", "powershell", "homebrew"]
 tap = "jysf/homebrew-tap"
-publish-jobs = ["homebrew"]
+publish-jobs = ["homebrew", "./publish-crates", "./publish-npm"]
 targets = [
   "aarch64-apple-darwin",
   "x86_64-apple-darwin",
@@ -19,3 +19,16 @@ targets = [
   "x86_64-pc-windows-msvc",
 ]
 install-path = "CARGO_HOME"
+
+# cargo-dist 0.32.0 puts aarch64-apple-darwin on macos-14, which GitHub retired on
+# 2026-11-02. The other three targets keep dist's defaults (DEC-111, extends DEC-040).
+[dist.github-custom-runners]
+aarch64-apple-darwin = "macos-15"
+
+# Least privilege for the registry publish jobs. Both read the repo (contents). Only
+# npm mints an OIDC token, for trusted publishing (id-token); crates.io still uses
+# CARGO_REGISTRY_TOKEN. dist's default grants id-token + packages and no contents,
+# which a called workflow cannot raise.
+[dist.github-custom-job-permissions]
+"publish-crates" = { contents = "read" }
+"publish-npm" = { contents = "read", id-token = "write" }

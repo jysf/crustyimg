@@ -14,6 +14,8 @@
 # The runner lives in `dist plan`'s output, not in release.yml, so C2 runs dist.
 # Every check runs even after a failure. Exit 1 if any check failed, 2 on a missing
 # tool or the wrong dist version.
+# jq filters use $vars that jq, not the shell, expands.
+# shellcheck disable=SC2016
 set -euo pipefail
 
 WF=.github/workflows
@@ -286,8 +288,18 @@ for x in crates npm; do
   fi
 
   if [ "$x" = npm ]; then
-    dry_env=$(q "$j" '[.jobs["dry-run"].env // {}, (.jobs["dry-run"].steps // [] | .[].env // {})] | map(.npm_config_dry_run // empty | tostring) | first // "unset"')
-    [ "$dry_env" = "true" ] || bad C7 "$name dry-run lacks npm_config_dry_run: \"true\" (got $dry_env)"
+    # The dry run's npm wrapper: it must set the dry-run flag and the dead registry
+    # for `npm publish`, and come before the step that runs the recipe.
+    shim_idx=$(q "$j" '[.jobs["dry-run"].steps // [] | to_entries[] | select((.value.run // "") | test("npm-shim")) | .key] | first // "none"')
+    recipe_idx=$(q "$j" '[.jobs["dry-run"].steps // [] | to_entries[] | select((.value.run // "") | test("just wasm-npm-publish")) | .key] | first // "none"')
+    shim_run=$(q "$j" '.jobs["dry-run"].steps // [] | map(.run // "" | select(test("npm-shim"))) | first // ""')
+    [[ "$shim_run" == *"npm_config_dry_run=true"* ]] || bad C7 "$name dry-run lacks npm_config_dry_run=true in its npm wrapper"
+    [[ "$shim_run" == *"npm_config_registry=http://127.0.0.1:9/"* ]] || bad C7 "$name dry-run's npm wrapper does not point publish at http://127.0.0.1:9/"
+    if [ "$recipe_idx" = "none" ]; then
+      bad C7 "$name dry-run does not run just wasm-npm-publish"
+    elif [ "$shim_idx" = "none" ] || [ "$shim_idx" -ge "$recipe_idx" ]; then
+      bad C7 "$name dry-run's npm wrapper (step $shim_idx) does not come before the recipe (step $recipe_idx)"
+    fi
     for jobname in publish dry-run; do
       node=$(q "$j" '[.jobs[$k].steps // [] | .[] | .with["node-version"] // empty | tostring] | first // "unset"' --arg k "$jobname")
       [ "$node" = "24" ] || bad C7 "$name $jobname node-version is $node, expected 24"
