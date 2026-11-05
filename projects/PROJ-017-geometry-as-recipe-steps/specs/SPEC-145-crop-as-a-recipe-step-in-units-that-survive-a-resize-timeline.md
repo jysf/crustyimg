@@ -14,6 +14,9 @@ Cycle prompts live in `prompts/SPEC-145-<cycle>.md`.
   in a recipe?) needs the maintainer before design.
 - [ ] **design** (`prompts/SPEC-145-design.md`): writes the unit DEC, ACs, failing tests and
   Implementation Context, after the maintainer rules Q1-Q3.
+  Rulings (2026-11-05, all three as recommended): fractions only in a recipe, pixels via `edit --crop`
+  later; `aspect` takes whole numbers only (`"239:100"`); a crop that rounds to 0 px is refused, not
+  clamped.
 - [ ] **build** (`prompts/SPEC-145-build.md`)
 - [ ] **verify** (`prompts/SPEC-145-verify.md`)
 - [ ] **ship** (`prompts/SPEC-145-ship.md`)
