@@ -208,7 +208,14 @@ STAGE-050 needs answered anyway.** ⚠ **Do not treat this as blocking STAGE-049
   Mac. Remove it after the run, or use one fixed, reused dir. Prove each with a driven failure
   (a bad feature name) and a dir count before and after.
 
-**Count:** 0 shipped / 0 active / **7 pending** — re-derived 2026-11-05 with `grep -c '^- \[ \]'` (7) and `grep -c '^- \[x\]'` (0).
+- [ ] (not yet written) — [S] **Probe whether a failed `changes` job lets a PR merge.** Filed by
+  SPEC-146's design (2026-11-05). If `changes` fails (for example its classifier self-test), the
+  jobs that `need` it are skipped. GitHub's docs say a job skipped by its `if:` reports "Success"
+  and does not block a required check; they do not cover a skip caused by a failed `needs`. If that
+  also reports Success, a broken classifier could let a PR merge. Open a scratch PR whose
+  `changes` job is forced to fail, and read the required checks' states. Do not assume.
+
+**Count:** 0 shipped / 0 active / **8 pending** — re-derived 2026-11-05 with `grep -c '^- \[ \]'` (8) and `grep -c '^- \[x\]'` (0).
 
 ## Dependencies
 
