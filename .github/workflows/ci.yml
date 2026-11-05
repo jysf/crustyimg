@@ -161,7 +161,7 @@ jobs:
           set -euo pipefail
           log="$RUNNER_TEMP/wasm-test-slim.log"
           rc=0
-          just wasm-test-slim >"$log" 2>&1 || rc=$?
+          just wasm-test >"$log" 2>&1 || rc=$?
           cat "$log"
           if [ "$rc" -ne 0 ]; then echo "::error::just wasm-test-slim exited $rc"; exit "$rc"; fi
           scripts/wasm-ci-check.sh count slim "$log"
