@@ -25,5 +25,12 @@ Cycle prompts live in `prompts/SPEC-145-<cycle>.md`.
   the three targets, no existing output changed. wasm-test 49/0; bundle +3,271 B brotli. Finding:
   the batch refusal warning says "watermark skipped" for any refusing op. The maintainer accepted design's reading of ruling 3 on
   2026-11-05: the 0 px message names `crop` and both sizes, with no step index.
-- [ ] **verify** (`prompts/SPEC-145-verify.md`, Opus, read-only)
+- [x] **verify** (`prompts/SPEC-145-verify.md`, 2026-11-05, Opus, read-only, ~$5.98). APPROVED at `6611e79`,
+  no punch items. All 36 messages match by script and through the binary; the thesis holds on
+  6000/1200 px images with pixels exact against `vips`; M1, M3b, M8, M12 and M4b driven; a 0 px
+  batch exits 6 and writes nothing. Four optional cleanups; the maintainer chose to fix them
+  before merge.
+- [ ] **punch list** (`prompts/SPEC-145-punchlist.md`, Sonnet): the 0.4 bound, the A-table count
+  assert, the batch exit code in `recipes/README.md`, and the spec's mutation table.
+- [ ] **re-verify** (`prompts/SPEC-145-reverify.md`, Opus, read-only)
 - [ ] **ship** (`prompts/SPEC-145-ship.md`)

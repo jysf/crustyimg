@@ -140,7 +140,13 @@ In build order. Each is framed in its own session first.
   unambiguous, and presets belong to the page's buttons (STAGE-060) and a docs table. After
   SPEC-145.
 
-**Count:** 1 shipped / 1 active / 6 pending — re-derived 2026-11-05 with `/usr/bin/grep -c '^- \[x\]'` (1), `/usr/bin/grep -c '^- \[ \]'` (8: SPEC-145 designed, the docs entry folded into it, and 6) and `/usr/bin/grep -c '^- \[ \] (not yet written)'` (6)
+- [ ] (not yet written) — [S] **The batch summary says "watermark skipped" for any refusing op.**
+  Found at SPEC-145's verify. `report_skipped_images` (`src/cli/common.rs:40`) and `build.rs:864`
+  print "watermark skipped on K of N images" for every step that refuses through the refusal hook.
+  Only `watermark` uses the hook today, so nothing shipped is mislabelled. `pad` or `trim` may be
+  the first other op to use it: name the op that refused, before either ships.
+
+**Count:** 1 shipped / 1 active / 7 pending — re-derived 2026-11-05 with `/usr/bin/grep -c '^- \[x\]'` (1), `/usr/bin/grep -c '^- \[ \]'` (9: SPEC-145 designed, the docs entry folded into it, and 7) and `/usr/bin/grep -c '^- \[ \] (not yet written)'` (7)
 
 ## Design Notes
 
