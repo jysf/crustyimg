@@ -214,8 +214,9 @@ STAGE-050 needs answered anyway.** ⚠ **Do not treat this as blocking STAGE-049
   and does not block a required check; they do not cover a skip caused by a failed `needs`. If that
   also reports Success, a broken classifier could let a PR merge. Open a scratch PR whose
   `changes` job is forced to fail, and read the required checks' states. Do not assume.
+- [ ] (not yet written) — [S] **Harden the wasm-job shape check against a neutered floor call.** Filed by SPEC-146 verify round 2. The anchored line match still passes `if false; then … fi`, a heredoc holding the call, `set +e` before it, an unused function wrapper, `exit 0` before it, and `log=/dev/null`. Partial fix: assert the count call is the last line of the step's `run:`. Low value until someone edits that step; do it with the next change to the job.
 
-**Count:** 0 shipped / 0 active / **8 pending** — re-derived 2026-11-05 with `grep -c '^- \[ \]'` (8) and `grep -c '^- \[x\]'` (0).
+**Count:** 0 shipped / 0 active / **9 pending** — re-derived 2026-11-05 with `grep -c '^- \[ \]'` (9) and `grep -c '^- \[x\]'` (0).
 
 ## Dependencies
 

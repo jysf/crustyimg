@@ -7,7 +7,7 @@
 task:
   id: SPEC-146
   type: chore                      # epic | story | task | bug | chore
-  cycle: build  # frame | design | build | verify | ship
+  cycle: verify  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: S                    # S | M | L  (L means split it)
@@ -90,6 +90,43 @@ cost:
         per id, MAX output_tokens per id. Rates: Opus $5 in / $25 out per MTok, cache_creation
         x1.25 input, cache_read x0.10 input. Taken before the commit/push exchanges, so it
         slightly under-counts the session.
+    - cycle: build
+      agent: claude-sonnet-5-5
+      interface: claude-code
+      tokens_total: 4619143
+      tokens_breakdown:
+        input: 82
+        output: 25795
+        cache_creation: 111943
+        cache_read: 4481323
+      estimated_usd: 2.15
+      duration_minutes: null
+      recorded_at: 2026-11-05
+      note: >
+        Measured from transcript 7c445899-4340-450a-a9fb-2e8181f60903.jsonl, found by the
+        prompt's title, deduped by `.message.id` (40 unique ids, all claude-sonnet-5-5):
+        input/cache_creation/cache_read once per id, MAX output_tokens per id. Rates: Sonnet
+        $3 in / $15 out per MTok, cache_creation x1.25, cache_read x0.10. Taken before the
+        final commit/push exchanges, so it slightly under-counts.
+    - cycle: build-fix
+      agent: claude-sonnet-5-5
+      interface: claude-code
+      tokens_total: 1007679
+      tokens_breakdown:
+        input: 26
+        output: 6603
+        cache_creation: 55785
+        cache_read: 945265
+      estimated_usd: 0.59
+      duration_minutes: null
+      recorded_at: 2026-11-05
+      note: >
+        Fix round for the verify punch list. Measured from transcript
+        661d1204-9b34-4841-a4d9-224005ee2561.jsonl, found by the prompt's title, deduped by
+        `.message.id` (13 unique ids, all claude-sonnet-5-5): input/cache_creation/cache_read
+        once per id, MAX output_tokens per id. Rates: Sonnet $3 in / $15 out per MTok,
+        cache_creation x1.25, cache_read x0.10. Taken before the final commit/push and CI
+        exchanges, so it slightly under-counts.
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -804,37 +841,52 @@ No new DEC: every call here is inside this spec's scope and recorded in it.
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
-- **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
-- **Files this diff touches** — **list every one**, with a phrase on what changed
-  in each. Not "src/foo and tests": the enumeration is what a verify cycle diffs
-  the real change against, and what tells you whether every affected `DEC-*` has
-  the path in its `affected_scope`. SPEC-122's Deviations claimed "`src/operation`
-  and `tests/` only" and was wrong by two `scripts/` files, which left
-  `affected_scope` blind; SPEC-124's build added this section by hand after that
-  lesson and still listed 8 of its 9 files. It is a checklist because it is easy
-  to get wrong from memory — build it from `git diff --name-only`, not recall.
-  - `path/to/file` — <what changed>
+- **Branch:** feat/spec-146-wasm-roundtrip-ci
+- **PR (if applicable):** #245 (draft)
+- **All acceptance criteria met?** yes (AC-6 and the live rows of AC-2/AC-4/AC-5 are verify's: throwaway commits)
+- **New decisions emitted:** none
+- **Files this diff touches:**
+  - `.github/workflows/ci.yml` — new `wasm-roundtrip` job; two `metadata` steps; `ddphotos-parity` comment sketch replaced
+  - `scripts/wasm-ci-check.sh` — new: lock-version, runner-version, count, workflow, `--self-test` (17 rows)
+  - `scripts/ci-code-paths.sh` — `\.cargo/` in `CODE_PATHS`; 3 new rows; mismatched/crashed/junk counters
+  - `justfile` — `wasm-test` comment and install hint (reads `Cargo.lock`)
+  - `.cargo/config.toml` — one comment sentence
+  - `AGENTS.md` — one line in §6
+  - `docs/roadmap.md`, `docs/research/proj-008-wasm-build.md` — one sentence each
+  - this spec — Build Completion and the build cost entry
+- **Checks:**
+  - C1/C3/C10 on `main`: C1 `wasm-ci-check workflow: 13 assertions, 13 failed` (first line `FAIL job wasm-roundtrip exists, non-matrix, named 'wasm round-trip tests (Node)'`); C10 `FAIL .cargo/config.toml -> false, expected true`, `7 rows, 1 mismatched, 0 crashed, 0 junk`. After: C1 `13 assertions, 0 failed`, C3 `17 rows, 17 passed, 0 wrong verdict, 0 wrong message`, C10 `7 rows, 0 mismatched, 0 crashed, 0 junk`; actionlint: only the SC2001 note at `ci.yml:44`.
+  - C4: stub 0.2.125 -> exit 1, `::error::wasm-ci-check: wasm-bindgen-test-runner is 0.2.125 but Cargo.lock pins wasm-bindgen 0.2.126; install the exact lock version`; `PATH=/usr/bin:/bin` -> exit 1, `::error::wasm-ci-check: wasm-bindgen-test-runner not found on PATH`; real runner -> exit 0, `wasm-bindgen-test-runner 0.2.126 matches Cargo.lock`.
+  - C7 local: `tests/wasm_roundtrip.rs:30` -> `#[cfg(any())]`: `just wasm-test` rc 0, `1 passed`; `count full` rc 1, `::error::wasm-ci-check: full set: 1 passed, expected 47 (FULL_COUNT in scripts/wasm-ci-check.sh). Update FULL_COUNT ...`. Restored with `git checkout`; `git diff --quiet` rc 0 (empty).
+  - C5 (run 42080605578, job 127432942168, success, 18:04:51 to 18:08:55 = 4m04s cold): `Cargo.lock pins wasm-bindgen 0.2.126`; `wasm-bindgen-test-runner 0.2.126 matches Cargo.lock`; `v22.23.4`; `test result: ok. 47 passed; 0 failed ...`; `wasm-ci-check: full set: 47 passed, as expected`; `test result: ok. 45 passed; 0 failed ...`; `wasm-ci-check: slim set: 45 passed, as expected`. `metadata`: `wasm-ci-check self-test: 17 rows, 17 passed, ...`, `wasm-ci-check workflow: 13 assertions, 0 failed`. `changes`: `ci-code-paths self-test: 7 rows, 0 mismatched, 0 crashed, 0 junk`. All 17 PR checks green.
+  - C12: all new sentences found by `grep -F`; the old ones (`A wasm32 test leg adds ONE step here`, `--version 0.2.126` in `justfile`, `today only a local`) count 0. The install hint with the runner off `PATH` prints `--version 0.2.126`.
+  - Local mutations (scratch worktree, each reverted, `git diff` empty): M1 C1 `FAIL job needs changes`, actionlint `ci.yml:108:9: property "changes" is not defined in object type {}`; M2 C1 `FAIL runner-version step runs after the install step` + `FAIL the runner assertion precedes both test steps`; M3 C1 `FAIL full test step runs ...`; M5 C1 `FAIL slim test step runs 'just wasm-test-slim' ...` (after the fix below); M8 C3 `FAIL 16 runner prefix: verdict ok, expected fail`; M12 C10 `FAIL .cargo/config.toml -> false, expected true`, `1 mismatched`; M13 `7 rows, 0 mismatched, 7 crashed, 0 junk`; M14 `0 mismatched, 0 crashed, 3 junk`; M15 C3 rows 4 and 5 (`2 wrong verdict`); M16 C3 row 7; M17 C3 row 13 (`found 2 wasm-bindgen entries`).
 - **Deviations from spec:**
-  - [list]
+  - Assertions 10/11 of `workflow` match the invocation line (`^\s*just wasm-test(-slim)?\s*>`), not a substring: as specified, M5 left C1 green because the step's `::error::` text also names `just wasm-test-slim`. Found by the M5 run; fixed in 739f364.
+  - Added a `compare-runner` subcommand so `--self-test` can drive the compare through the script with strings (rows 14 to 17); `runner-version` calls the same function.
+  - Row 8's message check is `did not pass`; the script's message is `the test run did not pass: <line>`.
+  - Did not rebase onto `origin/main` before the PR: the sandbox refused the force-push a rebase needs. `main` is ahead by docs commits only; `git diff origin/main -- tests/wasm_roundtrip.rs` is empty.
 - **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - Maintainer: add `wasm round-trip tests (Node)` as a required check after its first green run on `main`.
+
+### Fix round (verify punch list, PR #245)
+
+- **P1:** `err()` wrote its `::error::` line to stdout, so `version=$(scripts/wasm-ci-check.sh lock-version)` and `want=$(lock_version ...)` swallowed it: an empty lock exited 1 with no output. `err()` now writes to stderr; the same runs print `::error::wasm-ci-check: found 0 wasm-bindgen entries in <lock>, expected 1`. Self-test row 18 runs `lock-version` on a lock with no entry and fails if stdout is not empty (old `err()` restored: `18 rows, 17 passed, 1 wrong verdict`).
+- **P2:** assertions 10 and 11 match the count call as a whole line (`^\s*scripts/wasm-ci-check\.sh count (full|slim) "\$log"\s*$`). A commented-out call, `|| true` and `echo` decoys, for both sets, were green at `13 assertions, 0 failed` before and are red after.
+- **Hardening (done):** three more assertions (no `continue-on-error` in the job or its steps; the slim step's `if:` is exactly `!cancelled() && steps.wasm-check.outcome == 'success'`; no job-level `env:`), each with a mutation that turns it red. `workflow` now reports 16 assertions; the 13 above in the earlier Build Completion text is history.
 
 ### Build-phase reflection (3 questions, short answers)
 
 Process-focused: how did the build go? What friction did the spec create?
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — Little. The substring form of assertions 10/11 looked right and was not (M5 stayed green); the table said C1 goes red, so the table was the check that caught it.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — No. One gap: the warm-time ask needs a code-path push, because a spec-only commit makes `changes` skip the job.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Run the whole mutation table before the first PR push, so a weak check does not cost a second CI run.
 
 ---
 

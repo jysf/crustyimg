@@ -97,9 +97,74 @@ jobs:
           key: ddphotos-parity
       - name: Parity harness
         run: just ddphotos-parity
-      # A wasm32 test leg adds ONE step here:
-      #   - run: cargo install wasm-bindgen-cli --version 0.2.126 --locked && just wasm-check && just wasm-test
-      #     (or taiki-e/install-action with tool: wasm-bindgen@0.2.126)
+      # The wasm round-trip tests (tests/wasm_roundtrip.rs) run in the next job, wasm-roundtrip.
+
+  # The #[wasm_bindgen_test] round-trip (tests/wasm_roundtrip.rs) in Node, on both wasm
+  # feature sets: the only tests that drive src/wasm.rs, the npm package's API. One job,
+  # not a matrix: a job skipped by its `if:` reports success under its own name, so it can
+  # be a required check without `check`'s always-run pattern. Keep `name:` stable; it is
+  # the required-check context.
+  wasm-roundtrip:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    name: wasm round-trip tests (Node)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: taiki-e/install-action@just
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          package-manager-cache: false
+      - name: Node version
+        run: node --version
+      - name: Read the wasm-bindgen version from Cargo.lock
+        id: lock
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(scripts/wasm-ci-check.sh lock-version)
+          echo "Cargo.lock pins wasm-bindgen $version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      # The runner must match the lock exactly: a runner whose wasm schema happens to match
+      # (0.2.122 to 0.2.127 share one) runs the tests silently on the wrong version.
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-bindgen@${{ steps.lock.outputs.version }}
+          fallback: none
+      - name: Runner matches Cargo.lock
+        run: scripts/wasm-ci-check.sh runner-version
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: wasm-roundtrip
+      - name: just wasm-check
+        id: wasm-check
+        run: just wasm-check
+      - name: just wasm-test (full feature set)
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/wasm-test.log"
+          rc=0
+          just wasm-test >"$log" 2>&1 || rc=$?
+          cat "$log"
+          if [ "$rc" -ne 0 ]; then echo "::error::just wasm-test exited $rc"; exit "$rc"; fi
+          scripts/wasm-ci-check.sh count full "$log"
+      # Runs even when the full set failed, so one red run names both feature sets.
+      - name: just wasm-test-slim (slim feature set)
+        if: ${{ !cancelled() && steps.wasm-check.outcome == 'success' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/wasm-test-slim.log"
+          rc=0
+          just wasm-test-slim >"$log" 2>&1 || rc=$?
+          cat "$log"
+          if [ "$rc" -ne 0 ]; then echo "::error::just wasm-test-slim exited $rc"; exit "$rc"; fi
+          scripts/wasm-ci-check.sh count slim "$log"
 
   check:
     needs: changes
@@ -338,6 +403,14 @@ jobs:
       # (stdlib yaml) is preinstalled on ubuntu-latest — no setup step needed.
       - name: validate front-matter (strict YAML parse of all declared state)
         run: ./scripts/validate-frontmatter.sh
+
+      # The wasm-roundtrip job's shape and its helper's parsers. Here, not in that job: a job
+      # whose `needs`/`if` broke is skipped, and could not report its own breakage.
+      - name: wasm-ci-check self-test
+        run: scripts/wasm-ci-check.sh --self-test
+
+      - name: wasm-roundtrip job shape
+        run: scripts/wasm-ci-check.sh workflow
 
 # Follow-up: a `--features mozjpeg` job (DEC-009) is deferred until the codec
 # feature exists (DEC-004). No codec dependency is present yet, so there is no
