@@ -164,6 +164,9 @@ prompts are `specs/prompts/SPEC-141-frame.md` and `SPEC-142-frame.md`, and the t
 the same time. SPEC-139 is taken on another branch, and SPEC-140 is left for PROJ-016 (DEC-107).
 Later lines get their ids at frame.
 
+**Reserved (2026-11-04):** line 2 (`crop`) is **SPEC-145**. Its frame prompt is
+`specs/prompts/SPEC-145-frame.md`.
+
 ## Dependencies
 
 ### Depends on
