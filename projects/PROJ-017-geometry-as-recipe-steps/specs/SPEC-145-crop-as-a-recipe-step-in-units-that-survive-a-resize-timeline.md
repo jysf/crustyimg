@@ -48,5 +48,9 @@ Cycle prompts live in `prompts/SPEC-145-<cycle>.md`.
   and the test comment now say 0.4 is the seeded sweep's measurement and 0.6 the general bound;
   the near-tie (12 px at 1200, 57 px at 6000) was driven on the binary. The +0.1 row reads red at
   both bounds. The test's panic and assert share one `BOUND` const (0.3 control panics naming 0.3).
-- [ ] **re-verify 2** (`prompts/SPEC-145-reverify-2.md`, Opus, read-only)
+- [x] **re-verify 2** (`prompts/SPEC-145-reverify-2.md`, 2026-11-05, Opus, read-only, ~$1.67). APPROVED at
+  `9b44bb2`. Every 0.4 / maximum claim now true; near-tie driven (11.5 vs 57.49999999999999 → 12 px
+  and 57 px); +0.1 red at bare 0.6, green at 0.6 + 1e-9; `BOUND` const shared by assert and panic;
+  1156 passed. Two optional wording cleanups, not blocking. The orchestrator ran `update-branch`
+  (head `deaee5a`, main's docs only) before marking ready.
 - [ ] **ship** (`prompts/SPEC-145-ship.md`)
