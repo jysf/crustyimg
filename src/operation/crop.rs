@@ -650,7 +650,14 @@ mod tests {
                 ("aspect", aspect_toml.as_str()),
                 ("gravity", gravity_toml.as_str()),
             ]);
-            let out = apply_to(&c, unique_rgb8(*w, *h));
+            // An apply error is a failing row too, reported with the rest.
+            let out = match c.apply(wrap(unique_rgb8(*w, *h))) {
+                Ok(img) => img.pixels().clone(),
+                Err(e) => {
+                    mismatches.push(format!("{gravity} on {w}x{h}: {e}"));
+                    continue;
+                }
+            };
             let got_px = *out.to_rgb8().get_pixel(0, 0);
             if (out.width(), out.height()) != (*cw, *ch) || got_px != unique_rgb8_pixel(*left, *top)
             {
