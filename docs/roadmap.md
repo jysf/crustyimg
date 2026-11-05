@@ -348,3 +348,5 @@ Low-priority CLI-utility ideas that don't belong to a wave; each gets framed onl
 - **Snapshot of what's built:** `docs/moat.md`.
 
 *Refine this doc as research lands and as each wave ships and the next is framed for real.*
+
+<!-- verify scratch -->
