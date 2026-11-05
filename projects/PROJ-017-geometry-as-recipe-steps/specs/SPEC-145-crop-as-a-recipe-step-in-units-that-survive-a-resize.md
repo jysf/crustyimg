@@ -1178,7 +1178,7 @@ Near-tie driven on this branch's release binary, images made by ImageMagick, rec
 0.4000000000000057 > 0.3)`. Restored; `cargo test --lib operation::crop` (11) and `--test crop` (6)
 green, clippy (default and `--no-default-features`) and `fmt --check` clean.
 
-CI run id: CIRUNID
+CI run id: 42102213967 (CI), DCO 42102213222, on `6183fa6`, all checks pass, 0 failures.
 
 ### Build-phase reflection (3 questions, short answers)
 
