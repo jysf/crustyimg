@@ -19,7 +19,11 @@ Cycle prompts live in `prompts/SPEC-145-<cycle>.md`.
   Rulings (2026-11-05, all three as recommended): fractions only in a recipe, pixels via `edit --crop`
   later; `aspect` takes whole numbers only (`"239:100"`); a crop that rounds to 0 px is refused, not
   clamped.
-- [ ] **build** (`prompts/SPEC-145-build.md`, Sonnet). The maintainer accepted design's reading of ruling 3 on
+- [x] **build** (`prompts/SPEC-145-build.md`, 2026-11-05, Sonnet, ~$9.37). Draft PR #244 at `6611e79`, CI green
+  on every leg; 65/65 ACs; M1–M12 driven (M2, M4, M6, M12 flip extra rows; M4b exits 2 on a single
+  input but 0 with uncropped output on a batch). Corpus: both crop recipes byte-identical across
+  the three targets, no existing output changed. wasm-test 49/0; bundle +3,271 B brotli. Finding:
+  the batch refusal warning says "watermark skipped" for any refusing op. The maintainer accepted design's reading of ruling 3 on
   2026-11-05: the 0 px message names `crop` and both sizes, with no step index.
-- [ ] **verify** (`prompts/SPEC-145-verify.md`)
+- [ ] **verify** (`prompts/SPEC-145-verify.md`, Opus, read-only)
 - [ ] **ship** (`prompts/SPEC-145-ship.md`)
