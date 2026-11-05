@@ -37,5 +37,13 @@ Cycle prompts live in `prompts/SPEC-145-<cycle>.md`.
   written, one bad + one good 6 with the good image written; `recipes/README.md` reworded. The
   bound test lives in `src/operation/crop.rs`'s test module, so `src/` changed in tests only.
   DEC-112's bound line now says 0.4.
-- [ ] **re-verify** (`prompts/SPEC-145-reverify.md`, Opus, read-only)
+- [x] **re-verify** (`prompts/SPEC-145-reverify.md`, 2026-11-05, Opus, read-only, ~$1.50). PUNCH LIST at
+  `0c6f722`: the four cleanups are done and nothing regressed (1,156 passed), but the punch list
+  wrote that 0.4 px is the maximum drift. That holds in exact maths only; at `f64` near-ties it
+  reaches 0.6 (`width = 0.009583333333333333`: 12 px at 1200, 57 px at 6000). The "+0.1 green at
+  0.6" control row is false too. The orchestrator's punch-list prompt had passed the first
+  verify's "analytic maximum" on as settled, unchecked.
+- [ ] **punch list 2** (`prompts/SPEC-145-punchlist-2.md`, Sonnet): restate the claim, fix the row,
+  print the bound in the test message. Text and test message only.
+- [ ] **re-verify 2** (`prompts/SPEC-145-reverify-2.md`, Opus, read-only)
 - [ ] **ship** (`prompts/SPEC-145-ship.md`)
