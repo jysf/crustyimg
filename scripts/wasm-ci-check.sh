@@ -150,10 +150,10 @@ check.(rc && rc.dig("with", "key").to_s == "wasm-roundtrip",
        "rust-cache key is wasm-roundtrip", "Swatinem/rust-cache@v2 with key wasm-roundtrip")
 check.(steps.any? { |s| s["run"].to_s.strip == "just wasm-check" },
        "a step runs 'just wasm-check'", "a step running 'just wasm-check'")
-full = steps.index { |s| r = s["run"].to_s; r =~ /just wasm-test(\s|$)/ && r.include?("scripts/wasm-ci-check.sh count full") }
+full = steps.index { |s| r = s["run"].to_s; r =~ /^\s*just wasm-test\s*>/ && r.include?("scripts/wasm-ci-check.sh count full") }
 check.(!full.nil?, "full test step runs 'just wasm-test' and the full count check",
        "a step with 'just wasm-test' and 'scripts/wasm-ci-check.sh count full'")
-slim = steps.index { |s| r = s["run"].to_s; r.include?("just wasm-test-slim") && r.include?("scripts/wasm-ci-check.sh count slim") }
+slim = steps.index { |s| r = s["run"].to_s; r =~ /^\s*just wasm-test-slim\s*>/ && r.include?("scripts/wasm-ci-check.sh count slim") }
 check.(!slim.nil?, "slim test step runs 'just wasm-test-slim' and the slim count check",
        "a step with 'just wasm-test-slim' and 'scripts/wasm-ci-check.sh count slim'")
 check.(rv && full && slim && rv < full && rv < slim,
