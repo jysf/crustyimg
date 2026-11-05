@@ -502,6 +502,12 @@ mod tests {
     }
 
     #[test]
+    fn with_builtins_contains_crop() {
+        let reg = OperationRegistry::with_builtins();
+        assert!(reg.contains("crop"), "expected 'crop' to be registered");
+    }
+
+    #[test]
     fn build_unknown_returns_typed_error() {
         let reg = OperationRegistry::with_builtins();
         let result = reg.build("bogus", &OperationParams::empty());
@@ -635,6 +641,32 @@ mod tests {
                 "tile"
             ]
         );
+        assert_eq!(
+            keys("crop"),
+            ["x", "y", "width", "height", "aspect", "gravity"]
+        );
+        let crop_kinds: Vec<ParamKind> = reg
+            .param_specs("crop")
+            .expect("crop schema")
+            .iter()
+            .map(|s| s.kind)
+            .collect();
+        let fraction = |min_inclusive| ParamKind::Number {
+            min: 0.0,
+            min_inclusive,
+            max: Some(1.0),
+        };
+        assert_eq!(
+            crop_kinds,
+            [
+                fraction(true),
+                fraction(true),
+                fraction(false),
+                fraction(false),
+                ParamKind::Text,
+                ParamKind::OneOf(crate::operation::GRAVITY_NAMES),
+            ]
+        );
         for paramless in ["identity", "invert", "auto-orient"] {
             assert!(keys(paramless).is_empty(), "'{paramless}' takes no keys");
         }
@@ -672,7 +704,7 @@ mod tests {
     fn one_of_values_are_accepted_by_their_constructors() {
         let reg = OperationRegistry::with_builtins();
         let mut checked = 0;
-        for op in ["resize", "watermark"] {
+        for op in ["resize", "watermark", "crop"] {
             for spec in reg.param_specs(op).expect("schema") {
                 let ParamKind::OneOf(values) = spec.kind else {
                     continue;
@@ -694,6 +726,9 @@ mod tests {
                             m.insert("width".to_owned(), toml::Value::Integer(8));
                             m.insert("height".to_owned(), toml::Value::Integer(8));
                         }
+                        ("crop", _) => {
+                            m.insert("aspect".to_owned(), toml::Value::String("16:9".into()));
+                        }
                         _ => {
                             m.insert("text".to_owned(), toml::Value::String("hi".into()));
                         }
@@ -706,7 +741,11 @@ mod tests {
                 }
             }
         }
-        assert_eq!(checked, 6 + 9, "6 resize modes + 9 gravities");
+        assert_eq!(
+            checked,
+            6 + 9 + 9,
+            "6 resize modes + 9 watermark gravities + 9 crop gravities"
+        );
     }
 
     #[test]

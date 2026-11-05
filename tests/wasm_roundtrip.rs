@@ -359,6 +359,96 @@ op = "identity"
         }
     }
 
+    /// An RGBA PNG whose every pixel is unique (for sides under 4096), so a
+    /// crop that lands one pixel off cannot compare equal.
+    fn png_unique(w: u32, h: u32) -> Vec<u8> {
+        use image::{ImageEncoder, Rgba, RgbaImage};
+        let img = RgbaImage::from_fn(w, h, |x, y| {
+            Rgba([x as u8, y as u8, (((x >> 8) << 4) | (y >> 8)) as u8, 255])
+        });
+        let mut out = Vec::new();
+        image::codecs::png::PngEncoder::new(&mut out)
+            .write_image(img.as_raw(), w, h, image::ExtendedColorType::Rgba8)
+            .expect("encode unique png");
+        out
+    }
+
+    /// A crop moves pixels and computes none, so the wasm output equals the
+    /// native one in size and in every pixel, with no 1/255 allowance.
+    #[wasm_bindgen_test]
+    fn transform_crops_exactly() {
+        let src = png_unique(1200, 800);
+        let decoded = image::load_from_memory(&src)
+            .expect("decode input")
+            .to_rgba8();
+        let rows = [
+            (
+                "rectangle",
+                "x = 0.123\ny = 0.2345\nwidth = 0.5\nheight = 0.4321",
+                (600u32, 345u32),
+                (148u32, 188u32),
+            ),
+            (
+                "aspect",
+                "aspect = \"5:4\"\ngravity = \"southeast\"",
+                (1000, 800),
+                (200, 0),
+            ),
+        ];
+        for (name, body, (w, h), (left, top)) in rows {
+            let recipe = format!("version = \"2\"\n\n[[step]]\nop = \"crop\"\n{body}\n");
+            let out = transform(&src, &recipe, "png").expect("a crop recipe transforms");
+            let got = image::load_from_memory(&out)
+                .expect("decode output")
+                .to_rgba8();
+            assert_eq!((got.width(), got.height()), (w, h), "{name}: size");
+            let differing = got
+                .enumerate_pixels()
+                .filter(|(x, y, px)| *px != decoded.get_pixel(left + x, top + y))
+                .count();
+            assert_eq!(differing, 0, "{name}: pixels differing from the input");
+        }
+    }
+
+    /// A bad crop throws the same line the CLI prints, at load or at apply,
+    /// and the module survives each one.
+    #[wasm_bindgen_test]
+    fn transform_refuses_a_bad_crop_with_the_native_message() {
+        let rows = [
+            (
+                "R18",
+                1200u32,
+                800u32,
+                "aspect = \"16:9\"\nx = 0\ny = 0\nwidth = 0.5\nheight = 0.5",
+                "recipe step 0 ('crop'): 'aspect' cannot be combined with 'x'; a crop is either a rectangle (x, y, width, height) or an aspect (aspect, gravity)",
+            ),
+            (
+                "R28",
+                1200,
+                800,
+                "aspect = \"2.39:1\"",
+                "recipe step 0 ('crop'): 'aspect' must be two whole numbers written W:H; write \"2.39:1\" as \"239:100\"",
+            ),
+            (
+                "A1",
+                1600,
+                1067,
+                "x = 0.5\ny = 0\nwidth = 0.0001\nheight = 1",
+                "operation 'crop' failed: the crop rounds to 0×1067 px on this 1600×1067 px image; it must keep at least 1 px each way",
+            ),
+        ];
+        for (id, w, h, body, want) in rows {
+            let src = png_unique(w, h);
+            let recipe = format!("version = \"2\"\n\n[[step]]\nop = \"crop\"\n{body}\n");
+            let err = transform(&src, &recipe, "png").expect_err("a bad crop is refused");
+            let msg = format!("{:?}", wasm_bindgen::JsValue::from(err));
+            assert!(msg.contains(want), "{id}: wanted {want:?}, got {msg}");
+
+            let ok = transform(&src, IDENTITY_RECIPE, "png").expect("module must survive");
+            assert!(!ok.is_empty(), "{id}: identity after the refusal");
+        }
+    }
+
     /// `recipe.quality`, when set, reaches the encoder — the RETURNED BYTES
     /// equal an independent encode at that same quality, not merely a
     /// plausible-looking success (the standard this file holds every
