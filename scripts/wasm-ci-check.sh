@@ -19,7 +19,9 @@ SLIM_COUNT=45   # just wasm-test-slim  (--features avif): 3 svg tests out, 1 ref
 
 SELF="$0"
 
-err() { echo "::error::wasm-ci-check: $*"; }
+# To stderr: lock_version's caller captures stdout with $(...), and an error on stdout would
+# vanish into the variable and leave CI silent.
+err() { echo "::error::wasm-ci-check: $*" >&2; }
 
 # Print the version of the single `wasm-bindgen` package in a lockfile. Matches the whole
 # name line, so wasm-bindgen-shared / -macro / -backend are not counted.
@@ -150,14 +152,22 @@ check.(rc && rc.dig("with", "key").to_s == "wasm-roundtrip",
        "rust-cache key is wasm-roundtrip", "Swatinem/rust-cache@v2 with key wasm-roundtrip")
 check.(steps.any? { |s| s["run"].to_s.strip == "just wasm-check" },
        "a step runs 'just wasm-check'", "a step running 'just wasm-check'")
-full = steps.index { |s| r = s["run"].to_s; r =~ /^\s*just wasm-test\s*>/ && r.include?("scripts/wasm-ci-check.sh count full") }
+full = steps.index { |s| r = s["run"].to_s; r =~ /^\s*just wasm-test\s*>/ && r =~ /^\s*scripts\/wasm-ci-check\.sh count full "\$log"\s*$/ }
+# The count call must be a whole line: a substring match accepts a comment, `|| true` or `echo`.
 check.(!full.nil?, "full test step runs 'just wasm-test' and the full count check",
        "a step with 'just wasm-test' and 'scripts/wasm-ci-check.sh count full'")
-slim = steps.index { |s| r = s["run"].to_s; r =~ /^\s*just wasm-test-slim\s*>/ && r.include?("scripts/wasm-ci-check.sh count slim") }
+slim = steps.index { |s| r = s["run"].to_s; r =~ /^\s*just wasm-test-slim\s*>/ && r =~ /^\s*scripts\/wasm-ci-check\.sh count slim "\$log"\s*$/ }
 check.(!slim.nil?, "slim test step runs 'just wasm-test-slim' and the slim count check",
        "a step with 'just wasm-test-slim' and 'scripts/wasm-ci-check.sh count slim'")
 check.(rv && full && slim && rv < full && rv < slim,
        "the runner assertion precedes both test steps", "runner-version step before both test steps")
+check.(!steps.any? { |s| s.key?("continue-on-error") } && !job.key?("continue-on-error"),
+       "no continue-on-error in the job or its steps", "no continue-on-error anywhere in wasm-roundtrip")
+slim_if = slim && steps[slim]["if"].to_s.sub(/\A\s*\$\{\{\s*/, "").sub(/\s*\}\}\s*\z/, "").strip
+check.(slim_if == "!cancelled() && steps.wasm-check.outcome == 'success'",
+       "slim step if is exactly !cancelled() && steps.wasm-check.outcome == 'success'",
+       "slim step if: !cancelled() && steps.wasm-check.outcome == 'success'")
+check.(!job.key?("env"), "no job-level env", "no env: on the wasm-roundtrip job")
 md = (jobs["metadata"] || {})["steps"] || []
 check.(md.any? { |s| s["run"].to_s.include?("scripts/wasm-ci-check.sh --self-test") } &&
          md.any? { |s| s["run"].to_s.include?("scripts/wasm-ci-check.sh workflow") },
@@ -220,6 +230,17 @@ self_test() {
   row "15 runner older" fail "is 0.2.125 but Cargo.lock pins wasm-bindgen 0.2.126" -- compare-runner "wasm-bindgen-test-runner 0.2.125" 0.2.126
   row "16 runner prefix" fail "is 0.2.1260 but" -- compare-runner "wasm-bindgen-test-runner 0.2.1260" 0.2.126
   row "17 runner empty" fail "printed no version" -- compare-runner "" 0.2.126
+
+  # Errors go to stderr. `row` merges the streams, so check this one on its own: a failing
+  # lock-version must print nothing on stdout, or `version=$(...)` in CI swallows the error.
+  local so
+  so=$("$SELF" lock-version "$dir/lock0" 2>/dev/null) || true
+  rows=$((rows + 1))
+  if [ -n "$so" ]; then
+    wrong_v=$((wrong_v + 1)); echo "FAIL 18 errors go to stderr: stdout was '$so'"
+  else
+    echo "PASS 18 errors go to stderr"
+  fi
 
   echo "wasm-ci-check self-test: $rows rows, $((rows - wrong_v - wrong_m)) passed, $wrong_v wrong verdict, $wrong_m wrong message"
   [ $((wrong_v + wrong_m)) -eq 0 ]

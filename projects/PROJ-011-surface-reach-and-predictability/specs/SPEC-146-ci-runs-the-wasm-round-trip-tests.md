@@ -108,6 +108,25 @@ cost:
         input/cache_creation/cache_read once per id, MAX output_tokens per id. Rates: Sonnet
         $3 in / $15 out per MTok, cache_creation x1.25, cache_read x0.10. Taken before the
         final commit/push exchanges, so it slightly under-counts.
+    - cycle: build-fix
+      agent: claude-sonnet-5-5
+      interface: claude-code
+      tokens_total: 1007679
+      tokens_breakdown:
+        input: 26
+        output: 6603
+        cache_creation: 55785
+        cache_read: 945265
+      estimated_usd: 0.59
+      duration_minutes: null
+      recorded_at: 2026-11-05
+      note: >
+        Fix round for the verify punch list. Measured from transcript
+        661d1204-9b34-4841-a4d9-224005ee2561.jsonl, found by the prompt's title, deduped by
+        `.message.id` (13 unique ids, all claude-sonnet-5-5): input/cache_creation/cache_read
+        once per id, MAX output_tokens per id. Rates: Sonnet $3 in / $15 out per MTok,
+        cache_creation x1.25, cache_read x0.10. Taken before the final commit/push and CI
+        exchanges, so it slightly under-counts.
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -849,6 +868,12 @@ No new DEC: every call here is inside this spec's scope and recorded in it.
   - Did not rebase onto `origin/main` before the PR: the sandbox refused the force-push a rebase needs. `main` is ahead by docs commits only; `git diff origin/main -- tests/wasm_roundtrip.rs` is empty.
 - **Follow-up work identified:**
   - Maintainer: add `wasm round-trip tests (Node)` as a required check after its first green run on `main`.
+
+### Fix round (verify punch list, PR #245)
+
+- **P1:** `err()` wrote its `::error::` line to stdout, so `version=$(scripts/wasm-ci-check.sh lock-version)` and `want=$(lock_version ...)` swallowed it: an empty lock exited 1 with no output. `err()` now writes to stderr; the same runs print `::error::wasm-ci-check: found 0 wasm-bindgen entries in <lock>, expected 1`. Self-test row 18 runs `lock-version` on a lock with no entry and fails if stdout is not empty (old `err()` restored: `18 rows, 17 passed, 1 wrong verdict`).
+- **P2:** assertions 10 and 11 match the count call as a whole line (`^\s*scripts/wasm-ci-check\.sh count (full|slim) "\$log"\s*$`). A commented-out call, `|| true` and `echo` decoys, for both sets, were green at `13 assertions, 0 failed` before and are red after.
+- **Hardening (done):** three more assertions (no `continue-on-error` in the job or its steps; the slim step's `if:` is exactly `!cancelled() && steps.wasm-check.outcome == 'success'`; no job-level `env:`), each with a mutation that turns it red. `workflow` now reports 16 assertions; the 13 above in the earlier Build Completion text is history.
 
 ### Build-phase reflection (3 questions, short answers)
 
