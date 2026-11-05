@@ -1103,6 +1103,8 @@ Sonnet. No behaviour change in `src/`; the one `src/operation/crop.rs` edit is i
    `0.5 + 0.5/5 = 0.6` derivation is kept, with the real 0.4 maximum stated beside it. **DEC-112 changed**
    on this branch (its size-independence line now says 0.4, asserted by SPEC-145's test).
 
+CI on `1316ad7`: run 42090297892 (CI), plus DCO 42090297937, all 17 checks pass, 8 release jobs skipped.
+
 Controls (each rebuilt clean, `cargo clean -p crustyimg`, exit read from `$?`):
 
 | control | result |
