@@ -143,11 +143,20 @@ STAGE-050 needs answered anyway.** ⚠ **Do not treat this as blocking STAGE-049
   place with a note, or left with an errata record — the figures are cited in brag entries and
   release notes that cannot be edited retroactively.
 
-- [ ] (chore) — **A wasm32 CI leg** running `just wasm-check` + `just wasm-test`. Currently filed
-  as STAGE-038 item #8 and **moved here**, because it is the same thesis as this stage rather
-  than housekeeping: a guard that does not run. The runner needs the `wasm32-unknown-unknown`
-  target and `wasm-bindgen-test-runner` — [[probe-load-bearing-crates-at-design]] applies to the
-  test *runner* for a new target. Complexity **S–M**.
+- **Folded into SPEC-146** (STAGE-054, framed 2026-11-05) — (chore) **A wasm32 CI leg** running
+  `just wasm-check` + `just wasm-test`. Was STAGE-038 item #8. SPEC-146 is the same gap as
+  STAGE-054's "No CI job runs the wasm round-trip tests", so one spec covers both. The runner
+  probe this entry asked for is in SPEC-146's frame (Q2): the runner's own check compares only
+  the schema version, so the job asserts the version.
+
+- [ ] (not yet written) — [S] **The wasm32 build carries a compiler warning that no gate sees.**
+  Filed by SPEC-146's frame (2026-11-05). `just wasm-check` prints `constant
+  MANIFEST_DROPPED_WARNING is never used` (`src/metadata/mod.rs:129`): the constant is dead on
+  wasm32. No CI job runs clippy or `-D warnings` for `wasm32-unknown-unknown`, so wasm-only
+  warnings accumulate unseen, and SPEC-146's job cannot add `-D warnings` without being red on
+  day one. Fix: cfg-gate or move the constant, then add a wasm32 clippy step
+  (`--target wasm32-unknown-unknown`, the `just` feature set) to SPEC-146's `wasm-roundtrip`
+  job.
 
 - [ ] (not yet written) — [S] ⚡ **`cost-audit` scopes to the ACTIVE project, so activating a new
   one silently takes the gate out of service — and its message cannot tell you.** Found 2026-08-23,
@@ -199,7 +208,7 @@ STAGE-050 needs answered anyway.** ⚠ **Do not treat this as blocking STAGE-049
   Mac. Remove it after the run, or use one fixed, reused dir. Prove each with a driven failure
   (a bad feature name) and a dir count before and after.
 
-**Count:** 0 shipped / 0 active / **7 pending** — re-derived 2026-10-30 with `grep -c '^- \[ \]'` (7) and `grep -c '^- \[x\]'` (0).
+**Count:** 0 shipped / 0 active / **7 pending** — re-derived 2026-11-05 with `grep -c '^- \[ \]'` (7) and `grep -c '^- \[x\]'` (0).
 
 ## Dependencies
 
