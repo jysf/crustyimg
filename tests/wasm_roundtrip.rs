@@ -27,7 +27,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // WASM: the real decode → transform → encode round-trip
 // ─────────────────────────────────────────────────────────────────────────────
-#[cfg(target_arch = "wasm32")]
+#[cfg(any())]
 mod wasm {
     use crustyimg::sink::FAST_LOSSY_QUALITY;
     use crustyimg::wasm::{
