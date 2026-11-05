@@ -207,8 +207,8 @@ have an impressive unused tool.
   (returns a typed error), native builds unaffected. Carries: (1) **a shared `optimize` engine
   seam** both `cli` and `wasm` call, so the multi-candidate `pick_winner` solve isn't CLI-only
   (wasm's `optimize` currently takes the format shortlist's first candidate — honest, not
-  best); (2) **a wasm CI job** — today only a local `just wasm-test` floor guards the wasm
-  build (mirrors the fuzz-gate CI decision, DEC-062); (3) **bundle size = SPEC-074's brief**
+  best); (2) **a wasm CI job**: done, CI's `wasm-roundtrip` job runs `just wasm-test` and
+  `wasm-test-slim` on every code change (SPEC-146); (3) **bundle size = SPEC-074's brief**
   (now **1.52 MB brotli** with AVIF encode; prime levers = `ssimulacra2`, the resvg text stack,
   unused `image` codecs, and the deferred `crustyimg-core` crate split, DEC-064); (4) a
   **`not(wasm32)` cfg-alias** once a second default-ON feature carries a native-only dep (only
