@@ -613,7 +613,7 @@ fn decode_with_limits(
 
     // HEIC is the ISOBMFF sibling of AVIF, dispatched AFTER it so an AVIF-in-HEIF
     // container (which also carries `mif1`) reaches the pure-Rust AVIF path. Decode
-    // lives behind the off-by-default `heic` feature (system libheif, DEC-052/DEC-056),
+    // lives behind the off-by-default `heic` feature (heifer, DEC-052/DEC-056),
     // but DETECTION is compiled into both builds: the default binary must answer a
     // `.heic` with a precise "rebuild with --features heic" (exit 4), not a vague
     // "unsupported format". There is no `ImageFormat::Heic`, so a decoded HEIC reports

@@ -1,12 +1,17 @@
 //! HEIC/HEIF decode behind the off-by-default `heic` feature (SPEC-062, DEC-056).
 //!
 //! HEIC is the one common modern format crustyimg cannot put on the default
-//! path. **DEC-052** pins two independent blockers, either of which alone forces
-//! the gate: the mature pure-Rust HEIC decoders are AGPL (`no-agpl-default-deps`,
-//! DEC-018), and HEVC is patent-encumbered (Access Advance pool) on *every*
-//! decode path regardless of code license. So a permissive pure-Rust decoder
-//! would not un-gate it, and the feature must never appear in a distributed
-//! artifact.
+//! path. **DEC-052** pinned two independent blockers: the mature pure-Rust HEIC
+//! decoders were AGPL (`no-agpl-default-deps`, DEC-018), and HEVC is
+//! patent-encumbered (Access Advance pool) on *every* decode path regardless of
+//! code license.
+//!
+//! Decoding now goes through [`heifer`](https://crates.io/crates/heifer), a
+//! permissive (MIT OR Apache-2.0), pure-Rust HEIC decoder with
+//! `#![forbid(unsafe_code)]` and no C dependency. That resolves the first
+//! blocker — there is no AGPL and no system libheif — but the second, the HEVC
+//! patents, is unaffected, so `heic` must still never appear in a distributed
+//! artifact and stays off by default.
 //!
 //! What that means for this module:
 //!
@@ -14,9 +19,8 @@
 //!   default build answer a `.heic` with [`ImageError::CodecNotBuilt`] → exit 4
 //!   ("rebuild with --features heic") instead of a vague "unsupported format".
 //! - `decode_heic` exists only under `--features heic`, where it decodes via
-//!   `libheif-rs` → the **system** libheif C library (decode-only) into the
-//!   canonical [`crate::image::Image`]. libheif is a codec feeding the pixel
-//!   core, not a second pixel library (the AVIF / webp-lossy precedent).
+//!   `heifer` into the canonical [`crate::image::Image`]. heifer is a codec
+//!   feeding the pixel core, not a second pixel library (the AVIF precedent).
 //!
 //! HEIC and AVIF are ISOBMFF siblings, so this mirrors [`super::avif`]: brand
 //! detection first, caps before allocation, typed errors throughout. AVIF is
@@ -25,24 +29,27 @@
 //!
 //! ## Security (untrusted-input-hardening)
 //!
-//! HEIC is hostile binary input handed to a **C** decoder with a long CVE
-//! history, so the Rust side does not rely on libheif for bounds:
+//! HEIC is hostile binary input, so it is treated as untrusted even though the
+//! decoder is now memory-safe Rust:
 //!
-//! - Dimensions are capped from the image *handle* (container metadata) **before**
-//!   `decode` allocates any pixel plane (DEC-034), and re-checked on the decoded
-//!   plane as defense in depth.
-//! - The interleaved plane is row-padded; every row is copied through a checked
-//!   slice honoring `stride`, never a `width * channels` assumption.
-//! - The plane's storage depth is validated against the requested chroma before
-//!   any pixel is read.
-//! - Every libheif failure is a typed [`ImageError`] — no `unwrap`/`expect`/
+//! - Dimensions are capped from the container metadata (`ispe`) **before** any
+//!   pixel plane is allocated (DEC-034), and re-checked on the decoded image as
+//!   defense in depth.
+//! - heifer itself bounds every decoded and assembled image with
+//!   `Options::max_pixels` (a 2^28-pixel default) and is `#![forbid(unsafe_code)]`,
+//!   so a malformed file cannot read out of bounds.
+//! - Every heifer failure is a typed [`ImageError`] — no `unwrap`/`expect`/
 //!   `panic!` on these paths. `fuzz/fuzz_targets/heic_decode.rs` exercises the
-//!   container parse and the decode/copy path together.
+//!   container parse and the decode path together.
 //!
-//! libheif ≥ 1.19 additionally applies its own internal security limits by
-//! default. We pin the `v1_17` API floor for distro compatibility (DEC-056), so
-//! the binding does not expose `set_security_limits` to tighten them further;
-//! the DEC-034 pre-check is the load-bearing bound either way.
+//! ## Colour
+//!
+//! heifer converts to sRGB from the image's ICC profile or its `nclx` info, as
+//! libheif's `ColorSpace::Rgb` target did. Matrix/TRC profiles — `Display P3`,
+//! `Adobe RGB`, sRGB — are handled. Two cases are refused with a typed error
+//! instead of converted: LUT-based ICC profiles (`A2B0`/`B2A0`), and base images
+//! coded directly with a PQ/HLG transfer. (The common HDR HEIC is a gain map, not a
+//! PQ/HLG base, and is supported.)
 
 #[cfg(feature = "heic")]
 use ::image::{DynamicImage, Limits, RgbImage, RgbaImage};
@@ -98,74 +105,37 @@ fn is_heic_brand(brand: &[u8]) -> bool {
 ///
 /// Only the **primary** image is decoded: HEIF image sequences and multi-image
 /// collections are out of scope (SPEC-062). 10/12-bit HDR inputs are
-/// down-converted to 8-bit RGB(A) by libheif, mirroring the AVIF decision.
+/// down-converted to 8-bit RGB(A) by heifer, mirroring the AVIF decision.
 #[cfg(feature = "heic")]
 pub(crate) fn decode_heic(bytes: &[u8], limits: &Limits) -> Result<DynamicImage> {
-    use libheif_rs::{ColorSpace, HeifContext, LibHeif, RgbChroma};
+    use heifer::heifer_isobmff::HeifFile;
 
-    let ctx = HeifContext::read_from_bytes(bytes).map_err(map_heif_err)?;
-    let handle = ctx.primary_image_handle().map_err(map_heif_err)?;
+    let file = HeifFile::parse(bytes).map_err(map_heif_err)?;
+    let id = file.primary_id;
 
     // Cap from the container metadata BEFORE decoding, so a decompression-bomb
-    // header is rejected without libheif ever allocating a plane (DEC-034).
-    check_caps(handle.width(), handle.height(), limits)?;
-
-    let has_alpha = handle.has_alpha_channel();
-    let chroma = if has_alpha {
-        RgbChroma::Rgba
-    } else {
-        RgbChroma::Rgb
-    };
-    let channels = if has_alpha { 4usize } else { 3 };
-
-    let lib = LibHeif::new();
-    let img = lib
-        .decode(&handle, ColorSpace::Rgb(chroma), None)
-        .map_err(map_heif_err)?;
-
-    let planes = img.planes();
-    let plane = planes
-        .interleaved
-        .ok_or_else(|| ImageError::Decode("heic: no interleaved plane".into()))?;
-
-    // Defense in depth: the decoded plane must also satisfy the caps, and must
-    // carry exactly the 8-bit-per-channel storage we asked for.
-    check_caps(plane.width, plane.height, limits)?;
-    if plane.storage_bits_per_pixel as usize != channels * 8 {
-        return Err(ImageError::Decode(format!(
-            "heic: expected {}-bit interleaved storage, got {}",
-            channels * 8,
-            plane.storage_bits_per_pixel
-        )));
+    // header is rejected without heifer ever allocating a plane (DEC-034).
+    if let Some((w, h)) = file.image_size(id).map_err(map_heif_err)? {
+        check_caps(w, h, limits)?;
     }
 
-    let (w, h) = (plane.width, plane.height);
-    let row_bytes = (w as usize) * channels;
-    if plane.stride < row_bytes {
-        return Err(ImageError::Decode(format!(
-            "heic: plane stride {} shorter than row {row_bytes}",
-            plane.stride
-        )));
-    }
+    // heifer packs interleaved RGBA (stride == width * 4) and converts to sRGB
+    // from the image's ICC profile or its `nclx` info, matching libheif's
+    // `ColorSpace::Rgb` target. Ask for RGBA unconditionally, then drop the alpha
+    // channel when the image is opaque.
+    let image =
+        heifer::decode_srgb_rgba8(bytes, &heifer::Options::default()).map_err(map_heif_err)?;
 
-    // Rows are padded to `stride`; copy each row's leading `row_bytes` through a
-    // CHECKED slice into a tightly-packed buffer.
-    let mut packed = Vec::with_capacity(row_bytes * (h as usize));
-    for y in 0..(h as usize) {
-        let start = y * plane.stride;
-        let row = plane
-            .data
-            .get(start..start + row_bytes)
-            .ok_or_else(|| ImageError::Decode("heic: plane data shorter than declared".into()))?;
-        packed.extend_from_slice(row);
-    }
+    // Defense in depth: the decoded image must also satisfy the caps.
+    check_caps(image.width, image.height, limits)?;
 
-    if has_alpha {
-        let buf = RgbaImage::from_raw(w, h, packed)
+    let (w, h) = (image.width, image.height);
+    if image.has_alpha {
+        let buf = RgbaImage::from_raw(w, h, image.data)
             .ok_or_else(|| ImageError::Decode("heic: rgba buffer size mismatch".into()))?;
         Ok(DynamicImage::ImageRgba8(buf))
     } else {
-        let buf = RgbImage::from_raw(w, h, packed)
+        let buf = RgbImage::from_raw(w, h, image.into_rgb8())
             .ok_or_else(|| ImageError::Decode("heic: rgb buffer size mismatch".into()))?;
         Ok(DynamicImage::ImageRgb8(buf))
     }
@@ -176,8 +146,8 @@ pub(crate) fn decode_heic(bytes: &[u8], limits: &Limits) -> Result<DynamicImage>
 ///
 /// The allocation estimate uses the 8-bit RGBA buffer (`w * h * 4`), the largest
 /// buffer this module packs. The pixel budget is the tighter, uniform bound: the
-/// `heic` feature is off by default, but it decodes through a **C** library, so it
-/// gets the same pre-decode peak bound as the pure-Rust paths.
+/// `heic` feature is off by default, so it is not on the untrusted default path,
+/// but it gets the same pre-decode peak bound as the pure-Rust paths.
 #[cfg(feature = "heic")]
 fn check_caps(w: u32, h: u32, limits: &Limits) -> Result<()> {
     super::check_pixel_budget(w, h)?;
@@ -206,11 +176,11 @@ fn check_caps(w: u32, h: u32, limits: &Limits) -> Result<()> {
     Ok(())
 }
 
-/// Map a [`libheif_rs::HeifError`] to a typed [`ImageError`]. Malformed, truncated,
-/// and unsupported-but-valid containers all surface as `Decode` with libheif's
-/// message — never a panic.
+/// Map a heifer container or bitstream error to a typed [`ImageError`].
+/// Malformed, truncated, and unsupported-but-valid containers all surface as
+/// `Decode` with the underlying message — never a panic.
 #[cfg(feature = "heic")]
-fn map_heif_err(e: libheif_rs::HeifError) -> ImageError {
+fn map_heif_err(e: impl std::fmt::Display) -> ImageError {
     ImageError::Decode(format!("heic: {e}"))
 }
 
@@ -286,7 +256,7 @@ mod tests {
         assert!(!is_heic(short)); // brand truncated away, still no panic
     }
 
-    // ── `--features heic` only (need the system libheif) ──────────────────────
+    // ── `--features heic` only (need the `heifer` decoder) ────────────────────
 
     /// The committed 64×48 fixture decodes with correct dimensions and pixels.
     #[cfg(feature = "heic")]

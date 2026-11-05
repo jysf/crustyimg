@@ -221,20 +221,17 @@ jobs:
   heic:
     needs: changes
     if: needs.changes.outputs.code == 'true'
-    name: heic feature (build / test / clippy, system libheif)
+    name: heic feature (build / test / clippy, pure Rust)
     # HEIC decode is the off-by-default `heic` feature (SPEC-062, DEC-052/DEC-056)
     # and is NEVER in a distributed artifact — this job is the only place it is
-    # built. It is also the project's first feature needing a real SYSTEM library
-    # (`avif` is pure-Rust; `webp-lossy` vendors libwebp via `cc`), so each runner
-    # installs libheif first. libheif-sys ships PRE-GENERATED bindings, so no
-    # bindgen/libclang is needed. We pin the `v1_17` API floor precisely so the
-    # apt package on ubuntu-latest (libheif 1.17.x) satisfies it alongside
-    # Homebrew's 1.23. Windows (libheif via vcpkg) is not supported for `heic`;
-    # the default Windows binary is unaffected — a `.heic` there exits 4.
+    # built. It decodes through the pure-Rust `heifer` crate, so NO system library
+    # is installed and no package manager is touched: a plain build/test/clippy.
+    # Unlike the previous system-libheif setup, this also runs on Windows, which
+    # could never satisfy `libheif-rs` (vcpkg).
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout
@@ -244,18 +241,6 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
-
-      # Debian/Ubuntu split libheif's codec backends into separate plugin packages.
-      # `libheif-dev` alone links and PARSES a `.heic` but has no HEVC decoder, so
-      # libheif fails at decode time with `UnsupportedCodec`. The libde265 plugin is
-      # what actually decodes HEVC. Homebrew's libheif bundles its backends.
-      - name: Install system libheif + HEVC decoder plugin (linux)
-        if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libheif-dev libheif-plugin-libde265
-
-      - name: Install system libheif (macos)
-        if: runner.os == 'macOS'
-        run: brew install libheif
 
       - name: Build (--features heic)
         run: cargo build --features heic --verbose

@@ -193,10 +193,10 @@ fn fuzz_corpus_never_panics() {
     total += assert_dir_never_panics("fixtures/raw", raw_preview_entry);
     total += assert_dir_never_panics("fixtures/fuzz/raw_preview", raw_preview_entry);
 
-    // HEIC only decodes with the `heic` feature (system libheif); without it,
-    // `from_bytes` short-circuits at brand detection with `CodecNotBuilt` and
-    // never reaches a decoder, so exercising the HEIC corpus is only meaningful
-    // (and only reaches libheif's C code) with the feature on.
+    // HEIC only decodes with the `heic` feature (the `heifer` decoder); without it,
+    // `from_bytes` short-circuits at brand detection with `CodecNotBuilt` and never
+    // reaches a decoder, so exercising the HEIC corpus is only meaningful (and only
+    // reaches the HEVC bitstream decoder) with the feature on.
     #[cfg(feature = "heic")]
     {
         total += assert_dir_never_panics("fixtures/heic", from_bytes_entry);

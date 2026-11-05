@@ -13,7 +13,7 @@
 //!
 //! (The HEIC sniff already had to work this way for the same reason — detection in
 //! every build, decode behind the `heic` feature, DEC-056 — but it could keep its
-//! sniff next to its decoder because `libheif-rs` is only pulled in by the feature.
+//! sniff next to its decoder because `heifer` is only pulled in by the feature.
 //! `re_rav1d` is a default, non-optional dep, so its module has to leave the wasm
 //! build entirely and the sniff has to move out from under it.)
 

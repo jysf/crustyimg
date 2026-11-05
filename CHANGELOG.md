@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **The `heic` feature now decodes through the pure-Rust `heifer` crate**, replacing the
+  system libheif C library. No more `brew install libheif` / `libheif-dev`, no `pkg-config`
+  or vcpkg, and no LGPL dependency — `cargo tree | grep libheif` is now empty. The feature
+  is still off by default and never ships in a distributed artifact (HEVC patents, DEC-052),
+  and decoded output is unchanged for the committed fixtures. Because it needs no system
+  library it now also builds and tests on Windows, which `libheif-rs`/vcpkg never covered.
+  See `docs/licensing.md`.
+
 ## [0.8.2] - 2026-10-31
 
 ### Breaking
