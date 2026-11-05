@@ -1,0 +1,9 @@
+# Crop to the largest 5:4 rectangle, anchored at the south-east corner. No
+# resampling, so the output is the same bytes on every target.
+version = "2"
+name = "corpus-crop-aspect"
+
+[[step]]
+op = "crop"
+aspect = "5:4"
+gravity = "southeast"
