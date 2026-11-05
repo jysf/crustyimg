@@ -26,6 +26,8 @@ use thiserror::Error;
 
 use crate::image::Image;
 
+pub mod crop;
+pub use crop::{Crop, CROP_PARAMS};
 pub mod registry;
 pub use registry::{OperationRegistry, ParamKind, ParamSpec, RegistryError};
 
@@ -99,6 +101,19 @@ impl OperationParams {
         self.0.get(key).and_then(|v| match v {
             toml::Value::Float(f) => Some(*f as f32),
             toml::Value::Integer(i) => Some(*i as f32),
+            _ => None,
+        })
+    }
+
+    /// Extract an `f64` param, if present (accepts integer or float TOML).
+    ///
+    /// Use this where a fraction must keep its full width: an `f32` read moves
+    /// `0.0009375` on a 1600 px image from 1.5 px to 1.49999997 px, which rounds
+    /// the other way.
+    pub fn get_f64(&self, key: &str) -> Option<f64> {
+        self.0.get(key).and_then(|v| match v {
+            toml::Value::Float(f) => Some(*f),
+            toml::Value::Integer(i) => Some(*i as f64),
             _ => None,
         })
     }

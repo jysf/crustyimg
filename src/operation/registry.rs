@@ -14,8 +14,8 @@ use std::collections::HashMap;
 use thiserror::Error;
 
 use super::{
-    AutoOrient, Identity, Invert, Operation, OperationParams, Resize, Watermark, RESIZE_PARAMS,
-    WATERMARK_PARAMS,
+    AutoOrient, Crop, Identity, Invert, Operation, OperationParams, Resize, Watermark, CROP_PARAMS,
+    RESIZE_PARAMS, WATERMARK_PARAMS,
 };
 
 // ─── Constructor type alias ─────────────────────────────────────────────────
@@ -188,7 +188,7 @@ impl ParamKind {
 }
 
 /// A float as a recipe author would write it: `nan`, `inf`, `1.5`, `100.0`.
-fn float_text(f: f64) -> String {
+pub(crate) fn float_text(f: f64) -> String {
     if f.is_nan() {
         "nan".to_owned()
     } else if f.is_infinite() {
@@ -263,7 +263,7 @@ struct Entry {
 ///
 /// Constructed via [`OperationRegistry::new`] (empty) or
 /// [`OperationRegistry::with_builtins`] (pre-populated with `identity`,
-/// `invert`, `resize`, `auto-orient`, and `watermark`). New operations
+/// `invert`, `resize`, `auto-orient`, `watermark`, and `crop`). New operations
 /// register themselves without touching the recipe parser (the whole point of
 /// the registry seam), and each publishes the step keys it accepts:
 ///
@@ -289,8 +289,8 @@ impl OperationRegistry {
     }
 
     /// Create a registry pre-populated with the built-in operations:
-    /// `"identity"`, `"invert"`, `"resize"`, `"auto-orient"` and
-    /// `"watermark"`.
+    /// `"identity"`, `"invert"`, `"resize"`, `"auto-orient"`, `"watermark"` and
+    /// `"crop"`.
     pub fn with_builtins() -> Self {
         let mut reg = Self::new();
         reg.register("identity", |_params| Ok(Box::new(Identity)));
@@ -306,6 +306,7 @@ impl OperationRegistry {
             |p| Watermark::from_params(p).map(|w| Box::new(w) as Box<dyn Operation>),
             WATERMARK_PARAMS,
         );
+        reg.register_with_params("crop", |p| Ok(Box::new(Crop::from_params(p)?)), CROP_PARAMS);
         reg
     }
 
