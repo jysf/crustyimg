@@ -19,6 +19,7 @@ Cycle prompts live in `prompts/SPEC-145-<cycle>.md`.
   Rulings (2026-11-05, all three as recommended): fractions only in a recipe, pixels via `edit --crop`
   later; `aspect` takes whole numbers only (`"239:100"`); a crop that rounds to 0 px is refused, not
   clamped.
-- [ ] **build** (`prompts/SPEC-145-build.md`, not yet written)
+- [ ] **build** (`prompts/SPEC-145-build.md`, Sonnet). The maintainer accepted design's reading of ruling 3 on
+  2026-11-05: the 0 px message names `crop` and both sizes, with no step index.
 - [ ] **verify** (`prompts/SPEC-145-verify.md`)
 - [ ] **ship** (`prompts/SPEC-145-ship.md`)
