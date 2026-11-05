@@ -7,7 +7,7 @@
 task:
   id: SPEC-145
   type: story                      # epic | story | task | bug | chore
-  cycle: build  # frame | design | build | verify | ship
+  cycle: verify  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: M                    # S | M | L  (L means split it)
@@ -99,6 +99,25 @@ cost:
         cache_read once per id, MAX output_tokens per id. Main $6.45 + subagent $1.09. Rates: Opus
         $5 in / $25 out per MTok, cache_creation x1.25 input, cache_read x0.10 input. Taken before
         the commit/push exchanges, so it slightly under-counts the session.
+    - cycle: build
+      agent: claude-sonnet-5-5
+      interface: claude-code
+      tokens_total: 24033759
+      tokens_breakdown:
+        input: 222
+        output: 85576
+        cache_creation: 261455
+        cache_read: 23686506
+      estimated_usd: 9.37
+      duration_minutes: null
+      recorded_at: 2026-11-05
+      note: >
+        Interactive build session, worktree feat-spec-145-crop. Measured from transcript
+        84331158-b19d-4632-bf59-252f40e40a91.jsonl, found by the prompt's title, deduped by
+        `.message.id` (108 unique ids, all claude-sonnet-5-5): input/cache_creation/cache_read
+        once per id, MAX output_tokens per id. Rates: Sonnet $3 in / $15 out per MTok,
+        cache_creation x1.25 input, cache_read x0.10 input. Taken before the final commit and
+        push, so it slightly under-counts the session.
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -986,37 +1005,62 @@ equivalent of a handoff document, folded into the spec since there is no separat
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
+- **Branch:** feat/spec-145-crop
+- **PR (if applicable):** #244 (draft)
+- **All acceptance criteria met?** yes (65 of 65; two notes under Deviations)
 - **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
-- **Files this diff touches** — **list every one**, with a phrase on what changed
-  in each. Not "src/foo and tests": the enumeration is what a verify cycle diffs
-  the real change against, and what tells you whether every affected `DEC-*` has
-  the path in its `affected_scope`. SPEC-122's Deviations claimed "`src/operation`
-  and `tests/` only" and was wrong by two `scripts/` files, which left
-  `affected_scope` blind; SPEC-124's build added this section by hand after that
-  lesson and still listed 8 of its 9 files. It is a checklist because it is easy
-  to get wrong from memory — build it from `git diff --name-only`, not recall.
-  - `path/to/file` — <what changed>
+  - none (DEC-112 was written at design)
+- **Files this diff touches** (from `git diff --name-only origin/main...HEAD`, minus this spec file):
+  - `src/operation/crop.rs` (new) — the op, `CROP_PARAMS`, edge/aspect maths, aspect parser, unit tests
+  - `src/operation/mod.rs` — `pub mod crop` + re-export, `OperationParams::get_f64`
+  - `src/operation/registry.rs` — registers `crop`, doc lists, `float_text` to `pub(crate)`, three tests extended
+  - `tests/crop.rs` (new) — R1–R32, A1–A4, binary rows, colour-type exactness
+  - `tests/wasm_roundtrip.rs` — `transform_crops_exactly`, `transform_refuses_a_bad_crop_with_the_native_message`
+  - `tests/recipe_corpus_output.rs`, `tests/recipe_round_trip.rs` — stems and literals only (16 recipes, 54 rows, 57 golden lines, 48, pairs 16)
+  - `tests/fixtures/recipe_corpus/v2_crop_rect.{toml,golden,linux-x86_64.output,macos-aarch64.output,windows-x86_64.output}` and the same five for `v2_crop_aspect` (all new)
+  - `docs/recipes.md`, `recipes/README.md`, `docs/data-model.md`, `skills/crustyimg/SKILL.md`, `docs/api-contract.md`, `integrations/ddphotos/README.md`, `README.md`, `CHANGELOG.md` — crop documented
+  - Nothing outside the spec's Outputs list. `Cargo.toml`, `Cargo.lock` and `src/build/cache.rs` untouched (`git diff --stat` on them is empty).
+- **Evidence:**
+  - Red baseline: every `tests/crop.rs` row failed with `unknown operation 'crop'`; unit tests failed to compile (`cannot find function rect_edges / aspect_size`, `cannot find type Crop`); three registry tests failed.
+  - Corpus: first CI run red on every leg that runs the corpus test (only because the linux/windows files were missing); every existing `.output` in the dump matched the repo; the four new files were copied from the dump; second CI run (head da31660) green on all legs, including lean, msrv and the page build. `cmp` of the three per-target files: `v2_crop_rect` and `v2_crop_aspect` byte-identical (exit 0). `git diff --diff-filter=M --name-only origin/main -- tests/fixtures/recipe_corpus/` and `--diff-filter=D` are empty.
+  - Local matrix, each in a fresh target dir, fmt --check and clippy -D warnings clean: default 1156 passed / 0 failed; `--no-default-features` 1093 / 0; `--features webp-lossy` 1160 / 0 (19 crop-named tests ran on each, including lean).
+  - Wasm: `just wasm-check` finished clean; `just wasm-test` result line: `test result: ok. 49 passed; 0 failed; 0 ignored; 0 filtered out`.
+  - Bundle size (the gate is `scripts/demo-assemble.mjs`, run by the "build + browser smoke" job): main (same code, run on a13d568) 6,065,799 B raw / 1,298,960 B brotli; this branch 6,083,069 B / 1,302,231 B: +17,270 B raw, +3,271 B brotli (+0.25 %), far inside the gate's 5 % of its 1,266,535 B baseline.
+- **Mutations M1–M12** (each applied, `git diff` non-empty, crate cleaned, tests run with `--no-fail-fast`, restored; wasm legs via `just wasm-test`):
+  - M1 floor right edge: red = both property tests, `rect_edges_exact_example` (747), `halves_round_up…`, `apply_crops_a_png_end_to_end` (599×345), corpus `v2_crop_rect` on all three fixtures (1299x747, 864x1123, 1299x747), wasm rect row (599). Matches the table.
+  - M2 round the size: red = both property tests, `rect_edges_exact_example`, corpus `v2_crop_rect` on rgb8 and rgba16 (1300x748; portrait stays green). **Mismatch:** also red are `apply_crops_a_png_end_to_end` (346 tall) and the second case of `halves_round_up…` (748), which the table's M2 row omits; both follow from the spec's own AC-2/AC-3 numbers. wasm leg not run (the row doesn't call for it).
+  - M3: red = R13, `apply_refuses_a_crop_past_the_right_edge_at_load` (binary prints `operation 'crop' failed: internal: the crop's right edge 77 is past the image's 64 px width`). R14 and everything else green. Matches.
+  - M3b: as M3, and the binary exits 0 (the silent clamp). Matches.
+  - M4: red = A1–A4, the binary test (exit 0), wasm `transform_refuses_a_bad_crop…` (A1). **Mismatch:** `refusal_hook_is_not_used` also goes red (it asserts `apply` errors).
+  - M4b: red = A1–A4 (`crop refused: …`), `refusal_hook_is_not_used`, the binary test, wasm A1. **Mismatch in how:** a single-input `apply` exits 2 with `error: crop refused: …`, not exit 0. Driven separately: with two inputs and `--out-dir`, the same mutation exits 0, writes both uncropped 1600×1067 images and prints a "watermark skipped" warning. So the design's trap is real for batches only.
+  - M5: red = R18 only. Matches. (Applied as "skip the mixed-forms check and route to the rectangle branch".)
+  - M6: red = `aspect_fit_worked_example`, `aspect_gravity_places_all_nine` (all 19 rows reported after I made the test collect apply errors too), A3, A4, corpus `v2_crop_aspect` on all three fixtures, wasm aspect row (800×640). **Mismatches:** `aspect_never_exceeds_the_image` also red; with W and H swapped the crop overruns the image, so A3 and the portrait fixture trip the apply-side bounds guard and print `internal: the crop's … edge … is past …` rather than a `1067×0` size line (A4 does read `1067×0`).
+  - M7: native `cargo test` fully green; wasm `transform_crops_exactly` red (599×345). Matches.
+  - M8: red = `halves_round_up_and_fractions_read_as_f64` only ("left edge is 2, not 1"). Matches.
+  - M9: red = R29 only. Matches. M10: red = R24 only. Matches.
+  - M11 (in place, restored, `git status` empty afterwards): `every_recipe_output_matches_its_golden` red naming `v1_resize_max × <fixture>` (400x532 vs 800x532 on both landscape, 266x800 vs 532x800 portrait); `to_toml_is_byte_identical…` red. Crop tests green. Matches.
+  - M12 (`with_builtins` restored from `origin/main`): red = all six `tests/crop.rs` rows, corpus and round-trip rows, three registry tests, both wasm rows (`unknown operation 'crop'`); `crop.rs` unit tests green. **Mismatch:** `every_op_named_in_data_model_resolves` (docs_ops) also red, since the data-model example now names `crop`; that is the order guard the spec describes, not a leak.
 - **Deviations from spec:**
-  - [list]
+  - The wasm test file has two functions (as the Failing Tests section names them) holding 2 + 3 rows, not "three rows".
+  - The rectangle golden lists keys alphabetically (`height, width, x, y`), the canonical `to_toml` order; the spec's example order was not what the golden pins.
+  - The gravity unit test was changed during the mutation pass to report apply errors per row.
+  - Pre-existing, not mine: `just wasm-check` prints a `MANIFEST_DROPPED_WARNING` dead-code warning.
 - **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - The M2, M4, M4b, M6, M12 rows of the mutation table need the extra red rows and the single-input exit 2 note above.
+  - A refusing op in a native single-input run exits 2 but is warned about as "watermark skipped" in a batch; that wording is watermark-specific and wrong for any other refusing op.
 
 ### Build-phase reflection (3 questions, short answers)
 
 Process-focused: how did the build go? What friction did the spec create?
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — Little. The exact-message table and mutation table made the build mechanical. The mutation table's red lists were incomplete for M2, M4, M6 and M12, and "the native apply skips it: exit 0" is true only for batches.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — That `to_toml` and the goldens order keys alphabetically, and that the corpus tests need all three targets' files before any leg is green. No design call turned out wrong.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Gate every commit on the test exit code (I pushed a golden with a wrong key order once) and make the mutation script restore from a committed state from the start.
 
 ---
 
