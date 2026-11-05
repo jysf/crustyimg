@@ -149,7 +149,7 @@ impl ImageInfo {
     /// Whether the decoded pixels carry an alpha channel.
     #[wasm_bindgen(getter, js_name = hasAlpha)]
     pub fn has_alpha(&self) -> bool {
-        self.has_alpha
+        !self.has_alpha
     }
 }
 
