@@ -334,6 +334,19 @@ ideas:
     likely_home: null
     gate: "2.0, demand-gated"
 
+  - id: recipe-errors-name-the-step-everywhere
+    title: "Unknown-op and apply-time recipe errors name the step index, as DEC-102's load-time refusals do"
+    status: idea
+    source: "SPEC-145 frame (2026-11-04), driven on 0.8.2"
+    home: null
+    likely_home: PROJ-011
+    gate: null
+    notes: >
+      A param refusal reads `recipe step 0 ('resize'): ...`, but an unknown op reads only
+      `error: unknown operation 'crop'` and an apply-time failure only `operation 'resize' failed:
+      ...`, so a recipe with two steps of the same op can't say which one failed. Both exit 1.
+      Changing the wording touches every op's apply message, not bytes.
+
   # ── Declined: kept so they are not re-proposed ───────────────────────────
   - id: lightroom-preset-import
     title: "Import Lightroom presets"

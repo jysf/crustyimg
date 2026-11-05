@@ -85,7 +85,7 @@ In build order. Each is framed in its own session first.
   nothing. ⚡ Check `scripts/cli-golden.py` first: it may already be most of this, and the spec
   then shrinks to "point it at the recipe corpus and gate on it". It's cheap, and it makes
   PROJ-017's fourth success signal checkable instead of claimed.
-- [ ] (not yet written) — [M] **`crop` as a recipe step, with size-independent units.**
+- [ ] **SPEC-145** (framed 2026-11-04) — [M] **`crop` as a recipe step, with size-independent units.**
   Keys for a rectangle (`x`, `y`, `width`, `height`) or an aspect (`aspect = "16:9"` plus
   `gravity`). Every length is accepted in pixels or as a fraction of the image (the unit
   syntax is the design call). Refuses a zero-area or out-of-bounds rectangle at load where it
@@ -118,7 +118,7 @@ In build order. Each is framed in its own session first.
   geometry. Design picks one and writes it down. `--save-recipe` must write steps that `apply`
   replays to the same pixels: that is the test.
 
-- [ ] (not yet written) — [S] **`docs/recipes.md` still advertises a `crustyimg crop` verb.**
+- [ ] (folded into SPEC-145) — [S] **`docs/recipes.md` still advertises a `crustyimg crop` verb.**
   Found at SPEC-141's frame. `docs/recipes.md:60-65` lists "Crop to an arbitrary rect / gravity
   / aspect **[planned — PROJ-006]**" as `crustyimg crop …`, and smart crop the same way. The verb
   set is frozen at 14 (STAGE-030), and PROJ-017 delivers crop as a recipe step plus an `edit`
@@ -129,7 +129,7 @@ In build order. Each is framed in its own session first.
   only the first (M4 in the spec's Build Completion). Test-only; optional, and only worth doing if
   a later spec trips both at once.
 
-**Count:** 1 shipped / 0 active / 7 pending — re-derived 2026-10-31 with `grep -c '^- \[ \]'` (7, which includes the guard-report entry filed at SPEC-141's ship) and `grep -c '^- \[x\]'` (1)
+**Count:** 1 shipped / 1 active / 5 pending — re-derived 2026-11-04 with `/usr/bin/grep -c '^- \[x\]'` (1), `/usr/bin/grep -c '^- \[ \]'` (7: SPEC-145 framed, the docs entry folded into it, and 5) and `/usr/bin/grep -c '^- \[ \] (not yet written)'` (5)
 
 ## Design Notes
 
