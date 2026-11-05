@@ -8,7 +8,7 @@
 #   scripts/wasm-ci-check.sh --self-test                 drive every parser above
 #
 # Exit 0 ok, 1 check failed, 2 usage. Errors print `::error::wasm-ci-check: ...`
-# (GitHub annotates the line; locally it is plain text).
+# (GitHub annotates the line; locally it is plain text). CI runs every subcommand.
 set -euo pipefail
 
 # How many #[wasm_bindgen_test] tests each feature set must run. Exact, not a minimum: a
