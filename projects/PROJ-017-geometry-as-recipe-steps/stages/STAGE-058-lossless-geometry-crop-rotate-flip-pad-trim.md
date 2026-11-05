@@ -129,7 +129,18 @@ In build order. Each is framed in its own session first.
   only the first (M4 in the spec's Build Completion). Test-only; optional, and only worth doing if
   a later spec trips both at once.
 
-**Count:** 1 shipped / 1 active / 5 pending — re-derived 2026-11-04 with `/usr/bin/grep -c '^- \[x\]'` (1), `/usr/bin/grep -c '^- \[ \]'` (7: SPEC-145 framed, the docs entry folded into it, and 5) and `/usr/bin/grep -c '^- \[ \] (not yet written)'` (5)
+- [ ] (not yet written) — [S] **`crop`'s aspect can follow each image's orientation.** Filed by the
+  orchestrator on 2026-11-05 at the maintainer's request. `aspect = "7:5"` always means 7 wide by 5
+  tall (SPEC-145). A batch recipe such as "5×7 prints of this folder" wants 7:5 on landscape
+  photos and 5:7 on portrait ones, which today takes two recipes and a hand sort. Add one optional
+  key (for example `orientation = "match"`). Leaving it off keeps SPEC-145's meaning, so no
+  existing recipe or golden changes. Design decides what a square image gets, the key's name, and
+  the refusals. ⚠ `pad` to an aspect has the same question: decide it here, or name it in `pad`'s
+  frame. Named presets (`"5x7"`, `"square"`) stay out of the recipe format: a ratio is
+  unambiguous, and presets belong to the page's buttons (STAGE-060) and a docs table. After
+  SPEC-145.
+
+**Count:** 1 shipped / 1 active / 6 pending — re-derived 2026-11-05 with `/usr/bin/grep -c '^- \[x\]'` (1), `/usr/bin/grep -c '^- \[ \]'` (8: SPEC-145 designed, the docs entry folded into it, and 6) and `/usr/bin/grep -c '^- \[ \] (not yet written)'` (6)
 
 ## Design Notes
 
