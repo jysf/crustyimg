@@ -118,6 +118,40 @@ cost:
         once per id, MAX output_tokens per id. Rates: Sonnet $3 in / $15 out per MTok,
         cache_creation x1.25 input, cache_read x0.10 input. Taken before the final commit and
         push, so it slightly under-counts the session.
+    - cycle: verify
+      agent: claude-opus
+      interface: claude-code
+      tokens_total: 8626031
+      tokens_breakdown:
+        input: 122
+        output: 29837
+        cache_creation: 163088
+        cache_read: 8432984
+      estimated_usd: 5.98
+      duration_minutes: null
+      recorded_at: 2026-11-05
+      note: >
+        Read-only verify session; it measured its own cost but could not write it, so the punch-list
+        session recorded it from the verify readout. Rates: Opus $5 in / $25 out per MTok,
+        cache_creation x1.25 input, cache_read x0.10 input.
+    - cycle: punchlist
+      agent: claude-sonnet-5-5
+      interface: claude-code
+      tokens_total: 3025187
+      tokens_breakdown:
+        input: 74
+        output: 15149
+        cache_creation: 68689
+        cache_read: 2941275
+      estimated_usd: 1.37
+      duration_minutes: null
+      recorded_at: 2026-11-05
+      note: >
+        Punch-list session, worktree fix-spec-145-punch. Measured from transcript
+        fe38dbc6-9a70-4f27-b79e-db9e1d5830ce.jsonl, found by the prompt's title, deduped by
+        `.message.id` (37 unique ids, all claude-sonnet-5-5), MAX output_tokens per id. Rates:
+        Sonnet $3 in / $15 out per MTok, cache_creation x1.25, cache_read x0.10. Taken before the
+        commit, push and CI exchanges, so it slightly under-counts the session.
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -211,8 +245,8 @@ x=400, y=300, 800×500 px: the centre half of the width.
 
 The same fractions at STAGE-058's exit-criterion sizes: on 1200×800, edges 300/900/225/600, and on
 6000×4000, edges 1500/4500/1125/2999. Over 200,000 random fractions, the largest
-`|edge_6000 / 5 - edge_1200|` was **0.40 px**. The rule's bound is 0.5 + 0.5/5 = 0.6 px, so the
-"within one pixel" criterion holds with room to spare.
+`|edge_6000 / 5 - edge_1200|` was **0.40 px**. The rule's loose bound is 0.5 + 0.5/5 = 0.6 px; drift comes in multiples of 0.2 and halves round
+up, so 0.4 px is the real maximum and the test asserts 0.4.
 
 Today's page avoids this for the watermark only because `cliRecipe` always resizes to the page's
 long edge first (`recipe.js:111-118`, "the watermark size is in pixels"). That workaround doesn't
@@ -706,7 +740,7 @@ the next op that grows this way.
 - [ ] **AC-4** Every edge is within 0.5 px of `f · W` for every W in 1..=64 over the fraction grids
   `i/97` and `i/8` (every `x`, `width` with `x + width ≤ 1`).
 - [ ] **AC-5** The same fractions on 1200×800 and 6000×4000 give edges with
-  `|e_6000 / 5 − e_1200| ≤ 0.6` for all four edges, over 200,000 cases from a fixed seed.
+  `|e_6000 / 5 − e_1200| ≤ 0.4` for all four edges, over 200,000 cases from a fixed seed.
 - [ ] **AC-6** An aspect crop is the largest a:b rectangle that fits, its short side rounded half up
   in integer maths, placed by `gravity` (default `center`) with centring floored: the worked
   example's 18 placements (9 gravities × 2 orientations) exactly; `"16:9"` on 2600×1730 is 2600×1463
@@ -833,7 +867,7 @@ row's reason is impossible to miss, because every row asserts the whole message 
     `tests/recipe_corpus_output.rs:106-114`), seed `0x5EED_0145`; per case draw `u1`, `u2` as
     `(next() >> 11) as f64 * 2^-53`, set `x = min`, `width = max − min`, skip `width == 0`, until
     **200,000** cases; the same for `y`/`height` from the next two draws. Asserts
-    `|e_6000 / 5 − e_1200| ≤ 0.6` for all four edges and that 200,000 cases ran. Design measured
+    `|e_6000 / 5 − e_1200| ≤ 0.4` for all four edges and that 200,000 cases ran. Design measured
     the production rule at **0.40 px** max, and both rounding mutations at **0.80 px**.
   - `rect_edges_exact_example` — AC-2: `(0.123, 0.2345, 0.5, 0.4321)` → 1200×800:
     `(148, 188, 748, 533)`; 6000×4000: `(738, 938, 3738, 2666)`.
@@ -903,20 +937,20 @@ doesn't match is reported, not edited to match.
 
 | # | mutation, and where | red (expected) | green (expected) |
 |---|---|---|---|
-| M1 | **floor the right edge**: `rect_edges`, `right = ((x + w) * iw).floor()` (`src/operation/crop.rs`) | `crop_edges_within_half_a_pixel` (0.99 px); `crop_fraction_agrees_at_1200_and_6000` (0.80 > 0.6); `rect_edges_exact_example` (right 747 on 1200, width 599); `halves_round_up_and_fractions_read_as_f64` first case (right 801, width 799); `apply_crops_a_png_end_to_end` (599×345); corpus `v2_crop_rect` on all three fixtures (1299x747, 864x1123, 1299x747 against `EXPECTED_DIMS`); wasm `transform_crops_exactly` rect row (599 wide) | every R row, A1–A4 (A1 still rounds to 0: floor(800.16) = 800), `crop_preserves_colour_type_and_every_pixel` (integer products), aspect tests, corpus `v2_crop_aspect`, every existing test |
-| M2 | **round the size, not the far edge**: `rect_edges`, `right = left + (w * iw).round()` and `bottom = top + (h * ih).round()` | both property tests (0.99 / 0.80); `rect_edges_exact_example` (bottom 534 on 1200×800: height 346); corpus `v2_crop_rect` on `rgb8_2600x1730` and `rgba16_2600x1730` (1300x748) | corpus `v2_crop_rect` on `rgba8_1730x2600` (865x1123 either way); everything M1 lists green |
+| M1 | **floor the right edge**: `rect_edges`, `right = ((x + w) * iw).floor()` (`src/operation/crop.rs`) | `crop_edges_within_half_a_pixel` (0.99 px); `crop_fraction_agrees_at_1200_and_6000` (0.80 > 0.4); `rect_edges_exact_example` (right 747 on 1200, width 599); `halves_round_up_and_fractions_read_as_f64` first case (right 801, width 799); `apply_crops_a_png_end_to_end` (599×345); corpus `v2_crop_rect` on all three fixtures (1299x747, 864x1123, 1299x747 against `EXPECTED_DIMS`); wasm `transform_crops_exactly` rect row (599 wide) | every R row, A1–A4 (A1 still rounds to 0: floor(800.16) = 800), `crop_preserves_colour_type_and_every_pixel` (integer products), aspect tests, corpus `v2_crop_aspect`, every existing test |
+| M2 | **round the size, not the far edge**: `rect_edges`, `right = left + (w * iw).round()` and `bottom = top + (h * ih).round()` | both property tests (0.99 / 0.80); `rect_edges_exact_example` (bottom 534 on 1200×800: height 346); `apply_crops_a_png_end_to_end`; `halves_round_up_and_fractions_read_as_f64` second case; corpus `v2_crop_rect` on `rgb8_2600x1730` and `rgba16_2600x1730` (1300x748) | corpus `v2_crop_rect` on `rgba8_1730x2600` (865x1123 either way); everything M1 lists green |
 | M3 | **remove the right-edge load check**: delete step 5's `x + width > 1.0` branch in `Crop::from_params` | R13 in `every_load_refusal_names_its_reason` (builds Ok); `apply_refuses_a_crop_past_the_right_edge_at_load` (the binary now prints the apply line `operation 'crop' failed: internal: the crop's right edge … is past …`, not the load line; were the apply guard also missing, `crop_imm` would clamp and the test would see exit 0 and a written file, still red) | R14 (its own check), every other test |
 | M3b | **remove the apply-side bounds guard too** (with M3 applied) | as M3; plus the binary test sees exit 0 and a written file (the silent clamp, measured in `crop_dimms`) | as M3 |
-| M4 | **clamp to 1 px**: in `Crop::apply`, `cw.max(1)` / `ch.max(1)` before cropping, no refusal | all four rows of `every_zero_pixel_crop_fails_at_apply`; `apply_refuses_a_zero_pixel_crop_and_writes_nothing` (exit 0, file written); wasm `transform_refuses_a_bad_crop_with_the_native_message` A1 part | every R row, every happy-path test, corpus |
-| M4b | **route 0 px through the refusal hook**: move the 0 px check from `apply` into an `Operation::refusal` override | `refusal_hook_is_not_used`; `every_zero_pixel_crop_fails_at_apply` (`Pipeline::run` now returns `crop refused: …`, not `operation 'crop' failed: …`); `apply_refuses_a_zero_pixel_crop_and_writes_nothing` (native `apply` skips it: exit 0, uncropped file written, a warning); wasm A1 part (message is `crop refused: …`) | everything else |
+| M4 | **clamp to 1 px**: in `Crop::apply`, `cw.max(1)` / `ch.max(1)` before cropping, no refusal | all four rows of `every_zero_pixel_crop_fails_at_apply`; `refusal_hook_is_not_used`; `apply_refuses_a_zero_pixel_crop_and_writes_nothing` (exit 0, file written); wasm `transform_refuses_a_bad_crop_with_the_native_message` A1 part | every R row, every happy-path test, corpus |
+| M4b | **route 0 px through the refusal hook**: move the 0 px check from `apply` into an `Operation::refusal` override | `refusal_hook_is_not_used`; `every_zero_pixel_crop_fails_at_apply` (`Pipeline::run` now returns `crop refused: …`, not `operation 'crop' failed: …`); `apply_refuses_a_zero_pixel_crop_and_writes_nothing` (with the check in the refusal hook, a single-input `apply` exits 2 (`error: crop refused: …`) and writes nothing; a two-input batch exits 0 and writes both images uncropped); wasm A1 part (message is `crop refused: …`) | everything else |
 | M5 | **accept mixed forms, prefer the rectangle**: delete step 1 in `Crop::from_params` (the rectangle branch then runs and ignores `aspect`) | R18 | R19, R20 (gravity is checked separately), every other row and test |
-| M6 | **swap W and H in the fit**: `aspect_size` computes with `(ih, iw)` | `aspect_fit_worked_example` (2163×1730 → 1730×1384); `aspect_gravity_places_all_nine` (all 19 rows: sizes differ); A3 and A4 rows (the message's size reads `1067×0` / `0×1600`); corpus `v2_crop_aspect` on all three fixtures; wasm aspect row | every rectangle test, R rows, corpus `v2_crop_rect` |
+| M6 | **swap W and H in the fit**: `aspect_size` computes with `(ih, iw)` | `aspect_fit_worked_example` (2163×1730 → 1730×1384); `aspect_gravity_places_all_nine` (all 19 rows: sizes differ); `aspect_never_exceeds_the_image`; A3 and A4 rows (the message's size reads `1067×0` / `0×1600`; A3 and the portrait corpus row print the apply-side bounds message); corpus `v2_crop_aspect` on all three fixtures; wasm aspect row | every rectangle test, R rows, corpus `v2_crop_rect` |
 | M7 | **wasm-only rounding**: in `rect_edges`, `#[cfg(target_arch = "wasm32")]` floor the right edge | `just wasm-test`: `transform_crops_exactly` rect row (599×345) | every native test (`cargo test`, corpus): the `cfg` excludes them |
 | M8 | **`f32` read**: replace `get_f64` with `get_f32(..).map(f64::from)` in `Crop::from_params` | `halves_round_up_and_fractions_read_as_f64` first case (left 1, not 2) | R13 (operands print from the TOML value), property tests (they call `rect_edges` with `f64`), corpus (its fractions don't sit on a half-pixel) |
 | M9 | **unreduced decimal hint**: drop the gcd step in `parse_aspect` | R29 (`"15:10"`) | R28 (gcd 1), every other row |
 | M10 | **`u32::from_str` per side** in `parse_aspect` | R24 (`"+16:9"` accepted, builds Ok) | every other row |
 | M11 | **corpus guard** (scratch copy, never committed): append `[[step]] op = "crop"` `x = 0` `y = 0` `width = 0.5` `height = 1` after the resize step of `tests/fixtures/recipe_corpus/v1_resize_max.toml` | `recipe_corpus_output` red naming `v1_resize_max × <fixture>` on all three fixtures (dims `400x532` against `800x532` on the two landscape fixtures, `266x800` against `532x800` on the portrait one); `recipe_round_trip` red on `v1_resize_max`'s golden | every crop test |
-| M12 | **trap 14, the old code verbatim**: restore `with_builtins` from `main` (no `crop` registration) | every row of `tests/crop.rs`, the corpus crop rows, both wasm rows, `with_builtins_contains_crop`, both registry extensions; message `unknown operation 'crop'` | the `crop.rs` unit tests (they call the module directly), every existing test |
+| M12 | **trap 14, the old code verbatim**: restore `with_builtins` from `main` (no `crop` registration) | every row of `tests/crop.rs`, the corpus crop rows, both wasm rows, `with_builtins_contains_crop`, both registry extensions; message `unknown operation 'crop'`; `every_op_named_in_data_model_resolves` (`tests/docs_ops.rs`) | the `crop.rs` unit tests (they call the module directly), every existing test |
 
 ## Implementation Context
 
@@ -1048,6 +1082,37 @@ equivalent of a handoff document, folded into the spec since there is no separat
 - **Follow-up work identified:**
   - The M2, M4, M4b, M6, M12 rows of the mutation table need the extra red rows and the single-input exit 2 note above.
   - A refusing op in a native single-input run exits 2 but is warned about as "watermark skipped" in a batch; that wording is watermark-specific and wrong for any other refusing op.
+
+### Punch list (verify cleanups)
+
+Four cleanups after verify approved #244 at `6611e79` with no punch items. Worktree `fix-spec-145-punch`,
+Sonnet. No behaviour change in `src/`; the one `src/operation/crop.rs` edit is inside its `#[cfg(test)]` module.
+
+1. **Bound 0.6 -> 0.4** in `crop_fraction_agrees_at_1200_and_6000` (it lives in `src/operation/crop.rs`'s
+   test module, not `tests/crop.rs`). The bound is `0.4 + 1e-9`: the unmodified rule's worst case computes
+   as `0.4000000000000057` in f64, so a bare `<= 0.4` fails on the production code. Message now prints the drift.
+2. **A table**: `assert_eq!(rows.len(), 4, "A1..A4 all ran")` in `every_zero_pixel_crop_fails_at_apply`.
+3. **`recipes/README.md` crop section**: exit `1` is for one input; a batch exits `6`. Driven on this branch's
+   binary, crop `x=0.5 width=0.03` (0 px on a 16x12 image, 8 px on a 256x256 one):
+   one bad input -> exit 1; two bad inputs -> exit 6, nothing written; one bad + one good -> exit 6, the
+   good image written (`error: 1 of 2 inputs failed`). No other crop doc surface makes the exit-1 claim
+   (`docs/recipes.md`, `docs/data-model.md`, `skills/crustyimg/SKILL.md`, the ddphotos README checked;
+   `docs/api-contract.md` already says "for one input").
+4. **Mutation table**: M4b's single-input exit 2 / two-input exit 0 note, the extra red rows for M2, M4, M6
+   and M12, and the 0.6 -> 0.4 bound (M1, AC-5 and the test's description). The design note's loose
+   `0.5 + 0.5/5 = 0.6` derivation is kept, with the real 0.4 maximum stated beside it. **DEC-112 changed**
+   on this branch (its size-independence line now says 0.4, asserted by SPEC-145's test).
+
+Controls (each rebuilt clean, `cargo clean -p crustyimg`, exit read from `$?`):
+
+| control | result |
+|---|---|
+| right edge `+ 0.1` before `.round()` | drift 0.6000 -> red at 0.4, **green at 0.6** |
+| right edge half rounds down (`ceil(v - 0.5)`) | `crop_fraction...` stays green at 0.4 (drift stays 0.4); `halves_round_up_...` red. Not a bound mutation. |
+| A4 row removed, array type `[_; 3]` | red at the new count assert (`left: 3, right: 4`) |
+| A4 row removed, type left `[_; 4]` | does not compile (E0308), so the type alone already catches it |
+| M1 (floor the right edge) | `crop_fraction...` red (0.80 > 0.4), plus `crop_edges_within_half_a_pixel`, `rect_edges_exact_example`, `halves_round_up_...` |
+| `cargo test --lib operation::crop`, `--test crop`, `--test docs_ops` | 11, 6, 3 passed |
 
 ### Build-phase reflection (3 questions, short answers)
 

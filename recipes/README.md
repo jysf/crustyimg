@@ -233,8 +233,10 @@ gravity = "north"
   recipe loads.
 - `aspect` takes whole numbers: write `"239:100"`, not `"2.39:1"`. A decimal is refused, and the
   message shows the whole-number spelling.
-- A crop that rounds to 0 px on an image fails (exit `1`) instead of being widened, so a recipe
-  that is fine on a 6000 px original can be refused on a 40 px thumbnail.
+- A crop that rounds to 0 px on an image fails instead of being widened, so a recipe that is fine
+  on a 6000 px original can be refused on a 40 px thumbnail. For one input that is exit `1`. In a
+  batch, each failed image is reported and exits `6`, whether some or all inputs failed; the
+  images that did not fail are still written.
 - The fractions are of the image as the step receives it. Put `op = "auto-orient"` first when they
   are meant as the photo is displayed.
 

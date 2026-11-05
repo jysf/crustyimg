@@ -526,8 +526,9 @@ mod tests {
                 let drift = (f64::from(l) / 5.0 - f64::from(s)).abs();
                 worst = worst.max(drift);
                 assert!(
-                    drift <= 0.6,
-                    "x={x} y={y} width={width} height={height}: {s} at 1200, {l} at 6000"
+                    // 0.4 exactly, plus f64 noise: l / 5.0 - s lands at 0.4000000000000057.
+                    drift <= 0.4 + 1e-9,
+                    "x={x} y={y} width={width} height={height}: {s} at 1200, {l} at 6000 (drift {drift} > 0.4)"
                 );
             }
             cases += 1;

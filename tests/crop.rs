@@ -344,6 +344,7 @@ fn every_zero_pixel_crop_fails_at_apply() {
         mismatches.len(),
         mismatches.join("\n")
     );
+    assert_eq!(rows.len(), 4, "A1..A4 all ran");
 }
 
 // ── The binary ──────────────────────────────────────────────────────────────
