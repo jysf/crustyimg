@@ -243,6 +243,7 @@ ideas:
     home: null
     likely_home: null
     gate: "lint-in-wasm"
+    note: "2026-11-05: once recipes carry geometry (PROJ-017, crop in fractions of the image per DEC-112), an MCP server could edit as well as measure: validate a recipe and return structured errors, apply it, and report the output size. Fractions suit an agent that sees the image but can't count its pixels. Agents with a shell already get this through the CLI and the agent skill, so the case for MCP is reach (agents without a shell) and structured results, not crop itself."
 
   - id: lighthouse-named-lint-rules
     title: "Engine-backed lint rules named after Lighthouse audits (`legacy-format` first)"
