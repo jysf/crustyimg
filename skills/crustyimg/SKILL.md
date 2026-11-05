@@ -1,6 +1,6 @@
 ---
 name: crustyimg
-description: Prepare images for the web with the crustyimg CLI — downscale and convert to AVIF/WebP/PNG, resize, thumbnail, build responsive srcset sets, strip EXIF/GPS metadata, watermark, batch-process folders with recipes, and gate image quality or size in CI. Use when the user wants to optimize, compress, resize, convert, or clean images for a website, or check image assets in a pipeline.
+description: Prepare images for the web with the crustyimg CLI — downscale and convert to AVIF/WebP/PNG, resize, thumbnail, build responsive srcset sets, strip EXIF/GPS metadata, watermark, crop, batch-process folders with recipes, and gate image quality or size in CI. Use when the user wants to optimize, compress, resize, convert, or clean images for a website, or check image assets in a pipeline.
 ---
 
 # crustyimg
@@ -231,7 +231,8 @@ op = "optimize"    # optional; must be the last step
 ```
 
 Ops: `auto-orient`, `resize` (`mode` = `max` + `width`; `fit`/`fill`/`cover`/`exact` +
-`width` + `height`; `percent` + `percent`), `watermark`, `invert`, `identity`, `optimize`.
+`width` + `height`; `percent` + `percent`), `crop` (`x`/`y`/`width`/`height` as fractions 0–1 of the
+image, or `aspect = "W:H"` + `gravity`), `watermark`, `invert`, `identity`, `optimize`.
 
 A recipe can also watermark, and pin its output format and quality. `format`/`quality` need
 `version = "2"`:

@@ -457,6 +457,15 @@ What happens next depends on the run:
   `watermark skipped on K of N images` (only when K > 0; hidden by `--quiet`); `build`
   adds `, watermark skipped on K` to its summary line (see `build` below).
 
+**Crop in a recipe.** `op = "crop"` is a registered operation taking a rectangle
+(`x`, `y`, `width`, `height`) or an aspect (`aspect`, `gravity`), in fractions of the
+image rather than pixels, so one recipe crops the same region at any image size. A bad
+key, a value out of range, a rectangle that runs past the image's edge and a malformed
+aspect are refused when the recipe loads (exit **1**, nothing read or written). A crop
+that rounds to 0 px on the image it meets fails at apply (`operation 'crop' failed: …`,
+exit **1** for one input) instead of being widened or skipped; wasm `transform` throws
+the same line. The keys and their ranges are in `docs/data-model.md`.
+
 ### Metadata lane *(container-level; no pixel decode — DEC-003)*
 
 #### `meta strip <INPUT...>`  *(SPEC-026; grouped under `meta` in SPEC-087)*

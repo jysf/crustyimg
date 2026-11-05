@@ -57,12 +57,29 @@ For every flag and exit code, see [`docs/cli-reference.md`](cli-reference.md).
   exclusive** — pass exactly one of `--max`, `--fit`, `--fill`, `--cover`, `--exact`, `--percent`.
 - **Fit inside a box, keeping aspect** **[today]** — `crustyimg resize photo.jpg --fit 800x600`
 - **Thumbnail** **[today]** — `crustyimg thumbnail photo.jpg --size 256` (`--square` to crop square)
-- **Crop to an arbitrary rect / gravity / aspect** **[planned — PROJ-006]**
-  `crustyimg crop photo.jpg --gravity center --aspect 1:1`
-  Today `resize --fill WxH` covers the common center-crop-to-a-box case.
-- **Rotate / flip / trim / pad** **[planned — PROJ-006]**
-- **Smart (content-aware) crop** **[planned — PROJ-006]**
-  `crustyimg crop photo.jpg --smart attention --aspect 16:9`
+- **Crop to a rectangle or an aspect** **[today]** — a recipe step, run with `crustyimg apply --recipe`:
+  ```toml
+  [[step]]
+  op = "crop"
+  x = 0.25
+  y = 0.1
+  width = 0.5
+  height = 0.6
+  ```
+  or the largest 16:9 region, anchored at one side of the frame:
+  ```toml
+  [[step]]
+  op = "crop"
+  aspect = "16:9"
+  gravity = "north"
+  ```
+  The numbers are fractions of the image (0–1), not pixels, so the same recipe crops the same
+  region of a 1200 px copy and a 6000 px original. Put `op = "auto-orient"` first when the
+  fractions are meant as the photo is displayed. `resize --fill WxH` still covers the common
+  center-crop-to-a-box case.
+- **Rotate / flip / trim / pad** **[planned — PROJ-017]**
+- **Smart (content-aware) crop** **[post-1.0, beta]** — see the smart-crop row in
+  [`roadmap.md`](roadmap.md).
 
 ## 4. Format conversion
 

@@ -159,9 +159,9 @@ recipe already in the wild the next time it is re-saved.
 
 A "prep for web" recipe: orient, then downscale.
 
-**Every `op` below is a real registry key.** The registry holds five
+**Every `op` below is a real registry key.** The registry holds six
 operations — `identity`, `invert`, `resize`, `auto-orient`, `watermark`
-(SPEC-128) — and `tests/docs_ops.rs` asserts that every `op` named in this
+(SPEC-128) and `crop` — and `tests/docs_ops.rs` asserts that every `op` named in this
 file resolves against `OperationRegistry::with_builtins()`, so this example
 cannot drift back into advertising steps that do not exist.
 
@@ -324,6 +324,42 @@ error at recipe build time (`RecipeError::InvalidOperation`, via
 `RegistryError::InvalidParams`) — not a silent skip and not
 `UnknownOperation`. (Before 0.8.0 a wrong-typed key was refused only when it
 was a required one, and with a message about the missing key.)
+
+### `crop` step param keys
+
+A `crop` step is a **rectangle** (`x`, `y`, `width`, `height`, all four) or an
+**aspect** (`aspect`, and optionally `gravity`). The two forms share no key, so
+the keys present choose the form; mixing them is refused at load, and so is
+`gravity` on a rectangle.
+
+| Key | Type | Range |
+|---|---|---|
+| `x`, `y` | number (integer or float) | `0.0..=1.0` |
+| `width`, `height` | number (integer or float) | `> 0 and <= 1` |
+| `aspect` | string | two whole numbers 1–65535 as `W:H`, such as `"16:9"` |
+| `gravity` | string | one of the nine compass names; default `center` |
+
+Every length is a **fraction of the image the step receives**: `x` and `width`
+of its width, `y` and `height` of its height. There are no pixel units in a
+recipe, so `width = 800` is refused rather than read as pixels. Each edge is
+rounded to the nearest pixel on its own (halves up), so every edge sits within
+half a pixel of its exact position at any image size. `x + width` and
+`y + height` may not pass `1`. A crop that rounds to 0 px fails when the step
+runs (it needs the image size); it is never widened to 1 px.
+
+```toml
+version = "2"
+
+[[step]]
+op = "auto-orient"
+
+[[step]]
+op = "crop"
+x = 0.25
+y = 0.1
+width = 0.5
+height = 0.6
+```
 
 ### Step keys are checked at load
 
