@@ -259,6 +259,8 @@ a tally you carried forward.
 - **PROJ-012** (animated AVIF) inherits a registry that has absorbed one parameter-rich op — the
   precedent an animated encoder's own configuration will need.
 
+**Reserved (2026-11-04):** **SPEC-146** is the wasm round-trip CI job (STAGE-054 / STAGE-053 wasm32 leg, folded). Its frame prompt is `specs/prompts/SPEC-146-frame.md`.
+
 ## Project-Level Reflection
 
 *Filled in when status moves to shipped.*
