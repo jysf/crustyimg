@@ -11,7 +11,8 @@ set -euo pipefail
 
 # integrations/ddphotos/ is the edit page: a change to its code must run the heavy
 # jobs, including the native-vs-wasm parity check of its recipes.
-CODE_PATHS='^(src/|tests/|examples/|benches/|Cargo\.(toml|lock)|rust-toolchain|\.github/workflows/|justfile|scripts/|integrations/ddphotos/)'
+# .cargo/config.toml holds the wasm32 test runner, so a change to it must run the wasm job.
+CODE_PATHS='^(src/|tests/|examples/|benches/|Cargo\.(toml|lock)|rust-toolchain|\.cargo/|\.github/workflows/|justfile|scripts/|integrations/ddphotos/)'
 
 classify() {
   if grep -qE "$CODE_PATHS"; then echo true; else echo false; fi

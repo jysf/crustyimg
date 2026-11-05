@@ -236,9 +236,10 @@ wasm-build-slim:
 # Runs through plain cargo (NOT `wasm-pack test`) so that `--test wasm_roundtrip`
 # actually scopes the build to the one wasm test target — see .cargo/config.toml for
 # why, and for the `wasm-bindgen-test-runner` shim that executes the .wasm in Node.
-# Needs: cargo install wasm-bindgen-cli --version <the pinned wasm-bindgen version>
+# Needs wasm-bindgen-test-runner at the exact wasm-bindgen version in Cargo.lock
+# (scripts/wasm-ci-check.sh lock-version). CI's wasm-roundtrip job runs this and wasm-test-slim.
 wasm-test:
-    @command -v wasm-bindgen-test-runner >/dev/null 2>&1 || { echo "wasm-bindgen-test-runner not installed (cargo install wasm-bindgen-cli --version 0.2.126)"; exit 1; }
+    @command -v wasm-bindgen-test-runner >/dev/null 2>&1 || { echo "wasm-bindgen-test-runner not installed (cargo install wasm-bindgen-cli --locked --version $(scripts/wasm-ci-check.sh lock-version))"; exit 1; }
     PATH="{{_wasm_bin}}:$PATH" RUSTC="{{_wasm_bin}}/rustc" \
         "{{_wasm_bin}}/cargo" test --target wasm32-unknown-unknown --test wasm_roundtrip {{_wasm_features}}
 

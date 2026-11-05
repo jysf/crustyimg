@@ -188,6 +188,7 @@ cargo run -- view path/to/image.jpg # run a subcommand
 # test
 cargo test                          # all tests (unit + integration)
 cargo test <name>                   # single test or module, e.g. `cargo test recipe_round_trip`
+just wasm-test && just wasm-test-slim   # wasm round-trip in Node; needs wasm-bindgen-test-runner; not in just check, CI's wasm-roundtrip job runs both
 
 # lint / format ("typecheck" = clippy; Rust type-checks as part of build)
 cargo clippy --all-targets -- -D warnings         # lint, warnings are errors
