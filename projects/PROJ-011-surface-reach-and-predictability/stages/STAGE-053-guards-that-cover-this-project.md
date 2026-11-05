@@ -143,7 +143,7 @@ STAGE-050 needs answered anyway.** ⚠ **Do not treat this as blocking STAGE-049
   place with a note, or left with an errata record — the figures are cited in brag entries and
   release notes that cannot be edited retroactively.
 
-- **Folded into SPEC-146** (STAGE-054, framed 2026-11-05) — (chore) **A wasm32 CI leg** running
+- **Folded into SPEC-146** (STAGE-054, framed 2026-11-05; SHIPPED 2026-11-05 as PR #245, the `wasm-roundtrip` job) — (chore) **A wasm32 CI leg** running
   `just wasm-check` + `just wasm-test`. Was STAGE-038 item #8. SPEC-146 is the same gap as
   STAGE-054's "No CI job runs the wasm round-trip tests", so one spec covers both. The runner
   probe this entry asked for is in SPEC-146's frame (Q2): the runner's own check compares only
@@ -216,7 +216,7 @@ STAGE-050 needs answered anyway.** ⚠ **Do not treat this as blocking STAGE-049
   `changes` job is forced to fail, and read the required checks' states. Do not assume.
 - [ ] (not yet written) — [S] **Harden the wasm-job shape check against a neutered floor call.** Filed by SPEC-146 verify round 2. The anchored line match still passes `if false; then … fi`, a heredoc holding the call, `set +e` before it, an unused function wrapper, `exit 0` before it, and `log=/dev/null`. Partial fix: assert the count call is the last line of the step's `run:`. Low value until someone edits that step; do it with the next change to the job.
 
-**Count:** 0 shipped / 0 active / **9 pending** — re-derived 2026-11-05 with `grep -c '^- \[ \]'` (9) and `grep -c '^- \[x\]'` (0).
+**Count:** 0 shipped / 0 active / 9 pending — re-derived 2026-11-05 (ship of SPEC-146) with `grep -c '^- \[ \]'` (9) and `grep -c '^- \[x\]'` (0).
 
 ## Dependencies
 

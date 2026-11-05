@@ -7,7 +7,7 @@
 task:
   id: SPEC-146
   type: chore                      # epic | story | task | bug | chore
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: S                    # S | M | L  (L means split it)
@@ -127,10 +127,55 @@ cost:
         once per id, MAX output_tokens per id. Rates: Sonnet $3 in / $15 out per MTok,
         cache_creation x1.25, cache_read x0.10. Taken before the final commit/push and CI
         exchanges, so it slightly under-counts.
+    - cycle: verify
+      agent: claude-opus-5-5
+      interface: claude-code
+      tokens_total: 9953313
+      tokens_breakdown:
+        input: 148
+        output: 43641
+        cache_creation: 151795
+        cache_read: 9757729
+      estimated_usd: 6.92
+      duration_minutes: null
+      recorded_at: 2026-11-05
+      note: >
+        Verify round 1 (punch list). Measured from transcript bb0046f3-3051-45e7-a1f1-083363cd41c2.jsonl,
+        found by the prompt's title, deduped by `.message.id` (66 unique ids, all claude-opus-5-5),
+        MAX output per id. Opus rates. The session self-reported $6.57; the transcript re-measured
+        at ship is $6.92 (the later exchanges).
+    - cycle: verify-2
+      agent: claude-opus-5-5
+      interface: claude-code
+      tokens_total: 2425043
+      tokens_breakdown:
+        input: 52
+        output: 17345
+        cache_creation: 81734
+        cache_read: 2325912
+      estimated_usd: 2.11
+      duration_minutes: null
+      recorded_at: 2026-11-05
+      note: >
+        Verify round 2 (narrow, APPROVED). Measured from transcript
+        9a80edfd-1dfb-44cd-9d9d-106f8e139469.jsonl (26 unique ids, claude-opus-5-5). The session
+        reported about $1.95; the transcript re-measured at ship is $2.11.
+    - cycle: ship
+      agent: claude-sonnet-5-5
+      interface: claude-code
+      tokens_total: 1500000
+      tokens_breakdown: null
+      estimated_usd: 1.00
+      duration_minutes: null
+      recorded_at: 2026-11-05
+      note: >
+        Ship session, un-metered at write time (the file cannot hold its own final cost). Transcript
+        688214ad-13b1-4f71-b861-c56f4bf10ae9.jsonl measured $0.67 / 1.26M tokens before the final
+        edits and commit; rounded up to the estimate here.
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 27673195
+    estimated_usd: 20.00
+    session_count: 7
 ---
 
 # SPEC-146: CI runs the wasm round-trip tests
@@ -239,7 +284,9 @@ checked against `Cargo.lock`. A wasm-only regression turns that named job red.
    - `src/wasm.rs` is compiled only for wasm32 (`#[cfg(target_arch = "wasm32")] pub mod wasm;`
      at `src/lib.rs:84`), so every native test is unaffected by construction. `hasAlpha` is read
      by no CI smoke: `demo/`, `tests/demo_smoke.mjs` and `tests/ddphotos_parity.mjs` never read
-     it. Only `tests/npm_smoke.mjs` reads it, and that runs at publish time.
+     it. `tests/npm_smoke.mjs` reads it too, and it runs at publish time (`publish-npm.yml`'s dry-run).
+     *Corrected at ship:* that dry-run also triggers on a PR that touches `justfile`, and then it did go red
+     on this mutation; on a PR that touches only `src/wasm.rs` it does not run, so the claim holds there.
    - Full set: `test result: FAILED. 46 passed; 1 failed`. The failure is
      `wasm::info_reports_png_dimensions`, `panicked at tests/wasm_roundtrip.rs:513:9: the RGBA fixture carries alpha`.
    - Slim set: `test result: FAILED. 44 passed; 1 failed`, same test, same message.
@@ -497,7 +544,9 @@ with no `src/` and no new Rust test. Every check runs from the repo root on the 
 - **C10 `scripts/ci-code-paths.sh --self-test`.** Rows added: `.cargo/config.toml` → `true`,
   `docs/.cargo/config.toml` → `false`, `.github/workflows/ci.yml` → `true`. Ends with
   `ci-code-paths self-test: N rows, M mismatched, C crashed, J junk` and exits 1 if any is non-zero.
-  Today the first row prints `FAIL .cargo/config.toml -> false, expected true`.
+  Today the first row prints `FAIL .cargo/config.toml -> false, expected true`. To see it red "on main",
+  run main's own `scripts/ci-code-paths.sh` (its `CODE_PATHS` regex has no `\.cargo/`) with the three new
+  rows added; do not copy the new script over it, because the copy carries the fix and is green.
 - **C11 Classifier failure kinds (verify, local).** M13 (crash) and M14 (junk) each make C10 exit 1
   with the matching counter at 1, and the other counters at 0.
 - **C12 Docs grep.** Each "after" sentence below is present (`grep -F`), and these are absent:
@@ -896,10 +945,21 @@ Process-focused: how did the build go? What friction did the spec create?
 from the process-focused build reflection above.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Give a guard's two other paths their own mutation rows at design: the path that prints its failure
+   (`err()` wrote to stdout, so `$(…)` captures swallowed the message) and the path that neuters the
+   guard by decoy (a commented-out, `|| true` or `echo`ed floor call). The design table listed neither;
+   both passed 19 green checks and verify found them. Build also matched a substring that the error
+   line contained (assertions 10/11), caught only because the table said C1 must go red.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — No decision. Template-side: a mutation table for a CI guard should carry a "failure message
+   reaches the log" row and a "decoy keeps the guard green" row. Cross-thread: the exact count floor
+   (47/45) goes red when PR #244 (SPEC-145, +2 wasm tests) lands; whichever of #244/#245 merges second
+   bumps to 49/47. #244 was still open at ship, so #245 landed first and `git log origin/main --
+   scripts/wasm-ci-check.sh` shows only 517acea; the bump falls to #244.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — No new spec. Already filed on STAGE-053 by the orchestrator: harden the shape check against a
+   neutered floor call (`if false`, heredoc, `set +e`, unused function), and the failed-`changes` +
+   `needs` item. Also corrected here: the frame's claim that no PR-time check reads `hasAlpha`
+   (the publish-npm dry-run does when a PR touches `justfile`).
