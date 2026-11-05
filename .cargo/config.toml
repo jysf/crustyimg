@@ -19,7 +19,7 @@
 # alternative to this file was tattooing `#![cfg(not(target_arch = "wasm32"))]` onto
 # every native test file and remembering it forever on every new one. This is the
 # cheaper, less breakable half of that trade. `just wasm-test` wraps the command, and CI's
-# `wasm-roundtrip` job runs it.
+# `wasm-roundtrip` job runs it (verify scratch).
 #
 # `wasm-pack` is still used by `just wasm-build` (it builds only the lib and emits
 # the JS bindings + npm-shaped `pkg/`, which is what STAGE-026 packages).
