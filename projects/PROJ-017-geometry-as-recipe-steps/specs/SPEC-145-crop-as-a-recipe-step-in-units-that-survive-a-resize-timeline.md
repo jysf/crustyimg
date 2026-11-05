@@ -30,7 +30,12 @@ Cycle prompts live in `prompts/SPEC-145-<cycle>.md`.
   6000/1200 px images with pixels exact against `vips`; M1, M3b, M8, M12 and M4b driven; a 0 px
   batch exits 6 and writes nothing. Four optional cleanups; the maintainer chose to fix them
   before merge.
-- [ ] **punch list** (`prompts/SPEC-145-punchlist.md`, Sonnet): the 0.4 bound, the A-table count
-  assert, the batch exit code in `recipes/README.md`, and the spec's mutation table.
+- [x] **punch list** (`prompts/SPEC-145-punchlist.md`, 2026-11-05, Sonnet, ~$1.37). PR #244 at `0c6f722`, CI
+  green on `1316ad7` (the last code commit). Bound is 0.4 + 1e-9 (the worst case computes as
+  0.4000000000000057); a +0.1 right-edge mutation drifts 0.6, red at 0.4 and green at 0.6. The
+  A-table assert fails at 3 vs 4. Batch exits driven: one bad input 1, two bad 6 with nothing
+  written, one bad + one good 6 with the good image written; `recipes/README.md` reworded. The
+  bound test lives in `src/operation/crop.rs`'s test module, so `src/` changed in tests only.
+  DEC-112's bound line now says 0.4.
 - [ ] **re-verify** (`prompts/SPEC-145-reverify.md`, Opus, read-only)
 - [ ] **ship** (`prompts/SPEC-145-ship.md`)
