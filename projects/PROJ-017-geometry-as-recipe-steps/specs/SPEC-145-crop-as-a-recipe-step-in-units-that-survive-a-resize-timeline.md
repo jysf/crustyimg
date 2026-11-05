@@ -43,7 +43,10 @@ Cycle prompts live in `prompts/SPEC-145-<cycle>.md`.
   reaches 0.6 (`width = 0.009583333333333333`: 12 px at 1200, 57 px at 6000). The "+0.1 green at
   0.6" control row is false too. The orchestrator's punch-list prompt had passed the first
   verify's "analytic maximum" on as settled, unchecked.
-- [ ] **punch list 2** (`prompts/SPEC-145-punchlist-2.md`, Sonnet): restate the claim, fix the row,
-  print the bound in the test message. Text and test message only.
+- [x] **punch list 2** (`prompts/SPEC-145-punchlist-2.md`, 2026-11-05, Sonnet, ~$0.59). PR #244 at `9b44bb2`,
+  CI green on `6183fa6` (run 42102213967). DEC-112, the design note, AC-5, the Failing Tests entry
+  and the test comment now say 0.4 is the seeded sweep's measurement and 0.6 the general bound;
+  the near-tie (12 px at 1200, 57 px at 6000) was driven on the binary. The +0.1 row reads red at
+  both bounds. The test's panic and assert share one `BOUND` const (0.3 control panics naming 0.3).
 - [ ] **re-verify 2** (`prompts/SPEC-145-reverify-2.md`, Opus, read-only)
 - [ ] **ship** (`prompts/SPEC-145-ship.md`)
