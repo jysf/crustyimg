@@ -152,6 +152,40 @@ cost:
         `.message.id` (37 unique ids, all claude-sonnet-5-5), MAX output_tokens per id. Rates:
         Sonnet $3 in / $15 out per MTok, cache_creation x1.25, cache_read x0.10. Taken before the
         commit, push and CI exchanges, so it slightly under-counts the session.
+    - cycle: reverify
+      agent: claude-opus
+      interface: claude-code
+      tokens_total: 1622265
+      tokens_breakdown:
+        input: 38
+        output: 12955
+        cache_creation: 64057
+        cache_read: 1545215
+      estimated_usd: 1.50
+      duration_minutes: null
+      recorded_at: 2026-11-05
+      note: >
+        Read-only re-verify session; it measured its own cost but could not write it, so
+        punch list 2 recorded it from the re-verify readout. Rates: Opus $5 in / $25 out per MTok,
+        cache_creation x1.25 input, cache_read x0.10 input.
+    - cycle: punchlist-2
+      agent: claude-sonnet-5-5
+      interface: claude-code
+      tokens_total: 998294
+      tokens_breakdown:
+        input: 26
+        output: 7144
+        cache_creation: 54768
+        cache_read: 936356
+      estimated_usd: 0.59
+      duration_minutes: null
+      recorded_at: 2026-11-05
+      note: >
+        Punch-list 2 session, worktree fix-spec-145-punch2. Measured from its transcript, found
+        by the prompt's title, deduped by `.message.id` (13 unique ids, all claude-sonnet-5-5),
+        MAX output_tokens per id. Rates: Sonnet $3 in / $15 out per MTok, cache_creation x1.25,
+        cache_read x0.10. Taken before the commit, push and CI exchanges, so it slightly
+        under-counts the session.
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -245,8 +279,13 @@ x=400, y=300, 800×500 px: the centre half of the width.
 
 The same fractions at STAGE-058's exit-criterion sizes: on 1200×800, edges 300/900/225/600, and on
 6000×4000, edges 1500/4500/1125/2999. Over 200,000 random fractions, the largest
-`|edge_6000 / 5 - edge_1200|` was **0.40 px**. The rule's loose bound is 0.5 + 0.5/5 = 0.6 px; drift comes in multiples of 0.2 and halves round
-up, so 0.4 px is the real maximum and the test asserts 0.4.
+`|edge_6000 / 5 - edge_1200|` was **0.40 px**. The rule's loose bound is `0.5 + 0.5/5 = 0.6` px;
+drift comes in multiples of 0.2 and halves round up, so in exact maths 0.4 px is the largest. In
+`f64` it is not: `x * 1200` and `x * 6000` are rounded separately, so near a half-pixel tie the two
+sizes can round in opposite directions. **0.4 px is what the seeded sweep measures; 0.6 px is the
+bound in general, reached at `f64` near-ties.** Driven on the binary: `width = 0.009583333333333333`
+(`x = 0`, `y = 0`, `height = 1`) gives a 12 px crop at 1200 and 57 px at 6000, and 57/5 = 11.4 is
+a drift of 0.6. The test asserts 0.4 for its fixed seed only.
 
 Today's page avoids this for the watermark only because `cliRecipe` always resizes to the page's
 long edge first (`recipe.js:111-118`, "the watermark size is in pixels"). That workaround doesn't
@@ -740,7 +779,9 @@ the next op that grows this way.
 - [ ] **AC-4** Every edge is within 0.5 px of `f · W` for every W in 1..=64 over the fraction grids
   `i/97` and `i/8` (every `x`, `width` with `x + width ≤ 1`).
 - [ ] **AC-5** The same fractions on 1200×800 and 6000×4000 give edges with
-  `|e_6000 / 5 − e_1200| ≤ 0.4` for all four edges, over 200,000 cases from a fixed seed.
+  `|e_6000 / 5 − e_1200| ≤ 0.4` for all four edges, over 200,000 cases from a fixed seed. The 0.4
+  bound holds **for this seed**: changing the seed or the case count can reach 0.6 on correct code
+  (the general bound, reached at `f64` near-ties).
 - [ ] **AC-6** An aspect crop is the largest a:b rectangle that fits, its short side rounded half up
   in integer maths, placed by `gravity` (default `center`) with centring floored: the worked
   example's 18 placements (9 gravities × 2 orientations) exactly; `"16:9"` on 2600×1730 is 2600×1463
@@ -868,7 +909,8 @@ row's reason is impossible to miss, because every row asserts the whole message 
     `(next() >> 11) as f64 * 2^-53`, set `x = min`, `width = max − min`, skip `width == 0`, until
     **200,000** cases; the same for `y`/`height` from the next two draws. Asserts
     `|e_6000 / 5 − e_1200| ≤ 0.4` for all four edges and that 200,000 cases ran. Design measured
-    the production rule at **0.40 px** max, and both rounding mutations at **0.80 px**.
+    the production rule at **0.40 px** max over this seed (not the general bound, which is 0.6 at
+    `f64` near-ties), and both rounding mutations at **0.80 px**.
   - `rect_edges_exact_example` — AC-2: `(0.123, 0.2345, 0.5, 0.4321)` → 1200×800:
     `(148, 188, 748, 533)`; 6000×4000: `(738, 938, 3738, 2666)`.
   - `halves_round_up_and_fractions_read_as_f64` — AC-3: through `Crop::from_params` + `apply`
@@ -1100,7 +1142,7 @@ Sonnet. No behaviour change in `src/`; the one `src/operation/crop.rs` edit is i
    `docs/api-contract.md` already says "for one input").
 4. **Mutation table**: M4b's single-input exit 2 / two-input exit 0 note, the extra red rows for M2, M4, M6
    and M12, and the 0.6 -> 0.4 bound (M1, AC-5 and the test's description). The design note's loose
-   `0.5 + 0.5/5 = 0.6` derivation is kept, with the real 0.4 maximum stated beside it. **DEC-112 changed**
+   `0.5 + 0.5/5 = 0.6` derivation is kept, with the 0.4 the seeded sweep measures stated beside it (punch list 2: that is not the general maximum). **DEC-112 changed**
    on this branch (its size-independence line now says 0.4, asserted by SPEC-145's test).
 
 CI on `1316ad7`: run 42090297892 (CI), plus DCO 42090297937, all 17 checks pass, 8 release jobs skipped.
@@ -1109,12 +1151,34 @@ Controls (each rebuilt clean, `cargo clean -p crustyimg`, exit read from `$?`):
 
 | control | result |
 |---|---|
-| right edge `+ 0.1` before `.round()` | drift 0.6000 -> red at 0.4, **green at 0.6** |
+| right edge `+ 0.1` before `.round()` | drift 0.6000000000000227: **red at 0.4 and red at 0.6** (at `6611e79`'s bare `drift <= 0.6`). It shows the bound bites; it does not show 0.4 is tighter than 0.6. No mutation tested lands between the two bounds. |
 | right edge half rounds down (`ceil(v - 0.5)`) | `crop_fraction...` stays green at 0.4 (drift stays 0.4); `halves_round_up_...` red. Not a bound mutation. |
 | A4 row removed, array type `[_; 3]` | red at the new count assert (`left: 3, right: 4`) |
 | A4 row removed, type left `[_; 4]` | does not compile (E0308), so the type alone already catches it |
 | M1 (floor the right edge) | `crop_fraction...` red (0.80 > 0.4), plus `crop_edges_within_half_a_pixel`, `rect_edges_exact_example`, `halves_round_up_...` |
 | `cargo test --lib operation::crop`, `--test crop`, `--test docs_ops` | 11, 6, 3 passed |
+
+### Punch list 2 (re-verify)
+
+The re-verify confirmed the first four cleanups but found two false statements the first punch list
+wrote. Worktree `fix-spec-145-punch2`, Sonnet. Text only, plus one test message; no behaviour change.
+
+1. **The drift claim restated** in DEC-112, the design note, AC-5, the Failing Tests entry, the
+   punch-list item 4 line and the test's comment: 0.4 px is measured over the seeded sweep; 0.6 px is
+   the bound in general, reached at `f64` near-ties. The 0.4 bound holds for this seed only.
+2. **The `+ 0.1` control row corrected:** drift 0.6000000000000227 is red at both 0.4 and 0.6.
+3. **The test message prints the bound it checks:** `crop_fraction_agrees_at_1200_and_6000` now
+   uses one `BOUND` const for the assert and the panic text.
+
+Near-tie driven on this branch's release binary, images made by ImageMagick, recipe `x = 0`,
+`y = 0`, `width = 0.009583333333333333`, `height = 1`: **12 px** wide at 1200 and **57 px** wide at
+6000 (57/5 = 11.4, drift 0.6).
+
+0.3 control: with `BOUND = 0.3` the test panics `... 111 at 1200, 553 at 6000 (drift
+0.4000000000000057 > 0.3)`. Restored; `cargo test --lib operation::crop` (11) and `--test crop` (6)
+green, clippy (default and `--no-default-features`) and `fmt --check` clean.
+
+CI run id: CIRUNID
 
 ### Build-phase reflection (3 questions, short answers)
 
