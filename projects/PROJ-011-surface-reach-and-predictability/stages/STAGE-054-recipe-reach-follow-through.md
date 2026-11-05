@@ -297,7 +297,7 @@ Ordered. ⚡ Only the first item gates 0.8.0.
   so it waits for the next minor (0.9), not a patch. The same shape as the `render_text`
   library-panic entry above (`untrusted-input-hardening`).
 
-- [ ] **SPEC-146** (framed 2026-11-05) — [S] **CI runs the wasm round-trip tests.** Filed by
+- [ ] **SPEC-146** (designed 2026-11-05) — [S] **CI runs the wasm round-trip tests.** Filed by
   SPEC-143's verify (2026-10-30), and folds in STAGE-053's "wasm32 CI leg". A new `wasm-roundtrip`
   job runs `just wasm-check`, `wasm-test` (47 tests) and `wasm-test-slim` (45). The runner version
   is read from `Cargo.lock` and asserted. The frame drove a `src/wasm.rs` mutation red on both sets.

@@ -12,7 +12,10 @@ Cycle prompts live in `prompts/SPEC-146-<cycle>.md`.
   on both sets. Recommends a new `wasm-roundtrip` job with the runner from `taiki-e/install-action`,
   its version read from `Cargo.lock` and asserted, because the runner's own check accepts
   0.2.122-0.2.127. Also adds `.cargo/` to the CI code-paths filter. Folds STAGE-053's wasm32 CI leg.
-- [ ] **design** (`prompts/SPEC-146-design.md`)
+- [x] **design** (2026-11-05, `prompts/SPEC-146-design.md`, Opus): 11 ACs, 12 checks, 17-row
+  mutation table. One non-matrix `wasm-roundtrip` job; a new `scripts/wasm-ci-check.sh` reads the
+  lock version, asserts the runner, and holds an exact test-count floor (47/45), since compiling the
+  wasm module out was driven to print `1 passed`, exit 0. Shape check runs in `metadata`.
 - [ ] **build** (`prompts/SPEC-146-build.md`)
 - [ ] **verify** (`prompts/SPEC-146-verify.md`)
 - [ ] **ship** (`prompts/SPEC-146-ship.md`)
