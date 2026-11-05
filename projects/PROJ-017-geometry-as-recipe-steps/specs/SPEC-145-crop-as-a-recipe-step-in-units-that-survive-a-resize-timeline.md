@@ -12,11 +12,13 @@ Cycle prompts live in `prompts/SPEC-145-<cycle>.md`.
   rounding (DEC-091 Fence A already rules pixel coordinates lab-side), one op with exclusive
   rectangle/aspect key groups, and a pre-named split (DEC + rectangle, then aspect). Q1 (pixels
   in a recipe?) needs the maintainer before design.
-- [ ] **design** (`prompts/SPEC-145-design.md`): writes the unit DEC, ACs, failing tests and
-  Implementation Context, after the maintainer rules Q1-Q3.
+- [x] **design** (2026-11-05, `prompts/SPEC-145-design.md`, Opus): DEC-112 (fractions only, f64,
+  each edge rounded on its own with halves up; 0 px refused at apply as an op failure, not via the
+  skippable refusal hook). 65 ACs: 32 load and 4 apply refusals with exact messages, 2 corpus recipes
+  (`GOLDEN_LINES` 51 → 57), 3 wasm rows, 9 doc surfaces; 13-row mutation table. One spec, no split.
   Rulings (2026-11-05, all three as recommended): fractions only in a recipe, pixels via `edit --crop`
   later; `aspect` takes whole numbers only (`"239:100"`); a crop that rounds to 0 px is refused, not
   clamped.
-- [ ] **build** (`prompts/SPEC-145-build.md`)
+- [ ] **build** (`prompts/SPEC-145-build.md`, not yet written)
 - [ ] **verify** (`prompts/SPEC-145-verify.md`)
 - [ ] **ship** (`prompts/SPEC-145-ship.md`)

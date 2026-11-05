@@ -7,7 +7,7 @@
 task:
   id: SPEC-145
   type: story                      # epic | story | task | bug | chore
-  cycle: design  # frame | design | build | verify | ship
+  cycle: build  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: M                    # S | M | L  (L means split it)
@@ -19,14 +19,16 @@ repo:
   id: crustyimg
 
 agents:
-  architect: claude-opus-4-7
+  architect: claude-opus-5-5
   implementer: claude-opus-4-7     # usually same Claude, different session
   created_at: 2026-11-04
 
 references:
   decisions:
+    - DEC-112
     - DEC-095
     - DEC-102
+    - DEC-109
     - DEC-110
     - DEC-091
     - DEC-088
@@ -77,6 +79,26 @@ cost:
         per id, MAX output_tokens per id. Rates: Opus $5 in / $25 out per MTok, cache_creation
         x1.25 input, cache_read x0.10 input. Taken before the commit/push exchanges, so it
         slightly under-counts the session.
+    - cycle: design
+      agent: claude-opus-5-5
+      interface: claude-code
+      tokens_total: 8136660
+      tokens_breakdown:
+        input: 127
+        output: 77211
+        cache_creation: 274596
+        cache_read: 7784726
+      estimated_usd: 7.54
+      duration_minutes: null
+      recorded_at: 2026-11-05
+      note: >
+        Interactive design session, worktree docs/spec-145-design. Measured from transcript
+        a34d9c70-8a2c-4971-a998-fbcb33183f2f.jsonl, found by the prompt's title, plus its one
+        Explore subagent (subagents/agent-ad77a099e630fca0a.jsonl, the docs inventory), deduped by
+        `.message.id`: main 48 ids, subagent 16 ids, all claude-opus-5-5; input/cache_creation/
+        cache_read once per id, MAX output_tokens per id. Main $6.45 + subagent $1.09. Rates: Opus
+        $5 in / $25 out per MTok, cache_creation x1.25 input, cache_read x0.10 input. Taken before
+        the commit/push exchanges, so it slightly under-counts the session.
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -425,62 +447,498 @@ op-table rows.
 3. **A crop that rounds to 0 px at apply: refuse, or clamp to 1 px like `resize percent`?**
    **Recommend refuse** (the DEC-109 precedent).
 
+## Design
+
+Designed 2026-11-05 on `main` at `3a412d0` (crustyimg 0.8.2), against the maintainer's rulings of
+2026-11-05 (fractions only; whole-number aspects; refuse 0 px). **The unit rule is DEC-112.** One
+spec, both forms, **no split** (sizing at the end of this section).
+
+### What was driven at design (release build, scratch `CARGO_TARGET_DIR`, deleted after)
+
+| probe | result | control |
+|---|---|---|
+| `apply --recipe crop.toml in.png -o out.png` (rect crop, v2) | `error: unknown operation 'crop'`, exit 1 | `resize mode = "max" width = 80` on the same input: exit 0, 80×54 PNG |
+| the same crop recipe, two inputs | `error: unknown operation 'crop'`, exit 1 (load fails before any input) | — |
+| unknown key on a registered op (`left = 0.1` on resize) | `error: recipe step 0 ('resize'): unknown key 'left'; expected one of: mode, width, height, percent`, exit 1 | — this is the line shape every crop load refusal takes |
+| apply-time op failure, one input (`resize exact 60000×60000`) | `error: operation 'resize' failed: …`, **exit 1**, nothing written | — |
+| the same, two inputs with `--out-dir` | one `error: <input>: operation 'resize' failed: …` line per input, `error: 2 of 2 inputs failed`, **exit 6**, nothing written | — crop's apply failure inherits this; no new exit logic |
+
+**Two code facts that shape the design:**
+- `imageops::crop_imm` **clamps silently** (`image-0.25.10/src/imageops/mod.rs:67-83`,
+  `crop_dimms`: `width = min(width, iwidth - x)`). So crop must never hand it an out-of-bounds
+  rectangle, and the bounds mutation below cannot rely on a panic.
+- Native recipe pipelines run with `OnRefusal::Skip` (`src/cli/common.rs:89`, used by `apply`;
+  `src/cli/ops.rs:494`; `src/cli/optimize.rs:1433,1714`), and a skipped step still writes the image
+  ("A skipped watermark is not a failure: the image was written", `src/cli/optimize.rs:305`). wasm
+  runs `pipeline.run` (`OnRefusal::Fail`, `src/wasm.rs:243`). **So the 0 px check lives in
+  `Crop::apply`, returning `OperationError::Apply`, and `Crop` does not override
+  `Operation::refusal`.** Through `refusal()` a 0 px crop would be skipped natively (exit 0, the
+  uncropped image written) and an error in wasm: the trap this spec exists to close, plus a
+  native/wasm split.
+
+### The op, in code terms
+
+- **Where:** a new `src/operation/crop.rs`, declared `pub mod crop;` in `src/operation/mod.rs`, with
+  `pub use crop::{Crop, CROP_PARAMS};`. A child module can call the private
+  `Gravity::placement` (`src/operation/mod.rs:1227`) and read `GRAVITY_NAMES` (`:1168`), so neither
+  is widened. `mod.rs` is already 3,637 lines.
+- **`OperationParams::get_f64(&self, key) -> Option<f64>`** (`src/operation/mod.rs`, beside
+  `get_f32` at `:98`): `Float(f) => Some(*f)`, `Integer(i) => Some(*i as f64)`, else `None`. Crop
+  reads every fraction with it. (DEC-112 says why not `f32`: `x = 0.0009375` on 1600 px.)
+- **`CROP_PARAMS`**, in this order (the order the unknown-key message lists):
+
+  | key | `ParamKind` |
+  |---|---|
+  | `x` | `Number { min: 0.0, min_inclusive: true, max: Some(1.0) }` |
+  | `y` | `Number { min: 0.0, min_inclusive: true, max: Some(1.0) }` |
+  | `width` | `Number { min: 0.0, min_inclusive: false, max: Some(1.0) }` |
+  | `height` | `Number { min: 0.0, min_inclusive: false, max: Some(1.0) }` |
+  | `aspect` | `Text` (parsed by the constructor, like watermark's `color`) |
+  | `gravity` | `OneOf(GRAVITY_NAMES)` |
+
+  `ParamKind::expectation` (`src/operation/registry.rs:115-133`) renders these as
+  `a number in 0.0..=1.0` and `a number > 0 and <= 1`. No registry change is needed, and **no
+  crop-specific "these are fractions" hint is added**: the table check runs before the constructor
+  (`registry.rs:423`), so a hint would need a registry change for a message that already says
+  `<= 1, got 800`. The docs carry it.
+- **Registration:** `reg.register_with_params("crop", |p| Ok(Box::new(Crop::from_params(p)?)), CROP_PARAMS);`
+  in `with_builtins` (`registry.rs:294-312`), after `watermark`. Update the doc comments there and
+  at `:271-273` that list the built-ins.
+- **`Crop::from_params(&OperationParams) -> Result<Crop, RegistryError>`** runs
+  `registry::check_params("crop", CROP_PARAMS, params)` first (as `Resize::from_params` does at
+  `mod.rs:794`), then, in this order:
+  1. `aspect` present **and** any of `x`, `y`, `width`, `height` present → the mixed-forms refusal,
+     naming the first rectangle key present in table order.
+  2. no `aspect`, `gravity` present → the gravity refusal (with or without rectangle keys).
+  3. no `aspect`, no rectangle key → the no-keys refusal.
+  4. no `aspect`, some rectangle keys → the first missing of `x`, `y`, `width`, `height` → the
+     partial refusal.
+  5. rectangle: `x + width > 1.0` → right-edge refusal; then `y + height > 1.0` → bottom-edge
+     refusal. Both sums in `f64`.
+  6. aspect: parse (below); `gravity` defaults to `center`.
+- **`Crop` holds** the form (`Rect { x, y, width, height }` as `f64`, or `Aspect { a, b, gravity }`
+  with `a`, `b` as `u32`) **and the step's original map**, so `params()` returns the keys exactly as
+  written (an integer `x = 0` stays an integer, an absent `gravity` stays absent). `params()` is not
+  what `to_toml()` serializes (the recipe keeps its own map, DEC-102), but `edit --save-recipe` will
+  read it later, so it must round-trip.
+- **The rectangle maths**, one private pure function both `apply` and the unit tests call:
+  `fn rect_edges(x: f64, y: f64, w: f64, h: f64, iw: u32, ih: u32) -> (u32, u32, u32, u32)` returning
+  `(left, top, right, bottom)` per DEC-112: `left = (x * iw as f64).round() as u32`,
+  `right = ((x + w) * iw as f64).round() as u32`, and the same for `top`/`bottom` with `ih`.
+- **The aspect maths**, one private pure function: `fn aspect_size(a: u32, b: u32, iw: u32, ih: u32)
+  -> (u32, u32)`, in `u64`:
+  - if `iw·b ≤ ih·a` (the image is at least as tall as a:b): `cw = iw`,
+    `ch = (2·iw·b + a) div (2·a)`;
+  - else: `ch = ih`, `cw = (2·ih·a + b) div (2·b)`.
+
+  That is `round(iw·b/a)` with halves up, in integers. The short side is at most its image side:
+  in the first branch `iw·b/a ≤ ih`, and rounding a value ≤ `ih` half up cannot pass the integer
+  `ih`. It is **0 when `2·iw·b < a`** (first branch) or **`2·ih·a < b`** (second): `"10000:1"` on
+  1600×1067 gives `ch = (3200 + 10000) div 20000 = 0`. Placement is
+  `Gravity::placement(iw, ih, cw, ch, 0)`: margin 0, centring floors (`(iw − cw) / 2`), as in
+  `resize fill`. Equivalent ratios give identical crops (`"32:18"` = `"16:9"`), because both
+  expressions scale numerator and denominator by the same factor.
+- **Worked example (numbers that don't divide evenly):** `aspect = "5:4"` on **2600×1730**:
+  `2600·4 = 10400 > 1730·5 = 8650`, so the crop is full height. `cw = (2·1730·5 + 4) div 8 =
+  17304 div 8 = 2163` (exact value 2162.5, half rounds up), `ch = 1730`. Slack `2600 − 2163 = 437`:
+  `center`/`north`/`south` put it at x = 218 (218.5 floored), the three `…east` at 437, the three
+  `…west` at 0; y is 0 for all nine. On the portrait **1730×2600**: `1730·4 = 6920 ≤ 2600·5 =
+  13000`, so full width: `ch = (2·1730·4 + 5) div 10 = 1384`, slack 1216: `center`/`east`/`west` at
+  y = 608, the three `north…` at 0, the three `south…` at 1216; x is 0 for all nine. Swapping W and H
+  in the fit gives 1730×1384 on the landscape image, which is the aspect-maths mutation.
+- **The aspect parser** (private `fn parse_aspect(&str) -> Result<(u32, u32), String>`):
+  exactly one `:`; each side one or more ASCII digits and nothing else (no sign, no space, no `.`);
+  each side's value 1..=65535 (parse with checked `u32` arithmetic over the digits, not
+  `u32::from_str`, which accepts a leading `+`). On failure: if both sides are plain decimals
+  (ASCII digits with exactly one `.` in at least one side, digits on both sides of it), scale both by
+  10^d (d = the longer fractional part), divide by their gcd, and if both results are in 1..=65535
+  give the decimal message with that spelling; otherwise (overflow included, with checked maths)
+  give the generic message. The bound keeps the `u64` maths far from overflow
+  (`2 · u32::MAX · 65535 < 2^64`).
+- **`Crop::apply`**: read `iw`, `ih` from `img.pixels()`; compute the rectangle (`rect_edges`, or
+  `aspect_size` + `placement`); **if `right > iw` or `bottom > ih`, return `OperationError::Apply`
+  with `"internal: the crop's right edge {right} is past the image's {iw} px width"` (or the
+  bottom/height wording)**: unreachable after `from_params`, and there so a removed load check can
+  never reach `crop_imm`'s clamp; **if the width or height is 0, return the 0 px refusal**; else
+  `img.pixels().crop_imm(left, top, cw, ch)` and `img.with_pixels(…)`. `DynamicImage::crop_imm`
+  keeps the variant (DEC-095), with no widen and no narrow. No `.max(1)`, no `min`, no clamp.
+
+### Exact messages
+
+**Load** (every one is a `RecipeError::InvalidOperation`, displayed `recipe step N ('crop'): <reason>`,
+`src/recipe/mod.rs:124`; exit 1 on `apply`, nothing read or written). Table rows come out of
+`check_params` (`src/operation/registry.rs:227-251`) unchanged; the constructor rows are worded to
+match `resize`'s (`src/operation/mod.rs:813-822`: `'{key}' is not used by mode '{mode}'`) and
+`watermark`'s (`mod.rs:1573-1588`: `watermark step must set exactly one of 'image' or 'text'`).
+Operands in the edge messages are printed **as written**: an integer by `to_string`, a float by the
+registry's `float_text` (`registry.rs:191`, made `pub(crate)`), never by printing an `f64` sum or an
+`f32`.
+
+| id | step body (with `op = "crop"`) | who | message after `recipe step 0 ('crop'): ` |
+|---|---|---|---|
+| R1 | `x=0.1 y=0.1 width=0.5 height=0.5 left=0.1` | table | `unknown key 'left'; expected one of: x, y, width, height, aspect, gravity` |
+| R2 | `x="10%" y=0 width=0.5 height=0.5` | table | `'x' must be a number in 0.0..=1.0, got the string "10%"` |
+| R3 | `x=0 y=0 width=true height=0.5` | table | `'width' must be a number > 0 and <= 1, got true` |
+| R4 | `x=-0.1 y=0 width=0.5 height=0.5` | table | `'x' must be a number in 0.0..=1.0, got -0.1` |
+| R5 | `x=0 y=1.5 width=0.5 height=0.5` | table | `'y' must be a number in 0.0..=1.0, got 1.5` |
+| R6 | `x=0 y=0 width=1.5 height=0.5` | table | `'width' must be a number > 0 and <= 1, got 1.5` |
+| R7 | `x=0 y=0 width=800 height=0.5` | table | `'width' must be a number > 0 and <= 1, got 800` |
+| R8 | `x=nan y=0 width=0.5 height=0.5` | table | `'x' must be a number in 0.0..=1.0, got nan` |
+| R9 | `x=0 y=0 width=0.5 height=inf` | table | `'height' must be a number > 0 and <= 1, got inf` |
+| R10 | `x=0 y=0 width=0 height=0.5` | table | `'width' must be a number > 0 and <= 1, got 0` |
+| R11 | `x=0 y=0 width=0.5 height=0.0` | table | `'height' must be a number > 0 and <= 1, got 0.0` |
+| R12 | `x=0 y=0 width=1e-50 height=0.5` | table (the `f32` reading is 0) | `'width' must be a number > 0 and <= 1, got 1e-50` |
+| R13 | `x=0.7 y=0 width=0.5 height=0.5` | constructor | `'x' + 'width' is 0.7 + 0.5, past the right edge; together they must be at most 1` |
+| R14 | `x=0 y=0.6 width=0.5 height=0.6` | constructor | `'y' + 'height' is 0.6 + 0.6, past the bottom edge; together they must be at most 1` |
+| R15 | `x=0 y=0 width=0.5` | constructor | `a rectangle crop needs x, y, width and height; 'height' is missing` |
+| R16 | `width=0.5 height=0.5` | constructor | `a rectangle crop needs x, y, width and height; 'x' is missing` |
+| R17 | *(no keys)* | constructor | `crop needs a rectangle (x, y, width, height) or an aspect (aspect, and optionally gravity)` |
+| R18 | `aspect="16:9" x=0 y=0 width=0.5 height=0.5` | constructor | `'aspect' cannot be combined with 'x'; a crop is either a rectangle (x, y, width, height) or an aspect (aspect, gravity)` |
+| R19 | `x=0 y=0 width=0.5 height=0.5 gravity="north"` | constructor | `'gravity' is only used with 'aspect'; a rectangle crop is placed by x and y` |
+| R20 | `gravity="north"` | constructor | same as R19 |
+| R21 | `aspect="16x9"` | constructor | `'aspect' must be two whole numbers from 1 to 65535 written W:H, such as "16:9"; got "16x9"` |
+| R22 | `aspect="16:"` | constructor | as R21, `got "16:"` |
+| R23 | `aspect="a:b"` | constructor | as R21, `got "a:b"` |
+| R24 | `aspect="+16:9"` | constructor | as R21, `got "+16:9"` |
+| R25 | `aspect="0:9"` | constructor | as R21, `got "0:9"` |
+| R26 | `aspect="-1:1"` | constructor | as R21, `got "-1:1"` |
+| R27 | `aspect="70000:1"` | constructor | as R21, `got "70000:1"` |
+| R28 | `aspect="2.39:1"` | constructor | `'aspect' must be two whole numbers written W:H; write "2.39:1" as "239:100"` |
+| R29 | `aspect="1.5:1"` | constructor | `'aspect' must be two whole numbers written W:H; write "1.5:1" as "3:2"` |
+| R30 | `aspect="1.00001:1"` | constructor (its whole-number spelling 100001:100000 is past 65535) | as R21, `got "1.00001:1"` |
+| R31 | `aspect=1.78` | table | `'aspect' must be a string, got the float 1.78` |
+| R32 | `aspect="16:9" gravity="middle"` | table | `'gravity' must be one of: center, north, south, east, west, northeast, northwest, southeast, southwest; got "middle"` |
+
+Each row is single-fault, so its message can only come from its own check. R13 uses `0.7`, which is
+inexact in both `f32` (`0.699999988…`) and `f64` sums, so printing a computed value instead of the
+operands as written fails it (trap 10). R29 is the row where the naive spelling (`"15:10"`) and the
+reduced one differ. R24 is the row `u32::from_str` gets wrong.
+
+**Apply** (an `OperationError::Apply`, displayed `operation 'crop' failed: <reason>`,
+`src/operation/mod.rs:168`; the CLI prefixes `error: `; exit 1 on a single-input `apply`, the existing
+per-input line and exit 6 when every input of a batch fails). All on a **1600×1067** image (the
+ddphotos copy size):
+
+| id | step body | rounds to | message after `operation 'crop' failed: ` |
+|---|---|---|---|
+| A1 | `x=0.5 y=0 width=0.0001 height=1` | left 800, right `round(800.16)` = 800 | `the crop rounds to 0×1067 px on this 1600×1067 px image; it must keep at least 1 px each way` |
+| A2 | `x=0 y=0.5 width=1 height=0.0001` | top `round(533.5)` = 534, bottom `round(533.6067)` = 534 | `the crop rounds to 1600×0 px on this 1600×1067 px image; it must keep at least 1 px each way` |
+| A3 | `aspect="10000:1"` | `(3200 + 10000) div 20000` = 0 | `the crop rounds to 1600×0 px on this 1600×1067 px image; it must keep at least 1 px each way` |
+| A4 | `aspect="1:10000"` | `(2134 + 10000) div 20000` = 0 | `the crop rounds to 0×1067 px on this 1600×1067 px image; it must keep at least 1 px each way` |
+
+The messages carry no step index: apply-time errors don't today, for any op, and that is filed as
+`recipe-errors-name-the-step-everywhere` (`guidance/ideas.yaml:337`). They name the op, the rounded
+size and the image size, which is what ruling 3's "naming the step" can mean without that change.
+**This is a reading of the ruling; the report flags it.**
+
+### Sizing: M, one spec, no split
+
+32 load rows and 4 apply rows is more than the frame's "about 20" split trigger. It stays one spec
+because the rows are **data lines in one table-driven test each**, not separate test functions, and
+the aspect form adds 12 of them (R21–R32 less R31's table half) plus one function of integer maths.
+Splitting would duplicate the corpus bless, the wasm row, the docs pass and the CI round trip, which
+are the expensive parts. Code: about 300–400 lines with unit tests. If the build finds the aspect
+half costs more than a third of the cycle, it says so in its reflection; the split stays named for
+the next op that grows this way.
+
 ## Inputs
 
-- **Files to read:** `path/to/file.ext` — why
-- **External APIs:** <name, docs link, auth>
-- **Related code paths:** `src/some/module/`
+- **Files to read:** `src/operation/mod.rs` (`OperationParams` :33-127, `OperationError` :160-183,
+  `Operation` :255-286, `Resize::from_params` :780-865, `Gravity` :1147-1263, `WATERMARK_PARAMS`
+  :1270-1315, `Watermark::from_params` :1561-1690); `src/operation/registry.rs` (`ParamKind`
+  :76-185, `float_text` :191, `check_params` :227, `with_builtins` :294, tests :440-741);
+  `src/recipe/mod.rs:124` and `:389-407`; `src/pipeline/mod.rs:79-126`; `src/cli/common.rs:72-95`;
+  `src/wasm.rs:225-246`; `tests/recipe_corpus_output.rs`, `tests/recipe_round_trip.rs:259-333`,
+  `tests/fixtures/recipe_corpus/README.md`; `tests/wasm_roundtrip.rs:311-366`; `tests/docs_ops.rs`.
+- **Decisions:** DEC-112 (this spec's), DEC-091, DEC-095, DEC-102, DEC-109, DEC-110.
+- **Related code paths:** `src/operation/`, `tests/`, `docs/`, `recipes/README.md`, `skills/`.
 
 ## Outputs
 
-- **Files created:** `path/to/new.ext` — purpose
-- **Files modified:** `path/to/existing.ext` — what changes
-- **New exports:** <names and signatures>
-- **Database changes:** <migrations>
+- **Files created:** `src/operation/crop.rs` (the op, its maths, its unit tests); `tests/crop.rs`
+  (load and apply refusal tables, CLI rows, DEC-095 exactness);
+  `tests/fixtures/recipe_corpus/v2_crop_rect.{toml,golden,linux-x86_64.output,macos-aarch64.output,windows-x86_64.output}`
+  and the same five for `v2_crop_aspect`.
+- **Files modified:** `src/operation/mod.rs` (`pub mod crop;`, re-export, `get_f64`);
+  `src/operation/registry.rs` (registration, doc lists, `float_text` → `pub(crate)`, three tests);
+  `tests/recipe_corpus_output.rs` and `tests/recipe_round_trip.rs` (stems and literals only);
+  `tests/wasm_roundtrip.rs` (three rows); `docs/recipes.md`, `recipes/README.md`,
+  `docs/data-model.md`, `skills/crustyimg/SKILL.md`, `docs/api-contract.md`,
+  `integrations/ddphotos/README.md`, `README.md`, `CHANGELOG.md`.
+- **New exports:** `crustyimg::operation::crop::Crop` (re-exported as `crustyimg::operation::Crop`)
+  with `pub fn from_params(&OperationParams) -> Result<Crop, RegistryError>` and its `Operation`
+  impl; `crustyimg::operation::CROP_PARAMS: &[ParamSpec]`;
+  `OperationParams::get_f64(&self, &str) -> Option<f64>`.
+- **Database changes:** none. No `CACHE_SCHEMA_VERSION` change, no lockfile change, no version bump.
 
 ## Acceptance Criteria
 
-Testable outcomes. Cover happy path, error cases, edge cases.
+**The op**
+- [ ] **AC-1** `OperationRegistry::with_builtins()` registers `crop`, and `param_specs("crop")` is
+  exactly `x, y, width, height, aspect, gravity` in that order, with the kinds in the design table.
+  `identity`, `invert`, `resize`, `auto-orient` and `watermark` keep their tables unchanged.
+- [ ] **AC-2** A rectangle crop cuts `(left, top, right − left, bottom − top)` with each edge rounded
+  on its own in `f64` per DEC-112: on 1200×800, `x=0.123 y=0.2345 width=0.5 height=0.4321` gives a
+  600×345 crop at (148, 188); on 6000×4000 the same step gives 3000×1728 at (738, 938).
+- [ ] **AC-3** Halves round up, and the fractions are read as `f64`: `x=0.0009375 y=0 width=0.5
+  height=1` on 1600×1067 gives an 800×1067 crop at (2, 0) (1.5 → 2; an `f32` read gives 1);
+  `x=0.1 y=0.25 width=0.5 height=0.4321` on 2600×1730 gives a 1300×747 crop at (260, 433)
+  (432.5 → 433).
+- [ ] **AC-4** Every edge is within 0.5 px of `f · W` for every W in 1..=64 over the fraction grids
+  `i/97` and `i/8` (every `x`, `width` with `x + width ≤ 1`).
+- [ ] **AC-5** The same fractions on 1200×800 and 6000×4000 give edges with
+  `|e_6000 / 5 − e_1200| ≤ 0.6` for all four edges, over 200,000 cases from a fixed seed.
+- [ ] **AC-6** An aspect crop is the largest a:b rectangle that fits, its short side rounded half up
+  in integer maths, placed by `gravity` (default `center`) with centring floored: the worked
+  example's 18 placements (9 gravities × 2 orientations) exactly; `"16:9"` on 2600×1730 is 2600×1463
+  at (0, 133); `"32:18"` gives the same crop as `"16:9"`.
+- [ ] **AC-7** A crop moves pixels and computes none (DEC-095): on rgb8, rgba8 and rgba16 inputs
+  every output pixel equals the input pixel at `(left + i, top + j)`, and the colour type and bit
+  depth are the input's; the same holds for L8 and La8.
+- [ ] **AC-8** `x=0 y=0 width=1 height=1` returns a buffer byte-equal to the input's, with the same
+  colour type.
+- [ ] **AC-9** `Crop::params()` returns the step's keys exactly as written, for both forms: integer
+  values stay integers, and an absent `gravity` stays absent.
 
-- [ ] Criterion 1 (testable)
-- [ ] Criterion 2 (testable)
+**Refusals**
+- [ ] **AC-10 … AC-41** (one per row) Each load row R1–R32 is refused by `Recipe::build_pipeline`
+  with `with_builtins()` as a `RecipeError::InvalidOperation` whose `Display` is **exactly**
+  `recipe step 0 ('crop'): ` + that row's message.
+- [ ] **AC-42 … AC-45** (one per row) Each apply row A1–A4 builds, and `Pipeline::run` on a
+  1600×1067 image returns an `OperationError::Apply` whose `Display` is **exactly**
+  `operation 'crop' failed: ` + that row's message.
+- [ ] **AC-46** On the binary, `apply --recipe <A1> in.png -o out.png` exits 1, prints exactly
+  `error: operation 'crop' failed: the crop rounds to 0×1067 px on this 1600×1067 px image; it must
+  keep at least 1 px each way`, and writes no `out.png`. (The guard against routing the check
+  through `refusal()`, which `apply` skips.)
+- [ ] **AC-47** On the binary, `apply --recipe <R13> in.png -o out.png` exits 1, prints exactly
+  `error: recipe step 0 ('crop'): 'x' + 'width' is 0.7 + 0.5, past the right edge; together they
+  must be at most 1`, and writes no file.
+- [ ] **AC-48** `Crop` does not override `Operation::refusal`: `refusal(&img)` is `None` for the A1
+  step on the 1600×1067 image.
+
+**End to end, corpus, wasm**
+- [ ] **AC-49** On the binary, a rectangle recipe (`version = "2"`, AC-2's step) applied to a
+  1200×800 PNG writes a 600×345 PNG whose pixels equal the input's at offset (148, 188), exit 0.
+- [ ] **AC-50** The corpus gains `v2_crop_rect` (one step, AC-2's fractions) and `v2_crop_aspect`
+  (one step, `aspect = "5:4"`, `gravity = "southeast"`), each with `.toml`, `.golden` and three
+  per-target `.output` files, added by the README's procedure. `EXPECTED_DIMS`: `v2_crop_rect`
+  `["1300x747", "865x1123", "1300x747"]`; `v2_crop_aspect` `["2163x1730", "1730x1384", "2163x1730"]`.
+  The literals become: `RECIPES` +2 stems, `EXPECTED_DIMS` length **16**, `ROWS` **54**,
+  `GOLDEN_LINES` **57**, the `42` → **48**, `recipe_round_trip.rs` `CORPUS` +2 and `pairs.len()`
+  **16** (message "13 corpus recipes + 3 bundled recipes"), and the doc comments to match.
+- [ ] **AC-51** For each new crop recipe, its three per-target `.output` files are byte-identical
+  (crop does no float maths on pixels), and the build says so with the `cmp` it ran.
+- [ ] **AC-52** **No existing output changes:** `git diff --diff-filter=M --name-only origin/main --
+  tests/fixtures/recipe_corpus/` is empty, `git diff --diff-filter=D` on the same path is empty, and
+  `cargo test --test recipe_corpus_output` and `--test recipe_round_trip` pass with no re-bless of
+  an existing file.
+- [ ] **AC-53** wasm `transform` (run in a real wasm VM by `just wasm-test`): the AC-2 rectangle
+  step on a 1200×800 PNG gives exactly 600×345 and pixels equal to the input's at (148, 188), zero
+  differing (DEC-110 limb 2, no 1/255 allowance), and `aspect = "5:4"`, `gravity = "southeast"`
+  gives exactly 1000×800 with pixels equal at (200, 0).
+- [ ] **AC-54** wasm `transform` throws, and the message contains exactly the native line, for R18
+  (`recipe step 0 ('crop'): 'aspect' cannot be combined with 'x'; …`) and R28; and for A1 on a
+  1600×1067 PNG (`operation 'crop' failed: the crop rounds to 0×1067 px …`). The module survives each
+  (an identity transform succeeds after).
+
+**Docs** (verify checks each by reading; `file:line` is on `main` at `3a412d0`)
+- [ ] **AC-55** `docs/recipes.md:60-62`: the planned `crustyimg crop` entry becomes **"Crop to a
+  rectangle or an aspect [today]"** with a recipe-step snippet (`[[step]] op = "crop"` with
+  fractions, and an `aspect = "16:9"` / `gravity` variant), one line saying the numbers are fractions
+  of the image (0–1), not pixels, so the same recipe crops the same region at any size, and one line
+  saying to put `op = "auto-orient"` first when the fractions are meant as the photo is displayed.
+  It names no `crustyimg crop` verb.
+- [ ] **AC-56** `docs/recipes.md:64-65`: smart crop loses the `crustyimg crop --smart` line and is
+  marked **post-1.0, beta**, pointing at `docs/roadmap.md`'s smart-crop row (`:80`).
+  `docs/recipes.md:63`'s `[planned — PROJ-006]` for rotate/flip/trim/pad becomes
+  `[planned — PROJ-017]`. Afterwards `/usr/bin/grep -rn "crustyimg crop" docs/ recipes/ README.md
+  skills/ npm/ integrations/` finds nothing.
+- [ ] **AC-57** `recipes/README.md:84-93`: the op table gains a `crop` row after `watermark` (before
+  `optimize`): "`x`, `y`, `width`, `height` as fractions of the image, or `aspect` + `gravity`
+  (below)". A new `### The crop step` section before `### Step keys are checked` (`:198`) gives both
+  forms as TOML, a `| Key | Form | Value |` table, and notes saying: lengths are fractions 0–1, not
+  pixels, and `width = 1` is the full width; each edge rounds to the nearest pixel (halves up), so
+  the same recipe agrees within a pixel at any size; `aspect` is two whole numbers (`"239:100"`, not
+  `"2.39:1"`); a crop that rounds to 0 px fails rather than being widened; the fractions are of the
+  image as the step receives it, so put `auto-orient` first for display coordinates.
+- [ ] **AC-58** `docs/data-model.md:162-166`: "five operations" becomes six, naming `crop`. A new
+  `### crop step param keys` section after the resize section (before `:328`) has a
+  `| Key | Type | Range |` table (`x`, `y`: number `0.0..=1.0`; `width`, `height`: number
+  `> 0 and <= 1`; `aspect`: string, two whole numbers 1–65535 as `W:H`; `gravity`: one of the nine,
+  default `center`), the two forms' exclusivity, and a TOML example containing `op = "crop"` (which
+  `tests/docs_ops.rs` then checks resolves).
+- [ ] **AC-59** `skills/crustyimg/SKILL.md:233-234`: the ops list gains `crop` (`x`/`y`/`width`/
+  `height` as fractions 0–1, or `aspect = "W:H"` + `gravity`), and the frontmatter `description`
+  (`:3`) mentions crop.
+- [ ] **AC-60** `docs/api-contract.md`: a "**Crop in a recipe.**" paragraph beside the watermark
+  one (`:392-412`) says `op = "crop"` is a registered operation taking a rectangle or an aspect in
+  fractions, refused at load for bad keys and at apply when it rounds to 0 px, and points at
+  `docs/data-model.md` for the keys.
+- [ ] **AC-61** `integrations/ddphotos/README.md:127-129` ("No crop, rotate or colour … recipes have
+  only `resize`, `auto-orient`, `watermark` and `invert`") is rewritten: recipes can crop now; the
+  edit page doesn't offer crop yet; rotate and colour still need their own work. `README.md:244`'s
+  "resize, watermark and more" names crop. `npm/README.md:102` already lists crop for `transform`;
+  verify confirms it is now true and it is unchanged.
+- [ ] **AC-62** `CHANGELOG.md`: under `## [Unreleased]` (`:8`), a new `### Added` with "**A recipe
+  can crop.**" — `op = "crop"` with a rectangle in fractions or an aspect with gravity; the same
+  recipe crops the same region at any image size; 0.8.2 and earlier refuse it with
+  `unknown operation 'crop'`.
+- [ ] **AC-63** Every user-facing string this spec adds (messages, doc comments, docs) names no
+  spec or DEC id.
+
+**Hygiene**
+- [ ] **AC-64** No version bump, no `CACHE_SCHEMA_VERSION` change (`src/build/cache.rs:81`), no
+  lockfile-format change. Why none is needed: an existing recipe's canonical TOML and output are
+  unchanged (AC-52), the cache key already folds in the crustyimg version (`src/build/cache.rs:25`),
+  and 0.8.2 refuses a crop recipe at load, so no cached entry or lockfile line for one can exist.
+- [ ] **AC-65** `just check` is green, CI is green on every leg including the lean
+  (`--no-default-features`) build and the wasm bundle-size gate, and `just wasm-test` is green
+  locally with its result line quoted in Build Completion (CI does not run it yet; SPEC-146 adds it).
 
 ## Failing Tests
 
-Written during **design**, BEFORE build. The implementer's job in
-**build** is to make these pass.
+Written at design; the build makes them pass. **Baseline on `main`:** every integration row is RED
+with `unknown operation 'crop'` (load rows, apply rows, CLI rows, wasm rows) or a missing corpus file
+(`v2_crop_*`); the unit tests don't compile until `src/operation/crop.rs` exists. The build quotes
+one RED message per test file. **The wrong-reason trap (13):** a load row that fails for another
+row's reason is impossible to miss, because every row asserts the whole message with `==`.
 
-- **`path/to/test.file`**
-  - `"test description 1"` — asserts: ...
+- **`src/operation/crop.rs` (`#[cfg(test)] mod tests`)** — calls the private production functions
+  `rect_edges`, `aspect_size` and `parse_aspect`, and `Crop::from_params` + `apply`, never a copy.
+  - `crop_edges_within_half_a_pixel` — AC-4: for W in 1..=64, for grids `i/97` and `i/8`, every `x`
+    and `width > 0` with `x + width ≤ 1`: `|left − x·W| ≤ 0.5` and `|right − (x+width)·W| ≤ 0.5`
+    (and the same through `y`/`height`/`H`, by calling with the axes swapped). Asserts the number of
+    cases checked equals a literal the build computes once and writes down.
+  - `crop_fraction_agrees_at_1200_and_6000` — AC-5: xorshift64 (shifts 13, 7, 17, as in
+    `tests/recipe_corpus_output.rs:106-114`), seed `0x5EED_0145`; per case draw `u1`, `u2` as
+    `(next() >> 11) as f64 * 2^-53`, set `x = min`, `width = max − min`, skip `width == 0`, until
+    **200,000** cases; the same for `y`/`height` from the next two draws. Asserts
+    `|e_6000 / 5 − e_1200| ≤ 0.6` for all four edges and that 200,000 cases ran. Design measured
+    the production rule at **0.40 px** max, and both rounding mutations at **0.80 px**.
+  - `rect_edges_exact_example` — AC-2: `(0.123, 0.2345, 0.5, 0.4321)` → 1200×800:
+    `(148, 188, 748, 533)`; 6000×4000: `(738, 938, 3738, 2666)`.
+  - `halves_round_up_and_fractions_read_as_f64` — AC-3: through `Crop::from_params` + `apply`
+    (not `rect_edges` alone, so the `get_f64` read is in the path): `x=0.0009375 y=0 width=0.5
+    height=1` on 1600×1067 → 800×1067, and the pixels at output (0, 0) equal input (2, 0);
+    `x=0.1 y=0.25 width=0.5 height=0.4321` on 2600×1730 → 1300×747, output (0, 0) = input (260, 433).
+  - `aspect_fit_worked_example` — AC-6: `aspect_size(5, 4, 2600, 1730) == (2163, 1730)`,
+    `(5, 4, 1730, 2600) == (1730, 1384)`, `(16, 9, 2600, 1730) == (2600, 1463)`,
+    `(32, 18, 2600, 1730) == (2600, 1463)`, `(10000, 1, 1600, 1067) == (1600, 0)`,
+    `(1, 10000, 1600, 1067) == (0, 1067)`.
+  - `aspect_gravity_places_all_nine` — AC-6: through `from_params` + `apply` on 2600×1730 and
+    1730×2600 rgb8 images with a pixel pattern unique per position, the 18 offsets in the worked
+    example, each checked by the output's (0, 0) pixel equalling the input at the expected offset and
+    the output size; plus `"16:9"` centre on 2600×1730 at (0, 133). One table, every failing row
+    reported by gravity and orientation, and a literal count of 19 rows.
+  - `luma_crops_are_exact` — AC-7: L8 and La8 inputs, every output pixel equals the input at the
+    offset; colour type preserved.
+  - `identity_crop_is_byte_equal` — AC-8: rgb8 and rgba16, `as_bytes()` equal, colour type equal.
+  - `params_round_trip_as_written` — AC-9: the rect step with `x = 0` (integer) and the aspect step
+    without `gravity`: `params()` equals the input map; with `gravity = "west"` it is kept.
+  - `refusal_hook_is_not_used` — AC-48.
+- **`src/operation/registry.rs` (`mod tests`)**
+  - `with_builtins_contains_crop` (new) — AC-1.
+  - `every_builtin_publishes_a_param_schema` (extended) — AC-1: `keys("crop")` ==
+    `["x", "y", "width", "height", "aspect", "gravity"]`; the existing asserts unchanged.
+  - `one_of_values_are_accepted_by_their_constructors` (extended) — crop's nine gravities each build
+    with `aspect = "16:9"`; the literal becomes `6 + 9 + 9`, message "6 resize modes + 9 watermark
+    gravities + 9 crop gravities".
+- **`tests/crop.rs` (new)** — through the public API (`Recipe::from_toml`, `build_pipeline`,
+  `Pipeline::run`) and the binary (`env!("CARGO_BIN_EXE_crustyimg")`, stdout and stderr redirected
+  to files, exit code read directly). Fixtures are built in the test from seeded samples, encoded
+  with the `image` crate's PNG encoder; expected pixels come from indexing the source buffer, never
+  from `crop_imm`.
+  - `every_load_refusal_names_its_reason` — AC-10…41: the 32-row R table as data
+    (`(id, body, message)`), each recipe `version = "2"` with one step; runs **every** row, collects
+    each mismatch as `"{id}: expected …, got …"`, fails listing all of them, and asserts 32 rows ran.
+  - `every_zero_pixel_crop_fails_at_apply` — AC-42…45: the 4-row A table on a 1600×1067 rgb8 image,
+    same collect-all shape, 4 rows ran; each row also asserts `build_pipeline` succeeded (so a row
+    can't pass by being refused at load).
+  - `apply_refuses_a_zero_pixel_crop_and_writes_nothing` — AC-46 (binary).
+  - `apply_refuses_a_crop_past_the_right_edge_at_load` — AC-47 (binary).
+  - `apply_crops_a_png_end_to_end` — AC-49 (binary).
+  - `crop_preserves_colour_type_and_every_pixel` — AC-7: rgb8, rgba8, rgba16 at 64×48 with
+    `x=0.25 y=0.25 width=0.5 height=0.5` (all products integers, so this test guards copying, not
+    rounding) → 32×24 at (16, 12); every output pixel equals the input's at the offset, colour type
+    and depth equal.
+- **`tests/recipe_corpus_output.rs` / `tests/recipe_round_trip.rs`** — AC-50…52: the two new stems,
+  their `EXPECTED_DIMS`, their goldens, and the literal bumps; no other change. Both new recipes
+  change dimensions on every fixture, so the corpus's own "every acting step acts" and "expected
+  dims" controls apply to them unchanged.
+- **`tests/wasm_roundtrip.rs`** — AC-53…54, `#[wasm_bindgen_test]`:
+  - `transform_crops_exactly` — the rectangle and aspect rows, dimensions with `assert_eq!` and
+    every pixel compared with the decoded input at the offset (decoded with the `image` crate inside
+    the test).
+  - `transform_refuses_a_bad_crop_with_the_native_message` — R18 and R28 (load) and A1 (apply),
+    `msg.contains(<the exact native line>)`, and an identity transform succeeds after each.
+- **`tests/docs_ops.rs`** — unchanged; it goes red if AC-58's `op = "crop"` example lands before the
+  op is registered, which is the order guard for that doc.
+
+### Mutation table (traps 12 and 14)
+
+Each row: where it is applied, what goes **red** (with the number that moves), and what stays
+**green**. Apply one at a time, run `cargo test` (stdout redirected) and, where the row says, `just
+wasm-test` and the corpus test; record the flip, then revert and confirm green. A row whose red set
+doesn't match is reported, not edited to match.
+
+| # | mutation, and where | red (expected) | green (expected) |
+|---|---|---|---|
+| M1 | **floor the right edge**: `rect_edges`, `right = ((x + w) * iw).floor()` (`src/operation/crop.rs`) | `crop_edges_within_half_a_pixel` (0.99 px); `crop_fraction_agrees_at_1200_and_6000` (0.80 > 0.6); `rect_edges_exact_example` (right 747 on 1200, width 599); `halves_round_up_and_fractions_read_as_f64` first case (right 801, width 799); `apply_crops_a_png_end_to_end` (599×345); corpus `v2_crop_rect` on all three fixtures (1299x747, 864x1123, 1299x747 against `EXPECTED_DIMS`); wasm `transform_crops_exactly` rect row (599 wide) | every R row, A1–A4 (A1 still rounds to 0: floor(800.16) = 800), `crop_preserves_colour_type_and_every_pixel` (integer products), aspect tests, corpus `v2_crop_aspect`, every existing test |
+| M2 | **round the size, not the far edge**: `rect_edges`, `right = left + (w * iw).round()` and `bottom = top + (h * ih).round()` | both property tests (0.99 / 0.80); `rect_edges_exact_example` (bottom 534 on 1200×800: height 346); corpus `v2_crop_rect` on `rgb8_2600x1730` and `rgba16_2600x1730` (1300x748) | corpus `v2_crop_rect` on `rgba8_1730x2600` (865x1123 either way); everything M1 lists green |
+| M3 | **remove the right-edge load check**: delete step 5's `x + width > 1.0` branch in `Crop::from_params` | R13 in `every_load_refusal_names_its_reason` (builds Ok); `apply_refuses_a_crop_past_the_right_edge_at_load` (the binary now prints the apply line `operation 'crop' failed: internal: the crop's right edge … is past …`, not the load line; were the apply guard also missing, `crop_imm` would clamp and the test would see exit 0 and a written file, still red) | R14 (its own check), every other test |
+| M3b | **remove the apply-side bounds guard too** (with M3 applied) | as M3; plus the binary test sees exit 0 and a written file (the silent clamp, measured in `crop_dimms`) | as M3 |
+| M4 | **clamp to 1 px**: in `Crop::apply`, `cw.max(1)` / `ch.max(1)` before cropping, no refusal | all four rows of `every_zero_pixel_crop_fails_at_apply`; `apply_refuses_a_zero_pixel_crop_and_writes_nothing` (exit 0, file written); wasm `transform_refuses_a_bad_crop_with_the_native_message` A1 part | every R row, every happy-path test, corpus |
+| M4b | **route 0 px through the refusal hook**: move the 0 px check from `apply` into an `Operation::refusal` override | `refusal_hook_is_not_used`; `every_zero_pixel_crop_fails_at_apply` (`Pipeline::run` now returns `crop refused: …`, not `operation 'crop' failed: …`); `apply_refuses_a_zero_pixel_crop_and_writes_nothing` (native `apply` skips it: exit 0, uncropped file written, a warning); wasm A1 part (message is `crop refused: …`) | everything else |
+| M5 | **accept mixed forms, prefer the rectangle**: delete step 1 in `Crop::from_params` (the rectangle branch then runs and ignores `aspect`) | R18 | R19, R20 (gravity is checked separately), every other row and test |
+| M6 | **swap W and H in the fit**: `aspect_size` computes with `(ih, iw)` | `aspect_fit_worked_example` (2163×1730 → 1730×1384); `aspect_gravity_places_all_nine` (all 19 rows: sizes differ); A3 and A4 rows (the message's size reads `1067×0` / `0×1600`); corpus `v2_crop_aspect` on all three fixtures; wasm aspect row | every rectangle test, R rows, corpus `v2_crop_rect` |
+| M7 | **wasm-only rounding**: in `rect_edges`, `#[cfg(target_arch = "wasm32")]` floor the right edge | `just wasm-test`: `transform_crops_exactly` rect row (599×345) | every native test (`cargo test`, corpus): the `cfg` excludes them |
+| M8 | **`f32` read**: replace `get_f64` with `get_f32(..).map(f64::from)` in `Crop::from_params` | `halves_round_up_and_fractions_read_as_f64` first case (left 1, not 2) | R13 (operands print from the TOML value), property tests (they call `rect_edges` with `f64`), corpus (its fractions don't sit on a half-pixel) |
+| M9 | **unreduced decimal hint**: drop the gcd step in `parse_aspect` | R29 (`"15:10"`) | R28 (gcd 1), every other row |
+| M10 | **`u32::from_str` per side** in `parse_aspect` | R24 (`"+16:9"` accepted, builds Ok) | every other row |
+| M11 | **corpus guard** (scratch copy, never committed): append `[[step]] op = "crop"` `x = 0` `y = 0` `width = 0.5` `height = 1` after the resize step of `tests/fixtures/recipe_corpus/v1_resize_max.toml` | `recipe_corpus_output` red naming `v1_resize_max × <fixture>` on all three fixtures (dims `400x532` against `800x532` on the two landscape fixtures, `266x800` against `532x800` on the portrait one); `recipe_round_trip` red on `v1_resize_max`'s golden | every crop test |
+| M12 | **trap 14, the old code verbatim**: restore `with_builtins` from `main` (no `crop` registration) | every row of `tests/crop.rs`, the corpus crop rows, both wasm rows, `with_builtins_contains_crop`, both registry extensions; message `unknown operation 'crop'` | the `crop.rs` unit tests (they call the module directly), every existing test |
 
 ## Implementation Context
 
-*Read this section (and the files it points to) before starting
-the build cycle. It is the equivalent of a handoff document, folded
-into the spec since there is no separate receiving agent.*
+*Read this section (and the files it points to) before starting the build cycle. It is the
+equivalent of a handoff document, folded into the spec since there is no separate receiving agent.*
 
 ### Decisions that apply
 
-- `DEC-NNN` — <one-line summary of why this matters here>
-- `DEC-MMM` — <one-line summary>
+- `DEC-112` — **this spec's.** Fractions only, `f64`, per-edge rounding with halves up, load
+  refuses `x + width > 1`, 0 px refused at apply as an op failure, whole-number aspects.
+- `DEC-091` — Fence A: absolute pixel coordinates are lab-side; why the recipe has no pixel keys.
+- `DEC-102` — the key table is checked before the constructor; the constructor holds only cross-key
+  rules (forms, partial rectangle, bounds, aspect syntax). Every number is also range-checked as an
+  `f32`, which is what refuses `1e-50`.
+- `DEC-095` — preserve colour type and depth. `crop_imm` on the `DynamicImage` keeps the variant;
+  no widen, no narrow.
+- `DEC-109` — the precedent for refusing a step that would do nothing, instead of clamping.
+- `DEC-110` — limb 2: a recipe with no resampling step is exact across native and wasm, dimensions
+  and pixels.
+- `DEC-014` / `DEC-061` — `OperationParams` stays the ordered TOML map; checking never rewrites it.
 
 ### Constraints that apply
 
-These constraints apply to the paths touched by this task (see
-`/guidance/constraints.yaml` for full text):
-
-- `constraint-id-1` — <one-line summary>
-- `constraint-id-2` — <one-line summary>
+- `untrusted-input-hardening` — every recipe value is untrusted: the aspect parser uses checked
+  arithmetic and a 65535 bound; nothing panics on any TOML value.
+- `no-unwrap-on-recoverable-paths` — no `unwrap`/`expect` in `crop.rs` outside tests.
+- `single-image-library` — `image` only (`crop_imm`); no new dependency.
+- `every-public-fn-tested` — `Crop::from_params`, `get_f64`, the `Operation` impl.
+- `test-before-implementation` — the tests above, red first, baseline quoted.
+- `one-spec-per-pr` — one PR, `feat/spec-145-crop`.
 
 ### Prior related work
 
-- `SPEC-YYY` (shipped) — <one-line summary, if relevant>
-- `PR #NNN` — <link, if relevant>
+- `SPEC-131` (shipped) — the key tables and typed constructors this op plugs into.
+- `SPEC-128` / `SPEC-133` (shipped, STAGE-050) — `watermark` in the registry: the shape of a
+  registered op with a form choice (`image` XOR `text`), its refusals and its wasm rows.
+- `SPEC-141` (shipped, PR #233) — the recipe corpus guard; its README is the procedure for
+  AC-50.
+- `SPEC-142` (shipped) — native/wasm parity and DEC-110.
 
 ### Out of scope (for this spec specifically)
-
-Explicit list of what this spec does NOT include. If any of these feel
-necessary during build, create a new spec rather than expanding this one.
 
 - `edit --crop` and the geometry ordering DEC: STAGE-058's `edit`-flags item, which also owns
   the pixel→fraction conversion and its `--save-recipe` round trip.
@@ -488,17 +946,39 @@ necessary during build, create a new spec rather than expanding this one.
   STAGE-060's crop-on-page item.
 - What an EXIF orientation tag means after a geometry step, and `PixelXDimension`/`PixelYDimension`:
   STAGE-058's rotate/flip item.
-- Pixel units in a recipe, unless the maintainer's Q1 ruling admits them.
+- Pixel units in a recipe: ruled out (DEC-112).
 - Smart or content-aware crop: the roadmap's post-1.0 beta row, outside PROJ-017.
 - Art-direction and og-card crops: PROJ-014.
 - Step indices in apply-time and unknown-op error messages: `guidance/ideas.yaml`
   (`recipe-errors-name-the-step-everywhere`).
 - `pad`, `trim`, `rotate`, `flip`: their own STAGE-058 items, including their `docs/recipes.md`
-  line.
+  entries (only line 63's project id is fixed here).
+- A wasm CI leg: SPEC-146. `docs/backlog.md:59`'s stale "exactly four" op count (a document no
+  tool reads).
 
 ## Notes for the Implementer
 
-Gotchas, style preferences, reuse opportunities.
+- **Checkpoint.** Commit and push after each of: (1) the red tests, with the baseline quoted;
+  (2) the op green locally; (3) the corpus files for your own target; (4) the docs. A long build
+  with no pushed commit has been lost before.
+- **Corpus bless order.** Add the two `.toml` files, write their `.golden` by the README, raise every
+  literal in one commit, bless your own target, push, and copy the other two targets' files from
+  the failing CI log's `----- BEGIN … -----` blocks. Before that, check AC-51 locally against your
+  own file only; after CI, `cmp` all three.
+- **`cargo test` in a terminal** fails `display_sink_refuses_non_tty`: redirect stdout to a file and
+  read `$?`, never through a pipe. Use your own `CARGO_TARGET_DIR`. `just check` doesn't run the
+  wasm bundle-size gate: read that CI leg, and run `just wasm-test` yourself (CI doesn't yet).
+- **Run the lean build** (`cargo test --no-default-features`): crop has no feature gate, so it must
+  pass there too.
+- **Don't** reuse `crop_center` (`mod.rs:596`): it's centre-only and typed to resize's buffer.
+  Do call `Gravity::placement` with margin 0.
+- **User-facing text** (messages, doc comments, docs) reads behaviour-first and names no spec or
+  DEC id.
+- **Files the PROJ-011 orchestrator must keep clear of** while this builds: `src/operation/`,
+  `src/recipe/`, `docs/recipes.md`, `recipes/README.md`, `docs/data-model.md`,
+  `docs/api-contract.md`, `skills/crustyimg/SKILL.md`, `CHANGELOG.md`'s Unreleased section,
+  `tests/fixtures/recipe_corpus/`, `tests/recipe_corpus_output.rs`, `tests/recipe_round_trip.rs`,
+  `tests/wasm_roundtrip.rs`.
 
 ---
 

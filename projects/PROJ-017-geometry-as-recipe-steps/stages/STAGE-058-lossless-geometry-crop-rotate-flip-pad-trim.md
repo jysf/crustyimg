@@ -23,7 +23,7 @@ value_contribution:
     resampling them (crop, quarter turns, flip, pad, trim) become recipe steps
     and `edit` flags, so every one is expressible, saveable and replayable.
   delivers:
-    - "A `crop` recipe step: a rectangle, an aspect ratio with a gravity, in pixels or in fractions of the image"
+    - "A `crop` recipe step: a rectangle, an aspect ratio with a gravity, in fractions of the image (pixels come through `edit --crop`, which converts them)"
     - "A `rotate` step for quarter turns (90/180/270) and a `flip` step (horizontal/vertical), exact in pixels"
     - "A `pad` step: to a size or an aspect, anchored by gravity, filled with a colour or transparent"
     - "A `trim` step: remove a uniform border within a stated tolerance"
@@ -85,10 +85,10 @@ In build order. Each is framed in its own session first.
   nothing. ⚡ Check `scripts/cli-golden.py` first: it may already be most of this, and the spec
   then shrinks to "point it at the recipe corpus and gate on it". It's cheap, and it makes
   PROJ-017's fourth success signal checkable instead of claimed.
-- [ ] **SPEC-145** (framed 2026-11-04) — [M] **`crop` as a recipe step, with size-independent units.**
+- [ ] **SPEC-145** (designed 2026-11-05) — [M] **`crop` as a recipe step, with size-independent units.**
   Keys for a rectangle (`x`, `y`, `width`, `height`) or an aspect (`aspect = "16:9"` plus
-  `gravity`). Every length is accepted in pixels or as a fraction of the image (the unit
-  syntax is the design call). Refuses a zero-area or out-of-bounds rectangle at load where it
+  `gravity`). A recipe carries every length as a fraction of the image (DEC-112); pixels come
+  through `edit --crop`, which converts them to fractions. Refuses a zero-area or out-of-bounds rectangle at load where it
   can, and at apply where it needs the image size. ⚠ **Writes the unit DEC.** The ddphotos
   page edits a downscaled preview and the CLI replays on the original, so a pixel crop from the
   page is wrong by construction. The DEC says which units a recipe may carry and how a
