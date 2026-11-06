@@ -28,6 +28,10 @@ use crate::image::Image;
 
 pub mod crop;
 pub use crop::{Crop, CROP_PARAMS};
+pub mod flip;
+pub use flip::{Flip, FLIP_PARAMS};
+pub mod rotate;
+pub use rotate::{Rotate, ROTATE_PARAMS};
 pub mod registry;
 pub use registry::{OperationRegistry, ParamKind, ParamSpec, RegistryError};
 

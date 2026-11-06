@@ -14,8 +14,8 @@ use std::collections::HashMap;
 use thiserror::Error;
 
 use super::{
-    AutoOrient, Crop, Identity, Invert, Operation, OperationParams, Resize, Watermark, CROP_PARAMS,
-    RESIZE_PARAMS, WATERMARK_PARAMS,
+    AutoOrient, Crop, Flip, Identity, Invert, Operation, OperationParams, Resize, Rotate,
+    Watermark, CROP_PARAMS, FLIP_PARAMS, RESIZE_PARAMS, ROTATE_PARAMS, WATERMARK_PARAMS,
 };
 
 // ─── Constructor type alias ─────────────────────────────────────────────────
@@ -198,6 +198,16 @@ pub(crate) fn float_text(f: f64) -> String {
     }
 }
 
+/// A numeric key as the recipe author wrote it: an integer as an integer, a
+/// float as a float.
+pub(crate) fn written(params: &OperationParams, key: &str) -> String {
+    match params.iter().find(|(k, _)| *k == key).map(|(_, v)| v) {
+        Some(toml::Value::Integer(i)) => i.to_string(),
+        Some(toml::Value::Float(f)) => float_text(*f),
+        _ => String::new(),
+    }
+}
+
 /// A value of the wrong type, named by its TOML type.
 fn describe_value(value: &toml::Value) -> String {
     use toml::Value;
@@ -263,7 +273,8 @@ struct Entry {
 ///
 /// Constructed via [`OperationRegistry::new`] (empty) or
 /// [`OperationRegistry::with_builtins`] (pre-populated with `identity`,
-/// `invert`, `resize`, `auto-orient`, `watermark`, and `crop`). New operations
+/// `invert`, `resize`, `auto-orient`, `watermark`, `crop`, `rotate`, and
+/// `flip`). New operations
 /// register themselves without touching the recipe parser (the whole point of
 /// the registry seam), and each publishes the step keys it accepts:
 ///
@@ -289,8 +300,8 @@ impl OperationRegistry {
     }
 
     /// Create a registry pre-populated with the built-in operations:
-    /// `"identity"`, `"invert"`, `"resize"`, `"auto-orient"`, `"watermark"` and
-    /// `"crop"`.
+    /// `"identity"`, `"invert"`, `"resize"`, `"auto-orient"`, `"watermark"`,
+    /// `"crop"`, `"rotate"` and `"flip"`.
     pub fn with_builtins() -> Self {
         let mut reg = Self::new();
         reg.register("identity", |_params| Ok(Box::new(Identity)));
@@ -307,6 +318,12 @@ impl OperationRegistry {
             WATERMARK_PARAMS,
         );
         reg.register_with_params("crop", |p| Ok(Box::new(Crop::from_params(p)?)), CROP_PARAMS);
+        reg.register_with_params(
+            "rotate",
+            |p| Ok(Box::new(Rotate::from_params(p)?)),
+            ROTATE_PARAMS,
+        );
+        reg.register_with_params("flip", |p| Ok(Box::new(Flip::from_params(p)?)), FLIP_PARAMS);
         reg
     }
 
