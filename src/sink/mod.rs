@@ -25,6 +25,14 @@
 //! writer. This uniform buffer-then-write path keeps `out: &mut dyn Write`
 //! simple and keeps all diagnostics off `out` (DEC-002, DEC-004).
 //!
+//! The pixel lane writes no container metadata: no EXIF and no ICC profile
+//! reach the output. The `Image`'s metadata bundle can still hold the
+//! source's Orientation tag after a step has turned or flipped the pixels, so
+//! a change that writes the bundle here must set Orientation to 1 and rewrite
+//! or drop `PixelXDimension` and `PixelYDimension`. Otherwise a viewer turns
+//! the image a second time. `tests/rotate_flip.rs` checks the Orientation
+//! half of this.
+//!
 //! Layering: this module depends on `::image` and [`crate::image`] only. It
 //! must NOT touch `clap`, recipes, source internals, or terminals beyond viuer.
 
