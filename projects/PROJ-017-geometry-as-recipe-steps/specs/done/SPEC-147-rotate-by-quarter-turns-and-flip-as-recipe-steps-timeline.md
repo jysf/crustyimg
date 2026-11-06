@@ -47,4 +47,4 @@ Cycle prompts live in `prompts/SPEC-147-<cycle>.md`.
   Build Completion says 31 files, the diff has 32; (3, wording) mutation table M8 row 3 and the M10
   `to_toml` row; (4, wording) DEC-113 §3 says only tag 6 was driven. One out-of-spec wording finding
   on STAGE-058 (the corpus guard README's "Adding a recipe" table) was cut off in the paste.
-- [ ] **ship** (`prompts/SPEC-147-ship.md`)
+- [x] **ship** (`prompts/SPEC-147-ship.md`, 2026-11-06, Sonnet, ~$1.02). Merged at `b90e568`, PR #252. Applied verify's cleanups 2, 3 and 4 (spec ×2, DEC-113 ×1); filed cleanup 1 and the corpus README's stale literals as one STAGE-058 backlog entry. Reflected; cost recorded for all five sessions (total 47,233,257 tokens, ~$27.86; frame, design and build re-measured, verify added).

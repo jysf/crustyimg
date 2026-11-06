@@ -94,7 +94,7 @@ In build order. Each is framed in its own session first.
   page is wrong by construction. The DEC says which units a recipe may carry and how a
   fraction rounds to pixels. Reuse `Gravity` (`src/operation/mod.rs`) rather than adding a
   second anchor type.
-- [ ] **SPEC-147** (designed 2026-11-05) — [S] **`rotate` (quarter turns) and `flip`.** `rotate` with `angle`
+- [x] **SPEC-147** (merged 2026-11-06, PR #252) — [S] **`rotate` (quarter turns) and `flip`.** `rotate` with `angle`
   restricted to multiples of 90 in this stage. A non-multiple is refused with a message naming
   the any-angle stage, until STAGE-059 lifts it on the same op and key table. `flip` with
   `axis = "horizontal" | "vertical"`. Exact: `image::imageops` rotate90/180/270 and flips, at
@@ -128,6 +128,19 @@ In build order. Each is framed in its own session first.
   file-set assertion, so a change that also breaks the golden line count (`GOLDEN_LINES`) reports
   only the first (M4 in the spec's Build Completion). Test-only; optional, and only worth doing if
   a later spec trips both at once.
+
+- [ ] (not yet written) — [S] **SPEC-147's verify cleanups that need a PR: a stricter `orientation_of`,
+  and the corpus README's stale literals.** Found at SPEC-147's ship (verify's optional cleanup 1
+  and its out-of-spec finding); fold into the next STAGE-058 spec's build. Two test-side fixes, no
+  product change. (1) `orientation_of` in `tests/rotate_flip.rs` (:592) uses `.ok()?`, so any
+  kamadak-exif error reads as "no tag"; a malformed `eXIf` chunk from a future encoder path would
+  pass. Only `Err(exif::Error::NotFound(_))` should mean "no tag"; any other error should fail the
+  test. (2) The "Adding a recipe" table in `tests/fixtures/recipe_corpus/README.md` quotes old
+  literals and no test reads it: `14 → 15` and "all 14" (now 18), `ROWS (48)` (now 60),
+  `GOLDEN_LINES (51)` (now 63), "the `42`" (now 54), and the `14` in `pairs.len()` (now 18).
+  Cut the table's numbers to "see `recipe_corpus_output.rs`" where the file is the source, or have
+  a test read them. This is a different gap from the entry above (that one is about reporting two
+  failures together), so it is a separate entry.
 
 - [ ] (not yet written) — [S] **`crop`'s aspect can follow each image's orientation.** Filed by the
   orchestrator on 2026-11-05 at the maintainer's request. `aspect = "7:5"` always means 7 wide by 5
@@ -166,7 +179,7 @@ In build order. Each is framed in its own session first.
   records `auto-orient`. Design decides warn vs refuse vs stay silent, and whether a geometry step
   alone triggers it. A warning changes no output bytes. After SPEC-147.
 
-**Count:** 3 shipped / 1 active / 8 pending — re-derived 2026-11-05 at SPEC-147's frame with `/usr/bin/grep -c '^- \[x\]'` (3: SPEC-141, SPEC-145 and the docs entry folded into it), `/usr/bin/grep -c '^- \[ \]'` (9), `/usr/bin/grep -c '^- \[ \] \*\*SPEC-'` (1: SPEC-147, framed) and `/usr/bin/grep -c '^- \[ \] (not yet written)'` (8)
+**Count:** 4 shipped / 0 active / 9 pending — re-derived 2026-11-06 at SPEC-147's ship with `/usr/bin/grep -c '^- \[x\]'` (4: SPEC-141, SPEC-145, the docs entry folded into it, and SPEC-147), `/usr/bin/grep -c '^- \[ \]'` (9), `/usr/bin/grep -c '^- \[ \] \*\*SPEC-'` (0) and `/usr/bin/grep -c '^- \[ \] (not yet written)'` (9, one of them filed at this ship)
 
 ## Design Notes
 

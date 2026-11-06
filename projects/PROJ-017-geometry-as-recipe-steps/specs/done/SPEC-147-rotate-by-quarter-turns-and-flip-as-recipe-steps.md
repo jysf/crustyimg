@@ -7,7 +7,7 @@
 task:
   id: SPEC-147
   type: story                      # epic | story | task | bug | chore
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: S                    # S | M | L  (L means split it)
@@ -64,42 +64,66 @@ cost:
       date: 2026-11-05
       agent: claude-opus-5-5
       interface: claude-code
-      tokens_total: 4813139
+      tokens_total: 5126748
       tokens_breakdown:
-        input: 84
-        cache_creation: 124274
-        cache_read: 4656403
-        output: 32378
-      estimated_usd: 3.91
-      note: "Measured from this session's JSONL at the last turn after the push (42 message ids, deduped by .message.id, max output_tokens per id). Rates: Opus $5/$25 per MTok, cache_creation x1.25 input, cache_read x0.10 input."
+        input: 88
+        cache_creation: 126143
+        cache_read: 4964654
+        output: 35863
+      estimated_usd: 4.17
+      note: "Re-measured at ship from the full JSONL (44 message ids, claude-opus-5-5, deduped by .message.id, max output_tokens per id). Rates: Opus $5/$25 per MTok, cache_creation x1.25 input, cache_read x0.10 input."
     - cycle: design
       date: 2026-11-05
       agent: claude-opus-5-5
       interface: claude-code
-      tokens_total: 8189468
+      tokens_total: 9337224
       tokens_breakdown:
-        input: 104
-        cache_creation: 191414
-        cache_read: 7932488
-        output: 65462
-      estimated_usd: 6.80
-      note: "Measured from this session's JSONL after the design push (8699ede), before this cost commit (52 message ids, all claude-opus-5-5, deduped by .message.id, max output_tokens per id). Rates: Opus $5/$25 per MTok, cache_creation x1.25 input, cache_read x0.10 input."
+        input: 116
+        cache_creation: 198364
+        cache_read: 9068306
+        output: 70438
+      estimated_usd: 7.54
+      note: "Re-measured at ship from the full JSONL (the first figure was taken before the session's final turn) (57 message ids, all claude-opus-5-5, deduped by .message.id, max output_tokens per id). Rates: Opus $5/$25 per MTok, cache_creation x1.25 input, cache_read x0.10 input."
     - cycle: build
       date: 2026-11-05
       agent: claude-sonnet-5-5
       interface: claude-code
-      tokens_total: 19737895
+      tokens_total: 20821686
       tokens_breakdown:
-        input: 204
-        cache_creation: 232578
-        cache_read: 19428889
-        output: 76224
-      estimated_usd: 7.84
-      note: "Measured from this session's JSONL (identified by content) at the last turn before the cycle-advance commit (102 message ids, all claude-sonnet-5-5, input/cache once per .message.id, max output_tokens per id). Rates: Sonnet $3/$15 per MTok, cache_creation x1.25 input, cache_read x0.10 input. Excludes the later advance commit."
+        input: 212
+        cache_creation: 244408
+        cache_read: 20497072
+        output: 79994
+      estimated_usd: 8.27
+      note: "Re-measured at ship from the full JSONL (identified by its first user message) (106 message ids, all claude-sonnet-5-5, input/cache once per .message.id, max output_tokens per id). Rates: Sonnet $3/$15 per MTok, cache_creation x1.25 input, cache_read x0.10 input. Includes the turns after the first measurement."
+    - cycle: verify
+      date: 2026-11-05
+      agent: claude-opus-5-5
+      interface: claude-code
+      tokens_total: 9880552
+      tokens_breakdown:
+        input: 126
+        cache_creation: 171120
+        cache_read: 9671117
+        output: 38189
+      estimated_usd: 6.86
+      note: "Measured at ship from the verify session's full JSONL (62 message ids, all claude-opus-5-5, deduped by .message.id, max output_tokens per id). The report's own figure was 9,466,001 / ~$6.51, cut at the report turn; this one includes the turns after it. Rates: Opus $5/$25 per MTok, cache_creation x1.25 input, cache_read x0.10 input."
+    - cycle: ship
+      date: 2026-11-06
+      agent: claude-sonnet-5-5
+      interface: claude-code
+      tokens_total: 2067047
+      tokens_breakdown:
+        input: 48
+        cache_creation: 69518
+        cache_read: 1986937
+        output: 10544
+      estimated_usd: 1.02
+      note: "Measured from this session's JSONL (24 message ids, all claude-sonnet-5-5, deduped by .message.id, max output_tokens per id) just before the ship commit; the commit and push turns after it are not counted. Rates: Sonnet $3/$15 per MTok, cache_creation x1.25 input, cache_read x0.10 input."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 47233257
+    estimated_usd: 27.86
+    session_count: 5
 ---
 
 # SPEC-147: rotate by quarter turns and flip, as recipe steps
@@ -844,9 +868,9 @@ drives every row and corrects the table in Build Completion if a reasoned cell i
 | M6b | **`f32` read**: in `Rotate::from_params`, `get_f32("angle").map(f64::from)` instead of `get_f64` | R16 (`1e-300` reads as `0.0`, loads as a no-op, **builds `Ok`**) | R15 (`1.1` as `f32` is `1.100000023841858`, still not a multiple, and the message prints the TOML value as written, so it stays green); every other row. *Reasoned.* |
 | M7 | **metadata carried through**: in `encode_to_bytes_with` (`src/sink/mod.rs:725`), for `ImageFormat::Png` build a `PngEncoder`, call `set_exif_metadata(exif)` with the bundle's EXIF when `img.metadata()` has one, and `write_with_encoder` | `rotate_acts_on_stored_pixels_and_writes_no_orientation_tag` (kamadak-exif reads Orientation **6** on the 5×7 output; the failure names the obligation) | AC-38 and AC-39 rows (their outputs pass through `auto-orient`, which drops the bundle, so no tag; *reasoned*); the corpus PNG byte row (its fixtures carry no bundle); every other test. Revert before the next row. |
 | M7b | **bundle dropped**: in `Rotate::apply`, return `Image::from_parts(turned, img.source_format(), None)` instead of `img.with_pixels(turned)` | `rotate_then_auto_orient_matches_auto_orient_then_rotate` (the later `auto-orient` finds no tag: 5×7, the 1-turn map) | AC-37 (still no tag on the output); every other test. *Reasoned.* |
-| M8 | **wasm count**: `FULL_COUNT=50` in `scripts/wasm-ci-check.sh` | `scripts/wasm-ci-check.sh count full <a 51-passed log>` → `full set: 51 passed, expected 50`; `--self-test` rows 1 (verdict fail, expected ok), 2 and 3 (message lacks `expected 51`) | `workflow`; slim rows 4, 5. The self-test goes red because its fixtures name 51: it stays green only when the fixtures move with the constant, which is AC-47. |
+| M8 | **wasm count**: `FULL_COUNT=50` in `scripts/wasm-ci-check.sh` | `scripts/wasm-ci-check.sh count full <a 51-passed log>` → `full set: 51 passed, expected 50`; `--self-test` rows 1 (verdict fail, expected ok), 2 (wrong message: lacks `expected 51`) and 3 (wrong verdict: passes under `FULL_COUNT=50`, should fail) | `workflow`; slim rows 4, 5. The self-test goes red because its fixtures name 51: it stays green only when the fixtures move with the constant, which is AC-47. |
 | M9 | **corpus guard** (scratch copy, never committed, after the ops exist): append `[[step]]` `op = "rotate"` `angle = 90` to `tests/fixtures/recipe_corpus/v1_resize_max.toml` | `recipe_corpus_output` naming `v1_resize_max × <fixture>` on all three (dims `532x800` against `800x532` on the two landscape fixtures, `800x532` against `532x800` on the portrait one); `recipe_round_trip` on `v1_resize_max`'s golden | every rotate/flip test |
-| M10 | **trap 14, the old code verbatim**: restore `with_builtins` from `main` (no `rotate`/`flip` lines) | every row of `tests/rotate_flip.rs` (`unknown operation 'rotate'` / `'flip'`; the orientation test's control A still passes, control B passes, the rotate step fails at load); corpus `v2_rotate_90` and `v2_flip_horizontal`; both wasm tests; `with_builtins_contains_rotate_and_flip`; both registry extensions; `every_op_named_in_data_model_resolves` (`tests/docs_ops.rs`) | the `rotate.rs` and `flip.rs` unit tests (they call the modules directly); every existing test |
+| M10 | **trap 14, the old code verbatim**: restore `with_builtins` from `main` (no `rotate`/`flip` lines) | every row of `tests/rotate_flip.rs` (`unknown operation 'rotate'` / `'flip'`; the orientation test's control A still passes, control B passes, the rotate step fails at load); corpus `v2_rotate_90` and `v2_flip_horizontal`; both wasm tests; `with_builtins_contains_rotate_and_flip`; both registry extensions; `every_op_named_in_data_model_resolves` (`tests/docs_ops.rs`); `to_toml_is_byte_identical_to_main_over_the_corpus` | the `rotate.rs` and `flip.rs` unit tests (they call the modules directly); every existing test |
 
 ## Implementation Context
 
@@ -945,7 +969,7 @@ necessary during build, create a new spec rather than expanding this one.
 - **All acceptance criteria met?** yes (58 of 58). CI green on every leg at `f2f5b59`.
 - **New decisions emitted:**
   - none in this cycle. DEC-113 was written at design and is on `main`.
-- **Files this diff touches** (from `git diff --name-only origin/main...HEAD`, 31 files):
+- **Files this diff touches** (from `git diff --name-only origin/main...HEAD`, 32 files; the list below names 31, and the 32nd is this spec file, which it leaves out):
   - `src/operation/rotate.rs` — new: `Rotate`, `ROTATE_PARAMS`, private `quarter_turns`, 6 unit tests
   - `src/operation/flip.rs` — new: `Flip`, `FLIP_PARAMS`, `AXIS_NAMES`, 3 unit tests
   - `src/operation/mod.rs` — two `pub mod` and two re-exports
@@ -1071,10 +1095,28 @@ Process-focused: how did the build go? What friction did the spec create?
 from the process-focused build reflection above.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Three things, all about claims made before they were driven. (a) Design reasoned the 12-row
+   mutation table, and build corrected two cells (M8 row 3 fails on its verdict, not its message;
+   M10 also reds `to_toml_is_byte_identical_to_main_over_the_corpus`). Both are cheap, one-command
+   rows, so design should drive them and keep only the pixel rows reasoned. (b) The corpus README's
+   literal table fell behind across SPEC-145 and SPEC-147 and no test reads it; any doc that
+   restates a test literal should be read by a test or say "see the test". (c) "`apply` never fails"
+   was stated as a universal and driven only over the AC-11 shapes; design should have written it
+   as a claim over named shapes (1×1, 1×7, 7×1, every turn and both axes), which is all that was
+   proven. DEC-113's tag 3 and 8 agreement had the same gap and is now worded as such.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — Proposed, not applied. (i) Rule 7 (optional cleanups need no re-verify) and trap 17 (a derived
+   bound is a claim until driven) both held here: verify approved with no punch items, and the four
+   optional cleanups went to ship and the next spec instead of costing rounds. They live only in
+   `projects/PROJ-011-surface-reach-and-predictability/HANDOFF.md` (rule 7, trap 17); no file in
+   `guidance/` covers either, so promote both to `guidance/` or to AGENTS §15 "During verify", and
+   point HANDOFF at them. (ii) A one-line rule for design: a mutation table's cheap rows are driven
+   at design, not reasoned. No `constraints.yaml` entry covers it. (iii) DEC-113 got the one
+   allowed wording sentence (only tag 6 driven); no other DEC change.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — Filed on STAGE-058, one entry: a stricter `orientation_of` (`Err(NotFound)` only) and the
+   corpus README's stale literals, both test-side, for the next STAGE-058 spec's build. The README
+   gap is separate from the existing "report the file-set and line-count failures together" entry,
+   which covers failure reporting only. No other gap is named by the evidence, so none further.
