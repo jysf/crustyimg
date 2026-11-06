@@ -449,6 +449,96 @@ op = "identity"
         }
     }
 
+    /// A rotate or flip moves pixels and computes none, so the wasm output is
+    /// the native one in size and in every pixel, with no 1/255 allowance.
+    #[wasm_bindgen_test]
+    fn transform_rotates_and_flips_exactly() {
+        let src = png_unique(120, 80);
+        let decoded = image::load_from_memory(&src)
+            .expect("decode input")
+            .to_rgba8();
+        let (w, h) = (120u32, 80u32);
+        // (name, step body, output size, output (x, y) -> input (x, y)),
+        // each map written out by hand.
+        type Map = fn(u32, u32) -> (u32, u32);
+        let rows: [(&str, &str, (u32, u32), Map); 4] = [
+            (
+                "rotate 90",
+                "op = \"rotate\"\nangle = 90",
+                (80, 120),
+                |x, y| (y, 79 - x),
+            ),
+            (
+                "rotate -90",
+                "op = \"rotate\"\nangle = -90",
+                (80, 120),
+                |x, y| (119 - y, x),
+            ),
+            (
+                "flip horizontal",
+                "op = \"flip\"\naxis = \"horizontal\"",
+                (120, 80),
+                |x, y| (119 - x, y),
+            ),
+            (
+                "flip vertical",
+                "op = \"flip\"\naxis = \"vertical\"",
+                (120, 80),
+                |x, y| (x, 79 - y),
+            ),
+        ];
+        assert_eq!((w, h), (decoded.width(), decoded.height()));
+        for (name, body, size, map) in rows {
+            let recipe = format!("version = \"2\"\n\n[[step]]\n{body}\n");
+            let out = transform(&src, &recipe, "png").expect("a geometry recipe transforms");
+            let got = image::load_from_memory(&out)
+                .expect("decode output")
+                .to_rgba8();
+            assert_eq!((got.width(), got.height()), size, "{name}: size");
+            let differing = got
+                .enumerate_pixels()
+                .filter(|(x, y, px)| {
+                    let (ix, iy) = map(*x, *y);
+                    *px != decoded.get_pixel(ix, iy)
+                })
+                .count();
+            assert_eq!(differing, 0, "{name}: pixels differing from the index map");
+        }
+    }
+
+    /// A bad rotate or flip throws the same line the CLI prints, and the
+    /// module survives each one.
+    #[wasm_bindgen_test]
+    fn transform_refuses_a_bad_rotate_or_flip_with_the_native_message() {
+        let rows = [
+            (
+                "R12",
+                "op = \"rotate\"\nangle = 45",
+                "recipe step 0 ('rotate'): 'angle' must be a multiple of 90, got 45; rotating by any other angle is not supported yet",
+            ),
+            (
+                "R6",
+                "op = \"rotate\"\nangle = 450",
+                "recipe step 0 ('rotate'): 'angle' must be a number in -360.0..=360.0, got 450",
+            ),
+            (
+                "F3",
+                "op = \"flip\"\naxis = \"diagonal\"",
+                "recipe step 0 ('flip'): 'axis' must be one of: horizontal, vertical; got \"diagonal\"",
+            ),
+        ];
+        let src = png_unique(120, 80);
+        for (id, body, want) in rows {
+            let recipe = format!("version = \"2\"\n\n[[step]]\n{body}\n");
+            let err = transform(&src, &recipe, "png").expect_err("a bad step is refused");
+            let msg = format!("{:?}", wasm_bindgen::JsValue::from(err));
+            assert!(msg.contains(want), "{id}: wanted {want:?}, got {msg}");
+
+            let ok = transform(&src, IDENTITY_RECIPE, "png").expect("module must survive");
+            assert!(!ok.is_empty(), "{id}: identity after the refusal");
+        }
+    }
+
     /// `recipe.quality`, when set, reaches the encoder — the RETURNED BYTES
     /// equal an independent encode at that same quality, not merely a
     /// plausible-looking success (the standard this file holds every
