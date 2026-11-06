@@ -43,17 +43,15 @@ pub use registry::{OperationRegistry, ParamKind, ParamSpec, RegistryError};
 /// sanity cap, shared by every op that can grow the canvas.
 pub(crate) const MAX_EDGE: u32 = 50_000;
 
-/// The most pixels an op may give its whole output: 512 MiB at RGBA8 (== the
-/// decode allocation cap, DEC-034/DEC-038), so an op cannot return a buffer
-/// larger than what decode would accept. Tightened from 256 Mpx to 128 Mpx
-/// for that symmetry (SPEC-037). The upscale-bomb defense.
+/// The most pixels an op may give its whole output: 512 MiB at RGBA8, the same
+/// as the decode allocation cap, so an op cannot return a buffer larger than
+/// what decode would accept. The upscale-bomb defense.
 ///
 /// It bounds the OUTPUT, not the peak. The resample runs in linear
 /// `F32x4` — 16 B/px, four times RGBA8 — with the source's float copy
 /// alongside it, so a request at the cap peaks well above the 512 MiB
 /// this number reads as. Whether the bound should move is a decision
-/// about untrusted-input allocation, not a tidy-up; measured multipliers
-/// are in DEC-095.
+/// about untrusted-input allocation, not a tidy-up.
 pub(crate) const MAX_AREA: u64 = 134_217_728; // 128 * 1024 * 1024 px = 512 MiB at RGBA8
 
 // ─── OperationParams ────────────────────────────────────────────────────────
