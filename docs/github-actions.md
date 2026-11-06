@@ -125,6 +125,10 @@ quoted when it needs it (POSIX quotes on macOS and Linux, PowerShell quotes on W
 | `color/wrong-colorspace` (16-bit) | The channels are 16-bit, which the web doesn't need. | No command: crustyimg can't reduce bit depth, so re-export at 8 bits per channel. |
 | `size/truncated-or-corrupt` | The file isn't a readable image. | Export it again. |
 
+The metadata fixes (`meta clean --gps` and `meta strip`) work on JPEG and PNG only. A finding
+on a format the metadata lane can't write, such as WebP, TIFF or AVIF, prints no command and says
+so in its message; remove the metadata with another tool.
+
 To remove all metadata, not only the location (camera serial numbers, for example), use
 `crustyimg meta strip <file> -o <file> -y`.
 

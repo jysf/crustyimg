@@ -36,8 +36,10 @@ impl Rule for CameraMetadata {
                 target.path().to_path_buf(),
                 self.id(),
                 self.default_severity(),
-                "image carries identifying camera metadata (Make/Model/serial/timestamp)",
-                Some("meta strip".to_string()),
+                target.meta_message(
+                    "image carries identifying camera metadata (Make/Model/serial/timestamp)",
+                ),
+                target.meta_fix("meta strip"),
             )
         })
     }
@@ -227,8 +229,10 @@ impl Rule for UnexpectedIcc {
                 target.path().to_path_buf(),
                 self.id(),
                 self.default_severity(),
-                format!("bulky {len}-byte ICC profile; strip it for the web"),
-                Some("meta strip".to_string()),
+                target.meta_message(&format!(
+                    "bulky {len}-byte ICC profile; strip it for the web"
+                )),
+                target.meta_fix("meta strip"),
             )
         })
     }

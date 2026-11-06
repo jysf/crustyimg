@@ -960,6 +960,9 @@ struct Row {
     dash_dash: bool,
     /// Also write a plain-`optimize`d copy and require it is STILL reported.
     budget_control: Option<Vec<u8>>,
+    /// The metadata lane cannot rewrite this container (it handles JPEG and
+    /// PNG only): the finding must still fire, but print NO command.
+    no_fix: bool,
 }
 
 fn row(name: &'static str, rule: &'static str, file: &'static str, bytes: Vec<u8>) -> Row {
@@ -972,6 +975,7 @@ fn row(name: &'static str, rule: &'static str, file: &'static str, bytes: Vec<u8
         lint_target: None,
         dash_dash: false,
         budget_control: None,
+        no_fix: false,
     }
 }
 
@@ -1048,6 +1052,26 @@ fn fix_rows() -> Vec<Row> {
             jpeg_with_orientation(64, 48, 6),
         ),
         row("cmyk", "color/wrong-colorspace", "cmyk.jpg", cmyk_jpeg()),
+        // Containers the metadata lane cannot write (JPEG/PNG only). Built by
+        // ImageMagick + exiftool, not by the code under test.
+        row(
+            "gps-webp",
+            GPS_RULE,
+            "leak.webp",
+            include_bytes!("fixtures/lint/gps_16x16.webp").to_vec(),
+        ),
+        row(
+            "camera-webp",
+            "privacy/camera-metadata",
+            "cam.webp",
+            include_bytes!("fixtures/lint/cam_16x16.webp").to_vec(),
+        ),
+        row(
+            "gps-tiff",
+            GPS_RULE,
+            "leak.tif",
+            include_bytes!("fixtures/lint/gps_16x16.tif").to_vec(),
+        ),
         row("space", GPS_RULE, "my photo.jpg", jpeg_with_gps(64, 64)),
         row("quote", GPS_RULE, "it's.jpg", jpeg_with_gps(64, 64)),
         row("dash", GPS_RULE, "-x.jpg", jpeg_with_gps(64, 64)),
@@ -1063,6 +1087,7 @@ fn fix_rows() -> Vec<Row> {
             "oversized-dimensions" => {
                 r.config = Some("[[budget]]\nglob = \"**\"\nmax_intended_width = 16\n".into());
             }
+            "gps-webp" | "camera-webp" | "gps-tiff" => r.no_fix = true,
             "dash" => r.dash_dash = true,
             "subdir" => r.lint_target = Some("sub"),
             _ => {}
@@ -1116,6 +1141,39 @@ fn every_printed_fix_run_verbatim_fixes_its_finding() {
             kinds.push("not_reported_before");
         }
         let fix = finding.and_then(|f| f["fix"].as_str()).map(str::to_string);
+        if r.no_fix {
+            // The finding fires; the fix is absent (JSON `null`), never a
+            // command the metadata lane would refuse.
+            match finding {
+                None => kinds.push("not_reported_before"),
+                Some(f) if !f["fix"].is_null() => {
+                    kinds.push("printed_unrunnable_fix");
+                    fix_note = f["fix"].to_string();
+                    let out = run_in_shell(dir.path(), fix.as_deref().unwrap_or(""));
+                    stderr_note = String::from_utf8_lossy(&out.stderr)
+                        .chars()
+                        .take(300)
+                        .collect();
+                    if !out.status.success() {
+                        kinds.push("shell_failed");
+                    }
+                }
+                Some(_) => {}
+            }
+            if !kinds.is_empty() {
+                for k in &kinds {
+                    *counts.entry(k).or_default() += 1;
+                }
+                failing_rows.push(format!(
+                    "  row {}: {:?}\n    fix: {:?}\n    stderr: {}",
+                    r.name,
+                    kinds,
+                    fix_note,
+                    stderr_note.trim()
+                ));
+            }
+            continue;
+        }
         match &fix {
             Some(f) if f.starts_with("crustyimg ") && f.ends_with(" -y") => {}
             _ => kinds.push("fix_shape"),

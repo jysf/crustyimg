@@ -378,6 +378,36 @@ impl LintTarget {
         self.info().map(|i| i.has_icc).unwrap_or(false)
     }
 
+    /// The `meta` fix for a finding, or `None` when the metadata lane cannot
+    /// rewrite this file. The lane handles JPEG and PNG only, judged from the
+    /// sniffed container (the same `guess_format` the lane uses), never the
+    /// file extension; a command it would refuse must not be printed.
+    fn meta_fix(&self, fragment: &str) -> Option<String> {
+        matches!(
+            ::image::guess_format(&self.bytes),
+            Ok(::image::ImageFormat::Jpeg | ::image::ImageFormat::Png)
+        )
+        .then(|| fragment.to_string())
+    }
+
+    /// `message` for a finding whose fix is a `meta` verb: unchanged when the
+    /// lane can write the file, else it says so and names the format.
+    fn meta_message(&self, message: &str) -> String {
+        if self.meta_fix("").is_some() {
+            return message.to_string();
+        }
+        let format = match ::image::guess_format(&self.bytes) {
+            Ok(::image::ImageFormat::Tiff) => "TIFF".to_string(),
+            Ok(::image::ImageFormat::Avif) => "AVIF".to_string(),
+            Ok(f) => format!("{f:?}"),
+            Err(_) => "this format".to_string(),
+        };
+        format!(
+            "{message}; crustyimg's metadata lane cannot rewrite {format} yet, so remove it \
+             with another tool"
+        )
+    }
+
     /// The captured ICC profile's byte length, if any.
     pub fn icc_len(&self) -> Option<usize> {
         self.decoded
@@ -649,8 +679,10 @@ impl Rule for GpsMetadataLeak {
                 target.path().to_path_buf(),
                 self.id(),
                 self.default_severity(),
-                "image carries GPS location metadata (a privacy leak in a public asset)",
-                Some("meta clean --gps".to_string()),
+                target.meta_message(
+                    "image carries GPS location metadata (a privacy leak in a public asset)",
+                ),
+                target.meta_fix("meta clean --gps"),
             ))
         } else {
             None
