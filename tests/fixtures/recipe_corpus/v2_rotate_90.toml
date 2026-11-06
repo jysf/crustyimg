@@ -1,0 +1,8 @@
+# Turn a quarter turn clockwise. No resampling, so the output is the same
+# bytes on every target.
+version = "2"
+name = "corpus-rotate-90"
+
+[[step]]
+op = "rotate"
+angle = 90

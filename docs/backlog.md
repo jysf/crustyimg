@@ -188,8 +188,8 @@ follow-up, with `crop` first.
 | Item | Value | Complexity | Enabling architecture in place |
 |---|---|---|---|
 | `crop` (rect / gravity / center / aspect) | **Lead item.** The most-requested missing geometry op; pairs with resize for exact framing | S–M | `Operation` trait; `gravity` anchor concept already defined (shared with watermark); recipe chaining |
-| `rotate` | Arbitrary/90° rotation; complements `auto-orient` | S | `Operation` trait + pipeline |
-| `flip` / `flop` | Vertical / horizontal mirror | S | `Operation` trait + pipeline |
+| `rotate` | Arbitrary/90° rotation; complements `auto-orient`. Quarter turns shipped as a recipe step (any angle is STAGE-059) | S | `Operation` trait + pipeline |
+| `flip` / `flop` | Vertical / horizontal mirror. Shipped as `flip` with `axis` | S | `Operation` trait + pipeline |
 | `trim` | Auto-remove uniform border | S–M | `Operation` trait + pipeline |
 | `pad` / `extend` | Add border/canvas to a target size | S | `Operation` trait + gravity anchor |
 

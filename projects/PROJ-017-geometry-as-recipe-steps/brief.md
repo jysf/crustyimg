@@ -170,6 +170,25 @@ Later lines get their ids at frame.
 **Reserved (2026-11-05):** line 4 (`rotate` and `flip`) is **SPEC-147**. Its frame prompt is
 `specs/prompts/SPEC-147-frame.md`.
 
+### Handed in from PROJ-011 (not yet scheduled)
+
+PROJ-011 is closing, and the maintainer ruled on 2026-11-05 that PROJ-017 takes three
+recipe-validation items. Their full text stays in PROJ-011's
+`stages/STAGE-054-recipe-reach-follow-through.md`, each marked "handed to PROJ-017". This list
+only points at them. None is on the build order above, and none blocks a geometry spec.
+
+- **A recipe's `format = "bogus"` is refused as an "extension"** (exit 4, at encode). It should
+  name the key and the step, and may belong at load (exit 1).
+- **A recipe's `quality = 101` is accepted as 100.** Refuse it at load like every other ranged
+  key, and `-q` too, or document the clamp.
+- **A wasm `validate(recipe_toml)` export** that returns per-step errors without an image. It's
+  the recipe playground's prerequisite (`guidance/ideas.yaml`, `wasm-validate-export`).
+
+When one is framed, it takes a spec id here and moves to a stage: probably a small
+recipe-validation stage after STAGE-058, since none is geometry. Mark its STAGE-054 line
+`(moved to PROJ-017, SPEC-NNN)` at the same time. The first two touch recipe load, as every
+STAGE-058 op does, so frame them after STAGE-058's ops land to avoid sharing files with a build.
+
 ## Dependencies
 
 ### Depends on

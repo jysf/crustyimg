@@ -13,6 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   fractions of the image, or an `aspect` such as `"16:9"` with a `gravity`. The same recipe
   crops the same region at any image size, so a crop made on a downscaled preview replays on the
   full-size original. 0.8.2 and earlier refuse it with `unknown operation 'crop'`.
+- **A recipe can rotate and flip.** `op = "rotate"` with `angle` a multiple of 90 (positive is
+  clockwise) and `op = "flip"` with `axis = "horizontal"` or `"vertical"`, exact in pixels at the
+  input's colour type. 0.8.2 and earlier refuse them with `unknown operation`.
 
 ## [0.8.2] - 2026-10-31
 

@@ -14,7 +14,7 @@
 
 use std::str::FromStr;
 
-use super::registry::{self, float_text};
+use super::registry::{self, written};
 use super::{
     Gravity, Operation, OperationError, OperationParams, ParamKind, ParamSpec, RegistryError,
     GRAVITY_NAMES,
@@ -184,16 +184,6 @@ impl Crop {
             },
             params: params.clone(),
         })
-    }
-}
-
-/// A numeric key as the recipe author wrote it: an integer as an integer, a
-/// float as a float.
-fn written(params: &OperationParams, key: &str) -> String {
-    match params.iter().find(|(k, _)| *k == key).map(|(_, v)| v) {
-        Some(toml::Value::Integer(i)) => i.to_string(),
-        Some(toml::Value::Float(f)) => float_text(*f),
-        _ => String::new(),
     }
 }
 

@@ -77,7 +77,25 @@ For every flag and exit code, see [`docs/cli-reference.md`](cli-reference.md).
   region of a 1200 px copy and a 6000 px original. Put `op = "auto-orient"` first when the
   fractions are meant as the photo is displayed. `resize --fill WxH` still covers the common
   center-crop-to-a-box case.
-- **Rotate / flip / trim / pad** **[planned — PROJ-017]**
+- **Rotate** **[today]** — a quarter turn, as a recipe step:
+  ```toml
+  [[step]]
+  op = "rotate"
+  angle = 90
+  ```
+  `angle` is a multiple of 90 from -360 to 360. A positive `angle` turns the image clockwise as it
+  is displayed after any earlier step; `-90` turns it anticlockwise. `0`, `360` and `-360` change
+  nothing. Any other angle is refused for now, when the recipe loads. Put `op = "auto-orient"`
+  first when the recipe is meant as the photo is displayed.
+- **Flip** **[today]** — a mirror, as a recipe step:
+  ```toml
+  [[step]]
+  op = "flip"
+  axis = "horizontal"
+  ```
+  `horizontal` mirrors left and right; `vertical` mirrors top and bottom. Put `op = "auto-orient"`
+  first when the recipe is meant as the photo is displayed.
+- **Trim / pad** **[planned — PROJ-017]**
 - **Smart (content-aware) crop** **[post-1.0, beta]** — see the smart-crop row in
   [`roadmap.md`](roadmap.md).
 
@@ -239,7 +257,8 @@ service). (Ranked targets + per-tool sources live in the roadmap's Track B / the
 - **PROJ-002:** `optimize` auto-decides format + `--explain` — **shipped**.
 - **PROJ-004:** `lint` (+ the GitHub Actions) — **shipped**.
 - **PROJ-005:** `--manifest`, `favicon`, `placeholder`, dominant color — **planned**; unlocks §9.
-- **PROJ-006:** `crop`/smart-crop, rotate/flip/trim/pad, redaction, auto-color, upscaling — **planned**.
+- **PROJ-017:** geometry as recipe steps — `crop`, `rotate` (quarter turns) and `flip` today; `trim`, `pad` and straighten **planned**.
+- Smart crop, redaction, auto-color, upscaling — **planned**.
 - **PROJ-007:** `build` + cache + lockfile + `--watch` — **shipped**.
 - **PROJ-008:** the wasm core + browser demo (recipes run in the browser via `transform()`) — **shipped**.
 - **PROJ-009:** RAW preview / AVIF / SVG input reach, HEIC behind `feat:heic` — **shipped**.
