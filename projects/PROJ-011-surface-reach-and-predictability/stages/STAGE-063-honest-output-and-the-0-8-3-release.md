@@ -73,8 +73,10 @@ tag-driven pipeline (its AC-18 is open until a real tag), so it should carry rea
 
 Spec ids 148 to 150 are reserved by this commit (PROJ-017 holds 147).
 
-- [ ] SPEC-148 (not yet framed) — **`lint` fixes what it names:** the `fix:` stdout item and the
-  gps-leak item, framed together (both are `lint` rules). Complexity S.
+- [ ] SPEC-148 (framed 2026-11-05, GO, S) — **`lint` fixes what it names:** the `fix:` stdout item and the
+  gps-leak item, framed together (both are `lint` rules). The frame also found both `convert --format`
+  fixes malformed (exit 3), unquoted paths, `optimize` ignoring the budget, and a 16-bit PNG fix that
+  cannot clear; all in scope. Complexity S.
 - [ ] SPEC-149 (not yet framed) — **No flag is accepted and ignored:** `--keep-gps` and `-v`,
   `responsive --name-template`, and the missing-`--font` message. Needs a per-flag ruling
   (implement, refuse or remove); the frame asks the maintainer. Complexity S–M.
@@ -83,8 +85,15 @@ Spec ids 148 to 150 are reserved by this commit (PROJ-017 holds 147).
   `--help`. Complexity S.
 - [ ] (release, not a spec) — **Cut 0.8.3** through the tag-driven pipeline; drive and verify
   every channel. Writes `projects/PROJ-011-surface-reach-and-predictability/specs/prompts/RELEASE-0.8.3.md`.
+- [ ] (not yet written) — [S] **`optimize` to stdout picks a larger JPEG than `optimize -o x.jpg`.**
+  Filed by the SPEC-148 frame (2026-11-05), driven on `main` (0.8.2 debug): the same 2000×1500
+  JPEG gives 679,355 B with `optimize in.jpg > a.out` (stderr: `jpeg → jpeg · … (60% smaller)`) and
+  459,577 B with `optimize in.jpg -o b.jpg` (no summary line), the same as `-o c.out --format jpeg`.
+  Same output format, 48 % larger on the unpinned path, and the summary line prints on one path
+  only. Find why the unpinned search lands on a worse JPEG than the pinned encode (`src/cli/optimize.rs`),
+  and whether "never ship a larger file" / "smallest format" still holds there.
 
-**Count:** 0 shipped / 0 active / **4 pending** — 2026-11-05.
+**Count:** 0 shipped / 0 active / **5 pending** — 2026-11-05 (re-derived by grep of the backlog checkboxes).
 
 ### Items carried from STAGE-054 (full text, unchanged)
 
