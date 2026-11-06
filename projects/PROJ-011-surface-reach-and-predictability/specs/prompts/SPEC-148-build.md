@@ -16,6 +16,15 @@ fresh session and pastes your final message back to the orchestrator, so it must
 `skills/crustyimg/SKILL.md` and `CHANGELOG.md`. Use your own `CARGO_TARGET_DIR`; never share one. If a rebase
 conflicts in a PROJ-017 file, stop and say so; do not resolve it.
 
+⚠ **SPEC-147 (rotate/flip) builds on PROJ-017's side at the same time and has claimed these files until its PR
+merges** (2026-11-05): `tests/common/mod.rs`, `tests/wasm_roundtrip.rs`, `tests/recipe_round_trip.rs`,
+`scripts/wasm-ci-check.sh`, `README.md`, `CHANGELOG.md`, and the docs and `src/` paths above. The design lists
+`tests/common/mod.rs` for fixture helpers. **Do not edit it.** Put the new helpers (`jpeg_with_gps_tags`, the ICC/Make
+helpers) in `tests/lint.rs`. The shared `jpeg_with_gps` in `common` has no coordinate, so the exit-7 check in
+`tests/adoption_glue.rs` would go red under the new predicate: give `adoption_glue.rs` a coordinate-bearing fixture of
+its own instead of changing the shared one. If that cannot work without editing a claimed file, stop and report; do
+not edit it. Take DEC-114 or higher if a DEC is needed (DEC-113 is PROJ-017's); the design says none is.
+
 ## Rulings added after design (settled)
 1. **PowerShell quoting on Windows** (POSIX elsewhere), as the spec designs it.
 2. **`lint -` (stdin) prints no command** (`fix: null`); a real file named `stdin` still gets its fix.
@@ -34,7 +43,7 @@ conflicts in a PROJ-017 file, stop and say so; do not resolve it.
    Completion and the report; do not quietly re-decide it.
 2. `projects/PROJ-011-surface-reach-and-predictability/HANDOFF.md`: read-first and traps 1 to 16 (binding; 2, 10,
    11, 12, 13, 14, 15 apply directly). `/guidance/constraints.yaml`, DEC-050.
-3. `src/lint/{mod,rules,report}.rs`, `tests/lint.rs`, `tests/common/mod.rs`, `tests/adoption_glue.rs` (read),
+3. `src/lint/{mod,rules,report}.rs`, `tests/lint.rs`, `tests/common/mod.rs` (read only), `tests/adoption_glue.rs`,
    `docs/github-actions.md`.
 
 ## Order (verify checks each step)
@@ -65,8 +74,7 @@ conflicts in a PROJ-017 file, stop and say so; do not resolve it.
   formatter put back verbatim.
 - **A piped command reports the pipe's exit code.** Redirect and read `$?`.
 - **Quoting:** test the space, the `'`, the leading `-`, a Windows `\` path (unit-level on all OSes).
-- **Stay in your files:** `src/lint/{mod,rules,report}.rs`, `tests/lint.rs`, `tests/common/mod.rs`,
-  `tests/adoption_glue.rs` (only if the shared fixture change requires it), `tests/fixtures/lint/cmyk_16x16.jpg`
+- **Stay in your files:** `src/lint/{mod,rules,report}.rs`, `tests/lint.rs`, `tests/adoption_glue.rs` (its own GPS fixture; NOT `tests/common/mod.rs`), `tests/fixtures/lint/cmyk_16x16.jpg`
   and its README, `docs/github-actions.md`, and the spec's Build Completion. Anything else is a deviation; say why.
 - zsh: quote separators; no word-splitting of unquoted parameters. macOS has no `timeout(1)`.
 
