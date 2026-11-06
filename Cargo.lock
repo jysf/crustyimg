@@ -939,40 +939,29 @@ checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
 
 [[package]]
 name = "heifer"
-version = "0.3.25"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0d3ed2c4f5d81d74c0c24da1d8424a5bbf3d87cf3ce3c83ce4cd76b5d7d8a547"
+checksum = "3c306f12bd6e9369c8100e5eedecb9479a2e34afe404c5ddfccf995084ac3373"
 dependencies = [
  "heifer-hevc-dec",
- "heifer-hevc-enc",
  "heifer-isobmff",
  "thiserror",
 ]
 
 [[package]]
 name = "heifer-hevc-dec"
-version = "0.3.25"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "54182e728afb636a9d084347ba1e1e2aa5258f919dc966b93bcdbb8656141ba9"
+checksum = "00861932ab1d5db48b21617ec8f8612a897ad8bb58c20e49b2656ee4b7095007"
 dependencies = [
- "thiserror",
-]
-
-[[package]]
-name = "heifer-hevc-enc"
-version = "0.3.25"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "082b28053cb3658503ecaf69e07d95755e60809f0bf285d6b6f5954f63b40136"
-dependencies = [
- "heifer-hevc-dec",
  "thiserror",
 ]
 
 [[package]]
 name = "heifer-isobmff"
-version = "0.3.25"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8c723ec69a66af86a9ea2b249766af56372c0e69f2f98ea15b943de56d89561f"
+checksum = "4fbdcdb3d5f1f002a3ff337c45fbaa4a275922a28e0916367db0374e7514ba78"
 dependencies = [
  "thiserror",
 ]

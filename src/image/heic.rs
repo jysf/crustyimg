@@ -34,7 +34,8 @@
 //!
 //! - Dimensions are capped from the container metadata (`ispe`) **before** any
 //!   pixel plane is allocated (DEC-034), and re-checked on the decoded image as
-//!   defense in depth.
+//!   defense in depth. A primary image whose size the container does not give is
+//!   refused before decode, never decoded uncapped.
 //! - heifer itself bounds every decoded and assembled image with
 //!   `Options::max_pixels` (a 2^28-pixel default) and is `#![forbid(unsafe_code)]`,
 //!   so a malformed file cannot read out of bounds.
@@ -45,11 +46,14 @@
 //! ## Colour
 //!
 //! heifer converts to sRGB from the image's ICC profile or its `nclx` info, as
-//! libheif's `ColorSpace::Rgb` target did. Matrix/TRC profiles — `Display P3`,
-//! `Adobe RGB`, sRGB — are handled. Two cases are refused with a typed error
-//! instead of converted: LUT-based ICC profiles (`A2B0`/`B2A0`), and base images
-//! coded directly with a PQ/HLG transfer. (The common HDR HEIC is a gain map, not a
-//! PQ/HLG base, and is supported.)
+//! libheif's `ColorSpace::Rgb` target did. RGB input profiles are handled, both
+//! matrix/TRC (`Display P3`, `Adobe RGB`, sRGB) and LUT-based (`A2B0`/`A2B1`:
+//! `lut8`, `lut16`, `lutAtoB`). Two cases are refused with a typed
+//! [`ImageError::Decode`] instead of converted:
+//!
+//! - an ICC profile whose input space is not RGB (CMYK, Lab, XYZ…);
+//! - a base image coded with a PQ or HLG transfer (`nclx` transfer 16 or 18).
+//!   The common HDR HEIC is a gain map over an SDR base, and is supported.
 
 #[cfg(feature = "heic")]
 use ::image::{DynamicImage, Limits, RgbImage, RgbaImage};
@@ -114,10 +118,14 @@ pub(crate) fn decode_heic(bytes: &[u8], limits: &Limits) -> Result<DynamicImage>
     let id = file.primary_id;
 
     // Cap from the container metadata BEFORE decoding, so a decompression-bomb
-    // header is rejected without heifer ever allocating a plane (DEC-034).
-    if let Some((w, h)) = file.image_size(id).map_err(map_heif_err)? {
-        check_caps(w, h, limits)?;
-    }
+    // header is rejected without heifer ever allocating a plane (DEC-034). A
+    // primary image with no known size (no `ispe`, or a derived image whose size
+    // cannot be read) is refused rather than decoded uncapped.
+    let (w, h) = file
+        .image_size(id)
+        .map_err(map_heif_err)?
+        .ok_or_else(|| ImageError::Decode("heic: primary image has no size (ispe)".into()))?;
+    check_caps(w, h, limits)?;
 
     // heifer packs interleaved RGBA (stride == width * 4) and converts to sRGB
     // from the image's ICC profile or its `nclx` info, matching libheif's
@@ -321,6 +329,91 @@ mod tests {
             matches!(result, Err(ImageError::Decode(_))),
             "expected Decode, got {result:?}"
         );
+    }
+
+    /// A 16×16 HEIC whose ICC profile has a CMYK input space, written by
+    /// `heifer = "=0.4.0"`: `heifer::encode_with_metadata` with
+    /// `Metadata { icc_profile: Some(header) }`, where `header` is a bare 132-byte
+    /// ICC v4.3 header (`prtr`, colour space `CMYK`, PCS `Lab `, `acsp`, no tags).
+    #[cfg(feature = "heic")]
+    const CMYK_ICC: &[u8] = include_bytes!("../../tests/fixtures/heic/cmyk_icc_16x16.heic");
+
+    /// The fixture with its `nclx` transfer characteristics set to `transfer`.
+    #[cfg(feature = "heic")]
+    fn with_transfer(transfer: u16) -> Vec<u8> {
+        let mut bytes = FIXTURE.to_vec();
+        let at = bytes
+            .windows(8)
+            .position(|w| w == b"colrnclx")
+            .expect("fixture has an nclx colr box");
+        // colr(4) nclx(4) primaries(2) transfer(2) matrix(2) flags(1).
+        bytes[at + 10..at + 12].copy_from_slice(&transfer.to_be_bytes());
+        bytes
+    }
+
+    /// The patch above really reaches the decoder: an sRGB transfer (13) still
+    /// decodes, so the refusals below come from the PQ/HLG value alone.
+    #[cfg(feature = "heic")]
+    #[test]
+    fn patched_srgb_transfer_still_decodes() {
+        let img = decode_heic(&with_transfer(13), &Limits::default()).expect("decode");
+        assert_eq!((img.width(), img.height()), (64, 48));
+    }
+
+    /// A PQ (16) or HLG (18) base image is a typed decode error, not a wrong
+    /// conversion or a panic.
+    #[cfg(feature = "heic")]
+    #[test]
+    fn pq_and_hlg_base_images_are_refused() {
+        for transfer in [16, 18] {
+            let result = decode_heic(&with_transfer(transfer), &Limits::default());
+            match result {
+                Err(ImageError::Decode(msg)) => assert!(
+                    msg.contains("unsupported"),
+                    "transfer {transfer}: unexpected message {msg:?}"
+                ),
+                other => panic!("transfer {transfer}: expected Decode, got {other:?}"),
+            }
+        }
+    }
+
+    /// An ICC profile with a non-RGB (CMYK) input space is a typed decode error.
+    #[cfg(feature = "heic")]
+    #[test]
+    fn non_rgb_icc_profile_is_refused() {
+        assert!(is_heic(CMYK_ICC));
+        let result = decode_heic(CMYK_ICC, &Limits::default());
+        match result {
+            Err(ImageError::Decode(msg)) => {
+                assert!(
+                    msg.contains("not an RGB profile"),
+                    "unexpected message {msg:?}"
+                )
+            }
+            other => panic!("expected Decode, got {other:?}"),
+        }
+    }
+
+    /// A primary image without an `ispe` size is refused before decode (DEC-034):
+    /// with no size there is nothing to cap, so it must not be decoded uncapped.
+    #[cfg(feature = "heic")]
+    #[test]
+    fn missing_image_size_is_refused_before_decode() {
+        let mut bytes = FIXTURE.to_vec();
+        let at = bytes
+            .windows(4)
+            .position(|w| w == b"ispe")
+            .expect("fixture has an ispe box");
+        // Rename the property box: heifer skips unknown properties, so the image
+        // keeps decodable data but loses its declared size.
+        bytes[at..at + 4].copy_from_slice(b"xspe");
+        let result = decode_heic(&bytes, &Limits::default());
+        match result {
+            Err(ImageError::Decode(msg)) => {
+                assert!(msg.contains("no size"), "unexpected message {msg:?}")
+            }
+            other => panic!("expected Decode, got {other:?}"),
+        }
     }
 
     #[cfg(feature = "heic")]

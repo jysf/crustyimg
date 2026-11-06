@@ -16,6 +16,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and decoded output is unchanged for the committed fixtures. Because it needs no system
   library it now also builds and tests on Windows, which `libheif-rs`/vcpkg never covered.
   See `docs/licensing.md`.
+- **`heic`: two colour cases are now refused** with a typed decode error instead of
+  converted: an ICC profile whose input space is not RGB (CMYK, Lab…), and a base image
+  coded with a PQ or HLG transfer. RGB ICC profiles, matrix/TRC and LUT-based, and gain-map
+  HDR files (SDR base) still decode. A primary image with no `ispe` size is also refused
+  before decode, so the DEC-034 caps always apply.
 
 ## [0.8.2] - 2026-10-31
 
