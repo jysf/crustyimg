@@ -66,6 +66,13 @@ After the last spec in a stage ships: **Stage Ship** (`FIRST_SESSION_PROMPTS.md`
    it, it writes those lines in the same PR; if not, it files a STAGE-050 backlog item. SPEC-132
    fixed a Linux `--watch` loop in released 0.7.x and recorded it only as a deviation, which cost
    a punch-list round.
+7. **A verify's optional cleanups go into one punch list, and need no re-verify unless a claim
+   changed** (from SPEC-145's ship). SPEC-145's verify approved with four optional cleanups, and
+   fixing them took two punch lists and two re-verifies: about $5, against a $9.37 build. If every
+   fix is wording, a test bound tightened within what verify measured, or an added assert, the
+   orchestrator reads the punch list's diff and CI itself and marks the PR ready. A re-verify runs
+   only when the punch list changes what a doc, DEC or test **claims** to be true, because a new
+   claim is unproven (trap 17).
 
 ---
 
@@ -231,6 +238,15 @@ Batching these in one sitting unblocks more than anything an orchestrator can do
     CI. The build replaced it with an `npm` wrapper that fakes only `publish`. **A design that sets
     a step-level variable names every command in that step, and runs the whole step with the
     variable set before writing it into a call.**
+17. **⚡ A BOUND WORKED OUT ON PAPER IS A CLAIM UNTIL ITS MAXIMISING INPUT IS DRIVEN.** SPEC-145's
+    verify called 0.4 px the "analytic maximum" of crop's drift between two image sizes. The
+    orchestrator's punch-list prompt passed it on as settled, and the punch list wrote it into
+    DEC-112. Re-verify found 0.6 at `f64` near-ties (`width = 0.009583333333333333`: 12 px at
+    1200, 57 px at 6000), and a seeded random sweep never lands that close to a tie. That cost a
+    second punch list and re-verify. **A prompt or DEC that carries a derived bound, maximum or
+    "can't happen" says whether it was driven, and names the input that maximises it** (for a
+    rounding bound, a `nextafter` search around each tie). An undriven bound is written as "measured
+    over this sweep", never as the maximum.
 
 ## What is working, and worth keeping
 

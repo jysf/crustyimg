@@ -83,6 +83,13 @@ Spec ids 148 to 150 are reserved by this commit (PROJ-017 holds 147).
 - [ ] SPEC-150 (not yet framed) — **Two messages tell the truth:** a folder with only
   subfolders, and the browser's asset refusal plus every user-facing `SPEC-`/`DEC-` id in rendered
   `--help`, including `lint --help`'s "(each with a runnable fix)" line (SPEC-148's design asks SPEC-150 to reword it with its spec ids). Complexity S.
+- [ ] (not yet written) — [S] **Verify's optional findings on SPEC-148 (2026-11-05).** (O-1) `optimize --max-size` with an
+  unreachable budget exits 0 and rewrites the file larger (159 to 331 B) with a "best effort" note; decide whether
+  that is a failure. (O-2) config `max_bytes = 0` prints `optimize --max-size 0`, which exits 2; config validation
+  should reject 0. (O-3) FT-1 has no `$` or backtick row, so double-quote POSIX quoting would not be caught
+  end to end (FT-4 and the goldens do catch it). (O-4) `common::jpeg_with_gps` is unused and its doc still calls it
+  a GPS leak; it is in `tests/common/mod.rs`, so leave it until SPEC-147 merges. (O-5) the lint fixture README does
+  not state the CMYK fixture's size (296 B).
 - [ ] (release, not a spec) — **Cut 0.8.3** through the tag-driven pipeline; drive and verify
   every channel. Writes `projects/PROJ-011-surface-reach-and-predictability/specs/prompts/RELEASE-0.8.3.md`.
 - [ ] (not yet written) — [S] **`optimize` to stdout picks a larger JPEG than `optimize -o x.jpg`.**

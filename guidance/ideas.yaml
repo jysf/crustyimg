@@ -99,8 +99,8 @@ ideas:
     title: "A wasm `validate(recipe_toml)` export returning structured errors"
     status: homed
     source: "docs/roadmap.md Wave 6"
-    home: "PROJ-011 / STAGE-054"
-    likely_home: PROJ-011
+    home: "PROJ-011 / STAGE-054, handed to PROJ-017 on 2026-11-05 (see PROJ-017's brief)"
+    likely_home: PROJ-017
     gate: null
 
   # ── Proposed: evidence or a consumer, waiting for a project ─────────────
