@@ -7,7 +7,7 @@
 task:
   id: SPEC-149
   type: bug                        # epic | story | task | bug | chore
-  cycle: build  # frame | design | build | verify | ship
+  cycle: verify  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: M                    # S | M | L  (L means split it)
@@ -97,6 +97,24 @@ cost:
         x1.25 input, cache_read x0.10 input. Includes driving a scratch sketch of the guard table,
         logger and messages (two debug builds, a wasm-check, cargo deny). Taken before the
         commit/push exchanges, so it slightly under-counts the session.
+    - cycle: build
+      agent: claude-sonnet-5-5
+      interface: claude-code
+      tokens_total: 5878066
+      tokens_breakdown:
+        input: 90
+        output: 32051
+        cache_creation: 127235
+        cache_read: 5718690
+      estimated_usd: 2.67
+      duration_minutes: null
+      recorded_at: 2026-11-06
+      note: >
+        Measured from transcript 98b0a82e-e783-40ac-ac63-7db061c11337.jsonl, found by the
+        prompt title, deduped by `.message.id` (45 unique ids, all Sonnet): input/cache_creation/
+        cache_read once per id, MAX output_tokens. Rates: Sonnet $3 in / $15 out per MTok,
+        cache_creation x1.25, cache_read x0.10. Taken before the final commit/push/PR
+        exchanges, so it slightly under-counts the session.
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -834,37 +852,56 @@ necessary during build, create a new spec rather than expanding this one.
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
-- **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
-- **Files this diff touches** — **list every one**, with a phrase on what changed
-  in each. Not "src/foo and tests": the enumeration is what a verify cycle diffs
-  the real change against, and what tells you whether every affected `DEC-*` has
-  the path in its `affected_scope`. SPEC-122's Deviations claimed "`src/operation`
-  and `tests/` only" and was wrong by two `scripts/` files, which left
-  `affected_scope` blind; SPEC-124's build added this section by hand after that
-  lesson and still listed 8 of its 9 files. It is a checklist because it is easy
-  to get wrong from memory — build it from `git diff --name-only`, not recall.
-  - `path/to/file` — <what changed>
+- **Branch:** `feat/spec-149-no-flag-accepted-and-ignored`
+- **PR (if applicable):** draft, see the report
+- **All acceptance criteria met?** yes (AC-1..AC-11; the Windows leg is quoted from the PR's CI)
+- **New decisions emitted:** none
+- **Files this diff touches:**
+  - `src/cli/global_flags.rs` (new) — the 8-row guard table, `refused_global_flags`, FT-2 unit test
+  - `src/cli/logger.rs` (new) — stderr logger, `level_for`, `init`, 2 unit tests
+  - `src/cli/mod.rs` — two `mod` lines, `--watch` block swapped for the table, `logger::init` in `run`, help strings (`keep_gps` hidden), `Responsive` doc sentence, `WatermarkAssetUnreadable` variant + `code()` arm + unit test
+  - `src/cli/ops.rs` — `watermark_overlay`: font and overlay reads name the file
+  - `Cargo.toml`, `Cargo.lock` — `log = "0.4.32"` native-only; lock gains one `"log",` line (327 packages before and after)
+  - `tests/cli_flags_honest.rs` (new) — FT-1, FT-3..FT-10 (FT-2 is the unit test)
+  - `tests/fixtures/svg/log_levels_40x30.svg` (new) — the `-v` fixture
+  - `tests/build_refuses_output_flags.rs` — see Deviations
+  - `README.md`, `docs/cli-reference.md`, `docs/USAGE.md`, `docs/moat.md`, `SECURITY.md`, `AGENTS.md` — the Docs sweep rows
+- **Deferred to ship (SPEC-151, PR #255, still a draft at my last rebase):** `docs/api-contract.md` lines 36, 37, 39, 192, 591-593 and `docs/data-model.md:122`. Also the orchestrator-placed text: `CHANGELOG.md`, `docs/recipes.md:123`, `skills/crustyimg/SKILL.md:67-68`. `guidance/ideas.yaml` `responsive-name-template` was already on `main`.
+- **Evidence:**
+  - RED on `main` (before any `src/` change): FT-3 `` `--help` lists --keep-gps ``; FT-4 `build --strict: exit code` left 0, right 2; FT-5 `responsive ... --name-template {stem}.png: exit code` left 0, right 2; FT-7 `-v: stderr` W count left 0, right 1; FT-8 `-vv: no avif_parse debug line; stderr:` (empty); FT-9/FT-10 `error: could not read image input`; FT-1 `view --check: exit code` left 5, right 2 (`saw 20 leaf commands`); FT-6 green (control). GREEN after: 9/9 (8/9 on `--no-default-features`, FT-7 compiled out).
+  - Real `-vv` line from the fixture: `warning: [usvg::parser::image] Image lacks the 'xlink:href' attribute. Skipped.` then `debug: [usvg::parser::text] Found font-variation-settings: ''wght' 700'`.
+  - `cargo tree -i log -e normal --depth 1`: crustyimg listed beside av-scenechange, avif-parse, fontdb, notify, rav1e, resvg, usvg...; `grep -c '^name = ' Cargo.lock` 327 on `main` and on the branch; `cargo deny check`: `advisories ok, bans ok, licenses ok, sources ok`; `just wasm-check` exit 0.
+  - Gates: `cargo fmt --check` 0, `cargo clippy --all-targets -- -D warnings` 0, `just check` 0, lean `cargo test --no-default-features --test cli_flags_honest` ok.
+  - Local mutations (scratch worktree, each diff non-empty, reverted to an empty diff). Red checks, with the quoted line:
+    - M1: FT-1 `view --check: exit code` left 5; FT-3 `resize --keep-gps: exit code`; FT-4 `build --strict: exit code` (built, exit 0); FT-5 `responsive ... --name-template: exit code`; `tests/cli.rs::watch_on_non_build_subcommand_is_usage_error` got Some(0). FT-2 green.
+    - M2: FT-1 only, `lint --check: exit code`. FT-2 green.
+    - M3: `level_for_quiet_wins`; FT-7 `["-v", "-Q"]: -Q must win` (W line present); FT-8 `-vv -Q: -Q must win` (debug lines present).
+    - M4: FT-7 `-v: stderr` (0 x W); FT-8 `-vv: no avif_parse debug line`.
+    - M5: FT-1 `view --keep-gps: stderr` (message lacks `meta copy`); FT-3 `resize --keep-gps: stderr`. FT-2 green, as predicted.
+    - M6: FT-9 `error: could not read image input`. M6b: FT-10 same line.
+    - M7: FT-5 `responsive ... --format webp: exit code`; FT-2.
+    - M8: FT-4 `build --strict: exit code`; FT-2.
+    - M9: FT-4 `build --no-cache` (R5 quoted); FT-2; `no_cache_flag_bypasses_store` (`build should exit 0, got Some(2)`).
+    - M10: FT-3 `` `--help` lists --keep-gps ``. M11: FT-1 `no test argv for `lint``. M12: FT-1 `saw 0 leaf commands, expected 20`.
+  - Windows leg: not runnable here; quoted from the draft PR's CI in the report.
 - **Deviations from spec:**
-  - [list]
-- **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - `tests/build_refuses_output_flags.rs` (outside the spec's file list): its positive control ran `build --strict` expecting exit 0, which is the behaviour this spec removes. It now runs a plain `build` then `build --check --strict`.
+  - `minimal_args` for `watermark` adds `--size 8`: at the default size the mark covers 27% of the 32x32 fixture and the 5% limit refuses it with exit 2, so the spec's argv was a usage error.
+  - FT-2 is a unit test in `src/cli/global_flags.rs`; the test file's tests are FT-1, FT-3..FT-10.
+- **Follow-up work identified:** none new.
 
 ### Build-phase reflection (3 questions, short answers)
 
 Process-focused: how did the build go? What friction did the spec create?
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — The `watermark` argv in `minimal_args` hit the 5% coverage refusal. On `main` the walk fails at `view` first, so the bad argv only showed once the guard worked: baselines should be checked on a build where the guard is already in.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — `tests/build_refuses_output_flags.rs` asserted `build --strict` exits 0; the file list did not name it.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Run every `minimal_args` baseline standalone against `main` before writing the refusal loop. No design call turned out wrong.
 
 ---
 
