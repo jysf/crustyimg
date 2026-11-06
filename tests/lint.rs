@@ -1384,7 +1384,13 @@ fn gps_rule_fires_on_a_location_and_not_on_an_empty_block() {
 /// FT-12: the Actions doc's fix table says what `lint` prints.
 #[test]
 fn the_github_actions_doc_fix_table_matches_what_lint_prints() {
-    let doc = include_str!("../docs/github-actions.md").replace("\r\n", "\n");
+    let full = include_str!("../docs/github-actions.md").replace("\r\n", "\n");
+    // Only §5 is the fix table; later sections show unrelated commands.
+    let start = full
+        .find("## 5. Fix what it finds")
+        .expect("doc has a section 5");
+    let rest = &full[start + 5..];
+    let doc = &rest[..rest.find("\n## ").unwrap_or(rest.len())];
     for want in [
         "crustyimg optimize --max-size <budget> <file> -o <file> -y",
         "crustyimg convert --format jpeg <file> -o <file> -y",

@@ -21,7 +21,7 @@ use super::{Finding, LintOutcome, Severity};
 ///
 /// Findings are grouped by file (already globally sorted by `(path, severity,
 /// rule)`), each line carrying its severity, rule id, and message, and — on the
-/// next line — the runnable `crustyimg` fix. Ends with a summary line (counts +
+/// next line — the runnable `crustyimg` fix (`crustyimg <fix> <file> -o <file> -y`). Ends with a summary line (counts +
 /// total potential savings when any). Writes to `out` (stdout, so `-o -` stays
 /// unaffected).
 pub fn render_human(outcome: &LintOutcome, out: &mut impl Write) -> io::Result<()> {
@@ -77,7 +77,8 @@ pub fn render_human(outcome: &LintOutcome, out: &mut impl Write) -> io::Result<(
 /// Schema (`crustyimg.lint/v1`): `{schema, findings[{file, rule, severity,
 /// message, fix, bytes_saved?}], summary{files_scanned, errors, warnings, infos,
 /// potential_bytes_saved, passed}}`. `fix` is the full runnable command
-/// (`crustyimg <fix> <file>`) or `null`; `bytes_saved` is omitted when absent.
+/// (`crustyimg <fix> <file> -o <file> -y`, the file quoted for the host shell) or
+/// `null` (no command, or a stdin input); `bytes_saved` is omitted when absent.
 /// `passed` is the CI gate result the caller computed (no `Error`, warnings
 /// within `--max-warnings`), so the output format never changes the exit code.
 pub fn write_json(outcome: &LintOutcome, passed: bool, out: &mut impl Write) -> io::Result<()> {

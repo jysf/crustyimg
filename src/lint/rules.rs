@@ -74,7 +74,7 @@ impl Rule for OrientationNotBaked {
 
 /// The file exceeds the per-glob byte budget from config (the format-aware
 /// `--maxkb`). Only fires when a `[[budget]]` `max_bytes` applies to this file.
-/// Fix: `optimize`.
+/// Fix: `optimize --max-size <budget>` (plain `optimize` need not reach the budget).
 pub struct OversizedBytes;
 
 impl Rule for OversizedBytes {
@@ -93,7 +93,7 @@ impl Rule for OversizedBytes {
                 self.id(),
                 self.default_severity(),
                 format!("file is {actual} bytes, over the {budget}-byte budget"),
-                Some("optimize".to_string()),
+                Some(format!("optimize --max-size {budget}")),
             )
         })
     }
@@ -132,7 +132,8 @@ impl Rule for OversizedDimensions {
 // ── color/wrong-colorspace (warn) ───────────────────────────────────────────
 
 /// A needless 16-bit PNG for the web, or a CMYK JPEG (renders wrong / bloated).
-/// Fix: `convert --format`.
+/// Fix: CMYK → `convert --format jpeg`; 16-bit prints no command (crustyimg has no
+/// bit-depth option, and a format change cannot be written under the same name).
 pub struct WrongColorspace;
 
 impl Rule for WrongColorspace {
@@ -150,8 +151,12 @@ impl Rule for WrongColorspace {
                 target.path().to_path_buf(),
                 self.id(),
                 self.default_severity(),
-                format!("{}-bit channels are needless for the web", info.bit_depth),
-                Some("convert --format".to_string()),
+                format!(
+                    "{}-bit channels are needless for the web; crustyimg cannot reduce bit \
+                     depth, so re-export it at 8 bits per channel",
+                    info.bit_depth
+                ),
+                None,
             ));
         }
         // CMYK JPEG (4-component SOF) — off-web colorspace.
@@ -163,7 +168,7 @@ impl Rule for WrongColorspace {
                 self.id(),
                 self.default_severity(),
                 "CMYK JPEG (not an sRGB web colorspace)",
-                Some("convert --format".to_string()),
+                Some("convert --format jpeg".to_string()),
             ));
         }
         None

@@ -72,8 +72,9 @@ impl Severity {
 ///
 /// `rule` is a stable, namespaced id (`privacy/gps-metadata-leak`) — a
 /// compatibility surface (DEC-050). `fix` is a runnable `crustyimg` subcommand
-/// *fragment* (e.g. `meta clean --gps`) the report renders as
-/// `crustyimg <fix> <file>`; `None` when there is no command to run (the fix
+/// *fragment* (e.g. `meta clean --gps`); the report renders it as
+/// `crustyimg <fix> <file> -o <file> -y` (see [`Finding::fix_command`]), which
+/// rewrites the file in place. `None` when there is no command to run (the fix
 /// guidance is then in `message`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Finding {
@@ -86,32 +87,68 @@ pub struct Finding {
     /// shipped-capability rules (SPEC-050/051/053); the engine-backed
     /// "could be smaller" rules populate it (STAGE-014).
     bytes_saved: Option<u64>,
-    /// TEMP RED-STUB (replaced in the build): the finding came from stdin.
+    /// The finding came from standard input, whose "path" is only a stem: no
+    /// printable command can name it.
     from_stdin: bool,
 }
 
-/// TEMP RED-STUB (replaced in the build).
+/// Which shell's quoting a printed fix uses.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Shell {
     Posix,
     PowerShell,
 }
 
-/// TEMP RED-STUB (replaced in the build).
+/// The shell a user on this platform most likely pastes into: PowerShell on
+/// Windows (the default terminal shell and the GitHub Actions default),
+/// sh/bash/zsh everywhere else.
 const HOST_SHELL: Shell = if cfg!(windows) {
     Shell::PowerShell
 } else {
     Shell::Posix
 };
 
-/// TEMP RED-STUB: main's behaviour, the path printed raw.
-fn shell_arg(path: &Path, _shell: Shell) -> Option<String> {
-    Some(path.display().to_string())
+/// Quote one path so `shell` reads it as exactly one argument. `None` when the
+/// path is not valid UTF-8 (printing it lossily would name a different file).
+fn shell_arg(path: &Path, shell: Shell) -> Option<String> {
+    let raw = path.to_str()?;
+    // Quoting does not stop clap reading `-x.jpg` as a flag; `./-x.jpg` names
+    // the same file on every OS (Rust accepts `/` on Windows).
+    let s = if raw.starts_with('-') {
+        format!("./{raw}")
+    } else {
+        raw.to_string()
+    };
+    // The safe set is deliberately small: `,` makes an array in PowerShell, and
+    // `=`, `~`, `@`, `$` and spaces mean something in one shell or another.
+    let safe = |c: char| {
+        c.is_ascii_alphanumeric()
+            || matches!(c, '_' | '-' | '.' | '/')
+            || (shell == Shell::PowerShell && matches!(c, '\\' | ':'))
+    };
+    if !s.is_empty() && s.chars().all(safe) {
+        return Some(s);
+    }
+    let mut out = String::with_capacity(s.len() + 2);
+    out.push('\'');
+    for c in s.chars() {
+        match shell {
+            Shell::Posix if c == '\'' => out.push_str("'\\''"),
+            // PowerShell also treats U+2018..U+201B as single quotes.
+            Shell::PowerShell if c == '\'' || ('\u{2018}'..='\u{201B}').contains(&c) => {
+                out.push(c);
+                out.push(c);
+            }
+            _ => out.push(c),
+        }
+    }
+    out.push('\'');
+    Some(out)
 }
 
 impl Finding {
     /// Build a finding. `fix` is a `crustyimg` subcommand fragment without the
-    /// binary name or the file (both are added when rendered), or `None`.
+    /// binary name, the file or `-o <file> -y` (all added when rendered), or `None`.
     ///
     /// `bytes_saved` defaults to `None`; the engine-backed rules set it via
     /// [`Finding::with_bytes_saved`].
@@ -133,7 +170,7 @@ impl Finding {
         }
     }
 
-    /// TEMP RED-STUB: marks a stdin finding (ignored by the old formatter).
+    /// Mark this finding as coming from standard input (it then has no fix command).
     fn on_stdin(mut self) -> Finding {
         self.from_stdin = true;
         self
@@ -175,18 +212,22 @@ impl Finding {
         self
     }
 
-    /// The full runnable fix command for this finding (`crustyimg <fix> <file>`),
-    /// or `None` when the rule names no command.
+    /// The full runnable fix: `crustyimg <fragment> <file> -o <file> -y`, with the
+    /// file quoted for this platform's shell. Run verbatim it rewrites the file in
+    /// place (without `-o` it would write the image to stdout and leave the file
+    /// unchanged). `None` when the rule names no command, the input was stdin, or
+    /// the path cannot be printed.
     pub fn fix_command(&self) -> Option<String> {
         self.fix_command_for(HOST_SHELL)
     }
 
-    /// TEMP RED-STUB: main's formatter verbatim.
     fn fix_command_for(&self, shell: Shell) -> Option<String> {
-        let _ = shell_arg(&self.file, shell);
-        self.fix
-            .as_ref()
-            .map(|f| format!("crustyimg {} {}", f, self.file.display()))
+        if self.from_stdin {
+            return None;
+        }
+        let fragment = self.fix.as_deref()?;
+        let file = shell_arg(&self.file, shell)?;
+        Some(format!("crustyimg {fragment} {file} -o {file} -y"))
     }
 
     /// Deterministic sort key: `(path, severity, rule)` (DEC-050 determinism).
@@ -316,7 +357,7 @@ impl LintTarget {
         self.exif.get_or_init(|| scan_exif(&self.bytes))
     }
 
-    /// Whether the file's EXIF carries any GPS/location tag.
+    /// Whether the file's EXIF carries a GPS location (a coordinate or a place name).
     pub fn has_gps_exif(&self) -> bool {
         self.exif_facts().has_gps
     }
@@ -369,7 +410,7 @@ impl LintTarget {
 /// Read-only EXIF facts a rule keys off, extracted in one parse pass.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 struct ExifFacts {
-    /// Any GPS-context tag is present (a location leak).
+    /// The GPS block carries a location: a coordinate or a place name.
     has_gps: bool,
     /// Any identifying non-GPS camera tag is present (Make/Model/serial/…).
     has_camera: bool,
@@ -386,7 +427,19 @@ fn scan_exif(bytes: &[u8]) -> ExifFacts {
         Err(_) => return ExifFacts::default(),
     };
 
-    let has_gps = exif.fields().any(|f| f.tag.context() == exif::Context::Gps);
+    // A location is a coordinate (where the photo was taken, or the destination
+    // it names) or a free-text place name. A block holding only GPSVersionID,
+    // Ref tags, altitude, timestamps or map datum says nothing about where (some
+    // cameras write one into every JPEG). Any IFD counts: a location in a
+    // thumbnail's GPS IFD is still a leak.
+    const GPS_LOCATION_TAGS: &[Tag] = &[
+        Tag::GPSLatitude,
+        Tag::GPSLongitude,
+        Tag::GPSDestLatitude,
+        Tag::GPSDestLongitude,
+        Tag::GPSAreaInformation,
+    ];
+    let has_gps = exif.fields().any(|f| GPS_LOCATION_TAGS.contains(&f.tag));
 
     // Identifying, device-level tags (NOT copyright/artist, which are preserved).
     const CAMERA_TAGS: &[Tag] = &[
@@ -540,7 +593,14 @@ pub fn run_lint(inputs: &[Input], rules: &[Box<dyn Rule>], config: &LintConfig) 
             }
             // Per-rule severity override.
             let severity = config.severity_for(rule.id(), finding.severity());
-            findings.push(finding.with_severity(severity));
+            let finding = finding.with_severity(severity);
+            // The input variant decides, not the name: a real file called
+            // `stdin` still gets its fix.
+            findings.push(if matches!(input, Input::Stdin { .. }) {
+                finding.on_stdin()
+            } else {
+                finding
+            });
         }
     }
     findings.sort_by(|a, b| a.sort_key().cmp(&b.sort_key()));
@@ -569,7 +629,8 @@ pub fn exit_code(outcome: &LintOutcome, max_warnings: Option<usize>) -> i32 {
 
 // ── Foundational rules ────────────────────────────────────────────────────────
 
-/// `privacy/gps-metadata-leak` (Error): the image carries GPS EXIF — a location
+/// `privacy/gps-metadata-leak` (Error): the image carries a GPS location (a
+/// coordinate or place name, not just an empty GPS block) — a location
 /// leak in a public asset (the privacy moat). Fix: `meta clean --gps`.
 pub struct GpsMetadataLeak;
 
