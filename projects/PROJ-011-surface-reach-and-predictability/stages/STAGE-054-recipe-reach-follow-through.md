@@ -68,6 +68,14 @@ remaining items here are 0.8.1 candidates.
 - SPEC-133's optional test gaps: moved to STAGE-053 (guards, not behaviour).
 - Anything in PROJ-013. It is `proposed`, so `just backlog` cannot see it (HANDOFF trap 8).
 
+## Disposition (2026-11-05 triage)
+
+Seven items moved to STAGE-063. Of the rest: recipe, watermark and `validate()` items belong to
+PROJ-017 and its thread decides which it keeps; "a cached `build` replays no per-input warnings"
+is pending that answer too (do not move any of them before then). The ubuntu-22.04 retirement,
+crates.io OIDC and release-check tightening wait for the 0.8.3 tag. The SPEC-135, SPEC-138 and
+SPEC-143 cleanup items are tests and wording only; no one is waiting on them.
+
 ## Spec Backlog
 
 Ordered. ⚡ Only the first item gates 0.8.0.
@@ -120,14 +128,6 @@ Ordered. ⚡ Only the first item gates 0.8.0.
   SPEC-133's batch *skipped* outcome, so build it after SPEC-133. Open for its spec: what "size"
   means (shorter edge? longer edge? area?) and whether `apply --recipe` gets a CLI override.
 
-- [ ] (not yet written) — [S] **`responsive` accepts `--name-template` and silently ignores it.**
-  Filed by SPEC-134's design (2026-10-25), driven on `main`: `responsive in.jpg --widths 32
-  --out-dir rp --name-template '{stem}.png'` writes `rp/in-32w.jpg`, exit 0 — the flag is a global
-  arg (`src/cli/mod.rs:80-82`) that `responsive` never reads. Open: refuse it (exit 2, the flag
-  means nothing here) or honour it (it would need a `{w}` token). SPEC-134 makes the template pin
-  the format on every other encoding verb, so `responsive` is now the one verb where it does
-  nothing.
-
 - [ ] (not yet written) — [S] **`watermark` prints absolute paths in batch lines; `apply` prints
   relative ones.** Filed by SPEC-133's re-verify (2026-10-26): `watermark two/` labels its skip
   warnings with absolute paths, `apply --recipe … two/` with the path as given. Pre-existing
@@ -173,11 +173,6 @@ Ordered. ⚡ Only the first item gates 0.8.0.
   text is bounded only by DEC-036's 64 KiB. Fix shape: bound the canvas area (or the string
   length) before allocating, in DEC-034/DEC-063's resource-limit family.
 
-- [ ] (not yet written) — [S] **A missing `--font` reports "could not read image input".**
-  Filed by SPEC-135's frame (2026-10-27): `watermark in.png --text hi --font /no/font.ttf` exits 3
-  with `error: could not read image input`; the file is a font. The font read maps to
-  `ImageError::Io` (`src/cli/ops.rs:1369`). Pre-existing. Name the font in the message.
-
 - [ ] (not yet written) — [S] **`text::render_text` panics for a library caller that passes a huge
   size.** Filed by SPEC-135's design (2026-10-27; maintainer ruling, filed by the orchestrator).
   On `main`, `--text "© crustyimg" --size 100000` panics in `zeno` (`raster.rs:144`, exit 101),
@@ -218,16 +213,6 @@ Ordered. ⚡ Only the first item gates 0.8.0.
   refuse it on `build` with exit 2. Then correct the docs, which 0.8.0 words as "on `build`, the
   target's name or the recipe's `format` sets the format". Check whether 0.7.1 ignores it too.
 
-- [ ] (not yet written) — [S] **The browser's asset refusal shows a spec id to users.** Filed by
-  the 0.8.0 release-notes verify (2026-10-27). The wasm `transform` error for a recipe that needs
-  an image or font file ends with `… is out of scope (SPEC-128)` (`src/wasm.rs:237`).
-  User-facing text carries no spec or DEC ids. Reword it to say what to do instead, and check
-  every other user-facing string for the same: `grep -rn 'SPEC-\|DEC-' src/` outside comments.
-  ⚠ **"Outside comments" misses `--help`.** clap builds help text from `///` doc comments, and
-  `crustyimg --help` shows `build … (SPEC-063, DEC-057)` and `lint … (SPEC-050, DEC-050)` today
-  (seen by the orchestrator on 0.7.1, 2026-10-28). Check every verb's `--help` output, not the
-  source: loop over the verbs and grep the rendered help for `SPEC-` and `DEC-`.
-
 - [x] **SPEC-137** (merged 2026-10-29, PR #217) — [S] **An SVG font family other than Go draws no text.** Filed by the
   PR #211 (resvg 0.49) verify, 2026-10-28. It's the same on 0.7.1, so #211 didn't cause it.
   `<text font-family="sans-serif">`, `serif`, `Helvetica` or `"Helvetica, sans-serif"` renders
@@ -239,19 +224,6 @@ Ordered. ⚡ Only the first item gates 0.8.0.
   after that, fall back to Go too. Test with an independent check that ink is present. Keep a
   negative control proving no system font is read.
 
-- [ ] (not yet written) — [S] **`--keep-gps` and `-v`/`--verbose` are read by no verb.** Filed by
-  the SPEC-137/138 frame (2026-10-28), from `build`'s global-flag sweep. Both are `GlobalArgs`
-  fields (`src/cli/mod.rs:98`, `:110`), but `grep -rn 'keep_gps\|verbose' src` finds them only in
-  that struct and two test fixtures that set them (`src/cli/ops.rs:1600-1603`,
-  `src/cli/common.rs:454-457`). Driven on `main`: `convert signed_gps.jpg --format jpeg --keep-gps`
-  exits 0 and the output has **0 EXIF keys** (the source has `GPSLatitude 50/1,29/1,1113/25`).
-  The pixel lane drops all metadata (`metadata-not-via-pixel-encode`), so the flag cannot do what
-  `docs/cli-reference.md:21,38`, `README.md:193` and `CHANGELOG.md:711` promise. `-vv` changes no
-  output either; no logger is installed, so usvg's own `log::warn!`s are never shown. Released
-  versions not driven. Decide per flag: implement it, refuse it, or remove it and its docs. Sibling,
-  minor: `build --strict` without `--check` exits 0 and does nothing (its help says "With
-  `--check`").
-
 - [ ] (not yet written) — [S] **SPEC-138's verify cleanups, and `build --help` still lists the four
   refused flags.** Filed by the SPEC-138 ship (2026-10-30), one entry for what verify found.
   (1) FT-13 should assert its snapshot diff names a `.crustyimg/` path: today `snapshot()` could
@@ -262,30 +234,6 @@ Ordered. ⚡ Only the first item gates 0.8.0.
   `--format`, `-o`, `--out-dir` and `--name-template` although `build` now exits 2 on them; decide
   whether a `build`-specific help note is worth the clap work, or leave the docs as the answer.
   Tests and docs only, apart from (4).
-
-- [ ] (not yet written) — [S] **`lint`'s suggested `fix:` commands write the image to stdout.**
-  Filed by the orchestrator (2026-10-30), from the `jysf/crustyimg-example` demo site
-  (2026-10-29). `lint` names a runnable fix for each finding, such as `meta clean --gps <f>`,
-  `optimize <f>`, `auto-orient <f>` or a `resize`. Run exactly as printed, each writes the
-  encoded image to **stdout**, even on a TTY, so the file is not fixed. The form that works is
-  `-o <f> -y`. Not yet driven on 0.8.1. Decide whether the printed fix should carry
-  `-o <f> -y`, or whether these verbs should refuse to write binary to a TTY. Then test that
-  every printed `fix:` line, run verbatim in a shell, changes the file and clears the finding.
-
-- [ ] (not yet written) — [S] **`privacy/gps-metadata-leak` fires on a GPS block with no
-  coordinates.** Filed by the orchestrator (2026-10-30), from the `jysf/crustyimg-example` demo
-  site (2026-10-29). A Nikon P1100 JPEG writes a GPS IFD holding only `GPSVersionID`, with no
-  latitude or longitude, and `lint` flags it as a location leak. Not yet driven on 0.8.1. Decide
-  whether the rule keys on coordinate tags (`GPSLatitude`/`GPSLongitude`) rather than on the IFD's
-  presence, and keep a positive control: a file with real coordinates must still be flagged.
-
-- [ ] (not yet written) — [S] **A folder that holds only subfolders reports "input not found or
-  unreadable".** Filed by the orchestrator (2026-10-30), from the 0.8.1 release-notes verify. A
-  directory input reads only its top-level images (documented in the skill since 0.8.1). For
-  `lint d/` or `optimize d/` where `d/` has only subfolders, both exit 3 with "input not found
-  or unreadable", which is misleading: the folder exists and is readable. Say instead that the
-  folder has no images at its top level, and suggest a recursive glob (`'d/**/*'`). Keep exit 3
-  unless a ruling changes it.
 
 - [ ] (not yet written) — [S] **A library caller of `Watermark::new_image` / `new_text` can still
   build a mark that draws nothing.** Filed by SPEC-143's frame (2026-10-30). SPEC-143 refuses a
@@ -341,7 +289,7 @@ Ordered. ⚡ Only the first item gates 0.8.0.
   actionlint (`-shellcheck=`) in CI; A1 runs nowhere automatically. (5) DEC-111: one sentence on
   ruling 5 (only npm holds `id-token`) and on the PR dry-run wrapper.
 
-**Count:** 6 shipped / 0 active / 23 pending — re-derived 2026-11-05 (ship of SPEC-146) with `grep -c '^- \[ \]'` (23) and `grep -c '^- \[x\]'` (6).
+**Count:** 6 shipped / 0 active / **16 pending** — re-derived 2026-11-05 after seven items moved to STAGE-063.
 
 ## Design Notes
 

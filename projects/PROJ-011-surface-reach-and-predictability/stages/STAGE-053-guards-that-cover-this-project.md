@@ -68,6 +68,14 @@ Because both are guards, both are small, and **the wasm one has a design questio
 STAGE-050 needs answered anyway.** ⚠ **Do not treat this as blocking STAGE-049** — the earlier
 "do this before STAGE-049 merges" was wrong and is withdrawn.
 
+## Disposition (2026-11-05 triage)
+
+PROJ-011 is winding down; this stage's items are hygiene, not release-blocking. They stay here as
+a backlog for the project that next takes guards. Two are suspect and must be checked against
+current code before anyone frames them: "Every cost figure this repo has recorded is wrong" and
+"Ship TWO wasm artifacts". The "failed `changes` job" probe should run before the wasm job is made
+a required check.
+
 ## Spec Backlog
 
 - [ ] (not yet written) — [S] ⚡ **`just check` never runs the wasm bundle-size gate, so CI is the
@@ -216,7 +224,9 @@ STAGE-050 needs answered anyway.** ⚠ **Do not treat this as blocking STAGE-049
   `changes` job is forced to fail, and read the required checks' states. Do not assume.
 - [ ] (not yet written) — [S] **Harden the wasm-job shape check against a neutered floor call.** Filed by SPEC-146 verify round 2. The anchored line match still passes `if false; then … fi`, a heredoc holding the call, `set +e` before it, an unused function wrapper, `exit 0` before it, and `log=/dev/null`. Partial fix: assert the count call is the last line of the step's `run:`. Low value until someone edits that step; do it with the next change to the job.
 
-**Count:** 0 shipped / 0 active / 9 pending — re-derived 2026-11-05 (ship of SPEC-146) with `grep -c '^- \[ \]'` (9) and `grep -c '^- \[x\]'` (0).
+- [ ] (not yet written) — [S] **`wasm-ci-check.sh`'s self-test hardcodes the test counts.** Filed 2026-11-05 from PROJ-017's report on #244. Changing `FULL_COUNT`/`SLIM_COUNT` also turned the `--self-test` rows red (`count full 47 ok`, `count slim 45 ok`, …) because the rows carry the numbers as literals, and the script's comment names only the two constants. Derive the fixtures from the constants, or say so in the comment. Found by the first real count change; SPEC-146's verify missed it because no count had changed yet.
+
+**Count:** 0 shipped / 0 active / **10 pending** — re-derived 2026-11-05.
 
 ## Dependencies
 

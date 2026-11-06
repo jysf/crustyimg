@@ -5,7 +5,7 @@
 
 stage:
   id: STAGE-041                     # stable, zero-padded within the project
-  status: proposed                  # proposed | active | shipped | cancelled | on_hold
+  status: on_hold                   # proposed | active | shipped | cancelled | on_hold
   priority: high
   target_complete: null
 
@@ -162,6 +162,11 @@ Both measured this week, both the kind a hostile reader finds:
 
 **Neither is a reason to delay the launch.** They are reasons the honest-limits section should be
 written after STAGE-046, not before.
+
+> **Parked 2026-11-05 (orchestrator triage, maintainer-approved).** Publication writing and the
+> pre-publication verification pass are the maintainer's work, nothing else waits on them, and
+> they were never framed. Reopen when the maintainer is ready to publish; re-derive every number
+> then, and re-run the install-path checks at the then-current release.
 
 ## Spec Backlog
 
