@@ -25,6 +25,12 @@ Cycle prompts live in `prompts/SPEC-147-<cycle>.md`.
   9 doc surfaces; 12-row mutation table, pixel rows reasoned. [S], no split. Rulings (2026-11-05, all
   four as recommended): positive `angle` is clockwise; `flip` keeps `horizontal`/`vertical`; the
   non-multiple refusal names no internal id; `0`/`±360` load as a no-op.
-- [ ] **build** (`prompts/SPEC-147-build.md`)
-- [ ] **verify** (`prompts/SPEC-147-verify.md`)
+- [x] **build** (`prompts/SPEC-147-build.md`, 2026-11-05, Sonnet, ~$7.84). Draft PR #252 at `ceda510`;
+  CI green on every leg at `f2f5b59` (the last code commit). 58/58 ACs; all 12 mutation rows driven
+  and every red set matched, with one cell corrected (M8 row 3 goes red as a wrong verdict) and one
+  extra red row (M10 also reds the corpus `to_toml` test). Corpus: both recipes byte-identical across
+  the three targets, no existing file changed. wasm 51/49 locally and in CI; `--self-test` 18/18 and
+  `workflow` 16/16 locally. Lean leg runs the new tests (1117 passed). Bundle +2,423 B brotli. One
+  file outside `## Outputs`: `tests/common/mod.rs`, which the Failing Tests section asks for.
+- [~] **verify** (`prompts/SPEC-147-verify.md`)
 - [ ] **ship**
