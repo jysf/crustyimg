@@ -94,7 +94,7 @@ In build order. Each is framed in its own session first.
   page is wrong by construction. The DEC says which units a recipe may carry and how a
   fraction rounds to pixels. Reuse `Gravity` (`src/operation/mod.rs`) rather than adding a
   second anchor type.
-- [ ] (not yet written) — [S] **`rotate` (quarter turns) and `flip`.** `rotate` with `angle`
+- [ ] **SPEC-147** (framed 2026-11-05) — [S] **`rotate` (quarter turns) and `flip`.** `rotate` with `angle`
   restricted to multiples of 90 in this stage. A non-multiple is refused with a message naming
   the any-angle stage, until STAGE-059 lifts it on the same op and key table. `flip` with
   `axis = "horizontal" | "vertical"`. Exact: `image::imageops` rotate90/180/270 and flips, at
@@ -156,7 +156,17 @@ In build order. Each is framed in its own session first.
   only if the wording is made checkable. Distinct from the entry above, which is about the
   batch message's text. Before `pad` or `trim` ships.
 
-**Count:** 3 shipped / 0 active / 8 pending — re-derived 2026-11-05 with `/usr/bin/grep -c '^- \[x\]'` (3: SPEC-141, SPEC-145 and the docs entry folded into it), `/usr/bin/grep -c '^- \[ \]'` (8) and `/usr/bin/grep -c '^- \[ \] (not yet written)'` (8)
+- [ ] (not yet written) — [S] **`apply` and `build` warn when a recipe with no `auto-orient` step meets a tagged input.**
+  Found at SPEC-147's frame. The pixel lane writes no EXIF (DEC-003), so a recipe that doesn't start
+  with `auto-orient` drops the tag without applying it: an `invert` recipe on a 60×40 PNG tagged
+  Orientation 6 wrote the stored 60×40 pixels with no tag, so a portrait displays sideways, exit 0.
+  Every op does this today, `crop` included. With `rotate` it reads as "nothing happened": `rotate
+  angle = 90` on that input gives exactly the pixels the source already displayed as (0 px against
+  `auto-orient`). SPEC-110 fixed the verbs and scoped `apply` out; `edit --save-recipe` already
+  records `auto-orient`. Design decides warn vs refuse vs stay silent, and whether a geometry step
+  alone triggers it. A warning changes no output bytes. After SPEC-147.
+
+**Count:** 3 shipped / 1 active / 8 pending — re-derived 2026-11-05 at SPEC-147's frame with `/usr/bin/grep -c '^- \[x\]'` (3: SPEC-141, SPEC-145 and the docs entry folded into it), `/usr/bin/grep -c '^- \[ \]'` (9), `/usr/bin/grep -c '^- \[ \] \*\*SPEC-'` (1: SPEC-147, framed) and `/usr/bin/grep -c '^- \[ \] (not yet written)'` (8)
 
 ## Design Notes
 
