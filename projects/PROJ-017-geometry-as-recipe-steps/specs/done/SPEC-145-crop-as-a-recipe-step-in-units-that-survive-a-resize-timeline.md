@@ -53,5 +53,6 @@ Cycle prompts live in `prompts/SPEC-145-<cycle>.md`.
   and 57 px); +0.1 red at bare 0.6, green at 0.6 + 1e-9; `BOUND` const shared by assert and panic;
   1156 passed. Two optional wording cleanups, not blocking. The orchestrator ran `update-branch`
   (head `deaee5a`, main's docs only) before marking ready.
-- [x] **ship** (`prompts/SPEC-145-ship.md`, 2026-11-05, Sonnet, ~$0.87). Merged as `7fdee9f` (PR #244). Reflected, costs
+- [x] **ship** (`prompts/SPEC-145-ship.md`, 2026-11-05, Sonnet, ~$0.87). Merged as `7fdee9f` (PR #244). After re-verify 2, the orchestrator pushed `9889dbd` and `b454a3a`
+  (`wasm-ci-check.sh` counts 47/45 → 49/47 and its self-test fixtures, for SPEC-146's new wasm job); checked by CI only, not by a verify session. Reflected, costs
   re-measured (nine sessions, $38.26 in all), archived.
