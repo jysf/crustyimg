@@ -47,4 +47,4 @@ Cycle prompts live in `prompts/SPEC-147-<cycle>.md`.
   Build Completion says 31 files, the diff has 32; (3, wording) mutation table M8 row 3 and the M10
   `to_toml` row; (4, wording) DEC-113 §3 says only tag 6 was driven. One out-of-spec wording finding
   on STAGE-058 (the corpus guard README's "Adding a recipe" table) was cut off in the paste.
-- [ ] **ship**
+- [ ] **ship** (`prompts/SPEC-147-ship.md`)
