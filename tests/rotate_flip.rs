@@ -588,15 +588,6 @@ fn tagged_png(src: &DynamicImage) -> Vec<u8> {
     out
 }
 
-/// The Orientation value kamadak-exif finds in `bytes`, if any.
-fn orientation_of(bytes: &[u8]) -> Option<u32> {
-    let exif = exif::Reader::new()
-        .read_from_container(&mut std::io::Cursor::new(bytes))
-        .ok()?;
-    exif.get_field(exif::Tag::Orientation, exif::In::PRIMARY)
-        .and_then(|f| f.value.get_uint(0))
-}
-
 fn apply_to_tagged(steps: &[&str]) -> (Applied, Option<DynamicImage>, Vec<u8>) {
     let dir = TempDir::new().unwrap();
     let src = seeded("rgb8", 7, 5);
@@ -614,7 +605,7 @@ fn rotate_acts_on_stored_pixels_and_writes_no_orientation_tag() {
 
     // Control A: the reader sees the tag on the input bytes.
     assert_eq!(
-        orientation_of(&tagged_png(&src)),
+        common::orientation_of(&tagged_png(&src)),
         Some(6),
         "control A: the test's PNG does not carry Orientation 6"
     );
@@ -637,7 +628,7 @@ fn rotate_acts_on_stored_pixels_and_writes_no_orientation_tag() {
     assert_eq!(r.code, Some(0), "stderr: {}", r.stderr);
     let out = out.expect("rotate output decodes");
     check_map(&src, &out, (ow, oh), &*map).expect("rotate 90 is the 1-turn map of stored pixels");
-    match orientation_of(&bytes) {
+    match common::orientation_of(&bytes) {
         None | Some(1) => {}
         Some(other) => panic!(
             "the pixel lane carried the source's Orientation tag through ({other}); it must \
@@ -677,5 +668,35 @@ fn rotate_then_auto_orient_matches_auto_orient_then_rotate() {
     assert!(
         same(&first, &second),
         "the two step orders decode to different pixels"
+    );
+}
+
+// ── orientation_of is strict ────────────────────────────────────────────────
+
+/// A PNG whose `eXIf` chunk is a TIFF header with an IFD that runs off the
+/// end of the block: kamadak-exif reports `Truncated IFD`, which is not
+/// "no tag".
+fn png_with_malformed_exif() -> Vec<u8> {
+    let rgb = seeded("rgb8", 7, 5).to_rgb8();
+    let mut out = Vec::new();
+    let mut enc = PngEncoder::new(&mut out);
+    enc.set_exif_metadata(b"II*\0\x08\0\0\0\xff\xff".to_vec())
+        .expect("the PNG encoder takes EXIF");
+    enc.write_image(rgb.as_raw(), 7, 5, ExtendedColorType::Rgb8)
+        .expect("encode png");
+    out
+}
+
+#[test]
+#[should_panic(expected = "kamadak-exif could not read")]
+fn orientation_of_fails_on_a_malformed_exif_chunk() {
+    let _ = common::orientation_of(&png_with_malformed_exif());
+}
+
+#[test]
+fn orientation_of_reads_no_tag_as_none() {
+    assert_eq!(
+        common::orientation_of(&png_bytes(&seeded("rgb8", 7, 5))),
+        None
     );
 }

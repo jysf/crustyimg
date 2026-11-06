@@ -128,6 +128,21 @@ pub fn scan_jpeg(w: u32, h: u32) -> Vec<u8> {
     encode(DynamicImage::ImageRgb8(img), ImageFormat::Jpeg)
 }
 
+/// The Orientation value kamadak-exif finds in `bytes`, if any.
+///
+/// Only "there is no EXIF at all" reads as `None`. Any other read error (a
+/// truncated IFD, say) panics, so a test that expects "no tag" cannot pass
+/// because the reader choked on a malformed block.
+pub fn orientation_of(bytes: &[u8]) -> Option<u32> {
+    match exif::Reader::new().read_from_container(&mut Cursor::new(bytes)) {
+        Ok(exif) => exif
+            .get_field(exif::Tag::Orientation, exif::In::PRIMARY)
+            .and_then(|f| f.value.get_uint(0)),
+        Err(exif::Error::NotFound(_)) => None,
+        Err(e) => panic!("kamadak-exif could not read the EXIF in these bytes: {e}"),
+    }
+}
+
 /// A bare little-endian TIFF block holding one Orientation entry: the bytes
 /// of an EXIF payload without its `Exif\0\0` prefix. A PNG `eXIf` chunk
 /// carries exactly this.
