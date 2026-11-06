@@ -77,9 +77,10 @@ Spec ids 148 to 150 are reserved by this commit (PROJ-017 holds 147).
   gps-leak item, framed together (both are `lint` rules). The frame also found both `convert --format`
   fixes malformed (exit 3), unquoted paths, `optimize` ignoring the budget, and a 16-bit PNG fix that
   cannot clear; all in scope. Complexity S.
-- [ ] SPEC-149 (not yet framed) — **No flag is accepted and ignored:** `--keep-gps` and `-v`,
-  `responsive --name-template`, and the missing-`--font` message. Needs a per-flag ruling
-  (implement, refuse or remove); the frame asks the maintainer. Complexity S–M.
+- [ ] SPEC-149 (framed 2026-11-06, M; rulings pending) — **No flag is accepted and ignored:** `--keep-gps` and `-v`,
+  `responsive --name-template` (and `--format`, found by the frame), `build --strict` alone and `--check`/`--strict`/
+  `--no-cache` off `build`, and the missing-`--font` (and `--image`) message. Recommended: refuse `--keep-gps`, a
+  minimal `-v` logger, refuse the rest; five maintainer questions in the spec's `## Frame`. Complexity M.
 - [ ] SPEC-150 (not yet framed) — **Two messages tell the truth:** a folder with only
   subfolders, and the browser's asset refusal plus every user-facing `SPEC-`/`DEC-` id in rendered
   `--help`, including `lint --help`'s "(each with a runnable fix)" line (SPEC-148's design asks SPEC-150 to reword it with its spec ids). Complexity S.
@@ -100,7 +101,25 @@ Spec ids 148 to 150 are reserved by this commit (PROJ-017 holds 147).
   only. Find why the unpinned search lands on a worse JPEG than the pinned encode (`src/cli/optimize.rs`),
   and whether "never ship a larger file" / "smallest format" still holds there.
 
-**Count:** 1 shipped / 0 active / **5 pending** — 2026-11-06 (re-derived by grep of the backlog checkboxes: 6 in total, 1 ticked).
+- [ ] (not yet written) — [S–M] **More global flags are accepted and ignored (finding A).** Filed by the SPEC-149
+  frame (2026-11-06), from a driven 20-verb × 13-flag matrix on `main` (0.8.2 debug). Exit 0, output identical to
+  not passing the flag: `meta strip|clean|set gps.jpg --format webp -o x.jpg` (writes JPEG) and `-q 5`;
+  `resize gps.jpg -o a.jpg --out-dir od` (`od` never created); `info gps.jpg -o x.txt` (no file; also
+  `lint`, `diff`, `view` take `-o`/`--out-dir`/`-y`); an unknown template token is written literally
+  (`resize --out-dir t --name-template '{stem}-{w}w.{ext}'` → `t/gps-{w}w.jpg`). SPEC-149 builds its refusal as a
+  per-verb table; this item extends it. Decide per combination: refuse (exit 2) or document.
+- [ ] (not yet written) — [S] **`optimize -q` and `web -q` blame flags the user did not pass (finding B).** Filed by
+  the SPEC-149 frame (2026-11-06): `optimize gps.jpg -q 10 -o o.jpg` exits 2 with `-q/--quality cannot be combined
+  with --target/--ssim/--max-size`, though none was given; the default `AutoQuality::Fast`
+  (`src/cli/optimize.rs:837-838`, `:691-693`) trips `reject_quality_with_auto`. Exit 2 may be right; the message
+  is not. May fold into SPEC-150.
+- [ ] (not yet written) — [S] **DEC-003's pixel-lane preserve claim is false (finding C).** Filed by the SPEC-149
+  frame (2026-11-06): DEC-003 says pixel-lane encodes keep ICC and copyright/artist and drop only GPS. Driven:
+  `resize` of a JPEG with exiftool-written `Artist`, `Copyright` and GPS keeps 0 of them (ICC not driven).
+  Either amend DEC-003 (and `AGENTS.md:503`, `SECURITY.md:50`) to "drops all metadata", or build the selective
+  preserve, which is also what a real `--keep-gps` would need (`meta copy` restores both today, JPEG/PNG).
+
+**Count:** 1 shipped / 1 active / **7 pending** — 2026-11-06 (re-derived by grep and by Python of the backlog checkboxes: 9 in total, 1 ticked; SPEC-149, framed, is the active one).
 
 ### Items carried from STAGE-054 (full text, unchanged)
 
