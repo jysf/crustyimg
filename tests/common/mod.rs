@@ -128,6 +128,26 @@ pub fn scan_jpeg(w: u32, h: u32) -> Vec<u8> {
     encode(DynamicImage::ImageRgb8(img), ImageFormat::Jpeg)
 }
 
+/// A bare little-endian TIFF block holding one Orientation entry: the bytes
+/// of an EXIF payload without its `Exif\0\0` prefix. A PNG `eXIf` chunk
+/// carries exactly this.
+pub fn tiff_with_orientation(orientation: u8) -> Vec<u8> {
+    let mut tiff: Vec<u8> = Vec::new();
+    // Little-endian TIFF header.
+    tiff.extend_from_slice(&[0x49, 0x49]); // "II"
+    tiff.extend_from_slice(&[0x2A, 0x00]); // TIFF magic = 42
+    tiff.extend_from_slice(&[0x08, 0x00, 0x00, 0x00]); // IFD offset = 8
+    tiff.extend_from_slice(&[0x01, 0x00]); // entry count = 1
+    tiff.extend_from_slice(&[0x12, 0x01]); // tag 0x0112
+    tiff.extend_from_slice(&[0x03, 0x00]); // type SHORT
+    tiff.extend_from_slice(&[0x01, 0x00, 0x00, 0x00]); // count = 1
+    tiff.push(orientation);
+    tiff.push(0x00); // value padding (low byte already written)
+    tiff.extend_from_slice(&[0x00, 0x00]); // remaining value padding
+    tiff.extend_from_slice(&[0x00, 0x00, 0x00, 0x00]); // next-IFD offset = 0
+    tiff
+}
+
 /// Splice a one-entry Orientation IFD onto arbitrary JPEG bytes.
 ///
 /// Factored out of [`jpeg_with_orientation`] so a caller can attach a *real*
@@ -143,18 +163,7 @@ pub fn wrap_with_orientation_app1(base: &[u8], orientation: u8) -> Vec<u8> {
     // Build the APP1 payload: "Exif\0\0" + one-entry TIFF IFD.
     let mut payload: Vec<u8> = Vec::new();
     payload.extend_from_slice(b"Exif\0\0");
-    // Little-endian TIFF header.
-    payload.extend_from_slice(&[0x49, 0x49]); // "II"
-    payload.extend_from_slice(&[0x2A, 0x00]); // TIFF magic = 42
-    payload.extend_from_slice(&[0x08, 0x00, 0x00, 0x00]); // IFD offset = 8
-    payload.extend_from_slice(&[0x01, 0x00]); // entry count = 1
-    payload.extend_from_slice(&[0x12, 0x01]); // tag 0x0112
-    payload.extend_from_slice(&[0x03, 0x00]); // type SHORT
-    payload.extend_from_slice(&[0x01, 0x00, 0x00, 0x00]); // count = 1
-    payload.push(orientation);
-    payload.push(0x00); // value padding (low byte already written)
-    payload.extend_from_slice(&[0x00, 0x00]); // remaining value padding
-    payload.extend_from_slice(&[0x00, 0x00, 0x00, 0x00]); // next-IFD offset = 0
+    payload.extend_from_slice(&tiff_with_orientation(orientation));
 
     // APP1 segment length includes the 2 length bytes themselves.
     let seg_len = (payload.len() + 2) as u16;

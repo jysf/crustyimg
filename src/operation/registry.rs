@@ -509,6 +509,13 @@ mod tests {
     }
 
     #[test]
+    fn with_builtins_contains_rotate_and_flip() {
+        let reg = OperationRegistry::with_builtins();
+        assert!(reg.contains("rotate"), "expected 'rotate' to be registered");
+        assert!(reg.contains("flip"), "expected 'flip' to be registered");
+    }
+
+    #[test]
     fn build_unknown_returns_typed_error() {
         let reg = OperationRegistry::with_builtins();
         let result = reg.build("bogus", &OperationParams::empty());
@@ -668,6 +675,27 @@ mod tests {
                 ParamKind::OneOf(crate::operation::GRAVITY_NAMES),
             ]
         );
+        assert_eq!(keys("rotate"), ["angle"]);
+        assert_eq!(keys("flip"), ["axis"]);
+        let kinds = |name: &str| -> Vec<ParamKind> {
+            reg.param_specs(name)
+                .expect("schema")
+                .iter()
+                .map(|s| s.kind)
+                .collect()
+        };
+        assert_eq!(
+            kinds("rotate"),
+            [ParamKind::Number {
+                min: -360.0,
+                min_inclusive: true,
+                max: Some(360.0),
+            }]
+        );
+        assert_eq!(
+            kinds("flip"),
+            [ParamKind::OneOf(&["horizontal", "vertical"])]
+        );
         for paramless in ["identity", "invert", "auto-orient"] {
             assert!(keys(paramless).is_empty(), "'{paramless}' takes no keys");
         }
@@ -705,7 +733,7 @@ mod tests {
     fn one_of_values_are_accepted_by_their_constructors() {
         let reg = OperationRegistry::with_builtins();
         let mut checked = 0;
-        for op in ["resize", "watermark", "crop"] {
+        for op in ["resize", "watermark", "crop", "flip"] {
             for spec in reg.param_specs(op).expect("schema") {
                 let ParamKind::OneOf(values) = spec.kind else {
                     continue;
@@ -730,6 +758,8 @@ mod tests {
                         ("crop", _) => {
                             m.insert("aspect".to_owned(), toml::Value::String("16:9".into()));
                         }
+                        // `axis` is the whole step.
+                        ("flip", _) => {}
                         _ => {
                             m.insert("text".to_owned(), toml::Value::String("hi".into()));
                         }
@@ -744,8 +774,8 @@ mod tests {
         }
         assert_eq!(
             checked,
-            6 + 9 + 9,
-            "6 resize modes + 9 watermark gravities + 9 crop gravities"
+            6 + 9 + 9 + 2,
+            "6 resize modes + 9 watermark gravities + 9 crop gravities + 2 flip axes"
         );
     }
 
