@@ -15,6 +15,6 @@ Cycle prompts live in `prompts/SPEC-148-<cycle>.md`.
   mutation rows. One formatter: `crustyimg <frag> <file> -o <file> -y`, path quoted POSIX (PowerShell on
   Windows), `./` before a leading `-`; stdin and 16-bit print no command (`fix: null`). Budget fix is
   `optimize --max-size <bytes>`; CMYK `convert --format jpeg`. GPS keys on 4 coordinate tags + area info.
-- [~] **build** — `prompts/SPEC-148-build.md` (Sonnet)
-- [ ] **verify**
+- [x] **build** (2026-11-05, `prompts/SPEC-148-build.md`, Sonnet): draft PR #253 at `8f61167`, CI green incl. windows-latest. 13 mutations red locally; M-12 not driven. Cost about $3.88.
+- [~] **verify** (`prompts/SPEC-148-verify.md`, Opus)
 - [ ] **ship**
