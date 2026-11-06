@@ -72,6 +72,18 @@ cost:
         output: 51356
       estimated_usd: 6.54
       note: "Measured after the push from the session JSONL (61 message ids, all claude-opus-5-5, deduped by .message.id, max output_tokens per id); excludes this cost commit's own turns. Rates: Opus $5/$25 per MTok, cache_creation x1.25 input, cache_read x0.10 input."
+    - cycle: design
+      date: 2026-11-06
+      agent: claude-opus-5-5
+      interface: claude-code
+      tokens_total: 17921519
+      tokens_breakdown:
+        input: 162
+        cache_creation: 300204
+        cache_read: 17501803
+        output: 119350
+      estimated_usd: 13.61
+      note: "Measured after the push from the session JSONL (80 message ids, all claude-opus-5-5, deduped by .message.id, max output_tokens per id); excludes this cost commit's own turns. Includes a throwaway prototype and a 14-row mutation sweep over the full test suite. Rates: Opus $5/$25 per MTok, cache_creation x1.25 input, cache_read x0.10 input."
   totals:
     tokens_total: 0
     estimated_usd: 0
