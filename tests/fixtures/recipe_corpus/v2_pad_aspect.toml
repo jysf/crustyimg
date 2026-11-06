@@ -1,0 +1,10 @@
+# Pad to the smallest 4:5 canvas, with the image at the north-west corner and a
+# blue fill. No resampling, so the output is the same bytes on every target.
+version = "2"
+name = "corpus-pad-aspect"
+
+[[step]]
+op = "pad"
+aspect = "4:5"
+gravity = "northwest"
+color = "#1e90ff"
