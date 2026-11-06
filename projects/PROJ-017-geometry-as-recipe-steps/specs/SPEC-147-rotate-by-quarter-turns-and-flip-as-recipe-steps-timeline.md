@@ -13,6 +13,9 @@ Cycle prompts live in `prompts/SPEC-147-<cycle>.md`.
   trap is the lost tag (a recipe without `auto-orient` displays sideways). Recommends DEC-113 (geometry
   acts on the received buffer, writes no metadata), `angle` a number in [-360, 360], clockwise, and
   `flip axis = horizontal` = mirror left/right. Four maintainer questions, all with recommendations.
+  Rulings (2026-11-05, all four as recommended): positive `angle` is clockwise; `flip` keeps
+  `horizontal`/`vertical` with a doc sentence; the non-multiple refusal names no stage id; `0`/`±360`
+  load as a no-op.
 - [ ] **design** (`prompts/SPEC-147-design.md`)
 - [ ] **build** (`prompts/SPEC-147-build.md`)
 - [ ] **verify** (`prompts/SPEC-147-verify.md`)
