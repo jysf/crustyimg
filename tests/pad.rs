@@ -935,7 +935,9 @@ fn float_images_keep_their_variant() {
 
 /// `(gravity, offset on a 5×2 image, offset on a 2×5 image)`, both padded to
 /// `1:1` (a 5×5 canvas), as literals.
-const GRAVITY_TABLE: [(&str, (u32, u32), (u32, u32)); 9] = [
+type Offset = (u32, u32);
+
+const GRAVITY_TABLE: [(&str, Offset, Offset); 9] = [
     ("center", (0, 1), (1, 0)),
     ("north", (0, 0), (1, 0)),
     ("south", (0, 3), (1, 0)),

@@ -30,10 +30,31 @@ pub mod crop;
 pub use crop::{Crop, CROP_PARAMS};
 pub mod flip;
 pub use flip::{Flip, FLIP_PARAMS};
+pub mod pad;
+pub use pad::{Pad, PAD_PARAMS};
 pub mod rotate;
 pub use rotate::{Rotate, ROTATE_PARAMS};
 pub mod registry;
 pub use registry::{OperationRegistry, ParamKind, ParamSpec, RegistryError};
+
+// ─── Output size caps ───────────────────────────────────────────────────────
+
+/// The most pixels an op may give one side of its output. A per-dimension
+/// sanity cap, shared by every op that can grow the canvas.
+pub(crate) const MAX_EDGE: u32 = 50_000;
+
+/// The most pixels an op may give its whole output: 512 MiB at RGBA8 (== the
+/// decode allocation cap, DEC-034/DEC-038), so an op cannot return a buffer
+/// larger than what decode would accept. Tightened from 256 Mpx to 128 Mpx
+/// for that symmetry (SPEC-037). The upscale-bomb defense.
+///
+/// It bounds the OUTPUT, not the peak. The resample runs in linear
+/// `F32x4` — 16 B/px, four times RGBA8 — with the source's float copy
+/// alongside it, so a request at the cap peaks well above the 512 MiB
+/// this number reads as. Whether the bound should move is a decision
+/// about untrusted-input allocation, not a tidy-up; measured multipliers
+/// are in DEC-095.
+pub(crate) const MAX_AREA: u64 = 134_217_728; // 128 * 1024 * 1024 px = 512 MiB at RGBA8
 
 // ─── OperationParams ────────────────────────────────────────────────────────
 
@@ -278,6 +299,9 @@ impl fmt::Display for Refusal {
 /// in-memory `apply`. Implementors MUST NOT read or write disk (constraint
 /// `decode-once-no-per-op-disk`) and MUST NOT depend on clap/recipes/
 /// terminals.
+///
+/// A new op that can decline to run on some images reads [`Operation::refusal`]
+/// first: it says which conditions belong there and which belong in `apply`.
 pub trait Operation {
     /// Stable registry/recipe key, e.g. `"identity"`, `"invert"`.
     fn name(&self) -> &'static str;
@@ -297,6 +321,15 @@ pub trait Operation {
     /// cheap enough to call before every `apply`; a caller that wants to keep
     /// going without this step asks here first, since `apply` consumes the
     /// image. The default never declines.
+    ///
+    /// A refusal here is **skippable**. A single input that is refused exits 2,
+    /// but in a batch the step is skipped for that image, which is written
+    /// without it, and the run exits 0. So refuse here only when leaving the
+    /// step out is an acceptable result, such as a watermark too large for a
+    /// small image. When running the step would give a wrong output (a crop or
+    /// a pad border that rounds to 0 px, a canvas past the size caps), return
+    /// an error from `apply` instead: one input exits 1, and in a batch that
+    /// input fails, nothing is written for it, and the run exits 6.
     fn refusal(&self, _img: &Image) -> Option<Refusal> {
         None
     }
@@ -1025,19 +1058,6 @@ impl Operation for Resize {
         // Reject before any resize backend allocates — one check covers all six modes
         // (including percent/cover/fill, whose output dims depend on the input).
         // MAX_AREA is the upscale-bomb defense; MAX_EDGE is a per-dimension sanity cap.
-        const MAX_EDGE: u32 = 50_000;
-        // 512 MiB RGBA *output* (== the decode allocation cap, DEC-034/DEC-038):
-        // a resize cannot return a buffer larger than what decode would accept.
-        // Tightened from 256 Mpx to 128 Mpx for that symmetry (SPEC-037).
-        //
-        // It bounds the OUTPUT, not the peak. The resample runs in linear
-        // `F32x4` — 16 B/px, four times RGBA8 — with the source's float copy
-        // alongside it, so a request at the cap peaks well above the 512 MiB
-        // this number reads as. Whether the bound should move is a decision
-        // about untrusted-input allocation, not a tidy-up; measured multipliers
-        // are in DEC-095.
-        const MAX_AREA: u64 = 134_217_728; // 128 * 1024 * 1024 px = 512 MiB at RGBA8
-
         if tw > MAX_EDGE || th > MAX_EDGE {
             return Err(OperationError::Apply {
                 op: "resize",

@@ -14,8 +14,9 @@ use std::collections::HashMap;
 use thiserror::Error;
 
 use super::{
-    AutoOrient, Crop, Flip, Identity, Invert, Operation, OperationParams, Resize, Rotate,
-    Watermark, CROP_PARAMS, FLIP_PARAMS, RESIZE_PARAMS, ROTATE_PARAMS, WATERMARK_PARAMS,
+    AutoOrient, Crop, Flip, Identity, Invert, Operation, OperationParams, Pad, Resize, Rotate,
+    Watermark, CROP_PARAMS, FLIP_PARAMS, PAD_PARAMS, RESIZE_PARAMS, ROTATE_PARAMS,
+    WATERMARK_PARAMS,
 };
 
 // ─── Constructor type alias ─────────────────────────────────────────────────
@@ -273,8 +274,8 @@ struct Entry {
 ///
 /// Constructed via [`OperationRegistry::new`] (empty) or
 /// [`OperationRegistry::with_builtins`] (pre-populated with `identity`,
-/// `invert`, `resize`, `auto-orient`, `watermark`, `crop`, `rotate`, and
-/// `flip`). New operations
+/// `invert`, `resize`, `auto-orient`, `watermark`, `crop`, `rotate`, `flip`,
+/// and `pad`). New operations
 /// register themselves without touching the recipe parser (the whole point of
 /// the registry seam), and each publishes the step keys it accepts:
 ///
@@ -301,7 +302,7 @@ impl OperationRegistry {
 
     /// Create a registry pre-populated with the built-in operations:
     /// `"identity"`, `"invert"`, `"resize"`, `"auto-orient"`, `"watermark"`,
-    /// `"crop"`, `"rotate"` and `"flip"`.
+    /// `"crop"`, `"rotate"`, `"flip"` and `"pad"`.
     pub fn with_builtins() -> Self {
         let mut reg = Self::new();
         reg.register("identity", |_params| Ok(Box::new(Identity)));
@@ -324,6 +325,7 @@ impl OperationRegistry {
             ROTATE_PARAMS,
         );
         reg.register_with_params("flip", |p| Ok(Box::new(Flip::from_params(p)?)), FLIP_PARAMS);
+        reg.register_with_params("pad", |p| Ok(Box::new(Pad::from_params(p)?)), PAD_PARAMS);
         reg
     }
 
