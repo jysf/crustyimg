@@ -7,7 +7,7 @@
 task:
   id: SPEC-148
   type: bug                        # epic | story | task | bug | chore
-  cycle: design  # frame | design | build | verify | ship
+  cycle: build  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: S                    # S | M | L  (L means split it)
@@ -69,6 +69,25 @@ cost:
         Interactive frame session, worktree docs/spec-148-frame. Measured from transcript
         b9453114-2616-49f4-9f66-3ecf6897e33a.jsonl, found by the prompt's title, deduped by
         `.message.id` (44 unique ids, all claude-opus-5-5): input/cache_creation/cache_read once
+        per id, MAX output_tokens per id. Rates: Opus $5 in / $25 out per MTok, cache_creation
+        x1.25 input, cache_read x0.10 input. Taken before the commit/push exchanges, so it
+        slightly under-counts the session.
+    - cycle: design
+      agent: claude-opus-5-5
+      interface: claude-code
+      tokens_total: 5471597
+      tokens_breakdown:
+        input: 78
+        output: 51102
+        cache_creation: 163183
+        cache_read: 5257234
+      estimated_usd: 4.93
+      duration_minutes: null
+      recorded_at: 2026-11-05
+      note: >
+        Interactive design session, worktree docs/spec-148-design. Measured from transcript
+        a2da7e84-7289-4179-90be-0d27019c54f9.jsonl, found by the prompt's title, deduped by
+        `.message.id` (39 unique ids, all claude-opus-5-5): input/cache_creation/cache_read once
         per id, MAX output_tokens per id. Rates: Opus $5 in / $25 out per MTok, cache_creation
         x1.25 input, cache_read x0.10 input. Taken before the commit/push exchanges, so it
         slightly under-counts the session.
@@ -320,33 +339,430 @@ coordinate; fixtures and tests; the doc comments and `docs/github-actions.md` ta
    fixture? **Recommend yes if easy;** the hand-built bytes are enough for the gate.
 5. Add a "Fixed in 0.8.3" line to the 2026-10-29 blog post? **Recommend yes,** one line at ship.
 
+## Design
+
+Designed 2026-11-05 (Opus 5.5) on `main` at `1eba31f`. Every fix below was driven with `sh -c` on a
+scratch copy against a debug build of that commit before it went into this spec (see "Driven at
+design"). The orchestrator's rulings 1–9 are taken as settled; this section records the calls the
+design owned.
+
+### Call 1 — one formatter, quoting inside it
+
+`Finding::fix_command` stays the single source for all three renderings (human `fix:` line,
+`report.rs:44`; JSON `fix`, `report.rs:114`; SARIF message, `report.rs:193`). The renderers do not
+change. Rules keep emitting a **fragment** (`Option<String>`: the verb and its flags, no binary
+name, no file). The formatter owns everything that depends on the file: the quoting, the `./`
+guard, `-o <file> -y`, and the decision that there is no runnable command.
+
+New shape (in `src/lint/mod.rs`, next to `Finding`):
+
+```rust
+/// Which shell's quoting a printed fix uses.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Shell {
+    Posix,
+    PowerShell,
+}
+
+/// The shell a user on this platform most likely pastes into: PowerShell on
+/// Windows (the default terminal shell and the GitHub Actions default), sh/bash/zsh
+/// everywhere else.
+const HOST_SHELL: Shell = if cfg!(windows) { Shell::PowerShell } else { Shell::Posix };
+
+/// Quote one path so `shell` reads it as exactly one argument. `None` when the
+/// path is not valid UTF-8 (no printable command can name it).
+fn shell_arg(path: &Path, shell: Shell) -> Option<String> { … }
+
+impl Finding {
+    /// The full runnable fix: `crustyimg <fragment> <file> -o <file> -y`, with
+    /// the file quoted for this platform's shell. `None` when the rule names no
+    /// command, the input was stdin, or the path cannot be printed.
+    pub fn fix_command(&self) -> Option<String> {
+        self.fix_command_for(HOST_SHELL)
+    }
+
+    fn fix_command_for(&self, shell: Shell) -> Option<String> {
+        if self.from_stdin {
+            return None;
+        }
+        let fragment = self.fix.as_deref()?;
+        let file = shell_arg(&self.file, shell)?;
+        Some(format!("crustyimg {fragment} {file} -o {file} -y"))
+    }
+}
+```
+
+`shell_arg` rules, in order:
+1. `path.to_str()`; `None` (no command) if the path is not UTF-8. Printing it lossily would name a
+   different file.
+2. If the string starts with `-`, prefix `./`. Quoting does not stop clap reading `-x.jpg` as a
+   flag; `./-x.jpg` is the file on every OS (Rust accepts `/` on Windows).
+3. If every char is in the safe set, print it bare. Safe set: ASCII alphanumerics and `_ - . /`;
+   for `PowerShell` also `\` and `:` (so `img\a.jpg` and `C:\x\a.jpg` stay bare and also run in
+   `cmd`). The safe set is deliberately small: `,` makes an array in PowerShell, `=`, `~`, `@`, `$`
+   and spaces mean something in one shell or another.
+4. Otherwise quote:
+   - `Posix`: `'` + replace every `'` with `'\''` + `'`.
+   - `PowerShell`: `'` + double every `'` **and** every `‘ ’ ‚ ‛` (U+2018–U+201B; PowerShell
+     treats these as single quotes too) + `'`.
+
+`fix_command_for` and `shell_arg` are private and take `Shell` explicitly, so the unit tests cover
+both quoters on every OS. Only `HOST_SHELL` is chosen by `cfg!`.
+
+**How a rule says "no command":** the fragment is `None`, as today. There is no empty-string
+path: the formatter does not filter `Some("")`. A unit test instead asserts that no rule emits an
+empty or whitespace fragment (FT-6), so an empty string fails a test rather than being silently
+dropped.
+
+**Stdin** (a design call the frame did not raise): `lint -` builds a target whose path is the stem
+`stdin`, so today it prints `fix: crustyimg meta clean --gps stdin`, which names a file that does
+not exist. A stdin finding now has no command. `Finding` gets a private `from_stdin: bool`
+(default `false`), and `run_lint` sets it with a private `Finding::on_stdin(self)` when the input
+is `Input::Stdin`. The input variant decides, not the name, so a real file called `stdin` still gets
+its fix. Driven: the pipe form (`crustyimg <frag> - -o -`) is not a safe substitute, because
+`optimize - -o -` switched a JPEG to AVIF and made it 58 % larger.
+
+### Call 2 — which rules print a fix, and the exact line
+
+The file is `a.jpg` (or `a.png`) for the bare rows, `my photo.jpg` and `it's.jpg` for the quoting
+rows. "Before" is what `main` prints today (frame, driven).
+
+| Rule | Fragment (after) | Input the fragment needs | Rule knows it? | Before | After (POSIX; Windows differs only for `'`) |
+|---|---|---|---|---|---|
+| `privacy/gps-metadata-leak` | `meta clean --gps` | none | — | `crustyimg meta clean --gps a.jpg` | `crustyimg meta clean --gps a.jpg -o a.jpg -y` |
+| `privacy/camera-metadata` (opt-in) | `meta strip` | none | — | `crustyimg meta strip a.jpg` | `crustyimg meta strip a.jpg -o a.jpg -y` |
+| `color/unexpected-icc` (opt-in) | `meta strip` | none | — | `crustyimg meta strip a.jpg` | `crustyimg meta strip a.jpg -o a.jpg -y` |
+| `size/oversized-bytes` | `optimize --max-size <budget>` | the byte budget, in bytes | yes: `target.byte_budget()`, the value the rule compares against | `crustyimg optimize a.jpg` | `crustyimg optimize --max-size 100000 a.jpg -o a.jpg -y` |
+| `dims/oversized-dimensions` | `resize --max <W>` (unchanged) | the intended width | yes: `target.intended_width()` | `crustyimg resize --max 1600 a.jpg` | `crustyimg resize --max 1600 a.jpg -o a.jpg -y` |
+| `orient/orientation-not-baked` | `auto-orient` | none | — | `crustyimg auto-orient a.jpg` | `crustyimg auto-orient a.jpg -o a.jpg -y` |
+| `color/wrong-colorspace`, CMYK JPEG | `convert --format jpeg` | none (the rule only fires on JPEG content) | — | `crustyimg convert --format a.jpg` (exit 3) | `crustyimg convert --format jpeg a.jpg -o a.jpg -y` |
+| `color/wrong-colorspace`, ≥16-bit | **none** (message changes, see Call 3) | — | — | `crustyimg convert --format a.png` (exit 3) | *(no `fix:` line)* |
+| `color/missing-icc` (opt-in) | none (unchanged) | — | — | *(none)* | *(none)* |
+| `format/animated-gif`, `format/animated-input` | none (unchanged; PROJ-012) | — | — | *(none)* | *(none)* |
+| `size/truncated-or-corrupt` | none (unchanged) | — | — | *(none)* | *(none)* |
+| any rule, path `my photo.jpg` | — | — | — | `crustyimg meta clean --gps my photo.jpg` | `crustyimg meta clean --gps 'my photo.jpg' -o 'my photo.jpg' -y` (same on Windows) |
+| any rule, path `it's.jpg` | — | — | — | `crustyimg meta clean --gps it's.jpg` | POSIX `crustyimg meta clean --gps 'it'\''s.jpg' -o 'it'\''s.jpg' -y`; PowerShell `… 'it''s.jpg' -o 'it''s.jpg' -y` |
+| any rule, path `-x.jpg` | — | — | — | `crustyimg meta clean --gps -x.jpg` | `crustyimg meta clean --gps ./-x.jpg -o ./-x.jpg -y` |
+| any rule, input `-` (stdin) | — | — | — | `crustyimg meta clean --gps stdin` | *(no `fix:` line; JSON `null`)* |
+
+Flags go before the file (`optimize --max-size N a.jpg`); driven, clap accepts that order on every
+verb above. `--max-size` takes a bare integer as bytes (`parse_size`, `src/cli/optimize.rs:511`),
+which is exactly the budget's unit, so no rounding and no `KB` conversion.
+
+**Format is kept** on every row: no fragment except CMYK names `--format`, so `-o a.<ext>` picks
+the source's own extension; a file with no extension keeps its content format (driven). The CMYK
+fragment pairs `--format jpeg` with JPEG content. For a CMYK JPEG whose name does not end in
+`.jpg`/`.jpeg`, the bytes stay JPEG; that is the property ruling 4 protects.
+
+### Call 3 — the no-fix path and the JSON/SARIF consequence
+
+The ≥16-bit branch of `WrongColorspace` returns fragment `None` and the message becomes:
+
+`{N}-bit channels are needless for the web; crustyimg cannot reduce bit depth, so re-export it at 8 bits per channel`
+
+(`{N}` is `info.bit_depth`, as today.) The CMYK branch keeps its message.
+
+- **Human:** no `fix:` line (the renderer already skips `None`).
+- **JSON `crustyimg.lint/v1`:** `"fix":null`. `null` is already in the documented schema ("the full
+  runnable command … or `null`", `report.rs:79-80`) and is what `missing-icc` and the animated
+  rules emit today. **No schema bump** for an absent fix, and none for a present one (its text
+  becomes what the field always promised).
+- **SARIF:** `message.text` is the message alone, with no `— fix:` suffix (the existing `None` arm,
+  `report.rs:195`).
+- **Who notices:** a consumer that *parses* the `fix` text (splitting on spaces, taking the last
+  word as the file) breaks on the new trailing `-o <file> -y` and on quoted paths. Nothing in this
+  repo or the Action does; `crustyimg-action` passes the SARIF through. A consumer that runs the
+  string through a shell, which is what the field is documented for, now gets a working command.
+  The finding set changes too: 16-bit PNGs keep their finding but lose the fix; GPS blocks without
+  a location lose the finding (Call 5).
+
+### Call 4 — how each printed fix is proved, on all three OSes
+
+The headline test (`tests/lint.rs`, FT-1) is table-driven. Each row builds a fixture independently
+of the code under test, writes it into a fresh `TempDir`, and runs `lint --format json --select
+<rule> <name>` with **`current_dir` set to the temp dir and the file named relatively**, so the
+printed path is the name as typed (space, `'`, leading `-`). It then reads the `fix` string with
+`serde_json` (already a dev-dependency) and runs **that string, unmodified**, through the host
+shell in the same directory:
+
+- Unix: `sh -c <fix>`.
+- Windows: `powershell -NoProfile -NonInteractive -Command "<fix>; exit $LASTEXITCODE"`. That is
+  Windows PowerShell 5.1, which every `windows-latest` image ships. The fix is the PowerShell-quoted
+  form there, so the test runs exactly what a Windows user is shown.
+
+For both, `PATH` is the test binary's directory prepended to the inherited `PATH` (with
+`std::env::join_paths`). Before any row runs, the harness asks the same shell where `crustyimg`
+resolves (`command -v crustyimg` / `(Get-Command crustyimg).Source`) and asserts it is
+`env!("CARGO_BIN_EXE_crustyimg")` (both sides canonicalized). A Homebrew `crustyimg` earlier on
+`PATH` would otherwise run the released binary and report the same version.
+
+**Trap 11:** no row skips on any OS. If the shell cannot be spawned, the test **fails** with
+`cannot run the printed fix: no <sh|powershell> on PATH: <err>`. Both shells exist on every CI
+image, so no CI environment variable gate is needed and no CI step changes (trap 16 does not apply).
+The one test-only override, `CRUSTYIMG_TEST_FIX_SHELL` (M-13), is read only by the FT-1 helper and is
+never set in CI. The test
+runs in the existing `Test` step (`cargo test --verbose`) on the 3-OS `check` matrix. The PowerShell
+quoter itself is unit-tested on every OS (FT-4), so the macOS/Linux legs also check the Windows
+strings. Only the Windows leg runs them in a real PowerShell.
+
+Each row asserts, then **records** rather than panics (trap 15), with one counter per failure kind:
+
+| Kind | Check |
+|---|---|
+| `not_reported_before` | the `--select`ed rule is in the pre-fix findings (the row exercises something) |
+| `fix_shape` | `fix` is a string that starts with `crustyimg ` and ends with ` -y` |
+| `shell_failed` | shell exit status 0 |
+| `stdout_nonempty` | the shell's stdout is empty |
+| `unchanged` | the file's bytes differ from the fixture's |
+| `still_reported` | `lint --format json --select <rule> <name>` afterwards reports no finding for that rule |
+| `format_changed` | `image::guess_format` of the result equals that of the fixture, and the result decodes with `image::load_from_memory` |
+
+After all rows run, the test panics if any counter is non-zero. The panic message prints every
+counter (`shell_failed=2 stdout_nonempty=9 …`) and, per failing row, its name, kinds, the fix string,
+and the first 300 bytes of stderr. So a red run states its reason (trap 13), and a row that fails two
+ways shows both.
+
+Rows (FT-1): `gps-coords` (`leak.jpg`), `gps-area-info` (`area.jpg`, `GPSAreaInformation` only),
+`camera-metadata` (`cam.jpg`, Make), `unexpected-icc` (`icc.jpg`, 5000-byte profile),
+`oversized-bytes-jpeg`, `oversized-bytes-png`, `oversized-dimensions` (`wide.png`, intended width
+16), `orientation` (`rot.jpg`, Orientation 6), `cmyk` (`cmyk.jpg`), `space` (`my photo.jpg`, GPS),
+`quote` (`it's.jpg`, GPS), `dash` (`-x.jpg`, GPS; lint invoked as `lint … -- -x.jpg`), `subdir`
+(`sub/leak.jpg` reached by linting the relative dir `sub`, so Windows prints `sub\leak.jpg` and
+exercises the backslash-safe branch).
+
+`oversized-bytes-jpeg` must show that the budget matters. Before the lint, the test runs plain
+`optimize <copy> -o <copy> -y` (argv, not the shell) on a second copy, measures that size `S1`, and
+sets the row's budget to `S1 * 3 / 4`. It asserts `S1 * 3 / 4 < fixture size` and writes the
+`[[budget]]` config into the temp dir. After the fix it also asserts the **plain-optimized copy is
+still reported** by `lint` (`budget_control` kind). Driven at design: plain `optimize` left a 1.07 MB
+JPEG at 459–679 KB against a 100 KB budget; `--max-size 100000` gave 97,523 B.
+
+### Call 5 — GPS predicate (ruling 7, as code)
+
+`scan_exif` (`src/lint/mod.rs:355`):
+
+```rust
+// A location is a coordinate (where the photo was taken, or the
+// destination it names) or a free-text place name. A block holding only
+// GPSVersionID, Ref tags, altitude, timestamps or map datum says nothing
+// about where (some cameras write one into every JPEG).
+const GPS_LOCATION_TAGS: &[Tag] = &[
+    Tag::GPSLatitude,
+    Tag::GPSLongitude,
+    Tag::GPSDestLatitude,
+    Tag::GPSDestLongitude,
+    Tag::GPSAreaInformation,
+];
+let has_gps = exif.fields().any(|f| GPS_LOCATION_TAGS.contains(&f.tag));
+```
+
+Any IFD (not only `In::PRIMARY`): a location in a thumbnail's GPS IFD is still a leak, and
+`meta clean --gps` removes every GPS block, so it still clears the finding. The `ExifFacts::has_gps` doc and
+`LintTarget::has_gps_exif` doc become "carries a GPS location (a coordinate or a place name)".
+The rule's message is unchanged. Tag names checked against `kamadak-exif 0.6.1` (`tag.rs:639–717`).
+
+### Driven at design (debug build of `1eba31f`, scratch dir, stdout redirected)
+
+| Command (via `sh -c` unless noted) | rc | stdout | Result |
+|---|---|---|---|
+| `crustyimg optimize --max-size 100000 t.jpg -o t.jpg -y` (1,066,050 B JPEG) | 0 | 0 | 97,523 B JPEG, lint clean |
+| `crustyimg optimize --max-size 100000 t.png -o t.png -y` (1.85 MB 8-bit PNG) | 0 | 0 | 98,699 B **PNG**, downscaled to 276×207 with a stderr warning; lint clean |
+| `crustyimg optimize --max-size 10 u.jpg -o u.jpg -y` (unreachable) | 0 | 0 | 643 B best effort + warning; finding stays |
+| same on `u.JPG` / no extension | 0 | 0 | JPEG kept |
+| `crustyimg meta clean --gps 'my photo.jpg' -o 'my photo.jpg' -y` | 0 | 0 | cleared |
+| `crustyimg meta clean --gps 'it'\''s.jpg' -o 'it'\''s.jpg' -y` | 0 | 0 | cleared |
+| `crustyimg meta clean --gps ./-dash.jpg -o ./-dash.jpg -y` | 0 | — | cleared |
+| `crustyimg convert --format jpeg cmyk.jpg -o cmyk.jpg -y` | 0 | 0 | cleared, JPEG |
+| `crustyimg meta clean --gps ny.jpg -o ny.jpg` (no `-y`) | **5** | 0 | `output file already exists (use --yes to overwrite)` |
+| `cat g.jpg \| crustyimg lint -` | 7 | — | prints `fix: crustyimg meta clean --gps stdin` |
+| `crustyimg optimize --max-size 100000 - -o - < g.jpg` | 0 | 95,275 B | **AVIF**, 58 % larger: why stdin gets no command |
+
+Not driven: a real PowerShell (no Windows host here); the Windows leg of FT-1 is the first run.
+`--max-size` with a lossless format downscales to hit the budget. That is `optimize`'s documented
+behaviour, and the fix inherits it. An unreachable budget leaves the finding standing after a
+best-effort write, which is outside this spec.
+
+Ruling 9's question: the frame's 459,577 B figure is the `-o <f> -y` path (Q3 table), and
+679,355 B is the stdout path. The printed fix uses `-o`, so the STAGE-063 discrepancy item does not
+change what this spec's fix does.
+
 ## Inputs
 
-- **Files to read:** `path/to/file.ext` — why
-- **External APIs:** <name, docs link, auth>
-- **Related code paths:** `src/some/module/`
+- **Files to read:** `src/lint/mod.rs` (`Finding`, `fix_command`, `scan_exif`, `run_lint`, unit
+  fixtures), `src/lint/rules.rs` (`OversizedBytes`, `WrongColorspace`, unit tests),
+  `src/lint/report.rs` (three renderers, goldens), `tests/lint.rs`, `tests/common/mod.rs`
+  (`jpeg_with_gps`, `wrap_with_gps_app1`, `jpeg_with_icc`, `png_16bit`, `detailed_jpeg_at_quality`,
+  `detailed_png`), `tests/adoption_glue.rs:76` (lints `jpeg_with_gps`, expects exit 7),
+  `docs/github-actions.md:111-125`.
+- **Related code paths:** `src/cli/optimize.rs:511` (`parse_size`), `src/sink/mod.rs` (`-o` with
+  `-y`, symlink guard), `src/source/mod.rs` (`Input::Stdin`, stem `stdin`).
 
 ## Outputs
 
-- **Files created:** `path/to/new.ext` — purpose
-- **Files modified:** `path/to/existing.ext` — what changes
-- **New exports:** <names and signatures>
-- **Database changes:** <migrations>
+- **Files created:** `tests/fixtures/lint/cmyk_16x16.jpg` (≈300 B, made by ImageMagick, independent
+  of crustyimg) and `tests/fixtures/lint/README.md` (one line per fixture: the exact command that
+  made it).
+- **Files modified:** see the build file list under Implementation Context.
+- **New exports:** none. `Shell`, `HOST_SHELL`, `shell_arg`, `fix_command_for`, `from_stdin` and
+  `on_stdin` are private to `src/lint/mod.rs`. `Finding::fix_command`'s signature is unchanged.
+- **Database changes:** none.
 
 ## Acceptance Criteria
 
-Testable outcomes. Cover happy path, error cases, edge cases.
-
-- [ ] Criterion 1 (testable)
-- [ ] Criterion 2 (testable)
+- [ ] **AC-1 One shape, three renderings.** Every finding with a fragment prints
+  `crustyimg <fragment> <file> -o <file> -y`, with `<file>` from `shell_arg`. The human `fix:` line, the
+  JSON `fix` string and the SARIF `— fix:` suffix carry the identical string. *(FT-2, FT-3)*
+- [ ] **AC-2 Each printed fix, run verbatim, fixes its finding.** For every FT-1 row, on Linux,
+  macOS and Windows: shell exit 0, empty stdout, the file's bytes changed, `lint` no longer reports
+  that rule, and the result decodes in the fixture's format. One row per fix-printing rule:
+  gps (coordinates), gps (area information), camera-metadata, unexpected-icc, oversized-bytes
+  (JPEG and PNG), oversized-dimensions, orientation-not-baked, wrong-colorspace CMYK. Plus the paths
+  `my photo.jpg`, `it's.jpg`, `-x.jpg` and `sub/leak.jpg`. *(FT-1)*
+- [ ] **AC-3 Quoting.** Safe-set paths print bare. Other paths are quoted so the host shell reads
+  one argument: POSIX single quotes on Unix, PowerShell single quotes on Windows, with the exact
+  escapes in Call 1. A path starting with `-` gets `./`. A non-UTF-8 path gets no command. *(FT-4,
+  FT-5; e2e in FT-1)*
+- [ ] **AC-4 The budget fix carries the budget.** `size/oversized-bytes` prints
+  `optimize --max-size <budget>` with the rule's budget in bytes. On FT-1's JPEG row, plain
+  `optimize` does not clear the finding and the printed fix does. *(FT-1 `oversized-bytes-jpeg` +
+  `budget_control`, FT-7)*
+- [ ] **AC-5 CMYK keeps a fix that keeps the format.** The CMYK branch prints
+  `convert --format jpeg`; the result is a JPEG and `color/wrong-colorspace` no longer fires.
+  *(FT-1 `cmyk`, FT-7)*
+- [ ] **AC-6 ≥16-bit prints words, no command.** The finding stays (warn). Its message says crustyimg
+  cannot reduce bit depth and to re-export at 8 bits per channel. Human output has no `fix:` line,
+  JSON has `"fix":null` (not `""`), and the SARIF text has no `fix:`. No rule emits an empty or
+  whitespace fragment. *(FT-6, FT-8)*
+- [ ] **AC-7 Stdin prints no command.** `lint -` with a GPS JPEG on stdin still reports the finding,
+  with `"fix":null` and no `fix:` line. A real file named `stdin` still gets its fix. *(FT-9, FT-5)*
+- [ ] **AC-8 GPS fires on a location only.** The finding is reported for each of `GPSLatitude`,
+  `GPSLongitude`, `GPSDestLatitude`, `GPSDestLongitude` and `GPSAreaInformation` on its own, and for
+  `tests/fixtures/c2pa/signed_gps.jpg`. It is not reported for a GPS IFD holding only
+  `GPSVersionID` (the P1100 shape), only `GPSLatitudeRef`, or only `GPSAltitude` + `GPSAltitudeRef`
+  + `GPSTimeStamp` + `GPSDateStamp` + `GPSMapDatum`. *(FT-10 unit, FT-11 integration)*
+- [ ] **AC-9 Existing GPS tests still mean "a leak".** `tests/common::jpeg_with_gps` and
+  `src/lint/mod.rs::gps_jpeg` carry a coordinate. Every existing test that lints them, including
+  `tests/adoption_glue.rs`'s exit-7 check, passes unchanged in its assertions. *(existing tests,
+  FT-10)*
+- [ ] **AC-10 Docs say what `lint` prints.** The `docs/github-actions.md` §5 table matches Call 2's
+  "after" column (with `<file>`/`<budget>`/`<width>` placeholders), adds the `color/wrong-colorspace`
+  rows, and says how quoting works on Windows. The doc comments at `src/lint/mod.rs:73-77`, `:92-93`,
+  `:150-151`, `:285`, `:338`, `:538-539`, `rules.rs:76-77`, `:134-135`, and `report.rs:22-26`,
+  `:78-80` describe the new shape. *(FT-12, read at verify)*
+- [ ] **AC-11 The harness proves what it ran.** On every OS the shell resolves `crustyimg` to the
+  test binary. A missing shell fails the test instead of skipping it. The failure summary counts each
+  failure kind in FT-1's table. *(FT-1 preamble, mutation M-13)*
 
 ## Failing Tests
 
-Written during **design**, BEFORE build. The implementer's job in
-**build** is to make these pass.
+Written at design; all must be red on `main` before build changes code, except where noted, with
+the reason quoted in Build Completion (trap 13).
 
-- **`path/to/test.file`**
-  - `"test description 1"` — asserts: ...
+- **`tests/lint.rs`** (new section `// ── SPEC-148: printed fixes run verbatim ──`)
+  - **FT-1** `every_printed_fix_run_verbatim_fixes_its_finding`. The harness and rows in Call 4.
+    Red on `main`: under the shell, the gps/camera/icc/bytes/dims/orientation rows give
+    `stdout_nonempty` + `unchanged` + `still_reported`. `cmyk` gives `shell_failed` (exit 3) +
+    `unchanged`. `space`/`quote` give `shell_failed`. `fix_shape` fails on every row (no ` -y`).
+    `gps-area-info` passes the GPS steps on `main` (the old predicate fires on it). Quote the
+    summary line.
+  - **FT-2** `human_json_and_sarif_carry_the_same_fix_string`. One GPS file in a temp dir, linted
+    three ways. The `fix:` line's text, the JSON `fix` and the text after `— fix: ` in the SARIF
+    `message.text` are byte-equal, and equal to `crustyimg meta clean --gps leak.jpg -o leak.jpg -y`.
+    Red on `main`: the expected string.
+  - **FT-8** `a_16_bit_png_prints_words_and_no_command_in_every_format`. `png_16bit` is linted
+    human, JSON and SARIF. The finding is present in all three. Human: no line contains `fix:`.
+    JSON: `findings[0]["fix"].is_null()`; asserting `== ""` would not catch the empty-string mutation.
+    SARIF: the text contains `cannot reduce bit depth` and not `fix:`. Red on `main`: a
+    `convert --format` fix is printed.
+  - **FT-9** `stdin_input_prints_no_command`. `lint - --format json` with `jpeg_with_gps` piped in:
+    the finding is present, `fix` is `null`, and the human run has no `fix:` line. Red on `main`:
+    `crustyimg meta clean --gps stdin`.
+  - **FT-11** `gps_rule_fires_on_a_location_and_not_on_an_empty_block`. Integration rows over
+    `jpeg_with_gps_tags` (below) plus `signed_gps.jpg`, linted with `--select
+    privacy/gps-metadata-leak`, asserting exit 7 or exit 0 per AC-8. Red on `main`: the
+    version-only, ref-only and altitude/timestamp/datum rows exit 7.
+  - **FT-12** `the_github_actions_doc_fix_table_matches_what_lint_prints`. Reads
+    `docs/github-actions.md` with `include_str!`, normalized to `\n` (the CRLF lesson). Asserts the
+    §5 table contains `crustyimg optimize --max-size <budget> <file> -o <file> -y`,
+    `crustyimg convert --format jpeg <file> -o <file> -y`, and none of
+    `--profile preserve --max 1600`. Red on `main`: the old optimize row.
+- **`src/lint/mod.rs`** (unit tests)
+  - **FT-3** `fix_command_shape_is_fragment_file_dash_o_file_dash_y`.
+    `Finding::new("img/leak.jpg", …, Some("meta clean --gps"))` gives
+    `fix_command_for(Posix) == Some("crustyimg meta clean --gps img/leak.jpg -o img/leak.jpg -y")`.
+    The same holds for `PowerShell`. A `None` fragment gives `None`.
+  - **FT-4** `shell_arg_quotes_for_each_shell`. Exact strings, both shells, on every OS:
+    `a.jpg` → bare/bare; `img/a.jpg` → bare/bare; `img\a.jpg` → `'img\a.jpg'` / bare;
+    `C:\x\a.jpg` → quoted / bare; `my photo.jpg` → `'my photo.jpg'` / `'my photo.jpg'`;
+    `it's.jpg` → `'it'\''s.jpg'` / `'it''s.jpg'`; `it’s.jpg` (U+2019) → `'it’s.jpg'` /
+    `'it’’s.jpg'`; `a,b.jpg` and `$x.jpg` → quoted in both; `-x.jpg` → `./-x.jpg` both.
+    Trap 10: the `'` and `’` rows are the ones where naive quoting and correct quoting differ.
+  - **FT-5** `fix_command_none_for_stdin_and_non_utf8`. A finding passed through `on_stdin()` gives
+    `None`. A finding on a real path named `stdin` gives `Some(…stdin -o stdin -y)`. On `#[cfg(unix)]`,
+    a path from `OsStr::from_bytes(b"\xff.jpg")` gives `None`.
+  - **FT-10** `gps_predicate_keys_on_a_location_tag`. Replaces
+    `gps_rule_fires_on_gps_exif_and_is_clean_without`. A local hand-built `gps_jpeg_with(&[entries])`
+    (generalizing today's `gps_jpeg`) feeds each AC-8 row to `GpsMetadataLeak.check`. `gps_jpeg()`
+    becomes lat + lon + refs. Keep the `f.fix() == Some("meta clean --gps")` assertion.
+- **`src/lint/rules.rs`** (unit tests)
+  - **FT-6** `no_rule_emits_an_empty_fix_fragment`. For every rule's firing fixture in this module,
+    `fix()` is `None` or a non-empty, non-whitespace string that does not start with `crustyimg`
+    and contains no path.
+  - **FT-7** `budget_and_colorspace_fragments_name_their_inputs`. `OversizedBytes` with budget
+    `123457` → `Some("optimize --max-size 123457")` (an odd number, so a `KB`-rounding formatter
+    differs). `WrongColorspace` on the crafted CMYK fixture → `Some("convert --format jpeg")`, and on
+    `png16()` → `None` with a message containing `cannot reduce bit depth`. Update
+    `wrong_colorspace_fires_on_16bit_clean_on_8bit` and `every_rule_carries_a_runnable_or_noted_fix`
+    to match.
+- **`src/lint/report.rs`** (existing goldens, updated; they are the hash guard)
+  - `json_golden_is_an_exact_byte_stable_string`, `human_render_…`, the SARIF golden: the synthetic
+    fragments become `meta clean --gps` and `optimize --max-size 500000`. Add a third synthetic
+    finding on `img/my photo.jpg` (quoted the same in both shells, so the golden stays cross-platform).
+    Expected strings are written out in full: `…"fix":"crustyimg meta clean --gps img/leak.jpg -o
+    img/leak.jpg -y"…`.
+
+**Fixture helpers** (`tests/common/mod.rs`, hand-built bytes, not from crustyimg's metadata writer):
+- `jpeg_with_gps_tags(w, h, entries: &[(u16 tag, u16 type, u32 count, Vec<u8> value)])` builds a
+  little-endian TIFF with IFD0 → GPSInfo pointer → a GPS IFD holding exactly `entries`. Values over
+  4 bytes go in a data area after the IFD, with offsets computed, not hard-coded. Rows: version-only
+  `(0x0000, BYTE, 4, [2,3,0,0])`; lat-ref only; lat + lat-ref; lon + lon-ref; dest-lat; dest-lon;
+  area-info `(0x001C, UNDEFINED, n, b"ASCII\0\0\0Kyiv")`; altitude/alt-ref/timestamp/datestamp/map-datum.
+- `jpeg_with_gps(w, h)` becomes `jpeg_with_gps_tags` with lat-ref N, lat `50/1,29/1,1113/25`,
+  lon-ref E, lon `30/1,31/1,0/1`. Update its doc block. `wrap_with_gps_app1` goes or is rebuilt on the
+  new builder.
+- `jpeg_with_make` and `jpeg_with_icc_len(base, len)` (an APP2 profile of `len` filler bytes, for
+  the 5000-byte row) are added if `tests/common` lacks them.
+- CMYK: `include_bytes!("fixtures/lint/cmyk_16x16.jpg")`, made with
+  `magick -size 16x16 xc:'#c04020' -colorspace CMYK -quality 90 cmyk_16x16.jpg` (driven: 296 B,
+  fires `color/wrong-colorspace`). `image` cannot encode CMYK.
+
+### Mutation table (trap 12)
+
+Apply each at the named location only, run `cargo test --test lint --test adoption_glue` and
+`cargo test --lib lint`, and record which tests went red **and the failure text** (trap 13). FT-1
+reds are named by counter.
+
+| # | Mutation | Location | Expected red (reason) |
+|---|---|---|---|
+| M-1 | **Old formatter verbatim** (`format!("crustyimg {} {}", f, self.file.display())`, stdin check removed) | `Finding::fix_command_for` | FT-1: `fix_shape` on every row; `stdout_nonempty` + `unchanged` + `still_reported` on gps-coords, gps-area-info, camera, icc, both oversized-bytes, dims, orientation, cmyk (new fragment, so it writes to stdout), subdir; `shell_failed` + `unchanged` on `space`, `quote` (the shell splits or mis-parses the path) and `dash` (clap reads `-x.jpg` as a flag). FT-2, FT-3, FT-5 (stdin row), FT-9, report goldens (string mismatch). |
+| M-1b | **Old fragments verbatim** (`"optimize"`, both `convert --format`) together with M-1 | `rules.rs` | additionally FT-1 `cmyk`: `shell_failed` (exit 3); FT-7; FT-8 (fix printed for 16-bit). |
+| M-2 | Drop ` -y` | `fix_command_for` | FT-1 `fix_shape` all rows + `shell_failed` (exit 5 "output file already exists") + `unchanged`; FT-2, FT-3, goldens (hash). |
+| M-3 | Drop `-o {file}` | `fix_command_for` | FT-1 `stdout_nonempty` + `unchanged` all rows; FT-2, FT-3, goldens. |
+| M-4 | Drop quoting (`shell_arg` returns the raw string) | `shell_arg` | FT-1 `shell_failed` on `space`, `quote`; `dash` only if the `./` step is also removed (M-4b); FT-4; report golden (space row). Other FT-1 rows stay green. |
+| M-4b | Drop the `./` prefix | `shell_arg` | FT-1 `dash` (`shell_failed`, clap reads a flag); FT-4 `-x.jpg` row. |
+| M-5 | Swap the CMYK pairing (`convert --format webp`) | `WrongColorspace` CMYK branch | FT-1 `cmyk`: `format_changed` (WebP bytes in `cmyk.jpg`, exit 0); FT-7. |
+| M-6 | Remove the budget (`"optimize"`) | `OversizedBytes` | FT-1 `oversized-bytes-jpeg`: `still_reported`; FT-7. `oversized-bytes-png` may stay green (plain optimize of the PNG fixture may already clear); the build records which. |
+| M-7 | GPS predicate widened back (`f.tag.context() == exif::Context::Gps`, the old line verbatim) | `scan_exif` | FT-10 version-only, ref-only, altitude rows; FT-11 same rows (exit 7). |
+| M-8 | GPS predicate narrowed to `Tag::GPSLatitude` only | `GPS_LOCATION_TAGS` | FT-10 + FT-11 lon-only, dest-lat, dest-lon, area-info rows; FT-1 `gps-area-info` (`not_reported_before`). |
+| M-9 | No-fix emits empty: ≥16-bit branch returns `Some(String::new())` | `WrongColorspace` 16-bit branch | FT-6; FT-8 (JSON `fix` is a string, human has `fix:`, SARIF has `fix:`). |
+| M-10 | Formatter returns `Some(String::new())` when the fragment is `None` | `fix_command_for` | FT-8 (JSON `""` is not null; human prints `fix: `), FT-9, FT-3 (`None` row), and existing `"fix":null` assertions (`report.rs` `clean_outcome…`, animated-gif tests). |
+| M-11 | Stdin check removed | `fix_command_for` | FT-5, FT-9. |
+| M-12 | `HOST_SHELL` forced to `Posix` on Windows | `HOST_SHELL` | Windows leg only: FT-1 `quote` (`'it'\''s.jpg'` mis-parses in PowerShell, `shell_failed`). `subdir` stays green (`'sub\leak.jpg'` is valid PowerShell too). macOS/Linux legs green, as expected. The build cannot run this locally; verify reads the Windows leg of a throwaway CI push or records it as unrun. |
+| M-13 | Harness: the shell spawn error is turned into an early `return` | FT-1 helper | FT-1 must still fail on a host without the shell. Prove it by running FT-1 once with `PATH` stripped of the shell's directory (`env PATH=/nonexistent cargo test …` is wrong because it also hides cargo; use a test-only env override of the shell name such as `CRUSTYIMG_TEST_FIX_SHELL=nosuchshell`, read **only** by the test helper). It must go red with `cannot run the printed fix`. Without the override, the mutation is invisible, so this row is a check on the harness, not on the product. |
+| M-14 | Formatter prints the budget in KB (`--max-size {}KB`, budget/1000) | `OversizedBytes` | FT-7 (`123457` row); FT-1 `oversized-bytes-jpeg` if rounding takes the budget over (record either way). |
+
+M-1's row is the trap-14 control: the old code put back verbatim. The FT-1 table entry for it is
+written per row by the build from the actual run, not copied from here.
 
 ## Implementation Context
 
@@ -354,23 +770,57 @@ Written during **design**, BEFORE build. The implementer's job in
 the build cycle. It is the equivalent of a handoff document, folded
 into the spec since there is no separate receiving agent.*
 
+### Build file list (none is a PROJ-017 path)
+
+- `src/lint/mod.rs`: `Shell`, `HOST_SHELL`, `shell_arg`, `fix_command(_for)`, `from_stdin` +
+  `on_stdin`, `run_lint` marks stdin, `scan_exif` predicate, doc comments, unit tests FT-3/4/5/10,
+  `gps_jpeg` fixture.
+- `src/lint/rules.rs`: `OversizedBytes` and `WrongColorspace` fragments, 16-bit message, doc
+  comments, unit tests FT-6/FT-7 + updated existing tests.
+- `src/lint/report.rs`: doc comments, golden updates (no renderer logic change).
+- `tests/lint.rs`: FT-1, FT-2, FT-8, FT-9, FT-11, FT-12.
+- `tests/common/mod.rs`: `jpeg_with_gps_tags`, `jpeg_with_gps` with a coordinate, ICC/Make helpers
+  if missing.
+- `tests/fixtures/lint/cmyk_16x16.jpg`, `tests/fixtures/lint/README.md` (new).
+- `docs/github-actions.md`: §5 table and one quoting sentence.
+
+Checked against the PROJ-017 list: no file under `src/operation/`, `src/recipe/`,
+`docs/recipes.md`, `tests/recipe_corpus_output.rs`, `tests/fixtures/recipe_corpus/`,
+`skills/crustyimg/SKILL.md`, `CHANGELOG.md`, or `projects/PROJ-017-…/`. `tests/adoption_glue.rs`
+is **read, not edited**: it must stay green through the `jpeg_with_gps` change.
+
+Not edited, on purpose: `src/cli/mod.rs`. `lint --help` says "(each with a runnable fix)" and
+carries `(SPEC-050, DEC-050)`. That line is SPEC-150's (spec ids in `--help`); "each" was already
+false for no-fix rules. SPEC-150 should reword it. `docs/cli-reference.md` and `README.md` show
+no `fix:` line (frame, re-checked).
+
 ### Decisions that apply
 
-- `DEC-NNN` — <one-line summary of why this matters here>
-- `DEC-MMM` — <one-line summary>
+- `DEC-050`: the rule catalog. Rule ids are the stability surface, and each finding "names a fix a
+  user can run verbatim". This spec makes that true; ids and the `crustyimg.lint/v1` schema id do
+  not change. **No new DEC.** The quoting choice (PowerShell on Windows) is recorded here and in
+  `docs/github-actions.md`; it is an output format detail under DEC-050, not a new decision.
+- `DEC-015` / DEC-099: `--format` beats the `-o` extension. That is why only the CMYK fragment names
+  `--format`, and only with JPEG content.
+- `DEC-035`: the symlink guard refuses a symlinked `-o` even with `-y`. A fix on a symlinked asset
+  exits non-zero and writes nothing. That is acceptable and out of scope.
+- `DEC-003` (metadata lane): `meta clean --gps` and `meta strip` do not re-encode pixels.
+- `DEC-051` (GitHub Actions on-ramp): `docs/github-actions.md` is its page.
 
 ### Constraints that apply
 
-These constraints apply to the paths touched by this task (see
-`/guidance/constraints.yaml` for full text):
-
-- `constraint-id-1` — <one-line summary>
-- `constraint-id-2` — <one-line summary>
+- `every-public-fn-tested`: `fix_command` is covered by FT-2/FT-3; the new private fns by FT-4/FT-5.
+- `test-before-implementation`: FT-1 to FT-12 go in first and are run red on `main`. Quote each red
+  reason in Build Completion (trap 13).
+- `no-new-top-level-deps-without-decision`: none added (`serde_json` and `tempfile` are already
+  dev-deps).
 
 ### Prior related work
 
-- `SPEC-YYY` (shipped) — <one-line summary, if relevant>
-- `PR #NNN` — <link, if relevant>
+- `SPEC-050` (shipped): `lint`, the `Finding`/fragment model. `SPEC-053`: the rule catalog.
+- `SPEC-119` (shipped): set the precedent that a rule with no correct command prints none
+  (`format/animated-gif`).
+- `SPEC-149` (not framed): `--keep-gps`. `SPEC-150`: `--help` spec ids.
 
 ### Out of scope (for this spec specifically)
 
@@ -383,12 +833,49 @@ necessary during build, create a new spec rather than expanding this one.
 - Animated-input fixes (`format/animated-gif`, `format/animated-input`): PROJ-012.
 - `--keep-gps` being read by nothing: SPEC-149.
 - `optimize` to stdout choosing a 48 % larger JPEG than `optimize -o x.jpg`: filed on STAGE-063 as its own item.
-- Any edit to `docs/recipes.md`, `skills/crustyimg/SKILL.md`, `CHANGELOG.md` Unreleased, `src/operation/`, `src/recipe/` (PROJ-017's). CHANGELOG text is proposed in the Frame, Q5.
+- Any edit to `docs/recipes.md`, `skills/crustyimg/SKILL.md`, `CHANGELOG.md` Unreleased, `src/operation/`, `src/recipe/` (PROJ-017's). CHANGELOG text is proposed in the Frame, Q5, amended below.
 - The `--format` > `-o` extension precedence (DEC-015/099, by design; STAGE-037 holds the open question).
+- `cmd.exe` quoting. The Windows fix is PowerShell syntax. In `cmd`, a fix runs as printed only when
+  the path needed no quoting, which is the common case since `\` and `:` are safe there.
+- A file whose content does not match its extension (a PNG named `.jpg`): `-o` follows the name, so
+  the fix rewrites it as the named format. Pre-existing `-o` behaviour.
+- `optimize --max-size` with an unreachable budget writes a best-effort file and the finding stays;
+  with a lossless format it downscales. `optimize`'s behaviour, inherited.
+- A stdin fix (pipe form). Stdin prints no command (Call 1).
+- `lint --help`'s "(each with a runnable fix)" and its spec ids: SPEC-150.
+
+### Proposed CHANGELOG text (for the ship/release session; replaces the Frame's Q5 draft)
+
+- *Fixed: `lint`'s suggested fixes now rewrite the file. Each `fix:` line (and the JSON `fix` field)
+  ends in `-o <file> -y` and quotes paths that need it (POSIX quoting; PowerShell quoting on
+  Windows). Before, running one wrote the image to standard output and left the file unchanged. The
+  `size/oversized-bytes` fix passes the budget (`optimize --max-size <bytes>`). The
+  `color/wrong-colorspace` fix names the format for a CMYK JPEG (`convert --format jpeg`). For
+  16-bit images it prints no command and says to re-export at 8 bits per channel, since crustyimg
+  cannot reduce bit depth. Findings on standard input no longer print a fix naming a file called
+  `stdin`.*
+- *Fixed: `privacy/gps-metadata-leak` fires only when the GPS block holds a location (a latitude,
+  longitude, destination coordinate or place name). Some cameras, such as the Nikon P1100, write a
+  GPS block with only a version number into every JPEG; those are no longer flagged.*
 
 ## Notes for the Implementer
 
-Gotchas, style preferences, reuse opportunities.
+- **Build on Sonnet.** The code is mechanical once Call 1 is followed. The work is the FT-1 harness
+  and the hand-built TIFF builder. Checkpoint: commit and push after the failing tests are in (red),
+  again after the code, again after docs (long-build lesson).
+- Run every red test on `main` **before** changing `src/` and quote the failure text per FT.
+- `lint` prints the path as given. FT-1 must run `lint` with `current_dir(temp)` and a relative
+  name, or every row prints an absolute temp path (often safe-set on macOS/Linux) and the quoting
+  rows test nothing.
+- Use `serde_json::Value` to read `fix`. Do not regex the JSON: an escaped `\"` in a quoted path would
+  fool it.
+- On Windows `Command::new("powershell")` resolves `powershell.exe`. Pass the fix plus
+  `; exit $LASTEXITCODE` as one `-Command` argument. Do not wrap it in extra quotes; Rust's Windows
+  argument escaping handles the space.
+- Byte-compare the result against the fixture **bytes in memory**, not a re-read of a file you have
+  already overwritten.
+- `cargo fmt` after incremental commits; `git commit -s` on every commit (DCO).
+- Use your own `CARGO_TARGET_DIR`.
 
 ---
 

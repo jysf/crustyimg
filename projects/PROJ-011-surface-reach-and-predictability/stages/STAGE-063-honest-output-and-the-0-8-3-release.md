@@ -73,7 +73,7 @@ tag-driven pipeline (its AC-18 is open until a real tag), so it should carry rea
 
 Spec ids 148 to 150 are reserved by this commit (PROJ-017 holds 147).
 
-- [ ] SPEC-148 (framed 2026-11-05, GO, S) — **`lint` fixes what it names:** the `fix:` stdout item and the
+- [ ] SPEC-148 (designed 2026-11-05, S) — **`lint` fixes what it names:** the `fix:` stdout item and the
   gps-leak item, framed together (both are `lint` rules). The frame also found both `convert --format`
   fixes malformed (exit 3), unquoted paths, `optimize` ignoring the budget, and a 16-bit PNG fix that
   cannot clear; all in scope. Complexity S.
