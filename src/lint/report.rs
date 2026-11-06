@@ -242,11 +242,18 @@ mod tests {
                     Some("meta clean --gps".to_string()),
                 ),
                 Finding::new(
+                    "img/my photo.jpg",
+                    "privacy/gps-metadata-leak",
+                    Severity::Error,
+                    "image carries GPS location metadata",
+                    Some("meta clean --gps".to_string()),
+                ),
+                Finding::new(
                     "img/photo.png",
                     "size/oversized-bytes",
                     Severity::Warn,
                     "exceeds the byte budget",
-                    Some("optimize".to_string()),
+                    Some("optimize --max-size 500000".to_string()),
                 )
                 .with_bytes_saved(12000),
             ],
@@ -263,10 +270,12 @@ mod tests {
         let expected = concat!(
             r#"{"schema":"crustyimg.lint/v1","findings":["#,
             r#"{"file":"img/leak.jpg","rule":"privacy/gps-metadata-leak","severity":"error","#,
-            r#""message":"image carries GPS location metadata","fix":"crustyimg meta clean --gps img/leak.jpg"},"#,
+            r#""message":"image carries GPS location metadata","fix":"crustyimg meta clean --gps img/leak.jpg -o img/leak.jpg -y"},"#,
+            r#"{"file":"img/my photo.jpg","rule":"privacy/gps-metadata-leak","severity":"error","#,
+            r#""message":"image carries GPS location metadata","fix":"crustyimg meta clean --gps 'img/my photo.jpg' -o 'img/my photo.jpg' -y"},"#,
             r#"{"file":"img/photo.png","rule":"size/oversized-bytes","severity":"warn","#,
-            r#""message":"exceeds the byte budget","fix":"crustyimg optimize img/photo.png","bytes_saved":12000}"#,
-            r#"],"summary":{"files_scanned":3,"errors":1,"warnings":1,"infos":0,"#,
+            r#""message":"exceeds the byte budget","fix":"crustyimg optimize --max-size 500000 img/photo.png -o img/photo.png -y","bytes_saved":12000}"#,
+            r#"],"summary":{"files_scanned":3,"errors":2,"warnings":1,"infos":0,"#,
             r#""potential_bytes_saved":12000,"passed":false}}"#,
         );
         assert_eq!(got, expected);
@@ -305,7 +314,10 @@ mod tests {
         // Grouped by file, runnable fix present.
         assert!(got.contains("img/leak.jpg"));
         assert!(got.contains("error privacy/gps-metadata-leak:"));
-        assert!(got.contains("fix: crustyimg meta clean --gps img/leak.jpg"));
+        assert!(got.contains("fix: crustyimg meta clean --gps img/leak.jpg -o img/leak.jpg -y"));
+        assert!(got.contains(
+            "fix: crustyimg meta clean --gps 'img/my photo.jpg' -o 'img/my photo.jpg' -y"
+        ));
         // Savings summary present when a finding carries bytes_saved.
         assert!(got.contains("~12000 bytes saveable"), "summary: {got}");
     }
@@ -351,10 +363,13 @@ mod tests {
             r#"{"id":"size/oversized-bytes","defaultConfiguration":{"level":"error"},"#,
             r#""helpUri":"https://github.com/jysf/crustyimg"}]}},"results":["#,
             r#"{"ruleId":"privacy/gps-metadata-leak","level":"error","#,
-            r#""message":{"text":"image carries GPS location metadata — fix: crustyimg meta clean --gps img/leak.jpg"},"#,
+            r#""message":{"text":"image carries GPS location metadata — fix: crustyimg meta clean --gps img/leak.jpg -o img/leak.jpg -y"},"#,
             r#""locations":[{"physicalLocation":{"artifactLocation":{"uri":"img/leak.jpg"}}}]},"#,
+            r#"{"ruleId":"privacy/gps-metadata-leak","level":"error","#,
+            r#""message":{"text":"image carries GPS location metadata — fix: crustyimg meta clean --gps 'img/my photo.jpg' -o 'img/my photo.jpg' -y"},"#,
+            r#""locations":[{"physicalLocation":{"artifactLocation":{"uri":"img/my photo.jpg"}}}]},"#,
             r#"{"ruleId":"size/oversized-bytes","level":"warning","#,
-            r#""message":{"text":"exceeds the byte budget — fix: crustyimg optimize img/photo.png"},"#,
+            r#""message":{"text":"exceeds the byte budget — fix: crustyimg optimize --max-size 500000 img/photo.png -o img/photo.png -y"},"#,
             r#""locations":[{"physicalLocation":{"artifactLocation":{"uri":"img/photo.png"}}}]}"#,
             r#"]}]}"#,
         );

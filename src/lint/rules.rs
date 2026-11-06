@@ -566,8 +566,105 @@ mod tests {
 
     #[test]
     fn wrong_colorspace_fires_on_16bit_clean_on_8bit() {
-        assert!(WrongColorspace.check(&target(png16())).is_some());
+        let f = WrongColorspace
+            .check(&target(png16()))
+            .expect("16-bit PNG fires");
+        // No command can reduce bit depth, so the finding prints words only.
+        assert_eq!(f.fix(), None);
+        assert!(f.message().contains("cannot reduce bit depth"));
         assert!(WrongColorspace.check(&target(png8(4))).is_none());
+    }
+
+    /// A CMYK JPEG made by ImageMagick (see `tests/fixtures/lint/README.md`);
+    /// `image` cannot encode CMYK.
+    fn cmyk_jpeg() -> Vec<u8> {
+        include_bytes!("../../tests/fixtures/lint/cmyk_16x16.jpg").to_vec()
+    }
+
+    /// FT-7: the budget and colorspace fragments name their inputs.
+    #[test]
+    fn budget_and_colorspace_fragments_name_their_inputs() {
+        // 123457 is odd, so a `KB`-rounding formatter differs from the budget.
+        let cfg = LintConfig {
+            budgets: vec![Budget {
+                glob: "*".into(),
+                max_bytes: Some(123457),
+                max_intended_width: None,
+            }],
+            ..Default::default()
+        };
+        // Trailing bytes after IEND are ignored by the decoder; they make the
+        // file bigger than the budget.
+        let mut big = png8(4);
+        big.extend(std::iter::repeat_n(0u8, 200_000));
+        let f = OversizedBytes
+            .check(&configured_target(big, &cfg))
+            .expect("over a 123457-byte budget");
+        assert_eq!(f.fix(), Some("optimize --max-size 123457"));
+
+        let f = WrongColorspace
+            .check(&target(cmyk_jpeg()))
+            .expect("CMYK JPEG fires");
+        assert_eq!(f.fix(), Some("convert --format jpeg"));
+        assert!(f.message().contains("CMYK"));
+
+        let f = WrongColorspace
+            .check(&target(png16()))
+            .expect("16-bit PNG fires");
+        assert_eq!(f.fix(), None);
+        assert!(
+            f.message().contains("cannot reduce bit depth"),
+            "message: {}",
+            f.message()
+        );
+    }
+
+    /// FT-6: no rule emits an empty, whitespace or path-bearing fragment. The
+    /// formatter does not filter `Some("")`, so an empty string must fail here.
+    #[test]
+    fn no_rule_emits_an_empty_fix_fragment() {
+        let cfg = LintConfig {
+            budgets: vec![Budget {
+                glob: "*".into(),
+                max_bytes: Some(10),
+                max_intended_width: Some(2),
+            }],
+            ..Default::default()
+        };
+        let findings: Vec<Finding> = vec![
+            CameraMetadata.check(&target(jpeg_with_make())),
+            OrientationNotBaked.check(&target(jpeg_with_orientation(6))),
+            OversizedBytes.check(&configured_target(png8(10), &cfg)),
+            OversizedDimensions.check(&configured_target(png8(10), &cfg)),
+            WrongColorspace.check(&target(png16())),
+            WrongColorspace.check(&target(cmyk_jpeg())),
+            MissingIcc.check(&target(solid_jpeg())),
+            UnexpectedIcc.check(&target(jpeg_with_icc(5000))),
+            AnimatedGif.check(&target(animated_gif())),
+        ]
+        .into_iter()
+        .map(|f| f.expect("every fixture here fires its rule"))
+        .collect();
+        assert_eq!(findings.len(), 9);
+        for f in &findings {
+            if let Some(frag) = f.fix() {
+                assert!(
+                    !frag.trim().is_empty(),
+                    "{}: empty fix fragment {frag:?}",
+                    f.rule()
+                );
+                assert!(
+                    !frag.starts_with("crustyimg"),
+                    "{}: a fragment carries no binary name: {frag:?}",
+                    f.rule()
+                );
+                assert!(
+                    !frag.contains('.') && !frag.contains('/'),
+                    "{}: a fragment carries no file name: {frag:?}",
+                    f.rule()
+                );
+            }
+        }
     }
 
     #[test]
