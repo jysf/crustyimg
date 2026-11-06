@@ -27,6 +27,7 @@ superseded_by: null
 # Path globs this decision governs.
 affected_scope:
   - src/cli/mod.rs
+  - src/cli/global_flags.rs
 
 tags:
   - cli
@@ -129,6 +130,13 @@ container metadata lane is unbuilt, STAGE-004); DEC-016/017/019 (quality + auto-
   surprises people (then consider a documented default `--max` for very large
   inputs); or if the DEC-003 container lane ships (then `optimize` can switch from
   strip-everything to selective-preserve + drop-GPS).
+
+## Amendment (2026-11-06, SPEC-149)
+
+The container lane exists, but "`--keep-gps` remains a no-op" is no longer the behaviour: the flag
+is **refused with exit 2** on `optimize` and every other command, with a message naming
+`crustyimg meta copy --from <in> --to <out> -y` (JPEG and PNG). `optimize` still strips everything,
+as this record decided; honouring `--keep-gps` is a separate feature (PROJ-013 STAGE-052).
 
 ## References
 

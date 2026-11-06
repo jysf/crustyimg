@@ -77,7 +77,7 @@ Spec ids 148 to 150 are reserved by this commit (PROJ-017 holds 147).
   gps-leak item, framed together (both are `lint` rules). The frame also found both `convert --format`
   fixes malformed (exit 3), unquoted paths, `optimize` ignoring the budget, and a 16-bit PNG fix that
   cannot clear; all in scope. Complexity S.
-- [ ] SPEC-149 (framed 2026-11-06, M; rulings pending) — **No flag is accepted and ignored:** `--keep-gps` and `-v`,
+- [ ] SPEC-149 (designed 2026-11-06, M) — **No flag is accepted and ignored:** `--keep-gps` and `-v`,
   `responsive --name-template` (and `--format`, found by the frame), `build --strict` alone and `--check`/`--strict`/
   `--no-cache` off `build`, and the missing-`--font` (and `--image`) message. Recommended: refuse `--keep-gps`, a
   minimal `-v` logger, refuse the rest; five maintainer questions in the spec's `## Frame`. Complexity M.

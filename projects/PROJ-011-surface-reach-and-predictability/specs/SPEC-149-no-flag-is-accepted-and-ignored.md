@@ -7,7 +7,7 @@
 task:
   id: SPEC-149
   type: bug                        # epic | story | task | bug | chore
-  cycle: design  # frame | design | build | verify | ship
+  cycle: build  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: M                    # S | M | L  (L means split it)
@@ -77,6 +77,26 @@ cost:
         per id, MAX output_tokens per id. Rates: Opus $5 in / $25 out per MTok, cache_creation
         x1.25 input, cache_read x0.10 input. Taken before the commit/push exchanges, so it
         slightly under-counts the session.
+    - cycle: design
+      agent: claude-opus-5-5
+      interface: claude-code
+      tokens_total: 8833593
+      tokens_breakdown:
+        input: 112
+        output: 65420
+        cache_creation: 186456
+        cache_read: 8581605
+      estimated_usd: 7.09
+      duration_minutes: null
+      recorded_at: 2026-11-06
+      note: >
+        Interactive design session, worktree docs/spec-149-design. Measured from transcript
+        351dcaf8-e80b-466c-9734-be730a982243.jsonl, found by the prompt's title, deduped by
+        `.message.id` (56 unique ids, all claude-opus-5-5): input/cache_creation/cache_read once
+        per id, MAX output_tokens per id. Rates: Opus $5 in / $25 out per MTok, cache_creation
+        x1.25 input, cache_read x0.10 input. Includes driving a scratch sketch of the guard table,
+        logger and messages (two debug builds, a wasm-check, cargo deny). Taken before the
+        commit/push exchanges, so it slightly under-counts the session.
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -109,7 +129,7 @@ saying why, and a missing font or overlay names its file.
 ## Frame
 
 **Verdict: GO.** Size **M**. Framed 2026-11-06 on `main` at `00e6961` (0.8.2 debug build, own
-`CARGO_TARGET_DIR`). **Rulings pending** from the maintainer (one per flag, listed at the end of this
+`CARGO_TARGET_DIR`). **Rulings settled 2026-11-06 (see `## Design`)**; at frame they were pending from the maintainer (one per flag, listed at the end of this
 section); the recommendations below are what design should assume if the answers match.
 
 ### Premise check (driven, not read)
@@ -328,57 +348,451 @@ off `build`; name the file for a missing `watermark --font` and `--image`; the d
    the recipe path? Keep 3: only the message changes. 1: consistent with `apply`, but an exit-code change
    to note.
 
+## Design
+
+Designed 2026-11-06 on `main` at `d62314e`, Opus 5.5, own `CARGO_TARGET_DIR`. Every number below
+comes from a **sketch** of this design (guard table, logger, the two messages) built in a scratch
+worktree and driven with the debug binary; the sketch is not committed. Rulings 1-6 of the design
+prompt are binding and are not re-opened here.
+
+### Call 1: one guard table, in its own file, replacing the `--watch` `if`
+
+A new module **`src/cli/global_flags.rs`** holds a `const GLOBAL_FLAG_RULES: &[GlobalFlagRule]` and
+`pub(super) fn refused_global_flags(cli: &Cli) -> Vec<&'static str>`. A row is
+`{ given: fn(&GlobalArgs) -> bool, on: RefusedOn, message: &'static str }`, and
+`RefusedOn` is `AllButBuild | Build | Responsive | All`. `dispatch` calls it **first**, in place of
+today's `--watch` block (`src/cli/mod.rs`, the `if cli.global.watch && !matches!(…Build…)` block),
+and returns `CliError::Usage(lines.join("\nerror: "))` when non-empty, exactly as
+`refused_build_flags` does. Every matching row is reported, in table order; for `build`, the table
+runs before `refused_build_flags`.
+
+- **Why a scope, not a verb list.** `AllButBuild` and `All` are defined by exclusion, so a verb
+  added later (SPEC-151's `pad`) is refused with no edit here. Only `build` and `responsive` are
+  named, through `matches!(cli.command, Commands::Build { .. })` / `Commands::Responsive { .. }`.
+- **Why its own file.** `src/cli/mod.rs` is shared with SPEC-151. Its hunks shrink to: two `mod`
+  lines, the dispatch block swap, one `logger::init` line, help strings, one `CliError` variant and
+  its `code()` arm. No hunk touches the `match &cli.command` arms SPEC-151 adds to.
+- **The `--watch` message is moved byte-for-byte** into the table's first row, so
+  `tests/cli.rs` (`contains("--watch is only valid with `build`")`) and `build_watch.rs` stay green.
+- **Why not clap.** `requires = "check"` on `--strict` covers only `build --strict` alone, prints
+  clap's "required arguments were not provided", and says nothing off `build`. Moving
+  `--check`/`--strict`/`--no-cache` into `Commands::Build` breaks the documented "before or after
+  the subcommand" form (`crustyimg --check build`) and gives clap's bare `unexpected argument` with
+  no reason; it cannot express `--keep-gps`'s pointer at all. One mechanism, the table, covers all
+  eight rows with a reason each. clap still owns parse errors.
+- **`--help`.** `--keep-gps` gets `hide = true` (ruling 1) but stays in `GlobalArgs`, so
+  `resize --keep-gps` reaches the guard and prints the table's message, not clap's. `--check`,
+  `--strict`, `--no-cache` stay listed (they are real on `build`, and a global arg cannot be hidden
+  per subcommand) with the help text prefixed "`build` only:" like `--watch`. `responsive`'s
+  `about` gains one sentence naming its refusals.
+
+No other verb defines its own `--check`, `--strict` or `--no-cache` (`grep -n 'long' src/cli/mod.rs`
+inside `Commands`/`MetaCommand`: none; `lint` has `--no-config`, a different flag), so there is no
+local `--check` to protect.
+
+### The table: verb × flag × message (driven on the sketch)
+
+Each line prints as `error: <message>`; exit 2 for all. `<V>` is any of the 19 non-`build` leaf
+commands: `view info diff resize thumbnail convert web optimize responsive auto-orient watermark
+edit apply lint completions meta strip|clean|copy|set`.
+
+| Row | Flag given | Refused on | Exact message |
+|---|---|---|---|
+| R1 | `--watch` | `<V>` | ``--watch is only valid with `build`: there is no rebuild loop to run for this subcommand`` (unchanged) |
+| R2 | `--check` / `--frozen` / `--locked` | `<V>` | ``--check (or --frozen/--locked) is only valid with `build`: there is no build lockfile to check for this subcommand`` |
+| R3 | `--strict` | `<V>` | ``--strict is only valid with `build --check`: there is no build lockfile to check for this subcommand`` |
+| R4 | `--strict` without `--check` | `build` | ``--strict only applies with --check: run `build --check --strict`, or drop --strict`` |
+| R5 | `--no-cache` | `<V>` | ``--no-cache is only valid with `build`: there is no build cache for this subcommand`` |
+| R6 | `--keep-gps` | every command, `build` included | ``--keep-gps is not supported yet: pixel-lane encodes drop all metadata, GPS included; to keep it, copy the metadata back after the encode with `crustyimg meta copy --from <in> --to <out> -y` (JPEG and PNG)`` |
+| R7 | `--name-template` | `responsive` | `responsive does not take --name-template: its output names are fixed as {stem}-{w}w.{ext}` |
+| R8 | `--format` | `responsive` | `responsive does not take --format: choose its output formats with --formats (e.g. --formats webp,jpeg)` |
+
+R6 says "not supported yet", never "does not exist" or "removed" (ruling 1). On the sketch (with
+earlier wording of R2-R6, same rows): **19 leaves × 7 flags (`--keep-gps --check --frozen --locked
+--strict --no-cache --watch`) = 133 rows, plus `build --keep-gps` and `build --strict` = 135 rows,
+all exit 2, all with an unchanged `ls -lTR` snapshot.** `responsive --name-template '{stem}.png'`,
+`--format webp`, and both together: exit 2, nothing written, both lines in R7, R8 order. Positive
+controls on the same binary: `build`, `build --check`, `--frozen`, `--locked`, `--no-cache` exit 0
+(`--no-cache` rewrites `bo/`); `build --watch` started its watcher (killed at the timeout, exit 143).
+
+**Not refused (positive controls; each is read by the verb):** `-o`, `--out-dir`, `--name-template`,
+`--format`, `-q`, `-j`, `-y`, `-Q`, `-v` on the pixel verbs; `--check`, `--frozen`, `--locked`,
+`--strict` with `--check`, `--no-cache`, `--watch` on `build`; `--formats` on `responsive`. The
+out-of-scope oddities of finding A (`meta … --format`, `info -o`) stay as they are; none blocks a
+ruling.
+
+### Call 2: the logger
+
+- **Module:** `src/cli/logger.rs` (~45 lines with docs). `src/cli/` is already
+  `#[cfg(not(target_arch = "wasm32"))]` (`src/lib.rs:77`), so the logger is never compiled for wasm.
+  Named `logger`, not `log`, so `log::` paths inside `src/cli/` still mean the crate.
+- **Dependency:** `log = "0.4.32"` in `Cargo.toml`'s
+  `[target.'cfg(not(target_arch = "wasm32"))'.dependencies]` table, next to `clap_complete`.
+  Driven: `Cargo.lock` gains one line (`"log",` in crustyimg's own `dependencies`), package count
+  **327 → 327**; `cargo tree -i log -e normal --depth 1` lists `crustyimg` beside av-scenechange,
+  avif-parse, fontdb, mio, notify, rav1e, usvg…; with `--no-default-features` it is still there;
+  `cargo tree --target wasm32-unknown-unknown -i log` shows no `crustyimg` edge; `cargo deny check`:
+  `advisories ok, bans ok, licenses ok, sources ok`; `just wasm-check`: exit 0 (its one warning,
+  `MANIFEST_DROPPED_WARNING` never used, is on `main` already).
+- **Level mapping** (`fn level_for(verbose: u8, quiet: bool) -> LevelFilter`): `-Q` → `Off` whatever
+  the count; 0 → `Off`; 1 → `Warn` (error + warn records); ≥ 2 → `Debug` (adds info and debug).
+  `trace` is never shown. `-v -v`, `-vv` and `--verbose --verbose` are the same count (clap `Count`);
+  `-vvv` = `-vv`.
+- **Install:** in `run()`, the line after `Cli::parse()` and **before** `dispatch`:
+  `logger::init(cli.global.verbose, cli.global.quiet);`. At `Off` it installs nothing (today's
+  behaviour exactly). Installed once per process, so `build --watch` keeps it for every cycle, and
+  rayon workers (`-j`) log through the same global logger.
+- **Line format:** `<level>: [<target>] <message>`, level spelled `error`/`warning`/`info`/`debug`
+  (crustyimg's own warnings already print `warning: `; the bracketed target says which library spoke).
+
+**Driven on the sketch** with the fixture below (`tests/fixtures/svg/log_levels_40x30.svg`: a rect,
+an `<image>` with no `href`, and a `<text font-variation-settings="'wght' 700">`):
+
+```
+$ crustyimg -v convert log_levels_40x30.svg --format png -o c.png
+warning: [usvg::parser::image] Image lacks the 'xlink:href' attribute. Skipped.
+$ crustyimg -vv info log_levels_40x30.svg
+warning: [usvg::parser::image] Image lacks the 'xlink:href' attribute. Skipped.
+debug: [usvg::parser::text] Found font-variation-settings: ''wght' 700'
+```
+
+No `-v`: stderr empty (0 lines). `-v -Q` and `-Q -v` and `-vv -Q`: 0 lines. `-v` shows no `debug:`
+line. The output file is byte-identical with and without `-v` (`shasum` equal). Per verb, `-v` gives
+1 warning line on `convert`, `info`, `resize`, `thumbnail`, `optimize`, `web`, `lint`, `responsive`;
+**`diff a.svg a.svg` gives 2** (it decodes both inputs: the maximum), and `resize a.svg b.svg
+--out-dir d -j 4` gives 2 (one per input, from worker threads). The minimum is the default: 0.
+
+**A second, lean-safe source.** `tests/fixtures/avif/photo_128.avif` (AVIF decode is native and
+unconditional, DEC-053): `-vv info` prints 5 `debug: [avif_parse] …` lines (first:
+`debug: [avif_parse] BoxHeader { name: hdlr, size: 33, offset: 8 } (skipped)`); `-v` prints 0. This
+row runs on the lean leg, where the SVG rows are compiled out (`svg` feature).
+
+### Call 3: the font and overlay messages (ruling 4)
+
+A new `CliError::WatermarkAssetUnreadable { what: &'static str, path: String, source: std::io::Error }`,
+`#[error("could not read {what} \"{path}\": {source}")]`, `code()` → **3**. In `watermark_overlay`
+(`src/cli/ops.rs`):
+- font: `Some(path) => Some(std::fs::read(path).map_err(ImageError::Io)?)` becomes a `map_err` to
+  the variant with `what: "font file"`;
+- overlay: `let overlay = Image::load(image)?;` becomes `std::fs::read(image)` mapped to the variant
+  with `what: "watermark image"`, then `Image::decode_path(image, &bytes)?`, so a read failure names
+  the file and a decode failure keeps its own error and code.
+
+Driven: `--font /no/font.ttf` → exit 3,
+`error: could not read font file "/no/font.ttf": No such file or directory (os error 2)`;
+`--font .` → exit 3, `… ".": Is a directory (os error 21)`; `--image /no/logo.png` → exit 3,
+`error: could not read watermark image "/no/logo.png": No such file or directory (os error 2)`;
+`--image .` → exit 3; `--image bad.png` (text bytes) → exit 4,
+`error: unsupported or undetectable image format` (unchanged). Nothing written in each.
+
+### Call 4: DECs (ruling 5)
+
+No new DEC: the guard table and the logger are mechanisms, not decisions. This design commit adds an
+amendment to **DEC-003** and **DEC-024**, and adds `src/cli/global_flags.rs` to each one's
+`affected_scope` (block-list form; DEC-003 also gains `src/cli/mod.rs`). DEC ids were checked after
+the last rebase: highest is DEC-113 (PROJ-017); none taken.
+
+### Call 5: `guidance/ideas.yaml`
+
+This design commit adds `responsive-name-template` beside `manifest-placeholders-favicon` (the
+`{hash}` token idea): status `proposed`, likely home PROJ-014, gated on template-token validation on
+every verb (finding A) and a ruling on a literal extension against DEC-105 when `responsive` writes
+several formats.
+
 ## Inputs
 
-- **Files to read:** `path/to/file.ext` — why
-- **External APIs:** <name, docs link, auth>
-- **Related code paths:** `src/some/module/`
+- **Files to read:** `src/cli/mod.rs` (`GlobalArgs`, `run`, `refused_build_flags`, `dispatch`),
+  `src/cli/ops.rs` (`watermark_overlay`), `tests/build_refuses_output_flags.rs` (the snapshot and
+  deadline helpers to copy, not import), `tests/cli.rs` (the `--watch` refusal test),
+  `tests/build_lock.rs::cross_env_hash_tolerated_unless_strict`,
+  `tests/build_cache.rs::no_cache_flag_bypasses_store`, `tests/build_watch.rs::watch_rejects_verify_modes`.
+- **External:** `log` 0.4.32 (`Log`, `set_logger`, `set_max_level`), clap 4.6 `CommandFactory`.
 
 ## Outputs
 
-- **Files created:** `path/to/new.ext` — purpose
-- **Files modified:** `path/to/existing.ext` — what changes
-- **New exports:** <names and signatures>
-- **Database changes:** <migrations>
+- **Files created:**
+  - `src/cli/global_flags.rs` — the guard table and `refused_global_flags`, plus unit tests.
+  - `src/cli/logger.rs` — the stderr logger, `level_for`, `init`, plus unit tests.
+  - `tests/cli_flags_honest.rs` — FT-1 to FT-10.
+  - `tests/fixtures/svg/log_levels_40x30.svg` — the `-v`/`-vv` fixture (text below).
+- **Files modified** (⚠ = shared; smallest hunk):
+  - `Cargo.toml` — one dependency line plus a two-line comment in the native table.
+  - `Cargo.lock` — the one `"log",` line (from `cargo build`, never hand-edited).
+  - ⚠ `src/cli/mod.rs` — `mod global_flags;` and `mod logger;` (two lines after `mod common;`);
+    the `--watch` block in `dispatch` → the `refused_global_flags` call (−12/+7); `logger::init`
+    in `run` (+2); help text of `verbose`, `quiet`, `keep_gps` (+`hide = true`), `no_cache`,
+    `check`, `strict`; one sentence in `Responsive`'s doc comment; the `WatermarkAssetUnreadable`
+    variant (+12) and its `code()` arm (+1).
+  - ⚠ `src/cli/ops.rs` — the two lines in `watermark_overlay` (≈ +12/−2).
+  - Docs per the sweep table below (⚠ on each shared file).
+- **New exports:** none (`global_flags`, `logger` are private modules; `CliError` gains one variant).
+- **PROJ-017-owned paths touched: none.** Not `docs/recipes.md`, `skills/crustyimg/SKILL.md`,
+  `CHANGELOG.md`, `tests/common/mod.rs`, `src/operation/`, `src/recipe/`, or `projects/PROJ-017-*`.
+
+Fixture text, `tests/fixtures/svg/log_levels_40x30.svg`:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="40" height="30" viewBox="0 0 40 30">
+  <rect x="0" y="0" width="40" height="30" fill="#3366cc"/>
+  <image x="0" y="0" width="10" height="10"/>
+  <text x="4" y="24" font-family="Go" font-size="10" fill="#ffffff" font-variation-settings="'wght' 700">Hi</text>
+</svg>
+```
 
 ## Acceptance Criteria
 
-Testable outcomes. Cover happy path, error cases, edge cases.
-
-- [ ] Criterion 1 (testable)
-- [ ] Criterion 2 (testable)
+- [ ] **AC-1 (build-only flags off `build`).** On every leaf command except `build`, derived from
+  `Cli::command()` (meta's subcommands included), each of `--check`, `--frozen`, `--locked`,
+  `--strict`, `--no-cache`, `--watch` exits 2 with exactly its R1/R2/R3/R5 line on stderr, and
+  writes nothing. A leaf with no test argv fails the test by name. → FT-1, FT-2.
+- [ ] **AC-2 (`--keep-gps`).** On every leaf command, `build` included, `--keep-gps` exits 2 with
+  exactly the R6 line, which names `meta copy`, and writes nothing; `--keep-gps` is absent from
+  `crustyimg --help` and `crustyimg resize --help` and still parses (the R6 line, not clap's
+  `unexpected argument`). → FT-1, FT-3.
+- [ ] **AC-3 (`build --strict`).** `build --strict` without `--check` exits 2 with exactly R4 and
+  writes nothing (no lockfile, no `.crustyimg/`, no output); `build --watch --strict` exits 2 with
+  R4 within the deadline (the watcher never starts). `build --check --strict` on a fresh lockfile
+  exits 0, and `build --no-cache` exits 0 and writes. → FT-4, plus the existing positive controls
+  listed under FT-4.
+- [ ] **AC-4 (`responsive`).** `responsive --name-template T` exits 2 with R7, `responsive --format F`
+  exits 2 with R8, both flags print R7 then R8; each writes nothing (`--out-dir` not created).
+  `responsive --formats webp` still writes. → FT-5.
+- [ ] **AC-5 (flags a verb reads are not refused).** `resize` with `--out-dir`, `--name-template`,
+  `--format`, `-q`, `-j`, `-y`, `-Q`, `-v` exits 0 and writes the named file. → FT-6.
+- [ ] **AC-6 (`-v` shows warnings).** With `-v`, the R-fixture's warning line appears on stderr; without
+  `-v` stderr is empty; with `-v -Q` and `-Q -v` it is empty; `-v` shows no `debug:` line; `-vv`
+  and `-v -v` show the warning **and** the debug line; the output file is byte-identical with and
+  without `-v`. → FT-7 (svg), FT-8 (avif, every leg), logger unit tests.
+- [ ] **AC-7 (every record reaches the logger).** `diff` of the fixture against itself shows the
+  warning line exactly twice; `resize` of two copies with `--out-dir -j 4` shows it exactly twice.
+  → FT-7.
+- [ ] **AC-8 (font).** A missing `--font` and a directory `--font` exit 3 with
+  `error: could not read font file "<path>": ` + the OS error, never `could not read image input`;
+  nothing written. → FT-9.
+- [ ] **AC-9 (overlay).** A missing `--image` and a directory `--image` exit 3 with
+  `error: could not read watermark image "<path>": ` + the OS error; a non-image `--image` keeps exit 4
+  and `unsupported or undetectable image format`; nothing written. → FT-10.
+- [ ] **AC-10 (dependency).** `log` is a direct, native-only dependency; `Cargo.lock`'s package count is
+  unchanged (327); `cargo deny check` and `just wasm-check` pass. → the build quotes
+  `cargo tree -i log -e normal --depth 1`, `grep -c '^name = ' Cargo.lock` on `main` and the branch,
+  `cargo deny check`'s last line and `just wasm-check`'s exit.
+- [ ] **AC-11 (docs and help).** Each row of the sweep table below is applied verbatim, PROJ-017-owned
+  rows excepted (their text goes to the orchestrator). → the build lists `git diff --stat` per file
+  and `grep -rn -e '--keep-gps' README.md docs SECURITY.md AGENTS.md` shows only refused-form lines.
 
 ## Failing Tests
 
-Written during **design**, BEFORE build. The implementer's job in
-**build** is to make these pass.
+All in **`tests/cli_flags_honest.rs`** (new) unless named otherwise. They drive the real binary
+(`env!("CARGO_BIN_EXE_crustyimg")`) in a `TempDir`, with `current_dir` set to it and **relative
+paths** in argv (so a Windows path never needs escaping in an expected message). Each command's
+`Output` is assigned to a variable first, then asserted (trap 15). A **snapshot** is the map of every
+file under the temp dir (relative path → SHA-256), taken before and after; copy the helper from
+`tests/build_refuses_output_flags.rs` (do not add to `tests/common/mod.rs`, which PROJ-017 owns).
+Messages are `const` strings copied from the R-table, full line, `error: ` prefix and `\n` included,
+compared with `assert_eq!` against the whole stderr (a refusal prints nothing else).
 
-- **`path/to/test.file`**
-  - `"test description 1"` — asserts: ...
+- **FT-1 `every_leaf_command_refuses_build_only_flags_and_keep_gps`** — walks
+  `crustyimg::cli::Cli::command()` (`clap::CommandFactory`): for each subcommand, if it has
+  subcommands, recurse (that is `meta`), else it is a leaf path such as `["meta", "strip"]`. Skip
+  only a leaf named `help`, by name (clap adds it at build time; the test does not call `.build()`,
+  so expect none). For each leaf, look up `fn minimal_args(path: &[&str]) -> Option<Vec<&str>>`;
+  `None` → `panic!("no test argv for `{}`: add one to minimal_args", path.join(" "))`. Asserts:
+  - the number of leaves seen is **20** and equals the number of `minimal_args` entries (a stale
+    entry or an empty walk is red); prints `saw 20 leaf commands` (visible with `--nocapture`).
+  - **Baseline per leaf:** `minimal_args` alone exits with a code other than 2 and its stderr
+    contains none of the R-lines (so the argv is valid and the refusal below is the guard's).
+    For `resize`, `convert`, `web`, `optimize`, `watermark`, `edit`, `apply`, `thumbnail`,
+    `auto-orient`, `meta strip|clean|set` the baseline also changes the snapshot (the snapshot can
+    see a write).
+  - For every leaf but `build`, each of `--check --frozen --locked --strict --no-cache --watch
+    --keep-gps` appended: exit **2**, stderr == the row's line, snapshot unchanged. (19 × 7 = 133.)
+  - For `build`: `--keep-gps` → exit 2, R6, snapshot unchanged. (`build` is never given `--watch`
+    here: that starts a watcher; FT-4 covers it with a deadline.)
+  - The `minimal_args` table (each in a temp dir holding `in.png` 32×32, `r.toml` = resize max 16,
+    and `crustyimg.build.toml` with one target `source = "in.png"`, `recipe = "r.toml"`,
+    `out = "bo"`): `view in.png` · `info in.png` · `diff in.png in.png` ·
+    `resize in.png --max 8 -o o.png` · `thumbnail in.png -o o.png` ·
+    `convert in.png --format jpeg -o o.jpg` · `web in.png -o o.png` · `optimize in.png -o o.png` ·
+    `responsive in.png --widths 8 --out-dir rd` · `auto-orient in.png -o o.png` ·
+    `watermark in.png --text hi -o o.png` · `edit in.png --invert -o o.png` ·
+    `apply --recipe r.toml in.png -o o.png` · `build` · `lint in.png` · `completions zsh` ·
+    `meta strip in.png -o m.png` · `meta clean in.png --gps -o m.png` ·
+    `meta copy --from in.png --to t.png` (with `t.png` a copy) · `meta set in.png --artist a -o m.png`.
+- **FT-2 `refused_global_flags_reports_every_row_in_order`** (unit test in
+  `src/cli/global_flags.rs`, `Cli::try_parse_from`, no I/O): `resize a --max 8 --check --no-cache
+  --keep-gps` → `[R2, R5, R6]`; `meta strip a --strict` → `[R3]`; `build --strict` → `[R4]`;
+  `build --check --strict` → `[]`; `build --no-cache --check` → `[]`; `build --watch --strict` →
+  `[R4]`; `responsive a --widths 8 --format webp --name-template x` → `[R7, R8]`;
+  `resize a --max 8 --name-template x --format png` → `[]`; `resize a --max 8` → `[]`.
+- **FT-3 `keep_gps_is_hidden_from_help_but_still_parsed`** — `crustyimg --help` and
+  `crustyimg resize --help`: exit 0, stdout does not contain `--keep-gps`; and
+  `crustyimg resize in.png --max 8 -o o.png --keep-gps` stderr == R6 (not clap's
+  `unexpected argument '--keep-gps'`).
+- **FT-4 `build_refuses_strict_without_check_and_keeps_its_own_flags`** — in a temp project:
+  `build --strict` → exit 2, stderr == R4, snapshot unchanged (no `crustyimg.build.lock`, no
+  `.crustyimg/`, no `bo/`). `build --watch --strict` spawned with the `DEADLINE`/`TICK` loop from
+  `build_refuses_output_flags.rs` → exits by itself within 20 s, exit 2, stderr == R4, snapshot
+  unchanged; a run still alive at the deadline is killed and the row fails as "watcher started".
+  Then `build` (exit 0, writes the lockfile), `build --check --strict` → exit 0 and no R4 line,
+  `build --no-cache` → exit 0 and no R-line. (What `--no-cache` *does* stays proven by
+  `no_cache_flag_bypasses_store`, which asserts `(0, 2)` and no `.crustyimg/`.) Existing positive controls that must stay green:
+  `tests/build_lock.rs::cross_env_hash_tolerated_unless_strict` (`--check --strict` still exits 7 on
+  variance), `tests/build_cache.rs::no_cache_flag_bypasses_store`,
+  `tests/build_watch.rs::watch_rejects_verify_modes`, and the `--watch` refusal test in
+  `tests/cli.rs` (the `contains("--watch is only valid with `build`")` assertion).
+- **FT-5 `responsive_refuses_name_template_and_format`** — `responsive in.png --widths 8 --out-dir rd`
+  plus `--name-template '{stem}.png'` → exit 2, stderr == R7; plus `--format webp` → exit 2, R8; plus
+  both → exit 2, stderr == R7 line then R8 line; each: snapshot unchanged and `rd` does not exist.
+  Control: `--formats webp` → exit 0 and `rd/in-8w.webp` exists (RIFF magic).
+- **FT-6 `flags_a_verb_reads_are_not_refused`** — `resize in.png --max 8` with each of:
+  `--out-dir d --name-template '{stem}_s.png'` (→ `d/in_s.png`), `--format jpeg -o o.jpg`,
+  `-q 40 --format jpeg -o q.jpg`, `-j 2 --out-dir j`, `-y -o in2.png` (over an existing file),
+  `-Q -o qq.png`, `-v -o v.png`: each exit 0 and the named file exists. None prints an R-line.
+- **FT-7 `verbose_shows_dependency_warnings`** (`#[cfg(feature = "svg")]`, the same gate as
+  `tests/input_svg.rs`) — with the fixture copied in as `n.svg` (and `m.svg` for two inputs).
+  `W` = `warning: [usvg::parser::image] Image lacks the 'xlink:href' attribute. Skipped.`,
+  `D` = `debug: [usvg::parser::text] Found font-variation-settings: ''wght' 700'`. Rows (count lines
+  of stderr exactly equal to the line, not `contains`):
+  - `convert n.svg --format png -o a.png`: 0 × W, stderr empty.
+  - `-v convert … -o b.png`: 1 × W, 0 × D, and `b.png` bytes == `a.png` bytes.
+  - `-vv` and `-v -v`: 1 × W, 1 × D.
+  - `-v -Q`, `-Q -v`, `-vv -Q`: stderr empty.
+  - `-v diff n.svg n.svg`: **2** × W.
+  - `-v -j 4 resize n.svg m.svg --max 20 --out-dir jd`: **2** × W.
+  A row that cannot see its line fails; nothing in this test skips at runtime.
+- **FT-8 `very_verbose_reaches_the_avif_parser`** (no feature gate; runs on the lean leg) —
+  `info photo_128.avif` (copied from `tests/fixtures/avif/`): no flag → stderr empty; `-v` → empty;
+  `-vv` → at least one line starting `debug: [avif_parse] `; `-vv -Q` → empty.
+- **FT-9 `missing_font_names_the_file`** — `watermark in.png --text hi --font no-font.ttf -o o.png`:
+  exit 3; stderr starts with `error: could not read font file "no-font.ttf": ` and does not contain
+  `could not read image input`; snapshot unchanged. Same with `--font fontdir` (an existing
+  directory): exit 3, the same prefix with `"fontdir"`. (Only the prefix is asserted: the OS error
+  text differs on Windows.)
+- **FT-10 `missing_overlay_names_the_file`** — `watermark in.png --image no-logo.png -o o.png` and
+  `--image logodir`: exit 3, stderr starts `error: could not read watermark image "<path>": `, no
+  `could not read image input`; snapshot unchanged. Control: `--image bad.png` (bytes `junk\n`) →
+  exit 4, stderr == `error: unsupported or undetectable image format\n`.
+- **Unit tests, `src/cli/logger.rs`:** `level_for(0,false)=Off`, `(1,false)=Warn`, `(2,false)=Debug`,
+  `(3,false)=Debug`, `(1,true)=Off`, `(2,true)=Off`, `(0,true)=Off` (`level_for_quiet_wins`,
+  `level_for_counts`).
+- **Unit test, `src/cli/mod.rs` tests:** `CliError::WatermarkAssetUnreadable{..}.code() == 3` and its
+  `Display` for path `a b.ttf` is `could not read font file "a b.ttf": <io error>`.
+
+### Mutation table (trap 12: location, and every check expected red, for its reason)
+
+Run each on the branch, record red/green per check, quote one failure message per row, revert.
+"Reason" is what the failure message must show (trap 13).
+
+| # | Mutation (exact location) | Expected red (reason) | Expected green |
+|---|---|---|---|
+| M1 | Delete the `refused_global_flags` call and its `if` in `dispatch` (`src/cli/mod.rs`) | FT-1 every flag row (exit 0 quoted, e.g. `info --check`: got 0); FT-3 R6 row (exit 0); FT-4 `--strict` row (exit 0, lockfile written) and `--watch --strict` (watcher started, killed at deadline); FT-5 all three (exit 0, `rd/` written); `tests/cli.rs` `--watch` refusal test (exit 0) | FT-2 (calls the function directly), FT-6..FT-10 |
+| M2 | One verb dropped: in `refused_global_flags`, `RefusedOn::AllButBuild => !is_build` → `!is_build && !matches!(cli.command, Commands::Lint { .. })` (`src/cli/global_flags.rs`) | FT-1 `lint` rows for the six R1/R2/R3/R5 flags only (lint's own exit, quoted) | FT-1 `lint --keep-gps` (R6 is `All`), every other leaf; FT-2 (names no `lint`) |
+| M3 | `-Q` precedence dropped: in `level_for`, match on `(false, verbose)` instead of `(quiet, verbose)` (`src/cli/logger.rs`) | `level_for_quiet_wins`; FT-7 `-v -Q`, `-Q -v`, `-vv -Q` (W present); FT-8 `-vv -Q` (debug lines present) | FT-7 other rows, FT-8 other rows |
+| M4 | Logger installed after the verb: move `logger::init(…)` below `dispatch(&cli)` in `run()` (`src/cli/mod.rs`) | FT-7 `-v`, `-vv`, `-v -v`, `diff`, `-j` rows (0 × W); FT-8 `-vv` (no debug line) | logger unit tests (they never install); FT-7 quiet and default rows |
+| M5 | R6 message without `meta copy` (`src/cli/global_flags.rs`, the R6 row) | FT-1 every `--keep-gps` row (20, message mismatch, exit 2); FT-3 parse row (FT-2 compares the code's own constant, so it stays green: expected) | everything else |
+| M6 | Font line restored verbatim: `Some(path) => Some(std::fs::read(path).map_err(ImageError::Io)?),` (`src/cli/ops.rs`, `watermark_overlay`) | FT-9 both rows (stderr `error: could not read image input`, exit 3) | FT-10 |
+| M6b | Overlay line restored verbatim: `let overlay = Image::load(image)?;` | FT-10 both rows (`could not read image input`) | FT-10 `bad.png` control, FT-9 |
+| M7 | `responsive` refuses only one flag: delete the R8 row | FT-5 `--format` row (exit 0, `rd/in-8w.webp` written) and the both-flags row (R7 only); FT-2 responsive row | FT-5 `--name-template` row, control |
+| M8 | `build --strict` alone allowed: delete the R4 row | FT-4 `--strict` row (exit 0, lockfile written) and `--watch --strict` row (watcher started); FT-2 `build --strict` and `build --watch --strict` | FT-1, FT-4 positive rows |
+| M9 | `--no-cache` refused on `build`: R5's `on` → `RefusedOn::All` | FT-4 `build --no-cache` (exit 2, R5 quoted); FT-2 `build --no-cache --check`; `tests/build_cache.rs::no_cache_flag_bypasses_store` (exit 2) | FT-1 (non-build rows unchanged) |
+| M10 | `hide = true` removed from `keep_gps` (`src/cli/mod.rs`) | FT-3 help rows (`--keep-gps` in stdout) | FT-1 |
+| M11 | Coverage list made stale: delete the `lint` entry from `minimal_args` (`tests/cli_flags_honest.rs`) | FT-1 panics `no test argv for `lint`` | — |
+| M12 | Empty walk: replace the subcommand walk with an empty `Vec` (`tests/cli_flags_honest.rs`) | FT-1 (`saw 0 leaf commands`, expected 20) | — |
+
+Trap 16: no CI or environment-variable change in this spec. Trap 11: the only gate is the
+compile-time `svg` feature on FT-7; the lean leg runs FT-8 for the logger; nothing skips at runtime
+and nothing branches on `cfg(windows)` (OS error texts are not asserted).
 
 ## Implementation Context
 
-*Read this section (and the files it points to) before starting
-the build cycle. It is the equivalent of a handoff document, folded
-into the spec since there is no separate receiving agent.*
-
 ### Decisions that apply
 
-- `DEC-NNN` — <one-line summary of why this matters here>
-- `DEC-MMM` — <one-line summary>
+- `DEC-003` — the drop-GPS / `--keep-gps` promise; amended by this design (R6 refuses the flag).
+- `DEC-024` — "`--keep-gps` remains a no-op until the container lane exists"; amended likewise.
+- `DEC-012` — clap derive; global flags stay `global = true`; the guard runs after parse.
+- `DEC-007` — exit codes: refusals 2, an unreadable `--font`/`--image` 3.
+- `DEC-059` — `--check`/`--strict` semantics; R3/R4 enforce "With `--check`" from its help text.
+- `DEC-105` — a name's extension pins the format; why `responsive` refuses a template rather than
+  half-honouring one (the ideas entry carries the open question).
+- SPEC-071's `--watch` guard — the precedent; its message is moved, unchanged, into R1.
 
 ### Constraints that apply
 
-These constraints apply to the paths touched by this task (see
-`/guidance/constraints.yaml` for full text):
-
-- `constraint-id-1` — <one-line summary>
-- `constraint-id-2` — <one-line summary>
+- `ergonomic-defaults` — a flag is honoured or refused with a reason, never silently ignored.
+- `metadata-not-via-pixel-encode` — why `--keep-gps` cannot be honoured on the pixel lane; R6 points
+  at the container lane (`meta copy`).
+- `test-before-implementation` — FT-1..FT-10 fail on `main` (see baseline below).
 
 ### Prior related work
 
-- `SPEC-YYY` (shipped) — <one-line summary, if relevant>
-- `PR #NNN` — <link, if relevant>
+- SPEC-071 (`--watch` off `build`), SPEC-134 / DEC-105 (`--name-template` pins format; `build`'s
+  `refused_build_flags`), SPEC-128 (recipe asset messages: `could not read 'font' file "…"`),
+  SPEC-138 (`build` refuses output flags; the snapshot/deadline test helpers).
+
+### Expected baseline on `main` (quote each RED row's message in Build Completion; trap 13)
+
+FT-1: every flag row red with **exit 0** (or the verb's own code: `lint` 7, `view` 5 without a TTY),
+never 2 — the likely wrong-reason red is a bad `minimal_args` argv (baseline exits 2 with a clap
+message), which the baseline assertion catches first. FT-3: help rows red (`--keep-gps` listed).
+FT-4: `--strict` exit 0; `--watch --strict` killed at the deadline. FT-5: exit 0, `rd/in-8w.png`
+written. FT-7/FT-8: no warning/debug lines (no logger). FT-9/FT-10: `could not read image input`.
+FT-6 green on `main` (a positive control, by design).
+
+### Docs sweep (exact text; ⚠ shared, keep the hunk to the line; ⛔ PROJ-017-owned: do not edit)
+
+| File:line (on `d62314e`) | Replace with |
+|---|---|
+| ⚠ `docs/cli-reference.md:21` | `- **Metadata is dropped on pixel-lane encodes,** GPS included. \`--keep-gps\` is refused (exit \`2\`); to keep metadata, run \`crustyimg meta copy --from <in> --to <out> -y\` after the encode (JPEG and PNG).` |
+| ⚠ `docs/cli-reference.md:40` (`-Q` row) | append: ` Also silences \`-v\`.` |
+| ⚠ `docs/cli-reference.md:41` | `\| \`--verbose\` \| \`-v\` \| Show warnings from the SVG renderer and codecs on stderr; \`-vv\` adds debug detail. Silent by default; \`-Q\` wins. \|` |
+| ⚠ `docs/cli-reference.md:42` | `\| \`--keep-gps\` \| \| Refused (exit \`2\`): pixel-lane encodes drop all metadata. Use \`meta copy\` after the encode (JPEG and PNG). Hidden from \`--help\`. \|` |
+| ⚠ `docs/cli-reference.md` after line 42 | new row: `\| \`--check\` / \`--strict\` / \`--no-cache\` / \`--watch\` \| \| \`build\` only (see Project builds); refused with exit \`2\` on every other command, and \`--strict\` is refused without \`--check\`. \|` |
+| ⚠ `docs/cli-reference.md:204` (responsive, after "Single input.") | ` Output names are fixed as \`{stem}-{w}w.{ext}\`: \`--name-template\` and \`--format\` are refused (exit \`2\`); choose formats with \`--formats\`.` |
+| ⚠ `docs/cli-reference.md:425` (first prose line after the `--check --strict` example block) | insert before it, as its own paragraph: `\`--strict\` without \`--check\` is refused (exit \`2\`).` |
+| ⚠ `docs/api-contract.md:36` | `\| \`--verbose\` \| \`-v\` \| Dependency log records to stderr: \`-v\` warnings, \`-vv\` adds info and debug. Nothing without it; \`-Q\` wins. \|` |
+| ⚠ `docs/api-contract.md:37` (`-Q` row) | `\| \`--quiet\` \| \`-Q\` \| Suppress non-error output, including \`-v\` log records. \|` |
+| ⚠ `docs/api-contract.md:39` | `\| \`--keep-gps\` \| \| Refused on every command (exit 2): pixel-lane encodes drop all metadata; the message names \`meta copy\`. Hidden from \`--help\`. \|` |
+| ⚠ `docs/api-contract.md:592-593` | replace `Not yet covered: \`responsive\` accepts \`--name-template\` and ignores it.` with `\`responsive\` refuses \`--name-template\` and \`--format\` (exit 2): its names are fixed \`{stem}-{width}w.{ext}\`.` |
+| ⚠ `docs/api-contract.md:192` (responsive, after "Single input (no glob/batch in v1).") | ` Names are fixed; \`--name-template\` and \`--format\` are refused (exit 2).` |
+| ⚠ `README.md:199` | `> Pixel-lane encodes drop all metadata, GPS included. To keep it, run \`crustyimg meta copy --from in.jpg --to out.jpg -y\` after the encode (JPEG and PNG).` |
+| ⚠ `README.md:293` | `-v/--verbose` · `--keep-gps` → `` `-v/--verbose` (dependency warnings to stderr; `-vv` for more) `` and drop `· \`--keep-gps\`` |
+| `docs/USAGE.md:164` | `Current safety behavior: pixel-lane encodes drop all metadata, GPS included (\`--keep-gps\` is refused; use \`meta copy\` after the encode to keep it);` |
+| ⚠ `docs/data-model.md:122` | `\| GPS \| **dropped** (\`--keep-gps\` is refused, exit 2; \`meta copy\` restores it on JPEG/PNG) \| \`meta clean --gps\` removes \|` |
+| `docs/moat.md:96-97` | `a default drop-GPS policy on pixel-lane encodes (\`--keep-gps\` to opt out)` → `a pixel lane that drops GPS with every other tag (\`meta copy\` puts metadata back on JPEG and PNG)` |
+| `SECURITY.md:49-50` | `**drops GPS** on pixel-lane encodes unless \`--keep-gps\`;` → `**drops GPS** (with all other metadata) on pixel-lane encodes; \`--keep-gps\` is refused (exit 2);` |
+| `SECURITY.md:88` | `default drop-GPS on pixel-lane encodes (\`--keep-gps\` to opt out)` → `pixel-lane encodes drop all metadata, GPS included (\`--keep-gps\` refused)` |
+| ⚠ `AGENTS.md:503` | `ICC + copyright/artist; drop GPS unless \`--keep-gps\` (DEC-003).` → `ICC + copyright/artist; drop GPS (\`--keep-gps\` is refused, SPEC-149; DEC-003).` (The ICC/copyright half is finding C; not fixed here.) |
+| ⛔ `docs/recipes.md:123` | proposed: `- **Note:** \`optimize\` drops all metadata, GPS included (privacy-safe web prep); \`--keep-gps\` is refused. To keep it: \`crustyimg meta copy --from orig.jpg --to web.jpg -y\`.` |
+| ⛔ `skills/crustyimg/SKILL.md:67-68` | proposed: `- **Metadata, GPS included, is dropped** on any command that re-encodes pixels; \`--keep-gps\` is refused (exit 2). If the user asks to keep location data, run \`crustyimg meta copy --from <in> --to <out> -y\` after the encode (JPEG and PNG).` |
+| `docs/research/*.md`, `docs/sessions/*.md`, released `CHANGELOG.md` entries | unchanged (historical). |
+
+Help strings in `src/cli/mod.rs` (⚠):
+- `verbose`: `/// Show warnings from the SVG renderer and codecs on stderr; \`-vv\` adds debug detail. \`-Q\` silences it.`
+- `quiet`: `/// Suppress non-error output, including \`-v\` logging.`
+- `keep_gps`: `/// Refused (exit 2): pixel-lane encodes drop all metadata; use \`meta copy\` after the encode.` + `hide = true`
+- `no_cache`, `check`: prefix the first line with `` `build` only: ``; `strict`: replace `With \`--check\`:` by `` `build --check` only: ``.
+- `Responsive` doc comment: append `Output names are fixed (\`{stem}-{w}w.{ext}\`); \`--name-template\` and \`--format\` are refused: choose formats with \`--formats\`.`
+
+### Proposed CHANGELOG text (⛔ PROJ-017-owned section: the orchestrator places it)
+
+> ### Changed
+> - **`--keep-gps` is refused (exit 2).** It never kept GPS: pixel-lane encodes drop all metadata.
+>   To keep it, copy it back after the encode: `crustyimg meta copy --from in.jpg --to out.jpg -y`
+>   (JPEG and PNG). The flag is hidden from `--help`.
+> - **`responsive` refuses `--name-template` and `--format` (exit 2)** instead of ignoring them. Its
+>   names are fixed (`{stem}-{w}w.{ext}`); choose formats with `--formats`.
+> - **`--check` (`--frozen`, `--locked`), `--strict` and `--no-cache` are refused (exit 2) on every
+>   command but `build`**, as `--watch` already was, and `build --strict` without `--check` is refused.
+>
+> ### Added
+> - **`-v` prints warnings from the SVG renderer and codecs on stderr**, such as
+>   `warning: [usvg::parser::image] Image lacks the 'xlink:href' attribute. Skipped.`; `-vv` adds
+>   debug detail. Without `-v` nothing changes; `-Q` wins.
+>
+> ### Fixed
+> - **A missing or unreadable `watermark --font` or `--image` names the file** (exit 3) instead of
+>   saying "could not read image input".
 
 ### Out of scope (for this spec specifically)
 
@@ -386,19 +800,33 @@ Explicit list of what this spec does NOT include. If any of these feel
 necessary during build, create a new spec rather than expanding this one.
 
 - Implementing `--keep-gps` (copy-then-clean through the container lane) or DEC-003's selective
-  preserve: a feature with its own DEC (STAGE-063 finding C).
+  preserve: a feature with its own DEC (filed on PROJ-013 STAGE-052; STAGE-063 finding C).
 - Honouring a `responsive` name template and validating unknown template tokens on every verb
-  (`guidance/ideas.yaml`; finding A).
+  (`guidance/ideas.yaml` `responsive-name-template`; finding A).
 - The other accepted-and-ignored combinations: `meta strip|clean|set` with `--format`/`-q`, `-o`
   together with `--out-dir`, output flags on read-only verbs (STAGE-063 finding A).
 - The `optimize`/`web` `-q` refusal naming flags the user did not pass (STAGE-063 finding B; may fold
   into SPEC-150).
 - The wasm asset refusal's wording and spec ids in `--help` (SPEC-150).
+- A corrupt `--image` naming its file (it keeps exit 4 and the decode/format message; not ruling 4).
+- Logging from crustyimg's own code (`log::` calls in `src/`): the logger only surfaces dependencies.
 - Anything under `src/operation/`, `src/recipe/`, or `projects/PROJ-017-geometry-as-recipe-steps/`.
 
 ## Notes for the Implementer
 
-Gotchas, style preferences, reuse opportunities.
+- Build on a branch, **draft PR**, own `CARGO_TARGET_DIR`; checkpoint-commit after the tests are
+  written (red) and after they pass. `git commit -s` on every commit.
+- Write FT-1..FT-10 first and record the `main` baseline per row (exit code and first stderr line)
+  before any `src/` change.
+- `refused_build_flags` stays as it is; `global_flags` does not absorb it (its `build` rows test
+  `Option::is_some()` on output flags and have their own unit test). Order for `build`: table first.
+- Keep the R-lines as `const`s in `global_flags.rs` and copy them as literals into the test (do not
+  import them: a test reading the code's own constant cannot catch a changed message).
+- `clap::CommandFactory` must be in scope in the test (`use clap::CommandFactory;`); `clap` is a
+  normal dependency, so integration tests can use it.
+- Run `cargo test --no-default-features` too: FT-7 compiles out, FT-8 must still run and pass.
+- Run `just wasm-check` and `cargo deny check` and quote both.
+- If a rebase conflicts in a PROJ-017 file, stop and report.
 
 ---
 

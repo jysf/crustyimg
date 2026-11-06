@@ -23,6 +23,8 @@ superseded_by: null
 affected_scope:
   - src/metadata/**
   - src/sink/**
+  - src/cli/mod.rs
+  - src/cli/global_flags.rs
 
 tags:
   - architecture
@@ -115,6 +117,16 @@ sweep surfaces evidence ICC is also being silently dropped against this record's
 is a separate finding, filed as its own spec, not fixed here.
 
 `AGENTS.md`'s "Default-preserve policy" glossary entry is corrected to match (§14).
+
+## Amendment (2026-11-06, SPEC-149)
+
+**`--keep-gps` is refused (exit 2) on every command.** It never kept GPS: driven at SPEC-149's
+frame, a pixel-lane encode of a JPEG or PNG carrying GPS, `Artist` and `Copyright` keeps none of
+them, so "drop GPS unless `--keep-gps`" described a flag that was accepted and ignored. The refusal
+names the container-lane workaround, `crustyimg meta copy --from <in> --to <out> -y` (JPEG and PNG),
+and the flag is hidden from `--help` but kept in the parser, as a placeholder for the real feature
+(filed on PROJ-013 STAGE-052). The guard lives in `src/cli/global_flags.rs`. The ICC and
+copyright/artist half of this record's preserve claim is not corrected here (STAGE-063 finding C).
 
 ## References
 

@@ -113,6 +113,15 @@ ideas:
     gate: "PROJ-014 framed; the ICO fix in STAGE-048 first"
     notes: "Numbered PROJ-014 by maintainer ruling (2026-10-25), not PROJ-005 as the roadmap still says in places."
 
+  - id: responsive-name-template
+    title: "A name template for `responsive`: a required `{w}` token, names the srcset snippet uses"
+    status: proposed
+    source: "SPEC-149 design (2026-11-06): `responsive` now refuses --name-template and --format (exit 2)"
+    home: null
+    likely_home: PROJ-014
+    gate: "Template-token validation on every verb (STAGE-063 finding A), and a ruling on a literal extension against DEC-105 when responsive writes several formats"
+    notes: "Names are fixed `{stem}-{w}w.{ext}` today. Sits beside the `{hash}` token in manifest-placeholders-favicon."
+
   - id: og-card-preset
     title: "A 1200x630 og-card fit/crop preset"
     status: proposed

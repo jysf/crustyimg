@@ -12,7 +12,10 @@ Cycle prompts live in `prompts/SPEC-149-<cycle>.md`.
   --format` and `--check`/`--strict`/`--no-cache` off `build`, plus `watermark --image`'s unnamed path.
   Recommended: refuse `--keep-gps` (hidden), minimal `-v` logger, refuse responsive's template and format,
   refuse `--strict` alone. Three out-of-spec findings filed on STAGE-063.
-- [~] **design** (`prompts/SPEC-149-design.md`, Opus)
-- [ ] **build**
+- [x] **design** (2026-11-06, Opus 5.5, `prompts/SPEC-149-design.md`) — 11 ACs, 12 failing tests, 13
+  mutation rows. One guard table (`src/cli/global_flags.rs`, 8 rows, scope by exclusion so a new verb is
+  covered) replaces the `--watch` `if`; a `-v`/`-vv` stderr logger in `src/cli/logger.rs` (driven: usvg
+  warning + debug lines, avif_parse debug on the lean leg); `watermark --font`/`--image` name the file, exit 3.
+- [ ] **build** — `prompts/SPEC-149-build.md`
 - [ ] **verify**
 - [ ] **ship**
