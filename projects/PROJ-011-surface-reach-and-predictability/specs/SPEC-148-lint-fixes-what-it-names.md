@@ -7,7 +7,7 @@
 task:
   id: SPEC-148
   type: bug                        # epic | story | task | bug | chore
-  cycle: build  # frame | design | build | verify | ship
+  cycle: verify  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: S                    # S | M | L  (L means split it)
@@ -91,6 +91,42 @@ cost:
         per id, MAX output_tokens per id. Rates: Opus $5 in / $25 out per MTok, cache_creation
         x1.25 input, cache_read x0.10 input. Taken before the commit/push exchanges, so it
         slightly under-counts the session.
+    - cycle: build
+      agent: claude-sonnet-5-5
+      interface: claude-code
+      tokens_total: 7991620
+      tokens_breakdown:
+        input: 102
+        output: 53241
+        cache_creation: 203694
+        cache_read: 7734583
+      estimated_usd: 3.88
+      duration_minutes: null
+      recorded_at: 2026-11-05
+      note: >
+        Build session, worktree feat-spec-148-lint-fixes-what-it-names. Measured from transcript
+        ae3eb629-68d7-432d-a847-6b379d9e14af.jsonl, found by the prompt's title, deduped by
+        `.message.id` (47 unique ids, all claude-sonnet-5-5): input/cache_creation/cache_read once
+        per id, MAX output_tokens per id. Rates: Sonnet $3 in / $15 out per MTok, cache_creation
+        x1.25, cache_read x0.10. Taken before the PR and final-report exchanges, so it slightly
+        under-counts the session.
+    - cycle: build-fix
+      agent: claude-sonnet-5-5
+      interface: claude-code
+      tokens_total: 1742280
+      tokens_breakdown:
+        input: 42
+        output: 11113
+        cache_creation: 66808
+        cache_read: 1664317
+      estimated_usd: 0.92
+      duration_minutes: null
+      recorded_at: 2026-11-05
+      note: >
+        Fix round for verify R-1, worktree fix-spec-148. Measured from this session's transcript
+        (2d565543-599f-485e-b4e5-4e88219ce618.jsonl), deduped by `.message.id` (21 ids), MAX output
+        per id. Sonnet rates as the build entry. Taken before CI-wait and the final report, so it
+        slightly under-counts.
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -883,38 +919,85 @@ necessary during build, create a new spec rather than expanding this one.
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
-- **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
-- **Files this diff touches** — **list every one**, with a phrase on what changed
-  in each. Not "src/foo and tests": the enumeration is what a verify cycle diffs
-  the real change against, and what tells you whether every affected `DEC-*` has
-  the path in its `affected_scope`. SPEC-122's Deviations claimed "`src/operation`
-  and `tests/` only" and was wrong by two `scripts/` files, which left
-  `affected_scope` blind; SPEC-124's build added this section by hand after that
-  lesson and still listed 8 of its 9 files. It is a checklist because it is easy
-  to get wrong from memory — build it from `git diff --name-only`, not recall.
-  - `path/to/file` — <what changed>
+- **Branch:** feat/spec-148-lint-fixes-what-it-names
+- **PR (if applicable):** draft, see the PR list for the branch
+- **All acceptance criteria met?** yes (AC-2's Windows run is left to the PR's windows-latest leg)
+- **New decisions emitted:** none
+- **Files this diff touches** (from `git diff --name-only origin/main...HEAD`):
+  - `src/lint/mod.rs` — `Shell`, `HOST_SHELL`, `shell_arg`, `fix_command(_for)`, `from_stdin`/`on_stdin`, `run_lint` marks stdin, `scan_exif` GPS predicate, doc comments, unit tests FT-3/4/5/10
+  - `src/lint/rules.rs` — `OversizedBytes` budget fragment, CMYK `convert --format jpeg`, 16-bit prints words and no command, unit tests FT-6/7
+  - `src/lint/report.rs` — doc comments, goldens updated plus a third finding on `img/my photo.jpg`
+  - `tests/lint.rs` — FT-1 harness and 13 rows, FT-2, FT-8, FT-9, FT-11, FT-12, local EXIF/ICC/CMYK fixture helpers
+  - `tests/adoption_glue.rs` — its own coordinate-bearing GPS fixture (the shared one is no longer a location)
+  - `tests/fixtures/lint/cmyk_16x16.jpg`, `tests/fixtures/lint/README.md` — new ImageMagick CMYK fixture and its command
+  - `docs/github-actions.md` — section 5 fix table and a quoting sentence
 - **Deviations from spec:**
-  - [list]
-- **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - `tests/common/mod.rs` NOT edited (claimed by SPEC-147): the GPS builder, `jpeg_with_gps` (with a coordinate), Make and ICC helpers live in `tests/lint.rs`; `adoption_glue.rs` has its own fixture. The shared `common::jpeg_with_gps` is now used by nothing in lint tests.
+  - FT-12 checks the section 5 slice of the doc, not the whole file: a later section legitimately shows `optimize ... --profile preserve --max 1600` for batch use.
+  - The `subdir` row does not print `sub\leak.jpg`: `lint sub` prints the canonicalized absolute path, so the row does not exercise the backslash-safe branch (FT-4 covers it at unit level).
+
+#### RED on main, then GREEN
+Red run used main's formatter behind the new API (stub, commit 4304607). Lines quoted:
+- FT-1: `printed fixes do not fix their findings: fix_shape=13 shell_failed=4 stdout_nonempty=9 still_reported=13 unchanged=13`; e.g. `row cmyk ... fix: "crustyimg convert --format cmyk.jpg" stderr: error: input not found or unreadable:`, `row space ... error: input not found or unreadable: my`, `row quote ... unexpected EOF while looking for matching`, `row dash ... error: unexpected argument '-x' found`.
+- FT-2: `left: "crustyimg meta clean --gps leak.jpg"  right: "crustyimg meta clean --gps leak.jpg -o leak.jpg -y"`
+- FT-8: `human output must have no fix line: ... fix: crustyimg convert --format deep.png`
+- FT-9: `stdin fix must be null, got "crustyimg meta clean --gps stdin"`
+- FT-11: `version only (P1100 shape): expected exit 0 (no location)`; FT-12: `docs/github-actions.md must show crustyimg optimize --max-size <budget> <file> -o <file> -y`
+- Unit: FT-3 `left: Some("crustyimg meta clean --gps img/leak.jpg")`; FT-4 `POSIX quoting of "img\\a.jpg"`; FT-5 `left: Some("crustyimg meta clean --gps stdin") right: None`; FT-7 `left: Some("optimize") right: Some("optimize --max-size 123457")` and 16-bit `left: Some("convert --format") right: None`; FT-10 `version only (the P1100 shape): no location, so no finding`; three goldens red. FT-6 passes on main (no empty fragment existed): its red is M-9.
+- GREEN after the change: `cargo test --lib lint` 39 passed; `--test lint` 32 passed; `adoption_glue` 4 passed; `just check` passed; lean (`--no-default-features`) lint tests passed.
+
+#### Local mutations (scratch worktree, each reverted: `git diff` empty)
+- M-1 old formatter: FT-1 `fix_shape=13 shell_failed=3 stdout_nonempty=10 still_reported=13 unchanged=13`; FT-2, FT-3, FT-5, FT-9, three goldens.
+- M-1b + old fragments: FT-1 `fix_shape=13 shell_failed=4 stdout_nonempty=9 still_reported=13 unchanged=13` (cmyk: `input not found or unreadable`); FT-7, FT-8, FT-2, FT-3, FT-5, FT-9, goldens.
+- M-2 drop ` -y`: FT-1 `fix_shape=13 shell_failed=13 still_reported=13 unchanged=13` (`output file already exists (use --yes to overwrite)`); FT-2, FT-3, goldens.
+- M-3 drop `-o`: FT-1 `stdout_nonempty=13 still_reported=13 unchanged=13`; FT-2, FT-3, goldens.
+- M-4 no quoting: FT-1 `shell_failed=2 still_reported=2 unchanged=2` (space, quote); FT-4; goldens (space row). Other rows green.
+- M-4b no `./`: FT-1 `shell_failed=1` (dash: `unexpected argument '-x' found`); FT-4.
+- M-5 webp pairing: FT-1 `format_changed=1`; FT-7.
+- M-6 no budget: FT-1 `still_reported=2 unchanged=1`: both oversized-bytes rows, so the PNG row is red too (`kept the 96951 B source unchanged`); FT-7.
+- M-7 old GPS line: FT-10, FT-11. M-8 latitude only: FT-10, FT-11, FT-1 `fix_shape=1 not_reported_before=1 shell_failed=1` (gps-area-info).
+- M-9 16-bit `Some("")`: FT-6, FT-7, FT-8, `wrong_colorspace_fires_on_16bit...`.
+- M-10 `Some("")` for no fragment: FT-3 (`None` row), FT-8, existing `json_escapes_quotes_and_backslashes`. FT-9 stays GREEN (stdin returns `None` before this path), unlike the table.
+- M-11 stdin check removed: FT-5, FT-9.
+- M-12 (Windows forced to POSIX quoting): not run, needs the Windows runner; left to the draft PR's windows-latest leg (no local effect on macOS).
+- M-13: with `CRUSTYIMG_TEST_FIX_SHELL=nosuchshell` FT-1 goes red with `cannot run the printed fix: no nosuchshell on PATH`. With the spawn error turned into a fake success it still goes red at the preamble (`the shell cannot find crustyimg`), so the harness cannot pass without a shell, though the message differs from the unmutated one.
+- M-14 KB rounding: FT-7 only; FT-1 stays green (1000-byte rounding keeps the budget reachable).
+
+#### Hash-mismatch mutation (trap 13)
+The three report goldens are the hash guard: M-1, M-2, M-3 turn all three red, M-4 turns them red on the `my photo.jpg` row.
+
+#### Windows
+Not run here. The first PowerShell run of FT-1 is the draft PR's windows-latest leg.
+
+- **Follow-up work identified:** none new; `lint --help` "(each with a runnable fix)" is SPEC-150's.
 
 ### Build-phase reflection (3 questions, short answers)
 
-Process-focused: how did the build go? What friction did the spec create?
-
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — Whether unit tests may reference not-yet-existing private API for the red-on-main run; I put main's formatter behind the new signatures to get honest failures. Also `lint <dir>` prints an absolute path, so the `subdir` row cannot test the backslash branch.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — The claim on `tests/common/mod.rs` was added late; the spec's "update the shared `jpeg_with_gps`" instructions conflicted with it.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Start the scratch mutation worktree's target dir copy earlier; and make the `subdir` row lint a relative path to a file, not a directory.
 
+No design call turned out wrong.
+
+
+#### Fix round (verify R-1)
+
+`lint` printed `meta clean --gps` / `meta strip` for WebP, TIFF and AVIF, which the metadata lane refuses
+(`error: metadata lane does not support WebP yet`, rc 4). All three `meta` emitters (`privacy/gps-metadata-leak`,
+`privacy/camera-metadata`, `color/unexpected-icc`) now go through `LintTarget::meta_fix`, which keeps the fragment
+only when `guess_format` on the bytes says JPEG or PNG; otherwise the fix is `None` (`fix: null`, no SARIF suffix, no
+text line) and the message gains "; crustyimg's metadata lane cannot rewrite WebP yet, so remove it with another
+tool". Wording chosen because no one-line crustyimg route was driven that keeps the pixels and clears the finding,
+so the message says the lane cannot do it yet (same register as the 16-bit PNG finding). New FT-1 rows `gps-webp`,
+`camera-webp`, `gps-tiff` (fixtures built with ImageMagick + exiftool in `tests/fixtures/lint/`) were RED on the
+unmodified head (`printed_unrunnable_fix=3 shell_failed=3`, stderr `metadata lane does not support WebP yet`) and are
+GREEN after. Mutation (fragment restored for every format): the same three rows red; reverted. `docs/github-actions.md`
+§5 gains one sentence. O-1..O-5 untouched.
 ---
 
 ## Reflection (Ship)

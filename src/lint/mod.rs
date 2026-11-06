@@ -72,8 +72,9 @@ impl Severity {
 ///
 /// `rule` is a stable, namespaced id (`privacy/gps-metadata-leak`) — a
 /// compatibility surface (DEC-050). `fix` is a runnable `crustyimg` subcommand
-/// *fragment* (e.g. `meta clean --gps`) the report renders as
-/// `crustyimg <fix> <file>`; `None` when there is no command to run (the fix
+/// *fragment* (e.g. `meta clean --gps`); the report renders it as
+/// `crustyimg <fix> <file> -o <file> -y` (see [`Finding::fix_command`]), which
+/// rewrites the file in place. `None` when there is no command to run (the fix
 /// guidance is then in `message`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Finding {
@@ -86,11 +87,68 @@ pub struct Finding {
     /// shipped-capability rules (SPEC-050/051/053); the engine-backed
     /// "could be smaller" rules populate it (STAGE-014).
     bytes_saved: Option<u64>,
+    /// The finding came from standard input, whose "path" is only a stem: no
+    /// printable command can name it.
+    from_stdin: bool,
+}
+
+/// Which shell's quoting a printed fix uses.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Shell {
+    Posix,
+    PowerShell,
+}
+
+/// The shell a user on this platform most likely pastes into: PowerShell on
+/// Windows (the default terminal shell and the GitHub Actions default),
+/// sh/bash/zsh everywhere else.
+const HOST_SHELL: Shell = if cfg!(windows) {
+    Shell::PowerShell
+} else {
+    Shell::Posix
+};
+
+/// Quote one path so `shell` reads it as exactly one argument. `None` when the
+/// path is not valid UTF-8 (printing it lossily would name a different file).
+fn shell_arg(path: &Path, shell: Shell) -> Option<String> {
+    let raw = path.to_str()?;
+    // Quoting does not stop clap reading `-x.jpg` as a flag; `./-x.jpg` names
+    // the same file on every OS (Rust accepts `/` on Windows).
+    let s = if raw.starts_with('-') {
+        format!("./{raw}")
+    } else {
+        raw.to_string()
+    };
+    // The safe set is deliberately small: `,` makes an array in PowerShell, and
+    // `=`, `~`, `@`, `$` and spaces mean something in one shell or another.
+    let safe = |c: char| {
+        c.is_ascii_alphanumeric()
+            || matches!(c, '_' | '-' | '.' | '/')
+            || (shell == Shell::PowerShell && matches!(c, '\\' | ':'))
+    };
+    if !s.is_empty() && s.chars().all(safe) {
+        return Some(s);
+    }
+    let mut out = String::with_capacity(s.len() + 2);
+    out.push('\'');
+    for c in s.chars() {
+        match shell {
+            Shell::Posix if c == '\'' => out.push_str("'\\''"),
+            // PowerShell also treats U+2018..U+201B as single quotes.
+            Shell::PowerShell if c == '\'' || ('\u{2018}'..='\u{201B}').contains(&c) => {
+                out.push(c);
+                out.push(c);
+            }
+            _ => out.push(c),
+        }
+    }
+    out.push('\'');
+    Some(out)
 }
 
 impl Finding {
     /// Build a finding. `fix` is a `crustyimg` subcommand fragment without the
-    /// binary name or the file (both are added when rendered), or `None`.
+    /// binary name, the file or `-o <file> -y` (all added when rendered), or `None`.
     ///
     /// `bytes_saved` defaults to `None`; the engine-backed rules set it via
     /// [`Finding::with_bytes_saved`].
@@ -108,7 +166,14 @@ impl Finding {
             message: message.into(),
             fix,
             bytes_saved: None,
+            from_stdin: false,
         }
+    }
+
+    /// Mark this finding as coming from standard input (it then has no fix command).
+    fn on_stdin(mut self) -> Finding {
+        self.from_stdin = true;
+        self
     }
 
     /// The file this finding is about.
@@ -147,12 +212,22 @@ impl Finding {
         self
     }
 
-    /// The full runnable fix command for this finding (`crustyimg <fix> <file>`),
-    /// or `None` when the rule names no command.
+    /// The full runnable fix: `crustyimg <fragment> <file> -o <file> -y`, with the
+    /// file quoted for this platform's shell. Run verbatim it rewrites the file in
+    /// place (without `-o` it would write the image to stdout and leave the file
+    /// unchanged). `None` when the rule names no command, the input was stdin, or
+    /// the path cannot be printed.
     pub fn fix_command(&self) -> Option<String> {
-        self.fix
-            .as_ref()
-            .map(|f| format!("crustyimg {} {}", f, self.file.display()))
+        self.fix_command_for(HOST_SHELL)
+    }
+
+    fn fix_command_for(&self, shell: Shell) -> Option<String> {
+        if self.from_stdin {
+            return None;
+        }
+        let fragment = self.fix.as_deref()?;
+        let file = shell_arg(&self.file, shell)?;
+        Some(format!("crustyimg {fragment} {file} -o {file} -y"))
     }
 
     /// Deterministic sort key: `(path, severity, rule)` (DEC-050 determinism).
@@ -282,7 +357,7 @@ impl LintTarget {
         self.exif.get_or_init(|| scan_exif(&self.bytes))
     }
 
-    /// Whether the file's EXIF carries any GPS/location tag.
+    /// Whether the file's EXIF carries a GPS location (a coordinate or a place name).
     pub fn has_gps_exif(&self) -> bool {
         self.exif_facts().has_gps
     }
@@ -301,6 +376,36 @@ impl LintTarget {
     /// Whether the file carries a raw ICC profile (captured at load).
     pub fn has_icc(&self) -> bool {
         self.info().map(|i| i.has_icc).unwrap_or(false)
+    }
+
+    /// The `meta` fix for a finding, or `None` when the metadata lane cannot
+    /// rewrite this file. The lane handles JPEG and PNG only, judged from the
+    /// sniffed container (the same `guess_format` the lane uses), never the
+    /// file extension; a command it would refuse must not be printed.
+    fn meta_fix(&self, fragment: &str) -> Option<String> {
+        matches!(
+            ::image::guess_format(&self.bytes),
+            Ok(::image::ImageFormat::Jpeg | ::image::ImageFormat::Png)
+        )
+        .then(|| fragment.to_string())
+    }
+
+    /// `message` for a finding whose fix is a `meta` verb: unchanged when the
+    /// lane can write the file, else it says so and names the format.
+    fn meta_message(&self, message: &str) -> String {
+        if self.meta_fix("").is_some() {
+            return message.to_string();
+        }
+        let format = match ::image::guess_format(&self.bytes) {
+            Ok(::image::ImageFormat::Tiff) => "TIFF".to_string(),
+            Ok(::image::ImageFormat::Avif) => "AVIF".to_string(),
+            Ok(f) => format!("{f:?}"),
+            Err(_) => "this format".to_string(),
+        };
+        format!(
+            "{message}; crustyimg's metadata lane cannot rewrite {format} yet, so remove it \
+             with another tool"
+        )
     }
 
     /// The captured ICC profile's byte length, if any.
@@ -335,7 +440,7 @@ impl LintTarget {
 /// Read-only EXIF facts a rule keys off, extracted in one parse pass.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 struct ExifFacts {
-    /// Any GPS-context tag is present (a location leak).
+    /// The GPS block carries a location: a coordinate or a place name.
     has_gps: bool,
     /// Any identifying non-GPS camera tag is present (Make/Model/serial/…).
     has_camera: bool,
@@ -352,7 +457,19 @@ fn scan_exif(bytes: &[u8]) -> ExifFacts {
         Err(_) => return ExifFacts::default(),
     };
 
-    let has_gps = exif.fields().any(|f| f.tag.context() == exif::Context::Gps);
+    // A location is a coordinate (where the photo was taken, or the destination
+    // it names) or a free-text place name. A block holding only GPSVersionID,
+    // Ref tags, altitude, timestamps or map datum says nothing about where (some
+    // cameras write one into every JPEG). Any IFD counts: a location in a
+    // thumbnail's GPS IFD is still a leak.
+    const GPS_LOCATION_TAGS: &[Tag] = &[
+        Tag::GPSLatitude,
+        Tag::GPSLongitude,
+        Tag::GPSDestLatitude,
+        Tag::GPSDestLongitude,
+        Tag::GPSAreaInformation,
+    ];
+    let has_gps = exif.fields().any(|f| GPS_LOCATION_TAGS.contains(&f.tag));
 
     // Identifying, device-level tags (NOT copyright/artist, which are preserved).
     const CAMERA_TAGS: &[Tag] = &[
@@ -506,7 +623,14 @@ pub fn run_lint(inputs: &[Input], rules: &[Box<dyn Rule>], config: &LintConfig) 
             }
             // Per-rule severity override.
             let severity = config.severity_for(rule.id(), finding.severity());
-            findings.push(finding.with_severity(severity));
+            let finding = finding.with_severity(severity);
+            // The input variant decides, not the name: a real file called
+            // `stdin` still gets its fix.
+            findings.push(if matches!(input, Input::Stdin { .. }) {
+                finding.on_stdin()
+            } else {
+                finding
+            });
         }
     }
     findings.sort_by(|a, b| a.sort_key().cmp(&b.sort_key()));
@@ -535,7 +659,8 @@ pub fn exit_code(outcome: &LintOutcome, max_warnings: Option<usize>) -> i32 {
 
 // ── Foundational rules ────────────────────────────────────────────────────────
 
-/// `privacy/gps-metadata-leak` (Error): the image carries GPS EXIF — a location
+/// `privacy/gps-metadata-leak` (Error): the image carries a GPS location (a
+/// coordinate or place name, not just an empty GPS block) — a location
 /// leak in a public asset (the privacy moat). Fix: `meta clean --gps`.
 pub struct GpsMetadataLeak;
 
@@ -554,8 +679,10 @@ impl Rule for GpsMetadataLeak {
                 target.path().to_path_buf(),
                 self.id(),
                 self.default_severity(),
-                "image carries GPS location metadata (a privacy leak in a public asset)",
-                Some("meta clean --gps".to_string()),
+                target.meta_message(
+                    "image carries GPS location metadata (a privacy leak in a public asset)",
+                ),
+                target.meta_fix("meta clean --gps"),
             ))
         } else {
             None
@@ -625,33 +752,57 @@ mod tests {
         buf.into_inner()
     }
 
-    /// A JPEG carrying an EXIF APP1 segment with a GPS sub-IFD (one GPS tag).
-    ///
-    /// Hand-built little-endian TIFF: IFD0 holds a GPSInfo pointer (tag 0x8825)
-    /// to a GPS IFD with a single `GPSLatitudeRef` ("N") entry — enough for the
-    /// `kamadak-exif` read side to surface a `Context::Gps` field.
-    fn gps_jpeg() -> Vec<u8> {
-        let base = clean_jpeg(); // JPEG bytes, actually (encoded above)
+    /// One hand-built GPS IFD entry: (tag, TIFF type, count, value bytes).
+    type GpsEntry = (u16, u16, u32, Vec<u8>);
+
+    const BYTE: u16 = 1;
+    const ASCII: u16 = 2;
+    const RATIONAL: u16 = 5;
+    const UNDEFINED: u16 = 7;
+
+    /// A JPEG whose EXIF GPS IFD holds exactly `entries` (hand-built
+    /// little-endian TIFF, not written by crustyimg's own metadata writer).
+    /// Values over 4 bytes go in a data area after the IFD, with computed offsets.
+    fn gps_jpeg_with(entries: &[GpsEntry]) -> Vec<u8> {
+        let base = clean_jpeg();
         assert_eq!(&base[0..2], &[0xFF, 0xD8], "expected a JPEG (SOI)");
 
-        // TIFF payload (little-endian):
         let mut tiff: Vec<u8> = Vec::new();
         tiff.extend_from_slice(&[0x49, 0x49, 0x2A, 0x00]); // "II", 42
         tiff.extend_from_slice(&[0x08, 0x00, 0x00, 0x00]); // IFD0 offset = 8
-                                                           // IFD0: 1 entry.
-        tiff.extend_from_slice(&[0x01, 0x00]); // entry count
+        tiff.extend_from_slice(&[0x01, 0x00]); // IFD0: 1 entry
         tiff.extend_from_slice(&[0x25, 0x88]); // tag 0x8825 (GPSInfo pointer)
         tiff.extend_from_slice(&[0x04, 0x00]); // type LONG
         tiff.extend_from_slice(&[0x01, 0x00, 0x00, 0x00]); // count 1
-        tiff.extend_from_slice(&[0x1A, 0x00, 0x00, 0x00]); // value = offset 26
+        tiff.extend_from_slice(&26u32.to_le_bytes()); // GPS IFD at offset 26
         tiff.extend_from_slice(&[0x00, 0x00, 0x00, 0x00]); // next IFD = 0
-                                                           // GPS IFD at offset 26: 1 entry.
-        tiff.extend_from_slice(&[0x01, 0x00]); // entry count
-        tiff.extend_from_slice(&[0x01, 0x00]); // tag 0x0001 (GPSLatitudeRef)
-        tiff.extend_from_slice(&[0x02, 0x00]); // type ASCII
-        tiff.extend_from_slice(&[0x02, 0x00, 0x00, 0x00]); // count 2
-        tiff.extend_from_slice(&[0x4E, 0x00, 0x00, 0x00]); // "N\0" inline
-        tiff.extend_from_slice(&[0x00, 0x00, 0x00, 0x00]); // next IFD = 0
+        assert_eq!(tiff.len(), 26);
+
+        let ifd_len = 2 + 12 * entries.len() + 4;
+        let mut data_offset = 26 + ifd_len;
+        let mut ifd: Vec<u8> = Vec::new();
+        let mut data: Vec<u8> = Vec::new();
+        ifd.extend_from_slice(&(entries.len() as u16).to_le_bytes());
+        for (tag, ty, count, value) in entries {
+            ifd.extend_from_slice(&tag.to_le_bytes());
+            ifd.extend_from_slice(&ty.to_le_bytes());
+            ifd.extend_from_slice(&count.to_le_bytes());
+            if value.len() <= 4 {
+                let mut inline = value.clone();
+                inline.resize(4, 0);
+                ifd.extend_from_slice(&inline);
+            } else {
+                ifd.extend_from_slice(&(data_offset as u32).to_le_bytes());
+                data.extend_from_slice(value);
+                if value.len() % 2 == 1 {
+                    data.push(0);
+                }
+                data_offset = 26 + ifd_len + data.len();
+            }
+        }
+        ifd.extend_from_slice(&[0x00, 0x00, 0x00, 0x00]); // next IFD = 0
+        tiff.extend_from_slice(&ifd);
+        tiff.extend_from_slice(&data);
 
         let mut payload: Vec<u8> = Vec::new();
         payload.extend_from_slice(b"Exif\0\0");
@@ -666,6 +817,36 @@ mod tests {
         out.extend_from_slice(&payload);
         out.extend_from_slice(&base[2..]);
         out
+    }
+
+    fn rationals(values: &[(u32, u32)]) -> Vec<u8> {
+        values
+            .iter()
+            .flat_map(|(n, d)| n.to_le_bytes().into_iter().chain(d.to_le_bytes()))
+            .collect()
+    }
+
+    fn lat_ref() -> GpsEntry {
+        (0x0001, ASCII, 2, b"N\0".to_vec())
+    }
+    fn lat() -> GpsEntry {
+        (
+            0x0002,
+            RATIONAL,
+            3,
+            rationals(&[(50, 1), (29, 1), (1113, 25)]),
+        )
+    }
+    fn lon_ref() -> GpsEntry {
+        (0x0003, ASCII, 2, b"E\0".to_vec())
+    }
+    fn lon() -> GpsEntry {
+        (0x0004, RATIONAL, 3, rationals(&[(30, 1), (31, 1), (0, 1)]))
+    }
+
+    /// A JPEG with a full position: lat + lon and their refs.
+    fn gps_jpeg() -> Vec<u8> {
+        gps_jpeg_with(&[lat_ref(), lat(), lon_ref(), lon()])
     }
 
     fn finding(path: &str, rule: &'static str, sev: Severity) -> Finding {
@@ -726,8 +907,9 @@ mod tests {
         );
     }
 
+    /// FT-10: the rule keys on a location tag, not on any tag in the GPS IFD.
     #[test]
-    fn gps_rule_fires_on_gps_exif_and_is_clean_without() {
+    fn gps_predicate_keys_on_a_location_tag() {
         let leaky = LintTarget::from_bytes("photo.jpg", gps_jpeg());
         let f = GpsMetadataLeak.check(&leaky).expect("GPS finding expected");
         assert_eq!(f.rule(), "privacy/gps-metadata-leak");
@@ -736,6 +918,135 @@ mod tests {
 
         let clean = LintTarget::from_bytes("clean.jpg", clean_jpeg());
         assert!(GpsMetadataLeak.check(&clean).is_none());
+
+        let dest_lat = (0x0014, RATIONAL, 3, rationals(&[(50, 1), (0, 1), (0, 1)]));
+        let dest_lon = (0x0016, RATIONAL, 3, rationals(&[(30, 1), (0, 1), (0, 1)]));
+        let area = (0x001C, UNDEFINED, 12, b"ASCII\0\0\0Kyiv".to_vec());
+        let must_fire: Vec<(&str, Vec<GpsEntry>)> = vec![
+            ("latitude only", vec![lat()]),
+            ("longitude only", vec![lon()]),
+            ("dest latitude only", vec![dest_lat]),
+            ("dest longitude only", vec![dest_lon]),
+            ("area information only", vec![area]),
+        ];
+        for (name, entries) in &must_fire {
+            let t = LintTarget::from_bytes("p.jpg", gps_jpeg_with(entries));
+            assert!(
+                GpsMetadataLeak.check(&t).is_some(),
+                "{name}: a location must fire the rule"
+            );
+        }
+
+        let alt = (0x0006, RATIONAL, 1, rationals(&[(120, 1)]));
+        let alt_ref = (0x0005, BYTE, 1, vec![0]);
+        let time = (0x0007, RATIONAL, 3, rationals(&[(12, 1), (0, 1), (0, 1)]));
+        let date = (0x001D, ASCII, 11, b"2026:11:05\0".to_vec());
+        let datum = (0x0012, ASCII, 6, b"WGS-84".to_vec());
+        let must_not_fire: Vec<(&str, Vec<GpsEntry>)> = vec![
+            (
+                "version only (the P1100 shape)",
+                vec![(0x0000, BYTE, 4, vec![2, 3, 0, 0])],
+            ),
+            ("latitude ref only", vec![lat_ref()]),
+            (
+                "altitude + time + date + datum",
+                vec![alt_ref, alt, time, date, datum],
+            ),
+        ];
+        for (name, entries) in &must_not_fire {
+            let t = LintTarget::from_bytes("p.jpg", gps_jpeg_with(entries));
+            assert!(
+                GpsMetadataLeak.check(&t).is_none(),
+                "{name}: no location, so no finding"
+            );
+        }
+    }
+
+    /// FT-3: one shape, `crustyimg <fragment> <file> -o <file> -y`.
+    #[test]
+    fn fix_command_shape_is_fragment_file_dash_o_file_dash_y() {
+        let f = Finding::new(
+            "img/leak.jpg",
+            "privacy/gps-metadata-leak",
+            Severity::Error,
+            "m",
+            Some("meta clean --gps".to_string()),
+        );
+        let want = "crustyimg meta clean --gps img/leak.jpg -o img/leak.jpg -y";
+        assert_eq!(f.fix_command_for(Shell::Posix).as_deref(), Some(want));
+        assert_eq!(f.fix_command_for(Shell::PowerShell).as_deref(), Some(want));
+
+        let none = Finding::new("img/a.jpg", "x/y", Severity::Info, "m", None);
+        assert_eq!(none.fix_command_for(Shell::Posix), None);
+        assert_eq!(none.fix_command_for(Shell::PowerShell), None);
+    }
+
+    /// FT-4: exact quoting for each shell, on every OS. The `'` and `’` rows are
+    /// where naive and correct quoting differ.
+    #[test]
+    fn shell_arg_quotes_for_each_shell() {
+        let cases: &[(&str, &str, &str)] = &[
+            // (path, POSIX, PowerShell)
+            ("a.jpg", "a.jpg", "a.jpg"),
+            ("img/a.jpg", "img/a.jpg", "img/a.jpg"),
+            (r"img\a.jpg", r"'img\a.jpg'", r"img\a.jpg"),
+            (r"C:\x\a.jpg", r"'C:\x\a.jpg'", r"C:\x\a.jpg"),
+            ("my photo.jpg", "'my photo.jpg'", "'my photo.jpg'"),
+            ("it's.jpg", r"'it'\''s.jpg'", "'it''s.jpg'"),
+            (
+                "it\u{2019}s.jpg",
+                "'it\u{2019}s.jpg'",
+                "'it\u{2019}\u{2019}s.jpg'",
+            ),
+            ("a,b.jpg", "'a,b.jpg'", "'a,b.jpg'"),
+            ("$x.jpg", "'$x.jpg'", "'$x.jpg'"),
+            ("-x.jpg", "./-x.jpg", "./-x.jpg"),
+        ];
+        for (path, posix, ps) in cases {
+            assert_eq!(
+                shell_arg(Path::new(path), Shell::Posix).as_deref(),
+                Some(*posix),
+                "POSIX quoting of {path:?}"
+            );
+            assert_eq!(
+                shell_arg(Path::new(path), Shell::PowerShell).as_deref(),
+                Some(*ps),
+                "PowerShell quoting of {path:?}"
+            );
+        }
+    }
+
+    /// FT-5: no command for stdin or a path that is not UTF-8; a real file named
+    /// `stdin` still gets its fix.
+    #[test]
+    fn fix_command_none_for_stdin_and_non_utf8() {
+        let mk = |p: &str| {
+            Finding::new(
+                p,
+                "privacy/gps-metadata-leak",
+                Severity::Error,
+                "m",
+                Some("meta clean --gps".to_string()),
+            )
+        };
+        assert_eq!(mk("stdin").on_stdin().fix_command_for(Shell::Posix), None);
+        assert_eq!(
+            mk("stdin").fix_command_for(Shell::Posix).as_deref(),
+            Some("crustyimg meta clean --gps stdin -o stdin -y")
+        );
+        #[cfg(unix)]
+        {
+            use std::os::unix::ffi::OsStrExt;
+            let path = PathBuf::from(std::ffi::OsStr::from_bytes(b"\xff.jpg"));
+            let f = Finding::new(
+                path,
+                "privacy/gps-metadata-leak",
+                Severity::Error,
+                "m",
+                Some("meta clean --gps".to_string()),
+            );
+            assert_eq!(f.fix_command_for(Shell::Posix), None);
+        }
     }
 
     #[test]

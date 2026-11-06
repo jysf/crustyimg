@@ -13,8 +13,8 @@ use tempfile::TempDir;
 
 mod common;
 use common::{
-    animated_apng, animated_gif, animated_webp, jpeg_with_gps, jpeg_with_orientation, png_16bit,
-    solid_png, static_gif, webp_lossless,
+    animated_apng, animated_gif, animated_webp, detailed_jpeg_at_quality, detailed_png,
+    gradient_jpeg, jpeg_with_orientation, png_16bit, solid_png, static_gif, webp_lossless,
 };
 
 /// Path to the compiled binary, provided by Cargo.
@@ -689,5 +689,777 @@ fn max_warnings_zero_fails_on_animated_webp_in_directory_mode() {
     assert!(
         stdout.contains("1 scanned"),
         "the static WebP must actually be scanned, not skipped; stdout:\n{stdout}"
+    );
+}
+
+// ── SPEC-148: printed fixes run verbatim ─────────────────────────────────────
+//
+// Fixtures here are hand-built bytes (an EXIF TIFF written below) or made by
+// ImageMagick, never by crustyimg's own metadata writer, so a fixture cannot
+// pass because the code under test wrote it. The shared `common::jpeg_with_gps`
+// holds only a `GPSLatitudeRef`, which is no longer a location, so this file
+// builds its own coordinate-bearing one.
+
+/// One hand-built EXIF entry: (tag, TIFF type, count, value bytes).
+type Entry = (u16, u16, u32, Vec<u8>);
+
+const T_BYTE: u16 = 1;
+const T_ASCII: u16 = 2;
+const T_SHORT: u16 = 3;
+const T_RATIONAL: u16 = 5;
+const T_UNDEFINED: u16 = 7;
+
+/// Encode one IFD. Values over 4 bytes go to `data`, whose first byte sits at
+/// TIFF offset `data_base`; offsets are computed, not hard-coded.
+fn encode_ifd(entries: &[Entry], data: &mut Vec<u8>, data_base: usize) -> Vec<u8> {
+    let mut sorted: Vec<&Entry> = entries.iter().collect();
+    sorted.sort_by_key(|e| e.0);
+    let mut ifd = Vec::new();
+    ifd.extend_from_slice(&(sorted.len() as u16).to_le_bytes());
+    for (tag, ty, count, value) in sorted {
+        ifd.extend_from_slice(&tag.to_le_bytes());
+        ifd.extend_from_slice(&ty.to_le_bytes());
+        ifd.extend_from_slice(&count.to_le_bytes());
+        if value.len() <= 4 {
+            let mut inline = value.clone();
+            inline.resize(4, 0);
+            ifd.extend_from_slice(&inline);
+        } else {
+            ifd.extend_from_slice(&((data_base + data.len()) as u32).to_le_bytes());
+            data.extend_from_slice(value);
+            if value.len() % 2 == 1 {
+                data.push(0);
+            }
+        }
+    }
+    ifd.extend_from_slice(&[0, 0, 0, 0]); // next IFD = 0
+    ifd
+}
+
+/// Splice an EXIF APP1 (little-endian TIFF: IFD0 `ifd0`, plus a GPS IFD holding
+/// exactly `gps` when given) into `base`, right after SOI.
+fn exif_jpeg(base: &[u8], ifd0: &[Entry], gps: Option<&[Entry]>) -> Vec<u8> {
+    assert_eq!(&base[0..2], &[0xFF, 0xD8], "base must be a JPEG");
+    let n0 = ifd0.len() + usize::from(gps.is_some());
+    let ifd0_len = 2 + 12 * n0 + 4;
+    let gps_off = 8 + ifd0_len;
+    let gps_len = gps.map_or(0, |g| 2 + 12 * g.len() + 4);
+    let data_base = gps_off + gps_len;
+
+    let mut entries0: Vec<Entry> = ifd0.to_vec();
+    if gps.is_some() {
+        // 0x8825 GPSInfo pointer: LONG, count 1, value = GPS IFD offset.
+        entries0.push((0x8825, 4, 1, (gps_off as u32).to_le_bytes().to_vec()));
+    }
+    let mut data = Vec::new();
+    let ifd0_bytes = encode_ifd(&entries0, &mut data, data_base);
+    let gps_bytes = gps.map(|g| encode_ifd(g, &mut data, data_base));
+
+    let mut payload = b"Exif\0\0".to_vec();
+    payload.extend_from_slice(&[0x49, 0x49, 0x2A, 0x00, 0x08, 0x00, 0x00, 0x00]);
+    payload.extend_from_slice(&ifd0_bytes);
+    if let Some(g) = gps_bytes {
+        payload.extend_from_slice(&g);
+    }
+    payload.extend_from_slice(&data);
+
+    let mut out = Vec::with_capacity(base.len() + payload.len() + 4);
+    out.extend_from_slice(&base[0..2]);
+    out.extend_from_slice(&[0xFF, 0xE1]);
+    out.extend_from_slice(&((payload.len() + 2) as u16).to_be_bytes());
+    out.extend_from_slice(&payload);
+    out.extend_from_slice(&base[2..]);
+    out
+}
+
+/// A JPEG whose GPS IFD holds exactly `entries`.
+fn jpeg_with_gps_tags(w: u32, h: u32, entries: &[Entry]) -> Vec<u8> {
+    exif_jpeg(&gradient_jpeg(w, h), &[], Some(entries))
+}
+
+fn rationals(values: &[(u32, u32)]) -> Vec<u8> {
+    values
+        .iter()
+        .flat_map(|(n, d)| n.to_le_bytes().into_iter().chain(d.to_le_bytes()))
+        .collect()
+}
+
+fn g_lat_ref() -> Entry {
+    (0x0001, T_ASCII, 2, b"N\0".to_vec())
+}
+fn g_lat() -> Entry {
+    (
+        0x0002,
+        T_RATIONAL,
+        3,
+        rationals(&[(50, 1), (29, 1), (1113, 25)]),
+    )
+}
+fn g_lon_ref() -> Entry {
+    (0x0003, T_ASCII, 2, b"E\0".to_vec())
+}
+fn g_lon() -> Entry {
+    (
+        0x0004,
+        T_RATIONAL,
+        3,
+        rationals(&[(30, 1), (31, 1), (0, 1)]),
+    )
+}
+fn g_area() -> Entry {
+    (0x001C, T_UNDEFINED, 12, b"ASCII\0\0\0Kyiv".to_vec())
+}
+
+/// A JPEG with a full position (lat + lon and their refs): the "leak" fixture.
+fn jpeg_with_gps(w: u32, h: u32) -> Vec<u8> {
+    jpeg_with_gps_tags(w, h, &[g_lat_ref(), g_lat(), g_lon_ref(), g_lon()])
+}
+
+/// A JPEG with an IFD0 `Make` ("ACME"), the camera-metadata trigger.
+fn jpeg_with_make_acme() -> Vec<u8> {
+    let base = gradient_jpeg(64, 64);
+    exif_jpeg(&base, &[(0x010F, T_ASCII, 5, b"ACME\0".to_vec())], None)
+}
+
+/// A JPEG carrying an APP2 `ICC_PROFILE` of `len` filler bytes.
+fn jpeg_with_icc_len(base: &[u8], len: usize) -> Vec<u8> {
+    let mut payload = b"ICC_PROFILE\0".to_vec();
+    payload.extend_from_slice(&[1, 1]);
+    payload.extend(std::iter::repeat_n(0xABu8, len));
+    let mut out = Vec::new();
+    out.extend_from_slice(&base[0..2]);
+    out.extend_from_slice(&[0xFF, 0xE2]);
+    out.extend_from_slice(&((payload.len() + 2) as u16).to_be_bytes());
+    out.extend_from_slice(&payload);
+    out.extend_from_slice(&base[2..]);
+    out
+}
+
+/// A CMYK JPEG made by ImageMagick (`tests/fixtures/lint/README.md`).
+fn cmyk_jpeg() -> Vec<u8> {
+    include_bytes!("fixtures/lint/cmyk_16x16.jpg").to_vec()
+}
+
+/// Run `crustyimg lint <args…>` with `dir` as the working directory (so the
+/// printed path is the name as typed), returning (exit code, stdout, stderr).
+fn lint_in(dir: &Path, args: &[&str]) -> (i32, String, String) {
+    let output = Command::new(BIN)
+        .arg("lint")
+        .args(args)
+        .current_dir(dir)
+        .output()
+        .expect("failed to run crustyimg lint");
+    (
+        output.status.code().unwrap_or(-1),
+        String::from_utf8_lossy(&output.stdout).into_owned(),
+        String::from_utf8_lossy(&output.stderr).into_owned(),
+    )
+}
+
+/// `lint --format json --select <rule> <args…>` in `dir`, parsed.
+fn lint_json_in(dir: &Path, rule: &str, args: &[&str]) -> serde_json::Value {
+    let mut full = vec!["--format", "json", "--select", rule];
+    full.extend_from_slice(args);
+    let (_, stdout, stderr) = lint_in(dir, &full);
+    serde_json::from_str(&stdout).unwrap_or_else(|e| {
+        panic!("lint JSON did not parse ({e}); stdout:\n{stdout}\nstderr:\n{stderr}")
+    })
+}
+
+/// The first finding for `rule` in a parsed lint JSON report.
+fn finding_for<'a>(report: &'a serde_json::Value, rule: &str) -> Option<&'a serde_json::Value> {
+    report["findings"]
+        .as_array()
+        .expect("findings is an array")
+        .iter()
+        .find(|f| f["rule"] == rule)
+}
+
+// ── The shell harness ────────────────────────────────────────────────────────
+
+/// The shell a user on this platform is shown a fix for.
+fn fix_shell_program() -> String {
+    // Test-only override (mutation M-13): lets a run prove that a missing shell
+    // FAILS the test instead of skipping it. Never set in CI.
+    if let Ok(name) = std::env::var("CRUSTYIMG_TEST_FIX_SHELL") {
+        return name;
+    }
+    if cfg!(windows) { "powershell" } else { "sh" }.to_string()
+}
+
+/// `PATH` with the test binary's directory first, so the shell resolves
+/// `crustyimg` to the binary under test.
+fn path_with_test_bin() -> std::ffi::OsString {
+    let bin_dir = Path::new(BIN)
+        .parent()
+        .expect("bin has a parent")
+        .to_path_buf();
+    let mut dirs = vec![bin_dir];
+    dirs.extend(std::env::split_paths(
+        &std::env::var_os("PATH").unwrap_or_default(),
+    ));
+    std::env::join_paths(dirs).expect("join PATH")
+}
+
+/// Run `script` through the host shell in `dir`, exactly as a user pastes it.
+fn run_in_shell(dir: &Path, script: &str) -> std::process::Output {
+    let program = fix_shell_program();
+    let mut cmd = Command::new(&program);
+    if cfg!(windows) {
+        cmd.args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            &format!("{script}; exit $LASTEXITCODE"),
+        ]);
+    } else {
+        cmd.args(["-c", script]);
+    }
+    cmd.current_dir(dir)
+        .env("PATH", path_with_test_bin())
+        .output()
+        .unwrap_or_else(|e| panic!("cannot run the printed fix: no {program} on PATH: {e}"))
+}
+
+/// Ask the same shell where `crustyimg` resolves and assert it is the binary
+/// under test (a Homebrew `crustyimg` earlier on PATH would report the same version).
+fn assert_shell_resolves_the_test_binary(dir: &Path) {
+    let script = if cfg!(windows) {
+        "(Get-Command crustyimg).Source"
+    } else {
+        "command -v crustyimg"
+    };
+    let out = run_in_shell(dir, script);
+    let found = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    assert!(
+        !found.is_empty(),
+        "the shell cannot find `crustyimg`; stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let found =
+        std::fs::canonicalize(&found).unwrap_or_else(|e| panic!("canonicalize {found}: {e}"));
+    let want = std::fs::canonicalize(BIN).expect("canonicalize BIN");
+    assert_eq!(
+        found, want,
+        "the shell resolved crustyimg to a different binary"
+    );
+}
+
+/// One FT-1 row.
+struct Row {
+    name: &'static str,
+    rule: &'static str,
+    /// The file as typed, relative to the temp dir (may hold a sub dir).
+    file: &'static str,
+    bytes: Vec<u8>,
+    /// `.crustyimg-lint.toml` body, if the row needs one.
+    config: Option<String>,
+    /// What to lint: `None` = the file; `Some("sub")` = a relative directory.
+    lint_target: Option<&'static str>,
+    /// Lint invoked as `lint … -- <file>` (a leading-dash name).
+    dash_dash: bool,
+    /// Also write a plain-`optimize`d copy and require it is STILL reported.
+    budget_control: Option<Vec<u8>>,
+    /// The metadata lane cannot rewrite this container (it handles JPEG and
+    /// PNG only): the finding must still fire, but print NO command.
+    no_fix: bool,
+}
+
+fn row(name: &'static str, rule: &'static str, file: &'static str, bytes: Vec<u8>) -> Row {
+    Row {
+        name,
+        rule,
+        file,
+        bytes,
+        config: None,
+        lint_target: None,
+        dash_dash: false,
+        budget_control: None,
+        no_fix: false,
+    }
+}
+
+const GPS_RULE: &str = "privacy/gps-metadata-leak";
+
+fn fix_rows() -> Vec<Row> {
+    // oversized-bytes (JPEG): the budget must matter. Measure what plain
+    // `optimize` leaves (argv, not the shell), then set the budget below it.
+    let jpeg_fixture = detailed_jpeg_at_quality(900, 700, 97);
+    let scratch = TempDir::new().unwrap();
+    std::fs::write(scratch.path().join("p.jpg"), &jpeg_fixture).unwrap();
+    let status = Command::new(BIN)
+        .args(["optimize", "p.jpg", "-o", "p.jpg", "-y"])
+        .current_dir(scratch.path())
+        .output()
+        .expect("run optimize");
+    assert!(status.status.success(), "plain optimize failed");
+    let plain = std::fs::read(scratch.path().join("p.jpg")).unwrap();
+    let s1 = plain.len();
+    let budget = s1 * 3 / 4;
+    assert!(
+        budget < jpeg_fixture.len(),
+        "the budget {budget} must sit under the fixture ({} bytes)",
+        jpeg_fixture.len()
+    );
+
+    let png_fixture = detailed_png(500, 400);
+    let png_budget = png_fixture.len() / 2;
+
+    let budget_cfg = |b: usize| format!("[[budget]]\nglob = \"**\"\nmax_bytes = {b}\n");
+
+    let mut rows = vec![
+        row("gps-coords", GPS_RULE, "leak.jpg", jpeg_with_gps(64, 64)),
+        row(
+            "gps-area-info",
+            GPS_RULE,
+            "area.jpg",
+            jpeg_with_gps_tags(64, 64, &[g_area()]),
+        ),
+        row(
+            "camera-metadata",
+            "privacy/camera-metadata",
+            "cam.jpg",
+            jpeg_with_make_acme(),
+        ),
+        row(
+            "unexpected-icc",
+            "color/unexpected-icc",
+            "icc.jpg",
+            jpeg_with_icc_len(&gradient_jpeg(64, 64), 5000),
+        ),
+        row(
+            "oversized-bytes-jpeg",
+            "size/oversized-bytes",
+            "big.jpg",
+            jpeg_fixture,
+        ),
+        row(
+            "oversized-bytes-png",
+            "size/oversized-bytes",
+            "big.png",
+            png_fixture,
+        ),
+        row(
+            "oversized-dimensions",
+            "dims/oversized-dimensions",
+            "wide.png",
+            detailed_png(64, 48),
+        ),
+        row(
+            "orientation",
+            "orient/orientation-not-baked",
+            "rot.jpg",
+            jpeg_with_orientation(64, 48, 6),
+        ),
+        row("cmyk", "color/wrong-colorspace", "cmyk.jpg", cmyk_jpeg()),
+        // Containers the metadata lane cannot write (JPEG/PNG only). Built by
+        // ImageMagick + exiftool, not by the code under test.
+        row(
+            "gps-webp",
+            GPS_RULE,
+            "leak.webp",
+            include_bytes!("fixtures/lint/gps_16x16.webp").to_vec(),
+        ),
+        row(
+            "camera-webp",
+            "privacy/camera-metadata",
+            "cam.webp",
+            include_bytes!("fixtures/lint/cam_16x16.webp").to_vec(),
+        ),
+        row(
+            "gps-tiff",
+            GPS_RULE,
+            "leak.tif",
+            include_bytes!("fixtures/lint/gps_16x16.tif").to_vec(),
+        ),
+        row("space", GPS_RULE, "my photo.jpg", jpeg_with_gps(64, 64)),
+        row("quote", GPS_RULE, "it's.jpg", jpeg_with_gps(64, 64)),
+        row("dash", GPS_RULE, "-x.jpg", jpeg_with_gps(64, 64)),
+        row("subdir", GPS_RULE, "sub/leak.jpg", jpeg_with_gps(64, 64)),
+    ];
+    for r in &mut rows {
+        match r.name {
+            "oversized-bytes-jpeg" => {
+                r.config = Some(budget_cfg(budget));
+                r.budget_control = Some(plain.clone());
+            }
+            "oversized-bytes-png" => r.config = Some(budget_cfg(png_budget)),
+            "oversized-dimensions" => {
+                r.config = Some("[[budget]]\nglob = \"**\"\nmax_intended_width = 16\n".into());
+            }
+            "gps-webp" | "camera-webp" | "gps-tiff" => r.no_fix = true,
+            "dash" => r.dash_dash = true,
+            "subdir" => r.lint_target = Some("sub"),
+            _ => {}
+        }
+    }
+    rows
+}
+
+/// FT-1: for every rule that prints a fix, take the `fix` string AS PRINTED, run
+/// it through the host shell, and check it rewrote the file and cleared the
+/// finding. Failures are recorded per kind (trap 15), then reported together.
+#[test]
+fn every_printed_fix_run_verbatim_fixes_its_finding() {
+    let probe = TempDir::new().unwrap();
+    assert_shell_resolves_the_test_binary(probe.path());
+
+    let mut counts: std::collections::BTreeMap<&'static str, usize> = Default::default();
+    let mut failing_rows: Vec<String> = Vec::new();
+
+    for r in fix_rows() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join(r.file);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, &r.bytes).unwrap();
+        if let Some(cfg) = &r.config {
+            write_config(&dir, cfg);
+        }
+        if let Some(plain) = &r.budget_control {
+            std::fs::write(dir.path().join("plain.jpg"), plain).unwrap();
+        }
+
+        let mut kinds: Vec<&'static str> = Vec::new();
+        let mut stderr_note = String::new();
+        let mut fix_note = String::new();
+
+        let mut args: Vec<&str> = vec!["--format", "json", "--select", r.rule];
+        let target = r.lint_target.unwrap_or(r.file);
+        if r.dash_dash {
+            args.push("--");
+        }
+        args.push(target);
+        let (_, stdout, stderr) = lint_in(dir.path(), &args);
+        let before: serde_json::Value = serde_json::from_str(&stdout).unwrap_or_else(|e| {
+            panic!(
+                "row {}: lint JSON ({e}); stdout:\n{stdout}\nstderr:\n{stderr}",
+                r.name
+            )
+        });
+        let finding = finding_for(&before, r.rule);
+        if finding.is_none() {
+            kinds.push("not_reported_before");
+        }
+        let fix = finding.and_then(|f| f["fix"].as_str()).map(str::to_string);
+        if r.no_fix {
+            // The finding fires; the fix is absent (JSON `null`), never a
+            // command the metadata lane would refuse.
+            match finding {
+                None => kinds.push("not_reported_before"),
+                Some(f) if !f["fix"].is_null() => {
+                    kinds.push("printed_unrunnable_fix");
+                    fix_note = f["fix"].to_string();
+                    let out = run_in_shell(dir.path(), fix.as_deref().unwrap_or(""));
+                    stderr_note = String::from_utf8_lossy(&out.stderr)
+                        .chars()
+                        .take(300)
+                        .collect();
+                    if !out.status.success() {
+                        kinds.push("shell_failed");
+                    }
+                }
+                Some(_) => {}
+            }
+            if !kinds.is_empty() {
+                for k in &kinds {
+                    *counts.entry(k).or_default() += 1;
+                }
+                failing_rows.push(format!(
+                    "  row {}: {:?}\n    fix: {:?}\n    stderr: {}",
+                    r.name,
+                    kinds,
+                    fix_note,
+                    stderr_note.trim()
+                ));
+            }
+            continue;
+        }
+        match &fix {
+            Some(f) if f.starts_with("crustyimg ") && f.ends_with(" -y") => {}
+            _ => kinds.push("fix_shape"),
+        }
+
+        if let Some(fix) = &fix {
+            fix_note = fix.clone();
+            let out = run_in_shell(dir.path(), fix);
+            stderr_note = String::from_utf8_lossy(&out.stderr)
+                .chars()
+                .take(300)
+                .collect();
+            if !out.status.success() {
+                kinds.push("shell_failed");
+            }
+            if !out.stdout.is_empty() {
+                kinds.push("stdout_nonempty");
+            }
+            let after = std::fs::read(&path).unwrap();
+            if after == r.bytes {
+                kinds.push("unchanged");
+            }
+            let relint = lint_json_in(dir.path(), r.rule, &args[4..]);
+            if finding_for(&relint, r.rule).is_some() {
+                kinds.push("still_reported");
+            }
+            let same_format =
+                ::image::guess_format(&after).ok() == ::image::guess_format(&r.bytes).ok();
+            if !same_format || ::image::load_from_memory(&after).is_err() {
+                kinds.push("format_changed");
+            }
+            if r.budget_control.is_some() {
+                let ctl = lint_json_in(dir.path(), r.rule, &["plain.jpg"]);
+                if finding_for(&ctl, r.rule).is_none() {
+                    kinds.push("budget_control");
+                }
+            }
+        } else {
+            kinds.push("shell_failed");
+        }
+
+        if !kinds.is_empty() {
+            for k in &kinds {
+                *counts.entry(k).or_default() += 1;
+            }
+            failing_rows.push(format!(
+                "  row {}: {:?}\n    fix: {:?}\n    stderr: {}",
+                r.name,
+                kinds,
+                fix_note,
+                stderr_note.trim()
+            ));
+        }
+    }
+
+    if !counts.is_empty() {
+        let summary: Vec<String> = counts.iter().map(|(k, v)| format!("{k}={v}")).collect();
+        panic!(
+            "printed fixes do not fix their findings: {}\n{}",
+            summary.join(" "),
+            failing_rows.join("\n")
+        );
+    }
+}
+
+/// FT-2: the human `fix:` line, the JSON `fix` and the SARIF `— fix:` suffix are
+/// one byte-identical string.
+#[test]
+fn human_json_and_sarif_carry_the_same_fix_string() {
+    let dir = TempDir::new().unwrap();
+    write(&dir, "leak.jpg", &jpeg_with_gps(64, 64));
+    let want = "crustyimg meta clean --gps leak.jpg -o leak.jpg -y";
+
+    let (_, human, _) = lint_in(dir.path(), &["--select", GPS_RULE, "leak.jpg"]);
+    let human_fix = human
+        .lines()
+        .find_map(|l| l.trim_start().strip_prefix("fix: "))
+        .unwrap_or_else(|| panic!("no `fix:` line in human output:\n{human}"));
+
+    let json = lint_json_in(dir.path(), GPS_RULE, &["leak.jpg"]);
+    let json_fix = finding_for(&json, GPS_RULE).unwrap()["fix"]
+        .as_str()
+        .expect("fix is a string")
+        .to_string();
+
+    let (_, sarif_out, _) = lint_in(
+        dir.path(),
+        &["--format", "sarif", "--select", GPS_RULE, "leak.jpg"],
+    );
+    let sarif: serde_json::Value = serde_json::from_str(&sarif_out).expect("sarif parses");
+    let text = sarif["runs"][0]["results"][0]["message"]["text"]
+        .as_str()
+        .expect("message text");
+    let sarif_fix = text
+        .split_once(" — fix: ")
+        .unwrap_or_else(|| panic!("no `— fix: ` in SARIF text: {text}"))
+        .1;
+
+    assert_eq!(human_fix, want, "human fix line");
+    assert_eq!(json_fix, want, "JSON fix");
+    assert_eq!(sarif_fix, want, "SARIF fix");
+}
+
+/// FT-8: a 16-bit PNG keeps its finding, with words and no command, in every
+/// output format.
+#[test]
+fn a_16_bit_png_prints_words_and_no_command_in_every_format() {
+    let dir = TempDir::new().unwrap();
+    write(&dir, "deep.png", &png_16bit(8, 8));
+    let rule = "color/wrong-colorspace";
+
+    let (_, human, _) = lint_in(dir.path(), &["--select", rule, "deep.png"]);
+    assert!(
+        human.contains(rule),
+        "finding present in human output:\n{human}"
+    );
+    assert!(
+        !human.lines().any(|l| l.contains("fix:")),
+        "human output must have no fix line:\n{human}"
+    );
+
+    let json = lint_json_in(dir.path(), rule, &["deep.png"]);
+    let f = finding_for(&json, rule).expect("finding present in JSON");
+    assert!(
+        f["fix"].is_null(),
+        "JSON fix must be null, got {}",
+        f["fix"]
+    );
+
+    let (_, sarif_out, _) = lint_in(
+        dir.path(),
+        &["--format", "sarif", "--select", rule, "deep.png"],
+    );
+    let sarif: serde_json::Value = serde_json::from_str(&sarif_out).expect("sarif parses");
+    let text = sarif["runs"][0]["results"][0]["message"]["text"]
+        .as_str()
+        .expect("SARIF result present");
+    assert!(
+        text.contains("cannot reduce bit depth"),
+        "SARIF text: {text}"
+    );
+    assert!(!text.contains("fix:"), "SARIF text: {text}");
+}
+
+/// Pipe `bytes` into `crustyimg lint - <args…>`.
+fn lint_stdin(bytes: &[u8], args: &[&str]) -> (i32, String) {
+    use std::io::Write;
+    use std::process::Stdio;
+    let mut child = Command::new(BIN)
+        .arg("lint")
+        .arg("-")
+        .args(args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn lint -");
+    child.stdin.take().unwrap().write_all(bytes).unwrap();
+    let out = child.wait_with_output().unwrap();
+    (
+        out.status.code().unwrap_or(-1),
+        String::from_utf8_lossy(&out.stdout).into_owned(),
+    )
+}
+
+/// FT-9: stdin findings print no command (the name `stdin` is not a file).
+#[test]
+fn stdin_input_prints_no_command() {
+    let (_, stdout) = lint_stdin(
+        &jpeg_with_gps(64, 64),
+        &["--format", "json", "--select", GPS_RULE],
+    );
+    let json: serde_json::Value =
+        serde_json::from_str(&stdout).unwrap_or_else(|e| panic!("JSON ({e}); stdout:\n{stdout}"));
+    let f = finding_for(&json, GPS_RULE).expect("finding present for stdin");
+    assert!(
+        f["fix"].is_null(),
+        "stdin fix must be null, got {}",
+        f["fix"]
+    );
+
+    let (_, human) = lint_stdin(&jpeg_with_gps(64, 64), &["--select", GPS_RULE]);
+    assert!(human.contains(GPS_RULE), "finding present:\n{human}");
+    assert!(
+        !human.lines().any(|l| l.contains("fix:")),
+        "no fix line for stdin:\n{human}"
+    );
+}
+
+/// FT-11: the GPS rule fires on a location and not on an empty block.
+#[test]
+fn gps_rule_fires_on_a_location_and_not_on_an_empty_block() {
+    let dest_lat = (0x0014, T_RATIONAL, 3, rationals(&[(50, 1), (0, 1), (0, 1)]));
+    let dest_lon = (0x0016, T_RATIONAL, 3, rationals(&[(30, 1), (0, 1), (0, 1)]));
+    let alt = (0x0006, T_RATIONAL, 1, rationals(&[(120, 1)]));
+    let alt_ref = (0x0005, T_BYTE, 1, vec![0]);
+    let time = (0x0007, T_RATIONAL, 3, rationals(&[(12, 1), (0, 1), (0, 1)]));
+    let date = (0x001D, T_ASCII, 11, b"2026:11:05\0".to_vec());
+    let datum = (0x0012, T_ASCII, 6, b"WGS-84".to_vec());
+    let version = (0x0000, T_BYTE, 4, vec![2, 3, 0, 0]);
+    let _ = T_SHORT;
+
+    let rows: Vec<(&str, Vec<u8>, bool)> = vec![
+        ("coordinates", jpeg_with_gps(32, 32), true),
+        (
+            "latitude only",
+            jpeg_with_gps_tags(32, 32, &[g_lat()]),
+            true,
+        ),
+        (
+            "longitude only",
+            jpeg_with_gps_tags(32, 32, &[g_lon()]),
+            true,
+        ),
+        (
+            "dest latitude",
+            jpeg_with_gps_tags(32, 32, &[dest_lat]),
+            true,
+        ),
+        (
+            "dest longitude",
+            jpeg_with_gps_tags(32, 32, &[dest_lon]),
+            true,
+        ),
+        (
+            "area information",
+            jpeg_with_gps_tags(32, 32, &[g_area()]),
+            true,
+        ),
+        (
+            "signed_gps.jpg (real coordinates)",
+            include_bytes!("fixtures/c2pa/signed_gps.jpg").to_vec(),
+            true,
+        ),
+        (
+            "version only (P1100 shape)",
+            jpeg_with_gps_tags(32, 32, &[version]),
+            false,
+        ),
+        (
+            "latitude ref only",
+            jpeg_with_gps_tags(32, 32, &[g_lat_ref()]),
+            false,
+        ),
+        (
+            "altitude + time + date + datum",
+            jpeg_with_gps_tags(32, 32, &[alt_ref, alt, time, date, datum]),
+            false,
+        ),
+    ];
+    for (name, bytes, fires) in rows {
+        let dir = TempDir::new().unwrap();
+        let p = write_path(&dir, "p.jpg", &bytes);
+        let (code, stdout) =
+            lint_args(&[p.as_os_str(), OsStr::new("--select"), OsStr::new(GPS_RULE)]);
+        let want = if fires { 7 } else { 0 };
+        assert_eq!(
+            code,
+            want,
+            "{name}: expected exit {want} ({}); stdout:\n{stdout}",
+            if fires { "a location" } else { "no location" }
+        );
+    }
+}
+
+/// FT-12: the Actions doc's fix table says what `lint` prints.
+#[test]
+fn the_github_actions_doc_fix_table_matches_what_lint_prints() {
+    let full = include_str!("../docs/github-actions.md").replace("\r\n", "\n");
+    // Only §5 is the fix table; later sections show unrelated commands.
+    let start = full
+        .find("## 5. Fix what it finds")
+        .expect("doc has a section 5");
+    let rest = &full[start + 5..];
+    let doc = &rest[..rest.find("\n## ").unwrap_or(rest.len())];
+    for want in [
+        "crustyimg optimize --max-size <budget> <file> -o <file> -y",
+        "crustyimg convert --format jpeg <file> -o <file> -y",
+    ] {
+        assert!(
+            doc.contains(want),
+            "docs/github-actions.md must show `{want}`"
+        );
+    }
+    assert!(
+        !doc.contains("--profile preserve --max 1600"),
+        "the old optimize row is not what lint prints"
     );
 }
