@@ -18,7 +18,10 @@ Cycle prompts live in `prompts/SPEC-151-<cycle>.md`.
   Rulings (2026-11-06, Q1–Q5 as recommended): split `transparent` into its own STAGE-058 entry,
   refused into a format with no alpha (exit 4); `color` required, no default; `border` is a fraction
   of the long edge, the same width on every side; a grey image with a chromatic fill widens to RGB.
-- [ ] **design** (`prompts/SPEC-151-design.md`)
-- [ ] **build**
+- [x] **design** (2026-11-06, `prompts/SPEC-151-design.md`, Opus): 83 ACs, [S] in code, no DEC. The
+  canvas rule restated per axis (the frame's "long side kept" fails a square); no-op = canvas equals
+  image; float images keep their variant. 37 exact load messages and 3 apply failures, a 20-cell
+  colour-type table, corpus 20/66/69/60, wasm 53/51. 14 mutation rows, 12 driven on a prototype.
+- [ ] **build** (`prompts/SPEC-151-build.md`)
 - [ ] **verify**
 - [ ] **ship**

@@ -101,7 +101,7 @@ In build order. Each is framed in its own session first.
   the source's colour type. ⚠ Decide and test what happens to an EXIF orientation tag on an
   image that was not auto-oriented first. SPEC-110 bakes orientation at the start of `edit`;
   a hand-written recipe may not.
-- [ ] **SPEC-151** (framed 2026-11-06) — [S] **`pad`.** To an exact size or to an aspect, anchored by
+- [ ] **SPEC-151** (designed 2026-11-06) — [S] **`pad`.** To an exact size or to an aspect, anchored by
   `gravity`, filled with `color` (a value the `watermark` colour parser already reads) or
   `transparent`. ⚠ `transparent` into a format with no alpha (JPEG) is either refused or
   flattened against a stated colour. That is decided here, not left to the encoder.
