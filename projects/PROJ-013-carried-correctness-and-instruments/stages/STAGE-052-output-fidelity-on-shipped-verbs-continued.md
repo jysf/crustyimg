@@ -266,7 +266,19 @@ the watermark ones touch `src/cli/ops.rs` and the watermark library: check PROJ-
   the limitation documented (`docs/api-contract.md`, `build`) with a test pinning it, which this
   item flips on purpose.
 
-**Count:** 0 shipped / 0 active / **14 pending** — re-derived 2026-11-05.
+- [ ] (not yet written) — [M–L] **A real preserve policy for pixel-lane encodes, and `--keep-gps` with it.**
+  Filed by the orchestrator at SPEC-149's rulings (2026-11-06). DEC-003 promises "keep orientation + ICC +
+  copyright/artist; drop GPS unless `--keep-gps`", and DEC-024 deferred `--keep-gps` "until the container lane
+  exists". The flag was never read by any verb (unread since SPEC-007), and the pixel lane drops all metadata
+  (driven by the SPEC-149 frame: `resize` keeps 0 of Artist, Copyright, GPS). SPEC-149 (0.8.3) refuses
+  `--keep-gps` with a pointer to `meta copy --from <in> --to <out> -y`. The feature itself: after each pixel
+  encode, graft the source's metadata with the container lane (reset `Orientation`, already baked in), so
+  `--keep-gps` keeps more than GPS unless a selective preserve (ICC, copyright/artist) is built first. Design
+  once, with a DEC, together with the ICC/copyright half (open question `metadata-icc-coverage`, SPEC-149 finding C).
+  Touches the write path of 11 verbs; JPEG/PNG only (`meta` exits 4 on other pairs). Check PROJ-017's open
+  specs first.
+
+**Count:** 0 shipped / 0 active / **15 pending** — re-derived 2026-11-06.
 
 ## Stage-Level Reflection
 
