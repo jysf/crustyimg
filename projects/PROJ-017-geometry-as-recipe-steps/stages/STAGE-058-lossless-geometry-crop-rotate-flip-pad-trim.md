@@ -85,7 +85,7 @@ In build order. Each is framed in its own session first.
   nothing. ⚡ Check `scripts/cli-golden.py` first: it may already be most of this, and the spec
   then shrinks to "point it at the recipe corpus and gate on it". It's cheap, and it makes
   PROJ-017's fourth success signal checkable instead of claimed.
-- [ ] **SPEC-145** (designed 2026-11-05) — [M] **`crop` as a recipe step, with size-independent units.**
+- [x] **SPEC-145** (merged 2026-11-05, PR #244) — [M] **`crop` as a recipe step, with size-independent units.**
   Keys for a rectangle (`x`, `y`, `width`, `height`) or an aspect (`aspect = "16:9"` plus
   `gravity`). A recipe carries every length as a fraction of the image (DEC-112); pixels come
   through `edit --crop`, which converts them to fractions. Refuses a zero-area or out-of-bounds rectangle at load where it
@@ -118,7 +118,7 @@ In build order. Each is framed in its own session first.
   geometry. Design picks one and writes it down. `--save-recipe` must write steps that `apply`
   replays to the same pixels: that is the test.
 
-- [ ] (folded into SPEC-145) — [S] **`docs/recipes.md` still advertises a `crustyimg crop` verb.**
+- [x] (folded into SPEC-145; shipped in SPEC-145) — [S] **`docs/recipes.md` still advertises a `crustyimg crop` verb.**
   Found at SPEC-141's frame. `docs/recipes.md:60-65` lists "Crop to an arbitrary rect / gravity
   / aspect **[planned — PROJ-006]**" as `crustyimg crop …`, and smart crop the same way. The verb
   set is frozen at 14 (STAGE-030), and PROJ-017 delivers crop as a recipe step plus an `edit`
@@ -145,8 +145,18 @@ In build order. Each is framed in its own session first.
   print "watermark skipped on K of N images" for every step that refuses through the refusal hook.
   Only `watermark` uses the hook today, so nothing shipped is mislabelled. `pad` or `trim` may be
   the first other op to use it: name the op that refused, before either ships.
+- [ ] (not yet written) — [S] **State when an op uses the refusal hook and when it fails at apply.**
+  Found at SPEC-145's ship (mutation M4b). A refusal through `Operation::refusal` is skipped per
+  image in a batch: with the 0 px check moved there, one input exits 2 but two inputs write both
+  images uncropped and exit 0. An apply failure is not skipped. So the hook suits only a condition
+  that is safe to skip (`watermark` too large for the image), and a condition that means the
+  output is wrong (`crop` rounding to 0 px) must fail at apply. Today that rule sits in DEC-112
+  and SPEC-145 only. Write it where an op author chooses: the `Operation::refusal` doc comment
+  (`src/operation/mod.rs`) and the line that points a new op at it. Doc-comment-only, plus a test
+  only if the wording is made checkable. Distinct from the entry above, which is about the
+  batch message's text. Before `pad` or `trim` ships.
 
-**Count:** 1 shipped / 1 active / 7 pending — re-derived 2026-11-05 with `/usr/bin/grep -c '^- \[x\]'` (1), `/usr/bin/grep -c '^- \[ \]'` (9: SPEC-145 designed, the docs entry folded into it, and 7) and `/usr/bin/grep -c '^- \[ \] (not yet written)'` (7)
+**Count:** 3 shipped / 0 active / 8 pending — re-derived 2026-11-05 with `/usr/bin/grep -c '^- \[x\]'` (3: SPEC-141, SPEC-145 and the docs entry folded into it), `/usr/bin/grep -c '^- \[ \]'` (8) and `/usr/bin/grep -c '^- \[ \] (not yet written)'` (8)
 
 ## Design Notes
 

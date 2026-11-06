@@ -7,7 +7,7 @@
 task:
   id: SPEC-145
   type: story                      # epic | story | task | bug | chore
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: M                    # S | M | L  (L means split it)
@@ -63,61 +63,59 @@ cost:
     - cycle: frame
       agent: claude-opus-5-5
       interface: claude-code
-      tokens_total: 7291832
+      tokens_total: 8457259
       tokens_breakdown:
-        input: 106
-        output: 45408
-        cache_creation: 160436
-        cache_read: 7085882
-      estimated_usd: 5.68
+        input: 118
+        output: 50854
+        cache_creation: 166286
+        cache_read: 8240001
+      estimated_usd: 6.43
       duration_minutes: null
-      recorded_at: 2026-11-04
+      recorded_at: 2026-11-05
       note: >
-        Interactive frame session, worktree docs/spec-145-frame. Measured from transcript
-        ba7db560-f24e-4992-a32c-37af6e74c570.jsonl, found by the prompt's title, deduped by
-        `.message.id` (53 unique ids, all claude-opus-5-5): input/cache_creation/cache_read once
-        per id, MAX output_tokens per id. Rates: Opus $5 in / $25 out per MTok, cache_creation
-        x1.25 input, cache_read x0.10 input. Taken before the commit/push exchanges, so it
-        slightly under-counts the session.
+        Re-measured at ship (2026-11-05) from transcript
+        ba7db560-f24e-4992-a32c-37af6e74c570.jsonl, found by content (its first user message
+        names the prompt file), deduped by `.message.id` (59 unique ids, all claude-opus-5-5): input/cache_creation/cache_read once per id, MAX output_tokens per id.
+        Rates: Opus $5 in / $25 out per MTok, cache_creation x1.25 input, cache_read x0.10
+        input. Replaces the figure taken before the commit/push exchanges.
     - cycle: design
       agent: claude-opus-5-5
       interface: claude-code
-      tokens_total: 8136660
+      tokens_total: 9589031
       tokens_breakdown:
-        input: 127
-        output: 77211
-        cache_creation: 274596
-        cache_read: 7784726
-      estimated_usd: 7.54
+        input: 139
+        output: 84234
+        cache_creation: 283344
+        cache_read: 9221314
+      estimated_usd: 8.49
       duration_minutes: null
       recorded_at: 2026-11-05
       note: >
-        Interactive design session, worktree docs/spec-145-design. Measured from transcript
-        a34d9c70-8a2c-4971-a998-fbcb33183f2f.jsonl, found by the prompt's title, plus its one
-        Explore subagent (subagents/agent-ad77a099e630fca0a.jsonl, the docs inventory), deduped by
-        `.message.id`: main 48 ids, subagent 16 ids, all claude-opus-5-5; input/cache_creation/
-        cache_read once per id, MAX output_tokens per id. Main $6.45 + subagent $1.09. Rates: Opus
-        $5 in / $25 out per MTok, cache_creation x1.25 input, cache_read x0.10 input. Taken before
-        the commit/push exchanges, so it slightly under-counts the session.
+        Re-measured at ship (2026-11-05) from transcript
+        a34d9c70-8a2c-4971-a998-fbcb33183f2f.jsonl, found by content (its first user message
+        names the prompt file) plus its 1 subagent transcript(s), deduped by `.message.id`
+        (70 unique ids, all claude-opus-5-5): input/cache_creation/cache_read once per id,
+        MAX output_tokens per id. Rates: Opus $5 in / $25 out per MTok, cache_creation x1.25
+        input, cache_read x0.10 input. Replaces the figure taken before the commit/push
+        exchanges.
     - cycle: build
       agent: claude-sonnet-5-5
       interface: claude-code
-      tokens_total: 24033759
+      tokens_total: 27012252
       tokens_breakdown:
-        input: 222
-        output: 85576
-        cache_creation: 261455
-        cache_read: 23686506
-      estimated_usd: 9.37
+        input: 246
+        output: 93227
+        cache_creation: 271226
+        cache_read: 26647553
+      estimated_usd: 10.41
       duration_minutes: null
       recorded_at: 2026-11-05
       note: >
-        Interactive build session, worktree feat-spec-145-crop. Measured from transcript
-        84331158-b19d-4632-bf59-252f40e40a91.jsonl, found by the prompt's title, deduped by
-        `.message.id` (108 unique ids, all claude-sonnet-5-5): input/cache_creation/cache_read
-        once per id, MAX output_tokens per id. Rates: Sonnet $3 in / $15 out per MTok,
-        cache_creation x1.25 input, cache_read x0.10 input. Taken before the final commit and
-        push, so it slightly under-counts the session.
+        Re-measured at ship (2026-11-05) from transcript
+        84331158-b19d-4632-bf59-252f40e40a91.jsonl, found by content (its first user message
+        names the prompt file), deduped by `.message.id` (118 unique ids, all claude-sonnet-5-5): input/cache_creation/cache_read once per id, MAX output_tokens per id.
+        Rates: Sonnet $3 in / $15 out per MTok, cache_creation x1.25 input, cache_read x0.10
+        input. Replaces the figure taken before the final commit and push.
     - cycle: verify
       agent: claude-opus
       interface: claude-code
@@ -137,21 +135,21 @@ cost:
     - cycle: punchlist
       agent: claude-sonnet-5-5
       interface: claude-code
-      tokens_total: 3025187
+      tokens_total: 4085053
       tokens_breakdown:
-        input: 74
-        output: 15149
-        cache_creation: 68689
-        cache_read: 2941275
-      estimated_usd: 1.37
+        input: 96
+        output: 21615
+        cache_creation: 77960
+        cache_read: 3985382
+      estimated_usd: 1.81
       duration_minutes: null
       recorded_at: 2026-11-05
       note: >
-        Punch-list session, worktree fix-spec-145-punch. Measured from transcript
-        fe38dbc6-9a70-4f27-b79e-db9e1d5830ce.jsonl, found by the prompt's title, deduped by
-        `.message.id` (37 unique ids, all claude-sonnet-5-5), MAX output_tokens per id. Rates:
-        Sonnet $3 in / $15 out per MTok, cache_creation x1.25, cache_read x0.10. Taken before the
-        commit, push and CI exchanges, so it slightly under-counts the session.
+        Re-measured at ship (2026-11-05) from transcript
+        fe38dbc6-9a70-4f27-b79e-db9e1d5830ce.jsonl, found by content (its first user message
+        names the prompt file), deduped by `.message.id` (47 unique ids, all claude-sonnet-5-5): input/cache_creation/cache_read once per id, MAX output_tokens per id.
+        Rates: Sonnet $3 in / $15 out per MTok, cache_creation x1.25 input, cache_read x0.10
+        input. Replaces the figure taken before the commit, push and CI exchanges.
     - cycle: reverify
       agent: claude-opus
       interface: claude-code
@@ -171,25 +169,63 @@ cost:
     - cycle: punchlist-2
       agent: claude-sonnet-5-5
       interface: claude-code
-      tokens_total: 998294
+      tokens_total: 2005703
       tokens_breakdown:
-        input: 26
-        output: 7144
-        cache_creation: 54768
-        cache_read: 936356
-      estimated_usd: 0.59
+        input: 50
+        output: 12143
+        cache_creation: 63148
+        cache_read: 1930362
+      estimated_usd: 1.00
       duration_minutes: null
       recorded_at: 2026-11-05
       note: >
-        Punch-list 2 session, worktree fix-spec-145-punch2. Measured from its transcript, found
-        by the prompt's title, deduped by `.message.id` (13 unique ids, all claude-sonnet-5-5),
-        MAX output_tokens per id. Rates: Sonnet $3 in / $15 out per MTok, cache_creation x1.25,
-        cache_read x0.10. Taken before the commit, push and CI exchanges, so it slightly
-        under-counts the session.
+        Re-measured at ship (2026-11-05) from transcript
+        44161f5b-dc14-4d63-b084-b2110fac9ae4.jsonl, found by content (its first user message
+        names the prompt file), deduped by `.message.id` (24 unique ids, all claude-sonnet-5-5): input/cache_creation/cache_read once per id, MAX output_tokens per id.
+        Rates: Sonnet $3 in / $15 out per MTok, cache_creation x1.25 input, cache_read x0.10
+        input. Replaces the figure taken before the commit, push and CI exchanges.
+    - cycle: reverify-2
+      agent: claude-opus-5-5
+      interface: claude-code
+      tokens_total: 2294675
+      tokens_breakdown:
+        input: 64
+        output: 10811
+        cache_creation: 62658
+        cache_read: 2221142
+      estimated_usd: 1.77
+      duration_minutes: null
+      recorded_at: 2026-11-05
+      note: >
+        Re-measured at ship (2026-11-05) from transcript
+        174234a7-07e1-4993-bdf7-e6bf9976a161.jsonl, found by content (its first user message
+        names the prompt file), deduped by `.message.id` (27 unique ids, all claude-opus-5-5): input/cache_creation/cache_read once per id, MAX output_tokens per id.
+        Rates: Opus $5 in / $25 out per MTok, cache_creation x1.25 input, cache_read x0.10
+        input. The read-only session recorded 62 / 8,850 / 61,819 / 2,125,534 = 2,196,265,
+        $1.67, measured mid-session; this replaces that figure.
+    - cycle: ship
+      agent: claude-sonnet-5-5
+      interface: claude-code
+      tokens_total: 1566443
+      tokens_breakdown:
+        input: 36
+        output: 9522
+        cache_creation: 76444
+        cache_read: 1480441
+      estimated_usd: 0.87
+      duration_minutes: null
+      recorded_at: 2026-11-05
+      note: >
+        Measured at ship (2026-11-05) from transcript
+        928a344d-81ab-422a-aa4d-f59e0a124cfa.jsonl, found by content (its first user message
+        names the prompt file), deduped by `.message.id` (18 unique ids, all claude-sonnet-5-5): input/cache_creation/cache_read once per id, MAX output_tokens per id.
+        Rates: Sonnet $3 in / $15 out per MTok, cache_creation x1.25 input, cache_read x0.10
+        input. Taken before the commit and push exchanges, so it slightly under-counts the
+        session.
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 65258712
+    estimated_usd: 38.26
+    session_count: 9
 ---
 
 # SPEC-145: crop as a recipe step, in units that survive a resize
@@ -1143,7 +1179,7 @@ Sonnet. No behaviour change in `src/`; the one `src/operation/crop.rs` edit is i
 4. **Mutation table**: M4b's single-input exit 2 / two-input exit 0 note, the extra red rows for M2, M4, M6
    and M12, and the 0.6 -> 0.4 bound (M1, AC-5 and the test's description). The design note's loose
    `0.5 + 0.5/5 = 0.6` derivation is kept, with the 0.4 the seeded sweep measures stated beside it (punch list 2: that is not the general maximum). **DEC-112 changed**
-   on this branch (its size-independence line now says 0.4, asserted by SPEC-145's test).
+   on this branch (its size-independence line now says 0.4 for this seed, asserted by SPEC-145's test; kept as history, punch list 2 restated it).
 
 CI on `1316ad7`: run 42090297892 (CI), plus DCO 42090297937, all 17 checks pass, 8 release jobs skipped.
 
@@ -1151,7 +1187,7 @@ Controls (each rebuilt clean, `cargo clean -p crustyimg`, exit read from `$?`):
 
 | control | result |
 |---|---|
-| right edge `+ 0.1` before `.round()` | drift 0.6000000000000227: **red at 0.4 and red at 0.6** (at `6611e79`'s bare `drift <= 0.6`). It shows the bound bites; it does not show 0.4 is tighter than 0.6. No mutation tested lands between the two bounds. |
+| right edge `+ 0.1` before `.round()` | drift 0.6000000000000227: **red at 0.4 and red at 0.6** (at `6611e79`'s bare `drift <= 0.6`). It shows the bound bites; it does not show 0.4 is tighter than 0.6. No mutation tested lands between the two bounds. The row is **green at `0.6 + 1e-9`** (the drift 0.6000000000000227 is under it), so "red at 0.6" means the bare `<= 0.6`, not the bound the test uses. |
 | right edge half rounds down (`ceil(v - 0.5)`) | `crop_fraction...` stays green at 0.4 (drift stays 0.4); `halves_round_up_...` red. Not a bound mutation. |
 | A4 row removed, array type `[_; 3]` | red at the new count assert (`left: 3, right: 4`) |
 | A4 row removed, type left `[_; 4]` | does not compile (E0308), so the type alone already catches it |
@@ -1201,10 +1237,38 @@ Process-focused: how did the build go? What friction did the spec create?
 from the process-focused build reflection above.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — The thesis held: a crop in fractions agrees within one pixel at 1200 px and 6000 px, verify
+   drove it on real images with pixels exact against `vips`, and no existing corpus output changed.
+   Three things I would change. (a) The four optional verify cleanups became two punch lists and
+   two re-verifies, about $5.13 against a $9.37 build, so I would take optional cleanups in one
+   punch list and skip the re-verify unless a claim changed. The second round existed only
+   because the first one rewrote a claim. (b) The "0.4 px analytic maximum" was a derived bound:
+   verify stated it, the orchestrator's punch-list prompt carried it forward as settled, and the
+   punch list wrote it into DEC-112. Re-verify found 0.6 at `f64` near-ties
+   (`width = 0.009583333333333333`: 12 px at 1200, 57 px at 6000). A bound goes into a DEC only
+   after someone has driven the input that maximises it, and the DEC should say which part is
+   measured and which is the general bound, as it now does. (c) The 0 px check sits in
+   `Crop::apply` rather than the skippable refusal hook, and mutation M4b is why: a single input
+   exits 2, but a batch writes both images uncropped and exits 0. The design chose correctly, but
+   the rule is written only inside DEC-112 and this spec. Where an op chooses between the hook
+   and an apply failure (the `Operation::refusal` doc comment and the guide that points at it),
+   it should say that a hook refusal is skipped in a batch and an apply failure is not.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — Proposed, not applied. (i) PROJ-011 HANDOFF trap 10 covers a derived value that needs an
+   input where it differs from the naive value, and trap 1 covers a claim resting on a driven
+   table. Neither covers a *bound handed from one session to the next*. Propose a new trap: a
+   verify prompt, punch-list prompt or DEC that carries a session's derived bound marks it as a
+   claim to drive, not a fact, and names the input that maximises it. (ii) Propose a line in the
+   punch-list template: optional cleanups go in one punch list, with no re-verify unless a claim
+   changed. (iii) Propose the refusal-hook rule from answer 1(c) in the `Operation::refusal` doc
+   comment, which is code and was out of scope here. No `guidance/` constraint covers any of the
+   three. The orchestrator has the first as a memory ("an analytic bound is not the f64 bound").
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — Yes, one small entry, filed on STAGE-058: state in `Operation::refusal`'s doc comment, and
+   in whatever points a new op at it, that a refusal is skipped per image in a batch while an
+   apply failure is not, so an op picks the hook only for a condition that is safe to skip. The two
+   entries already filed (the "watermark skipped" wording, and `aspect` following orientation) do
+   not cover it: the first is about the message's text, and the rule is about which mechanism an op
+   chooses. Nothing else the evidence names is missing.
