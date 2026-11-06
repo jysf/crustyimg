@@ -193,7 +193,15 @@ In build order. Each is framed in its own session first.
   no alpha is refused per input, exit 4, naming the step and the format. Drive GIF (1-bit
   transparency) too.
 
-**Count:** 4 shipped / 0 active / 10 pending — re-derived 2026-11-06 at SPEC-151's frame with `/usr/bin/grep -c '^- \[x\]'` (4: SPEC-141, SPEC-145, the docs entry folded into it, and SPEC-147), `/usr/bin/grep -c '^- \[ \]'` (10), `/usr/bin/grep -c '^- \[ \] \*\*SPEC-'` (1: SPEC-151, framed), `/usr/bin/grep -c '^- \[ \] (folded into'` (2, both into SPEC-151) and `/usr/bin/grep -c '^- \[ \] (not yet written)'` (7, one of them filed at this frame)
+- [ ] (not yet written) — [S] **Pin `watermark`'s nine gravities, with a margin.** Found at SPEC-151's
+  design (mutation M2): with `north` placed as `south` in `Gravity::placement`
+  (`src/operation/mod.rs`), every `watermark` test stays green. `crop` and `pad` pin all nine at
+  margin 0, but the margin path (`x_left`/`x_right`/`y_top`/`y_bottom` inset by `margin`) has no
+  test that names an absolute offset. Add one row per gravity with a non-zero margin, expected
+  offsets as literals, and drive the M2 swap plus a margin-dropped mutation. Test-only, no product
+  change. Any time; pairs naturally with `trim` (line 6), which may place by gravity too.
+
+**Count:** 4 shipped / 1 active / 10 pending — re-derived 2026-11-06 by the orchestrator after SPEC-151's design, with `/usr/bin/grep -c '^- \[x\]'` (4: SPEC-141, SPEC-145, the docs entry folded into it, and SPEC-147), `/usr/bin/grep -c '^- \[ \]'` (11), `/usr/bin/grep -c '^- \[ \] \*\*SPEC-'` (1 active: SPEC-151, designed), `/usr/bin/grep -c '^- \[ \] (folded into'` (2, both into SPEC-151) and `/usr/bin/grep -c '^- \[ \] (not yet written)'` (8, one filed at SPEC-151's design)
 
 ## Design Notes
 

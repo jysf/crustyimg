@@ -22,6 +22,6 @@ Cycle prompts live in `prompts/SPEC-151-<cycle>.md`.
   canvas rule restated per axis (the frame's "long side kept" fails a square); no-op = canvas equals
   image; float images keep their variant. 37 exact load messages and 3 apply failures, a 20-cell
   colour-type table, corpus 20/66/69/60, wasm 53/51. 14 mutation rows, 12 driven on a prototype.
-- [ ] **build** (`prompts/SPEC-151-build.md`)
+- [ ] **build** (`prompts/SPEC-151-build.md`, Sonnet, worktree `feat/spec-151-pad`)
 - [ ] **verify**
 - [ ] **ship**
