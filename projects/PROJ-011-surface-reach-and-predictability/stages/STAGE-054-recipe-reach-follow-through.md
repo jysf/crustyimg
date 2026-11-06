@@ -72,7 +72,9 @@ remaining items here are 0.8.1 candidates.
 
 Seven items moved to STAGE-063. Of the rest: recipe, watermark and `validate()` items belong to
 PROJ-017 and its thread decides which it keeps; "a cached `build` replays no per-input warnings"
-is pending that answer too (do not move any of them before then). The ubuntu-22.04 retirement,
+is pending that answer too (do not move any of them before then).
+**Resolved 2026-11-05 (maintainer):** PROJ-017 keeps the three recipe-validation items (marked below);
+the six watermark and cached-build items moved to PROJ-013 STAGE-052. The ubuntu-22.04 retirement,
 crates.io OIDC and release-check tightening wait for the 0.8.3 tag. The SPEC-135, SPEC-138 and
 SPEC-143 cleanup items are tests and wording only; no one is waiting on them.
 
@@ -103,41 +105,7 @@ Ordered. ⚡ Only the first item gates 0.8.0.
     resource-limit question in DEC-036's family, not a malformed-recipe one, so SPEC-131 refuses
     only `size <= 0` and non-finite values. Open: the cap, and whether it lives in the schema.
 
-- [ ] (not yet written) — [S] **A cached `build` replays no per-input warnings.** Filed by
-  SPEC-133's design (2026-10-25, Call 4). A cache hit writes the stored bytes and returns before the
-  pipeline (`src/cli/build.rs:531-540`), so three warnings print on the build that produced an
-  output and never on a cached re-run: SPEC-133's "watermark skipped, image written without it",
-  DEC-085's truncated JPEG, and SPEC-119's animated input (the last two only on the Decide plan's
-  rebuild path today — the Preserve/Pinned plans never print them at all, `encode_one` drops the
-  flags). The output stays correct and locked; what is lost is the *report*: a second `build`
-  says `(N cached, 0 rebuilt)` over images that are unmarked or truncated. Fix shape: the cache
-  entry carries the output's warnings (frame field after `ext`, `src/build/cache.rs:455-503`),
-  `CACHE_SCHEMA_VERSION` 1 → 2 + new magic, and `build_one` replays them on a hit. A schema bump
-  is only a one-time rebuild, so this is not tied to 0.8.0's lockfile migration. SPEC-133 ships
-  the limitation documented (`docs/api-contract.md`, `build`) with a test pinning it, which this
-  item flips on purpose.
-
-- [ ] (not yet written) — [S] **`watermark --min-size`: the opt-in value rule, settable in a
-  recipe.** Split out of SPEC-133 by its frame (2026-10-24); the orchestrator confirms the split.
-  It is the second half of the 2026-08-23 ruling above ("Value rule — opt-in `--min-size`,
-  settable in a recipe … only the user knows what is worth protecting"), which is settled; it is
-  not a new idea. Why separate: it adds a CLI flag on `watermark` and a recipe key on the step, so
-  it couples to SPEC-131's strict param schema (land it after SPEC-131 and the key goes straight
-  into the schema), and it needs its own single-input rule, which the ruling does not state (below
-  the floor on one explicit input: error like the damage rule, or write unmarked?). It reuses
-  SPEC-133's batch *skipped* outcome, so build it after SPEC-133. Open for its spec: what "size"
-  means (shorter edge? longer edge? area?) and whether `apply --recipe` gets a CLI override.
-
-- [ ] (not yet written) — [S] **`watermark` prints absolute paths in batch lines; `apply` prints
-  relative ones.** Filed by SPEC-133's re-verify (2026-10-26): `watermark two/` labels its skip
-  warnings with absolute paths, `apply --recipe … two/` with the path as given. Pre-existing
-  (identical at `3dd23ff`; `src/cli/ops.rs` unchanged by SPEC-133). Pick one labelling rule for
-  every per-input line and use it in `run_pixel_op` too; check the error lines as well as the
-  skip lines.
-  The 0.8.0 release-notes session (2026-10-27) added that the same warning prints an absolute
-  path for a directory input but a relative one for a glob, on `watermark` alone.
-
-- [ ] (not yet written) — [S] **wasm `validate(recipe_toml)` export returning structured,
+- [ ] (not yet written) — [S] ⇒ **handed to PROJ-017 (maintainer ruling 2026-11-05).** **wasm `validate(recipe_toml)` export returning structured,
   per-step recipe errors.** Filed by SPEC-131's design (2026-10-24). Roadmap row #6's (recipe
   playground) prerequisite: no wasm export checks a recipe without an image today, and
   `transform` decodes its input before it builds the pipeline. Consumes SPEC-131's
@@ -166,23 +134,6 @@ Ordered. ⚡ Only the first item gates 0.8.0.
   because both paths agree; it is what STAGE-054's first success criterion literally promises
   ("no CLI or recipe path draws an invisible mark at exit 0").
 
-- [ ] (not yet written) — [S] **A text watermark's raster has no memory bound beyond `size`.**
-  Filed by SPEC-135's frame (2026-10-27). Peak RSS grows with text length × size²: for an 11-char
-  mark, 106 MiB at size 1024, 1,031 MiB at 4096, 5,887 MiB at 10 000, paid before any input is
-  read. SPEC-135 caps `size` (one glyph); `--text` has no length limit on the CLI, and a recipe's
-  text is bounded only by DEC-036's 64 KiB. Fix shape: bound the canvas area (or the string
-  length) before allocating, in DEC-034/DEC-063's resource-limit family.
-
-- [ ] (not yet written) — [S] **`text::render_text` panics for a library caller that passes a huge
-  size.** Filed by SPEC-135's design (2026-10-27; maintainer ruling, filed by the orchestrator).
-  On `main`, `--text "© crustyimg" --size 100000` panics in `zeno` (`raster.rs:144`, exit 101),
-  and so does released 0.7.1 (driven on the release asset). SPEC-135 caps `size <= 1024` on the
-  CLI and in recipes (and so in wasm) before `render_text` runs, but the library function itself
-  still has no bound: a direct caller of `Watermark::new_text` or `render_text` can still crash
-  the process. Fix shape: refuse (return an error) inside `render_text` / `new_text` for a size
-  past the cap, so the library cannot panic whichever caller reaches it
-  (`untrusted-input-hardening`).
-
 - [ ] (not yet written) — [S] **SPEC-135's two optional cleanups: DEC-106's account of the old
   cast, and the AC-4 table test stopping at its first failing row.** Filed by SPEC-135's
   re-verify (2026-10-27). (1) DEC-106 says the old cast "turned NaN and −inf into a 1×1 mark".
@@ -191,13 +142,13 @@ Ordered. ⚡ Only the first item gates 0.8.0.
   stops at its first failing row. Collect every row's failure and assert once, so a mutation that
   breaks several rows shows all of them. Docs and test only, no behaviour change.
 
-- [ ] (not yet written) — [S] **A recipe's `format = "bogus"` is refused as an "extension".**
+- [ ] (not yet written) — [S] ⇒ **handed to PROJ-017 (maintainer ruling 2026-11-05).** **A recipe's `format = "bogus"` is refused as an "extension".**
   Filed by the 0.8.0 release-notes session (2026-10-27): it exits 4 with
   `unsupported output extension: bogus`, but the user wrote a recipe key, not a file extension.
   Name the key and the step, as other recipe load errors do (DEC-102), and check whether it
   should be refused at load (exit 1) instead of at encode (exit 4).
 
-- [ ] (not yet written) — [S] **A recipe's `quality = 101` is accepted and treated as 100.**
+- [ ] (not yet written) — [S] ⇒ **handed to PROJ-017 (maintainer ruling 2026-11-05).** **A recipe's `quality = 101` is accepted and treated as 100.**
   Filed by the 0.8.0 release-notes session (2026-10-27), consistent with `-q 101` on the CLI.
   `recipes/README.md` now documents 0–100, so the schema accepts a value the guide calls out of
   range. Decide: refuse it at load, as every other ranged recipe key is refused (DEC-102), and
@@ -234,16 +185,6 @@ Ordered. ⚡ Only the first item gates 0.8.0.
   `--format`, `-o`, `--out-dir` and `--name-template` although `build` now exits 2 on them; decide
   whether a `build`-specific help note is worth the clap work, or leave the docs as the answer.
   Tests and docs only, apart from (4).
-
-- [ ] (not yet written) — [S] **A library caller of `Watermark::new_image` / `new_text` can still
-  build a mark that draws nothing.** Filed by SPEC-143's frame (2026-10-30). SPEC-143 refuses a
-  mark with no visible pixel after opacity on the CLI and in `from_params` (recipes, `build`, wasm).
-  But the two public constructors are infallible (`-> Self`) in released 0.8.1
-  (`src/operation/mod.rs:1442`, `:1470`), and `Refusal` is not `#[non_exhaustive]`. So a direct
-  library caller that skips SPEC-143's predicate still composites nothing with `Ok`. Closing it
-  changes the public API (fallible constructors, or a new `Refusal` variant that `apply` returns),
-  so it waits for the next minor (0.9), not a patch. The same shape as the `render_text`
-  library-panic entry above (`untrusted-input-hardening`).
 
 - [x] **SPEC-146** (merged 2026-11-05, PR #245) — [S] **CI runs the wasm round-trip tests.** Filed by
   SPEC-143's verify (2026-10-30), and folds in STAGE-053's "wasm32 CI leg". A new `wasm-roundtrip`
@@ -289,7 +230,7 @@ Ordered. ⚡ Only the first item gates 0.8.0.
   actionlint (`-shellcheck=`) in CI; A1 runs nowhere automatically. (5) DEC-111: one sentence on
   ruling 5 (only npm holds `id-token`) and on the PR dry-run wrapper.
 
-**Count:** 6 shipped / 0 active / **16 pending** — re-derived 2026-11-05 after seven items moved to STAGE-063.
+**Count:** 6 shipped / 0 active / **10 pending** — re-derived 2026-11-05 after six items moved to PROJ-013 STAGE-052.
 
 ## Design Notes
 

@@ -199,7 +199,74 @@ came with them; nothing was summarised away.
   control that fails on today's binary. Until it lands, the ddphotos edit page's CLI hint carries
   the caveat (`integrations/ddphotos/edit/index.html`).
 
-**Count:** 0 shipped / 0 active / **8 pending** — re-derive with a grep you just ran.
+
+### Carried from PROJ-011 STAGE-054 (maintainer ruling 2026-11-05)
+
+Watermark and cached-build items, text unchanged. None needs `src/operation/` or `src/recipe/`, but
+the watermark ones touch `src/cli/ops.rs` and the watermark library: check PROJ-017's open specs first.
+
+- [ ] (not yet written) — [S] **`watermark --min-size`: the opt-in value rule, settable in a
+  recipe.** Split out of SPEC-133 by its frame (2026-10-24); the orchestrator confirms the split.
+  It is the second half of the 2026-08-23 ruling above ("Value rule — opt-in `--min-size`,
+  settable in a recipe … only the user knows what is worth protecting"), which is settled; it is
+  not a new idea. Why separate: it adds a CLI flag on `watermark` and a recipe key on the step, so
+  it couples to SPEC-131's strict param schema (land it after SPEC-131 and the key goes straight
+  into the schema), and it needs its own single-input rule, which the ruling does not state (below
+  the floor on one explicit input: error like the damage rule, or write unmarked?). It reuses
+  SPEC-133's batch *skipped* outcome, so build it after SPEC-133. Open for its spec: what "size"
+  means (shorter edge? longer edge? area?) and whether `apply --recipe` gets a CLI override.
+
+- [ ] (not yet written) — [S] **`watermark` prints absolute paths in batch lines; `apply` prints
+  relative ones.** Filed by SPEC-133's re-verify (2026-10-26): `watermark two/` labels its skip
+  warnings with absolute paths, `apply --recipe … two/` with the path as given. Pre-existing
+  (identical at `3dd23ff`; `src/cli/ops.rs` unchanged by SPEC-133). Pick one labelling rule for
+  every per-input line and use it in `run_pixel_op` too; check the error lines as well as the
+  skip lines.
+  The 0.8.0 release-notes session (2026-10-27) added that the same warning prints an absolute
+  path for a directory input but a relative one for a glob, on `watermark` alone.
+
+- [ ] (not yet written) — [S] **A library caller of `Watermark::new_image` / `new_text` can still
+  build a mark that draws nothing.** Filed by SPEC-143's frame (2026-10-30). SPEC-143 refuses a
+  mark with no visible pixel after opacity on the CLI and in `from_params` (recipes, `build`, wasm).
+  But the two public constructors are infallible (`-> Self`) in released 0.8.1
+  (`src/operation/mod.rs:1442`, `:1470`), and `Refusal` is not `#[non_exhaustive]`. So a direct
+  library caller that skips SPEC-143's predicate still composites nothing with `Ok`. Closing it
+  changes the public API (fallible constructors, or a new `Refusal` variant that `apply` returns),
+  so it waits for the next minor (0.9), not a patch. The same shape as the `render_text`
+  library-panic entry above (`untrusted-input-hardening`).
+
+- [ ] (not yet written) — [S] **A text watermark's raster has no memory bound beyond `size`.**
+  Filed by SPEC-135's frame (2026-10-27). Peak RSS grows with text length × size²: for an 11-char
+  mark, 106 MiB at size 1024, 1,031 MiB at 4096, 5,887 MiB at 10 000, paid before any input is
+  read. SPEC-135 caps `size` (one glyph); `--text` has no length limit on the CLI, and a recipe's
+  text is bounded only by DEC-036's 64 KiB. Fix shape: bound the canvas area (or the string
+  length) before allocating, in DEC-034/DEC-063's resource-limit family.
+
+- [ ] (not yet written) — [S] **`text::render_text` panics for a library caller that passes a huge
+  size.** Filed by SPEC-135's design (2026-10-27; maintainer ruling, filed by the orchestrator).
+  On `main`, `--text "© crustyimg" --size 100000` panics in `zeno` (`raster.rs:144`, exit 101),
+  and so does released 0.7.1 (driven on the release asset). SPEC-135 caps `size <= 1024` on the
+  CLI and in recipes (and so in wasm) before `render_text` runs, but the library function itself
+  still has no bound: a direct caller of `Watermark::new_text` or `render_text` can still crash
+  the process. Fix shape: refuse (return an error) inside `render_text` / `new_text` for a size
+  past the cap, so the library cannot panic whichever caller reaches it
+  (`untrusted-input-hardening`).
+
+- [ ] (not yet written) — [S] **A cached `build` replays no per-input warnings.** Filed by
+  SPEC-133's design (2026-10-25, Call 4). A cache hit writes the stored bytes and returns before the
+  pipeline (`src/cli/build.rs:531-540`), so three warnings print on the build that produced an
+  output and never on a cached re-run: SPEC-133's "watermark skipped, image written without it",
+  DEC-085's truncated JPEG, and SPEC-119's animated input (the last two only on the Decide plan's
+  rebuild path today — the Preserve/Pinned plans never print them at all, `encode_one` drops the
+  flags). The output stays correct and locked; what is lost is the *report*: a second `build`
+  says `(N cached, 0 rebuilt)` over images that are unmarked or truncated. Fix shape: the cache
+  entry carries the output's warnings (frame field after `ext`, `src/build/cache.rs:455-503`),
+  `CACHE_SCHEMA_VERSION` 1 → 2 + new magic, and `build_one` replays them on a hit. A schema bump
+  is only a one-time rebuild, so this is not tied to 0.8.0's lockfile migration. SPEC-133 ships
+  the limitation documented (`docs/api-contract.md`, `build`) with a test pinning it, which this
+  item flips on purpose.
+
+**Count:** 0 shipped / 0 active / **14 pending** — re-derived 2026-11-05.
 
 ## Stage-Level Reflection
 
