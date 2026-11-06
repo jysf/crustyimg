@@ -189,8 +189,9 @@ In build order. Each is framed in its own session first.
   (transparent red came out `srgb(254,0,0)`), so `#00000000` would give a black border. The format is
   known per input after decode and before the pipeline runs (`output_format_for`, `src/cli/ops.rs`),
   so a refusal can live there, in `apply` (one input and a batch), `build` and wasm `transform`.
-  SPEC-151's frame recommends refusing, exit 4; the maintainer's ruling on its Q4 decides. If the
-  ruling is "flatten", this entry folds back into SPEC-151 instead. Drive GIF (1-bit transparency) too.
+  **Ruled 2026-11-06 (SPEC-151's Q1 and Q4): split, and refuse.** `transparent` into a format with
+  no alpha is refused per input, exit 4, naming the step and the format. Drive GIF (1-bit
+  transparency) too.
 
 **Count:** 4 shipped / 0 active / 10 pending — re-derived 2026-11-06 at SPEC-151's frame with `/usr/bin/grep -c '^- \[x\]'` (4: SPEC-141, SPEC-145, the docs entry folded into it, and SPEC-147), `/usr/bin/grep -c '^- \[ \]'` (10), `/usr/bin/grep -c '^- \[ \] \*\*SPEC-'` (1: SPEC-151, framed), `/usr/bin/grep -c '^- \[ \] (folded into'` (2, both into SPEC-151) and `/usr/bin/grep -c '^- \[ \] (not yet written)'` (7, one of them filed at this frame)
 

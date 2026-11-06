@@ -15,7 +15,10 @@ Cycle prompts live in `prompts/SPEC-151-<cycle>.md`.
   Keys: `aspect` + `gravity`, or `border` (long edge), with a required opaque `color`. No condition
   uses the refusal hook. Folds in the SPEC-147 cleanups and the refusal-hook doc entry. Five maintainer
   questions, each with a recommendation.
-- [ ] **design** (`prompts/SPEC-151-design.md`): after the maintainer rules Q1–Q5.
+  Rulings (2026-11-06, Q1–Q5 as recommended): split `transparent` into its own STAGE-058 entry,
+  refused into a format with no alpha (exit 4); `color` required, no default; `border` is a fraction
+  of the long edge, the same width on every side; a grey image with a chromatic fill widens to RGB.
+- [ ] **design** (`prompts/SPEC-151-design.md`)
 - [ ] **build**
 - [ ] **verify**
 - [ ] **ship**
