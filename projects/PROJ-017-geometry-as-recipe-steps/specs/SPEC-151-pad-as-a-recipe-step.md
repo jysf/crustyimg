@@ -59,7 +59,19 @@ value_link: "The fourth of STAGE-058's lossless geometry ops and the first that 
 # See AGENTS.md §4 and docs/cost-tracking.md. interface: claude-code |
 # claude-ai | api | ollama | other.
 cost:
-  sessions: []
+  sessions:
+    - cycle: frame
+      date: 2026-11-06
+      agent: claude-opus-5-5
+      interface: claude-code
+      tokens_total: 8576051
+      tokens_breakdown:
+        input: 122
+        cache_creation: 172519
+        cache_read: 8352054
+        output: 51356
+      estimated_usd: 6.54
+      note: "Measured after the push from the session JSONL (61 message ids, all claude-opus-5-5, deduped by .message.id, max output_tokens per id); excludes this cost commit's own turns. Rates: Opus $5/$25 per MTok, cache_creation x1.25 input, cache_read x0.10 input."
   totals:
     tokens_total: 0
     estimated_usd: 0
