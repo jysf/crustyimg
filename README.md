@@ -196,7 +196,7 @@ crustyimg meta set photo.jpg --artist "Jane Doe" --copyright "© 2026" -o tagged
 crustyimg meta copy --from original.jpg --to edited.jpg      # copy EXIF+ICC between images
 ```
 
-> Pixel-lane encodes drop GPS by default; pass `--keep-gps` to retain it.
+> Pixel-lane encodes drop all metadata, GPS included. To keep it, run `crustyimg meta copy --from in.jpg --to out.jpg -y` after the encode (JPEG and PNG).
 
 ### Watermark
 
@@ -290,7 +290,7 @@ cat in.jpg | crustyimg convert - --format webp -o - > out.webp
 
 `-o/--output` (`-` = stdout) · `--out-dir` · `--name-template` · `-q/--quality` ·
 `--format` · `-j/--jobs` · `-y/--yes` (assume yes to overwrite) · `-Q/--quiet` ·
-`-v/--verbose` · `--keep-gps`. Exit codes: `0` ok, `1` runtime error, `2` usage, `3`
+`-v/--verbose` (dependency warnings to stderr; `-vv` for more). Exit codes: `0` ok, `1` runtime error, `2` usage, `3`
 input not found, `4` unsupported format, `5` output refused, `6` partial batch, `7`
 check failed (e.g. `diff --fail-under`).
 

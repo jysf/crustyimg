@@ -1132,6 +1132,21 @@ fn run_completions(shell: clap_complete::Shell) -> Result<(), CliError> {
 mod tests {
     use super::*;
 
+    #[test]
+    fn watermark_asset_unreadable_is_exit_3_and_names_the_file() {
+        let err = CliError::WatermarkAssetUnreadable {
+            what: "font file",
+            path: "a b.ttf".to_owned(),
+            source: std::io::Error::from(std::io::ErrorKind::NotFound),
+        };
+        assert_eq!(err.code(), 3);
+        assert!(
+            err.to_string()
+                .starts_with("could not read font file \"a b.ttf\": "),
+            "{err}"
+        );
+    }
+
     // ── cli_parses_global_and_apply ──────────────────────────────────────────
 
     #[test]

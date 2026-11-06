@@ -93,8 +93,7 @@ flowchart TB
   location removal), `meta set` (artist/copyright/description), `meta copy` — all
   operate on the **container, with no pixel re-encode** (DEC-029/030), so removing
   GPS does not recompress the image. This is the *verifiable* part: privacy without
-  a quality cost, and a default drop-GPS policy on pixel-lane encodes (`--keep-gps`
-  to opt out).
+  a quality cost, and a pixel lane that drops GPS with every other tag (`meta copy` puts metadata back on JPEG and PNG).
 - **Compositing:** `watermark --image` / `--text` (bundled BSD-3 font, DEC-031/032).
 - *Still thin here:* an EXIF **audit-as-linter** (a CI gate that fails when
   unexpected metadata is present) — the `CheckFailed`/exit-7 plumbing exists and is
