@@ -94,7 +94,7 @@ In build order. Each is framed in its own session first.
   page is wrong by construction. The DEC says which units a recipe may carry and how a
   fraction rounds to pixels. Reuse `Gravity` (`src/operation/mod.rs`) rather than adding a
   second anchor type.
-- [ ] **SPEC-147** (framed 2026-11-05) — [S] **`rotate` (quarter turns) and `flip`.** `rotate` with `angle`
+- [ ] **SPEC-147** (designed 2026-11-05) — [S] **`rotate` (quarter turns) and `flip`.** `rotate` with `angle`
   restricted to multiples of 90 in this stage. A non-multiple is refused with a message naming
   the any-angle stage, until STAGE-059 lifts it on the same op and key table. `flip` with
   `axis = "horizontal" | "vertical"`. Exact: `image::imageops` rotate90/180/270 and flips, at
