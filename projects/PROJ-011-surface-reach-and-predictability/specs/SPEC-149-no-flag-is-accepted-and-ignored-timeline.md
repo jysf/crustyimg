@@ -16,6 +16,6 @@ Cycle prompts live in `prompts/SPEC-149-<cycle>.md`.
   mutation rows. One guard table (`src/cli/global_flags.rs`, 8 rows, scope by exclusion so a new verb is
   covered) replaces the `--watch` `if`; a `-v`/`-vv` stderr logger in `src/cli/logger.rs` (driven: usvg
   warning + debug lines, avif_parse debug on the lean leg); `watermark --font`/`--image` name the file, exit 3.
-- [ ] **build** — `prompts/SPEC-149-build.md`
+- [ ] **build** (`prompts/SPEC-149-build.md`, Sonnet) — `prompts/SPEC-149-build.md`
 - [ ] **verify**
 - [ ] **ship**
