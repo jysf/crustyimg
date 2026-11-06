@@ -15,8 +15,8 @@ set -euo pipefail
 # How many #[wasm_bindgen_test] tests each feature set must run. Exact, not a minimum: a
 # minimum cannot tell the slim set from the full one. Whoever adds or removes a wasm test
 # updates these in the same PR; the CI message names them.
-FULL_COUNT=47   # just wasm-test       (--features avif,svg)
-SLIM_COUNT=45   # just wasm-test-slim  (--features avif): 3 svg tests out, 1 refusal test in
+FULL_COUNT=49   # just wasm-test       (--features avif,svg)
+SLIM_COUNT=47   # just wasm-test-slim  (--features avif): 3 svg tests out, 1 refusal test in
 
 SELF="$0"
 
