@@ -7,7 +7,7 @@
 task:
   id: SPEC-148
   type: bug                        # epic | story | task | bug | chore
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: S                    # S | M | L  (L means split it)
@@ -110,6 +110,24 @@ cost:
         per id, MAX output_tokens per id. Rates: Sonnet $3 in / $15 out per MTok, cache_creation
         x1.25, cache_read x0.10. Taken before the PR and final-report exchanges, so it slightly
         under-counts the session.
+    - cycle: verify
+      agent: claude-opus-5-5
+      interface: claude-code
+      tokens_total: 11691044
+      tokens_breakdown:
+        input: 188
+        output: 35973
+        cache_creation: 173808
+        cache_read: 11481075
+      estimated_usd: 7.73
+      duration_minutes: null
+      recorded_at: 2026-11-06
+      note: >
+        Verify session, worktree verify-spec-148. Measured from transcript
+        d4c1bc56-b9af-4c02-8ef7-9b2c636bf4b4.jsonl, found by searching for SPEC-148, deduped by
+        `.message.id` (71 unique ids, all claude-opus-5-5), MAX output per id. Opus rates as the
+        frame entry. This is the whole transcript, including the cleanup step; the timeline's
+        "about $6.71" was measured before cleanup and is the lower figure.
     - cycle: build-fix
       agent: claude-sonnet-5-5
       interface: claude-code
@@ -127,10 +145,23 @@ cost:
         (2d565543-599f-485e-b4e5-4e88219ce618.jsonl), deduped by `.message.id` (21 ids), MAX output
         per id. Sonnet rates as the build entry. Taken before CI-wait and the final report, so it
         slightly under-counts.
+    - cycle: ship
+      agent: claude-sonnet-5-5
+      interface: claude-code
+      tokens_total: 800000
+      tokens_breakdown: null
+      estimated_usd: 0.55
+      duration_minutes: null
+      recorded_at: 2026-11-06
+      note: >
+        Ship session, worktree docs-spec-148-ship. The file cannot hold its own final cost.
+        Transcript e5e3f190-b97e-4773-9ae9-4585f3905a80.jsonl measured $0.49 / 689,720 tokens
+        (8 unique ids, claude-sonnet-5-5, deduped, MAX output) before the final edits and
+        commit; rounded up here. Sonnet rates as the build entry.
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 32425023
+    estimated_usd: 21.74
+    session_count: 6
 ---
 
 # SPEC-148: lint fixes what it names
@@ -1006,10 +1037,56 @@ GREEN after. Mutation (fragment restored for every format): the same three rows 
 from the process-focused build reflection above.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Drive the "every printed fix works" test over the whole input domain of each rule, not the formats
+   the author tried by hand. FT-1 ran every printed fix through a real shell and passed on JPEG and PNG,
+   so it could not see that `meta clean --gps` and `meta strip` were printed for WebP, TIFF and AVIF,
+   where the metadata lane exits 4 and leaves the file unchanged. The design's fixture list named the
+   formats the *rules* fire on, not the formats the *fix verbs* accept; the missing step was to list
+   each verb's accepted inputs and cross them with each rule's. Verify found it (R-1) and CI green
+   could not have. A second, smaller gap: FT-1 had no `$` or backtick row, so double-quote POSIX
+   quoting would only be caught by FT-4 and the goldens (filed as O-3).
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — No decision. The design's "one formatter" held: `Finding::fix_command` is the single place a fix
+   is built, so R-1 was a three-rule change behind one helper (`LintTarget::meta_fix`, sniffed
+   container), not a sweep. Template-side: an end-to-end "run what we print" test should name, at design,
+   the cross of rule x accepted input format for the verb it prints. M-12 (Windows quoting) was left
+   undriven by the build, by design, and driven live by verify on a throwaway PR (#254, closed, branch
+   deleted): only windows-latest went red, so the PowerShell leg really runs FT-1. Of verify's unlisted
+   mutations, 6 of 8 were caught by an existing test; two were caught only by FT-4 and the goldens, and
+   one needed an FT-1 row that did not exist (the `$`/backtick row, O-3). Cross-thread: SPEC-147
+   (rotate/flip, #252) merged while this PR was in verify; `update-branch` merged cleanly and CI stayed
+   green, because the build never touched `tests/common/mod.rs`.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — No new spec. Verify's optional findings O-1 to O-5 are already filed on STAGE-063 (unreachable
+   `--max-size` budget exits 0 and rewrites larger; config `max_bytes = 0` prints a fix that exits 2;
+   no `$`/backtick FT-1 row; unused `common::jpeg_with_gps`; the CMYK fixture size missing from the
+   fixture README). The `lint --help` "(each with a runnable fix)" wording is SPEC-150's.
+
+## Ship
+
+Shipped 2026-11-06. Code is on `main` as `bb78fa1` (PR #253). Cost: frame $3.73, design $4.93, build
+$3.88, verify $7.73, fix $0.92, ship about $0.55; total about $21.74.
+
+### Proposed CHANGELOG entry for 0.8.3 (not written to `CHANGELOG.md`; PROJ-017-adjacent)
+
+**Changed**
+
+- `lint`'s printed `fix:` line (and the JSON `fix` field) is now a command that rewrites the file in
+  place: it ends in `-o <file> -y`, and paths with spaces, quotes or a leading dash are quoted for your
+  shell (PowerShell on Windows). Before, running one wrote the image to your terminal and left the file
+  unchanged.
+- Some findings now print no command, and the JSON `fix` is `null`: input from standard input, 16-bit
+  PNG, and WebP, TIFF and AVIF files where the fix would be a metadata edit crustyimg cannot write yet
+  (the message says so). This is a visible change if you read the `fix` field.
+- `privacy/gps-metadata-leak` now fires on a coordinate (latitude, longitude, a destination coordinate)
+  or a place name, not on any GPS block. A block holding only a version number, which some cameras
+  write into every JPEG, no longer flags, so a CI job that failed on those files now passes.
+
+**Fixed**
+
+- The `size/oversized-bytes` fix passes your budget (`optimize --max-size <bytes>`), so running it
+  clears the finding; plain `optimize` often did not.
+- The CMYK fix is `convert --format jpeg`; it used to print `convert --format <file>`, which failed with
+  exit 3.

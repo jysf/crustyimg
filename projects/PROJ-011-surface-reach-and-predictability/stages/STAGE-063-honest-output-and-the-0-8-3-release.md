@@ -73,7 +73,7 @@ tag-driven pipeline (its AC-18 is open until a real tag), so it should carry rea
 
 Spec ids 148 to 150 are reserved by this commit (PROJ-017 holds 147).
 
-- [ ] SPEC-148 (designed 2026-11-05, S) — **`lint` fixes what it names:** the `fix:` stdout item and the
+- [x] SPEC-148 (shipped 2026-11-06, S; PR #253, bb78fa1) — **`lint` fixes what it names:** the `fix:` stdout item and the
   gps-leak item, framed together (both are `lint` rules). The frame also found both `convert --format`
   fixes malformed (exit 3), unquoted paths, `optimize` ignoring the budget, and a 16-bit PNG fix that
   cannot clear; all in scope. Complexity S.
@@ -100,7 +100,7 @@ Spec ids 148 to 150 are reserved by this commit (PROJ-017 holds 147).
   only. Find why the unpinned search lands on a worse JPEG than the pinned encode (`src/cli/optimize.rs`),
   and whether "never ship a larger file" / "smallest format" still holds there.
 
-**Count:** 0 shipped / 0 active / **5 pending** — 2026-11-05 (re-derived by grep of the backlog checkboxes).
+**Count:** 1 shipped / 0 active / **5 pending** — 2026-11-06 (re-derived by grep of the backlog checkboxes: 6 in total, 1 ticked).
 
 ### Items carried from STAGE-054 (full text, unchanged)
 
