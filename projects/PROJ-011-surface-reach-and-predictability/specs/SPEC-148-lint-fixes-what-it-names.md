@@ -110,6 +110,23 @@ cost:
         per id, MAX output_tokens per id. Rates: Sonnet $3 in / $15 out per MTok, cache_creation
         x1.25, cache_read x0.10. Taken before the PR and final-report exchanges, so it slightly
         under-counts the session.
+    - cycle: build-fix
+      agent: claude-sonnet-5-5
+      interface: claude-code
+      tokens_total: 1742280
+      tokens_breakdown:
+        input: 42
+        output: 11113
+        cache_creation: 66808
+        cache_read: 1664317
+      estimated_usd: 0.92
+      duration_minutes: null
+      recorded_at: 2026-11-05
+      note: >
+        Fix round for verify R-1, worktree fix-spec-148. Measured from this session's transcript
+        (2d565543-599f-485e-b4e5-4e88219ce618.jsonl), deduped by `.message.id` (21 ids), MAX output
+        per id. Sonnet rates as the build entry. Taken before CI-wait and the final report, so it
+        slightly under-counts.
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -967,6 +984,20 @@ Not run here. The first PowerShell run of FT-1 is the draft PR's windows-latest 
 
 No design call turned out wrong.
 
+
+#### Fix round (verify R-1)
+
+`lint` printed `meta clean --gps` / `meta strip` for WebP, TIFF and AVIF, which the metadata lane refuses
+(`error: metadata lane does not support WebP yet`, rc 4). All three `meta` emitters (`privacy/gps-metadata-leak`,
+`privacy/camera-metadata`, `color/unexpected-icc`) now go through `LintTarget::meta_fix`, which keeps the fragment
+only when `guess_format` on the bytes says JPEG or PNG; otherwise the fix is `None` (`fix: null`, no SARIF suffix, no
+text line) and the message gains "; crustyimg's metadata lane cannot rewrite WebP yet, so remove it with another
+tool". Wording chosen because no one-line crustyimg route was driven that keeps the pixels and clears the finding,
+so the message says the lane cannot do it yet (same register as the 16-bit PNG finding). New FT-1 rows `gps-webp`,
+`camera-webp`, `gps-tiff` (fixtures built with ImageMagick + exiftool in `tests/fixtures/lint/`) were RED on the
+unmodified head (`printed_unrunnable_fix=3 shell_failed=3`, stderr `metadata lane does not support WebP yet`) and are
+GREEN after. Mutation (fragment restored for every format): the same three rows red; reverted. `docs/github-actions.md`
+§5 gains one sentence. O-1..O-5 untouched.
 ---
 
 ## Reflection (Ship)
