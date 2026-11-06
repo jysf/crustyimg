@@ -1,0 +1,11 @@
+# Crop to a rectangle given in fractions of the image. No resampling, so the
+# output is the same bytes on every target.
+version = "2"
+name = "corpus-crop-rect"
+
+[[step]]
+op = "crop"
+x = 0.123
+y = 0.2345
+width = 0.5
+height = 0.4321

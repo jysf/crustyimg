@@ -90,6 +90,7 @@ Operations available in a recipe:
 | `invert` | none |
 | `identity` | none — a no-op |
 | `watermark` | an `image` or `text` mark and its placement (below) |
+| `crop` | `x`, `y`, `width`, `height` as fractions of the image, or `aspect` + `gravity` (below) |
 | `optimize` | none — **terminal only**; picks the smallest modern format and scores it |
 
 `resize` modes:
@@ -194,6 +195,50 @@ margin = 16
   (exit `1`), naming the step and the file.
 - `build` caches by the file's content as well as its path, so editing `logo.png` rebuilds
   every output that uses it.
+
+### The crop step
+
+A crop is a rectangle or an aspect, never both. A rectangle:
+
+```toml
+[[step]]
+op = "crop"
+x = 0.25
+y = 0.1
+width = 0.5
+height = 0.6
+```
+
+An aspect, anchored at one side of the frame:
+
+```toml
+[[step]]
+op = "crop"
+aspect = "16:9"
+gravity = "north"
+```
+
+| Key | Form | Value |
+|---|---|---|
+| `x`, `y` | rectangle | where the top-left corner sits, a number from `0` to `1` |
+| `width`, `height` | rectangle | the size, a number above `0` and at most `1` |
+| `aspect` | aspect | two whole numbers from 1 to 65535 as `"W:H"` |
+| `gravity` | aspect | one of the nine compass names; `center` when left out |
+
+- Lengths are **fractions of the image, 0 to 1, not pixels**. `width = 1` is the full width, and
+  `width = 800` is refused. The same recipe therefore crops the same region of a 1200 px copy and
+  a 6000 px original.
+- Each edge rounds to the nearest pixel (halves up), so a recipe agrees within a pixel at any
+  size. `x + width` and `y + height` must not pass `1`; a rectangle that does is refused when the
+  recipe loads.
+- `aspect` takes whole numbers: write `"239:100"`, not `"2.39:1"`. A decimal is refused, and the
+  message shows the whole-number spelling.
+- A crop that rounds to 0 px on an image fails instead of being widened, so a recipe that is fine
+  on a 6000 px original can be refused on a 40 px thumbnail. For one input that is exit `1`. In a
+  batch, each failed image is reported and exits `6`, whether some or all inputs failed; the
+  images that did not fail are still written.
+- The fractions are of the image as the step receives it. Put `op = "auto-orient"` first when they
+  are meant as the photo is displayed.
 
 ### Step keys are checked
 

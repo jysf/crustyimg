@@ -71,7 +71,13 @@ crop   = (left, top, right − left, bottom − top)
 
 The testable claim: **every edge is within 0.5 px of its exact position `f · W`, on every image
 size**, and so the same fractions on a 1200 px and a 6000 px copy of one image give edges that agree
-within `0.5 + 0.5/5 = 0.6` px once scaled. A 200,000-case seeded sweep measured 0.40 px.
+within `0.5 + 0.5/5 = 0.6` px once scaled. Drift comes in multiples of 0.2 and halves round up, so
+in exact maths the largest value is 0.4 px. In `f64` it is not: `x * 1200` and `x * 6000` are
+rounded separately, so near a half-pixel tie the two sizes can round in opposite directions and
+the drift reaches 0.6. **0.4 px is measured over SPEC-145's seeded 200,000-case sweep; 0.6 px is the
+bound in general, reached at `f64` near-ties.** Driven on the binary: `width = 0.009583333333333333`
+(`x = 0`, `height = 1`) gives a 12 px crop at 1200 and 57 px at 6000, and 57/5 = 11.4 is a drift
+of 0.6. SPEC-145's test asserts 0.4 for its fixed seed only.
 
 **3. Bounds, without a clamp.** Load refuses `x + width > 1` and `y + height > 1` (computed in
 `f64`). For any `f64` value `s ≤ 1`, `s · W ≤ W`, so `right ≤ W` and `bottom ≤ H` by construction.

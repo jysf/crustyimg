@@ -241,7 +241,7 @@ crustyimg meta strip *.jpg --out-dir clean/ --name-template "{stem}_clean.{ext}"
 
 ### Recipes
 
-A **recipe** is an ordered pipeline of operations saved as TOML — resize, watermark and
+A **recipe** is an ordered pipeline of operations saved as TOML — resize, crop, watermark and
 more, optionally with the output format and quality to write. Tune it once, replay it
 anywhere. Three ship inside the binary, so there's no file to write for the common jobs:
 

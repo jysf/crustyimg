@@ -1,0 +1,9 @@
+version = "2"
+name = "corpus-crop-rect"
+
+[[step]]
+op = "crop"
+height = 0.4321
+width = 0.5
+x = 0.123
+y = 0.2345

@@ -15,8 +15,8 @@ set -euo pipefail
 # How many #[wasm_bindgen_test] tests each feature set must run. Exact, not a minimum: a
 # minimum cannot tell the slim set from the full one. Whoever adds or removes a wasm test
 # updates these in the same PR; the CI message names them.
-FULL_COUNT=47   # just wasm-test       (--features avif,svg)
-SLIM_COUNT=45   # just wasm-test-slim  (--features avif): 3 svg tests out, 1 refusal test in
+FULL_COUNT=49   # just wasm-test       (--features avif,svg)
+SLIM_COUNT=47   # just wasm-test-slim  (--features avif): 3 svg tests out, 1 refusal test in
 
 SELF="$0"
 
@@ -201,28 +201,28 @@ self_test() {
     fi
   }
 
-  local l47='test result: ok. 47 passed; 0 failed; 0 ignored; 0 filtered out; finished in 3.8s'
-  printf '%s\n' "$l47" > "$dir/l47"
-  printf '%s\n' "${l47/47 passed/1 passed}" > "$dir/l1"
-  printf '%s\n' "${l47/47 passed/46 passed}" > "$dir/l46"
-  printf '%s\n' "${l47/47 passed/45 passed}" > "$dir/l45"
+  local l49='test result: ok. 49 passed; 0 failed; 0 ignored; 0 filtered out; finished in 3.8s'
+  printf '%s\n' "$l49" > "$dir/l49"
+  printf '%s\n' "${l49/49 passed/1 passed}" > "$dir/l1"
+  printf '%s\n' "${l49/49 passed/48 passed}" > "$dir/l48"
+  printf '%s\n' "${l49/49 passed/47 passed}" > "$dir/l47"
   printf 'running 0 tests\n' > "$dir/none"
-  printf '%s\n%s\n' "$l47" "$l47" > "$dir/two"
-  printf 'test result: FAILED. 46 passed; 1 failed; 0 ignored; 0 filtered out; finished in 3.8s\n' > "$dir/failed"
+  printf '%s\n%s\n' "$l49" "$l49" > "$dir/two"
+  printf 'test result: FAILED. 48 passed; 1 failed; 0 ignored; 0 filtered out; finished in 3.8s\n' > "$dir/failed"
   printf '[[package]]\nname = "wasm-bindgen"\nversion = "0.2.126"\n' > "$dir/lock1"
   printf '[[package]]\nname = "other"\nversion = "1.0.0"\n' > "$dir/lock0"
   printf '[[package]]\nname = "wasm-bindgen"\nversion = "0.2.126"\n\n[[package]]\nname = "wasm-bindgen"\nversion = "0.2.125"\n' > "$dir/lock2"
   printf '[[package]]\nname = "wasm-bindgen"\nversion = "0.2.126"\n\n[[package]]\nname = "wasm-bindgen-shared"\nversion = "0.2.122"\n' > "$dir/lock_shared"
 
-  row "1 count full 47" ok "full set: 47 passed, as expected" -- count full "$dir/l47"
-  row "2 count full 1" fail "full set: 1 passed, expected 47" -- count full "$dir/l1"
-  row "3 count full 46" fail "expected 47" -- count full "$dir/l46"
-  row "4 count slim 47" fail "slim set: 47 passed, expected 45" -- count slim "$dir/l47"
-  row "5 count slim 45" ok "slim set: 45 passed, as expected" -- count slim "$dir/l45"
+  row "1 count full 49" ok "full set: 49 passed, as expected" -- count full "$dir/l49"
+  row "2 count full 1" fail "full set: 1 passed, expected 49" -- count full "$dir/l1"
+  row "3 count full 48" fail "expected 49" -- count full "$dir/l48"
+  row "4 count slim 49" fail "slim set: 49 passed, expected 47" -- count slim "$dir/l49"
+  row "5 count slim 47" ok "slim set: 47 passed, as expected" -- count slim "$dir/l47"
   row "6 count no result line" fail "no 'test result:' line" -- count full "$dir/none"
   row "7 count two result lines" fail "2 'test result:' lines, expected 1" -- count full "$dir/two"
   row "8 count FAILED line" fail "did not pass" -- count full "$dir/failed"
-  row "9 count unknown set" fail "unknown set 'fat'" -- count fat "$dir/l47"
+  row "9 count unknown set" fail "unknown set 'fat'" -- count fat "$dir/l49"
   row "10 lock one block" ok "0.2.126" -- lock-version "$dir/lock1"
   row "11 lock no block" fail "found 0 wasm-bindgen entries" -- lock-version "$dir/lock0"
   row "12 lock two blocks" fail "found 2 wasm-bindgen entries" -- lock-version "$dir/lock2"

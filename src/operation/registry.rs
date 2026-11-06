@@ -14,8 +14,8 @@ use std::collections::HashMap;
 use thiserror::Error;
 
 use super::{
-    AutoOrient, Identity, Invert, Operation, OperationParams, Resize, Watermark, RESIZE_PARAMS,
-    WATERMARK_PARAMS,
+    AutoOrient, Crop, Identity, Invert, Operation, OperationParams, Resize, Watermark, CROP_PARAMS,
+    RESIZE_PARAMS, WATERMARK_PARAMS,
 };
 
 // ─── Constructor type alias ─────────────────────────────────────────────────
@@ -188,7 +188,7 @@ impl ParamKind {
 }
 
 /// A float as a recipe author would write it: `nan`, `inf`, `1.5`, `100.0`.
-fn float_text(f: f64) -> String {
+pub(crate) fn float_text(f: f64) -> String {
     if f.is_nan() {
         "nan".to_owned()
     } else if f.is_infinite() {
@@ -263,7 +263,7 @@ struct Entry {
 ///
 /// Constructed via [`OperationRegistry::new`] (empty) or
 /// [`OperationRegistry::with_builtins`] (pre-populated with `identity`,
-/// `invert`, `resize`, `auto-orient`, and `watermark`). New operations
+/// `invert`, `resize`, `auto-orient`, `watermark`, and `crop`). New operations
 /// register themselves without touching the recipe parser (the whole point of
 /// the registry seam), and each publishes the step keys it accepts:
 ///
@@ -289,8 +289,8 @@ impl OperationRegistry {
     }
 
     /// Create a registry pre-populated with the built-in operations:
-    /// `"identity"`, `"invert"`, `"resize"`, `"auto-orient"` and
-    /// `"watermark"`.
+    /// `"identity"`, `"invert"`, `"resize"`, `"auto-orient"`, `"watermark"` and
+    /// `"crop"`.
     pub fn with_builtins() -> Self {
         let mut reg = Self::new();
         reg.register("identity", |_params| Ok(Box::new(Identity)));
@@ -306,6 +306,7 @@ impl OperationRegistry {
             |p| Watermark::from_params(p).map(|w| Box::new(w) as Box<dyn Operation>),
             WATERMARK_PARAMS,
         );
+        reg.register_with_params("crop", |p| Ok(Box::new(Crop::from_params(p)?)), CROP_PARAMS);
         reg
     }
 
@@ -502,6 +503,12 @@ mod tests {
     }
 
     #[test]
+    fn with_builtins_contains_crop() {
+        let reg = OperationRegistry::with_builtins();
+        assert!(reg.contains("crop"), "expected 'crop' to be registered");
+    }
+
+    #[test]
     fn build_unknown_returns_typed_error() {
         let reg = OperationRegistry::with_builtins();
         let result = reg.build("bogus", &OperationParams::empty());
@@ -635,6 +642,32 @@ mod tests {
                 "tile"
             ]
         );
+        assert_eq!(
+            keys("crop"),
+            ["x", "y", "width", "height", "aspect", "gravity"]
+        );
+        let crop_kinds: Vec<ParamKind> = reg
+            .param_specs("crop")
+            .expect("crop schema")
+            .iter()
+            .map(|s| s.kind)
+            .collect();
+        let fraction = |min_inclusive| ParamKind::Number {
+            min: 0.0,
+            min_inclusive,
+            max: Some(1.0),
+        };
+        assert_eq!(
+            crop_kinds,
+            [
+                fraction(true),
+                fraction(true),
+                fraction(false),
+                fraction(false),
+                ParamKind::Text,
+                ParamKind::OneOf(crate::operation::GRAVITY_NAMES),
+            ]
+        );
         for paramless in ["identity", "invert", "auto-orient"] {
             assert!(keys(paramless).is_empty(), "'{paramless}' takes no keys");
         }
@@ -672,7 +705,7 @@ mod tests {
     fn one_of_values_are_accepted_by_their_constructors() {
         let reg = OperationRegistry::with_builtins();
         let mut checked = 0;
-        for op in ["resize", "watermark"] {
+        for op in ["resize", "watermark", "crop"] {
             for spec in reg.param_specs(op).expect("schema") {
                 let ParamKind::OneOf(values) = spec.kind else {
                     continue;
@@ -694,6 +727,9 @@ mod tests {
                             m.insert("width".to_owned(), toml::Value::Integer(8));
                             m.insert("height".to_owned(), toml::Value::Integer(8));
                         }
+                        ("crop", _) => {
+                            m.insert("aspect".to_owned(), toml::Value::String("16:9".into()));
+                        }
                         _ => {
                             m.insert("text".to_owned(), toml::Value::String("hi".into()));
                         }
@@ -706,7 +742,11 @@ mod tests {
                 }
             }
         }
-        assert_eq!(checked, 6 + 9, "6 resize modes + 9 gravities");
+        assert_eq!(
+            checked,
+            6 + 9 + 9,
+            "6 resize modes + 9 watermark gravities + 9 crop gravities"
+        );
     }
 
     #[test]
