@@ -22,6 +22,19 @@ rebase conflicts in a PROJ-017 file, stop and say so.
 **Read the stub's `## Frame` first.** It holds the reproduction, the per-flag option analysis, the font-message
 locations, the docs list and the sizing. It is your binding scope.
 
+## Files PROJ-017's SPEC-151 build holds (added 2026-11-06, from the PROJ-017 orchestrator)
+While SPEC-151 (`pad`) builds on `feat/spec-151-pad`, SPEC-149 must not touch: `src/operation/`, `src/recipe/`,
+`src/text/mod.rs`, `docs/recipes.md`, `recipes/README.md`, `docs/data-model.md`, `docs/api-contract.md`,
+`docs/backlog.md`, `skills/crustyimg/SKILL.md`, `integrations/ddphotos/README.md`, `CHANGELOG.md`'s Unreleased
+section, `tests/fixtures/recipe_corpus/`, `tests/recipe_corpus_output.rs`, `tests/recipe_round_trip.rs`,
+`tests/wasm_roundtrip.rs`, `tests/common/mod.rs`, `tests/rotate_flip.rs`, `scripts/wasm-ci-check.sh`.
+So `docs/data-model.md:122` and `docs/api-contract.md:36,39,591-593` are **deferred hunks**: in the spec's file
+list, mark them "apply after SPEC-151 merges" and put the exact sentences in the spec so the build (or a ship
+follow-up) can apply them mechanically. The build gate is: check `gh pr list` / `git log origin/main` for
+SPEC-151's merge first. A wasm test or a CHANGELOG line from SPEC-149 is allowed, but say so in the spec and in the
+timeline: PROJ-017's verify re-checks FULL_COUNT/SLIM_COUNT (SPEC-151's build adds 2 to whatever `main` says).
+`-v` must not add a wasm test unless unavoidable.
+
 ## Rulings (settled by the maintainer 2026-11-06; do not re-open)
 1. **`--keep-gps`: refuse now, build later.** Every verb exits 2 with a message saying pixel-lane encodes drop all
    metadata and naming `crustyimg meta copy --from <in> --to <out> -y` (JPEG and PNG). Hide it from `--help`. Keep
