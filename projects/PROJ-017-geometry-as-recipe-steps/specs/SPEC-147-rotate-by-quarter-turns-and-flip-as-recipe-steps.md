@@ -58,7 +58,19 @@ value_link: "STAGE-058's quarter-turn `rotate` and `flip` steps, exact in pixels
 # See AGENTS.md §4 and docs/cost-tracking.md. interface: claude-code |
 # claude-ai | api | ollama | other.
 cost:
-  sessions: []
+  sessions:
+    - cycle: frame
+      date: 2026-11-05
+      agent: claude-opus-5-5
+      interface: claude-code
+      tokens_total: 4813139
+      tokens_breakdown:
+        input: 84
+        cache_creation: 124274
+        cache_read: 4656403
+        output: 32378
+      estimated_usd: 3.91
+      note: "Measured from this session's JSONL at the last turn after the push (42 message ids, deduped by .message.id, max output_tokens per id). Rates: Opus $5/$25 per MTok, cache_creation x1.25 input, cache_read x0.10 input."
   totals:
     tokens_total: 0
     estimated_usd: 0
