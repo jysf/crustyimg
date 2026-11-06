@@ -25,8 +25,10 @@ const BIN: &str = env!("CARGO_BIN_EXE_crustyimg");
 const R1_WATCH: &str = "error: --watch is only valid with `build`: there is no rebuild loop to run for this subcommand\n";
 const R2_CHECK: &str = "error: --check (or --frozen/--locked) is only valid with `build`: there is no build lockfile to check for this subcommand\n";
 const R3_STRICT: &str = "error: --strict is only valid with `build --check`: there is no build lockfile to check for this subcommand\n";
-const R4_STRICT_ALONE: &str = "error: --strict only applies with --check: run `build --check --strict`, or drop --strict\n";
-const R5_NO_CACHE: &str = "error: --no-cache is only valid with `build`: there is no build cache for this subcommand\n";
+const R4_STRICT_ALONE: &str =
+    "error: --strict only applies with --check: run `build --check --strict`, or drop --strict\n";
+const R5_NO_CACHE: &str =
+    "error: --no-cache is only valid with `build`: there is no build cache for this subcommand\n";
 const R6_KEEP_GPS: &str = "error: --keep-gps is not supported yet: pixel-lane encodes drop all metadata, GPS included; to keep it, copy the metadata back after the encode with `crustyimg meta copy --from <in> --to <out> -y` (JPEG and PNG)\n";
 const R7_NAME_TEMPLATE: &str = "error: responsive does not take --name-template: its output names are fixed as {stem}-{w}w.{ext}\n";
 const R8_FORMAT: &str = "error: responsive does not take --format: choose its output formats with --formats (e.g. --formats webp,jpeg)\n";
@@ -185,7 +187,18 @@ fn minimal_args(path: &[&str]) -> Option<Vec<&'static str>> {
         ["optimize"] => &["optimize", "in.png", "-o", "o.png"],
         ["responsive"] => &["responsive", "in.png", "--widths", "8", "--out-dir", "rd"],
         ["auto-orient"] => &["auto-orient", "in.png", "-o", "o.png"],
-        ["watermark"] => &["watermark", "in.png", "--text", "hi", "-o", "o.png"],
+        // `--size 8`: at the default size the mark covers 27% of a 32x32 image and the
+        // 5% limit refuses it (exit 2), which would make the baseline a usage error.
+        ["watermark"] => &[
+            "watermark",
+            "in.png",
+            "--text",
+            "hi",
+            "--size",
+            "8",
+            "-o",
+            "o.png",
+        ],
         ["edit"] => &["edit", "in.png", "--invert", "-o", "o.png"],
         ["apply"] => &["apply", "--recipe", "r.toml", "in.png", "-o", "o.png"],
         ["build"] => &["build"],
@@ -270,9 +283,8 @@ fn every_leaf_command_refuses_build_only_flags_and_keep_gps() {
     for path in &leaves {
         let names: Vec<&str> = path.iter().map(String::as_str).collect();
         let joined = names.join(" ");
-        let base = minimal_args(&names).unwrap_or_else(|| {
-            panic!("no test argv for `{joined}`: add one to minimal_args")
-        });
+        let base = minimal_args(&names)
+            .unwrap_or_else(|| panic!("no test argv for `{joined}`: add one to minimal_args"));
 
         // Baseline: the argv is valid (not a usage error) and prints no R-line.
         let dir = project();
@@ -314,11 +326,7 @@ fn every_leaf_command_refuses_build_only_flags_and_keep_gps() {
             args.push(flag);
             let out = run(dir.path(), &args);
             assert_refused(&out, line, &format!("{joined} {flag}"));
-            assert_eq!(
-                snapshot(dir.path()),
-                before,
-                "{joined} {flag}: wrote files"
-            );
+            assert_eq!(snapshot(dir.path()), before, "{joined} {flag}: wrote files");
             rows += 1;
         }
     }
@@ -343,7 +351,15 @@ fn keep_gps_is_hidden_from_help_but_still_parsed() {
     }
     let out = run(
         dir.path(),
-        &["resize", "in.png", "--max", "8", "-o", "o.png", "--keep-gps"],
+        &[
+            "resize",
+            "in.png",
+            "--max",
+            "8",
+            "-o",
+            "o.png",
+            "--keep-gps",
+        ],
     );
     assert_refused(&out, R6_KEEP_GPS, "resize --keep-gps");
 }
@@ -376,7 +392,11 @@ fn build_refuses_strict_without_check_and_keeps_its_own_flags() {
     assert!(dir.path().join("crustyimg.build.lock").exists());
     let out = run(dir.path(), &["build", "--check", "--strict"]);
     let stderr = stderr_of(&out);
-    assert_eq!(out.status.code(), Some(0), "build --check --strict: {stderr}");
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "build --check --strict: {stderr}"
+    );
     assert!(!stderr.contains("only applies with --check"), "{stderr}");
     let out = run(dir.path(), &["build", "--no-cache"]);
     let stderr = stderr_of(&out);
@@ -404,15 +424,33 @@ fn responsive_refuses_name_template_and_format() {
         let before = snapshot(dir.path());
         let out = run(dir.path(), &args);
         assert_refused(&out, &expected, &args.join(" "));
-        assert_eq!(snapshot(dir.path()), before, "{}: wrote files", args.join(" "));
-        assert!(!dir.path().join("rd").exists(), "{}: created rd/", args.join(" "));
+        assert_eq!(
+            snapshot(dir.path()),
+            before,
+            "{}: wrote files",
+            args.join(" ")
+        );
+        assert!(
+            !dir.path().join("rd").exists(),
+            "{}: created rd/",
+            args.join(" ")
+        );
     }
 
     // Control: --formats is read and writes.
     let dir = project();
     let out = run(
         dir.path(),
-        &["responsive", "in.png", "--widths", "8", "--out-dir", "rd", "--formats", "webp"],
+        &[
+            "responsive",
+            "in.png",
+            "--widths",
+            "8",
+            "--out-dir",
+            "rd",
+            "--formats",
+            "webp",
+        ],
     );
     assert_eq!(out.status.code(), Some(0), "{}", stderr_of(&out));
     let webp = std::fs::read(dir.path().join("rd/in-8w.webp")).expect("rd/in-8w.webp written");
@@ -424,7 +462,10 @@ fn responsive_refuses_name_template_and_format() {
 #[test]
 fn flags_a_verb_reads_are_not_refused() {
     let rows: [(&[&str], &str); 7] = [
-        (&["--out-dir", "d", "--name-template", "{stem}_s.png"], "d/in_s.png"),
+        (
+            &["--out-dir", "d", "--name-template", "{stem}_s.png"],
+            "d/in_s.png",
+        ),
         (&["--format", "jpeg", "-o", "o.jpg"], "o.jpg"),
         (&["-q", "40", "--format", "jpeg", "-o", "q.jpg"], "q.jpg"),
         (&["-j", "2", "--out-dir", "j"], "j/in.png"),
@@ -446,8 +487,20 @@ fn flags_a_verb_reads_are_not_refused() {
             "{}: {expected_file} missing",
             args.join(" ")
         );
-        for line in [R1_WATCH, R2_CHECK, R3_STRICT, R5_NO_CACHE, R6_KEEP_GPS, R7_NAME_TEMPLATE, R8_FORMAT] {
-            assert!(!stderr.contains(line.trim_end()), "{}: {stderr}", args.join(" "));
+        for line in [
+            R1_WATCH,
+            R2_CHECK,
+            R3_STRICT,
+            R5_NO_CACHE,
+            R6_KEEP_GPS,
+            R7_NAME_TEMPLATE,
+            R8_FORMAT,
+        ] {
+            assert!(
+                !stderr.contains(line.trim_end()),
+                "{}: {stderr}",
+                args.join(" ")
+            );
         }
     }
 }
@@ -478,7 +531,11 @@ fn verbose_shows_dependency_warnings() {
     let stderr = stderr_of(&out);
     assert_eq!(out.status.code(), Some(0), "{stderr}");
     assert_eq!(count_line(&stderr, W), 1, "-v: stderr:\n{stderr}");
-    assert_eq!(count_line(&stderr, D), 0, "-v shows no debug line:\n{stderr}");
+    assert_eq!(
+        count_line(&stderr, D),
+        0,
+        "-v shows no debug line:\n{stderr}"
+    );
     assert_eq!(
         std::fs::read(dir.path().join("a.png")).unwrap(),
         std::fs::read(dir.path().join("b.png")).unwrap(),
@@ -509,7 +566,18 @@ fn verbose_shows_dependency_warnings() {
     // Worker threads log through the same global logger: one record per input.
     let out = run(
         dir.path(),
-        &["-v", "-j", "4", "resize", "n.svg", "m.svg", "--max", "20", "--out-dir", "jd"],
+        &[
+            "-v",
+            "-j",
+            "4",
+            "resize",
+            "n.svg",
+            "m.svg",
+            "--max",
+            "20",
+            "--out-dir",
+            "jd",
+        ],
     );
     let stderr = stderr_of(&out);
     assert_eq!(out.status.code(), Some(0), "{stderr}");
@@ -537,7 +605,9 @@ fn very_verbose_reaches_the_avif_parser() {
     let out = run(dir.path(), &["-vv", "info", "p.avif"]);
     let stderr = stderr_of(&out);
     assert!(
-        stderr.lines().any(|l| l.starts_with("debug: [avif_parse] ")),
+        stderr
+            .lines()
+            .any(|l| l.starts_with("debug: [avif_parse] ")),
         "-vv: no avif_parse debug line; stderr:\n{stderr}"
     );
     let out = run(dir.path(), &["-vv", "-Q", "info", "p.avif"]);
@@ -555,16 +625,38 @@ fn assert_asset_error(args: &[&str], prefix: &str, shown_path: &str) {
     let stderr = stderr_of(&out);
     assert_eq!(out.status.code(), Some(3), "{}: {stderr}", args.join(" "));
     let want = format!("{prefix}{shown_path}\": ");
-    assert!(stderr.starts_with(&want), "{}: stderr:\n{stderr}", args.join(" "));
-    assert!(!stderr.contains(OLD_MESSAGE), "{}: {stderr}", args.join(" "));
-    assert_eq!(snapshot(dir.path()), before, "{}: wrote files", args.join(" "));
+    assert!(
+        stderr.starts_with(&want),
+        "{}: stderr:\n{stderr}",
+        args.join(" ")
+    );
+    assert!(
+        !stderr.contains(OLD_MESSAGE),
+        "{}: {stderr}",
+        args.join(" ")
+    );
+    assert_eq!(
+        snapshot(dir.path()),
+        before,
+        "{}: wrote files",
+        args.join(" ")
+    );
 }
 
 #[test]
 fn missing_font_names_the_file() {
     for font in ["no-font.ttf", "fontdir"] {
         assert_asset_error(
-            &["watermark", "in.png", "--text", "hi", "--font", font, "-o", "o.png"],
+            &[
+                "watermark",
+                "in.png",
+                "--text",
+                "hi",
+                "--font",
+                font,
+                "-o",
+                "o.png",
+            ],
             FONT_PREFIX,
             font,
         );
