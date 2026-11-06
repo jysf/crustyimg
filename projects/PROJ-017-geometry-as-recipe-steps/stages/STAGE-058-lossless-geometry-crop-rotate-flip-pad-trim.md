@@ -101,7 +101,7 @@ In build order. Each is framed in its own session first.
   the source's colour type. ⚠ Decide and test what happens to an EXIF orientation tag on an
   image that was not auto-oriented first. SPEC-110 bakes orientation at the start of `edit`;
   a hand-written recipe may not.
-- [ ] (not yet written) — [S] **`pad`.** To an exact size or to an aspect, anchored by
+- [ ] **SPEC-151** (framed 2026-11-06) — [S] **`pad`.** To an exact size or to an aspect, anchored by
   `gravity`, filled with `color` (a value the `watermark` colour parser already reads) or
   `transparent`. ⚠ `transparent` into a format with no alpha (JPEG) is either refused or
   flattened against a stated colour. That is decided here, not left to the encoder.
@@ -129,7 +129,7 @@ In build order. Each is framed in its own session first.
   only the first (M4 in the spec's Build Completion). Test-only; optional, and only worth doing if
   a later spec trips both at once.
 
-- [ ] (not yet written) — [S] **SPEC-147's verify cleanups that need a PR: a stricter `orientation_of`,
+- [ ] (folded into SPEC-151) — [S] **SPEC-147's verify cleanups that need a PR: a stricter `orientation_of`,
   and the corpus README's stale literals.** Found at SPEC-147's ship (verify's optional cleanup 1
   and its out-of-spec finding); fold into the next STAGE-058 spec's build. Two test-side fixes, no
   product change. (1) `orientation_of` in `tests/rotate_flip.rs` (:592) uses `.ok()?`, so any
@@ -151,14 +151,15 @@ In build order. Each is framed in its own session first.
   the refusals. ⚠ `pad` to an aspect has the same question: decide it here, or name it in `pad`'s
   frame. Named presets (`"5x7"`, `"square"`) stay out of the recipe format: a ratio is
   unambiguous, and presets belong to the page's buttons (STAGE-060) and a docs table. After
-  SPEC-145.
+  SPEC-145. SPEC-151's frame (2026-11-06) named this entry for `pad`: its aspect means W wide by H
+  tall as crop's does, and this entry's spec adds the key to both ops with one rule.
 
 - [ ] (not yet written) — [S] **The batch summary says "watermark skipped" for any refusing op.**
   Found at SPEC-145's verify. `report_skipped_images` (`src/cli/common.rs:40`) and `build.rs:864`
   print "watermark skipped on K of N images" for every step that refuses through the refusal hook.
   Only `watermark` uses the hook today, so nothing shipped is mislabelled. `pad` or `trim` may be
   the first other op to use it: name the op that refused, before either ships.
-- [ ] (not yet written) — [S] **State when an op uses the refusal hook and when it fails at apply.**
+- [ ] (folded into SPEC-151) — [S] **State when an op uses the refusal hook and when it fails at apply.**
   Found at SPEC-145's ship (mutation M4b). A refusal through `Operation::refusal` is skipped per
   image in a batch: with the 0 px check moved there, one input exits 2 but two inputs write both
   images uncropped and exit 0. An apply failure is not skipped. So the hook suits only a condition
@@ -179,7 +180,19 @@ In build order. Each is framed in its own session first.
   records `auto-orient`. Design decides warn vs refuse vs stay silent, and whether a geometry step
   alone triggers it. A warning changes no output bytes. After SPEC-147.
 
-**Count:** 4 shipped / 0 active / 9 pending — re-derived 2026-11-06 at SPEC-147's ship with `/usr/bin/grep -c '^- \[x\]'` (4: SPEC-141, SPEC-145, the docs entry folded into it, and SPEC-147), `/usr/bin/grep -c '^- \[ \]'` (9), `/usr/bin/grep -c '^- \[ \] \*\*SPEC-'` (0) and `/usr/bin/grep -c '^- \[ \] (not yet written)'` (9, one of them filed at this ship)
+- [ ] (not yet written) — [S] **`pad` with a transparent fill, and what `transparent` does in a format with no alpha.**
+  Split out of SPEC-151 at its frame (2026-11-06); after SPEC-151. Lifts SPEC-151's "opaque only"
+  refusal so `color` takes `transparent` (and `#RRGGBBAA` below `ff`), widening RGB to RGBA and grey
+  to grey-with-alpha (DEC-095's narrow rule already keeps a channel with non-opaque samples). ⚠ The
+  JPEG rule is decided here, not left to the encoder. Driven at SPEC-151's frame on 0.8.2: JPEG output
+  drops alpha and keeps the colour under it on every path (`-o`, `quality`, batch), exit 0, no warning
+  (transparent red came out `srgb(254,0,0)`), so `#00000000` would give a black border. The format is
+  known per input after decode and before the pipeline runs (`output_format_for`, `src/cli/ops.rs`),
+  so a refusal can live there, in `apply` (one input and a batch), `build` and wasm `transform`.
+  SPEC-151's frame recommends refusing, exit 4; the maintainer's ruling on its Q4 decides. If the
+  ruling is "flatten", this entry folds back into SPEC-151 instead. Drive GIF (1-bit transparency) too.
+
+**Count:** 4 shipped / 0 active / 10 pending — re-derived 2026-11-06 at SPEC-151's frame with `/usr/bin/grep -c '^- \[x\]'` (4: SPEC-141, SPEC-145, the docs entry folded into it, and SPEC-147), `/usr/bin/grep -c '^- \[ \]'` (10), `/usr/bin/grep -c '^- \[ \] \*\*SPEC-'` (1: SPEC-151, framed), `/usr/bin/grep -c '^- \[ \] (folded into'` (2, both into SPEC-151) and `/usr/bin/grep -c '^- \[ \] (not yet written)'` (7, one of them filed at this frame)
 
 ## Design Notes
 
