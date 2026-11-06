@@ -7,7 +7,7 @@
 task:
   id: SPEC-147
   type: story                      # epic | story | task | bug | chore
-  cycle: build  # frame | design | build | verify | ship
+  cycle: verify  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: S                    # S | M | L  (L means split it)
@@ -84,6 +84,18 @@ cost:
         output: 65462
       estimated_usd: 6.80
       note: "Measured from this session's JSONL after the design push (8699ede), before this cost commit (52 message ids, all claude-opus-5-5, deduped by .message.id, max output_tokens per id). Rates: Opus $5/$25 per MTok, cache_creation x1.25 input, cache_read x0.10 input."
+    - cycle: build
+      date: 2026-11-05
+      agent: claude-sonnet-5-5
+      interface: claude-code
+      tokens_total: 19737895
+      tokens_breakdown:
+        input: 204
+        cache_creation: 232578
+        cache_read: 19428889
+        output: 76224
+      estimated_usd: 7.84
+      note: "Measured from this session's JSONL (identified by content) at the last turn before the cycle-advance commit (102 message ids, all claude-sonnet-5-5, input/cache once per .message.id, max output_tokens per id). Rates: Sonnet $3/$15 per MTok, cache_creation x1.25 input, cache_read x0.10 input. Excludes the later advance commit."
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -928,39 +940,128 @@ necessary during build, create a new spec rather than expanding this one.
 
 ## Build Completion
 
-*Filled in at the end of the **build** cycle, before advancing to verify.*
-
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
+- **Branch:** `feat/spec-147-rotate-flip`
+- **PR (if applicable):** #252 (draft)
+- **All acceptance criteria met?** yes (58 of 58). CI green on every leg at `f2f5b59`.
 - **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
-- **Files this diff touches** — **list every one**, with a phrase on what changed
-  in each. Not "src/foo and tests": the enumeration is what a verify cycle diffs
-  the real change against, and what tells you whether every affected `DEC-*` has
-  the path in its `affected_scope`. SPEC-122's Deviations claimed "`src/operation`
-  and `tests/` only" and was wrong by two `scripts/` files, which left
-  `affected_scope` blind; SPEC-124's build added this section by hand after that
-  lesson and still listed 8 of its 9 files. It is a checklist because it is easy
-  to get wrong from memory — build it from `git diff --name-only`, not recall.
-  - `path/to/file` — <what changed>
+  - none in this cycle. DEC-113 was written at design and is on `main`.
+- **Files this diff touches** (from `git diff --name-only origin/main...HEAD`, 31 files):
+  - `src/operation/rotate.rs` — new: `Rotate`, `ROTATE_PARAMS`, private `quarter_turns`, 6 unit tests
+  - `src/operation/flip.rs` — new: `Flip`, `FLIP_PARAMS`, `AXIS_NAMES`, 3 unit tests
+  - `src/operation/mod.rs` — two `pub mod` and two re-exports
+  - `src/operation/registry.rs` — two registrations, doc lists, `written` moved in, 3 test changes
+  - `src/operation/crop.rs` — imports `written`; its private copy deleted
+  - `src/sink/mod.rs` — module-doc paragraph under `## Encoding`, comment only (AC-40)
+  - `tests/rotate_flip.rs` — new: 14 integration tests
+  - `tests/common/mod.rs` — new `tiff_with_orientation`; `wrap_with_orientation_app1` reuses it
+  - `tests/recipe_corpus_output.rs`, `tests/recipe_round_trip.rs` — two stems, `EXPECTED_DIMS` rows, literal bumps
+  - `tests/fixtures/recipe_corpus/v2_rotate_90.{toml,golden,linux-x86_64.output,macos-aarch64.output,windows-x86_64.output}` — new
+  - `tests/fixtures/recipe_corpus/v2_flip_horizontal.{toml,golden,linux-x86_64.output,macos-aarch64.output,windows-x86_64.output}` — new
+  - `tests/wasm_roundtrip.rs` — two wasm tests
+  - `scripts/wasm-ci-check.sh` — `FULL_COUNT` 51, `SLIM_COUNT` 49, self-test fixtures and rows 1–5, 7, 9
+  - `docs/recipes.md`, `recipes/README.md`, `docs/data-model.md`, `docs/api-contract.md`, `skills/crustyimg/SKILL.md`, `integrations/ddphotos/README.md`, `README.md`, `docs/backlog.md`, `CHANGELOG.md` — the AC-48..55 surfaces
+  - Nothing else. `Cargo.toml`, `Cargo.lock` and `src/build/cache.rs` are untouched (`git diff --stat` for those paths is empty).
 - **Deviations from spec:**
-  - [list]
+  - `tests/common/mod.rs` is not in the spec's `## Outputs` list; the Failing Tests section asks for the `tiff_with_orientation` helper there, so it is in.
+  - The red-test commit holds the integration, registry and wasm-free tests only. The unit tests in `rotate.rs` and `flip.rs` cannot compile before the modules exist, so they landed with the ops.
+  - One extra integration test, `every_step_matches_its_index_map_in_every_colour_type`, checks the hand index maps for all 10 colour types (70 cases). The spec's list checks positions only on rgb8, in the unit tests.
+  - The mutations ran in a scratch `git worktree` of the pushed HEAD with its own target dir, not in the build worktree, so a mutated file could never be committed. M9 ran there too.
+  - The first corpus push was red on purpose (linux and windows `.output` missing); the second is green.
 - **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - none.
+
+### Acceptance criteria
+- AC-1 met: `with_builtins_contains_rotate_and_flip` and the extended `every_builtin_publishes_a_param_schema` assert both tables exactly; the six old tables are untouched.
+- AC-2 met: `normalises_every_accepted_angle` runs the 12 rows (loads, `quarter_turns`, stored turns, 7×5 index map) and asserts 12 ran.
+- AC-3 met: `rotate_90_is_clockwise_by_position` (90 → (4,0), 270 → (0,6), 180 → (6,4), plus the full maps).
+- AC-4 met: `horizontal_mirrors_left_and_right_by_position` ((6,0) and (0,4), plus the full maps).
+- AC-5 met: `round_trips_are_exact_in_every_colour_type`, 40 cases, bytes and variant.
+- AC-6 met: `rotate_180_is_both_flips_in_every_colour_type`, 10 cases, with a not-the-input control.
+- AC-7 met: `quarter_turns_swap_the_dimensions`, 8 rows.
+- AC-8 met: `single_steps_keep_colour_type_and_depth`, 40 cases.
+- AC-9 met: `no_op_angles_return_the_input` (0, 360, -360, -0.0 on rgb8 and rgba16) and `apply_rotate_0_writes_the_input_pixels` (binary, exit 0).
+- AC-10 met: `params_round_trip_as_written` in both op files.
+- AC-11 met: `refusal_hook_is_not_used_and_apply_never_fails` in both op files (12 and 6 cases).
+- AC-12..27 met: `every_rotate_refusal_names_its_reason`, R1–R16, whole-message `==`, asserts 16 ran.
+- AC-28..34 met: `every_flip_refusal_names_its_reason`, F1–F7, asserts 7 ran.
+- AC-35 met: `apply_refuses_a_45_degree_rotate_and_writes_nothing` (exit 1, exact line, no `out.png`).
+- AC-36 met: `apply_refuses_a_diagonal_flip_and_writes_nothing`.
+- AC-37 met: `rotate_acts_on_stored_pixels_and_writes_no_orientation_tag`; control A reads Orientation 6, control B gives 5×7 (the PNG `eXIf` chunk does reach the bundle, so no stop was needed).
+- AC-38 met: `auto_orient_then_rotate_turns_twice`.
+- AC-39 met: `rotate_then_auto_orient_matches_auto_orient_then_rotate`.
+- AC-40 met: paragraph added under `## Encoding` in `src/sink/mod.rs`; no code change there.
+- AC-41 met: `apply_flips_a_png_end_to_end`.
+- AC-42 met: both recipes, goldens and three `.output` files each; `RECIPES` 18, `EXPECTED_DIMS` 18, `ROWS` 60, `GOLDEN_LINES` 63, `* FIXTURES.len()` 54, doc comments, `CORPUS` +2, `pairs.len()` 18 with "15 corpus recipes + 3 bundled recipes".
+- AC-43 met: `cmp` of linux/macos and macos/windows for each recipe exits 0 (see the corpus section).
+- AC-44 met: `--diff-filter=M` 0 files, `--diff-filter=D` 0, `--diff-filter=A` exactly 10.
+- AC-45 met: wasm `transform_rotates_and_flips_exactly` (80×120, 80×120, 120×80, 120×80; 0 differing pixels each).
+- AC-46 met: wasm `transform_refuses_a_bad_rotate_or_flip_with_the_native_message` (R12, R6, F3; identity after each).
+- AC-47 met: constants 51/49, fixtures `l51`/`l1`/`l50`/`l49`, rows 1–5, 7, 9 as specified; self-test and workflow exit 0; CI count steps pass.
+- AC-48 met: `docs/recipes.md` has two `[today]` entries with the exact sentences; `Trim / pad` stays planned.
+- AC-49 met: the PROJ-006 line is now the PROJ-017 line plus the "Smart crop, redaction…" line.
+- AC-50 met: two op-table rows and `### The rotate and flip steps` before `### Step keys are checked` in `recipes/README.md`.
+- AC-51 met: "eight operations", the new section with the table, both sentences and the TOML example; `tests/docs_ops.rs` passes.
+- AC-52 met: SKILL.md ops list and the frontmatter `description` ("crop, rotate, flip").
+- AC-53 met: "Rotate and flip in a recipe." paragraph after the crop paragraph in `docs/api-contract.md`.
+- AC-54 met: CHANGELOG `### Added` entry after the crop entry.
+- AC-55 met: ddphotos README, README.md line, both backlog rows; `npm/README.md` untouched.
+- AC-56 met: `grep -nE "SPEC-|STAGE-|DEC-" src/operation/rotate.rs src/operation/flip.rs` finds nothing (not even in tests). The backlog row names STAGE-059 as the spec's wording asks; backlog is an internal document.
+- AC-57 met: `git diff --stat origin/main...HEAD -- Cargo.toml Cargo.lock src/build/cache.rs` is empty; no version bump.
+- AC-58 met: local matrix and CI green on every leg; `cargo test --test crop` passes unchanged (6 passed) after `written` moved.
+
+### Red baseline (stage 1)
+Against `main`'s code, `cargo test --test rotate_flip`: 0 passed, 14 failed. Quoted per file: `tests/rotate_flip.rs` → `assertion left == right failed: stderr: error: unknown operation 'rotate'` (binary rows), and the refusal tables report `R9: expected "recipe step 0 ('rotate'): …", got "unknown operation 'rotate'"` for every row. Controls A and B passed before the rotate step failed, so the red is the right reason. The corpus and wasm rows have no separate red commit: the recipes did not exist, and the wasm tests ran only after the ops did.
+
+### Mutations (scratch worktree, clean `cargo clean -p crustyimg` rebuild before each, restored with `git checkout`, `git status` clean after each)
+Baseline of the same test set on the unmutated tree: exactly one red, `every_golden_line_is_checked_and_no_golden_is_stray` (the linux/windows files were not yet copied in); it is red in every row below and not repeated. All pixel rows were **reasoned** in the table; every one is now **driven**.
+
+| # | applied | red (driven) | vs. table |
+|---|---|---|---|
+| M1 | `rotate.rs` 1-turn arm → `rotate270()` | `rotate_90_is_clockwise_by_position`; `normalises_every_accepted_angle`; `round_trips_are_exact_in_every_colour_type`; `rotate_acts_on_stored_pixels_and_writes_no_orientation_tag`; `auto_orient_then_rotate_turns_twice`; `rotate_then_auto_orient_matches_auto_orient_then_rotate`; `every_step_matches_its_index_map_in_every_colour_type`; corpus `every_recipe_output_matches_its_golden`; wasm `transform_rotates_and_flips_exactly` ("rotate 90: pixels differing") | matches; four-90s trip and `180 = both flips`, dimension and refusal rows stay green. Confirmed. The extra red row is this build's own added test |
+| M2 | `flip.rs` horizontal arm → `flipv()` | `horizontal_mirrors_left_and_right_by_position`; `rotate_180_is_both_flips_in_every_colour_type`; `apply_flips_a_png_end_to_end`; `every_step_matches_…`; corpus golden; wasm ("flip horizontal: pixels differing") | matches. Confirmed |
+| M3 | `quarter_turns` → `Some(1)` for `-90.0` | `normalises_every_accepted_angle` (rows `-90`, `-90.0`); `round_trips_…` (the `-90 then 90` trip); `every_step_matches_…`; wasm ("rotate -90: pixels differing") | matches. Confirmed |
+| M4 | `quarter_turns` → `Some(1)` for `0.0` | `normalises_every_accepted_angle` (`0`, `-0.0`); `no_op_angles_return_the_input`; `apply_rotate_0_writes_the_input_pixels`; `every_step_matches_…` (its `0` case) | matches; `360`/`-360` rows stay green. Confirmed |
+| M5 | `ROTATE_PARAMS` `max` → `None` | `every_rotate_refusal_names_its_reason` (R6 "but it built"; R4, R5, R7, R9, R10, R11 read `a finite number >= -360`; R8 refused by the multiple-of-90 line instead); `every_builtin_publishes_a_param_schema`; wasm refusal test (R6 builds) | matches. Confirmed |
+| M6 | delete the `% 90.0` check | `every_rotate_refusal_names_its_reason` (R12–R16 all "but it built"); `rotate_refuses_non_multiples_of_90`; `apply_refuses_a_45_degree_rotate…` (exit 0, not 1); wasm refusal test (R12 builds) | matches. Confirmed |
+| M6b | `get_f64("angle")` → `get_f32(..).map(f64::from)` | `every_rotate_refusal_names_its_reason` with exactly one wrong row: **R16** ("but it built"); R15 stays green | matches. Confirmed |
+| M7 | `encode_to_bytes_with` writes the bundle's EXIF for PNG | `rotate_acts_on_stored_pixels_and_writes_no_orientation_tag`, message "the pixel lane carried the source's Orientation tag through (6); it must write 1 or nothing" | matches; AC-38/39 stay green. The *reasoned* cell for them is confirmed |
+| M7b | `Rotate::apply` → `Image::from_parts(.., None)` | `rotate_then_auto_orient_matches_auto_orient_then_rotate` only | matches; AC-37 stays green. Confirmed |
+| M8 | `FULL_COUNT=50` | `count full` on a 51 log → `full set: 51 passed, expected 50`; self-test rows 1, 2, 3 red; `workflow` green; slim rows 4, 5 green | **one cell corrected**: row 3 (`count full 50`) goes red as a *wrong verdict* (it passes under `FULL_COUNT=50` but should fail), not as "message lacks `expected 51`". Rows 1 (wrong verdict) and 2 (wrong message) are as written |
+| M9 | append a `rotate` step to `v1_resize_max.toml` (scratch) | `every_recipe_output_matches_its_golden`, naming `v1_resize_max × rgb8_2600x1730 / rgba8_1730x2600 / rgba16_2600x1730` ("dims 532x800, expected 800x532" on the two landscape fixtures, "800x532, expected 532x800" on the portrait one); `to_toml_is_byte_identical_to_main_over_the_corpus` | matches. Confirmed. Branch `git status` clean |
+| M10 | `with_builtins` without `rotate`/`flip` | all 14 `tests/rotate_flip.rs` rows; corpus golden test; `with_builtins_contains_rotate_and_flip`; `every_builtin_publishes_a_param_schema`; `one_of_values_are_accepted_by_their_constructors`; `every_op_named_in_data_model_resolves`; both wasm tests; `rotate.rs`/`flip.rs` unit tests stay green | matches, plus `to_toml_is_byte_identical_to_main_over_the_corpus` (the new corpus recipes no longer load) which the table did not list. Control A and B pass; the rotate step is what fails. Confirmed |
+
+### Corpus
+- First CI run (`b6069b8`, macOS target only): red on 8 legs, in exactly two tests, `every_golden_line_is_checked_and_no_golden_is_stray` and, on linux/windows, `every_recipe_output_matches_its_golden`, for the missing files. Nothing else failed. The macOS legs failed only on the stray-file test.
+- The linux `.output` text is identical across the five linux legs (one distinct content per recipe), and windows came from its own leg.
+- Second run (`f2f5b59`): green on every leg: ubuntu, macOS, windows, avif, webp-lossy, lean, both heic legs, msrv, wasm round-trip, ddphotos parity, browser smoke, cargo-deny, front-matter, DCO.
+- `cmp v2_rotate_90.linux-x86_64.output v2_rotate_90.macos-aarch64.output` and `cmp …macos-aarch64… …windows-x86_64…` exit 0; the same for `v2_flip_horizontal`. All six files per pair are byte-identical.
+- No existing `.output` or `.golden` changed: `git diff --diff-filter=M --name-only origin/main -- tests/fixtures/recipe_corpus/` is empty; `--diff-filter=A` lists the ten new files.
+
+### wasm and the script
+- `LC_ALL=en_US.UTF-8 scripts/wasm-ci-check.sh --self-test` → `wasm-ci-check self-test: 18 rows, 18 passed, 0 wrong verdict, 0 wrong message`.
+- `LC_ALL=en_US.UTF-8 scripts/wasm-ci-check.sh workflow` → `wasm-ci-check workflow: 16 assertions, 0 failed`.
+- `./scripts/validate-frontmatter.sh` → `✓ validate-frontmatter: all front-matter blocks parse.` (345 blocks).
+- Local: `just wasm-check` finished; `just wasm-test` → `test result: ok. 51 passed`; `just wasm-test-slim` → `test result: ok. 49 passed`.
+- CI: `wasm-ci-check: full set: 51 passed, as expected` and `wasm-ci-check: slim set: 49 passed, as expected`.
+- Bundle size (the `pages` workflow's "build + browser smoke", features avif,svg), main at `7fdee9f` against this branch: raw 6,083,069 → 6,098,538 B (+15,469 B, +0.25%); brotli 1,302,231 → 1,304,654 B (+2,423 B, +0.19%). The job and its size gate pass.
+
+### Matrix (each in a fresh `CARGO_TARGET_DIR`, `cargo test` redirected to a file, exit read directly)
+- default: 1180 passed, 0 failed; clippy `-D warnings` exit 0; `fmt --check` exit 0.
+- `--no-default-features`: 1117 passed, 0 failed; clippy and fmt exit 0. The rotate/flip tests ran here (not skipped).
+- `--features webp-lossy`: 1184 passed, 0 failed; clippy and fmt exit 0.
 
 ### Build-phase reflection (3 questions, short answers)
 
 Process-focused: how did the build go? What friction did the spec create?
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — Little. Two small things: the M8 table cell says row 3 fails on its message, but it fails on its verdict; and the red-test checkpoint says "write every failing test", yet the unit tests in the two op files cannot compile before the modules exist.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — No. The orientation rule (DEC-113) and the exact messages were enough to build from. `tests/common/mod.rs` is named in the Failing Tests but missing from `## Outputs`.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Gate the corpus commit on the test run instead of chaining `git commit` after `cargo test` with `;`: the first corpus commit went out while `every_golden_line_is_checked…` was still red for the missing targets (expected, but ungated). I would also start the mutation sweep in a scratch worktree from the start, which is what kept the wasm and mutation runs from touching the branch. No design call turned out wrong.
 
 ---
 

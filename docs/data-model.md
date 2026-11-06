@@ -159,9 +159,9 @@ recipe already in the wild the next time it is re-saved.
 
 A "prep for web" recipe: orient, then downscale.
 
-**Every `op` below is a real registry key.** The registry holds six
+**Every `op` below is a real registry key.** The registry holds eight
 operations — `identity`, `invert`, `resize`, `auto-orient`, `watermark`
-(SPEC-128) and `crop` — and `tests/docs_ops.rs` asserts that every `op` named in this
+(SPEC-128), `crop`, `rotate` and `flip` — and `tests/docs_ops.rs` asserts that every `op` named in this
 file resolves against `OperationRegistry::with_builtins()`, so this example
 cannot drift back into advertising steps that do not exist.
 
@@ -359,6 +359,34 @@ x = 0.25
 y = 0.1
 width = 0.5
 height = 0.6
+```
+
+### `rotate` and `flip` step param keys
+
+| Op | Key | Type | Range |
+|---|---|---|---|
+| `rotate` | `angle` | number (integer or float) | `-360.0..=360.0`, a multiple of 90 |
+| `flip` | `axis` | string | `horizontal` or `vertical` |
+
+A positive `angle` turns the image clockwise as it is displayed after any earlier
+step; `-90` turns it anticlockwise. `0`, `360` and `-360` change nothing. Any other
+angle is refused when the recipe loads. `horizontal` mirrors left and right;
+`vertical` mirrors top and bottom. Both act on the image as the step receives it,
+and only move pixels: the colour type and bit depth are the input's.
+
+```toml
+version = "2"
+
+[[step]]
+op = "auto-orient"
+
+[[step]]
+op = "rotate"
+angle = -90
+
+[[step]]
+op = "flip"
+axis = "horizontal"
 ```
 
 ### Step keys are checked at load

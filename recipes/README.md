@@ -91,6 +91,8 @@ Operations available in a recipe:
 | `identity` | none — a no-op |
 | `watermark` | an `image` or `text` mark and its placement (below) |
 | `crop` | `x`, `y`, `width`, `height` as fractions of the image, or `aspect` + `gravity` (below) |
+| `rotate` | `angle`, a multiple of 90 from -360 to 360, clockwise (below) |
+| `flip` | `axis`, `horizontal` or `vertical` (below) |
 | `optimize` | none — **terminal only**; picks the smallest modern format and scores it |
 
 `resize` modes:
@@ -239,6 +241,29 @@ gravity = "north"
   images that did not fail are still written.
 - The fractions are of the image as the step receives it. Put `op = "auto-orient"` first when they
   are meant as the photo is displayed.
+
+### The rotate and flip steps
+
+```toml
+[[step]]
+op = "rotate"
+angle = 90
+```
+
+```toml
+[[step]]
+op = "flip"
+axis = "horizontal"
+```
+
+- A positive `angle` turns the image clockwise as it is displayed after any earlier step; `-90`
+  turns it anticlockwise.
+- `horizontal` mirrors left and right; `vertical` mirrors top and bottom.
+- `0`, `360` and `-360` are accepted and change nothing.
+- Any angle that is not a multiple of 90 is refused when the recipe loads.
+- Both act on the image as the step receives it, so put `op = "auto-orient"` first when the recipe
+  is meant as the photo is displayed.
+- Neither changes a pixel's value or the colour type, only its place.
 
 ### Step keys are checked
 

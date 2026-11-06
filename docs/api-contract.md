@@ -466,6 +466,13 @@ that rounds to 0 px on the image it meets fails at apply (`operation 'crop' fail
 exit **1** for one input) instead of being widened or skipped; wasm `transform` throws
 the same line. The keys and their ranges are in `docs/data-model.md`.
 
+**Rotate and flip in a recipe.** `op = "rotate"` turns the image by a multiple of 90
+(`angle`, positive clockwise) and `op = "flip"` mirrors it on `axis` (`horizontal` or
+`vertical`). A bad key, a bad value or an angle that is not a multiple of 90 is refused
+when the recipe loads (exit **1**, nothing read or written). Neither fails at apply, and
+wasm `transform` throws the same line. The pixel lane writes no Orientation tag after
+either, so a recipe meant as the photo is displayed starts with `auto-orient`.
+
 ### Metadata lane *(container-level; no pixel decode — DEC-003)*
 
 #### `meta strip <INPUT...>`  *(SPEC-026; grouped under `meta` in SPEC-087)*
