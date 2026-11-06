@@ -93,6 +93,7 @@ Operations available in a recipe:
 | `crop` | `x`, `y`, `width`, `height` as fractions of the image, or `aspect` + `gravity` (below) |
 | `rotate` | `angle`, a multiple of 90 from -360 to 360, clockwise (below) |
 | `flip` | `axis`, `horizontal` or `vertical` (below) |
+| `pad` | `aspect` + `gravity`, or `border`, and a required `color` (below) |
 | `optimize` | none — **terminal only**; picks the smallest modern format and scores it |
 
 `resize` modes:
@@ -264,6 +265,35 @@ axis = "horizontal"
 - Both act on the image as the step receives it, so put `op = "auto-orient"` first when the recipe
   is meant as the photo is displayed.
 - Neither changes a pixel's value or the colour type, only its place.
+
+### The pad step
+
+```toml
+[[step]]
+op = "pad"
+aspect = "1:1"
+gravity = "center"
+color = "#ffffff"
+```
+
+```toml
+[[step]]
+op = "pad"
+border = 0.05
+color = "#000000"
+```
+
+- The canvas grows to the smallest `W:H` shape that holds the image. An image already at the
+  aspect is unchanged.
+- `gravity` places the image (default `center`). With `center`, an odd leftover pixel goes on the
+  right or bottom.
+- `border` is a fraction of the long edge, the same width on every side. A border that rounds to
+  0 px on an image fails that image (a batch exits `6`).
+- A canvas past 50,000 px on a side or 134,217,728 px in all fails the same way.
+- `color` is required, hex only, and opaque. A transparent fill is not supported yet.
+- A grey image with a colour fill becomes RGB, and the bit depth is kept.
+- For an exact pixel box, `resize` with `mode = "fit"` first, then pad to the box's aspect.
+- Put `op = "auto-orient"` first when the recipe is meant as the photo is displayed.
 
 ### Step keys are checked
 

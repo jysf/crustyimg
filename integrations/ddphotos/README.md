@@ -124,8 +124,8 @@ has not been measured.
 - **It edits the published copy, not the original.** ddphotos publishes a 1600 px lossy
   WebP. The originals stay with the site owner. The CLI recipe on each result is the way
   to make the same edit from the original.
-- **No crop, rotate, flip or colour on the page yet.** Recipes can crop, rotate and flip
-  (`op = "crop"`, `op = "rotate"`, `op = "flip"`), but the edit page doesn't offer any of them
+- **No crop, rotate, flip, pad or colour on the page yet.** Recipes can crop, rotate, flip and pad
+  (`op = "crop"`, `op = "rotate"`, `op = "flip"`, `op = "pad"`), but the edit page doesn't offer any of them
   yet. Colour grading is planned in PROJ-015.
 - **Edits are not saved.** The site is static, so the page can only download files.
 - **No way in from the lightbox.** ddphotos has no hook for adding a button to its

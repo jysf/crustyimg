@@ -473,6 +473,14 @@ when the recipe loads (exit **1**, nothing read or written). Neither fails at ap
 wasm `transform` throws the same line. The pixel lane writes no Orientation tag after
 either, so a recipe meant as the photo is displayed starts with `auto-orient`.
 
+**Pad in a recipe.** `op = "pad"` grows the canvas to an aspect (`aspect`, `gravity`) or by
+a border (`border`, a fraction of the long edge), filled with a required opaque `color`.
+A bad key or value, a translucent colour and `transparent` are refused when the recipe
+loads (exit **1**, nothing read or written). A border that rounds to 0 px or a canvas
+past the size caps fails at apply (`operation 'pad' failed: …`, exit **1** for one input,
+exit **6** in a batch, with nothing written for that input); wasm `transform` throws the
+same line. The pixel lane writes no Orientation tag after it.
+
 ### Metadata lane *(container-level; no pixel decode — DEC-003)*
 
 #### `meta strip <INPUT...>`  *(SPEC-026; grouped under `meta` in SPEC-087)*
