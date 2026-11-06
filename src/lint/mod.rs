@@ -102,11 +102,9 @@ enum Shell {
 /// The shell a user on this platform most likely pastes into: PowerShell on
 /// Windows (the default terminal shell and the GitHub Actions default),
 /// sh/bash/zsh everywhere else.
-const HOST_SHELL: Shell = if cfg!(windows) {
-    Shell::PowerShell
-} else {
-    Shell::Posix
-};
+const HOST_SHELL: Shell = Shell::Posix; // M-12: Windows forced to POSIX quoting
+#[allow(dead_code)]
+const _M12_UNUSED: Shell = Shell::PowerShell;
 
 /// Quote one path so `shell` reads it as exactly one argument. `None` when the
 /// path is not valid UTF-8 (printing it lossily would name a different file).
