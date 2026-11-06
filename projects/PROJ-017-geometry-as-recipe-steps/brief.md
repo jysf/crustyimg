@@ -170,6 +170,9 @@ Later lines get their ids at frame.
 **Reserved (2026-11-05):** line 4 (`rotate` and `flip`) is **SPEC-147**. Its frame prompt is
 `specs/prompts/SPEC-147-frame.md`.
 
+**Reserved (2026-11-06):** line 5 (`pad`) is **SPEC-151**. SPEC-149 and SPEC-150 are PROJ-011's
+(STAGE-063). Its frame prompt is `specs/prompts/SPEC-151-frame.md`.
+
 ### Handed in from PROJ-011 (not yet scheduled)
 
 PROJ-011 is closing, and the maintainer ruled on 2026-11-05 that PROJ-017 takes three
