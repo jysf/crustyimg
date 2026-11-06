@@ -71,7 +71,8 @@ strips or composes the tag on the way out, because no tag goes out.
 (`Image::with_pixels`), as `crop` already does. A later `auto-orient` in the same recipe therefore
 still reads the source's tag and applies it to the buffer it receives. For the pure rotations
 (tags 3, 6, 8) that makes `rotate` then `auto-orient` give the same pixels as `auto-orient` then
-`rotate`, because rotations commute. For the mirrored tags (2, 4, 5, 7) the two orders differ, and
+`rotate`, because rotations commute. Only tag 6 was driven (SPEC-147's AC-39 and its verify); tags
+3 and 8 follow from rotations commuting. For the mirrored tags (2, 4, 5, 7) the two orders differ, and
 rule 1's "`auto-orient` first" is the order the docs give. Only `auto-orient` drops the bundle
 (DEC-017).
 
