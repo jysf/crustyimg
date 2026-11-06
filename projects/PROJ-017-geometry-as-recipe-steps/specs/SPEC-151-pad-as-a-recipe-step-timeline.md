@@ -22,6 +22,14 @@ Cycle prompts live in `prompts/SPEC-151-<cycle>.md`.
   canvas rule restated per axis (the frame's "long side kept" fails a square); no-op = canvas equals
   image; float images keep their variant. 37 exact load messages and 3 apply failures, a 20-cell
   colour-type table, corpus 20/66/69/60, wasm 53/51. 14 mutation rows, 12 driven on a prototype.
-- [ ] **build** (`prompts/SPEC-151-build.md`, Sonnet, worktree `feat/spec-151-pad`)
-- [ ] **verify**
+- [x] **build** (2026-11-06, `prompts/SPEC-151-build.md`, Sonnet, worktree `feat/spec-151-pad`): draft
+  PR #255 at `ef6befa`, CI green on every leg at `746733c`. 83/83 ACs claimed. All 15 mutation rows
+  driven natively on the pushed head, no cell wrong (extra reds: M1 `apply_pads_a_png_end_to_end`, M4
+  `float_images_keep_their_variant`, M8b `colour_type_table_row_by_row`; M14 all green as predicted;
+  wasm rows not run under mutation). Corpus `cmp` identical across targets, no existing output changed.
+  wasm 53/51; main's constants were still 51/49. Deviations: canvas formula in its own `aspect_canvas`
+  (AC-3's sweep can't run through `layout` at the caps); ids stripped from the hoisted cap comments;
+  `orientation_of` has 3 callers. Out-of-spec: the area cap counts pixels, so an `Rgba32F` canvas at
+  the cap is 2 GiB. About $10.85 (Sonnet, 28.4M tokens).
+- [ ] **verify** (`prompts/SPEC-151-verify.md`, Opus, worktree `verify/spec-151`, read-only)
 - [ ] **ship**
