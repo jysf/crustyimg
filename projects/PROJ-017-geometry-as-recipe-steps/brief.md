@@ -167,6 +167,9 @@ Later lines get their ids at frame.
 **Reserved (2026-11-04):** line 2 (`crop`) is **SPEC-145**. Its frame prompt is
 `specs/prompts/SPEC-145-frame.md`.
 
+**Reserved (2026-11-05):** line 4 (`rotate` and `flip`) is **SPEC-147**. Its frame prompt is
+`specs/prompts/SPEC-147-frame.md`.
+
 ## Dependencies
 
 ### Depends on
