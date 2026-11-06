@@ -16,5 +16,6 @@ Cycle prompts live in `prompts/SPEC-148-<cycle>.md`.
   Windows), `./` before a leading `-`; stdin and 16-bit print no command (`fix: null`). Budget fix is
   `optimize --max-size <bytes>`; CMYK `convert --format jpeg`. GPS keys on 4 coordinate tags + area info.
 - [x] **build** (2026-11-05, `prompts/SPEC-148-build.md`, Sonnet): draft PR #253 at `8f61167`, CI green incl. windows-latest. 13 mutations red locally; M-12 not driven. Cost about $3.88.
-- [~] **verify** (`prompts/SPEC-148-verify.md`, Opus)
+- [~] **verify** (2026-11-05, Opus 5.5, `prompts/SPEC-148-verify.md`) — PUNCH LIST at `8f61167`, about $6.71. 12 checks, 15 mutations, M-12 live on Windows (scratch PR #254, closed) and the merged tree all passed. One required defect R-1: `meta clean --gps` and `meta strip` fixes are printed for WebP, TIFF and AVIF, where the metadata lane exits 4 and leaves the file unchanged. Ruled: fix round (`prompts/SPEC-148-fix.md`, Sonnet); O-1 to O-5 filed on STAGE-063.
+- [ ] **fix round** (`prompts/SPEC-148-fix.md`, Sonnet)
 - [ ] **ship**
