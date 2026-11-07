@@ -16,6 +16,8 @@ Cycle prompts live in `prompts/SPEC-149-<cycle>.md`.
   mutation rows. One guard table (`src/cli/global_flags.rs`, 8 rows, scope by exclusion so a new verb is
   covered) replaces the `--watch` `if`; a `-v`/`-vv` stderr logger in `src/cli/logger.rs` (driven: usvg
   warning + debug lines, avif_parse debug on the lean leg); `watermark --font`/`--image` name the file, exit 3.
-- [ ] **build** (`prompts/SPEC-149-build.md`, Sonnet) — `prompts/SPEC-149-build.md`
-- [ ] **verify**
+- [x] **build** (2026-11-06, Sonnet 5.5, `prompts/SPEC-149-build.md`) — draft PR #256 at e53e9f6, CI green (20 pass,
+  12 skipped, 0 fail, windows + lean). 6 commits, no mutation in the diff, M1-M12 + M6b red for their reasons. Deferred to ship:
+  `docs/api-contract.md` (36, 37, 39, 192, 591-593), `docs/data-model.md:122`. ~$2.67.
+- [ ] **verify** (`prompts/SPEC-149-verify.md`, Opus)
 - [ ] **ship**
