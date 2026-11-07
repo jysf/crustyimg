@@ -20,5 +20,9 @@ Cycle prompts live in `prompts/SPEC-150-<cycle>.md`.
   Every build/test leg green incl. windows-latest; `cost-capture audit` red only because shipped SPEC-149 had no verify token total (fixed on `main`, 4c94ba6).
   Deviations: `tests/source.rs` edited (an empty glob now returns `NoImagesMatched`); FT-U5 dropped (AC-14 via FT-W1 + FT-G4); mutation 23 only goes red on row 1.
   Rulings 2026-11-06: public enum variants accepted for 0.8.3, `lint` names the first failing cause, subfolder hint shown for empty and text-only folders too.
-- [ ] **verify** — prompt: `prompts/SPEC-150-verify.md`
+- [x] **verify** (2026-11-06, Opus, `prompts/SPEC-150-verify.md`) — PUNCH LIST at 5996c6b, $6.79 / 8,979,718 tokens (input 120, cache_creation 180,529, cache_read 8,747,655, output 51,414).
+  Passed: gates, merged tree, 22-invocation main-vs-PR diff (0 differences), help scan (0 ids over 73 surfaces), 16 of 17 mutations.
+  Required: R1 the `-q` message names `convert -q N`, which exits 2 without `--format`; R2 the subfolder hint is not pasteable for a folder named `it's`. Both message text; spec AC-7 was wrong.
+  Optional (unrouted): `optimize --out-dir` Skip mutant not caught (routed to the fix round, cheap); cli-reference.md:305 and README.md:125 ids; `--keep-gps` in completions; `MANIFEST_DROPPED_WARNING` unused on wasm32; enums not `#[non_exhaustive]` (CHANGELOG to say so); `[` in paths is a glob; no Windows `\`/`C:\` rows.
+- [ ] **fix** — prompt: `prompts/SPEC-150-fix.md` (Sonnet)
 - [ ] **ship** — prompt: `prompts/SPEC-150-ship.md`
