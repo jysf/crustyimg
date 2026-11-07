@@ -278,6 +278,36 @@ fn the_folder_name_is_derived_from_the_argument() {
     assert!(root.join("gl/a.png").is_file(), "gl/a.png was not written");
 }
 
+/// A folder named `it's` prints a glob a shell can paste: run it in `sh -c`.
+#[cfg(unix)]
+#[test]
+fn the_glob_hint_for_a_folder_with_a_quote_in_its_name_pastes_into_a_shell() {
+    let dir = project();
+    let root = dir.path();
+    write_file(root, "it's/inner/a.png", &encoded(ImageFormat::Png));
+    let out = run(root, &["resize", "--max", "8", "--out-dir", "od", "it's"]);
+    assert_eq!(out.status.code(), Some(3), "{}", stderr_of(&out));
+    let stderr = stderr_of(&out);
+    // The label stays the plain quoted name; the suggestion is shell-quoted.
+    let (label, hint) = stderr.split_once("use a glob such as ").unwrap();
+    assert!(label.contains("no images in folder 'it's':"), "{stderr}");
+    assert_eq!(hint, "'it'\\''s/**/*'\n", "{stderr}");
+
+    let script = format!("{BIN:?} resize {} --max 8 --out-dir gl", hint.trim_end());
+    let out = Command::new("sh")
+        .args(["-c", &script])
+        .current_dir(root)
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "`{script}`: {}",
+        stderr_of(&out)
+    );
+    assert!(root.join("gl/a.png").is_file(), "gl/a.png was not written");
+}
+
 // ── FT-M4 ───────────────────────────────────────────────────────────────────────
 
 #[test]
@@ -387,6 +417,22 @@ fn several_arguments_keep_their_behaviour_and_name_the_first_cause() {
     assert_exact(root, &["lint", "sub", "nope"], 3, &folder_line("sub"));
 }
 
+/// `nope` plus a real image fails as a whole (exit 3) and writes nothing, on the
+/// two batch verbs whose resolution is OnEmpty::Fail.
+#[test]
+fn a_missing_argument_beside_a_real_image_fails_optimize_and_web_before_any_write() {
+    let dir = project();
+    let root = dir.path();
+    for verb in ["optimize", "web"] {
+        for order in [["nope", "a.png"], ["a.png", "nope"]] {
+            let mut args = vec![verb, "--out-dir", "od"];
+            args.extend(order);
+            assert_exact(root, &args, 3, NOT_FOUND_NOPE);
+            assert!(!root.join("od").exists(), "{verb} {order:?} created od/");
+        }
+    }
+}
+
 // ── FT-M7 ───────────────────────────────────────────────────────────────────────
 
 #[test]
@@ -440,7 +486,7 @@ fn quality_flag_names_the_conflict_the_user_actually_has() {
     let root = dir.path();
     let used_with = |verb: &str| {
         format!(
-            "error: -q/--quality cannot be used with {verb}, which chooses the quality itself; to encode at a fixed quality, use `crustyimg convert -q N`\n"
+            "error: -q/--quality cannot be used with {verb}, which chooses the quality itself; to encode at a fixed quality, use `crustyimg convert --format <FORMAT> -q N`\n"
         )
     };
     let search = "error: -q/--quality cannot be combined with --target or --ssim, which choose the quality to reach a score\n";
@@ -525,6 +571,30 @@ fn quality_flag_names_the_conflict_the_user_actually_has() {
     assert_eq!(out.status.code(), Some(0), "{}", stderr_of(&out));
     let bytes = std::fs::read(root.join("fixed.jpg")).unwrap();
     assert!(bytes.starts_with(&[0xFF, 0xD8]), "fixed.jpg is not a JPEG");
+
+    // The advice, taken from the printed message itself, runs as written once the
+    // user fills in the two placeholders. A literal copy of the sentence could not
+    // catch a command that fails (it did: `convert -q N` alone exits 2).
+    let out = run(root, &["optimize", "-q", "10", "a.png", "-o", "o.png"]);
+    let stderr = stderr_of(&out);
+    let printed = stderr
+        .split('`')
+        .nth(1)
+        .unwrap_or_else(|| panic!("no backticked command in: {stderr}"));
+    let filled = printed.replace("<FORMAT>", "jpeg").replace('N', "10");
+    let mut words = filled.split_whitespace();
+    assert_eq!(words.next(), Some("crustyimg"), "printed: {printed}");
+    let mut args: Vec<&str> = words.collect();
+    args.extend(["a.png", "-o", "printed.jpg"]);
+    let out = run(root, &args);
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "`{filled}`: {}",
+        stderr_of(&out)
+    );
+    let bytes = std::fs::read(root.join("printed.jpg")).unwrap();
+    assert!(!bytes.is_empty(), "the printed command wrote nothing");
 }
 
 // ── FT-M9 ───────────────────────────────────────────────────────────────────────

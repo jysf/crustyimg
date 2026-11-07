@@ -490,7 +490,7 @@ fn reject_quality_with_auto(
         None => return Ok(()),
         Some(AutoQuality::Fast) => format!(
             "-q/--quality cannot be used with {verb}, which chooses the quality itself; \
-             to encode at a fixed quality, use `crustyimg convert -q N`"
+             to encode at a fixed quality, use `crustyimg convert --format <FORMAT> -q N`"
         ),
         Some(AutoQuality::Perceptual(_)) => "-q/--quality cannot be combined with --target or \
              --ssim, which choose the quality to reach a score"

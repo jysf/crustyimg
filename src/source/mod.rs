@@ -79,7 +79,8 @@ pub enum SourceError {
     /// searched, so the message points at a glob that searches them. Carries
     /// the folder name with any trailing separator removed.
     #[error(
-        "no images in folder '{0}': only its top level is read; to include subfolders, use a glob such as '{0}/**/*'"
+        "no images in folder '{0}': only its top level is read; to include subfolders, use a glob such as {glob}",
+        glob = subfolder_glob(.0)
     )]
     NoImagesInFolder(String),
 
@@ -241,6 +242,14 @@ pub fn resolve_all<S: AsRef<str>>(
         return Err(first_cause.unwrap_or_else(|| SourceError::NotFound(String::new())));
     }
     Ok(inputs)
+}
+
+/// The glob that reaches into `folder`'s subfolders, quoted so it pastes into
+/// the host shell as one argument (a folder named `it's` would otherwise
+/// close the quote early).
+fn subfolder_glob(folder: &str) -> String {
+    let glob = format!("{folder}/**/*");
+    crate::lint::quote_for_host_shell(std::path::Path::new(&glob)).unwrap_or(glob)
 }
 
 /// A folder argument without its trailing separators (`sub/` → `sub`), so the
