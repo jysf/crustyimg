@@ -2,12 +2,11 @@
 //!
 //! This module is the **binary boundary**: it owns the clap derive types
 //! (`Cli`, `GlobalArgs`, `Commands`), the `CliError` enum with its exit-code
-//! mapping, the `run()` entry point the thin `main.rs` calls, and the real
-//! end-to-end `apply` path (DEC-012, DEC-007).
+//! mapping, the `run()` entry point the thin `main.rs` calls, and `dispatch()`,
+//! which routes each subcommand to its handler (DEC-012, DEC-007).
 //!
-//! Every other subcommand is a **stub**: it parses its documented args and
-//! returns `CliError::NotImplemented` (exit 1). Real implementations land in
-//! STAGE-002 through STAGE-005.
+//! Every subcommand is implemented. The handlers live in the sibling modules:
+//! `optimize`, `ops`, `build` and `report`.
 //!
 //! Layering: the pixel core (`src/image/`, `src/operation/`) must NOT depend
 //! on `clap`; clap is isolated here and in `main.rs` (DEC-012).
@@ -907,10 +906,7 @@ fn refused_build_flags(global: &GlobalArgs) -> Vec<&'static str> {
 
 // ── Dispatch ─────────────────────────────────────────────────────────────────
 
-/// Route the parsed CLI to the real handler or a stub.
-///
-/// Only `Commands::Apply` is wired to a real end-to-end path; every other
-/// variant calls `Err(CliError::NotImplemented(...))` (exit 1).
+/// Route the parsed CLI to its subcommand's handler.
 fn dispatch(cli: &Cli) -> Result<(), CliError> {
     // A global flag a subcommand would accept and ignore is refused (exit 2) with a
     // reason: `--watch` and the build-only flags off `build`, `--keep-gps` everywhere,
