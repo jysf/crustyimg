@@ -53,4 +53,8 @@ Cycle prompts live in `prompts/SPEC-151-<cycle>.md`.
   Not yet recorded in `cost.sessions`: verify (ship measures it).
 - [x] **merge** — PR #255 marked ready by the orchestrator after the punch list; merged by the
   maintainer at `f1c521b` (2026-11-07T04:19Z), CI green on the final head `21c0273`.
-- [ ] **ship** (`prompts/SPEC-151-ship.md`, Sonnet, worktree `docs/spec-151-ship`)
+- [x] **ship** (2026-11-06, `prompts/SPEC-151-ship.md`, Sonnet, worktree `docs/spec-151-ship`): merged
+  at `f1c521b` (PR #255). Reflected; filed one STAGE-058 entry (pin `resize`'s cap message text);
+  marked the two folded entries shipped; the 2 GiB `Rgba32F` cap is not filed (none covers it, for the
+  maintainer). All six sessions re-measured from their transcripts: total 78,806,875 tokens,
+  about $45.35 (frame $7.09, design $14.06, build $12.36, verify $9.06, punchlist $1.10, ship $1.68).

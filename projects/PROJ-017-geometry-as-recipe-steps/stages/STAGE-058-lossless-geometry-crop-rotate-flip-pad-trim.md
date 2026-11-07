@@ -101,7 +101,7 @@ In build order. Each is framed in its own session first.
   the source's colour type. ⚠ Decide and test what happens to an EXIF orientation tag on an
   image that was not auto-oriented first. SPEC-110 bakes orientation at the start of `edit`;
   a hand-written recipe may not.
-- [ ] **SPEC-151** (designed 2026-11-06) — [S] **`pad`.** To an exact size or to an aspect, anchored by
+- [x] **SPEC-151** (merged 2026-11-06, PR #255) — [S] **`pad`.** To an exact size or to an aspect, anchored by
   `gravity`, filled with `color` (a value the `watermark` colour parser already reads) or
   `transparent`. ⚠ `transparent` into a format with no alpha (JPEG) is either refused or
   flattened against a stated colour. That is decided here, not left to the encoder.
@@ -129,7 +129,7 @@ In build order. Each is framed in its own session first.
   only the first (M4 in the spec's Build Completion). Test-only; optional, and only worth doing if
   a later spec trips both at once.
 
-- [ ] (folded into SPEC-151) — [S] **SPEC-147's verify cleanups that need a PR: a stricter `orientation_of`,
+- [x] (folded into SPEC-151; shipped in SPEC-151, PR #255) — [S] **SPEC-147's verify cleanups that need a PR: a stricter `orientation_of`,
   and the corpus README's stale literals.** Found at SPEC-147's ship (verify's optional cleanup 1
   and its out-of-spec finding); fold into the next STAGE-058 spec's build. Two test-side fixes, no
   product change. (1) `orientation_of` in `tests/rotate_flip.rs` (:592) uses `.ok()?`, so any
@@ -159,7 +159,7 @@ In build order. Each is framed in its own session first.
   print "watermark skipped on K of N images" for every step that refuses through the refusal hook.
   Only `watermark` uses the hook today, so nothing shipped is mislabelled. `pad` or `trim` may be
   the first other op to use it: name the op that refused, before either ships.
-- [ ] (folded into SPEC-151) — [S] **State when an op uses the refusal hook and when it fails at apply.**
+- [x] (folded into SPEC-151; shipped in SPEC-151, PR #255) — [S] **State when an op uses the refusal hook and when it fails at apply.**
   Found at SPEC-145's ship (mutation M4b). A refusal through `Operation::refusal` is skipped per
   image in a batch: with the 0 px check moved there, one input exits 2 but two inputs write both
   images uncropped and exit 0. An apply failure is not skipped. So the hook suits only a condition
@@ -201,7 +201,18 @@ In build order. Each is framed in its own session first.
   offsets as literals, and drive the M2 swap plus a margin-dropped mutation. Test-only, no product
   change. Any time; pairs naturally with `trim` (line 6), which may place by gravity too.
 
-**Count:** 4 shipped / 1 active / 10 pending — re-derived 2026-11-06 by the orchestrator after SPEC-151's design, with `/usr/bin/grep -c '^- \[x\]'` (4: SPEC-141, SPEC-145, the docs entry folded into it, and SPEC-147), `/usr/bin/grep -c '^- \[ \]'` (11), `/usr/bin/grep -c '^- \[ \] \*\*SPEC-'` (1 active: SPEC-151, designed), `/usr/bin/grep -c '^- \[ \] (folded into'` (2, both into SPEC-151) and `/usr/bin/grep -c '^- \[ \] (not yet written)'` (8, one filed at SPEC-151's design)
+- [ ] (not yet written) — [S] **Pin `resize`'s cap message text.** Found at SPEC-151's verify (its
+  optional cleanup), filed at SPEC-151's ship; fold into the next STAGE-058 spec's build. No test pins
+  the text of `resize`'s two cap errors: `resize_oversize_is_typed_error`,
+  `resize_apply_percent_rejects_oversized_output` and `apply_recipe_with_oversized_resize_exits_1`
+  match only the error kind or exit 1. SPEC-151 hoisted `MAX_EDGE` and `MAX_AREA` to module-level
+  constants shared with `pad`, so a `contains` on both lines guards the hoist. The binary prints, on
+  `main` today (`resize --exact 60000x10` and `resize --exact 20000x20000` on a 4×4 PNG, both exit 1):
+  `error: operation 'resize' failed: target dimensions 60000×10 exceed the maximum edge limit of 50000 px`
+  and `error: operation 'resize' failed: target area 20000×20000 = 400000000 px exceeds the maximum area of 134217728 px`.
+  Test-only, no product change.
+
+**Count:** 7 shipped / 0 active / 9 pending — re-derived 2026-11-06 at SPEC-151's ship, with `/usr/bin/grep -c '^- \[x\]'` (7: the four specs SPEC-141, SPEC-145, SPEC-147 and SPEC-151, the docs entry folded into SPEC-145, and the two entries folded into SPEC-151), `/usr/bin/grep -c '^- \[ \]'` (9), `/usr/bin/grep -c '^- \[ \] \*\*SPEC-'` (0 active) and `/usr/bin/grep -c '^- \[ \] (not yet written)'` (9, one of them filed at SPEC-151's ship)
 
 ## Design Notes
 

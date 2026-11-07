@@ -7,7 +7,7 @@
 task:
   id: SPEC-151
   type: story                      # epic | story | task | bug | chore
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: S                    # S | M | L  (L means split it)
@@ -64,54 +64,78 @@ cost:
       date: 2026-11-06
       agent: claude-opus-5-5
       interface: claude-code
-      tokens_total: 8576051
+      tokens_total: 9400987
       tokens_breakdown:
-        input: 122
-        cache_creation: 172519
-        cache_read: 8352054
-        output: 51356
-      estimated_usd: 6.54
-      note: "Measured after the push from the session JSONL (61 message ids, all claude-opus-5-5, deduped by .message.id, max output_tokens per id); excludes this cost commit's own turns. Rates: Opus $5/$25 per MTok, cache_creation x1.25 input, cache_read x0.10 input."
+        input: 130
+        cache_creation: 176884
+        cache_read: 9167823
+        output: 56150
+      estimated_usd: 7.09
+      note: "Re-measured at ship from the session JSONL (65 message ids, deduped by .message.id, max output_tokens per id), after the session's final turns; the build-time figure (8,576,051 tokens, $6.54) was taken before them. Rates: Opus $5/$25 per MTok, cache_creation x1.25 input, cache_read x0.10 input."
     - cycle: design
       date: 2026-11-06
       agent: claude-opus-5-5
       interface: claude-code
-      tokens_total: 17921519
+      tokens_total: 18596691
       tokens_breakdown:
-        input: 162
-        cache_creation: 300204
-        cache_read: 17501803
-        output: 119350
-      estimated_usd: 13.61
-      note: "Measured after the push from the session JSONL (80 message ids, all claude-opus-5-5, deduped by .message.id, max output_tokens per id); excludes this cost commit's own turns. Includes a throwaway prototype and a 14-row mutation sweep over the full test suite. Rates: Opus $5/$25 per MTok, cache_creation x1.25 input, cache_read x0.10 input."
+        input: 166
+        cache_creation: 302125
+        cache_read: 18171173
+        output: 123227
+      estimated_usd: 14.06
+      note: "Re-measured at ship from the session JSONL (82 message ids, deduped by .message.id, max output_tokens per id), after the session's final turns; the earlier figure (17,921,519 tokens, $13.61) was taken before them. Includes a throwaway prototype and a 14-row mutation sweep over the full test suite. Rates: Opus $5/$25 per MTok, cache_creation x1.25 input, cache_read x0.10 input."
     - cycle: build
       date: 2026-11-06
       agent: claude-sonnet-5-5
       interface: claude-code
-      tokens_total: 28368198
+      tokens_total: 31954502
       tokens_breakdown:
-        input: 264
-        cache_creation: 284072
-        cache_read: 27991345
-        output: 92517
-      estimated_usd: 10.85
-      note: "Measured at the last build turn from the session JSONL (121 message ids, all claude-sonnet-5-5, deduped by .message.id, max output_tokens per id); excludes the closing commit's own turns. Rates: Sonnet $3/$15 per MTok, cache_creation x1.25 input, cache_read x0.10 input."
+        input: 300
+        cache_creation: 362475
+        cache_read: 31487929
+        output: 103798
+      estimated_usd: 12.36
+      note: "Re-measured at ship from the session JSONL (135 message ids, deduped by .message.id, max output_tokens per id), after the session's final turns; the earlier figure (28,368,198 tokens, $10.85) was taken at the last build turn. The session left a hand-written CI wait loop running for about 3.5 hours; that is in these numbers. Rates: Sonnet $3/$15 per MTok, cache_creation x1.25 input, cache_read x0.10 input."
+    - cycle: verify
+      date: 2026-11-06
+      agent: claude-opus-5-5
+      interface: claude-code
+      tokens_total: 12762619
+      tokens_breakdown:
+        input: 156
+        cache_creation: 196816
+        cache_read: 12502621
+        output: 63026
+      estimated_usd: 9.06
+      note: "First recorded at ship (verify was read-only and never wrote a cost entry). Measured from the session JSONL (77 message ids, deduped by .message.id, max output_tokens per id). The orchestrator's paste read cache_read 12,043,800, output 56,820, total 12,295,899, about $8.66, with the input and cache_creation lines cut off. Excludes a duplicate verify session (f7535b39) the maintainer stopped after its first step because another was already running: 8 ids, 599,774 tokens, $0.63, no verification work; it is not in the totals. Rates: Opus $5/$25 per MTok, cache_creation x1.25 input, cache_read x0.10 input."
     - cycle: punchlist
       date: 2026-11-06
       agent: claude-sonnet-5-5
       interface: claude-code
-      tokens_total: 1437289
+      tokens_total: 2372382
       tokens_breakdown:
-        input: 38
-        cache_creation: 57522
-        cache_read: 1373353
-        output: 6376
-      estimated_usd: 0.72
-      note: "Measured before the closing commit from the session JSONL (18 message ids, all claude-sonnet-5-5, deduped by .message.id, max output_tokens per id); excludes the closing turns. Rates: Sonnet $3/$15 per MTok, cache_creation x1.25 input, cache_read x0.10 input."
+        input: 62
+        cache_creation: 64844
+        cache_read: 2296625
+        output: 10851
+      estimated_usd: 1.10
+      note: "Re-measured at ship from the session JSONL (28 message ids, deduped by .message.id, max output_tokens per id), after the session's final turns; the earlier figure (1,437,289 tokens, $0.72) was taken before its last two turns. Rates: Sonnet $3/$15 per MTok, cache_creation x1.25 input, cache_read x0.10 input."
+    - cycle: ship
+      date: 2026-11-06
+      agent: claude-sonnet-5-5
+      interface: claude-code
+      tokens_total: 3719694
+      tokens_breakdown:
+        input: 74
+        cache_creation: 94808
+        cache_read: 3608710
+        output: 16102
+      estimated_usd: 1.68
+      note: "Measured from the session JSONL (37 message ids, deduped by .message.id, max output_tokens per id) before the closing commit, so it excludes the final turns (the commit, push and report). Includes one background `cargo build` of main in a scratch target dir, which cost no tokens. Rates: Sonnet $3/$15 per MTok, cache_creation x1.25 input, cache_read x0.10 input."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 78806875
+    estimated_usd: 45.35
+    session_count: 6
 ---
 
 # SPEC-151: pad as a recipe step
@@ -1311,10 +1335,32 @@ Process-focused: how did the build go? What friction did the spec create?
 from the process-focused build reflection above.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Three things. (a) Design driving the mutation table paid: 12 of 14 rows were driven on a
+   prototype and build found no wrong cell (SPEC-147's reasoned table had two). Design cost $14.06
+   re-measured ($13.61 as first recorded). It would not have caught the one miss by itself: build
+   did drive M14 (`f32` read for `border`), got all green, and wrote "matches", and verify refuted
+   it anyway. A driven "all green" shows that no test splits the mutant, not that no input does.
+   Design should have searched for a splitting input (a product of `border` and the edge that lands
+   on exactly k+½ px, such as `0.01` on 50 px) the way it swept the canvas exhaustively, and pinned
+   it. (b) "No `f32` split exists in the load range" was reasoned, not searched: trap 17 again, one
+   spec after SPEC-145. (c) Two counts were written from memory and both were wrong ("32 files" was
+   31, "three `orientation_of` callers" was two); a count in a spec should come from a command and
+   name it.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — Proposed, not applied. (i) A mutation row marked "expected all green" names the search that
+   found no splitting input, or is marked "undriven claim"; nothing covers this today (`guidance/`,
+   AGENTS and HANDOFF were checked), and trap 17 is the nearest, for prompts and DECs rather than
+   mutation tables. (ii) Hand-written CI wait loops: the rule exists ("Never poll CI", in
+   `SPEC-151-build.md` and HANDOFF), and the punch-list prompt already adds "don't write your own
+   loop"; build still wrote one and it ran 3.5 hours, so the build-prompt boilerplate should carry
+   that second sentence. No new rule. (iii) SPEC-147 proposed promoting rule 7 and trap 17 to
+   `guidance/` or AGENTS §15 "During verify"; neither has been, both are still only in HANDOFF, and
+   both held again (rule 7: the punch list needed no re-verify; trap 17: M14). Re-proposed. No DEC
+   changes.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — Filed one STAGE-058 entry (step 3): pin `resize`'s cap message text, test-only, folded into the
+   next spec's build. The 2 GiB `Rgba32F` cap finding is not filed: no backlog entry covers it, and
+   it is the maintainer's decision (see the ship report). Nothing else in the evidence names a gap no
+   entry covers, so no further entry.
