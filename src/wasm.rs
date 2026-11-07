@@ -234,9 +234,9 @@ pub fn transform(input: &[u8], recipe_toml: &str, out_format: &str) -> Result<Ve
     let registry = OperationRegistry::with_builtins();
     if let Some((index, op, key)) = first_unresolvable_asset(&pixel_recipe, &registry) {
         return Err(JsError::new(&format!(
-            "recipe step {index} ('{op}') needs its '{key}' asset resolved from a file, \
-             which the wasm surface cannot do (no filesystem) — supplying assets over this \
-             boundary is out of scope (SPEC-128)"
+            "recipe step {index} ('{op}') reads its '{key}' from a file, and crustyimg-wasm \
+             has no filesystem access, so steps that read files are out of scope here: \
+             remove the step, or run the recipe with the crustyimg CLI"
         )));
     }
 

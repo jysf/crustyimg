@@ -145,10 +145,10 @@ Component responsibilities:
 - **`Sink`** — terminal display (viuer), a file, a directory plus a
   name-template (`{stem}_web.{ext}`), or stdout (`-`).
 - **metadata lane** — container-level read/edit that never decodes pixels.
-  Read via `kamadak-exif` (read-only); edit/preserve via `img-parts`
-  (EXIF/ICC segments) and `little_exif` (tag write). Default-preserve
-  policy on the pixel encode path keeps orientation + ICC + copyright and
-  drops GPS unless asked (DEC-003).
+  Read via `kamadak-exif` (read-only); edit via `img-parts` (EXIF/ICC
+  segments) and `little_exif` (tag write). Pixel-lane encodes drop all
+  metadata (orientation is baked into the pixels first); only the `meta`
+  commands keep or edit it (DEC-003).
 
 ## Data Flow
 

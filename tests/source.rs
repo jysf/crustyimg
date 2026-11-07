@@ -200,7 +200,7 @@ fn missing_single_file_is_not_found_error() {
 }
 
 #[test]
-fn empty_glob_match_is_not_found_error() {
+fn empty_glob_match_is_no_images_matched_error() {
     let dir = tempfile::tempdir().unwrap();
     // Empty directory — *.png matches nothing.
     let pattern = format!("{}/*.png", dir.path().display());
@@ -208,8 +208,8 @@ fn empty_glob_match_is_not_found_error() {
     let err = resolve(&pattern, &mut std::io::empty()).unwrap_err();
 
     assert!(
-        matches!(err, SourceError::NotFound(_)),
-        "expected NotFound, got {err:?}"
+        matches!(err, SourceError::NoImagesMatched(_)),
+        "expected NoImagesMatched, got {err:?}"
     );
 }
 

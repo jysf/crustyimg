@@ -9,8 +9,9 @@ use std::path::{Path, PathBuf};
 use crate::error::ImageError;
 use crate::image::Image;
 use crate::quality;
-use crate::source::{self, SourceError};
+use crate::source::{self, OnEmpty, SourceError};
 
+use super::common::refuse_folder;
 use super::{CliError, GlobalArgs};
 
 // ── Info command ─────────────────────────────────────────────────────────────
@@ -220,7 +221,7 @@ pub(super) fn run_info(
     json: bool,
     _global: &GlobalArgs,
 ) -> Result<(), CliError> {
-    let resolved = source::resolve(input, &mut std::io::stdin().lock())?;
+    let resolved = source::resolve_all(&[input], &mut std::io::stdin().lock(), OnEmpty::Fail)?;
     let first = resolved
         .into_iter()
         .next()
@@ -348,6 +349,8 @@ pub(super) fn run_diff(
         }
     }
 
+    refuse_folder(a)?;
+    refuse_folder(b)?;
     let img_a = Image::load(a)?;
     let img_b = Image::load(b)?;
     if img_a.width() != img_b.width() || img_a.height() != img_b.height() {
@@ -490,20 +493,10 @@ pub(super) fn run_lint(
     // The config is discovered relative to the first input (or cwd).
     let config = build_lint_config(flags, &args[0])?;
 
-    // Resolve every arg, concatenating inputs. A NotFound arg contributes
-    // nothing (so `no inputs resolved` collapses to exit 3 below); a malformed
-    // glob or stdin error propagates (exit 2/3).
-    let mut inputs = Vec::new();
-    for arg in args {
-        match source::resolve(arg, &mut std::io::stdin().lock()) {
-            Ok(v) => inputs.extend(v),
-            Err(SourceError::NotFound(_)) => {}
-            Err(e) => return Err(e.into()),
-        }
-    }
-    if inputs.is_empty() {
-        return Err(CliError::Source(SourceError::NotFound(args.join(", "))));
-    }
+    // Resolve every arg, concatenating inputs. A missing path or a glob with no
+    // image contributes nothing; if nothing resolves, the first argument's cause
+    // is the error (exit 3). A malformed glob or stdin error propagates (exit 2/3).
+    let inputs = source::resolve_all(args, &mut std::io::stdin().lock(), OnEmpty::Skip)?;
 
     // Report format: `lint --format human|json|sarif`. To avoid a clap
     // duplicate-arg conflict with the global `--format` (encode format), lint
