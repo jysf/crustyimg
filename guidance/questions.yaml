@@ -313,3 +313,30 @@ questions:
       exists, and do not resolve by re-probing crates.io without a stated
       reason); (c) should any release channel ship `webp-lossy`. The default
       stays constrained by `pure-rust-codecs-default`.
+
+  - id: allocation-cap-counts-bytes
+    question: "Should the operation size cap (MAX_AREA, 134,217,728 px) count bytes rather than pixels, so a float canvas cannot allocate four times what an RGBA8 one can?"
+    priority: medium
+    status: open
+    raised_by: claude
+    raised_at: 2026-11-06
+    assigned_to: human
+    notes: |
+      MAX_AREA is 512 MiB at RGBA8, but its unit is pixels, so the bytes
+      it allows depend on the sample type. Two routes reach about 2 GiB
+      (16 B/px) today:
+      - resize, from any input: since SPEC-122 the resample runs in
+        F32x4, so a target at the area cap allocates a 16 B/px buffer
+        even from a small 8-bit image;
+      - pad, on an Rgba32F input: the canvas keeps the input's variant,
+        so a padded canvas at the cap is 16 B/px (found at SPEC-151's
+        build; verify confirmed resize already reaches the same size).
+      The MAX_AREA comment in src/operation/mod.rs and DEC-095 both say
+      whether the bound moves is a decision about untrusted-input
+      allocation (constraint untrusted-input-hardening), not a tidy-up.
+      Until now it lived only in those comments, with no backlog entry.
+      Options: keep pixels and document the float multiple; cap bytes per
+      sample type; or cap the intermediate separately. Any change moves
+      the refusal messages: pad's are pinned by exact-text tests, and
+      resize's will be once STAGE-058's "Pin resize's cap message text"
+      entry lands.

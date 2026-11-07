@@ -591,6 +591,37 @@ aggregate-only stderr. Verify had to rule whether that was a deviation or an
 imprecise AC. Prefer "the verb's report, defined here as …" over naming a
 channel that may not exist.
 
+#### A bound or "can't happen" is a claim until its worst input is driven
+
+A spec, prompt or DEC that states a bound, a maximum or "no case exists" says
+whether it was driven, by whom, and over what range, and names the input that
+maximises it (for a rounding bound, a search around each tie). An undriven bound
+is written as "measured over this sweep", never as the maximum. SPEC-145's
+"0.4 px analytic maximum" was 0.6 at `f64` near-ties, and that cost a second
+punch list and re-verify.
+
+The same holds for a mutation row marked **expected all green**. A green row
+proves no *test* tells the mutant apart, not that no *input* does, so the row
+names the search that found no input where the mutant and the code differ.
+SPEC-151's M14 (`border` read as `f32`) was reasoned all green and confirmed
+green at build; verify found `0.01` on a 50 px edge gives 1 px in `f64` and 0 px
+in `f32`.
+
+#### Classify every finding; only a claim needs a re-verify
+
+Each punch item and optional cleanup is one of:
+- **wording** — a doc, comment or table cell that misstates what the code
+  already does;
+- **assert** — a missing or loose assertion where the behaviour is right;
+- **claim** — a fix that changes what a doc, DEC or test claims is true, or the
+  code's behaviour.
+
+All of a verify's items go into **one** punch list. If none is a claim, the
+orchestrator reads the punch list's diff and CI itself and marks the PR ready;
+a re-verify runs only for a claim, because a new claim is unproven. SPEC-145's
+four optional cleanups took two punch lists and two re-verifies (about $5 on a
+$9.37 build); SPEC-147 and SPEC-151 used this rule and needed none.
+
 Append a verify cost session entry to `cost.sessions`.
 
 Output: ✅ APPROVED / ⚠ PUNCH LIST / ❌ REJECTED.
@@ -607,7 +638,7 @@ Stage Ship prompt.
 ## 16. Session Hygiene (claude-only specific)
 
 Because one agent plays multiple roles, context contamination is a real
-risk. Five habits keep it at bay:
+risk. Six habits keep it at bay:
 
 1. **New session per cycle where possible.** Especially design → build
    and build → verify.
@@ -623,6 +654,13 @@ risk. Five habits keep it at bay:
    commit landed on the wrong branch). `git worktree add <path> <branch>`,
    work there, commit + push, then `git worktree remove`. Always check
    `git branch --show-current` before any commit.
+6. **Never poll CI, and never write your own wait loop.** Run
+   `gh pr checks <N> --watch` in the background, and when it exits take one
+   snapshot at the PR's true head SHA. If it exits at once with "no checks",
+   wait for CI to register and start it again. A hand-written loop fails
+   silently: SPEC-151's build stored a run id and SHA in one variable, zsh did
+   not split it, `gh run view` failed on every pass, and the loop polled for
+   3.5 hours after CI had finished green.
 
 ---
 
