@@ -105,7 +105,7 @@ In build order. Each is framed in its own session first.
   `gravity`, filled with `color` (a value the `watermark` colour parser already reads) or
   `transparent`. ⚠ `transparent` into a format with no alpha (JPEG) is either refused or
   flattened against a stated colour. That is decided here, not left to the encoder.
-- [ ] (not yet written) — [S] **`trim`.** Removes a uniform border: the colour is the
+- [ ] **SPEC-152** (framed 2026-11-06) — [S] **`trim`.** Removes a uniform border: the colour is the
   corner pixel or a stated `color`, matched within a stated `tolerance` per channel. Refuses
   (rather than producing a 0×0 image) when the whole image matches. Deterministic, with no
   content detection, and its doc entry says so. ⚠ Test on a 16-bit source with an 8-bit
@@ -201,7 +201,7 @@ In build order. Each is framed in its own session first.
   offsets as literals, and drive the M2 swap plus a margin-dropped mutation. Test-only, no product
   change. Any time; pairs naturally with `trim` (line 6), which may place by gravity too.
 
-- [ ] (not yet written) — [S] **Pin `resize`'s cap message text.** Found at SPEC-151's verify (its
+- [ ] (folded into SPEC-152) — [S] **Pin `resize`'s cap message text.** Found at SPEC-151's verify (its
   optional cleanup), filed at SPEC-151's ship; fold into the next STAGE-058 spec's build. No test pins
   the text of `resize`'s two cap errors: `resize_oversize_is_typed_error`,
   `resize_apply_percent_rejects_oversized_output` and `apply_recipe_with_oversized_resize_exits_1`
@@ -212,7 +212,7 @@ In build order. Each is framed in its own session first.
   and `error: operation 'resize' failed: target area 20000×20000 = 400000000 px exceeds the maximum area of 134217728 px`.
   Test-only, no product change.
 
-**Count:** 7 shipped / 0 active / 9 pending — re-derived 2026-11-06 at SPEC-151's ship, with `/usr/bin/grep -c '^- \[x\]'` (7: the four specs SPEC-141, SPEC-145, SPEC-147 and SPEC-151, the docs entry folded into SPEC-145, and the two entries folded into SPEC-151), `/usr/bin/grep -c '^- \[ \]'` (9), `/usr/bin/grep -c '^- \[ \] \*\*SPEC-'` (0 active) and `/usr/bin/grep -c '^- \[ \] (not yet written)'` (9, one of them filed at SPEC-151's ship)
+**Count:** 7 shipped / 1 active / 8 pending — re-derived 2026-11-06 at SPEC-152's frame, with `/usr/bin/grep -c '^- \[x\]'` (7, unchanged), `/usr/bin/grep -c '^- \[ \]'` (9: the 1 active plus 8 pending), `/usr/bin/grep -c '^- \[ \] \*\*SPEC-'` (1 active: SPEC-152, `trim`), `/usr/bin/grep -c '^- \[ \] (not yet written)'` (7) and `/usr/bin/grep -c '^- \[ \] (folded into SPEC-152)'` (1: "Pin `resize`'s cap message text", which ships with SPEC-152)
 
 ## Design Notes
 
