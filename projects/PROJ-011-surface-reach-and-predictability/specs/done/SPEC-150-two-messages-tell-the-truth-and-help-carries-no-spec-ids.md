@@ -7,7 +7,7 @@
 task:
   id: SPEC-150
   type: bug                        # epic | story | task | bug | chore
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: M                    # S | M | L  (L means split it)
@@ -96,6 +96,19 @@ cost:
       duration_minutes: null
       recorded_at: 2026-11-06
       notes: "Measured from the transcript before the final bookkeeping/CI-read turns (106 deduped message ids, MAX output per id; Opus $5/$25, cache_creation x1.25, cache_read x0.10). Includes the 25-row mutation run and two full just check runs."
+    - cycle: verify
+      agent: claude-opus-5-5
+      interface: claude-code
+      tokens_total: 8979718
+      tokens_breakdown:
+        input: 120
+        output: 51414
+        cache_creation: 180529
+        cache_read: 8747655
+      estimated_usd: 6.79
+      duration_minutes: null
+      recorded_at: 2026-11-06
+      notes: "Punch list at 5996c6b (R1, R2). Figures from the timeline's verify record (deduped by message id, MAX output; Opus $5/$25, cache_creation x1.25, cache_read x0.10); re-priced here: 0.0006 + 1.2854 + 1.1283 + 4.3738 = 6.79. Entry added at ship: the verify cycle had not been written into cost.sessions."
     - cycle: fix
       agent: claude-sonnet-5-5
       interface: claude-code
@@ -109,10 +122,23 @@ cost:
       duration_minutes: null
       recorded_at: 2026-11-06
       notes: "Measured from the transcript before the bookkeeping turns (24 deduped message ids, MAX output per id; Sonnet $3/$15, cache_creation x1.25, cache_read x0.10)."
+    - cycle: ship
+      agent: claude-sonnet-5-5
+      interface: claude-code
+      tokens_total: 1606982
+      tokens_breakdown:
+        input: 36
+        output: 6045
+        cache_creation: 77401
+        cache_read: 1523500
+      estimated_usd: 0.84
+      duration_minutes: null
+      recorded_at: 2026-11-07
+      notes: "Measured from the transcript before the final edit, commit and push turns (18 deduped message ids, MAX output per id; Sonnet $3/$15, cache_creation x1.25, cache_read x0.10), so a slight under-count."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 49822079
+    estimated_usd: 36.12
+    session_count: 6
 ---
 
 # SPEC-150: Two messages tell the truth, and --help carries no spec ids
@@ -990,10 +1016,118 @@ Process-focused: how did the build go? What friction did the spec create?
 from the process-focused build reflection above.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Run every command a message tells the user to run, at design, before the sentence goes into the spec. The
+   `-q` message named `crustyimg convert -q N`; AC-7 carried it, the build copied it into code and into FT-M8's six
+   rows, and those rows compared the message with a literal copy of itself, so CI was green on a command that exits 2
+   without `--format`. Verify found it. SPEC-149 taught the same lesson one spec earlier and it sat in the build
+   prompt, which is too late: the sentence is written at design, so the run belongs there. Second thing: a mutation
+   the table did not list (`optimize --out-dir` `Fail` to `Skip`) turned nothing red until the fix round added
+   mixed-argument rows (`nope` plus a real image). When a verb has a fan-out mode, the table needs a row for the
+   mixed case, not only the all-bad case.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — No decision. DEC-003's amendment was made at design and held. Template side, two small things: (a) the
+   design template's "message that names a command" note (from SPEC-148 and SPEC-149) should say the command is
+   run at design and the output pasted, and a test for such a message takes the command out of the message
+   and runs it, as the fixed FT-M8 does; (b) a compatibility sweep for a changed error greps the variant name
+   as well as the message text (the build's list missed `tests/source.rs`, which pinned `NotFound` for an empty
+   glob). Verify found what CI green could not for the second spec in a row. A draft PR cannot merge until
+   "ready for review" is clicked; that is process, not a finding about the code.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — No new spec. Verify's optional findings are filed as one entry on STAGE-063: ids still in two user docs
+   (`docs/cli-reference.md:305`, `README.md:125`), the hidden `--keep-gps` in every completion script, the wasm32
+   `MANIFEST_DROPPED_WARNING` warning (PR #240 may trip on it), a `[` in a path read as a glob, no `\` or `C:\`
+   test through the folder message and a single-quoted hint that does not paste into `cmd.exe`, an ambiguous
+   `quoted()` before `"`, and `SourceError`/`CliError` not being `#[non_exhaustive]` (a maintainer call before 1.0).
+   One more design fact: mutation 23's second row cannot go red because that fixture holds no `//`.
+
+## Ship
+
+Shipped 2026-11-07. Code is on `main` as `b8b2a04` (PR #257). Verify punch list at `5996c6b` (R1: the `-q`
+message named a command that exits 2; R2: the subfolder glob hint could not be pasted for a folder named `it's`);
+fix round `e0e1e3a`, head `0deb220`, CI green; the orchestrator read the diff, no re-verify. Cost: frame $4.42,
+design $8.57, build $14.54, verify $6.79, fix $0.96, ship $0.84; total $36.12, 49,822,079 tokens.
+
+### Behaviour changes in 0.8.3 (user-visible)
+
+All of these change what a user sees; none changes an exit code except where noted. A folder with no top-level image
+still exits 3, a folder given where one file is expected (`responsive`, `diff`, `meta copy`) exits 3, and the `-q`
+refusal still exits 2. New text on stderr; stdout and output files are unchanged (verify: 22 previously passing
+invocations, 0 differences against `main`'s binary). `--help` and the shell completions lose their internal ids.
+The two public error enums gain variants (`SourceError::NoImagesInFolder`, `NoImagesMatched`;
+`CliError::InputIsAFolder`) and neither is `#[non_exhaustive]`, so a downstream exhaustive `match` stops compiling.
+
+### Proposed CHANGELOG entry for 0.8.3 (SPEC-148 + SPEC-149 + SPEC-150; not written to `CHANGELOG.md`)
+
+The release prompt can paste this as the 0.8.3 block. SPEC-148 and SPEC-149 text is copied from their archived
+specs; the SPEC-150 lines are new.
+
+```
+### Breaking
+
+- `--keep-gps` is refused (exit 2). It never kept GPS: pixel-lane encodes drop all metadata. To keep
+  it, copy it back after the encode with `crustyimg meta copy --from in.jpg --to out.jpg -y` (JPEG
+  only). The flag no longer shows in `--help`.
+- `responsive` refuses `--name-template` and `--format` (exit 2) instead of ignoring them. Its file
+  names are fixed (`{stem}-{w}w.{ext}`); choose formats with `--formats`.
+- `--check` (`--frozen`, `--locked`), `--strict` and `--no-cache` are refused (exit 2) on every command
+  but `build`, as `--watch` already was. `build --strict` without `--check` is refused too.
+- The public error enums `SourceError` and `CliError` gain variants (`NoImagesInFolder`,
+  `NoImagesMatched`, `InputIsAFolder`). Neither is `#[non_exhaustive]`, so a library user with an
+  exhaustive `match` on either must add arms.
+
+### Changed
+
+- `lint`'s printed `fix:` line (and the JSON `fix` field) is now a command that rewrites the file in
+  place: it ends in `-o <file> -y`, and paths with spaces, quotes or a leading dash are quoted for your
+  shell (PowerShell on Windows). Before, running one wrote the image to your terminal and left the file
+  unchanged.
+- Some findings now print no command, and the JSON `fix` is `null`: input from standard input, 16-bit
+  PNG, and WebP, TIFF and AVIF files where the fix would be a metadata edit crustyimg cannot write yet
+  (the message says so). This is a visible change if you read the `fix` field.
+- `privacy/gps-metadata-leak` now fires on a coordinate (latitude, longitude, a destination coordinate)
+  or a place name, not on any GPS block. A block holding only a version number, which some cameras
+  write into every JPEG, no longer flags, so a CI job that failed on those files now passes.
+- A folder with no image at its top level now says so and how to include subfolders (a glob such as
+  `'dir/**/*'`), instead of "input not found or unreadable"; the exit code stays 3. This covers every
+  command that takes a folder, and `build` targets. An empty glob match says `no images matched '<glob>'`.
+  `responsive`, `diff` and `meta copy` given a folder say it is a folder, not an image file.
+- When several inputs are given and none yields an image, `lint` and the other commands name the first
+  input's cause, instead of one blanket message.
+- `-q` with `optimize`, `web` and the other commands that choose the quality themselves now names the
+  real conflict and a command you can run: `crustyimg convert --format <FORMAT> -q N`. `meta` on a file
+  the metadata lane cannot handle, and `meta copy` on a non-JPEG, now say plainly which formats they
+  support.
+- `--help`, the shell completions and the browser build no longer show internal spec or decision ids,
+  and `lint --help` no longer promises a fix for every finding.
+
+### Added
+
+- `-v` prints warnings from the SVG renderer and codecs on stderr, such as
+  `warning: [usvg::parser::image] Image lacks the 'xlink:href' attribute. Skipped.`; `-vv` adds debug
+  detail. Without `-v` nothing changes, and `-Q` wins.
+
+### Fixed
+
+- The `size/oversized-bytes` fix passes your budget (`optimize --max-size <bytes>`), so running it
+  clears the finding; plain `optimize` often did not.
+- The CMYK fix is `convert --format jpeg`; it used to print `convert --format <file>`, which failed with
+  exit 3.
+- A missing or unreadable `watermark --font` or `--image` names the file (exit 3) instead of saying
+  "could not read image input"; a `"` in that path is quoted correctly.
+```
+
+### Proposed text for the other PROJ-017-adjacent files (not written)
+
+- `docs/recipes.md:148`: replace "each with a runnable fix" with "with a runnable fix where one exists":
+  `` `crustyimg lint assets/ --select privacy` → `privacy/gps-metadata-leak` and
+  `privacy/camera-metadata`, with a runnable fix where one exists; exit `7` on an error-severity finding. ``
+  (The `docs/recipes.md:145` GPS note and the `skills/crustyimg/SKILL.md:67-68` and `:145` lines proposed by
+  SPEC-149's ship still stand and are separate from this.)
+- `skills/crustyimg/SKILL.md:56-59` says "(a folder of only subfolders exits 3)". Still true, but incomplete now
+  that the error names the cause. Proposed: `A directory works as an input too, but reads only the images
+  directly inside it, not its subfolders (a folder with no image at its top level exits 3 and says so); use
+  'assets/**/*' for a whole tree.` `skills/crustyimg/SKILL.md:332` (exit 3 "Input not found, or the glob matched
+  nothing") needs "or a folder with no images" added. Neither restates the old `-q` text (grep: 0 hits for
+  "cannot be combined" in `skills/`, `docs/`, `README.md` outside `cli-reference.md`'s `--watch` line).

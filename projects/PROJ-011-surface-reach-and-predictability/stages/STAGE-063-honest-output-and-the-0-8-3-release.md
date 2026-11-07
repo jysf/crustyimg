@@ -81,7 +81,7 @@ Spec ids 148 to 150 are reserved by this commit (PROJ-017 holds 147).
   `responsive --name-template` (and `--format`, found by the frame), `build --strict` alone and `--check`/`--strict`/
   `--no-cache` off `build`, and the missing-`--font` (and `--image`) message. Recommended: refuse `--keep-gps`, a
   minimal `-v` logger, refuse the rest (done as recommended). Complexity M.
-- [ ] SPEC-150 (designed 2026-11-06, M; rulings settled 2026-11-06) — **Two messages tell the truth:** a folder with only
+- [x] SPEC-150 (shipped 2026-11-07, M; PR #257, b8b2a04e1a7b4f6bea5d85487802ee9837134b28) — **Two messages tell the truth:** a folder with only
   subfolders (driven wider: any folder with no top-level image, 13 verbs, `build` targets too), and the browser's asset refusal plus every user-facing `SPEC-`/`DEC-` id in rendered
   `--help`, including `lint --help`'s "(each with a runnable fix)" line (SPEC-148's design asks SPEC-150 to reword it with its spec ids). Complexity S; framed M with fold-ins B, C
   (docs-only, pending ruling) and leftovers (1), (3), (5) ruled in, (4) out.
@@ -136,7 +136,19 @@ Spec ids 148 to 150 are reserved by this commit (PROJ-017 holds 147).
   so "each" is false; SPEC-150 rewords `lint --help` but cannot edit `docs/recipes.md`, which PROJ-017 owns. Reword it to
   match after PROJ-017's current spec merges.
 
-**Count:** 2 shipped / 1 active / **8 pending** — 2026-11-06 (re-derived by grep and by Python of the backlog checkboxes: 11 in total, 2 ticked, 9 open; SPEC-150 framed, the new item is the `docs/recipes.md` mirror).
+- [ ] (not yet written) — [S] **Verify's optional findings on SPEC-150 (2026-11-06).** Seven small items, none blocking:
+  (1) user docs still carry ids the SPEC/DEC rule did not cover: `docs/cli-reference.md:305` (STAGE-030) and
+  `README.md:125` (`decisions/DEC-052`). (2) the hidden `--keep-gps` flag appears in every completion script (zsh 22
+  lines, fish 23, bash 22), same on `main`. (3) `MANIFEST_DROPPED_WARNING` (`src/metadata/mod.rs`) warns as unused on
+  wasm32, on `main` too; PR #240 (wasm clippy) may trip on it if it uses `-D warnings`. (4) a path containing `[`
+  (folder `a[1]`) is treated as a glob and cannot be escaped (older behaviour). (5) no test sends a `\` path through
+  the folder message or uses a `C:\` glob (only `folder_name(r"d\")` is unit-tested), and a single-quoted hint does
+  not paste into `cmd.exe`. (6) `quoted()` is ambiguous when a `\` comes right before a `"` (contrived; `"` is
+  illegal in Windows filenames). (7) `SourceError` and `CliError` are not `#[non_exhaustive]`, so the new variants
+  break downstream exhaustive matches (the CHANGELOG says so); whether to add `#[non_exhaustive]` before 1.0 is a
+  maintainer call.
+
+**Count:** 3 shipped / 0 active / **9 pending** — 2026-11-07 (re-derived by grep and by Python of the backlog checkboxes: 12 in total, 3 ticked, 9 open; SPEC-150 shipped, the new item is verify's seven optional findings).
 
 ### Items carried from STAGE-054 (full text, unchanged)
 
