@@ -38,7 +38,9 @@ const OVERLAY_PREFIX: &str = "error: could not read watermark image \"";
 const OLD_MESSAGE: &str = "could not read image input";
 
 /// The `-v` fixture's single usvg warning, and its `-vv` debug line.
+#[cfg(feature = "svg")]
 const W: &str = "warning: [usvg::parser::image] Image lacks the 'xlink:href' attribute. Skipped.";
+#[cfg(feature = "svg")]
 const D: &str = "debug: [usvg::parser::text] Found font-variation-settings: ''wght' 700'";
 
 const DEADLINE: Duration = Duration::from_secs(20);
@@ -117,6 +119,7 @@ fn stderr_of(out: &std::process::Output) -> String {
 }
 
 /// Number of stderr lines exactly equal to `line`.
+#[cfg(feature = "svg")]
 fn count_line(stderr: &str, line: &str) -> usize {
     stderr.lines().filter(|l| *l == line).count()
 }
