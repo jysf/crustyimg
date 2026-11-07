@@ -200,13 +200,13 @@ restores `Artist` and `GPSLatitude` onto a resized JPEG (driven, exit 0). The op
 - **Implement (copy-then-clean):** after each pixel encode, graft the source's metadata with the
   container lane, reset `Orientation` (already baked into pixels), keep GPS. That is a new feature: it
   touches the write path of 11 verbs (resize, thumbnail, convert, web, optimize, responsive,
-  auto-orient, watermark, edit, apply, build), works only where source and output are both JPEG or PNG
+  auto-orient, watermark, edit, apply, build), works only where source and output are both JPEG
   (`meta` refuses other pairs with exit 4), and makes `--keep-gps` keep *more* than the default
   (everything, not only GPS) unless DEC-003's selective preserve is built first. M to L alone, needs
   a DEC. Not this spec.
 - **Refuse (exit 2) on every verb, hidden from `--help`:** one guard beside the `--watch` guard,
   message saying pixel-lane encodes drop all metadata and naming `meta copy --from <in> --to <out> -y`
-  (JPEG/PNG). Breaks any script that passes it (exit 0 → 2); such a script never got GPS anyway.
+  (JPEG only). Breaks any script that passes it (exit 0 → 2); such a script never got GPS anyway.
   `grep` of `jysf/setup-crustyimg`, `jysf/crustyimg-action` and `jysf/crustyimg-example` (shallow
   clones): **no caller**. The skill says "pass `--keep-gps` only if the user asks"
   (`skills/crustyimg/SKILL.md:67`).
@@ -266,7 +266,7 @@ passes them. Refusals are user-visible; proposed CHANGELOG text (do not edit unt
 > ### Changed
 > - **`--keep-gps` is now refused (exit 2).** It never kept GPS: pixel-lane encodes drop all
 >   metadata. To keep location data, copy it back after the encode:
->   `crustyimg meta copy --from in.jpg --to out.jpg -y` (JPEG and PNG).
+>   `crustyimg meta copy --from in.jpg --to out.jpg -y` (JPEG only).
 > - **`responsive` now refuses `--name-template` and `--format` (exit 2)** instead of ignoring them.
 >   Its names are fixed (`{stem}-{w}w.{ext}`); choose formats with `--formats`.
 > - **`--check`, `--strict` and `--no-cache` are refused (exit 2) on every command but `build`,**
@@ -403,7 +403,7 @@ edit apply lint completions meta strip|clean|copy|set`.
 | R3 | `--strict` | `<V>` | ``--strict is only valid with `build --check`: there is no build lockfile to check for this subcommand`` |
 | R4 | `--strict` without `--check` | `build` | ``--strict only applies with --check: run `build --check --strict`, or drop --strict`` |
 | R5 | `--no-cache` | `<V>` | ``--no-cache is only valid with `build`: there is no build cache for this subcommand`` |
-| R6 | `--keep-gps` | every command, `build` included | ``--keep-gps is not supported yet: pixel-lane encodes drop all metadata, GPS included; to keep it, copy the metadata back after the encode with `crustyimg meta copy --from <in> --to <out> -y` (JPEG and PNG)`` |
+| R6 | `--keep-gps` | every command, `build` included | ``--keep-gps is not supported yet: pixel-lane encodes drop all metadata, GPS included; to keep it, copy the metadata back after the encode with `crustyimg meta copy --from <in> --to <out> -y` (JPEG only)`` |
 | R7 | `--name-template` | `responsive` | `responsive does not take --name-template: its output names are fixed as {stem}-{w}w.{ext}` |
 | R8 | `--format` | `responsive` | `responsive does not take --format: choose its output formats with --formats (e.g. --formats webp,jpeg)` |
 
@@ -743,10 +743,10 @@ FT-6 green on `main` (a positive control, by design).
 
 | File:line (on `d62314e`) | Replace with |
 |---|---|
-| ⚠ `docs/cli-reference.md:21` | `- **Metadata is dropped on pixel-lane encodes,** GPS included. \`--keep-gps\` is refused (exit \`2\`); to keep metadata, run \`crustyimg meta copy --from <in> --to <out> -y\` after the encode (JPEG and PNG).` |
+| ⚠ `docs/cli-reference.md:21` | `- **Metadata is dropped on pixel-lane encodes,** GPS included. \`--keep-gps\` is refused (exit \`2\`); to keep metadata, run \`crustyimg meta copy --from <in> --to <out> -y\` after the encode (JPEG only).` |
 | ⚠ `docs/cli-reference.md:40` (`-Q` row) | append: ` Also silences \`-v\`.` |
 | ⚠ `docs/cli-reference.md:41` | `\| \`--verbose\` \| \`-v\` \| Show warnings from the SVG renderer and codecs on stderr; \`-vv\` adds debug detail. Silent by default; \`-Q\` wins. \|` |
-| ⚠ `docs/cli-reference.md:42` | `\| \`--keep-gps\` \| \| Refused (exit \`2\`): pixel-lane encodes drop all metadata. Use \`meta copy\` after the encode (JPEG and PNG). Hidden from \`--help\`. \|` |
+| ⚠ `docs/cli-reference.md:42` | `\| \`--keep-gps\` \| \| Refused (exit \`2\`): pixel-lane encodes drop all metadata. Use \`meta copy\` after the encode (JPEG only). Hidden from \`--help\`. \|` |
 | ⚠ `docs/cli-reference.md` after line 42 | new row: `\| \`--check\` / \`--strict\` / \`--no-cache\` / \`--watch\` \| \| \`build\` only (see Project builds); refused with exit \`2\` on every other command, and \`--strict\` is refused without \`--check\`. \|` |
 | ⚠ `docs/cli-reference.md:204` (responsive, after "Single input.") | ` Output names are fixed as \`{stem}-{w}w.{ext}\`: \`--name-template\` and \`--format\` are refused (exit \`2\`); choose formats with \`--formats\`.` |
 | ⚠ `docs/cli-reference.md:425` (first prose line after the `--check --strict` example block) | insert before it, as its own paragraph: `\`--strict\` without \`--check\` is refused (exit \`2\`).` |
@@ -755,16 +755,16 @@ FT-6 green on `main` (a positive control, by design).
 | ⚠ `docs/api-contract.md:39` | `\| \`--keep-gps\` \| \| Refused on every command (exit 2): pixel-lane encodes drop all metadata; the message names \`meta copy\`. Hidden from \`--help\`. \|` |
 | ⚠ `docs/api-contract.md:592-593` | replace `Not yet covered: \`responsive\` accepts \`--name-template\` and ignores it.` with `\`responsive\` refuses \`--name-template\` and \`--format\` (exit 2): its names are fixed \`{stem}-{width}w.{ext}\`.` |
 | ⚠ `docs/api-contract.md:192` (responsive, after "Single input (no glob/batch in v1).") | ` Names are fixed; \`--name-template\` and \`--format\` are refused (exit 2).` |
-| ⚠ `README.md:199` | `> Pixel-lane encodes drop all metadata, GPS included. To keep it, run \`crustyimg meta copy --from in.jpg --to out.jpg -y\` after the encode (JPEG and PNG).` |
+| ⚠ `README.md:199` | `> Pixel-lane encodes drop all metadata, GPS included. To keep it, run \`crustyimg meta copy --from in.jpg --to out.jpg -y\` after the encode (JPEG only).` |
 | ⚠ `README.md:293` | `-v/--verbose` · `--keep-gps` → `` `-v/--verbose` (dependency warnings to stderr; `-vv` for more) `` and drop `· \`--keep-gps\`` |
 | `docs/USAGE.md:164` | `Current safety behavior: pixel-lane encodes drop all metadata, GPS included (\`--keep-gps\` is refused; use \`meta copy\` after the encode to keep it);` |
-| ⚠ `docs/data-model.md:122` | `\| GPS \| **dropped** (\`--keep-gps\` is refused, exit 2; \`meta copy\` restores it on JPEG/PNG) \| \`meta clean --gps\` removes \|` |
-| `docs/moat.md:96-97` | `a default drop-GPS policy on pixel-lane encodes (\`--keep-gps\` to opt out)` → `a pixel lane that drops GPS with every other tag (\`meta copy\` puts metadata back on JPEG and PNG)` |
+| ⚠ `docs/data-model.md:122` | `\| GPS \| **dropped** (\`--keep-gps\` is refused, exit 2; \`meta copy\` restores it on JPEG only) \| \`meta clean --gps\` removes \|` |
+| `docs/moat.md:96-97` | `a default drop-GPS policy on pixel-lane encodes (\`--keep-gps\` to opt out)` → `a pixel lane that drops GPS with every other tag (\`meta copy\` puts metadata back on JPEG only)` |
 | `SECURITY.md:49-50` | `**drops GPS** on pixel-lane encodes unless \`--keep-gps\`;` → `**drops GPS** (with all other metadata) on pixel-lane encodes; \`--keep-gps\` is refused (exit 2);` |
 | `SECURITY.md:88` | `default drop-GPS on pixel-lane encodes (\`--keep-gps\` to opt out)` → `pixel-lane encodes drop all metadata, GPS included (\`--keep-gps\` refused)` |
 | ⚠ `AGENTS.md:503` | `ICC + copyright/artist; drop GPS unless \`--keep-gps\` (DEC-003).` → `ICC + copyright/artist; drop GPS (\`--keep-gps\` is refused, SPEC-149; DEC-003).` (The ICC/copyright half is finding C; not fixed here.) |
 | ⛔ `docs/recipes.md:123` | proposed: `- **Note:** \`optimize\` drops all metadata, GPS included (privacy-safe web prep); \`--keep-gps\` is refused. To keep it: \`crustyimg meta copy --from orig.jpg --to web.jpg -y\`.` |
-| ⛔ `skills/crustyimg/SKILL.md:67-68` | proposed: `- **Metadata, GPS included, is dropped** on any command that re-encodes pixels; \`--keep-gps\` is refused (exit 2). If the user asks to keep location data, run \`crustyimg meta copy --from <in> --to <out> -y\` after the encode (JPEG and PNG).` |
+| ⛔ `skills/crustyimg/SKILL.md:67-68` | proposed: `- **Metadata, GPS included, is dropped** on any command that re-encodes pixels; \`--keep-gps\` is refused (exit 2). If the user asks to keep location data, run \`crustyimg meta copy --from <in> --to <out> -y\` after the encode (JPEG only).` |
 | `docs/research/*.md`, `docs/sessions/*.md`, released `CHANGELOG.md` entries | unchanged (historical). |
 
 Help strings in `src/cli/mod.rs` (⚠):
@@ -779,7 +779,7 @@ Help strings in `src/cli/mod.rs` (⚠):
 > ### Changed
 > - **`--keep-gps` is refused (exit 2).** It never kept GPS: pixel-lane encodes drop all metadata.
 >   To keep it, copy it back after the encode: `crustyimg meta copy --from in.jpg --to out.jpg -y`
->   (JPEG and PNG). The flag is hidden from `--help`.
+>   (JPEG only). The flag is hidden from `--help`.
 > - **`responsive` refuses `--name-template` and `--format` (exit 2)** instead of ignoring them. Its
 >   names are fixed (`{stem}-{w}w.{ext}`); choose formats with `--formats`.
 > - **`--check` (`--frozen`, `--locked`), `--strict` and `--no-cache` are refused (exit 2) on every
