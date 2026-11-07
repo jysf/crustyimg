@@ -43,5 +43,13 @@ Cycle prompts live in `prompts/SPEC-151-<cycle>.md`.
   (`resize` reaches it from any input on `main`). Optional, for ship to file: no test pins resize's cap
   message text. About $8.66 (Opus, 12.3M tokens; the input and cache_creation lines were cut off in
   the paste).
-- [ ] **punch list** (`prompts/SPEC-151-punchlist.md`, Sonnet, worktree `fix/spec-151-punch`)
+- [x] **punch list** (2026-11-06, `prompts/SPEC-151-punchlist.md`, Sonnet): PR #255 at `f3b3e33`, CI
+  green (18 pass, 8 release jobs skipped). Two rows in `border_is_a_fraction_of_the_long_edge` (`0.01`
+  on 50×10 → 52×12; `0.7` on 5×3 → 13×11) and a binary row `apply_reads_the_border_as_f64`. M14 now
+  turns both test functions red and nothing else; M4 turns them red too. Spec wording fixed (31 files,
+  2 `orientation_of` callers, M14 cell, AC-5); `(SPEC-128)` dropped from `docs/data-model.md`'s
+  reworded line. The orchestrator read the diff: `src/` changes only inside `mod tests`. No re-verify
+  (rule 7: assert and wording only). About $0.72 (Sonnet, 1.44M tokens, before its last two turns).
+  Not yet recorded in `cost.sessions`: verify (ship measures it).
+- [ ] **merge** — PR #255 marked ready by the orchestrator after the punch list; the maintainer merges.
 - [ ] **ship**
