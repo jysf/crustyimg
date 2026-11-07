@@ -7,7 +7,7 @@
 task:
   id: SPEC-150
   type: bug                        # epic | story | task | bug | chore
-  cycle: design  # frame | design | build | verify | ship
+  cycle: build  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: M                    # S | M | L  (L means split it)
@@ -28,6 +28,11 @@ references:
     - DEC-007   # exit codes: an unreadable/absent input is exit 3
     - DEC-003   # metadata dual lane; its pixel-lane preserve claim is false (fold-in 8)
     - DEC-010   # directory sources are non-recursive (top level only)
+    - DEC-030   # meta copy is JPEG only
+    - DEC-015   # the shared CLI fan-out and api-contract
+    - DEC-050   # lint (its help text loses the id)
+    - DEC-057   # build overwrites its outputs (its help text loses the id)
+    - DEC-059   # --frozen/--locked/--strict (their help text loses the id)
   constraints: []
   related_specs:
     - SPEC-148  # lint's fix lines; `fix: null` cases make "(each with a runnable fix)" false
@@ -65,6 +70,19 @@ cost:
       duration_minutes: null
       recorded_at: 2026-11-06
       notes: "Measured from the transcript before the commit/push turns (44 deduped message ids; Opus $5/$25, cache_creation x1.25, cache_read x0.10)."
+    - cycle: design
+      agent: claude-opus-5-5
+      interface: claude-code
+      tokens_total: 10565790
+      tokens_breakdown:
+        input: 126
+        output: 86506
+        cache_creation: 203264
+        cache_read: 10275894
+      estimated_usd: 8.57
+      duration_minutes: null
+      recorded_at: 2026-11-06
+      notes: "Measured from the transcript before the commit/push turns (63 deduped message ids; Opus $5/$25, cache_creation x1.25, cache_read x0.10). Includes a throwaway sketch build + drive, reverted."
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -362,50 +380,426 @@ test modules so it never needs them changed.
 
 ## Acceptance Criteria
 
-Testable outcomes. Cover happy path, error cases, edge cases.
+Each AC names its checks (FT ids below). Every check names what turns it red.
 
-- [ ] Criterion 1 (testable)
-- [ ] Criterion 2 (testable)
+- [ ] **AC-1 A folder with no images says so (exit 3), from one place.** A readable folder whose top level holds no
+  image (`sub/` holding only `sub/inner/a.png`; `txt/` holding only `notes.txt`; `empty/`) makes every verb that
+  resolves inputs print exactly
+  `error: no images in folder '<dir>': only its top level is read; to include subfolders, use a glob such as '<dir>/**/*'`
+  and exit 3, writing nothing. "Every verb" = each of the 8 callers that used to build `NotFound` from an empty
+  result: `view`, the pixel fan-out (`resize`, `convert`, `thumbnail`, `auto-orient`, `edit`, `watermark`, format-pinned
+  `optimize --format png`), the metadata fan-out (`meta strip|clean|set`), `build` (per target, prefixed by
+  `error: target #N (recipe R, out O)`), `apply` (plain recipe), the auto-decide fan-out (`optimize --out-dir`,
+  `web --out-dir`), `info`, `lint`. The text comes from one variant, `SourceError::NoImagesInFolder`, built in one
+  function, `source::resolve_all`; no caller builds a source error itself. — FT-M1, FT-M2, FT-U1, FT-U2.
+- [ ] **AC-2 The folder name in the message is derived, not echoed.** `sub/` (trailing separator) prints `'sub'`
+  and the hint `'sub/**/*'`, never `'sub/'` or `'sub//**/*'`. — FT-M3 (the derived-vs-naive row, trap 10), FT-U1.
+- [ ] **AC-3 A glob that matches no image says so (exit 3).** `'txt/*'` and `'nope/*'` print
+  `error: no images matched '<glob>'`, exit 3. — FT-M4, FT-U1.
+- [ ] **AC-4 The true old message stays where it is true.** A missing path (`nope`) keeps
+  `error: input not found or unreadable: nope` (exit 3). A folder that exists but cannot be listed (`chmod 000`,
+  Unix) keeps it too, on the fan-out verbs **and on `lint`**, which skips unresolvable arguments: the wrong-cause
+  trap (a helper that re-checks `is_dir()` after the fact calls an unreadable folder "no images"; driven: `lint locked`
+  reaches the empty-result branch). — FT-M5, FT-U2.
+- [ ] **AC-5 Several arguments: behaviour unchanged, message names the first cause.** `resize a.png empty/` still
+  exits 0 (an empty folder among others is not an error, as on `main`). When nothing resolves, the error is the
+  first argument's cause in argument order (`resize sub/ empty/` names `'sub'`; `lint nope sub` names `nope` with
+  the not-found text; `lint sub nope` names `'sub'` with the folder text). `lint 'txt/*' a.png` still exits 0. —
+  FT-M6, FT-U2.
+- [ ] **AC-6 A single-file verb given a folder says it is a folder (exit 3).** `responsive --widths 8 --out-dir od img`,
+  `diff img a.png`, `diff a.png img`, `meta copy --from img --to a.png -o o.jpg` and `meta copy --from a.jpg --to img`
+  print `error: '<arg>' is a folder, not an image file`, exit 3, even though `img/` holds an image. A missing file
+  keeps `error: could not read image input` (exit 3). — FT-M7.
+- [ ] **AC-7 `-q` names the real conflict (exit 2 kept).** `optimize -q 10 a.png -o o.png` →
+  `error: -q/--quality cannot be used with optimize, which chooses the quality itself; to encode at a fixed quality, use \`crustyimg convert -q N\``;
+  `web -q 10 …` the same with `web`. `optimize -q 10 --target high …` and `--ssim 80` →
+  `error: -q/--quality cannot be combined with --target or --ssim, which choose the quality to reach a score`;
+  `optimize -q 10 --max-size 2k …` and `convert --format jpeg -q 10 --max-size 2k …` →
+  `error: -q/--quality cannot be combined with --max-size, which chooses the quality to fit the size`. All exit 2.
+  The advice is true: `convert --format jpeg -q 10 a.png -o fixed.jpg` exits 0 (driven). — FT-M8.
+- [ ] **AC-8 The `meta` format messages read as sentences.** `meta strip|clean --gps|set` on a GIF/WebP →
+  `error: the meta commands support JPEG and PNG only, and this file is GIF` (`… is WEBP`); on unrecognised bytes →
+  `… and this file's format is not recognised`; `meta copy` with a non-JPEG side →
+  `error: meta copy supports JPEG only, and the --from file is PNG` (or `the --to file is GIF`, or
+  `the --from file's format is not recognised`). All exit 4. No message contains `does not support`, `yet`,
+  `in v1`, or a Rust enum spelling (`Gif`, `WebP`). In a batch the per-input line keeps its `error: <path>: ` prefix
+  and the run exits 6. — FT-M9, FT-U4.
+- [ ] **AC-9 A path with `"` is quoted unambiguously.** `watermark --text hi --font 'a"b.ttf'` →
+  `error: could not read font file "a\"b.ttf": …`; `--image 'nope"x.png'` → `… watermark image "nope\"x.png": …`
+  (exit 3); a recipe step `image = 'm"q.png'` → `error: recipe step 0 ('watermark'): could not read 'image' file "m\"q.png": …`
+  (exit 1). A backslash is **not** doubled (`C:\dir\f.ttf` prints as typed: Windows paths stay readable). Both
+  messages call one helper. — FT-M10, FT-U3.
+- [ ] **AC-10 No rendered help page shows an internal id.** Every page the user can print with `-h` or `--help`
+  (root, `meta`, every leaf; 44 on `main`) carries no `SPEC-<digit>`/`DEC-<digit>`. The walk renders pages through
+  the parser (`try_get_matches_from`), as the binary does, and asserts each is a help display. — FT-G1.
+- [ ] **AC-11 The walk cannot silently shrink.** The set of command paths the walk visits equals the set derived
+  independently from the rendered pages' `Commands:` sections, and that set includes a nested path (`meta set`).
+  — FT-G2.
+- [ ] **AC-12 No completion script shows an id.** `clap_complete::generate` for every `Shell::value_variants()`
+  (5 on `main`) carries no id. — FT-G3.
+- [ ] **AC-13 No user-facing string literal in production source shows an id.** Every string literal in
+  `src/**/*.rs` outside `#[cfg(test)]` items carries no id; comments are out of scope (ruling 3). This covers the
+  wasm refusal, `#[error]` attributes and `JsError` text. The scanner's hard cases are tested on their own. — FT-G4,
+  FT-G5.
+- [ ] **AC-14 The browser refusal is plain.** The wasm refusal reads
+  `recipe step {index} ('{op}') reads its '{key}' from a file, and crustyimg-wasm has no filesystem access, so steps that read files are out of scope here: remove the step, or run the recipe with the crustyimg CLI`
+  and contains neither an id nor "wasm surface"/"boundary". — FT-G4 (id), FT-W1 (existing
+  `tests/wasm_roundtrip.rs:270-283` asserts `watermark`, `image`, `filesystem`, `out of scope`; run by
+  `just wasm-check`), FT-U5 (wording, native).
+- [ ] **AC-15 The demo page and embedded text show no id.** `demo/*.js` and `demo/*.html` with comments removed, and
+  every file the binary embeds with `include_str!`, carry no id. — FT-G6.
+- [ ] **AC-16 The help text stays true.** `lint`'s description says a fix is given "where one exists" (SPEC-148 made
+  `fix: null` real); `--strict` says it compares lockfiles written on a different platform (target triple), which is
+  what `src/build/lock.rs::diff` keys on. — FT-G1 does not prove truth, so: FT-M11 (`lint --help` contains
+  `where one exists` and not `each with`; `--strict` long help contains `different platform`).
+- [ ] **AC-17 Docs match.** `docs/cli-reference.md` carries no id (6 lines today) and its `:312` sentence no longer
+  points at SPEC-111 (an unrelated spec; the `edit`/`apply` divergence is still open); its exit-3 row and
+  `docs/api-contract.md:58` name the new causes; `AGENTS.md:501-503` and `docs/architecture.md:148-151` say pixel
+  encodes drop all metadata; DEC-003 carries the SPEC-150 amendment (committed by design). — FT-D1 (a grep the build
+  runs and pastes; docs have no green, so the build quotes each changed line).
 
 ## Failing Tests
 
-Written during **design**, BEFORE build. The implementer's job in
-**build** is to make these pass.
+Written during **design**. Native tests run in `cargo test`; FT-W1 runs in `just wasm-check`. Every binary-driven row
+assigns the command's output first, then asserts exit code, then exact stderr (trap 15). Fixtures are built in a
+`tempfile::TempDir` with `image` (16×16 PNG) and literal bytes (a 1×1 GIF, `b"not an image at all"` named
+`junk.jpg`); no fixture comes from crustyimg itself. No row sets an environment variable.
 
-- **`path/to/test.file`**
-  - `"test description 1"` — asserts: ...
+- **`tests/messages_tell_the_truth.rs`** (new, native only: `#![cfg(not(target_arch = "wasm32"))]`)
+  - `"a folder with no top-level image says so on every verb"` (FT-M1) — table: 17 verb rows × 3 shapes (`sub`,
+    `txt`, `empty`) = 51 rows. Rows: `view`; `resize --max 8 --out-dir od`; `resize --max 8` (stdout);
+    `convert --format jpeg --out-dir od`; `thumbnail --out-dir od`; `auto-orient --out-dir od`;
+    `edit --invert --out-dir od`; `watermark --text hi --out-dir od`; `optimize --format png --out-dir od` (an
+    explicit format pin → pixel fan-out; `-o o.png` is avoided because its pin depends on the resolved count); `optimize --out-dir od`; `web --out-dir od`; `apply --recipe r.toml --out-dir od` (`r.toml` = one
+    `invert` step); `meta strip --out-dir od`; `meta clean --gps --out-dir od`; `meta set --artist x --out-dir od`;
+    `info`; `lint`; and two `build` rows (FT-M2). Asserts per row: exit 3; stderr == the AC-1 line exactly (one
+    line); stdout empty; **nothing written**: a SHA-256 snapshot of the whole temp tree (the
+    `tests/cli_flags_honest.rs` pattern, copied, not imported) is identical before and after, and `od`/`o.png` do not
+    exist. The failure message names the verb, shape and the stderr it got.
+  - `"a build target whose source is a folder with no images says so and writes nothing"` (FT-M2) —
+    `build b.toml` with `version = 1`, one target `source = "<shape>"`: exit 3, stderr ==
+    `error: target #0 (recipe r.toml, out bo)\nerror: <AC-1 line>\n`; `bo/` not created. A two-target manifest
+    (target 0 `source = "img"`, target 1 `source = "sub"`): exit 3, stderr names `target #1`, and **neither** `bo0/`
+    nor `bo1/` exists (every target is validated before any write; driven on the sketch).
+  - `"the folder name is derived from the argument"` (FT-M3) — `resize --max 8 --out-dir od sub/`: stderr names
+    `'sub'` and `'sub/**/*'`; asserts it does **not** contain `'sub/'` or `sub//`. Then
+    `resize 'sub/**/*' --max 8 --out-dir gl` exits 0 and writes `gl/a.png` (the hint works, driven).
+  - `"a glob that matches no image says so"` (FT-M4) — `resize --max 8 --out-dir od 'txt/*'` and `'nope/*'`, and
+    `lint 'txt/*'`: exit 3, stderr == `error: no images matched '<glob>'`.
+  - `"a missing path and an unreadable folder keep the not-found message"` (FT-M5) — `resize --max 8 --out-dir od
+    nope`, `lint nope`, `info nope`: exit 3, stderr == `error: input not found or unreadable: nope`. Unix only
+    (`#[cfg(unix)]`, a separate `#[test]` so its absence on Windows is visible in the test list, not a printed skip):
+    `chmod 000 locked`; the row **first asserts `std::fs::read_dir(locked)` fails** and panics with
+    "precondition: running as root? an unreadable folder cannot be made here" if not; then `resize … locked`,
+    `lint locked` and `lint locked sub` all print `error: input not found or unreadable: locked`, exit 3; restores
+    the mode before asserting.
+  - `"several arguments keep their behaviour and name the first cause"` (FT-M6) — `resize --max 8 a.png empty`
+    exit 0 (stdout non-empty); `lint 'txt/*' a.png` exit 0; `resize --max 8 --out-dir od sub empty` → names
+    `'sub'`; `lint nope sub` → `error: input not found or unreadable: nope`; `lint sub nope` → the folder line for
+    `'sub'`. All failing rows exit 3.
+  - `"a single-file verb given a folder says it is a folder"` (FT-M7) — the five AC-6 commands (with `img/` holding
+    `img/a.png`, so a reader that resolved the folder would succeed): exit 3, stderr == `error: '<arg>' is a folder,
+    not an image file`; `responsive` writes nothing. Controls: `responsive --widths 8 --out-dir od nope.png` and
+    `diff nope.png a.png` keep `error: could not read image input`, exit 3.
+  - `"-q names the conflict the user actually has"` (FT-M8) — the six AC-7 commands: exit 2, stderr == the exact
+    line. Plus `convert --format jpeg -q 10 a.png -o fixed.jpg` exits 0 and writes a JPEG (the advice works).
+  - `"meta format messages are sentences"` (FT-M9) — `meta strip -o o.gif a.gif`, `meta clean --gps -o o.webp
+    a.webp` (`a.webp` = literal bytes `RIFF\x1a\0\0\0WEBPVP8L` + padding: `sniff` reads magic bytes only, so no
+    WebP codec is needed, lean build included), `meta set --artist x junk.jpg` (stdout), `meta copy --from a.png --to b.jpg
+    -o o.jpg`, `meta copy --from b.jpg --to a.gif -o o.gif`, `meta copy --from junk.jpg --to b.jpg -o o.jpg`
+    (`b.jpg` a JPEG made with `image`): exit 4, stderr == the exact AC-8 line; each asserts the absence of
+    `does not support`, ` yet`, `in v1`, `Gif`, `WebP`. Batch row: `meta strip --out-dir od a.gif a.png` exits 6,
+    stderr's first line == `error: a.gif: the meta commands support JPEG and PNG only, and this file is GIF`.
+  - `"a path with a double quote is quoted unambiguously"` (FT-M10) — the three AC-9 commands (paths that do not
+    exist; no file with `"` is created, so the row runs on Windows, where `"` is not a legal filename character):
+    stderr starts with the exact quoted prefix; a fourth row with `--font 'C:\dir\f.ttf'` asserts the stderr contains
+    `"C:\dir\f.ttf"` (one backslash each). Exits 3, 3, 1, 3.
+  - `"help text that changed is true"` (FT-M11) — `lint --help` contains `where one exists`, not `each with`;
+    `build --help` (the `--strict` long help) contains `different platform`.
+- **`tests/help_has_no_internal_ids.rs`** (new, native only)
+  - `"no help page shows an internal id"` (FT-G1) — walk `Cli::command()` recursively (`get_subcommands`, skip
+    `help`), collecting every command path including the root and `meta`. For each path × `["-h", "--help"]`:
+    `let err = Cli::command().try_get_matches_from(["crustyimg", ..path, flag]).unwrap_err();` assert
+    `err.kind() == ErrorKind::DisplayHelp`, then `let page = err.render().to_string();` normalise `\r\n` → `\n`,
+    and collect every line with an id (`SPEC-`/`DEC-` followed by an ASCII digit). Fail listing `path flag: line`
+    for every hit. ⚠ **Not `render_help()` on the sub-`Command`**: driven on `main`, that sees **18** id lines of
+    207, because global flags are only propagated into a subcommand when clap builds the parsed command; the parsed
+    page sees all 207 (equal to the frame's binary walk).
+  - `"the help walk visits every page the user can reach"` (FT-G2) — derive the expected paths **from the rendered
+    text**: render the root's `--help` through `try_get_matches_from`, take each line of its `Commands:` section
+    (`^  <name>` until the next unindented line; skip `help`), and recurse on each the same way. Assert the walk's
+    path set (minus `is_hide_set()` subcommands, none on `main`) **equals** the derived set; assert the derived set
+    contains a path of length 2 (`meta set`); `println!` the page count (44 on `main`) for the build log, but the
+    equality is the check (a printed count is invisible in CI, trap 11).
+  - `"no completion script shows an internal id"` (FT-G3) — for every `clap_complete::Shell::value_variants()`:
+    `generate(shell, &mut Cli::command(), "crustyimg", &mut buf)`, assert the script is non-empty and contains
+    `crustyimg`, normalise CRLF, fail on any id line naming the shell. Assert the shells seen ==
+    `value_variants().len()`. On `main`: bash 0, zsh 136, fish 92, powershell 136, elvish 136.
+  - `"no production string literal shows an internal id"` (FT-G4) — list `src/**/*.rs` recursively, sorted (44
+    files on `main`); assert ≥ 1 file and that `src/wasm.rs` and `src/cli/mod.rs` are in the list (a scan of an
+    empty or wrong dir must not pass). For each file run `production_literals(text)` (below) and fail on any literal
+    containing an id, naming `file:line` and the literal. On `main` it finds exactly **1** of 1191 literals:
+    `src/wasm.rs:237` (the refusal; the id sits on a continuation line, which the frame's `grep` missed). With the
+    test-item skip disabled it finds 7 of 4279: the 6 test assertions the frame listed plus the refusal.
+  - `"the literal scanner handles the hard cases"` (FT-G5) — `production_literals` on fixture snippets, each
+    built with `concat!` so this file cannot match its own pattern: `"x // ID"` (an id after `//` inside a string)
+    → 1 hit; `// "ID"` → 0; `r#"a // ID ""#` → 1; `let q = '"'; // ID` (a `"` char literal before a comment) → 0;
+    `/* "ID" */` and nested `/* /* */ "ID" */` → 0; `"\"ID"` → 1; `"line \⏎   (ID)"` (continuation) → 1;
+    `#[cfg(test)] mod t { "ID" } fn after() { "ID2" }` → exactly 1 (`ID2`: code after a test module is scanned);
+    `fn f<'a>(x: &'a str) { "ID" }` (lifetimes) → 1; `#[error("bad (ID)")]` → 1; `br"ID"` → 1;
+    `b'"'` then `"ID"` → 1. (All 11 non-`b'` cases were run on a probe at design; all matched.)
+  - `"the demo page and embedded text show no internal id"` (FT-G6) — `demo/*.js` and `demo/*.html`, with `/* … */`,
+    `<!-- … -->` and `//`-to-end-of-line (when `//` is at line start or after whitespace, so `https://` survives)
+    removed: no id line. And every path named by an `include_str!("…")` in `src/**/*.rs` (derived by scanning, not
+    listed; 3 recipe TOMLs on `main`), read whole: no id line. Assert the demo glob found ≥ 2 files and the
+    `include_str!` scan found ≥ 1. On `main` it finds exactly 2: `demo/demo.js:434`, `demo/index.html:163`.
+- **`src/source/mod.rs`** (existing `#[cfg(test)] mod tests`)
+  - `"resolve_all explains an empty result by its cause"` (FT-U1) — temp dirs: empty dir → `NoImagesInFolder("d")`;
+    `"d/"` → `NoImagesInFolder("d")` (trimmed); `"d/*.png"` with no match → `NoImagesMatched`; missing → `NotFound`;
+    a dir with one PNG → `Ok(len 1)`. Display of `NoImagesInFolder("sub")` == the AC-1 text.
+  - `"resolve_all skips or fails per OnEmpty and names the first cause"` (FT-U2) — `[img, empty]` Fail → Ok(1);
+    `[sub, empty]` Fail → `NoImagesInFolder("sub")`; `[missing, sub]` Skip → `NotFound("missing")`;
+    `[sub, missing]` Skip → `NoImagesInFolder("sub")`; `[bad[glob]` (invalid pattern, if `glob` rejects it) Skip →
+    `InvalidPattern` still propagates. `#[cfg(unix)]`: a `chmod 000` dir under Skip → `NotFound` (precondition
+    asserted as in FT-M5).
+- **`src/cli/mod.rs`** (existing tests module)
+  - `"new source and folder errors exit 3"` (FT-U3a) — `CliError::Source(NoImagesInFolder(..)).code() == 3`,
+    `NoImagesMatched` → 3, `InputIsAFolder` → 3.
+  - `"quoted escapes double quotes only"` (FT-U3) — `quoted("a\"b") == "\"a\\\"b\""`, `quoted(r"C:\d\f") ==
+    r#""C:\d\f""#`, `quoted("plain") == "\"plain\""`.
+- **`src/metadata/mod.rs`** (existing tests module)
+  - `"unsupported-format messages are sentences"` (FT-U4) — `strip_all(gif_bytes)` Display == the GIF sentence;
+    `strip_all(b"junk")` == the not-recognised sentence; `copy_metadata(png, jpeg)` == `… the --from file is PNG`;
+    `copy_metadata(jpeg, gif)` == `… the --to file is GIF`. The existing `matches!(…, UnsupportedFormat(_))` asserts
+    stay.
+- **`src/wasm.rs`** — the refusal is compiled for wasm32 only, so its wording is pinned by FT-W1 (existing,
+  PROJ-017-owned, unedited) and, natively, by FT-U5: the build moves the sentence into a `pub(crate) fn
+  asset_refusal(index, op, key) -> String` in a module compiled on both targets **only if** that is a ≤ 10-line
+  change; otherwise FT-U5 is dropped and FT-W1 + FT-G4 carry AC-14 (record which in Build Completion).
+- **FT-D1** (docs) — the build runs
+  `grep -nE '(SPEC|DEC)-[0-9]' docs/cli-reference.md; grep -n 'SPEC-111\|keep ICC\|ICC + copyright' docs/cli-reference.md AGENTS.md docs/architecture.md`
+  and pastes the (empty) output, plus each changed line, in Build Completion.
+
+### Baseline the build records before changing code (trap 13)
+
+Run the new test files on unchanged `main` code and quote each RED row's failure message. Expected wrong-reason
+risk: FT-M1's `view` rows could fail on "not a terminal" instead of the message (driven: `view sub` resolves
+before the tty check, so it prints the folder line; quote it). FT-G1 must be red with 207 hit lines across 44 pages;
+FT-G3 red on 4 shells (bash green, it carries no help text); FT-G4 red on `src/wasm.rs:237` only; FT-G6 red on the 2
+demo lines; FT-G2 and FT-G5 green on `main` (they test the harness, not the fix).
+
+### Mutation table (trap 12): apply each alone, record every test red
+
+| # | Mutation (exact location) | Expected red | Expected green (proves independence) |
+|---|---|---|---|
+| 1 | `src/cli/ops.rs` `run_pixel_op`: restore the old loop + `if all.is_empty() { return Err(…NotFound(inputs.join(" "))) }` verbatim | FT-M1 rows `resize` ×2, `convert`, `thumbnail`, `auto-orient`, `edit`, `watermark`, `optimize --format png` (8 rows × 3 shapes), FT-M3 | FT-M1 `view`, `meta *`, `apply`, `optimize --out-dir`, `web`, `info`, `lint`; FT-M2 |
+| 2 | `src/cli/ops.rs` `run_metadata_lane`: same restore | FT-M1 `meta strip|clean|set` ×3 | all other FT-M1 rows |
+| 3 | `src/cli/build.rs` prepare-target: restore `NotFound(target.source.as_slice().join(" "))` | FT-M2 (both) | FT-M1 |
+| 4 | `src/cli/optimize.rs` `run_apply` step 5: restore | FT-M1 `apply` ×3 | others |
+| 5 | `src/cli/optimize.rs` `run_optimize_autodecide`: restore | FT-M1 `optimize --out-dir`, `web` ×3 | `optimize --format png` rows (pinned path, mutation 1's) |
+| 6 | `src/cli/report.rs` `run_info` / `run_view` in `ops.rs`: restore `resolve` + `.ok_or(NotFound(input))` | FT-M1 `info` (resp. `view`) ×3 | others |
+| 7 | `src/cli/report.rs` `run_lint`: restore the old match-and-join | FT-M1 `lint` ×3 (old: `input not found or unreadable: sub`); FT-M6 `lint nope sub` (old joins `nope, sub`), `lint sub nope`, and `lint 'txt/*' a.png` (old arm does not skip `NoImagesMatched`: exit 3, not 0); FT-M5 Unix `lint locked sub` (old: `locked, sub`) | FT-M4 `lint 'txt/*'` (the glob error now propagates with the new text either way), FT-M5 `lint nope`, `lint locked` (old text is the same) |
+| 8 | `source::resolve_all`: build the empty-folder cause as `NotFound(arg)` (the helper returns the missing-path text) | all 51 FT-M1 rows, FT-M2, FT-M3, FT-M6 folder rows, FT-U1, FT-U2 | FT-M4, FT-M5 (proves the controls do not depend on the helper) |
+| 9 | `source::resolve_all`: classify after the fact with `Path::new(arg).is_dir()` instead of `Ok(empty)` | FT-M5 Unix rows (`lint locked`, `lint locked sub`), FT-U2 Unix row | FT-M1 (proves the wrong-cause row is the only one that sees it) |
+| 10 | `resolve_all`: drop the trailing-separator trim | FT-M3, FT-U1 `"d/"` row | FT-M1 |
+| 11 | `src/cli/mod.rs:115`: put `(SPEC-064)` back on `--no-cache` | FT-G1 (every page: it is global), FT-G3 zsh/fish/powershell/elvish | FT-G4 (doc comments are not literals), FT-G3 bash |
+| 12 | `meta set`'s doc comment (nested leaf): append `(DEC-017)` | FT-G1 on `meta set -h`/`--help` **and** `meta -h`/`--help` (the `Commands:` list shows each leaf's short help), FT-G3 (4 shells) | FT-G1 root and every other leaf |
+| 13 | `meta`'s long description (second paragraph): add `(SPEC-087)` | FT-G1 on `meta --help` **only** (proves both forms are walked; `-h` stays clean) | FT-G3 (long about is not in completions; record if it is) |
+| 14 | A `ValueEnum` variant doc (e.g. `QualityTarget::High`): add `(DEC-023)` | FT-G1 on `optimize --help`, FT-G3 zsh/fish (they carry possible-value help; record the shells that go red) | FT-G4. No completion-only text source was found: the frame traced every completion id line on `main` to the 8 doc comments that also render in help |
+| 15 | `src/wasm.rs` refusal `format!`: add ` (SPEC-128)` | FT-G4 (`src/wasm.rs`), FT-W1 stays green (its tokens remain) | FT-G1, FT-G3 |
+| 16 | `src/cli/mod.rs` `Lint` doc comment: restore `(each with a runnable fix)` | FT-M11 | FT-G1 (no id), proving FT-M11 is the truth check |
+| 17 | `reject_quality_with_auto`: restore the old body verbatim | FT-M8 rows 1–2 (`optimize`, `web`), rows for `--max-size` (old lists `--target/--ssim`) and `--target` | FT-M8 `convert -q` exit-0 row |
+| 18 | `quoted()`: return `format!("\"{path}\"")` (escaping removed) | FT-M10 rows 1–3, FT-U3 | FT-M10 backslash row |
+| 19 | `quoted()`: use `format!("{path:?}")` | FT-M10 backslash row, FT-U3 `C:\d\f` | — |
+| 20 | FT-G1's walk visits only the root (return before recursing) | FT-G2 (walk set ≠ derived set) | FT-G1 still red on `main`'s root page; green after fix — which is why FT-G2 exists |
+| 21 | FT-G2's derivation parses nothing (wrong section header) | FT-G2 (derived set lacks `meta set`) | — |
+| 22 | `production_literals`: stop skipping `#[cfg(test)]` items | FT-G4 red on the 6 test assertions (5 files, 2 PROJ-017-owned: do not edit them, revert) | — |
+| 23 | `production_literals`: treat `//` inside a string as a comment | FT-G5 row 1 and continuation row | — |
+| 24 | `src/metadata/mod.rs` `sniff`: restore `format!("{other:?}")` under `#[error("{0}")]` | FT-M9 rows, FT-U4 | FT-M7 |
+| 25 | `refuse_folder`: removed from `run_diff` only | FT-M7 `diff` rows (old `could not read image input`) | FT-M7 `responsive`, `meta copy` rows |
+
+Each red row's failure message must name its cause (trap 13): the FT-M rows print the stderr they got; FT-G rows print
+`path flag: line` / `file:line`.
 
 ## Implementation Context
 
-*Read this section (and the files it points to) before starting
-the build cycle. It is the equivalent of a handoff document, folded
-into the spec since there is no separate receiving agent.*
+*Read this section (and the files it points to) before starting the build cycle.*
+
+### Design calls (settled)
+
+1. **One place for an empty result: `source::resolve_all`.** New in `src/source/mod.rs`:
+   ```rust
+   pub enum OnEmpty { Fail, Skip }   // Skip only for lint
+   pub fn resolve_all<S: AsRef<str>>(args: &[S], reader: &mut impl Read, on_empty: OnEmpty)
+       -> Result<Vec<Input>, SourceError>
+   ```
+   It calls `resolve` per argument in order. `Ok(empty)` comes **only** from the directory branch (stdin and a single
+   file yield one input; a glob errors on empty), so `Ok(empty)` *is* the typed "readable folder, no top-level image"
+   cause: record `NoImagesInFolder(trimmed arg)` as the first cause, keep going. Under `Skip`, `Err(NotFound | NoImagesMatched)`
+   is recorded as a cause and skipped (lint's old behaviour); any other error, and every error under `Fail`,
+   propagates at once (exactly as the `?` in today's loops). If nothing resolved, return the first recorded cause.
+   Trim trailing `/` and `\` from the folder name; if that leaves `""` (the argument was `/`), use the argument.
+   Never `unwrap`: an empty `args` slice (unreachable through the CLI) returns `NotFound(String::new())`.
+   **Why not re-check the path in a helper after the fact:** `lint` swallows `NotFound` from an unreadable folder, so
+   a helper that asks `is_dir()` afterwards calls a `chmod 000` folder "no images" (driven: `lint locked` reaches
+   that branch). **Why not make `resolve` fail on an empty folder:** `resize a.png empty/` exits 0 today; the ruling
+   is wording only.
+2. **New variants** (`SourceError`, exit 3 each, explicit arms in `CliError::code`, whose match is exhaustive per
+   variant so a missing arm is a compile error):
+   `#[error("no images in folder '{0}': only its top level is read; to include subfolders, use a glob such as '{0}/**/*'")] NoImagesInFolder(String)`;
+   `#[error("no images matched '{0}'")] NoImagesMatched(String)`, returned by `resolve_glob` on an empty match
+   instead of `NotFound`. `NotFound` keeps its text and now means only a missing/unreadable path.
+3. **The 8 callers** (the frame listed 6; it missed `ops.rs:346` `run_pixel_op` and `ops.rs:779`
+   `run_metadata_lane`, the two fan-outs most verbs use): `ops.rs:42` (view), `:346`, `:779`, `build.rs:333`,
+   `optimize.rs:146` (`run_apply`, plain recipe), `:1619` (`run_optimize_autodecide`), `report.rs:227` (info),
+   `:505` (lint, `Skip`). Each becomes one `source::resolve_all(…)?` call; delete the loop and the
+   `is_empty` check. `view`/`info` keep their `.next()` with the existing `ok_or` (now unreachable; no `unwrap`).
+   `common.rs:346` `resolved_input_count` is not an error path; leave it on `resolve`. Remove the then-unused
+   `SourceError` imports (clippy).
+4. **Single-file verbs:** one helper `pub(super) fn refuse_folder(arg: &str) -> Result<(), CliError>` in
+   `src/cli/common.rs`, returning new `CliError::InputIsAFolder(String)`
+   (`#[error("'{0}' is a folder, not an image file")]`, exit 3). Called at the top of the read in `run_responsive`
+   (once), `run_diff` (a, then b), `run_copy_metadata` (from, then to). Not in `Image::load`: `ImageError`'s
+   messages are path-free by design (`src/error.rs` doc), and the CLI owns the argument name. Checking `is_dir()`
+   first also makes Windows (where reading a folder is "access denied") print the same line.
+5. **`-q`:** `reject_quality_with_auto(auto, global, verb: &str)` in `src/cli/optimize.rs:490`. When `-q` is given:
+   `None` → Ok; `Some(Fast)` → the AC-7 "cannot be used with {verb}" line (the default `optimize` and every `web`
+   trip this: `optimize_auto_config` returns `Fast` with no search flag, `run_web` hard-codes it);
+   `Some(Perceptual(_))` → the `--target or --ssim` line; `Some(SizeBudget(_))` → the `--max-size` line (fixes
+   `convert`, which has only `--max-size`, being told about `--target/--ssim`). Callers pass `"convert"`,
+   `"optimize"`, `"web"`. **Exit 2 stays:** both flags are valid alone; together they are a usage conflict
+   (DEC-007's 2), and `tests/cli.rs:3288` and scripts key on it.
+6. **`meta` messages:** `MetadataError::UnsupportedFormat` keeps its shape; its template becomes `#[error("{0}")]`
+   and each producer writes the whole sentence. `sniff` (`:65-71`): the AC-8 "meta commands … this file is {NAME}"
+   / "not recognised" lines, `NAME = format!("{other:?}").to_ascii_uppercase()` (same rule as `ops.rs::format_name`).
+   `copy_metadata` (`:317`): check `from` then `to` with `guess_format`, naming `--from`/`--to`. "The meta commands"
+   is true: `sniff`'s error is reached only from `strip_all`/`clean_gps`/`set_tags`/`copy_metadata`, called only by
+   `meta strip|clean|set|copy` (`has_manifest` maps it to `false`).
+7. **Quoting:** one `fn quoted(path: &str) -> String` in `src/cli/mod.rs` that wraps in `"` and escapes `"` only.
+   Used by `WatermarkAssetUnreadable` (`:640`) and `RecipeAssetUnreadable` (`:624`), the only two messages that wrap a
+   path in `"` (grep of `\"{` over `src/` outside JSON/HTML writers). `{path:?}` was rejected: it doubles every
+   backslash in a Windows path.
+8. **Help text** (`src/cli/mod.rs`; rule for any other: drop the parenthetical id; if it stood for a reason, say the
+   reason in words; never replace an id with a doc path):
+
+   | Line | New text |
+   |---|---|
+   | `--no-cache` `:114-115` | `` `build` only: bypass the cache: read no entries, write none, rebuild every input. The cache is on by default; this is the opt-out.`` |
+   | `--check` `:119-120` | `` `build` only: check the build against the committed `crustyimg.build.lock` instead of refreshing it: exit 7 on drift, and never modify the lockfile.`` |
+   | `--frozen`/`--locked` `:122-124` | `` `--frozen` and `--locked` are aliases of `--check`: crustyimg never uses the network, so cargo's "don't update" and "don't hit the registry" mean the same thing here.`` |
+   | `--strict` `:133-135` | `` `build --check` only: fail, instead of only noting it, when an output's bytes differ from a lockfile written on a different platform (target triple). For a team on one pinned toolchain that wants byte-identical output everywhere.`` |
+   | `--watch` `:139-143` | `` `build` only: rebuild whenever a source, recipe or the manifest changes. Debounced (an editor's burst of saves is one rebuild); the build's own outputs, `.crustyimg` and the lockfile never trigger it. Ctrl-C exits. Incompatible with `--check`/`--frozen`/`--locked`. A rebuild under `--watch` does not rewrite the committed lockfile.`` |
+   | `meta` long `:444-447` | `` `meta` groups the commands that edit metadata without re-decoding pixels. `auto-orient` is not here: it bakes orientation into the pixels, so it is an image command.`` |
+   | `build` `:491` | `` Run a declared build: every `[[target]]` in a build manifest.`` |
+   | `lint` `:499-500` | `Lint an image asset tree: report problems, with a runnable fix where one exists, and exit with a CI-friendly code. Read-only: never writes an image.` |
+
+   Keep each doc comment's line structure (the first sentence is the short help).
+9. **Browser refusal** (`src/wasm.rs:236-240`): AC-14's sentence. Keeps `watermark`/`image` (from `{op}`/`{key}`)
+   and `filesystem`/`out of scope`, which `tests/wasm_roundtrip.rs:270-283` asserts; true in a browser and in Node
+   (the npm package is `crustyimg-wasm`, a user-facing name). Also reword the code comment above it only if it is a
+   one-line touch (comments are out of scope; leave it otherwise).
+10. **Demo:** `demo/demo.js:434` → `"the one output the engine can't score itself (it has no AVIF decoder)."`;
+    `demo/index.html:163` → `as the CLI. Bytes are not guaranteed identical — this build is a`.
+11. **The guard's scanner** (`production_literals(text) -> Vec<(line, String)>` in the test file, ~60 lines): a
+    character lexer over CRLF-normalised text with states code / line comment / block comment (nested) / string
+    (`\` escapes the next char, newlines counted) / raw string (`r#*"` … `"#*`, also after `b`). A `'` starts a char
+    literal if the next char is `\` (skip to the closing `'`) or the char after next is `'`; otherwise it is a
+    lifetime. `#[cfg(test)]` arms a flag; the next `{` at code level starts a skipped region until its matching
+    `}`; a `;` first disarms it (an attribute on a non-block item: its literals are scanned, conservatively).
+    The scan resumes after the test module, so code after it is checked. Collect literal contents outside skipped
+    regions. Id test: `SPEC-`/`DEC-` + ASCII digit, prefixes written `concat!("SP", "EC-")`, `concat!("DE", "C-")`.
+    A probe of exactly this design ran on `main` (numbers in FT-G4/FT-G5).
+12. **Where an id could still hide** (stated, not guarded): a string assembled at runtime from pieces
+    (`format!("{}-{}", "SPEC", 64)`); text inside a dependency (clap's own strings); a test-only item not written as a
+    `#[cfg(test)]` block (scanned, so a false red, not a miss); docs other than `cli-reference.md` (`SECURITY.md` keeps
+    its ids by ruling); comments (ruling 3). Hidden args do not render. `after_help`, `before_help` and possible-value
+    help all render into the parsed pages, so FT-G1 sees them.
+
+### Docs (exact changes; ⚠ = PROJ-017-owned, do NOT edit, hand to the orchestrator)
+
+- `docs/cli-reference.md:40` drop ` (DEC-085)`; `:302` drop ` (SPEC-110)`; `:311-312` replace "This divergence is
+  introduced by SPEC-110 (before it, `edit` never baked either); flagged, not fixed — lands in SPEC-111." with
+  "This divergence is known and not yet fixed."; `:343` drop ` (DEC-057)`; `:447` drop ` (SPEC-088, DEC-074)`;
+  `:53` exit-3 row → `Input not found or unreadable, or a folder or glob with no images, or a folder where one image
+  file is expected.`; mirror the `--strict` and `lint` help sentences wherever this file restates them (the build
+  greps `strict` and `lint` sections and quotes what it changed).
+- `docs/api-contract.md:58` → `| \`3\` | Input not found or unreadable, or a folder or glob with no images, or a folder where one image file is expected. |`
+- `AGENTS.md:501-503` (glossary "Default-preserve policy") → `On pixel-lane encodes: **bake** orientation into
+  pixels (SPEC-110, amending DEC-003) and drop all other metadata, ICC and copyright/artist included (DEC-003,
+  amended by SPEC-150). \`--keep-gps\` is refused (SPEC-149); \`meta copy\` (JPEG only) copies metadata back.`
+  (AGENTS.md is agent-facing; ids are fine there.)
+- `docs/architecture.md:148-151` → `Read via \`kamadak-exif\` (read-only); edit via \`img-parts\` (EXIF/ICC
+  segments) and \`little_exif\` (tag write). Pixel-lane encodes drop all metadata (orientation is baked into the
+  pixels first); only the \`meta\` commands keep or edit it (DEC-003).`
+- `decisions/DEC-003-metadata-dual-lane.md` — **done in the design commit**: the SPEC-149 amendment's "(JPEG and
+  PNG)" corrected to "(JPEG only …)", and a SPEC-150 amendment added.
+- ⚠ `docs/recipes.md:148` "each with a runnable fix" → "with a runnable fix where one exists" (PROJ-017-owned).
+- ⚠ `CHANGELOG.md` Unreleased (PROJ-017-owned): the proposed `Fixed` text is in the design report; do not write it.
+
+### Files the build touches (none PROJ-017-owned; shared files marked, smallest hunk)
+
+- `src/source/mod.rs` — 2 variants, `NotFound`→`NoImagesMatched` at `:247`, `OnEmpty` + `resolve_all`, unit tests.
+- `src/cli/mod.rs` (**shared**) — 2 exit arms + `InputIsAFolder` variant/arm, 8 doc comments, 2 `#[error]` lines,
+  `quoted()`, unit tests. Doc-comment hunks only touch the listed lines.
+- `src/cli/ops.rs`, `src/cli/build.rs`, `src/cli/report.rs`, `src/cli/optimize.rs` — the 8 callers; `refuse_folder`
+  calls; `reject_quality_with_auto` and its 3 callers.
+- `src/cli/common.rs` — `refuse_folder`.
+- `src/metadata/mod.rs` — template + `sniff` + `copy_metadata` check; unit tests.
+- `src/wasm.rs` (**shared**) — the refusal sentence only (+ FT-U5 helper only if ≤ 10 lines).
+- `demo/demo.js`, `demo/index.html` — one string each.
+- `docs/cli-reference.md` (**shared**), `docs/api-contract.md`, `docs/architecture.md`, `AGENTS.md` (**shared**) —
+  the lines above.
+- `tests/messages_tell_the_truth.rs`, `tests/help_has_no_internal_ids.rs` — new.
+- Not touched: `src/operation/**`, `src/recipe/**`, `tests/common/mod.rs`, `tests/wasm_roundtrip.rs`,
+  `tests/recipe_corpus_output.rs`, `tests/fixtures/recipe_corpus/`, `scripts/wasm-ci-check.sh`, `docs/recipes.md`,
+  `recipes/README.md`, `skills/crustyimg/SKILL.md`, `CHANGELOG.md`, `projects/PROJ-017-*`.
+
+### Verification the build runs
+
+`cargo fmt --check`; `cargo clippy --all-targets -- -D warnings`; `cargo test` (native, all); the baseline and the
+mutation table above; `cargo build --no-default-features` **and** `cargo test --no-default-features --test
+help_has_no_internal_ids --test messages_tell_the_truth` (the lean leg; every fixture is a PNG/JPEG made with `image`'s default
+codecs or literal magic bytes, so no row needs a feature gate; if one does, name the gate in Build Completion); `just wasm-check` (FT-W1). Own `CARGO_TARGET_DIR`. Push a checkpoint commit after the source
+change, after the guard file, and after the message tests.
+
+**Size: M.** If verification pushes past M, the cut is FT-G6's `include_str!` half and FT-U5 (both are second nets);
+report before cutting.
 
 ### Decisions that apply
 
-- `DEC-NNN` — <one-line summary of why this matters here>
-- `DEC-MMM` — <one-line summary>
+- `DEC-007` — exit codes: unreadable/absent input 3, usage 2, unsupported format 4; the new causes are 3.
+- `DEC-010` — directory sources are non-recursive; the message states it and points at the glob.
+- `DEC-003` — the dual lane; amended here (pixel encodes drop all metadata; `meta copy` JPEG only).
+- `DEC-030` — `meta copy` is JPEG only; the new message says so.
+- `DEC-050`, `DEC-057`, `DEC-059` — what the removed ids in `lint`, `build` and `--frozen`/`--strict` help stood for;
+  the new sentences keep their behaviour statements.
+- `DEC-015` — the shared CLI fan-out (`run_pixel_op`) and `docs/api-contract.md`.
 
 ### Constraints that apply
 
-These constraints apply to the paths touched by this task (see
-`/guidance/constraints.yaml` for full text):
-
-- `constraint-id-1` — <one-line summary>
-- `constraint-id-2` — <one-line summary>
+- `no-unwrap-on-recoverable-paths` — `resolve_all`'s empty-args fallback, `view`/`info`'s kept `ok_or`.
+- `clippy-fmt-clean`, `every-public-fn-tested` (`resolve_all`, `OnEmpty`), `test-before-implementation`.
+- `single-image-library` — `src/source` still never decodes; `refuse_folder` only stats.
 
 ### Prior related work
 
-- `SPEC-YYY` (shipped) — <one-line summary, if relevant>
-- `PR #NNN` — <link, if relevant>
+- `SPEC-149` (shipped) — `tests/cli_flags_honest.rs`: the command-tree walk and SHA-256 tree snapshot this spec copies.
+- `SPEC-148` (shipped) — `fix: null` cases that make "each with a runnable fix" false.
+- `SPEC-128` (shipped) — the wasm asset refusal and `tests/wasm_roundtrip.rs`'s dedicated-refusal assertion.
 
 ### Out of scope (for this spec specifically)
 
-See `## Frame` → "Out of scope (for this spec specifically)"; design copies it here.
+As in `## Frame` → "Out of scope", plus: making an empty folder a no-op (ruling 1); changing multi-argument
+behaviour; `resolved_input_count`; ids in `SECURITY.md`, code comments and test assertions.
 
 ## Notes for the Implementer
 
-Gotchas, style preferences, reuse opportunities.
+- The build's `meta strip` batch row prints `error: a.gif: …` then `error: 1 of 2 inputs failed`; assert the first
+  line only.
+- `build`'s error is two `error:` lines (the anyhow chain); FT-M2 asserts both.
+- Every literal in the new test files that contains an id is built with `concat!`, so a future scan of `tests/`
+  cannot match the guard itself.
+- Comments in new code stay plain: no spec or DEC ids (the maintainer's comment rule; the guard does not check it).
 
 ---
 

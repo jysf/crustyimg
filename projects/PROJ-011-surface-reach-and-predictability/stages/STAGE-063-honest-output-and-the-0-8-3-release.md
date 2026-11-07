@@ -81,7 +81,7 @@ Spec ids 148 to 150 are reserved by this commit (PROJ-017 holds 147).
   `responsive --name-template` (and `--format`, found by the frame), `build --strict` alone and `--check`/`--strict`/
   `--no-cache` off `build`, and the missing-`--font` (and `--image`) message. Recommended: refuse `--keep-gps`, a
   minimal `-v` logger, refuse the rest (done as recommended). Complexity M.
-- [ ] SPEC-150 (framed 2026-11-06, M; GO, rulings pending: 5 questions in the spec's `## Frame`) — **Two messages tell the truth:** a folder with only
+- [ ] SPEC-150 (designed 2026-11-06, M; rulings settled 2026-11-06) — **Two messages tell the truth:** a folder with only
   subfolders (driven wider: any folder with no top-level image, 13 verbs, `build` targets too), and the browser's asset refusal plus every user-facing `SPEC-`/`DEC-` id in rendered
   `--help`, including `lint --help`'s "(each with a runnable fix)" line (SPEC-148's design asks SPEC-150 to reword it with its spec ids). Complexity S; framed M with fold-ins B, C
   (docs-only, pending ruling) and leftovers (1), (3), (5) ruled in, (4) out.

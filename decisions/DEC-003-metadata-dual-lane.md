@@ -123,10 +123,26 @@ is a separate finding, filed as its own spec, not fixed here.
 **`--keep-gps` is refused (exit 2) on every command.** It never kept GPS: driven at SPEC-149's
 frame, a pixel-lane encode of a JPEG or PNG carrying GPS, `Artist` and `Copyright` keeps none of
 them, so "drop GPS unless `--keep-gps`" described a flag that was accepted and ignored. The refusal
-names the container-lane workaround, `crustyimg meta copy --from <in> --to <out> -y` (JPEG and PNG),
+names the container-lane workaround, `crustyimg meta copy --from <in> --to <out> -y` (JPEG only; "JPEG and
+PNG" here was wrong, corrected by the SPEC-150 amendment below),
 and the flag is hidden from `--help` but kept in the parser, as a placeholder for the real feature
 (filed on PROJ-013 STAGE-052). The guard lives in `src/cli/global_flags.rs`. The ICC and
 copyright/artist half of this record's preserve claim is not corrected here (STAGE-063 finding C).
+
+## Amendment (2026-11-06, SPEC-150)
+
+**Pixel-lane encodes drop all metadata.** The default-preserve policy above (keep orientation, ICC and
+copyright/artist; drop GPS) does not describe the code, and this amendment replaces it: orientation is baked into the
+pixels (the SPEC-110 amendment), and the encode then keeps **no** metadata: no ICC profile, no copyright/artist, no
+GPS, no other EXIF. Driven at SPEC-150's frame and again at its design: `resize --max 8` and `convert --format jpeg`
+of `tests/fixtures/c2pa/signed_gps.jpg`, which carries an `sRGB IEC61966-2.1` ICC profile, write a JPEG with no
+`ICC_PROFILE` segment and no `Exif` segment; SPEC-149's frame drove Artist/Copyright dropped. The `meta` commands
+(the container lane) are the only path that keeps or edits metadata.
+
+**Correction to the SPEC-149 amendment:** the workaround it names, `crustyimg meta copy`, works on **JPEG only**
+(DEC-030); with a PNG on either side it exits 4 (driven). The `--keep-gps` refusal message already says
+"(JPEG only)". A selective preserve (a working `--keep-gps`, ICC kept) remains PROJ-013 STAGE-052's work. The
+glossary (`AGENTS.md`) and `docs/architecture.md` are corrected by SPEC-150's build.
 
 ## References
 
