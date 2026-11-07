@@ -47,7 +47,7 @@ agent-run workflow this repo uses.
    are read-only unless explicitly targeted as output.
 4. **Metadata leakage / privacy.** Image metadata can contain GPS location,
    device serials, and personal info. The default-preserve policy (DEC-003)
-   **drops GPS** on pixel-lane encodes unless `--keep-gps`; `clean --gps` and
+   **drops GPS** (with all other metadata) on pixel-lane encodes; `--keep-gps` is refused (exit 2); `clean --gps` and
    `strip` exist precisely for privacy. Don't silently retain location data.
    **In-house EXIF parsing (as of 0.2.0):** `set` and `clean --gps` now edit EXIF
    via an **in-house binary TIFF-IFD reader+writer** (`src/metadata/tiff.rs`, SPEC-045 /
@@ -85,7 +85,7 @@ it is enforced:
 | 1b | Untrusted **font** input (`--font PATH`) | parsed by `skrifa`+`zeno` (maintained `fontations`, no hand-written font parser) → malformed font is a typed `TextError::Font` (exit 2), never panic; raster composition bounds-checks every write | `src/text/` (SPEC-044 · DEC-045) |
 | 2 | Untrusted recipes (bad version, unknown op, parse/build DoS, op-param bomb) | version + unknown-op + invalid-param rejection; recipe text ≤ 64 KiB + ≤ 1024 steps; **resize output ≤ 512 MiB** (upscale-bomb) | `src/recipe/`, `src/operation/` (SPEC-006/035/037 · DEC-005/036/038) |
 | 3 | Path traversal on output | `safe_join` rejects `..`/separator/absolute names; **symlinked destinations refused even with `--yes`** (image output AND `--save-recipe`); no overwrite without `--yes`; dir/glob sources skip symlink-escaping entries (always anchored) | `src/sink/`, `src/source/` (SPEC-005/034/037 · DEC-035) |
-| 4 | Metadata leakage / privacy | default drop-GPS on pixel-lane encodes (`--keep-gps` to opt out); `clean --gps` / `strip` (container lane, no re-encode) | `src/metadata/` (SPEC-026 · DEC-003) |
+| 4 | Metadata leakage / privacy | pixel-lane encodes drop all metadata, GPS included (`--keep-gps` refused); `clean --gps` / `strip` (container lane, no re-encode) | `src/metadata/` (SPEC-026 · DEC-003) |
 | 4b | In-house **EXIF/TIFF-IFD** parsing (malformed/cyclic EXIF → panic/DoS) | bounds-checked reads (`checked_add`/`checked_mul` → typed `Overflow`/`OutOfBounds`); sub-IFD + IFD1 recursion **depth-capped (`MAX_IFD_DEPTH=8`) and cycle-guarded** (visited-offset set); typed `MetadataError::Exif` (exit 1), never panic; in-bounds serializer. Independent post-v0.1.0 audit: PASS | `src/metadata/tiff.rs` (SPEC-045 · DEC-046) |
 | 5 | Untrusted repo content + agents | process control (review what an agent runs; treat external briefs as untrusted) — not a code mitigation | workflow / this doc |
 | 6 | Secrets in git | `.gitignore` + the blocking `no-secrets-in-code` constraint; the tool needs no secrets | repo policy |

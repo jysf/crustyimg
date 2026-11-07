@@ -18,7 +18,7 @@ crustyimg [GLOBAL OPTIONS] <COMMAND> [INPUT...] [OPTIONS]
   the target extension).
 - **Per-command fan-out is sequential;** `apply --recipe` is the parallel path (`-j N`).
 - **Pipes stay clean:** with `-o -` (stdout) all diagnostics go to stderr.
-- **Default drop-GPS:** pixel-lane encodes strip GPS unless you pass `--keep-gps`.
+- **Metadata is dropped on pixel-lane encodes,** GPS included. `--keep-gps` is refused (exit `2`); to keep metadata, run `crustyimg meta copy --from <in> --to <out> -y` after the encode (JPEG only).
 - **SVG text always draws in the bundled Go font.** crustyimg never reads the fonts installed on
   your system, so `<text>` in any `font-family` (`sans-serif`, `Arial`, a family you do not
   have) draws in Go. Bold and italic draw upright in Go Regular, and characters Go does not
@@ -37,9 +37,10 @@ Available on every command (before or after the subcommand):
 | `--quality <0-100>` | `-q` | Encoder quality where the format supports it (e.g. JPEG). |
 | `--jobs <N>` | `-j` | Parallel workers for `apply` batch (default = CPU count). |
 | `--yes` | `-y` | Assume "yes" to overwrite prompts (non-interactive). |
-| `--quiet` | `-Q` | Suppress non-error output — except the truncated-JPEG warning (DEC-085), which is unconditional so a silent-corruption path can never be fully suppressed. |
-| `--verbose` | `-v` | Increase verbosity (repeatable, `-vv`); logs to stderr. |
-| `--keep-gps` | | Keep GPS/location tags on pixel-lane encodes (default drops them). |
+| `--quiet` | `-Q` | Suppress non-error output — except the truncated-JPEG warning (DEC-085), which is unconditional so a silent-corruption path can never be fully suppressed. Also silences `-v`. |
+| `--verbose` | `-v` | Show warnings from the SVG renderer and codecs on stderr; `-vv` adds debug detail. Silent by default; `-Q` wins. |
+| `--keep-gps` | | Refused (exit `2`): pixel-lane encodes drop all metadata. Use `meta copy` after the encode (JPEG only). Hidden from `--help`. |
+| `--check` / `--strict` / `--no-cache` / `--watch` | | `build` only (see Project builds); refused with exit `2` on every other command, and `--strict` is refused without `--check`. |
 | `--version` / `--help` | `-V` / `-h` | Standard. |
 
 ## Exit codes
@@ -201,7 +202,7 @@ Generate a width × format responsive set into `--out-dir` (never upscaling) and
 paste-ready `<picture>`/srcset snippet to stdout. Bakes EXIF orientation first, so
 requested widths are compared against the visually-correct source width (a sideways
 1200×800 source measures as 800 wide; `--widths 600` on it comes back 600×900, not a
-plain dimension swap). `--no-snippet` suppresses the snippet. Single input.
+plain dimension swap). `--no-snippet` suppresses the snippet. Single input. Output names are fixed as `{stem}-{w}w.{ext}`: `--name-template` and `--format` are refused (exit `2`); choose formats with `--formats`.
 ```sh
 crustyimg responsive hero.jpg --widths 320,640,1280 --formats webp,jpeg --out-dir web/
 ```
@@ -421,6 +422,8 @@ is no network to lock out). A missing lockfile under these flags is drift, not a
 crustyimg build --check           # the CI gate: exit 7 if the build drifted
 crustyimg build --check --strict  # also fail on cross-environment byte differences
 ```
+
+`--strict` without `--check` is refused (exit `2`).
 
 What counts as drift is the honest part. The **key** is a function of the inputs alone, so
 it reproduces on any machine: if a source, recipe, quality, or the tool version changed, the

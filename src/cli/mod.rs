@@ -29,6 +29,8 @@ use crate::source::SourceError;
 
 mod build;
 mod common;
+mod global_flags;
+mod logger;
 mod ops;
 mod optimize;
 // `pub(crate)` (not private): `lint::report` reuses `report::escape_json`
@@ -93,11 +95,11 @@ pub struct GlobalArgs {
     #[arg(short = 'q', long, global = true)]
     pub quality: Option<u8>,
 
-    /// Increase verbosity; repeatable (`-vv` for more). Logs to stderr.
+    /// Show warnings from the SVG renderer and codecs on stderr; `-vv` adds debug detail. `-Q` silences it.
     #[arg(short = 'v', long, action = clap::ArgAction::Count, global = true)]
     pub verbose: u8,
 
-    /// Suppress non-error output.
+    /// Suppress non-error output, including `-v` logging.
     #[arg(short = 'Q', long, global = true)]
     pub quiet: bool,
 
@@ -105,16 +107,16 @@ pub struct GlobalArgs {
     #[arg(short = 'y', long, global = true)]
     pub yes: bool,
 
-    /// Opt out of the default drop-GPS policy on pixel-lane encodes.
-    #[arg(long, global = true)]
+    /// Refused (exit 2): pixel-lane encodes drop all metadata; use `meta copy` after the encode.
+    #[arg(long, global = true, hide = true)]
     pub keep_gps: bool,
 
-    /// Bypass the `build` cache: read no entries, write none, rebuild every
+    /// `build` only: bypass the cache: read no entries, write none, rebuild every
     /// input (SPEC-064). The cache is on by default; this is the opt-out.
     #[arg(long, global = true)]
     pub no_cache: bool,
 
-    /// Verify the build against the committed `crustyimg.build.lock` instead of
+    /// `build` only: verify the build against the committed `crustyimg.build.lock` instead of
     /// refreshing it: exit 7 on drift, and never modify the lockfile (SPEC-066).
     ///
     /// `--frozen` and `--locked` are aliases — crustyimg has no network, so the
@@ -128,7 +130,7 @@ pub struct GlobalArgs {
     )]
     pub check: bool,
 
-    /// With `--check`: promote cross-environment output-byte variance from a
+    /// `build --check` only: promote cross-environment output-byte variance from a
     /// note to a failure. For shops on a pinned toolchain and arch that want
     /// byte-identity enforced (DEC-059).
     #[arg(long, global = true)]
@@ -376,7 +378,8 @@ pub enum Commands {
     /// Generate a responsive image set: width-scaled variants per format + a
     /// paste-ready <picture>/srcset snippet on stdout.
     /// Uses the global `--out-dir` (created if missing); resizes by target width,
-    /// never upscaling.
+    /// never upscaling. Output names are fixed (`{stem}-{w}w.{ext}`); `--name-template`
+    /// and `--format` are refused: choose formats with `--formats`.
     Responsive {
         input: String,
         /// Comma-separated target widths in px, e.g. `320,640,1280`.
@@ -632,6 +635,18 @@ pub enum CliError {
         source: std::io::Error,
     },
 
+    /// A `watermark --font` or `--image` file that could not be read (SPEC-149).
+    /// Names the file; an unreadable CLI input is exit 3 (DEC-007).
+    #[error("could not read {what} \"{path}\": {source}")]
+    WatermarkAssetUnreadable {
+        /// `"font file"` or `"watermark image"`.
+        what: &'static str,
+        /// The path that could not be read.
+        path: String,
+        /// The underlying I/O failure.
+        source: std::io::Error,
+    },
+
     /// A build-manifest parse / version / invalid-target error (SPEC-063).
     /// Every variant is a manifest *content* error → exit 2 (usage).
     #[error(transparent)]
@@ -799,6 +814,8 @@ impl CliError {
             // recipe, not a bad input → generic runtime error, like other
             // recipe/operation errors (SPEC-128, Call 2).
             CliError::RecipeAssetUnreadable { .. } => 1,
+            // The CLI's own `--font` / `--image` file: an unreadable input → 3.
+            CliError::WatermarkAssetUnreadable { .. } => 3,
             // A malformed build manifest is a usage error, like a bad flag → 2.
             // (Reading the manifest file is CliError::BuildManifestIo → 3.)
             CliError::Build(_) => 2,
@@ -844,6 +861,7 @@ impl CliError {
 /// stderr, keeping stdout clean for `-o -` pipe use.
 pub fn run() -> ExitCode {
     let cli = Cli::parse(); // clap exits 2 on parse errors
+    logger::init(cli.global.verbose, cli.global.quiet);
     match dispatch(&cli) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
@@ -894,17 +912,14 @@ fn refused_build_flags(global: &GlobalArgs) -> Vec<&'static str> {
 /// Only `Commands::Apply` is wired to a real end-to-end path; every other
 /// variant calls `Err(CliError::NotImplemented(...))` (exit 1).
 fn dispatch(cli: &Cli) -> Result<(), CliError> {
-    // `--watch` is a GLOBAL clap flag, but only `build` has a rebuild loop to run.
-    // On any other subcommand it used to be a silent no-op — the user asks to watch
-    // and gets one quiet one-shot run instead. Reject it as a usage error (exit 2)
-    // rather than ignoring it (SPEC-071 fix 4; `ergonomic-defaults`). Same shape as
-    // the `--watch` × verify-mode guard in `run_build_watching`.
-    if cli.global.watch && !matches!(cli.command, Commands::Build { .. }) {
-        return Err(CliError::Usage(
-            "--watch is only valid with `build`: there is no rebuild loop to run for \
-             this subcommand"
-                .to_owned(),
-        ));
+    // A global flag a subcommand would accept and ignore is refused (exit 2) with a
+    // reason: `--watch` and the build-only flags off `build`, `--keep-gps` everywhere,
+    // `responsive`'s fixed names. Every row is reported, in table order (SPEC-071,
+    // SPEC-149; `ergonomic-defaults`).
+    let refused = global_flags::refused_global_flags(cli);
+    if !refused.is_empty() {
+        // `run` prefixes the first line with `error: `; the join prefixes the rest.
+        return Err(CliError::Usage(refused.join("\nerror: ")));
     }
 
     // `build` takes its outputs from the manifest, so a global flag that would set an
@@ -1116,6 +1131,21 @@ fn run_completions(shell: clap_complete::Shell) -> Result<(), CliError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn watermark_asset_unreadable_is_exit_3_and_names_the_file() {
+        let err = CliError::WatermarkAssetUnreadable {
+            what: "font file",
+            path: "a b.ttf".to_owned(),
+            source: std::io::Error::from(std::io::ErrorKind::NotFound),
+        };
+        assert_eq!(err.code(), 3);
+        assert!(
+            err.to_string()
+                .starts_with("could not read font file \"a b.ttf\": "),
+            "{err}"
+        );
+    }
 
     // ── cli_parses_global_and_apply ──────────────────────────────────────────
 

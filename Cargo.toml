@@ -170,6 +170,10 @@ avif-parse = "2.1.0"
 # build's entry point is `src/wasm.rs`, not an argv parser.
 clap = { version = "4.6.1", features = ["derive"] }
 clap_complete = "4.6.5"
+# `-v`/`-vv` (SPEC-149): the facade our dependencies already log through (usvg, resvg,
+# fontdb, rav1e...). Already in the tree, so this adds no crate; native-only because
+# the logger lives in `src/cli/`.
+log = "0.4.32"
 # Input resolution (`source`: file / glob / dir / stdin, SPEC-004) and the lint
 # config's ignore patterns — both filesystem concepts with no wasm meaning.
 glob = "0.3.3"
