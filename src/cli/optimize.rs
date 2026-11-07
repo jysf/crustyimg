@@ -475,20 +475,31 @@ fn resize_max_params(max: u32) -> OperationParams {
 /// Reject combining a fixed `-q/--quality` with an auto-quality mode — they are
 /// mutually exclusive (one pins a quality, the other searches for it). `-q` is a
 /// GLOBAL arg, so this can't be expressed as a clap `conflicts_with` against the
-/// subcommand args; both `convert` and `optimize` enforce it here at runtime
-/// (`CliError::Usage`, exit 2).
+/// subcommand args; `convert`, `optimize` and `web` enforce it here at runtime
+/// (`CliError::Usage`, exit 2). The message names what actually chooses the
+/// quality: the verb itself (`Fast`), `--target`/`--ssim`, or `--max-size`.
 fn reject_quality_with_auto(
     auto: &Option<AutoQuality>,
     global: &GlobalArgs,
+    verb: &str,
 ) -> Result<(), CliError> {
-    if auto.is_some() && global.quality.is_some() {
-        return Err(CliError::Usage(
-            "-q/--quality cannot be combined with --target/--ssim/--max-size \
-             (they auto-tune quality)"
-                .into(),
-        ));
+    if global.quality.is_none() {
+        return Ok(());
     }
-    Ok(())
+    let message = match auto {
+        None => return Ok(()),
+        Some(AutoQuality::Fast) => format!(
+            "-q/--quality cannot be used with {verb}, which chooses the quality itself; \
+             to encode at a fixed quality, use `crustyimg convert -q N`"
+        ),
+        Some(AutoQuality::Perceptual(_)) => "-q/--quality cannot be combined with --target or \
+             --ssim, which choose the quality to reach a score"
+            .to_owned(),
+        Some(AutoQuality::SizeBudget(_)) => "-q/--quality cannot be combined with --max-size, \
+             which chooses the quality to fit the size"
+            .to_owned(),
+    };
+    Err(CliError::Usage(message))
 }
 
 /// Parse a `--max-size` value into a byte count (SPEC-017).
@@ -579,7 +590,7 @@ pub(super) fn run_convert(
         Some(sz) => Some(AutoQuality::SizeBudget(parse_size(sz)?)),
         None => None,
     };
-    reject_quality_with_auto(&auto, global)?;
+    reject_quality_with_auto(&auto, global, "convert")?;
     // With a byte budget, the per-input search supplies the quality (pass None).
     let fixed_quality = if auto.is_some() { None } else { global.quality };
 
@@ -680,7 +691,7 @@ pub(super) fn run_optimize(
 ) -> Result<(), CliError> {
     let auto = optimize_auto_config(target, ssim, max_size)?;
     // optimize always auto-tunes quality; a fixed -q conflicts.
-    reject_quality_with_auto(&Some(auto.clone()), global)?;
+    reject_quality_with_auto(&Some(auto.clone()), global, "optimize")?;
 
     // `--json` is the consistent audit spelling; it maps to the JSON explain
     // channel (equivalent to `--explain=json`, which clap forbids combining with).
@@ -825,7 +836,7 @@ pub(super) fn run_web(
     // `web` always auto-tunes (the fast decision), so a fixed `-q` conflicts (exit 2),
     // exactly like `optimize`.
     let auto = AutoQuality::Fast;
-    reject_quality_with_auto(&Some(auto.clone()), global)?;
+    reject_quality_with_auto(&Some(auto.clone()), global, "web")?;
 
     // The default downscale is `web`'s whole point; `--max` overrides the bound. It is
     // a `resize mode=max` long-edge cap, so a smaller source is never upscaled.

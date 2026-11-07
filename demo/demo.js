@@ -431,7 +431,7 @@ function renderScore(score, scoredBy, format, keptOriginal, budgetMissed, budget
     value = score;
     source =
       "Measured by decoding the AVIF back in your browser and scoring it against the resized input — " +
-      "the one output the engine can't score itself (it has no AVIF decoder, DEC-065).";
+      "the one output the engine can't score itself (it has no AVIF decoder).";
   } else if (scoredBy === "lossless") {
     source = `Lossless ${format.toUpperCase()} — every pixel is preserved, so there is no quality loss to score.`;
   } else {
