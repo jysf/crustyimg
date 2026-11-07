@@ -96,6 +96,19 @@ cost:
       duration_minutes: null
       recorded_at: 2026-11-06
       notes: "Measured from the transcript before the final bookkeeping/CI-read turns (106 deduped message ids, MAX output per id; Opus $5/$25, cache_creation x1.25, cache_read x0.10). Includes the 25-row mutation run and two full just check runs."
+    - cycle: fix
+      agent: claude-sonnet-5-5
+      interface: claude-code
+      tokens_total: 1983916
+      tokens_breakdown:
+        input: 48
+        output: 8846
+        cache_creation: 67038
+        cache_read: 1907984
+      estimated_usd: 0.96
+      duration_minutes: null
+      recorded_at: 2026-11-06
+      notes: "Measured from the transcript before the bookkeeping turns (24 deduped message ids, MAX output per id; Sonnet $3/$15, cache_creation x1.25, cache_read x0.10)."
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -424,12 +437,12 @@ Each AC names its checks (FT ids below). Every check names what turns it red.
   print `error: '<arg>' is a folder, not an image file`, exit 3, even though `img/` holds an image. A missing file
   keeps `error: could not read image input` (exit 3). — FT-M7.
 - [ ] **AC-7 `-q` names the real conflict (exit 2 kept).** `optimize -q 10 a.png -o o.png` →
-  `error: -q/--quality cannot be used with optimize, which chooses the quality itself; to encode at a fixed quality, use \`crustyimg convert -q N\``;
+  `error: -q/--quality cannot be used with optimize, which chooses the quality itself; to encode at a fixed quality, use \`crustyimg convert --format <FORMAT> -q N\``;
   `web -q 10 …` the same with `web`. `optimize -q 10 --target high …` and `--ssim 80` →
   `error: -q/--quality cannot be combined with --target or --ssim, which choose the quality to reach a score`;
   `optimize -q 10 --max-size 2k …` and `convert --format jpeg -q 10 --max-size 2k …` →
   `error: -q/--quality cannot be combined with --max-size, which chooses the quality to fit the size`. All exit 2.
-  The advice is true: `convert --format jpeg -q 10 a.png -o fixed.jpg` exits 0 (driven). — FT-M8.
+  The advice is true: the printed command, with `<FORMAT>` → `jpeg` and `N` → `10`, run on `a.png`, exits 0 and writes a non-empty file (the test runs the printed text). — FT-M8.
 - [ ] **AC-8 The `meta` format messages read as sentences.** `meta strip|clean --gps|set` on a GIF/WebP →
   `error: the meta commands support JPEG and PNG only, and this file is GIF` (`… is WEBP`); on unrecognised bytes →
   `… and this file's format is not recognised`; `meta copy` with a non-JPEG side →
@@ -515,7 +528,7 @@ assigns the command's output first, then asserts exit code, then exact stderr (t
     not an image file`; `responsive` writes nothing. Controls: `responsive --widths 8 --out-dir od nope.png` and
     `diff nope.png a.png` keep `error: could not read image input`, exit 3.
   - `"-q names the conflict the user actually has"` (FT-M8) — the six AC-7 commands: exit 2, stderr == the exact
-    line. Plus `convert --format jpeg -q 10 a.png -o fixed.jpg` exits 0 and writes a JPEG (the advice works).
+    line. Plus the command the message prints, with `<FORMAT>` → `jpeg` and `N` → `10`, run on `a.png`: exit 0, non-empty output (the advice works as printed).
   - `"meta format messages are sentences"` (FT-M9) — `meta strip -o o.gif a.gif`, `meta clean --gps -o o.webp
     a.webp` (`a.webp` = literal bytes `RIFF\x1a\0\0\0WEBPVP8L` + padding: `sniff` reads magic bytes only, so no
     WebP codec is needed, lean build included), `meta set --artist x junk.jpg` (stdout), `meta copy --from a.png --to b.jpg
@@ -937,6 +950,19 @@ behaviour; `resolved_input_count`; ids in `SECURITY.md`, code comments and test 
     change; released 0.8.2 builds the same way (a warning, not a behaviour bug). Open PR #240 adds clippy on the
     wasm32 library build; if it uses `-D warnings` it will trip on this. No CHANGELOG or DEC line needed; worth a
     `#[cfg(not(target_arch = "wasm32"))]` on the constant in whichever PR lands #240.
+
+### Fix round (verify punch list at `5996c6b`)
+
+- **R1:** the `-q` message now names `crustyimg convert --format <FORMAT> -q N` (the spec's AC-7 wording was wrong:
+  `convert -q 10` alone exits 2, "required arguments were not provided: --format"). FT-M8 pins the new sentence and
+  now runs the printed command with `<FORMAT>`→`jpeg`, `N`→`10`: exit 0, non-empty output.
+- **R2:** the glob suggestion goes through `lint::shell_arg` (new `pub(crate) quote_for_host_shell` wrapper; the
+  function itself stays private). `it's` now prints `'it'\''s/**/*'`; ordinary names stay `'sub/**/*'`. New unix-only
+  FT-M3 row runs the printed glob in `sh -c`. Red with the old quoting: ``sh: -c: line 0: unexpected EOF while
+  looking for matching `''``.
+- **Optional:** FT-M rows for `optimize --out-dir` and `web` with `nope` + a real image (exit 3, nothing written).
+  The `OnEmpty::Skip` mutant goes red: `optimize --out-dir od nope a.png: want exit 3, got Some(0)`.
+- Code commit `e0e1e3a`.
 
 ### Build-phase reflection (3 questions, short answers)
 
