@@ -16,7 +16,9 @@ Cycle prompts live in `prompts/SPEC-150-<cycle>.md`.
   One `source::resolve_all` explains an empty result from the resolver's own `Ok(empty)` (8 callers, not 6); `lint locked` proves a post-hoc `is_dir()` helper would lie.
   Guard renders help through `try_get_matches_from` (the frame's `render_help()` sees 18 of 207 id lines); literal scanner finds 1 hit on `main` (`src/wasm.rs:237`).
   DEC-003 amended in the design commit (pixel encodes drop all metadata; `meta copy` JPEG only).
-- [ ] **build** (Opus, `prompts/SPEC-150-build.md`) — design cost $8.57; rulings 2026-11-06: public enum variants accepted for 0.8.3,
-  `lint` names the first failing cause, subfolder hint shown for empty and text-only folders too.
+- [x] **build** (2026-11-06, Opus 5.5, `prompts/SPEC-150-build.md`) — draft PR #257 at 5996c6b, 7 commits, all 17 ACs met, 25 mutations run and reverted, cost $14.54.
+  Every build/test leg green incl. windows-latest; `cost-capture audit` red only because shipped SPEC-149 had no verify token total (fixed on `main`, 4c94ba6).
+  Deviations: `tests/source.rs` edited (an empty glob now returns `NoImagesMatched`); FT-U5 dropped (AC-14 via FT-W1 + FT-G4); mutation 23 only goes red on row 1.
+  Rulings 2026-11-06: public enum variants accepted for 0.8.3, `lint` names the first failing cause, subfolder hint shown for empty and text-only folders too.
 - [ ] **verify** — prompt: `prompts/SPEC-150-verify.md`
 - [ ] **ship** — prompt: `prompts/SPEC-150-ship.md`
