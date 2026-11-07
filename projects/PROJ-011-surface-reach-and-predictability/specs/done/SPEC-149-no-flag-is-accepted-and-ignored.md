@@ -118,14 +118,21 @@ cost:
     - cycle: verify
       agent: claude-opus-5-5
       interface: claude-code
-      tokens_total: null
-      estimated_usd: 7.65
+      tokens_total: 10979709
+      tokens_breakdown:
+        input: 144
+        output: 54356
+        cache_creation: 189969
+        cache_read: 10735240
+      estimated_usd: 7.91
       duration_minutes: null
       recorded_at: 2026-11-06
       note: >
-        Opus verify, punch list at e53e9f6. The dollar figure was measured by the orchestrator
-        before the session's final report; the token breakdown was not carried to ship, so
-        tokens_total is null and the token total below leaves verify out.
+        Opus verify, punch list at e53e9f6. Re-measured from transcript 5be2b17f-922e-43b9-80b8-2f5309640c01.jsonl,
+        found by the prompt title, deduped by `.message.id` (69 unique ids): input/cache_creation/
+        cache_read once per id, MAX output_tokens. Rates: Opus $5 in / $25 out per MTok,
+        cache_creation x1.25, cache_read x0.10. The first figure ($7.65) was taken before the
+        session's final exchanges; this one replaces it.
     - cycle: fix
       agent: claude-opus-5-5
       interface: claude-code
@@ -156,9 +163,9 @@ cost:
         cache_creation x1.25, cache_read x0.10. Taken before the commit/push, so it slightly
         under-counts the session.
   totals:
-    tokens_total: 22095541
-    estimated_usd: 23.02
-    session_count: 5
+    tokens_total: 33075250
+    estimated_usd: 23.28
+    session_count: 6
 ---
 
 # SPEC-149: No flag is accepted and ignored
