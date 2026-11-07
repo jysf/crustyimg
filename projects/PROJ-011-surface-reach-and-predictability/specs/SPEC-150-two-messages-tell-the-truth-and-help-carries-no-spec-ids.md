@@ -7,7 +7,7 @@
 task:
   id: SPEC-150
   type: bug                        # epic | story | task | bug | chore
-  cycle: build  # frame | design | build | verify | ship
+  cycle: verify  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: M                    # S | M | L  (L means split it)
@@ -83,6 +83,19 @@ cost:
       duration_minutes: null
       recorded_at: 2026-11-06
       notes: "Measured from the transcript before the commit/push turns (63 deduped message ids; Opus $5/$25, cache_creation x1.25, cache_read x0.10). Includes a throwaway sketch build + drive, reverted."
+    - cycle: build
+      agent: claude-opus-5-5
+      interface: claude-code
+      tokens_total: 21442186
+      tokens_breakdown:
+        input: 212
+        output: 98391
+        cache_creation: 244333
+        cache_read: 21099250
+      estimated_usd: 14.54
+      duration_minutes: null
+      recorded_at: 2026-11-06
+      notes: "Measured from the transcript before the final bookkeeping/CI-read turns (106 deduped message ids, MAX output per id; Opus $5/$25, cache_creation x1.25, cache_read x0.10). Includes the 25-row mutation run and two full just check runs."
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -807,37 +820,141 @@ behaviour; `resolved_input_count`; ids in `SECURITY.md`, code comments and test 
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
-- **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
-- **Files this diff touches** — **list every one**, with a phrase on what changed
-  in each. Not "src/foo and tests": the enumeration is what a verify cycle diffs
-  the real change against, and what tells you whether every affected `DEC-*` has
-  the path in its `affected_scope`. SPEC-122's Deviations claimed "`src/operation`
-  and `tests/` only" and was wrong by two `scripts/` files, which left
-  `affected_scope` blind; SPEC-124's build added this section by hand after that
-  lesson and still listed 8 of its 9 files. It is a checklist because it is easy
-  to get wrong from memory — build it from `git diff --name-only`, not recall.
-  - `path/to/file` — <what changed>
+- **Branch:** `feat/spec-150-two-messages-tell-the-truth`
+- **PR (if applicable):** #257 (draft)
+- **All acceptance criteria met?** yes (AC-1 to AC-17). AC-14's native wording check FT-U5 was dropped by the spec's
+  own rule (see Deviations); AC-14 is carried by FT-W1 (green, 53/53 wasm tests) and FT-G4.
+- **New decisions emitted:** none. DEC-003's SPEC-150 amendment was committed by design (`613bf23`); confirmed, not
+  re-amended.
+- **Files this diff touches** (from `git diff --name-only origin/main...HEAD`, 18 files):
+  - `AGENTS.md` — glossary "Default-preserve policy": pixel encodes drop all metadata, ICC and copyright included.
+  - `demo/demo.js` — `:434` drops `, DEC-065`.
+  - `demo/index.html` — `:163` drops `(DEC-069, resolved)`.
+  - `docs/api-contract.md` — exit-3 row names the new causes.
+  - `docs/architecture.md` — metadata-lane glossary: pixel encodes drop all metadata.
+  - `docs/cli-reference.md` — 5 id lines cleaned (`:40`, `:302`, `:343`, `:447`; `:311-312` now "This divergence is
+    known and not yet fixed."); exit-3 row names the new causes.
+  - `src/cli/build.rs` — build target sources resolve through `resolve_all`; unused `SourceError` import removed.
+  - `src/cli/common.rs` — new `refuse_folder`.
+  - `src/cli/mod.rs` — 8 doc comments (no ids; `lint` "where one exists"; `--strict` "different platform"),
+    `CliError::InputIsAFolder` + 3 exit arms, `quoted()` used by both asset messages, 2 unit tests.
+  - `src/cli/ops.rs` — `view`, `run_pixel_op`, `run_metadata_lane` use `resolve_all`; `meta copy` calls
+    `refuse_folder` on both sides.
+  - `src/cli/optimize.rs` — `run_apply` and `run_optimize_autodecide` use `resolve_all`; `responsive` calls
+    `refuse_folder`; `reject_quality_with_auto(.., verb)` names the real conflict, 3 callers pass their verb.
+  - `src/cli/report.rs` — `info` and `lint` (`OnEmpty::Skip`) use `resolve_all`; `diff` calls `refuse_folder` on a, b.
+  - `src/metadata/mod.rs` — `UnsupportedFormat` is `#[error("{0}")]`; `sniff` and `copy_metadata` write sentences
+    (`format_name`, `require_jpeg_for_copy`); FT-U4.
+  - `src/source/mod.rs` — `NoImagesInFolder`, `NoImagesMatched` (glob empty match), `OnEmpty`, `resolve_all`,
+    `folder_name`; FT-U1, FT-U2 and a Unix unreadable-folder unit test.
+  - `src/wasm.rs` — the refusal sentence only (AC-14 wording).
+  - `tests/help_has_no_internal_ids.rs` — new (FT-G1 to FT-G6).
+  - `tests/messages_tell_the_truth.rs` — new (FT-M1 to FT-M11).
+  - `tests/source.rs` — `empty_glob_match_is_not_found_error` renamed and now expects `NoImagesMatched` (deviation 1).
+- **RED on `main`, then GREEN** (baseline log quoted; every row green on `7ccc055`):
+  - FT-M1: `51 of 51 rows wrong`, e.g. `` `view sub` (sub): stderr; stderr: "error: input not found or unreadable: sub\n" ``
+    (the `view` rows fail on the message, not on "not a terminal").
+  - FT-M2: `left: "error: target #0 (recipe r.toml, out bo)\nerror: input not found or unreadable: sub\n"`.
+  - FT-M3: `` `resize --max 8 --out-dir od sub/`: wrong stderr left: "error: input not found or unreadable: sub/\n" ``.
+  - FT-M4: `left: "error: input not found or unreadable: txt/*\n"`.
+  - FT-M5 missing-path rows: green on `main` (the old line is true there, as designed). FT-M5 Unix: red,
+    `` `lint locked sub`: left: "error: input not found or unreadable: locked, sub\n" ``.
+  - FT-M6: `` `resize --max 8 --out-dir od sub empty`: left: "error: input not found or unreadable: sub empty\n" ``.
+  - FT-M7: `` `responsive --widths 8 --out-dir od img`: left: "error: could not read image input\n" ``.
+  - FT-M8: `left: "error: -q/--quality cannot be combined with --target/--ssim/--max-size (they auto-tune quality)\n"`.
+  - FT-M9: `left: "error: metadata lane does not support Gif yet\n"`.
+  - FT-M10: `got "error: could not read font file \"a\"b.ttf\": No such file or directory (os error 2)\n"`.
+  - FT-M11: `lint --help: Lint an image asset tree: report problems (each with a runnable fix) … (SPEC-050, DEC-050).`
+  - FT-G1: `207 id lines over 44 pages` (22 command paths). FT-G2: green, `22 paths derived from the rendered text, 44 pages`.
+  - FT-G3: `zsh: 136`, `fish: 92`, `powershell: 136`, `elvish: 136` id lines; bash 0 (green).
+  - FT-G4: `literal scan: 44 files, 1191 literals, 1 with an id` → `src/wasm.rs:237`. FT-G5: green.
+  - FT-G6: `demo/demo.js:434`, `demo/index.html:163` (3 demo files, 3 embedded files).
+  - After: FT-G1 `22 command paths, 44 pages, 0 id lines`; FT-G4 `44 files, 1201 literals, 0 with an id`; FT-G6 0.
+- **FT-D1** (docs grep, run on `7ccc055`): `grep -nE '(SPEC|DEC)-[0-9]' docs/cli-reference.md` → no output (exit 1);
+  `grep -n 'SPEC-111\|keep ICC\|ICC + copyright' docs/cli-reference.md AGENTS.md docs/architecture.md` → no output
+  (exit 1). Changed lines: `cli-reference.md:53` "| `3` | Input not found or unreadable, or a folder or glob with no
+  images, or a folder where one image file is expected. |"; `:311` "bakes, the replay doesn't. This divergence is
+  known and not yet fixed."; `api-contract.md:58` the same exit-3 text; `AGENTS.md:501-504` and
+  `architecture.md:148-151` as the spec's Docs list. `cli-reference.md` restates neither the old `lint` sentence
+  ("each with" grep: 0) nor the old `--strict` help; its `:432` paragraph already explains the same-`arch-os` rule
+  truthfully, so it is unchanged.
+- **Mutations (all 25, scratch worktree, own target dir; each applied alone, `git diff` non-empty, reverted to an
+  empty diff; the restored tree re-ran green).** Where a test function stops at its first red row, the masked rows
+  were driven by hand against the mutated binary ("driven").
+
+  | # | Red (quoted) | Stayed green |
+  |---|---|---|
+  | 1 | FT-M1 24 rows (`resize` ×2, `convert`, `thumbnail`, `auto-orient`, `edit`, `watermark`, `optimize --format png` × 3 shapes): `"error: input not found or unreadable: sub\n"`; FT-M3 `"…: sub/\n"`; FT-M6 `"…: sub empty\n"` (same fan-out; not in the table) | other FT-M1 rows, FT-M2 |
+  | 2 | FT-M1 9 rows (`meta strip\|clean\|set` × 3) | other 42 rows |
+  | 3 | FT-M2 `"error: target #0 (recipe r.toml, out bo)\nerror: input not found or unreadable: sub\n"` | FT-M1 |
+  | 4 | FT-M1 `apply` × 3 | others |
+  | 5 | FT-M1 6 rows (`optimize --out-dir`, `web` × 3) | `optimize --format png` rows |
+  | 6 | info: FT-M1 `info` × 3; view: FT-M1 `view` × 3 (two separate runs) | others |
+  | 7 | FT-M1 `lint` × 3; FT-M6 `lint 'txt/*' a.png: … left: Some(3) right: Some(0)`, driven: `lint nope sub` → `…: nope, sub`, `lint sub nope` → `…: sub, nope`; FT-M5 Unix `lint locked sub` → `"…: locked, sub\n"` | FT-M4, FT-M5 `lint nope`, `lint locked` |
+  | 8 | all 51 FT-M1 rows, FT-M2, FT-M3, FT-M6, FT-U1 `empty folder: Err(NotFound(…/empty))`, FT-U2 `[sub, empty]: Err(NotFound(…/sub))` | FT-M4, FT-M5 |
+  | 9 | FT-M5 Unix `` `lint locked`: left: "error: no images in folder 'locked': …" ``; Unix unit test `unreadable folder: Err(NoImagesInFolder(…/locked))` | FT-M1, FT-M5 `resize locked` |
+  | 10 | FT-M3 `"…no images in folder 'sub/': … glob such as 'sub//**/*'\n"`; FT-U1 `left: "…/empty/" right: "…/empty"` | FT-M1 |
+  | 11 | FT-G1 `44 id lines over 44 pages`; FT-G3 zsh/fish/powershell/elvish 22 each | FT-G4, FT-G3 bash |
+  | 12 | FT-G1 4 lines: `meta -h`, `meta --help`, `meta set -h`, `meta set --help`; FT-G3 4 shells, 3 each | root and other leaves |
+  | 13 | FT-G1 1 line, `meta --help` only | FT-G3 (long about not in completions) |
+  | 14 | FT-G1 `optimize --help: - high: … (DEC-023)`; FT-G3 zsh, fish (1 each) | FT-G4, FT-G3 powershell/elvish/bash |
+  | 15 | FT-G4 `src/wasm.rs:237` | FT-G1, FT-G3, FT-W1 (`just wasm-test` under the mutation: 53 passed) |
+  | 16 | FT-M11 `lint --help: … (each with a runnable fix), …` | FT-G1 |
+  | 17 | FT-M8 row 1 `left: "…cannot be combined with --target/--ssim/--max-size (they auto-tune quality)\n"`; driven: `web`, `--target`, `--ssim`, `--max-size`, `convert --max-size` all print that old line (exit 2) | `convert -q 10` exit 0 (driven) |
+  | 18 | FT-M10 `` got "error: could not read font file \"a\"b.ttf\": …" ``; FT-U3 `left: "\"a\"b\""`; driven: overlay and recipe rows unescaped | backslash row (driven, on a build proven mutated) |
+  | 19 | FT-M10 `the backslashes changed: … "C:\\dir\\f.ttf"`; FT-U3 `left: "\"C:\\\\d\\\\f\""` | — |
+  | 20 | FT-G2 `the walk and the rendered Commands: sections disagree left: {[]}` | — |
+  | 21 | FT-G2 `the rendered pages list no nested command (e.g. \`meta set\`): {[]}` | — |
+  | 22 | FT-G4 `4334 literals, 6 with an id`: `src/build/cache.rs:944`, `src/cli/build.rs:1511`, `src/image/avif.rs:698`, `:960`, `src/operation/mod.rs:2563`, `src/operation/registry.rs:657` (none edited); also FT-G5 `test module then code: want only "DEC-065", got ["SPEC-128", "DEC-065"]` | — |
+  | 23 | FT-G5 `an id after // inside a string: want 1, got 0` | FT-G5 continuation row (see design call notes) |
+  | 24 | FT-M9 `left: "error: Gif\n"`; FT-U4 `left: "Gif"` | FT-M7 |
+  | 25 | FT-M7 `` `diff img a.png`: left: "error: could not read image input\n" ``; driven: `diff a.png img` same | `responsive`, `meta copy` rows (driven) |
+- **Gates** (own `CARGO_TARGET_DIR`, exit codes read directly): `cargo fmt --check` 0; `cargo clippy --all-targets
+  -- -D warnings` 0; `cargo clippy --all-targets --no-default-features -- -D warnings` 0; `just check` 0 (1260
+  passed, 0 failed, 60 test binaries); `cargo build --no-default-features` 0; `cargo test --no-default-features
+  --test help_has_no_internal_ids --test messages_tell_the_truth` 0 (6 + 12 passed); `just wasm-check` 0; `just
+  wasm-test` 0 (53 passed, `transform_refuses_asset_bearing_recipe` ok). After the final rebase: the two new files
+  and `tests/cli.rs` 0 (145 + 6 + 12 passed). Toolchain: cargo 1.99.1 (Homebrew), rustup 1.29.0.
+- **Windows leg:** cannot run here; see the PR's `windows-latest` result (recorded in the report).
 - **Deviations from spec:**
-  - [list]
+  1. `tests/source.rs` (not in the spec's file list): `empty_glob_match_is_not_found_error` asserted
+     `SourceError::NotFound` for an empty glob, the exact behaviour design call 2 changes. Found by `just check`
+     (the only failure). Renamed `empty_glob_match_is_no_images_matched_error`, asserts `NoImagesMatched`. The
+     frame's compatibility sweep grepped message text, not the variant, so it missed this.
+  2. FT-U5 dropped, as the spec allows: the only modules compiled on both targets outside PROJ-017's paths are
+     `lib.rs` and `sink`, and a helper there is unused on native (a dead-code allow, not a clean ≤ 10-line move).
+     AC-14 is carried by FT-W1 + FT-G4.
+  3. Mutations 3, 4 and 5 restore the old code verbatim and also put `SourceError` back in that file's import (the
+     build removed it as unused). Mutation 9 is the after-the-fact classifier: `Ok(empty)` recorded as `NotFound`,
+     then the first cause re-asked with `Path::is_dir()`. Mutation 20 returns after visiting the root.
+  4. FT-M6, FT-M7, FT-M8 and FT-M10 assert their rows in sequence, so a mutation shows the first red row; the
+     masked rows were driven against the mutated binary (table above).
 - **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - (orchestrator) `docs/recipes.md:148` "each with a runnable fix" → "with a runnable fix where one exists", and
+    the CHANGELOG `Fixed` text (both PROJ-017-owned; the text is in this spec's Frame §5 and the PR body).
+  - **Out-of-spec finding:** `just wasm-check` warns `constant MANIFEST_DROPPED_WARNING is never used`
+    (`src/metadata/mod.rs:154`, a `pub(crate)` constant only the native CLI reads). Present on `main` before this
+    change; released 0.8.2 builds the same way (a warning, not a behaviour bug). Open PR #240 adds clippy on the
+    wasm32 library build; if it uses `-D warnings` it will trip on this. No CHANGELOG or DEC line needed; worth a
+    `#[cfg(not(target_arch = "wasm32"))]` on the constant in whichever PR lands #240.
 
 ### Build-phase reflection (3 questions, short answers)
 
 Process-focused: how did the build go? What friction did the spec create?
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — Little. The design was exact enough to write the tests before reading most callers. One expectation was wrong:
+   mutation 23 lists FT-G5's continuation row as red, but that fixture holds no `//`, so a lexer that treats `//`
+   in a string as a comment cannot change it; only row 1 goes red. Mutation 22 also turns FT-G5's test-module row
+   red, which the table did not list (a stronger result, not a weaker one).
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — `tests/source.rs` should have been in the file list: it pins the empty-glob variant that design call 2
+   changes. A compatibility sweep for a changed error needs to grep the variant name as well as its message text.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Write table tests that collect every row's failure before asserting (as FT-M1 does) for FT-M6/7/8/10 too, so
+   each mutation's full red set shows up in one run instead of being driven by hand.
 
 ---
 
