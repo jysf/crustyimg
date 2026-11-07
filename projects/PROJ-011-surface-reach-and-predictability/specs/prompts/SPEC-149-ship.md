@@ -29,8 +29,9 @@ timeline; HANDOFF "Traps this wave paid for"; STAGE-063's backlog.
   `minimal_args` entry was needed. The build deferred the PROJ-017-owned doc hunks. A stray `…spec.md-E` file (a macOS
   `sed -i -E` backup the orchestrator committed) came into the PR branch via an update-branch and was removed on `main`
   in `def92d8`; check `git ls-files | grep -E '\.md-E$'` is empty on `main`.
-- **A draft PR cannot merge.** The maintainer found that "ready for review" matters to the merge; the build leaves PRs
-  as drafts by rule, so every ship starts with that step on the maintainer's side. Not a finding about the code.
+- **A draft PR cannot merge.** Draft status does not hold up CI, but the maintainer must click "ready for review"
+  (`gh pr ready`) before the merge is allowed. Builds open drafts by rule, so that click belongs between green CI and the
+  merge. Not a finding about the code; note it in the reflection as process.
 - Costs: frame about $4.92, design about $7.09, build about $2.67 (Sonnet), verify about $7.65 (Opus, measured before
   its final report); the fix round was not measured, so record it as unmeasured and say the total is a floor. Compute it.
 
