@@ -1430,7 +1430,14 @@ fn watermark_overlay(
 ) -> Result<ResolvedOverlay, CliError> {
     if let Some(image) = src.image {
         // Image mode: load the overlay once at the IO boundary (DEC-031).
-        let overlay = Image::load(image)?;
+        // Read and decode separately so an unreadable file names itself, while a
+        // decode failure keeps its own error and exit code (SPEC-149).
+        let bytes = std::fs::read(image).map_err(|source| CliError::WatermarkAssetUnreadable {
+            what: "watermark image",
+            path: image.to_owned(),
+            source,
+        })?;
+        let overlay = Image::decode_path(image, &bytes)?;
         return Ok(ResolvedOverlay::Image {
             overlay: overlay.pixels().clone(),
             path: image.to_owned(),
@@ -1443,7 +1450,15 @@ fn watermark_overlay(
 
     // Load the font at the IO boundary (--font → exit 3) or use the bundled default.
     let font_owned: Option<Vec<u8>> = match &font_path {
-        Some(path) => Some(std::fs::read(path).map_err(ImageError::Io)?),
+        Some(path) => {
+            Some(
+                std::fs::read(path).map_err(|source| CliError::WatermarkAssetUnreadable {
+                    what: "font file",
+                    path: path.clone(),
+                    source,
+                })?,
+            )
+        }
         None => None,
     };
     let font_bytes: &[u8] = match font_owned.as_deref() {

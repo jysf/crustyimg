@@ -500,7 +500,7 @@ Read the stage, or `just backlog --all` once that project is active.
   Separate from the pixel lane (DEC-003).
 - **Default-preserve policy** — On pixel-lane encodes: **bake** orientation
   into pixels (not preserved as a tag — SPEC-110, amending DEC-003); keep
-  ICC + copyright/artist; drop GPS unless `--keep-gps` (DEC-003).
+  ICC + copyright/artist; drop GPS (`--keep-gps` is refused, SPEC-149; DEC-003).
 - **Gravity** — A compass anchor (north/south/east/west/center and
   combinations) for placing a watermark or crop region within an image.
 

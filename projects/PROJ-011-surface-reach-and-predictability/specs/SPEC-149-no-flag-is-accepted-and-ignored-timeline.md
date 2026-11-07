@@ -19,5 +19,6 @@ Cycle prompts live in `prompts/SPEC-149-<cycle>.md`.
 - [x] **build** (2026-11-06, Sonnet 5.5, `prompts/SPEC-149-build.md`) — draft PR #256 at e53e9f6, CI green (20 pass,
   12 skipped, 0 fail, windows + lean). 6 commits, no mutation in the diff, M1-M12 + M6b red for their reasons. Deferred to ship:
   `docs/api-contract.md` (36, 37, 39, 192, 591-593), `docs/data-model.md:122`. ~$2.67.
-- [ ] **verify** (`prompts/SPEC-149-verify.md`, Opus)
-- [ ] **ship**
+- [x] **verify** (2026-11-06, Opus 5.5, `prompts/SPEC-149-verify.md`) — PUNCH LIST at e53e9f6: one required (R6 + 4 doc lines said
+  `meta copy` works on "JPEG and PNG"; JPEG only). Fix round `prompts/SPEC-149-fix.md` (10d62b2), merged as 302afba (PR #256). ~$7.65.
+- [ ] **ship** (`prompts/SPEC-149-ship.md`, Sonnet)
