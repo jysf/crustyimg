@@ -7,7 +7,7 @@
 task:
   id: SPEC-152
   type: story                      # epic | story | task | bug | chore
-  cycle: build  # frame | design | build | verify | ship
+  cycle: verify  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: S                    # S | M | L  (L means split it)
@@ -82,6 +82,18 @@ cost:
         output: 126975
       estimated_usd: 14.98
       note: "Measured from this session's transcript after the push (90 messages, deduped by message.id, max output_tokens per id). Rates: Opus $5/$25 per MTok, cache_creation x1.25, cache_read x0.10. Includes a prototype and 21 driven mutation rows (full suite each). Excludes this final cost commit's own turn."
+    - cycle: build
+      date: 2026-11-07
+      interface: claude-code
+      model: claude-sonnet-5-5
+      tokens_total: 23926026
+      tokens_breakdown:
+        input: 220
+        cache_creation: 270388
+        cache_read: 23555280
+        output: 100138
+      estimated_usd: 9.58
+      note: "Measured from this session's transcript at the last turn before the cost commit (104 messages, deduped by message.id, max output_tokens per id). Rates: Sonnet $3/$15 per MTok, cache_creation x1.25, cache_read x0.10. Excludes the final bookkeeping turn."
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -1296,37 +1308,58 @@ anyway) and add 2 to whatever they say.
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
-- **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
-- **Files this diff touches** — **list every one**, with a phrase on what changed
-  in each. Not "src/foo and tests": the enumeration is what a verify cycle diffs
-  the real change against, and what tells you whether every affected `DEC-*` has
-  the path in its `affected_scope`. SPEC-122's Deviations claimed "`src/operation`
-  and `tests/` only" and was wrong by two `scripts/` files, which left
-  `affected_scope` blind; SPEC-124's build added this section by hand after that
-  lesson and still listed 8 of its 9 files. It is a checklist because it is easy
-  to get wrong from memory — build it from `git diff --name-only`, not recall.
-  - `path/to/file` — <what changed>
-- **Deviations from spec:**
-  - [list]
-- **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+- **Branch:** `feat/spec-152-trim`
+- **PR (if applicable):** #258 (draft), head `1627d5a` before this commit; CI green on every leg
+- **All acceptance criteria met?** yes (65 of 65; notes below)
+- **New decisions emitted:** none
+- **Files this diff touches** (`git diff --name-only origin/main...HEAD`: 28 files, 29 with this spec file):
+  - `src/operation/trim.rs` (new) — the op, match rule, scan, unit tests
+  - `src/operation/mod.rs` — `pub mod trim`, re-export, `max: None` on three `UInt` rows, fold-in asserts
+  - `src/operation/registry.rs` — `UInt` `max`, registration, doc lists, three tests
+  - `src/text/mod.rs` — non-ASCII colour refused; unit test
+  - `tests/trim.rs` (new) — 19 integration tests (refusals, 210-case matrix, scan, alpha, NaN, inverse, binary, metadata)
+  - `tests/apply_batch.rs` — fold-in assert on the area cap text
+  - `tests/recipe_corpus_output.rs`, `tests/recipe_round_trip.rs` — two stems, the literals
+  - `tests/fixtures/recipe_corpus/v2_trim_{corner,tolerance}.{toml,golden,linux-x86_64.output,macos-aarch64.output,windows-x86_64.output}` — 10 new files
+  - `tests/wasm_roundtrip.rs` — two wasm tests
+  - `scripts/wasm-ci-check.sh` — 55/53 and the self-test fixtures
+  - `docs/recipes.md`, `recipes/README.md`, `docs/data-model.md`, `docs/api-contract.md`, `skills/crustyimg/SKILL.md`, `integrations/ddphotos/README.md`, `docs/backlog.md`, `CHANGELOG.md` — docs
+- **Deviations from spec:** none in files. The registration is one line (rustfmt), so M12's restore removes that line.
+- **Follow-up work identified:** none.
+
+**Evidence**
+- Baseline on `main` before the op: `tests/trim.rs` 19 of 19 red (`unknown operation 'trim'`; the non-ASCII row panicked at `src/text/mod.rs:60:49`); the lib tests did not compile (`E0559 ... no field named 'max'`, 7 errors); the fold-in asserts were green on `main`, as the spec said.
+- AC-1..16: met (unit `match_rule_table` runs 36 rows; `float_rule_is_exact_at_every_edge` asserts 2,357,504 cases, which is 14 match + 14 past-by-step + 7 past-by-level cases per in-range pair, plus 65,536 level read-backs; the matrix runs 210). AC-17..42: met (23 refusal rows, 7 controls, 2 binary rows). AC-43..46: met. AC-47..50: met. AC-51..53: met. AC-54: met. AC-55..62: met by content. AC-63: met (grep of `trim.rs` empty; `help_has_no_internal_ids` passes since SPEC-150 merged). AC-64: met (`git diff --stat origin/main...HEAD -- Cargo.toml Cargo.lock src/build/cache.rs` is empty). AC-65: met (CI green on every leg, including lean and both wasm count steps).
+- Corpus: `git diff --diff-filter=MD --name-only origin/main -- tests/fixtures/recipe_corpus/` is empty; `--diff-filter=A` lists 10 files. First CI run failed only `every_golden_line_is_checked_and_no_golden_is_stray` and `every_recipe_output_matches_its_golden` (missing linux/windows files); the files were copied from the failing log and the second run is green on all legs. `cmp` of the three per-target files: both recipes identical across linux, macos and windows; the two recipes' pixel lines are identical to each other (correction 3). Dims `2652x1782` / `1782x2652` / `2652x1782`.
+- wasm: local `just wasm-check` ok, `just wasm-test` 55 passed, `just wasm-test-slim` 53 passed; `--self-test` 18 rows, 18 passed; `workflow` 16 assertions, 0 failed; `validate-frontmatter` ok. CI: `full set: 55 passed, as expected`, `slim set: 53 passed, as expected`. `main` was 53/51 at the last rebase. Bundle size vs a `main` CI run (42417699527): raw 4,137,956 -> 4,150,967 B (+13,011), brotli 829,740 -> 832,650 B (+2,910).
+- Matrix (fresh `CARGO_TARGET_DIR` each): default, `--no-default-features` (the `trim` tests ran), `--features webp-lossy`: `fmt --check`, clippy `-D warnings` and `cargo test --no-fail-fast` all exit 0.
+- SPEC-150 merged (PR #257) before my last rebase; no `UInt` literal lacks `max`.
+- Mutations (scratch worktree of the pushed head, own target dir, clean rebuild each, full suite; restored tree green):
+  - M1: match_rule_table, every_colour_type_trims_exactly, corpus golden. M1b: match_rule_table, every_colour_type, grey, nan, pad_then_trim.
+  - M2: 15 red: match_rule_table, float_rule_is_exact (unit), whole_match_names_its_source (unit), every_colour_type, each_side, odd_shapes, grey, nan, pad_then_trim, whole_match_fails_at_apply, apply_fails_when_every_pixel_matches, batch_with_a_uniform_image, trim_writes_no_orientation_tag, apply_trims_a_png_end_to_end, corpus golden. The reasoned binary no-op row stayed green (corrected: AC-13's binary half does not touch an edge); AC-46's row is red (confirmed).
+  - M3 (float level as `ceil(f64(s) x 255 x 257)`): match_rule_table, float_rule_is_exact, every_colour_type, pad_then_trim. Note: the spec said the matrix stays green under its `/255` variant; mine, a different arithmetic, turned it red as well.
+  - M4: alpha_zero, match_rule_table. M5: every_colour_type, match_rule_table.
+  - M6a-d: each 11 red (alpha_zero, apply_trims_a_png_end_to_end, batch_with_a_uniform_image, each_side, every_colour_type, corpus golden, grey, nan, odd_shapes, pad_then_trim, trim_writes_no_orientation_tag). Reasoned AC-46 confirmed red.
+  - M7: apply_fails_when_every_pixel_matches, batch_with_a_uniform_image, whole_match_names_its_source, whole_match_fails_at_apply.
+  - M8: every_colour_type, grey, match_rule_table, pad_then_trim. M9 (script, FULL_COUNT=54): self-test 18 rows, 15 passed, 2 wrong verdict, 1 wrong message (rows 1, 2, 3), as the spec said.
+  - M10: corpus golden, to_toml_is_byte_identical_to_main_over_the_corpus. M11a: resize_apply_percent_rejects_oversized_output, resize_oversize_is_typed_error. M11b: apply_recipe_with_oversized_resize_exits_1, resize_oversize_is_typed_error.
+  - M12: 24 red, the integration rows that load trim plus every_op_named_in_data_model_resolves, corpus golden, to_toml_is_byte_identical, with_builtins_contains_trim, every_builtin_publishes_a_param_schema (reasoned cells confirmed); the `trim.rs` unit tests stayed green.
+  - M13: a_non_ascii_colour_is_refused_not_a_panic, every_trim_refusal_names_its_reason, parse_color_refuses_non_ascii (reasoned cells confirmed). M14: trim_writes_no_orientation_tag_and_keeps_the_bundle only. M15: every_trim_refusal_names_its_reason only (uint_max_is_in_the_expectation stayed green, as reasoned).
+  - M16: 9 red incl. corpus golden by hash. M17 and M18: nan_and_out_of_range_floats, match_rule_table.
+  - Not run under mutation: the wasm tests.
 
 ### Build-phase reflection (3 questions, short answers)
 
 Process-focused: how did the build go? What friction did the spec create?
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — How AC-3 reaches 2,357,504: the text names the groups but not the counts or range checks. It is 14 match, 14 past-by-step and 7 past-by-level values per in-range pair, plus 65,536 read-backs; I recovered it by a search.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — No. One design cell is loose: M3's "matrix stays green" depends on how the f64 mutant is written.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Launch the mutation driver as a tracked background task, not a detached process: it died before M12 and the restore check and had to be resumed by hand. No design call turned out wrong.
 
 ---
 
