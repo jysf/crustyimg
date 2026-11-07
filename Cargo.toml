@@ -124,7 +124,7 @@ webp = { version = "0.3.1", optional = true, default-features = false }
 #   its pixel core (the `single-image-library` rule). The exact `=` pin keeps the
 #   decoder at a reviewed version (0.4.0 includes the 0.3.27 fuzzing fixes); bump it
 #   deliberately, re-running the HEIC tests and fuzz target.
-heifer = { version = "=0.4.0", optional = true, default-features = false }
+heifer = { version = "=0.5.0", optional = true, default-features = false }
 
 ## ── Native-only dependencies (everything EXCEPT wasm32) ──────────────────────
 ## The CLI/filesystem shell (`cli`, `source`, `sink`'s writers, `build`, `lint`) and
