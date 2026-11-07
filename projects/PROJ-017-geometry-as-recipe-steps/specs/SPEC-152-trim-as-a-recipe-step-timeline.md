@@ -19,6 +19,6 @@ Cycle prompts live in `prompts/SPEC-152-<cycle>.md`.
   (23 refusal rows), [S] in code, no DEC. Float rule re-driven in Rust (2,357,504 cases, 0 wrong); NaN never
   matches, out-of-range floats clamp; `UInt` gains `max`; folds a `parse_color` panic fix (non-ASCII, exit 101
   today). Inverse corrected for grey + chromatic fill. Corpus 22/72/75/66, wasm 55/53. 21 mutation rows, all driven.
-- [ ] **build** (`prompts/SPEC-152-build.md`)
+- [ ] **build** (`prompts/SPEC-152-build.md`, Sonnet, worktree `feat/spec-152-trim`). Keeps the `parse_color` fold-in. Adds a `UInt {` grep after each rebase: PR #257 also edits `src/cli/ops.rs`, which the design missed.
 - [ ] **verify**
 - [ ] **ship**
