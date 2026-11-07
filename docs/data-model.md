@@ -159,9 +159,9 @@ recipe already in the wild the next time it is re-saved.
 
 A "prep for web" recipe: orient, then downscale.
 
-**Every `op` below is a real registry key.** The registry holds eight
-operations — `identity`, `invert`, `resize`, `auto-orient`, `watermark`
-(SPEC-128), `crop`, `rotate` and `flip` — and `tests/docs_ops.rs` asserts that every `op` named in this
+**Every `op` below is a real registry key.** The registry holds nine
+operations — `identity`, `invert`, `resize`, `auto-orient`, `watermark`,
+`crop`, `rotate`, `flip` and `pad` — and `tests/docs_ops.rs` asserts that every `op` named in this
 file resolves against `OperationRegistry::with_builtins()`, so this example
 cannot drift back into advertising steps that do not exist.
 
@@ -387,6 +387,38 @@ angle = -90
 [[step]]
 op = "flip"
 axis = "horizontal"
+```
+
+### `pad` step param keys
+
+| Key | Type | Range |
+|---|---|---|
+| `aspect` | string | `"W:H"`, whole numbers 1 to 65535 |
+| `gravity` | string | one of the nine names, default `center`; aspect form only |
+| `border` | number | `> 0` and `<= 1`, a fraction of the long edge |
+| `color` | string | required: `RRGGBB`, `#RRGGBB`, or `RRGGBBAA` with alpha `ff` |
+
+A pad is an aspect (`aspect`, `gravity`) or a border (`border`), never both. The canvas
+grows around the image and every input pixel is copied unchanged; the new pixels are
+the fill. A border that rounds to 0 px on an image, or a canvas past the size caps,
+fails that image.
+
+```toml
+version = "2"
+
+[[step]]
+op = "auto-orient"
+
+[[step]]
+op = "resize"
+mode = "fit"
+width = 1080
+height = 1080
+
+[[step]]
+op = "pad"
+aspect = "1:1"
+color = "#ffffff"
 ```
 
 ### Step keys are checked at load

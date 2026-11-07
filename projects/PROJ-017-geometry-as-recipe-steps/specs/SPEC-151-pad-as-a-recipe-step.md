@@ -7,7 +7,7 @@
 task:
   id: SPEC-151
   type: story                      # epic | story | task | bug | chore
-  cycle: build  # frame | design | build | verify | ship
+  cycle: verify  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: S                    # S | M | L  (L means split it)
@@ -84,6 +84,30 @@ cost:
         output: 119350
       estimated_usd: 13.61
       note: "Measured after the push from the session JSONL (80 message ids, all claude-opus-5-5, deduped by .message.id, max output_tokens per id); excludes this cost commit's own turns. Includes a throwaway prototype and a 14-row mutation sweep over the full test suite. Rates: Opus $5/$25 per MTok, cache_creation x1.25 input, cache_read x0.10 input."
+    - cycle: build
+      date: 2026-11-06
+      agent: claude-sonnet-5-5
+      interface: claude-code
+      tokens_total: 28368198
+      tokens_breakdown:
+        input: 264
+        cache_creation: 284072
+        cache_read: 27991345
+        output: 92517
+      estimated_usd: 10.85
+      note: "Measured at the last build turn from the session JSONL (121 message ids, all claude-sonnet-5-5, deduped by .message.id, max output_tokens per id); excludes the closing commit's own turns. Rates: Sonnet $3/$15 per MTok, cache_creation x1.25 input, cache_read x0.10 input."
+    - cycle: punchlist
+      date: 2026-11-06
+      agent: claude-sonnet-5-5
+      interface: claude-code
+      tokens_total: 1437289
+      tokens_breakdown:
+        input: 38
+        cache_creation: 57522
+        cache_read: 1373353
+        output: 6376
+      estimated_usd: 0.72
+      note: "Measured before the closing commit from the session JSONL (18 message ids, all claude-sonnet-5-5, deduped by .message.id, max output_tokens per id); excludes the closing turns. Rates: Sonnet $3/$15 per MTok, cache_creation x1.25 input, cache_read x0.10 input."
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -732,7 +756,7 @@ tests, which is a fair estimate of the build.
   decoded samples equal the input's, exit 0.
 - [ ] **AC-5** **Border of the long edge.** `px = round(border × max(w, h))` (`f64`, halves up), on every
   side: 40×30 at `0.1` → 48×38 at (4, 4); 30×40 → 38×48 at (4, 4); 1×1 at `1` (a TOML integer) → 3×3 at
-  (1, 1); 4001×2999 at `0.013` → 4105×3103 at (52, 52); 40×30 at `0.0125` → 42×32 at (1, 1).
+  (1, 1); 4001×2999 at `0.013` → 4105×3103 at (52, 52); 40×30 at `0.0125` → 42×32 at (1, 1); 50×10 at `0.01` → 52×12 at (1, 1) (exactly ½ px in `f64`, so 1 px; `0.49999999` in `f32`, so 0 px); 5×3 at `0.7` → 13×11 at (4, 4) (3.5 px → 4; `f32` gives 3).
 - [ ] **AC-6** **The odd pixel.** 4×3 → `1:1` at `center` is 4×4 with the image at (0, 0) and row 3 all
   fill; 3×4 → 4×4 with column 3 all fill; 5×2 → 5×5 with the image at (0, 1): one fill row above, two
   below.
@@ -844,7 +868,7 @@ tests, which is a fair estimate of the build.
 - [ ] **AC-68** **A stricter `orientation_of`** (folded entry "SPEC-147's verify cleanups that need a PR",
   part 1). `orientation_of` moves from `tests/rotate_flip.rs:591-597` to `tests/common/mod.rs` as
   `pub fn orientation_of(bytes: &[u8]) -> Option<u32>`: `Err(exif::Error::NotFound(_))` → `None`; any
-  other `Err(e)` → `panic!("kamadak-exif could not read the EXIF in these bytes: {e}")`. Its three
+  other `Err(e)` → `panic!("kamadak-exif could not read the EXIF in these bytes: {e}")`. Its two
   callers in `tests/rotate_flip.rs` and AC-14's caller use it. New tests in `tests/rotate_flip.rs`:
   `orientation_of_fails_on_a_malformed_exif_chunk` (`#[should_panic(expected = "kamadak-exif could not
   read")]`, a PNG whose `eXIf` chunk is `II*\0\x08\0\0\0\xff\xff`, which kamadak-exif 0.6.1 reads as
@@ -959,7 +983,7 @@ test must say "the input's Orientation tag never reached the pipeline", not "pad
   - `canvas_sweep_never_smaller_and_within_half_a_pixel` — AC-3: 13 aspects × 1..=64 × 1..=64; asserts
     53,248 cases ran and at least one tie.
   - `no_op_returns_the_input` — AC-4 unit half (rgb8, rgba16, and `L8` with `#123456`).
-  - `border_is_a_fraction_of_the_long_edge` — AC-5, 5 rows.
+  - `border_is_a_fraction_of_the_long_edge` — AC-5, 7 rows.
   - `odd_remainder_puts_the_extra_fill_right_or_bottom` — AC-6 through `layout`, and through `apply` on
     a seeded 4×3 rgb8 buffer (row 3 all fill).
   - `gravity_places_by_absolute_position` — AC-7, the 18 offsets as literals.
@@ -988,6 +1012,7 @@ test must say "the input's Orientation tag never reached the pipeline", not "pad
   - `float_images_keep_their_variant` — AC-11.
   - `gravity_corners_land_by_absolute_position` — AC-7 through `apply`.
   - `pad_then_crop_is_the_identity` — AC-60, 6 cases.
+  - `apply_reads_the_border_as_f64` — AC-5 binary half (50×10 at `0.01` → 52×12).
   - `apply_pads_a_png_end_to_end` — AC-61. `apply_no_op_pad_writes_the_input_pixels` — AC-4 binary half.
   - `apply_refuses_a_translucent_fill_and_writes_nothing` — AC-53.
     `apply_refuses_a_pixel_width_key_and_writes_nothing` — AC-54.
@@ -1037,7 +1062,7 @@ cell. Every row's "green" column was observed green over the whole suite unless 
 | M11 | **trap 14 for the folded fix, the old code verbatim**: restore `orientation_of`'s `.read_from_container(…).ok()?` | *driven:* `orientation_of_fails_on_a_malformed_exif_chunk` (`test did not panic as expected`) | *driven:* every other `tests/rotate_flip.rs` row, including `orientation_of_reads_no_tag_as_none` (15 of 16 pass) |
 | M12 | **trap 14 for the op, the old registry verbatim**: restore `with_builtins` from `main` (no `pad` line) | *driven:* every integration row in `tests/pad.rs` (`unknown operation 'pad'` in each load row; exit 1 with that line in each binary row). *Reasoned:* `with_builtins_contains_pad`; `every_builtin_publishes_a_param_schema`; `one_of_values_are_accepted_by_their_constructors`; `pad_writes_no_orientation_tag_and_keeps_the_bundle` (control B passes, then the pad step fails at load); corpus `v2_pad_aspect`, `v2_pad_border` and `to_toml_is_byte_identical_to_main_over_the_corpus`; `every_op_named_in_data_model_resolves` (AC-76's example); both wasm tests | *driven:* the `pad.rs` unit tests (they call the module directly); every existing test |
 | M13 | **bundle dropped**: `Pad::apply` returns `Image::from_parts(out, img.source_format(), None)` | *reasoned:* `pad_writes_no_orientation_tag_and_keeps_the_bundle`'s second row (`pad` then `auto-orient` gives 9×7, not 7×9) | its first row (no tag either way); every other test |
-| M14 | **`f32` read**: `get_f32("border").map(f64::from)` for `get_f64` | *reasoned:* none at load (the table already refuses P11); a border whose `f32` reading rounds differently, such as `0.0125` on 40×30 (`0.0125_f32` × 40 = 0.50000000745 → 1, the same), stays green, so this row is **expected all green** and is recorded to say the `f64` read is required by DEC-112, not guarded by a test | every test |
+| M14 | **`f32` read**: `get_f32("border").map(f64::from)` for `get_f64` | *driven:* the two new `border_is_a_fraction_of_the_long_edge` rows and `apply_reads_the_border_as_f64`. Verify found `0.01` on a 50 px edge splits `f64` (1 px) from `f32` (0 px), so the read is now pinned | every other test |
 
 ## Implementation Context
 
@@ -1190,37 +1215,93 @@ necessary during build, create a new spec rather than expanding this one.
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
-- **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
-- **Files this diff touches** — **list every one**, with a phrase on what changed
-  in each. Not "src/foo and tests": the enumeration is what a verify cycle diffs
-  the real change against, and what tells you whether every affected `DEC-*` has
-  the path in its `affected_scope`. SPEC-122's Deviations claimed "`src/operation`
-  and `tests/` only" and was wrong by two `scripts/` files, which left
-  `affected_scope` blind; SPEC-124's build added this section by hand after that
-  lesson and still listed 8 of its 9 files. It is a checklist because it is easy
-  to get wrong from memory — build it from `git diff --name-only`, not recall.
-  - `path/to/file` — <what changed>
+- **Branch:** `feat/spec-151-pad`
+- **PR (if applicable):** #255 (draft)
+- **All acceptance criteria met?** yes (83 of 83; details below)
+- **New decisions emitted:** none
+- **Files this diff touches** (from `git diff --name-only origin/main...HEAD`: 31 files, including this spec (the 30 Outputs plus the spec)):
+  - `src/operation/pad.rs` (new) — the op, `PAD_PARAMS`, `Pad::from_params`, pure `layout` and `aspect_canvas`, the per-variant `grow`, 9 unit tests
+  - `src/operation/mod.rs` — `pub mod pad` and the re-export; `MAX_EDGE`/`MAX_AREA` hoisted to module-level `pub(crate)` consts (resize uses them, messages unchanged); `Operation` and `refusal` doc text
+  - `src/operation/crop.rs` — `parse_aspect` is `pub(super)`, one line
+  - `src/operation/registry.rs` — one registration, doc lists, three test extensions
+  - `tests/pad.rs` (new) — 17 integration rows
+  - `tests/common/mod.rs` — strict `orientation_of`
+  - `tests/rotate_flip.rs` — uses `common::orientation_of`; two new rows
+  - `tests/recipe_corpus_output.rs`, `tests/recipe_round_trip.rs` — two stems, `EXPECTED_DIMS` entries, literals bumped
+  - `tests/fixtures/recipe_corpus/v2_pad_aspect.{toml,golden}` and `v2_pad_border.{toml,golden}`, plus three `.output` files each (10 new files)
+  - `tests/fixtures/recipe_corpus/README.md` — "Adding a recipe" table without counts
+  - `tests/wasm_roundtrip.rs` — `transform_pads_exactly`, `transform_refuses_a_bad_pad_with_the_native_message`
+  - `scripts/wasm-ci-check.sh` — `FULL_COUNT=53`, `SLIM_COUNT=51`, self-test fixtures (`l53`, `l52`, `l51`)
+  - `docs/recipes.md`, `recipes/README.md`, `docs/data-model.md`, `docs/api-contract.md`, `skills/crustyimg/SKILL.md`, `integrations/ddphotos/README.md`, `docs/backlog.md`, `CHANGELOG.md` — docs
+  - No `Cargo.toml`, `Cargo.lock`, `CACHE_SCHEMA_VERSION` or version change (`git diff --stat origin/main...HEAD` on those paths is empty).
 - **Deviations from spec:**
-  - [list]
+  - The canvas formula is its own private function, `aspect_canvas(a, b, w, h) -> (u64, u64)`, which `layout` calls. Reason: AC-3's sweep "through `layout`" cannot hold for the extreme aspects (`65535:1`, `1:65535`), because `layout` refuses a canvas past the caps. The sweep calls `aspect_canvas` instead, so all 53,248 cases are checked. `layout` is unchanged in behaviour.
+  - The comments on the hoisted caps lost their `SPEC-`/`DEC-` ids (ruling 5).
+  - `common::orientation_of` has two callers in `tests/rotate_flip.rs` and one in `tests/pad.rs` (the spec now says two plus AC-14's).
+  - Two local type aliases (`Offset`, `Layout`) and `as_chunks::<3>()` in tests, for clippy `-D warnings`; MSRV 1.90 covers `as_chunks`.
 - **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - `pad` at the area cap on an `Rgba32F` image allocates 134,217,728 px x 16 B = 2 GiB, against 512 MiB at RGBA8 (the cap is in pixels, not bytes). Float inputs are rare and decode has its own limits, but a byte-based cap is a hardening question for a decision, not for this spec.
+  - CI's wasm-size step is path-filtered, so main's run has no size line to diff against. Head (slim): raw 4,137,932 B, brotli 829,807 B. No delta was measurable from CI.
+
+### Acceptance criteria
+
+All 83 met. AC-1 to AC-14 by the unit rows and `tests/pad.rs` rows of the same names; AC-15 to AC-51 by `every_pad_refusal_names_its_reason` (37 rows, asserted); AC-52 to AC-54 and AC-55 to AC-58 by the named binary rows (exit codes 1, 1, 1, 6, 1, 6 as specified); AC-59 by `caps_and_zero_px_fail_before_allocating`; AC-60 by `pad_then_crop_is_the_identity` (6 cases); AC-61 to AC-64 below; AC-65, AC-66 by the two wasm rows (53 and 51 ran green locally and in CI); AC-67 below; AC-68 to AC-70 and AC-71 to AC-72 as worded (crop.rs diff is the one line); AC-73 to AC-80 by reading against the spec's text; AC-81: `grep -nE "SPEC-|STAGE-|DEC-" src/operation/pad.rs` finds nothing, and no added line in `mod.rs` names an id; AC-82: no version, cache-schema or lockfile change; AC-83: `cargo clippy --all-targets -- -D warnings`, `cargo fmt --check` and `cargo test --no-fail-fast` ran on the three matrix legs (not the `just check` wrapper itself), and CI is green on every leg.
+
+- **Baseline (red tests, stage 1):** `tests/pad.rs` 17 of 17 red with `unknown operation 'pad'` (for example `"aspect = \"1:1\" color = \"#FFFFFF\"" was refused: unknown operation 'pad'`); registry rows `with_builtins_contains_pad`, `every_builtin_publishes_a_param_schema` and `one_of_values_are_accepted_by_their_constructors` red; with a lenient `orientation_of`, `orientation_of_fails_on_a_malformed_exif_chunk` red with `test did not panic as expected` and the other 15 `rotate_flip` rows green.
+- **Corpus (AC-62 to AC-64):** the two recipes, with the literals `RECIPES` 20, `EXPECTED_DIMS` 20, `ROWS` 66, `GOLDEN_LINES` 69, `60`, `pairs.len()` 20. First CI run on the corpus commit's successor failed only on the missing linux and windows files (mac 1 failed test, others 2). I copied those four files from the failing log, then `cmp` of macos-aarch64 vs linux-x86_64 vs windows-x86_64 was identical for `v2_pad_aspect` and for `v2_pad_border`. The second CI run (head `746733c`) is green on every leg: macos, ubuntu, windows, lean, webp-lossy, avif, both heic, msrv, cargo-deny, wasm Node, ddphotos parity, browser smoke, DCO. `git diff --diff-filter=MD --name-only origin/main -- tests/fixtures/recipe_corpus/` lists only `README.md`; `--diff-filter=A` lists 10 files; no existing `.output` or `.golden` changed.
+- **wasm and the script (AC-67):** `LC_ALL=en_US.UTF-8 scripts/wasm-ci-check.sh --self-test`: `18 rows, 18 passed, 0 wrong verdict, 0 wrong message`. `... workflow`: `16 assertions, 0 failed`. `./scripts/validate-frontmatter.sh`: `all front-matter blocks parse`. `just wasm-check` exit 0 (one pre-existing dead-code warning, `MANIFEST_DROPPED_WARNING`); `just wasm-test`: `53 passed`; `just wasm-test-slim`: `51 passed`. CI: `full set: 53 passed, as expected` and `slim set: 51 passed, as expected`. Main's constants at the last fetch were still 51/49, so base had not moved. Bundle (slim, from the parity job): raw 4,137,932 B, brotli 829,807 B; no main baseline in CI.
+- **Matrix:** default, `--no-default-features` and `--features webp-lossy`, each in a fresh `CARGO_TARGET_DIR`: clippy `-D warnings` 0, `fmt --check` 0, `cargo test --no-fail-fast` 0 with 56 test binaries ok, on all three. (My first webp attempt failed on a quoting slip in my own loop, then re-ran correctly.)
+
+### Mutations
+
+Driven in a scratch `git worktree` of the pushed head (`746733c`), own `CARGO_TARGET_DIR`, `cargo clean -p crustyimg` before each run, full `cargo test --no-fail-fast` to a file, `$?` read, restored and diff shown empty. Native only: wasm rows are marked reasoned and were not run under mutation.
+
+| row | applied at | red (observed) | against the table |
+|---|---|---|---|
+| M1 | `Gravity::placement` x_center, y_center `+ 1` | `pad::gravity_places_by_absolute_position`, `pad::odd_remainder_puts_the_extra_fill_right_or_bottom`, `crop::aspect_gravity_places_all_nine`; `tests/pad.rs`: `gravity_corners_land_by_absolute_position`, `every_colour_type_pads_exactly`, `pad_then_crop_is_the_identity`, `apply_pads_a_png_end_to_end` | matches; one extra red, `apply_pads_a_png_end_to_end` (4x3 to 1:1 at centre is an odd remainder). Corpus and watermark green, as expected. `gravity_corners_land_by_absolute_position` (reasoned) confirmed |
+| M2 | `Gravity::North => (x_center, y_bottom)` | `pad::gravity_places_by_absolute_position`, `crop::aspect_gravity_places_all_nine`, `gravity_corners_land_by_absolute_position`, `every_colour_type_pads_exactly` | matches; reasoned cell confirmed |
+| M3 | `pad.rs` `wide`: `u16::from(c) << 8` | `sixteen_bit_fill_is_times_257`, `colour_type_table_row_by_row`, `every_colour_type_pads_exactly`, corpus `every_recipe_output_matches_its_golden` | matches; both reasoned cells (table rows, corpus by hash) confirmed |
+| M4 | `layout`: `iw.min(ih)` | `pad::border_is_a_fraction_of_the_long_edge`, `pad::caps_and_zero_px_fail_before_allocating`, `colour_type_table_row_by_row`, `apply_fails_a_0px_border_with_exit_1`, `batch_with_a_0px_border_fails_that_input_with_exit_6`, `every_colour_type_pads_exactly`, `pad_then_crop_is_the_identity`, corpus golden | matches; one extra red, `float_images_keep_their_variant` (its `border = 1` on 3x2 adds 2 px, not 3). Corpus reasoned cell confirmed; wasm border row not run |
+| M5a | alpha check `if false && ...` | `every_pad_refusal_names_its_reason`, `apply_refuses_a_translucent_fill_and_writes_nothing` | matches; reasoned cell confirmed |
+| M5b | keyword check `if false && ...` | `every_pad_refusal_names_its_reason` only | matches |
+| M6 | `if false && px == 0` | `pad::caps_and_zero_px_fail_before_allocating`, `apply_fails_a_0px_border_with_exit_1`, `batch_with_a_0px_border_...` | matches |
+| M7 | both cap `if`s become `if false` | `pad::caps_and_zero_px_fail_before_allocating`, `apply_fails_a_canvas_past_the_edge_cap_with_exit_1`, `batch_with_a_canvas_past_the_area_cap_...` | matches; reasoned cell confirmed |
+| M8 | `let chromatic = false;` | `colour_type_table_row_by_row`, `every_colour_type_pads_exactly` | matches |
+| M8b | `f32::from(c)` unscaled | `float_images_keep_their_variant`, `every_colour_type_pads_exactly`, `colour_type_table_row_by_row` | matches (the reasoned cell is confirmed; the table row is an extra red) |
+| M9 | `FULL_COUNT=52` | `count full` on a 53 log: `full set: 53 passed, expected 52`, exit 1; self-test rows 1, 2, 3 red (`FAIL 1 ... verdict fail, expected ok`, `FAIL 2 ... message lacks`, `FAIL 3 ... verdict ok, expected fail`); `18 rows, 15 passed, 2 wrong verdict, 1 wrong message`; `workflow` 16/0 | matches exactly |
+| M10 | append a pad step to `v1_resize_max.toml` | `every_recipe_output_matches_its_golden` (`v1_resize_max x rgb8_2600x1730: dims 880x612, expected 800x532 (expected-dims table)`), `to_toml_is_byte_identical_to_main_over_the_corpus` | matches; reasoned cell confirmed |
+| M11 | lenient `orientation_of` | `orientation_of_fails_on_a_malformed_exif_chunk` only | matches |
+| M12 | registration line removed | 23 red: the 3 registry rows, `docs_ops::every_op_named_in_data_model_resolves`, all 17 `tests/pad.rs` rows, corpus golden, `to_toml_is_byte_identical_...`. The `pad.rs` unit rows stay green | matches; every reasoned cell confirmed (wasm rows not run) |
+| M13 | `Image::from_parts(out, img.source_format(), None)` | `pad_writes_no_orientation_tag_and_keeps_the_bundle` only | matches (reasoned, now driven) |
+| M14 | `get_f32("border").map(f64::from)` | none (0 red, exit 0) | matches the "expected all green" cell (reasoned, now driven) |
+
+No cell of the table was wrong. The design's table is not edited.
+
+### Punch list (verify)
+
+Fixes:
+- Two rows in `border_is_a_fraction_of_the_long_edge` (now 7): 50×10 at `0.01` → 52×12 at (1, 1) and 5×3 at `0.7` → 13×11 at (4, 4). Checked in Python with `f64`: `0.01 * 50 = 0.5` → 1 px; `0.7 * 5 = 3.5` → 4 px. In `f32` the products are 0.49999999 and 3.49999994, which give 0 and 3.
+- `apply_reads_the_border_as_f64` in `tests/pad.rs`: a seeded 50×10 rgb8 PNG, `border = 0.01`, `#ffffff`; exit 0, 52×12, input at (1, 1), frame all `#ffffff`.
+- Spec text: file count, M14 row, AC-5, Failing Tests list, `orientation_of` caller count (two).
+- `docs/data-model.md:164`: removed the spec id. The line before it needed a comma after `watermark` to keep the sentence a list.
+
+Prove it can fail (each on a fresh `CARGO_TARGET_DIR`, stdout redirected, `$?` read, `git diff` non-empty):
+- M14 (`get_f32("border").map(f64::from)`): exit 101, exactly two targets red. `border_is_a_fraction_of_the_long_edge`: `Err("the border rounds to 0 px on this 50×10 px image ('border' = 0.01 of its 50 px long edge); it must add at least 1 px")` against `Ok((52, 12, 1, 1))`. `apply_reads_the_border_as_f64`: exit code `left: Some(1) right: Some(0)`. The two unit rows are one test function, so two tests go red, not three; the second row is not reached after the first fails.
+- M4 (`iw.min(ih)`): the new unit rows are red along with the existing set; `border_is_a_fraction_of_the_long_edge` fails on its first row, `left: Ok((46, 36, 3, 3)) right: Ok((48, 38, 4, 4))`; `apply_reads_the_border_as_f64` is red too.
+- Restored: full default leg and `--no-default-features` leg, each in a fresh target dir, both exit 0.
 
 ### Build-phase reflection (3 questions, short answers)
 
 Process-focused: how did the build go? What friction did the spec create?
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — AC-3 says the sweep runs "through `layout`", but `layout` rejects the extreme aspects at the caps, so those cases cannot be swept there. I pulled the canvas formula into its own function and swept that. Otherwise the spec's literals (messages, offsets, fills) were enough to build from without a question.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — The area cap is in pixels, so an `Rgba32F` canvas at the cap is 2 GiB against 512 MiB at RGBA8. Reached through float TIFFs only, and out of scope here, but `untrusted-input-hardening` is the constraint it touches.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Start the CI watch with the run id in a variable, not a re-parsed string, and push the corpus files before the docs so the corpus-bless round finishes first. Two harness slips (a zsh unsplit `$F` in the matrix loop, a mis-quoted run id) cost reruns, not code.
 
 ---
 

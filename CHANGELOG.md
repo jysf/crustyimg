@@ -16,6 +16,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **A recipe can rotate and flip.** `op = "rotate"` with `angle` a multiple of 90 (positive is
   clockwise) and `op = "flip"` with `axis = "horizontal"` or `"vertical"`, exact in pixels at the
   input's colour type. 0.8.2 and earlier refuse them with `unknown operation`.
+- **A recipe can pad.** `op = "pad"` with `aspect` (and `gravity`) or `border`, and a required
+  opaque `color`; the input's pixels are unchanged and its bit depth kept; a grey image with a
+  colour fill becomes RGB. 0.8.2 and earlier refuse it with `unknown operation 'pad'`.
 
 ## [0.8.2] - 2026-10-31
 

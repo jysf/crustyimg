@@ -95,7 +95,29 @@ For every flag and exit code, see [`docs/cli-reference.md`](cli-reference.md).
   ```
   `horizontal` mirrors left and right; `vertical` mirrors top and bottom. Put `op = "auto-orient"`
   first when the recipe is meant as the photo is displayed.
-- **Trim / pad** **[planned — PROJ-017]**
+- **Pad to an aspect or add a border** **[today]** — a recipe step:
+  ```toml
+  [[step]]
+  op = "pad"
+  aspect = "1:1"
+  color = "#ffffff"
+  ```
+  or the same border on every side:
+  ```toml
+  [[step]]
+  op = "pad"
+  border = 0.05
+  color = "#000000"
+  ```
+  `color` is required: a hex colour such as `"#ffffff"`, with no default. `aspect` grows the canvas
+  to the smallest `W:H` shape that holds the image, placed by `gravity` (default `center`); an image
+  already at that aspect is written unchanged. `border` is a fraction of the image's long edge,
+  added on every side: a 6000×4000 photo with `border = 0.05` gets 300 px all round. A grey image
+  padded with a colour that is not grey becomes RGB. A transparent fill is not supported yet. For an
+  exact pixel box such as 1080×1080, resize first (`op = "resize"`, `mode = "fit"`, `width = 1080`,
+  `height = 1080`), then pad with `aspect = "1:1"`. `fit` never enlarges, so a smaller photo gives a
+  smaller square. Put `op = "auto-orient"` first when the recipe is meant as the photo is displayed.
+- **Trim** **[planned — PROJ-017]**
 - **Smart (content-aware) crop** **[post-1.0, beta]** — see the smart-crop row in
   [`roadmap.md`](roadmap.md).
 
@@ -257,7 +279,7 @@ service). (Ranked targets + per-tool sources live in the roadmap's Track B / the
 - **PROJ-002:** `optimize` auto-decides format + `--explain` — **shipped**.
 - **PROJ-004:** `lint` (+ the GitHub Actions) — **shipped**.
 - **PROJ-005:** `--manifest`, `favicon`, `placeholder`, dominant color — **planned**; unlocks §9.
-- **PROJ-017:** geometry as recipe steps — `crop`, `rotate` (quarter turns) and `flip` today; `trim`, `pad` and straighten **planned**.
+- **PROJ-017:** geometry as recipe steps — `crop`, `rotate` (quarter turns), `flip` and `pad` today; `trim` and straighten **planned**.
 - Smart crop, redaction, auto-color, upscaling — **planned**.
 - **PROJ-007:** `build` + cache + lockfile + `--watch` — **shipped**.
 - **PROJ-008:** the wasm core + browser demo (recipes run in the browser via `transform()`) — **shipped**.

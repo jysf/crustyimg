@@ -2,7 +2,7 @@
 //!
 //! `tests/recipe_round_trip.rs` pins each recipe's canonical TOML, which is a
 //! cache-key input. It never runs a recipe, so a change to what a recipe draws
-//! (a resize filter, a watermark default) passes it. This test runs all 18
+//! (a resize filter, a watermark default) passes it. This test runs all 20
 //! corpus and bundled recipes on three fixtures built here from raw samples and
 //! compares the pixels before encoding, plus the encoded bytes for the two
 //! recipes that end in PNG or lossless WebP. Lossy and AVIF bytes are not
@@ -43,6 +43,8 @@ const RECIPES: &[&str] = &[
     "v2_ddphotos_cli_shape",
     "v2_flip_horizontal",
     "v2_format_quality_optimize",
+    "v2_pad_aspect",
+    "v2_pad_border",
     "v2_rotate_90",
     "v2_watermark_integer_numbers",
     "bundled_gallery",
@@ -52,16 +54,16 @@ const RECIPES: &[&str] = &[
 
 const FIXTURES: [&str; 3] = ["rgb8_2600x1730", "rgba8_1730x2600", "rgba16_2600x1730"];
 
-/// 18 recipes x 3 fixtures, plus 3 PNG and 3 WebP byte rows.
-const ROWS: usize = 60;
+/// 20 recipes x 3 fixtures, plus 3 PNG and 3 WebP byte rows.
+const ROWS: usize = 66;
 
-/// Non-comment golden lines per target: 54 pixel rows, 3 PNG, 3 WebP and 3
+/// Non-comment golden lines per target: 60 pixel rows, 3 PNG, 3 WebP and 3
 /// chosen-format lines.
-const GOLDEN_LINES: usize = 63;
+const GOLDEN_LINES: usize = 69;
 
 /// What each recipe must produce, by fixture. Independent of the goldens, so a
 /// golden blessed over a pipeline that ran nothing still fails here.
-const EXPECTED_DIMS: [(&str, [&str; 3]); 18] = [
+const EXPECTED_DIMS: [(&str, [&str; 3]); 20] = [
     ("v1_resize_cover", ["721x480", "640x962", "721x480"]),
     ("v1_resize_exact", ["640x480", "640x480", "640x480"]),
     ("v1_resize_fill", ["640x480", "640x480", "640x480"]),
@@ -90,6 +92,8 @@ const EXPECTED_DIMS: [(&str, [&str; 3]); 18] = [
         "v2_format_quality_optimize",
         ["2600x1730", "1730x2600", "2600x1730"],
     ),
+    ("v2_pad_aspect", ["2600x3250", "2080x2600", "2600x3250"]),
+    ("v2_pad_border", ["2860x1990", "1990x2860", "2860x1990"]),
     ("v2_rotate_90", ["1730x2600", "2600x1730", "1730x2600"]),
     (
         "v2_watermark_integer_numbers",
@@ -730,7 +734,7 @@ fn every_recipe_output_matches_its_golden() {
         "rows checked {}, expected {ROWS}",
         report.rows_checked
     );
-    assert_eq!(EXPECTED_DIMS.len() * FIXTURES.len(), 54);
+    assert_eq!(EXPECTED_DIMS.len() * FIXTURES.len(), 60);
     if !report.mismatches.is_empty() {
         panic!(
             "{}\n{} of {ROWS} rows changed\n{}",

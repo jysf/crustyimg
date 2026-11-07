@@ -539,6 +539,91 @@ op = "identity"
         }
     }
 
+    /// A pad copies pixels and computes none, so the wasm output is the native
+    /// one in size and in every pixel, with no 1/255 allowance.
+    #[wasm_bindgen_test]
+    fn transform_pads_exactly() {
+        let src = png_unique(120, 80);
+        let decoded = image::load_from_memory(&src)
+            .expect("decode input")
+            .to_rgba8();
+        // (name, step body, canvas size, input offset), each written by hand.
+        let rows = [
+            (
+                "aspect",
+                "aspect = \"1:1\"\ngravity = \"south\"\ncolor = \"#123456\"",
+                (120u32, 120u32),
+                (0u32, 40u32),
+            ),
+            (
+                "border",
+                "border = 0.05\ncolor = \"#123456\"",
+                (132, 92),
+                (6, 6),
+            ),
+        ];
+        for (name, body, (w, h), (left, top)) in rows {
+            let recipe = format!("version = \"2\"\n\n[[step]]\nop = \"pad\"\n{body}\n");
+            let out = transform(&src, &recipe, "png").expect("a pad recipe transforms");
+            let got = image::load_from_memory(&out)
+                .expect("decode output")
+                .to_rgba8();
+            assert_eq!((got.width(), got.height()), (w, h), "{name}: size");
+            let differing = got
+                .enumerate_pixels()
+                .filter(|(x, y, px)| {
+                    let inside = *x >= left && *x < left + 120 && *y >= top && *y < top + 80;
+                    let want = if inside {
+                        *decoded.get_pixel(x - left, y - top)
+                    } else {
+                        image::Rgba([0x12, 0x34, 0x56, 0xff])
+                    };
+                    **px != want
+                })
+                .count();
+            assert_eq!(differing, 0, "{name}: pixels differing from the hand map");
+        }
+    }
+
+    /// A bad pad throws the same line the CLI prints, at load or at apply, and
+    /// the module survives each one.
+    #[wasm_bindgen_test]
+    fn transform_refuses_a_bad_pad_with_the_native_message() {
+        let rows = [
+            (
+                "P30",
+                120u32,
+                80u32,
+                "aspect = \"1:1\"\ncolor = \"#ff000080\"",
+                "recipe step 0 ('pad'): a fill with transparency is not supported yet; 'color' must be opaque, such as \"#ffffff\", got \"#ff000080\"",
+            ),
+            (
+                "P22",
+                120,
+                80,
+                "aspect = \"1:1\"",
+                "recipe step 0 ('pad'): missing required key 'color'; a pad needs a fill colour such as \"#ffffff\"",
+            ),
+            (
+                "A1",
+                40,
+                30,
+                "border = 0.001\ncolor = \"#ffffff\"",
+                "operation 'pad' failed: the border rounds to 0 px on this 40×30 px image ('border' = 0.001 of its 40 px long edge); it must add at least 1 px",
+            ),
+        ];
+        for (id, w, h, body, want) in rows {
+            let src = png_unique(w, h);
+            let recipe = format!("version = \"2\"\n\n[[step]]\nop = \"pad\"\n{body}\n");
+            let err = transform(&src, &recipe, "png").expect_err("a bad pad is refused");
+            let msg = format!("{:?}", wasm_bindgen::JsValue::from(err));
+            assert!(msg.contains(want), "{id}: wanted {want:?}, got {msg}");
+
+            let ok = transform(&src, IDENTITY_RECIPE, "png").expect("module must survive");
+            assert!(!ok.is_empty(), "{id}: identity after the refusal");
+        }
+    }
+
     /// `recipe.quality`, when set, reaches the encoder — the RETURNED BYTES
     /// equal an independent encode at that same quality, not merely a
     /// plausible-looking success (the standard this file holds every

@@ -223,7 +223,7 @@ fn aspect_size(a: u32, b: u32, iw: u32, ih: u32) -> (u32, u32) {
 
 /// Parse `"W:H"`: two whole numbers from 1 to 65535. On failure the error is
 /// the whole reason; a decimal ratio gets its whole-number spelling.
-fn parse_aspect(s: &str) -> Result<(u32, u32), String> {
+pub(super) fn parse_aspect(s: &str) -> Result<(u32, u32), String> {
     let generic = || {
         format!(
             "'aspect' must be two whole numbers from 1 to 65535 written W:H, such as \"16:9\"; \

@@ -14,8 +14,9 @@ use std::collections::HashMap;
 use thiserror::Error;
 
 use super::{
-    AutoOrient, Crop, Flip, Identity, Invert, Operation, OperationParams, Resize, Rotate,
-    Watermark, CROP_PARAMS, FLIP_PARAMS, RESIZE_PARAMS, ROTATE_PARAMS, WATERMARK_PARAMS,
+    AutoOrient, Crop, Flip, Identity, Invert, Operation, OperationParams, Pad, Resize, Rotate,
+    Watermark, CROP_PARAMS, FLIP_PARAMS, PAD_PARAMS, RESIZE_PARAMS, ROTATE_PARAMS,
+    WATERMARK_PARAMS,
 };
 
 // ─── Constructor type alias ─────────────────────────────────────────────────
@@ -273,8 +274,8 @@ struct Entry {
 ///
 /// Constructed via [`OperationRegistry::new`] (empty) or
 /// [`OperationRegistry::with_builtins`] (pre-populated with `identity`,
-/// `invert`, `resize`, `auto-orient`, `watermark`, `crop`, `rotate`, and
-/// `flip`). New operations
+/// `invert`, `resize`, `auto-orient`, `watermark`, `crop`, `rotate`, `flip`,
+/// and `pad`). New operations
 /// register themselves without touching the recipe parser (the whole point of
 /// the registry seam), and each publishes the step keys it accepts:
 ///
@@ -301,7 +302,7 @@ impl OperationRegistry {
 
     /// Create a registry pre-populated with the built-in operations:
     /// `"identity"`, `"invert"`, `"resize"`, `"auto-orient"`, `"watermark"`,
-    /// `"crop"`, `"rotate"` and `"flip"`.
+    /// `"crop"`, `"rotate"`, `"flip"` and `"pad"`.
     pub fn with_builtins() -> Self {
         let mut reg = Self::new();
         reg.register("identity", |_params| Ok(Box::new(Identity)));
@@ -324,6 +325,7 @@ impl OperationRegistry {
             ROTATE_PARAMS,
         );
         reg.register_with_params("flip", |p| Ok(Box::new(Flip::from_params(p)?)), FLIP_PARAMS);
+        reg.register_with_params("pad", |p| Ok(Box::new(Pad::from_params(p)?)), PAD_PARAMS);
         reg
     }
 
@@ -526,6 +528,29 @@ mod tests {
     }
 
     #[test]
+    fn with_builtins_contains_pad() {
+        let reg = OperationRegistry::with_builtins();
+        assert!(reg.contains("pad"), "expected 'pad' to be registered");
+        let specs = reg.param_specs("pad").expect("pad schema");
+        let keys: Vec<&str> = specs.iter().map(|s| s.key).collect();
+        assert_eq!(keys, ["aspect", "gravity", "border", "color"]);
+        let kinds: Vec<ParamKind> = specs.iter().map(|s| s.kind).collect();
+        assert_eq!(
+            kinds,
+            [
+                ParamKind::Text,
+                ParamKind::OneOf(crate::operation::GRAVITY_NAMES),
+                ParamKind::Number {
+                    min: 0.0,
+                    min_inclusive: false,
+                    max: Some(1.0),
+                },
+                ParamKind::Text,
+            ]
+        );
+    }
+
+    #[test]
     fn with_builtins_contains_rotate_and_flip() {
         let reg = OperationRegistry::with_builtins();
         assert!(reg.contains("rotate"), "expected 'rotate' to be registered");
@@ -694,6 +719,7 @@ mod tests {
         );
         assert_eq!(keys("rotate"), ["angle"]);
         assert_eq!(keys("flip"), ["axis"]);
+        assert_eq!(keys("pad"), ["aspect", "gravity", "border", "color"]);
         let kinds = |name: &str| -> Vec<ParamKind> {
             reg.param_specs(name)
                 .expect("schema")
@@ -712,6 +738,19 @@ mod tests {
         assert_eq!(
             kinds("flip"),
             [ParamKind::OneOf(&["horizontal", "vertical"])]
+        );
+        assert_eq!(
+            kinds("pad"),
+            [
+                ParamKind::Text,
+                ParamKind::OneOf(crate::operation::GRAVITY_NAMES),
+                ParamKind::Number {
+                    min: 0.0,
+                    min_inclusive: false,
+                    max: Some(1.0),
+                },
+                ParamKind::Text,
+            ]
         );
         for paramless in ["identity", "invert", "auto-orient"] {
             assert!(keys(paramless).is_empty(), "'{paramless}' takes no keys");
@@ -750,7 +789,7 @@ mod tests {
     fn one_of_values_are_accepted_by_their_constructors() {
         let reg = OperationRegistry::with_builtins();
         let mut checked = 0;
-        for op in ["resize", "watermark", "crop", "flip"] {
+        for op in ["resize", "watermark", "crop", "flip", "pad"] {
             for spec in reg.param_specs(op).expect("schema") {
                 let ParamKind::OneOf(values) = spec.kind else {
                     continue;
@@ -775,6 +814,10 @@ mod tests {
                         ("crop", _) => {
                             m.insert("aspect".to_owned(), toml::Value::String("16:9".into()));
                         }
+                        ("pad", _) => {
+                            m.insert("aspect".to_owned(), toml::Value::String("1:1".into()));
+                            m.insert("color".to_owned(), toml::Value::String("#000000".into()));
+                        }
                         // `axis` is the whole step.
                         ("flip", _) => {}
                         _ => {
@@ -791,8 +834,8 @@ mod tests {
         }
         assert_eq!(
             checked,
-            6 + 9 + 9 + 2,
-            "6 resize modes + 9 watermark gravities + 9 crop gravities + 2 flip axes"
+            6 + 9 + 9 + 2 + 9,
+            "6 resize modes + 9 watermark gravities + 9 crop gravities + 2 flip axes + 9 pad gravities"
         );
     }
 
