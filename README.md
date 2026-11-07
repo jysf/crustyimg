@@ -196,7 +196,7 @@ crustyimg meta set photo.jpg --artist "Jane Doe" --copyright "© 2026" -o tagged
 crustyimg meta copy --from original.jpg --to edited.jpg      # copy EXIF+ICC between images
 ```
 
-> Pixel-lane encodes drop all metadata, GPS included. To keep it, run `crustyimg meta copy --from in.jpg --to out.jpg -y` after the encode (JPEG and PNG).
+> Pixel-lane encodes drop all metadata, GPS included. To keep it, run `crustyimg meta copy --from in.jpg --to out.jpg -y` after the encode (JPEG only).
 
 ### Watermark
 

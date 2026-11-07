@@ -29,7 +29,7 @@ const R4_STRICT_ALONE: &str =
     "error: --strict only applies with --check: run `build --check --strict`, or drop --strict\n";
 const R5_NO_CACHE: &str =
     "error: --no-cache is only valid with `build`: there is no build cache for this subcommand\n";
-const R6_KEEP_GPS: &str = "error: --keep-gps is not supported yet: pixel-lane encodes drop all metadata, GPS included; to keep it, copy the metadata back after the encode with `crustyimg meta copy --from <in> --to <out> -y` (JPEG and PNG)\n";
+const R6_KEEP_GPS: &str = "error: --keep-gps is not supported yet: pixel-lane encodes drop all metadata, GPS included; to keep it, copy the metadata back after the encode with `crustyimg meta copy --from <in> --to <out> -y` (JPEG only)\n";
 const R7_NAME_TEMPLATE: &str = "error: responsive does not take --name-template: its output names are fixed as {stem}-{w}w.{ext}\n";
 const R8_FORMAT: &str = "error: responsive does not take --format: choose its output formats with --formats (e.g. --formats webp,jpeg)\n";
 

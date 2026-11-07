@@ -18,7 +18,7 @@ crustyimg [GLOBAL OPTIONS] <COMMAND> [INPUT...] [OPTIONS]
   the target extension).
 - **Per-command fan-out is sequential;** `apply --recipe` is the parallel path (`-j N`).
 - **Pipes stay clean:** with `-o -` (stdout) all diagnostics go to stderr.
-- **Metadata is dropped on pixel-lane encodes,** GPS included. `--keep-gps` is refused (exit `2`); to keep metadata, run `crustyimg meta copy --from <in> --to <out> -y` after the encode (JPEG and PNG).
+- **Metadata is dropped on pixel-lane encodes,** GPS included. `--keep-gps` is refused (exit `2`); to keep metadata, run `crustyimg meta copy --from <in> --to <out> -y` after the encode (JPEG only).
 - **SVG text always draws in the bundled Go font.** crustyimg never reads the fonts installed on
   your system, so `<text>` in any `font-family` (`sans-serif`, `Arial`, a family you do not
   have) draws in Go. Bold and italic draw upright in Go Regular, and characters Go does not
@@ -39,7 +39,7 @@ Available on every command (before or after the subcommand):
 | `--yes` | `-y` | Assume "yes" to overwrite prompts (non-interactive). |
 | `--quiet` | `-Q` | Suppress non-error output — except the truncated-JPEG warning (DEC-085), which is unconditional so a silent-corruption path can never be fully suppressed. Also silences `-v`. |
 | `--verbose` | `-v` | Show warnings from the SVG renderer and codecs on stderr; `-vv` adds debug detail. Silent by default; `-Q` wins. |
-| `--keep-gps` | | Refused (exit `2`): pixel-lane encodes drop all metadata. Use `meta copy` after the encode (JPEG and PNG). Hidden from `--help`. |
+| `--keep-gps` | | Refused (exit `2`): pixel-lane encodes drop all metadata. Use `meta copy` after the encode (JPEG only). Hidden from `--help`. |
 | `--check` / `--strict` / `--no-cache` / `--watch` | | `build` only (see Project builds); refused with exit `2` on every other command, and `--strict` is refused without `--check`. |
 | `--version` / `--help` | `-V` / `-h` | Standard. |
 
