@@ -57,7 +57,19 @@ value_link: "Delivers STAGE-058's `trim` step: remove a uniform border within a 
 # See AGENTS.md §4 and docs/cost-tracking.md. interface: claude-code |
 # claude-ai | api | ollama | other.
 cost:
-  sessions: []
+  sessions:
+    - cycle: frame
+      date: 2026-11-06
+      interface: claude-code
+      model: claude-opus-5-5
+      tokens_total: 5170027
+      tokens_breakdown:
+        input: 82
+        cache_creation: 135007
+        cache_read: 4993199
+        output: 41739
+      estimated_usd: 4.38
+      note: "Measured from this session's transcript after the push (41 messages, deduped by message.id, max output_tokens per id). Rates: Opus $5/$25 per MTok, cache_creation x1.25, cache_read x0.10. Excludes this final cost commit's own turn." 
   totals:
     tokens_total: 0
     estimated_usd: 0
