@@ -51,5 +51,6 @@ Cycle prompts live in `prompts/SPEC-151-<cycle>.md`.
   reworded line. The orchestrator read the diff: `src/` changes only inside `mod tests`. No re-verify
   (rule 7: assert and wording only). About $0.72 (Sonnet, 1.44M tokens, before its last two turns).
   Not yet recorded in `cost.sessions`: verify (ship measures it).
-- [ ] **merge** — PR #255 marked ready by the orchestrator after the punch list; the maintainer merges.
-- [ ] **ship**
+- [x] **merge** — PR #255 marked ready by the orchestrator after the punch list; merged by the
+  maintainer at `f1c521b` (2026-11-07T04:19Z), CI green on the final head `21c0273`.
+- [ ] **ship** (`prompts/SPEC-151-ship.md`, Sonnet, worktree `docs/spec-151-ship`)
