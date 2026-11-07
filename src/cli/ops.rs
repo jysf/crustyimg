@@ -17,10 +17,10 @@ use crate::operation::{
 use crate::pipeline::{OnRefusal, Pipeline, SkippedStep};
 use crate::recipe::{Recipe, RecipeStep};
 use crate::sink::{Overwrite, Sink, SinkError, SinkInput};
-use crate::source::{self, SourceError};
+use crate::source::{self, OnEmpty, SourceError};
 
 use super::common::{
-    name_pinned_format, report_skipped_images, resolve_format, warn_skipped_steps,
+    name_pinned_format, refuse_folder, report_skipped_images, resolve_format, warn_skipped_steps,
 };
 use super::optimize::{auto_orient_prefix, pipeline_altered_source, resolve_effective_quality};
 use super::{AutoQuality, CliError, GlobalArgs};
@@ -35,7 +35,7 @@ pub(super) fn run_view(
     height: Option<u32>,
     _global: &GlobalArgs,
 ) -> Result<(), CliError> {
-    let resolved = source::resolve(input, &mut std::io::stdin().lock())?;
+    let resolved = source::resolve_all(&[input], &mut std::io::stdin().lock(), OnEmpty::Fail)?;
     let first = resolved
         .into_iter()
         .next()
@@ -334,17 +334,7 @@ pub(super) fn run_pixel_op(
     // Resolution errors (missing path / empty glob) are hard errors (exit 3/2),
     // NOT partial-batch (exit 6). Partial-batch applies only to per-input
     // load/run/write failures AFTER successful resolution.
-    let mut all: Vec<crate::source::Input> = Vec::new();
-    let mut stdin_lock = std::io::stdin().lock();
-    for arg in inputs {
-        let resolved = source::resolve(arg, &mut stdin_lock)?;
-        all.extend(resolved);
-    }
-
-    if all.is_empty() {
-        let joined = inputs.join(" ");
-        return Err(CliError::Source(SourceError::NotFound(joined)));
-    }
+    let all = source::resolve_all(inputs, &mut std::io::stdin().lock(), OnEmpty::Fail)?;
 
     let overwrite = if global.yes {
         Overwrite::Allow
@@ -769,15 +759,7 @@ fn run_metadata_lane(
     warn_on_manifest_drop: bool,
 ) -> Result<(), CliError> {
     // Resolve + flatten every input arg (resolution errors are hard errors).
-    let mut all: Vec<crate::source::Input> = Vec::new();
-    let mut stdin_lock = std::io::stdin().lock();
-    for arg in inputs {
-        let resolved = source::resolve(arg, &mut stdin_lock)?;
-        all.extend(resolved);
-    }
-    if all.is_empty() {
-        return Err(CliError::Source(SourceError::NotFound(inputs.join(" "))));
-    }
+    let all = source::resolve_all(inputs, &mut std::io::stdin().lock(), OnEmpty::Fail)?;
 
     refuse_a_name_asking_for_another_format(&all, global)?;
 
@@ -976,6 +958,8 @@ pub(super) fn run_set(
 pub(super) fn run_copy_metadata(from: &str, to: &str, global: &GlobalArgs) -> Result<(), CliError> {
     // Read both inputs directly (no source::resolve glob fan-out). An I/O error
     // (missing/unreadable path) maps to exit 3 via ImageError::Io.
+    refuse_folder(from)?;
+    refuse_folder(to)?;
     let from_bytes = std::fs::read(from).map_err(ImageError::Io)?;
     let to_bytes = std::fs::read(to).map_err(ImageError::Io)?;
 

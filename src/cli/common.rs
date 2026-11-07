@@ -160,6 +160,16 @@ pub(super) fn write_encoded(
     Ok(())
 }
 
+/// Refuse a folder where a command reads exactly one image file, before the read,
+/// so the user is told it is a folder rather than that it could not be read (on
+/// Windows reading a folder is "access denied"). Only stats the path.
+pub(super) fn refuse_folder(arg: &str) -> Result<(), CliError> {
+    if Path::new(arg).is_dir() {
+        return Err(CliError::InputIsAFolder(arg.to_owned()));
+    }
+    Ok(())
+}
+
 /// Guard: multi-input without `--out-dir` is a usage error (exit 2).
 ///
 /// Returns `Ok(dir_path)` when `global.out_dir` is `Some`, else `CliError::Usage`.

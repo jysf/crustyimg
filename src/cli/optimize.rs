@@ -11,12 +11,12 @@ use crate::pipeline::{OnRefusal, Pipeline, SkippedStep};
 use crate::quality::{self, LossyFormat, SearchConfig};
 use crate::recipe::{split_terminal_optimize, Recipe};
 use crate::sink::{Overwrite, Sink, SinkError, SinkInput};
-use crate::source::{self, SourceError};
+use crate::source::{self, OnEmpty};
 
 use super::common::{
-    apply_one, build_sink, fmt_bytes, load_recipe, name_pinned_format, report_skipped_images,
-    require_out_dir_for_batch, resolve_format, resolve_recipe_assets, resolved_input_count,
-    warn_skipped_steps, BATCH_PROGRESS_TEMPLATE,
+    apply_one, build_sink, fmt_bytes, load_recipe, name_pinned_format, refuse_folder,
+    report_skipped_images, require_out_dir_for_batch, resolve_format, resolve_recipe_assets,
+    resolved_input_count, warn_skipped_steps, BATCH_PROGRESS_TEMPLATE,
 };
 use super::ops::{metadata_output_ext, output_format_for, read_raw_bytes, run_pixel_op};
 use super::report::format_label;
@@ -135,17 +135,7 @@ pub(super) fn run_apply(
     // Step 5: resolve every positional input via source::resolve, flattening to
     // one Vec<Input>. Resolution errors (missing path / empty glob) are HARD errors
     // (exit 3/2), NOT partial-batch.
-    let mut all: Vec<crate::source::Input> = Vec::new();
-    let mut stdin_lock = std::io::stdin().lock();
-    for arg in inputs {
-        let resolved = source::resolve(arg, &mut stdin_lock)?;
-        all.extend(resolved);
-    }
-    if all.is_empty() {
-        let joined = inputs.join(" ");
-        return Err(CliError::Source(SourceError::NotFound(joined)));
-    }
-    drop(stdin_lock);
+    let all = source::resolve_all(inputs, &mut std::io::stdin().lock(), OnEmpty::Fail)?;
 
     let overwrite = if global.yes {
         Overwrite::Allow
@@ -1610,14 +1600,7 @@ fn run_optimize_autodecide(
     // The JSON report and `-o -`'s image bytes would both land on stdout (SPEC-088).
     reject_json_report_on_stdout_sink(explain, global)?;
 
-    let mut all: Vec<crate::source::Input> = Vec::new();
-    let mut stdin_lock = std::io::stdin().lock();
-    for arg in inputs {
-        all.extend(source::resolve(arg, &mut stdin_lock)?);
-    }
-    if all.is_empty() {
-        return Err(CliError::Source(SourceError::NotFound(inputs.join(" "))));
-    }
+    let all = source::resolve_all(inputs, &mut std::io::stdin().lock(), OnEmpty::Fail)?;
 
     let overwrite = if global.yes {
         Overwrite::Allow
@@ -1921,6 +1904,7 @@ pub(super) fn run_responsive(
     // Decode ONCE (DEC-002), then bake EXIF orientation (SPEC-110) before
     // measuring the source width every requested width is compared against —
     // otherwise a sideways source would be bounded by its un-rotated width.
+    refuse_folder(input)?;
     let img = Image::load(input)?;
     let img = auto_orient_prefix()?.run(img)?;
     let src_w = img.width();

@@ -13,7 +13,7 @@ use crate::error::ImageError;
 use crate::operation::OperationRegistry;
 use crate::recipe::{split_terminal_optimize, Recipe};
 use crate::sink::Overwrite;
-use crate::source::{self, SourceError};
+use crate::source::{self, OnEmpty};
 
 use super::common::{
     encode_one, load_recipe, resolve_format, resolve_recipe_assets, warn_skipped_steps,
@@ -325,15 +325,11 @@ fn prepare_target<'a>(
     recipe.build_pipeline(registry)?;
     let recipe_hash = target_recipe_hash(&recipe, format_plan, registry)?;
 
-    let mut inputs: Vec<crate::source::Input> = Vec::new();
-    for pattern in target.source.as_slice() {
-        inputs.extend(source::resolve(pattern, &mut std::io::empty())?);
-    }
-    if inputs.is_empty() {
-        return Err(CliError::Source(SourceError::NotFound(
-            target.source.as_slice().join(" "),
-        )));
-    }
+    let inputs = source::resolve_all(
+        target.source.as_slice(),
+        &mut std::io::empty(),
+        OnEmpty::Fail,
+    )?;
 
     Ok(PreparedTarget {
         target,

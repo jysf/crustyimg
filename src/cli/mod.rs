@@ -621,7 +621,7 @@ pub enum CliError {
     /// (which names the PRIMARY input) or `6` (which implies some inputs
     /// could have succeeded — an unreadable recipe-level asset dooms every
     /// input in the batch identically).
-    #[error("recipe step {step} ('{op}'): could not read '{key}' file \"{path}\": {source}")]
+    #[error("recipe step {step} ('{op}'): could not read '{key}' file {}: {source}", quoted(.path))]
     RecipeAssetUnreadable {
         /// 0-based index of the offending step in the recipe.
         step: usize,
@@ -637,7 +637,7 @@ pub enum CliError {
 
     /// A `watermark --font` or `--image` file that could not be read (SPEC-149).
     /// Names the file; an unreadable CLI input is exit 3 (DEC-007).
-    #[error("could not read {what} \"{path}\": {source}")]
+    #[error("could not read {what} {}: {source}", quoted(.path))]
     WatermarkAssetUnreadable {
         /// `"font file"` or `"watermark image"`.
         what: &'static str,
@@ -646,6 +646,10 @@ pub enum CliError {
         /// The underlying I/O failure.
         source: std::io::Error,
     },
+
+    /// A command that reads one image file was given a folder (exit 3).
+    #[error("'{0}' is a folder, not an image file")]
+    InputIsAFolder(String),
 
     /// A build-manifest parse / version / invalid-target error (SPEC-063).
     /// Every variant is a manifest *content* error → exit 2 (usage).
@@ -782,6 +786,8 @@ impl CliError {
         match self {
             // Source errors
             CliError::Source(SourceError::NotFound(_)) => 3,
+            CliError::Source(SourceError::NoImagesInFolder(_)) => 3,
+            CliError::Source(SourceError::NoImagesMatched(_)) => 3,
             CliError::Source(SourceError::Stdin(_)) => 3,
             CliError::Source(SourceError::InvalidPattern { .. }) => 2,
             // Image errors
@@ -816,6 +822,8 @@ impl CliError {
             CliError::RecipeAssetUnreadable { .. } => 1,
             // The CLI's own `--font` / `--image` file: an unreadable input → 3.
             CliError::WatermarkAssetUnreadable { .. } => 3,
+            // A folder where one image file is expected: the input is unusable → 3.
+            CliError::InputIsAFolder(_) => 3,
             // A malformed build manifest is a usage error, like a bad flag → 2.
             // (Reading the manifest file is CliError::BuildManifestIo → 3.)
             CliError::Build(_) => 2,
@@ -1126,11 +1134,38 @@ fn run_completions(shell: clap_complete::Shell) -> Result<(), CliError> {
     Ok(())
 }
 
+/// A path in double quotes, with any `"` inside it escaped, so the reader can see
+/// where the path ends. Only `"` is escaped: a Windows path's backslashes are shown
+/// as typed (`{:?}` would double each one).
+fn quoted(path: &str) -> String {
+    format!("\"{}\"", path.replace('"', "\\\""))
+}
+
 // ── Unit tests ────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn new_source_and_folder_errors_exit_3() {
+        assert_eq!(
+            CliError::Source(SourceError::NoImagesInFolder("d".into())).code(),
+            3
+        );
+        assert_eq!(
+            CliError::Source(SourceError::NoImagesMatched("d/*".into())).code(),
+            3
+        );
+        assert_eq!(CliError::InputIsAFolder("d".into()).code(), 3);
+    }
+
+    #[test]
+    fn quoted_escapes_double_quotes_only() {
+        assert_eq!(quoted("a\"b"), "\"a\\\"b\"");
+        assert_eq!(quoted(r"C:\d\f"), r#""C:\d\f""#);
+        assert_eq!(quoted("plain"), "\"plain\"");
+    }
 
     #[test]
     fn watermark_asset_unreadable_is_exit_3_and_names_the_file() {
