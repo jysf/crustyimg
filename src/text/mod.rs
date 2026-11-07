@@ -348,4 +348,14 @@ mod tests {
             small.height()
         );
     }
+
+    #[test]
+    fn parse_color_refuses_non_ascii() {
+        // Six bytes, so the length check passes; slicing it would split a
+        // character.
+        assert!(matches!(parse_color("aéaaa"), Err(TextError::Color(_))));
+        assert!(matches!(parse_color("#éééé"), Err(TextError::Color(_))));
+        // Eight bytes, the other length.
+        assert!(matches!(parse_color("aéaaaaa"), Err(TextError::Color(_))));
+    }
 }

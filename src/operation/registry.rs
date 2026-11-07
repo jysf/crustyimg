@@ -551,6 +551,84 @@ mod tests {
     }
 
     #[test]
+    fn with_builtins_contains_trim() {
+        let reg = OperationRegistry::with_builtins();
+        assert!(reg.contains("trim"), "expected 'trim' to be registered");
+        let specs = reg.param_specs("trim").expect("trim schema");
+        let keys: Vec<&str> = specs.iter().map(|s| s.key).collect();
+        assert_eq!(keys, ["color", "tolerance"]);
+        let kinds: Vec<ParamKind> = specs.iter().map(|s| s.kind).collect();
+        assert_eq!(
+            kinds,
+            [
+                ParamKind::Text,
+                ParamKind::UInt {
+                    min: 0,
+                    max: Some(255)
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn uint_max_is_in_the_expectation() {
+        assert_eq!(
+            ParamKind::UInt {
+                min: 0,
+                max: Some(255)
+            }
+            .expectation(),
+            "an integer in 0..=255"
+        );
+        assert_eq!(
+            ParamKind::UInt { min: 1, max: None }.expectation(),
+            "an integer >= 1"
+        );
+
+        // The existing rows keep their messages through the registry.
+        let reg = OperationRegistry::with_builtins();
+        let params = |pairs: &[(&str, toml::Value)]| {
+            OperationParams::from_map(
+                pairs
+                    .iter()
+                    .map(|(k, v)| (k.to_string(), v.clone()))
+                    .collect(),
+            )
+        };
+        let err = reg
+            .build(
+                "resize",
+                &params(&[
+                    ("mode", toml::Value::String("exact".into())),
+                    ("width", toml::Value::Integer(0)),
+                    ("height", toml::Value::Integer(10)),
+                ]),
+            )
+            .err()
+            .expect("width = 0 is refused");
+        assert!(
+            err.to_string()
+                .ends_with("'width' must be an integer >= 1, got 0"),
+            "{err}"
+        );
+        let err = reg
+            .build(
+                "watermark",
+                &params(&[
+                    ("text", toml::Value::String("hi".into())),
+                    ("margin", toml::Value::Integer(-1)),
+                ]),
+            )
+            .err()
+            .expect("margin = -1 is refused");
+        assert!(
+            err.to_string()
+                .ends_with("'margin' must be an integer >= 0, got -1"),
+            "{err}"
+        );
+    }
+
+    #[test]
     fn with_builtins_contains_rotate_and_flip() {
         let reg = OperationRegistry::with_builtins();
         assert!(reg.contains("rotate"), "expected 'rotate' to be registered");
@@ -720,6 +798,7 @@ mod tests {
         assert_eq!(keys("rotate"), ["angle"]);
         assert_eq!(keys("flip"), ["axis"]);
         assert_eq!(keys("pad"), ["aspect", "gravity", "border", "color"]);
+        assert_eq!(keys("trim"), ["color", "tolerance"]);
         let kinds = |name: &str| -> Vec<ParamKind> {
             reg.param_specs(name)
                 .expect("schema")
@@ -752,6 +831,24 @@ mod tests {
                 ParamKind::Text,
             ]
         );
+        assert_eq!(
+            kinds("trim"),
+            [
+                ParamKind::Text,
+                ParamKind::UInt {
+                    min: 0,
+                    max: Some(255)
+                },
+            ]
+        );
+        assert_eq!(
+            kinds("resize")[1..3],
+            [
+                ParamKind::UInt { min: 1, max: None },
+                ParamKind::UInt { min: 1, max: None },
+            ]
+        );
+        assert_eq!(kinds("watermark")[8], ParamKind::UInt { min: 0, max: None });
         for paramless in ["identity", "invert", "auto-orient"] {
             assert!(keys(paramless).is_empty(), "'{paramless}' takes no keys");
         }

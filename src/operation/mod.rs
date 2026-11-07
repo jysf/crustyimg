@@ -2362,6 +2362,11 @@ mod tests {
             matches!(result, Err(OperationError::Apply { op: "resize", .. })),
             "expected Apply error for oversize edge, got {result:?}"
         );
+        let shown = result.expect_err("oversize edge is refused").to_string();
+        assert!(
+            shown.contains("target dimensions 60000×10 exceed the maximum edge limit of 50000 px"),
+            "edge cap text drifted: {shown}"
+        );
 
         // Area > 268_435_456: 20_000×20_000 = 400_000_000
         let p2 = params_from_pairs(&[
@@ -2375,6 +2380,13 @@ mod tests {
         assert!(
             matches!(result2, Err(OperationError::Apply { op: "resize", .. })),
             "expected Apply error for oversize area, got {result2:?}"
+        );
+        let shown = result2.expect_err("oversize area is refused").to_string();
+        assert!(
+            shown.contains(
+                "target area 20000×20000 = 400000000 px exceeds the maximum area of 134217728 px"
+            ),
+            "area cap text drifted: {shown}"
         );
     }
 
@@ -3573,6 +3585,15 @@ mod tests {
         assert!(
             matches!(result, Err(OperationError::Apply { op: "resize", .. })),
             "expected Apply error for oversized percent output, got {result:?}"
+        );
+        let shown = result
+            .expect_err("oversized percent is refused")
+            .to_string();
+        assert!(
+            shown.contains(
+                "target dimensions 2000000×2000000 exceed the maximum edge limit of 50000 px"
+            ),
+            "percent cap text drifted: {shown}"
         );
     }
 
