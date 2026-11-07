@@ -15,7 +15,10 @@ Cycle prompts live in `prompts/SPEC-152-<cycle>.md`.
   8-bit steps, ×257 at 16 bits, float read as nearest 16-bit, in the doc entry with no DEC; alpha 0
   matches alpha 0 whatever is hidden; one colour, each side on its own; whole match fails at apply;
   `tolerance` an integer (`8.0` refused); `color` optional and may be translucent. Frame cost $4.38.
-- [ ] **design** (`prompts/SPEC-152-design.md`, Opus, worktree `docs/spec-152-design`)
-- [ ] **build**
+- [x] **design** (2026-11-06, `prompts/SPEC-152-design.md`, Opus, worktree `docs/spec-152-design`): 65 ACs
+  (23 refusal rows), [S] in code, no DEC. Float rule re-driven in Rust (2,357,504 cases, 0 wrong); NaN never
+  matches, out-of-range floats clamp; `UInt` gains `max`; folds a `parse_color` panic fix (non-ASCII, exit 101
+  today). Inverse corrected for grey + chromatic fill. Corpus 22/72/75/66, wasm 55/53. 21 mutation rows, all driven.
+- [ ] **build** (`prompts/SPEC-152-build.md`)
 - [ ] **verify**
 - [ ] **ship**

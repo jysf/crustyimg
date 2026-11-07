@@ -105,7 +105,7 @@ In build order. Each is framed in its own session first.
   `gravity`, filled with `color` (a value the `watermark` colour parser already reads) or
   `transparent`. ⚠ `transparent` into a format with no alpha (JPEG) is either refused or
   flattened against a stated colour. That is decided here, not left to the encoder.
-- [ ] **SPEC-152** (framed 2026-11-06) — [S] **`trim`.** Removes a uniform border: the colour is the
+- [ ] **SPEC-152** (designed 2026-11-06) — [S] **`trim`.** Removes a uniform border: the colour is the
   corner pixel or a stated `color`, matched within a stated `tolerance` per channel. Refuses
   (rather than producing a 0×0 image) when the whole image matches. Deterministic, with no
   content detection, and its doc entry says so. ⚠ Test on a 16-bit source with an 8-bit
