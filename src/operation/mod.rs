@@ -34,6 +34,8 @@ pub mod pad;
 pub use pad::{Pad, PAD_PARAMS};
 pub mod rotate;
 pub use rotate::{Rotate, ROTATE_PARAMS};
+pub mod trim;
+pub use trim::{Trim, TRIM_PARAMS};
 pub mod registry;
 pub use registry::{OperationRegistry, ParamKind, ParamSpec, RegistryError};
 
@@ -811,11 +813,11 @@ pub const RESIZE_PARAMS: &[ParamSpec] = &[
     },
     ParamSpec {
         key: "width",
-        kind: ParamKind::UInt { min: 1 },
+        kind: ParamKind::UInt { min: 1, max: None },
     },
     ParamSpec {
         key: "height",
-        kind: ParamKind::UInt { min: 1 },
+        kind: ParamKind::UInt { min: 1, max: None },
     },
     ParamSpec {
         key: "percent",
@@ -1353,7 +1355,7 @@ pub const WATERMARK_PARAMS: &[ParamSpec] = &[
     },
     ParamSpec {
         key: "margin",
-        kind: ParamKind::UInt { min: 0 },
+        kind: ParamKind::UInt { min: 0, max: None },
     },
     ParamSpec {
         key: "tile",

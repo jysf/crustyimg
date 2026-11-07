@@ -51,6 +51,11 @@ pub enum TextError {
 pub fn parse_color(s: &str) -> Result<[u8; 4], TextError> {
     let hex = s.strip_prefix('#').unwrap_or(s);
     let bad = || TextError::Color(s.to_owned());
+    // The pairs below are sliced by byte index, which panics inside a
+    // multi-byte character; a hex colour is ASCII.
+    if !hex.is_ascii() {
+        return Err(bad());
+    }
 
     let bytes = match hex.len() {
         6 => {

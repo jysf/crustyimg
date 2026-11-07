@@ -15,8 +15,8 @@ use thiserror::Error;
 
 use super::{
     AutoOrient, Crop, Flip, Identity, Invert, Operation, OperationParams, Pad, Resize, Rotate,
-    Watermark, CROP_PARAMS, FLIP_PARAMS, PAD_PARAMS, RESIZE_PARAMS, ROTATE_PARAMS,
-    WATERMARK_PARAMS,
+    Trim, Watermark, CROP_PARAMS, FLIP_PARAMS, PAD_PARAMS, RESIZE_PARAMS, ROTATE_PARAMS,
+    TRIM_PARAMS, WATERMARK_PARAMS,
 };
 
 // ─── Constructor type alias ─────────────────────────────────────────────────
@@ -85,10 +85,13 @@ pub enum ParamKind {
     /// it into bytes ([`OperationParams::set_resolved_bytes`]) before the
     /// constructor runs.
     Asset,
-    /// A TOML integer in `min..=u32::MAX`. A float is refused, not truncated.
+    /// A TOML integer in `min..=max` (`max` defaults to `u32::MAX`). A float is
+    /// refused, not truncated.
     UInt {
         /// The smallest accepted value.
         min: u32,
+        /// The largest accepted value, if below `u32::MAX`.
+        max: Option<u32>,
     },
     /// A TOML integer or float, always finite (and finite as an `f32`, the
     /// width ops read it at), above `min` (or at it, when `min_inclusive`) and
@@ -118,7 +121,11 @@ impl ParamKind {
             ParamKind::Text => "a string".to_owned(),
             ParamKind::OneOf(values) => format!("one of: {}", values.join(", ")),
             ParamKind::Asset => "a string naming a file".to_owned(),
-            ParamKind::UInt { min } => format!("an integer >= {min}"),
+            ParamKind::UInt { min, max: None } => format!("an integer >= {min}"),
+            ParamKind::UInt {
+                min,
+                max: Some(max),
+            } => format!("an integer in {min}..={max}"),
             ParamKind::Number {
                 min,
                 min_inclusive,
@@ -146,10 +153,11 @@ impl ParamKind {
                     Err(format!("{s:?}"))
                 }
             }
-            (ParamKind::UInt { min }, Value::Integer(i)) => {
+            (ParamKind::UInt { min, max }, Value::Integer(i)) => {
                 // TOML integers are 64-bit: refuse negatives and anything past
-                // u32::MAX rather than wrapping or dropping them.
-                if *i >= i64::from(*min) && *i <= i64::from(u32::MAX) {
+                // the cap (u32::MAX unless the key sets a lower one) rather than
+                // wrapping or dropping them.
+                if *i >= i64::from(*min) && *i <= i64::from(max.unwrap_or(u32::MAX)) {
                     Ok(())
                 } else {
                     Err(i.to_string())
@@ -275,7 +283,7 @@ struct Entry {
 /// Constructed via [`OperationRegistry::new`] (empty) or
 /// [`OperationRegistry::with_builtins`] (pre-populated with `identity`,
 /// `invert`, `resize`, `auto-orient`, `watermark`, `crop`, `rotate`, `flip`,
-/// and `pad`). New operations
+/// `pad` and `trim`). New operations
 /// register themselves without touching the recipe parser (the whole point of
 /// the registry seam), and each publishes the step keys it accepts:
 ///
@@ -302,7 +310,7 @@ impl OperationRegistry {
 
     /// Create a registry pre-populated with the built-in operations:
     /// `"identity"`, `"invert"`, `"resize"`, `"auto-orient"`, `"watermark"`,
-    /// `"crop"`, `"rotate"`, `"flip"` and `"pad"`.
+    /// `"crop"`, `"rotate"`, `"flip"`, `"pad"` and `"trim"`.
     pub fn with_builtins() -> Self {
         let mut reg = Self::new();
         reg.register("identity", |_params| Ok(Box::new(Identity)));
@@ -326,6 +334,7 @@ impl OperationRegistry {
         );
         reg.register_with_params("flip", |p| Ok(Box::new(Flip::from_params(p)?)), FLIP_PARAMS);
         reg.register_with_params("pad", |p| Ok(Box::new(Pad::from_params(p)?)), PAD_PARAMS);
+        reg.register_with_params("trim", |p| Ok(Box::new(Trim::from_params(p)?)), TRIM_PARAMS);
         reg
     }
 

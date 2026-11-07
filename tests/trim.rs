@@ -419,6 +419,10 @@ fn a_non_ascii_colour_is_refused_not_a_panic() {
 
 // ── Exactness ───────────────────────────────────────────────────────────────
 
+/// One variant of the exactness matrix: label, tolerance line, the odd corner
+/// pixel if any, and the expected box.
+type Variant = (&'static str, &'static str, Option<Lv>, (u32, u32, u32, u32));
+
 /// A shape: content size, the border `(left, top, right, bottom)`, and whether
 /// only a stated colour applies (its top-left is content).
 struct Shape {
@@ -505,7 +509,7 @@ fn every_colour_type_trims_exactly() {
             };
             for (source, color) in sources {
                 // (label, tolerance line, corner, expected box)
-                let variants: [(&str, &str, Option<Lv>, (u32, u32, u32, u32)); 3] = [
+                let variants: [Variant; 3] = [
                     ("t=0 exact", "tolerance = 0", None, (l, t, cw, ch)),
                     (
                         "t=8 at 8 steps",
