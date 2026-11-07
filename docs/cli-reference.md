@@ -37,7 +37,7 @@ Available on every command (before or after the subcommand):
 | `--quality <0-100>` | `-q` | Encoder quality where the format supports it (e.g. JPEG). |
 | `--jobs <N>` | `-j` | Parallel workers for `apply` batch (default = CPU count). |
 | `--yes` | `-y` | Assume "yes" to overwrite prompts (non-interactive). |
-| `--quiet` | `-Q` | Suppress non-error output — except the truncated-JPEG warning (DEC-085), which is unconditional so a silent-corruption path can never be fully suppressed. Also silences `-v`. |
+| `--quiet` | `-Q` | Suppress non-error output — except the truncated-JPEG warning, which is unconditional so a silent-corruption path can never be fully suppressed. Also silences `-v`. |
 | `--verbose` | `-v` | Show warnings from the SVG renderer and codecs on stderr; `-vv` adds debug detail. Silent by default; `-Q` wins. |
 | `--keep-gps` | | Refused (exit `2`): pixel-lane encodes drop all metadata. Use `meta copy` after the encode (JPEG only). Hidden from `--help`. |
 | `--check` / `--strict` / `--no-cache` / `--watch` | | `build` only (see Project builds); refused with exit `2` on every other command, and `--strict` is refused without `--check`. |
@@ -50,7 +50,7 @@ Available on every command (before or after the subcommand):
 | `0` | Success. |
 | `1` | Runtime error (decode/encode/op failed; input exceeds a resource limit). |
 | `2` | Usage error (bad args) — clap's standard code. |
-| `3` | Input not found / unreadable (or an empty glob). |
+| `3` | Input not found or unreadable, or a folder or glob with no images, or a folder where one image file is expected. |
 | `4` | Unsupported format / codec not built (AVIF output or SVG input on a `--no-default-features` lean build; a `.heic` input without `--features heic`). |
 | `5` | Output write refused (exists without `--yes`; path traversal; symlinked destination). |
 | `6` | Partial batch failure (some inputs failed; summary on stderr; others still wrote). |
@@ -299,7 +299,7 @@ and a closing `watermark skipped on K of N images`, at exit `0`.
 
 ### `edit <INPUT> [--auto-orient] [--resize-max N] [--invert] [--save-recipe FILE]`
 Chain an ordered op list on a **single** image in one decode → ops → encode pass. Every
-`edit` invocation **bakes EXIF orientation first** (SPEC-110) — `edit --invert` and
+`edit` invocation **bakes EXIF orientation first** — `edit --invert` and
 `edit --resize-max N` are never sideways. `--auto-orient` is now an **accepted no-op**:
 baking already happens unconditionally, so passing the flag changes nothing about the
 output; it stays because the CLI surface is frozen (STAGE-030) and it must keep exiting
@@ -308,8 +308,7 @@ output; it stays because the CLI surface is frozen (STAGE-030) and it must keep 
 (`--auto-orient` alone still satisfies this). `--save-recipe FILE` serializes the chain
 to a TOML recipe. The CLI-level orientation bake itself is not recorded as a step, so a
 recipe replayed via `apply` no longer matches its own `edit` invocation: `edit`
-bakes, the replay doesn't. This divergence is introduced by SPEC-110 (before it, `edit`
-never baked either); flagged, not fixed — lands in SPEC-111.
+bakes, the replay doesn't. This divergence is known and not yet fixed.
 ```sh
 crustyimg edit photo.jpg --auto-orient --resize-max 1600 -o out.jpg
 crustyimg edit hero.jpg --auto-orient --resize-max 1600 --save-recipe web.toml
@@ -340,7 +339,7 @@ through the same parallel per-input path as `apply`: per-output failures are sum
 and exit `6`; a malformed manifest exits `2`; a missing manifest or recipe exits `3`.
 
 Unlike `apply`, `build` **overwrites its own declared outputs without `--yes`** — a build
-owns its output tree and must be re-runnable (DEC-057). It only ever writes inside each
+owns its output tree and must be re-runnable. It only ever writes inside each
 target's `out` directory.
 
 `build` takes no `-o`/`--output`, `--out-dir`, `--name-template` or `--format`: each
@@ -444,7 +443,7 @@ A plain `crustyimg build` owns the file and simply regenerates it.
 ## Audit surface (`--json` / `--timing`)
 
 Machine-readable output for "how much smaller, how fast, at what quality" — the
-surface CI and the benchmark harness consume (SPEC-088, DEC-074). Two schemas,
+surface CI and the benchmark harness consume. Two schemas,
 because they answer two different questions:
 
 | Command | Flag | Schema | Answers |
