@@ -24,5 +24,5 @@ Cycle prompts live in `prompts/SPEC-150-<cycle>.md`.
   Passed: gates, merged tree, 22-invocation main-vs-PR diff (0 differences), help scan (0 ids over 73 surfaces), 16 of 17 mutations.
   Required: R1 the `-q` message names `convert -q N`, which exits 2 without `--format`; R2 the subfolder hint is not pasteable for a folder named `it's`. Both message text; spec AC-7 was wrong.
   Optional (unrouted): `optimize --out-dir` Skip mutant not caught (routed to the fix round, cheap); cli-reference.md:305 and README.md:125 ids; `--keep-gps` in completions; `MANIFEST_DROPPED_WARNING` unused on wasm32; enums not `#[non_exhaustive]` (CHANGELOG to say so); `[` in paths is a glob; no Windows `\`/`C:\` rows.
-- [ ] **fix** — prompt: `prompts/SPEC-150-fix.md` (Sonnet)
+- [x] **fix** (2026-11-07, Sonnet, `prompts/SPEC-150-fix.md`) — R1 sentence now `crustyimg convert --format <FORMAT> -q N` and FT-M8 runs it; R2 hint shell-quoted via `lint::shell_arg`, `it's` row runs the glob in `sh -c`; optional `optimize --out-dir`/`web` mixed rows added (Skip mutant red). Head 0deb220, CI green, ~$0.96. Orchestrator read the diff; no re-verify (rule 7).
 - [ ] **ship** — prompt: `prompts/SPEC-150-ship.md`
