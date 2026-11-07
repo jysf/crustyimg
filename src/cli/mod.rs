@@ -112,16 +112,16 @@ pub struct GlobalArgs {
     pub keep_gps: bool,
 
     /// `build` only: bypass the cache: read no entries, write none, rebuild every
-    /// input (SPEC-064). The cache is on by default; this is the opt-out.
+    /// input. The cache is on by default; this is the opt-out.
     #[arg(long, global = true)]
     pub no_cache: bool,
 
-    /// `build` only: verify the build against the committed `crustyimg.build.lock` instead of
-    /// refreshing it: exit 7 on drift, and never modify the lockfile (SPEC-066).
+    /// `build` only: check the build against the committed `crustyimg.build.lock` instead of
+    /// refreshing it: exit 7 on drift, and never modify the lockfile.
     ///
-    /// `--frozen` and `--locked` are aliases — crustyimg has no network, so the
-    /// cargo distinction between "don't update" and "don't hit the registry"
-    /// collapses into one assert mode (DEC-059).
+    /// `--frozen` and `--locked` are aliases of `--check`: crustyimg never uses the
+    /// network, so cargo's "don't update" and "don't hit the registry" mean the same
+    /// thing here.
     #[arg(
         long,
         global = true,
@@ -130,17 +130,17 @@ pub struct GlobalArgs {
     )]
     pub check: bool,
 
-    /// `build --check` only: promote cross-environment output-byte variance from a
-    /// note to a failure. For shops on a pinned toolchain and arch that want
-    /// byte-identity enforced (DEC-059).
+    /// `build --check` only: fail, instead of only noting it, when an output's bytes
+    /// differ from a lockfile written on a different platform (target triple). For a
+    /// team on one pinned toolchain that wants byte-identical output everywhere.
     #[arg(long, global = true)]
     pub strict: bool,
 
-    /// `build` only: re-run the build whenever a source, recipe, or the manifest
-    /// changes (SPEC-067). Debounced (an editor's save burst = one rebuild) and
-    /// self-trigger-proof (the build's own outputs / `.crustyimg` / lockfile are
-    /// ignored). Ctrl-C exits. Incompatible with `--check`/`--frozen`/`--locked`.
-    /// A build cycle under `--watch` does not rewrite the committed lockfile.
+    /// `build` only: rebuild whenever a source, recipe or the manifest changes.
+    /// Debounced (an editor's burst of saves is one rebuild); the build's own outputs,
+    /// `.crustyimg` and the lockfile never trigger it. Ctrl-C exits. Incompatible with
+    /// `--check`/`--frozen`/`--locked`. A rebuild under `--watch` does not rewrite the
+    /// committed lockfile.
     #[arg(long, global = true)]
     pub watch: bool,
 }
@@ -441,10 +441,9 @@ pub enum Commands {
     /// (remove location), `copy` (graft one file's metadata onto another), `set`
     /// (write artist/copyright/description tags).
     ///
-    /// A grouped surface so the top-level verbs read by *job*: `meta` owns the
-    /// container-lane metadata ops, none of which re-decode pixels (SPEC-087,
-    /// SPEC-089). `auto-orient` is NOT here — it bakes orientation into pixels,
-    /// an image op, so it stays top-level (DEC-017).
+    /// `meta` groups the commands that edit metadata without re-decoding pixels.
+    /// `auto-orient` is not here: it bakes orientation into the pixels, so it is an
+    /// image command.
     #[command(subcommand_required = true, arg_required_else_help = true)]
     Meta {
         #[command(subcommand)]
@@ -488,7 +487,7 @@ pub enum Commands {
         timing: bool,
     },
 
-    /// Run a declared build: every `[[target]]` in a build manifest (SPEC-063, DEC-057).
+    /// Run a declared build: every `[[target]]` in a build manifest.
     ///
     /// FILE defaults to `./crustyimg.build.toml`. Each target binds sources (a
     /// glob / dir / path, or a list) to a recipe file, an output directory, and
@@ -496,8 +495,8 @@ pub enum Commands {
     /// declared outputs without `--yes` — a build must be re-runnable.
     Build { file: Option<String> },
 
-    /// Lint an image asset tree: report problems (each with a runnable fix) and
-    /// a CI-native exit code. Read-only — never writes an image (SPEC-050, DEC-050).
+    /// Lint an image asset tree: report problems, with a runnable fix where one exists,
+    /// and exit with a CI-friendly code. Read-only: never writes an image.
     ///
     /// Resolves PATHS via the shared source fan-out (globs/dirs/files, non-images
     /// skipped), runs the default rule set per image, and exits `0` clean · `7`
@@ -621,7 +620,7 @@ pub enum CliError {
     /// (which names the PRIMARY input) or `6` (which implies some inputs
     /// could have succeeded — an unreadable recipe-level asset dooms every
     /// input in the batch identically).
-    #[error("recipe step {step} ('{op}'): could not read '{key}' file \"{path}\": {source}")]
+    #[error("recipe step {step} ('{op}'): could not read '{key}' file {}: {source}", quoted(.path))]
     RecipeAssetUnreadable {
         /// 0-based index of the offending step in the recipe.
         step: usize,
@@ -637,7 +636,7 @@ pub enum CliError {
 
     /// A `watermark --font` or `--image` file that could not be read (SPEC-149).
     /// Names the file; an unreadable CLI input is exit 3 (DEC-007).
-    #[error("could not read {what} \"{path}\": {source}")]
+    #[error("could not read {what} {}: {source}", quoted(.path))]
     WatermarkAssetUnreadable {
         /// `"font file"` or `"watermark image"`.
         what: &'static str,
@@ -646,6 +645,10 @@ pub enum CliError {
         /// The underlying I/O failure.
         source: std::io::Error,
     },
+
+    /// A command that reads one image file was given a folder (exit 3).
+    #[error("'{0}' is a folder, not an image file")]
+    InputIsAFolder(String),
 
     /// A build-manifest parse / version / invalid-target error (SPEC-063).
     /// Every variant is a manifest *content* error → exit 2 (usage).
@@ -782,6 +785,8 @@ impl CliError {
         match self {
             // Source errors
             CliError::Source(SourceError::NotFound(_)) => 3,
+            CliError::Source(SourceError::NoImagesInFolder(_)) => 3,
+            CliError::Source(SourceError::NoImagesMatched(_)) => 3,
             CliError::Source(SourceError::Stdin(_)) => 3,
             CliError::Source(SourceError::InvalidPattern { .. }) => 2,
             // Image errors
@@ -816,6 +821,8 @@ impl CliError {
             CliError::RecipeAssetUnreadable { .. } => 1,
             // The CLI's own `--font` / `--image` file: an unreadable input → 3.
             CliError::WatermarkAssetUnreadable { .. } => 3,
+            // A folder where one image file is expected: the input is unusable → 3.
+            CliError::InputIsAFolder(_) => 3,
             // A malformed build manifest is a usage error, like a bad flag → 2.
             // (Reading the manifest file is CliError::BuildManifestIo → 3.)
             CliError::Build(_) => 2,
@@ -1126,11 +1133,38 @@ fn run_completions(shell: clap_complete::Shell) -> Result<(), CliError> {
     Ok(())
 }
 
+/// A path in double quotes, with any `"` inside it escaped, so the reader can see
+/// where the path ends. Only `"` is escaped: a Windows path's backslashes are shown
+/// as typed (`{:?}` would double each one).
+fn quoted(path: &str) -> String {
+    format!("\"{}\"", path.replace('"', "\\\""))
+}
+
 // ── Unit tests ────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn new_source_and_folder_errors_exit_3() {
+        assert_eq!(
+            CliError::Source(SourceError::NoImagesInFolder("d".into())).code(),
+            3
+        );
+        assert_eq!(
+            CliError::Source(SourceError::NoImagesMatched("d/*".into())).code(),
+            3
+        );
+        assert_eq!(CliError::InputIsAFolder("d".into()).code(), 3);
+    }
+
+    #[test]
+    fn quoted_escapes_double_quotes_only() {
+        assert_eq!(quoted("a\"b"), "\"a\\\"b\"");
+        assert_eq!(quoted(r"C:\d\f"), r#""C:\d\f""#);
+        assert_eq!(quoted("plain"), "\"plain\"");
+    }
 
     #[test]
     fn watermark_asset_unreadable_is_exit_3_and_names_the_file() {

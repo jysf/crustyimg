@@ -108,6 +108,12 @@ const HOST_SHELL: Shell = if cfg!(windows) {
     Shell::Posix
 };
 
+/// [`shell_arg`] for the shell this platform most likely pastes into, for
+/// messages outside `lint` that print a command (the `source` glob hint).
+pub(crate) fn quote_for_host_shell(path: &Path) -> Option<String> {
+    shell_arg(path, HOST_SHELL)
+}
+
 /// Quote one path so `shell` reads it as exactly one argument. `None` when the
 /// path is not valid UTF-8 (printing it lossily would name a different file).
 fn shell_arg(path: &Path, shell: Shell) -> Option<String> {

@@ -34,9 +34,10 @@ use img_parts::{Bytes, ImageEXIF, ImageICC};
 /// [`MetadataError::Exif`] → 1.
 #[derive(Debug, thiserror::Error)]
 pub enum MetadataError {
-    /// The detected format is not one the metadata lane supports in v1
-    /// (JPEG + PNG only). Carries a human label for the message.
-    #[error("metadata lane does not support {0} yet")]
+    /// The detected format is not one the metadata lane supports (JPEG + PNG;
+    /// `meta copy` JPEG only). Carries the whole sentence, which names the
+    /// supported formats and the format found.
+    #[error("{0}")]
     UnsupportedFormat(String),
 
     /// A segment/chunk-level parse or rewrite failure (`img-parts`).
@@ -63,12 +64,36 @@ enum Lane {
 /// the supported [`Lane`], or [`MetadataError::UnsupportedFormat`] for anything
 /// outside JPEG/PNG (or undeterminable bytes).
 fn sniff(bytes: &[u8]) -> Result<Lane, MetadataError> {
+    const SUPPORTED: &str = "the meta commands support JPEG and PNG only, and this file";
     match ::image::guess_format(bytes) {
         Ok(ImageFormat::Jpeg) => Ok(Lane::Jpeg),
         Ok(ImageFormat::Png) => Ok(Lane::Png),
-        Ok(other) => Err(MetadataError::UnsupportedFormat(format!("{other:?}"))),
-        Err(_) => Err(MetadataError::UnsupportedFormat("unknown".to_owned())),
+        Ok(other) => Err(MetadataError::UnsupportedFormat(format!(
+            "{SUPPORTED} is {}",
+            format_name(other)
+        ))),
+        Err(_) => Err(MetadataError::UnsupportedFormat(format!(
+            "{SUPPORTED}'s format is not recognised"
+        ))),
     }
+}
+
+/// A format's name as users write it (`GIF`, `WEBP`), not its Rust spelling.
+fn format_name(format: ImageFormat) -> String {
+    format!("{format:?}").to_ascii_uppercase()
+}
+
+/// `meta copy` reads JPEG only: refuse the `--from` or `--to` side otherwise,
+/// naming which side and the format found.
+fn require_jpeg_for_copy(bytes: &[u8], side: &str) -> Result<(), MetadataError> {
+    let found = match ::image::guess_format(bytes) {
+        Ok(ImageFormat::Jpeg) => return Ok(()),
+        Ok(other) => format!(" is {}", format_name(other)),
+        Err(_) => "'s format is not recognised".to_owned(),
+    };
+    Err(MetadataError::UnsupportedFormat(format!(
+        "meta copy supports JPEG only, and the {side} file{found}"
+    )))
 }
 
 // ── strip_all ─────────────────────────────────────────────────────────────────
@@ -313,12 +338,9 @@ pub fn set_tags(bytes: &[u8], tags: &TagSet) -> Result<Vec<u8>, MetadataError> {
 /// the graft would be retained-but-invalidated (`meta copy` never transplants
 /// SRC's own manifest onto DST either — only EXIF/ICC segments are grafted).
 pub fn copy_metadata(from: &[u8], to: &[u8]) -> Result<Vec<u8>, MetadataError> {
-    // Both inputs must be JPEG (DEC-030). A clear message names the limitation.
-    if sniff(from)? != Lane::Jpeg || sniff(to)? != Lane::Jpeg {
-        return Err(MetadataError::UnsupportedFormat(
-            "meta copy supports JPEG only in v1".to_owned(),
-        ));
-    }
+    // Both inputs must be JPEG (DEC-030). The message names the side and format.
+    require_jpeg_for_copy(from, "--from")?;
+    require_jpeg_for_copy(to, "--to")?;
 
     let src = Jpeg::from_bytes(Bytes::from(from.to_vec()))
         .map_err(|e| MetadataError::Container(e.to_string()))?;
@@ -902,6 +924,33 @@ mod tests {
             clean_gps(&bmp),
             Err(MetadataError::UnsupportedFormat(_))
         ));
+    }
+
+    #[test]
+    fn unsupported_format_messages_are_sentences() {
+        let gif: &[u8] = b"GIF89a\x01\x00\x01\x00\x80\x00\x00\x00\x00\x00\xff\xff\xff,\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02D\x01\x00;";
+        let png = base_image(ImageFormat::Png);
+        let jpeg = base_image(ImageFormat::Jpeg);
+        let message = |r: Result<Vec<u8>, MetadataError>| match r {
+            Err(e @ MetadataError::UnsupportedFormat(_)) => e.to_string(),
+            other => panic!("expected UnsupportedFormat, got {other:?}"),
+        };
+        assert_eq!(
+            message(strip_all(gif)),
+            "the meta commands support JPEG and PNG only, and this file is GIF"
+        );
+        assert_eq!(
+            message(strip_all(b"junk")),
+            "the meta commands support JPEG and PNG only, and this file's format is not recognised"
+        );
+        assert_eq!(
+            message(copy_metadata(&png, &jpeg)),
+            "meta copy supports JPEG only, and the --from file is PNG"
+        );
+        assert_eq!(
+            message(copy_metadata(&jpeg, gif)),
+            "meta copy supports JPEG only, and the --to file is GIF"
+        );
     }
 
     // ── set_tags ──────────────────────────────────────────────────────────────
