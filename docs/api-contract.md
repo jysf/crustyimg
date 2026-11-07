@@ -55,7 +55,7 @@ Apply to all subcommands (parsed before/around the subcommand).
 | `0` | Success. |
 | `1` | Generic runtime error (decode/encode/op failed; includes an input that exceeds decode resource limits — see below). |
 | `2` | Usage error (bad args) — clap's standard code. Also a watermark refused on one input (counted after globs and directories resolve): a mark that does not fit inside the image, or would cover more than 5 % of it (see `watermark` below). |
-| `3` | Input not found / unreadable. |
+| `3` | Input not found or unreadable, or a folder or glob with no images, or a folder where one image file is expected. |
 | `4` | Unsupported or undetectable format. Three cases: the input bytes are not a recognisable image at all (zero-byte file, arbitrary text/bytes) — the message just says so, there is no feature to name; a DECODER is recognized but not built (a `.heic` input without `--features heic`, SPEC-062/DEC-052, or a `.svg` input on a build without the default-on `svg` feature) — the message names the feature to rebuild with; or an ENCODER is not built (AVIF output on a `--no-default-features` lean build) — likewise names the feature. |
 | `5` | Output write failed / refused (exists without `--yes`; name/path traversal; a symlinked destination, refused even with `--yes` — SPEC-034 / DEC-035). |
 | `6` | Partial batch failure (some inputs failed; summary on stderr). |
