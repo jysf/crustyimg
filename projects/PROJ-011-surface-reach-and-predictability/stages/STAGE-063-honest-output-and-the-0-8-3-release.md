@@ -81,9 +81,10 @@ Spec ids 148 to 150 are reserved by this commit (PROJ-017 holds 147).
   `responsive --name-template` (and `--format`, found by the frame), `build --strict` alone and `--check`/`--strict`/
   `--no-cache` off `build`, and the missing-`--font` (and `--image`) message. Recommended: refuse `--keep-gps`, a
   minimal `-v` logger, refuse the rest (done as recommended). Complexity M.
-- [ ] SPEC-150 (not yet framed) — **Two messages tell the truth:** a folder with only
-  subfolders, and the browser's asset refusal plus every user-facing `SPEC-`/`DEC-` id in rendered
-  `--help`, including `lint --help`'s "(each with a runnable fix)" line (SPEC-148's design asks SPEC-150 to reword it with its spec ids). Complexity S.
+- [ ] SPEC-150 (framed 2026-11-06, M; GO, rulings pending: 5 questions in the spec's `## Frame`) — **Two messages tell the truth:** a folder with only
+  subfolders (driven wider: any folder with no top-level image, 13 verbs, `build` targets too), and the browser's asset refusal plus every user-facing `SPEC-`/`DEC-` id in rendered
+  `--help`, including `lint --help`'s "(each with a runnable fix)" line (SPEC-148's design asks SPEC-150 to reword it with its spec ids). Complexity S; framed M with fold-ins B, C
+  (docs-only, pending ruling) and leftovers (1), (3), (5) ruled in, (4) out.
 - [ ] (not yet written) — [S] **Verify's optional findings on SPEC-148 (2026-11-05).** (O-1) `optimize --max-size` with an
   unreachable budget exits 0 and rewrites the file larger (159 to 331 B) with a "best effort" note; decide whether
   that is a failure. (O-2) config `max_bytes = 0` prints `optimize --max-size 0`, which exits 2; config validation
@@ -108,17 +109,19 @@ Spec ids 148 to 150 are reserved by this commit (PROJ-017 holds 147).
   `lint`, `diff`, `view` take `-o`/`--out-dir`/`-y`); an unknown template token is written literally
   (`resize --out-dir t --name-template '{stem}-{w}w.{ext}'` → `t/gps-{w}w.jpg`). SPEC-149 builds its refusal as a
   per-verb table; this item extends it. Decide per combination: refuse (exit 2) or document.
-- [ ] (not yet written) — [S] **`optimize -q` and `web -q` blame flags the user did not pass (finding B).** Filed by
+- [ ] (→ folded into SPEC-150, frame 2026-11-06) — [S] **`optimize -q` and `web -q` blame flags the user did not pass (finding B).** Filed by
   the SPEC-149 frame (2026-11-06): `optimize gps.jpg -q 10 -o o.jpg` exits 2 with `-q/--quality cannot be combined
   with --target/--ssim/--max-size`, though none was given; the default `AutoQuality::Fast`
   (`src/cli/optimize.rs:837-838`, `:691-693`) trips `reject_quality_with_auto`. Exit 2 may be right; the message
   is not. May fold into SPEC-150.
-- [ ] (not yet written) — [S] **DEC-003's pixel-lane preserve claim is false (finding C).** Filed by the SPEC-149
+- [ ] (→ folded into SPEC-150 as docs-only, pending ruling; frame 2026-11-06 drove ICC dropped too, and found DEC-003's
+  amendment calling `meta copy` "JPEG and PNG" while the code refuses PNG) — [S] **DEC-003's pixel-lane preserve claim is false (finding C).** Filed by the SPEC-149
   frame (2026-11-06): DEC-003 says pixel-lane encodes keep ICC and copyright/artist and drop only GPS. Driven:
   `resize` of a JPEG with exiftool-written `Artist`, `Copyright` and GPS keeps 0 of them (ICC not driven).
   Either amend DEC-003 (and `AGENTS.md:503`, `SECURITY.md:50`) to "drops all metadata", or build the selective
   preserve, which is also what a real `--keep-gps` would need (`meta copy` restores both today, JPEG/PNG).
-- [ ] (not yet written) — [S] **Leftovers from SPEC-149's build and verify (2026-11-06).** (1) a `"` in a path prints
+- [ ] (→ (1), (3), (5) folded into SPEC-150, frame 2026-11-06; (4) ruled out: clap's message is true and the exit is the same;
+  (2) stays here) — [S] **Leftovers from SPEC-149's build and verify (2026-11-06).** (1) a `"` in a path prints
   unescaped in `could not read font file "a"b.ttf": …` (`src/cli/ops.rs`, `watermark_overlay`). (2) FT-1's `meta copy`
   row copies PNG to PNG so it exits 4 even without the flag, so it proves only that the guard runs first; the real
   workaround is covered by `tests/keep_gps_workaround.rs`. (3) the existing message `metadata lane does not support
@@ -128,7 +131,12 @@ Spec ids 148 to 150 are reserved by this commit (PROJ-017 holds 147).
   (DEC-059), `--watch` (SPEC-067), and the `build` (SPEC-063, DEC-057), `lint` (SPEC-050, DEC-050) and `meta`
   (SPEC-087, SPEC-089) descriptions; SPEC-150 owns this sweep.
 
-**Count:** 2 shipped / 0 active / **8 pending** — 2026-11-06 (re-derived by grep and by Python of the backlog checkboxes: 10 in total, 2 ticked; SPEC-149 shipped as PR #256, 302afba).
+- [ ] (not yet written) — [S] **`docs/recipes.md:148` mirrors `lint`'s "each with a runnable fix" line.** Filed by the
+  SPEC-150 frame (2026-11-06). SPEC-148 made `fix: null` real (stdin, 16-bit PNG, formats the metadata lane cannot write),
+  so "each" is false; SPEC-150 rewords `lint --help` but cannot edit `docs/recipes.md`, which PROJ-017 owns. Reword it to
+  match after PROJ-017's current spec merges.
+
+**Count:** 2 shipped / 1 active / **8 pending** — 2026-11-06 (re-derived by grep and by Python of the backlog checkboxes: 11 in total, 2 ticked, 9 open; SPEC-150 framed, the new item is the `docs/recipes.md` mirror).
 
 ### Items carried from STAGE-054 (full text, unchanged)
 
