@@ -94,6 +94,7 @@ Operations available in a recipe:
 | `rotate` | `angle`, a multiple of 90 from -360 to 360, clockwise (below) |
 | `flip` | `axis`, `horizontal` or `vertical` (below) |
 | `pad` | `aspect` + `gravity`, or `border`, and a required `color` (below) |
+| `trim` | an optional `color` and `tolerance` (below) |
 | `optimize` | none — **terminal only**; picks the smallest modern format and scores it |
 
 `resize` modes:
@@ -293,6 +294,31 @@ color = "#000000"
 - `color` is required, hex only, and opaque. A transparent fill is not supported yet.
 - A grey image with a colour fill becomes RGB, and the bit depth is kept.
 - For an exact pixel box, `resize` with `mode = "fit"` first, then pad to the box's aspect.
+- Put `op = "auto-orient"` first when the recipe is meant as the photo is displayed.
+
+### The trim step
+
+```toml
+[[step]]
+op = "trim"
+```
+
+```toml
+[[step]]
+op = "trim"
+color = "#ffffff"
+tolerance = 8
+```
+
+- Each pixel is compared with one colour, the stated `color` or the top-left pixel, and the outer
+  rows and columns that match are removed, each side on its own.
+- `tolerance` is 0 to 255 (default 0) in 8-bit steps per channel: × 257 at 16 bits, and a float
+  sample is read as its nearest 16-bit value.
+- A pixel with alpha 0 matches a `color` with alpha 0 whatever is hidden under it.
+- An image with nothing to trim is written unchanged.
+- An image that matches everywhere fails that image (a batch exits `6`).
+- `color` is hex and may be translucent.
+- The colour type and bit depth are kept.
 - Put `op = "auto-orient"` first when the recipe is meant as the photo is displayed.
 
 ### Step keys are checked

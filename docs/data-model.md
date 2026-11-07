@@ -159,9 +159,9 @@ recipe already in the wild the next time it is re-saved.
 
 A "prep for web" recipe: orient, then downscale.
 
-**Every `op` below is a real registry key.** The registry holds nine
+**Every `op` below is a real registry key.** The registry holds ten
 operations — `identity`, `invert`, `resize`, `auto-orient`, `watermark`,
-`crop`, `rotate`, `flip` and `pad` — and `tests/docs_ops.rs` asserts that every `op` named in this
+`crop`, `rotate`, `flip`, `pad` and `trim` — and `tests/docs_ops.rs` asserts that every `op` named in this
 file resolves against `OperationRegistry::with_builtins()`, so this example
 cannot drift back into advertising steps that do not exist.
 
@@ -419,6 +419,29 @@ height = 1080
 op = "pad"
 aspect = "1:1"
 color = "#ffffff"
+```
+
+### `trim` step param keys
+
+| Key | Type | Range |
+|---|---|---|
+| `color` | string | optional: `RRGGBB`, `#RRGGBB`, or `RRGGBBAA` (any alpha); default the top-left pixel |
+| `tolerance` | integer | 0 to 255, default 0, in 8-bit steps per channel (× 257 at 16 bits) |
+
+A trim removes the outer rows and columns in which every pixel matches the colour
+within the tolerance, each side on its own. Every kept pixel is copied unchanged. An
+image with nothing to trim is written unchanged; an image in which every pixel matches
+fails, because a trim would leave nothing.
+
+```toml
+version = "2"
+
+[[step]]
+op = "auto-orient"
+
+[[step]]
+op = "trim"
+tolerance = 8
 ```
 
 ### Step keys are checked at load

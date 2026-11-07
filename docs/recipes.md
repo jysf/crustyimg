@@ -117,7 +117,32 @@ For every flag and exit code, see [`docs/cli-reference.md`](cli-reference.md).
   exact pixel box such as 1080×1080, resize first (`op = "resize"`, `mode = "fit"`, `width = 1080`,
   `height = 1080`), then pad with `aspect = "1:1"`. `fit` never enlarges, so a smaller photo gives a
   smaller square. Put `op = "auto-orient"` first when the recipe is meant as the photo is displayed.
-- **Trim** **[planned — PROJ-017]**
+- **Trim a uniform border** **[today]** — a recipe step:
+  ```toml
+  [[step]]
+  op = "trim"
+  ```
+  or against a stated colour, within a tolerance:
+  ```toml
+  [[step]]
+  op = "trim"
+  color = "#ffffff"
+  tolerance = 8
+  ```
+  `trim` compares each pixel with one colour, the stated `color` or the image's top-left pixel, and
+  removes the outer rows and columns in which every pixel matches. It never looks at what the
+  content is. Each side is trimmed on its own, so a border can be wider on one side than another.
+  With no `color`, the colour is the top-left pixel of the image as the step receives it: put
+  `op = "auto-orient"` first when the recipe is meant as the photo is displayed. `tolerance`
+  (default 0, exact) is in 8-bit steps per channel at every bit depth: `tolerance = 8` allows 8 off
+  at 8 bits and 2056 (8 × 257) at 16 bits, and a float sample is read as its nearest 16-bit value.
+  A fully transparent pixel matches a transparent `color` (such as `"#00000000"`) whatever colour is
+  hidden under it; any other pixel is compared on all four channels, alpha included. An image with
+  no border is written unchanged. An image in which every pixel matches fails, because trimming it
+  would leave nothing. `pad` then `trim` with the same colour gives back the original, unless an
+  edge row or column of the original already matches the colour; a grey image padded with a colour
+  comes back as RGB. ImageMagick's `-fuzz` is a colour distance, not a per-channel step, so
+  `magick -trim -fuzz` cuts differently whenever `tolerance` is above 0.
 - **Smart (content-aware) crop** **[post-1.0, beta]** — see the smart-crop row in
   [`roadmap.md`](roadmap.md).
 
@@ -279,7 +304,7 @@ service). (Ranked targets + per-tool sources live in the roadmap's Track B / the
 - **PROJ-002:** `optimize` auto-decides format + `--explain` — **shipped**.
 - **PROJ-004:** `lint` (+ the GitHub Actions) — **shipped**.
 - **PROJ-005:** `--manifest`, `favicon`, `placeholder`, dominant color — **planned**; unlocks §9.
-- **PROJ-017:** geometry as recipe steps — `crop`, `rotate` (quarter turns), `flip` and `pad` today; `trim` and straighten **planned**.
+- **PROJ-017:** geometry as recipe steps — `crop`, `rotate` (quarter turns), `flip`, `pad` and `trim` today; straighten **planned**.
 - Smart crop, redaction, auto-color, upscaling — **planned**.
 - **PROJ-007:** `build` + cache + lockfile + `--watch` — **shipped**.
 - **PROJ-008:** the wasm core + browser demo (recipes run in the browser via `transform()`) — **shipped**.

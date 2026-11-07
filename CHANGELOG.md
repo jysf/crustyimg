@@ -19,6 +19,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **A recipe can pad.** `op = "pad"` with `aspect` (and `gravity`) or `border`, and a required
   opaque `color`; the input's pixels are unchanged and its bit depth kept; a grey image with a
   colour fill becomes RGB. 0.8.2 and earlier refuse it with `unknown operation 'pad'`.
+- **A recipe can trim.** `op = "trim"` removes a uniform border, against a stated `color` or the
+  top-left pixel, within a `tolerance` in 8-bit steps; the kept pixels are unchanged and the colour
+  type and bit depth kept. 0.8.2 and earlier refuse it with `unknown operation 'trim'`.
+
+### Fixed
+
+- **A colour with a non-ASCII character is refused, not a crash.** `color = "aéaaa"` in a recipe
+  and `--color "aéaaa"` on `watermark` now fail with the colour message instead of panicking
+  (`pad`, `watermark`).
+
+### Breaking
+
+- **Library only: `ParamKind::UInt` has a `max` field.** Code that builds
+  `ParamKind::UInt { min }` adds `max: None`. The CLI is unchanged by it.
 
 ## [0.8.2] - 2026-10-31
 
