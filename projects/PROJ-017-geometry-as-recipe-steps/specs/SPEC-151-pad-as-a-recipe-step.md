@@ -96,6 +96,18 @@ cost:
         output: 92517
       estimated_usd: 10.85
       note: "Measured at the last build turn from the session JSONL (121 message ids, all claude-sonnet-5-5, deduped by .message.id, max output_tokens per id); excludes the closing commit's own turns. Rates: Sonnet $3/$15 per MTok, cache_creation x1.25 input, cache_read x0.10 input."
+    - cycle: punchlist
+      date: 2026-11-06
+      agent: claude-sonnet-5-5
+      interface: claude-code
+      tokens_total: 1437289
+      tokens_breakdown:
+        input: 38
+        cache_creation: 57522
+        cache_read: 1373353
+        output: 6376
+      estimated_usd: 0.72
+      note: "Measured before the closing commit from the session JSONL (18 message ids, all claude-sonnet-5-5, deduped by .message.id, max output_tokens per id); excludes the closing turns. Rates: Sonnet $3/$15 per MTok, cache_creation x1.25 input, cache_read x0.10 input."
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -744,7 +756,7 @@ tests, which is a fair estimate of the build.
   decoded samples equal the input's, exit 0.
 - [ ] **AC-5** **Border of the long edge.** `px = round(border × max(w, h))` (`f64`, halves up), on every
   side: 40×30 at `0.1` → 48×38 at (4, 4); 30×40 → 38×48 at (4, 4); 1×1 at `1` (a TOML integer) → 3×3 at
-  (1, 1); 4001×2999 at `0.013` → 4105×3103 at (52, 52); 40×30 at `0.0125` → 42×32 at (1, 1).
+  (1, 1); 4001×2999 at `0.013` → 4105×3103 at (52, 52); 40×30 at `0.0125` → 42×32 at (1, 1); 50×10 at `0.01` → 52×12 at (1, 1) (exactly ½ px in `f64`, so 1 px; `0.49999999` in `f32`, so 0 px); 5×3 at `0.7` → 13×11 at (4, 4) (3.5 px → 4; `f32` gives 3).
 - [ ] **AC-6** **The odd pixel.** 4×3 → `1:1` at `center` is 4×4 with the image at (0, 0) and row 3 all
   fill; 3×4 → 4×4 with column 3 all fill; 5×2 → 5×5 with the image at (0, 1): one fill row above, two
   below.
@@ -856,7 +868,7 @@ tests, which is a fair estimate of the build.
 - [ ] **AC-68** **A stricter `orientation_of`** (folded entry "SPEC-147's verify cleanups that need a PR",
   part 1). `orientation_of` moves from `tests/rotate_flip.rs:591-597` to `tests/common/mod.rs` as
   `pub fn orientation_of(bytes: &[u8]) -> Option<u32>`: `Err(exif::Error::NotFound(_))` → `None`; any
-  other `Err(e)` → `panic!("kamadak-exif could not read the EXIF in these bytes: {e}")`. Its three
+  other `Err(e)` → `panic!("kamadak-exif could not read the EXIF in these bytes: {e}")`. Its two
   callers in `tests/rotate_flip.rs` and AC-14's caller use it. New tests in `tests/rotate_flip.rs`:
   `orientation_of_fails_on_a_malformed_exif_chunk` (`#[should_panic(expected = "kamadak-exif could not
   read")]`, a PNG whose `eXIf` chunk is `II*\0\x08\0\0\0\xff\xff`, which kamadak-exif 0.6.1 reads as
@@ -971,7 +983,7 @@ test must say "the input's Orientation tag never reached the pipeline", not "pad
   - `canvas_sweep_never_smaller_and_within_half_a_pixel` — AC-3: 13 aspects × 1..=64 × 1..=64; asserts
     53,248 cases ran and at least one tie.
   - `no_op_returns_the_input` — AC-4 unit half (rgb8, rgba16, and `L8` with `#123456`).
-  - `border_is_a_fraction_of_the_long_edge` — AC-5, 5 rows.
+  - `border_is_a_fraction_of_the_long_edge` — AC-5, 7 rows.
   - `odd_remainder_puts_the_extra_fill_right_or_bottom` — AC-6 through `layout`, and through `apply` on
     a seeded 4×3 rgb8 buffer (row 3 all fill).
   - `gravity_places_by_absolute_position` — AC-7, the 18 offsets as literals.
@@ -1000,6 +1012,7 @@ test must say "the input's Orientation tag never reached the pipeline", not "pad
   - `float_images_keep_their_variant` — AC-11.
   - `gravity_corners_land_by_absolute_position` — AC-7 through `apply`.
   - `pad_then_crop_is_the_identity` — AC-60, 6 cases.
+  - `apply_reads_the_border_as_f64` — AC-5 binary half (50×10 at `0.01` → 52×12).
   - `apply_pads_a_png_end_to_end` — AC-61. `apply_no_op_pad_writes_the_input_pixels` — AC-4 binary half.
   - `apply_refuses_a_translucent_fill_and_writes_nothing` — AC-53.
     `apply_refuses_a_pixel_width_key_and_writes_nothing` — AC-54.
@@ -1049,7 +1062,7 @@ cell. Every row's "green" column was observed green over the whole suite unless 
 | M11 | **trap 14 for the folded fix, the old code verbatim**: restore `orientation_of`'s `.read_from_container(…).ok()?` | *driven:* `orientation_of_fails_on_a_malformed_exif_chunk` (`test did not panic as expected`) | *driven:* every other `tests/rotate_flip.rs` row, including `orientation_of_reads_no_tag_as_none` (15 of 16 pass) |
 | M12 | **trap 14 for the op, the old registry verbatim**: restore `with_builtins` from `main` (no `pad` line) | *driven:* every integration row in `tests/pad.rs` (`unknown operation 'pad'` in each load row; exit 1 with that line in each binary row). *Reasoned:* `with_builtins_contains_pad`; `every_builtin_publishes_a_param_schema`; `one_of_values_are_accepted_by_their_constructors`; `pad_writes_no_orientation_tag_and_keeps_the_bundle` (control B passes, then the pad step fails at load); corpus `v2_pad_aspect`, `v2_pad_border` and `to_toml_is_byte_identical_to_main_over_the_corpus`; `every_op_named_in_data_model_resolves` (AC-76's example); both wasm tests | *driven:* the `pad.rs` unit tests (they call the module directly); every existing test |
 | M13 | **bundle dropped**: `Pad::apply` returns `Image::from_parts(out, img.source_format(), None)` | *reasoned:* `pad_writes_no_orientation_tag_and_keeps_the_bundle`'s second row (`pad` then `auto-orient` gives 9×7, not 7×9) | its first row (no tag either way); every other test |
-| M14 | **`f32` read**: `get_f32("border").map(f64::from)` for `get_f64` | *reasoned:* none at load (the table already refuses P11); a border whose `f32` reading rounds differently, such as `0.0125` on 40×30 (`0.0125_f32` × 40 = 0.50000000745 → 1, the same), stays green, so this row is **expected all green** and is recorded to say the `f64` read is required by DEC-112, not guarded by a test | every test |
+| M14 | **`f32` read**: `get_f32("border").map(f64::from)` for `get_f64` | *driven:* the two new `border_is_a_fraction_of_the_long_edge` rows and `apply_reads_the_border_as_f64`. Verify found `0.01` on a 50 px edge splits `f64` (1 px) from `f32` (0 px), so the read is now pinned | every other test |
 
 ## Implementation Context
 
@@ -1206,7 +1219,7 @@ necessary during build, create a new spec rather than expanding this one.
 - **PR (if applicable):** #255 (draft)
 - **All acceptance criteria met?** yes (83 of 83; details below)
 - **New decisions emitted:** none
-- **Files this diff touches** (from `git diff --name-only origin/main...HEAD`: 31 files, plus this spec file once committed = 32):
+- **Files this diff touches** (from `git diff --name-only origin/main...HEAD`: 31 files, including this spec (the 30 Outputs plus the spec)):
   - `src/operation/pad.rs` (new) — the op, `PAD_PARAMS`, `Pad::from_params`, pure `layout` and `aspect_canvas`, the per-variant `grow`, 9 unit tests
   - `src/operation/mod.rs` — `pub mod pad` and the re-export; `MAX_EDGE`/`MAX_AREA` hoisted to module-level `pub(crate)` consts (resize uses them, messages unchanged); `Operation` and `refusal` doc text
   - `src/operation/crop.rs` — `parse_aspect` is `pub(super)`, one line
@@ -1224,7 +1237,7 @@ necessary during build, create a new spec rather than expanding this one.
 - **Deviations from spec:**
   - The canvas formula is its own private function, `aspect_canvas(a, b, w, h) -> (u64, u64)`, which `layout` calls. Reason: AC-3's sweep "through `layout`" cannot hold for the extreme aspects (`65535:1`, `1:65535`), because `layout` refuses a canvas past the caps. The sweep calls `aspect_canvas` instead, so all 53,248 cases are checked. `layout` is unchanged in behaviour.
   - The comments on the hoisted caps lost their `SPEC-`/`DEC-` ids (ruling 5).
-  - `common::orientation_of` has two callers in `tests/rotate_flip.rs` and one in `tests/pad.rs` (the spec says three plus AC-14's).
+  - `common::orientation_of` has two callers in `tests/rotate_flip.rs` and one in `tests/pad.rs` (the spec now says two plus AC-14's).
   - Two local type aliases (`Offset`, `Layout`) and `as_chunks::<3>()` in tests, for clippy `-D warnings`; MSRV 1.90 covers `as_chunks`.
 - **Follow-up work identified:**
   - `pad` at the area cap on an `Rgba32F` image allocates 134,217,728 px x 16 B = 2 GiB, against 512 MiB at RGBA8 (the cap is in pixels, not bytes). Float inputs are rare and decode has its own limits, but a byte-based cap is a hardening question for a decision, not for this spec.
@@ -1263,6 +1276,19 @@ Driven in a scratch `git worktree` of the pushed head (`746733c`), own `CARGO_TA
 | M14 | `get_f32("border").map(f64::from)` | none (0 red, exit 0) | matches the "expected all green" cell (reasoned, now driven) |
 
 No cell of the table was wrong. The design's table is not edited.
+
+### Punch list (verify)
+
+Fixes:
+- Two rows in `border_is_a_fraction_of_the_long_edge` (now 7): 50×10 at `0.01` → 52×12 at (1, 1) and 5×3 at `0.7` → 13×11 at (4, 4). Checked in Python with `f64`: `0.01 * 50 = 0.5` → 1 px; `0.7 * 5 = 3.5` → 4 px. In `f32` the products are 0.49999999 and 3.49999994, which give 0 and 3.
+- `apply_reads_the_border_as_f64` in `tests/pad.rs`: a seeded 50×10 rgb8 PNG, `border = 0.01`, `#ffffff`; exit 0, 52×12, input at (1, 1), frame all `#ffffff`.
+- Spec text: file count, M14 row, AC-5, Failing Tests list, `orientation_of` caller count (two).
+- `docs/data-model.md:164`: removed the spec id. The line before it needed a comma after `watermark` to keep the sentence a list.
+
+Prove it can fail (each on a fresh `CARGO_TARGET_DIR`, stdout redirected, `$?` read, `git diff` non-empty):
+- M14 (`get_f32("border").map(f64::from)`): exit 101, exactly two targets red. `border_is_a_fraction_of_the_long_edge`: `Err("the border rounds to 0 px on this 50×10 px image ('border' = 0.01 of its 50 px long edge); it must add at least 1 px")` against `Ok((52, 12, 1, 1))`. `apply_reads_the_border_as_f64`: exit code `left: Some(1) right: Some(0)`. The two unit rows are one test function, so two tests go red, not three; the second row is not reached after the first fails.
+- M4 (`iw.min(ih)`): the new unit rows are red along with the existing set; `border_is_a_fraction_of_the_long_edge` fails on its first row, `left: Ok((46, 36, 3, 3)) right: Ok((48, 38, 4, 4))`; `apply_reads_the_border_as_f64` is red too.
+- Restored: full default leg and `--no-default-features` leg, each in a fresh target dir, both exit 0.
 
 ### Build-phase reflection (3 questions, short answers)
 

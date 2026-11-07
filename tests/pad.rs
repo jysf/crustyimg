@@ -1137,6 +1137,35 @@ fn apply_pads_a_png_end_to_end() {
 }
 
 #[test]
+fn apply_reads_the_border_as_f64() {
+    // 0.01 of a 50 px long edge is exactly half a pixel in f64 (rounds to 1 px) but
+    // 0.49999999 in f32 (rounds to 0 px), so a narrowed read changes the result.
+    let dir = TempDir::new().unwrap();
+    let src = seeded("rgb8", 50, 10);
+    let input = write_png(dir.path(), "in.png", &src);
+    let r = apply(
+        dir.path(),
+        &recipe(&[&pad_step("border = 0.01\ncolor = \"#ffffff\"")]),
+        &input,
+    );
+    assert_eq!(r.code, Some(0), "stderr: {}", r.stderr);
+    let out = image::open(dir.path().join("out.png")).expect("output decodes");
+    assert_eq!((out.width(), out.height()), (52, 12));
+    let (so, si) = (samples(&out), samples(&src));
+    for y in 0..12usize {
+        for x in 0..52usize {
+            let i = (y * 52 + x) * 3;
+            if (1..11).contains(&y) && (1..51).contains(&x) {
+                let j = ((y - 1) * 50 + (x - 1)) * 3;
+                assert_eq!(&so[i..i + 3], &si[j..j + 3], "input pixel ({x}, {y})");
+            } else {
+                assert_eq!(&so[i..i + 3], &[0xff; 3], "frame pixel ({x}, {y})");
+            }
+        }
+    }
+}
+
+#[test]
 fn apply_no_op_pad_writes_the_input_pixels() {
     let dir = TempDir::new().unwrap();
     let src = seeded("rgb8", 6, 4);

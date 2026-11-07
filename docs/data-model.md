@@ -160,8 +160,8 @@ recipe already in the wild the next time it is re-saved.
 A "prep for web" recipe: orient, then downscale.
 
 **Every `op` below is a real registry key.** The registry holds nine
-operations — `identity`, `invert`, `resize`, `auto-orient`, `watermark`
-(SPEC-128), `crop`, `rotate`, `flip` and `pad` — and `tests/docs_ops.rs` asserts that every `op` named in this
+operations — `identity`, `invert`, `resize`, `auto-orient`, `watermark`,
+`crop`, `rotate`, `flip` and `pad` — and `tests/docs_ops.rs` asserts that every `op` named in this
 file resolves against `OperationRegistry::with_builtins()`, so this example
 cannot drift back into advertising steps that do not exist.
 

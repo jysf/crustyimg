@@ -485,12 +485,16 @@ mod tests {
     #[test]
     fn border_is_a_fraction_of_the_long_edge() {
         type Layout = (u32, u32, u32, u32);
-        let rows: [(u32, u32, &str, Layout); 5] = [
+        let rows: [(u32, u32, &str, Layout); 7] = [
             (40, 30, "0.1", (48, 38, 4, 4)),
             (30, 40, "0.1", (38, 48, 4, 4)),
             (1, 1, "1", (3, 3, 1, 1)),
             (4001, 2999, "0.013", (4105, 3103, 52, 52)),
             (40, 30, "0.0125", (42, 32, 1, 1)),
+            // Half-pixel products that split f64 from f32: 0.01 * 50 is exactly 0.5 in f64
+            // (rounds up to 1) but 0.49999999 in f32 (rounds to 0); 0.7 * 5 likewise (4 vs 3).
+            (50, 10, "0.01", (52, 12, 1, 1)),
+            (5, 3, "0.7", (13, 11, 4, 4)),
         ];
         for (w, h, f, want) in rows {
             assert_eq!(border(f).layout(w, h), Ok(want), "{w}x{h} at {f}");
