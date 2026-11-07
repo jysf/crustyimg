@@ -16,6 +16,7 @@ Cycle prompts live in `prompts/SPEC-150-<cycle>.md`.
   One `source::resolve_all` explains an empty result from the resolver's own `Ok(empty)` (8 callers, not 6); `lint locked` proves a post-hoc `is_dir()` helper would lie.
   Guard renders help through `try_get_matches_from` (the frame's `render_help()` sees 18 of 207 id lines); literal scanner finds 1 hit on `main` (`src/wasm.rs:237`).
   DEC-003 amended in the design commit (pixel encodes drop all metadata; `meta copy` JPEG only).
-- [ ] **build** — prompt: `prompts/SPEC-150-build.md`
+- [ ] **build** (Opus, `prompts/SPEC-150-build.md`) — design cost $8.57; rulings 2026-11-06: public enum variants accepted for 0.8.3,
+  `lint` names the first failing cause, subfolder hint shown for empty and text-only folders too.
 - [ ] **verify** — prompt: `prompts/SPEC-150-verify.md`
 - [ ] **ship** — prompt: `prompts/SPEC-150-ship.md`
