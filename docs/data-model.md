@@ -119,7 +119,7 @@ cares about. It is read with `kamadak-exif` (read-only) and edited with
 | Orientation | preserved | container lane |
 | ICC profile | preserved | container lane |
 | Copyright / Artist | preserved | `meta set` (little_exif) |
-| GPS | **dropped** unless `--keep-gps` | `meta clean --gps` removes |
+| GPS | **dropped** (`--keep-gps` is refused, exit 2; `meta copy` restores it on JPEG only) | `meta clean --gps` removes |
 | All other EXIF/IPTC/XMP | dropped on pixel lane | `meta strip` removes; `meta copy` transfers |
 
 ## Recipe Schema (TOML)

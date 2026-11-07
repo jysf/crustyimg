@@ -33,10 +33,10 @@ Apply to all subcommands (parsed before/around the subcommand).
 | `--jobs <N>` | `-j` | Parallel workers for batch (rayon). Default = CPU count. Placeholder in STAGE-001; honored in STAGE-005. |
 | `--format <FMT>` | | Force output format (else inferred from the output name's extension — `-o`, or the `--name-template` — or kept). |
 | `--quality <0-100>` | `-q` | Encoder quality where the format supports it (e.g. JPEG). |
-| `--verbose` | `-v` | Increase verbosity (repeatable: `-vv`). Logs to stderr. |
-| `--quiet` | `-Q` | Suppress non-error output. |
+| `--verbose` | `-v` | Dependency log records to stderr: `-v` warnings, `-vv` adds info and debug. Nothing without it; `-Q` wins. |
+| `--quiet` | `-Q` | Suppress non-error output, including `-v` log records. |
 | `--yes` | `-y` | Assume "yes" to overwrite prompts (non-interactive). |
-| `--keep-gps` | | Opt out of the default-drop-GPS policy on pixel-lane encodes. |
+| `--keep-gps` | | Refused on every command (exit 2): pixel-lane encodes drop all metadata; the message names `meta copy`. Hidden from `--help`. |
 | `--version` / `--help` | `-V` / `-h` | Standard clap. |
 
 ### stdin / stdout (`-`)
@@ -189,7 +189,7 @@ preserving aspect, **never upscaling** (widths above the source width are
 skipped with a warning; variants dedupe by actual width). `--formats`
 defaults to the input's format; a feature-gated unbuilt codec
 exits **4** up front (DEC-004). `-q` sets the lossy quality (default 80; ignored for
-lossless). Single input (no glob/batch in v1). Reuses the resize op + per-format
+lossless). Single input (no glob/batch in v1). Names are fixed; `--name-template` and `--format` are refused (exit 2). Reuses the resize op + per-format
 sink; no new dependency. (blurhash placeholder, perceptual-per-variant, and a
 `sizes` attribute are deferred.)
 
@@ -597,8 +597,8 @@ source's own extension and is not a literal one. With one input and `-o` given, 
 ignored, so the template is always the name and pins. `meta strip`/`clean`/`set`
 cannot convert (they keep the input's container), so they refuse with **exit 4**, before
 writing anything, when `-o` or the template names a different recognized format than an
-input's own; a refused batch writes nothing. Not yet covered: `responsive` accepts
-`--name-template` and ignores it.
+input's own; a refused batch writes nothing. `responsive` refuses `--name-template` and
+`--format` (exit 2): its names are fixed `{stem}-{width}w.{ext}`.
 
 Before SPEC-126 the two arities disagreed in both directions —
 one input with no `--format` wrote PNG whatever the source was, and multiple inputs ignored

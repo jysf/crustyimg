@@ -77,10 +77,10 @@ Spec ids 148 to 150 are reserved by this commit (PROJ-017 holds 147).
   gps-leak item, framed together (both are `lint` rules). The frame also found both `convert --format`
   fixes malformed (exit 3), unquoted paths, `optimize` ignoring the budget, and a 16-bit PNG fix that
   cannot clear; all in scope. Complexity S.
-- [ ] SPEC-149 (designed 2026-11-06, M) — **No flag is accepted and ignored:** `--keep-gps` and `-v`,
+- [x] SPEC-149 (shipped 2026-11-06, M; PR #256, 302afba) — **No flag is accepted and ignored:** `--keep-gps` and `-v`,
   `responsive --name-template` (and `--format`, found by the frame), `build --strict` alone and `--check`/`--strict`/
   `--no-cache` off `build`, and the missing-`--font` (and `--image`) message. Recommended: refuse `--keep-gps`, a
-  minimal `-v` logger, refuse the rest; five maintainer questions in the spec's `## Frame`. Complexity M.
+  minimal `-v` logger, refuse the rest (done as recommended). Complexity M.
 - [ ] SPEC-150 (not yet framed) — **Two messages tell the truth:** a folder with only
   subfolders, and the browser's asset refusal plus every user-facing `SPEC-`/`DEC-` id in rendered
   `--help`, including `lint --help`'s "(each with a runnable fix)" line (SPEC-148's design asks SPEC-150 to reword it with its spec ids). Complexity S.
@@ -118,8 +118,17 @@ Spec ids 148 to 150 are reserved by this commit (PROJ-017 holds 147).
   `resize` of a JPEG with exiftool-written `Artist`, `Copyright` and GPS keeps 0 of them (ICC not driven).
   Either amend DEC-003 (and `AGENTS.md:503`, `SECURITY.md:50`) to "drops all metadata", or build the selective
   preserve, which is also what a real `--keep-gps` would need (`meta copy` restores both today, JPEG/PNG).
+- [ ] (not yet written) — [S] **Leftovers from SPEC-149's build and verify (2026-11-06).** (1) a `"` in a path prints
+  unescaped in `could not read font file "a"b.ttf": …` (`src/cli/ops.rs`, `watermark_overlay`). (2) FT-1's `meta copy`
+  row copies PNG to PNG so it exits 4 even without the flag, so it proves only that the guard runs first; the real
+  workaround is covered by `tests/keep_gps_workaround.rs`. (3) the existing message `metadata lane does not support
+  meta copy supports JPEG only in v1 yet` is garbled (SPEC-150). (4) `--keep-gps=false` gets clap's
+  `unexpected value 'false'` (exit 2) instead of the R6 line; it is still refused. (5) rendered `--help` still carries
+  spec/DEC ids for `--no-cache` (SPEC-064), `--check` (SPEC-066), the `--frozen`/`--locked` note and `--strict`
+  (DEC-059), `--watch` (SPEC-067), and the `build` (SPEC-063, DEC-057), `lint` (SPEC-050, DEC-050) and `meta`
+  (SPEC-087, SPEC-089) descriptions; SPEC-150 owns this sweep.
 
-**Count:** 1 shipped / 1 active / **7 pending** — 2026-11-06 (re-derived by grep and by Python of the backlog checkboxes: 9 in total, 1 ticked; SPEC-149, framed, is the active one).
+**Count:** 2 shipped / 0 active / **8 pending** — 2026-11-06 (re-derived by grep and by Python of the backlog checkboxes: 10 in total, 2 ticked; SPEC-149 shipped as PR #256, 302afba).
 
 ### Items carried from STAGE-054 (full text, unchanged)
 

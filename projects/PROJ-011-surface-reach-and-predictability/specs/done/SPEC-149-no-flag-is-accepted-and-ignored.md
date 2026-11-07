@@ -7,7 +7,7 @@
 task:
   id: SPEC-149
   type: bug                        # epic | story | task | bug | chore
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: M                    # S | M | L  (L means split it)
@@ -115,10 +115,50 @@ cost:
         cache_read once per id, MAX output_tokens. Rates: Sonnet $3 in / $15 out per MTok,
         cache_creation x1.25, cache_read x0.10. Taken before the final commit/push/PR
         exchanges, so it slightly under-counts the session.
+    - cycle: verify
+      agent: claude-opus-5-5
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: 7.65
+      duration_minutes: null
+      recorded_at: 2026-11-06
+      note: >
+        Opus verify, punch list at e53e9f6. The dollar figure was measured by the orchestrator
+        before the session's final report; the token breakdown was not carried to ship, so
+        tokens_total is null and the token total below leaves verify out.
+    - cycle: fix
+      agent: claude-opus-5-5
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-11-06
+      note: >
+        The fix round (10d62b2: R-1, the --keep-gps message and four doc lines promised
+        `meta copy` on PNG; added tests/keep_gps_workaround.rs) was not measured. The total
+        below is a floor.
+    - cycle: ship
+      agent: claude-sonnet-5-5
+      interface: claude-code
+      tokens_total: 1297831
+      tokens_breakdown:
+        input: 32
+        output: 5374
+        cache_creation: 63799
+        cache_read: 1228626
+      estimated_usd: 0.69
+      duration_minutes: null
+      recorded_at: 2026-11-06
+      note: >
+        Measured from transcript da5bd92a-21a1-4c4b-a52a-f5de14d16482.jsonl, found by the ship
+        prompt's title, deduped by `.message.id` (16 unique ids, all Sonnet): input/cache_creation/
+        cache_read once per id, MAX output_tokens. Rates: Sonnet $3 in / $15 out per MTok,
+        cache_creation x1.25, cache_read x0.10. Taken before the commit/push, so it slightly
+        under-counts the session.
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 22095541
+    estimated_usd: 23.02
+    session_count: 5
 ---
 
 # SPEC-149: No flag is accepted and ignored
@@ -911,10 +951,84 @@ Process-focused: how did the build go? What friction did the spec create?
 from the process-focused build reflection above.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Treat a message that tells the user a command to run as a claim about that command, and drive
+   the command it names on every input format the message promises. The R6 `--keep-gps` message was
+   copied word for word from the spec's docs-sweep table, and FT-1/FT-3 compared the message to a
+   literal copy of the same sentence, so a wrong claim inside the sentence was green everywhere. The
+   frame's "JPEG or PNG" had never been tried on a PNG; `meta copy` is JPEG only. Verify found it
+   (R-1) and CI green could not have. The fix round added `tests/keep_gps_workaround.rs`, which
+   parses the `meta copy` command out of the refusal text and runs it: JPEG restores GPS, PNG exits 4
+   and so goes red the day the lane learns PNG. The design should have crossed the message's promised
+   formats with the named verb's accepted inputs, as SPEC-148's R-1 also taught for `lint` fixes.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — No decision. The guard table held: one table in `src/cli/global_flags.rs`, scope by exclusion,
+   no catch-all arm; 135 matrix rows and 20 mutations went red for their reasons, and verify's
+   unlisted mutations were all caught. Template-side: a design that prints a runnable command in a
+   user-facing message should name, at design, the cross of promised input formats and the verb's
+   accepted formats (the same note as SPEC-148). Process: builds open drafts by rule, and a draft PR
+   cannot merge; the maintainer must click "ready for review" (`gh pr ready`) between green CI and the
+   merge. That is process, not a finding about the code. Cross-thread: SPEC-151 (`pad`, #255) is a
+   recipe step with no CLI change, so there are still 20 commands and no `minimal_args` entry was
+   needed. A stray `...spec.md-E` file (a macOS `sed -i -E` backup) came into the PR branch via an
+   update-branch and was removed on `main` in `def92d8`; `git ls-files | grep -E '\.md-E$'` is empty.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — No new spec. The five leftovers are filed as one entry on STAGE-063 (an unescaped `"` in the
+   font-path message; FT-1's `meta copy` row; the garbled metadata-lane message; `--keep-gps=false`
+   getting clap's error; spec/DEC ids still in rendered `--help`, which is SPEC-150's sweep).
+
+## Ship
+
+Shipped 2026-11-06. Code is on `main` as `302afba` (PR #256). Verify punch list at `e53e9f6` (R-1),
+fix round `10d62b2`; the orchestrator read the diff, no re-verify. Cost: frame $4.92, design $7.09,
+build $2.67, verify $7.65, fix unmeasured, ship $0.69; total about $23.02, a floor because the fix
+round is not counted.
+
+### Behaviour changes in 0.8.3 (user-visible)
+
+Two are breaking in the strict sense, and the CHANGELOG should say so plainly: `--keep-gps` goes from
+exit 0 (accepted, ignored) to exit 2, and the build-only flags (`--check`/`--frozen`/`--locked`,
+`--strict`, `--no-cache`) are refused on every command but `build`, where they used to be accepted and
+ignored. `responsive --name-template`/`--format` and `build --strict` without `--check` are refused
+the same way.
+
+### Proposed CHANGELOG entry for 0.8.3 (not written to `CHANGELOG.md`; PROJ-017-adjacent)
+
+**Changed**
+
+- `--keep-gps` is refused (exit 2). It never kept GPS: pixel-lane encodes drop all metadata. To keep
+  it, copy it back after the encode with `crustyimg meta copy --from in.jpg --to out.jpg -y` (JPEG
+  only). The flag no longer shows in `--help`.
+- `responsive` refuses `--name-template` and `--format` (exit 2) instead of ignoring them. Its file
+  names are fixed (`{stem}-{w}w.{ext}`); choose formats with `--formats`.
+- `--check` (`--frozen`, `--locked`), `--strict` and `--no-cache` are refused (exit 2) on every command
+  but `build`, as `--watch` already was. `build --strict` without `--check` is refused too.
+
+**Added**
+
+- `-v` prints warnings from the SVG renderer and codecs on stderr, such as
+  `warning: [usvg::parser::image] Image lacks the 'xlink:href' attribute. Skipped.`; `-vv` adds debug
+  detail. Without `-v` nothing changes, and `-Q` wins.
+
+**Fixed**
+
+- A missing or unreadable `watermark --font` or `--image` names the file (exit 3) instead of saying
+  "could not read image input".
+
+### Proposed text for the other PROJ-017-adjacent files (not written)
+
+- `docs/recipes.md:145` (was :123 when the spec was designed; the line to replace is the `optimize`
+  "drops GPS/metadata by default ... `--keep-gps` opts out" note):
+  `- **Note:** \`optimize\` drops all metadata, GPS included (privacy-safe web prep); \`--keep-gps\` is refused. To keep it: \`crustyimg meta copy --from orig.jpg --to web.jpg -y\` (JPEG only).`
+- `skills/crustyimg/SKILL.md:67-68`:
+  `- **Metadata, GPS included, is dropped** on any command that re-encodes pixels; \`--keep-gps\` is refused (exit 2). If the user asks to keep location data, run \`crustyimg meta copy --from <in> --to <out> -y\` after the encode (JPEG only).`
+- `skills/crustyimg/SKILL.md:145`: it says "(JPEG and PNG)" for the whole `meta` group and is stale for
+  `meta copy` (listed at :151), which is JPEG only. Proposed:
+  `These edit the file container only, with no re-encode and no quality loss (JPEG and PNG; \`meta copy\` is JPEG only).`
+
+### Deferred doc hunks
+
+#255 (SPEC-151) had merged, so the `docs/api-contract.md` and `docs/data-model.md` hunks were applied
+in the ship commit, each to its line (the lines had moved: 36, 37, 39, 192, and 600-601 for the old
+591-593).
