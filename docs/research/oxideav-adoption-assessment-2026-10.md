@@ -4,6 +4,15 @@
 triggers are in §7, recorded where tooling reads them (`guidance/license-watchlist.yaml`,
 `guidance/questions.yaml`).
 
+> **Update 2026-11-08: trigger T1 fired.** The wasm32 panic described below was reported upstream
+> ([OxideAV/oxideav-av1#33](https://github.com/OxideAV/oxideav-av1/issues/33)) and fixed in
+> `oxideav-av1` 0.1.23, which also added a wasm32 decode job to their CI. The probe in
+> `docs/probes/oxideav-avif-differential/wasm` now passes with no patch at `oxideav-avif` 0.0.17,
+> `oxideav-av1` 0.1.23 and `oxideav-core` 0.1.43, with the same plane hashes as the native
+> decode; 0.1.21 still panics. The verdict is unchanged: this removes the technical blocker, but
+> adoption still waits on demand (T2). The other numbers in this document are at the
+> 2026-10-28 versions; re-measure them before any adoption.
+
 **Verdict, long form.** OxideAV's AV1/AVIF stack is far better than the July watchlist entry
 recorded. On a 37-file corpus it decodes **byte-identical** to crustyimg's current decoder
 (`re_rav1d`), and to libaom where `re_rav1d` cannot decode. It **does** run on
@@ -273,7 +282,7 @@ DEC-002 / `single-image-library` for no gain.
 
 | # | Trigger | Check |
 |---|---|---|
-| T1 | **Upstream wasm fix**: `oxideav-av1` decodes on `wasm32-unknown-unknown` without a shim | `docs/probes/oxideav-avif-differential/wasm`: tests pass with `[patch]` commented out |
+| T1 | **Upstream wasm fix**: `oxideav-av1` decodes on `wasm32-unknown-unknown` without a shim. **Fired 2026-11-08** (0.1.23) | `docs/probes/oxideav-avif-differential/wasm`: tests pass with `[patch]` commented out |
 | T2 | **Demand**: a request for `.avif` input in `crustyimg-wasm` under Node/edge, or a spec that wants AVIF `--target`/`--ssim` inside the wasm module | A feedback item or spec. **This is the trigger that would justify a wasm-only adoption.** Size it against the ~337 KB upper bound measured inside the real bundle |
 | T3 | **Stability**: `oxideav-avif` ≥ 0.1, **and** no orphan/purge event on `-av1`/`-avif`/`-heif` for 12 months (earliest **2027-05-20**), **and** a second active maintainer or org governance | crates.io + CHANGELOG + GitHub contributors |
 | T4 | **Forcing**: `re_rav1d` unmaintained, a RUSTSEC advisory against it, or it blocks a toolchain/MSRV move | `cargo deny` / upstream. Then a native swap becomes the plan (oxideav already passes our differential) |
