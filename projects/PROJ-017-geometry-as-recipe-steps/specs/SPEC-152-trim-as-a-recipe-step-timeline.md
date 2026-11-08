@@ -19,6 +19,10 @@ Cycle prompts live in `prompts/SPEC-152-<cycle>.md`.
   (23 refusal rows), [S] in code, no DEC. Float rule re-driven in Rust (2,357,504 cases, 0 wrong); NaN never
   matches, out-of-range floats clamp; `UInt` gains `max`; folds a `parse_color` panic fix (non-ASCII, exit 101
   today). Inverse corrected for grey + chromatic fill. Corpus 22/72/75/66, wasm 55/53. 21 mutation rows, all driven.
-- [ ] **build** (`prompts/SPEC-152-build.md`, Sonnet, worktree `feat/spec-152-trim`). Keeps the `parse_color` fold-in. Adds a `UInt {` grep after each rebase: PR #257 also edits `src/cli/ops.rs`, which the design missed.
-- [ ] **verify**
+- [x] **build** (2026-11-07, `prompts/SPEC-152-build.md`, Sonnet, worktree `feat/spec-152-trim`): draft PR #258
+  at `3d02d45`, CI green (18 passed, 8 skipped). 65/65 ACs; 28 files (29 with the spec). Rebased onto SPEC-150 after
+  it merged; every `UInt` literal has `max`. wasm 55/53, bundle +13,011 B raw / +2,910 B brotli. Mutations red as
+  tabled except: M3 driven with a different mutant (`ceil`), AC-13's binary no-op row green under M2, M12 finished
+  by hand. One hand-written CI wait loop, stopped at once. Cost $9.58.
+- [ ] **verify** (`prompts/SPEC-152-verify.md`, Opus, worktree `verify/spec-152`)
 - [ ] **ship**
