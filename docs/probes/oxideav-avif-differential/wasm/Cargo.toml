@@ -6,10 +6,15 @@
 #   PATH=$TC:$PATH RUSTC=$TC/rustc CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER=wasm-bindgen-test-runner \
 #     $TC/cargo test --release --target wasm32-unknown-unknown
 #
-# As published (oxideav-av1 0.1.21) both tests FAIL: the AV1 frame driver calls
-# `std::time::Instant::now()` unconditionally, which panics on bare wasm32. Run
-# `../patch-av1.sh` and uncomment the [patch] block to stub that one call site; both
-# tests then pass, byte-identical to the native decode.
+# Upstream fixed the wasm32 panic in oxideav-av1 0.1.23 (OxideAV/oxideav-av1#33). At the
+# versions pinned here and in Cargo.lock (oxideav-avif 0.0.17, oxideav-av1 0.1.23,
+# oxideav-core 0.1.43) both tests pass with NO patch, byte-identical to the native decode.
+# Bump the oxideav crates together: 0.1.23 declares oxideav-core "0.1" but needs >= 0.1.43.
+#
+# History: at oxideav-avif 0.0.16 / oxideav-av1 0.1.21 both tests FAIL, because the AV1 frame
+# driver calls `std::time::Instant::now()` unconditionally, which panics on bare wasm32.
+# To reproduce that, pin those versions, run `../patch-av1.sh` and uncomment the [patch]
+# block to stub the call site; the tests then pass.
 [package]
 name = "oxideav-avif-wasm-probe"
 version = "0.0.0"
@@ -23,7 +28,7 @@ license = "MIT OR Apache-2.0"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-oxideav-avif = "=0.0.16"
+oxideav-avif = "=0.0.17"
 wasm-bindgen = "=0.2.126"
 
 [dev-dependencies]
