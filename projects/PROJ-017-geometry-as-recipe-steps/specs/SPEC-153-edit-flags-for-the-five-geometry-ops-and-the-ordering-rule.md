@@ -80,6 +80,22 @@ cost:
         Measured from the session JSONL after the frame push, deduplicated by message.id
         (42 messages; max output_tokens per id). Rates: Opus $5/$25 per MTok, cache_creation
         x1.25 input, cache_read x0.10 input. Excludes this cost commit's own turn.
+    - cycle: design
+      interface: claude-code
+      model: claude-opus-5-5
+      date: 2026-11-10
+      tokens_total: 18545033
+      tokens_breakdown:
+        input: 194
+        cache_creation: 266110
+        cache_read: 18153020
+        output: 125709
+      estimated_usd: 13.88
+      note: >
+        Measured from the session JSONL after the design push (3be1af0), deduplicated by
+        message.id (95 messages; max output_tokens per id); no subagents. Rates: Opus $5/$25 per
+        MTok, cache_creation x1.25 input, cache_read x0.10 input. Excludes this cost commit's
+        own turn. Includes the prototype build, the 548 s round-trip probe and 16 mutation runs.
   totals:
     tokens_total: 0
     estimated_usd: 0
