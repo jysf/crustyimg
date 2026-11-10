@@ -33,4 +33,6 @@ Cycle prompts live in `prompts/SPEC-152-<cycle>.md`.
   too, a claim for STAGE-058. Cost $6.23.
 - [x] **merge** — PR #258 updated to `main` and marked ready by the orchestrator after verify approved
   (CI green at `6e97832`, 18 passed, 8 skipped); merged by the maintainer as `6fed684` on 2026-11-10.
-- [ ] **ship** (`prompts/SPEC-152-ship.md`, Sonnet, worktree `docs/spec-152-ship`)
+- [x] **ship** (2026-11-10, `prompts/SPEC-152-ship.md`, Sonnet, worktree `docs/spec-152-ship`): merged as `6fed684`, PR #258.
+  Verify's five wording items folded into the spec, marked `(corrected at ship)`; the `resize` cap-text entry marked
+  shipped; one claim filed (`parse_color` accepts a sign). Costs re-measured; total $38.55 over five sessions.

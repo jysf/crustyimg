@@ -105,7 +105,7 @@ In build order. Each is framed in its own session first.
   `gravity`, filled with `color` (a value the `watermark` colour parser already reads) or
   `transparent`. ⚠ `transparent` into a format with no alpha (JPEG) is either refused or
   flattened against a stated colour. That is decided here, not left to the encoder.
-- [ ] **SPEC-152** (designed 2026-11-06) — [S] **`trim`.** Removes a uniform border: the colour is the
+- [x] **SPEC-152** (merged 2026-11-10, PR #258) — [S] **`trim`.** Removes a uniform border: the colour is the
   corner pixel or a stated `color`, matched within a stated `tolerance` per channel. Refuses
   (rather than producing a 0×0 image) when the whole image matches. Deterministic, with no
   content detection, and its doc entry says so. ⚠ Test on a 16-bit source with an 8-bit
@@ -201,7 +201,7 @@ In build order. Each is framed in its own session first.
   offsets as literals, and drive the M2 swap plus a margin-dropped mutation. Test-only, no product
   change. Any time; pairs naturally with `trim` (line 6), which may place by gravity too.
 
-- [ ] (folded into SPEC-152) — [S] **Pin `resize`'s cap message text.** Found at SPEC-151's verify (its
+- [x] (folded into SPEC-152; shipped in SPEC-152, PR #258, AC-54) — [S] **Pin `resize`'s cap message text.** Found at SPEC-151's verify (its
   optional cleanup), filed at SPEC-151's ship; fold into the next STAGE-058 spec's build. No test pins
   the text of `resize`'s two cap errors: `resize_oversize_is_typed_error`,
   `resize_apply_percent_rejects_oversized_output` and `apply_recipe_with_oversized_resize_exits_1`
@@ -212,7 +212,28 @@ In build order. Each is framed in its own session first.
   and `error: operation 'resize' failed: target area 20000×20000 = 400000000 px exceeds the maximum area of 134217728 px`.
   Test-only, no product change.
 
-**Count:** 7 shipped / 1 active / 8 pending — re-derived 2026-11-06 at SPEC-152's frame, with `/usr/bin/grep -c '^- \[x\]'` (7, unchanged), `/usr/bin/grep -c '^- \[ \]'` (9: the 1 active plus 8 pending), `/usr/bin/grep -c '^- \[ \] \*\*SPEC-'` (1 active: SPEC-152, `trim`), `/usr/bin/grep -c '^- \[ \] (not yet written)'` (7) and `/usr/bin/grep -c '^- \[ \] (folded into SPEC-152)'` (1: "Pin `resize`'s cap message text", which ships with SPEC-152)
+- [ ] (not yet written) — [S] **kind: claim. `parse_color` accepts a sign, so `+f+f+f` is read as `#0f0f0f`.**
+  Found at SPEC-152's verify; driven again at ship on a release build of `main` (0.8.2, scratch
+  `CARGO_TARGET_DIR`, deleted after). `u8::from_str_radix` allows a leading `+`, so each two-character
+  pair `+f` parses as 15, while the message says the value "must be a hex colour RRGGBB, #RRGGBB or
+  RRGGBBAA". Verify drove it in `pad`, `watermark` and `trim`; ship drove `pad` and `trim`, with a 4×4 PNG
+  of (200, 100, 50) padded by `border = 0.25`:
+  ```
+  pad  color = "#0f0f0f"  -> exit 0, top-left pixel (15, 15, 15)
+  pad  color = "+f+f+f"   -> exit 0, top-left pixel (15, 15, 15)
+  pad  color = "zzzzzz"   -> exit 1, recipe step 0 ('pad'): 'color' must be a hex colour RRGGBB, #RRGGBB or RRGGBBAA, got "zzzzzz"
+  trim color = "+f+f+f", tolerance = 0, on a 4×4 image with a #0f0f0f border and a red centre
+                          -> exit 0, written 2×2 (the border was read as #0f0f0f)
+  ```
+  (`crustyimg apply --recipe r.toml -o out.png in.png`, recipe `version = "2"`.) The reading is harmless
+  to a hand-written recipe that means a colour, but it lets a typo through as a different colour with
+  exit 0, and the same parser backs the `watermark --color` flag. Proposed fix: refuse any byte that
+  is not an ASCII hex digit, in one place, `parse_color` (`src/text/mod.rs`). That also covers the
+  non-ASCII case SPEC-152 fixed, so the explicit non-ASCII check can go. Test: a refusal row for `+f+f+f` in `pad`, `trim` and `watermark`, and a mutation that puts
+  `from_str_radix` back on the raw pair; the refusal message stays as it is.
+  Search first found no entry in STAGE-058 or `guidance/questions.yaml` that covers it.
+
+**Count:** 9 shipped / 0 active / 8 pending — re-derived 2026-11-10 at SPEC-152's ship, with `/usr/bin/grep -c '^- \[x\]'` (9: 5 `**SPEC-` entries and 4 folded), `/usr/bin/grep -c '^- \[ \]'` (8, all pending), `/usr/bin/grep -c '^- \[ \] \*\*SPEC-'` (0 active) and `/usr/bin/grep -c '^- \[ \] (not yet written)'` (8: the 7 from before plus the `parse_color` sign claim)
 
 ## Design Notes
 

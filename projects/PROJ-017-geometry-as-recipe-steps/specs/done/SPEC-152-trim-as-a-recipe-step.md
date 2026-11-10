@@ -7,7 +7,7 @@
 task:
   id: SPEC-152
   type: story                      # epic | story | task | bug | chore
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: S                    # S | M | L  (L means split it)
@@ -62,42 +62,66 @@ cost:
       date: 2026-11-06
       interface: claude-code
       model: claude-opus-5-5
-      tokens_total: 5170027
+      tokens_total: 5513542
       tokens_breakdown:
-        input: 82
-        cache_creation: 135007
-        cache_read: 4993199
-        output: 41739
-      estimated_usd: 4.38
-      note: "Measured from this session's transcript after the push (41 messages, deduped by message.id, max output_tokens per id). Rates: Opus $5/$25 per MTok, cache_creation x1.25, cache_read x0.10. Excludes this final cost commit's own turn." 
+        input: 86
+        cache_creation: 136510
+        cache_read: 5331579
+        output: 45367
+      estimated_usd: 4.65
+      note: "Re-measured at ship from the session JSONL (43 message ids, deduped by .message.id, max output_tokens per id), including the final cost-commit turn the first note excluded. Was 5,170,027 tokens, $4.38. Rates: Opus $5/$25 per MTok, cache_creation x1.25 input, cache_read x0.10 input."
     - cycle: design
       date: 2026-11-06
       interface: claude-code
       model: claude-opus-5-5
-      tokens_total: 20229426
+      tokens_total: 21255144
       tokens_breakdown:
-        input: 184
-        cache_creation: 304244
-        cache_read: 19798023
-        output: 126975
-      estimated_usd: 14.98
-      note: "Measured from this session's transcript after the push (90 messages, deduped by message.id, max output_tokens per id). Rates: Opus $5/$25 per MTok, cache_creation x1.25, cache_read x0.10. Includes a prototype and 21 driven mutation rows (full suite each). Excludes this final cost commit's own turn."
+        input: 190
+        cache_creation: 306417
+        cache_read: 20815143
+        output: 133394
+      estimated_usd: 15.66
+      note: "Re-measured at ship from the session JSONL (93 message ids, deduped by .message.id, max output_tokens per id), including the final cost-commit turn the first note excluded. Was 20,229,426 tokens, $14.98. Includes a prototype and 21 driven mutation rows. Rates: Opus $5/$25 per MTok, cache_creation x1.25 input, cache_read x0.10 input."
     - cycle: build
       date: 2026-11-07
       interface: claude-code
       model: claude-sonnet-5-5
-      tokens_total: 23926026
+      tokens_total: 25148590
       tokens_breakdown:
-        input: 220
-        cache_creation: 270388
-        cache_read: 23555280
-        output: 100138
-      estimated_usd: 9.58
-      note: "Measured from this session's transcript at the last turn before the cost commit (104 messages, deduped by message.id, max output_tokens per id). Rates: Sonnet $3/$15 per MTok, cache_creation x1.25, cache_read x0.10. Excludes the final bookkeeping turn."
+        input: 228
+        cache_creation: 278743
+        cache_read: 24762663
+        output: 106956
+      estimated_usd: 10.08
+      note: "Re-measured at ship from the session JSONL (108 message ids, deduped by .message.id, max output_tokens per id), including the final bookkeeping turn the first note excluded. Was 23,926,026 tokens, $9.58. Rates: Sonnet $3/$15 per MTok, cache_creation x1.25 input, cache_read x0.10 input."
+    - cycle: verify
+      date: 2026-11-09
+      interface: claude-code
+      model: claude-opus-5-5
+      tokens_total: 8436102
+      tokens_breakdown:
+        input: 114
+        cache_creation: 173832
+        cache_read: 8209972
+        output: 52184
+      estimated_usd: 6.50
+      note: "First recorded at ship (verify was read-only and never wrote a cost entry). Measured from the session JSONL (53 message ids, deduped by .message.id, max output_tokens per id). The verify report read input 112, cache_creation 172,515, cache_read 8,008,049, output 45,988, total 8,226,664, $6.23; the transcript carries turns after that report. Rates: Opus $5/$25 per MTok, cache_creation x1.25 input, cache_read x0.10 input."
+    - cycle: ship
+      date: 2026-11-10
+      interface: claude-code
+      model: claude-sonnet-5-5
+      tokens_total: 3207976
+      tokens_breakdown:
+        input: 62
+        cache_creation: 101083
+        cache_read: 3083368
+        output: 23463
+      estimated_usd: 1.66
+      note: "Measured from this session's JSONL (31 message ids, deduped by .message.id, max output_tokens per id) just before the closing commit, so it excludes the commit, push and report turns. Includes one background `cargo build --release` of main in a scratch target dir, which cost no tokens. Rates: Sonnet $3/$15 per MTok, cache_creation x1.25 input, cache_read x0.10 input."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 63561354
+    estimated_usd: 38.55
+    session_count: 5
 ---
 
 # SPEC-152: trim as a recipe step
@@ -639,7 +663,8 @@ prototype of `trim`, its tests, the corpus rows and the script change in a scrat
 ### The match rule, as a table a test can check
 
 Each row: a 2×1 buffer, pixel (0, 0) the top-left, pixel (1, 0) the sample; "match" is whether (1, 0)
-matches. `#000000` stated, `t = 8` unless given.
+matches. `#000000` stated; every row states its `t` *(corrected at ship: the header said `t = 8` unless
+given, but the rows that gave none use `t = 0` in `match_rule_table`)*.
 
 - `Rgb8`, stated `#000000`, `t = 8`: sample `(8, 0, 0)` matches; `(9, 0, 0)` does not.
 - `Rgb8`, `t = 0`, stated `#102030`: `(16, 32, 48)` matches; `(16, 32, 49)` does not.
@@ -654,21 +679,21 @@ matches. `#000000` stated, `t = 8` unless given.
   `(f64(63478) / 65535) as f32` (2057) does not.
 - `Rgba32F`, default, top-left `(0.25, 0.5, 0.75, 1.0)`, `t = 0`: the same `f32`s match;
   `0.25f32.next_up()` in channel 0 also matches (same level); `0.25 + 1/65535` as `f32` does not.
-- `L8`, stated `#808080`, `t = 0`: `L = 128` matches. `L8`, stated `#800000`: `L = 128` does **not**
+- `L8`, stated `#808080`, `t = 0`: `L = 128` matches. `L8`, stated `#800000`, `t = 0`: `L = 128` does **not**
   (it compares as `(128, 128, 128)`).
-- `L16`, stated `#808080`: `L = 32896` matches; stated `#800000`: does not.
+- `L16`, stated `#808080`, `t = 0`: `L = 32896` matches; stated `#800000`, `t = 0`: does not.
 - `La8`, stated `#80808080`, `t = 0`: `(128, 128)` matches; `(128, 255)` does not (alpha compared).
 - `La16`, default, top-left `(1000, 0)`: `(54321, 0)` matches (alpha rule).
 - `Rgba8`, stated `#00000000`, `t = 0`: `(200, 10, 90, 0)` matches (alpha rule); `(0, 0, 0, 1)` does
   not.
 - `Rgba8`, stated `#00000000`, `t = 8`: `(200, 10, 90, 3)` does **not** match (alpha 3 is not 0, so
   all four channels are compared, and 200 is 200 off); `(5, 5, 5, 3)` matches (every channel within 8).
-- `Rgba8`, stated `#000000` (alpha 255): `(0, 0, 0, 0)` does not match (alpha 255 off).
-- `Rgba16`, default, top-left `(9, 9, 9, 0)`: `(60000, 1, 2, 0)` matches (alpha rule on the reference
+- `Rgba8`, stated `#000000` (alpha 255), `t = 0`: `(0, 0, 0, 0)` does not match (alpha 255 off).
+- `Rgba16`, default, `t = 0`, top-left `(9, 9, 9, 0)`: `(60000, 1, 2, 0)` matches (alpha rule on the reference
   too).
 - `Rgb32F`: a NaN in channel 0 does not match `#ffffff` at `t = 255`; `(1.5, 1.0, 7.0)` matches
   `#ffffff` at `t = 0` (clamped to 65535); `(-0.25, 0.0, -9.0)` matches `#000000` at `t = 0`.
-- `Rgba32F`, stated `#00000000`: alpha `-0.0` and `1e-6` (level 0) match by the alpha rule; alpha
+- `Rgba32F`, stated `#00000000`, `t = 0`: alpha `-0.0` and `1e-6` (level 0) match by the alpha rule; alpha
   `8e-6` (level 1) does not.
 
 That is every one of the 10 colour types with the default and a stated colour, `t = 0` and an edge
@@ -1113,12 +1138,15 @@ whole suite. No row is "expected all green".
   `v2_trim_tolerance × rgba16`**, AC-50), `grey_…`, `each_side_is_scanned_on_its_own`,
   `odd_shapes_and_survivors`, `pad_then_trim_…`, `whole_match_fails_at_apply`, `nan_…`,
   `every_colour_type_…`, `apply_fails_when_every_pixel_matches_with_exit_1`,
-  `batch_with_a_uniform_image_…`, `trim_writes_no_orientation_tag_…`. *Reasoned:* AC-13's and AC-46's
-  binary rows, both wasm rows.
+  `batch_with_a_uniform_image_…`, `trim_writes_no_orientation_tag_…`. *Reasoned:* AC-46's binary row
+  and both wasm rows. *(corrected at ship)* AC-13's binary no-op row is not in this list: its input has
+  nothing to trim, so `<` and `<=` both give the no-op and no assertion could turn it red. Build drove
+  it green and verify confirmed.
 - **M3 the float rule replaced by `f64` `/ 255` maths** (`|f64(s) − c/255| <= t/255` for a stated
   colour on `Rgb32F`/`Rgba32F`). Splitting input `c = 0`, `t = 1`, `s = f32(1/255)`. *Driven red:*
-  `match_rule_rows` and `match_rule_table` (`f32 1/255`, `f32 over`, `f32 under`, the `Rgba32F` alpha
-  rows), `alpha_zero_…` (`Rgba32F`), `nan_…`, `pad_then_trim_…` (`Rgba32F`). **Observed green:**
+  `match_rule_rows` and `match_rule_table` (`f32 1/255`, `f32 over range`, `f32 under range`, the `Rgba32F` alpha
+  rows), `alpha_zero_…` (`Rgba32F`; *corrected at ship:* red only if the mutant writes the alpha test as
+  a `/ 255` distance; with `alpha == 0.0` it stays green), `nan_…`, `pad_then_trim_…` (`Rgba32F`). **Observed green:**
   `every_colour_type_trims_exactly`: its float edge (2056 below `1.0`) happens to fall on the accepted
   side in `f64`, which is why the matrix is not the float guard; `match_rule_table` is.
 - **M4 the alpha-0 rule removed.** Splitting input: the `a0` shape. *Driven red:* `match_rule_rows`,
@@ -1208,7 +1236,7 @@ equivalent of a handoff document, folded into the spec since there is no separat
 ### Constraints that apply
 
 - `untrusted-input-hardening` — nothing panics on any TOML value or image: the colour parse refuses
-  non-ASCII (AC-12), the scan allocates nothing, the crop is at most the input.
+  non-ASCII (AC-12), the scan allocates nothing per pixel (one boxed closure per apply; *corrected at ship*), the crop is at most the input.
 - `no-unwrap-on-recoverable-paths` — no `unwrap`/`expect` in `trim.rs` outside tests.
 - `single-image-library` — `image` only.
 - `every-public-fn-tested` — `Trim::from_params` and the `Operation` impl.
@@ -1329,7 +1357,7 @@ anyway) and add 2 to whatever they say.
 
 **Evidence**
 - Baseline on `main` before the op: `tests/trim.rs` 19 of 19 red (`unknown operation 'trim'`; the non-ASCII row panicked at `src/text/mod.rs:60:49`); the lib tests did not compile (`E0559 ... no field named 'max'`, 7 errors); the fold-in asserts were green on `main`, as the spec said.
-- AC-1..16: met (unit `match_rule_table` runs 36 rows; `float_rule_is_exact_at_every_edge` asserts 2,357,504 cases, which is 14 match + 14 past-by-step + 7 past-by-level cases per in-range pair, plus 65,536 level read-backs; the matrix runs 210). AC-17..42: met (23 refusal rows, 7 controls, 2 binary rows). AC-43..46: met. AC-47..50: met. AC-51..53: met. AC-54: met. AC-55..62: met by content. AC-63: met (grep of `trim.rs` empty; `help_has_no_internal_ids` passes since SPEC-150 merged). AC-64: met (`git diff --stat origin/main...HEAD -- Cargo.toml Cargo.lock src/build/cache.rs` is empty). AC-65: met (CI green on every leg, including lean and both wasm count steps).
+- AC-1..16: met (unit `match_rule_table` runs 36 rows; `float_rule_is_exact_at_every_edge` asserts 2,357,504 cases, which is 14 × 65,792 + 14 × 65,280 + 7 × 65,280 + 65,536 (*corrected at ship:* each group carries its own range test, not one "per in-range (c, t, sign)" rule; derived independently at verify); the matrix runs 210). AC-17..42: met (23 refusal rows, 7 controls, 2 binary rows). AC-43..46: met. AC-47..50: met. AC-51..53: met. AC-54: met. AC-55..62: met by content. AC-63: met (grep of `trim.rs` empty; `help_has_no_internal_ids` passes since SPEC-150 merged). AC-64: met (`git diff --stat origin/main...HEAD -- Cargo.toml Cargo.lock src/build/cache.rs` is empty). AC-65: met (CI green on every leg, including lean and both wasm count steps).
 - Corpus: `git diff --diff-filter=MD --name-only origin/main -- tests/fixtures/recipe_corpus/` is empty; `--diff-filter=A` lists 10 files. First CI run failed only `every_golden_line_is_checked_and_no_golden_is_stray` and `every_recipe_output_matches_its_golden` (missing linux/windows files); the files were copied from the failing log and the second run is green on all legs. `cmp` of the three per-target files: both recipes identical across linux, macos and windows; the two recipes' pixel lines are identical to each other (correction 3). Dims `2652x1782` / `1782x2652` / `2652x1782`.
 - wasm: local `just wasm-check` ok, `just wasm-test` 55 passed, `just wasm-test-slim` 53 passed; `--self-test` 18 rows, 18 passed; `workflow` 16 assertions, 0 failed; `validate-frontmatter` ok. CI: `full set: 55 passed, as expected`, `slim set: 53 passed, as expected`. `main` was 53/51 at the last rebase. Bundle size vs a `main` CI run (42417699527): raw 4,137,956 -> 4,150,967 B (+13,011), brotli 829,740 -> 832,650 B (+2,910).
 - Matrix (fresh `CARGO_TARGET_DIR` each): default, `--no-default-features` (the `trim` tests ran), `--features webp-lossy`: `fmt --check`, clippy `-D warnings` and `cargo test --no-fail-fast` all exit 0.
@@ -1369,10 +1397,35 @@ Process-focused: how did the build go? What friction did the spec create?
 from the process-focused build reflection above.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Four things. (a) Design driving all 21 mutation rows is the first time a PROJ-017 verify approved
+   with no punch list (SPEC-151: 12 of 14 driven, one refuted at verify). Design cost $15.66
+   re-measured, against $14.06 for SPEC-151. Two cells out of 21 were loose, both wording, and both sat
+   in the part design had only *reasoned* (M2's AC-13 binary row, a row whose input has nothing to
+   trim) or in a mutant the spec described but did not write out (M3). That is one data point, but I
+   would keep the driving and spend the next effort on the reasoned sub-cells inside a driven row.
+   (b) Build drove `ceil` where the spec's M3 said `f64 / 255`, so the spec's row stayed unconfirmed
+   until verify drove it as written (the matrix stays green and the match-rule table is the float
+   guard, the spec's claim). The row should have carried the mutant's edit. (c) The spec gave AC-3's
+   count (2,357,504) and the names of its groups but not the sizes: build recovered it by a search and
+   verify re-derived it (14 × 65,792 + 14 × 65,280 + 7 × 65,280 + 65,536), with a range test per
+   group. A count should ship with its derivation. (d) Design's overlap map with SPEC-150 was written
+   from SPEC-150's text and missed `src/cli/ops.rs`, which PR #257 also edited; the build's `UInt {`
+   grep after each rebase found nothing to fix, so it cost nothing this time.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — Proposed, not applied. (i) A mutation row quotes the exact mutant edit, so build and verify drive
+   the same one. Not covered: AGENTS §15 "During verify" covers the "expected all green" row (it names
+   its search), SPEC-151's reflection proposed that and SPEC-152 followed it, but nothing says the row
+   must write the mutant out. (ii) A count in a spec carries its derivation. Partly covered:
+   SPEC-151's reflection proposed that a count come from a command and name it; the group sizes are
+   the part still missing. (iii) A cross-project overlap map comes from `gh pr view <n> --json files`,
+   not from the other spec's text. Not covered in AGENTS §15–16, `guidance/` or SPEC-151's reflection.
+   The repo does not track a HANDOFF file, so I could not check it. (iv) Hand-written CI wait loops
+   happened again (stopped at once); that rule exists ("Never poll CI"), so no new rule. No DEC
+   changes.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — Filed one STAGE-058 entry (step 4): `parse_color` accepts a sign (`+f+f+f` reads as `#0f0f0f`),
+   a claim. None beyond it: the other gaps are template proposals above, and verify's wasm cleanup
+   (`transform_trims_exactly` compares `to_rgba8`, so it does not pin the colour type) is not filed
+   because the native tests pin the colour type and it bears on no answer here.
