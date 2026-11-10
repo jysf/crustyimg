@@ -63,7 +63,22 @@ value_link: >
 # See AGENTS.md §4 and docs/cost-tracking.md. interface: claude-code |
 # claude-ai | api | ollama | other.
 cost:
-  sessions: []
+  sessions:
+    - cycle: frame
+      interface: claude-code
+      model: claude-opus-5-5
+      date: 2026-11-10
+      tokens_total: 5378693
+      tokens_breakdown:
+        input: 84
+        cache_creation: 147483
+        cache_read: 5180694
+        output: 50432
+      estimated_usd: 4.77
+      note: >
+        Measured from the session JSONL after the frame push, deduplicated by message.id
+        (42 messages; max output_tokens per id). Rates: Opus $5/$25 per MTok, cache_creation
+        x1.25 input, cache_read x0.10 input. Excludes this cost commit's own turn.
   totals:
     tokens_total: 0
     estimated_usd: 0
