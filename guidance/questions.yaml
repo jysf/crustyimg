@@ -160,7 +160,7 @@ questions:
     raised_at: 2026-10-28
     assigned_to: null
     notes: |
-      TECHNICALLY NEARLY THERE; NOT NEEDED YET. Assessed in
+      TECHNICALLY READY ON WASM (T1 fired 2026-11-08); NOT NEEDED YET. Assessed in
       `docs/research/oxideav-adoption-assessment-2026-10.md`; reproducible probe
       at `docs/probes/oxideav-avif-differential/`.
 
@@ -171,6 +171,14 @@ questions:
       first decode (unconditional std::time::Instant stage timing in
       oxideav-av1); with that one call site stubbed it decodes byte-identical to
       native in a wasm VM (~337 KB brotli, standalone upper bound).
+
+      T1 FIRED 2026-11-08: OxideAV/oxideav-av1#33 (filed by us 2026-10-28) was
+      fixed in oxideav-av1 0.1.23. The probe's wasm tests now pass UNPATCHED at
+      oxideav-avif 0.0.17 + oxideav-av1 0.1.23 + oxideav-core 0.1.43, with the
+      same plane hashes as the native decode; 0.1.21 still panics (control).
+      This clears the wasm blocker but does not answer the question: there is
+      still no T2 demand, so the status stays open. Before any adoption, re-run
+      the native differential and fuzz at the new versions.
 
       Why not now: the demo already gets AVIF decode free from the browser
       (DEC-065); natively it is 2.6x slower than re_rav1d and raises MSRV

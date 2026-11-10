@@ -1,6 +1,7 @@
 #!/bin/sh
 # Fetch oxideav-av1 0.1.21 into wasm/patched-av1 and stub the one std::time::Instant
 # use that panics on wasm32-unknown-unknown. Probe-only: the shim zeroes the stage timings.
+# Historical: not needed from oxideav-av1 0.1.23, which fixed this upstream (OxideAV/oxideav-av1#33).
 set -eu
 cd "$(dirname "$0")/wasm"
 rm -rf patched-av1 && mkdir patched-av1
