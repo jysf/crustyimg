@@ -56,13 +56,18 @@ tag-driven pipeline (its AC-18 is open until a real tag), so it should carry rea
   holds only `GPSVersionID`.
 - `--keep-gps`, `-v`/`--verbose` and `responsive --name-template` are each implemented, refused
   with exit 2, or removed with their docs, never accepted and ignored.
+- A write that fails exits non-zero and leaves the previous file intact; `meta strip` leaves a JPEG
+  rendering the same; `build` never overwrites a declared source, never records two outputs for one
+  file, and never writes a lockfile its own `--check` refuses (the 2026-11-10 external review,
+  SPEC-154 to SPEC-158).
 - 0.8.3 is published on all channels (crates.io, GitHub Release, Homebrew tap, npm, jysf.org) by a
   tag push, and each channel is checked.
 
 ## Scope
 
 ### In scope
-- The seven items below, grouped as SPEC-148, SPEC-149 and SPEC-150, then the 0.8.3 release cycle.
+- The seven items below, grouped as SPEC-148, SPEC-149 and SPEC-150, then SPEC-154 to SPEC-158
+  (the 2026-11-10 external code review: the release is held for them), then the 0.8.3 release cycle.
 
 ### Explicitly out of scope
 - Every other PROJ-011 item. Dispositions: recipe, watermark and `validate()` items go to PROJ-017
@@ -85,6 +90,53 @@ Spec ids 148 to 150 are reserved by this commit (PROJ-017 holds 147).
   subfolders (driven wider: any folder with no top-level image, 13 verbs, `build` targets too), and the browser's asset refusal plus every user-facing `SPEC-`/`DEC-` id in rendered
   `--help`, including `lint --help`'s "(each with a runnable fix)" line (SPEC-148's design asks SPEC-150 to reword it with its spec ids). Complexity S; framed M with fold-ins B, C
   (docs-only, pending ruling) and leftovers (1), (3), (5) ruled in, (4) out.
+
+Spec ids 154 to 158 are reserved (2026-11-10) for the external code review's findings
+(`docs/reviews/2026-11-10-external-code-review.md`, which holds the evidence and the fix each finding
+asked for). PROJ-017 holds 153. The review recommended holding 0.8.3 for the four P1 findings; the
+release line below waits for SPEC-154 to SPEC-157. Land SPEC-154 first and alone: it decides which
+gates later PRs run. Its frame prompt is `specs/prompts/SPEC-154-frame.md`; the other four get theirs
+when SPEC-154 is framed. A frame may re-size, split or merge them.
+
+- [ ] **SPEC-154** (reserved 2026-11-10) — [S] **The CI path filter treats real build inputs as docs-only (review P2).**
+  `scripts/ci-code-paths.sh` returned `false` for `recipes/web.toml`, `assets/fonts/Go-Regular.ttf`, `clippy.toml` and
+  `deny.toml`; the recipes and the font are embedded at compile time (`include_str!`/`include_bytes!`), so an isolated
+  edit skips the native build and test legs. `pages.yml`'s path lists lack `recipes/` and `assets/` too. Fix the
+  classifier (consider inverting it to a docs-only allowlist, so an unknown path runs everything), add a self-test
+  row per class and a mutation row per alternative, and align the Pages triggers. Frame first.
+- [ ] **SPEC-155** (reserved 2026-11-10) — [M] **A write that fails must not report success or destroy the old file (review P1).**
+  `Sink::File` and `Sink::Dir` truncate the destination, then `BufWriter::write_all` and drop with no `flush()`
+  (`src/sink/mod.rs`, both the pixel and the byte sink), so a short write exits 0 and leaves a truncated file. Stage
+  the bytes beside the destination, flush and sync, then rename; keep the symlink and overwrite guards ahead of
+  it. Test with an injected failing writer. The rename-over-existing behaviour differs on Windows: verify on the
+  full OS matrix.
+- [ ] **SPEC-156** (reserved 2026-11-10) — [S] **`meta strip` changes how Adobe YCCK JPEGs render (review P1).**
+  The JPEG strip loop removes `0xE1..=0xEF`, which includes APP14 (`0xEE`, Adobe), the marker that carries the
+  colour transform. On `tests/fixtures/lint/cmyk_16x16.jpg`, `crustyimg diff` scored the stripped file 41.94
+  SSIMULACRA2 against the original. Keep APP14; the regression compares decoded pixels as well as checking that
+  metadata is gone. The sweeps in `src/metadata/mod.rs` that loop over the full range (tests near lines 630 and
+  1712) need the same exception.
+- [ ] **SPEC-157** (reserved 2026-11-10) — [M] **`build` destinations have one identity: no overwritten sources, no aliased collisions (review P1 x2).**
+  A target with `source = "src/photo.png"` and `out = "src"` replaced the source and exited 0; targets writing
+  `dist/result.png` and `alias/../dist/result.png` produced one file and a lockfile with two records. The
+  collision key compares path spellings (`output_collision_key`, `check_output_injective`), and the late check
+  compares the same strings after the files are written. Resolve destinations once, use that identity for
+  planning, the sink and the lockfile, and reject a destination that overlaps any declared source, across
+  targets, before writing. Also rule on symlinked output directories (DEC-061 accepts them; the review wrote
+  outside the tree through one). Needs a design cycle and a DEC.
+- [ ] **SPEC-158** (reserved 2026-11-10) — [S–M] **`build` integrity: a lockfile its own verifier refuses, and a hash of one read with an encode of another (review P2 x2).**
+  A 22,000-image build wrote a 5.2 MB lockfile that `build --check` then refused (`LOCK_MAX_BYTES` is 4 MiB and is
+  enforced only on read, `src/build/lock.rs`). Give writer and reader one contract, or refuse before publishing.
+  And `cache_key_for` reads the file to hash it while `encode_one` reopens the path (`src/cli/common.rs`), so an edit
+  between the two stores new pixels under the old key: decode the bytes that were hashed, including on the
+  auto-optimize path. Same pass: record the source format before moving the image into the pipeline in `encode_one`
+  instead of cloning the decoded pixel buffer. May split into two specs at frame.
+- [ ] (not yet written) — [S] **Diagnose the `build_watch` timeouts (review verification note).** On the review's
+  macOS arm64 run, 10 of 14 `build_watch` tests timed out waiting for a rebuild; the cause is unexplained. Rerun
+  `cargo test --test build_watch` locally and in CI first. A spec only if it is a real bug.
+- [ ] (not yet written) — [S] **Strict mode for watermark builds (review, product view).** Out of this stage: the
+  watermark and recipe items go to PROJ-017 or PROJ-013. Filed here only so the review's point has an owner: a warm
+  build hides the skipped-watermark warning, so "every image is marked or the build fails" is not expressible.
 - [ ] (not yet written) — [S] **Verify's optional findings on SPEC-148 (2026-11-05).** (O-1) `optimize --max-size` with an
   unreachable budget exits 0 and rewrites the file larger (159 to 331 B) with a "best effort" note; decide whether
   that is a failure. (O-2) config `max_bytes = 0` prints `optimize --max-size 0`, which exits 2; config validation
@@ -148,7 +200,7 @@ Spec ids 148 to 150 are reserved by this commit (PROJ-017 holds 147).
   break downstream exhaustive matches (the CHANGELOG says so); whether to add `#[non_exhaustive]` before 1.0 is a
   maintainer call.
 
-**Count:** 3 shipped / 0 active / **9 pending** — 2026-11-07 (re-derived by grep and by Python of the backlog checkboxes: 12 in total, 3 ticked, 9 open; SPEC-150 shipped, the new item is verify's seven optional findings).
+**Count:** 3 shipped / 0 active / **16 pending** — 2026-11-10 (re-derived by grep of the backlog checkboxes above `### Items carried`: 19 in total, 3 ticked, 16 open; the seven new entries are SPEC-154 to SPEC-158 from the external code review, the `build_watch` diagnosis and the watermark strict-mode pointer).
 
 ### Items carried from STAGE-054 (full text, unchanged)
 
