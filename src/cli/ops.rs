@@ -2117,7 +2117,6 @@ mod tests {
     /// The names of the steps `build_edit_ops` builds, in run order.
     fn step_names(flags: &EditFlags) -> Vec<&'static str> {
         build_edit_ops(flags)
-            .ok()
             .expect("should succeed")
             .iter()
             .map(|s| s.op.name())
@@ -2190,7 +2189,7 @@ mod tests {
             order: vec![EditOp::ResizeMax],
             ..EditFlags::default()
         };
-        let steps = build_edit_ops(&flags).ok().expect("should succeed");
+        let steps = build_edit_ops(&flags).expect("should succeed");
         assert_eq!(steps.len(), 1);
         let edit_params = steps[0].op.params();
 

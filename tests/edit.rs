@@ -277,7 +277,8 @@ fn edit_byte_pin_unchanged_invocations() {
     let head = "version = \"1\"\n\n[[step]]\nop = \"auto-orient\"\n";
     let resize = "\n[[step]]\nop = \"resize\"\nmode = \"max\"\nwidth = 30\n";
     let invert = "\n[[step]]\nop = \"invert\"\n";
-    let rows: [(&[&str], (u32, u32), u64, String); 4] = [
+    type Row<'a> = (&'a [&'a str], (u32, u32), u64, String);
+    let rows: [Row; 4] = [
         (
             &["--resize-max", "30"],
             (30, 20),

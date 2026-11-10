@@ -383,7 +383,8 @@ fn typed_order_ignores_spelling_and_position() {
 
 #[test]
 fn replay_colour_types() {
-    let forms: [(&[&str], (u32, u32), &[&str]); 6] = [
+    type Form<'a> = (&'a [&'a str], (u32, u32), &'a [&'a str]);
+    let forms: [Form; 6] = [
         (&["--crop", "31x7+29+33"], (31, 7), &["auto-orient", "crop"]),
         (
             &["--crop", "1:1", "--crop-gravity", "southwest"],
