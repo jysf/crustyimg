@@ -31,4 +31,6 @@ Cycle prompts live in `prompts/SPEC-152-<cycle>.md`.
   guard (confirmed). M12 re-driven: 24 red. Two wording items for ship (M2's AC-13 cell; M3's alpha cell and row
   names) and four optional cleanups. Out-of-spec: `parse_color` accepts a sign (`"+f+f+f"` → `#0f0f0f`) on main
   too, a claim for STAGE-058. Cost $6.23.
-- [ ] **ship**
+- [x] **merge** — PR #258 updated to `main` and marked ready by the orchestrator after verify approved
+  (CI green at `6e97832`, 18 passed, 8 skipped); merged by the maintainer as `6fed684` on 2026-11-10.
+- [ ] **ship** (`prompts/SPEC-152-ship.md`, Sonnet, worktree `docs/spec-152-ship`)
