@@ -49,8 +49,9 @@ crustyimg apply --recipe mine.toml *.jpg --out-dir out/ -j 8
 The round trip is **byte-stable** — replaying the saved recipe reproduces the `edit` output
 byte for byte, so a recipe reviewed in a PR is exactly what runs in CI.
 
-`edit` only records the ops it exposes (`--auto-orient`, `--resize-max`, `--invert`). For
-anything else — a crop to an exact box, a watermark, an output format, or the terminal
+`edit` only records the ops it exposes (`--auto-orient`, `--resize-max`, `--invert`, `--crop`,
+`--rotate`, `--flip`), in the order you typed them; a pixel `--crop` is saved as fractions. For
+anything else — a watermark, an output format, or the terminal
 `optimize` step the bundled recipes end in — write the TOML directly:
 
 ```toml

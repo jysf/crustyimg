@@ -297,20 +297,35 @@ and a closing `watermark skipped on K of N images`, at exit `0`.
 
 ## Recipes & batch
 
-### `edit <INPUT> [--auto-orient] [--resize-max N] [--invert] [--save-recipe FILE]`
+### `edit <INPUT> [--auto-orient] [--resize-max N] [--invert] [--crop WxH+X+Y|W:H [--crop-gravity G]] [--rotate DEG] [--flip AXIS] [--save-recipe FILE]`
 Chain an ordered op list on a **single** image in one decode → ops → encode pass. Every
 `edit` invocation **bakes EXIF orientation first** — `edit --invert` and
 `edit --resize-max N` are never sideways. `--auto-orient` is now an **accepted no-op**:
 baking already happens unconditionally, so passing the flag changes nothing about the
 output; it stays because the CLI surface is frozen (STAGE-030) and it must keep exiting
-0. Ops apply in a fixed canonical order regardless of flag order (`auto-orient` →
-`resize` → `invert`), so the result is deterministic. At least one op flag is required
-(`--auto-orient` alone still satisfies this). `--save-recipe FILE` serializes the chain
-to a TOML recipe. The CLI-level orientation bake itself is not recorded as a step, so a
-recipe replayed via `apply` no longer matches its own `edit` invocation: `edit`
-bakes, the replay doesn't. This divergence is known and not yet fixed.
+0. Op flags (`--resize-max`, `--invert`, `--crop`, `--rotate`, `--flip`) run **in the order you
+type them**, like a recipe's steps: `--rotate 90 --crop 1200x800+0+100` turns the image, then
+crops what it shows, while `--crop … --rotate 90` crops first. Orientation is always baked
+first, wherever `--auto-orient` is typed. Each op flag may be given once (a repeat exits 2);
+a recipe is the route for repeats. At least one op flag is required (`--auto-orient` alone
+still satisfies this).
+
+- `--crop WxH+X+Y` crops to a pixel rectangle; the pixels are those of the image at that point in
+  the command (after an earlier `--resize-max` or `--rotate`). A rectangle past the edge of that
+  image exits 1, naming the flag and the image's size. `--crop W:H` crops to the largest `W:H`
+  aspect that fits, placed by `--crop-gravity` (one of the nine names; default `center`;
+  aspect form only).
+- `--rotate DEGREES` turns clockwise by a multiple of 90 from -360 to 360 (negative turns
+  counter-clockwise). `--flip horizontal|vertical` mirrors.
+
+`--save-recipe FILE` serializes the steps that ran to a TOML recipe: it starts with `auto-orient`
+and lists the steps in the order they ran. A pixel `--crop` is saved as fractions of the image the
+step received (`x`, `y`, `width`, `height`), and needs one input image when `--save-recipe` is
+given (a directory or glob naming several exits 2; use an aspect `--crop` or edit each image on
+its own). A failed run writes no recipe.
 ```sh
 crustyimg edit photo.jpg --auto-orient --resize-max 1600 -o out.jpg
+crustyimg edit photo.jpg --rotate 90 --crop 1200x800+0+100 -o out.jpg
 crustyimg edit hero.jpg --auto-orient --resize-max 1600 --save-recipe web.toml
 ```
 
