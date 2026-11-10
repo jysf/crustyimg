@@ -16,6 +16,9 @@ Cycle prompts live in `prompts/SPEC-153-<cycle>.md`.
   parts). Corrections: `edit` takes a batch (a pixel `--crop` with `--save-recipe` needs one input, exit 2); no edge-touching rectangle
   is noisy (1.25e9 checked), so the replay test uses an interior one. Byte pin recorded from `main`; 15 mutation rows + the trap-14
   control all driven on a prototype. 27 ACs, 31 test functions, 86 rows.
-- [ ] **build** (`prompts/SPEC-153-build.md`)
-- [ ] **verify**
+- [x] **build** (`prompts/SPEC-153-build.md`), 2026-11-10, Sonnet, $5.29. Draft PR #261 at `d917d60`, CI green (18 passed,
+  8 release jobs skipped; checked by the orchestrator). 27/27 ACs; FT-1 green on `main` before any edit and after. Every
+  mutation red; M1, M2 and M15 red more than the table (M2 also reds `tests/cli.rs`' stub test, for verify to explain).
+  Deviations: stages 2–4 in one push; FT-14 uses the little-endian EXIF helper.
+- [ ] **verify** (`prompts/SPEC-153-verify.md`)
 - [ ] **ship**
