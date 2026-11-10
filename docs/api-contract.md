@@ -481,6 +481,14 @@ past the size caps fails at apply (`operation 'pad' failed: …`, exit **1** for
 exit **6** in a batch, with nothing written for that input); wasm `transform` throws the
 same line. The pixel lane writes no Orientation tag after it.
 
+**Trim in a recipe.** `op = "trim"` removes the outer rows and columns that match one colour
+(the stated `color` or the top-left pixel) within `tolerance`. A bad key or value is refused
+when the recipe loads (exit **1**, nothing read or written). An image in which every pixel
+matches fails at apply (`operation 'trim' failed: …`, exit **1** for one input, exit **6** in
+a batch, with nothing written for that input); an image with nothing to trim is written
+unchanged; wasm `transform` throws the same line. The pixel lane writes no Orientation tag
+after it.
+
 ### Metadata lane *(container-level; no pixel decode — DEC-003)*
 
 #### `meta strip <INPUT...>`  *(SPEC-026; grouped under `meta` in SPEC-087)*

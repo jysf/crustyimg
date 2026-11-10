@@ -624,6 +624,80 @@ op = "identity"
         }
     }
 
+    /// A trim copies pixels and computes none, so a pad followed by a trim
+    /// gives the input back exactly, with no 1/255 allowance.
+    #[wasm_bindgen_test]
+    fn transform_trims_exactly() {
+        let src = png_unique(120, 80);
+        let decoded = image::load_from_memory(&src)
+            .expect("decode input")
+            .to_rgba8();
+        let rows = [
+            (
+                "border, top-left colour",
+                "[[step]]\nop = \"pad\"\nborder = 0.05\ncolor = \"#123456\"\n\n[[step]]\nop = \"trim\"\n",
+            ),
+            (
+                "aspect, stated colour",
+                "[[step]]\nop = \"pad\"\naspect = \"1:1\"\ngravity = \"south\"\ncolor = \"#123456\"\n\n[[step]]\nop = \"trim\"\ncolor = \"#123456\"\n",
+            ),
+        ];
+        for (name, steps) in rows {
+            let recipe = format!("version = \"2\"\n\n{steps}");
+            let out = transform(&src, &recipe, "png").expect("a trim recipe transforms");
+            let got = image::load_from_memory(&out)
+                .expect("decode output")
+                .to_rgba8();
+            assert_eq!((got.width(), got.height()), (120, 80), "{name}: size");
+            let differing = got
+                .enumerate_pixels()
+                .filter(|(x, y, px)| **px != *decoded.get_pixel(*x, *y))
+                .count();
+            assert_eq!(differing, 0, "{name}: pixels differing from the input");
+        }
+    }
+
+    /// A bad trim throws the same line the CLI prints, at load or at apply, and
+    /// the module survives each one.
+    #[wasm_bindgen_test]
+    fn transform_refuses_a_bad_trim_with_the_native_message() {
+        use image::{ImageEncoder, Rgb, RgbImage};
+        let mut flat = Vec::new();
+        let one_colour = RgbImage::from_pixel(4, 3, Rgb([40, 50, 60]));
+        image::codecs::png::PngEncoder::new(&mut flat)
+            .write_image(one_colour.as_raw(), 4, 3, image::ExtendedColorType::Rgb8)
+            .expect("encode flat png");
+        let rows = [
+            (
+                "T1",
+                png_unique(40, 30),
+                "fuzz = 8",
+                "recipe step 0 ('trim'): unknown key 'fuzz'; expected one of: color, tolerance",
+            ),
+            (
+                "T12",
+                png_unique(40, 30),
+                "tolerance = 8.0",
+                "recipe step 0 ('trim'): 'tolerance' must be an integer in 0..=255, got the float 8.0",
+            ),
+            (
+                "W1",
+                flat,
+                "",
+                "operation 'trim' failed: every pixel of this 4×3 px image matches its top-left pixel within 'tolerance' = 0, so a trim would leave nothing",
+            ),
+        ];
+        for (id, src, body, want) in rows {
+            let recipe = format!("version = \"2\"\n\n[[step]]\nop = \"trim\"\n{body}\n");
+            let err = transform(&src, &recipe, "png").expect_err("a bad trim is refused");
+            let msg = format!("{:?}", wasm_bindgen::JsValue::from(err));
+            assert!(msg.contains(want), "{id}: wanted {want:?}, got {msg}");
+
+            let ok = transform(&src, IDENTITY_RECIPE, "png").expect("module must survive");
+            assert!(!ok.is_empty(), "{id}: identity after the refusal");
+        }
+    }
+
     /// `recipe.quality`, when set, reaches the encoder — the RETURNED BYTES
     /// equal an independent encode at that same quality, not merely a
     /// plausible-looking success (the standard this file holds every

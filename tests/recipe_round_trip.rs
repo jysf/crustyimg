@@ -273,6 +273,8 @@ const CORPUS: &[&str] = &[
     "v2_pad_aspect",
     "v2_pad_border",
     "v2_rotate_90",
+    "v2_trim_corner",
+    "v2_trim_tolerance",
     "v2_watermark_integer_numbers",
 ];
 
@@ -336,7 +338,7 @@ fn to_toml_is_byte_identical_to_main_over_the_corpus() {
     assert_eq!(on_disk, CORPUS, "CORPUS must list every corpus recipe");
 
     let pairs = golden_pairs();
-    assert_eq!(pairs.len(), 20, "17 corpus recipes + 3 bundled recipes");
+    assert_eq!(pairs.len(), 22, "19 corpus recipes + 3 bundled recipes");
 
     let registry = OperationRegistry::with_builtins();
     let png = tiny_png();
