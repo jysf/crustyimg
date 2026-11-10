@@ -487,6 +487,21 @@ No wasm row, export or count changes.
 5. **Split.** This spec (DEC, crop, rotate, flip), then `--pad`/`--trim`, which closes STAGE-058?
    *Recommend yes.*
 
+### Maintainer rulings (2026-11-10)
+
+All five as recommended:
+
+1. **Typed order.** Every op flag runs in the order typed; `auto-orient` is always first; each op flag
+   appears at most once. Asked why typed order over fixed positions, the maintainer weighed
+   Alternative A (flag order never matters) and chose typed order.
+2. **`edit --invert --resize-max N` may change its output,** with a CHANGELOG "Changed" line.
+3. **`--crop` takes pixels (`WxH+X+Y`) and aspect (`W:H`, optional `--crop-gravity`) only,** with no
+   fraction or percent form on the flag.
+4. **A pixel crop past the edge of the image it receives is exit 1,** with the flag and the image size
+   named.
+5. **Split as filed.** SPEC-153 is the DEC, `--crop`, `--rotate` and `--flip`. `--pad`/`--trim` is the
+   entry after it and closes STAGE-058.
+
 ### Out of scope (for this spec specifically)
 
 - `--pad` and `--trim` flags: the split-off STAGE-058 entry after this one, which closes the stage.
