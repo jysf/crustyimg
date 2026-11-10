@@ -111,6 +111,22 @@ cost:
         Measured from the session JSONL at the last turn before the final commit, deduplicated by
         message.id (66 messages; max output_tokens per id); no subagents. Rates: Sonnet $3/$15 per
         MTok, cache_creation x1.25 input, cache_read x0.10 input. Excludes the final commit's turn.
+    - cycle: punchlist
+      interface: claude-code
+      model: claude-sonnet-5-5
+      date: 2026-11-10
+      tokens_total: 898658
+      tokens_breakdown:
+        input: 24
+        cache_creation: 51308
+        cache_read: 841919
+        output: 5407
+      estimated_usd: 0.53
+      note: >
+        Measured from the session JSONL before this commit, deduplicated by message.id (12
+        messages; max output_tokens per id); no subagents. Rates: Sonnet $3/$15 per MTok,
+        cache_creation x1.25 input, cache_read x0.10 input. Excludes this commit's turn and the
+        push and CI turns after it.
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -1255,7 +1271,7 @@ red is expected green.
   - this spec file — Build Completion, cost
 - **Deviations from spec:**
   - Stages 2, 3 and 4 were committed as one checkpoint (one push), not three. Stage 1 (red tests) and the docs were pushed separately.
-  - Mutation runs used the full suite (`cargo test --no-fail-fast`) with each mutant in a scratch worktree and its own target dir. T14 used only the three integration targets (`edit`, `edit_geometry`, `orientation`), because the `src/cli/` unit tests don't compile against `main`'s signatures.
+  - Mutation runs used the full suite (`cargo test --no-fail-fast`) with each mutant in a scratch worktree and its own target dir. T14 used only the three integration targets (`edit`, `edit_geometry`, `orientation`) (corrected at punch list: the `src/cli/` unit tests do compile and pass against `main`'s two files).
   - FT-6 uses `--crop 30x40+0+0` with `--rotate 90` for the crop x rotate pair, to land on the spec's 40x30 / 30x40 dimensions.
   - FT-14 uses `tests/common`'s little-endian `tiff_with_orientation` (the spec said big-endian; the helper was reachable, so I reused it).
 - **Follow-up work identified:**
@@ -1269,7 +1285,7 @@ red is expected green.
 **Mutations** (full suite each, red lists are the failing tests; spec cell in brackets where it differs).
 - M1: red FT-2, FT-6, FT-7, FT-11, FT-15, FT-31, plus FT-9 and FT-10. [Spec: FT-9 and FT-10 green. FT-9 has a fifth row, `--crop … --rotate 90` typed crop first, which Alternative A's order reverses, and FT-10's rotate-crop-flip and resize-crop rows put crop before the geometry op. FT-31 reasoned red: confirmed.]
 - M7: red FT-2, 6, 7, 9, 10, 11, 14, 15, 31. Matches.
-- M2: red FT-1 (by hash), 5, 6, 9, 14, 24, 25, `edit_no_ops_exits_2`, FT-31, plus FT-10, 11, 12, 30 and `tests/cli.rs` `stub_command_returns_not_implemented`. [Spec: FT-10, 11, 12 green because every row types `--invert` or fails first; my rows for those tests don't type `--invert`, so the defaulted switch joins the order and adds a step. FT-30 and the stub test are extra reds for the same reason.]
+- M2: red FT-1 (by hash), 5, 6, 9, 14, 24, 25, `edit_no_ops_exits_2`, FT-31, plus FT-10, 11, 12, 30 and `tests/cli.rs` `stub_command_returns_not_implemented`. (corrected at punch list) Verify's run: 15 red, FT-1 by hash, FT-5, 6, 8, 9, 10, 11, 12, 14, 24, 25, 30, FT-31, `edit_no_ops_exits_2`, `stub_command_returns_not_implemented`; FT-8 is red too. `stub_command_returns_not_implemented` runs `edit in.png` with no op flag, so it is an `edit` test; the order is collected only for `edit`. [Spec: FT-10, 11, 12 green because every row types `--invert` or fails first; my rows for those tests don't type `--invert`, so the defaulted switch joins the order and adds a step. FT-30 and the stub test are extra reds for the same reason.]
 - M3: red FT-6, 7, 9, 10, 11, 15, 28, 29. Matches (FT-9 an emulation artifact); FT-29 also red because `argv[2]` is the directory.
 - M4: red FT-11, FT-12 only. Matches.
 - M5: red FT-5, 6, 7, 9, 10, 11, 12, 14, 15. Matches.
@@ -1281,8 +1297,21 @@ red is expected green.
 - M13: red FT-19, 20, 21. Matches.
 - M14: red FT-30 only. Matches.
 - M15: red FT-25, `unit edit_steps_require_an_op_flag`, `tests/orientation.rs` `edit_auto_orient_flag_still_exits_zero` (reasoned, confirmed) and `already_correct_verbs_do_not_double_rotate` (not in the spec). Matches plus the unit test and the extra orientation test.
-- Trap 14: `main`'s `src/cli/mod.rs` and `ops.rs` restored: FT-2 red (hash), 22 of 23 `edit_geometry` tests red, FT-1 ok, FT-25 ok, the other 9 `tests/edit.rs` tests ok, 12 `tests/orientation.rs` ok.
+- Trap 14 (corrected at punch list: the earlier "the unit tests don't compile" is wrong. With `main`'s two files restored verbatim, the `src/cli/` unit tests are `main`'s own, and they compile and pass): `main`'s `src/cli/mod.rs` and `ops.rs` restored: FT-2 red (hash), 22 of 23 `edit_geometry` tests red, FT-1 ok, FT-25 ok, the other 9 `tests/edit.rs` tests ok, 12 `tests/orientation.rs` ok.
 - Reasoned cells confirmed: FT-8 (M11), FT-17 and FT-23 (green under every mutation, red only under trap 14), FT-26 (green in all but trap 14), FT-27 (M15's unit test), FT-29 (M3, M10), FT-31 (M1, M2, M7), FT-33 (M8, M9).
+
+### Punch list (verify)
+
+Wording only; no code or test changed.
+- `docs/recipes.md`: the saved-recipe paragraph now says the recipe always starts with `auto-orient`, then the other flags in typed order, and that a pixel `--crop` replays as the same proportions, not the same pixels, and fails if a side rounds to 0 px.
+- `recipes/README.md`: same order and `auto-orient` point; the pixel crop is "saved as fractions of the image at that step".
+- This section: M2's red set gains FT-8, and trap 14's "unit tests don't compile" is corrected, each marked `(corrected at punch list)`.
+
+Drives (release build of the PR head, fresh `CARGO_TARGET_DIR`):
+- `edit a.png --crop 1x1+0+0 --save-recipe r.toml` on a 200×10 PNG saved `width = 0.005`, `height = 0.1`. `apply --recipe r.toml --out-dir o2 b.png` on a 60×40 PNG exited 1: `error: operation 'crop' failed: the crop rounds to 0×4 px on this 60×40 px image; it must keep at least 1 px each way`.
+- `edit b.png --rotate 90 --auto-orient --save-recipe r2.toml` saved `[[step]] op = "auto-orient"` first, then `[[step]] op = "rotate"`, `angle = 90`.
+- `cargo test --test docs_ops`: exit 0, 3 passed.
+- CI snapshot: recorded in the PR report after the push.
 
 ### Build-phase reflection (3 questions, short answers)
 

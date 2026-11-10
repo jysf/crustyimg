@@ -205,9 +205,11 @@ crustyimg apply --recipe web "assets/**/*.{jpg,png}" --out-dir dist/img -j 8
 - **Record your own from a tuned edit** **[today]**
   `crustyimg edit in.jpg --auto-orient --resize-max 1600 --save-recipe mine.toml`
   then `crustyimg apply --recipe mine.toml "assets/**/*.jpg" --out-dir dist/img -j 8`.
-  `edit` records only the ops it exposes — `--auto-orient`, `--resize-max`, `--invert`, `--crop`,
-  `--rotate`, `--flip` — in the order you typed them. A pixel `--crop WxH+X+Y` is saved as fractions
-  of the image the step received, so the recipe replays on any size.
+  The saved recipe always starts with an `auto-orient` step, wherever `--auto-orient` is typed. Then
+  come the other ops `edit` exposes — `--resize-max`, `--invert`, `--crop`, `--rotate`, `--flip` — in
+  the order you typed them. A pixel `--crop WxH+X+Y` is saved as fractions of the image that step
+  received, so on another image it crops the same proportions, not the same pixels, and fails if a
+  side rounds to 0 px.
 - **Write one by hand for anything else** **[today]** — a watermark,
   a pinned output `format`/`quality` (`version = "2"`), or the terminal `optimize` step the
   bundled recipes end in, is written directly as TOML. Format and op
