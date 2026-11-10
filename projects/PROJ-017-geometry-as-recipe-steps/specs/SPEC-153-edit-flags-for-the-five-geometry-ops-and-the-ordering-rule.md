@@ -7,7 +7,7 @@
 task:
   id: SPEC-153
   type: story                      # epic | story | task | bug | chore
-  cycle: build  # frame | design | build | verify | ship
+  cycle: verify  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: M                    # S | M | L  (L means split it)
@@ -96,6 +96,21 @@ cost:
         message.id (95 messages; max output_tokens per id); no subagents. Rates: Opus $5/$25 per
         MTok, cache_creation x1.25 input, cache_read x0.10 input. Excludes this cost commit's
         own turn. Includes the prototype build, the 548 s round-trip probe and 16 mutation runs.
+    - cycle: build
+      interface: claude-code
+      model: claude-sonnet-5-5
+      date: 2026-11-10
+      tokens_total: 12089621
+      tokens_breakdown:
+        input: 172
+        cache_creation: 199256
+        cache_read: 11823833
+        output: 66360
+      estimated_usd: 5.29
+      note: >
+        Measured from the session JSONL at the last turn before the final commit, deduplicated by
+        message.id (66 messages; max output_tokens per id); no subagents. Rates: Sonnet $3/$15 per
+        MTok, cache_creation x1.25 input, cache_read x0.10 input. Excludes the final commit's turn.
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -1226,37 +1241,61 @@ red is expected green.
 
 *Filled in at the end of the **build** cycle, before advancing to verify.*
 
-- **Branch:**
-- **PR (if applicable):**
-- **All acceptance criteria met?** yes/no
-- **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
-- **Files this diff touches** — **list every one**, with a phrase on what changed
-  in each. Not "src/foo and tests": the enumeration is what a verify cycle diffs
-  the real change against, and what tells you whether every affected `DEC-*` has
-  the path in its `affected_scope`. SPEC-122's Deviations claimed "`src/operation`
-  and `tests/` only" and was wrong by two `scripts/` files, which left
-  `affected_scope` blind; SPEC-124's build added this section by hand after that
-  lesson and still listed 8 of its 9 files. It is a checklist because it is easy
-  to get wrong from memory — build it from `git diff --name-only`, not recall.
-  - `path/to/file` — <what changed>
+- **Branch:** `feat/spec-153-edit-geometry-flags`
+- **PR (if applicable):** #261 (draft)
+- **All acceptance criteria met?** yes (AC-1 to AC-27; detail below)
+- **New decisions emitted:** none (DEC-114 was written at design and is on `main`).
+- **Files this diff touches** (`git diff --name-only origin/main...HEAD`; 10 files including this spec):
+  - `src/cli/mod.rs` — `Edit` gains `--crop`, `--crop-gravity`, `--rotate`, `--flip` and the new help text; `EditOp`, `edit_op_order`; `run()` keeps the `ArgMatches`; dispatch passes `EditFlags`; FT-31
+  - `src/cli/ops.rs` — `EditFlags`, `EditStep`/`StepRecord`, `parse_crop_flag`, `crop_fractions`, `PixelCrop`, `build_flag_op`, new `build_edit_ops`, `run_edit` (batch refusal, recipe built after the run); FT-27, FT-32, FT-33
+  - `tests/edit.rs` — FT-1 byte pin, FT-2 (replaces `edit_flag_order_independent`)
+  - `tests/edit_geometry.rs` — new; 23 tests (FT-5 to FT-12, 14, 15, 17 to 26, 28 to 30)
+  - `CHANGELOG.md` — three Added lines (crop, rotate, flip), one Changed line
+  - `docs/cli-reference.md`, `docs/api-contract.md`, `docs/recipes.md`, `recipes/README.md` — flags, typed-order rule, pixel crop saved as fractions; stale "canonical order" and "orientation bake not recorded" text replaced
+  - this spec file — Build Completion, cost
 - **Deviations from spec:**
-  - [list]
+  - Stages 2, 3 and 4 were committed as one checkpoint (one push), not three. Stage 1 (red tests) and the docs were pushed separately.
+  - Mutation runs used the full suite (`cargo test --no-fail-fast`) with each mutant in a scratch worktree and its own target dir. T14 used only the three integration targets (`edit`, `edit_geometry`, `orientation`), because the `src/cli/` unit tests don't compile against `main`'s signatures.
+  - FT-6 uses `--crop 30x40+0+0` with `--rotate 90` for the crop x rotate pair, to land on the spec's 40x30 / 30x40 dimensions.
+  - FT-14 uses `tests/common`'s little-endian `tiff_with_orientation` (the spec said big-endian; the helper was reachable, so I reused it).
 - **Follow-up work identified:**
-  - [any new specs for the stage's backlog]
+  - `--pad` / `--trim` flags (the split-off entry, closes STAGE-058).
+
+**Baseline (before any source edit).** FT-1 on `main`'s code: `edit_byte_pin_unchanged_invocations ... ok` (9 passed, 1 failed in `tests/edit.rs`). FT-2 on `main`: `assertion left == right failed: got 0x62d0525855cff6a7` (the old order). `tests/edit_geometry.rs` on `main`: 22 of 23 failed; `auto_orient_alone_is_accepted` passed. Quoted clap refusal: `error: unexpected argument '--crop' found`. FT-24 on `main`: `error: edit requires at least one operation flag (--auto-orient, --resize-max, --invert)`.
+**After:** FT-1 ok, FT-2 ok, 23/23 `edit_geometry`, 10/10 `tests/edit.rs`, 12/12 `tests/orientation.rs`, 6 unit tests ok.
+
+**AC-1 to AC-27.** All met. AC-1: DEC-114 exists, `just decisions-audit` exits 0 (0 structural errors, 2067 scope warnings). AC-2 FT-6, AC-3 FT-7, AC-4 FT-9 + FT-31, AC-5 FT-1/FT-24/FT-31, AC-6 FT-1 row 4, FT-14 (two rows), FT-25, AC-7 FT-22, AC-8 FT-18 + FT-32, AC-9 FT-5/8/19, AC-10 FT-5/20/23, AC-11 FT-5/21, AC-12 FT-24 and `edit_no_ops_exits_2`, AC-13 FT-11 + FT-33, AC-14 FT-12, AC-15 FT-15, AC-16 FT-17, AC-17 FT-15/17 and `edit_save_recipe_unwritable_exits_5`, AC-18 FT-28 to 30, AC-19 FT-5, AC-20 FT-10, AC-21 FT-2, AC-22 FT-1, AC-23 FT-26, AC-24 docs edited, AC-25 `git grep` of `src/wasm.rs` finds nothing, `git diff --stat origin/main...HEAD -- Cargo.toml Cargo.lock` is empty, no `CACHE_SCHEMA_VERSION` change, AC-26 FT-27, AC-27 table below.
+
+**Mutations** (full suite each, red lists are the failing tests; spec cell in brackets where it differs).
+- M1: red FT-2, FT-6, FT-7, FT-11, FT-15, FT-31, plus FT-9 and FT-10. [Spec: FT-9 and FT-10 green. FT-9 has a fifth row, `--crop … --rotate 90` typed crop first, which Alternative A's order reverses, and FT-10's rotate-crop-flip and resize-crop rows put crop before the geometry op. FT-31 reasoned red: confirmed.]
+- M7: red FT-2, 6, 7, 9, 10, 11, 14, 15, 31. Matches.
+- M2: red FT-1 (by hash), 5, 6, 9, 14, 24, 25, `edit_no_ops_exits_2`, FT-31, plus FT-10, 11, 12, 30 and `tests/cli.rs` `stub_command_returns_not_implemented`. [Spec: FT-10, 11, 12 green because every row types `--invert` or fails first; my rows for those tests don't type `--invert`, so the defaulted switch joins the order and adds a step. FT-30 and the stub test are extra reds for the same reason.]
+- M3: red FT-6, 7, 9, 10, 11, 15, 28, 29. Matches (FT-9 an emulation artifact); FT-29 also red because `argv[2]` is the directory.
+- M4: red FT-11, FT-12 only. Matches.
+- M5: red FT-5, 6, 7, 9, 10, 11, 12, 14, 15. Matches.
+- M6: red FT-14 only. Matches.
+- M8: red FT-11, FT-12, FT-33. Matches.
+- M9: red FT-5, 10, 11, 12, FT-33. Matches.
+- M10: red FT-15 (message) and FT-29 (message; reasoned, confirmed). Matches.
+- M11: red FT-5, 8, 10. Matches.
+- M13: red FT-19, 20, 21. Matches.
+- M14: red FT-30 only. Matches.
+- M15: red FT-25, `unit edit_steps_require_an_op_flag`, `tests/orientation.rs` `edit_auto_orient_flag_still_exits_zero` (reasoned, confirmed) and `already_correct_verbs_do_not_double_rotate` (not in the spec). Matches plus the unit test and the extra orientation test.
+- Trap 14: `main`'s `src/cli/mod.rs` and `ops.rs` restored: FT-2 red (hash), 22 of 23 `edit_geometry` tests red, FT-1 ok, FT-25 ok, the other 9 `tests/edit.rs` tests ok, 12 `tests/orientation.rs` ok.
+- Reasoned cells confirmed: FT-8 (M11), FT-17 and FT-23 (green under every mutation, red only under trap 14), FT-26 (green in all but trap 14), FT-27 (M15's unit test), FT-29 (M3, M10), FT-31 (M1, M2, M7), FT-33 (M8, M9).
 
 ### Build-phase reflection (3 questions, short answers)
 
 Process-focused: how did the build go? What friction did the spec create?
 
 1. **What was unclear in the spec that slowed you down?**
-   — <answer>
+   — Little. The prototype-driven messages and tables made the code mechanical. The FT-2 and FT-10/FT-11/FT-12 'green under M2' cells depend on whether rows type `--invert`, which the spec didn't say.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — No. The clippy `type_complexity` and `ok_expect` lints hit new test code; nothing to add to the spec.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Commit stages 2 to 4 separately (I merged them), and quote zsh arrays in the mutation runner from the start (T14 ran once with a one-string argument list). No design call turned out wrong.
 
 ---
 
