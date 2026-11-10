@@ -176,6 +176,9 @@ Later lines get their ids at frame.
 **Reserved (2026-11-06):** line 6 (`trim`) is **SPEC-152**. Its frame prompt is
 `specs/prompts/SPEC-152-frame.md`.
 
+**Reserved (2026-11-10):** line 8 (`edit` flags and the ordering rule) is **SPEC-153**, the last
+STAGE-058 spec. Its frame prompt is `specs/prompts/SPEC-153-frame.md`.
+
 ### Handed in from PROJ-011 (not yet scheduled)
 
 PROJ-011 is closing, and the maintainer ruled on 2026-11-05 that PROJ-017 takes three
