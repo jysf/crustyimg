@@ -1206,7 +1206,7 @@ whole suite. No row is "expected all green".
   row). *Driven red:* corpus golden, all six `v2_trim_*` rows `pixels changed (dims … unchanged)`
   **by hash**; `every_colour_type_…`, `each_side_…`, `odd_shapes_…`, `grey_…`, `alpha_zero_…`, `nan_…`,
   `pad_then_trim_…`.
-- **M17 float clamp removed.** *Driven red:* `match_rule_table` (`f32 over`), `nan_and_out_of_range_floats`.
+- **M17 float clamp removed.** *Driven red:* `match_rule_table` (`f32 over range`), `nan_and_out_of_range_floats`. (Row name corrected after ship: the clamp only touches values outside 0..=1, and `f32 over` is an in-range level; not re-driven.)
 - **M18 NaN read as 0** (the `is_nan` check removed, so `as i64` gives 0). *Driven red:*
   `match_rule_table` (`f32 nan` at `t = 255`), `nan_and_out_of_range_floats` (`t = 255` row, all-NaN row).
 
