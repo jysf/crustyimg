@@ -110,13 +110,25 @@ In build order. Each is framed in its own session first.
   (rather than producing a 0×0 image) when the whole image matches. Deterministic, with no
   content detection, and its doc entry says so. ⚠ Test on a 16-bit source with an 8-bit
   tolerance, so the tolerance's scale is pinned.
-- [ ] (not yet written) — [S] **`edit` flags for the five, and the ordering rule.**
+- [ ] **SPEC-153** (framed 2026-11-10; SPLIT, this half [M]) — [S] **`edit` flags for the five, and the ordering rule.**
   `--crop`, `--rotate`, `--flip`, `--pad`, `--trim`. ⚠ **Writes the ordering DEC.** `edit`
   applies flags in a fixed canonical order today (`auto-orient` → `resize` → `invert`,
   `src/cli/mod.rs`'s `Edit` doc), and crop-then-rotate is not rotate-then-crop. Either geometry
   slots into the canonical order at a stated position, or `edit` honours flag order for
   geometry. Design picks one and writes it down. `--save-recipe` must write steps that `apply`
   replays to the same pixels: that is the test.
+  **Framed as a split (2026-11-10):** SPEC-153 takes the ordering DEC (recommended: typed order for
+  every op flag, `auto-orient` always first, no repeats), `--crop` (pixels `WxH+X+Y` and `W:H` with
+  `--crop-gravity`), `--rotate` and `--flip`, [M]. `--pad` and `--trim` are the entry below.
+- [ ] (not yet written) — [S] **`edit --pad` and `--trim`, on SPEC-153's ordering rule.** Split out of
+  SPEC-153 at its frame (2026-11-10); after SPEC-153. `--pad N|W:H` (N whole pixels of the long edge of
+  the buffer the step receives, saved as a `border` fraction) with a required `--pad-color` and an
+  optional `--pad-gravity` (aspect form only). `--trim` is a plain switch with optional `--trim-color`
+  and `--trim-tolerance`, written only when given. Not an optional-value `--trim[=COLOR]`: clap then
+  swallows the input path (driven). `trim`'s whole-match message names `'color'`/`'tolerance'`, so
+  `edit` words it with the flag names. Consider folding the `parse_color` sign entry, since this adds
+  two CLI routes into `parse_color`. **This entry closes STAGE-058.** SPEC-153's Frame records the
+  syntax, the sizing and the replay matrix.
 
 - [x] (folded into SPEC-145; shipped in SPEC-145) — [S] **`docs/recipes.md` still advertises a `crustyimg crop` verb.**
   Found at SPEC-141's frame. `docs/recipes.md:60-65` lists "Crop to an arbitrary rect / gravity
@@ -233,7 +245,7 @@ In build order. Each is framed in its own session first.
   `from_str_radix` back on the raw pair; the refusal message stays as it is.
   Search first found no entry in STAGE-058 or `guidance/questions.yaml` that covers it.
 
-**Count:** 9 shipped / 0 active / 8 pending — re-derived 2026-11-10 at SPEC-152's ship, with `/usr/bin/grep -c '^- \[x\]'` (9: 5 `**SPEC-` entries and 4 folded), `/usr/bin/grep -c '^- \[ \]'` (8, all pending), `/usr/bin/grep -c '^- \[ \] \*\*SPEC-'` (0 active) and `/usr/bin/grep -c '^- \[ \] (not yet written)'` (8: the 7 from before plus the `parse_color` sign claim)
+**Count:** 9 shipped / 1 active / 8 pending — re-derived 2026-11-10 at SPEC-153's frame, with `/usr/bin/grep -c '^- \[x\]'` (9: 5 `**SPEC-` entries and 4 folded), `/usr/bin/grep -c '^- \[ \]'` (9), `/usr/bin/grep -c '^- \[ \] \*\*SPEC-'` (1 active: SPEC-153, framed) and `/usr/bin/grep -c '^- \[ \] (not yet written)'` (8: the 8 from before, less SPEC-153's line, plus the `--pad`/`--trim` split)
 
 ## Design Notes
 
