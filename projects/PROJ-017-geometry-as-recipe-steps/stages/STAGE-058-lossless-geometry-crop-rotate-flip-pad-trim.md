@@ -110,7 +110,7 @@ In build order. Each is framed in its own session first.
   (rather than producing a 0×0 image) when the whole image matches. Deterministic, with no
   content detection, and its doc entry says so. ⚠ Test on a 16-bit source with an 8-bit
   tolerance, so the tolerance's scale is pinned.
-- [ ] **SPEC-153** (framed 2026-11-10; SPLIT, this half [M]) — [S] **`edit` flags for the five, and the ordering rule.**
+- [ ] **SPEC-153** (designed 2026-11-10, [M]) — [S] **`edit` flags for the five, and the ordering rule.**
   `--crop`, `--rotate`, `--flip`, `--pad`, `--trim`. ⚠ **Writes the ordering DEC.** `edit`
   applies flags in a fixed canonical order today (`auto-orient` → `resize` → `invert`,
   `src/cli/mod.rs`'s `Edit` doc), and crop-then-rotate is not rotate-then-crop. Either geometry
