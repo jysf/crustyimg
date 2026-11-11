@@ -76,6 +76,19 @@ cost:
       estimated_usd: 4.70
       rates: "Opus $5/$25 per MTok; cache_creation x1.25, cache_read x0.10 of input"
       note: "From the session JSONL, deduped by message.id (43 messages), measured after the frame push"
+    - cycle: design
+      date: 2026-11-11
+      agent: claude-opus-5-5
+      interface: claude-code
+      tokens_total: 17579426
+      tokens_breakdown:
+        input: 192
+        cache_creation: 255404
+        cache_read: 17218512
+        output: 105318
+      estimated_usd: 12.84
+      rates: "Opus $5/$25 per MTok; cache_creation x1.25, cache_read x0.10 of input"
+      note: "From the session JSONL, deduped by message.id (94 messages, max output_tokens per id), no subagents, measured after the design push (748283c)"
   totals:
     tokens_total: 0
     estimated_usd: 0
