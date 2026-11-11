@@ -16,6 +16,18 @@ Cycle prompts live in `prompts/SPEC-153-<cycle>.md`.
   parts). Corrections: `edit` takes a batch (a pixel `--crop` with `--save-recipe` needs one input, exit 2); no edge-touching rectangle
   is noisy (1.25e9 checked), so the replay test uses an interior one. Byte pin recorded from `main`; 15 mutation rows + the trap-14
   control all driven on a prototype. 27 ACs, 31 test functions, 86 rows.
-- [ ] **build** (`prompts/SPEC-153-build.md`)
-- [ ] **verify**
+- [x] **build** (`prompts/SPEC-153-build.md`), 2026-11-10, Sonnet, $5.29. Draft PR #261 at `d917d60`, CI green (18 passed,
+  8 release jobs skipped; checked by the orchestrator). 27/27 ACs; FT-1 green on `main` before any edit and after. Every
+  mutation red; M1, M2 and M15 red more than the table (M2 also reds `tests/cli.rs`' stub test, for verify to explain).
+  Deviations: stages 2–4 in one push; FT-14 uses the little-endian EXIF helper.
+- [x] **verify** (`prompts/SPEC-153-verify.md`), 2026-11-10, Opus, $5.64 (read-only, not recorded). **PUNCH LIST** at
+  `d917d60`, wording only, no re-verify. Messages, typed order, pixel crops (vs ImageMagick at AE 0), the byte pin (own
+  decoder), replay and batches all hold. Two doc sentences wrong: `docs/recipes.md` says a saved pixel crop "replays on any
+  size" (it crops proportions; driven exit 1), and both recipe docs put `--auto-orient` in typed order. Cleanups for ship: the
+  M1/FT-10 and M6 table cells; the stale "on a single image" `edit` wording (pre-existing). M2's stub-test red is an `edit` test.
+- [x] **punch list** (`prompts/SPEC-153-punchlist.md`), 2026-11-10, Sonnet, $0.53. PR #261 at `530dfde`, CI green (18 passed,
+  8 release jobs skipped; checked by the orchestrator). Diff vs `d917d60`: `docs/recipes.md`, `recipes/README.md`, the spec. Both
+  docs now say the recipe starts with `auto-orient`, then the op flags in typed order; a pixel crop keeps proportions, not pixels,
+  and fails if a side rounds to 0 px (driven, exit 1). M2 gains FT-8; trap 14's "unit tests don't compile" is corrected. Done in
+  two sessions; the second re-reported the first's drives and cost without re-running them.
 - [ ] **ship**
