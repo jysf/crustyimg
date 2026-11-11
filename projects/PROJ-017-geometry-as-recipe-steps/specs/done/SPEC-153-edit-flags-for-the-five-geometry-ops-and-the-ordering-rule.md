@@ -7,7 +7,7 @@
 task:
   id: SPEC-153
   type: story                      # epic | story | task | bug | chore
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: M                    # S | M | L  (L means split it)
@@ -69,68 +69,112 @@ cost:
       interface: claude-code
       model: claude-opus-5-5
       date: 2026-11-10
-      tokens_total: 5378693
+      tokens_total: 5741065
       tokens_breakdown:
-        input: 84
-        cache_creation: 147483
-        cache_read: 5180694
-        output: 50432
-      estimated_usd: 4.77
+        input: 88
+        cache_creation: 150483
+        cache_read: 5536267
+        output: 54227
+      estimated_usd: 5.06
       note: >
-        Measured from the session JSONL after the frame push, deduplicated by message.id
-        (42 messages; max output_tokens per id). Rates: Opus $5/$25 per MTok, cache_creation
-        x1.25 input, cache_read x0.10 input. Excludes this cost commit's own turn.
+        Re-measured at ship from the session JSONL (first user message names the SPEC-153 frame
+        prompt), deduplicated by message.id (44 messages; max output_tokens per id); no
+        subagents. Rates: Opus $5/$25 per MTok, cache_creation x1.25 input, cache_read x0.10
+        input. Includes every turn up to the ship session, so it is higher than the figure
+        recorded when the cycle ended.
     - cycle: design
       interface: claude-code
       model: claude-opus-5-5
       date: 2026-11-10
-      tokens_total: 18545033
+      tokens_total: 19743996
       tokens_breakdown:
-        input: 194
-        cache_creation: 266110
-        cache_read: 18153020
-        output: 125709
-      estimated_usd: 13.88
+        input: 202
+        cache_creation: 268927
+        cache_read: 19340648
+        output: 134219
+      estimated_usd: 14.71
       note: >
-        Measured from the session JSONL after the design push (3be1af0), deduplicated by
-        message.id (95 messages; max output_tokens per id); no subagents. Rates: Opus $5/$25 per
-        MTok, cache_creation x1.25 input, cache_read x0.10 input. Excludes this cost commit's
-        own turn. Includes the prototype build, the 548 s round-trip probe and 16 mutation runs.
+        Re-measured at ship from the session JSONL (first user message names the SPEC-153 design
+        prompt), deduplicated by message.id (99 messages; max output_tokens per id); no
+        subagents. Rates: Opus $5/$25 per MTok, cache_creation x1.25 input, cache_read x0.10
+        input. Includes every turn up to the ship session, so it is higher than the figure
+        recorded when the cycle ended. Includes the prototype build, the 548 s round-trip probe
+        and 16 mutation runs.
     - cycle: build
       interface: claude-code
       model: claude-sonnet-5-5
       date: 2026-11-10
-      tokens_total: 12089621
+      tokens_total: 14661253
       tokens_breakdown:
-        input: 172
-        cache_creation: 199256
-        cache_read: 11823833
-        output: 66360
-      estimated_usd: 5.29
+        input: 198
+        cache_creation: 208652
+        cache_read: 14380195
+        output: 72208
+      estimated_usd: 6.18
       note: >
-        Measured from the session JSONL at the last turn before the final commit, deduplicated by
-        message.id (66 messages; max output_tokens per id); no subagents. Rates: Sonnet $3/$15 per
-        MTok, cache_creation x1.25 input, cache_read x0.10 input. Excludes the final commit's turn.
+        Re-measured at ship from the session JSONL (first user message names the SPEC-153 build
+        prompt), deduplicated by message.id (77 messages; max output_tokens per id); no
+        subagents. Rates: Sonnet $3/$15 per MTok, cache_creation x1.25 input, cache_read x0.10
+        input. Includes every turn up to the ship session, so it is higher than the figure
+        recorded when the cycle ended.
+    - cycle: verify
+      interface: claude-code
+      model: claude-opus-5-5
+      date: 2026-11-10
+      tokens_total: 7342507
+      tokens_breakdown:
+        input: 90
+        cache_creation: 191241
+        cache_read: 7106107
+        output: 45069
+      estimated_usd: 5.88
+      note: >
+        Re-measured at ship from the session JSONL (first user message names the SPEC-153 verify
+        prompt), deduplicated by message.id (43 messages; max output_tokens per id); no
+        subagents. Rates: Opus $5/$25 per MTok, cache_creation x1.25 input, cache_read x0.10
+        input. Includes every turn up to the ship session, so it is higher than the figure
+        recorded when the cycle ended. Read-only cycle; not recorded at verify (it reported
+        $5.64 from its own summary), measured at ship.
     - cycle: punchlist
       interface: claude-code
       model: claude-sonnet-5-5
       date: 2026-11-10
-      tokens_total: 898658
+      tokens_total: 2329901
       tokens_breakdown:
-        input: 24
-        cache_creation: 51308
-        cache_read: 841919
-        output: 5407
-      estimated_usd: 0.53
+        input: 62
+        cache_creation: 103243
+        cache_read: 2213629
+        output: 12967
+      estimated_usd: 1.25
       note: >
-        Measured from the session JSONL before this commit, deduplicated by message.id (12
-        messages; max output_tokens per id); no subagents. Rates: Sonnet $3/$15 per MTok,
-        cache_creation x1.25 input, cache_read x0.10 input. Excludes this commit's turn and the
-        push and CI turns after it.
+        Re-measured at ship from the session JSONLs (first user message names the SPEC-153
+        punchlist prompt), deduplicated by message.id (30 messages; max output_tokens per id);
+        no subagents. Rates: Sonnet $3/$15 per MTok, cache_creation x1.25 input, cache_read
+        x0.10 input. Includes every turn up to the ship session, so it is higher than the figure
+        recorded when the cycle ended. Two sessions summed (2b99fc10: $0.34, 59c0ca1d: $0.91).
+        The second found the work pushed and re-reported the first's drives.
+    - cycle: ship
+      interface: claude-code
+      model: claude-sonnet-5-5
+      date: 2026-11-10
+      tokens_total: 2114120
+      tokens_breakdown:
+        input: 46
+        cache_creation: 81386
+        cache_read: 2016001
+        output: 16687
+      estimated_usd: 1.16
+      note: >
+        Re-measured at ship from the session JSONL (first user message names the SPEC-153 ship
+        prompt), deduplicated by message.id (23 messages; max output_tokens per id); no
+        subagents. Rates: Sonnet $3/$15 per MTok, cache_creation x1.25 input, cache_read x0.10
+        input. Includes every turn up to the ship session, so it is higher than the figure
+        recorded when the cycle ended. Own session, measured just before the ship commit;
+        excludes the commit and push turns.
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 51932842
+    estimated_usd: 34.24
+    session_count: 6
 ---
 
 # SPEC-153: edit flags for the five geometry ops, and the ordering rule
@@ -1145,9 +1189,11 @@ red is expected green.
   `typed.sort_by_key(|(_, op)| match op { EditOp::Rotate => 0, EditOp::Flip => 1, EditOp::Crop => 2, EditOp::ResizeMax => 3, EditOp::Invert => 4 });`.
   Red (driven): FT-2 (hash `7120281550223046311`), FT-6, FT-7, FT-11 (with the index lookup it
   panicked `index not found`; FT-11 must find the step by `op`), FT-15 (exit 0: the crop ran
-  before the resize). Green (driven): FT-1, FT-5, FT-9 (rotate-then-crop is Alternative A's order
-  too), FT-10, FT-12, FT-14, FT-25, `refusals`, batch, all 9 `tests/edit.rs`. Reasoned red: FT-31
-  (its first case is not in Alternative A's order).
+  before the resize), **and FT-9 and FT-10 (corrected at ship: the table had both green)**. FT-9 has a
+  fifth row, `--crop … --rotate 90` typed crop first, which Alternative A's order reverses; FT-10's
+  rotate-crop-flip and resize-crop rows put crop before the geometry op. Green (driven): FT-1, FT-5,
+  FT-12, FT-14, FT-25, `refusals`, batch, all 9 `tests/edit.rs`. Reasoned red: FT-31
+  (its first case is not in Alternative A's order; the build confirmed it).
 - **M7 — ties and spelling: declaration order instead of the index.** Same location: delete
   `typed.sort_by_key(|(i, _)| *i);`. Red (driven): FT-2, FT-6, FT-7, FT-9 (saved
   `["auto-orient", "crop", "rotate"]`), FT-10, FT-11, FT-14 (`--crop 4x3+1+0 runs past the right
@@ -1159,8 +1205,13 @@ red is expected green.
   `7120281550223046311` = `0x62d0525855cff6a7`, the resize-then-invert pin, because the defaulted
   `--invert` switch joins the order), FT-5 (`["auto-orient", "crop", "invert"]`), FT-6, FT-9 (`["auto-orient", "rotate",
   "crop", "invert"]`), FT-14, FT-24 (P15 row exits 0), FT-25, and `tests/edit.rs`'
-  `edit_no_ops_exits_2` (exit 0). Green (driven): FT-2, FT-7, FT-10, FT-11, FT-12, FT-15 (every
-  row types `--invert` or fails first), batch. Reasoned red: FT-31's `[ResizeMax]` case.
+  `edit_no_ops_exits_2` (exit 0). **Also red (corrected at ship; the table had FT-8, 10, 11, 12, 30
+  and the stub test green):** FT-8, FT-10, FT-11, FT-12, FT-30 and `tests/cli.rs`'
+  `stub_command_returns_not_implemented`. Those rows don't type `--invert`, so the defaulted switch
+  joins the order and adds a step; the stub test runs `edit in.png` with no op flag, so it is an
+  `edit` test (the order is collected only for `edit`). See Build Completion's M2 line. Green
+  (driven): FT-2, FT-7, FT-15 (every row types `--invert` or fails first), batch. Reasoned red:
+  FT-31's `[ResizeMax]` case.
 - **M3 — convert against the decoded size, not the image the step receives.** `src/cli/ops.rs`,
   `PixelCrop::apply`: replace `let (iw, ih) = (img.pixels().width(), img.pixels().height());` with
   `let (iw, ih) = ::image::image_dimensions(std::env::args().nth(2).unwrap_or_default()).unwrap_or((1, 1));`
@@ -1189,9 +1240,12 @@ red is expected green.
   `edit_op_order`'s list (`[(&str, EditOp); 6]`); `src/cli/ops.rs` `build_edit_ops` add
   `EditOp::AutoOrient => { steps.push(built(build_flag_op("auto-orient", &OperationParams::empty(), &[])?)); }`;
   `run_edit` wrap the leading `recipe.steps.push(RecipeStep { op: "auto-orient" … })` in
-  `if !flags.auto_orient { … }` (today's rule). Red (driven): FT-14 only, on its Orientation-5
-  row (`dims … left: (4, 3)`: the replay of `[rotate, crop, auto-orient]` differs); its
-  Orientation-6 row alone would stay green (rotations commute). Green (driven): everything else,
+  `if !flags.auto_orient { … }` (today's rule). Red (driven): FT-14 only, on **both its
+  Orientation-6 and Orientation-5 rows (corrected at ship; the table said the Orientation-5 row
+  only)**. The Orientation-5 row reds on pixels (`dims … left: (4, 3)`: the replay of
+  `[rotate, crop, auto-orient]` differs); the Orientation-6 row reds on the saved step list, which
+  no longer starts with `auto-orient`, even though rotations commute and its pixels agree. Green
+  (driven): everything else,
   including FT-1 row 4 (`--auto-orient` typed first saves the same text).
 - **M8 — the converter divides in `f32`.** `src/cli/ops.rs`, `crop_fractions`: replace
   `toml::Value::Float(f64::from(x) / fw)` with `toml::Value::Float(f64::from(x as f32 / iw as f32))`
@@ -1334,10 +1388,42 @@ Process-focused: how did the build go? What friction did the spec create?
 from the process-focused build reflection above.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Three things. (a) A $14.71 design (re-measured; $13.88 as first recorded) that drove 15 mutation
+   rows and a trap-14 control still left two wrong cells, M1 (FT-9 and FT-10 are red, not green) and M6
+   (FT-14 reds on both the Orientation-6 and Orientation-5 rows), plus an M2 red set that was short by
+   FT-8, 10, 11, 12, 30 and the `tests/cli.rs` stub test. All three are wording, and all sit in rows whose
+   reds depend on which tests type which flags (`--invert`, crop-first rows, the saved step list), which
+   the prototype's run did not cover: FT-8, 17, 23, 26, 29, 27 and 31 to 33 were not in the prototype and
+   their column was *reasoned*. The red set should be read off a run of the final tests, not off a
+   reasoned map of them. (b) The only real defects were two doc sentences the build wrote into `docs/`
+   ("replays on any size"; `--auto-orient` in typed order). Build drove every message byte for byte but
+   not the behavioural claims in prose, so verify found them. Build should drive each new doc sentence
+   that states behaviour, the way it drives messages. (c) The punch list ran in two sessions; the
+   second found the work already pushed and re-reported the first's drives and cost without re-running
+   them. Measured, the two cost $0.34 and $0.91 ($1.25 together, against $0.53 recorded), so a second
+   session is not free even when it only reports. Checking `git log origin/<branch>` before starting a
+   punch list would have saved it. SPEC-152's three proposals, on this spec: a mutation row quoted the
+   exact mutant edit (yes, in every row that has one: M1, M2, M3, M4, M5, M6, M7, M8, M9, M10, M13, M14,
+   M15; M11 describes it in words); a count carried its derivation (partly: "27 ACs, 31 test functions,
+   86 rows" came with no command, and the 2.68e9 rectangle count is the frame's probe); the overlap map
+   came from `gh pr list --state open --json number,title,files` (yes, the Implementation Context
+   heading says so), not from other specs' text.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — Proposed, not applied. (i) Build's checklist gains "drive each new doc sentence that states
+   behaviour": nothing covers it today. AGENTS §15 "During verify" and the punch-list classes (wording,
+   claim) deal with it after the fact; SPEC-151's and SPEC-152's reflections are silent on docs prose;
+   `guidance/` has no entry; the repo tracks no HANDOFF file, so I could not check it. (ii) A mutation
+   row's red set is read off the prototype's run of the *final* test list, and a cell not driven is
+   marked "reasoned" in the row, not only in the table preamble. Partly covered: AGENTS §15 (about line
+   604) requires an "expected all green" row to name its search; SPEC-152's proposal (i) asks for the
+   mutant edit to be written out. Neither says where a red set comes from. (iii) Still open from
+   SPEC-152: quote the mutant edit, a count carries its derivation, an overlap map comes from `gh`. This
+   spec followed the first and third, and not fully the second. No DEC changes: DEC-114 held through
+   build, verify and the punch list.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — Filed none beyond step 4's. That one entry reaches the `edit` wording at its three sites (help,
+   `docs/api-contract.md`, `docs/cli-reference.md`) and rides on the `--pad`/`--trim` spec. The gaps in
+   answer 2 are template proposals, not specs, and nothing else in the evidence names a gap that no
+   entry covers.

@@ -110,7 +110,7 @@ In build order. Each is framed in its own session first.
   (rather than producing a 0×0 image) when the whole image matches. Deterministic, with no
   content detection, and its doc entry says so. ⚠ Test on a 16-bit source with an 8-bit
   tolerance, so the tolerance's scale is pinned.
-- [ ] **SPEC-153** (designed 2026-11-10, [M]) — [S] **`edit` flags for the five, and the ordering rule.**
+- [x] **SPEC-153** (merged 2026-11-10, PR #261) — [M] **`edit` flags for the five, and the ordering rule.**
   `--crop`, `--rotate`, `--flip`, `--pad`, `--trim`. ⚠ **Writes the ordering DEC.** `edit`
   applies flags in a fixed canonical order today (`auto-orient` → `resize` → `invert`,
   `src/cli/mod.rs`'s `Edit` doc), and crop-then-rotate is not rotate-then-crop. Either geometry
@@ -129,6 +129,12 @@ In build order. Each is framed in its own session first.
   `edit` words it with the flag names. Consider folding the `parse_color` sign entry, since this adds
   two CLI routes into `parse_color`. **This entry closes STAGE-058.** SPEC-153's Frame records the
   syntax, the sizing and the replay matrix.
+  Also reword the stale "single image" text, since `edit` takes one image or a batch (SPEC-153 design
+  correction 1; a pixel `--crop` with `--save-recipe` needs one input): `src/cli/mod.rs:453` (the `--help`
+  doc comment: "One-shot multi-op on a single image; optionally saves the recipe."),
+  `docs/api-contract.md:536` ("One-shot multi-op on a single image — the \"experiment like an editor\"
+  mode.") and `docs/cli-reference.md:301` ("Chain an ordered op list on a **single** image in one
+  decode → ops → encode pass."). Found at SPEC-153's verify; no other STAGE-058 or `questions.yaml` entry covers it.
 
 - [x] (folded into SPEC-145; shipped in SPEC-145) — [S] **`docs/recipes.md` still advertises a `crustyimg crop` verb.**
   Found at SPEC-141's frame. `docs/recipes.md:60-65` lists "Crop to an arbitrary rect / gravity
@@ -245,7 +251,7 @@ In build order. Each is framed in its own session first.
   `from_str_radix` back on the raw pair; the refusal message stays as it is.
   Search first found no entry in STAGE-058 or `guidance/questions.yaml` that covers it.
 
-**Count:** 9 shipped / 1 active / 8 pending — re-derived 2026-11-10 at SPEC-153's frame, with `/usr/bin/grep -c '^- \[x\]'` (9: 5 `**SPEC-` entries and 4 folded), `/usr/bin/grep -c '^- \[ \]'` (9), `/usr/bin/grep -c '^- \[ \] \*\*SPEC-'` (1 active: SPEC-153, framed) and `/usr/bin/grep -c '^- \[ \] (not yet written)'` (8: the 8 from before, less SPEC-153's line, plus the `--pad`/`--trim` split)
+**Count:** 10 shipped / 0 active / 8 pending — re-derived 2026-11-10 at SPEC-153's ship, with `/usr/bin/grep -c '^- \[x\]'` (10: 6 `**SPEC-` entries and 4 folded), `/usr/bin/grep -c '^- \[ \]'` (8), `/usr/bin/grep -c '^- \[ \] \*\*SPEC-'` (0 active), `/usr/bin/grep -c '^- \[ \] (not yet written)'` (8) and `/usr/bin/grep -c '^- \[~\]'` (0)
 
 ## Design Notes
 

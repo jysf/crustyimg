@@ -32,4 +32,6 @@ Cycle prompts live in `prompts/SPEC-153-<cycle>.md`.
   two sessions; the second re-reported the first's drives and cost without re-running them.
 - [x] **merge** — PR #261 updated to `main` and marked ready by the orchestrator after the punch list (CI green at
   `a9f6109`, 18 passed, 8 skipped); merged by the maintainer as `70e2da7` (`mergedAt` 2026-11-11T02:10:43Z).
-- [ ] **ship** (`prompts/SPEC-153-ship.md`)
+- [x] **ship** (`prompts/SPEC-153-ship.md`), 2026-11-10, Sonnet, merge `70e2da7`, PR #261, total cost $34.24 (six sessions, re-measured at ship;
+  verify recorded for the first time, at $5.88). Reflection written; the `merge` line checked against `gh` (state MERGED, `70e2da7`,
+  `mergedAt` 2026-11-11T02:10:43Z) and correct. Spec's mutation table corrected for M1, M2 and M6.
