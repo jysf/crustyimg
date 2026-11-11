@@ -467,6 +467,16 @@ Fold-ins (every open STAGE-058 entry read):
   pad-introduced alpha is refused) and leave the silent drop to the filed idea? Recommend: yes.
 - **Q4. Size:** [M] uncut, or cut to [S] with (a)-(c) above? Recommend: [M] uncut.
 
+### Maintainer rulings (2026-11-10)
+
+The maintainer accepted all four recommendations:
+- **Q1, GIF:** allow fill alpha `00` (stored exactly) and an opaque fill; refuse `01`–`fe`.
+- **Q2, `trim`:** accepts `transparent` as `#00000000` in this spec, through a helper shared with
+  `pad`. `parse_color` is not changed.
+- **Q3, source alpha:** accepted. Only alpha a `pad` brings is refused; an RGBA source written to
+  JPEG still drops alpha silently, and the docs say so. `alpha-dropped-silently-on-encode` owns it.
+- **Q4, size:** [M], uncut.
+
 ## Inputs
 
 - **Files to read:** `path/to/file.ext` — why
