@@ -22,6 +22,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **A recipe can trim.** `op = "trim"` removes a uniform border, against a stated `color` or the
   top-left pixel, within a `tolerance` in 8-bit steps; the kept pixels are unchanged and the colour
   type and bit depth kept. 0.8.2 and earlier refuse it with `unknown operation 'trim'`.
+- **`edit --crop`.** `--crop WxH+X+Y` crops to a pixel rectangle (pixels of the image at that point
+  in the command), and `--crop W:H` to the largest such aspect that fits, placed by
+  `--crop-gravity`. `--save-recipe` saves a pixel crop as fractions of the image it ran on, so it
+  needs one input image. A rectangle past the edge of the image the crop receives exits 1.
+- **`edit --rotate`.** `--rotate DEGREES` turns the image by a multiple of 90, clockwise
+  (negative is counter-clockwise), and `--save-recipe` saves it as a `rotate` step.
+- **`edit --flip`.** `--flip horizontal` or `--flip vertical` mirrors the image, and
+  `--save-recipe` saves it as a `flip` step.
+
+### Changed
+
+- **`edit` runs its op flags in the order you type them.** `edit --invert --resize-max N` now
+  inverts, then resizes (0.8.2 resized first whatever the order), so its output changes;
+  `--resize-max N --invert` and every other invocation of 0.8.2's flags are unchanged. Each op
+  flag may be given once.
 
 ### Fixed
 

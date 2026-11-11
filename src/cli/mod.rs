@@ -17,7 +17,7 @@
 
 use std::process::ExitCode;
 
-use clap::{Args, CommandFactory, Parser, Subcommand};
+use clap::{Args, CommandFactory, FromArgMatches, Parser, Subcommand};
 use clap_complete::generate;
 
 use crate::error::ImageError;
@@ -44,7 +44,7 @@ pub use optimize::WEB_DEFAULT_LONG_EDGE;
 use build::{run_build, run_build_watching};
 use ops::{
     run_auto_orient, run_clean, run_copy_metadata, run_edit, run_resize, run_set, run_strip,
-    run_thumbnail, run_view, run_watermark, ResizeModes, WatermarkSource,
+    run_thumbnail, run_view, run_watermark, EditFlags, ResizeModes, WatermarkSource,
 };
 use optimize::{run_apply, run_convert, run_optimize, run_responsive, run_web};
 use report::{run_diff, run_info, run_lint, LintFlags};
@@ -452,23 +452,45 @@ pub enum Commands {
 
     /// One-shot multi-op on a single image; optionally saves the recipe.
     ///
-    /// Op flags are applied in canonical order regardless of CLI position:
-    /// `auto-orient` → `resize` → `invert`. At least one op flag is required.
+    /// Op flags run in the order you type them, like a recipe's steps:
+    /// `--rotate 90 --crop 300x200+0+0` turns the image, then crops what it
+    /// shows. EXIF orientation is always baked first, wherever `--auto-orient`
+    /// is typed. Each op flag may be given once. At least one op flag is
+    /// required.
     Edit {
         input: String,
-        /// Normalize EXIF orientation to pixels, then clear the tag.
+        /// Normalize EXIF orientation to pixels, then clear the tag. Always runs
+        /// first, wherever it is typed.
         #[arg(long)]
         auto_orient: bool,
-        /// Resize to a max edge of N pixels (canonical order: after auto-orient,
-        /// before invert).
+        /// Resize to a max edge of N pixels.
         #[arg(long, value_name = "N")]
         resize_max: Option<u32>,
         /// Invert pixel colors.
         #[arg(long)]
         invert: bool,
+        /// Crop to WxH+X+Y (pixels of the image at this point in the command) or
+        /// to the largest W:H aspect that fits.
+        #[arg(long, value_name = "WxH+X+Y|W:H")]
+        crop: Option<String>,
+        /// Where an aspect --crop sits: center (default), north, south, east,
+        /// west, northeast, northwest, southeast, southwest.
+        #[arg(long, value_name = "GRAVITY", requires = "crop")]
+        crop_gravity: Option<String>,
+        /// Rotate clockwise by DEGREES: 90, 180 or 270 (negative turns
+        /// counter-clockwise).
+        #[arg(long, value_name = "DEGREES", allow_negative_numbers = true)]
+        rotate: Option<i64>,
+        /// Mirror the image: horizontal or vertical.
+        #[arg(long, value_name = "AXIS")]
+        flip: Option<String>,
         /// Write the op chain as a TOML recipe to FILE after a successful edit.
         #[arg(long)]
         save_recipe: Option<String>,
+        /// The op flags in the order they were typed. Filled by [`run`] from the
+        /// parsed matches; clap never sets it.
+        #[arg(skip)]
+        order: Vec<EditOp>,
     },
 
     /// Run a saved recipe over one image or a batch.
@@ -859,6 +881,48 @@ impl CliError {
     }
 }
 
+/// One op flag of `edit`, for the order they were typed in.
+///
+/// `--auto-orient` is not here: orientation is always baked first, so the flag
+/// has no position.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EditOp {
+    /// `--resize-max`
+    ResizeMax,
+    /// `--invert`
+    Invert,
+    /// `--crop`
+    Crop,
+    /// `--rotate`
+    Rotate,
+    /// `--flip`
+    Flip,
+}
+
+/// The op flags of an `edit` invocation, in the order they were typed.
+///
+/// Only flags typed on the command line count: clap also gives an index to an
+/// unset flag that has a default (the `--invert` switch), and that must not
+/// become a step. The position is the flag's own, wherever the input path and
+/// the other flags sit and whichever spelling (`--rotate 90`, `--rotate=90`) was
+/// used.
+pub(crate) fn edit_op_order(m: &clap::ArgMatches) -> Vec<EditOp> {
+    let known = [
+        ("resize_max", EditOp::ResizeMax),
+        ("invert", EditOp::Invert),
+        ("crop", EditOp::Crop),
+        ("rotate", EditOp::Rotate),
+        ("flip", EditOp::Flip),
+    ];
+    let mut typed: Vec<(usize, EditOp)> = known
+        .iter()
+        .filter(|(id, _)| m.value_source(id) == Some(clap::parser::ValueSource::CommandLine))
+        .filter_map(|(id, op)| m.index_of(id).map(|i| (i, *op)))
+        .collect();
+    typed.sort_by_key(|(i, _)| *i);
+    typed.into_iter().map(|(_, op)| op).collect()
+}
+
 // ── Entry point ──────────────────────────────────────────────────────────────
 
 /// Binary entry point: parse args, dispatch, map errors to `ExitCode`.
@@ -867,7 +931,18 @@ impl CliError {
 /// maps typed library errors to codes 1/3/4/5 and prints diagnostics to
 /// stderr, keeping stdout clean for `-o -` pipe use.
 pub fn run() -> ExitCode {
-    let cli = Cli::parse(); // clap exits 2 on parse errors
+    // Keep the `ArgMatches`: they record the position each flag was typed at,
+    // which `edit` runs its op flags in. Errors exit 2, as `Cli::parse()` does.
+    let matches = Cli::command().get_matches();
+    let mut cli = match Cli::from_arg_matches(&matches) {
+        Ok(cli) => cli,
+        Err(e) => e.format(&mut Cli::command()).exit(),
+    };
+    if let (Commands::Edit { order, .. }, Some(("edit", sub))) =
+        (&mut cli.command, matches.subcommand())
+    {
+        *order = edit_op_order(sub);
+    }
     logger::init(cli.global.verbose, cli.global.quiet);
     match dispatch(&cli) {
         Ok(()) => ExitCode::SUCCESS,
@@ -1084,13 +1159,24 @@ fn dispatch(cli: &Cli) -> Result<(), CliError> {
             input,
             auto_orient,
             resize_max,
-            invert,
+            crop,
+            crop_gravity,
+            rotate,
+            flip,
             save_recipe,
+            order,
+            ..
         } => run_edit(
             input,
-            *auto_orient,
-            *resize_max,
-            *invert,
+            &EditFlags {
+                auto_orient: *auto_orient,
+                resize_max: *resize_max,
+                crop: crop.clone(),
+                crop_gravity: crop_gravity.clone(),
+                rotate: *rotate,
+                flip: flip.clone(),
+                order: order.clone(),
+            },
             save_recipe.as_deref(),
             &cli.global,
         ),
@@ -1145,6 +1231,36 @@ fn quoted(path: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `edit_op_order` returns the flags in the order typed, and leaves out a
+    /// flag clap defaults without being typed (`--invert`).
+    #[test]
+    fn edit_op_order_follows_indices() {
+        let order = |args: &[&str]| {
+            let m = Cli::command()
+                .try_get_matches_from(args)
+                .expect("args parse");
+            let (_, sub) = m.subcommand().expect("a subcommand");
+            edit_op_order(sub)
+        };
+        assert_eq!(
+            order(&[
+                "crustyimg",
+                "edit",
+                "in",
+                "--flip",
+                "vertical",
+                "--resize-max",
+                "3",
+                "--crop=1:1"
+            ]),
+            [EditOp::Flip, EditOp::ResizeMax, EditOp::Crop]
+        );
+        assert_eq!(
+            order(&["crustyimg", "edit", "in", "--resize-max", "3"]),
+            [EditOp::ResizeMax]
+        );
+    }
 
     #[test]
     fn new_source_and_folder_errors_exit_3() {
