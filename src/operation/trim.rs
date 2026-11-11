@@ -1,6 +1,7 @@
 //! `trim`: remove the outer rows and columns that match one colour.
 //!
-//! The colour is the step's `color`, or with none the image's top-left pixel
+//! The colour is the step's `color` (hex, or the keyword `transparent` for
+//! `#00000000`), or with none the image's top-left pixel
 //! (read in the image's own samples, so a 16-bit or float corner is exact).
 //! Each of the four sides is searched on its own, so the result is the
 //! bounding box of the pixels that do not match, and a border can be wider on
@@ -69,7 +70,7 @@ impl Trim {
         registry::check_params("trim", TRIM_PARAMS, params).map_err(invalid)?;
 
         let color = match params.get_str("color") {
-            Some(text) => Some(crate::text::parse_color(text).map_err(|_| {
+            Some(text) => Some(super::parse_fill_color(text).map_err(|_| {
                 invalid(format!(
                     "'color' must be a hex colour RRGGBB, #RRGGBB or RRGGBBAA, got {text:?}"
                 ))

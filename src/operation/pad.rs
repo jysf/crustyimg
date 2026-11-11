@@ -8,13 +8,31 @@
 //! - a **border**: `border = f`, a fraction of the image's long edge, added on
 //!   every side so the border is the same width all round.
 //!
-//! `color` is required and must be opaque. Every input pixel is copied
-//! unchanged to its place in the canvas and every new pixel is the fill: a pad
-//! computes no pixel, so native and wasm agree exactly. The bit depth is the
-//! input's (an 8-bit fill channel `c` is `c × 257` at 16 bits), and so is the
-//! colour type, except that a grey image padded with a colour that is not grey
-//! widens to RGB (RGBA if it had alpha), because the fill genuinely adds
-//! chroma. An image already at the aspect is returned unchanged.
+//! `color` is required: a hex colour with any alpha (`#RRGGBBAA` is straight
+//! alpha, stored as written) or the keyword `transparent`, which is
+//! `#00000000`, zero alpha over black. Every input pixel is copied unchanged to
+//! its place in the canvas and every new pixel is the fill, alpha included:
+//! nothing is blended, a pad computes no pixel, so native and wasm agree
+//! exactly. The bit depth is the input's (an 8-bit fill channel `c` is
+//! `c × 257` at 16 bits and `c / 255` for a float image).
+//!
+//! The colour type is the input's, widened only where the fill needs it, which
+//! is the colour-type rule applied to a fill: a channel is kept when it holds
+//! a value that is not the neutral one, and gained when the fill needs it.
+//!
+//! - a grey image padded with a colour that is not grey widens to RGB (RGBA if
+//!   it had alpha), because the fill genuinely adds chroma;
+//! - an image with no alpha padded with a fill whose alpha is below `ff` gains
+//!   alpha: grey plus alpha for a grey fill (which includes `transparent`),
+//!   RGBA otherwise;
+//! - an image that already has alpha keeps it.
+//!
+//! An image already at the aspect is returned unchanged with its own type,
+//! whatever the fill, because no fill pixel is written.
+//!
+//! A recipe whose fill alpha the output format can't store (JPEG has none and
+//! GIF keeps only `00` and `ff`) is refused before it runs; see
+//! [`Operation::introduced_alpha`].
 //!
 //! The step acts on the image as it receives it and keeps the image's
 //! metadata in memory for a later step, as `crop` does; it writes none.
@@ -32,8 +50,8 @@ use ::image::{DynamicImage, ImageBuffer, Luma, LumaA, Pixel, Rgb, Rgba};
 use super::crop::parse_aspect;
 use super::registry::{self, written};
 use super::{
-    Gravity, Operation, OperationError, OperationParams, ParamKind, ParamSpec, RegistryError,
-    GRAVITY_NAMES, MAX_AREA, MAX_EDGE,
+    Gravity, IntroducedAlpha, Operation, OperationError, OperationParams, ParamKind, ParamSpec,
+    RegistryError, GRAVITY_NAMES, MAX_AREA, MAX_EDGE,
 };
 use crate::image::Image;
 
@@ -72,7 +90,7 @@ enum Form {
     Border(f64),
 }
 
-/// A pad step: an aspect or a border, and an opaque fill.
+/// A pad step: an aspect or a border, and a fill with any alpha.
 ///
 /// Holds the step's keys exactly as written, so [`Operation::params`] gives
 /// back an integer `border = 1` as an integer, a hex colour in the case it was
@@ -80,8 +98,8 @@ enum Form {
 #[derive(Debug, Clone)]
 pub struct Pad {
     form: Form,
-    /// The fill's red, green and blue. Its alpha is always opaque.
-    fill: [u8; 3],
+    /// The fill's red, green, blue and alpha, as written (never blended).
+    fill: [u8; 4],
     params: OperationParams,
 }
 
@@ -91,7 +109,7 @@ impl Pad {
     /// Runs the key table first (unknown key, wrong type, out-of-range
     /// border), then the rules that need more than one key: which form the
     /// keys make, `gravity` with a border, the aspect's syntax, and the
-    /// colour's presence, syntax and opacity.
+    /// colour's presence and syntax.
     pub fn from_params(params: &OperationParams) -> Result<Pad, RegistryError> {
         let invalid = |reason: String| RegistryError::InvalidParams { op: "pad", reason };
         registry::check_params("pad", PAD_PARAMS, params).map_err(invalid)?;
@@ -144,28 +162,15 @@ impl Pad {
                     .to_owned(),
             )
         })?;
-        let translucent = || {
-            invalid(format!(
-                "a fill with transparency is not supported yet; 'color' must be opaque, such \
-                 as \"#ffffff\", got {color:?}"
-            ))
-        };
-        // The keyword gets its own message rather than the hex one.
-        if color == "transparent" {
-            return Err(translucent());
-        }
-        let rgba = crate::text::parse_color(color).map_err(|_| {
+        let fill = super::parse_fill_color(color).map_err(|_| {
             invalid(format!(
                 "'color' must be a hex colour RRGGBB, #RRGGBB or RRGGBBAA, got {color:?}"
             ))
         })?;
-        if rgba[3] != u8::MAX {
-            return Err(translucent());
-        }
 
         Ok(Pad {
             form,
-            fill: [rgba[0], rgba[1], rgba[2]],
+            fill,
             params: params.clone(),
         })
     }
@@ -295,40 +300,66 @@ impl Operation for Pad {
             return Ok(img);
         }
 
-        let [r, g, b] = self.fill;
+        let [r, g, b, a] = self.fill;
         let chromatic = r != g || g != b;
+        let translucent = a != u8::MAX;
 
-        // A grey image takes a colour that is not grey by widening first; the
-        // conversions copy the luma value to all three channels exactly.
-        let src: Cow<'_, DynamicImage> = match (img.pixels(), chromatic) {
-            (DynamicImage::ImageLuma8(_), true) => Cow::Owned(img.pixels().to_rgb8().into()),
-            (DynamicImage::ImageLumaA8(_), true) => Cow::Owned(img.pixels().to_rgba8().into()),
-            (DynamicImage::ImageLuma16(_), true) => Cow::Owned(img.pixels().to_rgb16().into()),
-            (DynamicImage::ImageLumaA16(_), true) => Cow::Owned(img.pixels().to_rgba16().into()),
-            (other, _) => Cow::Borrowed(other),
+        // Widen first, so the fill fits: a grey image takes a colour that is
+        // not grey as RGB, and an image with no alpha takes a fill below `ff`
+        // as alpha. The conversions copy every sample exactly (luma to all
+        // three colour channels, alpha at its maximum).
+        let pixels = img.pixels();
+        let src: Cow<'_, DynamicImage> = match (pixels, chromatic, translucent) {
+            (DynamicImage::ImageLuma8(_), true, false) => Cow::Owned(pixels.to_rgb8().into()),
+            (DynamicImage::ImageLuma8(_), true, true) => Cow::Owned(pixels.to_rgba8().into()),
+            (DynamicImage::ImageLuma8(_), false, true) => {
+                Cow::Owned(pixels.to_luma_alpha8().into())
+            }
+            (DynamicImage::ImageLumaA8(_), true, _) => Cow::Owned(pixels.to_rgba8().into()),
+            (DynamicImage::ImageLuma16(_), true, false) => Cow::Owned(pixels.to_rgb16().into()),
+            (DynamicImage::ImageLuma16(_), true, true) => Cow::Owned(pixels.to_rgba16().into()),
+            (DynamicImage::ImageLuma16(_), false, true) => {
+                Cow::Owned(pixels.to_luma_alpha16().into())
+            }
+            (DynamicImage::ImageLumaA16(_), true, _) => Cow::Owned(pixels.to_rgba16().into()),
+            (DynamicImage::ImageRgb8(_), _, true) => Cow::Owned(pixels.to_rgba8().into()),
+            (DynamicImage::ImageRgb16(_), _, true) => Cow::Owned(pixels.to_rgba16().into()),
+            (DynamicImage::ImageRgb32F(_), _, true) => Cow::Owned(pixels.to_rgba32f().into()),
+            (other, _, _) => Cow::Borrowed(other),
         };
 
-        // A new pixel's alpha is the type's maximum.
+        // A new pixel is the fill, alpha included, copied and never blended.
+        // An opaque fill writes `ff`, 65535 and 1.0, the type's maximum.
         let out: DynamicImage = match src.as_ref() {
             DynamicImage::ImageLuma8(s) => grow(s, Luma([r]), layout).into(),
-            DynamicImage::ImageLumaA8(s) => grow(s, LumaA([r, u8::MAX]), layout).into(),
+            DynamicImage::ImageLumaA8(s) => grow(s, LumaA([r, a]), layout).into(),
             DynamicImage::ImageRgb8(s) => grow(s, Rgb([r, g, b]), layout).into(),
-            DynamicImage::ImageRgba8(s) => grow(s, Rgba([r, g, b, u8::MAX]), layout).into(),
+            DynamicImage::ImageRgba8(s) => grow(s, Rgba([r, g, b, a]), layout).into(),
             DynamicImage::ImageLuma16(s) => grow(s, Luma([wide(r)]), layout).into(),
-            DynamicImage::ImageLumaA16(s) => grow(s, LumaA([wide(r), u16::MAX]), layout).into(),
+            DynamicImage::ImageLumaA16(s) => grow(s, LumaA([wide(r), wide(a)]), layout).into(),
             DynamicImage::ImageRgb16(s) => grow(s, Rgb([wide(r), wide(g), wide(b)]), layout).into(),
             DynamicImage::ImageRgba16(s) => {
-                grow(s, Rgba([wide(r), wide(g), wide(b), u16::MAX]), layout).into()
+                grow(s, Rgba([wide(r), wide(g), wide(b), wide(a)]), layout).into()
             }
             DynamicImage::ImageRgb32F(s) => {
                 grow(s, Rgb([unit(r), unit(g), unit(b)]), layout).into()
             }
             DynamicImage::ImageRgba32F(s) => {
-                grow(s, Rgba([unit(r), unit(g), unit(b), 1.0]), layout).into()
+                grow(s, Rgba([unit(r), unit(g), unit(b), unit(a)]), layout).into()
             }
             _ => return Err(fail("this image's colour type cannot be padded".to_owned())),
         };
         Ok(img.with_pixels(out))
+    }
+
+    /// The fill's alpha, when it is below `ff`: every new pixel carries it.
+    fn introduced_alpha(&self) -> Option<IntroducedAlpha> {
+        let alpha = self.fill[3];
+        (alpha != u8::MAX).then(|| IntroducedAlpha {
+            alpha,
+            key: "color",
+            written: self.params.get_str("color").unwrap_or_default().to_owned(),
+        })
     }
 }
 

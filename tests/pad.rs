@@ -1501,6 +1501,32 @@ fn fill_px4(out: &str, fill: Fill4) -> Vec<u64> {
     px
 }
 
+/// One input pixel as `out`'s samples: the colour copied (a grey luma
+/// replicated when the output is RGB), and alpha carried over or, where the
+/// input had none, at the type's maximum.
+fn widen4(px: &[u64], in_kind: &str, out: &str) -> Vec<u64> {
+    if in_kind == out {
+        return px.to_vec();
+    }
+    let (in_ch, _, in_alpha) = shape_of(in_kind);
+    let (out_ch, bits, out_alpha) = shape_of(out);
+    let in_colour = in_ch - usize::from(in_alpha);
+    let out_colour = out_ch - usize::from(out_alpha);
+    let mut v: Vec<u64> = if in_colour == 1 {
+        vec![px[0]; out_colour]
+    } else {
+        px[..3].to_vec()
+    };
+    if out_alpha {
+        v.push(if in_alpha {
+            px[in_ch - 1]
+        } else {
+            alpha_max(bits)
+        });
+    }
+    v
+}
+
 #[test]
 fn translucent_fill_by_colour_type() {
     let mut mismatches = Vec::new();
@@ -1537,7 +1563,7 @@ fn translucent_fill_by_colour_type() {
                     let inside = (1..4).contains(&x) && (1..4).contains(&y);
                     let want = if inside {
                         let i = ((y - 1) * 3 + (x - 1)) * in_ch;
-                        widen_pixel(&sin[i..i + in_ch], kind, want_kind)
+                        widen4(&sin[i..i + in_ch], kind, want_kind)
                     } else {
                         fill_px.clone()
                     };
