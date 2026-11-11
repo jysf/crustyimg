@@ -17,10 +17,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   clockwise) and `op = "flip"` with `axis = "horizontal"` or `"vertical"`, exact in pixels at the
   input's colour type. 0.8.2 and earlier refuse them with `unknown operation`.
 - **A recipe can pad.** `op = "pad"` with `aspect` (and `gravity`) or `border`, and a required
-  opaque `color`; the input's pixels are unchanged and its bit depth kept; a grey image with a
-  colour fill becomes RGB. 0.8.2 and earlier refuse it with `unknown operation 'pad'`.
+  `color`, hex with any alpha or `transparent`; the input's pixels are unchanged and its bit depth
+  kept; a grey image with a colour fill becomes RGB, and a fill with alpha adds an alpha channel.
+  A fill alpha JPEG or GIF can't store is refused for that output (exit 4). 0.8.2 and earlier refuse it with `unknown operation 'pad'`.
 - **A recipe can trim.** `op = "trim"` removes a uniform border, against a stated `color` or the
-  top-left pixel, within a `tolerance` in 8-bit steps; the kept pixels are unchanged and the colour
+  top-left pixel (`color` may be `transparent`), within a `tolerance` in 8-bit steps; the kept pixels are unchanged and the colour
   type and bit depth kept. 0.8.2 and earlier refuse it with `unknown operation 'trim'`.
 - **`edit --crop`.** `--crop WxH+X+Y` crops to a pixel rectangle (pixels of the image at that point
   in the command), and `--crop W:H` to the largest such aspect that fits, placed by

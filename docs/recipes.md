@@ -109,11 +109,17 @@ For every flag and exit code, see [`docs/cli-reference.md`](cli-reference.md).
   border = 0.05
   color = "#000000"
   ```
-  `color` is required: a hex colour such as `"#ffffff"`, with no default. `aspect` grows the canvas
+  `color` is required: a hex colour such as `"#ffffff"` (or `"#RRGGBBAA"`) or `"transparent"`, with no default. `aspect` grows the canvas
   to the smallest `W:H` shape that holds the image, placed by `gravity` (default `center`); an image
   already at that aspect is written unchanged. `border` is a fraction of the image's long edge,
   added on every side: a 6000×4000 photo with `border = 0.05` gets 300 px all round. A grey image
-  padded with a colour that is not grey becomes RGB. A transparent fill is not supported yet. For an
+  padded with a colour that is not grey becomes RGB. `"transparent"` is alpha 0 over black, and
+  `"#RRGGBBAA"` is straight alpha, stored as written; a fill with alpha below `ff` makes an image
+  with no alpha gain an alpha channel (a grey image stays grey, plus alpha, for a grey fill such as
+  `transparent`). JPEG can't store that alpha and GIF stores only `00` or `ff`, so a recipe that
+  would write one is refused for those formats (exit 4, nothing written): write PNG, WebP or AVIF.
+  AVIF keeps the alpha approximately, and some TIFF readers show it opaque. A source image's own
+  alpha written to JPEG is still dropped, without a warning. For an
   exact pixel box such as 1080×1080, resize first (`op = "resize"`, `mode = "fit"`, `width = 1080`,
   `height = 1080`), then pad with `aspect = "1:1"`. `fit` never enlarges, so a smaller photo gives a
   smaller square. Put `op = "auto-orient"` first when the recipe is meant as the photo is displayed.
@@ -136,12 +142,12 @@ For every flag and exit code, see [`docs/cli-reference.md`](cli-reference.md).
   `op = "auto-orient"` first when the recipe is meant as the photo is displayed. `tolerance`
   (default 0, exact) is in 8-bit steps per channel at every bit depth: `tolerance = 8` allows 8 off
   at 8 bits and 2056 (8 × 257) at 16 bits, and a float sample is read as its nearest 16-bit value.
-  A fully transparent pixel matches a transparent `color` (such as `"#00000000"`) whatever colour is
+  A fully transparent pixel matches a transparent `color` (`"transparent"`, or such as `"#00000000"`) whatever colour is
   hidden under it; any other pixel is compared on all four channels, alpha included. An image with
   no border is written unchanged. An image in which every pixel matches fails, because trimming it
   would leave nothing. `pad` then `trim` with the same colour gives back the original, unless an
   edge row or column of the original already matches the colour; a grey image padded with a colour
-  comes back as RGB. ImageMagick's `-fuzz` is a colour distance, not a per-channel step, so
+  comes back as RGB, and an RGB image padded with `transparent` comes back as RGBA. ImageMagick's `-fuzz` is a colour distance, not a per-channel step, so
   `magick -trim -fuzz` cuts differently whenever `tolerance` is above 0.
 - **Smart (content-aware) crop** **[post-1.0, beta]** — see the smart-crop row in
   [`roadmap.md`](roadmap.md).

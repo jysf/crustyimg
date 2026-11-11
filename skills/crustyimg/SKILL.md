@@ -234,7 +234,7 @@ Ops: `auto-orient`, `resize` (`mode` = `max` + `width`; `fit`/`fill`/`cover`/`ex
 `width` + `height`; `percent` + `percent`), `crop` (`x`/`y`/`width`/`height` as fractions 0–1 of the
 image, or `aspect = "W:H"` + `gravity`), `rotate` (`angle`, a multiple of 90, clockwise),
 `flip` (`axis = "horizontal" | "vertical"`), `pad` (`aspect = "W:H"` + `gravity`, or `border` as a
-fraction of the long edge, with a required opaque `color`), `trim` (an optional `color`, default the
+fraction of the long edge, with a required `color`: hex with any alpha, or `transparent`), `trim` (an optional `color`, default the
 top-left pixel, and `tolerance` 0–255 in 8-bit steps), `watermark`, `invert`, `identity`, `optimize`.
 
 A recipe can also watermark, and pin its output format and quality. `format`/`quality` need
@@ -331,7 +331,7 @@ medium.
 | 1 | Runtime error (decode/encode failed, resource limit), or a recipe that fails to load | Read stderr; fix the named recipe step |
 | 2 | Usage error, or a watermark refused on a single input | Fix the flags; check `--help` |
 | 3 | Input not found, or the glob matched nothing | Check the path / quoting |
-| 4 | Format not available: not built into this binary (e.g. HEIC, or AVIF on a lean build), or `meta` asked to change it | Use another format, rebuild with the feature, or `convert` first |
+| 4 | Format not available: not built into this binary (e.g. HEIC, or AVIF on a lean build), or `meta` asked to change it, or a recipe's fill alpha the output format can't store (`pad` with `transparent` into JPEG) | Use another format (PNG, WebP, AVIF), rebuild with the feature, or `convert` first |
 | 5 | Output write refused (exists, symlink, path traversal) | Add `-y` if overwriting is intended |
 | 6 | Some inputs in a batch failed | Others were written; read the summary |
 | 7 | A check failed (`diff --fail-under`, `build --check`, `lint` error) | Report it; this is a gate, not a crash |

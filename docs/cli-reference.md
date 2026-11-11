@@ -51,7 +51,7 @@ Available on every command (before or after the subcommand):
 | `1` | Runtime error (decode/encode/op failed; input exceeds a resource limit). |
 | `2` | Usage error (bad args) — clap's standard code. |
 | `3` | Input not found or unreadable, or a folder or glob with no images, or a folder where one image file is expected. |
-| `4` | Unsupported format / codec not built (AVIF output or SVG input on a `--no-default-features` lean build; a `.heic` input without `--features heic`). |
+| `4` | Unsupported format / codec not built (AVIF output or SVG input on a `--no-default-features` lean build; a `.heic` input without `--features heic`), or a recipe step writes alpha the output format can't store (a `pad` with a `transparent` fill into JPEG). |
 | `5` | Output write refused (exists without `--yes`; path traversal; symlinked destination). |
 | `6` | Partial batch failure (some inputs failed; summary on stderr; others still wrote). |
 | `7` | A check/gate was not satisfied (e.g. `diff --fail-under` scored below the threshold). |

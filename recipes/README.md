@@ -293,8 +293,11 @@ color = "#000000"
 - `border` is a fraction of the long edge, the same width on every side. A border that rounds to
   0 px on an image fails that image (a batch exits `6`).
 - A canvas past 50,000 px on a side or 134,217,728 px in all fails the same way.
-- `color` is required, hex only, and opaque. A transparent fill is not supported yet.
-- A grey image with a colour fill becomes RGB, and the bit depth is kept.
+- `color` is required: hex with any alpha (`#RRGGBBAA`), or `transparent` (alpha 0 over black). A
+  fill alpha JPEG can't store (anything below `ff`) or GIF can't (anything but `00` and `ff`) is
+  refused for that output (exit `4`); write PNG, WebP or AVIF.
+- A grey image with a colour fill becomes RGB, a translucent fill adds alpha (grey plus alpha for a
+  grey fill), and the bit depth is kept.
 - For an exact pixel box, `resize` with `mode = "fit"` first, then pad to the box's aspect.
 - Put `op = "auto-orient"` first when the recipe is meant as the photo is displayed.
 
@@ -319,7 +322,7 @@ tolerance = 8
 - A pixel with alpha 0 matches a `color` with alpha 0 whatever is hidden under it.
 - An image with nothing to trim is written unchanged.
 - An image that matches everywhere fails that image (a batch exits `6`).
-- `color` is hex and may be translucent.
+- `color` is hex or `transparent`, and may be translucent.
 - The colour type and bit depth are kept.
 - Put `op = "auto-orient"` first when the recipe is meant as the photo is displayed.
 
