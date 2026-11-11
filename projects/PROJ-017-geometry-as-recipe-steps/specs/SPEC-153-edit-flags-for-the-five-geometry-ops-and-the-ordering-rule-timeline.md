@@ -30,4 +30,6 @@ Cycle prompts live in `prompts/SPEC-153-<cycle>.md`.
   docs now say the recipe starts with `auto-orient`, then the op flags in typed order; a pixel crop keeps proportions, not pixels,
   and fails if a side rounds to 0 px (driven, exit 1). M2 gains FT-8; trap 14's "unit tests don't compile" is corrected. Done in
   two sessions; the second re-reported the first's drives and cost without re-running them.
-- [ ] **ship**
+- [x] **merge** — PR #261 updated to `main` and marked ready by the orchestrator after the punch list (CI green at
+  `a9f6109`, 18 passed, 8 skipped); merged by the maintainer as `70e2da7` (`mergedAt` 2026-11-11T02:10:43Z).
+- [ ] **ship** (`prompts/SPEC-153-ship.md`)
