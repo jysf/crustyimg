@@ -311,11 +311,6 @@ fn every_trim_refusal_names_its_reason() {
         ("T16", "color = \"white\"", format!("{NOT_HEX}\"white\"")),
         ("T17", "color = \"#fff\"", format!("{NOT_HEX}\"#fff\"")),
         ("T18", "color = \"#ff00\"", format!("{NOT_HEX}\"#ff00\"")),
-        (
-            "T19",
-            "color = \"transparent\"",
-            format!("{NOT_HEX}\"transparent\""),
-        ),
         ("T20", "color = \"\"", format!("{NOT_HEX}\"\"")),
         (
             "T21",
@@ -347,7 +342,7 @@ fn every_trim_refusal_names_its_reason() {
             Err(other) => mismatches.push(format!("{id}: wrong error kind: {other}")),
         }
     }
-    assert_no_mismatches(rows.len(), 23, mismatches);
+    assert_no_mismatches(rows.len(), 22, mismatches);
 }
 
 #[test]
@@ -360,6 +355,7 @@ fn accepted_spellings_load() {
         "color = \"FFFFFF\"",
         "color = \"#123456ff\"",
         "color = \"#ffffff\"\ntolerance = 8",
+        "color = \"transparent\"",
     ];
     let mut mismatches = Vec::new();
     for body in accepted {
@@ -367,7 +363,7 @@ fn accepted_spellings_load() {
             mismatches.push(format!("{body:?}: {e}"));
         }
     }
-    assert_no_mismatches(accepted.len(), 7, mismatches);
+    assert_no_mismatches(accepted.len(), 8, mismatches);
 }
 
 /// `color` goes through `parse_color`, which used to slice a six-byte string
@@ -781,6 +777,52 @@ fn whole_match_fails_at_apply() {
     assert_eq!(
         try_run(&recipe(&[&trim_step("tolerance = 255")]), &seeded43).unwrap_err(),
         "operation 'trim' failed: every pixel of this 4×3 px image matches its top-left pixel within 'tolerance' = 255, so a trim would leave nothing"
+    );
+}
+
+/// A 4×4 RGBA8 whose outer ring is `(255, 0, 0, 0)` (fully transparent, with a
+/// colour under it) and whose inner 2×2 is opaque and different from the ring.
+fn transparent_ring() -> DynamicImage {
+    DynamicImage::ImageRgba8(image::ImageBuffer::from_fn(4, 4, |x, y| {
+        if (1..3).contains(&x) && (1..3).contains(&y) {
+            image::Rgba([10 + x as u8, 20 + y as u8, 30, 255])
+        } else {
+            image::Rgba([255, 0, 0, 0])
+        }
+    }))
+}
+
+#[test]
+fn transparent_keyword_matches_like_00000000() {
+    let src = transparent_ring();
+    let mut mismatches = Vec::new();
+    for spelling in ["transparent", "#00000000"] {
+        let out = match try_run(
+            &recipe(&[&trim_step(&format!("color = \"{spelling}\""))]),
+            &src,
+        ) {
+            Ok(o) => o,
+            Err(e) => {
+                mismatches.push(format!("{spelling}: {e}"));
+                continue;
+            }
+        };
+        if (out.width(), out.height()) != (2, 2) {
+            mismatches.push(format!("{spelling}: {}x{}", out.width(), out.height()));
+        }
+    }
+    assert_no_mismatches(2, 2, mismatches);
+
+    // An image that is all transparent matches the keyword everywhere, and the
+    // message prints the keyword as written, not `#00000000`.
+    let clear = DynamicImage::ImageRgba8(image::ImageBuffer::from_pixel(
+        4,
+        4,
+        image::Rgba([9, 9, 9, 0]),
+    ));
+    assert_eq!(
+        try_run(&recipe(&[&trim_step("color = \"transparent\"")]), &clear).unwrap_err(),
+        "operation 'trim' failed: every pixel of this 4×4 px image matches 'color' = \"transparent\" within 'tolerance' = 0, so a trim would leave nothing"
     );
 }
 
