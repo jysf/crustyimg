@@ -25,5 +25,9 @@ Cycle prompts live in `prompts/SPEC-153-<cycle>.md`.
   decoder), replay and batches all hold. Two doc sentences wrong: `docs/recipes.md` says a saved pixel crop "replays on any
   size" (it crops proportions; driven exit 1), and both recipe docs put `--auto-orient` in typed order. Cleanups for ship: the
   M1/FT-10 and M6 table cells; the stale "on a single image" `edit` wording (pre-existing). M2's stub-test red is an `edit` test.
-- [ ] **punch list** (`prompts/SPEC-153-punchlist.md`): the two doc sentences and two Build Completion lines.
+- [x] **punch list** (`prompts/SPEC-153-punchlist.md`), 2026-11-10, Sonnet, $0.53. PR #261 at `530dfde`, CI green (18 passed,
+  8 release jobs skipped; checked by the orchestrator). Diff vs `d917d60`: `docs/recipes.md`, `recipes/README.md`, the spec. Both
+  docs now say the recipe starts with `auto-orient`, then the op flags in typed order; a pixel crop keeps proportions, not pixels,
+  and fails if a side rounds to 0 px (driven, exit 1). M2 gains FT-8; trap 14's "unit tests don't compile" is corrected. Done in
+  two sessions; the second re-reported the first's drives and cost without re-running them.
 - [ ] **ship**
