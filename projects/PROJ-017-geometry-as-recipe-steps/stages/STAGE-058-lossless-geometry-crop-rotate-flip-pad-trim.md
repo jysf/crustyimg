@@ -199,7 +199,7 @@ In build order. Each is framed in its own session first.
   records `auto-orient`. Design decides warn vs refuse vs stay silent, and whether a geometry step
   alone triggers it. A warning changes no output bytes. After SPEC-147.
 
-- [ ] **SPEC-159** (framed 2026-11-10) — [M] **`pad` with a transparent fill, and what `transparent` does in a format with no alpha.**
+- [ ] **SPEC-159** (designed 2026-11-11) — [M] **`pad` with a transparent fill, and what `transparent` does in a format with no alpha.**
   Split out of SPEC-151 at its frame (2026-11-06); after SPEC-151. Lifts SPEC-151's "opaque only"
   refusal so `color` takes `transparent` (and `#RRGGBBAA` below `ff`), widening RGB to RGBA and grey
   to grey-with-alpha (DEC-095's narrow rule already keeps a channel with non-opaque samples). ⚠ The

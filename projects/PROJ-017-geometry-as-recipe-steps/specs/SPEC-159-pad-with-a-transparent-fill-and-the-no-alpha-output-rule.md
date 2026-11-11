@@ -7,7 +7,7 @@
 task:
   id: SPEC-159
   type: story                      # epic | story | task | bug | chore
-  cycle: design  # frame | design | build | verify | ship
+  cycle: build  # frame | design | build | verify | ship
   blocked: false
   priority: high
   complexity: M                    # S | M | L  (L means split it)
@@ -25,12 +25,16 @@ agents:
 
 references:
   decisions:
+    - DEC-015
     - DEC-095
+    - DEC-098
+    - DEC-102
     - DEC-106
     - DEC-110
     - DEC-112
     - DEC-113
     - DEC-114
+    - DEC-115
   constraints:
     - untrusted-input-hardening
     - no-unwrap-on-recoverable-paths
@@ -477,33 +481,419 @@ The maintainer accepted all four recommendations:
   JPEG still drops alpha silently, and the docs say so. `alpha-dropped-silently-on-encode` owns it.
 - **Q4, size:** [M], uncut.
 
+## Design
+
+*Designed 2026-11-11 on `main` at `532db03` (code identical to `9bbdaf1` plus docs). Every
+behaviour below was driven on a release build of `main` and on a prototype of this design (a
+detached worktree of `origin/main`, never pushed), each in its own scratch `CARGO_TARGET_DIR`,
+deleted after. Fixtures: ImageMagick 7, a Python xorshift with a hand-written PNG encoder, and
+`image`'s encoder in the prototype tests. Read back with crustyimg's own decoder (`info`,
+`convert --format png`), `magick … txt:`/`%[pixel:]` and a Python PNG reader.*
+
+### Design corrections to the frame
+
+1. **The auto-decide path DOES need a change: the frame's "no check is needed there" is wrong.**
+   The shortlist's `has_alpha` is the *source's* (`src/cli/optimize.rs:1161`,
+   `let has_alpha = source_info.has_alpha;`, captured before the pipeline), not the padded
+   image's. Driven on the prototype before the fix: a 64×48 JPEG photo, recipe
+   `[pad border = 0.1 color = "transparent", optimize]`, no format pinned:
+   - `apply --recipe padopt.toml --out-dir ao -y photo.jpg` → exit 0,
+     `photo.jpg: jpeg → jpeg · 2688 → 2786 B (4% larger)`, `ao/photo.jpg` JPEG 76×60 `rgb8`, corner
+     pixel `srgb(0,5,1)`: a **black border, silently**.
+   - `build` with that recipe (`source = "bsrc/*.jpg"`, default `{stem}.{ext}`) → exit 0,
+     `bout/photo.jpg` JPEG, corner `srgb(0,5,1)`.
+   The fix is one line: `let has_alpha = source_info.has_alpha || pipeline.introduces_alpha();`.
+   After it (driven): `apply` → `photo.jpg: jpeg → webp`, `ao/photo.webp` `srgba`, corner
+   `srgba(0,0,0,0)`; `build` (cache cleared) → `bout/photo.webp`, corner `srgba(0,0,0,0)`. The same
+   variable feeds `fast_fallback_lossy_entry` (`optimize.rs:982-996`, JPEG only `if !has_alpha`),
+   so the size fallback can't add JPEG either. The other ways the decided format could still be
+   JPEG or GIF, and what stops each:
+   - **Shortlist:** `decide::format_shortlist` never offers GIF (only PNG, WebP, JPEG, AVIF:
+     `src/analysis/decide.rs:131-190`) and, with the fix, never JPEG after a translucent pad.
+   - **"Nothing beats the source" passthrough** (`optimize.rs:1278`): fires only when
+     `!pipeline_altered` (`pipeline_altered_source`, `optimize.rs:940`: dimensions, EXIF, ICC). A pad
+     that writes a fill pixel always changes the dimensions, so it can't fire then. It fires for an
+     image already at the aspect (driven: `ataspect.jpg: kept jpeg (2688 B, already optimal)`), and
+     the source shipped then has no fill pixel and no introduced alpha: correct, not a leak.
+   - **Degenerate-analysis passthrough** (`optimize.rs:1176-1192`): fires before the pipeline,
+     only when `Analysis::compute` fails on a zero-area image, and ships the untouched source.
+   - **Cache:** a `build` cache hit replays bytes an earlier run encoded. No released binary could
+     load a translucent `pad` (exit 1 at load), so no cache holds such an output. (Driven as a
+     trap: re-running `build` with the pre-fix prototype's cache in place served the stale JPEG,
+     `(1 cached)`. A build that tests this path must use a fresh project dir.)
+2. **`run_pixel_op` needs a once-up-front check, not a per-input one.** Its only caller that can
+   carry a `pad` is `apply`'s terminal-`optimize` pinned path (`optimize.rs:95`), which always
+   passes `Some(fmt)`; the other eight callers build flag pipelines with no `pad`
+   (`/usr/bin/grep -n "run_pixel_op(" src/cli/*.rs`: `ops.rs:299,1393,1495,1519,1783`,
+   `optimize.rs:607,738,859`). So the check goes at the top of `run_pixel_op`, on `forced_format`,
+   before any input is read: exit 4 for one input and for a batch, like the plain batch. A
+   per-input check for the unforced case is unreachable today (mutation M18: removing it left all
+   58 tests green), so it is **SPEC-160's** to add with `edit --pad`, which is the first caller that
+   reaches it. The frame's "move `output_format_for` before the run" is therefore needed only in
+   single-input `apply`, not in `run_pixel_op`.
+3. **`build` has two shapes, not "same as the batch" verbatim.** A `Pinned(fmt)` target (literal
+   template extension or `recipe.format`) is checked once in `prepare_target`, before any input:
+   exit 4, with `build`'s existing `error: target #0 (recipe …, out …)` line first and no out-dir.
+   A `Preserve` target fails that input in `encode_one`, exit 6. `Decide` gets fix 1.
+4. **Moving `output_format_for` changes one precedence, driven.** Its inputs are `global`
+   (`--format`, `-o`, `--out-dir`, `--name-template`), `recipe.format` and `img.source_format()`
+   (`optimize.rs:153-176`): none reads the processed image (no output-dimension template, no
+   colour-type choice). The one change: an input that is wrong both ways. On `main`,
+   `apply --recipe zero.toml --format bogus -o z.png -y rgb.png` (border rounds to 0 px) → exit 1,
+   `error: operation 'pad' failed: the border rounds to 0 px …`; after the move → exit 4,
+   `error: unsupported output extension: bogus`. A batch already reports the format first (driven on
+   `main`: exit 4, no out-dir). Accepted and pinned (AC-17).
+5. **The message can't name `-o`/`--format`.** The frame's draft way out (`-o out.png or --format
+   png`) is wrong on `build` (no `-o`/`--format`, DEC-098) and wasm. One surface-neutral line serves
+   every surface (DEC-110: same line).
+6. **More old tests change than the frame listed.** `tests/pad.rs` `every_pad_refusal_names_its_reason`
+   has **four** translucent rows, P29-P32 (`transparent`, `#ff000080`, `ff000000`, `#ffffffFE`),
+   not two; its count goes 37 → 33 (37 − 4). `apply_refuses_a_translucent_fill_and_writes_nothing`
+   (`tests/pad.rs:1185-1199`) is replaced. `tests/trim.rs` row T19 (`color = "transparent"` refused)
+   moves to the accepted list: refusal count 23 → 22, accepted 7 → 8.
+7. **AVIF's alpha is lossy at the edges of tiny images.** On a 4×4 RGB8 image padded to 6×6, a
+   `transparent` border read back as alpha 5/255 (`srgba(0,1,7,0.0196)`); on a 64×48 photo it read
+   back as exactly 0, and `#ff000080` as 128. AVIF stays *full* (it keeps alpha); the docs say
+   "approximately".
+8. **Docs the frame missed:** `CHANGELOG.md:19-21` (Unreleased: "a required opaque `color`"),
+   `docs/backlog.md:194` ("opaque fill; a transparent fill is a later STAGE-058 entry"),
+   `recipes/README.md:322` (trim: "`color` is hex and may be translucent"), `docs/data-model.md:428`
+   (trim's `color` row), and `skills/crustyimg/SKILL.md:334` (its exit-code table's `4` row).
+
+### Drives the prompt asked for
+
+- **GIF at the threshold, on the prototype binary** (`apply --recipe g.toml -o gAA.gif -y rgb.png`,
+  `color = "#ff0000AA"`): `00` exit 0; `01` exit 4; `80` exit 4; `fe` exit 4; `ff` exit 0;
+  `transparent` exit 0. `#ff000000` into GIF: ImageMagick shows the border as `srgba(0,0,0,0)`, but
+  **crustyimg's decoder reads it back as `(255,0,0,0)`** (`convert --format png`, PNG bytes
+  `[255, 0, 0, 0]`): GIF keeps the palette colour under alpha 0. `trim color = "transparent"` and
+  `trim color = "#ff000000"` on that GIF both exit 0 and give back the 4×4 original.
+- **TIFF:** crustyimg reads its own `#ff000080` TIFF border back as `(255,0,0,128)` exactly (PNG
+  bytes). ImageMagick shows `srgb(255,0,0)` (opaque), as the frame found. TIFF stays *full*; the
+  docs line says other readers may show it opaque. No maintainer question needed: the rule is
+  about crustyimg writing a value it can't read back, and it reads it back.
+- **16-bit and float fills** (prototype, FT-4): `#ff000080` on RGB16 → RGBA16 fill
+  `[65535, 0, 0, 32896]`; on Rgb32F → Rgba32F fill `[1.0, 0.0, 0.0, 128/255]` (bytes compared
+  exactly). `#80808080` on L16 → LA16 `[32896, 32896]`. Pad-then-trim at 16 bits: RGB16 noise
+  (every channel odd, so no sample equals the fill) padded `#ff000080` then trimmed `#ff000080`
+  gives RGBA16 whose RGB equals the source: `trim`'s `× 257` (`trim.rs:186-213`, `step` 257) and
+  `pad`'s `wide()` agree.
+- **The other formats** (prototype, RGB8 4×4, `-o f.EXT`, `transparent` and `#ff000080`): png,
+  webp, bmp, ico all exit 0 and keep `(0,0,0,0)` / `(255,0,0,128)` exactly; tiff and avif as above.
+- **Static means static:** an RGB8 4×4 with `aspect = "1:1"` (already square) + `transparent` → `-o
+  a.jpg` exit 4; `-o a.png` exit 0, written `rgb8` (unchanged type, no fill pixel). Two pads:
+  `[#ffffff, transparent]` to JPEG names `recipe step 1`; `[#ff000000, #ff000080]` to GIF names
+  `recipe step 1` (step 0's alpha 00 GIF stores), and the same recipe to JPEG names `recipe step 0`.
+- **Batch shapes on `main`:** `apply --recipe flip.toml --format bogus --out-dir bo -y src.jpg
+  rgb.png` → exit 4, `error: unsupported output extension: bogus`, `bo` not created; the same with
+  `format = "bogus"` in the recipe → identical. A per-input failure (`bad.png` undecodable) → exit 6,
+  `error: bad.png: unsupported or undetectable image format` then `error: 1 of 2 inputs failed`,
+  `src.jpg` written. The new refusals match these two shapes exactly (FT-10, FT-11).
+- **The unchanged rows on the prototype:** RGBA PNG + `flip` → `-o f.jpg` exit 0, stderr empty;
+  opaque `pad` → `-o o.jpg` exit 0, stderr empty.
+
+### The design
+
+**The question "can this step write alpha?" lives on the step; the capacity on the format; the
+comparison on the pipeline.**
+
+- **`Operation::introduced_alpha(&self) -> Option<IntroducedAlpha>`** (`src/operation/mod.rs`,
+  beside `refusal`, default `None`): the alpha of every pixel the step adds, the key that set it
+  and that key's value as written. `Pad` answers `Some` when its fill alpha is below `ff`
+  (`key: "color"`, `written`: the `color` param as written, e.g. `"transparent"`, `"#FF000080"`).
+  A future op that can introduce alpha implements this one method; every surface then checks it.
+- **`src/operation/alpha.rs`** (new, `pub mod alpha` in `src/operation/mod.rs`, with
+  `pub use alpha::{AlphaCapacity, IntroducedAlpha, UnstorableAlpha}`):
+  - `pub enum AlphaCapacity { None, Binary, Full }`;
+  - `pub fn alpha_capacity(format: ImageFormat) -> AlphaCapacity`: `Jpeg => None`,
+    `Gif => Binary`, everything else `Full`;
+  - `pub fn stores(capacity: AlphaCapacity, alpha: u8) -> bool`: `None => alpha == 0xff`,
+    `Binary => alpha == 0 || alpha == 0xff`, `Full => true`;
+  - `pub struct IntroducedAlpha { pub alpha: u8, pub key: &'static str, pub written: String }`;
+  - `pub struct UnstorableAlpha { pub step: usize, pub op: &'static str, pub introduced:
+    IntroducedAlpha, pub format: ImageFormat }` with `Display` (the messages below) and
+    `std::error::Error`.
+- **`Pipeline::unstorable_alpha(&self, format) -> Option<UnstorableAlpha>`** and
+  **`Pipeline::introduces_alpha(&self) -> bool`** (`src/pipeline/mod.rs`): the first step, in
+  order, whose introduced alpha `format` can't store; and whether any step introduces alpha. The
+  pipeline's index is the recipe step index (`Recipe::build_pipeline` pushes one op per step, in
+  order, `src/recipe/mod.rs:391-400`; the terminal `optimize` is the last step and is stripped).
+- **`CliError::UnstorableAlpha(#[from] crate::operation::UnstorableAlpha)`**, `#[error(transparent)]`,
+  exit **4** (`src/cli/mod.rs`, beside `MetaFormatMismatch => 4`).
+- **Call sites** (each `if let Some(e) = … { return Err(e.into()) }`):
+  1. single-input `apply` (`src/cli/optimize.rs` ~:150-195): build the pipeline, resolve `fmt`
+     with `output_format_for` (moved up from after `pipeline.run`), check, then run;
+  2. batch `apply` (`optimize.rs` ~:200-220): keep step 4's probe pipeline
+     (`let probe = recipe.build_pipeline(&registry)?;`) and, right after `format_override` is
+     resolved, check `format_override.and_then(|f| probe.unstorable_alpha(f))`, before the
+     progress bar and any decode;
+  3. `encode_one` (`src/cli/common.rs:72`): compute `fmt` before `run_with` and check (the batch's
+     and `build`'s kept-format inputs);
+  4. `run_pixel_op` (`src/cli/ops.rs:326`): first statement, on `forced_format`;
+  5. `prepare_target` (`src/cli/build.rs:279`): keep the probe pipeline, check when
+     `format_plan` is `Pinned(fmt)`;
+  6. wasm `transform` (`src/wasm.rs:206`): after `build_pipeline`, before `run`:
+     `return Err(JsError::new(&e.to_string()))`;
+  7. `optimize_decide_one` (`optimize.rs:1161`): `has_alpha` ORs `pipeline.introduces_alpha()`.
+- **The shared keyword helper:** `pub fn parse_fill_color(text: &str) -> Result<[u8; 4],
+  crate::text::TextError>` in `src/operation/mod.rs`: `"transparent"` (lower case only) →
+  `[0, 0, 0, 0]`, else `crate::text::parse_color(text)`. `pad` and `trim` both call it; `parse_color`
+  is untouched (SPEC-160 owns its sign bug). Their hex-error message stays as is
+  (`'color' must be a hex colour RRGGBB, #RRGGBB or RRGGBBAA, got "…"`, `pad.rs:157-161`,
+  `trim.rs:72-76`), so `Transparent` and `TRANSPARENT` stay refused with it.
+- **What `trim` prints for the keyword: the keyword, as written.** `whole_match_reason`
+  (`trim.rs:94-106`) prints `'color' = {text:?}` from the params, so it reads `'color' =
+  "transparent"`, never `#00000000`. Pinned (FT-18).
+- **`pad`**: `fill: [u8; 4]`; the load refusal and the `translucent` closure
+  (`pad.rs:147-164`) go; the widening match (`pad.rs:303-309`) gains the alpha arms; the fill arms
+  (`pad.rs:312-330`) write the fill's alpha (`a`, `wide(a)`, `unit(a)`) instead of the type's
+  maximum. An opaque fill writes `a = 0xff`, `wide(0xff) = 65535`, `unit(0xff) = 1.0`: the same
+  values as today, which the byte pin and the existing colour-type tables hold.
+
+**Fill semantics (frame, accepted):** `transparent` is `[0,0,0,0]`; `#RRGGBBAA` is straight alpha
+stored as written (`#ff000000` writes `(255,0,0,0)`); nothing is blended; 16 bits `c × 257`,
+float `c / 255`, alpha included.
+
+**Widening (DEC-095 applied, unamended).** With `chromatic = r != g || g != b` and
+`opaque = a == 0xff`:
+- `L8`: opaque grey → `L8`; opaque colour → `RGB8`; translucent grey → `LA8`; translucent colour
+  → `RGBA8`. `L16` the same at 16 bits.
+- `LA8`/`LA16`: grey → unchanged; colour → `RGBA8`/`RGBA16` (as today, any alpha).
+- `RGB8`/`RGB16`/`Rgb32F`: opaque → unchanged; translucent → `RGBA8`/`RGBA16`/`Rgba32F`.
+- `RGBA8`/`RGBA16`/`Rgba32F`: unchanged.
+- An image already at the aspect is returned unchanged with its own type, whatever the fill.
+- Bit depth never changes. `transparent` (`r = g = b = 0`) is grey.
+
+### Every message, verbatim
+
+`{aa}` is the alpha in two lower-case hex digits, never decimal (`80`, not `128`: trap 10's
+formatted-value rule; the tests use `#ff000080`, where the two renderings differ). `{written}` is
+the `color` value as written, quoted with `{:?}`. The prefix `recipe step {i} ('{op}'): ` reuses
+`RecipeError::InvalidOperation`'s wording (`src/recipe/mod.rs:124`) and wasm's asset refusal
+(`src/wasm.rs:236`).
+
+- **JPEG (exit 4):** `error: recipe step 0 ('pad'): 'color' = "transparent" has alpha 00, and JPEG output has no alpha channel; write PNG, WebP or AVIF instead, or make the colour opaque`
+- **JPEG, partial alpha (exit 4):** `error: recipe step 0 ('pad'): 'color' = "#ff000080" has alpha 80, and JPEG output has no alpha channel; write PNG, WebP or AVIF instead, or make the colour opaque`
+- **GIF (exit 4):** `error: recipe step 0 ('pad'): 'color' = "#ff000080" has alpha 80, and GIF output stores only alpha 00 or ff; use one of those, or write PNG, WebP or AVIF instead`
+- **wasm `transform` (thrown `JsError`):** the same line with no `error: ` prefix, e.g. `recipe step 0 ('pad'): 'color' = "transparent" has alpha 00, and JPEG output has no alpha channel; write PNG, WebP or AVIF instead, or make the colour opaque`
+- **A batch that keeps each input's format (exit 6):** per input, `error: <label>: ` + the line
+  (`input_label`, `optimize.rs:1093`), then the existing summary
+  `error: 1 of 2 inputs failed` (`CliError::PartialBatch`, `src/cli/mod.rs:719`, unchanged).
+  `build` prints the same per-input line, its existing summary
+  `built 1 target, 1 output (0 cached, 1 rebuilt), 1 failed` (`build.rs:860-863`), then
+  `error: 1 of 2 inputs failed`.
+- **`build`, pinned target (exit 4):** `error: target #0 (recipe t.toml, out b1)` (`build.rs:730`,
+  unchanged) then the JPEG line.
+- No message names a spec, stage or DEC id; no "watermark skipped" line is printed (this refusal is
+  a failure, not a refusal-hook skip).
+
+### Byte pin (recorded on `main` now)
+
+Fixture: a 5×3 PNG per type, samples from a 64-bit xorshift (`x ^= x << 13; x ^= x >> 7;
+x ^= x << 17`, one `next()` per sample in pixel-then-channel order, masked to the sample width),
+seeded `0x1590000` (L8), `0x1590001` (RGB8), `0x1590002` (RGBA8), `0x1590003` (RGB16), written by
+`image`'s PNG encoder in the test (no crustyimg code). Recipe: `op = "pad"`, `border = 0.2`
+(1 px each side → 7×5), `color` below. Run `apply --recipe p.toml -o N.out.png -y N.png`; decode with
+`image::open`; assert the colour type equals the input's and FNV-1a 64 of `as_bytes()` equals:
+
+- L8, `#808080`: `0xc9a61194fef51c54` (35 bytes)
+- RGB8, `#123456`: `0xd66d98995f850ac0` (105 bytes)
+- RGBA8, `#123456`: `0xb8cb45d4dd540cc3` (140 bytes)
+- RGB16, `#123456`: `0x3107368671842126` (210 bytes, little-endian samples)
+
+How they were derived: a Python model built the expected output independently (source pixels at
+(1,1), fill elsewhere, `c × 257` at 16 bits, alpha `ff`/65535 for RGBA) and hashed it; `main`'s
+binary output, decoded by ImageMagick (`-depth N -endian LSB gray:/rgb:/rgba:`), matched the model
+byte for byte on all four, and a model with one fill byte flipped did not (negative control). The
+prototype's `byte_pin_opaque_pad` test asserted the same four literals green; under trap 14
+(main's `pad.rs`) it stayed green, as it should. The build runs FT-6 before its first code change
+and after its last.
+
+### wasm
+
+- **Size (driven):** `just wasm-build` (`--no-default-features --features avif,svg`, fat LTO), `main` vs the prototype, same toolchain: brotli 1,305,512 → 1,307,952 B (+2,440 B, +0.19 %); raw 6,123,528 → 6,146,024 B. Both sit inside the guard's ±5 % band around `WASM_BROTLI_BASELINE = 1_266_535` (`scripts/lib/wasm-artifact.mjs:69-72`, max 1,329,862). The baseline does **not** move. (`main` already sits +3.1 % over the recorded baseline: toolchain drift, not this spec.)
+- **`tests/ddphotos_parity.mjs`:** a separate `alphaRows()` block after `TABLE`, not new `TABLE`
+  rows, so `ROW_COUNT = 16` and the self-test's `N1_EXPECTED_RED`/`N2_EXPECTED_RED` don't move.
+  Recipe text written literally (the editor's `recipe.js` has no `pad`):
+  `version = "2"\n[[step]]\nop = "pad"\nborder = 0.05\ncolor = "transparent"\n` on `photo.webp`.
+  Row A: `transform(bytes, text, "png")` and native `apply … -o A.png` both succeed and decode to
+  identical RGBA8 bytes (padded pixels are copied, so exact, not within 1/255). Row B:
+  `transform(bytes, text, "jpeg")` throws, and its message equals the JPEG line without `error: `;
+  native `apply … -o B.jpg` exits 4 with stderr `error: ` + that line. A failure in either row is a
+  harness failure (exit non-zero), like a `TABLE` row.
+
+### Cache and lockfile
+
+No `CACHE_SCHEMA_VERSION` bump and no lockfile format change. The cache key hashes the recipe text
+(`build::cache::recipe_hash`) and a translucent `pad` never loaded on any released binary, so no
+cache entry or lock record exists for one; an opaque `pad` encodes the same bytes (FT-6, the SPEC-141
+corpus guard). The `has_alpha` change (call site 7) only changes the decision when a step
+introduces alpha, which no loadable recipe could do before.
+
+### Size after design: [M] holds
+
+Derivation: 22 ACs (AC-1 to AC-22) and 21 FTs (FT-1 to FT-21). The unit tables are 40 capacity
+cells (FT-1: 8 formats × 5 alphas `00, 01, 80, fe, ff`) and 50 fill cells (FT-4: 10 colour types ×
+5 fills `transparent, #ff000000, #ff000080, #ff0000, #80808080`) = 90 cells; the integration rows
+are FT-8 (5) + FT-9 (5 alphas + 2 read-backs) + FT-10 (3) + FT-11 (1) + FT-12 (2) + FT-13 (3) + FT-14
+(2) + FT-15 (4) + FT-16 (2) + FT-17 (1) + FT-19 (2) = 32. Code: one new file of ~100 lines, ~60
+lines in `pad.rs`, 7 call sites of 3 lines each, 1 line in `trim.rs`, one `CliError` arm. That is
+SPEC-153's shape (surfaces and tests, small code): [M], not [L]; nothing splits cleanly (each
+surface is half a rule without the others).
+
 ## Inputs
 
-- **Files to read:** `path/to/file.ext` — why
-- **External APIs:** <name, docs link, auth>
-- **Related code paths:** `src/some/module/`
+- **Files to read:** `src/operation/pad.rs`, `src/operation/trim.rs`, `src/operation/mod.rs`
+  (`Operation`), `src/pipeline/mod.rs`, `src/cli/optimize.rs` (`run_apply`, `optimize_decide_one`),
+  `src/cli/common.rs` (`encode_one`), `src/cli/ops.rs` (`output_format_for`, `run_pixel_op`),
+  `src/cli/build.rs` (`prepare_target`), `src/wasm.rs` (`transform`), `tests/pad.rs`,
+  `tests/trim.rs`, `tests/ddphotos_parity.mjs`; DEC-095, DEC-110, DEC-115.
+- **External APIs:** none.
+- **Related code paths:** `src/operation/`, `src/pipeline/`, `src/cli/`, `src/wasm.rs`.
 
 ## Outputs
 
-- **Files created:** `path/to/new.ext` — purpose
-- **Files modified:** `path/to/existing.ext` — what changes
-- **New exports:** <names and signatures>
-- **Database changes:** <migrations>
+- **Files created:** `src/operation/alpha.rs` (capacity, `stores`, `IntroducedAlpha`,
+  `UnstorableAlpha`); `decisions/DEC-115-…md` (written at design).
+- **Files modified:** see "Build file list" in Implementation Context.
+- **New exports:** `operation::alpha::{AlphaCapacity, alpha_capacity, stores, IntroducedAlpha,
+  UnstorableAlpha}`, `operation::parse_fill_color`, `Operation::introduced_alpha`,
+  `Pipeline::{introduces_alpha, unstorable_alpha}`, `CliError::UnstorableAlpha`.
+- **Database changes:** none.
 
 ## Acceptance Criteria
 
-Testable outcomes. Cover happy path, error cases, edge cases.
+Each AC names its tests. "FT-n" is the Failing Tests list below.
 
-- [ ] Criterion 1 (testable)
-- [ ] Criterion 2 (testable)
+- [ ] **AC-1 DEC-115.** `decisions/DEC-115-a-step-whose-alpha-the-output-format-cannot-store-is-refused-before-the-pipeline-runs.md`
+  states the eight parts, the alternatives and its relation to DEC-015, DEC-095 (unamended),
+  DEC-102 and DEC-110. Its `affected_scope` lists every `src/` file the diff touches for this rule.
+  `just decisions-audit` passes. Verify reads it.
+- [ ] **AC-2 `pad` loads a translucent fill.** `color = "transparent"`, `"#ff000080"`,
+  `"ff000000"` and `"#ffffffFE"` load (they were P29-P32's refusals); `"Transparent"` (P28) and
+  `"TRANSPARENT"` are still refused at load, exit 1, with the hex message. FT-7.
+- [ ] **AC-3 Fill values.** `transparent` writes `[0,0,0,0]`; `#RRGGBBAA` writes its four values
+  unchanged (`#ff000000` → `(255,0,0,0)`); at 16 bits every channel, alpha included, is `c × 257`
+  (`#ff000080` → `[65535,0,0,32896]`); in float `c / 255` (`[1.0,0.0,0.0,128/255]`). Every input
+  pixel is copied unchanged. FT-4.
+- [ ] **AC-4 Widening.** The design's widening list, cell by cell over 10 colour types × 5 fills,
+  including L8 + `#80808080` → LA8 (not RGBA8) and L8 + `#ff000080` → RGBA8; bit depth kept. An
+  image already at the aspect keeps its type and bytes with a translucent fill. FT-4, FT-5.
+- [ ] **AC-5 Opaque output unchanged.** The four byte-pin literals hold before the first code
+  change and after the last; the SPEC-141 corpus guard (`tests/recipe_corpus_output.rs`) and the
+  existing `tests/pad.rs` colour-type tables stay green. FT-6.
+- [ ] **AC-6 Capacity.** `alpha_capacity` × `stores` over 8 formats (png, jpeg, gif, bmp, tiff, ico,
+  webp, avif) × 5 alphas (`00, 01, 80, fe, ff`): JPEG stores only `ff`; GIF `00` and `ff`; the rest
+  all five. FT-1.
+- [ ] **AC-7 Messages.** The three lines in "Every message, verbatim" (JPEG `transparent`, JPEG
+  `#ff000080`, GIF `#ff000080`) are produced exactly by `UnstorableAlpha`'s `Display` (unit) and on
+  stderr (CLI). No message names a spec, stage or DEC id. FT-2, FT-8.
+- [ ] **AC-8 Single input, every format rung.** `apply` with one input refuses, exit 4, nothing
+  written, with the exact line, for `-o o.jpg`; `--format jpeg -o o.bin`; `recipe.format = "jpeg"`
+  with `-o o2` (no extension); a JPEG source with `-o o3` (kept format); and `-o o.gif` with
+  `#ff000080`. FT-8.
+- [ ] **AC-9 GIF.** Into GIF, fill alpha `00` and `ff` and `transparent` exit 0; `01`, `80`, `fe`
+  exit 4 with the GIF line. A `#ff000000` border read back from the GIF by `image::open` is
+  `(255,0,0,0)`, and `trim color = "transparent"` on that GIF gives back the 4×4 original's RGB
+  bytes. FT-9.
+- [ ] **AC-10 Batch, one format.** `apply` over 2 inputs with `--format jpeg`, with
+  `--name-template '{stem}.jpg'`, and with `recipe.format = "jpeg"`: exit 4, stderr exactly the
+  JPEG line (once, no input label), the out-dir not created. FT-10.
+- [ ] **AC-11 Batch, kept formats.** `apply` over `src.jpg` + `rgb.png` with no format: exit 6;
+  stderr exactly `error: src.jpg: <line>` then `error: 1 of 2 inputs failed`; `rgb.png` written,
+  `src.jpg` not. FT-11.
+- [ ] **AC-12 Terminal `optimize`, pinned.** `[pad transparent, optimize]` with `-o p.jpg` (one
+  input) and with `--format jpeg --out-dir tb` (two inputs): exit 4, the JPEG line, nothing written,
+  `tb` not created. FT-12.
+- [ ] **AC-13 Terminal `optimize`, decided.** A 64×48 JPEG source with
+  `[pad border = 0.25 transparent, optimize]` and no pinned format, through `apply --out-dir` and
+  through `build` (fresh project dir, no cache): exit 0, the one output is not `.jpg`, decodes to a
+  colour type with alpha, and its pixel (0,0) has alpha 0. The same recipe with an
+  `aspect` the image already has ships the source unchanged (`kept jpeg`). FT-13.
+- [ ] **AC-14 `build`.** A target pinned by `name = "{stem}.jpg"`: exit 4, stderr exactly
+  `error: target #0 (recipe t.toml, out b1)` + newline + the JPEG line, `b1` not created. A target
+  keeping formats over `src.jpg` + `rgb.png`: exit 6, stderr starts with `error: in/src.jpg: <line>`,
+  `b2/rgb.png` written. FT-14.
+- [ ] **AC-15 wasm.** `transform` throws the line (no `error: ` prefix) for `out_format = "jpeg"`
+  and agrees with native on a transparent PNG pad exactly. FT-21.
+- [ ] **AC-16 Static.** An image already at the aspect, `transparent` fill: `-o a.jpg` exit 4;
+  `-o a.png` exit 0, written with the input's colour type. `[#ffffff, transparent]` to JPEG names
+  `recipe step 1`; `[#ff000000, #ff000080]` to GIF names `recipe step 1` and to JPEG
+  `recipe step 0`. FT-3, FT-15.
+- [ ] **AC-17 Format before the pipeline.** Single-input `apply` with `--format bogus` and a border
+  that rounds to 0 px exits 4 with `error: unsupported output extension: bogus` (was exit 1). FT-16.
+- [ ] **AC-18 Unchanged rows.** An RGBA PNG with half its pixels at alpha 0, recipe `flip`, `-o f.jpg`:
+  exit 0, stderr empty (source alpha stays out). An opaque `pad` (`#ffffff`) to `-o o.jpg`: exit 0,
+  stderr empty. FT-17.
+- [ ] **AC-19 `trim` takes `transparent`.** Through `parse_fill_color`; it matches exactly as
+  `#00000000` does (an alpha-0 border under any colour is cut); T19 moves to the accepted list;
+  a whole match prints `'color' = "transparent"`. FT-18.
+- [ ] **AC-20 Round trip.** RGB8 padded `transparent` then trimmed `transparent` gives RGBA8 whose RGB
+  equals the original; RGB16 padded `#ff000080` then trimmed `#ff000080` gives RGBA16 whose RGB
+  equals the original. FT-19.
+- [ ] **AC-21 Exit code.** `CliError::UnstorableAlpha(_).exit_code() == 4`. FT-20.
+- [ ] **AC-22 Docs.** Each row of "Docs" in Implementation Context says what it lists, and verify
+  drives each behaviour sentence (not only reads it). No `CACHE_SCHEMA_VERSION` bump, no lockfile
+  change (reason: "Cache and lockfile" above). `WASM_BROTLI_BASELINE` per "wasm" above.
 
 ## Failing Tests
 
-Written during **design**, BEFORE build. The implementer's job in
-**build** is to make these pass.
+Written at design. Fixtures are written by each test with `image`'s encoders: `rgb.png` and
+`src.jpg` are a 4×4 RGB8 (`Rgb([x*50, y*50, 90])`); `rgba.png` a 4×4 RGBA8 with the left half
+opaque and the right half alpha 0; the photo is 64×48 RGB8 xorshift noise (seed `0x159a070`)
+saved as JPEG. "Exact line" means the whole stderr compared with `==`. The prototype names (in
+brackets) map the mutation table's driven results.
 
-- **`path/to/test.file`**
-  - `"test description 1"` — asserts: ...
+**`src/operation/alpha.rs` (unit)**
+- **FT-1 `capacity_and_stores_table`** [`capacity_table`]: 8 formats × 5 alphas, asserts the
+  `[bool; 5]` per format.
+- **FT-2 `messages_verbatim`** [reasoned; the CLI rows in FT-8 drove the same text]: `Display` of
+  three `UnstorableAlpha` values equals the three lines without `error: `.
+
+**`src/pipeline/mod.rs` (unit) or `tests/pad.rs`**
+- **FT-3 `unstorable_alpha_names_the_first_step`** [`first_unstorable_step_is_named`]:
+  `[#ff000000, #ff000080]` → GIF step 1, JPEG step 0; `[#ffffff, transparent]` → JPEG step 1, GIF
+  `None`; `[#ffffff]` → JPEG `None`.
+
+**`tests/pad.rs`**
+- **FT-4 `translucent_fill_by_colour_type`** [`fill_widens_by_colour_type`, 7 of the 50 cells
+  driven]: 10 types × 5 fills: output `ColorType`, the fill pixel's `as_bytes()` at (0,0), and the
+  source copied at its offset. Use a source value that differs from the fill in every channel.
+- **FT-5 `at_aspect_translucent_fill_keeps_type_and_bytes`** [reasoned; FT-15's PNG half drove it]:
+  each of the 10 types, `aspect` equal to the image's, `transparent`: same type, same bytes.
+- **FT-6 `opaque_pad_byte_pin`** [`byte_pin_opaque_pad`]: the four literals.
+- **FT-7 load rows:** in `every_pad_refusal_names_its_reason`, delete P29-P32 and change the count
+  37 → 33; add `"TRANSPARENT"` beside P28 if absent (count then 34); in
+  `accepted_colour_and_value_spellings_load`, add the four (count 6 → 10).
+  `apply_refuses_a_translucent_fill_and_writes_nothing` is deleted (FT-8 replaces it).
+- **FT-8 `apply_one_input_refuses_on_every_format_rung`** [`single_apply_refuses_per_format_rung`]:
+  AC-8's five rows, exit 4, exact line, file absent.
+- **FT-9 `gif_takes_alpha_00_and_ff_only`** [`gif_threshold`]: AC-9.
+- **FT-10 `batch_with_one_format_refuses_before_reading`** [`batch_refuses_once_or_per_input`, first
+  half]: AC-10.
+- **FT-11 `batch_keeping_formats_fails_that_input`** [same test, second half]: AC-11.
+- **FT-12 `terminal_optimize_pinned_refuses`** [same name]: AC-12.
+- **FT-13 `auto_decided_format_keeps_the_alpha`** [`auto_decided_format_keeps_alpha`; the
+  at-aspect `kept jpeg` row was driven by hand, not in the prototype test]: AC-13.
+- **FT-14 `build_refuses_pinned_once_and_kept_formats_per_input`** [same]: AC-14.
+- **FT-15 `static_rule_at_aspect_and_two_pads`** [`static_rule_rows`]: AC-16's CLI rows.
+- **FT-16 `format_is_resolved_before_the_pipeline`** [`unchanged_rows`, third row]: AC-17.
+- **FT-17 `source_alpha_and_opaque_pad_into_jpeg_unchanged`** [`unchanged_rows`, first two rows]:
+  AC-18.
+- **FT-19 `pad_then_trim_transparent_round_trip`** [`pad_then_trim_round_trips_at_16_bits` and
+  `gif_threshold`'s trim half]: AC-20.
+
+**`tests/trim.rs`**
+- **FT-18 `transparent_keyword_matches_like_00000000`** [`trim_reads_transparent_like_00000000`]:
+  both spellings cut a 4×4 RGBA8 with an alpha-0 `(255,0,0,0)` ring to 2×2; T19 moved to the accepted
+  list (refusal count 23 → 22, accepted 7 → 8); an all-transparent image fails with
+  `… matches 'color' = "transparent" within 'tolerance' = 0, so a trim would leave nothing`.
+
+**`src/cli/mod.rs` (unit)**
+- **FT-20** a row in the existing exit-code test: `CliError::UnstorableAlpha(..) => 4`.
+
+**`tests/ddphotos_parity.mjs`**
+- **FT-21 `alphaRows()`**: rows A and B in "wasm" above.
 
 ## Implementation Context
 
@@ -513,21 +903,43 @@ into the spec since there is no separate receiving agent.*
 
 ### Decisions that apply
 
-- `DEC-NNN` — <one-line summary of why this matters here>
-- `DEC-MMM` — <one-line summary>
+- `DEC-115` — this spec's rule (written at design). Read all eight parts.
+- `DEC-095` — colour type preservation; the widening is its alpha and chroma clauses, unamended.
+- `DEC-110` — wasm agrees with native; the refusal is the same line.
+- `DEC-015` — per-input batch failures, exit 6; the kept-format batch follows it.
+- `DEC-102` — load errors stay exit 1; this refusal is not a load error.
+- `DEC-098` — `build` has no `--format`/`-o`; why the message names none.
+- `DEC-112`/`DEC-113` — geometry steps act on the buffer they receive and write no metadata.
 
 ### Constraints that apply
 
-These constraints apply to the paths touched by this task (see
-`/guidance/constraints.yaml` for full text):
-
-- `constraint-id-1` — <one-line summary>
-- `constraint-id-2` — <one-line summary>
+- `untrusted-input-hardening`, `no-unwrap-on-recoverable-paths` — `introduced_alpha` reads params
+  with `unwrap_or_default`, never `unwrap`.
+- `single-image-library` — `image` only.
+- `every-public-fn-tested` — `alpha_capacity`, `stores`, `parse_fill_color`, `introduces_alpha`,
+  `unstorable_alpha` each have a test (FT-1, FT-18, FT-13, FT-3).
+- `test-before-implementation`, `one-spec-per-pr`.
 
 ### Prior related work
 
-- `SPEC-YYY` (shipped) — <one-line summary, if relevant>
-- `PR #NNN` — <link, if relevant>
+- `SPEC-151` (shipped) — opaque `pad`; this spec removes its load refusal.
+- `SPEC-152` (shipped) — `trim`; this spec adds the keyword.
+- `SPEC-141` (shipped) — the recipe corpus guard; must stay green.
+- `SPEC-153` (shipped) — the shape of this design; its only defects were two undriven doc sentences.
+
+### Overlap with other open work (from the PRs' file lists, `gh pr list --state open --json number,title,files`, 2026-11-11)
+
+No `feat/spec-15[4-8]*` branch is pushed (`git branch -r | grep -E "spec-15[4-8]"`: none). Open PRs
+touching this spec's files:
+- **#240** `chore/wasm-clippy` — `src/cli/ops.rs` (also `.github/workflows/ci.yml`, `justfile`,
+  `src/metadata/mod.rs`).
+- **#237** `heifer-migration` — `CHANGELOG.md` (also many non-overlapping files).
+- **#226** `docs/agents-md-gates` — `src/cli/mod.rs` (the `CliError` arm here; also `AGENTS.md`).
+- **#229** — `docs/roadmap.md` only; no overlap.
+
+STAGE-063's SPEC-154 to SPEC-158 may touch `src/cli/build.rs`, `src/cli/common.rs`,
+`src/cli/ops.rs` and `CHANGELOG.md` once they open PRs. **Rebase onto `main` before each push, and
+re-run the `gh pr list … files` map after each rebase.**
 
 ### Out of scope (for this spec specifically)
 
@@ -541,11 +953,114 @@ necessary during build, create a new spec rather than expanding this one.
 - TIFF RGBA written with no `ExtraSamples` tag: `guidance/ideas.yaml`, `tiff-alpha-extrasamples`.
 - A pixel-based (rather than recipe-based) alpha check: rejected at frame; it would change today's exit 0 for source-alpha images.
 - `crop`/`pad` aspect following each image's orientation: its own STAGE-058 entry.
+- `run_pixel_op`'s per-input check for an unforced format: unreachable until `edit --pad`; SPEC-160 adds it with its tests (mutation M18).
 - The "watermark skipped" batch-summary wording: its own STAGE-058 entry; this refusal never goes through the refusal hook.
+
+### Build file list
+
+- `src/operation/alpha.rs` (new) — capacity, `stores`, the two structs, `Display`, FT-1/FT-2.
+- `src/operation/mod.rs` — `pub mod alpha` + re-exports, `Operation::introduced_alpha`,
+  `parse_fill_color`.
+- `src/operation/pad.rs` — 4-channel fill, widening arms, `introduced_alpha`, doc comments (module
+  doc lines 11-17, `Pad` doc line 75, the `fill` field doc line 83, `from_params` doc lines 89-94,
+  the "A new pixel's alpha is the type's maximum" comment line 311).
+- `src/operation/trim.rs` — `parse_fill_color`; module doc: the keyword.
+- `src/pipeline/mod.rs` — `introduces_alpha`, `unstorable_alpha`.
+- `src/cli/mod.rs` — `CliError::UnstorableAlpha`, exit 4, FT-20.
+- `src/cli/optimize.rs` — call sites 1, 2, 7.
+- `src/cli/common.rs` — call site 3.
+- `src/cli/ops.rs` — call site 4.
+- `src/cli/build.rs` — call site 5.
+- `src/wasm.rs` — call site 6.
+- `tests/pad.rs`, `tests/trim.rs`, `tests/ddphotos_parity.mjs` — FTs.
+- `scripts/lib/wasm-artifact.mjs` — only if "wasm" above says the baseline moves.
+- Docs below.
+
+### Docs (each an AC-22 row; verify drives each sentence's claim)
+
+- `src/operation/pad.rs:11-17` — "`color` is required and must be opaque" → `color` is required: a
+  hex colour (any alpha) or `transparent`; new pixels carry the fill's alpha; the widening; "a
+  recipe that writes alpha the output format can't store is refused before it runs". `:75`, `:83`,
+  `:311` to match.
+- `docs/recipes.md:112-116` — replace "A transparent fill is not supported yet." with:
+  `color` may be `"transparent"` (alpha 0 over black) or `"#RRGGBBAA"`; a fill with alpha below
+  `ff` makes an image with no alpha gain one (grey stays grey + alpha); JPEG can't store it and GIF
+  stores only `00` or `ff`, so such a recipe is refused for those (exit 4) — write PNG, WebP or AVIF;
+  AVIF keeps alpha approximately, and some TIFF readers show it opaque; a source's own alpha into
+  JPEG is still dropped without a warning. `:141-143` (the round trip): add "an RGB image padded with
+  `transparent` comes back as RGBA". `:139` "a transparent `color` (such as `"#00000000"`)" → add
+  `or "transparent"`.
+- `docs/api-contract.md:476-481` — "a required opaque `color`… a translucent colour and
+  `transparent` are refused when the recipe loads" → any alpha or `transparent`; a fill alpha the
+  output can't store is refused once the format is known: exit 4 for one input or a batch with one
+  format (nothing written), exit 6 per input when each keeps its own format; wasm throws the same
+  line; the auto-decided format always keeps alpha. `:59` (exit 4 row) — add "a recipe step writes
+  alpha the output format can't store". `:484` trim — `color` may be `transparent`.
+- `docs/cli-reference.md:54` — the exit-4 row gains the same case.
+- `docs/data-model.md:399` — `color` row: "required: `RRGGBB`, `#RRGGBB`, `RRGGBBAA` (any alpha) or
+  `transparent`"; `:428` trim row: add `or transparent`; `:401-404` the paragraph gains the widening
+  sentence.
+- `recipes/README.md:296-297` — "hex only, and opaque. A transparent fill is not supported yet." →
+  the new rule in one bullet (hex or `transparent`, any alpha, JPEG/GIF refusal); `:297` "A grey image
+  with a colour fill becomes RGB" → "…, a translucent fill adds alpha (grey + alpha for a grey
+  fill)". `:322` trim — "`color` is hex or `transparent`, and may be translucent".
+- `skills/crustyimg/SKILL.md:237` — "a required opaque `color`" → "a required `color` (hex, any
+  alpha, or `transparent`)"; `:334` exit-4 row — add "a recipe's fill alpha the output format can't
+  store".
+- `CHANGELOG.md:19-21` (Unreleased, "A recipe can pad.") — "a required opaque `color`" → "a required
+  `color`, hex with any alpha or `transparent`; a fill alpha JPEG or GIF can't store is refused
+  (exit 4)"; and the trim bullet (`:22-24`) — "`color` may be `transparent`".
+- `docs/backlog.md:194` — "(…, opaque fill); a transparent fill is a later STAGE-058 entry" →
+  "(…, a colour or `transparent` fill)".
+- `README.md` — no `pad` fill text (`/usr/bin/grep -n "pad" README.md` at design: none about the
+  fill); unchanged.
+
+### Mutation table
+
+Driven on the prototype: `cargo test --release --no-fail-fast --test pad_alpha --test pad --test
+trim --test recipe_corpus_output`, one mutant at a time from a clean copy (`git checkout -- .`),
+59 tests run (the baseline's `test result` lines: 17 `pad` + 14 prototype + 9 `recipe_corpus_output` (1 ignored) + 19 `trim` = 59), 58 once the artefact below is excluded. Baseline
+green except one prototype artefact: `tests/trim.rs` `every_trim_refusal_names_its_reason` was red
+in the baseline and in every row because the prototype deleted T19 without changing its count
+(23 → 22): it is excluded from every red set below and is not a finding. "Green" = every other
+driven test. FT ids follow the prototype names in Failing Tests. FT-2, FT-5, FT-7, FT-20, FT-21 were
+not in the prototype; their column is *reasoned*.
+
+- **M1 — GIF as full.** `src/operation/alpha.rs`, `alpha_capacity`: `ImageFormat::Gif => AlphaCapacity::Binary,` → `ImageFormat::Gif => AlphaCapacity::Full,`. Red (driven): FT-1 (`Gif left: [true, true, true, true, true]`), FT-3 (`refused` expect failed), FT-8 (the `-o o.gif` row: `left: (0, "")`), FT-9 (`01: left: true`), FT-15 (`left: 0 right: 4`). Green (driven): all others. *Driven.*
+- **M2 — GIF as none.** Same line → `AlphaCapacity::None`. Red (driven): FT-1 (`left: [false, false, false, false, true]`), FT-3 (`left: 0 right: 1`: the GIF step is now 0), FT-8 (GIF row gets the "no alpha channel" wording), FT-9 (`00:` refused), FT-15. *Driven.*
+- **M3 — JPEG as binary.** `ImageFormat::Jpeg => AlphaCapacity::None,` → `ImageFormat::Jpeg => AlphaCapacity::Binary,`. Red (driven): FT-1, FT-3 (`left: 1 right: 0`), FT-8 (`-o o.jpg`: `left: (0, "")`), FT-10 (`--format jpeg`: `left: (0, "")`), FT-12, FT-14 (pinned: `left: (0, "target #0: 2 inputs …")`), FT-15. Reasoned red: FT-11 (alpha 00 now stored in JPEG; it shares a prototype test with FT-10, which failed first). Green (driven): FT-4, FT-6, FT-9, FT-13, FT-16, FT-17, FT-18, FT-19, the existing suites. *Driven.*
+- **M4 — GIF threshold `alpha < 2`.** `stores`: `AlphaCapacity::Binary => alpha == 0 || alpha == u8::MAX,` → `AlphaCapacity::Binary => alpha < 2 || alpha == u8::MAX,`. Red (driven): FT-1 (`left: [true, true, false, false, true]`), FT-9 (`01: left: true`). Green (driven): everything else, including FT-8's GIF row (it uses `80`). This is why FT-9 must keep the `01` row. *Driven.*
+- **M5 — GIF threshold `alpha <= 0xfe`.** Same line → `alpha <= 0xfe || alpha == u8::MAX`. Red (driven): FT-1 (all `true`), FT-3, FT-8 (GIF row), FT-9 (`01`), FT-15. *Driven.*
+- **M6 — no check in single-input `apply`.** `src/cli/optimize.rs` single-input branch: delete `if let Some(e) = pipeline.unstorable_alpha(fmt) { return Err(e.into()); }` before `let out_img = pipeline.run(img)?;`. Red (driven): FT-8 (`-o o.jpg`: `left: (0, "")`), FT-9 (`01: left: true`), FT-15 (`left: (0, "")`). Green (driven): FT-10 to FT-14 (other paths), FT-16, FT-17. *Driven.*
+- **M7 — no per-input check in `encode_one`.** `src/cli/common.rs`: delete the check before `// Run.`. Red (driven): FT-11 (`left: 0 right: 6`), FT-14 (kept-format target: exit 0, `built 1 target, 2 outputs`). Green (driven): FT-10 (the pre-check still fires), FT-8, FT-12. *Driven.*
+- **M8 — no batch pre-check.** `src/cli/optimize.rs`: delete `if let Some(e) = format_override.and_then(|fmt| probe.unstorable_alpha(fmt)) { return Err(e.into()); }`. Red (driven): FT-10 (`left: (6, "error: rgb.png: recipe step 0 …")`: the per-input check is the fallback; FT-10 asserts exit 4, the unlabelled line and no out-dir, so the fallback can't pass it). Green (driven): FT-11, FT-14. *Driven.*
+- **M9 — no check in `run_pixel_op`.** `src/cli/ops.rs`: delete the `forced_format.and_then(…)` check at the top. Red (driven): FT-12 (batch row `left: (6, "error: src.jpg: …")`). In the prototype the single `-o p.jpg` row stayed exit 4 only because the prototype also had the per-input checks M18 removes; with this design (no per-input check in `run_pixel_op`) that row reds too (*reasoned*). *Driven.*
+- **M10 — no check in `build`'s prepare.** `src/cli/build.rs` `prepare_target`: replace the `Pinned` check's body with `let _ = (probe.len(), fmt);`. Red (driven): FT-14 (pinned: `left: (6, "error: in/rgb.png: …")`). Green (driven): all others. *Driven.*
+- **M11 — no check in wasm.** `src/wasm.rs` `transform`: delete the check. Red (reasoned): FT-21 row B (`transform` returns JPEG bytes, no throw). Green (reasoned): every Rust test (no native test calls `transform`). *Reasoned* (the prototype ran no wasm tests; the wasm build was driven only for size).
+- **M12 — the check made pixel-based.** `src/cli/optimize.rs` single-input: move the check after `pipeline.run` and wrap it in `if out_img.pixels().to_rgba8().pixels().any(|p| p.0[3] != 255) { … }`. Red (driven): FT-15 only (`left: (0, "")`: the already-at-aspect image has no transparent pixel). Green (driven): everything else, FT-17's RGBA-source row included (no pad, so no step to name). *Driven.*
+- **M13 — 16-bit alpha `× 256`.** `src/operation/pad.rs`: in the `ImageRgba16` arm `wide(a)` → `u16::from(a) << 8`, and in the `ImageLumaA16` arm likewise. Red (driven): FT-4 (`#80808080 on L16 left: [128, 128, 0, 128]`), FT-19 (`left: [65535, 0, 0, 65535, …`), and four existing tests, because an opaque fill also goes through `wide(a)`: `tests/pad.rs` `colour_type_table_row_by_row` (`la16 + #808080: fill … [32896, 65280], expected [32896, 65535]`), `every_colour_type_pads_exactly` (160 rows), `sixteen_bit_fill_is_times_257`, `pad_then_trim_is_the_identity`; and `tests/recipe_corpus_output.rs` `every_recipe_output_matches_its_golden`. Green (driven): FT-6 (no RGBA16/LA16 row). *Driven.*
+- **M14 — L8 grey translucent to RGBA8.** `pad.rs` widening: `(DynamicImage::ImageLuma8(_), false, false) => Cow::Owned(px.to_luma_alpha8().into()),` → `… px.to_rgba8() …`. Red (driven): FT-4 only (`transparent on L8 left: Rgba8 right: La8`). *Driven.*
+- **M15 — `trim` not using the helper.** `src/operation/trim.rs`: `super::parse_fill_color(text)` → `crate::text::parse_color(text)`. Red (driven): FT-18 (`loads: InvalidOperation … got "transparent"`), FT-9 (its trim half: `left: 1`). Reasoned red: FT-18's moved accepted row and FT-19's RGB8 `transparent` half. *Driven.*
+- **M16 — trap 14: `main`'s `pad.rs` restored verbatim** (`git show origin/main:src/operation/pad.rs > src/operation/pad.rs`; it compiles, since `introduced_alpha` has a default). Red (driven), every one with `a fill with transparency is not supported yet` (exit 1 at load): FT-3, FT-4, FT-8, FT-9, FT-10, FT-11, FT-12, FT-13, FT-14, FT-15, FT-19. Green (driven): FT-1, FT-6 (the byte pin: opaque output is unchanged, as required), FT-16, FT-17, FT-18, and every existing `pad`/`trim`/corpus test. Reasoned red: FT-5, FT-7. *Driven.*
+- **M17 — the decided path reads only the source's alpha.** `src/cli/optimize.rs` `optimize_decide_one`: `let has_alpha = source_info.has_alpha || pipeline.introduces_alpha();` → `let has_alpha = source_info.has_alpha;`. Red (driven): FT-13 only (`left: "jpg" right: "jpg"`: the output is `photo.jpg`). *Driven.*
+- **M18 — per-input checks in `run_pixel_op` (unforced format) removed.** Both arms in `src/cli/ops.rs`. Expected all green, and it was: 58 green (driven). The search that found no splitting input: `/usr/bin/grep -n "run_pixel_op(" src/cli/*.rs` lists nine callers; eight build flag pipelines with no `pad`, and the ninth (`optimize.rs:95`) always forces the format. So this design **omits** those checks; SPEC-160's `edit --pad` adds them with the tests that reach them. *Driven.*
 
 ## Notes for the Implementer
 
-Gotchas, style preferences, reuse opportunities.
+- **Checkpoint** (SPEC-113): commit and push after (1) `alpha.rs` + `introduced_alpha` +
+  `parse_fill_color` + FT-1/FT-2/FT-3 green; (2) `pad.rs`/`trim.rs` + FT-4 to FT-7, FT-18, FT-19 green;
+  (3) the seven call sites + FT-8 to FT-17, FT-20 green; (4) wasm + FT-21; (5) docs.
+- **Run FT-6 first, on unchanged code**, and record its result: it is the "before" of the byte pin.
+- **Fresh project dirs for `build` tests.** A stale `.crustyimg` cache replays old bytes (design hit
+  it).
+- **`cargo test` in an interactive terminal fails `display_sink_refuses_non_tty`**: redirect stdout to
+  a file. A piped command reports the pipe's exit code.
+- **CI legs:** the wasm leg (`just wasm-test`, the parity harness) is not in `just check` (HANDOFF
+  trap 5): run `just wasm-build` and `node tests/ddphotos_parity.mjs` locally before the PR. The lean
+  `--no-default-features` build must compile (`alpha.rs` uses only `image::ImageFormat`).
+- **Never blend.** Copy the fill value; `watermark`'s `f32` compositing is the trap
+  (`restore_opaque_alpha`, DEC-095).
+- Comments and messages read behaviour-first; no spec or DEC ids in them.
 
 ---
 
